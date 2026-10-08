@@ -3386,7 +3386,96 @@ function applyRole() {
     }),
     ROLE_VIEWS[r].includes(view) ||
       (void 0 !== MB_VIEWS && MB_VIEWS.includes(view) && mbAccess()) ||
-      (view = ROLE_VIEWS[r].includes("dash") ? "dash" : ROLE_VIEWS[r][0]);
+      navBlocked(r, view),
+    (navRoleSeen = r);
+}
+// A view this role may not open lands on the role's Home, and (unless the role just changed, as on
+// sign-in) a toast names who can open it, instead of falling through to whatever view is first.
+const NAV_ROLE_WORDS = {
+  owner: "the Owner",
+  pm: "the PM",
+  coord: "the coordinator",
+  billing: "Billing",
+  controller: "the controller",
+  designer: "the designer",
+  foreman: "the foreman",
+  crew: "the crew",
+  driver: "the driver",
+  client: "the client",
+};
+let navRoleSeen = null;
+// Who may open a view, in words ("the Owner and the PM").
+function navWhoOpens(v) {
+  const list = Object.keys(NAV_ROLE_WORDS)
+    .filter((k) => (ROLE_VIEWS[k] || []).includes(v))
+    .map((k) => NAV_ROLE_WORDS[k]);
+  return list.length > 1 ? `${list.slice(0, -1).join(", ")} and ${list[list.length - 1]}` : list[0] || "";
+}
+// No dead links: a row, tile or link in a view that points at a view this role may not open is shown
+// as information, not as a link (one pass for every generator: reminders, dashboard widgets, nav rows).
+const NAV_LINK_SEL = "[data-remgo], [data-v], [data-gl], [data-view]";
+function navLinkTarget(el) {
+  if (el.dataset.remgo)
+    try {
+      return JSON.parse(el.dataset.remgo).view || "";
+    } catch (e) {
+      return "";
+    }
+  return el.dataset.v || el.dataset.gl || el.dataset.view || "";
+}
+function navLinkPass(root) {
+  try {
+    const r = role(),
+      V = ROLE_VIEWS[r] || [],
+      known = new Set(Object.values(ROLE_VIEWS).flat());
+    try {
+      MB_VIEWS.forEach((v) => known.add(v));
+    } catch (e) {}
+    (root || document).querySelectorAll(".view " + NAV_LINK_SEL.split(", ").join(", .view ")).forEach((el) => {
+      const v = navLinkTarget(el);
+      if (!v || !known.has(v) || V.includes(v) || ("undefined" != typeof MB_VIEWS && MB_VIEWS.includes(v) && mbAccess())) return;
+      ["remgo", "v", "gl", "view"].forEach((k) => delete el.dataset[k]),
+        (el.dataset.navoff = v),
+        el.classList.add("nav-static"),
+        (el.style.cursor = "default"),
+        el.querySelectorAll(".nm-act, .gl-chev, .rc-chev, .h4r-go").forEach((x) => x.remove());
+      const who = navWhoOpens(v);
+      who && (el.title = `Opened by ${who}`);
+    });
+  } catch (e) {}
+}
+let navLinkQ = !1;
+new MutationObserver(() => {
+  navLinkQ ||
+    ((navLinkQ = !0),
+    queueMicrotask(() => {
+      (navLinkQ = !1), navLinkPass(document);
+    }));
+}).observe(document.documentElement, { childList: !0, subtree: !0 });
+function roleHome(r) {
+  const V = ROLE_VIEWS[r] || [];
+  let h = "";
+  try {
+    h = IA_HOME[r];
+  } catch (e) {}
+  return h && V.includes(h) ? h : V.includes("home") ? "home" : V.includes("dash") ? "dash" : V[0];
+}
+function navBlocked(r, v) {
+  const was = navRoleSeen;
+  if (((view = roleHome(r)), was !== r || !v)) return;
+  try {
+    const name = ("undefined" != typeof IA_LABELS && IA_LABELS[v]) || v,
+      words = navWhoOpens(v);
+    setTimeout(
+      () =>
+        toast(
+          words
+            ? `${name} is opened by ${words} — you are on your Home`
+            : `${name} is not open to your role — you are on your Home`,
+        ),
+      0,
+    );
+  } catch (e) {}
 }
 const gridState = {};
 function grid(opts) {
@@ -85289,9 +85378,12 @@ const TL_SETS = {},
         s: past.length
           ? `${tlN(past.length, "invoice")} · oldest ${Math.max(...past.map((r) => r.age))} days`
           : "nothing past due",
-        go: () => {
-          (view = "billing"), (billTab = "invoices");
-        },
+        // a tile only links where the person may go (coordinators and designers do not open Billing)
+        go: flowCan("billing")
+          ? () => {
+              (view = "billing"), (billTab = "invoices");
+            }
+          : null,
       },
       {
         key: "owed",
@@ -85300,9 +85392,12 @@ const TL_SETS = {},
         s: rows.length
           ? `${tlN(rows.length, "open invoice")} across ${new Set(rows.map((r) => r.c.id)).size} clients`
           : "no open invoices",
-        go: () => {
-          (view = "billing"), (billTab = "invoices");
-        },
+        // a tile only links where the person may go (coordinators and designers do not open Billing)
+        go: flowCan("billing")
+          ? () => {
+              (view = "billing"), (billTab = "invoices");
+            }
+          : null,
       },
       {
         key: "sign",
@@ -85312,9 +85407,11 @@ const TL_SETS = {},
         s: unsigned.length
           ? `${tlK(unsigned.reduce((a, x) => a + docTotal(x.d).total, 0))} in estimates and change orders sent, not signed`
           : "no estimates or change orders waiting on a signature",
-        go: () => {
-          (view = "billing"), (billTab = "estimates");
-        },
+        go: flowCan("billing")
+          ? () => {
+              (view = "billing"), (billTab = "estimates");
+            }
+          : null,
       },
       {
         key: "wait",
@@ -85324,9 +85421,11 @@ const TL_SETS = {},
         s: waiting.length
           ? "decisions past the date the schedule needs them"
           : "no client decision is holding work",
-        go: () => {
-          view = "dec";
-        },
+        go: flowCan("dec")
+          ? () => {
+              view = "dec";
+            }
+          : null,
       },
     ];
   }),
@@ -86034,9 +86133,11 @@ const TL_SETS = {},
         k: "Still to Buy",
         v: open.length,
         s: `${tlK(toBuy)} still to spend · ${tlK(val)} on the board to the client`,
-        go: () => {
-          (view = "proc"), (procMode = "finish");
-        },
+        go: flowCan("proc")
+          ? () => {
+              (view = "proc"), (procMode = "finish");
+            }
+          : null,
       },
     ];
   }),
@@ -86361,9 +86462,12 @@ const TL_SETS = {},
         s: ahead
           ? "invoiced past earned work across the portfolio — owed back if jobs stall"
           : "no job is billed past its earned work",
-        go: () => {
-          (view = "billing"), (billTab = "invoices");
-        },
+        // a tile only links where the person may go (coordinators and designers do not open Billing)
+        go: flowCan("billing")
+          ? () => {
+              (view = "billing"), (billTab = "invoices");
+            }
+          : null,
       },
       {
         key: "needs",
@@ -87417,8 +87521,13 @@ if (
             s: missing.length
               ? `working day${1 === missing.length ? "" : "s"} with no time entry · ${fmtL(oldest)} the oldest — the day sheet remembers`
               : "every working day this week has hours",
+            // the designer logs hours on the day sheet (My Day), not in Time & Crew, which the role cannot open
             go: () => {
-              view = "time";
+              (view = flowCan("sday") ? "sday" : flowCan("time") ? "time" : roleHome(role())),
+                setTimeout(() => {
+                  const h = document.querySelector("#st-addh");
+                  h && (h.scrollIntoView({ block: "center" }), h.focus({ preventScroll: !0 }));
+                }, 120);
             },
           }
         : {
