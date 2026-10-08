@@ -122051,7 +122051,8 @@ function flowBriefPass(v) {
 // The decisions we owe sit on Home, each with Open inline (one click, as in round 4), drawn from the
 // same Approvals list the Decisions chip counts.
 function flowBriefDecisions(body) {
-  if (!body || body.querySelector(".br-decs") || "function" != typeof mApprovals) return;
+  // the Owner's queue: only the Owner decides these (the PM's brief leads with the field's questions)
+  if (!body || body.querySelector(".br-decs") || "function" != typeof mApprovals || !isOwner()) return;
   const D = mApprovals().filter((x) => "dec" === x.kind && x.open);
   if (!D.length) return;
   const top = D.slice(0, 3),
