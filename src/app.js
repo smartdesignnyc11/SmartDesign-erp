@@ -10047,7 +10047,7 @@ function lineProfit(p) {
         budget &&
         billedPct / 100 > pctComplete + 0.35 &&
         billedPct > 50 &&
-        flags.push(`billed ${Math.round(billedPct)}% vs ${Math.round(100 * pctComplete)}% complete`),
+        flags.push(`billed ${Math.round(billedPct)}% vs ${Math.round(100 * pctComplete)}% of its budget spent`),
       {
         key: key,
         label: o.label,
@@ -23284,7 +23284,7 @@ function repProfit() {
     range = repFrom || repTo ? ` · ${repFrom || "start"} → ${repTo || "today"}` : " · to date",
     kpi = (label, v, sub, cls = "") =>
       `<div class="kpi ${cls}"><b>${"number" == typeof v ? money(v) : v}</b><span>${label}${sub ? ` · ${sub}` : ""}</span></div>`;
-  return `<div class="rep-head"><div><h2 style="margin:0">${esc(p.project.name)}</h2><div class="small muted">${esc(c?.name || "")}${p.project.address ? " · " + esc(p.project.address) : ""}${range} · prepared ${fmtL(today())}</div></div></div>\n    <h3 class="rep-h">Revenue</h3><div class="fin rep-kpis">${kpi("Contract incl. approved COs", r.contract)}${kpi("Billed", r.billedGross, `${r.contract ? Math.round((r.billedGross / r.contract) * 100) : 0}% of contract`)}${kpi("Collected", r.collected, "", "good")}${kpi("Outstanding", r.outstanding, `${money(r.retHeld)} retainage held`, r.outstanding > 0 ? "warn" : "")}${kpi("Earned (cost-to-cost)", r.earned, r.overUnder >= 0 ? `over-billed ${money(r.overUnder)}` : `under-billed ${money(-r.overUnder)}`)}</div>\n    <h3 class="rep-h">Cost & margin</h3><div class="fin rep-kpis">${kpi("Budget (estimate cost)", r.budget, `planned margin ${money(r.plannedMargin)} · ${r.contract ? Math.round((r.plannedMargin / r.contract) * 100) : 0}%`)}${kpi("Committed (POs)", r.committed)}${kpi("Actual to date", r.actual, `bills & bank ${money(r.direct + r.unlinked)} · labor ${money(r.labor.cost)}`)}${kpi("Projected cost", r.projCost, `${Math.round(100 * r.pctComplete)}% complete by cost`)}${kpi("Projected margin", `${money(r.margin)} · ${r.marginPct}%`, "", r.margin < 0.8 * r.plannedMargin ? "warn" : "good")}</div>\n    <h3 class="rep-h">By cost code</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Code</th><th class="money">Contract</th><th class="money">Budget</th><th class="money">Committed</th><th class="money">Bills & bank</th><th class="money">Labor</th><th class="money">Actual</th><th class="money">Remaining</th><th style="width:120px">Spent</th></tr></thead><tbody>${
+  return `<div class="rep-head"><div><h2 style="margin:0">${esc(p.project.name)}</h2><div class="small muted">${esc(c?.name || "")}${p.project.address ? " · " + esc(p.project.address) : ""}${range} · prepared ${fmtL(today())}</div></div></div>\n    <h3 class="rep-h">Revenue</h3><div class="fin rep-kpis">${kpi("Contract incl. approved COs", r.contract)}${kpi("Billed", r.billedGross, `${r.contract ? Math.round((r.billedGross / r.contract) * 100) : 0}% of contract`)}${kpi("Collected", r.collected, "", "good")}${kpi("Outstanding", r.outstanding, `${money(r.retHeld)} retainage held`, r.outstanding > 0 ? "warn" : "")}${kpi("Earned (cost-to-cost)", r.earned, r.overUnder >= 0 ? `over-billed ${money(r.overUnder)}` : `under-billed ${money(-r.overUnder)}`)}</div>\n    <h3 class="rep-h">Cost & margin</h3><div class="fin rep-kpis">${kpi("Budget (estimate cost)", r.budget, `planned margin ${money(r.plannedMargin)} · ${r.contract ? Math.round((r.plannedMargin / r.contract) * 100) : 0}%`)}${kpi("Committed (POs)", r.committed)}${kpi("Actual to date", r.actual, `bills & bank ${money(r.direct + r.unlinked)} · labor ${money(r.labor.cost)}`)}${kpi("Projected cost", r.projCost, tpCostWords(r.J))}${kpi("Projected margin", `${money(r.margin)} · ${r.marginPct}%`, "", r.margin < 0.8 * r.plannedMargin ? "warn" : "good")}</div>\n    <h3 class="rep-h">By cost code</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Code</th><th class="money">Contract</th><th class="money">Budget</th><th class="money">Committed</th><th class="money">Bills & bank</th><th class="money">Labor</th><th class="money">Actual</th><th class="money">Remaining</th><th style="width:120px">Spent</th></tr></thead><tbody>${
     r.byCode
       .map((b) => {
         const act = b.actual + b.labor,
@@ -24752,7 +24752,7 @@ function repDashboard() {
       color: "current" === f ? VZ.c1 : "d30" === f ? VZ.c3 : "d60" === f ? VZ.c2 : VZ.bad,
     })),
     { note: "open balances" },
-  )}</div>\n      <div class="card dcard wide"><h3>By project</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Project</th><th>Client</th><th class="money">Contract</th><th class="money">Billed</th><th class="money">Collected</th><th class="money">Cost to date</th><th class="money">Proj. margin</th><th style="width:140px">Billed / complete</th></tr></thead><tbody>${D.projects.map(({ p: p, r: r }) => `<tr class="click" data-repproj="${p.id}"><td><b>${esc(p.project.name)}</b></td><td>${esc(r.c?.name || "")}</td><td class="money">${money(r.contract)}</td><td class="money">${money(r.billedGross)}</td><td class="money">${money(r.collected)}</td><td class="money">${money(r.actual)}</td><td class="money" style="color:${r.margin >= 0 ? "inherit" : "var(--bad)"}">${money(r.margin)} <span class="small muted">${r.marginPct}%</span></td><td><div class="vz-dual"><i style="width:${r.contract ? Math.min(100, Math.round((r.billedGross / r.contract) * 100)) : 0}%;background:${VZ.c1}"></i><i style="width:${Math.round(100 * r.pctComplete)}%;background:${VZ.c2}"></i></div><span class="small muted">${r.contract ? Math.round((r.billedGross / r.contract) * 100) : 0}% billed · ${Math.round(100 * r.pctComplete)}% complete</span></td></tr>`).join("")}</tbody></table></div></div>\n      <div class="card dcard wide"><h3>Invoice register</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Invoice</th><th>Client</th><th>Date</th><th>Due</th><th class="money">Amount</th><th class="money">Paid</th><th class="money">Balance</th><th>Status</th></tr></thead><tbody>${
+  )}</div>\n      <div class="card dcard wide"><h3>By project</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Project</th><th>Client</th><th class="money">Contract</th><th class="money">Billed</th><th class="money">Collected</th><th class="money">Cost to date</th><th class="money">Proj. margin</th><th style="width:140px">Billed / complete</th></tr></thead><tbody>${D.projects.map(({ p: p, r: r }) => `<tr class="click" data-repproj="${p.id}"><td><b>${esc(p.project.name)}</b></td><td>${esc(r.c?.name || "")}</td><td class="money">${money(r.contract)}</td><td class="money">${money(r.billedGross)}</td><td class="money">${money(r.collected)}</td><td class="money">${money(r.actual)}</td><td class="money" style="color:${r.margin >= 0 ? "inherit" : "var(--bad)"}">${money(r.margin)} <span class="small muted">${r.marginPct}%</span></td><td><div class="vz-dual"><i style="width:${r.contract ? Math.min(100, Math.round((r.billedGross / r.contract) * 100)) : 0}%;background:${VZ.c1}"></i><i style="width:${tpJobPct(p)}%;background:${VZ.c2}"></i></div><span class="small muted">${r.contract ? Math.round((r.billedGross / r.contract) * 100) : 0}% billed · ${tpJobPct(p)}% complete</span></td></tr>`).join("")}</tbody></table></div></div>\n      <div class="card dcard wide"><h3>Invoice register</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Invoice</th><th>Client</th><th>Date</th><th>Due</th><th class="money">Amount</th><th class="money">Paid</th><th class="money">Balance</th><th>Status</th></tr></thead><tbody>${
     D.invs
       .sort((a, b) => b.i.date.localeCompare(a.i.date))
       .map(
@@ -27666,7 +27666,7 @@ function ptJobs() {
       .sort((a, b) => (a.h.health?.score ?? 50) - (b.h.health?.score ?? 50))
       .map(({ p: p, J: J, h: h }) => {
         const billedPct = J.contract ? Math.round((J.billed / J.contract) * 100) : 0,
-          compPct = Math.round(100 * J.pct),
+          compPct = tpJobPct(p),
           ahead = billedPct - compPct,
           gpFade = J.plannedGPPct ? r2(J.estGPPct - J.plannedGPPct) : 0,
           flags = [];
@@ -30033,7 +30033,7 @@ function renderMBOwnP() {
         .map((x) => {
           const J = jobFin(x),
             h = projectHealth(x);
-          return `<tr><td><b>${esc(x.project.name)}</b></td><td class="money">${M(J.contract)}</td><td class="money">${M(J.actual)}</td><td class="money">${Math.round(100 * J.pct)}%</td><td class="money">${M(J.billed)}</td><td class="small">${h.sc ? fmt(h.sc) : "—"}</td><td><button class="btn sm" data-capexgo="${x.id}">Open job</button></td></tr>`;
+          return `<tr><td><b>${esc(x.project.name)}</b></td><td class="money">${M(J.contract)}</td><td class="money">${M(J.actual)}</td><td class="money">${tpJobPct(x)}%</td><td class="money">${M(J.billed)}</td><td class="small">${h.sc ? fmt(h.sc) : "—"}</td><td><button class="btn sm" data-capexgo="${x.id}">Open job</button></td></tr>`;
         })
         .join("") || '<tr><td colspan="7" class="muted">No capex jobs yet.</td></tr>'
     }</tbody></table></div>`),
@@ -30569,7 +30569,7 @@ function billingSuggestions() {
           const J = jobFin(p);
           if (!c.invoices.some((i) => "draft" === i.status && ("sov" === i.mode || i.fromDoc === d.id))) {
             if ("construction" === d.template || !d.template) {
-              const compPct = Math.round(100 * J.pct),
+              const compPct = tpJobPct(p),
                 billedPct = J.contract ? Math.round((J.billed / J.contract) * 100) : 0,
                 gap = compPct - billedPct,
                 amt = r2((J.contract * Math.max(0, gap)) / 100);
@@ -34558,7 +34558,7 @@ wireSearches = function (root) {
 const budgetForBase = budgetFor,
   BUDGET_EMPTY = {};
 function wipCards(rows) {
-  return `<div class="jobcards">${rows.map(({ w: w, f: f }) => `<div class="jobcard" data-jobgo="${w.p.id}"><div class="jc-top"><b>${esc(w.p.project.name)}</b><span class="small muted">${Math.round(100 * w.pct)}%</span></div><div class="jc-nums"><span>Contract ${money(w.contract)}</span><span>Est. cost ${money(w.eac)}</span><span>GP ${w.gpPct}%${null != f?.fadePts ? ` (${f.fadePts >= 0 ? "+" : ""}${f.fadePts} pts)` : ""}</span></div><div class="jc-nums"><span>Earned ${money(w.earned)}</span><span>Billed ${money(w.billed)}</span><span class="${w.over ? "warn" : w.under ? "bad" : ""}">${w.over ? "Over-billed " + money(w.over) : w.under ? "Under-billed " + money(w.under) : "Billed = earned"}</span></div><div class="jc-nums"><span>Cost to complete ${money(w.ctc)}</span><span>Backlog ${money(w.backlog)}</span></div></div>`).join("")}</div>`;
+  return `<div class="jobcards">${rows.map(({ w: w, f: f }) => `<div class="jobcard" data-jobgo="${w.p.id}"><div class="jc-top"><b>${esc(w.p.project.name)}</b><span class="small muted">${tpJobPct(w.p)}% complete</span></div><div class="jc-nums"><span>Contract ${money(w.contract)}</span><span>Est. cost ${money(w.eac)}</span><span>GP ${w.gpPct}%${null != f?.fadePts ? ` (${f.fadePts >= 0 ? "+" : ""}${f.fadePts} pts)` : ""}</span></div><div class="jc-nums"><span>Earned ${money(w.earned)}</span><span>Billed ${money(w.billed)}</span><span class="${w.over ? "warn" : w.under ? "bad" : ""}">${w.over ? "Over-billed " + money(w.over) : w.under ? "Under-billed " + money(w.under) : "Billed = earned"}</span></div><div class="jc-nums"><span>Cost to complete ${money(w.ctc)}</span><span>Backlog ${money(w.backlog)}</span></div></div>`).join("")}</div>`;
 }
 budgetFor = function (year) {
   const b = budgetForBase(year),
@@ -38522,7 +38522,7 @@ function h4Home(F) {
       .slice(0, 6)
       .map(
         (j) =>
-          `<div class="h4r" data-h4go='${esc(JSON.stringify({ view: "dash", proj: j.p.id }))}'><span class="h4dot ${j.score >= 70 ? "ok" : j.score >= 45 ? "warn" : "bad"}"></span><span class="grow"><b>${esc(j.name)}</b><span class="small muted"> · ${j.late > 0 ? `${j.late}d behind` : "on target"}${j.next ? ` · ${esc(j.next.n)} ${fmt(j.next.d)}` : ""}</span></span><span class="small muted">${j.J.contract ? Math.round(100 * (j.J.pct || 0)) + "%" : ""}</span></div>`,
+          `<div class="h4r" data-h4go='${esc(JSON.stringify({ view: "dash", proj: j.p.id }))}'><span class="h4dot ${j.score >= 70 ? "ok" : j.score >= 45 ? "warn" : "bad"}"></span><span class="grow"><b>${esc(j.name)}</b><span class="small muted"> · ${j.late > 0 ? `${j.late}d behind` : "on target"}${j.next ? ` · ${esc(j.next.n)} ${fmt(j.next.d)}` : ""}</span></span><span class="small muted">${j.J.contract ? tpJobPct(j.p) + "% complete" : ""}</span></div>`,
       )
       .join(""),
     todayHtml = [
@@ -40678,7 +40678,7 @@ function renderSDay() {
     .map((p) => {
       const ph = phaseHours(p),
         R = retainerLeft(p),
-        cur = ph.find((x) => x.left > 0 && x.used > 0) || ph[0];
+        cur = phaseCur(ph) || ph.find((x) => x.left > 0 && x.used > 0) || ph[0];
       return `<div class="st-item" data-goproj="${p.id}" style="cursor:pointer"><span class="k">${cur ? `${esc(cur.line.item.split(" and ")[0])} · ${cur.left} hrs left` : "No proposal"}${R ? ` · retainer ${R.hours} hrs` : ""}</span><b>${esc(p.project.name)}</b><span class="small muted">${roomsOf(p.id).length} rooms · ${sheetsOf(p.id).filter((s) => "current" === s.status).length} current sheets · ${roomsOf(p.id).filter((r) => 0 === roomProv(r)).length} unverified</span></div>`;
     })
     .join("")}</div>\n      </div></div>`;
@@ -40783,7 +40783,7 @@ function renderStudio() {
         gates = p.decisions.filter((d) => "open" === d.status && d.gate),
         late = p.decisions.filter((d) => "open" === d.status && d.due && d.due < td).length,
         c = DB.clients.find((x) => x.id === p.clientId),
-        cur = ph.find((x) => x.left > 0 && x.used > 0) || ph[0];
+        cur = phaseCur(ph) || ph.find((x) => x.left > 0 && x.used > 0) || ph[0];
       return {
         p: p,
         c: c,
@@ -41993,7 +41993,7 @@ const renderBase_c = render,
     open = p.decisions.filter((d) => "open" === d.status && d.gate),
     td = today(),
     bar = ph.length
-      ? `<div class="st-bar">${ph.map((x) => `<div class="st-seg" title="${esc(x.line.item)}: ${x.used} of ${x.est} hrs"><i style="width:${Math.min(100, x.est ? (x.used / x.est) * 100 : 0)}%" class="${x.left < 0 ? "over" : ""}"></i></div>`).join("")}</div><div class="st-barl">${ph.map((x) => `<div><span class="n">${esc({ "Existing-conditions site survey": "Survey", "Schematic and conceptual design": "Schematic", "Design development and material selection": "Design dev", "Material and vendor pricing / quotations": "Pricing", "Client meetings": "Meetings" }[x.line.item] || x.line.item.split(" and ")[0])}</span><b class="${x.left < 0 ? "bad" : ""}">${x.used}</b><span class="muted">/${x.est}</span></div>`).join("")}</div>`
+      ? `<div class="st-bar">${ph.map((x) => `<div class="st-seg" title="${esc(x.line.item)}: ${x.used} of ${x.est} hrs"><i style="width:${Math.min(100, x.est ? (x.used / x.est) * 100 : 0)}%" class="${x.left < 0 ? "over" : ""}"></i></div>`).join("")}</div><div class="st-barl">${ph.map((x) => `<div><span class="n">${esc({ "Existing-conditions site survey": "Survey", "Schematic and conceptual design": "Schematic", "Design development and material selection": "Design dev", "Material and vendor pricing / quotations": "Pricing", "Client meetings": "Meetings" }[x.line.item] || x.line.item.split(" and ")[0])}</span>${"done" === x.status ? '<span class="pill ok">Done</span>' : x === phaseCur(ph) ? '<span class="pill info">Current</span>' : ""}<b class="${x.left < 0 ? "bad" : ""}">${x.used}</b><span class="muted">/${x.est}</span></div>`).join("")}</div>`
       : '<div class="small muted">No design proposal on this job yet.</div>',
     blocks = [];
   unv.length &&
@@ -42103,7 +42103,7 @@ ensureStudioProject = function () {
 const renderBase_rw = (render = function () {
     if ((renderBase_c(), !isDesignProject(S))) return;
     const ph = phaseHours(S),
-      cur = ph.find((x) => x.left > 0 && x.used > 0) || ph.find((x) => x.used > 0) || ph[0],
+      cur = phaseCur(ph) || ph.find((x) => x.left > 0 && x.used > 0) || ph.find((x) => x.used > 0) || ph[0],
       nextDue = S.tasks
         .filter((t) => "done" !== t.status && t.end >= today())
         .sort((a, b) => a.end.localeCompare(b.end))[0],
@@ -42773,7 +42773,7 @@ function ptStudio() {
           est: ph.reduce((a, x) => a + x.est, 0),
           used: ph.reduce((a, x) => a + x.used, 0),
           R: R,
-          cur: ph.find((x) => x.left > 0 && x.used > 0) || ph[0],
+          cur: phaseCur(ph) || ph.find((x) => x.left > 0 && x.used > 0) || ph[0],
         };
       })
       .map(
@@ -43834,7 +43834,7 @@ function ptBuyout() {
         p: p,
         J: J,
         cov: J.budget ? Math.round(((J.actual + J.committed) / J.budget) * 100) : 0,
-        done: Math.round(100 * J.pct),
+        done: tpJobPct(p),
       }))
       .map(
         (r) =>
@@ -43937,7 +43937,7 @@ function ptEVTriple() {
     activeJobs()
       .map(({ p: p, J: J }) => ({
         p: p,
-        work: Math.round(100 * J.pct),
+        work: tpJobPct(p),
         billed: J.contract ? Math.round((J.billed / J.contract) * 100) : 0,
         cost: J.eac ? Math.round((J.actual / J.eac) * 100) : 0,
       }))
@@ -44033,7 +44033,7 @@ function ptCloseout() {
       insp: p.inspections.filter((i) => "passed" !== i.status).length,
     }));
   return rows.length
-    ? `<table class="t dash-t"><thead><tr><th>Project</th><th class="money">Done</th><th class="money">Punch</th><th class="money">Inspections</th><th class="money">Retainage</th></tr></thead><tbody>${rows.map((r) => `<tr data-remgo='${esc(JSON.stringify({ view: "close", project: r.p.id }))}' style="cursor:pointer"><td><b>${esc(shortName(r.p))}</b></td><td class="money">${Math.round(100 * r.J.pct)}%</td><td class="money ${r.punch ? "warn" : ""}">${r.punch}</td><td class="money ${r.insp ? "warn" : ""}">${r.insp}</td><td class="money">${money(r.J.retHeld || 0)}</td></tr>`).join("")}</tbody></table>`
+    ? `<table class="t dash-t"><thead><tr><th>Project</th><th class="money">Done</th><th class="money">Punch</th><th class="money">Inspections</th><th class="money">Retainage</th></tr></thead><tbody>${rows.map((r) => `<tr data-remgo='${esc(JSON.stringify({ view: "close", project: r.p.id }))}' style="cursor:pointer"><td><b>${esc(shortName(r.p))}</b></td><td class="money">${tpJobPct(r.p)}%</td><td class="money ${r.punch ? "warn" : ""}">${r.punch}</td><td class="money ${r.insp ? "warn" : ""}">${r.insp}</td><td class="money">${money(r.J.retHeld || 0)}</td></tr>`).join("")}</tbody></table>`
     : '<div class="muted small">No project is past 85% — nothing in close-out.</div>';
 }
 const studioRate = (p) => +(designEst(p)?.lines.find((l) => "hr" === l.unit)?.rate || designRate());
@@ -60395,7 +60395,7 @@ function pgPaneHtml() {
           .map(([r, f]) => `<div class="small">${esc(r.sv.desc)} — ${esc(f.msg)}</div>`)
           .join("")}</div>`
       : ""
-  }\n\n  <div class="row" style="gap:8px;margin:14px 0 8px"><h3 style="margin:0">${esc(p.project ? p.project.name : "This job")} — ready to bill</h3>\n    <span class="grow"></span>\n    <label class="cl-chk" style="margin:0"><input type="checkbox" id="pg-stored" ${cfg.stored ? "checked" : ""}><span class="small">Contract allows billing stored materials</span></label>\n    <button class="btn sm primary" id="pg-apply" ${T.propose ? "" : "disabled"}>Put ${money(T.propose)} on a draft</button></div>\n\n  <table class="t"><thead><tr><th>Line</th><th style="width:110px">Scheduled</th><th style="width:110px">Billed</th>\n    <th style="width:240px">Complete, and how we know</th><th style="width:130px">This period</th>\n    <th style="width:120px">Cost landed</th><th>What the evidence says</th></tr></thead>\n    <tbody>${rows.map(({ sv: sv, ev: ev, pr: pr, findings: findings }) => `<tr data-pgrow="${sv.id}">\n    <td><b>${esc(sv.desc)}</b><div class="small muted">${esc(sv.source || "")}${ev.code ? " · " + esc(ev.code) : ""}</div></td>\n    <td class="n">${money(ev.scheduled)}</td>\n    <td class="n">${ev.billedPct}%<div class="small muted">${money(r2((ev.scheduled * ev.billedPct) / 100))}</div></td>\n    <td>${null == pr.pct ? '<span class="muted small">nothing to measure it by</span>' : `<b class="${"cost" === pr.basis ? "warn" : ""}">${pr.pct}%</b>\n         <div class="small muted">${esc(pr.label)} — ${esc(pr.extra)}</div>`}</td>\n    <td class="n">${pr.period ? `<b>${money(r2((ev.scheduled * pr.period) / 100))}</b><div class="small muted">${pr.period}% this period</div>` : '<span class="muted">—</span>'}</td>\n    <td>${ev.cost ? `${money(ev.cost)}${null != ev.costPct ? `<div class="small muted">${ev.costPct}% of budget</div>` : ""}` : '<span class="muted small">—</span>'}</td>\n    <td>${findings.map((f) => `<div class="small ${"bad" === f.sev ? "bad" : "warn" === f.sev ? "warn" : "muted"}">${esc(f.msg)}</div>`).join("") || ""}</td></tr>`).join("") || '<tr><td colspan="7" class="muted small">No schedule of values on this job. Convert an approved estimate and every line appears here with what has landed on it.</td></tr>'}</tbody></table>\n  <p class="small muted" style="margin:10px 0 0">Percentages are complete-to-date; the pay application works out this period, the retainage, the previous applications and the deposit as it already does. Nothing here is sent — it fills a draft you still have to look at.</p>`;
+  }\n\n  <div class="row" style="gap:8px;margin:14px 0 8px"><h3 style="margin:0">${esc(p.project ? p.project.name : "This job")} — ready to bill</h3>\n    <span class="grow"></span>\n    <label class="cl-chk" style="margin:0"><input type="checkbox" id="pg-stored" ${cfg.stored ? "checked" : ""}><span class="small">Contract allows billing stored materials</span></label>\n    <button class="btn sm primary" id="pg-apply" ${T.propose ? "" : "disabled"}>Put ${money(T.propose)} on a draft</button></div>\n\n  <table class="t"><thead><tr><th>Line</th><th style="width:110px">Scheduled</th><th style="width:110px">Billed</th>\n    <th style="width:240px">Complete, and how we know</th><th style="width:130px">This period</th><th style="width:120px">Materials Stored</th>\n    <th style="width:120px">Cost landed</th><th>What the evidence says</th></tr></thead>\n    <tbody>${rows.map(({ sv: sv, ev: ev, pr: pr, findings: findings }) => `<tr data-pgrow="${sv.id}">\n    <td><b>${esc(sv.desc)}</b><div class="small muted">${esc(sv.source || "")}${ev.code ? " · " + esc(ev.code) : ""}</div></td>\n    <td class="n">${money(ev.scheduled)}</td>\n    <td class="n">${ev.billedPct}%<div class="small muted">${money(r2((ev.scheduled * ev.billedPct) / 100))}</div></td>\n    <td>${null == pr.pct ? '<span class="muted small">nothing to measure it by</span>' : `<b class="${"cost" === pr.basis ? "warn" : ""}">${pr.pct}%</b>${"cost" === pr.basis ? ' <span class="pill warn">No Field Measure</span>' : ""}\n         <div class="small muted">${esc(pr.label)} — ${esc(pr.extra)}</div>`}</td>\n    <td class="n">${pr.period ? `<b>${money(r2((ev.scheduled * pr.period) / 100))}</b><div class="small muted">${pr.period}% this period</div>` : '<span class="muted">—</span>'}</td>\n    <td class="n">${pr.stored > 0 ? `${money(pr.stored)}<div class="small muted">${pr.storedPct ? `${pr.storedPct}% billed as stored` : "on site, not billed"}</div>` : '<span class="muted">—</span>'}</td>\n    <td>${ev.cost ? `${money(ev.cost)}${null != ev.costPct ? `<div class="small muted">${ev.costPct}% of budget</div>` : ""}` : '<span class="muted small">—</span>'}</td>\n    <td>${findings.map((f) => `<div class="small ${"bad" === f.sev ? "bad" : "warn" === f.sev ? "warn" : "muted"}">${esc(f.msg)}</div>`).join("") || ""}</td></tr>`).join("") || '<tr><td colspan="8" class="muted small">No schedule of values on this job. Convert an approved estimate and every line appears here with what has landed on it.</td></tr>'}</tbody></table>\n  <p class="small muted" style="margin:10px 0 0">Percentages are complete-to-date; the pay application works out this period, the retainage, the previous applications and the deposit as it already does. Nothing here is sent — it fills a draft you still have to look at.</p>`;
 }
 function pgWire(root) {
   root.querySelector("#pg-stored")?.addEventListener("change", (e) => {
@@ -64479,7 +64479,7 @@ if ("function" == typeof lineProfit) {
       ? (rows.forEach((r) => {
           if (Array.isArray(r.flags)) {
             const n = r.flags.length;
-            (r.flags = r.flags.filter((f) => !/^billed \d+% vs \d+% complete$/.test(f))),
+            (r.flags = r.flags.filter((f) => !/^billed \d+% vs \d+% (complete|of its budget spent)$/.test(f))),
               r.flags.length !== n && (r.lumpBilled = !0);
           }
         }),
@@ -65788,7 +65788,7 @@ const h4HomeBase_b2 = h4Home;
       list
         .map(
           (j) =>
-            `<div class="h4r" data-h4go='${esc(JSON.stringify({ view: "dash", proj: j.p.id }))}'><span class="h4dot ${j.score >= 70 ? "ok" : j.score >= 45 ? "warn" : "bad"}"></span><span class="grow"><b>${esc(j.name)}</b><span class="small muted"> · ${esc(((j) => (j.late > 0 ? `${j.late} d behind` : j.score < 65 ? (j.h.health && j.h.health.why && j.h.health.why[0]) || `${j.urgent} urgent` : "on target"))(j))}${((j) => (j.next ? ` · ${esc(String(j.next.n).replace(/^(Starts|Finishes|Due):\s*/i, ""))} ${fmt(j.next.d)}` : ""))(j)}</span></span><span class="small muted">${j.J && j.J.contract ? Math.round(100 * (j.J.pct || 0)) + "%" : ""}</span></div>`,
+            `<div class="h4r" data-h4go='${esc(JSON.stringify({ view: "dash", proj: j.p.id }))}'><span class="h4dot ${j.score >= 70 ? "ok" : j.score >= 45 ? "warn" : "bad"}"></span><span class="grow"><b>${esc(j.name)}</b><span class="small muted"> · ${esc(((j) => (j.late > 0 ? `${j.late} d behind` : j.score < 65 ? (j.h.health && j.h.health.why && j.h.health.why[0]) || `${j.urgent} urgent` : "on target"))(j))}${((j) => (j.next ? ` · ${esc(String(j.next.n).replace(/^(Starts|Finishes|Due):\s*/i, ""))} ${fmt(j.next.d)}` : ""))(j)}</span></span><span class="small muted">${j.J && j.J.contract ? tpJobPct(j.p) + "% complete" : ""}</span></div>`,
         )
         .join("");
   if ("owner" === r) {
@@ -87582,7 +87582,7 @@ if (
         R = retainerLeft(p),
         ph = phaseHours(p),
         used = ph.reduce((a, x) => a + x.used, 0),
-        cur = ph.find((x) => x.used < x.est) || ph[ph.length - 1];
+        cur = phaseCur(ph) || ph.find((x) => x.used < x.est) || ph[ph.length - 1];
         tiles.push({
           key: "rooms",
           k: "Rooms Measured",
@@ -100618,9 +100618,21 @@ function clDocs() {
   };
 }
 function clPhotos() {
-  return (clProj().files || [])
-    .filter((f) => /\.(jpe?g|png|heic|webp)$/i.test(f.name || "") && !0 !== f.clientHidden)
-    .sort((a, b) => String(b.at || b.date || "").localeCompare(String(a.at || a.date || "")));
+  // the photos shared from the site's photo stream (with the PM's caption), then any photo files on the job
+  const p = clProj(),
+    shared =
+      "function" == typeof pstRows && p
+        ? pstRows({ projectId: p.id, shared: !0 }).map((x) => ({
+            id: x.id,
+            name: pstClientCaption(x),
+            at: String(x.sharedAt || x.at || x.date || ""),
+            pst: x,
+          }))
+        : [];
+  return [
+    ...shared,
+    ...(p.files || []).filter((f) => /\.(jpe?g|png|heic|webp)$/i.test(f.name || "") && !0 !== f.clientHidden),
+  ].sort((a, b) => String(b.at || b.date || "").localeCompare(String(a.at || a.date || "")));
 }
 function clBal(c, d) {
   try {
@@ -100691,7 +100703,9 @@ function clAcctHtml() {
           .slice(0, 24)
           .map(
             (f) =>
-              `<figure data-clphoto="${esc(f.id)}"><div class="cl-ph-box"><span>${esc((f.name || "").split(".")[0].slice(0, 28))}</span></div><figcaption>${f.at || f.date ? fmtL(String(f.at || f.date).slice(0, 10)) : ""}</figcaption></figure>`,
+              f.pst
+                ? pstTile(f.pst)
+                : `<figure data-clphoto="${esc(f.id)}"><div class="cl-ph-box"><span>${esc((f.name || "").split(".")[0].slice(0, 28))}</span></div><figcaption>${f.at || f.date ? fmtL(String(f.at || f.date).slice(0, 10)) : ""}</figcaption></figure>`,
           )
           .join("")}</div>`
       : `<div class="empty">No photos yet. ${esc(pmName() || "Your project manager")} and the site team post progress photos here as the work goes on — you will see them without asking.</div>`
@@ -100724,7 +100738,7 @@ function clSchedHtml() {
   let pct = all ? Math.round((done / all) * 100) : 0;
   try {
     const J = jobFin(p);
-    J && J.pct && (pct = Math.max(pct, Math.round(100 * J.pct)));
+    J && J.contract && (pct = Math.max(pct, tpJobPct(p)));
   } catch (e) {}
   const now = T.filter((t) => !isDone(t) && "in-progress" === t.status),
     soon = T.filter((t) => !isDone(t) && "in-progress" !== t.status && t.start).sort((a, b) =>
@@ -123618,7 +123632,7 @@ const OV_BUILD = {},
       const est = ph.reduce((a, x) => a + x.est, 0),
         used = ph.reduce((a, x) => a + x.used, 0),
         over = ph.filter((x) => x.used > x.est).length,
-        cur = ph.find((x) => x.left > 0 && x.used > 0) || ph[0],
+        cur = phaseCur(ph) || ph.find((x) => x.left > 0 && x.used > 0) || ph[0],
         unv = roomsOf(p.id).filter((r) => 0 === roomProv(r)).length,
         stale = sheetsOf(p.id).filter((s) => s.stale && "current" === s.status).length,
         F = (DB.studio.filings || []).filter((f) => f.projectId === p.id),
@@ -127856,7 +127870,7 @@ if ("function" == typeof pgPaneHtml) {
           : w.under
             ? `<b class="ok">${money(w.under)}</b><span>under-billed — the work is ahead of billing</span>`
             : `<b>${money(0)}</b><span>billed in step with the work</span>`,
-        head = `<div class="sel-stats fin2-wiphead"><div class="sel-stat"><b>${money(w.earned)}</b><span>earned · ${Math.round(100 * w.pct)}% complete, cost-to-cost</span></div><div class="sel-stat"><b>${money(w.billed)}</b><span>billed to date (gross)</span></div><div class="sel-stat">${pos}</div></div><p class="small muted fin2-wipsrc">From the WIP schedule. The lines below bill on each line's own evidence; the job as a whole is measured on cost.</p>`,
+        head = `<div class="sel-stats fin2-wiphead"><div class="sel-stat"><b>${money(w.earned)}</b><span>earned on a ${Math.round(100 * w.pct)}% cost basis · ${tpJobPct(w.p)}% measured on site</span></div><div class="sel-stat"><b>${money(w.billed)}</b><span>billed to date (gross)</span></div><div class="sel-stat">${pos}</div></div><p class="small muted fin2-wipsrc">From the WIP schedule. The lines below bill on each line's own evidence; the job as a whole is measured on cost.</p>`,
         i = h.indexOf('<div class="pg-rule">');
       if (i > -1) h = h.slice(0, i) + head + h.slice(i);
       else {
@@ -156181,6 +156195,12 @@ function pstTile(x) {
   const t = x.taskId
     ? ((fxProj(x.projectId) || { tasks: [] }).tasks || []).find((k) => k.id === x.taskId)
     : null;
+  if ("client" === role()) {
+    // The client reads the caption the PM wrote when sharing, and nothing internal: no source tag (DAILY LOG),
+    // no task, no crew name.
+    const cap = pstClientCaption(x);
+    return `<button type="button" class="pst-tile" data-pstopen="${esc(x.id)}" title="${esc(cap)}"><img data-pstimg="${esc(x.id)}|thumb" alt="${esc(cap)}" loading="lazy"><span class="pst-cap">${esc(cap)}</span></button>`;
+  }
   return `<button type="button" class="pst-tile" data-pstopen="${esc(x.id)}" title="${esc(x.caption)}${t ? ` · ${esc(t.name)}` : ""}"><img data-pstimg="${esc(x.id)}|thumb" alt="${esc(x.caption)}" loading="lazy"><span class="pst-cap"><b>${esc(PST_SRC[x.source] || x.source)}</b>${esc(x.caption || (t ? t.name : ""))}</span>${x.share ? `<span class="pst-sh" title="Shared with the client">${FX_ICON.share}</span>` : ""}</button>`;
 }
 function pstViewHtml() {
@@ -156308,7 +156328,7 @@ function pstLightbox(id, list) {
     el.setAttribute("role", "dialog"),
     el.setAttribute("aria-label", "Photo");
   const src = x.ref && x.ref.kind ? pstRefLabel(x) : "";
-  (el.innerHTML = `<div class="pst-lb-top"><span class="small">${i + 1} of ${pstLbList.length}</span><button class="pst-lb-x" aria-label="Close" title="Close">${FX_ICON.close}</button></div>\n    <div class="pst-lb-img"><button class="pst-lb-nav prev" aria-label="Previous" ${i <= 0 ? "disabled" : ""}>${FX_ICON.prev}</button><img data-pstimg="${esc(x.id)}|full" alt="${esc(x.caption)}"><button class="pst-lb-nav next" aria-label="Next" ${i >= pstLbList.length - 1 ? "disabled" : ""}>${FX_ICON.next}</button></div>\n    <div class="pst-lb-info"><b>${esc(x.caption)}</b><div class="small">${fmtL(x.date)} · ${esc(stampText(x.at).split(", ")[1] || "")} · ${esc(x.by || "")}</div>\n      <div class="pst-tags"><span class="pill neutral">${esc(PST_SRC[x.source] || x.source)}</span>${t ? `<span class="pill neutral">${esc(t.name)}</span>` : ""}${x.area ? `<span class="pill neutral">${esc(x.area)}</span>` : ""}${x.trade ? `<span class="pill neutral">${esc(x.trade)}</span>` : ""}${x.share ? '<span class="pill ok">Shared With Client</span>' : ""}</div>\n      ${src ? `<div class="small muted">From ${esc(src)}</div>` : ""}\n      ${pstCanShare() ? `<div class="pst-lb-acts"><button class="btn ${x.share ? "" : "primary"}" data-pstshare="${esc(x.id)}">${x.share ? "Stop Sharing" : "Share With Client"}</button></div>` : ""}</div>`),
+  (el.innerHTML = `<div class="pst-lb-top"><span class="small">${i + 1} of ${pstLbList.length}</span><button class="pst-lb-x" aria-label="Close" title="Close">${FX_ICON.close}</button></div>\n    <div class="pst-lb-img"><button class="pst-lb-nav prev" aria-label="Previous" ${i <= 0 ? "disabled" : ""}>${FX_ICON.prev}</button><img data-pstimg="${esc(x.id)}|full" alt="${esc(x.caption)}"><button class="pst-lb-nav next" aria-label="Next" ${i >= pstLbList.length - 1 ? "disabled" : ""}>${FX_ICON.next}</button></div>\n    ${"client" === role() ? `<div class="pst-lb-info"><b>${esc(pstClientCaption(x))}</b><div class="small">${fmtL(x.date)}</div></div>` : `<div class="pst-lb-info"><b>${esc(x.caption)}</b><div class="small">${fmtL(x.date)} · ${esc(stampText(x.at).split(", ")[1] || "")} · ${esc(x.by || "")}</div>\n      <div class="pst-tags"><span class="pill neutral">${esc(PST_SRC[x.source] || x.source)}</span>${t ? `<span class="pill neutral">${esc(t.name)}</span>` : ""}${x.area ? `<span class="pill neutral">${esc(x.area)}</span>` : ""}${x.trade ? `<span class="pill neutral">${esc(x.trade)}</span>` : ""}${x.share ? '<span class="pill ok">Shared With Client</span>' : ""}</div>\n      ${src ? `<div class="small muted">From ${esc(src)}</div>` : ""}\n      ${pstCanShare() ? `<div class="pst-lb-acts"><button class="btn ${x.share ? "" : "primary"}" data-pstshare="${esc(x.id)}">${x.share ? "Stop Sharing" : "Share With Client"}</button></div>` : ""}</div>`}`),
     document.body.appendChild(el),
     pstFill(el);
   const close = () => el.remove();
@@ -159681,6 +159701,460 @@ function tpJobPct(p) {
 }
 // The cost ratio is never "% complete": this is how it is worded wherever it is shown.
 const tpCostWords = (J) => `${Math.round(100 * ((J && J.pct) || 0))}% through its estimated cost (cost-to-cost)`;
+// The measured pay application. Each contract line is measured by the tasks mapped to it (tpTaskLine), so
+// "Windows & interior trim" measures Windows, not Trim. A measured line proposes its measured %; cost never
+// lifts it. A line with nothing measured falls back to cost and says so (No Field Measure, and a confirm
+// finding). A deposit is not progress: it is left out of the cost the line is judged by, and whether the
+// line is heading over is read from its estimate at completion.
+if ("function" == typeof pgEvidence) {
+  const pgEvidenceBase_tp = pgEvidence;
+  pgEvidence = function (c, p, sv) {
+    const ev = pgEvidenceBase_tp.apply(this, arguments);
+    try {
+      if (!ev || !p || !sv || sv.coId || !sv.lineRef) return ev;
+      const T = tpLineTasks(p)[sv.lineRef] || [];
+      T.length
+        ? (ev.sched = Object.assign(
+            withProject(p, () => prgMeasure(T)),
+            { exact: !0, mapped: !0 },
+          ))
+        : ev.sched && !ev.sched.exact && (ev.sched = null);
+      const E = ((jobFin(p).eacLines || []).find((x) => x.key === sv.lineRef)) || null;
+      E && ((ev.deposit = E.deposit), (ev.lineOver = E.over), (ev.lineEac = E.eac));
+    } catch (e) {
+      console.warn("pay app by line", e);
+    }
+    return ev;
+  };
+}
+if ("function" == typeof pgProposal) {
+  const pgProposalBase_tp = pgProposal;
+  pgProposal = function (ev) {
+    const pr = pgProposalBase_tp.apply(this, arguments);
+    try {
+      const m = ev && ev.sched && ev.sched.measured;
+      if (m && "schedule" !== pr.basis) {
+        const pct = r2(Math.max(0, Math.min(100, ev.sched.pct)));
+        Object.assign(pr, {
+          pct: pct,
+          own: pct,
+          basis: "schedule",
+          stale: !1,
+          stored: 0,
+          storedPct: 0,
+          label: PG_BASIS.schedule[0],
+          why: PG_BASIS.schedule[1],
+          measured: !0,
+          measuredOn: m.last ? m.last.on : "",
+          extra: `measured by ${m.last ? prgWho(m.last) : "the site"} — ${m.tasks.slice(0, 3).join(", ")}`,
+          period: r2(Math.max(0, pct - ev.billedPct)),
+        });
+      }
+      pr.noMeasure = "cost" === pr.basis;
+    } catch (e) {}
+    return pr;
+  };
+}
+if ("function" == typeof pgFindings) {
+  const pgFindingsBase_tp = pgFindings;
+  pgFindings = function (ev, pr) {
+    let f = pgFindingsBase_tp.apply(this, arguments);
+    try {
+      if (ev && ev.deposit > 0.5) {
+        f = f.filter((x) => "over" !== x.kind && "under" !== x.kind);
+        const msg = `${money(ev.cost)} has landed on this line, ${money(ev.deposit)} of it a deposit, not progress — ${ev.lineOver > 0.5 ? `heading over by about ${money(ev.lineOver)}` : "on budget so far"}`;
+        f.unshift({ sev: ev.lineOver > 0.5 ? "bad" : "info", kind: ev.lineOver > 0.5 ? "over" : "deposit", msg: msg });
+      }
+      pr &&
+        "cost" === pr.basis &&
+        f.push({
+          sev: "warn",
+          kind: "confirm",
+          msg: `No field measure — the ${pr.pct}% comes from cost against budget. Confirm it on site before it goes on the application`,
+        });
+    } catch (e) {}
+    return f;
+  };
+}
+/* ---- portal truth (BACKLOG §1.2, §1.4 item 5) ---- */
+// The caption a client reads: the one the PM wrote when sharing, else the photo's own caption.
+function pstClientCaption(x) {
+  return String((x && (x.clientCaption || x.caption)) || "Progress photo");
+}
+// Sharing a photo asks the PM for the line the client will read; internal tags never travel with it.
+if ("function" == typeof pstShare) {
+  const pstShareBase_tp = pstShare;
+  pstShare = function (x, on) {
+    if (!on || !x || ("function" == typeof pstCanShare && !pstCanShare()) || x.__tpCap)
+      return delete (x || {}).__tpCap, pstShareBase_tp.apply(this, arguments);
+    mbModal(
+      "Share With Client",
+      `<p class="small muted">The client sees this photo with the caption below and nothing else: not the log it came from, the task or who took it.</p><div class="f"><label>Caption the Client Reads</label><input data-f="cap" value="${esc(x.clientCaption || x.caption || "")}" maxlength="140"></div>`,
+      {
+        submit: "Share",
+        onSubmit: (f) => {
+          const cap = String(f.cap || "").trim();
+          if (!cap) return toast("Write the caption the client will read"), !1;
+          (x.clientCaption = cap), (x.__tpCap = !0), pstShare(x, !0);
+        },
+      },
+    );
+  };
+}
+// The client Overview's Progress card: the certified figure and the last three photos shared with them.
+function tpClientProgressHtml(c, p) {
+  const T = tpCertified(c, p && p.id),
+    shots =
+      "function" == typeof pstRows && p
+        ? pstRows({ projectId: p.id, shared: !0 })
+            .sort((a, b) => String(b.sharedAt || b.at).localeCompare(String(a.sharedAt || a.at)))
+            .slice(0, 3)
+        : [];
+  return `<div class="card tp-clprog" id="tp-clprog" style="margin-bottom:14px"><h3>Progress</h3><div class="tp-cert-line"><b>Completed to Date</b> ${money(T.completed)} · ${esc(tpCertifiedText(c, p && p.id))}</div><div class="small muted" style="margin:4px 0 8px">Completed to date is what the pay applications have certified; the measured % is what the crew and your project manager have measured on site.</div>${shots.length ? `<div class="pst-grid sm">${shots.map(pstTile).join("")}</div>` : '<div class="small muted">Photos your project manager shares appear here.</div>'}</div>`;
+}
+if ("function" == typeof clOverview) {
+  const clOverviewBase_tp = clOverview;
+  clOverview = function () {
+    const r = clOverviewBase_tp.apply(this, arguments);
+    try {
+      const v = document.getElementById("v-client"),
+        p = clProj(),
+        c = p && DB.clients.find((x) => x.id === p.clientId);
+      if (!v || !p || !c) return r;
+      // the stale "last update from Alan on Tue, Jul 28" line is retired: progress is measured, not published
+      v.querySelectorAll("#cl-next .small.muted").forEach((el) => {
+        /^Last update from /.test(el.textContent.trim()) && el.remove();
+      }),
+        v.querySelector("#tp-clprog")?.remove();
+      const host = v.querySelector("#cl-done"),
+        card = host && host.closest(".card"),
+        html = tpClientProgressHtml(c, p);
+      card ? card.insertAdjacentHTML("beforebegin", html) : v.insertAdjacentHTML("beforeend", html);
+      "function" == typeof pstFill && pstFill(v.querySelector("#tp-clprog"));
+    } catch (e) {
+      console.warn("client progress", e);
+    }
+    return r;
+  };
+}
+if ("object" == typeof TL_SETS && TL_SETS && TL_SETS.client) {
+  const tlClientBase_tp = TL_SETS.client;
+  TL_SETS.client = function () {
+    const tiles = tlClientBase_tp.apply(this, arguments);
+    try {
+      const fin = tiles.find((t) => "fin" === t.key);
+      fin && fin.s && (fin.s = String(fin.s).replace(/ · last update from .* on .*$/, ""));
+    } catch (e) {}
+    return tiles;
+  };
+}
+// Client milestone pills: Done, Upcoming, or how many working days past the agreed date. Never "Ahead".
+function tpMilestonePill(p, pub, i) {
+  if ("done" === i.status) return '<span class="pill ok">Done</span>';
+  let agreed = "";
+  try {
+    agreed =
+      p.project.scTaskId && i.id === p.project.scTaskId
+        ? pub.target || ""
+        : (p.baseline && p.baseline.tasks && p.baseline.tasks[i.id] && p.baseline.tasks[i.id].end) || "";
+    !agreed && pub.target && /substantial completion/i.test(i.name || "") && (agreed = pub.target);
+  } catch (e) {}
+  const n = agreed ? withProject(p, () => signedWork(agreed, i.end)) : 0;
+  return n > 0
+    ? `<span class="pill warn">${n} Working Day${1 === n ? "" : "s"} Past Agreement</span>`
+    : '<span class="pill neutral">Upcoming</span>';
+}
+if ("function" == typeof clSchedHtml) {
+  const clSchedHtmlBase_tp = clSchedHtml;
+  clSchedHtml = function () {
+    let h = clSchedHtmlBase_tp.apply(this, arguments);
+    try {
+      const p = clProj(),
+        pub = p && p.published;
+      if (!pub) return h;
+      h = h.replace(/ Last update from [^.<]* on [^.<]*\./, "");
+      const a = h.indexOf('<div class="card"><h3>Milestones</h3>'),
+        b = a > -1 ? h.indexOf('<div class="card"><h3>', a + 10) : -1;
+      if (a > -1 && b > a) {
+        const ms = (pub.items || []).filter((i) => i.milestone);
+        let k = 0;
+        const part = h
+          .slice(a, b)
+          .replace(/<span class="pill (?:ok|neutral)">(?:Done|Ahead)<\/span>/g, (m) => {
+            const i = ms[k++];
+            return i ? tpMilestonePill(p, pub, i) : m;
+          });
+        h = h.slice(0, a) + part + h.slice(b);
+      }
+      h = h.replace(/<span class="pst-cap"><b>[^<]*<\/b>/g, '<span class="pst-cap">');
+    } catch (e) {
+      console.warn("client milestones", e);
+    }
+    return h;
+  };
+}
+// A change order and its revisions are one change to the client: their days net into one row,
+// "Your change order CO-2026-004 (as revised, R2) +3".
+function tpCoChainLabel(n) {
+  const root = String(n || "").replace(/-R\d+$/, "");
+  if (!root) return "";
+  let rev = 0;
+  (DB.clients || []).forEach((c) =>
+    (c.changeOrders || []).forEach((d) => {
+      (d.number === root || d.revisionRoot === root) &&
+        !["void", "rejected", "draft"].includes(d.status) &&
+        (rev = Math.max(rev, +d.rev || 0));
+    }),
+  );
+  return rev ? `Your change order ${root} (as revised, R${rev})` : `Your change order ${root}`;
+}
+if ("function" == typeof czCauseOf) {
+  const czCauseOfBase_tp = czCauseOf;
+  czCauseOf = function (P, h) {
+    const k = czCauseOfBase_tp.apply(this, arguments);
+    try {
+      k && "co" === k.key && k.co && ((k.label = tpCoChainLabel(k.co)), (k.co = String(k.co).replace(/-R\d+$/, "")));
+    } catch (e) {}
+    return k;
+  };
+}
+if ("function" == typeof thClientReason) {
+  const thClientReasonBase_tp = thClientReason;
+  thClientReason = function (h, P) {
+    const r = thClientReasonBase_tp.apply(this, arguments);
+    try {
+      const m = /^Your change order (CO-[\w-]+)$/.exec(r || "");
+      if (m) return tpCoChainLabel(m[1]);
+    } catch (e) {}
+    return r;
+  };
+}
+// A superseded copy of a change order says so wherever it is linked (chips, the task editor's Linked list).
+if ("function" == typeof opsChip) {
+  const opsChipBase_tp = opsChip;
+  opsChip = function (link, p) {
+    const h = opsChipBase_tp.apply(this, arguments);
+    try {
+      if (!h || !link || "co" !== link.kind) return h;
+      const c = DB.clients.find((x) => (x.changeOrders || []).some((d) => d.id === link.id)),
+        d = c && c.changeOrders.find((x) => x.id === link.id);
+      if (!d) return h;
+      // a change order chip names its number, so a revision and the copy it replaced can be told apart
+      const named = h.includes(esc(d.number))
+        ? h
+        : h.replace(/(<span class="k">[^<]*<\/span>)/, `$1${esc(d.number)} · `);
+      if (!("superseded" === d.status || d.revisedBy)) return named;
+      return named
+        .replace('class="ops-chip"', 'class="ops-chip superseded" title="Superseded by ' + esc(d.revisedBy || "a revision") + '"')
+        .replace(/<\/a>$/, ` <span class="small muted">· superseded by ${esc(d.revisedBy || "a revision")}</span></a>`);
+    } catch (e) {
+      return h;
+    }
+  };
+}
+// The task editor's Linked list includes every change order that extends the task (by its Extends Task),
+// revisions and the copies they superseded alike, so the superseded ones can be seen for what they are.
+if ("function" == typeof openEditor) {
+  const openEditorBase_tp = openEditor;
+  openEditor = function (kind, id) {
+    const r = openEditorBase_tp.apply(this, arguments);
+    try {
+      if ("task" !== kind || !id || !S) return r;
+      const body = document.getElementById("d-body"),
+        c = "function" == typeof clientOf ? clientOf() : null;
+      if (!body || !c) return r;
+      const have = new Set(
+          [...body.querySelectorAll('.ops-chip[data-opsgo^="co:"]')].map((a) => a.dataset.opsgo.slice(3)),
+        ),
+        add = (c.changeOrders || [])
+          .filter(
+            (d) =>
+              d.projectId === S.id &&
+              !have.has(d.id) &&
+              (d.taskId === id || ("function" == typeof thCoTaskId && thCoTaskId(d, S) === id)),
+          )
+          .map((d) => opsChip({ kind: "co", id: d.id }))
+          .filter(Boolean);
+      if (!add.length) return r;
+      const note = [...body.querySelectorAll(".note")].find((n) => /^Linked\b/.test(n.textContent.trim()));
+      note
+        ? note.insertAdjacentHTML("beforeend", " " + add.join(" "))
+        : body.insertAdjacentHTML("beforeend", `<div class="note"><b>Linked</b> ${add.join(" ")}</div>`);
+    } catch (e) {
+      console.warn("linked change orders", e);
+    }
+    return r;
+  };
+}
+/* ---- the forecast names its cause (BACKLOG §1.2) ---- */
+// Why the finish is where it is: days given back by a revised change order and not pulled in yet, or the
+// task driving the slip, named only when it is critical or late by more than its float.
+function tpForecastWhy(p) {
+  return withProject(p, () => {
+    const { cpm: cpm, projEnd: projEnd } = computeCPM(),
+      sc = scDate(cpm, projEnd),
+      late = p.project.target ? signedWork(p.project.target, sc) : 0,
+      f = "function" == typeof opsForecast ? opsForecast(p) : null,
+      crit = (p.tasks || []).filter((t) => cpm[t.id] && cpm[t.id].critical && "done" !== t.status).length,
+      c = DB.clients.find((x) => x.id === p.clientId),
+      g = ((c && c.changeOrders) || []).find(
+        (d) => d.projectId === p.id && d.czGive && d.czGive.open && (p.tasks || []).some((t) => t.id === d.czGive.taskId),
+      );
+    let give = null;
+    if (g) {
+      const tk = p.tasks.find((t) => t.id === g.czGive.taskId),
+        prior = "function" == typeof lkOriginal ? lkOriginal(c, g) : null;
+      give = { c: c, d: g, days: g.czGive.days, task: tk, from: prior ? prior.number : g.number };
+    }
+    const drv = f && f.driver,
+      cp = drv && cpm[drv.t.id],
+      driver = drv && cp && (cp.critical || drv.behind > cp.float) ? drv : null,
+      nm = (t) => String(t.name).replace(/\s*\(.*?\)/g, ""),
+      wd = (n) => `${n} working day${1 === n ? "" : "s"}`;
+    let text = "";
+    return (
+      late > 0
+        ? (text = give
+            ? `${wd(late)} late · ${give.days} day${1 === give.days ? "" : "s"} still on ${nm(give.task)} from ${give.from} — Pull In`
+            : driver
+              ? `${wd(late)} late · because ${nm(driver.t)} is ${wd(driver.behind)} behind`
+              : `${wd(late)} late against the ${fmtL(p.project.target)} target · ${crit} on the critical path`)
+        : give
+          ? (text = `${give.days} day${1 === give.days ? "" : "s"} still on ${nm(give.task)} from ${give.from} — Pull In`)
+          : driver &&
+            (text = `forecast ${fmtL(sc)} · ${nm(driver.t)} is ${wd(driver.behind)} behind${cp && cp.critical ? ", on the critical path" : ""}`),
+      { sc: sc, late: late, give: give, driver: driver, crit: crit, text: text }
+    );
+  });
+}
+function tpPullIn(give) {
+  give && "function" == typeof czGiveBackDialog && czGiveBackDialog(give.c, give.d);
+}
+if ("function" == typeof glnProject) {
+  const glnProjectBase_tp = glnProject;
+  glnProject = function () {
+    const r = glnProjectBase_tp.apply(this, arguments);
+    try {
+      const tile = document.querySelector('#kpis .gl[data-gl="sched"]');
+      if (!tile || !S || !(S.tasks || []).length) return r;
+      const W = tpForecastWhy(S),
+        v = tile.querySelector(".gl-v"),
+        s = tile.querySelector(".gl-s");
+      if (!s) return r;
+      if (W.late > 0) v && (v.textContent = `Forecast ${fmtL(W.sc)}`), tile.classList.add("bad");
+      if (W.text) s.textContent = W.text;
+      else if (/inside its float/.test(s.textContent))
+        s.textContent = `forecast ${fmtL(W.sc)} · ${W.crit} on the critical path`;
+      W.give &&
+        ((tile.dataset.tppull = W.give.d.id),
+        tile.addEventListener(
+          "click",
+          (e) => {
+            e.preventDefault(), e.stopImmediatePropagation(), tpPullIn(tpForecastWhy(S).give);
+          },
+          !0,
+        ));
+    } catch (e) {
+      console.warn("forecast cause tile", e);
+    }
+    return r;
+  };
+}
+{
+  const renderBase_tpfc = render;
+  render = function () {
+    const r = renderBase_tpfc.apply(this, arguments);
+    try {
+      "clacct" === view && "function" == typeof pstFill && pstFill(document.getElementById("v-clacct"));
+      if ("sched" === view && S && (S.tasks || []).length) {
+        const strip = document.querySelector("#track-cards");
+        if (strip) {
+          const W = tpForecastWhy(S);
+          strip.querySelector(".ops-fc")?.remove(),
+            (W.late > 0 || W.give) &&
+              (strip.insertAdjacentHTML(
+                "afterbegin",
+                `<div class="track ops-fc tp-fc ${W.late > 0 ? "bad" : "warn"}"><b>Forecast ${fmtL(W.sc)}</b><div class="s">${esc(W.text)}</div>${W.give ? '<button class="btn sm" data-tppull="1">Pull In</button>' : ""}</div>`,
+              ),
+              W.give &&
+                (strip.querySelector("[data-tppull]").onclick = (e) => {
+                  e.stopPropagation(), tpPullIn(tpForecastWhy(S).give);
+                }));
+        }
+      }
+    } catch (e) {
+      console.warn("forecast cause card", e);
+    }
+    return r;
+  };
+}
+/* ---- Studio phases read their status from the task (BACKLOG §1.2) ---- */
+// Each design phase's status is its schedule task's (sp_<line>), so marking Design development done makes
+// Construction documents current on the board, the phase strip and the Studio list.
+if ("function" == typeof phaseHours) {
+  const phaseHoursBase_tp = phaseHours;
+  phaseHours = function (p) {
+    const ph = phaseHoursBase_tp.apply(this, arguments);
+    try {
+      ph.forEach((x) => {
+        const t = ((p && p.tasks) || []).find((k) => k.phaseLine === x.line.id);
+        t && ((x.task = t), (x.status = t.status));
+      });
+    } catch (e) {}
+    return ph;
+  };
+}
+// The current phase: the first one whose task is not done. Null when the phases have no tasks yet.
+function phaseCur(ph) {
+  return ph && ph.some((x) => x.task) ? ph.find((x) => x.task && "done" !== x.status) || ph[ph.length - 1] : null;
+}
+if ("function" == typeof phaseStrip) {
+  const phaseStripBase_tp = phaseStrip;
+  phaseStrip = function (p) {
+    let h = phaseStripBase_tp.apply(this, arguments);
+    try {
+      const ph = phaseHours(p),
+        cur = phaseCur(ph);
+      let i = 0;
+      h = h.replace(/<div class="st-ph( [^"]*)?"([^>]*)>([\s\S]*?)<div class="v">/g, (m, cls, attrs, mid) => {
+        const x = ph[i++];
+        if (!x || !x.task) return m;
+        const tag =
+          "done" === x.status
+            ? '<span class="pill ok">Done</span> '
+            : x === cur
+              ? '<span class="pill info">Current</span> '
+              : "";
+        return `<div class="st-ph${cls || ""}${"done" === x.status ? " done" : x === cur ? " cur" : ""}"${attrs}>${mid}<div class="v">${tag}`;
+      });
+    } catch (e) {}
+    return h;
+  };
+}
+// A phase marked done by a person stays done when the Studio schedule is rebuilt from the hours.
+if ("function" == typeof opsStudioSchedule) {
+  const opsStudioScheduleBase_tp = opsStudioSchedule;
+  opsStudioSchedule = function (p) {
+    const was = Object.fromEntries(
+        ((p && p.tasks) || [])
+          .filter((t) => "studio" === t.gen)
+          .map((t) => [t.id, { status: t.status, actualEnd: t.actualEnd, actualStart: t.actualStart }]),
+      ),
+      r = opsStudioScheduleBase_tp.apply(this, arguments);
+    try {
+      const rank = { planned: 0, "in-progress": 1, done: 2 };
+      ((p && p.tasks) || []).forEach((t) => {
+        const o = "studio" === t.gen && was[t.id];
+        o &&
+          (rank[o.status] || 0) > (rank[t.status] || 0) &&
+          ((t.status = o.status),
+          (t.actualStart = t.actualStart || o.actualStart || ""),
+          "done" === o.status && (t.actualEnd = o.actualEnd || t.actualEnd || today()));
+      });
+    } catch (e) {}
+    return r;
+  };
+}
 function tpEacNote(J, p) {
   return p && p.ctcReviewed
     ? "Estimate at completion = actual + the PM's reviewed cost to complete (it wins over the line roll-up)."
