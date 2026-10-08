@@ -124122,7 +124122,7 @@ if ("function" == typeof mRenderTabs) {
         const b = tb.querySelector('button[data-mv="dec"]');
         if (b) {
           let i = b.querySelector("i.n");
-          const n = ovClientDecs().length;
+          const n = clWaitingItems().length;
           n
             ? (i || ((i = document.createElement("i")), (i.className = "n"), b.appendChild(i)),
               (i.textContent = n))
