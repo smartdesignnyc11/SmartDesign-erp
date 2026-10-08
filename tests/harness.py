@@ -17,6 +17,11 @@ async def open_app(p, phone=False):
     pg.on('console', lambda m: m.type == 'error' and 'fonts.g' not in m.text and 'ERR_' not in m.text and errs.append('console: ' + m.text))
     await pg.goto(URL)
     await pg.wait_for_function("document.body.dataset.booted==='1'", timeout=60000)
+    # A phone run must lay out at the phone's width. Without the viewport meta the page lays out at 980px
+    # and every sideways-scroll check passes vacuously (the round-4 recovery lost that tag).
+    want = (PHONE if phone else DESKTOP)['width']
+    got = await pg.evaluate('innerWidth')
+    if got != want: raise SystemExit(f'layout width {got}, expected {want}: is the viewport meta missing?')
     return b, pg, errs
 
 async def sign_in(pg, uid):

@@ -7,6 +7,18 @@ Read this file, then HANDOFF.md, then docs/BACKLOG.md, before touching code.
 - **What it is:** one ERP for every person in the firm (owner, PM, coordinator/procurement, foreman, crew, driver, designer, billing, controller) and for the firm's clients through a portal.
 - **The goal:** each person runs their day from it and is 10x more productive. The firm stops needing NetSuite, QuickBooks, Procore, Buildertrend and a CRM.
 
+## The north star (Alan, 2026-10-08): weigh every change against this
+A custom, tailored ERP for SmartDesign, built for the future. It uses AI to raise each employee's output and to make sure nothing is forgotten:
+- **Nothing slips.** No forgotten task, follow-up, reminder or promise. Agents in the ERP originate, chase and remind; people approve.
+- **Real-time truth with no manual entries.** Reporting ties straight to the transactions and expenses that hit the bank accounts and credit cards. All truth is in the ERP, and every record links end to end: prospect › client › estimate › invoice line, and PO › bill › bank/card transaction › line item.
+- **Money leaks are caught automatically:**
+  - overspending against budget, PO or estimate line;
+  - work done but not billed;
+  - purchases made on a client's behalf that were not billed back;
+  - returns and refunds that were never credited or matched;
+  - overhead analysed and reported automatically.
+- **It learns.** It learns from emails and transcripts, keeps a memory, and turns lessons into process changes, so the same mistake does not happen twice.
+
 ## The bar
 Four expert lenses grade every round against the field leaders:
 - **Founder:** an AI-native ERP founder, judged against NetSuite, Procore, Buildertrend, HubSpot and Copilot-style assistants.

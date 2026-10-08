@@ -47,6 +47,16 @@ Order of work:
    - designer day.
 5. **`tests/finance_xcheck.py`.** Every surface that shows cash, AR, unmatched, AP, WIP over-billed, backlog, net YTD and safe to spend agrees: Statements, P&L, Pack, Flash, Ledger, Home, Ask, Chief of Staff. Values are pinned in `baseline_test.py`.
 
+6. **`tests/leak_test.py`: money leaks are caught (north star, CLAUDE.md).** Each scenario is injected through the app's own import or record paths, never by hand-editing totals. Each must surface, with a link to the record and a proposed action, on the screen the responsible person works from, and in Ask:
+   - **Unbilled reimbursable.** A card or bank purchase coded to a job, or bought for a client, that is on no invoice after N days.
+   - **Work done, not billed.** A measured % or an approved CO that is above what has been billed.
+   - **Overspend.** A cost line over its budget, PO or estimate line, flagged at the moment the bill or transaction lands, not at month end.
+   - **Returns and refunds.** A card or bank credit from a vendor that is matched to the original purchase, relieves the job's cost or the PO, and is credited back to the client when the original was billed.
+   - **No manual entries.** Every figure on the job and company reports traces to a bank or card line, a bill, an invoice or a payroll run.
+   - **Nothing slips.** Promises made in email or meetings, overdue follow-ups, and tasks past due with no owner each produce a reminder for a named person.
+   - Gaps found here become §1.5 items.
+7. **The phone is really 390px wide.** The rebuild lost the `<meta name="viewport">` tag, so every phone run rendered at 980px and the sideways-scroll check passed vacuously. Restore the tag. Every phone suite asserts `innerWidth === 390`, and also flags clipped text (an element's scroll width greater than its client width while its overflow is hidden).
+
 ---
 
 ## §1 Re-do round 5 (lost before integration)
