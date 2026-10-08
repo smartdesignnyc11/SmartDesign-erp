@@ -16794,7 +16794,8 @@ function signIn(userId) {
   (DB.workspace = String(u.role).startsWith("mb_") ? "mb" : "sd"),
     home && ROLE_VIEWS[u.role]?.includes(home) && (view = home),
     render(),
-    toast(`Signed in as ${u.name}`);
+    // on a phone the header already says who and where; the toast only covered the bottom of the first screen
+    window.innerWidth <= 760 || toast(`Signed in as ${u.name}`);
 }
 function signOut() {
   (DB.deviceUser = ""), save(), showSignIn();
@@ -38219,6 +38220,13 @@ const openBillBase_wf3 = openBill;
     !0,
   );
 const openVendorBase_wf5 = openVendor;
+// A predicate's rows, or the fallback while the registry (defined at the end of the file) is not up yet.
+function predOr(name, fallback) {
+  try {
+    if ("undefined" != typeof PRED && PRED[name]) return PRED[name].rows();
+  } catch (e) {}
+  return fallback ? fallback() : null;
+}
 function briefFacts() {
   const td = today(),
     in7 = iso(addDays(td, 7)),
@@ -38271,18 +38279,22 @@ function briefFacts() {
         .filter((i) => i.date && i.date >= td && i.date <= in7 && "passed" !== i.status)
         .map((i) => ({ p: p, i: i })),
     ),
-    decisions = DB.projects.flatMap((p) =>
-      (p.decisions || [])
-        .filter((d) => "made" !== d.status && d.due && d.due < td)
-        .map((d) => ({ p: p, d: d })),
+    // the brief counts what the screens count: past-due decisions, late-to-order and order-this-week are
+    // the predicate registry's (PRED, end of file), so the brief, Ask and the tiles say one number
+    decisions = predOr("lateDecision", () =>
+      DB.projects.flatMap((p) =>
+        (p.decisions || [])
+          .filter((d) => "made" !== d.status && d.due && d.due < td)
+          .map((d) => ({ p: p, d: d })),
+      ),
     ),
     props = proposals(),
     posPending = DB.pos.filter((po) => "pending" === po.status),
     needs = needsMe(),
     bills = reminders().filter((r) => "bill" === r.sev),
     buy = "function" == typeof buyList ? buyList("") : [],
-    buyLate = buy.filter((r) => 3 === r.sev).length,
-    buyWeek = buy.filter((r) => 2 === r.sev).length,
+    buyLate = predOr("lateMaterial", () => buy.filter((r) => 3 === r.sev)).length,
+    buyWeek = predOr("orderThisWeek", () => buy.filter((r) => 2 === r.sev)).length,
     est = DB.clients.flatMap((c) => c.estimates.filter((e) => "sent" === e.status)),
     estOut = r2(est.reduce((a, e) => a + docTotal(e).total, 0));
   return {
@@ -46189,14 +46201,11 @@ function fOfficeCard(opts = {}) {
       "",
     )}\n    ${logs.length ? `<div class="small muted" style="margin-top:8px"><b>Daily logs:</b> ${logs.map((l) => `${fmt(l.date)} — ${l.crew.length} crew${l.subs.length ? `, ${l.subs.length} sub${l.subs.length > 1 ? "s" : ""}` : ""}${l.notes ? `: ${esc(l.notes.slice(0, 90))}${l.notes.length > 90 ? "…" : ""}` : ""}`).join(" · ")}</div>` : ""}</div>`;
 }
-function fWireOffice(root) {
-  root &&
-    (root.querySelectorAll("[data-fans]").forEach(
-      (b) =>
-        (b.onclick = () => {
-          const r = DB.field.raises.find((x) => x.id === b.dataset.fans),
-            dec = b.dataset.dec,
-            lbl = {
+// Answer a question from the field: the one flow every Answer button runs (the From the Field card,
+// Home's Do Now). dec is the extra-work choice ("extra", "nocharge", "hold") or empty for a plain answer.
+function fAnswerRaise(r, dec) {
+  if (!r) return;
+  const lbl = {
               extra: "Proceed as an extra",
               nocharge: "Do it, no charge",
               hold: "Hold — do not proceed",
@@ -46243,7 +46252,12 @@ function fWireOffice(root) {
               },
             },
           );
-        }),
+}
+function fWireOffice(root) {
+  root &&
+    (root.querySelectorAll("[data-fans]").forEach(
+      (b) =>
+        (b.onclick = () => fAnswerRaise(DB.field.raises.find((x) => x.id === b.dataset.fans), b.dataset.dec)),
     ),
     root.querySelectorAll("[data-fhand]").forEach(
       (b) =>
@@ -46302,7 +46316,8 @@ function fOfficeMount() {
     }
     if ("home" === view && ["pm", "owner"].includes(k)) {
       const root = $("#home-body") || $("#v-home");
-      if (!root) return;
+      // Today (the Owner's and PM's Home) lists the questions from the field in Do Now, with Answer
+      if (!root || root.querySelector(".td-home")) return;
       if (!fForMe().filter((r) => "answered" !== r.status).length) return;
       const html = fOfficeCard({});
       if (!html) return;
@@ -65545,14 +65560,16 @@ function b2Facts(F) {
         .filter((i) => issueState(i).sev >= 2 && "answered" !== i.status && "closed" !== i.status)
         .map((i) => ({ p: p, i: i })),
     )),
-    (X.decOver = DB.projects.flatMap((p) => {
-      const keep = S;
-      (S = p), applyHolidays();
-      const r = (p.decisions || [])
-        .filter((d) => "open" === d.status && decState(d).sev >= 2)
-        .map((d) => ({ p: p, d: d, st: decState(d), due: decDue(d) }));
-      return (S = keep), applyHolidays(), r;
-    })),
+    (X.decOver = predOr("lateDecision", null)
+      ? PRED.lateDecision.rows().map((x) => withProject(x.p, () => ({ p: x.p, d: x.d, st: decState(x.d), due: decDue(x.d) })))
+      : DB.projects.flatMap((p) => {
+          const keep = S;
+          (S = p), applyHolidays();
+          const r = (p.decisions || [])
+            .filter((d) => "open" === d.status && decState(d).sev >= 2)
+            .map((d) => ({ p: p, d: d, st: decState(d), due: decDue(d) }));
+          return (S = keep), applyHolidays(), r;
+        })),
     (X.noShows = ((DB.field && DB.field.subs) || [])
       .filter((s) => "noshow" === s.status && s.date >= iso(addDays(td, -3)))
       .map((s) => ({ s: s, p: DB.projects.find((p) => p.id === s.projectId) }))),
@@ -65569,8 +65586,8 @@ function b2Facts(F) {
       .filter((x) => x.fade <= -3)
       .sort((a, b) => a.fade - b.fade)),
     (X.buy = "function" == typeof buyList ? buyList("") : []),
-    (X.buyLate = X.buy.filter((r) => 3 === r.sev)),
-    (X.buyWeek = X.buy.filter((r) => 2 === r.sev)),
+    (X.buyLate = predOr("lateMaterial", () => X.buy.filter((r) => 3 === r.sev))),
+    (X.buyWeek = predOr("orderThisWeek", () => X.buy.filter((r) => 2 === r.sev))),
     (X.unacked = DB.projects.flatMap((p) =>
       (p.requests || []).filter((r) => "new" === r.status && !r.ackAt).map((r) => ({ p: p, r: r })),
     )),
@@ -83120,6 +83137,41 @@ const APPR_CHIPS = [
     ["other", "Other"],
   ],
   apprChip = (it) => (APPR_CHIPS.some(([k]) => k === it.kind) ? it.kind : "other");
+// The yes on a bill waiting for approval, wherever it is pressed (Approvals, Home's Do Now). billAction is the
+// one bill-approval gate: billed over its PO it opens the short-pay sheet (Approve PO Amount is the safe default);
+// paid by the bank before approval it asks Approve as Billed with every open control listed, compliance blocks
+// included, and a reason. Only a compliance block on a bill neither of those covers asks for the override here.
+function apprBillYes(it) {
+  const b = it && (DB.bills || []).find((x) => x.id === it.id);
+  if (!b || !it.act) return;
+  const keep = S,
+    p = DB.projects.find((x) => x.id === b.projectId),
+    run = (why) => {
+      p && (S = p);
+      try {
+        billAction(b, it.act, why);
+      } catch (e) {
+        console.warn(e), toast("Could not approve: " + (e.message || e));
+      }
+      (S = keep), render();
+    },
+    asked =
+      ("function" == typeof billOverPO && billOverPO(b)) ||
+      ("function" == typeof billPaidUnapproved && billPaidUnapproved(b) && isOwner());
+  "approve" === it.act && it.comp && it.comp.length && !asked
+    ? mbModal(
+        `Override — ${esc(b.vendor)}`,
+        `<div class="note warn">${it.comp.map(esc).join("<br>")}</div><div class="f" style="margin-top:10px"><label>Owner override — reason</label><input data-f="why" placeholder="e.g. COI renewal received by email, filing tomorrow" enterkeyhint="done"></div>`,
+        {
+          submit: "Approve Anyway",
+          onSubmit: (v) => {
+            if (!v.why) return toast("Say why you are overriding it"), !1;
+            run(v.why);
+          },
+        },
+      )
+    : run("");
+}
 function renderMApprove() {
   const v = document.getElementById("v-mapprove");
   if (!v) return;
@@ -83198,32 +83250,8 @@ function renderMApprove() {
       if ((op && (op.onclick = () => mGo(it.open)), "bill" === it.kind)) {
         const b = DB.bills.find((x) => x.id === it.id),
           keep = S,
-          p = DB.projects.find((x) => x.id === b.projectId),
-          runBill = (why) => {
-            p && (S = p);
-            try {
-              billAction(b, it.act, why);
-            } catch (e) {
-              console.warn(e), toast("Could not approve: " + (e.message || e));
-            }
-            (S = keep), render();
-          };
-        yes &&
-          (yes.onclick = () => {
-            "approve" === it.act && it.comp && it.comp.length && !billOverPO(b)
-              ? mbModal(
-                  `Override — ${esc(b.vendor)}`,
-                  `<div class="note warn">${it.comp.map(esc).join("<br>")}</div><div class="f" style="margin-top:10px"><label>Owner override — reason</label><input data-f="why" placeholder="e.g. COI renewal received by email, filing tomorrow" enterkeyhint="done"></div>`,
-                  {
-                    submit: "Approve Anyway",
-                    onSubmit: (v) => {
-                      if (!v.why) return toast("Say why you are overriding it"), !1;
-                      runBill(v.why);
-                    },
-                  },
-                )
-              : runBill("");
-          }),
+          p = DB.projects.find((x) => x.id === b.projectId);
+        yes && (yes.onclick = () => apprBillYes(it)),
           no &&
             (no.onclick = () => {
               billAskWhy(
@@ -162547,5 +162575,788 @@ function eqSchema() {
       base.apply(this, arguments) +
       '\n- Show the query you ran under every answer, in one line: "I ran: <entity> where <filters> grouped by <field> (N rows)". A count you state must be the row count the tool returned.\n- A name the records do not hold as a client, job, vendor or person may still be in the books: query transactions, bills and purchaseorders with q before saying there is nothing.'
     );
+  };
+}
+
+/* ---------------------------------------------------------------------------
+   Today: the Owner's and the PM's Home (BACKLOG §3.3 "every person's day starts in one place").
+   Home was eight stacked sections (a prose brief, The Brain, Workload, Inbox, Tasks, Obligations, Daily
+   Logs, the field card), 1,100 words on a phone. It is now four short parts, each read from one source:
+     Pulse          three numbers, each from one named predicate, each opening the rows behind it;
+     Do Now         the Approvals queue (PRED.waitingOnMe), ranked by who is blocked and the money at stake,
+                    five shown, one verb each; the verb runs the same function the Approvals page runs;
+     Caught for You what the detectors found that would cost money or slip (the CATCH registry below),
+                    each with a proposed action a person takes;
+     Brief          three short lines from the morning brief, the full brief one tap away.
+   Everything else (Inbox, Tasks, Obligations, Workload, The Brain, Daily Logs) has its own page.
+   This is the outermost renderHome: for the Owner and the PM it draws Today and returns, so none of the
+   older Home layers (h4, b2, bn, b4, fd, ov, dl) run for them; every other role keeps its Home.
+--------------------------------------------------------------------------- */
+const TD_ROLES = ["owner", "pm"];
+let tdBriefFull = !1,
+  tdCatchAll = !1,
+  tdCtx = null;
+const tdOn = () =>
+  "home" === view &&
+  TD_ROLES.includes(role()) &&
+  "classic" !== ((DB.company || {}).homeMode || "brief") &&
+  !document.body.classList.contains("ws-mb");
+const tdJob = (p) => (p ? shortName(p) : "");
+const tdMoney0 = (v) => money(Math.round(+v || 0)).replace(/\.00$/, "");
+// Per-render facts that several parts read (the brief's facts are not cheap).
+function tdFacts() {
+  if (tdCtx) return tdCtx;
+  const F = briefFacts();
+  let X = null;
+  try {
+    X = b2Facts(F);
+  } catch (e) {}
+  return (tdCtx = { F: F, X: X });
+}
+// The jobs a person runs: the PM's own jobs (or every job when none carries their name); the Owner sees all.
+function tdMyJobs() {
+  const live = (DB.projects || []).filter((p) => !p.archived && "closed" !== (p.project || {}).status);
+  if (isOwner()) return live;
+  const me = (currentUser() || {}).name || "";
+  const mine = live.filter((p) => [p.project.pm, p.project.userName].includes(me));
+  return mine.length ? mine : live;
+}
+
+// ---- the Pulse's predicates (added to the registry so Ask, tiles and saved searches can read them)
+predDef("safeToSpend", {
+  label: "Safe to Spend",
+  rule: "the lower of truly ours (cash, less cards, unpaid bills, payroll due and money billed ahead of work) and the 13-week low",
+  figure: () => safeToSpend().safe,
+  // the build-up behind the figure, line for line as companyBalance computes it: cash today is the bank
+  // plus the card balances (negative) less unpaid bills and payroll due; truly ours takes off what was billed ahead
+  rows() {
+    const X = safeToSpend(),
+      B = X.B;
+    return [
+      ["In the bank", B.cash],
+      ["Credit cards", B.cards],
+      ["Unpaid bills", -B.ap],
+      ["Payroll due", -(B.payrollAccrued || 0)],
+      ["Billed ahead of work", -(B.over || 0)],
+      ["Truly ours", B.trulyOurs, "total"],
+      ["13-week low", X.low, "total"],
+      ["Safe to spend", X.safe, "figure"],
+    ].filter((r) => r[2] || Math.abs(+r[1] || 0) >= 0.005);
+  },
+});
+predDef("overdueAR", {
+  label: "Overdue AR",
+  rule: "client invoices with a balance, past their due date",
+  rows: () =>
+    (DB.clients || []).flatMap((c) =>
+      clientFin(c)
+        .open.filter((o) => o.x && o.x.due && o.x.due < today())
+        .map((o) => ({ c: c, o: o })),
+    ),
+  figure() {
+    return r2(this.rows().reduce((a, x) => a + (+x.o.bal || 0), 0));
+  },
+});
+predDef("jobsAtRisk", {
+  label: "Jobs at Risk",
+  rule: "something on the job is late (materials, decisions, submittals), the forecast finish is past the agreed finish, or the margin has faded 3 points or more from plan",
+  why(p) {
+    const out = [],
+      late = PRED.jobLate.count(p.id);
+    late && out.push(`${late} late`);
+    try {
+      const d = withProject(p, () => {
+        const { cpm: cpm, projEnd: projEnd } = computeCPM();
+        return p.project.target ? signedWork(p.project.target, scDate(cpm, projEnd)) : 0;
+      });
+      d > 0 && out.push(`finish ${d} working day${1 === d ? "" : "s"} past ${fmt(p.project.target)}`);
+    } catch (e) {}
+    try {
+      const J = jobFin(p),
+        fade = J.contract && J.plannedGPPct ? r2((J.estGPPct || 0) - J.plannedGPPct) : 0;
+      fade <= -3 && out.push(`margin down ${Math.abs(fade)} pts`);
+    } catch (e) {}
+    return out;
+  },
+  rows(scope) {
+    return predJobs(scope)
+      .filter((p) => !p.archived && "closed" !== (p.project || {}).status)
+      .map((p) => ({ p: p, why: this.why(p) }))
+      .filter((x) => x.why.length);
+  },
+});
+
+// ---- Pulse: three numbers per role, each read from one predicate
+const TD_PULSE = {
+  owner: [
+    {
+      k: "safe",
+      label: "Safe to Spend",
+      pred: "safeToSpend",
+      money: !0,
+      tone: (v) => (v < 0 ? "bad" : ""),
+      go: () => h4Go({ view: "reports", tab: "financials" }),
+      goLabel: "Open Statements",
+    },
+    {
+      k: "ar",
+      label: "Overdue AR",
+      pred: "overdueAR",
+      money: !0,
+      tone: (v) => (v > 0 ? "warn" : ""),
+      go: () => setView("billing"),
+      goLabel: "Open Billing",
+    },
+    {
+      k: "risk",
+      label: "Jobs at Risk",
+      pred: "jobsAtRisk",
+      tone: (v) => (v ? "warn" : ""),
+      go: () => setView("ovjobs"),
+      goLabel: "Open Projects",
+    },
+  ],
+  pm: [
+    {
+      k: "late",
+      label: "Late on Jobs",
+      pred: "jobLate",
+      mine: !0,
+      tone: (v) => (v ? "bad" : ""),
+      go: () => setView("ovjobs"),
+      goLabel: "Open Projects",
+    },
+    {
+      k: "client",
+      label: "Waiting on Client",
+      pred: "clientDecisionsDue",
+      mine: !0,
+      tone: (v) => (v ? "warn" : ""),
+      go: () => setView("dec"),
+      goLabel: "Open Decisions",
+    },
+    {
+      k: "site",
+      label: "Site Questions",
+      pred: "siteQuestions",
+      mine: !0,
+      tone: (v) => (v ? "warn" : ""),
+      go: () => ((window.mApprKind = "raise"), setView("mapprove")),
+      goLabel: "Open Approvals",
+    },
+  ],
+};
+function tdPulseRows(t) {
+  const P = PRED[t.pred];
+  return t.mine ? tdMyJobs().flatMap((p) => P.rows(p.id)) : P.rows();
+}
+function tdPulseValue(t) {
+  const P = PRED[t.pred];
+  return t.money ? P.figure() : tdPulseRows(t).length;
+}
+// One line per row behind a Pulse number: [what, detail, amount, open].
+function tdPulseLine(t, x) {
+  switch (t.pred) {
+    case "safeToSpend":
+      return [x[0], "", x[1], null, x[2]];
+    case "overdueAR":
+      return [
+        `${x.o.x.number} · ${x.c.name}`,
+        `due ${fmt(x.o.x.due)}`,
+        x.o.bal,
+        flowGo.doc(x.c, "invoice", x.o.x),
+      ];
+    case "jobsAtRisk":
+      return [tdJob(x.p), x.why.join(" · "), null, flowGo.project(x.p)];
+    case "jobLate": {
+      const r = x.r,
+        p = r.p || DB.projects.find((q) => q.id === (r.projectId || r.pid)),
+        name =
+          "material" === x.kind
+            ? r.name || r.item || r.title
+            : "decision" === x.kind
+              ? (r.d || {}).name
+              : (r.s && (r.s.number + " " + (r.s.title || ""))) || r.title || "Submittal";
+      return [
+        name || x.kind,
+        `${x.kind}${p ? " · " + tdJob(p) : ""}`,
+        null,
+        "decision" === x.kind && r.d && p
+          ? flowGo.decision(p, r.d)
+          : "submittal" === x.kind && r.s && p && "function" == typeof smGo
+            ? smGo(r.s, p)
+            : p
+              ? () => (setCurrent(p.id), setView("decision" === x.kind ? "dec" : "po"))
+              : null,
+      ];
+    }
+    case "clientDecisionsDue":
+      return [x.d.name, `${tdJob(x.p)} · owed by ${x.d.owner}`, null, flowGo.decision(x.p, x.d)];
+    case "siteQuestions": {
+      const r = x.x || {};
+      return [r.title || "Question from the site", `${tdJob(x.p)}${r.by ? " · " + r.by : ""}`, null, flowGo.raise(r)];
+    }
+  }
+  return [String(x), "", null, null];
+}
+function tdPulseOpen(t) {
+  const rows = tdPulseRows(t),
+    v = tdPulseValue(t),
+    lines = rows.map((x) => tdPulseLine(t, x)),
+    head = t.money ? tdMoneyC(v) : `${v} ${1 === v ? "item" : "items"}`,
+    m = mbModal(
+      esc(t.label),
+      `<p class="small muted td-sh-rule">${esc(PRED[t.pred].rule)}.</p><div class="td-sh-n" data-tdsheet="${t.k}" data-n="${t.money ? v : rows.length}">${esc(head)}</div>${
+        lines.length
+          ? `<div class="td-sh-list">${lines
+              .map(
+                (l, i) =>
+                  `<div class="td-sh-row ${l[4] || ""}" ${l[3] ? `data-tdsh="${i}"` : ""}><span class="grow"><b>${esc(l[0])}</b>${l[1] ? `<span class="small muted">${esc(l[1])}</span>` : ""}</span>${null != l[2] ? `<span class="money">${tdMoneyC(l[2])}</span>` : ""}</div>`,
+              )
+              .join("")}</div>`
+          : `<div class="empty">Nothing here today.</div>`
+      }<div class="td-sh-ft"><a href="#" data-tdshgo>${esc(t.goLabel)}</a></div>`,
+      { submit: null },
+    );
+  if (!m) return;
+  m.querySelectorAll("[data-tdsh]").forEach(
+    (el) =>
+      (el.onclick = () => {
+        const go = lines[+el.dataset.tdsh][3];
+        mbCloseModal(), go && go();
+      }),
+  );
+  const g = m.querySelector("[data-tdshgo]");
+  g &&
+    (g.onclick = (e) => {
+      e.preventDefault(), mbCloseModal(), t.go();
+    });
+}
+
+// ---- Do Now: the Approvals queue, ranked
+// how many jobs the questions from the field in the queue come from (the job is named only when it varies)
+function tdRaiseJobs() {
+  const R = (DB.field || {}).raises || [];
+  return new Set(
+    PRED.waitingOnMe
+      .rows()
+      .filter((it) => "raise" === it.kind)
+      .map((it) => (R.find((r) => r.id === it.id) || {}).projectId),
+  ).size;
+}
+function tdRaise(it) {
+  return "raise" === it.kind ? ((DB.field || {}).raises || []).find((r) => r.id === it.id) : null;
+}
+function tdDec(it) {
+  if ("dec" !== it.kind) return null;
+  const [did, pid0] = String(it.id).split("@"),
+    pid = pid0 || (it.open && it.open.project),
+    p = DB.projects.find((x) => (!pid || x.id === pid) && (x.decisions || []).some((d) => d.id === did));
+  return p ? { p: p, d: p.decisions.find((d) => d.id === did) } : null;
+}
+// Who is blocked and what is at stake: a person in the field waiting comes first, then money that has
+// already left or is about to, then what holds the schedule; housekeeping (lessons, meeting notes) last.
+function tdScore(it) {
+  const td = today(),
+    soon = iso(addDays(td, 1)),
+    sev = "bad" === it.sev ? 5 : "warn" === it.sev ? 2 : 0;
+  if ("raise" === it.kind) {
+    const r = tdRaise(it) || {};
+    return 60 + (r.escalated || (r.dueBy && r.dueBy <= soon) ? 20 : 0) + sev + (r.dueBy && r.dueBy <= td ? 3 : 0);
+  }
+  if ("req" === it.kind) return 55 + sev;
+  if ("bill" === it.kind) {
+    const b = (DB.bills || []).find((x) => x.id === it.id);
+    if (!b) return 40;
+    return 50 + Math.min(30, billTotal(b) / 1e3) + (billPaidUnapproved(b) ? 10 : 0) + sev;
+  }
+  if ("dec" === it.kind) {
+    const D = tdDec(it);
+    return 25 + (D && (D.d.gate || D.d.blocks || D.d.ref) ? 15 : 0) + ("bad" === it.sev ? 15 : 0);
+  }
+  if ("subm" === it.kind) return 40 + sev;
+  if ("time" === it.kind) return 30 + sev;
+  if ("draft" === it.kind) return 20 + sev;
+  if ("meeting" === it.kind) return 15 + sev;
+  return 10 + sev;
+}
+function tdQueue() {
+  const A = PRED.waitingOnMe.rows();
+  return A.map((it, i) => ({ it: it, i: i, s: tdScore(it) }))
+    .sort((a, b) => b.s - a.s || a.i - b.i)
+    .map((x) => x.it);
+}
+const tdPlain = (s) =>
+  String(s || "")
+    .replace(/<[^>]*>/g, "")
+    .replace(/(\d{4})-(\d{2})-(\d{2})/g, (m) => fmt(m));
+// One card: line 1 what it is (a link to the record), line 2 why now, and one verb.
+function tdCard(it) {
+  const go = () => mGo(it.open),
+    c = { line1: esc(tdPlain(it.title)), go: go, why: "", verb: "Open", run: go };
+  if ("bill" === it.kind) {
+    const b = (DB.bills || []).find((x) => x.id === it.id);
+    if (b) {
+      const P = "function" == typeof pay3PO ? pay3PO(b) : null,
+        over = "function" == typeof pay3Default ? pay3Default(b) : 0,
+        bits = [money(billTotal(b))];
+      over > 0 && P && P.po && bits.push(`${tdMoney0(billTotal(b) - over)} over ${P.po.number}`);
+      billPaidUnapproved(b) && bits.push("paid before approval");
+      (it.comp || []).length && bits.push(String(it.comp[0]).replace(/\s*\(.*$/, ""));
+      c.line1 = `<a href="#" data-tdrec>${esc(b.number || "Bill")}</a> · ${esc(b.vendor)}`;
+      c.go = flowGo.bill(b);
+      c.why = bits.slice(0, 3).join(" · ");
+      it.act && ((c.verb = "pmok" === it.act ? "Recommend" : "Approve"), (c.run = () => apprBillYes(it)));
+      it.act || (c.run = c.go);
+    }
+  } else if ("time" === it.kind) {
+    const t = (DB.time || []).find((x) => x.id === it.id),
+      p = t && DB.projects.find((x) => x.id === t.projectId);
+    if (t) {
+      const fl = ("function" == typeof timeFlags ? timeFlags(t) : []) || [];
+      c.line1 = `<a href="#" data-tdrec>${esc(empName(t.empId))}</a> · ${esc(it.n)}${p ? " on " + esc(tdJob(p)) : ""}`;
+      c.go = flowGo.time(t);
+      c.why = `hours for ${fmt(t.date)}${fl.length ? " · " + tdPlain(fl[0]).replace(/\s*\(.*$/, "") : " · no flags"}`;
+      c.verb = "Approve";
+      c.run = () => {
+        const keep = S;
+        p && (S = p);
+        try {
+          timeAction(t, "approve");
+        } catch (e) {
+          console.warn(e);
+        }
+        (S = keep), render();
+      };
+    }
+  } else if ("raise" === it.kind) {
+    const r = tdRaise(it),
+      p = r && DB.projects.find((x) => x.id === r.projectId);
+    if (r) {
+      c.line1 = `<a href="#" data-tdrec>${esc(tdWords(r.title, 12))}</a>`;
+      c.go = flowGo.raise(r);
+      c.why = `${esc(r.by || "The foreman")} waiting${r.dueBy ? " · needs it " + fmt(r.dueBy) : ""}${p && tdRaiseJobs() > 1 ? " · " + esc(tdJob(p)) : ""}`;
+      c.verb = "Answer";
+      c.run = () => fAnswerRaise(r, "extra" === r.type ? "extra" : "");
+    }
+  } else if ("dec" === it.kind) {
+    const D = tdDec(it);
+    if (D) {
+      const name = String(D.d.name || "").replace(/ — .*$/, "");
+      c.line1 = `<a href="#" data-tdrec>${esc(name)}</a>`;
+      c.go = flowGo.decision(D.p, D.d);
+      const due = (() => {
+        try {
+          return withProject(D.p, () => decDue(D.d));
+        } catch (e) {
+          return "";
+        }
+      })();
+      c.why = [tdJob(D.p), D.d.gate ? "holds " + D.d.gate : "", due ? (due < today() ? "past due " : "due ") + fmt(due) : ""]
+        .filter(Boolean)
+        .map(esc)
+        .join(" · ");
+      c.verb = "Choose";
+      c.run = () => flowDecide(D.p, D.d);
+    }
+  } else {
+    const parts = tdPlain(it.detail)
+      .split(/\s+·\s+/)
+      .filter(Boolean);
+    c.why = esc(parts.slice(0, 2).join(" · "));
+    "req" === it.kind && (c.why = esc(parts.slice(1, 3).join(" · ") || parts[0] || ""));
+  }
+  c.why = c.why || esc(tdPlain(it.detail).split(/\s+·\s+/)[0] || "");
+  return c;
+}
+
+// ---- Caught for You: the detectors, as a registry. Each entry: rows() of {key, what, sub, amount, verb, run}.
+// Another lane plugs a new detector in by pushing an entry; Home reads them in this order.
+const tdWords = (s, n) => {
+  const w = String(s || "").split(/\s+/);
+  return w.length > n ? w.slice(0, n).join(" ") + "…" : String(s || "");
+};
+const CATCH = [
+  {
+    name: "earnedNotBilled",
+    label: "Earned, Not Billed",
+    rows() {
+      const R = readyToBill();
+      return R.rows
+        .map((r) => ({
+          key: "rtb:" + blRtbKey(r),
+          what: `Not billed: ${blRowName(r) || tdJob(r.p)}`,
+          sub: `${money(r.amount)} ${"dhours" === r.kind ? "of design hours banked" : "dmilestone" === r.kind ? "milestone reached" : "earned"}`,
+          amount: r.amount,
+          verb: "Bill It",
+          run: () => rtbAct(blRtbKey(r)),
+        }))
+        .concat(
+          R.held.map((h) => ({
+            key: "held:" + h.p.id,
+            what: `Held: ${tdJob(h.p)}`,
+            sub: `${money(h.amount)} earned, held because ${h.why}`,
+            amount: h.amount,
+            verb: "Review",
+            run: () => rtbAct("app:" + h.p.id),
+          })),
+        );
+    },
+  },
+  {
+    name: "costNotBilled",
+    label: "Cost Not Billed",
+    rows: () =>
+      ("function" == typeof spUnbilled ? spUnbilled() : []).map((r) => ({
+        key: "sp:" + (r.key || (r.txn && r.txn.id)),
+        what: `Cost not billed: ${tdWords((r.line && (r.line.item || r.line.desc)) || r.label, 5)}`,
+        sub: `${money(r.gap)} on ${tdJob(r.project)}${"over-contract" === r.kind ? " · over contract" : "no-line" === r.kind ? " · on no line" : ""}`,
+        amount: r.gap,
+        verb: "Review",
+        run: () => {
+          try {
+            (spTab = "unbilled"), (spProj = "all");
+          } catch (e) {}
+          setView("spend");
+        },
+      })),
+  },
+  {
+    name: "overPO",
+    label: "Billed Over the PO",
+    rows: () =>
+      (DB.bills || [])
+        .filter((b) => !["void", "rejected", "draft"].includes(b.status) && "function" == typeof pay3Default && pay3Can(b) && pay3Default(b) > 0)
+        .map((b) => {
+          const over = r2(billTotal(b) - pay3Default(b)),
+            P = pay3PO(b);
+          return {
+            key: "bill:" + b.id,
+            what: `Over PO: ${b.number} · ${b.vendor}`,
+            sub: `${money(over)} over ${P && P.po ? P.po.number : "the PO"}`,
+            amount: over,
+            verb: isOwner() ? "Dispute Difference" : "Review",
+            run: isOwner() ? () => billAction(b, "short") : flowGo.bill(b),
+          };
+        }),
+  },
+  {
+    name: "budgetOverrun",
+    label: "Over Budget",
+    rows: () =>
+      ("function" == typeof analystFindings ? analystFindings() : [])
+        .filter((f) => /over budget/i.test(f.title || ""))
+        .map((f, i) => ({
+          key: "bud:" + f.title,
+          what: tdWords(f.title, 8),
+          sub: `${money(f.amount)}${f.detail ? " · " + tdWords(tdPlain(f.detail), 6) : ""}`,
+          amount: f.amount,
+          verb: "Review",
+          run: () => h4Go(f.go || { view: "reports", tab: "budget" }),
+        })),
+  },
+  {
+    name: "compliance",
+    label: "Compliance",
+    rows: () =>
+      tdChase()
+        .filter((c) => "coi" === c.kind)
+        .map((c) => ({
+          key: "coi:" + (c.vendor ? c.vendor.id : c.t),
+          what: tdPlain(c.t),
+          sub: tdPlain(c.sub),
+          amount: 0,
+          verb: "Chase COI",
+          run: () => eaNudge(c),
+        })),
+  },
+  {
+    name: "unmatchedCredit",
+    label: "Credit With No Return",
+    rows: () =>
+      ("function" == typeof rmOrphans ? rmOrphans() : []).map((t) => ({
+        key: "txn:" + t.id,
+        what: `Credit with no return: ${tdWords(t.vendor || t.desc, 4)}`,
+        sub: `${money(+t.amt || 0)} came in ${fmt(t.date)}`,
+        amount: +t.amt || 0,
+        verb: "Match",
+        run: () => rmModal(),
+      })),
+  },
+  {
+    name: "followUp",
+    label: "Not Come Back",
+    rows: () =>
+      tdChase()
+        .filter((c) => !["coi", "field"].includes(c.kind) && c.msg)
+        .map((c) => ({
+          key: "chase:" + c.kind + ":" + tdPlain(c.t),
+          what: `Waiting on: ${tdWords(tdPlain(c.t).replace(/ — .*$/, ""), 7)}`,
+          sub: tdWords(tdPlain(c.sub), 8),
+          amount: 0,
+          verb: "Chase",
+          run: () => eaNudge(c),
+        })),
+  },
+  {
+    name: "lateTasks",
+    label: "Late Tasks",
+    rows() {
+      const me = tkMe();
+      return me
+        ? tkItems()
+            .filter((x) => x.late && x.assignee && tkOwnerMatch(x.assignee, me) && "sched" !== x.kind)
+            .map((x) => ({
+              key: "task:" + x.id,
+              what: `Late: ${tdWords(x.title, 7)}`,
+              sub: `was due ${fmt(x.due)}${x.project ? " · " + x.project : ""}`,
+              amount: 0,
+              verb: "Open",
+              run: () => setView("tkall"),
+            }))
+        : [];
+    },
+  },
+];
+function tdChase() {
+  const C = tdFacts();
+  if (C.chase) return C.chase;
+  try {
+    C.chase = C.X ? eaChase(C.F, C.X, role()) : [];
+  } catch (e) {
+    C.chase = [];
+  }
+  return C.chase;
+}
+// Every detector's rows, less anything already waiting in the person's queue (a bill billed over its PO
+// that waits for approval says so on its Do Now card), in turns: each detector's biggest first, then the next.
+function tdCaught(queue) {
+  const inQ = new Set((queue || []).filter((it) => "bill" === it.kind).map((it) => "bill:" + it.id)),
+    lists = CATCH.map((C) => {
+      let R = [];
+      try {
+        R = C.rows() || [];
+      } catch (e) {
+        console.warn("catch", C.name, e);
+      }
+      return R.filter((r) => !inQ.has(r.key))
+        .sort((a, b) => (b.amount || 0) - (a.amount || 0))
+        .map((r) => Object.assign({ src: C.name }, r));
+    }),
+    out = [];
+  for (let i = 0; lists.some((l) => l.length > i); i++) lists.forEach((l) => l[i] && out.push(l[i]));
+  return out;
+}
+
+// ---- Brief: three short lines from the morning brief, the brief itself one tap away
+const TD_BRIEF_PICK = [
+  [/(?:^|[:;] )([A-Z][^;:]*?) escalated in writing/, (m) => `${m[1]} escalated in writing: call first`],
+  [/^Since you were last here I (.+?)(?: — |, and |\.$)/, (m) => "I " + m[1]],
+  [/(\d+ deals? needs? a hand today)/i, (m) => m[1]],
+  [/^Budget: the biggest variances this year are ([^;]+?)(?:;|$)/, (m) => "Budget: " + m[1]],
+  [/(\d+ messages? read and routed[^;.]*)/i, (m) => m[1]],
+  [/^You asked me to remember .*/, (m) => m[0].replace(/\.$/, "")],
+];
+function tdBriefText() {
+  const F = tdFacts().F,
+    key = F.td + "|" + role(),
+    cached = ((DB.company || {}).briefCache || {})[key];
+  return cached && cached.text ? cached.text.split(/\n+/).filter(Boolean) : briefSentences(F, role());
+}
+function tdBriefLines() {
+  const L = briefSentences(tdFacts().F, role()).slice(1),
+    out = [];
+  for (const [re, f] of TD_BRIEF_PICK) {
+    if (out.length >= 3) break;
+    for (const s of L) {
+      const m = re.exec(s);
+      if (m) {
+        const line = tdWords(f(m, s).replace(/\s+/g, " ").trim().replace(/[.;,]$/, ""), 10);
+        // what Do Now and Caught for You already show is not repeated here
+        line && !out.includes(line) && !/earned and not billed|not come back/i.test(line) && out.push(line);
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+// ---- the page
+function tdRender() {
+  const root = homeRoot();
+  if (!root) return;
+  tdCtx = null;
+  const r = role(),
+    pulse = (TD_PULSE[r] || TD_PULSE.owner).map((t) => {
+      let v = 0;
+      try {
+        v = tdPulseValue(t);
+      } catch (e) {
+        console.warn("pulse", t.k, e);
+      }
+      return { t: t, v: v };
+    }),
+    Q = tdQueue(),
+    top = Q.slice(0, 5).map((it) => Object.assign({ it: it }, tdCard(it))),
+    caught = tdCaught(Q),
+    shownC = tdCatchAll ? caught : caught.slice(0, 4),
+    brief = tdBriefLines(),
+    ic = (d) =>
+      `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+  root.innerHTML = `<div class="td-home" data-tdrole="${r}">
+  <div class="ph td-ph"><div><h2>Home</h2></div></div>
+  <div class="td-pulse">${pulse
+    .map(
+      ({ t: t, v: v }) =>
+        `<a href="#" class="td-pl ${t.tone ? t.tone(v) : ""}" data-tdpulse="${t.k}" data-n="${v}"><b>${t.money ? esc(tdMoney(v)) : v}</b><span>${esc(t.label)}</span></a>`,
+    )
+    .join("")}</div>
+  <div class="td-cols"><section class="td-sec td-do" aria-label="Do Now"><div class="td-hd"><h3>Do Now</h3><span class="td-cnt" data-tdcount="${Q.length}">${Q.length}</span></div>${
+    top.length
+      ? top
+          .map(
+            (c, i) =>
+              `<div class="td-card" data-kind="${c.it.kind}" data-id="${esc(String(c.it.id))}"><div class="td-txt"><div class="td-l1">${c.line1}</div>${c.why ? `<div class="td-l2">${c.why}</div>` : ""}</div><button type="button" class="btn ${0 === i ? "primary" : ""} td-verb" data-tdverb="${i}">${esc(c.verb)}</button></div>`,
+          )
+          .join("")
+      : '<div class="td-empty">Nothing is waiting on you.</div>'
+  }${Q.length > top.length ? `<a href="#" class="td-more" data-tdall>${Q.length - top.length} more in Approvals</a>` : ""}</section>
+  <div class="td-side"><section class="td-sec td-catch" aria-label="Caught for You"><div class="td-hd"><h3>Caught for You</h3><span class="td-cnt" data-tdcaught="${caught.length}">${caught.length}</span></div>${
+    shownC.length
+      ? shownC
+          .map(
+            (x, i) =>
+              `<div class="td-card td-c" data-src="${x.src}"><span class="td-ic">${ic('<path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/>')}</span><div class="td-txt"><div class="td-l1">${esc(x.what)}</div><div class="td-l2">${esc(x.sub)}</div></div><button type="button" class="btn sm td-verb" data-tdcatch="${i}">${esc(x.verb)}</button></div>`,
+          )
+          .join("")
+      : '<div class="td-empty">Nothing caught today.</div>'
+  }${caught.length > 4 ? `<a href="#" class="td-more" data-tdcatchall>${tdCatchAll ? "Show Fewer" : `${caught.length - 4} more`}</a>` : ""}</section>
+  <section class="td-sec td-brief" aria-label="Morning Brief"><div class="td-hd"><h3>Morning Brief</h3></div>${
+    tdBriefFull
+      ? `<div id="jv" class="td-jv"><div class="jv-body">${tdBriefText()
+          .map((s, i) => `<p class="${0 === i ? "jv-lead" : ""}">${esc(s)}</p>`)
+          .join("")}</div></div><a href="#" class="td-more" data-tdbrief>Shorter</a>`
+      : `${brief.length ? `<ul class="td-bl">${brief.map((s) => `<li>${esc(s)}</li>`).join("")}</ul>` : ""}<a href="#" class="td-more" data-tdbrief>Read the Full Brief</a>`
+  }</section></div></div></div>`;
+  const P = TD_PULSE[r] || TD_PULSE.owner;
+  root.querySelectorAll("[data-tdpulse]").forEach(
+    (a) =>
+      (a.onclick = (e) => {
+        e.preventDefault();
+        const t = P.find((x) => x.k === a.dataset.tdpulse);
+        t && tdPulseOpen(t);
+      }),
+  );
+  root.querySelectorAll(".td-do .td-card").forEach((el, i) => {
+    const c = top[i];
+    if (!c) return;
+    const a = el.querySelector("[data-tdrec]");
+    a &&
+      (a.onclick = (e) => {
+        e.preventDefault(), c.go();
+      });
+    el.querySelector("[data-tdverb]").onclick = (e) => {
+      e.preventDefault(), c.run();
+    };
+  });
+  root.querySelectorAll("[data-tdcatch]").forEach(
+    (b) =>
+      (b.onclick = (e) => {
+        e.preventDefault();
+        const x = shownC[+b.dataset.tdcatch];
+        x && x.run();
+      }),
+  );
+  const all = root.querySelector("[data-tdall]");
+  all &&
+    (all.onclick = (e) => {
+      e.preventDefault(), (window.mApprKind = "all"), setView("mapprove");
+    });
+  const ca = root.querySelector("[data-tdcatchall]");
+  ca &&
+    (ca.onclick = (e) => {
+      e.preventDefault(), (tdCatchAll = !tdCatchAll), render();
+    });
+  const br = root.querySelector("[data-tdbrief]");
+  br &&
+    (br.onclick = (e) => {
+      e.preventDefault(), (tdBriefFull = !tdBriefFull), render();
+    });
+  tdCtx = null;
+}
+// The Pulse prints to the cent below $100k (the Statements cash card's safe-to-spend, −$4,150.74), in $k above.
+const tdMoneyC = (v) => ((+v || 0) < -0.004 ? "−" : "") + money2(Math.abs(+v || 0)),
+  tdMoney = (v) => {
+    const a = Math.abs(+v || 0);
+    return a >= 1e5 ? (v < 0 ? "−" : "") + "$" + Math.round(a / 1e3) + "k" : tdMoneyC(v);
+  };
+if ("function" == typeof renderHome) {
+  const base = renderHome;
+  renderHome = function () {
+    if (tdOn())
+      try {
+        return tdRender();
+      } catch (e) {
+        console.error("today", e);
+      }
+    return base.apply(this, arguments);
+  };
+}
+
+// ---- phone chrome for the office roles (≤760px): one slim header (search, Ask, New) and the bottom tab bar.
+// The sub-tab strip is dropped where it repeats the bottom bar (Home, Approvals); page lead sentences are
+// dropped; the page title moves into the header once the page heading has scrolled away.
+function tdChrome() {
+  const phone = "function" == typeof mOffice && mOffice(),
+    body = document.body;
+  body.classList.toggle("td-phone", !!phone);
+  const bar = document.querySelector("header.topbar");
+  if (bar) {
+    let a = document.getElementById("tb-ask");
+    const show =
+      M_OFFICE.includes(role()) && (ROLE_VIEWS[role()] || []).includes("pa") && !body.classList.contains("ws-mb");
+    if (!a && show) {
+      (a = document.createElement("button")),
+        (a.id = "tb-ask"),
+        (a.type = "button"),
+        (a.className = "btn tb-ask no-print"),
+        (a.title = "Ask"),
+        a.setAttribute("aria-label", "Ask"),
+        (a.innerHTML = `${M_ICON.ask}<span>Ask</span>`),
+        (a.onclick = () => setView("pa"));
+      const s = document.getElementById("btn-search");
+      s ? s.after(a) : bar.appendChild(a);
+    }
+    a && (a.hidden = !show);
+  }
+  const tabs = [...document.querySelectorAll("#mtabs [data-mv]")].map((b) => b.dataset.mv),
+    sub = document.getElementById("subnav");
+  body.classList.toggle(
+    "td-nosub",
+    !!(phone && sub && tabs.includes(view) && sub.querySelector('[data-sub="home"], [data-sub="mapprove"]')),
+  );
+  if (phone) {
+    const h = document.querySelector(".view.on .ph h2, .view.on h2"),
+      c = document.getElementById("crumbs"),
+      t = h ? h.textContent.trim() : "";
+    c && t && c.textContent.trim() !== t && (c.innerHTML = `<b>${esc(t)}</b>`);
+    tdScrolled();
+  }
+}
+function tdScrolled() {
+  const y = Math.max((document.scrollingElement && document.scrollingElement.scrollTop) || 0, document.body.scrollTop || 0);
+  document.body.classList.toggle("td-scrolled", y > 44);
+}
+document.addEventListener("scroll", tdScrolled, { passive: !0, capture: !0 });
+{
+  const base = render;
+  render = function () {
+    const r = base.apply(this, arguments);
+    try {
+      tdChrome();
+    } catch (e) {
+      console.warn("phone chrome", e);
+    }
+    return r;
   };
 }

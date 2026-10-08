@@ -342,6 +342,8 @@ class DeadEnd(Exception):
 
 async def walk_owner(w):
     pg = w.pg
+    # Home is Today (BACKLOG §3.3): Pulse, Do Now (the Approvals queue, ranked, one verb each), Caught for You,
+    # and the Morning Brief in three lines. The Do Now verbs below are the same gates the brief's buttons were.
     w.step('Morning Brief on landing')
     ok = await w.see('Morning Brief')
     if not ok: await w.flag('next step hidden', 'the Morning Brief is not on the owner\'s landing screen')
@@ -349,14 +351,14 @@ async def walk_owner(w):
     # WW-2026-118: $33,500 billed against PO-2026-044 ($29,700), paid from Amex before approval, COI and W-9 blocks.
     w.step('Approve WW-2026-118 (short-pay: Approve PO Amount, Dispute Difference)')
     await w.toast_mark()
-    # The brief's inline Approve only offers Approve as Billed (the full $33,500, $3,800 over the PO): check it.
+    # Do Now's Approve on WW-2026-118 must open the short-pay sheet (the bill is $3,800 over the PO), never Approve as Billed alone.
     hit = await w.find('Approve', within='WW-2026-118', css='button')
     if hit:
         await w.pg.locator('[data-dw="1"]').first.click(); await pg.wait_for_timeout(400)
         dlg = await w.see('Approve PO Amount') or await w.see('Dispute Difference')
         if not dlg:
-            await w.flag('wrong path', 'the brief\'s inline Approve on WW-2026-118 opens "Approve as Billed" only: no Approve PO Amount / Dispute Difference, '
-                   'although the bill is $3,800 over PO-2026-044 (flowBillInline -> billAction approve -> fin2ApproveAsBilled)', controls=False)
+            await w.flag('wrong path', 'Do Now\'s Approve on WW-2026-118 opens "Approve as Billed" only: no Approve PO Amount / Dispute Difference, '
+                   'although the bill is $3,800 over PO-2026-044 (apprBillYes -> billAction approve must reach pay3ShortPay)', controls=False)
         await pg.keyboard.press('Escape'); await pg.wait_for_timeout(300)
         await w.click('Cancel', optional=True, wait=200)
         w.cur['clicks'] = 0
@@ -417,7 +419,7 @@ async def walk_pm(w):
     await w.click('Send', wait=800)
     await w.mutated('CO sent to the client at $2,400', "() => { const d = DB.clients.flatMap(c => c.changeOrders || []).find(d => /garden wall cabinets/.test(d.title || '')); return d && d.status === 'sent' && JSON.stringify(d.lines || d.items || []).includes('2400') }")
 
-    w.step("Answer the foreman's field question (Home brief > Answer > Send to the Field)")
+    w.step("Answer the foreman's field question (Home Do Now > Answer > Send to the Field)")
     await w.click('Home', prefix=True, scope='nav, aside, .rail, #rail')
     await w.toast_mark()
     await w.click('Answer')

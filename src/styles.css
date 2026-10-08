@@ -1409,7 +1409,7 @@ button.kpi{text-align:left;cursor:pointer;font:inherit;color:inherit} button.kpi
 .cp-today .sl-nba-row a{color:inherit}
 
 /* ---------- HubSpot-style Sales Hub ---------- */
-:root,.hb-view{--hb-orange:#ff7a59;--hb-orange-d:#ff5c35;--hb-blue:#0091ae;--hb-navy:#33475b;--hb-ink:#33475b;--hb-ink2:#516f90;--hb-ink3:#7c98b6;--hb-rule:#cbd6e2;--hb-rule2:#dfe3eb;--hb-bg:#f5f8fa;--hb-bg2:#eaf0f6;--hb-white:#fff;--hb-green:#00bda5;--hb-red:#f2545b;--hb-yellow:#f5c26b;background:var(--hb-bg);color:var(--hb-ink);font-family:"Lexend Deca","Avenir Next","Segoe UI",var(--sans);padding:0 !important}
+:root,.hb-view{--hb-orange:#ff7a59;--hb-orange-d:#ff5c35;--hb-blue:#0091ae;--hb-navy:#33475b;--hb-ink:#33475b;--hb-ink2:#516f90;--hb-ink3:#7c98b6;--hb-rule:#cbd6e2;--hb-rule2:#dfe3eb;--hb-bg:#f5f8fa;--hb-bg2:#eaf0f6;--hb-white:#fff;--hb-green:#00bda5;--hb-red:#f2545b;--hb-yellow:#f5c26b;background:var(--hb-bg);color:var(--hb-ink);font-family:"Lexend Deca","Avenir Next","Segoe UI",var(--sans)} .hb-view{padding:0 !important}
 .hb-page{padding:20px 28px 60px} .hb-page h1{font-size:24px;font-weight:600;color:var(--hb-ink);margin:0} .hb-page h4{font-size:13px;font-weight:600;color:var(--hb-ink);margin:0 0 8px} .hb-page h5{font-size:12px;color:var(--hb-ink2);margin:14px 0 6px;font-weight:600}
 .hb-view a{color:var(--hb-blue)} .hb-view .muted{color:var(--hb-ink3)} .hb-view .bad{color:var(--hb-red)} .hb-view .warn{color:#b26a00}
 .hb-btn{border:1px solid var(--hb-rule);background:var(--hb-white);color:var(--hb-ink);border-radius:3px;padding:8px 16px;font-size:14px;font-weight:500;cursor:pointer;line-height:1;white-space:nowrap} .hb-btn:hover{background:var(--hb-bg)} .hb-btn.sm{padding:6px 12px;font-size:13px} .hb-btn.primary{background:var(--hb-orange);border-color:var(--hb-orange);color:#fff} .hb-btn.primary:hover{background:var(--hb-orange-d)} .hb-btn.link{border-color:transparent;background:transparent;color:var(--hb-blue)} .hb-btn.link:hover{text-decoration:underline;background:transparent} .hb-btn.danger{color:var(--hb-red)} .hb-btn[disabled]{opacity:.45;cursor:default} .hb-btn.on{background:var(--hb-bg2)}
@@ -1728,7 +1728,7 @@ td.name:has(.ls-wait){white-space:normal} td.name .ls-wait{display:inline-block;
 .b4-w{padding:8px 0;border-top:1px solid var(--rule)} .b4-w:first-of-type{border-top:0} .b4-w.closed,.b4-w.expired{opacity:.6}
 .b4-many{margin-top:2px}
 /* ---------- sales, the Copper way 2026-09-14 (v93): the hub wears the ERP's own clothes ---------- */
-:root,.hb-view{--hb-orange:var(--accent);--hb-orange-d:var(--accent-3);--hb-blue:var(--accent);--hb-navy:var(--ink);--hb-ink:var(--ink);--hb-ink2:var(--ink-2);--hb-ink3:var(--ink-3);--hb-rule:var(--rule);--hb-rule2:var(--rule-2);--hb-bg:var(--paper-2);--hb-bg2:var(--paper-3);--hb-green:var(--ok);--hb-red:var(--bad);--hb-yellow:var(--warn);font-family:var(--sans);background:transparent;padding:20px 24px 48px !important}
+:root,.hb-view{--hb-orange:var(--accent);--hb-orange-d:var(--accent-3);--hb-blue:var(--accent);--hb-navy:var(--ink);--hb-ink:var(--ink);--hb-ink2:var(--ink-2);--hb-ink3:var(--ink-3);--hb-rule:var(--rule);--hb-rule2:var(--rule-2);--hb-bg:var(--paper-2);--hb-bg2:var(--paper-3);--hb-green:var(--ok);--hb-red:var(--bad);--hb-yellow:var(--warn);font-family:var(--sans);background:transparent} .hb-view{padding:20px 24px 48px !important}
 .hb-page{padding:0} .hb-page h1{font-size:18px;font-weight:600;letter-spacing:0} .hb-page h4{font-size:13px} .hb-head{margin-bottom:14px}
 .hb-btn{border-radius:6px;height:32px;padding:0 12px;font-size:var(--fs-body,12.5px);font-weight:500;display:inline-flex;align-items:center;gap:6px;line-height:1.2} .hb-btn.sm{height:28px;padding:0 10px;font-size:var(--fs-cap,12px)} .hb-btn.primary{background:var(--accent);border-color:var(--accent)} .hb-btn.primary:hover{background:var(--accent-3)} .hb-btn.on{background:var(--accent-2);color:var(--accent);border-color:var(--accent-2)}
 .hb-table{font-size:13px} .hb-table th{text-transform:uppercase;letter-spacing:.02em;font-size:11px;color:var(--ink-3);padding:7px 10px;background:var(--paper-3)} .hb-table td{padding:7px 10px} .hb-table td.hb-name a{color:var(--ink)} .hb-table tr:hover td{background:var(--paper-2)} .hb-table tr.sel td{background:var(--accent-2)}
@@ -3160,3 +3160,63 @@ body.crewmode .view.on .dl-sign > span{display:block;flex:1 1 auto;min-width:0}
 .br-dec{display:flex;gap:10px;align-items:center;padding:4px 0}
 .br-dec .grow{min-width:0}
 .br-decs-all{display:inline-block;margin-top:4px}
+
+/* ---------- Today: the Owner's and PM's Home (one type scale: 16 body / 16-17 titles / 14 secondary on phone) ---------- */
+.td-home{max-width:1180px;font-size:14px}
+.td-home .td-ph{margin-bottom:12px}
+.td-pulse{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:16px}
+.td-pl{display:flex;flex-direction:column;gap:2px;padding:12px 16px;background:var(--paper);border:1px solid var(--rule);border-radius:10px;color:var(--ink);text-decoration:none;min-width:0}
+.td-pl:hover{border-color:var(--ink-4);text-decoration:none}
+.td-pl b{font-size:22px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.2;white-space:nowrap}
+.td-pl span{font-size:13px;color:var(--ink-2)}
+.td-pl.bad b{color:var(--bad)} .td-pl.warn b{color:var(--warn)}
+.td-cols{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:16px;align-items:start}
+.td-side{display:grid;gap:16px}
+.td-sec{background:var(--paper);border:1px solid var(--rule);border-radius:10px;overflow:hidden}
+.td-hd{display:flex;align-items:baseline;gap:8px;padding:12px 16px 8px}
+.td-hd h3{font-size:15px;font-weight:600}
+.td-cnt{font-size:13px;color:var(--ink-3);font-variant-numeric:tabular-nums}
+.td-card{display:flex;align-items:center;gap:12px;padding:12px 16px;border-top:1px solid var(--rule-2)}
+.td-txt{flex:1;min-width:0}
+.td-l1{font-weight:600;font-size:14px;line-height:1.35;overflow-wrap:anywhere}
+.td-l1 a{color:var(--ink)} .td-l1 a:hover{color:var(--accent)}
+.td-l2{font-size:13px;color:var(--ink-2);margin-top:2px;line-height:1.35;overflow-wrap:anywhere}
+.td-verb{flex:none;min-width:84px;justify-content:center}
+.td-ic{flex:none;color:var(--warn);display:grid;place-items:center}
+.td-more{display:block;padding:12px 16px;border-top:1px solid var(--rule-2);font-weight:500}
+.td-empty{padding:12px 16px 16px;color:var(--ink-3)}
+.td-bl{margin:0;padding:0 16px 8px 34px} .td-bl li{padding:4px 0;line-height:1.4;color:var(--ink)}
+.td-jv{padding:0 16px 8px} .td-jv .jv-body p{margin:0 0 8px;line-height:1.5}
+.td-sh-rule{margin:0 0 8px} .td-sh-n{font-size:20px;font-weight:600;font-variant-numeric:tabular-nums;margin-bottom:8px}
+.td-sh-list{border-top:1px solid var(--rule-2)}
+.td-sh-row{display:flex;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--rule-2)}
+.td-sh-row[data-tdsh]{cursor:pointer} .td-sh-row .grow{display:flex;flex-direction:column;min-width:0}
+.td-sh-row .money{flex:none} .td-sh-row.total b,.td-sh-row.total .money{font-weight:600}
+.td-sh-row.figure b,.td-sh-row.figure .money{font-weight:700}
+.td-sh-ft{margin-top:12px}
+#tb-ask svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+#tb-ask[hidden]{display:none}
+@media (max-width:760px){
+  .td-home{font-size:16px}
+  .td-home .td-ph{margin-bottom:8px} .td-home .td-ph h2{font-size:24px}
+  .td-pulse{gap:8px;margin-bottom:12px}
+  .td-pl{padding:10px 10px} .td-pl b{font-size:17px} .td-pl span{font-size:13px;line-height:1.25}
+  .td-cols,.td-side{grid-template-columns:1fr;gap:12px}
+  .td-hd h3{font-size:17px}
+  .td-l1{font-size:16px} .td-l2{font-size:14px}
+  .td-verb{min-height:40px;min-width:88px}
+  .td-more{padding:14px 16px}
+  .td-bl li{font-size:15px}
+  /* phone chrome for the office roles: navigation is the bottom tab bar; the header carries search, Ask and New */
+  body.m-on .view{padding-left:16px;padding-right:16px}
+  body.m-on .topbar{padding-left:16px;padding-right:16px}
+  body.m-on #menu-btn{display:none}
+  body.m-on .topbar .crumbs{visibility:hidden}
+  body.m-on.td-scrolled .topbar .crumbs{visibility:visible}
+  body.m-on .view .ph .lead{display:none}
+  body.m-on.td-nosub #subnav{display:none}
+  body.m-on #tb-ask span{display:none}
+  body.m-on #tb-ask{width:40px;height:40px;padding:0;justify-content:center;flex:none}
+  body.m-on #fab.m-fab{position:static;width:40px;height:40px;border-radius:var(--r);background:var(--paper);border-color:var(--rule);color:var(--ink);box-shadow:none;flex:none;z-index:auto}
+  body.m-on #fab.m-fab svg{width:18px;height:18px;stroke-width:2}
+}
