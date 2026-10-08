@@ -82857,6 +82857,22 @@ function mGo(go) {
     render(),
     window.scrollTo(0, 0));
 }
+// Every kind an approval can be sits in exactly one chip, so the chips sum to Everything.
+// A kind added later without a chip lands in Other rather than in no chip at all.
+const APPR_CHIPS = [
+    ["bill", "Bills"],
+    ["time", "Hours"],
+    ["dec", "Decisions"],
+    ["subm", "Submittals"],
+    ["req", "Field Requests"],
+    ["raise", "Site Questions"],
+    ["meeting", "Meetings"],
+    ["change", "Changes"],
+    ["lesson", "Lessons"],
+    ["draft", "Drafts"],
+    ["other", "Other"],
+  ],
+  apprChip = (it) => (APPR_CHIPS.some(([k]) => k === it.kind) ? it.kind : "other");
 function renderMApprove() {
   const v = document.getElementById("v-mapprove");
   if (!v) return;
@@ -82871,17 +82887,12 @@ function renderMApprove() {
   "undefined" == typeof mApprKind && (window.mApprKind = "all"),
     (v.innerHTML = `<div class="ph"><div><h2>Approvals</h2><div class="lead">Every yes or no that is waiting on you — bills, hours, questions from the site, decisions we owe. Approve here; open the record when you need the detail.</div></div></div>\n    ${
       items.length
-        ? `<div class="ctabs" id="mappr-tabs">${[
-            ["all", "Everything"],
-            ["bill", "Bills"],
-            ["time", "Hours"],
-            ["dec", "Decisions"],
-            ["mat", "Materials"],
-          ]
-            .filter(([k]) => "all" === k || items.some((x) => x.kind === k))
+        ? `<div class="ctabs" id="mappr-tabs">${[["all", "Everything"]]
+            .concat(APPR_CHIPS)
+            .filter(([k]) => "all" === k || items.some((x) => apprChip(x) === k))
             .map(
               ([k, l]) =>
-                `<button class="${mApprKind === k ? "on" : ""}" data-mak="${k}">${l}<i class="n">${"all" === k ? items.length : items.filter((x) => x.kind === k).length}</i></button>`,
+                `<button class="${mApprKind === k ? "on" : ""}" data-mak="${k}">${l}<i class="n">${"all" === k ? items.length : items.filter((x) => apprChip(x) === k).length}</i></button>`,
             )
             .join("")}</div>`
         : ""
@@ -82889,7 +82900,7 @@ function renderMApprove() {
       items.length
         ? `<div class="m-appr-list">${("all" === mApprKind
             ? items
-            : items.filter((x) => x.kind === mApprKind)
+            : items.filter((x) => apprChip(x) === mApprKind)
           )
             .map((it) => {
               const bl =
@@ -83030,13 +83041,6 @@ function mRenderTabs() {
     (tb.className = "mtabs no-print"),
     document.body.appendChild(tb)),
     document.body.classList.add("m-on");
-  {
-    const rv = ROLE_VIEWS[mRole()];
-    rv &&
-      !rv.includes("mapprove") &&
-      ["owner", "pm", "billing", "controller", "design_mgr", "coord"].includes(mRole()) &&
-      rv.push("mapprove");
-  }
   const tabs = (M_TABS[mRole()] || M_TABS.owner).filter(
       ([v]) => (ROLE_VIEWS[mRole()] || []).includes(v) || "mapprove" === v,
     ),
@@ -106632,7 +106636,10 @@ if ("function" == typeof reminders) {
   reminders = function () {
     const out = remindersBase_cs.apply(this, arguments);
     try {
-      if (csLast) {
+      // Read the findings whether or not the Chief of Staff page has been opened: a list that grows
+      // because a screen rendered is two numbers for one question.
+      csLast || (csLast = csRun());
+      {
         const n = csLast.findings.filter((f) => 3 === f.sev).length;
         n &&
           out.unshift({
@@ -107881,15 +107888,13 @@ function paMine() {
     inbox = (DB.comms || []).filter(
       (c) => "ignored" !== c.status && (c.proposals || []).some((p) => !p.applied && !1 !== p.on),
     ),
-    approvals = paCanSee("dash")
-      ? (() => {
-          try {
-            return needsMe();
-          } catch (e) {
-            return [];
-          }
-        })()
-      : [];
+    approvals = (() => {
+      try {
+        return PRED.waitingOnMe.rows();
+      } catch (e) {
+        return [];
+      }
+    })();
   return {
     me: me,
     nm: nm,
@@ -108315,22 +108320,52 @@ function paAsk(q) {
       kind: "day",
     });
   }
+  if ("client" === role() && /\bdecisions?\b/.test(l) && /\b(waiting|need|needs|owe|mine|me|my|the client|open|how many)\b/.test(l)) {
+    const D = PRED.clientDecisions.rows();
+    return paOut({
+      headline: D.length
+        ? `${n(D, "decision")} ${1 === D.length ? "is" : "are"} waiting on you — ${D.slice(0, 3)
+            .map((x) => ("function" == typeof clTitle ? clTitle(x.d) : x.d.name))
+            .join("; ")}${D.length > 3 ? ", and more" : ""}.`
+        : "No decision is waiting on you.",
+      note: `The same list as your Decisions page: ${PRED.clientDecisions.rule}.`,
+      work: D.map((x) => `${"function" == typeof clTitle ? clTitle(x.d) : x.d.name} — ${x.p.project.name}`),
+      go: paGo({ view: "dec" }),
+      kind: "onme",
+    });
+  }
   if (PA_WORDS.onme.test(l)) {
+    if ("client" === role()) {
+      const W = PRED.clientWaiting.rows(),
+        decs = W.filter((x) => "decision" === x.kind),
+        docs = W.filter((x) => "decision" !== x.kind),
+        sm = "function" == typeof smClientRows && S ? smClientRows(S) : [];
+      return paOut({
+        headline: W.length
+          ? `${n(W, "thing")} ${1 === W.length ? "is" : "are"} waiting on you — ${[decs.length ? n(decs, "decision") : "", docs.length ? `${n(docs, "document")} to sign` : ""].filter(Boolean).join(" and ")}${sm.length ? `; separately, ${1 === sm.length ? "a sample waits" : "samples wait"} for your approval before we order` : ""}.`
+          : "Nothing is waiting on you.",
+        note: `Your Waiting on You list on the Overview: ${PRED.clientWaiting.rule}.`,
+        work: W.map((x) => `${"decision" === x.kind ? "Decision" : "To sign"} — ${x.d.title || x.d.name || x.d.number || ""}`),
+        go: paGo({ view: "client" }),
+        kind: "onme",
+      });
+    }
     const w = M.approvals
-      .slice(0, 10)
-      .map((a) => `${a.n ? a.n + " — " : ""}${a.title}${a.detail ? ` · ${a.detail}` : ""}`);
+        .slice(0, 10)
+        .map((a) => `${a.n ? a.n + " — " : ""}${a.title}${a.detail ? ` · ${a.detail}` : ""}`),
+      inbox = predCan("comms") ? M.inbox : [];
     return (
-      M.inbox
+      inbox
         .slice(0, 4)
         .forEach((c) => w.push(`Message to act on — ${c.subject || (c.from && c.from.name) || "message"}`)),
-      paCanSee("dash")
+      PRED.waitingOnMe.can()
         ? paOut({
-            headline: w.length
-              ? `${n(M.approvals, "thing")} waiting on your approval${M.inbox.length ? `, and ${n(M.inbox, "message")} to act on` : ""}.`
-              : "Nothing is waiting on your approval.",
-            note: "Taken from the approval queue for your role, not a list somebody keeps by hand.",
+            headline: M.approvals.length
+              ? `${n(M.approvals, "thing")} waiting on your approval${inbox.length ? `, and ${n(inbox, "message")} to act on in the Inbox` : ""}.`
+              : `Nothing is waiting on your approval${inbox.length ? `; ${n(inbox, "message")} to act on in the Inbox` : ""}.`,
+            note: `The same list as Home › Approvals: ${PRED.waitingOnMe.rule}.`,
             work: w,
-            go: paGo({ view: "home" }),
+            go: paGo({ view: "mapprove" }),
             offers: paOffers("day", M, raw),
             kind: "onme",
           })
@@ -158757,3 +158792,198 @@ if ("object" == typeof EQ_TABLES && "function" == typeof EQ_TABLES.transactions)
     });
   };
 }
+/* ---------------------------------------------------------------------------
+   The predicate registry (BACKLOG §3.2; CLAUDE.md "One question, one number").
+   Each question the app counts is answered once, here, by name. The screen, the
+   rail and tab badges, the tiles, the header lines, Ask, ⌘K and the Report
+   Builder's saved searches all read PRED.<name>.rows(scope) / .count(scope).
+   scope is "" (or omitted) for the firm, or a project id for one job.
+   rule is the sentence a tile or a filter bar prints, so the label states it.
+--------------------------------------------------------------------------- */
+const PRED = {};
+function predDef(name, def) {
+  return (PRED[name] = Object.assign(
+    {
+      name: name,
+      count(scope) {
+        try {
+          return this.rows(scope).length;
+        } catch (e) {
+          return console.warn("predicate", name, e), 0;
+        }
+      },
+    },
+    def,
+  ));
+}
+const predJobs = (scope) => (DB.projects || []).filter((p) => !scope || p.id === scope),
+  predCan = (v) => (ROLE_VIEWS[role()] || []).includes(v),
+  predSay = (n, one, many) => `${n} ${1 === n ? one : many || one + "s"}`;
+// ---- what is waiting on me
+predDef("waitingOnMe", {
+  label: "Approvals",
+  rule: "every yes or no waiting on you: bills, hours, site questions, decisions we owe, field requests, submittals, meeting proposals, changes and lessons",
+  can: () => predCan("mapprove"),
+  rows: () => (predCan("mapprove") ? mApprovals() : []),
+});
+predDef("clientWaiting", {
+  label: "Waiting on You",
+  rule: "your open decisions on this job, and the proposals and change orders sent to you to sign",
+  rows(scope) {
+    const p = (scope && (DB.projects || []).find((x) => x.id === scope)) || S;
+    if (!p) return [];
+    const c = (DB.clients || []).find((x) => x.id === p.clientId),
+      decs = (p.decisions || [])
+        .filter((d) => "Client" === d.owner && "open" === d.status)
+        .map((d) => ({ kind: "decision", p: p, d: d })),
+      docs = c
+        ? (c.estimates || [])
+            .filter((d) => "sent" === d.status)
+            .map((d) => ({ kind: "proposal", p: p, d: d }))
+            .concat(
+              (c.changeOrders || [])
+                .filter((d) => "sent" === d.status)
+                .map((d) => ({ kind: "change order", p: p, d: d })),
+            )
+        : [];
+    return decs.concat(docs);
+  },
+});
+predDef("clientDecisions", {
+  label: "Your Decisions",
+  rule: "open decisions that are yours to make, on every job of yours",
+  rows(scope) {
+    const u = ("function" == typeof currentUser && currentUser()) || {},
+      mine = (p) => !u.clientId || p.clientId === u.clientId;
+    return predJobs(scope)
+      .filter(mine)
+      .flatMap((p) =>
+        (p.decisions || []).filter((d) => "Client" === d.owner && "open" === d.status).map((d) => ({ p: p, d: d })),
+      );
+  },
+});
+// ---- lateness: one predicate per noun; a job's "late" is their union
+predDef("lateMaterial", {
+  label: "Late to Order",
+  rule: "not ordered, and its order-by date (the day the task needs it, less the lead time) has passed; items an open decision holds are under Held by a Decision",
+  test: (r) => !!r && !r.ordered && !r.dec && !!r.orderBy && r.orderBy < today(),
+  rows(scope) {
+    return buyList(scope || "").filter(this.test);
+  },
+});
+predDef("heldByDecision", {
+  label: "Held by a Decision",
+  rule: "not ordered, its order-by date has passed, and an open decision has to be made before it can be",
+  test: (r) => !!r && !r.ordered && !!r.dec && !!r.orderBy && r.orderBy < today(),
+  rows(scope) {
+    return buyList(scope || "").filter(this.test);
+  },
+});
+predDef("lateDecision", {
+  label: "Past Due",
+  rule: "open, and the date the schedule needs it has passed: its due date, the order-by of what it releases, or the start of the task it holds less the decision buffer",
+  test: (d, p) =>
+    !!d &&
+    "open" === d.status &&
+    withProject(p || S, () => {
+      const due = decDue(d);
+      return !!due && due < today();
+    }),
+  rows(scope) {
+    return predJobs(scope).flatMap((p) =>
+      (p.decisions || []).filter((d) => this.test(d, p)).map((d) => ({ p: p, d: d })),
+    );
+  },
+});
+predDef("lateSubmittal", {
+  label: "Late Submittals",
+  rule: "past its submit-by date and not in, back with the sub past the resubmission days, with a reviewer longer than their turnaround, or past the date the order has to go out",
+  rows(scope) {
+    return "function" == typeof smLateRows ? predJobs(scope).flatMap((p) => smLateRows(p)) : [];
+  },
+});
+predDef("jobLate", {
+  label: "Late",
+  rule: "materials late to order, decisions past due and late submittals",
+  parts: (scope) => ({
+    material: PRED.lateMaterial.rows(scope),
+    decision: PRED.lateDecision.rows(scope),
+    submittal: PRED.lateSubmittal.rows(scope),
+  }),
+  rows(scope) {
+    const P = this.parts(scope);
+    return [].concat(
+      P.material.map((r) => ({ kind: "material", r: r })),
+      P.decision.map((r) => ({ kind: "decision", r: r })),
+      P.submittal.map((r) => ({ kind: "submittal", r: r })),
+    );
+  },
+});
+predDef("inspToBook", {
+  label: "Book Now",
+  rule: "not booked, and the task it gates starts inside the inspection buffer",
+  test: (i, p) =>
+    !!i &&
+    "passed" !== i.status &&
+    "scheduled" !== i.status &&
+    withProject(p || S, () => inspState(i).sev >= 2),
+  rows(scope) {
+    return predJobs(scope).flatMap((p) =>
+      (p.inspections || []).filter((i) => this.test(i, p)).map((i) => ({ p: p, i: i })),
+    );
+  },
+});
+predDef("siteQuestions", {
+  label: "Questions from the Site",
+  rule: "sent from the site and not yet answered",
+  rows(scope) {
+    return predJobs(scope).flatMap((p) => ocFieldWaiting(p).map((x) => ({ p: p, x: x })));
+  },
+});
+// A job's Needs You (its Today page, its Today tab badge, the Projects overview): what is late on it,
+// plus the inspections to book and the questions from the site.
+predDef("jobNeeds", {
+  label: "Needs You",
+  rule: "what is late on the job (materials late to order, decisions past due, late submittals), inspections to book and questions from the site",
+  parts(scope) {
+    return Object.assign(PRED.jobLate.parts(scope), {
+      inspection: PRED.inspToBook.rows(scope),
+      question: PRED.siteQuestions.rows(scope),
+    });
+  },
+  rows(scope) {
+    return PRED.jobLate
+      .rows(scope)
+      .concat(
+        PRED.inspToBook.rows(scope).map((r) => ({ kind: "inspection", r: r })),
+        PRED.siteQuestions.rows(scope).map((r) => ({ kind: "question", r: r })),
+      );
+  },
+});
+// The words each part of a job's Needs You is counted in, in the order they are printed.
+const PRED_NEEDS_WORDS = [
+  ["material", "material late to order", "materials late to order"],
+  ["decision", "decision past due", "decisions past due"],
+  ["submittal", "submittal late", "submittals late"],
+  ["inspection", "inspection to book", "inspections to book"],
+  ["question", "question from the site", "questions from the site"],
+];
+function predNeedsSay(P, keys) {
+  return PRED_NEEDS_WORDS.filter(([k]) => (!keys || keys.includes(k)) && P[k] && P[k].length).map(([k, one, many]) =>
+    predSay(P[k].length, one, many),
+  );
+}
+// ---- money and purchasing
+predDef("billsAwaitingApproval", {
+  label: "Bills Awaiting Approval",
+  rule: "submitted, or reviewed by the PM and waiting on the Owner",
+  key: (b) => b.number,
+  rows: () => (DB.bills || []).filter((b) => ["submitted", "pm-approved"].includes(b.status)),
+});
+predDef("openPO", {
+  label: "Open Purchase Orders",
+  rule: "issued or partly received; not a draft, and not yet received in full, closed or cancelled",
+  key: (po) => po.number,
+  rows: (scope) =>
+    (DB.pos || []).filter((po) => ["issued", "partial"].includes(po.status) && (!scope || po.projectId === scope)),
+});
