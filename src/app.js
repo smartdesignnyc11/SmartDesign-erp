@@ -8493,7 +8493,7 @@ function renderDocEditor(c, d) {
           `<option value="${p.id}" ${d.projectId === p.id ? "selected" : ""}>${esc(p.project.name)}</option>`,
       )
       .join(""),
-    label = { estimate: "Estimate", co: "Change order", invoice: "Invoice" }[kind],
+    label = { estimate: "Estimate", co: "Change Order", invoice: "Invoice" }[kind],
     paidOn =
       "invoice" === kind
         ? c.payments.filter((p) => p.invoiceId === d.id).reduce((a, p) => a + (+p.amount || 0), 0)
@@ -10867,7 +10867,7 @@ function renderPODoc(po) {
     )
     .join(
       "",
-    )}</tbody></table>\n    ${editable ? '<div class="row no-doc-print"><button class="btn sm" data-addline>+ Add line</button><button class="btn sm" data-frommat>Add materials for this vendor…</button></div>' : ""}\n    <div class="totals"><div><div class="f"><label>Notes to vendor</label><textarea data-p="notes">${esc(po.notes || "")}</textarea></div>\n      <div class="card match" style="margin-top:8px"><div class="hd"><h3>Payments matched to this PO</h3><span class="grow"></span><button class="btn sm" data-automatch>Find matches</button></div>${matched.length ? matched.map((x) => `<div class="chg"><span>${fmt(x.date)}</span>${esc(x.desc)} <b style="float:right">${money(-x.amt)}</b> <a href="#" data-unmatch="${x.id}" class="small" style="margin-left:8px">unlink</a></div>`).join("") : '<div class="muted small">Nothing matched yet.</div>'}${candidates.length ? `<div class="small" style="margin-top:8px"><b>Possible matches</b>${candidates.map((x) => `<div class="chg"><span>${fmt(x.date)}</span>${esc(x.desc)} <b style="float:right">${money(-x.amt)}</b> <a href="#" data-match="${x.id}" class="small" style="margin-left:8px">match</a></div>`).join("")}</div>` : ""}\n        <div class="small muted" style="margin-top:8px">Three-way check: ordered ${money(t.total)} · received ${po.lines.every((l) => !l.received) ? "—" : po.lines.map((l) => `${l.received || 0}/${l.qty} ${l.unit}`).join(", ")} · paid ${money(paid)}${paid && t.total ? ` (${Math.round((paid / t.total) * 100)}%)` : ""}. Tolerance ${DB.company.matchTol || 2}%.</div></div></div>\n      <div class="tt"><span class="k">Subtotal</span><span class="v">${money(t.sub)}</span><span class="k">Tax ${editable ? `<input type="number" step="0.001" data-p="tax" value="${po.tax || 0}">%` : `(${po.tax || 0}%)`}</span><span class="v">${t.tax ? money(t.tax) : "—"}</span><span class="k">Shipping ${editable ? `<input type="number" step="any" data-p="shipping" value="${po.shipping || 0}">` : ""}</span><span class="v">${t.shipping ? money(t.shipping) : "—"}</span><span class="k big">Total</span><span class="v big">${money(t.total)}</span></div></div>\n    ${
+    )}</tbody></table>\n    ${editable ? '<div class="row no-doc-print"><button class="btn sm" data-addline>+ Add line</button><button class="btn sm" data-frommat>Add materials for this vendor…</button></div>' : ""}\n    <div class="totals"><div><div class="f"><label>Notes to vendor</label><textarea data-p="notes">${esc(po.notes || "")}</textarea></div>\n      <div class="card match" style="margin-top:8px"><div class="hd"><h3>Payments matched to this PO</h3><span class="grow"></span><button class="btn sm" data-automatch>Find Matches</button></div>${matched.length ? matched.map((x) => `<div class="chg"><span>${fmt(x.date)}</span>${esc(x.desc)} <b style="float:right">${money(-x.amt)}</b> <a href="#" data-unmatch="${x.id}" class="small" style="margin-left:8px">unlink</a></div>`).join("") : '<div class="muted small">Nothing matched yet.</div>'}${candidates.length ? `<div class="small" style="margin-top:8px"><b>Possible matches</b>${candidates.map((x) => `<div class="chg"><span>${fmt(x.date)}</span>${esc(x.desc)} <b style="float:right">${money(-x.amt)}</b> <a href="#" data-match="${x.id}" class="small" style="margin-left:8px">match</a></div>`).join("")}</div>` : ""}\n        <div class="small muted" style="margin-top:8px">Three-way check: ordered ${money(t.total)} · received ${po.lines.every((l) => !l.received) ? "—" : po.lines.map((l) => `${l.received || 0}/${l.qty} ${l.unit}`).join(", ")} · paid ${money(paid)}${paid && t.total ? ` (${Math.round((paid / t.total) * 100)}%)` : ""}. Tolerance ${DB.company.matchTol || 2}%.</div></div></div>\n      <div class="tt"><span class="k">Subtotal</span><span class="v">${money(t.sub)}</span><span class="k">Tax ${editable ? `<input type="number" step="0.001" data-p="tax" value="${po.tax || 0}">%` : `(${po.tax || 0}%)`}</span><span class="v">${t.tax ? money(t.tax) : "—"}</span><span class="k">Shipping ${editable ? `<input type="number" step="any" data-p="shipping" value="${po.shipping || 0}">` : ""}</span><span class="v">${t.shipping ? money(t.shipping) : "—"}</span><span class="k big">Total</span><span class="v big">${money(t.total)}</span></div></div>\n    ${
     linkedFiles("po", po.id).length
       ? `<div class="note" style="margin-top:10px">Documents: ${linkedFiles("po", po.id)
           .map((f) => `<a href="#" data-go="file:${f.id}">${fileIcon(f)} ${esc(f.name)}</a>`)
@@ -25227,18 +25227,25 @@ function homeDef() {
   }
   return DB.dashboards[r];
 }
+// "1 change orders awaiting signature": a count of one takes the singular noun. The noun phrase runs to the
+// first preposition, participle or dash, and its last word is the head noun ("approved change orders to bill",
+// "journal entries posted by hand", "filings in agency review").
+const REM_STOP = /^(with|in|to|from|on|at|for|of|by|past|over|without|not|still|due|drawn|carry|—|·|\$.*|\d.*|\w+ing|\w+ed)$/;
+function remOne(label) {
+  const w = String(label || "").split(" ");
+  let k = 0;
+  for (; k < w.length && !REM_STOP.test(w[k]); k++);
+  const i = k - 1,
+    h = w[i] || "";
+  if (i < 0 || !/[a-z]s$/.test(h) || /ss$/.test(h)) return label;
+  return (w[i] = /ies$/.test(h) ? h.slice(0, -3) + "y" : h.slice(0, -1)), w.join(" ");
+}
 function reminders() {
   const out = [],
     t = today(),
     B = companyBalance(),
-    // "1 change orders awaiting signature": a count of one takes the singular noun
-    one = (label) =>
-      label.replace(
-        /^(\S+ )?(invoices|estimates|change orders|bills|purchase orders|transactions|entries|deals)\b/,
-        (m, pre, w) => (pre || "") + ("entries" === w ? "entry" : w.slice(0, -1)),
-      ),
     push = (n, label, go, sev = "") => {
-      n && out.push({ n: n, label: 1 === n ? one(label) : label, go: go, sev: sev });
+      n && out.push({ n: n, label: label, go: go, sev: sev });
     };
   searchReminders().forEach((r) => out.push(r));
   const over = DB.clients.flatMap((c) => clientFin(c).open.filter((o) => o.age > 0));
@@ -27395,7 +27402,7 @@ function needsMe() {
       "bad" === s || "high" === s ? 0 : "bill" === s ? 0.5 : "warn" === s || "med" === s ? 1 : 2;
   return (
     reminders()
-      .filter((r) => !/analyst items/.test(r.label))
+      .filter((r) => !/analyst items?\b/.test(r.label))
       .forEach((r) =>
         out.push({
           sev: "bad" === r.sev ? "bad" : "warn" === r.sev ? "warn" : "bill" === r.sev ? "bill" : "",
@@ -28623,7 +28630,7 @@ function designMilestoneInvoice(c, d) {
     total = docNet(d),
     m = mbModal(
       `Bill a milestone — ${esc(d.number)}`,
-      `<p class="small muted">Each milestone bills its percentage of every phase. Retainer on account ${money(retainerBalance(c, d.id))} is applied automatically.</p><div class="ms-list">${ms.map((x, i) => `<label class="ms-row ${done.includes(i) ? "dim" : ""}"><input type="radio" name="dms" value="${i}" ${done.includes(i) ? "disabled" : (!done.length && 0 === i) || done.length === i ? "checked" : ""}><span class="ms-pct">${x.pct}%</span><span class="ms-lbl">${esc(x.label)}${done.includes(i) ? ' <span class="pill ok">Billed</span>' : ""}</span><span class="ms-amt">${money((total * x.pct) / 100)}</span></label>`).join("")}</div><div class="small muted" style="margin-top:8px">Billed so far ${done.reduce((a, i) => a + (ms[i]?.pct || 0), 0)}% of ${money(total)}. <a href="#" id="dms-edit">Edit milestones</a></div>`,
+      `<p class="small muted">Each milestone bills its percentage of every phase. Retainer on account ${money(retainerBalance(c, d.id))} is applied automatically.</p><div class="ms-list">${ms.map((x, i) => `<label class="ms-row ${done.includes(i) ? "dim" : ""}"><input type="radio" name="dms" value="${i}" ${done.includes(i) ? "disabled" : (!done.length && 0 === i) || done.length === i ? "checked" : ""}><span class="ms-pct">${x.pct}%</span><span class="ms-lbl">${esc(x.label)}${done.includes(i) ? ' <span class="pill ok">Billed</span>' : ""}</span><span class="ms-amt">${money((total * x.pct) / 100)}</span></label>`).join("")}</div><div class="small muted" style="margin-top:8px">Billed so far ${done.reduce((a, i) => a + (ms[i]?.pct || 0), 0)}% of ${money(total)}. <a href="#" id="dms-edit">Edit Milestones</a></div>`,
       {
         submit: "Create invoice",
         onSubmit: () => {
@@ -140563,6 +140570,7 @@ if (
           const k = blRtbOfData({ docId: x.go.bill.docId, act: x.go.bill.act });
           x.go = { view: "billing", rtb: k || "ready" };
         }
+        1 === x.n && "string" == typeof x.label && (x.label = remOne(x.label));
       });
     } catch (e) {}
     return out;
