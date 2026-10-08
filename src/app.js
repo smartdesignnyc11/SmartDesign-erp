@@ -31430,26 +31430,22 @@ function renderPortalApprovals() {
   const c = clientUserOf(),
     host = $("#cl-approvals");
   if (!host || !c) return;
-  const est = c.estimates.filter((d) => "sent" === d.status),
-    cos = c.changeOrders.filter((d) => "sent" === d.status),
-    inv = clientFin(c).open,
-    decs = DB.projects
-      .filter((p) => p.clientId === c.id)
-      .flatMap((p) =>
-        p.decisions.filter((d) => "Client" === d.owner && "open" === d.status).map((d) => ({ d: d, p: p })),
-      ),
-    n = est.length + cos.length + decs.length,
+  const inv = clientFin(c).open,
+    W = clWaitingItems(),
+    n = W.length,
     docRow = (d, kind) =>
-      `<div class="pa-row"><div class="pa-main"><b>${esc(d.title || d.number)}</b><div class="small muted">${kind} ${esc(d.number)} · ${fmt(d.date)}${d.validUntil ? ` · valid until ${fmt(d.validUntil)}` : ""}${d.clientNote ? ` · <i>you asked: ${esc(d.clientNote.text)}</i>` : ""}</div></div><b class="pa-amt">${money(docTotal(d).total)}</b><div class="pa-acts"><button class="btn sm" data-pview="${d.type}:${d.id}">View</button><button class="btn sm" data-pask="${d.type}:${d.id}">Ask</button><button class="btn sm primary" data-papprove="${d.type}:${d.id}">Approve</button></div></div>`;
-  host.innerHTML = `<div class="card" style="margin-bottom:14px"><div class="row" style="align-items:baseline"><h3 style="margin:0">Waiting on you</h3><span class="small muted" style="margin-left:8px">${n ? `${n} item${n > 1 ? "s" : ""}` : "nothing right now"}</span></div>\n    ${est.map((d) => docRow(d, "Proposal")).join("")}${cos.map((d) => docRow(d, "Change order")).join("")}\n    ${decs
-    .map(({ d: d, p: p }) => {
+      `<div class="pa-row"><div class="pa-main"><b>${esc(d.title || d.number)}</b><div class="small muted">${kind} ${esc(d.number)} · ${fmt(d.date)}${d.validUntil ? ` · valid until ${fmt(d.validUntil)}` : ""}${d.clientNote ? ` · <i>you asked: ${esc(d.clientNote.text)}</i>` : ""}</div></div><b class="pa-amt">${money(docTotal(d).total)}</b><div class="pa-acts"><button class="btn sm" data-pview="${d.type}:${d.id}">View</button><button class="btn sm" data-pask="${d.type}:${d.id}">Ask</button><button class="btn sm primary" data-papprove="${d.type}:${d.id}">Approve</button></div></div>`,
+    decRow = (d, p) => {
       const due = decDue(d),
         st = decState(d);
       return `<div class="pa-row"><div class="pa-main"><b>${esc(d.name)}</b><div class="small muted">Selection · ${esc(p.project.name)}${due ? ` · needed by ${fmt(due)}` : ""}${st.sev >= 2 ? ' <span class="pill warn">holding the schedule</span>' : ""}</div></div><div class="pa-acts"><button class="btn sm primary" data-pdecide="${p.id}:${d.id}">Make selection</button></div></div>`;
-    })
-    .join(
-      "",
-    )}\n    ${inv.length ? `<div class="small muted" style="margin-top:10px;text-transform:uppercase;letter-spacing:.04em">Invoices</div>${inv.map((o) => `<div class="pa-row"><div class="pa-main"><b>${esc(o.x.title || o.x.number)}</b><div class="small muted">${esc(o.x.number)} · due ${o.x.due ? fmt(o.x.due) : "on receipt"}${o.age > 0 ? ` · <span class="bad">${o.age} days past due</span>` : ""}</div></div><b class="pa-amt">${money(o.bal)}</b><div class="pa-acts"><button class="btn sm" data-pview="invoice:${o.x.id}">View</button></div></div>`).join("")}` : ""}\n    <div class="row" style="margin-top:10px;gap:6px"><button class="btn sm" id="p-statement">Account statement</button>${[...c.estimates, ...c.changeOrders].filter((d) => d.clientApproval).length ? `<span class="small muted">You have approved ${[...c.estimates, ...c.changeOrders].filter((d) => d.clientApproval).length} document${[...c.estimates, ...c.changeOrders].filter((d) => d.clientApproval).length > 1 ? "s" : ""} — each is recorded with your name and time.</span>` : ""}</div></div>`;
+    },
+    subRow = (x, p) =>
+      `<div class="pa-row cl-row"><div class="pa-main"><b data-nocase>${esc(smClientTitle(x))}</b><div class="small muted" data-nocase>Approve before we order · ${esc(x.sub || "Our supplier")} sent ${SM_TYPE_WORD[x.type] || "it"} of what we plan to order · ${esc(smClientLine(x, p))}</div></div><div class="pa-acts cl-amt sm-clacts"><button class="btn sm" data-smcl="ok|${esc(x.id)}">Approve</button><button class="btn sm" data-smcl="no|${esc(x.id)}">Request Changes</button></div></div>`;
+  host.innerHTML = `<div class="card cl-waiting" style="margin-bottom:14px"><div class="row" style="align-items:baseline"><h3 style="margin:0">Waiting on You</h3><span class="small muted" style="margin-left:8px">${n ? `${n} item${n > 1 ? "s" : ""}` : "nothing right now"}</span></div>
+    ${W.map((w) => ("doc" === w.kind ? docRow(w.d, "estimate" === w.d.type ? "Proposal" : "Change order") : "dec" === w.kind ? decRow(w.d, w.p) : subRow(w.d, w.p))).join("")}
+    ${inv.length ? `<div class="small muted" style="margin-top:10px;text-transform:uppercase;letter-spacing:.04em">Invoices</div>${inv.map((o) => `<div class="pa-row"><div class="pa-main"><b>${esc(o.x.title || o.x.number)}</b><div class="small muted">${esc(o.x.number)} · due ${o.x.due ? fmt(o.x.due) : "on receipt"}${o.age > 0 ? ` · <span class="bad">${o.age} days past due</span>` : ""}</div></div><b class="pa-amt">${money(o.bal)}</b><div class="pa-acts"><button class="btn sm" data-pview="invoice:${o.x.id}">View</button></div></div>`).join("")}` : ""}
+    <div class="row" style="margin-top:10px;gap:6px"><button class="btn sm" id="p-statement">Account statement</button>${[...c.estimates, ...c.changeOrders].filter((d) => d.clientApproval).length ? `<span class="small muted">You have approved ${[...c.estimates, ...c.changeOrders].filter((d) => d.clientApproval).length} document${[...c.estimates, ...c.changeOrders].filter((d) => d.clientApproval).length > 1 ? "s" : ""} — each is recorded with your name and time.</span>` : ""}</div></div>`;
   const find = (s) => {
     const [k, id] = s.split(":");
     return [k, findDoc(c, k, id)];
@@ -34035,7 +34031,7 @@ const renderPortalApprovalsBase = renderPortalApprovals;
   (card.className = "card"),
     (card.style.marginBottom = "14px"),
     (card.innerHTML = `<h3 style="margin:0 0 6px">Your account</h3><div class="cash-grid" style="grid-template-columns:repeat(3,1fr)"><div><span>Contract</span><b>${money(contract)}</b><i>incl. approved changes</i></div><div><span>Work completed</span><b>${money(earned)}</b><i>${contract ? Math.round((earned / contract) * 100) : 0}% of contract</i></div><div><span>Billed to date</span><b>${money(billed)}</b><i>${dep ? `deposit on account ${money(dep)}` : "ex tax"}</i></div><div><span>Retainage held</span><b>${money(f.retHeld)}</b><i>released at completion</i></div><div><span>Paid to date</span><b>${money(f.paid)}</b><i>${f.credits ? `credit on account ${money(f.credits)}` : ""}</i></div><div><span>Balance due</span><b class="${f.overdue ? "bad" : ""}">${money(f.outstanding)}</b><i>${f.overdue ? money(f.overdue) + " overdue" : "nothing overdue"}</i></div></div>`),
-    host.prepend(card);
+    host.append(card);
 }),
   (REP_GROUPS.find((g) => "build" === g.id).tabs = [["searches", "Report builder"]]),
   (REP_DEFS.searches =
@@ -87276,18 +87272,24 @@ if (
       pastAmt = past.reduce((a, o) => a + o.bal, 0),
       invNext = tlNextDue(inv.filter((o) => o.age <= 0).map((o) => o.x.due)),
       tiles = [
-        {
-          key: "dec",
-          k: "Your Decisions",
-          v: decs.length,
-          tone: decHot.length ? "bad" : decs.length ? "warn" : "",
-          s: decs.length
-            ? decHot.length
-              ? `${decHot.length} needed now — the schedule is waiting on ${1 === decHot.length ? "it" : "them"}`
-              : `next one by ${fmtL(decNext)} · nothing is held up yet`
-            : "nothing waiting on you — thank you",
-          go: at("#cl-decs"),
-        },
+        // one tile for the one list: Waiting on You (selections, approvals, samples), same count as the nav badge
+        (() => {
+          const W = "function" == typeof clWaitingItems ? clWaitingItems() : [];
+          return {
+            key: "dec",
+            k: "Waiting on You",
+            v: W.length,
+            tone: decHot.length ? "bad" : W.length ? "warn" : "",
+            s: W.length
+              ? decHot.length
+                ? `${decHot.length} needed now — the schedule is waiting on ${1 === decHot.length ? "it" : "them"}`
+                : docs.length
+                  ? `${money(docAmt)} · ${tlDocWords(docs)} waiting on your approval`
+                  : `next one by ${fmtL(decNext)} · nothing is held up yet`
+              : "nothing waiting on you — thank you",
+            go: at("#cl-approvals"),
+          };
+        })(),
       ];
     if (design) {
       const rooms = roomsOf(p.id),
@@ -87296,7 +87298,6 @@ if (
         ph = phaseHours(p),
         used = ph.reduce((a, x) => a + x.used, 0),
         cur = ph.find((x) => x.used < x.est) || ph[ph.length - 1];
-      tiles.push(signTile),
         tiles.push({
           key: "rooms",
           k: "Rooms Measured",
@@ -87327,7 +87328,6 @@ if (
         const { cpm: cpm, projEnd: projEnd } = computeCPM();
         (sc = scDate(cpm, projEnd)), (late = p.project.target ? signedWork(p.project.target, sc) : 0);
       } catch (e) {}
-      tiles.push(signTile),
         tiles.push({
           key: "inv",
           k: "Invoices Due",
@@ -122453,9 +122453,6 @@ function flowClientPass(v) {
       }
     },
     R = rows.map((tr) => ({ tr: tr, i: info(tr) })).filter((x) => x.i);
-  R.sort((a, b) => b.i.st.sev - a.i.st.sev || (a.i.due || "9").localeCompare(b.i.due || "9"));
-  const parent = rows[0].parentElement,
-    anchor = rows[0].previousSibling;
   R.forEach(({ tr: tr, i: i }) => {
     if (tr.dataset.flowWhy) return;
     tr.dataset.flowWhy = "1";
@@ -122470,14 +122467,9 @@ function flowClientPass(v) {
           ` · <b>${i.d.options.length} option${1 === i.d.options.length ? "" : "s"} to choose from</b>`,
         ),
       i.d.notes && sub.insertAdjacentHTML("beforeend", `<div class="small muted">${esc(i.d.notes)}</div>`);
-  }),
-    rows.forEach((tr) => tr.remove());
-  const frag = document.createDocumentFragment();
-  if (
-    (R.forEach(({ tr: tr }) => frag.appendChild(tr)),
-    anchor && anchor.parentNode === parent ? anchor.after(frag) : parent.prepend(frag),
-    !v.querySelector(".btn.primary"))
-  ) {
+  });
+  // the order comes from clWaitingItems (most urgent first, approvals among selections), not re-sorted here
+  if (!v.querySelector(".btn.primary")) {
     const first = appr.querySelector(".pa-row [data-papprove], .pa-row [data-pdecide]");
     first && first.classList.add("primary");
   }
@@ -123899,6 +123891,32 @@ function ovLazyBadges() {
     } catch (e) {}
   }
 }
+// The client's ONE "Waiting on You" list (BACKLOG 1.4 #4): proposals and change orders to approve,
+// selections to make and samples to approve before we order, most urgent first. The Overview list,
+// its tile and the nav badge all count this.
+function clWaitingItems() {
+  try {
+    const c = "function" == typeof clientUserOf ? clientUserOf() : null;
+    if (!c) return [];
+    const P = (DB.projects || []).filter((p) => p.clientId === c.id && (!S || p.id === S.id)),
+      pid = new Set(P.map((p) => p.id)),
+      out = [];
+    [...(c.estimates || []), ...(c.changeOrders || [])]
+      .filter((d) => "sent" === d.status && (!d.projectId || pid.has(d.projectId)))
+      .forEach((d) => out.push({ kind: "doc", d: d, p: P.find((p) => p.id === d.projectId) || P[0], due: d.validUntil || d.date || "", hot: 0 }));
+    P.forEach((p) => {
+      (p.decisions || [])
+        .filter((d) => "Client" === d.owner && "open" === d.status)
+        .forEach((d) => out.push({ kind: "dec", d: d, p: p, due: decDue(d) || "", hot: decState(d).sev >= 2 ? 1 : 0 }));
+      ("function" == typeof smClientRows ? smClientRows(p) : []).forEach((x) =>
+        out.push({ kind: "sub", d: x, p: p, due: (smDates(x, p) || {}).approveBy || "", hot: 0 }),
+      );
+    });
+    return out.sort((a, b) => b.hot - a.hot || String(a.due || "9").localeCompare(String(b.due || "9")));
+  } catch (e) {
+    return [];
+  }
+}
 function ovClientDecs() {
   try {
     return ((S && S.decisions) || []).filter((d) => "Client" === d.owner && "open" === d.status);
@@ -123912,7 +123930,7 @@ if ("function" == typeof fdClientRail) {
     fdClientRailBase_ov.apply(this, arguments);
     try {
       const n = wrap && wrap.querySelector('button[data-v="dec"] .n');
-      n && (n.textContent = ovClientDecs().length || "");
+      n && (n.textContent = clWaitingItems().length || "");
     } catch (e) {}
   };
 }
@@ -136120,8 +136138,7 @@ function ocTileN(v, key) {
   }
 }
 function ocBadgeN(v) {
-  if ("client" === role() && "dec" === v)
-    return "function" == typeof ovClientDecs ? ovClientDecs().length : 0;
+  if ("client" === role() && "dec" === v) return clWaitingItems().length;
   const d = OC_BADGE[v];
   return d ? ocMemo("badge:" + v, () => (d.tile ? ocTileN(v, d.tile) : d.n() || 0)) || 0 : null;
 }
@@ -154062,23 +154079,48 @@ if ("function" == typeof clDecHtml) {
   clDecHtml = function () {
     let h = base.apply(this, arguments);
     try {
+      // the same Waiting on You count as the Overview and the nav badge: the change orders to approve
+      // show here too, and the lead counts all of it
+      const W = "function" == typeof clWaitingItems ? clWaitingItems() : [],
+        D = W.filter((w) => "doc" === w.kind),
+        nC = W.filter((w) => "dec" === w.kind).length,
+        nS = W.filter((w) => "sub" === w.kind).length;
+      D.length &&
+        (h = h.replace(
+          /(<div class="card"><h3>Already Settled<\/h3>)/,
+          (m) => `<div class="card cl-docs"><h3>Approve the Change</h3>${D.map((w) => `<div class="cl-row"><div><b data-nocase>${esc(clWords(w.d.title || w.d.number))}</b><div class="small muted">${"estimate" === w.d.type ? "Proposal" : "Change order"} ${esc(w.d.number)} · ${money(docTotal(w.d).total)}</div></div><div class="cl-amt"><button class="btn sm" data-clgoappr="${esc(w.d.id)}">Review and Approve</button></div></div>`).join("")}</div>${m}`,
+        ));
+      W.length &&
+        (h = h.replace(
+          /(<div class="lead">)([^<]*)(<\/div>)/,
+          (m, a, b, c) =>
+            `${a}${W.length} thing${1 === W.length ? "" : "s"} waiting on you: ${[nC && `${nC} choice${1 === nC ? "" : "s"}`, D.length && `${D.length} ${1 === D.length ? "change to approve" : "changes to approve"}`, nS && `${nS} sample${1 === nS ? "" : "s"} to approve before we order`].filter(Boolean).join(", ")}. Everything you have already settled is below.${c}`,
+        ));
+    } catch (e) {}
+    try {
       const p = "function" == typeof clProj ? clProj() : S,
         L = smClientRows(p);
       if (!L.length) return h;
       const blue = /btn sm primary/.test(h),
         card = `<div class="card sm-clcard"><h3>Approve Before We Order</h3>${L.map((s, i) => `<div class="cl-row"><div><b data-nocase>${esc(smClientTitle(s))}</b><div class="small muted" data-nocase>${esc(s.sub || "Our supplier")} sent ${SM_TYPE_WORD[s.type] || "it"} of what we plan to order · ${esc(smClientLine(s, p))}</div></div><div class="cl-amt sm-clacts"><button class="btn sm ${blue || 0 !== i ? "" : "primary"}" data-smcl="ok|${esc(s.id)}">Approve</button><button class="btn sm" data-smcl="no|${esc(s.id)}">Request Changes</button></div></div>`).join("")}</div>`;
-      (h = h.replace(/(<div class="card"><h3>Already Settled<\/h3>)/, card + "$1")),
-        (h = h.replace(
-          /(<div class="lead">)([^<]*)(<\/div>)/,
-          (m, a, b, c) =>
-            `${a}${b} ${1 === L.length ? "One item is" : `${L.length} items are`} waiting for your approval before we order.${c}`,
-        ));
+      h = h.replace(/(<div class="card"><h3>Already Settled<\/h3>)/, (m) => card + m);
     } catch (e) {
       console.warn("submittal client", e);
     }
     return h;
   };
 }
+document.addEventListener("click", (e) => {
+  const g = e.target && e.target.closest ? e.target.closest("[data-clgoappr]") : null;
+  g &&
+    (e.preventDefault(),
+    (view = "client"),
+    render(),
+    setTimeout(() => {
+      const a = document.querySelector(`#cl-approvals [data-papprove$=":${g.dataset.clgoappr}"]`);
+      a && (a.closest(".pa-row") || a).scrollIntoView({ block: "center" });
+    }, 60));
+});
 document.addEventListener("click", (e) => {
   const b = e.target && e.target.closest ? e.target.closest("[data-smcl]") : null;
   if (!b) return;
@@ -154089,6 +154131,26 @@ document.addEventListener("click", (e) => {
   const { s: s, p: p } = hit,
     me = smMe(),
     title = smClientTitle(s);
+  // the client sees what they approve: a confirmation step like CO signing, with the sheets one tap away
+  if ("ok" === k && !b.dataset.smclSure) {
+    const rev = (s.revs || [])[(s.revs || []).length - 1] || {},
+      fid = (rev.files || [])[0],
+      m = mbModal(
+        `Approve — <span data-nocase>${esc(title)}</span>`,
+        `<p class="small" data-nocase>${esc(s.sub || "Our supplier")} sent ${SM_TYPE_WORD[s.type] || "it"} of what we plan to order · ${esc(smClientLine(s, p))}.</p><p class="small muted" style="margin:0">Approving tells us to order it as sent. It is recorded with your name and the date.</p>`,
+        {
+          submit: "Approve",
+          alt: fid && "function" == typeof openFile ? { label: "View the Sheets", run: () => openFile(fid) } : null,
+          onSubmit: () => {
+            setTimeout(() => {
+              const x = document.createElement("button");
+              (x.dataset.smcl = b.dataset.smcl), (x.dataset.smclSure = "1"), (x.hidden = !0), document.body.appendChild(x), x.click(), x.remove();
+            }, 0);
+          },
+        },
+      );
+    return;
+  }
   if ("ok" === k)
     return (
       smRespond(s, p, { stamp: "approved", comments: "Approved on the portal", by: me }, !0),
@@ -154102,7 +154164,7 @@ document.addEventListener("click", (e) => {
       }),
       save(),
       render(),
-      void toast(`Thank you — ${title} is approved and we will order it`)
+      void toast(`Thank you — ${title} is approved and we will order it`, flowGo.viewOf("dec", "client"))
     );
   mbModal(
     `Request Changes — <span data-nocase>${esc(title)}</span>`,
@@ -154122,7 +154184,7 @@ document.addEventListener("click", (e) => {
           }),
           save(),
           render(),
-          toast(`Sent — ${smPM(p)} will come back to you with another sample`);
+          toast(`Sent — ${smPM(p)} will come back to you with another sample`, flowGo.viewOf("dec", "client"));
       },
     },
   );
@@ -158888,28 +158950,6 @@ function igDlPhotos(dr, p) {
         console.warn("open for accounting", e);
       }
     return base.apply(this, arguments);
-  };
-}
-{
-  const base = renderPortalApprovals;
-  renderPortalApprovals = function () {
-    const r = base.apply(this, arguments);
-    try {
-      if ("client" !== role() || "function" != typeof smClientRows) return r;
-      const host = document.getElementById("cl-approvals");
-      if (!host || host.querySelector(".ig-smcl")) return r;
-      const p = "function" == typeof clProj ? clProj() : S,
-        L = p ? smClientRows(p) : [];
-      if (!L.length) return r;
-      const card = `<div class="card ig-smcl" style="margin-bottom:14px"><div class="row" style="align-items:baseline"><h3 style="margin:0">Approve Before We Order</h3><span class="small muted" style="margin-left:8px">${L.length} item${1 === L.length ? "" : "s"}</span></div>${L.map((s) => `<div class="cl-row"><div><b data-nocase>${esc(smClientTitle(s))}</b><div class="small muted" data-nocase>${esc(s.sub || "Our supplier")} sent ${SM_TYPE_WORD[s.type] || "it"} of what we plan to order · ${esc(smClientLine(s, p))}</div></div><div class="cl-amt sm-clacts"><button class="btn sm" data-smcl="ok|${esc(s.id)}">Approve</button><button class="btn sm" data-smcl="no|${esc(s.id)}">Request Changes</button></div></div>`).join("")}</div>`,
-        wait = [...host.querySelectorAll(":scope > .card")].find((c) =>
-          /^Waiting on You/.test(((c.querySelector("h3") || {}).textContent || "").trim()),
-        );
-      wait ? wait.insertAdjacentHTML("afterend", card) : host.insertAdjacentHTML("beforeend", card);
-    } catch (e) {
-      console.warn("client submittals", e);
-    }
-    return r;
   };
 }
 {
