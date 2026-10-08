@@ -61570,7 +61570,7 @@ function frqReceipt(r) {
         save(),
         mbCloseModal(),
         render(),
-        toast("Taken back. Nobody is working on it."));
+        toast("Taken back. Nobody is working on it.", flowGo.request(S)));
   });
 }
 function frqDumpSheet() {
@@ -158241,19 +158241,101 @@ function igRefuseZero(d) {
 let igPress = null;
 const igPressRx =
   /\b(new|create|start|save|duplicate|convert|draft|bill|issue|record|add|make|copy|send|receive|build|set up|clone|promote|import|log|file|submit)\b/i;
+// Every record a toast can point at, keyed kind:id, with its JSON as a signature: a press is
+// compared with the toast that follows it, so a write that names no number still links its record.
+// project children that open in their own editor: [collection, key / editor kind, the views that show it]
+const IG_PCHILD = [
+  ["tasks", "task", ["sched"]],
+  ["materials", "mat", ["mat"]],
+  ["inspections", "insp", ["insp"]],
+  ["permits", "permit", ["insp"]],
+  ["issues", "iss", ["field"]],
+];
+const IG_PREF = ["doc", "po", "bill", "dec", "raise", "req", "log", "time", "act", "task", "mat", "insp", "permit", "iss", "lead", "vendor", "client", "project"];
+function igSigSnap() {
+  const s = new Map(),
+    put = (k, x) => {
+      try {
+        s.set(k, JSON.stringify(x));
+      } catch (e) {}
+    };
+  (DB.clients || []).forEach((c) => {
+    s.set("client:" + c.id, String((c.activity || []).length) + "|" + (c.name || "")),
+      ["estimates", "changeOrders", "invoices"].forEach((k) => (c[k] || []).forEach((d) => put("doc:" + d.id, d)));
+  }),
+    (DB.pos || []).forEach((x) => put("po:" + x.id, x)),
+    (DB.bills || []).forEach((x) => put("bill:" + x.id, x)),
+    (DB.projects || []).forEach((p) => {
+      s.set("project:" + p.id, ""),
+        IG_PCHILD.forEach(([coll, k]) => (p[coll] || []).forEach((t) => put(k + ":" + p.id + "/" + t.id, t))),
+        (p.actions || []).forEach((t) => put("act:" + p.id + "/" + t.id, t)),
+        (p.decisions || []).forEach((d) => put("dec:" + p.id + "/" + d.id, d)),
+        (p.requests || []).forEach((r) => put("req:" + p.id + "/" + r.id, r));
+    }),
+    ((DB.field && DB.field.raises) || []).forEach((r) => put("raise:" + r.id, Object.assign({}, r, { status: r.status === "seen" ? "sent" : r.status, seenAt: 0 }))),
+    ((DB.field && DB.field.logs) || []).forEach((l) => put("log:" + l.id, l)),
+    (DB.time || []).forEach((t) => put("time:" + t.id, t)),
+    (DB.vendors || []).forEach((v) => put("vendor:" + v.id, v)),
+    (DB.leads || []).forEach((l) => put("lead:" + l.id, l));
+  return s;
+}
 function igDescribe(key) {
   const d = rcDescribe(key);
   if (d && d.go) return d;
-  const [k, id] = key.split(":");
+  const [k, raw] = key.split(":"),
+    [pid, id] = String(raw).includes("/") ? String(raw).split("/") : ["", raw],
+    pOf = (coll) =>
+      (DB.projects || []).find((p) => (!pid || p.id === pid) && (p[coll] || []).some((x) => x.id === id));
+  if ("raise" === k) {
+    const r = ((DB.field && DB.field.raises) || []).find((x) => x.id === id);
+    if (r) return { go: flowGo.raise(r) };
+  }
+  if ("log" === k) {
+    const l = ((DB.field && DB.field.logs) || []).find((x) => x.id === id);
+    if (l) return { go: flowGo.raise({ projectId: l.projectId }) };
+  }
+  if ("req" === k) {
+    const p = pOf("requests");
+    if (p) return { go: flowGo.request(p) };
+  }
+  if ("time" === k) {
+    const e = (DB.time || []).find((x) => x.id === id);
+    if (e) return { go: flowGo.time(e) };
+  }
+  if ("act" === k) {
+    const p = pOf("actions");
+    if (p)
+      return {
+        go: flowCan("tkall")
+          ? () => crOpenTask({ kind: "action", projectId: p.id, id: id })
+          : () => {
+              setCurrent(p.id), flowGo.viewOf("tasks", "tkall", "ftoday", "sday")();
+            },
+      };
+  }
+  const pc = IG_PCHILD.find((x) => x[1] === k);
+  if (pc) {
+    const p = pOf(pc[0]),
+      v = pc[2].find(flowCan);
+    if (p && v)
+      return {
+        go: () => {
+          setCurrent(p.id), (view = v), render(), flowTop();
+          try {
+            openEditor(k, id);
+          } catch (e) {}
+        },
+      };
+  }
+
   if ("lead" === k) {
     const l = (DB.leads || []).find((x) => x.id === id);
     if (l && flowCan("hbdeals")) return { go: flowGo.lead(l) };
   }
-  if ("dec" === k)
-    for (const p of DB.projects || []) {
-      const x = (p.decisions || []).find((y) => y.id === id);
-      if (x) return { go: flowGo.decision(p, x) };
-    }
+  if ("dec" === k && flowCan("dec")) {
+    const p = pOf("decisions");
+    if (p) return { go: flowGo.decision(p, p.decisions.find((y) => y.id === id)) };
+  }
   return d;
 }
 function igFindByText(msg) {
@@ -158301,11 +158383,11 @@ function igFindByText(msg) {
       if (
         el &&
         !el.closest("#nav-groups, #tabbar, #mtabs, #subnav, .sub-tabs, #toast") &&
-        (el.closest("#mbm, #drawer, .docacts, .docbar, .doc-more, .hb-panel") ||
+        (el.closest("#mbm, #drawer, .docacts, .docbar, .doc-more, .hb-panel, .view.on, #m-sheet") ||
           igPressRx.test(el.textContent || el.value || ""))
       )
         try {
-          igPress = { at: Date.now(), snap: rcSnap() };
+          igPress = { at: Date.now(), snap: igSigSnap() };
         } catch (err) {
           igPress = null;
         }
@@ -158316,31 +158398,34 @@ function igFindByText(msg) {
 const IG_CREATE_RX = /^created\b|\bcreated\b|\bbuilt\b|\bdrafted\b|\bset up\b|^new\b.*\b(saved|added)\b/i;
 // A toast that reports a write ("sent", "approved", "recorded"...) and names a record gets that record's Open link.
 const IG_WRITE_RX =
-  /\b(sent|approved|recorded|signed|saved|updated|issued|received|voided|paid|submitted|rejected|filed|logged|scheduled|moved|marked|added|answered|assigned|revised|reopened|closed|posted|matched|attached|shared|uploaded|returned|accepted|declined|cancell?ed|imported|copied|duplicated|converted|disputed|held|released|reconciled|locked|unlocked|changed|deleted|removed|archived|restored|emailed|chosen|picked|booked|ordered|delivered|acknowledged|credited|applied|split|renamed)\b/i;
-function igToastLink(msg, at) {
+  /\b(sent|approved|recorded|signed|saved|updated|issued|received|voided|paid|submitted|rejected|filed|logged|scheduled|moved|marked|added|answered|assigned|revised|reopened|closed|posted|matched|attached|shared|uploaded|returned|accepted|declined|cancell?ed|imported|copied|duplicated|converted|disputed|held|released|reconciled|locked|unlocked|changed|deleted|removed|archived|restored|emailed|chosen|picked|booked|ordered|delivered|acknowledged|credited|applied|split|renamed|done|started|clocked|bumped|taken back|on site|drafted|created|set)\b/i;
+function igToastLink(msg, at, tries) {
   const t = document.getElementById("toast");
-  if (!t || !t.classList.contains("on") || t.querySelector("a, button")) return;
-  if (!String(t.textContent || "").startsWith(String(msg || "").slice(0, 20))) return;
+  if (!t) return;
+  // a "Saved" toast waits for the write to land (trAfterWrite) before it shows: look again
+  if (!t.classList.contains("on") || !String(t.textContent || "").startsWith(String(msg || "").slice(0, 20)))
+    return void ((tries || 0) < 12 && setTimeout(() => igToastLink(msg, at, (tries || 0) + 1), 150));
+  if (t.querySelector("a, button")) return;
   let go = null;
-  if (igPress && at - igPress.at < 2500) {
-    const P = igPress;
-    igPress = null;
+  const wrote = IG_CREATE_RX.test(msg) || IG_WRITE_RX.test(msg);
+  if (igPress && at - igPress.at < 2500)
     try {
-      const fresh = [...rcSnap()].filter(
-          (k) => !P.snap.has(k) && /^(doc|po|bill|client|project|vendor|lead|dec):/.test(k),
-        ),
-        pref = ["doc", "po", "bill", "project", "client", "vendor", "lead", "dec"];
-      fresh.sort((a, b) => pref.indexOf(a.split(":")[0]) - pref.indexOf(b.split(":")[0]));
-      for (const k of fresh) {
+      // the record the press made (new) or, for a write-shaped toast, the record it changed
+      const P = igPress,
+        now = igSigSnap(),
+        rank = (k) => IG_PREF.indexOf(k.split(":")[0]),
+        byRank = (a, b) => rank(a) - rank(b),
+        fresh = [...now.keys()].filter((k) => !P.snap.has(k)).sort(byRank),
+        changed = wrote ? [...now.keys()].filter((k) => P.snap.has(k) && P.snap.get(k) !== now.get(k)).sort(byRank) : [];
+      for (const k of fresh.concat(changed)) {
         const d = igDescribe(k);
         if (d && d.go) {
-          go = d.go;
+          (go = d.go), (igPress = null);
           break;
         }
       }
     } catch (e) {}
-  }
-  if ((!go && (IG_CREATE_RX.test(msg) || IG_WRITE_RX.test(msg)) && (go = igFindByText(msg)), !go)) return;
+  if ((!go && wrote && (go = igFindByText(msg)), !go)) return;
   const a = document.createElement("a");
   (a.href = "#"),
     (a.textContent = "Open"),
