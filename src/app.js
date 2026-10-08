@@ -156131,6 +156131,7 @@ const DL_WX = [
     ["material", "Material"],
     ["inspection", "Inspection"],
   ],
+  DL_RAISE_CAUSE = { noshow: "sub", delivery: "material", insp: "inspection" },
   dlCauseLabel = (k) => (DL_CAUSE.find((c) => c[0] === k) || [, "Other"])[1],
   DL_REASON = {
     weather: "weather",
@@ -156216,7 +156217,8 @@ function dlCrewFor(p, d) {
           )),
           t.out || (by[k].open = !0);
       }),
-    Object.values(by).map((x) => Object.assign(x, { hours: r2(x.hours) }))
+    // a log reads in quarter hours (6.97 h from the clock is 7 h on the log)
+    Object.values(by).map((x) => Object.assign(x, { hours: Math.round(4 * x.hours) / 4 }))
   );
 }
 function dlDeliveriesFor(p, d) {
@@ -156306,6 +156308,10 @@ function dlDraft(p, d) {
           .filter((x) => !x.cleared)
           .map((x) => Object.assign({}, x, { carried: !0, from: prev.date, still: null }))
       : [],
+    // what the field already reported today (a sub no-show, a hold) starts on the log as a delay
+    raised = ((DB.field || {}).raises || [])
+      .filter((r) => r.projectId === p.id && String(r.at || "").slice(0, 10) === d && DL_RAISE_CAUSE[r.type])
+      .map((r) => ({ cause: DL_RAISE_CAUSE[r.type], taskId: r.taskId || "", hours: 0, note: r.title || "", raiseId: r.id })),
     dr = {
       projectId: p.id,
       date: d,
@@ -156330,12 +156336,22 @@ function dlDraft(p, d) {
       inspections: insp,
       visitors: [],
       work: work,
-      delays: carried,
+      delays: carried.concat(raised),
       safety: { incident: !1, toolbox: talks[0] ? talks[0].topic : "", notes: "" },
       photoIds: [],
       notes: "",
       prevDate: prev ? prev.date : "",
     };
+  // the work the crew on the clock today owns comes first, then what is under way, then what has not started
+  try {
+    const on = dr.crew.map((c) => String(c.name || "").split(" ")[0].toLowerCase()).filter(Boolean),
+      rank = (w) => {
+        const t = (p.tasks || []).find((x) => x.id === w.taskId) || {},
+          own = String(t.owner || "").split(" ")[0].toLowerCase();
+        return on.includes(own) ? 0 : "in-progress" === t.status ? 1 : 2;
+      };
+    dr.work = dr.work.map((w, i) => [rank(w), i, w]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map((x) => x[2]);
+  } catch (e) {}
   if (((DB.field.dlDraft[key] = dr), "function" == typeof DL_WEATHER_HOOK))
     try {
       Promise.resolve(DL_WEATHER_HOOK(p, d))
@@ -156515,6 +156531,11 @@ function dlRenderFlow(root) {
       last = (DL_STEPS[dr.step][0], dr.step === DL_STEPS.length - 1);
     (root.innerHTML = `<div class="card f-card dl-card"><div class="hd"><h3>${dr.editing ? "Editing" : "Today"} — ${fmtL(td)}</h3><span class="small muted">Step ${dr.step + 1} of ${DL_STEPS.length}${dr.prevDate ? ` · carried from ${fmt(dr.prevDate)}` : ""}</span></div>\n      <div class="dl-steps" role="tablist" aria-label="Steps">${DL_STEPS.map(([s, n], i) => `<button type="button" role="tab" class="dl-st ${i === dr.step ? "on" : ""} ${i < dr.step ? "done" : ""}" data-dlgo="${i}" aria-selected="${i === dr.step}">${n}</button>`).join("")}</div>\n      <h3 class="dl-title">${DL_STEPS[dr.step][1]}</h3>\n      <div class="dl-body">${dlStepHtml(dr, p)}</div>\n      <div class="row dl-nav">${dr.step > 0 ? '<button type="button" class="btn" data-dlback>Back</button>' : ""}${!last && dr.step > 0 ? '<button type="button" class="btn" data-dlgo="6">Review and Sign</button>' : ""}<span class="grow"></span><button type="button" class="btn primary" id="dl-next">${last ? (dr.editing ? "Sign and Update" : "Sign and Send") : "Next"}</button></div></div>${pastHtml}`),
       dlWire(root, dr, p);
+    // Sign Off: the attestation sits in the docked step nav, beside the button it unlocks
+    const sg = last && root.querySelector(".dl-body .dl-sign"),
+      nv = root.querySelector(".dl-card .dl-nav");
+    sg && nv && (nv.prepend(sg), nv.classList.add("dl-nav-sign"));
+    document.body.classList.toggle("dl-signstep", !!(sg && nv));
     const nx = root.querySelector("#dl-next");
     nx &&
       (root.querySelectorAll(".btn.primary").forEach((b) => {
@@ -156675,13 +156696,13 @@ function dlWire(root, dr, p) {
     root.querySelectorAll("[data-dlgo]").forEach(
       (b) =>
         (b.onclick = () => {
-          (dr.step = +b.dataset.dlgo), keep(), dlRenderFlow(root), window.scrollTo(0, 0);
+          (dr.step = +b.dataset.dlgo), keep(), dlRenderFlow(root), navScrollTop();
         }),
     );
   const bk = root.querySelector("[data-dlback]");
   bk &&
     (bk.onclick = () => {
-      (dr.step = Math.max(0, dr.step - 1)), keep(), dlRenderFlow(root), window.scrollTo(0, 0);
+      (dr.step = Math.max(0, dr.step - 1)), keep(), dlRenderFlow(root), navScrollTop();
     }),
     (root.querySelector("#dl-next").onclick = () => {
       const k = DL_STEPS[dr.step][0],
@@ -156699,7 +156720,7 @@ function dlWire(root, dr, p) {
             )
           : dr.step < DL_STEPS.length - 1
             ? dr.weather
-              ? (dr.step++, keep(), dlRenderFlow(root), void window.scrollTo(0, 0))
+              ? (dr.step++, keep(), dlRenderFlow(root), void navScrollTop())
               : noWx()
             : dr.weather
               ? void (dr.signed

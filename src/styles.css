@@ -3081,3 +3081,28 @@ svg.gantt text.prg-lbl.behind{fill:var(--bad,#b42318)} svg.gantt text.prg-lbl.no
 
 /* daywalk: the bill sheet opens on its decision (amounts + primary), the compliance blocks below */
 #d-body > .bill-decide { margin: 0 0 12px !important; }
+/* daywalk: the foreman's Daily Log on a phone. The step nav is docked above the tab bar so Next is
+   always on screen; Say It docks above the nav, the toast above both. Crew rows stack name over role
+   beside a narrow hours box; Sign Off is one full-width checkbox row. */
+.dl-row .grow{flex:1 1 auto}
+body.crewmode .view.on .dl-num{flex:none}
+body.crewmode .view.on .dl-num input{width:76px;flex:none}
+body.crewmode .view.on .dl-row .grow > b,body.crewmode .view.on .dl-row .grow > span{overflow-wrap:normal;word-break:normal}
+body.crewmode .view.on .dl-sign{display:flex;width:100%;box-sizing:border-box;align-items:flex-start}
+body.crewmode .view.on .dl-sign input[type=checkbox]{width:24px;height:24px;flex:none;margin:2px 0 0}
+body.crewmode .view.on .dl-sign > span{display:block;flex:1 1 auto;min-width:0}
+@media (max-width:760px){
+  body.lk-logview .dl-card .dl-nav{position:fixed;left:0;right:0;bottom:calc(58px + env(safe-area-inset-bottom));z-index:35;margin:0;padding:8px 16px;background:var(--paper);border-top:1px solid var(--rule);box-shadow:0 -4px 12px rgba(0,0,0,.06);flex-wrap:nowrap}
+  body.lk-logview .dl-card .dl-nav .btn{flex:none}
+  body.lk-logview .dl-card .dl-nav .btn.primary{flex:1 1 auto}
+  body.lk-logview #flog-body{padding-bottom:84px}
+  body.lk-logview #fsay{bottom:calc(58px + 62px + 10px + env(safe-area-inset-bottom))}
+  body.lk-logview .toast{bottom:calc(58px + 62px + 64px + env(safe-area-inset-bottom))}
+}
+.dl-nav.dl-nav-sign{flex-wrap:wrap} .dl-nav.dl-nav-sign .dl-sign{flex:1 1 100%;margin:0 0 4px}
+@media (max-width:760px){
+  body.lk-logview .dl-card .dl-nav.dl-nav-sign{flex-wrap:wrap}
+  body.lk-logview.dl-signstep #flog-body{padding-bottom:160px}
+  body.lk-logview.dl-signstep #fsay{bottom:calc(58px + 136px + 10px + env(safe-area-inset-bottom))}
+  body.lk-logview.dl-signstep .toast{bottom:calc(58px + 136px + 64px + env(safe-area-inset-bottom))}
+}
