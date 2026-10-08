@@ -1,0 +1,501 @@
+<div class="shell">
+  <aside class="rail">
+    <div class="brand"><div class="mark">S</div><div><div class="name">SmartDesigns</div><div class="sub">Projects</div></div></div>
+    <div class="ws" id="ws" style="display:none"><button data-ws="sd" title="SmartDesign"><span class="ws-full">SmartDesign</span><span class="ws-tiny">SD</span></button><button data-ws="mb" title="Mercer &amp; Bond"><span class="ws-full">Mercer &amp; Bond</span><span class="ws-tiny">M&amp;B</span></button></div>
+    <nav class="nav" id="nav-mb">
+      <button class="mb-newbtn" id="mb-new" type="button"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>New deal</button>
+      <div class="navsep">Acquisitions</div>
+      <button data-v="mbdash"><svg viewBox="0 0 24 24"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>Today <span class="n" id="n-mbdash"></span></button>
+      <button data-v="mbdeals"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="10" rx="1"/><rect x="17" y="4" width="4" height="13" rx="1"/></svg>Deals <span class="n" id="n-mbdeals"></span></button>
+      <button data-v="mbwatch"><svg viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>Watchlist <span class="n" id="n-mbwatch"></span></button>
+      <div class="navsep">Records</div>
+      <button data-v="mbown"><svg viewBox="0 0 24 24"><rect x="3" y="10" width="7" height="11" rx="1"/><rect x="14" y="4" width="7" height="17" rx="1"/><path d="M6 14h1M6 17h1M17 8h1M17 11h1M17 14h1M17 17h1"/></svg>Portfolio <span class="n" id="n-mbown"></span></button>
+      <button data-v="mbprops"><svg viewBox="0 0 24 24"><path d="M4 21V8l8-5 8 5v13"/><path d="M9 21v-6h6v6"/></svg>Properties</button>
+      <button data-v="mbbrokers"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17" cy="9" r="2.5"/><path d="M15.5 14.5a5 5 0 0 1 6 5"/></svg>Brokers</button>
+    </nav>
+    <nav class="nav" id="nav">
+      <div class="navsep">Company</div>
+      <button data-v="home">Brief</button>
+      <button data-v="port">Overview <span class="n" id="n-port"></span></button>
+      <button data-v="clients">Clients <span class="n" id="n-clients"></span></button>
+      <button data-v="bank">Banking <span class="n" id="n-bank"></span></button>
+      <button data-v="vendors">Vendors <span class="n" id="n-vendors"></span></button>
+      <button data-v="inv">Inventory &amp; tools <span class="n" id="n-inv"></span></button>
+      <button data-v="ap">Bills &amp; payroll <span class="n" id="n-ap"></span></button>
+      <button data-v="verify">Verification <span class="n" id="n-verify"></span></button>
+      <button data-v="reports">Reports</button>
+      <button data-v="client">Overview</button>
+      <div class="navsep">Project</div>
+      <div class="projsel"><select id="pswitch" aria-label="Switch project"></select></div>
+      <button data-v="dash" class="on">Today <span class="n" id="n-dash"></span></button>
+      <button data-v="sched">Schedule</button>
+      <button data-v="tasks">Tasks <span class="n" id="n-tasks"></span></button>
+      <button data-v="time">Time &amp; crew <span class="n" id="n-time"></span></button>
+      <button data-v="req">Requests <span class="n" id="n-req"></span></button>
+      <button data-v="route">Route <span class="n" id="n-route"></span></button>
+      <button data-v="mat">Materials <span class="n" id="n-mat"></span></button>
+      <button data-v="po">Purchasing <span class="n" id="n-po"></span></button>
+      <button data-v="dec">Decisions <span class="n" id="n-dec"></span></button>
+      <button data-v="insp">Inspections &amp; permits <span class="n" id="n-insp"></span></button>
+      <button data-v="field">Field &amp; plans <span class="n" id="n-field"></span></button>
+      <button data-v="files">Documents <span class="n" id="n-files"></span></button>
+      <button data-v="costs">Job costs</button>
+      <button data-v="inbox">Inbox <span class="n" id="n-inbox"></span></button>
+      <button data-v="chat">Chat <span class="n" id="n-chat"></span></button>
+      <div class="navsep">System</div>
+      <button data-v="proj">Settings &amp; log</button>
+    </nav>
+    <div class="foot"><div id="whoami" class="small" style="color:rgba(255,255,255,.75);margin-bottom:8px"></div><div class="f" id="role-wrap"><label>Preview as</label><select id="role" class="rolesel"><option value="owner">Owner / CEO</option><option value="pm">Project manager</option><option value="foreman">Foreman</option><option value="coord">Coordinator / procurement</option><option value="crew">Foreman / crew</option><option value="driver">Driver</option><option value="client">Client</option></select></div><div id="foot"></div></div>
+  </aside>
+  <div class="main">
+    <header class="topbar">
+      <button class="btn ghost menu-btn" id="menu-btn" aria-label="Menu" title="Menu"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+      <div class="crumbs" id="crumbs"><b id="pagetitle">Today</b></div>
+      <div class="addr" id="paddr"></div>
+      <div class="grow"></div>
+      <button class="search-btn no-print" id="btn-search" aria-label="Search"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg><span>Search tasks, materials, clients…</span><kbd>⌘K</kbd></button>
+      <button class="btn no-print" id="fab">Assistant</button>
+      <button class="btn primary no-print" id="mb-new-top">New deal</button>
+      <div class="stat" id="st-today"></div>
+      <div class="stat" id="st-finish"></div>
+      <div class="stat" id="st-float"></div>
+    </header>
+
+    <!-- PORTFOLIO -->
+    <section class="view" id="v-mbdash"><div class="ph"><div><h2>Today</h2><p class="lead">What needs a decision or a call, most urgent first.</p></div></div><div id="mb-today"></div></section>
+    <section class="view" id="v-mbdeals"><div class="ph"><div><h2>Deals</h2><p class="lead" id="mb-deals-lead">Every opportunity by stage.</p></div></div><div id="mb-deals"></div></section>
+    <section class="view" id="v-mbwatch"><div class="ph"><div><h2>Watchlist</h2><p class="lead">Deals we passed on for now, with the triggers that bring them back.</p></div></div><div id="mb-watch"></div></section>
+    <section class="view" id="v-mbprops"><div class="ph"><div><h2>Properties</h2><p class="lead">Permanent records. A property can be evaluated many times; nothing learned is lost.</p></div></div><div id="mb-props"></div></section>
+    <section class="view" id="v-mbown"><div class="ph"><div><h2>Portfolio</h2><p class="lead">What we own: rent roll, NOI, debt, tax-credit compliance, and capital work — each property as its own profit center.</p></div></div><div id="mb-own"></div></section>
+    <section class="view" id="v-mbownp"><div id="mb-ownp"></div></section>
+    <section class="view" id="v-mbbrokers"><div class="ph"><div><h2>Brokers</h2><p class="lead">Who we are working with, what we are waiting on, and how responsive they are.</p></div></div><div id="mb-brokers"></div></section>
+    <section class="view" id="v-mbdeal"><div id="mb-deal"></div></section>
+    <section class="view" id="v-mbprop"><div id="mb-prop"></div></section>
+    <section class="view" id="v-port">
+      <div class="ph"><div><h2>Company overview</h2><p class="lead">Every active job, ranked by how much attention it needs today.</p></div><div class="acts"><button class="btn primary" id="btn-newproj">New project</button></div></div>
+      <div class="card" id="cash-card" style="margin-bottom:14px"></div>
+      <div id="port-cards" class="port"></div>
+      <div class="card" style="margin-top:16px">
+        <div class="row" style="margin-bottom:8px"><h3 style="margin:0">Email</h3><span class="grow"></span><span class="small muted" id="mail-status"></span><button class="btn" id="btn-mail">Check email for all projects</button></div>
+        <p class="small muted" style="margin:0 0 10px">Reads recent mail through the connected Gmail account and routes each message to a project using its tag, contacts and keywords. Attachments are recorded as project documents. Emails it can't place with confidence wait here for you.</p>
+        <div id="unrouted"></div>
+      </div>
+    </section>
+
+    <!-- BILLS & PAYROLL (AP) -->
+    <section class="view" id="v-ap">
+      <div class="ph"><div><h2>Bills &amp; payroll</h2><p class="lead">Nothing is paid without an approved bill or payroll run. PMs recommend, the Owner approves, then payment is released. Whoever entered an item cannot approve it.</p></div>
+        <div class="acts"><button class="btn" id="btn-newpayroll">New payroll run</button><button class="btn primary" id="btn-newbill">New vendor bill</button></div></div>
+      <div class="kpis" id="ap-kpis"></div>
+      <div class="row no-print" style="margin-bottom:10px"><div class="seg" id="ap-filter"><button class="on" data-f="queue">Awaiting approval</button><button data-f="approved">Approved · to pay</button><button data-f="paid">Paid</button><button data-f="all">All</button></div></div>
+      <div id="ap-table"></div>
+    </section>
+
+    <!-- VERIFICATION -->
+    <section class="view" id="v-verify">
+      <div class="ph"><div><h2>Verification</h2><p class="lead">Every transaction that hits a bank or card account is checked against approved bills, payroll and POs after it clears. What doesn't reconcile is an exception, addressed to the Owner.</p></div>
+        <div class="acts"><button class="btn primary" id="btn-runverify">Run verification</button></div></div>
+      <div class="kpis" id="vf-kpis"></div>
+      <div class="row no-print" style="margin-bottom:10px"><div class="seg" id="vf-filter"><button class="on" data-f="open">Open exceptions</button><button data-f="verified">Verified</button><button data-f="all">All transactions</button></div><span class="grow"></span><span class="small muted" id="vf-status"></span></div>
+      <div id="vf-table"></div>
+    </section>
+
+    <!-- BANKING -->
+    <section class="view" id="v-bank">
+      <div class="ph"><div><h2>Banking &amp; transactions</h2><p class="lead">Every bank and card transaction lands here, gets a category and a job, and rolls into job costs. Rules learn from what you approve; the assistant handles the rest with your sign-off.</p></div>
+        <div class="acts"><button class="btn" id="btn-connect">Connections</button><button class="btn" id="btn-addtxn">Add transaction</button><button class="btn" id="btn-txnai">Categorize &amp; match</button><button class="btn primary" id="btn-sync">Sync accounts</button></div></div>
+      <div id="bank-accts" class="kpis" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr))"></div>
+      <div id="sync-status" class="small muted" style="margin:-4px 0 10px"></div>
+      <div class="row no-print" style="margin-bottom:10px"><div class="seg" id="txn-filter"><button class="on" data-f="open">Needs review</button><button data-f="all">All</button><button data-f="recon">Unreconciled</button></div><div class="seg" id="txn-acct"></div><span class="grow"></span><div class="row" id="txn-bulk" style="display:none"><span class="small muted" id="txn-selcount"></span><select id="txn-bulkcat" class="btn" style="height:30px"></select><select id="txn-bulkproj" class="btn" style="height:30px"></select><button class="btn sm primary" id="txn-bulkapply">Apply to selected</button><button class="btn sm" id="txn-bulkrecon">Mark reconciled</button></div></div>
+      <div id="txn-table"></div>
+      <div id="txn-props" style="margin-top:12px"></div>
+    </section>
+
+    <!-- JOB COSTS -->
+    <section class="view" id="v-home"><div id="home-body"></div></section>
+    <section class="view" id="v-reports"><div class="ph"><div><h2>Reports</h2><p class="lead">Profitability by project, line and cost code; client statements; any dataset grouped and totalled.</p></div></div><div id="rep-body"></div></section>
+    <section class="view" id="v-costs">
+      <div class="ph"><div><h2>Job costs</h2><p class="lead">Budget → committed → actual → billed, by cost code. Earned vs. billed tells you whether you're ahead of the client or behind.</p></div>
+        <div class="acts"><button class="btn" id="btn-budgetest">Load budget from estimate</button><button class="btn" id="btn-editbudget">Edit budget</button></div></div>
+      <div class="kpis" id="jc-kpis"></div>
+      <div class="row" style="margin:4px 0 8px"><h3 style="margin:0">Line profitability</h3><span class="small muted">price vs. budgeted cost vs. actual, per estimate and change-order line</span><span class="grow"></span><div class="seg sm" id="jl-filter"><button class="on" data-f="all">All lines</button><button data-f="flag">Flagged</button></div></div>
+      <div id="jl-table" style="margin-bottom:16px"></div>
+      <div class="row" style="margin:4px 0 8px"><h3 style="margin:0">By cost code</h3><span class="small muted">budget → committed → actual → remaining</span></div>
+      <div class="grid3"><div id="jc-table"></div><div><div class="card" style="margin-bottom:12px"><h3>Work in progress</h3><div id="jc-wip" class="small"></div></div><div class="card"><h3>Recent job transactions</h3><div id="jc-recent" class="small"></div></div></div></div>
+    </section>
+
+    <!-- CLIENTS (records) -->
+    <section class="view" id="v-clients">
+      <div id="clients-list"></div>
+      <div id="client-record" style="display:none"></div>
+    </section>
+
+    <!-- CLIENT VIEW -->
+    <section class="view" id="v-client">
+      <div class="row" id="cl-switch" style="margin-bottom:12px"></div>
+      <div class="kpis" id="cl-kpis"></div>
+      <div class="grid3">
+        <div>
+          <div id="cl-approvals"></div>
+          <div class="card" style="margin-bottom:14px"><h3>Decisions we need from you</h3><div id="cl-decs"></div></div>
+          <div class="card"><h3>What's coming up</h3><div id="cl-next" class="small"></div></div>
+        </div>
+        <div>
+          <div class="card" style="margin-bottom:14px"><h3>Your account</h3><div id="cl-account" class="small"></div></div>
+          <div class="card" style="margin-bottom:14px"><h3>Recently completed</h3><div id="cl-done" class="small"></div></div>
+          <div class="card"><h3>Questions?</h3><p class="small muted" style="margin:0">Reply to your project manager's latest update, or post in the project chat. Decisions marked due are the ones holding an order or a task.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TODAY -->
+    <section class="view on" id="v-dash">
+      <div class="kpis" id="kpis"></div>
+      <div class="hero">
+        <div class="hd"><h2>Look-ahead</h2><span class="rng" id="la-range"></span><span class="grow"></span>
+          <div class="seg no-print"><button class="on" data-la="10">10 working days</button><button data-la="15">15</button></div></div>
+        <div class="lookahead" id="lookahead"></div>
+      </div>
+      <div class="grid3">
+        <div>
+          <div class="row" style="margin-bottom:8px"><h2 style="margin:0">Needs attention</h2><span class="grow"></span><span class="muted small" id="attn-count"></span></div>
+          <div class="attn" id="attn"></div>
+        </div>
+        <div>
+          <div class="card" style="margin-bottom:14px">
+            <div class="row" style="margin-bottom:8px"><h3 style="margin:0">Daily brief</h3><span class="grow"></span><button class="btn sm" id="btn-brief">Write today's brief</button></div>
+            <div class="brief" id="brief">The brief reads the whole project — schedule, materials, inspections — and tells you what to do today and what could be pulled forward. Press the button to write it.</div>
+          </div>
+          <div class="card" style="margin-bottom:14px">
+            <h3>Ahead of schedule</h3>
+            <div id="ahead" class="small"></div>
+          </div>
+          <div class="card">
+            <div class="row" style="margin-bottom:6px"><h3 style="margin:0">Since yesterday</h3><span class="grow"></span><span class="small muted" id="chg-count"></span></div>
+            <div id="changes" class="small"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SCHEDULE -->
+
+    <section class="view" id="v-ftoday"><div id="ftoday-body"></div></section>
+    <section class="view" id="v-fraise"><div id="fraise-body"></div></section>
+    <section class="view" id="v-fsite"><div id="fsite-body"></div></section>
+    <section class="view" id="v-flog"><div id="flog-body"></div></section>
+    <section class="view" id="v-fcrew"><div id="fcrew-body"></div></section>
+    <section class="view" id="v-sched">
+      <div class="ph"><div><h2>Schedule</h2><p class="lead" id="sched-lead"></p></div><div class="acts"><button class="btn" id="btn-addms">Add milestone</button><button class="btn primary" id="btn-addtask">Add task</button></div></div>
+      <div class="tracks" id="track-cards"></div>
+      <div class="gantt-tools no-print">
+        <div class="seg" id="sched-track"><button class="on" data-tr="all">All tracks</button><button data-tr="design">Design</button><button data-tr="permit">Permitting</button><button data-tr="procure">Procurement</button><button data-tr="build">Construction</button><button data-tr="close">Closeout</button></div>
+        <div class="seg" id="sched-view"><button class="on" data-sv="gantt">Gantt</button><button data-sv="list">List</button></div>
+        <div class="seg gantt-only"><button data-zoom="12" class="on">Fit</button><button data-zoom="18">Wide</button><button data-zoom="34">Day</button></div>
+        <button class="btn gantt-only" id="btn-today">Today</button>
+        <label class="chk desk-only"><input type="checkbox" id="opt-push" checked> Push dependents when a task moves later</label>
+        <label class="chk desk-only"><input type="checkbox" id="opt-deps"> Show dependency lines</label>
+        <button class="btn" id="btn-baseline">Set baseline</button>
+        <button class="btn" onclick="window.print()">Print</button>
+      </div>
+      <div class="gantt-wrap" id="gantt-wrap"></div>
+      <div id="sched-list" style="display:none"></div>
+      <div class="legend">
+        <span><i class="dot" style="background:var(--red)"></i> critical path (zero float)</span>
+        <span><i class="dot" style="background:var(--amber)"></i> material need-by</span>
+        <span><i class="dot" style="background:var(--green)"></i> material on site</span>
+        <span><i class="dot" style="background:var(--orange)"></i> material or inspection at risk</span>
+        <span><svg width="14" height="12"><path d="M7 1 L13 6 L7 11 L1 6Z" class="gate"/></svg> inspection gate</span>
+        <span><i class="dot" style="background:#F0F1F4;border:1px solid var(--rule)"></i> weekend</span>
+        <span><i class="dot" style="background:#FCE4E4"></i> holiday</span>
+        <span><i class="dot" style="background:#C9CDD3;height:4px"></i> baseline</span>
+        <span class="muted">Drag a bar to move it, drag its edge to change duration, click to edit.</span>
+      </div>
+    </section>
+
+    <!-- TIME & CREW -->
+    <section class="view" id="v-time">
+      <div class="ph"><div><h2 id="time-title">Time &amp; crew</h2><p class="lead desk-only">Crew clock in and out on their phones with location. Approved hours become payroll and labor cost.</p></div>
+        <div class="acts"><button class="btn" id="btn-employees">Employees</button><button class="btn" id="btn-addtime">Add time entry</button><button class="btn primary" id="btn-payrollfromtime">Build payroll from approved time</button></div></div>
+      <div id="time-reminders"></div>
+      <div class="card" id="clock-card" style="margin-bottom:12px"></div>
+      <div class="card" id="day-card" style="margin-bottom:12px;display:none"></div>
+      <div class="kpis" id="time-kpis"></div>
+      <div class="row no-print" style="margin-bottom:10px"><div class="seg" id="time-filter"><button class="on" data-f="pending">Awaiting approval</button><button data-f="week">This week</button><button data-f="approved">Approved · unpaid</button><button data-f="all">All</button></div><span class="grow"></span><span class="small muted" id="time-sel"></span><button class="btn sm primary" id="time-approve-all" style="display:none">Approve all shown</button></div>
+      <div id="time-table"></div>
+    </section>
+
+    <!-- INVENTORY -->
+    <section class="view" id="v-inv">
+      <div class="ph"><div><h2>Inventory &amp; tools</h2><p class="lead">What the company owns and stocks, and where it is right now — warehouse, truck, or which job site. Crew request from it; consumables count down; tools move with a pickup and a drop-off on the driver's list.</p></div>
+        <div class="acts"><button class="btn" id="btn-invmove">Move / adjust</button><button class="btn primary" id="btn-newinv">Add item</button></div></div>
+      <div class="kpis" id="inv-kpis"></div>
+      <div class="row no-print" style="margin-bottom:10px"><div class="seg" id="inv-filter"><button class="on" data-f="all">All</button><button data-f="tool">Tools &amp; machinery</button><button data-f="consumable">Stock</button><button data-f="low">Low stock</button><button data-f="site">On this job</button></div></div>
+      <div id="inv-table"></div>
+    </section>
+
+    <!-- REQUESTS (crew composer + list) -->
+    <section class="view" id="v-req">
+      <div class="ph"><div><h2>Requests</h2><p class="lead desk-only">Materials, tools, machinery, debris. Say it, pick a kit, or photograph a list — then send. Procurement and the driver are notified; status shows here.</p></div></div>
+      <div id="req-nudge"></div>
+      <div class="card" id="composer" style="margin-bottom:12px"></div>
+      <div class="card" id="garbage-card" style="margin-bottom:12px"></div>
+      <div id="my-requests"></div>
+    </section>
+
+    <!-- DRIVER & ROUTE -->
+    <section class="view" id="v-route">
+      <div class="ph"><div><h2>Route</h2><p class="lead desk-only">Everything to pick up, buy, drop off and dump — planned into a day.</p></div></div>
+      <div class="card" id="run-card" style="margin-bottom:12px"></div>
+      <div class="card" id="pickup-card" style="margin-bottom:12px"></div>
+    </section>
+
+    <!-- VENDORS -->
+    <section class="view" id="v-vendors">
+      <div class="ph"><div><h2>Vendors</h2><p class="lead">One record per vendor and sub: people, W-9, insurance and license expirations, banking (changes need Owner verification), terms, and everything bought from them.</p></div>
+        <div class="acts"><button class="btn primary" id="btn-newvendor">New vendor</button></div></div>
+      <div class="kpis" id="vend-kpis"></div>
+      <div id="vend-table"></div>
+    </section>
+
+    <!-- TASKS -->
+    <section class="view" id="v-tasks">
+      <div class="ph"><div><h2>Tasks</h2><p class="lead">Action items for people — separate from the schedule phases. Created by hand or from meetings; linked to what they unblock.</p></div>
+        <div class="acts"><button class="btn" id="btn-meeting">Process a meeting</button><button class="btn primary" id="btn-addaction">Add task</button></div></div>
+      <div class="row no-print" style="margin-bottom:10px"><div class="seg" id="act-filter"><button class="on" data-f="open">Open</button><button data-f="mine">Mine</button><button data-f="overdue">Overdue</button><button data-f="week">Due this week</button><button data-f="done">Done</button><button data-f="all">All</button></div><div class="seg" id="act-view"><button class="on" data-av="list">List</button><button data-av="board">Board</button></div><span class="grow"></span><input id="act-quick" class="btn" style="min-width:280px;height:30px;text-align:left" placeholder="Quick add: Call Nemo about tile ETA @Chen !high due fri"></div>
+      <div id="act-table"></div>
+      <div class="card" style="margin-top:14px"><div class="hd"><h3>Meetings</h3><span class="grow"></span><span class="small muted" id="mtg-count"></span></div><div id="mtg-list" class="small"></div></div>
+    </section>
+
+    <!-- PURCHASING -->
+    <section class="view" id="v-recv"><div id="recv-body"></div></section>
+    <section class="view" id="v-dashboard"><div id="dash-body"></div></section>
+    <section class="view" id="v-sel"><div id="sel-body"></div></section>
+    <section class="view" id="v-proc"><div id="proc-body"></div></section>
+    <section class="view" id="v-sday"><div id="sday-body"></div></section>
+    <section class="view" id="v-sboard"><div id="sboard-body"></div></section>
+    <section class="view" id="v-sdraw"><div id="sdraw-body"></div></section>
+    <section class="view" id="v-sfile"><div id="sfile-body"></div></section>
+    <section class="view" id="v-studio"><div id="studio-body"></div></section>
+    <section class="view" id="v-po">
+      <div class="ph"><div><h2>Purchasing</h2><p class="lead">Purchase orders commit cost before it's spent. Incoming transactions match against them automatically; anything off on price, quantity or vendor is flagged.</p></div>
+        <div class="acts"><button class="btn" id="btn-pomatch">Run matching</button><button class="btn primary" id="btn-newpo">New PO</button></div></div>
+      <div class="kpis" id="po-kpis"></div>
+      <div id="po-funds"></div>
+      <div class="card" id="req-queue" style="margin-bottom:14px"></div>
+      <div class="row" style="margin:4px 0 8px"><h3 style="margin:0">Purchase orders</h3></div>
+      <div id="po-table"></div>
+      <div id="po-doc" style="display:none"></div>
+    </section>
+
+    <!-- MATERIALS -->
+    <section class="view" id="v-mat">
+      <div class="ph"><div><h2>Materials</h2><p class="lead">Need-by and order-by dates follow the schedule. Click a row to edit.</p></div>
+        <div class="acts"><button class="btn" id="btn-matimport">Import CSV</button><button class="btn" id="btn-matcsv">Export CSV</button><button class="btn primary" id="btn-addmat">Add material</button></div></div>
+      <div id="mat-week" style="margin-bottom:12px"></div>
+      <div class="row no-print" style="margin-bottom:10px"><div class="seg" id="mat-filter"><button class="on" data-f="all">All</button><button data-f="rough">Rough</button><button data-f="finish">Finish</button><button data-f="open">Not on site</button></div><div class="seg" id="mat-group"><button class="on" data-g="date">Flat</button><button data-g="vendor">By vendor</button><button data-g="task">By task</button></div></div>
+      <div id="mat-table"></div>
+    </section>
+
+    <!-- DECISIONS -->
+    <section class="view" id="v-dec">
+      <div class="ph"><div><h2>Decisions</h2><p class="lead">Selections, layouts and sign-offs that block an order or a task. Due dates come from what they block.</p></div>
+        <div class="acts"><div class="seg" id="dec-filter"><button class="on" data-f="open">Open</button><button data-f="all">All</button></div><button class="btn primary" id="btn-adddec">Add decision</button></div></div>
+      <div id="dec-table"></div>
+    </section>
+
+    <!-- FIELD & PLANS -->
+    <section class="view" id="v-field">
+      <div class="card" id="takeoff-card" style="margin-bottom:14px"></div>
+      <div class="ph"><div><h2>Field &amp; plans</h2><p class="lead">Field questions, plan inconsistencies, revisions and sub coordination — each tied to the task it affects.</p></div>
+        <div class="acts"><div class="seg" id="iss-filter"><button class="on" data-f="open">Open</button><button data-f="all">All</button></div><button class="btn primary" id="btn-addiss">Add item</button></div></div>
+      <div id="iss-table"></div>
+    </section>
+
+    <!-- DOCUMENTS -->
+    <section class="view" id="v-files">
+      <div class="ph"><div><h2>Documents</h2><p class="lead">Photos, delivery tickets, inspection cards, receipts, drawings and permits — uploaded from the field or the office, kept with the project, and linked to what they belong to.</p></div>
+        <div class="acts"><label class="btn"><span class="phone-only"><svg class="bp-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg> Take photo</span><span class="desk-only2">Camera</span><input type="file" id="file-cam" accept="image/*" capture="environment" hidden></label><label class="btn primary">Upload files<input type="file" id="file-up" multiple accept="image/*,application/pdf,.txt,.csv,.md,.dwg,.dxf,.heic" hidden></label></div></div>
+      <div class="drop" id="drop">Drop files here — photos, PDFs, drawings. Images are resized for storage; anything over 4 MB should be linked instead.</div>
+      <div class="row no-print" style="margin:10px 0"><div class="seg" id="file-filter"><button class="on" data-f="all">All</button><button data-f="photo">Photos</button><button data-f="ticket">Delivery tickets</button><button data-f="receipt">Receipts</button><button data-f="inspection">Inspections &amp; permits</button><button data-f="drawing">Drawings &amp; plans</button><button data-f="other">Other</button></div><div class="seg" id="file-view"><button class="on" data-fv="grid">Grid</button><button data-fv="list">List</button></div><span class="grow"></span><span class="small muted" id="file-size"></span></div>
+      <div id="file-list"></div>
+    </section>
+
+    <!-- INBOX -->
+    <section class="view" id="v-inbox">
+      <div class="ph"><div><h2>Inbox</h2><p class="lead">Messages about this project. The assistant classifies each one and proposes updates; a person approves.</p></div>
+        <div class="acts"><button class="btn" id="btn-mail-proj">Check email</button><button class="btn primary" id="btn-reviewall">Review all new</button></div></div>
+      <div class="grid3">
+        <div><div id="inbox-list"></div>
+          <div class="card" style="margin-top:14px"><div class="row" style="margin-bottom:6px"><h3 style="margin:0">Documents</h3><span class="grow"></span><span class="small muted" id="doc-count"></span></div><div id="docs" class="small"></div></div>
+        </div>
+        <div class="card">
+          <h3>Add messages</h3>
+          <p class="small muted" style="margin:0 0 8px">Paste anything: a text thread, a forwarded email with headers, a WhatsApp export (it splits into messages automatically), or drop a .txt / .eml / .csv file.</p>
+          <div class="f"><textarea id="in-text" style="min-height:150px" placeholder="9/4/26, 7:41 AM - Alberto: need 20 more 2x4 and the blocking screws by Monday
+9/4/26, 8:02 AM - Chen: Tile vendor says primary bath tile ships 10/2, 10 days lead"></textarea></div>
+          <div class="f2"><div class="f"><label>From (if not in the text)</label><input id="in-from" placeholder="e.g. Maya (architect)"></div><div class="f"><label>Channel</label><select id="in-src"><option value="auto">Detect</option><option value="whatsapp">WhatsApp / text</option><option value="email">Email</option><option value="notes">Meeting notes</option></select></div></div>
+          <div class="row"><button class="btn primary" id="in-add">Add to inbox</button><label class="btn">Upload file<input type="file" id="in-file" accept=".txt,.eml,.csv,.md,.json" hidden></label><span class="small muted" id="in-status"></span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CHAT -->
+    <section class="view" id="v-chat">
+      <div class="ph"><div><h2>Project chat</h2><p class="lead">The team's channel for this job. Every post is read by the assistant and becomes a proposal in the Inbox when it changes the project.</p></div></div>
+      <div class="grid3">
+        <div class="card chatbox"><div id="chat-list" class="chat-list"></div>
+          <div class="chat-compose"><input id="chat-name" placeholder="Your name" style="max-width:140px"><input id="chat-text" placeholder="e.g. Framing done in the bedroom, plumber can start tomorrow"><label class="btn" title="Attach a photo or document"><span><svg class="bp-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.4 11.05l-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"/></svg></span><input type="file" id="chat-file" accept="image/*,application/pdf" capture="environment" hidden></label><button class="btn primary" id="chat-send">Send</button></div>
+        </div>
+        <div class="card"><h3>How Messages Get Here</h3>
+          <div class="small" style="color:var(--ink-2)">
+            <p style="margin:0 0 8px"><b>From the site:</b> the crew posts here from their phones, or you paste a thread into the Inbox.</p>
+            <p style="margin:0"><b>Email:</b> use the project tag <span class="pill blue" id="chat-tag"></span> in subjects, and keep the contact directory current in Settings. Emails from known contacts route themselves.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- INSPECTIONS -->
+    <section class="view" id="v-insp">
+      <div class="ph"><div><h2>Inspections &amp; permits</h2><p class="lead">Each inspection gates a task; permits carry expirations with a 30-day warning.</p></div>
+        <div class="acts"><button class="btn" id="btn-addpermit">Add permit</button><button class="btn primary" id="btn-addinsp">Add inspection</button></div></div>
+      <div class="grid3">
+        <div><div id="insp-table"></div>
+          <h3 style="margin:16px 0 8px">Permits &amp; expirations</h3>
+          <div id="permit-table"></div>
+        </div>
+        <div class="card">
+          <h3>Pull filings from NYC Open Data</h3>
+          <p class="small muted" style="margin:0 0 10px">Looks up DOB job filings and permits by BIN or job number. Inspection results for DOB NOW jobs are not published as open data; use the links to check them and record the result here.</p>
+          <div class="f"><label>BIN or DOB job number</label><input id="lk-q" placeholder="e.g. 3001234 or M00123456"></div>
+          <div class="row"><button class="btn primary sm" id="lk-go">Look up</button><span class="small muted" id="lk-status"></span></div>
+          <div class="lookup-res" id="lk-res" style="margin-top:10px;display:none"></div>
+          <div class="links" id="lk-links" style="margin-top:8px"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- PROJECT -->
+    <section class="view" id="v-proj">
+      <div class="grid2">
+        <div class="card">
+          <h3>Project</h3>
+          <div class="f2">
+            <div class="f"><label>Name</label><input id="p-name"></div>
+            <div class="f"><label>Address</label><input id="p-addr"></div>
+          </div>
+          <div class="f2">
+            <div class="f"><label>Target substantial completion</label><input type="date" id="p-target"></div>
+            <div class="f"><label>Crew out (hard finish)</label><input type="date" id="p-out"></div>
+          </div>
+          <div class="f2">
+            <div class="f"><label>DOB job / BIN</label><input id="p-bin" placeholder="BIN or job #"></div>
+            <div class="f"><label>LPC docket</label><input id="p-lpc" placeholder="LPC-…"></div>
+          </div>
+          <div class="f"><label>Milestone that marks substantial completion</label><select id="p-sc"></select></div>
+          <div class="f"><label>Holidays (one per line, YYYY-MM-DD, optional label after a space)</label><textarea id="p-hol"></textarea></div>
+          <div class="f"><label>Today (leave blank to use the real date)</label><input type="date" id="p-today"><span class="hint">Useful for reviewing the plan as of a future date.</span></div>
+          <div class="f2">
+            <div class="f"><label>Your name (recorded on changes you approve)</label><input id="p-user" placeholder="e.g. Chen"></div>
+            <div class="f"><label>Automation</label><select id="p-auto"><option value="off">Propose everything — a person approves all changes</option><option value="low">Auto-apply low-risk facts (deliveries, inspection dates, ETAs, confirmed selections) — shown on Today with undo</option></select><span class="hint">Schedule dates, scope, cost and new tasks always require approval.</span></div>
+          </div>
+          <div class="f"><label>Site working hours</label><div class="row" style="gap:6px;flex-wrap:wrap"><div class="seg" id="p-days" style="height:32px"><button data-d="1">Mo</button><button data-d="2">Tu</button><button data-d="3">We</button><button data-d="4">Th</button><button data-d="5">Fr</button><button data-d="6">Sa</button><button data-d="0">Su</button></div><input type="time" id="p-hstart" style="width:120px"><span class="muted">to</span><input type="time" id="p-hend" style="width:120px"><span class="muted">lunch</span><input type="number" id="p-lunch" min="0" step="15" style="width:70px"><span class="muted">min</span></div><span class="hint">Used for crew flags (late, early, overtime), reminders, automatic clock-in, and the client portal.</span></div>
+          <div class="f"><label>Contracting entity</label><select id="p-entity"></select><span class="hint">The legal entity performing this project. Bills, payroll and accounts carry the same dimension.</span></div>
+          <div class="f"><label>Client</label><select id="p-client"></select><span class="hint">Every project belongs to a client. Contacts, contract, invoices, change orders and shared documents roll up to the client record; the client sees this project in their portal.</span></div>
+          <div class="f"><label>Email routing</label>
+            <div class="f2"><div><input id="p-tag" placeholder="Project tag, e.g. 121STATE"><span class="hint">Put [TAG] in email subjects; anything with it routes here.</span></div><div><input id="p-keys" placeholder="Keywords: 121 State, State Street, Cobble Hill"><span class="hint">Comma-separated words that identify this job.</span></div></div>
+            <textarea id="p-contacts" placeholder="One per line: name, email, role
+Maya Levin, maya@studio.com, Architect
+Nemo Tile, orders@nemotile.com, Vendor" style="margin-top:6px"></textarea><span class="hint">Emails from these addresses route to this project automatically.</span></div>
+          <div class="f"><label>Buffers</label>
+            <div class="f2">
+              <div><input type="number" id="p-matbuf" min="0"><span class="hint">Working days materials must be on site before a task starts</span></div>
+              <div><input type="number" id="p-inspbuf" min="0"><span class="hint">Working days before a gate to have the inspection scheduled</span></div>
+              <div><input type="number" id="p-permitbuf" min="0"><span class="hint">Days before a permit expires to be warned (default 30)</span></div>
+            </div>
+          </div>
+          <div class="row"><button class="btn primary" id="p-save">Save project settings</button><span class="grow"></span><button class="btn danger" id="btn-delproj">Delete this project</button></div>
+        </div>
+        <div>
+                              <div class="card" style="margin-bottom:14px">
+            <h3>Users &amp; roles</h3>
+            <p class="small muted" style="margin:0 0 8px">Everyone who uses the app is a user with one role. A phone remembers its user after the first sign-in. Roles decide what a person sees: the Owner approves payments; PMs run projects; coordinators handle purchasing; foremen clock, request and report; the driver gets the route; clients see their portal.</p>
+            <div id="users-list"></div>
+            <div class="row" style="margin-top:8px;flex-wrap:wrap"><input id="u-name" class="btn" style="flex:1;height:30px;text-align:left" placeholder="Name"><select id="u-role" class="btn" style="height:30px"><option value="pm">Project manager</option><option value="foreman">Foreman</option><option value="coord">Coordinator / procurement</option><option value="crew">Foreman / crew</option><option value="driver">Driver</option><option value="owner">Owner</option><option value="client">Client</option></select><input id="u-contact" class="btn" style="width:170px;height:30px" placeholder="Phone or email"><button class="btn sm" id="u-add">Add user</button></div>
+          </div>
+          <div class="card" style="margin-bottom:14px">
+            <h3>Legal entities</h3>
+            <p class="small muted" style="margin:0 0 8px">Every project, account, bill and payroll run belongs to an entity. Intercompany work (SD Plumbing on a SmartDesign job) is recorded on both sides.</p>
+            <div id="entities"></div>
+            <div class="row" style="margin-top:8px"><input id="ent-name" class="btn" style="flex:1;height:30px;text-align:left" placeholder="Entity name, e.g. SD Plumbing LLC"><input id="ent-ein" class="btn" style="width:130px;height:30px" placeholder="EIN (optional)"><button class="btn sm" id="ent-add">Add</button></div>
+          </div>
+          <div class="card" style="margin-bottom:14px">
+            <h3>Approval &amp; verification rules</h3>
+            <div class="f2"><div class="f"><label>Owner approval required for payments above ($)</label><input type="number" id="ap-ceo" min="0"><span class="hint">0 = every payment needs the Owner. Below this, a PM approval releases payment.</span></div><div class="f"><label>Match tolerance (%)</label><input type="number" id="ap-tol" min="0" step="0.5"></div></div>
+            <div class="f2"><div class="f"><label>Card charge needs a receipt above ($)</label><input type="number" id="ap-rcpt" min="0"></div><div class="f"><label>Receipt grace period (days)</label><input type="number" id="ap-rcptdays" min="0"></div></div>
+            <div class="f2"><div class="f"><label>Flag round-dollar transactions above ($)</label><input type="number" id="ap-round" min="0"></div><div class="f"><label>Flag split purchases: same vendor, same day, combined above ($)</label><input type="number" id="ap-split" min="0"></div></div>
+            <label class="chk"><input type="checkbox" id="ap-weekend"> Flag weekend / holiday bank payments</label>
+            <label class="chk" style="margin-top:6px"><input type="checkbox" id="ap-standing"> Recurring overhead coded by a rule (insurance, utilities, software) carries standing approval</label>
+            <button class="btn primary" id="ap-save" style="margin-top:10px">Save rules</button>
+          </div>
+          <div class="card" style="margin-bottom:14px">
+            <h3>Company (appears on estimates, change orders and invoices)</h3>
+            <div class="f2"><div class="f"><label>Company name</label><input id="co-name"></div><div class="f"><label>License #</label><input id="co-lic"></div></div>
+            <div class="f"><label>Address</label><input id="co-addr"></div>
+            <div class="f2"><div class="f"><label>Phone</label><input id="co-phone"></div><div class="f"><label>Email</label><input id="co-email"></div></div>
+            <div class="f2"><div class="f"><label>Default payment terms</label><input id="co-terms" placeholder="Net 15"></div><div class="f"><label>Default retainage %</label><input type="number" id="co-ret" min="0" max="20"></div></div>
+            <div class="f2"><div class="f"><label>Sales tax % (materials)</label><input type="number" id="co-tax" step="0.001"></div><div class="f"><label>Number prefixes (EST / CO / INV)</label><div class="row" style="gap:4px"><input id="co-pe" style="width:60px"><input id="co-pc" style="width:60px"><input id="co-pi" style="width:60px"></div></div></div>
+            <div class="f2"><div class="f"><label>Flag a line when actual cost exceeds budget by (%)</label><input type="number" id="co-var" min="0"></div><div class="f"><label>Flag a line when margin falls below (%)</label><input type="number" id="co-margin" min="0"></div></div>
+            <div class="f"><label>Standard terms &amp; conditions (printed on documents)</label><textarea id="co-tc"></textarea></div>
+            <button class="btn primary" id="co-save">Save company</button>
+          </div>
+          <div class="card" style="margin-bottom:14px">
+            <h3>Data</h3>
+            <p class="small muted" style="margin:0 0 10px">All projects save automatically to this device. Export the whole portfolio to share or back up; import to restore.</p>
+            <label class="chk" style="margin-bottom:10px"><input type="checkbox" id="opt-notify"> Browser notifications for urgent items and permit expirations when this page is open</label>
+            <div class="row"><button class="btn" id="btn-export">Export JSON</button><label class="btn">Import JSON<input type="file" id="btn-import" accept="application/json" hidden></label><span class="grow"></span><button class="btn" id="btn-reset">Add 121 State St example</button></div>
+          </div>
+          <div class="card" style="margin-bottom:14px">
+            <h3>Change log</h3>
+            <div id="plog" class="small" style="max-height:260px;overflow:auto"></div>
+          </div>
+          <div class="card" style="margin-bottom:14px">
+            <h3>What the assistant may do</h3>
+            <p class="small muted" style="margin:0 0 8px">Every action the software or an agent can take, with its approval tier. Agents are treated like employees: named on every change, limited by tier, auditable in the log.</p>
+            <div id="ai-registry"></div>
+          </div>
+          <div class="card" style="margin-bottom:14px">
+            <h3>Backlog — agreed, not yet built</h3>
+            <div id="backlog" class="small"></div>
+          </div>
+          <div class="card">
+            <h3>How the schedule logic works</h3>
+            <div class="small" style="color:var(--ink-2)">
+              <p style="margin:0 0 8px">Dates are working days: Monday–Friday, minus holidays. A task can be marked to allow weekend work.</p>
+              <p style="margin:0 0 8px">Critical path is recalculated on every change from task dependencies. Zero-float tasks show a red edge; every day lost on them moves the finish.</p>
+              <p style="margin:0 0 8px">A material's need-by date is its task's start minus the material buffer. Its order-by date is need-by minus lead time. Both move automatically when the task moves.</p>
+              <p style="margin:0">An inspection gates the task chosen for it. If it is not passed before that task's start it is flagged; if it is not scheduled within the inspection buffer, you are told to book it.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<div class="scrim" id="scrim"></div><div class="railscrim" id="railscrim"></div>
+<aside class="drawer" id="drawer" aria-label="Editor">
+  <div class="hd"><h3 id="d-title"></h3><button class="btn ghost sm" id="d-close" aria-label="Close"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+  <div class="bd" id="d-body"></div>
+  <div class="ft"><button class="btn danger sm" id="d-delete">Delete</button><div class="row"><button class="btn" id="d-cancel">Cancel</button><button class="btn primary" id="d-save">Save</button></div></div>
+</aside>
+<aside class="drawer ai" id="ai" aria-label="Assistant">
+  <div class="hd"><button class="btn sm" id="ai-back" style="display:none">← Back</button><h3 id="ai-title">Assistant</h3><button class="btn ghost sm" id="ai-close" aria-label="Close"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+  <div class="bd" id="ai-body"></div>
+</aside>
+<nav class="tabbar" id="tabbar"></nav>
+<div class="signin" id="signin"><div class="box"><div class="brand" style="padding:0 0 12px"><div class="mark">S</div><div><div class="name">SmartDesigns Projects</div><div class="sub">Who is using this phone?</div></div></div><p class="small muted" style="margin:0 0 10px">Pick your name once. This device will remember you and open the screens for your role. Logins with passwords come with the hosted version.</p><div id="signin-list"></div></div></div>
+<div class="pal" id="pal"><div class="box"><input id="pal-q" placeholder="Search tasks, materials, decisions, inspections, permits, clients, documents… or type a view name"><div class="res" id="pal-res"></div><div class="hint">↑↓ to move · Enter to open · Esc to close</div></div></div>
+<div class="viewer" id="viewer"><div class="vhd"><b id="v-name"></b><span class="muted" id="v-meta"></span><span class="grow"></span><a class="btn sm" id="v-dl" download>Download</a><button class="btn sm" id="v-close">Close</button></div><div class="vbody"><div class="vmain" id="v-main"></div><div class="vside" id="v-side"></div></div></div>
+<div class="toast" id="toast"></div>

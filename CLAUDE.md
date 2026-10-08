@@ -1,0 +1,60 @@
+# SmartDesigns Projects ERP: standing instructions for Claude Code
+
+Read this file, then HANDOFF.md, then docs/BACKLOG.md, before touching code.
+
+## Who this is for
+- **Owner:** Alan Mishali, founder of SmartDesign NYC / Mercer & Bond. The firm does design-build-develop work: landmark brownstone and townhouse renovation in Manhattan and Brooklyn, with SD Plumbing and SD Electric in-house.
+- **What it is:** one ERP for every person in the firm (owner, PM, coordinator/procurement, foreman, crew, driver, designer, billing, controller) and for the firm's clients through a portal.
+- **The goal:** each person runs their day from it and is 10x more productive. The firm stops needing NetSuite, QuickBooks, Procore, Buildertrend and a CRM.
+
+## The bar
+Four expert lenses grade every round against the field leaders:
+- **Founder:** an AI-native ERP founder, judged against NetSuite, Procore, Buildertrend, HubSpot and Copilot-style assistants.
+- **UX:** a senior product designer, judged on flow, the next step and ease of input.
+- **Finance:** a construction CFO/controller, judged against NetSuite and QuickBooks Enterprise.
+- **Ops:** a PM / client-services lead, judged against Procore and Buildertrend.
+
+The target is **9/10 or higher in every lens**: a seasoned professional would pick this over the leader for this firm, with no severity-1 or severity-2 finding left. The last grades (round 4) were founder 7.5, UX 7.5, finance 7.5, ops 8. docs/BACKLOG.md is the contract.
+
+## The owner's standards (non-negotiable)
+- **Ownership.** Research how the leaders do it (NetSuite first, then QuickBooks Enterprise, Procore, Buildertrend, Salesforce/HubSpot, Copper). Adapt it to this firm and beat it; never copy one-for-one.
+- **Review by doing.** Perform the workflow as the person (create an estimate, invoice, PO, CO, daily log…), one module at a time. Flow, button placement, the obvious next step and ease of input matter more than feature lists.
+- **NetSuite's differentiator, app-wide.** Anything in the system can be queried and reported on: every entity in `erpQuery` (EQ_TABLES), in ⌘K search and in the Report Builder.
+- **Labels.** Title Case on labels, tabs, buttons and headings ONLY. Never on record values, units, names from data, or sentences. Connecting words stay lowercase ("Send to Client"). "New X" creates a record; "Add" is for a child line. "Accounting", never "Money".
+- **Visuals.** Line-drawn SVG icons only: no emoji, no glyph characters standing in for icons (› → ✓ ▾).
+- **One blue primary button per screen,** and it is always the safe next step. Housekeeping is never blue.
+- **One question, one number.** The same label shows the same count everywhere (rail badge, tab badge, tile, header line, Ask). A tile's count equals the rows its filter shows. One noun has one list.
+- **Phone (390px):** never scrolls sideways; tap targets at least 8px apart; the foreman's screens are one job, big targets, plain words.
+- **Toasts.** Every mutation toasts what happened, with an Open link to the record. A page heading matches its nav entry.
+- **One clock.** The app's day is `today()`, pinned to 2026-09-03 in the demo. Never stamp a record with the wall clock: use `appNow()` / `appNowIso()` / `stampText()`.
+- **AI assists, people commit.** The assistant may read, extract, match, flag and propose. Writes become proposals with a button. People approve, pay, send, close and certify.
+- **House voice:** plain, specific, no exclamation marks.
+- **Communication with Alan.** He is terse and decisive and wants concrete recommendations, not option lists. Warn him before anything that will use a lot of usage.
+
+## Architecture
+- **Build.** One self-contained HTML file. `python3 build.py` assembles `src/head.html` + `src/styles.css` + `src/body.html` + `src/app.js` into `dist/smartdesigns_projects.html`, and runs `node --check` first.
+- **`src/app.js` (~159k lines).** Recovered from the last published build (round 4) and pretty-printed. It is the true current code, but its comments and section markers were stripped by the minifier. For the intent behind older code, read `legacy/commented-source-v96/app.js`: the September 15 source, fully commented, with sections marked `/*<<name.js>>*/`.
+- **The override pattern.** Every feature after the core was appended as a section that wraps existing functions: `const base = fn; fn = function(){ … base.apply(this, arguments) … }`. Later sections are outer wrappers. Many functions (render, paAsk, jobFin, companyPL, toast, save, docAction…) are wrapped 5–15 times, so before changing behaviour, grep for every reassignment of that function and understand the chain.
+  - Prefer fixing the root definition, and fold redundant wrappers into one clear function when you touch an area. Reducing the layering is part of the job.
+  - Call tables and functions through, never hold old references: `EQ_TABLES` entries are thunks.
+- **Data.** A global `DB` (clients, projects with schedule/tasks/decisions/files, estimates, invoices, COs, POs, bills, payments, transactions, periods, budgetPlan, photos refs, …), persisted to IndexedDB through `save()` / `saveNow()`. Photos are blobs in IndexedDB `sd_photos`. Demo data seeds on first boot.
+- **Identity.** `signIn('u_owner'|'u_alan'(pm)|'u_chen'(coord)|'u_angel'(foreman)|'u_alberto'(crew)|'u_alex'(driver)|'u_klein'(client)|'u_sarah'(designer)|'u_billing'|'u_controller')`, then `render()`. Navigation is `view='<id>'; render()`. `IA_GROUPS` holds the nav groups and `ROLE_VIEWS[role]` the views each role may open.
+- **The hosted copy (Netlify + Supabase)** adds sign-in, sync (`public/cloud.js`), `/api/ai` (Anthropic proxy, model pinned server-side), Google OAuth per user, mail/calendar watchers and Plaid. The latest hosted code was lost (see HANDOFF.md). `legacy/hosted-app-2026-09-15.zip` is the last surviving copy; rebuild the later pieces from the specs in HANDOFF.md.
+
+docs/ARCHITECTURE.md has the module map and the line numbers of the key functions.
+
+## How to work
+1. **Reproduce first.** Write a Playwright check that fails the way the reviewer saw it, then fix it, then prove the fix on the neighbouring screens with the same pattern. A fix is a class fix.
+2. **Run the tests.** `python3 build.py && cd tests && python3 smoke_test.py && python3 baseline_test.py`, plus the suites you add. Suites open `../dist/smartdesigns_projects.html` through `tests/harness.py`; never hardcode paths. The machine running tests may be slow, so run suites one at a time.
+3. **Keep the guard rails, and rebuild the lost ones early (see BACKLOG.md "Rebuild the test net"):**
+   - the screen-standard lint;
+   - the counts lint, where every label shows one number and a tile equals its rows;
+   - the Ask question bank;
+   - the day walk;
+   - the finance cross-check.
+4. **Work in loops.** Fix a backlog slice, re-run the four lenses' walks (docs/REVIEW_PROTOCOL.md), score honestly, repeat. Use subagents for independent slices and for independent reviewers. Reviewers never review their own work.
+5. **Commit small and often,** with messages that say what was wrong and why the change fixes it.
+
+## Privacy
+- Real mailbox, meeting-transcript and bank content never goes into seeds, tests, docs or commits. Demo data is invented.
+- Never commit credentials, tokens or account numbers (last 4 digits at most).
