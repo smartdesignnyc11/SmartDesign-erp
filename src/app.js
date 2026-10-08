@@ -24949,7 +24949,7 @@ const inR = (d, R) => within(d, R),
       fmt: "int",
       good: "down",
       go: { view: "ap" },
-      fn: () => DB.bills.filter((b) => ["submitted", "pm-approved"].includes(b.status)).length,
+      fn: () => PRED.billsAwaitingApproval.count(),
     },
     estOpen: {
       n: "Open estimates ($)",
@@ -26351,12 +26351,32 @@ const SEARCH_OPS = {
     notempty: "is not empty",
   },
   SUMMARY_TYPES = { sum: "Sum", count: "Count", avg: "Average", min: "Minimum", max: "Maximum" };
+// Seeded searches that ask a question the app already answers read the app's predicate (PRED) instead of
+// criteria of their own, so "Bills awaiting approval" is the Approvals count and "Open POs" is Ask's.
+const SS_PRED = {
+  "Open POs by vendor": { ds: "pos", pred: "openPO" },
+  "Bills awaiting approval": { ds: "bills", pred: "billsAwaitingApproval" },
+};
 function searchList() {
-  return (DB.searches = DB.searches || []), DB.searches;
+  return (
+    (DB.searches = DB.searches || []),
+    DB.__ssPred ||
+      ((DB.__ssPred = 1),
+      DB.searches.forEach((x) => {
+        const m = SS_PRED[x.name];
+        m && m.ds === x.ds && !x.pred && ((x.pred = m.pred), (x.criteria = (x.criteria || []).filter((c) => "status" !== c.field)));
+      })),
+    DB.searches
+  );
 }
 function searchRun(s) {
   const ds = REP_DS[s.ds] || REP_DS.invoices;
   let rows = ds.rows();
+  if (s.pred && "object" == typeof PRED && PRED[s.pred] && PRED[s.pred].key) {
+    const P = PRED[s.pred],
+      keys = new Set(P.rows("").map(P.key));
+    rows = rows.filter((r) => keys.has(r.number));
+  }
   (s.criteria || []).forEach((c) => {
     c.field &&
       c.op &&
@@ -26478,9 +26498,13 @@ function repSearches() {
         .map(
           (x) =>
             `<tr class="click" data-ssopen="${x.id}"><td><b>${esc(x.name)}</b></td><td>${REP_DS[x.ds]?.n || x.ds}</td><td>${esc(x.group || "—")}</td><td class="small">${
-              (x.criteria || [])
-                .filter((c) => c.field)
-                .map((c) => `${c.field} ${SEARCH_OPS[c.op]} ${esc(String(c.value ?? ""))}`)
+              [x.pred && PRED[x.pred] ? `${esc(PRED[x.pred].label)}: ${esc(PRED[x.pred].rule)}` : ""]
+                .concat(
+                  (x.criteria || [])
+                    .filter((c) => c.field)
+                    .map((c) => `${c.field} ${SEARCH_OPS[c.op]} ${esc(String(c.value ?? ""))}`),
+                )
+                .filter(Boolean)
                 .join(" and ") || "—"
             }</td><td class="small">${(x.audience || ["all"]).join(", ")}</td><td class="small">${[x.kpi ? "KPI" : "", x.reminder ? "Reminder" : ""].filter(Boolean).join(" · ") || "—"}</td><td class="money">${searchRun(x).rows.length}</td></tr>`,
         )
@@ -26491,7 +26515,7 @@ function repSearches() {
     sample = ds.rows()[0] || {},
     fields = Object.keys(sample),
     crit = (s.criteria || []).concat([{ field: "", op: "eq", value: "" }]);
-  return `<div class="rep-head"><div><a href="#" id="ss-back" class="mb-back">← Saved searches</a><h2 style="margin:2px 0 0">${esc(s.name)}</h2><div class="small muted">${ds.n}${s.group ? " by " + s.group : ""} · ${searchRun(s).rows.length} rows</div></div><div class="row no-print" style="gap:6px"><button class="btn" id="ss-csv">Copy as CSV</button><button class="btn danger" id="ss-del">Delete</button></div></div>\n    <div class="card no-print" style="margin-bottom:12px"><div class="rep-ctl"><label>Name <input id="ss-name" value="${esc(s.name)}"></label><label>Data <select id="ss-ds">${Object.entries(
+  return `<div class="rep-head"><div><a href="#" id="ss-back" class="mb-back">← Saved searches</a><h2 style="margin:2px 0 0">${esc(s.name)}</h2><div class="small muted">${ds.n}${s.group ? " by " + s.group : ""} · ${searchRun(s).rows.length} rows${s.pred && PRED[s.pred] ? ` · ${esc(PRED[s.pred].label)}, the app's own rule: ${esc(PRED[s.pred].rule)}` : ""}</div></div><div class="row no-print" style="gap:6px"><button class="btn" id="ss-csv">Copy as CSV</button><button class="btn danger" id="ss-del">Delete</button></div></div>\n    <div class="card no-print" style="margin-bottom:12px"><div class="rep-ctl"><label>Name <input id="ss-name" value="${esc(s.name)}"></label><label>Data <select id="ss-ds">${Object.entries(
     REP_DS,
   )
     .map(([k, d]) => `<option value="${k}" ${s.ds === k ? "selected" : ""}>${d.n}</option>`)
@@ -34291,14 +34315,8 @@ function seedSearches() {
     criteria: [{ field: "balance", op: "gt", value: "0" }],
     sort: "balance",
   }),
-    mk("Open POs by vendor", "pos", {
-      group: "vendor",
-      criteria: [{ field: "status", op: "ne", value: "closed" }],
-    }),
-    mk("Bills awaiting approval", "bills", {
-      criteria: [{ field: "status", op: "contains", value: "submitted" }],
-      sort: "total",
-    }),
+    mk("Open POs by vendor", "pos", { group: "vendor", pred: "openPO" }),
+    mk("Bills awaiting approval", "bills", { pred: "billsAwaitingApproval", sort: "total" }),
     mk("Uncategorized bank items", "txns", {
       criteria: [{ field: "category", op: "eq", value: "uncat" }],
       sort: "amount",
