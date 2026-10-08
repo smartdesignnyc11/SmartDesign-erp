@@ -131,6 +131,11 @@ This lane was finished and verified at 53 checks. Target figures follow.
   - Always show "I ran: <entity> where … grouped by … (N rows)".
   - Remove the "is a job, so I hold no …" refusal class.
   - No carry-over of a previous question's job into a self-contained question.
+- **Decision (2026-10-08): "what's late" means late only.**
+  - A job's Late = `PRED.jobLate`, the union of `lateMaterial`, `lateDecision` and `lateSubmittal`. On 121 State that is 3 + 3 + 2 = 8.
+  - Ask states it, then "Also needs you: 1 inspection to book, 3 site questions (12 in Needs You)", with each number matching its own label.
+  - Today shows a Late figure next to Needs You.
+  - The Ask bank's truth for this question reads `PRED.jobLate`.
 - **The founder's 15 new questions** (all must pass):
   - gross margin YTD (from `companyPL`);
   - which vendor do we owe the most;
