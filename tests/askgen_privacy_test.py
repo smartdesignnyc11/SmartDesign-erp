@@ -9,21 +9,28 @@ proves it from the outside: each client asks 30 varied questions, and every answ
   - the firm's own books: vendor bills, purchase orders, cash, receivables, payables, backlog.
 Then the foreman, crew and driver ask money questions and no dollar figure may come back.
 
-  python3 ask_privacy.py        # prints ALL PASS (n checks) or each leak
+  python3 askgen_privacy_test.py        # prints ALL PASS (n checks) or each leak
 """
 import asyncio, re
 from harness import *
 
 CLIENT_QS = [
+    # payments and invoices
     'when was my last payment', 'how much have we paid so far', 'what do I owe', 'which invoices are open',
-    'when will my job finish', 'how far along are we', 'what decisions are waiting on me', 'what is waiting on me',
-    'how many photos were shared this week', 'show me the photos', 'what change orders do I have',
+    'list every invoice', 'what payments came in this month',
+    # photos, decisions, schedule
+    'show me the photos', 'how many photos were shared this week', 'what decisions are waiting on me',
+    'what is waiting on me', 'when will my job finish', 'how far along are we',
+    # documents
+    'what change orders do I have', 'show me every estimate', 'which documents do you have',
+    # people and vendors
+    'who is on the crew', 'who has not submitted their hours', 'what is on order from Tino', 'which vendor do you owe the most',
+    # amounts and "everyone"
+    'what is our AR', 'payments by client', 'how much did everyone pay in August', 'which client owes the most',
+    'how much cash does the firm have', 'how much did you spend at Home Depot',
+    # other clients and other jobs by name
     'how much did the Riveras pay', 'how much does the Jessop family owe', 'when will 206 Lenox finish',
-    'what is late on 140 Prospect', 'how much cash does the firm have', 'what do you owe vendors',
-    'how much did you spend at Home Depot', 'which vendor do you owe the most', 'what payments came in this month',
-    'list every invoice', 'what is the backlog', 'how much is in dispute with vendors', 'who has not submitted their hours',
-    'what did the crew do yesterday', 'payments by client', 'what is on order from Tino', 'what is our AR',
-    'how much was collected in August', 'which client owes the most',
+    'what is late on 140 Prospect', 'photos on 45 Cranberry',
 ]
 FIELD_QS = [
     'how much cash do we have', 'how much did we spend at Home Depot in August', 'what do we owe vendors',
