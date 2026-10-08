@@ -111932,7 +111932,8 @@ function qaAnswer(raw) {
         kind: "unknown",
       };
   }
-  let whoSaid = "";
+  let whoSaid = "",
+    textQ = "";
   if (who) {
     new Set(who.hits.map((h) => h.type));
     const mapped = who.hits.map((h) => (QA_NAME_FIELD[h.type] || {})[entity]).filter(Boolean),
@@ -111958,12 +111959,10 @@ function qaAnswer(raw) {
         (whoSaid = `${who.hits[0].name} (${who.hits[0].type})`);
     } else {
       if (!fields.length && who.hits.length) {
+        // A name with no field on this table ("206 Lenox" asked of people) is searched as text in its rows,
+        // never refused: the rows that mention it answer, and none is an answer too.
         const h = who.hits[0];
-        return {
-          headline: `${h.name} is ${/^[aeiou]/.test(h.type) ? "an" : "a"} ${h.type}, so there are no ${entity.replace(/orders$/, " orders")} on them.`,
-          note: `If you meant somebody else by ${who.text}, give me the full name.`,
-          kind: "kind",
-        };
+        (textQ = String(h.name).split(/\s+&\s+|\s+and\s+/)[0]), (whoSaid = `${h.name} (${h.type}, searched as text)`);
       }
       if (fields.length > 1)
         return {
@@ -111979,6 +111978,7 @@ function qaAnswer(raw) {
   }
   const mf = QA_MONEY_FIELD[entity],
     spec = { entity: entity, where: where, limit: wantsNumber ? 5 : 20 };
+  textQ && (spec.q = textQ);
   groupBy
     ? ((spec.group = groupBy), (spec.agg = mf ? [`sum(${mf})`] : []), (spec.rows = !1))
     : wantsNumber && mf && (spec.agg = [`sum(${mf})`]);
@@ -138723,13 +138723,6 @@ function a4Honest(q, a, lines) {
       cannot: !0,
     });
   const recHead = A4_RECORDISH.concat(["tasks", "decisions"]).includes(a4Head(askNorm(q)));
-  if ("kind" === a.kind)
-    return Object.assign({}, a, {
-      headline: String(a.headline || "").replace(
-        /, so there are no (.+?) on them\.$/,
-        ", so I hold no $1 against them.",
-      ),
-    });
   if (("query" === a.kind && ent) || ("records" === a.kind && wh && recHead)) {
     const head = ent ? A4_ENTITY_SAY[ent.head] : a4Head(askNorm(q)) ? A4_ENTITY_SAY[a4Head(askNorm(q))] : "";
     return Object.assign({}, a, {
