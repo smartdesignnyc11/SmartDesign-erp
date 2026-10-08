@@ -122042,6 +122042,51 @@ function flowBriefPass(v) {
         /\bBill\b[^.]*\bpaid from the bank before approval\b/i.test(p.textContent)) &&
         flowBillInline(p);
     }));
+  try {
+    flowBriefDecisions(body);
+  } catch (e) {
+    console.warn("brief decisions", e);
+  }
+}
+// The decisions we owe sit on Home, each with Open inline (one click, as in round 4), drawn from the
+// same Approvals list the Decisions chip counts.
+function flowBriefDecisions(body) {
+  if (!body || body.querySelector(".br-decs") || "function" != typeof mApprovals) return;
+  const D = mApprovals().filter((x) => "dec" === x.kind && x.open);
+  if (!D.length) return;
+  const top = D.slice(0, 3),
+    box = document.createElement("div");
+  (box.className = "br-decs"),
+    (box.innerHTML = `<div class="br-decs-h"><b>Waiting on your decision</b> <span class="muted">${D.length}</span></div>${top
+      .map(
+        (x, i) =>
+          `<div class="br-dec"><span class="grow">${esc(x.title)}${((d) => (d ? ` <span class="small muted">· ${esc(d)}</span>` : ""))(
+            String(x.detail || "")
+              .replace(/<[^>]*>/g, "")
+              .split(" · ")
+              .filter((s) => s && !String(x.title).includes(s.replace(/ —.*$/, "")))
+              .join(" · "),
+          )}</span><button type="button" class="btn sm br-act" data-brdec="${i}">Open</button></div>`,
+      )
+      .join(
+        "",
+      )}${D.length > top.length ? `<a href="#" class="small br-decs-all" data-brdecall>${D.length - top.length} more in Approvals</a>` : ""}`),
+    box.querySelectorAll("[data-brdec]").forEach(
+      (b) =>
+        (b.onclick = (e) => {
+          e.preventDefault(), e.stopPropagation();
+          const x = top[+b.dataset.brdec];
+          x && ("function" == typeof mGo ? mGo(x.open) : flowGo.view("dec")());
+        }),
+    );
+  const all = box.querySelector("[data-brdecall]");
+  all &&
+    (all.onclick = (e) => {
+      e.preventDefault(), (window.mApprKind = "dec"), (view = "mapprove"), render(), flowTop();
+    });
+  const ask = body.querySelector(".jv-ask, form, .ask, input");
+  const anchor = ask ? ask.closest(".jv-body > *") : null;
+  anchor && anchor.parentElement === body ? anchor.before(box) : body.appendChild(box);
 }
 function flowOptionsHtml(d, name) {
   const O = Array.isArray(d.options) ? d.options.filter(Boolean) : [];

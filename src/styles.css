@@ -3106,3 +3106,9 @@ body.crewmode .view.on .dl-sign > span{display:block;flex:1 1 auto;min-width:0}
   body.lk-logview.dl-signstep #fsay{bottom:calc(58px + 136px + 10px + env(safe-area-inset-bottom))}
   body.lk-logview.dl-signstep .toast{bottom:calc(58px + 136px + 64px + env(safe-area-inset-bottom))}
 }
+/* daywalk: the decisions we owe, on Home inside the brief, each with Open */
+.br-decs{margin:10px 0 4px;padding:8px 0 0;border-top:1px solid var(--rule-2)}
+.br-decs-h{font-size:13px;margin-bottom:4px}
+.br-dec{display:flex;gap:10px;align-items:center;padding:4px 0}
+.br-dec .grow{min-width:0}
+.br-decs-all{display:inline-block;margin-top:4px}
