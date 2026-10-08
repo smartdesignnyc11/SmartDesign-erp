@@ -85617,10 +85617,8 @@ const TL_SETS = {},
   (TL_SETS.dec = () => {
     if (!S) return [];
     const D = (S.decisions || []).filter((d) => "open" === d.status),
-      late = D.filter((d) => {
-        const due = decDue(d);
-        return due && tlPast(due);
-      }),
+      late = PRED.lateDecision.rows(S.id).map((x) => x.d),
+      soon = D.filter((d) => ocDecDue(d) && !late.includes(d)),
       blocking = D.filter((d) => decState(d).sev >= 3),
       client = D.filter((d) => /client/i.test(d.owner || "")),
       ours = D.filter((d) => !/client/i.test(d.owner || "")),
@@ -85638,15 +85636,19 @@ const TL_SETS = {},
         pred: (d) => "open" === d.status && decState(d).sev >= 3,
       },
       {
+        // Past Due is PRED.lateDecision, the same rule as the job's Needs You and Ask's "what's late".
         key: "late",
-        k: "Overdue",
+        k: PRED.lateDecision.label,
         v: late.length,
-        tone: late.length ? "bad" : "",
+        tone: late.length ? "bad" : soon.length ? "warn" : "",
         s: late.length
-          ? `past the date the schedule needs them · oldest ${tlN(Math.max(...late.map((d) => -tlDays(today(), decDue(d)))), "day")}`
-          : "nothing past its date",
+          ? `past the date the schedule needs · oldest ${tlN(Math.max(...late.map((d) => -tlDays(today(), decDue(d)))), "day")}${soon.length ? ` · ${soon.length} more inside the ${S.project.decBuf || 3}-day buffer` : ""}`
+          : soon.length
+            ? `none past due · ${soon.length} inside the ${S.project.decBuf || 3}-day buffer`
+            : "nothing past due",
         grid: "decs",
-        pred: (d) => "open" === d.status && decDue(d) && tlPast(decDue(d)),
+        rule: PRED.lateDecision.rule,
+        pred: (d) => PRED.lateDecision.test(d, S),
       },
       {
         key: "client",
@@ -135739,26 +135741,6 @@ void (
               .join(" · ")
           : "orders match on price, quantity and delivery"),
         (t.pred = (po) => poState(po).sev >= 2)),
-      T
-    );
-  }),
-  ocWrapTiles("dec", (T) => {
-    // Past Due is PRED.lateDecision, the same rule as the job's Needs You and Ask's "what's late".
-    const late = S ? PRED.lateDecision.rows(S.id) : [],
-      soon = ((S && S.decisions) || []).filter((d) => ocDecDue(d) && !PRED.lateDecision.test(d, S)),
-      t = T.find((x) => "late" === x.key);
-    return (
-      t &&
-        ((t.k = PRED.lateDecision.label),
-        (t.v = late.length),
-        (t.tone = late.length ? "bad" : soon.length ? "warn" : ""),
-        (t.s = late.length
-          ? `past the date the schedule needs${soon.length ? ` · ${soon.length} more inside the ${S.project.decBuf || 3}-day buffer` : ""}`
-          : soon.length
-            ? `none past due · ${soon.length} inside the ${S.project.decBuf || 3}-day buffer`
-            : "nothing past due"),
-        (t.rule = PRED.lateDecision.rule),
-        (t.pred = (d) => PRED.lateDecision.test(d, S))),
       T
     );
   }),

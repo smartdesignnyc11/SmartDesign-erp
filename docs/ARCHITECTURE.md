@@ -68,6 +68,7 @@
 | `smOpen` | ~152,078 | |
 | `prgJob` | ~155,073 | |
 | `dlMissing` | ~156,093 | |
+| `PRED` | end of file | The predicate registry: every counted question (waiting on me, late material/decision/submittal, a job's Needs You, buy-board filters, unsigned, open POs, bills awaiting approval…) defined once with its rule. Screens, badges, tiles, Ask and saved searches read it by name; add a predicate here rather than a new filter in a screen. |
 
 ## Data (global `DB`, persisted with `save()` / `saveNow()` to IndexedDB)
 - **Firm:** company (with `asOf`), people and users, clients (contacts, properties), vendors.
