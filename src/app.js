@@ -3386,7 +3386,96 @@ function applyRole() {
     }),
     ROLE_VIEWS[r].includes(view) ||
       (void 0 !== MB_VIEWS && MB_VIEWS.includes(view) && mbAccess()) ||
-      (view = ROLE_VIEWS[r].includes("dash") ? "dash" : ROLE_VIEWS[r][0]);
+      navBlocked(r, view),
+    (navRoleSeen = r);
+}
+// A view this role may not open lands on the role's Home, and (unless the role just changed, as on
+// sign-in) a toast names who can open it, instead of falling through to whatever view is first.
+const NAV_ROLE_WORDS = {
+  owner: "the Owner",
+  pm: "the PM",
+  coord: "the coordinator",
+  billing: "Billing",
+  controller: "the controller",
+  designer: "the designer",
+  foreman: "the foreman",
+  crew: "the crew",
+  driver: "the driver",
+  client: "the client",
+};
+let navRoleSeen = null;
+// Who may open a view, in words ("the Owner and the PM").
+function navWhoOpens(v) {
+  const list = Object.keys(NAV_ROLE_WORDS)
+    .filter((k) => (ROLE_VIEWS[k] || []).includes(v))
+    .map((k) => NAV_ROLE_WORDS[k]);
+  return list.length > 1 ? `${list.slice(0, -1).join(", ")} and ${list[list.length - 1]}` : list[0] || "";
+}
+// No dead links: a row, tile or link in a view that points at a view this role may not open is shown
+// as information, not as a link (one pass for every generator: reminders, dashboard widgets, nav rows).
+const NAV_LINK_SEL = "[data-remgo], [data-v], [data-gl], [data-view]";
+function navLinkTarget(el) {
+  if (el.dataset.remgo)
+    try {
+      return JSON.parse(el.dataset.remgo).view || "";
+    } catch (e) {
+      return "";
+    }
+  return el.dataset.v || el.dataset.gl || el.dataset.view || "";
+}
+function navLinkPass(root) {
+  try {
+    const r = role(),
+      V = ROLE_VIEWS[r] || [],
+      known = new Set(Object.values(ROLE_VIEWS).flat());
+    try {
+      MB_VIEWS.forEach((v) => known.add(v));
+    } catch (e) {}
+    (root || document).querySelectorAll(".view " + NAV_LINK_SEL.split(", ").join(", .view ")).forEach((el) => {
+      const v = navLinkTarget(el);
+      if (!v || !known.has(v) || V.includes(v) || ("undefined" != typeof MB_VIEWS && MB_VIEWS.includes(v) && mbAccess())) return;
+      ["remgo", "v", "gl", "view"].forEach((k) => delete el.dataset[k]),
+        (el.dataset.navoff = v),
+        el.classList.add("nav-static"),
+        (el.style.cursor = "default"),
+        el.querySelectorAll(".nm-act, .gl-chev, .rc-chev, .h4r-go").forEach((x) => x.remove());
+      const who = navWhoOpens(v);
+      who && (el.title = `Opened by ${who}`);
+    });
+  } catch (e) {}
+}
+let navLinkQ = !1;
+new MutationObserver(() => {
+  navLinkQ ||
+    ((navLinkQ = !0),
+    queueMicrotask(() => {
+      (navLinkQ = !1), navLinkPass(document);
+    }));
+}).observe(document.documentElement, { childList: !0, subtree: !0 });
+function roleHome(r) {
+  const V = ROLE_VIEWS[r] || [];
+  let h = "";
+  try {
+    h = IA_HOME[r];
+  } catch (e) {}
+  return h && V.includes(h) ? h : V.includes("home") ? "home" : V.includes("dash") ? "dash" : V[0];
+}
+function navBlocked(r, v) {
+  const was = navRoleSeen;
+  if (((view = roleHome(r)), was !== r || !v)) return;
+  try {
+    const name = ("undefined" != typeof IA_LABELS && IA_LABELS[v]) || v,
+      words = navWhoOpens(v);
+    setTimeout(
+      () =>
+        toast(
+          words
+            ? `${name} is opened by ${words} — you are on your Home`
+            : `${name} is not open to your role — you are on your Home`,
+        ),
+      0,
+    );
+  } catch (e) {}
 }
 const gridState = {};
 function grid(opts) {
@@ -3552,15 +3641,65 @@ const ICON_SVG = (d, w = 13, sw = 2.2) =>
   ICON_UNDO = ICON_SVG('<path d="M3 10h10a5 5 0 1 1 0 10H8"/><path d="M3 10l4-4M3 10l4 4"/>'),
   ICON_CHECK = ICON_SVG('<path d="M20 6L9 17l-5-5"/>'),
   ICON_DOT = ICON_SVG('<circle cx="12" cy="12" r="7"/>');
-function toast(msg) {
+// toast(msg, open, ms): every mutation names its record. `open` is a function (an "Open" link), a
+// {label, run} link, or a list of them; the toast then carries the links and stays up 6.5s.
+const toastLinksOf = (go) =>
+  (Array.isArray(go) ? go : go ? [go] : [])
+    .map((l) => ("function" == typeof l ? { label: "Open", run: l } : l))
+    .filter((l) => l && "function" == typeof l.run);
+function toast(msg, go, ms) {
   const t = $("#toast");
-  (t.textContent = msg),
-    t.classList.add("on"),
-    clearTimeout(t._t),
-    (t._t = setTimeout(() => t.classList.remove("on"), 2400));
+  (t.textContent = msg), t.classList.remove("act"), t.classList.add("on"), clearTimeout(t._t);
+  const L = toastLinksOf(go);
+  L.length &&
+    ((t.textContent = ""),
+    t.appendChild(Object.assign(document.createElement("span"), { className: "toast-msg", textContent: String(msg || "") })),
+    L.forEach((l) => {
+      t.appendChild(document.createTextNode(" · "));
+      const a = document.createElement("a");
+      (a.href = "#"),
+        (a.className = "toast-open"),
+        (a.textContent = l.label || "Open"),
+        (a.onclick = (e) => {
+          e.preventDefault(), t.classList.remove("on", "act");
+          try {
+            document.getElementById("mbm")?.remove(), l.run();
+          } catch (err) {
+            console.warn("toast link", err);
+          }
+        }),
+        t.appendChild(a);
+    }),
+    t.classList.add("act")),
+    (t._t = setTimeout(() => t.classList.remove("on", "act"), ms || (L.length ? 6500 : 2400)));
 }
 const sevPill = (s) => (3 === s ? "red" : 2 === s ? "orange" : 1 === s ? "amber" : "green");
+// One place resets the scroll: a new view, or a tab / sub-tab press, starts at the top. The page
+// scrolls on body (html/body overflow-x), so window.scrollTo alone left the old offset behind.
+// Deliberate in-page anchors (scrollIntoView after render) still land, since they run after this.
+let navLastView = null,
+  navTabAt = 0;
+function navScrollTop() {
+  try {
+    window.scrollTo(0, 0), (document.documentElement.scrollTop = 0), (document.body.scrollTop = 0);
+    const m = document.querySelector(".main");
+    m && (m.scrollTop = 0);
+  } catch (e) {}
+}
+document.addEventListener(
+  "click",
+  (e) => {
+    const t = e.target && e.target.closest && e.target.closest(NAV_TAB_SEL);
+    t && (navTabAt = Date.now());
+  },
+  !0,
+);
+const NAV_TAB_SEL =
+  "#nav button, #nav-groups button, #nav-groups a, #tabbar button, #mtabs button, #subnav button, .sub-tabs button, .ctabs button, [role=tab], .m-bar button, .mbar button, .bottombar button";
 function render() {
+  ((null !== navLastView && view !== navLastView) || (navTabAt && Date.now() - navTabAt < 1500)) &&
+    ((navTabAt = 0), navScrollTop()),
+    (navLastView = view);
   void 0 !== MB_VIEWS &&
     ("mb" === DB.workspace && mbAccess() && !MB_VIEWS.includes(view)
       ? (view = "mbdash")
@@ -8525,7 +8664,7 @@ function renderDocEditor(c, d) {
                   "",
                 )}</tbody></table><div class="small muted no-doc-print" style="margin:-4px 0 8px">Yellow columns are internal: expenses matched to each line vs. what has been billed on it. Unmatched job costs are flagged in Banking and Verification so this stays the source of truth.</div>`
             : `<table class="lines"><thead><tr>${editable ? '<th class="fm-grip" title="Drag a line by its handle to change the order"></th>' : ""}<th style="width:22%">Item</th><th>Description</th><th style="width:66px">Qty</th><th style="width:56px">Unit</th><th style="width:104px">Rate</th><th style="width:44px">Tax</th><th class="money">Amount</th>${"invoice" !== kind ? '<th class="int money" style="width:112px" title="Internal — not printed">Budget cost</th><th class="int money" style="width:64px" title="Internal — not printed">Margin</th>' : ""}<th></th></tr></thead><tbody>${d.lines.map((l) => `<tr data-line="${l.id}">${editable ? `<td class="fm-grip">${"function" == typeof dndGrip ? dndGrip(l.id, esc(l.item || "this line")) : ""}</td>` : ""}<td><input data-f="item" value="${esc(l.item)}" placeholder="Item" ${editable ? "" : "readonly"}></td><td><input data-f="desc" value="${esc(l.desc)}" placeholder="Description" ${editable ? "" : "readonly"}></td><td><input class="num" type="number" step="any" data-f="qty" value="${l.qty}" ${editable ? "" : "readonly"}></td><td><input data-f="unit" value="${esc(l.unit)}" ${editable ? "" : "readonly"}></td><td><input class="num" type="number" step="any" data-f="rate" value="${l.rate}" ${editable ? "" : "readonly"}></td><td style="text-align:center"><input type="checkbox" data-f="taxable" ${l.taxable ? "checked" : ""} ${editable ? "" : "disabled"} style="width:auto"></td><td class="amt">${money(lineAmount(l, d))}</td>${"invoice" !== kind ? `<td class="int"><input class="num" type="number" step="any" data-f="cost" value="${l.cost || ""}" placeholder="cost"></td><td class="int amt" style="font-weight:500;${l.cost && lineAmount(l, d) && ((lineAmount(l, d) - l.cost) / lineAmount(l, d)) * 100 < (DB.company.minMargin || 20) ? "color:var(--bad)" : ""}">${l.cost && lineAmount(l, d) ? Math.round(((lineAmount(l, d) - l.cost) / lineAmount(l, d)) * 100) + "%" : ""}</td>` : ""}<td>${editable ? `<span class="rm" data-rmline="${l.id}" title="Remove line"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></span>` : ""}</td></tr>`).join("")}</tbody></table>${"invoice" !== kind ? `<div class="small muted no-doc-print" style="margin:-4px 0 8px">Yellow columns are internal (budget cost and margin) — never printed. Total budget ${money(d.lines.reduce((a, l) => a + (+l.cost || 0), 0))} · margin ${docTotal(d).sub ? Math.round(((docTotal(d).sub - d.lines.reduce((a, l) => a + (+l.cost || 0), 0)) / docTotal(d).sub) * 100) : 0}%</div>` : ""}${editable ? `<div class="row no-doc-print"><button class="btn sm" data-addline>+ Add line</button>${"invoice" !== kind && d.projectId ? '<button class="btn sm" data-linesfromtasks>Lines from project phases</button>' : ""}${"invoice" === kind && "items" === d.mode ? '<button class="btn sm" data-linefromco>Add approved change order…</button>' : ""}</div>` : ""}`;
-  return `<div class="docwrap" id="doc-${d.id}">\n    <div class="row no-doc-print docbar" style="margin-bottom:10px;gap:8px;align-items:center">${docDirty(d) ? '<span class="pill warn">Unsaved changes</span><button class="btn sm primary" data-docact="save">Save</button><button class="btn sm" data-docact="discard">Discard changes</button>' : '<span class="small muted">All changes saved</span>'}<span class="grow"></span><div class="status-flow">${flow.map((f, i) => `<span class="${i < fi ? "done" : i === fi ? "on" : ""}">${f}</span>`).join('<span style="background:none;padding:0">›</span>')}${["void", "rejected", "expired", "overdue"].includes(st) ? `<span class="pill ${st}" style="margin-left:6px">${st}</span>` : ""}</div></div>\n    <div class="dochd"><div class="grow"><div class="small muted">${esc(DB.company.name || "")}${DB.company.lic ? ` · Lic. ${esc(DB.company.lic)}` : ""}${DB.company.addr ? ` · ${esc(DB.company.addr)}` : ""}</div><h2>${label} <span class="num">${esc(d.number)}</span></h2><div class="small muted">Bill to: <b>${esc(c.name)}</b>${c.billingAddr ? ` · ${esc(c.billingAddr)}` : ""}${c.contacts.find((x) => x.primary) ? ` · ${esc(c.contacts.find((x) => x.primary).name)} · ${esc(c.contacts.find((x) => x.primary).email)}` : ""}</div></div>\n      <div style="text-align:right"><div class="small muted">${"invoice" === kind ? "Amount due" : "Total"}</div><div style="font-family:var(--cond);font-weight:600;font-size:26px">${money("invoice" === kind ? t.total - paidOn : t.total)}</div>${paidOn ? `<div class="small muted">${money(paidOn)} paid of ${money(t.total)}</div>` : ""}</div></div>\n    <details class="docmeta-wrap" ${window.innerWidth > 760 ? "open" : ""}><summary><span><b>${esc(d.title || label)}</b> · ${fmtL(d.date)}${d.validUntil ? " · valid to " + fmtL(d.validUntil) : ""}${d.due ? " · due " + fmtL(d.due) : ""}</span></summary><div class="docmeta">\n      <div class="f"><label>Title</label><input data-d="title" value="${esc(d.title || "")}" ${editable ? "" : "readonly"}></div>${
+  return `<div class="docwrap" id="doc-${d.id}">\n    <div class="row no-doc-print docbar" style="margin-bottom:10px;gap:8px;align-items:center">${docDirty(d) ? '<span class="pill warn">Unsaved changes</span><button class="btn sm" data-docact="save">Save</button><button class="btn sm" data-docact="discard">Discard changes</button>' : '<span class="small muted">All changes saved</span>'}<span class="grow"></span><div class="status-flow">${flow.map((f, i) => `<span class="${i < fi ? "done" : i === fi ? "on" : ""}">${f}</span>`).join('<span style="background:none;padding:0">›</span>')}${["void", "rejected", "expired", "overdue"].includes(st) ? `<span class="pill ${st}" style="margin-left:6px">${st}</span>` : ""}</div></div>\n    <div class="dochd"><div class="grow"><div class="small muted">${esc(DB.company.name || "")}${DB.company.lic ? ` · Lic. ${esc(DB.company.lic)}` : ""}${DB.company.addr ? ` · ${esc(DB.company.addr)}` : ""}</div><h2>${label} <span class="num">${esc(d.number)}</span></h2><div class="small muted">Bill to: <b>${esc(c.name)}</b>${c.billingAddr ? ` · ${esc(c.billingAddr)}` : ""}${c.contacts.find((x) => x.primary) ? ` · ${esc(c.contacts.find((x) => x.primary).name)} · ${esc(c.contacts.find((x) => x.primary).email)}` : ""}</div></div>\n      <div style="text-align:right"><div class="small muted">${"invoice" === kind ? "Amount due" : "Total"}</div><div style="font-family:var(--cond);font-weight:600;font-size:26px">${money("invoice" === kind ? t.total - paidOn : t.total)}</div>${paidOn ? `<div class="small muted">${money(paidOn)} paid of ${money(t.total)}</div>` : ""}</div></div>\n    <details class="docmeta-wrap" ${window.innerWidth > 760 ? "open" : ""}><summary><span><b>${esc(d.title || label)}</b> · ${fmtL(d.date)}${d.validUntil ? " · valid to " + fmtL(d.validUntil) : ""}${d.due ? " · due " + fmtL(d.due) : ""}</span></summary><div class="docmeta">\n      <div class="f"><label>Title</label><input data-d="title" value="${esc(d.title || "")}" ${editable ? "" : "readonly"}></div>${
     "estimate" === kind
       ? `<div class="f"><label>Template</label><select data-d="template" ${editable ? "" : "disabled"}>${Object.entries(
           CT_TEMPLATES,
@@ -14332,7 +14471,13 @@ async function clockEvent(kind) {
       audit("time", e.id, "clock-out", null, { geo: geo, hours: hoursOf(e) }),
       log(`${emp.name} clocked out — ${hoursOf(e).toFixed(1)} h`);
   }
-  save(), render(), toast("in" === kind ? "Clocked in" : "Clocked out — now log what you worked on");
+  const te = DB.time.filter((t) => t.empId === emp.id && t.date === today()).pop();
+  save(),
+    render(),
+    toast(
+      "in" === kind ? `Clocked in at ${S.project.name}` : "Clocked out — now log what you worked on",
+      flowGo.time(te),
+    );
 }
 function openTime(id) {
   const e = id
@@ -31351,7 +31496,7 @@ function portalApprove(c, d) {
           }
         } catch (e) {}
         Promise.resolve(docAction(c, d, "approve")).then(() => {
-          save(), render(), toast(`${d.number} approved — thank you`);
+          save(), render(), toast(`${d.number} approved — thank you`, flowGo.doc(c, d.type, d));
         });
       },
     },
@@ -31427,26 +31572,22 @@ function renderPortalApprovals() {
   const c = clientUserOf(),
     host = $("#cl-approvals");
   if (!host || !c) return;
-  const est = c.estimates.filter((d) => "sent" === d.status),
-    cos = c.changeOrders.filter((d) => "sent" === d.status),
-    inv = clientFin(c).open,
-    decs = DB.projects
-      .filter((p) => p.clientId === c.id)
-      .flatMap((p) =>
-        p.decisions.filter((d) => "Client" === d.owner && "open" === d.status).map((d) => ({ d: d, p: p })),
-      ),
-    n = est.length + cos.length + decs.length,
+  const inv = clientFin(c).open,
+    W = clWaitingItems(),
+    n = W.length,
     docRow = (d, kind) =>
-      `<div class="pa-row"><div class="pa-main"><b>${esc(d.title || d.number)}</b><div class="small muted">${kind} ${esc(d.number)} · ${fmt(d.date)}${d.validUntil ? ` · valid until ${fmt(d.validUntil)}` : ""}${d.clientNote ? ` · <i>you asked: ${esc(d.clientNote.text)}</i>` : ""}</div></div><b class="pa-amt">${money(docTotal(d).total)}</b><div class="pa-acts"><button class="btn sm" data-pview="${d.type}:${d.id}">View</button><button class="btn sm" data-pask="${d.type}:${d.id}">Ask</button><button class="btn sm primary" data-papprove="${d.type}:${d.id}">Approve</button></div></div>`;
-  host.innerHTML = `<div class="card" style="margin-bottom:14px"><div class="row" style="align-items:baseline"><h3 style="margin:0">Waiting on you</h3><span class="small muted" style="margin-left:8px">${n ? `${n} item${n > 1 ? "s" : ""}` : "nothing right now"}</span></div>\n    ${est.map((d) => docRow(d, "Proposal")).join("")}${cos.map((d) => docRow(d, "Change order")).join("")}\n    ${decs
-    .map(({ d: d, p: p }) => {
+      `<div class="pa-row"><div class="pa-main"><b>${esc(d.title || d.number)}</b><div class="small muted">${kind} ${esc(d.number)} · ${fmt(d.date)}${d.validUntil ? ` · valid until ${fmt(d.validUntil)}` : ""}${d.clientNote ? ` · <i>you asked: ${esc(d.clientNote.text)}</i>` : ""}</div></div><b class="pa-amt">${money(docTotal(d).total)}</b><div class="pa-acts"><button class="btn sm" data-pview="${d.type}:${d.id}">View</button><button class="btn sm" data-pask="${d.type}:${d.id}">Ask</button><button class="btn sm primary" data-papprove="${d.type}:${d.id}">Approve</button></div></div>`,
+    decRow = (d, p) => {
       const due = decDue(d),
         st = decState(d);
       return `<div class="pa-row"><div class="pa-main"><b>${esc(d.name)}</b><div class="small muted">Selection · ${esc(p.project.name)}${due ? ` · needed by ${fmt(due)}` : ""}${st.sev >= 2 ? ' <span class="pill warn">holding the schedule</span>' : ""}</div></div><div class="pa-acts"><button class="btn sm primary" data-pdecide="${p.id}:${d.id}">Make selection</button></div></div>`;
-    })
-    .join(
-      "",
-    )}\n    ${inv.length ? `<div class="small muted" style="margin-top:10px;text-transform:uppercase;letter-spacing:.04em">Invoices</div>${inv.map((o) => `<div class="pa-row"><div class="pa-main"><b>${esc(o.x.title || o.x.number)}</b><div class="small muted">${esc(o.x.number)} · due ${o.x.due ? fmt(o.x.due) : "on receipt"}${o.age > 0 ? ` · <span class="bad">${o.age} days past due</span>` : ""}</div></div><b class="pa-amt">${money(o.bal)}</b><div class="pa-acts"><button class="btn sm" data-pview="invoice:${o.x.id}">View</button></div></div>`).join("")}` : ""}\n    <div class="row" style="margin-top:10px;gap:6px"><button class="btn sm" id="p-statement">Account statement</button>${[...c.estimates, ...c.changeOrders].filter((d) => d.clientApproval).length ? `<span class="small muted">You have approved ${[...c.estimates, ...c.changeOrders].filter((d) => d.clientApproval).length} document${[...c.estimates, ...c.changeOrders].filter((d) => d.clientApproval).length > 1 ? "s" : ""} — each is recorded with your name and time.</span>` : ""}</div></div>`;
+    },
+    subRow = (x, p) =>
+      `<div class="pa-row cl-row"><div class="pa-main"><b data-nocase>${esc(smClientTitle(x))}</b><div class="small muted" data-nocase>Approve before we order · ${esc(x.sub || "Our supplier")} sent ${SM_TYPE_WORD[x.type] || "it"} of what we plan to order · ${esc(smClientLine(x, p))}</div></div><div class="pa-acts cl-amt sm-clacts"><button class="btn sm" data-smcl="ok|${esc(x.id)}">Approve</button><button class="btn sm" data-smcl="no|${esc(x.id)}">Request Changes</button></div></div>`;
+  host.innerHTML = `<div class="card cl-waiting" style="margin-bottom:14px"><div class="row" style="align-items:baseline"><h3 style="margin:0">Waiting on You</h3><span class="small muted" style="margin-left:8px">${n ? `${n} item${n > 1 ? "s" : ""}` : "nothing right now"}</span></div>
+    ${W.map((w) => ("doc" === w.kind ? docRow(w.d, "estimate" === w.d.type ? "Proposal" : "Change order") : "dec" === w.kind ? decRow(w.d, w.p) : subRow(w.d, w.p))).join("")}
+    ${inv.length ? `<div class="small muted" style="margin-top:10px;text-transform:uppercase;letter-spacing:.04em">Invoices</div>${inv.map((o) => `<div class="pa-row"><div class="pa-main"><b>${esc(o.x.title || o.x.number)}</b><div class="small muted">${esc(o.x.number)} · due ${o.x.due ? fmt(o.x.due) : "on receipt"}${o.age > 0 ? ` · <span class="bad">${o.age} days past due</span>` : ""}</div></div><b class="pa-amt">${money(o.bal)}</b><div class="pa-acts"><button class="btn sm" data-pview="invoice:${o.x.id}">View</button></div></div>`).join("")}` : ""}
+    <div class="row" style="margin-top:10px;gap:6px"><button class="btn sm" id="p-statement">Account statement</button>${[...c.estimates, ...c.changeOrders].filter((d) => d.clientApproval).length ? `<span class="small muted">You have approved ${[...c.estimates, ...c.changeOrders].filter((d) => d.clientApproval).length} document${[...c.estimates, ...c.changeOrders].filter((d) => d.clientApproval).length > 1 ? "s" : ""} — each is recorded with your name and time.</span>` : ""}</div></div>`;
   const find = (s) => {
     const [k, id] = s.split(":");
     return [k, findDoc(c, k, id)];
@@ -34046,7 +34187,7 @@ const renderPortalApprovalsBase = renderPortalApprovals;
   (card.className = "card"),
     (card.style.marginBottom = "14px"),
     (card.innerHTML = `<h3 style="margin:0 0 6px">Your account</h3><div class="cash-grid" style="grid-template-columns:repeat(3,1fr)"><div><span>Contract</span><b>${money(contract)}</b><i>incl. approved changes</i></div><div><span>Work completed</span><b>${money(earned)}</b><i>${contract ? Math.round((earned / contract) * 100) : 0}% of contract</i></div><div><span>Billed to date</span><b>${money(billed)}</b><i>${dep ? `deposit on account ${money(dep)}` : "ex tax"}</i></div><div><span>Retainage held</span><b>${money(f.retHeld)}</b><i>released at completion</i></div><div><span>Paid to date</span><b>${money(f.paid)}</b><i>${f.credits ? `credit on account ${money(f.credits)}` : ""}</i></div><div><span>Balance due</span><b class="${f.overdue ? "bad" : ""}">${money(f.outstanding)}</b><i>${f.overdue ? money(f.overdue) + " overdue" : "nothing overdue"}</i></div></div>`),
-    host.prepend(card);
+    host.append(card);
 }),
   (REP_GROUPS.find((g) => "build" === g.id).tabs = [["searches", "Report builder"]]),
   (REP_DEFS.searches =
@@ -36909,7 +37050,7 @@ renderDocEditor = function (c, d) {
       }),
     invoiceLocked(c, d) &&
       (h = h.replace(
-        /<span class="pill warn">Unsaved changes<\/span><button class="btn sm primary" data-docact="save">Save<\/button><button class="btn sm" data-docact="discard">Discard changes<\/button>/,
+        /<span class="pill warn">Unsaved changes<\/span><button class="btn sm(?: primary)?" data-docact="save">Save<\/button><button class="btn sm" data-docact="discard">Discard changes<\/button>/,
         '<span class="small muted">Locked — paid</span>',
       )),
     h
@@ -45078,6 +45219,7 @@ function fSend(o) {
     save(),
     toast(
       `Sent to ${p ? p.name : r.to}${r.cc.length ? ` · ${r.cc.map((k) => fPerson(k)?.name.split(" ")[0] || k).join(", ")} copied` : ""}`,
+      flowGo.raise(r),
     ),
     r
   );
@@ -46083,7 +46225,7 @@ function fWireOffice(root) {
                   setCurrent(cur),
                   save(),
                   render(),
-                  toast(`Sent to ${r.by}`);
+                  toast(`Answer sent to ${r.by} — ${r.title}`, flowGo.raise(r));
               },
             },
           );
@@ -61313,8 +61455,8 @@ if ("function" == typeof renderSDay) {
             g && g.unscoped
               ? dpUnscopedModal(p, h, e)
               : g && g.phase
-                ? toast(g.note)
-                : toast(`${h} h logged`),
+                ? toast(g.note, flowGo.time(e))
+                : toast(`${h} h logged${p ? ` on ${p.project.name}` : ""}`, flowGo.time(e)),
               (hrs.value = ""),
               noteEl && (noteEl.value = ""),
               renderSDay();
@@ -61333,7 +61475,8 @@ function dpUnscopedModal(p, hours, entry) {
       submit: "Note it and carry on",
       wide: !0,
       onSubmit: (f) => {
-        entry && ((entry.notes = f.what || entry.notes), save()), toast("Logged as outside the proposal");
+        entry && ((entry.notes = f.what || entry.notes), save()),
+          toast("Logged as outside the proposal", flowGo.time(entry));
       },
     },
   ),
@@ -61597,6 +61740,12 @@ function frqReceipt(r) {
     },
   ),
     "function" == typeof procWide && procWide(560);
+  toast(
+    garbage
+      ? `Dump run sent to ${who}`
+      : `Request sent to ${who} — ${items.length} thing${1 === items.length ? "" : "s"}`,
+    flowGo.request((DB.projects || []).find((p) => (p.requests || []).includes(r)) || S),
+  );
   const m = document.getElementById("mbm");
   if (!m) return;
   const ft = m.querySelector(".mbm-ft");
@@ -61615,7 +61764,7 @@ function frqReceipt(r) {
         save(),
         mbCloseModal(),
         render(),
-        toast("Taken back. Nobody is working on it."));
+        toast("Taken back. Nobody is working on it.", flowGo.request(S)));
   });
 }
 function frqDumpSheet() {
@@ -83047,7 +83196,7 @@ function renderMApprove() {
           };
         yes &&
           (yes.onclick = () => {
-            "approve" === it.act && it.comp && it.comp.length
+            "approve" === it.act && it.comp && it.comp.length && !billOverPO(b)
               ? mbModal(
                   `Override — ${esc(b.vendor)}`,
                   `<div class="note warn">${it.comp.map(esc).join("<br>")}</div><div class="f" style="margin-top:10px"><label>Owner override — reason</label><input data-f="why" placeholder="e.g. COI renewal received by email, filing tomorrow" enterkeyhint="done"></div>`,
@@ -85392,9 +85541,12 @@ const TL_SETS = {},
         s: past.length
           ? `${tlN(past.length, "invoice")} · oldest ${Math.max(...past.map((r) => r.age))} days`
           : "nothing past due",
-        go: () => {
-          (view = "billing"), (billTab = "invoices");
-        },
+        // a tile only links where the person may go (coordinators and designers do not open Billing)
+        go: flowCan("billing")
+          ? () => {
+              (view = "billing"), (billTab = "invoices");
+            }
+          : null,
       },
       {
         key: "owed",
@@ -85403,9 +85555,12 @@ const TL_SETS = {},
         s: rows.length
           ? `${tlN(rows.length, "open invoice")} across ${new Set(rows.map((r) => r.c.id)).size} clients`
           : "no open invoices",
-        go: () => {
-          (view = "billing"), (billTab = "invoices");
-        },
+        // a tile only links where the person may go (coordinators and designers do not open Billing)
+        go: flowCan("billing")
+          ? () => {
+              (view = "billing"), (billTab = "invoices");
+            }
+          : null,
       },
       {
         key: "sign",
@@ -86145,9 +86300,11 @@ const TL_SETS = {},
         k: "Still to Buy",
         v: open.length,
         s: `${tlK(toBuy)} still to spend · ${tlK(val)} on the board to the client`,
-        go: () => {
-          (view = "proc"), (procMode = "finish");
-        },
+        go: flowCan("proc")
+          ? () => {
+              (view = "proc"), (procMode = "finish");
+            }
+          : null,
       },
     ];
   }),
@@ -86472,9 +86629,12 @@ const TL_SETS = {},
         s: ahead
           ? "invoiced past earned work across the portfolio — owed back if jobs stall"
           : "no job is billed past its earned work",
-        go: () => {
-          (view = "billing"), (billTab = "invoices");
-        },
+        // a tile only links where the person may go (coordinators and designers do not open Billing)
+        go: flowCan("billing")
+          ? () => {
+              (view = "billing"), (billTab = "invoices");
+            }
+          : null,
       },
       {
         key: "needs",
@@ -87383,18 +87543,24 @@ if (
       pastAmt = past.reduce((a, o) => a + o.bal, 0),
       invNext = tlNextDue(inv.filter((o) => o.age <= 0).map((o) => o.x.due)),
       tiles = [
-        {
-          key: "dec",
-          k: "Your Decisions",
-          v: decs.length,
-          tone: decHot.length ? "bad" : decs.length ? "warn" : "",
-          s: decs.length
-            ? decHot.length
-              ? `${decHot.length} needed now — the schedule is waiting on ${1 === decHot.length ? "it" : "them"}`
-              : `next one by ${fmtL(decNext)} · nothing is held up yet`
-            : "nothing waiting on you — thank you",
-          go: at("#cl-decs"),
-        },
+        // one tile for the one list: Waiting on You (selections, approvals, samples), same count as the nav badge
+        (() => {
+          const W = "function" == typeof clWaitingItems ? clWaitingItems() : [];
+          return {
+            key: "dec",
+            k: "Waiting on You",
+            v: W.length,
+            tone: decHot.length ? "bad" : W.length ? "warn" : "",
+            s: W.length
+              ? decHot.length
+                ? `${decHot.length} needed now — the schedule is waiting on ${1 === decHot.length ? "it" : "them"}`
+                : docs.length
+                  ? `${money(docAmt)} · ${tlDocWords(docs)} waiting on your approval`
+                  : `next one by ${fmtL(decNext)} · nothing is held up yet`
+              : "nothing waiting on you — thank you",
+            go: at("#cl-approvals"),
+          };
+        })(),
       ];
     if (design) {
       const rooms = roomsOf(p.id),
@@ -87403,7 +87569,6 @@ if (
         ph = phaseHours(p),
         used = ph.reduce((a, x) => a + x.used, 0),
         cur = ph.find((x) => x.used < x.est) || ph[ph.length - 1];
-      tiles.push(signTile),
         tiles.push({
           key: "rooms",
           k: "Rooms Measured",
@@ -87434,7 +87599,6 @@ if (
         const { cpm: cpm, projEnd: projEnd } = computeCPM();
         (sc = scDate(cpm, projEnd)), (late = p.project.target ? signedWork(p.project.target, sc) : 0);
       } catch (e) {}
-      tiles.push(signTile),
         tiles.push({
           key: "inv",
           k: "Invoices Due",
@@ -87524,8 +87688,13 @@ if (
             s: missing.length
               ? `working day${1 === missing.length ? "" : "s"} with no time entry · ${fmtL(oldest)} the oldest — the day sheet remembers`
               : "every working day this week has hours",
+            // the designer logs hours on the day sheet (My Day), not in Time & Crew, which the role cannot open
             go: () => {
-              view = "time";
+              (view = flowCan("sday") ? "sday" : flowCan("time") ? "time" : roleHome(role())),
+                setTimeout(() => {
+                  const h = document.querySelector("#st-addh");
+                  h && (h.scrollIntoView({ block: "center" }), h.focus({ preventScroll: !0 }));
+                }, 120);
             },
           }
         : {
@@ -115323,7 +115492,7 @@ function rxLineSync(c, d) {
     if (!fresh) return !1;
     if (
       !rxSyncParts(live, fresh, [
-        ".dochd",
+        ".dochd > div:last-child",
         ".tt .v",
         "td.amt",
         ".ct-amt",
@@ -115358,7 +115527,7 @@ function rxPOLineSync(po) {
     const box = document.createElement("div");
     box.innerHTML = renderPODoc(po);
     const fresh = box.querySelector("#po-" + po.id);
-    return !!fresh && rxSyncParts(live, fresh, [".dochd", ".tt .v", "td.amt", ".card.match .small.muted"]);
+    return !!fresh && rxSyncParts(live, fresh, [".dochd > div:last-child", ".tt .v", "td.amt", ".card.match .small.muted"]);
   } catch (e) {
     return console.warn("po line sync", e), !1;
   }
@@ -116909,6 +117078,7 @@ async function crSendToClient(c, d) {
             render(),
             toast(
               `${d.number} sent to ${c.name} — ${money(t.total)} · ${mailed ? ("mail app" === o.via ? "in your mail app to send, and " : "emailed and ") : ""}in their portal`,
+              flowGo.doc(c, d.type, d),
             );
         })();
       },
@@ -121750,27 +121920,7 @@ function opsBoot() {
   };
 }
 function toastDone(label, go, ms) {
-  toast(label);
-  const t = document.getElementById("toast");
-  if (t) {
-    if ((t.classList.remove("act"), "function" == typeof go)) {
-      const a = document.createElement("a");
-      (a.href = "#"),
-        (a.textContent = "Open"),
-        (a.className = "toast-open"),
-        (a.onclick = (e) => {
-          e.preventDefault(), t.classList.remove("on", "act");
-          try {
-            go();
-          } catch (err) {
-            console.warn("toast open", err);
-          }
-        }),
-        t.appendChild(a),
-        t.classList.add("act");
-    }
-    clearTimeout(t._t), (t._t = setTimeout(() => t.classList.remove("on", "act"), ms || (go ? 6500 : 2400)));
-  }
+  toast(label, "function" == typeof go ? go : null, ms);
 }
 const flowCan = (v) => {
     try {
@@ -121779,11 +121929,7 @@ const flowCan = (v) => {
       return !1;
     }
   },
-  flowTop = () => {
-    try {
-      window.scrollTo(0, 0);
-    } catch (e) {}
-  },
+  flowTop = () => navScrollTop(),
   flowGo = {
     bill: (b) => () => {
       void 0 !== iaOpenBillAfter && (iaOpenBillAfter = b.id);
@@ -121795,6 +121941,10 @@ const flowCan = (v) => {
       p && setCurrent(p.id), (poOpen = po.id), (view = "po"), render(), flowTop();
     },
     doc: (c, kind, d) => () => {
+      if (!flowCan("billing") && !flowCan("clients")) {
+        const title = `${{ estimate: "Proposal", co: "Change Order", invoice: "Invoice" }[kind] || "Document"} ${esc(d.number || "")}`;
+        return void mbModal(title, docSummaryHtml(c, d), { submit: null });
+      }
       (clientOpen = c.id),
         (docOpen = { kind: kind, id: d.id }),
         (billTab = "invoice" === kind ? "invoices" : "co" === kind ? "co" : "estimates"),
@@ -121825,6 +121975,25 @@ const flowCan = (v) => {
     },
     view: (v) => () => {
       (view = v), render(), flowTop();
+    },
+    // the first of these views the person may open (a record's home differs by role)
+    viewOf: (...vs) => () => {
+      (view = vs.find(flowCan) || ROLE_VIEWS[role()][0]), render(), flowTop();
+    },
+    raise: (r) => () => {
+      r && r.projectId && setCurrent(r.projectId),
+        (view = ["field", "fraise", "ftoday"].find(flowCan) || ROLE_VIEWS[role()][0]),
+        render(),
+        flowTop();
+    },
+    request: (p) => () => {
+      p && setCurrent(p.id), (view = flowCan("req") ? "req" : ROLE_VIEWS[role()][0]), render(), flowTop();
+    },
+    time: (e) => () => {
+      e && e.projectId && setCurrent(e.projectId),
+        (view = ["time", "sday", "ftoday"].find(flowCan) || ROLE_VIEWS[role()][0]),
+        render(),
+        flowTop();
     },
   };
 let flowQuiet = !1;
@@ -122141,6 +122310,52 @@ function flowBriefPass(v) {
         /\bBill\b[^.]*\bpaid from the bank before approval\b/i.test(p.textContent)) &&
         flowBillInline(p);
     }));
+  try {
+    flowBriefDecisions(body);
+  } catch (e) {
+    console.warn("brief decisions", e);
+  }
+}
+// The decisions we owe sit on Home, each with Open inline (one click, as in round 4), drawn from the
+// same Approvals list the Decisions chip counts.
+function flowBriefDecisions(body) {
+  // the Owner's queue: only the Owner decides these (the PM's brief leads with the field's questions)
+  if (!body || body.querySelector(".br-decs") || "function" != typeof mApprovals || !isOwner()) return;
+  const D = mApprovals().filter((x) => "dec" === x.kind && x.open);
+  if (!D.length) return;
+  const top = D.slice(0, 3),
+    box = document.createElement("div");
+  (box.className = "br-decs"),
+    (box.innerHTML = `<div class="br-decs-h"><b>Waiting on your decision</b> <span class="muted">${D.length}</span></div>${top
+      .map(
+        (x, i) =>
+          `<div class="br-dec"><span class="grow">${esc(x.title)}${((d) => (d ? ` <span class="small muted">· ${esc(d)}</span>` : ""))(
+            String(x.detail || "")
+              .replace(/<[^>]*>/g, "")
+              .split(" · ")
+              .filter((s) => s && !String(x.title).includes(s.replace(/ —.*$/, "")))
+              .join(" · "),
+          )}</span><button type="button" class="btn sm br-act" data-brdec="${i}">Open</button></div>`,
+      )
+      .join(
+        "",
+      )}${D.length > top.length ? `<a href="#" class="small br-decs-all" data-brdecall>${D.length - top.length} more in Approvals</a>` : ""}`),
+    box.querySelectorAll("[data-brdec]").forEach(
+      (b) =>
+        (b.onclick = (e) => {
+          e.preventDefault(), e.stopPropagation();
+          const x = top[+b.dataset.brdec];
+          x && ("function" == typeof mGo ? mGo(x.open) : flowGo.view("dec")());
+        }),
+    );
+  const all = box.querySelector("[data-brdecall]");
+  all &&
+    (all.onclick = (e) => {
+      e.preventDefault(), (window.mApprKind = "dec"), (view = "mapprove"), render(), flowTop();
+    });
+  const ask = body.querySelector(".jv-ask, form, .ask, input");
+  const anchor = ask ? ask.closest(".jv-body > *") : null;
+  anchor && anchor.parentElement === body ? anchor.before(box) : body.appendChild(box);
 }
 function flowOptionsHtml(d, name) {
   const O = Array.isArray(d.options) ? d.options.filter(Boolean) : [];
@@ -122661,9 +122876,6 @@ function flowClientPass(v) {
       }
     },
     R = rows.map((tr) => ({ tr: tr, i: info(tr) })).filter((x) => x.i);
-  R.sort((a, b) => b.i.st.sev - a.i.st.sev || (a.i.due || "9").localeCompare(b.i.due || "9"));
-  const parent = rows[0].parentElement,
-    anchor = rows[0].previousSibling;
   R.forEach(({ tr: tr, i: i }) => {
     if (tr.dataset.flowWhy) return;
     tr.dataset.flowWhy = "1";
@@ -122678,14 +122890,9 @@ function flowClientPass(v) {
           ` · <b>${i.d.options.length} option${1 === i.d.options.length ? "" : "s"} to choose from</b>`,
         ),
       i.d.notes && sub.insertAdjacentHTML("beforeend", `<div class="small muted">${esc(i.d.notes)}</div>`);
-  }),
-    rows.forEach((tr) => tr.remove());
-  const frag = document.createDocumentFragment();
-  if (
-    (R.forEach(({ tr: tr }) => frag.appendChild(tr)),
-    anchor && anchor.parentNode === parent ? anchor.after(frag) : parent.prepend(frag),
-    !v.querySelector(".btn.primary"))
-  ) {
+  });
+  // the order comes from clWaitingItems (most urgent first, approvals among selections), not re-sorted here
+  if (!v.querySelector(".btn.primary")) {
     const first = appr.querySelector(".pa-row [data-papprove], .pa-row [data-pdecide]");
     first && first.classList.add("primary");
   }
@@ -124132,6 +124339,32 @@ function ovLazyBadges() {
     } catch (e) {}
   }
 }
+// The client's ONE "Waiting on You" list (BACKLOG 1.4 #4): proposals and change orders to approve,
+// selections to make and samples to approve before we order, most urgent first. The Overview list,
+// its tile and the nav badge all count this.
+function clWaitingItems() {
+  try {
+    const c = "function" == typeof clientUserOf ? clientUserOf() : null;
+    if (!c) return [];
+    const P = (DB.projects || []).filter((p) => p.clientId === c.id && (!S || p.id === S.id)),
+      pid = new Set(P.map((p) => p.id)),
+      out = [];
+    [...(c.estimates || []), ...(c.changeOrders || [])]
+      .filter((d) => "sent" === d.status && (!d.projectId || pid.has(d.projectId)))
+      .forEach((d) => out.push({ kind: "doc", d: d, p: P.find((p) => p.id === d.projectId) || P[0], due: d.validUntil || d.date || "", hot: 0 }));
+    P.forEach((p) => {
+      (p.decisions || [])
+        .filter((d) => "Client" === d.owner && "open" === d.status)
+        .forEach((d) => out.push({ kind: "dec", d: d, p: p, due: decDue(d) || "", hot: decState(d).sev >= 2 ? 1 : 0 }));
+      ("function" == typeof smClientRows ? smClientRows(p) : []).forEach((x) =>
+        out.push({ kind: "sub", d: x, p: p, due: (smDates(x, p) || {}).approveBy || "", hot: 0 }),
+      );
+    });
+    return out.sort((a, b) => b.hot - a.hot || String(a.due || "9").localeCompare(String(b.due || "9")));
+  } catch (e) {
+    return [];
+  }
+}
 function ovClientDecs() {
   try {
     return ((S && S.decisions) || []).filter((d) => "Client" === d.owner && "open" === d.status);
@@ -124145,7 +124378,7 @@ if ("function" == typeof fdClientRail) {
     fdClientRailBase_ov.apply(this, arguments);
     try {
       const n = wrap && wrap.querySelector('button[data-v="dec"] .n');
-      n && (n.textContent = ovClientDecs().length || "");
+      n && (n.textContent = clWaitingItems().length || "");
     } catch (e) {}
   };
 }
@@ -124182,7 +124415,7 @@ if ("function" == typeof mRenderTabs) {
         const b = tb.querySelector('button[data-mv="dec"]');
         if (b) {
           let i = b.querySelector("i.n");
-          const n = ovClientDecs().length;
+          const n = clWaitingItems().length;
           n
             ? (i || ((i = document.createElement("i")), (i.className = "n"), b.appendChild(i)),
               (i.textContent = n))
@@ -125105,6 +125338,8 @@ if ("function" == typeof docAction) {
     if ("lkfollow" !== a)
       if ("lkapprove" !== a) {
         if ("lkreject" !== a) {
+          // Send saves first: a dirty draft is committed before it goes, so the primary never waits on Save
+          ["send", "sendclient"].includes(a) && d && "function" == typeof docDirty && docDirty(d) && (docMark(d), save());
           if (["save", "send", "sendclient"].includes(a) && d && "draft" === d.status) {
             if (lkPrune(d) && "save" === a)
               try {
@@ -133598,6 +133833,10 @@ function pay3Can(b) {
     (!billPaidUnapproved(b) && !["submitted", "pm-approved"].includes(b.status))
   );
 }
+// an Owner approval of a bill billed over its PO goes through the short-pay sheet (the safe default)
+function billOverPO(b) {
+  return !!b && pay3Can(b) && pay3Default(b) > 0 && "function" == typeof isOwner && isOwner();
+}
 function pay3Default(b) {
   const P = pay3PO(b),
     tot = billTotal(b);
@@ -133614,7 +133853,31 @@ const pay3Job = (b) => {
       toast(msg);
     }
   };
-function pay3ShortPay(b, amt, why) {
+let pay3AsBilled = !1;
+// Approve as Billed on a bill over its PO: the secondary path, only with a reason, kept on the bill.
+function pay3ApproveAsBilled(b, a, why) {
+  const P = pay3PO(b),
+    over = P ? r2(billTotal(b) - P.left) : 0;
+  pay3AsBilled = !0;
+  try {
+    billAction(b, a, why);
+  } finally {
+    pay3AsBilled = !1;
+  }
+  if (["approved", "verified", "paid"].includes(b.status)) {
+    (b.approvals = b.approvals || []).push(
+      Object.assign({}, fin2Stamp(), {
+        action: `approved as billed, ${money(over)} over ${P ? P.po.number : "the PO"}`,
+        note: why,
+      }),
+    );
+    try {
+      audit("bill", b.id, "approved-over-po", "", b.status, `${money(over)} over ${P ? P.po.number : "the PO"} — ${why}`);
+    } catch (e) {}
+    save();
+  }
+}
+function pay3ShortPay(b, amt, why, opts) {
   if (!pay3Can(b))
     return toast(`${(b && b.number) || "This bill"} is not waiting on an approval — nothing was changed`), !1;
   if (!isOwner())
@@ -133639,10 +133902,25 @@ function pay3ShortPay(b, amt, why) {
         `<div class="note">${t ? `${money(-t.amt)} already left ${esc(a ? a.name : "the bank")} on ${fmtL(t.date)}. ` : ""}Bill ${esc(b.number || "")} is ${money(tot)}${P ? `; ${esc(P.po.number)} covers ${money(P.left)}` : ""}. The approved amount is cost to ${esc(pay3Job(b))}. The difference is ${paid ? "held as money the vendor owes back (1300) — not cost" : "held back from payment — not cost, not payable"} until the vendor credits it or you accept it.</div>${fl.length ? `<div class="note warn" style="margin-top:8px"><b>Open controls:</b><br>${fl.map(esc).join("<br>")}</div>` : ""}\n      <div class="grid2" style="margin-top:10px">${mbF("Approve", mbIn("amount", String(def), "", "number"))}${mbF("Disputed", `<input data-pay3held readonly value="${def ? money(r2(tot - def)) : ""}" tabindex="-1">`)}</div>\n      ${mbF("Reason", mbIn("why", "", `e.g. billed ${def ? money(r2(tot - def)) : "more than ordered"}${P ? " over " + P.po.number : ""}; credit memo requested`))}`,
         {
           submit: "Approve and Dispute",
+          alt: opts && opts.billed ? { label: `Approve as Billed (${money(tot)})` } : null,
           onSubmit: (f) =>
             f.why ? !!pay3ShortPay(b, +f.amount, f.why) && void 0 : (toast("Say why first"), !1),
         },
       );
+    try {
+      const alt = m.querySelector("#mbm-alt");
+      alt &&
+        (alt.onclick = () => {
+          const w = m.querySelector('[data-f="why"]'),
+            why = w && w.value.trim();
+          if (!why)
+            return (
+              "function" == typeof vfMark ? vfMark(w, `Say why ${money(r2(tot - (pay3Default(b) || tot)))} over the PO is approved`) : toast("Say why first"),
+              void w.focus()
+            );
+          mbCloseModal(), pay3ApproveAsBilled(b, opts.billed, why);
+        });
+    } catch (e) {}
     try {
       const inp = m.querySelector('[data-f="amount"]'),
         out = m.querySelector("[data-pay3held]");
@@ -133838,7 +134116,13 @@ function pay3Disputes() {
 const pay3HeldAs = (d) => (d.paid ? "Vendor receivable (1300)" : "Not payable");
 if ("function" == typeof billAction) {
   const billActionBase_p3 = billAction;
+  // The one bill-approval gate. Every Approve (the brief, Home and Approvals rows, the Approvals tab,
+  // Ask proposals, the bill list and the bill sheet) reaches billAction; a bill billed over its PO
+  // opens the short-pay sheet with the PO amount as the safe default, and Approve as Billed only as
+  // the secondary, with a reason that lands on the bill.
   billAction = function (b, a, why) {
+    if (b && ("approve" === a || "approvebilled" === a) && !pay3AsBilled && billOverPO(b))
+      return pay3ShortPay(b, null, null, { billed: a });
     return b && "short" === a
       ? pay3ShortPay(b)
       : !b || ("credit" !== a && "acceptdiff" !== a)
@@ -134244,6 +134528,17 @@ if ("function" == typeof openBill) {
     openBillBase_p3.apply(this, arguments);
     const b = (DB.bills || []).find((x) => x.id === id),
       body = document.getElementById("d-body");
+    try {
+      // the decision first: the amounts and the primary sit at the top of the sheet, the
+      // compliance blocks and the record below it (they explain; they are not the next step)
+      const dec =
+        b &&
+        body &&
+        (body.querySelector(".fin2-pbu-acts") ||
+          (["submitted", "pm-approved"].includes(b.status) &&
+            body.querySelector('[data-bact="approve"], [data-bact="pmok"]')?.closest(".row")));
+      dec && dec.parentElement === body && (dec.classList.add("bill-decide"), body.prepend(dec));
+    } catch (e) {}
     if (b && body)
       try {
         if (b.short) {
@@ -136256,8 +136551,7 @@ function ocTileN(v, key) {
   }
 }
 function ocBadgeN(v) {
-  if ("client" === role() && "dec" === v)
-    return "function" == typeof ovClientDecs ? ovClientDecs().length : 0;
+  if ("client" === role() && "dec" === v) return clWaitingItems().length;
   const d = OC_BADGE[v];
   return d ? ocMemo("badge:" + v, () => (d.tile ? ocTileN(v, d.tile) : d.n() || 0)) || 0 : null;
 }
@@ -141078,35 +141372,7 @@ const RC_CHEV =
   rcWho = () => (S && S.project && S.project.userName) || role(),
   rcPhone = () => mOn();
 function rcToast(text, links, ms) {
-  toast(text);
-  const t = document.getElementById("toast");
-  if (!t) return;
-  const L = (links || []).filter((l) => l && "function" == typeof l.run);
-  if (!L.length) return;
-  t.textContent = "";
-  const m = document.createElement("span");
-  (m.className = "toast-msg"),
-    (m.textContent = String(text || "")),
-    t.appendChild(m),
-    L.forEach((l) => {
-      t.appendChild(document.createTextNode(" · "));
-      const a = document.createElement("a");
-      (a.href = "#"),
-        (a.className = "toast-open"),
-        (a.textContent = l.label || "Open"),
-        (a.onclick = (e) => {
-          e.preventDefault(), t.classList.remove("on", "act");
-          try {
-            l.run();
-          } catch (err) {
-            console.warn("toast link", err);
-          }
-        }),
-        t.appendChild(a);
-    }),
-    t.classList.add("on", "act"),
-    clearTimeout(t._t),
-    (t._t = setTimeout(() => t.classList.remove("on", "act"), ms || 6500));
+  toast(text, links || null, ms);
 }
 if ("function" == typeof toastDone) {
   const base = toastDone;
@@ -154197,23 +154463,48 @@ if ("function" == typeof clDecHtml) {
   clDecHtml = function () {
     let h = base.apply(this, arguments);
     try {
+      // the same Waiting on You count as the Overview and the nav badge: the change orders to approve
+      // show here too, and the lead counts all of it
+      const W = "function" == typeof clWaitingItems ? clWaitingItems() : [],
+        D = W.filter((w) => "doc" === w.kind),
+        nC = W.filter((w) => "dec" === w.kind).length,
+        nS = W.filter((w) => "sub" === w.kind).length;
+      D.length &&
+        (h = h.replace(
+          /(<div class="card"><h3>Already Settled<\/h3>)/,
+          (m) => `<div class="card cl-docs"><h3>Approve the Change</h3>${D.map((w) => `<div class="cl-row"><div><b data-nocase>${esc(clWords(w.d.title || w.d.number))}</b><div class="small muted">${"estimate" === w.d.type ? "Proposal" : "Change order"} ${esc(w.d.number)} · ${money(docTotal(w.d).total)}</div></div><div class="cl-amt"><button class="btn sm" data-clgoappr="${esc(w.d.id)}">Review and Approve</button></div></div>`).join("")}</div>${m}`,
+        ));
+      W.length &&
+        (h = h.replace(
+          /(<div class="lead">)([^<]*)(<\/div>)/,
+          (m, a, b, c) =>
+            `${a}${W.length} thing${1 === W.length ? "" : "s"} waiting on you: ${[nC && `${nC} choice${1 === nC ? "" : "s"}`, D.length && `${D.length} ${1 === D.length ? "change to approve" : "changes to approve"}`, nS && `${nS} sample${1 === nS ? "" : "s"} to approve before we order`].filter(Boolean).join(", ")}. Everything you have already settled is below.${c}`,
+        ));
+    } catch (e) {}
+    try {
       const p = "function" == typeof clProj ? clProj() : S,
         L = smClientRows(p);
       if (!L.length) return h;
       const blue = /btn sm primary/.test(h),
         card = `<div class="card sm-clcard"><h3>Approve Before We Order</h3>${L.map((s, i) => `<div class="cl-row"><div><b data-nocase>${esc(smClientTitle(s))}</b><div class="small muted" data-nocase>${esc(s.sub || "Our supplier")} sent ${SM_TYPE_WORD[s.type] || "it"} of what we plan to order · ${esc(smClientLine(s, p))}</div></div><div class="cl-amt sm-clacts"><button class="btn sm ${blue || 0 !== i ? "" : "primary"}" data-smcl="ok|${esc(s.id)}">Approve</button><button class="btn sm" data-smcl="no|${esc(s.id)}">Request Changes</button></div></div>`).join("")}</div>`;
-      (h = h.replace(/(<div class="card"><h3>Already Settled<\/h3>)/, card + "$1")),
-        (h = h.replace(
-          /(<div class="lead">)([^<]*)(<\/div>)/,
-          (m, a, b, c) =>
-            `${a}${b} ${1 === L.length ? "One item is" : `${L.length} items are`} waiting for your approval before we order.${c}`,
-        ));
+      h = h.replace(/(<div class="card"><h3>Already Settled<\/h3>)/, (m) => card + m);
     } catch (e) {
       console.warn("submittal client", e);
     }
     return h;
   };
 }
+document.addEventListener("click", (e) => {
+  const g = e.target && e.target.closest ? e.target.closest("[data-clgoappr]") : null;
+  g &&
+    (e.preventDefault(),
+    (view = "client"),
+    render(),
+    setTimeout(() => {
+      const a = document.querySelector(`#cl-approvals [data-papprove$=":${g.dataset.clgoappr}"]`);
+      a && (a.closest(".pa-row") || a).scrollIntoView({ block: "center" });
+    }, 60));
+});
 document.addEventListener("click", (e) => {
   const b = e.target && e.target.closest ? e.target.closest("[data-smcl]") : null;
   if (!b) return;
@@ -154224,6 +154515,26 @@ document.addEventListener("click", (e) => {
   const { s: s, p: p } = hit,
     me = smMe(),
     title = smClientTitle(s);
+  // the client sees what they approve: a confirmation step like CO signing, with the sheets one tap away
+  if ("ok" === k && !b.dataset.smclSure) {
+    const rev = (s.revs || [])[(s.revs || []).length - 1] || {},
+      fid = (rev.files || [])[0],
+      m = mbModal(
+        `Approve — <span data-nocase>${esc(title)}</span>`,
+        `<p class="small" data-nocase>${esc(s.sub || "Our supplier")} sent ${SM_TYPE_WORD[s.type] || "it"} of what we plan to order · ${esc(smClientLine(s, p))}.</p><p class="small muted" style="margin:0">Approving tells us to order it as sent. It is recorded with your name and the date.</p>`,
+        {
+          submit: "Approve",
+          alt: fid && "function" == typeof openFile ? { label: "View the Sheets", run: () => openFile(fid) } : null,
+          onSubmit: () => {
+            setTimeout(() => {
+              const x = document.createElement("button");
+              (x.dataset.smcl = b.dataset.smcl), (x.dataset.smclSure = "1"), (x.hidden = !0), document.body.appendChild(x), x.click(), x.remove();
+            }, 0);
+          },
+        },
+      );
+    return;
+  }
   if ("ok" === k)
     return (
       smRespond(s, p, { stamp: "approved", comments: "Approved on the portal", by: me }, !0),
@@ -154237,7 +154548,7 @@ document.addEventListener("click", (e) => {
       }),
       save(),
       render(),
-      void toast(`Thank you — ${title} is approved and we will order it`)
+      void toast(`Thank you — ${title} is approved and we will order it`, flowGo.viewOf("dec", "client"))
     );
   mbModal(
     `Request Changes — <span data-nocase>${esc(title)}</span>`,
@@ -154257,7 +154568,7 @@ document.addEventListener("click", (e) => {
           }),
           save(),
           render(),
-          toast(`Sent — ${smPM(p)} will come back to you with another sample`);
+          toast(`Sent — ${smPM(p)} will come back to you with another sample`, flowGo.viewOf("dec", "client"));
       },
     },
   );
@@ -156266,6 +156577,7 @@ const DL_WX = [
     ["material", "Material"],
     ["inspection", "Inspection"],
   ],
+  DL_RAISE_CAUSE = { noshow: "sub", delivery: "material", insp: "inspection" },
   dlCauseLabel = (k) => (DL_CAUSE.find((c) => c[0] === k) || [, "Other"])[1],
   DL_REASON = {
     weather: "weather",
@@ -156351,7 +156663,8 @@ function dlCrewFor(p, d) {
           )),
           t.out || (by[k].open = !0);
       }),
-    Object.values(by).map((x) => Object.assign(x, { hours: r2(x.hours) }))
+    // a log reads in quarter hours (6.97 h from the clock is 7 h on the log)
+    Object.values(by).map((x) => Object.assign(x, { hours: Math.round(4 * x.hours) / 4 }))
   );
 }
 function dlDeliveriesFor(p, d) {
@@ -156441,6 +156754,10 @@ function dlDraft(p, d) {
           .filter((x) => !x.cleared)
           .map((x) => Object.assign({}, x, { carried: !0, from: prev.date, still: null }))
       : [],
+    // what the field already reported today (a sub no-show, a hold) starts on the log as a delay
+    raised = ((DB.field || {}).raises || [])
+      .filter((r) => r.projectId === p.id && String(r.at || "").slice(0, 10) === d && DL_RAISE_CAUSE[r.type])
+      .map((r) => ({ cause: DL_RAISE_CAUSE[r.type], taskId: r.taskId || "", hours: 0, note: r.title || "", raiseId: r.id })),
     dr = {
       projectId: p.id,
       date: d,
@@ -156465,12 +156782,22 @@ function dlDraft(p, d) {
       inspections: insp,
       visitors: [],
       work: work,
-      delays: carried,
+      delays: carried.concat(raised),
       safety: { incident: !1, toolbox: talks[0] ? talks[0].topic : "", notes: "" },
       photoIds: [],
       notes: "",
       prevDate: prev ? prev.date : "",
     };
+  // the work the crew on the clock today owns comes first, then what is under way, then what has not started
+  try {
+    const on = dr.crew.map((c) => String(c.name || "").split(" ")[0].toLowerCase()).filter(Boolean),
+      rank = (w) => {
+        const t = (p.tasks || []).find((x) => x.id === w.taskId) || {},
+          own = String(t.owner || "").split(" ")[0].toLowerCase();
+        return on.includes(own) ? 0 : "in-progress" === t.status ? 1 : 2;
+      };
+    dr.work = dr.work.map((w, i) => [rank(w), i, w]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map((x) => x[2]);
+  } catch (e) {}
   if (((DB.field.dlDraft[key] = dr), "function" == typeof DL_WEATHER_HOOK))
     try {
       Promise.resolve(DL_WEATHER_HOOK(p, d))
@@ -156650,6 +156977,11 @@ function dlRenderFlow(root) {
       last = (DL_STEPS[dr.step][0], dr.step === DL_STEPS.length - 1);
     (root.innerHTML = `<div class="card f-card dl-card"><div class="hd"><h3>${dr.editing ? "Editing" : "Today"} — ${fmtL(td)}</h3><span class="small muted">Step ${dr.step + 1} of ${DL_STEPS.length}${dr.prevDate ? ` · carried from ${fmt(dr.prevDate)}` : ""}</span></div>\n      <div class="dl-steps" role="tablist" aria-label="Steps">${DL_STEPS.map(([s, n], i) => `<button type="button" role="tab" class="dl-st ${i === dr.step ? "on" : ""} ${i < dr.step ? "done" : ""}" data-dlgo="${i}" aria-selected="${i === dr.step}">${n}</button>`).join("")}</div>\n      <h3 class="dl-title">${DL_STEPS[dr.step][1]}</h3>\n      <div class="dl-body">${dlStepHtml(dr, p)}</div>\n      <div class="row dl-nav">${dr.step > 0 ? '<button type="button" class="btn" data-dlback>Back</button>' : ""}${!last && dr.step > 0 ? '<button type="button" class="btn" data-dlgo="6">Review and Sign</button>' : ""}<span class="grow"></span><button type="button" class="btn primary" id="dl-next">${last ? (dr.editing ? "Sign and Update" : "Sign and Send") : "Next"}</button></div></div>${pastHtml}`),
       dlWire(root, dr, p);
+    // Sign Off: the attestation sits in the docked step nav, beside the button it unlocks
+    const sg = last && root.querySelector(".dl-body .dl-sign"),
+      nv = root.querySelector(".dl-card .dl-nav");
+    sg && nv && (nv.prepend(sg), nv.classList.add("dl-nav-sign"));
+    document.body.classList.toggle("dl-signstep", !!(sg && nv));
     const nx = root.querySelector("#dl-next");
     nx &&
       (root.querySelectorAll(".btn.primary").forEach((b) => {
@@ -156810,13 +157142,13 @@ function dlWire(root, dr, p) {
     root.querySelectorAll("[data-dlgo]").forEach(
       (b) =>
         (b.onclick = () => {
-          (dr.step = +b.dataset.dlgo), keep(), dlRenderFlow(root), window.scrollTo(0, 0);
+          (dr.step = +b.dataset.dlgo), keep(), dlRenderFlow(root), navScrollTop();
         }),
     );
   const bk = root.querySelector("[data-dlback]");
   bk &&
     (bk.onclick = () => {
-      (dr.step = Math.max(0, dr.step - 1)), keep(), dlRenderFlow(root), window.scrollTo(0, 0);
+      (dr.step = Math.max(0, dr.step - 1)), keep(), dlRenderFlow(root), navScrollTop();
     }),
     (root.querySelector("#dl-next").onclick = () => {
       const k = DL_STEPS[dr.step][0],
@@ -156834,7 +157166,7 @@ function dlWire(root, dr, p) {
             )
           : dr.step < DL_STEPS.length - 1
             ? dr.weather
-              ? (dr.step++, keep(), dlRenderFlow(root), void window.scrollTo(0, 0))
+              ? (dr.step++, keep(), dlRenderFlow(root), void navScrollTop())
               : noWx()
             : dr.weather
               ? void (dr.signed
@@ -158459,19 +158791,124 @@ function igRefuseZero(d) {
 let igPress = null;
 const igPressRx =
   /\b(new|create|start|save|duplicate|convert|draft|bill|issue|record|add|make|copy|send|receive|build|set up|clone|promote|import|log|file|submit)\b/i;
+// Every record a toast can point at, keyed kind:id, with its JSON as a signature: a press is
+// compared with the toast that follows it, so a write that names no number still links its record.
+// project children that open in their own editor: [collection, key / editor kind, the views that show it]
+const IG_PCHILD = [
+  ["tasks", "task", ["sched"]],
+  ["materials", "mat", ["mat"]],
+  ["inspections", "insp", ["insp"]],
+  ["permits", "permit", ["insp"]],
+  ["issues", "iss", ["field"]],
+];
+const IG_PREF = ["doc", "po", "bill", "payroll", "dec", "raise", "req", "log", "time", "act", "task", "mat", "insp", "permit", "iss", "txn", "file", "lead", "vendor", "client", "project"];
+function igSigSnap() {
+  const s = new Map(),
+    put = (k, x) => {
+      try {
+        s.set(k, JSON.stringify(x));
+      } catch (e) {}
+    };
+  (DB.clients || []).forEach((c) => {
+    s.set("client:" + c.id, String((c.activity || []).length) + "|" + (c.name || "")),
+      ["estimates", "changeOrders", "invoices"].forEach((k) => (c[k] || []).forEach((d) => put("doc:" + d.id, d)));
+  }),
+    (DB.pos || []).forEach((x) => put("po:" + x.id, x)),
+    (DB.bills || []).forEach((x) => put("bill:" + x.id, x)),
+    (DB.projects || []).forEach((p) => {
+      s.set("project:" + p.id, ""),
+        IG_PCHILD.forEach(([coll, k]) => (p[coll] || []).forEach((t) => put(k + ":" + p.id + "/" + t.id, t))),
+        (p.actions || []).forEach((t) => put("act:" + p.id + "/" + t.id, t)),
+        (p.decisions || []).forEach((d) => put("dec:" + p.id + "/" + d.id, d)),
+        (p.requests || []).forEach((r) => put("req:" + p.id + "/" + r.id, r));
+    }),
+    ((DB.field && DB.field.raises) || []).forEach((r) => put("raise:" + r.id, Object.assign({}, r, { status: r.status === "seen" ? "sent" : r.status, seenAt: 0 }))),
+    ((DB.field && DB.field.logs) || []).forEach((l) => put("log:" + l.id, l)),
+    (DB.time || []).forEach((t) => put("time:" + t.id, t)),
+    (DB.vendors || []).forEach((v) => put("vendor:" + v.id, v)),
+    (DB.leads || []).forEach((l) => put("lead:" + l.id, l)),
+    (DB.txns || []).forEach((t) => put("txn:" + t.id, t)),
+    (DB.payroll || []).forEach((r) => put("payroll:" + r.id, r)),
+    (DB.projects || []).forEach((p) => (p.files || []).forEach((f) => put("file:" + p.id + "/" + f.id, f)));
+  return s;
+}
 function igDescribe(key) {
   const d = rcDescribe(key);
   if (d && d.go) return d;
-  const [k, id] = key.split(":");
+  const [k, raw] = key.split(":"),
+    [pid, id] = String(raw).includes("/") ? String(raw).split("/") : ["", raw],
+    pOf = (coll) =>
+      (DB.projects || []).find((p) => (!pid || p.id === pid) && (p[coll] || []).some((x) => x.id === id));
+  if ("raise" === k) {
+    const r = ((DB.field && DB.field.raises) || []).find((x) => x.id === id);
+    if (r) return { go: flowGo.raise(r) };
+  }
+  if ("log" === k) {
+    const l = ((DB.field && DB.field.logs) || []).find((x) => x.id === id);
+    if (l) return { go: flowGo.raise({ projectId: l.projectId }) };
+  }
+  if ("req" === k) {
+    const p = pOf("requests");
+    if (p) return { go: flowGo.request(p) };
+  }
+  if ("txn" === k && (DB.txns || []).some((x) => x.id === id) && ["bank", "spend"].some(flowCan))
+    return { go: flowGo.viewOf("bank", "spend") };
+  if ("payroll" === k && flowCan("ap") && "function" == typeof openPayroll)
+    return {
+      go: () => {
+        flowGo.view("ap")();
+        try {
+          openPayroll(id);
+        } catch (e) {}
+      },
+    };
+  if ("file" === k) {
+    const p = pOf("files");
+    if (p && flowCan("files"))
+      return {
+        go: () => {
+          setCurrent(p.id), flowGo.view("files")();
+        },
+      };
+  }
+  if ("time" === k) {
+    const e = (DB.time || []).find((x) => x.id === id);
+    if (e) return { go: flowGo.time(e) };
+  }
+  if ("act" === k) {
+    const p = pOf("actions");
+    if (p)
+      return {
+        go: flowCan("tkall")
+          ? () => crOpenTask({ kind: "action", projectId: p.id, id: id })
+          : () => {
+              setCurrent(p.id), flowGo.viewOf("tasks", "tkall", "ftoday", "sday")();
+            },
+      };
+  }
+  const pc = IG_PCHILD.find((x) => x[1] === k);
+  if (pc) {
+    const p = pOf(pc[0]),
+      v = pc[2].find(flowCan);
+    if (p && v)
+      return {
+        go: () => {
+          setCurrent(p.id), (view = v), render(), flowTop();
+          try {
+            openEditor(k, id);
+          } catch (e) {}
+        },
+      };
+  }
+
   if ("lead" === k) {
     const l = (DB.leads || []).find((x) => x.id === id);
     if (l && flowCan("hbdeals")) return { go: flowGo.lead(l) };
   }
-  if ("dec" === k)
-    for (const p of DB.projects || []) {
-      const x = (p.decisions || []).find((y) => y.id === id);
-      if (x) return { go: flowGo.decision(p, x) };
-    }
+  if ("dec" === k && flowCan("dec")) {
+    const p = pOf("decisions");
+    if (p) return { go: flowGo.decision(p, p.decisions.find((y) => y.id === id)) };
+  }
   return d;
 }
 function igFindByText(msg) {
@@ -158489,6 +158926,13 @@ function igFindByText(msg) {
     }
   const po = (DB.pos || []).find((x) => x.number && m.includes(x.number));
   if (po && flowCan("po")) return flowGo.po(po);
+  const bill = (DB.bills || []).find(
+    (x) =>
+      x.number &&
+      x.number.length > 3 &&
+      new RegExp("(^|[^\\w-])" + String(x.number).replace(/[.*+?^${}()|[\]\\-]/g, "\\$&") + "(?![\\w-])").test(m),
+  );
+  if (bill && flowCan("ap")) return flowGo.bill(bill);
   const p = (DB.projects || []).find((x) => x.project && x.project.name && m.includes(x.project.name));
   if (p) return flowGo.project(p);
   const c = (DB.clients || []).find((x) => x.name && m.includes(x.name));
@@ -158512,11 +158956,11 @@ function igFindByText(msg) {
       if (
         el &&
         !el.closest("#nav-groups, #tabbar, #mtabs, #subnav, .sub-tabs, #toast") &&
-        (el.closest("#mbm, #drawer, .docacts, .docbar, .doc-more, .hb-panel") ||
+        (el.closest("#mbm, #drawer, .docacts, .docbar, .doc-more, .hb-panel, .view.on, #m-sheet") ||
           igPressRx.test(el.textContent || el.value || ""))
       )
         try {
-          igPress = { at: Date.now(), snap: rcSnap() };
+          igPress = { at: Date.now(), snap: igSigSnap() };
         } catch (err) {
           igPress = null;
         }
@@ -158525,30 +158969,36 @@ function igFindByText(msg) {
   ),
 );
 const IG_CREATE_RX = /^created\b|\bcreated\b|\bbuilt\b|\bdrafted\b|\bset up\b|^new\b.*\b(saved|added)\b/i;
-function igToastLink(msg, at) {
+// A toast that reports a write ("sent", "approved", "recorded"...) and names a record gets that record's Open link.
+const IG_WRITE_RX =
+  /\b(sent|approved|recorded|signed|saved|updated|issued|received|voided|paid|submitted|rejected|filed|logged|scheduled|moved|marked|added|answered|assigned|revised|reopened|closed|posted|matched|attached|shared|uploaded|returned|accepted|declined|cancell?ed|imported|copied|duplicated|converted|disputed|held|released|reconciled|locked|unlocked|changed|deleted|removed|archived|restored|emailed|chosen|picked|booked|ordered|delivered|acknowledged|credited|applied|split|renamed|done|started|clocked|bumped|taken back|on site|drafted|created|set)\b/i;
+function igToastLink(msg, at, tries) {
   const t = document.getElementById("toast");
-  if (!t || !t.classList.contains("on") || t.querySelector("a, button")) return;
-  if (!String(t.textContent || "").startsWith(String(msg || "").slice(0, 20))) return;
+  if (!t) return;
+  // a "Saved" toast waits for the write to land (trAfterWrite) before it shows: look again
+  if (!t.classList.contains("on") || !String(t.textContent || "").startsWith(String(msg || "").slice(0, 20)))
+    return void ((tries || 0) < 12 && setTimeout(() => igToastLink(msg, at, (tries || 0) + 1), 150));
+  if (t.querySelector("a, button")) return;
   let go = null;
-  if (igPress && at - igPress.at < 2500) {
-    const P = igPress;
-    igPress = null;
+  const wrote = IG_CREATE_RX.test(msg) || IG_WRITE_RX.test(msg);
+  if (igPress && at - igPress.at < 2500)
     try {
-      const fresh = [...rcSnap()].filter(
-          (k) => !P.snap.has(k) && /^(doc|po|bill|client|project|vendor|lead|dec):/.test(k),
-        ),
-        pref = ["doc", "po", "bill", "project", "client", "vendor", "lead", "dec"];
-      fresh.sort((a, b) => pref.indexOf(a.split(":")[0]) - pref.indexOf(b.split(":")[0]));
-      for (const k of fresh) {
+      // the record the press made (new) or, for a write-shaped toast, the record it changed
+      const P = igPress,
+        now = igSigSnap(),
+        rank = (k) => IG_PREF.indexOf(k.split(":")[0]),
+        byRank = (a, b) => rank(a) - rank(b),
+        fresh = [...now.keys()].filter((k) => !P.snap.has(k)).sort(byRank),
+        changed = wrote ? [...now.keys()].filter((k) => P.snap.has(k) && P.snap.get(k) !== now.get(k)).sort(byRank) : [];
+      for (const k of fresh.concat(changed)) {
         const d = igDescribe(k);
         if (d && d.go) {
-          go = d.go;
+          (go = d.go), (igPress = null);
           break;
         }
       }
     } catch (e) {}
-  }
-  if ((!go && IG_CREATE_RX.test(msg) && (go = igFindByText(msg)), !go)) return;
+  if ((!go && wrote && (go = igFindByText(msg)), !go)) return;
   const a = document.createElement("a");
   (a.href = "#"),
     (a.textContent = "Open"),
@@ -158907,28 +159357,6 @@ function igDlPhotos(dr, p) {
         console.warn("open for accounting", e);
       }
     return base.apply(this, arguments);
-  };
-}
-{
-  const base = renderPortalApprovals;
-  renderPortalApprovals = function () {
-    const r = base.apply(this, arguments);
-    try {
-      if ("client" !== role() || "function" != typeof smClientRows) return r;
-      const host = document.getElementById("cl-approvals");
-      if (!host || host.querySelector(".ig-smcl")) return r;
-      const p = "function" == typeof clProj ? clProj() : S,
-        L = p ? smClientRows(p) : [];
-      if (!L.length) return r;
-      const card = `<div class="card ig-smcl" style="margin-bottom:14px"><div class="row" style="align-items:baseline"><h3 style="margin:0">Approve Before We Order</h3><span class="small muted" style="margin-left:8px">${L.length} item${1 === L.length ? "" : "s"}</span></div>${L.map((s) => `<div class="cl-row"><div><b data-nocase>${esc(smClientTitle(s))}</b><div class="small muted" data-nocase>${esc(s.sub || "Our supplier")} sent ${SM_TYPE_WORD[s.type] || "it"} of what we plan to order · ${esc(smClientLine(s, p))}</div></div><div class="cl-amt sm-clacts"><button class="btn sm" data-smcl="ok|${esc(s.id)}">Approve</button><button class="btn sm" data-smcl="no|${esc(s.id)}">Request Changes</button></div></div>`).join("")}</div>`,
-        wait = [...host.querySelectorAll(":scope > .card")].find((c) =>
-          /^Waiting on You/.test(((c.querySelector("h3") || {}).textContent || "").trim()),
-        );
-      wait ? wait.insertAdjacentHTML("afterend", card) : host.insertAdjacentHTML("beforeend", card);
-    } catch (e) {
-      console.warn("client submittals", e);
-    }
-    return r;
   };
 }
 {
