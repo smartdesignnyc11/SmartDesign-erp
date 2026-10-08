@@ -3585,7 +3585,32 @@ function toast(msg, go, ms) {
     (t._t = setTimeout(() => t.classList.remove("on", "act"), ms || (L.length ? 6500 : 2400)));
 }
 const sevPill = (s) => (3 === s ? "red" : 2 === s ? "orange" : 1 === s ? "amber" : "green");
+// One place resets the scroll: a new view, or a tab / sub-tab press, starts at the top. The page
+// scrolls on body (html/body overflow-x), so window.scrollTo alone left the old offset behind.
+// Deliberate in-page anchors (scrollIntoView after render) still land, since they run after this.
+let navLastView = null,
+  navTabAt = 0;
+function navScrollTop() {
+  try {
+    window.scrollTo(0, 0), (document.documentElement.scrollTop = 0), (document.body.scrollTop = 0);
+    const m = document.querySelector(".main");
+    m && (m.scrollTop = 0);
+  } catch (e) {}
+}
+document.addEventListener(
+  "click",
+  (e) => {
+    const t = e.target && e.target.closest && e.target.closest(NAV_TAB_SEL);
+    t && (navTabAt = Date.now());
+  },
+  !0,
+);
+const NAV_TAB_SEL =
+  "#nav button, #nav-groups button, #nav-groups a, #tabbar button, #mtabs button, #subnav button, .sub-tabs button, .ctabs button, [role=tab], .m-bar button, .mbar button, .bottombar button";
 function render() {
+  ((null !== navLastView && view !== navLastView) || (navTabAt && Date.now() - navTabAt < 1500)) &&
+    ((navTabAt = 0), navScrollTop()),
+    (navLastView = view);
   void 0 !== MB_VIEWS &&
     ("mb" === DB.workspace && mbAccess() && !MB_VIEWS.includes(view)
       ? (view = "mbdash")
@@ -121527,11 +121552,7 @@ const flowCan = (v) => {
       return !1;
     }
   },
-  flowTop = () => {
-    try {
-      window.scrollTo(0, 0);
-    } catch (e) {}
-  },
+  flowTop = () => navScrollTop(),
   flowGo = {
     bill: (b) => () => {
       void 0 !== iaOpenBillAfter && (iaOpenBillAfter = b.id);
