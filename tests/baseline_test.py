@@ -22,8 +22,10 @@ async def main():
           };
         }""")
         c.ok(r['today'] == '2026-09-03', f"app day {r['today']}")
-        c.ok(r['income'] == 144292, f"YTD income {r['income']} (was 144292)")
-        c.ok(r['net'] == -3797, f"YTD net {r['net']} (was -3797)")
+        # truthpct (BACKLOG §1.2): the EAC rolls up by estimate line, so 121 State earns $1,532.47 less this year
+        # (EAC $384,087.50 -> $388,887.50). Income 144292 -> 142759, net -3797 -> -5330.
+        c.ok(r['income'] == 142759, f"YTD income {r['income']} (was 144292 before truthpct)")
+        c.ok(r['net'] == -5330, f"YTD net {r['net']} (was -3797 before truthpct)")
         c.ok(r['rtb'] == 20980 and r['rtbN'] == 2 and r['held'] == 1, f"ready to bill {r['rtb']} / {r['rtbN']} rows / {r['held']} held")
         c.ok(r['badges'] == {'jobs': 2, 'sales': 4, 'buy': 10, 'money': 6, 'billing': 2}, f"rail badges {r['badges']}")
         c.ok('$0' in r['owe'], f"AP owed: {r['owe']}")
