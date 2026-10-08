@@ -173,10 +173,10 @@
    "id": "F14",
    "role": "u_alan",
    "q": "what is late on 121 State",
-   "truth": "(() => { const p = H.P('121 State'), X = b2Facts(briefFacts()); return X.buyLate.filter(r => r.p === p).length + X.decOver.filter(x => x.p === p).length + (p.submittals || []).filter(s => smLate(s, p).late).length + p.tasks.filter(t => t.status !== 'done' && t.end < today()).length; })()",
+   "truth": "PRED.jobLate.count(H.P('121 State').id)",
    "check": "number",
    "refuse_ok": false,
-   "notes": "everything past its own date on 121 State: materials past order-by (Buy Board), overdue decisions, late submittals, tasks past finish",
+   "notes": "BACKLOG 1.3 decision (2026-10-08): a job's Late is PRED.jobLate, the union of lateMaterial, lateDecision and lateSubmittal (8 on 121 State); inspections and site questions are Needs You, not late",
    "tags": [
     "ops"
    ]
@@ -991,7 +991,7 @@
    "id": "M040",
    "role": "u_alan",
    "q": "whats late on 121 state",
-   "truth": "(() => { const p = H.P('121 State'), X = b2Facts(briefFacts()); return X.buyLate.filter(r => r.p === p).length + X.decOver.filter(x => x.p === p).length + (p.submittals || []).filter(s => smLate(s, p).late).length + p.tasks.filter(t => t.status !== 'done' && t.end < today()).length; })()",
+   "truth": "PRED.jobLate.count(H.P('121 State').id)",
    "check": "number",
    "refuse_ok": false,
    "notes": "",
