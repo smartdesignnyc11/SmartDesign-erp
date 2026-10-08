@@ -82991,7 +82991,7 @@ function renderMApprove() {
           };
         yes &&
           (yes.onclick = () => {
-            "approve" === it.act && it.comp && it.comp.length
+            "approve" === it.act && it.comp && it.comp.length && !billOverPO(b)
               ? mbModal(
                   `Override — ${esc(b.vendor)}`,
                   `<div class="note warn">${it.comp.map(esc).join("<br>")}</div><div class="f" style="margin-top:10px"><label>Owner override — reason</label><input data-f="why" placeholder="e.g. COI renewal received by email, filing tomorrow" enterkeyhint="done"></div>`,
@@ -133341,6 +133341,10 @@ function pay3Can(b) {
     (!billPaidUnapproved(b) && !["submitted", "pm-approved"].includes(b.status))
   );
 }
+// an Owner approval of a bill billed over its PO goes through the short-pay sheet (the safe default)
+function billOverPO(b) {
+  return !!b && pay3Can(b) && pay3Default(b) > 0 && "function" == typeof isOwner && isOwner();
+}
 function pay3Default(b) {
   const P = pay3PO(b),
     tot = billTotal(b);
@@ -133357,7 +133361,31 @@ const pay3Job = (b) => {
       toast(msg);
     }
   };
-function pay3ShortPay(b, amt, why) {
+let pay3AsBilled = !1;
+// Approve as Billed on a bill over its PO: the secondary path, only with a reason, kept on the bill.
+function pay3ApproveAsBilled(b, a, why) {
+  const P = pay3PO(b),
+    over = P ? r2(billTotal(b) - P.left) : 0;
+  pay3AsBilled = !0;
+  try {
+    billAction(b, a, why);
+  } finally {
+    pay3AsBilled = !1;
+  }
+  if (["approved", "verified", "paid"].includes(b.status)) {
+    (b.approvals = b.approvals || []).push(
+      Object.assign({}, fin2Stamp(), {
+        action: `approved as billed, ${money(over)} over ${P ? P.po.number : "the PO"}`,
+        note: why,
+      }),
+    );
+    try {
+      audit("bill", b.id, "approved-over-po", "", b.status, `${money(over)} over ${P ? P.po.number : "the PO"} — ${why}`);
+    } catch (e) {}
+    save();
+  }
+}
+function pay3ShortPay(b, amt, why, opts) {
   if (!pay3Can(b))
     return toast(`${(b && b.number) || "This bill"} is not waiting on an approval — nothing was changed`), !1;
   if (!isOwner())
@@ -133382,10 +133410,25 @@ function pay3ShortPay(b, amt, why) {
         `<div class="note">${t ? `${money(-t.amt)} already left ${esc(a ? a.name : "the bank")} on ${fmtL(t.date)}. ` : ""}Bill ${esc(b.number || "")} is ${money(tot)}${P ? `; ${esc(P.po.number)} covers ${money(P.left)}` : ""}. The approved amount is cost to ${esc(pay3Job(b))}. The difference is ${paid ? "held as money the vendor owes back (1300) — not cost" : "held back from payment — not cost, not payable"} until the vendor credits it or you accept it.</div>${fl.length ? `<div class="note warn" style="margin-top:8px"><b>Open controls:</b><br>${fl.map(esc).join("<br>")}</div>` : ""}\n      <div class="grid2" style="margin-top:10px">${mbF("Approve", mbIn("amount", String(def), "", "number"))}${mbF("Disputed", `<input data-pay3held readonly value="${def ? money(r2(tot - def)) : ""}" tabindex="-1">`)}</div>\n      ${mbF("Reason", mbIn("why", "", `e.g. billed ${def ? money(r2(tot - def)) : "more than ordered"}${P ? " over " + P.po.number : ""}; credit memo requested`))}`,
         {
           submit: "Approve and Dispute",
+          alt: opts && opts.billed ? { label: `Approve as Billed (${money(tot)})` } : null,
           onSubmit: (f) =>
             f.why ? !!pay3ShortPay(b, +f.amount, f.why) && void 0 : (toast("Say why first"), !1),
         },
       );
+    try {
+      const alt = m.querySelector("#mbm-alt");
+      alt &&
+        (alt.onclick = () => {
+          const w = m.querySelector('[data-f="why"]'),
+            why = w && w.value.trim();
+          if (!why)
+            return (
+              "function" == typeof vfMark ? vfMark(w, `Say why ${money(r2(tot - (pay3Default(b) || tot)))} over the PO is approved`) : toast("Say why first"),
+              void w.focus()
+            );
+          mbCloseModal(), pay3ApproveAsBilled(b, opts.billed, why);
+        });
+    } catch (e) {}
     try {
       const inp = m.querySelector('[data-f="amount"]'),
         out = m.querySelector("[data-pay3held]");
@@ -133581,7 +133624,13 @@ function pay3Disputes() {
 const pay3HeldAs = (d) => (d.paid ? "Vendor receivable (1300)" : "Not payable");
 if ("function" == typeof billAction) {
   const billActionBase_p3 = billAction;
+  // The one bill-approval gate. Every Approve (the brief, Home and Approvals rows, the Approvals tab,
+  // Ask proposals, the bill list and the bill sheet) reaches billAction; a bill billed over its PO
+  // opens the short-pay sheet with the PO amount as the safe default, and Approve as Billed only as
+  // the secondary, with a reason that lands on the bill.
   billAction = function (b, a, why) {
+    if (b && ("approve" === a || "approvebilled" === a) && !pay3AsBilled && billOverPO(b))
+      return pay3ShortPay(b, null, null, { billed: a });
     return b && "short" === a
       ? pay3ShortPay(b)
       : !b || ("credit" !== a && "acceptdiff" !== a)
@@ -133987,6 +134036,17 @@ if ("function" == typeof openBill) {
     openBillBase_p3.apply(this, arguments);
     const b = (DB.bills || []).find((x) => x.id === id),
       body = document.getElementById("d-body");
+    try {
+      // the decision first: the amounts and the primary sit at the top of the sheet, the
+      // compliance blocks and the record below it (they explain; they are not the next step)
+      const dec =
+        b &&
+        body &&
+        (body.querySelector(".fin2-pbu-acts") ||
+          (["submitted", "pm-approved"].includes(b.status) &&
+            body.querySelector('[data-bact="approve"], [data-bact="pmok"]')?.closest(".row")));
+      dec && dec.parentElement === body && (dec.classList.add("bill-decide"), body.prepend(dec));
+    } catch (e) {}
     if (b && body)
       try {
         if (b.short) {

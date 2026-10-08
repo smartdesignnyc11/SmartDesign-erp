@@ -3078,3 +3078,6 @@ svg.gantt text.prg-lbl.behind{fill:var(--bad,#b42318)} svg.gantt text.prg-lbl.no
 .dl-bad{outline:2px solid var(--bad);outline-offset:2px;border-radius:10px}
 .dl-msg{color:var(--bad);font-size:12.5px;font-weight:600;margin:4px 0 8px}
 /* <</field.css>> */
+
+/* daywalk: the bill sheet opens on its decision (amounts + primary), the compliance blocks below */
+#d-body > .bill-decide { margin: 0 0 12px !important; }
