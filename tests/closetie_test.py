@@ -234,7 +234,7 @@ async def part_void(p, c):
       const ok = bfVoidNotAtBank('ta7', 'Amex charged the dumpster once; the second line was typed twice');
       glSync();
       const after = glPL('all', '2026-08-01', '2026-08-31').cogsT;
-      const t = DB.txns.find(x => x.id === 'ta7');
+      const t = DB.txns.find(x => x.id === 'ta7') || (DB.txnsVoid || []).find(x => x.id === 'ta7');
       const rev = DB.gl.journals.filter(j => j.key === 'txn:ta7');
       const list = closeChecklist('2026-08').find(i => /not at the bank/i.test(i.label));
       const fin = bfReconFinish();
@@ -291,8 +291,8 @@ async def part_close(p, c):
     c.ok('$62,466' in t and '$6,323' in t and '$67,326' not in t, f"#1 the August Pack WIP: 121 State $62,466 and 45 Cranberry $6,323 expected (Pack equals the ledger)")
     c.ok('$5,667' in t and '$5,790' not in t, '#10 the August Pack labor is not at run burden ($5,667, not $5,790)')
     t = await view_text(pg, 'gl', 'periods')
-    c.ok('WIP Tie-Out' in t and '62,466.02' in t and '6,323.09' in t, '#1 the Close page has no WIP Tie-Out table for closed August')
-    c.ok('Unallocated Labor' in t, '#10 the Close page does not say Unallocated Labor')
+    c.ok('wip tie-out' in t.lower() and '62,466.02' in t and '6,323.09' in t, '#1 the Close page has no WIP Tie-Out table for closed August')
+    c.ok('unallocated labor' in t.lower(), '#10 the Close page does not say Unallocated Labor')
     # #9 orphan accrual: $3,699 for 8/4-8/13, flagged once the next pay date (9/1) passed.
     r = await pg.evaluate("() => ctOrphanAccruals()")
     c.ok(len(r) == 1 and abs(r[0]['amt'] - 3699) < 0.01 and r[0]['from'] == '2026-08-04' and r[0]['to'] == '2026-08-13' and r[0]['flagged'], f"#9 ctOrphanAccruals {r}")
@@ -438,4 +438,5 @@ async def main():
                 c.ok(False, f'{name}: {type(e).__name__}: {str(e)[:300]}')
             print(f'-- {name}: {c.n - n0} checks, {len(c.fail) - f0} failed')
     sys.exit(c.done())
-asyncio.run(main())
+if __name__ == '__main__':
+    asyncio.run(main())

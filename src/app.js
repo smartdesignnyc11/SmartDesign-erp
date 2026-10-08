@@ -13141,7 +13141,7 @@ function openPayroll(id) {
     flow = ["draft", "submitted", "pm-approved", "approved", "paid", "verified"],
     fi = flow.indexOf(r.status);
   ($("#d-body").innerHTML =
-    `<div class="appr" style="margin-bottom:10px">${flow.map((f, i) => `<span class="${i < fi ? "done" : i === fi ? "on" : ""}">${f.replace("pm-approved", "PM ok")}</span>`).join("")}</div>\n    <div class="f2"><div class="f"><label>Pay period</label><input id="e-period" value="${esc(r.period)}" ${ro ? "readonly" : ""}></div><div class="f"><label>Pay date</label><input type="date" id="e-paydate" value="${r.payDate}" ${ro ? "readonly" : ""}></div></div>\n    <div class="f2"><div class="f"><label>Period from</label><input type="date" id="e-prfrom" value="${r.from || ""}" ${ro ? "readonly" : ""}></div><div class="f"><label>Period to</label><input type="date" id="e-prto" value="${r.to || ""}" ${ro ? "readonly" : ""}></div></div><div class="small muted" style="margin:-4px 0 10px">Once this run is paid, hours clocked between these dates are costed to jobs at actual payroll instead of the burdened-rate estimate.</div>\n    <div class="f2"><div class="f"><label>Entity</label><select id="e-entity" ${ro ? "disabled" : ""}>${DB.entities.map((e) => `<option value="${e.id}" ${r.entityId === e.id ? "selected" : ""}>${esc(e.name)}</option>`).join("")}</select></div><div class="f"><label>Employees</label><input type="number" id="e-emps" value="${r.employees}" ${ro ? "readonly" : ""}></div></div>\n    <div class="f2"><div class="f"><label>Gross wages ($)</label><input type="number" step="0.01" id="e-gross" value="${r.gross}" ${ro ? "readonly" : ""}></div><div class="f"><label>Employer taxes & burden ($)</label><input type="number" step="0.01" id="e-taxes" value="${r.taxes}" ${ro ? "readonly" : ""}></div></div>\n    <div class="f"><label>Allocation to projects (labor cost)</label><div id="e-alloc">${r.alloc.map((a, i) => `<div class="row" style="margin-bottom:4px"><select data-ap="${i}" class="btn" style="flex:1;height:30px"><option value="">Overhead</option>${DB.projects.map((p) => `<option value="${p.id}" ${a.projectId === p.id ? "selected" : ""}>${esc(p.project.name)}</option>`).join("")}</select><input type="number" data-apct="${i}" value="${a.pct}" class="btn" style="width:80px;height:30px" min="0" max="100"> %</div>`).join("")}</div>${ro ? "" : '<button class="btn sm" id="e-addalloc">+ Allocation</button>'}<span class="hint">Approved time entries will drive this automatically when time tracking is added; until then allocate by percentage.</span></div>\n    ${r.detail?.length ? `<div class="card" style="margin-bottom:10px"><h4>Payroll report — from approved time</h4><table class="t"><thead><tr><th>Employee</th><th class="money">Hours</th><th class="money">Rate</th><th class="money">Gross</th></tr></thead><tbody>${r.detail.map((d) => `<tr><td>${esc(d.name)}</td><td class="money">${d.hours.toFixed(1)}${d.hours > 40 ? ' <span class="pill warn">OT</span>' : ""}</td><td class="money">${money(d.rate)}</td><td class="money">${money(d.gross)}</td></tr>`).join("")}<tr style="font-weight:600"><td>Total</td><td class="money">${r.detail.reduce((a, d) => a + d.hours, 0).toFixed(1)}</td><td></td><td class="money">${money(r.gross)}</td></tr></tbody></table><div class="small muted" style="margin-top:4px">Burden ${money(r.taxes)} · total cost ${money(r.total)} · ${DB.time.filter((t) => t.payrollId === r.id && timeFlags(t).length).length} entr${1 === DB.time.filter((t) => t.payrollId === r.id && timeFlags(t).length).length ? "y" : "ies"} with location or hours flags approved by supervisors</div></div>` : ""}\n    <div class="f"><label>Notes</label><textarea id="e-notes">${esc(r.notes)}</textarea></div>\n    ${id ? `<div class="card"><h4>Approval trail</h4><div class="trail">${r.approvals.length ? r.approvals.map((a) => `<div><span>${esc(a.t)}</span><b>${esc(a.action)}</b> · ${esc(a.by || a.role)}${a.note ? ` — ${esc(a.note)}` : ""}</div>`).join("") : '<div class="muted">No approvals yet.</div>'}</div></div>` : ""}\n    ${id ? `<div class="row" style="margin-top:12px">${"draft" === r.status ? '<button class="btn sm primary" data-pact="submit">Submit for approval</button>' : ""}${"submitted" === r.status && (isOwner() || ("controller" === role() && "owner" === (r.createdBy || "").toLowerCase())) ? `<button class="btn sm primary" data-pact="approve">${isOwner() ? "Owner: Approve Payroll" : "Controller: Approve Payroll"}</button><button class="btn sm danger" data-pact="reject">Reject</button>` : ""}${"submitted" !== r.status || isOwner() || ("controller" === role() && "owner" === (r.createdBy || "").toLowerCase()) ? "" : '<span class="small muted">Payroll is approved by the Owner — or by the Controller when the Owner prepared the run.</span>'}${"approved" === r.status ? '<button class="btn sm primary" data-pact="paid">Mark paid</button>' : ""}${"exception" === r.status && isOwner() ? '<button class="btn sm" data-pact="clear">Owner: clear exception</button>' : ""}</div>` : ""}`),
+    `<div class="appr" style="margin-bottom:10px">${flow.map((f, i) => `<span class="${i < fi ? "done" : i === fi ? "on" : ""}">${f.replace("pm-approved", "PM ok")}</span>`).join("")}</div>\n    <div class="f2"><div class="f"><label>Pay period</label><input id="e-period" value="${esc(r.period)}" ${ro ? "readonly" : ""}></div><div class="f"><label>Pay date</label><input type="date" id="e-paydate" value="${r.payDate}" ${ro ? "readonly" : ""}></div></div>\n    <div class="f2"><div class="f"><label>Period from</label><input type="date" id="e-prfrom" value="${r.from || ""}" ${ro ? "readonly" : ""}></div><div class="f"><label>Period to</label><input type="date" id="e-prto" value="${r.to || ""}" ${ro ? "readonly" : ""}></div></div><div class="small muted" style="margin:-4px 0 10px">Once this run is paid, hours clocked between these dates are costed to jobs at actual payroll instead of the burdened-rate estimate.</div>\n    <div class="f2"><div class="f"><label>Entity</label><select id="e-entity" ${ro ? "disabled" : ""}>${DB.entities.map((e) => `<option value="${e.id}" ${r.entityId === e.id ? "selected" : ""}>${esc(e.name)}</option>`).join("")}</select></div><div class="f"><label>Employees</label><input type="number" id="e-emps" value="${r.employees}" ${ro ? "readonly" : ""}></div></div>\n    <div class="f2"><div class="f"><label>Gross wages ($)</label><input type="number" step="0.01" id="e-gross" value="${r.gross}" ${ro ? "readonly" : ""}></div><div class="f"><label>Employer taxes & burden ($)</label><input type="number" step="0.01" id="e-taxes" value="${r.taxes}" ${ro ? "readonly" : ""}></div></div>\n    <div class="f"><label>Allocation to projects (labor cost)</label><div id="e-alloc">${r.alloc.map((a, i) => `<div class="row" style="margin-bottom:4px"><select data-ap="${i}" class="btn" style="flex:1;height:30px"><option value="">${a.unallocated ? "Unallocated Labor" : "Overhead"}</option>${DB.projects.map((p) => `<option value="${p.id}" ${a.projectId === p.id ? "selected" : ""}>${esc(p.project.name)}</option>`).join("")}</select><input type="number" data-apct="${i}" value="${a.pct}" class="btn" style="width:80px;height:30px" min="0" max="100"> %</div>`).join("")}</div>${ro ? "" : '<button class="btn sm" id="e-addalloc">+ Allocation</button>'}<span class="hint">Approved time entries will drive this automatically when time tracking is added; until then allocate by percentage.</span></div>\n    ${r.detail?.length ? `<div class="card" style="margin-bottom:10px"><h4>Payroll report — from approved time</h4><table class="t"><thead><tr><th>Employee</th><th class="money">Hours</th><th class="money">Rate</th><th class="money">Gross</th></tr></thead><tbody>${r.detail.map((d) => `<tr><td>${esc(d.name)}</td><td class="money">${d.hours.toFixed(1)}${d.hours > 40 ? ' <span class="pill warn">OT</span>' : ""}</td><td class="money">${money(d.rate)}</td><td class="money">${money(d.gross)}</td></tr>`).join("")}<tr style="font-weight:600"><td>Total</td><td class="money">${r.detail.reduce((a, d) => a + d.hours, 0).toFixed(1)}</td><td></td><td class="money">${money(r.gross)}</td></tr></tbody></table><div class="small muted" style="margin-top:4px">Burden ${money(r.taxes)} · total cost ${money(r.total)} · ${DB.time.filter((t) => t.payrollId === r.id && timeFlags(t).length).length} entr${1 === DB.time.filter((t) => t.payrollId === r.id && timeFlags(t).length).length ? "y" : "ies"} with location or hours flags approved by supervisors</div></div>` : ""}\n    <div class="f"><label>Notes</label><textarea id="e-notes">${esc(r.notes)}</textarea></div>\n    ${id ? `<div class="card"><h4>Approval trail</h4><div class="trail">${r.approvals.length ? r.approvals.map((a) => `<div><span>${esc(a.t)}</span><b>${esc(a.action)}</b> · ${esc(a.by || a.role)}${a.note ? ` — ${esc(a.note)}` : ""}</div>`).join("") : '<div class="muted">No approvals yet.</div>'}</div></div>` : ""}\n    ${id ? `<div class="row" style="margin-top:12px">${"draft" === r.status ? '<button class="btn sm primary" data-pact="submit">Submit for approval</button>' : ""}${"submitted" === r.status && (isOwner() || ("controller" === role() && "owner" === (r.createdBy || "").toLowerCase())) ? `<button class="btn sm primary" data-pact="approve">${isOwner() ? "Owner: Approve Payroll" : "Controller: Approve Payroll"}</button><button class="btn sm danger" data-pact="reject">Reject</button>` : ""}${"submitted" !== r.status || isOwner() || ("controller" === role() && "owner" === (r.createdBy || "").toLowerCase()) ? "" : '<span class="small muted">Payroll is approved by the Owner — or by the Controller when the Owner prepared the run.</span>'}${"approved" === r.status ? '<button class="btn sm primary" data-pact="paid">Mark paid</button>' : ""}${"exception" === r.status && isOwner() ? '<button class="btn sm" data-pact="clear">Owner: clear exception</button>' : ""}</div>` : ""}`),
     $("#e-addalloc")?.addEventListener("click", () => {
       r.alloc.push({ projectId: "", pct: 0 });
       const i = r.alloc.length - 1;
@@ -23103,17 +23103,22 @@ let repTab = "dash",
   repDef = { ds: "lines", group: "", proj: "", from: "", to: "", q: "" };
 const inRange = (dt) => (!repFrom || (dt || "") >= repFrom) && (!repTo || (dt || "") <= repTo),
   laborRate = (emp) => (emp ? (+emp.rate || 0) * (1 + (+emp.burden || 0) / 100) : 0);
+// Labor by person for a job: hours at the burdened rate, trued up to the actual burden of the payroll run
+// that paid (or a close accrued) those days, as jobFin costs them (the Pack read $5,790 at the standard
+// burden while the P&L carried $5,667 from the run).
 function projectLabor(p) {
-  const rows = {};
+  const rows = {},
+    tu = payrollTrueUp();
   DB.time
     .filter((e) => e.projectId === p.id && "rejected" !== e.status && inRange(e.date))
     .forEach((e) => {
       const emp = DB.employees.find((x) => x.id === e.empId),
         h = hoursOf(e),
+        c = h * laborRate(emp) * tu(e, emp),
         r = (rows[e.empId] = rows[e.empId] || { emp: emp?.name || e.empId, hours: 0, cost: 0, byCode: {} });
-      (r.hours += h), (r.cost += h * laborRate(emp));
+      (r.hours += h), (r.cost += c);
       const code = e.code || "99";
-      r.byCode[code] = (r.byCode[code] || 0) + h * laborRate(emp);
+      r.byCode[code] = (r.byCode[code] || 0) + c;
     });
   const list = Object.values(rows);
   return {
@@ -23675,6 +23680,15 @@ function companyPL(range) {
     non = {};
   L.forEach((r) => {
     if (r.income) return;
+    // A card payment or a transfer is one movement with two legs; Outside the P&L counts it once, on the bank
+    // leg (the card's "payment received" is the same money).
+    if (
+      "txn" === r.kind &&
+      r.ref &&
+      ["cc-payment", "transfer"].includes(r.cat) &&
+      (+r.ref.amt > 0 || "card" === ((DB.accounts || []).find((a) => a.id === r.ref.acct) || {}).type)
+    )
+      return;
     const t = "payroll_oh" === r.cat ? "oh" : catType(r.cat),
       bucket = "cogs" === t ? cogs : "oh" === t ? oh : non,
       k = "payroll_oh" === r.cat ? "Payroll — office & overhead" : cfoCatName(r.cat);
@@ -25192,12 +25206,17 @@ const inR = (d, R) => within(d, R),
       fmt: "money",
       good: "down",
       go: { view: "time" },
-      fn: (R) =>
-        r2(
+      fn: (R) => {
+        const tu = payrollTrueUp();
+        return r2(
           DB.time
             .filter((e) => inR(e.date, R))
-            .reduce((a, e) => a + hoursOf(e) * laborRate(DB.employees.find((x) => x.id === e.empId)), 0),
-        ),
+            .reduce((a, e) => {
+              const emp = DB.employees.find((x) => x.id === e.empId);
+              return a + hoursOf(e) * laborRate(emp) * tu(e, emp);
+            }, 0),
+        );
+      },
     },
     employees: {
       n: "Employees",
@@ -27331,6 +27350,21 @@ let docNet = (d) => {
   const t = docTotal(d);
   return r2(t.sub - t.disc);
 };
+// Bank or card lines matched to a PO with no bill behind them (TINO's $8,000 card charge against
+// PO-2026-047): they relieve the PO's open amount the way a bill does, so committed does not count them twice.
+function poPaidDirect(po) {
+  return r2(
+    (DB.txns || [])
+      .filter(
+        (t) =>
+          t.amt < 0 &&
+          !t.billId &&
+          "void" !== t.status &&
+          (t.poId === po.id || ((po && po.matchedTxns) || []).includes(t.id)),
+      )
+      .reduce((a, t) => a - t.amt, 0),
+  );
+}
 function txnViaBill(t, bills) {
   return (
     !!t.billId ||
@@ -27445,7 +27479,7 @@ function jobFin(p, range) {
               billedOn = bills
                 .filter((b) => "void" !== b.status && "rejected" !== b.status && b.poId === po.id)
                 .reduce((x, b) => x + billTotal(b), 0);
-            return a + Math.max(0, tot - billedOn);
+            return a + Math.max(0, tot - billedOn - poPaidDirect(po));
           }, 0),
       )),
     ctc = +(p.ctc || 0),
@@ -27493,7 +27527,8 @@ function jobFin(p, range) {
           tot -
             bills
               .filter((b) => b.poId === po.id && "void" !== b.status)
-              .reduce((a, b) => a + billTotal(b), 0),
+              .reduce((a, b) => a + billTotal(b), 0) -
+            poPaidDirect(po),
         );
       po.lines.forEach((l) => {
         const ref = l.line ? findLine(l.line) : null,
@@ -27551,6 +27586,26 @@ function jobFin(p, range) {
       byCode: Object.values(byCode).sort((a, b) => a.code.localeCompare(b.code)),
       defs: "billed = invoices ex tax before retainage · actual = approved bills + bank items without a bill + burdened labor · committed = open POs net of bills · % complete = actual ÷ estimated total cost",
     }
+  );
+}
+// After an adjustment moves a job's actual cost, the figures that follow from it are derived again here, in
+// one place, instead of in a copy inside each adjusting section.
+function jobRederive(J, p) {
+  const ctc = +(p.ctc || 0);
+  return (
+    (J.eac = r2(
+      p.ctcReviewed ? Math.max(J.actual + J.committed, J.actual + ctc) : Math.max(J.budget, J.actual + J.committed),
+    )),
+    (J.pct = J.eac ? Math.min(1, J.actual / J.eac) : 0),
+    (J.earned = r2(J.contract * J.pct)),
+    (J.overUnder = r2(J.billed - J.earned)),
+    (J.over = Math.max(0, J.overUnder)),
+    (J.under = Math.max(0, -J.overUnder)),
+    (J.backlog = r2(Math.max(0, J.contract - J.earned))),
+    (J.estGP = r2(J.contract - J.eac)),
+    (J.estGPPct = J.contract ? r2((J.estGP / J.contract) * 100) : 0),
+    (J.backlogGP = r2(J.estGP * (1 - J.pct))),
+    J
   );
 }
 function payrollTrueUp() {
@@ -28320,6 +28375,12 @@ function closeChecklist(month) {
         .length,
       { view: "costs" },
     ),
+    add("Accrued wages with no payroll run, past the next pay date", PRED.orphanAccruals.count(), {
+      view: "gl",
+    }),
+    add("Typed lines the bank's statement does not have (Not at the Bank)", PRED.notAtBank.count(month), {
+      view: "bank",
+    }),
     items
   );
 }
@@ -31966,22 +32027,8 @@ jobFin = function (p, range) {
         (row.actual = r2(row.actual + billTotal(b)));
     }),
     J.byCode.sort((a, b) => a.code.localeCompare(b.code));
-  const ctc = +(p.ctc || 0);
   return (
-    (J.eac = r2(
-      p.ctcReviewed
-        ? Math.max(J.actual + J.committed, J.actual + ctc)
-        : Math.max(J.budget, J.actual + J.committed),
-    )),
-    (J.pct = J.eac ? Math.min(1, J.actual / J.eac) : 0),
-    (J.earned = r2(J.contract * J.pct)),
-    (J.overUnder = r2(J.billed - J.earned)),
-    (J.over = Math.max(0, J.overUnder)),
-    (J.under = Math.max(0, -J.overUnder)),
-    (J.backlog = r2(Math.max(0, J.contract - J.earned))),
-    (J.estGP = r2(J.contract - J.eac)),
-    (J.estGPPct = J.contract ? r2((J.estGP / J.contract) * 100) : 0),
-    (J.backlogGP = r2(J.estGP * (1 - J.pct))),
+    jobRederive(J, p),
     (J.defs = J.defs.replace(
       "actual = approved bills",
       "actual = all bills entered (approved or awaiting approval)",
@@ -103949,7 +103996,8 @@ function truthRoll(range) {
       amt: 0,
     };
   rows.forEach((t) => {
-    const k = txnTruth(t),
+    const k0 = txnTruth(t),
+      k = "feed" === k0 && "function" == typeof bfIsDemoOnly && bfIsDemoOnly(t) ? "asserted" : k0,
       a = Math.abs(+t.amt || 0);
     out[k]++,
       (out[k + "Amt"] = r2(out[k + "Amt"] + a)),
@@ -117794,6 +117842,7 @@ if ("function" == typeof companyPL) {
             (r) =>
               !FIN_RUN_POSTED.includes(r.status) &&
               !FIN_RUN_DONE.includes(r.status) &&
+              !ctRunAccrued(r) &&
               within(r.payDate || r.to || "", P.range || range),
           )
           .reduce((a, r) => a + (+r.total || 0), 0),
@@ -117825,24 +117874,7 @@ if ("function" == typeof jobFin) {
       const row = J.byCode.find((x) => x.code === (b.code || "99"));
       row && ((row.bills = r2(row.bills - amt)), (row.actual = r2(row.actual - amt)));
     });
-    const ctc = +(p.ctc || 0);
-    return (
-      (J.eac = r2(
-        p.ctcReviewed
-          ? Math.max(J.actual + J.committed, J.actual + ctc)
-          : Math.max(J.budget, J.actual + J.committed),
-      )),
-      (J.pct = J.eac ? Math.min(1, J.actual / J.eac) : 0),
-      (J.earned = r2(J.contract * J.pct)),
-      (J.overUnder = r2(J.billed - J.earned)),
-      (J.over = Math.max(0, J.overUnder)),
-      (J.under = Math.max(0, -J.overUnder)),
-      (J.backlog = r2(Math.max(0, J.contract - J.earned))),
-      (J.estGP = r2(J.contract - J.eac)),
-      (J.estGPPct = J.contract ? r2((J.estGP / J.contract) * 100) : 0),
-      (J.backlogGP = r2(J.estGP * (1 - J.pct))),
-      J
-    );
+    return jobRederive(J, p);
   };
 }
 if ("function" == typeof glDerive) {
@@ -118234,7 +118266,9 @@ if ("function" == typeof glOverviewHtml) {
         })(),
         items = [
           [
-            "WIP over/under-billing adjustment not yet posted (posts at the month close)",
+            fin2Closes().length && lockedThrough()
+              ? `WIP movement since the ${fin3Label(lockedThrough())} close (posts at the next close)`
+              : "WIP over/under-billing adjustment not yet posted (posts at the month close)",
             r2((e.wipAdj || 0) - wipLed),
           ],
           [
@@ -126465,24 +126499,7 @@ if ("function" == typeof jobFin) {
       const row = J.byCode.find((x) => x.code === (b.code || "99"));
       row && ((row.bills = r2(row.bills - amt)), (row.actual = r2(row.actual - amt)));
     });
-    const ctc = +(p.ctc || 0);
-    return (
-      (J.eac = r2(
-        p.ctcReviewed
-          ? Math.max(J.actual + J.committed, J.actual + ctc)
-          : Math.max(J.budget, J.actual + J.committed),
-      )),
-      (J.pct = J.eac ? Math.min(1, J.actual / J.eac) : 0),
-      (J.earned = r2(J.contract * J.pct)),
-      (J.overUnder = r2(J.billed - J.earned)),
-      (J.over = Math.max(0, J.overUnder)),
-      (J.under = Math.max(0, -J.overUnder)),
-      (J.backlog = r2(Math.max(0, J.contract - J.earned))),
-      (J.estGP = r2(J.contract - J.eac)),
-      (J.estGPPct = J.contract ? r2((J.estGP / J.contract) * 100) : 0),
-      (J.backlogGP = r2(J.estGP * (1 - J.pct))),
-      J
-    );
+    return jobRederive(J, p);
   };
 }
 if ("function" == typeof glDerive) {
@@ -127126,81 +127143,78 @@ function fin2CloseBlockers(ym) {
     out
   );
 }
+// The month-end close, in the order a controller runs it: the checklist and the blockers, then the accrued
+// wages, then the WIP adjustment planned on the job figures as they stand with those wages in (an accrued
+// run moves a job's labor to the run's burden, so planning the WIP first left 45 Cranberry $325 off), then a
+// blocking tie-out (the WIP schedule equals 2500/1200 for every job). On any difference the close refuses,
+// reverses what it posted and locks nothing. Then the month is frozen and locked, Bank to Ledger.
 function fin2RunClose(ym, reason) {
   if ("owner" !== role()) return { ok: !1, why: "The Owner runs the close" };
   if (!ym || ym >= today().slice(0, 7)) return { ok: !1, why: "The current month cannot be closed yet" };
+  const l = lockedThrough();
+  if (l && ym <= l)
+    return {
+      ok: !1,
+      why: `${fin3Label(ym)} is already closed — the books are closed through ${fin3Label(l)}. Reopen it first; a re-close then posts only what changed.`,
+    };
+  if (l && ym !== fin2Next(l)) return { ok: !1, why: `Close ${fin3Label(fin2Next(l))} first — months close in order` };
   const open = closeChecklist(ym).filter((i) => !i.ok);
   if (open.length && !String(reason || "").trim())
     return { ok: !1, why: "Say why you are closing with items still open" };
   const block = fin2CloseBlockers(ym);
   if (block.length) return { ok: !1, why: block.map((b) => b.why).join("; ") };
   glSync();
-  const wip = fin2WipPlan(ym),
-    wages = fin2WagePlan(ym),
-    posted = [],
+  const posted = [],
     end = fin2End(ym),
-    by = fin2Who();
+    by = fin2Who(),
+    wages = fin2WagePlan(ym);
+  fin3PostWages(ym, wages, by).forEach((j) => posted.push(j));
+  const wip = fin2WipPlan(ym);
   glEntities().forEach((e) => {
     const wl = fin2WipLines(wip, e.id);
-    if (wl.length) {
-      const j = {
-        id: uid("je"),
-        kind: "close",
-        accrues: "wip",
-        key: `close:wip:${ym}:${e.id}`,
-        entityId: e.id,
-        date: end,
-        periodYm: ym,
-        memo: `WIP adjustment at the ${fin2Label(ym)} close — over- and under-billing brought to the month-end schedule`,
-        lines: wl,
-        createdBy: "system",
-        approvedBy: by,
-        approvedAt: appNowIso(),
-      };
-      glPost(j).ok &&
-        (posted.push(j),
-        fin2Audit(
-          "system",
-          "ledger",
-          j.id,
-          "close-wip-posted",
-          "",
-          money(wl.reduce((s, l) => s + l.dr, 0)),
-          `${e.name}: WIP adjustment for ${fin2Label(ym)}, run by ${by}`,
-        ));
-    }
-    const al = fin2WageLines(wages, e.id),
-      rows = wages.rows.filter((o) => o.ent === e.id);
-    if (al.length) {
-      const j = {
-        id: uid("je"),
-        kind: "accrual",
-        accrues: "wages",
-        key: `accrual:wages:${ym}:${e.id}`,
-        entityId: e.id,
-        date: end,
-        periodYm: ym,
-        coversFrom: rows.reduce((a, o) => (o.from < a ? o.from : a), end),
-        coversTo: rows.reduce((a, o) => (o.to > a ? o.to : a), ym + "-01"),
-        memo: `Accrued wages at the ${fin2Label(ym)} close — approved time no payroll run covers yet`,
-        lines: al,
-        createdBy: "system",
-        approvedBy: by,
-        approvedAt: appNowIso(),
-      };
-      glPost(j).ok &&
-        (posted.push(j),
-        fin2Audit(
-          "system",
-          "ledger",
-          j.id,
-          "close-wages-accrued",
-          "",
-          money(al.filter((l) => "2200" === l.acct).reduce((s, l) => s + l.cr, 0)),
-          `${e.name}: ${rows.reduce((a, o) => a + o.hours, 0)} approved hours in ${fin2Label(ym)}, reverses when their payroll run is approved`,
-        ));
-    }
+    if (!wl.length) return;
+    const j = {
+      id: uid("je"),
+      kind: "close",
+      accrues: "wip",
+      key: `close:wip:${ym}:${e.id}`,
+      entityId: e.id,
+      date: end,
+      periodYm: ym,
+      memo: `WIP adjustment at the ${fin3Label(ym)} close — over- and under-billing brought to the month-end schedule`,
+      lines: wl,
+      createdBy: "system",
+      approvedBy: by,
+      approvedAt: today(),
+    };
+    glPost(j).ok &&
+      (posted.push(j),
+      fin2Audit(
+        "system",
+        "ledger",
+        j.id,
+        "close-wip-posted",
+        "",
+        money(wl.reduce((s, x) => s + x.dr, 0)),
+        `${e.name}: WIP adjustment for ${fin3Label(ym)}, run by ${by}`,
+      ));
   });
+  const off = ctWipTieRows(ym).filter((r) => Math.abs(r.diff) >= 0.005);
+  if (off.length) {
+    posted
+      .slice()
+      .reverse()
+      .forEach((j) => glReverse(j, j.date, `the ${fin3Label(ym)} close was refused: the WIP did not tie`));
+    const why = `The WIP does not tie to the ledger — ${off.map((r) => `${r.job}: schedule ${money(r.schedule)}, 2500/1200 ${money(r.ledger)}`).join("; ")}. The close posted nothing and locked nothing.`;
+    try {
+      audit("period", ym, "close-refused", "", "", why);
+    } catch (e) {}
+    try {
+      save();
+    } catch (e) {}
+    return { ok: !1, why: why, tie: off };
+  }
+  fin3Freeze(ym);
   const locked = [];
   glEntities().forEach((e) =>
     GL_SUBS.forEach((sub) => {
@@ -127212,28 +127226,90 @@ function fin2RunClose(ym, reason) {
     (DB.periods.lockedThrough = ym),
     (DB.periods.closes = DB.periods.closes || []),
     wipSnapshotFor(ym);
-  const rec = {
-    month: ym,
-    run: "close",
-    t: nowStamp(),
-    at: appNowIso(),
-    by: by,
-    open: open.length,
-    openItems: open.map((i) => `${i.label} (${i.n})`),
-    reason: String(reason || "").trim(),
-    entries: posted.map((j) => j.id),
-    wip: wip.toPost,
-    wages: wages.total,
-    locks: locked.length,
-  };
-  DB.periods.closes.push(rec);
+  const again = (DB.periods.history || []).some((h) => h.month === ym && "closed" === h.act),
+    rec = {
+      month: ym,
+      run: "close",
+      t: nowStamp(),
+      on: today(),
+      at: today(),
+      by: by,
+      open: open.length,
+      openItems: open.map((i) => `${i.label} (${i.n})`),
+      reason: String(reason || "").trim(),
+      entries: posted.map((j) => j.id),
+      wip: wip.toPost,
+      wages: r2(
+        posted
+          .filter((j) => "accrual" === j.kind)
+          .reduce(
+            (a, j) =>
+              a +
+              j.lines
+                .filter((x) => /^(5000|5010|7000|7010|7005)$/.test(x.acct))
+                .reduce((s, x) => s + x.dr - x.cr, 0),
+            0,
+          ),
+      ),
+      wagesPlan: wages.total,
+      locks: locked.length,
+      again: again,
+    };
+  DB.periods.closes.push(rec),
+    fin3Log({
+      month: ym,
+      act: "closed",
+      again: again,
+      why: rec.reason,
+      open: rec.open,
+      entries: posted.length,
+      wip: rec.wip,
+      wages: rec.wages,
+    });
   try {
-    audit("period", ym, "close", "", ym, rec.reason || "clean close");
+    audit("period", ym, again ? "re-close" : "close", "", ym, rec.reason || "clean close");
   } catch (e) {}
   try {
     finCash._c = null;
   } catch (e) {}
   return save(), { ok: !0, rec: rec, posted: posted };
+}
+// The tie-out: for every job, the WIP schedule at month end (over- less under-billing from jobFin) against the
+// ledger (2500 Billings in excess less 1200 Costs in excess). A closed month reads its frozen schedule.
+function ctWipTieRows(ym) {
+  const end = fin2End(ym),
+    bal = (acct, pid) => {
+      try {
+        const B = glBalances({ entityId: "all", to: end, acct: acct, projectId: pid });
+        return B[acct] ? B[acct].bal : 0;
+      } catch (e) {
+        return 0;
+      }
+    },
+    rows = [];
+  return (
+    (DB.projects || []).forEach((p) => {
+      let J;
+      try {
+        J = jobFin(p, ["", end]);
+      } catch (e) {
+        return;
+      }
+      const schedule = r2((J.over || 0) - (J.under || 0)),
+        ledger = r2(bal("2500", p.id) - bal("1200", p.id));
+      (schedule || ledger) &&
+        rows.push({
+          projectId: p.id,
+          job: String(p.project.name).replace(/ —.*$/, ""),
+          over: r2(J.over || 0),
+          under: r2(J.under || 0),
+          schedule: schedule,
+          ledger: ledger,
+          diff: r2(schedule - ledger),
+        });
+    }),
+    rows
+  );
 }
 function fin2ReopenClose(ym, reason) {
   if ("owner" !== role()) return { ok: !1, why: "The Owner reopens a month" };
@@ -131957,6 +132033,92 @@ function fin3CostDated(fn) {
     });
   }
 }
+// The posting period (BACKLOG §1.1 #2). A document dated in a closed month posts on the first open day; the
+// document is stamped postOn / postOnWhy when that happens, and every management calculation (companyPL,
+// jobFin, the management ledger) reads it on postOn, as the ledger does. Reopening the month does not move it
+// back: it stays in the period it was posted in, unless it is posted again on its own date.
+const FIN3_POST_DOCS = () => {
+  const out = [];
+  return (
+    (DB.txns || []).forEach((d) => d.postOn && out.push([d, "date"])),
+    (DB.bills || []).forEach((d) => d.postOn && out.push([d, "date"])),
+    (DB.payments || []).forEach((d) => d.postOn && out.push([d, "date"])),
+    (DB.payroll || []).forEach((d) => d.postOn && out.push([d, "payDate"])),
+    (DB.clients || []).forEach((c) => {
+      (c.invoices || []).forEach((d) => d.postOn && out.push([d, "date"])),
+        (c.payments || []).forEach((d) => d.postOn && out.push([d, "date"]));
+    }),
+    out
+  );
+};
+let fin3PostSwapped = null;
+function fin3PostDated(fn) {
+  if (fin3PostSwapped) return fn();
+  const moved = [];
+  FIN3_POST_DOCS().forEach(([d, f]) => {
+    d[f] && d.postOn > d[f] && (moved.push([d, f, d[f]]), (d[f] = d.postOn));
+  });
+  if (!moved.length) return fn();
+  fin3PostSwapped = moved;
+  try {
+    return fn();
+  } finally {
+    (fin3PostSwapped = null), moved.forEach(([d, f, v]) => (d[f] = v));
+  }
+}
+const fin3MgmtDated = (fn) => fin3CostDated(() => fin3PostDated(fn));
+function fin3DocOf(type, id) {
+  if ("inv" === type || "pay" === type) {
+    for (const c of DB.clients || []) {
+      const d = ("inv" === type ? c.invoices : c.payments || []).find((x) => x.id === id);
+      if (d) return d;
+    }
+    return null;
+  }
+  return (
+    ("bill" === type
+      ? DB.bills
+      : "billpay" === type
+        ? DB.payments
+        : "txn" === type
+          ? DB.txns
+          : "payroll" === type
+            ? DB.payroll
+            : []) || []
+  ).find((x) => x.id === id) || null;
+}
+function fin3StampPostOn(w, postOn) {
+  const d = fin3DocOf(w.sourceType, w.sourceId);
+  if (!d || d.postOn === postOn) return;
+  (d.postOn = postOn),
+    (d.postOnWhy = `dated ${fmt(w.date)}; ${fin3Label(w.date.slice(0, 7))} was closed, so it posted on ${fmt(postOn)}`);
+  try {
+    audit(w.sourceType, w.sourceId, "posting-period", w.date, postOn, d.postOnWhy);
+  } catch (e) {}
+}
+// A document posted again on its own date (its month reopened and it changed) is back in that period.
+function fin3PostOnClear() {
+  const live = {};
+  glLive()
+    .filter((j) => "posting" === j.kind && j.key)
+    .forEach((j) => (live[j.key] = j));
+  FIN3_POST_DOCS().forEach(([d, f]) => {
+    const k =
+      "payDate" === f
+        ? "payroll:" + d.id
+        : (DB.txns || []).includes(d)
+          ? "txn:" + d.id
+          : (DB.bills || []).includes(d)
+            ? "bill:" + d.id
+            : (DB.payments || []).includes(d)
+              ? "billpay:" + d.id
+              : (DB.clients || []).some((c) => (c.invoices || []).includes(d))
+                ? "inv:" + d.id
+                : "pay:" + d.id,
+      j = live[k];
+    j && !j.correctionOf && j.date === String(d[f] || "").slice(0, 10) && (delete d.postOn, delete d.postOnWhy);
+  });
+}
 function fin3CostDateOf(b) {
   if (!b) return "";
   const t = (DB.txns || []).find((x) => x.billId === b.id || (b.txnId && x.id === b.txnId));
@@ -132001,6 +132163,7 @@ function fin3CorrectLocked() {
           ).ok
         )
           return;
+        postOn !== w.date && (!have || have.date !== w.date) && fin3StampPostOn(w, postOn);
       }
       done.add(f.key),
         n++,
@@ -132032,6 +132195,11 @@ if ("function" == typeof glSync) {
       } catch (e) {
         console.warn("closed-period correction", e);
       }
+      try {
+        fin3PostOnClear();
+      } catch (e) {
+        console.warn("posting period", e);
+      }
       if (n) {
         (r.flags = DB.gl.flags), (r.corrected = n);
         try {
@@ -132056,7 +132224,7 @@ if ("function" == typeof glDerive) {
 if ("function" == typeof ledger) {
   const ledgerBase_c3 = ledger;
   ledger = function () {
-    return fin3CostDated(() => ledgerBase_c3.apply(this, arguments));
+    return fin3MgmtDated(() => ledgerBase_c3.apply(this, arguments));
   };
 }
 let fin3Raw = 0,
@@ -132254,7 +132422,7 @@ if ("function" == typeof companyPL) {
   };
   const companyPLBase_c3 = companyPL;
   companyPL = function (range) {
-    return fin3CostDated(() => {
+    return fin3MgmtDated(() => {
       const A = fin3Active(),
         raw = (R) => {
           fin3Raw++;
@@ -132291,12 +132459,32 @@ if ("function" == typeof companyPL) {
     });
   };
 }
+// A job's raw figures, then every adjustment a later section registers (short-pays, disputed bank lines).
+// The adjustments run here, inside the raw read, so they are in a month's figures before its close freezes
+// them and are never applied a second time on top of a frozen read (BACKLOG §1.1 #1: the August Pack read
+// 121 State $67,326 against $62,466 on the ledger because the short-pay was subtracted twice).
+const FIN3_JOB_ADJ = [];
+function fin3JobAdjust(fn) {
+  FIN3_JOB_ADJ.push(fn);
+}
 if ("function" == typeof jobFin) {
   const jobFinBase_c3 = jobFin,
+    jCore = (self, p, R) => {
+      let J = jobFinBase_c3.call(self, p, R);
+      if (!p || !J) return J;
+      FIN3_JOB_ADJ.forEach((f) => {
+        try {
+          J = f.call(self, J, p, R) || J;
+        } catch (e) {
+          console.warn("job adjustment", e);
+        }
+      });
+      return J;
+    },
     jRaw = (self, p, R) => {
       fin3Raw++;
       try {
-        return jobFinBase_c3.call(self, p, R);
+        return jCore(self, p, R);
       } finally {
         fin3Raw--;
       }
@@ -132309,10 +132497,10 @@ if ("function" == typeof jobFin) {
       return { F: F, L: jRaw(self, p, ["", at]) };
     };
   jobFin = function (p, range) {
-    return fin3CostDated(() => {
+    return fin3MgmtDated(() => {
       !range && fin3JobAsOf && (range = ["", fin3JobAsOf]);
       const A = fin3Active();
-      if (!A || !p) return jobFinBase_c3.call(this, p, range);
+      if (!A || !p) return jCore(this, p, range);
       const R = range || ["", today()],
         a = R[0] || "",
         b = R[1] || today();
@@ -132437,7 +132625,7 @@ function fin3Unfreeze(fromYm) {
 void 0 !== GL_COA &&
   Array.isArray(GL_COA) &&
   (GL_COA.some((r) => "7005" === r[0]) ||
-    GL_COA.push(["7005", "Unallocated labor (not clocked to a job)", "expense", "ga", "none", !1]),
+    GL_COA.push(["7005", "Unallocated Labor (not clocked to a job)", "expense", "ga", "none", !1]),
   GL_COA.some((r) => "1060" === r[0]) ||
     GL_COA.push(["1060", "Business savings (no register connected)", "asset", "cash", "none", !1]));
 const FIN3_COVER = 80;
@@ -132692,7 +132880,7 @@ function fin3Held(ym, match) {
     }),
     ((DB.gl || {}).journals || []).forEach((j) => {
       !(ids.has(j.id) || ("reversal" === j.kind && ids.has(j.reversalOf))) ||
-        j.date > end ||
+        (j.date > end && !j.ctOrphan) ||
         !["posted", "reversed"].includes(j.status) ||
         (j.lines || []).forEach((l) => {
           const k = `${l.acct}|${l.projectId || ""}|${l.cat || ""}`;
@@ -132892,7 +133080,7 @@ function fin3PostWages(ym, plan, by) {
     });
   const by = {};
   (DB.time || [])
-    .filter((e) => "approved" === e.status && within(e.date, [start, end]))
+    .filter((e) => "approved" === e.status && !e.noAccrue && within(e.date, [start, end]))
     .forEach((e) => {
       const emp = (DB.employees || []).find((x) => x.id === e.empId),
         ent = (emp && emp.entityId) || "ent1";
@@ -133053,119 +133241,6 @@ if (
       out
     );
   }),
-  (fin2RunClose = function (ym, reason) {
-    if ("owner" !== role()) return { ok: !1, why: "The Owner runs the close" };
-    if (!ym || ym >= today().slice(0, 7)) return { ok: !1, why: "The current month cannot be closed yet" };
-    const l = lockedThrough();
-    if (l && ym <= l)
-      return {
-        ok: !1,
-        why: `${fin3Label(ym)} is already closed — the books are closed through ${fin3Label(l)}. Reopen it first; a re-close then posts only what changed.`,
-      };
-    if (l && ym !== fin2Next(l))
-      return { ok: !1, why: `Close ${fin3Label(fin2Next(l))} first — months close in order` };
-    const open = closeChecklist(ym).filter((i) => !i.ok);
-    if (open.length && !String(reason || "").trim())
-      return { ok: !1, why: "Say why you are closing with items still open" };
-    const block = fin2CloseBlockers(ym);
-    if (block.length) return { ok: !1, why: block.map((b) => b.why).join("; ") };
-    glSync();
-    const wip = fin2WipPlan(ym),
-      wages = fin2WagePlan(ym),
-      posted = [],
-      end = fin2End(ym),
-      by = fin2Who();
-    glEntities().forEach((e) => {
-      const wl = fin2WipLines(wip, e.id);
-      if (wl.length) {
-        const j = {
-          id: uid("je"),
-          kind: "close",
-          accrues: "wip",
-          key: `close:wip:${ym}:${e.id}`,
-          entityId: e.id,
-          date: end,
-          periodYm: ym,
-          memo: `WIP adjustment at the ${fin3Label(ym)} close — over- and under-billing brought to the month-end schedule`,
-          lines: wl,
-          createdBy: "system",
-          approvedBy: by,
-          approvedAt: today(),
-        };
-        glPost(j).ok &&
-          (posted.push(j),
-          fin2Audit(
-            "system",
-            "ledger",
-            j.id,
-            "close-wip-posted",
-            "",
-            money(wl.reduce((s, x) => s + x.dr, 0)),
-            `${e.name}: WIP adjustment for ${fin3Label(ym)}, run by ${by}`,
-          ));
-      }
-    }),
-      fin3PostWages(ym, wages, by).forEach((j) => posted.push(j)),
-      fin3Freeze(ym);
-    const locked = [];
-    glEntities().forEach((e) =>
-      GL_SUBS.forEach((sub) => {
-        if (glLockOf(e.id, ym)[sub]) return;
-        glLock(e.id, ym, sub, by).ok && locked.push(`${e.id}:${sub}`);
-      }),
-    ),
-      (DB.periods = DB.periods || {}),
-      (DB.periods.lockedThrough = ym),
-      (DB.periods.closes = DB.periods.closes || []),
-      wipSnapshotFor(ym);
-    const again = (DB.periods.history || []).some((h) => h.month === ym && "closed" === h.act),
-      rec = {
-        month: ym,
-        run: "close",
-        t: nowStamp(),
-        on: today(),
-        at: today(),
-        by: by,
-        open: open.length,
-        openItems: open.map((i) => `${i.label} (${i.n})`),
-        reason: String(reason || "").trim(),
-        entries: posted.map((j) => j.id),
-        wip: wip.toPost,
-        wages: r2(
-          posted
-            .filter((j) => "accrual" === j.kind)
-            .reduce(
-              (a, j) =>
-                a +
-                j.lines
-                  .filter((x) => /^(5000|5010|7000|7010|7005)$/.test(x.acct))
-                  .reduce((s, x) => s + x.dr - x.cr, 0),
-              0,
-            ),
-        ),
-        wagesPlan: wages.total,
-        locks: locked.length,
-        again: again,
-      };
-    DB.periods.closes.push(rec),
-      fin3Log({
-        month: ym,
-        act: "closed",
-        again: again,
-        why: rec.reason,
-        open: rec.open,
-        entries: posted.length,
-        wip: rec.wip,
-        wages: rec.wages,
-      });
-    try {
-      audit("period", ym, again ? "re-close" : "close", "", ym, rec.reason || "clean close");
-    } catch (e) {}
-    try {
-      finCash._c = null;
-    } catch (e) {}
-    return save(), { ok: !0, rec: rec, posted: posted };
-  }),
   (fin2ReopenClose = function (ym, reason) {
     if ("owner" !== role()) return { ok: !1, why: "The Owner reopens a month" };
     if (!String(reason || "").trim()) return { ok: !1, why: "Say why the month is being reopened" };
@@ -133269,6 +133344,15 @@ if ("function" == typeof fin2ClosePageHtml) {
           .join(""),
         wagT = `<h4 class="fin2-step">3 · Accrued Wages <span class="small muted">${money(W.toPost)} to post · ${money(W.total)} earned in ${fin3Label(ym)} and not yet paid, ${money(W.held)} already on the ledger</span></h4>${W.runs.length || W.rows.length ? `<div class="tw"><table class="t fin2-wages"><thead><tr><th>Source</th><th class="money">Hours</th><th class="money">Accrue</th><th class="money">On Ledger</th><th>Days</th></tr></thead><tbody>${runRows}${timeRows}</tbody></table></div><p class="small muted">A payroll run not posted by month end accrues its own lines for its days in the month; approved time on days no run covers accrues at burdened rates. Each reverses when its run posts. The entry is net of what the ledger already holds for ${fin3Label(ym)}, so a re-close posts only the change.</p>` : '<p class="small muted">Every hour worked in the month is in a payroll run posted in the month.</p>'}`;
       h = h.replace(/<h4 class="fin2-step">3 · Accrued Wages[\s\S]*?(?=<h4 class="fin2-step">4 · )/, wagT);
+    }
+    try {
+      const ct = ctClosedHtml();
+      if (ct) {
+        const k = h.indexOf('<h4 class="fin2-step">1 · Checklist');
+        h = k > -1 ? h.slice(0, k) + ct + h.slice(k) : h + ct;
+      }
+    } catch (e) {
+      console.warn("close tie-out", e);
     }
     const hist = fin3HistoryHtml();
     if (hist) {
@@ -133546,16 +133630,19 @@ function fin3Redate(d, to, why) {
 if ("function" == typeof save) {
   const saveBase_c3 = save;
   save = function () {
-    const lent = ((void 0 !== DB && DB && DB.bills) || []).filter((b) => b.costDateOf);
+    const lent = ((void 0 !== DB && DB && DB.bills) || []).filter((b) => b.costDateOf),
+      posted = fin3PostSwapped || [];
     lent.forEach((b) => {
       (b.costDateLent = b.date), (b.date = b.costDateOf), delete b.costDateOf;
-    });
+    }),
+      posted.forEach(([d, f, v]) => (d[f] = v));
     try {
       return fin3SaveGuarded.apply(this, arguments);
     } finally {
-      lent.forEach((b) => {
-        (b.costDateOf = b.date), (b.date = b.costDateLent), delete b.costDateLent;
-      });
+      posted.forEach(([d, f]) => (d[f] = d.postOn)),
+        lent.forEach((b) => {
+          (b.costDateOf = b.date), (b.date = b.costDateLent), delete b.costDateLent;
+        });
     }
   };
   const fin3SaveGuarded = function () {
@@ -134210,10 +134297,8 @@ if ("function" == typeof ledger) {
     return rows;
   };
 }
-if ("function" == typeof jobFin) {
-  const jobFinBase_p3 = jobFin;
-  jobFin = function (p, range) {
-    const J = jobFinBase_p3.apply(this, arguments);
+// The short-paid part of a bill is not cost until it is accepted (a job adjustment, inside the raw read).
+fin3JobAdjust(function (J, p, range) {
     try {
       const R = range || ["", today()];
       let d = 0;
@@ -134239,28 +134324,12 @@ if ("function" == typeof jobFin) {
           const row = (J.byCode || []).find((x) => x.code === k);
           row && ((row.bills = r2((row.bills || 0) + v)), (row.actual = r2((row.actual || 0) + v)));
         });
-      const ctc = +(p.ctc || 0);
-      (J.eac = r2(
-        p.ctcReviewed
-          ? Math.max(J.actual + J.committed, J.actual + ctc)
-          : Math.max(J.budget, J.actual + J.committed),
-      )),
-        (J.pct = J.eac ? Math.min(1, J.actual / J.eac) : 0),
-        (J.earned = r2(J.contract * J.pct)),
-        (J.overUnder = r2(J.billed - J.earned)),
-        (J.over = Math.max(0, J.overUnder)),
-        (J.under = Math.max(0, -J.overUnder)),
-        (J.backlog = r2(Math.max(0, J.contract - J.earned))),
-        (J.estGP = r2(J.contract - J.eac)),
-        (J.estGPPct = J.contract ? r2((J.estGP / J.contract) * 100) : 0),
-        (J.backlogGP = r2(J.estGP * (1 - J.pct))),
-        (J.disputed = r2(-d));
+      jobRederive(J, p), (J.disputed = r2(-d));
     } catch (e) {
       console.warn("short-pay job cost", e);
     }
     return J;
-  };
-}
+});
 if ("function" == typeof glBillLines) {
   const glBillLinesBase_p3 = glBillLines;
   glBillLines = function (b) {
@@ -134354,10 +134423,8 @@ if ("function" == typeof ledger) {
     }
   };
 }
-if ("function" == typeof jobFin) {
-  const jobFinBase_p3d = jobFin;
-  jobFin = function (p, range) {
-    const J = jobFinBase_p3d.apply(this, arguments);
+// A bank line held in a dispute is not job cost (a job adjustment, inside the raw read).
+fin3JobAdjust(function (J, p, range) {
     try {
       const R = range || ["", today()],
         bills = (DB.bills || []).filter((b) => b.projectId === p.id),
@@ -134380,27 +134447,12 @@ if ("function" == typeof jobFin) {
         const row = (J.byCode || []).find((x) => x.code === (t.code || "99"));
         row && (null != row.txns && (row.txns = r2(row.txns - a)), (row.actual = r2((row.actual || 0) - a)));
       });
-      const ctc = +(p.ctc || 0);
-      (J.eac = r2(
-        p.ctcReviewed
-          ? Math.max(J.actual + J.committed, J.actual + ctc)
-          : Math.max(J.budget, J.actual + J.committed),
-      )),
-        (J.pct = J.eac ? Math.min(1, J.actual / J.eac) : 0),
-        (J.earned = r2(J.contract * J.pct)),
-        (J.overUnder = r2(J.billed - J.earned)),
-        (J.over = Math.max(0, J.overUnder)),
-        (J.under = Math.max(0, -J.overUnder)),
-        (J.backlog = r2(Math.max(0, J.contract - J.earned))),
-        (J.estGP = r2(J.contract - J.eac)),
-        (J.estGPPct = J.contract ? r2((J.estGP / J.contract) * 100) : 0),
-        (J.backlogGP = r2(J.estGP * (1 - J.pct)));
+      jobRederive(J, p);
     } catch (e) {
       console.warn("disputed job cost", e);
     }
     return J;
-  };
-}
+});
 if ("function" == typeof glDerive) {
   const glDeriveBase_p3d = glDerive;
   glDerive = function () {
@@ -134594,6 +134646,19 @@ if ("function" == typeof renderAP) {
     if (!v) return;
     const old = v.querySelector("#pay3-disp");
     old && old.remove();
+    const oo = v.querySelector("#ct-orphan");
+    oo && oo.remove();
+    try {
+      const oh = ctOrphanHtml();
+      if (oh) {
+        const w = document.createElement("div");
+        w.innerHTML = oh;
+        const at = v.querySelector("#fin-pbu") || v.querySelector("#ap-table");
+        at && at.parentElement ? at.parentElement.insertBefore(w.firstChild, at) : v.appendChild(w.firstChild);
+      }
+    } catch (e) {
+      console.warn("orphan accruals", e);
+    }
     const D = pay3Disputes();
     if (!D.length) return;
     const card = document.createElement("div");
@@ -147711,7 +147776,7 @@ function budScreenHtml() {
     over = budOverLines(),
     status = `<div class="bud-status small"><span class="pill ${locked ? "neutral" : "warn"}">${locked ? "Locked" : "Draft"}</span>${active ? ' <span class="pill ok">Active</span>' : ""} <span class="muted">${locked ? `Locked by ${esc(v.lockedBy || "")} on ${fmt(v.lockedOn)}${v.lockNote ? ` — ${esc(v.lockNote)}` : ""}` : `Created by ${esc(v.createdBy || "")} on ${fmt(v.createdOn)} · open for edits`}${active ? " · the reports read this version" : ""}</span>${v.basisNote ? `<div class="muted">${esc(v.basisNote)}</div>` : ""}</div>`,
     head = `<div class="ph"><div><h2>Budget</h2><p class="lead">The ${esc(y)} operating budget by entity, account and month. One version is active; Reports, the Pack, the Flash and the Close read it.</p></div><div class="acts">${phone ? "" : '<button class="btn primary" id="bud-review">Review Variances</button>'}</div></div>`,
-    bar = `<div class="row wrap bud-bar no-print">${verSel}${entSel}${phone ? "" : `${edit ? '<button class="btn sm" id="bud-fill" title="Copy the selected month to the months after it">Fill Right</button><button class="btn sm" id="bud-spread">Spread Annual…</button><button class="btn sm" id="bud-copy">Copy From…</button>' : ""}${budCanEdit() ? '<button class="btn sm" id="bud-new">New Version…</button>' : ""}${budCanEdit() && !active ? '<button class="btn sm" id="bud-active">Make Active</button>' : ""}${budCanEdit() && !locked ? '<button class="btn sm" id="bud-lock">Lock Version…</button>' : ""}${ent ? `<label class="small bud-all"><input type="checkbox" id="bud-allacct" ${budScrAll ? "checked" : ""}> Show Every Account</label>` : ""}`}</div>`,
+    bar = `<div class="row wrap bud-bar no-print">${verSel}${entSel}${phone ? "" : `${edit ? '<button class="btn sm" id="bud-fill" title="Copy the selected month to the months after it">Fill Right</button><button class="btn sm" id="bud-spread">Spread Annual…</button><button class="btn sm" id="bud-copy">Copy From…</button>' : ""}${budCanEdit() ? '<button class="btn sm" id="bud-new">New Version…</button>' : ""}${budCanEdit() && !active ? '<button class="btn sm" id="bud-active">Make Active</button>' : ""}${budCanEdit() && !locked ? '<button class="btn sm" id="bud-lock">Lock Version…</button>' : ""}<button class="btn sm" id="bud-csv">Export CSV</button>${budCanEdit() && !locked ? '<button class="btn sm" id="bud-csvin">Import CSV…</button>' : ""}${ent ? `<label class="small bud-all"><input type="checkbox" id="bud-allacct" ${budScrAll ? "checked" : ""}> Show Every Account</label>` : ""}`}</div>`,
     overNote = over.length
       ? `<div class="note warn bud-overnote"><b>${over.length} cost line${1 === over.length ? " is" : "s are"} over budget</b> by more than ${budTh().pct}% and ${money(budTh().amt)} this year: ${over
           .slice(0, 3)
@@ -147737,7 +147802,30 @@ function budScreenHtml() {
         budJobsHtml(v) +
         budHistHtml(v);
 }
+// Budget governance, in the functions themselves (not only by hiding buttons): the Owner or the controller
+// edits, a locked version is never changed, and only the Owner makes a version the active one. A refusal
+// toasts why and writes an audit row; the caller gets {ok: false, why}.
+function budGuard(v, act, ownerOnly) {
+  let why = "";
+  if (!v) why = "No budget version";
+  else if (ownerOnly ? !isOwner() : !budCanEdit())
+    why = ownerOnly
+      ? `Only the Owner can ${act} a budget version`
+      : `The Owner or the controller can ${act} the budget — ${ROLE_NAMES[role()] || role()} cannot`;
+  else if ("locked" === v.status && !["lock", "make active"].includes(act))
+    why = `${v.name} is locked${v.lockedBy ? ` by ${v.lockedBy} on ${fmt(v.lockedOn)}` : ""} — copy it to a new version to change it`;
+  if (!why) return null;
+  try {
+    budAudit(v, "refused", `${act}: ${why}`);
+  } catch (e) {}
+  try {
+    toast(why);
+  } catch (e) {}
+  return { ok: !1, why: why };
+}
 function budSetCell(v, ent, acct, m, val, quiet) {
+  const g = budGuard(v, "edit");
+  if (g) return g;
   const k = ent + "|" + acct,
     L = (v.lines[k] = (v.lines[k] || Array(12).fill(0)).slice()),
     before = L[m];
@@ -147749,6 +147837,7 @@ function budSetCell(v, ent, acct, m, val, quiet) {
         "edited",
         `${budShortEnt(ent)} · ${budAPlain(acct)} · ${BUD_MONTHS[m]}: ${money(before)} → ${money(L[m])}`,
       );
+  return { ok: !0 };
 }
 function budSpreadDialog(v, ent) {
   const ids = budGridRows(v, ent),
@@ -147763,6 +147852,7 @@ function budSpreadDialog(v, ent) {
           const acct = f.acct,
             amt = +f.amt || 0,
             r = budSpreadApply(v, ent, acct, amt, f.how);
+          if (!r.ok) return;
           save(),
             render(),
             budToast(
@@ -147782,6 +147872,8 @@ function budSpreadDialog(v, ent) {
 }
 const BUD_CAL = [6, 7, 8.5, 8.5, 9, 9, 9, 9, 9, 9, 8.5, 7.5];
 function budSpreadApply(v, ent, acct, amt, how) {
+  const g = budGuard(v, "spread");
+  if (g) return g;
   let w = Array(12).fill(1),
     basis = "evenly";
   if ("season" === how) {
@@ -147812,7 +147904,7 @@ function budSpreadApply(v, ent, acct, amt, how) {
       "spread",
       `${budShortEnt(ent)} · ${budAPlain(acct)}: ${money(before)} → ${money(amt)} for the year, ${basis}`,
     ),
-    { arr: arr, basis: basis }
+    { ok: !0, arr: arr, basis: basis }
   );
 }
 function budCopyDialog(v, ent) {
@@ -147825,6 +147917,7 @@ function budCopyDialog(v, ent) {
       submit: "Copy",
       onSubmit: (f) => {
         const r = budCopyApply(v, f.src, "all" === f.scope ? "" : ent);
+        if (!r.ok) return;
         save(),
           render(),
           budToast(`${v.name}: ${r.n} account line${1 === r.n ? "" : "s"} copied from ${r.from}`, () => {
@@ -147835,6 +147928,8 @@ function budCopyDialog(v, ent) {
   );
 }
 function budCopyApply(v, src, ent) {
+  const g = budGuard(v, "copy into");
+  if (g) return g;
   const ents = ent ? [ent] : budEnts();
   let n = 0,
     from = "";
@@ -147884,10 +147979,11 @@ function budCopyApply(v, src, ent) {
       "copied",
       `${ent ? budShortEnt(ent) : "All entities"} from ${from}: ${n} line${1 === n ? "" : "s"}`,
     ),
-    { n: n, from: from }
+    { ok: !0, n: n, from: from }
   );
 }
 function budNewVersion(name, srcId) {
+  if (!budCanEdit()) return budGuard({ id: "", name: "A new version", status: "open" }, "create a version of"), null;
   const P = budPlan(),
     S = budVer(srcId) || budActiveVer(),
     y = S ? S.year : budYear(),
@@ -147915,20 +148011,22 @@ function budNewVersion(name, srcId) {
   );
 }
 function budLock(v, why) {
-  return v && "locked" !== v.status
-    ? budCanEdit()
-      ? ((v.status = "locked"),
-        (v.lockedBy = fin2Who()),
-        (v.lockedOn = today()),
-        (v.lockNote = String(why || "").trim()),
-        budAudit(v, "locked", v.lockNote || "locked"),
-        save(),
-        { ok: !0 })
-      : { ok: !1, why: "The Owner or the controller locks a budget" }
-    : { ok: !1, why: "This version is already locked" };
+  const g = budGuard(v, "lock");
+  if (g) return g;
+  if ("locked" === v.status) return { ok: !1, why: "This version is already locked" };
+  return (
+    (v.status = "locked"),
+    (v.lockedBy = fin2Who()),
+    (v.lockedOn = today()),
+    (v.lockNote = String(why || "").trim()),
+    budAudit(v, "locked", v.lockNote || "locked"),
+    save(),
+    { ok: !0 }
+  );
 }
 function budMakeActive(v) {
-  if (!v) return { ok: !1 };
+  const g = budGuard(v, "make active", !0);
+  if (g) return g;
   const P = budPlan(),
     prev = budVer(P.active[v.year]);
   return (
@@ -147943,6 +148041,8 @@ function budMakeActive(v) {
   );
 }
 function budRefreshJobs(v) {
+  const g = budGuard(v, "refresh from jobs");
+  if (g) return g;
   let n = 0;
   return (
     (DB.projects || []).forEach((p) => {
@@ -148018,7 +148118,8 @@ function renderBudget() {
           inp.parentElement.classList.add("bud-sel");
       }),
         (inp.onchange = () => {
-          budSetCell(v, ent, inp.dataset.bg, +inp.dataset.bm, inp.value), save();
+          if (!budSetCell(v, ent, inp.dataset.bg, +inp.dataset.bm, inp.value).ok) return void render();
+          save();
           const keep = { acct: inp.dataset.bg, m: +inp.dataset.bm };
           render();
           const nx = document.querySelector(
@@ -148052,7 +148153,7 @@ function renderBudget() {
         if (!budFocus) return void toast("Select a month in a row first, then Fill Right");
         const { acct: acct, m: m } = budFocus,
           val = budMonth(v, ent, acct, m);
-        for (let i = m + 1; i < 12; i++) budSetCell(v, ent, acct, i, val, !0);
+        for (let i = m + 1; i < 12; i++) if (!budSetCell(v, ent, acct, i, val, !0).ok) return;
         budAudit(
           v,
           "filled right",
@@ -148083,6 +148184,7 @@ function renderBudget() {
             onSubmit: (f) => {
               if (!f.name) return toast("Name the version"), !1;
               const nv = budNewVersion(f.name, f.src);
+              if (!nv) return;
               (budScrVer = nv.id),
                 save(),
                 render(),
@@ -148102,6 +148204,7 @@ function renderBudget() {
         )
           return;
         const r = budMakeActive(v);
+        if (!r.ok) return;
         render(),
           budToast(
             `${v.name} is now the active ${v.year} budget${r.prev ? ` (was ${r.prev.name})` : ""}`,
@@ -148125,9 +148228,18 @@ function renderBudget() {
             }))
           : toast(r.why);
       }),
+    q("#bud-csv") &&
+      (q("#bud-csv").onclick = () => {
+        budExportCsv(v, !0),
+          budToast(`${v.name} exported to CSV`, () => {
+            (view = "budget"), render();
+          });
+      }),
+    q("#bud-csvin") && (q("#bud-csvin").onclick = () => budImportDialog(v)),
     q("#bud-refresh") &&
       (q("#bud-refresh").onclick = () => {
         const n = budRefreshJobs(v);
+        if ("number" != typeof n) return;
         render(),
           budToast(`${v.name}: ${n} job${1 === n ? "" : "s"} re-read from their estimates`, () => {
             (view = "budget"), render();
@@ -148749,7 +148861,16 @@ if ("function" == typeof txnTruth) {
       : "feed";
   };
 }
-const bfBacked = (t) => "feed" === txnTruth(t) && !bfProv(t).removedByBank,
+// A line whose only bank record is the Demo Feed (the sandbox) is not bank evidence: it reads "Demo Feed",
+// is not counted as backed in coverage, is not pre-ticked at reconcile and does not satisfy the close.
+function bfIsDemoOnly(t) {
+  const p = bfProv(t),
+    cb = p.confirmedBy || null;
+  if ("statement" === p.kind || p.stmtSeen || (cb && "statement" === cb.kind)) return !1;
+  const fd = ("feed" === p.kind ? p : null) || (cb && "feed" === cb.kind ? cb : null) || p.feedSeen || null;
+  return !(!fd || !fd.demo) && !(p.feedSeen && !p.feedSeen.demo) && !(cb && "feed" === cb.kind && !cb.demo);
+}
+const bfBacked = (t) => "feed" === txnTruth(t) && !bfProv(t).removedByBank && !bfIsDemoOnly(t),
   bfIsRec = (t) => !(!t || !(t.reconId || ("reconciled" === t.status && t.reconciledOn)));
 function bfSourceWords(t) {
   const p = bfProv(t),
@@ -148765,6 +148886,12 @@ function bfSourceWords(t) {
       cls: "bad",
       text: "Changed",
       why: "it arrived from the bank, then a date, an amount or a payee was edited here",
+    };
+  if (bfIsDemoOnly(t))
+    return {
+      cls: "warn",
+      text: "Demo Feed",
+      why: "delivered by the Demo Feed, the sandbox bank in a copy opened as a file — not a bank record, so not bank evidence",
     };
   const fd =
       p.feedSeen ||
@@ -148810,6 +148937,7 @@ function bfCoverage(ym) {
       statement: 0,
       confirmed: 0,
       manual: 0,
+      demo: 0,
       changed: 0,
       removed: 0,
       manualList: [],
@@ -148823,6 +148951,7 @@ function bfCoverage(ym) {
         a = Math.abs(+t.amt || 0);
       if (((o.amt += a), p.removedByBank)) o.removed++;
       else if ("changed" !== k) {
+        if ("feed" === k && bfIsDemoOnly(t)) return void o.demo++;
         if ("feed" === k)
           return (
             o.backed++,
@@ -148840,7 +148969,7 @@ function bfCoverage(ym) {
 }
 const bfCoverLine = (C) => `${C.pct}% of ${bfMon(C.ym)}'s lines are backed by a bank record`,
   bfCoverSub = (C) =>
-    `${C.backed} of ${C.n} · ${C.statement} from statements · ${C.feed} from feeds · ${C.confirmed} typed and since confirmed${C.manual ? ` · ${C.manual} typed by hand, not yet seen at the bank` : ""}${C.changed ? ` · ${C.changed} changed after arriving` : ""}${C.removed ? ` · ${C.removed} removed by the bank` : ""}`;
+    `${C.backed} of ${C.n} · ${C.statement} from statements · ${C.feed} from feeds · ${C.confirmed} typed and since confirmed${C.manual ? ` · ${C.manual} typed by hand, not yet seen at the bank` : ""}${C.demo ? ` · ${C.demo} from the Demo Feed, not bank evidence` : ""}${C.changed ? ` · ${C.changed} changed after arriving` : ""}${C.removed ? ` · ${C.removed} removed by the bank` : ""}`;
 function bfCloseYm() {
   try {
     return (
@@ -149895,8 +150024,10 @@ function bfReconHtml() {
     rows
       .map((t) => {
         const w = bfSourceWords(t),
-          on = R.ticks.has(t.id);
-        return `<tr class="${on ? "on" : ""}" data-bfrow="${t.id}"><td class="bf-ck"><input type="checkbox" data-bfrc="${t.id}" ${on ? "checked" : ""} aria-label="Cleared"></td><td class="bf-d">${fmt(t.date)}</td><td><div>${esc(t.desc)}</div><div class="small muted"><span class="pill ${w.cls}" title="${esc(w.why)}">${w.text}</span>${t.vendor ? " " + esc(t.vendor) : ""}</div></td><td class="money ${t.amt > 0 ? "ok" : ""}">${t.amt > 0 ? "+" : ""}${bfM2(t.amt)}</td></tr>`;
+          on = R.ticks.has(t.id),
+          pv = bfProv(t),
+          notAt = !on && R.importId && "manual" === pv.kind && !pv.confirmedBy && ["owner", "controller"].includes(role());
+        return `<tr class="${on ? "on" : ""}" data-bfrow="${t.id}"><td class="bf-ck"><input type="checkbox" data-bfrc="${t.id}" ${on ? "checked" : ""} aria-label="Cleared"></td><td class="bf-d">${fmt(t.date)}</td><td><div>${esc(t.desc)}</div><div class="small muted"><span class="pill ${w.cls}" title="${esc(w.why)}">${w.text}</span>${t.vendor ? " " + esc(t.vendor) : ""}${notAt ? ` <button class="btn sm" data-bfvoid="${t.id}" title="The statement does not list this line">Not at the Bank — Void</button>` : ""}</div></td><td class="money ${t.amt > 0 ? "ok" : ""}">${t.amt > 0 ? "+" : ""}${bfM2(t.amt)}</td></tr>`;
       })
       .join("") ||
     `<tr><td colspan="4" class="muted">Nothing on this account dated by ${fmt(R.end)} is waiting to be reconciled.</td></tr>`
@@ -149946,7 +150077,8 @@ function bfReconWire(host) {
     const el = document.getElementById("bf-recon");
     el && ((el.outerHTML = bfReconHtml()), bfReconWire(document.getElementById("v-bank")));
   };
-  host.querySelectorAll("[data-bfrc]").forEach(
+  host.querySelectorAll("[data-bfvoid]").forEach((b) => (b.onclick = () => bfVoidDialog(b.dataset.bfvoid))),
+    host.querySelectorAll("[data-bfrc]").forEach(
     (c) =>
       (c.onchange = () => {
         c.checked ? R.ticks.add(c.dataset.bfrc) : R.ticks.delete(c.dataset.bfrc), redraw();
@@ -150231,33 +150363,11 @@ function bfSandboxPull(f) {
     const e = new Error(`${f.institution} needs you to sign in again`);
     throw ((e.code = "ITEM_LOGIN_REQUIRED"), e);
   }
+  // The sandbox serves its own fixed bank file, step by step. It never echoes the register back: an echo
+  // "confirmed" every typed line (August read 96% backed) and doubled the duplicate dumpster charge.
   const step = /^sbx:[a-z]+:(\d+)$/.test(f.cursor || "") ? +f.cursor.split(":")[2] : 0,
     added = [],
     removed = [];
-  if (0 === step) {
-    const from = iso(addDays(parse(today().slice(0, 8) + "01"), -1)).slice(0, 8) + "01";
-    (DB.txns || [])
-      .filter(
-        (t) =>
-          t.acct === f.acctId &&
-          t.date >= from &&
-          t.date <= today() &&
-          !("feed" === bfProv(t).kind && bfProv(t).feedId === f.id),
-      )
-      .sort(
-        (a, b) => String(a.date).localeCompare(String(b.date)) || String(a.id).localeCompare(String(b.id)),
-      )
-      .forEach((t, i) => {
-        const shift = "card" === f.type && i % 3 == 1 ? 1 : 0,
-          d = iso(addDays(parse(t.date), shift));
-        added.push({
-          ref: `sbx-${f.sandbox}-${bfHash(t.id + "|" + t.amt)}`,
-          date: d <= today() ? d : t.date,
-          amt: t.amt,
-          desc: t.bankDesc || t.desc,
-        });
-      });
-  }
   return (
     inst.lines
       .filter((l) => l.step === step)
@@ -159412,6 +159522,696 @@ if ("object" == typeof EQ_TABLES && "function" == typeof EQ_TABLES.transactions)
   };
 }
 /* ---------------------------------------------------------------------------
+   closetie (BACKLOG §1.1): the close, read back. What Ask, the Close page, Bills & Payroll and the
+   Report Builder need to answer "is August closed", "does the WIP tie", "what was accrued at the close"
+   and "which accrued wages have no payroll run". Read-only, except the two orphan-accrual actions,
+   which a person runs from a button.
+   --------------------------------------------------------------------------- */
+const ctM2 = (v) =>
+  (v < 0 ? "−$" : "$") +
+  Math.abs(+v || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const ctJob = (pid) => {
+  const p = (DB.projects || []).find((x) => x.id === pid);
+  return p ? String(p.project.name).replace(/ —.*$/, "") : pid ? pid : "No job";
+};
+const ctClosed = (ym) => {
+  const l = lockedThrough();
+  return !!l && !!ym && ym <= l;
+};
+// The WIP tie-out for a month: per job, the WIP schedule against 2500/1200. A closed month reads its frozen
+// schedule, so this is what the close checked when it ran.
+function ctWipTie(ym) {
+  ym = ym || lockedThrough() || fin2CloseYm() || today().slice(0, 7);
+  const rows = ctWipTieRows(ym),
+    sum = (k) => r2(rows.reduce((a, r) => a + r[k], 0));
+  return {
+    ym: ym,
+    month: fin3Label(ym),
+    closed: ctClosed(ym),
+    rows: rows,
+    schedule: sum("schedule"),
+    ledger: sum("ledger"),
+    diff: sum("diff"),
+    ok: rows.every((r) => Math.abs(r.diff) < 0.005),
+  };
+}
+function ctCloseHistory() {
+  return ((DB.periods || {}).history || []).map((h) => ({
+    month: h.month,
+    label: fin3Label(h.month),
+    act: h.act,
+    again: !!h.again,
+    by: h.by || "",
+    on: h.on || "",
+    why: h.why || "",
+    entries: h.entries || 0,
+    wip: h.wip || 0,
+    wages: h.wages || 0,
+  }));
+}
+function ctCloseStatus(ym) {
+  ym = ym || fin2CloseYm() || lockedThrough() || today().slice(0, 7);
+  const label = fin3Label(ym),
+    H = ctCloseHistory().filter((h) => h.month === ym),
+    last = H.slice(-1)[0] || null,
+    closed = ctClosed(ym),
+    shut = H.filter((h) => "closed" === h.act).slice(-1)[0] || null,
+    rec = (fin2Closes() || []).filter((c) => c.month === ym).slice(-1)[0] || null;
+  let open = [],
+    blockers = [];
+  if (!closed && ym < today().slice(0, 7))
+    try {
+      (open = closeChecklist(ym)
+        .filter((i) => !i.ok)
+        .map((i) => `${i.label} (${i.n})`)),
+        (blockers = fin2CloseBlockers(ym).map((b) => b.why));
+    } catch (e) {}
+  const headline = closed
+    ? `${label} is closed — ${shut && shut.again ? "re-closed" : "closed"}${shut ? ` by ${shut.by} on ${fmt(shut.on)}` : ""}${rec && rec.reason ? `, with ${rec.open} item${1 === rec.open ? "" : "s"} open: ${rec.reason}` : ""}`
+    : last && "reopened" === last.act
+      ? `${label} is open — reopened by ${last.by} on ${fmt(last.on)}: ${last.why}`
+      : ym >= today().slice(0, 7)
+        ? `${label} is the current month; it closes after it ends`
+        : `${label} is not closed yet${blockers.length ? ` — ${blockers.length} thing${1 === blockers.length ? "" : "s"} stop the close` : open.length ? ` — ${open.length} checklist item${1 === open.length ? "" : "s"} open` : " — nothing stops the close"}`;
+  return {
+    month: ym,
+    label: label,
+    closed: closed,
+    through: lockedThrough(),
+    by: shut ? shut.by : "",
+    on: shut ? shut.on : "",
+    again: !(!shut || !shut.again),
+    reason: rec ? rec.reason : "",
+    reopened: last && "reopened" === last.act ? { by: last.by, on: last.on, why: last.why } : null,
+    openItems: open,
+    blockers: blockers,
+    headline: headline,
+  };
+}
+const CT_WAGE_ACCTS = /^(5000|5010|7000|7010|7005)$/;
+// What the close accrued for a month's wages: each payroll run not posted by month end, and the approved time
+// on days no run covers.
+function ctAccrualAtClose(ym) {
+  ym = ym || lockedThrough();
+  const J = (((DB.gl || {}).journals || []).filter(
+      (j) =>
+        "accrual" === j.kind &&
+        "wages" === j.accrues &&
+        (j.periodYm || glYm(j.date)) === ym &&
+        ["posted", "reversed"].includes(j.status),
+    )),
+    amtOf = (j, f) =>
+      r2(
+        (j.lines || [])
+          .filter((l) => CT_WAGE_ACCTS.test(l.acct) && (!f || f(l)))
+          .reduce((a, l) => a + (l.dr || 0) - (l.cr || 0), 0),
+      ),
+    runs = {},
+    time = {};
+  J.forEach((j) => {
+    if (j.runId) {
+      const r = (DB.payroll || []).find((x) => x.id === j.runId) || {},
+        o = (runs[j.runId] = runs[j.runId] || {
+          runId: j.runId,
+          period: r.period || j.runId,
+          status: r.status || "",
+          amt: 0,
+          onJobs: 0,
+          unallocated: 0,
+        });
+      (o.amt = r2(o.amt + amtOf(j))),
+        (o.onJobs = r2(o.onJobs + amtOf(j, (l) => !!l.projectId))),
+        (o.unallocated = r2(o.unallocated + amtOf(j, (l) => "7005" === l.acct)));
+    } else
+      (j.lines || [])
+        .filter((l) => CT_WAGE_ACCTS.test(l.acct))
+        .forEach((l) => {
+          const k = l.projectId || "",
+            o = (time[k] = time[k] || {
+              projectId: k,
+              job: ctJob(k),
+              amt: 0,
+              from: j.coversFrom || j.date,
+              to: j.coversTo || j.date,
+            });
+          (o.amt = r2(o.amt + (l.dr || 0) - (l.cr || 0))),
+            j.coversFrom && j.coversFrom < o.from && (o.from = j.coversFrom),
+            j.coversTo && j.coversTo > o.to && (o.to = j.coversTo);
+        });
+  });
+  const R = Object.values(runs),
+    T = Object.values(time).filter((o) => Math.abs(o.amt) >= 0.005);
+  return {
+    ym: ym,
+    month: ym ? fin3Label(ym) : "",
+    runs: R,
+    time: T,
+    journals: J.map((j) => j.id),
+    total: r2(R.reduce((a, o) => a + o.amt, 0) + T.reduce((a, o) => a + o.amt, 0)),
+  };
+}
+// Accrued wages with no payroll run: approved time accrued at a close on days no run covers. Flagged once the
+// next pay date after those days has passed, because by then a run should have paid them.
+function ctOrphanAccruals() {
+  if (!glInit()) return [];
+  const td = today();
+  return DB.gl.journals
+    .filter((j) => "accrual" === j.kind && "wages" === j.accrues && !j.runId && "posted" === j.status)
+    .map((j) => {
+      const ent = j.entityId || "ent1",
+        days = j.days || [],
+        covered = (d) =>
+          (DB.payroll || []).some(
+            (r) =>
+              r.from &&
+              r.to &&
+              !["void", "rejected"].includes(r.status) &&
+              (r.entityId || "ent1") === ent &&
+              d >= r.from &&
+              d <= r.to,
+          );
+      if (days.length && days.every(covered)) return null;
+      const amt = r2(
+        (j.lines || [])
+          .filter((l) => /^(5000|7000)$/.test(l.acct))
+          .reduce((a, l) => a + (l.dr || 0) - (l.cr || 0), 0),
+      );
+      if (amt < 0.005) return null;
+      const to = j.coversTo || j.date,
+        from = j.coversFrom || j.date,
+        nextPay =
+          (DB.payroll || [])
+            .filter((r) => (r.entityId || "ent1") === ent && !["void", "rejected"].includes(r.status))
+            .map((r) => r.payDate)
+            .filter((d) => d && d > to)
+            .sort()[0] || iso(addDays(parse(to), 14)),
+        pids = Array.from(new Set((j.lines || []).filter((l) => l.projectId).map((l) => l.projectId))),
+        hours = r2(
+          (DB.time || [])
+            .filter(
+              (e) =>
+                "approved" === e.status &&
+                (days.length ? days.includes(e.date) : e.date >= from && e.date <= to) &&
+                entOfEmpId(e.empId) === ent &&
+                !covered(e.date),
+            )
+            .reduce((a, e) => a + hoursOf(e), 0),
+        );
+      return {
+        id: j.id,
+        ym: j.periodYm || glYm(j.date),
+        projectId: pids[0] || "",
+        job: pids.length ? pids.map(ctJob).join(", ") : "Office payroll",
+        from: from,
+        to: to,
+        days: days,
+        hours: hours,
+        amt: amt,
+        nextPay: nextPay,
+        flagged: nextPay <= td,
+        why: `approved time ${fmt(from)} – ${fmt(to)} accrued at the ${fin3Label(j.periodYm || glYm(j.date))} close; no payroll run covers those days${nextPay <= td ? ` and the next pay date, ${fmt(nextPay)}, has passed` : ` yet; the next pay date is ${fmt(nextPay)}`}`,
+      };
+    })
+    .filter(Boolean);
+}
+const ctCanFix = () => isOwner() || "controller" === role();
+// A payroll run a close accrued is in both views (as the accrual) until it posts: it no longer "awaits approval
+// and is in neither".
+function ctRunAccrued(r) {
+  return (
+    !!r &&
+    (((DB.gl || {}).journals || []).some((j) => "accrual" === j.kind && j.runId === r.id && "posted" === j.status))
+  );
+}
+// Record the Run: a payroll run for the orphan's days, built from the same approved time, for a person to
+// check against the provider's register and approve.
+function ctOrphanRecordRun(jid) {
+  const o = ctOrphanAccruals().find((x) => x.id === jid);
+  if (!o) return toast("That accrual already has a payroll run, or was reversed"), null;
+  if (!ctCanFix()) return toast("The Owner or the controller records a payroll run"), null;
+  const j = DB.gl.journals.find((x) => x.id === jid),
+    ent = j.entityId || "ent1",
+    list = (DB.time || []).filter(
+      (e) =>
+        "approved" === e.status &&
+        (o.days.length ? o.days.includes(e.date) : e.date >= o.from && e.date <= o.to) &&
+        entOfEmpId(e.empId) === ent,
+    ),
+    per = {};
+  list.forEach((e) => {
+    const emp = (DB.employees || []).find((x) => x.id === e.empId) || {},
+      x = (per[e.empId] = per[e.empId] || {
+        name: emp.name || e.empId,
+        rate: +emp.rate || 0,
+        burden: +emp.burden || 0,
+        hours: 0,
+        byProj: {},
+      }),
+      h = hoursOf(e);
+    (x.hours += h), (x.byProj[e.projectId || ""] = (x.byProj[e.projectId || ""] || 0) + h);
+  });
+  let gross = 0,
+    taxes = 0;
+  const amt = {};
+  Object.values(per).forEach((x) => {
+    const g = r2(Math.min(x.hours, 80) * x.rate + Math.max(0, x.hours - 80) * x.rate * 1.5);
+    (gross += g),
+      (taxes += r2((g * x.burden) / 100)),
+      Object.entries(x.byProj).forEach(([pid, h]) => {
+        amt[pid] = (amt[pid] || 0) + g * (1 + x.burden / 100) * (h / x.hours);
+      });
+  });
+  const total = r2(gross + taxes),
+    run = {
+      id: uid("pr"),
+      period: `${fmt(o.from)} – ${fmt(o.to)}`,
+      from: o.from,
+      to: o.to,
+      payDate: o.nextPay <= today() ? o.nextPay : today(),
+      entityId: ent,
+      employees: Object.keys(per).length,
+      gross: r2(gross),
+      taxes: r2(taxes),
+      total: total,
+      alloc: Object.entries(amt).map(([pid, a]) => ({ projectId: pid, pct: total ? r2((a / total) * 100) : 0 })),
+      status: "draft",
+      approvals: [],
+      createdBy: fin2Who(),
+      notes: `Recorded for wages accrued at the ${fin3Label(o.ym)} close with no run: ${Object.values(per)
+        .map((x) => `${x.name} ${r2(x.hours)} h`)
+        .join(", ")}. Check gross and taxes against the provider's register, then submit.`,
+      detail: Object.values(per).map((x) => ({
+        name: x.name,
+        hours: r2(x.hours),
+        rate: x.rate,
+        gross: r2(Math.min(x.hours, 80) * x.rate + Math.max(0, x.hours - 80) * x.rate * 1.5),
+      })),
+      orphanOf: jid,
+    };
+  DB.payroll.push(run), list.forEach((e) => e.payrollId || (e.payrollId = run.id));
+  try {
+    audit("payroll", run.id, "recorded-for-accrual", "", run.period, `wages accrued at the ${fin3Label(o.ym)} close with no run (${ctM2(o.amt)})`);
+  } catch (e) {}
+  save();
+  try {
+    rcToast(`Payroll ${run.period} recorded as a draft — ${money(total)} for the accrued days; check it and submit`, [
+      { label: "Open", run: () => ((view = "ap"), render(), openPayroll(run.id)) },
+    ]);
+  } catch (e) {
+    toast(`Payroll ${run.period} recorded as a draft`);
+  }
+  return run;
+}
+// Reverse…: the time was not wages (paid another way, or entered in error). The reversal posts on the first
+// open day, the days are marked so a re-close does not accrue them again, and the reason is kept.
+function ctOrphanReverse(jid, why) {
+  const note = String(why || "").trim(),
+    j = (((DB.gl || {}).journals || []).find((x) => x.id === jid));
+  if (!j || "posted" !== j.status) return { ok: !1, why: "That accrual is not on the ledger" };
+  if (!ctCanFix()) return { ok: !1, why: "The Owner or the controller reverses an accrual" };
+  if (!note) return { ok: !1, why: "Say why the accrued wages are being reversed" };
+  const ent = j.entityId || "ent1",
+    date = glLocked(j.date, ent, "payroll") ? fin3OpenDay(j.date, ent, "payroll") : j.date,
+    r = glReverse(j, date, `accrued wages reversed: ${note}`);
+  if (!r.ok) return { ok: !1, why: r.why };
+  r.j && (r.j.ctOrphan = !0);
+  const days = j.days || [];
+  (DB.time || [])
+    .filter(
+      (e) =>
+        "approved" === e.status &&
+        (days.length ? days.includes(e.date) : e.date >= (j.coversFrom || "") && e.date <= (j.coversTo || "")) &&
+        entOfEmpId(e.empId) === ent &&
+        !e.payrollId,
+    )
+    .forEach((e) => {
+      e.noAccrue = { why: note, by: fin2Who(), on: today() };
+    }),
+    (j.reverseWhy = note);
+  try {
+    fin2Audit(fin2Who(), "ledger", j.id, "accrual-reversed", money(j.lines.reduce((s, l) => s + l.dr, 0)), date, note);
+  } catch (e) {}
+  return save(), { ok: !0, date: date };
+}
+function ctOrphanReverseDialog(jid) {
+  const o = ctOrphanAccruals().find((x) => x.id === jid);
+  o &&
+    mbModal(
+      "Reverse Accrued Wages",
+      `<p class="small">${esc(o.job)} · ${fmt(o.from)} – ${fmt(o.to)} · ${o.hours} h · ${ctM2(o.amt)}. Reversing takes these wages off the ledger on ${fmt(glLocked(o.to, "ent1", "payroll") ? fin3OpenDay(o.to, "ent1", "payroll") : o.to)}; a closed month is not changed. A later close does not accrue these days again.</p>${mbF("Reason", mbIn("why", "", "e.g. the hours were paid by the studio retainer, not payroll"))}`,
+      {
+        submit: "Reverse",
+        onSubmit: (f) => {
+          const r = ctOrphanReverse(jid, f.why);
+          if (!r.ok) return toast(r.why), !1;
+          render();
+          try {
+            rcToast(`Accrued wages ${ctM2(o.amt)} for ${fmt(o.from)} – ${fmt(o.to)} reversed on ${fmt(r.date)}`, [
+              { label: "Open", run: () => ((view = "gl"), (glTab = "periods"), render()) },
+            ]);
+          } catch (e) {
+            toast("Reversed");
+          }
+        },
+      },
+    );
+}
+// The orphan-accrual card, the same on the Close page and on Bills & Payroll.
+function ctOrphanHtml() {
+  const O = ctOrphanAccruals().filter((o) => o.flagged);
+  if (!O.length) return "";
+  const can = ctCanFix();
+  return `<div class="card ct-orphan" id="ct-orphan"><div class="hd"><h3>Accrued Wages with No Payroll Run</h3><span class="small muted">${ctM2(O.reduce((a, o) => a + o.amt, 0))} accrued at a close for days no payroll run covers</span></div><div class="tw"><table class="t"><thead><tr><th>Job</th><th>Days</th><th class="money">Hours</th><th class="money">Accrued</th><th>Next Pay Date</th><th></th></tr></thead><tbody>${O.map((o) => `<tr class="warn"><td>${esc(o.job)}</td><td class="small">${fmt(o.from)} – ${fmt(o.to)}</td><td class="money">${o.hours}</td><td class="money"><b>${ctM2(o.amt)}</b></td><td class="small">${fmt(o.nextPay)} passed</td><td class="r">${can ? `<button class="btn sm" data-ctorphan="run" data-ctj="${o.id}">Record the Run</button> <button class="btn sm" data-ctorphan="rev" data-ctj="${o.id}">Reverse…</button>` : ""}</td></tr>`).join("")}</tbody></table></div><p class="small muted">Approved time accrued at the close has no payroll run behind it, and the pay date after those days has passed. Record the run the provider paid, or reverse the accrual with a reason if the time was not payroll.</p></div>`;
+}
+document.addEventListener("click", (e) => {
+  const b = e.target && e.target.closest && e.target.closest("[data-ctorphan]");
+  b &&
+    (e.preventDefault(),
+    "run" === b.dataset.ctorphan ? ctOrphanRecordRun(b.dataset.ctj) && render() : ctOrphanReverseDialog(b.dataset.ctj));
+});
+// The Close page for a month already closed: what the close accrued and the WIP Tie-Out it checked.
+function ctClosedHtml() {
+  const l = lockedThrough();
+  if (!l) return ctOrphanHtml();
+  const T = ctWipTie(l),
+    A = ctAccrualAtClose(l),
+    acc = A.runs.length || A.time.length
+      ? `<h4 class="fin2-step">Accrued at the ${fin3Label(l)} Close <span class="small muted">${ctM2(A.total)}</span></h4><div class="tw"><table class="t ct-acc"><thead><tr><th>Source</th><th class="money">On Jobs</th><th class="money">Unallocated Labor</th><th class="money">Accrued</th></tr></thead><tbody>${A.runs.map((r) => `<tr><td>Payroll ${esc(r.period)} <span class="small muted">${esc(r.status)}</span></td><td class="money">${ctM2(r.onJobs)}</td><td class="money">${ctM2(r.unallocated)}</td><td class="money">${ctM2(r.amt)}</td></tr>`).join("")}${A.time.map((o) => `<tr><td>${esc(o.job)} <span class="small muted">timesheets ${fmt(o.from)} – ${fmt(o.to)}, no run</span></td><td class="money">${o.projectId ? ctM2(o.amt) : "—"}</td><td class="money">—</td><td class="money">${ctM2(o.amt)}</td></tr>`).join("")}</tbody></table></div>`
+      : "";
+  return `<div class="card ct-tie"><h4 class="fin2-step" style="margin-top:0">WIP Tie-Out · ${fin3Label(l)} <span class="pill ${T.ok ? "ok" : "bad"}">${T.ok ? "Ties" : "Off"}</span></h4><div class="tw"><table class="t ct-tie-t"><thead><tr><th>Job</th><th class="money">WIP Schedule</th><th class="money">Ledger 2500 / 1200</th><th class="money">Difference</th></tr></thead><tbody>${T.rows.map((r) => `<tr class="${Math.abs(r.diff) < 0.005 ? "" : "warn"}"><td>${esc(r.job)}</td><td class="money">${ctM2(r.schedule)}</td><td class="money">${ctM2(r.ledger)}</td><td class="money">${ctM2(r.diff)}</td></tr>`).join("") || '<tr><td colspan="4" class="muted">No job was over- or under-billed at month end.</td></tr>'}<tr style="font-weight:600"><td>Total</td><td class="money">${ctM2(T.schedule)}</td><td class="money">${ctM2(T.ledger)}</td><td class="money">${ctM2(T.diff)}</td></tr></tbody></table></div><p class="small muted">Over-billing net of under-billing on the frozen month-end schedule, against Billings in excess (2500) less Costs in excess (1200) on the ledger. The close does not lock a month unless every job ties.</p>${acc}</div>${ctOrphanHtml()}`;
+}
+// "Not at the Bank — Void": a typed line the bank's statement does not have. The line leaves the books with
+// its reason; the ledger reverses it (on its date while the month is open, on the first open day after).
+function bfVoidNotAtBank(id, why) {
+  const note = String(why || "").trim(),
+    t = (DB.txns || []).find((x) => x.id === id);
+  if (!t) return { ok: !1, why: "That line is not in the register" };
+  if (!ctCanFix()) return { ok: !1, why: "The Owner or the controller voids a bank line" };
+  if (!note) return { ok: !1, why: "Say why the line is not at the bank" };
+  if (bfIsRec(t)) return { ok: !1, why: "That line is reconciled — undo the reconciliation first" };
+  if (t.billId || t.poId || t.invoiceId) return { ok: !1, why: "That line is matched to a document — unmatch it first" };
+  const i = DB.txns.indexOf(t);
+  DB.txns.splice(i, 1),
+    (DB.txnsVoid = DB.txnsVoid || []).push(
+      Object.assign(t, { status: "void", voidWhy: note, voidBy: fin2Who(), voidOn: today(), voidFrom: "reconcile" }),
+    ),
+    bfRec && bfRec.ticks && bfRec.ticks.delete(id);
+  try {
+    audit("txn", t.id, "void-not-at-bank", { desc: t.desc, amt: t.amt, date: t.date }, "void", note);
+  } catch (e) {}
+  return save(), { ok: !0, t: t };
+}
+function bfVoidDialog(id) {
+  const t = (DB.txns || []).find((x) => x.id === id);
+  t &&
+    mbModal(
+      "Not at the Bank — Void",
+      `<p class="small">${esc(t.desc)} · ${fmt(t.date)} · ${bfM2(t.amt)}. The bank's statement does not list this line. Voiding takes it out of the register and the books${isLocked(t.date) ? `; ${fin3Label(t.date.slice(0, 7))} is closed, so the ledger reverses it on the first open day` : "; the ledger reverses it"}. The line and the reason are kept.</p>${mbF("Reason", mbIn("why", "", "e.g. the charge was typed twice; the card was charged once"))}`,
+      {
+        submit: "Void the Line",
+        onSubmit: (f) => {
+          const r = bfVoidNotAtBank(id, f.why);
+          if (!r.ok) return toast(r.why), !1;
+          render();
+          try {
+            rcToast(`${t.desc} ${bfM2(t.amt)} voided — not at the bank: ${f.why}`, [
+              { label: "Open", run: () => ((view = "bank"), render()) },
+            ]);
+          } catch (e) {
+            toast("Voided");
+          }
+        },
+      },
+    );
+}
+// Typed lines a statement imported for the same account and dates does not have.
+function ctNotAtBank(ym) {
+  const R = ym ? [ym + "-01", fin2End(ym)] : ["", "9999-12-31"];
+  return (DB.txns || []).filter((t) => {
+    if (!within(t.date, R) || bfIsRec(t)) return !1;
+    const p = bfProv(t);
+    return (
+      "manual" === p.kind &&
+      !p.confirmedBy &&
+      (DB.bankImports || []).some(
+        (i) => i.acctId === t.acct && i.period && t.date >= i.period[0] && t.date <= i.period[1] && !i.seed,
+      )
+    );
+  });
+}
+// Change Date… on a posted bill: a typed reason, refused into or out of a closed month, the history kept.
+function billChangeDate(b, to, why) {
+  if (!b) return { ok: !1, why: "No bill" };
+  const note = String(why || "").trim();
+  if (!note) return { ok: !1, why: "Say why the date changes" };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(to || "")) return { ok: !1, why: "Give the new date as a day" };
+  if (to === b.date) return { ok: !1, why: "That is already the bill's date" };
+  if (isLocked(b.date) || isLocked(to))
+    return {
+      ok: !1,
+      why: `${fin3Label((isLocked(b.date) ? b.date : to).slice(0, 7))} is closed — a bill is not re-dated into or out of a closed month; credit it and enter it again in the open month`,
+    };
+  const from = b.date,
+    ok = fin3Redate(b, to, note);
+  return ok ? { ok: !0, from: from, to: to } : { ok: !1, why: "The date was not changed" };
+}
+function billChangeDateDialog(b) {
+  b &&
+    mbModal(
+      `Change Date — ${esc(b.vendor)} ${esc(b.number || "")}`,
+      `<p class="small">Dated ${fmtL(b.date)}. A posted bill keeps every date it has had and why it changed; a closed month is not re-dated into or out of.</p><div class="grid2">${mbF("New Date", mbIn("to", b.date, "", "date"))}${mbF("Reason", mbIn("why", "", "e.g. the invoice is dated the 1st; the 2nd was the scan date"))}</div>`,
+      {
+        submit: "Change Date",
+        onSubmit: (f) => {
+          const r = billChangeDate(b, f.to, f.why);
+          if (!r.ok) return toast(r.why), !1;
+          render();
+          try {
+            rcToast(`${b.vendor} ${b.number || ""} re-dated ${fmt(r.from)} to ${fmt(r.to)}: ${f.why}`, [
+              { label: "Open", run: () => openBill(b.id) },
+            ]);
+          } catch (e) {
+            toast("Re-dated");
+          }
+        },
+      },
+    );
+}
+if ("function" == typeof openBill) {
+  const openBillBase_ct = openBill;
+  openBill = function (id) {
+    openBillBase_ct.apply(this, arguments);
+    const b = (DB.bills || []).find((x) => x.id === id),
+      body = document.getElementById("d-body");
+    if (!b || !body || !BILL_COSTED.includes(b.status)) return;
+    const box = document.createElement("div");
+    (box.className = "ct-billdate"),
+      (box.style.margin = "10px 0"),
+      (box.innerHTML = `<div class="row" style="gap:8px;align-items:center"><span class="small">Dated ${fmtL(b.date)}</span>${ctCanFix() || "billing" === role() ? '<button class="btn sm" data-ctredate>Change Date…</button>' : ""}</div>${(b.dateHistory || []).length ? `<div class="small muted" style="margin-top:6px">${b.dateHistory.map((h) => `${fmt(h.from)} to ${fmt(h.to)} by ${esc(h.by || "")} on ${fmt(h.on)}: ${esc(h.why || "")}`).join("<br>")}</div>` : ""}`),
+      body.appendChild(box);
+    const btn = box.querySelector("[data-ctredate]");
+    btn && (btn.onclick = () => billChangeDateDialog(b));
+    const inp = body.querySelector("#e-date");
+    inp && !inp.readOnly && ((inp.readOnly = !0), (inp.title = "A posted bill is re-dated with Change Date… and a reason"));
+  };
+}
+// Budget CSV: export the version's grid, and import one with a column-mapping preview.
+function budExportCsv(v, download) {
+  v = v || budActiveVer();
+  if (!v) return "";
+  const q = (s) => (/[",\n]/.test(String(s)) ? `"${String(s).replace(/"/g, '""')}"` : String(s)),
+    rows = [["Entity", "Account", "Name"].concat(BUD_MONTHS).concat(["Total"])];
+  Object.keys(v.lines)
+    .sort()
+    .forEach((k) => {
+      const [ent, acct] = k.split("|"),
+        L = v.lines[k] || [],
+        a = budAcct(acct) || {};
+      L.some((x) => +x) &&
+        rows.push([ent, acct, a.name || budAPlain(acct)].concat(L.map((x) => r2(+x || 0))).concat([r2(L.reduce((s, x) => s + (+x || 0), 0))]));
+    });
+  const csv = rows.map((r) => r.map(q).join(",")).join("\n");
+  if (download)
+    try {
+      const a = document.createElement("a");
+      (a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }))),
+        (a.download = `${String(v.name).replace(/\W+/g, "_")}_${v.year}.csv`),
+        a.click(),
+        budAudit(v, "exported", `${rows.length - 1} account line${2 === rows.length ? "" : "s"} to CSV`);
+    } catch (e) {}
+  return csv;
+}
+const BUD_CSV_FIELDS = Object.assign(
+  { skip: "Skip", ent: "Entity", acct: "Account" },
+  Object.fromEntries(BUD_MONTHS.map((m, i) => ["m" + i, m])),
+);
+let budImportState = null;
+function budImportGuess(h) {
+  const s = String(h).trim().toLowerCase();
+  if (/^(entity|company|ent)/.test(s)) return "ent";
+  if (/^(account|acct|gl|number)/.test(s)) return "acct";
+  const i = BUD_MONTHS.findIndex((m) => s.startsWith(m.toLowerCase()));
+  return i > -1 ? "m" + i : "skip";
+}
+function budImportPlan() {
+  const S = budImportState;
+  if (!S || !S.rows) return null;
+  const col = (k) => Object.keys(S.map).find((i) => S.map[i] === k),
+    ac = col("acct"),
+    en = col("ent"),
+    months = BUD_MONTHS.map((m, i) => col("m" + i)),
+    lines = [],
+    bad = [];
+  S.rows.forEach((r, n) => {
+    const acct = ac == null ? "" : String(r[ac] || "").trim(),
+      ent = en == null ? budEnts()[0] : String(r[en] || "").trim() || budEnts()[0];
+    if (!acct) return;
+    if (!budAcct(acct)) return void bad.push(`row ${n + 2}: account ${acct} is not in the chart`);
+    if (!budEnts().includes(ent)) return void bad.push(`row ${n + 2}: entity ${ent} is not set up`);
+    const vals = months.map((c) => (null == c ? null : r2(+String(r[c] || "0").replace(/[$,\s]/g, "") || 0)));
+    lines.push({ ent: ent, acct: acct, vals: vals });
+  });
+  return { lines: lines, bad: bad, months: months.filter((c) => null != c).length, acct: null != ac };
+}
+function budImportRead(name, text) {
+  const S = budImportState;
+  if (!S) return;
+  const rows = parseCSV(text).filter((r) => r.some((c) => String(c).trim()));
+  (S.file = name),
+    (S.headers = (rows[0] || []).map((h) => String(h).trim())),
+    (S.rows = rows.slice(1)),
+    (S.map = {}),
+    S.headers.forEach((h, i) => (S.map[i] = budImportGuess(h))),
+    S.draw && S.draw();
+}
+function budImportDialog(v) {
+  if (!v) return;
+  const g = budGuard(v, "import a CSV into");
+  if (g) return;
+  const S = (budImportState = { v: v, file: "", headers: null, rows: null, map: {} }),
+    draw = () => {
+      const P = budImportPlan();
+      let body = `<p class="small muted" style="margin:0 0 10px">A CSV with one row per account: an Account column, an Entity column if there is more than one, and a column per month. Name the columns once; the preview shows what changes before anything is written to ${esc(v.name)}.</p><div class="f"><label>Budget File</label><label class="btn bf-file">Choose File<input type="file" id="budi-file" accept=".csv,.txt" hidden></label> <span class="small muted">${S.file ? esc(S.file) : "CSV"}</span></div>`;
+      S.headers &&
+        ((body += `<div class="f"><label>Columns</label><div class="bf-map">${S.headers
+          .map(
+            (h, i) =>
+              `<div class="bf-map-r"><div><b>${esc(h)}</b><div class="small muted">${esc(String((S.rows[0] || [])[i] || "").slice(0, 24))}</div></div><select data-budmap="${i}">${Object.entries(BUD_CSV_FIELDS)
+                .map(([k, l]) => `<option value="${k}" ${S.map[i] === k ? "selected" : ""}>${l}</option>`)
+                .join("")}</select></div>`,
+          )
+          .join("")}</div></div>`),
+        P &&
+          (body += `<div class="bf-plan"><div class="bf-plan-h"><b>${P.lines.length} account line${1 === P.lines.length ? "" : "s"}</b> will be written to ${esc(v.name)} · ${P.months} month${1 === P.months ? "" : "s"} each${P.acct ? "" : " · name the Account column"}</div>${P.lines
+            .slice(0, 6)
+            .map((l) => `<div class="small">${esc(budShortEnt(l.ent))} · ${esc(budAPlain(l.acct))}: ${money(r2(l.vals.reduce((a, x) => a + (+x || 0), 0)))} for the year (now ${money(budAnnual(v, l.ent, l.acct))})</div>`)
+            .join("")}${P.bad.length ? `<div class="note warn" style="margin-top:6px">${P.bad.slice(0, 5).map(esc).join("<br>")}</div>` : ""}</div>`));
+      const m = mbModal("Import Budget CSV", body, {
+        submit: P && P.lines.length ? `Import ${P.lines.length} Line${1 === P.lines.length ? "" : "s"}` : "Import",
+        onSubmit: () => budImportApply(),
+      });
+      m.classList.add("bf-wide");
+      const ok = m.querySelector("#mbm-ok");
+      ok && !(P && P.lines.length) && (ok.disabled = !0),
+        (m.querySelector("#budi-file").onchange = async (e) => {
+          const f = e.target.files[0];
+          f && budImportRead(f.name, await f.text());
+        }),
+        m.querySelectorAll("[data-budmap]").forEach(
+          (s) =>
+            (s.onchange = () => {
+              (S.map[s.dataset.budmap] = s.value), draw();
+            }),
+        );
+    };
+  (S.draw = draw), draw();
+}
+function budImportApply() {
+  const S = budImportState,
+    P = budImportPlan();
+  if (!S || !P || !P.lines.length) return toast("Choose a CSV and name its Account column first"), !1;
+  const v = S.v;
+  if (budGuard(v, "import a CSV into")) return !1;
+  P.lines.forEach((l) =>
+    l.vals.forEach((x, m) => {
+      null != x && budSetCell(v, l.ent, l.acct, m, x, !0);
+    }),
+  ),
+    budAudit(v, "imported", `${S.file || "CSV"}: ${P.lines.length} account line${1 === P.lines.length ? "" : "s"}`),
+    save(),
+    (budImportState = null);
+  try {
+    budToast(`${v.name}: ${P.lines.length} account line${1 === P.lines.length ? "" : "s"} imported from ${S.file || "the CSV"}`, () => {
+      (budScrVer = v.id), (view = "budget"), render();
+    });
+  } catch (e) {}
+  return render(), !0;
+}
+// Report Builder and Ask read the close as data.
+"object" == typeof EQ_TABLES &&
+  ((EQ_TABLES.closes = () =>
+    ctCloseHistory().map((h, i) => ({
+      _id: `close:${h.month}:${i}`,
+      _module: "Accounting",
+      _label: `${h.label} ${"reopened" === h.act ? "reopened" : h.again ? "re-closed" : "closed"}`,
+      _go: { view: "gl" },
+      month: h.month,
+      event: "reopened" === h.act ? "reopened" : h.again ? "re-closed" : "closed",
+      by: h.by,
+      on: h.on,
+      why: h.why,
+      entries: h.entries,
+      wip: h.wip,
+      wages: h.wages,
+      closedNow: ctClosed(h.month),
+    }))),
+  (EQ_TABLES.wiptie = () => {
+    const l = lockedThrough() || fin2CloseYm() || today().slice(0, 7),
+      T = ctWipTie(l);
+    return T.rows.map((r) => ({
+      _id: `wiptie:${l}:${r.projectId}`,
+      _module: "Accounting",
+      _label: `WIP Tie-Out · ${r.job} · ${T.month}`,
+      _go: { view: "gl" },
+      month: l,
+      closed: T.closed,
+      project: r.job,
+      projectId: r.projectId,
+      schedule: r.schedule,
+      ledger: r.ledger,
+      difference: r.diff,
+      ties: Math.abs(r.diff) < 0.005,
+    }));
+  }),
+  (EQ_TABLES.orphanaccruals = () =>
+    ctOrphanAccruals().map((o) => ({
+      _id: o.id,
+      _module: "Accounting",
+      _label: `Accrued wages, no run · ${o.job} ${fmt(o.from)} – ${fmt(o.to)}`,
+      _go: { view: "ap" },
+      project: o.job,
+      projectId: o.projectId,
+      from: o.from,
+      to: o.to,
+      hours: o.hours,
+      amount: o.amt,
+      nextPayDate: o.nextPay,
+      flagged: o.flagged,
+      month: o.ym,
+    }))),
+  "object" == typeof EQ_ALIAS &&
+    Object.assign(EQ_ALIAS, {
+      close: "closes",
+      closehistory: "closes",
+      monthclose: "closes",
+      wip_tie: "wiptie",
+      wiptieout: "wiptie",
+      tieout: "wiptie",
+      orphans: "orphanaccruals",
+      orphanaccrual: "orphanaccruals",
+      accruedwages: "orphanaccruals",
+    }));
+/* ---------------------------------------------------------------------------
    The predicate registry (BACKLOG §3.2; CLAUDE.md "One question, one number").
    Each question the app counts is answered once, here, by name. The screen, the
    rail and tab badges, the tiles, the header lines, Ask, ⌘K and the Report
@@ -159716,6 +160516,26 @@ predDef("contactsFollowUp", {
       { prop: "lifecyclestage", op: "ne", value: "Evangelist" },
       { prop: "lifecyclestage", op: "ne", value: "Other" },
     ];
+  },
+});
+// Accrued wages with no payroll run (BACKLOG §1.1 #9): approved time a close accrued on days no run covers,
+// once the next pay date after those days has passed. The Close page, Bills & Payroll, the close checklist
+// and Ask count these rows.
+predDef("orphanAccruals", {
+  label: "Accrued Wages with No Payroll Run",
+  rule: "approved time accrued at a close on days no payroll run covers, after the next pay date passed",
+  test: (o) => !!o && !!o.flagged,
+  rows() {
+    return ctOrphanAccruals().filter(this.test);
+  },
+});
+// Typed lines a statement imported for the same account and dates does not have (BACKLOG §1.1 #11).
+predDef("notAtBank", {
+  label: "Not at the Bank",
+  rule: "typed by hand, not reconciled, and missing from the statement imported for its account and dates",
+  test: (t) => !!t,
+  rows(ym) {
+    return ctNotAtBank(ym || "");
   },
 });
 // What the Buy Board's rail badge and the coordinator's Home card count: rows still to order that are
