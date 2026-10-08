@@ -46833,8 +46833,28 @@ function fMountSay() {
         (fab.innerHTML = `${ICONS.mic}<span>Say it</span>`),
         (fab.onclick = () => fSayIt()),
         document.body.appendChild(fab)),
-      fab.classList.toggle("draft", !!DB.field.draft))
+      fab.classList.toggle("draft", !!DB.field.draft),
+      fDockSay(fab))
     : fab && fab.remove();
+}
+// On the Daily Log the floating Say It sat over Next on every phone step. There it docks into the step nav as
+// an ordinary button; everywhere else it floats.
+let fSayObs = null;
+function fDockSay(fab) {
+  const host = document.getElementById("v-flog");
+  // a step change redraws the log card without render(); mount again so Say It is not lost with the old row
+  host &&
+    !fSayObs &&
+    ((fSayObs = new MutationObserver(() => {
+      "flog" === view && !(document.getElementById("fsay") || {}).isConnected && fMountSay();
+      const f = document.getElementById("fsay");
+      "flog" === view && f && !f.closest(".dl-nav") && document.querySelector("#v-flog .dl-nav") && fDockSay(f);
+    })),
+    fSayObs.observe(host, { childList: !0, subtree: !0 }));
+  const nav = "flog" === view ? document.querySelector("#v-flog .dl-nav") : null;
+  nav
+    ? (fab.classList.add("btn", "fsay-dock"), nav.firstElementChild !== fab && nav.prepend(fab))
+    : fab.classList.contains("fsay-dock") && (fab.classList.remove("btn", "fsay-dock"), document.body.appendChild(fab));
 }
 function fNotesForMe() {
   return (
@@ -84089,6 +84109,12 @@ if (
 ) {
   const renderBase_fm2 = render;
   render = function () {
+    // The crew's week card is laid over the static schedule markup; when the next person on the device is not
+    // in field mode it must go, or it hides their schedule (a client saw a blank Schedule after the crew).
+    if (!(fmOn() && ["crew", "foreman"].includes(fmRole()))) {
+      const v = document.getElementById("v-sched");
+      v && (v.classList.remove("fm-simple"), document.getElementById("fm-week")?.remove());
+    }
     if ((renderBase_fm2.apply(this, arguments), fmOn())) {
       document.body.classList.add("fm-on");
       try {
@@ -114347,8 +114373,16 @@ function renderFdSetup() {
   BH.client && (BH.client.h2 = "Overview"),
   (BH.clacct = Object.assign(BH.clacct || {}, { h2: "Account" })),
   BH.hbsettings && (BH.hbsettings.h2 = "Sales Settings"),
-  (BH.hbdash = Object.assign(BH.hbdash || {}, { h2: "Numbers — Dashboard" })),
-  (BH.hbforecast = Object.assign(BH.hbforecast || {}, { h2: "Numbers — Forecast" })),
+  (BH.hbdash = Object.defineProperty(BH.hbdash || {}, "h2", {
+    get: () => (fdHasNumbers() ? "Numbers — Dashboard" : "Sales Dashboard"),
+    configurable: !0,
+    enumerable: !0,
+  })),
+  (BH.hbforecast = Object.defineProperty(BH.hbforecast || {}, "h2", {
+    get: () => (fdHasNumbers() ? "Numbers — Forecast" : "Forecast"),
+    configurable: !0,
+    enumerable: !0,
+  })),
   (BH.pa = Object.assign(BH.pa || {}, { h2: "Ask" })),
   (BH.setup = { h2: "Settings", primary: null }),
   (BH.ovjobs = { h2: "Projects", primary: null }),
@@ -114370,6 +114404,9 @@ function renderFdSetup() {
   })();
 // A view reached from inside another page lights that page's sub-tab: Forecast and Dashboard are tabs on
 // Numbers, so Numbers stays lit and their headings read "Numbers — Forecast". Playbook is its own sub-tab.
+function fdHasNumbers() {
+  return (ROLE_VIEWS[role()] || []).includes("salesnum");
+}
 const FD_HIDDEN_SUB = {
   leads: "hbdeals",
   hbforecast: "salesnum",
@@ -114419,7 +114456,13 @@ if ("function" == typeof renderNav) {
           if (
             (Object.keys(FD_HIDDEN_SUB).forEach((v) => {
               const t = sub.querySelector(`[data-sub="${v}"]`);
-              t && t.remove();
+              // Forecast and Dashboard fold under Numbers only for a role that has Numbers; coordinators and
+              // billing do not, so the two keep their own tabs there.
+              t && ("salesnum" !== FD_HIDDEN_SUB[v] || fdHasNumbers()) && t.remove();
+            }),
+            // Retired sales tabs stay out of the strip unless open (they were hidden by CSS, left at 0x0)
+            sub.querySelectorAll('[data-sub="hbworkspace"], [data-sub="hbsequences"], [data-sub="hbquotes"], [data-sub="hbplaybooks"]').forEach((t) => {
+              t.classList.contains("on") || t.dataset.sub === view || t.remove();
             }),
             FD_HIDDEN_SUB[view])
           ) {
@@ -144534,7 +144577,7 @@ const OS_SKIP = new Set([
   },
   OS_TILES = ".glance, .tl, .ov-tiles, .tl-host, [data-tlhost], .kpis, .tracks, .tl-allclear, .tl-focus",
   OS_STOP =
-    ".ph, .hb-head, h1, h2, h3, h4, .card, table, .dg, .gantt-wrap, .lcard, .empty, .t2-list, .board, .oc-board, form, textarea";
+    ".ph, .hb-head, h1, h2, h3, h4, .card, table, .dg, .gantt-wrap, .lcard, .empty, .t2-list, .board, .oc-board, form, textarea, .fm-row, .fm-card";
 function osIsStrip(el) {
   if (el.matches(OS_TILES) || el.matches(OS_STOP) || el.querySelector(OS_TILES + ", " + OS_STOP)) return !1;
   const ctl = [...el.querySelectorAll("button, select, input:not([type=hidden]), [role=tab]")].filter(osVis);

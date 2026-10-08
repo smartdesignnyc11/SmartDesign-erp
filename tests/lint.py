@@ -59,6 +59,10 @@ COLLECT = r"""
     if (s.visibility === 'hidden' || s.display === 'none' || +s.opacity === 0) return false;
     if (el.closest('[aria-hidden="true"]') && el.tagName !== 'svg') return false;
     if (el.closest('.toast')) return false;
+    // The body of a closed <details> is not rendered, but Chromium still reports a layout box and a visible
+    // computed style for it; its buttons were read as on-screen taps (false positive, 2026-10-08).
+    const det = el.closest('details:not([open])');
+    if (det && !el.closest('summary') && el !== det) return false;
     return true;
   };
   const sel = el => {
@@ -298,9 +302,24 @@ COLLECT = r"""
       const pt = (p.textContent || '').replace(/\s+/g, ' ').trim(), lt = (e.textContent || '').trim();
       return pt.length > lt.length + 8;
     };
+    // A target's tappable box is the part its scrolling or clipping ancestors show. A tab scrolled under the
+    // edge of a horizontal tab strip (or under the strip's "More" button) cannot be tapped there; measuring
+    // its full box reported 0px between it and the "More" beside the strip (false positive, 2026-10-08).
+    const clipRect = e => {
+      let l, t, r, b; ({left: l, top: t, right: r, bottom: b} = e.getBoundingClientRect());
+      for (let x = e.parentElement; x && x !== document.body; x = x.parentElement) {
+        const s = cs(x);
+        if (s.overflowX === 'visible' && s.overflowY === 'visible') continue;
+        const c = x.getBoundingClientRect();
+        if (s.overflowX !== 'visible') { l = Math.max(l, c.left); r = Math.min(r, c.right); }
+        if (s.overflowY !== 'visible') { t = Math.max(t, c.top); b = Math.min(b, c.bottom); }
+        if (s.position === 'fixed') break;
+      }
+      return {left: l, top: t, right: r, bottom: b, width: r - l, height: b - t};
+    };
     const taps = shown.filter(e => e.matches(TAP) && !e.closest('#nav, .rail') && !inSentence(e) && !(e.tagName === 'INPUT' && /^(checkbox|radio)$/.test(e.type) && e.closest('label')))
-      .map(e => { let layer = null; for (let x = e; x && x !== document.body; x = x.parentElement) { const p = cs(x).position; if (p === 'fixed' || p === 'sticky') { layer = x; break; } } return {e, r: e.getBoundingClientRect(), layer}; })
-      .filter(o => o.r.right > 0 && o.r.left < W);
+      .map(e => { let layer = null; for (let x = e; x && x !== document.body; x = x.parentElement) { const p = cs(x).position; if (p === 'fixed' || p === 'sticky') { layer = x; break; } } return {e, r: clipRect(e), layer}; })
+      .filter(o => o.r.width >= 1 && o.r.height >= 1 && o.r.right > 0 && o.r.left < W);
     taps.sort((a, b) => a.r.top - b.r.top);
     const pairSeen = new Set();
     for (let i = 0; i < taps.length; i++) {
