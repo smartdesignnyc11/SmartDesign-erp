@@ -3078,3 +3078,51 @@ svg.gantt text.prg-lbl.behind{fill:var(--bad,#b42318)} svg.gantt text.prg-lbl.no
 .dl-bad{outline:2px solid var(--bad);outline-offset:2px;border-radius:10px}
 .dl-msg{color:var(--bad);font-size:12.5px;font-weight:600;margin:4px 0 8px}
 /* <</field.css>> */
+/* <<screens.css>> the screen standard (tests/lint.py) */
+/* Icons: an svg with no size of its own fills its box (a 209px file glyph, a 1,000px PDF glyph on the PO note).
+   Give every line icon a 16px default at zero specificity, so any rule that sizes an icon on purpose still wins. */
+:where(.bp-ic){width:16px;height:16px;flex:none;vertical-align:-3px}
+:where(button,.btn,a,label,.chip,.pill,.hb-btn) svg:where([viewBox="0 0 24 24"],[viewBox="0 0 20 20"],[viewBox="0 0 16 16"]):where(:not([width]):not([height])){width:16px;height:16px;flex:none}
+.fcard .th svg{width:48px;height:48px}
+/* Phone tap spacing (CLAUDE.md: tap targets at least 8px apart). Fixed at the shared patterns so every screen
+   that uses one is fixed: the list toolbar, segmented controls and tab strips, the project row over the
+   sub-tabs, the top bar, and controls that sit side by side in a table row. */
+@media (max-width:760px){
+  /* list toolbar: rows wrap with 8px both ways; no scroller inside a scroller; search takes its own row */
+  .dg-tb,.dg-tb.os-tb{flex-wrap:wrap !important;overflow:visible !important;gap:8px !important}
+  .dg-tb .os-in{flex-wrap:wrap !important;gap:8px !important}
+  .dg-tb .q,.dg-tb.os-tb .q,.dg-tb input.q{flex:1 1 100% !important;min-width:0 !important}
+  /* a segmented control or tab strip is one control: 40px segments, rows that wrap stay inside it */
+  .seg,.ctabs,[role="tablist"]{flex-wrap:wrap;height:auto;overflow:visible;row-gap:0}
+  .seg > button,.seg > label,.ctabs > button,[role="tablist"] > button{min-height:40px !important}
+  .dg-tb .seg,.dg-tb .ctabs{overflow:visible !important;flex-wrap:wrap !important}
+  /* two controls next to each other are two controls */
+  .row,.acts,.hb-head-acts,.pa-chips,.chips{row-gap:8px}
+  .seg + .seg,.seg + .ctabs,.ctabs + .seg{margin-top:0}
+  .subnav.m-projrow{row-gap:8px}
+  .topbar{gap:8px}
+  /* controls in neighbouring table cells: 4px of cell padding each side keeps 8px between them */
+  td > select,td > button,td > a.btn,td > .btn,td > input{margin-left:0;margin-right:0}
+  table td{padding-left:max(4px,var(--td-px,4px));padding-right:max(4px,var(--td-px,4px))}
+}
+@media (max-width:760px){
+  .row,.acts,.hb-head-acts,.pa-chips,.chips{row-gap:8px !important}
+  table.m-cards td{padding-top:4px;padding-bottom:4px}
+  .hb-cell > span{display:block} .hb-cell > span + span{margin-top:8px}
+  .recv-ctl{gap:8px}
+  .bn-ev{margin-bottom:8px}
+  .hb-head .hb-pill{margin-top:4px;margin-bottom:4px}
+}
+@media (max-width:760px){
+  .row{column-gap:8px !important}
+  .links a{margin-bottom:4px}
+}
+@media (max-width:760px){
+  .seg,.ctabs{height:auto !important;overflow-y:visible !important}
+  .dl-past + .dl-past{margin-top:8px}
+}
+/* a checkbox sits against its own label text (the auto-clock box floated 100px away on the crew Clock) */
+label.chk > input[type=checkbox]{flex:0 0 auto;width:22px !important;min-width:0 !important;height:22px;margin:1px 0 0 !important}
+/* Say It docked in the Daily Log step nav (fDockSay): an ordinary button in the row, not a floating bar */
+body #fsay.fsay-dock{position:static !important;left:auto;right:auto;bottom:auto;top:auto;width:auto;height:auto;min-height:44px;padding:0 14px;border-radius:var(--r);box-shadow:none;transform:none;visibility:visible;opacity:1;pointer-events:auto;background:var(--paper);color:var(--accent);border:1px solid var(--rule);font-size:14px}
+body #fsay.fsay-dock svg{width:18px;height:18px;stroke:var(--accent)}

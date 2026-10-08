@@ -315,7 +315,7 @@
     <!-- DOCUMENTS -->
     <section class="view" id="v-files">
       <div class="ph"><div><h2>Documents</h2><p class="lead">Photos, delivery tickets, inspection cards, receipts, drawings and permits — uploaded from the field or the office, kept with the project, and linked to what they belong to.</p></div>
-        <div class="acts"><label class="btn"><span class="phone-only"><svg class="bp-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg> Take photo</span><span class="desk-only2">Camera</span><input type="file" id="file-cam" accept="image/*" capture="environment" hidden></label><label class="btn primary">Upload files<input type="file" id="file-up" multiple accept="image/*,application/pdf,.txt,.csv,.md,.dwg,.dxf,.heic" hidden></label></div></div>
+        <div class="acts"><label class="btn"><span class="phone-only"><svg class="bp-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg> Take Photo</span><span class="desk-only2">Camera</span><input type="file" id="file-cam" accept="image/*" capture="environment" hidden></label><label class="btn primary">Upload Files<input type="file" id="file-up" multiple accept="image/*,application/pdf,.txt,.csv,.md,.dwg,.dxf,.heic" hidden></label></div></div>
       <div class="drop" id="drop">Drop files here — photos, PDFs, drawings. Images are resized for storage; anything over 4 MB should be linked instead.</div>
       <div class="row no-print" style="margin:10px 0"><div class="seg" id="file-filter"><button class="on" data-f="all">All</button><button data-f="photo">Photos</button><button data-f="ticket">Delivery tickets</button><button data-f="receipt">Receipts</button><button data-f="inspection">Inspections &amp; permits</button><button data-f="drawing">Drawings &amp; plans</button><button data-f="other">Other</button></div><div class="seg" id="file-view"><button class="on" data-fv="grid">Grid</button><button data-fv="list">List</button></div><span class="grow"></span><span class="small muted" id="file-size"></span></div>
       <div id="file-list"></div>
@@ -415,7 +415,7 @@ Nemo Tile, orders@nemotile.com, Vendor" style="margin-top:6px"></textarea><span 
               <div><input type="number" id="p-permitbuf" min="0"><span class="hint">Days before a permit expires to be warned (default 30)</span></div>
             </div>
           </div>
-          <div class="row"><button class="btn primary" id="p-save">Save project settings</button><span class="grow"></span><button class="btn danger" id="btn-delproj">Delete this project</button></div>
+          <div class="row"><button class="btn" id="p-save">Save project settings</button><span class="grow"></span><button class="btn danger" id="btn-delproj">Delete this project</button></div>
         </div>
         <div>
                               <div class="card" style="margin-bottom:14px">

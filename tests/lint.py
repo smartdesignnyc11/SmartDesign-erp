@@ -8,6 +8,8 @@ For every user in USERS x every view in ROLE_VIEWS[role()] x desktop (1440x900) 
   TITLE_CASE           a button, tab, h1-h3, th, tile/kpi label or chip label that is not Title Case
   MONEY_WORD           the word "Money" in a label ("Accounting", never "Money")
   HEADING_NAV          the page heading does not match its nav entry (active sub-tab, else rail group)
+  HIDDEN_TAB           a visible tab strip holding a tab whose box is 0x0 while its siblings show (in the page,
+                       but nobody can see or click it)
   PHONE_HSCROLL        phone: the document scrolls sideways
   PHONE_OFFSCREEN      phone: an element's right edge passes the viewport (outside a horizontal scroller)
   CLIPPED_TEXT         phone: overflow hidden/clip cuts an element's own text (scrollWidth > clientWidth+1)
@@ -57,6 +59,10 @@ COLLECT = r"""
     if (s.visibility === 'hidden' || s.display === 'none' || +s.opacity === 0) return false;
     if (el.closest('[aria-hidden="true"]') && el.tagName !== 'svg') return false;
     if (el.closest('.toast')) return false;
+    // The body of a closed <details> is not rendered, but Chromium still reports a layout box and a visible
+    // computed style for it; its buttons were read as on-screen taps (false positive, 2026-10-08).
+    const det = el.closest('details:not([open])');
+    if (det && !el.closest('summary') && el !== det) return false;
     return true;
   };
   const sel = el => {
@@ -203,6 +209,22 @@ COLLECT = r"""
     if (k && !done.has(k)) { done.add(k); checkLabel(k, 'tile'); }
   }
 
+  // ---------- tabs that cannot be seen or clicked ----------
+  // A visible tab strip holding a tab whose box is 0x0 while its siblings show: the tab is in the page but a
+  // person can neither see nor click it (the Reports group tabs were left at 0x0 behind a select).
+  const STRIP = '[role="tablist"], .ctabs, .sub-tabs, .seg, .tabs, .hb-tabs, .hb-subtabs, .rep-groups, .rep-sub';
+  const stripSeen = new Set();
+  for (const s of shown.filter(e => e.matches(STRIP))) {
+    const kids = [...s.children].filter(k => k.matches('button, a, [role="tab"]'));
+    if (kids.length < 2) continue;
+    const on = kids.filter(k => shownSet.has(k));
+    const dead = kids.filter(k => { const r = k.getBoundingClientRect(); return r.width < 1 && r.height < 1; });
+    if (!on.length || !dead.length) continue;
+    const key = sel(s) + '|' + dead.map(k => srcText(k)).join(',');
+    if (stripSeen.has(key)) continue; stripSeen.add(key);
+    flag('HIDDEN_TAB', s, `${dead.length} of ${kids.length} tabs at 0x0: ${dead.map(k => '"' + (srcText(k) || k.textContent.trim()).slice(0, 20) + '"').join(', ')} (${sel(s)})`, key);
+  }
+
   // ---------- heading vs nav ----------
   const norm = s => (s || '').replace(/\d+\+?\s*$/, '').replace(/&/g, 'and').replace(/\s+/g, ' ').trim().toLowerCase();
   const tabOn = document.querySelector('#subnav .sub-tabs button.on, #subnav .sub-tabs .on');
@@ -280,9 +302,24 @@ COLLECT = r"""
       const pt = (p.textContent || '').replace(/\s+/g, ' ').trim(), lt = (e.textContent || '').trim();
       return pt.length > lt.length + 8;
     };
+    // A target's tappable box is the part its scrolling or clipping ancestors show. A tab scrolled under the
+    // edge of a horizontal tab strip (or under the strip's "More" button) cannot be tapped there; measuring
+    // its full box reported 0px between it and the "More" beside the strip (false positive, 2026-10-08).
+    const clipRect = e => {
+      let l, t, r, b; ({left: l, top: t, right: r, bottom: b} = e.getBoundingClientRect());
+      for (let x = e.parentElement; x && x !== document.body; x = x.parentElement) {
+        const s = cs(x);
+        if (s.overflowX === 'visible' && s.overflowY === 'visible') continue;
+        const c = x.getBoundingClientRect();
+        if (s.overflowX !== 'visible') { l = Math.max(l, c.left); r = Math.min(r, c.right); }
+        if (s.overflowY !== 'visible') { t = Math.max(t, c.top); b = Math.min(b, c.bottom); }
+        if (s.position === 'fixed') break;
+      }
+      return {left: l, top: t, right: r, bottom: b, width: r - l, height: b - t};
+    };
     const taps = shown.filter(e => e.matches(TAP) && !e.closest('#nav, .rail') && !inSentence(e) && !(e.tagName === 'INPUT' && /^(checkbox|radio)$/.test(e.type) && e.closest('label')))
-      .map(e => { let layer = null; for (let x = e; x && x !== document.body; x = x.parentElement) { const p = cs(x).position; if (p === 'fixed' || p === 'sticky') { layer = x; break; } } return {e, r: e.getBoundingClientRect(), layer}; })
-      .filter(o => o.r.right > 0 && o.r.left < W);
+      .map(e => { let layer = null; for (let x = e; x && x !== document.body; x = x.parentElement) { const p = cs(x).position; if (p === 'fixed' || p === 'sticky') { layer = x; break; } } return {e, r: clipRect(e), layer}; })
+      .filter(o => o.r.width >= 1 && o.r.height >= 1 && o.r.right > 0 && o.r.left < W);
     taps.sort((a, b) => a.r.top - b.r.top);
     const pairSeen = new Set();
     for (let i = 0; i < taps.length; i++) {
