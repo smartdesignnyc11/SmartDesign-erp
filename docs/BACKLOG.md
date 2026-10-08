@@ -182,6 +182,54 @@ This lane was finished and verified at 53 checks. Target figures follow.
    - Default SVG size 16px; proper 48px file tiles.
 9. **A dirty document keeps its primary.** Pricing a CO line hides "Send to Client" behind "Unsaved changes · Save". Send saves first, a quantity commits on blur, and the primary never disappears. Apply this to every document type.
 
+### 1.5 leaks: money leaks and slipped work are caught automatically (north star; from tests/leak_test.py, 2026-10-08)
+Baseline: 2 MISSED, 4 PARTIAL. Every item is proven by its leak_test scenario turning CAUGHT.
+1. **Unbilled reimbursables (MISSED, S1).**
+   - What happens: card purchases coded to a job land in job cost, but no field records whether they were billed back.
+   - Fix (NetSuite Billable Expenses; QuickBooks Unbilled Charges):
+     - Add `billable`, `markupPct` and `invoiceLineId` to transactions and bill lines. The default comes from the job's contract type (cost-plus / T&M) or a rule.
+     - Add a "Billable Expenses" pull in the invoice editor.
+     - `readyToBill()` gets a `reimbursable` row kind once a line is older than `company.rebillDays` (14). It feeds the Billing Queue, Home, `needs('billing')` and Ask.
+2. **Work done, not billed, hidden by a job-level hold (PARTIAL, S1).**
+   - What happens: `readyToBill` holds all of 121 State because of `wipRow(p).over > 0`. Approved CO lines and measured lines that are ahead of billing disappear with it.
+   - Fix (AIA G703 per line): never hold CO SOV lines. Hold per line, not per job, and net the deposit as a "Deposit Applied" line. Held rows show their reason and a Bill button.
+3. **Overspend when the cost lands (PARTIAL, S2).**
+   - What happens: PO overrun is flagged, but budget and estimate-line overrun is caught only by the Analyst report, at more than 10% over.
+   - Fix (Procore budget alerts; NetSuite budget check):
+     - One `jcCheck(project, code, line, amt)` called from `billFlags`, `txnState` and `bfIngest`/`applyRules`.
+     - The PM gets a reminder with Raise CO / Move Budget / Dispute.
+     - An Ask intent reads the same function.
+4. **Returns and refunds (MISSED, S1).**
+   - What happens:
+     - A positive job-coded refund never lowers job cost, because `jobFin` only counts `t.amt < 0`.
+     - Rules auto-code a refund as materials with no project.
+     - Nothing links the credit to the original charge, bill or PO, and no client credit is proposed.
+   - Fix:
+     - Credits reduce job cost.
+     - `bfIngest` scores each credit against the same vendor's last 90 days and proposes `creditOf`, which inherits the original's project, code and line.
+     - When the original was billed, propose a client credit row in `readyToBill`.
+     - Rules never code a positive amount as materials.
+5. **Every figure traces to a source (PARTIAL, S2).**
+   - What happens:
+     - `jobFin().byCode` returns bare numbers.
+     - Labor is costed from time × rate with no payroll run.
+     - Hand-typed costs carry no mark.
+   - Fix:
+     - `byCode` rows carry `src` ids, with a drill-down from every figure.
+     - Time entries are stamped with `payrollId`, and labor is costed from the run.
+     - A "No Source" badge with Match to Bank / Attach Bill.
+     - Back the seed with statement lines and bill files.
+6. **Nothing slips (PARTIAL, S2).**
+   - What happens:
+     - An unowned overdue task sits only in Tasks › Overdue › Everyone.
+     - An outbound "I'll send … Friday" becomes only a note.
+   - Fix:
+     - `clTaskSweep` proposes the project PM as owner, with Assign on Home.
+     - A promise rule in `cmRead` turns "I'll / we'll send … <day>" into a task for the sender, due on that day.
+     - Outbound mail is routed by recipient.
+     - The person's due-soon items go to Home and Ask "My Day".
+7. **Bug.** The New Bill drawer's Vendor gate (`vfHold`) stays on the shared `#d-save` button, so the transaction drawer cannot save until Vendor is filled. Clear it when the drawer opens.
+
 ---
 
 ## §2 Remaining round-4 findings

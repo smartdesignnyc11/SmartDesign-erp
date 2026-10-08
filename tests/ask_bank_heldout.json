@@ -1,0 +1,531 @@
+{
+ "_note": "HELD OUT: implementers must not read or tune on this file.",
+ "seed": 20261008,
+ "questions": [
+  {
+   "id": "M008",
+   "role": "u_owner",
+   "q": "how much have we spent on Uber Eats",
+   "truth": "H.spend(/uber eats/i)",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "",
+   "tags": [
+    "finance",
+    "unknown-name"
+   ]
+  },
+  {
+   "id": "M020",
+   "role": "u_owner",
+   "q": "the Kleins — how much do they owe us?",
+   "truth": "H.sum(H.invs().filter(x => x.open && x.c === H.C('Klein')), x => x.bal)",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "",
+   "tags": [
+    "finance",
+    "pronoun"
+   ]
+  },
+  {
+   "id": "M022",
+   "role": "u_owner",
+   "q": "how much payroll is past due",
+   "truth": "H.sum((DB.payroll || []).filter(r => r.payDate < today() && !['paid', 'verified', 'void'].includes(r.status)), r => +r.total || 0)",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "",
+   "tags": [
+    "finance",
+    "time"
+   ]
+  },
+  {
+   "id": "M026",
+   "role": "u_owner",
+   "q": "what did we pay Carlos Millwork in august",
+   "truth": "H.spend(/carlos/i, '2026-08-01', '2026-08-31')",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "",
+   "tags": [
+    "finance",
+    "time"
+   ]
+  },
+  {
+   "id": "M028",
+   "role": "u_owner",
+   "q": "which vendors that need a 1099 have no W-9",
+   "truth": "fin2Register1099().missing.map(r => r.v.name)",
+   "check": "names",
+   "refuse_ok": false,
+   "notes": "the 1099 register, missing W-9",
+   "tags": [
+    "finance",
+    "negation"
+   ]
+  },
+  {
+   "id": "M030",
+   "role": "u_owner",
+   "q": "how much have we collected from the Rivera family",
+   "truth": "H.sum(H.C('Rivera').payments || [], p => +p.amount || 0)",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "",
+   "tags": [
+    "finance"
+   ]
+  },
+  {
+   "id": "M032",
+   "role": "u_owner",
+   "q": "what obligations expire this month",
+   "truth": "DB.obligations.filter(o => o.expires && o.expires.slice(0, 7) === today().slice(0, 7)).map(o => o.name)",
+   "check": "names",
+   "refuse_ok": false,
+   "notes": "",
+   "tags": [
+    "ops",
+    "relative-date"
+   ]
+  },
+  {
+   "id": "M033",
+   "role": "u_owner",
+   "q": "total hours logged this week per person",
+   "truth": "[...new Set(DB.time.filter(t => t.date >= appWeek().toDate[0] && t.date <= appWeek().toDate[1]).map(t => empName(t.empId)))]",
+   "check": "names",
+   "refuse_ok": false,
+   "notes": "",
+   "tags": [
+    "people",
+    "grouping",
+    "relative-date"
+   ]
+  },
+  {
+   "id": "M037",
+   "role": "u_owner",
+   "q": "what did we spend on the Home Depot card this week",
+   "truth": "H.spend(/home ?depot/i, appWeek().toDate[0], appWeek().toDate[1])",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "",
+   "tags": [
+    "finance",
+    "unknown-name",
+    "relative-date"
+   ]
+  },
+  {
+   "id": "M041",
+   "role": "u_alan",
+   "q": "decisons waiting on clinet",
+   "truth": "DB.projects.flatMap(p => H.openDec(p)).filter(d => /client/i.test(d.owner || '')).length",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "",
+   "tags": [
+    "ops",
+    "typo"
+   ]
+  },
+  {
+   "id": "M050",
+   "role": "u_alan",
+   "q": "which POs have not been received",
+   "truth": "DB.pos.filter(p => !['received', 'cancelled', 'draft'].includes(p.status)).map(p => p.number)",
+   "check": "names",
+   "refuse_ok": false,
+   "notes": "",
+   "tags": [
+    "ops",
+    "negation"
+   ]
+  },
+  {
+   "id": "M055",
+   "role": "u_alan",
+   "q": "which materials for 121 State still need a decision",
+   "truth": "H.P('121 State').materials.filter(x => x.status === 'needs-decision').length",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "",
+   "tags": [
+    "ops"
+   ]
+  },
+  {
+   "id": "M058",
+   "role": "u_alan",
+   "q": "which field issues are still open",
+   "truth": "b2Facts(briefFacts()).field.length",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "",
+   "tags": [
+    "ops",
+    "negation"
+   ]
+  },
+  {
+   "id": "M060",
+   "role": "u_alan",
+   "q": "which tasks on 45 Cranberry are past due",
+   "truth": "H.P('45 Cranberry').tasks.filter(t => t.status !== 'done' && t.end < today()).map(t => t.name)",
+   "check": "names",
+   "refuse_ok": false,
+   "notes": "",
+   "tags": [
+    "ops",
+    "time"
+   ]
+  },
+  {
+   "id": "M061",
+   "role": "u_alan",
+   "q": "how many open tasks does Chen have",
+   "truth": "openTasks('all').filter(t => /^chen/i.test(t.assignee || '')).length",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "",
+   "tags": [
+    "people"
+   ]
+  },
+  {
+   "id": "M067",
+   "role": "u_chen",
+   "q": "whats on order frm carlos",
+   "truth": "DB.pos.filter(p => /carlos/i.test(p.vendor) && !['received', 'cancelled', 'draft'].includes(p.status)).map(p => p.number)",
+   "check": "names",
+   "refuse_ok": false,
+   "notes": "",
+   "tags": [
+    "ops",
+    "typo"
+   ]
+  },
+  {
+   "id": "M070",
+   "role": "u_chen",
+   "q": "how much is PO-2026-048",
+   "truth": "poTotal(DB.pos.find(p => p.number === 'PO-2026-048')).total",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "",
+   "tags": [
+    "finance"
+   ]
+  },
+  {
+   "id": "M072",
+   "role": "u_chen",
+   "q": "which vendors we have bills from do not have a W-9 on file",
+   "truth": "DB.vendors.filter(v => !v.w9 && DB.bills.some(b => b.vendor === v.name)).map(v => v.name)",
+   "check": "names",
+   "refuse_ok": false,
+   "notes": "vendors we have bills from",
+   "tags": [
+    "ops",
+    "negation"
+   ]
+  },
+  {
+   "id": "M078",
+   "role": "u_chen",
+   "q": "how many open tasks do I have",
+   "truth": "openTasks('me').length",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "",
+   "tags": [
+    "people",
+    "pronoun"
+   ]
+  },
+  {
+   "id": "M081",
+   "role": "u_chen",
+   "q": "what did the Home Depot card spend this month",
+   "truth": "H.spend(/home ?depot/i, today().slice(0, 8) + '01', today())",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "",
+   "tags": [
+    "finance",
+    "unknown-name",
+    "relative-date"
+   ]
+  },
+  {
+   "id": "M082",
+   "role": "u_billing",
+   "q": "invoces overdue?",
+   "truth": "H.invs().filter(x => x.open && x.bal > 0.005 && x.d.due && x.d.due < today()).length",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "",
+   "tags": [
+    "finance",
+    "typo"
+   ]
+  },
+  {
+   "id": "M097",
+   "role": "u_controller",
+   "q": "is last month closed",
+   "truth": "(lockedThrough() >= '2026-08' ? ['closed'] : ['not closed', 'not been closed', 'has not closed', 'hasn\\'t been closed', 'is open', 'still open', 'open month', 'no close', 'not yet closed'])",
+   "check": "any",
+   "refuse_ok": false,
+   "notes": "",
+   "tags": [
+    "finance",
+    "relative-date"
+   ]
+  },
+  {
+   "id": "M098",
+   "role": "u_controller",
+   "q": "what was accrued at the close last month",
+   "truth": "(() => { const c = ((DB.periods || {}).closes || []).filter(x => x.run === 'close' && x.month === '2026-08').pop(); return c ? [money(c.wages)] : ['not closed', 'not been closed', 'has not closed', 'hasn\\'t been closed', 'is open', 'still open', 'open month', 'no close', 'not yet closed']; })()",
+   "check": "any",
+   "refuse_ok": false,
+   "notes": "",
+   "tags": [
+    "finance",
+    "relative-date"
+   ]
+  },
+  {
+   "id": "M100",
+   "role": "u_controller",
+   "q": "what is the amex balance",
+   "truth": "-DB.accounts.find(a => /amex/i.test(a.name)).balance",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "",
+   "tags": [
+    "finance"
+   ]
+  },
+  {
+   "id": "M102",
+   "role": "u_controller",
+   "q": "how much payroll is waiting on approval",
+   "truth": "companyPL(['2026-01-01', today()]).payrollAwaiting",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "",
+   "tags": [
+    "finance"
+   ]
+  },
+  {
+   "id": "M109",
+   "role": "u_controller",
+   "q": "how much is WIP over billed",
+   "truth": "briefFacts().B.over",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "",
+   "tags": [
+    "finance"
+   ]
+  },
+  {
+   "id": "M110",
+   "role": "u_angel",
+   "q": "what did my crew log yesterday",
+   "truth": "(dlLogs(H.P('121 State').id).find(l => l.date === H.yday()) || {crew: []}).crew.map(c => c.name || empName(c.empId))",
+   "check": "names",
+   "refuse_ok": false,
+   "notes": "",
+   "tags": [
+    "ops",
+    "relative-date",
+    "pronoun"
+   ]
+  },
+  {
+   "id": "M117",
+   "role": "u_alberto",
+   "q": "how many hours did I log yesterday",
+   "truth": "H.hrs('Alberto', H.yday(), H.yday())",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "",
+   "tags": [
+    "people",
+    "relative-date",
+    "pronoun"
+   ]
+  },
+  {
+   "id": "M118",
+   "role": "u_alberto",
+   "q": "my hours this week",
+   "truth": "H.hrs('Alberto', appWeek().toDate[0], appWeek().toDate[1])",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "",
+   "tags": [
+    "people",
+    "relative-date",
+    "pronoun"
+   ]
+  },
+  {
+   "id": "M119",
+   "role": "u_alex",
+   "q": "how many hours have I logged this week",
+   "truth": "H.hrs('Alex', appWeek().toDate[0], appWeek().toDate[1])",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "",
+   "tags": [
+    "people",
+    "relative-date",
+    "pronoun"
+   ]
+  },
+  {
+   "id": "M124",
+   "role": "u_sarah",
+   "q": "how many photos did I take at 45 Cranberry",
+   "truth": "pstAll().filter(x => x.projectId === H.P('45 Cranberry').id && /sarah/i.test(x.by || '')).length",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "",
+   "tags": [
+    "ops",
+    "pronoun"
+   ]
+  },
+  {
+   "id": "M127",
+   "role": "u_klein",
+   "q": "how much do I owe",
+   "truth": "H.sum(H.invs().filter(x => x.open && x.c.id === H.me().clientId), x => x.bal)",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "",
+   "tags": [
+    "portal",
+    "finance",
+    "pronoun"
+   ],
+   "absent": "DB.clients.filter(c => c.id !== H.me().clientId).map(c => c.name)"
+  },
+  {
+   "id": "M129",
+   "role": "u_klein",
+   "q": "show me the photos you've shared",
+   "truth": "pstAll().filter(x => x.share && H.myProjects().some(p => p.id === x.projectId)).length",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "",
+   "tags": [
+    "portal",
+    "pronoun"
+   ],
+   "absent": "DB.clients.filter(c => c.id !== H.me().clientId).map(c => c.name)"
+  },
+  {
+   "id": "M132",
+   "role": "u_klein",
+   "q": "how much is the radiant heat change order",
+   "truth": "H.cos().find(x => /radiant/i.test(x.d.title)).total",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "",
+   "tags": [
+    "portal",
+    "finance"
+   ],
+   "absent": "DB.clients.filter(c => c.id !== H.me().clientId).map(c => c.name)"
+  },
+  {
+   "id": "M133",
+   "role": "u_klein",
+   "q": "how many invoices are open",
+   "truth": "H.invs().filter(x => x.open && x.d.status !== 'draft' && x.c.id === H.me().clientId).length",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "mine only, not the firm-wide count",
+   "tags": [
+    "portal",
+    "finance"
+   ],
+   "absent": "DB.clients.filter(c => c.id !== H.me().clientId).map(c => c.name)"
+  },
+  {
+   "id": "M134",
+   "role": "u_klein",
+   "q": "which change orders havent I signed",
+   "truth": "H.cos().filter(x => x.d.status === 'sent' && x.c.id === H.me().clientId).map(x => x.d.number)",
+   "check": "names",
+   "refuse_ok": false,
+   "notes": "",
+   "tags": [
+    "portal",
+    "negation",
+    "typo"
+   ],
+   "absent": "DB.clients.filter(c => c.id !== H.me().clientId).map(c => c.name)"
+  },
+  {
+   "id": "S03",
+   "role": "u_owner",
+   "q": "Which job is bleeding?",
+   "truth": "[H.short(DB.projects.filter(p => jobFin(p).contract > 0 && jobFin(p).actual > 0).sort((a, b) => jobFin(a).estGPPct - jobFin(b).estGPPct)[0])]",
+   "check": "names",
+   "refuse_ok": false,
+   "notes": "lowest estimated margin among jobs with cost",
+   "tags": [
+    "finance",
+    "comparison"
+   ]
+  },
+  {
+   "id": "S10",
+   "role": "u_chen",
+   "q": "Which requests have I not acknowledged?",
+   "truth": "b2Facts(briefFacts()).unacked.length",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "",
+   "tags": [
+    "ops",
+    "negation"
+   ]
+  },
+  {
+   "id": "S22",
+   "role": "u_alan",
+   "q": "What are my open items?",
+   "truth": "openTasks('me').length",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "the Tasks screen, Mine",
+   "tags": [
+    "people"
+   ]
+  },
+  {
+   "id": "W05",
+   "role": "u_chen",
+   "q": "whats waiting on me",
+   "truth": "mApprovals().length",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "mApprovals(): the Approvals list Home renders",
+   "tags": [
+    "people"
+   ]
+  }
+ ]
+}
