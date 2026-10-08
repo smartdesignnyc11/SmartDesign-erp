@@ -3552,12 +3552,37 @@ const ICON_SVG = (d, w = 13, sw = 2.2) =>
   ICON_UNDO = ICON_SVG('<path d="M3 10h10a5 5 0 1 1 0 10H8"/><path d="M3 10l4-4M3 10l4 4"/>'),
   ICON_CHECK = ICON_SVG('<path d="M20 6L9 17l-5-5"/>'),
   ICON_DOT = ICON_SVG('<circle cx="12" cy="12" r="7"/>');
-function toast(msg) {
+// toast(msg, open, ms): every mutation names its record. `open` is a function (an "Open" link), a
+// {label, run} link, or a list of them; the toast then carries the links and stays up 6.5s.
+const toastLinksOf = (go) =>
+  (Array.isArray(go) ? go : go ? [go] : [])
+    .map((l) => ("function" == typeof l ? { label: "Open", run: l } : l))
+    .filter((l) => l && "function" == typeof l.run);
+function toast(msg, go, ms) {
   const t = $("#toast");
-  (t.textContent = msg),
-    t.classList.add("on"),
-    clearTimeout(t._t),
-    (t._t = setTimeout(() => t.classList.remove("on"), 2400));
+  (t.textContent = msg), t.classList.remove("act"), t.classList.add("on"), clearTimeout(t._t);
+  const L = toastLinksOf(go);
+  L.length &&
+    ((t.textContent = ""),
+    t.appendChild(Object.assign(document.createElement("span"), { className: "toast-msg", textContent: String(msg || "") })),
+    L.forEach((l) => {
+      t.appendChild(document.createTextNode(" · "));
+      const a = document.createElement("a");
+      (a.href = "#"),
+        (a.className = "toast-open"),
+        (a.textContent = l.label || "Open"),
+        (a.onclick = (e) => {
+          e.preventDefault(), t.classList.remove("on", "act");
+          try {
+            document.getElementById("mbm")?.remove(), l.run();
+          } catch (err) {
+            console.warn("toast link", err);
+          }
+        }),
+        t.appendChild(a);
+    }),
+    t.classList.add("act")),
+    (t._t = setTimeout(() => t.classList.remove("on", "act"), ms || (L.length ? 6500 : 2400)));
 }
 const sevPill = (s) => (3 === s ? "red" : 2 === s ? "orange" : 1 === s ? "amber" : "green");
 function render() {
@@ -14319,7 +14344,13 @@ async function clockEvent(kind) {
       audit("time", e.id, "clock-out", null, { geo: geo, hours: hoursOf(e) }),
       log(`${emp.name} clocked out — ${hoursOf(e).toFixed(1)} h`);
   }
-  save(), render(), toast("in" === kind ? "Clocked in" : "Clocked out — now log what you worked on");
+  const te = DB.time.filter((t) => t.empId === emp.id && t.date === today()).pop();
+  save(),
+    render(),
+    toast(
+      "in" === kind ? `Clocked in at ${S.project.name}` : "Clocked out — now log what you worked on",
+      flowGo.time(te),
+    );
 }
 function openTime(id) {
   const e = id
@@ -31298,7 +31329,7 @@ function portalApprove(c, d) {
           }
         } catch (e) {}
         Promise.resolve(docAction(c, d, "approve")).then(() => {
-          save(), render(), toast(`${d.number} approved — thank you`);
+          save(), render(), toast(`${d.number} approved — thank you`, flowGo.doc(c, d.type, d));
         });
       },
     },
@@ -45017,6 +45048,7 @@ function fSend(o) {
     save(),
     toast(
       `Sent to ${p ? p.name : r.to}${r.cc.length ? ` · ${r.cc.map((k) => fPerson(k)?.name.split(" ")[0] || k).join(", ")} copied` : ""}`,
+      flowGo.raise(r),
     ),
     r
   );
@@ -46022,7 +46054,7 @@ function fWireOffice(root) {
                   setCurrent(cur),
                   save(),
                   render(),
-                  toast(`Sent to ${r.by}`);
+                  toast(`Answer sent to ${r.by} — ${r.title}`, flowGo.raise(r));
               },
             },
           );
@@ -61229,8 +61261,8 @@ if ("function" == typeof renderSDay) {
             g && g.unscoped
               ? dpUnscopedModal(p, h, e)
               : g && g.phase
-                ? toast(g.note)
-                : toast(`${h} h logged`),
+                ? toast(g.note, flowGo.time(e))
+                : toast(`${h} h logged${p ? ` on ${p.project.name}` : ""}`, flowGo.time(e)),
               (hrs.value = ""),
               noteEl && (noteEl.value = ""),
               renderSDay();
@@ -61249,7 +61281,8 @@ function dpUnscopedModal(p, hours, entry) {
       submit: "Note it and carry on",
       wide: !0,
       onSubmit: (f) => {
-        entry && ((entry.notes = f.what || entry.notes), save()), toast("Logged as outside the proposal");
+        entry && ((entry.notes = f.what || entry.notes), save()),
+          toast("Logged as outside the proposal", flowGo.time(entry));
       },
     },
   ),
@@ -61513,6 +61546,12 @@ function frqReceipt(r) {
     },
   ),
     "function" == typeof procWide && procWide(560);
+  toast(
+    garbage
+      ? `Dump run sent to ${who}`
+      : `Request sent to ${who} — ${items.length} thing${1 === items.length ? "" : "s"}`,
+    flowGo.request((DB.projects || []).find((p) => (p.requests || []).includes(r)) || S),
+  );
   const m = document.getElementById("mbm");
   if (!m) return;
   const ft = m.querySelector(".mbm-ft");
@@ -116637,6 +116676,7 @@ async function crSendToClient(c, d) {
             render(),
             toast(
               `${d.number} sent to ${c.name} — ${money(t.total)} · ${mailed ? ("mail app" === o.via ? "in your mail app to send, and " : "emailed and ") : ""}in their portal`,
+              flowGo.doc(c, d.type, d),
             );
         })();
       },
@@ -121478,27 +121518,7 @@ function opsBoot() {
   };
 }
 function toastDone(label, go, ms) {
-  toast(label);
-  const t = document.getElementById("toast");
-  if (t) {
-    if ((t.classList.remove("act"), "function" == typeof go)) {
-      const a = document.createElement("a");
-      (a.href = "#"),
-        (a.textContent = "Open"),
-        (a.className = "toast-open"),
-        (a.onclick = (e) => {
-          e.preventDefault(), t.classList.remove("on", "act");
-          try {
-            go();
-          } catch (err) {
-            console.warn("toast open", err);
-          }
-        }),
-        t.appendChild(a),
-        t.classList.add("act");
-    }
-    clearTimeout(t._t), (t._t = setTimeout(() => t.classList.remove("on", "act"), ms || (go ? 6500 : 2400)));
-  }
+  toast(label, "function" == typeof go ? go : null, ms);
 }
 const flowCan = (v) => {
     try {
@@ -121523,6 +121543,10 @@ const flowCan = (v) => {
       p && setCurrent(p.id), (poOpen = po.id), (view = "po"), render(), flowTop();
     },
     doc: (c, kind, d) => () => {
+      if (!flowCan("billing") && !flowCan("clients")) {
+        const title = `${{ estimate: "Proposal", co: "Change Order", invoice: "Invoice" }[kind] || "Document"} ${esc(d.number || "")}`;
+        return void mbModal(title, docSummaryHtml(c, d), { submit: null });
+      }
       (clientOpen = c.id),
         (docOpen = { kind: kind, id: d.id }),
         (billTab = "invoice" === kind ? "invoices" : "co" === kind ? "co" : "estimates"),
@@ -121553,6 +121577,25 @@ const flowCan = (v) => {
     },
     view: (v) => () => {
       (view = v), render(), flowTop();
+    },
+    // the first of these views the person may open (a record's home differs by role)
+    viewOf: (...vs) => () => {
+      (view = vs.find(flowCan) || ROLE_VIEWS[role()][0]), render(), flowTop();
+    },
+    raise: (r) => () => {
+      r && r.projectId && setCurrent(r.projectId),
+        (view = ["field", "fraise", "ftoday"].find(flowCan) || ROLE_VIEWS[role()][0]),
+        render(),
+        flowTop();
+    },
+    request: (p) => () => {
+      p && setCurrent(p.id), (view = flowCan("req") ? "req" : ROLE_VIEWS[role()][0]), render(), flowTop();
+    },
+    time: (e) => () => {
+      e && e.projectId && setCurrent(e.projectId),
+        (view = ["time", "sday", "ftoday"].find(flowCan) || ROLE_VIEWS[role()][0]),
+        render(),
+        flowTop();
     },
   };
 let flowQuiet = !1;
@@ -140818,35 +140861,7 @@ const RC_CHEV =
   rcWho = () => (S && S.project && S.project.userName) || role(),
   rcPhone = () => mOn();
 function rcToast(text, links, ms) {
-  toast(text);
-  const t = document.getElementById("toast");
-  if (!t) return;
-  const L = (links || []).filter((l) => l && "function" == typeof l.run);
-  if (!L.length) return;
-  t.textContent = "";
-  const m = document.createElement("span");
-  (m.className = "toast-msg"),
-    (m.textContent = String(text || "")),
-    t.appendChild(m),
-    L.forEach((l) => {
-      t.appendChild(document.createTextNode(" · "));
-      const a = document.createElement("a");
-      (a.href = "#"),
-        (a.className = "toast-open"),
-        (a.textContent = l.label || "Open"),
-        (a.onclick = (e) => {
-          e.preventDefault(), t.classList.remove("on", "act");
-          try {
-            l.run();
-          } catch (err) {
-            console.warn("toast link", err);
-          }
-        }),
-        t.appendChild(a);
-    }),
-    t.classList.add("on", "act"),
-    clearTimeout(t._t),
-    (t._t = setTimeout(() => t.classList.remove("on", "act"), ms || 6500));
+  toast(text, links || null, ms);
 }
 if ("function" == typeof toastDone) {
   const base = toastDone;
@@ -158256,6 +158271,13 @@ function igFindByText(msg) {
     }
   const po = (DB.pos || []).find((x) => x.number && m.includes(x.number));
   if (po && flowCan("po")) return flowGo.po(po);
+  const bill = (DB.bills || []).find(
+    (x) =>
+      x.number &&
+      x.number.length > 3 &&
+      new RegExp("(^|[^\\w-])" + String(x.number).replace(/[.*+?^${}()|[\]\\-]/g, "\\$&") + "(?![\\w-])").test(m),
+  );
+  if (bill && flowCan("ap")) return flowGo.bill(bill);
   const p = (DB.projects || []).find((x) => x.project && x.project.name && m.includes(x.project.name));
   if (p) return flowGo.project(p);
   const c = (DB.clients || []).find((x) => x.name && m.includes(x.name));
@@ -158292,6 +158314,9 @@ function igFindByText(msg) {
   ),
 );
 const IG_CREATE_RX = /^created\b|\bcreated\b|\bbuilt\b|\bdrafted\b|\bset up\b|^new\b.*\b(saved|added)\b/i;
+// A toast that reports a write ("sent", "approved", "recorded"...) and names a record gets that record's Open link.
+const IG_WRITE_RX =
+  /\b(sent|approved|recorded|signed|saved|updated|issued|received|voided|paid|submitted|rejected|filed|logged|scheduled|moved|marked|added|answered|assigned|revised|reopened|closed|posted|matched|attached|shared|uploaded|returned|accepted|declined|cancell?ed|imported|copied|duplicated|converted|disputed|held|released|reconciled|locked|unlocked|changed|deleted|removed|archived|restored|emailed|chosen|picked|booked|ordered|delivered|acknowledged|credited|applied|split|renamed)\b/i;
 function igToastLink(msg, at) {
   const t = document.getElementById("toast");
   if (!t || !t.classList.contains("on") || t.querySelector("a, button")) return;
@@ -158315,7 +158340,7 @@ function igToastLink(msg, at) {
       }
     } catch (e) {}
   }
-  if ((!go && IG_CREATE_RX.test(msg) && (go = igFindByText(msg)), !go)) return;
+  if ((!go && (IG_CREATE_RX.test(msg) || IG_WRITE_RX.test(msg)) && (go = igFindByText(msg)), !go)) return;
   const a = document.createElement("a");
   (a.href = "#"),
     (a.textContent = "Open"),
