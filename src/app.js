@@ -12176,17 +12176,30 @@ function fileSizeStr(n) {
 function renderFiles() {
   const all = S.files,
     emailDocs = S.docs || [],
-    rows = all
+    listed = all
       .filter((f) => "all" === fileFilter || f.cat === fileFilter)
       .sort((a, b) => (b.uploadedAt || "").localeCompare(a.uploadedAt || "")),
+    // A Documents tile focuses the cards on its predicate (the list view is a grid, which grid() filters).
+    tf = "grid" === fileView && tlFocus.files && "files" === tlFocus.files.grid && tlFocus.files.pred ? tlFocus.files : null,
+    rows = tf
+      ? listed.filter((f) => {
+          try {
+            return !!tf.pred(f);
+          } catch (e) {
+            return !1;
+          }
+        })
+      : listed,
     total = all.reduce((a, f) => a + (f.size || 0), 0);
+  tf && ((tf.n = rows.length), (tf.m = listed.length));
   ($("#file-size").textContent =
     `${all.length} file${1 === all.length ? "" : "s"} · ${fileSizeStr(total)}${emailDocs.length ? ` · ${emailDocs.length} email attachment${emailDocs.length > 1 ? "s" : ""} linked` : ""}`),
     ($("#n-files").textContent = all.filter((f) => !f.seen).length || "");
   const box = $("#file-list");
-  if (rows.length || emailDocs.length)
+  if (rows.length || emailDocs.length || tf)
     if ("grid" === fileView)
       (box.innerHTML =
+        (tf && !rows.length ? '<div class="empty">No document matches this filter.</div>' : "") +
         `<div class="fgrid">${rows.map((f) => `<div class="fcard ${f.seen ? "" : "unread"}" data-file="${f.id}"><div class="th" data-thumb="${f.id}">${/image/.test(f.type) ? "" : fileIcon(f)}</div><div class="b"><b title="${esc(f.name)}">${esc(f.name)}</b><div class="s">${esc(FILE_CATS[f.cat] || f.cat)} · ${fmt(f.date)}${f.by ? ` · ${esc(f.by)}` : ""}</div>${f.link?.kind ? `<div class="s">↳ ${esc(linkLabel(f.link))}</div>` : ""}${f.ai?.summary ? `<div class="s" title="${esc(f.ai.summary)}">${esc(f.ai.summary)}</div>` : ""}</div></div>`).join("")}</div>` +
         (emailDocs.length
           ? `<h3 style="margin:16px 0 8px">From project email</h3>${emailDocs
@@ -59764,8 +59777,11 @@ function spGroupCount(key) {
 }
 function spTabCount(k) {
   try {
-    if ("approve" === k) return (DB.spend || []).filter((s) => "submitted" === s.status).length;
-    if ("unbilled" === k) return "function" == typeof spUnbilled && S ? spUnbilled(S.id).length : 0;
+    // The chip counts what its pane lists: the same job filter (Every project, or the one picked).
+    const pid = "all" === spProj ? null : spProj;
+    if ("approve" === k)
+      return (DB.spend || []).filter((s) => "submitted" === s.status && (!pid || s.projectId === pid)).length;
+    if ("unbilled" === k) return "function" == typeof spUnbilled ? spUnbilled(pid).length : 0;
     if ("inbills" === k) return biPending().length;
     if ("route" === k) return rtWaiting().filter((o) => rtCan(o).ok).length;
     if ("cards" === k) return "function" == typeof cdUnassigned ? cdUnassigned().length : 0;
@@ -82003,7 +82019,7 @@ const HB_VIEWS = {
   hbcontacts: "Contacts",
   hbcompanies: "Companies",
   hbdeals: "Deals",
-  hbtasks: "Tasks",
+  hbtasks: "Sales Tasks",
   hbplaybooks: "Playbooks",
   hbworkspace: "Sales Workspace",
   hbsequences: "Sequences",
@@ -82082,7 +82098,7 @@ if (
           hbdeals: "Deals",
           hbcontacts: "Contacts",
           hbcompanies: "Companies",
-          hbtasks: "Tasks",
+          hbtasks: "Sales Tasks",
           hbsequences: "Sequences",
           hbquotes: "Quotes",
           hbforecast: "Forecast",
@@ -84560,7 +84576,8 @@ const TL_CHEV = '<svg class="gl-chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"
         : money(n);
 function tlTile(view, t, i) {
   const on = tlFocus[view] && tlFocus[view].key === t.key;
-  return `<button type="button" class="gl ${t.tone || ""} ${on ? "on" : ""} ${t.go || t.pred ? "" : "static"}" data-tl="${t.key || i}"><span class="gl-k">${esc(t.k)}</span><b class="gl-v">${t.v}</b><span class="gl-s">${t.s || ""}</span>${t.go || t.pred ? TL_CHEV : ""}</button>`;
+  const live = t.go || t.pred || t.list;
+  return `<button type="button" class="gl ${t.tone || ""} ${on ? "on" : ""} ${live ? "" : "static"}" data-tl="${t.key || i}"${t.rule ? ` title="${esc(t.rule)}"` : ""}><span class="gl-k">${esc(t.k)}</span><b class="gl-v">${t.v}</b><span class="gl-s">${t.s || ""}</span>${live ? TL_CHEV : ""}</button>`;
 }
 const tlZero = (t) => /^(0|\$0|0\.0 h|—|0 min)$/.test(String(t.v).trim()) && !t.tone;
 // The filter a tile put on its list, said in full: how many rows of how many, and the rule behind the count.
@@ -84577,16 +84594,64 @@ function tlMount(view, tiles, host) {
     );
   (host.className = "glance tl"), (host.innerHTML = tiles.map((t, i) => tlTile(view, t, i)).join(""));
   const f = tlFocus[view];
+  // A tile whose rows live on no list of this page (documents across clients, decisions across jobs,
+  // people with no time) lists them itself, from the same function that counted them.
+  let fl = null;
+  if (f && f.list)
+    try {
+      (fl = f.list() || []), (f.n = fl.length), (f.m = f.of ? f.of() : fl.length);
+    } catch (e) {
+      console.warn("tile list", view, e), (fl = []);
+    }
   f &&
     (host.insertAdjacentHTML("beforeend", tlFocusBar(f)),
     (host.querySelector("[data-tlclear]").onclick = () => {
       delete tlFocus[view], render();
     })),
+    fl &&
+      (host.insertAdjacentHTML(
+        "beforeend",
+        `<div class="tl-flist" style="grid-column:1/-1">${grid({
+          id: f.grid,
+          cols: f.cols,
+          rows: fl.map((x, i) => ({ id: "tlf" + i, data: x, edit: "tlf:" + i })),
+          empty: "Nothing matches this tile now.",
+        })}</div>`,
+      ),
+      f.open &&
+        host.querySelectorAll('.tl-flist tr[data-edit^="tlf:"]').forEach((tr) =>
+          tr.addEventListener(
+            "click",
+            (e) => {
+              if (e.target.closest("button,a,input")) return;
+              e.stopPropagation(), e.preventDefault();
+              const x = fl[+tr.dataset.edit.slice(4)];
+              x && (f.open(x), render(), window.scrollTo(0, 0));
+            },
+            !0,
+          ),
+        )),
     host.querySelectorAll("[data-tl]").forEach((b, i) => {
       const t = tiles.find((x) => (x.key || String(tiles.indexOf(x))) === b.dataset.tl) || tiles[i];
       t &&
-        (t.go || t.pred) &&
+        (t.go || t.pred || t.list) &&
         (b.onclick = () => {
+          if (t.list)
+            return (
+              tlFocus[view] && tlFocus[view].key === t.key
+                ? delete tlFocus[view]
+                : (tlFocus[view] = {
+                    key: t.key,
+                    grid: "tlf-" + view,
+                    label: t.k,
+                    rule: t.rule || "",
+                    list: t.list,
+                    of: t.of,
+                    cols: t.cols,
+                    open: t.open,
+                  }),
+              void render()
+            );
           if (t.pred)
             return (
               tlFocus[view] && tlFocus[view].key === t.key
@@ -85058,10 +85123,8 @@ const TL_SETS = {},
       const d = glDrift();
       drift = Array.isArray(d) ? d.length : d && d.diffs ? d.diffs.length : 0;
     } catch (e) {}
-    const uncoded = J.filter((j) => "void" !== j.status)
-        .flatMap((j) => j.lines || [])
-        .filter((l) => /^5/.test(String(l.acct || "")) && !l.projectId),
-      uncodedAmt = uncoded.reduce((a, l) => a + (+l.dr || 0), 0);
+    const uncoded = PRED.uncodedCost.rows(),
+      uncodedAmt = uncoded.reduce((a, x) => a + (+x.l.dr || 0), 0);
     return [
       {
         key: "pend",
@@ -85145,7 +85208,19 @@ const TL_SETS = {},
         s: uncoded.length
           ? `${tlK(uncodedAmt)} of direct cost carrying no project — silent margin loss`
           : "every direct cost carries its job",
-        go: () => {
+        rule: PRED.uncodedCost.rule,
+        list: () => PRED.uncodedCost.rows(),
+        of: () =>
+          ((DB.gl && DB.gl.journals) || [])
+            .filter((j) => "void" !== j.status)
+            .reduce((a, j) => a + (j.lines || []).filter((l) => /^5/.test(String(l.acct || ""))).length, 0),
+        cols: [
+          { key: "date", label: "Date", type: "date", w: "90px", get: (x) => x.j.date || "" },
+          { key: "memo", label: "Entry", cls: "name", get: (x) => x.j.memo || x.j.ref || x.j.id || "" },
+          { key: "acct", label: "Account", w: "110px", get: (x) => String(x.l.acct || "") },
+          { key: "amt", label: "Debit", type: "money", w: "100px", get: (x) => +x.l.dr || 0 },
+        ],
+        open: () => {
           glTab = "journal";
         },
       },
@@ -85157,16 +85232,7 @@ const TL_SETS = {},
       [wS, wE] = weekRange(td),
       sub = T.filter((t) => "submitted" === t.status),
       open = T.filter((t) => !t.out),
-      yest = iso(addDays(td, -1)),
-      crew = (DB.employees || []).filter(
-        (e) => !1 !== e.active && !/coordinator|office|owner|design|architect/i.test(e.role || ""),
-      ),
-      sh = siteHours(),
-      yDow = parse(yest).getDay(),
-      missing =
-        sh.days && sh.days.includes(yDow)
-          ? crew.filter((e) => !T.some((t) => t.empId === e.id && t.date === yest))
-          : [],
+      missing = PRED.missingTime.rows(),
       byEmp = {};
     T.filter((t) => t.date >= wS && t.date <= wE).forEach((t) => {
       byEmp[t.empId] = (byEmp[t.empId] || 0) + hoursOf(t);
@@ -85191,13 +85257,32 @@ const TL_SETS = {},
       },
       {
         key: "miss",
-        k: "Missing Time",
+        k: PRED.missingTime.label,
         v: missing.length,
         tone: missing.length ? "bad" : "",
         s: missing.length
           ? `on the crew list, no entry yesterday: ${missing.map((e) => e.name.split(" ")[0]).join(", ")}`
           : "everyone on the crew list clocked yesterday",
-        go: () => {
+        rule: PRED.missingTime.rule,
+        list: () => PRED.missingTime.rows(),
+        of: () => PRED.missingTime.crew().length,
+        cols: [
+          { key: "name", label: "Name", cls: "name", get: (e) => e.name },
+          { key: "role", label: "Role", get: (e) => e.role || "" },
+          {
+            key: "last",
+            label: "Last Entry",
+            type: "date",
+            w: "100px",
+            get: (e) =>
+              (DB.time || [])
+                .filter((t) => t.empId === e.id)
+                .map((t) => t.date)
+                .sort()
+                .pop() || "",
+          },
+        ],
+        open: () => {
           (view = "fcrew"), (ROLE_VIEWS[role()] || []).includes("fcrew") || (view = "time");
         },
       },
@@ -85235,16 +85320,8 @@ const TL_SETS = {},
       past = rows.filter((r) => r.age > 0),
       owed = rows.reduce((a, r) => a + r.bal, 0),
       pastAmt = past.reduce((a, r) => a + r.bal, 0),
-      unsigned = DB.clients.flatMap((c) =>
-        [...(c.estimates || []), ...(c.changeOrders || [])]
-          .filter((d) => "sent" === d.status)
-          .map((d) => ({ c: c, d: d })),
-      ),
-      waiting = DB.projects.flatMap((p) =>
-        (p.decisions || []).filter(
-          (d) => "open" === d.status && /client/i.test(d.owner || "") && decState(d).sev >= 2,
-        ),
-      );
+      unsigned = PRED.unsignedDocs.rows(),
+      waiting = PRED.clientDecisionsDue.rows();
     DB.clients.filter((c) => !c.lastContact || tlAge(c.lastContact) > 14);
     return [
       {
@@ -85278,20 +85355,49 @@ const TL_SETS = {},
         s: unsigned.length
           ? `${tlK(unsigned.reduce((a, x) => a + docTotal(x.d).total, 0))} in estimates and change orders sent, not signed`
           : "no estimates or change orders waiting on a signature",
-        go: () => {
-          (view = "billing"), (billTab = "estimates");
+        rule: PRED.unsignedDocs.rule,
+        list: () => PRED.unsignedDocs.rows(),
+        of: () => (DB.clients || []).reduce((a, c) => a + (c.estimates || []).length + (c.changeOrders || []).length, 0),
+        cols: [
+          { key: "num", label: "Document", cls: "name", get: (x) => `${x.d.number || ""} ${x.d.title || ""}`.trim() },
+          { key: "kind", label: "Kind", w: "120px", get: (x) => ("co" === x.d.type ? "Change order" : "Proposal") },
+          { key: "client", label: "Client", get: (x) => x.c.name },
+          { key: "sent", label: "Sent", type: "date", w: "90px", get: (x) => x.d.sentOn || x.d.date || "" },
+          { key: "amt", label: "Amount", type: "money", w: "100px", get: (x) => docTotal(x.d).total },
+        ],
+        open: (x) => {
+          (view = "billing"),
+            (billTab = "co" === x.d.type ? "co" : "estimates"),
+            (docOpen = { kind: "co" === x.d.type ? "co" : "estimate", id: x.d.id });
         },
       },
       {
         key: "wait",
-        k: "Waiting on Client",
+        k: PRED.clientDecisionsDue.label,
         v: waiting.length,
         tone: waiting.length ? "warn" : "",
         s: waiting.length
-          ? "decisions past the date the schedule needs them"
+          ? "client decisions due now or past the date the schedule needs them"
           : "no client decision is holding work",
-        go: () => {
-          view = "dec";
+        rule: PRED.clientDecisionsDue.rule,
+        list: () => PRED.clientDecisionsDue.rows(),
+        of: () =>
+          (DB.projects || []).reduce(
+            (a, p) => a + (p.decisions || []).filter((d) => "open" === d.status && /client/i.test(d.owner || "")).length,
+            0,
+          ),
+        cols: [
+          { key: "name", label: "Decision", cls: "name", get: (x) => x.d.name },
+          { key: "job", label: "Job", get: (x) => shortName(x.p) },
+          { key: "owner", label: "Owner", w: "120px", get: (x) => x.d.owner || "" },
+          { key: "due", label: "Needed By", type: "date", w: "100px", get: (x) => withProject(x.p, () => decDue(x.d)) || "" },
+        ],
+        open: (x) => {
+          try {
+            flowGo.decision(x.p, x.d)();
+          } catch (e) {
+            setCurrent(x.p.id), (view = "dec");
+          }
         },
       },
     ];
@@ -85801,17 +85907,7 @@ const TL_SETS = {},
   }),
   (TL_SETS.hbcontacts = () => {
     const C = (DB.hub && DB.hub.contacts) || [],
-      lastOf = (c) => {
-        try {
-          return String(hbGet("contact", c, "notes_last_updated") || c.lastActivityAt || "").slice(0, 10);
-        } catch (e) {
-          return "";
-        }
-      },
-      stale = C.filter(
-        (c) =>
-          !["Customer", "Evangelist", "Other"].includes(c.lifecycle) && (!lastOf(c) || tlAge(lastOf(c)) > 14),
-      ),
+      stale = PRED.contactsFollowUp.rows(),
       week = C.filter(
         (c) => (c.created || c.createdAt) && tlAge(String(c.created || c.createdAt).slice(0, 10)) <= 7,
       ),
@@ -85824,9 +85920,9 @@ const TL_SETS = {},
         v: stale.length,
         tone: stale.length ? "warn" : "",
         s: stale.length ? "no contact in 14 days" : "everyone in play was touched in the last 14 days",
+        rule: PRED.contactsFollowUp.rule,
         go: () => {
-          (hbAdv.contact = [{ prop: "notes_last_updated", op: "before", value: iso(addDays(today(), -13)) }]),
-            (hbQuick.contact = {});
+          (hbAdv.contact = PRED.contactsFollowUp.filter()), (hbQuick.contact = {});
         },
       },
       {
@@ -96945,7 +97041,7 @@ if (
         hbdeals: "Pipeline",
         hbcontacts: "People",
         hbcompanies: "Companies",
-        hbtasks: "Tasks",
+        hbtasks: "Sales Tasks",
         partners: "Partners",
         salesnum: "Numbers",
         hbsettings: "Settings",
@@ -123021,7 +123117,7 @@ const OV_BUILD = {},
         noPrice: PRED.unpriced.test(r),
         ordered: !!r.ordered,
         arriving: !!r.ordered && 3 === r.sev,
-        needs: !!(late || held || week || dec),
+        needs: PRED.buyNeeds.test(r),
       };
     });
   }),
@@ -124266,9 +124362,10 @@ if (
           title: "Buy Board",
           n: rows.length,
           go: "proc",
-          what: "order-by passed, due this week or held by a decision",
+          what: "late to order, held by a decision, due this week or waiting on a decision",
+          // All N opens the Buy Board on the same rows (PRED.buyNeeds), not the whole board.
           set: () => {
-            procMode = "lines";
+            (procMode = "lines"), (tlFocus.proc = predBuyFocus("buyNeeds"));
           },
           rows: rows
             .slice(0, 5)
@@ -124278,9 +124375,11 @@ if (
                 shortName(r.r.p),
                 r.late
                   ? `order-by ${fmt(r.r.orderBy)} passed`
-                  : r.dec
-                    ? "waiting on a decision"
-                    : `order by ${fmt(r.r.orderBy)}`,
+                  : r.held
+                    ? `held by a decision, order-by ${fmt(r.r.orderBy)} passed`
+                    : r.dec
+                      ? "waiting on a decision"
+                      : `order by ${fmt(r.r.orderBy)}`,
               ].join(" · "),
               sev: r.late ? "bad" : "",
               open: () => ovOpen("buy", r.id),
@@ -143825,7 +143924,10 @@ function t2BoardHtml(list) {
         const R = t2Pool(),
           C = t2Counts(R),
           lead = host.querySelector(".ph .lead");
-        lead && (lead.textContent = t2Lead(ctx, R, C)),
+        lead && (lead.textContent = t2Lead(ctx, R, C));
+        // Home's Tasks and Sales' follow-ups are two lists with two scopes, so they carry two names.
+        const h2 = "sales" === ctx && host.querySelector(".ph h2");
+        h2 && (h2.textContent = "Sales Tasks"),
           "home" !== ctx &&
             (host.querySelectorAll("#tk-import, #tk-export").forEach((b) => b.remove()),
             crumbs && (crumbs.innerHTML = keepCrumbs)),
@@ -159010,4 +159112,86 @@ predDef("openPO", {
   key: (po) => po.number,
   rows: (scope) =>
     (DB.pos || []).filter((po) => ["issued", "partial"].includes(po.status) && (!scope || po.projectId === scope)),
+});
+// ---- tiles whose rows live on no single list of their page
+predDef("unsignedDocs", {
+  label: "Unsigned",
+  rule: "proposals and change orders sent to the client and not yet signed",
+  rows: () =>
+    (DB.clients || []).flatMap((c) =>
+      [...(c.estimates || []), ...(c.changeOrders || [])].filter((d) => "sent" === d.status).map((d) => ({ c: c, d: d })),
+    ),
+});
+predDef("clientDecisionsDue", {
+  label: "Waiting on Client",
+  rule: "open decisions the client owns that are due inside the decision buffer or past the date the schedule needs them",
+  rows: (scope) =>
+    predJobs(scope).flatMap((p) =>
+      (p.decisions || [])
+        .filter((d) => "open" === d.status && /client/i.test(d.owner || "") && withProject(p, () => decState(d).sev >= 2))
+        .map((d) => ({ p: p, d: d })),
+    ),
+});
+predDef("missingTime", {
+  label: "Missing Time",
+  rule: "on the crew list, and no time entry for yesterday when yesterday was a site day",
+  crew: () =>
+    (DB.employees || []).filter(
+      (e) => !1 !== e.active && !/coordinator|office|owner|design|architect/i.test(e.role || ""),
+    ),
+  rows() {
+    const T = DB.time || [],
+      yest = iso(addDays(today(), -1)),
+      sh = siteHours();
+    return sh.days && sh.days.includes(parse(yest).getDay())
+      ? this.crew().filter((e) => !T.some((t) => t.empId === e.id && t.date === yest))
+      : [];
+  },
+});
+predDef("uncodedCost", {
+  label: "Uncoded Cost",
+  rule: "posted ledger lines on a direct-cost account (5000s) that carry no project",
+  rows: () =>
+    ((DB.gl && DB.gl.journals) || [])
+      .filter((j) => "void" !== j.status)
+      .flatMap((j) => (j.lines || []).map((l) => ({ j: j, l: l })))
+      .filter((x) => /^5/.test(String(x.l.acct || "")) && !x.l.projectId),
+});
+predDef("contactsFollowUp", {
+  label: "Needs Follow-Up",
+  rule: "not a customer, evangelist or other, and no touch in more than 14 days",
+  since: () => iso(addDays(today(), -14)),
+  last: (c) => {
+    try {
+      return String(hbGet("contact", c, "notes_last_updated") || c.lastActivityAt || "").slice(0, 10);
+    } catch (e) {
+      return "";
+    }
+  },
+  rows() {
+    const cut = this.since();
+    return ((DB.hub && DB.hub.contacts) || []).filter(
+      (c) => !["Customer", "Evangelist", "Other"].includes(c.lifecycle) && (!this.last(c) || this.last(c) < cut),
+    );
+  },
+  // The same rule as a Contacts filter, so the list the tile opens is the tile's rows.
+  filter() {
+    return [
+      { prop: "notes_last_updated", op: "before", value: this.since() },
+      { prop: "lifecyclestage", op: "ne", value: "Customer" },
+      { prop: "lifecyclestage", op: "ne", value: "Evangelist" },
+      { prop: "lifecyclestage", op: "ne", value: "Other" },
+    ];
+  },
+});
+// What the Buy Board's rail badge and the coordinator's Home card count: rows still to order that are
+// late, held by a decision, due this week or waiting on a decision.
+predDef("buyNeeds", {
+  label: "Buy Board",
+  rule: "still to order, and late to order, held by a decision, due to order this week or waiting on a decision",
+  test: (r) =>
+    PRED.lateMaterial.test(r) || PRED.heldByDecision.test(r) || PRED.orderThisWeek.test(r) || (!!r && !r.ordered && !!r.dec),
+  rows(scope) {
+    return buyList(scope || "").filter(this.test);
+  },
 });
