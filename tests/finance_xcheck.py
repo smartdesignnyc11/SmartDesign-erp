@@ -201,8 +201,8 @@ async def check_role(pg, R, uid):
         R.money('wip_over', S('Dashboard › WIP Over / Under Billing'), t, r'WIP · Over / Under Billing\s*\n\s*' + MONEY, required=False)
         for j in ('121 State Street', '45 Cranberry St', '140 Prospect Place'):
             R.money('wip_job:' + j, S('Dashboard › WIP widget'), t, re.escape(j) + r'\t\$[\d,]+\t\$[\d,]+\t' + MONEY, required=False)
-        R.money('ar', S('Dashboard › Receivables · DSO'), t, MONEY + r'\s*\n\s*receivables open', required=False)
-        R.money('backlog', S('Dashboard › Backlog & Pipeline'), t, MONEY + r'\s*\n\s*remaining contract on signed work', required=False)
+        R.money('ar', S('Dashboard › Receivables · DSO'), t, MONEY + r'\s*\n\s*(?:receivables open|Open Receivables)', required=False)
+        R.money('backlog', S('Dashboard › Backlog & Pipeline'), t, MONEY + r'\s*\n\s*(?i:remaining contract on signed work)', required=False)
         R.count('pct121', S('Dashboard › Margin at Completion'), t, r'121 State Street · bid[^\n]*· (\d+)% complete', required=False, unit='%')
 
     # Accounting overview tiles

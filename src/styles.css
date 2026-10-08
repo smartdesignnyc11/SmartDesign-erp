@@ -3078,3 +3078,9 @@ svg.gantt text.prg-lbl.behind{fill:var(--bad,#b42318)} svg.gantt text.prg-lbl.no
 .dl-bad{outline:2px solid var(--bad);outline-offset:2px;border-radius:10px}
 .dl-msg{color:var(--bad);font-size:12.5px;font-weight:600;margin:4px 0 8px}
 /* <</field.css>> */
+/* <<screens.css>> the screen standard (tests/lint.py) */
+/* Icons: an svg with no size of its own fills its box (a 209px file glyph, a 1,000px PDF glyph on the PO note).
+   Give every line icon a 16px default at zero specificity, so any rule that sizes an icon on purpose still wins. */
+:where(.bp-ic){width:16px;height:16px;flex:none;vertical-align:-3px}
+:where(button,.btn,a,label,.chip,.pill,.hb-btn) svg:where([viewBox="0 0 24 24"],[viewBox="0 0 20 20"],[viewBox="0 0 16 16"]):where(:not([width]):not([height])){width:16px;height:16px;flex:none}
+.fcard .th svg{width:48px;height:48px}

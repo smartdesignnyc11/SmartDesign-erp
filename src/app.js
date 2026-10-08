@@ -7802,7 +7802,7 @@ function renderDocs() {
 }
 function maybeNotify() {
   if (!DB.notify || !("Notification" in window) || "granted" !== Notification.permission) return;
-  const key = "sd-notified-" + iso(new Date());
+  const key = "sd-notified-" + today();
   if (sessionStorage.getItem(key)) return;
   const urgent = [];
   for (const p of DB.projects) {
@@ -9972,7 +9972,7 @@ async function syncAccounts() {
   let pulled = [];
   const since = DB.integrations.quickbooks.lastSync
     ? DB.integrations.quickbooks.lastSync.slice(0, 10)
-    : iso(addDays(new Date(), -30));
+    : iso(addDays(today(), -30));
   try {
     const r = await fetch(aiEndpoint(), {
       method: "POST",
@@ -10062,7 +10062,7 @@ async function syncAccounts() {
             category: t.personal_finance_category?.primary || "",
           })),
         )),
-        (DB.integrations.plaid.lastSync = new Date().toISOString()),
+        (DB.integrations.plaid.lastSync = appNowIso()),
         (DB.integrations.plaid.status = "connected");
     } catch (e) {
       (DB.integrations.plaid.status = "error"), (DB.integrations.plaid.lastError = e.message);
@@ -16704,6 +16704,9 @@ function myEmpUser() {
     : DB.employees.find((e) => e.name.toLowerCase() === (DB.me || S.project.userName || "").toLowerCase()) ||
         null;
 }
+// The line plus icon for quick-add chips (a "+" character is a glyph standing in for an icon)
+const ICON_PLUS =
+  '<svg class="bp-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
 const ICONS = {
     clock: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
     box: '<svg viewBox="0 0 24 24"><path d="M21 8l-9-4-9 4 9 4 9-4z"/><path d="M3 8v8l9 4 9-4V8"/><path d="M12 12v8"/></svg>',
@@ -16747,7 +16750,7 @@ function renderTabbar() {
   tb.innerHTML = tabs
     .map(
       ([v, l, i]) =>
-        `<button data-tab="${v}" class="${view === v ? "on" : ""}">${ICONS[i]}<span>${l}</span>${badge(v) ? `<span class="n">${badge(v)}</span>` : ""}</button>`,
+        `<button data-tab="${v}" class="${view === v || ("fraise" === v && "pa" === view) ? "on" : ""}">${ICONS[i]}<span>${l}</span>${badge(v) ? `<span class="n">${badge(v)}</span>` : ""}</button>`,
     )
     .join("");
 }
@@ -16958,7 +16961,7 @@ function renderComposer() {
       .join("");
   box.innerHTML = `${run ? `<div class="nudge" style="background:#1F2A44;color:#fff"><div><b>${esc(run.driver)} is at ${esc(run.store)}</b>Add what you need now — he leaves at ${new Date(run.closesAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.</div></div>` : ""}\n    <div class="composer"><textarea id="cp-text" placeholder="${tk ? `What do you need for ${esc(tk.name)}?` : 'What do you need? e.g. 40 2x4x8, a box of 3" screws, bring the table saw'}">${esc(comp.text)}</textarea>${speech ? '<button class="mic" id="cp-mic" title="Talk"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>' : ""}</div>\n    <div class="chips">${kitNow && !comp.kit ? `<button class="chip" data-ckit="${kitNow.code}">${esc(kitNow.n)} kit</button>` : ""}<button class="chip" id="cp-morekits">Kits ▾</button><label class="chip" style="cursor:pointer">Photo of a list<input type="file" id="cp-photo" accept="image/*" capture="environment" hidden></label>${freq
     .slice(0, 4)
-    .map((w) => `<button class="chip" data-cfreq="${esc(w)}">+ ${esc(w)}</button>`)
+    .map((w) => `<button class="chip" data-cfreq="${esc(w)}">${ICON_PLUS} ${esc(w)}</button>`)
     .join(
       "",
     )}</div>\n    ${comp.kitPick ? `<div class="chips">${kits.map(([c, k]) => `<button class="chip" data-ckit="${c}">${esc(k.n)}</button>`).join("")}</div>` : ""}\n    ${
@@ -17374,7 +17377,7 @@ function renderRequestCard(emp) {
                 .slice(0, 10)
                 .map(
                   (it) =>
-                    `<span class="chip" data-forgot="${esc(it[0])}|${esc(it[1])}|${it[2]}">+ ${esc(it[0])}</span>`,
+                    `<span class="chip" data-forgot="${esc(it[0])}|${esc(it[1])}|${it[2]}">${ICON_PLUS} ${esc(it[0])}</span>`,
                 )
                 .join("")}</div></div>`
             : "";
@@ -18709,7 +18712,7 @@ function wire() {
     ($("#btn-export").onclick = () => {
       const a = document.createElement("a");
       (a.href = URL.createObjectURL(new Blob([JSON.stringify(DB, null, 2)], { type: "application/json" }))),
-        (a.download = `smartdesigns_projects_${iso(new Date())}.json`),
+        (a.download = `smartdesigns_projects_${today()}.json`),
         a.click();
     }),
     $("#btn-import").addEventListener("change", async (e) => {
@@ -21562,7 +21565,7 @@ function ctLineSheet(c, d, l, editable) {
     const amt = lineAmount(l, d),
       cost = +l.cost || 0,
       m = amt && cost ? Math.round(((amt - cost) / amt) * 100) : null;
-    (s.innerHTML = `<div class="ct-sheet-bar"><button class="ct-sheet-back" data-cts="done">‹ Estimate</button><b>Line ${l.num}</b><button class="ct-sheet-done" data-cts="done">Done</button></div>\n      <div class="ct-sheet-body">\n        <label class="ct-f"><span>Item</span><input data-csf="item" value="${esc(l.item)}" placeholder="e.g. ROUGH PLUMBING" ${ro} autocapitalize="characters"></label>\n        <label class="ct-f"><span>Scope of work <i>prints on the estimate</i></span><textarea data-csf="desc" placeholder="One item per line…" ${ro}>${esc(l.desc || "")}</textarea></label>\n        <div class="ct-f3"><label class="ct-f"><span>Quantity</span><input data-csf="qty" type="number" inputmode="decimal" step="any" value="${l.qty}" ${ro}></label><label class="ct-f"><span>Unit</span><input data-csf="unit" value="${esc(l.unit || "")}" placeholder="ls" ${ro}></label><label class="ct-f"><span>Rate</span><input data-csf="rate" type="number" inputmode="decimal" step="0.01" value="${Number.isInteger(+l.rate) ? l.rate : (+l.rate).toFixed(2)}" ${ro}></label></div>\n        <div class="ct-sheet-total"><span>Line total</span><b>${money(amt)}</b></div>\n        <label class="ct-row-toggle"><span>Taxable</span><input type="checkbox" data-csf="taxable" ${l.taxable ? "checked" : ""} ${dis}></label>\n        <button class="ct-sheet-btn" data-cts="items"><span>Item list <i>materials & sub-items behind this line</i></span><b>${n || ""} ›</b></button>\n        <details class="ct-sheet-int" ${l.cost || l.vendor ? "open" : ""}><summary>Internal <i>never printed</i></summary>\n          <div class="ct-f3"><label class="ct-f"><span>Budget cost</span><input data-csf="cost" type="number" inputmode="decimal" step="any" value="${l.cost || ""}" placeholder="0"></label><label class="ct-f"><span>Margin</span><input value="${null != m ? m + "%" : "—"}" readonly class="${null != m && m < (DB.company.minMargin || 20) ? "bad" : ""}"></label><label class="ct-f"><span>Code</span><select data-csf="code"><option value="">—</option>${codes}</select></label></div>\n          <label class="ct-f"><span>Vendor / sub</span><input data-csf="vendor" value="${esc(l.vendor || "")}" list="ct-vendors" placeholder="who does it"></label>${(() => {
+    (s.innerHTML = `<div class="ct-sheet-bar"><button class="ct-sheet-back" data-cts="done">‹ Estimate</button><b>Line ${l.num}</b><button class="ct-sheet-done" data-cts="done">Done</button></div>\n      <div class="ct-sheet-body">\n        <label class="ct-f"><span>Item</span><input data-csf="item" value="${esc(l.item)}" placeholder="e.g. ROUGH PLUMBING" ${ro} autocapitalize="characters"></label>\n        <label class="ct-f"><span>Scope of work <i>prints on the estimate</i></span><textarea data-csf="desc" placeholder="One item per line…" ${ro}>${esc(l.desc || "")}</textarea></label>\n        <div class="ct-f3"><label class="ct-f"><span>Quantity</span><input data-csf="qty" type="number" inputmode="decimal" step="any" value="${l.qty}" ${ro}></label><label class="ct-f"><span>Unit</span><input data-csf="unit" value="${esc(l.unit || "")}" placeholder="ls" ${ro}></label><label class="ct-f"><span>Rate</span><input data-csf="rate" type="number" inputmode="decimal" step="0.01" value="${Number.isInteger(+l.rate) ? l.rate : (+l.rate).toFixed(2)}" ${ro}></label></div>\n        <div class="ct-sheet-total"><span>Line total</span><b>${money(amt)}</b></div>\n        <label class="ct-row-toggle"><span>Taxable</span><input type="checkbox" data-csf="taxable" ${l.taxable ? "checked" : ""} ${dis}></label>\n        <button class="ct-sheet-btn" data-cts="items"><span>Item list <i>materials & sub-items behind this line</i></span><b>${n || ""}</b></button>\n        <details class="ct-sheet-int" ${l.cost || l.vendor ? "open" : ""}><summary>Internal <i>never printed</i></summary>\n          <div class="ct-f3"><label class="ct-f"><span>Budget cost</span><input data-csf="cost" type="number" inputmode="decimal" step="any" value="${l.cost || ""}" placeholder="0"></label><label class="ct-f"><span>Margin</span><input value="${null != m ? m + "%" : "—"}" readonly class="${null != m && m < (DB.company.minMargin || 20) ? "bad" : ""}"></label><label class="ct-f"><span>Code</span><select data-csf="code"><option value="">—</option>${codes}</select></label></div>\n          <label class="ct-f"><span>Vendor / sub</span><input data-csf="vendor" value="${esc(l.vendor || "")}" list="ct-vendors" placeholder="who does it"></label>${(() => {
       const f = "draft" !== d.status ? lineFin(ctKey(d, l)) : null;
       return f
         ? `<div class="ct-fin-m"><div><span>Billed</span><b>${f.billedPct}%</b></div><div><span>Committed</span><b>${money(f.committed)}</b></div><div><span>Actual</span><b>${money(f.actual)}</b></div><div><span>Margin</span><b>${f.marginPct}%</b></div></div><button class="ct-sheet-btn" data-cts="fin"><span>Financial thread <i>invoices, POs, bills on this line</i></span><b>›</b></button>`
@@ -25228,8 +25231,14 @@ function reminders() {
   const out = [],
     t = today(),
     B = companyBalance(),
+    // "1 change orders awaiting signature": a count of one takes the singular noun
+    one = (label) =>
+      label.replace(
+        /^(\S+ )?(invoices|estimates|change orders|bills|purchase orders|transactions|entries|deals)\b/,
+        (m, pre, w) => (pre || "") + ("entries" === w ? "entry" : w.slice(0, -1)),
+      ),
     push = (n, label, go, sev = "") => {
-      n && out.push({ n: n, label: label, go: go, sev: sev });
+      n && out.push({ n: n, label: 1 === n ? one(label) : label, go: go, sev: sev });
     };
   searchReminders().forEach((r) => out.push(r));
   const over = DB.clients.flatMap((c) => clientFin(c).open.filter((o) => o.age > 0));
@@ -27423,7 +27432,7 @@ function ptNeedsMe() {
   const rows = needsMe(),
     show = needsAll ? rows : rows.slice(0, 8),
     urgent = rows.filter((r) => "bad" === r.sev).length;
-  return `<div class="nm-sum small muted">${rows.length ? `${rows.length} item${rows.length > 1 ? "s" : ""} · ${urgent} need${1 === urgent ? "s" : ""} action now` : "Nothing waiting on you."}</div><div class="rem nm">${show.map((r) => `<div class="rem-row ${r.sev}" data-remgo='${esc(JSON.stringify(r.go))}'><b>${esc(String(r.n || "·"))}</b><span><b>${esc(r.title)}</b>${r.detail ? `<br><span class="small muted">${r.detail}</span>` : ""}</span><em class="nm-act">${r.action} ›</em></div>`).join("")}</div>${rows.length > 8 ? `<button class="btn sm" data-nmall>${needsAll ? "Show fewer" : `Show all ${rows.length}`}</button>` : ""}`;
+  return `<div class="nm-sum small muted">${rows.length ? `${rows.length} item${rows.length > 1 ? "s" : ""} · ${urgent} need${1 === urgent ? "s" : ""} action now` : "Nothing waiting on you."}</div><div class="rem nm">${show.map((r) => `<div class="rem-row ${r.sev}" data-remgo='${esc(JSON.stringify(r.go))}'><b>${esc(String(r.n || "·"))}</b><span><b>${esc(r.title)}</b>${r.detail ? `<br><span class="small muted">${r.detail}</span>` : ""}</span><em class="nm-act">${r.action}</em></div>`).join("")}</div>${rows.length > 8 ? `<button class="btn sm" data-nmall>${needsAll ? "Show fewer" : `Show all ${rows.length}`}</button>` : ""}`;
 }
 function ptCash() {
   const B = companyBalance(),
@@ -32923,7 +32932,7 @@ ptNeedsMe = function () {
       return (
         (shown += vis.length),
         vis.length
-          ? `<div class="nm-band"><h4>${l} <span class="muted">${list.length}</span></h4><div class="rem nm">${vis.map((r) => `<div class="rem-row ${r.sev}" data-remgo='${esc(JSON.stringify(r.go))}'><b>${esc(String(r.n || "·"))}</b><span><b>${esc(r.title)}</b>${r.detail ? `<br><span class="small muted">${r.detail}</span>` : ""}</span><em class="nm-act">${r.action} ›</em></div>`).join("")}</div></div>`
+          ? `<div class="nm-band"><h4>${l} <span class="muted">${list.length}</span></h4><div class="rem nm">${vis.map((r) => `<div class="rem-row ${r.sev}" data-remgo='${esc(JSON.stringify(r.go))}'><b>${esc(String(r.n || "·"))}</b><span><b>${esc(r.title)}</b>${r.detail ? `<br><span class="small muted">${r.detail}</span>` : ""}</span><em class="nm-act">${r.action}</em></div>`).join("")}</div></div>`
           : `<div class="nm-band"><h4>${l} <span class="muted">${list.length}</span></h4></div>`
       );
     })
@@ -33361,7 +33370,7 @@ invoiceFromEstimate = function (c, d) {
 };
 const remindersBase8 = reminders;
 reminders = function () {
-  const out = remindersBase8().filter((r) => !/approved change orders to bill/.test(r.label)),
+  const out = remindersBase8().filter((r) => !/approved change orders? to bill/.test(r.label)),
     n = DB.clients.reduce(
       (a, c) => a + c.changeOrders.filter((x) => "approved" === x.status && 0 === coBilledPct(c, x)).length,
       0,
@@ -33684,7 +33693,7 @@ docAction = async function (c, d, a) {
 const remindersBase9 = reminders;
 reminders = function () {
   return remindersBase9().map((r) =>
-    /overdue invoices/.test(r.label) ? Object.assign(r, { go: { view: "reports", tab: "ar" } }) : r,
+    /overdue invoices?\b/.test(r.label) ? Object.assign(r, { go: { view: "reports", tab: "ar" } }) : r,
   );
 };
 const cashForecastBase = cashForecast;
@@ -38283,10 +38292,10 @@ function jarvisHtml(F) {
     key = F.td + "|" + r,
     cached = (DB.company.briefCache || {})[key],
     text = cached?.text || null;
-  return `<section class="jv ${!localStorage.getItem("brief-seen") || localStorage.getItem("brief-seen") !== key ? "jv-reveal" : ""}" id="jv"><div class="jv-hd"><span class="jv-dot"></span><b>Morning brief</b><span class="small muted">· live, as of ${appNow().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}${cached ? " · polished by the assistant" : ""}</span><span class="grow"></span><button class="btn sm" id="jv-speak" title="Read it aloud">Read</button><button class="btn sm" id="jv-refresh" title="Recompose from live data">Refresh</button></div>\n    <div class="jv-body">${(text ? text.split(/\n+/) : lines).map((s, i) => `<p class="${0 === i ? "jv-lead" : ""}">${esc(s)}</p>`).join("")}</div>\n    <div class="jv-ask"><input id="jv-q" placeholder="Ask about the company — “what's due this week?”, “which job is bleeding?”, “can we pay Carlos today?”" value="${esc(briefAsk)}"><button class="btn primary sm" id="jv-go">Ask</button></div><div id="jv-answer" class="small"></div></section>`;
+  return `<section class="jv ${!localStorage.getItem("brief-seen") || localStorage.getItem("brief-seen") !== key ? "jv-reveal" : ""}" id="jv"><div class="jv-hd"><span class="jv-dot"></span><b>Morning brief</b><span class="small muted">· as of ${fmtL(today())}${cached ? " · polished by the assistant" : ""}</span><span class="grow"></span><button class="btn sm" id="jv-speak" title="Read it aloud">Read</button><button class="btn sm" id="jv-refresh" title="Recompose from live data">Refresh</button></div>\n    <div class="jv-body">${(text ? text.split(/\n+/) : lines).map((s, i) => `<p class="${0 === i ? "jv-lead" : ""}">${esc(s)}</p>`).join("")}</div>\n    <div class="jv-ask"><input id="jv-q" placeholder="Ask about the company — “what's due this week?”, “which job is bleeding?”, “can we pay Carlos today?”" value="${esc(briefAsk)}"><button class="btn primary sm" id="jv-go">Ask</button></div><div id="jv-answer" class="small"></div></section>`;
 }
 function h4Card(title, body, go, more) {
-  return `<div class="h4c"><div class="h4c-hd"><b>${title}</b>${go ? `<a href="#" class="small" data-h4go='${esc(JSON.stringify(go))}'>${more || "Open"} ›</a>` : ""}</div><div class="h4c-bd">${body || '<div class="muted small">Nothing to show yet.</div>'}</div></div>`;
+  return `<div class="h4c"><div class="h4c-hd"><b>${title}</b>${go ? `<a href="#" class="small" data-h4go='${esc(JSON.stringify(go))}'>${more || "Open"}</a>` : ""}</div><div class="h4c-bd">${body || '<div class="muted small">Nothing to show yet.</div>'}</div></div>`;
 }
 function h4Home(F) {
   const r = role(),
@@ -38341,7 +38350,7 @@ function h4Home(F) {
         .slice(0, 3)
         .map(
           (x) =>
-            `<div class="h4r" data-remgo='${esc(JSON.stringify(x.go))}'><span class="h4r-n">${x.amt ? moneyK(x.amt) : "·"}</span><span class="grow">${esc(x.label)}</span><em class="small">Draft ›</em></div>`,
+            `<div class="h4r" data-remgo='${esc(JSON.stringify(x.go))}'><span class="h4r-n">${x.amt ? moneyK(x.amt) : "·"}</span><span class="grow">${esc(x.label)}</span><em class="small">Draft</em></div>`,
         ),
       ...F.overdue
         .slice(0, 3)
@@ -38358,19 +38367,19 @@ function h4Home(F) {
         .slice(0, 3)
         .map(
           (t) =>
-            `<div class="h4r" data-h4go='${esc(JSON.stringify({ view: "bank" }))}'><span class="h4r-n">${money(-t.amt)}</span><span class="grow">${esc(t.desc)} → ${"po" === t.proposal.kind ? DB.pos.find((x) => x.id === t.proposal.poId)?.number || "PO" : "bill " + (DB.bills.find((x) => x.id === t.proposal.billId)?.number || "")}</span><em class="small">Confirm ›</em></div>`,
+            `<div class="h4r" data-h4go='${esc(JSON.stringify({ view: "bank" }))}'><span class="h4r-n">${money(-t.amt)}</span><span class="grow">${esc(t.desc)} → ${"po" === t.proposal.kind ? DB.pos.find((x) => x.id === t.proposal.poId)?.number || "PO" : "bill " + (DB.bills.find((x) => x.id === t.proposal.billId)?.number || "")}</span><em class="small">Confirm</em></div>`,
         ),
       ...F.posPending
         .slice(0, 3)
         .map(
           (po) =>
-            `<div class="h4r" data-h4go='${esc(JSON.stringify({ view: "po", po: po.id }))}'><span class="h4r-n">${moneyK(poTotal(po).total)}</span><span class="grow">${esc(po.number)} · ${esc(po.vendor)}</span><em class="small">${"owner" === role() ? "Approve ›" : "Pending"}</em></div>`,
+            `<div class="h4r" data-h4go='${esc(JSON.stringify({ view: "po", po: po.id }))}'><span class="h4r-n">${moneyK(poTotal(po).total)}</span><span class="grow">${esc(po.number)} · ${esc(po.vendor)}</span><em class="small">${"owner" === role() ? "Approve" : "Pending"}</em></div>`,
         ),
       ...F.toApprove
         .slice(0, 3)
         .map(
           (bl) =>
-            `<div class="h4r" data-h4go='${esc(JSON.stringify({ view: "ap" }))}'><span class="h4r-n">${moneyK(billTotal(bl))}</span><span class="grow">Bill ${esc(bl.number || "")} · ${esc(bl.vendor)}</span><em class="small">Review ›</em></div>`,
+            `<div class="h4r" data-h4go='${esc(JSON.stringify({ view: "ap" }))}'><span class="h4r-n">${moneyK(billTotal(bl))}</span><span class="grow">Bill ${esc(bl.number || "")} · ${esc(bl.vendor)}</span><em class="small">Review</em></div>`,
         ),
     ].join("");
   return `<div class="home4">${("crew" === r || "driver" === r ? [h4Card("Today", todayHtml, { view: "time" }, "Clock"), h4Card("Needs me", needsHtml, { view: "req" }), h4Card("Jobs", jobsHtml, { view: "port" })] : "coord" === r ? [h4Card("Prepared for you", prepHtml, { view: "po" }), h4Card("Needs me", needsHtml, { view: "po" }), h4Card("Today on site", todayHtml, { view: "recv" }), h4Card("Jobs", jobsHtml, { view: "port" }), h4Card("Billing", billHtml, { view: "clients" }), h4Card("Accounting", moneyHtml, { view: "bank" })] : "pm" === r ? [h4Card("Jobs", jobsHtml, { view: "port" }), h4Card("Needs me", needsHtml, { view: "dash" }), h4Card("Today on site", todayHtml, { view: "sched" }), h4Card("Billing", billHtml, { view: "clients" }), h4Card("Prepared for you", prepHtml, { view: "po" }), h4Card("Accounting", moneyHtml, { view: "reports", tab: "dash" })] : [h4Card("Needs me", needsHtml, { view: "home" }, `All ${F.needs.length}`), h4Card("Accounting", moneyHtml, { view: "reports", tab: "dash" }), h4Card("Jobs", jobsHtml, { view: "port" }), h4Card("Today on site", todayHtml, { view: "sched" }), h4Card("Billing", billHtml, { view: "reports", tab: "ar" }), h4Card("Prepared for you", prepHtml, { view: "bank" })]).join("")}</div>`;
@@ -39799,7 +39808,7 @@ function renderSBoard() {
     unv = rooms.filter((r) => 0 === roomProv(r)),
     mt = DB.studio.meetings.filter((m) => m.projectId === p.id),
     F = DB.studio.filings.filter((f) => f.projectId === p.id);
-  (root.innerHTML = `<div class="ph"><div><h2>${esc(p.project.name)}</h2><div class="small muted">${esc(p.project.addr || "")}${c ? ` · ${esc(c.name)}` : ""}${p.project.lpc ? ` · ${esc(p.project.lpc)}` : ""}</div></div><div class="acts"><button class="btn sm" data-addroom>+ Room</button></div></div>\n    ${phaseStrip(p)}\n    ${unv.length ? `<div class="note warn" style="margin:10px 0"><b>${unv.length} of ${rooms.length} rooms are drawn on listing dimensions.</b> Design development, issuing any set and millwork / stone / window / appliance orders wait for the survey. <a href="#" data-survey>Open the survey checklist ›</a></div>` : ""}\n    ${gates.length ? `<div class="st-gates">${gates.map((d) => `<div class="st-gate ${d.due && d.due < today() ? "late" : ""}"><span class="k">Gate · ${esc(d.gate)}</span><b>${esc(d.name)}</b><span class="small muted">${esc(d.owner || "")} · due ${fmt(d.due)}</span></div>`).join("")}</div>` : ""}\n    <div class="row" style="margin:12px 0 10px;align-items:center"><div class="seg sm">${[
+  (root.innerHTML = `<div class="ph"><div><h2>${esc(p.project.name)}</h2><div class="small muted">${esc(p.project.addr || "")}${c ? ` · ${esc(c.name)}` : ""}${p.project.lpc ? ` · ${esc(p.project.lpc)}` : ""}</div></div><div class="acts"><button class="btn sm" data-addroom>+ Room</button></div></div>\n    ${phaseStrip(p)}\n    ${unv.length ? `<div class="note warn" style="margin:10px 0"><b>${unv.length} of ${rooms.length} rooms are drawn on listing dimensions.</b> Design development, issuing any set and millwork / stone / window / appliance orders wait for the survey. <a href="#" data-survey>Open the survey checklist</a></div>` : ""}\n    ${gates.length ? `<div class="st-gates">${gates.map((d) => `<div class="st-gate ${d.due && d.due < today() ? "late" : ""}"><span class="k">Gate · ${esc(d.gate)}</span><b>${esc(d.name)}</b><span class="small muted">${esc(d.owner || "")} · due ${fmt(d.due)}</span></div>`).join("")}</div>` : ""}\n    <div class="row" style="margin:12px 0 10px;align-items:center"><div class="seg sm">${[
     ["rooms", "Rooms"],
     ["client", "Client"],
     ["meetings", "Meetings"],
@@ -39809,7 +39818,7 @@ function renderSBoard() {
     .map(([k, n]) => `<button class="${sboardTab === k ? "on" : ""}" data-sbtab="${k}">${n}</button>`)
     .join(
       "",
-    )}</div><span class="grow"></span><a href="#" class="small" data-survey>Survey checklist ›</a></div>\n    ${"rooms" === sboardTab ? `<div class="st-grid">${rooms.map(roomCard).join("") || '<div class="empty">No rooms yet — add the rooms in scope and the survey checklist writes itself.</div>'}</div>` : ""}\n    ${
+    )}</div><span class="grow"></span><a href="#" class="small" data-survey>Survey checklist</a></div>\n    ${"rooms" === sboardTab ? `<div class="st-grid">${rooms.map(roomCard).join("") || '<div class="empty">No rooms yet — add the rooms in scope and the survey checklist writes itself.</div>'}</div>` : ""}\n    ${
     "client" === sboardTab
       ? c
         ? `<div class="card"><h3>${esc(c.name)}</h3>${c.contacts.map((ct) => `<div class="row" style="padding:6px 0;border-top:1px solid var(--rule)"><b>${esc(ct.name)}</b><span class="pill ${"money" === ct.decides ? "warn" : "design" === ct.decides ? "info" : "neutral"}">${"money" === ct.decides ? "Decides money" : "design" === ct.decides ? "Decides design" : "Informed"}</span><span class="small muted">${esc(ct.email || "")}</span></div>`).join("")}<p class="small muted" style="margin:10px 0 0">${esc(c.notes || "")}</p></div><div class="card" style="margin-top:10px"><h3>Open decisions</h3>${
@@ -39823,7 +39832,7 @@ function renderSBoard() {
           }</div>`
         : '<div class="empty">No client linked.</div>'
       : ""
-  }\n    ${"meetings" === sboardTab ? `<div class="card">${mt.map((m) => `<div class="row" style="padding:8px 0;border-top:1px solid var(--rule);align-items:flex-start"><div><b>${esc(m.title)}</b><div class="small muted">${fmtL(m.date)} · ${m.minutes} min · with ${esc(m.with || "")} · ${m.attendees.map((a) => DB.employees.find((e) => e.id === a)?.name || DB.users.find((u) => u.id === a)?.name || a).join(", ")}</div></div><span class="grow"></span>${m.link ? `<a href="${esc(m.link)}" target="_blank" class="small">Transcript ›</a>` : ""}<span class="pill ${"done" === m.intake ? "ok" : "warn"}">${"done" === m.intake ? "Decisions captured" : "proposed" === m.intake ? "Proposals to confirm" : "Not read yet"}</span></div>`).join("") || '<div class="muted small">No meetings recorded.</div>'}</div>` : ""}\n    ${"drawings" === sboardTab ? `<div class="small muted" style="margin-bottom:8px">Full register under Drawings. ${stale.length ? `<b class="bad">${stale.length} current sheet${1 === stale.length ? "" : "s"} carry a changed dimension.</b>` : "Every current sheet matches the register."}</div>${sheetTable(sh.filter((s) => "current" === s.status))}` : ""}\n    ${"filings" === sboardTab ? filingsHtml(p, F) : ""}`),
+  }\n    ${"meetings" === sboardTab ? `<div class="card">${mt.map((m) => `<div class="row" style="padding:8px 0;border-top:1px solid var(--rule);align-items:flex-start"><div><b>${esc(m.title)}</b><div class="small muted">${fmtL(m.date)} · ${m.minutes} min · with ${esc(m.with || "")} · ${m.attendees.map((a) => DB.employees.find((e) => e.id === a)?.name || DB.users.find((u) => u.id === a)?.name || a).join(", ")}</div></div><span class="grow"></span>${m.link ? `<a href="${esc(m.link)}" target="_blank" class="small">Transcript</a>` : ""}<span class="pill ${"done" === m.intake ? "ok" : "warn"}">${"done" === m.intake ? "Decisions captured" : "proposed" === m.intake ? "Proposals to confirm" : "Not read yet"}</span></div>`).join("") || '<div class="muted small">No meetings recorded.</div>'}</div>` : ""}\n    ${"drawings" === sboardTab ? `<div class="small muted" style="margin-bottom:8px">Full register under Drawings. ${stale.length ? `<b class="bad">${stale.length} current sheet${1 === stale.length ? "" : "s"} carry a changed dimension.</b>` : "Every current sheet matches the register."}</div>${sheetTable(sh.filter((s) => "current" === s.status))}` : ""}\n    ${"filings" === sboardTab ? filingsHtml(p, F) : ""}`),
     wireSBoard(root, p);
 }
 function wireSBoard(root, p) {
@@ -41504,7 +41513,7 @@ renderSBoard = function () {
         const d = document.createElement("div");
         (d.className = "grid2"),
           (d.style.marginTop = "12px"),
-          (d.innerHTML = `${P ? `<div class="card"><h3>Client profile</h3>${prefsHtml(p.id, !1)}</div>` : ""}${pcs.length ? `<div class="card"><h3>Precedents <span class="small muted">— what we did last time</span></h3>${pcs.map((x) => `<div class="st-item"><span class="k">${esc(DB.projects.find((q) => q.id === x.projectId)?.project.name || "")} · ${x.rooms.join(", ")}</span><b>${esc(x.title)}</b><span class="small muted">${esc(x.note)}</span></div>`).join("")}</div>` : ""}`),
+          (d.innerHTML = `${P ? `<div class="card"><h3>Client profile</h3>${prefsHtml(p.id, !1)}</div>` : ""}${pcs.length ? `<div class="card"><h3>Precedents</h3><div class="small muted" style="margin:-4px 0 6px">What we did last time.</div>${pcs.map((x) => `<div class="st-item"><span class="k">${esc(DB.projects.find((q) => q.id === x.projectId)?.project.name || "")} · ${x.rooms.join(", ")}</span><b>${esc(x.title)}</b><span class="small muted">${esc(x.note)}</span></div>`).join("")}</div>` : ""}`),
           root.append(d);
       }
     }
@@ -42276,12 +42285,12 @@ function dashCompact() {
       day.classList.add("la-fold");
       const cnt = document.createElement("span");
       (cnt.className = "la-cnt"),
-        (cnt.textContent = `${n} item${1 === n ? "" : "s"} ›`),
+        (cnt.textContent = `${n} item${1 === n ? "" : "s"}`),
         hd.appendChild(cnt),
         (hd.onclick = () => {
           day.classList.toggle("la-fold"),
             (cnt.textContent = day.classList.contains("la-fold")
-              ? `${n} item${1 === n ? "" : "s"} ›`
+              ? `${n} item${1 === n ? "" : "s"}`
               : "hide");
         });
     }
@@ -43145,7 +43154,7 @@ function ptRunway() {
       7,
     days = B.trulyOurs < 0 ? -1 : net > 0 ? Math.round(B.trulyOurs / net) : null,
     cls = B.trulyOurs < 0 || F.low < 0 ? "bad" : null != days && days >= 0 && days < 60 ? "warn" : "ok";
-  return `<div class="dx-tiles">${tile(money(B.trulyOurs), "safe to spend · truly ours", cls)}${tile(-1 === days ? "short today" : null == days ? "no net burn" : days + " d", -1 === days ? "safe-to-spend is already negative" : null == days ? "collections cover the spend" : "days of runway on safe-to-spend cash", cls)}${tile(money(F.low), `13-week low · week of ${lowW ? fmt(lowW.start) : "—"}`, F.low < 0 ? "bad" : "")}</div>${spark(
+  return `<div class="dx-tiles">${tile(money(B.trulyOurs), "Safe to Spend · Truly Ours", cls)}${tile(-1 === days ? "short today" : null == days ? "no net burn" : days + " d", -1 === days ? "Safe to Spend Is Negative" : null == days ? "Collections Cover the Spend" : "Days of Runway on Safe-to-Spend Cash", cls)}${tile(money(F.low), `13-Week Low · Week of ${lowW ? fmt(lowW.start) : "—"}`, F.low < 0 ? "bad" : "")}</div>${spark(
     F.weeks.map((w) => w.balance),
     300,
     34,
@@ -43161,7 +43170,7 @@ function ptWIP() {
     worst = rows.filter(
       (r) => r.J.contract && Math.abs(r.ou) > 0.15 * Math.max(1, r.J.contract - r.J.earned),
     );
-  return `<div class="dx-tiles">${tile(money(tot), tot > 0 ? "billed ahead of work (a liability)" : "earned ahead of billing (unbilled)", tot > B.trulyOurs && tot > 0 ? "bad" : worst.length ? "warn" : "ok")}</div><table class="t dash-t"><thead><tr><th>Project</th><th class="money">Earned</th><th class="money">Billed</th><th class="money">Over / (under)</th></tr></thead><tbody>${rows.map((r) => `<tr data-remgo='${esc(JSON.stringify({ view: "costs", project: r.p.id }))}' style="cursor:pointer"><td><b>${esc(shortName(r.p))}</b></td><td class="money">${money(r.J.earned)}</td><td class="money">${money(r.J.billed)}</td><td class="money ${r.ou > 0 ? "warn" : r.ou < 0 ? "bad" : ""}">${r.ou < 0 ? "(" + money(-r.ou) + ")" : money(r.ou)}</td></tr>`).join("") || '<tr><td colspan="4" class="muted">No contracts.</td></tr>'}</tbody></table><div class="small muted">Over-billed = client money for work not done yet; under-billed = your money sitting in the job. Amber over 15% of remaining contract; red if the firm total exceeds truly-ours cash.</div>`;
+  return `<div class="dx-tiles">${tile(money(tot), tot > 0 ? "Billed Ahead of Work (Liability)" : "Earned Ahead of Billing (Unbilled)", tot > B.trulyOurs && tot > 0 ? "bad" : worst.length ? "warn" : "ok")}</div><table class="t dash-t"><thead><tr><th>Project</th><th class="money">Earned</th><th class="money">Billed</th><th class="money">Over / (under)</th></tr></thead><tbody>${rows.map((r) => `<tr data-remgo='${esc(JSON.stringify({ view: "costs", project: r.p.id }))}' style="cursor:pointer"><td><b>${esc(shortName(r.p))}</b></td><td class="money">${money(r.J.earned)}</td><td class="money">${money(r.J.billed)}</td><td class="money ${r.ou > 0 ? "warn" : r.ou < 0 ? "bad" : ""}">${r.ou < 0 ? "(" + money(-r.ou) + ")" : money(r.ou)}</td></tr>`).join("") || '<tr><td colspan="4" class="muted">No contracts.</td></tr>'}</tbody></table><div class="small muted">Over-billed = client money for work not done yet; under-billed = your money sitting in the job. Amber over 15% of remaining contract; red if the firm total exceeds truly-ours cash.</div>`;
 }
 function ptMarginFc() {
   return `<div class="rem">${
@@ -43265,7 +43274,7 @@ function ptBacklog() {
         .map((e) => ({ c: c, e: e, age: dayDiff(e.date, td), t: docTotal(e).total })),
     ),
     stale = out.filter((o) => o.age > 14);
-  return `<div class="dx-tiles">${tile(null == months ? "—" : months + " mo", "backlog coverage", null != months && months < 3 ? "bad" : null != months && months < 5 ? "warn" : "ok")}${tile(money(backlog), "remaining contract on signed work")}${tile(out.length, `proposals out · ${money(out.reduce((a, o) => a + o.t, 0))}`, stale.length ? "warn" : "")}</div>${dashList(
+  return `<div class="dx-tiles">${tile(null == months ? "—" : months + " mo", "Backlog Coverage", null != months && months < 3 ? "bad" : null != months && months < 5 ? "warn" : "ok")}${tile(money(backlog), "Remaining Contract on Signed Work")}${tile(out.length, `Proposals Out · ${money(out.reduce((a, o) => a + o.t, 0))}`, stale.length ? "warn" : "")}</div>${dashList(
     stale
       .slice(0, 4)
       .map((o) =>
@@ -43285,7 +43294,7 @@ function ptRetainage() {
     pay = r2(jobs.reduce((a, x) => a + (x.J.retWithheld || 0), 0)),
     B = companyBalance(),
     due = jobs.filter((x) => x.J.pct >= 0.95 && (x.J.retHeld || 0) > 0);
-  return `<div class="dx-tiles">${tile(money(rec), "retainage receivable · held by clients", rec > 0.5 * Math.max(1, B.trulyOurs) ? "warn" : "")}${tile(money(pay), "retainage payable · held on subs")}</div>${dashList(
+  return `<div class="dx-tiles">${tile(money(rec), "Retainage Receivable · Held by Clients", rec > 0.5 * Math.max(1, B.trulyOurs) ? "warn" : "")}${tile(money(pay), "Retainage Payable · Held on Subs")}</div>${dashList(
     due.map((x) =>
       dashItem(
         money(x.J.retHeld),
@@ -43316,7 +43325,7 @@ function ptDSO() {
       .filter((x) => x.over > 0)
       .sort((a, b) => b.over - a.over)
       .slice(0, 3);
-  return `<div class="dx-tiles">${tile(null == dso ? "—" : dso + " d", "DSO · days sales outstanding", dso > 45 ? "bad" : dso > 30 ? "warn" : "ok")}${tile(money(ar), "receivables open")}</div>${dashList(
+  return `<div class="dx-tiles">${tile(null == dso ? "—" : dso + " d", "DSO · Days Sales Outstanding", dso > 45 ? "bad" : dso > 30 ? "warn" : "ok")}${tile(money(ar), "Open Receivables")}</div>${dashList(
     top.map((x) => dashItem(money(x.over), `${esc(x.c.name)} · overdue`, { view: "clients" }, "bad")),
     "Nothing overdue.",
   )}<div class="small muted">Progress draws on 30-day terms should turn faster than 30 days. Amber over 30, red over 45.</div>`;
@@ -43331,12 +43340,12 @@ function ptCashGap() {
   DB.company.basis = keep;
   const gap = r2(A.net - C.net),
     pct = A.income ? Math.round((Math.abs(gap) / A.income) * 100) : 0;
-  return `<div class="dx-tiles">${tile(money(A.net), "accrual net · trailing 3 mo")}${tile(money(C.net), "cash net · trailing 3 mo")}${tile((gap >= 0 ? "+" : "") + money(gap), "gap · accrual − cash", pct > 10 ? "warn" : "")}</div><div class="small muted">Accrual is what you earned; cash is what actually moved. A gap over 10% of revenue means one of them is lying to you — usually deposits.</div>`;
+  return `<div class="dx-tiles">${tile(money(A.net), "Accrual Net · Trailing 3 mo")}${tile(money(C.net), "Cash Net · Trailing 3 mo")}${tile((gap >= 0 ? "+" : "") + money(gap), "Gap · Accrual − Cash", pct > 10 ? "warn" : "")}</div><div class="small muted">Accrual is what you earned; cash is what actually moved. A gap over 10% of revenue means one of them is lying to you — usually deposits.</div>`;
 }
 function ptOverhead() {
   const R = ohCurrent(),
     m = R.months || [];
-  return `<div class="dx-tiles">${tile(`${Math.round(100 * (R.design?.rate || 0))}%`, "design overhead rate · trailing 3 mo")}${tile(`${Math.round(100 * (R.construction?.rate || 0))}%`, "construction overhead rate")}${tile(money(R.mtd?.pool?.total || 0), "overhead this month to date")}</div>${spark(
+  return `<div class="dx-tiles">${tile(`${Math.round(100 * (R.design?.rate || 0))}%`, "Design Overhead Rate · Trailing 3 mo")}${tile(`${Math.round(100 * (R.construction?.rate || 0))}%`, "Construction Overhead Rate")}${tile(money(R.mtd?.pool?.total || 0), "Overhead Month to Date")}</div>${spark(
     m.map((x) => x.pool || 0),
     300,
     30,
@@ -43345,7 +43354,7 @@ function ptOverhead() {
 function ptIntercompany() {
   const rows = icUnbilled(),
     tot = r2(rows.reduce((a, o) => a + o.amount, 0));
-  return `<div class="dx-tiles">${tile(money(tot), "subsidiary hours not yet billed to the GC", tot ? "warn" : "ok")}</div>${dashList(
+  return `<div class="dx-tiles">${tile(money(tot), "Subsidiary Hours Not Yet Billed to the GC", tot ? "warn" : "ok")}</div>${dashList(
     rows
       .slice(0, 5)
       .map((o) =>
@@ -43418,7 +43427,7 @@ function ptBillable() {
     rows.sort((a, b) => b.n - a.n);
   const tot = r2(rows.reduce((a, r) => a + r.n, 0)),
     run = monthlyRunRate();
-  return `<div class="dx-tiles">${tile(money(tot), "billable now", run && tot > 0.1 * run ? "bad" : run && tot > 0.05 * run ? "warn" : "ok")}</div>${dashList(
+  return `<div class="dx-tiles">${tile(money(tot), "Billable Now", run && tot > 0.1 * run ? "bad" : run && tot > 0.05 * run ? "warn" : "ok")}</div>${dashList(
     rows.slice(0, 8).map((r) => dashItem(money(r.n), r.l, r.go, r.sev)),
     "Everything earned is on an invoice.",
   )}<div class="small muted">Earned-not-billed + approved COs + banked design hours + filing milestones. Amber over 5% of monthly revenue, red over 10%.</div>`;
@@ -43435,7 +43444,7 @@ function ptClientFunds() {
       .sort((a, b) => b.held - a.held),
     tot = r2(rows.reduce((a, o) => a + o.held, 0)),
     fl = r2(rows.reduce((a, o) => a + o.floated, 0));
-  return `<div class="dx-tiles">${tile(money(tot), "client purchase funds held")}${tile(money(fl), "floated · our cash covering client purchases", fl > 0 ? "bad" : "ok")}</div><table class="t dash-t"><thead><tr><th>Project</th><th class="money">Held</th><th class="money">Still to buy</th><th class="money">Floated</th></tr></thead><tbody>${rows.map((o) => `<tr data-remgo='${esc(JSON.stringify({ view: "reports", tab: "funds" }))}' style="cursor:pointer"><td><b>${esc(shortName(o.p))}</b></td><td class="money">${money(o.held)}</td><td class="money">${money(o.toBuy)}</td><td class="money ${o.floated > 0 ? "bad" : ""}">${o.floated ? money(o.floated) : "—"}</td></tr>`).join("") || '<tr><td colspan="4" class="muted">No client funds held.</td></tr>'}</tbody></table><div class="small muted">Must tie to the cash forecast's "client funds". Red the moment we have spent more of a client's money than they gave us.</div>`;
+  return `<div class="dx-tiles">${tile(money(tot), "Client Purchase Funds Held")}${tile(money(fl), "Floated · Our Cash Covering Client Purchases", fl > 0 ? "bad" : "ok")}</div><table class="t dash-t"><thead><tr><th>Project</th><th class="money">Held</th><th class="money">Still to buy</th><th class="money">Floated</th></tr></thead><tbody>${rows.map((o) => `<tr data-remgo='${esc(JSON.stringify({ view: "reports", tab: "funds" }))}' style="cursor:pointer"><td><b>${esc(shortName(o.p))}</b></td><td class="money">${money(o.held)}</td><td class="money">${money(o.toBuy)}</td><td class="money ${o.floated > 0 ? "bad" : ""}">${o.floated ? money(o.floated) : "—"}</td></tr>`).join("") || '<tr><td colspan="4" class="muted">No client funds held.</td></tr>'}</tbody></table><div class="small muted">Must tie to the cash forecast's "client funds". Red the moment we have spent more of a client's money than they gave us.</div>`;
 }
 function ptInvPipe() {
   const td = today(),
@@ -43517,7 +43526,7 @@ function ptAPDPO() {
       const v = DB.vendors.find((x) => x.name === b.vendor);
       return v && vendorState(v).some((f) => "bad" === f.lvl);
     });
-  return `<div class="dx-tiles">${tile(null == dpo ? "—" : dpo + " d", "DPO · days payables outstanding", dpo > 40 ? "warn" : "")}${tile(money(exposure.reduce((a, b) => a + billTotal(b), 0)), "sub bills on jobs where the client is overdue", exposure.length ? "warn" : "ok")}${tile(nc.length, "bills queued to non-compliant vendors", nc.length ? "bad" : "ok")}</div>${ptAPDue()}`;
+  return `<div class="dx-tiles">${tile(null == dpo ? "—" : dpo + " d", "DPO · Days Payables Outstanding", dpo > 40 ? "warn" : "")}${tile(money(exposure.reduce((a, b) => a + billTotal(b), 0)), "Sub Bills Where the Client Is Overdue", exposure.length ? "warn" : "ok")}${tile(nc.length, "Bills Queued to Non-Compliant Vendors", nc.length ? "bad" : "ok")}</div>${ptAPDue()}`;
 }
 function ptCodeVar() {
   const jobs = activeJobs(),
@@ -43570,7 +43579,7 @@ function ptLongLead() {
     setCurrent(cur),
     rows.sort((a, b) => a.fl - b.fl);
   const neg = rows.filter((r) => r.fl < 0).length;
-  return `<div class="dx-tiles">${tile(neg, "items with negative float", neg ? "bad" : "ok")}${tile(rows.filter((r) => r.fl >= 0 && r.fl < 10).length, "under 10 working days of float", rows.some((r) => r.fl >= 0 && r.fl < 10) ? "warn" : "")}</div>${dashList(
+  return `<div class="dx-tiles">${tile(neg, "Items with Negative Float", neg ? "bad" : "ok")}${tile(rows.filter((r) => r.fl >= 0 && r.fl < 10).length, "Under 10 Working Days of Float", rows.some((r) => r.fl >= 0 && r.fl < 10) ? "warn" : "")}</div>${dashList(
     rows
       .slice(0, 8)
       .map(
@@ -43597,7 +43606,7 @@ function ptUnpriced() {
       )
       .sort((a, b) => b.unpriced - a.unpriced),
     tot = r2(rows.reduce((a, o) => a + o.unpriced, 0));
-  return `<div class="dx-tiles">${tile(money(tot), "budget with no PO, no bill, no cost yet", rows.some((o) => o.J.pct > 0.3 && o.pct > 25) ? "bad" : rows.some((o) => o.pct > 15) ? "warn" : "ok")}</div>${dashList(
+  return `<div class="dx-tiles">${tile(money(tot), "Budget with No PO, Bill or Cost Yet", rows.some((o) => o.J.pct > 0.3 && o.pct > 25) ? "bad" : rows.some((o) => o.pct > 15) ? "warn" : "ok")}</div>${dashList(
     rows
       .slice(0, 6)
       .map((o) =>
@@ -43636,7 +43645,7 @@ function ptPOVar() {
       .sort((a, b) => b.v - a.v),
     noPO = DB.bills.filter((b) => !b.poId && b.projectId && !["void", "rejected"].includes(b.status)),
     noT = noPO.reduce((a, b) => a + billTotal(b), 0);
-  return `<div class="dx-tiles">${tile(money(rows.reduce((a, x) => a + x.v, 0)), "billed above PO", rows.some((x) => x.v > 2500) ? "bad" : rows.length ? "warn" : "ok")}${tile(money(noT), `bills with no PO · ${noPO.length}`, noPO.length ? "warn" : "ok")}</div>${dashList([...rows.slice(0, 4).map((x) => dashItem("+" + money(x.v), `${esc(x.po.number)} · ${esc(x.po.vendor)} · PO ${money(x.t)}, billed ${money(x.b)}`, { view: "po", po: x.po.id }, x.v > 2500 ? "bad" : "warn")), ...noPO.slice(0, 3).map((b) => dashItem(money(billTotal(b)), `No PO · ${esc(b.vendor)} · ${esc(b.number || "")}`, { view: "ap" }, "warn"))], "Every bill matches its order.")}`;
+  return `<div class="dx-tiles">${tile(money(rows.reduce((a, x) => a + x.v, 0)), "Billed Above PO", rows.some((x) => x.v > 2500) ? "bad" : rows.length ? "warn" : "ok")}${tile(money(noT), `Bills with No PO · ${noPO.length}`, noPO.length ? "warn" : "ok")}</div>${dashList([...rows.slice(0, 4).map((x) => dashItem("+" + money(x.v), `${esc(x.po.number)} · ${esc(x.po.vendor)} · PO ${money(x.t)}, billed ${money(x.b)}`, { view: "po", po: x.po.id }, x.v > 2500 ? "bad" : "warn")), ...noPO.slice(0, 3).map((b) => dashItem(money(billTotal(b)), `No PO · ${esc(b.vendor)} · ${esc(b.number || "")}`, { view: "ap" }, "warn"))], "Every bill matches its order.")}`;
 }
 function ptOrderBy14() {
   const td = today(),
@@ -43768,7 +43777,7 @@ function ptInspections() {
   }),
     rows.sort((a, b) => a.d - b.d);
   const rate = total ? Math.round((passed / total) * 100) : null;
-  return `<div class="dx-tiles">${tile(null == rate ? "—" : rate + "%", `inspection pass rate · 90 days (${total})`, null != rate && rate < 80 ? "bad" : null != rate && rate < 90 ? "warn" : "ok")}</div>${dashList(
+  return `<div class="dx-tiles">${tile(null == rate ? "—" : rate + "%", `Inspection Pass Rate · 90 Days (${total})`, null != rate && rate < 80 ? "bad" : null != rate && rate < 90 ? "warn" : "ok")}</div>${dashList(
     rows
       .slice(0, 8)
       .map((r) =>
@@ -43805,7 +43814,7 @@ function ptCrew() {
       return { p: p, hrs: hrs, cost: cost, laborCost: J.laborCost || 0, budget: lab?.budget || 0 };
     }),
     un = DB.time.filter((t) => "submitted" === t.status && dayDiff(t.date, td) > 3).length;
-  return `<div class="dx-tiles">${tile(r2(rows.reduce((a, r) => a + r.hrs, 0)), "crew hours this week")}${tile(un, "time sheets waiting over 3 days", un ? "warn" : "ok")}</div><table class="t dash-t"><thead><tr><th>Project</th><th class="money">Hrs · wk</th><th class="money">Labor · wk</th><th class="money">Labor to date</th></tr></thead><tbody>${rows.map((r) => `<tr><td><b>${esc(shortName(r.p))}</b></td><td class="money">${r.hrs}</td><td class="money">${money(r.cost)}</td><td class="money">${money(r.laborCost)}</td></tr>`).join("")}</tbody></table>`;
+  return `<div class="dx-tiles">${tile(r2(rows.reduce((a, r) => a + r.hrs, 0)), "Crew Hours This Week")}${tile(un, "Time Sheets Waiting Over 3 Days", un ? "warn" : "ok")}</div><table class="t dash-t"><thead><tr><th>Project</th><th class="money">Hrs · wk</th><th class="money">Labor · wk</th><th class="money">Labor to date</th></tr></thead><tbody>${rows.map((r) => `<tr><td><b>${esc(shortName(r.p))}</b></td><td class="money">${r.hrs}</td><td class="money">${money(r.cost)}</td><td class="money">${money(r.laborCost)}</td></tr>`).join("")}</tbody></table>`;
 }
 function ptCloseout() {
   const rows = activeJobs()
@@ -43911,7 +43920,7 @@ function ptRealization() {
     F = rows.reduce((a, r) => a + r.fees, 0),
     rate = rows[0]?.rate || designRate(),
     eff = H ? r2(F / H) : 0;
-  return `<div class="dx-tiles">${tile(H ? Math.round((F / (H * rate)) * 100) + "%" : "—", "studio realization · fees ÷ (hours × bill rate)", H && F / (H * rate) < 0.75 ? "bad" : H && F / (H * rate) < 0.85 ? "warn" : "ok")}${tile(money(eff) + "/hr", `effective rate vs $${rate} bill rate`, eff < 0.65 * rate ? "bad" : eff < 0.8 * rate ? "warn" : "ok")}</div><table class="t dash-t"><thead><tr><th>Project</th><th class="money">Hours</th><th class="money">Fees billed</th><th class="money">Eff. rate</th><th class="money">Real.</th></tr></thead><tbody>${rows.map((r) => `<tr><td><b>${esc(shortName(r.p))}</b></td><td class="money">${r.hrs}</td><td class="money">${money(r.fees)}</td><td class="money">${money(r.eff)}</td><td class="money ${r.real < 75 ? "bad" : r.real < 85 ? "warn" : ""}">${r.real}%</td></tr>`).join("")}</tbody></table><div class="small muted">This is the CEO's studio number: it turns hours into whether the studio covers its burden. Billing lag shows here first — bill banked hours and it recovers.</div>`;
+  return `<div class="dx-tiles">${tile(H ? Math.round((F / (H * rate)) * 100) + "%" : "—", "Studio Realization · Fees ÷ (Hours × Bill Rate)", H && F / (H * rate) < 0.75 ? "bad" : H && F / (H * rate) < 0.85 ? "warn" : "ok")}${tile(money(eff) + "/hr", `Effective Rate vs $${rate} Bill Rate`, eff < 0.65 * rate ? "bad" : eff < 0.8 * rate ? "warn" : "ok")}</div><table class="t dash-t"><thead><tr><th>Project</th><th class="money">Hours</th><th class="money">Fees billed</th><th class="money">Eff. rate</th><th class="money">Real.</th></tr></thead><tbody>${rows.map((r) => `<tr><td><b>${esc(shortName(r.p))}</b></td><td class="money">${r.hrs}</td><td class="money">${money(r.fees)}</td><td class="money">${money(r.eff)}</td><td class="money ${r.real < 75 ? "bad" : r.real < 85 ? "warn" : ""}">${r.real}%</td></tr>`).join("")}</tbody></table><div class="small muted">This is the CEO's studio number: it turns hours into whether the studio covers its burden. Billing lag shows here first — bill banked hours and it recovers.</div>`;
 }
 const FILING_TYPICAL = { lpc: 45, altco: 30, alt2: 25, demo: 20, frame: 20 };
 function ptFilingsX() {
@@ -44586,28 +44595,28 @@ renderDashboardView = function () {
 const F_VIEWS = ["ftoday", "fraise", "fsite", "flog", "fcrew"],
   F_TYPES = {
     blocker: {
-      n: "I need something",
+      n: "I Need Something",
       d: "Material, sub, decision or drawing holding work",
       to: "coord",
       hrs: 24,
       ico: "box",
     },
     rfi: {
-      n: "Drawing question",
+      n: "Drawing Question",
       d: "Goes to the designer · PM copied",
       to: "designer",
       hrs: 48,
       ico: "ruler",
     },
     extra: {
-      n: "Hidden condition / extra",
+      n: "Hidden Condition / Extra",
       d: "Stop — PM decides before you proceed",
       to: "pm",
       hrs: 4,
       ico: "flag",
     },
     noshow: {
-      n: "Sub no-show",
+      n: "Sub No-Show",
       d: "PM and coordinator right away",
       to: "pm",
       hrs: 2,
@@ -44615,7 +44624,7 @@ const F_VIEWS = ["ftoday", "fraise", "fsite", "flog", "fcrew"],
       ico: "people",
     },
     delivery: {
-      n: "Delivery problem",
+      n: "Delivery Problem",
       d: "Wrong, short or damaged — coordinator",
       to: "coord",
       hrs: 24,
@@ -44630,14 +44639,14 @@ const F_VIEWS = ["ftoday", "fraise", "fsite", "flog", "fcrew"],
       ico: "check",
     },
     clientq: {
-      n: "Client asked me…",
+      n: "Client Asked Me…",
       d: "Client questions go through the PM",
       to: "pm",
       hrs: 24,
       ico: "chat",
     },
     incident: {
-      n: "Safety incident",
+      n: "Safety Incident",
       d: "PM and owner immediately",
       to: "pm",
       hrs: 1,
@@ -44687,7 +44696,7 @@ function fInit() {
       ["ftoday", "Today", "home"],
       ["fraise", "Raise", "flag"],
       ["fsite", "Site", "box"],
-      ["flog", "Log", "list"],
+      ["flog", "Daily Log", "list"],
       ["fcrew", "Crew", "people"],
     ]);
   const ph = {
@@ -45087,7 +45096,7 @@ function fNextWork(d) {
 }
 let fShots = [];
 function fPhotoHtml() {
-  return `<div class="f"><label>Photos</label><div class="row" style="gap:8px;flex-wrap:wrap"><label class="btn sm">Take photo<input type="file" accept="image/*" capture="environment" multiple data-fshot hidden></label><span class="small muted" id="fshot-n">${fShots.length ? `${fShots.length} attached` : ""}</span></div><div class="f-thumbs" id="fshot-thumbs">${fShots.map((s) => `<img src="${s}">`).join("")}</div></div>`;
+  return `<div class="f"><label>Photos</label><div class="row" style="gap:8px;flex-wrap:wrap"><label class="btn sm">Take Photo<input type="file" accept="image/*" capture="environment" multiple data-fshot hidden></label><span class="small muted" id="fshot-n">${fShots.length ? `${fShots.length} attached` : ""}</span></div><div class="f-thumbs" id="fshot-thumbs">${fShots.map((s) => `<img src="${s}">`).join("")}</div></div>`;
 }
 function fWirePhotos(root) {
   const inp = root.querySelector("[data-fshot]");
@@ -46507,21 +46516,21 @@ function fParseSummary(p) {
   return {
     label:
       {
-        blocker: "Need something",
-        rfi: "Drawing question",
-        extra: "Hidden condition / extra",
-        noshow: "Sub no-show",
-        delivery: "Delivery problem",
+        blocker: "Need Something",
+        rfi: "Drawing Question",
+        extra: "Hidden Condition / Extra",
+        noshow: "Sub No-Show",
+        delivery: "Delivery Problem",
         insp: "Inspection",
-        clientq: "Client asked",
+        clientq: "Client Asked",
         incident: "SAFETY INCIDENT",
-        received: "Delivery received",
-        subok: "Sub confirmed",
-        punch: "Punch item",
-        taskdone: "Task finished",
-        taskstart: "Task started",
-        plan: "Plan change",
-        log: "Daily log note",
+        received: "Delivery Received",
+        subok: "Sub Confirmed",
+        punch: "Punch Item",
+        taskdone: "Task Finished",
+        taskstart: "Task Started",
+        plan: "Plan Change",
+        log: "Daily Log Note",
       }[p.kind] || p.kind,
     bits: bits.filter(Boolean),
     sendsTo: sendsTo,
@@ -48817,7 +48826,7 @@ async function mbsBoot() {
     ),
     (MBS.ready = !0),
     (MBS.loading = !1),
-    (MBS.loadedAt = new Date().toLocaleString()),
+    (MBS.loadedAt = nowStamp()),
     mbsStatus();
 }
 function mbsNote(key, txt) {
@@ -61503,7 +61512,7 @@ function frqReceipt(r) {
       ? DB.users.find((u) => "driver" === u.role)?.name || "the driver"
       : r.ackBy || DB.users.find((u) => "coord" === u.role)?.name || "procurement";
   mbModal(
-    garbage ? "Dump run requested" : "Request sent",
+    garbage ? "Dump Run Requested" : "Request sent",
     `\n    <div class="frq-receipt">\n      <div class="frq-tick">${ICONS && ICONS.check ? ICONS.check : "✓"}</div>\n      <div>\n        <b>${garbage ? `${esc(items[0] ? items[0].what.replace(/^Garbage pickup — /, "") : "A load")} to be picked up` : `${items.length} thing${1 === items.length ? "" : "s"} asked for`}</b>\n        <div class="small">${esc(who)} has it now${"urgent" === r.urgency ? " · marked urgent" : ""}.</div>\n      </div>\n    </div>\n    ${garbage ? "" : `<ul class="frq-items">${items.map((i) => `<li><b>${i.qty && 1 !== i.qty ? esc(String(i.qty)) + " " : ""}${i.unit && "ea" !== i.unit && 1 !== i.qty ? esc(i.unit) + " " : ""}${esc(i.what)}</b>${i.invId ? ' <span class="small ok">— we already have these</span>' : ""}</li>`).join("")}</ul>`}\n    <div class="frq-when">\n      <div><span>Needed</span><b>${esc(fmtL(r.neededBy))}</b></div>\n      <div><span>Window</span><b>${esc(r.timeWindow || "Any time")}</b></div>\n      ${r.note ? `<div style="grid-column:1/-1"><span>${garbage ? "Where" : "Note"}</span><b>${esc(r.note)}</b></div>` : ""}\n    </div>\n    <p class="small muted" style="margin:10px 0 0">${garbage ? 'It is on the driver\'s list for that day. You will see it move to "picked up" here when it is gone.' : "You will see it here as it moves — acknowledged, ordered, on the truck, delivered. If nobody acknowledges it, the screen tells you to call."}</p>`,
     {
       submit: "Done",
@@ -61537,7 +61546,7 @@ function frqReceipt(r) {
 function frqDumpSheet() {
   const when0 = addWork(today(), 1);
   mbModal(
-    "Dump run",
+    "Dump Run",
     `\n    <p class="small muted" style="margin:0 0 10px">The driver picks it up. Tell him how much, where it is, and when you need it gone.</p>\n    <div class="f"><label>How much is there</label>\n      <div class="frq-sizes">${Object.entries(
       VAN_FRACTIONS,
     )
@@ -61686,7 +61695,7 @@ function f3Nav() {
       ["fraise", "Ask", "flag"],
       ["fsite", "Site", "box"],
       ["fcrew", "Crew", "people"],
-      ["flog", "Log", "list"],
+      ["flog", "Daily Log", "list"],
     ]),
     void 0 !== ROLE_VIEWS &&
       (ROLE_VIEWS.foreman = ["ftoday", "fraise", "fsite", "fcrew", "flog", "req", "sched", "files", "chat"]);
@@ -61704,11 +61713,11 @@ if ("function" == typeof renderTabbar) {
   };
 }
 const F3_ASKS = [
-  ["materials", "Materials or a tool", "Studs, screws, a saw — anything to be bought or brought", "box"],
-  ["dump", "Dump run", "The driver takes a load away", "truck"],
+  ["materials", "Materials or a Tool", "Studs, screws, a saw — anything to be bought or brought", "box"],
+  ["dump", "Dump Run", "The driver takes a load away", "truck"],
   [
     "problem",
-    "A problem or question",
+    "A Problem or Question",
     "Hidden condition, a drawing question, a sub who did not turn up",
     "flag",
   ],
@@ -61720,7 +61729,7 @@ function f3Open() {
       .filter((r) => !["closed", "declined"].includes(r.status))
       .map((r) => ({
         at: r.at,
-        kind: "garbage" === r.kind ? "Dump run" : "Materials",
+        kind: "garbage" === r.kind ? "Dump Run" : "Materials",
         title:
           "garbage" === r.kind
             ? r.what || "A load"
@@ -61827,7 +61836,7 @@ function f3MaterialSheet() {
       return `<option value="${esc(t.id)}" ${cur === t.id ? "selected" : ""}>${esc(t.name)}${code ? ` · ${esc(code)}` : ""}</option>`;
     };
   mbModal(
-    "Materials or a tool",
+    "Materials or a Tool",
     `\n    <div class="f"><label>What is it for</label>\n      <select data-f="task">\n        ${act.length ? `<optgroup label="On today">${act.map(opt).join("")}</optgroup>` : ""}\n        ${soon.length ? `<optgroup label="Coming up">${soon.map(opt).join("")}</optgroup>` : ""}\n        <option value="">Not for a particular task</option>\n      </select>\n      <div class="small muted" style="margin-top:4px">This is what puts the cost on the right line. Pick the work it is for, not the room.</div></div>\n    <div class="f"><label>What do you need</label>\n      <textarea data-f="text" rows="3" placeholder="40 2x4x8 studs and a box of 3 inch screws"></textarea></div>\n    <div class="grid2">\n      <div class="f"><label>When</label><input type="date" data-f="when" value="${addWork(td, 1)}"></div>\n      <div class="f"><label>By</label><select data-f="slot">${Object.entries(
       TIME_WINDOWS,
     )
@@ -62675,7 +62684,7 @@ const renderClientsBase_ia = renderClients,
     if ((iaNormaliseClients(), renderClientsBase_ia(), clientOpen)) return;
     const list = document.getElementById("clients-list");
     if (!list) return;
-    list.innerHTML = `<div class="ph"><div><h2>Clients</h2><p class="lead">People, properties and the conversation. Money lives in Billing.</p></div><div class="acts">${(ROLE_VIEWS[role()] || []).includes("billing") ? '<button class="btn" id="btn-gobilling">Billing ›</button>' : ""}<button class="btn primary" id="btn-newclient">New Client</button></div></div>\n    ${grid(
+    list.innerHTML = `<div class="ph"><div><h2>Clients</h2><p class="lead">People, properties and the conversation. Money lives in Billing.</p></div><div class="acts">${(ROLE_VIEWS[role()] || []).includes("billing") ? '<button class="btn" id="btn-gobilling">Billing</button>' : ""}<button class="btn primary" id="btn-newclient">New Client</button></div></div>\n    ${grid(
       {
         id: "clients2",
         cols: [
@@ -62964,7 +62973,7 @@ function iaBillQueueHtml() {
         ? billingSuggestions().filter((s) => !billClient || s.c.id === billClient)
         : [],
     row = (n, title, sub, go, act) =>
-      `<div class="h4r" ${go ? `data-billgo='${esc(JSON.stringify(go))}'` : ""}><span class="h4r-n">${n}</span><span class="grow">${title}${sub ? ` <span class="small muted">· ${sub}</span>` : ""}</span>${act ? `<em class="small">${act} ›</em>` : ""}</div>`,
+      `<div class="h4r" ${go ? `data-billgo='${esc(JSON.stringify(go))}'` : ""}><span class="h4r-n">${n}</span><span class="grow">${title}${sub ? ` <span class="small muted">· ${sub}</span>` : ""}</span>${act ? `<em class="small">${act}</em>` : ""}</div>`,
     card = (title, body, empty) =>
       `<div class="card"><div class="hd"><h3>${title}</h3></div>${body || `<div class="muted small">${empty}</div>`}</div>`;
   return `<div class="bq">\n    ${card(
@@ -63054,7 +63063,7 @@ if (
 ) {
   const mbModalBase_p2b = mbModal;
   mbModal = function (title, body, opts) {
-    if ("Materials or a tool" === title && "string" == typeof body && /data-f="task"/.test(body)) {
+    if ("Materials or a Tool" === title && "string" == typeof body && /data-f="task"/.test(body)) {
       body = body
         .replace(
           /<select data-f="task">/,
@@ -63563,8 +63572,8 @@ renderProj = function () {
     (bar.className = "ph"),
     grid.before(bar)),
     (bar.innerHTML = company
-      ? '<div><h2 data-ia-keep="1">Settings</h2><p class="lead">Users, entities, approval rules, the company block, the library, appearance, data.</p></div><div class="acts"><button class="btn" id="settings-toproj">Project Settings ›</button></div>'
-      : '<div><h2 data-ia-keep="1">Project Settings</h2><p class="lead">Dates, address, client, entity, holidays and site hours for this project.</p></div><div class="acts"><button class="btn" id="settings-tofirm">Company Settings ›</button></div>');
+      ? '<div><h2 data-ia-keep="1">Settings</h2><p class="lead">Users, entities, approval rules, the company block, the library, appearance, data.</p></div><div class="acts"><button class="btn" id="settings-toproj">Project Settings</button></div>'
+      : '<div><h2 data-ia-keep="1">Project Settings</h2><p class="lead">Dates, address, client, entity, holidays and site hours for this project.</p></div><div class="acts"><button class="btn" id="settings-tofirm">Company Settings</button></div>');
   const a = bar.querySelector("#settings-toproj");
   a &&
     (a.onclick = () => {
@@ -64362,7 +64371,7 @@ if (
 ) {
   const mbModalBase_p7 = mbModal;
   mbModal = function (title, body, opts) {
-    if ("Materials or a tool" === title && opts && opts.onSubmit) {
+    if ("Materials or a Tool" === title && opts && opts.onSubmit) {
       opts.onSubmit;
       opts = Object.assign({}, opts, {
         submit: "Next — check the list",
@@ -65267,7 +65276,7 @@ render = function () {
 };
 const b2Row = (n, title, sub, go, act) => {
     const N = h4n(n);
-    return `<div class="h4r" ${go ? `data-h4go='${esc(JSON.stringify(go))}'` : ""}>${N.col}<span class="grow">${N.tag}${title}${sub ? ` <span class="small muted">· ${sub}</span>` : ""}</span>${act ? `<em class="small">${act} ›</em>` : ""}</div>`;
+    return `<div class="h4r" ${go ? `data-h4go='${esc(JSON.stringify(go))}'` : ""}>${N.col}<span class="grow">${N.tag}${title}${sub ? ` <span class="small muted">· ${sub}</span>` : ""}</span>${act ? `<em class="small">${act}</em>` : ""}</div>`;
   },
   b2More = (n, shown) =>
     n > shown ? `<div class="small muted" style="padding:6px 0">+ ${n - shown} more</div>` : "",
@@ -66487,7 +66496,7 @@ const eaFirst = () => ((currentUser() || {}).name || "there").split(" ")[0],
       .replace(/&gt;/g, ">");
 function eaRow(n, t, sub, act, data) {
   const N = h4n(n);
-  return `<div class="h4r" ${data ? `data-ea='${esc(JSON.stringify(data))}'` : ""}>${N.col}<span class="grow">${N.tag}${t}${sub ? ` <span class="small muted">· ${sub}</span>` : ""}</span>${act ? `<em class="small">${act} ›</em>` : ""}</div>`;
+  return `<div class="h4r" ${data ? `data-ea='${esc(JSON.stringify(data))}'` : ""}>${N.col}<span class="grow">${N.tag}${t}${sub ? ` <span class="small muted">· ${sub}</span>` : ""}</span>${act ? `<em class="small">${act}</em>` : ""}</div>`;
 }
 function eaToday(r, F, X) {
   const out = [];
@@ -78471,7 +78480,7 @@ function hbIndexHtml(obj) {
     bulk = hbSel.size
       ? `<div class="hb-bulk"><b>${hbSel.size} selected</b><button class="hb-btn sm" data-hbbulk="assign">Assign</button><button class="hb-btn sm" data-hbbulk="edit">Edit</button>${"contact" === obj ? '<button class="hb-btn sm" data-hbbulk="sequence">Enroll in sequence</button>' : ""}<button class="hb-btn sm" data-hbbulk="tasks">Create tasks</button><button class="hb-btn sm" data-hbbulk="export">Export</button><button class="hb-btn sm danger" data-hbbulk="delete">Delete</button><a href="#" data-hbbulk="all" class="small">Select all ${total} records</a></div>`
       : "",
-    filterbar = `<div class="hb-filterbar">${"deal" === obj ? `<div class="hb-modes"><button class="${"table" === hbMode.deal ? "on" : ""}" data-hbmode="table" title="Table">☰</button><button class="${"board" === hbMode.deal ? "on" : ""}" data-hbmode="board" title="Board">▥</button></div><div class="hb-pill"><label>Pipeline</label><select><option>${esc(H.pipeline.label)}</option></select></div>` : ""}${quick}<button class="hb-btn link sm" id="hb-more">+ More</button><button class="hb-btn link sm" id="hb-advanced">Advanced filters${adv ? ` (${adv})` : ""}</button>${filtered ? '<button class="hb-btn link sm" id="hb-clear">Clear all</button>' : ""}<span class="grow"></span><input class="hb-search" id="hb-q" placeholder="Search ${"deal" === obj ? "name, property, email" : "contact" === obj ? "name, phone, email" : "name, domain"}…" value="${esc(hbQ[obj] || "")}">${"table" === hbMode[obj] || "deal" !== obj ? '<button class="hb-btn sm" id="hb-editcols">Edit columns</button>' : '<button class="hb-btn sm" id="hb-boardopts">Board options</button>'}<button class="hb-btn sm" id="hb-export">Export</button></div>`,
+    filterbar = `<div class="hb-filterbar">${"deal" === obj ? `<div class="hb-modes"><button class="${"table" === hbMode.deal ? "on" : ""}" data-hbmode="table" title="Table">☰</button><button class="${"board" === hbMode.deal ? "on" : ""}" data-hbmode="board" title="Board">▥</button></div><div class="hb-pill"><label>Pipeline</label><select><option>${esc(H.pipeline.label)}</option></select></div>` : ""}${quick}<button class="hb-btn link sm" id="hb-more">More Filters</button><button class="hb-btn link sm" id="hb-advanced">Advanced filters${adv ? ` (${adv})` : ""}</button>${filtered ? '<button class="hb-btn link sm" id="hb-clear">Clear all</button>' : ""}<span class="grow"></span><input class="hb-search" id="hb-q" placeholder="Search ${"deal" === obj ? "name, property, email" : "contact" === obj ? "name, phone, email" : "name, domain"}…" value="${esc(hbQ[obj] || "")}">${"table" === hbMode[obj] || "deal" !== obj ? '<button class="hb-btn sm" id="hb-editcols">Edit columns</button>' : '<button class="hb-btn sm" id="hb-boardopts">Board options</button>'}<button class="hb-btn sm" id="hb-export">Export</button></div>`,
     table = `<div class="hb-tablewrap"><table class="hb-table"><thead><tr><th class="hb-chk"><input type="checkbox" id="hb-selall" ${page.length && page.every((r) => hbSel.has(r.id)) ? "checked" : ""}></th>${cols
       .map((n) => {
         const p = hbProp(obj, n) || { label: n };
@@ -78487,7 +78496,7 @@ function hbIndexHtml(obj) {
       .slice(Math.max(0, hbPage[obj] - 3), hbPage[obj] + 2)
       .join(
         "",
-      )}<button class="hb-btn sm" data-hbpage="next" ${hbPage[obj] >= pages ? "disabled" : ""}>Next ›</button><span class="grow"></span><select id="hb-pagesize">${[25, 50, 100].map((n) => `<option ${n === hbPageSize ? "selected" : ""}>${n} per page</option>`).join("")}</select></div>`;
+      )}<button class="hb-btn sm" data-hbpage="next" ${hbPage[obj] >= pages ? "disabled" : ""}>Next</button><span class="grow"></span><select id="hb-pagesize">${[25, 50, 100].map((n) => `<option ${n === hbPageSize ? "selected" : ""}>${n} per page</option>`).join("")}</select></div>`;
   return `<div class="hb-page"><div class="hb-head"><div><h1>${esc(HB_OBJ[obj].label)}</h1><div class="small muted">${total.toLocaleString()} record${1 === total ? "" : "s"}</div></div><div class="hb-head-acts"><div class="hb-dd"><button class="hb-btn" id="hb-actions">Actions ▾</button><div class="hb-menu" id="hb-actions-menu"><a href="#" data-hbact="props">Edit properties</a><a href="#" data-hbact="views">Manage views</a><a href="#" data-hbact="export">Export</a><a href="#" data-hbact="import">Import</a></div></div><button class="hb-btn" data-hbact="import">Import</button><button class="hb-btn primary" data-hbcreate="${obj}">Create ${HB_OBJ[obj].one.toLowerCase()}</button></div></div>\n  <div class="hb-views">${views.map((v) => `<button class="hb-viewtab ${hbView[obj] === v.id ? "on" : ""}" data-hbview="${v.id}">${esc(v.name)}${hbView[obj] === v.id ? `<span class="hb-viewmenu" data-hbviewmenu="${v.id}">▾</span>` : ""}</button>`).join("")}<button class="hb-viewtab add" id="hb-addview">+ Add view</button><span class="grow"></span><a href="#" class="small" id="hb-allviews">All views</a></div>\n  ${bulk || filterbar}${"deal" === obj && "board" === hbMode.deal ? hbBoardHtml(R) : table}</div>`;
 }
 function hbBoardHtml(R) {
@@ -81200,7 +81209,7 @@ function renderHbForecast() {
       }</tr>`;
       var A;
     };
-  (host.innerHTML = `<div class="hb-page"><div class="hb-head"><div><h1>Forecast</h1></div><div class="hb-head-acts"><div class="hb-pill"><label>Pipeline</label><select><option>${esc(DB.hub.pipeline.label)}</option></select></div><div class="hb-pill"><label>Close date</label><select id="hb-fcperiod"><option value="month" ${"month" === hbFcPeriod ? "selected" : ""}>This month</option><option value="nextmonth" ${"nextmonth" === hbFcPeriod ? "selected" : ""}>Next month</option><option value="quarter" ${"quarter" === hbFcPeriod ? "selected" : ""}>This quarter</option><option value="nextquarter" ${"nextquarter" === hbFcPeriod ? "selected" : ""}>Next quarter</option></select><span class="small muted">${label}</span></div><div class="hb-pill"><label>Team</label><select><option>Everyone</option></select></div></div></div><div class="hb-views"><button class="hb-viewtab ${"stage" === hbFcTab ? "on" : ""}" data-hbfc="stage">Deal stage</button><button class="hb-viewtab ${"category" === hbFcTab ? "on" : ""}" data-hbfc="category">Forecast category</button></div><div class="hb-tablewrap"><table class="hb-table hb-fc"><thead><tr><th>Team / rep</th><th class="r">Goal</th><th class="r">Closed won</th><th class="r">Gap</th><th class="r">Forecast submission</th><th class="r">Open pipeline</th><th class="r">Coverage</th><th class="r">Weighted pipeline</th>${
+  (host.innerHTML = `<div class="hb-page"><div class="hb-head"><div><h1>Forecast</h1></div><div class="hb-head-acts"><div class="hb-pill"><label>Pipeline</label><select><option>${esc(DB.hub.pipeline.label)}</option></select></div><div class="hb-pill"><label>Close date</label><select id="hb-fcperiod"><option value="month" ${"month" === hbFcPeriod ? "selected" : ""}>This month</option><option value="nextmonth" ${"nextmonth" === hbFcPeriod ? "selected" : ""}>Next month</option><option value="quarter" ${"quarter" === hbFcPeriod ? "selected" : ""}>This quarter</option><option value="nextquarter" ${"nextquarter" === hbFcPeriod ? "selected" : ""}>Next quarter</option></select><span class="small muted">${label}</span></div><div class="hb-pill"><label>Team</label><select><option>Everyone</option></select></div></div></div><div class="hb-views"><button class="hb-viewtab ${"stage" === hbFcTab ? "on" : ""}" data-hbfc="stage">Deal stage</button><button class="hb-viewtab ${"category" === hbFcTab ? "on" : ""}" data-hbfc="category">Forecast category</button></div><div class="hb-tablewrap"><table class="hb-table hb-fc"><thead><tr><th>Team / rep</th><th class="r">Goal</th><th class="r">Closed Won</th><th class="r">Gap</th><th class="r">Forecast submission</th><th class="r">Open pipeline</th><th class="r">Coverage</th><th class="r">Weighted pipeline</th>${
     "category" === hbFcTab
       ? HB_FORECAST.map((c) => `<th class="r">${c}</th>`).join("")
       : hbStages()
@@ -82918,7 +82927,7 @@ function renderMApprove() {
             .slice(0, 12)
             .map(
               (x) =>
-                `<div class="rem-row ${x.sev}" data-remgo='${esc(JSON.stringify(x.go || { view: "home" }))}'><b>${esc(String(x.n || "·"))}</b><span><b>${esc(x.title)}</b>${x.detail ? `<br><span class="small muted">${x.detail}</span>` : ""}</span><em class="nm-act">${x.action || "Open"} ›</em></div>`,
+                `<div class="rem-row ${x.sev}" data-remgo='${esc(JSON.stringify(x.go || { view: "home" }))}'><b>${esc(String(x.n || "·"))}</b><span><b>${esc(x.title)}</b>${x.detail ? `<br><span class="small muted">${x.detail}</span>` : ""}</span><em class="nm-act">${x.action || "Open"}</em></div>`,
             )
             .join("")}</div>`
         : ""
@@ -83838,7 +83847,7 @@ function fmFilesTop() {
     (v.querySelector(".ph") || v).after(top);
   }
   const h = v.querySelector(".ph h2");
-  h && (h.textContent = driver ? "Receipts" : "Photos");
+  h && (h.textContent = driver ? "Receipts" : "foreman" === fmRole() ? "Documents" : "Photos");
   const mineToday = S.files.filter((f) => f.by === fmMe() && f.date === today());
   (top.innerHTML = driver
     ? `<button class="btn primary fm-big" data-fm-shoot="receipt">${void 0 !== ICONS ? ICONS.camera : ""}<span>Snap a receipt</span></button><div class="row" style="gap:8px"><button class="btn fm-mid" data-fm-shoot="ticket">Delivery ticket</button><button class="btn fm-mid" data-fm-shoot="photo">Photo</button></div>`
@@ -89307,7 +89316,7 @@ function renderMeetings() {
   "meetings" !== mtTab ||
     mtOpen ||
     (body =
-      '<div class="row" style="margin-bottom:10px;gap:8px;align-items:center"><span class="small muted">Every meeting Gemini took notes for lands here from the Inbox, matched to its project and client, with its next steps proposed as tasks.</span><span class="grow"></span><button class="btn" id="mt-paste">Paste Notes</button><button class="btn primary" id="mt-scan">Read the Inbox</button></div>' +
+      '<div class="row" style="margin-bottom:10px;gap:8px;align-items:center"><span class="small muted">Every meeting Gemini took notes for lands here from the Inbox, matched to its project and client, with its next steps proposed as tasks.</span><span class="grow"></span><button class="btn" id="mt-paste">Paste Notes</button><button class="btn" id="mt-scan">Read the Inbox</button></div>' +
       grid({
         id: "meetings",
         cols: [
@@ -91428,7 +91437,7 @@ function lsReviewHtml() {
     items = lsReviewItems(),
     open = items.filter((i) => i.n && !day.done[i.key]).length;
   (("function" == typeof currentUser && currentUser()) || {}).name;
-  return `<div class="card ls-review"><div class="hd"><h3>Today's Review</h3><span class="small muted">${fmtL(td)} · ${open ? `${open} of ${items.length} still to look at` : "all clear — every count is zero or checked"}</span><span class="grow"></span>${day.doneAt ? `<span class="small ok">Finished ${esc(day.doneAt)}${day.by ? " by " + esc(day.by) : ""}</span>` : `<button class="btn sm ${open ? "" : "primary"}" id="ls-rev-done">Finish the Review</button>`}</div>\n    ${items.map((i) => `<label class="ls-rev-row ${i.n ? (day.done[i.key] ? "checked" : "open") : "clear"}"><input type="checkbox" data-lsrev="${i.key}" ${day.done[i.key] || !i.n ? "checked" : ""} ${i.n ? "" : "disabled"}><b>${i.n}</b><span>${esc(i.label)}${i.amt ? ` · ${money(i.amt)}` : ""}</span>${i.n ? `<a href="#" data-lsgo="${i.key}">Open ›</a>` : ""}</label>`).join("")}\n    <div class="small muted" style="margin-top:6px">The order is the rule: the line with nothing behind it first, then what is waiting on you, then what cannot be costed. Check each once you have looked; the counts refresh on their own.</div></div>`;
+  return `<div class="card ls-review"><div class="hd"><h3>Today's Review</h3><span class="small muted">${fmtL(td)} · ${open ? `${open} of ${items.length} still to look at` : "all clear — every count is zero or checked"}</span><span class="grow"></span>${day.doneAt ? `<span class="small ok">Finished ${esc(day.doneAt)}${day.by ? " by " + esc(day.by) : ""}</span>` : `<button class="btn sm ${open ? "" : "primary"}" id="ls-rev-done">Finish the Review</button>`}</div>\n    ${items.map((i) => `<label class="ls-rev-row ${i.n ? (day.done[i.key] ? "checked" : "open") : "clear"}"><input type="checkbox" data-lsrev="${i.key}" ${day.done[i.key] || !i.n ? "checked" : ""} ${i.n ? "" : "disabled"}><b>${i.n}</b><span>${esc(i.label)}${i.amt ? ` · ${money(i.amt)}` : ""}</span>${i.n ? `<a href="#" data-lsgo="${i.key}">Open</a>` : ""}</label>`).join("")}\n    <div class="small muted" style="margin-top:6px">The order is the rule: the line with nothing behind it first, then what is waiting on you, then what cannot be costed. Check each once you have looked; the counts refresh on their own.</div></div>`;
 }
 if ("function" == typeof renderSpend) {
   const renderSpendBase_ls = renderSpend;
@@ -96847,7 +96856,7 @@ function scWireNum(host) {
         (pill.innerHTML = `<label>Pipeline</label><select id="sc-set-pipe">${H.pipelines.map((p) => `<option value="${p.id}" ${p.id === H.pipeline.id ? "selected" : ""}>${esc(p.label)}</option>`).join("")}</select>`),
           pill.insertAdjacentHTML(
             "afterend",
-            '<button class="hb-btn sm" id="sc-renamepipe">Rename</button><button class="hb-btn sm" id="sc-addpipe">+ Add Pipeline</button>' +
+            '<button class="hb-btn sm" id="sc-renamepipe">Rename</button><button class="hb-btn sm" id="sc-addpipe">Add Pipeline</button>' +
               (H.pipelines.length > 1 &&
               !DB.leads.some((l) => (l.pipeline || "design-build") === H.pipeline.id)
                 ? '<button class="hb-btn sm danger" id="sc-delpipe">Delete Pipeline</button>'
@@ -98844,6 +98853,7 @@ tkFind = (function (base) {
   };
 }
 const BP_ICON = {
+    plus: '<path d="M12 5v14"/><path d="M5 12h14"/>',
     chevD: '<path d="M6 9l6 6 6-6"/>',
     chevR: '<path d="M9 6l6 6-6 6"/>',
     chevL: '<path d="M15 6l-6 6 6 6"/>',
@@ -99006,6 +99016,18 @@ function bpPass(root) {
               t = t.replace(re, rep);
             })),
         t !== raw && (n.nodeValue = t);
+    }),
+    // A leading "+" standing in for an add icon ("+ More", "+ Add Pipeline", quick-add chips) becomes the line
+    // plus icon. Runs after BP_WORDS so "+ Room" still reads "Add Room".
+    bpTextNodes(root, "button, a, .btn, .hb-btn, .chip, [role='button']").forEach((n) => {
+      const t = n.nodeValue,
+        m = t.match(/^(\s*)\+\s?(?=[A-Za-z])/);
+      if (!m) return;
+      const el = n.parentElement;
+      if ([...el.childNodes].slice(0, [...el.childNodes].indexOf(n)).some((x) => x.textContent.trim())) return;
+      const s = document.createElement("span");
+      (s.className = "bp-i"), (s.innerHTML = bpSvg("plus"));
+      el.insertBefore(s, n), (n.nodeValue = " " + t.slice(m[0].length));
     }),
     "v-time" === root.id &&
       BP_FIELD.includes(role()) &&
@@ -101971,7 +101993,7 @@ function rdHtml() {
             "",
           )}</tbody></table></div>${rdRows.length > 12 ? `<div class="small muted" style="margin-top:4px">and ${rdRows.length - 12} more rows</div>` : ""}`
       : ""
-  }\n  </div>\n\n  <div class="card"><h3>Move This Device's Data</h3>\n    <p class="small muted">Everything lives in this browser, on this device. A backup is one file with all of it — send it to someone else and they see exactly what you see, which is the only way to chase a problem that only happens on one person's phone.</p>\n    <div class="row" style="gap:8px"><button class="btn" id="rd-backup2">Save a Backup</button><label class="btn">Load a Backup<input type="file" accept="application/json,.json" id="rd-restore" hidden></label></div>\n  </div>\n\n  <div class="card"><h3>Take the Demo Out</h3>\n    <p class="small muted">The demo jobs make every screen look busy. Once your own work is in, clear them so what you see is your own work.</p>\n    <div class="row" style="gap:8px"><button class="btn danger" id="rd-wipe-jobs">Clear the Jobs and Clients</button><button class="btn danger" id="rd-wipe-all">Clear Everything</button><button class="btn" id="rd-restore">Start Again From the Sample Company</button></div>\n    <div class="small muted" style="margin-top:6px">Clearing the jobs keeps your entities, bank accounts, vendors, people and settings. Clearing everything keeps only the settings.</div>\n  </div>`;
+  }\n  </div>\n\n  <div class="card"><h3>Move This Device's Data</h3>\n    <p class="small muted">Everything lives in this browser, on this device. A backup is one file with all of it — send it to someone else and they see exactly what you see, which is the only way to chase a problem that only happens on one person's phone.</p>\n    <div class="row" style="gap:8px"><button class="btn" id="rd-backup2">Save a Backup</button><label class="btn">Load a Backup<input type="file" accept="application/json,.json" id="rd-restore" hidden></label></div>\n  </div>\n\n  <div class="card"><h3>Take the Demo Out</h3>\n    <p class="small muted">The demo jobs make every screen look busy. Once your own work is in, clear them so what you see is your own work.</p>\n    <div class="row" style="gap:8px"><button class="btn danger" id="rd-wipe-jobs">Clear the Jobs and Clients</button><button class="btn danger" id="rd-wipe-all">Clear Everything</button><button class="btn" id="rd-restore">Start Again from the Sample Company</button></div>\n    <div class="small muted" style="margin-top:6px">Clearing the jobs keeps your entities, bank accounts, vendors, people and settings. Clearing everything keeps only the settings.</div>\n  </div>`;
 }
 function renderRealData() {
   const host = document.getElementById("rdata-body");
@@ -102035,7 +102057,7 @@ function renderRealData() {
       .querySelector("#rd-restore")
       ?.addEventListener("click", () =>
         mbModal(
-          "Start Again From the Sample Company",
+          "Start Again from the Sample Company",
           '<p>The sample company — its clients, jobs, suppliers, people and history — comes back exactly as it shipped.</p><div class="note warn">This replaces what is on this device. A backup file is saved to your downloads first, so nothing is lost: import it from here to get this state back.</div><p class="small muted">Use this if a clear took more than you meant it to, or to have something to practise on again.</p>',
           { submit: "Back Up and Start Again", onSubmit: rdRestoreDemo },
         ),
@@ -109486,7 +109508,7 @@ function gcHtml() {
     others = Object.keys(DB.conn || {}).filter((k) => k !== me.id && (DB.conn[k] || {}).google).length,
     counts = (g && g.counts) || {},
     why = gcBlocked ? GC_WHY[gcBlocked] : cfg.clientId ? "" : GC_WHY.noclient;
-  return `<div class="ph"><div><h2>Connections</h2><div class="lead">Your assistant reads what you connect here and keeps checking it. Each person connects their own account — what arrives in your mail is yours, and nobody else's assistant can read it.</div></div></div>\n  <div class="gc">\n    <div class="card gc-acct"><div class="hd"><h3>Google — ${esc(me.name)}</h3><span class="grow"></span>\n      ${g && g.email ? `<span class="gc-dot on"></span><span class="small">${esc(g.email)}</span>` : '<span class="gc-dot"></span><span class="small muted">Not connected</span>'}</div>\n      <div class="bd">\n        ${g && g.email ? `\n          <div class="gc-stat">\n            <div><span>Last checked</span><b>${esc(gsAgo(g.lastSync))}</b></div>\n            <div><span>Mail held</span><b>${counts.mail || 0}</b></div>\n            <div><span>Calendar entries</span><b>${counts.events || 0}</b></div>\n            <div><span>Documents</span><b>${counts.files || 0}</b></div>\n          </div>\n          ${g.lastError ? `<div class="gc-err">${esc(g.lastError)}</div>` : ""}\n          <label class="gc-auto"><input type="checkbox" id="gc-auto" ${!1 !== g.auto ? "checked" : ""}> Keep checking on its own while the app is open</label>\n          <div class="gc-always ${(g.server || {}).watching ? "on" : ""}">\n            <span class="gc-dot${(g.server || {}).watching ? " on" : ""}"></span>\n            ${(g.server || {}).watching ? "<b>Watching when nobody is looking.</b> The firm's own server checks every fifteen minutes through the working day and leaves what matters in your conversation, so it is waiting for you when you open the app." : gcServerOn() ? '<b>Only while this is open.</b> <button class="btn sm" id="gc-always">Keep Watching When It Is Closed</button>' : "<b>Only while this is open.</b> Checking when the app is shut needs the hosted copy — there is nowhere for a server to run from here."}\n          </div>\n          <div class="gc-acts"><button class="btn sm" id="gc-now">Check Now</button><button class="btn sm" id="gc-off">Disconnect</button></div>\n        ` : `\n          <p class="small">Connecting signs you in to Google in a window from Google itself. This app never sees your password, and the key it gets back is held for this browser session only — it is not written into the saved data or carried into a backup.</p>\n          ${why ? `<div class="gc-err">${esc(why)}</div>` : ""}\n          <button class="btn primary" id="gc-go" ${cfg.clientId ? "" : "disabled"}>Connect My Google Account</button>\n        `}\n        <div class="gc-what">${GC_WHAT.map(([k, d]) => `<div><b>${k}</b><span>${esc(d)}</span></div>`).join("")}</div>\n        <div class="small muted gc-note">It writes drafts and holds time on its own. It sends an email or books a meeting only when you press the button on it — nothing in the checking loop can send anything.</div>\n      </div></div>\n    ${others ? `<div class="small muted gc-others">${others} other ${1 === others ? "person has" : "people have"} connected their own account. You cannot see theirs and they cannot see yours.</div>` : ""}\n    ${gcSetupHtml()}\n  </div>`;
+  return `<div class="ph"><div><h2>Connections</h2><div class="lead">Your assistant reads what you connect here and keeps checking it. Each person connects their own account — what arrives in your mail is yours, and nobody else's assistant can read it.</div></div></div>\n  <div class="gc">\n    <div class="card gc-acct"><div class="hd"><h3>Google — ${esc(me.name)}</h3><span class="grow"></span>\n      ${g && g.email ? `<span class="gc-dot on"></span><span class="small">${esc(g.email)}</span>` : '<span class="gc-dot"></span><span class="small muted">Not connected</span>'}</div>\n      <div class="bd">\n        ${g && g.email ? `\n          <div class="gc-stat">\n            <div><span>Last checked</span><b>${esc(gsAgo(g.lastSync))}</b></div>\n            <div><span>Mail held</span><b>${counts.mail || 0}</b></div>\n            <div><span>Calendar entries</span><b>${counts.events || 0}</b></div>\n            <div><span>Documents</span><b>${counts.files || 0}</b></div>\n          </div>\n          ${g.lastError ? `<div class="gc-err">${esc(g.lastError)}</div>` : ""}\n          <label class="gc-auto"><input type="checkbox" id="gc-auto" ${!1 !== g.auto ? "checked" : ""}> Keep checking on its own while the app is open</label>\n          <div class="gc-always ${(g.server || {}).watching ? "on" : ""}">\n            <span class="gc-dot${(g.server || {}).watching ? " on" : ""}"></span>\n            ${(g.server || {}).watching ? "<b>Watching when nobody is looking.</b> The firm's own server checks every fifteen minutes through the working day and leaves what matters in your conversation, so it is waiting for you when you open the app." : gcServerOn() ? '<b>Only while this is open.</b> <button class="btn sm" id="gc-always">Keep Watching When It Is Closed</button>' : "<b>Only while this is open.</b> Checking when the app is shut needs the hosted copy — there is nowhere for a server to run from here."}\n          </div>\n          <div class="gc-acts"><button class="btn sm" id="gc-now">Check Now</button><button class="btn sm" id="gc-off">Disconnect</button></div>\n        ` : `\n          <p class="small">Connecting signs you in to Google in a window from Google itself. This app never sees your password, and the key it gets back is held for this browser session only — it is not written into the saved data or carried into a backup.</p>\n          ${why ? `<div class="gc-err">${esc(why)}</div>` : ""}\n          <button class="btn" id="gc-go" ${cfg.clientId ? "" : "disabled"}>Connect My Google Account</button>\n        `}\n        <div class="gc-what">${GC_WHAT.map(([k, d]) => `<div><b>${k}</b><span>${esc(d)}</span></div>`).join("")}</div>\n        <div class="small muted gc-note">It writes drafts and holds time on its own. It sends an email or books a meeting only when you press the button on it — nothing in the checking loop can send anything.</div>\n      </div></div>\n    ${others ? `<div class="small muted gc-others">${others} other ${1 === others ? "person has" : "people have"} connected their own account. You cannot see theirs and they cannot see yours.</div>` : ""}\n    ${gcSetupHtml()}\n  </div>`;
 }
 function gcWire(host) {
   const q = (s) => host.querySelector(s);
@@ -114325,7 +114347,8 @@ function renderFdSetup() {
   BH.client && (BH.client.h2 = "Overview"),
   (BH.clacct = Object.assign(BH.clacct || {}, { h2: "Account" })),
   BH.hbsettings && (BH.hbsettings.h2 = "Sales Settings"),
-  BH.hbdash && (BH.hbdash.h2 = "Sales Dashboard"),
+  (BH.hbdash = Object.assign(BH.hbdash || {}, { h2: "Numbers — Dashboard" })),
+  (BH.hbforecast = Object.assign(BH.hbforecast || {}, { h2: "Numbers — Forecast" })),
   (BH.pa = Object.assign(BH.pa || {}, { h2: "Ask" })),
   (BH.setup = { h2: "Settings", primary: null }),
   (BH.ovjobs = { h2: "Projects", primary: null }),
@@ -114345,9 +114368,10 @@ function renderFdSetup() {
         anchor && anchor.parentNode && anchor.parentNode.insertBefore(sec, anchor.nextSibling);
     });
   })();
+// A view reached from inside another page lights that page's sub-tab: Forecast and Dashboard are tabs on
+// Numbers, so Numbers stays lit and their headings read "Numbers — Forecast". Playbook is its own sub-tab.
 const FD_HIDDEN_SUB = {
   leads: "hbdeals",
-  playbook: "hbplaybooks",
   hbforecast: "salesnum",
   hbdash: "salesnum",
 };
@@ -114397,7 +114421,7 @@ if ("function" == typeof renderNav) {
               const t = sub.querySelector(`[data-sub="${v}"]`);
               t && t.remove();
             }),
-            FD_HIDDEN_SUB[view] && fdLabel(FD_HIDDEN_SUB[view]) === fdLabel(view))
+            FD_HIDDEN_SUB[view])
           ) {
             const p = sub.querySelector(`[data-sub="${FD_HIDDEN_SUB[view]}"]`);
             p && p.classList.add("on");
@@ -114408,7 +114432,16 @@ if ("function" == typeof renderNav) {
             c && ap.insertAdjacentHTML("beforeend", `<span class="n">${c}</span>`);
           }
         }
-        "client" === r && fdClientRail(wrap, sub), "foreman" !== r || mOn() || fdForemanRail(wrap);
+        "client" === r && fdClientRail(wrap, sub), FD_FIELD_ROLES.includes(r) && fdFieldRail(wrap, sub);
+        // Connections sits in the Settings group; a role with no Settings page still needs a way to it, under
+        // the name its page carries.
+        if (!FD_FIELD_ROLES.includes(r) && "client" !== r && wrap && !(ROLE_VIEWS[r] || []).includes("setup") && (ROLE_VIEWS[r] || []).includes("conn") && !wrap.querySelector('[data-v="conn"]')) {
+          wrap.insertAdjacentHTML(
+            "beforeend",
+            `<button data-grp="f-conn" data-v="conn" class="${"conn" === view ? "on" : ""}"><svg viewBox="0 0 24 24"><path d="M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>Connections<span class="n"></span></button>`,
+          );
+          wrap.querySelector('[data-v="conn"]').onclick = () => setView("conn");
+        }
       } catch (e) {
         console.warn("frontdoor nav", e);
       }
@@ -114426,11 +114459,34 @@ function fdClientRail(wrap, sub) {
   nav && nav._projsel && (nav.appendChild(nav._projsel), (nav._projsel.hidden = !0)),
     sub && (sub.hidden = !0);
 }
-function fdForemanRail(wrap) {
-  const tabs = (void 0 !== TABS && TABS.foreman) || [];
+// A field role's rail (desktop, and the phone menu) lists every screen the person can open, each under the name
+// its heading carries: the tab-bar jobs first, then the rest. Field roles get no group sub-tabs: one list, plain
+// words. The foreman's assistant (pa) is headed "Ask" like his Ask tab, so it lights that tab instead of adding
+// a second "Ask".
+const FD_FIELD_MORE = [
+    ["pa", "Ask", "chat"],
+    ["req", "Requests", "box"],
+    ["sched", "Schedule", "calendar"],
+    ["tasks", "Tasks", "list"],
+    ["recv", "Deliveries", "truck"],
+    ["photos", "Photos", "camera"],
+    ["files", "Documents", "list"],
+    ["chat", "Chat", "chat"],
+    ["conn", "Connections", "people"],
+  ],
+  FD_FIELD_ROLES = ["foreman", "crew", "driver"],
+  fdFieldTabOn = (v) => view === v || ("fraise" === v && "pa" === view && "foreman" === role());
+function fdFieldRail(wrap, sub) {
+  const r = role(),
+    rv = ROLE_VIEWS[r] || [],
+    main = ((void 0 !== TABS && TABS[r]) || []).filter(([v]) => rv.includes(v)),
+    tabs = main.concat(
+      FD_FIELD_MORE.filter(([v]) => rv.includes(v) && !main.some((t) => t[0] === v) && !("pa" === v && "foreman" === r)),
+    );
+  sub && ((sub.innerHTML = ""), (sub.hidden = !0));
   (wrap.innerHTML = tabs
     .map(([v, l, i]) => {
-      return `<button data-grp="f-${v}" data-v="${v}" class="${view === v ? "on" : ""}"><svg viewBox="0 0 24 24">${((s = ICONS[i]), String(s || "").replace(/^<svg viewBox="0 0 24 24">|<\/svg>$/g, ""))}</svg>${esc(l)}<span class="n">${
+      return `<button data-grp="f-${v}" data-v="${v}" class="${fdFieldTabOn(v) ? "on" : ""}"><svg viewBox="0 0 24 24">${((s = ICONS[i]), String(s || "").replace(/^<svg viewBox="0 0 24 24">|<\/svg>$/g, ""))}</svg>${esc(l)}<span class="n">${
         ((v) => {
           if ("fraise" !== v) return 0;
           try {
@@ -116904,7 +116960,7 @@ if ("function" == typeof mbModal) {
   mbModal = function (title, body, opts) {
     let REQ = null;
     if (
-      ("Materials or a tool" === title &&
+      ("Materials or a Tool" === title &&
         (REQ = [
           ['[data-f="task"]', "Pick the work it is for — that is what puts the cost on the right line"],
           ['[data-f="text"]', "Say what you need"],
@@ -144655,28 +144711,11 @@ if ("function" == typeof renderReports) {
     try {
       const body = document.getElementById("rep-body");
       if (!body) return;
+      // The reports of a group (Statements, Monthly Pack, WIP Schedule, Weekly Flash…) are tabs a person can see
+      // and click. They used to be folded into a "Which report" select with the tabs left in the page at 0x0,
+      // so the reports could not be found by eye or reached by a click on the tab.
       const seg = body.querySelector(".rep-frame .ov-repsub");
-      if (!seg || seg.dataset.os) return;
-      const btns = [...seg.querySelectorAll("button")];
-      if (btns.length < 2) return;
-      seg.dataset.os = "1";
-      const sel = document.createElement("select");
-      (sel.className = "btn sm os-repsel"),
-        sel.setAttribute("aria-label", "Which report"),
-        (sel.title = "Which report"),
-        btns.forEach((b, i) => {
-          const o = document.createElement("option");
-          (o.value = String(i)),
-            (o.textContent = b.textContent.replace(/\s+/g, " ").trim()),
-            b.classList.contains("on") && (o.selected = !0),
-            sel.appendChild(o);
-        }),
-        (sel.onchange = () => {
-          const b = btns[+sel.value];
-          b && b.click();
-        }),
-        (seg.style.display = "none"),
-        seg.before(sel);
+      seg && (seg.style.display = "");
     } catch (e) {
       console.warn("reports picker", e);
     }
@@ -144997,9 +145036,7 @@ const TR_SMALL = new Set([
     "with",
   ]),
   TR_UNIT =
-    /^(h|hr|hrs|min|mins|d|wk|wks|mo|mos|yr|yrs|sf|sq|ft|lf|in|ea|pc|pcs|lb|lbs|gal|cy|yd|yds|m|k|x|pt|pts)$/,
-  TR_PHRASAL =
-    /^(clock|log|sign|check|punch|call|opt|plug|fill|drop|write|turn|switch|carry|stand|hold|read|key|dial|phone|chime|weigh|hand|hang|come|go|move|bring|it|logged|signed|clocked|checked|phoned|called|filled)$/i;
+    /^(h|hr|hrs|min|mins|d|wk|wks|mo|mos|yr|yrs|sf|sq|ft|lf|in|ea|pc|pcs|lb|lbs|gal|cy|yd|yds|m|k|x|pt|pts)$/;
 let trData = null,
   trDataDB = null,
   trDataDirty = !0;
@@ -145097,8 +145134,10 @@ function trWord(w, first, phr) {
     : pre + low + post;
 }
 function trCase(str) {
-  return str
-    .split(/(\s*[·—–|]\s*)/)
+  const parts = str.split(/(\s*[·—–|]\s*)/),
+    lastSeg = parts.length - 1,
+    continues = /\s$/.test(str);
+  return parts
     .map((seg, si) => {
       if (si % 2) return seg;
       const toks = seg.split(/(\s+)/),
@@ -145110,12 +145149,11 @@ function trCase(str) {
             prev = k > 0 ? toks[idx[k - 1]] : "";
           if (prev && /^[\d.,/$%-]*\d[\d.,/%]*$/.test(prev) && TR_UNIT.test(t.replace(/[.,;:)]+$/, "")))
             return t;
-          const phr =
-            k === idx.length - 1 &&
-            k > 0 &&
-            TR_SMALL.has(t.toLowerCase()) &&
-            TR_PHRASAL.test(prev.replace(/[^A-Za-z]/g, ""));
-          return trWord(t, 0 === k, phr);
+          // Chicago style: the first and the last word of a label are capitalised, small words included
+          // ("Sure Of", "Order By", "I Am Waiting On"). A text node ending in a space runs on into more of the
+          // label (an inline <b> or link), so its final word is not the label's last word.
+          const last = k === idx.length - 1 && k > 0 && !(continues && si === lastSeg);
+          return trWord(t, 0 === k, last);
         })
         .join("");
     })
@@ -150519,7 +150557,7 @@ if (
     sync &&
       ((sync.textContent = live.length ? "Sync Now" : "Connect a Bank"),
       (sync.onclick = () => (live.length ? bfSyncAll() : bfConnect())),
-      sync.classList.toggle("primary", !bfBroken().some((f) => "login" === bfHealth(f).key)));
+      sync.classList.remove("primary"));
     const acts = sync && sync.parentElement;
     if (acts && !acts.querySelector("#bf-import")) {
       const b = document.createElement("button");
@@ -150533,6 +150571,28 @@ if (
     const rb = document.getElementById("btn-recon");
     rb && ((rb.textContent = "Reconcile"), (rb.onclick = () => bfReconStart(txnAcct || ""))),
       document.getElementById("bf-cover")?.remove();
+    // The blue button is the next step, never Sync or Connect: Reconcile when an imported statement is waiting,
+    // else "Review N" for the lines to review (N is the Banking badge and the To Review tile; it opens that tile).
+    if (acts) {
+      const stmtWaits = (DB.accounts || []).some((a) => {
+          const st = bfAcctState(a);
+          return (DB.bankImports || []).some(
+            (i) => i.acctId === a.id && null != i.ending && (!st.through || i.period[1] > st.through),
+          );
+        }),
+        nRev = ("function" == typeof ocBadgeN && ocBadgeN("bank")) || 0;
+      let rv = document.getElementById("bf-review");
+      rv ||
+        ((rv = document.createElement("button")), (rv.className = "btn"), (rv.id = "bf-review"), acts.appendChild(rv)),
+        (rv.textContent = `Review ${nRev}`),
+        (rv.hidden = !nRev || stmtWaits),
+        (rv.onclick = () => {
+          const t = document.querySelector('#tl-bank [data-tl="rev"]');
+          t ? t.click() : ((txnFilter = "open"), (txnAcct = ""), render());
+        }),
+        rv.classList.toggle("primary", !!nRev && !stmtWaits),
+        rb && rb.classList.toggle("primary", stmtWaits);
+    }
     const cov = document.createElement("div");
     cov.innerHTML = bfCoverHtml();
     const tl = v.querySelector("#tl-bank") || v.querySelector(".glance");

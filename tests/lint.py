@@ -8,6 +8,8 @@ For every user in USERS x every view in ROLE_VIEWS[role()] x desktop (1440x900) 
   TITLE_CASE           a button, tab, h1-h3, th, tile/kpi label or chip label that is not Title Case
   MONEY_WORD           the word "Money" in a label ("Accounting", never "Money")
   HEADING_NAV          the page heading does not match its nav entry (active sub-tab, else rail group)
+  HIDDEN_TAB           a visible tab strip holding a tab whose box is 0x0 while its siblings show (in the page,
+                       but nobody can see or click it)
   PHONE_HSCROLL        phone: the document scrolls sideways
   PHONE_OFFSCREEN      phone: an element's right edge passes the viewport (outside a horizontal scroller)
   CLIPPED_TEXT         phone: overflow hidden/clip cuts an element's own text (scrollWidth > clientWidth+1)
@@ -201,6 +203,22 @@ COLLECT = r"""
     // only the first caption is the label; a later one is a note on the value ("safe-to-spend is already negative")
     const k = kids.find(k => srcText(k));
     if (k && !done.has(k)) { done.add(k); checkLabel(k, 'tile'); }
+  }
+
+  // ---------- tabs that cannot be seen or clicked ----------
+  // A visible tab strip holding a tab whose box is 0x0 while its siblings show: the tab is in the page but a
+  // person can neither see nor click it (the Reports group tabs were left at 0x0 behind a select).
+  const STRIP = '[role="tablist"], .ctabs, .sub-tabs, .seg, .tabs, .hb-tabs, .hb-subtabs, .rep-groups, .rep-sub';
+  const stripSeen = new Set();
+  for (const s of shown.filter(e => e.matches(STRIP))) {
+    const kids = [...s.children].filter(k => k.matches('button, a, [role="tab"]'));
+    if (kids.length < 2) continue;
+    const on = kids.filter(k => shownSet.has(k));
+    const dead = kids.filter(k => { const r = k.getBoundingClientRect(); return r.width < 1 && r.height < 1; });
+    if (!on.length || !dead.length) continue;
+    const key = sel(s) + '|' + dead.map(k => srcText(k)).join(',');
+    if (stripSeen.has(key)) continue; stripSeen.add(key);
+    flag('HIDDEN_TAB', s, `${dead.length} of ${kids.length} tabs at 0x0: ${dead.map(k => '"' + (srcText(k) || k.textContent.trim()).slice(0, 20) + '"').join(', ')} (${sel(s)})`, key);
   }
 
   // ---------- heading vs nav ----------
