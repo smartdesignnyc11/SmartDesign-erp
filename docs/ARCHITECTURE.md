@@ -69,6 +69,8 @@
 | `smOpen` | ~152,078 | |
 | `prgJob` | ~155,073 | |
 | `dlMissing` | ~156,093 | |
+| `jobFinDerive` | after `jobFin` | eac → earned, over/under, backlog, GP in one place; every jobFin wrapper that moves `actual` calls it |
+| `tpJobPct` / `jobFinEac` | just before `PRED` (truthpct) | `tpJobPct(p)`: the one job % complete (SOV lines weighted by value, measured on site; `tpJobPctDetail(p)` gives the lines). `jobFin(p).eac` is rolled up by estimate/CO line (`J.eacLines`, `jobFinEac`); `J.pct` is the cost basis (revenue), never printed as "% complete" (`tpCostWords(J)`). `tpCertified(c)`: what the client is shown as complete. `tpForecastWhy(p)`: the forecast's cause. |
 | `eqRows` / `agParse` / `agRead` | after `PRED` | askgen (BACKLOG §1.3). `eqRows(entity)` is the one scope for every Ask path and `erpQuery`: a client reads only their own jobs' rows, foreman, crew and driver read no money. `agParse` reads a question into entity, filters (jobs, clients, vendors, people, payees the books hold, a period on `today()`/`appWeek()`, statuses, negation), measure and grouping; `agRead` runs the readers (`AG_FIN`, `AG_OPS`, `AG_ENT`, then `agGeneric`) and every answer carries "I ran: …" in `interp`. The outermost `paAsk` wrapper: the older chain only answers what no reader takes (memory, reminders, mail, documents by number), and a refusal from it comes back for a text search. |
 | `PRED` | end of file | The predicate registry: every counted question (waiting on me, late material/decision/submittal, a job's Needs You, buy-board filters, unsigned, open POs, bills awaiting approval…) defined once with its rule. Screens, badges, tiles, Ask and saved searches read it by name; add a predicate here rather than a new filter in a screen. |
 
