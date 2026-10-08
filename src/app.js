@@ -46189,14 +46189,11 @@ function fOfficeCard(opts = {}) {
       "",
     )}\n    ${logs.length ? `<div class="small muted" style="margin-top:8px"><b>Daily logs:</b> ${logs.map((l) => `${fmt(l.date)} — ${l.crew.length} crew${l.subs.length ? `, ${l.subs.length} sub${l.subs.length > 1 ? "s" : ""}` : ""}${l.notes ? `: ${esc(l.notes.slice(0, 90))}${l.notes.length > 90 ? "…" : ""}` : ""}`).join(" · ")}</div>` : ""}</div>`;
 }
-function fWireOffice(root) {
-  root &&
-    (root.querySelectorAll("[data-fans]").forEach(
-      (b) =>
-        (b.onclick = () => {
-          const r = DB.field.raises.find((x) => x.id === b.dataset.fans),
-            dec = b.dataset.dec,
-            lbl = {
+// Answer a question from the field: the one flow every Answer button runs (the From the Field card,
+// Home's Do Now). dec is the extra-work choice ("extra", "nocharge", "hold") or empty for a plain answer.
+function fAnswerRaise(r, dec) {
+  if (!r) return;
+  const lbl = {
               extra: "Proceed as an extra",
               nocharge: "Do it, no charge",
               hold: "Hold — do not proceed",
@@ -46243,7 +46240,12 @@ function fWireOffice(root) {
               },
             },
           );
-        }),
+}
+function fWireOffice(root) {
+  root &&
+    (root.querySelectorAll("[data-fans]").forEach(
+      (b) =>
+        (b.onclick = () => fAnswerRaise(DB.field.raises.find((x) => x.id === b.dataset.fans), b.dataset.dec)),
     ),
     root.querySelectorAll("[data-fhand]").forEach(
       (b) =>
@@ -83120,6 +83122,41 @@ const APPR_CHIPS = [
     ["other", "Other"],
   ],
   apprChip = (it) => (APPR_CHIPS.some(([k]) => k === it.kind) ? it.kind : "other");
+// The yes on a bill waiting for approval, wherever it is pressed (Approvals, Home's Do Now). billAction is the
+// one bill-approval gate: billed over its PO it opens the short-pay sheet (Approve PO Amount is the safe default);
+// paid by the bank before approval it asks Approve as Billed with every open control listed, compliance blocks
+// included, and a reason. Only a compliance block on a bill neither of those covers asks for the override here.
+function apprBillYes(it) {
+  const b = it && (DB.bills || []).find((x) => x.id === it.id);
+  if (!b || !it.act) return;
+  const keep = S,
+    p = DB.projects.find((x) => x.id === b.projectId),
+    run = (why) => {
+      p && (S = p);
+      try {
+        billAction(b, it.act, why);
+      } catch (e) {
+        console.warn(e), toast("Could not approve: " + (e.message || e));
+      }
+      (S = keep), render();
+    },
+    asked =
+      ("function" == typeof billOverPO && billOverPO(b)) ||
+      ("function" == typeof billPaidUnapproved && billPaidUnapproved(b) && isOwner());
+  "approve" === it.act && it.comp && it.comp.length && !asked
+    ? mbModal(
+        `Override — ${esc(b.vendor)}`,
+        `<div class="note warn">${it.comp.map(esc).join("<br>")}</div><div class="f" style="margin-top:10px"><label>Owner override — reason</label><input data-f="why" placeholder="e.g. COI renewal received by email, filing tomorrow" enterkeyhint="done"></div>`,
+        {
+          submit: "Approve Anyway",
+          onSubmit: (v) => {
+            if (!v.why) return toast("Say why you are overriding it"), !1;
+            run(v.why);
+          },
+        },
+      )
+    : run("");
+}
 function renderMApprove() {
   const v = document.getElementById("v-mapprove");
   if (!v) return;
@@ -83198,32 +83235,8 @@ function renderMApprove() {
       if ((op && (op.onclick = () => mGo(it.open)), "bill" === it.kind)) {
         const b = DB.bills.find((x) => x.id === it.id),
           keep = S,
-          p = DB.projects.find((x) => x.id === b.projectId),
-          runBill = (why) => {
-            p && (S = p);
-            try {
-              billAction(b, it.act, why);
-            } catch (e) {
-              console.warn(e), toast("Could not approve: " + (e.message || e));
-            }
-            (S = keep), render();
-          };
-        yes &&
-          (yes.onclick = () => {
-            "approve" === it.act && it.comp && it.comp.length && !billOverPO(b)
-              ? mbModal(
-                  `Override — ${esc(b.vendor)}`,
-                  `<div class="note warn">${it.comp.map(esc).join("<br>")}</div><div class="f" style="margin-top:10px"><label>Owner override — reason</label><input data-f="why" placeholder="e.g. COI renewal received by email, filing tomorrow" enterkeyhint="done"></div>`,
-                  {
-                    submit: "Approve Anyway",
-                    onSubmit: (v) => {
-                      if (!v.why) return toast("Say why you are overriding it"), !1;
-                      runBill(v.why);
-                    },
-                  },
-                )
-              : runBill("");
-          }),
+          p = DB.projects.find((x) => x.id === b.projectId);
+        yes && (yes.onclick = () => apprBillYes(it)),
           no &&
             (no.onclick = () => {
               billAskWhy(
