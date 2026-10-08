@@ -68,6 +68,8 @@
 | `smOpen` | ~152,078 | |
 | `prgJob` | ~155,073 | |
 | `dlMissing` | ~156,093 | |
+| `jobFinDerive` | after `jobFin` | eac → earned, over/under, backlog, GP in one place; every jobFin wrapper that moves `actual` calls it |
+| `tpJobPct` / `jobFinEac` | just before `PRED` (truthpct) | `tpJobPct(p)`: the one job % complete (SOV lines weighted by value, measured on site; `tpJobPctDetail(p)` gives the lines). `jobFin(p).eac` is rolled up by estimate/CO line (`J.eacLines`, `jobFinEac`); `J.pct` is the cost basis (revenue), never printed as "% complete" (`tpCostWords(J)`). `tpCertified(c)`: what the client is shown as complete. `tpForecastWhy(p)`: the forecast's cause. |
 | `PRED` | end of file | The predicate registry: every counted question (waiting on me, late material/decision/submittal, a job's Needs You, buy-board filters, unsigned, open POs, bills awaiting approval…) defined once with its rule. Screens, badges, tiles, Ask and saved searches read it by name; add a predicate here rather than a new filter in a screen. |
 
 ## Data (global `DB`, persisted with `save()` / `saveNow()` to IndexedDB)

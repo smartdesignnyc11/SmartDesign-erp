@@ -19,6 +19,12 @@ from harness import *
 # Pinned values. They mirror baseline_test.py (income, net, ready to bill, AP owed) and the key-figures table in
 # HANDOFF.md (app day 2026-09-03, owner). If a change moves one, update baseline_test.py, HANDOFF.md and this dict
 # together and say why in the commit. The 121 State % complete (14%, physical, tpJobPct) and EAC are BACKLOG §1.2.
+# truthpct (BACKLOG §1.2) moved these on purpose: the EAC now rolls up by estimate line, each line at
+# max(budget, actual + committed), so 121 State's EAC is $388,887.50 (Windows +$3,800 billed over its PO budget,
+# Millwork +$1,000 committed past its budget), its cost basis falls and it earns $1,532.47 less: WIP over-billed,
+# backlog and 121's over-billing rise by $1,532.47; YTD income and net fall by it; safe to spend (cash after
+# over-billing) falls by it. August and closed months are unchanged (a change in estimate is recognised in the
+# period it is made).
 PINNED = {
     'cash':            184231,   # Chase Business Checking, ledger balance
     'ar':              92265,    # open invoices, ex retainage
@@ -27,18 +33,18 @@ PINNED = {
     'ap_bills':        0,        # vendor bills owed
     'ap_payroll_due':  16040,    # payroll 8/17-8/28, past due
     'ap_paid_unappr':  43300,    # paid from the bank before approval: NOT owed
-    'wip_over':        154742,   # net over-billing on the WIP schedule
-    'backlog':         581408,   # contract - earned
-    'net':             -3797,    # YTD net, management view
-    'income':          144292,   # YTD earned revenue
-    'safe':            -2618,    # safe to spend
+    'wip_over':        156274,   # net over-billing on the WIP schedule ($156,274.27; $154,741.80 before truthpct)
+    'backlog':         582941,   # contract - earned ($582,940.76; $581,408.29 before truthpct)
+    'net':             -5330,    # YTD net, management view (-$5,329.88; -$3,797.41 before truthpct)
+    'income':          142759,   # YTD earned revenue ($142,759.24; $144,291.71 before truthpct)
+    'safe':            -4151,    # safe to spend (-$4,150.74; -$2,618.27 before truthpct)
     'rtb':             20980,    # ready to bill
     'rtb_n':           2,
-    'wip_job:121 State Street':   129525,
+    'wip_job:121 State Street':   131058,   # $131,057.72; $129,525.25 before truthpct
     'wip_job:45 Cranberry St':    2705,
     'wip_job:140 Prospect Place': 22512,
     'pct121':          14,       # 121 State % complete, one number (tpJobPct, BACKLOG §1.2)
-    'eac121':          384088,   # 121 State estimate at completion ($384,087.50, BACKLOG §1.2 "before")
+    'eac121':          388888,   # 121 State estimate at completion ($388,887.50; $384,087.50 before truthpct)
     'drift':           0,
 }
 FAMILY = lambda k: {'unmatched_n': 'unmatched', 'unmatched_amt': 'unmatched', 'ap_bills': 'ap', 'ap_payroll_due': 'ap',

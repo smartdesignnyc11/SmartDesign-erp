@@ -10047,7 +10047,7 @@ function lineProfit(p) {
         budget &&
         billedPct / 100 > pctComplete + 0.35 &&
         billedPct > 50 &&
-        flags.push(`billed ${Math.round(billedPct)}% vs ${Math.round(100 * pctComplete)}% complete`),
+        flags.push(`billed ${Math.round(billedPct)}% vs ${Math.round(100 * pctComplete)}% of its budget spent`),
       {
         key: key,
         label: o.label,
@@ -23284,7 +23284,7 @@ function repProfit() {
     range = repFrom || repTo ? ` · ${repFrom || "start"} → ${repTo || "today"}` : " · to date",
     kpi = (label, v, sub, cls = "") =>
       `<div class="kpi ${cls}"><b>${"number" == typeof v ? money(v) : v}</b><span>${label}${sub ? ` · ${sub}` : ""}</span></div>`;
-  return `<div class="rep-head"><div><h2 style="margin:0">${esc(p.project.name)}</h2><div class="small muted">${esc(c?.name || "")}${p.project.address ? " · " + esc(p.project.address) : ""}${range} · prepared ${fmtL(today())}</div></div></div>\n    <h3 class="rep-h">Revenue</h3><div class="fin rep-kpis">${kpi("Contract incl. approved COs", r.contract)}${kpi("Billed", r.billedGross, `${r.contract ? Math.round((r.billedGross / r.contract) * 100) : 0}% of contract`)}${kpi("Collected", r.collected, "", "good")}${kpi("Outstanding", r.outstanding, `${money(r.retHeld)} retainage held`, r.outstanding > 0 ? "warn" : "")}${kpi("Earned (cost-to-cost)", r.earned, r.overUnder >= 0 ? `over-billed ${money(r.overUnder)}` : `under-billed ${money(-r.overUnder)}`)}</div>\n    <h3 class="rep-h">Cost & margin</h3><div class="fin rep-kpis">${kpi("Budget (estimate cost)", r.budget, `planned margin ${money(r.plannedMargin)} · ${r.contract ? Math.round((r.plannedMargin / r.contract) * 100) : 0}%`)}${kpi("Committed (POs)", r.committed)}${kpi("Actual to date", r.actual, `bills & bank ${money(r.direct + r.unlinked)} · labor ${money(r.labor.cost)}`)}${kpi("Projected cost", r.projCost, `${Math.round(100 * r.pctComplete)}% complete by cost`)}${kpi("Projected margin", `${money(r.margin)} · ${r.marginPct}%`, "", r.margin < 0.8 * r.plannedMargin ? "warn" : "good")}</div>\n    <h3 class="rep-h">By cost code</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Code</th><th class="money">Contract</th><th class="money">Budget</th><th class="money">Committed</th><th class="money">Bills & bank</th><th class="money">Labor</th><th class="money">Actual</th><th class="money">Remaining</th><th style="width:120px">Spent</th></tr></thead><tbody>${
+  return `<div class="rep-head"><div><h2 style="margin:0">${esc(p.project.name)}</h2><div class="small muted">${esc(c?.name || "")}${p.project.address ? " · " + esc(p.project.address) : ""}${range} · prepared ${fmtL(today())}</div></div></div>\n    <h3 class="rep-h">Revenue</h3><div class="fin rep-kpis">${kpi("Contract incl. approved COs", r.contract)}${kpi("Billed", r.billedGross, `${r.contract ? Math.round((r.billedGross / r.contract) * 100) : 0}% of contract`)}${kpi("Collected", r.collected, "", "good")}${kpi("Outstanding", r.outstanding, `${money(r.retHeld)} retainage held`, r.outstanding > 0 ? "warn" : "")}${kpi("Earned (cost-to-cost)", r.earned, r.overUnder >= 0 ? `over-billed ${money(r.overUnder)}` : `under-billed ${money(-r.overUnder)}`)}</div>\n    <h3 class="rep-h">Cost & margin</h3><div class="fin rep-kpis">${kpi("Budget (estimate cost)", r.budget, `planned margin ${money(r.plannedMargin)} · ${r.contract ? Math.round((r.plannedMargin / r.contract) * 100) : 0}%`)}${kpi("Committed (POs)", r.committed)}${kpi("Actual to date", r.actual, `bills & bank ${money(r.direct + r.unlinked)} · labor ${money(r.labor.cost)}`)}${kpi("Projected cost", r.projCost, tpCostWords(r.J))}${kpi("Projected margin", `${money(r.margin)} · ${r.marginPct}%`, "", r.margin < 0.8 * r.plannedMargin ? "warn" : "good")}</div>\n    <h3 class="rep-h">By cost code</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Code</th><th class="money">Contract</th><th class="money">Budget</th><th class="money">Committed</th><th class="money">Bills & bank</th><th class="money">Labor</th><th class="money">Actual</th><th class="money">Remaining</th><th style="width:120px">Spent</th></tr></thead><tbody>${
     r.byCode
       .map((b) => {
         const act = b.actual + b.labor,
@@ -23313,7 +23313,7 @@ function repPortfolio() {
       ),
       {},
     );
-  return `<div class="rep-head"><h2 style="margin:0">Portfolio profitability</h2><div class="small muted">${DB.projects.length} project${1 === DB.projects.length ? "" : "s"} · prepared ${fmtL(today())}</div></div><div class="fin rep-kpis"><div class="kpi"><b>${money(T.contract)}</b><span>contracts</span></div><div class="kpi"><b>${money(T.billedGross)}</b><span>billed</span></div><div class="kpi good"><b>${money(T.collected)}</b><span>collected</span></div><div class="kpi ${T.outstanding > 0 ? "warn" : ""}"><b>${money(T.outstanding)}</b><span>outstanding</span></div><div class="kpi ${T.margin >= 0 ? "good" : "warn"}"><b>${money(T.margin)} · ${T.contract ? Math.round((T.margin / T.contract) * 100) : 0}%</b><span>projected margin</span></div></div>\n    <div class="tw"><table class="t rep-t"><thead><tr><th>Project</th><th>Client</th><th class="money">Contract</th><th class="money">Billed</th><th class="money">Collected</th><th class="money">Outstanding</th><th class="money">Budget</th><th class="money">Committed</th><th class="money">Actual</th><th class="money">Proj. cost</th><th class="money">Margin</th><th>Complete</th></tr></thead><tbody>${rows.map(({ p: p, r: r }) => `<tr class="click" data-repproj="${p.id}"><td><b>${esc(p.project.name)}</b></td><td>${esc(r.c?.name || "")}</td><td class="money">${repMoney(r.contract)}</td><td class="money">${repMoney(r.billedGross)}</td><td class="money">${repMoney(r.collected)}</td><td class="money">${repMoney(r.outstanding)}</td><td class="money">${repMoney(r.budget)}</td><td class="money">${repMoney(r.committed)}</td><td class="money">${repMoney(r.actual)}</td><td class="money">${repMoney(r.projCost)}</td><td class="money" style="color:${r.margin >= 0 ? "inherit" : "var(--bad)"}">${money(r.margin)}<div class="small muted">${r.marginPct}%</div></td><td>${Math.round(100 * r.pctComplete)}%</td></tr>`).join("")}<tr style="font-weight:600"><td>Total</td><td></td>${["contract", "billedGross", "collected", "outstanding", "budget", "committed", "actual", "projCost", "margin"].map((k) => `<td class="money">${money(T[k])}</td>`).join("")}<td></td></tr></tbody></table></div>`;
+  return `<div class="rep-head"><h2 style="margin:0">Portfolio profitability</h2><div class="small muted">${DB.projects.length} project${1 === DB.projects.length ? "" : "s"} · prepared ${fmtL(today())}</div></div><div class="fin rep-kpis"><div class="kpi"><b>${money(T.contract)}</b><span>contracts</span></div><div class="kpi"><b>${money(T.billedGross)}</b><span>billed</span></div><div class="kpi good"><b>${money(T.collected)}</b><span>collected</span></div><div class="kpi ${T.outstanding > 0 ? "warn" : ""}"><b>${money(T.outstanding)}</b><span>outstanding</span></div><div class="kpi ${T.margin >= 0 ? "good" : "warn"}"><b>${money(T.margin)} · ${T.contract ? Math.round((T.margin / T.contract) * 100) : 0}%</b><span>projected margin</span></div></div>\n    <div class="tw"><table class="t rep-t"><thead><tr><th>Project</th><th>Client</th><th class="money">Contract</th><th class="money">Billed</th><th class="money">Collected</th><th class="money">Outstanding</th><th class="money">Budget</th><th class="money">Committed</th><th class="money">Actual</th><th class="money">Proj. Cost</th><th class="money">Margin</th><th>% Complete</th></tr></thead><tbody>${rows.map(({ p: p, r: r }) => `<tr class="click" data-repproj="${p.id}"><td><b>${esc(p.project.name)}</b></td><td>${esc(r.c?.name || "")}</td><td class="money">${repMoney(r.contract)}</td><td class="money">${repMoney(r.billedGross)}</td><td class="money">${repMoney(r.collected)}</td><td class="money">${repMoney(r.outstanding)}</td><td class="money">${repMoney(r.budget)}</td><td class="money">${repMoney(r.committed)}</td><td class="money">${repMoney(r.actual)}</td><td class="money">${repMoney(r.projCost)}</td><td class="money" style="color:${r.margin >= 0 ? "inherit" : "var(--bad)"}">${money(r.margin)}<div class="small muted">${r.marginPct}%</div></td><td>${tpJobPct(p)}%</td></tr>`).join("")}<tr style="font-weight:600"><td>Total</td><td></td>${["contract", "billedGross", "collected", "outstanding", "budget", "committed", "actual", "projCost", "margin"].map((k) => `<td class="money">${money(T[k])}</td>`).join("")}<td></td></tr></tbody></table></div>`;
 }
 function repStatement() {
   const c = DB.clients.find((x) => x.id === (repClient || DB.clients[0]?.id));
@@ -24057,7 +24057,7 @@ function analystFindings() {
             "low",
             "Billing",
             `Retainage not released — ${p.project.name}`,
-            `${money(r.retHeld)} held with the job ${Math.round(100 * r.pctComplete)}% complete`,
+            `${money(r.retHeld)} held with the job ${tpJobPct(p)}% complete`,
             r.retHeld,
             { view: "clients", client: r.c?.id },
           );
@@ -24752,7 +24752,7 @@ function repDashboard() {
       color: "current" === f ? VZ.c1 : "d30" === f ? VZ.c3 : "d60" === f ? VZ.c2 : VZ.bad,
     })),
     { note: "open balances" },
-  )}</div>\n      <div class="card dcard wide"><h3>By project</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Project</th><th>Client</th><th class="money">Contract</th><th class="money">Billed</th><th class="money">Collected</th><th class="money">Cost to date</th><th class="money">Proj. margin</th><th style="width:140px">Billed / complete</th></tr></thead><tbody>${D.projects.map(({ p: p, r: r }) => `<tr class="click" data-repproj="${p.id}"><td><b>${esc(p.project.name)}</b></td><td>${esc(r.c?.name || "")}</td><td class="money">${money(r.contract)}</td><td class="money">${money(r.billedGross)}</td><td class="money">${money(r.collected)}</td><td class="money">${money(r.actual)}</td><td class="money" style="color:${r.margin >= 0 ? "inherit" : "var(--bad)"}">${money(r.margin)} <span class="small muted">${r.marginPct}%</span></td><td><div class="vz-dual"><i style="width:${r.contract ? Math.min(100, Math.round((r.billedGross / r.contract) * 100)) : 0}%;background:${VZ.c1}"></i><i style="width:${Math.round(100 * r.pctComplete)}%;background:${VZ.c2}"></i></div><span class="small muted">${r.contract ? Math.round((r.billedGross / r.contract) * 100) : 0}% billed · ${Math.round(100 * r.pctComplete)}% complete</span></td></tr>`).join("")}</tbody></table></div></div>\n      <div class="card dcard wide"><h3>Invoice register</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Invoice</th><th>Client</th><th>Date</th><th>Due</th><th class="money">Amount</th><th class="money">Paid</th><th class="money">Balance</th><th>Status</th></tr></thead><tbody>${
+  )}</div>\n      <div class="card dcard wide"><h3>By project</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Project</th><th>Client</th><th class="money">Contract</th><th class="money">Billed</th><th class="money">Collected</th><th class="money">Cost to date</th><th class="money">Proj. margin</th><th style="width:140px">Billed / complete</th></tr></thead><tbody>${D.projects.map(({ p: p, r: r }) => `<tr class="click" data-repproj="${p.id}"><td><b>${esc(p.project.name)}</b></td><td>${esc(r.c?.name || "")}</td><td class="money">${money(r.contract)}</td><td class="money">${money(r.billedGross)}</td><td class="money">${money(r.collected)}</td><td class="money">${money(r.actual)}</td><td class="money" style="color:${r.margin >= 0 ? "inherit" : "var(--bad)"}">${money(r.margin)} <span class="small muted">${r.marginPct}%</span></td><td><div class="vz-dual"><i style="width:${r.contract ? Math.min(100, Math.round((r.billedGross / r.contract) * 100)) : 0}%;background:${VZ.c1}"></i><i style="width:${tpJobPct(p)}%;background:${VZ.c2}"></i></div><span class="small muted">${r.contract ? Math.round((r.billedGross / r.contract) * 100) : 0}% billed · ${tpJobPct(p)}% complete</span></td></tr>`).join("")}</tbody></table></div></div>\n      <div class="card dcard wide"><h3>Invoice register</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Invoice</th><th>Client</th><th>Date</th><th>Due</th><th class="money">Amount</th><th class="money">Paid</th><th class="money">Balance</th><th>Status</th></tr></thead><tbody>${
     D.invs
       .sort((a, b) => b.i.date.localeCompare(a.i.date))
       .map(
@@ -26042,7 +26042,7 @@ function repWIP() {
     B = companyBalance(),
     avgRev = companyPL([monthKeys(6)[0] + "-01", today()]).income / 6,
     M = (v) => (v ? money(v) : '<span class="muted">—</span>');
-  return `<div class="rep-head"><div><h2 style="margin:0">Work-in-progress schedule</h2><div class="small muted">Cost-to-cost percentage of completion · ${entName(repEntity)} · as of ${fmtL(today())}</div></div></div>${entityBar()}\n    <div class="fin rep-kpis"><div class="kpi"><b>${money(T.contract)}</b><span>revised contracts · ${money(T.pending)} pending COs (memo)</span></div><div class="kpi"><b>${money(T.estGP)} · ${T.contract ? r2((T.estGP / T.contract) * 100) : 0}%</b><span>estimated gross profit at completion</span></div><div class="kpi ${T.over > 0.1 * T.contract ? "warn" : ""}"><b>${money(T.over)}</b><span>billings in excess of earnings (liability)${B.cash && T.over ? ` · cash-to-overbillings ${r2(B.cash / T.over)}` : ""}</span></div><div class="kpi ${T.under > 0 ? "warn" : ""}"><b>${money(T.under)}</b><span>earnings in excess of billings (asset) · unbilled work</span></div><div class="kpi"><b>${money(T.backlog)}</b><span>backlog · ${money(T.backlogGP)} backlog GP · ${avgRev ? r2(T.backlog / avgRev) : "—"} months at recent run-rate</span></div></div>\n    <div class="tw"><table class="t rep-t wip"><thead><tr><th>Job</th><th class="money">Original</th><th class="money">Appr. COs</th><th class="money">Revised contract</th><th class="money">Est. total cost</th><th class="money">Est. GP</th><th class="money">GP %</th><th class="money">Cost to date</th><th class="money">% complete</th><th class="money">Earned revenue</th><th class="money">Billed to date</th><th class="money">Over-billed</th><th class="money">Under-billed</th><th class="money">Cost to complete</th><th class="money">Retainage rec.</th><th class="money">Fade vs prior</th><th class="money">Fade vs bid</th></tr></thead><tbody>${rows.map(({ w: w, f: f }) => `<tr class="click" data-repproj="${w.p.id}"><td><b>${esc(w.p.project.name)}</b><div class="small muted">${esc(w.c?.name || "")}${w.pending ? ` · pending COs ${money(w.pending)}` : ""}</div></td><td class="money">${M(w.orig)}</td><td class="money">${M(w.cos)}</td><td class="money">${money(w.contract)}</td><td class="money">${money(w.eac)}</td><td class="money">${money(w.estGP)}</td><td class="money">${w.gpPct}%</td><td class="money">${money(w.costToDate)}</td><td class="money">${Math.round(100 * w.pct)}%</td><td class="money">${money(w.earned)}</td><td class="money">${money(w.billed)}</td><td class="money ${w.over ? "warn" : ""}">${M(w.over)}</td><td class="money ${w.under ? "warn" : ""}">${M(w.under)}</td><td class="money">${money(w.ctc)}</td><td class="money">${M(w.retain)}</td><td class="money" style="color:${null == f.fadePts ? "inherit" : f.fadePts < 0 ? "var(--bad)" : "var(--ok)"}">${null == f.fadePts ? '<span class="muted">first month</span>' : `${f.fadePts > 0 ? "+" : ""}${f.fadePts} pts<div class="small">${money(f.fadeAmt)}</div>`}</td><td class="money" style="color:${f.vsBidPts < 0 ? "var(--bad)" : "var(--ok)"}">${f.vsBidPts > 0 ? "+" : ""}${f.vsBidPts} pts<div class="small">${money(f.vsBidAmt)}</div></td></tr>`).join("") || '<tr><td colspan="17" class="muted">No contracts.</td></tr>'}<tr style="font-weight:600"><td>Total</td><td class="money">${money(rows.reduce((a, { w: w }) => a + w.orig, 0))}</td><td class="money">${money(rows.reduce((a, { w: w }) => a + w.cos, 0))}</td><td class="money">${money(T.contract)}</td><td class="money">${money(T.eac)}</td><td class="money">${money(T.estGP)}</td><td class="money">${T.contract ? r2((T.estGP / T.contract) * 100) : 0}%</td><td class="money">${money(T.costToDate)}</td><td class="money">${T.eac ? Math.round((T.costToDate / T.eac) * 100) : 0}%</td><td class="money">${money(T.earned)}</td><td class="money">${money(T.billed)}</td><td class="money">${money(T.over)}</td><td class="money">${money(T.under)}</td><td class="money">${money(T.ctc)}</td><td class="money">${money(T.retain)}</td><td></td><td></td></tr></tbody></table></div>\n    <p class="small muted" style="margin-top:8px">Revised contract = base contract + approved change orders (pending COs shown as memo only). Estimated total cost = actual + the PM's cost-to-complete review when one exists; otherwise the greater of estimate budget and actual + open POs. % complete = cost to date ÷ estimated total cost. Earned = contract × % complete. Over/under = billed − earned. Fade compares GP% to the prior month-end snapshot (snapshots are captured automatically each month this report is opened) and to the original bid margin.</p>\n    <h3 class="rep-h">Backlog by job</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Job</th><th class="money">Contract</th><th class="money">Earned</th><th class="money">Backlog</th><th class="money">Backlog GP</th><th class="money">% complete</th><th>Remaining</th></tr></thead><tbody>${rows.map(({ w: w }) => `<tr><td>${esc(w.p.project.name)}</td><td class="money">${money(w.contract)}</td><td class="money">${money(w.earned)}</td><td class="money">${money(w.backlog)}</td><td class="money">${money(w.backlogGP)}</td><td class="money">${Math.round(100 * w.pct)}%</td><td><div class="rep-bar-wrap"><i style="width:${Math.round(100 * (1 - w.pct))}%;background:var(--accent)"></i></div></td></tr>`).join("")}</tbody></table></div><p class="small muted">CFMA rule of thumb: backlog gross profit should cover at least half of annual overhead — this year's overhead to date is ${money(P.ohT)}${P.ohT ? ` (${Math.round((T.backlogGP / P.ohT) * 100)}% covered)` : ""}.</p>`;
+  return `<div class="rep-head"><div><h2 style="margin:0">Work-in-progress schedule</h2><div class="small muted">Revenue earned on a cost-to-cost basis; % complete measured on site · ${entName(repEntity)} · as of ${fmtL(today())}</div></div></div>${entityBar()}\n    <div class="fin rep-kpis"><div class="kpi"><b>${money(T.contract)}</b><span>revised contracts · ${money(T.pending)} pending COs (memo)</span></div><div class="kpi"><b>${money(T.estGP)} · ${T.contract ? r2((T.estGP / T.contract) * 100) : 0}%</b><span>estimated gross profit at completion</span></div><div class="kpi ${T.over > 0.1 * T.contract ? "warn" : ""}"><b>${money(T.over)}</b><span>billings in excess of earnings (liability)${B.cash && T.over ? ` · cash-to-overbillings ${r2(B.cash / T.over)}` : ""}</span></div><div class="kpi ${T.under > 0 ? "warn" : ""}"><b>${money(T.under)}</b><span>earnings in excess of billings (asset) · unbilled work</span></div><div class="kpi"><b>${money(T.backlog)}</b><span>backlog · ${money(T.backlogGP)} backlog GP · ${avgRev ? r2(T.backlog / avgRev) : "—"} months at recent run-rate</span></div></div>\n    <div class="tw"><table class="t rep-t wip"><thead><tr><th>Job</th><th class="money">Original</th><th class="money">Appr. COs</th><th class="money">Revised contract</th><th class="money">Est. total cost</th><th class="money">Est. GP</th><th class="money">GP %</th><th class="money">Cost to date</th><th class="money">% complete</th><th class="money">Earned revenue</th><th class="money">Billed to date</th><th class="money">Over-billed</th><th class="money">Under-billed</th><th class="money">Cost to complete</th><th class="money">Retainage rec.</th><th class="money">Fade vs prior</th><th class="money">Fade vs bid</th></tr></thead><tbody>${rows.map(({ w: w, f: f }) => `<tr class="click" data-repproj="${w.p.id}"><td><b>${esc(w.p.project.name)}</b><div class="small muted">${esc(w.c?.name || "")}${w.pending ? ` · pending COs ${money(w.pending)}` : ""}</div></td><td class="money">${M(w.orig)}</td><td class="money">${M(w.cos)}</td><td class="money">${money(w.contract)}</td><td class="money">${money(w.eac)}</td><td class="money">${money(w.estGP)}</td><td class="money">${w.gpPct}%</td><td class="money">${money(w.costToDate)}</td><td class="money">${Math.round(100 * w.pct)}%</td><td class="money">${money(w.earned)}</td><td class="money">${money(w.billed)}</td><td class="money ${w.over ? "warn" : ""}">${M(w.over)}</td><td class="money ${w.under ? "warn" : ""}">${M(w.under)}</td><td class="money">${money(w.ctc)}</td><td class="money">${M(w.retain)}</td><td class="money" style="color:${null == f.fadePts ? "inherit" : f.fadePts < 0 ? "var(--bad)" : "var(--ok)"}">${null == f.fadePts ? '<span class="muted">first month</span>' : `${f.fadePts > 0 ? "+" : ""}${f.fadePts} pts<div class="small">${money(f.fadeAmt)}</div>`}</td><td class="money" style="color:${f.vsBidPts < 0 ? "var(--bad)" : "var(--ok)"}">${f.vsBidPts > 0 ? "+" : ""}${f.vsBidPts} pts<div class="small">${money(f.vsBidAmt)}</div></td></tr>`).join("") || '<tr><td colspan="17" class="muted">No contracts.</td></tr>'}<tr style="font-weight:600"><td>Total</td><td class="money">${money(rows.reduce((a, { w: w }) => a + w.orig, 0))}</td><td class="money">${money(rows.reduce((a, { w: w }) => a + w.cos, 0))}</td><td class="money">${money(T.contract)}</td><td class="money">${money(T.eac)}</td><td class="money">${money(T.estGP)}</td><td class="money">${T.contract ? r2((T.estGP / T.contract) * 100) : 0}%</td><td class="money">${money(T.costToDate)}</td><td class="money">${T.eac ? Math.round((T.costToDate / T.eac) * 100) : 0}%</td><td class="money">${money(T.earned)}</td><td class="money">${money(T.billed)}</td><td class="money">${money(T.over)}</td><td class="money">${money(T.under)}</td><td class="money">${money(T.ctc)}</td><td class="money">${money(T.retain)}</td><td></td><td></td></tr></tbody></table></div>\n    <p class="small muted" style="margin-top:8px">Revised contract = base contract + approved change orders (pending COs shown as memo only). Estimated total cost = actual + the PM's cost-to-complete review when one exists; otherwise the greater of estimate budget and actual + open POs. % complete = cost to date ÷ estimated total cost. Earned = contract × % complete. Over/under = billed − earned. Fade compares GP% to the prior month-end snapshot (snapshots are captured automatically each month this report is opened) and to the original bid margin.</p>\n    <h3 class="rep-h">Backlog by job</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Job</th><th class="money">Contract</th><th class="money">Earned</th><th class="money">Backlog</th><th class="money">Backlog GP</th><th class="money">Cost Basis %</th><th>Remaining</th></tr></thead><tbody>${rows.map(({ w: w }) => `<tr><td>${esc(w.p.project.name)}</td><td class="money">${money(w.contract)}</td><td class="money">${money(w.earned)}</td><td class="money">${money(w.backlog)}</td><td class="money">${money(w.backlogGP)}</td><td class="money">${Math.round(100 * w.pct)}%</td><td><div class="rep-bar-wrap"><i style="width:${Math.round(100 * (1 - w.pct))}%;background:var(--accent)"></i></div></td></tr>`).join("")}</tbody></table></div><p class="small muted">CFMA rule of thumb: backlog gross profit should cover at least half of annual overhead — this year's overhead to date is ${money(P.ohT)}${P.ohT ? ` (${Math.round((T.backlogGP / P.ohT) * 100)}% covered)` : ""}.</p>`;
 }
 function budgetCats() {
   return [
@@ -26391,7 +26391,7 @@ function repPack() {
       )
       .join(
         "",
-      )}</tbody></table></div>\n    <h3 class="rep-h">3 · WIP & profit fade</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Job</th><th class="money">Contract</th><th class="money">% complete</th><th class="money">Est. GP %</th><th class="money">Bid GP %</th><th class="money">Fade vs prior</th><th class="money">Over / (under) billed</th><th class="money">Cost to complete</th></tr></thead><tbody>${wip.map(({ w: w, f: f }) => `<tr><td>${esc(w.p.project.name)}</td><td class="money">${money(w.contract)}</td><td class="money">${Math.round(100 * w.pct)}%</td><td class="money">${w.gpPct}%</td><td class="money">${w.bidGPPct}%</td><td class="money" style="color:${f.fadePts < 0 ? "var(--bad)" : "inherit"}">${null == f.fadePts ? "—" : (f.fadePts > 0 ? "+" : "") + f.fadePts + " pts"}</td><td class="money">${w.over ? money(w.over) : w.under ? "(" + money(w.under) + ")" : "—"}</td><td class="money">${money(w.ctc)}</td></tr>`).join("")}</tbody></table></div>\n    <h3 class="rep-h">4 · Change orders</h3><div class="tw"><table class="t rep-t"><thead><tr><th>CO</th><th>Client</th><th>Status</th><th class="money">Amount</th><th>Days open</th></tr></thead><tbody>${cos.map(({ c: c, x: x }) => `<tr><td>${esc(x.number)} · ${esc(x.title)}</td><td>${esc(c.name)}</td><td><span class="pill ${"approved" === x.status || "billed" === x.status ? "ok" : "sent" === x.status ? "warn" : "neutral"}">${x.status}</span></td><td class="money">${money(docTotal(x).total)}</td><td>${"sent" === x.status ? Math.round((parse(today()) - parse(x.date)) / 864e5) : ""}</td></tr>`).join("") || '<tr><td colspan="5" class="muted">None.</td></tr>'}</tbody></table></div>\n    <h3 class="rep-h">5 · Labor</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Project</th><th class="money">Hours (month)</th><th class="money">Burdened cost</th><th class="money">Labor % of income</th></tr></thead><tbody>${lab.map(({ p: p, l: l }) => `<tr><td>${esc(p.project.name)}</td><td class="money">${l.hours}</td><td class="money">${money(l.cost)}</td><td class="money">${P.income ? Math.round((l.cost / P.income) * 100) + "%" : "—"}</td></tr>`).join("")}</tbody></table></div>\n    <h3 class="rep-h">6 · Receivables & payables</h3>${(() => {
+      )}</tbody></table></div>\n    <h3 class="rep-h">3 · WIP & profit fade</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Job</th><th class="money">Contract</th><th class="money">% Complete<div class="small muted">Cost Basis %</div></th><th class="money">Est. GP %</th><th class="money">Bid GP %</th><th class="money">Fade vs prior</th><th class="money">Over / (under) billed</th><th class="money">Cost to complete</th></tr></thead><tbody>${wip.map(({ w: w, f: f }) => `<tr><td>${esc(w.p.project.name)}</td><td class="money">${money(w.contract)}</td><td class="money"><b>${tpJobPct(w.p)}%</b><div class="small muted">${Math.round(100 * w.pct)}% cost basis</div></td><td class="money">${w.gpPct}%</td><td class="money">${w.bidGPPct}%</td><td class="money" style="color:${f.fadePts < 0 ? "var(--bad)" : "inherit"}">${null == f.fadePts ? "—" : (f.fadePts > 0 ? "+" : "") + f.fadePts + " pts"}</td><td class="money">${w.over ? money(w.over) : w.under ? "(" + money(w.under) + ")" : "—"}</td><td class="money">${money(w.ctc)}</td></tr>`).join("")}</tbody></table></div>\n    <h3 class="rep-h">4 · Change orders</h3><div class="tw"><table class="t rep-t"><thead><tr><th>CO</th><th>Client</th><th>Status</th><th class="money">Amount</th><th>Days open</th></tr></thead><tbody>${cos.map(({ c: c, x: x }) => `<tr><td>${esc(x.number)} · ${esc(x.title)}</td><td>${esc(c.name)}</td><td><span class="pill ${"approved" === x.status || "billed" === x.status ? "ok" : "sent" === x.status ? "warn" : "neutral"}">${x.status}</span></td><td class="money">${money(docTotal(x).total)}</td><td>${"sent" === x.status ? Math.round((parse(today()) - parse(x.date)) / 864e5) : ""}</td></tr>`).join("") || '<tr><td colspan="5" class="muted">None.</td></tr>'}</tbody></table></div>\n    <h3 class="rep-h">5 · Labor</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Project</th><th class="money">Hours (month)</th><th class="money">Burdened cost</th><th class="money">Labor % of income</th></tr></thead><tbody>${lab.map(({ p: p, l: l }) => `<tr><td>${esc(p.project.name)}</td><td class="money">${l.hours}</td><td class="money">${money(l.cost)}</td><td class="money">${P.income ? Math.round((l.cost / P.income) * 100) + "%" : "—"}</td></tr>`).join("")}</tbody></table></div>\n    <h3 class="rep-h">6 · Receivables & payables</h3>${(() => {
       const ag = DB.clients.reduce((a, c) => {
           const f = clientFin(c);
           return Object.keys(f.buckets).forEach((k) => (a[k] = (a[k] || 0) + f.buckets[k])), a;
@@ -27553,6 +27553,33 @@ function jobFin(p, range) {
     }
   );
 }
+// Everything jobFin derives from actual, committed, budget, contract and billed, in one place. Each later
+// wrapper that adjusts actual (awaiting-approval bills, paid-before-approval duplicates, short-pays,
+// disputed bank lines) calls this instead of repeating the arithmetic. eac, when given, is the estimate
+// at completion the caller already worked out (the per-line roll-up, jobFinEac); otherwise a PM-reviewed
+// cost to complete wins, else the greater of budget and actual + committed.
+function jobFinDerive(J, p, eac) {
+  const ctc = +(p.ctc || 0);
+  return (
+    (J.eac = r2(
+      null != eac
+        ? eac
+        : p.ctcReviewed
+          ? Math.max(J.actual + J.committed, J.actual + ctc)
+          : Math.max(J.budget, J.actual + J.committed),
+    )),
+    (J.pct = J.eac ? Math.min(1, J.actual / J.eac) : 0),
+    (J.earned = r2(J.contract * J.pct)),
+    (J.overUnder = r2(J.billed - J.earned)),
+    (J.over = Math.max(0, J.overUnder)),
+    (J.under = Math.max(0, -J.overUnder)),
+    (J.backlog = r2(Math.max(0, J.contract - J.earned))),
+    (J.estGP = r2(J.contract - J.eac)),
+    (J.estGPPct = J.contract ? r2((J.estGP / J.contract) * 100) : 0),
+    (J.backlogGP = r2(J.estGP * (1 - J.pct))),
+    J
+  );
+}
 function payrollTrueUp() {
   const factors = DB.payroll
     .filter((r) => ["paid", "verified"].includes(r.status) && r.from && r.to && r.total)
@@ -27639,7 +27666,7 @@ function ptJobs() {
       .sort((a, b) => (a.h.health?.score ?? 50) - (b.h.health?.score ?? 50))
       .map(({ p: p, J: J, h: h }) => {
         const billedPct = J.contract ? Math.round((J.billed / J.contract) * 100) : 0,
-          compPct = Math.round(100 * J.pct),
+          compPct = tpJobPct(p),
           ahead = billedPct - compPct,
           gpFade = J.plannedGPPct ? r2(J.estGPPct - J.plannedGPPct) : 0,
           flags = [];
@@ -30006,7 +30033,7 @@ function renderMBOwnP() {
         .map((x) => {
           const J = jobFin(x),
             h = projectHealth(x);
-          return `<tr><td><b>${esc(x.project.name)}</b></td><td class="money">${M(J.contract)}</td><td class="money">${M(J.actual)}</td><td class="money">${Math.round(100 * J.pct)}%</td><td class="money">${M(J.billed)}</td><td class="small">${h.sc ? fmt(h.sc) : "—"}</td><td><button class="btn sm" data-capexgo="${x.id}">Open job</button></td></tr>`;
+          return `<tr><td><b>${esc(x.project.name)}</b></td><td class="money">${M(J.contract)}</td><td class="money">${M(J.actual)}</td><td class="money">${tpJobPct(x)}%</td><td class="money">${M(J.billed)}</td><td class="small">${h.sc ? fmt(h.sc) : "—"}</td><td><button class="btn sm" data-capexgo="${x.id}">Open job</button></td></tr>`;
         })
         .join("") || '<tr><td colspan="7" class="muted">No capex jobs yet.</td></tr>'
     }</tbody></table></div>`),
@@ -30542,7 +30569,7 @@ function billingSuggestions() {
           const J = jobFin(p);
           if (!c.invoices.some((i) => "draft" === i.status && ("sov" === i.mode || i.fromDoc === d.id))) {
             if ("construction" === d.template || !d.template) {
-              const compPct = Math.round(100 * J.pct),
+              const compPct = tpJobPct(p),
                 billedPct = J.contract ? Math.round((J.billed / J.contract) * 100) : 0,
                 gap = compPct - billedPct,
                 amt = r2((J.contract * Math.max(0, gap)) / 100);
@@ -31966,27 +31993,12 @@ jobFin = function (p, range) {
         (row.actual = r2(row.actual + billTotal(b)));
     }),
     J.byCode.sort((a, b) => a.code.localeCompare(b.code));
-  const ctc = +(p.ctc || 0);
   return (
-    (J.eac = r2(
-      p.ctcReviewed
-        ? Math.max(J.actual + J.committed, J.actual + ctc)
-        : Math.max(J.budget, J.actual + J.committed),
-    )),
-    (J.pct = J.eac ? Math.min(1, J.actual / J.eac) : 0),
-    (J.earned = r2(J.contract * J.pct)),
-    (J.overUnder = r2(J.billed - J.earned)),
-    (J.over = Math.max(0, J.overUnder)),
-    (J.under = Math.max(0, -J.overUnder)),
-    (J.backlog = r2(Math.max(0, J.contract - J.earned))),
-    (J.estGP = r2(J.contract - J.eac)),
-    (J.estGPPct = J.contract ? r2((J.estGP / J.contract) * 100) : 0),
-    (J.backlogGP = r2(J.estGP * (1 - J.pct))),
     (J.defs = J.defs.replace(
       "actual = approved bills",
       "actual = all bills entered (approved or awaiting approval)",
     )),
-    J
+    jobFinDerive(J, p)
   );
 };
 const ledgerBase3 = ledger;
@@ -34186,7 +34198,7 @@ const renderPortalApprovalsBase = renderPortalApprovals;
     card = document.createElement("div");
   (card.className = "card"),
     (card.style.marginBottom = "14px"),
-    (card.innerHTML = `<h3 style="margin:0 0 6px">Your account</h3><div class="cash-grid" style="grid-template-columns:repeat(3,1fr)"><div><span>Contract</span><b>${money(contract)}</b><i>incl. approved changes</i></div><div><span>Work completed</span><b>${money(earned)}</b><i>${contract ? Math.round((earned / contract) * 100) : 0}% of contract</i></div><div><span>Billed to date</span><b>${money(billed)}</b><i>${dep ? `deposit on account ${money(dep)}` : "ex tax"}</i></div><div><span>Retainage held</span><b>${money(f.retHeld)}</b><i>released at completion</i></div><div><span>Paid to date</span><b>${money(f.paid)}</b><i>${f.credits ? `credit on account ${money(f.credits)}` : ""}</i></div><div><span>Balance due</span><b class="${f.overdue ? "bad" : ""}">${money(f.outstanding)}</b><i>${f.overdue ? money(f.overdue) + " overdue" : "nothing overdue"}</i></div></div>`),
+    (card.innerHTML = `<h3 style="margin:0 0 6px">Your account</h3><div class="cash-grid" style="grid-template-columns:repeat(3,1fr)"><div><span>Contract</span><b>${money(contract)}</b><i>incl. approved changes</i></div><div class="tp-cert"><span>Completed to Date</span>${tpCertifiedHtml(c)}</div><div><span>Billed to date</span><b>${money(billed)}</b><i>${dep ? `deposit on account ${money(dep)}` : "ex tax"}</i></div><div><span>Retainage held</span><b>${money(f.retHeld)}</b><i>released at completion</i></div><div><span>Paid to date</span><b>${money(f.paid)}</b><i>${f.credits ? `credit on account ${money(f.credits)}` : ""}</i></div><div><span>Balance due</span><b class="${f.overdue ? "bad" : ""}">${money(f.outstanding)}</b><i>${f.overdue ? money(f.overdue) + " overdue" : "nothing overdue"}</i></div></div>`),
     host.append(card);
 }),
   (REP_GROUPS.find((g) => "build" === g.id).tabs = [["searches", "Report builder"]]),
@@ -34214,7 +34226,8 @@ const renderPortalApprovalsBase = renderPortalApprovals;
             estGPPct: J.estGPPct,
             bidGPPct: J.plannedGPPct,
             fadePts: r2(J.estGPPct - J.plannedGPPct),
-            pctComplete: r2(100 * J.pct),
+            pctComplete: tpJobPct(p),
+            costBasisPct: r2(100 * J.pct),
             earned: J.earned,
             billed: J.billed,
             overUnder: J.overUnder,
@@ -34545,7 +34558,7 @@ wireSearches = function (root) {
 const budgetForBase = budgetFor,
   BUDGET_EMPTY = {};
 function wipCards(rows) {
-  return `<div class="jobcards">${rows.map(({ w: w, f: f }) => `<div class="jobcard" data-jobgo="${w.p.id}"><div class="jc-top"><b>${esc(w.p.project.name)}</b><span class="small muted">${Math.round(100 * w.pct)}%</span></div><div class="jc-nums"><span>Contract ${money(w.contract)}</span><span>Est. cost ${money(w.eac)}</span><span>GP ${w.gpPct}%${null != f?.fadePts ? ` (${f.fadePts >= 0 ? "+" : ""}${f.fadePts} pts)` : ""}</span></div><div class="jc-nums"><span>Earned ${money(w.earned)}</span><span>Billed ${money(w.billed)}</span><span class="${w.over ? "warn" : w.under ? "bad" : ""}">${w.over ? "Over-billed " + money(w.over) : w.under ? "Under-billed " + money(w.under) : "Billed = earned"}</span></div><div class="jc-nums"><span>Cost to complete ${money(w.ctc)}</span><span>Backlog ${money(w.backlog)}</span></div></div>`).join("")}</div>`;
+  return `<div class="jobcards">${rows.map(({ w: w, f: f }) => `<div class="jobcard" data-jobgo="${w.p.id}"><div class="jc-top"><b>${esc(w.p.project.name)}</b><span class="small muted">${tpJobPct(w.p)}% complete</span></div><div class="jc-nums"><span>Contract ${money(w.contract)}</span><span>Est. cost ${money(w.eac)}</span><span>GP ${w.gpPct}%${null != f?.fadePts ? ` (${f.fadePts >= 0 ? "+" : ""}${f.fadePts} pts)` : ""}</span></div><div class="jc-nums"><span>Earned ${money(w.earned)}</span><span>Billed ${money(w.billed)}</span><span class="${w.over ? "warn" : w.under ? "bad" : ""}">${w.over ? "Over-billed " + money(w.over) : w.under ? "Under-billed " + money(w.under) : "Billed = earned"}</span></div><div class="jc-nums"><span>Cost to complete ${money(w.ctc)}</span><span>Backlog ${money(w.backlog)}</span></div></div>`).join("")}</div>`;
 }
 budgetFor = function (year) {
   const b = budgetForBase(year),
@@ -38509,7 +38522,7 @@ function h4Home(F) {
       .slice(0, 6)
       .map(
         (j) =>
-          `<div class="h4r" data-h4go='${esc(JSON.stringify({ view: "dash", proj: j.p.id }))}'><span class="h4dot ${j.score >= 70 ? "ok" : j.score >= 45 ? "warn" : "bad"}"></span><span class="grow"><b>${esc(j.name)}</b><span class="small muted"> · ${j.late > 0 ? `${j.late}d behind` : "on target"}${j.next ? ` · ${esc(j.next.n)} ${fmt(j.next.d)}` : ""}</span></span><span class="small muted">${j.J.contract ? Math.round(100 * (j.J.pct || 0)) + "%" : ""}</span></div>`,
+          `<div class="h4r" data-h4go='${esc(JSON.stringify({ view: "dash", proj: j.p.id }))}'><span class="h4dot ${j.score >= 70 ? "ok" : j.score >= 45 ? "warn" : "bad"}"></span><span class="grow"><b>${esc(j.name)}</b><span class="small muted"> · ${j.late > 0 ? `${j.late}d behind` : "on target"}${j.next ? ` · ${esc(j.next.n)} ${fmt(j.next.d)}` : ""}</span></span><span class="small muted">${j.J.contract ? tpJobPct(j.p) + "% complete" : ""}</span></div>`,
       )
       .join(""),
     todayHtml = [
@@ -38723,7 +38736,8 @@ async function jvAsk(F) {
         daysBehind: j.late,
         urgent: j.urgent,
         next: j.next,
-        pctComplete: Math.round(100 * (j.J.pct || 0)),
+        pctComplete: tpJobPct(j.p),
+        costBasisPct: Math.round(100 * (j.J.pct || 0)),
         contract: j.J.contract,
         billed: j.J.billed,
         earned: j.J.earned,
@@ -40664,7 +40678,7 @@ function renderSDay() {
     .map((p) => {
       const ph = phaseHours(p),
         R = retainerLeft(p),
-        cur = ph.find((x) => x.left > 0 && x.used > 0) || ph[0];
+        cur = phaseCur(ph) || ph.find((x) => x.left > 0 && x.used > 0) || ph[0];
       return `<div class="st-item" data-goproj="${p.id}" style="cursor:pointer"><span class="k">${cur ? `${esc(cur.line.item.split(" and ")[0])} · ${cur.left} hrs left` : "No proposal"}${R ? ` · retainer ${R.hours} hrs` : ""}</span><b>${esc(p.project.name)}</b><span class="small muted">${roomsOf(p.id).length} rooms · ${sheetsOf(p.id).filter((s) => "current" === s.status).length} current sheets · ${roomsOf(p.id).filter((r) => 0 === roomProv(r)).length} unverified</span></div>`;
     })
     .join("")}</div>\n      </div></div>`;
@@ -40769,7 +40783,7 @@ function renderStudio() {
         gates = p.decisions.filter((d) => "open" === d.status && d.gate),
         late = p.decisions.filter((d) => "open" === d.status && d.due && d.due < td).length,
         c = DB.clients.find((x) => x.id === p.clientId),
-        cur = ph.find((x) => x.left > 0 && x.used > 0) || ph[0];
+        cur = phaseCur(ph) || ph.find((x) => x.left > 0 && x.used > 0) || ph[0];
       return {
         p: p,
         c: c,
@@ -41979,7 +41993,7 @@ const renderBase_c = render,
     open = p.decisions.filter((d) => "open" === d.status && d.gate),
     td = today(),
     bar = ph.length
-      ? `<div class="st-bar">${ph.map((x) => `<div class="st-seg" title="${esc(x.line.item)}: ${x.used} of ${x.est} hrs"><i style="width:${Math.min(100, x.est ? (x.used / x.est) * 100 : 0)}%" class="${x.left < 0 ? "over" : ""}"></i></div>`).join("")}</div><div class="st-barl">${ph.map((x) => `<div><span class="n">${esc({ "Existing-conditions site survey": "Survey", "Schematic and conceptual design": "Schematic", "Design development and material selection": "Design dev", "Material and vendor pricing / quotations": "Pricing", "Client meetings": "Meetings" }[x.line.item] || x.line.item.split(" and ")[0])}</span><b class="${x.left < 0 ? "bad" : ""}">${x.used}</b><span class="muted">/${x.est}</span></div>`).join("")}</div>`
+      ? `<div class="st-bar">${ph.map((x) => `<div class="st-seg" title="${esc(x.line.item)}: ${x.used} of ${x.est} hrs"><i style="width:${Math.min(100, x.est ? (x.used / x.est) * 100 : 0)}%" class="${x.left < 0 ? "over" : ""}"></i></div>`).join("")}</div><div class="st-barl">${ph.map((x) => `<div><span class="n">${esc({ "Existing-conditions site survey": "Survey", "Schematic and conceptual design": "Schematic", "Design development and material selection": "Design dev", "Material and vendor pricing / quotations": "Pricing", "Client meetings": "Meetings" }[x.line.item] || x.line.item.split(" and ")[0])}</span>${"done" === x.status ? '<span class="pill ok">Done</span>' : x === phaseCur(ph) ? '<span class="pill info">Current</span>' : ""}<b class="${x.left < 0 ? "bad" : ""}">${x.used}</b><span class="muted">/${x.est}</span></div>`).join("")}</div>`
       : '<div class="small muted">No design proposal on this job yet.</div>',
     blocks = [];
   unv.length &&
@@ -42089,7 +42103,7 @@ ensureStudioProject = function () {
 const renderBase_rw = (render = function () {
     if ((renderBase_c(), !isDesignProject(S))) return;
     const ph = phaseHours(S),
-      cur = ph.find((x) => x.left > 0 && x.used > 0) || ph.find((x) => x.used > 0) || ph[0],
+      cur = phaseCur(ph) || ph.find((x) => x.left > 0 && x.used > 0) || ph.find((x) => x.used > 0) || ph[0],
       nextDue = S.tasks
         .filter((t) => "done" !== t.status && t.end >= today())
         .sort((a, b) => a.end.localeCompare(b.end))[0],
@@ -42759,7 +42773,7 @@ function ptStudio() {
           est: ph.reduce((a, x) => a + x.est, 0),
           used: ph.reduce((a, x) => a + x.used, 0),
           R: R,
-          cur: ph.find((x) => x.left > 0 && x.used > 0) || ph[0],
+          cur: phaseCur(ph) || ph.find((x) => x.left > 0 && x.used > 0) || ph[0],
         };
       })
       .map(
@@ -43377,7 +43391,7 @@ function ptMarginFc() {
       .sort((a, b) => a.delta - b.delta)
       .map(
         (r) =>
-          `<div class="rem-row ${r.delta <= -6 || r.d$ <= -25e3 ? "bad" : r.delta <= -3 ? "warn" : ""}" data-remgo='${esc(JSON.stringify({ view: "costs", project: r.p.id }))}'><b>${r.J.estGPPct}%</b><span><b>${esc(shortName(r.p))}</b> · bid ${r.J.plannedGPPct}% → forecast ${r.J.estGPPct}% (${r.d$ >= 0 ? "+" : ""}${money(r.d$)}) · ${Math.round(100 * r.J.pct)}% complete${bullet(r.J.estGPPct, r.J.plannedGPPct, r.delta < -3 ? "bad" : "ok")}</span></div>`,
+          `<div class="rem-row ${r.delta <= -6 || r.d$ <= -25e3 ? "bad" : r.delta <= -3 ? "warn" : ""}" data-remgo='${esc(JSON.stringify({ view: "costs", project: r.p.id }))}'><b>${r.J.estGPPct}%</b><span><b>${esc(shortName(r.p))}</b> · bid ${r.J.plannedGPPct}% → forecast ${r.J.estGPPct}% (${r.d$ >= 0 ? "+" : ""}${money(r.d$)}) · ${tpJobPct(r.p)}% complete${bullet(r.J.estGPPct, r.J.plannedGPPct, r.delta < -3 ? "bad" : "ok")}</span></div>`,
       )
       .join("") || '<div class="muted small">No contracts.</div>'
   }</div><div class="small muted">Forecast at completion = cost to date + committed + estimate to complete. Amber 3 points under bid, red 6 or $25k.</div>`;
@@ -43491,7 +43505,7 @@ function ptRetainage() {
     due.map((x) =>
       dashItem(
         money(x.J.retHeld),
-        `${esc(shortName(x.p))} · ${Math.round(100 * x.J.pct)}% complete — release invoice?`,
+        `${esc(shortName(x.p))} · ${tpJobPct(x.p)}% complete — release invoice?`,
         { view: "clients" },
         "warn",
       ),
@@ -43805,7 +43819,7 @@ function ptUnpriced() {
       .map((o) =>
         dashItem(
           money(o.unpriced),
-          `${esc(shortName(o.p))} · ${o.pct}% of budget unpriced · ${Math.round(100 * o.J.pct)}% complete`,
+          `${esc(shortName(o.p))} · ${o.pct}% of budget unpriced · ${tpJobPct(o.p)}% complete`,
           { view: "costs", project: o.p.id },
           o.J.pct > 0.3 && o.pct > 25 ? "bad" : o.pct > 15 ? "warn" : "",
         ),
@@ -43820,7 +43834,7 @@ function ptBuyout() {
         p: p,
         J: J,
         cov: J.budget ? Math.round(((J.actual + J.committed) / J.budget) * 100) : 0,
-        done: Math.round(100 * J.pct),
+        done: tpJobPct(p),
       }))
       .map(
         (r) =>
@@ -43923,7 +43937,7 @@ function ptEVTriple() {
     activeJobs()
       .map(({ p: p, J: J }) => ({
         p: p,
-        work: Math.round(100 * J.pct),
+        work: tpJobPct(p),
         billed: J.contract ? Math.round((J.billed / J.contract) * 100) : 0,
         cost: J.eac ? Math.round((J.actual / J.eac) * 100) : 0,
       }))
@@ -44019,7 +44033,7 @@ function ptCloseout() {
       insp: p.inspections.filter((i) => "passed" !== i.status).length,
     }));
   return rows.length
-    ? `<table class="t dash-t"><thead><tr><th>Project</th><th class="money">Done</th><th class="money">Punch</th><th class="money">Inspections</th><th class="money">Retainage</th></tr></thead><tbody>${rows.map((r) => `<tr data-remgo='${esc(JSON.stringify({ view: "close", project: r.p.id }))}' style="cursor:pointer"><td><b>${esc(shortName(r.p))}</b></td><td class="money">${Math.round(100 * r.J.pct)}%</td><td class="money ${r.punch ? "warn" : ""}">${r.punch}</td><td class="money ${r.insp ? "warn" : ""}">${r.insp}</td><td class="money">${money(r.J.retHeld || 0)}</td></tr>`).join("")}</tbody></table>`
+    ? `<table class="t dash-t"><thead><tr><th>Project</th><th class="money">Done</th><th class="money">Punch</th><th class="money">Inspections</th><th class="money">Retainage</th></tr></thead><tbody>${rows.map((r) => `<tr data-remgo='${esc(JSON.stringify({ view: "close", project: r.p.id }))}' style="cursor:pointer"><td><b>${esc(shortName(r.p))}</b></td><td class="money">${tpJobPct(r.p)}%</td><td class="money ${r.punch ? "warn" : ""}">${r.punch}</td><td class="money ${r.insp ? "warn" : ""}">${r.insp}</td><td class="money">${money(r.J.retHeld || 0)}</td></tr>`).join("")}</tbody></table>`
     : '<div class="muted small">No project is past 85% — nothing in close-out.</div>';
 }
 const studioRate = (p) => +(designEst(p)?.lines.find((l) => "hr" === l.unit)?.rate || designRate());
@@ -60381,7 +60395,7 @@ function pgPaneHtml() {
           .map(([r, f]) => `<div class="small">${esc(r.sv.desc)} — ${esc(f.msg)}</div>`)
           .join("")}</div>`
       : ""
-  }\n\n  <div class="row" style="gap:8px;margin:14px 0 8px"><h3 style="margin:0">${esc(p.project ? p.project.name : "This job")} — ready to bill</h3>\n    <span class="grow"></span>\n    <label class="cl-chk" style="margin:0"><input type="checkbox" id="pg-stored" ${cfg.stored ? "checked" : ""}><span class="small">Contract allows billing stored materials</span></label>\n    <button class="btn sm primary" id="pg-apply" ${T.propose ? "" : "disabled"}>Put ${money(T.propose)} on a draft</button></div>\n\n  <table class="t"><thead><tr><th>Line</th><th style="width:110px">Scheduled</th><th style="width:110px">Billed</th>\n    <th style="width:240px">Complete, and how we know</th><th style="width:130px">This period</th>\n    <th style="width:120px">Cost landed</th><th>What the evidence says</th></tr></thead>\n    <tbody>${rows.map(({ sv: sv, ev: ev, pr: pr, findings: findings }) => `<tr data-pgrow="${sv.id}">\n    <td><b>${esc(sv.desc)}</b><div class="small muted">${esc(sv.source || "")}${ev.code ? " · " + esc(ev.code) : ""}</div></td>\n    <td class="n">${money(ev.scheduled)}</td>\n    <td class="n">${ev.billedPct}%<div class="small muted">${money(r2((ev.scheduled * ev.billedPct) / 100))}</div></td>\n    <td>${null == pr.pct ? '<span class="muted small">nothing to measure it by</span>' : `<b class="${"cost" === pr.basis ? "warn" : ""}">${pr.pct}%</b>\n         <div class="small muted">${esc(pr.label)} — ${esc(pr.extra)}</div>`}</td>\n    <td class="n">${pr.period ? `<b>${money(r2((ev.scheduled * pr.period) / 100))}</b><div class="small muted">${pr.period}% this period</div>` : '<span class="muted">—</span>'}</td>\n    <td>${ev.cost ? `${money(ev.cost)}${null != ev.costPct ? `<div class="small muted">${ev.costPct}% of budget</div>` : ""}` : '<span class="muted small">—</span>'}</td>\n    <td>${findings.map((f) => `<div class="small ${"bad" === f.sev ? "bad" : "warn" === f.sev ? "warn" : "muted"}">${esc(f.msg)}</div>`).join("") || ""}</td></tr>`).join("") || '<tr><td colspan="7" class="muted small">No schedule of values on this job. Convert an approved estimate and every line appears here with what has landed on it.</td></tr>'}</tbody></table>\n  <p class="small muted" style="margin:10px 0 0">Percentages are complete-to-date; the pay application works out this period, the retainage, the previous applications and the deposit as it already does. Nothing here is sent — it fills a draft you still have to look at.</p>`;
+  }\n\n  <div class="row" style="gap:8px;margin:14px 0 8px"><h3 style="margin:0">${esc(p.project ? p.project.name : "This job")} — ready to bill</h3>\n    <span class="grow"></span>\n    <label class="cl-chk" style="margin:0"><input type="checkbox" id="pg-stored" ${cfg.stored ? "checked" : ""}><span class="small">Contract allows billing stored materials</span></label>\n    <button class="btn sm primary" id="pg-apply" ${T.propose ? "" : "disabled"}>Put ${money(T.propose)} on a draft</button></div>\n\n  <table class="t"><thead><tr><th>Line</th><th style="width:110px">Scheduled</th><th style="width:110px">Billed</th>\n    <th style="width:240px">Complete, and how we know</th><th style="width:130px">This period</th><th style="width:120px">Materials Stored</th>\n    <th style="width:120px">Cost landed</th><th>What the evidence says</th></tr></thead>\n    <tbody>${rows.map(({ sv: sv, ev: ev, pr: pr, findings: findings }) => `<tr data-pgrow="${sv.id}">\n    <td><b>${esc(sv.desc)}</b><div class="small muted">${esc(sv.source || "")}${ev.code ? " · " + esc(ev.code) : ""}</div></td>\n    <td class="n">${money(ev.scheduled)}</td>\n    <td class="n">${ev.billedPct}%<div class="small muted">${money(r2((ev.scheduled * ev.billedPct) / 100))}</div></td>\n    <td>${null == pr.pct ? '<span class="muted small">nothing to measure it by</span>' : `<b class="${"cost" === pr.basis ? "warn" : ""}">${pr.pct}%</b>${"cost" === pr.basis ? ' <span class="pill warn">No Field Measure</span>' : ""}\n         <div class="small muted">${esc(pr.label)} — ${esc(pr.extra)}</div>`}</td>\n    <td class="n">${pr.period ? `<b>${money(r2((ev.scheduled * pr.period) / 100))}</b><div class="small muted">${pr.period}% this period</div>` : '<span class="muted">—</span>'}</td>\n    <td class="n">${pr.stored > 0 ? `${money(pr.stored)}<div class="small muted">${pr.storedPct ? `${pr.storedPct}% billed as stored` : "on site, not billed"}</div>` : '<span class="muted">—</span>'}</td>\n    <td>${ev.cost ? `${money(ev.cost)}${null != ev.costPct ? `<div class="small muted">${ev.costPct}% of budget</div>` : ""}` : '<span class="muted small">—</span>'}</td>\n    <td>${findings.map((f) => `<div class="small ${"bad" === f.sev ? "bad" : "warn" === f.sev ? "warn" : "muted"}">${esc(f.msg)}</div>`).join("") || ""}</td></tr>`).join("") || '<tr><td colspan="8" class="muted small">No schedule of values on this job. Convert an approved estimate and every line appears here with what has landed on it.</td></tr>'}</tbody></table>\n  <p class="small muted" style="margin:10px 0 0">Percentages are complete-to-date; the pay application works out this period, the retainage, the previous applications and the deposit as it already does. Nothing here is sent — it fills a draft you still have to look at.</p>`;
 }
 function pgWire(root) {
   root.querySelector("#pg-stored")?.addEventListener("change", (e) => {
@@ -64465,7 +64479,7 @@ if ("function" == typeof lineProfit) {
       ? (rows.forEach((r) => {
           if (Array.isArray(r.flags)) {
             const n = r.flags.length;
-            (r.flags = r.flags.filter((f) => !/^billed \d+% vs \d+% complete$/.test(f))),
+            (r.flags = r.flags.filter((f) => !/^billed \d+% vs \d+% (complete|of its budget spent)$/.test(f))),
               r.flags.length !== n && (r.lumpBilled = !0);
           }
         }),
@@ -65774,7 +65788,7 @@ const h4HomeBase_b2 = h4Home;
       list
         .map(
           (j) =>
-            `<div class="h4r" data-h4go='${esc(JSON.stringify({ view: "dash", proj: j.p.id }))}'><span class="h4dot ${j.score >= 70 ? "ok" : j.score >= 45 ? "warn" : "bad"}"></span><span class="grow"><b>${esc(j.name)}</b><span class="small muted"> · ${esc(((j) => (j.late > 0 ? `${j.late} d behind` : j.score < 65 ? (j.h.health && j.h.health.why && j.h.health.why[0]) || `${j.urgent} urgent` : "on target"))(j))}${((j) => (j.next ? ` · ${esc(String(j.next.n).replace(/^(Starts|Finishes|Due):\s*/i, ""))} ${fmt(j.next.d)}` : ""))(j)}</span></span><span class="small muted">${j.J && j.J.contract ? Math.round(100 * (j.J.pct || 0)) + "%" : ""}</span></div>`,
+            `<div class="h4r" data-h4go='${esc(JSON.stringify({ view: "dash", proj: j.p.id }))}'><span class="h4dot ${j.score >= 70 ? "ok" : j.score >= 45 ? "warn" : "bad"}"></span><span class="grow"><b>${esc(j.name)}</b><span class="small muted"> · ${esc(((j) => (j.late > 0 ? `${j.late} d behind` : j.score < 65 ? (j.h.health && j.h.health.why && j.h.health.why[0]) || `${j.urgent} urgent` : "on target"))(j))}${((j) => (j.next ? ` · ${esc(String(j.next.n).replace(/^(Starts|Finishes|Due):\s*/i, ""))} ${fmt(j.next.d)}` : ""))(j)}</span></span><span class="small muted">${j.J && j.J.contract ? tpJobPct(j.p) + "% complete" : ""}</span></div>`,
         )
         .join("");
   if ("owner" === r) {
@@ -87568,7 +87582,7 @@ if (
         R = retainerLeft(p),
         ph = phaseHours(p),
         used = ph.reduce((a, x) => a + x.used, 0),
-        cur = ph.find((x) => x.used < x.est) || ph[ph.length - 1];
+        cur = phaseCur(ph) || ph.find((x) => x.used < x.est) || ph[ph.length - 1];
         tiles.push({
           key: "rooms",
           k: "Rooms Measured",
@@ -100604,9 +100618,21 @@ function clDocs() {
   };
 }
 function clPhotos() {
-  return (clProj().files || [])
-    .filter((f) => /\.(jpe?g|png|heic|webp)$/i.test(f.name || "") && !0 !== f.clientHidden)
-    .sort((a, b) => String(b.at || b.date || "").localeCompare(String(a.at || a.date || "")));
+  // the photos shared from the site's photo stream (with the PM's caption), then any photo files on the job
+  const p = clProj(),
+    shared =
+      "function" == typeof pstRows && p
+        ? pstRows({ projectId: p.id, shared: !0 }).map((x) => ({
+            id: x.id,
+            name: pstClientCaption(x),
+            at: String(x.sharedAt || x.at || x.date || ""),
+            pst: x,
+          }))
+        : [];
+  return [
+    ...shared,
+    ...(p.files || []).filter((f) => /\.(jpe?g|png|heic|webp)$/i.test(f.name || "") && !0 !== f.clientHidden),
+  ].sort((a, b) => String(b.at || b.date || "").localeCompare(String(a.at || a.date || "")));
 }
 function clBal(c, d) {
   try {
@@ -100677,7 +100703,9 @@ function clAcctHtml() {
           .slice(0, 24)
           .map(
             (f) =>
-              `<figure data-clphoto="${esc(f.id)}"><div class="cl-ph-box"><span>${esc((f.name || "").split(".")[0].slice(0, 28))}</span></div><figcaption>${f.at || f.date ? fmtL(String(f.at || f.date).slice(0, 10)) : ""}</figcaption></figure>`,
+              f.pst
+                ? pstTile(f.pst)
+                : `<figure data-clphoto="${esc(f.id)}"><div class="cl-ph-box"><span>${esc((f.name || "").split(".")[0].slice(0, 28))}</span></div><figcaption>${f.at || f.date ? fmtL(String(f.at || f.date).slice(0, 10)) : ""}</figcaption></figure>`,
           )
           .join("")}</div>`
       : `<div class="empty">No photos yet. ${esc(pmName() || "Your project manager")} and the site team post progress photos here as the work goes on — you will see them without asking.</div>`
@@ -100710,7 +100738,7 @@ function clSchedHtml() {
   let pct = all ? Math.round((done / all) * 100) : 0;
   try {
     const J = jobFin(p);
-    J && J.pct && (pct = Math.max(pct, Math.round(100 * J.pct)));
+    J && J.contract && (pct = Math.max(pct, tpJobPct(p)));
   } catch (e) {}
   const now = T.filter((t) => !isDone(t) && "in-progress" === t.status),
     soon = T.filter((t) => !isDone(t) && "in-progress" !== t.status && t.start).sort((a, b) =>
@@ -106078,7 +106106,7 @@ const csEv = (label, text, go, ref) => ({
               out.push({
                 sev: gap >= 15e3 ? 3 : 2,
                 title: `${n} — ${money(gap)} earned and not billed`,
-                why: `Earned ${money(f.earned)} against ${money(f.billed)} invoiced. The job is ${Math.round(100 * (f.pct || 0))}% through its cost.`,
+                why: `Earned ${money(f.earned)} against ${money(f.billed)} invoiced. The job is ${tpCostWords(f)}.`,
                 ev: [
                   csEv("Earned", money(f.earned), { view: "costs", project: p.id }),
                   csEv("Invoiced", money(f.billed), { view: "billing" }),
@@ -106236,7 +106264,7 @@ const csEv = (label, text, go, ref) => ({
                 out.push({
                   sev: 2,
                   title: `${n} — ${money(f.retHeld)} of retainage still held`,
-                  why: `The job is ${Math.round(100 * (f.pct || 0))}% through its cost. Retainage releases with the final invoice.`,
+                  why: `The job is ${tpCostWords(f)}. Retainage releases with the final invoice.`,
                   ev: [
                     csEv("Held", money(f.retHeld), { view: "billing" }),
                     csEv("Released so far", money(f.retReleased || 0), { view: "billing" }),
@@ -107148,7 +107176,7 @@ function csAnswer(q, facts) {
           `Invoiced ${money(f.billed)}, earned ${money(f.earned)}, outstanding ${money(f.outstanding)}`,
         ),
         out({
-          headline: `${String(job.project.name).replace(/ —.*$/, "")} — ${money(f.estGP)} estimated gross profit, ${f.estGPPct}% of contract, ${Math.round(100 * (f.pct || 0))}% through its cost.`,
+          headline: `${String(job.project.name).replace(/ —.*$/, "")} — ${money(f.estGP)} estimated gross profit, ${f.estGPPct}% of contract, ${tpCostWords(f)}.`,
           note:
             f.estGPPct < (DB.company.minMargin || 20)
               ? `That is below the ${DB.company.minMargin || 20}% the firm sets as its floor.`
@@ -108803,7 +108831,7 @@ function paAsk(q) {
       try {
         f = jobFin(p);
       } catch (e) {}
-      return `${p.project.name.replace(/ —.*$/, "")}${f ? ` — ${money(f.contract)} contract, ${Math.round(100 * (f.pct || 0))}% through cost, ${money(f.outstanding)} outstanding` : ""}`;
+      return `${p.project.name.replace(/ —.*$/, "")}${f ? ` — ${money(f.contract)} contract, ${tpCostWords(f)}, ${money(f.outstanding)} outstanding` : ""}`;
     });
     return paOut({
       headline: M.projects.length
@@ -112106,7 +112134,7 @@ const qaRow = (entity) => (r) => {
       add(r.name),
         add(r.client),
         add(money(r.contract)),
-        add(`${r.pct}% through cost`),
+        add(`${r.pct}% through its estimated cost (cost-to-cost)`),
         add(r.outstanding ? `${money(r.outstanding)} outstanding` : "");
       break;
     case "tasks":
@@ -112203,8 +112231,10 @@ function qaProfile(hit) {
         line("Outstanding", money(f.outstanding)),
         line(
           "Cost",
-          `${money(f.actual)} spent, ${money(f.committed)} committed, ${Math.round(100 * (f.pct || 0))}% through`,
+          `${money(f.actual)} spent, ${money(f.committed)} committed, ${tpCostWords(f)}`,
         ),
+        line("Estimate at completion", money(f.eac)),
+        line("Progress", `${tpJobPct(p)}% complete, measured on site`),
         line("Gross profit", `${money(f.estGP)} at ${f.estGPPct}%`)),
       line("Client", c ? c.name : ""),
       line("Project manager", p.project.pm || "nobody named"),
@@ -115116,7 +115146,7 @@ if ("function" == typeof paAsk) {
               : "No active jobs.",
             work: J.map(
               (j) =>
-                `${j.name} — health ${j.score}, ${Math.round(100 * (j.J.pct || 0))}% complete${j.late > 0 ? `, ${j.late}d behind` : ""}, cost ${money(j.J.actual || 0)} of ${money(j.J.budget || 0)}`,
+                `${j.name} — health ${j.score}, ${tpJobPct(j.p)}% complete${j.late > 0 ? `, ${j.late}d behind` : ""}, cost ${money(j.J.actual || 0)} of ${money(j.J.eac || j.J.budget || 0)} estimated at completion`,
             ),
             kind: "brief",
             go: J.length && (ROLE_VIEWS[r] || []).includes("port") ? { view: "port" } : null,
@@ -117825,24 +117855,7 @@ if ("function" == typeof jobFin) {
       const row = J.byCode.find((x) => x.code === (b.code || "99"));
       row && ((row.bills = r2(row.bills - amt)), (row.actual = r2(row.actual - amt)));
     });
-    const ctc = +(p.ctc || 0);
-    return (
-      (J.eac = r2(
-        p.ctcReviewed
-          ? Math.max(J.actual + J.committed, J.actual + ctc)
-          : Math.max(J.budget, J.actual + J.committed),
-      )),
-      (J.pct = J.eac ? Math.min(1, J.actual / J.eac) : 0),
-      (J.earned = r2(J.contract * J.pct)),
-      (J.overUnder = r2(J.billed - J.earned)),
-      (J.over = Math.max(0, J.overUnder)),
-      (J.under = Math.max(0, -J.overUnder)),
-      (J.backlog = r2(Math.max(0, J.contract - J.earned))),
-      (J.estGP = r2(J.contract - J.eac)),
-      (J.estGPPct = J.contract ? r2((J.estGP / J.contract) * 100) : 0),
-      (J.backlogGP = r2(J.estGP * (1 - J.pct))),
-      J
-    );
+    return jobFinDerive(J, p);
   };
 }
 if ("function" == typeof glDerive) {
@@ -118653,9 +118666,9 @@ function finWipTable() {
       `<td><b>${esc(w.p.project.name)}</b><div class="small muted">${esc(w.c ? w.c.name : "")}${w.contract ? "" : " · no contract — cost only"}${w.pending ? ` · pending COs ${money(w.pending)}` : ""}</div></td>`;
   return "margin" === wipTab
     ? tabs +
-        `<div class="tw"><table class="t rep-t wip"><thead><tr><th>Job</th><th class="money">Original</th><th class="money">Appr. COs</th><th class="money">Est. Total Cost</th><th class="money">Est. GP</th><th class="money">GP %</th><th class="money">Cost to Complete</th><th class="money">Retainage Rec.</th><th class="money">Fade vs Prior</th><th class="money">Fade vs Bid</th></tr></thead><tbody>${rows.map(({ w: w, f: f }) => `<tr class="click" data-repproj="${w.p.id}">${job(w)}<td class="money">${M(w.orig)}</td><td class="money">${M(w.cos)}</td><td class="money">${M(w.eac)}</td><td class="money">${M(w.estGP)}</td><td class="money">${w.contract ? w.gpPct + "%" : "—"}</td><td class="money">${M(w.ctc)}</td><td class="money">${M(w.retain)}</td><td class="money" style="color:${null == f.fadePts ? "inherit" : f.fadePts < 0 ? "var(--bad)" : "var(--ok)"}">${w.contract ? (null == f.fadePts ? '<span class="muted">first month</span>' : `${f.fadePts > 0 ? "+" : ""}${f.fadePts} pts<div class="small">${money(f.fadeAmt)}</div>`) : "—"}</td><td class="money" style="color:${f.vsBidPts < 0 ? "var(--bad)" : "var(--ok)"}">${w.contract ? `${f.vsBidPts > 0 ? "+" : ""}${f.vsBidPts} pts<div class="small">${money(f.vsBidAmt)}</div>` : "—"}</td></tr>`).join("") || '<tr><td colspan="10" class="muted">No jobs.</td></tr>'}<tr style="font-weight:600"><td>Total</td><td class="money">${money(T.orig)}</td><td class="money">${money(T.cos)}</td><td class="money">${money(T.eac)}</td><td class="money">${money(T.estGP)}</td><td class="money">${T.contract ? r2((T.estGP / T.contract) * 100) : 0}%</td><td class="money">${money(T.ctc)}</td><td class="money">${money(T.retain)}</td><td></td><td></td></tr></tbody></table></div><p class="small muted" style="margin-top:8px">Estimated total cost = actual + the PM's cost-to-complete review when one exists; otherwise the greater of estimate budget and actual + open POs. Fade compares GP% to the prior month-end snapshot and to the original bid margin.</p>`
+        `<div class="tw"><table class="t rep-t wip"><thead><tr><th>Job</th><th class="money">Original</th><th class="money">Appr. COs</th><th class="money">Est. Total Cost</th><th class="money">Est. GP</th><th class="money">GP %</th><th class="money">Cost to Complete</th><th class="money">Retainage Rec.</th><th class="money">Fade vs Prior</th><th class="money">Fade vs Bid</th></tr></thead><tbody>${rows.map(({ w: w, f: f }) => `<tr class="click" data-repproj="${w.p.id}">${job(w)}<td class="money">${M(w.orig)}</td><td class="money">${M(w.cos)}</td><td class="money">${M(w.eac)}</td><td class="money">${M(w.estGP)}</td><td class="money">${w.contract ? w.gpPct + "%" : "—"}</td><td class="money">${M(w.ctc)}</td><td class="money">${M(w.retain)}</td><td class="money" style="color:${null == f.fadePts ? "inherit" : f.fadePts < 0 ? "var(--bad)" : "var(--ok)"}">${w.contract ? (null == f.fadePts ? '<span class="muted">first month</span>' : `${f.fadePts > 0 ? "+" : ""}${f.fadePts} pts<div class="small">${money(f.fadeAmt)}</div>`) : "—"}</td><td class="money" style="color:${f.vsBidPts < 0 ? "var(--bad)" : "var(--ok)"}">${w.contract ? `${f.vsBidPts > 0 ? "+" : ""}${f.vsBidPts} pts<div class="small">${money(f.vsBidAmt)}</div>` : "—"}</td></tr>`).join("") || '<tr><td colspan="10" class="muted">No jobs.</td></tr>'}<tr style="font-weight:600"><td>Total</td><td class="money">${money(T.orig)}</td><td class="money">${money(T.cos)}</td><td class="money">${money(T.eac)}</td><td class="money">${money(T.estGP)}</td><td class="money">${T.contract ? r2((T.estGP / T.contract) * 100) : 0}%</td><td class="money">${money(T.ctc)}</td><td class="money">${money(T.retain)}</td><td></td><td></td></tr></tbody></table></div><p class="small muted" style="margin-top:8px">Estimated total cost = actual + the PM's cost-to-complete review when one exists; otherwise each estimate and change-order line at the greater of its budget and actual + open POs. Fade compares GP% to the prior month-end snapshot and to the original bid margin.</p>`
     : tabs +
-        `<div class="tw"><table class="t rep-t wip"><thead><tr><th>Job</th><th class="money">Contract</th><th class="money">Cost to Date</th><th class="money">% Complete</th><th class="money">Earned</th><th class="money">Billed (Gross)</th><th class="money">Over</th><th class="money">Under</th><th class="money">Backlog</th></tr></thead><tbody>${rows.map(({ w: w }) => `<tr class="click" data-repproj="${w.p.id}">${job(w)}<td class="money">${M(w.contract)}</td><td class="money">${M(w.costToDate)}</td><td class="money">${w.contract ? Math.round(100 * w.pct) + "%" : "—"}</td><td class="money">${M(w.earned)}</td><td class="money">${M(w.billed)}</td><td class="money ${w.over ? "warn" : ""}">${M(w.over)}</td><td class="money ${w.under ? "warn" : ""}">${M(w.under)}</td><td class="money">${M(w.backlog)}</td></tr>`).join("") || '<tr><td colspan="9" class="muted">No jobs.</td></tr>'}<tr style="font-weight:600"><td>Total · ${live.length} contract${1 === live.length ? "" : "s"}</td><td class="money">${money(T.contract)}</td><td class="money">${money(T.costToDate)}</td><td class="money">${T.eac ? Math.round((T.costToDate / T.eac) * 100) : 0}%</td><td class="money">${money(T.earned)}</td><td class="money">${money(T.billed)}</td><td class="money">${money(T.over)}</td><td class="money">${money(T.under)}</td><td class="money">${money(T.backlog)}</td></tr></tbody></table></div><p class="small muted" style="margin-top:8px">Contract = base + approved change orders. % complete = cost to date ÷ estimated total cost (cost-to-cost). Earned = contract × % complete. Over = billed − earned where billed is ahead; Under where the work is ahead. Billed is gross, before retainage. Backlog = contract − earned. A job with no contract shows its cost only.</p>`;
+        `<div class="tw"><table class="t rep-t wip"><thead><tr><th>Job</th><th class="money">Contract</th><th class="money">Cost to Date</th><th class="money">% Complete<div class="small muted">Cost Basis %</div></th><th class="money">Earned</th><th class="money">Billed (Gross)</th><th class="money">Over</th><th class="money">Under</th><th class="money">Backlog</th></tr></thead><tbody>${rows.map(({ w: w }) => `<tr class="click" data-repproj="${w.p.id}">${job(w)}<td class="money">${M(w.contract)}</td><td class="money">${M(w.costToDate)}</td><td class="money">${w.contract ? `<b>${tpJobPct(w.p)}%</b><div class="small muted">${Math.round(100 * w.pct)}% cost basis</div>` : "—"}</td><td class="money">${M(w.earned)}</td><td class="money">${M(w.billed)}</td><td class="money ${w.over ? "warn" : ""}">${M(w.over)}</td><td class="money ${w.under ? "warn" : ""}">${M(w.under)}</td><td class="money">${M(w.backlog)}</td></tr>`).join("") || '<tr><td colspan="9" class="muted">No jobs.</td></tr>'}<tr style="font-weight:600"><td>Total · ${live.length} contract${1 === live.length ? "" : "s"}</td><td class="money">${money(T.contract)}</td><td class="money">${money(T.costToDate)}</td><td class="money"><b>${T.contract ? Math.round(live.reduce((a, { w: w }) => a + w.contract * tpJobPct(w.p), 0) / T.contract) : 0}%</b><div class="small muted">${T.eac ? Math.round((T.costToDate / T.eac) * 100) : 0}% cost basis</div></td><td class="money">${money(T.earned)}</td><td class="money">${money(T.billed)}</td><td class="money">${money(T.over)}</td><td class="money">${money(T.under)}</td><td class="money">${money(T.backlog)}</td></tr></tbody></table></div><p class="small muted" style="margin-top:8px">Contract = base + approved change orders. % Complete is measured on site: each schedule-of-values line at the measured % of its tasks, weighted by its value. Cost Basis % = cost to date ÷ estimated total cost; it is the revenue basis, so Earned = contract × cost basis %. Estimated total cost = each estimate and change-order line at the greater of its budget and actual + committed. Over = billed − earned where billed is ahead; Under where the work is ahead. Billed is gross, before retainage. Backlog = contract − earned. A job with no contract shows its cost only.</p>`;
 }
 if ("function" == typeof repWIP) {
   const repWIPBase_fin = repWIP;
@@ -118824,6 +118837,26 @@ function finAnswer(raw) {
             : "that: fixed assets, loans, equity and tax balances live in the accounting system, not here",
         )
       : finBlocked();
+  if (
+    job &&
+    has(/\b(eac|estimate at completion|estimated (total )?cost|forecast (cost )?at completion|projected cost|cost at completion)\b/)
+  ) {
+    if (!finJobsOk()) return finBlocked();
+    const J = jobFin(job),
+      over = (J.eacLines || []).filter((x) => x.over > 0.5).sort((a, b) => b.over - a.over);
+    return out(
+      `Estimate at completion on ${finName(job)} is ${money(J.eac)} — ${money(J.actual)} spent, ${money(J.committed)} committed, ${money(r2(Math.max(0, J.eac - J.actual - J.committed)))} still to come; ${J.estGPPct}% margin at completion against ${J.plannedGPPct}% bid.`,
+      tpEacNote(J, job),
+      [
+        ...over.map(
+          (x) =>
+            `${x.name} — ${money(x.actual)} spent + ${money(x.committed)} committed against a ${money(x.budget)} budget: over by ${money(x.over)}`,
+        ),
+        `Budget ${money(J.budget)} · estimate at completion ${money(J.eac)} · ${tpCostWords(J)} · ${tpJobPct(job)}% complete, measured on site`,
+      ],
+      finGoJob(job.id),
+    );
+  }
   if (job && has(/\b(cost codes?|by code)\b/)) {
     if (!finJobsOk()) return finBlocked();
     const J = jobFin(job),
@@ -118874,7 +118907,7 @@ function finAnswer(raw) {
       gpTD = r2(J.earned - J.actual);
     return out(
       `${J.estGPPct}% estimated gross margin at completion on ${finName(job)} — ${money(J.estGP)} on a ${money(J.contract)} contract, bid at ${J.plannedGPPct}%.`,
-      `At completion = contract − estimated total cost (${money(J.eac)}). To date: earned ${money(J.earned)} less cost ${money(J.actual)} = ${money(gpTD)}, ${Math.round(100 * (J.pct || 0))}% complete cost-to-cost.`,
+      `At completion = contract − estimated total cost (${money(J.eac)}). To date: earned ${money(J.earned)} less cost ${money(J.actual)} = ${money(gpTD)}; the job is ${tpCostWords(J)} and ${tpJobPct(job)}% complete on site.`,
       [
         `Gross profit ${money(J.estGP)} at ${J.estGPPct}% at completion · ${money(gpTD)} to date`,
         `Contract ${money(J.contract)}${J.coAmt ? ` including ${money(J.coAmt)} of approved change orders` : ""}`,
@@ -118948,7 +118981,7 @@ function finAnswer(raw) {
         .sort((a, b) => Math.abs(b.J.overUnder) - Math.abs(a.J.overUnder))
         .map(
           (x) =>
-            `${finName(x.p)} · billed ${money(x.J.billed)} · earned ${money(x.J.earned)} · ${x.J.overUnder >= 0 ? "over" : "under"}-billed ${money(Math.abs(x.J.overUnder))} · ${Math.round(100 * x.J.pct)}% complete`,
+            `${finName(x.p)} · billed ${money(x.J.billed)} · earned ${money(x.J.earned)} · ${x.J.overUnder >= 0 ? "over" : "under"}-billed ${money(Math.abs(x.J.overUnder))} · ${tpJobPct(x.p)}% complete`,
         ),
       finGoRep("wip"),
     );
@@ -118968,7 +119001,7 @@ function finAnswer(raw) {
       "At completion = contract − estimated total cost (actual + committed + cost to complete). Bid margin is the estimate; the gap is fade.",
       rows.map(
         (x) =>
-          `${finName(x.p)} · ${x.J.estGPPct}% (${money(x.J.estGP)} on ${money(x.J.contract)}) · bid ${x.J.plannedGPPct}% · ${Math.round(100 * x.J.pct)}% complete`,
+          `${finName(x.p)} · ${x.J.estGPPct}% (${money(x.J.estGP)} on ${money(x.J.contract)}) · bid ${x.J.plannedGPPct}% · ${tpJobPct(x.p)}% complete`,
       ),
       finGoRep("wip"),
     );
@@ -119124,7 +119157,7 @@ function finAnswer(raw) {
     const C = companyPL(P.range);
     return out(
       `${money(C.income)} of revenue recognised ${P.label} — ${money(C.invoiced)} invoiced ${C.wipAdj >= 0 ? "plus" : "less"} a ${money(Math.abs(C.wipAdj))} WIP adjustment.`,
-      `Revenue is earned, not billed: invoices issued ex tax ± the change in over/under-billing, where earned = contract × % complete cost-to-cost. ${fmtL(P.range[0] || "2026-01-01")} to ${fmtL(P.range[1])}. ${money(C.collected)} was collected in the same stretch.`,
+      `Revenue is earned, not billed: invoices issued ex tax ± the change in over/under-billing, where earned = contract × the cost basis % (cost-to-cost). ${fmtL(P.range[0] || "2026-01-01")} to ${fmtL(P.range[1])}. ${money(C.collected)} was collected in the same stretch.`,
       [
         `Invoiced ${money(C.invoiced)}`,
         `WIP adjustment ${money(C.wipAdj)}`,
@@ -119280,7 +119313,7 @@ function finAnswer(raw) {
         .sort((a, b) => b.J.backlog - a.J.backlog)
         .map(
           (x) =>
-            `${finName(x.p)} · ${money(x.J.backlog)} backlog · ${money(x.J.backlogGP)} GP · ${Math.round(100 * x.J.pct)}% complete`,
+            `${finName(x.p)} · ${money(x.J.backlog)} backlog · ${money(x.J.backlogGP)} GP · ${tpJobPct(x.p)}% complete`,
         ),
       finGoRep("wip"),
     );
@@ -123599,7 +123632,7 @@ const OV_BUILD = {},
       const est = ph.reduce((a, x) => a + x.est, 0),
         used = ph.reduce((a, x) => a + x.used, 0),
         over = ph.filter((x) => x.used > x.est).length,
-        cur = ph.find((x) => x.left > 0 && x.used > 0) || ph[0],
+        cur = phaseCur(ph) || ph.find((x) => x.left > 0 && x.used > 0) || ph[0],
         unv = roomsOf(p.id).filter((r) => 0 === roomProv(r)).length,
         stale = sheetsOf(p.id).filter((s) => s.stale && "current" === s.status).length,
         F = (DB.studio.filings || []).filter((f) => f.projectId === p.id),
@@ -123971,6 +124004,17 @@ function ovProjectCols() {
     { key: "contract", label: "Contract", type: "money", w: "96px", get: (r) => r.J.contract || "" },
     { key: "billed", label: "Billed", type: "money", w: "92px", get: (r) => r.J.billed || "" },
     { key: "out", label: "Owed", type: "money", w: "92px", get: (r) => r.J.outstanding || "" },
+    {
+      key: "pct",
+      label: "% Complete",
+      w: "92px",
+      get: (r) => {
+        if (!r.J.contract && !(r.p.tasks || []).length) return "";
+        const v = tpJobPct(r.p);
+        return { text: `${v}%`, sort: v };
+      },
+    },
+    { key: "eac", label: "EAC", type: "money", w: "96px", get: (r) => (r.J.contract ? r.J.eac : "") },
     {
       key: "next",
       label: "Next Milestone",
@@ -126465,24 +126509,7 @@ if ("function" == typeof jobFin) {
       const row = J.byCode.find((x) => x.code === (b.code || "99"));
       row && ((row.bills = r2(row.bills - amt)), (row.actual = r2(row.actual - amt)));
     });
-    const ctc = +(p.ctc || 0);
-    return (
-      (J.eac = r2(
-        p.ctcReviewed
-          ? Math.max(J.actual + J.committed, J.actual + ctc)
-          : Math.max(J.budget, J.actual + J.committed),
-      )),
-      (J.pct = J.eac ? Math.min(1, J.actual / J.eac) : 0),
-      (J.earned = r2(J.contract * J.pct)),
-      (J.overUnder = r2(J.billed - J.earned)),
-      (J.over = Math.max(0, J.overUnder)),
-      (J.under = Math.max(0, -J.overUnder)),
-      (J.backlog = r2(Math.max(0, J.contract - J.earned))),
-      (J.estGP = r2(J.contract - J.eac)),
-      (J.estGPPct = J.contract ? r2((J.estGP / J.contract) * 100) : 0),
-      (J.backlogGP = r2(J.estGP * (1 - J.pct))),
-      J
-    );
+    return jobFinDerive(J, p);
   };
 }
 if ("function" == typeof glDerive) {
@@ -127843,7 +127870,7 @@ if ("function" == typeof pgPaneHtml) {
           : w.under
             ? `<b class="ok">${money(w.under)}</b><span>under-billed — the work is ahead of billing</span>`
             : `<b>${money(0)}</b><span>billed in step with the work</span>`,
-        head = `<div class="sel-stats fin2-wiphead"><div class="sel-stat"><b>${money(w.earned)}</b><span>earned · ${Math.round(100 * w.pct)}% complete, cost-to-cost</span></div><div class="sel-stat"><b>${money(w.billed)}</b><span>billed to date (gross)</span></div><div class="sel-stat">${pos}</div></div><p class="small muted fin2-wipsrc">From the WIP schedule. The lines below bill on each line's own evidence; the job as a whole is measured on cost.</p>`,
+        head = `<div class="sel-stats fin2-wiphead"><div class="sel-stat"><b>${money(w.earned)}</b><span>earned on a ${Math.round(100 * w.pct)}% cost basis · ${tpJobPct(w.p)}% measured on site</span></div><div class="sel-stat"><b>${money(w.billed)}</b><span>billed to date (gross)</span></div><div class="sel-stat">${pos}</div></div><p class="small muted fin2-wipsrc">From the WIP schedule. The lines below bill on each line's own evidence; the job as a whole is measured on cost.</p>`,
         i = h.indexOf('<div class="pg-rule">');
       if (i > -1) h = h.slice(0, i) + head + h.slice(i);
       else {
@@ -134239,22 +134266,7 @@ if ("function" == typeof jobFin) {
           const row = (J.byCode || []).find((x) => x.code === k);
           row && ((row.bills = r2((row.bills || 0) + v)), (row.actual = r2((row.actual || 0) + v)));
         });
-      const ctc = +(p.ctc || 0);
-      (J.eac = r2(
-        p.ctcReviewed
-          ? Math.max(J.actual + J.committed, J.actual + ctc)
-          : Math.max(J.budget, J.actual + J.committed),
-      )),
-        (J.pct = J.eac ? Math.min(1, J.actual / J.eac) : 0),
-        (J.earned = r2(J.contract * J.pct)),
-        (J.overUnder = r2(J.billed - J.earned)),
-        (J.over = Math.max(0, J.overUnder)),
-        (J.under = Math.max(0, -J.overUnder)),
-        (J.backlog = r2(Math.max(0, J.contract - J.earned))),
-        (J.estGP = r2(J.contract - J.eac)),
-        (J.estGPPct = J.contract ? r2((J.estGP / J.contract) * 100) : 0),
-        (J.backlogGP = r2(J.estGP * (1 - J.pct))),
-        (J.disputed = r2(-d));
+      jobFinDerive(J, p), (J.disputed = r2(-d));
     } catch (e) {
       console.warn("short-pay job cost", e);
     }
@@ -134380,21 +134392,7 @@ if ("function" == typeof jobFin) {
         const row = (J.byCode || []).find((x) => x.code === (t.code || "99"));
         row && (null != row.txns && (row.txns = r2(row.txns - a)), (row.actual = r2((row.actual || 0) - a)));
       });
-      const ctc = +(p.ctc || 0);
-      (J.eac = r2(
-        p.ctcReviewed
-          ? Math.max(J.actual + J.committed, J.actual + ctc)
-          : Math.max(J.budget, J.actual + J.committed),
-      )),
-        (J.pct = J.eac ? Math.min(1, J.actual / J.eac) : 0),
-        (J.earned = r2(J.contract * J.pct)),
-        (J.overUnder = r2(J.billed - J.earned)),
-        (J.over = Math.max(0, J.overUnder)),
-        (J.under = Math.max(0, -J.overUnder)),
-        (J.backlog = r2(Math.max(0, J.contract - J.earned))),
-        (J.estGP = r2(J.contract - J.eac)),
-        (J.estGPPct = J.contract ? r2((J.estGP / J.contract) * 100) : 0),
-        (J.backlogGP = r2(J.estGP * (1 - J.pct)));
+      jobFinDerive(J, p);
     } catch (e) {
       console.warn("disputed job cost", e);
     }
@@ -138060,7 +138058,7 @@ ASK_INTENTS.push({
         return {
           headline: over.length
             ? `${over[0].n} is the most over budget — forecast ${money(over[0].J.eac)} against a ${money(over[0].J.budget)} budget, ${money(over[0].over)} over.`
-            : `No job is over its budget, and none is forecast to finish over. Closest: ${B[0] ? `${B[0].n}, ${money(B[0].J.actual)} spent of ${money(B[0].J.budget)} (${B[0].spentPct}%) at ${Math.round(100 * (B[0].J.pct || 0))}% complete` : "no job carries a budget"}.`,
+            : `No job is over its budget, and none is forecast to finish over. Closest: ${B[0] ? `${B[0].n}, ${money(B[0].J.actual)} spent of ${money(B[0].J.budget)} (${B[0].spentPct}%), ${tpCostWords(B[0].J)}` : "no job carries a budget"}.`,
           note: "Budget is the estimate's cost; the forecast is cost to date plus open commitments plus cost to complete — the figures on Reports › Job Profitability.",
           work: B.map(
             (x) =>
@@ -155654,15 +155652,16 @@ function prgWipRows() {
       } catch (e) {}
       if (!J || !J.contract) return null;
       const cost = Math.round(100 * (J.pct || 0)),
-        gap = ph.pct - cost;
-      return { p: p, ph: ph, cost: cost, gap: gap, flag: Math.abs(gap) > 15, J: J };
+        pct = tpJobPct(p),
+        gap = pct - cost;
+      return { p: p, ph: Object.assign({}, ph, { pct: pct }), cost: cost, gap: gap, flag: Math.abs(gap) > 15, J: J };
     })
     .filter(Boolean);
 }
 function prgWipHtml() {
   const R = prgWipRows();
   if (!R.length) return "";
-  return `<h3 class="rep-h">Physical % vs Cost %</h3><p class="small muted">Revenue above stays cost-to-cost. This is the check on it: what the site says is built (measured % on the construction tasks, weighted by working days) against the cost ratio the schedule earns on. A gap over 15 points is flagged.</p>\n    <div class="tw"><table class="t rep-t prg-wip"><thead><tr><th>Job</th><th class="money">Physical %</th><th class="money">Cost %</th><th class="money">Gap</th><th>Measured</th><th>Reading</th></tr></thead><tbody>${R.map((r) => `<tr class="${r.flag ? "warn" : ""}"><td>${esc(fxJob(r.p))}</td><td class="money">${r.ph.pct}%</td><td class="money">${r.cost}%</td><td class="money ${r.flag ? "bad" : ""}">${r.gap > 0 ? "+" : r.gap < 0 ? "−" : ""}${Math.abs(r.gap)} pts</td><td class="small">${r.ph.measured} of ${r.ph.n} tasks measured${r.ph.estimated ? ` · ${r.ph.estimated} on the plan` : ""}${r.ph.last ? ` · last ${fmt(r.ph.last.on)} by ${esc(r.ph.last.by)}` : ""}</td><td class="small ${r.flag ? "bad" : "muted"}">${((r) => (r.gap < -15 ? `Cost is ${-r.gap} points ahead of the work — check the cost to complete before it shows up as fade` : r.gap > 15 ? `The work is ${r.gap} points ahead of the cost — costs not posted yet, or the estimate is light; revenue stays on cost` : "Within 15 points"))(r)}</td></tr>`).join("")}</tbody></table></div>`;
+  return `<h3 class="rep-h">Variance Flag: Measured on Site vs Cost Basis</h3><p class="small muted">Revenue above stays cost-to-cost. This is the check on it: what the site says is built (each schedule-of-values line at the measured % of its tasks, weighted by value, the % Complete every screen shows) against the cost basis the schedule earns on. A gap over 15 points is flagged.</p>\n    <div class="tw"><table class="t rep-t prg-wip"><thead><tr><th>Job</th><th class="money">Measured %</th><th class="money">Cost Basis %</th><th class="money">Gap</th><th>Measured</th><th>Reading</th></tr></thead><tbody>${R.map((r) => `<tr class="${r.flag ? "warn" : ""}"><td>${esc(fxJob(r.p))}</td><td class="money">${r.ph.pct}%</td><td class="money">${r.cost}%</td><td class="money ${r.flag ? "bad" : ""}">${r.gap > 0 ? "+" : r.gap < 0 ? "−" : ""}${Math.abs(r.gap)} pts</td><td class="small">${r.ph.measured} of ${r.ph.n} tasks measured${r.ph.estimated ? ` · ${r.ph.estimated} on the plan` : ""}${r.ph.last ? ` · last ${fmt(r.ph.last.on)} by ${esc(r.ph.last.by)}` : ""}</td><td class="small ${r.flag ? "bad" : "muted"}">${((r) => (r.gap < -15 ? `Cost is ${-r.gap} points ahead of the work — check the cost to complete before it shows up as fade` : r.gap > 15 ? `The work is ${r.gap} points ahead of the cost — costs not posted yet, or the estimate is light; revenue stays on cost` : "Within 15 points"))(r)}</td></tr>`).join("")}</tbody></table></div>`;
 }
 if ("function" == typeof repWIP) {
   const base = repWIP;
@@ -156196,6 +156195,12 @@ function pstTile(x) {
   const t = x.taskId
     ? ((fxProj(x.projectId) || { tasks: [] }).tasks || []).find((k) => k.id === x.taskId)
     : null;
+  if ("client" === role()) {
+    // The client reads the caption the PM wrote when sharing, and nothing internal: no source tag (DAILY LOG),
+    // no task, no crew name.
+    const cap = pstClientCaption(x);
+    return `<button type="button" class="pst-tile" data-pstopen="${esc(x.id)}" title="${esc(cap)}"><img data-pstimg="${esc(x.id)}|thumb" alt="${esc(cap)}" loading="lazy"><span class="pst-cap">${esc(cap)}</span></button>`;
+  }
   return `<button type="button" class="pst-tile" data-pstopen="${esc(x.id)}" title="${esc(x.caption)}${t ? ` · ${esc(t.name)}` : ""}"><img data-pstimg="${esc(x.id)}|thumb" alt="${esc(x.caption)}" loading="lazy"><span class="pst-cap"><b>${esc(PST_SRC[x.source] || x.source)}</b>${esc(x.caption || (t ? t.name : ""))}</span>${x.share ? `<span class="pst-sh" title="Shared with the client">${FX_ICON.share}</span>` : ""}</button>`;
 }
 function pstViewHtml() {
@@ -156323,7 +156328,7 @@ function pstLightbox(id, list) {
     el.setAttribute("role", "dialog"),
     el.setAttribute("aria-label", "Photo");
   const src = x.ref && x.ref.kind ? pstRefLabel(x) : "";
-  (el.innerHTML = `<div class="pst-lb-top"><span class="small">${i + 1} of ${pstLbList.length}</span><button class="pst-lb-x" aria-label="Close" title="Close">${FX_ICON.close}</button></div>\n    <div class="pst-lb-img"><button class="pst-lb-nav prev" aria-label="Previous" ${i <= 0 ? "disabled" : ""}>${FX_ICON.prev}</button><img data-pstimg="${esc(x.id)}|full" alt="${esc(x.caption)}"><button class="pst-lb-nav next" aria-label="Next" ${i >= pstLbList.length - 1 ? "disabled" : ""}>${FX_ICON.next}</button></div>\n    <div class="pst-lb-info"><b>${esc(x.caption)}</b><div class="small">${fmtL(x.date)} · ${esc(stampText(x.at).split(", ")[1] || "")} · ${esc(x.by || "")}</div>\n      <div class="pst-tags"><span class="pill neutral">${esc(PST_SRC[x.source] || x.source)}</span>${t ? `<span class="pill neutral">${esc(t.name)}</span>` : ""}${x.area ? `<span class="pill neutral">${esc(x.area)}</span>` : ""}${x.trade ? `<span class="pill neutral">${esc(x.trade)}</span>` : ""}${x.share ? '<span class="pill ok">Shared With Client</span>' : ""}</div>\n      ${src ? `<div class="small muted">From ${esc(src)}</div>` : ""}\n      ${pstCanShare() ? `<div class="pst-lb-acts"><button class="btn ${x.share ? "" : "primary"}" data-pstshare="${esc(x.id)}">${x.share ? "Stop Sharing" : "Share With Client"}</button></div>` : ""}</div>`),
+  (el.innerHTML = `<div class="pst-lb-top"><span class="small">${i + 1} of ${pstLbList.length}</span><button class="pst-lb-x" aria-label="Close" title="Close">${FX_ICON.close}</button></div>\n    <div class="pst-lb-img"><button class="pst-lb-nav prev" aria-label="Previous" ${i <= 0 ? "disabled" : ""}>${FX_ICON.prev}</button><img data-pstimg="${esc(x.id)}|full" alt="${esc(x.caption)}"><button class="pst-lb-nav next" aria-label="Next" ${i >= pstLbList.length - 1 ? "disabled" : ""}>${FX_ICON.next}</button></div>\n    ${"client" === role() ? `<div class="pst-lb-info"><b>${esc(pstClientCaption(x))}</b><div class="small">${fmtL(x.date)}</div></div>` : `<div class="pst-lb-info"><b>${esc(x.caption)}</b><div class="small">${fmtL(x.date)} · ${esc(stampText(x.at).split(", ")[1] || "")} · ${esc(x.by || "")}</div>\n      <div class="pst-tags"><span class="pill neutral">${esc(PST_SRC[x.source] || x.source)}</span>${t ? `<span class="pill neutral">${esc(t.name)}</span>` : ""}${x.area ? `<span class="pill neutral">${esc(x.area)}</span>` : ""}${x.trade ? `<span class="pill neutral">${esc(x.trade)}</span>` : ""}${x.share ? '<span class="pill ok">Shared With Client</span>' : ""}</div>\n      ${src ? `<div class="small muted">From ${esc(src)}</div>` : ""}\n      ${pstCanShare() ? `<div class="pst-lb-acts"><button class="btn ${x.share ? "" : "primary"}" data-pstshare="${esc(x.id)}">${x.share ? "Stop Sharing" : "Share With Client"}</button></div>` : ""}</div>`}`),
     document.body.appendChild(el),
     pstFill(el);
   const close = () => el.remove();
@@ -158424,7 +158429,7 @@ function fxRepProgress() {
                 prgLast(t) ||
                 ("planned" === t.status && parse(t.start) <= parse(td))),
           );
-        return `<h3 class="rep-h">${esc(fxJob(p))} <span class="small muted">physical ${ph ? ph.pct : 0}%${null != cost && J0 && J0.contract ? ` · cost ${cost}%` : ""}${f ? ` · forecast finish ${fmtL(f.finish)}` : ""}</span></h3>\n      <div class="tw"><table class="t rep-t fx-rep"><thead><tr><th>Task</th><th class="money">Planned % Today</th><th class="money">Measured %</th><th class="money">Gap</th><th>Last Update</th><th class="money">Planned End</th><th class="money">Forecast End</th></tr></thead>\n      <tbody>${
+        return `<h3 class="rep-h">${esc(fxJob(p))} <span class="small muted">${tpJobPct(p)}% complete, measured on site${null != cost && J0 && J0.contract ? ` · cost basis ${cost}%` : ""}${f ? ` · forecast finish ${fmtL(f.finish)}` : ""}</span></h3>\n      <div class="tw"><table class="t rep-t fx-rep"><thead><tr><th>Task</th><th class="money">Planned % Today</th><th class="money">Measured %</th><th class="money">Gap</th><th>Last Update</th><th class="money">Planned End</th><th class="money">Forecast End</th></tr></thead>\n      <tbody>${
           T.map((t) => {
             const pc = prgPct(t),
               pl = prgPlanned(t, td),
@@ -158445,7 +158450,7 @@ if (
     Array.isArray(ASK_INTENTS) &&
     (ASK_INTENTS.push({
       id: "fxprogress",
-      views: ["sched", "ftoday", "flog"],
+      views: ["sched", "ftoday", "flog", "dash", "ovjobs", "port", "reports"],
       score: (l) =>
         /\b(how far along|how far is|percent complete|% complete|per ?cent done|progress (on|of)|how much of .+ (is )?(done|complete|finished)|physical (%|percent)|behind (its|the) plan|progress vs plan)\b/.test(
           l,
@@ -158463,12 +158468,12 @@ if (
         return {
           headline: H.length
             ? all
-              ? `${askJobName(p)} is ${ph ? ph.pct : 0}% complete on site — ${fxN(H.filter((t) => prgLast(t)).length, "running task")} measured.`
+              ? `${askJobName(p)} is ${tpJobPct(p)}% complete, measured on site — ${fxN(H.filter((t) => prgLast(t)).length, "running task")} measured.`
               : 1 === H.length
                 ? `${first.name} at ${askJobName(p)} is ${withProject(p, () => ("done" === first.status ? "done" : null == prgPct(first) ? `not measured yet — the plan has it at ${prgPlanned(first, td)}% by today` : `${prgPct(first)}% complete`))}.`
                 : `${fxN(H.length, "task")} match at ${askJobName(p)}: ${H.map((t) => `${t.name.replace(/\s*\(.*?\)/g, "")} ${withProject(p, () => ("done" === t.status ? "done" : null == prgPct(t) ? "not measured" : prgPct(t) + "%"))}`).join(", ")}.`
             : `Nothing is under way on ${askJobName(p)} to measure yet.`,
-          note: "Measured % from the task's progress updates (who and when), against where the schedule says it should be by today. A task is behind when it trails its plan by more than 10 points; that moves the forecast finish.",
+          note: "The job's % complete is each schedule-of-values line at the measured % of its tasks, weighted by the line's value (a line with no task is cost-to-cost, deposits left out). Measured % comes from the task's progress updates (who and when), against where the schedule says it should be by today; a task more than 10 points behind its plan moves the forecast finish.",
           work: H.slice(0, 12).map((t) =>
             withProject(p, () => {
               const pc = prgPct(t),
@@ -159410,6 +159415,782 @@ if ("object" == typeof EQ_TABLES && "function" == typeof EQ_TABLES.transactions)
       );
     });
   };
+}
+/* ---------------------------------------------------------------------------
+   truthpct (BACKLOG §1.2): one completion number, an EAC that moves, portal truth.
+
+   jobFinEac(J, p)  the estimate at completion rolled up from the estimate and approved change-order lines.
+                    Each line counts at max(budget, actual + committed); cost not traced to a line draws on
+                    the job's remaining headroom, so the EAC is never below actual + committed. A short-pay
+                    counts only the amount approved. A PM-reviewed cost to complete wins over the roll-up.
+                    The line figures are read from jobFin's own cost codes, never from lineFin (lineFin adds
+                    the overhead burden, which reads the P&L, which reads jobFin), and a re-entry guard
+                    keeps the roll-up from ever calling itself.
+                    A change in the estimate is recognised in the period it is made (cumulative catch-up):
+                    the roll-up applies to the live read (as of the open day). Closed and earlier months keep
+                    the estimate they were reported on.
+   tpJobPct(p)      the job's % complete, measured on site: each schedule-of-values line weighted by its
+                    value, at the measured % of the tasks mapped to it (prgMeasure: done 100, measured at the
+                    last update, running and unmeasured at the share of its planned time elapsed, not started
+                    0). A line with no task is cost-to-cost, deposits excluded. This is the % complete every
+                    screen and Ask print. The WIP schedule keeps cost-to-cost (J.pct) as the revenue basis and
+                    labels it "Cost Basis %".
+   tpTaskLine(p,t)  the SOV line a task measures (its lineRef, else the line its name leads with, else the
+                    line of its trade's cost code).
+--------------------------------------------------------------------------- */
+let jobFinEacBusy = !1;
+function jobFinEacLines(J, p) {
+  const c = J && J.c;
+  if (!c) return [];
+  const est = J.est,
+    cos = (c.changeOrders || []).filter(
+      (x) => ["approved", "billed"].includes(x.status) && (x.projectId === p.id || !x.projectId),
+    ),
+    L = [];
+  est && (est.lines || []).forEach((l) => L.push({ key: `estimate:${est.id}:${l.id}`, doc: est, line: l }));
+  cos.forEach((x) => (x.lines || []).forEach((l) => L.push({ key: `co:${x.id}:${l.id}`, doc: x, line: l })));
+  if (!L.length) return [];
+  const byKey = {};
+  L.forEach((x) => {
+    (x.budget = r2(lineBudget(x.line, x.doc).budget)),
+      (x.code = String(lineCode(x.line, x.doc) || "99")),
+      (x.name = x.line.item || x.line.desc || x.doc.title || x.doc.number || ""),
+      (x.tagA = 0),
+      (x.tagC = 0),
+      (x.deposit = 0),
+      (x.actual = 0),
+      (x.committed = 0),
+      (byKey[x.key] = x);
+  });
+  const R = J.range || ["", today()],
+    bills = (DB.bills || []).filter((b) => b.projectId === p.id),
+    isDeposit = (b) =>
+      /\bdeposit\b/i.test([b.notes || "", ...(b.lines || []).map((l) => l.desc || "")].join(" ")),
+    dup = (b) => "function" == typeof fin2Dup && fin2Dup(b);
+  bills.forEach((b) => {
+    const x = b.line && byKey[b.line];
+    if (!x || !(BILL_COSTED.includes(b.status) || BILL_ACCRUED.includes(b.status)) || !within(b.date, R) || dup(b))
+      return;
+    let a = billTotal(b);
+    "function" == typeof pay3Short &&
+      pay3Short(b) &&
+      !("accepted" === b.short.state && within(b.short.resolvedOn, R)) &&
+      (a -= +b.short.held || 0),
+      (x.tagA += a),
+      isDeposit(b) && (x.deposit += a);
+  }),
+    (DB.txns || []).forEach((t) => {
+      const x = t.line && byKey[t.line];
+      !x ||
+        t.projectId !== p.id ||
+        t.amt >= 0 ||
+        !isJobCat(t.cat) ||
+        "labor" === t.cat ||
+        !within(t.date, R) ||
+        txnViaBill(t, bills) ||
+        ("function" == typeof pay3Disputed && pay3Disputed(t)) ||
+        (x.tagA += -t.amt);
+    }),
+    (DB.pos || [])
+      .filter((po) => po.projectId === p.id && ["issued", "partial", "received"].includes(po.status))
+      .forEach((po) => {
+        const tot = poTotal(po).sub,
+          open = Math.max(
+            0,
+            tot - bills.filter((b) => b.poId === po.id && "void" !== b.status).reduce((a, b) => a + billTotal(b), 0),
+          );
+        tot &&
+          open &&
+          (po.lines || []).forEach((l) => {
+            const x = l.line && byKey[l.line];
+            x && (x.tagC += (open * ((+l.qty || 0) * (+l.price || 0))) / tot);
+          });
+      });
+  // Distribute each cost code's actual and committed (jobFin's own figures, after every adjustment) to its
+  // lines: a code with one line carries it all; a code with several gives each line what is traced to it
+  // (never more than the code holds) and shares the untraced rest (clocked labour, bank lines with no line)
+  // by budget. Cost on a code with no line stays with the job.
+  const byCode = {};
+  L.forEach((x) => (byCode[x.code] = byCode[x.code] || []).push(x)),
+    (J.byCode || []).forEach((row) => {
+      const ls = byCode[row.code];
+      if (!ls) return;
+      const ra = Math.max(0, +row.actual || 0),
+        rc = Math.max(0, +row.committed || 0);
+      if (1 === ls.length) return (ls[0].actual = r2(ra)), void (ls[0].committed = r2(rc));
+      const ta = ls.reduce((a, x) => a + Math.max(0, x.tagA), 0),
+        tc = ls.reduce((a, x) => a + x.tagC, 0),
+        fa = ta > ra ? ra / ta : 1,
+        fc = tc > rc ? rc / tc : 1,
+        restA = Math.max(0, ra - ta * fa),
+        restC = Math.max(0, rc - tc * fc),
+        bud = ls.reduce((a, x) => a + x.budget, 0),
+        share = (x) => (bud ? x.budget / bud : 1 / ls.length);
+      ls.forEach((x) => {
+        (x.actual = r2(Math.max(0, x.tagA) * fa + restA * share(x))),
+          (x.committed = r2(x.tagC * fc + restC * share(x)));
+      });
+    });
+  return (
+    L.forEach((x) => {
+      (x.deposit = r2(Math.min(x.deposit, x.actual))),
+        (x.eac = r2(Math.max(x.budget, x.actual + x.committed))),
+        (x.over = r2(Math.max(0, x.actual + x.committed - x.budget)));
+    }),
+    L
+  );
+}
+function jobFinEac(J, p) {
+  if (jobFinEacBusy) return null;
+  jobFinEacBusy = !0;
+  try {
+    const L = jobFinEacLines(J, p);
+    if (!L.length) return null;
+    const lines = r2(L.reduce((a, x) => a + x.eac, 0));
+    return { eac: r2(Math.max(lines, J.actual + J.committed)), lines: L };
+  } finally {
+    jobFinEacBusy = !1;
+  }
+}
+if ("function" == typeof jobFin) {
+  const jobFinBase_tp = jobFin;
+  jobFin = function (p, range) {
+    const J = jobFinBase_tp.apply(this, arguments);
+    try {
+      if (!J || !p || J.frozenAt) return J;
+      const asOf = ("undefined" != typeof fin3JobAsOf && fin3JobAsOf) || today(),
+        R = range || ["", asOf];
+      if ((R[1] || today()) < today()) return J;
+      if (R[0]) {
+        // A report for a period that runs to today (year to date, a custom range): the estimate at
+        // completion is the job's, as of today, whatever the period's first day.
+        const L = jobFin(p);
+        return (
+          L &&
+            L.eacFromLines &&
+            ((J.eacLines = L.eacLines),
+            (J.eacFromLines = !0),
+            jobFinDerive(J, p, Math.max(L.eac, r2(J.actual + J.committed)))),
+          J
+        );
+      }
+      J.range = R;
+      const E = p.ctcReviewed ? null : jobFinEac(J, p);
+      E &&
+        ((J.eacLines = E.lines),
+        (J.eacFromLines = !0),
+        jobFinDerive(J, p, E.eac),
+        (J.defs = String(J.defs || "").replace(
+          "% complete = actual ÷ estimated total cost",
+          "estimated total cost = each estimate and change-order line at the greater of its budget and actual + committed · cost basis % = actual ÷ estimated total cost",
+        )));
+    } catch (e) {
+      console.warn("eac by line", e);
+    }
+    return J;
+  };
+}
+const TP_SKIP = /^(rough|finish|final|close|new|install|installation|order|the|and|for|with|from|of)$/,
+  tpWords = (s) =>
+    String(s || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9 ]+/g, " ")
+      .split(/\s+/)
+      .filter((w) => w.length > 2 && !TP_SKIP.test(w)),
+  tpSame = (a, b) => a === b || (Math.min(a.length, b.length) >= 4 && (a.startsWith(b) || b.startsWith(a)));
+// The schedule-of-values lines of a job, each with its value, cost code and the words it is called by.
+function tpSovLines(p) {
+  const c = DB.clients.find((x) => x.id === p.clientId);
+  if (!c) return [];
+  const sov = (c.sov || []).filter((sv) => null == sv.projectId || sv.projectId === p.id),
+    out = [];
+  return (
+    sov.forEach((sv) => {
+      const ref = sv.lineRef && "function" == typeof findLine ? findLine(sv.lineRef) : null,
+        co = sv.coId ? (c.changeOrders || []).find((x) => x.id === sv.coId) : null;
+      (ref || co) &&
+        out.push({
+          sv: sv,
+          key: sv.lineRef || "",
+          co: co,
+          value: +sv.scheduled || 0,
+          code: ref ? String(lineCode(ref.line, ref.doc) || "") : "",
+          words: tpWords(sv.desc || (ref && (ref.line.item || ref.line.desc)) || ""),
+        });
+    }),
+    out
+  );
+}
+function tpTaskLine(p, t, lines) {
+  if (!t || !p) return null;
+  const L = (lines || tpSovLines(p)).filter((x) => x.key && !x.co);
+  if (t.lineRef) return L.find((x) => x.key === t.lineRef) || null;
+  const w = tpWords(t.name),
+    score = (x) => x.words.filter((a) => w.some((b) => tpSame(a, b))).length,
+    best = (list) => list.reduce((b, x) => (score(x) > score(b) ? x : b), list[0]),
+    lead = w.length ? L.filter((x) => x.words.length && tpSame(x.words[0], w[0])) : [];
+  if (lead.length) return best(lead);
+  const code = t.trade && "function" == typeof codeForTrade ? codeForTrade(t.trade) : "",
+    same = L.filter((x) => x.code && x.code === code);
+  if (same.length) return 1 === same.length ? same[0] : best(same);
+  const any = L.filter((x) => score(x) > 0);
+  return any.length ? best(any) : null;
+}
+// The tasks each SOV line is measured by: the build tasks, or a design job's phases when it has no build task.
+function tpLineTasks(p, lines) {
+  const L = lines || tpSovLines(p),
+    by = {},
+    real = (p.tasks || []).filter((t) => "milestone" !== t.type),
+    build = real.filter((t) => ("function" == typeof fxBuild ? fxBuild(t) : !0));
+  return (
+    (build.length ? build : real.filter((t) => "design" === (t.track || "")))
+      .forEach((t) => {
+        const x = tpTaskLine(p, t, L);
+        x && (by[x.key] = by[x.key] || []).push(t);
+      }),
+    by
+  );
+}
+// One line's % complete and how it is known: measured on site, or cost-to-cost (deposits excluded).
+function tpLinePct(p, x, tasks, J) {
+  if (tasks && tasks.length && "function" == typeof prgMeasure) {
+    const m = withProject(p, () => prgMeasure(tasks));
+    return { pct: Math.max(0, Math.min(100, m.pct)), basis: "measured", m: m };
+  }
+  const E = ((J && J.eacLines) || []).find((y) => y.key === x.key);
+  if (E && E.budget) {
+    const prog = Math.max(0, E.actual - E.deposit);
+    return { pct: r2(Math.min(100, (prog / E.budget) * 100)), basis: "cost", deposit: E.deposit };
+  }
+  return { pct: 0, basis: "none" };
+}
+function tpJobPctDetail(p) {
+  if (!p) return null;
+  const lines = tpSovLines(p);
+  let J = null;
+  try {
+    J = jobFin(p);
+  } catch (e) {}
+  if (!lines.length) {
+    const ph = "function" == typeof prgJob ? prgJob(p) : null;
+    return ph
+      ? { pct: ph.pct, lines: [], measured: ph.measured, basis: "measured" }
+      : { pct: J && J.contract ? Math.round(100 * (J.pct || 0)) : 0, lines: [], measured: 0, basis: "cost" };
+  }
+  const T = tpLineTasks(p, lines),
+    rows = lines.map((x) => Object.assign({ x: x }, tpLinePct(p, x, T[x.key], J))),
+    W = rows.reduce((a, r) => a + r.x.value, 0),
+    got = rows.reduce((a, r) => a + (r.x.value * r.pct) / 100, 0),
+    measured = (p.tasks || []).filter((t) => "function" == typeof prgLast && prgLast(t) && "done" !== t.status).length;
+  return {
+    pct: W ? Math.round((got / W) * 100) : 0,
+    exact: W ? r2((got / W) * 100) : 0,
+    lines: rows,
+    measured: measured,
+    costLines: rows.filter((r) => "cost" === r.basis).length,
+    basis: "measured",
+  };
+}
+function tpJobPct(p) {
+  try {
+    const d = tpJobPctDetail(p);
+    return d ? d.pct : 0;
+  } catch (e) {
+    return console.warn("job % complete", e), 0;
+  }
+}
+// The cost ratio is never "% complete": this is how it is worded wherever it is shown.
+const tpCostWords = (J) => `${Math.round(100 * ((J && J.pct) || 0))}% through its estimated cost (cost-to-cost)`;
+// The measured pay application. Each contract line is measured by the tasks mapped to it (tpTaskLine), so
+// "Windows & interior trim" measures Windows, not Trim. A measured line proposes its measured %; cost never
+// lifts it. A line with nothing measured falls back to cost and says so (No Field Measure, and a confirm
+// finding). A deposit is not progress: it is left out of the cost the line is judged by, and whether the
+// line is heading over is read from its estimate at completion.
+if ("function" == typeof pgEvidence) {
+  const pgEvidenceBase_tp = pgEvidence;
+  pgEvidence = function (c, p, sv) {
+    const ev = pgEvidenceBase_tp.apply(this, arguments);
+    try {
+      if (!ev || !p || !sv || sv.coId || !sv.lineRef) return ev;
+      const T = tpLineTasks(p)[sv.lineRef] || [];
+      T.length
+        ? (ev.sched = Object.assign(
+            withProject(p, () => prgMeasure(T)),
+            { exact: !0, mapped: !0 },
+          ))
+        : ev.sched && !ev.sched.exact && (ev.sched = null);
+      const E = ((jobFin(p).eacLines || []).find((x) => x.key === sv.lineRef)) || null;
+      E && ((ev.deposit = E.deposit), (ev.lineOver = E.over), (ev.lineEac = E.eac));
+    } catch (e) {
+      console.warn("pay app by line", e);
+    }
+    return ev;
+  };
+}
+if ("function" == typeof pgProposal) {
+  const pgProposalBase_tp = pgProposal;
+  pgProposal = function (ev) {
+    const pr = pgProposalBase_tp.apply(this, arguments);
+    try {
+      const m = ev && ev.sched && ev.sched.measured;
+      if (m && "schedule" !== pr.basis) {
+        const pct = r2(Math.max(0, Math.min(100, ev.sched.pct)));
+        Object.assign(pr, {
+          pct: pct,
+          own: pct,
+          basis: "schedule",
+          stale: !1,
+          stored: 0,
+          storedPct: 0,
+          label: PG_BASIS.schedule[0],
+          why: PG_BASIS.schedule[1],
+          measured: !0,
+          measuredOn: m.last ? m.last.on : "",
+          extra: `measured by ${m.last ? prgWho(m.last) : "the site"} — ${m.tasks.slice(0, 3).join(", ")}`,
+          period: r2(Math.max(0, pct - ev.billedPct)),
+        });
+      }
+      pr.noMeasure = "cost" === pr.basis;
+    } catch (e) {}
+    return pr;
+  };
+}
+if ("function" == typeof pgFindings) {
+  const pgFindingsBase_tp = pgFindings;
+  pgFindings = function (ev, pr) {
+    let f = pgFindingsBase_tp.apply(this, arguments);
+    try {
+      if (ev && ev.deposit > 0.5) {
+        f = f.filter((x) => "over" !== x.kind && "under" !== x.kind);
+        const msg = `${money(ev.cost)} has landed on this line, ${money(ev.deposit)} of it a deposit, not progress — ${ev.lineOver > 0.5 ? `heading over by about ${money(ev.lineOver)}` : "on budget so far"}`;
+        f.unshift({ sev: ev.lineOver > 0.5 ? "bad" : "info", kind: ev.lineOver > 0.5 ? "over" : "deposit", msg: msg });
+      }
+      pr &&
+        "cost" === pr.basis &&
+        f.push({
+          sev: "warn",
+          kind: "confirm",
+          msg: `No field measure — the ${pr.pct}% comes from cost against budget. Confirm it on site before it goes on the application`,
+        });
+    } catch (e) {}
+    return f;
+  };
+}
+/* ---- portal truth (BACKLOG §1.2, §1.4 item 5) ---- */
+// The caption a client reads: the one the PM wrote when sharing, else the photo's own caption.
+function pstClientCaption(x) {
+  return String((x && (x.clientCaption || x.caption)) || "Progress photo");
+}
+// Sharing a photo asks the PM for the line the client will read; internal tags never travel with it.
+if ("function" == typeof pstShare) {
+  const pstShareBase_tp = pstShare;
+  pstShare = function (x, on) {
+    if (!on || !x || ("function" == typeof pstCanShare && !pstCanShare()) || x.__tpCap)
+      return delete (x || {}).__tpCap, pstShareBase_tp.apply(this, arguments);
+    mbModal(
+      "Share With Client",
+      `<p class="small muted">The client sees this photo with the caption below and nothing else: not the log it came from, the task or who took it.</p><div class="f"><label>Caption the Client Reads</label><input data-f="cap" value="${esc(x.clientCaption || x.caption || "")}" maxlength="140"></div>`,
+      {
+        submit: "Share",
+        onSubmit: (f) => {
+          const cap = String(f.cap || "").trim();
+          if (!cap) return toast("Write the caption the client will read"), !1;
+          (x.clientCaption = cap), (x.__tpCap = !0), pstShare(x, !0);
+        },
+      },
+    );
+  };
+}
+// The client Overview's Progress card: the certified figure and the last three photos shared with them.
+function tpClientProgressHtml(c, p) {
+  const T = tpCertified(c, p && p.id),
+    shots =
+      "function" == typeof pstRows && p
+        ? pstRows({ projectId: p.id, shared: !0 })
+            .sort((a, b) => String(b.sharedAt || b.at).localeCompare(String(a.sharedAt || a.at)))
+            .slice(0, 3)
+        : [];
+  return `<div class="card tp-clprog" id="tp-clprog" style="margin-bottom:14px"><h3>Progress</h3><div class="tp-cert-line"><b>Completed to Date</b> ${money(T.completed)} · ${esc(tpCertifiedText(c, p && p.id))}</div><div class="small muted" style="margin:4px 0 8px">Completed to date is what the pay applications have certified; the measured % is what the crew and your project manager have measured on site.</div>${shots.length ? `<div class="pst-grid sm">${shots.map(pstTile).join("")}</div>` : '<div class="small muted">Photos your project manager shares appear here.</div>'}</div>`;
+}
+if ("function" == typeof clOverview) {
+  const clOverviewBase_tp = clOverview;
+  clOverview = function () {
+    const r = clOverviewBase_tp.apply(this, arguments);
+    try {
+      const v = document.getElementById("v-client"),
+        p = clProj(),
+        c = p && DB.clients.find((x) => x.id === p.clientId);
+      if (!v || !p || !c) return r;
+      // the stale "last update from Alan on Tue, Jul 28" line is retired: progress is measured, not published
+      v.querySelectorAll("#cl-next .small.muted").forEach((el) => {
+        /^Last update from /.test(el.textContent.trim()) && el.remove();
+      }),
+        v.querySelector("#tp-clprog")?.remove();
+      const host = v.querySelector("#cl-done"),
+        card = host && host.closest(".card"),
+        html = tpClientProgressHtml(c, p);
+      card ? card.insertAdjacentHTML("beforebegin", html) : v.insertAdjacentHTML("beforeend", html);
+      "function" == typeof pstFill && pstFill(v.querySelector("#tp-clprog"));
+    } catch (e) {
+      console.warn("client progress", e);
+    }
+    return r;
+  };
+}
+if ("object" == typeof TL_SETS && TL_SETS && TL_SETS.client) {
+  const tlClientBase_tp = TL_SETS.client;
+  TL_SETS.client = function () {
+    const tiles = tlClientBase_tp.apply(this, arguments);
+    try {
+      const fin = tiles.find((t) => "fin" === t.key);
+      fin && fin.s && (fin.s = String(fin.s).replace(/ · last update from .* on .*$/, ""));
+    } catch (e) {}
+    return tiles;
+  };
+}
+// Client milestone pills: Done, Upcoming, or how many working days past the agreed date. Never "Ahead".
+function tpMilestonePill(p, pub, i) {
+  if ("done" === i.status) return '<span class="pill ok">Done</span>';
+  let agreed = "";
+  try {
+    agreed =
+      p.project.scTaskId && i.id === p.project.scTaskId
+        ? pub.target || ""
+        : (p.baseline && p.baseline.tasks && p.baseline.tasks[i.id] && p.baseline.tasks[i.id].end) || "";
+    !agreed && pub.target && /substantial completion/i.test(i.name || "") && (agreed = pub.target);
+  } catch (e) {}
+  const n = agreed ? withProject(p, () => signedWork(agreed, i.end)) : 0;
+  return n > 0
+    ? `<span class="pill warn">${n} Working Day${1 === n ? "" : "s"} Past Agreement</span>`
+    : '<span class="pill neutral">Upcoming</span>';
+}
+if ("function" == typeof clSchedHtml) {
+  const clSchedHtmlBase_tp = clSchedHtml;
+  clSchedHtml = function () {
+    let h = clSchedHtmlBase_tp.apply(this, arguments);
+    try {
+      const p = clProj(),
+        pub = p && p.published;
+      if (!pub) return h;
+      h = h.replace(/ Last update from [^.<]* on [^.<]*\./, "");
+      const a = h.indexOf('<div class="card"><h3>Milestones</h3>'),
+        b = a > -1 ? h.indexOf('<div class="card"><h3>', a + 10) : -1;
+      if (a > -1 && b > a) {
+        const ms = (pub.items || []).filter((i) => i.milestone);
+        let k = 0;
+        const part = h
+          .slice(a, b)
+          .replace(/<span class="pill (?:ok|neutral)">(?:Done|Ahead)<\/span>/g, (m) => {
+            const i = ms[k++];
+            return i ? tpMilestonePill(p, pub, i) : m;
+          });
+        h = h.slice(0, a) + part + h.slice(b);
+      }
+      h = h.replace(/<span class="pst-cap"><b>[^<]*<\/b>/g, '<span class="pst-cap">');
+    } catch (e) {
+      console.warn("client milestones", e);
+    }
+    return h;
+  };
+}
+// A change order and its revisions are one change to the client: their days net into one row,
+// "Your change order CO-2026-004 (as revised, R2) +3".
+function tpCoChainLabel(n) {
+  const root = String(n || "").replace(/-R\d+$/, "");
+  if (!root) return "";
+  let rev = 0;
+  (DB.clients || []).forEach((c) =>
+    (c.changeOrders || []).forEach((d) => {
+      (d.number === root || d.revisionRoot === root) &&
+        !["void", "rejected", "draft"].includes(d.status) &&
+        (rev = Math.max(rev, +d.rev || 0));
+    }),
+  );
+  return rev ? `Your change order ${root} (as revised, R${rev})` : `Your change order ${root}`;
+}
+if ("function" == typeof czCauseOf) {
+  const czCauseOfBase_tp = czCauseOf;
+  czCauseOf = function (P, h) {
+    const k = czCauseOfBase_tp.apply(this, arguments);
+    try {
+      k && "co" === k.key && k.co && ((k.label = tpCoChainLabel(k.co)), (k.co = String(k.co).replace(/-R\d+$/, "")));
+    } catch (e) {}
+    return k;
+  };
+}
+if ("function" == typeof thClientReason) {
+  const thClientReasonBase_tp = thClientReason;
+  thClientReason = function (h, P) {
+    const r = thClientReasonBase_tp.apply(this, arguments);
+    try {
+      const m = /^Your change order (CO-[\w-]+)$/.exec(r || "");
+      if (m) return tpCoChainLabel(m[1]);
+    } catch (e) {}
+    return r;
+  };
+}
+// A superseded copy of a change order says so wherever it is linked (chips, the task editor's Linked list).
+if ("function" == typeof opsChip) {
+  const opsChipBase_tp = opsChip;
+  opsChip = function (link, p) {
+    const h = opsChipBase_tp.apply(this, arguments);
+    try {
+      if (!h || !link || "co" !== link.kind) return h;
+      const c = DB.clients.find((x) => (x.changeOrders || []).some((d) => d.id === link.id)),
+        d = c && c.changeOrders.find((x) => x.id === link.id);
+      if (!d) return h;
+      // a change order chip names its number, so a revision and the copy it replaced can be told apart
+      const named = h.includes(esc(d.number))
+        ? h
+        : h.replace(/(<span class="k">[^<]*<\/span>)/, `$1${esc(d.number)} · `);
+      if (!("superseded" === d.status || d.revisedBy)) return named;
+      return named
+        .replace('class="ops-chip"', 'class="ops-chip superseded" title="Superseded by ' + esc(d.revisedBy || "a revision") + '"')
+        .replace(/<\/a>$/, ` <span class="small muted">· superseded by ${esc(d.revisedBy || "a revision")}</span></a>`);
+    } catch (e) {
+      return h;
+    }
+  };
+}
+// The task editor's Linked list includes every change order that extends the task (by its Extends Task),
+// revisions and the copies they superseded alike, so the superseded ones can be seen for what they are.
+if ("function" == typeof openEditor) {
+  const openEditorBase_tp = openEditor;
+  openEditor = function (kind, id) {
+    const r = openEditorBase_tp.apply(this, arguments);
+    try {
+      if ("task" !== kind || !id || !S) return r;
+      const body = document.getElementById("d-body"),
+        c = "function" == typeof clientOf ? clientOf() : null;
+      if (!body || !c) return r;
+      const have = new Set(
+          [...body.querySelectorAll('.ops-chip[data-opsgo^="co:"]')].map((a) => a.dataset.opsgo.slice(3)),
+        ),
+        add = (c.changeOrders || [])
+          .filter(
+            (d) =>
+              d.projectId === S.id &&
+              !have.has(d.id) &&
+              (d.taskId === id || ("function" == typeof thCoTaskId && thCoTaskId(d, S) === id)),
+          )
+          .map((d) => opsChip({ kind: "co", id: d.id }))
+          .filter(Boolean);
+      if (!add.length) return r;
+      const note = [...body.querySelectorAll(".note")].find((n) => /^Linked\b/.test(n.textContent.trim()));
+      note
+        ? note.insertAdjacentHTML("beforeend", " " + add.join(" "))
+        : body.insertAdjacentHTML("beforeend", `<div class="note"><b>Linked</b> ${add.join(" ")}</div>`);
+    } catch (e) {
+      console.warn("linked change orders", e);
+    }
+    return r;
+  };
+}
+/* ---- the forecast names its cause (BACKLOG §1.2) ---- */
+// Why the finish is where it is: days given back by a revised change order and not pulled in yet, or the
+// task driving the slip, named only when it is critical or late by more than its float.
+function tpForecastWhy(p) {
+  return withProject(p, () => {
+    const { cpm: cpm, projEnd: projEnd } = computeCPM(),
+      sc = scDate(cpm, projEnd),
+      late = p.project.target ? signedWork(p.project.target, sc) : 0,
+      f = "function" == typeof opsForecast ? opsForecast(p) : null,
+      crit = (p.tasks || []).filter((t) => cpm[t.id] && cpm[t.id].critical && "done" !== t.status).length,
+      c = DB.clients.find((x) => x.id === p.clientId),
+      g = ((c && c.changeOrders) || []).find(
+        (d) => d.projectId === p.id && d.czGive && d.czGive.open && (p.tasks || []).some((t) => t.id === d.czGive.taskId),
+      );
+    let give = null;
+    if (g) {
+      const tk = p.tasks.find((t) => t.id === g.czGive.taskId),
+        prior = "function" == typeof lkOriginal ? lkOriginal(c, g) : null;
+      give = { c: c, d: g, days: g.czGive.days, task: tk, from: prior ? prior.number : g.number };
+    }
+    const drv = f && f.driver,
+      cp = drv && cpm[drv.t.id],
+      driver = drv && cp && (cp.critical || drv.behind > cp.float) ? drv : null,
+      nm = (t) => String(t.name).replace(/\s*\(.*?\)/g, ""),
+      wd = (n) => `${n} working day${1 === n ? "" : "s"}`;
+    let text = "";
+    return (
+      late > 0
+        ? (text = give
+            ? `${wd(late)} late · ${give.days} day${1 === give.days ? "" : "s"} still on ${nm(give.task)} from ${give.from} — Pull In`
+            : driver
+              ? `${wd(late)} late · because ${nm(driver.t)} is ${wd(driver.behind)} behind`
+              : `${wd(late)} late against the ${fmtL(p.project.target)} target · ${crit} on the critical path`)
+        : give
+          ? (text = `${give.days} day${1 === give.days ? "" : "s"} still on ${nm(give.task)} from ${give.from} — Pull In`)
+          : driver &&
+            (text = `forecast ${fmtL(sc)} · ${nm(driver.t)} is ${wd(driver.behind)} behind${cp && cp.critical ? ", on the critical path" : ""}`),
+      { sc: sc, late: late, give: give, driver: driver, crit: crit, text: text }
+    );
+  });
+}
+function tpPullIn(give) {
+  give && "function" == typeof czGiveBackDialog && czGiveBackDialog(give.c, give.d);
+}
+if ("function" == typeof glnProject) {
+  const glnProjectBase_tp = glnProject;
+  glnProject = function () {
+    const r = glnProjectBase_tp.apply(this, arguments);
+    try {
+      const tile = document.querySelector('#kpis .gl[data-gl="sched"]');
+      if (!tile || !S || !(S.tasks || []).length) return r;
+      const W = tpForecastWhy(S),
+        v = tile.querySelector(".gl-v"),
+        s = tile.querySelector(".gl-s");
+      if (!s) return r;
+      if (W.late > 0) v && (v.textContent = `Forecast ${fmtL(W.sc)}`), tile.classList.add("bad");
+      if (W.text) s.textContent = W.text;
+      else if (/inside its float/.test(s.textContent))
+        s.textContent = `forecast ${fmtL(W.sc)} · ${W.crit} on the critical path`;
+      W.give &&
+        ((tile.dataset.tppull = W.give.d.id),
+        tile.addEventListener(
+          "click",
+          (e) => {
+            e.preventDefault(), e.stopImmediatePropagation(), tpPullIn(tpForecastWhy(S).give);
+          },
+          !0,
+        ));
+    } catch (e) {
+      console.warn("forecast cause tile", e);
+    }
+    return r;
+  };
+}
+{
+  const renderBase_tpfc = render;
+  render = function () {
+    const r = renderBase_tpfc.apply(this, arguments);
+    try {
+      "clacct" === view && "function" == typeof pstFill && pstFill(document.getElementById("v-clacct"));
+      if ("sched" === view && S && (S.tasks || []).length) {
+        const strip = document.querySelector("#track-cards");
+        if (strip) {
+          const W = tpForecastWhy(S);
+          strip.querySelector(".ops-fc")?.remove(),
+            (W.late > 0 || W.give) &&
+              (strip.insertAdjacentHTML(
+                "afterbegin",
+                `<div class="track ops-fc tp-fc ${W.late > 0 ? "bad" : "warn"}"><b>Forecast ${fmtL(W.sc)}</b><div class="s">${esc(W.text)}</div>${W.give ? '<button class="btn sm" data-tppull="1">Pull In</button>' : ""}</div>`,
+              ),
+              W.give &&
+                (strip.querySelector("[data-tppull]").onclick = (e) => {
+                  e.stopPropagation(), tpPullIn(tpForecastWhy(S).give);
+                }));
+        }
+      }
+    } catch (e) {
+      console.warn("forecast cause card", e);
+    }
+    return r;
+  };
+}
+/* ---- Studio phases read their status from the task (BACKLOG §1.2) ---- */
+// Each design phase's status is its schedule task's (sp_<line>), so marking Design development done makes
+// Construction documents current on the board, the phase strip and the Studio list.
+if ("function" == typeof phaseHours) {
+  const phaseHoursBase_tp = phaseHours;
+  phaseHours = function (p) {
+    const ph = phaseHoursBase_tp.apply(this, arguments);
+    try {
+      ph.forEach((x) => {
+        const t = ((p && p.tasks) || []).find((k) => k.phaseLine === x.line.id);
+        t && ((x.task = t), (x.status = t.status));
+      });
+    } catch (e) {}
+    return ph;
+  };
+}
+// The current phase: the first one whose task is not done. Null when the phases have no tasks yet.
+function phaseCur(ph) {
+  return ph && ph.some((x) => x.task) ? ph.find((x) => x.task && "done" !== x.status) || ph[ph.length - 1] : null;
+}
+if ("function" == typeof phaseStrip) {
+  const phaseStripBase_tp = phaseStrip;
+  phaseStrip = function (p) {
+    let h = phaseStripBase_tp.apply(this, arguments);
+    try {
+      const ph = phaseHours(p),
+        cur = phaseCur(ph);
+      let i = 0;
+      h = h.replace(/<div class="st-ph( [^"]*)?"([^>]*)>([\s\S]*?)<div class="v">/g, (m, cls, attrs, mid) => {
+        const x = ph[i++];
+        if (!x || !x.task) return m;
+        const tag =
+          "done" === x.status
+            ? '<span class="pill ok">Done</span> '
+            : x === cur
+              ? '<span class="pill info">Current</span> '
+              : "";
+        return `<div class="st-ph${cls || ""}${"done" === x.status ? " done" : x === cur ? " cur" : ""}"${attrs}>${mid}<div class="v">${tag}`;
+      });
+    } catch (e) {}
+    return h;
+  };
+}
+// A phase marked done by a person stays done when the Studio schedule is rebuilt from the hours.
+if ("function" == typeof opsStudioSchedule) {
+  const opsStudioScheduleBase_tp = opsStudioSchedule;
+  opsStudioSchedule = function (p) {
+    const was = Object.fromEntries(
+        ((p && p.tasks) || [])
+          .filter((t) => "studio" === t.gen)
+          .map((t) => [t.id, { status: t.status, actualEnd: t.actualEnd, actualStart: t.actualStart }]),
+      ),
+      r = opsStudioScheduleBase_tp.apply(this, arguments);
+    try {
+      const rank = { planned: 0, "in-progress": 1, done: 2 };
+      ((p && p.tasks) || []).forEach((t) => {
+        const o = "studio" === t.gen && was[t.id];
+        o &&
+          (rank[o.status] || 0) > (rank[t.status] || 0) &&
+          ((t.status = o.status),
+          (t.actualStart = t.actualStart || o.actualStart || ""),
+          "done" === o.status && (t.actualEnd = o.actualEnd || t.actualEnd || today()));
+      });
+    } catch (e) {}
+    return r;
+  };
+}
+function tpEacNote(J, p) {
+  return p && p.ctcReviewed
+    ? "Estimate at completion = actual + the PM's reviewed cost to complete (it wins over the line roll-up)."
+    : "Estimate at completion = actual + committed + cost to complete, rolled up from the estimate and approved change-order lines: each line at the greater of its budget and what is spent and committed on it. A short-paid bill counts only the amount approved.";
+}
+// What the client is shown as complete: what the pay applications certified (billed to date, gross, on the
+// latest application) and what is measured on site. Never the firm's internal earned revenue.
+function tpCertified(c, pid) {
+  const ps = (DB.projects || []).filter((p) => p.clientId === c.id && (!pid || p.id === pid)),
+    J = ps.map((p) => ({ p: p, J: jobFin(p) })).filter((x) => x.J.contract),
+    contract = r2(J.reduce((a, x) => a + x.J.contract, 0)),
+    completed = r2(J.reduce((a, x) => a + x.J.billed, 0)),
+    apps = (c.invoices || [])
+      .filter(
+        (i) =>
+          !["void", "draft"].includes(i.status) &&
+          !i.retainageRelease &&
+          (!pid || !i.projectId || i.projectId === pid),
+      )
+      .sort((a, b) => String(a.date).localeCompare(String(b.date))),
+    measured = contract ? Math.round(J.reduce((a, x) => a + x.J.contract * tpJobPct(x.p), 0) / contract) : 0;
+  return {
+    contract: contract,
+    completed: completed,
+    pct: contract ? r2((completed / contract) * 100) : 0,
+    app: apps.length ? apps[apps.length - 1] : null,
+    measured: measured,
+  };
+}
+function tpCertifiedText(c, pid) {
+  const T = tpCertified(c, pid);
+  return `${T.pct}% certified${T.app ? ` on ${T.app.number}` : ""} · ${T.measured}% measured on site`;
+}
+function tpCertifiedHtml(c, pid) {
+  const T = tpCertified(c, pid);
+  return `<b>${money(T.completed)}</b><i>${esc(tpCertifiedText(c, pid))}</i>`;
 }
 /* ---------------------------------------------------------------------------
    The predicate registry (BACKLOG §3.2; CLAUDE.md "One question, one number").
