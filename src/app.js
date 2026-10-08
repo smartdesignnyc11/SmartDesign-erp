@@ -108669,36 +108669,29 @@ function paAsk(q) {
       kind: "day",
     });
   }
-  if ("client" === role() && /\bdecisions?\b/.test(l) && /\b(waiting|need|needs|owe|mine|me|my|the client|open|how many)\b/.test(l)) {
-    const D = PRED.clientDecisions.rows();
+  // A client's waiting list is one list: the same rows as the Overview's Waiting on You, the Decisions page,
+  // its tile and every badge (clWaitingItems). Both questions answer from it, so the numbers cannot differ.
+  const clWaitAnswer = () => {
+    const W = clWaitingItems(),
+      kinds = [
+        [W.filter((x) => "dec" === x.kind).length, "choice", "choices"],
+        [W.filter((x) => "doc" === x.kind).length, "change to approve", "changes to approve"],
+        [W.filter((x) => "sub" === x.kind).length, "sample to approve before we order", "samples to approve before we order"],
+      ].filter((k) => k[0]),
+      name = (x) => ("dec" === x.kind && "function" == typeof clTitle ? clTitle(x.d) : x.d.title || x.d.name || x.d.number || "");
     return paOut({
-      headline: D.length
-        ? `${n(D, "decision")} ${1 === D.length ? "is" : "are"} waiting on you — ${D.slice(0, 3)
-            .map((x) => ("function" == typeof clTitle ? clTitle(x.d) : x.d.name))
-            .join("; ")}${D.length > 3 ? ", and more" : ""}.`
-        : "No decision is waiting on you.",
-      note: `The same list as your Decisions page: ${PRED.clientDecisions.rule}.`,
-      work: D.map((x) => `${"function" == typeof clTitle ? clTitle(x.d) : x.d.name} — ${x.p.project.name}`),
+      headline: W.length
+        ? `${n(W, "thing")} ${1 === W.length ? "is" : "are"} waiting on you: ${kinds.map((k) => `${k[0]} ${1 === k[0] ? k[1] : k[2]}`).join(", ")}.`
+        : "Nothing is waiting on you.",
+      note: "The same list as Waiting on You on your Overview and your Decisions page: your choices, the changes sent to you to approve, and samples to approve before we order.",
+      work: W.map((x) => `${{ dec: "Choice", doc: "To approve", sub: "Sample" }[x.kind]} — ${name(x)} — ${x.p.project.name}`),
       go: paGo({ view: "dec" }),
       kind: "onme",
     });
-  }
+  };
+  if ("client" === role() && /\bdecisions?\b/.test(l) && /\b(waiting|need|needs|owe|mine|me|my|the client|open|how many)\b/.test(l)) return clWaitAnswer();
   if (PA_WORDS.onme.test(l)) {
-    if ("client" === role()) {
-      const W = PRED.clientWaiting.rows(),
-        decs = W.filter((x) => "decision" === x.kind),
-        docs = W.filter((x) => "decision" !== x.kind),
-        sm = "function" == typeof smClientRows && S ? smClientRows(S) : [];
-      return paOut({
-        headline: W.length
-          ? `${n(W, "thing")} ${1 === W.length ? "is" : "are"} waiting on you — ${[decs.length ? n(decs, "decision") : "", docs.length ? `${n(docs, "document")} to sign` : ""].filter(Boolean).join(" and ")}${sm.length ? `; separately, ${1 === sm.length ? "a sample waits" : "samples wait"} for your approval before we order` : ""}.`
-          : "Nothing is waiting on you.",
-        note: `Your Waiting on You list on the Overview: ${PRED.clientWaiting.rule}.`,
-        work: W.map((x) => `${"decision" === x.kind ? "Decision" : "To sign"} — ${x.d.title || x.d.name || x.d.number || ""}`),
-        go: paGo({ view: "client" }),
-        kind: "onme",
-      });
-    }
+    if ("client" === role()) return clWaitAnswer();
     const w = M.approvals
         .slice(0, 10)
         .map((a) => `${a.n ? a.n + " — " : ""}${a.title}${a.detail ? ` · ${a.detail}` : ""}`),
@@ -159454,8 +159447,10 @@ predDef("waitingOnMe", {
 });
 predDef("clientWaiting", {
   label: "Waiting on You",
-  rule: "your open decisions on this job, and the proposals and change orders sent to you to sign",
+  rule: "your choices, the changes sent to you to approve, and samples to approve before we order",
   rows(scope) {
+    // signed in as the client, this IS the Overview's list (clWaitingItems): one list, one count
+    if ("client" === role() && "function" == typeof clWaitingItems) return clWaitingItems();
     const p = (scope && (DB.projects || []).find((x) => x.id === scope)) || S;
     if (!p) return [];
     const c = (DB.clients || []).find((x) => x.id === p.clientId),

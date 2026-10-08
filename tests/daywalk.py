@@ -556,8 +556,9 @@ async def walk_foreman(w):
     for t in ('Done', 'Close'):
         if await w.click(t, optional=True): break
 
-    w.step('Daily Log with a % update (Log > 7 steps > Sign)')
-    await w.click('Log', scope='.mbar, .m-bar, .bottombar, nav, footer, body')
+    w.step('Daily Log with a % update (Daily Log > 7 steps > Sign)')
+    # the tab was renamed "Log" -> "Daily Log" so it matches the page heading (screen standard)
+    await w.click('Daily Log', scope='.mbar, .m-bar, .bottombar, nav, footer, body')
     await w.click('Clear')
     await w.fill('79', label='e.g. 78')
     for _ in range(3):
