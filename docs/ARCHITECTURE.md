@@ -31,6 +31,7 @@
    | B | billing (`bl*`, `billingNeeds`, `apOpenBills`), records2 (`rc*`), client (`cl*`), screens (`os*`, `t2*`), trust (`tr*`, `tcase`, `appWeek`, the clock rewrite) |
    | C | budget (`bud*`, `bva*`), bankfeed (`bf*`), submittals (`sm*`), field (`prg*`, `pst*`, `dl*`, `fx*`) |
    | Then | integ4, integ5 |
+7. **Round 5.** askgen (`ag*`, `eqRows`, `eqSchema`), after the predicate registry: the schema-aware Ask parser and the one privacy scope under `erpQuery`.
 
 ## Where to find things (first mention in `src/app.js`; grep to find every reassignment)
 | Symbol | Line | Note |
@@ -68,6 +69,7 @@
 | `smOpen` | ~152,078 | |
 | `prgJob` | ~155,073 | |
 | `dlMissing` | ~156,093 | |
+| `eqRows` / `agParse` / `agRead` | after `PRED` | askgen (BACKLOG §1.3). `eqRows(entity)` is the one scope for every Ask path and `erpQuery`: a client reads only their own jobs' rows, foreman, crew and driver read no money. `agParse` reads a question into entity, filters (jobs, clients, vendors, people, payees the books hold, a period on `today()`/`appWeek()`, statuses, negation), measure and grouping; `agRead` runs the readers (`AG_FIN`, `AG_OPS`, `AG_ENT`, then `agGeneric`) and every answer carries "I ran: …" in `interp`. The outermost `paAsk` wrapper: the older chain only answers what no reader takes (memory, reminders, mail, documents by number), and a refusal from it comes back for a text search. |
 | `PRED` | end of file | The predicate registry: every counted question (waiting on me, late material/decision/submittal, a job's Needs You, buy-board filters, unsigned, open POs, bills awaiting approval…) defined once with its rule. Screens, badges, tiles, Ask and saved searches read it by name; add a predicate here rather than a new filter in a screen. |
 
 ## Data (global `DB`, persisted with `save()` / `saveNow()` to IndexedDB)

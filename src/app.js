@@ -111439,7 +111439,8 @@ function erpQuery(spec) {
     };
   let rows = [];
   try {
-    rows = fn() || [];
+    // eqRows is the one scope: a client reads only their own jobs' rows, field roles read no money
+    rows = "function" == typeof eqRows ? eqRows(s.entity) : fn() || [];
   } catch (e) {
     return { error: `${s.entity}: ${e.message}`, rows: [], n: 0 };
   }
@@ -112556,7 +112557,7 @@ let mindState = { ok: null, why: "", model: "", last: 0 };
 const MIND_TOOLS = () => [
   {
     name: "query",
-    description: `Read any table in the ERP with real filters. Tables: ${EQ_ENTITIES().join(", ")}. Fields differ per table — call this with just {entity} first to see a row and learn the fields. where accepts {field:value} or {field:{op:value}} with ops eq, ne, gt, gte, lt, lte, after, before, contains, in, notin, between, truthy, empty. Useful flags already computed: invoices.unpaid, invoices.overdue, bills.unpaid, purchaseorders.open, purchaseorders.late, clients.active, projects.active, tasks.late, tasks.done, obligations.expired, obligations.expiringSoon, transactions.matched. Use group with agg like ["sum(amount)"] for totals by vendor, client, project or status.`,
+    description: `Read any table in the ERP with real filters. Tables: ${EQ_ENTITIES().join(", ")}. Fields differ per table — call this with just {entity} first to see a row and learn the fields. where accepts {field:value} or {field:{op:value}} with ops eq, ne, gt, gte, lt, lte, after, before, contains, in, notin, between, truthy, empty. Useful flags already computed: invoices.unpaid, invoices.overdue, bills.unpaid, purchaseorders.open, purchaseorders.late, clients.active, projects.active, tasks.late, tasks.done, obligations.expired, obligations.expiringSoon, transactions.matched. Use group with agg like ["sum(amount)"] for totals by vendor, client, project or status. Every table and its fields: ${"function" == typeof eqSchema ? eqSchema() : EQ_ENTITIES().join(", ")}. Rows are already limited to what the signed-in person may see.`,
     input_schema: {
       type: "object",
       properties: {
@@ -115066,78 +115067,6 @@ if ("function" == typeof jvAsk) {
         ? jvAskBase_fd.apply(this, arguments)
         : ((inp.value = ""), (briefAsk = ""), setView("pa"), void paSend(q))
       : jvAskBase_fd.apply(this, arguments);
-  };
-}
-if ("function" == typeof paAsk) {
-  const paAskBase_fd = paAsk;
-  paAsk = function (q) {
-    const s = String(q || "").toLowerCase(),
-      r = role();
-    try {
-      if (
-        ["owner", "pm", "coord", "billing", "controller"].includes(r) &&
-        "function" == typeof briefFacts &&
-        "function" == typeof b2Facts &&
-        /(mine to sign|sign today|how is cash|which job is bleeding|which job is behind|could we invoice|invoice today)/.test(
-          s,
-        )
-      ) {
-        const F = briefFacts(),
-          X = b2Facts(F);
-        if (/sign/.test(s)) {
-          const L = String(b2Plate(r, F) || "")
-            .split("\n")
-            .filter(Boolean);
-          if (L.length)
-            return paOut({
-              headline: L[0],
-              work: L.slice(1),
-              kind: "brief",
-              go: (ROLE_VIEWS[r] || []).includes("mapprove") ? { view: "mapprove" } : null,
-              note: "From the morning brief — Approvals holds the yes and the no.",
-            });
-        }
-        if (/cash/.test(s))
-          return paOut({
-            headline: `Cash ${money(F.B.cash)} — safe to spend ${money(F.B.trulyOurs)} once client funds and payables are set aside.`,
-            work: [
-              `13-week low ${money(F.low)}`,
-              `Receivables ${money(F.arTotal)}${F.arOver ? `, ${money(F.arOver)} overdue` : ""}`,
-              `Payables ${money(F.B.ap)}`,
-            ],
-            kind: "brief",
-            go: (ROLE_VIEWS[r] || []).includes("bank") ? { view: "bank" } : null,
-          });
-        if (/bleed|behind/.test(s)) {
-          const J = F.jobs.slice(0, 4);
-          return paOut({
-            headline: J.length
-              ? `${J[0].name} first — health ${J[0].score}${J[0].late > 0 ? `, ${J[0].late} days behind` : ""}.`
-              : "No active jobs.",
-            work: J.map(
-              (j) =>
-                `${j.name} — health ${j.score}, ${Math.round(100 * (j.J.pct || 0))}% complete${j.late > 0 ? `, ${j.late}d behind` : ""}, cost ${money(j.J.actual || 0)} of ${money(j.J.budget || 0)}`,
-            ),
-            kind: "brief",
-            go: J.length && (ROLE_VIEWS[r] || []).includes("port") ? { view: "port" } : null,
-          });
-        }
-        if (/invoice/.test(s)) {
-          const R = X.ready || [];
-          return paOut({
-            headline: R.length
-              ? `${R.length} thing${1 === R.length ? "" : "s"} earned an invoice — ${money(R.reduce((a, x) => a + (+x.amount || 0), 0))}.`
-              : "Nothing has earned an invoice since the last one.",
-            work: R.map((x) => `${x.title} — ${money(x.amount)}`),
-            kind: "brief",
-            go: (ROLE_VIEWS[r] || []).includes("billing") ? { view: "billing" } : null,
-          });
-        }
-      }
-    } catch (e) {
-      console.warn("frontdoor brief answer", e);
-    }
-    return paAskBase_fd.apply(this, arguments);
   };
 }
 if ("function" == typeof renderPa) {
@@ -159722,3 +159651,2118 @@ predDef("buyNeeds", {
     return buyList(scope || "").filter(this.test);
   },
 });
+/* ---------------------------------------------------------------------------
+   askgen (BACKLOG §1.3): one schema-aware reader in front of every refusal.
+   Ask used to be a chain of keyword intents: a question that matched no script
+   was refused ("Nothing in the records matches that", "206 Lenox is a job, so I
+   hold no people against them") before erpQuery, which could answer it, was
+   reached. agParse reads any question into the parts a query needs:
+     entity   what it is about (EQ_TABLES names, aliases, plurals, synonyms)
+     filters  master records named (job, client, vendor, person), a name the
+              records do not hold (searched as text in transactions, bills, POs),
+              a period on the app clock (today(), appWeek()), statuses, negation
+     measure  count, sum, max, min, a date, or a list
+     group    by vendor, per job, by client, by category, by person
+   and the readers below answer from the same rows the screens count (PRED for
+   every counted question, apOpenBills for AP, briefFacts for AR and cash,
+   jobFin for EAC). Every answer says what was run: "I ran: <entity> where …
+   grouped by … (N rows)". A question no reader takes still goes to the older
+   chain, and a refusal from that chain comes back here for a text search.
+   Privacy lives in one place, eqRows: a client's rows are their own jobs'
+   rows before any reader or intent sees them, and field roles get no money.
+--------------------------------------------------------------------------- */
+// ---- the query layer's one scope: what the signed-in person may read
+const EQ_MONEY_TABLES = [
+    "invoices", "estimates", "changeorders", "payments", "bills", "transactions", "payroll", "journal",
+    "financials", "apaging", "irs_register", "lienwaivers", "salestax", "budget", "bankfeeds", "bankrecons",
+    "bankstatements", "bankpending", "opportunities", "costcodes", "clients",
+  ],
+  EQ_MONEY_FIELDS =
+    /^(contract|billed|earned|outstanding|actual|committed|estGP|estGPPct|leftToBill|overBy|overBudget|amount|rate|ordered|unpaidBills|value|paid|owed|money|budget|remaining|cost|price)$/,
+  // The tables a client may read, and only their own rows of them.
+  EQ_CLIENT_TABLES = ["projects", "invoices", "estimates", "changeorders", "payments", "decisions", "photos", "tasks", "memory"],
+  EQ_CLIENT_HIDE = /^(earned|actual|committed|estGP|estGPPct|overBudget|overBy|pct)$/,
+  eqKey = (name) => {
+    const k = String(name || "")
+      .toLowerCase()
+      .replace(/[^a-z_]/g, "");
+    return EQ_TABLES[k] ? k : EQ_ALIAS[k] && EQ_TABLES[EQ_ALIAS[k]] ? EQ_ALIAS[k] : "";
+  },
+  eqFieldRole = () => {
+    try {
+      return ["foreman", "crew", "driver"].includes(role());
+    } catch (e) {
+      return !1;
+    }
+  };
+function eqScopeOf() {
+  let r = "",
+    u = null;
+  try {
+    (r = role()), (u = currentUser());
+  } catch (e) {}
+  if ("client" === r) {
+    const cid = (u && u.clientId) || "__none__",
+      jobs = (DB.projects || []).filter((p) => p.clientId === cid),
+      c = (DB.clients || []).find((x) => x.id === cid);
+    return {
+      kind: "client",
+      cid: cid,
+      client: c || null,
+      pids: new Set(jobs.map((p) => p.id)),
+      jobs: jobs,
+      names: new Set(jobs.map((p) => String(p.project.name).replace(/ —.*$/, "")).concat(jobs.map((p) => p.project.name))),
+    };
+  }
+  return eqFieldRole() ? { kind: "field" } : { kind: "firm" };
+}
+// Every row any Ask path reads comes through here, once, already scoped.
+function eqRows(entity) {
+  let k = "",
+    fn = null,
+    sc = null;
+  try {
+    (k = eqKey(entity)), (fn = k && EQ_TABLES[k]), (sc = eqScopeOf());
+  } catch (e) {
+    // read before this section loaded (boot): nobody is signed in yet
+    const t = "function" == typeof eqTable ? eqTable(entity) : null;
+    return t ? t() || [] : [];
+  }
+  if (!fn) return [];
+  if ("client" === sc.kind && !EQ_CLIENT_TABLES.includes(k)) return [];
+  if ("field" === sc.kind && EQ_MONEY_TABLES.includes(k)) return [];
+  let rows = fn() || [];
+  if ("client" === sc.kind) {
+    rows = rows
+      .filter((r) => {
+        if (!r) return !1;
+        if ("memory" === k) return !0;
+        if ("photos" === k && !r.shared) return !1;
+        if ("projects" === k) return sc.pids.has(r._id);
+        return r.clientId ? r.clientId === sc.cid : r.projectId ? sc.pids.has(r.projectId) : r.project ? sc.names.has(r.project) : !1;
+      })
+      .map((r) => {
+        const o = {};
+        return Object.keys(r).forEach((f) => EQ_CLIENT_HIDE.test(f) || (o[f] = r[f])), o;
+      });
+  } else if ("field" === sc.kind)
+    rows = rows.map((r) => {
+      const o = {};
+      return Object.keys(r || {}).forEach((f) => EQ_MONEY_FIELDS.test(f) || (o[f] = r[f])), o;
+    });
+  return rows;
+}
+// ---- the words a question is made of
+const AG_SMALL = { wk: "week", wks: "weeks", hrs: "hours", hr: "hour", r: "are", u: "you", yr: "year", mo: "month", amt: "amount", ytd: "ytd", qty: "quantity", w: "with", pls: "please", thx: "thanks", tmrw: "tomorrow", yday: "yesterday", "w/": "with", b4: "before", ur: "your", dont: "do not", cant: "cannot", wont: "will not" },
+  AG_BASE = `a about above after again against all almost already also always am among an and another any anybody anyone anything are around as ask asked at away back be because been before behind being below between both but by can could did do does doing done down during each either else enough even ever every everyone everything few find first for from full further get gets getting give given go goes going gone got had has have having he her here hers him his how however i if in into is it its itself just keep kept know last least less let like likely look looking looks lot made make many may me might mine more most much must my need needs never new next no nobody none nor not nothing now of off often on once one only or other our ours out over own per please put rather really right said same say says see seen she should show since so some somebody someone something still such sure take tell than that the their them then there these they thing things think this those though through till to today together told too top toward under until up upon us use used very want was way we well were what whatever when where whether which while who whole whom whose why will with within without would yes yet you your yours
+  am pm week weeks month months year years day days today yesterday tomorrow tonight morning afternoon evening monday tuesday wednesday thursday friday saturday sunday mon tue tues wed thu thur thurs fri sat sun january february march april may june july august september october november december jan feb mar apr jun jul aug sep sept oct nov dec quarter weekend date dates time times hour hours minute minutes ago now soon late later early earliest latest due overdue past upcoming current currently recent recently so far ytd annual daily weekly monthly
+  how much many total sum count number average avg max min most least biggest largest highest lowest smallest fewest top bottom more less compare versus vs than cost costs costing spend spends spending spent pay pays paid paying payment payments owe owes owed owing collect collected collection collections received receive came come comes coming bill bills billed billing billable invoice invoices invoiced invoicing estimate estimates proposal proposals quote quotes contract contracts value worth amount amounts price prices cash bank banks banking money balance balances revenue revenues income profit profits loss margin margins gross net expense expenses expensed category categories categorized uncategorized receivable receivables payable payables ar ap wip backlog overbilled underbilled over under retainage retention deposit deposits draw draws dispute disputes disputed disputing hold held short accrued accrual accruals close closed closing open opened reconcile reconciled reconciliation unmatched matched match safe software insurance fuel meals rent office permits permit fees materials material subs sub subcontractor subcontractors labor payroll tax taxes 1099 lien waiver waivers eac completion complete completed along far progress percent pct exceptions exception
+  job jobs project projects site sites client clients customer customers vendor vendors supplier suppliers crew crews people person employee employees staff team worker workers foreman driver designer architect owner pm coordinator controller office lead leads deal deals pipeline prospect prospects order orders ordered ordering purchase purchases po pos delivery deliveries deliver delivered arriving arrive arrives arrival expected expect shipment ship shipped return returns returned refund refunds request requests requested decision decisions decide decided choice choices selection selections submittal submittals review reviewed approve approved approval approvals approving unapproved signed sign signature signatures unsigned send sent draft drafts change changes changed co cos task tasks todo todos list item items schedule schedules scheduled finish finished finishing finishes start started starts starting end ends ending inspection inspections photo photos picture pictures pic pics log logs logged logging daily report reports note notes hours hour timesheet timesheets clocked worked work working works submitted submit submitting entered blocking blocked block holding hold stuck waiting wait waits needs mine assigned plate budget budgets feed feeds statement statements document documents file files drawing drawings message messages email emails mail calendar meeting meetings event events inventory stock tool tools obligation obligations expire expires expiring expiration expired renewal general liability workers comp moved move moves slipped slip delay delayed delays whose took take taken did do done shared share sharing take took took taking took uploaded
+  what whats which who whos where when why how is are was were do does did can could should would will has have had any there their this that these those it its me my i we our us you your they them he she his her get got show tell give list find`,
+  AG_MORE = `pending status statuses lock locks locked unlock unlocked version versions reforecast lose losing lost win winning won wins qualified inquiry inquiries stage stages convert converted hired fired sick vacation looking like still anything something everything nothing able account accounts actually added address agreement ahead allowance already amount answer approve architect area assign available average balance based basement bath bathroom bathrooms beam beams bedroom best better big biggest board boards book booked booking box brick bring broken budget building built busy buy call called calls card cards care carpentry case cause caused ceiling certificate change charge charged check checked city clean clear close code coded come company confirm confirmed contact contractor correct count counted country cover covered create created credit daily data deadline deal deliver department deposit design designs detail details different dining door doors drywall electric electrical electrician else empty entry equipment estimate exact expect extra fail failed family fast field figure fill final finance fine fire fixture flooring floor floors follow following form found free front garden gave general give glass going good great group half hand happen happened hardware heat help high hire hold holiday home house idea important include included including inside install installed issue issues kitchen know labor large laundry layout leave left level light lighting line lines living long lost lumber main manager mark measure measured meet missing mold name named needed normal note number numbers offer okay once only open opening order original outside owner page paint panel parlor part partial party passed pending phone pick piece place plan plans plumber plumbing point possible primary print problem problems profile proposal provide pull quality question questions quick rate ready real reason receipt recent record records red reject rejected release remaining repair report request required review room rough round run running sample samples save scope second see sent service set share shared ship short show side sign signature signed site size small sort source special stair stairs stand standard start state stone stop store street stuff subfloor supply system talk team text third tile title total track trade trim truck turn type unit units update upload value wall walls want warranty water week window windows wood word work worker working wrong yard`,
+  AG_STOPW = new Set(
+    "a an the of to in on at for from by with and or but is are was were be been do does did done have has had what whats which who whom whose when where why how much many any some all our we us i me my mine you your it its this that these those there their they them he she his her so far yet up please tell show give list get got can could would should will just still also about into than then as if not no".split(
+      " ",
+    ),
+  );
+let agVocabMemo = null;
+function agVocab() {
+  const key = [
+    (DB.projects || []).length,
+    (DB.vendors || []).length,
+    (DB.employees || []).length,
+    (DB.txns || []).length,
+    (DB.clients || []).length,
+  ].join(":");
+  if (agVocabMemo && agVocabMemo.key === key) return agVocabMemo;
+  const base = new Set((AG_BASE + " " + AG_MORE).split(/\s+/).filter(Boolean)),
+    names = new Set(),
+    add = (s) =>
+      String(s || "")
+        .toLowerCase()
+        .split(/[^a-z0-9]+/)
+        .filter((w) => w.length >= 3 && !/^\d+$/.test(w))
+        .forEach((w) => names.add(w));
+  (DB.projects || []).forEach((p) => {
+    add(p.project.name),
+      (p.tasks || []).forEach((t) => add(t.name)),
+      (p.materials || []).forEach((m) => add(m.name)),
+      (p.decisions || []).forEach((d) => add(d.name));
+  }),
+    (DB.clients || []).forEach((c) => add(c.name)),
+    (DB.vendors || []).forEach((v) => add(v.name)),
+    (DB.employees || []).forEach((e) => add(e.name)),
+    (DB.txns || []).forEach((t) => {
+      add(t.vendor), add(t.desc);
+    }),
+    (DB.spend || []).forEach((s) => add(s.vendor)),
+    (DB.leads || []).forEach((l) => add(l.name));
+  return (agVocabMemo = { key: key, base: base, names: names });
+}
+// Optimal string alignment distance, capped.
+function agDist(a, b, cap) {
+  if (Math.abs(a.length - b.length) > cap) return cap + 1;
+  const d = [];
+  for (let i = 0; i <= a.length; i++) d.push([i]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    let best = 1e9;
+    for (let j = 1; j <= b.length; j++) {
+      const c = a[i - 1] === b[j - 1] ? 0 : 1;
+      (d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + c)),
+        i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1] && (d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1)),
+        (best = Math.min(best, d[i][j]));
+    }
+    if (best > cap) return cap + 1;
+  }
+  return d[a.length][b.length];
+}
+const agSubseq = (t, w) => {
+  let i = 0;
+  for (const ch of w) ch === t[i] && i++;
+  return i === t.length;
+};
+// Typos fixed against the words the app and its records use; names win over guesses.
+function agFix(l, keep) {
+  const V = agVocab(),
+    fixes = [],
+    out = String(l)
+      .split(" ")
+      .map((t) => {
+        if (!t) return t;
+        if (AG_SMALL[t]) return AG_SMALL[t] !== t && fixes.push([t, AG_SMALL[t]]), AG_SMALL[t];
+        if (t.length < 3 || /\d/.test(t) || V.base.has(t) || V.names.has(t) || (keep && keep.has(t))) return t;
+        const sing = t.replace(/'?s$/, "");
+        if (sing !== t && (V.base.has(sing) || V.names.has(sing))) return t;
+        const cap = t.length <= 4 ? 1 : 2;
+        let best = null;
+        for (const pool of [V.base, V.names])
+          for (const w of pool) {
+            if (Math.abs(w.length - t.length) > cap || w.length < 3) continue;
+            const dd = agDist(t, w, cap);
+            if (dd > cap) continue;
+            const sc = 10 * dd - (agSubseq(t, w) ? 5 : 0) - (w[0] === t[0] ? 2 : 0) - (pool === V.base ? 1 : 0);
+            (!best || sc < best.sc) && (best = { w: w, sc: sc });
+          }
+        return best ? (fixes.push([t, best.w]), best.w) : t;
+      })
+      .join(" ");
+  return { text: out, fixes: fixes };
+}
+const AG_MONTHS = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"],
+  AG_MON3 = { jan: 0, feb: 1, mar: 2, apr: 3, jun: 5, jul: 6, aug: 7, sep: 8, sept: 8, oct: 9, nov: 10, dec: 11 },
+  AG_DOW = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"],
+  agIso = (d) => iso(d),
+  agMonthRange = (y, m) => {
+    const a = `${y}-${String(m + 1).padStart(2, "0")}-01`,
+      b = iso(addDays(parse(m === 11 ? `${y + 1}-01-01` : `${y}-${String(m + 2).padStart(2, "0")}-01`), -1));
+    return [a, b];
+  };
+// A period on the app clock: today() and appWeek() (Monday to today), never the wall clock.
+function agPeriod(l) {
+  const td = today(),
+    d = parse(td),
+    y = d.getFullYear(),
+    W = "function" == typeof appWeek ? appWeek() : null,
+    mon = W ? W.mon : iso(addDays(d, -((d.getDay() + 6) % 7))),
+    P = (from, to, label, key, say) => ({ from: from, to: to, label: label, key: key || label, say: say || label });
+  if (/\b(today|this morning|right now|so far today)\b/.test(l)) return P(td, td, "today");
+  if (/\byesterday\b/.test(l)) {
+    const t = iso(addDays(d, -1));
+    return P(t, t, "yesterday");
+  }
+  if (/\btomorrow\b/.test(l)) {
+    const t = iso(addDays(d, 1));
+    return P(t, t, "tomorrow");
+  }
+  if (/\blast week\b|\bprevious week\b|\bpast week\b/.test(l))
+    return P(W ? W.last[0] : iso(addDays(parse(mon), -7)), W ? W.last[1] : iso(addDays(parse(mon), -1)), "last week");
+  if (/\bnext week\b|\bcoming week\b/.test(l)) return P(iso(addDays(parse(mon), 7)), iso(addDays(parse(mon), 13)), "next week");
+  if (/\bthis week\b|\bthe week\b|\bweek so far\b|\bthis wk\b/.test(l))
+    return P(W ? W.toDate[0] : mon, W ? W.toDate[1] : td, "this week", "this week");
+  if (/\b(last|past) (7|seven) days\b/.test(l)) return P(iso(addDays(d, -6)), td, "the last 7 days", "", "in the last 7 days");
+  if (/\b(last|past) (30|thirty) days\b/.test(l)) return P(iso(addDays(d, -29)), td, "the last 30 days", "", "in the last 30 days");
+  if (/\bthis month\b|\bmonth to date\b|\bmtd\b/.test(l)) return P(td.slice(0, 8) + "01", td, "this month");
+  if (/\blast month\b|\bprevious month\b/.test(l)) {
+    const m = d.getMonth() - 1,
+      R = m < 0 ? agMonthRange(y - 1, 11) : agMonthRange(y, m);
+    return P(R[0], R[1], AG_MONTHS[(m + 12) % 12][0].toUpperCase() + AG_MONTHS[(m + 12) % 12].slice(1), "last month", "in " + AG_MONTHS[(m + 12) % 12][0].toUpperCase() + AG_MONTHS[(m + 12) % 12].slice(1));
+  }
+  if (/\b(this year|year to date|ytd|so far this year)\b/.test(l)) return P(`${y}-01-01`, td, "year to date");
+  if (/\blast year\b/.test(l)) return P(`${y - 1}-01-01`, `${y - 1}-12-31`, String(y - 1), "", "in " + (y - 1));
+  // a month by name: "in August", "aug", "for september"
+  let mi = -1;
+  AG_MONTHS.forEach((m, i) => {
+    if ("may" === m ? /\b(in|during|for|since|of|last) may\b/.test(l) : new RegExp(`\\b${m}\\b`).test(l)) mi = i;
+  }),
+    mi < 0 &&
+      Object.keys(AG_MON3).forEach((k) => {
+        new RegExp(`\\b${k}\\b`).test(l) && !/\bdec(ision)?s?\b/.test(k + "x") && (mi = AG_MON3[k]);
+      });
+  if (mi >= 0) {
+    const yy = mi > d.getMonth() ? y - 1 : y,
+      R = agMonthRange(yy, mi),
+      to = R[1] > td ? td : R[1],
+      name = AG_MONTHS[mi][0].toUpperCase() + AG_MONTHS[mi].slice(1);
+    return /\bsince\b/.test(l) ? P(R[0], td, `since ${name} 1`) : P(R[0], to, name, name, "in " + name);
+  }
+  // a weekday: the most recent one, this week or last
+  const di = AG_DOW.findIndex((w) => new RegExp(`\\b(on |last )?${w}\\b`).test(l));
+  if (di >= 0) {
+    let back = (d.getDay() - di + 7) % 7;
+    /\blast\b/.test(l) && 0 === back && (back = 7);
+    const t = iso(addDays(d, -back));
+    return P(t, t, `${AG_DOW[di][0].toUpperCase() + AG_DOW[di].slice(1)} ${fmt(t)}`, "", `on ${AG_DOW[di][0].toUpperCase() + AG_DOW[di].slice(1)} ${fmt(t)}`);
+  }
+  return null;
+}
+const agShort = (p) => String((p && p.project && p.project.name) || "").replace(/ —.*$/, ""),
+  AG_GENERIC = /^(street|st|place|pl|avenue|ave|road|rd|lane|ln|drive|dr|blvd|family|llc|inc|co|corp|group|the|and|of|unit|apt|floor|fl|design|turnover|3rd|garden|parlor|house|window|works|supply|services|service|building|circa|diamond|build|com|lighting|tile|plumbing|millwork|state)$/,
+  agWordRe = (w) => new RegExp(`(?<![\\w$.,/-])${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:'?s)?(?![\\w%/-])`);
+// The jobs a question names: "121 State", "206", "Lenox", "45 cranberry".
+function agJobs(l, pool) {
+  const P = pool || DB.projects || [];
+  return P.filter((p) => {
+    const nm = agShort(p).toLowerCase(),
+      toks = nm.split(/[^a-z0-9]+/).filter(Boolean),
+      num = /^\d+$/.test(toks[0]) ? toks[0] : "",
+      distinct = toks.filter((t) => t.length >= 4 && !/^\d+$/.test(t) && !AG_GENERIC.test(t));
+    if (l.includes(nm)) return !0;
+    if (num && new RegExp(`(?<![\\d$.,/-])${num}(?![\\d,.%/:-]|\\s*(?:hours?|hrs?|days?|minutes?|%|percent|dollars?|k\\b))`).test(l)) return !0;
+    if (toks.length > 1 && toks.slice(0, 2).join(" ") !== nm && l.includes(toks.slice(0, 2).join(" "))) return !0;
+    return distinct.some((t) => agWordRe(t).test(l));
+  });
+}
+function agClients(l, pool) {
+  return (pool || DB.clients || []).filter((c) => {
+    const toks = String(c.name || "")
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter((t) => t.length >= 4 && !AG_GENERIC.test(t) && !/^\d+$/.test(t));
+    if (!toks.length || /llc|inc\b/i.test(c.name)) return !1;
+    const sur = toks[toks.length - 1].replace(/s$/, "");
+    return new RegExp(`\\b${sur}(s|es|'s|s')?\\b`).test(l);
+  });
+}
+function agVendors(l) {
+  const firsts = new Set((DB.employees || []).map((e) => String(e.name).toLowerCase().split(/\s+/)[0]));
+  return (DB.vendors || []).filter((v) => {
+    const nm = String(v.name || "").toLowerCase(),
+      toks = nm.split(/[^a-z0-9.]+/).filter(Boolean);
+    if (nm.length >= 3 && agWordRe(nm).test(l)) return !0;
+    const t0 = toks[0] || "";
+    return toks.length > 1 && t0.length >= 4 && !AG_GENERIC.test(t0) && !firsts.has(t0) && agWordRe(t0).test(l);
+  });
+}
+function agMeEmp() {
+  try {
+    if ("client" === role()) return null;
+    const u = currentUser() || {},
+      E = DB.employees || [];
+    return (
+      (u.empId && E.find((e) => e.id === u.empId)) ||
+      E.find((e) => String(e.name).toLowerCase() === String(u.name || "").toLowerCase()) ||
+      E.find((e) => String(e.name).toLowerCase().split(/\s+/)[0] === String(u.name || "").toLowerCase().split(/\s+/)[0]) ||
+      null
+    );
+  } catch (e) {
+    return null;
+  }
+}
+// The job a field person is on: where they last clocked in.
+function agHomeJobs() {
+  try {
+    if (!["foreman", "crew", "driver"].includes(role())) return [];
+    const me = agMeEmp(),
+      te = me && (DB.time || []).filter((t) => t.empId === me.id).sort((a, b) => String(b.date).localeCompare(a.date))[0];
+    return te ? (DB.projects || []).filter((p) => p.id === te.projectId) : [];
+  } catch (e) {
+    return [];
+  }
+}
+function agPeople(l) {
+  const E = (DB.employees || []).filter((e) => !1 !== e.active),
+    full = E.filter((e) => String(e.name).includes(" ") && l.includes(String(e.name).toLowerCase()));
+  if (full.length) return full;
+  return E.filter((e) => {
+    const f = String(e.name).toLowerCase().split(/\s+/)[0];
+    if (f.length < 3 || !agWordRe(f).test(l)) return !1;
+    // "Sarah" alone is a client contact as often as Sarah Davis; take her only when no client is named
+    return !(E.filter((x) => String(x.name).toLowerCase().split(/\s+/)[0] === f).length > 1);
+  });
+}
+// Payees the books know that are not master vendors: transaction vendors, field receipts.
+function agPayees() {
+  const S0 = new Set();
+  (DB.txns || []).forEach((t) => t.vendor && S0.add(t.vendor)),
+    (DB.spend || []).forEach((s) => s.vendor && S0.add(s.vendor)),
+    (DB.bills || []).forEach((b) => b.vendor && S0.add(b.vendor)),
+    (DB.pos || []).forEach((p) => p.vendor && S0.add(p.vendor));
+  return [...S0].filter((n) => String(n).trim().length >= 3);
+}
+const AG_ABBR = { building: ["bldg"], street: ["st"], company: ["co"], insurance: ["ins"], services: ["svc", "svcs"], service: ["svc"], supply: ["sply", "supply"], brothers: ["bros"], and: ["&"] },
+  agNorm2 = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+// Does a record's text name this payee? "Home Depot" ~ "HOME DEPOT #6166", "Quality Building Supply" ~ "QUALITY BLDG SUPPLY 118".
+function agNameHit(name, hay) {
+  const h = String(hay || "").toLowerCase(),
+    n = String(name || "").toLowerCase().trim();
+  if (!n) return !1;
+  if (agNorm2(h).includes(agNorm2(n)) && agNorm2(n).length >= 4) return !0;
+  const words = n.split(/[^a-z0-9]+/).filter((w) => w && !["the", "of", "inc", "llc"].includes(w));
+  return (
+    words.length > 0 &&
+    words.every((w) => new RegExp(`\\b${w}`).test(h) || (AG_ABBR[w] || []).some((a) => new RegExp(`\\b${a.replace(/[&]/g, "\\&")}\\b`).test(h)) || (w.length <= 2 && h.includes(w)))
+  );
+}
+// A payee named in the question: a known payee first, then a capitalised name nobody holds.
+function agPayeeIn(raw, l) {
+  const found = agPayees()
+    .filter((n) => {
+      const nl = n.toLowerCase();
+      if (agWordRe(nl).test(l)) return !0;
+      const w = nl.split(/[^a-z0-9]+/).filter(Boolean);
+      return w.length >= 2 && w.every((x) => agWordRe(x).test(l) || (x.length <= 2 && l.includes(x + " ")));
+    })
+    .sort((a, b) => b.length - a.length);
+  const uniq = [];
+  found.forEach((n) => uniq.some((u) => u.toLowerCase().includes(n.toLowerCase())) || uniq.push(n));
+  if (uniq.length) return uniq;
+  const m = String(raw || "").match(
+    /\b(?:at|from|to|with|pay|paid|on|for)\s+((?:[A-Z][\w&.'-]*|[A-Z]{2,})(?:\s+(?:[A-Z][\w&.'-]*|&|of)){0,4})/,
+  );
+  if (m) {
+    const nm = m[1].replace(/\s+(In|On|Last|This|Since|During|For)$/i, "").trim(),
+      skip = new RegExp(`^(${AG_MONTHS.join("|")}|${AG_DOW.join("|")}|I|We|Our|The|Today|Yesterday|Home|Tasks?)$`, "i");
+    if (!skip.test(nm) && !agJobs(nm.toLowerCase()).length && !agPeople(nm.toLowerCase()).length) return [nm];
+  }
+  return [];
+}
+
+// ---- the entity a question is about: EQ_TABLES names, their aliases, plurals and the words people use
+const AG_ENTITY = [
+  ["submittals", /\b(submittals?|shop drawings?|samples? to approve|cut sheets?)\b/],
+  ["dailylogs", /\b(daily logs?|site logs?|crew do|crew did|did the crew|the crew (do|did|work)|on site yesterday)\b/],
+  ["photos", /\b(photos?|pictures?|pics?|images?)\b/],
+  ["progress", /\b(progress|percent complete|% complete|logged progress)\b/],
+  ["changeorders", /\b(change ?orders?|cos?\b|co-\d)/],
+  ["decisions", /\b(decisions?|selections?|choices?)\b/],
+  ["time", /\b(hours?|timesheets?|time entries|clocked|hrs)\b/],
+  ["payments", /\b(payments?|collected|collect|came in|paid us|received from)\b/],
+  ["invoices", /\b(invoices?|invoiced|receivables?|\bar\b)\b/],
+  ["bills", /\b(bills?|payables?|\bap\b)\b/],
+  ["purchaseorders", /\b(purchase orders?|\bpos?\b|on order|orders?|deliver(y|ies)|arriving|expected)\b/],
+  ["materials", /\b(materials?|insulation|lumber|tile|fixtures?)\b/],
+  ["transactions", /\b(spend|spent|spending|expenses?|bank lines?|transactions?|charges?|bought|buy|cost us|pay|paid)\b/],
+  ["vendors", /\b(vendors?|suppliers?|subs?|subcontractors?)\b/],
+  ["people", /\b(crew|employees?|staff|team|people|who)\b/],
+  ["tasks", /\b(tasks?|to-?dos?|punch|open items?)\b/],
+  ["projects", /\b(jobs?|projects?|sites?)\b/],
+  ["clients", /\b(clients?|customers?)\b/],
+  ["obligations", /\b(insurance|licen[cs]es?|permits?|obligations?|policy|policies)\b/],
+  ["opportunities", /\b(leads?|deals?|pipeline|prospects?|opportunit(y|ies))\b/],
+  ["budget", /\b(budgets?)\b/],
+  ["bankfeeds", /\b(bank feeds?|feeds?)\b/],
+  ["estimates", /\b(estimates?|proposals?|quotes?|bids?)\b/],
+];
+const AG_LABEL = {
+  submittals: "submittals", dailylogs: "daily logs", photos: "photos", progress: "progress logs", changeorders: "change orders",
+  decisions: "decisions", time: "time entries", payments: "client payments", invoices: "invoices", bills: "bills",
+  purchaseorders: "purchase orders", materials: "materials", transactions: "bank and card lines", vendors: "vendors",
+  people: "people", tasks: "tasks", projects: "projects", clients: "clients", obligations: "obligations",
+  opportunities: "leads", budget: "budget lines", bankfeeds: "bank feeds", estimates: "estimates",
+};
+function agParse(raw) {
+  const l0 = typeof askNorm === "function" ? askNorm(raw) : String(raw || "").toLowerCase(),
+    caps = new Set(
+      String(raw || "")
+        .split(/\s+/)
+        .slice(1)
+        .filter((w) => /^[A-Z][a-z]/.test(w) && !/^(I|I'm|I've)$/.test(w))
+        .map((w) => w.toLowerCase().replace(/[^a-z0-9]/g, "")),
+    ),
+    F = agFix(l0.replace(/[—–]/g, " ").replace(/\s+/g, " ").trim(), caps),
+    l = F.text,
+    me = agMeEmp(),
+    P = { raw: String(raw || ""), l: l, fixes: F.fixes };
+  (P.period = agPeriod(l)),
+    (P.jobs = agJobs(l)),
+    (P.clients = agClients(l)),
+    (P.vendors = agVendors(l)),
+    (P.people = agPeople(l)),
+    (P.self = /\b(i|me|my|mine|myself)\b/.test(l)),
+    P.self && me && !P.people.includes(me) && (P.meEmp = me),
+    (P.payees = agPayeeIn(P.raw, l).filter((n) => !P.vendors.some((v) => v.name.toLowerCase() === n.toLowerCase()) || /\b(spend|spent|pay|paid|cost|bought|buy)\b/.test(l))),
+    (P.neg = /\b(not|no|never|without|has not|have not|did not|does not|un(approved|signed|paid|billed|ordered|submitted|matched))\b/.test(l)),
+    (P.measure = /^(when|what date|what day|by when)\b|\bwhen (is|are|was|will|does|do|did)\b|\b(expire|expires|expiring|expiration)\b/.test(l)
+      ? "when"
+      : /\bhow many\b|\bnumber of\b|\bcount\b/.test(l)
+        ? "count"
+        : /\b(most|biggest|largest|highest|top|more)\b/.test(l)
+          ? "max"
+          : /\b(least|smallest|lowest|fewest)\b/.test(l)
+            ? "min"
+            : /\bhow much\b|\btotal\b|\bsum\b|\bspend|\bspent\b|\bcost\b|\bworth\b|\bvalue\b/.test(l)
+              ? "sum"
+              : "list");
+  const g = l.match(/\b(?:by|per|for each|each|grouped by|broken down by|split by)\s+(vendor|supplier|client|customer|job|project|category|categories|person|employee|month|status|week|payee|account)s?\b/);
+  (P.group = g ? { supplier: "vendor", customer: "client", project: "job", categories: "category", employee: "person", payee: "vendor" }[g[1]] || g[1] : ""),
+    (P.top = (() => {
+      const m = l.match(/\btop (\d+|three|five|ten|two)\b/);
+      return m ? { three: 3, five: 5, ten: 10, two: 2 }[m[1]] || +m[1] : 0;
+    })()),
+    (P.entity = (AG_ENTITY.find((e) => e[1].test(l)) || [""])[0]);
+  return P;
+}
+const agWhereJob = (P) => (P.jobs.length ? [`job is ${P.jobs.map(agShort).join(" or ")}`] : []),
+  agWherePer = (P) => (P.period ? [`date in ${P.period.label}${P.period.from !== P.period.to ? ` (${fmtL(P.period.from)} to ${fmtL(P.period.to)})` : ` (${fmtL(P.period.from)})`}`] : []),
+  agInPer = (P, d) => !P.period || (!!d && d >= P.period.from && d <= P.period.to),
+  agOnJob = (P, pid) => !P.jobs.length || P.jobs.some((p) => p.id === pid),
+  agN = (n, one, many) => `${n} ${1 === n ? one : many || one + "s"}`,
+  agHrs = (h) => String(Math.round(100 * h) / 100),
+  agCap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s),
+  agList = (a, n) => {
+    const L = a.slice(0, n || 6);
+    return L.length <= 1 ? L.join("") : L.slice(0, -1).join(", ") + " and " + L[L.length - 1] + (a.length > L.length ? ` and ${a.length - L.length} more` : "");
+  };
+function agRan(entity, where, group, n) {
+  const W = (where || []).filter(Boolean);
+  return `I ran: ${entity}${W.length ? " where " + W.join(" and ") : ""}${group ? " grouped by " + group : ""} (${agN(n, "row")})`;
+}
+function agGo(view, extra) {
+  try {
+    return view && paCanSee(view) ? Object.assign({ view: view }, extra || {}) : null;
+  } catch (e) {
+    return null;
+  }
+}
+// What a role may read, by the data, not by a view: money is the firm's books; ops is the work.
+function agMay(kind) {
+  let r = "";
+  try {
+    r = role();
+  } catch (e) {}
+  if ("client" === r) return "client" === kind;
+  if (["foreman", "crew", "driver"].includes(r)) return "ops" === kind || "self" === kind;
+  if (["designer"].includes(r)) return "ops" === kind || "self" === kind || "design" === kind;
+  if ("client" === kind) return !1;
+  return "client" !== kind;
+}
+const agBlocked = (what) => ({
+  headline: `${agCap(what)} ${/s$/.test(what) ? "are" : "is"} not part of what your account sees, so I will not answer around it.`,
+  note: "Ask me about your own work, your jobs, your hours, your photos and logs, and I will answer in full.",
+  kind: "blocked",
+});
+
+// ---- figures the firm runs on: each reads the function its screen reads
+const agBF = () => briefFacts(),
+  agB2 = () => b2Facts(briefFacts()),
+  agYTD = (P) => (P.period ? [P.period.from, P.period.to] : [`${today().slice(0, 4)}-01-01`, today()]),
+  agPerLabel = (P) => (P.period ? P.period.say : "year to date"),
+  agJobPct = (p) => {
+    try {
+      return "function" == typeof tpJobPct ? { pct: tpJobPct(p), how: "tpJobPct" } : Object.assign({ how: "prgJob" }, prgJob(p));
+    } catch (e) {
+      return { pct: 0, how: "prgJob" };
+    }
+  };
+function agCloseState(ym) {
+  // the closetie lane's ctCloseStatus when it is there; otherwise the periods the close writes
+  try {
+    if ("function" == typeof ctCloseStatus) {
+      const s = ctCloseStatus(ym);
+      if (s && "object" == typeof s) return { closed: !!(s.closed || s.locked), wages: s.wages, at: s.at || s.on || "", src: "ctCloseStatus" };
+    }
+  } catch (e) {}
+  const per = DB.periods || {},
+    closes = (per.closes || []).filter((x) => "close" === x.run && x.month === ym),
+    c = closes[closes.length - 1] || null,
+    lt = "function" == typeof lockedThrough ? lockedThrough() || "" : "";
+  return { closed: (!!lt && lt >= ym) || !!c, rec: c, wages: c ? c.wages : null, lockedThrough: lt, src: "DB.periods" };
+}
+const AG_FIN = [
+  {
+    id: "dispute",
+    re: /\b(dispute[sd]?|disputing|short[- ]?pa(y|id|ys)|held back from (a )?vendor)\b/,
+    kind: "money",
+    run(P) {
+      const D = pay3Disputes(),
+        held = D.reduce((a, d) => a + (+d.held || 0), 0);
+      return {
+        headline: D.length
+          ? `${money(held)} in dispute with vendors on ${agN(D.length, "bill")}: ${D.map((d) => `${d.b.number} (${d.b.vendor}) ${money(d.held)} held${d.paid ? ", in 1300 until it is settled" : ""}`).join("; ")}.`
+          : "Nothing is in dispute with vendors: no bill is short-paid or held.",
+        work: D.map((d) => `${d.b.number} · ${d.b.vendor} — ${money(d.held)} held${d.approved ? `, ${money(d.approved)} approved` : ""}${d.why ? ` — ${d.why}` : ""}${d.paid ? " — the approved part is paid; the difference sits in 1300 Vendor disputes" : ""}`),
+        go: agGo("ap"),
+        ran: agRan("bills", ["a short-pay or dispute is open (pay3Disputes)"], "", D.length),
+      };
+    },
+  },
+  {
+    id: "accrued",
+    re: /\baccru(ed|al|als)\b.*\bclose\b|\bclose\b.*\baccru/,
+    kind: "money",
+    run(P) {
+      const ym = P.period ? P.period.from.slice(0, 7) : today().slice(0, 7),
+        mn = P.period ? P.period.label : "this month",
+        s = agCloseState(ym);
+      return {
+        headline: s.rec || null != s.wages
+          ? `${money(s.wages)} of wages was accrued at the ${mn} close.`
+          : `${mn} has not been closed, so nothing was accrued at a ${mn} close.`,
+        note: s.rec ? "" : "The close accrues wages earned and not yet paid; it runs from Accounting › Close.",
+        go: agGo("close") || agGo("gl"),
+        ran: agRan("closes", [`month is ${mn}`, "run is close"], "", s.rec ? 1 : 0),
+      };
+    },
+  },
+  {
+    id: "closed",
+    re: /\b(is|are|has|have|was)\b.*\b(closed|close[d]?|locked)\b|\bclose status\b|\bbooks closed\b/,
+    not: /\bbudgets?\b|\b(pos?|purchase orders?|submittals?|tasks?|decisions?|invoices?|bills?|leads?|jobs?|projects?)\b/,
+    kind: "money",
+    run(P) {
+      if (!P.period && !/\b(books|month|period|year)\b/.test(P.l)) return null;
+      const ym = P.period ? P.period.from.slice(0, 7) : iso(addDays(parse(today().slice(0, 8) + "01"), -1)).slice(0, 7),
+        mn = P.period ? P.period.label : "last month",
+        s = agCloseState(ym);
+      return {
+        headline: s.closed ? `${mn} is closed${s.lockedThrough ? `; the books are locked through ${s.lockedThrough}` : ""}.` : `${mn} is not closed yet${s.lockedThrough ? `; the books are locked through ${s.lockedThrough}` : "; no month is locked"}.`,
+        go: agGo("close") || agGo("gl"),
+        ran: agRan("periods", [`month is ${mn}`], "", s.rec ? 1 : 0),
+      };
+    },
+  },
+  {
+    id: "needscat",
+    re: /\bneeds? (a )?categor|\buncategori[sz]ed\b|\bno category\b|\bnot categori[sz]ed\b/,
+    kind: "money",
+    run(P) {
+      const R = agYTD(P),
+        pl = companyPL(R);
+      return {
+        headline: `${money(pl.needsCat)} of spending needs a category, ${agPerLabel(P)}.`,
+        note: "Bank and card lines with no category; Needs Category on the P&L until each is coded.",
+        go: agGo("bank"),
+        ran: agRan("transactions", ["category is empty", `date in ${agPerLabel(P)}`], "", (DB.txns || []).filter((t) => "uncat" === t.cat && t.date >= R[0] && t.date <= R[1]).length),
+      };
+    },
+  },
+  {
+    id: "grossmargin",
+    re: /\bgross (margin|profit)\b|\bmargin\b/,
+    kind: "money",
+    run(P) {
+      if (P.jobs.length) {
+        const J = P.jobs.map((p) => ({ p: p, f: jobFin(p) }));
+        return {
+          headline: J.map((x) => `${agShort(x.p)}: ${x.f.estGPPct}% gross margin at completion (${money(x.f.estGP)} on ${money(x.f.contract)})`).join("; ") + ".",
+          go: agGo("costs", { project: J[0].p.id }),
+          ran: agRan("projects", agWhereJob(P), "", J.length),
+        };
+      }
+      const R = agYTD(P),
+        pl = companyPL(R),
+        pct = pl.income ? Math.round((1e3 * pl.gross) / pl.income) / 10 : 0;
+      return {
+        headline: `${pct}% gross margin ${agPerLabel(P)}: ${money(pl.gross)} gross profit on ${money(pl.income)} revenue.`,
+        work: [`Revenue ${money(pl.income)}`, `Cost of work ${money(pl.cogsT)}`, `Gross profit ${money(pl.gross)}`, `Overhead ${money(pl.ohT)}`, `Net ${money(pl.net)}`],
+        go: agGo("reports", { tab: "pl" }),
+        ran: agRan("profit and loss", [`date in ${agPerLabel(P)}`], "", 1),
+      };
+    },
+  },
+  {
+    id: "eac",
+    re: /\beac\b|\bestimate(d)? (cost )?at completion\b|\bcost at completion\b|\bforecast(ed)? (final )?cost\b|\bprojected cost\b/,
+    kind: "money",
+    run(P) {
+      const L = P.jobs.length ? P.jobs : (DB.projects || []).filter((p) => p.project && !/design/i.test(p.project.name));
+      const J = L.map((p) => ({ p: p, f: jobFin(p) }));
+      return {
+        headline: J.map((x) => `EAC on ${agShort(x.p)} is ${money(x.f.eac)}: ${money(x.f.actual)} actual + ${money(x.f.committed)} committed + cost to complete`).join("; ") + ".",
+        work: J.map((x) => `${agShort(x.p)} — EAC ${money(x.f.eac)}, contract ${money(x.f.contract)}, margin at completion ${x.f.estGPPct}%`),
+        go: J.length ? agGo("costs", { project: J[0].p.id }) : null,
+        ran: agRan("projects", agWhereJob(P).concat(["EAC from jobFin"]), "", J.length),
+      };
+    },
+  },
+  {
+    id: "overbilled",
+    re: /\bover[- ]?bill(ed|ing)?\b|\bbilled ahead\b|\bwip\b/,
+    kind: "money",
+    run(P) {
+      if (P.jobs.length) {
+        const J = P.jobs.map((p) => ({ p: p, f: jobFin(p) }));
+        return {
+          headline: J.map((x) => (x.f.over > 0.5 ? `${agShort(x.p)} is over-billed by ${money(x.f.over)}: ${money(x.f.billed)} billed against ${money(x.f.earned)} earned` : `${agShort(x.p)} is not over-billed (${money(x.f.under)} under-billed)`)).join("; ") + ".",
+          go: agGo("wip") || agGo("reports"),
+          ran: agRan("projects", agWhereJob(P), "", J.length),
+        };
+      }
+      const B = agBF().B,
+        jobs = (DB.projects || []).filter((p) => jobFin(p).over > 0.5);
+      return {
+        headline: `${money(B.wip)} billed ahead of the work (over-billed, a liability) across ${agN(jobs.length, "job")}.`,
+        work: jobs.map((p) => `${agShort(p)} — ${money(jobFin(p).over)} invoiced ahead of the work`),
+        go: agGo("wip") || agGo("reports"),
+        ran: agRan("projects", ["billed is more than earned"], "", jobs.length),
+      };
+    },
+  },
+  {
+    id: "held",
+    re: /\b(held|hold|holding)\b.*\bbill(ing|ed)?\b|\bwhy (is|are|can'?t|cannot)\b.*\bbill\b/,
+    kind: "money",
+    run(P) {
+      const R = readyToBill(),
+        H = (R.held || []).filter((h) => agOnJob(P, h.p && h.p.id));
+      return {
+        headline: H.length
+          ? H.map((h) => `${agShort(h.p)} is held from billing: ${h.why || `it is billed ${money(h.over)} ahead of earned work`}`).join("; ") + "."
+          : `${P.jobs.length ? agShort(P.jobs[0]) + " is" : "Nothing is"} not held from billing.`,
+        work: H.map((h) => `${agShort(h.p)} — over-billed ${money(h.over)}; it bills again when earned work passes what is billed`),
+        go: agGo("billing"),
+        ran: agRan("ready to bill", agWhereJob(P).concat(["held"]), "", H.length),
+      };
+    },
+  },
+  {
+    id: "ap",
+    re: /\b(ap|a\/p|accounts payable|payables?)\b|\b(we|do we|we still) owe\b|\bowe (the )?(most|vendors?|suppliers?|subs?)\b|\bvendors?\b.*\bowe\b/,
+    kind: "money",
+    not: /\bpayroll\b/,
+    run(P) {
+      const A = apOpenBills(),
+        R = (A.rows || []).filter((x) => !P.vendors.length || P.vendors.some((v) => v.name === x.who)),
+        by = {};
+      R.forEach((x) => (by[x.who] = (by[x.who] || 0) + (+x.amt || 0)));
+      const rank = Object.entries(by).sort((a, b) => b[1] - a[1]),
+        B = agBF().B,
+        pay = ((A.A && A.A.items) || []).filter((i) => "payroll" === i.kind),
+        extra = [pay.length ? `payroll ${money(pay.reduce((a, i) => a + (+i.amt || 0), 0))} past due is owed to the crew, not a vendor` : "", B.apAccrued ? `${money(B.apAccrued)} is awaiting approval, not owed` : ""].filter(Boolean),
+        most = "max" === P.measure || /\bmost\b/.test(P.l);
+      return {
+        headline: rank.length
+          ? most
+            ? `${rank[0][0]}: ${money(rank[0][1])} owed on open bills${rank[1] ? `; then ${rank[1][0]}, ${money(rank[1][1])}` : ""}.`
+            : `${money(A.total)} owed to vendors on ${agN(R.length, "open bill")}.`
+          : `${money(0)} owed to vendors: no vendor bill is approved and unpaid${most ? ", so no vendor is owed the most" : ""}.`,
+        note: extra.length ? agCap(extra.join("; ")) + "." : "",
+        work: rank.map(([w, a]) => `${w} — ${money(a)} owed`),
+        go: agGo("ap"),
+        ran: agRan("bills", ["approved and unpaid (apOpenBills)"].concat(P.vendors.length ? [`vendor is ${P.vendors.map((v) => v.name).join(" or ")}`] : []), most || rank.length > 1 ? "vendor" : "", R.length),
+      };
+    },
+  },
+  {
+    id: "ar",
+    re: /\b(ar|a\/r|accounts receivable|receivables?)\b|\b(are we owed|owed to us|owe us|owes us)\b|\boutstanding\b|\bclients?\b.*\bbalances?\b|\bbalances?\b.*\bclients?\b/,
+    kind: "money",
+    run(P) {
+      const inv = eqRows("invoices").filter((r) => r.unpaid && r.outstanding > 0.005 && agOnJob(P, r.projectId) && (!P.clients.length || P.clients.some((c) => c.id === r.clientId)));
+      if (P.group || "max" === P.measure || P.clients.length || P.jobs.length || /\bwhich client|\bwho owes\b/.test(P.l)) {
+        const by = {};
+        inv.forEach((r) => (by[r.client] = (by[r.client] || 0) + r.outstanding));
+        const rank = Object.entries(by).sort((a, b) => b[1] - a[1]),
+          tot = inv.reduce((a, r) => a + r.outstanding, 0);
+        return {
+          headline: rank.length
+            ? "max" === P.measure
+              ? `${rank[0][0]} owes the most: ${money(rank[0][1])} open${rank[1] ? `; then ${rank[1][0]}, ${money(rank[1][1])}` : ""}.`
+              : `${money(tot)} open across ${agN(rank.length, "client")}: ${rank.map(([c, a]) => `${c} ${money(a)}`).join(", ")}.`
+            : "No client owes us anything on an open invoice.",
+          work: inv.map((r) => `${r.number} · ${r.client} — ${money(r.outstanding)} open${r.due ? `, due ${fmtL(r.due)}` : ""}`),
+          go: agGo("billing"),
+          ran: agRan("invoices", ["unpaid", "balance above $0"].concat(P.clients.length ? [`client is ${P.clients.map((c) => c.name).join(" or ")}`] : []).concat(agWhereJob(P)), "client", inv.length),
+        };
+      }
+      const B = agBF().B;
+      return {
+        headline: `${money(B.arOut)} in receivables (1100) on ${agN(inv.length, "open invoice")}${B.arOver ? `, ${money(B.arOver)} overdue` : ", none overdue"}.`,
+        work: inv.map((r) => `${r.number} · ${r.client} — ${money(r.outstanding)} open${r.due ? `, due ${fmtL(r.due)}` : ""}`),
+        go: agGo("billing"),
+        ran: agRan("invoices", ["unpaid", "balance above $0"], "", inv.length),
+      };
+    },
+  },
+  {
+    id: "unmatched",
+    re: /\bunmatched\b|\bnot matched\b|\bunreconciled\b/,
+    kind: "money",
+    run(P) {
+      const U = bankUnmatched(),
+        rows = U.rows || [];
+      return {
+        headline: `${agN(rows.length, "bank item")} not yet matched: ${money(U.amt)}${rows.length ? `, the oldest from ${fmtL(rows.map((r) => r.date).sort()[0])}` : ""}.`,
+        go: agGo("bank"),
+        ran: agRan("transactions", ["not matched to a record"], "", rows.length),
+      };
+    },
+  },
+  {
+    id: "cash",
+    re: /\b(cash|in the bank|bank balance)\b/,
+    kind: "money",
+    not: /\b(truly|safe to spend|flow|runway|13[- ]week)\b/,
+    run(P) {
+      const B = agBF().B;
+      return {
+        headline: `${money(B.cash)} in the bank; ${money(-B.cards)} owed on cards; safe to spend ${money(B.trulyOurs)} once client funds and payables are set aside.`,
+        go: agGo("bank"),
+        ran: agRan("bank accounts", ["balance as of " + fmtL(today())], "", (DB.accounts || []).length),
+      };
+    },
+  },
+  {
+    id: "budgetlock",
+    re: /\bbudgets?\b.*\b(lock|locked|unlocked|status|version|approved|active)\b|\b(lock|locked|status|version)\b.*\bbudgets?\b/,
+    kind: "money",
+    run(P) {
+      const BP = DB.budgetPlan || {},
+        y = (P.period ? P.period.from : today()).slice(0, 4),
+        V = (BP.versions || []).filter((v) => String(v.year) === y),
+        act = V.find((v) => v.id === (BP.active || {})[y]) || V[V.length - 1];
+      if (!act) return { headline: `No budget is set up for ${y}.`, ran: agRan("budget versions", [`year is ${y}`], "", 0) };
+      return {
+        headline: `The ${y} budget in use is ${act.name}, ${"locked" === act.status ? `locked ${fmtL(act.lockedOn)} by ${act.lockedBy}` : `${act.status || "open"}, not locked`}.`,
+        note: act.lockNote || "",
+        work: V.map((v) => `${v.name} — ${v.status || "open"}${v.lockedOn ? `, locked ${fmtL(v.lockedOn)} by ${v.lockedBy}` : ""}${v.id === act.id ? " (in use)" : ""}`),
+        go: agGo("reports", { tab: "budget" }),
+        ran: agRan("budget versions", [`year is ${y}`], "", V.length),
+      };
+    },
+  },
+  {
+    id: "budget",
+    re: /\bbudget(ed)?\b|\bover budget\b|\bunder budget\b/,
+    kind: "money",
+    run(P) {
+      if (P.jobs.length) return null;
+      const stop = new Set(["budget", "budgeted", "what", "how", "much", "is", "our", "the", "for", "did", "we", "are", "over", "under", "this", "year", "month", "against", "actual", "vs", "versus", "compared", "spend", "spent", "total"]),
+        words = P.l.split(" ").filter((w) => w.length >= 4 && !stop.has(w) && !AG_STOPW.has(w) && !AG_MONTHS.includes(w)),
+        R0 = eqRows("budget").filter((r) => r.active && (!P.period || (r.month >= P.period.from.slice(0, 7) && r.month <= P.period.to.slice(0, 7))) && (P.period || r.month.slice(0, 4) === today().slice(0, 4))),
+        R = words.length ? R0.filter((r) => words.some((w) => new RegExp(`\\b${w.replace(/s$/, "")}`).test(String(r.account || "").toLowerCase() + " " + String(r.section || "").toLowerCase()))) : R0;
+      if (!R.length) return null;
+      const b = R.reduce((a, r) => a + (+r.budget || 0), 0),
+        bt = R.reduce((a, r) => a + (+r.budgetToDate || 0), 0),
+        ac = R.reduce((a, r) => a + (+r.actual || 0), 0),
+        accts = [...new Set(R.map((r) => r.account))];
+      return {
+        headline: `${money(b)} budgeted${words.length ? ` for ${agList(accts, 3)}` : ""} ${P.period ? P.period.say : "this year"}; ${money(ac)} actual against ${money(bt)} budgeted to date, ${ac > bt ? `${money(ac - bt)} over` : `${money(bt - ac)} under`}.`,
+        work: accts.slice(0, 10).map((a) => {
+          const X = R.filter((r) => r.account === a);
+          return `${a} — budget ${money(X.reduce((x, r) => x + (+r.budget || 0), 0))}, actual ${money(X.reduce((x, r) => x + (+r.actual || 0), 0))}`;
+        }),
+        go: agGo("reports", { tab: "budget" }),
+        ran: agRan("budget", ["version in use"].concat(words.length ? [`account matches "${words.join(" ")}"`] : [], agWherePer(P)), "account", R.length),
+      };
+    },
+  },
+  {
+    id: "pastdue",
+    re: /\b(past due|overdue)\b/,
+    not: /\b(decisions?|tasks?|materials?|submittals?|order-?by|payroll|insurance|on \d+|state|lenox|cranberry|prospect)\b/,
+    kind: "money",
+    run(P) {
+      if (P.jobs.length) return null;
+      const inv = eqRows("invoices").filter((r) => r.unpaid && r.overdue && r.outstanding > 0.005),
+        bills = (apOpenBills().rows || []).filter((x) => x.due && x.due < today()),
+        pay = ((apOpenBills().A || {}).items || []).filter((i) => "payroll" === i.kind && i.due && i.due < today()),
+        pt = pay.reduce((a, i) => a + (+i.amt || 0), 0);
+      return {
+        headline: `${inv.length ? `${agN(inv.length, "client invoice")} past due, ${money(inv.reduce((a, r) => a + r.outstanding, 0))}` : "No client invoice is past due: none"}; ${bills.length ? `${agN(bills.length, "vendor bill")} past due` : "no vendor bill is past due"}${pay.length ? `; payroll ${money(pt)} is past due` : ""}.`,
+        work: inv.map((r) => `${r.number} · ${r.client} — ${money(r.outstanding)}, due ${fmtL(r.due)}`).concat(bills.map((x) => `${x.who} ${x.number} — ${money(x.amt)}, due ${fmtL(x.due)}`)),
+        go: agGo("billing") || agGo("ap"),
+        ran: agRan("invoices and bills", ["unpaid", "due date has passed"], "", inv.length + bills.length + pay.length),
+      };
+    },
+  },
+  {
+    id: "exceptions",
+    re: /\bexceptions?\b/,
+    kind: "money",
+    run(P) {
+      const E = openExceptions();
+      return {
+        headline: E.length ? `${agN(E.length, "exception")} open.` : "No exceptions are open.",
+        work: E.slice(0, 10).map((x) => String(x.title || x.text || x.why || x.kind || "")),
+        go: agGo("exceptions") || agGo("ap"),
+        ran: agRan("exceptions", ["open"], "", E.length),
+      };
+    },
+  },
+  {
+    id: "goesout",
+    re: /\b(goes|going|go|money) out\b|\bpayments? due\b|\bdue to (pay|vendors)\b|\bwhat do we (have to )?pay\b/,
+    kind: "money",
+    run(P) {
+      const X = agB2(),
+        bills = X.dueWeek || [],
+        pr = X.payrollDue || [],
+        tot = bills.reduce((a, b) => a + billTotal(b), 0) + pr.reduce((a, r) => a + (+r.total || 0), 0);
+      return {
+        headline: `${money(tot)} goes out this week: ${agN(bills.length, "bill")}${pr.length ? ` and payroll ${money(pr.reduce((a, r) => a + (+r.total || 0), 0))}` : ""}.`,
+        work: bills.map((b) => `${b.vendor} ${b.number} — ${money(billTotal(b))}, due ${fmtL(b.due)}`).concat(pr.map((r) => `Payroll ${r.period} — ${money(r.total)}, due ${fmtL(r.payDate || r.due)}`)),
+        go: agGo("ap"),
+        ran: agRan("bills and payroll", ["due this week or past due"], "", bills.length + pr.length),
+      };
+    },
+  },
+];
+
+// ---- the work: counted questions read PRED or the brief's own lists
+const AG_OPS = [
+  {
+    id: "waiting",
+    re: /\b(waiting on (me|my)|waiting for (me|my)|need(s)? (me|my)|my approvals?|to approve|do i (need to )?approve|on my desk|my sign[- ]?off)\b/,
+    not: /\bam i waiting\b/,
+    kind: "ops",
+    run(P) {
+      if ("client" === role()) return null;
+      const A = mApprovals(),
+        by = {};
+      A.forEach((a) => {
+        const k = String(a.kind || a.type || a.cat || "item");
+        by[k] = (by[k] || 0) + 1;
+      });
+      return {
+        headline: A.length ? `${agN(A.length, "thing")} ${1 === A.length ? "is" : "are"} waiting on you.` : "Nothing is waiting on you.",
+        note: "The same list as Approvals: every yes or no waiting on you.",
+        work: A.slice(0, 12).map((a) => `${a.title || a.label || ""}${a.detail ? ` · ${a.detail}` : ""}`),
+        go: agGo("mapprove"),
+        ran: agRan("approvals", ["waiting on you (PRED.waitingOnMe)"], "", A.length),
+      };
+    },
+  },
+  {
+    id: "late",
+    re: /\b(late|behind|overdue|past due)\b/,
+    not: /\b(invoices?|bills?|payroll|pay|paid|decisions?|submittals?|materials?|order-?by|tasks?|hours?|timesheets?|insurance)\b/,
+    kind: "ops",
+    run(P) {
+      if ("client" === role()) return null;
+      if (!P.jobs.length) {
+        if (!/\bjobs?\b|\bprojects?\b|\bsites?\b/.test(P.l)) return null;
+        const J = (DB.projects || []).map((p) => ({ p: p, n: PRED.jobLate.count(p.id) })).filter((x) => x.n > 0).sort((a, b) => b.n - a.n);
+        return {
+          headline: J.length ? `${agN(J.length, "job")} ${1 === J.length ? "has" : "have"} something late: ${J.map((x) => `${agShort(x.p)} ${x.n}`).join(", ")}.` : "Nothing is late on any job.",
+          note: "Late is materials late to order, decisions past due and late submittals, the same count as each job's Late figure.",
+          work: J.map((x) => `${agShort(x.p)} — ${agList(predNeedsSay(PRED.jobLate.parts(x.p.id), ["material", "decision", "submittal"]))}`),
+          go: agGo("ovjobs") || agGo("port"),
+          ran: agRan("PRED.jobLate", [], "job", J.reduce((a, x) => a + x.n, 0)),
+        };
+      }
+      const out = P.jobs.map((p) => {
+        const L = PRED.jobLate.parts(p.id),
+          N = PRED.jobNeeds.parts(p.id),
+          n = PRED.jobLate.count(p.id),
+          needs = PRED.jobNeeds.count(p.id),
+          lateSay = predNeedsSay(L, ["material", "decision", "submittal"]),
+          alsoSay = predNeedsSay(N, ["inspection", "question"]);
+        return {
+          p: p,
+          n: n,
+          head: `Late on ${agShort(p)}: ${n}${lateSay.length ? ` — ${agList(lateSay)}` : " — nothing"}.${alsoSay.length ? ` Also needs you: ${agList(alsoSay)} (Needs You: ${needs}).` : ""}`,
+          work: [].concat(
+            L.material.map((r) => `Late to order — ${r.name || r.item || (r.m && r.m.name) || (r.l && r.l.item) || "material"}${r.orderBy ? `, order-by ${fmtL(r.orderBy)}` : ""}`),
+            L.decision.map((x) => `Decision past due — ${x.d.name}${x.d.owner ? ` (${x.d.owner})` : ""}`),
+            L.submittal.map((x) => `Submittal late — ${x.s ? x.s.number + " " + (x.s.title || "") : x.number || x.title || ""}`),
+          ),
+        };
+      });
+      return {
+        headline: out.map((o) => o.head).join(" "),
+        work: [].concat(...out.map((o) => o.work)),
+        go: agGo("dash", { project: P.jobs[0].id }),
+        ran: agRan("PRED.jobLate", agWhereJob(P), "kind", out.reduce((a, o) => a + o.n, 0)),
+      };
+    },
+  },
+  {
+    id: "blocking",
+    re: /\b(blocking|blocks|holding up|held up|stuck)\b.*\b(field|site|crew|work)\b|\bwhat('s| is) blocking\b/,
+    not: /\bsubmittals?\b|\border\b/,
+    kind: "ops",
+    run(P) {
+      const F = (agB2().field || []).filter((x) => agOnJob(P, x.p && x.p.id));
+      return {
+        headline: F.length ? `${agN(F.length, "question")} from the field ${1 === F.length ? "is" : "are"} blocking work: ${agList(F.map((x) => x.i.title))}.` : "Nothing from the field is blocking work.",
+        work: F.map((x) => `${agShort(x.p)} — ${x.i.title}${x.i.owner ? `, waiting on ${x.i.owner}` : ""}${x.i.due ? `, needed ${fmtL(x.i.due)}` : ""}`),
+        go: agGo("field"),
+        ran: agRan("site questions", ["open and holding a task"].concat(agWhereJob(P)), "", F.length),
+      };
+    },
+  },
+  {
+    id: "dlmissing",
+    re: /\b(daily )?logs?\b.*\b(missing|not (filed|submitted|done|in))\b|\bmissing\b.*\b(daily )?logs?\b/,
+    kind: "ops",
+    run(P) {
+      if ("function" != typeof dlMissing) return null;
+      const R = (dlMissing() || []).filter((x) => agOnJob(P, x.p && x.p.id));
+      return {
+        headline: R.length ? `${agN(R.length, "daily log")} missing: ${agList(R.map((x) => `${agShort(x.p)}${x.date ? ` ${fmtL(x.date)}` : ""}`))}.` : "No daily log is missing.",
+        go: agGo("dlog") || agGo("field"),
+        ran: agRan("daily logs", ["a site day with no log filed"].concat(agWhereJob(P)), "", R.length),
+      };
+    },
+  },
+  {
+    id: "orderweek",
+    re: /\b(must|need(s)? to|has to|have to|should|to) be ordered\b|\border(ed)? this week\b|\bto order this week\b|\bbuy this week\b/,
+    kind: "ops",
+    run(P) {
+      const R = (agB2().buyWeek || []).filter((r) => agOnJob(P, r.p && r.p.id));
+      return {
+        headline: `${agN(R.length, "item")} must be ordered this week.`,
+        work: R.slice(0, 12).map((r) => `${agShort(r.p)} — ${(r.m && r.m.name) || (r.l && r.l.item) || r.name || ""}${r.orderBy ? `, order by ${fmtL(r.orderBy)}` : ""}`),
+        go: agGo("proc"),
+        ran: agRan("Buy Board", ["to order this week"].concat(agWhereJob(P)), "", R.length),
+      };
+    },
+  },
+  {
+    id: "orderby",
+    re: /\b(past|passed|missed) (its |their |the )?order[- ]?by\b|\blate to order\b|\bshould have been ordered\b/,
+    kind: "ops",
+    run(P) {
+      const R = (agB2().buyLate || []).filter((r) => agOnJob(P, r.p && r.p.id));
+      return {
+        headline: `${agN(R.length, "item")} ${1 === R.length ? "is" : "are"} past ${1 === R.length ? "its" : "their"} order-by date.`,
+        work: R.slice(0, 12).map((r) => `${agShort(r.p)} — ${(r.m && r.m.name) || (r.l && r.l.item) || r.name || ""}${r.orderBy ? `, order-by ${fmtL(r.orderBy)}` : ""}`),
+        go: agGo("proc"),
+        ran: agRan("Buy Board", ["order-by date has passed", "not ordered"].concat(agWhereJob(P)), "", R.length),
+      };
+    },
+  },
+  {
+    id: "requests",
+    re: /\b(field )?requests?\b/,
+    kind: "ops",
+    run(P) {
+      if (!/\bnew\b|\bunacknowledged\b|\bnot (seen|acknowledged)\b|\bopen\b/.test(P.l)) return null;
+      const R = (agB2().unacked || []).filter((x) => agOnJob(P, x.p && x.p.id));
+      return {
+        headline: R.length ? `${agN(R.length, "new request")} from the field: ${agList(R.map((x) => `${x.r.qty || ""} ${x.r.unit || ""} ${x.r.what}`.trim()))}.` : "No new requests from the field.",
+        work: R.map((x) => `${agShort(x.p)} — ${x.r.what}, from ${x.r.by}${x.r.neededBy ? `, needed by ${fmtL(x.r.neededBy)}` : ""}`),
+        go: agGo("req"),
+        ran: agRan("requests", ["status is new"].concat(agWhereJob(P)), "", R.length),
+      };
+    },
+  },
+  {
+    id: "returns",
+    re: /\breturns?\b/,
+    kind: "ops",
+    run(P) {
+      const R = agB2().returns || [];
+      return {
+        headline: R.length ? `${agN(R.length, "return")} open.` : "No returns are open.",
+        work: R.map((r) => `${r.item || r.what || r.name || r.id}${r.vendor ? ` · ${r.vendor}` : ""}${r.raisedAt ? `, raised ${fmtL(r.raisedAt)}` : ""}${r.owner ? `, with ${r.owner}` : ""}`),
+        go: agGo("returns") || agGo("proc"),
+        ran: agRan("returns", ["open"], "", R.length),
+      };
+    },
+  },
+  {
+    id: "drafts",
+    re: /\bdrafts?\b.*\b(not|never|un)\s*(been )?sent\b|\bunsent\b|\bnot (been )?sent\b/,
+    kind: "money",
+    run(P) {
+      const R = agB2().drafts || [];
+      return {
+        headline: R.length ? `${agN(R.length, "draft")} not sent.` : "No drafts are waiting to be sent: none.",
+        work: R.map((x) => `${(x.d || x.i || x).number || ""} ${(x.c && x.c.name) || ""}`),
+        go: agGo("billing"),
+        ran: agRan("invoices and change orders", ["status is draft"], "", R.length),
+      };
+    },
+  },
+  {
+    id: "decover",
+    re: /\bdecisions?\b.*\b(overdue|past due|late)\b|\b(overdue|late) decisions?\b/,
+    kind: "ops",
+    run(P) {
+      const R = (agB2().decOver || []).filter((x) => agOnJob(P, x.p && x.p.id));
+      return {
+        headline: R.length ? `${agN(R.length, "decision")} ${1 === R.length ? "is" : "are"} overdue: ${agList([...new Set(R.map((x) => x.d.owner || "unassigned"))].map((o) => `${R.filter((x) => (x.d.owner || "unassigned") === o).length} on ${o}`))}.` : "No decision is overdue.",
+        work: R.map((x) => `${agShort(x.p)} — ${x.d.name}, owed by ${x.d.owner || "nobody named"}`),
+        go: agGo("dec"),
+        ran: agRan("decisions", ["open", "past the date the schedule needs it"].concat(agWhereJob(P)), "owner", R.length),
+      };
+    },
+  },
+  {
+    id: "myweek",
+    re: /\bmy week\b|\bweek look like\b|\bon my plate this week\b/,
+    kind: "self",
+    run(P) {
+      const td = today(),
+        to = iso(addDays(parse(td), 7)),
+        T = openTasks("me").filter((t) => t.due && t.due <= to);
+      return {
+        headline: T.length ? `${agN(T.length, "item")} on you due by ${fmtL(to)}.` : `Nothing of yours is due by ${fmtL(to)}.`,
+        work: T.map((t) => `${t.due < td ? "Late" : fmtL(t.due)} — ${t.title}${t.project ? ` · ${t.project}` : ""}`),
+        go: agGo("tasks"),
+        ran: agRan("tasks", ["assigned to you", "open", `due by ${fmtL(to)}`], "", T.length),
+      };
+    },
+  },
+  {
+    id: "fieldday",
+    re: /\b(on my day|my day|today'?s work|on today|what am i doing today|what('s| is) on today)\b/,
+    kind: "self",
+    run(P) {
+      if (!["foreman", "crew", "driver"].includes(role())) return null;
+      const me = agMeEmp(),
+        td = today(),
+        te = me && (DB.time || []).find((t) => t.empId === me.id && t.date === td),
+        p = te ? (DB.projects || []).find((x) => x.id === te.projectId) : null;
+      if (!p) return null;
+      const T = (p.tasks || []).filter((t) => "done" !== t.status && t.start <= td && t.end >= td);
+      return {
+        headline: `${fmtL(td)} at ${agShort(p)}: ${agN(T.length, "task")} running — ${agList(T.map((t) => t.name), 4)}.`,
+        work: T.map((t) => `${t.name} — through ${fmtL(t.end)}`),
+        go: agGo("field") || agGo("dash", { project: p.id }),
+        ran: agRan("tasks", [`job is ${agShort(p)} (where you clocked in today)`, "running today", "not done"], "", T.length),
+      };
+    },
+  },
+  {
+    id: "dhours",
+    re: /\bdesign hours\b.*\b(bill|banked|invoice)\b|\b(bill|banked)\b.*\bdesign hours\b|\bbanked\b/,
+    kind: "design",
+    run(P) {
+      const R = (readyToBill().rows || []).filter((r) => "dhours" === r.kind && agOnJob(P, r.p && r.p.id)),
+        tot = R.reduce((a, r) => a + (+r.amount || 0), 0);
+      return {
+        headline: R.length ? `${money(tot)} can be billed for design hours banked${P.jobs.length ? ` on ${agShort(P.jobs[0])}` : ""}: ${agList(R.map((r) => r.title))}.` : `No design hours are banked to bill${P.jobs.length ? ` on ${agShort(P.jobs[0])}` : ""}: $0.`,
+        go: agGo("billing"),
+        ran: agRan("ready to bill", ["kind is design hours"].concat(agWhereJob(P)), "", R.length),
+      };
+    },
+  },
+  {
+    id: "invoicenow",
+    re: /\b(ready to bill|ready to invoice|invoice today|bill today|could we invoice|can (i|we) (bill|invoice)|should we invoice|what can (i|we) bill)\b/,
+    kind: "money",
+    run(P) {
+      const R0 = readyToBill(),
+        R = (R0.rows || []).filter((r) => agOnJob(P, r.p && r.p.id) && (!P.clients.length || P.clients.some((c) => r.c && r.c.id === c.id))),
+        tot = R.reduce((a, r) => a + (+r.amount || 0), 0),
+        held = (R0.held || []).filter((h) => agOnJob(P, h.p && h.p.id));
+      return {
+        headline: R.length ? `${money(tot)} is ready to bill on ${agN(R.length, "item")}: ${R.map((r) => `${agShort(r.p)} ${money(r.amount)}`).join(", ")}.` : `Nothing is ready to bill${P.clients.length ? ` for ${P.clients[0].name}` : ""}: $0.`,
+        note: held.length ? held.map((h) => `${agShort(h.p)} is held: billed ${money(h.over)} ahead of earned work.`).join(" ") : "",
+        work: R.map((r) => r.title),
+        go: agGo("billing"),
+        ran: agRan("ready to bill", (P.clients.length ? [`client is ${P.clients.map((c) => c.name).join(" or ")}`] : []).concat(agWhereJob(P)), "", R.length),
+      };
+    },
+  },
+];
+
+// ---- entity readers: the parsed filters applied to the query layer's rows
+const AG_CAT = {
+  software: ["design-software"], insurance: ["insurance"], fuel: ["vehicle"], vehicle: ["vehicle"], gas: ["vehicle"], meals: ["meals"], food: ["meals"],
+  lunch: ["meals"], permits: ["permits"], permit: ["permits"], fees: ["permits"], dumpsters: ["disposal"], dumpster: ["disposal"], disposal: ["disposal"],
+  materials: ["materials"], material: ["materials"], subs: ["subs"], subcontractors: ["subs"], office: ["office"], rent: ["office"],
+};
+function agOutRows(P) {
+  return eqRows("transactions").filter((r) => "out" === r.direction && !["cc-payment", "transfer"].includes(r.category) && agInPer(P, r.date) && agOnJob(P, r.projectId));
+}
+const agTxnHay = (r) => `${r.description || ""} ${r.vendor || ""} ${r.memo || ""}`;
+const AG_ENT = [
+  {
+    // money out: "how much did we spend at Home Depot in August", "what did we pay M Rodriguez", "spend by vendor"
+    id: "spend",
+    kind: "money",
+    test: (P) =>
+      "client" !== role() &&
+      !/\bsafe to spend\b/.test(P.l) &&
+      (/\b(spend|spent|spending|expenses?|cost us|bought|buy|purchases?)\b/.test(P.l) ||
+        (/\b(pay|paid)\b/.test(P.l) && (P.payees.length || P.vendors.length || /\b(we|did we|have we) (pay|paid)\b/.test(P.l)) && !/\b(invoices?|bills?)\b/.test(P.l))) &&
+      !/\b(paid us|pay us|collect|came in|client pa|payments? (came|in)|payroll)\b/.test(P.l) &&
+      !(P.clients.length && /\b(pay|paid)\b/.test(P.l) && !/\bwe\b/.test(P.l)) &&
+      !/\bdesign hours\b/.test(P.l),
+    run(P) {
+      let rows = agOutRows(P);
+      const where = [].concat(agWherePer(P), agWhereJob(P));
+      const cats = [].concat(...Object.keys(AG_CAT).filter((k) => new RegExp(`\\bon ${k}\\b|\\b${k} (spend|cost|expenses?)\\b`).test(P.l)).map((k) => AG_CAT[k]));
+      cats.length && ((rows = rows.filter((r) => cats.includes(r.category))), where.push(`category is ${cats.join(" or ")}`));
+      const names = P.payees.length ? P.payees : P.vendors.map((v) => v.name);
+      if (names.length > 1 && (/\bor\b|\bvs\b|\bversus\b|\bmore\b|\bcompare/.test(P.l))) {
+        const S0 = names.map((n) => {
+          const R = rows.filter((r) => agNameHit(n, agTxnHay(r)));
+          return { n: n, R: R, t: R.reduce((a, r) => a + r.money, 0) };
+        }).sort((a, b) => b.t - a.t);
+        return {
+          headline: `${S0[0].n}: ${money(S0[0].t)}${P.period ? ` ${P.period.say}` : ""}, more than ${S0.slice(1).map((s) => `${s.n} at ${money(s.t)}`).join(" and ")}.`,
+          work: [].concat(...S0.map((s) => s.R.map((r) => `${fmtL(r.date)} — ${r.description} — ${money(r.money)}`))),
+          go: agGo("bank"),
+          ran: agRan("transactions", ["money out", `payee is ${names.join(" or ")}`].concat(where), "payee", S0.reduce((a, s) => a + s.R.length, 0)),
+        };
+      }
+      if (names.length) {
+        const nm = names[0];
+        (rows = rows.filter((r) => agNameHit(nm, agTxnHay(r)))), where.unshift(`text matches "${nm}"`);
+        // a field receipt the bank has not shown yet still counts
+        if (!rows.length) {
+          const sp = (DB.spend || []).filter((s) => agNameHit(nm, s.vendor) && agInPer(P, s.date) && agOnJob(P, s.projectId)),
+            t = sp.reduce((a, s) => a + (s.lines || []).reduce((x, l) => x + (+l.amount || 0), 0), 0);
+          if (sp.length && "client" !== role() && !eqFieldRole())
+            return {
+              headline: `${money(t)} bought from ${nm}${P.period ? ` ${P.period.say}` : ""}, on ${agN(sp.length, "field receipt")}.`,
+              work: sp.map((s) => `${fmtL(s.date)} — ${s.vendor} — ${money((s.lines || []).reduce((x, l) => x + (+l.amount || 0), 0))}${s.by ? `, by ${s.by}` : ""}`),
+              go: agGo("bank"),
+              ran: agRan("field receipts", [`vendor matches "${nm}"`].concat(where.slice(1)), "", sp.length),
+            };
+        }
+      }
+      const tot = rows.reduce((a, r) => a + (+r.money || 0), 0);
+      if (("max" === P.measure || "min" === P.measure) && !P.group && !P.top && !names.length && /\b(expense|purchase|charge|line|payment|transaction|single)\b/.test(P.l)) {
+        const S0 = rows.slice().sort((a, b) => ("max" === P.measure ? b.money - a.money : a.money - b.money));
+        return S0.length
+          ? {
+              headline: `${S0[0].description}: ${money(S0[0].money)} on ${fmtL(S0[0].date)}, the ${"max" === P.measure ? "largest" : "smallest"} of ${agN(rows.length, "bank or card line")}${P.period ? ` ${P.period.say}` : ""}.`,
+              work: S0.slice(1, 6).map((r) => `${fmtL(r.date)} — ${r.description} — ${money(r.money)}`),
+              go: agGo("bank"),
+              ran: agRan("transactions", ["money out"].concat(where, [`sorted by amount ${"max" === P.measure ? "high to low" : "low to high"}`]), "", rows.length),
+            }
+          : null;
+      }
+      if (P.group || P.top) {
+        const key = "category" === P.group ? "category" : "job" === P.group ? "project" : "vendor",
+          by = {};
+        rows.forEach((r) => {
+          const k = r[key] || ("vendor" === key ? String(r.description || "").slice(0, 28) : "(none)");
+          by[k] = (by[k] || 0) + r.money;
+        });
+        const rank = Object.entries(by).sort((a, b) => b[1] - a[1]).slice(0, P.top || 10);
+        return {
+          headline: `${money(tot)} spent${P.period ? ` ${P.period.say}` : ""}; ${P.top ? `top ${rank.length}` : "by " + key}: ${rank.map(([k, v]) => `${k} ${money(v)}`).join(", ")}.`,
+          work: rank.map(([k, v]) => `${k} — ${money(v)}`),
+          go: agGo("bank"),
+          ran: agRan("transactions", ["money out"].concat(where), key, rows.length),
+        };
+      }
+      return {
+        headline: names.length
+          ? rows.length
+            ? `${money(tot)} paid to ${names[0]}${P.period ? ` ${P.period.say}` : ""}${P.jobs.length ? ` on ${agShort(P.jobs[0])}` : ""}, on ${agN(rows.length, "bank or card line")}.`
+            : `Nothing was paid to ${names[0]}${P.period ? ` ${P.period.say}` : ""}: $0 on the bank and card lines.`
+          : `${money(tot)} spent${cats.length ? ` on ${cats.join(", ")}` : ""}${P.period ? ` ${P.period.say}` : ""}${P.jobs.length ? ` on ${agShort(P.jobs[0])}` : ""}, on ${agN(rows.length, "bank or card line")}.`,
+        work: rows.slice(0, 12).map((r) => `${fmtL(r.date)} — ${r.description}${r.project ? ` · ${r.project}` : ""} — ${money(r.money)}`),
+        go: agGo("bank"),
+        ran: agRan("transactions", ["money out"].concat(where), "", rows.length),
+      };
+    },
+  },
+  {
+    // money in from clients
+    id: "payments",
+    kind: "money",
+    client: !0,
+    test: (P) =>
+      /\b(collect(ed|ions?)?|came in|payments?|paid us|pay us|received|deposits?)\b/.test(P.l) ||
+      (P.clients.length && /\b(pay|paid)\b/.test(P.l)) ||
+      ("client" === role() && /\b(pay|paid|payments?)\b/.test(P.l)),
+    run(P) {
+      let rows = eqRows("payments").filter((r) => agInPer(P, r.date) && agOnJob(P, r.projectId || ""));
+      const where = agWherePer(P);
+      if (P.clients.length > 1 && /\bmore\b|\bor\b|\bthan\b|\bvs\b/.test(P.l)) {
+        const S0 = P.clients.map((c) => {
+          const R = rows.filter((r) => r.clientId === c.id);
+          return { c: c, R: R, t: R.reduce((a, r) => a + r.amount, 0) };
+        }).sort((a, b) => b.t - a.t);
+        return {
+          headline: `${S0[0].c.name} paid more${P.period ? ` ${P.period.say}` : ""}: ${money(S0[0].t)}, against ${S0.slice(1).map((s) => `${s.c.name} ${money(s.t)}`).join(", ")}.`,
+          work: [].concat(...S0.map((s) => s.R.map((r) => `${fmtL(r.date)} — ${r.client} — ${money(r.amount)}`))),
+          go: agGo("billing"),
+          ran: agRan("payments", [`client is ${P.clients.map((c) => c.name).join(" or ")}`].concat(where), "client", S0.reduce((a, s) => a + s.R.length, 0)),
+        };
+      }
+      P.clients.length && ((rows = rows.filter((r) => P.clients.some((c) => c.id === r.clientId))), where.unshift(`client is ${P.clients.map((c) => c.name).join(" or ")}`));
+      const tot = rows.reduce((a, r) => a + (+r.amount || 0), 0),
+        mine = "client" === role();
+      if ("when" === P.measure || /\blast payment\b|\blatest payment\b|\bmost recent\b/.test(P.l)) {
+        const last = rows.slice().sort((a, b) => String(b.date).localeCompare(a.date))[0];
+        return {
+          headline: last ? `${mine ? "Your last payment" : `The last payment${P.clients.length ? ` from ${P.clients[0].name}` : ""}`} was ${money(last.amount)} on ${fmtL(last.date)}${last.invoice ? `, against ${last.invoice}` : ""}.` : "No payment is on record.",
+          work: rows.map((r) => `${fmtL(r.date)} — ${money(r.amount)}${r.method ? ` by ${r.method}` : ""}${r.invoice ? ` · ${r.invoice}` : ""}`),
+          go: agGo(mine ? "client" : "billing"),
+          ran: agRan("payments", where, "", rows.length),
+        };
+      }
+      if (P.group || (/\bby client\b|\bper client\b/.test(P.l))) {
+        const by = {};
+        rows.forEach((r) => (by[r.client] = (by[r.client] || 0) + r.amount));
+        const rank = Object.entries(by).sort((a, b) => b[1] - a[1]);
+        return {
+          headline: `${money(tot)} collected${P.period ? ` ${P.period.say}` : ""} from ${agN(rank.length, "client")}: ${rank.map(([c, a]) => `${c} ${money(a)}`).join(", ")}.`,
+          work: rows.map((r) => `${fmtL(r.date)} — ${r.client} — ${money(r.amount)}`),
+          go: agGo("billing"),
+          ran: agRan("payments", where, "client", rows.length),
+        };
+      }
+      return {
+        headline: rows.length
+          ? `${money(tot)} ${mine ? (P.period ? "paid" : "paid so far") : "collected"}${P.period ? ` ${P.period.say}` : mine ? "" : " to date"}${P.clients.length && !mine ? ` from ${P.clients[0].name}` : ""}, across ${agN(rows.length, "payment")}.`
+          : `No payment ${mine ? "from you" : "came in"}${P.period ? ` ${P.period.say}` : ""}: $0.`,
+        work: rows.map((r) => `${fmtL(r.date)} — ${mine ? "" : r.client + " — "}${money(r.amount)}${r.invoice ? ` · ${r.invoice}` : ""}`),
+        go: agGo(mine ? "client" : "billing"),
+        ran: agRan("payments", where, "", rows.length),
+      };
+    },
+  },
+  {
+    // what the crew did on a day at a job: the daily log, then the hours
+    id: "crewlog",
+    kind: "ops",
+    test: (P) => /\b(crew|guys|team)\b.*\b(do|did|done|work on|up to)\b|\bdaily logs?\b|\bsite log\b/.test(P.l) || (/^who\b/.test(P.l) && /\bon site\b|\bat the site\b|\bon the job\b/.test(P.l) && (P.jobs.length || P.period)),
+    run(P) {
+      if ("client" === role()) return null;
+      const jobs = P.jobs.length ? P.jobs : DB.projects || [],
+        day = P.period || { from: iso(addDays(parse(today()), -1)), to: iso(addDays(parse(today()), -1)), label: "yesterday", say: "yesterday" },
+        L = [].concat(...jobs.map((p) => ("function" == typeof dlLogs ? dlLogs(p.id) : []).filter((g) => g.date >= day.from && g.date <= day.to).map((g) => ({ p: p, g: g }))));
+      const T = (DB.time || []).filter((t) => t.date >= day.from && t.date <= day.to && jobs.some((p) => p.id === t.projectId));
+      if (!L.length && !T.length) return { headline: `No daily log or time is on record for ${P.jobs.length ? agShort(P.jobs[0]) : "any job"} ${day.say || day.label}.`, ran: agRan("daily logs", [`date in ${day.label}`].concat(agWhereJob(P)), "", 0) };
+      const crew = [...new Set([].concat(...L.map((x) => (x.g.crew || []).map((c) => c.name || empName(c.empId)))).concat(L.length ? [] : T.map((t) => empName(t.empId))))],
+        done = [].concat(...L.map((x) => x.g.done || []));
+      return {
+        headline: `${agCap(day.say || day.label)}${P.jobs.length ? ` at ${agShort(P.jobs[0])}` : ""}: ${agList(crew, 8)} on site${done.length ? ` — ${done.slice(0, 2).join("; ")}` : ""}.`,
+        work: done.concat(L.map((x) => x.g.notes).filter(Boolean)).concat(T.map((t) => `${empName(t.empId)} — ${agHrs(hoursOf(t))} hours`)),
+        go: agGo("dlog") || agGo("field"),
+        ran: agRan("daily logs", [`date in ${day.label}`].concat(agWhereJob(P)), "", L.length) + `; time entries (${agN(T.length, "row")})`,
+      };
+    },
+  },
+  {
+    // "what did Angel log today", "what did I log", "what did satish log this week": progress logged and hours
+    id: "logged",
+    kind: "ops",
+    test: (P) =>
+      (/\b(log|logged|logs)\b/.test(P.l) || (/\bwhat (did|has|is)\b/.test(P.l) && /\b(do|done|doing|did|work on|working on|up to)\b/.test(P.l))) &&
+      (P.people.length || P.meEmp) &&
+      !/\bdaily log/.test(P.l) &&
+      !/\b(spend|spent|pay|paid|bill|invoice|cost)\b/.test(P.l),
+    run(P) {
+      const e = P.people[0] || P.meEmp,
+        nm = String(e.name).split(/\s+/)[0],
+        per = P.period || { from: today(), to: today(), label: "today", say: "today" },
+        tasks = [];
+      (DB.projects || []).forEach((p) =>
+        (p.tasks || []).forEach((t) =>
+          prgLog(t).forEach((g) => g.on >= per.from && g.on <= per.to && agOnJob(P, p.id) && new RegExp(`\\b${nm}\\b`, "i").test(g.by || "") && tasks.push({ p: p, t: t, g: g })),
+        ),
+      );
+      const T = (DB.time || []).filter((t) => t.empId === e.id && t.date >= per.from && t.date <= per.to && agOnJob(P, t.projectId)),
+        hrs = T.reduce((a, t) => a + hoursOf(t), 0),
+        names = [...new Set(tasks.map((x) => x.t.name))],
+        logs = "client" === role() || "function" != typeof dlLogs ? [] : [].concat(...(DB.projects || []).filter((p) => agOnJob(P, p.id)).map((p) => dlLogs(p.id).filter((g) => g.date >= per.from && g.date <= per.to && (g.crew || []).some((c) => c.empId === e.id || c.name === e.name)).map((g) => ({ p: p, g: g })))),
+        who = e === P.meEmp && !P.people.length ? "You" : e.name;
+      return {
+        headline: `${who} logged ${agHrs(hrs)} hours${" " + per.say}${names.length ? ` and progress on ${agN(names.length, "task")}: ${agList(names)}` : ""}${!names.length && logs.length ? `; the daily log${logs.length > 1 ? "s" : ""} at ${agList([...new Set(logs.map((x) => agShort(x.p)))])}: ${logs.flatMap((x) => x.g.done || []).slice(0, 2).join("; ") || "no work noted"}` : ""}.`,
+        work: tasks.map((x) => `${agShort(x.p)} — ${x.t.name} ${x.g.pct}%${x.g.note ? `: ${x.g.note}` : ""}`).concat(T.map((t) => `${fmtL(t.date)} — ${agHrs(hoursOf(t))} hours${t.projectId ? ` · ${agShort((DB.projects || []).find((p) => p.id === t.projectId))}` : ""}`)),
+        go: agGo("time") || agGo("field"),
+        ran: agRan("progress logs", [`by ${e.name}`, `date in ${per.label}`], "", tasks.length) + `; ${agRan("time entries", [`person is ${e.name}`, `date in ${per.label}`], "", T.length).replace(/^I ran: /, "")}`,
+      };
+    },
+  },
+  {
+    // hours: per person, per job, "who has not submitted hours", "who worked at X on Tuesday", "most hours"
+    id: "time",
+    kind: "ops",
+    test: (P) =>
+      (/\b(hours?|timesheets?|time entries|clocked|worked|work at|on the clock)\b/.test(P.l) || /\b(submit|submitted|log|logged|enter|entered|put in)\b.*\btime\b/.test(P.l)) &&
+      !/\bdesign hours\b.*\bbill|\bbanked\b/.test(P.l),
+    run(P) {
+      const self = ["foreman", "crew", "driver", "designer"].includes(role()) || P.meEmp,
+        per = P.period || ("what did" === P.l.slice(0, 8) ? { from: today(), to: today(), label: "today", say: "today" } : null),
+        T0 = eqRows("time").filter((t) => (!per || (t.date >= per.from && t.date <= per.to)) && agOnJob(P, t.projectId)),
+        where = (per ? [`date in ${per.label}`] : []).concat(agWhereJob(P)),
+        E = DB.employees || [];
+      if (P.neg && /\b(submit|submitted|log|logged|entered|enter|turned in|put in|sent|clock|clocked)\b/.test(P.l)) {
+        const crew = E.filter((e) => !1 !== e.active),
+          miss = crew.filter((e) => !T0.some((t) => t.employee === e.name));
+        return {
+          headline: miss.length ? `${agN(miss.length, "person", "people")} ${1 === miss.length ? "has" : "have"} not submitted hours ${per ? per.say : ""}: ${agList(miss.map((e) => e.name), 10)}.` : `Everyone has submitted hours ${per ? per.say : ""}.`,
+          work: crew.map((e) => `${e.name} — ${agHrs(T0.filter((t) => t.employee === e.name).reduce((a, t) => a + t.hours, 0))} hours`),
+          go: agGo("time"),
+          ran: agRan("people", ["active", `no time entry ${per ? "in " + per.label : ""}`.trim()], "", miss.length),
+        };
+      }
+      const who = P.people.length ? P.people : P.meEmp ? [P.meEmp] : self && !/\bcrew|who|everyone|team\b/.test(P.l) ? [agMeEmp()].filter(Boolean) : [];
+      const T = who.length ? T0.filter((t) => who.some((e) => e.name === t.employee)) : T0,
+        hrs = T.reduce((a, t) => a + (+t.hours || 0), 0),
+        W = where.concat(who.length ? [`person is ${who.map((e) => e.name).join(" or ")}`] : []);
+      if (/^who\b/.test(P.l) || "max" === P.measure || P.group) {
+        const by = {};
+        T.forEach((t) => (by[t.employee] = (by[t.employee] || 0) + (+t.hours || 0)));
+        const rank = Object.entries(by).sort((a, b) => b[1] - a[1]);
+        return {
+          headline: rank.length
+            ? "max" === P.measure
+              ? `${rank[0][0]} logged the most${per ? ` ${per.say}` : ""}: ${agHrs(rank[0][1])} hours${rank[1] ? `; then ${rank[1][0]}, ${agHrs(rank[1][1])}` : ""}.`
+              : `${agN(rank.length, "person", "people")} worked${P.jobs.length ? ` at ${agShort(P.jobs[0])}` : ""}${per ? ` ${per.say}` : ""}: ${agList(rank.map(([n, h]) => `${n} (${agHrs(h)} hours)`), 10)}.`
+            : `Nobody logged time${P.jobs.length ? ` at ${agShort(P.jobs[0])}` : ""}${per ? ` ${per.say}` : ""}.`,
+          work: T.map((t) => `${fmtL(t.date)} — ${t.employee} — ${agHrs(t.hours)} hours${t.project ? ` · ${t.project}` : ""}`),
+          go: agGo("time"),
+          ran: agRan("time entries", W, "person", T.length),
+        };
+      }
+      const subj = who.length === 1 ? (who[0] === agMeEmp() && (P.self || self) ? "You" : who[0].name) : P.jobs.length ? "The crew" : "Everyone";
+      return {
+        headline: `${subj} logged ${agHrs(hrs)} hours${P.jobs.length ? ` at ${agShort(P.jobs[0])}` : ""}${per ? ` ${per.say}` : ""}, on ${agN(T.length, "time entry", "time entries")}.`,
+        work: T.map((t) => `${fmtL(t.date)} — ${t.employee} — ${agHrs(t.hours)} hours${t.project ? ` · ${t.project}` : ""} (${t.status})`),
+        go: agGo("time"),
+        ran: agRan("time entries", W, "", T.length),
+      };
+    },
+  },
+  {
+    id: "photos",
+    kind: "ops",
+    client: !0,
+    test: (P) => "photos" === P.entity,
+    run(P) {
+      const shared = /\bshared?\b|\bsent to\b|\bwith the\b/.test(P.l) || "client" === role();
+      let R = eqRows("photos").filter((r) => agInPer(P, r.date) && agOnJob(P, r.projectId));
+      const where = agWherePer(P).concat(agWhereJob(P));
+      shared && ((R = R.filter((r) => r.shared)), where.push("shared with the client"));
+      if (P.clients.length && "client" !== role()) {
+        const pids = (DB.projects || []).filter((p) => P.clients.some((c) => c.id === p.clientId)).map((p) => p.id);
+        (R = R.filter((r) => pids.includes(r.projectId))), where.push(`client is ${P.clients.map((c) => c.name).join(" or ")}`);
+      }
+      const who = P.people.length ? P.people[0] : P.self && P.meEmp ? P.meEmp : null;
+      who && ((R = R.filter((r) => new RegExp(`\\b${String(who.name).split(/\s+/)[0]}\\b`, "i").test(r.by || ""))), where.push(`taken by ${who.name}`));
+      return {
+        headline: `${agN(R.length, "photo")}${shared ? " shared" : ""}${who ? ` by ${who === P.meEmp && !P.people.length ? "you" : who.name}` : ""}${P.clients.length ? ` with ${P.clients[0].name}` : ""}${P.jobs.length ? ` on ${agShort(P.jobs[0])}` : ""}${P.period ? ` ${P.period.say}` : ""}.`,
+        work: R.slice(0, 12).map((r) => `${fmtL(r.date)} — ${r.caption || r.task || r.area || "photo"}${r.project ? ` · ${r.project}` : ""}${r.by ? `, ${r.by}` : ""}`),
+        go: agGo("photos") || agGo("client"),
+        ran: agRan("photos", where, "", R.length),
+      };
+    },
+  },
+  {
+    id: "submittals",
+    kind: "ops",
+    test: (P) => "submittals" === P.entity,
+    run(P) {
+      if ("client" === role()) return null;
+      let R = eqRows("submittals").filter((r) => !P.jobs.length || P.jobs.some((p) => agShort(p) === r.project || p.project.name === r.project));
+      const where = agWhereJob(P);
+      if (/\b(late|holding up|hold(ing)? up|blocking|overdue|behind)\b/.test(P.l)) (R = R.filter((r) => r.late)), where.push("late (holding an order or past its date)");
+      else if (/\bin review\b|\bunder review\b|\bbeing reviewed\b/.test(P.l)) (R = R.filter((r) => /review/i.test(r.status))), where.push("status is In Review");
+      else if (P.neg && /\bapproved\b/.test(P.l)) (R = R.filter((r) => !r.approved && !/closed/i.test(r.status))), where.push("not approved");
+      else if (/\bapproved\b/.test(P.l)) (R = R.filter((r) => r.approved)), where.push("approved");
+      else if (/\bopen\b/.test(P.l)) (R = R.filter((r) => r.open)), where.push("open");
+      return {
+        headline: R.length ? `${agN(R.length, "submittal")}: ${agList(R.map((r) => `${r.number} ${r.title}`), 6)}.` : "No submittal matches: none.",
+        work: R.map((r) => `${r.number} ${r.title} · ${r.project} — ${r.status}${r.lateWhy ? ` — ${r.lateWhy}` : ""}${r.ballInCourt ? `, with ${r.ballInCourt}` : ""}`),
+        go: agGo("subm") || agGo("dash"),
+        ran: agRan("submittals", where, "", R.length),
+      };
+    },
+  },
+  {
+    id: "decisions",
+    kind: "ops",
+    test: (P) => "decisions" === P.entity && !/\bwaiting on me\b/.test(P.l),
+    run(P) {
+      if ("client" === role()) return null;
+      let R = eqRows("decisions").filter((r) => r.open && agOnJob(P, r.projectId));
+      const where = ["open"].concat(agWhereJob(P)),
+        onClient = /\b(client|clients|owner'?s?)\b/.test(P.l) || P.clients.length;
+      if (P.clients.length) {
+        const pids = (DB.projects || []).filter((p) => P.clients.some((c) => c.id === p.clientId)).map((p) => p.id);
+        (R = R.filter((r) => pids.includes(r.projectId))), where.push(`client is ${P.clients.map((c) => c.name).join(" or ")}`);
+      }
+      if (onClient) {
+        const isC = (r) => /client/i.test(r.owner || "");
+        (R = R.filter((r) => (P.neg ? !isC(r) : isC(r)))), where.push(`owner is ${P.neg ? "not " : ""}the client`);
+      }
+      if (P.group || /\bper job\b|\bby job\b|\beach job\b/.test(P.l)) {
+        const by = {};
+        R.forEach((r) => (by[r.project] = (by[r.project] || 0) + 1));
+        const rank = Object.entries(by).sort((a, b) => b[1] - a[1]);
+        return {
+          headline: `${agN(R.length, "decision")} open across ${agN(rank.length, "job")}: ${rank.map(([j, n]) => `${j} ${n}`).join(", ")}.`,
+          work: R.map((r) => `${r.project} — ${r.name}${r.owner ? ` (${r.owner})` : ""}`),
+          go: agGo("dec"),
+          ran: agRan("decisions", where, "job", R.length),
+        };
+      }
+      return {
+        headline: `${agN(R.length, "decision")} open${onClient ? (P.neg ? " and not waiting on " : " and waiting on ") + (P.clients.length ? P.clients.map((c) => c.name).join(" or ") : "the client") : ""}${P.jobs.length ? ` on ${agShort(P.jobs[0])}` : ""}.`,
+        work: R.map((r) => `${r.project} — ${r.name}${r.owner ? ` (${r.owner})` : ""}${r.due ? `, due ${fmtL(r.due)}` : ""}`),
+        go: agGo("dec"),
+        ran: agRan("decisions", where, "", R.length),
+      };
+    },
+  },
+  {
+    id: "cobilled",
+    kind: "money",
+    test: (P) => "changeorders" === P.entity && /\bbilled\b|\binvoiced\b/.test(P.l),
+    run(P) {
+      const inv = [].concat(...(DB.clients || []).map((c) => (c.invoices || []).filter((d) => "draft" !== d.status && "void" !== d.status)));
+      const R = [].concat(
+        ...(DB.clients || []).map((c) =>
+          (c.changeOrders || [])
+            .filter((d) => "approved" === d.status && agOnJob(P, d.projectId))
+            .map((d) => {
+              const billed = inv.flatMap((i) => i.lines || []).filter((l) => String(l.item || "").includes(d.number)).reduce((a, l) => a + ((+l.scheduled || 0) * (+l.pct || 0)) / 100, 0),
+                total = docTotal(d).total;
+              return { c: c, d: d, billed: billed, total: total };
+            }),
+        ),
+      ).filter((x) => (P.neg ? x.billed < x.total - 0.5 : x.billed >= x.total - 0.5));
+      return {
+        headline: R.length ? `${agN(R.length, "change order")} ${P.neg ? "approved and not yet billed in full" : "approved and billed"}: ${agList(R.map((x) => `${x.d.number} ${x.d.title} (${money(x.total - x.billed)} to bill)`))}.` : `No approved change order is ${P.neg ? "waiting to be billed" : "billed yet"}: none.`,
+        work: R.map((x) => `${x.d.number} · ${x.c.name} — ${money(x.total)} approved, ${money(x.billed)} billed`),
+        go: agGo("billing"),
+        ran: agRan("change orders", ["status is approved", `${P.neg ? "billed less than" : "billed in full at"} its total on sent invoices`].concat(agWhereJob(P)), "", R.length),
+      };
+    },
+  },
+  {
+    // "when will 206 Lenox finish": the Projects table's finish; "when does framing on the 3rd floor finish": the task
+    id: "when",
+    kind: "ops",
+    client: !0,
+    test: (P) => "when" === P.measure && /\b(finish|finished|done|complete|completed|end|ends|wrap|due|start|starts|begin)\b/.test(P.l) && !/\b(invoice|bill|payment|insurance|po|order|inv-|expire)\b/.test(P.l),
+    run(P) {
+      const mine = "client" === role() ? eqScopeOf().jobs : DB.projects || [],
+        jobs = P.jobs.length ? P.jobs.filter((p) => mine.includes(p)) : "client" === role() ? mine : [],
+        stop = new Set(["when", "will", "does", "do", "is", "the", "on", "at", "of", "finish", "finished", "done", "complete", "be", "due", "end", "start", "starts", "begin", "wrap", "up", "job", "project", "site"]),
+        words = P.l.split(" ").filter((w) => w.length >= 3 && !stop.has(w) && !AG_STOPW.has(w) && !jobs.some((p) => agShort(p).toLowerCase().includes(w)));
+      // a task named in the question
+      const pool = (jobs.length ? jobs : mine).flatMap((p) => (p.tasks || []).map((t) => ({ p: p, t: t }))),
+        norm = (s) => String(s || "").toLowerCase().replace(/(\d)(st|nd|rd|th)\b/g, "$1"),
+        sc = (x) => words.filter((w) => new RegExp(`\\b${norm(w).replace(/[^a-z0-9 ]/g, "")}`).test(norm(x.t.name))).length,
+        home = agHomeJobs(),
+        best = words.length ? pool.map((x) => ({ x: x, s: sc(x) + (home.includes(x.p) ? 0.5 : 0) })).filter((y) => y.s >= 1).sort((a, b) => b.s - a.s || a.x.t.end.localeCompare(b.x.t.end)) : [];
+      const start = /\b(start|starts|begin)\b/.test(P.l);
+      if (best.length && Math.floor(best[0].s) >= Math.min(2, words.length)) {
+        const { p, t } = best[0].x;
+        return {
+          headline: `${t.name} on ${agShort(p)} ${start ? "starts" : "finishes"} ${fmtL(start ? t.start : t.end)}${"done" === t.status ? " (done)" : ""}.`,
+          work: best.slice(1, 4).map((y) => `${y.x.t.name} · ${agShort(y.x.p)} — ${fmtL(y.x.t.start)} to ${fmtL(y.x.t.end)}`),
+          go: agGo("sched", { project: p.id }) || agGo("dash", { project: p.id }),
+          ran: agRan("tasks", [`name matches "${words.join(" ")}"`].concat(agWhereJob(P)), "", best.length),
+        };
+      }
+      if (!jobs.length) return null;
+      return {
+        headline: jobs.map((p) => {
+          const h = projectHealth(p);
+          return `${agShort(p)} ${start ? "started" : "finishes"} ${fmtL(start ? p.project.start || (p.tasks[0] || {}).start : h.sc)}${!start && h.projEnd && h.projEnd !== h.sc ? ` (the schedule's last task ends ${fmtL(h.projEnd)})` : ""}`;
+        }).join("; ") + ".",
+        note: "The finish the Projects table shows.",
+        go: agGo("sched", { project: jobs[0].id }) || agGo("dash", { project: jobs[0].id }),
+        ran: agRan("projects", agWhereJob(P).concat(["finish from the schedule"]), "", jobs.length),
+      };
+    },
+  },
+  {
+    id: "cause",
+    kind: "ops",
+    test: (P) => /\b(moved|slipped|pushed|delayed|changed)\b.*\b(finish|end|date|schedule)\b|\bwhose days\b|\bwhy (is|did)\b.*\b(late|slip)/.test(P.l),
+    run(P) {
+      if ("client" === role() || !P.jobs.length) return null;
+      const p = P.jobs[0],
+        H = [].concat(...(p.tasks || []).map((t) => (t.history || []).map((h) => ({ t: t, h: h })))).sort((a, b) => String(a.h.on).localeCompare(b.h.on)),
+        whose = { inspection: "the city's (inspection)", weather: "nobody's (weather)", client: "the client's", change: "the client's (change order)", co: "the client's (change order)", vendor: "the vendor's", sub: "the sub's", material: "the supplier's", design: "the designer's", crew: "ours" };
+      return {
+        headline: H.length
+          ? `${agN(H.length, "change")} moved dates on ${agShort(p)}: ${H.map((x) => `${x.h.reasonKey || "edit"} +${x.h.days || 0} ${1 === x.h.days ? "day" : "days"} on ${x.t.name} (${whose[x.h.reasonKey] || "unassigned"})`).join("; ")}.`
+          : `Nothing has moved a date on ${agShort(p)}.`,
+        work: H.map((x) => `${fmtL(x.h.on)} — ${x.t.name}: ${x.h.reason || x.h.reasonKey || ""}${x.h.by ? `, by ${x.h.by}` : ""}${x.h.critical ? " — on the critical path" : ""}`),
+        go: agGo("sched", { project: p.id }),
+        ran: agRan("schedule history", agWhereJob(P), "cause", H.length),
+      };
+    },
+  },
+  {
+    id: "orders",
+    kind: "ops",
+    test: (P) => (P.vendors.length || P.payees.length) && /\b(order|orders|ordered|on order|po|pos|expected|arriv|deliver)/.test(P.l),
+    run(P) {
+      if ("client" === role()) return null;
+      const names = P.vendors.length ? P.vendors.map((v) => v.name) : P.payees;
+      let R = eqRows("purchaseorders").filter((r) => names.some((n) => agNameHit(n, r.vendor)) && agOnJob(P, r.projectId));
+      const where = [`vendor is ${names.join(" or ")}`].concat(agWhereJob(P));
+      /\bon order|still open|\bopen\b|\boutstanding\b|\bpending\b/.test(P.l) && ((R = R.filter((r) => r.open)), where.push("open"));
+      if ("when" === P.measure || /\bexpected\b|\barriv|\bdeliver/.test(P.l)) {
+        const O = R.filter((r) => r.open);
+        return {
+          headline: O.length ? O.map((r) => `${r.number} from ${r.vendor} is expected ${fmtL(r.expected)}${r.late ? " (late)" : ""}`).join("; ") + "." : `Nothing from ${names[0]} is still on order.`,
+          work: R.map((r) => `${r.number} · ${r.project} — ${r.status}, expected ${fmtL(r.expected)}${r.items ? ` — ${r.items}` : ""}`),
+          go: agGo("po"),
+          ran: agRan("purchase orders", where.concat(["open"]), "", O.length),
+        };
+      }
+      return {
+        headline: R.length ? `${agN(R.length, "order")} from ${names[0]}: ${agList(R.map((r) => `${r.number} (${r.status}${r.open ? `, expected ${fmtL(r.expected)}` : ""})`))}.` : `Nothing is on order from ${names[0]}.`,
+        work: R.map((r) => `${r.number} · ${r.project} — ${r.items || ""}${eqFieldRole() ? "" : ` — ${money(r.amount)}`}`),
+        go: agGo("po"),
+        ran: agRan("purchase orders", where, "", R.length),
+      };
+    },
+  },
+  {
+    id: "arriving",
+    kind: "ops",
+    test: (P) => /\b(arriv|deliver|coming in|expected)/.test(P.l),
+    run(P) {
+      if ("client" === role()) return null;
+      const per = P.period || { from: today(), to: iso(addDays(parse(today()), 6)), label: "this week", key: "this week", say: "this week" };
+      if ("this week" === per.key && !P.jobs.length) {
+        const A = agB2().arriving || [];
+        return {
+          headline: A.length ? `${agN(A.length, "delivery", "deliveries")} this week.` : "No deliveries are due this week: none.",
+          work: A.map((x) => `${fmtL(x.date || x.eta || x.expected || "")} — ${x.name || x.what || (x.m && x.m.name) || (x.po && x.po.number) || ""}`),
+          go: agGo("proc") || agGo("field"),
+          ran: agRan("deliveries", ["due this week (the brief's Arriving list)"], "", A.length),
+        };
+      }
+      const O = eqRows("purchaseorders").filter((r) => r.open && r.expected >= per.from && r.expected <= per.to && agOnJob(P, r.projectId)),
+        M = [].concat(...(DB.projects || []).filter((p) => agOnJob(P, p.id)).map((p) => (p.materials || []).filter((m) => "ordered" === m.status && m.eta >= per.from && m.eta <= per.to).map((m) => ({ p: p, m: m }))));
+      const n = O.length + M.length;
+      return {
+        headline: n ? `${agN(n, "delivery", "deliveries")} due ${per.say}: ${agList(O.map((r) => `${r.number} from ${r.vendor} ${fmtL(r.expected)}`).concat(M.map((x) => `${x.m.name} ${fmtL(x.m.eta)}`)))}.` : `Nothing is due to arrive ${per.say}: none.`,
+        go: agGo("proc") || agGo("field"),
+        ran: agRan("purchase orders and materials", ["open or ordered", `expected in ${per.label} (${fmtL(per.from)} to ${fmtL(per.to)})`].concat(agWhereJob(P)), "", n),
+      };
+    },
+  },
+  {
+    id: "materials",
+    kind: "ops",
+    test: (P) => "materials" === P.entity || /\b(here yet|on site yet|arrived|delivered yet|in yet)\b/.test(P.l),
+    run(P) {
+      if ("client" === role()) return null;
+      const mine = (() => {
+          const me = agMeEmp(),
+            te = me && (DB.time || []).filter((t) => t.empId === me.id).sort((a, b) => String(b.date).localeCompare(a.date))[0];
+          return te ? (DB.projects || []).filter((p) => p.id === te.projectId) : [];
+        })(),
+        jobs = P.jobs.length ? P.jobs : DB.projects || [];
+      let R = [].concat(...jobs.map((p) => (p.materials || []).map((m) => ({ p: p, m: m }))));
+      const where = agWhereJob(P),
+        words = P.l.split(" ").filter((w) => w.length >= 4 && !AG_STOPW.has(w) && !/^(materials?|here|site|ordered|order|arrived|delivered|many|much|have|state|street|lenox|cranberry|prospect)$/.test(w)),
+        named = R.filter((x) => words.some((w) => new RegExp(`\\b${w.replace(/s$/, "")}`).test(String(x.m.name).toLowerCase())));
+      if (named.length && !/\bhow many\b/.test(P.l)) {
+        const own = named.filter((x) => !mine.length || mine.includes(x.p)),
+          L = own.length ? own : named;
+        return {
+          headline: L.map((x) => `${x.m.name} on ${agShort(x.p)} is ${String(x.m.status).replace(/-/g, " ")}${"ordered" === x.m.status ? `, not on site yet${x.m.eta ? ` — expected ${fmtL(x.m.eta)}` : ""}` : ""}`).join("; ") + ".",
+          go: agGo("mat") || agGo("proc"),
+          ran: agRan("materials", [`name matches "${words.join(" ")}"`].concat(where), "", L.length),
+        };
+      }
+      if (P.neg && /\bordered\b/.test(P.l)) (R = R.filter((x) => "not-ordered" === x.m.status)), where.push("status is not ordered");
+      else if (/\bon order\b|\bordered\b/.test(P.l)) (R = R.filter((x) => "ordered" === x.m.status)), where.push("status is ordered");
+      else if (/\bon site\b|\bdelivered\b|\barrived\b/.test(P.l)) (R = R.filter((x) => "on-site" === x.m.status)), where.push("status is on site");
+      return {
+        headline: `${agN(R.length, "material")}${where.length > agWhereJob(P).length ? " " + where[where.length - 1].replace(/^status is /, "") : ""}${P.jobs.length ? ` on ${agShort(P.jobs[0])}` : ""}.`,
+        work: R.slice(0, 15).map((x) => `${agShort(x.p)} — ${x.m.name} (${x.m.status})`),
+        go: agGo("mat") || agGo("proc"),
+        ran: agRan("materials", where, "", R.length),
+      };
+    },
+  },
+  {
+    id: "leads",
+    kind: "sales",
+    test: (P) => "opportunities" === P.entity,
+    run(P) {
+      const ST = [["proposal", /\bproposals?\b/], ["lost", /\blost\b|\blose\b|\blosing\b/], ["won", /\bwon\b|\bwin\b/], ["qualified", /\bqualified\b/], ["inquiry", /\binquir(y|ies)\b|\bnew leads?\b/], ["site-visit", /\bsite visits?\b/], ["design", /\bin design\b/]],
+        st = ST.find((x) => x[1].test(P.l)),
+        stage = (l) => String(l.stage || l.status || ""),
+        L = (DB.leads || []).filter((l) => (!st || stage(l) === st[0]) && (!P.period || agInPer(P, String(l.created || l.date || l.at || "").slice(0, 10))));
+      return {
+        headline: `${agN(L.length, "lead")}${st ? ` ${"lost" === st[0] || "won" === st[0] ? st[0] : "in " + st[0].replace("-", " ")}` : ""}${L.length && L.length <= 6 ? `: ${agList(L.map((l) => l.name))}` : ""}.`,
+        work: L.map((l) => `${l.name} — ${stage(l).replace("-", " ")}${l.value ? `, ${money(l.value)}` : ""}`),
+        go: agGo("scleads") || agGo("sales"),
+        ran: agRan("leads", st ? [`stage is ${st[0]}`] : [], "", L.length),
+      };
+    },
+  },
+  {
+    // a client's own balance: their open invoices, read through eqRows
+    id: "myowe",
+    kind: "client",
+    test: (P) => "client" === role() && /\b(owe|balance|outstanding|due|unpaid|open)\b/.test(P.l) && !/\bdecisions?\b|\bchoices?\b/.test(P.l),
+    run(P) {
+      const R = eqRows("invoices").filter((r) => r.unpaid && r.outstanding > 0.005),
+        t = R.reduce((a, r) => a + r.outstanding, 0);
+      return {
+        headline: R.length ? `${money(t)} is open on ${agN(R.length, "invoice")}: ${R.map((r) => `${r.number} ${money(r.outstanding)}${r.due ? `, due ${fmtL(r.due)}` : ""}`).join("; ")}.` : "You owe nothing: no invoice of yours is open.",
+        go: agGo("client"),
+        ran: agRan("invoices", ["yours", "unpaid", "balance above $0"], "", R.length),
+      };
+    },
+  },
+  {
+    id: "insurance",
+    kind: "ops",
+    test: (P) => P.vendors.length && /\b(insurance|coi|certificate|expire|expires|expiring|expiration)\b/.test(P.l),
+    run(P) {
+      const V = P.vendors;
+      return {
+        headline: V.map((v) => (v.insuranceExp ? `${v.name}'s insurance ${v.insuranceExp < today() ? "expired" : "expires"} ${fmtL(v.insuranceExp)}${v.insuranceExp < today() ? " — ask for a new certificate" : ""}` : `${v.name} has no insurance certificate on file`)).join("; ") + ".",
+        go: agGo("vendors"),
+        ran: agRan("vendors", [`vendor is ${V.map((v) => v.name).join(" or ")}`], "", V.length),
+      };
+    },
+  },
+];
+
+// ---- the generic reader: any EQ_TABLES entity, the parsed filters, a measure, a grouping
+const AG_DATE = { invoices: "date", estimates: "date", changeorders: "date", payments: "date", bills: "date", purchaseorders: "expected", time: "date", transactions: "date", tasks: "due", decisions: "due", obligations: "expires", dailylogs: "date", photos: "date", progress: "date", calendar: "date", submittals: "submitBy" },
+  AG_MONEY = { invoices: "amount", estimates: "amount", changeorders: "amount", payments: "amount", bills: "amount", purchaseorders: "amount", transactions: "money", projects: "contract", opportunities: "value", budget: "budget", time: "hours" },
+  AG_STATUS = [
+    [/\b(open|outstanding|pending|active)\b/, (r) => (null != r.open ? r.open : null != r.active ? r.active : null != r.done ? !r.done : null != r.unpaid ? r.unpaid : null), "open"],
+    [/\b(late|overdue|past due|behind)\b/, (r) => !!(r.late || r.overdue), "late"],
+    [/\bunpaid\b/, (r) => !!r.unpaid, "unpaid"],
+    [/\bpaid\b/, (r) => (null != r.paid ? !!r.paid : "paid" === r.status), "paid"],
+    [/\bapproved\b/, (r) => (null != r.approved ? !!r.approved : "approved" === String(r.status).toLowerCase()), "approved"],
+    [/\b(drafts?)\b/, (r) => /draft/i.test(r.status || ""), "draft"],
+    [/\bsent\b/, (r) => /sent/i.test(r.status || ""), "sent"],
+    [/\b(done|complete|completed|finished)\b/, (r) => (null != r.done ? !!r.done : /done|complete|closed/i.test(r.status || "")), "done"],
+    [/\bexpired\b/, (r) => !!r.expired, "expired"],
+  ];
+function agGeneric(P, why) {
+  const ent = eqKey(P.entity) || "";
+  if (!ent || "materials" === P.entity) return null;
+  let R = eqRows(ent);
+  if (!R.length && !EQ_TABLES[ent]) return null;
+  const where = [],
+    has = (f) => R.some((r) => r && null != r[f]);
+  if (P.jobs.length && (has("projectId") || has("project")))
+    (R = R.filter((r) => P.jobs.some((p) => r.projectId === p.id || r.project === agShort(p) || r.project === p.project.name || r._id === p.id))), where.push(...agWhereJob(P));
+  if (P.clients.length && (has("clientId") || has("client"))) (R = R.filter((r) => P.clients.some((c) => r.clientId === c.id || r.client === c.name))), where.push(`client is ${P.clients.map((c) => c.name).join(" or ")}`);
+  if (P.vendors.length && has("vendor")) (R = R.filter((r) => P.vendors.some((v) => r.vendor === v.name))), where.push(`vendor is ${P.vendors.map((v) => v.name).join(" or ")}`);
+  const who = P.people.length ? P.people : P.meEmp ? [P.meEmp] : [];
+  if (who.length) {
+    const f = ["employee", "assignee", "by", "owner", "name"].find(has);
+    f && ((R = R.filter((r) => who.some((e) => new RegExp(`\\b${String(e.name).split(/\s+/)[0]}\\b`, "i").test(String(r[f] || ""))))), where.push(`${f} is ${who.map((e) => e.name).join(" or ")}`));
+  }
+  const df = AG_DATE[ent] || (has("date") ? "date" : "");
+  P.period && df && ((R = R.filter((r) => agInPer(P, r[df]))), where.push(`${df} in ${P.period.label}`));
+  AG_STATUS.forEach(([re, fn, label]) => {
+    if (!re.test(P.l)) return;
+    const vals = R.map(fn);
+    if (vals.every((v) => null == v)) return;
+    const neg = P.neg && new RegExp(`\\b(not|un)\\s*${label}`).test(P.l.replace(/\bnot (yet )?/g, "not "));
+    (R = R.filter((r) => (neg ? !fn(r) : !!fn(r)))), where.push(`${neg ? "not " : ""}${label}`);
+  });
+  P.payees.length && ((R = R.filter((r) => P.payees.some((n) => agNameHit(n, Object.values(r).filter((v) => "string" == typeof v).join(" "))))), where.push(`text matches "${P.payees.join('" or "')}"`));
+  const mf = AG_MONEY[ent],
+    label = AG_LABEL[ent] || ent,
+    lab = (r) => r._label || r.name || r.title || r.number || r._id,
+    moneyOk = !EQ_MONEY_TABLES.includes(ent) || agMay("money");
+  if (P.group) {
+    const key = { vendor: "vendor", client: "client", job: "project", category: "category", person: ["employee", "assignee", "by"].find(has) || "employee", status: "status", month: "date" }[P.group] || P.group,
+      by = {};
+    R.forEach((r) => {
+      const k = "month" === P.group ? String(r[key] || "").slice(0, 7) : String(r[key] || "(none)");
+      (by[k] = by[k] || { n: 0, t: 0 }), by[k].n++, mf && (by[k].t += +r[mf] || 0);
+    });
+    const rank = Object.entries(by).sort((a, b) => b[1].t - a[1].t || b[1].n - a[1].n);
+    return {
+      headline: `${agN(R.length, label.replace(/s$/, ""), label)} across ${agN(rank.length, P.group)}: ${rank.slice(0, 8).map(([k, v]) => `${k} ${v.n}${mf && moneyOk && "time" !== ent ? ` (${money(v.t)})` : ""}`).join(", ")}.`,
+      work: R.slice(0, 15).map(lab),
+      ran: agRan(ent, where, key, R.length),
+    };
+  }
+  if (("sum" === P.measure || "max" === P.measure || "min" === P.measure) && mf && moneyOk) {
+    const tot = R.reduce((a, r) => a + (+r[mf] || 0), 0),
+      fmtv = (v) => ("time" === ent ? `${agHrs(v)} hours` : money(v));
+    if ("max" === P.measure || "min" === P.measure) {
+      const S0 = R.slice().sort((a, b) => ("max" === P.measure ? b[mf] - a[mf] : a[mf] - b[mf]));
+      return S0.length
+        ? { headline: `${lab(S0[0])}: ${fmtv(S0[0][mf])}, the ${"max" === P.measure ? "largest" : "smallest"} of ${agN(R.length, label.replace(/s$/, ""), label)}.`, work: S0.slice(0, 8).map((r) => `${lab(r)} — ${fmtv(r[mf])}`), ran: agRan(ent, where.concat([`sorted by ${mf}`]), "", R.length) }
+        : null;
+    }
+    return { headline: `${fmtv(tot)} across ${agN(R.length, label.replace(/s$/, ""), label)}.`, work: R.slice(0, 12).map((r) => `${lab(r)} — ${fmtv(r[mf])}`), ran: agRan(ent, where, "", R.length) };
+  }
+  if ("when" === P.measure && df) {
+    const S0 = R.filter((r) => r[df]).sort((a, b) => String(a[df]).localeCompare(b[df])),
+      up = S0.filter((r) => r[df] >= today()),
+      pick = /\blast\b|\bmost recent\b|\blatest\b/.test(P.l) ? S0[S0.length - 1] : up[0] || S0[S0.length - 1];
+    return pick ? { headline: `${lab(pick)}: ${fmtL(pick[df])}.`, work: S0.slice(0, 8).map((r) => `${fmtL(r[df])} — ${lab(r)}`), ran: agRan(ent, where, "", R.length) } : null;
+  }
+  if (!R.length && !where.length) return null;
+  return {
+    headline: R.length ? `${agN(R.length, label.replace(/s$/, ""), label)}${where.length ? ` ${where.join(", ")}` : ""}${"list" === P.measure || "count" === P.measure ? (R.length <= 6 ? `: ${agList(R.map(lab))}` : "") : ""}.` : `No ${label} ${where.join(", ")}: none.`,
+    work: R.slice(0, 15).map(lab),
+    ran: agRan(ent, where, "", R.length),
+  };
+}
+// A name the master records do not hold: search the books' text before saying no.
+function agTextSearch(P) {
+  const names = P.payees.length ? P.payees : [];
+  if (!names.length || !agMay("money")) return null;
+  const nm = names[0],
+    T = agOutRows(P).filter((r) => agNameHit(nm, agTxnHay(r))),
+    B = eqRows("bills").filter((r) => agNameHit(nm, `${r.vendor} ${r.items} ${r.notes}`) && agInPer(P, r.date)),
+    O = eqRows("purchaseorders").filter((r) => agNameHit(nm, `${r.vendor} ${r.items}`) && agInPer(P, r.date));
+  const n = T.length + B.length + O.length,
+    tot = T.reduce((a, r) => a + r.money, 0);
+  return {
+    headline: n ? `${nm}: ${money(tot)} on ${agN(T.length, "bank or card line")}${B.length ? `, ${agN(B.length, "bill")}` : ""}${O.length ? `, ${agN(O.length, "purchase order")}` : ""}${P.period ? ` ${P.period.say}` : ""}.` : `No bank line, bill or purchase order names ${nm}${P.period ? ` ${P.period.say}` : ""}: $0.`,
+    work: T.map((r) => `${fmtL(r.date)} — ${r.description} — ${money(r.money)}`).concat(B.map((r) => `${r.number} · ${r.vendor} — ${money(r.amount)}`), O.map((r) => `${r.number} · ${r.vendor} — ${money(r.amount)}`)),
+    go: agGo("bank"),
+    ran: agRan("transactions, bills and purchase orders", [`text matches "${nm}"`].concat(agWherePer(P)), "", n),
+  };
+}
+const AG_READ_KIND = { money: "Money figures", ops: "That", self: "That", design: "Design billing", client: "That" };
+function agRead(P) {
+  const tryOne = (rd, hit) => {
+    if (!hit) return null;
+    if (!agMay(rd.kind) && !(rd.client && agMay("client"))) return "client" === role() ? null : agBlocked(AG_READ_KIND[rd.kind] || "That");
+    const out = rd.run(P);
+    return out ? Object.assign(out, { reader: rd.id }) : null;
+  };
+  for (const rd of AG_FIN) {
+    const a = tryOne(rd, rd.re.test(P.l) && !(rd.not && rd.not.test(P.l)));
+    if (a) return a;
+  }
+  for (const rd of AG_OPS) {
+    const a = tryOne(rd, rd.re.test(P.l) && !(rd.not && rd.not.test(P.l)));
+    if (a) return a;
+  }
+  for (const rd of AG_ENT) {
+    let hit = !1;
+    try {
+      hit = !!rd.test(P);
+    } catch (e) {}
+    const a = tryOne(rd, hit);
+    if (a) return a;
+  }
+  return null;
+}
+// What the older chain must keep: memory, reminders, drafting, mail, documents by number.
+const AG_LEGACY =
+  /^(remember|note|keep in mind|forget|drop|never mind|stop reminding)\b|\bremind me\b|\bdon'?t let me forget\b|\b(draft|write|compose|send|email|e-mail)\b.*\b(to|email|note|letter)\b|\b(inbox|my mail|my email|new mail|unread)\b|\bwhat did i tell you\b|\bwhat (do you|are you) (remember|holding)\b|^(hi|hey|hello|yo|good (morning|afternoon|evening))\b|^what can you do/i;
+const AG_DOCNO = /\b(?:inv|po|co|est|ww|nt|cm|amp|bl|pr)-[a-z0-9-]*\d[a-z0-9-]*\b|\b\d{2} \d{2} \d{2}-\d{3}\b/i;
+const AG_REFUSED = /I have nothing called|Nothing in the records matches|so I hold no|I do not hold|I can't answer that|I cannot answer|I can't tell|I cannot find|I could not find|I couldn't find|I have no record of/i,
+  AG_GENERIC_HEAD = /^\d+ records? across \d+ modules?|^\d+ records?\b|^The earliest record is/i;
+// A document asked for by number: say which table and number were read.
+function agDocRan(raw, b) {
+  if (!b || "object" != typeof b || b.interp || AG_REFUSED.test(String(b.headline || ""))) return b;
+  const m = String(raw).match(AG_DOCNO);
+  if (!m) return b;
+  const no = m[0].toUpperCase(),
+    ent = /^PO-/.test(no) ? "purchaseorders" : /^INV-/.test(no) ? "invoices" : /^CO-/.test(no) ? "changeorders" : /^EST-/.test(no) ? "estimates" : /^\d{2} /.test(no) ? "submittals" : "bills";
+  let n = 0;
+  try {
+    n = eqRows(ent).filter((r) => String(r.number || "").toUpperCase() === no || String(r._label || "").toUpperCase().startsWith(no)).length;
+  } catch (e) {}
+  return (b.interp = agRan(ent, [`number is ${no}`], "", n) + "."), b;
+}
+function agSpecRan(q) {
+  const W = normWhere(q.where || {}).map((c) => `${c.field} ${c.op} ${Array.isArray(c.value) ? c.value.join(", ") : c.value}`);
+  return { entity: q.entity, where: (q.q ? [`text matches "${q.q}"`] : []).concat(W), group: q.group || "" };
+}
+function agStamp(a, ran, P) {
+  if (!a || "object" != typeof a) return a;
+  const fx = P && P.fixes && P.fixes.length ? ` I read ${P.fixes.map(([f, t]) => `"${f}" as "${t}"`).join(", ")}.` : "";
+  return ran && (a.interp = ran + "." + fx), a;
+}
+const AG_KIND_READ = {
+  "fin-bankrecon": "bank reconciliations",
+  iwait: "tasks and decisions waiting on somebody else",
+  field: "projects",
+  "ops-inspections": "inspections",
+  "ops-onsite": "field crews and subs on site",
+  profile: "the record's profile (every module at once)",
+  finance: "the ledger",
+  "ops-readytobill": "ready to bill",
+  "ops-tasks": "tasks",
+  "ops-leads": "leads",
+  "ops-rank": "clients",
+  "ops-materials": "materials and purchase orders",
+  "ops-schedule": "the schedule",
+  record: "the record",
+  late: "late items",
+  week: "your calendar and dated items",
+  day: "your tasks, calendar and approvals",
+  onme: "your waiting list",
+};
+// Legacy answers keep their words and gain the query they ran, when they carry one.
+function agAfter(P, b) {
+  if (!b || "object" != typeof b) return b;
+  const head = String(b.headline || "");
+  if (P && (AG_REFUSED.test(head) || AG_GENERIC_HEAD.test(head.trim()) || "none" === b.kind)) {
+    let g = null;
+    try {
+      g = agTextSearch(P) || agGeneric(P);
+    } catch (e) {
+      console.warn("askgen fallback", e);
+    }
+    if (g) return agStamp(paOut(Object.assign({ kind: "askgen" }, g, { go: g.go ? paGo(g.go) : null })), g.ran, P);
+  }
+  if (!b.interp || !/I ran:/.test(b.interp)) {
+    let n = 0;
+    if (b.query && b.query.entity) {
+      try {
+        const R = erpQuery(Object.assign({}, b.query, { limit: 200 }));
+        n = +(R.matched != null ? R.matched : (R.rows || []).length) || 0;
+      } catch (e) {}
+      const s = agSpecRan(b.query);
+      b.interp = [agRan(s.entity, s.where, s.group, n) + ".", b.interp].filter(Boolean).join(" ");
+    } else if (P && (P.entity || AG_KIND_READ[b.kind]) && !AG_REFUSED.test(head) && "blocked" !== b.kind) {
+      const w = [].concat(agWhereJob(P), agWherePer(P), P.people.length ? [`person is ${P.people.map((e) => e.name).join(" or ")}`] : [], P.vendors.length ? [`vendor is ${P.vendors.map((v) => v.name).join(" or ")}`] : [], P.clients.length ? [`client is ${P.clients.map((c) => c.name).join(" or ")}`] : []),
+        m = null;
+      b.interp = [`I read this as: ${AG_KIND_READ[b.kind] || AG_LABEL[P.entity] || P.entity}${w.length ? " where " + w.join(" and ") : ""}.`, b.interp].filter(Boolean).join(" ");
+    }
+  }
+  return b;
+}
+
+// ---- figures folded in from the frontdoor brief layer, with the % complete rule kept
+AG_FIN.push(
+  {
+    id: "safe",
+    re: /\bsafe to spend\b|\bcash,? truly\b|\btruly ours\b/,
+    kind: "money",
+    run(P) {
+      const B = agBF().B;
+      return {
+        headline: B.trulyOurs < 0
+          ? `Short by ${money(-B.trulyOurs)} today: safe to spend is ${money(B.trulyOurs)} once client funds and payables are set aside, from ${money(B.cash)} in the bank.`
+          : `${money(B.trulyOurs)} is safe to spend once client funds and payables are set aside, from ${money(B.cash)} in the bank.`,
+        work: [`Cash ${money(B.cash)}`, `Cards owed ${money(-B.cards)}`, `Client funds held ${money(B.clientFunds)}`, `Payables accrued ${money(B.apAccrued)}`, `Payroll accrued ${money(B.payrollAccrued)}`],
+        go: agGo("bank"),
+        ran: agRan("bank accounts, client funds and payables", ["as of " + fmtL(today())], "", (DB.accounts || []).length),
+      };
+    },
+  },
+  {
+    id: "payroll",
+    re: /\bpayroll\b/,
+    kind: "money",
+    run(P) {
+      const R = (DB.payroll || []).filter((r) => !["paid", "void"].includes(r.status)),
+        due = R.filter((r) => (r.payDate || r.due || "") < today()),
+        t = due.reduce((a, r) => a + (+r.total || 0), 0);
+      if (!/\b(past due|overdue|late|due|owe|unpaid|open)\b/.test(P.l)) return null;
+      return {
+        headline: due.length ? `Payroll of ${money(t)} is past due: ${due.map((r) => `the ${r.period} run, due ${fmtL(r.payDate || r.due)}, ${"submitted" === r.status ? "submitted and not yet approved" : r.status}`).join("; ")}.` : "No payroll is past due.",
+        go: agGo("payroll") || agGo("ap"),
+        ran: agRan("payroll", ["not paid", "pay date has passed"], "", due.length),
+      };
+    },
+  },
+  {
+    id: "backlog",
+    re: /\bbacklog\b|\bleft to (bill|earn)\b/,
+    kind: "money",
+    run(P) {
+      if (P.jobs.length) {
+        const J = P.jobs.map((p) => ({ p: p, f: jobFin(p) })).sort((a, b) => b.f.backlog - a.f.backlog);
+        return {
+          headline: J.length > 1 ? `${agShort(J[0].p)} has the bigger backlog: ${money(J[0].f.backlog)}, against ${J.slice(1).map((x) => `${agShort(x.p)} ${money(x.f.backlog)}`).join(", ")}.` : `${money(J[0].f.backlog)} of backlog on ${agShort(J[0].p)}.`,
+          go: agGo("wip") || agGo("reports"),
+          ran: agRan("projects", agWhereJob(P), "", J.length),
+        };
+      }
+      const B = agBF().B,
+        L = (DB.projects || []).filter((p) => jobFin(p).backlog > 0.5);
+      return {
+        headline: `${money(B.backlog)} of backlog across ${agN(L.length, "contract")}: contract value not yet earned.`,
+        work: L.map((p) => `${agShort(p)} — ${money(jobFin(p).backlog)}`),
+        go: agGo("wip") || agGo("reports"),
+        ran: agRan("projects", ["contract value not yet earned"], "", L.length),
+      };
+    },
+  },
+  {
+    id: "pl",
+    re: /\b(net (income|profit)|profit|revenue|income|sales|overhead)\b/,
+    kind: "money",
+    not: /\bgross\b|\bmargin\b|\bincome tax\b|\bsales ?tax\b|\bleads?\b|\bpipeline\b/,
+    run(P) {
+      const R = agYTD(P),
+        pl = companyPL(R),
+        per = agPerLabel(P),
+        rev = /\b(revenue|income|sales)\b/.test(P.l) && !/\bnet\b|\bprofit\b/.test(P.l);
+      if (/\boverhead\b/.test(P.l))
+        return {
+          headline: `${money(pl.ohT)} of overhead ${per}: ${Object.entries(pl.oh || {}).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, v]) => `${k} ${money(v)}`).join(", ")}.`,
+          work: Object.entries(pl.oh || {}).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} — ${money(v)}`),
+          go: agGo("reports", { tab: "pl" }),
+          ran: agRan("profit and loss", [`date in ${per}`, "overhead accounts"], "account", Object.keys(pl.oh || {}).length),
+        };
+      return {
+        headline: rev
+          ? `${money(pl.income)} of revenue ${per}, earned (invoiced ${money(pl.invoiced)}, less ${money(-pl.wipAdj)} billed ahead of the work).`
+          : `${money(pl.net)} net profit ${per}: ${pl.income ? Math.round((100 * pl.net) / pl.income) : 0}% of ${money(pl.income)} revenue.`,
+        work: [`Revenue ${money(pl.income)}`, `Cost of work ${money(pl.cogsT)}`, `Gross profit ${money(pl.gross)}`, `Overhead ${money(pl.ohT)}`, `Net ${money(pl.net)}`],
+        go: agGo("reports", { tab: "pl" }),
+        ran: agRan("profit and loss", [`date in ${per}`], "", 1),
+      };
+    },
+  },
+  {
+    id: "sign",
+    re: /\b(mine to sign|sign today|to sign today|do i (need to )?sign)\b/,
+    kind: "money",
+    run(P) {
+      const r = role(),
+        L = String(("function" == typeof b2Plate && b2Plate(r, agBF())) || "")
+          .split("\n")
+          .filter(Boolean);
+      if (!L.length) return null;
+      return { headline: L[0], work: L.slice(1), note: "From the morning brief; Approvals holds the yes and the no.", go: agGo("mapprove"), ran: agRan("approvals", ["yours to sign today"], "", L.length) };
+    },
+  },
+);
+AG_OPS.push(
+  {
+    id: "pct",
+    re: /\b(how far along|percent complete|% complete|how complete|how much is done|progress on)\b/,
+    kind: "ops",
+    client: !0,
+    run(P) {
+      const L = P.jobs.length ? P.jobs : "client" === role() ? eqScopeOf().jobs : [];
+      if (!L.length) return null;
+      return {
+        headline: L.map((p) => {
+          const x = agJobPct(p);
+          return `${agShort(p)} is ${Math.round(x.pct || 0)}% complete, measured on site${null != x.measured ? ` (${x.measured} of ${x.n} tasks measured)` : ""}`;
+        }).join("; ") + ".",
+        note: "Physical progress from the field; cost spent is not progress.",
+        go: agGo("dash", { project: L[0].id }),
+        ran: agRan("progress", agWhereJob(P).concat([`% complete from ${agJobPct(L[0]).how}`]), "", L.length),
+      };
+    },
+  },
+  {
+    id: "bleeding",
+    re: /\b(bleeding|which job is behind|jobs? (are|is) behind|worst job|in trouble)\b/,
+    kind: "money",
+    run(P) {
+      const F = agBF(),
+        J = (F.jobs || []).slice(0, 4);
+      return {
+        headline: J.length ? `${J[0].name} first: health ${J[0].score}${J[0].late > 0 ? `, ${J[0].late} days behind` : ""}.` : "No active jobs.",
+        work: J.map((j) => {
+          const x = j.p ? agJobPct(j.p) : null;
+          return `${j.name} — health ${j.score}${x ? `, ${Math.round(x.pct || 0)}% complete measured on site` : ""}${j.late > 0 ? `, ${j.late}d behind` : ""}, ${Math.round(100 * (j.J.pct || 0))}% through its estimated cost (cost-to-cost)`;
+        }),
+        go: agGo("port"),
+        ran: agRan("projects", ["active", "sorted by health"], "", J.length),
+      };
+    },
+  },
+);
+// ---- one entry for every question
+function agClientOk(b) {
+  // the older chain may answer a client only with what is theirs alone: memory, reminders, their day, their waiting list
+  return !!b && ["remember", "forget", "recall", "remind", "standing", "day", "onme", "ask", "client", "week", "mine"].includes(b.kind);
+}
+function agLeakCheck(b) {
+  // a backstop under the scope: nothing of another client's may leave in a client's answer
+  const sc = eqScopeOf();
+  if ("client" !== sc.kind || !b) return b;
+  const text = [b.headline, b.note].concat(b.work || []).map(String).join(" \n ").toLowerCase(),
+    others = (DB.clients || []).filter((c) => c.id !== sc.cid),
+    otherJobs = (DB.projects || []).filter((p) => !sc.pids.has(p.id)),
+    bad = others.some((c) => {
+      const sur = String(c.name).toLowerCase().split(/[^a-z]+/).filter((t) => t.length >= 4 && !AG_GENERIC.test(t)).pop();
+      return (sur && new RegExp(`\\b${sur}`).test(text)) || [].concat(c.invoices || [], c.estimates || [], c.changeOrders || []).some((d) => d.number && text.includes(String(d.number).toLowerCase()));
+    }) || otherJobs.some((p) => text.includes(agShort(p).toLowerCase()));
+  return bad
+    ? paOut({ headline: "I answer about your own job only, and that answer reached past it.", note: "Ask about your schedule, your choices, your invoices and payments, or the photos shared with you.", kind: "blocked" })
+    : b;
+}
+function agMoneyCheck(b) {
+  if (!eqFieldRole() || !b) return b;
+  const text = [b.headline, b.note].concat(b.work || []).map(String).join(" ");
+  return /[−-]?\$\s?\d/.test(text) ? paOut(agBlocked("Money figures")) : b;
+}
+{
+  const base = paAsk;
+  paAsk = function (q) {
+    const raw = String(q || "").trim(),
+      self = this,
+      args = arguments,
+      legacy = () => base.apply(self, args),
+      done = (b) => agMoneyCheck(agLeakCheck(b));
+    let isClient = !1;
+    try {
+      isClient = "client" === role();
+    } catch (e) {}
+    if (!raw || AG_LEGACY.test(raw) || (AG_DOCNO.test(raw) && !isClient)) {
+      const b = legacy(),
+        doc = (x) => done(agDocRan(raw, x));
+      return b && "function" == typeof b.then ? b.then(doc) : doc(b);
+    }
+    let P = null,
+      a = null;
+    try {
+      P = agParse(raw);
+      if (isClient) {
+        const sc = eqScopeOf();
+        if (P.clients.some((c) => c.id !== sc.cid) || P.jobs.some((p) => !sc.pids.has(p.id)))
+          return paOut({
+            headline: "I answer about your own job only.",
+            note: "Ask about your schedule, your choices, your invoices and payments, or the photos shared with you.",
+            kind: "blocked",
+          });
+      }
+      (a = agRead(P)) || (isClient && "decisions" !== P.entity && !/\bwaiting\b|\bchoices?\b/.test(P.l) && (a = agGeneric(P)));
+    } catch (e) {
+      console.warn("askgen", e), (a = null);
+    }
+    if (a) {
+      try {
+        paInit();
+      } catch (e) {}
+      try {
+        const one = [].concat(P.jobs, P.clients, P.vendors, P.people);
+        1 === one.length && one[0] && "function" == typeof paCtxSet && paCtxSet({ name: one[0].name || agShort(one[0]), type: P.jobs.includes(one[0]) ? "job" : P.clients.includes(one[0]) ? "client" : P.vendors.includes(one[0]) ? "vendor" : "person on the crew", id: one[0].id });
+      } catch (e) {}
+      const out = paOut(Object.assign({ kind: "askgen" }, a, { go: a.go ? paGo(a.go) : null, offers: a.offers || [] }));
+      return done(agStamp(out, a.ran, P));
+    }
+    const fin = (b) => {
+      if (isClient && b && !agClientOk(b) && !(b.kind || "").startsWith("cl"))
+        return paOut({
+          headline: "I could not read that as a question about your job.",
+          note: 'Ask it the way you would ask us: "when will my job finish", "what is waiting on me", "how much have we paid so far", "which photos were shared this week".',
+          kind: "none",
+        });
+      return done(agAfter(P, b));
+    };
+    const b = legacy();
+    return b && "function" == typeof b.then ? b.then(fin) : fin(b);
+  };
+}
+// ---- the hosted model's query tool lists every entity and its fields, and shows what it ran
+function eqSchema() {
+  return EQ_ENTITIES()
+    .map((k) => {
+      let row = null;
+      try {
+        row = (EQ_TABLES[k]() || [])[0];
+      } catch (e) {}
+      const f = row ? Object.keys(row).filter((x) => !/^_/.test(x)) : [];
+      return `${k}${f.length ? ` (${f.slice(0, 24).join(", ")})` : ""}`;
+    })
+    .join("; ");
+}
+{
+  const base = mindSystem;
+  mindSystem = function () {
+    return (
+      base.apply(this, arguments) +
+      '\n- Show the query you ran under every answer, in one line: "I ran: <entity> where <filters> grouped by <field> (N rows)". A count you state must be the row count the tool returned.\n- A name the records do not hold as a client, job, vendor or person may still be in the books: query transactions, bills and purchaseorders with q before saying there is nothing.'
+    );
+  };
+}
