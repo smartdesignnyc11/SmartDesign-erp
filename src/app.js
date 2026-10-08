@@ -158572,7 +158572,7 @@ const IG_PCHILD = [
   ["permits", "permit", ["insp"]],
   ["issues", "iss", ["field"]],
 ];
-const IG_PREF = ["doc", "po", "bill", "dec", "raise", "req", "log", "time", "act", "task", "mat", "insp", "permit", "iss", "lead", "vendor", "client", "project"];
+const IG_PREF = ["doc", "po", "bill", "payroll", "dec", "raise", "req", "log", "time", "act", "task", "mat", "insp", "permit", "iss", "txn", "file", "lead", "vendor", "client", "project"];
 function igSigSnap() {
   const s = new Map(),
     put = (k, x) => {
@@ -158597,7 +158597,10 @@ function igSigSnap() {
     ((DB.field && DB.field.logs) || []).forEach((l) => put("log:" + l.id, l)),
     (DB.time || []).forEach((t) => put("time:" + t.id, t)),
     (DB.vendors || []).forEach((v) => put("vendor:" + v.id, v)),
-    (DB.leads || []).forEach((l) => put("lead:" + l.id, l));
+    (DB.leads || []).forEach((l) => put("lead:" + l.id, l)),
+    (DB.txns || []).forEach((t) => put("txn:" + t.id, t)),
+    (DB.payroll || []).forEach((r) => put("payroll:" + r.id, r)),
+    (DB.projects || []).forEach((p) => (p.files || []).forEach((f) => put("file:" + p.id + "/" + f.id, f)));
   return s;
 }
 function igDescribe(key) {
@@ -158618,6 +158621,26 @@ function igDescribe(key) {
   if ("req" === k) {
     const p = pOf("requests");
     if (p) return { go: flowGo.request(p) };
+  }
+  if ("txn" === k && (DB.txns || []).some((x) => x.id === id) && ["bank", "spend"].some(flowCan))
+    return { go: flowGo.viewOf("bank", "spend") };
+  if ("payroll" === k && flowCan("ap") && "function" == typeof openPayroll)
+    return {
+      go: () => {
+        flowGo.view("ap")();
+        try {
+          openPayroll(id);
+        } catch (e) {}
+      },
+    };
+  if ("file" === k) {
+    const p = pOf("files");
+    if (p && flowCan("files"))
+      return {
+        go: () => {
+          setCurrent(p.id), flowGo.view("files")();
+        },
+      };
   }
   if ("time" === k) {
     const e = (DB.time || []).find((x) => x.id === id);
