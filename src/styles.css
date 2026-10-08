@@ -3160,3 +3160,63 @@ body.crewmode .view.on .dl-sign > span{display:block;flex:1 1 auto;min-width:0}
 .br-dec{display:flex;gap:10px;align-items:center;padding:4px 0}
 .br-dec .grow{min-width:0}
 .br-decs-all{display:inline-block;margin-top:4px}
+
+/* ---------- Today: the Owner's and PM's Home (one type scale: 16 body / 16-17 titles / 14 secondary on phone) ---------- */
+.td-home{max-width:1180px;font-size:14px}
+.td-home .td-ph{margin-bottom:12px}
+.td-pulse{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:16px}
+.td-pl{display:flex;flex-direction:column;gap:2px;padding:12px 16px;background:var(--paper);border:1px solid var(--rule);border-radius:10px;color:var(--ink);text-decoration:none;min-width:0}
+.td-pl:hover{border-color:var(--ink-4);text-decoration:none}
+.td-pl b{font-size:22px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.2;white-space:nowrap}
+.td-pl span{font-size:13px;color:var(--ink-2)}
+.td-pl.bad b{color:var(--bad)} .td-pl.warn b{color:var(--warn)}
+.td-cols{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:16px;align-items:start}
+.td-side{display:grid;gap:16px}
+.td-sec{background:var(--paper);border:1px solid var(--rule);border-radius:10px;overflow:hidden}
+.td-hd{display:flex;align-items:baseline;gap:8px;padding:12px 16px 8px}
+.td-hd h3{font-size:15px;font-weight:600}
+.td-cnt{font-size:13px;color:var(--ink-3);font-variant-numeric:tabular-nums}
+.td-card{display:flex;align-items:center;gap:12px;padding:12px 16px;border-top:1px solid var(--rule-2)}
+.td-txt{flex:1;min-width:0}
+.td-l1{font-weight:600;font-size:14px;line-height:1.35;overflow-wrap:anywhere}
+.td-l1 a{color:var(--ink)} .td-l1 a:hover{color:var(--accent)}
+.td-l2{font-size:13px;color:var(--ink-2);margin-top:2px;line-height:1.35;overflow-wrap:anywhere}
+.td-verb{flex:none;min-width:84px;justify-content:center}
+.td-ic{flex:none;color:var(--warn);display:grid;place-items:center}
+.td-more{display:block;padding:12px 16px;border-top:1px solid var(--rule-2);font-weight:500}
+.td-empty{padding:12px 16px 16px;color:var(--ink-3)}
+.td-bl{margin:0;padding:0 16px 8px 34px} .td-bl li{padding:4px 0;line-height:1.4;color:var(--ink)}
+.td-jv{padding:0 16px 8px} .td-jv .jv-body p{margin:0 0 8px;line-height:1.5}
+.td-sh-rule{margin:0 0 8px} .td-sh-n{font-size:20px;font-weight:600;font-variant-numeric:tabular-nums;margin-bottom:8px}
+.td-sh-list{border-top:1px solid var(--rule-2)}
+.td-sh-row{display:flex;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--rule-2)}
+.td-sh-row[data-tdsh]{cursor:pointer} .td-sh-row .grow{display:flex;flex-direction:column;min-width:0}
+.td-sh-row .money{flex:none} .td-sh-row.total b,.td-sh-row.total .money{font-weight:600}
+.td-sh-row.figure b,.td-sh-row.figure .money{font-weight:700}
+.td-sh-ft{margin-top:12px}
+#tb-ask svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+#tb-ask[hidden]{display:none}
+@media (max-width:760px){
+  .td-home{font-size:16px}
+  .td-home .td-ph{margin-bottom:8px} .td-home .td-ph h2{font-size:24px}
+  .td-pulse{gap:8px;margin-bottom:12px}
+  .td-pl{padding:10px 10px} .td-pl b{font-size:17px} .td-pl span{font-size:13px;line-height:1.25}
+  .td-cols,.td-side{grid-template-columns:1fr;gap:12px}
+  .td-hd h3{font-size:17px}
+  .td-l1{font-size:16px} .td-l2{font-size:14px}
+  .td-verb{min-height:40px;min-width:88px}
+  .td-more{padding:14px 16px}
+  .td-bl li{font-size:15px}
+  /* phone chrome for the office roles: navigation is the bottom tab bar; the header carries search, Ask and New */
+  body.m-on .view{padding-left:16px;padding-right:16px}
+  body.m-on .topbar{padding-left:16px;padding-right:16px}
+  body.m-on #menu-btn{display:none}
+  body.m-on .topbar .crumbs{visibility:hidden}
+  body.m-on.td-scrolled .topbar .crumbs{visibility:visible}
+  body.m-on .view .ph .lead{display:none}
+  body.m-on.td-nosub #subnav{display:none}
+  body.m-on #tb-ask span{display:none}
+  body.m-on #tb-ask{width:40px;height:40px;padding:0;justify-content:center;flex:none}
+  body.m-on #fab.m-fab{position:static;width:40px;height:40px;border-radius:var(--r);background:var(--paper);border-color:var(--rule);color:var(--ink);box-shadow:none;flex:none;z-index:auto}
+  body.m-on #fab.m-fab svg{width:18px;height:18px;stroke-width:2}
+}
