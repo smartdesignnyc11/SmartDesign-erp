@@ -38219,6 +38219,13 @@ const openBillBase_wf3 = openBill;
     !0,
   );
 const openVendorBase_wf5 = openVendor;
+// A predicate's rows, or the fallback while the registry (defined at the end of the file) is not up yet.
+function predOr(name, fallback) {
+  try {
+    if ("undefined" != typeof PRED && PRED[name]) return PRED[name].rows();
+  } catch (e) {}
+  return fallback ? fallback() : null;
+}
 function briefFacts() {
   const td = today(),
     in7 = iso(addDays(td, 7)),
@@ -38271,18 +38278,22 @@ function briefFacts() {
         .filter((i) => i.date && i.date >= td && i.date <= in7 && "passed" !== i.status)
         .map((i) => ({ p: p, i: i })),
     ),
-    decisions = DB.projects.flatMap((p) =>
-      (p.decisions || [])
-        .filter((d) => "made" !== d.status && d.due && d.due < td)
-        .map((d) => ({ p: p, d: d })),
+    // the brief counts what the screens count: past-due decisions, late-to-order and order-this-week are
+    // the predicate registry's (PRED, end of file), so the brief, Ask and the tiles say one number
+    decisions = predOr("lateDecision", () =>
+      DB.projects.flatMap((p) =>
+        (p.decisions || [])
+          .filter((d) => "made" !== d.status && d.due && d.due < td)
+          .map((d) => ({ p: p, d: d })),
+      ),
     ),
     props = proposals(),
     posPending = DB.pos.filter((po) => "pending" === po.status),
     needs = needsMe(),
     bills = reminders().filter((r) => "bill" === r.sev),
     buy = "function" == typeof buyList ? buyList("") : [],
-    buyLate = buy.filter((r) => 3 === r.sev).length,
-    buyWeek = buy.filter((r) => 2 === r.sev).length,
+    buyLate = predOr("lateMaterial", () => buy.filter((r) => 3 === r.sev)).length,
+    buyWeek = predOr("orderThisWeek", () => buy.filter((r) => 2 === r.sev)).length,
     est = DB.clients.flatMap((c) => c.estimates.filter((e) => "sent" === e.status)),
     estOut = r2(est.reduce((a, e) => a + docTotal(e).total, 0));
   return {
@@ -65547,14 +65558,16 @@ function b2Facts(F) {
         .filter((i) => issueState(i).sev >= 2 && "answered" !== i.status && "closed" !== i.status)
         .map((i) => ({ p: p, i: i })),
     )),
-    (X.decOver = DB.projects.flatMap((p) => {
-      const keep = S;
-      (S = p), applyHolidays();
-      const r = (p.decisions || [])
-        .filter((d) => "open" === d.status && decState(d).sev >= 2)
-        .map((d) => ({ p: p, d: d, st: decState(d), due: decDue(d) }));
-      return (S = keep), applyHolidays(), r;
-    })),
+    (X.decOver = predOr("lateDecision", null)
+      ? PRED.lateDecision.rows().map((x) => withProject(x.p, () => ({ p: x.p, d: x.d, st: decState(x.d), due: decDue(x.d) })))
+      : DB.projects.flatMap((p) => {
+          const keep = S;
+          (S = p), applyHolidays();
+          const r = (p.decisions || [])
+            .filter((d) => "open" === d.status && decState(d).sev >= 2)
+            .map((d) => ({ p: p, d: d, st: decState(d), due: decDue(d) }));
+          return (S = keep), applyHolidays(), r;
+        })),
     (X.noShows = ((DB.field && DB.field.subs) || [])
       .filter((s) => "noshow" === s.status && s.date >= iso(addDays(td, -3)))
       .map((s) => ({ s: s, p: DB.projects.find((p) => p.id === s.projectId) }))),
@@ -65571,8 +65584,8 @@ function b2Facts(F) {
       .filter((x) => x.fade <= -3)
       .sort((a, b) => a.fade - b.fade)),
     (X.buy = "function" == typeof buyList ? buyList("") : []),
-    (X.buyLate = X.buy.filter((r) => 3 === r.sev)),
-    (X.buyWeek = X.buy.filter((r) => 2 === r.sev)),
+    (X.buyLate = predOr("lateMaterial", () => X.buy.filter((r) => 3 === r.sev))),
+    (X.buyWeek = predOr("orderThisWeek", () => X.buy.filter((r) => 2 === r.sev))),
     (X.unacked = DB.projects.flatMap((p) =>
       (p.requests || []).filter((r) => "new" === r.status && !r.ackAt).map((r) => ({ p: p, r: r })),
     )),
