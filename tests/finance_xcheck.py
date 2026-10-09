@@ -181,13 +181,20 @@ async def check_role(pg, R, uid):
 
     # Home › Brief: the Accounting card and the brief's sentences
     if gate('home', 'Home brief'):
-        await nav(pg, 'home', 'home'); t = await text_of(pg, 'home')
-        R.money('cash', S('Home brief › Accounting card "Cash on the Books"'), t, r'Cash on the books\s*\n\s*' + MONEY)
+        await nav(pg, 'home', 'home')
+        # Today Home (Owner, PM): the brief is 3 lines with the full brief one tap away, and Safe to Spend is a
+        # Pulse number. Read the Pulse as its own surface, then open the full brief and read it as before.
+        pulse = await pg.evaluate("() => [...document.querySelectorAll('.view.on button, .view.on a')].map(e => e.innerText).filter(x => /Safe to Spend/i.test(x)).join('\\n')")
+        if pulse: R.money('safe', S('Home › Pulse "Safe to Spend"'), pulse, MONEY + r'\s*\n\s*Safe to Spend')
+        full = pg.locator('.view.on').get_by_text('Read the Full Brief', exact=True)
+        if await full.count(): await full.first.click(); await pg.wait_for_timeout(400)
+        t = await text_of(pg, 'home')
+        R.money('cash', S('Home brief › Accounting card "Cash on the Books"'), t, r'Cash on the books\s*\n\s*' + MONEY, required=not pulse)
         R.money('cash', S('Home brief › Cash sentence'), t, r'Cash: ' + MONEY + r' in the bank')
-        R.money('safe', S('Home brief › Accounting card "Safe to Spend"'), t, r'Safe to spend\s*\n\s*' + MONEY)
+        R.money('safe', S('Home brief › Accounting card "Safe to Spend"'), t, r'Safe to spend\s*\n\s*' + MONEY, required=not pulse)
         R.money('safe', S('Home brief › Cash sentence'), t, r'but ' + MONEY + r' short', sign=-1)
-        R.money('ar', S('Home brief › Accounting card "Receivables"'), t, r'Receivables\s*\n\s*' + MONEY)
-        R.money('ap_bills', S('Home brief › Accounting card "Payables"'), t, r'Payables\s*\n\s*' + MONEY)
+        R.money('ar', S('Home brief › Accounting card "Receivables"'), t, r'Receivables\s*\n\s*' + MONEY, required=not pulse)
+        R.money('ap_bills', S('Home brief › Accounting card "Payables"'), t, r'Payables\s*\n\s*' + MONEY, required=not pulse)
         R.money('ap_payroll_due', S('Home brief › Accounting card'), t, MONEY + r'[^\n]{0,20}past due', required=False)
         if who == 'owner':
             R.money('rtb', S('Home brief › handled line'), t, r'earned and not billed — ' + MONEY)
