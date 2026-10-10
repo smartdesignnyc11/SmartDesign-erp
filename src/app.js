@@ -1997,9 +1997,11 @@ function projectFromTemplate(name, addr, start, target) {
     tpl.inspections.forEach((i) => {
       (i.status = "not-scheduled"), (i.date = "");
     }),
-    tpl.decisions.forEach((d) => {
-      d.status = "open";
-    }),
+    // A template is the phase sequence and the inspections NYC will ask for. Decisions, materials, submittals
+    // and field items belong to the job they were raised on; a new job starts with none (review r5_pm, #8).
+    (tpl.decisions = []),
+    (tpl.materials = []),
+    (tpl.submittals = []),
     (tpl.comms = []),
     (tpl.issues = []),
     (tpl.baseline = null),
@@ -18003,7 +18005,7 @@ function newProjectDialog(forClientId) {
     ($("#d-title").textContent = "New project"),
     ($("#d-delete").style.display = "none"),
     ($("#d-body").innerHTML =
-      `\n    <div class="f"><label>Project name</label><input id="e-name" placeholder="e.g. 45 Garden Place"></div>\n    <div class="f"><label>Address / scope</label><input id="e-addr" placeholder="e.g. Full gut renovation · Brooklyn, NY"></div>\n    <div class="f2"><div class="f"><label>Start date</label><input type="date" id="e-start" value="${nextWork(today())}"></div><div class="f"><label>Target substantial completion</label><input type="date" id="e-target"></div></div>\n    <div class="f"><label>Client <span style="color:var(--bad)">*</span></label><select id="e-client"><option value="">— choose a client —</option>${DB.clients.map((c) => `<option value="${c.id}" ${forClientId === c.id ? "selected" : ""}>${esc(c.name)}</option>`).join("")}<option value="__new">+ New Client…</option></select><input id="e-newclient" placeholder="New client's name" style="margin-top:6px;display:${forClientId || DB.clients.length ? "none" : ""}"><span class="hint">Every project belongs to a client. One client can have many projects; their contract, invoices, decisions and documents roll up.</span></div>\n    <div class="f"><label>Start from</label><select id="e-tpl"><option value="blank">Blank — I'll add tasks or paste meeting notes</option><option value="tpl">Brownstone renovation template — ${template121().tasks.length} phases with materials, inspections and decisions, shifted to the start date</option></select><span class="hint">Templates are the fastest way to start a job with nothing forgotten; delete what doesn't apply.</span></div>`),
+      `\n    <div class="f"><label>Project name</label><input id="e-name" placeholder="e.g. 45 Garden Place"></div>\n    <div class="f"><label>Address / scope</label><input id="e-addr" placeholder="e.g. Full gut renovation · Brooklyn, NY"></div>\n    <div class="f2"><div class="f"><label>Start date</label><input type="date" id="e-start" value="${nextWork(today())}"></div><div class="f"><label>Target substantial completion</label><input type="date" id="e-target"></div></div>\n    <div class="f"><label>Client <span style="color:var(--bad)">*</span></label><select id="e-client"><option value="">— choose a client —</option>${DB.clients.map((c) => `<option value="${c.id}" ${forClientId === c.id ? "selected" : ""}>${esc(c.name)}</option>`).join("")}<option value="__new">+ New Client…</option></select><input id="e-newclient" placeholder="New client's name" style="margin-top:6px;display:${forClientId || DB.clients.length ? "none" : ""}"><span class="hint">Every project belongs to a client. One client can have many projects; their contract, invoices, decisions and documents roll up.</span></div>\n    <div class="f"><label>Start from</label><select id="e-tpl"><option value="blank">Blank — I'll add tasks or paste meeting notes</option><option value="tpl">Brownstone renovation template — ${template121().tasks.length} phases with the inspections NYC asks for, shifted to the start date</option></select><span class="hint">A template is the phase sequence and the inspections; decisions and materials are the job's own, raised as the scope is set. Delete what doesn't apply.</span></div>`),
     $("#e-client").addEventListener("change", (e) => {
       if (
         (($("#e-newclient").style.display = "__new" === e.target.value ? "" : "none"),
@@ -29830,12 +29832,65 @@ function ownInit() {
   };
   migrateClientDocs(cl), DB.clients.push(cl);
   const pj = projectFromTemplate("206 Lenox — 3rd floor turnover", "206 Lenox Ave", t0, "");
-  (pj.id = "p206"),
-    (pj.clientId = cl.id),
-    (pj.propertyId = p.id),
-    (pj.entityId = "ent1"),
-    (pj.materials = pj.materials.slice(0, 5)),
-    DB.projects.push(pj);
+  (pj.id = "p206"), (pj.clientId = cl.id), (pj.propertyId = p.id), (pj.entityId = "ent1"), lenoxScope(pj, t0), DB.projects.push(pj);
+}
+// 206 Lenox is a four-week turnover of the vacant 3rd floor, not a brownstone gut: its own few tasks, one
+// decision and two materials. The apartment's logs and photos stay on the demo task.
+function lenoxScope(pj, t0) {
+  const d = (n) => addWork(t0, n),
+    T = (id, name, trade, a, b, o) =>
+      Object.assign(
+        { id: id, name: name, trade: trade, start: d(a), end: d(b), owner: "Crew", status: "planned", type: "task", deps: [], weekendOk: !1, notes: "", actualStart: "", actualEnd: "" },
+        o || {},
+      );
+  pj.tasks = [
+    T("demo", "Demo & subfloor prep", "demo", 0, 2, { notes: "Old carpet and the kitchen vinyl out; protect the stair and the hall." }),
+    T("lpatch", "Patch, skim & paint", "paint", 3, 9, { deps: ["demo"] }),
+    T("lfloor", "Sand & refinish the floors", "floor", 10, 13, { owner: "Sub", deps: ["lpatch"] }),
+    T("lfix", "Bath and kitchen fixtures, hardware", "plumb", 14, 16, { owner: "Alberto", deps: ["lfloor"] }),
+    T("lclean", "Final clean, photos & listing", "close", 17, 18, { deps: ["lfix"] }),
+    T("lturn", "Unit ready to let", "close", 19, 19, { owner: "All", type: "milestone", deps: ["lclean"] }),
+  ];
+  pj.project.scTaskId = "lturn";
+  pj.project.target = d(19);
+  pj.project.out = d(19);
+  pj.decisions = [
+    { id: "ld1", name: "3rd floor paint colors and sheen", owner: "SmartDesigns", kind: "task", ref: "lpatch", status: "open", due: "", notes: "One scheme for the whole unit; the listing photos follow it.", scope: { kind: "task", id: "lpatch" }, options: [], impactDays: 0, impactCost: 0, timeline: [] },
+  ];
+  pj.materials = [
+    { id: "lm1", name: "Paint — 3rd floor walls, trim and ceilings", cat: "finish", taskId: "lpatch", lead: 3, when: "start", status: "needs-decision", eta: "", vendor: "", po: "", qty: "14 gal", cost: "", deliverTo: "Site", notes: "After the color decision." },
+    { id: "lm2", name: "Bath faucet, shower trim and kitchen hardware", cat: "finish", taskId: "lfix", lead: 10, when: "start", status: "not-ordered", eta: "", vendor: "", po: "", qty: "", cost: "", deliverTo: "Site", notes: "Stock finishes; nothing special-order." },
+  ];
+  pj.inspections = [];
+  pj.issues = [];
+  pj.submittals = [];
+  pj.scope = "lenox-turnover";
+  return pj;
+}
+// A saved database may still carry 121 State's template copies on 206 Lenox (or on any job started from the
+// template): the boot strips them. 206 Lenox gets its own scope once; another job keeps its phases and loses
+// only the decisions, materials, submittals and field items that are verbatim copies of 121 State's.
+function tplStripClones() {
+  const T = template121(),
+    same = (a, b) => a && b && a.id === b.id && String(a.name || a.title || "") === String(b.name || b.title || ""),
+    cloneOf = (list, src) => (list || []).filter((x) => (src || []).some((y) => same(x, y))),
+    out = [];
+  (DB.projects || []).forEach((p) => {
+    if ("p121" === p.id) return;
+    if ("p206" === p.id && "lenox-turnover" !== p.scope) {
+      const t0 = p.project.start || today();
+      return lenoxScope(p, t0), out.push([p.id, "reseeded"]);
+    }
+    const dec = cloneOf(p.decisions, T.decisions),
+      mat = cloneOf(p.materials, T.materials),
+      iss = cloneOf(p.issues, T.issues);
+    if (!dec.length && !mat.length && !iss.length) return;
+    (p.decisions = (p.decisions || []).filter((x) => !dec.includes(x))),
+      (p.materials = (p.materials || []).filter((x) => !mat.includes(x))),
+      (p.issues = (p.issues || []).filter((x) => !iss.includes(x))),
+      out.push([p.id, `${dec.length} decisions, ${mat.length} materials, ${iss.length} field items`]);
+  });
+  return out;
 }
 const companyPLBase4 = companyPL;
 companyPL = function (range) {
@@ -87190,15 +87245,16 @@ const TL_SETS = {},
     return [
       {
         key: "late",
-        k: "Running Late",
+        k: "Finish Dates Late",
+        rule: "jobs whose forecast finish is past the target date in the contract; not Home's Jobs With Late Items, which counts late materials, decisions and submittals",
         v: late.length,
         tone: late.length ? "bad" : "",
         s: late.length
           ? late
-              .map((r) => `${shortName(r.p)} +${r.h.late}d`)
+              .map((r) => `${shortName(r.p)} +${r.h.late}d past target`)
               .slice(0, 2)
               .join(" · ")
-          : "every finish date holds",
+          : "every finish date holds its target",
         grid: "portfolio",
         pred: (x, d) => d && d.h && d.h.late > 0,
       },
@@ -98635,7 +98691,7 @@ function tkHtml() {
       none: arr.filter((x) => !x.due).length,
     };
   var arr;
-  const people = [...new Set(items.map((x) => x.assignee).filter(Boolean))].sort(),
+  const people = crPeopleOf(items),
     projects = (DB.projects || []).map((p) => [p.id, (p.project.name || "").replace(/ —.*$/, "")]),
     tiles = [
       ["today", "Due Today", K.today, K.today ? "blue" : ""],
@@ -99228,7 +99284,7 @@ tkFiltered = function (items, opts) {
         week: scope.filter((x) => x.due && x.due <= wk && x.due >= td).length,
         none: scope.filter((x) => !x.due).length,
       },
-      people = [...new Set(items.map((x) => x.assignee).filter(Boolean))].sort(),
+      people = crPeopleOf(items),
       projects = (DB.projects || []).map((p) => [p.id, (p.project.name || "").replace(/ —.*$/, "")]),
       tiles = [
         ["today", "Due Today", K.today, K.today ? "blue" : ""],
@@ -99459,7 +99515,7 @@ tkFiltered = function (items, opts) {
   (tkNewDialog = function () {
     const projects = (DB.projects || []).map((p) => [p.id, (p.project.name || "").replace(/ —.*$/, "")]),
       items = tkItems(),
-      people = [...new Set([...CM_ASSIGNEES(), ...items.map((x) => x.assignee).filter(Boolean)])].sort(),
+      people = crPeopleOf(items, CM_ASSIGNEES()),
       cur =
         tkProject && "__sales" !== tkProject
           ? tkProject
@@ -103817,14 +103873,7 @@ function t2Html() {
       b || ((b = { g: g, rows: [] }), groups.push(b)), b.rows.push(x);
     });
   const projects = (DB.projects || []).map((p) => [p.id, (p.project.name || "").replace(/ —.*$/, "")]),
-    people = [
-      ...new Set(
-        tkItems()
-          .filter((x) => !x.done)
-          .map((x) => x.assignee)
-          .filter(Boolean),
-      ),
-    ].sort(),
+    people = crPeopleOf(tkItems().filter((x) => !x.done)),
     phone = mOn(),
     lead =
       "today" === t2View
@@ -116894,19 +116943,62 @@ function crToast(text, open) {
 }
 function crPeople(extra) {
   const base = "function" == typeof bnStaffNames ? bnStaffNames() : (DB.users || []).map((u) => u.name);
-  return [...new Set(base.concat(extra || []).filter(Boolean))];
+  return [...new Set(base.concat((extra || []).map(crCanonName)).filter(Boolean))];
+}
+// One person, one name. An assignee typed as "Chen" is the people record "Chen Biron"; a schedule owner written
+// "Alberto / Satish" is two people. Every list of people and every task's assignee goes through this, so the
+// filters, the grouping and the Workload never show one person twice (review r5_pm, finding 11).
+function crCanonName(name) {
+  const n = String(name || "").trim();
+  if (!n) return "";
+  if (n.includes("/")) return n.split("/").map(crCanonName).filter(Boolean).join(" / ");
+  const staff = "function" == typeof bnStaffNames ? bnStaffNames() : (DB.users || []).map((u) => u.name),
+    low = n.toLowerCase(),
+    first = low.split(" ")[0],
+    exact = staff.find((x) => String(x).toLowerCase() === low);
+  if (exact) return exact;
+  const byFirst = staff.filter((x) => String(x).toLowerCase().split(" ")[0] === first);
+  return 1 === byFirst.length ? byFirst[0] : n;
+}
+function crPeopleOf(items, extra) {
+  return [
+    ...new Set(
+      (extra || [])
+        .concat((items || []).flatMap((x) => String(x.assignee || "").split("/")))
+        .map(crCanonName)
+        .filter(Boolean),
+    ),
+  ].sort();
+}
+// A task is one person's: "Alberto / Satish" becomes Alberto's with Satish named in the notes.
+function crCanonTasks() {
+  let n = 0;
+  return (
+    (DB.projects || []).forEach((p) =>
+      (p.actions || []).forEach((a) => {
+        const was = a.assignee || "";
+        if (!was) return;
+        const parts = was.split("/").map((x) => crCanonName(x)).filter(Boolean);
+        parts.length > 1 && (a.notes = [`With ${parts.slice(1).join(", ")}.`, a.notes || ""].filter(Boolean).join("\n"));
+        const to = parts[0] || "";
+        to !== was && ((a.assignee = to), n++);
+      }),
+    ),
+    n
+  );
 }
 function crProjName(p) {
   return ((p && p.project && p.project.name) || "").replace(/ —.*$/, "");
 }
 function crForOptions(sel) {
   const projects = (DB.projects || []).map((p) => ["p:" + p.id, crProjName(p)]),
+    clients = (DB.clients || []).map((c) => ["c:" + c.id, c.name]),
+    isClient = (l) => l.clientId || clients.some(([, n]) => String(n || "").trim().toLowerCase() === String(l.name || l.leadName || "").trim().toLowerCase()),
     leads = (DB.leads || [])
       .filter(
-        (l) => !["won", "lost"].includes(l.stage) && !["Unqualified", "Junk"].includes(l.leadStatus || ""),
+        (l) => !["won", "lost"].includes(l.stage) && !["Unqualified", "Junk"].includes(l.leadStatus || "") && !isClient(l),
       )
       .map((l) => ["l:" + l.id, l.name || l.leadName || "Lead"]),
-    clients = (DB.clients || []).map((c) => ["c:" + c.id, c.name]),
     g = (label, rows) =>
       rows.length
         ? `<optgroup label="${esc(label)}">${rows.map(([v, n]) => `<option value="${v}" ${v === sel ? "selected" : ""}>${esc(n)}</option>`).join("")}</optgroup>`
@@ -116936,7 +117028,7 @@ function crCreateTask(f) {
     base = {
       id: uid("a"),
       title: f.title,
-      assignee: f.assignee || "",
+      assignee: crCanonName(f.assignee) || "",
       due: f.due || "",
       priority: pri,
       status: "todo",
@@ -122702,7 +122794,7 @@ if (void 0 !== BH && BH.dash) {
 }
 function opsBoot() {
   try {
-    DB.projects.forEach(opsNormalize), opsStudioBoot(), opsAutoBaseline(), opsPublishBoot(), opsFileDocs(), docSnapBoot();
+    tplStripClones(), crCanonTasks(), DB.projects.forEach(opsNormalize), opsStudioBoot(), opsAutoBaseline(), opsPublishBoot(), opsFileDocs(), docSnapBoot();
   } catch (e) {
     console.error("ops boot", e);
   }
@@ -124450,15 +124542,16 @@ const OV_TILES = {
       return [
         {
           key: "late",
-          k: "Running Late",
+          k: "Finish Dates Late",
+          rule: "jobs whose forecast finish is past the target date in the contract; not Home's Jobs With Late Items, which counts late materials, decisions and submittals",
           v: late.length,
           tone: late.length ? "bad" : "",
           s: late.length
             ? late
                 .slice(0, 2)
-                .map((r) => `${shortName(r.p)} +${r.h.late}d`)
+                .map((r) => `${shortName(r.p)} +${r.h.late}d past target`)
                 .join(" · ")
-            : "every finish date holds",
+            : "every finish date holds its target",
           pred: (r) => r.late,
         },
         {
@@ -136370,15 +136463,16 @@ if (
       return [
         {
           key: "late",
-          k: "Running Late",
+          k: "Finish Dates Late",
+          rule: "jobs whose forecast finish is past the target date in the contract; not Home's Jobs With Late Items, which counts late materials, decisions and submittals",
           v: late.length,
           tone: late.length ? "bad" : "",
           s: late.length
             ? late
                 .slice(0, 2)
-                .map((r) => `${shortName(r.p)} +${r.h.late}d`)
+                .map((r) => `${shortName(r.p)} +${r.h.late}d past target`)
                 .join(" · ")
-            : "every finish date holds",
+            : "every finish date holds its target",
           pred: (r) => r.late,
         },
         {
@@ -144966,14 +145060,7 @@ function t2ActsHtml(ctx) {
 function t2ToolsHtml(ctx) {
   const phone = mOn(),
     projects = (DB.projects || []).map((p) => [p.id, (p.project.name || "").replace(/ —.*$/, "")]),
-    people = [
-      ...new Set(
-        tkItems()
-          .filter((x) => !x.done)
-          .map((x) => x.assignee)
-          .filter(Boolean),
-      ),
-    ].sort(),
+    people = crPeopleOf(tkItems().filter((x) => !x.done)),
     queues = (DB.hub && DB.hub.queues) || [],
     gb = t2GroupBy(),
     named = tkWho && !["me", "all", "none"].includes(tkWho),
@@ -161532,6 +161619,14 @@ predDef("siteQuestions", {
     return predJobs(scope).flatMap((p) => ocFieldWaiting(p).map((x) => ({ p: p, x: x })));
   },
 });
+// The questions from the site waiting on me: the same rows as the Approvals chip "Site Questions" (DELEGATION
+// hands a question to the person it was sent to), so Home and Approvals show one number under one label.
+predDef("siteQuestionsMine", {
+  label: "Site Questions",
+  rule: "questions from the site waiting on you to answer, the same list as Approvals' Site Questions",
+  can: () => predCan("mapprove"),
+  rows: () => (predCan("mapprove") ? mApprovals().filter((x) => "raise" === x.kind) : []),
+});
 // A job's Needs You (its Today page, its Today tab badge, the Projects overview): what is late on it,
 // plus the inspections to book and the questions from the site.
 predDef("jobNeeds", {
@@ -163909,8 +164004,8 @@ predDef("jobsAtRisk", {
 // Jobs, not items: the PM thinks in jobs. One row per live job with something late on it, the items underneath.
 // (The Pulse said "Late on Jobs 10" and counted the items; its sheet now lists 2 jobs and the 10 items under them.)
 predDef("jobsLate", {
-  label: "Jobs Late",
-  rule: "jobs with something late on them: materials late to order, decisions past due or late submittals",
+  label: "Jobs With Late Items",
+  rule: "jobs with something late on them: materials late to order, decisions past due or late submittals; not Projects' Finish Dates Late, which is the forecast finish past its target",
   rows(scope) {
     return predJobs(scope)
       .filter((p) => !p.archived && "closed" !== (p.project || {}).status)
@@ -163953,7 +164048,7 @@ const TD_PULSE = {
   pm: [
     {
       k: "late",
-      label: "Jobs Late",
+      label: "Jobs With Late Items",
       pred: "jobsLate",
       noun: "job",
       mine: !0,
@@ -163973,8 +164068,7 @@ const TD_PULSE = {
     {
       k: "site",
       label: "Site Questions",
-      pred: "siteQuestions",
-      mine: !0,
+      pred: "siteQuestionsMine",
       tone: (v) => (v ? "warn" : ""),
       go: () => ((window.mApprKind = "raise"), setView("mapprove")),
       goLabel: "Open Approvals",
@@ -164034,6 +164128,11 @@ function tdPulseLine(t, x, inJob) {
     case "siteQuestions": {
       const r = x.x || {};
       return [r.title || "Question from the site", `${tdJob(x.p)}${r.by ? " · " + r.by : ""}`, null, flowGo.raise(r)];
+    }
+    case "siteQuestionsMine": {
+      const r = ((DB.field || {}).raises || []).find((q) => q.id === x.id) || {},
+        p = r.projectId && DB.projects.find((q) => q.id === r.projectId);
+      return [r.title || x.title || "Question from the site", `${p ? tdJob(p) : ""}${r.by ? " · " + r.by : ""}`, null, r.id ? flowGo.raise(r) : null];
     }
   }
   return [String(x), "", null, null];
