@@ -14798,108 +14798,152 @@ function timeAction(e, a) {
 }
 // The pay period a day falls in: two weeks, Monday to Sunday, anchored on the firm's first period (the seed's
 // 8/17 – 8/28 run); payday is the second Friday.
+// A run's entries: a run built from time holds its own (payrollId); a run typed by hand covers its dates for its entity.
+function prInRun(r, e) {
+  return r && e ? (r.fromTime ? e.payrollId === r.id : e.date >= r.from && e.date <= r.to && entOfEmpId(e.empId) === (r.entityId || "ent1")) : !1;
+}
+// each entity's share of a run: a run across entities carries r.entities; any other run is one entity's
+function prParts(r) {
+  return r && Array.isArray(r.entities) && r.entities.length ? r.entities : [{ entityId: (r && r.entityId) || "ent1", gross: +(r && r.gross) || 0, taxes: +(r && r.taxes) || 0, total: +(r && r.total) || 0 }];
+}
 function payPeriodOf(day) {
   const anchor = (DB.company && DB.company.payAnchor) || "2026-08-17",
     k = Math.floor(dayDiff(anchor, day) / 14),
     from = iso(addDays(anchor, 14 * k));
   return { from: from, to: iso(addDays(from, 13)), payDate: iso(addDays(from, 11)) };
 }
-function payrollFromTime() {
-  // A run is built for one pay period: the one today is in (or the last one that ended, if today's has no hours
-  // yet). Approved hours from earlier periods are not swept into it; they were paid by an earlier run or need one
-  // of their own, and the toast says how many there are.
-  const all = DB.time.filter((t) => "approved" === t.status && !t.payrollId);
-  if (!all.length) return void toast("No approved hours waiting for a payroll run");
+// One run per pay period, across the firm's entities (the payroll service pays everyone in one run; each
+// entity's share is kept inside the run, r.entities, and posts to its own books). The run holds every approved
+// hour of its period not yet in a run, and hours of an earlier period approved after that period's run was built
+// from time (paid on this run, named as late). An open run (not yet approved) for the
+// period is rebuilt, never doubled, so it always holds what was approved by the time it is approved
+// (payrollRebuildOpen, a day hook). Whoever builds a run does not approve it (payrollAction).
+function payrollFromTime(opts) {
+  const o = opts || {};
   let P = payPeriodOf(today());
-  all.some((t) => t.date >= P.from && t.date <= P.to) || (P = payPeriodOf(iso(addDays(P.from, -1))));
-  const entries = all.filter((t) => t.date >= P.from && t.date <= P.to),
-    older = all.filter((t) => t.date < P.from);
-  if (!entries.length) return void toast(`No approved hours in the ${fmt(P.from)} – ${fmt(P.to)} pay period${older.length ? `; ${older.length} older approved entr${1 === older.length ? "y is" : "ies are"} in no run` : ""}`);
-  const dates = [P.from, P.payDate],
+  const all = DB.time.filter((t) => "approved" === t.status && !t.payrollId);
+  all.some((t) => t.date >= P.from && t.date <= P.to) ||
+    DB.payroll.some((r) => r.fromTime && r.from === P.from && ["draft", "submitted"].includes(r.status)) ||
+    (P = payPeriodOf(iso(addDays(P.from, -1))));
+  const open = DB.payroll.find((r) => r.fromTime && r.from === P.from && ["draft", "submitted"].includes(r.status)),
+    // late hours: dated in an earlier period whose run was built from time, approved after that run went out
+    built = DB.payroll.filter((r) => r.fromTime && r.from < P.from && !["rejected", "void"].includes(r.status)),
+    lateOk = (t) => built.some((r) => t.date >= r.from && t.date <= payPeriodOf(r.from).to),
+    entries = all.filter((t) => (t.date >= P.from && t.date <= P.to) || (t.date < P.from && lateOk(t))).concat(open ? DB.time.filter((t) => t.payrollId === open.id) : []);
+  if (!entries.length) {
+    o.quiet || toast(`No approved hours waiting for a payroll run in the ${fmt(P.from)} – ${fmt(P.to)} pay period`);
+    return null;
+  }
+  const late = entries.filter((t) => t.date < P.from),
+    perEmp = {},
     byEnt = {};
   entries.forEach((t) => {
     const e = DB.employees.find((x) => x.id === t.empId),
-      ent = e?.entityId || DB.entities[0].id;
-    (byEnt[ent] = byEnt[ent] || []).push(t);
+      h = hoursOf(t),
+      p = (perEmp[t.empId] = perEmp[t.empId] || { id: t.empId, name: e?.name, entityId: e?.entityId || DB.entities[0].id, rate: e?.rate || 0, burden: e?.burden || 0, hours: 0, byProj: {} });
+    (p.hours += h),
+      t.work && t.work.length && Math.abs(workHours(t) - h) <= 0.26
+        ? t.work.forEach((w) => {
+            p.byProj[w.projectId || ""] = (p.byProj[w.projectId || ""] || 0) + (+w.hours || 0);
+          })
+        : (p.byProj[t.projectId || ""] = (p.byProj[t.projectId || ""] || 0) + h);
   });
-  const created = [];
-  for (const [entityId, list] of Object.entries(byEnt)) {
-    const perEmp = {};
-    list.forEach((t) => {
-      const e = DB.employees.find((x) => x.id === t.empId),
-        h = hoursOf(t),
-        p = (perEmp[t.empId] = perEmp[t.empId] || {
-          name: e?.name,
-          rate: e?.rate || 0,
-          burden: e?.burden || 0,
-          hours: 0,
-          byProj: {},
-        });
-      (p.hours += h),
-        t.work && t.work.length && Math.abs(workHours(t) - h) <= 0.26
-          ? t.work.forEach((w) => {
-              p.byProj[w.projectId || ""] = (p.byProj[w.projectId || ""] || 0) + (+w.hours || 0);
-            })
-          : (p.byProj[t.projectId || ""] = (p.byProj[t.projectId || ""] || 0) + h);
+  let gross = 0,
+    taxes = 0;
+  const projAmt = {},
+    detail = [];
+  Object.values(perEmp).forEach((p) => {
+    const reg = Math.min(p.hours, 40),
+      ot = Math.max(0, p.hours - 40),
+      g = r2(reg * p.rate + ot * p.rate * 1.5),
+      tx = r2((g * p.burden) / 100),
+      E = (byEnt[p.entityId] = byEnt[p.entityId] || { entityId: p.entityId, employees: 0, hours: 0, gross: 0, taxes: 0, total: 0 });
+    (gross += g), (taxes += tx), E.employees++, (E.hours = r2(E.hours + p.hours)), (E.gross = r2(E.gross + g)), (E.taxes = r2(E.taxes + tx)), (E.total = r2(E.gross + E.taxes));
+    Object.entries(p.byProj).forEach(([pid, h]) => {
+      projAmt[pid] = (projAmt[pid] || 0) + g * (1 + p.burden / 100) * (h / (p.hours || 1));
     });
-    let gross = 0,
-      taxes = 0;
-    const projAmt = {};
-    Object.values(perEmp).forEach((p) => {
-      const reg = Math.min(p.hours, 40),
-        ot = Math.max(0, p.hours - 40),
-        g = r2(reg * p.rate + ot * p.rate * 1.5);
-      (gross += g),
-        (taxes += r2((g * p.burden) / 100)),
-        Object.entries(p.byProj).forEach(([pid, h]) => {
-          projAmt[pid] = (projAmt[pid] || 0) + g * (1 + p.burden / 100) * (h / p.hours);
-        });
-    });
-    const total = r2(gross + taxes),
-      alloc = Object.entries(projAmt).map(([pid, amt]) => ({ projectId: pid, pct: r2((amt / total) * 100) })),
-      run = {
+    detail.push({ name: p.name, hours: r2(p.hours), rate: p.rate, gross: g, entityId: p.entityId });
+  });
+  const total = r2(gross + taxes),
+    ents = Object.values(byEnt).sort((a, b) => b.total - a.total),
+    alloc = Object.entries(projAmt).map(([pid, amt]) => ({ projectId: pid, pct: total ? r2((amt / total) * 100) : 0 })),
+    by = S.project.userName || role(),
+    fields = {
+      period: `${fmt(P.from)} – ${fmt(P.payDate)}`,
+      from: P.from,
+      to: P.payDate,
+      entityId: ents[0].entityId,
+      entities: ents.length > 1 ? ents : null,
+      employees: Object.keys(perEmp).length,
+      gross: r2(gross),
+      taxes: r2(taxes),
+      total: total,
+      alloc: alloc,
+      notes: `From ${entries.length} approved time entries: ${Object.values(perEmp)
+        .map((p) => `${p.name} ${p.hours.toFixed(1)}h`)
+        .join(", ")}. Overtime over 40 h at 1.5×.${ents.length > 1 ? ` Across ${ents.length} entities: ${ents.map((x) => `${entName(x.entityId)} ${money(x.total)}`).join(", ")}.` : ""}${late.length ? ` ${late.length} entr${1 === late.length ? "y" : "ies"} from earlier periods, approved after their run, paid on this one.` : ""}`,
+      fromTime: !0,
+      detail: detail,
+      late: late.length,
+    };
+  let run = open;
+  if (run) {
+    const was = run.total;
+    Object.assign(run, fields),
+      Math.abs(was - total) > 0.005 &&
+        (run.approvals.push({ t: nowStamp(), ts: appNowIso(), by: by, role: role(), action: `rebuilt from approved time: ${money(was)} → ${money(total)}` }), delete run.allocReview),
+      audit("payroll", run.id, "rebuilt-from-time", { total: was }, { entries: entries.length, total: total });
+  } else
+    (run = Object.assign(
+      {
         id: uid("pr"),
-        period: `${fmt(dates[0])} – ${fmt(dates[dates.length - 1])}`,
-        from: P.from,
-        to: P.payDate,
         payDate: P.payDate < today() ? addWork(today(), 3) : P.payDate,
-        entityId: entityId,
-        employees: Object.keys(perEmp).length,
-        gross: r2(gross),
-        taxes: r2(taxes),
-        total: total,
-        alloc: alloc,
         status: "submitted",
-        approvals: [
-          {
-            t: nowStamp(),
-            ts: appNowIso(),
-            by: S.project.userName || role(),
-            role: role(),
-            action: "built from approved time",
-          },
-        ],
+        approvals: [{ t: nowStamp(), ts: appNowIso(), by: by, role: role(), action: "built from approved time" }],
         createdBy: S.project.userName || "",
-        notes: `From ${list.length} approved time entries: ${Object.values(perEmp)
-          .map((p) => `${p.name} ${p.hours.toFixed(1)}h`)
-          .join(", ")}. Overtime over 40 h at 1.5×.`,
-        fromTime: !0,
-        detail: Object.values(perEmp).map((p) => ({
-          name: p.name,
-          hours: r2(p.hours),
-          rate: p.rate,
-          gross: r2(Math.min(p.hours, 40) * p.rate + Math.max(0, p.hours - 40) * p.rate * 1.5),
-        })),
-      };
-    DB.payroll.push(run),
-      list.forEach((t) => (t.payrollId = run.id)),
-      audit("payroll", run.id, "built-from-time", null, { entries: list.length, total: total }),
-      created.push(run);
-  }
-  save(),
-    render(),
-    toast(`${created.length} payroll run${created.length > 1 ? "s" : ""} built for ${fmt(P.from)} – ${fmt(P.payDate)} — awaiting Owner approval${older.length ? `; ${older.length} older approved entr${1 === older.length ? "y is" : "ies are"} in no run` : ""}`),
+      },
+      fields,
+    )),
+      DB.payroll.push(run),
+      audit("payroll", run.id, "built-from-time", null, { entries: entries.length, total: total });
+  entries.forEach((t) => (t.payrollId = run.id));
+  save();
+  if (!o.quiet) {
+    render();
+    toast(`Payroll ${run.period}: ${money(run.total)} from ${entries.length} approved entr${1 === entries.length ? "y" : "ies"}${ents.length > 1 ? ` across ${ents.length} entities` : ""}${open ? " (the open run, rebuilt)" : ""} — the Owner approves it`);
     setView("ap");
+  }
+  return run;
+}
+// each morning an open run takes in the hours approved since it was built (dated through its period)
+function payrollRebuildOpen() {
+  let n = 0;
+  (DB.payroll || [])
+    .filter((r) => r.fromTime && ["draft", "submitted"].includes(r.status))
+    .forEach((r) => {
+      const P = payPeriodOf(r.from),
+        more = DB.time.some((t) => "approved" === t.status && !t.payrollId && t.date >= P.from && t.date <= P.to);
+      if (!more) return;
+      const keep = S.project.userName;
+      try {
+        S.project.userName = r.createdBy || keep;
+        payrollFromTimeFor(r, P), n++;
+      } finally {
+        S.project.userName = keep;
+      }
+    });
+  return n;
+}
+function payrollFromTimeFor(r, P) {
+  // rebuild a run whose period is not today's: the same reading, pinned to its own period
+  if (!S || !S.project) return null;
+  const keep = S.project.today;
+  try {
+    S.project.today = P.to;
+    return payrollFromTime({ quiet: !0 });
+  } finally {
+    S.project.today = keep;
+  }
 }
 function employeesDialog() {
   (editing = { kind: "employees" }),
@@ -134752,9 +134796,7 @@ fin2AllocFromHours = function (r) {
   let W = 0,
     unHours = 0;
   (DB.time || [])
-    .filter(
-      (e) => "approved" === e.status && e.date >= r.from && e.date <= r.to && entOfEmpId(e.empId) === ent,
-    )
+    .filter((e) => "approved" === e.status && prInRun(r, e) && (r.fromTime || entOfEmpId(e.empId) === ent))
     .forEach((e) => {
       const emp = (DB.employees || []).find((x) => x.id === e.empId),
         h = hoursOf(e);
@@ -134898,30 +134940,26 @@ if (
             (FIN_RUN_POSTED.includes(r.status) || accrued.has(r.id)) &&
             !["void", "rejected"].includes(r.status),
         )
-        .map((r) => {
-          const ent = r.entityId || "ent1";
-          let W = 0;
-          return (
-            (DB.time || [])
-              .filter(
-                (e) =>
-                  "approved" === e.status &&
-                  e.projectId &&
-                  e.date >= r.from &&
-                  e.date <= r.to &&
-                  entOfEmpId(e.empId) === ent,
-              )
-              .forEach((e) => {
-                const emp = (DB.employees || []).find((x) => x.id === e.empId);
-                W += hoursOf(e) * (+(emp || {}).rate || 0);
-              }),
-            { r: r, ent: ent, k: (+r.total / +r.gross) * (W > +r.gross ? +r.gross / W : 1) }
-          );
-        });
+        // one entry per entity inside the run (a run across entities keeps each entity's share, prParts)
+        .flatMap((r) =>
+          prParts(r).map((part) => {
+            const ent = part.entityId;
+            let W = 0;
+            return (
+              (DB.time || [])
+                .filter((e) => "approved" === e.status && e.projectId && prInRun(r, e) && entOfEmpId(e.empId) === ent)
+                .forEach((e) => {
+                  const emp = (DB.employees || []).find((x) => x.id === e.empId);
+                  W += hoursOf(e) * (+(emp || {}).rate || 0);
+                }),
+              { r: r, ent: ent, k: +part.gross ? (+part.total / +part.gross) * (W > +part.gross ? +part.gross / W : 1) : 1 }
+            );
+          }),
+        );
     return (e, emp) => {
       if (!e || "approved" !== e.status || !e.projectId) return 1;
       const ent = (emp && emp.entityId) || "ent1",
-        m = runs.find((x) => x.ent === ent && e.date >= x.r.from && e.date <= x.r.to);
+        m = runs.find((x) => x.ent === ent && prInRun(x.r, e));
       if (!m) return 1;
       const lr = laborRate(emp);
       return lr ? ((+emp.rate || 0) * m.k) / lr : 1;
@@ -175589,22 +175627,23 @@ AG_FIN.unshift({
   },
 });
 
-// ---- 3. Ask: refunds and vendor credits not matched to their charge, or owed to the client and not yet credited
-AG_FIN.unshift({
-  id: "credits",
-  re: /\b(refunds?|vendor credits?|credits?|returns?)\b.*\b(not|never|haven'?t been|unmatched|un-?credited)\b.*\b(matched|credited|client)\b|\bcredits? (owed|due) to (the )?clients?\b/,
-  kind: "money",
-  run(P) {
-    const C = (DB.txns || []).filter((t) => +t.amt > 0 && (t.creditOf || t.creditBillId || /\b(CREDIT|REFUND|RETURN|RTN)\b/i.test(t.desc || "")) && agOnJob(P, t.projectId || "") && !(P.jobs.length && !t.projectId)),
-      unm = C.filter((t) => "confirmed" !== t.creditState && !t.retId && !(t.match && Object.values(t.match).some(Boolean)) && !t.exception),
-      owe = ("function" == typeof blCreditRows ? blCreditRows() : []).filter((x) => agOnJob(P, x.job && x.job.id));
-    return {
-      headline: unm.length || owe.length
-        ? `${unm.length ? `${agN(unm.length, "credit")} not confirmed against the charge it relieves: ${agList(unm.map((t) => `${t.desc} ${money(t.amt)}`))}` : "Every credit is matched to its charge"}; ${owe.length ? `${agN(owe.length, "credit")} owed to the client and not on an invoice yet: ${agList(owe.map((x) => `${x.client ? x.client.name : "the client"} ${money(Math.abs(x.amount))}`))}` : "no credit is owed to a client"}.`
-        : "Every refund and vendor credit is matched, and no credit is owed to a client.",
-      work: unm.map((t) => `${fmtL(t.date)} · ${t.desc} — ${money(t.amt)}${"function" == typeof txnCreditWhy && txnCreditWhy(t) ? " · " + txnCreditWhy(t) : ""}`).concat(owe.map((x) => `Credit ${x.client ? x.client.name : "the client"} ${money(Math.abs(x.amount))} — ${x.why}`)),
-      go: agGo("billing") || agGo("bank"),
-      ran: agRan("bank credits and client credits", agWhereJob(P).concat(["not matched or not credited"]), "", unm.length + owe.length),
-    };
-  },
-});
+// ---- 7. payroll: one run per pay period across entities; each entity's share posts to its own books
+{
+  const base = glPayrollLines;
+  glPayrollLines = function (r) {
+    const P = prParts(r);
+    if (P.length < 2 || !(+r.total > 0)) return base.apply(this, arguments);
+    return P.flatMap((part) => base.call(this, Object.assign({}, r, { gross: part.gross, taxes: part.taxes, total: part.total })).map((l) => Object.assign(l, { entityId: part.entityId })));
+  };
+}
+"undefined" != typeof APP_DAY_HOOKS &&
+  APP_DAY_HOOKS.push([
+    "payrollRebuildOpen",
+    () => {
+      try {
+        return payrollRebuildOpen(), !0;
+      } catch (e) {
+        return !1;
+      }
+    },
+  ]);

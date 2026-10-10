@@ -329,6 +329,7 @@ SCENARIOS = [
     (1, 'earned', 'Earned, not billed: hold per line; CO lines from 0; a drafted application says Send', s1_earned),
     (2, 'reimb', 'Bought for a client: reimbursable rows billed at cost plus markup, one number with spUnbilled', s2_reimb),
     (3, 'credit', 'A refund on a purchase billed to the client: a client credit drafted onto an invoice', s3_credit),
+    (7, 'payroll', 'One payroll run per pay period across entities, built from every hour approved by its date', s7_payroll),
 ]
 
 
