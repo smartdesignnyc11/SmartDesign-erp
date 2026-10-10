@@ -219,13 +219,13 @@ const SAY = {
 const POL = {
   owner: { home: [{ verb: /^Approve$/ }, { verb: /^Dispute Difference$/ }, { verb: /^Chase COI$/, chase: 1, max: 2 }, { verb: /^Chase$/, chase: 1, max: 2 }],
     mapprove: [{ verb: /^Approve$/, kind: /^bill$/ }, { verb: /^(Approve|Post|Approve & Post)/, kind: /^(journal|payroll|learn)$/ }] },
-  pm: { home: [{ verb: /^Answer$/ }, { verb: /^(Approve|Recommend)$/ }, { verb: /^Add Task$/, max: 2 }, { verb: /^Chase$/, chase: 1, max: 1 }],
+  pm: { home: [{ verb: /^Answer$/ }, { verb: /^(Approve|Recommend)$/ }, { verb: /^Make It a Task$/, max: 2 }, { verb: /^Chase$/, chase: 1, max: 1 }],
     mapprove: [{ verb: /^Approve All Hours/ }, { verb: /^Answer$/ }, { verb: /^(Approve|Recommend)$/, kind: /^(bill|time)$/ }, { verb: /^Open$/, kind: /^meeting$/, follow: /^Approve All/ }] },
-  coord: { home: [{ verb: /^Acknowledge$/ }, { verb: /^(Apply|Add Task)$/, max: 4 }, { verb: /^Chase$/, chase: 1, max: 2 }],
+  coord: { home: [{ verb: /^Acknowledge$/ }, { verb: /^(Apply|Make It a Task)$/, max: 4 }, { verb: /^Chase$/, chase: 1, max: 2 }],
     mapprove: [{ verb: /^Acknowledge$/, follow: /^Acknowledge$/ }, { verb: /^Answer$/, follow: /^Answer$/ }, { verb: /^Open$/, kind: /^meeting$/, follow: /^Approve All/ }] },
   billing: { billing: [{ verb: /^Draft$/, follow: /^Send to Client$/ }, { verb: /^Send$/ }], home: [{ verb: /^(Record Payment|Resolve)$/ }, { verb: /^(Draft|Draft It)$/, follow: /^Send to Client$/ }, { verb: /^Confirm$/ }, { verb: /^Apply$/, max: 3 }] },
   controller: { home: [{ verb: /^Confirm$/, follow: /^Confirm$/ }, { verb: /^Apply$/, max: 4 }], bank: [{ verb: /^Confirm$/, kind: /^proposal$/ }, { verb: /^Accept$/ }, { verb: /^Match to a Line/, kind: /^unmatched$/ }] },
-  designer: { sday: [{ verb: /^Answer$/ }, { verb: /^Add Task$/ }] },
+  designer: { sday: [{ verb: /^Answer$/ }, { verb: /^Make It a Task$/ }] },
   foreman: { ftoday: [{ verb: /^Got It$/ }, { verb: /^Still Need This$/, chase: 1, max: 2 }] },
   client: { client: [{ verb: /^(Choose|Approve)$/ }] },
 };

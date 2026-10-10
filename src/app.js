@@ -171983,7 +171983,7 @@ const NYH_MAIL = {
   deposit: () => "billing",
   lpc: () => "designer",
 };
-const NYH_VERB = { bill: "Apply", statement: "Apply", quote: "Apply", receipt: "Apply", coi: "Apply", w9: "Apply", eta: "Apply", pickup: "Apply", credit: "Apply", deposit: "Apply", lpc: "Add Task" };
+const NYH_VERB = { bill: "Apply", statement: "Apply", quote: "Apply", receipt: "Apply", coi: "Apply", w9: "Apply", eta: "Apply", pickup: "Apply", credit: "Apply", deposit: "Apply", lpc: "Make It a Task" };
 const lnHandDone = (key) => !!(lnInit().hand[key] && lnInit().hand[key].done);
 const lnUid = () => ((currentUser() || {}).id) || "";
 // a row: {key, route (role), kind (mail|deposit|undeposited|payroll|master|rule|promise|learn), title, why, amount, verb, run, open}
@@ -172017,7 +172017,9 @@ function nyhRowsAll() {
       if (["ignored", "spam", "applied"].includes(c.status)) return;
       (c.proposals || []).forEach((pr) => {
         const f = NYH_MAIL[pr.kind];
-        if (!f || !lnOpenProp(pr)) return;
+        // an LPC comment stays the designer's until her task exists, even when someone filed the comment from
+        // the Inbox (the PM applies LPC mail to the application; the revision is still hers to make)
+        if (!f || ("lpc" === pr.kind ? "set aside" === pr.applied : !lnOpenProp(pr))) return;
         const route = f(c, pr);
         if (!route) return;
         const id = String(pr.number || pr.billId || "") || `${pr.vendorId || pr.vendorName || pr.vendor || pr.clientId || ""}:${pr.amount || pr.exp || pr.date || ""}`,
@@ -172030,7 +172032,7 @@ function nyhRowsAll() {
     Object.entries(best).forEach(([key, x]) => {
       const { c: c, pr: pr, route: route } = x;
       // a copy of the same proposal applied in another mailbox counts as done
-      if (lnSameProps(c, pr).some((y) => !lnOpenProp(y.pr))) return;
+      if ("lpc" !== pr.kind && lnSameProps(c, pr).some((y) => !lnOpenProp(y.pr))) return;
       const job = lnJob((c.route || {}).projectId || pr.projectId);
       push({
         key: key,
@@ -172042,7 +172044,7 @@ function nyhRowsAll() {
         amount: +pr.amount || 0,
         verb: NYH_VERB[pr.kind] || "Apply",
         no: "Not This",
-        run: () => ("lpc" === pr.kind ? nyhLpcTask(c, pr) : nyhApplyMail(c, pr)),
+        run: () => ("lpc" === pr.kind ? nyhLpcTask(c, pr, key) : nyhApplyMail(c, pr)),
         skip: () => nyhSkipMail(c, pr),
         open: () => {
           (window.cmFilter = "all"), (view = "comms"), render();
@@ -172174,7 +172176,7 @@ function nyhRowsAll() {
               kind: "rule",
               title: f.task.title,
               why: `the rule "${l.title}" fired on ${f.what}`,
-              verb: "Add Task",
+              verb: "Make It a Task",
               no: "Not Now",
               run: () => nyhRuleTask(l, f),
               skip: () => {
@@ -172199,7 +172201,7 @@ function nyhRowsAll() {
           kind: "promise",
           title: `You promised ${p.to || "them"}: ${p.what}`,
           why: `in your mail of ${fmtL(lnDay(p.c.date))} · due ${fmtL(p.due)}${p.projectId ? " · " + lnJob(p.projectId) : ""}`,
-          verb: "Add Task",
+          verb: "Make It a Task",
           no: "Not Now",
           run: () => nyhPromiseTask(p),
           open: () => {
@@ -172272,10 +172274,11 @@ function nyhSkipMail(c, pr) {
 }
 // LPC or an examiner wrote back: the comment goes on the application (the reader's apply) and the designer
 // gets a dated task to revise and resubmit
-function nyhLpcTask(c, pr) {
+function nyhLpcTask(c, pr, key) {
   try {
-    cmApply(c, pr);
+    pr.applied || cmApply(c, pr);
   } catch (e) {}
+  key && (lnInit().hand[key] = { done: !0, at: today() });
   const item = lnLpcItem(lnAll(c)),
     pid = (c.route || {}).projectId || pr.projectId || ((("function" == typeof cmJobNamed && cmJobNamed(lnAll(c))) || {}).id) || "",
     p = (DB.projects || []).find((x) => x.id === pid) || S,
@@ -172329,7 +172332,8 @@ function nyhMaster(u, m, yes) {
   save(), render();
 }
 function nyhPayroll(r, a) {
-  const keep = S;
+  const keep = S,
+    was = r.status;
   S = S || (DB.projects || [])[0];
   try {
     payrollAction(r, a);
@@ -172338,6 +172342,9 @@ function nyhPayroll(r, a) {
   } finally {
     S = keep;
   }
+  // a run that asks first (the split review, a total far from the recent average) has its sheet open: the screen
+  // stays as it is, so "Yes, Continue" replays the very button that asked
+  if (r.status === was && document.getElementById("mbm")) return;
   save(), render();
   "approved" === r.status && rcToast(`Payroll ${r.period} approved — ${lnMoney(r.total)} pays ${fmtL(r.payDate)}`, [{ label: "Open", run: () => ("function" == typeof openPayroll ? openPayroll(r.id) : ((view = "ap"), render())) }]);
 }

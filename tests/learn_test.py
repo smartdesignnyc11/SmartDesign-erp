@@ -108,7 +108,7 @@ async def sec_loop(p, c):
     # the firing is the coordinator's card; one tap makes the task
     await sign_in(pg, 'u_chen')
     rows = await pg.evaluate("() => nyhRows().filter(r => r.kind === 'rule').map(r => ({ key: r.key, title: r.title, verb: r.verb }))")
-    c.ok(len(rows) == 2 and all(r['verb'] == 'Add Task' for r in rows), f"the rule's firings are the coordinator's cards: {rows}")
+    c.ok(len(rows) == 2 and all(r['verb'] == 'Make It a Task' for r in rows), f"the rule's firings are the coordinator's cards: {rows}")
     inq = await pg.evaluate("() => PRED.waitingOnMe.rows().filter(x => x.nyh && x.nyh.kind === 'rule').length")
     c.ok(inq == 2, f"the same cards are in the coordinator's Approvals (one queue): {inq}")
     await go(pg, 'home'); await pg.wait_for_timeout(300)
