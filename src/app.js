@@ -9643,7 +9643,8 @@ function renderBank() {
         get: (t) => ({
           text: t.desc,
           // a vendor credit says what it is against, with Confirm (txnCreditLine, purchasing section)
-          html: `${esc(t.desc)}${t.vendor ? `<span class="sub">${esc(t.vendor)}</span>` : ""}${"function" == typeof txnCreditLine ? txnCreditLine(t) : ""}`,
+          // and what else the line is waiting on: billed back to the client, a duplicate, no bank line (txnFlagsHtml, leaks2)
+          html: `${esc(t.desc)}${t.vendor ? `<span class="sub">${esc(t.vendor)}</span>` : ""}${"function" == typeof txnCreditLine ? txnCreditLine(t) : ""}${"function" == typeof txnFlagsHtml ? txnFlagsHtml(t) : ""}`,
         }),
       },
       {
@@ -57242,15 +57243,17 @@ function spUnbilledHtml(rows) {
   if (!rows.length)
     return '<div class="empty">Every cost on every line has been billed. That is rarer than it sounds.</div>';
   const K = {
+    reimbursable: ["warn", "Bought for the client and not billed back"],
+    floated: ["warn", "Materials bought and delivered on a contract line, beyond what the client has been billed for it"],
     unbilled: ["warn", "Cost above what has been billed"],
     "over-contract": ["bad", "Cost above the contract value of the line"],
     "no-line": ["bad", "Job cost on no line at all"],
   };
-  return `<p class="small muted" style="margin:0 0 8px">The list Jeanette builds by reading. A cost has landed on a line and the client has not been asked for it — the $2,200 washer and dryer billed at $1,648.98, the hamper pull-out nobody billed, the second trash pull-out. Sorted by what is at stake.</p>\n  <div class="proc-wrap"><table class="t an"><thead><tr><th>Job</th><th>Line</th><th></th><th class="money">Cost</th><th class="money">Billed</th><th class="money">Not billed</th><th class="money">Contract</th></tr></thead>\n  <tbody>${rows
+  return `<p class="small muted" style="margin:0 0 8px">What the client has not been asked for yet: purchases bought for them and materials bought and delivered on a line beyond what they have been billed. The same rows as Ready to Bill in the Billing Queue, sorted by what is at stake.</p>\n  <div class="proc-wrap"><table class="t an"><thead><tr><th>Job</th><th>Line</th><th></th><th class="money">Cost</th><th class="money">Billed</th><th class="money">Not billed</th><th class="money">Contract</th></tr></thead>\n  <tbody>${rows
     .slice(0, 60)
     .map(
       (r) =>
-        `<tr>\n    <td class="sub">${esc(r.project.project.name)}</td>\n    <td><b>${esc((r.line && (r.line.item || r.line.desc)) || r.label)}</b>${r.doc ? `<div class="sub">${esc(r.doc.number)}</div>` : ""}</td>\n    <td><span class="pill ${K[r.kind][0]}" title="${esc(K[r.kind][1])}">${"no-line" === r.kind ? "no line" : "over-contract" === r.kind ? "over contract" : "not billed"}</span></td>\n    <td class="money">${money(r.cost)}</td><td class="money">${money(r.billed)}</td>\n    <td class="money an-over">${money(r.gap)}</td>\n    <td class="money">${r.price ? money(r.price) : '<span class="muted">—</span>'}</td></tr>`,
+        `<tr>\n    <td class="sub">${esc(r.project.project.name)}</td>\n    <td><b>${esc((r.line && (r.line.item || r.line.desc)) || r.label)}</b>${r.doc ? `<div class="sub">${esc(r.doc.number)}</div>` : ""}</td>\n    <td><span class="pill ${(K[r.kind] || K.unbilled)[0]}" title="${esc((K[r.kind] || K.unbilled)[1])}">${"no-line" === r.kind ? "no line" : "over-contract" === r.kind ? "over contract" : "reimbursable" === r.kind ? "bill back" : "floated" === r.kind ? "stored, not billed" : "not billed"}</span></td>\n    <td class="money">${money(r.cost)}</td><td class="money">${money(r.billed)}</td>\n    <td class="money an-over">${money(r.gap)}</td>\n    <td class="money">${r.price ? money(r.price) : '<span class="muted">—</span>'}</td></tr>`,
     )
     .join(
       "",
@@ -117005,8 +117008,10 @@ function fdHomeSections() {
           t: it.title,
           s: [it.n, (it.detail || "").split(/\s+·\s+/)[0]].filter(Boolean).join(" · "),
           sev: it.sev,
+          // a one-tap proposal (Needs Your Hand) offers its own verb here, as it does in its own list
+          verb: it.nyh && it.yes ? it.yes : "",
           open: () => {
-            "function" == typeof mGo && mGo(it.open);
+            it.nyh && it.yes && "function" == typeof nyhRun ? nyhRun(it.nyh.key) : "function" == typeof mGo && mGo(it.open);
           },
         })),
       }),
@@ -117100,7 +117105,7 @@ function fdHomeSections() {
 function fdHomeHtml() {
   const S_ = fdHomeSections();
   return S_.length
-    ? `<div class="fd-home">${S_.map((s) => `<div class="card fd-sec" data-fdsec="${s.key}"><div class="hd"><h3>${esc(s.title)}</h3><span class="small muted">${s.n ? `${s.n} · ${esc(s.what)}` : esc(s.what)}</span><span class="grow"></span><button class="btn sm" data-fdsecgo="${s.key}">${s.n > s.rows.length ? `All ${s.n}` : "Open"}</button></div>\n    ${s.rows.length ? s.rows.map((x, i) => `<div class="fd-row ${x.sev || ""}" data-fdrow="${s.key}|${i}"><span class="grow"><b>${esc(x.t)}</b>${x.s ? `<span class="small muted"> · ${esc(x.s)}</span>` : ""}</span><button class="btn sm ghost" data-fdrow="${s.key}|${i}">Open</button></div>`).join("") : '<div class="small muted fd-clear">Nothing waiting.</div>'}\n  </div>`).join("")}</div>`
+    ? `<div class="fd-home">${S_.map((s) => `<div class="card fd-sec" data-fdsec="${s.key}"><div class="hd"><h3>${esc(s.title)}</h3><span class="small muted">${s.n ? `${s.n} · ${esc(s.what)}` : esc(s.what)}</span><span class="grow"></span><button class="btn sm" data-fdsecgo="${s.key}">${s.n > s.rows.length ? `All ${s.n}` : "Open"}</button></div>\n    ${s.rows.length ? s.rows.map((x, i) => `<div class="fd-row ${x.sev || ""}" data-fdrow="${s.key}|${i}"><span class="grow"><b>${esc(x.t)}</b>${x.s ? `<span class="small muted"> · ${esc(x.s)}</span>` : ""}</span><button class="btn sm ghost" data-fdrow="${s.key}|${i}">${esc(x.verb || "Open")}</button></div>`).join("") : '<div class="small muted fd-clear">Nothing waiting.</div>'}\n  </div>`).join("")}</div>`
     : "";
 }
 if ("function" == typeof renderHome) {
@@ -142417,7 +142422,7 @@ if ("function" == typeof docActions) {
   };
 }
 const blRtbKey = (r) =>
-  "application" === r.kind ? "app:" + (r.p && r.p.id) : `${r.kind}:${(r.d && r.d.id) || ""}`;
+  "application" === r.kind ? "app:" + (r.p && r.p.id) : r.key || `${r.kind}:${(r.d && r.d.id) || ""}`;
 function blRowName(r) {
   const j = r.job || r.p,
     c = r.client || r.c;
@@ -143036,7 +143041,7 @@ if ("function" == typeof b2Facts) {
     try {
       X.ready = readyToBill().rows.map((r) =>
         Object.assign({}, r, {
-          d: r.d || { id: "app:" + (r.p && r.p.id) },
+          d: r.d || { id: r.key || "app:" + (r.p && r.p.id) },
           act: r.act || "application",
           rtbKey: blRtbKey(r),
         }),
@@ -143048,7 +143053,7 @@ if ("function" == typeof b2Facts) {
 const blRtbOfData = (s) => {
   if (!s) return "";
   const r = readyToBill().rows.find(
-    (x) => (x.d && x.d.id === s.docId && x.act === s.act) || "app:" + (x.p && x.p.id) === s.docId,
+    (x) => (x.d && x.d.id === s.docId && x.act === s.act) || (x.key && x.key === s.docId) || ("application" === x.kind && "app:" + (x.p && x.p.id) === s.docId),
   );
   return r ? blRtbKey(r) : "";
 };
@@ -164591,7 +164596,7 @@ const AG_FIN = [
       return {
         headline: H.length
           ? `${agN(H.length, "line")} held from billing (each line on its own evidence; a job is never held whole): ` + H.map((h) => `${agShort(h.p)} · ${h.why}`).join("; ") + "."
-          : `${P.jobs.length ? agShort(P.jobs[0]) + " has" : "Nothing has"} no line held from billing: every line bills on its own evidence.`,
+          : `0 lines held from billing${P.jobs.length ? " on " + agShort(P.jobs[0]) : ""}: every line bills on its own evidence, and a job is never held whole.`,
         work: H.map((h) => `${agShort(h.p)} — ${h.line || "line"} ${money(h.amount)} held: measure it on site, or Bill it on the Billing Queue`),
         go: agGo("billing"),
         ran: agRan("ready to bill", agWhereJob(P).concat(["held"]), "", H.length),
@@ -175183,4 +175188,380 @@ AG_FIN.unshift(
     },
   },
 );
+
+// ---- 2. purchases bought for a client: reimbursable rows (BACKLOG 1.5 #1; NetSuite's Billable Expenses)
+// One reading, rbRows(pid), feeds Ready to Bill, the Billing Queue, Needs Your Hand, the invoice's Billable
+// Expenses pull, Ask and spUnbilled (the Spend tab's "Cost not billed"): one number.
+// Two kinds:
+//  - reimbursable: a card or bank purchase on a job bought for the client (the person said so on the line, the
+//    memo says so, or it was bought at a showroom where client selections are bought), on no invoice yet; billed
+//    at cost plus the job's markup (rbMarkup), stamped with the invoice line that bills it (t.invoiceLineId).
+//  - floated: materials bought and delivered on a contract line beyond what the client has been billed for it
+//    (the windows: $33,500 bought, $19,530 billed); billed as stored materials on the line, once a person says so.
+const RB_SHOWROOM = /\b(waterworks|restoration hardware|design within reach|lumens|circa lighting|visual comfort|ann sacks|kohler store|rejuvenation|schoolhouse electric|room (and|&) board|holly hunt|urban electric|apparatus studio|allied maker|cb2|west elm|crate (and|&) barrel|lightology|ylighting|the shade store)\b/i;
+const RB_WORDS = /\b(re-?bill(able|ed)?|bill (it |this |them )?back|billable|reimburs\w*|client purchase|bought for the client|for the client|client'?s? (purchase|selection|item)|cost plus|cost \+ ?\d+)/i;
+const RB_NOT_CATS = ["transfer", "cc-payment", "owner", "loan", "income", "labor", "payroll-oh", "payroll_oh", "refund", "uncat"];
+function rbMarkup(p) {
+  const c = p && (DB.clients || []).find((x) => x.id === p.clientId),
+    v = p && p.project && null != p.project.rebillMarkup ? p.project.rebillMarkup : c && null != c.rebillMarkup ? c.rebillMarkup : null != DB.company.fmMarkup ? DB.company.fmMarkup : 10;
+  return +v || 0;
+}
+// Why a line is a purchase for the client, or "" when it is not one.
+function rbWhy(t) {
+  if (!t || !(+t.amt < 0) || !t.projectId || !1 === t.billable) return "";
+  if (t.billId || t.poId || t.payrollId || (t.cat && RB_NOT_CATS.includes(t.cat)) || t.dispute) return "";
+  const p = (DB.projects || []).find((x) => x.id === t.projectId),
+    c = p && (DB.clients || []).find((x) => x.id === p.clientId);
+  if (!p || !c) return "";
+  if (!0 === t.billable) return `marked billable${t.billableBy ? " by " + t.billableBy : ""}`;
+  const words = `${t.memo || ""} ${t.note || ""}`,
+    last = String(c.name || "").replace(/&.*$/, "").trim().split(/\s+/).pop() || "",
+    sur = String(c.name || "").split(/\s+/).pop().replace(/s$/i, "");
+  if (RB_WORDS.test(words)) return `the line says so: "${String(words).trim().slice(0, 60)}"`;
+  if (sur.length >= 4 && new RegExp(`\\bfor (the )?${sur}s?\\b`, "i").test(words)) return `bought for the ${sur}s, the memo says`;
+  const sel = ((DB.sel && DB.sel.items) || []).find((it) => {
+    const pj = it.projectId || "";
+    if (pj && pj !== p.id) return !1;
+    return [it.manufacturer, it.vendor].some((w) => w && String(w).length >= 4 && !/^(ferguson|home depot|amazon)$/i.test(w) && new RegExp(`\\b${String(w).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(t.desc || ""));
+  });
+  if (sel) return `a client selection's maker (${sel.manufacturer || sel.vendor}): ${sel.name}`;
+  if (RB_SHOWROOM.test(`${t.desc || ""} ${t.vendor || ""}`)) return `bought at ${String((`${t.desc || ""}`.match(RB_SHOWROOM) || [t.vendor])[0] || "a showroom")}, where client selections are bought`;
+  return "";
+}
+// The stamp is the link: a line billed on an invoice line that is gone (removed from a draft, voided) is unbilled again.
+function rbInvLine(id) {
+  for (const c of DB.clients || [])
+    for (const i of c.invoices || []) {
+      if ("void" === i.status) continue;
+      const l = (i.lines || []).find((x) => x.id === id);
+      if (l) return { c: c, inv: i, l: l };
+    }
+  return null;
+}
+function rbSync() {
+  (DB.txns || []).forEach((t) => {
+    t.invoiceLineId &&
+      !rbInvLine(t.invoiceLineId) &&
+      ((t.match = Object.assign({}, t.match || {}, { invoiceId: "", invoiceLineId: "" })), delete t.invoiceLineId, delete t.invoiceRebillId);
+  });
+}
+function rbRows(pid) {
+  const out = [];
+  try {
+    rbSync();
+  } catch (e) {}
+  (DB.txns || []).forEach((t) => {
+    if (t.invoiceLineId || (pid && t.projectId !== pid)) return;
+    const why = rbWhy(t);
+    if (!why) return;
+    const p = (DB.projects || []).find((x) => x.id === t.projectId),
+      c = (DB.clients || []).find((x) => x.id === p.clientId),
+      mk = null != t.markupPct ? +t.markupPct : rbMarkup(p),
+      cost = r2(-t.amt);
+    out.push({ kind: "reimbursable", key: "rb:" + t.id, t: t, p: p, c: c, cost: cost, markupPct: mk, amount: r2(cost * (1 + mk / 100)), date: t.date, label: `${t.desc}${t.vendor ? "" : ""}`, why: why });
+  });
+  (DB.projects || []).forEach((p) => {
+    if (pid && p.id !== pid) return;
+    let R = [];
+    try {
+      R = pgRows(p.id) || [];
+    } catch (e) {
+      R = [];
+    }
+    R.forEach((r) => {
+      if (pgIsCO(r.sv) || !(r.ev.del && r.ev.del.received > 0) || !(r.pr && r.pr.stored > 0)) return;
+      const sched = +r.ev.scheduled || 0,
+        billed = r2((sched * (+r.ev.billedPct || 0)) / 100),
+        per = pgLineHold(r) ? 0 : pgPeriodAmt(r),
+        amt = r2(Math.min(Math.min(+r.ev.cost || 0, sched) - billed - per, +r.pr.stored || 0));
+      amt >= 100 &&
+        out.push({ kind: "floated", key: `fl:${p.id}:${r.sv.id}`, sv: r.sv, p: p, c: r.c, cost: r2(+r.ev.cost || 0), billed: billed, price: sched, line: r.ev.line, doc: r.ev.line ? (findLine(r.sv.lineRef) || {}).doc : null, amount: amt, markupPct: 0, date: "", label: r.sv.desc, why: `${money(r.ev.cost)} bought and ${money(r.ev.del.received)} delivered on this line, ${money(billed)} billed: ${money(amt)} of materials on site the client has not been billed for` });
+    });
+  });
+  return out;
+}
+// Ready to Bill's rows: one row per job for its reimbursables, one per floated line.
+function rbReady() {
+  const by = {},
+    out = [];
+  rbRows().forEach((x) => {
+    if ("floated" === x.kind)
+      return void out.push({ kind: "floated", key: x.key, c: x.c, p: x.p, sv: x.sv, amount: x.amount, act: "floated", title: `${x.p.project.name}: ${x.label} — ${money(x.amount)} of materials bought and delivered, not yet billed (stored materials)`, why: x.why, run: () => rbDraftFloated(x.p.id, x.sv.id) });
+    (by[x.p.id] = by[x.p.id] || []).push(x);
+  });
+  Object.values(by).forEach((L) => {
+    const p = L[0].p,
+      amt = r2(L.reduce((a, x) => a + x.amount, 0)),
+      mk = L[0].markupPct;
+    out.push({ kind: "reimbursable", key: "rb:" + p.id, c: L[0].c, p: p, items: L, amount: amt, act: "reimbursable", title: `${p.project.name}: ${L.length} purchase${1 === L.length ? "" : "s"} bought for ${L[0].c ? L[0].c.name : "the client"}, not billed back — ${L.slice(0, 4).map((x) => `${x.t.desc} ${money2(x.cost)}`).join(", ")}${L.length > 4 ? ` and ${L.length - 4} more` : ""}: ${money2(amt)}${mk ? ` at cost plus ${mk}%` : " at cost"}`, why: L.map((x) => `${x.t.desc} ${money(x.cost)} (${x.why})`).join(" · "), run: () => rbDraft(p.id) });
+  });
+  return out;
+}
+// Draft (or add to) the job's billable-expenses invoice: one line per purchase, each stamped on its bank line.
+function rbPullInto(inv, rows) {
+  let n = 0;
+  (rows || []).forEach((x) => {
+    if ("reimbursable" !== x.kind || x.t.invoiceLineId) return;
+    const t = x.t,
+      l = { id: uid("l"), item: `Reimbursable — ${String(t.vendor || t.desc || "purchase").slice(0, 60)}`, desc: `Bought ${fmt(t.date)} for you: ${t.desc} · cost ${money(x.cost)}${x.markupPct ? ` plus ${x.markupPct}%` : ""}`, qty: 1, unit: "ls", rate: x.amount, taxable: !1, cost: x.cost, markupPct: x.markupPct, fromTxn: t.id, cat: "reimbursable" };
+    (inv.lines = inv.lines || []).push(l), (t.invoiceLineId = l.id), (t.invoiceRebillId = inv.id), (t.match = Object.assign({}, t.match || {}, { invoiceId: inv.id, invoiceLineId: l.id })), n++;
+    try {
+      audit("txn", t.id, "rebilled", "", `${inv.number} line ${l.item}`, `${money(x.amount)} on ${inv.number}`);
+    } catch (e) {}
+  });
+  return n;
+}
+function rbDraft(pid, o) {
+  const p = (DB.projects || []).find((x) => x.id === pid),
+    c = p && (DB.clients || []).find((x) => x.id === p.clientId);
+  if (!p || !c) return toast("That job has no client to bill"), null;
+  const rows = rbRows(pid).filter((x) => "reimbursable" === x.kind);
+  if (!rows.length) return toast("Nothing bought for the client is waiting to be billed on this job"), null;
+  let inv = (c.invoices || []).find((i) => "draft" === i.status && i.projectId === pid && i.rebill);
+  inv || ((inv = newDoc(c, "invoice", { mode: "items", fields: { projectId: pid, title: `Billable expenses — ${String(p.project.name).replace(/ —.*$/, "")}`, lines: [], retainagePct: 0 } })), (inv.rebill = !0), (inv.projectId = pid), (inv.lines = (inv.lines || []).filter((l) => l.item || +l.rate)));
+  const n = rbPullInto(inv, rows);
+  save();
+  if (!(o && o.quiet)) {
+    (view = "billing"), (billTab = "billable"), (clientOpen = c.id), (blClientFlag = c.id), (docOpen = { kind: "invoice", id: inv.id }), render();
+    rcToast(`${n} purchase${1 === n ? "" : "s"} bought for ${c.name} on ${inv.number} (${money(docTotal(inv).total)}) — review it, then Send to Client`, [{ label: "Open", run: () => ((view = "billing"), (clientOpen = c.id), (docOpen = { kind: "invoice", id: inv.id }), render()) }]);
+  }
+  return { inv: inv, c: c, n: n };
+}
+// A floated line billed on purpose: the person's say-so is kept on the line (sv.storedBill) and the job's
+// application carries it as stored materials until an invoice with it is sent.
+function rbDraftFloated(pid, svId) {
+  const x = rbRows(pid).find((r) => "floated" === r.kind && r.sv.id === svId);
+  if (!x) return toast("Nothing floated on that line"), null;
+  x.sv.storedBill = { amt: x.amount, by: (currentUser() || {}).name || role(), at: today(), invId: "" };
+  try {
+    audit("client", x.c.id, "stored-billed", "", `${x.sv.desc} ${money(x.amount)}`, x.why);
+  } catch (e) {}
+  const out = pgApply(pid);
+  if (!out) return null;
+  save();
+  (view = "billing"), (billTab = "billable"), (clientOpen = out.client.id), (blClientFlag = out.client.id), (docOpen = { kind: "invoice", id: out.inv.id }), render();
+  rcToast(`${x.sv.desc}: ${money(x.amount)} of stored materials on ${out.inv.number} — review it, then Send to Client`, [{ label: "Open", run: () => ((view = "billing"), (clientOpen = out.client.id), (docOpen = { kind: "invoice", id: out.inv.id }), render()) }]);
+  return out;
+}
+// the application adds each line's stored materials a person asked to bill (pgApply zeroes and refills its lines)
+{
+  const base = pgApply;
+  pgApply = function (projectId, only) {
+    const out = base.apply(this, arguments);
+    try {
+      if (out && out.inv) {
+        const c = out.client;
+        (c.sov || []).forEach((sv) => {
+          const s = sv.storedBill;
+          if (!s || !(+sv.scheduled > 0) || (only && !only.includes(sv.id))) return;
+          if (s.invId && s.invId !== out.inv.id) {
+            const was = (c.invoices || []).find((i) => i.id === s.invId);
+            if (was && "void" !== was.status) return;
+          }
+          const l = (out.inv.lines || []).find((y) => y.sovId === sv.id);
+          if (!l) return;
+          const room = r2(100 - (+l.prevPct || 0) - (+l.pct || 0)),
+            add = r2(Math.min(room, (100 * s.amt) / +sv.scheduled));
+          if (!(add > 0)) return;
+          (l.pct = r2((+l.pct || 0) + add)), (l.stored = r2(s.amt)), (l.desc = `${l.desc ? l.desc + " · " : ""}materials bought and delivered, not yet installed: ${money(s.amt)} (stored)`), (s.invId = out.inv.id), (out.amt = r2((out.amt || 0) + (+sv.scheduled * add) / 100)), out.n++;
+        });
+      }
+    } catch (e) {
+      console.warn("stored materials", e);
+    }
+    return out;
+  };
+}
+// Ready to Bill carries the reimbursable and floated rows; the Billing Queue drafts them.
+{
+  const base = readyToBill;
+  readyToBill = function () {
+    const R = base.apply(this, arguments);
+    try {
+      const X = ocMemo("rbReady", () => rbReady()) || [];
+      if (X.length) {
+        const rows = R.rows.concat(X).sort((a, b) => b.amount - a.amount);
+        return Object.assign({}, R, { rows: rows, amount: r2(rows.reduce((a, r) => a + r.amount, 0)), n: rows.length });
+      }
+    } catch (e) {
+      console.warn("reimbursables", e);
+    }
+    return R;
+  };
+}
+{
+  const base = rtbAct;
+  rtbAct = function (key) {
+    const r = /^(rb|fl):/.test(String(key || "")) ? readyToBill().rows.find((x) => x.key === key) : null;
+    return r && r.run ? r.run() : base.apply(this, arguments);
+  };
+}
+// spUnbilled (the Spend tab's Cost not billed, Caught for You) reads the same rows: one number.
+spUnbilled = function (pid) {
+  return rbRows(pid)
+    .map((x) => ({ kind: x.kind, project: x.p, key: x.key, doc: x.doc || null, line: x.line || null, txn: x.t || null, label: "floated" === x.kind ? x.label : `${x.t.desc} · ${fmt(x.t.date)}`, cost: x.cost, billed: x.billed || 0, price: x.price || 0, gap: x.amount, room: x.amount, why: x.why }))
+    .sort((a, b) => b.gap - a.gap);
+};
+// The bank list says what a line is still waiting on, on the row, with the one action that settles it.
+function txnFlagsHtml(t) {
+  if (!t || ["client", "crew", "driver", "foreman"].includes(role())) return "";
+  const out = [];
+  try {
+    const why = !t.invoiceLineId && rbWhy(t);
+    why && out.push(`<span class="sub warn-t lk-flag">Bought for the client, not billed back yet (${esc(why)}) <button type="button" class="btn sm" data-lkrbbill="${esc(t.projectId)}">Bill It</button></span>`);
+    t.invoiceLineId && out.push(`<span class="sub lk-flag">Billed back on ${esc(((rbInvLine(t.invoiceLineId) || {}).inv || {}).number || "an invoice")}</span>`);
+    "function" == typeof lkTxnMoreFlags && out.push(lkTxnMoreFlags(t));
+  } catch (e) {}
+  return out.join("");
+}
+document.addEventListener(
+  "click",
+  (e) => {
+    const b = e.target.closest && e.target.closest("[data-lkrbbill], [data-lkrbpull]");
+    if (!b) return;
+    e.preventDefault(), e.stopPropagation();
+    if (b.dataset.lkrbbill) return void rbDraft(b.dataset.lkrbbill);
+    let hit = null;
+    (DB.clients || []).forEach((c) => (c.invoices || []).forEach((i) => i.id === b.dataset.lkrbpull && (hit = { c: c, inv: i })));
+    if (!hit || "draft" !== hit.inv.status) return;
+    const n = rbPullInto(hit.inv, rbRows(hit.inv.projectId).filter((x) => "reimbursable" === x.kind));
+    save(), render();
+    rcToast(n ? `${n} billable expense${1 === n ? "" : "s"} added to ${hit.inv.number} at cost plus markup — each bank line now points at its invoice line` : "No billable expenses left on this job", [{ label: "Open", run: () => ((clientOpen = hit.c.id), (docOpen = { kind: "invoice", id: hit.inv.id }), render()) }]);
+  },
+  !0,
+);
+// The invoice editor's Billable Expenses pull: an items invoice on a job with purchases bought for the client
+{
+  const base = render;
+  render = function () {
+    const r = base.apply(this, arguments);
+    try {
+      if (docOpen && "invoice" === docOpen.kind && !["client", "crew", "driver", "foreman"].includes(role())) {
+        let inv = null;
+        (DB.clients || []).forEach((c) => (c.invoices || []).forEach((i) => i.id === docOpen.id && (inv = i)));
+        const add = inv && "draft" === inv.status && "sov" !== inv.mode && inv.projectId && document.querySelector("section.view.on [data-addline]");
+        if (add && !add.parentElement.querySelector("[data-lkrbpull]")) {
+          const R = rbRows(inv.projectId).filter((x) => "reimbursable" === x.kind),
+            b = document.createElement("button");
+          (b.className = "btn sm"), (b.dataset.lkrbpull = inv.id), (b.disabled = !R.length);
+          b.textContent = R.length ? `Billable Expenses (${R.length} · ${money(r2(R.reduce((a, x) => a + x.amount, 0)))})` : "Billable Expenses (none waiting)";
+          b.title = "Purchases bought for the client on this job and not billed back, at cost plus the job's markup";
+          add.after(b);
+        }
+      }
+    } catch (e) {}
+    return r;
+  };
+}
+// The transaction drawer: "bought for the client" is a field on the line, with the job's markup.
+{
+  const base = txnDialog;
+  txnDialog = function (id) {
+    const r = base.apply(this, arguments);
+    try {
+      const t = id ? (DB.txns || []).find((x) => x.id === id) : null,
+        memo = document.getElementById("e-memo"),
+        host = memo && (memo.closest(".f") || memo.parentElement),
+        sv = document.getElementById("d-save");
+      if (!host || !sv || document.getElementById("e-billable")) return r;
+      const p = t && (DB.projects || []).find((x) => x.id === t.projectId),
+        auto = t ? rbWhy(Object.assign({}, t, { billable: void 0 })) : "",
+        on = t ? (null != t.billable ? !!t.billable : !!auto) : !1,
+        mk = t && null != t.markupPct ? +t.markupPct : rbMarkup(p || S),
+        d = document.createElement("div");
+      (d.className = "f lk-billable"),
+        (d.innerHTML = `<label class="chk"><input type="checkbox" id="e-billable" ${on ? "checked" : ""}> Bought for the client: bill it back at cost plus <input type="number" step="0.1" id="e-markup" value="${mk}" style="width:64px">%</label>${t && t.invoiceLineId ? `<span class="hint">Billed on ${esc(((rbInvLine(t.invoiceLineId) || {}).inv || {}).number || "an invoice")}.</span>` : auto && null == t.billable ? `<span class="hint">Proposed: ${esc(auto)}. Untick it if the job carries it.</span>` : ""}`),
+        host.after(d);
+      // only a box the person touched decides; an untouched box leaves the line to the proposal
+      let touched = !1;
+      d.querySelector("#e-billable").addEventListener("change", () => (touched = !0));
+      const prev = sv.onclick;
+      sv.onclick = function (ev) {
+        const want = !!document.getElementById("e-billable").checked,
+          m = +document.getElementById("e-markup").value,
+          n0 = (DB.txns || []).length,
+          res = prev ? prev.call(this, ev) : void 0;
+        try {
+          const tt = id ? (DB.txns || []).find((x) => x.id === id) : (DB.txns || []).length > n0 ? DB.txns[DB.txns.length - 1] : null;
+          if (tt && !tt.invoiceLineId) {
+            const a = rbWhy(Object.assign({}, tt, { billable: void 0 })),
+              who = (currentUser() || {}).name || role();
+            touched && ((tt.billable = want), (tt.billableBy = who));
+            const pj = (DB.projects || []).find((x) => x.id === tt.projectId);
+            isFinite(m) && m !== rbMarkup(pj) ? (tt.markupPct = m) : delete tt.markupPct;
+            save();
+          }
+        } catch (e) {}
+        return res;
+      };
+    } catch (e) {
+      console.warn("billable field", e);
+    }
+    return r;
+  };
+}
+// Needs Your Hand: billing drafts what was bought for a client and what was floated on a line
+{
+  const base = nyhRowsAll;
+  nyhRowsAll = function () {
+    const out = base.apply(this, arguments),
+      push = (r) => {
+        r && r.route && !lnHandDone(r.key) && !out.some((x) => x.key === r.key) && out.push(r);
+      };
+    try {
+      rbReady().forEach((x) =>
+        push({
+          key: "lk:" + x.key,
+          route: "billing",
+          kind: "rebill",
+          title: "floated" === x.kind ? `Bill the stored materials: ${String(x.p.project.name).replace(/ —.*$/, "")} · ${x.sv.desc} ${lnMoney(x.amount)}` : `Bill back what was bought for ${x.c ? x.c.name : "the client"}: ${x.items.slice(0, 3).map((y) => `${y.t.desc} ${money2(y.cost)}`).join(", ")}${x.items.length > 3 ? ` and ${x.items.length - 3} more` : ""} (${money2(x.amount)} with markup)`,
+          why: String(x.why || "").slice(0, 220),
+          amount: x.amount,
+          verb: "Draft",
+          no: "reimbursable" === x.kind ? "Not Billable" : "",
+          run: () => x.run(),
+          skip:
+            "reimbursable" === x.kind
+              ? () => {
+                  const who = (currentUser() || {}).name || role();
+                  x.items.forEach((y) => {
+                    (y.t.billable = !1), (y.t.billableBy = who);
+                    try {
+                      audit("txn", y.t.id, "not-billable", "", y.t.desc, `${who}: the job carries it`);
+                    } catch (e) {}
+                  }),
+                    save(),
+                    render(),
+                    toast(`Kept on the job: ${x.items.map((y) => y.t.desc).join(", ")}`);
+                }
+              : null,
+          open: () => rtbGo(x.key),
+        }),
+      );
+    } catch (e) {
+      console.warn("nyh rebill", e);
+    }
+    return out;
+  };
+}
+AG_FIN.unshift({
+  id: "rebill",
+  re: /\b(bought|purchased?|purchases|spent|paid)\b.*\b(for (the )?clients?|for (the )?\w+s\b|haven'?t billed|not (yet )?billed|unbilled)\b|\bbill(ed)? (it |them )?back\b|\breimbursables?\b|\bbillable expenses?\b|\bnot billed back\b/,
+  not: /\bpayroll\b|\bvendors? (we|owe)\b/,
+  kind: "money",
+  run(P) {
+    const words = (P.l.match(/\b(home depot|lowes|waterworks|restoration hardware|ferguson|amazon)\b/) || [])[0] || "",
+      R = rbRows().filter((x) => agOnJob(P, x.p.id) && (!words || new RegExp(words, "i").test(`${x.label} ${(x.t && x.t.vendor) || ""}`))),
+      amt = r2(R.reduce((a, x) => a + x.amount, 0));
+    return {
+      headline: R.length
+        ? `${money(amt)} bought for clients and not billed back yet${P.jobs.length ? ` on ${agShort(P.jobs[0])}` : ""}: ${agList(R.map((x) => ("floated" === x.kind ? `${x.label} ${money(x.amount)} (stored materials)` : `${x.t.desc} ${money(x.cost)}${x.markupPct ? ` + ${x.markupPct}%` : ""}`)))}.`
+        : `Nothing bought for a client is waiting to be billed back${P.jobs.length ? ` on ${agShort(P.jobs[0])}` : ""}${words ? ` at ${words.replace(/\b\w/g, (m) => m.toUpperCase())}` : ""}.`,
+      note: "Card and bank purchases marked or proposed as bought for the client, billed at cost plus the job's markup, and materials bought and delivered on a line beyond what the client has been billed. The same rows as Ready to Bill and the Spend tab's Cost not billed.",
+      work: R.map((x) => `${agShort(x.p)} · ${"floated" === x.kind ? x.label : `${fmt(x.t.date)} ${x.t.desc}`} — ${money(x.amount)} not billed back · ${x.why}`),
+      go: agGo("billing"),
+      ran: agRan("bank and card lines and contract lines", agWhereJob(P).concat(["bought for the client", "on no invoice"]), "", R.length),
+    };
+  },
+});
 

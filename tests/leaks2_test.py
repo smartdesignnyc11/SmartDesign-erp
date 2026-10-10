@@ -87,8 +87,247 @@ async def s1_earned(p, S):
         await b.close()
 
 
+# ---------------------------------------------------------------- 2. bought for a client, never billed back
+async def s2_reimb(p, S):
+    b, pg, errs = await boot(p, 'u_controller')
+    try:
+        # the controller codes the 9/2 Waterworks line (the seed's Amex) to 121 State, as he would from Banking
+        await code_txn(pg, 't15', 'materials', JOB, '11', '')
+        # the pendants come in on the Amex statement and are coded with the memo the person writes
+        rh = ('20260901', -1268.40, 'AMX1009260901026', 'RESTORATION HARDWARE 0412', 'NEW YORK NY')
+        await import_statement(pg, 'ac2', 'Amex_1009_Sep2026.ofx', ofx('1009', [rh]))
+        t2 = await find_txn(pg, rh[3], rh[1])
+        if not t2:
+            S.setup_ok = False; S.errors.append('the pendants did not import'); return
+        await code_txn(pg, t2, 'materials', JOB, '11', 'Pendants for the Kleins at cost plus 10%')
+        R = await pg.evaluate("""() => { const X = rbRows(); const R = readyToBill();
+            return {rows: X.map(x => [x.kind, x.label, x.amount]), rtb: R.rows.filter(r => ['reimbursable', 'floated'].includes(r.kind)).map(r => [r.kind, r.amount, r.title]),
+                    sp: r2(spUnbilled().reduce((a, r) => a + r.gap, 0)), rb: r2(X.reduce((a, x) => a + x.amount, 0)),
+                    nyh: nyhRows({everyone: true}).filter(r => r.kind === 'rebill').map(r => [r.route, r.verb, r.title])}; }""")
+        S.fact(f"reimbursable and floated rows: {R['rows']}")
+        amts = {x[1][:22]: x[2] for x in R['rows']}
+        S.check(any(abs(a - 2090) < 0.01 for a in amts.values()), 'the Waterworks faucet (a client selection) is a reimbursable row at cost plus the job markup ($1,900 -> $2,090)', str(amts))
+        S.check(any(abs(a - 1395.24) < 0.01 for a in amts.values()), 'the pendants are billed at cost plus 10% ($1,268.40 -> $1,395.24)', str(amts))
+        S.check(any(x[0] == 'floated' and 'Windows' in x[1] and 13900 < x[2] < 14000 for x in R['rows']), 'the $13,970 floated on the windows line is a row to bill (stored materials)', str(R['rows']))
+        S.check(abs(R['sp'] - R['rb']) < 0.01 and R['rb'] > 0, 'spUnbilled reads the same rows: one number', f"spUnbilled {R['sp']} vs rows {R['rb']}")
+        S.check(any(r[0] == 'billing' and r[1] == 'Draft' for r in R['nyh']), "billing's Needs Your Hand: Draft the purchases bought for the client", str(R['nyh']))
+        row = await billing_row(pg, 'bought for Sarah')
+        S.check(row and row['verb'] == 'Draft', 'Billing Queue: the purchases bought for the Kleins, with Draft', str(row))
+        await pg.evaluate("""async () => { const tr = [...document.querySelectorAll('#v-billing tr')].find(tr => tr.querySelector('[data-blact]') && /bought for Sarah/.test(tr.innerText));
+            tr.querySelector('[data-blact]').click(); await new Promise(r => setTimeout(r, 80)); }""")
+        d = await pg.evaluate("""() => { const c = DB.clients.find(x => x.id === 'cl121'), inv = c.invoices.find(i => i.id === (docOpen || {}).id);
+            const T = DB.txns.filter(t => /WATERWORKS|RESTORATION/.test(t.desc));
+            return inv && {num: inv.number, status: inv.status, lines: inv.lines.map(l => [l.item, l.rate]), stamped: T.map(t => !!t.invoiceLineId),
+                           send: [...document.querySelectorAll('section.view.on button')].some(b => b.innerText.trim() === 'Send to Client')}; }""")
+        S.check(d and len(d['lines']) == 2 and all(d['stamped']), 'Draft puts both purchases on one invoice and stamps each bank line with its invoice line', str(d))
+        S.check(d and d['send'], 'the draft opens with Send to Client', str(d))
+        await pg.evaluate("""async () => { const b = [...document.querySelectorAll('section.view.on button')].find(b => b.innerText.trim() === 'Send to Client'); b.click();
+            await new Promise(r => setTimeout(r, 60)); document.querySelector('#mbm #mbm-ok').click(); await new Promise(r => setTimeout(r, 150)); }""")
+        after = await pg.evaluate("""n => { const c = DB.clients.find(x => x.id === 'cl121'); return {status: c.invoices.find(i => i.number === n).status,
+            left: rbRows().filter(x => x.kind === 'reimbursable').length, matched: DB.txns.filter(t => /WATERWORKS|RESTORATION/.test(t.desc)).map(t => !!(truthMatchOf(t).invoiceLineId))}; }""", d['num'] if d else '')
+        S.check(after['status'] == 'sent' and after['left'] == 0 and all(after['matched']), 'sent: the rows are gone and each bank line is matched to its invoice line', str(after))
+        # the invoice editor's Billable Expenses pull, and the stamp that follows the line
+        pull = await pg.evaluate("""async () => { const t = DB.txns.find(x => /HOME DEPOT PRO SCREWS/.test(x.desc)); Object.assign(t, {projectId: 'p121', cat: 'materials', code: '03', status: 'categorized', memo: 'Extra blocking the Kleins asked for: bill back to client'}); save();
+            const c = DB.clients.find(x => x.id === 'cl121'); const inv = newDoc(c, 'invoice', {mode: 'items', fields: {projectId: 'p121', title: 'Invoice'}}); save();
+            signIn('u_billing'); view = 'billing'; billTab = 'billable'; clientOpen = c.id; docOpen = {kind: 'invoice', id: inv.id}; render(); await new Promise(r => setTimeout(r, 50));
+            const b = document.querySelector('[data-lkrbpull]'); const label = b ? b.innerText : 'no button'; b && b.click(); await new Promise(r => setTimeout(r, 60));
+            const l = inv.lines.find(x => x.fromTxn === t.id); const stamped = t.invoiceLineId === (l || {}).id;
+            inv.lines = inv.lines.filter(x => x !== l); save(); const back = rbRows().some(x => x.t && x.t.id === t.id);
+            return {label, added: !!l, rate: l && l.rate, stamped, back}; }""")
+        S.check(pull['added'] and pull['stamped'] and abs((pull['rate'] or 0) - 315.37) < 0.01, 'the invoice editor pulls Billable Expenses and stamps invoiceLineId ($286.70 + 10%)', str(pull))
+        S.check(pull['back'], 'a billable line taken off a draft is unbilled again (the stamp follows the invoice line)', str(pull))
+        fl = await pg.evaluate("""async () => { const r = readyToBill().rows.find(x => x.kind === 'floated'); if (!r) return null; rtbAct(r.key); await new Promise(r => setTimeout(r, 60));
+            const c = DB.clients.find(x => x.id === 'cl121'), inv = c.invoices.find(i => i.id === (docOpen || {}).id);
+            return {num: inv && inv.number, win: inv && inv.lines.filter(l => /Windows/.test(l.item)).map(l => [l.pct, l.stored]), left: spUnbilled().filter(r => /Windows/.test(r.label)).length}; }""")
+        S.check(fl and fl['win'] and fl['win'][0][1] and fl['left'] == 0, 'Draft on the floated windows row puts the stored materials on the application; spUnbilled no longer lists it', str(fl))
+        surf(S, await scan(pg, 'u_owner', 'bank', ['HOME DEPOT PRO SCREWS'], r'bill(ed)? back|bought for the client'), 'Banking: a billable line says it is not billed back, with Bill It')
+    finally:
+        if errs: S.errors.append(f'page errors: {errs[:2]}')
+        await b.close()
+
+
+# ---------------------------------------------------------------- 3. a refund on a purchase billed to the client
+async def s3_credit(p, S):
+    b, pg, errs = await boot(p, 'u_controller')
+    try:
+        nemo = ('20260902', 850.00, '202609020031', 'NEMO TILE SUPPLY CREDIT RTN 88412', 'CREDIT MEMO')
+        await import_statement(pg, 'ac1', 'Chase_Checking_4471_Sep2026.qfx', ofx('4471', [nemo], card=False))
+        t = await find_txn(pg, nemo[3], nemo[1])
+        if not t:
+            S.setup_ok = False; S.errors.append('the credit did not import'); return
+        row = await billing_row(pg, 'Credit the client')
+        S.check(row and row['verb'] == 'Draft' and '850' in row['text'], 'Billing Queue: the client is owed the $850 credit, with Draft', str(row))
+        nyh = await pg.evaluate("() => nyhRows({everyone: true}).filter(r => r.kind === 'clientcredit').map(r => [r.route, r.verb, r.title])")
+        S.check(any(r[0] == 'billing' and r[1] == 'Draft' for r in nyh), "billing's Needs Your Hand: credit the Kleins", str(nyh))
+        await pg.evaluate("""async () => { const tr = [...document.querySelectorAll('#v-billing tr')].find(tr => tr.querySelector('[data-blact]') && /Credit the client/.test(tr.innerText));
+            tr.querySelector('[data-blact]').click(); await new Promise(r => setTimeout(r, 80)); }""")
+        d = await pg.evaluate("""() => { const c = DB.clients.find(x => x.id === 'cl121'); const inv = c.invoices.find(i => i.id === (docOpen || {}).id);
+            const cc = (DB.clientCredits || [])[0] || {};
+            return {inv: inv && [inv.number, inv.status, inv.date, inv.lines.map(l => [l.item, l.rate])], cc: [cc.status, !!cc.invoiceLineId],
+                    left: billingRows().filter(r => r.kind === 'credit').length, shape: c.invoices.concat(c.creditMemos || []).some(i => (i.date || '') >= today() && (i.lines || []).some(l => +l.rate < 0 || /credit/i.test((l.desc || '') + ' ' + (l.item || ''))))}; }""")
+        S.check(d['inv'] and any(l[1] == -850 for l in d['inv'][3]), 'Draft puts a -$850 credit line on an invoice to the Kleins, stamped on the credit', str(d))
+        S.check(d['left'] == 0 and d['cc'] == ['approved', True] and d['shape'], 'the credit leaves the queue once it is on an invoice (billing drafted it: approved)', str(d))
+    finally:
+        if errs: S.errors.append(f'page errors: {errs[:2]}')
+        await b.close()
+
+
+# ---------------------------------------------------------------- 4. every bank line matched to a line
+async def s4_match(p, S):
+    b, pg, errs = await boot(p, 'u_controller')
+    try:
+        # payroll: the controller builds the 8/31 run from approved time on 9/9; the owner approves it
+        mk = await pg.evaluate("""() => { appSetDay('2026-09-09'); DB.time.filter(t => t.status === 'submitted').forEach(t => t.status = 'approved'); save();
+            signIn('u_controller'); const n0 = DB.payroll.length; payrollFromTime(); const R = DB.payroll.slice(n0); return R.map(r => [r.id, r.period, r.total, r.payDate]); }""")
+        S.fact(f'runs built: {mk}')
+        await pg.evaluate("() => appSetDay('2026-09-11')")
+        out = await import_statement(pg, 'ac1', 'chase_0911.csv', csv([('2026-09-11', 'PAYROLL SERVICE NET PAY', -14980, 'AC1-0911-1'), ('2026-09-11', 'PAYROLL SERVICE TAX', -3120, 'AC1-0911-2')]))
+        P = await pg.evaluate("""() => DB.txns.filter(t => /PAYROLL SERVICE/.test(t.desc)).map(t => [t.desc, t.proposal && t.proposal.kind, t.proposal && t.proposal.label])""")
+        S.check(len(P) == 2 and all(x[1] == 'payroll' for x in P), 'the payroll net pay and tax debits are proposed against their run', str(P))
+        conf = await pg.evaluate("""async () => { signIn('u_controller'); view = 'bank'; render(); await new Promise(r => setTimeout(r, 50));
+            const B = [...document.querySelectorAll('#v-bank [data-mconfirm]')].filter(b => /PAYROLL/.test((b.closest('.prop-row') || {}).innerText || ''));
+            for (const b of B) { b.click(); await new Promise(r => setTimeout(r, 30)); }
+            return DB.txns.filter(t => /PAYROLL SERVICE/.test(t.desc)).map(t => [t.desc, truthMatchOf(t).payrollId || '']); }""")
+        S.check(conf and all(x[1] for x in conf), 'Confirm on Banking matches each debit to the payroll run', str(conf))
+        # card charges and an ACH deposit against their orders
+        await pg.evaluate("""() => { const mkPO = (id, num, vendor, item, amt, date, exp) => DB.pos.push({id, number: num, projectId: 'p121', vendor, date, expected: exp, status: 'issued', shipTo: 'Site', notes: '',
+                lines: [{id: id + 'l', item, desc: '', qty: 1, unit: 'ls', price: amt, received: 0, line: ''}]});
+            mkPO('lkpo1', 'PO-2026-090', 'Ferguson', 'Plumbing fixtures (both baths, kitchens)', 11980, '2026-09-14', '2026-10-05');
+            mkPO('lkpo2', 'PO-2026-091', 'Gowanus Stone Yard', 'Parlor kitchen countertop slab', 7450, '2026-09-10', '2026-09-24');
+            DB.vendors.push({id: 'vlkt', name: 'Tomas Restoration', insuranceExp: '2026-09-15', w9: true}); save(); appSetDay('2026-09-28'); }""")
+        await import_statement(pg, 'ac2', 'amex_0928.csv', csv([('2026-09-23', 'FERGUSON #1124 BROOKLYN', -11980, 'AC2-0923-1')]))
+        await import_statement(pg, 'ac1', 'chase_0928.csv', csv([('2026-09-28', 'ACH DEBIT GOWANUS STONE YARD', -3725, 'AC1-0928-1'), ('2026-09-15', 'CHECK 2216 TOMAS RESTORATION', -2750, 'AC1-0915-1')]))
+        P2 = await pg.evaluate("""() => ['FERGUSON', 'GOWANUS', 'CHECK 2216'].map(k => { const t = DB.txns.find(x => x.desc.includes(k)); return [k, t && t.proposal && t.proposal.kind, t && t.proposal && t.proposal.label]; })""")
+        S.check(P2[0][1] == 'po' and P2[1][1] == 'po', 'the Ferguson card charge and the stone yard deposit are proposed against their POs', str(P2))
+        S.check(P2[2][1] == 'newbill' and 'Insurance' in (P2[2][2] or ''), 'check 2216 with no bill proposes entering the bill, and names the expiring COI', str(P2[2]))
+        done = await pg.evaluate("""() => { const T = DB.txns.filter(t => /FERGUSON|GOWANUS|CHECK 2216/.test(t.desc)); T.forEach(t => confirmMatch(t)); save();
+            return T.map(t => { const m = truthMatchOf(t), b = DB.bills.find(x => x.id === m.billId); return [t.desc, m.poId || '', m.billId ? (b.vendor + ' ' + b.status + (b.paidBeforeApproval ? ' paid-before-approval' : '')) : '']; }); }""")
+        S.check(all(x[1] or x[2] for x in done) and any('Tomas' in x[2] and 'paid-before-approval' in x[2] for x in done), 'confirmed: each charge reaches its PO; the check reaches a bill entered from it, flagged paid before approval', str(done))
+        # a cost typed by hand with no bank line
+        await pg.evaluate("() => { setCurrent('p121'); view = 'bank'; render(); txnDialog(); }")
+        await pg.wait_for_selector('#e-desc', state='attached')
+        await pg.fill('#e-date', '2026-09-21'); await pg.select_option('#e-acct', 'ac1'); await pg.fill('#e-desc', 'Cash at lumber yard (receipt lost)')
+        await pg.fill('#e-amt', '-300'); await pg.select_option('#e-cat', 'materials'); await pg.select_option('#e-proj', JOB); await pg.select_option('#e-code', '03')
+        await pg.click('#d-save'); await pg.wait_for_timeout(150)
+        surf(S, await scan(pg, 'u_controller', 'bank', ['Cash at lumber yard'], r'no bank line'), 'Banking: the hand-typed cost is flagged "no bank line", with Match to a Line')
+        ty = await pg.evaluate("""() => { const t = DB.txns.find(x => /Cash at lumber yard/.test(x.desc)); const C = truthCandidates(t); const best = C[0];
+            best && best.auto && truthSetMatch(t, best.m, {why: best.why}); return {best: best && [best.kind, best.label, best.auto], matched: !!txnMatch(t), flag: txnFlagsHtml(t).includes('No bank line')}; }""")
+        S.check(ty['best'] and ty['best'][2] and ty['matched'] and ty['flag'], 'the typed cost is matched to its estimate line by its job and code, and still says no bank line', str(ty))
+    finally:
+        if errs: S.errors.append(f'page errors: {errs[:2]}')
+        await b.close()
+
+
+async def nyh_press(pg, key_re):
+    """Run a Needs Your Hand row as its person would (nyhRun, the row's verb), then press the sheet's blue button."""
+    return await pg.evaluate("""async (k) => { const r = nyhRows().find(x => new RegExp(k).test(x.key)); if (!r) return 'no row';
+        nyhRun(r.key); await new Promise(z => setTimeout(z, 80)); const m = document.querySelector('#mbm');
+        const t = m ? (m.querySelector('h3') || {}).innerText : ''; const ok = m && m.querySelector('#mbm-ok'); ok && ok.click(); await new Promise(z => setTimeout(z, 120));
+        return 'ran ' + r.verb + (t ? ' > ' + t : '') + (ok ? ' > ' + ok.innerText : ''); }""", key_re)
+
+
+# ---------------------------------------------------------------- 5. a duplicate charge at import
+async def s5_dup(p, S):
+    b, pg, errs = await boot(p, 'u_controller')
+    try:
+        await import_statement(pg, 'ac2', 'amex_dup.csv', csv([('2026-09-01', 'ROLL OFF DUMPSTER SVC BKLYN', -1650, 'AC2-0901-D1'), ('2026-09-02', 'ROLL OFF DUMPSTER SVC BKLYN', -1650, 'AC2-0902-D2')]))
+        st = await pg.evaluate("""() => DB.txns.filter(t => /ROLL OFF DUMPSTER SVC BKLYN/.test(t.desc)).map(t => [t.date, t.dupState || '', bfBacked(t)])""")
+        S.check(any(x[1] == 'proposed' for x in st) and sum(1 for x in st if x[1]) == 1, 'the import flags the second charge (same payee and amount, next day) as a proposed duplicate', str(st))
+        rows = await pg.evaluate("() => nyhRows().filter(r => r.kind === 'dup').map(r => [r.verb, r.title])")
+        S.check(any('Charged twice' in r[1] and r[0] == 'Confirm' for r in rows), "the controller's Needs Your Hand: Charged twice, Confirm", str(rows))
+        did = await nyh_press(pg, 'lk:dup:' + (await pg.evaluate("() => (DB.txns.find(t => t.dupState === 'proposed' && /BKLYN/.test(t.desc)) || {}).id || ''")))
+        d = await pg.evaluate("() => DB.txns.filter(t => /ROLL OFF DUMPSTER SVC BKLYN/.test(t.desc)).map(t => [t.date, t.dupState || '', !!t.dispute, !!t.exception, t.memo || ''])")
+        S.check(any(x[2] and x[3] and 'Disputed' in x[4] for x in d), 'Confirm disputes the bank-held copy with the issuer, with a reason, and it closes with that exception', f'{did}; {d}')
+        # the seed's typed pair (8/21 and 8/22): the typed copy is voided, not disputed
+        seed = await pg.evaluate("() => { lkDupScan(); return DB.txns.filter(t => t.desc === 'ROLL OFF DUMPSTER SVC').map(t => [t.id, t.date, t.dupState || '']); }")
+        did2 = await nyh_press(pg, 'lk:dup:ta7')
+        v = await pg.evaluate("() => (DB.voided || []).filter(t => /DUMPSTER/.test(t.desc)).map(t => [t.date, t.voidWhy])")
+        S.check(v and 'Void' in did2, 'the typed duplicate of the seed (8/22) is voided with the reason', f'{seed}; {did2}; {v}')
+    finally:
+        if errs: S.errors.append(f'page errors: {errs[:2]}')
+        await b.close()
+
+
+# ---------------------------------------------------------------- 6. a statement in mail
+async def s6_stmt(p, S):
+    b, pg, errs = await boot(p, 'u_controller')
+    try:
+        await pg.evaluate("""() => cmImport([{ msgId: 'lk-amex-aug', threadId: 'lk-amex', from: 'American Express <noreply@amex-statements.example>', to: ['controller@smartdesign.nyc'],
+              date: '2026-09-02T07:00:00', subject: 'Your August statement is ready — account ending 1009', text: 'Your Business Platinum statement is ready.',
+              attachments: [{ name: 'Amex-Aug-2026.pdf', type: 'application/pdf', text: DW_DOCS.amexStatement() }] }])""")
+        pr = await pg.evaluate("() => { const c = DB.comms.find(x => x.msgId === 'lk-amex-aug'); return c ? (c.proposals || []).map(p => [p.kind, p.acctId || '', p.summary]) : null; }")
+        S.check(pr and any(x[0] == 'statement' and x[1] for x in pr), 'the Amex statement is read as our card statement', str(pr))
+        tasks0 = await pg.evaluate("() => DB.projects.flatMap(p => p.actions || []).concat(DB.tasks || []).filter(a => /Import the/.test(a.title || '')).length")
+        dlg = await pg.evaluate("""async () => { const r = nyhRows().find(x => x.kind === 'mail' && x.pkind === 'statement'); if (!r) return {err: 'no row'}; nyhRun(r.key); await new Promise(z => setTimeout(z, 150));
+            const m = document.querySelector('#mbm'); return {verb: r.verb, title: m && (m.querySelector('h3') || {}).innerText, ok: m && m.querySelector('#mbm-ok').innerText, plan: m && (m.querySelector('.bf-plan') || {}).innerText}; }""")
+        S.check(dlg.get('title') == 'Import Statement' and 'Line' in (dlg.get('ok') or ''), "one tap on the controller's Needs Your Hand opens Import Statement with the statement's lines", str(dlg))
+        tasks1 = await pg.evaluate("() => DB.projects.flatMap(p => p.actions || []).concat(DB.tasks || []).filter(a => /Import the/.test(a.title || '')).length")
+        S.check(tasks1 == tasks0, 'no task to import it later', f'{tasks0} -> {tasks1}')
+        rec = await pg.evaluate("""async () => { document.querySelector('#mbm #mbm-ok').click(); await new Promise(z => setTimeout(z, 200));
+            const m = document.querySelector('#mbm'); return {imports: (DB.bankImports || []).filter(i => i.acctId === 'ac2').map(i => [i.fileName, i.period, i.ending, i.added, i.confirmed, i.dup]), sheet: m && (m.querySelector('h3') || {}).innerText, body: m && m.innerText.slice(0, 200)}; }""")
+        S.check(rec['imports'] and rec['sheet'] and 'Reconcile' in rec['sheet'], 'Import is followed by the reconcile', str(rec))
+    finally:
+        if errs: S.errors.append(f'page errors: {errs[:2]}')
+        await b.close()
+
+
+# ---------------------------------------------------------------- 7. one payroll run per pay period
+async def s7_payroll(p, S):
+    b, pg, errs = await boot(p, 'u_controller')
+    try:
+        r = await pg.evaluate("""() => { appSetDay('2026-09-09'); DB.time.filter(t => t.status === 'submitted').forEach(t => t.status = 'approved'); signIn('u_controller');
+            const n0 = DB.payroll.length; payrollFromTime(); payrollFromTime(); const R = DB.payroll.slice(n0); const run = R[0];
+            const hrs = DB.time.filter(t => t.payrollId === run.id); payrollAction(run, 'approve');
+            return {n: R.length, total: run.total, ents: (run.entities || []).map(e => [e.entityId, e.total]), sum: hrs.length, status: run.status,
+                    same: Math.abs((run.entities || []).reduce((a, e) => a + e.total, 0) - run.total) < 0.02}; }""")
+        S.check(r['n'] == 1 and len(r['ents']) == 3 and r['same'], 'one run for the pay period across the three entities, each share inside it and adding to the total', str(r))
+        S.check(r['status'] == 'submitted', 'the controller who built it cannot approve it (separation of duties)', r['status'])
+        g = await pg.evaluate("""async () => { const run = DB.payroll.slice(-1)[0]; const t0 = run.total;
+            DB.time.push({id: 'telk1', empId: 'em2', date: '2026-09-09', in: '2026-09-09T07:00:00', out: '2026-09-09T15:30:00', breakMin: 30, projectId: 'p121', code: '05', notes: '', status: 'approved', approvedBy: 'Alan', source: 'manual', work: [{projectId: 'p121', code: '05', hours: 8, note: ''}]});
+            appSetDay('2026-09-10'); const t1 = run.total; signIn('u_owner'); const why = 'Hours cover the field crew; office time is overhead.'; payrollAction(run, 'approve', why);
+            // the Owner answers the size check (this run is smaller than the past runs' average) and approves
+            const m = document.querySelector('#mbm'); if (m && run.status !== 'approved') { m.querySelector('#mbm-ok').click(); await new Promise(z => setTimeout(z, 60)); run.status !== 'approved' && payrollAction(run, 'approve', why); }
+            const L = glPayrollLines(run), by = {}; L.forEach(l => { const k = l.entityId || '?'; by[k] = r2((by[k] || 0) + (l.dr || 0) - (l.cr || 0)); });
+            return {t0, t1, status: run.status, inRun: DB.time.find(t => t.id === 'telk1').payrollId === run.id, balanced: Object.values(by).every(v => Math.abs(v) < 0.02), ents: Object.keys(by)}; }""")
+        S.check(g['inRun'] and g['t1'] > g['t0'], 'hours approved after the run was built join it the next morning, until it is approved', str(g))
+        S.check(g['status'] == 'approved' and g['balanced'] and len(g['ents']) == 3, "the Owner approves it; each entity's share posts to its own books, balanced", str(g))
+    finally:
+        if errs: S.errors.append(f'page errors: {errs[:2]}')
+        await b.close()
+
+
+# ---------------------------------------------------------------- 8. a vendor credit memo closes the dispute
+async def s8_dispute(p, S):
+    b, pg, errs = await boot(p, 'u_owner')
+    try:
+        d = await pg.evaluate("""() => { const b = DB.bills.find(x => x.number === 'WW-2026-118'); const ok = pay3ShortPay(b, 29700, 'Approved at the PO amount; the difference is disputed');
+            return {ok, short: b.short && [b.short.approved, b.short.held, b.short.state]}; }""")
+        S.fact(f'WW-2026-118 short-paid: {d}')
+        await pg.evaluate("""() => cmImport([{ msgId: 'lk-ww-cm', threadId: 'lk-ww', from: 'Window Works <quotes@windowworks.example>', to: ['alan@smartdesign.nyc', 'chen@smartdesign.nyc'],
+              date: '2026-09-03T09:20:00', subject: 'Credit memo CM-WW-031 — PO-2026-044', text: 'Credit memo CM-WW-031 for $3,800 against WW-2026-118, as discussed. Window Works',
+              attachments: [{ name: 'CM-WW-031.pdf', type: 'application/pdf', text: 'WINDOW WORKS LLC\\nCredit Memo CM-WW-031\\nAgainst invoice WW-2026-118, PO-2026-044\\nCredit $3,800.00' }] }])""")
+        pr = await pg.evaluate("() => { const c = DB.comms.find(x => x.msgId === 'lk-ww-cm'); return c ? (c.proposals || []).map(p => [p.kind, p.summary]) : null; }")
+        S.check(pr and any(x[0] == 'dispute-credit' for x in pr) and not any(x[0] in ('credit', 'bill') for x in pr), 'the credit memo is read as closing the held difference, not as a return or a bill', str(pr))
+        await pg.evaluate("() => { signIn('u_owner'); view = 'home'; render(); }")
+        rows = await pg.evaluate("() => PRED.waitingOnMe.rows().filter(x => /CM-WW-031|WW-2026-118/.test((x.title || '') + (x.detail || ''))).map(x => [x.kind, x.yes || x.verb || '', x.title])")
+        S.check(rows and any(r[1] == 'Approve' for r in rows), "the Owner's Do Now: the credit memo, with Approve", str(rows))
+        await pg.evaluate("async () => { const r = nyhRows().find(x => x.pkind === 'dispute-credit'); r && nyhRun(r.key); await new Promise(z => setTimeout(z, 80)); }")
+        st = await pg.evaluate("() => { const b = DB.bills.find(x => x.number === 'WW-2026-118'); return b.short; }")
+        S.check(st and st.get('state') == 'credited' and st.get('resolved') and st.get('credited'), 'one approval records the credit: the held $3,800 closes', str(st))
+        # no credit memo: at month end the Owner settles it, accepting the difference with a reason
+        acc = await pg.evaluate("""async () => { const b = DB.bills.find(x => x.number === 'WW-2026-118'); b.short.state = 'open'; delete b.short.resolved; save(); appSetDay('2026-09-29'); signIn('u_owner');
+            const r = nyhRows().find(x => x.key === 'lk:disp:' + b.id); if (!r) return {err: 'no row'}; nyhRun(r.key); await new Promise(z => setTimeout(z, 60));
+            const m = document.querySelector('#mbm'); const w = m && m.querySelector('[data-f="why"]'); w && (w.value = 'Field-added unit; the Kleins approved it'); m && m.querySelector('#mbm-ok').click(); await new Promise(z => setTimeout(z, 80));
+            return {verb: r.verb, state: b.short.state, resolved: b.short.resolved}; }""")
+        S.check(acc.get('state') == 'accepted' and acc.get('resolved'), "by month end the Owner's Do Now offers Accept the Difference, with a reason", str(acc))
+    finally:
+        if errs: S.errors.append(f'page errors: {errs[:2]}')
+        await b.close()
+
+
 SCENARIOS = [
     (1, 'earned', 'Earned, not billed: hold per line; CO lines from 0; a drafted application says Send', s1_earned),
+    (2, 'reimb', 'Bought for a client: reimbursable rows billed at cost plus markup, one number with spUnbilled', s2_reimb),
 ]
 
 
