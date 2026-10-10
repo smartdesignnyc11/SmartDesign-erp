@@ -235,6 +235,14 @@ Baseline: 2 MISSED, 4 PARTIAL. Every item is proven by its leak_test scenario tu
      - The person's due-soon items go to Home and Ask "My Day".
 7. **Bug.** The New Bill drawer's Vendor gate (`vfHold`) stays on the shared `#d-save` button, so the transaction drawer cannot save until Vendor is filled. Clear it when the drawer opens.
 
+### 1.6 truth: the ERP's financials are the single source of truth (Alan, 2026-10-10; CLAUDE.md "Financial truth")
+Proven by `tests/truth_test.py`. Every item is a class, applied to every money record type (invoice, payment, bill, bill payment, PO, bank and card line, payroll run, journal).
+1. **Bank and card are the source.** Every P&L and job-cost figure carries its coverage: backed by a bank or card line, backed by an approved document only (accrual), or by hand. Coverage shows on the Statements, the Pack, the job report and Ask ("how much of August's cost is backed by the bank"). The Demo Feed never counts as bank evidence (§1.1 #5).
+2. **Journal entries always flagged.** A manual journal (and any posting that did not derive from a document) carries a visible flag on every surface it touches: ledger rows, statement lines (count and amount of manual entries per line, drill-down), the Pack, the close checklist and Ask. Drafted by the Controller, posted by the Owner with a typed reason; never silent.
+3. **Tamper-evident.** Posted money records and ledger postings are append-only: an edit is a reversal plus a re-post, linked, with who, when and why (already the rule for open periods; make it universal and visible). A hash chain over postings per period, verified at close and on demand ("Verify the Books" on Ledger), so a changed or deleted posting is detected and named. Deleting a posted record is refused; voiding is a reversal with a reason.
+4. **Every transaction matched to a line.** A bank or card line resolves to a bill line or PO line and through it to an estimate line (cost side), or to an invoice line (income side); a payroll run to its time entries; a client payment to invoice lines. Unmatched is a named state with a count on Banking, Home (Caught for You), the close checklist and Ask, never a silent cost. A close refuses while unmatched lines exist in the month, or lists them with a signed exception.
+5. **QuickBooks is a bridge, not the truth.** Load a QuickBooks snapshot (customers, estimates and invoices with lines, open AR and AP, P&L, balance sheet, payroll) through the app's own import paths into clients, documents and periods, marked `source: quickbooks`; then show a Three-Way Tie-Out: QuickBooks says / the bank says / the ERP says, per month and per account, with every difference listed and explained or flagged. The snapshot file lives outside the repo (`tests/harness.py: load_qbo_snapshot(pg, path)`, refusing paths inside the repo) and is never committed, seeded or published.
+
 ---
 
 ## §2 Remaining round-4 findings

@@ -24,6 +24,12 @@ A custom, tailored ERP for SmartDesign, built for the future. It uses AI to rais
   - returns and refunds that were never credited or matched;
   - overhead analysed and reported automatically.
 - **It learns.** It learns from emails and transcripts, keeps a memory, and turns lessons into process changes, so the same mistake does not happen twice.
+- **Financial truth (Alan, 2026-10-10).** The ERP's financials are the single most valuable source of truth for income and expenses, so:
+  - every income and expense figure is linked directly to the bank and credit-card accounts; a figure with no bank or card line behind it is not truth and is shown as such;
+  - manual journal entries are always flagged, everywhere they appear (ledger, statements, Pack, drill-downs, Ask), with who, when and why;
+  - nothing posted can be changed or manipulated silently: posted money records are append-only, a change is a linked reversal and re-post with a reason, and the audit trail is tamper-evident;
+  - every transaction is matched to a line item: cost to a bill or PO line and its estimate line, income to an invoice line; an unmatched transaction is a flag, never a silent cost;
+  - QuickBooks is a bridge for comparison and import, never the truth; the ERP shows where QuickBooks, the bank and the ERP disagree.
 
 ## The bar
 Four expert lenses grade every round against the field leaders:
