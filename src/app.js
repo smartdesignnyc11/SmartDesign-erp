@@ -1522,6 +1522,16 @@ function seedAP() {
         insuranceExp: "2026-12-31",
         bankChangedAt: "",
       },
+      // the electrical sub on 121 State: the estimate's rough-in line names it and the bank pays it by ACH, so it is
+      // a vendor on file (Satish on the crew is a different person, matched by address, never by first name)
+      {
+        id: "v5",
+        name: "Satish Electric Inc",
+        trade: "Electrical",
+        email: "office@satishelectric.example",
+        insuranceExp: "2027-02-28",
+        bankChangedAt: "",
+      },
     ]),
     (DB.bills = [
       {
@@ -174982,14 +174992,23 @@ if ("function" == typeof paDraftNote) {
       if ("client" !== role() && /\bwhat (did|have) (you|the brain|we) learn(ed|t)?\b|\bwhat (did|has) the brain (learn|pick|notice)|\blessons? (from )?today\b/.test(l)) {
         lnLoop("ask");
         const T = lnToday(),
-          A = Object.values(lnInit().props);
+          A = Object.values(lnInit().props),
+          // what the assistant handled for this person today (its day log), after the four numbers
+          did = (() => {
+            try {
+              return (paInit().log || []).filter((x) => x.at === today());
+            } catch (e) {
+              return [];
+            }
+          })();
         return paOut({
           kind: "learn",
           headline: `Today I saw ${T.events.length} new event${1 === T.events.length ? "" : "s"}, proposed ${T.proposed.length} lesson${1 === T.proposed.length ? "" : "s"}, fired rules ${T.fired.length} time${1 === T.fired.length ? "" : "s"} and drafted ${T.changes.length} change${1 === T.changes.length ? "" : "s"}.`,
-          note: `${T.open.length} lesson${1 === T.open.length ? "" : "s"} wait on the Owner's approval; nothing applies itself. I read the records on every sync, closed field issue, dispute, delivery and close${T.sources.length ? ` (today: ${T.sources.join(", ")})` : ""}.`,
-          work: T.events
+          note: `${did.length ? `I also handled ${did.length} thing${1 === did.length ? "" : "s"} for you today. ` : ""}${T.open.length} lesson${1 === T.open.length ? "" : "s"} wait on the Owner's approval; nothing applies itself. I read the records on every sync, closed field issue, dispute, delivery and close${T.sources.length ? ` (today: ${T.sources.join(", ")})` : ""}.`,
+          work: did
             .slice(0, 8)
-            .map((e) => `Saw: ${e.what}`)
+            .map((x) => `Handled: ${x.what}${x.why ? ` — ${x.why}` : ""}`)
+            .concat(T.events.slice(0, 8).map((e) => `Saw: ${e.what}`))
             .concat(A.filter((p) => "proposed" === p.status).slice(0, 6).map((p) => `Proposed: ${p.title} — from ${p.events.length} event${1 === p.events.length ? "" : "s"}`))
             .concat(T.fired.slice(0, 6).map((k) => {
               const [lid, rk] = k.split("|"),
