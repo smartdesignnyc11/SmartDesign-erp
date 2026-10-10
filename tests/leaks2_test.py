@@ -330,6 +330,7 @@ SCENARIOS = [
     (2, 'reimb', 'Bought for a client: reimbursable rows billed at cost plus markup, one number with spUnbilled', s2_reimb),
     (3, 'credit', 'A refund on a purchase billed to the client: a client credit drafted onto an invoice', s3_credit),
     (4, 'match', 'Every bank line matched to a line: payroll runs, POs, a bill from a check, a typed cost', s4_match),
+    (5, 'dup', 'A duplicate charge at import: a proposed dispute (or void) on the controller\'s Needs Your Hand', s5_dup),
     (7, 'payroll', 'One payroll run per pay period across entities, built from every hour approved by its date', s7_payroll),
 ]
 

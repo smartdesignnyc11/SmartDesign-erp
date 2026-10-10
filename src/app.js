@@ -175774,3 +175774,151 @@ document.addEventListener(
       }
     },
   ]);
+
+// ---- 5. a charge twice: same account, payee and amount within three days, flagged at import
+const lkPayeeKey = (t) =>
+  String(t.desc || "")
+    .toUpperCase()
+    .replace(/\b(BKLYN|BROOKLYN|NY|NYC|INC|LLC)\b/g, "")
+    .replace(/[^A-Z]/g, "")
+    .slice(0, 14);
+function lkDupOf(t) {
+  if (!t || !(+t.amt < 0) || t.dupState === "notdup") return null;
+  const k = lkPayeeKey(t);
+  return (
+    (DB.txns || [])
+      .filter(
+        (x) =>
+          x.id !== t.id &&
+          x.acct === t.acct &&
+          Math.abs(+x.amt - +t.amt) < 0.005 &&
+          lkPayeeKey(x) === k &&
+          Math.abs(dayDiff(x.date, t.date)) <= 3 &&
+          (x.date < t.date || (x.date === t.date && String(x.id) < String(t.id))) &&
+          "notdup" !== x.dupState,
+      )
+      .sort((a, b) => String(b.date).localeCompare(a.date))[0] || null
+  );
+}
+// mark the later copy of each pair: a proposal for the controller (never voided or disputed on its own)
+function lkDupScan(ids) {
+  let n = 0;
+  (ids ? (DB.txns || []).filter((t) => ids.includes(t.id)) : DB.txns || []).forEach((t) => {
+    if (t.dupState) return;
+    const tw = lkDupOf(t);
+    tw && ((t.dupOf = tw.id), (t.dupState = "proposed"), n++);
+  });
+  return n;
+}
+if ("function" == typeof bfIngest) {
+  const base = bfIngest;
+  bfIngest = function (src, added, removed) {
+    const out = base.apply(this, arguments);
+    try {
+      out && !(src && src.dry) && out.newIds && out.newIds.length && (out.dupProposed = lkDupScan(out.newIds));
+    } catch (e) {
+      console.warn("duplicate check", e);
+    }
+    return out;
+  };
+}
+"undefined" != typeof APP_DAY_HOOKS && APP_DAY_HOOKS.push(["lkDupScan", () => (lkDupScan(), !0)]);
+// The controller confirms it: a line the bank holds is disputed with the issuer (it closes with that reason);
+// a typed copy the statement never had is voided with the reason.
+function lkDupSheet(t) {
+  const tw = t && (DB.txns || []).find((x) => x.id === t.dupOf);
+  if (!t) return;
+  const bank = bfBacked(t) && !truthDemo(t),
+    issuer = ((DB.accounts || []).find((a) => a.id === t.acct) || {}).name || "the bank";
+  mbModal(
+    bank ? "Dispute the Duplicate Charge" : "Void the Duplicate",
+    `<p class="small">${esc(t.desc)} · ${money(t.amt)} on ${fmtL(t.date)}${tw ? ` — the same payee and amount as ${fmtL(tw.date)}` : ""}, ${esc(issuer)}.</p><p class="small muted">${bank ? `${esc(issuer)} holds both lines, so neither is deleted here: the second is disputed with the issuer and closes with this reason; the credit, when it comes, is matched to it.` : "This copy was typed by hand and the statement does not hold it twice: it moves to the voided register with the reason, and the ledger reverses it."}</p>${mbF("Reason", mbIn("why", `Charged twice: same payee and amount as the ${tw ? fmt(tw.date) : "earlier"} charge`, ""))}`,
+    {
+      submit: bank ? "Dispute the Charge" : "Void the Line",
+      onSubmit: (f) => {
+        const why = String((f && f.why) || "").trim();
+        if (!why) return toast("Say why"), !1;
+        if (!bank) {
+          const r = truthVoidTxn(t, why);
+          return r.ok ? (render(), void rcToast(`${t.desc} ${money(t.amt)} voided — ${why}`, [{ label: "Open", run: () => ((view = "bank"), render()) }])) : (toast(r.why), !1);
+        }
+        const who = (currentUser() || {}).name || role();
+        (t.dispute = { why: why, by: who, at: appNowIso(), with: issuer, dupOf: t.dupOf || "", amt: +t.amt }), (t.dupState = "disputed"), (t.memo = [t.memo, `Disputed with ${issuer}: duplicate of the ${tw ? fmt(tw.date) : "earlier"} charge`].filter(Boolean).join(" · "));
+        "function" == typeof truthException && ["owner", "controller"].includes(role()) && truthException(t, `Disputed with ${issuer} as a duplicate charge: ${why}`);
+        try {
+          audit("txn", t.id, "disputed", "", `duplicate of ${t.dupOf || ""}`, `${who}: ${why}`);
+        } catch (e) {}
+        save(), render(), rcToast(`${t.desc} ${money(t.amt)} disputed with ${issuer} — ${why}`, [{ label: "Open", run: () => ((view = "bank"), render()) }]);
+      },
+    },
+  );
+}
+function lkDupRows() {
+  return (DB.txns || []).filter((t) => "proposed" === t.dupState && t.dupOf && (DB.txns || []).some((x) => x.id === t.dupOf));
+}
+{
+  const base = lkTxnMoreFlags;
+  lkTxnMoreFlags = function (t) {
+    let h = base.apply(this, arguments);
+    if ("proposed" === t.dupState && t.dupOf) {
+      const tw = (DB.txns || []).find((x) => x.id === t.dupOf);
+      tw && (h += `<span class="sub warn-t lk-flag">Charged twice? the same as ${esc(fmt(tw.date))} <button type="button" class="btn sm" data-lkdup="${esc(t.id)}">${bfBacked(t) && !truthDemo(t) ? "Dispute…" : "Void…"}</button></span>`);
+    }
+    "disputed" === t.dupState && (h += `<span class="sub lk-flag">Disputed with the issuer: ${esc((t.dispute || {}).why || "a duplicate")}</span>`);
+    return h;
+  };
+}
+document.addEventListener(
+  "click",
+  (e) => {
+    const b = e.target.closest && e.target.closest("[data-lkdup]");
+    if (!b) return;
+    e.preventDefault(), e.stopPropagation(), lkDupSheet((DB.txns || []).find((x) => x.id === b.dataset.lkdup));
+  },
+  !0,
+);
+// the drawer's Void… on a proposed duplicate opens the same sheet (a line the bank holds is disputed, not voided)
+{
+  const base = txnDialog;
+  txnDialog = function (id) {
+    const r = base.apply(this, arguments);
+    try {
+      const t = id && (DB.txns || []).find((x) => x.id === id),
+        del = document.getElementById("d-delete");
+      t && del && "proposed" === t.dupState && ((del.textContent = bfBacked(t) && !truthDemo(t) ? "Dispute…" : "Void…"), (del.onclick = () => (closeEditor(), lkDupSheet(t))));
+    } catch (e) {}
+    return r;
+  };
+}
+{
+  const base = nyhRowsAll;
+  nyhRowsAll = function () {
+    const out = base.apply(this, arguments);
+    try {
+      lkDupRows().forEach((t) => {
+        const tw = (DB.txns || []).find((x) => x.id === t.dupOf),
+          key = "lk:dup:" + t.id;
+        lnHandDone(key) ||
+          out.some((x) => x.key === key) ||
+          out.push({
+            key: key,
+            route: "controller",
+            kind: "dup",
+            title: `Charged twice: ${t.desc} ${money2(Math.abs(+t.amt))} on ${fmtL(tw.date)} and ${fmtL(t.date)}`,
+            why: `${truthAcctWords(t)} · same payee and amount ${Math.abs(dayDiff(tw.date, t.date))} day${1 === Math.abs(dayDiff(tw.date, t.date)) ? "" : "s"} apart: ${bfBacked(t) && !truthDemo(t) ? "dispute the second with the issuer" : "void the typed copy"}`,
+            amount: Math.abs(+t.amt),
+            verb: "Confirm",
+            no: "Not a Duplicate",
+            run: () => lkDupSheet(t),
+            skip: () => {
+              (t.dupState = "notdup"), save(), render(), toast(`Kept: ${t.desc} on ${fmtL(t.date)} is a charge of its own`);
+            },
+            open: () => "function" == typeof txnDialog && txnDialog(t.id),
+          });
+      });
+    } catch (e) {
+      console.warn("nyh duplicates", e);
+    }
+    return out;
+  };
+}
