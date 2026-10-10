@@ -243,6 +243,22 @@ Proven by `tests/truth_test.py`. Every item is a class, applied to every money r
 4. **Every transaction matched to a line.** A bank or card line resolves to a bill line or PO line and through it to an estimate line (cost side), or to an invoice line (income side); a payroll run to its time entries; a client payment to invoice lines. Unmatched is a named state with a count on Banking, Home (Caught for You), the close checklist and Ask, never a silent cost. A close refuses while unmatched lines exist in the month, or lists them with a signed exception.
 5. **QuickBooks is a bridge, not the truth.** Load a QuickBooks snapshot (customers, estimates and invoices with lines, open AR and AP, P&L, balance sheet, payroll) through the app's own import paths into clients, documents and periods, marked `source: quickbooks`; then show a Three-Way Tie-Out: QuickBooks says / the bank says / the ERP says, per month and per account, with every difference listed and explained or flagged. The snapshot file lives outside the repo (`tests/harness.py: load_qbo_snapshot(pg, path)`, refusing paths inside the repo) and is never committed, seeded or published.
 
+### 1.7 assistant gaps: what did not fire on a synced workspace (from tests/demo_ws_test.py, 2026-10-10)
+Each is proven by a demo_ws_test check turning from "did not fire" to "fired as a proposal". AI proposes, people approve, throughout.
+1. **Field and design assistants know no jobs (S2).** `paMine().projects` is empty unless the person is the project's PM, so `paTerms` carries no project or client terms: the foreman got 1 nudge from 14 messages (the DOB inspection window and the plumber's no-show never reached him); the designer 4 of 15. A person's jobs are the jobs they are assigned to, clocked on, or named on (schedule, submittals, decisions), not only the ones they manage.
+2. **Meeting tasks apply without approval (S2).** The seed ships `company.meetAuto.task = true`, so tasks from meeting notes are created on sync. Default to proposals; a firm may switch auto-apply on per kind, and the Brain says so.
+3. **Engineer's calcs are only a note.** The PE's flitch-beam calcs should file on the job, update the S-101 submittal, and propose "stamp the shop drawings before fabrication".
+4. **Vendor delivery dates in mail stay notes.** Propose setting or confirming the PO's expected date, the foreman's Arriving Today, and an elevator or street reservation task.
+5. **Field requests in mail stay notes.** "25 boards GWB by Thursday" becomes a material request on the Buy Board with its order-by date.
+6. **Meeting notes and transcripts in Drive are only nudged** ("belongs on the job"); ingest them like mail (`mtIngest` from Drive text).
+7. **A client's dated ask inside a decision email** ("confirm the laundry layout before Friday") becomes a dated task for the PM, not only an offer.
+8. **The quiet-lead chase** fires only when the sent message asked a question; any proposal or quote sent with no reply is watched.
+9. **A DOB NOW notice** sets the inspection date on the project's inspection record (as a proposal), not only a permit note.
+10. **Lessons are not proposed from events.** The no-show and the expired COI never became lessons; `bnSuggestLessons` runs only when The Brain renders. Run it on every sync and on every closed field issue, bill dispute and late delivery.
+11. **A call from the answering service** matches the client by phone and proposes the reply draft, not only a task.
+12. **A bank or card statement in Drive** proposes the import (and the reconcile), not only a nudge.
+13. **Unrouted mail becomes master data** (from the real-workspace test): a thread matching no client, project or vendor proposes creating it, with the evidence; the owner approves in one tap and the thread routes.
+
 ---
 
 ## §2 Remaining round-4 findings
