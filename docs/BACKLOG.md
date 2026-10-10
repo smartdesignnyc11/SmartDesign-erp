@@ -157,7 +157,7 @@ This lane was finished and verified at 53 checks. Target figures follow.
 - **Honest evaluation.** Tune on 50, report 50 held out, then write 25 fresh held-out questions and report that too.
 
 ### 1.4 clientpo: Release Order, client approvals, phone (UX S1/S2, ops S2). Unfinished
-1. **Release Order makes a real PO (S1).**
+1. **Release Order makes a real PO (S1).** **Done (lane purchasing, 2026-10-10):** `poValid` on every issue path, `smReleaseDialog`, `poRepairInvalid`; proven by `tests/purchasing_test.py` (release).
    - What happens: submittal 26 51 00-001 › Release Order drafts PO-2026-049 with the vendor "— choose vendor —", $0 total, no Needed on Site and no task. Issue PO succeeds anyway and marks material m17 "ordered" at $0, so the Buy Board stops chasing the lighting.
    - Fix:
      - Carry the item, quantities, prices, on-site date, task, spec section and job, and ask for the supplier (picker of vendors who sold this item or trade).

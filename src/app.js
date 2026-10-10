@@ -9414,7 +9414,8 @@ function applyRules(t) {
   const r = DB.rules.find((r) => d.includes(r.match.toLowerCase()));
   return (
     !!r &&
-    ((t.cat = r.cat),
+    // money coming in on a job-cost rule is a vendor credit, never materials
+    ((t.cat = +t.amt > 0 && isJobCat(r.cat) ? "refund" : r.cat),
     (t.code = r.code || ""),
     (t.vendor = r.vendor || t.vendor),
     r.projectId && (t.projectId = r.projectId),
@@ -9555,7 +9556,8 @@ function renderBank() {
         cls: "name",
         get: (t) => ({
           text: t.desc,
-          html: `${esc(t.desc)}${t.vendor ? `<span class="sub">${esc(t.vendor)}</span>` : ""}`,
+          // a vendor credit says what it is against, with Confirm (txnCreditLine, purchasing section)
+          html: `${esc(t.desc)}${t.vendor ? `<span class="sub">${esc(t.vendor)}</span>` : ""}${"function" == typeof txnCreditLine ? txnCreditLine(t) : ""}`,
         }),
       },
       {
@@ -27490,10 +27492,11 @@ function jobFin(p, range) {
     accruedBills = bills.filter((b) => BILL_ACCRUED.includes(b.status)),
     billsAmt = r2(costedBills.reduce((a, b) => a + billTotal(b), 0)),
     accrued = r2(accruedBills.reduce((a, b) => a + billTotal(b), 0)),
+    // a vendor credit coded to the job (refund) reduces its cost: it is summed with its sign (BACKLOG §1.5 #4)
     txns = DB.txns.filter(
       (t) =>
         t.projectId === p.id &&
-        t.amt < 0 &&
+        (t.amt < 0 || "refund" === t.cat) &&
         isJobCat(t.cat) &&
         "labor" !== t.cat &&
         inRng(t.date) &&
@@ -141121,7 +141124,7 @@ function blOpenRow(row) {
   }
 }
 function blRowAct(row) {
-  if (row) return "ready" === row.kind ? rtbAct(row.key) : blOpenRow(row);
+  if (row) return "credit" === row.kind ? blCreditAct(row) : "ready" === row.kind ? rtbAct(row.key) : blOpenRow(row);
 }
 function blTiles() {
   const rows = billingRows(),
@@ -141211,7 +141214,9 @@ if (
     BILL_TABS.some((t) => "progress" === t[0]) || BILL_TABS.splice(1, 0, ["progress", "Progress Billing"]);
 }
 const blStage = (r) =>
-    "ready" === r.kind
+    "credit" === r.kind
+      ? ovStatus(r.approved ? "credit approved" : "credit owed", r.approved ? "neutral" : "warn", 1)
+      : "ready" === r.kind
       ? ovStatus("ready", "info", 0)
       : "held" === r.kind
         ? ovStatus("held", "warn", 1)
@@ -141221,7 +141226,11 @@ const blStage = (r) =>
             ? ovStatus("past due", "bad", 3)
             : ovStatus("sent", "neutral", 4),
   blActLabel = (r) =>
-    "ready" === r.kind
+    "credit" === r.kind
+      ? r.approved
+        ? "Open"
+        : "Approve Credit"
+      : "ready" === r.kind
       ? "Draft"
       : "held" === r.kind
         ? "Open WIP"
@@ -167840,35 +167849,6 @@ function cmApplyCredit(c, p, by) {
     return did;
   };
 }
-// The Billing Queue carries a client credit the reader proposed from a vendor's credit memo; people approve it.
-if ("function" == typeof billingSuggestions) {
-  const base = billingSuggestions;
-  billingSuggestions = function () {
-    const out = base.apply(this, arguments) || [];
-    try {
-      (DB.clientCredits || [])
-        .filter((cc) => "proposed" === cc.status)
-        .forEach((cc) => {
-          const p = (DB.projects || []).find((x) => x.id === cc.projectId),
-            c = (DB.clients || []).find((x) => x.id === cc.clientId);
-          p &&
-            out.push({
-              kind: "clientCredit",
-              c: null,
-              d: { id: cc.id, type: "credit", number: "Credit" },
-              p: p,
-              client: c,
-              amount: -Math.abs(cc.amount || 0),
-              title: `${String(p.project.name).replace(/ —.*$/, "")}: credit the client ${money(cc.amount)} — ${cc.why}`,
-              act: "credit",
-            });
-        });
-    } catch (e) {
-      console.warn("client credits", e);
-    }
-    return out;
-  };
-}
 
 // ---- dates (review finding 11): a due date lands on a working day
 function poWorkday(d) {
@@ -167916,3 +167896,220 @@ function buyExpedite(p, mid) {
     },
   );
 }
+
+// ---- returns and refunds (BACKLOG §1.5 #4): a credit names what it relieves
+// A vendor credit or refund on the bank or card is scored against the same vendor's purchases in the last
+// 90 days: the card or bank line it reverses (creditOf) and the bill and PO it relieves (creditBillId,
+// creditPOId). It is a proposal; coding it (pay3Suggest proposes refund on the original's job, code and
+// line) or matching it to a return confirms it. When the original was billed on to the client, the Billing
+// Queue proposes a credit to the client.
+function txnCreditScan(t) {
+  if (!t || !(+t.amt > 0) || t.creditOf || t.creditBillId || t.retId || ["transfer", "cc-payment", "income", "loan", "owner"].includes(t.cat)) return null;
+  const amt = +t.amt,
+    since = iso(addDays(t.date || today(), -90)),
+    name = (u) => u.vendor || ("function" == typeof pay3PayeeName ? pay3PayeeName(u) : u.desc),
+    hit = (nm) => ("function" == typeof pay3NameHit ? pay3NameHit(nm, t) : !1),
+    orig = (DB.txns || [])
+      .filter((u) => u.id !== t.id && +u.amt < 0 && u.date >= since && u.date <= (t.date || today()) && hit(name(u)) && Math.abs(+u.amt) >= amt - 0.005)
+      .map((u) => ({ u: u, s: (Math.abs(Math.abs(+u.amt) - amt) < 0.01 ? 0 : 1) * 1e6 + dayDiff(u.date, t.date || today()) }))
+      .sort((a, b) => a.s - b.s)[0],
+    digits = (String(t.desc || "").match(/\d{4,}/g) || []).filter((x) => !/^20\d\d$/.test(x)),
+    bill = (DB.bills || [])
+      .filter((b) => !["void", "rejected", "draft"].includes(b.status) && hit(b.vendor))
+      .map((b) => ({ b: b, s: digits.some((d) => String(b.number || "").includes(d)) ? 0 : b.date >= since && billGross(b) >= amt - 0.005 ? 1 : 9 }))
+      .filter((x) => x.s < 9)
+      .sort((a, b) => a.s - b.s || String(b.b.date).localeCompare(String(a.b.date)))[0];
+  if (!orig && !bill) return null;
+  const o = orig && orig.u,
+    b = bill && bill.b;
+  o && (t.creditOf = o.id);
+  b && ((t.creditBillId = b.id), b.poId && (t.creditPOId = b.poId));
+  t.creditState = "proposed";
+  // a rule already coded it as a vendor credit: it takes the original's job, code and line, still to confirm
+  const src = (o && (o.projectId || o.code) && o) || b;
+  "refund" === t.cat && src && !t.projectId && ((t.projectId = src.projectId || ""), t.code || (t.code = src.code || ""), t.line || (t.line = src.line || ""));
+  return t;
+}
+function txnCreditWhy(t) {
+  const o = t.creditOf && (DB.txns || []).find((x) => x.id === t.creditOf),
+    b = t.creditBillId && (DB.bills || []).find((x) => x.id === t.creditBillId),
+    po = t.creditPOId && (DB.pos || []).find((x) => x.id === t.creditPOId);
+  return [
+    o ? `credit for the ${fmt(o.date)} purchase (${money(Math.abs(+o.amt))}${o.projectId ? " on " + pay3JobName(o.projectId) : ""})` : "",
+    b ? `against bill ${b.number || ""}${po ? " on " + po.number : ""}` : "",
+  ]
+    .filter(Boolean)
+    .join(", ");
+}
+{
+  const base = applyRules;
+  applyRules = function (t) {
+    const r = base.apply(this, arguments);
+    try {
+      txnCreditScan(t);
+    } catch (e) {
+      console.warn("credit scan", e);
+    }
+    return r;
+  };
+}
+// The suggestion for a linked credit: refund, on the original's job, code and line.
+if ("function" == typeof pay3Suggest) {
+  const base = pay3Suggest;
+  pay3Suggest = function (t) {
+    if (t && +t.amt > 0 && (!t.cat || "uncat" === t.cat) && !t.billId) {
+      const o = t.creditOf && (DB.txns || []).find((x) => x.id === t.creditOf),
+        b = t.creditBillId && (DB.bills || []).find((x) => x.id === t.creditBillId),
+        src = o && (o.projectId || o.code) ? o : b;
+      if (src)
+        return {
+          src: "credit",
+          projectId: src.projectId || "",
+          code: src.code || "",
+          cat: "refund",
+          line: src.line || "",
+          why: `${txnCreditWhy(t)} — a vendor credit reduces that job's cost`,
+        };
+    }
+    return base.apply(this, arguments);
+  };
+}
+if ("function" == typeof pay3Accept) {
+  const base = pay3Accept;
+  pay3Accept = function (id) {
+    const r = base.apply(this, arguments),
+      t = (DB.txns || []).find((x) => x.id === id);
+    t && r && (t.creditOf || t.creditBillId) && "refund" === t.cat && (t.creditState = "confirmed");
+    return r;
+  };
+}
+// The bank list says what a credit is and what it is against.
+if ("function" == typeof txnState) {
+  const base = txnState;
+  txnState = function (t) {
+    const st = base.apply(this, arguments);
+    try {
+      if (t && +t.amt > 0 && (t.creditOf || t.creditBillId) && "proposed" === t.creditState && !t.retId && "reconciled" !== t.status) {
+        const coded = t.cat && "uncat" !== t.cat,
+          byPerson = coded && t.actor && "rule" !== t.actor;
+        if (!byPerson)
+          return { sev: coded ? Math.max(1, st.sev || 0) : 2, msg: `Vendor credit — ${txnCreditWhy(t)}; confirm it against the original` };
+      }
+    } catch (e) {}
+    return st;
+  };
+}
+// A credit on a line already billed to the client: the client is owed it, proposed in the Billing Queue.
+function txnClientCredits() {
+  return (DB.txns || [])
+    .filter((t) => +t.amt > 0 && (t.creditOf || t.creditBillId) && !t.clientCreditDone)
+    .map((t) => {
+      const o = t.creditOf && (DB.txns || []).find((x) => x.id === t.creditOf),
+        b = t.creditBillId && (DB.bills || []).find((x) => x.id === t.creditBillId),
+        line = (b && b.line) || (o && o.line) || t.line || "",
+        pid = (b && b.projectId) || (o && o.projectId) || t.projectId || "",
+        f = line && "function" == typeof lineFin ? lineFin(line) : null;
+      return f && f.billed > 0 && pid ? { t: t, projectId: pid, line: line, amount: r2(+t.amt), vendor: (b && b.vendor) || (o && (o.vendor || pay3PayeeName(o))) || "the vendor" } : null;
+    })
+    .filter(Boolean);
+}
+// The client is owed a vendor credit on a line already billed to them: one Billing Queue row per credit, from
+// the reader's credit memo (DB.clientCredits) or from a bank credit linked to its original (txnClientCredits).
+// Billing approves it; nothing is credited without that.
+function blCreditRows() {
+  const out = [],
+    seen = new Set();
+  (DB.clientCredits || []).forEach((cc) => {
+    if ("void" === cc.status) return;
+    const p = (DB.projects || []).find((x) => x.id === cc.projectId),
+      c = (DB.clients || []).find((x) => x.id === cc.clientId);
+    cc.txnId && seen.add(cc.txnId),
+      p &&
+        out.push({ id: "credit:" + cc.id, kind: "credit", cc: cc, key: "credit:" + cc.id, client: c || null, job: p, amount: -Math.abs(+cc.amount || 0), date: cc.at || "", approved: "approved" === cc.status, what: `Credit the client ${money(cc.amount)}`, why: cc.why, needs: "proposed" === cc.status });
+  });
+  txnClientCredits().forEach((x) => {
+    if (seen.has(x.t.id)) return;
+    const p = (DB.projects || []).find((y) => y.id === x.projectId),
+      c = p && (DB.clients || []).find((y) => y.id === p.clientId);
+    p &&
+      out.push({
+        id: "credit:t:" + x.t.id,
+        kind: "credit",
+        txn: x.t,
+        key: "credit:t:" + x.t.id,
+        client: c || null,
+        job: p,
+        amount: -x.amount,
+        date: x.t.date || "",
+        approved: !1,
+        what: `Credit the client ${money(x.amount)}`,
+        why: `${x.vendor} credited ${money(x.amount)} on a line already billed to ${c ? c.name : "the client"} (${txnCreditWhy(x.t)})`,
+        needs: !0,
+      });
+  });
+  return out;
+}
+{
+  const base = billingRows;
+  billingRows = function () {
+    const rows = base.apply(this, arguments) || [];
+    try {
+      return rows.concat(blCreditRows());
+    } catch (e) {
+      return console.warn("client credit rows", e), rows;
+    }
+  };
+}
+function blCreditAct(row) {
+  if (!row) return;
+  if (row.approved) return blOpenRow(row);
+  const amt = Math.abs(row.amount),
+    who = row.client ? row.client.name : "the client";
+  mbModal(
+    `Approve Credit — <span data-nocase>${esc(who)}</span>`,
+    `<p class="small" style="margin:0 0 8px">${esc(row.why)}.</p><p class="small muted" style="margin:0">Approving records that ${esc(who)} is owed ${money(amt)} on ${esc(String(row.job.project.name).replace(/ —.*$/, ""))}; it goes on their next invoice as a credit line. Nothing is sent to the client from here.</p>`,
+    {
+      submit: "Approve Credit",
+      onSubmit: () => {
+        const by = (currentUser() || {}).name || role();
+        let cc = row.cc;
+        cc ||
+          ((DB.clientCredits = DB.clientCredits || []),
+          (cc = { id: uid("cc"), projectId: row.job.id, clientId: row.client ? row.client.id : "", amount: amt, txnId: row.txn ? row.txn.id : "", why: row.why, status: "proposed", at: today(), by: by }),
+          DB.clientCredits.push(cc));
+        (cc.status = "approved"), (cc.approvedBy = by), (cc.approvedAt = today()), row.txn && (row.txn.clientCreditDone = cc.id);
+        try {
+          audit("client-credit", cc.id, "approved", "proposed", money(amt), row.why);
+        } catch (e) {}
+        save(), render();
+        rcToast(`Credit of ${money(amt)} to ${who} approved — it goes on the next invoice`, [{ label: "Open", run: () => ((view = "billing"), (billTab = "billable"), render()) }]);
+      },
+    },
+  );
+}
+// The bank list names a vendor credit and what it relieves, on the row, with Confirm.
+function txnCreditLine(t) {
+  if (!t || !(+t.amt > 0) || !(t.creditOf || t.creditBillId) || "proposed" !== t.creditState || t.retId) return "";
+  const coded = t.cat && "uncat" !== t.cat;
+  if (coded && t.actor && "rule" !== t.actor) return "";
+  return `<span class="sub warn-t">Vendor credit — ${esc(txnCreditWhy(t))} <button type="button" class="btn sm" data-crconfirm="${esc(t.id)}">Confirm</button></span>`;
+}
+document.addEventListener(
+  "click",
+  (e) => {
+    const b = e.target.closest && e.target.closest("[data-crconfirm]");
+    if (!b) return;
+    e.preventDefault(), e.stopPropagation();
+    const t = (DB.txns || []).find((x) => x.id === b.dataset.crconfirm);
+    if (!t) return;
+    const coded = t.cat && "uncat" !== t.cat;
+    coded || ("function" == typeof pay3Accept && pay3Accept(t.id, !0));
+    (t.creditState = "confirmed"), (t.actor = (currentUser() || {}).name || role());
+    try {
+      audit("txn", t.id, "credit-confirmed", "proposed", txnCreditWhy(t), "");
+    } catch (err) {}
+    save(), render();
+    rcToast(`${t.desc} confirmed as a vendor credit — ${txnCreditWhy(t)}`, "function" == typeof flowGo && flowCan("bank") ? [{ label: "Open", run: flowGo.view("bank") }] : null);
+  },
+  !0,
+);
