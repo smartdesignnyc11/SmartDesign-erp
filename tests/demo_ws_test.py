@@ -245,6 +245,13 @@ async def persona(p, uid, C):
             view = 'comms'; cmFilter = 'open'; render(); const tabs = [...document.querySelectorAll('#v-comms .ctabs button')].map(b => b.textContent.trim());
             return { n: L.length, all, subj, tabs }; }""")
         C.ok(na['n'] < na['all'] and any(s.startswith('Field card limit') for s in na['subj']) and not any(s.startswith('Invoice 2290') for s in na['subj']) and not any(s.startswith('October rent') for s in na['subj']), f"{uid}: Needs an Answer counts threads that asked us something with no reply from us ({na['n']} of {na['all']}; {na['subj'][:6]})")
+        # ---- S2 personal statements (finding 11): a statement that is not the firm's is never offered to Bank > Import.
+        ps = one(S['files'], lambda f: f['name'].startswith('Chase Total Checking statement 8832'))
+        C.ok(bool(ps) and ps['route'].get('kind') == 'statement' and ps['route'].get('ours') is False, f"{uid}: a personal statement in Drive is read as not the firm's ({ps and ps['route']})")
+        pn = [n for n in S['nudges'] if 'Chase Total Checking statement 8832' in n['text']]
+        C.ok(len(pn) == 1 and 'Bank › Import reads it' not in pn[0]['note'] and "not one of the firm's accounts" in pn[0]['note'], f"{uid}: the nudge leaves it alone and says why ({[n['note'][:120] for n in pn]})")
+        am = [n for n in S['nudges'] if n['text'].startswith('Amex-Business-Platinum-1009-Statement')]
+        C.ok(len(am) == 1 and 'Bank › Import' in am[0]['note'], f"{uid}: the firm's own card statement is still offered to Bank > Import ({[n['note'][:80] for n in am]})")
         C.ok(any(t.startswith('Needs an Answer') and t.replace('Needs an Answer', '').strip() == str(na['n']) for t in na['tabs']), f"{uid}: the Needs an Answer tab shows that count ({na['tabs']})")
         # The loop: a draft the assistant writes lands in the demo Drafts, and the next sync shows it in the app.
         loop = await pg.evaluate("""async () => { const c = DB.comms.find(x => x.owner === 'u_owner' && /backsplash decision/.test(x.subject));
@@ -255,6 +262,29 @@ async def persona(p, uid, C):
             return { drafts: W.drafts.length, added: DB.comms.filter(x => x.owner === 'u_owner').length - before, draftLabels, thread: dc && dc.threadId === c.threadId, dir: dc && dc.direction, sentLabels: dc2 && dc2.labels, inSent: W.messages.find(m => m.id === d.message.id).labelIds }; }""")
         C.ok(loop['added'] == 1 and loop['draftLabels'] == ['DRAFT'] and loop['thread'] and loop['dir'] == 'out', f'{uid}: the reply draft went into the demo Drafts on the thread and the next sync shows it ({loop})')
         C.ok(loop['sentLabels'] == ['SENT'] and loop['inSent'] == ['SENT'], f'{uid}: sending the approved draft moves it to Sent in the mailbox and in the app ({loop["sentLabels"]}, {loop["inSent"]})')
+    # --- The PM's review (r5 PM, findings 9 and 10): routing by the job's name, a reply that asks the reader is a
+    # task on them, unknown senders against vendors on file, one card for Drive files, no card for my own mail,
+    # an agency's "revise and resubmit" a dated task for the designer.
+    if uid == 'u_alan':
+        for subj, pid in (('Invoice AMP-318', 'p121'), ('Re: Confirming Tuesday 7am', 'p121'), ('121 State — millwork delivery', 'p121'), ('121 State — plumbing supersede', 'p121'),
+                          ('121 State — special inspections', 'p121'), ('121 State — need 25 boards GWB', 'p121'), ('Re: 45 Cranberry — flitch beam calcs', 'p45')):
+            cs = [c for c in S['comms'] if c['subject'].startswith(subj)]
+            C.ok(bool(cs) and all(c['route'].get('projectId') == pid for c in cs), f"{uid}: \"{subj}\" routes to {pid} by the job named in the subject ({[(c['subject'][:40], c['route'].get('projectId')) for c in cs]})")
+        pe = one(S['comms'], lambda c: c['subject'].startswith('Re: 45 Cranberry — flitch beam calcs') and 'natarajan' in (c['from'] or ''))
+        rq = pe and one(S['props'], lambda p: p['commId'] == pe['id'] and p['kind'] == 'request')
+        C.ok(bool(rq) and rq.get('forWho') == 'Alan' and 'shoring' in rq.get('task', '').lower(), f"{uid}: the PE's \"have Alan confirm the shoring plan\" is a task on Alan ({rq and (rq.get('forWho'), rq.get('task'))})")
+        offers = await pg.evaluate("() => { const A = paInit(); return (A.master || []).filter(m => m.status === 'proposed' && !m.noise).map(m => m.name); }")
+        C.ok(not any(o.replace(' ', '').lower() in ('albertomplumbing', 'metroexpediting') for o in offers), f"{uid}: no offer to create a vendor already on file, and no local-part names ({offers})")
+        files = [n for n in S['nudges'] if 'landed in Drive' in n['text'] and not re.search(r'COI|W-9|statement', n['text'])]
+        C.ok(len(files) == 1 and re.match(r'\d+ files landed in Drive', files[0]['text']), f"{uid}: the job's Drive files are one card, not one per file; a COI or a statement keeps its own ({len(files)}: {[n['text'][:50] for n in files]})")
+        own = await pg.evaluate("() => { const A = paInit(); return A.thread.filter(m => m.nudge && m.ref && m.ref.kind === 'mail').map(m => DB.comms.find(c => c.id === m.ref.commId || c.msgId === m.ref.id)).filter(c => c && ((c.labels || []).includes('SENT') || c.direction === 'out')).map(c => c.subject); }")
+        C.ok(not own, f"{uid}: no nudge for my own sent mail ({own})")
+        lpc = one(by_kind(S, 'lpc'), lambda p: p.get('projectId') == 'p121')
+        C.ok(bool(lpc) and lpc.get('owner') == 'Sarah Davis' and lpc.get('due') and lpc.get('resubmit'), f"{uid}: LPC's revise and resubmit is a dated task for the designer ({lpc and (lpc.get('owner'), lpc.get('due'), lpc.get('task'))})")
+        if lpc:
+            r = await pg.evaluate("""(pid) => { const c = DB.comms.find(x => (x.proposals || []).some(p => p.id === pid)), p = c.proposals.find(p => p.id === pid);
+                window.__cmBulk = 1; cmApply(c, p); window.__cmBulk = 0; const t = DB.projects.find(x => x.id === 'p121').tasks.filter(t => t.fromComm).pop(); return t && { owner: t.owner, end: t.end, name: t.name }; }""", lpc['id'])
+            C.ok(bool(r) and r['owner'] == 'Sarah Davis' and r['end'] == lpc.get('due'), f"{uid}: approving it puts the dated task on the designer ({r})")
     # --- Second sync: nothing duplicates.
     S2 = await pg.evaluate("async (uid) => { await gsRun({}); const A = paInit(); return { comms: DB.comms.filter(c => c.owner === uid).length, events: (DB.calendar.external || []).filter(e => e.owner === uid).length, files: (DB.gdrive || []).filter(f => f.owner === uid).length, meetings: DB.meetings.length, nudges: A.thread.filter(m => m.nudge).length, props: DB.comms.filter(c => c.owner === uid).reduce((a, c) => a + (c.proposals || []).length, 0) }; }", uid)
     extra = 2 if uid == 'u_owner' else 0  # the owner's test wrote a draft and sent it: one new message

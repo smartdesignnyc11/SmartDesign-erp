@@ -70419,6 +70419,18 @@ function cmCoiExpiry(txt) {
     m2 = t.match(/(?:expir\w*|exp\.?)[:\s]*([A-Za-z]{3,9} \d{1,2},? \d{4}|\d{1,2}\/\d{1,2}\/\d{4})/i);
   return m1 ? toIso(m1[2]) : m2 ? toIso(m2[1]) : "";
 }
+// An agency or examiner asking for a revised drawing: who revises it (the job's designer, else the firm's
+// designer) and by when (five working days from the letter, the firm's turn-around for a resubmission).
+function cmResubmit(own, proj, c) {
+  const ask = (String(own || "").replace(/\s+/g, " ").match(/[^.?!]*\b(?:revise|resubmit|re-submit|amend the drawing|correct the drawing|objections?)\b[^.?!]*[.?!]?/i) || [])[0];
+  if (!ask) return null;
+  const des =
+      (proj && (proj.project.designer || proj.project.architect)) ||
+      ((DB.users || []).find((u) => "designer" === u.role) || {}).name ||
+      "PM",
+    said = String((c && c.date) || "").slice(0, 10) || today();
+  return { ask: ask.trim(), owner: des, due: iso(addWork(said < today() ? today() : said, 5, !1)) };
+}
 function cmRead(c) {
   const own = cmOwnText(c.text),
     attText = (c.attachments || [])
@@ -70763,14 +70775,19 @@ function cmRead(c) {
         ? (proj.submittals || []).find((x) => (x.reviewers || []).some((r) => "lpc" === r.role) && !/^(closed|approved)$/.test(x.status))
         : null,
       insp = proj ? (proj.inspections || []).find((x) => /lpc/i.test(x.agency || "") && "passed" !== x.status) : null;
-    push("lpc", `LPC on ${where || R.addr}: ${line}${hearing ? " · " + hearing[0].trim() : ""}`, {
+    // "Revise and resubmit" is drawing work with a clock: a dated task for the designer, not a note for the
+    // PM (PM review r5, finding 10).
+    const fix = cmResubmit(own, proj, c);
+    push("lpc", `LPC on ${where || R.addr}: ${line}${hearing ? " · " + hearing[0].trim() : ""}${fix ? ` · revise and resubmit: ${fix.owner}, by ${fmtL(fix.due)}` : ""}`, {
       projectId: proj ? proj.id : "",
       comment: line,
       hearing: hearing ? hearing[1] : "",
       submittalId: sub ? sub.id : "",
       inspectionId: insp ? insp.id : "",
-      task: `Answer LPC on ${where || R.addr}: ${line.slice(0, 80)}`,
-      owner: "PM",
+      task: fix ? `Revise and resubmit to LPC on ${where || R.addr}: ${fix.ask.slice(0, 120)}` : `Answer LPC on ${where || R.addr}: ${line.slice(0, 80)}`,
+      owner: fix ? fix.owner : "PM",
+      due: fix ? fix.due : "",
+      resubmit: !!fix,
     });
   }
   // A sub who did not show, or confirms a day: the field has to know and the vendor's record keeps score.
@@ -71150,7 +71167,7 @@ function cmApply(c, p) {
       const insp = p.inspectionId && (pr.inspections || []).find((x) => x.id === p.inspectionId);
       insp && (insp.notes = (insp.notes ? insp.notes + "\n" : "") + `${fmt(today())}: LPC — ${p.comment || p.summary}`);
     }
-    p.task && cmTask(p.task, R.projectId || p.projectId, "PM"), (did = pr ? "LPC comment on the application" : "task for the PM");
+    p.task && cmTask(p.task, R.projectId || p.projectId, p.owner || "PM", p.due), (did = pr ? `LPC comment on the application${p.resubmit ? ` · resubmission task for ${p.owner}, due ${fmtL(p.due)}` : ""}` : `task for ${p.owner || "the PM"}`);
   } else if ("noshow" === p.kind) {
     const v = p.vendorId && DB.vendors.find((x) => x.id === p.vendorId);
     v && ((v.noShows = (v.noShows || 0) + 1), (v.notes = (v.notes ? v.notes + "\n" : "") + `${fmt(today())}: ${p.summary}`)),
@@ -104185,18 +104202,60 @@ function cmMatches(c, q) {
       .includes(s),
   );
 }
+// Needs an Answer (owner review r5, finding 15): a thread where somebody outside asked us something and
+// nobody from the firm has written on it since. One per thread, its latest question. Not every message with
+// a proposal: a note, a newsletter or a bank notice asks nothing.
+const CM_QUESTION_RX = /\?|\b(?:can|could|would) you\b|\bplease (?:confirm|send|advise|let|call|get back|reply|respond)\b|\blet (?:me|us) know\b|\bwaiting (?:on|for) (?:you|your)\b|\bget back to (?:me|us)\b/i;
+function cmNeedsAnswer() {
+  const me = ("function" == typeof paMe ? paMe() : {}).id,
+    L = (DB.comms || []).filter((c) => (!c.owner || c.owner === me) && "ignored" !== c.status),
+    myMail = String((("function" == typeof gcMine && gcMine()) || {}).email || "").toLowerCase(),
+    // Ours: what I sent from my mailbox; on the firm inbox, anything the firm sent. A colleague's question to
+    // me is a question like any other.
+    staff = (c) =>
+      (c.labels || []).includes("SENT") ||
+      (c.labels || []).includes("DRAFT") ||
+      (myMail && cmEmail((c.from || {}).email) === myMail) ||
+      (!c.owner && ("out" === c.direction || cmIsStaff(cmEmail((c.from || {}).email)))),
+    byThread = {};
+  L.forEach((c) => {
+    const k = c.threadId || c.id;
+    (byThread[k] = byThread[k] || []).push(c);
+  });
+  return Object.values(byThread)
+    .map((T) => {
+      T.sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")));
+      const lastOurs = T.filter(staff).map((c) => String(c.date || "")).sort().pop() || "",
+        asks = T.filter(
+          (c) =>
+            !staff(c) &&
+            String(c.date || "") > lastOurs &&
+            "call" !== c.channel &&
+            !(c.route || {}).bot &&
+            !cmBankSender(c) &&
+            !("object" == typeof PA_AUTOMATED && PA_AUTOMATED.test(cmEmail((c.from || {}).email))) &&
+            !(c.proposals || []).every((p) => p.applied) &&
+            CM_QUESTION_RX.test(`${c.subject || ""} ${cmOwnText(c.text || "")}`),
+        );
+      return asks[asks.length - 1] || null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+}
+// To Decide: messages with a proposal that does something (not a plain note) still waiting on a person.
+const cmToDecide = (c) => "ignored" !== c.status && (c.proposals || []).some((p) => !p.applied && !1 !== p.on && "note" !== p.kind);
 function cmListFor(filter) {
   const me = ("function" == typeof paMe ? paMe() : {}).id;
   let L = (DB.comms || [])
     .filter((c) => !c.owner || c.owner === me)
     .slice()
     .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
-  const open = L.filter(
-    (c) => (c.proposals || []).some((p) => !p.applied && !1 !== p.on) && "ignored" !== c.status,
-  );
+  const open = cmNeedsAnswer();
   return (
     "open" === filter
       ? (L = open)
+      : "decide" === filter
+        ? (L = L.filter(cmToDecide))
       : "calls" === filter
         ? (L = L.filter((c) => "call" === c.channel))
         : "applied" === filter &&
@@ -104242,7 +104301,8 @@ function renderCommsInbox() {
       (c) => (c.proposals || []).some((p) => !p.applied && !1 !== p.on) && "ignored" !== c.status,
     ),
     counts = {
-      open: open.length,
+      open: cmNeedsAnswer().length,
+      decide: all.filter(cmToDecide).length,
       all: all.length,
       calls: all.filter((c) => "call" === c.channel).length,
       applied: all.filter((c) => (c.proposals || []).some((p) => p.applied) || (c.filed || []).length).length,
@@ -104266,7 +104326,8 @@ function renderCommsInbox() {
         : "") +
       '<label class="btn sm">Import Mail<input type="file" id="cm-file" accept=".json" hidden></label><button class="btn sm" id="cm-paste">Paste a Message</button>';
   (host.innerHTML = `<div class="row wrap no-print ib-bar" style="gap:8px;align-items:center;margin-bottom:10px">\n      <div class="ctabs" style="margin:0;border:0">${[
-    ["open", "Needs a Decision"],
+    ["open", "Needs an Answer"],
+    ["decide", "To Decide"],
     ["all", "Everything"],
     ["calls", "Calls"],
     ["applied", "Done"],
@@ -111222,7 +111283,8 @@ async function gsDrive(first) {
           source: gcIsDemo() ? "demo" : "google",
           at: appNowIso(),
         };
-      (rec.route = gsRouteFile(rec)), i >= 0 ? (DB.gdrive[i] = rec) : (DB.gdrive.push(rec), fresh.push(rec));
+      // The listed text (a demo or loaded workspace carries it) helps name the file's kind; it is not kept.
+      (rec.route = gsRouteFile(Object.assign({}, rec, { text: String(f.text || "").slice(0, 4000) }))), i >= 0 ? (DB.gdrive[i] = rec) : (DB.gdrive.push(rec), fresh.push(rec));
     }),
     gsCur("driveAt", gsNowIso()),
     fresh
@@ -111268,7 +111330,33 @@ function gsRouteFile(f) {
                 : /proposal|quote|estimate/.test(n)
                   ? "proposal"
                   : "";
-  return { projectId: p ? p.id : "", clientId: c ? c.id : "", vendorId: v && !c ? v.id : "", kind: kind };
+  const out = { projectId: p ? p.id : "", clientId: c ? c.id : "", vendorId: v && !c ? v.id : "", kind: kind };
+  // A statement is the firm's only when it names one of the firm's accounts (its last four) or the company or
+  // one of its entities. Anything else, a personal account included, is never offered to Bank › Import
+  // (owner review r5, finding 11).
+  if ("statement" === kind) {
+    const o = gsStatementOurs(`${f.name || ""}\n${f.text || ""}`);
+    (out.ours = o.ours), (out.why = o.why), o.ours || ((out.projectId = ""), (out.clientId = ""));
+  }
+  return out;
+}
+function gsStatementOurs(t) {
+  const txt = String(t || ""),
+    low = txt.toLowerCase(),
+    acct = (DB.accounts || []).find((a) => a.last4 && new RegExp(`(?:^|[^0-9])${a.last4}(?:[^0-9]|$)`).test(txt)),
+    names = [(DB.company || {}).name, ...(DB.entities || []).map((e) => e.name)]
+      .map((n) =>
+        String(n || "")
+          .toLowerCase()
+          .replace(/\b(llc|inc|corp|ltd)\.?$/, "")
+          .trim(),
+      )
+      .filter((n) => n.length > 4),
+    ent = names.find((n) => low.includes(n) || low.replace(/[^a-z0-9]+/g, " ").includes(n.replace(/[^a-z0-9]+/g, " ")));
+  if (acct) return { ours: !0, why: `${acct.name} ····${acct.last4}` };
+  if (ent) return { ours: !0, why: `it names ${ent}` };
+  const mask = (txt.match(/(?:ending(?: in)?|x{2,}|\*{2,}|····|account)\s*#?\s*(\d{4})\b/i) || txt.match(/[-_ ](\d{4})[-_ ]/) || [])[1];
+  return { ours: !1, why: mask ? `account ····${mask} is not one of the firm's accounts` : "it names none of the firm's accounts or entities" };
 }
 async function gsRun(opts) {
   const o = opts || {};
@@ -111734,8 +111822,12 @@ function paBadge() {
 }
 function paWatch(delta) {
   if (!delta) return [];
-  const made = [];
+  const made = [],
+    myMail = String((("function" == typeof gcMine && gcMine()) || {}).email || "").toLowerCase(),
+    grouped = new Set();
   (delta.mail || []).forEach((m) => {
+    // My own sent mail and my drafts are never brought to me as news (PM review r5, finding 10).
+    if ((m.labels || []).includes("SENT") || (m.labels || []).includes("DRAFT") || (myMail && cmEmail((m.from || {}).email) === myMail)) return;
     const S = paScoreItem(`${m.subject} ${m.text}`, (m.from || {}).email);
     if (S.score < 6) return;
     const who = (m.from || {}).name || (m.from || {}).email || "somebody",
@@ -111769,10 +111861,39 @@ function paWatch(delta) {
           ),
         );
     }),
+    (() => {
+      // The job's documents are one card, not one per file; vendor paperwork and statements keep their own.
+      const jobFiles = [],
+        fin = ["owner", "controller", "billing"].includes(String(paMe().role || ""));
+      (delta.files || []).forEach((f) => {
+        const r = f.route || {},
+          v = r.vendorId && (DB.vendors || []).find((x) => x.id === r.vendorId);
+        if ((v && ("coi" === r.kind || "w9" === r.kind)) || ("statement" === r.kind && fin)) return;
+        if (!r.projectId && !r.clientId) return;
+        const p = (DB.projects || []).find((x) => x.id === r.projectId);
+        (p && !paMine().projects.some((x) => x.id === p.id)) || jobFiles.push({ f: f, p: p, r: r });
+      });
+      if (jobFiles.length > 1) {
+        const jobs = [...new Set(jobFiles.map((x) => (x.p ? String(x.p.project.name).replace(/ —.*$/, "") : "a client of yours")))];
+        made.push(
+          paNudge(
+            `${jobFiles.length} files landed in Drive for ${jobs.slice(0, 3).join(", ")}${jobs.length > 3 ? ` and ${jobs.length - 3} more` : ""}.`,
+            `${jobFiles
+              .slice(0, 8)
+              .map((x) => `${x.f.name}${"drawing" === x.r.kind ? " (a drawing)" : ""}`)
+              .join("; ")}${jobFiles.length > 8 ? ` and ${jobFiles.length - 8} more` : ""}. Each names its job, so it belongs on that job rather than loose in a folder.`,
+            { kind: "files", id: jobFiles.map((x) => x.f.id).sort().join(",") },
+            "jobs you run",
+          ),
+        );
+      }
+      jobFiles.length > 1 && jobFiles.forEach((x) => grouped.add(x.f.id));
+    })(),
     (delta.files || []).forEach((f) => {
       const r = f.route || {},
         v = r.vendorId && (DB.vendors || []).find((x) => x.id === r.vendorId),
         fin = ["owner", "controller", "billing"].includes(String(paMe().role || ""));
+      if (grouped.has(f.id)) return;
       if (v && ("coi" === r.kind || "w9" === r.kind))
         return void made.push(
           paNudge(
@@ -111784,12 +111905,19 @@ function paWatch(delta) {
         );
       if ("statement" === r.kind && fin)
         return void made.push(
-          paNudge(
-            `${f.name} landed in Drive.`,
-            "A card or bank statement. Bank › Import reads it line by line and marks what is already in the books.",
-            { kind: "file", id: f.id },
-            "the books",
-          ),
+          !1 === r.ours
+            ? paNudge(
+                `${f.name} landed in Drive — not the firm's, left alone.`,
+                `It reads like a bank or card statement, but ${r.why || "it names none of the firm's accounts"}. I did not offer it to Bank › Import and will not read it into the books; if it is the firm's, add the account on Bank first.`,
+                { kind: "file", id: f.id },
+                "a statement that is not the firm's",
+              )
+            : paNudge(
+                `${f.name} landed in Drive.`,
+                `A card or bank statement for ${r.why || "one of the firm's accounts"}. Bank › Import reads it line by line and marks what is already in the books.`,
+                { kind: "file", id: f.id },
+                "the books",
+              ),
         );
       if (!r.projectId && !r.clientId) return;
       const p = (DB.projects || []).find((x) => x.id === r.projectId);
@@ -111809,9 +111937,31 @@ function paWatch(delta) {
 function paRefOffers(ref) {
   if (!ref) return [];
   const out = [];
+  if ("files" === ref.kind) {
+    // One card for the job's Drive files: one offer files them all, each on the job its name gives.
+    const F = String(ref.id || "")
+      .split(",")
+      .map((id) => (DB.gdrive || []).find((x) => x.id === id))
+      .filter((f) => f && !f.filed && f.route && (f.route.projectId || f.route.clientId));
+    return F.length
+      ? [
+          csOffer({
+            id: "pa-filedrive-all",
+            label: `File All ${F.length} on Their Jobs`,
+            detail: "Linked, not copied — each document stays where it is in Drive and its job points at it.",
+            run: () => {
+              F.forEach((f) => gaFile(f, f.route.projectId, f.route.clientId)), toast(`Filed ${F.length} on their jobs`, gcOpen("files")), render();
+            },
+          }),
+        ]
+      : [];
+  }
   if ("mail" === ref.kind) {
     const c = (DB.comms || []).find((x) => x.id === ref.commId || x.msgId === ref.id);
     if (!c) return out;
+    const mineMsg =
+      (c.labels || []).includes("SENT") || cmEmail((c.from || {}).email) === String((("function" == typeof gcMine && gcMine()) || {}).email || "").toLowerCase();
+    mineMsg ||
     out.push(
       csOffer({
         id: "pa-reply",
@@ -138322,14 +138472,7 @@ const OC_BADGE = {
         .filter((r) => "new" === r.status && reqAgeH(r) > ACK_HOURS).length;
     },
   },
-  comms: {
-    n: () => (
-      cmInit(),
-      (DB.comms || []).filter(
-        (c) => (c.proposals || []).some((p) => !p.applied && !1 !== p.on) && "ignored" !== c.status,
-      ).length
-    ),
-  },
+  comms: { n: () => (cmInit(), cmNeedsAnswer().length) },
   mapprove: { n: () => mApproveCount() },
   files: { n: () => 0 },
   inbox: { n: () => 0 },
@@ -166864,6 +167007,8 @@ function demoWsBuild(uid) {
     F("COI - Window Works LLC - GL 2026-27.pdf", 6, "wwCoi", { by: "Chen Biron", byEmail: "chen@" + DW_DOMAIN });
     F("Carlos Millwork - Invoice CM-0102.pdf", 2, "cmInvoice", { by: "Billing" });
     F("45 Cranberry - Flitch Beam Calcs rev1.pdf", 2, "flitch", { by: "Sarah Davis" });
+    // A personal statement that landed in the owner's Drive: never offered to the books (owner review r5, 11).
+    F("Chase Total Checking statement 8832 Aug 2026.pdf", 3, "", { text: "CHASE TOTAL CHECKING\nA. and R. Mishali\nAccount ending 8832\nStatement period 08/01/2026 to 08/31/2026\nEnding balance $12,410.55" });
   } else if ("u_alan" === uid) {
     scenes.kleinDecision(); scenes.kleinPaid(); scenes.ampInvoice(); scenes.nemoQuote(); scenes.subConfirm();
     scenes.lpcBrickMold(); scenes.lpcHearing(); scenes.dobInspection(); scenes.expediter(); scenes.peFlitch();
@@ -167579,7 +167724,7 @@ function paOrgName(K, msgs) {
     const hit = lines.find((l) => l.length < 50 && !/\d{3}/.test(l) && (l.toLowerCase().replace(/[^a-z]/g, "").includes(lab.slice(0, 5)) || (CM_ORG_WORD.test(l) && !cmLooksLikeName(l))));
     if (hit) return hit.replace(/[,;]$/, "");
   }
-  const dn = msgs.map((c) => cmStripImg((c.from && c.from.name) || "").trim()).find((n) => n && !cmLooksLikeName(n) && !cmNameFromLocal(n, (c => (c.from || {}).email)(msgs[0])) && n.toLowerCase().replace(/[^a-z]/g, "").includes(lab.slice(0, 4)));
+  const dn = msgs.map((c) => cmStripImg((c.from && c.from.name) || "").trim()).find((n) => /\s/.test(n) && n.toLowerCase().replace(/[^a-z]/g, "").includes(lab.slice(0, 4)));
   return (
     dn ||
     K.label
