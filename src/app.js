@@ -166272,9 +166272,9 @@ function truthHash(s) {
 const TRUTH_HASH_SCHEME = 'fnv1a-32 over "prior|n|id|key|sourceType:sourceId|date|acct:dr:cr,…", postings of the month in posting order';
 
 // ---- 1. coverage: bank/card-backed, document-backed (accrual), by hand
+// One rule for "only the Demo Feed has seen this line": the bank-feed layer's bfIsDemoOnly.
 function truthDemo(t) {
-  const p = bfProv(t);
-  return !!(p.demo || (p.confirmedBy && p.confirmedBy.demo) || (p.feedSeen && p.feedSeen.demo && !p.stmtSeen && "statement" !== p.kind));
+  return "function" == typeof bfIsDemoOnly ? bfIsDemoOnly(t) : !!(bfProv(t) || {}).demo;
 }
 function truthTxnOfBill(b) {
   if (!b) return null;
@@ -166298,8 +166298,8 @@ function truthBacking(row) {
     ref = row.ref || row;
   if ("txn" === kind) {
     const t = ref;
+    if (truthDemo(t)) return { kind: "hand", why: "the Demo Feed delivered it; a Demo Feed line is not bank evidence" };
     if (bfBacked(t)) {
-      if (truthDemo(t)) return { kind: "hand", why: "the Demo Feed delivered it; a Demo Feed line is not bank evidence" };
       const p = bfProv(t),
         src = p.confirmedBy || p.stmtSeen || p.feedSeen || p;
       return { kind: "bank", why: `${truthAcctWords(t)} ${"statement" === src.kind ? `statement ${src.fileName || ""}`.trim() : "feed"} holds it on ${truthWhen(t.date)}` };
