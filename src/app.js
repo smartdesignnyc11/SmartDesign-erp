@@ -164474,3 +164474,563 @@ if ("function" == typeof glWire) {
   };
 }
 
+// ---- surfaces: Statements, the Pack, the Flash, the job report
+if ("function" == typeof repFinancials) {
+  const base = repFinancials;
+  repFinancials = function () {
+    let h = base.apply(this, arguments);
+    try {
+      const R = (() => {
+          try {
+            return "function" == typeof repRangeOf ? repRangeOf().range : cfoRange();
+          } catch (e) {
+            return cfoRange();
+          }
+        })(),
+        C = truthCoverage(R),
+        M = truthManual(R, { entityId: void 0 !== repEntity && repEntity ? repEntity : "all" }),
+        man = `<div class="card tr-man"><h3 class="rep-h" style="margin-top:0">Entries Not From a Document <span class="small muted">${M.n ? `${M.n} · ${money(M.amt)} in the period` : "none in the period"}</span></h3>${M.n ? `<div class="rem">${M.rows.map((m) => `<div class="rem-row"><span>${truthFlagHtml(m.flag)} <span class="small">#${m.j.n} ${esc(m.j.memo)} · ${money(m.amt)}</span></span></div>`).join("")}</div>` : '<p class="small muted">Every posting in the period derives from an invoice, payment, bill, bank line or payroll run.</p>'}</div>`,
+        k = h.indexOf('<h3 class="rep-h">Balance sheet');
+      const add = truthCovHtml(C, "Coverage") + man;
+      h = k > -1 ? h.slice(0, k) + add + h.slice(k) : h + add;
+    } catch (e) {
+      console.warn("statement coverage", e);
+    }
+    return h;
+  };
+}
+function truthPackRange() {
+  try {
+    const R = repRangeOf().range,
+      ym = R[1].slice(0, 7),
+      start = ym + "-01",
+      end = fin2End(ym),
+      td = today();
+    return { ym: ym, range: [R[0] > start ? R[0] : start, end > td ? td : end] };
+  } catch (e) {
+    const ym = today().slice(0, 7);
+    return { ym: ym, range: [ym + "-01", today()] };
+  }
+}
+const truthPrevYm = (ym) => iso(addDays(parse(ym + "-01"), -1)).slice(0, 7);
+if ("function" == typeof repPack) {
+  const base = repPack;
+  repPack = function () {
+    let h = base.apply(this, arguments);
+    try {
+      const P = truthPackRange(),
+        C = truthCoverage(P.range),
+        prev = truthPrevYm(P.ym),
+        M = truthManual(P.range, { entityId: "all" }),
+        Mp = truthManual([prev + "-01", fin2End(prev)], { entityId: "all" }),
+        list = (X) => (X.n ? `<div class="rem">${X.rows.map((m) => `<div class="rem-row"><span>${truthFlagHtml(m.flag)} <span class="small">#${m.j.n} ${esc(m.j.memo)} · ${money(m.amt)}</span></span></div>`).join("")}</div>` : '<p class="small muted">None.</p>'),
+        sec = `<h3 class="rep-h">9 · Coverage and manual entries</h3>${truthCovHtml(C, `Coverage · ${truthLabel(P.ym)}`)}<div class="grid2"><div><h4 class="small" style="margin:6px 0">Manual entries · ${truthLabel(P.ym)} · ${M.n} · ${money(M.amt)}</h4>${list(M)}</div><div><h4 class="small" style="margin:6px 0">Manual entries · ${truthLabel(prev)} · ${Mp.n} · ${money(Mp.amt)}</h4>${list(Mp)}</div></div>`;
+      h += sec;
+    } catch (e) {
+      console.warn("pack truth", e);
+    }
+    return h;
+  };
+}
+if ("function" == typeof repFlash) {
+  const base = repFlash;
+  repFlash = function () {
+    let h = base.apply(this, arguments);
+    try {
+      const t = today(),
+        ym = t.slice(0, 7),
+        prev = truthPrevYm(ym),
+        C = truthCoverage([ym + "-01", t]),
+        Cp = truthCoverage([prev + "-01", fin2End(prev)]),
+        M = truthManual([ym + "-01", t], { entityId: "all", manualOnly: !0 }),
+        Mp = truthManual([prev + "-01", fin2End(prev)], { entityId: "all", manualOnly: !0 }),
+        pl = truthLabel(prev).replace(/ \d{4}$/, ""),
+        row = (k, v, i) => `<div class="flash-row"><span>${k}</span><b>${v}</b><i>${i || ""}</i></div>`,
+        card = `<div class="card tr-flash"><h3>Truth</h3>${row("Cost backed by the bank", `${C.cost.pct}% this month · ${Cp.cost.pct}% in ${pl}`, `${money(C.cost.hand)} by hand this month`)}${row("Manual journal entries", `${M.n} this month · ${Mp.n} in ${pl}`, [M, Mp].flatMap((X) => X.rows).slice(0, 2).map((m) => truthManualLine(m)).join("; ") || "none")}${row("Lines not matched", `${PRED.unmatchedTxns.count()} · ${money(PRED.unmatchedTxns.figure())}`, truthByMonthWords(PRED.unmatchedTxns.byMonth()))}</div>`,
+        i = h.indexOf('<div class="flash">'),
+        j = i > -1 && "function" == typeof budCloseDiv ? budCloseDiv(h, i) : -1;
+      h = j > -1 ? h.slice(0, j) + card + h.slice(j) : h + card;
+    } catch (e) {
+      console.warn("flash truth", e);
+    }
+    return h;
+  };
+}
+if ("function" == typeof repProfit) {
+  const base = repProfit;
+  repProfit = function () {
+    let h = base.apply(this, arguments);
+    try {
+      const p = (DB.projects || []).find((x) => x.id === repProj);
+      if (!p) return h;
+      const C = truthCoverage([repFrom || "", repTo || today()], { projectId: p.id }),
+        line = `<p class="small tr-cov-line">${TRUTH_ICON_SHIELD} Of the bills and bank cost on this job, ${esc(truthCovWords(C.cost))}. Income: ${esc(truthCovWords(C.income))}.</p>`,
+        k = h.indexOf('<h3 class="rep-h">By cost code</h3>');
+      h = k > -1 ? h.slice(0, k) + line + h.slice(k) : h + line;
+    } catch (e) {
+      console.warn("job coverage", e);
+    }
+    return h;
+  };
+}
+
+// ---- 5. QuickBooks as a bridge: load a snapshot through the app's own records, then tie out three ways
+const qboS = (v) => (null == v ? "" : String(v)),
+  qboN = (v) => {
+    const n = parseFloat(String(null == v ? "" : v).replace(/[,$\s]/g, ""));
+    return isFinite(n) ? r2(n) : 0;
+  },
+  qboDate = (v) => qboS(v).slice(0, 10);
+function qboLines(L) {
+  return (L || [])
+    .filter((l) => "SubTotalLineDetail" !== l.DetailType && "DiscountLineDetail" !== l.DetailType && null != l.Amount)
+    .map((l) => {
+      const d = l.SalesItemLineDetail || l.ItemBasedExpenseLineDetail || l.AccountBasedExpenseLineDetail || l.DescriptionOnly || {},
+        qty = qboN(d.Qty) || 1,
+        rate = null != d.UnitPrice ? qboN(d.UnitPrice) : r2(qboN(l.Amount) / qty);
+      return { id: uid("l"), item: (d.ItemRef && d.ItemRef.name) || qboS(l.Description).slice(0, 60) || "QuickBooks line", desc: qboS(l.Description), qty: qty, unit: "ea", rate: rate, taxable: !!(d.TaxCodeRef && /^TAX$/i.test(qboS(d.TaxCodeRef.value))), cost: 0, qboLineId: qboS(l.Id), account: (d.AccountRef && d.AccountRef.name) || "" };
+    });
+}
+function qboCat(words) {
+  const w = String(words || "").toLowerCase();
+  return /material|lumber|tile|supply|supplies/.test(w)
+    ? "materials"
+    : /subcontract|plumb|electric|hvac|roof|mason/.test(w)
+      ? "subs"
+      : /labor|wage/.test(w)
+        ? "labor"
+        : /equipment|rental/.test(w)
+          ? "equipment"
+          : /dumpster|disposal|haul/.test(w)
+            ? "disposal"
+            : /permit|filing|dob|fee/.test(w)
+              ? "permits"
+              : /design|engineer|architect/.test(w)
+                ? "design"
+                : /insurance/.test(w)
+                  ? "insurance"
+                  : /vehicle|fuel|auto|truck/.test(w)
+                    ? "vehicle"
+                    : /marketing|advertis/.test(w)
+                      ? "marketing"
+                      : /meal|travel/.test(w)
+                        ? "meals"
+                        : /tax|license/.test(w)
+                          ? "taxes"
+                          : /cost of goods|cogs|job/.test(w)
+                            ? "materials"
+                            : "office";
+}
+const qboStatus = (s) => ({ accepted: "approved", closed: "approved", converted: "approved", pending: "sent", rejected: "rejected" })[qboS(s).toLowerCase()] || "sent";
+function qboLoad(snap) {
+  if (!snap || "object" != typeof snap || "quickbooks" !== snap.source) return { ok: !1, why: 'Not a QuickBooks snapshot: expected {"source": "quickbooks", …}' };
+  if (!["owner", "controller", "billing"].includes(role())) return { ok: !1, why: "The Owner, the Controller or Billing loads a QuickBooks snapshot" };
+  const by = truthWho(),
+    at = appNowIso(),
+    out = { ok: !0, clients: { added: 0, updated: 0 }, estimates: { added: 0, updated: 0, skipped: 0 }, invoices: { added: 0, updated: 0, skipped: 0 }, payments: { added: 0, updated: 0 }, bills: { added: 0, updated: 0 }, payroll: { added: 0, updated: 0 } },
+    pr = snap.payroll || {};
+  DB.qbo = { loadedAt: at, by: by, company: snap.company || {}, pl: snap.pl || {}, cashFlow: snap.cashFlow || {}, balanceSheet: snap.balanceSheet || [], arAging: snap.arAging || {}, apAging: snap.apAging || {}, sales: snap.sales || {}, payroll: { employees: pr.employees || [], schedules: pr.schedules || [], payslips: pr.payslips || [] }, products: snap.products || [], counts: {} };
+  const stamp = { t: nowStamp(), by: "QuickBooks", role: "import", action: `imported from QuickBooks by ${by}` },
+    custById = {},
+    clientByName = (n) => (DB.clients || []).find((c) => c.name.toLowerCase() === qboS(n).toLowerCase()),
+    projOf = (c) => ((DB.projects || []).find((p) => p.clientId === c.id) || {}).id || "";
+  (snap.customers || []).forEach((cu) => {
+    const id = qboS(cu.Id),
+      name = qboS(cu.DisplayName || cu.FullyQualifiedName || cu.CompanyName || cu.GivenName + " " + cu.FamilyName).trim();
+    if (!id || !name) return;
+    let c = (DB.clients || []).find((x) => "quickbooks" === x.source && x.qboId === id) || clientByName(name);
+    c ? out.clients.updated++ : ((c = blankClient(name)), (c.type = "QuickBooks customer"), DB.clients.push(c), out.clients.added++),
+      "function" == typeof migrateClientDocs && migrateClientDocs(c),
+      c.source || (c.source = "quickbooks"),
+      (c.qboId = id),
+      cu.CompanyName && (c.company = qboS(cu.CompanyName)),
+      cu.Notes && (c.notes = qboS(cu.Notes));
+    const B = cu.BillAddr || {},
+      addr = [B.Line1, B.Line2, [B.City, B.CountrySubDivisionCode, B.PostalCode].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+    addr && !c.billingAddr && (c.billingAddr = addr), addr && !c.propertyAddr && (c.propertyAddr = addr);
+    const email = cu.PrimaryEmailAddr && qboS(cu.PrimaryEmailAddr.Address),
+      phone = cu.PrimaryPhone && qboS(cu.PrimaryPhone.FreeFormNumber);
+    (email || phone) && !c.contacts.some((k) => k.email === email) && c.contacts.push({ id: uid("ct"), name: name, email: email || "", phone: phone || "", role: "QuickBooks contact", primary: !c.contacts.length });
+    custById[id] = c;
+  });
+  const clientFor = (ref) => (ref && (custById[qboS(ref.value)] || clientByName(ref.name))) || null;
+  (snap.estimates || []).forEach((e) => {
+    const c = clientFor(e.CustomerRef);
+    if (!c) return void out.estimates.skipped++;
+    const id = qboS(e.Id),
+      lines = qboLines(e.Line),
+      sub = r2(lines.reduce((s, l) => s + l.qty * l.rate, 0)),
+      tax = qboN(e.TxnTaxDetail && e.TxnTaxDetail.TotalTax),
+      rec = { type: "estimate", number: qboS(e.DocNumber) || "QB-" + id, title: qboS(e.CustomerMemo && e.CustomerMemo.value) || `QuickBooks estimate ${qboS(e.DocNumber) || id}`, date: qboDate(e.TxnDate), validUntil: qboDate(e.ExpirationDate), status: qboStatus(e.TxnStatus), projectId: projOf(c), lines: lines.map((l) => Object.assign(l, { taxable: tax > 0 })), discount: { type: "pct", value: 0 }, taxRate: tax > 0 && sub ? r2((100 * tax) / sub) : 0, terms: "", memo: qboS(e.PrivateNote), internal: `imported from QuickBooks on ${at.slice(0, 10)} by ${by}`, source: "quickbooks", qboId: id, qboTotal: qboN(e.TotalAmt) };
+    let d = c.estimates.find((x) => "quickbooks" === x.source && x.qboId === id);
+    d ? (Object.assign(d, rec), out.estimates.updated++) : ((rec.id = uid("es")), c.estimates.push(rec), out.estimates.added++);
+  });
+  const invById = {};
+  (snap.invoices || []).forEach((i) => {
+    const c = clientFor(i.CustomerRef);
+    if (!c) return void out.invoices.skipped++;
+    const id = qboS(i.Id),
+      lines = qboLines(i.Line),
+      sub = r2(lines.reduce((s, l) => s + l.qty * l.rate, 0)),
+      tax = qboN(i.TxnTaxDetail && i.TxnTaxDetail.TotalTax),
+      total = qboN(i.TotalAmt),
+      bal = null == i.Balance ? total : qboN(i.Balance),
+      paid = r2(total - bal),
+      rec = { type: "invoice", number: qboS(i.DocNumber) || "QB-" + id, title: qboS(i.CustomerMemo && i.CustomerMemo.value) || `QuickBooks invoice ${qboS(i.DocNumber) || id}`, mode: "items", date: qboDate(i.TxnDate), due: qboDate(i.DueDate), status: bal <= 0.004 ? "paid" : paid > 0 ? "partial" : "sent", projectId: projOf(c), lines: lines.map((l) => Object.assign(l, { taxable: tax > 0 })), discount: { type: "pct", value: 0 }, taxRate: tax > 0 && sub ? r2((100 * tax) / sub) : 0, retainagePct: 0, terms: "", memo: qboS(i.CustomerMemo && i.CustomerMemo.value), internal: `imported from QuickBooks on ${at.slice(0, 10)} by ${by}`, source: "quickbooks", qboId: id, qboTotal: total, qboBalance: bal };
+    let d = c.invoices.find((x) => "quickbooks" === x.source && x.qboId === id);
+    d ? (Object.assign(d, rec), out.invoices.updated++) : ((rec.id = uid("in")), c.invoices.push(rec), (d = rec), out.invoices.added++), (invById[id] = d);
+    const pk = "inv:" + id;
+    let p = c.payments.find((x) => "quickbooks" === x.source && x.qboId === pk);
+    if (paid > 0) {
+      const linked = (i.LinkedTxn || []).find((x) => "Payment" === x.TxnType),
+        prec = { date: qboDate((linked && linked.TxnDate) || (i.MetaData && i.MetaData.LastUpdatedTime) || i.TxnDate), amount: paid, method: "QuickBooks", invoiceId: d.id, note: "payments applied in QuickBooks", source: "quickbooks", qboId: pk };
+      p ? (Object.assign(p, prec), out.payments.updated++) : ((prec.id = uid("py")), c.payments.push(prec), out.payments.added++);
+    } else p && (c.payments = c.payments.filter((x) => x !== p));
+  });
+  ((snap.arAging && snap.arAging.detail) || []).forEach((r) => {
+    const id = qboS(r.TxnId || r.Id),
+      c = clientFor(r.CustomerRef);
+    if (!id || !c || invById[id] || c.invoices.some((x) => "quickbooks" === x.source && x.qboId === id)) return;
+    const bal = qboN(r.Balance || r.Amount),
+      rec = { id: uid("in"), type: "invoice", number: qboS(r.DocNumber) || "QB-" + id, title: "Open balance from QuickBooks", mode: "items", date: qboDate(r.TxnDate || r.DueDate), due: qboDate(r.DueDate), status: "sent", projectId: projOf(c), lines: [{ id: uid("l"), item: "Open balance from QuickBooks", desc: "", qty: 1, unit: "ea", rate: bal, taxable: !1 }], discount: { type: "pct", value: 0 }, taxRate: 0, retainagePct: 0, terms: "", memo: "", internal: `imported from QuickBooks AR aging on ${at.slice(0, 10)} by ${by}`, source: "quickbooks", qboId: id, qboTotal: bal, qboBalance: bal };
+    c.invoices.push(rec), out.invoices.added++;
+  });
+  const upsertBill = (bl, fromAging) => {
+    const id = qboS(bl.Id || bl.TxnId);
+    if (!id) return;
+    const vendor = qboS(bl.VendorRef && bl.VendorRef.name) || qboS(bl.Vendor || bl.Name) || "QuickBooks vendor",
+      lines = fromAging
+        ? [{ id: uid("bl"), desc: "Open balance from QuickBooks", amount: qboN(bl.Balance || bl.Amount) }]
+        : (bl.Line || []).filter((l) => null != l.Amount && "SubTotalLineDetail" !== l.DetailType).map((l) => {
+            const d = l.AccountBasedExpenseLineDetail || l.ItemBasedExpenseLineDetail || {};
+            return { id: uid("bl"), desc: qboS(l.Description) || (d.ItemRef && d.ItemRef.name) || "QuickBooks bill line", amount: qboN(l.Amount), qboLineId: qboS(l.Id), account: (d.AccountRef && d.AccountRef.name) || (d.ItemRef && d.ItemRef.name) || "" };
+          }),
+      total = fromAging ? qboN(bl.Balance || bl.Amount) : qboN(bl.TotalAmt),
+      bal = null == bl.Balance ? total : qboN(bl.Balance),
+      rec = { vendor: vendor, number: qboS(bl.DocNumber) || "QB-" + id, date: qboDate(bl.TxnDate || bl.DueDate), due: qboDate(bl.DueDate), entityId: entDefault(), projectId: "", poId: "", cat: qboCat(lines.map((l) => l.account + " " + l.desc).join(" ") + " " + vendor), code: "", line: "", lines: lines, payMethod: "", fileId: "", notes: `imported from QuickBooks on ${at.slice(0, 10)} by ${by}${bl.PrivateNote ? " · " + qboS(bl.PrivateNote) : ""}`, status: bal <= 0.004 ? "paid" : "approved", approvals: [stamp], createdBy: "QuickBooks", source: "quickbooks", qboId: id, qboTotal: total, qboBalance: bal };
+    bal <= 0.004 && (rec.paidAt = rec.date);
+    let b = (DB.bills || []).find((x) => "quickbooks" === x.source && x.qboId === id);
+    b ? (Object.assign(b, rec), out.bills.updated++) : ((rec.id = uid("b")), DB.bills.push(rec), out.bills.added++);
+  };
+  ((snap.apAging && snap.apAging.bills) || []).forEach((bl) => upsertBill(bl, !1));
+  ((snap.apAging && snap.apAging.detail) || []).forEach((r) => {
+    const id = qboS(r.TxnId || r.Id);
+    id && !(DB.bills || []).some((x) => "quickbooks" === x.source && x.qboId === id) && upsertBill(r, !0);
+  });
+  (pr.runs || []).forEach((r) => {
+    const id = qboS(r.id || r.Id || r.payrollId || r.runId || r.payDate),
+      from = qboDate(r.payPeriodStart || r.periodStart || r.from || r.startDate),
+      to = qboDate(r.payPeriodEnd || r.periodEnd || r.to || r.endDate),
+      payDate = qboDate(r.payDate || r.checkDate || r.paymentDate) || to,
+      gross = qboN(null != r.grossPay ? r.grossPay : null != r.gross ? r.gross : r.totalGross),
+      taxes = qboN(null != r.employerTaxes ? r.employerTaxes : null != r.taxes ? r.taxes : r.employerTax),
+      total = qboN(null != r.totalCost ? r.totalCost : null != r.total ? r.total : gross + taxes) || r2(gross + taxes),
+      rec = { period: `${fmt(from)} – ${fmt(to)}`, from: from, to: to, payDate: payDate, entityId: entDefault(), employees: +(r.employeeCount || (r.employees || []).length || 0), gross: gross, taxes: taxes, total: total, alloc: [{ projectId: "", pct: 100 }], status: "paid", approvals: [stamp], createdBy: "QuickBooks", notes: `imported from QuickBooks on ${at.slice(0, 10)} by ${by}`, source: "quickbooks", qboId: id };
+    if (!id || !payDate) return;
+    let x = (DB.payroll || []).find((y) => "quickbooks" === y.source && y.qboId === id);
+    x ? (Object.assign(x, rec), out.payroll.updated++) : ((rec.id = uid("pr")), DB.payroll.push(rec), out.payroll.added++);
+  });
+  DB.qbo.counts = out;
+  try {
+    audit("integration", "quickbooks", "snapshot-loaded", "", at, `${by}: ${JSON.stringify({ clients: out.clients, estimates: out.estimates, invoices: out.invoices, bills: out.bills, payroll: out.payroll })}`);
+  } catch (e) {}
+  try {
+    finCash._c = null;
+  } catch (e) {}
+  save();
+  try {
+    void 0 !== view && render();
+  } catch (e) {}
+  return out;
+}
+// Read a QuickBooks report (the API's Rows/Row/ColData shape, or a flat rows list) into labelled amounts.
+function qboReportRows(rep) {
+  const out = [];
+  if (!rep) return out;
+  if (Array.isArray(rep)) return rep.forEach((r) => r && out.push({ label: qboS(r.label || r.name || r.account), amount: qboN(r.amount != null ? r.amount : r.value), group: qboS(r.group || r.type).toLowerCase() })), out;
+  const walk = (node) => {
+    if (!node || "object" != typeof node) return;
+    if (Array.isArray(node)) return void node.forEach(walk);
+    node.ColData && Array.isArray(node.ColData) && node.ColData.length > 1 && out.push({ label: qboS(node.ColData[0].value), amount: qboN(node.ColData[node.ColData.length - 1].value), group: "" }),
+      node.Summary && node.Summary.ColData && out.push({ label: qboS(node.Summary.ColData[0].value), amount: qboN(node.Summary.ColData[node.Summary.ColData.length - 1].value), group: "" }),
+      node.Rows && walk(node.Rows),
+      node.Row && walk(node.Row);
+  };
+  return walk(rep.Rows || rep), out;
+}
+const QBO_GROUP_RE = {
+    income: /^total (income|revenue)$|^(income|revenue|sales)$/i,
+    cogs: /^total cost of (goods sold|sales)$|^cost of (goods sold|sales)$|^cogs$/i,
+    expenses: /^total expenses?$|^(operating )?expenses?$/i,
+    cash: /^total bank accounts?$|^(cash|checking|bank accounts?)$|^total cash/i,
+    ar: /^(total )?accounts receivable( \(a\/r\))?$/i,
+    ap: /^(total )?accounts payable( \(a\/p\))?$/i,
+  },
+  qboPick = (rows, group) => {
+    const g = rows.filter((r) => r.group === group);
+    if (g.length) return r2(g.reduce((s, r) => s + r.amount, 0));
+    const re = QBO_GROUP_RE[group],
+      hit = rows.filter((r) => re.test(r.label.trim())).sort((a, b) => (/^total/i.test(b.label) ? 1 : 0) - (/^total/i.test(a.label) ? 1 : 0));
+    return hit.length ? hit[0].amount : null;
+  };
+function qboMonth(ym) {
+  const Q = DB.qbo;
+  if (!Q) return null;
+  const m = ((Q.pl && Q.pl.months) || []).find((x) => qboS(x.month || x.ym).slice(0, 7) === ym),
+    rows = m ? qboReportRows(m.report || m.rows) : [],
+    end = fin2End(ym),
+    bs = (Q.balanceSheet || [])
+      .filter((b) => qboDate(b.asOf || (b.Header && b.Header.EndPeriod)) <= end)
+      .sort((a, b) => qboDate(a.asOf).localeCompare(qboDate(b.asOf)))
+      .pop(),
+    bsRows = bs ? qboReportRows(bs.report || bs.rows || bs) : [],
+    ar = (Q.arAging && Q.arAging.summary) || null,
+    ap = (Q.apAging && Q.apAging.summary) || null;
+  return {
+    hasPL: !!m,
+    income: m ? qboPick(rows, "income") : null,
+    cogs: m ? qboPick(rows, "cogs") : null,
+    expenses: m ? qboPick(rows, "expenses") : null,
+    cash: bs ? qboPick(bsRows, "cash") : null,
+    ar: bs && null != qboPick(bsRows, "ar") ? qboPick(bsRows, "ar") : ar && null != ar.total ? qboN(ar.total) : null,
+    ap: bs && null != qboPick(bsRows, "ap") ? qboPick(bsRows, "ap") : ap && null != ap.total ? qboN(ap.total) : null,
+    asOf: bs ? qboDate(bs.asOf) : "",
+  };
+}
+// The ERP's own figures at a month end, from the records: open invoices and bills as of that day.
+function truthErpBalances(end) {
+  let ar = 0,
+    ap = 0;
+  return (
+    (DB.clients || []).forEach((c) =>
+      (c.invoices || []).forEach((i) => {
+        if (["void", "draft"].includes(i.status) || i.date > end) return;
+        const paid = (c.payments || []).filter((p) => p.invoiceId === i.id && !p.unapplied && p.date <= end).reduce((s, p) => s + (+p.amount || 0), 0);
+        ar = r2(ar + Math.max(0, docTotal(i).total - paid));
+      }),
+    ),
+    (DB.bills || []).forEach((b) => {
+      if (["void", "rejected", "draft"].includes(b.status) || b.date > end || b.ic) return;
+      const paidOn = b.paidAt || (b.txnId && ((DB.txns || []).find((t) => t.id === b.txnId) || {}).date) || "";
+      (["paid", "verified"].includes(b.status) && paidOn && paidOn <= end) || (ap = r2(ap + billTotal(b)));
+    }),
+    { ar: ar, ap: ap }
+  );
+}
+function truthTieOut(ym) {
+  const start = ym + "-01",
+    end = fin2End(ym),
+    R = [start, end],
+    Q = qboMonth(ym),
+    P = companyPL(R),
+    C = truthCoverage(R),
+    U = bankUnmatched(R),
+    T = (DB.txns || []).filter((t) => within(t.date, R)),
+    nonPL = ["transfer", "cc-payment", "loan", "owner"],
+    bankIncome = r2(T.filter((t) => t.amt > 0 && !nonPL.includes(t.cat) && !["refund"].includes(t.cat)).reduce((s, t) => s + t.amt, 0)),
+    bankCogs = r2(T.filter((t) => t.amt < 0 && ("cogs" === catType(t.cat) || "labor" === t.cat)).reduce((s, t) => s - t.amt, 0)),
+    bankOh = r2(T.filter((t) => t.amt < 0 && ("oh" === catType(t.cat) || "payroll-oh" === t.cat)).reduce((s, t) => s - t.amt, 0)),
+    bankUncoded = r2(T.filter((t) => t.amt < 0 && (!t.cat || "uncat" === t.cat)).reduce((s, t) => s - t.amt, 0)),
+    imp = (DB.bankImports || []).filter((i) => null != i.ending && i.period && i.period[1] >= end && i.period[0] <= end),
+    cashLedger = finCash(end).cash,
+    bankCash = imp.length ? r2((DB.accounts || []).filter((a) => "card" !== a.type).reduce((s, a) => { const x = imp.filter((i) => i.acctId === a.id).sort((p, q) => String(p.period[1]).localeCompare(String(q.period[1]))).pop(); return s + (x ? +x.ending : (finCash(end).by.find((b) => b.id === a.id) || {}).book || 0); }, 0)) : null,
+    E = truthErpBalances(end),
+    hasQ = !!Q,
+    rows = [],
+    row = (group, label, qbo, bank, erp, causes) => {
+      const dq = null == qbo || null == erp ? null : r2(qbo - erp),
+        db = null == bank || null == erp ? null : r2(bank - erp),
+        off = (dq && Math.abs(dq) >= 1) || (db && Math.abs(db) >= 1),
+        parts = (causes || []).filter(Boolean);
+      rows.push({ group: group, label: label, qbo: qbo, bank: bank, erp: erp, diffQbo: dq, diffBank: db, off: !!off, cause: off ? (parts.length ? parts.join("; ") : "flagged: no cause found — look at the postings") : "agrees", explained: !!(off && parts.length) });
+    },
+    manualInc = C.income.hand;
+  row("income", "Income", hasQ ? Q.income : null, bankIncome, r2(P.income), [
+    Math.abs(P.wipAdj || 0) >= 1 ? `the ERP recognises earned revenue: WIP adjustment ${money(P.wipAdj)} on top of ${money(P.invoiced)} invoiced` : "",
+    Math.abs(bankIncome - (P.collected || 0)) >= 1 ? `deposits at the bank ${money(bankIncome)} against ${money(P.collected || 0)} collected on invoices${U.rows.some((t) => t.amt > 0) ? `; ${U.rows.filter((t) => t.amt > 0).length} deposit${1 === U.rows.filter((t) => t.amt > 0).length ? "" : "s"} not matched to an invoice` : ""}` : "",
+    manualInc ? `${money(manualInc)} of income by manual entry` : "",
+    hasQ && !Q.hasPL ? "QuickBooks: no P&L for this month in the snapshot" : "",
+    hasQ ? "" : "no QuickBooks snapshot loaded",
+  ]);
+  row("cogs", "Cost of work (COGS)", hasQ ? Q.cogs : null, bankCogs, r2(P.cogsT), [
+    C.cost.document >= 1 ? `${money(C.cost.document)} of cost stands on approved documents the bank has not paid yet (accrual)` : "",
+    bankUncoded >= 1 ? `${money(bankUncoded)} of bank lines carry no category and sit outside cost` : "",
+    U.n ? `${U.n} bank line${1 === U.n ? "" : "s"} (${money(U.amt)}) not matched to a line` : "",
+    P.accrued ? `${money(P.accrued)} of bills await approval` : "",
+    hasQ ? "" : "no QuickBooks snapshot loaded",
+  ]);
+  row("expenses", "Overhead (expenses)", hasQ ? Q.expenses : null, bankOh, r2(P.ohT), [
+    C.cost.hand >= 1 ? `${money(C.cost.hand)} of cost is typed by hand, not yet seen at the bank` : "",
+    P.needsCat ? `${money(P.needsCat)} needs a category` : "",
+    bankUncoded >= 1 ? `${money(bankUncoded)} of bank lines carry no category` : "",
+    hasQ ? "" : "no QuickBooks snapshot loaded",
+  ]);
+  row("cash", "Cash", hasQ ? Q.cash : null, bankCash, r2(cashLedger), [
+    null == bankCash ? "no statement with an ending balance covers the month end; the bank says nothing until one is imported" : "",
+    C.cost.n.hand ? `${C.cost.n.hand} typed line${1 === C.cost.n.hand ? "" : "s"} not yet seen at the bank` : "",
+    hasQ && Q.asOf && Q.asOf !== end ? `QuickBooks balance sheet is as of ${fmtL(Q.asOf)}, not ${fmtL(end)}` : "",
+    hasQ ? "" : "no QuickBooks snapshot loaded",
+  ]);
+  const qboOpenInv = hasQ ? (DB.clients || []).flatMap((c) => c.invoices.filter((i) => "quickbooks" === i.source && i.qboBalance > 0).map((i) => i.number)) : [],
+    qboOpenBills = hasQ ? (DB.bills || []).filter((b) => "quickbooks" === b.source && b.qboBalance > 0).map((b) => `${b.vendor} ${b.number}`) : [];
+  row("ar", "Receivables (AR)", hasQ ? Q.ar : null, null, E.ar, [
+    "the bank holds no receivables",
+    hasQ && qboOpenInv.length ? `QuickBooks open invoices loaded as ERP invoices: ${qboOpenInv.join(", ")}` : "",
+    hasQ && Q.asOf && Q.asOf !== end ? `QuickBooks aging is as of ${fmtL(Q.asOf)}` : "",
+    hasQ ? "" : "no QuickBooks snapshot loaded",
+  ]);
+  row("ap", "Payables (AP)", hasQ ? Q.ap : null, null, E.ap, [
+    "the bank holds no payables",
+    P.accrued ? `${money(P.accrued)} of bills await approval in the ERP` : "",
+    hasQ && qboOpenBills.length ? `QuickBooks open bills loaded as ERP bills: ${qboOpenBills.join(", ")}` : "",
+    hasQ ? "" : "no QuickBooks snapshot loaded",
+  ]);
+  return { ym: ym, label: truthLabel(ym), rows: rows, hasQbo: hasQ, loadedAt: DB.qbo && DB.qbo.loadedAt, company: DB.qbo && DB.qbo.company && (DB.qbo.company.CompanyName || DB.qbo.company.LegalName || "") };
+}
+function truthTieOutMonths() {
+  const Q = DB.qbo,
+    M = Q && Q.pl && Array.isArray(Q.pl.months) ? Q.pl.months.map((m) => qboS(m.month || m.ym).slice(0, 7)).filter(Boolean) : [];
+  if (M.length) return [...new Set(M)].sort();
+  const t = today(),
+    out = [];
+  for (let i = 2; i >= 0; i--) out.push(iso(new Date(+t.slice(0, 4), +t.slice(5, 7) - 1 - i, 1)).slice(0, 7));
+  return out;
+}
+const truthM = (v) => (null == v ? '<span class="muted">—</span>' : money(v));
+function truthTieOutHtml() {
+  const months = truthTieOutMonths(),
+    Q = DB.qbo,
+    head = `<div class="rep-head"><div><h2 style="margin:0">Three-way tie-out</h2><div class="small muted">QuickBooks says · the bank says · the ERP says, per month and account group. ${Q ? `Snapshot ${Q.company && (Q.company.CompanyName || Q.company.LegalName) ? "of " + esc(Q.company.CompanyName || Q.company.LegalName) + " " : ""}loaded ${fmtL(qboDate(Q.loadedAt))} by ${esc(Q.by || "")}.` : "No QuickBooks snapshot is loaded: the QuickBooks column stays empty until one is, from a file kept outside the repo (qboLoad)."} QuickBooks is a bridge for comparison, never the truth; a difference is explained or flagged, never hidden.</div></div></div>`;
+  return (
+    head +
+    months
+      .map((ym) => {
+        const T = truthTieOut(ym);
+        return `<h3 class="rep-h">${esc(T.label)}</h3><div class="tw"><table class="t rep-t tr-tie"><thead><tr><th>Account Group</th><th class="money">QuickBooks Says</th><th class="money">The Bank Says</th><th class="money">The ERP Says</th><th class="money">QuickBooks − ERP</th><th class="money">Bank − ERP</th><th>Cause</th></tr></thead><tbody>${T.rows.map((r) => `<tr class="${r.off ? (r.explained ? "" : "tr-flagged") : ""}"><td>${esc(r.label)}</td><td class="money">${truthM(r.qbo)}</td><td class="money">${truthM(r.bank)}</td><td class="money">${truthM(r.erp)}</td><td class="money ${r.diffQbo && Math.abs(r.diffQbo) >= 1 ? "warn" : ""}">${truthM(r.diffQbo)}</td><td class="money ${r.diffBank && Math.abs(r.diffBank) >= 1 ? "warn" : ""}">${truthM(r.diffBank)}</td><td class="small ${r.off && !r.explained ? "bad" : "muted"}">${esc(r.cause)}</td></tr>`).join("")}</tbody></table></div>`;
+      })
+      .join("")
+  );
+}
+if (Array.isArray(REP_GROUPS)) {
+  const fin = REP_GROUPS.find((g) => "fin" === g.id);
+  fin && !fin.tabs.some((t) => "tieout" === t[0]) && fin.tabs.push(["tieout", "Three-way tie-out"]), (REP_DEFS.tieout = "QuickBooks says, the bank says, the ERP says: per month and account group, every difference with its cause or a flag.");
+}
+if ("function" == typeof renderReports) {
+  const base = renderReports;
+  renderReports = function () {
+    base.apply(this, arguments);
+    if ("tieout" !== repTab) return;
+    const area = document.getElementById("rep-print-area");
+    if (area)
+      try {
+        area.innerHTML = truthTieOutHtml();
+      } catch (e) {
+        console.error("tie-out", e);
+      }
+  };
+}
+
+// ---- Ask: coverage, manual entries, verify, tie-out; the unmatched reader learns the month
+const truthAskPer = (P) => (P.period ? [P.period.from, P.period.to] : [today().slice(0, 4) + "-01-01", today()]),
+  TRUTH_WORDS = "backed backing coverage covered evidence manual journal journals entry entries posted posting postings verify verified hash chain sealed seal tamper quickbooks qbo tie tieout three unmatched matched match exception exceptions reversal reversed amended void voided document documents accrual accruals".split(" ");
+if ("function" == typeof agVocab) {
+  const base = agVocab;
+  agVocab = function () {
+    const V = base.apply(this, arguments);
+    return V && V.base && !V.base.has("tieout") && TRUTH_WORDS.forEach((w) => V.base.add(w)), V;
+  };
+}
+AG_FIN.unshift(
+  {
+    id: "coverage",
+    re: /\b(backed|coverage|covered|evidence)\b|\bby hand\b|\bbank[- ]backed\b/,
+    not: /\bbudget\b|\binsurance\b/,
+    kind: "money",
+    run(P) {
+      const R = truthAskPer(P),
+        per = agPerLabel(P),
+        C = truthCoverage(R, P.jobs.length ? { projectId: P.jobs[0].id } : {}),
+        k = C.cost,
+        i = C.income;
+      return {
+        headline: `Of ${per}'s cost (${money(k.total)}${P.jobs.length ? ` on ${agShort(P.jobs[0])}` : ""}), ${money(k.bank)} is backed by a bank or card line, ${money(k.document)} by an approved document only (accrual) and ${money(k.hand)} by hand${k.adjust && Math.abs(k.adjust) > 0.5 ? `, with ${money(k.adjust)} in adjustments` : ""}: ${k.pct}% bank-backed.`,
+        note: `Income ${money(i.total)}: ${money(i.bank)} collected and confirmed by the bank, ${money(i.document)} invoiced only, ${money(i.hand)} by hand.${C.demo ? ` ${C.demo} Demo Feed line${1 === C.demo ? "" : "s"} count as typed by hand.` : ""}`,
+        work: k.rows.filter((r) => "bank" !== r.backing).sort((a, b) => b.amt - a.amt).slice(0, 8).map((r) => `${fmtL(r.date)} · ${r.desc} — ${money(r.amt)} · ${"hand" === r.backing ? "by hand" : "document only"}: ${r.why}`),
+        go: agGo("gl") || agGo("bank"),
+        ran: agRan("cost and income rows", [`date in ${per}`].concat(P.jobs.length ? [`job is ${agShort(P.jobs[0])}`] : []), "evidence behind each", k.rows.length + i.rows.length),
+      };
+    },
+  },
+  {
+    id: "manualentries",
+    re: /\bmanual (journal )?entr|\bjournal entr|\bentries? (posted|typed|made) by hand\b|\bmanual journal/,
+    kind: "money",
+    run(P) {
+      const R = truthAskPer(P),
+        per = agPerLabel(P),
+        M = truthManual(R, { entityId: "all" }),
+        man = M.manual,
+        other = M.rows.filter((m) => "manual" !== m.j.kind);
+      return {
+        headline: man.length
+          ? `${agN(man.length, "manual journal entry", "manual journal entries")} in ${per}, ${money(M.amtManual)}: ${man.map((m) => `#${m.j.n} ${m.j.memo} (${money(m.amt)}) · by ${m.flag.who} on ${m.flag.when} · ${m.j.why || "no reason recorded"}`).join("; ")}.${other.length ? ` Also ${agN(other.length, "entry", "entries")} posted at a close or opening, flagged the same way.` : ""}`
+          : `No manual journal entries in ${per}.${other.length ? ` ${agN(other.length, "entry", "entries")} not from a document ${1 === other.length ? "was" : "were"} posted at a close or opening (${other.map((m) => `#${m.j.n} ${m.j.memo}`).join("; ")}), each flagged with who, when and why.` : " Every posting derives from a document."}`,
+        work: M.rows.map(truthManualLine),
+        go: agGo("gl"),
+        ran: agRan("ledger postings", [`date in ${per}`, "no source document"], "", M.n),
+      };
+    },
+  },
+  {
+    id: "verifybooks",
+    re: /\bverify the books\b|\bhash chain\b|\btamper|\bsealed\b.*\b(month|books|period)\b|\b(books|postings?) (been )?(changed|altered|edited) (since|after)\b/,
+    kind: "money",
+    run() {
+      const V = truthVerifyAll();
+      return {
+        headline: V.length ? V.map(truthVerifyWords).join(" ") : `No month is sealed yet: the first close seals its postings (${TRUTH_HASH_SCHEME}) and Verify the Books checks every closed month after that.`,
+        go: agGo("gl"),
+        ran: agRan("sealed periods", ["chain re-derived from the postings"], "", V.length),
+      };
+    },
+  },
+  {
+    id: "tieout",
+    re: /\bquickbooks\b|\bqbo\b|\btie[- ]?out\b|\bthree[- ]way\b/,
+    kind: "money",
+    run(P) {
+      const ym = P.period ? P.period.from.slice(0, 7) : truthTieOutMonths().slice(-1)[0],
+        T = truthTieOut(ym),
+        g = (k) => T.rows.find((r) => r.group === k),
+        inc = g("income"),
+        off = T.rows.filter((r) => r.off),
+        flagged = off.filter((r) => !r.explained);
+      return {
+        headline: T.hasQbo
+          ? `${T.label}: QuickBooks says income ${money(inc.qbo)}, the bank says ${money(inc.bank)}, the ERP says ${money(inc.erp)}; ${off.length - flagged.length} of ${T.rows.length} groups differ with a cause, ${flagged.length} flagged.`
+          : `No QuickBooks snapshot is loaded, so for ${T.label} only the bank and the ERP can be compared: the bank says ${money(inc.bank)} of deposits, the ERP says ${money(inc.erp)} of income. Load a snapshot from outside the repo (qboLoad) to tie out three ways.`,
+        work: T.rows.map((r) => `${r.label}: QuickBooks ${null == r.qbo ? "—" : money(r.qbo)} · bank ${null == r.bank ? "—" : money(r.bank)} · ERP ${money(r.erp)} — ${r.cause}`),
+        go: agGo("reports", { tab: "tieout" }),
+        ran: agRan("three-way tie-out", [`month is ${T.label}`], "account group", T.rows.length),
+      };
+    },
+  },
+);
+{
+  const rd = AG_FIN.find((r) => "unmatched" === r.id);
+  if (rd) {
+    const base = rd.run;
+    rd.run = function (P) {
+      if (!P.period) return base.apply(this, arguments);
+      const U = bankUnmatched([P.period.from, P.period.to]),
+        ex = U.rows.filter((t) => t.exception).length,
+        B = PRED.unmatchedTxns.byMonth();
+      return {
+        headline: `${agN(U.n, "bank line")} not matched to a line in ${P.period.label}: ${money(U.amt)}${ex ? `, ${ex} with a signed exception` : ""}${U.n ? `; ${PRED.unmatchedTxns.count()} in all (${truthByMonthWords(B)})` : ""}.`,
+        work: U.rows.map((t) => `${fmtL(t.date)} · ${t.desc || t.vendor} — ${money(t.amt)}${t.exception ? ` · exception by ${t.exception.by}: ${t.exception.why}` : t.proposal ? " · a match is proposed, to confirm" : ""}`),
+        go: agGo("bank"),
+        ran: agRan("transactions", ["not matched to a bill, order, invoice or payroll line", `date in ${P.period.label}`], "", U.n),
+      };
+    };
+  }
+}
