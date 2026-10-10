@@ -3256,3 +3256,8 @@ body.crewmode .view.on .dl-sign > span{display:block;flex:1 1 auto;min-width:0}
 .clv .clv-main img{max-width:100%;max-height:100%;object-fit:contain} .clv .clv-main iframe{width:100%;flex:1;background:#fff;border:0;min-height:0}
 .clv .clv-note{opacity:.7;text-align:center;padding:6px}
 .clv .clv-empty{text-align:center;display:flex;flex-direction:column;gap:6px;align-items:center;max-width:320px} .clv .clv-empty .clv-ic svg{width:48px;height:48px} .clv .clv-empty .muted{color:rgba(255,255,255,.7)}
+/* clientfix: the design-phase Overview reads as stacked rows at every width */
+.cl-kv{display:flex;justify-content:space-between;gap:14px;padding:8px 0;border-top:1px solid var(--rule)} .cl-kv:first-of-type{border-top:0}
+.cl-kv > span{color:var(--ink-3);font-size:12.5px;flex:0 0 auto} .cl-kv > b{text-align:right;font-weight:600;min-width:0} .cl-kv > b i{display:block;font-style:normal;font-weight:400;margin-top:2px}
+.cl-ph .cl-out{margin-top:2px}
+@media (max-width:480px){ .cl-kv{flex-direction:column;gap:2px} .cl-kv > b{text-align:left} }

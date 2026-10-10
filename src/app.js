@@ -34266,10 +34266,12 @@ const renderPortalApprovalsBase = renderPortalApprovals;
     earned = r2(J.reduce((a, x) => a + x.earned, 0)),
     billed = r2(J.reduce((a, x) => a + x.billed, 0)),
     dep = r2(c.estimates.reduce((a, e) => a + depositBalance(c, e.id), 0)),
+    // a design job before its schedule is published: no certified figure and no retainage cell (clDesignPhase)
+    design = "function" == typeof clDesignPhase && clDesignPhase(S),
     card = document.createElement("div");
   (card.className = "card"),
     (card.style.marginBottom = "14px"),
-    (card.innerHTML = `<h3 style="margin:0 0 6px">Your account</h3><div class="cash-grid" style="grid-template-columns:repeat(3,1fr)"><div><span>Contract</span><b>${money(contract)}</b><i>incl. approved changes</i></div><div class="tp-cert"><span>Completed to Date</span>${tpCertifiedHtml(c)}</div><div><span>Billed to date</span><b>${money(billed)}</b><i>${dep ? `deposit on account ${money(dep)}` : "ex tax"}</i></div><div><span>Retainage held</span><b>${money(f.retHeld)}</b><i>released at completion</i></div><div><span>Paid to date</span><b>${money(f.paid)}</b><i>${f.credits ? `credit on account ${money(f.credits)}` : ""}</i></div><div><span>Balance due</span><b class="${f.overdue ? "bad" : ""}">${money(f.outstanding)}</b><i>${f.overdue ? money(f.overdue) + " overdue" : "nothing overdue"}</i></div></div>`),
+    (card.innerHTML = `<h3 style="margin:0 0 6px">Your account</h3><div class="cash-grid" style="grid-template-columns:repeat(${design ? 2 : 3},1fr)"><div><span>Contract</span><b>${money(contract)}</b><i>incl. approved changes</i></div>${design ? "" : `<div class="tp-cert"><span>Completed to Date</span>${tpCertifiedHtml(c)}</div>`}<div><span>Billed to date</span><b>${money(billed)}</b><i>${dep ? `deposit on account ${money(dep)}` : "ex tax"}</i></div>${design ? "" : `<div><span>Retainage held</span><b>${money(f.retHeld)}</b><i>released at completion</i></div>`}<div><span>Paid to date</span><b>${money(f.paid)}</b><i>${f.credits ? `credit on account ${money(f.credits)}` : ""}</i></div><div><span>Balance due</span><b class="${f.overdue ? "bad" : ""}">${money(f.outstanding)}</b><i>${f.overdue ? money(f.overdue) + " overdue" : "nothing overdue"}</i></div></div>`),
     host.append(card);
 }),
   (REP_GROUPS.find((g) => "build" === g.id).tabs = [["searches", "Report builder"]]),
@@ -39953,6 +39955,31 @@ function designEst(p) {
     c.estimates.find((e) => "design" === e.template && ["converted", "billed", "approved"].includes(e.status))
   );
 }
+// A design job before its schedule is published: the client reads a design-phase Overview (retainer hours,
+// phases, deliverables, the kick-off), never a construction card.
+function clDesignPhase(p) {
+  return !!(p && designEst(p) && !p.published);
+}
+// The client's designer: the person on the job's design tasks, else the design staff with the most hours on it.
+function clDesigner(p) {
+  if (!p) return null;
+  const by = {};
+  (p.tasks || []).filter((t) => "design" === (t.track || "") && t.assignee).forEach((t) => (by[t.assignee] = (by[t.assignee] || 0) + 1));
+  let name = Object.keys(by).sort((a, b) => by[b] - by[a])[0] || "";
+  if (!name) {
+    const h = {};
+    (DB.time || [])
+      .filter((t) => t.projectId === p.id)
+      .forEach((t) => {
+        const e = (DB.employees || []).find((x) => x.id === t.empId);
+        e && isDesignStaff(e) && (h[e.name] = (h[e.name] || 0) + hoursOf(t));
+      });
+    name = Object.keys(h).sort((a, b) => h[b] - h[a])[0] || "";
+  }
+  if (!name) return null;
+  const e = (DB.employees || []).find((x) => x.name === name);
+  return { name: name, role: (e && e.role) || "Designer", emp: e || null };
+}
 function phaseHours(p) {
   const est = designEst(p);
   if (!est) return [];
@@ -41847,14 +41874,23 @@ issueDialog = function (p) {
   };
 };
 const renderClientBase_b = renderClient;
-renderClient = function (cpm, projEnd) {
-  renderClientBase_b(cpm, projEnd);
-  const v = document.getElementById("v-client");
-  if (!v) return;
-  v.querySelector("#cl-studio")?.remove();
-  const p = S;
-  if (!roomsOf(p.id).length && !designEst(p)) return;
-  const rooms = roomsOf(p.id),
+// The client Overview on a design job: where the design stands (designer, retainer hours used and left, the
+// survey, the latest deck), the phases and their status, the deliverables and the kick-off with its outcomes,
+// what we owe each other, the filings, and the decisions so far. Stacked rows, so it reads at 390px.
+const CL_PHASE_WORDS = [
+  [/survey/i, "Site survey"],
+  [/schematic/i, "Schematic design"],
+  [/design development/i, "Design development"],
+  [/pricing|quotation/i, "Pricing and quotes"],
+  [/client meetings?/i, "Client meetings"],
+];
+function clPhaseName(l) {
+  const hit = CL_PHASE_WORDS.find(([re]) => re.test(l.item || ""));
+  return hit ? hit[1] : String(l.item || "").split(" and ")[0];
+}
+function clDesignOverviewHtml(p) {
+  const td = today(),
+    rooms = roomsOf(p.id),
     unv = rooms.filter((r) => 0 === roomProv(r)).length,
     prs = promisesOf(p.id),
     us = prs.filter((x) => "us" === x.dir && "open" === x.status),
@@ -41868,33 +41904,101 @@ renderClient = function (cpm, projEnd) {
   const ex = p.tasks.filter((t) => t.exploration),
     R = retainerLeft(p),
     ph = phaseHours(p),
+    cur = phaseCur(ph) || ph.find((x) => x.used > 0 && x.used < x.est) || null,
+    used = r2(ph.reduce((a, x) => a + x.used, 0)),
     F = DB.studio.filings.filter((f) => f.projectId === p.id),
-    deck = sheetsOf(p.id)
-      .filter((s) => "deck" === s.set && "current" === s.status)
-      .sort((a, b) => (b.issuedOn || "").localeCompare(a.issuedOn || ""))[0],
-    rate = designEst(p)?.lines.find((l) => "hr" === l.unit)?.rate || designRate(),
-    d = document.createElement("div");
-  (d.id = "cl-studio"),
-    (d.innerHTML = `<div class="card" style="margin-bottom:14px"><div class="row" style="align-items:flex-start;gap:14px;flex-wrap:wrap"><div class="grow"><h3 style="margin:0 0 4px">Where the design stands</h3><div class="small">${unv ? `<span class="pill warn lg">Drawn on listing dimensions — conceptual until the survey (${unv} of ${rooms.length} rooms)</span>` : '<span class="pill ok">Drawn on measured dimensions</span>'}${deck ? ` <span class="small muted">Latest deck: ${esc(deck.title)} (rev ${esc(deck.rev)}, ${fmt(deck.issuedOn)})</span>` : ""}</div></div>${R ? `<div class="st-kv"><b>${R.hours} hrs</b><span>retainer remaining · ${money(R.dollars)}</span></div>` : ""}<div class="st-kv"><b>${r2(ph.reduce((a, x) => a + x.used, 0))} hrs</b><span>design hours to date</span></div></div></div>\n    <div class="grid3" style="margin-bottom:14px"><div class="card"><h3>What we owe you</h3>${us.map((x) => promiseRow(x, "client")).join("") || '<div class="small muted">Nothing outstanding.</div>'}</div><div class="card"><h3>What we need from you</h3>${cl.map((x) => promiseRow(x, "client")).join("") || '<div class="small muted">Nothing outstanding.</div>'}${
+    sheets = sheetsOf(p.id).filter((s) => "current" === s.status),
+    deck = sheets.filter((s) => "deck" === s.set).sort((a, b) => (b.issuedOn || "").localeCompare(a.issuedOn || ""))[0],
+    est = designEst(p),
+    rate = est?.lines.find((l) => "hr" === l.unit)?.rate || designRate(),
+    des = clDesigner(p),
+    pm = ("function" == typeof fPeople ? fPeople().pm : null) || {},
+    survey = (p.tasks || []).find((t) => /survey/i.test(t.name || "")),
+    inv = "function" == typeof clRetainerInv ? clRetainerInv(p) : null,
+    meetings = (DB.studio.meetings || []).filter((m) => m.projectId === p.id).sort((a, b) => String(a.date).localeCompare(String(b.date))),
+    kv = (k, v, sub) => `<div class="cl-kv"><span>${k}</span><b data-nocase>${v}${sub ? `<i class="small muted">${sub}</i>` : ""}</b></div>`,
+    retHrs = R && R.rate ? r2(R.retainer / R.rate) : 0,
+    retLine = R
+      ? `${clHrs(R.used || used)} used · ${clHrs(Math.max(0, retHrs - (R.used || used)))} left of ${clHrs(retHrs)}`
+      : `${clHrs(used)} used`,
+    retSub = R
+      ? R.paid <= 0.5
+        ? `the ${money(R.retainer)} retainer is not paid yet${inv && inv.due ? ` — its invoice is due ${fmtL(inv.due)}` : ""}; hours count from payment`
+        : `${money(R.paid)} paid · ${money(R.dollars)} of it left`
+      : "",
+    phaseStatus = (x) =>
+      "done" === x.status
+        ? ["Done", "ok"]
+        : x === cur || (!cur && x.used > 0)
+          ? ["Under Way", "info"]
+          : x.used >= x.est && x.est
+            ? ["Hours Used", "warn"]
+            : ["Upcoming", "neutral"],
+    phaseWhen = (x, i) => {
+      const t = x.task || (0 === i && survey) || null;
+      return t && t.start ? `${fmtL(t.start)}${t.end && t.end !== t.start ? ` to ${fmtL(t.end)}` : ""}` : "";
+    },
+    outcomes = (m) => {
+      const K = (DB.studio.intake || {})[m.id],
+        items = (K && K.items) || [],
+        ok = items.filter((i) => "confirmed" === i.status && "decision" === i.kind),
+        open = items.filter((i) => "proposed" === i.status).length;
+      if (m.date > td)
+        return `<div class="small muted">Coming up on ${fmtL(m.date)} with ${esc(des ? des.name : "your designer")} and ${esc(pm.name || "your project manager")}. What we agree there is confirmed by ${esc(des ? des.name.split(" ")[0] : "your designer")} afterwards and listed here.</div>`;
+      return (
+        (ok.length ? `<div class="small" style="margin-top:4px">Agreed:</div>${ok.map((i) => `<div class="small cl-out" data-nocase>· ${esc(i.text)}</div>`).join("")}` : "") +
+        (open ? `<div class="small muted">${open} note${1 === open ? "" : "s"} from the meeting ${1 === open ? "is" : "are"} being confirmed by ${esc(des ? des.name.split(" ")[0] : "your designer")}; they appear here once confirmed.</div>` : "") +
+        (!ok.length && !open ? '<div class="small muted">No outcomes recorded yet.</div>' : "")
+      );
+    };
+  return `<div class="card" style="margin-bottom:14px"><h3>Where the Design Stands</h3><div class="small" style="margin-bottom:6px">${unv ? `<span class="pill warn">Conceptual until the survey</span> <span class="muted">drawn on listing dimensions · ${unv} of ${rooms.length} rooms still to measure</span>` : '<span class="pill ok">Drawn on measured dimensions</span>'}</div>${des ? kv("Your designer", `${esc(des.name)}<i class="small muted">${esc(des.role)} at SmartDesign</i>`) : ""}${kv("Retainer", esc(retLine), esc(retSub))}${kv("Site survey", survey ? `${fmtL(survey.start)}${survey.end && survey.end !== survey.start ? ` to ${fmtL(survey.end)}` : ""}<i class="small muted">${esc(des ? des.name.split(" ")[0] : "we")} measure${des ? "s" : ""} every room before anything is ordered</i>` : "to be scheduled")}${deck ? kv("Latest deck", `${esc(deck.title)}<i class="small muted">rev ${esc(deck.rev)} · ${deck.issuedOn && deck.issuedOn <= td ? `issued ${fmtL(deck.issuedOn)}` : deck.issuedOn ? `for the kick-off on ${fmtL(deck.issuedOn)}` : "in preparation"}</i>`) : ""}</div>
+    <div class="card" style="margin-bottom:14px"><h3>Design Phases</h3>${
+      ph.length
+        ? ph
+            .map((x, i) => {
+              const [w, cls] = phaseStatus(x),
+                when = phaseWhen(x, i);
+              return `<div class="cl-row cl-ph"><div><b data-nocase>${esc(clPhaseName(x.line))}</b><div class="small muted">${clHrs(x.used)} of ${clHrs(x.est)}${when ? ` · ${when}` : ""}</div></div><div class="cl-amt"><span class="pill ${cls}">${w}</span></div></div>`;
+            })
+            .join("")
+        : '<div class="small muted">The phases are set out in your design agreement.</div>'
+    }</div>
+    <div class="card" style="margin-bottom:14px"><h3>Deliverables</h3>${
+      meetings.length
+        ? meetings.map((m) => `<div class="cl-row cl-ph"><div><b data-nocase>${esc(m.title)}</b><div class="small muted">${fmtL(m.date)}${deck && deck.issuedOn === m.date ? ` · ${esc(deck.title)}` : ""}</div>${outcomes(m)}</div></div>`).join("")
+        : ""
+    }${
+      sheets.filter((x) => "deck" !== x.set).length
+        ? sheets
+            .filter((x) => "deck" !== x.set)
+            .map((x) => `<div class="cl-row cl-ph"><div><b data-nocase>${esc(x.number)} ${esc(x.title)}</b><div class="small muted">${esc(SETS[x.set] || x.set)} · rev ${esc(x.rev)}${x.issuedOn ? ` · ${x.issuedOn <= td ? "issued" : "due"} ${fmtL(x.issuedOn)}` : ""}</div></div></div>`)
+            .join("")
+        : '<div class="small muted">Drawings and renderings appear here as they are issued.</div>'
+    }</div>
+    <div class="grid3" style="margin-bottom:14px"><div class="card"><h3>What We Owe You</h3>${us.map((x) => promiseRow(x, "client")).join("") || '<div class="small muted">Nothing outstanding.</div>'}</div><div class="card"><h3>What We Need from You</h3>${cl.map((x) => promiseRow(x, "client")).join("") || '<div class="small muted">Nothing outstanding.</div>'}${
       ex.filter((t) => !t.clientApproved).length
         ? `<div class="small muted" style="margin-top:8px">Studies you asked for — each costs design hours at $${rate}/hr:</div>${ex
             .filter((t) => !t.clientApproved)
-            .map(
-              (t) =>
-                `<div class="st-item"><span class="k">est. ${t.hours} hrs · ${money(t.hours * rate)}</span><b>${esc(t.name)}</b></div>`,
-            )
+            .map((t) => `<div class="st-item"><span class="k">est. ${t.hours} hrs · ${money(t.hours * rate)}</span><b>${esc(t.name)}</b></div>`)
             .join("")}`
         : ""
-    }</div><div class="card"><h3>Filings</h3>${F.map((f) => `<div class="row small" style="padding:4px 0"><span class="grow">${esc(f.name)}</span><span class="pill ${FILING_STATUS[f.status][1]}">${FILING_STATUS[f.status][0]}</span></div>`).join("") || '<div class="small muted">—</div>'}</div></div>\n    <div class="card" style="margin-bottom:14px"><h3>Decisions so far</h3>${
+    }</div><div class="card"><h3>Filings</h3>${F.map((f) => `<div class="row small" style="padding:4px 0"><span class="grow">${esc(f.name)}</span><span class="pill ${FILING_STATUS[f.status][1]}">${FILING_STATUS[f.status][0]}</span></div>`).join("") || '<div class="small muted">—</div>'}</div></div>
+    <div class="card" style="margin-bottom:14px"><h3>Decisions So Far</h3>${
       Object.entries(byRoom)
-        .map(
-          ([rn, ds]) =>
-            `<div style="padding:6px 0;border-top:1px solid var(--rule)"><b>${esc(rn)}</b>${ds.map((x) => `<div class="small">· ${esc(x.name)} <span class="muted">— ${esc(x.decidedBy || "")}, ${fmt(x.madeOn)}</span></div>`).join("")}</div>`,
-        )
-        .join("") ||
-      '<div class="small muted">Decisions confirmed in meetings will appear here by room.</div>'
-    }</div>\n    ${DB.studio.prefs[p.id] ? `<div class="card" style="margin-bottom:14px"><h3>What you told us you love, and never</h3>${prefsHtml(p.id, !1)}</div>` : ""}`),
-    v.querySelector(".grid3")?.before(d);
+        .map(([rn, ds]) => `<div style="padding:6px 0;border-top:1px solid var(--rule)"><b>${esc(rn)}</b>${ds.map((x) => `<div class="small">· ${esc(x.name)} <span class="muted">— ${esc(x.decidedBy || "")}, ${fmt(x.madeOn)}</span></div>`).join("")}</div>`)
+        .join("") || '<div class="small muted">Decisions confirmed in meetings will appear here by room.</div>'
+    }</div>
+    ${DB.studio.prefs[p.id] ? `<div class="card" style="margin-bottom:14px"><h3>What You Told Us You Love, and Never</h3>${prefsHtml(p.id, !1)}</div>` : ""}`;
+}
+renderClient = function (cpm, projEnd) {
+  renderClientBase_b(cpm, projEnd);
+  const v = document.getElementById("v-client");
+  if (!v) return;
+  v.querySelector("#cl-studio")?.remove();
+  const p = S;
+  if (!roomsOf(p.id).length && !designEst(p)) return;
+  const d = document.createElement("div");
+  (d.id = "cl-studio"), (d.innerHTML = clDesignOverviewHtml(p)), v.querySelector(".grid3")?.before(d);
 };
 const renderSDayBase_b = renderSDay,
   remindersBase_b = reminders;
@@ -128302,6 +128406,8 @@ if ("function" == typeof save) {
   };
 }
 const fin2DateNote = (d) => {
+  // a client reads the invoice as issued; the earlier date lives in its history for the firm
+  if ("function" == typeof role && "client" === role()) return "";
   const h = (d && d.dateHistory) || [],
     first = h.length ? h[0].from : d && d.dateWas;
   return first && first !== d.date ? `originally dated ${fmt(first)}` : "";
@@ -160457,8 +160563,12 @@ if ("function" == typeof clOverview) {
       }),
         v.querySelector("#tp-clprog")?.remove();
       const host = v.querySelector("#cl-done"),
-        card = host && host.closest(".card"),
-        html = tpClientProgressHtml(c, p);
+        card = host && host.closest(".card");
+      // a design job before its schedule is published has no construction card: no certified figure, no
+      // "completed work as the crew signs it off"; the design-phase Overview (clDesignOverviewHtml) stands in
+      if ("function" == typeof clDesignPhase && clDesignPhase(p)) return card && (card.hidden = !0), r;
+      card && (card.hidden = !1);
+      const html = tpClientProgressHtml(c, p);
       card ? card.insertAdjacentHTML("beforebegin", html) : v.insertAdjacentHTML("beforeend", html);
       "function" == typeof pstFill && pstFill(v.querySelector("#tp-clprog"));
     } catch (e) {

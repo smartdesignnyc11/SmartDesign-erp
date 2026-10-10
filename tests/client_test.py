@@ -286,15 +286,15 @@ async def main():
         ov = await text(pg)
         c.ok(not re.search(r'Completed to Date|Retainage held|certified|crew signs it off|Completed work will appear here', ov, re.I), '2: no construction card on a design client\'s Overview before the schedule is published')
         D = await pg.evaluate("""() => { const p = S; const ph = phaseHours(p), R = retainerLeft(p); const sv = p.tasks.find(t => /survey/i.test(t.name));
-            return { used: r2(ph.reduce((a, x) => a + x.used, 0)), ret: R ? R.retainer : 0, survey: sv ? fmtL(sv.start) : '', phases: ph.map(x => x.line.item), designer: (p.tasks.find(t => t.assignee) || {}).assignee || '' } }""")
+            return { used: r2(ph.reduce((a, x) => a + x.used, 0)), ret: R ? R.retainer : 0, survey: sv ? fmtL(sv.start) : '', phases: ph.map(x => clPhaseName(x.line)), designer: (p.tasks.find(t => t.assignee) || {}).assignee || '' } }""")
         c.ok(f"{D['used']} hrs" in ov and re.search(r'used', ov), f"2: retainer hours used ({D['used']} hrs) on the Overview")
         c.ok(re.search(r'left|remaining', ov) and 'Retainer' in ov, '2: retainer hours left on the Overview')
-        c.ok(all(ph.split(' and ')[0] in ov for ph in D['phases'][:3]), f"2: the phases are listed: {D['phases'][:3]}")
+        c.ok(all(ph in ov for ph in D['phases'][:3]), f"2: the phases are listed: {D['phases'][:3]}")
         c.ok('Design direction kick-off' in ov, '2: the kick-off deck is on the Overview')
         c.ok(re.search(r'Bed goes in the existing arch niche|No recessed can lighting', ov) or re.search(r'confirm', ov, re.I), '2: the kick-off outcomes (or that they are being confirmed) are on the Overview')
         c.ok(D['survey'] and D['survey'] in ov, f"2: the survey date {D['survey']} is on the Overview")
         c.ok('Sarah Davis' in ov, '2: the designer\'s name is on the Overview')
-        g = await pg.evaluate("""() => { const kv = [...document.querySelectorAll('#cl-studio .st-kv')].filter(e => e.getClientRects().length);
+        g = await pg.evaluate("""() => { const kv = [...document.querySelectorAll('#cl-studio .cl-kv')].filter(e => e.getClientRects().length);
             const card = document.querySelector('#cl-studio .card'); const cl = card ? card.getBoundingClientRect().left : 0;
             return { n: kv.length, lefts: kv.map(e => Math.round(e.getBoundingClientRect().left - cl)), widths: kv.map(e => Math.round(e.getBoundingClientRect().width)), maxRight: Math.max(0, ...[...document.querySelectorAll('#cl-studio *')].map(e => Math.round(e.getBoundingClientRect().right))) } }""")
         c.ok(g['n'] >= 2 and all(w >= 150 for w in g['widths']) and g['maxRight'] <= 390, f'10: "Where the Design Stands" stacks at 390px: {g}')
