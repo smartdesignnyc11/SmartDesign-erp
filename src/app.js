@@ -83209,119 +83209,119 @@ if (void 0 !== NAV_GROUPS) {
   const g = NAV_GROUPS.find((x) => "home" === x.id);
   g && !g.views.includes("mapprove") && g.views.push("mapprove");
 }
+// The approvals queue. Every producer (here and in the layers that wrap this) pushes every item someone in the
+// office owes a yes or no on, whoever is signed in; the role only shapes a bill's verb and wording (the PM
+// recommends, the owner releases). The last layer then hands each item to the one person who owns it
+// (DELEGATION below) and keeps only the signed-in role's, so one seat never hides what another seat owns.
+// mApprovals({everyone: true}) returns the whole queue with `who` set on each item: the owner's Everyone view.
 function mApprovals() {
-  const r = mRole(),
-    out = [],
+  const out = [],
     owner = "function" == typeof isOwner && isOwner();
-  if (
-    ((DB.bills || [])
-      .filter((b) => ["submitted", "pm-approved"].includes(b.status))
-      .forEach((b) => {
-        const tot = billTotal(b),
-          fl = "function" == typeof billFlags ? billFlags(b) : [];
-        if (!(("pm-approved" === b.status && owner) || ("submitted" === b.status && ("pm" === r || owner))))
-          return;
-        let act =
-          "submitted" !== b.status || owner
-            ? "submitted" === b.status && "function" == typeof needsOwner && needsOwner(tot) && owner
-              ? "pmok"
-              : "approve"
-            : "pmok";
-        const vb = (DB.vendors || []).find(
-            (x) => (x.name || "").toLowerCase() === (b.vendor || "").toLowerCase(),
-          ),
-          blocked =
-            vb && vb.bankPending
-              ? "Vendor bank change awaiting your verification — resolve under Vendors first"
-              : "function" != typeof canApprove || "approve" !== act || canApprove(b)
-                ? ""
-                : "Separation of duties: a second person must approve this one";
-        blocked && (act = null);
-        const comp =
-          "function" == typeof complianceIssues
-            ? complianceIssues(b)
-                .filter((x) => "block" === x.lvl)
-                .map((x) => x.m)
-            : [];
-        comp.length && !owner && (act = null),
-          out.push({
-            kind: "bill",
-            id: b.id,
-            comp: comp,
-            sev: blocked || comp.length ? "bad" : fl.length ? "warn" : "",
-            n: money(tot),
-            title: `${b.vendor} · bill ${b.number || ""}`,
-            detail: [
-              blocked,
-              "pmok" === act
-                ? "First review — your recommendation goes to the Owner, who releases the payment"
-                : "",
-              comp.length
-                ? `Compliance block${comp.length > 1 ? "s" : ""}: ${comp.join("; ")}${owner ? " — approving asks for your override reason" : ""}`
-                : "",
-              "pm-approved" === b.status ? "PM has reviewed" : "Awaiting review",
-              (() => {
-                const rest = fl.filter(
-                  (f) =>
-                    !comp.some(
-                      (c) => String(f).replace(/\s+/g, " ").trim() === String(c).replace(/\s+/g, " ").trim(),
-                    ),
-                );
-                return rest.length
-                  ? `${rest.length} control flag${rest.length > 1 ? "s" : ""}: ${rest.join("; ")}`
-                  : "";
-              })(),
-              b.due ? `due ${fmtL ? fmtL(b.due) : b.due}` : "",
-            ]
-              .filter(Boolean)
-              .join(" · "),
-            yes: act ? ("pmok" === act ? "Recommend" : "Approve") : "Open",
-            no: "Reject",
-            open: blocked && vb && vb.bankPending ? { view: "vendors" } : { view: "ap", billId: b.id },
-            act: act,
-          });
-      }),
-    owner || "pm" === r || "controller" === r)
-  ) {
-    const by = ("function" == typeof currentUser && currentUser()?.name) || DB.me || "";
-    (DB.time || [])
-      .filter((t) => "submitted" === t.status)
-      .forEach((t) => {
-        const nm = "function" == typeof empName ? empName(t.empId) : t.empId;
-        if (nm && by && nm.toLowerCase() === by.toLowerCase()) return;
-        const p = DB.projects.find((x) => x.id === t.projectId),
-          fl = "function" == typeof timeFlags ? timeFlags(t) : [];
+  (DB.bills || [])
+    .filter((b) => ["submitted", "pm-approved"].includes(b.status))
+    .forEach((b) => {
+      const tot = billTotal(b),
+        fl = "function" == typeof billFlags ? billFlags(b) : [];
+      let act =
+        "submitted" !== b.status || owner
+          ? "submitted" === b.status && "function" == typeof needsOwner && needsOwner(tot) && owner
+            ? "pmok"
+            : "approve"
+          : "pmok";
+      const vb = (DB.vendors || []).find(
+          (x) => (x.name || "").toLowerCase() === (b.vendor || "").toLowerCase(),
+        ),
+        blocked =
+          vb && vb.bankPending
+            ? "Vendor bank change awaiting your verification — resolve under Vendors first"
+            : "function" != typeof canApprove || "approve" !== act || canApprove(b)
+              ? ""
+              : "Separation of duties: a second person must approve this one";
+      blocked && (act = null);
+      const comp =
+        "function" == typeof complianceIssues
+          ? complianceIssues(b)
+              .filter((x) => "block" === x.lvl)
+              .map((x) => x.m)
+          : [];
+      comp.length && !owner && (act = null),
         out.push({
-          kind: "time",
-          id: t.id,
-          sev: fl.length ? "warn" : "",
-          n: `${("function" == typeof hoursOf ? hoursOf(t) : t.hours || 0).toFixed(1)} h`,
-          title: `${nm} · ${t.date || ""}`,
-          detail: [p ? p.project.name : "", fl.join("; ")].filter(Boolean).join(" · "),
-          yes: "Approve",
+          kind: "bill",
+          id: b.id,
+          comp: comp,
+          sev: blocked || comp.length ? "bad" : fl.length ? "warn" : "",
+          n: money(tot),
+          title: `${b.vendor} · bill ${b.number || ""}`,
+          detail: [
+            blocked,
+            "pmok" === act
+              ? "First review — your recommendation goes to the Owner, who releases the payment"
+              : "",
+            comp.length
+              ? `Compliance block${comp.length > 1 ? "s" : ""}: ${comp.join("; ")}${owner ? " — approving asks for your override reason" : ""}`
+              : "",
+            "pm-approved" === b.status ? "PM has reviewed" : "Awaiting review",
+            (() => {
+              const rest = fl.filter(
+                (f) =>
+                  !comp.some(
+                    (c) => String(f).replace(/\s+/g, " ").trim() === String(c).replace(/\s+/g, " ").trim(),
+                  ),
+              );
+              return rest.length
+                ? `${rest.length} control flag${rest.length > 1 ? "s" : ""}: ${rest.join("; ")}`
+                : "";
+            })(),
+            b.due ? `due ${fmtL ? fmtL(b.due) : b.due}` : "",
+          ]
+            .filter(Boolean)
+            .join(" · "),
+          yes: act ? ("pmok" === act ? "Recommend" : "Approve") : "Open",
           no: "Reject",
-          open: { view: "time" },
+          open: blocked && vb && vb.bankPending ? { view: "vendors" } : { view: "ap", billId: b.id },
+          act: act,
+        });
+    });
+  // hours: nobody approves their own; a PM's own go to the owner (DELEGATION)
+  const by = ("function" == typeof currentUser && currentUser()?.name) || DB.me || "";
+  (DB.time || [])
+    .filter((t) => "submitted" === t.status)
+    .forEach((t) => {
+      const nm = "function" == typeof empName ? empName(t.empId) : t.empId;
+      if (nm && by && nm.toLowerCase() === by.toLowerCase()) return;
+      const p = DB.projects.find((x) => x.id === t.projectId),
+        fl = "function" == typeof timeFlags ? timeFlags(t) : [];
+      out.push({
+        kind: "time",
+        id: t.id,
+        sev: fl.length ? "warn" : "",
+        n: `${("function" == typeof hoursOf ? hoursOf(t) : t.hours || 0).toFixed(1)} h`,
+        title: `${nm} · ${t.date || ""}`,
+        detail: [p ? p.project.name : "", fl.join("; ")].filter(Boolean).join(" · "),
+        yes: "Approve",
+        no: "Reject",
+        open: { view: "time" },
+      });
+    });
+  // questions from the site: every open one. The queue it sits in is the person it was sent to (DELEGATION);
+  // fForMe keeps feeding the field card to everyone cc'd, which is being told, not being asked.
+  try {
+    (((DB.field || {}).raises) || [])
+      .filter((x) => fOpen(x) && "answered" !== x.status)
+      .forEach((x) => {
+        const p = DB.projects.find((y) => y.id === x.projectId);
+        out.push({
+          kind: "raise",
+          id: x.id,
+          sev: x.escalated || "incident" === x.type ? "bad" : "warn",
+          n: x.dueBy ? `by ${x.dueBy.slice(5)}` : "site",
+          title: x.title || x.type,
+          detail: [p ? p.project.name : "", x.by || "", x.note || ""].filter(Boolean).join(" · "),
+          yes: "Answer",
+          open: { view: "field", project: x.projectId },
         });
       });
-  }
-  if ("function" == typeof fForMe)
-    try {
-      fForMe()
-        .filter((x) => "answered" !== x.status)
-        .forEach((x) => {
-          const p = DB.projects.find((y) => y.id === x.projectId);
-          out.push({
-            kind: "raise",
-            id: x.id,
-            sev: x.escalated || "incident" === x.type ? "bad" : "warn",
-            n: x.dueBy ? `by ${x.dueBy.slice(5)}` : "site",
-            title: x.title || x.type,
-            detail: [p ? p.project.name : "", x.by || "", x.note || ""].filter(Boolean).join(" · "),
-            yes: "Answer",
-            open: { view: "field", project: x.projectId },
-          });
-        });
-    } catch (e) {}
+  } catch (e) {}
   DB.projects.forEach((p) =>
     (p.decisions || [])
       .filter((d) => "open" === d.status && /smartdesign|owner|pm|design/i.test(d.owner || ""))
@@ -83338,23 +83338,22 @@ function mApprovals() {
         }),
       ),
   ),
-    ("coord" === r || owner) &&
-      DB.projects.forEach((p) =>
-        (p.requests || [])
-          .filter((q) => "new" === q.status)
-          .forEach((q) =>
-            out.push({
-              kind: "req",
-              id: q.id,
-              sev: q.urgent ? "bad" : "",
-              n: q.neededBy ? String(q.neededBy).slice(5) : "",
-              title: ("function" == typeof reqLabel ? reqLabel(q) : q.what) || "Field request",
-              detail: `${p.project.name}${q.by ? " · " + q.by : ""} · not acknowledged`,
-              yes: "Acknowledge",
-              open: { view: "req", project: p.id },
-            }),
-          ),
-      );
+    DB.projects.forEach((p) =>
+      (p.requests || [])
+        .filter((q) => "new" === q.status)
+        .forEach((q) =>
+          out.push({
+            kind: "req",
+            id: q.id,
+            sev: q.urgent ? "bad" : "",
+            n: q.neededBy ? String(q.neededBy).slice(5) : "",
+            title: ("function" == typeof reqLabel ? reqLabel(q) : q.what) || "Field request",
+            detail: `${p.project.name}${q.by ? " · " + q.by : ""} · not acknowledged`,
+            yes: "Acknowledge",
+            open: { view: "req", project: p.id },
+          }),
+        ),
+    );
   const rank = (s) => ("bad" === s ? 0 : "warn" === s ? 1 : 2),
     live = (id) => !id || (DB.projects || []).some((p) => p.id === id);
   return out
@@ -83385,6 +83384,93 @@ const APPR_CHIPS = [
     ["other", "Other"],
   ],
   apprChip = (it) => (APPR_CHIPS.some(([k]) => k === it.kind) ? it.kind : "other");
+// Whose queue an approval sits in: one item, one person (BACKLOG §2 "the owner's Approvals is a catch-all").
+// kind -> the role that owns it by default, the rule in words, and `who(it)` for the kinds whose owner depends on
+// the record (it may name the owner: these are the owner-only overrides). A role named here must be one that can
+// open Approvals (ROLE_VIEWS holds "mapprove": owner, pm, coord, billing, controller), or the item falls back to
+// the default, then to the owner: nothing is ever in nobody's queue. The owner's Everyone view on Approvals
+// still lists what waits on the others. Applied once, by the last mApprovals layer (apprOwner).
+const DELEGATION = {
+  bill: {
+    role: "pm",
+    rule: "a submitted bill is the PM's review (under the owner threshold the PM's yes approves it); once the PM has recommended it, the owner releases the payment",
+    who: (it) => {
+      const b = (DB.bills || []).find((x) => x.id === it.id);
+      return b && "pm-approved" === b.status ? "owner" : "pm";
+    },
+  },
+  time: {
+    role: "pm",
+    rule: "crew hours are the PM's (the foreman has no Approvals); a PM's own hours go to the owner",
+    who: (it) => {
+      const t = (DB.time || []).find((x) => x.id === it.id);
+      return t && "pm" === apprRoleOf("function" == typeof empName ? empName(t.empId) : t.empId) ? "owner" : "pm";
+    },
+  },
+  raise: {
+    role: "pm",
+    rule: "a question from the site waits on the person it was sent to (or the first person copied who can answer here); an escalation or an incident waits on the owner",
+    who: (it) => {
+      const r = (((DB.field || {}).raises) || []).find((x) => x.id === it.id);
+      if (!r) return "";
+      if (r.escalated || "incident" === r.type) return "owner";
+      return [r.to].concat(r.cc || []).find(apprCanOpen) || "";
+    },
+  },
+  dec: {
+    role: "pm",
+    rule: "a decision we owe is the PM's to drive; one that names the owner is the owner's",
+    who: (it) => {
+      const [did, pid] = String(it.id).split("@"),
+        p = (DB.projects || []).find((x) => (!pid || x.id === pid) && (x.decisions || []).some((d) => d.id === did)),
+        d = p && p.decisions.find((x) => x.id === did);
+      return d && /\b(owner|ceo)\b/i.test(d.owner || "") ? "owner" : "pm";
+    },
+  },
+  req: { role: "coord", rule: "a material request from the field is the coordinator's to acknowledge" },
+  subm: { role: "pm", rule: "a submittal at the PM's review step is the PM's" },
+  meeting: {
+    role: "pm",
+    rule: "proposals from a meeting go to someone who was in it and can approve here: the PM, then the coordinator, then the owner",
+    who: (it) => {
+      const m = (DB.meetings || []).find((x) => x.id === it.id),
+        roles = ((m && m.attendees) || []).map(apprRoleOf);
+      return ["pm", "coord", "owner", "controller", "billing"].find((r) => roles.includes(r)) || "";
+    },
+  },
+  change: { role: "owner", rule: "a change to the ERP, a rule or a setting is the owner's" },
+  lesson: { role: "owner", rule: "a lesson becomes a rule for the firm, so it is the owner's" },
+  draft: {
+    role: "owner",
+    rule: "a draft waits on the person it was written for",
+    who: (it) => apprRoleOf(((DB.outbox || []).find((x) => x.id === it.id) || {}).forName),
+  },
+  other: { role: "owner", rule: "anything without a rule lands on the owner, never nowhere" },
+};
+const APPR_WHO = { owner: "the owner", pm: "the PM", coord: "the coordinator", billing: "billing", controller: "the controller" },
+  apprCanOpen = (r) => !!r && (ROLE_VIEWS[r] || []).includes("mapprove"),
+  apprRoleOf = (name) => {
+    const n = String(name || "").trim().toLowerCase(),
+      u = n && (DB.users || []).find((x) => String(x.name || "").trim().toLowerCase() === n);
+    return u ? u.role : "";
+  };
+function apprOwner(it) {
+  const d = DELEGATION[it.kind] || DELEGATION.other;
+  let r = "";
+  try {
+    r = d.who ? d.who(it) : "";
+  } catch (e) {}
+  return apprCanOpen(r) ? r : apprCanOpen(d.role) ? d.role : "owner";
+}
+// "19 more wait on the others (the PM 16, the coordinator 3)"
+function apprWhoSay(items) {
+  const by = {};
+  items.forEach((it) => (by[it.who] = (by[it.who] || 0) + 1));
+  return Object.keys(by)
+    .sort((a, b) => by[b] - by[a])
+    .map((k) => `${APPR_WHO[k] || k} ${by[k]}`)
+    .join(", ");
+}
 // The yes on a bill waiting for approval, wherever it is pressed (Approvals, Home's Do Now). billAction is the
 // one bill-approval gate: billed over its PO it opens the short-pay sheet (Approve PO Amount is the safe default);
 // paid by the bank before approval it asks Approve as Billed with every open control listed, compliance blocks
@@ -83420,6 +83506,28 @@ function apprBillYes(it) {
       )
     : run("");
 }
+// The owner's Everyone view: what the delegation handed to the others, each with who owns it and the rule, read-only
+// but for Open. A sheet, so the owner's own list stays where it is.
+function apprOthersSheet(others, apDate) {
+  const m = mbModal(
+    "Waiting on the Others",
+    `<p class="small muted td-sh-rule">One item sits in one person's queue. These wait on the others; Open takes you to the record.</p><div class="m-appr-olist">${others
+      .map(
+        (it, i) =>
+          `<div class="m-appr-o ${it.sev || ""}" data-mo="${i}"><span class="grow"><b>${esc(apDate(it.title))}</b><span class="small muted">${esc(APPR_WHO[it.who] || it.who)}${it.n ? " · " + esc(String(it.n)) : ""} · ${esc((DELEGATION[it.kind] || DELEGATION.other).rule.split(";")[0])}</span></span><button type="button" class="btn ghost sm" data-moopen="${i}" aria-label="Open ${esc(apDate(it.title))}">Open</button></div>`,
+      )
+      .join("")}</div>`,
+    { submit: null },
+  );
+  m &&
+    m.querySelectorAll("[data-moopen]").forEach(
+      (b) =>
+        (b.onclick = () => {
+          const it = others[+b.dataset.moopen];
+          mbCloseModal(), it && mGo(it.open);
+        }),
+    );
+}
 function renderMApprove() {
   const v = document.getElementById("v-mapprove");
   if (!v) return;
@@ -83431,6 +83539,11 @@ function renderMApprove() {
     );
   } catch (e) {}
   const apDate = (t) => String(t || "").replace(/(\d{4})-(\d{2})-(\d{2})/g, (m, y, mo, d) => fmt(m));
+  // what the delegation handed to the others: the owner can still see all of it, read-only, under their own list
+  let others = [];
+  try {
+    others = isOwner() ? mApprovals({ everyone: !0 }).filter((x) => "owner" !== x.who) : [];
+  } catch (e) {}
   "undefined" == typeof mApprKind && (window.mApprKind = "all"),
     (v.innerHTML = `<div class="ph"><div><h2>Approvals</h2><div class="lead">Every yes or no that is waiting on you — bills, hours, questions from the site, decisions we owe. Approve here; open the record when you need the detail.</div></div></div>\n    ${
       items.length
@@ -83442,6 +83555,10 @@ function renderMApprove() {
                 `<button class="${mApprKind === k ? "on" : ""}" data-mak="${k}">${l}<i class="n">${"all" === k ? items.length : items.filter((x) => apprChip(x) === k).length}</i></button>`,
             )
             .join("")}</div>`
+        : ""
+    }\n    ${
+      others.length
+        ? `<div class="m-appr-others"><span class="small muted" data-mothersn="${others.length}">${others.length} more wait on the others (${esc(apprWhoSay(others))})</span><button type="button" class="btn ghost sm" data-mothers>Show</button></div>`
         : ""
     }\n    ${
       items.length
@@ -83489,6 +83606,7 @@ function renderMApprove() {
           (window.mApprKind = b.dataset.mak), renderMApprove();
         }),
     ),
+    v.querySelectorAll("[data-mothers]").forEach((b) => (b.onclick = () => apprOthersSheet(others, apDate))),
     v.querySelectorAll(".m-appr").forEach((el) => {
       const it = items.find((x) => x.kind === el.dataset.mk && String(x.id) === el.dataset.mid);
       if (!it) return;
@@ -94022,29 +94140,32 @@ if ("function" == typeof mApprovals) {
   mApprovals = function () {
     const out = mApprovalsBase_bn.apply(this, arguments);
     try {
+      // produced for every seat; DELEGATION (the last mApprovals layer) hands a lesson to the owner and a draft
+      // to the person it was written for. The id is the record's, so three lessons from one rule stay three items.
       bnInit(),
-        ["owner", "pm", "coord", "design_mgr"].includes(role()) &&
-          (DB.brainQueue
-            .filter((x) => "proposed" === x.status)
-            .forEach((q) => {
-              const p = DB.projects.find((x) => x.id === q.projectId);
-              out.push({
-                kind: "lesson",
-                title: q.title,
-                sub: `${p ? p.project.name.replace(/ —.*$/, "") + " · " : ""}${q.detail}`,
-                open: { view: "brain", bnTab: "queue" },
-              });
+        DB.brainQueue
+          .filter((x) => "proposed" === x.status)
+          .forEach((q) => {
+            const p = DB.projects.find((x) => x.id === q.projectId);
+            out.push({
+              kind: "lesson",
+              id: q.id,
+              title: q.title,
+              sub: `${p ? p.project.name.replace(/ —.*$/, "") + " · " : ""}${q.detail}`,
+              open: { view: "brain", bnTab: "queue" },
+            });
+          }),
+        DB.outbox
+          .filter((o) => "draft" === o.status)
+          .forEach((o) =>
+            out.push({
+              kind: "draft",
+              id: o.id,
+              title: `Send: ${o.subject}`,
+              sub: `to ${o.to.name || o.to.email || "—"}`,
+              open: { view: "brain", bnTab: "hands" },
             }),
-          DB.outbox
-            .filter((o) => "draft" === o.status)
-            .forEach((o) =>
-              out.push({
-                kind: "draft",
-                title: `Send: ${o.subject}`,
-                sub: `to ${o.to.name || o.to.email || "—"}`,
-                open: { view: "brain", bnTab: "hands" },
-              }),
-            ));
+          );
     } catch (e) {}
     return out;
   };
@@ -159673,9 +159794,12 @@ function igDlPhotos(dr, p) {
     return igDlPhotos(dr, p), base.apply(this, arguments);
   };
 }
+// The last mApprovals layer: every producer above has pushed. A decision's open carries its id; then DELEGATION
+// names the one person each item waits on (`who`) and, unless everyone's queue was asked for
+// (mApprovals({everyone: true}), the owner's Everyone view), only the signed-in role's items remain.
 {
   const base = mApprovals;
-  mApprovals = function () {
+  mApprovals = function (opts) {
     const out = base.apply(this, arguments);
     try {
       (out || []).forEach((it) => {
@@ -159692,6 +159816,17 @@ function igDlPhotos(dr, p) {
         d && (it.open = Object.assign({}, o, { dec: d.id }));
       });
     } catch (e) {}
+    try {
+      (out || []).forEach((it) => {
+        it.who = apprOwner(it);
+      });
+      if (!(opts && opts.everyone)) {
+        const me = role();
+        return (out || []).filter((it) => it.who === me);
+      }
+    } catch (e) {
+      console.warn("delegation", e);
+    }
     return out;
   };
 }
@@ -160587,7 +160722,7 @@ const predJobs = (scope) => (DB.projects || []).filter((p) => !scope || p.id ===
 // ---- what is waiting on me
 predDef("waitingOnMe", {
   label: "Approvals",
-  rule: "every yes or no waiting on you: bills, hours, site questions, decisions we owe, field requests, submittals, meeting proposals, changes and lessons",
+  rule: "every yes or no waiting on you, and only you: bills, hours, site questions, decisions we owe, field requests, submittals, meeting proposals, changes and lessons, each in the one queue of the person who owns it (DELEGATION)",
   can: () => predCan("mapprove"),
   rows: () => (predCan("mapprove") ? mApprovals() : []),
 });
@@ -163096,8 +163231,20 @@ predDef("jobsAtRisk", {
   rows(scope) {
     return predJobs(scope)
       .filter((p) => !p.archived && "closed" !== (p.project || {}).status)
-      .map((p) => ({ p: p, why: this.why(p) }))
+      .map((p) => ({ p: p, why: this.why(p), late: PRED.jobLate.rows(p.id) }))
       .filter((x) => x.why.length);
+  },
+});
+// Jobs, not items: the PM thinks in jobs. One row per live job with something late on it, the items underneath.
+// (The Pulse said "Late on Jobs 10" and counted the items; its sheet now lists 2 jobs and the 10 items under them.)
+predDef("jobsLate", {
+  label: "Jobs Late",
+  rule: "jobs with something late on them: materials late to order, decisions past due or late submittals",
+  rows(scope) {
+    return predJobs(scope)
+      .filter((p) => !p.archived && "closed" !== (p.project || {}).status)
+      .map((p) => ({ p: p, late: PRED.jobLate.rows(p.id) }))
+      .filter((x) => x.late.length);
   },
 });
 
@@ -163126,6 +163273,7 @@ const TD_PULSE = {
       k: "risk",
       label: "Jobs at Risk",
       pred: "jobsAtRisk",
+      noun: "job",
       tone: (v) => (v ? "warn" : ""),
       go: () => setView("ovjobs"),
       goLabel: "Open Projects",
@@ -163134,8 +163282,9 @@ const TD_PULSE = {
   pm: [
     {
       k: "late",
-      label: "Late on Jobs",
-      pred: "jobLate",
+      label: "Jobs Late",
+      pred: "jobsLate",
+      noun: "job",
       mine: !0,
       tone: (v) => (v ? "bad" : ""),
       go: () => setView("ovjobs"),
@@ -163169,8 +163318,10 @@ function tdPulseValue(t) {
   const P = PRED[t.pred];
   return t.money ? P.figure() : tdPulseRows(t).length;
 }
-// One line per row behind a Pulse number: [what, detail, amount, open].
-function tdPulseLine(t, x) {
+// One line per row behind a Pulse number: [what, detail, amount, open, class, items under it].
+// A job-level number (Jobs at Risk, Jobs Late) lists each job with its late items underneath.
+const tdLateLines = (L) => (L || []).map((i) => tdPulseLine({ pred: "jobLate" }, i, !0));
+function tdPulseLine(t, x, inJob) {
   switch (t.pred) {
     case "safeToSpend":
       return [x[0], "", x[1], null, x[2]];
@@ -163182,7 +163333,9 @@ function tdPulseLine(t, x) {
         flowGo.doc(x.c, "invoice", x.o.x),
       ];
     case "jobsAtRisk":
-      return [tdJob(x.p), x.why.join(" · "), null, flowGo.project(x.p)];
+      return [tdJob(x.p), x.why.join(" · "), null, flowGo.project(x.p), "", tdLateLines(x.late)];
+    case "jobsLate":
+      return [tdJob(x.p), predSay(x.late.length, "item late", "items late"), null, flowGo.project(x.p), "", tdLateLines(x.late)];
     case "jobLate": {
       const r = x.r,
         p = r.p || DB.projects.find((q) => q.id === (r.projectId || r.pid)),
@@ -163194,7 +163347,7 @@ function tdPulseLine(t, x) {
               : (r.s && (r.s.number + " " + (r.s.title || ""))) || r.title || "Submittal";
       return [
         name || x.kind,
-        `${x.kind}${p ? " · " + tdJob(p) : ""}`,
+        `${x.kind}${p && !inJob ? " · " + tdJob(p) : ""}`,
         null,
         "decision" === x.kind && r.d && p
           ? flowGo.decision(p, r.d)
@@ -163218,7 +163371,9 @@ function tdPulseOpen(t) {
   const rows = tdPulseRows(t),
     v = tdPulseValue(t),
     lines = rows.map((x) => tdPulseLine(t, x)),
-    head = t.money ? tdMoneyC(v) : `${v} ${1 === v ? "item" : "items"}`,
+    head = t.money ? tdMoneyC(v) : predSay(v, t.noun || "item"),
+    item = (s, k) =>
+      `<div class="td-sh-item" ${s[3] ? `data-tdsh="${k}"` : ""}><span class="grow"><b>${esc(s[0])}</b>${s[1] ? `<span class="small muted">${esc(s[1])}</span>` : ""}</span></div>`,
     m = mbModal(
       esc(t.label),
       `<p class="small muted td-sh-rule">${esc(PRED[t.pred].rule)}.</p><div class="td-sh-n" data-tdsheet="${t.k}" data-n="${t.money ? v : rows.length}">${esc(head)}</div>${
@@ -163226,7 +163381,7 @@ function tdPulseOpen(t) {
           ? `<div class="td-sh-list">${lines
               .map(
                 (l, i) =>
-                  `<div class="td-sh-row ${l[4] || ""}" ${l[3] ? `data-tdsh="${i}"` : ""}><span class="grow"><b>${esc(l[0])}</b>${l[1] ? `<span class="small muted">${esc(l[1])}</span>` : ""}</span>${null != l[2] ? `<span class="money">${tdMoneyC(l[2])}</span>` : ""}</div>`,
+                  `<div class="td-sh-row ${l[4] || ""}" ${l[3] ? `data-tdsh="${i}"` : ""}><span class="grow"><b>${esc(l[0])}</b>${l[1] ? `<span class="small muted">${esc(l[1])}</span>` : ""}</span>${null != l[2] ? `<span class="money">${tdMoneyC(l[2])}</span>` : ""}</div>${(l[5] || []).map((s, j) => item(s, `${i}.${j}`)).join("")}`,
               )
               .join("")}</div>`
           : `<div class="empty">Nothing here today.</div>`
@@ -163237,7 +163392,9 @@ function tdPulseOpen(t) {
   m.querySelectorAll("[data-tdsh]").forEach(
     (el) =>
       (el.onclick = () => {
-        const go = lines[+el.dataset.tdsh][3];
+        const [i, j] = el.dataset.tdsh.split("."),
+          l = lines[+i],
+          go = null == j ? l[3] : l[5][+j][3];
         mbCloseModal(), go && go();
       }),
   );
@@ -163375,11 +163532,17 @@ function tdCard(it) {
       c.run = () => flowDecide(D.p, D.d);
     }
   } else {
+    // a lesson, a change, a meeting, a draft: the record's words, cut to a card (the brain writes paragraphs)
     const parts = tdPlain(it.detail)
-      .split(/\s+·\s+/)
-      .filter(Boolean);
-    c.why = esc(parts.slice(0, 2).join(" · "));
-    "req" === it.kind && (c.why = esc(parts.slice(1, 3).join(" · ") || parts[0] || ""));
+        .split(/\s+·\s+/)
+        .filter(Boolean),
+      cut = (x) => tdWords(String(x).replace(/ — .*$/, "").replace(/\.\s.*$/, ""), 8);
+    c.line1 = esc(tdWords(tdPlain(it.title).replace(/ — .*$/, ""), 8));
+    c.why = esc(parts.slice(0, 2).map(cut).join(" · "));
+    // the title of a lesson or a change already says what it is; line 2 says where it came from
+    "lesson" === it.kind && (c.why = esc(`${parts[0] ? parts[0] + " · " : ""}a rule the brain proposes`));
+    "change" === it.kind && (c.why = esc(`${it.n || "a change"} the brain proposes`));
+    "req" === it.kind && ((c.line1 = esc(tdPlain(it.title))), (c.why = esc(parts.slice(1, 3).join(" · ") || parts[0] || "")));
   }
   c.why = c.why || esc(tdPlain(it.detail).split(/\s+·\s+/)[0] || "");
   return c;
@@ -163720,7 +163883,8 @@ if ("function" == typeof renderHome) {
 
 // ---- phone chrome for the office roles (≤760px): one slim header (search, Ask, New) and the bottom tab bar.
 // The sub-tab strip is dropped where it repeats the bottom bar (Home, Approvals); page lead sentences are
-// dropped; the page title moves into the header once the page heading has scrolled away.
+// dropped; the page title lives in the header, so the page's own heading (the "Home" h2 that spent a line
+// above the Pulse) is hidden on every view whose title the header carries.
 function tdChrome() {
   const phone = "function" == typeof mOffice && mOffice(),
     body = document.body;
@@ -163755,14 +163919,16 @@ function tdChrome() {
       c = document.getElementById("crumbs"),
       t = h ? h.textContent.trim() : "";
     c && t && c.textContent.trim() !== t && (c.innerHTML = `<b>${esc(t)}</b>`);
-    tdScrolled();
+    // the header carries the title: the page header does not repeat it, and goes entirely when nothing else
+    // in it shows (its lead sentence is already hidden on the phone)
+    const ph = h && h.closest(".ph");
+    if (ph && c && c.textContent.trim() === t) {
+      h.classList.add("td-in-hdr");
+      const rest = [...ph.querySelectorAll("button, .btn, a, input, select")].some((el) => el.getClientRects().length);
+      ph.classList.toggle("td-ph-bare", !rest && !/\S/.test(ph.innerText || ""));
+    }
   }
 }
-function tdScrolled() {
-  const y = Math.max((document.scrollingElement && document.scrollingElement.scrollTop) || 0, document.body.scrollTop || 0);
-  document.body.classList.toggle("td-scrolled", y > 44);
-}
-document.addEventListener("scroll", tdScrolled, { passive: !0, capture: !0 });
 {
   const base = render;
   render = function () {

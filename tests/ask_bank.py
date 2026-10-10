@@ -211,7 +211,10 @@ SANITY = {  # question text -> HANDOFF.md figure
     'what is safe to spend': -2618, 'how much is unmatched in the bank': 75272, 'what is the backlog': 581408,
     'net income year to date': -3797, 'what was revenue this year': 144292, 'what do we owe vendors': 0,
     'how much payroll is past due': 16040, 'how much is WIP over billed': 154742}
-WAITING = {'u_owner': 26, 'u_alan': 26, 'u_billing': 9, 'u_controller': 13}  # BACKLOG 1.3: the screens' Approvals counts
+# BACKLOG 1.3: the screens' Approvals counts. Since DELEGATION (one item, one queue) the owner holds WW-2026-118,
+# the brain's change and 8 lessons; the PM the submitted bill, crew hours, site questions, decisions, a meeting and
+# the submittal; billing and the controller own no approval kind (they were shown everyone's decisions and hours).
+WAITING = {'u_owner': 10, 'u_alan': 16, 'u_billing': 0, 'u_controller': 0}
 
 def sanity(res):
     bad = []

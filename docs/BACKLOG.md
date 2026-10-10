@@ -273,6 +273,7 @@ Each is proven by a demo_ws_test check turning from "did not fire" to "fired as 
     - Chips sum to Everything.
     - Delegation rules: hours to the PM or foreman, material acknowledgements to Chen, bills under a threshold to the PM.
     - One waiting count shared by Home, the rail and Ask.
+  - Done (2026-10-10, lane polish): `DELEGATION` in `src/app.js` (next to `APPR_CHIPS`) names the one role each kind waits on, with the owner-only overrides as `who(it)`; the last `mApprovals` layer applies it, so every queue, badge, tile and Ask count follows. Owner 26 → 10 (WW-2026-118, the brain's change, 8 lessons), PM 26 → 16, Chen 20 → 3, billing 9 → 0, controller 13 → 0; the owner's Approvals still lists what waits on the others under "N more wait on the others".
 - **Purchasing overview is a third "to buy" list (S2).**
   - What happens: the overview has 28 rows, Buy Board › Contract Lines 33, Finish Selections 5 (the submittal-gated items are missing from the overview), and clicking a row opens the top of the Buy Board.
   - Fix: the overview IS the Buy Board's rows, with row actions (New PO, Set Up to Order) and the submittal gate shown.
