@@ -108,13 +108,20 @@ M.chat = async text => {   // Chat: the composer every role has (#chat-text, Sen
   if (!ta || !send) return 'no chat box';
   ta.value = text; ta.dispatchEvent(new Event('input', { bubbles: true })); send.click(); await sleep(30); return 'sent in Chat';
 };
-M.journal = async j => {   // Ledger > New Entry, drafted by the controller
-  view = 'gl'; render(); const b = [...M.root().querySelectorAll('button')].find(x => norm(x.innerText) === 'New Entry'); if (!b) return 'no New Entry';
-  b.click(); await sleep(40); const host = document.querySelector('#mbm') || document.querySelector('#drawer.on') || M.root();
-  const ins = [...host.querySelectorAll('input, textarea, select')].filter(vis);
-  const txt = ins.find(i => /memo|desc|why|note/i.test((i.dataset.f || i.id || i.placeholder || ''))) || ins.find(i => i.type === 'text');
-  if (txt) { txt.value = j.memo; txt.dispatchEvent(new Event('input', { bubbles: true })); }
-  return 'journal form open: ' + ins.length + ' fields (left for the controller)';
+M.journal = async j => {   // Ledger > New entry, drafted by the controller, submitted for the Owner
+  view = 'gl'; render(); const tab = [...M.root().querySelectorAll('button')].find(x => /^New entry$/i.test(norm(x.innerText))); if (!tab) return 'no New entry';
+  tab.click(); await sleep(30);
+  const set = (el, v) => { if (el) { el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); } };
+  set(document.querySelector('#gle-date'), j.date); set(document.querySelector('#gle-memo'), j.memo);
+  const sels = [...M.root().querySelectorAll('select')].filter(x => vis(x) && [...x.options].some(o => /^1590/.test(o.text)));
+  const nums = [...M.root().querySelectorAll('input[type=number]')].filter(vis);
+  if (sels.length < 2 || nums.length < 4) return 'journal form not as expected';
+  const exp = [...sels[0].options].find(o => /depreciation/i.test(o.text) && !/^1590/.test(o.text)) || [...sels[0].options].find(o => /^6|^7/.test(o.text));
+  set(sels[0], exp ? exp.value : ''); set(nums[0], String(j.amount));
+  set(sels[1], ([...sels[1].options].find(o => /^1590/.test(o.text)) || {}).value); set(nums[3], String(j.amount));
+  const sub = [...M.root().querySelectorAll('button')].find(b => /^Submit for approval$/i.test(norm(b.innerText))); if (!sub) return 'no Submit';
+  const t0 = M.toasts.length; sub.click(); await sleep(30); const st = await M.drive(SAY.controller);
+  return ('submitted: ' + (M.toasts.slice(t0).join(' | ') || st.join('; '))).slice(0, 120);
 };
 
 // ============================================================================ screens and their items
@@ -155,7 +162,7 @@ M.open = (s, force) => { const v = VIEWOF[s] || s;
   return M.text(); };
 M.items = s => (COLLECT[s] ? COLLECT[s](M.root()) : []);
 M.SURF = { owner: ['home', 'mapprove'], pm: ['home', 'mapprove', 'tkall'], coord: ['home', 'mapprove', 'comms'], billing: ['billing', 'home', 'comms', 'bank'],
-  controller: ['home', 'comms', 'bank', 'close'], designer: ['sday', 'tkall'], foreman: ['ftoday'], crew: ['time'], driver: ['route'], client: ['client'] };
+  controller: ['home', 'close', 'bank', 'comms'], designer: ['sday', 'tkall'], foreman: ['ftoday'], crew: ['time'], driver: ['route'], client: ['client'] };
 M.matchSeen = (uid, s, text, needles, day) => {
   const T = String(text || '').toLowerCase(), hits = {};
   Object.entries(needles || {}).forEach(([id, N]) => { if (N.some(n => n && T.includes(String(n).toLowerCase()))) {
@@ -210,11 +217,11 @@ const SAY = {
   client: { say: 'Thank you, that works for us.', name: 'Sarah Klein' } };
 // Policies: per surface, an ordered list of rules {verb, kind?, text?, not?, sec?, follow?, chase?, prefer?}.
 const POL = {
-  owner: { home: [{ verb: /^Approve$/ }, { verb: /^Dispute Difference$/ }, { verb: /^Chase COI$/, chase: 1 }, { verb: /^Chase$/, chase: 1 }],
-    mapprove: [{ verb: /^Approve$/, kind: /^bill$/ }] },
-  pm: { home: [{ verb: /^Answer$/ }, { verb: /^(Approve|Recommend)$/ }, { verb: /^Chase$/, chase: 1 }],
+  owner: { home: [{ verb: /^Approve$/ }, { verb: /^Dispute Difference$/ }, { verb: /^Chase COI$/, chase: 1, max: 2 }, { verb: /^Chase$/, chase: 1, max: 2 }],
+    mapprove: [{ verb: /^Approve$/, kind: /^bill$/ }, { verb: /^(Approve|Post|Approve & Post)/, kind: /^(journal|payroll)$/ }] },
+  pm: { home: [{ verb: /^Answer$/ }, { verb: /^(Approve|Recommend)$/ }, { verb: /^Chase$/, chase: 1, max: 1 }],
     mapprove: [{ verb: /^Approve All Hours/ }, { verb: /^Answer$/ }, { verb: /^(Approve|Recommend)$/, kind: /^(bill|time)$/ }, { verb: /^Open$/, kind: /^meeting$/, follow: /^Approve All/ }] },
-  coord: { home: [{ verb: /^Acknowledge$/ }, { verb: /^Chase$/, chase: 1 }],
+  coord: { home: [{ verb: /^Acknowledge$/ }, { verb: /^Chase$/, chase: 1, max: 2 }],
     mapprove: [{ verb: /^Acknowledge$/, follow: /^Acknowledge$/ }, { verb: /^Answer$/, follow: /^Answer$/ }, { verb: /^Open$/, kind: /^meeting$/, follow: /^Approve All/ }] },
   billing: { billing: [{ verb: /^Draft$/, follow: /^Send to Client$/ }, { verb: /^Send$/ }], home: [{ verb: /^(Draft|Draft It)$/, follow: /^Send to Client$/ }, { verb: /^Confirm$/ }] },
   controller: { home: [{ verb: /^Confirm$/, follow: /^Confirm$/ }], bank: [{ verb: /^Confirm$/, kind: /^proposal$/ }, { verb: /^Accept$/ }, { verb: /^Match to a Line/, kind: /^unmatched$/ }] },
@@ -255,10 +262,11 @@ M.work = async (uid, roleName, o) => {
     }
     return { steps, toast: M.toasts.slice(t0).join(' | ') };
   };
-  for (const s of (M.SURF[roleName] || [])) {
+  for (const s of (M.SURF[roleName] || []).filter(s => s !== 'close' || day >= '2026-09-28')) {
     t0w = performance.now();
-    let text = ''; const used = new Map();
-    try { text = M.open(s, !(s === M.SURF[roleName][0] && view === (VIEWOF[s] || s))); M.texts[s] = text; } catch (e) { out.errs.push(s + ': ' + e.message); continue; }
+    let text = ''; const used = new Map(); const first = s === M.SURF[roleName][0];
+    if (first && o.opened) text = M.texts[s];   // opened by M.look, and photographed, a moment ago
+    else try { text = M.open(s, !(first && view === (VIEWOF[s] || s))); M.texts[s] = text; } catch (e) { out.errs.push(s + ': ' + e.message); continue; }
     out.t[s + ':open'] = Math.round(performance.now() - t0w); t0w = performance.now();
     Object.assign(out.seen, M.matchSeen(uid, s, text, o.needles, day));
     out.t[s + ':seen'] = Math.round(performance.now() - t0w); t0w = performance.now();
@@ -295,6 +303,9 @@ M.work = async (uid, roleName, o) => {
   closeAll();
   return out;
 };
+// The first screen of the day, opened before the person acts (the screenshot is taken of it)
+M.look = (uid, roleName, o) => { const s = M.SURF[roleName][0]; M.texts = {};
+  const text = M.open(s, view !== (VIEWOF[s] || s)); M.texts[s] = text; return M.matchSeen(uid, s, text, o.needles, today()); };
 M.clientReady = async (uid, it) => {   // the client takes up to two days, waits where they said they would, and picks what they said
   const day = today(), d = String(it.id || '').split(':')[1] || '';
   if (d && M.holds[d] && day < M.holds[d]) return false;
@@ -432,9 +443,10 @@ M.extras.billing = async (uid, cap, did) => {
   return n;
 };
 const CTL_KNOW = [  // what a controller knows about a line from its description, and nothing else
-  [/RESTORATION HARDWARE|WATERWORKS|DIAMOND APPL|FERGUSON|GOWANUS STONE/i, 'materials'], [/SCAFFOLD|DUMPSTER/i, 'equipment'],
-  [/HOME DEPOT|LOWES|LUMBER|GRK|SQ \*BROOKLYN/i, 'materials'], [/SHELL|EZPASS|GEICO/i, 'vehicle'], [/CON ED|VERIZON/i, 'utilities'],
-  [/CHIPOTLE/i, 'meals'], [/AMAZON|ADOBE/i, 'office'], [/RENT|400 ATLANTIC/i, 'rent'], [/DEPT OF BUILDINGS/i, 'permits'], [/SERVICE FEE/i, 'bankfees'], [/INTEREST/i, 'interest'] ];
+  [/RESTORATION HARDWARE|WATERWORKS|DIAMOND APPL|FERGUSON|GOWANUS STONE/i, 'materials'], [/SCAFFOLD/i, 'equipment'], [/DUMPSTER/i, 'disposal'],
+  [/HOME DEPOT|LOWES|LUMBER|GRK|SQ \*BROOKLYN/i, 'materials'], [/SHELL|EZPASS/i, 'vehicle'], [/GEICO/i, 'insurance'], [/CON ED|VERIZON|ADOBE|AMAZON/i, 'office'],
+  [/CHIPOTLE/i, 'meals'], [/RENT|400 ATLANTIC/i, 'office'], [/DEPT OF BUILDINGS/i, 'permits'], [/SERVICE FEE/i, 'office'], [/ZELLE TO|CHECK \d+ /i, 'subs'],
+  [/AMEX EPAYMENT/i, 'cc-payment'], [/WIRE IN|MOBILE DEPOSIT|ZELLE FROM|INTEREST/i, 'income'] ];
 M.extras.controller = async (uid, cap, did) => {
   let n = await M.inbox(uid, 'controller', Math.min(4, cap), did); const td = today();
   // payroll: the payroll service's deadline is in his Inbox; build the run from approved time and approve it
@@ -450,18 +462,30 @@ M.extras.controller = async (uid, cap, did) => {
   }
   // code what the suggestions did not reach, from the description on the line (the transaction drawer)
   const bank = M.open('bank');
-  const JOBCAT = /materials|subs|equipment|permits/;
+  const JOBCAT = /materials|subs|equipment|permits|disposal/;
   for (const t of (DB.txns || []).filter(t => (t.status === 'new' || t.cat === 'uncat' || !t.cat || (JOBCAT.test(t.cat) && !t.projectId && +t.amt < 0)) && t.date >= '2026-09-03' && bank.toUpperCase().includes(String(t.desc).slice(0, 12).toUpperCase()))) {
     if (n >= cap) break; const k = CTL_KNOW.find(([re]) => re.test(t.desc)); if (!k) continue;
     const t0 = M.toasts.length;
     try { txnDialog(t.id); await sleep(15); const sel = document.querySelector('#e-cat'); const opt = sel && [...sel.options].find(o => RX(k[1]).test(o.value + ' ' + o.text));
       if (opt) { sel.value = opt.value; sel.dispatchEvent(new Event('change', { bubbles: true })); }
-      if (JOBCAT.test(k[1])) { const pj = document.querySelector('#e-proj'); if (pj) { pj.value = /LOWES/.test(t.desc) ? 'p206' : 'p121'; pj.dispatchEvent(new Event('change', { bubbles: true })); } }
+      if (JOBCAT.test(k[1])) { const pj = document.querySelector('#e-proj'); if (pj && !pj.value) { pj.value = /LOWES/.test(t.desc) ? 'p206' : 'p121'; pj.dispatchEvent(new Event('change', { bubbles: true })); } }
       const sv = document.querySelector('#d-save'); sv && sv.click(); await sleep(20); closeAll();
     } catch (e) {}
     n++; did('Banking', `${t.desc} ${t.amt}`, 'fn:code in the transaction drawer', { steps: [t.cat + ' ' + (t.projectId || '')], toast: M.toasts.slice(t0).join(' | ') });
   }
   n < cap && (n += await M.doneMine(uid, cap - n, did));
+  // what the Not Matched count on Banking holds: a charge twice is voided with a reason; a line with a proposed match is matched
+  let U = []; try { U = bankUnmatched().rows.filter(t => t.date >= '2026-08-01' && !t.exception); } catch (e) {}
+  for (const t of U) { if (n >= cap) break; const key = 'match|' + t.id; if (M.memo[key] && workBetween(M.memo[key], td) < 3) continue; M.memo[key] = td;
+    const twin = (DB.txns || []).find(x => x.id !== t.id && x.acct === t.acct && x.desc === t.desc && Math.abs(+x.amt - +t.amt) < 0.01 && x.date < t.date && Math.abs(dayDiff(x.date, t.date)) <= 3);
+    const t0 = M.toasts.length; let steps = [];
+    try { txnDialog(t.id); await sleep(15);
+      if (twin) { const v = document.querySelector('#d-delete'); if (v && vis(v)) { v.click(); await sleep(20); steps = await M.drive(Object.assign({}, SAY.controller, { say: 'Charged twice; the second charge is disputed with the card issuer.', never: null })); } else steps.push('no Void on the line'); }
+      else { const mb = [...document.querySelectorAll('#drawer [data-trmatch], [data-trmatch]')].find(vis); if (mb) { mb.click(); await sleep(20);
+          const m = document.querySelector('#mbm'), pickB = m && [...m.querySelectorAll('[data-trpick]')].find(b => /proposed/.test(norm((b.closest('tr') || {}).innerText)));
+          if (pickB) { pickB.click(); await sleep(20); steps.push('matched: ' + norm((pickB.closest('tr') || {}).innerText).slice(0, 60)); } else steps.push('no proposed line to match'); } }
+    } catch (e) { steps.push('failed ' + e.message); }
+    closeAll(); n++; did('Banking', `${t.desc} ${t.amt}`, twin ? 'fn:Void… (a duplicate charge)' : 'fn:Match to a Line…', { steps, toast: M.toasts.slice(t0).join(' | ') }); }
   // the September close on 10/1
   if (td >= '2026-10-01' && typeof ctCloseStatus === 'function' && !ctCloseStatus('2026-09').closed && n < cap) {
     const t0 = M.toasts.length; let res;
@@ -577,7 +601,8 @@ M.check = (c, ev) => {
       const amt = left.reduce((a, r) => a + (+r.gap || 0), 0); return [amt < 1, amt ? `$${Math.round(amt).toLocaleString()} still not billed` : 'billed']; }
     case 'raise': { const r = (DB.field.raises || []).filter(r => RX(c.title).test(r.title)).pop(); if (!r) return [false, 'no field item'];
       return [['answered', 'closed', 'done', 'resolved'].includes(r.status), `${r.status}${r.escalated ? ' (escalated)' : ''}`]; }
-    case 'request': { const R = DB.projects.filter(p => c.project === 'any' || p.id === c.project).flatMap(p => p.requests || []).filter(r => RX(c.what).test(r.what + ' ' + (r.note || '')));
+    case 'request': { const W = String(c.what).toLowerCase(), hit = r => /[|]/.test(c.what) ? RX(c.what).test(r.what + ' ' + (r.note || '')) : (r.what + ' ' + (r.note || '')).toLowerCase().includes(W);
+      const R = DB.projects.filter(p => c.project === 'any' || p.id === c.project).flatMap(p => p.requests || []).filter(hit);
       const r = R[R.length - 1]; if (!r) return [false, 'not on the board']; return [c.status.includes(r.status), r.status]; }
     case 'task': { const T = allTasks().filter(a => RX(c.title).test(a.title || ''));
       const T2 = T.filter(a => (!c.assignee || RX(c.assignee).test(a.assignee || '')) && (!c.due || a.due === c.due) && (!c.dueOn || a.due === c.dueOn) && (!c.assigned || (a.assignee || '').trim()));
@@ -656,12 +681,13 @@ M.check = (c, ev) => {
       return [ok, b ? (b.short ? 'dispute open: ' + JSON.stringify(b.short).slice(0, 70) : 'never disputed') : 'no bill']; }
     case 'lineBilled': { const p = projOf(c.project); let rows = []; try { rows = pgRows(p.id); } catch (e) {}
       const t = p.tasks.find(x => x.id === c.taskId), name = t ? t.name : c.taskId;
-      let r = null; try { const det = tpJobPctDetail(p) || []; const L = (det.lines || det).find(x => (x.tasks || []).some(y => (y.id || y) === c.taskId)); if (L) r = rows.find(x => x.sv.id === (L.id || L.svId || (L.sv || {}).id)); } catch (e) {}
-      r = r || rows.find(x => (x.pr && (x.pr.tasks || []).some(y => (y.id || y) === c.taskId))) || rows.find(x => RX(String(name).split(/[ –&-]/)[0]).test(x.sv.desc));
-      if (!r) return [false, 'no pay-application line for ' + name];
-      const billed = +((r.ev || {}).billedPct || 0), meas = +((r.pr || {}).pct || 0), gap = Math.max(0, meas - billed);
-      M.lineGap[ev.id] = Math.round((+(r.ev || {}).scheduled || +r.sv.scheduled || 0) * gap / 100);
-      return [billed >= Math.min(meas, c.pct) - 1, `${String(r.sv.desc).slice(0, 30)}: measured ${meas}%, billed ${billed}%`]; }
+      let code = ''; try { code = codeForTrade(t.trade, t.name); } catch (e) {}
+      let line = null; try { line = (tpJobPctDetail(p).lines || []).find(L => L.x && L.x.code === code); } catch (e) {}
+      const r = line ? rows.find(x => x.sv.id === line.x.sv.id) : null;
+      if (!r) return [false, 'no pay-application line for ' + name + (code ? ' (code ' + code + ')' : '')];
+      const billed = +((r.ev || {}).billedPct || 0), meas = +(line.pct != null ? line.pct : ((r.pr || {}).pct || 0)), gap = Math.max(0, Math.min(meas, c.pct) - billed);
+      M.lineGap[ev.id] = Math.round((+line.x.value || +r.sv.scheduled || 0) * gap / 100);
+      return [billed >= Math.min(meas, c.pct) - 1, `${String(r.sv.desc).slice(0, 30)}: measured ${Math.round(meas)}%, billed ${billed}%`]; }
     default: return [false, 'unknown check ' + c.t];
   } } catch (e) { return [false, 'check error: ' + String(e.message || e).slice(0, 100)]; }
 };

@@ -238,11 +238,12 @@ async def main():
                     for eid, r in T['injected']: state[eid]['injected'] = r; D['injected'].append([eid, 'own', r])
                     D['imports'] += T['imported']
                     if T.get('sync'): D['syncs'][uid] = T['sync']
+                    seen0 = await pg.evaluate("([u, r, o]) => __MS.look(u, r, o)", [uid, rname, {'needles': open_needles}])
                     if not a.no_shots:
-                        await pg.evaluate("s => __MS.open(s)", FIRST[rname])
                         await pg.screenshot(path=os.path.join(shots_tmp, f'{day}_{rname}_{uid}.png'))
                     pt['shot'] = round(time.time() - tr, 2)
-                    W = await pg.evaluate("([u, r, o]) => __MS.work(u, r, o)", [uid, rname, {'needles': open_needles, 'cap': CAP}]); pt['work'] = round(time.time() - tr, 2)
+                    W = await pg.evaluate("([u, r, o]) => __MS.work(u, r, o)", [uid, rname, {'needles': open_needles, 'cap': CAP, 'opened': True}]); pt['work'] = round(time.time() - tr, 2)
+                    W['seen'] = {**seen0, **W['seen']}
                     D.setdefault('pt', {})[uid] = pt
                     for eid, surf in W['seen'].items(): state[eid]['seen'].setdefault(uid, [day, surf])
                     D['seen'][uid] = len(W['seen']); D['actions'][uid] = W['acts']; D.setdefault('t', {})[uid] = {**T.get('t', {}), **W.get('t', {})}

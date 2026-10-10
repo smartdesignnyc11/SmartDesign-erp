@@ -37,6 +37,7 @@
 | Symbol | Line | Note |
 |---|---|---|
 | `appNowIso` / clock | ~109 | |
+| `appSetDay` / `APP_DAY_HOOKS` | after `iaOneClock` | The one writer of the app's day: pins `DB.company.asOf` ("" unpins), re-reads every project's `today`, moves the built-in Demo Workspaces' clock, runs the day's hooks once (`fTick`, `clTaskSweep`, `b4Sweep`, `smSweep`, `hbSeqTick`, `bnTick`) and saves. The Firm's Clock card calls it; `tests/month_sim.py` turns the month with it. Push `[name, fn]` onto `APP_DAY_HOOKS` for anything else a new day must run. |
 | `ROLE_VIEWS` | ~3,269 | |
 | `render(` | ~3,563 | then wrapped many times; grep `render = function` |
 | `signIn` | ~16,599 | |

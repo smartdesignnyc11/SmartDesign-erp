@@ -2300,18 +2300,16 @@
    },
    "expect": {
     "who": "u_billing",
-    "what": "Note the Kleins' payment promise (after 9/24) and follow up if it does not land",
-    "by": 5,
+    "what": "Billing sees the Kleins' payment promise (after 9/24) the next morning",
+    "by": 1,
     "see": [
      "INV-2026-038",
      "David Klein"
     ],
     "check": {
-     "t": "payment",
-     "client": "cl121",
-     "amount": 68265
-    },
-    "money": 68265
+     "t": "seenBy",
+     "uid": "u_billing"
+    }
    },
    "tags": [
     "a client who pays late"
@@ -8412,11 +8410,11 @@
     ],
     "cc": [],
     "subject": "Your September statement is ready — account ending 1009",
-    "text": "Your Business Platinum statement closing 09/30/2026 is ready. New balance $27,408.66.",
+    "text": "Your Business Platinum statement closing 09/30/2026 is ready to download.",
     "att": [
      {
       "filename": "Amex-Sep-2026.pdf",
-      "text": "AMERICAN EXPRESS — BUSINESS PLATINUM CARD\nAccount ending 1009\nStatement closing date: 09/30/2026\nNew balance $27,408.66"
+      "text": "AMERICAN EXPRESS — BUSINESS PLATINUM CARD\nAccount ending 1009\nStatement closing date: 09/30/2026"
      }
     ],
     "thread": ""
