@@ -110129,6 +110129,9 @@ function paScroll() {
   const t = document.getElementById("pa-thread");
   t && (t.scrollTop = t.scrollHeight);
 }
+// The questions typed while one is being answered, and how long one answer may hold the thread.
+let paQueue = [];
+const PA_TIMEBOX = 8e3;
 function paSend(text) {
   const q = String(text || "").trim();
   q &&
@@ -114507,57 +114510,6 @@ function paExpect(who, about, by, ref, since) {
     };
   return L.unshift(e), L.length > 60 && (L.length = 60), e;
 }
-paSend = function (text) {
-  const q = String(text || "").trim();
-  if (!q || paBusy) return;
-  paSay("me", q), (paBusy = !0), (paSteps = []), save(), renderPa(), paScroll();
-  const deterministic = () => {
-    let a = null;
-    try {
-      a = paAsk(q);
-    } catch (e) {
-      console.error("assistant", e),
-        (a = paOut({
-          headline: "That broke on my side.",
-          note: "Say it another way and I will try again; nothing was changed.",
-        }));
-    }
-    (a.q = q),
-      (paNow = a),
-      paSay("a", a.headline, {
-        note: a.note,
-        work: a.work || [],
-        go: a.go || null,
-        mine: (a.mine || []).map((m) => ({ text: m.text, at: m.at })),
-        kind: a.kind,
-        readAs: a.readAs || "",
-      }),
-      (paBusy = !1),
-      (paSteps = []),
-      save(),
-      renderPa(),
-      paScroll();
-  };
-  if (!mindCan()) return setTimeout(deterministic, 160);
-  mindAsk(q, (step) => {
-    paSteps.push(step), renderPa(), paScroll();
-  })
-    .then((r) => {
-      if (!r || !String(r.text || "").trim()) return deterministic();
-      (paNow = paOut({ headline: r.text, kind: "mind", q: q, offers: [] })),
-        paSay("a", r.text, { md: !0, sources: paSources(r.used), kind: "mind", steps: r.steps }),
-        (paBusy = !1),
-        (paSteps = []),
-        save(),
-        renderPa(),
-        paScroll();
-    })
-    .catch((e) => {
-      (mindState = { ok: !1, why: String(e.message || e), model: "", last: Date.now() }),
-        console.warn("mind", e),
-        deterministic();
-    });
-};
 const paEmailFor = (who) => {
   const n = String(who || "").toLowerCase();
   if (!n) return "";
@@ -115779,62 +115731,72 @@ if ("function" == typeof mindSystem) {
       clearTimeout(t);
     }
   }),
-  (paSend = function (text) {
+  (paSend = function (text, opts) {
+    // One send for the thread. A question typed while another is still being answered waits its turn instead of
+    // being dropped; the records answer first (a reader's answer is the one number the screens show), the
+    // firm's model is asked only when no reader takes the question, and nothing holds the thread longer than
+    // PA_TIMEBOX: past it the thread is free again and the answer lands when it comes.
     const q = String(text || "").trim();
-    if (!q || paBusy) return;
-    paSay("me", q), (paBusy = !0), (paSteps = []), save(), renderPa(), paScroll();
-    const done = () => {
+    if (!q) return;
+    if (paBusy && !(opts && opts.next)) return paQueue.push(q), paSay("me", q), save(), renderPa(), paScroll(), toast("Next in line — I will answer it as soon as the one above is done");
+    (opts && opts.next) || paSay("me", q);
+    (paBusy = !0), (paSteps = []), save(), renderPa(), paScroll();
+    let settled = !1;
+    const show = (a, late) => {
+        a = a || paOut({ headline: "That broke on my side.", note: "Say it another way and I will try again; nothing was changed." });
+        (a.q = q),
+          (paNow = a),
+          paSay("a", late ? `On "${q.length > 60 ? q.slice(0, 57) + "…" : q}": ${a.headline}` : a.headline, a.md ? { md: !0, sources: a.sources, kind: a.kind, steps: a.steps } : {
+            note: a.note,
+            work: a.work || [],
+            go: a.go || null,
+            mine: (a.mine || []).map((m) => ({ text: m.text, at: m.at })),
+            kind: a.kind,
+            readAs: a.readAs || "",
+          });
+      },
+      release = () => {
         (paBusy = !1), (paSteps = []);
         try {
           save(), renderPa(), paScroll();
         } catch (e) {}
+        const nx = paQueue.shift();
+        nx && setTimeout(() => paSend(nx, { next: !0 }), 60);
       },
-      deterministic = () => {
+      finish = (a) => {
+        if (settled) return show(a, !0), save(), renderPa(), paScroll();
+        (settled = !0), clearTimeout(timer), show(a), release();
+      },
+      timer = setTimeout(() => {
+        settled ||
+          ((settled = !0),
+          paSay("a", "Still working on that one. I will put the answer here when it lands; ask the next thing meanwhile.", { kind: "slow" }),
+          release());
+      }, PA_TIMEBOX),
+      records = () => {
         try {
-          let a = null;
-          try {
-            a = paAsk(q);
-          } catch (e) {
-            console.error("assistant", e),
-              (a = paOut({
-                headline: "That broke on my side.",
-                note: "Say it another way and I will try again; nothing was changed.",
-              }));
-          }
-          (a.q = q),
-            (paNow = a),
-            paSay("a", a.headline, {
-              note: a.note,
-              work: a.work || [],
-              go: a.go || null,
-              mine: (a.mine || []).map((m) => ({ text: m.text, at: m.at })),
-              kind: a.kind,
-              readAs: a.readAs || "",
-            });
-        } finally {
-          done();
+          return Promise.resolve(paAsk(q)).catch((e) => (console.error("assistant", e), null));
+        } catch (e) {
+          return console.error("assistant", e), Promise.resolve(null);
         }
-      };
-    if (!mindCan()) return setTimeout(deterministic, 160);
-    mindAsk(q, (step) => {
-      paSteps.push(step), renderPa(), paScroll();
-    })
-      .then((r) => {
-        if (!r || !String(r.text || "").trim()) return deterministic();
-        (paNow = paOut({
-          headline: r.text,
-          kind: "mind",
-          q: q,
-          offers: (r.pending || []).filter((o) => !o.done),
-        })),
-          paSay("a", r.text, { md: !0, sources: paSources(r.used), kind: "mind", steps: r.steps }),
-          done();
-      })
-      .catch((e) => {
-        (mindState = { ok: !1, why: String(e.message || e), model: "", last: Date.now() }),
-          console.warn("mind", e),
-          deterministic();
+      },
+      answered = (a) => !!a && !/^(none|blocked)$/.test(a.kind || "") && !AG_REFUSED.test(String(a.headline || "")) && !AG_GENERIC_HEAD.test(String(a.headline || "").trim());
+    setTimeout(() => {
+      records().then((a) => {
+        if (answered(a) || !mindCan()) return finish(a);
+        mindAsk(q, (step) => {
+          settled || (paSteps.push(step), renderPa(), paScroll());
+        })
+          .then((r) =>
+            r && String(r.text || "").trim()
+              ? finish(Object.assign(paOut({ headline: r.text, kind: "mind", q: q, offers: (r.pending || []).filter((o) => !o.done) }), { md: !0, sources: paSources(r.used), steps: r.steps }))
+              : finish(a),
+          )
+          .catch((e) => {
+            (mindState = { ok: !1, why: String(e.message || e), model: "", last: Date.now() }), console.warn("mind", e), finish(a);
+          });
       });
+    }, 120);
   });
 const FD_OVERVIEW = {
     jobs: "ovjobs",
