@@ -136275,6 +136275,8 @@ function pay3Resolve(b, how, note) {
     );
   const st = fin2Stamp();
   (s.state = "credit" === how ? "credited" : "accepted"),
+    (s.resolved = !0),
+    "credit" === how && ((s.credited = !0), (s.creditMemo = note)),
     (s.resolvedOn = today()),
     (s.resolvedBy = st.by),
     (s.resolveNote = note),
@@ -175918,6 +175920,94 @@ document.addEventListener(
       });
     } catch (e) {
       console.warn("nyh duplicates", e);
+    }
+    return out;
+  };
+}
+
+// ---- 8. a vendor's credit memo closes the difference held in dispute (1300), with one approval
+// A credit memo naming a bill whose difference is held in dispute (or its vendor's one open dispute, for that
+// amount) is a "dispute-credit" proposal for the Owner, not a return; applying it records the credit (pay3Resolve).
+function lkDisputeFor(c, low, amt) {
+  const D = (DB.bills || []).filter((b) => b.short && "open" === b.short.state);
+  if (!D.length) return null;
+  const named = D.find((b) => b.number && low.includes(String(b.number).toLowerCase()));
+  if (named) return named;
+  const R = c.route || {},
+    byV = D.filter((b) => (R.vendorId && (DB.vendors || []).some((v) => v.id === R.vendorId && v.name === b.vendor)) || (c.from && c.from.name && String(b.vendor).toLowerCase() === String(c.from.name).toLowerCase()));
+  return 1 === byV.length && (!amt || Math.abs(+byV[0].short.held - amt) < 1) ? byV[0] : null;
+}
+{
+  const base = cmRead;
+  cmRead = function (c) {
+    const P = base.apply(this, arguments);
+    try {
+      if (Array.isArray(P) && "out" !== c.direction) {
+        const all = [c.subject, c.text, ...(c.attachments || []).map((a) => a.text || "")].join("\n"),
+          low = all.toLowerCase();
+        if (/credit memo|credit note|credited/.test(low)) {
+          const amt = +((all.match(/\$\s?([\d,]+(?:\.\d{2})?)/) || [])[1] || "").replace(/,/g, "") || 0,
+            b = lkDisputeFor(c, low, amt);
+          if (b) {
+            const memo = (all.match(/\b(?:credit memo|cm)[\s#:-]*([A-Z0-9][A-Z0-9-]{2,})/i) || [])[1] || "",
+              keep = P.filter((x) => "credit" !== x.kind && !("statement" === x.kind && x.billId === b.id) && !("bill" === x.kind && x.amount && Math.abs(+x.amount - amt) < 1));
+            P.length = 0;
+            P.push(...keep, { id: uid("cp"), kind: "dispute-credit", on: !0, billId: b.id, amount: amt || +b.short.held, memo: memo || c.subject || "credit memo", vendorName: b.vendor, projectId: b.projectId || "", summary: `${b.vendor} credits ${money(amt || b.short.held)} against ${b.number}${memo ? ` (credit memo ${memo})` : ""}: the ${money(b.short.held)} held in dispute closes` });
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("dispute credit", e);
+    }
+    return P;
+  };
+}
+{
+  const base = cmApply;
+  cmApply = function (c, p) {
+    if (p && "dispute-credit" === p.kind) {
+      const b = (DB.bills || []).find((x) => x.id === p.billId);
+      if (!b || !b.short || "open" !== b.short.state) return (p.applied = "the dispute is already settled"), save(), p.applied;
+      if (!["owner", "controller"].includes(role())) return toast("The Owner or the controller records a vendor credit"), "";
+      const amt = +p.amount || 0;
+      if (Math.abs(amt - +b.short.held) >= 1) return toast(`The memo credits ${money(amt)}; ${money(b.short.held)} is held in dispute — record it on the bill`), "";
+      const ok = pay3Resolve(b, "credit", p.memo || "credit memo");
+      return ok ? ((p.applied = `${b.number}: ${money(b.short.held)} credited (${p.memo})`), (p.appliedAt = appNowIso()), (p.by = (currentUser() || {}).name || role()), save(), p.applied) : "";
+    }
+    return base.apply(this, arguments);
+  };
+}
+"undefined" != typeof NYH_MAIL && ((NYH_MAIL["dispute-credit"] = () => "owner"), (NYH_VERB["dispute-credit"] = "Approve"));
+// a dispute still open near the month's end, or two weeks old: the Owner settles it (accept the difference with
+// a reason) or keeps waiting for the credit memo
+{
+  const base = nyhRowsAll;
+  nyhRowsAll = function () {
+    const out = base.apply(this, arguments);
+    try {
+      const td = today(),
+        end = fin2End(td.slice(0, 7)),
+        near = dayDiff(td, end) <= 3;
+      (DB.bills || [])
+        .filter((b) => b.short && "open" === b.short.state && (near || dayDiff(b.short.on, td) >= 14))
+        .forEach((b) => {
+          const key = "lk:disp:" + b.id;
+          if (lnHandDone(key) || out.some((x) => x.key === key) || out.some((x) => "mail" === x.kind && "dispute-credit" === x.pkind)) return;
+          out.push({
+            key: key,
+            route: "owner",
+            kind: "dispute",
+            title: `${b.vendor} ${b.number}: ${money2(b.short.held)} still in dispute since ${fmtL(b.short.on)}`,
+            why: `${b.short.paid ? "held as money the vendor owes back (1300)" : "held back from payment"} · ${near ? "the month closes " + fmtL(end) : dayDiff(b.short.on, td) + " days open"} · accept it as cost with a reason, or wait for the credit memo`,
+            amount: +b.short.held,
+            verb: "Accept the Difference",
+            no: "",
+            run: () => pay3Resolve(b, "accept"),
+            open: () => ("function" == typeof flowGo && flowGo.bill ? flowGo.bill(b)() : ((view = "ap"), render())),
+          });
+        });
+    } catch (e) {
+      console.warn("nyh disputes", e);
     }
     return out;
   };
