@@ -167974,6 +167974,8 @@ function ctHoldBasis(J, p, range) {
   const td = today();
   if (range && (range[0] || (range[1] && range[1] < td))) return;
   if ("undefined" != typeof fin3JobAsOf && fin3JobAsOf) return;
+  // a closed month's Pack renders with the app day set to that month end: not a live read, never an anchor
+  if (("undefined" != typeof fin3PackEnd && fin3PackEnd) || ("undefined" != typeof packMonth && packMonth)) return;
   const A = ((DB.periods = DB.periods || {}).pctAnchor = DB.periods.pctAnchor || {}),
     a = A[p.id],
     raw = +J.pct || 0,
