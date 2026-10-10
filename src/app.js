@@ -15474,10 +15474,12 @@ function planDriverDay(driverName) {
         }
       } else s.drop.push(x);
     });
-  const buys = items.filter((x) => !x.it.invId && !x.it.garbage),
+  const vendorPick = items.filter((x) => !x.it.invId && !x.it.garbage && /^v:/.test(x.it.pickupFrom || "")),
+    buys = items.filter((x) => !x.it.invId && !x.it.garbage && !vendorPick.includes(x)),
     whPickups = items.filter(
       (x) => x.it.invId && (!x.it.pickupFrom || "wh" === x.it.pickupFrom || "truck" === x.it.pickupFrom),
-    ),
+    );
+  const
     stops = [];
   let load = 0,
     garbageOnBoard = 0;
@@ -15492,6 +15494,18 @@ function planDriverDay(driverName) {
         load: r2(load),
         garbage: r2(garbageOnBoard),
       });
+  // a paid order ready at a vendor's yard (the "ready for pickup" mail) is a stop of its own
+  [...new Set(vendorPick.map((x) => x.it.pickupFrom.slice(2)))].forEach((vn) => {
+    const mine = vendorPick.filter((x) => x.it.pickupFrom.slice(2) === vn);
+    mine.forEach((x) => (load += itemVolume(x.it)));
+    push(
+      "pickup",
+      vn,
+      null,
+      mine.map((x) => `Pick up ${x.it.qty} ${x.it.unit} ${x.it.what} → ${x.p.project.name}${x.r.orderRef ? ` (order ${x.r.orderRef}, paid)` : " (paid)"}`),
+      mine[0].r.neededBy ? `Ready at the yard; pick up by ${fmt(mine[0].r.neededBy)} or it is restocked.` : "Ready at the yard.",
+    );
+  });
   if (
     (whPickups.length &&
       (whPickups.forEach((x) => (load += itemVolume(x.it))),
@@ -71252,7 +71266,7 @@ cmApply = function (c, p) {
     "question" === p.kind ||
     "meeting" === p.kind ||
     ("permit" === p.kind && p.task) ||
-    ("quote" === p.kind && !p.out) ||
+    ("quote" === p.kind && !p.out && !p.materialId) ||
     "deposit" === p.kind
   ) {
     if ("deposit" === p.kind) {
@@ -167442,5 +167456,338 @@ if ("function" == typeof tdScore) {
         rcToast(`${po.number} approved and issued to ${po.vendor} — ${money(poTotal(po).total)}`, flowCan("po") ? [{ label: `Open ${po.number}`, run: flowGo.po(po) }] : null);
     } catch (e) {}
     return r;
+  };
+}
+// ---- the reader finishes the job it started (review findings 6, 8, 9; BACKLOG §1.5 #4, §1.7 #4)
+// Vendor mail that moves records becomes a proposal of its own kind, read on top of the brain's classification
+// (cmRead) and applied here: a delivery date on an open order (eta), a paid order ready at the yard (pickup),
+// a credit memo against a statement credit and the original purchase (credit). A quote's Apply prices the line
+// and links the PDF; a receipt's Apply codes the card line to the job and category it names.
+"object" == typeof CM_CATS && Object.assign(CM_CATS, { eta: "Delivery date", pickup: "Pickup", credit: "Credit memo" });
+const CM_MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+// A date in a vendor's words ("Friday September 18", "9/18", "by Friday"), as ISO on the app clock.
+function cmDateIn(text) {
+  const t = String(text || ""),
+    yr = appNow().getFullYear(),
+    m = t.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b(?:,?\s*(\d{4}))?/i);
+  if (m) {
+    const mo = CM_MONTHS.indexOf(m[1].slice(0, 3).toLowerCase()),
+      y = m[3] ? +m[3] : yr,
+      d = iso(new Date(y, mo, +m[2]));
+    return !m[3] && d < iso(addDays(today(), -60)) ? iso(new Date(y + 1, mo, +m[2])) : d;
+  }
+  const n = t.match(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/);
+  if (n) {
+    const y = n[3] ? (n[3].length === 2 ? 2000 + +n[3] : +n[3]) : yr;
+    return iso(new Date(y, +n[1] - 1, +n[2]));
+  }
+  try {
+    return "function" == typeof fParseDate ? fParseDate(t) || "" : "";
+  } catch (e) {
+    return "";
+  }
+}
+// The job a text names: a project's short name, or its street number and name ("121 State").
+function cmJobNamed(text) {
+  const low = String(text || "").toLowerCase();
+  return (
+    (DB.projects || []).find((p) => {
+      const nm = String((p.project || {}).name || "").replace(/ —.*$/, "").toLowerCase(),
+        two = nm.split(/\s+/).slice(0, 2).join(" ");
+      return (nm && low.includes(nm)) || (two.length > 4 && /\d/.test(two) && low.includes(two));
+    }) || null
+  );
+}
+const cmVendorWord = (name) =>
+  String(name || "")
+    .toLowerCase()
+    .split(/\s+/)
+    .find((w) => w.length > 3) || String(name || "").toLowerCase();
+// Proposals for an incoming vendor message, added to what the brain read.
+function cmVendorMailProposals(c, P) {
+  const R = c.route || cmRoute(c),
+    v = R && R.vendorId && (DB.vendors || []).find((x) => x.id === R.vendorId),
+    // a supplier not on file yet (Brooklyn Lumber in the review) still gets its pickup read; the brain's
+    // unrouted proposal creates the vendor beside it
+    who = v ? v.name : (c.from && (c.from.name || String(c.from.email || "").split("@")[1])) || "";
+  if (!who || "out" === c.direction || (R && (R.clientId || R.employee))) return;
+  const all = [c.subject, c.text, ...(c.attachments || []).map((a) => a.text || "")].join("\n"),
+    low = all.toLowerCase(),
+    push = (kind, summary, o) => P.push(Object.assign({ id: uid("cp"), kind: kind, summary: summary, on: !0, vendorId: v ? v.id : "", vendorName: who }, o || {})),
+    vn = who.toLowerCase(),
+    open = (DB.pos || []).filter((po) => String(po.vendor || "").toLowerCase() === vn && ["issued", "partial"].includes(po.status)),
+    named = (all.match(/\bPO[-\s]?\d{4}[-\s]?\d{3,}\b/gi) || []).map((x) => x.replace(/\s+/g, "-").toUpperCase()),
+    po = open.find((x) => named.includes(String(x.number).toUpperCase())) || (1 === open.length ? open[0] : null);
+  // a delivery date for an open order
+  if (v && po && /\b(deliver|delivery|delivers|arrive|arrives|arriving|on the truck|ship|ships|shipping|lands)\b/i.test(low) && !/\bpick ?up\b|ready at the yard/i.test(low)) {
+    const seg = (all.match(/[^.\n]*\b(deliver\w*|arriv\w*|ship\w*|truck|lands)\b[^.\n]*/i) || [])[0] || all,
+      d = cmDateIn(seg);
+    d &&
+      d !== po.expected &&
+      push("eta", `${who}: ${po.number} ${/deliver/i.test(seg) ? "delivers" : "arrives"} ${fmtL(d)}${po.expected ? ` — the order says ${fmtL(po.expected)}` : " — the order has no date"}; set the expected date`, {
+        poId: po.id,
+        date: d,
+        was: po.expected || "",
+        projectId: po.projectId,
+      });
+  }
+  // a paid order ready for pickup
+  if (/ready (for|to) (pick ?up|collect)|ready at the yard|ready for collection/i.test(low)) {
+    const list = (all.match(/(?:ready[^:\n]*:|yard:)\s*([^.\n]+)/i) || [])[1] || "",
+      items = list
+        .split(/,|;| and /)
+        .map((x) => x.trim())
+        .filter(Boolean)
+        .map((x) => {
+          const q = x.match(/^(\d+(?:\.\d+)?)\s*(ea|pcs?|boxes?|bags?|sheets?|boards?|lf|sf)?\s*(.+)$/i);
+          return q ? { what: q[3].trim(), qty: +q[1], unit: (q[2] || "ea").toLowerCase() } : { what: x, qty: 1, unit: "ea" };
+        }),
+      by = cmDateIn((all.match(/(?:pick ?up|collect)[^.\n]*?\b(by|before)\b[^.\n]*/i) || [])[0] || "") || "",
+      amt = +((all.match(/\$\s?([\d,]+(?:\.\d{2})?)/) || [])[1] || "").replace(/,/g, "") || 0,
+      ref = (all.match(/order\s*#?\s*(\d{3,})/i) || [])[1] || "",
+      job =
+        (R.projectId && (DB.projects || []).find((x) => x.id === R.projectId)) ||
+        cmJobNamed(all) ||
+        (DB.projects || []).find((p) => items.some((it) => (p.materials || []).some((m) => cmVendorWord(it.what) && String(m.name).toLowerCase().includes(cmVendorWord(it.what))))) ||
+        null;
+    items.length &&
+      push("pickup", `${who}: ${items.map((i) => `${i.qty} ${i.unit} ${i.what}`).join(", ")} ready at the yard${amt ? `, paid ${money(amt)}` : ""}${by ? ` — pick up by ${fmtL(by)}` : ""}${job ? ` · a stop on the driver's route for ${String(job.project.name).replace(/ —.*$/, "")}` : " · no job named"}`, {
+        items: items,
+        by: by,
+        amount: amt,
+        orderRef: ref,
+        projectId: job ? job.id : "",
+      });
+  }
+  // a credit memo: the statement credit and the original purchase
+  if (v && /credit memo|credit (has been|was) issued|refund(ed)? (of|for)|credited to (the|your) card|credit of \$/i.test(low)) {
+    const amt = +((all.match(/\$\s?([\d,]+(?:\.\d{2})?)/) || [])[1] || "").replace(/,/g, "") || 0,
+      w = cmVendorWord(who),
+      txn = amt ? (DB.txns || []).find((t) => +t.amt > 0 && Math.abs(+t.amt - amt) < 0.01 && !t.retId && String(t.desc || "").toLowerCase().includes(w)) : null,
+      orig = (DB.txns || [])
+        .filter((t) => +t.amt < 0 && String(t.desc || "").toLowerCase().includes(w) && t.date <= (c.date || "").slice(0, 10) && t.date >= iso(addDays((c.date || today()).slice(0, 10), -120)))
+        .sort((a, b) => b.date.localeCompare(a.date))[0],
+      im = all.match(/returned\s+([^()\n]+?)\s*\((\d+)\s*(\w+)\)/i) || all.match(/(\d+)\s*(boxes?|ea|pcs?|cases?)\s+(?:of\s+)?([A-Z][\w./-]*(?:\s+[\w./-]+){0,4})/),
+      item = im ? (im.length === 4 && /^\d+$/.test(im[2]) ? { name: im[1].trim(), qty: +im[2], unit: im[3] } : { name: im[3].trim(), qty: +im[1], unit: im[2] }) : { name: (c.subject || "credit").replace(/^.*credit memo/i, "").trim() || "returned goods", qty: 1, unit: "ea" },
+      ref = (all.match(/order\s*#?\s*(\d{3,})/i) || [])[1] || "";
+    amt &&
+      push("credit", `${who} credited ${money(amt)} for ${item.name}${item.qty > 1 ? ` (${item.qty} ${item.unit})` : ""}${txn ? ` — matches the ${fmtL(txn.date)} statement credit` : " — no statement credit yet; watch for it"}${orig ? `, against the ${fmtL(orig.date)} purchase${orig.projectId ? " on " + String(((DB.projects || []).find((p) => p.id === orig.projectId) || { project: {} }).project.name || "").replace(/ —.*$/, "") : ""}` : ""}`, {
+        amount: amt,
+        txnId: txn ? txn.id : "",
+        originalTxnId: orig ? orig.id : "",
+        projectId: (orig && orig.projectId) || R.projectId || "",
+        item: item,
+        orderRef: ref,
+      });
+  }
+}
+{
+  const base = cmRead;
+  cmRead = function (c) {
+    const P = base.apply(this, arguments);
+    try {
+      Array.isArray(P) && cmVendorMailProposals(c, P);
+    } catch (e) {
+      console.warn("vendor mail proposals", e);
+    }
+    return P;
+  };
+}
+// The quote's PDF goes on the job, linked to the line it prices, before the message's attachments are filed.
+function cmLinkQuoteFile(c, p) {
+  const pr = p.projectId && (DB.projects || []).find((x) => x.id === p.projectId),
+    m = pr && p.materialId && (pr.materials || []).find((x) => x.id === p.materialId),
+    a = (c.attachments || []).find((x) => !x.filedTo && /pdf|quote|estimate/i.test(`${x.type || ""} ${x.name || ""}`));
+  if (!pr || !m || !a) return;
+  const fid = uid("f");
+  (pr.files = pr.files || []).push({
+    id: fid,
+    name: a.name,
+    type: a.type || "application/pdf",
+    size: a.size || 0,
+    cat: "doc",
+    date: (c.date || "").slice(0, 10) || today(),
+    by: (currentUser() || {}).name || role(),
+    link: { kind: "comm", id: c.id },
+    materialId: m.id,
+    notes: `Quote from ${(c.from && (c.from.name || c.from.email)) || "the vendor"} — prices ${m.name}`,
+    shareClient: !1,
+    ai: null,
+    persisted: !1,
+    pending: !0,
+  }),
+    (a.filedTo = `${pr.project.name} — documents (Buy Board line ${m.name})`),
+    (a.fileId = fid),
+    (m.quoteFileId = fid);
+}
+function cmApplyEta(c, p, by) {
+  const po = (DB.pos || []).find((x) => x.id === p.poId);
+  if (!po) return "the order is gone";
+  const was = po.expected || "";
+  po.expected = p.date;
+  const pr = (DB.projects || []).find((x) => x.id === po.projectId);
+  pr &&
+    (po.lines || []).forEach((l) => {
+      const m = l.materialId && (pr.materials || []).find((x) => x.id === l.materialId);
+      m && "on-site" !== m.status && (m.eta = p.date);
+    }),
+    (po.etaFrom = { commId: c.id, at: today(), by: by, was: was }),
+    log(`${po.number} expected ${fmtL(p.date)}${was ? ` (was ${fmtL(was)})` : ""} — ${po.vendor} wrote`);
+  return `${po.number} expected ${fmtL(p.date)}${was ? ` (was ${fmtL(was)})` : ""} — the foreman's Arriving Today follows`;
+}
+function cmApplyPickup(c, p, by) {
+  const pr = (DB.projects || []).find((x) => x.id === p.projectId);
+  if (!pr) return "no job named — say which job it is for";
+  const v = (DB.vendors || []).find((x) => x.id === p.vendorId),
+    vn = v ? v.name : p.vendorName || (c.from && c.from.name) || "the vendor",
+    keep = S;
+  S = pr;
+  let r = null;
+  try {
+    r = addRequest(
+      {
+        items: (p.items || []).map((i) => ({ what: i.what, qty: i.qty, unit: i.unit, pickupFrom: "v:" + vn })),
+        neededBy: p.by || addWork(today(), 1),
+        note: `Ready for pickup at ${vn}${p.orderRef ? ` (order ${p.orderRef})` : ""}${p.amount ? `, paid ${money(p.amount)}` : ""}`,
+        urgency: "normal",
+      },
+      vn,
+    );
+  } finally {
+    S = keep;
+  }
+  if (!r) return "nothing to pick up";
+  (r.status = "ack"),
+    (r.ackBy = by),
+    (r.ackAt = appNowIso()),
+    (r.pickupVendor = vn),
+    (r.orderRef = p.orderRef || ""),
+    (r.paid = p.amount || 0),
+    (r.fromComm = c.id),
+    (r.items || []).forEach((i) => (i.pickupFrom = "v:" + vn)),
+    r.log.push({ t: nowStamp(), by: by, text: `Pickup stop added for the driver — ${vn}` });
+  return `a pickup stop at ${vn} on the driver's route for ${String(pr.project.name).replace(/ —.*$/, "")}${p.by ? `, by ${fmtL(p.by)}` : ""}`;
+}
+function cmApplyCredit(c, p, by) {
+  const v = (DB.vendors || []).find((x) => x.id === p.vendorId),
+    vn = v ? v.name : (c.from && c.from.name) || "the vendor",
+    t = p.txnId && (DB.txns || []).find((x) => x.id === p.txnId),
+    orig = p.originalTxnId && (DB.txns || []).find((x) => x.id === p.originalTxnId),
+    pr = (DB.projects || []).find((x) => x.id === p.projectId),
+    item = p.item || { name: "returned goods", qty: 1, unit: "ea" },
+    qty = +item.qty || 1,
+    r = {
+      id: uid("rt"),
+      itemId: "",
+      projectId: pr ? pr.id : "",
+      vendor: vn,
+      manufacturer: "",
+      sku: "",
+      name: item.name,
+      reason: "returned",
+      qty: qty,
+      unitCost: r2((+p.amount || 0) / qty),
+      raisedAt: today(),
+      by: by,
+      receivedOn: orig ? orig.date : today(),
+      window: (v && +v.returnWindow) || 30,
+      returnBy: today(),
+      restockPct: 0,
+      freightBack: 0,
+      expect: "refund",
+      status: "shipped",
+      rma: p.orderRef || "",
+      rmaAt: "",
+      shippedAt: (c.date || "").slice(0, 10) || today(),
+      carrier: "",
+      tracking: "",
+      receivedAt: "",
+      location: "",
+      recovered: 0,
+      recoveredAt: "",
+      txnRef: "",
+      replacementItemId: "",
+      claimId: "",
+      owner: by,
+      note: `From ${vn}'s credit memo${p.orderRef ? ` on order ${p.orderRef}` : ""}`,
+      writeOff: null,
+      fromCredit: { commId: c.id, originalTxnId: orig ? orig.id : "" },
+      history: [{ at: today(), status: "shipped", by: by, note: "Read from the vendor's credit memo" }],
+    };
+  retList().unshift(r);
+  try {
+    audit("sel-return", r.id, "raised", null, { item: r.name, vendor: r.vendor, value: +p.amount || 0, from: "credit memo" });
+  } catch (e) {}
+  if (orig && !r.projectId) r.projectId = orig.projectId || "";
+  if (t) {
+    rmConfirm(r, t);
+    orig && ((t.creditOf = orig.id), orig.projectId && !t.projectId && (t.projectId = orig.projectId), orig.code && !t.code && (t.code = orig.code), orig.line && !t.line && (t.line = orig.line));
+  } else {
+    retSet(r, "shipped", { note: "Waiting for the credit on the statement" });
+  }
+  // the original purchase was billed on to the client: a client credit to approve in the Billing Queue
+  const cl = pr && (DB.clients || []).find((x) => x.id === pr.clientId),
+    billed = cl && (cl.invoices || []).some((i) => i.projectId === pr.id && "void" !== i.status);
+  billed &&
+    ((DB.clientCredits = DB.clientCredits || []),
+    DB.clientCredits.push({ id: uid("cc"), projectId: pr.id, clientId: cl.id, amount: +p.amount || 0, retId: r.id, txnId: t ? t.id : "", why: `${vn} credited ${money(+p.amount || 0)} for ${item.name}; the purchase was billed to the client`, status: "proposed", at: today(), by: by }));
+  return `return for ${item.name} matched to ${t ? `the ${fmtL(t.date)} statement credit` : "nothing yet — it waits for the credit"}${orig ? `, against the ${fmtL(orig.date)} purchase` : ""}${billed ? " · a client credit is proposed in the Billing Queue" : ""}`;
+}
+{
+  const base = cmApply;
+  cmApply = function (c, p) {
+    const by = (currentUser() || {}).name || role();
+    if (p && ["eta", "pickup", "credit"].includes(p.kind)) {
+      const did = "eta" === p.kind ? cmApplyEta(c, p, by) : "pickup" === p.kind ? cmApplyPickup(c, p, by) : cmApplyCredit(c, p, by);
+      (p.applied = did), (p.appliedAt = appNowIso()), (p.by = by);
+      try {
+        audit("comm", c.id, "apply-" + p.kind, "", did, "");
+      } catch (e) {}
+      return save(), did;
+    }
+    p && "quote" === p.kind && !p.out && p.materialId && cmLinkQuoteFile(c, p);
+    const did = base.apply(this, arguments);
+    if (p && "receipt" === p.kind && p.txnId) {
+      // the receipt names the job ("Job name entered at register: 121 State"): the card line is coded to it
+      const t = (DB.txns || []).find((x) => x.id === p.txnId),
+        job = (p.projectId && (DB.projects || []).find((x) => x.id === p.projectId)) || cmJobNamed([c.subject, c.text, ...(c.attachments || []).map((a) => a.text || "")].join("\n"));
+      if (t) {
+        job && !t.projectId && (t.projectId = job.id),
+          (!t.cat || "uncat" === t.cat) && ((t.cat = "materials"), (t.status = "categorized"), (t.actor = by)),
+          job && (p.applied = `${did} — coded to ${String(job.project.name).replace(/ —.*$/, "")}, ${t.cat}`),
+          save();
+        return p.applied;
+      }
+    }
+    return did;
+  };
+}
+// The Billing Queue carries a client credit the reader proposed from a vendor's credit memo; people approve it.
+if ("function" == typeof billingSuggestions) {
+  const base = billingSuggestions;
+  billingSuggestions = function () {
+    const out = base.apply(this, arguments) || [];
+    try {
+      (DB.clientCredits || [])
+        .filter((cc) => "proposed" === cc.status)
+        .forEach((cc) => {
+          const p = (DB.projects || []).find((x) => x.id === cc.projectId),
+            c = (DB.clients || []).find((x) => x.id === cc.clientId);
+          p &&
+            out.push({
+              kind: "clientCredit",
+              c: null,
+              d: { id: cc.id, type: "credit", number: "Credit" },
+              p: p,
+              client: c,
+              amount: -Math.abs(cc.amount || 0),
+              title: `${String(p.project.name).replace(/ —.*$/, "")}: credit the client ${money(cc.amount)} — ${cc.why}`,
+              act: "credit",
+            });
+        });
+    } catch (e) {
+      console.warn("client credits", e);
+    }
+    return out;
   };
 }
