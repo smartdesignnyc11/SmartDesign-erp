@@ -45682,6 +45682,7 @@ function fSubStatus(id, st) {
         type: "noshow",
         title: `${s.vendor} (${s.lead}) did not show ${fmt(s.date)} — ${task(s.taskId)?.name || s.trade}`,
         taskId: s.taskId,
+        subId: s.id,
         note: s.phone ? `Lead: ${s.lead} ${s.phone}` : "",
       }),
     render();
@@ -46239,11 +46240,12 @@ function fAnswerRaise(r, dec) {
             }[dec];
           mbModal(
             dec ? lbl : "Answer",
-            `<p class="small muted" style="margin:0 0 8px"><b>${esc(r.title)}</b>${r.note ? ` — ${esc(r.note)}` : ""}</p><div class="f"><label>${dec ? "Tell the foreman what to do" : "Answer"}</label><textarea data-f="a" rows="3" placeholder="${"extra" === dec ? "e.g. Photograph before and after; I will write the CO today." : "hold" === dec ? "e.g. Do not close that wall. I am coming at 2." : "Short and definite — this goes to the field"}"></textarea></div>${"rfi" === r.type ? '<div class="f"><label>Revised sheet / detail (optional)</label><input data-f="sheet" placeholder="e.g. A-301 rev 3 issued"></div>' : ""}`,
+            `<p class="small muted" style="margin:0 0 8px"><b>${esc(r.title)}</b>${r.note ? ` — ${esc(r.note)}` : ""}</p><div class="f"><label>${dec ? "Tell the foreman what to do" : "Answer"}</label><textarea data-f="a" rows="3" placeholder="${"extra" === dec ? "e.g. Photograph before and after; I will write the CO today." : "hold" === dec ? "e.g. Do not close that wall. I am coming at 2." : "noshow" === r.type ? "e.g. Rebooked for Friday; the framing crew covers today." : "Short and definite — this goes to the field"}"></textarea></div>${"rfi" === r.type ? '<div class="f"><label>Revised sheet / detail (optional)</label><input data-f="sheet" placeholder="e.g. A-301 rev 3 issued"></div>' : ""}${"noshow" === r.type ? fNoShowHtml(r) : ""}`,
             {
               submit: "Send to the field",
               onSubmit: (f) => {
                 if (!f.a && !dec) return toast("Write the answer"), !1;
+                const acted = "noshow" === r.type ? fNoShowAct(r, f) : null;
                 (r.status = "answered"),
                   (r.answer = f.a),
                   (r.decision = dec || ""),
@@ -46275,10 +46277,144 @@ function fAnswerRaise(r, dec) {
                   setCurrent(cur),
                   save(),
                   render(),
-                  toast(`Answer sent to ${r.by} — ${r.title}`, flowGo.raise(r));
+                  toast(
+                    `Answer sent to ${r.by} — ${clipWords(r.title, 60)}${acted && acted.said.length ? ` · ${acted.said.join(", ")}` : ""}`,
+                    flowGo.raise(r),
+                  );
               },
             },
           );
+}
+// ---- a no-show acts (review r5_pm, finding 4). The sub day the foreman tapped, then what the PM's answer does:
+// slip the task (reason no-show, into the schedule history as a cause), rebook the sub and confirm by text the
+// day before (a dated reminder for the foreman and a text draft to approve), chase the sub (a call on the PM's
+// list today and a note to approve). Nothing is sent on its own; the drafts wait in Approvals.
+function fNoShowSub(r) {
+  const subs = ((DB.field || {}).subs || []).filter((s) => s.projectId === r.projectId);
+  return (
+    (r.subId && subs.find((s) => s.id === r.subId)) ||
+    subs
+      .filter((s) => "noshow" === s.status && (!r.taskId || s.taskId === r.taskId))
+      .sort((a, b) => String(b.at || b.date).localeCompare(String(a.at || a.date)))[0] ||
+    null
+  );
+}
+function fNoShowHtml(r) {
+  const s = fNoShowSub(r),
+    vendor = s ? s.vendor : "the sub",
+    lead = (s && s.lead) || vendor,
+    tk = r.taskId ? task(r.taskId) : null,
+    fore = (r.by || "the foreman").split(" ")[0];
+  return `<div class="f-noshow"><div class="small muted" style="margin:10px 0 6px"><b>Act on It</b> — each one is written to the record with the no-show as its reason.</div>
+    <div class="grid2"><div class="f"><label>Slip ${tk ? esc(tk.name) : "the Task"} (Working Days)</label><input type="number" data-f="slip" min="0" step="1" value="0"><span class="hint">0 keeps the dates; a slip goes into the schedule history as a no-show</span></div>
+    <div class="f"><label>Rebook ${esc(vendor)} For</label><input type="date" data-f="rebook" value="${esc(nextWork(addWork(today(), 1)))}"><span class="hint">blank leaves the sub calendar alone</span></div></div>
+    <label class="chk"><input type="checkbox" data-f="confirmText" checked> <span class="chk-t">Confirm by Text the Day Before — a reminder for ${esc(fore)} and a text to ${esc(lead)} for you to approve</span></label>
+    <label class="chk"><input type="checkbox" data-f="chase" checked> <span class="chk-t">Chase the Sub — a call on your list today and a note to ${esc(vendor)} for you to approve</span></label></div>`;
+}
+function fNoShowAct(r, f) {
+  const p = S,
+    s = fNoShowSub(r),
+    td = today(),
+    me = (currentUser() || {}).name || DB.me || "",
+    vendor = s ? s.vendor : String(r.title || "").split(" (")[0].trim() || "the sub",
+    lead = (s && s.lead) || "",
+    phone = (s && s.phone) || "",
+    t = r.taskId ? task(r.taskId) : null,
+    on = s ? s.date : td,
+    out = { said: [] },
+    src = { kind: "raise", id: r.id, label: r.title },
+    n = Math.max(0, Math.round(+f.slip || 0));
+  if (n && t && "done" !== t.status) {
+    const was = { start: t.start, end: t.end };
+    (t.end = addWork(t.end, n, t.weekendOk)),
+      (t._moveReason = `${opsReasonLabel("noshow")} — ${vendor} did not show ${fmt(on)}`),
+      (t._moveReasonKey = "noshow"),
+      pushDependents(t.id, []),
+      recordMove(t, was, "edit"),
+      out.said.push(`${t.name} slipped ${n} working day${1 === n ? "" : "s"} (no-show)`);
+  }
+  const when = f.rebook || "";
+  if (when && s) {
+    // a day already on the sub calendar for them is the rebooking; otherwise add one
+    const have = DB.field.subs.find((x) => x.projectId === p.id && x.vendor === vendor && x.date === when && "noshow" !== x.status);
+    have
+      ? ((have.note = `rebooked after the no-show on ${fmt(on)}${have.note ? ` · ${have.note}` : ""}`), "onsite" === have.status || (have.status = "unconfirmed"))
+      : DB.field.subs.push({
+          id: uid("fs"),
+          projectId: p.id,
+          vendor: vendor,
+          lead: lead,
+          phone: phone,
+          trade: s.trade || "",
+          taskId: s.taskId || r.taskId || "",
+          workers: s.workers,
+          date: when,
+          status: "unconfirmed",
+          note: `rebooked after the no-show on ${fmt(on)}`,
+        });
+    out.said.push(`${vendor} rebooked ${fmtL(when)}`);
+  }
+  const date = when || on,
+    job = shortName(p);
+  (p.actions = p.actions || []), (DB.outbox = DB.outbox || []);
+  if (f.confirmText && date) {
+    const dayBefore = addWork(date, -1);
+    p.actions.push({
+      id: uid("a"),
+      title: `Text ${lead || vendor} to confirm ${vendor} for ${fmtL(date)} at ${job}`,
+      assignee: r.by || me,
+      due: dayBefore,
+      priority: "high",
+      status: "todo",
+      area: "construction",
+      source: src,
+      createdAt: td,
+      notes: "A sub that is not confirmed the day before does not show. Send the text, keep the reply.",
+    }),
+      DB.outbox.push({
+        id: uid("ox"),
+        kind: "followup",
+        via: "sms",
+        to: { name: lead || vendor, email: "", phone: phone },
+        subject: `Confirming ${fmtL(date)} at ${job}`,
+        body: `${lead || vendor} — confirming you are at ${p.project.name} on ${fmtL(date)} for ${t ? t.name : (s && s.trade) || "your work"}. Reply YES to confirm. — ${me}`,
+        about: { projectId: p.id, raiseId: r.id, label: `confirm ${vendor} for ${fmtL(date)}` },
+        aboutKey: `noshow-confirm|${r.id}`,
+        forName: me,
+        sendOn: dayBefore,
+        status: "draft",
+        at: td,
+        by: "The assistant",
+      }),
+      out.said.push(`a reminder to text ${lead || vendor} on ${fmtL(dayBefore)}`);
+  }
+  f.chase &&
+    (p.actions.push({
+      id: uid("a"),
+      title: `Call ${vendor}${lead ? ` (${lead})` : ""} about the no-show on ${fmt(on)}`,
+      assignee: me,
+      due: td,
+      priority: "high",
+      status: "todo",
+      area: "construction",
+      source: src,
+      createdAt: td,
+    }),
+    DB.outbox.push({
+      id: uid("ox"),
+      kind: "followup",
+      to: { name: lead || vendor, email: (s && s.email) || "", phone: phone },
+      subject: `${vendor} — no-show on ${fmtL(on)} at ${p.project.name}`,
+      body: `Hi ${(lead || vendor).split(" ")[0]},\n\nYour crew did not come to ${p.project.name} on ${fmtL(on)} and nobody told us. The day was planned around you.${when ? ` We have you back on ${fmtL(when)}; please confirm by text the day before.` : " Please call me with a new date today."}\n\n${me}`,
+      about: { projectId: p.id, raiseId: r.id, label: `chase ${vendor} on the no-show` },
+      aboutKey: `noshow-chase|${r.id}`,
+      forName: me,
+      status: "draft",
+      at: td,
+      by: "The assistant",
+    }),
+    out.said.push(`a call to ${vendor} on your list`));
+  return out;
 }
 function fWireOffice(root) {
   root &&
@@ -92843,6 +92979,29 @@ function bnSuggestLessons() {
         },
         why: w["decision latency"].quotes.map((q) => q.t).join(" · "),
       }),
+    (() => {
+      // a sub that did not show (the foreman's tap, or a no-show raised from the site) is a lesson to propose:
+      // confirm every sub the day before. Proposed with its trigger; the owner teaches it or not.
+      const ns = ((DB.field || {}).subs || []).filter((s) => "noshow" === s.status),
+        rs = ((DB.field || {}).raises || []).filter((r) => "noshow" === r.type);
+      (ns.length || rs.length) &&
+        !have("Every sub is confirmed by text the day before their date") &&
+        out.push({
+          title: "Every sub is confirmed by text the day before their date",
+          trigger: "vendor",
+          match: ".",
+          when: "now",
+          then: {
+            kind: "task",
+            title: "Text each sub the day before their date and keep the reply",
+            owner: "foreman",
+          },
+          why: ns
+            .map((s) => `${s.vendor}${s.lead ? ` (${s.lead})` : ""} did not show ${fmtL(s.date)}`)
+            .concat(rs.filter((r) => !ns.some((s) => r.subId === s.id)).map((r) => r.title))
+            .join(" · "),
+        });
+    })(),
     w["hidden condition"] &&
       !have("Existing conditions are opened up and photographed before the estimate is final") &&
       out.push({
@@ -120377,6 +120536,31 @@ function opsChip(link, p) {
     ? `<a href="#" class="ops-chip" data-opsgo="${esc(link.kind)}:${esc(link.id)}"><span class="k">${esc(OPS_KINDS[link.kind] || link.kind)}</span>${esc(lab)}</a>`
     : "";
 }
+// The photos taken on a field item (a hidden condition, a drawing question), by the item they were taken on.
+function coPhotosOf(link) {
+  return link && link.id
+    ? (DB.photos || []).filter((x) => x.ref && (x.ref.kind === link.kind || ("iss" === link.kind && "issue" === x.ref.kind)) && x.ref.id === link.id)
+    : [];
+}
+// Exhibits: photos attached to a change order, shared with the client under their own caption.
+function coAttachExhibits(co, photos) {
+  co.exhibits = co.exhibits || [];
+  (photos || []).forEach((x) => {
+    co.exhibits.some((e) => e.photoId === x.id) || co.exhibits.push({ photoId: x.id, caption: x.caption || "" });
+    x.share || ((x.share = !0), (x.sharedAt = x.sharedAt || today()));
+    x.clientCaption || (x.clientCaption = x.caption || "");
+  });
+  return co.exhibits;
+}
+function coExhibits(co) {
+  return ((co && co.exhibits) || []).map((e) => ("function" == typeof pstRec ? pstRec(e.photoId) : null) || null).filter(Boolean);
+}
+function coExhibitsHtml(co, opts) {
+  const E = coExhibits(co);
+  if (!E.length) return "";
+  const o = opts || {};
+  return `<div class="co-exhibits ${o.cls || ""}"><div class="small muted"><b>Exhibits</b> · ${E.length} photo${1 === E.length ? "" : "s"} from the site${o.client ? "" : ", shared with the client"}</div><div class="pst-grid xs">${E.map((x) => ("function" == typeof pstTile ? pstTile(x) : "")).join("")}</div></div>`;
+}
 function opsRaiseCO(link) {
   const p = S,
     c = clientOf(p);
@@ -120418,7 +120602,7 @@ function opsRaiseCO(link) {
   } else
     (title = src.title),
       (days = 0),
-      (memo = `From the field: ${src.title}${src.note || src.notes ? `\n${src.note || src.notes}` : ""}${src.answer ? `\nPM: ${src.answer}` : ""}${tk ? `\nAffects: ${tk.name}` : ""}`),
+      (memo = `From the field: ${src.title}${src.note || src.notes ? `\n${src.note || src.notes}` : ""}${tk ? `\nAffects: ${tk.name}` : ""}`),
       (lines = [
         {
           id: uid("l"),
@@ -120440,6 +120624,10 @@ function opsRaiseCO(link) {
       projectId: p.id,
     },
   });
+  // The PM's answer to the foreman is the team's, not the client's: it goes to Internal Notes (never printed).
+  // The item's photos go with the change order as exhibits the client can see (BACKLOG §1.4 #2).
+  "dec" !== link.kind &&
+    (src.answer && (co.internal = `To the foreman: ${String(src.answer).trim()}`), coAttachExhibits(co, coPhotosOf(link)));
   (src.coId = co.id),
     (src.timeline = src.timeline || []).push({
       on: today(),
@@ -144083,12 +144271,12 @@ function clWireStrip(root) {
             "dec" !== link.kind &&
             ((co.title = clRewrite(src.title || co.title)),
             (co.memo = `Found on site: ${clRewrite(src.title || "")}.${
-              src.answer
-                ? ` ${String(src.answer)
+              src.note || src.notes
+                ? ` ${String(src.note || src.notes)
                     .trim()
                     .replace(/^./, (ch) =>
                       ch.toUpperCase(),
-                    )}${/[.!?]$/.test(String(src.answer).trim()) ? "" : "."}`
+                    )}${/[.!?]$/.test(String(src.note || src.notes).trim()) ? "" : "."}`
                 : ""
             }`));
         clTaskSweep();
@@ -160696,6 +160884,82 @@ function tpForecastWhy(p) {
 // The live cause of a late finish: the task history's own moves since the baseline (never the pushes that
 // follow them), grouped by cause, the biggest first. Words are the PM's: the move's reason as typed, or the
 // reason's label (a change order names its number).
+// Exhibits travel with the change order: the editor shows them under the lines, the client's approval dialog
+// shows them, the email says they are attached, and the PDF lists them by caption.
+{
+  const base = renderDocEditor;
+  renderDocEditor = function (c, d) {
+    let h = base.apply(this, arguments);
+    try {
+      if ("string" == typeof h && d && "co" === d.type && (d.exhibits || []).length && !h.includes("co-exhibits")) {
+        const k = h.lastIndexOf('<div class="docacts">'),
+          strip = coExhibitsHtml(d);
+        strip && (h = k > -1 ? h.slice(0, k) + strip + h.slice(k) : h + strip),
+          setTimeout(() => {
+            try {
+              pstFill(document.getElementById(`doc-${d.id}`));
+            } catch (e) {}
+          }, 0);
+      }
+    } catch (e) {
+      console.warn("exhibits", e);
+    }
+    return h;
+  };
+}
+{
+  const base = docSummaryHtml;
+  docSummaryHtml = function (c, d) {
+    let h = base.apply(this, arguments);
+    try {
+      d && "co" === d.type && (d.exhibits || []).length && (h += coExhibitsHtml(d, { client: "client" === role() }), setTimeout(() => pstFill(document.getElementById("mbm")), 0));
+    } catch (e) {}
+    return h;
+  };
+}
+{
+  const base = crDocEmail;
+  crDocEmail = function (c, d) {
+    const E = base.apply(this, arguments);
+    try {
+      const n = d && "co" === d.type ? coExhibits(d).length : 0;
+      n && (E.body = E.body.replace(/\n\nThank you,/, `\n\n${n} photo${1 === n ? "" : "s"} from the site ${1 === n ? "is" : "are"} attached as exhibits; you can also see them in your portal.\n\nThank you,`));
+    } catch (e) {}
+    return E;
+  };
+}
+// The PDF's HTML, read back without a print window (the test and the mail attachment use it).
+function docPrintHtml(c, d) {
+  const w0 = window.open;
+  let html = "";
+  window.open = () => ({ document: { write: (h) => (html = h), close() {} }, focus() {}, print() {} });
+  try {
+    printDoc(c, d);
+  } finally {
+    window.open = w0;
+  }
+  return html;
+}
+{
+  const base = printDoc;
+  printDoc = function (c, d) {
+    const E = d && "co" === d.type ? coExhibits(d) : [];
+    if (!E.length) return base.apply(this, arguments);
+    const w0 = window.open;
+    let html = "";
+    window.open = () => ({ document: { write: (h) => (html = h), close() {} }, focus() {}, print() {} });
+    try {
+      base.apply(this, arguments);
+    } finally {
+      window.open = w0;
+    }
+    const block = `<div class="memo"><b>Exhibits</b>\n${E.map((x, i) => `${i + 1}. ${esc(x.clientCaption || x.caption || "Photo")} — ${fmtL(x.date)}`).join("\n")}\nThe photos are in the client portal under Photos.</div>`,
+      k = html.indexOf("<script>window.onload");
+    html = k > -1 ? html.slice(0, k) + block + html.slice(k) : html + block;
+    const w = w0 ? w0.call(window, "", "_blank") : null;
+    return w && w.document ? (w.document.write(html), void w.document.close()) : void 0;
+  };
+}
 function czLiveCause(p) {
   const since = (p.baseline && p.baseline.takenOn) || "",
     by = {};
