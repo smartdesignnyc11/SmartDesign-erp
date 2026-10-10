@@ -1,0 +1,211 @@
+{
+ "_note": "Second held-out set (round 5, assistant lane): 15 paraphrases written once, before the fixes, and never tuned on. Ground truth is computed in the page from DB.",
+ "seed": 20261010,
+ "questions": [
+  {
+   "id": "H201",
+   "role": "u_controller",
+   "q": "any double charges on the amex card",
+   "truth": "(() => { const T = DB.txns.filter(t => /amex/i.test((DB.accounts.find(a => a.id === t.acct) || {}).name || '')); for (let i = 0; i < T.length; i++) for (let j = i + 1; j < T.length; j++) if (T[i].amt === T[j].amt && String(T[i].desc).slice(0, 10) === String(T[j].desc).slice(0, 10) && Math.abs(dayDiff(T[i].date, T[j].date)) <= 3) return -T[i].amt; return 0; })()",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "held out: a paraphrase of a round-5 class, written once",
+   "tags": [
+    "typo-overreach",
+    "finance-noun"
+   ],
+   "noread": [
+    "amex"
+   ]
+  },
+  {
+   "id": "H202",
+   "role": "u_owner",
+   "q": "has Marcus Bell written back",
+   "truth": "(DB.comms.filter(c => c.owner === H.me().id).some(c => c.direction === 'in' && /marcus|bell/i.test((c.from || {}).name)) ? ['replied', 'wrote back'] : ['no reply', 'not replied', 'not written back', 'nothing back', 'has not answered'])",
+   "check": "any",
+   "refuse_ok": false,
+   "notes": "held out: a paraphrase of a round-5 class, written once",
+   "tags": [
+    "mail"
+   ],
+   "setup": "(async () => { signIn('u_owner'); await gcDemoConnect(); })()",
+   "noread": [
+    "bell"
+   ]
+  },
+  {
+   "id": "H203",
+   "role": "u_alan",
+   "q": "nudge Sarah Klein about the tile",
+   "truth": "['Draft to Sarah Klein']",
+   "check": "contains",
+   "refuse_ok": false,
+   "notes": "held out: a paraphrase of a round-5 class, written once",
+   "tags": [
+    "chase",
+    "people"
+   ]
+  },
+  {
+   "id": "H204",
+   "role": "u_chen",
+   "q": "by when must the insulation for 121 State be ordered",
+   "truth": "(() => { const p = H.P('121 State'), s0 = S; S = p; try { return matDates(p.materials.find(m => /insulation/i.test(m.name))).orderBy; } finally { S = s0; } })()",
+   "check": "date",
+   "refuse_ok": false,
+   "notes": "held out: a paraphrase of a round-5 class, written once",
+   "tags": [
+    "coord-noun"
+   ]
+  },
+  {
+   "id": "H205",
+   "role": "u_controller",
+   "q": "show me receivables aging",
+   "truth": "H.sum(arRows(), r => r.bal)",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "held out: a paraphrase of a round-5 class, written once",
+   "tags": [
+    "finance-noun",
+    "typo-overreach"
+   ],
+   "noread": [
+    "aging"
+   ]
+  },
+  {
+   "id": "H206",
+   "role": "u_alan",
+   "q": "remind me thursday afternoon to walk the garden bath with Angel",
+   "truth": "(() => { let d = parse(today()); do { d = addDays(d, 1); } while (d.getDay() !== 4); return iso(d); })()",
+   "check": "date",
+   "refuse_ok": false,
+   "notes": "held out: a paraphrase of a round-5 class, written once",
+   "tags": [
+    "dates"
+   ],
+   "isolate": true
+  },
+  {
+   "id": "H207",
+   "role": "u_alan",
+   "q": "which trades are on site next week at 121 State",
+   "truth": "(R => [...new Set(((DB.field || {}).subs || []).filter(s => s.projectId === H.P('121 State').id && s.date >= R[0] && s.date <= R[1]).map(s => s.vendor))])([iso(addDays(parse(appWeek().mon), 7)), iso(addDays(parse(appWeek().mon), 13))])",
+   "check": "names",
+   "refuse_ok": false,
+   "notes": "held out: a paraphrase of a round-5 class, written once",
+   "tags": [
+    "pm-noun"
+   ]
+  },
+  {
+   "id": "H208",
+   "role": "u_owner",
+   "q": "what bills came in by email",
+   "truth": "[...new Set(DB.comms.filter(c => c.owner === H.me().id).filter(c => (c.proposals || []).some(p => p.kind === 'bill')).map(c => c.from.name))]",
+   "check": "names",
+   "refuse_ok": false,
+   "notes": "held out: a paraphrase of a round-5 class, written once",
+   "tags": [
+    "mail"
+   ],
+   "setup": "(async () => { signIn('u_owner'); await gcDemoConnect(); })()"
+  },
+  {
+   "id": "H209",
+   "role": "u_alan",
+   "q": "what was decided at the 121 State site walk",
+   "truth": "(DB.meetings || []).filter(m => /site walk/i.test(m.title) && /121 state/i.test(m.title)).map(m => m.title).slice(-1)",
+   "check": "contains",
+   "refuse_ok": false,
+   "notes": "held out: a paraphrase of a round-5 class, written once",
+   "tags": [
+    "meetings"
+   ],
+   "setup": "(async () => { signIn('u_alan'); await gcDemoConnect(); })()"
+  },
+  {
+   "id": "H210",
+   "role": "u_chen",
+   "q": "write to Window Works about the late window",
+   "truth": "['Draft to Window Works']",
+   "check": "contains",
+   "refuse_ok": false,
+   "notes": "held out: a paraphrase of a round-5 class, written once",
+   "tags": [
+    "draft",
+    "typo-overreach"
+   ],
+   "noread": [
+    "write"
+   ]
+  },
+  {
+   "id": "H211",
+   "role": "u_controller",
+   "q": "how much in wages do we accrue for August",
+   "truth": "fin2WagePlan('2026-08').total",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "held out: a paraphrase of a round-5 class, written once",
+   "tags": [
+    "finance-noun"
+   ]
+  },
+  {
+   "id": "H212",
+   "role": "u_billing",
+   "q": "chase the Kleins for INV-2026-038",
+   "truth": "['Draft to', 'INV-2026-038']",
+   "check": "contains",
+   "refuse_ok": false,
+   "notes": "held out: a paraphrase of a round-5 class, written once",
+   "tags": [
+    "chase",
+    "draft"
+   ]
+  },
+  {
+   "id": "H213",
+   "role": "u_chen",
+   "q": "is Tino's insurance certificate in",
+   "truth": "(v => v && v.insuranceExp && v.insuranceExp >= today() ? ['on file', 'current'] : ['no certificate', 'not on file', 'no COI', 'expired'])(DB.vendors.find(v => v.name === 'Tino'))",
+   "check": "any",
+   "refuse_ok": false,
+   "notes": "held out: a paraphrase of a round-5 class, written once",
+   "tags": [
+    "coord-noun"
+   ]
+  },
+  {
+   "id": "H214",
+   "role": "u_alan",
+   "q": "what did Sarah Klein write about the laundry layout",
+   "truth": "DB.comms.filter(c => c.owner === H.me().id).filter(c => /sarah klein/i.test((c.from || {}).name) && /laundry/i.test(c.subject + ' ' + c.text)).map(c => c.subject).slice(0, 1)",
+   "check": "contains",
+   "refuse_ok": false,
+   "notes": "held out: a paraphrase of a round-5 class, written once",
+   "tags": [
+    "mail",
+    "people"
+   ],
+   "setup": "(async () => { signIn('u_alan'); await gcDemoConnect(); })()",
+   "absent": "['Sarah Davis']"
+  },
+  {
+   "id": "H215",
+   "role": "u_controller",
+   "q": "can the books be verified",
+   "truth": "['verif']",
+   "check": "contains",
+   "refuse_ok": false,
+   "notes": "held out: a paraphrase of a round-5 class, written once",
+   "tags": [
+    "timebox"
+   ],
+   "maxMs": 3000
+  }
+ ]
+}

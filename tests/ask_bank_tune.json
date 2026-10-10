@@ -1883,6 +1883,861 @@
     "pronoun"
    ],
    "absent": "DB.clients.filter(c => c.id !== H.me().clientId).map(c => c.name)"
+  },
+  {
+   "id": "R501",
+   "role": "u_owner",
+   "q": "any vendor bills in my mail",
+   "truth": "[...new Set(DB.comms.filter(c => c.owner === H.me().id).filter(c => (c.proposals || []).some(p => p.kind === 'bill')).map(c => c.from.name))]",
+   "check": "names",
+   "refuse_ok": false,
+   "notes": "r5 owner §3: answered \"8 messages are waiting\"",
+   "tags": [
+    "mail"
+   ],
+   "setup": "(async () => { signIn('u_owner'); await gcDemoConnect(); })()"
+  },
+  {
+   "id": "R502",
+   "role": "u_owner",
+   "q": "what did Jeanette send me that I haven't answered",
+   "truth": "DB.comms.filter(c => c.owner === H.me().id).filter(c => /jeanette/i.test((c.from || {}).name) && !c.repliedAt).map(c => c.subject)",
+   "check": "contains",
+   "refuse_ok": false,
+   "notes": "r5 owner §3: answered \"Jeanette logged 0 hours today\"",
+   "tags": [
+    "mail",
+    "people"
+   ],
+   "setup": "(async () => { signIn('u_owner'); await gcDemoConnect(); })()"
+  },
+  {
+   "id": "R503",
+   "role": "u_owner",
+   "q": "who said they paid",
+   "truth": "[...new Set(DB.comms.filter(c => c.owner === H.me().id).filter(c => (c.proposals || []).some(p => p.kind === 'deposit')).map(c => c.from.name))]",
+   "check": "names",
+   "refuse_ok": false,
+   "notes": "r5 owner §3: answered with the Jessop profile",
+   "tags": [
+    "mail"
+   ],
+   "setup": "(async () => { signIn('u_owner'); await gcDemoConnect(); })()"
+  },
+  {
+   "id": "R504",
+   "role": "u_owner",
+   "q": "what happened at the meeting on Sep 1",
+   "truth": "(DB.meetings || []).filter(m => m.date === '2026-09-01').map(m => m.title)",
+   "check": "contains",
+   "refuse_ok": false,
+   "notes": "r5 owner §3: \"what happened at the team meeting\" answered \"9 people\"",
+   "tags": [
+    "mail",
+    "meetings"
+   ],
+   "setup": "(async () => { signIn('u_owner'); await gcDemoConnect(); })()"
+  },
+  {
+   "id": "R505",
+   "role": "u_owner",
+   "q": "what's the status of the 206 Lenox refi",
+   "truth": "DB.comms.filter(c => c.owner === H.me().id).filter(c => /\\brefi|refinanc/i.test(c.subject + ' ' + c.text)).map(c => c.subject)",
+   "check": "names",
+   "refuse_ok": false,
+   "notes": "r5 owner §3: answered a job profile of zeros; nothing in the mail is about a refi, so the answer is none",
+   "tags": [
+    "mail"
+   ],
+   "setup": "(async () => { signIn('u_owner'); await gcDemoConnect(); })()"
+  },
+  {
+   "id": "R506",
+   "role": "u_owner",
+   "q": "did Marcus Bell reply",
+   "truth": "(DB.comms.filter(c => c.owner === H.me().id).some(c => c.direction === 'in' && /marcus|bell/i.test((c.from || {}).name)) ? ['replied', 'wrote back'] : ['no reply', 'not replied', 'not written back', 'nothing back', 'has not answered'])",
+   "check": "any",
+   "refuse_ok": false,
+   "notes": "r5 owner §2: \"4 bills — $85,550\", \"Bell\" read as \"bill\"",
+   "tags": [
+    "mail",
+    "typo-overreach"
+   ],
+   "setup": "(async () => { signIn('u_owner'); await gcDemoConnect(); })()",
+   "noread": [
+    "bell"
+   ]
+  },
+  {
+   "id": "R507",
+   "role": "u_owner",
+   "q": "which leads went quiet",
+   "truth": "DB.leads.filter(l => !['won', 'lost'].includes(l.stage) && (l.touches || []).length && (() => { const t = l.touches.slice().sort((a, b) => a.at.localeCompare(b.at)).pop(); return t.direction === 'out' && dayDiff(t.at, today()) >= 7; })()).map(l => l.name)",
+   "check": "names",
+   "refuse_ok": false,
+   "notes": "r5 owner §2: \"9 leads\", \"went\" read as \"want\", \"quiet\" as \"quote\"",
+   "tags": [
+    "typo-overreach",
+    "mail"
+   ],
+   "noread": [
+    "went",
+    "quiet"
+   ]
+  },
+  {
+   "id": "R508",
+   "role": "u_alan",
+   "q": "did the PE send the flitch beam calcs? what did she say",
+   "truth": "DB.comms.filter(c => c.owner === H.me().id).filter(c => c.direction === 'in' && /calc/i.test(c.subject) && !(c.route || {}).clientId && !/smartdesign/i.test((c.from || {}).email || '')).map(c => c.from.name).slice(0, 1)",
+   "check": "names",
+   "refuse_ok": false,
+   "notes": "r5 pm §3: answered the 121 State profile",
+   "tags": [
+    "mail",
+    "people"
+   ],
+   "setup": "(async () => { signIn('u_alan'); await gcDemoConnect(); })()"
+  },
+  {
+   "id": "R509",
+   "role": "u_alan",
+   "q": "what did we agree at the site walk on sep 1",
+   "truth": "(DB.meetings || []).filter(m => m.date === '2026-09-01' && /site walk/i.test(m.title)).map(m => m.title)",
+   "check": "contains",
+   "refuse_ok": false,
+   "notes": "r5 pm §3: answered the four jobs",
+   "tags": [
+    "meetings",
+    "mail"
+   ],
+   "setup": "(async () => { signIn('u_alan'); await gcDemoConnect(); })()"
+  },
+  {
+   "id": "R510",
+   "role": "u_alan",
+   "q": "what did sarah klein ask for in her email about the backsplash",
+   "truth": "DB.comms.filter(c => c.owner === H.me().id).filter(c => /sarah klein/i.test((c.from || {}).name) && /backsplash/i.test(c.subject + ' ' + c.text)).map(c => c.subject).slice(0, 1)",
+   "check": "contains",
+   "refuse_ok": false,
+   "notes": "r5 pm §3: answered \"Sarah Davis logged 7 hours today\"",
+   "tags": [
+    "mail",
+    "people"
+   ],
+   "setup": "(async () => { signIn('u_alan'); await gcDemoConnect(); })()",
+   "absent": "['Sarah Davis']"
+  },
+  {
+   "id": "R511",
+   "role": "u_alan",
+   "q": "what did I promise and not deliver",
+   "truth": "(DB.meetings || []).flatMap(m => (m.steps || []).filter(s => s.owner === H.me().name).map(s => s.title))",
+   "check": "any",
+   "refuse_ok": false,
+   "notes": "r5 owner §3: answered \"No deliveries are due\", \"promise\" read as \"profile\"",
+   "tags": [
+    "mail",
+    "meetings"
+   ],
+   "setup": "(async () => { signIn('u_alan'); await gcDemoConnect(); })()",
+   "noread": [
+    "promise"
+   ]
+  },
+  {
+   "id": "R512",
+   "role": "u_chen",
+   "q": "did anyone send a COI",
+   "truth": "[...new Set(DB.comms.filter(c => c.owner === H.me().id).filter(c => (c.proposals || []).some(p => p.kind === 'coi')).map(c => c.from.name))]",
+   "check": "names",
+   "refuse_ok": false,
+   "notes": "r5 owner §3: answered with obligations",
+   "tags": [
+    "mail"
+   ],
+   "setup": "(async () => { signIn('u_chen'); await gcDemoConnect(); })()"
+  },
+  {
+   "id": "R513",
+   "role": "u_chen",
+   "q": "did nemo send a price for the garden bath tile?",
+   "truth": "DB.comms.filter(c => c.owner === H.me().id).filter(c => /nemo/i.test((c.from || {}).name) && (c.proposals || []).some(p => p.kind === 'quote')).map(c => (c.subject.match(/Q-\\d+/) || [c.subject])[0])",
+   "check": "contains",
+   "refuse_ok": false,
+   "notes": "r5 coord §3: answered material statuses, no quote",
+   "tags": [
+    "mail",
+    "coord-noun"
+   ],
+   "setup": "(async () => { signIn('u_chen'); await gcDemoConnect(); })()"
+  },
+  {
+   "id": "R514",
+   "role": "u_chen",
+   "q": "did tino send his COI yet",
+   "truth": "(v => v && v.insuranceExp && v.insuranceExp >= today() ? ['on file', 'current'] : ['no certificate', 'not on file', 'no COI', 'expired'])(DB.vendors.find(v => v.name === 'Tino'))",
+   "check": "any",
+   "refuse_ok": false,
+   "notes": "r5 coord §3: answered three obligations",
+   "tags": [
+    "coord-noun",
+    "mail"
+   ],
+   "setup": "(async () => { signIn('u_chen'); await gcDemoConnect(); })()"
+  },
+  {
+   "id": "R520",
+   "role": "u_owner",
+   "q": "draft the Lindqvist follow-up",
+   "truth": "['Draft to ' + H.C('Lindqvist').contacts[0].name]",
+   "check": "contains",
+   "refuse_ok": false,
+   "notes": "r5 owner §2: their client profile, no draft",
+   "tags": [
+    "draft"
+   ]
+  },
+  {
+   "id": "R521",
+   "role": "u_owner",
+   "q": "write a follow up to the Lindqvists in my voice",
+   "truth": "['Draft to ' + H.C('Lindqvist').contacts[0].name]",
+   "check": "contains",
+   "refuse_ok": false,
+   "notes": "r5 owner §2: \"Nothing for The Lindqvists\"",
+   "tags": [
+    "draft"
+   ]
+  },
+  {
+   "id": "R522",
+   "role": "u_alan",
+   "q": "draft an RFI to Priya about the shoring plan",
+   "truth": "['RFI', (DB.comms.filter(c => c.owner === H.me().id).find(c => /^priya/i.test((c.from || {}).name) && !(c.route || {}).clientId) || { from: {} }).from.name]",
+   "check": "contains",
+   "refuse_ok": false,
+   "notes": "r5 pm §3: the field-questions list, no draft; Priya is the engineer, not the lead or the analyst",
+   "tags": [
+    "draft",
+    "people"
+   ],
+   "setup": "(async () => { signIn('u_alan'); await gcDemoConnect(); })()",
+   "absent": "DB.leads.filter(l => /priya/i.test(l.name)).map(l => l.name)"
+  },
+  {
+   "id": "R523",
+   "role": "u_alan",
+   "q": "write the weekly client update for 121 State from this week's daily logs",
+   "truth": "['Draft to ' + (H.C('Klein').contacts.find(k => /decision/i.test(k.role || '')) || H.C('Klein').contacts[0]).name]",
+   "check": "contains",
+   "refuse_ok": false,
+   "notes": "r5 pm §3: raw log lines with crew hours and internal notes; \"write\" read as \"white\"",
+   "tags": [
+    "draft",
+    "typo-overreach"
+   ],
+   "noread": [
+    "write"
+   ],
+   "absent": "[...new Set(DB.time.filter(t => t.projectId === H.P('121 State').id && t.date >= appWeek().mon).map(t => (DB.employees.find(e => e.id === t.empId) || {}).name).filter(Boolean))].concat(['ACP-5'])"
+  },
+  {
+   "id": "R524",
+   "role": "u_chen",
+   "q": "draft an email to Window Works about the delivery",
+   "truth": "['Draft to Window Works']",
+   "check": "contains",
+   "refuse_ok": false,
+   "notes": "r5 coord §4 #13: 23 seconds of Drafting, then a mailto",
+   "tags": [
+    "draft"
+   ]
+  },
+  {
+   "id": "R525",
+   "role": "u_controller",
+   "q": "ask billing whether the Jessop retainer was invoiced",
+   "truth": "['Draft to Billing', (H.C('Jessop').invoices || [])[0].number]",
+   "check": "contains",
+   "refuse_ok": false,
+   "notes": "r5 controller §3: a text search of invoices",
+   "tags": [
+    "draft"
+   ]
+  },
+  {
+   "id": "R526",
+   "role": "u_controller",
+   "q": "chase J Rosario for a W-9",
+   "truth": "['Draft to J Rosario', 'W-9']",
+   "check": "contains",
+   "refuse_ok": false,
+   "notes": "r5 controller §3: a list, no draft",
+   "tags": [
+    "draft",
+    "chase"
+   ]
+  },
+  {
+   "id": "R527",
+   "role": "u_owner",
+   "q": "chase Tino for the COI",
+   "truth": "['Draft to Tino', 'certificate of insurance']",
+   "check": "contains",
+   "refuse_ok": false,
+   "notes": "r5 owner §2: the chase wrote a note on the vendor and sent nothing",
+   "tags": [
+    "draft",
+    "chase"
+   ]
+  },
+  {
+   "id": "R528",
+   "role": "u_owner",
+   "q": "chase Tino for the COI",
+   "truth": "['Chen Biron']",
+   "check": "contains",
+   "refuse_ok": false,
+   "notes": "r5 owner §2: the standing order \"copy Chen on vendor COIs\" was held and never applied",
+   "tags": [
+    "draft",
+    "chase",
+    "memory"
+   ],
+   "before": [
+    "remember always copy Chen on vendor COIs"
+   ],
+   "isolate": true
+  },
+  {
+   "id": "R529",
+   "role": "u_owner",
+   "q": "chase Marcus Bell",
+   "truth": "['Draft to Marcus Bell']",
+   "check": "contains",
+   "refuse_ok": false,
+   "notes": "month sim §8 #6: no chase for a quiet lead",
+   "tags": [
+    "chase",
+    "draft"
+   ],
+   "setup": "(async () => { signIn('u_owner'); await gcDemoConnect(); })()"
+  },
+  {
+   "id": "R530",
+   "role": "u_billing",
+   "q": "chase the Jessops for the retainer",
+   "truth": "['Draft to ' + (H.C('Jessop').contacts.find(k => /money|pay/i.test(k.role || '')) || H.C('Jessop').contacts[0]).name, (H.C('Jessop').invoices || [])[0].number]",
+   "check": "contains",
+   "refuse_ok": false,
+   "notes": "month sim §8 #6: the retainer is past due and nobody chased",
+   "tags": [
+    "chase",
+    "draft"
+   ]
+  },
+  {
+   "id": "R531",
+   "role": "u_alan",
+   "q": "chase the Kleins on the tile",
+   "truth": "['Draft to ' + (H.C('Klein').contacts.find(k => /decision/i.test(k.role || '')) || H.C('Klein').contacts[0]).name, H.P('121 State').decisions.find(d => d.status === 'open' && /tile/i.test(d.name) && /client/i.test(d.owner || '')).name]",
+   "check": "contains",
+   "refuse_ok": false,
+   "notes": "month sim §8 #6: a client decision held late, no chase",
+   "tags": [
+    "chase",
+    "draft"
+   ]
+  },
+  {
+   "id": "R540",
+   "role": "u_controller",
+   "q": "How is cash, truly?",
+   "truth": "briefFacts().B.trulyOurs",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "r5 controller §3: \"I read truly as truck\"",
+   "tags": [
+    "typo-overreach",
+    "finance"
+   ],
+   "noread": [
+    "truly"
+   ]
+  },
+  {
+   "id": "R541",
+   "role": "u_controller",
+   "q": "the Amex statement is in Drive — reconcile it",
+   "truth": "(DB.gdrive || []).filter(f => f.owner === H.me().id && /amex/i.test(f.name)).map(f => f.name).slice(0, 1)",
+   "check": "contains",
+   "refuse_ok": false,
+   "notes": "r5 controller §3: Amex read as Alex, the helper",
+   "tags": [
+    "typo-overreach",
+    "finance-noun"
+   ],
+   "setup": "(async () => { signIn('u_controller'); await gcDemoConnect(); })()",
+   "noread": [
+    "amex"
+   ]
+  },
+  {
+   "id": "R542",
+   "role": "u_controller",
+   "q": "whats the duplicate charge on the amex",
+   "truth": "(() => { const T = DB.txns.filter(t => /amex/i.test((DB.accounts.find(a => a.id === t.acct) || {}).name || '')); for (let i = 0; i < T.length; i++) for (let j = i + 1; j < T.length; j++) if (T[i].amt === T[j].amt && String(T[i].desc).slice(0, 10) === String(T[j].desc).slice(0, 10) && Math.abs(dayDiff(T[i].date, T[j].date)) <= 3) return -T[i].amt; return 0; })()",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "r5 controller §3: Alex profile; \"charge\" read as \"change\"",
+   "tags": [
+    "typo-overreach",
+    "finance-noun"
+   ],
+   "noread": [
+    "amex",
+    "charge"
+   ]
+  },
+  {
+   "id": "R543",
+   "role": "u_controller",
+   "q": "what is our AR aging",
+   "truth": "H.sum(arRows(), r => r.bal)",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "r5 controller §3: \"aging\" read as \"again\"",
+   "tags": [
+    "typo-overreach",
+    "finance-noun"
+   ],
+   "noread": [
+    "aging"
+   ]
+  },
+  {
+   "id": "R544",
+   "role": "u_controller",
+   "q": "how much sales tax",
+   "truth": "['ST-124']",
+   "check": "contains",
+   "refuse_ok": false,
+   "notes": "r5 controller §3: \"sales\" read as \"samples\"",
+   "tags": [
+    "typo-overreach",
+    "finance-noun"
+   ],
+   "noread": [
+    "sales"
+   ]
+  },
+  {
+   "id": "R545",
+   "role": "u_chen",
+   "q": "what's the lead time on the white oak flooring and when does it land",
+   "truth": "H.P('121 State').materials.find(m => /white oak/i.test(m.name)).eta",
+   "check": "date",
+   "refuse_ok": false,
+   "notes": "r5 coord §3: \"9 leads\", \"land\" read as \"and\"",
+   "tags": [
+    "typo-overreach",
+    "coord-noun"
+   ],
+   "noread": [
+    "land",
+    "lead"
+   ],
+   "absent": "DB.leads.map(l => l.name)"
+  },
+  {
+   "id": "R550",
+   "role": "u_controller",
+   "q": "Through what date are the books reconciled?",
+   "truth": "DB.accounts.map(a => a.name)",
+   "check": "names",
+   "refuse_ok": false,
+   "notes": "r5 controller §3: \"not reconciled through any date\"; each account and its last reconciled statement",
+   "tags": [
+    "finance-noun"
+   ]
+  },
+  {
+   "id": "R551",
+   "role": "u_controller",
+   "q": "what is the payroll accrual for August",
+   "truth": "fin2WagePlan('2026-08').total",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "r5 controller §3: answered YTD payroll, not the August accrual",
+   "tags": [
+    "finance-noun"
+   ]
+  },
+  {
+   "id": "R552",
+   "role": "u_controller",
+   "q": "is August closed, and who closed it",
+   "truth": "(s => s.closed ? [s.by] : ['not closed', 'not been closed', 'nobody'])(ctCloseStatus('2026-08'))",
+   "check": "any",
+   "refuse_ok": false,
+   "notes": "r5 controller §3: no who",
+   "tags": [
+    "finance-noun"
+   ]
+  },
+  {
+   "id": "R553",
+   "role": "u_controller",
+   "q": "margin by job",
+   "truth": "[H.short(H.P('121 State')) + ' · ' + jobFin(H.P('121 State')).estGPPct + '%']",
+   "check": "contains",
+   "refuse_ok": false,
+   "notes": "r5 controller §3: the company P&L",
+   "tags": [
+    "finance-noun"
+   ]
+  },
+  {
+   "id": "R554",
+   "role": "u_owner",
+   "q": "margin at completion per job",
+   "truth": "[H.short(H.P('121 State')) + ' · ' + jobFin(H.P('121 State')).estGPPct + '%']",
+   "check": "contains",
+   "refuse_ok": false,
+   "notes": "r5 owner §2: company YTD gross margin",
+   "tags": [
+    "finance-noun"
+   ]
+  },
+  {
+   "id": "R560",
+   "role": "u_chen",
+   "q": "what must be ordered this week",
+   "truth": "[b2Facts(briefFacts()).buyWeek.length, b2Facts(briefFacts()).buyLate.length]",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "r5 coord §3: \"0 items\" while lines are past their order-by date",
+   "tags": [
+    "coord-noun"
+   ]
+  },
+  {
+   "id": "R561",
+   "role": "u_chen",
+   "q": "when do I have to order the insulation for 121 state",
+   "truth": "(() => { const p = H.P('121 State'), s0 = S; S = p; try { return matDates(p.materials.find(m => /insulation/i.test(m.name))).orderBy; } finally { S = s0; } })()",
+   "check": "date",
+   "refuse_ok": false,
+   "notes": "r5 coord §3: a list of six POs",
+   "tags": [
+    "coord-noun"
+   ]
+  },
+  {
+   "id": "R562",
+   "role": "u_chen",
+   "q": "how much is the trim line and how much is left to buy on it",
+   "truth": "(() => { const L = DB.projects.flatMap(p => (jobFin(p).eacLines || []).filter(x => /\\btrim\\b/i.test(x.name))); const x = L[0]; return [x.budget, Math.max(0, x.budget - x.actual - x.committed)]; })()",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "r5 coord §3: \"$148,429 spent, on 82 bank or card lines\"",
+   "tags": [
+    "coord-noun"
+   ]
+  },
+  {
+   "id": "R563",
+   "role": "u_chen",
+   "q": "what did I order today",
+   "truth": "DB.pos.filter(p => p.date === today() && /chen/i.test(p.createdBy || '')).length",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "r5 coord §3: \"You logged 0 hours today\"",
+   "tags": [
+    "coord-noun"
+   ]
+  },
+  {
+   "id": "R564",
+   "role": "u_chen",
+   "q": "is the lighting PO issued? who's the vendor",
+   "truth": "[H.P('121 State').materials.find(m => /light fixture/i.test(m.name)).name]",
+   "check": "contains",
+   "refuse_ok": false,
+   "notes": "r5 coord §3: \"Nothing still open for Circa Lighting\"",
+   "tags": [
+    "coord-noun"
+   ]
+  },
+  {
+   "id": "R565",
+   "role": "u_chen",
+   "q": "anything over budget on the POs I issued today",
+   "truth": "DB.pos.filter(p => p.date === today() && /chen/i.test(p.createdBy || '')).length",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "r5 coord §3: \"That sits outside what your account can see\"",
+   "tags": [
+    "coord-noun"
+   ]
+  },
+  {
+   "id": "R566",
+   "role": "u_chen",
+   "q": "every PO with no vendor or $0",
+   "truth": "DB.pos.filter(p => !['cancelled'].includes(p.status) && (!p.vendor || !(poTotal(p).total > 0))).map(p => p.number)",
+   "check": "names",
+   "refuse_ok": false,
+   "notes": "r5 coord §4 #1: answered every PO",
+   "tags": [
+    "coord-noun"
+   ]
+  },
+  {
+   "id": "R567",
+   "role": "u_chen",
+   "q": "who is brooklyn lumber and do we have a w-9 for them",
+   "truth": "(v => v ? [v.name, v.w9 ? 'W-9 on file' : 'no W-9'] : ['Brooklyn Lumber', 'not on file'])(DB.vendors.find(v => /brooklyn lumber/i.test(v.name)))",
+   "check": "contains",
+   "refuse_ok": false,
+   "notes": "r5 coord §3: two material lines",
+   "tags": [
+    "coord-noun"
+   ]
+  },
+  {
+   "id": "R570",
+   "role": "u_alan",
+   "q": "which subs are booked next week on 121 state",
+   "truth": "(R => [...new Set(((DB.field || {}).subs || []).filter(s => s.projectId === H.P('121 State').id && s.date >= R[0] && s.date <= R[1]).map(s => s.vendor))])([iso(addDays(parse(appWeek().mon), 7)), iso(addDays(parse(appWeek().mon), 13))])",
+   "check": "names",
+   "refuse_ok": false,
+   "notes": "r5 pm §3: \"No sub is booked\" with three on the sub list",
+   "tags": [
+    "pm-noun"
+   ]
+  },
+  {
+   "id": "R571",
+   "role": "u_alan",
+   "q": "whats the CO total on 121 state so far and what is approved",
+   "truth": "H.sum(H.cos().filter(x => x.d.status === 'approved' && x.d.projectId === H.P('121 State').id), x => x.total)",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "r5 pm §3 (knew it); kept as a guard",
+   "tags": [
+    "pm-noun"
+   ]
+  },
+  {
+   "id": "R572",
+   "role": "u_alan",
+   "q": "tomas didnt show today, what do i do about restoration",
+   "truth": "[((DB.field || {}).subs || []).filter(s => /restoration/i.test(s.vendor) && s.date > today()).map(s => s.vendor)[0]]",
+   "check": "contains",
+   "refuse_ok": false,
+   "notes": "r5 pm §3: answered my calendar",
+   "tags": [
+    "pm-noun"
+   ]
+  },
+  {
+   "id": "R575",
+   "role": "u_alan",
+   "q": "whats the finish date for 121 state and why did it move",
+   "truth": "projectHealth(H.P('121 State')).sc",
+   "check": "date",
+   "refuse_ok": false,
+   "notes": "r5 pm §3: \"read as the change orders record from your last question\"",
+   "tags": [
+    "pm-noun",
+    "carryover"
+   ],
+   "before": [
+    "which change orders are approved on 121 State"
+   ]
+  },
+  {
+   "id": "R576",
+   "role": "u_owner",
+   "q": "which vendor do we owe the most",
+   "truth": "(() => { const R = apOpenBills().rows; if (!R.length) return ['$0', 'no bill', 'nothing', 'do not owe', 'owe no', 'no vendor', 'nobody', 'no one']; const by = {}; R.forEach(i => by[i.who] = (by[i.who] || 0) + i.amt); return [Object.entries(by).sort((a, b) => b[1] - a[1])[0][0]]; })()",
+   "check": "any",
+   "refuse_ok": false,
+   "notes": "BACKLOG §1.3: no carry-over into a self-contained question",
+   "tags": [
+    "carryover"
+   ],
+   "before": [
+    "how much do the Kleins owe"
+   ]
+  },
+  {
+   "id": "R577",
+   "role": "u_alan",
+   "q": "what is late on 45 Cranberry",
+   "truth": "PRED.jobLate.count(H.P('45 Cranberry').id)",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "BACKLOG §1.3: the job named wins over the last one",
+   "tags": [
+    "carryover"
+   ],
+   "before": [
+    "what's late on 121 State"
+   ]
+  },
+  {
+   "id": "R580",
+   "role": "u_alan",
+   "q": "what is Sarah Klein asking me",
+   "truth": "DB.comms.filter(c => c.owner === H.me().id).filter(c => /sarah klein/i.test((c.from || {}).name)).map(c => c.subject).slice(0, 1)",
+   "check": "contains",
+   "refuse_ok": false,
+   "notes": "r5 client §3: her billing profile",
+   "tags": [
+    "people",
+    "mail"
+   ],
+   "setup": "(async () => { signIn('u_alan'); await gcDemoConnect(); })()",
+   "absent": "['Sarah Davis']"
+  },
+  {
+   "id": "R581",
+   "role": "u_alan",
+   "q": "what did Sarah choose for the 2nd floor bathroom",
+   "truth": "[H.P('121 State').decisions.find(d => /2nd fl bath/i.test(d.name)).name]",
+   "check": "contains",
+   "refuse_ok": false,
+   "notes": "r5 client §3: \"Sarah Davis logged 7 hours today\"",
+   "tags": [
+    "people"
+   ],
+   "absent": "['Sarah Davis']"
+  },
+  {
+   "id": "R585",
+   "role": "u_alan",
+   "q": "remind me friday morning to call tomas about next week",
+   "truth": "(() => { let d = parse(today()); do { d = addDays(d, 1); } while (d.getDay() !== 5); return iso(d); })()",
+   "check": "date",
+   "refuse_ok": false,
+   "notes": "r5 pm §3: task \"morning to call tomas about\", due Thu Sep 10",
+   "tags": [
+    "dates"
+   ],
+   "isolate": true,
+   "post": "DB.projects.some(p => (p.actions || []).some(a => /call tomas about next week/i.test(a.title) && a.due === (() => { let d = parse(today()); do { d = addDays(d, 1); } while (d.getDay() !== 5); return iso(d); })() && /morning/i.test(a.title + ' ' + (a.time || '') + ' ' + (a.notes || ''))))"
+  },
+  {
+   "id": "R586",
+   "role": "u_chen",
+   "q": "remind me saturday to call tino about the COI",
+   "truth": "(() => { let d = parse(today()); do { d = addDays(d, 1); } while (d.getDay() !== 6); while (!isWork(iso(d))) d = addDays(d, 1); return iso(d); })()",
+   "check": "date",
+   "refuse_ok": false,
+   "notes": "r5 coord §4 #11: a reminder on a weekend day; reminders land on working days",
+   "tags": [
+    "dates"
+   ],
+   "isolate": true
+  },
+  {
+   "id": "R587",
+   "role": "u_alan",
+   "q": "remember that tomas needs a text the day before every booking or he does not show",
+   "truth": "['Held']",
+   "check": "contains",
+   "refuse_ok": false,
+   "notes": "r5 pm §3: held as \"… or Sarah does not show\"",
+   "tags": [
+    "memory"
+   ],
+   "isolate": true,
+   "before": [
+    "what did Sarah Davis log today"
+   ],
+   "post": "paInit().memo.some(m => /or he does not show/.test(m.text))"
+  },
+  {
+   "id": "R590",
+   "role": "u_controller",
+   "q": "do the books verify",
+   "truth": "['verif']",
+   "check": "contains",
+   "refuse_ok": false,
+   "notes": "r5 controller §3: \"Nothing in the records matches that\"; hung 25 s in the UI",
+   "tags": [
+    "timebox",
+    "finance-noun"
+   ],
+   "maxMs": 3000
+  },
+  {
+   "id": "R592",
+   "role": "u_chen",
+   "q": "what have you handled for me today",
+   "truth": "(paInit().log || []).filter(x => x.at === today()).map(x => x.what)",
+   "check": "any",
+   "refuse_ok": false,
+   "notes": "r5 coord §3: returned the day list",
+   "tags": [
+    "learned"
+   ],
+   "setup": "(async () => { signIn('u_chen'); await gcDemoConnect(); })()"
+  },
+  {
+   "id": "R593",
+   "role": "u_alan",
+   "q": "what did you learn today",
+   "truth": "(paInit().log || []).filter(x => x.at === today()).map(x => x.what)",
+   "check": "any",
+   "refuse_ok": false,
+   "notes": "r5 coord §3: returned the day list",
+   "tags": [
+    "learned"
+   ],
+   "setup": "(async () => { signIn('u_alan'); await gcDemoConnect(); })()"
+  },
+  {
+   "id": "R595",
+   "role": "u_klein",
+   "q": "when is my next payment due",
+   "truth": "H.invs().filter(x => x.c === H.C('Klein') && x.open && x.bal > 0.005).map(x => x.d.due).sort()[0]",
+   "check": "date",
+   "refuse_ok": false,
+   "notes": "r5 client klein_ask: answered the last payment",
+   "tags": [
+    "portal"
+   ],
+   "absent": "DB.clients.filter(c => c.id !== H.me().clientId).map(c => c.name)"
+  },
+  {
+   "id": "R596",
+   "role": "u_klein",
+   "q": "how much is my total contract now with the change orders",
+   "truth": "jobFin(H.P('121 State')).contract",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "r5 client klein_ask: \"2 change orders\", no number",
+   "tags": [
+    "portal"
+   ],
+   "absent": "DB.clients.filter(c => c.id !== H.me().clientId).map(c => c.name)"
+  },
+  {
+   "id": "R597",
+   "role": "u_klein",
+   "q": "show me the latest photos",
+   "truth": "pstAll().filter(x => x.share && x.projectId === H.P('121 State').id).length",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "r5 client klein_ask: rows ended with the photographer",
+   "tags": [
+    "portal"
+   ],
+   "absent": "['Angel']"
   }
  ]
 }
