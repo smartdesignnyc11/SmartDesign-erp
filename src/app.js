@@ -32704,7 +32704,7 @@ function renderBuyBoard() {
               : `<input type="date" data-buyeta="${r.p.id}:${r.m?.id || ""}" title="Confirm ETA" style="height:30px">`)
           : r.dec
             ? `<button class="btn sm" data-buy="dec|${r.p.id}|${r.dec.id}">Get decision</button>`
-            : `<button class="btn sm ${r.key ? "primary" : ""}" data-buy="po|${r.p.id}|${r.d ? r.d.id : ""}|${r.key || ""}|${r.m ? r.m.id : ""}" title="${r.key ? "Start a purchase order for this line" : "This item is not on an estimate line yet — set the vendor and cost first"}">${r.key ? "Create PO" : "Set Up to Order"}</button>`;
+            : `<button class="btn sm" data-buy="order|${r.p.id}|${r.d ? r.d.id : ""}|${"line" === r.kind ? r.key || "" : ""}|${r.m ? r.m.id : ""}" title="Order it: the purchase order is prefilled from the line and issues through the house checks">Order</button>`;
         return `<tr class="buy-row sev${r.sev}"><td><i class="rag rag${r.sev}"></i></td><td><b>${esc(r.name)}</b>${r.dec ? `<div class="small muted">decision: ${esc(r.dec.name)}</div>` : ""}${"line" === r.kind ? '<div class="small muted">contract line, no PO yet</div>' : ""}</td><td class="small">${esc(r.p.project.name.replace(/ —.*$/, ""))}${r.task ? `<div class="muted">${esc(r.task.name)} · starts ${fmt(r.task.start)}</div>` : ""}</td><td class="${r.orderBy && r.orderBy < td && !r.ordered ? "bad" : ""}">${r.orderBy ? fmt(r.orderBy) : "—"}</td><td>${r.needBy ? fmt(r.needBy) : "—"}</td><td class="small">${r.lead ? r.lead + " d" : "—"}</td><td>${r.vendor ? esc(r.vendor) : '<span class="pill warn">none</span>'}</td><td class="money">${r.price ? money(r.price) : '<span class="pill warn">unpriced</span>'}${r.budget && "material" === r.kind ? `<div class="small muted">budget ${money(r.budget)}</div>` : ""}</td><td class="money">${r.held ? money(r.held) : "—"}</td><td class="small ${3 === r.sev ? "bad" : 2 === r.sev ? "warn" : ""}">${r.ordered ? (r.po ? esc(r.po.number) + " · " : "") + esc(r.why) : esc(r.why || "ready to order")}</td><td>${act}</td></tr>`;
       })
       .join("") ||
@@ -32735,6 +32735,8 @@ function renderBuyBoard() {
                     ? (openEditor("mat", mid), void toast("Set the vendor, then the order has someone to chase"))
                     : "dec" === k
                   ? ((view = "dec"), void render())
+                  : "order" === k
+                    ? void buyOrderDialog({ pid: pid, mid: mid, key: key })
                   : void (
                       "po" === k &&
                       (key
@@ -66639,13 +66641,13 @@ const h4HomeBase_b2 = h4Home;
             "!" + fmt(x.orderBy),
             esc(x.name),
             `${esc(x.p.project.name)} · ${esc(x.why || "")}`,
-            { view: "proc" },
-            "Buy",
+            x.dec ? { view: "dec", proj: x.p.id } : { order: { pid: x.p.id, mid: x.m ? x.m.id : "", key: "line" === x.kind ? x.key : "" } },
+            x.dec ? "Decide" : "Order",
           ),
         ),
       ...X.buyWeek
         .slice(0, 4)
-        .map((x) => b2Row(fmt(x.orderBy), esc(x.name), esc(x.p.project.name), { view: "proc" }, "Buy")),
+        .map((x) => b2Row(fmt(x.orderBy), esc(x.name), esc(x.p.project.name), x.dec ? { view: "dec", proj: x.p.id } : { order: { pid: x.p.id, mid: x.m ? x.m.id : "", key: "line" === x.kind ? x.key : "" } }, x.dec ? "Decide" : "Order")),
     ];
     cards.push(
       h4Card(
@@ -67548,8 +67550,9 @@ function eaToday(r, F, X) {
             n: "!" + fmt(x.orderBy),
             t: `${esc(x.name)} — ${esc(x.p.project.name)}`,
             sub: `${esc(x.why || "past order-by")}; every day now comes off the site date.`,
-            act: "Buy",
-            data: { view: "proc" },
+            // Order opens the PO sheet on this line (flow: Buy went to the FF&E board, which never holds it)
+            act: x.dec ? "Decide" : "Order",
+            data: x.dec ? { view: "dec", proj: x.p.id } : { order: { pid: x.p.id, mid: x.m ? x.m.id : "", key: "line" === x.kind ? x.key : "" } },
           }),
         ),
       X.billsVsPO.forEach((x) =>
@@ -67571,8 +67574,8 @@ function eaToday(r, F, X) {
             n: fmt(x.orderBy),
             t: `${esc(x.name)} — ${esc(x.p.project.name)}`,
             sub: "order this week to make the site date.",
-            act: "Buy",
-            data: { view: "proc" },
+            act: x.dec ? "Decide" : "Order",
+            data: x.dec ? { view: "dec", proj: x.p.id } : { order: { pid: x.p.id, mid: x.m ? x.m.id : "", key: "line" === x.kind ? x.key : "" } },
           }),
         )),
     "billing" === r &&
@@ -70757,7 +70760,9 @@ function cmRead(c) {
   }
   if (
     (/quote|estimate|proposal/i.test(all) &&
-      att.some((a) => /estimate|quote|proposal/.test(a)) &&
+      // a quote is named by its file or by the document itself ("Quote BLQ-2210" on a PDF named BLQ-2210.pdf)
+      (att.some((a) => /estimate|quote|proposal/.test(a)) ||
+        (c.attachments || []).some((a) => /^\W*(?:[a-z &.,'-]+\n)?\s*(?:quote|estimate|proposal)\b/i.test(String(a.text || "").slice(0, 160)) || /\b(?:quote|estimate) (?:no\.?|#)?\s*[a-z]{0,4}-?\d{2,}/i.test(String(a.text || "").slice(0, 300)))) &&
       (R.employee
         ? push(
             "quote",
@@ -156605,8 +156610,11 @@ function smBriefRows(r) {
           n: fmt(x.D.approveBy),
           t: `Order ${esc(x.D.I.map((i) => i.name).join(", ") || x.s.title)} — ${esc(smJob(x.p))}`,
           sub: `submittal ${esc(x.s.number)} is ${esc(SM_STATUS[x.s.status].toLowerCase())}; the order can go out.`,
-          act: "Release",
-          data: { view: "subm", proj: x.p.id, subm: x.s.id },
+          // a released material is ordered from the same sheet as any Buy Board line (flow); a selection opens the submittal
+          ...((() => {
+            const mi = smItems(x.s, x.p).find((i) => "mat" === i.kind && !smItemOrdered(i, x.p));
+            return mi && "coord" === r ? { act: "Order", data: { order: { pid: x.p.id, mid: mi.id, key: "" } } } : { act: "Release", data: { view: "subm", proj: x.p.id, subm: x.s.id } };
+          })()),
         }),
       ),
     out
@@ -175058,3 +175066,212 @@ if ("function" == typeof fin2ClosePageHtml) {
     return h;
   };
 }
+
+
+/* ---------------------------------------------------------------------------
+   flow (the month, tests/month_sim.py, 2026-10-10). What the month scored as slipping through the hands of the
+   people who should have moved it: late lines with no order path (11 of 13 schedule days lost), a field ask
+   in mail left as a note, extras and priced asks with no change order, a choice made by mail asked again on
+   the portal, chases that never reached anyone, deliveries that never reached the foreman's Today, the
+   owner's dated filings. Each is fixed on the path a person takes; the assistant proposes, a person taps.
+   --------------------------------------------------------------------------- */
+
+// ---- 1. Order: one sheet from a late or due Buy Board line to an issued purchase order (tests/flow_test.py
+// "order"). Home's row, the Buy Board's row, a quote's Apply and Needs Your Hand all open it; it is prefilled
+// from the line (item, quantity, price, the on-site date) and the vendor the line already has (an applied
+// quote, the line's own vendor, who sold this item before), and it issues through poAction, so poValid, the
+// submittal gate, the vendor block and the owner's threshold all still apply. A contract line never goes to
+// the FF&E board.
+function flBuyRow(o) {
+  const p = (DB.projects || []).find((x) => x.id === (o && o.pid));
+  if (!p) return null;
+  const R = buyList(p.id);
+  return (
+    (o.mid && R.find((r) => r.m && r.m.id === o.mid)) ||
+    (o.key && R.find((r) => "line" === r.kind && r.key === o.key)) ||
+    (o.mid && (() => {
+      const m = (p.materials || []).find((x) => x.id === o.mid);
+      return m ? { kind: "material", p: p, m: m, name: m.name, key: m.line || "", vendor: m.vendor || "", price: +m.cost || 0, ordered: !1 } : null;
+    })()) ||
+    null
+  );
+}
+const flRowKey = (r) => ({ pid: r.p.id, mid: r.m ? r.m.id : "", key: "line" === r.kind ? r.key : "" });
+// The vendor the line already has: the quote applied to it, the line's own vendor, a vendor who sold exactly this
+// item before. A trade match is only offered, never chosen for the person.
+function flVendorFor(r) {
+  const real = (n) => ("function" == typeof poVendorReal ? poVendorReal(n) : null),
+    m = r.m,
+    l = r.l;
+  let v = (m && real(m.vendor)) || (l && real(l.vendor)) || null;
+  if (!v && m && m.quoteCommId) {
+    const c = (DB.comms || []).find((x) => x.id === m.quoteCommId),
+      vid = c && (c.route || {}).vendorId;
+    v = (vid && (DB.vendors || []).find((x) => x.id === vid)) || (c && "function" == typeof cmVendorFor ? cmVendorFor(c) : null) || null;
+  }
+  if (!v && m) {
+    const key = normItem(m.name),
+      po = (DB.pos || []).filter((x) => x.vendor && "cancelled" !== x.status && (x.lines || []).some((y) => y.materialId === m.id || normItem(y.item) === key)).pop();
+    v = po ? real(po.vendor) : null;
+  }
+  return v;
+}
+function flVendorOpts(r, v) {
+  let V = { first: [], rest: (DB.vendors || []).slice().sort((a, b) => String(a.name).localeCompare(b.name)) };
+  try {
+    r.m && "function" == typeof smReleaseVendors && (V = smReleaseVendors(r.m, null, r.p));
+  } catch (e) {}
+  if (r.key) {
+    const sold = new Set((DB.pos || []).filter((x) => x.vendor && (x.lines || []).some((y) => y.line === r.key)).map((x) => String(x.vendor).toLowerCase()));
+    V.first = V.first.concat(V.rest.filter((x) => sold.has(String(x.name).toLowerCase())));
+    V.rest = V.rest.filter((x) => !sold.has(String(x.name).toLowerCase()));
+  }
+  const opt = (x) => `<option value="${esc(x.name)}" ${v && x.name === v.name ? "selected" : ""}>${esc(x.name)}${x.trade ? ` · ${esc(x.trade)}` : ""}</option>`;
+  return `<option value="" ${v ? "" : "selected"}>— choose the supplier —</option>${V.first.length ? `<optgroup label="Sold this item or works this trade">${V.first.map(opt).join("")}</optgroup>` : ""}<optgroup label="${V.first.length ? "Other vendors" : "Vendors"}">${V.rest.map(opt).join("")}</optgroup>`;
+}
+function buyOrderDialog(o) {
+  const r = flBuyRow(o);
+  if (!r) return toast("That line is no longer on the Buy Board"), null;
+  const p = r.p;
+  if (r.dec || (r.m && withProject(p, () => openDecisionFor("mat", r.m.id))))
+    return toast(`${r.name} waits on a decision — it can be ordered once it is made`), null;
+  if (r.po && !["draft", "cancelled"].includes(r.po.status)) return toast(`${r.name} is on ${r.po.number} already`), null;
+  const m = r.m,
+    l = r.l || null,
+    D = m ? withProject(p, () => matDates(m)) : { needBy: r.needBy || "", orderBy: r.orderBy || "" },
+    tk = m ? (p.tasks || []).find((t) => t.id === m.taskId) : r.task || null,
+    v = flVendorFor(r),
+    qm = m ? String(m.qty || "").match(/([\d.]+)\s*([a-z]+)?/i) : null,
+    qty = m ? (qm ? +qm[1] : 1) : +(l && l.qty) || 1,
+    unit = m ? (qm && qm[2] ? qm[2] : qm ? "ea" : "lot") : (l && l.unit) || "ls",
+    cost = m ? +String(m.cost || "").replace(/[^0-9.]/g, "") || 0 : 0,
+    // a material's price is its quote; a contract line's is the budget left on it, said as such
+    price = m ? (cost ? r2(cost / (qty || 1)) : 0) : r2((+r.price || 0) / (qty || 1)),
+    quote = m && m.quoteCommId ? (DB.comms || []).find((c) => c.id === m.quoteCommId) : null,
+    late = D.orderBy && D.orderBy < today(),
+    src = quote ? `the quote from ${esc((quote.from && quote.from.name) || (v && v.name) || "the vendor")} (${esc(quote.subject || "")})` : m && cost ? "the price on the line" : l ? "the budget left on the estimate line — replace it with the vendor's price" : "";
+  return mbModal(
+    `Order — <span data-nocase>${esc(r.name)}</span>`,
+    `<p class="small muted" style="margin:0 0 10px">${esc(shortName(p))}${tk ? ` · for ${esc(tk.name)}, starts ${fmt(tk.start)}` : ""}${D.needBy ? ` · on site by ${fmt(D.needBy)}` : ""}${D.orderBy ? ` · ${late ? `<b class="bad">order-by ${fmt(D.orderBy)} passed</b>` : `order by ${fmt(D.orderBy)}`}` : ""}. ${src ? `Price from ${src}. ` : ""}Issue PO sends it through the house checks; over ${money(DB.company.poApprovalOver || 0)} it goes to the owner first.</p>
+    ${mbF("Supplier", `<select data-f="vendor">${flVendorOpts(r, v)}</select>`)}
+    <div class="grid2">${mbF("Item", `<input data-f="item" value="${esc(m ? m.name : (l && l.item) || r.name)}">`)}${mbF("Quantity", `<input type="number" step="any" min="0" data-f="qty" value="${qty}">`)}</div>
+    <div class="grid2">${mbF("Unit", `<input data-f="unit" value="${esc(unit)}">`)}${mbF("Unit Price", `<input type="number" step="0.01" min="0" data-f="price" value="${price || ""}" placeholder="no price yet — the vendor's quote">`)}</div>
+    <div class="grid2">${mbF("Needed on Site", `<input type="date" data-f="needBy" value="${D.needBy || ""}">`)}${mbF("Task", `<input data-f="task" value="${esc(tk ? tk.name : "")}" readonly>`)}</div>`,
+    {
+      submit: "Issue PO",
+      onSubmit: (f) => {
+        const vv = poVendorReal(f.vendor);
+        if (!vv) return toast("Choose the supplier — a vendor on file"), !1;
+        if (!(+f.qty > 0)) return toast("Say how many"), !1;
+        if (!(+f.price > 0)) return toast("Price the line — the vendor's quote or the price you agreed"), !1;
+        if (!f.needBy) return toast("Say when the site needs it"), !1;
+        return void setTimeout(() => flIssueOrder(r, vv, f, tk), 0);
+      },
+    },
+  );
+}
+function flIssueOrder(r, v, f, tk) {
+  const p = r.p,
+    m = r.m,
+    l = r.l || null,
+    line = {
+      id: uid("pl"),
+      item: f.item || r.name,
+      desc: "",
+      qty: +f.qty || 1,
+      unit: f.unit || "ea",
+      price: +f.price || 0,
+      materialId: m ? m.id : "",
+      line: m ? m.line || "" : r.key || "",
+      code: l ? l.code || ("function" == typeof codeForLine ? codeForLine(l) : "") : "",
+      received: 0,
+    },
+    po = {
+      id: uid("po"),
+      number: "",
+      projectId: p.id,
+      vendor: v.name,
+      vendorId: v.id || "",
+      date: today(),
+      expected: "",
+      needBy: f.needBy,
+      needTask: tk ? tk.name : "",
+      status: "draft",
+      shipTo: "site",
+      notes: m && m.quoteCommId ? `From the quote in ${((DB.comms || []).find((c) => c.id === m.quoteCommId) || {}).subject || "the vendor's mail"}` : `Ordered from the Buy Board line ${r.name}`,
+      lines: [line],
+      tax: 0,
+      shipping: 0,
+      matchedTxns: [],
+      createdBy: (currentUser() || {}).name || "",
+      type: "materials",
+      entityId: p.entityId || "",
+      receipts: [],
+      srcDocs: [],
+      __v2: 1,
+    };
+  // the submittal gate stands in front: an item waiting on approval is not ordered from here
+  const H = "function" == typeof smHolding ? smHolding(po) : [];
+  if (H.length)
+    return toast(`${r.name} waits on ${H.map((x) => `${x.s.number} ${x.s.title}`).join(", ")} — the order goes out when it is approved`), null;
+  (po.number = nextPO()), DB.pos.push(po);
+  m && !poVendorReal(m.vendor) && (m.vendor = v.name);
+  l && !l.vendor && (l.vendor = v.name);
+  try {
+    audit("po", po.id, "ordered-from-line", "", `${po.number} ${v.name} ${money(poTotal(po).total)}`, r.name);
+  } catch (e) {}
+  const keep = S;
+  S = p;
+  try {
+    poAction(po, "issue");
+  } catch (e) {
+    console.warn("order", e);
+  }
+  S = keep;
+  save(), render();
+  const st = po.status;
+  "issued" === st || "partial" === st
+    ? rcToast(`${po.number} issued to ${v.name} — ${money(poTotal(po).total)}, on site by ${fmt(f.needBy)}`, [{ label: `Open ${po.number}`, run: flowGo.po(po) }])
+    : "pending" === st || rcToast(`${po.number} is a draft — ${(poValid(po) || []).join("; ") || "it was not issued"}`, [{ label: `Open ${po.number}`, run: flowGo.po(po) }]);
+  return po;
+}
+// Home: the coordinator's late and due lines say Order and open the sheet (they went to the FF&E board).
+document.addEventListener(
+  "click",
+  (e) => {
+    const el = e.target.closest && e.target.closest("#v-home [data-ea]");
+    if (!el) return;
+    let d;
+    try {
+      d = JSON.parse(el.dataset.ea);
+    } catch (x) {
+      return;
+    }
+    d && d.order && (e.stopPropagation(), e.preventDefault(), buyOrderDialog(d.order));
+  },
+  !0,
+);
+// A quote's Apply prices the line; the order is the next step, so the sheet opens on it (not in a bulk apply).
+{
+  const base = cmApply;
+  cmApply = function (c, p) {
+    const r = base.apply(this, arguments);
+    try {
+      if (!window.__cmBulk && p && "quote" === p.kind && !p.out && p.materialId && p.projectId) {
+        const row = flBuyRow({ pid: p.projectId, mid: p.materialId });
+        row && !row.ordered && !row.dec && !row.po && buyOrderDialog(flRowKey(row));
+      }
+    } catch (e) {
+      console.warn("order after quote", e);
+    }
+    return r;
+  };
+}
+// The older Home card rows (b2Row) carry the same order data.
+if ("function" == typeof h4Go) {
+  const base = h4Go;
+  h4Go = function (go) {
+    return go && go.order ? buyOrderDialog(go.order) : base.apply(this, arguments);
+  };
+}
+

@@ -390,7 +390,9 @@ async def s_reader(p, c):
         if q and q['pid']:
             await apply_real(pg, q['cid'], q['pid']); await pg.wait_for_timeout(300)
             m = await modal(pg)
-            c.ok(not m, f'reader: Apply on a quote does not open a task dialog ({m and m["title"]!r})')
+            # the order is the next step after a quote (flow lane): the Order sheet may follow, a task dialog never
+            c.ok(not m or m['title'].startswith('Order'), f'reader: Apply on a quote does not open a task dialog ({m and m["title"]!r})')
+            m and await pg.keyboard.press('Escape')
             if m: await pg.keyboard.press('Escape')
             r = await pg.evaluate("() => { const p = DB.projects.find(x => x.id === 'p121'), m = p.materials.find(x => x.id === 'm9'); return { cost: m.cost, status: m.status, vendor: m.vendor, lead: m.lead, file: !!(m.quoteFileId && (p.files || []).some(f => f.id === m.quoteFileId)) || (p.files || []).some(f => /Q2271|Quote/i.test(f.name) && f.materialId === 'm9') }; }")
             c.ok(r['cost'] == '2880' and r['status'] == 'quoted' and r['vendor'] == 'Nemo Tile' and r['lead'] == 10, f'reader: the quote put cost, vendor, lead and quoted on m9 ({r})')
