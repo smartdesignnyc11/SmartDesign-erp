@@ -377,6 +377,7 @@ Reviewers: `.claude/agents/` role experts, each a full day with a linked workspa
 12. One coding click re-recognised $27,000 of revenue by cost-to-cost against an unreviewed EAC. **closetie**
 
 ### The classes behind the severity-2 findings
+- **Regression from the askgen merge (found 2026-10-10 by the ops lane):** truthpct_test's 8 Ask money checks fail on master: "margin by job" answers the company's YTD margin, the backlog and margin answers lost their per-job rows with "14% complete", and the EAC answer lost "Estimate at completion on …". The figures are right; the per-job breakdown is gone. truthpct_test is now in run_all's default list so this cannot slip again. **assistant**
 - **The assistant guesses:** typo correction overreaches on known nouns; client names resolve to staff; "friday" is Thursday; memory rewrites the user's words; drafts are a template; chases send nothing; a slow answer hangs the thread. **assistant**
 - **The brain does not learn from events:** lessons are a fixed menu, fired 0×; nothing from a no-show, an extra before its CO, an LPC resubmit, a wrong-finish return, a $0 PO, a dispute, a void, a reopen, thirteen meetings. **learn**
 - **Proposals never reach a hand:** mail-read bills, imports, quotes, receipts, W-9 chases sit on the Comms screen; "X wrote about Y" with no button. **learn** (Needs Your Hand queue)
