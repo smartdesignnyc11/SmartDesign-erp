@@ -163479,15 +163479,16 @@ function truthCoverage(range, opts) {
       v && ((income.hand = r2(income.hand + v)), income.n.hand++, income.rows.push({ kind: "journal", date: m.j.date, desc: m.j.memo, amt: v, backing: "hand", why: m.flag.text, id: m.j.id }));
     });
   } catch (e) {}
+  // bank + document is what was invoiced; the earned-revenue adjustment (invoiced ahead of or behind the work,
+  // recognised at month end) is shown as its own amount, never folded into the documents
   income.sum = r2(income.bank + income.document + income.hand);
   income.total = o.projectId ? income.sum : r2((P.income || 0) + income.hand);
   income.adjust = r2(income.total - income.sum);
-  Math.abs(income.adjust) > 0.004 && ((income.document = r2(income.document + income.adjust)), (income.adjust = 0), (income.sum = income.total));
-  income.pct = income.total ? Math.round((100 * income.bank) / income.total) : 100;
+  income.pct = income.sum ? Math.round((100 * income.bank) / income.sum) : 100;
   return { range: R, cost: cost, income: income, pct: cost.pct, demo: (DB.txns || []).filter((t) => within(t.date, R) && truthDemo(t)).length };
 }
 const truthCovWords = (K) =>
-  `${money(K.bank)} backed by a bank or card line · ${money(K.document)} by an approved document only (accrual) · ${money(K.hand)} by hand${K.adjust && Math.abs(K.adjust) > 0.5 ? ` · ${money(K.adjust)} in adjustments` : ""}`;
+  `${money(K.bank)} backed by a bank or card line · ${money(K.document)} by an approved document only (accrual) · ${money(K.hand)} by hand${K.adjust && Math.abs(K.adjust) > 0.5 ? ` · ${money(K.adjust)} ${K.rows.length && "invoice" === K.rows[0].kind ? "of earned-revenue adjustment (invoiced ahead of or behind the work, recognised at month end)" : "in adjustments the P&L makes outside these rows"}` : ""}`;
 function truthCovHtml(C, title) {
   const bar = (K) => {
       const T = K.total || 1;
@@ -164954,7 +164955,7 @@ AG_FIN.unshift(
         i = C.income;
       return {
         headline: `Of ${per}'s cost (${money(k.total)}${P.jobs.length ? ` on ${agShort(P.jobs[0])}` : ""}), ${money(k.bank)} is backed by a bank or card line, ${money(k.document)} by an approved document only (accrual) and ${money(k.hand)} by hand${k.adjust && Math.abs(k.adjust) > 0.5 ? `, with ${money(k.adjust)} in adjustments` : ""}: ${k.pct}% bank-backed.`,
-        note: `Income ${money(i.total)}: ${money(i.bank)} collected and confirmed by the bank, ${money(i.document)} invoiced only, ${money(i.hand)} by hand.${C.demo ? ` ${C.demo} Demo Feed line${1 === C.demo ? "" : "s"} count as typed by hand.` : ""}`,
+        note: `Income ${money(i.total)}: ${money(i.bank)} collected and confirmed by the bank, ${money(i.document)} invoiced only, ${money(i.hand)} by hand${i.adjust && Math.abs(i.adjust) > 0.5 ? `, ${money(i.adjust)} of earned-revenue adjustment (invoiced ahead of or behind the work)` : ""}.${C.demo ? ` ${C.demo} Demo Feed line${1 === C.demo ? "" : "s"} count as typed by hand.` : ""}`,
         work: k.rows.filter((r) => "bank" !== r.backing).sort((a, b) => b.amt - a.amt).slice(0, 8).map((r) => `${fmtL(r.date)} · ${r.desc} — ${money(r.amt)} · ${"hand" === r.backing ? "by hand" : "document only"}: ${r.why}`),
         go: agGo("gl") || agGo("bank"),
         ran: agRan("cost and income rows", [`date in ${per}`].concat(P.jobs.length ? [`job is ${agShort(P.jobs[0])}`] : []), "evidence behind each", k.rows.length + i.rows.length),

@@ -138,7 +138,8 @@ async def sec_cov(p, c):
          f"August cost coverage adds up: bank {cost['bank']} + document {cost['document']} + hand {cost['hand']} + adjust {cost.get('adjust')} = {cost['total']}")
     c.ok(abs(cost['total'] - C0['pl']) < 0.01, f"the coverage total {cost['total']} is the P&L cost {C0['pl']} (one figure)")
     inc = C0['C']['income']
-    c.ok(abs(inc['bank'] + inc['document'] + inc['hand'] - inc['total']) < 0.01, f"August income coverage adds up ({inc})")
+    c.ok(abs(inc['bank'] + inc['document'] + inc['hand'] + (inc.get('adjust') or 0) - inc['total']) < 0.01 and inc['document'] >= 0,
+         f"August income coverage adds up, the documents never negative: bank {inc['bank']} + document {inc['document']} + hand {inc['hand']} + adjustment {inc.get('adjust')} = {inc['total']}")
     # import a real statement: it confirms the typed Window Works card line and brings one new line
     out = await import_statement(pg, 'ac2', 'Amex_1009_Aug2026_truth.csv', csv([
         ('2026-08-25', 'SQ *WINDOW WORKS BKLYN', -33500.00, 'AMX-260825-01'),
