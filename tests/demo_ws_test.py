@@ -12,7 +12,9 @@ on file is "unrouted", never dropped; nothing from a persona's mailbox reaches t
 Ask or the portal; a second sync duplicates nothing; Disconnect leaves no demo rows. It prints what each
 persona's assistant proposed after the sync.
 
-  python3 demo_ws_test.py [u_owner u_chen ...]     # prints ALL PASS (n checks) or each failure
+  python3 demo_ws_test.py [u_owner u_chen ... loaded]   # prints ALL PASS (n checks) or each failure
+"loaded" runs an INVENTED Loaded Workspace dated after the app day (never a real file): the export shape,
+the workspace clock, list and Drive paging, the first-sync nudge cap and the master-data proposals.
 """
 import asyncio, json, re, sys
 from harness import *
@@ -219,12 +221,112 @@ async def persona(p, uid, C):
     C.ok(not errs, f'{uid}: no page errors ({errs[:2]})')
     await b.close()
 
+# ---- A Loaded Workspace: an INVENTED export dated after the app day, in the export's own shape -------------
+def invented_workspace():
+    """A small export in the shape a real one has (Google-shaped events, labelIds, modifiedTime, exportedAt),
+    dated in October 2026, after the app day (2026-09-03). 130 messages so the list pages (100 a page), 110
+    files so Drive pages. Three threads from one organisation nobody has on file, two from a homeowner at a
+    public provider who names an address, one the owner sent asking a question, a newsletter, and a long tail
+    of short notes. Everything invented."""
+    me = 'Alan Mishali <alan@smartdesign.nyc>'
+    org = 'Acme Stone <orders@acmestone.example>'
+    home = 'Noor Haddad <noor.haddad@gmail.example>'
+    def msg(i, day, hm, frm, to, subject, text, labels=None, atts=None, thread=None, month=10):
+        return {'id': f'ldm{i}', 'threadId': thread or f'ldt{i}', 'date': f'2026-{month:02d}-{day:02d}T{hm}:00', 'from': frm, 'to': [to], 'cc': [], 'subject': subject, 'text': text, 'labelIds': labels or ['INBOX', 'UNREAD'], 'attachments': atts or []}
+    threads = []
+    def thread(tid, msgs): threads.append({'id': tid, 'messages': msgs})
+    thread('t_org1', [msg(1, 6, '09:10', org, me, 'Quote for the honed limestone treads', 'Hi Alan, quote attached for the twelve honed limestone treads: $4,860.00, three weeks from deposit. Acme Stone', atts=[{'filename': 'Acme-Stone-Quote-Q-118.pdf', 'mimeType': 'application/pdf', 'text': 'ACME STONE\nQuote Q-118\nTwelve honed limestone treads $4,860.00\nLead time three weeks'}], thread='t_org1')])
+    thread('t_org2', [msg(2, 8, '14:20', org, me, 'Invoice AS-2211 for the slab deposit', 'Invoice attached for the slab deposit, $2,400.00, due October 22, 2026. Acme Stone', atts=[{'filename': 'Acme-Stone-Invoice-AS-2211.pdf', 'mimeType': 'application/pdf', 'text': 'ACME STONE\nInvoice No. AS-2211\nSlab deposit\nAmount Due: $2,400.00\nDue October 22, 2026'}], thread='t_org2')])
+    thread('t_org3', [msg(3, 9, '11:05', org, me, 'Delivery window for the treads', 'The treads deliver the week of October 19, truck between 8 and 11. Acme Stone', thread='t_org3')])
+    thread('t_home1', [msg(4, 7, '19:30', home, me, '88 Pierrepont St — our brownstone', 'Hi Alan, we own the brownstone at 88 Pierrepont St and want to open the parlor floor and redo the kitchen. Could we meet next week? Noor', thread='t_home1')])
+    thread('t_home2', [msg(5, 9, '08:15', home, me, 'Re: 88 Pierrepont St — our brownstone', 'Following up on 88 Pierrepont St — does Thursday work for a walk-through? Noor', thread='t_home2')])
+    thread('t_sent', [msg(6, 1, '10:00', me, 'Theo Brandt <theo.brandt@gmail.example>', 'Proposal for 14 Willow Pl — any questions?', 'Hi Theo, the proposal for 14 Willow Pl is attached. Let me know if you have questions. Alan', labels=['SENT'], thread='t_sent')])
+    thread('t_news', [msg(7, 5, '07:00', 'Facade Weekly <news@facadeweekly.example>', me, 'This week in facades', 'Facade Weekly. Three cornices and a stoop. Unsubscribe.', thread='t_news')])
+    n = 8
+    # A long tail: 123 one-thread correspondents, half of them in September (older than two weeks), so the
+    # list pages, the first-sync summary line is due, and no tail firm outranks the three-thread one.
+    for i in range(123):
+        older = i % 2 == 0; day = 2 + (i % 8) if not older else 1 + (i % 26); n += 1
+        thread(f't_tail{i}', [msg(n, day, f'{8 + (i % 9):02d}:{(i * 7) % 60:02d}', f'Correspondent {i} <c{i}@firm{i}.example>', me, f'Note {i} on the schedule', f'Short note number {i}. Nothing to act on.', thread=f't_tail{i}', month=9 if older else 10)])
+    events = [
+        {'id': 'lde1', 'summary': 'Walk-through — 88 Pierrepont St', 'start': {'dateTime': '2026-10-13T10:00:00-04:00', 'timeZone': 'America/New_York'}, 'end': {'dateTime': '2026-10-13T11:00:00-04:00', 'timeZone': 'America/New_York'}, 'status': 'confirmed', 'location': '88 Pierrepont St', 'attendees': [{'email': 'noor.haddad@gmail.example', 'displayName': 'Noor Haddad', 'responseStatus': 'accepted'}], 'organizer': {'email': 'alan@smartdesign.nyc'}, 'updated': '2026-10-05T12:00:00Z'},
+        {'id': 'lde2', 'summary': 'Office closed', 'start': {'date': '2026-10-12'}, 'end': {'date': '2026-10-13'}, 'status': 'confirmed', 'updated': '2026-09-01T12:00:00Z'},
+        {'id': 'lde3', 'summary': 'Cancelled call', 'start': {'dateTime': '2026-10-14T09:00:00-04:00'}, 'end': {'dateTime': '2026-10-14T09:30:00-04:00'}, 'status': 'cancelled', 'updated': '2026-10-05T12:00:00Z'},
+    ]
+    files = [{'id': f'ldf{i}', 'name': f'Reference {i}.pdf', 'mimeType': 'application/pdf', 'modifiedTime': f'2026-10-{1 + (i % 9):02d}T16:00:00Z', 'size': '1000', 'owners': [], 'text': ''} for i in range(108)]
+    files += [{'id': 'ldfA', 'name': '88 Pierrepont St - A-100 Existing Conditions.pdf', 'mimeType': 'application/pdf', 'modifiedTime': '2026-10-09T16:00:00Z', 'size': '2000', 'owners': [], 'text': 'A-100 existing conditions 88 Pierrepont St'},
+              {'id': 'ldfB', 'name': 'Acme Stone - Quote Q-118.pdf', 'mimeType': 'application/pdf', 'modifiedTime': '2026-10-06T16:00:00Z', 'size': '2000', 'owners': [], 'text': 'ACME STONE Quote Q-118 $4,860.00'}]
+    return {'uid': 'u_owner', 'exportedAt': '2026-10-12T18:00:00Z', 'accounts': {'gmailMailbox': 'alan@smartdesign.nyc', 'ownerEmails': ['alan@smartdesign.nyc']},
+            'mail': {'threads': threads}, 'calendar': {'events': events}, 'drive': {'files': files}}
+
+async def loaded(p, C):
+    import tempfile, os as _os
+    uid = 'u_owner'
+    ws = invented_workspace()
+    path = _os.path.join(tempfile.gettempdir(), 'sd_invented_u_owner.workspace.json')
+    with open(path, 'w', encoding='utf-8') as f: json.dump(ws, f)
+    b, pg, errs = await open_app(p)
+    await sign_in(pg, uid)
+    # The helper refuses a path inside the repo.
+    try: await attach_workspace(pg, uid, _os.path.join(ROOT, 'tests', 'x.workspace.json')); C.ok(False, 'loaded: a path inside the repo must be refused')
+    except SystemExit: C.ok(True, 'loaded: a path inside the repo is refused')
+    r = await attach_workspace(pg, uid, path)
+    C.ok(r == {'messages': 130, 'events': 2, 'files': 110}, f'loaded: attach reads the export shape, drops the cancelled event ({r})')
+    W = await pg.evaluate("() => { const W = demoWsFor('u_owner'); return { now: new Date(W.now).toISOString().slice(0, 10), firstDays: W.firstDays, loaded: !!W.loaded, sent: W.messages.filter(m => m.labelIds.includes('SENT')).length, allDay: W.events.filter(e => e.start.date).length }; }")
+    C.ok(W['now'] == '2026-10-12' and W['firstDays'] >= 12 and W['loaded'] and W['sent'] == 1 and W['allDay'] == 1, f'loaded: the workspace runs on its exportedAt, its span is the first window, SENT and all-day read right ({W})')
+    S = await pg.evaluate("""async () => { const d = await gcDemoConnect('u_owner'); const g = gcMine(); const mine = DB.comms.filter(c => c.owner === 'u_owner');
+        const A = paInit(); const M = A.master || []; const R = c => c.route || {};
+        return { delta: d && { mail: d.mail.length, events: d.events.length, files: d.files.length, errors: d.errors }, name: g.name, loaded: g.loaded, cursors: g.cursors,
+          comms: mine.length, events: (DB.calendar.external || []).filter(e => e.owner === 'u_owner').length, files: (DB.gdrive || []).filter(f => f.owner === 'u_owner').length,
+          ignored: mine.filter(c => c.status === 'ignored').length, unroutedProps: mine.reduce((a, c) => a + (c.proposals || []).filter(p => p.kind === 'unrouted').length, 0),
+          nudges: A.thread.filter(m => m.nudge).length, nudgeKinds: A.thread.filter(m => m.nudge).map(m => (m.ref || {}).kind), expect: (A.expect || []).map(e => e.who),
+          master: M.map(m => ({ key: m.key, as: m.as, name: m.name, threads: m.threadCount, count: m.count, who: m.who || '', addr: m.addr || '' })) }; }""")
+    C.ok(S['delta'] and not S['delta']['errors'] and S['comms'] == 130 and S['events'] == 2 and S['files'] == 110, f"loaded: one sync pages the whole workspace in (mail {S['comms']}/130, events {S['events']}/2, files {S['files']}/110, {S['delta'] and S['delta']['errors']})")
+    C.ok(S['name'] == 'Loaded Workspace' and S['loaded'], f"loaded: the connection is named Loaded Workspace ({S['name']})")
+    C.ok(str(S['cursors'].get('gmailAt', '')).startswith('2026-10-12') and str(S['cursors'].get('driveAt', '')).startswith('2026-10-12'), f"loaded: cursors sit on the workspace's clock, not the app day or the wall clock ({S['cursors']})")
+    C.ok(S['ignored'] == 1, f"loaded: the newsletter is ignored ({S['ignored']})")
+    nk = S['nudgeKinds']
+    C.ok(nk.count('firstsync') == 1 and nk.count('master') == 1 and S['nudges'] <= 12, f"loaded: a first sync raises the last two weeks one by one and the September tail as one line, not a storm ({S['nudges']} nudges: {nk})")
+    C.ok('Theo Brandt' in S['expect'], f"loaded: the sent proposal with no answer is an expectation ({S['expect']})")
+    M = S['master']
+    vend = one(M, lambda m: m['as'] == 'vendor' and m['who'] == 'orders@acmestone.example')
+    lead = one(M, lambda m: m['as'] == 'lead' and m['who'] == 'noor.haddad@gmail.example')
+    job = one(M, lambda m: m['as'] == 'project' and 'Pierrepont' in m['addr'])
+    C.ok(bool(vend) and vend['threads'] == 3, f"loaded: the organisation nobody has on file is one vendor-or-firm proposal with 3 threads ({vend})")
+    C.ok(bool(lead) and lead['threads'] == 2, f"loaded: the homeowner at a public provider is one lead proposal with 2 threads ({lead})")
+    C.ok(bool(job) and job['threads'] >= 2, f"loaded: the address they name is one job proposal ({job})")
+    C.ok(S['unroutedProps'] >= 3, f"loaded: unrouted messages still carry their own proposal, nothing is dropped ({S['unroutedProps']})")
+    ask = await pg.evaluate("() => { const a = paAsk('who is not on file'); return { head: a.headline, work: a.work.length, offers: a.offers.map(o => o.label) }; }")
+    C.ok('nobody has on file' in ask['head'] and ask['work'] >= 3 and any(o.startswith('Create Vendor or Firm Acmestone') or 'Acme' in o for o in ask['offers']), f"loaded: Ask lists who is not on file with one-tap offers ({ask['head']}, {ask['offers'][:3]})")
+    ap = await pg.evaluate("""([vk, jk, lk]) => { const r = paMasterApply(vk); const v = DB.vendors.find(x => x.email === 'orders@acmestone.example');
+        const routed = DB.comms.filter(c => c.owner === 'u_owner' && v && (c.route || {}).vendorId === v.id);
+        const kinds = routed.flatMap(c => (c.proposals || []).map(p => p.kind));
+        const bill = routed.flatMap(c => c.proposals || []).find(p => p.kind === 'bill');
+        const r2 = paMasterApply(lk); const ld = (DB.leads || []).find(l => l.email === 'noor.haddad@gmail.example');
+        const r3 = paMasterApply(jk); const pr = DB.projects.find(p => /Pierrepont/.test(p.project.name));
+        const jr = pr ? DB.comms.filter(c => c.owner === 'u_owner' && (c.route || {}).projectId === pr.id).length : 0;
+        const A = paInit(); return { r, vendor: !!v, routed: routed.length, kinds, bill: bill && { amount: bill.amount, vendor: bill.vendor, number: bill.number }, r2, lead: !!ld, r3, project: !!pr, jr, open: (A.master || []).filter(m => m.status === 'proposed').length, applied: (A.master || []).filter(m => m.status === 'applied').length }; }""", [vend['key'], job['key'], lead['key']])
+    C.ok(ap['vendor'] and ap['routed'] == 3 and 'unrouted' not in ap['kinds'] and ap['bill'] and ap['bill']['amount'] == 2400 and ap['bill']['number'] == 'AS-2211', f"loaded: one tap creates the vendor, routes its 3 threads and re-reads them (the invoice is now a bill proposal) ({ap['routed']}, {ap['kinds']}, {ap['bill']})")
+    C.ok(ap['lead'] and ap['project'] and ap['jr'] >= 2 and ap['applied'] == 3, f"loaded: the lead and the job are created and their threads route ({ap['lead']}, {ap['project']}, {ap['jr']}, applied {ap['applied']})")
+    S2 = await pg.evaluate("async () => { const d = await gsRun({}); return { mail: d.mail.length, events: d.events.length, files: d.files.length, comms: DB.comms.filter(c => c.owner === 'u_owner').length, nudges: paInit().thread.filter(m => m.nudge).length }; }")
+    C.ok(S2['mail'] == 0 and S2['files'] == 0 and S2['comms'] == 130 and S2['nudges'] == S['nudges'], f'loaded: a second sync adds nothing ({S2})')
+    ui = await pg.evaluate("() => { view = 'conn'; render(); const h = document.querySelector('.gc-acct h3'); return h ? h.textContent : ''; }")
+    C.ok(ui.startswith('Loaded Workspace') and 'Google' not in ui, f'loaded: the Connections card reads Loaded Workspace ({ui})')
+    gone = await pg.evaluate("() => { gcDisconnect(); return { comms: DB.comms.filter(c => c.owner === 'u_owner').length, events: (DB.calendar.external || []).filter(e => e.owner === 'u_owner').length, files: (DB.gdrive || []).filter(f => f.owner === 'u_owner').length, g: (DB.conn.u_owner || {}).google || null }; }")
+    C.ok(gone['comms'] == 0 and gone['events'] == 0 and gone['files'] == 0 and gone['g'] is None, f'loaded: Disconnect leaves no rows ({gone})')
+    C.ok(not errs, f'loaded: no page errors ({errs[:2]})')
+    await b.close()
+    try: _os.remove(path)
+    except OSError: pass
+
 async def main():
     C = Checks()
-    who = sys.argv[1:] or PERSONAS
+    who = sys.argv[1:] or PERSONAS + ['loaded']
     async with async_playwright() as p:
         for uid in who:
-            try: await persona(p, uid, C)
+            try:
+                if uid == 'loaded': await loaded(p, C)
+                else: await persona(p, uid, C)
             except Exception as e: C.ok(False, f'{uid}: suite error {e!r}')
     return C.done()
 

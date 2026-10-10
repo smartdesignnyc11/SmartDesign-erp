@@ -258,7 +258,7 @@ Each is proven by a demo_ws_test check turning from "did not fire" to "fired as 
 10. **Lessons are not proposed from events.** The no-show and the expired COI never became lessons; `bnSuggestLessons` runs only when The Brain renders. Run it on every sync and on every closed field issue, bill dispute and late delivery.
 11. **A call from the answering service** matches the client by phone and proposes the reply draft, not only a task.
 12. **A bank or card statement in Drive** proposes the import (and the reconcile), not only a nudge.
-13. **Unrouted mail becomes master data** (from the real-workspace test): a thread matching no client, project or vendor proposes creating it, with the evidence; the owner approves in one tap and the thread routes.
+13. **Unrouted mail becomes master data** (from the real-workspace test): a thread matching no client, project or vendor proposes creating it, with the evidence; the owner approves in one tap and the thread routes. **Done (lane realws, 2026-10-10):** `paMasterClusters` clusters unrouted threads by correspondent domain, person and project-like address; one nudge and Ask ("who is not on file") carry one-tap offers; `paMasterApply` creates the vendor, lead, client or job and routes the cluster. Proven on an invented loaded workspace in `demo_ws_test.py` ("loaded"). Still open from the same run: a Loaded Workspace dated after the app day reads as the future to the chase and due-date logic (two clocks, documented in ARCHITECTURE.md), and the first sync of a seven-month mailbox still proposes per-message notes by the hundred.
 
 ---
 
