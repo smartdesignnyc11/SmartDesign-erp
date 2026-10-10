@@ -93388,6 +93388,20 @@ function bnSatisfied(p, l) {
                 .every((m) => ["ordered", "shipped"].includes(m.status) || m.eta)
             : (p.actions || []).some((a) => a.lessonId === l.id && "done" === a.status);
 }
+// The record a trigger matched on a project: an outside consultant (by company, else name) is one record however
+// many jobs name them; a trigger about the job itself (every project, a design engagement, an estimate line, a
+// long lead, a vendor's orders on the job, a permit) has the job.
+function bnRecs(T, p, m) {
+  const rx = bnRx(m),
+    low = (x) => String(x || "").trim().toLowerCase();
+  try {
+    if (T === BN_TRIGGERS.contact) {
+      const R = [...new Set(parseContacts(p.project.contacts).filter((c) => rx.test(`${c.role || ""} ${c.company || ""}`)).map((c) => "contact:" + low(c.company || c.name)))];
+      if (R.length) return R;
+    }
+  } catch (e) {}
+  return [p.id];
+}
 function bnRun() {
   bnInit();
   const td = today();
@@ -93406,7 +93420,14 @@ function bnRun() {
             } catch (e) {}
             if (!hit) return;
             if (bnSatisfied(p, l)) return;
-            const key = `${l.id}|${p.id}`;
+            // a rule fires once per record that matches, never once per job by default: the record is the
+            // consultant, the vendor or the permit the trigger matched (bnRecs), and only the job when the trigger
+            // is about the job itself. One architect on three jobs is one proposal.
+            const recs = bnRecs(T, p, l.match),
+              fresh = recs.filter((r) => !DB.brainQueue.some((q) => q.lessonId === l.id && (q.rec === r || q.key === `${l.id}|${r}`) && "expired" !== q.status));
+            if (!fresh.length) return;
+            const rec = fresh[0],
+              key = `${l.id}|${rec}`;
             if (DB.brainQueue.some((q) => q.key === key && "expired" !== q.status)) return;
             if ((p.actions || []).some((a) => a.lessonId === l.id && "done" !== a.status)) return;
             const t = l.then || {},
@@ -93416,6 +93437,7 @@ function bnRun() {
               q = {
                 id: uid("bq"),
                 key: key,
+                rec: rec,
                 lessonId: l.id,
                 projectId: p.id,
                 kind: t.kind,
