@@ -233,8 +233,8 @@ async def run(qs):
 
 # HANDOFF.md figures (app day 2026-09-03). A truth that disagrees with these is wrong, not the app.
 SANITY = {  # question text -> HANDOFF.md figure
-    'how much cash do we have': 184231, 'How is cash?': 184231, "what's our AR": 92265, 'what should we invoice today': 20980,
-    'What could we invoice today?': 20980, 'What can I invoice today?': 20980, 'How is cash, truly?': -4151,
+    'how much cash do we have': 184231, 'How is cash?': 184231, "what's our AR": 92265, 'what should we invoice today': 33631,
+    'What could we invoice today?': 33631, 'What can I invoice today?': 33631, 'How is cash, truly?': -4151,
     'what is safe to spend': -4151, 'how much is unmatched in the bank': 75272, 'what is the backlog': 582941,
     'net income year to date': -5330, 'what was revenue this year': 142759, 'what do we owe vendors': 0,
     'how much payroll is past due': 16040, 'how much is WIP over billed': 156274}  # HANDOFF.md after truthpct

@@ -78,7 +78,7 @@ The cloud workspace that built rounds 1–5 was reclaimed. Four things were lost
 | Backlog | $582,941 |
 | Net YTD | −$5,330 (income $142,759) |
 | Safe to spend | −$4,151 |
-| Ready to Bill | $20,980 (2 rows; 121 State held as billed ahead) |
+| Ready to Bill | $33,631 (3 rows; held per line, never per job: 121 State's measured framing and electrical bill on their own evidence) |
 | Rail badges | Projects 2, Sales 4, Purchasing 10, Accounting 6, Billing 2 |
 
 If a change moves one of these, say exactly why.

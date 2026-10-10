@@ -60959,10 +60959,21 @@ function pgRows(projectId) {
   });
   return (rows.lump = lump), rows;
 }
+// A change order's line is billed from 0 on its own evidence (G703: each line stands alone).
+const pgIsCO = (sv) => !!sv && !!sv.source && "Contract" !== sv.source;
+// Hold per line, never per job (BACKLOG 1.5 #2): a line is held only when its own evidence cannot carry the
+// bill. Today that is a line whose only measure is cost (nothing measured on site, no delivery): cost is not
+// progress. A change order line is never held. The reason is shown on the line, with a Bill button.
+function pgLineHold(r) {
+  if (!r || !r.pr || !(r.pr.period > 0) || pgIsCO(r.sv)) return "";
+  return "cost" === r.pr.basis ? `no field measure: ${r.pr.extra || "cost has landed and nothing is measured"}; cost is not progress` : "";
+}
+const pgPeriodAmt = (r) => (r.pr.period ? (r.ev.scheduled * r.pr.period) / 100 : 0);
 const pgTotals = (rows) => ({
   scheduled: r2(rows.reduce((a, r) => a + r.ev.scheduled, 0)),
   billed: r2(rows.reduce((a, r) => a + (r.ev.scheduled * r.ev.billedPct) / 100, 0)),
-  propose: r2(rows.reduce((a, r) => a + (r.pr.period ? (r.ev.scheduled * r.pr.period) / 100 : 0), 0)),
+  propose: r2(rows.reduce((a, r) => a + (pgLineHold(r) ? 0 : pgPeriodAmt(r)), 0)),
+  held: r2(rows.reduce((a, r) => a + (pgLineHold(r) ? pgPeriodAmt(r) : 0), 0)),
   cost: r2(rows.reduce((a, r) => a + r.ev.cost, 0)),
   unbilled: r2(
     rows.reduce((a, r) => a + Math.max(0, r.ev.cost - (r.ev.scheduled * r.ev.billedPct) / 100), 0),
@@ -60983,7 +60994,33 @@ function pgDraft(projectId) {
     if (!d || "function" != typeof ctProgressInvoice) return null;
     (inv = ctProgressInvoice(c, d)), (inv.projectId = p.id);
   }
+  pgAddCOLines(c, p, inv);
   return { c: c, p: p, inv: inv };
+}
+// The job's application carries every approved change order's line beside the contract's (AIA G703), so a
+// change order bills on the same application from 0 instead of waiting for a separate invoice.
+function pgAddCOLines(c, p, inv) {
+  if (!c || !inv || "draft" !== inv.status) return 0;
+  let n = 0;
+  (c.sov || [])
+    .filter((v) => pgIsCO(v) && (null == v.projectId || v.projectId === p.id))
+    .forEach((v) => {
+      const co = (c.changeOrders || []).find((x) => x.number === v.source || x.id === v.coId);
+      if (co && co.projectId && co.projectId !== p.id) return;
+      if ((inv.lines || []).some((l) => l.sovId === v.id)) return;
+      (inv.lines = inv.lines || []).push({
+        id: uid("l"),
+        sovId: v.id,
+        item: `${v.source} ${v.desc}`,
+        desc: "",
+        scheduled: +v.scheduled || 0,
+        prevPct: r2(sovBilled(c, v.id, inv.id)),
+        pct: 0,
+        taxable: !!v.taxable,
+      }),
+        n++;
+    });
+  return n;
 }
 function pgApply(projectId, only) {
   const d = pgDraft(projectId);
@@ -60995,6 +61032,8 @@ function pgApply(projectId, only) {
     rows.forEach((r) => {
       if (only && !only.includes(r.sv.id)) return;
       if (null == r.pr.period || r.pr.period <= 0) return;
+      // a held line goes on only when the person names it (the Bill button on the held line)
+      if (!only && pgLineHold(r)) return;
       const l = (d.inv.lines || []).find((x) => x.sovId === r.sv.id);
       if (!l) return;
       const room = r2(100 - (+l.prevPct || 0));
@@ -138574,31 +138613,25 @@ function readyToBill() {
           } catch (e) {
             return;
           }
-          if (!(T && T.propose > 0)) return;
+          if (!T) return;
           if (rows.some((r) => r.p && r.p.id === p.id && "progress" === r.kind)) return;
-          let w = null;
-          try {
-            w = wipRow(p);
-          } catch (e) {
-            w = null;
-          }
           const c = DB.clients.find((x) => x.id === p.clientId);
-          w && w.over > 0
-            ? held.push({
-                p: p,
-                c: c,
-                amount: r2(T.propose),
-                over: w.over,
-                why: `the job is billed ${money(w.over)} ahead of earned work`,
-              })
-            : rows.push({
-                kind: "application",
-                c: c,
-                p: p,
-                amount: r2(T.propose),
-                title: `${p.project.name}: line-by-line application ready (${money(T.propose)})`,
-                act: "application",
-              });
+          // held per line, never per job: each held line keeps its own reason and amount
+          R.forEach((r) => {
+            const why = pgLineHold(r);
+            why &&
+              held.push({ p: p, c: c, sv: r.sv, line: r.sv.desc, amount: r2(pgPeriodAmt(r)), why: `${r.sv.desc}: ${why}` });
+          });
+          if (!(T.propose > 0)) return;
+          const co = R.filter((r) => pgIsCO(r.sv) && r.pr.period > 0);
+          rows.push({
+            kind: "application",
+            c: c,
+            p: p,
+            amount: r2(T.propose),
+            title: `${p.project.name}: line-by-line application ready (${money(T.propose)})${co.length ? ` · with ${co.map((r) => r.sv.source).join(", ")}` : ""}`,
+            act: "application",
+          });
         }),
         rows.sort((a, b) => b.amount - a.amount),
         { rows: rows, held: held, amount: r2(rows.reduce((a, r) => a + r.amount, 0)), n: rows.length }
@@ -138614,9 +138647,9 @@ if (
       (t.v = tlK(R.amount)),
         (t.tone = R.amount > 5e4 ? "warn" : ""),
         (t.s = R.n
-          ? `${tlN(R.n, "item")} earned or at a milestone, not yet invoiced${R.held.length ? ` · ${R.held.length} held, billed ahead` : ""}`
+          ? `${tlN(R.n, "item")} earned or at a milestone, not yet invoiced${R.held.length ? ` · ${tlN(R.held.length, "line")} held` : ""}`
           : R.held.length
-            ? `nothing ready · ${R.held.length} job${1 === R.held.length ? "" : "s"} held, billed ahead of earned work`
+            ? `nothing ready · ${tlN(R.held.length, "line")} held, waiting on a field measure`
             : "nothing earned is waiting on an invoice");
     }
     return T;
@@ -138630,9 +138663,9 @@ if (
       const pid = void 0 !== spProj && "all" !== spProj ? spProj : S && S.id,
         R = readyToBill(),
         mine = R.rows.filter((r) => r.p && r.p.id === pid),
-        hold = R.held.find((x) => x.p.id === pid),
+        hold = R.held.filter((x) => x.p.id === pid),
         amt = r2(mine.reduce((a, r) => a + r.amount, 0)),
-        line = `<div class="oc-rtb small" data-ocrtb="${esc(pid || "")}"><b>Ready to Bill on this job: ${money(amt)}</b> · ${hold ? `held — ${esc(hold.why)}; the lines below would bill ${money(hold.amount)} on their own evidence` : mine.length ? esc(mine.map((r) => r.title).join(" · ")) : "nothing earned is waiting on an invoice"} · ${money(R.amount)} across the firm</div>`;
+        line = `<div class="oc-rtb small" data-ocrtb="${esc(pid || "")}"><b>Ready to Bill on this job: ${money(amt)}</b> · ${mine.length ? esc(mine.map((r) => r.title).join(" · ")) : "nothing earned is waiting on an invoice"}${hold.length ? ` · ${tlN(hold.length, "line")} held (${money(r2(hold.reduce((a, x) => a + x.amount, 0)))}), each with its reason below` : ""} · ${money(R.amount)} across the firm</div>`;
       h = h.replace(/(<h3 style="margin:0">[^<]*— ready to bill<\/h3>)/, "$1");
       const i = h.indexOf('<div class="sel-stats">');
       h = i > -1 ? h.slice(0, i) + line + h.slice(i) : line + h;
@@ -142417,16 +142450,16 @@ function billingRows() {
       }),
         R.held.forEach((h) =>
           rows.push({
-            id: "held:" + h.p.id,
+            id: "held:" + h.p.id + (h.sv ? ":" + h.sv.id : ""),
             kind: "held",
             held: h,
-            key: "app:" + h.p.id,
+            key: h.sv ? `line:${h.p.id}:${h.sv.id}` : "app:" + h.p.id,
             client: h.c || null,
             job: h.p,
             amount: r2(h.amount),
             date: "",
-            what: `Line-by-line application — ${money(h.amount)} on the lines' own evidence`,
-            why: `held — ${h.why}, so no application is proposed`,
+            what: h.sv ? `Held line — ${h.sv.desc}: ${money(h.amount)}` : `Line-by-line application — ${money(h.amount)} on the lines' own evidence`,
+            why: `held — ${h.why}`,
             needs: !1,
           }),
         ),
@@ -142527,6 +142560,7 @@ function rtbGo(key) {
   } catch (e) {}
 }
 function rtbAct(key) {
+  if (/^line:/.test(String(key || ""))) return blBillHeldLine(key);
   const r = blFind(key);
   if (!r) {
     const held = readyToBill().held.find((h) => "app:" + h.p.id === key);
@@ -142580,7 +142614,30 @@ function blOpenRow(row) {
   }
 }
 function blRowAct(row) {
-  if (row) return "credit" === row.kind ? blCreditAct(row) : "ready" === row.kind ? rtbAct(row.key) : blOpenRow(row);
+  if (row)
+    return "credit" === row.kind
+      ? blCreditAct(row)
+      : "ready" === row.kind || ("held" === row.kind && /^line:/.test(row.key || ""))
+        ? rtbAct(row.key)
+        : "draft" === row.kind && row.inv && row.client
+          ? blSendSheet(row.client, row.inv)
+          : blOpenRow(row);
+}
+// A held line billed on purpose: the person names the line, it goes on the job's draft application, and the
+// draft opens for review. Nothing is sent from here.
+function blBillHeldLine(key) {
+  const [, pid, svId] = String(key).split(":"),
+    out = pgApply(pid, [svId]);
+  if (!out) return;
+  save();
+  const c = out.client;
+  (view = "billing"), (billTab = "billable"), (clientOpen = c.id), (blClientFlag = c.id), (docOpen = { kind: "invoice", id: out.inv.id }), render();
+  rcToast(`${out.n ? "The held line is" : "Nothing new"} on ${out.inv.number} (${money(docTotal(out.inv).total)}) — review it, then Send to Client`, [{ label: "Open", run: () => ((view = "billing"), (clientOpen = c.id), (docOpen = { kind: "invoice", id: out.inv.id }), render()) }]);
+}
+// "Send" on a drafted invoice in the Billing Queue: the one Send to Client sheet (crSendToClient: to whom, the
+// subject and message, then Send), so a draft never waits behind a second screen.
+function blSendSheet(c, inv) {
+  c && inv && ("function" == typeof crSendToClient ? crSendToClient(c, inv) : docAction(c, inv, "sendclient"));
 }
 function blTiles() {
   const rows = billingRows(),
@@ -142596,9 +142653,9 @@ function blTiles() {
       v: tlK(R.amount),
       tone: R.amount > 5e4 ? "warn" : "",
       s: R.n
-        ? `${tlN(R.n, "item")} earned or at a milestone, not yet invoiced${R.held.length ? ` · ${R.held.length} held, billed ahead` : ""}`
+        ? `${tlN(R.n, "item")} earned or at a milestone, not yet invoiced${R.held.length ? ` · ${tlN(R.held.length, "line")} held` : ""}`
         : R.held.length
-          ? `nothing ready · ${tlN(R.held.length, "job")} held, billed ahead of earned work`
+          ? `nothing ready · ${tlN(R.held.length, "line")} held, waiting on a field measure`
           : "nothing earned is waiting on an invoice",
       grid: "billing",
       pred: (r) => "ready" === r.kind,
@@ -142689,9 +142746,11 @@ const blStage = (r) =>
       : "ready" === r.kind
       ? "Draft"
       : "held" === r.kind
-        ? "Open WIP"
+        ? /^line:/.test(r.key || "")
+          ? "Bill"
+          : "Open WIP"
         : "draft" === r.kind
-          ? "Review and Send"
+          ? "Send"
           : "Open";
 function blListHtml() {
   return grid({
@@ -142930,22 +142989,15 @@ function blPgJob() {
 }
 if ("function" == typeof pgPaneHtml) {
   const pgPaneHtmlBase_bl = pgPaneHtml;
+  // Held per line (BACKLOG 1.5 #2): the job-level WIP position is shown above the lines (fin2 head), but it
+  // never holds the application. Each held line is listed with its reason and its own Bill button.
   pgPaneHtml = function () {
     let h = pgPaneHtmlBase_bl.apply(this, arguments);
     try {
-      const p = blPgJob();
-      let w = null;
-      try {
-        w = wipRow(p);
-      } catch (e) {
-        w = null;
-      }
-      if (!(w && w.over > 0)) return h;
-      const m = h.match(/<button class="btn sm primary" id="pg-apply"[^>]*>[^<]*<\/button>/);
-      if (!m) return h;
-      const amt = (h.match(/id="pg-apply"[^>]*>Draft (\$[\d,.]+)/) || [])[1] || "";
-      h = h.replace(m[0], "");
-      const held = `<div class="note warn bl-held"><b>No application is proposed.</b> <span class="small">${esc(String(p.project.name).replace(/ —.*$/, ""))} is billed ${money(w.over)} ahead of earned work on the WIP schedule${amt ? `; the lines below would bill ${amt} on their own evidence, which would put the invoice further ahead of the work` : ""}. Bill again when earned work catches up, or when a change order adds to the contract.</span><div class="bl-held-acts"><button class="btn sm" id="pg-apply" data-blheld="1">Fill the Draft Anyway</button></div></div>`,
+      const p = blPgJob(),
+        H = pgRows(p.id).filter((r) => pgLineHold(r));
+      if (!H.length) return h;
+      const held = `<div class="note warn bl-held"><b>${tlN(H.length, "line")} held</b> <span class="small">— not on the proposal until someone measures ${1 === H.length ? "it" : "them"} or bills ${1 === H.length ? "it" : "them"} on purpose. Every other line bills on its own evidence.</span>${H.map((r) => `<div class="bl-held-line small"><b>${esc(r.sv.desc)}</b> · ${money(r2(pgPeriodAmt(r)))} · ${esc(pgLineHold(r))} <button type="button" class="btn sm" data-pgbill="${esc(r.sv.id)}">Bill</button></div>`).join("")}</div>`,
         i = h.indexOf('<p class="small muted fin2-wipsrc">');
       if (i > -1) {
         const j = h.indexOf("</p>", i) + 4;
@@ -142965,44 +143017,11 @@ if ("function" == typeof pgWire) {
   pgWire = function (root) {
     const r = pgWireBase_bl.apply(this, arguments);
     try {
-      const b = root && root.querySelector("#pg-apply[data-blheld]");
-      if (!b) return r;
-      const p = blPgJob(),
-        pid = p && p.id,
-        fresh = b.cloneNode(!0);
-      b.replaceWith(fresh),
-        fresh.addEventListener("click", () => {
-          let w = null;
-          try {
-            w = wipRow(p);
-          } catch (e) {}
-          const bad = pgRows(pid).filter((x) => x.findings.some((f) => "bad" === f.sev));
-          mbModal(
-            "Bill Ahead of Earned Work?",
-            `<p class="small"><b>${esc(p.project.name)} is billed ${money(w ? w.over : 0)} ahead of earned work.</b> A draft from these lines adds to that: the client pays for work not yet done, and the firm owes it back if the job stalls.</p>${
-              bad.length
-                ? `<p class="small">${tlN(bad.length, "line")} where what we spent and what we have done do not agree:</p><ul class="small">${bad
-                    .slice(0, 6)
-                    .map(
-                      (x) =>
-                        `<li>${esc(x.sv.desc)} — ${esc(
-                          x.findings
-                            .filter((f) => "bad" === f.sev)
-                            .map((f) => f.msg)
-                            .join("; "),
-                        )}</li>`,
-                    )
-                    .join("")}</ul>`
-                : ""
-            }<p class="small muted" style="margin:0">Nothing is sent. It fills a draft you still have to review.</p>`,
-            {
-              submit: "Fill the Draft Anyway",
-              wide: !0,
-              onSubmit: () => {
-                "function" == typeof pgFlowApply && pgFlowApply(pid);
-              },
-            },
-          );
+      const p = blPgJob();
+      root &&
+        p &&
+        root.querySelectorAll("[data-pgbill]").forEach((b) => {
+          b.onclick = () => blBillHeldLine(`line:${p.id}:${b.dataset.pgbill}`);
         });
     } catch (e) {
       console.warn("billing held wire", e);
@@ -164571,9 +164590,9 @@ const AG_FIN = [
         H = (R.held || []).filter((h) => agOnJob(P, h.p && h.p.id));
       return {
         headline: H.length
-          ? H.map((h) => `${agShort(h.p)} is held from billing: ${h.why || `it is billed ${money(h.over)} ahead of earned work`}`).join("; ") + "."
-          : `${P.jobs.length ? agShort(P.jobs[0]) + " is" : "Nothing is"} not held from billing.`,
-        work: H.map((h) => `${agShort(h.p)} — over-billed ${money(h.over)}; it bills again when earned work passes what is billed`),
+          ? `${agN(H.length, "line")} held from billing (each line on its own evidence; a job is never held whole): ` + H.map((h) => `${agShort(h.p)} · ${h.why}`).join("; ") + "."
+          : `${P.jobs.length ? agShort(P.jobs[0]) + " has" : "Nothing has"} no line held from billing: every line bills on its own evidence.`,
+        work: H.map((h) => `${agShort(h.p)} — ${h.line || "line"} ${money(h.amount)} held: measure it on site, or Bill it on the Billing Queue`),
         go: agGo("billing"),
         ran: agRan("ready to bill", agWhereJob(P).concat(["held"]), "", H.length),
       };
@@ -167717,12 +167736,12 @@ const CATCH = [
         }))
         .concat(
           R.held.map((h) => ({
-            key: "held:" + h.p.id,
-            what: `Held: ${tdJob(h.p)}`,
-            sub: `${money(h.amount)} earned, held because ${h.why}`,
+            key: "held:" + h.p.id + (h.sv ? ":" + h.sv.id : ""),
+            what: `Held: ${tdJob(h.p)}${h.line ? " · " + h.line : ""}`,
+            sub: `${money(h.amount)} held because ${h.why}`,
             amount: h.amount,
             verb: "Review",
-            run: () => rtbAct("app:" + h.p.id),
+            run: () => blOpenProgress(h.p.id),
           })),
         );
     },
@@ -175058,3 +175077,110 @@ if ("function" == typeof fin2ClosePageHtml) {
     return h;
   };
 }
+
+// ---------------------------------------------------------------------------------------------------------
+// leaks2 (BACKLOG 1.5 and 8, the month's most expensive cracks; tests/leaks2_test.py). Work done and money
+// spent for a client reach the Billing Queue and Needs Your Hand line by line; bank lines are proposed against
+// the payroll run, PO or bill they paid; a duplicate charge, a vendor's credit memo and a statement in mail each
+// become one proposal a person confirms. AI proposes, people approve.
+// ---------------------------------------------------------------------------------------------------------
+
+// ---- 1. earned, not billed: one reading of a job's lines for the job page and Ask
+function lkUnbilledWork(pid) {
+  const out = [];
+  try {
+    pgRows(pid).forEach((r) => {
+      if (!(r.pr && r.pr.period > 0)) return;
+      out.push({ sv: r.sv, desc: r.sv.desc, co: pgIsCO(r.sv) ? r.sv.source : "", measured: r.pr.pct, billed: r.ev.billedPct, amount: r2(pgPeriodAmt(r)), held: pgLineHold(r) });
+    });
+  } catch (e) {}
+  return out;
+}
+if ("function" == typeof render) {
+  const base = render;
+  render = function () {
+    const r = base.apply(this, arguments);
+    try {
+      if ("dash" === view && S && S.id && ["owner", "pm", "billing", "controller"].includes(role())) {
+        const host = document.getElementById("v-dash");
+        host && host.querySelectorAll(".lk-rtb").forEach((x) => x.remove());
+        if (host) {
+          const W = lkUnbilledWork(S.id),
+            ready = W.filter((w) => !w.held),
+            amt = r2(ready.reduce((a, w) => a + w.amount, 0));
+          if (ready.length) {
+            const d = document.createElement("div");
+            (d.className = "note lk-rtb"),
+              (d.innerHTML = `<b>Ready to bill on this job: ${money(amt)}</b> <span class="small">— done and not billed yet: ${ready.map((w) => `${esc(w.co ? w.co + " " + w.desc : w.desc)} ${money(w.amount)} (measured ${Math.round(w.measured)}%, billed ${Math.round(w.billed)}%)`).join(" · ")}${W.length > ready.length ? ` · ${W.length - ready.length} held` : ""}.</span> <button type="button" class="btn sm" data-lkrtb="1">Draft the Application</button>`),
+              (host.querySelector(".kpis, #kpis") || host.firstElementChild || host).after(d),
+              (d.querySelector("[data-lkrtb]").onclick = () => blOpenProgress(S.id, !0));
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("job ready to bill", e);
+    }
+    return r;
+  };
+}
+// a document asked about by number goes to the older chain's lookup; whether a change order is billed is a
+// question about the invoices, so this reader runs first (AG_ASST, first)
+AG_ASST.unshift({
+    id: "cobilled",
+    first: !0,
+    re: /\bco-\d{4}-\d{3}\b.*\b(bill|billed|invoiced?|on an invoice)\b|\b(bill|billed|invoiced?)\b.*\bco-\d{4}-\d{3}\b/,
+    kind: "money",
+    run(P) {
+      const num = (P.l.match(/\bco-\d{4}-\d{3}(?:-r\d+)?\b/) || [""])[0].toUpperCase();
+      let hit = null;
+      (DB.clients || []).forEach((c) => (c.changeOrders || []).forEach((d) => d.number === num && (hit = { c: c, d: d })));
+      if (!hit) return null;
+      const { c: c, d: d } = hit,
+        sv = (c.sov || []).find((v) => v.source === d.number || v.coId === d.id),
+        on = sv ? (c.invoices || []).filter((i) => "void" !== i.status && (i.lines || []).some((l) => l.sovId === sv.id && +l.pct > 0)) : [],
+        sent = on.filter((i) => "draft" !== i.status),
+        pct = sv ? r2(sovBilled(c, sv.id)) : 0,
+        W = sv && d.projectId ? lkUnbilledWork(d.projectId).find((w) => w.sv.id === sv.id) : null;
+      return {
+        headline: !["approved", "billed"].includes(d.status)
+          ? `${d.number} is ${d.status}: it is billed once the client approves it.`
+          : sent.length
+            ? `${d.number} is billed ${pct}% on ${sent.map((i) => i.number).join(", ")}${W ? `; ${money(W.amount)} more is done and not billed yet` : ""}.`
+            : on.length
+              ? `${d.number} is on draft ${on.map((i) => i.number).join(", ")}, not sent: it is not billed until the draft goes to ${c.name}.`
+              : `${d.number} (${money(docTotal(d).total)}) is approved and not billed yet${W ? `: ${money(W.amount)} of it is done (measured ${Math.round(W.measured)}%) and ready to bill on the next application` : ""}.`,
+        work: on.map((i) => `${i.number} · ${i.status} · ${money(docTotal(i).total)}`),
+        go: agGo("billing"),
+        ran: agRan("change orders and invoice lines", [`change order is ${d.number}`], "", on.length + 1),
+      };
+    },
+  });
+AG_FIN.unshift(
+  {
+    id: "unbilledwork",
+    re: /\b(done|finished|complete[d]?|earned|measured|installed)\b.*\bnot (yet )?(billed|invoiced)\b|\bwork\b.*\b(unbilled|not (yet )?billed)\b|\bunbilled work\b/,
+    kind: "money",
+    run(P) {
+      const jobs = (P.jobs.length ? P.jobs : DB.projects || []).filter((p) => {
+          try {
+            return pgRows(p.id).length;
+          } catch (e) {
+            return !1;
+          }
+        }),
+        rows = jobs.flatMap((p) => lkUnbilledWork(p.id).map((w) => Object.assign({ p: p }, w))),
+        ready = rows.filter((w) => !w.held),
+        amt = r2(ready.reduce((a, w) => a + w.amount, 0));
+      return {
+        headline: ready.length
+          ? `${money(amt)} of work is done and not billed yet${P.jobs.length ? ` on ${agShort(P.jobs[0])}` : ""}: ${agList(ready.map((w) => `${w.co ? w.co + " " : ""}${w.desc} ${money(w.amount)}`))}.`
+          : `Nothing measured is ahead of billing${P.jobs.length ? ` on ${agShort(P.jobs[0])}` : ""}.`,
+        note: "Each line on its own evidence (the schedule, deliveries, the foreman's measure); a change order line bills from 0. A line measured only by cost is held until someone measures it." + (rows.length > ready.length ? ` ${agN(rows.length - ready.length, "line")} held.` : ""),
+        work: rows.map((w) => `${agShort(w.p)} · ${w.co ? w.co + " " : ""}${w.desc} — measured ${Math.round(w.measured)}%, billed ${Math.round(w.billed)}%: ${money(w.amount)} not billed${w.held ? ` (held: ${w.held})` : ""}`),
+        go: agGo("billing"),
+        ran: agRan("schedule of values lines", agWhereJob(P).concat(["measured is more than billed"]), "", rows.length),
+      };
+    },
+  },
+);
+

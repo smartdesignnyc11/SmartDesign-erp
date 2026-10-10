@@ -25,6 +25,9 @@ from harness import *
 # backlog and 121's over-billing rise by $1,532.47; YTD income and net fall by it; safe to spend (cash after
 # over-billing) falls by it. August and closed months are unchanged (a change in estimate is recognised in the
 # period it is made).
+# leaks (BACKLOG 1.5 #2) moved Ready to Bill: hold per line, never per job, so 121 State's measured framing and
+# electrical ($12,651.25), held before because the job is billed ahead on the WIP schedule, now propose an
+# application: $20,980 on 2 rows -> $33,631 on 3.
 PINNED = {
     'cash':            184231,   # Chase Business Checking, ledger balance
     'ar':              92265,    # open invoices, ex retainage
@@ -38,8 +41,8 @@ PINNED = {
     'net':             -5330,    # YTD net, management view (-$5,329.88; -$3,797.41 before truthpct)
     'income':          142759,   # YTD earned revenue ($142,759.24; $144,291.71 before truthpct)
     'safe':            -4151,    # safe to spend (-$4,150.74; -$2,618.27 before truthpct)
-    'rtb':             20980,    # ready to bill
-    'rtb_n':           2,
+    'rtb':             33631,    # ready to bill ($20,980 / 2 rows before leaks: 121 State's measured lines were held whole)
+    'rtb_n':           3,
     'wip_job:121 State Street':   131058,   # $131,057.72; $129,525.25 before truthpct
     'wip_job:45 Cranberry St':    2705,
     'wip_job:140 Prospect Place': 22512,
