@@ -63,6 +63,7 @@ Order of work:
 
 ### 1.1 closetie: the WIP ties to the GL on close day (finance S1/S2)
 This lane was finished and verified at 96 checks before it was lost. Re-implement it and hit the same figures.
+- **Status (2026-10-10): re-implemented.** `tests/closetie_test.py` drives the finance lens's month-end and reads every target below (114 checks), plus the controller's round-5 findings 3, 4, 5, 6, 10, 14, 16, 17 and 18. The code sits in two `closetie` sections of `src/app.js` (`ct*`, `fin3JobAdjust`, `fin3PostDated`, `budGuard`, `bfIsDemoOnly`, `bfVoidNotAtBank`, `billChangeDate`, `ctHoldBasis`).
 - **#1 Tie-out.**
   - What happens: with WW-2026-118 short-paid (PO $29,700 approved, $3,800 held in 1300), `jobFin` for a closed month reads the frozen figures, and the short-pay wrapper then subtracts the hold a second time (frozen actual $90,210 → $86,410).
   - Wages are accrued AFTER the WIP is planned (45 Cranberry labour −$123 moves its over-billing $325).
@@ -157,7 +158,7 @@ This lane was finished and verified at 53 checks. Target figures follow.
 - **Honest evaluation.** Tune on 50, report 50 held out, then write 25 fresh held-out questions and report that too.
 
 ### 1.4 clientpo: Release Order, client approvals, phone (UX S1/S2, ops S2). Unfinished
-1. **Release Order makes a real PO (S1).**
+1. **Release Order makes a real PO (S1).** **Done (lane purchasing, 2026-10-10):** `poValid` on every issue path, `smReleaseDialog`, `poRepairInvalid`; proven by `tests/purchasing_test.py` (release).
    - What happens: submittal 26 51 00-001 › Release Order drafts PO-2026-049 with the vendor "— choose vendor —", $0 total, no Needed on Site and no task. Issue PO succeeds anyway and marks material m17 "ordered" at $0, so the Buy Board stops chasing the lighting.
    - Fix:
      - Carry the item, quantities, prices, on-site date, task, spec section and job, and ask for the supplier (picker of vendors who sold this item or trade).
@@ -169,18 +170,19 @@ This lane was finished and verified at 53 checks. Target figures follow.
      - Open it in the project, with Extends Task = the item's task.
      - Attach the photos as exhibits, shared with the client.
      - Draft the client memo from the item's description; the PM's reply goes to Internal Notes.
+   - Done (lane ops, 2026-10-10): the memo is the item's title and note, the answer is in Internal Notes (never on the approval dialog, the email or the PDF), the item's photos attach as exhibits shared with the client and show in the editor, the dialog and the email; `tests/ops_test.py fieldco`.
 3. **The estimate hint stays out of the description.**
    - What happens: the hint "…Contract line on EST-2026-014: $34,500 — for reference; enter this change's quantity or price" is saved into the CO line `desc` and prints on the client's CO and PDF.
    - Fix: keep it in `refAmount`, shown as a hint only, and clean already-saved descriptions.
-4. **The client sees what they approve.**
+4. **The client sees what they approve.** Done (clientfix, tests/client_test.py): "View the Sheets" opens the read-only client viewer (`clFileView`), the approval sheet stays open underneath, and every file write refuses the client role in the function.
    - Each client submittal approval gets "View the Sheets", which opens the file, plus a confirmation step like CO signing.
    - It counts in Waiting on You, the nav badge and the Decisions tile.
    - Fold the client's four lists (Your Decisions / To Sign / Waiting on You / Approve Before We Order) into ONE Waiting on You list, with one count.
-5. **The client Overview shows progress.**
+5. **The client Overview shows progress.** Done; and a design job before its schedule is published reads a design-phase Overview (`clDesignOverviewHtml`), never a construction card; one billed figure ("Billed to date $238,015 after retainage ($253,684 before)").
    - Show Progress (the certified figure from §1.2) plus the last 3 shared photos.
    - Retire the stale "last update from Alan on Tue, Jul 28" line.
    - The PM writes a client caption when sharing; internal tags (DAILY LOG) are never shown.
-6. **Portal approvals are not inbox work.** They land in project Messages as handled activity, not "New" with Review / Ignore / Delete.
+6. **Portal approvals are not inbox work.** Done (clientfix): a choice, a signature, a sample approval and a question each land in Project Messages as one handled activity line (`clActivity`); a client's question is the PM's Do Now item "Answer <client>" with a drafted reply from the published schedule and the statement (`clqRaise` / `clqAnswer`), and the client reads "Sent to Alan" and the answer. The client has an Ask door (header, the Chat switch, a scoped `pa` surface) and the intents a client uses (`CL_ASK`).
 7. **Phone document overflow (regression).** On the CO draft, the meta block (621px in 268px) pushes Title / Project / Date to x=645. Collapse the meta block to one column under 480px, and sweep every document type on phone for elements wider than the viewport.
 8. **Icons.**
    - `.bp-ic` has no size: the PO "Documents:" note renders a ~1,000px PDF glyph, and the Documents grid crops 209px glyphs.
@@ -254,7 +256,7 @@ Each is proven by a demo_ws_test check turning from "did not fire" to "fired as 
 6. **Meeting notes and transcripts in Drive are only nudged** ("belongs on the job"); ingest them like mail (`mtIngest` from Drive text).
 7. **A client's dated ask inside a decision email** ("confirm the laundry layout before Friday") becomes a dated task for the PM, not only an offer.
 8. **The quiet-lead chase** fires only when the sent message asked a question; any proposal or quote sent with no reply is watched.
-9. **A DOB NOW notice** sets the inspection date on the project's inspection record (as a proposal), not only a permit note.
+9. **A DOB NOW notice** sets the inspection date on the project's inspection record (as a proposal), not only a permit note. Done (lane ops, 2026-10-10): `cmDobNow` proposes the booking with its window on the matching open inspection; approving it books through `inspBook` (calendar hold, foreman told, trade drafted, the Book task closed); `tests/ops_test.py insp`.
 10. **Lessons are not proposed from events.** The no-show and the expired COI never became lessons; `bnSuggestLessons` runs only when The Brain renders. Run it on every sync and on every closed field issue, bill dispute and late delivery.
 11. **A call from the answering service** matches the client by phone and proposes the reply draft, not only a task.
 12. **A bank or card statement in Drive** proposes the import (and the reconcile), not only a nudge.
@@ -268,6 +270,7 @@ Each is proven by a demo_ws_test check turning from "did not fire" to "fired as 
 - **206 Lenox is a clone (S2).**
   - What happens: "3rd floor turnover", $0 contract, carries 121 State's 39 schedule lines and its decisions verbatim. Owner Approvals shows 3 duplicate decisions, Ask's "11 decisions waiting on the client" includes 5 clones, and Chen's tasks and Purchasing's 28 rows include clone items. Purchasing also lists 140 Prospect's "LPC application" as a thing to buy.
   - Fix: reseed 206 with its own small scope, and strip non-materials from Purchasing.
+  - Done (lane ops, 2026-10-10): the template copies phases and inspections only; 206 Lenox has its own turnover scope (six tasks, one decision, two materials, `lenoxScope`); `tplStripClones` strips clone copies from a saved database at boot; `tests/ops_test.py lenox`. Purchasing's non-materials remain open.
 - **The owner's Approvals is a catch-all (S2).**
   - What happens: 26 items, but the chips cover only 13 (Bills 2, Hours 4, Decisions 7). The rest are crew hours, a material acknowledgement, meeting proposals, "a build" and lessons.
   - Fix:
@@ -345,3 +348,61 @@ These are not reviewer findings. They are what the reviewers kept circling: the 
    - Delegation moves items to the right person, so the owner's queue is only what only the owner can do.
 4. **Performance.** Measure boot, view switch and input latency on a mid-range phone (6x CPU throttle). Target view switch under 100ms and boot under 2s. Memoise jobFin and companyPL per DB revision.
 5. **Accessibility.** Keyboard paths for every primary flow, focus management after dialogs, ARIA on tabs and grids, contrast AA.
+
+---
+
+## §4 Round 5: the role experts' first walk (2026-10-10)
+Reviewers: `.claude/agents/` role experts, each a full day with a linked workspace (the owner on his real one). Reports in `review/r5_<role>/report.md` (git-ignored).
+
+| Role | Screens | Assistant | Brain | Overall | Would choose it over… |
+|---|---|---|---|---|---|
+| Owner | 6.5 | 4 | 4.5 | 5.5 | "beside QuickBooks and my inbox for a quarter; not yet let anyone tap Approve on what it proposes from mail" |
+| PM | 7 | 5 | 6 | 6.5 | Procore / Buildertrend on the schedule story; not until the two S1s are gone |
+| Coordinator | 6 | 5 | 4 | 5.5 | "the day the PO chain and the owner's approval queue hold money correctly" |
+| Controller | 7.5 | 5.5 | 4 | 7 | QuickBooks today for the gates and the audit chain; NetSuite once the WIP ties |
+| Client | 6.5 | 4 | 4 | 5.5 | Buildertrend's portal once the file editor and the design-phase truth are fixed |
+
+### Severity 1, with the lane that owns the fix
+1. Money proposals from mail point the wrong way (Zelle credits as bills, rent as AR, a stranger's deposit claim watched). **brain**
+2. "View the Sheets" opens the staff file editor to the client, with Save and Delete. **clientfix**
+3. The design-phase portal states construction truths on an unpaid retainer. **clientfix**
+4. A give-back never closes; a second Pull In pulls 4 more days; the next publish would send a false finish. **ops**
+5. A client's approved overage has no path to a change order. **ops**
+6. A PO with no vendor and a $0 line issues from a released submittal (§1.4 #1 was never rebuilt). **purchasing**
+7. A bill read from mail lands with no PO and no job; Bill Remaining ignores it ($95,000 billed on a $76,000 order). **purchasing**
+8. Submittal responses recorded on someone's behalf are attributed to the reviewer, including the client. **purchasing**
+9. A PO submitted for the owner's approval reaches nobody. **purchasing**
+10. WIP does not tie to the ledger after the close (§1.1 #1); the close does not refuse. **closetie**
+11. Budget activation and lock are unguarded in the functions (§1.1 #6). **closetie**
+12. One coding click re-recognised $27,000 of revenue by cost-to-cost against an unreviewed EAC. **closetie**
+
+### The classes behind the severity-2 findings
+- **Regression from the askgen merge (found 2026-10-10 by the ops lane):** truthpct_test's 8 Ask money checks fail on master: "margin by job" answers the company's YTD margin, the backlog and margin answers lost their per-job rows with "14% complete", and the EAC answer lost "Estimate at completion on …". The figures are right; the per-job breakdown is gone. truthpct_test is now in run_all's default list so this cannot slip again. **assistant**
+- **The assistant guesses:** typo correction overreaches on known nouns; client names resolve to staff; "friday" is Thursday; memory rewrites the user's words; drafts are a template; chases send nothing; a slow answer hangs the thread. **assistant**
+- **The brain does not learn from events:** lessons are a fixed menu, fired 0×; nothing from a no-show, an extra before its CO, an LPC resubmit, a wrong-finish return, a $0 PO, a dispute, a void, a reopen, thirteen meetings. **learn**
+- **Proposals never reach a hand:** mail-read bills, imports, quotes, receipts, W-9 chases sit on the Comms screen; "X wrote about Y" with no button. **learn** (Needs Your Hand queue)
+- **Field answers stop at "save a record":** no-show, inspection booking, the client's choice, the sample approval. **ops**, **clientfix**
+- **The reader does not finish the job:** quote → task not price; receipt → uncoded line; delivery date → note; credit memo → nothing. **purchasing**
+- **Clones and counts:** 206 Lenox carries 121 State's decisions and materials; "late" and "blocked" still have several numbers on the purchasing screens; two Alans; "[image: …]" as a person. **ops**, **brain**
+
+---
+
+## §5 Platform: from a single-player demo to the firm's system (Alan, 2026-10-10: "to the highest level, especially all the AI features")
+Today every person's data lives in their own browser and every guard runs in the page. Rebuild the hosted half (HANDOFF "What was lost") so ten people on ten phones share one truth.
+1. **Shared database, sign-in, sync.** Supabase (Postgres) as the system of record; Google sign-in per person; `cloud.js` rebuilt (per-user assistant shards, pending markers, keepalive push on pagehide, re-push before pull so a local edit is never overwritten); offline on site with conflict rules (money records server-wins with a visible conflict, field notes merge).
+2. **Security in the database, not the page.** Row-level security per firm, per role and per client: a client's phone never receives another client's rows; field roles never receive money; the budget, close, journal and approval rules enforced by database functions; the hash chain's head per period stored server-side, so rebuilding the chain in a browser is detected. The browser checks stay as the first line, never the only one.
+3. **The AI connection, to the highest level.** A server proxy (`/api/ai`) with the model pinned by environment and a per-person and per-firm cost ceiling. The assistant is the model with the ERP as its tools: every entity and field of `erpQuery`, the PRED predicates, truth coverage, drafts, proposals and the expectation ledger; answers cite the query they ran; writes are proposals with a button. One assistant per person, with that person's role, jobs, standing orders, memory and connected mail, calendar and drive. The deterministic parser stays as the offline path and as the model's grounding tools. An evaluation harness runs the Ask bank (tune, held-out, held-out-2) against the live model on every release.
+4. **AI guardrails.** Mail, documents and transcripts are data, never instructions (prompt-injection tests with hostile mail: "pay this now", "update our bank details", "ignore previous instructions"); a change to a vendor's or the firm's bank details needs two people and a call-back; every AI action is logged with its evidence and reason; the brain can propose an ERP change but a person approves and it ships through a review.
+5. **Document reading.** The server extracts text from PDFs, Office files and images (the lost `doctext`), so every vendor invoice, quote, COI and statement is read; a proposal says when a document could not be read.
+6. **Watchers that run while phones are in pockets.** The per-user Gmail, Calendar and Drive watcher (the lost `assistant-watch`), Plaid bank and card feeds with webhooks (link, exchange, cursor sync, sealed tokens), and the daily sweep (chases, reminders, lesson triggers, obligations) on a schedule.
+7. **iPhone and speed.** Safari (WebKit) checks on a real iPhone or a WebKit runner, storage persistence (Safari can clear site data after a week unused; the server copy is the cure), and boot under 2 s and view switch under 100 ms with a mid-range phone's CPU (§3.4).
+
+## §6 Go-live and the 10x scorecard
+1. **Real data in.** Clients, jobs, vendors, people, open estimates, invoices, bills and POs imported (the existing paste-from-Excel import, the QuickBooks snapshot load, and the master-data proposals from real mail), demo data removed, opening balances from QuickBooks.
+2. **A parallel month.** The ERP runs beside QuickBooks for one month; the Three-Way Tie-Out must agree every week before QuickBooks is retired; a cutover checklist with an owner and a date.
+3. **Who moves first.** The owner, the PM and billing; then the coordinator and the controller; then the field; then clients in the portal.
+4. **The 10x scorecard, measured before and after.** Days from work done to invoice sent; days from invoice to cash; hours a week each person spends on email and admin; days to close a month; dollars of unbilled work and reimbursables found; chases answered on time; items that slipped (the month simulation's ledger). The baseline is taken from QuickBooks history and the real mailbox before cutover.
+
+## §7 Later (Alan, 2026-10-10: "leave for later; I need to better understand this")
+New York rules a design-build firm lives by: Lien Law Article 3-A trust funds per job; sales tax on capital improvements vs repairs (ST-124); site safety training cards at clock-in (NYC Local Law 196); workers' comp and COI enforcement before payment.
+

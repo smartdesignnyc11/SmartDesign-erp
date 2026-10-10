@@ -14,13 +14,26 @@ const DAY = 864e5,
     return x.setDate(x.getDate() + n), x;
   },
   dayDiff = (a, b) => Math.round((parse(b) - parse(a)) / DAY),
+  // the app's year is understood; any other year is said ("8/15/2027", "Aug 15, 2027"), so a COI that
+  // expires next year never reads like one that expired last month
+  fmtYear = () => {
+    try {
+      return "function" == typeof appNow ? appNow().getFullYear() : new Date().getFullYear();
+    } catch (e) {
+      return new Date().getFullYear();
+    }
+  },
   fmt = (s) => {
     const d = parse(s);
-    return d ? `${d.getMonth() + 1}/${d.getDate()}` : "—";
+    return d ? `${d.getMonth() + 1}/${d.getDate()}${d.getFullYear() !== fmtYear() ? "/" + d.getFullYear() : ""}` : "—";
   },
   fmtL = (s) => {
     const d = parse(s);
-    return d ? d.toLocaleDateString(void 0, { weekday: "short", month: "short", day: "numeric" }) : "—";
+    return d
+      ? d.getFullYear() === fmtYear()
+        ? d.toLocaleDateString(void 0, { weekday: "short", month: "short", day: "numeric" })
+        : d.toLocaleDateString(void 0, { month: "short", day: "numeric", year: "numeric" })
+      : "—";
   },
   DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
   APP_TZ = () => {
@@ -85,8 +98,22 @@ function appDay() {
   } catch (e) {}
   return tzToday();
 }
+// The time of day on the app clock. On a real day it is the wall clock in the firm's time zone. When the day is
+// pinned (the demo's 2026-09-03), the wall clock's day is run through site hours instead, 07:30 to 17:30, so a
+// stamp written at 11:46 PM on the reviewer's machine reads as a site-hours stamp and later stamps still come
+// later; nothing on a pinned day is ever stamped in the middle of the night (review r5_pm, finding 12).
+function appDayPinned() {
+  try {
+    return appDay() !== tzToday();
+  } catch (e) {
+    return !1;
+  }
+}
 function appClock() {
   const x = new Date();
+  let h = x.getHours(),
+    m = x.getMinutes(),
+    sec = x.getSeconds();
   try {
     const f = new Intl.DateTimeFormat("en-GB", {
         timeZone: APP_TZ(),
@@ -96,15 +123,17 @@ function appClock() {
         hourCycle: "h23",
       }),
       p = {};
-    if (
-      (f.formatToParts(x).forEach((o) => {
-        "literal" !== o.type && (p[o.type] = o.value);
-      }),
-      p.hour)
-    )
-      return `${"24" === p.hour ? "00" : p.hour}:${p.minute}:${p.second}`;
+    f.formatToParts(x).forEach((o) => {
+      "literal" !== o.type && (p[o.type] = o.value);
+    }),
+      p.hour && ((h = "24" === p.hour ? 0 : +p.hour), (m = +p.minute), (sec = +p.second));
   } catch (e) {}
-  return `${String(x.getHours()).padStart(2, "0")}:${String(x.getMinutes()).padStart(2, "0")}:${String(x.getSeconds()).padStart(2, "0")}`;
+  if (appDayPinned()) {
+    const t = 27e3 + Math.floor(((3600 * h + 60 * m + sec) / 86400) * 36e3);
+    (h = Math.floor(t / 3600)), (m = Math.floor((t % 3600) / 60)), (sec = t % 60);
+  }
+  const z = (n) => String(n).padStart(2, "0");
+  return `${z(h)}:${z(m)}:${z(sec)}`;
 }
 const appNowIso = () => `${appDay()}T${appClock()}`,
   appNow = () => new Date(appNowIso()),
@@ -113,6 +142,13 @@ const appNowIso = () => `${appDay()}T${appClock()}`,
     const x = d instanceof Date ? d : new Date(d),
       z = (n) => String(n).padStart(2, "0");
     return `${x.getFullYear()}-${z(x.getMonth() + 1)}-${z(x.getDate())}T${z(x.getHours())}:${z(x.getMinutes())}:${z(x.getSeconds())}`;
+  },
+  clipWords = (str, n) => {
+    const t = String(str || "").trim();
+    if (t.length <= n) return t;
+    const cut = t.slice(0, n + 1),
+      at = Math.max(cut.lastIndexOf(" "), cut.lastIndexOf("—"), cut.lastIndexOf(","));
+    return `${(at > n / 2 ? cut.slice(0, at) : t.slice(0, n)).replace(/[\s,;:—–-]+$/, "")}…`;
   },
   stampText = (ts) => {
     if (!ts) return "";
@@ -1990,9 +2026,11 @@ function projectFromTemplate(name, addr, start, target) {
     tpl.inspections.forEach((i) => {
       (i.status = "not-scheduled"), (i.date = "");
     }),
-    tpl.decisions.forEach((d) => {
-      d.status = "open";
-    }),
+    // A template is the phase sequence and the inspections NYC will ask for. Decisions, materials, submittals
+    // and field items belong to the job they were raised on; a new job starts with none (review r5_pm, #8).
+    (tpl.decisions = []),
+    (tpl.materials = []),
+    (tpl.submittals = []),
     (tpl.comms = []),
     (tpl.issues = []),
     (tpl.baseline = null),
@@ -3647,9 +3685,24 @@ const toastLinksOf = (go) =>
   (Array.isArray(go) ? go : go ? [go] : [])
     .map((l) => ("function" == typeof l ? { label: "Open", run: l } : l))
     .filter((l) => l && "function" == typeof l.run);
+// A toast over an open sheet moves to the top of the screen, so it never sits on the sheet's controls (the sign
+// sheet's tick was under one for six seconds and the tap went to the toast). A tap on the toast dismisses it.
+function toastPlace(t) {
+  t.classList.remove("toast-up");
+  const box = document.querySelector("#mbm .mbm-box, .modal.on .modal-box, .drawer.on");
+  if (!box || !box.getClientRects().length) return;
+  const r = t.getBoundingClientRect(),
+    b = box.getBoundingClientRect();
+  r.bottom > b.top && r.top < b.bottom && r.right > b.left && r.left < b.right && t.classList.add("toast-up");
+}
 function toast(msg, go, ms) {
   const t = $("#toast");
   (t.textContent = msg), t.classList.remove("act"), t.classList.add("on"), clearTimeout(t._t);
+  t.onclick ||
+    (t.onclick = (e) => {
+      if (e.target.closest("a, button")) return;
+      t.classList.remove("on", "act", "toast-up"), clearTimeout(t._t);
+    });
   const L = toastLinksOf(go);
   L.length &&
     ((t.textContent = ""),
@@ -3671,7 +3724,8 @@ function toast(msg, go, ms) {
         t.appendChild(a);
     }),
     t.classList.add("act")),
-    (t._t = setTimeout(() => t.classList.remove("on", "act"), ms || (L.length ? 6500 : 2400)));
+    toastPlace(t),
+    (t._t = setTimeout(() => t.classList.remove("on", "act", "toast-up"), ms || (L.length ? 6500 : 2400)));
 }
 const sevPill = (s) => (3 === s ? "red" : 2 === s ? "orange" : 1 === s ? "amber" : "green");
 // One place resets the scroll: a new view, or a tab / sub-tab press, starts at the top. The page
@@ -4734,12 +4788,12 @@ function renderInsps() {
       {
         key: "a",
         label: "",
-        w: "80px",
+        w: "150px",
         get: (d) => ({
           text: "",
           html:
             "passed" !== d.i.status
-              ? `<button class="btn sm act" data-passed="${d.i.id}">Passed</button>`
+              ? `<button class="btn sm act ${"scheduled" === d.i.status ? "" : "primary"}" data-book="${d.i.id}">${"scheduled" === d.i.status ? "Rebook" : "Book"}</button><button class="btn sm act" data-passed="${d.i.id}">Passed</button>`
               : "",
         }),
       },
@@ -7642,7 +7696,10 @@ function renderChat() {
     ? S.chat
         .map((m) => {
           const c = S.comms.find((x) => x.id === m.commId),
-            st = c ? c.status : "";
+            st = c ? c.status : "",
+            cq = m.clq ? (S.clientQs || []).find((x) => x.id === m.clq) : null,
+            clRole = "function" == typeof role && "client" === role(),
+            pmFirst = "function" == typeof clPmFirst ? clPmFirst(S) : "your project manager";
           return `<div class="cm ${m.by === me ? "me" : ""}"><div class="who"><b>${esc(m.by)}</b> · ${esc(m.t)}</div>${esc(m.text)}${
             (m.files || []).length
               ? `<div class="row" style="margin-top:4px">${m.files
@@ -7654,7 +7711,17 @@ function renderChat() {
                   })
                   .join("")}</div>`
               : ""
-          }${c ? `<div class="st">${"new" === st ? '<a href="#" data-go="view:inbox" class="muted">Waiting for review in Inbox</a>' : "proposed" === st ? `<a href="#" data-go="view:inbox">${(c.proposal || []).length} proposed update${1 === (c.proposal || []).length ? "" : "s"} — review in Inbox</a>` : "applied" === st || "auto" === st ? `<span style="color:var(--green)">${esc(c.appliedSummary || "Applied")}</span>` : "reviewing" === st ? '<span class="muted">Assistant is reading…</span>' : "ignored" === st ? '<span class="muted">No project update</span>' : ""}</div>` : ""}</div>`;
+          }${
+            clRole
+              ? cq && "open" === cq.status
+                ? `<div class="st"><span class="muted">Sent to ${esc(pmFirst)}</span></div>`
+                : ""
+              : cq
+                ? `<div class="st"><span class="muted">${"open" === cq.status ? "A question for you — Answer it from Home" : `Answered by ${esc(cq.answeredBy || "")}`}</span></div>`
+                : c
+                  ? `<div class="st">${"new" === st ? '<a href="#" data-go="view:inbox" class="muted">Waiting for review in Inbox</a>' : "proposed" === st ? `<a href="#" data-go="view:inbox">${(c.proposal || []).length} proposed update${1 === (c.proposal || []).length ? "" : "s"} — review in Inbox</a>` : "applied" === st || "auto" === st ? `<span style="color:var(--green)">${esc(c.appliedSummary || "Applied")}</span>` : "reviewing" === st ? '<span class="muted">Assistant is reading…</span>' : "ignored" === st ? '<span class="muted">No project update</span>' : ""}</div>`
+                  : ""
+          }</div>`;
         })
         .join("")
     : '<div class="empty">No messages yet. Post what happened on site today.</div>'),
@@ -8102,8 +8169,9 @@ function renderClients() {
       projs.length
         ? projs
             .map((p) => {
-              const h = projectHealth(p);
-              return `<div class="cl-row"><div><b>${esc(p.project.name)}</b><div class="small muted">${esc(p.project.addr || "")} · completion ${fmtL(h.sc)}${p.project.target ? ` (target ${fmt(p.project.target)})` : ""} · ${h.pct}% done</div></div><button class="btn sm" data-open="${p.id}">Open</button></div>`;
+              const h = projectHealth(p),
+                pc = "function" == typeof tpJobPct ? Math.round(tpJobPct(p)) : h.pct;
+              return `<div class="cl-row"><div><b>${esc(p.project.name)}</b><div class="small muted">${esc(p.project.addr || "")} · completion ${fmtL(h.sc)}${p.project.target ? ` (target ${fmt(p.project.target)})` : ""} · ${pc}% done</div></div><button class="btn sm" data-open="${p.id}">Open</button></div>`;
             })
             .join("")
         : '<div class="muted small">No projects linked. In a project\'s Settings, choose this client.</div>'
@@ -8115,6 +8183,7 @@ function renderClients() {
           ? `<table class="t"><thead><tr><th>Project</th><th>Status</th><th>Completion</th><th class="money">Contract</th><th class="money">Billed</th><th class="money">Outstanding</th><th>Decisions owed</th><th>Health</th><th></th></tr></thead><tbody>${projs
               .map((p) => {
                 const h = projectHealth(p),
+                  pc = "function" == typeof tpJobPct ? Math.round(tpJobPct(p)) : h.pct,
                   billed = c.invoices
                     .filter((x) => x.projectId === p.id && !["draft", "void"].includes(x.status))
                     .reduce((a, x) => a + docTotal(x).total, 0),
@@ -8127,7 +8196,7 @@ function renderClients() {
                       .filter((x) => x.projectId === p.id && ["approved", "billed"].includes(x.status))
                       .reduce((a, x) => a + docTotal(x).total, 0),
                   decs = p.decisions.filter((d) => "Client" === d.owner && "open" === d.status).length;
-                return `<tr class="click" data-open="${p.id}"><td><b>${esc(p.project.name)}</b><br><span class="sub">${esc(p.project.addr || "")}</span></td><td><span class="pill ${h.pct >= 100 ? "ok" : h.tasks ? "info" : "neutral"}">${h.pct >= 100 ? "complete" : h.tasks ? `${h.pct}% done` : "not started"}</span></td><td class="num">${h.tasks ? fmt(h.sc) : "—"}${p.project.target ? `<br><span class="sub">target ${fmt(p.project.target)}</span>` : ""}</td><td class="money">${contract ? money(contract) : 1 === projs.length ? money(f.revised) : "—"}</td><td class="money">${money(billed)}</td><td class="money ${outstanding ? "" : "dim"}">${money(outstanding)}</td><td>${decs || "—"}</td><td>${h.tasks ? `<span class="pill ${"g" === h.health.grade ? "ok" : "a" === h.health.grade ? "warn" : "bad"}">${h.health.score}</span>` : "—"}</td><td><button class="btn sm act" data-open="${p.id}">Open</button></td></tr>`;
+                return `<tr class="click" data-open="${p.id}"><td><b>${esc(p.project.name)}</b><br><span class="sub">${esc(p.project.addr || "")}</span></td><td><span class="pill ${pc >= 100 ? "ok" : h.tasks ? "info" : "neutral"}">${pc >= 100 ? "complete" : h.tasks ? `${pc}% done` : "not started"}</span></td><td class="num">${h.tasks ? fmt(h.sc) : "—"}${p.project.target ? `<br><span class="sub">target ${fmt(p.project.target)}</span>` : ""}</td><td class="money">${contract ? money(contract) : 1 === projs.length ? money(f.revised) : "—"}</td><td class="money">${money(billed)}</td><td class="money ${outstanding ? "" : "dim"}">${money(outstanding)}</td><td>${decs || "—"}</td><td>${h.tasks ? `<span class="pill ${"g" === h.health.grade ? "ok" : "a" === h.health.grade ? "warn" : "bad"}">${h.health.score}</span>` : "—"}</td><td><button class="btn sm act" data-open="${p.id}">Open</button></td></tr>`;
               })
               .join("")}</tbody></table>`
           : '<div class="empty">No projects yet for this client.</div>')),
@@ -8677,8 +8746,19 @@ function renderDocEditor(c, d) {
       : ""
   }\n      <div class="f"><label>Project</label><select data-d="projectId" ${editable ? "" : "disabled"}>${projOpts || '<option value="">—</option>'}</select></div>\n      <div class="f"><label>Date</label><input type="date" data-d="date" value="${d.date}" ${editable ? "" : "readonly"}></div>\n      ${"invoice" === kind ? `<div class="f"><label>Due</label><input type="date" data-d="due" value="${d.due || ""}" ${editable ? "" : "readonly"}></div>` : "estimate" === kind ? `<div class="f"><label>Valid until</label><input type="date" data-d="validUntil" value="${d.validUntil || ""}" ${editable ? "" : "readonly"}></div>` : `<div class="f"><label>Schedule impact (working days)</label><input type="number" data-d="scheduleDays" value="${d.scheduleDays || 0}" ${editable ? "" : "readonly"}></div>`}\n    </div></details>\n    ${"function" == typeof designStrip ? designStrip(c, d) : ""}${"function" == typeof materialsStrip ? materialsStrip(c, d) : ""}\n    ${linesHtml}\n    <div class="totals"><div><div class="f"><label>${"estimate" === kind ? "Scope notes / allowances / exclusions" : "Memo (printed)"}</label><textarea data-d="memo" ${editable ? "" : "readonly"}>${esc(d.memo || "")}</textarea></div><div class="f"><label>Terms</label><input data-d="terms" value="${esc(d.terms || "")}" ${editable ? "" : "readonly"}></div><div class="f no-doc-print"><label>Internal notes (not printed)</label><textarea data-d="internal" style="min-height:44px">${esc(d.internal || "")}</textarea></div></div>\n      <div class="tt"><span class="k">Subtotal</span><span class="v">${money(t.sub)}</span>\n        <span class="k">Discount ${editable ? `<select data-d="discType" style="width:auto;padding:2px 4px;font-size:12px"><option value="pct" ${"pct" === d.discount.type ? "selected" : ""}>%</option><option value="amt" ${"amt" === d.discount.type ? "selected" : ""}>$</option></select> <input type="number" step="any" data-d="discValue" value="${d.discount.value || 0}">` : `(${"pct" === d.discount.type ? d.discount.value + "%" : money(d.discount.value)})`}</span><span class="v">${t.disc ? "− " + money(t.disc) : "—"}</span>\n        <span class="k">Sales tax ${editable ? `<input type="number" step="0.001" data-d="taxRate" value="${d.taxRate || 0}">%` : `(${d.taxRate || 0}%)`}${t.taxable ? ` <span class="muted small">on ${money(t.taxable)}</span>` : ""}</span><span class="v">${t.tax ? money(t.tax) : "—"}</span>\n        ${"invoice" === kind ? `<span class="k">Retainage held ${editable ? `<input type="number" step="0.5" data-d="retainagePct" value="${d.retainagePct || 0}">%` : `(${d.retainagePct || 0}%)`}</span><span class="v">${t.ret ? "− " + money(t.ret) : "—"}</span>` : ""}${t.dep ? `<span class="k">Less deposit applied</span><span class="v">− ${money(t.dep)}</span>` : ""}\n        <span class="k big">${"invoice" === kind ? "Total this invoice" : "Total"}</span><span class="v big">${money(t.total)}</span>\n        ${paidOn ? `<span class="k">Payments received</span><span class="v">− ${money(paidOn)}</span><span class="k" style="font-weight:600">Balance due</span><span class="v" style="font-weight:600">${money(t.total - paidOn)}</span>` : ""}</div></div>\n    ${DB.company.tc ? `<div class="small muted" style="margin-top:14px;white-space:pre-wrap">${esc(DB.company.tc)}</div>` : ""}\n    <div class="docacts">${docActions(c, d, st)}</div></div>`;
 }
-const docSnap = (d) => (
-    "construction" === d.template && ctNumber(d), JSON.stringify(Object.assign({}, d, { _base: void 0 }))
+// "Unsaved changes" means what the editor's own inputs changed and nothing else. The snapshot a document is
+// compared against holds only the fields the editor writes (DOC_EDIT_KEYS): what the app writes on its own
+// (status, history, the client's answer, a change order's give-back, approvals) never reads as an edit. Before
+// this the whole record was compared, so an approved, read-only change order read as dirty after Pull In, leaving
+// it asked "Save changes?" and the modal's first answer reverted the record to its snapshot, which reopened the
+// give-back (review r5_pm, findings 1 and 12).
+const DOC_EDIT_KEYS = [
+    "title", "projectId", "date", "due", "validUntil", "terms", "taxRate", "discount", "lines", "memo", "notes",
+    "internal", "internalNotes", "scheduleDays", "retainagePct", "depositPct", "billFrom", "template", "mode",
+    "estimateId", "taskId", "clientId", "exhibits",
+  ],
+  docSnap = (d) => (
+    "construction" === d.template && ctNumber(d), JSON.stringify(DOC_EDIT_KEYS.map((k) => [k, d[k]]))
   ),
   docDirty = (d) => void 0 !== d._base && d._base !== docSnap(d);
 function docMark(d) {
@@ -8686,21 +8766,30 @@ function docMark(d) {
 }
 function docRevert(c, d) {
   if (void 0 === d._base) return;
-  const prev = JSON.parse(d._base);
-  Object.keys(d).forEach((k) => {
-    "_base" !== k && delete d[k];
+  const prev = Object.fromEntries(JSON.parse(d._base));
+  DOC_EDIT_KEYS.forEach((k) => {
+    void 0 === prev[k] ? delete d[k] : (d[k] = prev[k]);
   }),
-    Object.assign(d, prev),
     (d._base = docSnap(d));
 }
+// A saved database may still hold whole-record snapshots from before DOC_EDIT_KEYS; they are re-taken at boot,
+// so no document reads as dirty for what the app wrote on its own.
+function docSnapBoot() {
+  (DB.clients || []).forEach((c) =>
+    [...(c.estimates || []), ...(c.changeOrders || []), ...(c.invoices || [])].forEach((d) => {
+      void 0 !== d._base && !String(d._base).startsWith("[[") && (d._base = docSnap(d));
+    }),
+  );
+}
+// Leaving a document keeps what was typed (a quantity commits on blur, Send saves first: the edits are live
+// already); nothing is reverted on the way out and nothing is asked. Discard is the docbar's own button.
 function docLeave(c, d) {
   ctCloseSheet(),
     d &&
       docDirty(d) &&
-      (appConfirm(`Save changes to ${d.number}?\n\nOK = save · Cancel = discard`)
-        ? docMark(d)
-        : docRevert(c, d),
-      save());
+      (docMark(d),
+      save(),
+      toastDone(`Kept your changes to ${d.number}`, () => flowGo.doc(c, d.type, d)()));
 }
 function docActions(c, d, st) {
   const k = d.type,
@@ -9401,7 +9490,8 @@ function applyRules(t) {
   const r = DB.rules.find((r) => d.includes(r.match.toLowerCase()));
   return (
     !!r &&
-    ((t.cat = r.cat),
+    // money coming in on a job-cost rule is a vendor credit, never materials
+    ((t.cat = +t.amt > 0 && isJobCat(r.cat) ? "refund" : r.cat),
     (t.code = r.code || ""),
     (t.vendor = r.vendor || t.vendor),
     r.projectId && (t.projectId = r.projectId),
@@ -9542,7 +9632,8 @@ function renderBank() {
         cls: "name",
         get: (t) => ({
           text: t.desc,
-          html: `${esc(t.desc)}${t.vendor ? `<span class="sub">${esc(t.vendor)}</span>` : ""}`,
+          // a vendor credit says what it is against, with Confirm (txnCreditLine, purchasing section)
+          html: `${esc(t.desc)}${t.vendor ? `<span class="sub">${esc(t.vendor)}</span>` : ""}${"function" == typeof txnCreditLine ? txnCreditLine(t) : ""}`,
         }),
       },
       {
@@ -10483,7 +10574,13 @@ function txnDialog(id) {
     }),
     ($("#d-save").onclick = () => {
       const dt = $("#e-date").value;
-      if (dt && "function" == typeof isLocked && isLocked(dt))
+      // A line dated in a closed month that posted in an open one (its postOn) can still be coded there.
+      if (
+        dt &&
+        "function" == typeof isLocked &&
+        isLocked(dt) &&
+        !(id && t.postOn && dt === t.date && !isLocked(t.postOn))
+      )
         return void toast(
           `${dt.slice(0, 7)} is closed — date it in an open month, or reopen the period first`,
         );
@@ -11158,7 +11255,9 @@ function wirePODoc(po) {
 function poAction(po, a) {
   S.project.userName;
   if ("issue" === a) {
-    if (!po.vendor || !po.lines.length) return void toast("Add a vendor and at least one line");
+    // One house validator (poValid, purchasing section): a real vendor, lines, no $0 line, a need-by date.
+    const bad = poValid(po);
+    if (bad.length) return void poRefuse(po, bad);
     const blk = vendorBlocked(po.vendor);
     if (blk.length)
       return void toast(`Cannot issue: ${blk.map((f) => f.m).join("; ")} — update the vendor record first`);
@@ -11448,33 +11547,74 @@ function printPO(po) {
     w = window.open("", "_blank");
   w ? (w.document.write(html), w.document.close()) : toast("Allow pop-ups to print");
 }
+function poDrawings(p) {
+  // the job's drawings: files on the job and Drive files routed to it that read like a sheet
+  const out = [];
+  (p && p.files ? p.files : []).forEach((f) => {
+    ("drawing" === f.cat || /\b[A-Z]-?\d{3}\b|drawing|plan|\.dwg|\.rvt/i.test(f.name || "")) && out.push({ name: f.name, link: f.link && f.link.url ? f.link.url : "" });
+  }),
+    (DB.gdrive || []).forEach((f) => {
+      f.route && f.route.projectId === (p && p.id) && "drawing" === f.route.kind && !out.some((x) => x.name === f.name) && out.push({ name: f.name, link: f.link || "" });
+    });
+  return out.slice(0, 8);
+}
+function poEmailTemplate(po) {
+  const t = poTotal(po),
+    p = DB.projects.find((x) => x.id === po.projectId) || S,
+    job = String((p && p.project && p.project.name) || "").replace(/ —.*$/, ""),
+    v = "function" == typeof vendorRec ? vendorRec(po.vendor) : null,
+    first = ((v && v.contact) || po.vendor || "").split(/[\s,]+/)[0],
+    me = (currentUser() || {}).name || (S.project && S.project.userName) || DB.company.name || "",
+    dr = poDrawings(p),
+    lines = (po.lines || []).map((l) => `- ${l.qty} ${l.unit} ${l.item}${l.desc ? ` (${l.desc})` : ""} @ ${money(l.price)}`).join("\n");
+  return {
+    subject: `${po.number} — ${job}${po.needBy ? ` — needed on site ${fmtL(po.needBy)}` : ""}`,
+    body: `Hi ${first || "there"},\n\nAttached is ${po.number} for ${money(t.total)}${po.needBy ? `, needed on site ${fmtL(po.needBy)}` : ""}${po.expected ? ` (you promised ${fmtL(po.expected)})` : ""}.\n\n${lines}${po.shipTo ? `\n\nDeliver to: ${"function" == typeof shipToLabel ? shipToLabel(po) : po.shipTo}` : ""}\n\nPlease confirm the price, the lead time and the delivery date, and put the PO number on your invoice.${dr.length ? `\n\nDrawings for this order:\n${dr.map((d) => `- ${d.name}${d.link ? ` — ${d.link}` : ""}`).join("\n")}` : ""}\n\nThanks,\n${me}`,
+    drawings: dr,
+    vendorEmail: (v && v.email) || "",
+  };
+}
+const aiConfigured = () => !!(window.SDP_CONFIG && window.SDP_CONFIG.aiUrl);
 async function draftPOEmail(po) {
-  const t = poTotal(po);
-  toast("Drafting…");
-  const r = await ai(
-      `Write a short email from ${DB.company.name || "our firm"} to vendor ${po.vendor} transmitting purchase order ${po.number} for ${money(t.total)}${po.expected ? `, requested delivery ${fmtL(po.expected)}` : ""}. Lines: ${po.lines.map((l) => `${l.qty} ${l.unit} ${l.item} @ ${money(l.price)}`).join("; ")}. Ask them to confirm price, lead time and the delivery date, and to reference the PO number on invoices. Plain text, under 110 words, subject line first.`,
-    ),
-    text = r.startsWith("__ERR")
-      ? `Subject: ${po.number} — ${S.project.name}\n\nHi,\n\nAttached is ${po.number} for ${money(t.total)}${po.expected ? `, requested delivery ${fmtL(po.expected)}` : ""}. Please confirm price, lead time and delivery date, and reference the PO number on your invoice.\n\nThanks,\n${S.project.userName || DB.company.name}`
-      : r,
-    subj = (text.match(/^Subject:\s*(.*)$/im) || [])[1] || po.number,
-    body = text.replace(/^Subject:.*\n+/im, "");
+  // The template opens at once; the model only improves the wording when the firm has an AI endpoint
+  // (before this, ai() retried against no endpoint for 23 seconds before the same template appeared).
+  const T = poEmailTemplate(po),
+    mail = "function" == typeof gcOn && gcOn();
   (editing = { kind: "emaildraft" }),
     $("#scrim").classList.add("on"),
     $("#drawer").classList.add("on"),
-    ($("#d-title").textContent = "Email to vendor"),
+    ($("#d-title").textContent = "Email to Vendor"),
     ($("#d-delete").style.display = "none"),
     ($("#d-body").innerHTML =
-      `<div class="f"><label>Subject</label><input id="em-subj" value="${esc(subj)}"></div><div class="f"><label>Body</label><textarea style="min-height:200px" id="em-body">${esc(body)}</textarea></div><button class="btn sm" id="em-copy">Copy</button>`),
+      `<div class="f"><label>To</label><input id="em-to" value="${esc(T.vendorEmail)}" placeholder="${esc(po.vendor)}'s address"></div><div class="f"><label>Subject</label><input id="em-subj" value="${esc(T.subject)}"></div><div class="f"><label>Body</label><textarea style="min-height:220px" id="em-body">${esc(T.body)}</textarea></div><div class="small muted" id="em-note">${T.drawings.length ? `${T.drawings.length} drawing${1 === T.drawings.length ? "" : "s"} linked.` : "No drawings on this job yet."}${aiConfigured() ? " Improving the wording…" : ""}</div><button class="btn sm" id="em-copy">Copy</button>`),
     ($("#em-copy").onclick = () => {
-      navigator.clipboard?.writeText(`Subject: ${$("#em-subj").value}\n\n${$("#em-body").value}`),
-        toast("Copied");
+      navigator.clipboard?.writeText(`Subject: ${$("#em-subj").value}\n\n${$("#em-body").value}`), toast("Copied");
     }),
-    ($("#d-save").textContent = "Open in mail app"),
+    ($("#d-save").textContent = mail ? "Save to Mailbox Drafts" : "Open in Mail App"),
     ($("#d-save").onclick = () => {
-      (window.location.href = `mailto:?subject=${encodeURIComponent($("#em-subj").value)}&body=${encodeURIComponent($("#em-body").value)}`),
-        closeEditor();
+      const to = $("#em-to").value.trim(),
+        subject = $("#em-subj").value,
+        body = $("#em-body").value;
+      if (!mail)
+        return (window.location.href = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`), void closeEditor();
+      if (!to || !/@/.test(to)) return void toast(`${po.vendor} has no email on file — add it in To`);
+      const v = "function" == typeof vendorRec ? vendorRec(po.vendor) : null;
+      v && !v.email && (v.email = to);
+      gaDraft({ to: to, subject: subject, body: body, why: `${po.number} to ${po.vendor}` })
+        .then(() => {
+          (po.emailedAt = today()), (po.emailDraft = { at: appNowIso(), to: to, drawings: T.drawings.map((d) => d.name) }), save(), closeEditor(), render();
+          rcToast(`${po.number} drafted to ${po.vendor} in your mailbox's Drafts${T.drawings.length ? ` — ${T.drawings.length} drawing${1 === T.drawings.length ? "" : "s"} linked` : ""}`, [{ label: "Open", run: () => ((cmFilter = "all"), (view = "comms"), render()) }]);
+        })
+        .catch((e) => toast("The mailbox refused the draft: " + (e.message || e)));
     });
+  if (!aiConfigured()) return;
+  const before = $("#em-body").value,
+    r = await ai(
+      `Improve this purchase order email from ${DB.company.name || "our firm"} to vendor ${po.vendor}. Keep every fact, number, date and link; plain text; under 140 words; no subject line.\n\n${before}`,
+    );
+  const ta = $("#em-body"),
+    note = $("#em-note");
+  ta && !r.startsWith("__ERR") && ta.value === before && (ta.value = r), note && (note.textContent = note.textContent.replace(" Improving the wording…", ""));
 }
 let mtgState = null;
 function meetingSkillUI() {
@@ -12395,7 +12535,60 @@ function renderFiles() {
     box.innerHTML =
       '<div class="empty">No documents yet. Take a photo of the delivery ticket, the inspection card, or the wall before it closes — it lands here, linked to the task.</div>';
 }
+// A client never sees the staff file editor (Type, Linked to, Notes, Save, Delete): every path a client can
+// open a file from (View the Sheets, a chat attachment, a shared document) lands in clFileView, read-only.
+const fileWriteOk = () => {
+  try {
+    return "client" !== role();
+  } catch (e) {
+    return !0;
+  }
+};
+// The one read-only viewer a client gets: the file, its caption, Download and Close. It sits above an open
+// sheet and closing it leaves that sheet where it was, so approving after a look stays three taps.
+async function clFileView(id) {
+  const p =
+      (S && (S.files || []).some((x) => x.id === id) ? S : null) ||
+      (DB.projects || []).find((q) => (q.files || []).some((x) => x.id === id)),
+    f = p && (p.files || []).find((x) => x.id === id);
+  if (!f) return;
+  let v = document.getElementById("clv");
+  v ||
+    ((v = document.createElement("div")),
+    (v.id = "clv"),
+    (v.className = "clv"),
+    v.setAttribute("role", "dialog"),
+    v.setAttribute("aria-label", "File"),
+    document.body.appendChild(v));
+  const close = () => {
+    v.classList.remove("on"), (v.innerHTML = ""), document.removeEventListener("keydown", onKey, !0);
+  };
+  const onKey = (e) => {
+    "Escape" === e.key && v.classList.contains("on") && (e.stopPropagation(), close());
+  };
+  const cap = String(f.clientCaption || f.caption || "").trim();
+  (v.innerHTML = `<div class="clv-hd"><div class="clv-t"><b data-nocase>${esc(f.name)}</b><span class="small" data-nocase>${esc(fmt(f.date))}${cap ? ` · ${esc(cap)}` : ""}</span></div><a class="btn sm" id="clv-dl" download="${esc(f.name)}" href="#">Download</a><button class="btn sm" id="clv-x" type="button">Close</button></div><div class="clv-main" id="clv-main"><div class="muted">Loading…</div></div>`),
+    v.classList.add("on"),
+    document.addEventListener("keydown", onKey, !0),
+    (v.querySelector("#clv-x").onclick = close),
+    (v.onclick = (e) => {
+      e.target === v && close();
+    });
+  const url = await getBlob(id),
+    main = v.querySelector("#clv-main"),
+    dl = v.querySelector("#clv-dl");
+  if (!main) return;
+  url ? ((dl.href = url), (dl.download = f.name)) : (dl.hidden = !0),
+    (main.innerHTML = url
+      ? /image/.test(f.type)
+        ? `<img src="${url}" alt="${esc(f.name)}">`
+        : "application/pdf" === f.type
+          ? `<iframe src="${url}" title="${esc(f.name)}"></iframe><div class="small clv-note">If the PDF does not display here, use Download.</div>`
+          : `<div class="clv-empty"><div class="clv-ic">${fileIcon(f)}</div><div data-nocase>${esc(f.name)}</div></div>`
+      : `<div class="clv-empty"><div class="clv-ic">${fileIcon(f)}</div><div data-nocase>${esc(f.name)}</div><div class="small">${esc(fmt(f.date))}${cap ? ` · ${esc(cap)}` : ""}</div><div class="small muted">The sheet itself is not on this device. Ask your project manager in Chat and they will send it.</div></div>`);
+}
 async function openFile(id) {
+  if (!fileWriteOk()) return clFileView(id);
   const f = S.files.find((x) => x.id === id);
   if (!f) return;
   (f.seen = !0), save();
@@ -12436,23 +12629,17 @@ function renderFileSide(f) {
       "",
     )}</select></div>\n    <div class="f"><label>Linked to</label><select id="vf-link">${linkOpts.map(([k, v]) => `<option value="${k}" ${cur === k ? "selected" : ""}>${esc(v)}</option>`).join("")}</select></div>\n    <div class="f"><label>Notes</label><textarea id="vf-notes">${esc(f.notes || "")}</textarea></div>\n    <label class="chk" style="margin-bottom:12px"><input type="checkbox" id="vf-share" ${f.shareClient ? "checked" : ""}> Visible to the client in their portal</label>\n    <div class="card" style="margin-bottom:12px"><div class="hd"><h3>Assistant</h3><span class="grow"></span><button class="btn sm primary" id="vf-read">${f.ai ? "Read again" : "Read this document"}</button></div>\n      <div id="vf-ai" class="small">${f.ai ? (f.ai.error ? `<span style="color:var(--bad)">${esc(f.ai.error)}</span>` : `<div><b>${esc(f.ai.kind || "")}</b> — ${esc(f.ai.summary || "")}</div>${(f.ai.fields || []).length ? `<div class="chg" style="margin-top:6px">${f.ai.fields.map((x) => `<span class="muted">${esc(x.k)}:</span> ${esc(x.v)}`).join(" · ")}</div>` : ""}${f.ai.changes?.length ? `<div style="margin-top:8px"><b>Proposed updates</b>${f.ai.changes.map((c, i) => `<div class="prop"><input type="checkbox" ${c._done ? "disabled" : "checked"} data-fprop="${i}"><div><div class="k">${c._done ? ICON_CHECK + " applied · " : ""}${"add" === c.op ? "Add" : "Update"} ${esc(c.kind)}: ${esc(propName(c) || c.name || c.title || c.vendor || "")}</div><div class="diff">${esc(propDiff(c))}</div><div class="why">${esc(c.reason || "")}</div></div></div>`).join("")}${f.ai.changes.some((c) => !c._done) ? '<button class="btn sm primary" id="vf-apply" style="margin-top:6px">Apply checked</button>' : ""}</div>` : '<div class="muted" style="margin-top:6px">No updates proposed.</div>'}`) : '<span class="muted">Reads photos and PDFs: a receipt becomes a transaction, a delivery ticket receives the PO, an inspection card updates the inspection, a sketch becomes a plan note — all as proposals.</span>'}</div></div>\n    <div class="row"><button class="btn sm" id="vf-save">Save</button><button class="btn sm danger" id="vf-del">Delete</button><span class="grow"></span><span class="small muted">${f.persisted ? "Saved on this device" : "Session only"}</span></div>`),
     ($("#vf-save").onclick = () => {
-      f.cat = $("#vf-cat").value;
       const lk = $("#vf-link").value;
-      (f.link = lk ? { kind: lk.split(":")[0], id: lk.split(":")[1] } : null),
-        (f.notes = $("#vf-notes").value),
-        (f.shareClient = $("#vf-share").checked),
-        save(),
-        render(),
-        toast("Saved");
+      !1 !==
+        fileUpdate(f, {
+          cat: $("#vf-cat").value,
+          link: lk ? { kind: lk.split(":")[0], id: lk.split(":")[1] } : null,
+          notes: $("#vf-notes").value,
+          shareClient: $("#vf-share").checked,
+        }) && toast("Saved");
     }),
     ($("#vf-del").onclick = async () => {
-      appConfirm(`Delete ${f.name}?`) &&
-        ((S.files = S.files.filter((x) => x.id !== f.id)),
-        await delBlob(f.id),
-        log(`Document deleted: ${f.name}`),
-        save(),
-        $("#viewer").classList.remove("on"),
-        render());
+      appConfirm(`Delete ${f.name}?`) && !1 !== (await fileRemove(f.id)) && $("#viewer").classList.remove("on");
     }),
     ($("#vf-read").onclick = () => readFile(f)),
     $("#vf-apply")?.addEventListener("click", () => {
@@ -12465,6 +12652,29 @@ function renderFileSide(f) {
         renderFileSide(f),
         toast(`Applied ${res.n}`);
     });
+}
+// Every file write goes through these two, and both refuse the client role in the function itself: a client
+// reads files, and nothing a client can reach (or type into a console) saves a note, a link, a type, the
+// portal flag or a deletion onto the firm's record.
+function fileUpdate(f, patch) {
+  if (!f) return !1;
+  if (!fileWriteOk()) return toast("Files are read-only in the client portal"), !1;
+  const p = (DB.projects || []).find((q) => (q.files || []).includes(f)) || S;
+  ["cat", "link", "notes", "shareClient", "clientCaption", "name"].forEach((k) => {
+    patch && k in patch && (f[k] = patch[k]);
+  });
+  try {
+    audit("file", f.id, "update", "", "", Object.keys(patch || {}).join(", "));
+  } catch (e) {}
+  return save(), render(), p ? f : f;
+}
+async function fileRemove(id) {
+  if (!fileWriteOk()) return toast("Files are read-only in the client portal"), !1;
+  const p = (DB.projects || []).find((q) => (q.files || []).some((x) => x.id === id)) || S,
+    f = p && (p.files || []).find((x) => x.id === id);
+  if (!f) return !1;
+  (p.files = p.files.filter((x) => x.id !== id)), await delBlob(id), log(`Document deleted: ${f.name}`), save(), render();
+  return !0;
 }
 async function readFile(f) {
   const box = $("#vf-ai");
@@ -13141,7 +13351,7 @@ function openPayroll(id) {
     flow = ["draft", "submitted", "pm-approved", "approved", "paid", "verified"],
     fi = flow.indexOf(r.status);
   ($("#d-body").innerHTML =
-    `<div class="appr" style="margin-bottom:10px">${flow.map((f, i) => `<span class="${i < fi ? "done" : i === fi ? "on" : ""}">${f.replace("pm-approved", "PM ok")}</span>`).join("")}</div>\n    <div class="f2"><div class="f"><label>Pay period</label><input id="e-period" value="${esc(r.period)}" ${ro ? "readonly" : ""}></div><div class="f"><label>Pay date</label><input type="date" id="e-paydate" value="${r.payDate}" ${ro ? "readonly" : ""}></div></div>\n    <div class="f2"><div class="f"><label>Period from</label><input type="date" id="e-prfrom" value="${r.from || ""}" ${ro ? "readonly" : ""}></div><div class="f"><label>Period to</label><input type="date" id="e-prto" value="${r.to || ""}" ${ro ? "readonly" : ""}></div></div><div class="small muted" style="margin:-4px 0 10px">Once this run is paid, hours clocked between these dates are costed to jobs at actual payroll instead of the burdened-rate estimate.</div>\n    <div class="f2"><div class="f"><label>Entity</label><select id="e-entity" ${ro ? "disabled" : ""}>${DB.entities.map((e) => `<option value="${e.id}" ${r.entityId === e.id ? "selected" : ""}>${esc(e.name)}</option>`).join("")}</select></div><div class="f"><label>Employees</label><input type="number" id="e-emps" value="${r.employees}" ${ro ? "readonly" : ""}></div></div>\n    <div class="f2"><div class="f"><label>Gross wages ($)</label><input type="number" step="0.01" id="e-gross" value="${r.gross}" ${ro ? "readonly" : ""}></div><div class="f"><label>Employer taxes & burden ($)</label><input type="number" step="0.01" id="e-taxes" value="${r.taxes}" ${ro ? "readonly" : ""}></div></div>\n    <div class="f"><label>Allocation to projects (labor cost)</label><div id="e-alloc">${r.alloc.map((a, i) => `<div class="row" style="margin-bottom:4px"><select data-ap="${i}" class="btn" style="flex:1;height:30px"><option value="">Overhead</option>${DB.projects.map((p) => `<option value="${p.id}" ${a.projectId === p.id ? "selected" : ""}>${esc(p.project.name)}</option>`).join("")}</select><input type="number" data-apct="${i}" value="${a.pct}" class="btn" style="width:80px;height:30px" min="0" max="100"> %</div>`).join("")}</div>${ro ? "" : '<button class="btn sm" id="e-addalloc">+ Allocation</button>'}<span class="hint">Approved time entries will drive this automatically when time tracking is added; until then allocate by percentage.</span></div>\n    ${r.detail?.length ? `<div class="card" style="margin-bottom:10px"><h4>Payroll report — from approved time</h4><table class="t"><thead><tr><th>Employee</th><th class="money">Hours</th><th class="money">Rate</th><th class="money">Gross</th></tr></thead><tbody>${r.detail.map((d) => `<tr><td>${esc(d.name)}</td><td class="money">${d.hours.toFixed(1)}${d.hours > 40 ? ' <span class="pill warn">OT</span>' : ""}</td><td class="money">${money(d.rate)}</td><td class="money">${money(d.gross)}</td></tr>`).join("")}<tr style="font-weight:600"><td>Total</td><td class="money">${r.detail.reduce((a, d) => a + d.hours, 0).toFixed(1)}</td><td></td><td class="money">${money(r.gross)}</td></tr></tbody></table><div class="small muted" style="margin-top:4px">Burden ${money(r.taxes)} · total cost ${money(r.total)} · ${DB.time.filter((t) => t.payrollId === r.id && timeFlags(t).length).length} entr${1 === DB.time.filter((t) => t.payrollId === r.id && timeFlags(t).length).length ? "y" : "ies"} with location or hours flags approved by supervisors</div></div>` : ""}\n    <div class="f"><label>Notes</label><textarea id="e-notes">${esc(r.notes)}</textarea></div>\n    ${id ? `<div class="card"><h4>Approval trail</h4><div class="trail">${r.approvals.length ? r.approvals.map((a) => `<div><span>${esc(a.t)}</span><b>${esc(a.action)}</b> · ${esc(a.by || a.role)}${a.note ? ` — ${esc(a.note)}` : ""}</div>`).join("") : '<div class="muted">No approvals yet.</div>'}</div></div>` : ""}\n    ${id ? `<div class="row" style="margin-top:12px">${"draft" === r.status ? '<button class="btn sm primary" data-pact="submit">Submit for approval</button>' : ""}${"submitted" === r.status && (isOwner() || ("controller" === role() && "owner" === (r.createdBy || "").toLowerCase())) ? `<button class="btn sm primary" data-pact="approve">${isOwner() ? "Owner: Approve Payroll" : "Controller: Approve Payroll"}</button><button class="btn sm danger" data-pact="reject">Reject</button>` : ""}${"submitted" !== r.status || isOwner() || ("controller" === role() && "owner" === (r.createdBy || "").toLowerCase()) ? "" : '<span class="small muted">Payroll is approved by the Owner — or by the Controller when the Owner prepared the run.</span>'}${"approved" === r.status ? '<button class="btn sm primary" data-pact="paid">Mark paid</button>' : ""}${"exception" === r.status && isOwner() ? '<button class="btn sm" data-pact="clear">Owner: clear exception</button>' : ""}</div>` : ""}`),
+    `<div class="appr" style="margin-bottom:10px">${flow.map((f, i) => `<span class="${i < fi ? "done" : i === fi ? "on" : ""}">${f.replace("pm-approved", "PM ok")}</span>`).join("")}</div>\n    <div class="f2"><div class="f"><label>Pay period</label><input id="e-period" value="${esc(r.period)}" ${ro ? "readonly" : ""}></div><div class="f"><label>Pay date</label><input type="date" id="e-paydate" value="${r.payDate}" ${ro ? "readonly" : ""}></div></div>\n    <div class="f2"><div class="f"><label>Period from</label><input type="date" id="e-prfrom" value="${r.from || ""}" ${ro ? "readonly" : ""}></div><div class="f"><label>Period to</label><input type="date" id="e-prto" value="${r.to || ""}" ${ro ? "readonly" : ""}></div></div><div class="small muted" style="margin:-4px 0 10px">Once this run is paid, hours clocked between these dates are costed to jobs at actual payroll instead of the burdened-rate estimate.</div>\n    <div class="f2"><div class="f"><label>Entity</label><select id="e-entity" ${ro ? "disabled" : ""}>${DB.entities.map((e) => `<option value="${e.id}" ${r.entityId === e.id ? "selected" : ""}>${esc(e.name)}</option>`).join("")}</select></div><div class="f"><label>Employees</label><input type="number" id="e-emps" value="${r.employees}" ${ro ? "readonly" : ""}></div></div>\n    <div class="f2"><div class="f"><label>Gross wages ($)</label><input type="number" step="0.01" id="e-gross" value="${r.gross}" ${ro ? "readonly" : ""}></div><div class="f"><label>Employer taxes & burden ($)</label><input type="number" step="0.01" id="e-taxes" value="${r.taxes}" ${ro ? "readonly" : ""}></div></div>\n    <div class="f"><label>Allocation to projects (labor cost)</label><div id="e-alloc">${r.alloc.map((a, i) => `<div class="row" style="margin-bottom:4px"><select data-ap="${i}" class="btn" style="flex:1;height:30px"><option value="">${a.unallocated ? "Unallocated Labor" : "Overhead"}</option>${DB.projects.map((p) => `<option value="${p.id}" ${a.projectId === p.id ? "selected" : ""}>${esc(p.project.name)}</option>`).join("")}</select><input type="number" data-apct="${i}" value="${a.pct}" class="btn" style="width:80px;height:30px" min="0" max="100"> %</div>`).join("")}</div>${ro ? "" : '<button class="btn sm" id="e-addalloc">+ Allocation</button>'}<span class="hint">Approved time entries will drive this automatically when time tracking is added; until then allocate by percentage.</span></div>\n    ${r.detail?.length ? `<div class="card" style="margin-bottom:10px"><h4>Payroll report — from approved time</h4><table class="t"><thead><tr><th>Employee</th><th class="money">Hours</th><th class="money">Rate</th><th class="money">Gross</th></tr></thead><tbody>${r.detail.map((d) => `<tr><td>${esc(d.name)}</td><td class="money">${d.hours.toFixed(1)}${d.hours > 40 ? ' <span class="pill warn">OT</span>' : ""}</td><td class="money">${money(d.rate)}</td><td class="money">${money(d.gross)}</td></tr>`).join("")}<tr style="font-weight:600"><td>Total</td><td class="money">${r.detail.reduce((a, d) => a + d.hours, 0).toFixed(1)}</td><td></td><td class="money">${money(r.gross)}</td></tr></tbody></table><div class="small muted" style="margin-top:4px">Burden ${money(r.taxes)} · total cost ${money(r.total)} · ${DB.time.filter((t) => t.payrollId === r.id && timeFlags(t).length).length} entr${1 === DB.time.filter((t) => t.payrollId === r.id && timeFlags(t).length).length ? "y" : "ies"} with location or hours flags approved by supervisors</div></div>` : ""}\n    <div class="f"><label>Notes</label><textarea id="e-notes">${esc(r.notes)}</textarea></div>\n    ${id ? `<div class="card"><h4>Approval trail</h4><div class="trail">${r.approvals.length ? r.approvals.map((a) => `<div><span>${esc(a.t)}</span><b>${esc(a.action)}</b> · ${esc(a.by || a.role)}${a.note ? ` — ${esc(a.note)}` : ""}</div>`).join("") : '<div class="muted">No approvals yet.</div>'}</div></div>` : ""}\n    ${id ? `<div class="row" style="margin-top:12px">${"draft" === r.status ? '<button class="btn sm primary" data-pact="submit">Submit for approval</button>' : ""}${"submitted" === r.status && (isOwner() || ("controller" === role() && "owner" === (r.createdBy || "").toLowerCase())) ? `<button class="btn sm primary" data-pact="approve">${isOwner() ? "Owner: Approve Payroll" : "Controller: Approve Payroll"}</button><button class="btn sm danger" data-pact="reject">Reject</button>` : ""}${"submitted" !== r.status || isOwner() || ("controller" === role() && "owner" === (r.createdBy || "").toLowerCase()) ? "" : '<span class="small muted">Payroll is approved by the Owner — or by the Controller when the Owner prepared the run.</span>'}${"approved" === r.status ? '<button class="btn sm primary" data-pact="paid">Mark paid</button>' : ""}${"exception" === r.status && isOwner() ? '<button class="btn sm" data-pact="clear">Owner: clear exception</button>' : ""}</div>` : ""}`),
     $("#e-addalloc")?.addEventListener("click", () => {
       r.alloc.push({ projectId: "", pct: 0 });
       const i = r.alloc.length - 1;
@@ -15472,10 +15682,12 @@ function planDriverDay(driverName) {
         }
       } else s.drop.push(x);
     });
-  const buys = items.filter((x) => !x.it.invId && !x.it.garbage),
+  const vendorPick = items.filter((x) => !x.it.invId && !x.it.garbage && /^v:/.test(x.it.pickupFrom || "")),
+    buys = items.filter((x) => !x.it.invId && !x.it.garbage && !vendorPick.includes(x)),
     whPickups = items.filter(
       (x) => x.it.invId && (!x.it.pickupFrom || "wh" === x.it.pickupFrom || "truck" === x.it.pickupFrom),
-    ),
+    );
+  const
     stops = [];
   let load = 0,
     garbageOnBoard = 0;
@@ -15490,6 +15702,18 @@ function planDriverDay(driverName) {
         load: r2(load),
         garbage: r2(garbageOnBoard),
       });
+  // a paid order ready at a vendor's yard (the "ready for pickup" mail) is a stop of its own
+  [...new Set(vendorPick.map((x) => x.it.pickupFrom.slice(2)))].forEach((vn) => {
+    const mine = vendorPick.filter((x) => x.it.pickupFrom.slice(2) === vn);
+    mine.forEach((x) => (load += itemVolume(x.it)));
+    push(
+      "pickup",
+      vn,
+      null,
+      mine.map((x) => `Pick up ${x.it.qty} ${x.it.unit} ${x.it.what} → ${x.p.project.name}${x.r.orderRef ? ` (order ${x.r.orderRef}, paid)` : " (paid)"}`),
+      mine[0].r.neededBy ? `Ready at the yard; pick up by ${fmt(mine[0].r.neededBy)} or it is restocked.` : "Ready at the yard.",
+    );
+  });
   if (
     (whPickups.length &&
       (whPickups.forEach((x) => (load += itemVolume(x.it))),
@@ -17976,7 +18200,7 @@ function newProjectDialog(forClientId) {
     ($("#d-title").textContent = "New project"),
     ($("#d-delete").style.display = "none"),
     ($("#d-body").innerHTML =
-      `\n    <div class="f"><label>Project name</label><input id="e-name" placeholder="e.g. 45 Garden Place"></div>\n    <div class="f"><label>Address / scope</label><input id="e-addr" placeholder="e.g. Full gut renovation · Brooklyn, NY"></div>\n    <div class="f2"><div class="f"><label>Start date</label><input type="date" id="e-start" value="${nextWork(today())}"></div><div class="f"><label>Target substantial completion</label><input type="date" id="e-target"></div></div>\n    <div class="f"><label>Client <span style="color:var(--bad)">*</span></label><select id="e-client"><option value="">— choose a client —</option>${DB.clients.map((c) => `<option value="${c.id}" ${forClientId === c.id ? "selected" : ""}>${esc(c.name)}</option>`).join("")}<option value="__new">+ New Client…</option></select><input id="e-newclient" placeholder="New client's name" style="margin-top:6px;display:${forClientId || DB.clients.length ? "none" : ""}"><span class="hint">Every project belongs to a client. One client can have many projects; their contract, invoices, decisions and documents roll up.</span></div>\n    <div class="f"><label>Start from</label><select id="e-tpl"><option value="blank">Blank — I'll add tasks or paste meeting notes</option><option value="tpl">Brownstone renovation template — ${template121().tasks.length} phases with materials, inspections and decisions, shifted to the start date</option></select><span class="hint">Templates are the fastest way to start a job with nothing forgotten; delete what doesn't apply.</span></div>`),
+      `\n    <div class="f"><label>Project name</label><input id="e-name" placeholder="e.g. 45 Garden Place"></div>\n    <div class="f"><label>Address / scope</label><input id="e-addr" placeholder="e.g. Full gut renovation · Brooklyn, NY"></div>\n    <div class="f2"><div class="f"><label>Start date</label><input type="date" id="e-start" value="${nextWork(today())}"></div><div class="f"><label>Target substantial completion</label><input type="date" id="e-target"></div></div>\n    <div class="f"><label>Client <span style="color:var(--bad)">*</span></label><select id="e-client"><option value="">— choose a client —</option>${DB.clients.map((c) => `<option value="${c.id}" ${forClientId === c.id ? "selected" : ""}>${esc(c.name)}</option>`).join("")}<option value="__new">+ New Client…</option></select><input id="e-newclient" placeholder="New client's name" style="margin-top:6px;display:${forClientId || DB.clients.length ? "none" : ""}"><span class="hint">Every project belongs to a client. One client can have many projects; their contract, invoices, decisions and documents roll up.</span></div>\n    <div class="f"><label>Start from</label><select id="e-tpl"><option value="blank">Blank — I'll add tasks or paste meeting notes</option><option value="tpl">Brownstone renovation template — ${template121().tasks.length} phases with the inspections NYC asks for, shifted to the start date</option></select><span class="hint">A template is the phase sequence and the inspections; decisions and materials are the job's own, raised as the scope is set. Delete what doesn't apply.</span></div>`),
     $("#e-client").addEventListener("change", (e) => {
       if (
         (($("#e-newclient").style.display = "__new" === e.target.value ? "" : "none"),
@@ -20402,14 +20626,32 @@ function askText(msg) {
 function appConfirm(msg, opts) {
   const had = askTake(msg);
   if (void 0 !== had) return !0 === had;
-  const o = opts || {};
-  return (
-    mbModal(o.title || "Please Confirm", `<div class="note ${o.tone || "warn"}">${askText(msg)}</div>`, {
-      submit: o.yes || "Yes, Continue",
-      onSubmit: () => askReplay(msg, !0),
-    }),
-    !1
-  );
+  const o = opts || {},
+    // Asked from inside a modal's submit (the PO picker's budget check): that modal is held aside, not
+    // destroyed, so "Yes, Continue" can replay its submit; before this the replay clicked a removed button
+    // and created nothing.
+    asker = askEl && askEl.isConnected ? askEl : null,
+    held = asker ? asker.closest("#mbm") : null;
+  held && ((held.id = "mbm-held"), (held.style.display = "none"));
+  const restore = () => {
+    held && held.isConnected && ((held.id = "mbm"), (held.style.display = ""));
+  };
+  const m = mbModal(o.title || "Please Confirm", `<div class="note ${o.tone || "warn"}">${askText(msg)}</div>`, {
+    submit: o.yes || "Yes, Continue",
+    // the confirm closes itself first (it is the only #mbm then); the asking modal comes back and its
+    // submit is replayed with the answer remembered
+    onSubmit: () => {
+      setTimeout(() => {
+        restore(), (askEl = asker), askReplay(msg, !0);
+      }, 0);
+    },
+  });
+  if (held) {
+    const iv = setInterval(() => {
+      document.body.contains(m) || (clearInterval(iv), restore());
+    }, 120);
+  }
+  return !1;
 }
 function appPrompt(msg, def, opts) {
   const had = askTake(msg);
@@ -20439,28 +20681,37 @@ function mbModal(title, body, opts = {}) {
     (m.innerHTML = `<div class="mbm-box" role="dialog" aria-label="${esc(title)}"><div class="mbm-hd"><h3>${title}</h3><button class="mbm-x" aria-label="Close" title="Close"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div><div class="mbm-bd">${body}</div><div class="mbm-ft"><button class="btn" id="mbm-cancel">Cancel</button>${opts.alt ? `<button class="btn" id="mbm-alt">${opts.alt.label}</button>` : ""}${null !== opts.submit ? `<button class="btn primary" id="mbm-ok">${opts.submit || "Save"}</button>` : ""}</div></div>`),
     document.body.appendChild(m);
   const close = () => mbCloseModal();
+  // the buttons are looked up inside this modal: a confirm asked from another modal's submit holds that
+  // modal aside in the document, and a document-wide lookup found its buttons first
   (m.querySelector(".mbm-x").onclick = close),
-    ($("#mbm-cancel").onclick = close),
+    (m.querySelector("#mbm-cancel").onclick = close),
     m.addEventListener("click", (e) => {
       e.target === m && close();
     });
-  const alt = $("#mbm-alt");
+  const alt = m.querySelector("#mbm-alt");
   alt &&
     (alt.onclick = () => {
-      close(), opts.alt.run && opts.alt.run();
+      opts.alt.keep || close(), opts.alt.run && opts.alt.run();
     });
-  const ok = $("#mbm-ok");
+  const ok = m.querySelector("#mbm-ok");
   ok &&
     (ok.onclick = () => {
       const f = {};
       m.querySelectorAll("[data-f]").forEach(
         (i) => (f[i.dataset.f] = "checkbox" === i.type ? i.checked : i.value.trim()),
       );
+      // appConfirm asked from inside this submit replays by clicking this button (askReplay)
+      askEl = ok;
       !1 !== (opts.onSubmit && opts.onSubmit(f)) && close();
     }),
     m.addEventListener("keydown", (e) => {
       "Escape" === e.key && close(), "Enter" === e.key && "TEXTAREA" !== e.target.tagName && ok && ok.click();
     });
+  // Escape closes the modal from anywhere on the page, not only when a field inside it has focus
+  const onEsc = (e) => {
+    document.body.contains(m) ? "Escape" === e.key && "mbm" === m.id && (e.preventDefault(), close()) : document.removeEventListener("keydown", onEsc);
+  };
+  document.addEventListener("keydown", onEsc);
   const first = m.querySelector("input,textarea,select");
   return first && setTimeout(() => first.focus(), 30), m;
 }
@@ -23104,17 +23355,22 @@ let repTab = "dash",
   repDef = { ds: "lines", group: "", proj: "", from: "", to: "", q: "" };
 const inRange = (dt) => (!repFrom || (dt || "") >= repFrom) && (!repTo || (dt || "") <= repTo),
   laborRate = (emp) => (emp ? (+emp.rate || 0) * (1 + (+emp.burden || 0) / 100) : 0);
+// Labor by person for a job: hours at the burdened rate, trued up to the actual burden of the payroll run
+// that paid (or a close accrued) those days, as jobFin costs them (the Pack read $5,790 at the standard
+// burden while the P&L carried $5,667 from the run).
 function projectLabor(p) {
-  const rows = {};
+  const rows = {},
+    tu = payrollTrueUp();
   DB.time
     .filter((e) => e.projectId === p.id && "rejected" !== e.status && inRange(e.date))
     .forEach((e) => {
       const emp = DB.employees.find((x) => x.id === e.empId),
         h = hoursOf(e),
+        c = h * laborRate(emp) * tu(e, emp),
         r = (rows[e.empId] = rows[e.empId] || { emp: emp?.name || e.empId, hours: 0, cost: 0, byCode: {} });
-      (r.hours += h), (r.cost += h * laborRate(emp));
+      (r.hours += h), (r.cost += c);
       const code = e.code || "99";
-      r.byCode[code] = (r.byCode[code] || 0) + h * laborRate(emp);
+      r.byCode[code] = (r.byCode[code] || 0) + c;
     });
   const list = Object.values(rows);
   return {
@@ -23676,6 +23932,15 @@ function companyPL(range) {
     non = {};
   L.forEach((r) => {
     if (r.income) return;
+    // A card payment or a transfer is one movement with two legs; Outside the P&L counts it once, on the bank
+    // leg (the card's "payment received" is the same money).
+    if (
+      "txn" === r.kind &&
+      r.ref &&
+      ["cc-payment", "transfer"].includes(r.cat) &&
+      (+r.ref.amt > 0 || "card" === ((DB.accounts || []).find((a) => a.id === r.ref.acct) || {}).type)
+    )
+      return;
     const t = "payroll_oh" === r.cat ? "oh" : catType(r.cat),
       bucket = "cogs" === t ? cogs : "oh" === t ? oh : non,
       k = "payroll_oh" === r.cat ? "Payroll — office & overhead" : cfoCatName(r.cat);
@@ -25193,12 +25458,17 @@ const inR = (d, R) => within(d, R),
       fmt: "money",
       good: "down",
       go: { view: "time" },
-      fn: (R) =>
-        r2(
+      fn: (R) => {
+        const tu = payrollTrueUp();
+        return r2(
           DB.time
             .filter((e) => inR(e.date, R))
-            .reduce((a, e) => a + hoursOf(e) * laborRate(DB.employees.find((x) => x.id === e.empId)), 0),
-        ),
+            .reduce((a, e) => {
+              const emp = DB.employees.find((x) => x.id === e.empId);
+              return a + hoursOf(e) * laborRate(emp) * tu(e, emp);
+            }, 0),
+        );
+      },
     },
     employees: {
       n: "Employees",
@@ -27332,6 +27602,21 @@ let docNet = (d) => {
   const t = docTotal(d);
   return r2(t.sub - t.disc);
 };
+// Bank or card lines matched to a PO with no bill behind them (TINO's $8,000 card charge against
+// PO-2026-047): they relieve the PO's open amount the way a bill does, so committed does not count them twice.
+function poPaidDirect(po) {
+  return r2(
+    (DB.txns || [])
+      .filter(
+        (t) =>
+          t.amt < 0 &&
+          !t.billId &&
+          "void" !== t.status &&
+          (t.poId === po.id || ((po && po.matchedTxns) || []).includes(t.id)),
+      )
+      .reduce((a, t) => a - t.amt, 0),
+  );
+}
 function txnViaBill(t, bills) {
   return (
     !!t.billId ||
@@ -27393,10 +27678,11 @@ function jobFin(p, range) {
     accruedBills = bills.filter((b) => BILL_ACCRUED.includes(b.status)),
     billsAmt = r2(costedBills.reduce((a, b) => a + billTotal(b), 0)),
     accrued = r2(accruedBills.reduce((a, b) => a + billTotal(b), 0)),
+    // a vendor credit coded to the job (refund) reduces its cost: it is summed with its sign (BACKLOG §1.5 #4)
     txns = DB.txns.filter(
       (t) =>
         t.projectId === p.id &&
-        t.amt < 0 &&
+        (t.amt < 0 || "refund" === t.cat) &&
         isJobCat(t.cat) &&
         "labor" !== t.cat &&
         inRng(t.date) &&
@@ -27446,7 +27732,7 @@ function jobFin(p, range) {
               billedOn = bills
                 .filter((b) => "void" !== b.status && "rejected" !== b.status && b.poId === po.id)
                 .reduce((x, b) => x + billTotal(b), 0);
-            return a + Math.max(0, tot - billedOn);
+            return a + Math.max(0, tot - billedOn - poPaidDirect(po));
           }, 0),
       )),
     ctc = +(p.ctc || 0),
@@ -27494,7 +27780,8 @@ function jobFin(p, range) {
           tot -
             bills
               .filter((b) => b.poId === po.id && "void" !== b.status)
-              .reduce((a, b) => a + billTotal(b), 0),
+              .reduce((a, b) => a + billTotal(b), 0) -
+            poPaidDirect(po),
         );
       po.lines.forEach((l) => {
         const ref = l.line ? findLine(l.line) : null,
@@ -28348,6 +28635,12 @@ function closeChecklist(month) {
         .length,
       { view: "costs" },
     ),
+    add("Accrued wages with no payroll run, past the next pay date", PRED.orphanAccruals.count(), {
+      view: "gl",
+    }),
+    add("Typed lines the bank's statement does not have (Not at the Bank)", PRED.notAtBank.count(month), {
+      view: "bank",
+    }),
     items
   );
 }
@@ -29803,12 +30096,65 @@ function ownInit() {
   };
   migrateClientDocs(cl), DB.clients.push(cl);
   const pj = projectFromTemplate("206 Lenox — 3rd floor turnover", "206 Lenox Ave", t0, "");
-  (pj.id = "p206"),
-    (pj.clientId = cl.id),
-    (pj.propertyId = p.id),
-    (pj.entityId = "ent1"),
-    (pj.materials = pj.materials.slice(0, 5)),
-    DB.projects.push(pj);
+  (pj.id = "p206"), (pj.clientId = cl.id), (pj.propertyId = p.id), (pj.entityId = "ent1"), lenoxScope(pj, t0), DB.projects.push(pj);
+}
+// 206 Lenox is a four-week turnover of the vacant 3rd floor, not a brownstone gut: its own few tasks, one
+// decision and two materials. The apartment's logs and photos stay on the demo task.
+function lenoxScope(pj, t0) {
+  const d = (n) => addWork(t0, n),
+    T = (id, name, trade, a, b, o) =>
+      Object.assign(
+        { id: id, name: name, trade: trade, start: d(a), end: d(b), owner: "Crew", status: "planned", type: "task", deps: [], weekendOk: !1, notes: "", actualStart: "", actualEnd: "" },
+        o || {},
+      );
+  pj.tasks = [
+    T("demo", "Demo & subfloor prep", "demo", 0, 2, { notes: "Old carpet and the kitchen vinyl out; protect the stair and the hall." }),
+    T("lpatch", "Patch, skim & paint", "paint", 3, 9, { deps: ["demo"] }),
+    T("lfloor", "Sand & refinish the floors", "floor", 10, 13, { owner: "Sub", deps: ["lpatch"] }),
+    T("lfix", "Bath and kitchen fixtures, hardware", "plumb", 14, 16, { owner: "Alberto", deps: ["lfloor"] }),
+    T("lclean", "Final clean, photos & listing", "close", 17, 18, { deps: ["lfix"] }),
+    T("lturn", "Unit ready to let", "close", 19, 19, { owner: "All", type: "milestone", deps: ["lclean"] }),
+  ];
+  pj.project.scTaskId = "lturn";
+  pj.project.target = d(19);
+  pj.project.out = d(19);
+  pj.decisions = [
+    { id: "ld1", name: "3rd floor paint colors and sheen", owner: "SmartDesigns", kind: "task", ref: "lpatch", status: "open", due: "", notes: "One scheme for the whole unit; the listing photos follow it.", scope: { kind: "task", id: "lpatch" }, options: [], impactDays: 0, impactCost: 0, timeline: [] },
+  ];
+  pj.materials = [
+    { id: "lm1", name: "Paint — 3rd floor walls, trim and ceilings", cat: "finish", taskId: "lpatch", lead: 3, when: "start", status: "needs-decision", eta: "", vendor: "", po: "", qty: "14 gal", cost: "", deliverTo: "Site", notes: "After the color decision." },
+    { id: "lm2", name: "Bath faucet, shower trim and kitchen hardware", cat: "finish", taskId: "lfix", lead: 10, when: "start", status: "not-ordered", eta: "", vendor: "", po: "", qty: "", cost: "", deliverTo: "Site", notes: "Stock finishes; nothing special-order." },
+  ];
+  pj.inspections = [];
+  pj.issues = [];
+  pj.submittals = [];
+  pj.scope = "lenox-turnover";
+  return pj;
+}
+// A saved database may still carry 121 State's template copies on 206 Lenox (or on any job started from the
+// template): the boot strips them. 206 Lenox gets its own scope once; another job keeps its phases and loses
+// only the decisions, materials, submittals and field items that are verbatim copies of 121 State's.
+function tplStripClones() {
+  const T = template121(),
+    same = (a, b) => a && b && a.id === b.id && String(a.name || a.title || "") === String(b.name || b.title || ""),
+    cloneOf = (list, src) => (list || []).filter((x) => (src || []).some((y) => same(x, y))),
+    out = [];
+  (DB.projects || []).forEach((p) => {
+    if ("p121" === p.id) return;
+    if ("p206" === p.id && "lenox-turnover" !== p.scope) {
+      const t0 = p.project.start || today();
+      return lenoxScope(p, t0), out.push([p.id, "reseeded"]);
+    }
+    const dec = cloneOf(p.decisions, T.decisions),
+      mat = cloneOf(p.materials, T.materials),
+      iss = cloneOf(p.issues, T.issues);
+    if (!dec.length && !mat.length && !iss.length) return;
+    (p.decisions = (p.decisions || []).filter((x) => !dec.includes(x))),
+      (p.materials = (p.materials || []).filter((x) => !mat.includes(x))),
+      (p.issues = (p.issues || []).filter((x) => !iss.includes(x))),
+      out.push([p.id, `${dec.length} decisions, ${mat.length} materials, ${iss.length} field items`]);
+  });
+  return out;
 }
 const companyPLBase4 = companyPL;
 companyPL = function (range) {
@@ -31466,7 +31812,8 @@ function portalApprove(c, d) {
       submit: `Approve ${money(t.total)}`,
       onSubmit: () => {
         const name = $("#pa-name").value.trim();
-        if (!name || !$("#pa-agree").checked) return toast("Type your name and tick the box to approve"), !1;
+        if (!name) return toast("Type your name to approve"), !1;
+        if (!$("#pa-agree").checked) return toast("Tick the box to approve"), !1;
         d.clientApproval = {
           name: name,
           t: nowStamp(),
@@ -31494,21 +31841,12 @@ function portalApprove(c, d) {
         try {
           const p = DB.projects.find((x) => x.id === d.projectId);
           if (p) {
-            const now2 = appNow();
-            (p.comms = p.comms || []).unshift({
-              id: uid("c"),
-              receivedAt: appIso(now2),
-              t: nowStamp(),
-              source: "portal",
+            // one handled activity line in Project Messages (BACKLOG 1.4 #6): a signature is not inbox work
+            clActivity(p, {
               from: name,
-              to: "",
-              subject: `${d.number} approved — ${money(t.total)}`,
-              date: iso(now2),
-              time: now2.toLocaleTimeString(void 0, { hour: "numeric", minute: "2-digit" }),
+              subject: `Signed: ${d.number} — ${money(t.total)}`,
               text: `${name} approved ${kind} ${d.number} for ${money(t.total)} in the client portal.`,
-              category: "client",
-              confidence: 0,
-              status: "new",
+              ref: { kind: d.type, id: d.id },
             }),
               (p.actions = p.actions || []).push({
                 id: uid("a"),
@@ -31534,24 +31872,8 @@ function portalQuestion(c, d) {
   const u = currentUser(),
     q = appPrompt(`Question or change request about ${d.number}:`);
   if (!q) return;
-  const p = DB.projects.find((x) => x.id === d.projectId) || S,
-    now = appNow();
-  (p.comms = p.comms || []).unshift({
-    id: uid("c"),
-    receivedAt: appIso(now),
-    t: nowStamp(),
-    source: "portal",
-    from: u?.name || c.name,
-    to: "",
-    subject: `Re: ${d.number} ${d.title || ""}`,
-    date: iso(now),
-    time: now.toLocaleTimeString(void 0, { hour: "numeric", minute: "2-digit" }),
-    text: q,
-    body: q,
-    category: "client",
-    confidence: 0,
-    status: "new",
-  }),
+  const p = DB.projects.find((x) => x.id === d.projectId) || S;
+  clqRaise({ p: p, c: c, text: q, by: u?.name || c.name, about: d, channel: "portal" }),
     c.activity.push({ t: nowStamp(), by: u?.name || c.name, text: `Question on ${d.number}: ${q}` }),
     (d.clientNote = { t: nowStamp(), by: u?.name || "", text: q });
   try {
@@ -32217,7 +32539,8 @@ function buyList(scope) {
             }),
             c &&
               c.estimates
-                .filter((e) => "converted" === e.status && e.projectId === p.id)
+                // a design or services estimate (hours, filings) has nothing to buy
+                .filter((e) => "converted" === e.status && e.projectId === p.id && "design" !== e.template)
                 .forEach((d) => {
                   "construction" === d.template && ctNumber(d),
                     d.lines.forEach((l) => {
@@ -32345,9 +32668,12 @@ function renderBuyBoard() {
     shown
       .map((r, i) => {
         const act = r.ordered
-          ? r.eta
-            ? `<button class="btn sm" data-buy="recv|${r.p.id}">Received</button>`
-            : `<input type="date" data-buyeta="${r.p.id}:${r.m?.id || ""}" title="Confirm ETA" style="height:30px">`
+          ? (r.po
+              ? ""
+              : `<button class="btn sm" data-buy="exp|${r.p.id}|||${r.m ? r.m.id : ""}" title="No purchase order behind this: ask the vendor where it is, set the vendor and the date">Expedite</button>${r.vendor ? "" : `<button class="btn sm" data-buy="vend|${r.p.id}|||${r.m ? r.m.id : ""}">Set Vendor</button>`}`) +
+            (r.eta
+              ? `<button class="btn sm" data-buy="recv|${r.p.id}">Received</button>`
+              : `<input type="date" data-buyeta="${r.p.id}:${r.m?.id || ""}" title="Confirm ETA" style="height:30px">`)
           : r.dec
             ? `<button class="btn sm" data-buy="dec|${r.p.id}|${r.dec.id}">Get decision</button>`
             : `<button class="btn sm ${r.key ? "primary" : ""}" data-buy="po|${r.p.id}|${r.d ? r.d.id : ""}|${r.key || ""}|${r.m ? r.m.id : ""}" title="${r.key ? "Start a purchase order for this line" : "This item is not on an estimate line yet — set the vendor and cost first"}">${r.key ? "Create PO" : "Set Up to Order"}</button>`;
@@ -32375,7 +32701,11 @@ function renderBuyBoard() {
               S.id !== p.id && setCurrent(p.id),
               "recv" === k
                 ? ((view = "recv"), void render())
-                : "dec" === k
+                : "exp" === k
+                  ? void buyExpedite(p, mid)
+                  : "vend" === k
+                    ? (openEditor("mat", mid), void toast("Set the vendor, then the order has someone to chase"))
+                    : "dec" === k
                   ? ((view = "dec"), void render())
                   : void (
                       "po" === k &&
@@ -32558,7 +32888,8 @@ ctPOPicker = function (projectId, preferId, preKey) {
                     ((need = nb.needBy), (needTask = nb.task?.name || ""));
                 }
               }),
-                need && ((po.needBy = need), (po.needTask = needTask), po.expected || (po.expected = need));
+                // the need-by is ours; Vendor Promised stays empty until the vendor gives a date
+                need && ((po.needBy = need), (po.needTask = needTask));
               const v = DB.vendors.find((x) => x.name.toLowerCase() === po.vendor.toLowerCase());
               v && v.depositPct && !po.schedule && (po.depositPct = v.depositPct);
             }),
@@ -32572,7 +32903,8 @@ ctPOPicker = function (projectId, preferId, preKey) {
 const poActionBase = poAction;
 poAction = function (po, a) {
   const r = poActionBase(po, a);
-  if ("issue" === a) {
+  // Only an issued PO marks its materials ordered: a refused issue (poValid) leaves the board alone.
+  if ("issue" === a && "issued" === po.status) {
     const p = DB.projects.find((x) => x.id === po.projectId);
     p &&
       po.lines.forEach((l) => {
@@ -34196,10 +34528,13 @@ const renderPortalApprovalsBase = renderPortalApprovals;
     earned = r2(J.reduce((a, x) => a + x.earned, 0)),
     billed = r2(J.reduce((a, x) => a + x.billed, 0)),
     dep = r2(c.estimates.reduce((a, e) => a + depositBalance(c, e.id), 0)),
+    // a design job before its schedule is published: no certified figure and no retainage cell (clDesignPhase)
+    design = "function" == typeof clDesignPhase && clDesignPhase(S),
+    taxed = (c.invoices || []).some((x) => !["draft", "void"].includes(x.status) && docTotal(x).tax > 0),
     card = document.createElement("div");
   (card.className = "card"),
     (card.style.marginBottom = "14px"),
-    (card.innerHTML = `<h3 style="margin:0 0 6px">Your account</h3><div class="cash-grid" style="grid-template-columns:repeat(3,1fr)"><div><span>Contract</span><b>${money(contract)}</b><i>incl. approved changes</i></div><div class="tp-cert"><span>Completed to Date</span>${tpCertifiedHtml(c)}</div><div><span>Billed to date</span><b>${money(billed)}</b><i>${dep ? `deposit on account ${money(dep)}` : "ex tax"}</i></div><div><span>Retainage held</span><b>${money(f.retHeld)}</b><i>released at completion</i></div><div><span>Paid to date</span><b>${money(f.paid)}</b><i>${f.credits ? `credit on account ${money(f.credits)}` : ""}</i></div><div><span>Balance due</span><b class="${f.overdue ? "bad" : ""}">${money(f.outstanding)}</b><i>${f.overdue ? money(f.overdue) + " overdue" : "nothing overdue"}</i></div></div>`),
+    (card.innerHTML = `<h3 style="margin:0 0 6px">Your account</h3><div class="cash-grid" style="grid-template-columns:repeat(${design ? 2 : 3},1fr)"><div><span>Contract</span><b>${money(contract)}</b><i>incl. approved changes</i></div>${design ? "" : `<div class="tp-cert"><span>Completed to Date</span>${tpCertifiedHtml(c)}</div>`}<div><span>Billed to date</span><b>${money(f.invoiced)}</b><i>${f.retHeld > 0.5 ? `after retainage (${money(billed)} before)` : dep ? `deposit on account ${money(dep)}` : taxed ? "incl. tax" : ""}</i></div>${design ? "" : `<div><span>Retainage held</span><b>${money(f.retHeld)}</b><i>released at completion</i></div>`}<div><span>Paid to date</span><b>${money(f.paid)}</b><i>${f.credits ? `credit on account ${money(f.credits)}` : ""}</i></div><div><span>Balance due</span><b class="${f.overdue ? "bad" : ""}">${money(f.outstanding)}</b><i>${f.overdue ? money(f.overdue) + " overdue" : "nothing overdue"}</i></div></div>`),
     host.append(card);
 }),
   (REP_GROUPS.find((g) => "build" === g.id).tabs = [["searches", "Report builder"]]),
@@ -36393,7 +36728,7 @@ poAction = function (po, a) {
     ("issue" === a && "draft" === po.status && poNeedsApproval(po) && !owner && (a = "submit"),
     "submit" === a)
   )
-    return po.vendor && po.lines.length
+    return !poValid(po).length
       ? ((po.status = "pending"),
         (po.submittedBy = by),
         (po.submittedAt = today()),
@@ -36401,7 +36736,7 @@ poAction = function (po, a) {
         log(`${po.number} submitted for approval — ${money(poTotal(po).total)}`),
         save(),
         void render())
-      : void toast("Add a vendor and at least one line");
+      : void poRefuse(po, poValid(po));
   if ("approve" === a)
     return owner
       ? ((po.status = "draft"),
@@ -38615,7 +38950,11 @@ function h4Go(go) {
       const po = DB.pos.find((x) => x.id === go.po);
       po?.projectId && setCurrent(po.projectId), (poOpen = go.po);
     }
-    go.own && ((mbOwnId = go.own), (ownTab = "overview")), (view = go.view), render(), window.scrollTo(0, 0);
+    go.own && ((mbOwnId = go.own), (ownTab = "overview"));
+    // a view this role cannot open is not a destination: a field question goes to Approvals' Site Questions
+    let v = go.view;
+    "field" === v && "function" == typeof flowCan && !flowCan("field") && flowCan("mapprove") && ((window.mApprKind = "raise"), (v = "mapprove"));
+    (view = v), render(), window.scrollTo(0, 0);
   }
 }
 function jvSpeak() {
@@ -39882,6 +40221,31 @@ function designEst(p) {
     c &&
     c.estimates.find((e) => "design" === e.template && ["converted", "billed", "approved"].includes(e.status))
   );
+}
+// A design job before its schedule is published: the client reads a design-phase Overview (retainer hours,
+// phases, deliverables, the kick-off), never a construction card.
+function clDesignPhase(p) {
+  return !!(p && designEst(p) && !p.published);
+}
+// The client's designer: the person on the job's design tasks, else the design staff with the most hours on it.
+function clDesigner(p) {
+  if (!p) return null;
+  const by = {};
+  (p.tasks || []).filter((t) => "design" === (t.track || "") && t.assignee).forEach((t) => (by[t.assignee] = (by[t.assignee] || 0) + 1));
+  let name = Object.keys(by).sort((a, b) => by[b] - by[a])[0] || "";
+  if (!name) {
+    const h = {};
+    (DB.time || [])
+      .filter((t) => t.projectId === p.id)
+      .forEach((t) => {
+        const e = (DB.employees || []).find((x) => x.id === t.empId);
+        e && isDesignStaff(e) && (h[e.name] = (h[e.name] || 0) + hoursOf(t));
+      });
+    name = Object.keys(h).sort((a, b) => h[b] - h[a])[0] || "";
+  }
+  if (!name) return null;
+  const e = (DB.employees || []).find((x) => x.name === name);
+  return { name: name, role: (e && e.role) || "Designer", emp: e || null };
 }
 function phaseHours(p) {
   const est = designEst(p);
@@ -41777,14 +42141,23 @@ issueDialog = function (p) {
   };
 };
 const renderClientBase_b = renderClient;
-renderClient = function (cpm, projEnd) {
-  renderClientBase_b(cpm, projEnd);
-  const v = document.getElementById("v-client");
-  if (!v) return;
-  v.querySelector("#cl-studio")?.remove();
-  const p = S;
-  if (!roomsOf(p.id).length && !designEst(p)) return;
-  const rooms = roomsOf(p.id),
+// The client Overview on a design job: where the design stands (designer, retainer hours used and left, the
+// survey, the latest deck), the phases and their status, the deliverables and the kick-off with its outcomes,
+// what we owe each other, the filings, and the decisions so far. Stacked rows, so it reads at 390px.
+const CL_PHASE_WORDS = [
+  [/survey/i, "Site survey"],
+  [/schematic/i, "Schematic design"],
+  [/design development/i, "Design development"],
+  [/pricing|quotation/i, "Pricing and quotes"],
+  [/client meetings?/i, "Client meetings"],
+];
+function clPhaseName(l) {
+  const hit = CL_PHASE_WORDS.find(([re]) => re.test(l.item || ""));
+  return hit ? hit[1] : String(l.item || "").split(" and ")[0];
+}
+function clDesignOverviewHtml(p) {
+  const td = today(),
+    rooms = roomsOf(p.id),
     unv = rooms.filter((r) => 0 === roomProv(r)).length,
     prs = promisesOf(p.id),
     us = prs.filter((x) => "us" === x.dir && "open" === x.status),
@@ -41798,33 +42171,101 @@ renderClient = function (cpm, projEnd) {
   const ex = p.tasks.filter((t) => t.exploration),
     R = retainerLeft(p),
     ph = phaseHours(p),
+    cur = phaseCur(ph) || ph.find((x) => x.used > 0 && x.used < x.est) || null,
+    used = r2(ph.reduce((a, x) => a + x.used, 0)),
     F = DB.studio.filings.filter((f) => f.projectId === p.id),
-    deck = sheetsOf(p.id)
-      .filter((s) => "deck" === s.set && "current" === s.status)
-      .sort((a, b) => (b.issuedOn || "").localeCompare(a.issuedOn || ""))[0],
-    rate = designEst(p)?.lines.find((l) => "hr" === l.unit)?.rate || designRate(),
-    d = document.createElement("div");
-  (d.id = "cl-studio"),
-    (d.innerHTML = `<div class="card" style="margin-bottom:14px"><div class="row" style="align-items:flex-start;gap:14px;flex-wrap:wrap"><div class="grow"><h3 style="margin:0 0 4px">Where the design stands</h3><div class="small">${unv ? `<span class="pill warn lg">Drawn on listing dimensions — conceptual until the survey (${unv} of ${rooms.length} rooms)</span>` : '<span class="pill ok">Drawn on measured dimensions</span>'}${deck ? ` <span class="small muted">Latest deck: ${esc(deck.title)} (rev ${esc(deck.rev)}, ${fmt(deck.issuedOn)})</span>` : ""}</div></div>${R ? `<div class="st-kv"><b>${R.hours} hrs</b><span>retainer remaining · ${money(R.dollars)}</span></div>` : ""}<div class="st-kv"><b>${r2(ph.reduce((a, x) => a + x.used, 0))} hrs</b><span>design hours to date</span></div></div></div>\n    <div class="grid3" style="margin-bottom:14px"><div class="card"><h3>What we owe you</h3>${us.map((x) => promiseRow(x, "client")).join("") || '<div class="small muted">Nothing outstanding.</div>'}</div><div class="card"><h3>What we need from you</h3>${cl.map((x) => promiseRow(x, "client")).join("") || '<div class="small muted">Nothing outstanding.</div>'}${
+    sheets = sheetsOf(p.id).filter((s) => "current" === s.status),
+    deck = sheets.filter((s) => "deck" === s.set).sort((a, b) => (b.issuedOn || "").localeCompare(a.issuedOn || ""))[0],
+    est = designEst(p),
+    rate = est?.lines.find((l) => "hr" === l.unit)?.rate || designRate(),
+    des = clDesigner(p),
+    pm = ("function" == typeof fPeople ? fPeople().pm : null) || {},
+    survey = (p.tasks || []).find((t) => /survey/i.test(t.name || "")),
+    inv = "function" == typeof clRetainerInv ? clRetainerInv(p) : null,
+    meetings = (DB.studio.meetings || []).filter((m) => m.projectId === p.id).sort((a, b) => String(a.date).localeCompare(String(b.date))),
+    kv = (k, v, sub) => `<div class="cl-kv"><span>${k}</span><b data-nocase>${v}${sub ? `<i class="small muted">${sub}</i>` : ""}</b></div>`,
+    retHrs = R && R.rate ? r2(R.retainer / R.rate) : 0,
+    retLine = R
+      ? `${clHrs(R.used || used)} used · ${clHrs(Math.max(0, retHrs - (R.used || used)))} left of ${clHrs(retHrs)}`
+      : `${clHrs(used)} used`,
+    retSub = R
+      ? R.paid <= 0.5
+        ? `the ${money(R.retainer)} retainer is not paid yet${inv && inv.due ? ` — its invoice is due ${fmtL(inv.due)}` : ""}; hours count from payment`
+        : `${money(R.paid)} paid · ${money(R.dollars)} of it left`
+      : "",
+    phaseStatus = (x) =>
+      "done" === x.status
+        ? ["Done", "ok"]
+        : x === cur || (!cur && x.used > 0)
+          ? ["Under Way", "info"]
+          : x.used >= x.est && x.est
+            ? ["Hours Used", "warn"]
+            : ["Upcoming", "neutral"],
+    phaseWhen = (x, i) => {
+      const t = x.task || (0 === i && survey) || null;
+      return t && t.start ? `${fmtL(t.start)}${t.end && t.end !== t.start ? ` to ${fmtL(t.end)}` : ""}` : "";
+    },
+    outcomes = (m) => {
+      const K = (DB.studio.intake || {})[m.id],
+        items = (K && K.items) || [],
+        ok = items.filter((i) => "confirmed" === i.status && "decision" === i.kind),
+        open = items.filter((i) => "proposed" === i.status).length;
+      if (m.date > td)
+        return `<div class="small muted">Coming up on ${fmtL(m.date)} with ${esc(des ? des.name : "your designer")} and ${esc(pm.name || "your project manager")}. What we agree there is confirmed by ${esc(des ? des.name.split(" ")[0] : "your designer")} afterwards and listed here.</div>`;
+      return (
+        (ok.length ? `<div class="small" style="margin-top:4px">Agreed:</div>${ok.map((i) => `<div class="small cl-out" data-nocase>· ${esc(i.text)}</div>`).join("")}` : "") +
+        (open ? `<div class="small muted">${open} note${1 === open ? "" : "s"} from the meeting ${1 === open ? "is" : "are"} being confirmed by ${esc(des ? des.name.split(" ")[0] : "your designer")}; they appear here once confirmed.</div>` : "") +
+        (!ok.length && !open ? '<div class="small muted">No outcomes recorded yet.</div>' : "")
+      );
+    };
+  return `<div class="card" style="margin-bottom:14px"><h3>Where the Design Stands</h3><div class="small" style="margin-bottom:6px">${unv ? `<span class="pill warn">Conceptual until the survey</span> <span class="muted">drawn on listing dimensions · ${unv} of ${rooms.length} rooms still to measure</span>` : '<span class="pill ok">Drawn on measured dimensions</span>'}</div>${des ? kv("Your designer", `${esc(des.name)}<i class="small muted">${esc(des.role)} at SmartDesign</i>`) : ""}${kv("Retainer", esc(retLine), esc(retSub))}${kv("Site survey", survey ? `${fmtL(survey.start)}${survey.end && survey.end !== survey.start ? ` to ${fmtL(survey.end)}` : ""}<i class="small muted">${esc(des ? des.name.split(" ")[0] : "we")} measure${des ? "s" : ""} every room before anything is ordered</i>` : "to be scheduled")}${deck ? kv("Latest deck", `${esc(deck.title)}<i class="small muted">rev ${esc(deck.rev)} · ${deck.issuedOn && deck.issuedOn <= td ? `issued ${fmtL(deck.issuedOn)}` : deck.issuedOn ? `for the kick-off on ${fmtL(deck.issuedOn)}` : "in preparation"}</i>`) : ""}</div>
+    <div class="card" style="margin-bottom:14px"><h3>Design Phases</h3>${
+      ph.length
+        ? ph
+            .map((x, i) => {
+              const [w, cls] = phaseStatus(x),
+                when = phaseWhen(x, i);
+              return `<div class="cl-row cl-ph"><div><b data-nocase>${esc(clPhaseName(x.line))}</b><div class="small muted">${clHrs(x.used)} of ${clHrs(x.est)}${when ? ` · ${when}` : ""}</div></div><div class="cl-amt"><span class="pill ${cls}">${w}</span></div></div>`;
+            })
+            .join("")
+        : '<div class="small muted">The phases are set out in your design agreement.</div>'
+    }</div>
+    <div class="card" style="margin-bottom:14px"><h3>Deliverables</h3>${
+      meetings.length
+        ? meetings.map((m) => `<div class="cl-row cl-ph"><div><b data-nocase>${esc(m.title)}</b><div class="small muted">${fmtL(m.date)}${deck && deck.issuedOn === m.date ? ` · ${esc(deck.title)}` : ""}</div>${outcomes(m)}</div></div>`).join("")
+        : ""
+    }${
+      sheets.filter((x) => "deck" !== x.set).length
+        ? sheets
+            .filter((x) => "deck" !== x.set)
+            .map((x) => `<div class="cl-row cl-ph"><div><b data-nocase>${esc(x.number)} ${esc(x.title)}</b><div class="small muted">${esc(SETS[x.set] || x.set)} · rev ${esc(x.rev)}${x.issuedOn ? ` · ${x.issuedOn <= td ? "issued" : "due"} ${fmtL(x.issuedOn)}` : ""}</div></div></div>`)
+            .join("")
+        : '<div class="small muted">Drawings and renderings appear here as they are issued.</div>'
+    }</div>
+    <div class="grid3" style="margin-bottom:14px"><div class="card"><h3>What We Owe You</h3>${us.map((x) => promiseRow(x, "client")).join("") || '<div class="small muted">Nothing outstanding.</div>'}</div><div class="card"><h3>What We Need from You</h3>${cl.map((x) => promiseRow(x, "client")).join("") || '<div class="small muted">Nothing outstanding.</div>'}${
       ex.filter((t) => !t.clientApproved).length
         ? `<div class="small muted" style="margin-top:8px">Studies you asked for — each costs design hours at $${rate}/hr:</div>${ex
             .filter((t) => !t.clientApproved)
-            .map(
-              (t) =>
-                `<div class="st-item"><span class="k">est. ${t.hours} hrs · ${money(t.hours * rate)}</span><b>${esc(t.name)}</b></div>`,
-            )
+            .map((t) => `<div class="st-item"><span class="k">est. ${t.hours} hrs · ${money(t.hours * rate)}</span><b>${esc(t.name)}</b></div>`)
             .join("")}`
         : ""
-    }</div><div class="card"><h3>Filings</h3>${F.map((f) => `<div class="row small" style="padding:4px 0"><span class="grow">${esc(f.name)}</span><span class="pill ${FILING_STATUS[f.status][1]}">${FILING_STATUS[f.status][0]}</span></div>`).join("") || '<div class="small muted">—</div>'}</div></div>\n    <div class="card" style="margin-bottom:14px"><h3>Decisions so far</h3>${
+    }</div><div class="card"><h3>Filings</h3>${F.map((f) => `<div class="row small" style="padding:4px 0"><span class="grow">${esc(f.name)}</span><span class="pill ${FILING_STATUS[f.status][1]}">${FILING_STATUS[f.status][0]}</span></div>`).join("") || '<div class="small muted">—</div>'}</div></div>
+    <div class="card" style="margin-bottom:14px"><h3>Decisions So Far</h3>${
       Object.entries(byRoom)
-        .map(
-          ([rn, ds]) =>
-            `<div style="padding:6px 0;border-top:1px solid var(--rule)"><b>${esc(rn)}</b>${ds.map((x) => `<div class="small">· ${esc(x.name)} <span class="muted">— ${esc(x.decidedBy || "")}, ${fmt(x.madeOn)}</span></div>`).join("")}</div>`,
-        )
-        .join("") ||
-      '<div class="small muted">Decisions confirmed in meetings will appear here by room.</div>'
-    }</div>\n    ${DB.studio.prefs[p.id] ? `<div class="card" style="margin-bottom:14px"><h3>What you told us you love, and never</h3>${prefsHtml(p.id, !1)}</div>` : ""}`),
-    v.querySelector(".grid3")?.before(d);
+        .map(([rn, ds]) => `<div style="padding:6px 0;border-top:1px solid var(--rule)"><b>${esc(rn)}</b>${ds.map((x) => `<div class="small">· ${esc(x.name)} <span class="muted">— ${esc(x.decidedBy || "")}, ${fmt(x.madeOn)}</span></div>`).join("")}</div>`)
+        .join("") || '<div class="small muted">Decisions confirmed in meetings will appear here by room.</div>'
+    }</div>
+    ${DB.studio.prefs[p.id] ? `<div class="card" style="margin-bottom:14px"><h3>What You Told Us You Love, and Never</h3>${prefsHtml(p.id, !1)}</div>` : ""}`;
+}
+renderClient = function (cpm, projEnd) {
+  renderClientBase_b(cpm, projEnd);
+  const v = document.getElementById("v-client");
+  if (!v) return;
+  v.querySelector("#cl-studio")?.remove();
+  const p = S;
+  if (!roomsOf(p.id).length && !designEst(p)) return;
+  const d = document.createElement("div");
+  (d.id = "cl-studio"), (d.innerHTML = clDesignOverviewHtml(p)), v.querySelector(".grid3")?.before(d);
 };
 const renderSDayBase_b = renderSDay,
   remindersBase_b = reminders;
@@ -45052,7 +45493,7 @@ function fSeed() {
         at: "2026-09-03T09:40:00",
         status: "answered",
         decision: "extra",
-        answer: "Proceed as an extra — photograph both joists before and after. I will write the CO.",
+        answer: "Photograph both joists before and after. I will write the CO.",
         answeredBy: "Alan",
         answeredAt: "2026-09-03T10:05:00",
         escalated: !1,
@@ -45069,6 +45510,7 @@ function fSeed() {
         to: "coord",
         cc: ["pm"],
         dueBy: "2026-09-04",
+        needBy: "2026-09-14",
         by: "Angel",
         at: "2026-09-03T07:50:00",
         status: "sent",
@@ -45655,6 +46097,7 @@ function fSubStatus(id, st) {
         type: "noshow",
         title: `${s.vendor} (${s.lead}) did not show ${fmt(s.date)} — ${task(s.taskId)?.name || s.trade}`,
         taskId: s.taskId,
+        subId: s.id,
         note: s.phone ? `Lead: ${s.lead} ${s.phone}` : "",
       }),
     render();
@@ -46186,7 +46629,7 @@ function fOfficeCard(opts = {}) {
         p = DB.projects.find((x) => x.id === r.projectId),
         late = r.dueBy < today(),
         mine = r.to === k;
-      return `<div class="f-row col ${r.escalated || late ? "bad" : "answered" === r.status ? "ok" : ""}"><div class="row" style="gap:6px;align-items:flex-start"><div class="grow"><span class="small muted">${esc(t.n)} · ${esc(shortName ? shortName(p) : p?.project.name || "")} · ${esc(r.by)} · ${fAgo(r.at)} ago · needs it by <b>${fmt(r.dueBy)}</b>${r.taskId ? ` · holds ${esc(p?.tasks.find((x) => x.id === r.taskId)?.name || "")}` : ""}${mine ? "" : ` · to ${esc(fPerson(r.to)?.name || r.to)}`}</span><b>${esc(r.title)}</b>${r.sheet ? `<span class="small">Sheet ${esc(r.sheet)}</span>` : ""}${r.guess ? `<span class="small">Foreman's take: ${esc(r.guess)}</span>` : ""}${r.note ? `<span class="small">${esc(r.note)}</span>` : ""}${r.photos?.length ? `<div class="f-thumbs">${r.photos.map((s) => `<img src="${s}">`).join("")}</div>` : ""}${r.answer ? `<div class="f-answer">${esc(r.answer)} <span class="small muted">— ${esc(r.answeredBy)}</span></div>` : ""}</div><span class="pill ${"answered" === r.status ? "ok" : r.escalated || late ? "bad" : "warn"}">${"answered" === r.status ? "answered" : r.escalated ? `no answer in ${t.hrs} h` : late ? "past due" : r.status}</span></div>\n      ${
+      return `<div class="f-row col ${r.escalated || late ? "bad" : "answered" === r.status ? "ok" : ""}"><div class="row" style="gap:6px;align-items:flex-start"><div class="grow"><span class="small muted">${esc(t.n)} · ${esc(shortName ? shortName(p) : p?.project.name || "")} · ${esc(r.by)} · ${fAgo(r.at)} ago · ${r.needBy ? `needs it by <b>${fmt(r.needBy)}</b> · answer by ${fmt(r.dueBy)}` : `needs an answer by <b>${fmt(r.dueBy)}</b>`}${r.taskId ? ` · holds ${esc(p?.tasks.find((x) => x.id === r.taskId)?.name || "")}` : ""}${mine ? "" : ` · to ${esc(fPerson(r.to)?.name || r.to)}`}</span><b>${esc(r.title)}</b>${r.sheet ? `<span class="small">Sheet ${esc(r.sheet)}</span>` : ""}${r.guess ? `<span class="small">Foreman's take: ${esc(r.guess)}</span>` : ""}${r.note ? `<span class="small">${esc(r.note)}</span>` : ""}${r.photos?.length ? `<div class="f-thumbs">${r.photos.map((s) => `<img src="${s}">`).join("")}</div>` : ""}${r.answer ? `<div class="f-answer">${esc(r.answer)} <span class="small muted">— ${esc(r.answeredBy)}</span></div>` : ""}</div><span class="pill ${"answered" === r.status ? "ok" : r.escalated || late ? "bad" : "warn"}">${"answered" === r.status ? "answered" : r.escalated ? `no answer in ${t.hrs} h` : late ? "past due" : r.status}</span></div>\n      ${
         "answered" !== r.status
           ? `<div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap">${"extra" === r.type ? `<button class="btn sm primary" data-fans="${r.id}" data-dec="extra">Proceed as extra</button><button class="btn sm" data-fans="${r.id}" data-dec="nocharge">Do it, no charge</button><button class="btn sm" data-fans="${r.id}" data-dec="hold">Hold</button>` : `<button class="btn sm primary" data-fans="${r.id}">Answer</button>`}${"rfi" === r.type && "designer" !== k ? `<button class="btn sm" data-fhand="${r.id}" data-to="designer">Hand to designer</button>` : ""}${"blocker" === r.type && "coord" !== k ? `<button class="btn sm" data-fhand="${r.id}" data-to="coord">Hand to coordinator</button>` : ""}${(() => {
               const u = DB.users.find((x) => x.name === r.by);
@@ -46212,11 +46655,12 @@ function fAnswerRaise(r, dec) {
             }[dec];
           mbModal(
             dec ? lbl : "Answer",
-            `<p class="small muted" style="margin:0 0 8px"><b>${esc(r.title)}</b>${r.note ? ` — ${esc(r.note)}` : ""}</p><div class="f"><label>${dec ? "Tell the foreman what to do" : "Answer"}</label><textarea data-f="a" rows="3" placeholder="${"extra" === dec ? "e.g. Photograph before and after; I will write the CO today." : "hold" === dec ? "e.g. Do not close that wall. I am coming at 2." : "Short and definite — this goes to the field"}"></textarea></div>${"rfi" === r.type ? '<div class="f"><label>Revised sheet / detail (optional)</label><input data-f="sheet" placeholder="e.g. A-301 rev 3 issued"></div>' : ""}`,
+            `<p class="small muted" style="margin:0 0 8px"><b>${esc(r.title)}</b>${r.note ? ` — ${esc(r.note)}` : ""}</p><div class="f"><label>${dec ? "Tell the foreman what to do" : "Answer"}</label><textarea data-f="a" rows="3" placeholder="${"extra" === dec ? "e.g. Photograph before and after; I will write the CO today." : "hold" === dec ? "e.g. Do not close that wall. I am coming at 2." : "noshow" === r.type ? "e.g. Rebooked for Friday; the framing crew covers today." : "Short and definite — this goes to the field"}"></textarea></div>${"rfi" === r.type ? '<div class="f"><label>Revised sheet / detail (optional)</label><input data-f="sheet" placeholder="e.g. A-301 rev 3 issued"></div>' : ""}${"noshow" === r.type ? fNoShowHtml(r) : ""}`,
             {
               submit: "Send to the field",
               onSubmit: (f) => {
                 if (!f.a && !dec) return toast("Write the answer"), !1;
+                const acted = "noshow" === r.type ? fNoShowAct(r, f) : null;
                 (r.status = "answered"),
                   (r.answer = f.a),
                   (r.decision = dec || ""),
@@ -46248,10 +46692,144 @@ function fAnswerRaise(r, dec) {
                   setCurrent(cur),
                   save(),
                   render(),
-                  toast(`Answer sent to ${r.by} — ${r.title}`, flowGo.raise(r));
+                  toast(
+                    `Answer sent to ${r.by} — ${clipWords(r.title, 60)}${acted && acted.said.length ? ` · ${acted.said.join(", ")}` : ""}`,
+                    flowGo.raise(r),
+                  );
               },
             },
           );
+}
+// ---- a no-show acts (review r5_pm, finding 4). The sub day the foreman tapped, then what the PM's answer does:
+// slip the task (reason no-show, into the schedule history as a cause), rebook the sub and confirm by text the
+// day before (a dated reminder for the foreman and a text draft to approve), chase the sub (a call on the PM's
+// list today and a note to approve). Nothing is sent on its own; the drafts wait in Approvals.
+function fNoShowSub(r) {
+  const subs = ((DB.field || {}).subs || []).filter((s) => s.projectId === r.projectId);
+  return (
+    (r.subId && subs.find((s) => s.id === r.subId)) ||
+    subs
+      .filter((s) => "noshow" === s.status && (!r.taskId || s.taskId === r.taskId))
+      .sort((a, b) => String(b.at || b.date).localeCompare(String(a.at || a.date)))[0] ||
+    null
+  );
+}
+function fNoShowHtml(r) {
+  const s = fNoShowSub(r),
+    vendor = s ? s.vendor : "the sub",
+    lead = (s && s.lead) || vendor,
+    tk = r.taskId ? task(r.taskId) : null,
+    fore = (r.by || "the foreman").split(" ")[0];
+  return `<div class="f-noshow"><div class="small muted" style="margin:10px 0 6px"><b>Act on It</b> — each one is written to the record with the no-show as its reason.</div>
+    <div class="grid2"><div class="f"><label>Slip ${tk ? esc(tk.name) : "the Task"} (Working Days)</label><input type="number" data-f="slip" min="0" step="1" value="0"><span class="hint">0 keeps the dates; a slip goes into the schedule history as a no-show</span></div>
+    <div class="f"><label>Rebook ${esc(vendor)} For</label><input type="date" data-f="rebook" value="${esc(nextWork(addWork(today(), 1)))}"><span class="hint">blank leaves the sub calendar alone</span></div></div>
+    <label class="chk"><input type="checkbox" data-f="confirmText" checked> <span class="chk-t">Confirm by Text the Day Before — a reminder for ${esc(fore)} and a text to ${esc(lead)} for you to approve</span></label>
+    <label class="chk"><input type="checkbox" data-f="chase" checked> <span class="chk-t">Chase the Sub — a call on your list today and a note to ${esc(vendor)} for you to approve</span></label></div>`;
+}
+function fNoShowAct(r, f) {
+  const p = S,
+    s = fNoShowSub(r),
+    td = today(),
+    me = (currentUser() || {}).name || DB.me || "",
+    vendor = s ? s.vendor : String(r.title || "").split(" (")[0].trim() || "the sub",
+    lead = (s && s.lead) || "",
+    phone = (s && s.phone) || "",
+    t = r.taskId ? task(r.taskId) : null,
+    on = s ? s.date : td,
+    out = { said: [] },
+    src = { kind: "raise", id: r.id, label: r.title },
+    n = Math.max(0, Math.round(+f.slip || 0));
+  if (n && t && "done" !== t.status) {
+    const was = { start: t.start, end: t.end };
+    (t.end = addWork(t.end, n, t.weekendOk)),
+      (t._moveReason = `${opsReasonLabel("noshow")} — ${vendor} did not show ${fmt(on)}`),
+      (t._moveReasonKey = "noshow"),
+      pushDependents(t.id, []),
+      recordMove(t, was, "edit"),
+      out.said.push(`${t.name} slipped ${n} working day${1 === n ? "" : "s"} (no-show)`);
+  }
+  const when = f.rebook || "";
+  if (when && s) {
+    // a day already on the sub calendar for them is the rebooking; otherwise add one
+    const have = DB.field.subs.find((x) => x.projectId === p.id && x.vendor === vendor && x.date === when && "noshow" !== x.status);
+    have
+      ? ((have.note = `rebooked after the no-show on ${fmt(on)}${have.note ? ` · ${have.note}` : ""}`), "onsite" === have.status || (have.status = "unconfirmed"))
+      : DB.field.subs.push({
+          id: uid("fs"),
+          projectId: p.id,
+          vendor: vendor,
+          lead: lead,
+          phone: phone,
+          trade: s.trade || "",
+          taskId: s.taskId || r.taskId || "",
+          workers: s.workers,
+          date: when,
+          status: "unconfirmed",
+          note: `rebooked after the no-show on ${fmt(on)}`,
+        });
+    out.said.push(`${vendor} rebooked ${fmtL(when)}`);
+  }
+  const date = when || on,
+    job = shortName(p);
+  (p.actions = p.actions || []), (DB.outbox = DB.outbox || []);
+  if (f.confirmText && date) {
+    const dayBefore = addWork(date, -1);
+    p.actions.push({
+      id: uid("a"),
+      title: `Text ${lead || vendor} to confirm ${vendor} for ${fmtL(date)} at ${job}`,
+      assignee: r.by || me,
+      due: dayBefore,
+      priority: "high",
+      status: "todo",
+      area: "construction",
+      source: src,
+      createdAt: td,
+      notes: "A sub that is not confirmed the day before does not show. Send the text, keep the reply.",
+    }),
+      DB.outbox.push({
+        id: uid("ox"),
+        kind: "followup",
+        via: "sms",
+        to: { name: lead || vendor, email: "", phone: phone },
+        subject: `Confirming ${fmtL(date)} at ${job}`,
+        body: `${lead || vendor} — confirming you are at ${p.project.name} on ${fmtL(date)} for ${t ? t.name : (s && s.trade) || "your work"}. Reply YES to confirm. — ${me}`,
+        about: { projectId: p.id, raiseId: r.id, label: `confirm ${vendor} for ${fmtL(date)}` },
+        aboutKey: `noshow-confirm|${r.id}`,
+        forName: me,
+        sendOn: dayBefore,
+        status: "draft",
+        at: td,
+        by: "The assistant",
+      }),
+      out.said.push(`a reminder to text ${lead || vendor} on ${fmtL(dayBefore)}`);
+  }
+  f.chase &&
+    (p.actions.push({
+      id: uid("a"),
+      title: `Call ${vendor}${lead ? ` (${lead})` : ""} about the no-show on ${fmt(on)}`,
+      assignee: me,
+      due: td,
+      priority: "high",
+      status: "todo",
+      area: "construction",
+      source: src,
+      createdAt: td,
+    }),
+    DB.outbox.push({
+      id: uid("ox"),
+      kind: "followup",
+      to: { name: lead || vendor, email: (s && s.email) || "", phone: phone },
+      subject: `${vendor} — no-show on ${fmtL(on)} at ${p.project.name}`,
+      body: `Hi ${(lead || vendor).split(" ")[0]},\n\nYour crew did not come to ${p.project.name} on ${fmtL(on)} and nobody told us. The day was planned around you.${when ? ` We have you back on ${fmtL(when)}; please confirm by text the day before.` : " Please call me with a new date today."}\n\n${me}`,
+      about: { projectId: p.id, raiseId: r.id, label: `chase ${vendor} on the no-show` },
+      aboutKey: `noshow-chase|${r.id}`,
+      forName: me,
+      status: "draft",
+      at: td,
+      by: "The assistant",
+    }),
+    out.said.push(`a call to ${vendor} on your list`));
+  return out;
 }
 function fWireOffice(root) {
   root &&
@@ -47079,6 +47657,13 @@ function fDockSay(fab) {
     ? (fab.classList.add("btn", "fsay-dock"), nav.firstElementChild !== fab && nav.prepend(fab))
     : fab.classList.contains("fsay-dock") && (fab.classList.remove("btn", "fsay-dock"), document.body.appendChild(fab));
 }
+// The decision the PM made, then the answer: once. An answer that already opens with the decision's words
+// (older records did) is not prefixed again.
+function fDecisionLine(r) {
+  const lbl = r.decision ? { extra: "Proceed as an extra", nocharge: "Do it, no charge", hold: "HOLD — do not proceed", call: "Call me" }[r.decision] || "" : "",
+    a = String(r.answer || "").trim();
+  return !lbl || a.toLowerCase().startsWith(lbl.toLowerCase().replace(/^hold.*$/, "hold")) ? a || lbl : `${lbl}. ${a}`;
+}
 function fNotesForMe() {
   return (
     (DB.field.notes = DB.field.notes || []), DB.field.notes.filter((n) => n.projectId === S.id && !n.ack)
@@ -47095,7 +47680,7 @@ function fForYou() {
           k: "answer",
           id: r.id,
           t: `${fPerson(r.to)?.name.split(" ")[0] || r.answeredBy || "Office"} answered: ${r.title}`,
-          s: `${r.decision ? { extra: "Proceed as an extra", nocharge: "Do it, no charge", hold: "HOLD — do not proceed", call: "Call me" }[r.decision] + ". " : ""}${r.answer || ""}`,
+          s: fDecisionLine(r),
           sev: "hold" === r.decision ? 3 : 2,
           at: r.answeredAt,
         }),
@@ -47990,11 +48575,15 @@ function ctPOPicker(projectId, preferId, preKey) {
               g = (s) => m.querySelector(`[data-${s}="${sel}"]`).value,
               add = (+g("ctpq") || 1) * (+g("ctpc") || 0),
               f = lineFin(ctKey(d, l));
-            l.cost && f && f.committed + add > 1.001 * l.cost && !over.includes(l) && over.push(l);
+            l.cost &&
+              f &&
+              f.committed + add > 1.001 * l.cost &&
+              !over.some((o) => o.l === l) &&
+              over.push({ l: l, by: r2(f.committed + add - l.cost), budget: l.cost });
           }),
           over.length &&
             !appConfirm(
-              `This would commit more than the budget on: ${over.map((l) => (l.num ? l.num + ". " : "") + l.item).join("; ")}. Create anyway?`,
+              `This would commit more than the budget: ${over.map((o) => `${money(o.by)} over the ${money(o.budget)} line (${o.l.num ? o.l.num + ". " : ""}${o.l.item})`).join("; ")}. Create anyway?`,
             ))
         )
           return !1;
@@ -51967,7 +52556,7 @@ function renderProc() {
   (root.innerHTML = `\n  <div class="ph"><div><h2>Procurement — ${esc(S.project.name)}</h2>\n    <p class="lead">Sorted by the date each item has to be bought, not by how long it takes. <b>Order by</b> is the site date minus the lead time minus ${DB.company.recvBuffer ?? 5} business days to receive and move it — the row turns red the day it goes past.</p></div>\n    <div class="acts">\n      <button class="btn" id="proc-clip">Clipper access</button>\n      <button class="btn" id="proc-vendors">Vendors</button>\n      <button class="btn" id="proc-link">Link to schedule${(() => {
     const n = selItems().filter((i) => !i.taskId && selSuggestTask(i)).length;
     return n ? ` · ${n}` : "";
-  })()}</button>\n      <button class="btn" id="proc-recv">Receiving</button>\n      <button class="btn primary" id="proc-run" ${procSel.size ? "" : "disabled"}>Buy run${procSel.size ? ` · ${procSel.size}` : ""}</button>\n    </div></div>\n\n  <div class="sel-stats">\n    <div class="sel-stat ${late.length ? "bad" : ""}"><b>${late.length}</b><span>past the order-by date</span></div>\n    <div class="sel-stat ${soon.length ? "warn" : ""}"><b>${soon.length}</b><span>to order this week</span></div>\n    <div class="sel-stat"><b>${money(openVal)}</b><span>left to buy</span></div>\n    <div class="sel-stat"><b>${money(spent)}</b><span>committed or spent</span></div>\n    <div class="sel-stat ${saved > 0 ? "ok" : ""}"><b>${money(saved)}</b><span>under budget so far</span></div>\n  </div>\n\n  <div class="proc-bar">\n    <div class="proc-filters">\n      ${[
+  })()}</button>\n      <button class="btn" id="proc-recv">Receiving</button>\n      <button class="btn primary" id="proc-run">New Buy Run${procSel.size ? ` · ${procSel.size}` : ""}</button>\n    </div></div>\n\n  <div class="sel-stats">\n    <div class="sel-stat ${late.length ? "bad" : ""}"><b>${late.length}</b><span>past the order-by date</span></div>\n    <div class="sel-stat ${soon.length ? "warn" : ""}"><b>${soon.length}</b><span>to order this week</span></div>\n    <div class="sel-stat"><b>${money(openVal)}</b><span>left to buy</span></div>\n    <div class="sel-stat"><b>${money(spent)}</b><span>committed or spent</span></div>\n    <div class="sel-stat ${saved > 0 ? "ok" : ""}"><b>${money(saved)}</b><span>under budget so far</span></div>\n  </div>\n\n  <div class="proc-bar">\n    <div class="proc-filters">\n      ${[
     ["open", "To buy"],
     ["late", "Late"],
     ["flag", "Flagged"],
@@ -52105,7 +52694,7 @@ function procLinkModal() {
 }
 function procRunModal() {
   const items = [...procSel].map(selItem).filter(Boolean);
-  if (!items.length) return void toast("Pick some items");
+  if (!items.length) return void toast("Tick the items to buy first — a buy run makes one purchase order per vendor from them");
   ((opts) => {
     const made = selPORun(
       items.map((i) => i.id),
@@ -63342,10 +63931,11 @@ if (
 function f3ArrivingHtml() {
   const td = today(),
     subs = ((DB.field && DB.field.subs) || []).filter((s) => s.projectId === S.id && s.date === td),
+    // issued orders only: a draft or a PO still waiting for the owner's approval is not coming to site
     pos = (DB.pos || []).filter(
       (po) =>
         po.projectId === S.id &&
-        !["cancelled", "draft", "received"].includes(po.status) &&
+        ["issued", "partial"].includes(po.status) &&
         (po.expected || po.needBy) &&
         (po.expected || po.needBy) <= td,
     ),
@@ -65603,13 +66193,8 @@ function b2Facts(F) {
     (X.returns = ("function" == typeof retList ? retList() : []).filter(
       (r) => void 0 !== RET_OPEN && RET_OPEN.includes(r.status),
     )),
-    (X.vendorsWeak = [
-      ...new Set(
-        DB.pos.filter((po) => !["cancelled", "draft", "received"].includes(po.status)).map((po) => po.vendor),
-      ),
-    ]
-      .map((v) => DB.vendors.find((x) => x.name === v))
-      .filter((v) => v && (!v.insuranceExp || v.insuranceExp < td))),
+    // one predicate (PRED.vendorsBlocked) for Home's chases and the Vendors tile
+    (X.vendorsWeak = "object" == typeof PRED && PRED.vendorsBlocked ? PRED.vendorsBlocked.rows() : []),
     (X.billsVsPO = DB.bills
       .filter((b) => ["submitted", "pm-approved"].includes(b.status) && b.poId)
       .map((b) => {
@@ -66488,7 +67073,8 @@ function eaAddNote(text, due, by) {
   const n = {
     id: uid("ea"),
     text: text,
-    due: due || "",
+    // a reminder never lands on a weekend: Saturday and Sunday roll to Monday
+    due: due ? poWorkday(due) : "",
     by: by || (currentUser() || {}).name || "",
     at: today(),
     done: !1,
@@ -66699,43 +67285,46 @@ function eaChase(F, X, r) {
   return r ? uniq.filter((c) => (EA_CHASE_FOR[c.kind] || []).includes(r)) : uniq;
 }
 function eaNudge(item) {
+  // A chase is a draft in the person's own mailbox (or outbox) to approve and send, an expectation on the
+  // ledger with a three-working-day follow-up, and a note on the record. Nothing is sent from here, nothing
+  // goes to project chat or the client's activity. Before this the modal said both and did neither.
+  const v = item.vendor || null,
+    who = item.who || null,
+    name = (who && who.name) || (v && v.name) || eaPlain(item.t).replace(/ — .*$/, ""),
+    known = (who && who.email) || (v && v.email) || "",
+    mail = "function" == typeof gcOn && gcOn(),
+    subject = item.subject || ("coi" === item.kind ? `Certificate of insurance — ${name}` : `Following up — ${eaPlain(item.t).replace(/ — .*$/, "")}`);
   mbModal(
-    `Chase — ${item.t.replace(/<[^>]+>/g, "")}`,
-    `<p class="small muted">I've drafted the note. Change anything, then send. It goes on the project chat and the client's activity so everyone knows it was asked.</p><div class="f"><label>To</label><input id="ea-to" value="${esc(item.who ? `${item.who.name}${item.who.email ? " <" + item.who.email + ">" : ""}` : item.vendor ? item.vendor.name : "")}"></div><div class="f"><label>Message</label><textarea id="ea-msg" rows="5">${esc(item.msg || "")}</textarea></div>`,
+    `Chase — ${eaPlain(item.t)}`,
+    `<p class="small muted">${mail ? `The note goes to your mailbox's Drafts${(gcMine() || {}).email ? ` (${esc(gcMine().email)})` : ""} for you to read and send` : "The note goes to your outbox for approval"}. I log that we asked and remind you in three working days if nothing comes back.</p>${known ? "" : mbF("Their Email", `<input type="email" data-f="email" id="ea-email" placeholder="${esc(name)} has no address on file — add it so the draft can go out" autocomplete="off">`)}<div class="f"><label>To</label><input id="ea-to" value="${esc(name)}${known ? ` <${esc(known)}>` : ""}"></div><div class="f"><label>Subject</label><input id="ea-subj" value="${esc(subject)}"></div><div class="f"><label>Message</label><textarea id="ea-msg" rows="5">${esc(item.msg || "")}</textarea></div>`,
     {
-      submit: "Send the nudge",
-      onSubmit: () => {
-        const to = document.getElementById("ea-to").value,
+      submit: mail ? "Draft in My Mailbox" : "Draft for Approval",
+      onSubmit: (f) => {
+        const addr = known || String(f.email || "").trim();
+        if (!addr || !/@/.test(addr)) return toast(`${name} has no email on file — add it so the draft can go out`), !1;
+        const subj = document.getElementById("ea-subj").value,
           msg = document.getElementById("ea-msg").value,
-          by = (currentUser() || {}).name || "";
-        item.p &&
-          item.p.chat &&
-          item.p.chat.push({
-            id: uid("ch"),
-            by: "System",
-            text: `Nudge sent to ${to}: ${msg}`,
-            t: nowStamp(),
-            files: [],
-            system: !0,
-          }),
-          item.c &&
-            item.c.activity.push({
-              t: nowStamp(),
-              by: by,
-              text: `Nudged ${to} — ${"decision" === item.kind ? "decision" : "proposal" === item.kind ? "proposal" : "change order"}: ${msg.slice(0, 80)}…`,
-            }),
-          item.vendor &&
-            (item.vendor.notes =
-              (item.vendor.notes ? item.vendor.notes + "\n" : "") +
-              `${today()} asked for COI: ${msg.slice(0, 60)}…`),
-          eaAddNote(
-            `Follow up: ${item.t.replace(/<[^>]+>/g, "")} — nudged ${fmtL(today())}`,
-            iso(addDays(today(), 3)),
-            by,
-          ),
-          save(),
-          render(),
-          toast("Sent — I'll remind you in three days if nothing comes back");
+          by = (currentUser() || {}).name || "",
+          due = addWork(today(), 3, !1);
+        v && !v.email && (v.email = addr),
+          who && !who.email && (who.email = addr),
+          v && (v.notes = (v.notes ? v.notes + "\n" : "") + `${fmt(today())} asked for ${"coi" === item.kind ? "the COI" : "an answer"}: ${msg.slice(0, 60)}…`);
+        const e = paExpect(name, subj.replace(/^Following up — /, ""), due, { kind: item.kind, vendorId: v ? v.id : "", clientId: item.c ? item.c.id : "" }, today());
+        (e.email = addr), (e.chased = (e.chased || 0) + 1), (e.by = due);
+        eaAddNote(`Follow up: ${eaPlain(item.t)} — asked ${fmtL(today())}`, due, by);
+        const openMail = () => {
+          (cmFilter = "all"), (view = "comms"), render();
+        };
+        if (mail)
+          gaDraft({ to: addr, subject: subj, body: msg, why: `${name} owes ${"coi" === item.kind ? "a certificate of insurance" : "an answer"}` })
+            .then(() => {
+              save(), render(), rcToast(`Draft to ${name} is in your mailbox's Drafts — I will remind you ${fmtL(due)} if nothing comes back`, [{ label: "Open", run: openMail }]);
+            })
+            .catch((err) => {
+              console.warn("chase draft", err), paDraftNote(name, subj, msg, `${name} owes an answer`, `ea|${item.kind}|${name}|${today()}`), save(), render(), rcToast(`The mailbox refused the draft; it is in your outbox for approval — I will remind you ${fmtL(due)}`, [{ label: "Open", run: openMail }]);
+            });
+        else paDraftNote(name, subj, msg, `${name} owes an answer`, `ea|${item.kind}|${name}|${today()}`), save(), render(), rcToast(`Draft to ${name} is in your outbox for approval — I will remind you ${fmtL(due)} if nothing comes back`, [{ label: "Open", run: openMail }]);
+        save(), render();
       },
     },
   );
@@ -66751,7 +67340,7 @@ const eaFirst = () => ((currentUser() || {}).name || "there").split(" ")[0],
       .replace(/&gt;/g, ">");
 function eaRow(n, t, sub, act, data) {
   const N = h4n(n);
-  return `<div class="h4r" ${data ? `data-ea='${esc(JSON.stringify(data))}'` : ""}>${N.col}<span class="grow">${N.tag}${t}${sub ? ` <span class="small muted">· ${sub}</span>` : ""}</span>${act ? `<em class="small">${act}</em>` : ""}</div>`;
+  return `<div class="h4r" ${data ? `data-ea='${esc(JSON.stringify(data))}'` : ""}>${N.col}<span class="grow">${N.tag}${t}${sub ? ` <span class="small muted">· ${sub}</span>` : ""}</span>${act ? `<button type="button" class="btn sm h4-act">${act}</button>` : ""}</div>`;
 }
 function eaToday(r, F, X) {
   const out = [];
@@ -69953,6 +70542,11 @@ function cmRead(c) {
       },
     );
   }
+  // A DOB NOW inspection notice proposes the booking with its window (cmDobNow, kept apart; see Book Inspection).
+  {
+    const bk = "function" == typeof cmDobNow ? cmDobNow(all, R) : null;
+    bk && push("inspection", `${where || "Inspection"}: book ${bk.name} for ${fmtL(bk.date)}${bk.from ? ` ${bk.from}–${bk.to}` : ""} — from the DOB NOW notice`, bk);
+  }
   // Our own card's or bank's statement is not a vendor bill: its lines are the feed. It is imported.
   const ourCard =
     /statement/i.test(all) &&
@@ -70400,6 +70994,11 @@ function cmApply(c, p) {
       pr.permitNotes.push({ t: nowStamp(), text: p.summary, permits: p.permits })),
       R.clientId && cmActivity(R.clientId, p.summary),
       (did = p.task ? "permit task" : "permit note");
+  } else if ("inspection" === p.kind) {
+    const pr = p.projectId && DB.projects.find((x) => x.id === p.projectId),
+      i = pr && (pr.inspections || []).find((x) => x.id === p.inspId);
+    i && "function" == typeof inspBook && inspBook(pr, i, { date: p.date, from: p.from, to: p.to, docket: p.docket, via: "DOB NOW" }),
+      (did = i ? "inspection booked" : "no matching inspection");
   } else if ("bill" === p.kind) {
     DB.bills = DB.bills || [];
     const b = {
@@ -70420,6 +71019,10 @@ function cmApply(c, p) {
       createdBy: "reader",
       commId: c.id,
     };
+    // The bill lands on the purchase order the message names (cmBillPO): job, line, code and category from
+    // the PO line, so Bill Remaining and the over-PO flag count it (purchasing section).
+    const poFor = cmBillPO(c, p);
+    poFor && poLinkBill(b, poFor);
     if (p.txnId) {
       const t = (DB.txns || []).find((x) => x.id === p.txnId);
       t && !t.billId && ((t.billId = b.id), (b.paidTxnId = t.id), (b.status = "paid"), (b.paidAt = t.date));
@@ -70427,7 +71030,7 @@ function cmApply(c, p) {
     DB.bills.push(b),
       DB.vendors.some((v) => v.name.toLowerCase() === (p.vendor || "").toLowerCase()) ||
         DB.vendors.push({ id: uid("v"), name: p.vendor, trade: "", w9: !1, insuranceExp: "" }),
-      (did = `bill ${money(p.amount)} submitted for approval`);
+      (did = `bill ${money(p.amount)} submitted for approval${poFor ? ` against ${poFor.number}${((pr) => (pr ? " on " + String(pr.project.name).replace(/ —.*$/, "") : ""))((DB.projects || []).find((x) => x.id === poFor.projectId))}` : ""}`);
   } else if ("ar" === p.kind)
     p.clientId
       ? cmActivity(
@@ -71525,7 +72128,7 @@ cmApply = function (c, p) {
     "question" === p.kind ||
     "meeting" === p.kind ||
     ("permit" === p.kind && p.task) ||
-    ("quote" === p.kind && !p.out) ||
+    ("quote" === p.kind && !p.out && !p.materialId) ||
     "deposit" === p.kind
   ) {
     if ("deposit" === p.kind) {
@@ -83622,13 +84225,32 @@ function mApprovals() {
           kind: "raise",
           id: x.id,
           sev: x.escalated || "incident" === x.type ? "bad" : "warn",
-          n: x.dueBy ? `by ${x.dueBy.slice(5)}` : "site",
+          n: x.needBy || x.dueBy ? `by ${fmt(x.needBy || x.dueBy)}` : "site",
           title: x.title || x.type,
           detail: [p ? p.project.name : "", x.by || "", x.note || ""].filter(Boolean).join(" · "),
           yes: "Answer",
           open: { view: "field", project: x.projectId },
         });
       });
+  } catch (e) {}
+  // a client's question from the portal or their chat: the PM answers it from Do Now, the assistant drafts
+  try {
+    DB.projects.forEach((p) =>
+      (p.clientQs || [])
+        .filter((q) => "open" === q.status)
+        .forEach((q) =>
+          out.push({
+            kind: "clientq",
+            id: q.id,
+            sev: "warn",
+            n: "client",
+            title: `Answer ${q.by}`,
+            detail: `${p.project.name} · ${q.text}`,
+            yes: "Answer",
+            open: { view: "inbox", project: p.id, clientq: q.id },
+          }),
+        ),
+    );
   } catch (e) {}
   DB.projects.forEach((p) =>
     (p.decisions || [])
@@ -83662,6 +84284,34 @@ function mApprovals() {
           }),
         ),
     );
+  // purchase orders over the approval threshold, submitted: the owner's yes or no (DELEGATION po -> owner)
+  (DB.pos || [])
+    .filter((po) => "pending" === po.status)
+    .forEach((po) => {
+      const p = DB.projects.find((x) => x.id === po.projectId),
+        bad = "function" == typeof poValid ? poValid(po) : [];
+      out.push({
+        kind: "po",
+        id: po.id,
+        projectId: po.projectId,
+        sev: bad.length ? "bad" : "warn",
+        n: money(poTotal(po).total),
+        title: `${po.number} · ${po.vendor}`,
+        detail: [
+          p ? p.project.name : "",
+          po.submittedBy ? `submitted by ${po.submittedBy} ${fmt(po.submittedAt)}` : "submitted for approval",
+          `over the ${money(DB.company.poApprovalOver)} threshold`,
+          po.needBy ? `needed on site ${fmt(po.needBy)}` : "",
+          bad.join("; "),
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        yes: "Approve",
+        no: "Reject",
+        open: { view: "po", po: po.id, project: po.projectId },
+        act: "approve",
+      });
+    });
   const rank = (s) => ("bad" === s ? 0 : "warn" === s ? 1 : 2),
     live = (id) => !id || (DB.projects || []).some((p) => p.id === id);
   return out
@@ -83669,12 +84319,13 @@ function mApprovals() {
     .sort((a, b) => rank(a.sev) - rank(b.sev));
 }
 function mGo(go) {
-  go &&
-    (go.project && "function" == typeof setCurrent && setCurrent(go.project),
-    go.billId && void 0 !== iaOpenBillAfter && (iaOpenBillAfter = go.billId),
-    (view = go.view),
-    render(),
-    window.scrollTo(0, 0));
+  if (!go) return;
+  go.project && "function" == typeof setCurrent && setCurrent(go.project),
+    go.billId && void 0 !== iaOpenBillAfter && (iaOpenBillAfter = go.billId);
+  // a view this role cannot open is not a destination: a field question goes to Approvals' Site Questions
+  let v = go.view;
+  "field" === v && "function" == typeof flowCan && !flowCan("field") && flowCan("mapprove") && ((window.mApprKind = "raise"), (v = "mapprove"));
+  (view = v), render(), window.scrollTo(0, 0);
 }
 // Every kind an approval can be sits in exactly one chip, so the chips sum to Everything.
 // A kind added later without a chip lands in Other rather than in no chip at all.
@@ -83685,10 +84336,13 @@ const APPR_CHIPS = [
     ["subm", "Submittals"],
     ["req", "Field Requests"],
     ["raise", "Site Questions"],
+    ["clientq", "Client Questions"],
     ["meeting", "Meetings"],
     ["change", "Changes"],
     ["lesson", "Lessons"],
     ["draft", "Drafts"],
+    ["journal", "Journal Entries"],
+    ["close", "Month Close"],
     ["other", "Other"],
   ],
   apprChip = (it) => (APPR_CHIPS.some(([k]) => k === it.kind) ? it.kind : "other");
@@ -83737,6 +84391,7 @@ const DELEGATION = {
   },
   req: { role: "coord", rule: "a material request from the field is the coordinator's to acknowledge" },
   subm: { role: "pm", rule: "a submittal at the PM's review step is the PM's" },
+  clientq: { role: "pm", rule: "a client's question from the portal or their chat is the PM's to answer; the assistant drafts the reply from the published schedule and the statement" },
   meeting: {
     role: "pm",
     rule: "proposals from a meeting go to someone who was in it and can approve here: the PM, then the coordinator, then the owner",
@@ -83753,6 +84408,8 @@ const DELEGATION = {
     rule: "a draft waits on the person it was written for",
     who: (it) => apprRoleOf(((DB.outbox || []).find((x) => x.id === it.id) || {}).forName),
   },
+  journal: { role: "owner", rule: "a manual journal the controller drafted is posted by the Owner, with a typed reason" },
+  close: { role: "owner", rule: "the month-end close is the Owner's to run; the controller sends the checklist when it is ready" },
   other: { role: "owner", rule: "anything without a rule lands on the owner, never nowhere" },
 };
 const APPR_WHO = { owner: "the owner", pm: "the PM", coord: "the coordinator", billing: "billing", controller: "the controller" },
@@ -83836,6 +84493,34 @@ function apprOthersSheet(others, apDate) {
         }),
     );
 }
+// A field request's Acknowledge on Approvals acknowledges it there, with a toast, instead of opening the
+// requests page and asking for a second click (review r5_pm, finding 12).
+function apprReqWire(v) {
+  v.querySelectorAll('.m-appr[data-mk="req"]').forEach((el) => {
+    const b = el.querySelector("[data-mopen]");
+    if (!b || b.dataset.ack) return;
+    const p = (DB.projects || []).find((x) => (x.requests || []).some((q) => q.id === el.dataset.mid)),
+      q = p && p.requests.find((x) => x.id === el.dataset.mid);
+    q &&
+      "new" === q.status &&
+      ((b.dataset.ack = "1"),
+      b.addEventListener("click", (e) => {
+        // in the capture phase, ahead of the generic Open wiring this page gives every data-mopen button
+        e.preventDefault(), e.stopPropagation(), e.stopImmediatePropagation();
+        const keep = S;
+        try {
+          S = p;
+          requestAction(p.id, q.id, "ack");
+        } finally {
+          S = keep;
+        }
+        toastDone(`Acknowledged — ${"function" == typeof reqLabel ? reqLabel(q) : q.what || "the request"} (${shortName(p)})`, () => {
+          setCurrent(p.id), (view = "req"), render();
+        }),
+          render();
+      }, !0));
+  });
+}
 function renderMApprove() {
   const v = document.getElementById("v-mapprove");
   if (!v) return;
@@ -83915,6 +84600,7 @@ function renderMApprove() {
         }),
     ),
     v.querySelectorAll("[data-mothers]").forEach((b) => (b.onclick = () => apprOthersSheet(others, apDate))),
+    apprReqWire(v),
     v.querySelectorAll(".m-appr").forEach((el) => {
       const it = items.find((x) => x.kind === el.dataset.mk && String(x.id) === el.dataset.mid);
       if (!it) return;
@@ -85643,7 +86329,8 @@ const TL_SETS = {},
 (TL_SETS.vendors = () => {
   const vs = DB.vendors || [],
     st = (v) => vendorState(v),
-    blocked = vs.filter((v) => st(v).some((f) => "bad" === f.lvl)),
+    blocked = PRED.vendorsBlocked ? PRED.vendorsBlocked.rows() : vs.filter((v) => st(v).some((f) => "bad" === f.lvl)),
+    noCoi = vs.filter((v) => !v.insuranceExp),
     soon = vs.filter((v) => !st(v).some((f) => "bad" === f.lvl) && st(v).some((f) => /expires/i.test(f.m))),
     openB = tlBills().filter((b) => !["paid", "verified"].includes(b.status)),
     byV = {};
@@ -85660,10 +86347,19 @@ const TL_SETS = {},
       v: blocked.length,
       tone: blocked.length ? "bad" : "",
       s: blocked.length
-        ? "expired insurance or license — new POs blocked"
-        : "everyone current on insurance and license",
+        ? "no current certificate of insurance and an order open with them — no new PO until it lands"
+        : "every vendor with an open order has a current certificate",
       grid: "vendors",
-      pred: (v) => st(v).some((f) => "bad" === f.lvl),
+      pred: (v) => PRED.vendorsBlocked.test(v),
+    },
+    {
+      key: "nocoi",
+      k: "No Certificate",
+      v: noCoi.length,
+      tone: noCoi.length ? "warn" : "",
+      s: noCoi.length ? `of ${vs.length} vendors have no certificate of insurance on file` : "a certificate is on file for every vendor",
+      grid: "vendors",
+      pred: (v) => !v.insuranceExp,
     },
     {
       key: "soon",
@@ -87325,15 +88021,16 @@ const TL_SETS = {},
     return [
       {
         key: "late",
-        k: "Running Late",
+        k: "Finish Dates Late",
+        rule: "jobs whose forecast finish is past the target date in the contract; not Home's Jobs With Late Items, which counts late materials, decisions and submittals",
         v: late.length,
         tone: late.length ? "bad" : "",
         s: late.length
           ? late
-              .map((r) => `${shortName(r.p)} +${r.h.late}d`)
+              .map((r) => `${shortName(r.p)} +${r.h.late}d past target`)
               .slice(0, 2)
               .join(" · ")
-          : "every finish date holds",
+          : "every finish date holds its target",
         grid: "portfolio",
         pred: (x, d) => d && d.h && d.h.late > 0,
       },
@@ -92590,12 +93287,11 @@ const BN_TRIGGERS = {
     contact: {
       label: "A project contact has a role",
       hint: "architect, designer, expediter, plumber",
+      // the project's own contacts: a decision owed to "Architect / designer" on a design job is the firm's own
+      // studio, not an outside consultant, and proposing the same task on every job is noise (r5_pm, #14)
       test: (p, m) => {
         const rx = bnRx(m);
-        return (
-          parseContacts(p.project.contacts).some((c) => rx.test(c.role || "")) ||
-          (p.decisions || []).some((d) => rx.test(d.owner || ""))
-        );
+        return parseContacts(p.project.contacts).some((c) => rx.test(`${c.role || ""} ${c.company || ""}`));
       },
     },
     permit: {
@@ -93124,6 +93820,29 @@ function bnSuggestLessons() {
         },
         why: w["decision latency"].quotes.map((q) => q.t).join(" · "),
       }),
+    (() => {
+      // a sub that did not show (the foreman's tap, or a no-show raised from the site) is a lesson to propose:
+      // confirm every sub the day before. Proposed with its trigger; the owner teaches it or not.
+      const ns = ((DB.field || {}).subs || []).filter((s) => "noshow" === s.status),
+        rs = ((DB.field || {}).raises || []).filter((r) => "noshow" === r.type);
+      (ns.length || rs.length) &&
+        !have("Every sub is confirmed by text the day before their date") &&
+        out.push({
+          title: "Every sub is confirmed by text the day before their date",
+          trigger: "vendor",
+          match: ".",
+          when: "now",
+          then: {
+            kind: "task",
+            title: "Text each sub the day before their date and keep the reply",
+            owner: "foreman",
+          },
+          why: ns
+            .map((s) => `${s.vendor}${s.lead ? ` (${s.lead})` : ""} did not show ${fmtL(s.date)}`)
+            .concat(rs.filter((r) => !ns.some((s) => r.subId === s.id)).map((r) => r.title))
+            .join(" · "),
+        });
+    })(),
     w["hidden condition"] &&
       !have("Existing conditions are opened up and photographed before the estimate is final") &&
       out.push({
@@ -93220,11 +93939,21 @@ function bnLoad(name) {
     open = rows.length,
     late = rows.filter((r) => r.late).length,
     week = rows.filter((r) => r.week && !r.late).length,
-    pressure = late + week + ob;
+    // the yes-or-no queue is work too: a PM holding fifteen approvals is not inside their week
+    appr = (() => {
+      try {
+        const r = "function" == typeof apprRoleOf ? apprRoleOf(name) : "";
+        return r && "function" == typeof mApprovals ? mApprovals({ everyone: !0 }).filter((it) => it.who === r).length : 0;
+      } catch (e) {
+        return 0;
+      }
+    })(),
+    pressure = late + week + ob + appr;
   return {
     name: name,
     cap: cap,
     open: open,
+    appr: appr,
     late: late,
     week: week,
     waits: rows.filter((r) => r.waits).length,
@@ -93246,7 +93975,7 @@ function bnLoad(name) {
 function bnWorkload() {
   return bnStaffNames()
     .map(bnLoad)
-    .filter((w) => w.open || w.ob)
+    .filter((w) => w.open || w.ob || w.appr)
     .sort((a, b) => b.pressure - a.pressure);
 }
 function bnWorkloadHtml(compact) {
@@ -93270,7 +93999,7 @@ function bnWorkloadHtml(compact) {
           ? `${over.map((w) => w.name).join(", ")} ${1 === over.length ? "is" : "are"} at the edge of the week`
           : "everyone is inside their week"
       : ""
-  }</span><span class="grow"></span>${!compact && mgr ? '<button class="btn sm" id="bn-cap">Set Capacities</button>' : ""}</div>\n    ${rows.map((w) => `<div class="bn-row ${w.level}"><div class="bn-who"><b>${esc(w.name)}</b><span class="small muted">${w.open} open · ${w.late ? `<span class="bad">${w.late} overdue</span> · ` : ""}${w.week} due this week${w.waits ? ` · ${w.waits} waiting on others` : ""}${w.escal ? ` · <span class="bad">${w.escal} past escalation</span>` : ""}${w.ob ? ` · ${w.ob} renewal${1 === w.ob ? "" : "s"}` : ""}</span></div><div class="bn-bar" title="${w.pressure} this week against a capacity of ${w.cap}"><i style="width:${Math.min(100, Math.round((w.pressure / w.cap) * 100))}%"></i></div><div class="bn-take">${w.takeable ? `<button class="btn sm ${"ok" === w.level ? "" : "primary"}" data-bntake="${esc(w.name)}">${w.name === me ? "Hand to the Assistant" : "What the Assistant Can Take"} · ${w.takeable}</button>` : '<span class="small muted">nothing the assistant can take</span>'}</div></div>`).join("")}\n    ${mgr && over.length ? `<div class="small" style="margin-top:6px">${over.map((w) => `<b>${esc(w.name)}</b>: ${w.pressure} due or overdue against a week of ${w.cap} — ${w.takeable ? `the assistant can draft ${w.takeable} of them (follow-ups, renewals) for approval; the rest need` : "nothing here is a follow-up the assistant can write, so these need"} a hand or a date moved.`).join("<br>")}</div>` : ""}</div>`;
+  }</span><span class="grow"></span>${!compact && mgr ? '<button class="btn sm" id="bn-cap">Set Capacities</button>' : ""}</div>\n    ${rows.map((w) => `<div class="bn-row ${w.level}"><div class="bn-who"><b>${esc(w.name)}</b><span class="small muted">${w.open} open · ${w.late ? `<span class="bad">${w.late} overdue</span> · ` : ""}${w.week} due this week${w.appr ? ` · ${w.appr} approval${1 === w.appr ? "" : "s"} waiting` : ""}${w.waits ? ` · ${w.waits} waiting on others` : ""}${w.escal ? ` · <span class="bad">${w.escal} past escalation</span>` : ""}${w.ob ? ` · ${w.ob} renewal${1 === w.ob ? "" : "s"}` : ""}</span></div><div class="bn-bar" title="${w.pressure} this week against a capacity of ${w.cap}"><i style="width:${Math.min(100, Math.round((w.pressure / w.cap) * 100))}%"></i></div><div class="bn-take">${w.takeable ? `<button class="btn sm ${"ok" === w.level ? "" : "primary"}" data-bntake="${esc(w.name)}">${w.name === me ? "Hand to the Assistant" : "What the Assistant Can Take"} · ${w.takeable}</button>` : '<span class="small muted">nothing the assistant can take</span>'}</div></div>`).join("")}\n    ${mgr && over.length ? `<div class="small" style="margin-top:6px">${over.map((w) => `<b>${esc(w.name)}</b>: ${w.pressure} due or overdue against a week of ${w.cap} — ${w.takeable ? `the assistant can draft ${w.takeable} of them (follow-ups, renewals) for approval; the rest need` : "nothing here is a follow-up the assistant can write, so these need"} a hand or a date moved.`).join("<br>")}</div>` : ""}</div>`;
 }
 function bnCapModal() {
   const names = bnStaffNames();
@@ -98747,7 +99476,7 @@ function tkHtml() {
       none: arr.filter((x) => !x.due).length,
     };
   var arr;
-  const people = [...new Set(items.map((x) => x.assignee).filter(Boolean))].sort(),
+  const people = crPeopleOf(items),
     projects = (DB.projects || []).map((p) => [p.id, (p.project.name || "").replace(/ —.*$/, "")]),
     tiles = [
       ["today", "Due Today", K.today, K.today ? "blue" : ""],
@@ -99340,7 +100069,7 @@ tkFiltered = function (items, opts) {
         week: scope.filter((x) => x.due && x.due <= wk && x.due >= td).length,
         none: scope.filter((x) => !x.due).length,
       },
-      people = [...new Set(items.map((x) => x.assignee).filter(Boolean))].sort(),
+      people = crPeopleOf(items),
       projects = (DB.projects || []).map((p) => [p.id, (p.project.name || "").replace(/ —.*$/, "")]),
       tiles = [
         ["today", "Due Today", K.today, K.today ? "blue" : ""],
@@ -99571,7 +100300,7 @@ tkFiltered = function (items, opts) {
   (tkNewDialog = function () {
     const projects = (DB.projects || []).map((p) => [p.id, (p.project.name || "").replace(/ —.*$/, "")]),
       items = tkItems(),
-      people = [...new Set([...CM_ASSIGNEES(), ...items.map((x) => x.assignee).filter(Boolean)])].sort(),
+      people = crPeopleOf(items, CM_ASSIGNEES()),
       cur =
         tkProject && "__sales" !== tkProject
           ? tkProject
@@ -100196,24 +100925,9 @@ if ("function" == typeof mbModal) {
         onSubmit: (f) => {
           const q = (f.q || "").trim();
           if (!q) return toast("Say what you would like to ask"), !1;
-          const p = DB.projects.find((x) => x.id === d.projectId) || S,
-            now = appNow();
-          (p.comms = p.comms || []).unshift({
-            id: uid("c"),
-            receivedAt: appIso(now),
-            t: nowStamp(),
-            source: "portal",
-            from: (u && u.name) || c.name,
-            to: "",
-            subject: `Re: ${d.number} ${d.title || ""}`,
-            date: iso(now),
-            time: now.toLocaleTimeString(void 0, { hour: "numeric", minute: "2-digit" }),
-            text: q,
-            body: q,
-            category: "client",
-            confidence: 0,
-            status: "new",
-          }),
+          const p = DB.projects.find((x) => x.id === d.projectId) || S;
+          // the question is the PM's to answer: one activity line in Messages, one Do Now item with a draft
+          clqRaise({ p: p, c: c, text: q, by: (u && u.name) || c.name, about: d, channel: "portal" }),
             c.activity.push({
               t: nowStamp(),
               by: (u && u.name) || c.name,
@@ -100223,7 +100937,7 @@ if ("function" == typeof mbModal) {
           try {
             audit(d.type, d.id, "client-question", d.status, d.status, q);
           } catch (e) {}
-          save(), render(), toast("Sent to your project manager");
+          save(), render(), toast(`Sent to ${clPmFirst(p)}`);
         },
       },
     );
@@ -101079,7 +101793,7 @@ function b3SaveVerb() {
     b = document.getElementById("d-save");
   if (!t || !b) return;
   if (
-    /^(Import|Create Draft|Open in Mail App|Apply|Done|Close|Send|Record|Post|Approve|Add Time|Build|Run)\b/i.test(
+    /^(Import|Create Draft|Draft|Save to|Open in Mail App|Apply|Done|Close|Send|Record|Post|Approve|Add Time|Build|Run)\b/i.test(
       (b.textContent || "").trim(),
     )
   )
@@ -103929,14 +104643,7 @@ function t2Html() {
       b || ((b = { g: g, rows: [] }), groups.push(b)), b.rows.push(x);
     });
   const projects = (DB.projects || []).map((p) => [p.id, (p.project.name || "").replace(/ —.*$/, "")]),
-    people = [
-      ...new Set(
-        tkItems()
-          .filter((x) => !x.done)
-          .map((x) => x.assignee)
-          .filter(Boolean),
-      ),
-    ].sort(),
+    people = crPeopleOf(tkItems().filter((x) => !x.done)),
     phone = mOn(),
     lead =
       "today" === t2View
@@ -104687,7 +105394,8 @@ function truthRoll(range) {
       amt: 0,
     };
   rows.forEach((t) => {
-    const k = txnTruth(t),
+    const k0 = txnTruth(t),
+      k = "feed" === k0 && "function" == typeof bfIsDemoOnly && bfIsDemoOnly(t) ? "asserted" : k0,
       a = Math.abs(+t.amt || 0);
     out[k]++,
       (out[k + "Amt"] = r2(out[k + "Amt"] + a)),
@@ -114017,7 +114725,7 @@ function paExpect(who, about, by, ref, since) {
       email: paEmailFor(who),
       about: String(about || ""),
       since: from,
-      by: by || iso(addDays(today(), 3)),
+      by: poWorkday(by || addWork(today(), 3, !1)),
       ref: ref || null,
       chased: 0,
       closed: !1,
@@ -115503,7 +116211,7 @@ function fdRoles() {
     ["owner", "pm", "controller"].forEach((r) => {
       ROLE_VIEWS[r] && !ROLE_VIEWS[r].includes("setup") && ROLE_VIEWS[r].push("setup");
     }),
-    ROLE_VIEWS.client && (ROLE_VIEWS.client = ROLE_VIEWS.client.filter((v) => "pa" !== v && "conn" !== v)));
+    ROLE_VIEWS.client && (ROLE_VIEWS.client = ROLE_VIEWS.client.filter((v) => "conn" !== v)));
 }
 if (
   (void 0 !== IA_H2_SKIP &&
@@ -115528,7 +116236,7 @@ if (
   paField = function () {
     const r = paFieldBase_fd.apply(this, arguments);
     try {
-      ROLE_VIEWS.client && (ROLE_VIEWS.client = ROLE_VIEWS.client.filter((v) => "pa" !== v && "conn" !== v));
+      ROLE_VIEWS.client && (ROLE_VIEWS.client = ROLE_VIEWS.client.filter((v) => "conn" !== v));
     } catch (e) {}
     return r;
   };
@@ -117006,19 +117714,62 @@ function crToast(text, open) {
 }
 function crPeople(extra) {
   const base = "function" == typeof bnStaffNames ? bnStaffNames() : (DB.users || []).map((u) => u.name);
-  return [...new Set(base.concat(extra || []).filter(Boolean))];
+  return [...new Set(base.concat((extra || []).map(crCanonName)).filter(Boolean))];
+}
+// One person, one name. An assignee typed as "Chen" is the people record "Chen Biron"; a schedule owner written
+// "Alberto / Satish" is two people. Every list of people and every task's assignee goes through this, so the
+// filters, the grouping and the Workload never show one person twice (review r5_pm, finding 11).
+function crCanonName(name) {
+  const n = String(name || "").trim();
+  if (!n) return "";
+  if (n.includes("/")) return n.split("/").map(crCanonName).filter(Boolean).join(" / ");
+  const staff = "function" == typeof bnStaffNames ? bnStaffNames() : (DB.users || []).map((u) => u.name),
+    low = n.toLowerCase(),
+    first = low.split(" ")[0],
+    exact = staff.find((x) => String(x).toLowerCase() === low);
+  if (exact) return exact;
+  const byFirst = staff.filter((x) => String(x).toLowerCase().split(" ")[0] === first);
+  return 1 === byFirst.length ? byFirst[0] : n;
+}
+function crPeopleOf(items, extra) {
+  return [
+    ...new Set(
+      (extra || [])
+        .concat((items || []).flatMap((x) => String(x.assignee || "").split("/")))
+        .map(crCanonName)
+        .filter(Boolean),
+    ),
+  ].sort();
+}
+// A task is one person's: "Alberto / Satish" becomes Alberto's with Satish named in the notes.
+function crCanonTasks() {
+  let n = 0;
+  return (
+    (DB.projects || []).forEach((p) =>
+      (p.actions || []).forEach((a) => {
+        const was = a.assignee || "";
+        if (!was) return;
+        const parts = was.split("/").map((x) => crCanonName(x)).filter(Boolean);
+        parts.length > 1 && (a.notes = [`With ${parts.slice(1).join(", ")}.`, a.notes || ""].filter(Boolean).join("\n"));
+        const to = parts[0] || "";
+        to !== was && ((a.assignee = to), n++);
+      }),
+    ),
+    n
+  );
 }
 function crProjName(p) {
   return ((p && p.project && p.project.name) || "").replace(/ —.*$/, "");
 }
 function crForOptions(sel) {
   const projects = (DB.projects || []).map((p) => ["p:" + p.id, crProjName(p)]),
+    clients = (DB.clients || []).map((c) => ["c:" + c.id, c.name]),
+    isClient = (l) => l.clientId || clients.some(([, n]) => String(n || "").trim().toLowerCase() === String(l.name || l.leadName || "").trim().toLowerCase()),
     leads = (DB.leads || [])
       .filter(
-        (l) => !["won", "lost"].includes(l.stage) && !["Unqualified", "Junk"].includes(l.leadStatus || ""),
+        (l) => !["won", "lost"].includes(l.stage) && !["Unqualified", "Junk"].includes(l.leadStatus || "") && !isClient(l),
       )
       .map((l) => ["l:" + l.id, l.name || l.leadName || "Lead"]),
-    clients = (DB.clients || []).map((c) => ["c:" + c.id, c.name]),
     g = (label, rows) =>
       rows.length
         ? `<optgroup label="${esc(label)}">${rows.map(([v, n]) => `<option value="${v}" ${v === sel ? "selected" : ""}>${esc(n)}</option>`).join("")}</optgroup>`
@@ -117048,7 +117799,7 @@ function crCreateTask(f) {
     base = {
       id: uid("a"),
       title: f.title,
-      assignee: f.assignee || "",
+      assignee: crCanonName(f.assignee) || "",
       due: f.due || "",
       priority: pri,
       status: "todo",
@@ -118685,6 +119436,7 @@ if ("function" == typeof companyPL) {
             (r) =>
               !FIN_RUN_POSTED.includes(r.status) &&
               !FIN_RUN_DONE.includes(r.status) &&
+              !ctRunAccrued(r) &&
               within(r.payDate || r.to || "", P.range || range),
           )
           .reduce((a, r) => a + (+r.total || 0), 0),
@@ -119108,7 +119860,9 @@ if ("function" == typeof glOverviewHtml) {
         })(),
         items = [
           [
-            "WIP over/under-billing adjustment not yet posted (posts at the month close)",
+            fin2Closes().length && lockedThrough()
+              ? `WIP movement since the ${fin3Label(lockedThrough())} close (posts at the next close)`
+              : "WIP over/under-billing adjustment not yet posted (posts at the month close)",
             r2((e.wipAdj || 0) - wipLed),
           ],
           [
@@ -119126,6 +119880,24 @@ if ("function" == typeof glOverviewHtml) {
           [
             "Spend with no category (Needs Category in the management view; clearing on the ledger until coded)",
             -r2(e.needsCat || 0),
+          ],
+          [
+            "Manual journal entries, posted by the Owner with a reason (on the ledger only; the management view carries nothing posted by hand)",
+            -(() => {
+              try {
+                const T = {};
+                glAccounts().forEach((a) => (T[a.id] = a.type));
+                const J = DB.gl.journals,
+                  manual = (j) => "manual" === j.kind || ("reversal" === j.kind && "manual" === ((J.find((x) => x.id === j.reversalOf) || {}).kind));
+                return r2(
+                  glLines({ entityId: ent, from: from, to: to })
+                    .filter((l) => manual(l.j) && ["revenue", "cogs", "expense"].includes(T[l.acct]))
+                    .reduce((s2, l) => s2 + (l.cr || 0) - (l.dr || 0), 0),
+                );
+              } catch (x) {
+                return 0;
+              }
+            })(),
           ],
         ].filter((x) => Math.abs(x[1]) > 0.5),
         explained = r2(items.reduce((s, x) => s + x[1], 0)),
@@ -120658,6 +121430,31 @@ function opsChip(link, p) {
     ? `<a href="#" class="ops-chip" data-opsgo="${esc(link.kind)}:${esc(link.id)}"><span class="k">${esc(OPS_KINDS[link.kind] || link.kind)}</span>${esc(lab)}</a>`
     : "";
 }
+// The photos taken on a field item (a hidden condition, a drawing question), by the item they were taken on.
+function coPhotosOf(link) {
+  return link && link.id
+    ? (DB.photos || []).filter((x) => x.ref && (x.ref.kind === link.kind || ("iss" === link.kind && "issue" === x.ref.kind)) && x.ref.id === link.id)
+    : [];
+}
+// Exhibits: photos attached to a change order, shared with the client under their own caption.
+function coAttachExhibits(co, photos) {
+  co.exhibits = co.exhibits || [];
+  (photos || []).forEach((x) => {
+    co.exhibits.some((e) => e.photoId === x.id) || co.exhibits.push({ photoId: x.id, caption: x.caption || "" });
+    x.share || ((x.share = !0), (x.sharedAt = x.sharedAt || today()));
+    x.clientCaption || (x.clientCaption = x.caption || "");
+  });
+  return co.exhibits;
+}
+function coExhibits(co) {
+  return ((co && co.exhibits) || []).map((e) => ("function" == typeof pstRec ? pstRec(e.photoId) : null) || null).filter(Boolean);
+}
+function coExhibitsHtml(co, opts) {
+  const E = coExhibits(co);
+  if (!E.length) return "";
+  const o = opts || {};
+  return `<div class="co-exhibits ${o.cls || ""}"><div class="small muted"><b>Exhibits</b> · ${E.length} photo${1 === E.length ? "" : "s"} from the site${o.client ? "" : ", shared with the client"}</div><div class="pst-grid xs">${E.map((x) => ("function" == typeof pstTile ? pstTile(x) : "")).join("")}</div></div>`;
+}
 function opsRaiseCO(link) {
   const p = S,
     c = clientOf(p);
@@ -120699,7 +121496,7 @@ function opsRaiseCO(link) {
   } else
     (title = src.title),
       (days = 0),
-      (memo = `From the field: ${src.title}${src.note || src.notes ? `\n${src.note || src.notes}` : ""}${src.answer ? `\nPM: ${src.answer}` : ""}${tk ? `\nAffects: ${tk.name}` : ""}`),
+      (memo = `From the field: ${src.title}${src.note || src.notes ? `\n${src.note || src.notes}` : ""}${tk ? `\nAffects: ${tk.name}` : ""}`),
       (lines = [
         {
           id: uid("l"),
@@ -120721,6 +121518,10 @@ function opsRaiseCO(link) {
       projectId: p.id,
     },
   });
+  // The PM's answer to the foreman is the team's, not the client's: it goes to Internal Notes (never printed).
+  // The item's photos go with the change order as exhibits the client can see (BACKLOG §1.4 #2).
+  "dec" !== link.kind &&
+    (src.answer && (co.internal = `To the foreman: ${String(src.answer).trim()}`), coAttachExhibits(co, coPhotosOf(link)));
   (src.coId = co.id),
     (src.timeline = src.timeline || []).push({
       on: today(),
@@ -120743,7 +121544,7 @@ function opsRaiseCO(link) {
     render(),
     window.scrollTo(0, 0),
     toast(
-      `${co.number} drafted from ${title.slice(0, 40)} — set the price${days ? "" : " and the days"}, then send`,
+      `${co.number} drafted from ${clipWords(title, 40)} — set the price${days ? "" : " and the days"}, then send`,
     ),
     co
   );
@@ -121799,7 +122600,7 @@ if (
             (fin.tone = late > 0 ? "warn" : ""),
             (fin.s =
               late > 0
-                ? `${late} working day${1 === late ? "" : "s"} past the date in your agreement — ${pub.note ? `"${pub.note.slice(0, 60)}"` : "your project manager has written to you about it"}`
+                ? `${late} working day${1 === late ? "" : "s"} past the date in your agreement — ${pub.note ? `"${clipWords(pub.note, 60)}"` : "your project manager has written to you about it"}`
                 : `on target · last update from ${pub.by || "your project manager"} on ${fmtL(pub.at)}`);
         } else
           (fin.v = "—"),
@@ -122384,7 +123185,7 @@ function opsDecPanel(dc) {
             save(),
             closeEditor(),
             render(),
-            toast(`Sent — ${dc.name.slice(0, 40)} is on the client's portal`);
+            toast(`Sent — ${clipWords(dc.name, 40)} is on the client's portal`);
         });
       const chase = $("#ops-chase");
       chase &&
@@ -122666,7 +123467,7 @@ Object.assign(FILE_CATS, {
 {
   const base = openFile;
   openFile = async function (id) {
-    const f = (S.files || []).find((x) => x.id === id);
+    const f = fileWriteOk() ? (S.files || []).find((x) => x.id === id) : null;
     if (f && f.autoKey && f.link) {
       if (((f.seen = !0), "po" === f.link.kind)) return void openEditor("po", f.link.id);
       if ("co" === f.link.kind) return void opsGo({ kind: "co", id: f.link.id });
@@ -122785,7 +123586,7 @@ if (void 0 !== BH && BH.dash) {
 }
 function opsBoot() {
   try {
-    DB.projects.forEach(opsNormalize), opsStudioBoot(), opsAutoBaseline(), opsPublishBoot(), opsFileDocs();
+    tplStripClones(), crCanonTasks(), DB.projects.forEach(opsNormalize), opsStudioBoot(), opsAutoBaseline(), opsPublishBoot(), opsFileDocs(), docSnapBoot();
   } catch (e) {
     console.error("ops boot", e);
   }
@@ -122868,8 +123669,9 @@ const flowCan = (v) => {
       (view = vs.find(flowCan) || ROLE_VIEWS[role()][0]), render(), flowTop();
     },
     raise: (r) => () => {
-      r && r.projectId && setCurrent(r.projectId),
-        (view = ["field", "fraise", "ftoday"].find(flowCan) || ROLE_VIEWS[role()][0]),
+      r && r.projectId && setCurrent(r.projectId);
+      const v = ["field", "fraise", "ftoday"].find(flowCan);
+      v ? (view = v) : flowCan("mapprove") ? ((window.mApprKind = "raise"), (view = "mapprove")) : (view = ROLE_VIEWS[role()][0]),
         render(),
         flowTop();
     },
@@ -124533,15 +125335,16 @@ const OV_TILES = {
       return [
         {
           key: "late",
-          k: "Running Late",
+          k: "Finish Dates Late",
+          rule: "jobs whose forecast finish is past the target date in the contract; not Home's Jobs With Late Items, which counts late materials, decisions and submittals",
           v: late.length,
           tone: late.length ? "bad" : "",
           s: late.length
             ? late
                 .slice(0, 2)
-                .map((r) => `${shortName(r.p)} +${r.h.late}d`)
+                .map((r) => `${shortName(r.p)} +${r.h.late}d past target`)
                 .join(" · ")
-            : "every finish date holds",
+            : "every finish date holds its target",
           pred: (r) => r.late,
         },
         {
@@ -126610,7 +127413,7 @@ function lkBillDialog(po, o) {
             o.over ? o.over.reason : S.project.userName || role(),
           ),
           log(
-            `Bill ${b.number} from ${po.number} — ${money(billTotal(b))}${o.over ? ` (beyond the order: ${o.over.reason})` : ""}`,
+            `Bill ${b.number} from ${po.number} — ${money(billGross(b))}${+b.retainagePct ? ` (${b.retainagePct}% retainage held)` : ""}${o.over ? ` (beyond the order: ${o.over.reason})` : ""}`,
           ),
           save(),
           render();
@@ -126620,7 +127423,8 @@ function lkBillDialog(po, o) {
                 (view = "ap"), render(), setTimeout(() => openBill(b.id), 60);
               }
             : flowGo.bill(b),
-          text = `Bill from ${po.number} submitted — ${money(billTotal(b))}, due ${fmt(b.due)}${after.remaining > 0.5 ? ` — ${money(after.remaining)} left to bill` : st.billed || o.over ? " — billed in full" : ""}`;
+          held = +b.retainagePct ? r2(billGross(b) - billTotal(b)) : 0,
+          text = `Bill from ${po.number} submitted — ${money(billGross(b))}${held ? ` (${b.retainagePct}% retainage held, ${money(billTotal(b))} payable)` : ""}, due ${fmt(b.due)}${after.remaining > 0.5 ? ` — ${money(after.remaining)} left to bill` : st.billed || o.over ? " — billed in full" : ""}`;
         go ? crToast(text, { label: "Open", run: go }) : toast(text);
       },
     },
@@ -128014,81 +128818,78 @@ function fin2CloseBlockers(ym) {
     out
   );
 }
+// The month-end close, in the order a controller runs it: the checklist and the blockers, then the accrued
+// wages, then the WIP adjustment planned on the job figures as they stand with those wages in (an accrued
+// run moves a job's labor to the run's burden, so planning the WIP first left 45 Cranberry $325 off), then a
+// blocking tie-out (the WIP schedule equals 2500/1200 for every job). On any difference the close refuses,
+// reverses what it posted and locks nothing. Then the month is frozen and locked, Bank to Ledger.
 function fin2RunClose(ym, reason) {
   if ("owner" !== role()) return { ok: !1, why: "The Owner runs the close" };
   if (!ym || ym >= today().slice(0, 7)) return { ok: !1, why: "The current month cannot be closed yet" };
+  const l = lockedThrough();
+  if (l && ym <= l)
+    return {
+      ok: !1,
+      why: `${fin3Label(ym)} is already closed — the books are closed through ${fin3Label(l)}. Reopen it first; a re-close then posts only what changed.`,
+    };
+  if (l && ym !== fin2Next(l)) return { ok: !1, why: `Close ${fin3Label(fin2Next(l))} first — months close in order` };
   const open = closeChecklist(ym).filter((i) => !i.ok);
   if (open.length && !String(reason || "").trim())
     return { ok: !1, why: "Say why you are closing with items still open" };
   const block = fin2CloseBlockers(ym);
   if (block.length) return { ok: !1, why: block.map((b) => b.why).join("; ") };
   glSync();
-  const wip = fin2WipPlan(ym),
-    wages = fin2WagePlan(ym),
-    posted = [],
+  const posted = [],
     end = fin2End(ym),
-    by = fin2Who();
+    by = fin2Who(),
+    wages = fin2WagePlan(ym);
+  fin3PostWages(ym, wages, by).forEach((j) => posted.push(j));
+  const wip = fin2WipPlan(ym);
   glEntities().forEach((e) => {
     const wl = fin2WipLines(wip, e.id);
-    if (wl.length) {
-      const j = {
-        id: uid("je"),
-        kind: "close",
-        accrues: "wip",
-        key: `close:wip:${ym}:${e.id}`,
-        entityId: e.id,
-        date: end,
-        periodYm: ym,
-        memo: `WIP adjustment at the ${fin2Label(ym)} close — over- and under-billing brought to the month-end schedule`,
-        lines: wl,
-        createdBy: "system",
-        approvedBy: by,
-        approvedAt: appNowIso(),
-      };
-      glPost(j).ok &&
-        (posted.push(j),
-        fin2Audit(
-          "system",
-          "ledger",
-          j.id,
-          "close-wip-posted",
-          "",
-          money(wl.reduce((s, l) => s + l.dr, 0)),
-          `${e.name}: WIP adjustment for ${fin2Label(ym)}, run by ${by}`,
-        ));
-    }
-    const al = fin2WageLines(wages, e.id),
-      rows = wages.rows.filter((o) => o.ent === e.id);
-    if (al.length) {
-      const j = {
-        id: uid("je"),
-        kind: "accrual",
-        accrues: "wages",
-        key: `accrual:wages:${ym}:${e.id}`,
-        entityId: e.id,
-        date: end,
-        periodYm: ym,
-        coversFrom: rows.reduce((a, o) => (o.from < a ? o.from : a), end),
-        coversTo: rows.reduce((a, o) => (o.to > a ? o.to : a), ym + "-01"),
-        memo: `Accrued wages at the ${fin2Label(ym)} close — approved time no payroll run covers yet`,
-        lines: al,
-        createdBy: "system",
-        approvedBy: by,
-        approvedAt: appNowIso(),
-      };
-      glPost(j).ok &&
-        (posted.push(j),
-        fin2Audit(
-          "system",
-          "ledger",
-          j.id,
-          "close-wages-accrued",
-          "",
-          money(al.filter((l) => "2200" === l.acct).reduce((s, l) => s + l.cr, 0)),
-          `${e.name}: ${rows.reduce((a, o) => a + o.hours, 0)} approved hours in ${fin2Label(ym)}, reverses when their payroll run is approved`,
-        ));
-    }
+    if (!wl.length) return;
+    const j = {
+      id: uid("je"),
+      kind: "close",
+      accrues: "wip",
+      key: `close:wip:${ym}:${e.id}`,
+      entityId: e.id,
+      date: end,
+      periodYm: ym,
+      memo: `WIP adjustment at the ${fin3Label(ym)} close — over- and under-billing brought to the month-end schedule`,
+      lines: wl,
+      createdBy: "system",
+      approvedBy: by,
+      approvedAt: today(),
+    };
+    glPost(j).ok &&
+      (posted.push(j),
+      fin2Audit(
+        "system",
+        "ledger",
+        j.id,
+        "close-wip-posted",
+        "",
+        money(wl.reduce((s, x) => s + x.dr, 0)),
+        `${e.name}: WIP adjustment for ${fin3Label(ym)}, run by ${by}`,
+      ));
   });
+  const off = ctWipTieRows(ym).filter((r) => Math.abs(r.diff) >= 0.005);
+  if (off.length) {
+    posted
+      .slice()
+      .reverse()
+      .forEach((j) => glReverse(j, j.date, `the ${fin3Label(ym)} close was refused: the WIP did not tie`));
+    const why = `The WIP does not tie to the ledger — ${off.map((r) => `${r.job}: schedule ${money(r.schedule)}, 2500/1200 ${money(r.ledger)}`).join("; ")}. The close posted nothing and locked nothing.`;
+    try {
+      audit("period", ym, "close-refused", "", "", why);
+    } catch (e) {}
+    try {
+      save();
+    } catch (e) {}
+    return { ok: !1, why: why, tie: off };
+  }
+  fin3Freeze(ym);
   const locked = [];
   glEntities().forEach((e) =>
     GL_SUBS.forEach((sub) => {
@@ -128100,28 +128901,90 @@ function fin2RunClose(ym, reason) {
     (DB.periods.lockedThrough = ym),
     (DB.periods.closes = DB.periods.closes || []),
     wipSnapshotFor(ym);
-  const rec = {
-    month: ym,
-    run: "close",
-    t: nowStamp(),
-    at: appNowIso(),
-    by: by,
-    open: open.length,
-    openItems: open.map((i) => `${i.label} (${i.n})`),
-    reason: String(reason || "").trim(),
-    entries: posted.map((j) => j.id),
-    wip: wip.toPost,
-    wages: wages.total,
-    locks: locked.length,
-  };
-  DB.periods.closes.push(rec);
+  const again = (DB.periods.history || []).some((h) => h.month === ym && "closed" === h.act),
+    rec = {
+      month: ym,
+      run: "close",
+      t: nowStamp(),
+      on: today(),
+      at: today(),
+      by: by,
+      open: open.length,
+      openItems: open.map((i) => `${i.label} (${i.n})`),
+      reason: String(reason || "").trim(),
+      entries: posted.map((j) => j.id),
+      wip: wip.toPost,
+      wages: r2(
+        posted
+          .filter((j) => "accrual" === j.kind)
+          .reduce(
+            (a, j) =>
+              a +
+              j.lines
+                .filter((x) => /^(5000|5010|7000|7010|7005)$/.test(x.acct))
+                .reduce((s, x) => s + x.dr - x.cr, 0),
+            0,
+          ),
+      ),
+      wagesPlan: wages.total,
+      locks: locked.length,
+      again: again,
+    };
+  DB.periods.closes.push(rec),
+    fin3Log({
+      month: ym,
+      act: "closed",
+      again: again,
+      why: rec.reason,
+      open: rec.open,
+      entries: posted.length,
+      wip: rec.wip,
+      wages: rec.wages,
+    });
   try {
-    audit("period", ym, "close", "", ym, rec.reason || "clean close");
+    audit("period", ym, again ? "re-close" : "close", "", ym, rec.reason || "clean close");
   } catch (e) {}
   try {
     finCash._c = null;
   } catch (e) {}
   return save(), { ok: !0, rec: rec, posted: posted };
+}
+// The tie-out: for every job, the WIP schedule at month end (over- less under-billing from jobFin) against the
+// ledger (2500 Billings in excess less 1200 Costs in excess). A closed month reads its frozen schedule.
+function ctWipTieRows(ym) {
+  const end = fin2End(ym),
+    bal = (acct, pid) => {
+      try {
+        const B = glBalances({ entityId: "all", to: end, acct: acct, projectId: pid });
+        return B[acct] ? B[acct].bal : 0;
+      } catch (e) {
+        return 0;
+      }
+    },
+    rows = [];
+  return (
+    (DB.projects || []).forEach((p) => {
+      let J;
+      try {
+        J = jobFin(p, ["", end]);
+      } catch (e) {
+        return;
+      }
+      const schedule = r2((J.over || 0) - (J.under || 0)),
+        ledger = r2(bal("2500", p.id) - bal("1200", p.id));
+      (schedule || ledger) &&
+        rows.push({
+          projectId: p.id,
+          job: String(p.project.name).replace(/ —.*$/, ""),
+          over: r2(J.over || 0),
+          under: r2(J.under || 0),
+          schedule: schedule,
+          ledger: ledger,
+          diff: r2(schedule - ledger),
+        });
+    }),
+    rows
+  );
 }
 function fin2ReopenClose(ym, reason) {
   if ("owner" !== role()) return { ok: !1, why: "The Owner reopens a month" };
@@ -128157,7 +129020,7 @@ function fin2ClosePageHtml() {
     owner = "owner" === role(),
     last = fin2Closes().slice(-1)[0],
     l = lockedThrough(),
-    head = `<div class="fin2-close-head"><h3 style="margin:0">${ym ? `Close ${fin2Label(ym)}` : "Month Close"}</h3><p class="small muted" style="margin:4px 0 0">${l ? `Books closed through ${fin2Label(l)}${last && last.month === l ? ` — by ${esc(last.by)} on ${esc(String(last.at || "").slice(0, 10))}${last.reason ? `, with ${last.open} item${1 === last.open ? "" : "s"} open: ${esc(last.reason)}` : ", clean"}` : ""}.` : "No month has been closed yet."} One close: the checklist, the WIP adjustment and the accrued wages post, Bank, AR, AP, Payroll and the Ledger lock in that order for every entity, and the WIP snapshot is frozen.</p></div>`;
+    head = `<div class="fin2-close-head"><h3 style="margin:0">${ym ? `Close ${fin2Label(ym)}` : "Month Close"}</h3><p class="small muted" style="margin:4px 0 0">${l ? `Books closed through ${fin2Label(l)}${last && last.month === l ? ` — by ${esc(last.by)} on ${esc(String(last.at || "").slice(0, 10))}${last.reason ? `, with ${last.open} item${1 === last.open ? "" : "s"} open: ${esc(last.reason)}` : ", clean"}` : ""}.` : "No month has been closed yet."} One close: the checklist, then the accrued wages and the WIP adjustment post, the WIP is tied to 2500/1200 job by job, Bank, AR, AP, Payroll and the Ledger lock in that order for every entity, and the month is frozen.</p></div>`;
   if (!ym)
     return (
       head +
@@ -128170,7 +129033,7 @@ function fin2ClosePageHtml() {
     wip = fin2WipPlan(ym),
     wages = fin2WagePlan(ym),
     nm = (p) => esc(String(p.project.name).replace(/ —.*$/, ""));
-  return `<div class="card fin2-close">${head}${`<h4 class="fin2-step">1 · Checklist <span class="small muted">${open.length ? `${open.length} of ${items.length} open` : "all clear"}</span></h4><div class="rem fin2-check">${items.map((i) => `<div class="rem-row ${i.ok ? "" : "warn"}" data-f2go='${esc(JSON.stringify(i.go || {}))}'><b>${i.ok ? ICON_CHECK : i.n}</b><span>${esc(i.label)}</span></div>`).join("")}</div>`}${`<h4 class="fin2-step">2 · WIP Adjustment <span class="small muted">${money(wip.toPost)} to post · over/under-billing on the month-end schedule ${money(wip.net)}, on the ledger ${money(wip.onLedger)}</span></h4>${wip.rows.length ? `<div class="tw"><table class="t fin2-wip"><thead><tr><th>Job</th><th class="money">Over at ${fmt(wip.end)}</th><th class="money">Under at ${fmt(wip.end)}</th><th class="money">On Ledger</th><th class="money">Entry</th></tr></thead><tbody>${wip.rows.map((r) => `<tr><td>${nm(r.p)}</td><td class="money">${money(r.over)}</td><td class="money">${money(r.under)}</td><td class="money">${money(r2(r.onOver - r.onUnder))}</td><td class="money">${money(r2(r.dOver - r.dUnder))}</td></tr>`).join("")}</tbody></table></div><p class="small muted">Over-billing is a liability (2500 Billings in excess), under-billing an asset (1200 Costs in excess); the other side is the job's revenue account. The entry brings the ledger to the schedule, so a later close only posts the change.</p>` : '<p class="small muted">No job is over- or under-billed at month end.</p>'}`}${`<h4 class="fin2-step">3 · Accrued Wages <span class="small muted">${money(wages.total)} · ${wages.hours} approved hours no payroll run covers</span></h4>${
+  return `<div class="card fin2-close">${head}${`<h4 class="fin2-step">1 · Checklist <span class="small muted">${open.length ? `${open.length} of ${items.length} open` : "all clear"}</span></h4><div class="rem fin2-check">${items.map((i) => `<div class="rem-row ${i.ok ? "" : "warn"}" data-f2go='${esc(JSON.stringify(i.go || {}))}'><b>${i.ok ? ICON_CHECK : i.n}</b><span>${esc(i.label)}</span></div>`).join("")}</div>`}${`<h4 class="fin2-step">2 · WIP Adjustment <span class="small muted">${money(wip.toPost)} to post · over/under-billing on the month-end schedule ${money(wip.net)}, on the ledger ${money(wip.onLedger)}</span></h4>${wip.rows.length ? `<div class="tw"><table class="t fin2-wip"><thead><tr><th>Job</th><th class="money">Over at ${fmt(wip.end)}</th><th class="money">Under at ${fmt(wip.end)}</th><th class="money">On Ledger</th><th class="money">Entry</th></tr></thead><tbody>${wip.rows.map((r) => `<tr><td>${nm(r.p)}</td><td class="money">${money(r.over)}</td><td class="money">${money(r.under)}</td><td class="money">${money(r2(r.onOver - r.onUnder))}</td><td class="money">${money(r2(r.dOver - r.dUnder))}</td></tr>`).join("")}</tbody></table></div><p class="small muted">Over-billing is a liability (2500 Billings in excess), under-billing an asset (1200 Costs in excess); the other side is the job's revenue account. The entry brings the ledger to the schedule, so a later close only posts the change. The close posts the accrued wages below first and plans this entry after them: an accrued run moves a job's labor to the run's burden, so the entry can differ from this preview by that much, and the close ties the result to 2500/1200 job by job before it locks anything.</p>` : '<p class="small muted">No job is over- or under-billed at month end.</p>'}`}${`<h4 class="fin2-step">3 · Accrued Wages <span class="small muted">${money(wages.total)} · ${wages.hours} approved hours no payroll run covers</span></h4>${
     wages.rows.length
       ? `<div class="tw"><table class="t fin2-wages"><thead><tr><th>Job</th><th class="money">Hours</th><th class="money">Burdened Cost</th><th>Days</th></tr></thead><tbody>${wages.rows
           .map((o) => {
@@ -128540,6 +129403,8 @@ if ("function" == typeof save) {
   };
 }
 const fin2DateNote = (d) => {
+  // a client reads the invoice as issued; the earlier date lives in its history for the firm
+  if ("function" == typeof role && "client" === role()) return "";
   const h = (d && d.dateHistory) || [],
     first = h.length ? h[0].from : d && d.dateWas;
   return first && first !== d.date ? `originally dated ${fmt(first)}` : "";
@@ -132845,6 +133710,92 @@ function fin3CostDated(fn) {
     });
   }
 }
+// The posting period (BACKLOG §1.1 #2). A document dated in a closed month posts on the first open day; the
+// document is stamped postOn / postOnWhy when that happens, and every management calculation (companyPL,
+// jobFin, the management ledger) reads it on postOn, as the ledger does. Reopening the month does not move it
+// back: it stays in the period it was posted in, unless it is posted again on its own date.
+const FIN3_POST_DOCS = () => {
+  const out = [];
+  return (
+    (DB.txns || []).forEach((d) => d.postOn && out.push([d, "date"])),
+    (DB.bills || []).forEach((d) => d.postOn && out.push([d, "date"])),
+    (DB.payments || []).forEach((d) => d.postOn && out.push([d, "date"])),
+    (DB.payroll || []).forEach((d) => d.postOn && out.push([d, "payDate"])),
+    (DB.clients || []).forEach((c) => {
+      (c.invoices || []).forEach((d) => d.postOn && out.push([d, "date"])),
+        (c.payments || []).forEach((d) => d.postOn && out.push([d, "date"]));
+    }),
+    out
+  );
+};
+let fin3PostSwapped = null;
+function fin3PostDated(fn) {
+  if (fin3PostSwapped) return fn();
+  const moved = [];
+  FIN3_POST_DOCS().forEach(([d, f]) => {
+    d[f] && d.postOn > d[f] && (moved.push([d, f, d[f]]), (d[f] = d.postOn));
+  });
+  if (!moved.length) return fn();
+  fin3PostSwapped = moved;
+  try {
+    return fn();
+  } finally {
+    (fin3PostSwapped = null), moved.forEach(([d, f, v]) => (d[f] = v));
+  }
+}
+const fin3MgmtDated = (fn) => fin3CostDated(() => fin3PostDated(fn));
+function fin3DocOf(type, id) {
+  if ("inv" === type || "pay" === type) {
+    for (const c of DB.clients || []) {
+      const d = ("inv" === type ? c.invoices : c.payments || []).find((x) => x.id === id);
+      if (d) return d;
+    }
+    return null;
+  }
+  return (
+    ("bill" === type
+      ? DB.bills
+      : "billpay" === type
+        ? DB.payments
+        : "txn" === type
+          ? DB.txns
+          : "payroll" === type
+            ? DB.payroll
+            : []) || []
+  ).find((x) => x.id === id) || null;
+}
+function fin3StampPostOn(w, postOn) {
+  const d = fin3DocOf(w.sourceType, w.sourceId);
+  if (!d || d.postOn === postOn) return;
+  (d.postOn = postOn),
+    (d.postOnWhy = `dated ${fmt(w.date)}; ${fin3Label(w.date.slice(0, 7))} was closed, so it posted on ${fmt(postOn)}`);
+  try {
+    audit(w.sourceType, w.sourceId, "posting-period", w.date, postOn, d.postOnWhy);
+  } catch (e) {}
+}
+// A document posted again on its own date (its month reopened and it changed) is back in that period.
+function fin3PostOnClear() {
+  const live = {};
+  glLive()
+    .filter((j) => "posting" === j.kind && j.key)
+    .forEach((j) => (live[j.key] = j));
+  FIN3_POST_DOCS().forEach(([d, f]) => {
+    const k =
+      "payDate" === f
+        ? "payroll:" + d.id
+        : (DB.txns || []).includes(d)
+          ? "txn:" + d.id
+          : (DB.bills || []).includes(d)
+            ? "bill:" + d.id
+            : (DB.payments || []).includes(d)
+              ? "billpay:" + d.id
+              : (DB.clients || []).some((c) => (c.invoices || []).includes(d))
+                ? "inv:" + d.id
+                : "pay:" + d.id,
+      j = live[k];
+    j && !j.correctionOf && j.date === String(d[f] || "").slice(0, 10) && (delete d.postOn, delete d.postOnWhy);
+  });
+}
 function fin3CostDateOf(b) {
   if (!b) return "";
   const t = (DB.txns || []).find((x) => x.billId === b.id || (b.txnId && x.id === b.txnId));
@@ -132889,6 +133840,7 @@ function fin3CorrectLocked() {
           ).ok
         )
           return;
+        postOn !== w.date && (!have || have.date !== w.date) && fin3StampPostOn(w, postOn);
       }
       done.add(f.key),
         n++,
@@ -132920,6 +133872,11 @@ if ("function" == typeof glSync) {
       } catch (e) {
         console.warn("closed-period correction", e);
       }
+      try {
+        fin3PostOnClear();
+      } catch (e) {
+        console.warn("posting period", e);
+      }
       if (n) {
         (r.flags = DB.gl.flags), (r.corrected = n);
         try {
@@ -132944,7 +133901,7 @@ if ("function" == typeof glDerive) {
 if ("function" == typeof ledger) {
   const ledgerBase_c3 = ledger;
   ledger = function () {
-    return fin3CostDated(() => ledgerBase_c3.apply(this, arguments));
+    return fin3MgmtDated(() => ledgerBase_c3.apply(this, arguments));
   };
 }
 let fin3Raw = 0,
@@ -133142,7 +134099,7 @@ if ("function" == typeof companyPL) {
   };
   const companyPLBase_c3 = companyPL;
   companyPL = function (range) {
-    return fin3CostDated(() => {
+    return fin3MgmtDated(() => {
       const A = fin3Active(),
         raw = (R) => {
           fin3Raw++;
@@ -133179,12 +134136,32 @@ if ("function" == typeof companyPL) {
     });
   };
 }
+// A job's raw figures, then every adjustment a later section registers (short-pays, disputed bank lines).
+// The adjustments run here, inside the raw read, so they are in a month's figures before its close freezes
+// them and are never applied a second time on top of a frozen read (BACKLOG §1.1 #1: the August Pack read
+// 121 State $67,326 against $62,466 on the ledger because the short-pay was subtracted twice).
+const FIN3_JOB_ADJ = [];
+function fin3JobAdjust(fn) {
+  FIN3_JOB_ADJ.push(fn);
+}
 if ("function" == typeof jobFin) {
   const jobFinBase_c3 = jobFin,
+    jCore = (self, p, R) => {
+      let J = jobFinBase_c3.call(self, p, R);
+      if (!p || !J) return J;
+      FIN3_JOB_ADJ.forEach((f) => {
+        try {
+          J = f.call(self, J, p, R) || J;
+        } catch (e) {
+          console.warn("job adjustment", e);
+        }
+      });
+      return J;
+    },
     jRaw = (self, p, R) => {
       fin3Raw++;
       try {
-        return jobFinBase_c3.call(self, p, R);
+        return jCore(self, p, R);
       } finally {
         fin3Raw--;
       }
@@ -133197,10 +134174,10 @@ if ("function" == typeof jobFin) {
       return { F: F, L: jRaw(self, p, ["", at]) };
     };
   jobFin = function (p, range) {
-    return fin3CostDated(() => {
+    return fin3MgmtDated(() => {
       !range && fin3JobAsOf && (range = ["", fin3JobAsOf]);
       const A = fin3Active();
-      if (!A || !p) return jobFinBase_c3.call(this, p, range);
+      if (!A || !p) return jCore(this, p, range);
       const R = range || ["", today()],
         a = R[0] || "",
         b = R[1] || today();
@@ -133325,7 +134302,7 @@ function fin3Unfreeze(fromYm) {
 void 0 !== GL_COA &&
   Array.isArray(GL_COA) &&
   (GL_COA.some((r) => "7005" === r[0]) ||
-    GL_COA.push(["7005", "Unallocated labor (not clocked to a job)", "expense", "ga", "none", !1]),
+    GL_COA.push(["7005", "Unallocated Labor (not clocked to a job)", "expense", "ga", "none", !1]),
   GL_COA.some((r) => "1060" === r[0]) ||
     GL_COA.push(["1060", "Business savings (no register connected)", "asset", "cash", "none", !1]));
 const FIN3_COVER = 80;
@@ -133580,7 +134557,7 @@ function fin3Held(ym, match) {
     }),
     ((DB.gl || {}).journals || []).forEach((j) => {
       !(ids.has(j.id) || ("reversal" === j.kind && ids.has(j.reversalOf))) ||
-        j.date > end ||
+        (j.date > end && !j.ctOrphan) ||
         !["posted", "reversed"].includes(j.status) ||
         (j.lines || []).forEach((l) => {
           const k = `${l.acct}|${l.projectId || ""}|${l.cat || ""}`;
@@ -133780,7 +134757,7 @@ function fin3PostWages(ym, plan, by) {
     });
   const by = {};
   (DB.time || [])
-    .filter((e) => "approved" === e.status && within(e.date, [start, end]))
+    .filter((e) => "approved" === e.status && !e.noAccrue && within(e.date, [start, end]))
     .forEach((e) => {
       const emp = (DB.employees || []).find((x) => x.id === e.empId),
         ent = (emp && emp.entityId) || "ent1";
@@ -133941,119 +134918,6 @@ if (
       out
     );
   }),
-  (fin2RunClose = function (ym, reason) {
-    if ("owner" !== role()) return { ok: !1, why: "The Owner runs the close" };
-    if (!ym || ym >= today().slice(0, 7)) return { ok: !1, why: "The current month cannot be closed yet" };
-    const l = lockedThrough();
-    if (l && ym <= l)
-      return {
-        ok: !1,
-        why: `${fin3Label(ym)} is already closed — the books are closed through ${fin3Label(l)}. Reopen it first; a re-close then posts only what changed.`,
-      };
-    if (l && ym !== fin2Next(l))
-      return { ok: !1, why: `Close ${fin3Label(fin2Next(l))} first — months close in order` };
-    const open = closeChecklist(ym).filter((i) => !i.ok);
-    if (open.length && !String(reason || "").trim())
-      return { ok: !1, why: "Say why you are closing with items still open" };
-    const block = fin2CloseBlockers(ym);
-    if (block.length) return { ok: !1, why: block.map((b) => b.why).join("; ") };
-    glSync();
-    const wip = fin2WipPlan(ym),
-      wages = fin2WagePlan(ym),
-      posted = [],
-      end = fin2End(ym),
-      by = fin2Who();
-    glEntities().forEach((e) => {
-      const wl = fin2WipLines(wip, e.id);
-      if (wl.length) {
-        const j = {
-          id: uid("je"),
-          kind: "close",
-          accrues: "wip",
-          key: `close:wip:${ym}:${e.id}`,
-          entityId: e.id,
-          date: end,
-          periodYm: ym,
-          memo: `WIP adjustment at the ${fin3Label(ym)} close — over- and under-billing brought to the month-end schedule`,
-          lines: wl,
-          createdBy: "system",
-          approvedBy: by,
-          approvedAt: today(),
-        };
-        glPost(j).ok &&
-          (posted.push(j),
-          fin2Audit(
-            "system",
-            "ledger",
-            j.id,
-            "close-wip-posted",
-            "",
-            money(wl.reduce((s, x) => s + x.dr, 0)),
-            `${e.name}: WIP adjustment for ${fin3Label(ym)}, run by ${by}`,
-          ));
-      }
-    }),
-      fin3PostWages(ym, wages, by).forEach((j) => posted.push(j)),
-      fin3Freeze(ym);
-    const locked = [];
-    glEntities().forEach((e) =>
-      GL_SUBS.forEach((sub) => {
-        if (glLockOf(e.id, ym)[sub]) return;
-        glLock(e.id, ym, sub, by).ok && locked.push(`${e.id}:${sub}`);
-      }),
-    ),
-      (DB.periods = DB.periods || {}),
-      (DB.periods.lockedThrough = ym),
-      (DB.periods.closes = DB.periods.closes || []),
-      wipSnapshotFor(ym);
-    const again = (DB.periods.history || []).some((h) => h.month === ym && "closed" === h.act),
-      rec = {
-        month: ym,
-        run: "close",
-        t: nowStamp(),
-        on: today(),
-        at: today(),
-        by: by,
-        open: open.length,
-        openItems: open.map((i) => `${i.label} (${i.n})`),
-        reason: String(reason || "").trim(),
-        entries: posted.map((j) => j.id),
-        wip: wip.toPost,
-        wages: r2(
-          posted
-            .filter((j) => "accrual" === j.kind)
-            .reduce(
-              (a, j) =>
-                a +
-                j.lines
-                  .filter((x) => /^(5000|5010|7000|7010|7005)$/.test(x.acct))
-                  .reduce((s, x) => s + x.dr - x.cr, 0),
-              0,
-            ),
-        ),
-        wagesPlan: wages.total,
-        locks: locked.length,
-        again: again,
-      };
-    DB.periods.closes.push(rec),
-      fin3Log({
-        month: ym,
-        act: "closed",
-        again: again,
-        why: rec.reason,
-        open: rec.open,
-        entries: posted.length,
-        wip: rec.wip,
-        wages: rec.wages,
-      });
-    try {
-      audit("period", ym, again ? "re-close" : "close", "", ym, rec.reason || "clean close");
-    } catch (e) {}
-    try {
-      finCash._c = null;
-    } catch (e) {}
-    return save(), { ok: !0, rec: rec, posted: posted };
-  }),
   (fin2ReopenClose = function (ym, reason) {
     if ("owner" !== role()) return { ok: !1, why: "The Owner reopens a month" };
     if (!String(reason || "").trim()) return { ok: !1, why: "Say why the month is being reopened" };
@@ -134157,6 +135021,15 @@ if ("function" == typeof fin2ClosePageHtml) {
           .join(""),
         wagT = `<h4 class="fin2-step">3 · Accrued Wages <span class="small muted">${money(W.toPost)} to post · ${money(W.total)} earned in ${fin3Label(ym)} and not yet paid, ${money(W.held)} already on the ledger</span></h4>${W.runs.length || W.rows.length ? `<div class="tw"><table class="t fin2-wages"><thead><tr><th>Source</th><th class="money">Hours</th><th class="money">Accrue</th><th class="money">On Ledger</th><th>Days</th></tr></thead><tbody>${runRows}${timeRows}</tbody></table></div><p class="small muted">A payroll run not posted by month end accrues its own lines for its days in the month; approved time on days no run covers accrues at burdened rates. Each reverses when its run posts. The entry is net of what the ledger already holds for ${fin3Label(ym)}, so a re-close posts only the change.</p>` : '<p class="small muted">Every hour worked in the month is in a payroll run posted in the month.</p>'}`;
       h = h.replace(/<h4 class="fin2-step">3 · Accrued Wages[\s\S]*?(?=<h4 class="fin2-step">4 · )/, wagT);
+    }
+    try {
+      const ct = ctClosedHtml();
+      if (ct) {
+        const k = h.indexOf('<h4 class="fin2-step">1 · Checklist');
+        h = k > -1 ? h.slice(0, k) + ct + h.slice(k) : h + ct;
+      }
+    } catch (e) {
+      console.warn("close tie-out", e);
     }
     const hist = fin3HistoryHtml();
     if (hist) {
@@ -134434,16 +135307,19 @@ function fin3Redate(d, to, why) {
 if ("function" == typeof save) {
   const saveBase_c3 = save;
   save = function () {
-    const lent = ((void 0 !== DB && DB && DB.bills) || []).filter((b) => b.costDateOf);
+    const lent = ((void 0 !== DB && DB && DB.bills) || []).filter((b) => b.costDateOf),
+      posted = fin3PostSwapped || [];
     lent.forEach((b) => {
       (b.costDateLent = b.date), (b.date = b.costDateOf), delete b.costDateOf;
-    });
+    }),
+      posted.forEach(([d, f, v]) => (d[f] = v));
     try {
       return fin3SaveGuarded.apply(this, arguments);
     } finally {
-      lent.forEach((b) => {
-        (b.costDateOf = b.date), (b.date = b.costDateLent), delete b.costDateLent;
-      });
+      posted.forEach(([d, f]) => (d[f] = d.postOn)),
+        lent.forEach((b) => {
+          (b.costDateOf = b.date), (b.date = b.costDateLent), delete b.costDateLent;
+        });
     }
   };
   const fin3SaveGuarded = function () {
@@ -134497,6 +135373,13 @@ if ("function" == typeof save) {
                   toast(
                     `${label}: ${fin3Label((isLocked(was) ? was : now).slice(0, 7))} is closed — kept at ${fmt(was)}`,
                   );
+                } catch (e) {}
+              } else if ("bill" === kind) {
+                // A posted bill is re-dated only through Change Date…, with a reason kept in its history.
+                (o[f] = was),
+                  fin2Audit("system", kind, o.id, "date-refused", was, now, `${label}: re-dated without a reason`);
+                try {
+                  toast(`${label}: a posted bill is re-dated with Change Date… and a reason — kept at ${fmt(was)}`);
                 } catch (e) {}
               } else fin3Dates.set(o, now);
           });
@@ -135098,10 +135981,8 @@ if ("function" == typeof ledger) {
     return rows;
   };
 }
-if ("function" == typeof jobFin) {
-  const jobFinBase_p3 = jobFin;
-  jobFin = function (p, range) {
-    const J = jobFinBase_p3.apply(this, arguments);
+// The short-paid part of a bill is not cost until it is accepted (a job adjustment, inside the raw read).
+fin3JobAdjust(function (J, p, range) {
     try {
       const R = range || ["", today()];
       let d = 0;
@@ -135132,8 +136013,7 @@ if ("function" == typeof jobFin) {
       console.warn("short-pay job cost", e);
     }
     return J;
-  };
-}
+});
 if ("function" == typeof glBillLines) {
   const glBillLinesBase_p3 = glBillLines;
   glBillLines = function (b) {
@@ -135227,10 +136107,8 @@ if ("function" == typeof ledger) {
     }
   };
 }
-if ("function" == typeof jobFin) {
-  const jobFinBase_p3d = jobFin;
-  jobFin = function (p, range) {
-    const J = jobFinBase_p3d.apply(this, arguments);
+// A bank line held in a dispute is not job cost (a job adjustment, inside the raw read).
+fin3JobAdjust(function (J, p, range) {
     try {
       const R = range || ["", today()],
         bills = (DB.bills || []).filter((b) => b.projectId === p.id),
@@ -135258,8 +136136,7 @@ if ("function" == typeof jobFin) {
       console.warn("disputed job cost", e);
     }
     return J;
-  };
-}
+});
 if ("function" == typeof glDerive) {
   const glDeriveBase_p3d = glDerive;
   glDerive = function () {
@@ -135453,6 +136330,19 @@ if ("function" == typeof renderAP) {
     if (!v) return;
     const old = v.querySelector("#pay3-disp");
     old && old.remove();
+    const oo = v.querySelector("#ct-orphan");
+    oo && oo.remove();
+    try {
+      const oh = ctOrphanHtml();
+      if (oh) {
+        const w = document.createElement("div");
+        w.innerHTML = oh;
+        const at = v.querySelector("#fin-pbu") || v.querySelector("#ap-table");
+        at && at.parentElement ? at.parentElement.insertBefore(w.firstChild, at) : v.appendChild(w.firstChild);
+      }
+    } catch (e) {
+      console.warn("orphan accruals", e);
+    }
     const D = pay3Disputes();
     if (!D.length) return;
     const card = document.createElement("div");
@@ -136453,15 +137343,16 @@ if (
       return [
         {
           key: "late",
-          k: "Running Late",
+          k: "Finish Dates Late",
+          rule: "jobs whose forecast finish is past the target date in the contract; not Home's Jobs With Late Items, which counts late materials, decisions and submittals",
           v: late.length,
           tone: late.length ? "bad" : "",
           s: late.length
             ? late
                 .slice(0, 2)
-                .map((r) => `${shortName(r.p)} +${r.h.late}d`)
+                .map((r) => `${shortName(r.p)} +${r.h.late}d past target`)
                 .join(" · ")
-            : "every finish date holds",
+            : "every finish date holds its target",
           pred: (r) => r.late,
         },
         {
@@ -140293,12 +141184,40 @@ function czGiveBack(c, d, p, tk, n, pre) {
       30,
     );
 }
+// The record of a pull-in is the task's history: the "co" entry czPull writes against this change order with
+// the days coming back. A give-back is open only while no such entry exists, whatever the flag says, so the
+// forecast tile, the Changes note, the change order's bar and the publish preview all read one history, and a
+// flag reverted or copied by mistake cannot offer a second Pull In (review r5_pm, finding 1).
+function czPullRecord(d, p) {
+  const g = d && d.czGive,
+    P = p || (g && DB.projects.find((x) => x.id === d.projectId)),
+    tk = g && P && (P.tasks || []).find((t) => t.id === g.taskId);
+  return (
+    (tk &&
+      (tk.history || []).find(
+        (h) => h.coId === d.id && "co" === h.source && czMoved(h) && czDays(h) < 0 && /given back/.test(h.reason || ""),
+      )) ||
+    null
+  );
+}
+function czGiveOpen(c, d, p) {
+  const g = d && d.czGive;
+  if (!g) return !1;
+  const rec = czPullRecord(d, p);
+  return rec ? (g.open && ((g.open = !1), (g.pulled = g.pulled || rec.on)), !1) : !!g.open;
+}
 function czGiveBackDialog(c, d) {
   const g = d.czGive,
     p = DB.projects.find((x) => x.id === d.projectId);
   if (!g || !p) return;
   const tk = (p.tasks || []).find((t) => t.id === g.taskId);
   if (!tk) return;
+  if (!czGiveOpen(c, d, p))
+    return void toast(
+      g.pulled
+        ? `${tk.name} was pulled in ${g.days} working day${1 === g.days ? "" : "s"} on ${fmt(g.pulled)} — ${d.number} has nothing left to give back`
+        : `${d.number}: the dates were kept on ${fmt(g.kept || today())} — those days are ours`,
+    );
   const sim = czSim(p, () =>
       czPull(
         S,
@@ -140344,7 +141263,7 @@ function czGiveBackDialog(c, d) {
 function czDoPull(c, d, note) {
   const g = d.czGive,
     p = DB.projects.find((x) => x.id === d.projectId);
-  if (!g || !p || !g.open) return !1;
+  if (!g || !p || !czGiveOpen(c, d, p)) return !1;
   const tk = (p.tasks || []).find((t) => t.id === g.taskId);
   if (!tk) return !1;
   let moved = [];
@@ -140507,7 +141426,7 @@ if ("function" == typeof crDocEmail) {
           ));
       }
       const g = d.czGive;
-      g && g.open && tk && canEdit()
+      g && czGiveOpen(c, d) && tk && canEdit()
         ? (h = h.replace(
             /<\/div>$/,
             `<span class="cz-give"><button class="btn sm" data-czpull="${esc(d.id)}">Pull In ${g.days} Day${1 === g.days ? "" : "s"}</button><span class="small muted">or keep the dates and the days count as ours</span></span></div>`,
@@ -140783,7 +141702,7 @@ if (
       nOwn = moves.filter((m) => "push" !== m.h.source).length,
       pushedTasks = new Set(moves.filter((m) => "push" === m.h.source).map((m) => m.t.id)).size,
       giveHtml = ((clientOf() || {}).changeOrders || [])
-        .filter((d) => d.projectId === S.id && d.czGive && d.czGive.open)
+        .filter((d) => d.projectId === S.id && czGiveOpen(clientOf(), d, S))
         .map((d) => {
           const tk = task(d.czGive.taskId);
           return tk
@@ -141274,7 +142193,7 @@ function blOpenRow(row) {
   }
 }
 function blRowAct(row) {
-  if (row) return "ready" === row.kind ? rtbAct(row.key) : blOpenRow(row);
+  if (row) return "credit" === row.kind ? blCreditAct(row) : "ready" === row.kind ? rtbAct(row.key) : blOpenRow(row);
 }
 function blTiles() {
   const rows = billingRows(),
@@ -141364,7 +142283,9 @@ if (
     BILL_TABS.some((t) => "progress" === t[0]) || BILL_TABS.splice(1, 0, ["progress", "Progress Billing"]);
 }
 const blStage = (r) =>
-    "ready" === r.kind
+    "credit" === r.kind
+      ? ovStatus(r.approved ? "credit approved" : "credit owed", r.approved ? "neutral" : "warn", 1)
+      : "ready" === r.kind
       ? ovStatus("ready", "info", 0)
       : "held" === r.kind
         ? ovStatus("held", "warn", 1)
@@ -141374,7 +142295,11 @@ const blStage = (r) =>
             ? ovStatus("past due", "bad", 3)
             : ovStatus("sent", "neutral", 4),
   blActLabel = (r) =>
-    "ready" === r.kind
+    "credit" === r.kind
+      ? r.approved
+        ? "Open"
+        : "Approve Credit"
+      : "ready" === r.kind
       ? "Draft"
       : "held" === r.kind
         ? "Open WIP"
@@ -143584,16 +144509,35 @@ function clSrc(a, p) {
     if (!d) return null;
     const m = a.link && "mat" === a.link.kind ? (p.materials || []).find((x) => x.id === a.link.id) : null,
       tk = a.link && "task" === a.link.kind ? (p.tasks || []).find((x) => x.id === a.link.id) : null;
+    // the CO a decided choice led to; a draft keeps the task open (it closes when the CO is sent)
+    const coOf = () => {
+      const x = d.coId && clCoOf(d.coId);
+      return x && !["void", "rejected", "superseded"].includes(x.d.status) ? x : null;
+    };
     return {
       kind: "dec",
       label: `Decision · ${d.name}`,
       view: "dec",
       open: () => opsGo({ kind: "dec", id: d.id }, p),
+      verb:
+        "raise-co" === a.next
+          ? (() => {
+              const x = coOf();
+              return x ? `Open ${x.d.number}` : "Raise Change Order";
+            })()
+          : "",
+      run:
+        "raise-co" === a.next
+          ? () => {
+              const x = coOf();
+              x ? opsGo({ kind: "co", id: x.d.id }, p) : opsRaiseCO({ kind: "dec", id: d.id }, p);
+            }
+          : null,
       done:
         "raise-co" === a.next
           ? () => {
-              const x = d.coId && clCoOf(d.coId);
-              return !(!x || "void" === x.d.status) && `${x.d.number} raised`;
+              const x = coOf();
+              return !!x && "draft" !== x.d.status && `${x.d.number} sent`;
             }
           : m
             ? () =>
@@ -144235,7 +145179,14 @@ function clWireStrip(root) {
                 t: nowStamp(),
                 by: by,
                 text: `Choice made on the portal: ${T} — ${ch}${tk ? ` · releases ${tk.name}` : m ? ` · releases the order for ${m.name}` : ""}`,
-              });
+              }),
+              "function" == typeof clActivity &&
+                clActivity(S, {
+                  from: by,
+                  subject: `Chose: ${T} — ${ch}`,
+                  text: `${by} chose "${ch}" for ${T}${delta ? ` (${delta > 0 ? "+" : "−"}${money(Math.abs(delta))} against the allowance)` : ""} on the portal${tk ? `; ${tName} can go ahead` : ""}.`,
+                  ref: { kind: "dec", id: dec.id },
+                });
             const pm = ("function" == typeof fPeople ? fPeople().pm : null) || {},
               writeIn = !picked;
             if (delta > 0 || m || writeIn) {
@@ -144317,21 +145268,20 @@ function clWireStrip(root) {
             "dec" !== link.kind &&
             ((co.title = clRewrite(src.title || co.title)),
             (co.memo = `Found on site: ${clRewrite(src.title || "")}.${
-              src.answer
-                ? ` ${String(src.answer)
+              src.note || src.notes
+                ? ` ${String(src.note || src.notes)
                     .trim()
                     .replace(/^./, (ch) =>
                       ch.toUpperCase(),
-                    )}${/[.!?]$/.test(String(src.answer).trim()) ? "" : "."}`
+                    )}${/[.!?]$/.test(String(src.note || src.notes).trim()) ? "" : "."}`
                 : ""
             }`));
         clTaskSweep();
-        const n = openT.filter((x) => "done" === x.status).length;
         save(),
           render(),
-          n &&
+          openT.length &&
             toastDone(
-              `${co.number} drafted — ${co.title}. Your task to raise it is done; set the price${+co.scheduleDays ? "" : " and the days"}, then send`,
+              `${co.number} drafted — ${clipWords(co.title, 48)}. Set the price${+co.scheduleDays ? "" : " and the days"}, then send; your task closes when it goes`,
               () => opsGo({ kind: "co", id: co.id }, p),
               7e3,
             );
@@ -144711,7 +145661,7 @@ function clOutboxFor(p) {
           R.push({
             k: clStampKey(c),
             dir: "in",
-            html: `<div class="msg ${esc(c.status || "")} cl-msg" data-cid="${esc(c.id)}"><div class="top"><span class="pill neutral cl-dir">In</span><b>${esc(c.from || ("notes" === c.source ? "Meeting notes" : "Pasted"))}</b><span class="muted small">${esc(c.source || "message")} · ${esc(clStamp(c))}</span><span class="grow"></span><span class="pill ${"new" === c.status ? "blue" : "neutral"}">${esc(c.status || "")}</span></div>${c.subject ? `<div class="small"><b>${esc(c.subject)}</b></div>` : ""}<div class="small muted">${esc(String(c.text || "").slice(0, 220))}</div><div class="acts">${"new" === c.status ? `<button class="btn sm" data-review="${esc(c.id)}">Review</button>` : ""}${["ignored", "applied", "auto"].includes(c.status) ? "" : `<button class="btn sm" data-ignore="${esc(c.id)}">Ignore</button>`}<button class="btn sm ghost" data-delmsg="${esc(c.id)}">Delete</button></div></div>`,
+            html: "handled" === c.status || "activity" === c.kind ? clActivityHtml(c, S) : `<div class="msg ${esc(c.status || "")} cl-msg" data-cid="${esc(c.id)}"><div class="top"><span class="pill neutral cl-dir">In</span><b>${esc(c.from || ("notes" === c.source ? "Meeting notes" : "Pasted"))}</b><span class="muted small">${esc(c.source || "message")} · ${esc(clStamp(c))}</span><span class="grow"></span><span class="pill ${"new" === c.status ? "blue" : "neutral"}">${esc(c.status || "")}</span></div>${c.subject ? `<div class="small"><b>${esc(c.subject)}</b></div>` : ""}<div class="small muted">${esc(String(c.text || "").slice(0, 220))}</div><div class="acts">${"new" === c.status ? `<button class="btn sm" data-review="${esc(c.id)}">Review</button>` : ""}${["ignored", "applied", "auto"].includes(c.status) ? "" : `<button class="btn sm" data-ignore="${esc(c.id)}">Ignore</button>`}<button class="btn sm ghost" data-delmsg="${esc(c.id)}">Delete</button></div></div>`,
           }),
         ),
         out.forEach((o) =>
@@ -144938,10 +145888,40 @@ const t2Valid = () => {
           `<div class="t2-sub"><span class="t2-kind k-${esc(x.kind)}">${k}</span>`,
         )),
       x.done && (h = h.replace('class="t2-row ', 'class="t2-row done ')),
+      (h = clTaskVerbHtml(x, h)),
       h
     );
   };
 }
+// A task that stands for a record's next step carries that step as its verb (the decision's "Raise Change
+// Order" opens the CO editor prefilled with the chosen option), so the task is never a dead end.
+function clTaskVerbHtml(x, h) {
+  try {
+    if ("action" !== x.kind || x.done) return h;
+    const f = clTaskFind(x.id),
+      src = f && clSrc(f.a, f.p);
+    if (!src || !src.verb || !src.run) return h;
+    return h.replace(
+      '<button class="t2-later-btn"',
+      `<button class="btn sm t2-verb" data-clraise="${esc(x.id)}">${esc(src.verb)}</button><button class="t2-later-btn"`,
+    );
+  } catch (e) {
+    return h;
+  }
+}
+function clTaskVerb(id) {
+  const f = clTaskFind(id),
+    src = f && clSrc(f.a, f.p);
+  return !!(src && src.run) && (src.run(), !0);
+}
+document.addEventListener(
+  "click",
+  (e) => {
+    const b = e.target && e.target.closest ? e.target.closest("[data-clraise]") : null;
+    b && (e.preventDefault(), e.stopPropagation(), clTaskVerb(b.dataset.clraise));
+  },
+  !0,
+);
 function t2Lead(ctx, R, C) {
   const late = C.overdue;
   if ("job" === ctx) {
@@ -144973,14 +145953,7 @@ function t2ActsHtml(ctx) {
 function t2ToolsHtml(ctx) {
   const phone = mOn(),
     projects = (DB.projects || []).map((p) => [p.id, (p.project.name || "").replace(/ —.*$/, "")]),
-    people = [
-      ...new Set(
-        tkItems()
-          .filter((x) => !x.done)
-          .map((x) => x.assignee)
-          .filter(Boolean),
-      ),
-    ].sort(),
+    people = crPeopleOf(tkItems().filter((x) => !x.done)),
     queues = (DB.hub && DB.hub.queues) || [],
     gb = t2GroupBy(),
     named = tkWho && !["me", "all", "none"].includes(tkWho),
@@ -148563,7 +149536,7 @@ function budScreenHtml() {
     over = budOverLines(),
     status = `<div class="bud-status small"><span class="pill ${locked ? "neutral" : "warn"}">${locked ? "Locked" : "Draft"}</span>${active ? ' <span class="pill ok">Active</span>' : ""} <span class="muted">${locked ? `Locked by ${esc(v.lockedBy || "")} on ${fmt(v.lockedOn)}${v.lockNote ? ` — ${esc(v.lockNote)}` : ""}` : `Created by ${esc(v.createdBy || "")} on ${fmt(v.createdOn)} · open for edits`}${active ? " · the reports read this version" : ""}</span>${v.basisNote ? `<div class="muted">${esc(v.basisNote)}</div>` : ""}</div>`,
     head = `<div class="ph"><div><h2>Budget</h2><p class="lead">The ${esc(y)} operating budget by entity, account and month. One version is active; Reports, the Pack, the Flash and the Close read it.</p></div><div class="acts">${phone ? "" : '<button class="btn primary" id="bud-review">Review Variances</button>'}</div></div>`,
-    bar = `<div class="row wrap bud-bar no-print">${verSel}${entSel}${phone ? "" : `${edit ? '<button class="btn sm" id="bud-fill" title="Copy the selected month to the months after it">Fill Right</button><button class="btn sm" id="bud-spread">Spread Annual…</button><button class="btn sm" id="bud-copy">Copy From…</button>' : ""}${budCanEdit() ? '<button class="btn sm" id="bud-new">New Version…</button>' : ""}${budCanEdit() && !active ? '<button class="btn sm" id="bud-active">Make Active</button>' : ""}${budCanEdit() && !locked ? '<button class="btn sm" id="bud-lock">Lock Version…</button>' : ""}${ent ? `<label class="small bud-all"><input type="checkbox" id="bud-allacct" ${budScrAll ? "checked" : ""}> Show Every Account</label>` : ""}`}</div>`,
+    bar = `<div class="row wrap bud-bar no-print">${verSel}${entSel}${phone ? "" : `${edit ? '<button class="btn sm" id="bud-fill" title="Copy the selected month to the months after it">Fill Right</button><button class="btn sm" id="bud-spread">Spread Annual…</button><button class="btn sm" id="bud-copy">Copy From…</button>' : ""}${budCanEdit() ? '<button class="btn sm" id="bud-new">New Version…</button>' : ""}${budCanEdit() && !active ? '<button class="btn sm" id="bud-active">Make Active</button>' : ""}${budCanEdit() && !locked ? '<button class="btn sm" id="bud-lock">Lock Version…</button>' : ""}<button class="btn sm" id="bud-csv">Export CSV</button>${budCanEdit() && !locked ? '<button class="btn sm" id="bud-csvin">Import CSV…</button>' : ""}${ent ? `<label class="small bud-all"><input type="checkbox" id="bud-allacct" ${budScrAll ? "checked" : ""}> Show Every Account</label>` : ""}`}</div>`,
     overNote = over.length
       ? `<div class="note warn bud-overnote"><b>${over.length} cost line${1 === over.length ? " is" : "s are"} over budget</b> by more than ${budTh().pct}% and ${money(budTh().amt)} this year: ${over
           .slice(0, 3)
@@ -148589,7 +149562,30 @@ function budScreenHtml() {
         budJobsHtml(v) +
         budHistHtml(v);
 }
+// Budget governance, in the functions themselves (not only by hiding buttons): the Owner or the controller
+// edits, a locked version is never changed, and only the Owner makes a version the active one. A refusal
+// toasts why and writes an audit row; the caller gets {ok: false, why}.
+function budGuard(v, act, ownerOnly) {
+  let why = "";
+  if (!v) why = "No budget version";
+  else if (ownerOnly ? !isOwner() : !budCanEdit())
+    why = ownerOnly
+      ? `Only the Owner can ${act} a budget version`
+      : `The Owner or the controller can ${act} the budget — ${ROLE_NAMES[role()] || role()} cannot`;
+  else if ("locked" === v.status && !["lock", "make active"].includes(act))
+    why = `${v.name} is locked${v.lockedBy ? ` by ${v.lockedBy} on ${fmt(v.lockedOn)}` : ""} — copy it to a new version to change it`;
+  if (!why) return null;
+  try {
+    budAudit(v, "refused", `${act}: ${why}`);
+  } catch (e) {}
+  try {
+    toast(why);
+  } catch (e) {}
+  return { ok: !1, why: why };
+}
 function budSetCell(v, ent, acct, m, val, quiet) {
+  const g = budGuard(v, "edit");
+  if (g) return g;
   const k = ent + "|" + acct,
     L = (v.lines[k] = (v.lines[k] || Array(12).fill(0)).slice()),
     before = L[m];
@@ -148601,6 +149597,7 @@ function budSetCell(v, ent, acct, m, val, quiet) {
         "edited",
         `${budShortEnt(ent)} · ${budAPlain(acct)} · ${BUD_MONTHS[m]}: ${money(before)} → ${money(L[m])}`,
       );
+  return { ok: !0 };
 }
 function budSpreadDialog(v, ent) {
   const ids = budGridRows(v, ent),
@@ -148615,6 +149612,7 @@ function budSpreadDialog(v, ent) {
           const acct = f.acct,
             amt = +f.amt || 0,
             r = budSpreadApply(v, ent, acct, amt, f.how);
+          if (!r.ok) return;
           save(),
             render(),
             budToast(
@@ -148634,6 +149632,8 @@ function budSpreadDialog(v, ent) {
 }
 const BUD_CAL = [6, 7, 8.5, 8.5, 9, 9, 9, 9, 9, 9, 8.5, 7.5];
 function budSpreadApply(v, ent, acct, amt, how) {
+  const g = budGuard(v, "spread");
+  if (g) return g;
   let w = Array(12).fill(1),
     basis = "evenly";
   if ("season" === how) {
@@ -148664,7 +149664,7 @@ function budSpreadApply(v, ent, acct, amt, how) {
       "spread",
       `${budShortEnt(ent)} · ${budAPlain(acct)}: ${money(before)} → ${money(amt)} for the year, ${basis}`,
     ),
-    { arr: arr, basis: basis }
+    { ok: !0, arr: arr, basis: basis }
   );
 }
 function budCopyDialog(v, ent) {
@@ -148677,6 +149677,7 @@ function budCopyDialog(v, ent) {
       submit: "Copy",
       onSubmit: (f) => {
         const r = budCopyApply(v, f.src, "all" === f.scope ? "" : ent);
+        if (!r.ok) return;
         save(),
           render(),
           budToast(`${v.name}: ${r.n} account line${1 === r.n ? "" : "s"} copied from ${r.from}`, () => {
@@ -148687,6 +149688,8 @@ function budCopyDialog(v, ent) {
   );
 }
 function budCopyApply(v, src, ent) {
+  const g = budGuard(v, "copy into");
+  if (g) return g;
   const ents = ent ? [ent] : budEnts();
   let n = 0,
     from = "";
@@ -148736,10 +149739,11 @@ function budCopyApply(v, src, ent) {
       "copied",
       `${ent ? budShortEnt(ent) : "All entities"} from ${from}: ${n} line${1 === n ? "" : "s"}`,
     ),
-    { n: n, from: from }
+    { ok: !0, n: n, from: from }
   );
 }
 function budNewVersion(name, srcId) {
+  if (!budCanEdit()) return budGuard({ id: "", name: "A new version", status: "open" }, "create a version of"), null;
   const P = budPlan(),
     S = budVer(srcId) || budActiveVer(),
     y = S ? S.year : budYear(),
@@ -148767,20 +149771,22 @@ function budNewVersion(name, srcId) {
   );
 }
 function budLock(v, why) {
-  return v && "locked" !== v.status
-    ? budCanEdit()
-      ? ((v.status = "locked"),
-        (v.lockedBy = fin2Who()),
-        (v.lockedOn = today()),
-        (v.lockNote = String(why || "").trim()),
-        budAudit(v, "locked", v.lockNote || "locked"),
-        save(),
-        { ok: !0 })
-      : { ok: !1, why: "The Owner or the controller locks a budget" }
-    : { ok: !1, why: "This version is already locked" };
+  const g = budGuard(v, "lock");
+  if (g) return g;
+  if ("locked" === v.status) return { ok: !1, why: "This version is already locked" };
+  return (
+    (v.status = "locked"),
+    (v.lockedBy = fin2Who()),
+    (v.lockedOn = today()),
+    (v.lockNote = String(why || "").trim()),
+    budAudit(v, "locked", v.lockNote || "locked"),
+    save(),
+    { ok: !0 }
+  );
 }
 function budMakeActive(v) {
-  if (!v) return { ok: !1 };
+  const g = budGuard(v, "make active", !0);
+  if (g) return g;
   const P = budPlan(),
     prev = budVer(P.active[v.year]);
   return (
@@ -148795,6 +149801,8 @@ function budMakeActive(v) {
   );
 }
 function budRefreshJobs(v) {
+  const g = budGuard(v, "refresh from jobs");
+  if (g) return g;
   let n = 0;
   return (
     (DB.projects || []).forEach((p) => {
@@ -148870,7 +149878,8 @@ function renderBudget() {
           inp.parentElement.classList.add("bud-sel");
       }),
         (inp.onchange = () => {
-          budSetCell(v, ent, inp.dataset.bg, +inp.dataset.bm, inp.value), save();
+          if (!budSetCell(v, ent, inp.dataset.bg, +inp.dataset.bm, inp.value).ok) return void render();
+          save();
           const keep = { acct: inp.dataset.bg, m: +inp.dataset.bm };
           render();
           const nx = document.querySelector(
@@ -148904,7 +149913,7 @@ function renderBudget() {
         if (!budFocus) return void toast("Select a month in a row first, then Fill Right");
         const { acct: acct, m: m } = budFocus,
           val = budMonth(v, ent, acct, m);
-        for (let i = m + 1; i < 12; i++) budSetCell(v, ent, acct, i, val, !0);
+        for (let i = m + 1; i < 12; i++) if (!budSetCell(v, ent, acct, i, val, !0).ok) return;
         budAudit(
           v,
           "filled right",
@@ -148935,6 +149944,7 @@ function renderBudget() {
             onSubmit: (f) => {
               if (!f.name) return toast("Name the version"), !1;
               const nv = budNewVersion(f.name, f.src);
+              if (!nv) return;
               (budScrVer = nv.id),
                 save(),
                 render(),
@@ -148954,6 +149964,7 @@ function renderBudget() {
         )
           return;
         const r = budMakeActive(v);
+        if (!r.ok) return;
         render(),
           budToast(
             `${v.name} is now the active ${v.year} budget${r.prev ? ` (was ${r.prev.name})` : ""}`,
@@ -148977,9 +149988,18 @@ function renderBudget() {
             }))
           : toast(r.why);
       }),
+    q("#bud-csv") &&
+      (q("#bud-csv").onclick = () => {
+        budExportCsv(v, !0),
+          budToast(`${v.name} exported to CSV`, () => {
+            (view = "budget"), render();
+          });
+      }),
+    q("#bud-csvin") && (q("#bud-csvin").onclick = () => budImportDialog(v)),
     q("#bud-refresh") &&
       (q("#bud-refresh").onclick = () => {
         const n = budRefreshJobs(v);
+        if ("number" != typeof n) return;
         render(),
           budToast(`${v.name}: ${n} job${1 === n ? "" : "s"} re-read from their estimates`, () => {
             (view = "budget"), render();
@@ -149601,7 +150621,16 @@ if ("function" == typeof txnTruth) {
       : "feed";
   };
 }
-const bfBacked = (t) => "feed" === txnTruth(t) && !bfProv(t).removedByBank,
+// A line whose only bank record is the Demo Feed (the sandbox) is not bank evidence: it reads "Demo Feed",
+// is not counted as backed in coverage, is not pre-ticked at reconcile and does not satisfy the close.
+function bfIsDemoOnly(t) {
+  const p = bfProv(t),
+    cb = p.confirmedBy || null;
+  if ("statement" === p.kind || p.stmtSeen || (cb && "statement" === cb.kind)) return !1;
+  const fd = ("feed" === p.kind ? p : null) || (cb && "feed" === cb.kind ? cb : null) || p.feedSeen || null;
+  return !(!fd || !fd.demo) && !(p.feedSeen && !p.feedSeen.demo) && !(cb && "feed" === cb.kind && !cb.demo);
+}
+const bfBacked = (t) => "feed" === txnTruth(t) && !bfProv(t).removedByBank && !bfIsDemoOnly(t),
   bfIsRec = (t) => !(!t || !(t.reconId || ("reconciled" === t.status && t.reconciledOn)));
 function bfSourceWords(t) {
   const p = bfProv(t),
@@ -149617,6 +150646,12 @@ function bfSourceWords(t) {
       cls: "bad",
       text: "Changed",
       why: "it arrived from the bank, then a date, an amount or a payee was edited here",
+    };
+  if (bfIsDemoOnly(t))
+    return {
+      cls: "warn",
+      text: "Demo Feed",
+      why: "delivered by the Demo Feed, the sandbox bank in a copy opened as a file — not a bank record, so not bank evidence",
     };
   const fd =
       p.feedSeen ||
@@ -149662,6 +150697,7 @@ function bfCoverage(ym) {
       statement: 0,
       confirmed: 0,
       manual: 0,
+      demo: 0,
       changed: 0,
       removed: 0,
       manualList: [],
@@ -149675,6 +150711,7 @@ function bfCoverage(ym) {
         a = Math.abs(+t.amt || 0);
       if (((o.amt += a), p.removedByBank)) o.removed++;
       else if ("changed" !== k) {
+        if ("feed" === k && bfIsDemoOnly(t)) return void o.demo++;
         if ("feed" === k)
           return (
             o.backed++,
@@ -149692,7 +150729,7 @@ function bfCoverage(ym) {
 }
 const bfCoverLine = (C) => `${C.pct}% of ${bfMon(C.ym)}'s lines are backed by a bank record`,
   bfCoverSub = (C) =>
-    `${C.backed} of ${C.n} · ${C.statement} from statements · ${C.feed} from feeds · ${C.confirmed} typed and since confirmed${C.manual ? ` · ${C.manual} typed by hand, not yet seen at the bank` : ""}${C.changed ? ` · ${C.changed} changed after arriving` : ""}${C.removed ? ` · ${C.removed} removed by the bank` : ""}`;
+    `${C.backed} of ${C.n} · ${C.statement} from statements · ${C.feed} from feeds · ${C.confirmed} typed and since confirmed${C.manual ? ` · ${C.manual} typed by hand, not yet seen at the bank` : ""}${C.demo ? ` · ${C.demo} from the Demo Feed, not bank evidence` : ""}${C.changed ? ` · ${C.changed} changed after arriving` : ""}${C.removed ? ` · ${C.removed} removed by the bank` : ""}`;
 function bfCloseYm() {
   try {
     return (
@@ -150747,8 +151784,10 @@ function bfReconHtml() {
     rows
       .map((t) => {
         const w = bfSourceWords(t),
-          on = R.ticks.has(t.id);
-        return `<tr class="${on ? "on" : ""}" data-bfrow="${t.id}"><td class="bf-ck"><input type="checkbox" data-bfrc="${t.id}" ${on ? "checked" : ""} aria-label="Cleared"></td><td class="bf-d">${fmt(t.date)}</td><td><div>${esc(t.desc)}</div><div class="small muted"><span class="pill ${w.cls}" title="${esc(w.why)}">${w.text}</span>${t.vendor ? " " + esc(t.vendor) : ""}</div></td><td class="money ${t.amt > 0 ? "ok" : ""}">${t.amt > 0 ? "+" : ""}${bfM2(t.amt)}</td></tr>`;
+          on = R.ticks.has(t.id),
+          pv = bfProv(t),
+          notAt = !on && "manual" === pv.kind && !pv.confirmedBy && ["owner", "controller"].includes(role());
+        return `<tr class="${on ? "on" : ""}" data-bfrow="${t.id}"><td class="bf-ck"><input type="checkbox" data-bfrc="${t.id}" ${on ? "checked" : ""} aria-label="Cleared"></td><td class="bf-d">${fmt(t.date)}</td><td><div>${esc(t.desc)}</div><div class="small muted"><span class="pill ${w.cls}" title="${esc(w.why)}">${w.text}</span>${t.vendor ? " " + esc(t.vendor) : ""}${notAt ? ` <button class="btn sm" data-bfvoid="${t.id}" title="The statement does not list this line">Not at the Bank — Void</button>` : ""}</div></td><td class="money ${t.amt > 0 ? "ok" : ""}">${t.amt > 0 ? "+" : ""}${bfM2(t.amt)}</td></tr>`;
       })
       .join("") ||
     `<tr><td colspan="4" class="muted">Nothing on this account dated by ${fmt(R.end)} is waiting to be reconciled.</td></tr>`
@@ -150798,7 +151837,8 @@ function bfReconWire(host) {
     const el = document.getElementById("bf-recon");
     el && ((el.outerHTML = bfReconHtml()), bfReconWire(document.getElementById("v-bank")));
   };
-  host.querySelectorAll("[data-bfrc]").forEach(
+  host.querySelectorAll("[data-bfvoid]").forEach((b) => (b.onclick = () => bfVoidDialog(b.dataset.bfvoid))),
+    host.querySelectorAll("[data-bfrc]").forEach(
     (c) =>
       (c.onchange = () => {
         c.checked ? R.ticks.add(c.dataset.bfrc) : R.ticks.delete(c.dataset.bfrc), redraw();
@@ -151083,33 +152123,11 @@ function bfSandboxPull(f) {
     const e = new Error(`${f.institution} needs you to sign in again`);
     throw ((e.code = "ITEM_LOGIN_REQUIRED"), e);
   }
+  // The sandbox serves its own fixed bank file, step by step. It never echoes the register back: an echo
+  // "confirmed" every typed line (August read 96% backed) and doubled the duplicate dumpster charge.
   const step = /^sbx:[a-z]+:(\d+)$/.test(f.cursor || "") ? +f.cursor.split(":")[2] : 0,
     added = [],
     removed = [];
-  if (0 === step) {
-    const from = iso(addDays(parse(today().slice(0, 8) + "01"), -1)).slice(0, 8) + "01";
-    (DB.txns || [])
-      .filter(
-        (t) =>
-          t.acct === f.acctId &&
-          t.date >= from &&
-          t.date <= today() &&
-          !("feed" === bfProv(t).kind && bfProv(t).feedId === f.id),
-      )
-      .sort(
-        (a, b) => String(a.date).localeCompare(String(b.date)) || String(a.id).localeCompare(String(b.id)),
-      )
-      .forEach((t, i) => {
-        const shift = "card" === f.type && i % 3 == 1 ? 1 : 0,
-          d = iso(addDays(parse(t.date), shift));
-        added.push({
-          ref: `sbx-${f.sandbox}-${bfHash(t.id + "|" + t.amt)}`,
-          date: d <= today() ? d : t.date,
-          amt: t.amt,
-          desc: t.bankDesc || t.desc,
-        });
-      });
-  }
   return (
     inst.lines
       .filter((l) => l.step === step)
@@ -153436,6 +154454,7 @@ function smSweep() {
               comments: `${f.name} approved — read from the Studio filing register`,
               date: f.approvedOn || today(),
               by: "LPC (filing register)",
+              system: !0,
             },
             !0,
           )
@@ -153448,6 +154467,7 @@ function smSweep() {
               comments: `LPC raised objections on ${f.name} — see the Studio filing register`,
               date: today(),
               by: "LPC (filing register)",
+              system: !0,
             },
             !0,
           ));
@@ -153792,12 +154812,22 @@ function smRespond(s, p, o, quiet) {
   const r = smRev(s),
     st = smStepOf(s);
   if (!r || !st) return !1;
+  // Who answered is the reviewer (st.by); who clicked is the actor. A response recorded by someone else says
+  // so (recordedBy, onBehalf), a client's own portal approval says portal, a stamped copy is the evidence.
+  const actor = o.system ? "" : smMe(),
+    reviewer = o.by || st.name,
+    onBehalf = !o.portal && !o.system && !!actor && actor.toLowerCase() !== String(reviewer).toLowerCase();
   (st.respondedOn = o.date || today()),
     (st.stamp = o.stamp),
     (st.comments = o.comments || ""),
-    (st.by = o.by || st.name),
+    (st.by = reviewer),
+    (st.recordedBy = onBehalf ? actor : o.system ? "the filing register" : ""),
+    (st.onBehalf = onBehalf),
+    (st.portal = !!o.portal),
+    (st.evidence = o.evidence || ""),
     st.sentOn || (st.sentOn = st.respondedOn),
-    smStamp(s, `${smWho(st)}: ${SM_STAMP[o.stamp]}${st.comments ? ` — ${st.comments}` : ""}`, st.by);
+    smStamp(s, `${smWho(st)}: ${SM_STAMP[o.stamp]}${st.comments ? ` — ${st.comments}` : ""}${smHowText(st)}`, onBehalf ? actor : st.by),
+    onBehalf && smBehalfNotice(s, p, st);
   let msg = "";
   if (["approved", "noted"].includes(o.stamp)) {
     const nx = smStepOf(s);
@@ -153860,7 +154890,7 @@ function smRespondDialog(s, p) {
   st &&
     mbModal(
       `Record Response — <span data-nocase>${esc(smWho(st))}</span>`,
-      `<p class="small muted" style="margin:0 0 10px">${esc(s.number)} Rev ${smRev(s).n} · ${esc(s.title)}. ${"pm" === st.role ? "Your review: check it against the contract, the drawings and the selection before it goes on." : "Copy the stamp and comments from the returned set; attach it if you have it."}</p>\n    <div class="grid2">${mbF("Response", `<select data-f="stamp">${SM_STAMPS.map(([k, l]) => `<option value="${k}">${l}</option>`).join("")}</select>`)}${mbF("Date", `<input type="date" data-f="date" value="${today()}">`)}</div>\n    ${mbF("Reviewer", `<input data-f="by" value="${esc(("pm" === st.role && smMe()) || st.name)}">`)}${mbF("Comments", '<textarea data-f="comments" rows="4" placeholder="What the reviewer marked — the notes travel to the sub and the field"></textarea>')}${mbF("Attach the Stamped Copy", '<input type="file" id="sm-respfile" multiple aria-label="Attach the stamped copy">')}`,
+      `<p class="small muted" style="margin:0 0 10px">${esc(s.number)} Rev ${smRev(s).n} · ${esc(s.title)}. ${"pm" === st.role && smMe().toLowerCase() === String(st.name).toLowerCase() ? "Your review: check it against the contract, the drawings and the selection before it goes on." : `Copy the stamp and comments from the returned set. This is recorded as ${esc(smMe())} on behalf of ${esc(smWho(st))}${"client" === st.role ? ": a client response needs the client's own approval on the portal or the stamped copy attached" : `, and ${esc(st.name)} is told`}.`}</p>\n    <div class="grid2">${mbF("Response", `<select data-f="stamp">${SM_STAMPS.map(([k, l]) => `<option value="${k}">${l}</option>`).join("")}</select>`)}${mbF("Date", `<input type="date" data-f="date" value="${today()}">`)}</div>\n    ${mbF("Reviewer", `<input data-f="by" value="${esc(st.name)}">`)}${mbF("Comments", '<textarea data-f="comments" rows="4" placeholder="What the reviewer marked — the notes travel to the sub and the field"></textarea>')}${mbF("client" === st.role ? "Attach the Stamped Copy (required)" : "Attach the Stamped Copy", '<input type="file" id="sm-respfile" multiple aria-label="Attach the stamped copy">')}`,
       {
         submit: "Record",
         onSubmit: (f) => {
@@ -153868,7 +154898,9 @@ function smRespondDialog(s, p) {
             return toast("Say what has to change — the sub works from these comments"), !1;
           const files = (document.getElementById("sm-respfile") || {}).files,
             fl = files && files.length ? [...files] : [];
-          smRespond(s, p, f), fl.length && smAttach(s, p, fl);
+          if ("client" === st.role && !fl.length)
+            return toast("A client response needs the client's own approval on the portal or the stamped copy attached"), !1;
+          (f.evidence = fl.length ? `stamped copy attached: ${fl.map((x) => x.name).join(", ")}` : ""), smRespond(s, p, f), fl.length && smAttach(s, p, fl);
         },
       },
     );
@@ -153964,31 +154996,9 @@ function smRelease(s, p) {
         return void ctPOPicker(p.id, doc || void 0, m.line);
       } catch (e) {}
     }
-    const vend = m.vendor && !/^tbd$/i.test(m.vendor) ? m.vendor : s.sub,
-      po2 = smDraftPO(
-        p,
-        mats.map((x) => x.m),
-        vend,
-      );
-    smStamp(s, `Order drafted: ${po2.number} to ${vend || "a vendor"}`),
-      smLog(p, `${po2.number} drafted from submittal ${s.number}`),
-      save(),
-      (poOpen = po2.id),
-      (view = "po"),
-      render();
-    try {
-      window.scrollTo(0, 0);
-    } catch (e) {}
-    "function" == typeof rcToast
-      ? rcToast(`${po2.number} drafted from ${s.number} — check the price, then Issue PO`, [
-          {
-            label: `Open ${po2.number}`,
-            run: () => {
-              (poOpen = po2.id), (view = "po"), render();
-            },
-          },
-        ])
-      : toast(`${po2.number} drafted from ${s.number}`);
+    // Release Order asks for the supplier (never the sub who sent the sheets) and carries the submittal's
+    // item, quantity, price, on-site date, task, spec and job onto the draft: smReleaseDialog, purchasing section.
+    smReleaseDialog(s, p, mats);
   }
 }
 function smClose(s, p) {
@@ -154398,7 +155408,7 @@ function smRecHtml(s, p) {
             .filter((x) => x.sentOn || x.respondedOn)
             .map(
               (x) =>
-                `<div class="ops-tle"><span>${fmt(x.respondedOn || x.sentOn)}</span><div><b>${esc(smWho(x))}</b> ${x.respondedOn ? `<span class="pill ${["approved", "noted"].includes(x.stamp) ? "ok" : "revise" === x.stamp ? "warn" : "bad"}">${SM_STAMP[x.stamp]}</span>${x.comments ? `<div class="small">${esc(x.comments)}</div>` : ""}` : `<span class="small muted">sent ${fmt(x.sentOn)} — no answer yet</span>`}</div></div>`,
+                `<div class="ops-tle"><span>${fmt(x.respondedOn || x.sentOn)}</span><div><b>${esc(smWho(x))}</b> ${x.respondedOn ? `<span class="pill ${["approved", "noted"].includes(x.stamp) ? "ok" : "revise" === x.stamp ? "warn" : "bad"}">${SM_STAMP[x.stamp]}</span>${smHowText(x) ? `<span class="small muted">${esc(smHowText(x))}</span>` : ""}${x.comments ? `<div class="small">${esc(x.comments)}</div>` : ""}` : `<span class="small muted">sent ${fmt(x.sentOn)} — no answer yet</span>`}</div></div>`,
             )
             .join("") || '<div class="small muted">No reviewer has seen this revision yet.</div>'
         }</div></div>`;
@@ -154408,7 +155418,7 @@ function smRecHtml(s, p) {
   return `<div class="thd sm-rec" id="sm-rec">\n    <div class="row thd-top"><button class="btn sm" id="sm-back">${thBack} Submittals</button><span class="small muted">${esc(smJob(p))}</span></div>\n    <div class="thd-head"><div class="grow"><h3><span data-nocase>${esc(s.number)}</span> · <span data-nocase>${esc(s.title)}</span></h3><div class="row thd-pills">${smPill(s)}<span class="pill neutral">${SM_TYPES[s.type] || ""}</span><span class="pill neutral">Rev ${r ? r.n : 0}</span><span class="small muted">${esc(s.spec)} ${esc(s.specName || "")} · ${esc(s.sub || "no sub named")}</span>${L.late ? `<span class="small sm-bad">${esc(L.why)}</span>` : L.risk ? `<span class="small sm-warn">${esc(L.riskWhy)}</span>` : ""}</div></div></div>\n    <div class="thd-acts">${acts}</div>\n    <div class="thd-stats">\n      <div><span>Submit By</span><b class="${L.late && "draft" === s.status ? "sm-bad" : ""}">${D.submitBy ? fmtL(D.submitBy) : "—"}</b><i>${D.reviewDays} working days of review before the approve-by date</i></div>\n      <div><span>Approve By</span><b>${D.approveBy ? fmtL(D.approveBy) : "—"}</b><i>${reqSel}</i></div>\n      <div><span>On Site</span><b>${D.onSite ? fmtL(D.onSite) : "—"}</b><i>${D.tk ? `${esc(D.tk.name)} starts ${fmt(D.tk.start)}` : "no task linked"}</i></div>\n      <div><span>Ball in Court</span><b class="${L.late && B ? "sm-bad" : ""}">${B ? esc(smBallText(B)) : "Closed"}</b><i>${B ? esc(smDaysText(B)) : s.closedOn ? `closed ${fmt(s.closedOn)}` : ""}</i></div>\n    </div>\n    ${s.notes ? `<div class="note">${esc(s.notes)}</div>` : ""}\n    <div class="sm-grid2"><div class="card"><div class="hd"><h3>Reviewers</h3><span class="small muted">${smLandmarked(p) ? "landmarked house" : "not landmarked"}</span></div><ol class="sm-steps">${steps
     .map((x, i) => {
       const cur = st === x && live;
-      return `<li class="sm-step ${x.respondedOn ? (["approved", "noted"].includes(x.stamp) ? "ok" : "bad") : cur ? "on" : ""}"><span class="sm-step-n">${i + 1}</span><div class="grow"><b>${esc(SM_ROLE[x.role])}</b> <span class="small muted">${esc("lpc" === x.role ? "LPC staff" : x.name)} · ${+x.days || SM_DAYS[x.role]} working days</span><div class="small">${x.respondedOn ? `<span class="pill ${["approved", "noted"].includes(x.stamp) ? "ok" : "revise" === x.stamp ? "warn" : "bad"}">${SM_STAMP[x.stamp]}</span> ${fmt(x.respondedOn)}${x.by && x.by !== x.name ? ` · ${esc(x.by)}` : ""}` : live && cur && B && !B.toSend ? `Ball in court · ${esc(smDaysText(B))}${x.sentOn ? ` · sent ${fmt(x.sentOn)}` : ""}` : live && cur && B && B.toSend ? "checked by us — to send" : ["revise", "rejected"].includes(s.status) ? "not reached on this revision" : x.sentOn ? `sent ${fmt(x.sentOn)}` : "draft" === s.status ? "after it is submitted" : "not sent yet"}</div></div></li>`;
+      return `<li class="sm-step ${x.respondedOn ? (["approved", "noted"].includes(x.stamp) ? "ok" : "bad") : cur ? "on" : ""}"><span class="sm-step-n">${i + 1}</span><div class="grow"><b>${esc(SM_ROLE[x.role])}</b> <span class="small muted">${esc("lpc" === x.role ? "LPC staff" : x.name)} · ${+x.days || SM_DAYS[x.role]} working days</span><div class="small">${x.respondedOn ? `<span class="pill ${["approved", "noted"].includes(x.stamp) ? "ok" : "revise" === x.stamp ? "warn" : "bad"}">${SM_STAMP[x.stamp]}</span> ${fmt(x.respondedOn)}${x.by && x.by !== x.name ? ` · ${esc(x.by)}` : ""}${esc(smHowText(x))}` : live && cur && B && !B.toSend ? `Ball in court · ${esc(smDaysText(B))}${x.sentOn ? ` · sent ${fmt(x.sentOn)}` : ""}` : live && cur && B && B.toSend ? "checked by us — to send" : ["revise", "rejected"].includes(s.status) ? "not reached on this revision" : x.sentOn ? `sent ${fmt(x.sentOn)}` : "draft" === s.status ? "after it is submitted" : "not sent yet"}</div></div></li>`;
     })
     .join(
       "",
@@ -155048,7 +156058,8 @@ if ("function" == typeof renderPODoc) {
         })().map((s) => {
           const r = smRev(s),
             n = r ? r.steps.filter((x) => "noted" === x.stamp && x.comments).map((x) => x.comments) : [];
-          return `<a href="#" data-smgo="${esc(s.id)}">${esc(s.number)}</a> ${esc(SM_STATUS["closed" === s.status ? (r && r.steps.some((x) => "noted" === x.stamp) ? "noted" : "approved") : s.status])}${s.approvedOn ? ` ${fmt(s.approvedOn)}` : ""}${n.length ? ` — build to the notes: ${esc(n.join(" "))}` : ""}`;
+          const how = r ? r.steps.filter((x) => x.respondedOn && smHowText(x)).map((x) => `${smWho(x)}${smHowText(x)}`) : [];
+          return `<a href="#" data-smgo="${esc(s.id)}">${esc(s.number)}</a> ${esc(SM_STATUS["closed" === s.status ? (r && r.steps.some((x) => "noted" === x.stamp) ? "noted" : "approved") : s.status])}${s.approvedOn ? ` ${fmt(s.approvedOn)}` : ""}${how.length ? ` (${esc(how.join("; "))})` : ""}${n.length ? ` — build to the notes: ${esc(n.join(" "))}` : ""}`;
         }),
         okNote = notes.length
           ? `<div class="note sm-ponote small"><b>Submittal${1 === notes.length ? "" : "s"}:</b> ${notes.join("; ")}</div>`
@@ -155369,7 +156380,7 @@ document.addEventListener("click", (e) => {
         `<p class="small" data-nocase>${esc(s.sub || "Our supplier")} sent ${SM_TYPE_WORD[s.type] || "it"} of what we plan to order · ${esc(smClientLine(s, p))}.</p><p class="small muted" style="margin:0">Approving tells us to order it as sent. It is recorded with your name and the date.</p>`,
         {
           submit: "Approve",
-          alt: fid && "function" == typeof openFile ? { label: "View the Sheets", run: () => openFile(fid) } : null,
+          alt: fid && "function" == typeof openFile ? { label: "View the Sheets", run: () => openFile(fid), keep: !0 } : null,
           onSubmit: () => {
             setTimeout(() => {
               const x = document.createElement("button");
@@ -155382,7 +156393,7 @@ document.addEventListener("click", (e) => {
   }
   if ("ok" === k)
     return (
-      smRespond(s, p, { stamp: "approved", comments: "Approved on the portal", by: me }, !0),
+      smRespond(s, p, { stamp: "approved", comments: "", by: me, portal: !0 }, !0),
       (p.chat = p.chat || []).push({
         id: uid("ch"),
         by: me,
@@ -155391,6 +156402,13 @@ document.addEventListener("click", (e) => {
         files: [],
         submId: s.id,
       }),
+      "function" == typeof clActivity &&
+        clActivity(p, {
+          from: me,
+          subject: `Approved the sample: ${title}`,
+          text: `${me} approved ${title} on the portal — it can be ordered as sent.`,
+          ref: { kind: "subm", id: s.id },
+        }),
       save(),
       render(),
       void toast(`Thank you — ${title} is approved and we will order it`, flowGo.viewOf("dec", "client"))
@@ -155402,7 +156420,7 @@ document.addEventListener("click", (e) => {
       submit: "Send",
       onSubmit: (f) => {
         if (!f.why) return toast("Tell us what you would like changed"), !1;
-        smRespond(s, p, { stamp: "revise", comments: f.why, by: me }, !0),
+        smRespond(s, p, { stamp: "revise", comments: f.why, by: me, portal: !0 }, !0),
           (p.chat = p.chat || []).push({
             id: uid("ch"),
             by: me,
@@ -157792,8 +158810,37 @@ function dlRecordHtml(l, p, preview) {
           })
           .join("<br>")
       : "none",
-  )}${(l.cleared || []).length ? `<div class="small muted">Cleared: ${l.cleared.map((x) => esc(dlCauseLabel(x.cause) + (x.note ? " — " + x.note : ""))).join("; ")}</div>` : ""}\n    ${sec("Safety", l.safety ? `${l.safety.incident ? '<span class="bad-t">Incident reported</span>' : "No incident"}${l.safety.toolbox ? ` · toolbox talk: ${esc(l.safety.toolbox)}` : ""}${l.safety.notes ? ` · ${esc(l.safety.notes)}` : ""}` : none)}\n    ${!preview && l.notes ? `<div class="dl-notes">${esc(l.notes)}</div>` : ""}\n    ${preview ? "" : `<div class="small muted">${l.signedBy ? `Signed by ${esc(l.signedBy)} · ${esc(stampText(l.signedAt || l.at))}` : `By ${esc(l.by || "")}${l.at ? ` · ${esc(stampText(l.at))}` : ""}`}${l.secs ? ` · filed in ${Math.max(1, Math.round(l.secs / 60))} min` : ""}</div>`}</div>`;
+  )}${(l.cleared || []).length ? `<div class="small muted">Cleared: ${l.cleared.map((x) => esc(dlCauseLabel(x.cause) + (x.note ? " — " + x.note : ""))).join("; ")}</div>` : ""}\n    ${sec("Safety", l.safety ? `${l.safety.incident ? '<span class="bad-t">Incident reported</span>' : "No incident"}${l.safety.toolbox ? ` · toolbox talk: ${esc(l.safety.toolbox)}` : ""}${l.safety.notes ? ` · ${esc(l.safety.notes)}` : ""}` : none)}\n    ${!preview && l.notes ? `<div class="dl-notes">${esc(l.notes)}</div>` : ""}\n    ${preview ? "" : `<div class="small muted">${l.signedBy ? `Signed by ${esc(l.signedBy)} · ${esc(stampText(l.signedAt || l.at))}` : `By ${esc(l.by || "")}${l.at ? ` · ${esc(stampText(l.at))}` : ""}`}${l.secs ? ` · filed in ${Math.max(1, Math.round(l.secs / 60))} min` : ""}</div>${dlAckHtml(l)}`}</div>`;
 }
+// The office reads the log and says so: the foreman sees "Read by Alan" on his phone, the record carries who
+// and when (review r5_pm, finding 13).
+function dlAckHtml(l) {
+  if (l.ack && l.ack.by) return `<div class="small dl-ack">Read by ${esc(l.ack.by)} · ${esc(stampText(l.ack.at))}${l.ack.note ? ` — ${esc(l.ack.note)}` : ""}</div>`;
+  return ["pm", "owner", "coord"].includes(role()) && "draft" !== l.status ? `<div class="row dl-ack" style="gap:6px;margin-top:6px"><button type="button" class="btn sm" data-dlack="${esc(l.id)}">Acknowledge</button><span class="small muted">the foreman sees it was read</span></div>` : "";
+}
+function dlAck(id) {
+  const l = ("function" == typeof dlLogs ? dlLogs() : ((DB.field || {}).logs || [])).find((x) => x.id === id);
+  if (!l) return;
+  const me = (currentUser() || {}).name || "";
+  (l.ack = { by: me, at: appNowIso() }), save();
+  const p = fxProj(l.projectId);
+  render(),
+    document.querySelectorAll(`[data-dlack="${id}"]`).forEach((b) => {
+      const w = b.closest(".dl-ack");
+      w && (w.outerHTML = dlAckHtml(l));
+    }),
+    toastDone(`Read — the ${fmtL(l.date)} log${p ? ` on ${shortName(p)}` : ""}; ${l.signedBy || l.by || "the foreman"} sees it`, () => {
+      p && setCurrent(p.id), (view = "field"), "undefined" != typeof fxTab && (fxTab = "log"), render();
+    });
+}
+document.addEventListener(
+  "click",
+  (e) => {
+    const b = e.target && e.target.closest ? e.target.closest("[data-dlack]") : null;
+    b && (e.preventDefault(), e.stopPropagation(), dlAck(b.dataset.dlack));
+  },
+  !0,
+);
 let dlEditing = {};
 function dlSay(el, msg) {
   if (!el) return;
@@ -160285,6 +161332,693 @@ if ("object" == typeof EQ_TABLES && "function" == typeof EQ_TABLES.transactions)
   };
 }
 /* ---------------------------------------------------------------------------
+   closetie (BACKLOG §1.1): the close, read back. What Ask, the Close page, Bills & Payroll and the
+   Report Builder need to answer "is August closed", "does the WIP tie", "what was accrued at the close"
+   and "which accrued wages have no payroll run". Read-only, except the two orphan-accrual actions,
+   which a person runs from a button.
+   --------------------------------------------------------------------------- */
+const ctM2 = (v) =>
+  (v < 0 ? "−$" : "$") +
+  Math.abs(+v || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const ctJob = (pid) => {
+  const p = (DB.projects || []).find((x) => x.id === pid);
+  return p ? String(p.project.name).replace(/ —.*$/, "") : pid ? pid : "No job";
+};
+const ctClosed = (ym) => {
+  const l = lockedThrough();
+  return !!l && !!ym && ym <= l;
+};
+// The WIP tie-out for a month: per job, the WIP schedule against 2500/1200. A closed month reads its frozen
+// schedule, so this is what the close checked when it ran.
+function ctWipTie(ym) {
+  ym = ym || lockedThrough() || fin2CloseYm() || today().slice(0, 7);
+  const rows = ctWipTieRows(ym),
+    sum = (k) => r2(rows.reduce((a, r) => a + r[k], 0));
+  return {
+    ym: ym,
+    month: fin3Label(ym),
+    closed: ctClosed(ym),
+    rows: rows,
+    schedule: sum("schedule"),
+    ledger: sum("ledger"),
+    diff: sum("diff"),
+    ok: rows.every((r) => Math.abs(r.diff) < 0.005),
+  };
+}
+function ctCloseHistory() {
+  return ((DB.periods || {}).history || []).map((h) => ({
+    month: h.month,
+    label: fin3Label(h.month),
+    act: h.act,
+    again: !!h.again,
+    by: h.by || "",
+    on: h.on || "",
+    why: h.why || "",
+    entries: h.entries || 0,
+    wip: h.wip || 0,
+    wages: h.wages || 0,
+  }));
+}
+function ctCloseStatus(ym) {
+  ym = ym || fin2CloseYm() || lockedThrough() || today().slice(0, 7);
+  const label = fin3Label(ym),
+    H = ctCloseHistory().filter((h) => h.month === ym),
+    last = H.slice(-1)[0] || null,
+    closed = ctClosed(ym),
+    shut = H.filter((h) => "closed" === h.act).slice(-1)[0] || null,
+    rec = (fin2Closes() || []).filter((c) => c.month === ym).slice(-1)[0] || null;
+  let open = [],
+    blockers = [];
+  if (!closed && ym < today().slice(0, 7))
+    try {
+      (open = closeChecklist(ym)
+        .filter((i) => !i.ok)
+        .map((i) => `${i.label} (${i.n})`)),
+        (blockers = fin2CloseBlockers(ym).map((b) => b.why));
+    } catch (e) {}
+  const headline = closed
+    ? `${label} is closed — ${shut && shut.again ? "re-closed" : "closed"}${shut ? ` by ${shut.by} on ${fmt(shut.on)}` : ""}${rec && rec.reason ? `, with ${rec.open} item${1 === rec.open ? "" : "s"} open: ${rec.reason}` : ""}`
+    : last && "reopened" === last.act
+      ? `${label} is open — reopened by ${last.by} on ${fmt(last.on)}: ${last.why}`
+      : ym >= today().slice(0, 7)
+        ? `${label} is the current month; it closes after it ends`
+        : `${label} is not closed yet${blockers.length ? ` — ${blockers.length} thing${1 === blockers.length ? "" : "s"} stop the close` : open.length ? ` — ${open.length} checklist item${1 === open.length ? "" : "s"} open` : " — nothing stops the close"}`;
+  return {
+    month: ym,
+    label: label,
+    closed: closed,
+    through: lockedThrough(),
+    by: shut ? shut.by : "",
+    on: shut ? shut.on : "",
+    again: !(!shut || !shut.again),
+    reason: rec ? rec.reason : "",
+    reopened: last && "reopened" === last.act ? { by: last.by, on: last.on, why: last.why } : null,
+    openItems: open,
+    blockers: blockers,
+    headline: headline,
+  };
+}
+const CT_WAGE_ACCTS = /^(5000|5010|7000|7010|7005)$/;
+// What the close accrued for a month's wages: each payroll run not posted by month end, and the approved time
+// on days no run covers.
+function ctAccrualAtClose(ym) {
+  ym = ym || lockedThrough();
+  const J = (((DB.gl || {}).journals || []).filter(
+      (j) =>
+        "accrual" === j.kind &&
+        "wages" === j.accrues &&
+        (j.periodYm || glYm(j.date)) === ym &&
+        ["posted", "reversed"].includes(j.status),
+    )),
+    amtOf = (j, f) =>
+      r2(
+        (j.lines || [])
+          .filter((l) => CT_WAGE_ACCTS.test(l.acct) && (!f || f(l)))
+          .reduce((a, l) => a + (l.dr || 0) - (l.cr || 0), 0),
+      ),
+    runs = {},
+    time = {};
+  J.forEach((j) => {
+    if (j.runId) {
+      const r = (DB.payroll || []).find((x) => x.id === j.runId) || {},
+        o = (runs[j.runId] = runs[j.runId] || {
+          runId: j.runId,
+          period: r.period || j.runId,
+          status: r.status || "",
+          amt: 0,
+          onJobs: 0,
+          unallocated: 0,
+        });
+      (o.amt = r2(o.amt + amtOf(j))),
+        (o.onJobs = r2(o.onJobs + amtOf(j, (l) => !!l.projectId))),
+        (o.unallocated = r2(o.unallocated + amtOf(j, (l) => "7005" === l.acct)));
+    } else
+      (j.lines || [])
+        .filter((l) => CT_WAGE_ACCTS.test(l.acct))
+        .forEach((l) => {
+          const k = l.projectId || "",
+            o = (time[k] = time[k] || {
+              projectId: k,
+              job: ctJob(k),
+              amt: 0,
+              from: j.coversFrom || j.date,
+              to: j.coversTo || j.date,
+            });
+          (o.amt = r2(o.amt + (l.dr || 0) - (l.cr || 0))),
+            j.coversFrom && j.coversFrom < o.from && (o.from = j.coversFrom),
+            j.coversTo && j.coversTo > o.to && (o.to = j.coversTo);
+        });
+  });
+  const R = Object.values(runs),
+    T = Object.values(time).filter((o) => Math.abs(o.amt) >= 0.005);
+  return {
+    ym: ym,
+    month: ym ? fin3Label(ym) : "",
+    runs: R,
+    time: T,
+    journals: J.map((j) => j.id),
+    total: r2(R.reduce((a, o) => a + o.amt, 0) + T.reduce((a, o) => a + o.amt, 0)),
+  };
+}
+// Accrued wages with no payroll run: approved time accrued at a close on days no run covers. Flagged once the
+// next pay date after those days has passed, because by then a run should have paid them.
+function ctOrphanAccruals() {
+  if (!glInit()) return [];
+  const td = today();
+  return DB.gl.journals
+    .filter((j) => "accrual" === j.kind && "wages" === j.accrues && !j.runId && "posted" === j.status)
+    .map((j) => {
+      const ent = j.entityId || "ent1",
+        days = j.days || [],
+        covered = (d) =>
+          (DB.payroll || []).some(
+            (r) =>
+              r.from &&
+              r.to &&
+              !["void", "rejected"].includes(r.status) &&
+              (r.entityId || "ent1") === ent &&
+              d >= r.from &&
+              d <= r.to,
+          );
+      if (days.length && days.every(covered)) return null;
+      const amt = r2(
+        (j.lines || [])
+          .filter((l) => /^(5000|7000)$/.test(l.acct))
+          .reduce((a, l) => a + (l.dr || 0) - (l.cr || 0), 0),
+      );
+      if (amt < 0.005) return null;
+      const to = j.coversTo || j.date,
+        from = j.coversFrom || j.date,
+        nextPay =
+          (DB.payroll || [])
+            .filter((r) => (r.entityId || "ent1") === ent && !["void", "rejected"].includes(r.status))
+            .map((r) => r.payDate)
+            .filter((d) => d && d > to)
+            .sort()[0] || iso(addDays(parse(to), 14)),
+        pids = Array.from(new Set((j.lines || []).filter((l) => l.projectId).map((l) => l.projectId))),
+        hours = r2(
+          (DB.time || [])
+            .filter(
+              (e) =>
+                "approved" === e.status &&
+                (days.length ? days.includes(e.date) : e.date >= from && e.date <= to) &&
+                entOfEmpId(e.empId) === ent &&
+                !covered(e.date),
+            )
+            .reduce((a, e) => a + hoursOf(e), 0),
+        );
+      return {
+        id: j.id,
+        ym: j.periodYm || glYm(j.date),
+        projectId: pids[0] || "",
+        job: pids.length ? pids.map(ctJob).join(", ") : "Office payroll",
+        from: from,
+        to: to,
+        days: days,
+        hours: hours,
+        amt: amt,
+        nextPay: nextPay,
+        flagged: nextPay <= td,
+        why: `approved time ${fmt(from)} – ${fmt(to)} accrued at the ${fin3Label(j.periodYm || glYm(j.date))} close; no payroll run covers those days${nextPay <= td ? ` and the next pay date, ${fmt(nextPay)}, has passed` : ` yet; the next pay date is ${fmt(nextPay)}`}`,
+      };
+    })
+    .filter(Boolean);
+}
+const ctCanFix = () => isOwner() || "controller" === role();
+// A payroll run a close accrued is in both views (as the accrual) until it posts: it no longer "awaits approval
+// and is in neither".
+function ctRunAccrued(r) {
+  return (
+    !!r &&
+    (((DB.gl || {}).journals || []).some((j) => "accrual" === j.kind && j.runId === r.id && "posted" === j.status))
+  );
+}
+// Record the Run: a payroll run for the orphan's days, built from the same approved time, for a person to
+// check against the provider's register and approve.
+function ctOrphanRecordRun(jid) {
+  const o = ctOrphanAccruals().find((x) => x.id === jid);
+  if (!o) return toast("That accrual already has a payroll run, or was reversed"), null;
+  if (!ctCanFix()) return toast("The Owner or the controller records a payroll run"), null;
+  const j = DB.gl.journals.find((x) => x.id === jid),
+    ent = j.entityId || "ent1",
+    list = (DB.time || []).filter(
+      (e) =>
+        "approved" === e.status &&
+        (o.days.length ? o.days.includes(e.date) : e.date >= o.from && e.date <= o.to) &&
+        entOfEmpId(e.empId) === ent,
+    ),
+    per = {};
+  list.forEach((e) => {
+    const emp = (DB.employees || []).find((x) => x.id === e.empId) || {},
+      x = (per[e.empId] = per[e.empId] || {
+        name: emp.name || e.empId,
+        rate: +emp.rate || 0,
+        burden: +emp.burden || 0,
+        hours: 0,
+        byProj: {},
+      }),
+      h = hoursOf(e);
+    (x.hours += h), (x.byProj[e.projectId || ""] = (x.byProj[e.projectId || ""] || 0) + h);
+  });
+  let gross = 0,
+    taxes = 0;
+  const amt = {};
+  Object.values(per).forEach((x) => {
+    const g = r2(Math.min(x.hours, 80) * x.rate + Math.max(0, x.hours - 80) * x.rate * 1.5);
+    (gross += g),
+      (taxes += r2((g * x.burden) / 100)),
+      Object.entries(x.byProj).forEach(([pid, h]) => {
+        amt[pid] = (amt[pid] || 0) + g * (1 + x.burden / 100) * (h / x.hours);
+      });
+  });
+  const total = r2(gross + taxes),
+    run = {
+      id: uid("pr"),
+      period: `${fmt(o.from)} – ${fmt(o.to)}`,
+      from: o.from,
+      to: o.to,
+      payDate: o.nextPay <= today() ? o.nextPay : today(),
+      entityId: ent,
+      employees: Object.keys(per).length,
+      gross: r2(gross),
+      taxes: r2(taxes),
+      total: total,
+      alloc: Object.entries(amt).map(([pid, a]) => ({ projectId: pid, pct: total ? r2((a / total) * 100) : 0 })),
+      status: "draft",
+      approvals: [],
+      createdBy: fin2Who(),
+      notes: `Recorded for wages accrued at the ${fin3Label(o.ym)} close with no run: ${Object.values(per)
+        .map((x) => `${x.name} ${r2(x.hours)} h`)
+        .join(", ")}. Check gross and taxes against the provider's register, then submit.`,
+      detail: Object.values(per).map((x) => ({
+        name: x.name,
+        hours: r2(x.hours),
+        rate: x.rate,
+        gross: r2(Math.min(x.hours, 80) * x.rate + Math.max(0, x.hours - 80) * x.rate * 1.5),
+      })),
+      orphanOf: jid,
+    };
+  DB.payroll.push(run), list.forEach((e) => e.payrollId || (e.payrollId = run.id));
+  try {
+    audit("payroll", run.id, "recorded-for-accrual", "", run.period, `wages accrued at the ${fin3Label(o.ym)} close with no run (${ctM2(o.amt)})`);
+  } catch (e) {}
+  save();
+  try {
+    rcToast(`Payroll ${run.period} recorded as a draft — ${money(total)} for the accrued days; check it and submit`, [
+      { label: "Open", run: () => ((view = "ap"), render(), openPayroll(run.id)) },
+    ]);
+  } catch (e) {
+    toast(`Payroll ${run.period} recorded as a draft`);
+  }
+  return run;
+}
+// Reverse…: the time was not wages (paid another way, or entered in error). The reversal posts on the first
+// open day, the days are marked so a re-close does not accrue them again, and the reason is kept.
+function ctOrphanReverse(jid, why) {
+  const note = String(why || "").trim(),
+    j = (((DB.gl || {}).journals || []).find((x) => x.id === jid));
+  if (!j || "posted" !== j.status) return { ok: !1, why: "That accrual is not on the ledger" };
+  if (!ctCanFix()) return { ok: !1, why: "The Owner or the controller reverses an accrual" };
+  if (!note) return { ok: !1, why: "Say why the accrued wages are being reversed" };
+  const ent = j.entityId || "ent1",
+    date = glLocked(j.date, ent, "payroll") ? fin3OpenDay(j.date, ent, "payroll") : j.date,
+    r = glReverse(j, date, `accrued wages reversed: ${note}`);
+  if (!r.ok) return { ok: !1, why: r.why };
+  r.j && (r.j.ctOrphan = !0);
+  const days = j.days || [];
+  (DB.time || [])
+    .filter(
+      (e) =>
+        "approved" === e.status &&
+        (days.length ? days.includes(e.date) : e.date >= (j.coversFrom || "") && e.date <= (j.coversTo || "")) &&
+        entOfEmpId(e.empId) === ent &&
+        !e.payrollId,
+    )
+    .forEach((e) => {
+      e.noAccrue = { why: note, by: fin2Who(), on: today() };
+    }),
+    (j.reverseWhy = note);
+  try {
+    fin2Audit(fin2Who(), "ledger", j.id, "accrual-reversed", money(j.lines.reduce((s, l) => s + l.dr, 0)), date, note);
+  } catch (e) {}
+  return save(), { ok: !0, date: date };
+}
+function ctOrphanReverseDialog(jid) {
+  const o = ctOrphanAccruals().find((x) => x.id === jid);
+  o &&
+    mbModal(
+      "Reverse Accrued Wages",
+      `<p class="small">${esc(o.job)} · ${fmt(o.from)} – ${fmt(o.to)} · ${o.hours} h · ${ctM2(o.amt)}. Reversing takes these wages off the ledger on ${fmt(glLocked(o.to, "ent1", "payroll") ? fin3OpenDay(o.to, "ent1", "payroll") : o.to)}; a closed month is not changed. A later close does not accrue these days again.</p>${mbF("Reason", mbIn("why", "", "e.g. the hours were paid by the studio retainer, not payroll"))}`,
+      {
+        submit: "Reverse",
+        onSubmit: (f) => {
+          const r = ctOrphanReverse(jid, f.why);
+          if (!r.ok) return toast(r.why), !1;
+          render();
+          try {
+            rcToast(`Accrued wages ${ctM2(o.amt)} for ${fmt(o.from)} – ${fmt(o.to)} reversed on ${fmt(r.date)}`, [
+              { label: "Open", run: () => ((view = "gl"), (glTab = "periods"), render()) },
+            ]);
+          } catch (e) {
+            toast("Reversed");
+          }
+        },
+      },
+    );
+}
+// The orphan-accrual card, the same on the Close page and on Bills & Payroll.
+function ctOrphanHtml() {
+  const O = ctOrphanAccruals().filter((o) => o.flagged);
+  if (!O.length) return "";
+  const can = ctCanFix();
+  return `<div class="card ct-orphan" id="ct-orphan"><div class="hd"><h3>Accrued Wages with No Payroll Run</h3><span class="small muted">${ctM2(O.reduce((a, o) => a + o.amt, 0))} accrued at a close for days no payroll run covers</span></div><div class="tw"><table class="t"><thead><tr><th>Job</th><th>Days</th><th class="money">Hours</th><th class="money">Accrued</th><th>Next Pay Date</th><th></th></tr></thead><tbody>${O.map((o) => `<tr class="warn"><td>${esc(o.job)}</td><td class="small">${fmt(o.from)} – ${fmt(o.to)}</td><td class="money">${o.hours}</td><td class="money"><b>${ctM2(o.amt)}</b></td><td class="small">${fmt(o.nextPay)} passed</td><td class="r">${can ? `<button class="btn sm" data-ctorphan="run" data-ctj="${o.id}">Record the Run</button> <button class="btn sm" data-ctorphan="rev" data-ctj="${o.id}">Reverse…</button>` : ""}</td></tr>`).join("")}</tbody></table></div><p class="small muted">Approved time accrued at the close has no payroll run behind it, and the pay date after those days has passed. Record the run the provider paid, or reverse the accrual with a reason if the time was not payroll.</p></div>`;
+}
+document.addEventListener("click", (e) => {
+  const b = e.target && e.target.closest && e.target.closest("[data-ctorphan]");
+  b &&
+    (e.preventDefault(),
+    "run" === b.dataset.ctorphan ? ctOrphanRecordRun(b.dataset.ctj) && render() : ctOrphanReverseDialog(b.dataset.ctj));
+});
+// The Close page for a month already closed: what the close accrued and the WIP Tie-Out it checked.
+function ctClosedHtml() {
+  const l = lockedThrough();
+  if (!l) return ctOrphanHtml();
+  const T = ctWipTie(l),
+    A = ctAccrualAtClose(l),
+    acc = A.runs.length || A.time.length
+      ? `<h4 class="fin2-step">Accrued at the ${fin3Label(l)} Close <span class="small muted">${ctM2(A.total)}</span></h4><div class="tw"><table class="t ct-acc"><thead><tr><th>Source</th><th class="money">On Jobs</th><th class="money">Unallocated Labor</th><th class="money">Accrued</th></tr></thead><tbody>${A.runs.map((r) => `<tr><td>Payroll ${esc(r.period)} <span class="small muted">${esc(r.status)}</span></td><td class="money">${ctM2(r.onJobs)}</td><td class="money">${ctM2(r.unallocated)}</td><td class="money">${ctM2(r.amt)}</td></tr>`).join("")}${A.time.map((o) => `<tr><td>${esc(o.job)} <span class="small muted">timesheets ${fmt(o.from)} – ${fmt(o.to)}, no run</span></td><td class="money">${o.projectId ? ctM2(o.amt) : "—"}</td><td class="money">—</td><td class="money">${ctM2(o.amt)}</td></tr>`).join("")}</tbody></table></div>`
+      : "";
+  return `<div class="card ct-tie"><h4 class="fin2-step" style="margin-top:0">WIP Tie-Out · ${fin3Label(l)} <span class="pill ${T.ok ? "ok" : "bad"}">${T.ok ? "Ties" : "Off"}</span></h4><div class="tw"><table class="t ct-tie-t"><thead><tr><th>Job</th><th class="money">WIP Schedule</th><th class="money">Ledger 2500 / 1200</th><th class="money">Difference</th></tr></thead><tbody>${T.rows.map((r) => `<tr class="${Math.abs(r.diff) < 0.005 ? "" : "warn"}"><td>${esc(r.job)}</td><td class="money">${ctM2(r.schedule)}</td><td class="money">${ctM2(r.ledger)}</td><td class="money">${ctM2(r.diff)}</td></tr>`).join("") || '<tr><td colspan="4" class="muted">No job was over- or under-billed at month end.</td></tr>'}<tr style="font-weight:600"><td>Total</td><td class="money">${ctM2(T.schedule)}</td><td class="money">${ctM2(T.ledger)}</td><td class="money">${ctM2(T.diff)}</td></tr></tbody></table></div><p class="small muted">Over-billing net of under-billing on the frozen month-end schedule, against Billings in excess (2500) less Costs in excess (1200) on the ledger. The close does not lock a month unless every job ties.</p>${acc}</div>${ctOrphanHtml()}`;
+}
+// "Not at the Bank — Void": a typed line the bank's statement does not have. The line leaves the books with
+// its reason; the ledger reverses it (on its date while the month is open, on the first open day after).
+function bfVoidNotAtBank(id, why) {
+  const t = (DB.txns || []).find((x) => x.id === id);
+  if (!t) return { ok: !1, why: "That line is not in the register" };
+  if (!ctCanFix()) return { ok: !1, why: "The Owner or the controller voids a bank line" };
+  if (!String(why || "").trim()) return { ok: !1, why: "Say why the line is not at the bank" };
+  if (t.billId || t.poId || t.invoiceId) return { ok: !1, why: "That line is matched to a document — unmatch it first" };
+  const r = truthVoidTxn(t, why);
+  if (!r.ok) return r;
+  const v = (DB.voided || []).find((x) => x.id === id);
+  v && ((v.status = "void"), (v.voidFrom = "reconcile"), (v.voidOn = today()));
+  bfRec && bfRec.ticks && bfRec.ticks.delete(id);
+  try {
+    audit("txn", id, "void-not-at-bank", { desc: t.desc, amt: t.amt, date: t.date }, "void", `not on the statement being reconciled — ${String(why).trim()}`);
+  } catch (e) {}
+  return save(), { ok: !0, t: v || t };
+}
+function bfVoidDialog(id) {
+  const t = (DB.txns || []).find((x) => x.id === id);
+  t &&
+    mbModal(
+      "Not at the Bank — Void",
+      `<p class="small">${esc(t.desc)} · ${fmt(t.date)} · ${bfM2(t.amt)}. The bank's statement does not list this line. Voiding takes it out of the register and the books; the ledger reverses it with your reason, and the line is kept in the voided register.${isLocked(t.date) ? ` ${fin3Label(t.date.slice(0, 7))} is closed: reopen it first.` : ""}</p>${mbF("Reason", mbIn("why", "", "e.g. the charge was typed twice; the card was charged once"))}`,
+      {
+        submit: "Void the Line",
+        onSubmit: (f) => {
+          const r = bfVoidNotAtBank(id, f.why);
+          if (!r.ok) return toast(r.why), !1;
+          render();
+          try {
+            rcToast(`${t.desc} ${bfM2(t.amt)} voided — not at the bank: ${f.why}`, [
+              { label: "Open", run: () => ((view = "bank"), render()) },
+            ]);
+          } catch (e) {
+            toast("Voided");
+          }
+        },
+      },
+    );
+}
+// Typed lines a statement imported for the same account and dates does not have.
+function ctNotAtBank(ym) {
+  const R = ym ? [ym + "-01", fin2End(ym)] : ["", "9999-12-31"];
+  return (DB.txns || []).filter((t) => {
+    if (!within(t.date, R) || bfIsRec(t)) return !1;
+    const p = bfProv(t);
+    return (
+      "manual" === p.kind &&
+      !p.confirmedBy &&
+      (DB.bankImports || []).some(
+        (i) => i.acctId === t.acct && i.period && t.date >= i.period[0] && t.date <= i.period[1] && !i.seed,
+      )
+    );
+  });
+}
+// Change Date… on a posted bill: a typed reason, refused into or out of a closed month, the history kept.
+function billChangeDate(b, to, why) {
+  if (!b) return { ok: !1, why: "No bill" };
+  const note = String(why || "").trim();
+  if (!note) return { ok: !1, why: "Say why the date changes" };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(to || "")) return { ok: !1, why: "Give the new date as a day" };
+  if (to === b.date) return { ok: !1, why: "That is already the bill's date" };
+  if (isLocked(b.date) || isLocked(to))
+    return {
+      ok: !1,
+      why: `${fin3Label((isLocked(b.date) ? b.date : to).slice(0, 7))} is closed — a bill is not re-dated into or out of a closed month; credit it and enter it again in the open month`,
+    };
+  const from = b.date,
+    ok = fin3Redate(b, to, note);
+  return ok ? { ok: !0, from: from, to: to } : { ok: !1, why: "The date was not changed" };
+}
+function billChangeDateDialog(b) {
+  b &&
+    mbModal(
+      `Change Date — ${esc(b.vendor)} ${esc(b.number || "")}`,
+      `<p class="small">Dated ${fmtL(b.date)}. A posted bill keeps every date it has had and why it changed; a closed month is not re-dated into or out of.</p><div class="grid2">${mbF("New Date", mbIn("to", b.date, "", "date"))}${mbF("Reason", mbIn("why", "", "e.g. the invoice is dated the 1st; the 2nd was the scan date"))}</div>`,
+      {
+        submit: "Change Date",
+        onSubmit: (f) => {
+          const r = billChangeDate(b, f.to, f.why);
+          if (!r.ok) return toast(r.why), !1;
+          render();
+          try {
+            rcToast(`${b.vendor} ${b.number || ""} re-dated ${fmt(r.from)} to ${fmt(r.to)}: ${f.why}`, [
+              { label: "Open", run: () => openBill(b.id) },
+            ]);
+          } catch (e) {
+            toast("Re-dated");
+          }
+        },
+      },
+    );
+}
+if ("function" == typeof openBill) {
+  const openBillBase_ct = openBill;
+  openBill = function (id) {
+    openBillBase_ct.apply(this, arguments);
+    const b = (DB.bills || []).find((x) => x.id === id),
+      body = document.getElementById("d-body");
+    if (!b || !body || !BILL_COSTED.includes(b.status)) return;
+    const box = document.createElement("div");
+    (box.className = "ct-billdate"),
+      (box.style.margin = "10px 0"),
+      (box.innerHTML = `<div class="row" style="gap:8px;align-items:center"><span class="small">Dated ${fmtL(b.date)}</span>${ctCanFix() || "billing" === role() ? '<button class="btn sm" data-ctredate>Change Date…</button>' : ""}</div>${(b.dateHistory || []).length ? `<div class="small muted" style="margin-top:6px">${b.dateHistory.map((h) => `${fmt(h.from)} to ${fmt(h.to)} by ${esc(h.by || "")} on ${fmt(h.on)}: ${esc(h.why || "")}`).join("<br>")}</div>` : ""}`),
+      body.appendChild(box);
+    const btn = box.querySelector("[data-ctredate]");
+    btn && (btn.onclick = () => billChangeDateDialog(b));
+    const inp = body.querySelector("#e-date");
+    inp && !inp.readOnly && ((inp.readOnly = !0), (inp.title = "A posted bill is re-dated with Change Date… and a reason"));
+  };
+}
+// Budget CSV: export the version's grid, and import one with a column-mapping preview.
+function budExportCsv(v, download) {
+  v = v || budActiveVer();
+  if (!v) return "";
+  const q = (s) => (/[",\n]/.test(String(s)) ? `"${String(s).replace(/"/g, '""')}"` : String(s)),
+    rows = [["Entity", "Account", "Name"].concat(BUD_MONTHS).concat(["Total"])];
+  Object.keys(v.lines)
+    .sort()
+    .forEach((k) => {
+      const [ent, acct] = k.split("|"),
+        L = v.lines[k] || [],
+        a = budAcct(acct) || {};
+      L.some((x) => +x) &&
+        rows.push([ent, acct, a.name || budAPlain(acct)].concat(L.map((x) => r2(+x || 0))).concat([r2(L.reduce((s, x) => s + (+x || 0), 0))]));
+    });
+  const csv = rows.map((r) => r.map(q).join(",")).join("\n");
+  if (download)
+    try {
+      const a = document.createElement("a");
+      (a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }))),
+        (a.download = `${String(v.name).replace(/\W+/g, "_")}_${v.year}.csv`),
+        a.click(),
+        budAudit(v, "exported", `${rows.length - 1} account line${2 === rows.length ? "" : "s"} to CSV`);
+    } catch (e) {}
+  return csv;
+}
+const BUD_CSV_FIELDS = Object.assign(
+  { skip: "Skip", ent: "Entity", acct: "Account" },
+  Object.fromEntries(BUD_MONTHS.map((m, i) => ["m" + i, m])),
+);
+let budImportState = null;
+function budImportGuess(h) {
+  const s = String(h).trim().toLowerCase();
+  if (/^(entity|company|ent)/.test(s)) return "ent";
+  if (/^(account|acct|gl|number)/.test(s)) return "acct";
+  const i = BUD_MONTHS.findIndex((m) => s.startsWith(m.toLowerCase()));
+  return i > -1 ? "m" + i : "skip";
+}
+function budImportPlan() {
+  const S = budImportState;
+  if (!S || !S.rows) return null;
+  const col = (k) => Object.keys(S.map).find((i) => S.map[i] === k),
+    ac = col("acct"),
+    en = col("ent"),
+    months = BUD_MONTHS.map((m, i) => col("m" + i)),
+    lines = [],
+    bad = [];
+  S.rows.forEach((r, n) => {
+    const acct = ac == null ? "" : String(r[ac] || "").trim(),
+      ent = en == null ? budEnts()[0] : String(r[en] || "").trim() || budEnts()[0];
+    if (!acct) return;
+    if (!budAcct(acct)) return void bad.push(`row ${n + 2}: account ${acct} is not in the chart`);
+    if (!budEnts().includes(ent)) return void bad.push(`row ${n + 2}: entity ${ent} is not set up`);
+    const vals = months.map((c) => (null == c ? null : r2(+String(r[c] || "0").replace(/[$,\s]/g, "") || 0)));
+    lines.push({ ent: ent, acct: acct, vals: vals });
+  });
+  return { lines: lines, bad: bad, months: months.filter((c) => null != c).length, acct: null != ac };
+}
+function budImportRead(name, text) {
+  const S = budImportState;
+  if (!S) return;
+  const rows = parseCSV(text).filter((r) => r.some((c) => String(c).trim()));
+  (S.file = name),
+    (S.headers = (rows[0] || []).map((h) => String(h).trim())),
+    (S.rows = rows.slice(1)),
+    (S.map = {}),
+    S.headers.forEach((h, i) => (S.map[i] = budImportGuess(h))),
+    S.draw && S.draw();
+}
+function budImportDialog(v) {
+  if (!v) return;
+  const g = budGuard(v, "import a CSV into");
+  if (g) return;
+  const S = (budImportState = { v: v, file: "", headers: null, rows: null, map: {} }),
+    draw = () => {
+      const P = budImportPlan();
+      let body = `<p class="small muted" style="margin:0 0 10px">A CSV with one row per account: an Account column, an Entity column if there is more than one, and a column per month. Name the columns once; the preview shows what changes before anything is written to ${esc(v.name)}.</p><div class="f"><label>Budget File</label><label class="btn bf-file">Choose File<input type="file" id="budi-file" accept=".csv,.txt" hidden></label> <span class="small muted">${S.file ? esc(S.file) : "CSV"}</span></div>`;
+      S.headers &&
+        ((body += `<div class="f"><label>Columns</label><div class="bf-map">${S.headers
+          .map(
+            (h, i) =>
+              `<div class="bf-map-r"><div><b>${esc(h)}</b><div class="small muted">${esc(String((S.rows[0] || [])[i] || "").slice(0, 24))}</div></div><select data-budmap="${i}">${Object.entries(BUD_CSV_FIELDS)
+                .map(([k, l]) => `<option value="${k}" ${S.map[i] === k ? "selected" : ""}>${l}</option>`)
+                .join("")}</select></div>`,
+          )
+          .join("")}</div></div>`),
+        P &&
+          (body += `<div class="bf-plan"><div class="bf-plan-h"><b>${P.lines.length} account line${1 === P.lines.length ? "" : "s"}</b> will be written to ${esc(v.name)} · ${P.months} month${1 === P.months ? "" : "s"} each${P.acct ? "" : " · name the Account column"}</div>${P.lines
+            .slice(0, 6)
+            .map((l) => `<div class="small">${esc(budShortEnt(l.ent))} · ${esc(budAPlain(l.acct))}: ${money(r2(l.vals.reduce((a, x) => a + (+x || 0), 0)))} for the year (now ${money(budAnnual(v, l.ent, l.acct))})</div>`)
+            .join("")}${P.bad.length ? `<div class="note warn" style="margin-top:6px">${P.bad.slice(0, 5).map(esc).join("<br>")}</div>` : ""}</div>`));
+      const m = mbModal("Import Budget CSV", body, {
+        submit: P && P.lines.length ? `Import ${P.lines.length} Line${1 === P.lines.length ? "" : "s"}` : "Import",
+        onSubmit: () => budImportApply(),
+      });
+      m.classList.add("bf-wide");
+      const ok = m.querySelector("#mbm-ok");
+      ok && !(P && P.lines.length) && (ok.disabled = !0),
+        (m.querySelector("#budi-file").onchange = async (e) => {
+          const f = e.target.files[0];
+          f && budImportRead(f.name, await f.text());
+        }),
+        m.querySelectorAll("[data-budmap]").forEach(
+          (s) =>
+            (s.onchange = () => {
+              (S.map[s.dataset.budmap] = s.value), draw();
+            }),
+        );
+    };
+  (S.draw = draw), draw();
+}
+function budImportApply() {
+  const S = budImportState,
+    P = budImportPlan();
+  if (!S || !P || !P.lines.length) return toast("Choose a CSV and name its Account column first"), !1;
+  const v = S.v;
+  if (budGuard(v, "import a CSV into")) return !1;
+  P.lines.forEach((l) =>
+    l.vals.forEach((x, m) => {
+      null != x && budSetCell(v, l.ent, l.acct, m, x, !0);
+    }),
+  ),
+    budAudit(v, "imported", `${S.file || "CSV"}: ${P.lines.length} account line${1 === P.lines.length ? "" : "s"}`),
+    save(),
+    (budImportState = null);
+  try {
+    budToast(`${v.name}: ${P.lines.length} account line${1 === P.lines.length ? "" : "s"} imported from ${S.file || "the CSV"}`, () => {
+      (budScrVer = v.id), (view = "budget"), render();
+    });
+  } catch (e) {}
+  return render(), !0;
+}
+// Report Builder and Ask read the close as data.
+"object" == typeof EQ_TABLES &&
+  ((EQ_TABLES.closes = () =>
+    ctCloseHistory().map((h, i) => ({
+      _id: `close:${h.month}:${i}`,
+      _module: "Accounting",
+      _label: `${h.label} ${"reopened" === h.act ? "reopened" : h.again ? "re-closed" : "closed"}`,
+      _go: { view: "gl" },
+      month: h.month,
+      event: "reopened" === h.act ? "reopened" : h.again ? "re-closed" : "closed",
+      by: h.by,
+      on: h.on,
+      why: h.why,
+      entries: h.entries,
+      wip: h.wip,
+      wages: h.wages,
+      closedNow: ctClosed(h.month),
+    }))),
+  (EQ_TABLES.wiptie = () => {
+    const l = lockedThrough() || fin2CloseYm() || today().slice(0, 7),
+      T = ctWipTie(l);
+    return T.rows.map((r) => ({
+      _id: `wiptie:${l}:${r.projectId}`,
+      _module: "Accounting",
+      _label: `WIP Tie-Out · ${r.job} · ${T.month}`,
+      _go: { view: "gl" },
+      month: l,
+      closed: T.closed,
+      project: r.job,
+      projectId: r.projectId,
+      schedule: r.schedule,
+      ledger: r.ledger,
+      difference: r.diff,
+      ties: Math.abs(r.diff) < 0.005,
+    }));
+  }),
+  (EQ_TABLES.orphanaccruals = () =>
+    ctOrphanAccruals().map((o) => ({
+      _id: o.id,
+      _module: "Accounting",
+      _label: `Accrued wages, no run · ${o.job} ${fmt(o.from)} – ${fmt(o.to)}`,
+      _go: { view: "ap" },
+      project: o.job,
+      projectId: o.projectId,
+      from: o.from,
+      to: o.to,
+      hours: o.hours,
+      amount: o.amt,
+      nextPayDate: o.nextPay,
+      flagged: o.flagged,
+      month: o.ym,
+    }))),
+  "object" == typeof EQ_ALIAS &&
+    Object.assign(EQ_ALIAS, {
+      close: "closes",
+      closehistory: "closes",
+      monthclose: "closes",
+      wip_tie: "wiptie",
+      wiptieout: "wiptie",
+      tieout: "wiptie",
+      orphans: "orphanaccruals",
+      orphanaccrual: "orphanaccruals",
+      accruedwages: "orphanaccruals",
+    }));
+/* ---------------------------------------------------------------------------
    truthpct (BACKLOG §1.2): one completion number, an EAC that moves, portal truth.
 
    jobFinEac(J, p)  the estimate at completion rolled up from the estimate and approved change-order lines.
@@ -160695,8 +162429,12 @@ if ("function" == typeof clOverview) {
       }),
         v.querySelector("#tp-clprog")?.remove();
       const host = v.querySelector("#cl-done"),
-        card = host && host.closest(".card"),
-        html = tpClientProgressHtml(c, p);
+        card = host && host.closest(".card");
+      // a design job before its schedule is published has no construction card: no certified figure, no
+      // "completed work as the crew signs it off"; the design-phase Overview (clDesignOverviewHtml) stands in
+      if ("function" == typeof clDesignPhase && clDesignPhase(p)) return card && (card.hidden = !0), r;
+      card && (card.hidden = !1);
+      const html = tpClientProgressHtml(c, p);
       card ? card.insertAdjacentHTML("beforebegin", html) : v.insertAdjacentHTML("beforeend", html);
       "function" == typeof pstFill && pstFill(v.querySelector("#tp-clprog"));
     } catch (e) {
@@ -160854,6 +162592,157 @@ if ("function" == typeof openEditor) {
     return r;
   };
 }
+// ---- Book Inspection (review r5_pm, finding 5; BACKLOG §1.7 #9) ----
+// Booking an inspection is one act: the record, the window held on the calendar (and on Google when connected),
+// a word to the foreman (his Today and the job's Chat), a draft to the licensed trade to approve, and the task
+// that asked for the booking closed with the date. A DOB NOW notice in mail proposes the same booking (cmDobNow);
+// a person books it.
+function inspTradeVendor(i) {
+  const n = String((i && i.name) || "").toLowerCase(),
+    rx = /plumb/.test(n) ? /plumb/i : /elec/.test(n) ? /elec/i : /energy|insul/.test(n) ? /insul|energy|special/i : /struct|firestop/.test(n) ? /struct|special|engineer/i : null;
+  return rx ? (DB.vendors || []).find((v) => rx.test(`${v.trade || ""} ${v.name || ""}`)) || null : null;
+}
+function inspForeman() {
+  return (DB.users || []).find((u) => "foreman" === u.role) || null;
+}
+function inspBookDialog(id) {
+  const i = (S.inspections || []).find((x) => x.id === id);
+  if (!i) return;
+  const v = inspTradeVendor(i),
+    fore = inspForeman();
+  mbModal(
+    `Book <span data-nocase>${esc(i.name)}</span>`,
+    `<p class="small muted" style="margin:0 0 8px">Holds the window on the calendar, tells ${esc(fore ? fore.name.split(" ")[0] : "the foreman")}${v ? ` and drafts a note to ${esc(v.name)}` : ""}, and closes the task to book it.</p>
+    <div class="grid2"><div class="f"><label>Date</label><input type="date" data-f="date" value="${esc(i.date || nextWork(today()))}"></div><div class="f"><label>Permit / Docket</label><input data-f="docket" value="${esc(i.permit || "")}" placeholder="e.g. B01528834-I1"></div></div>
+    <div class="grid2"><div class="f"><label>Window From</label><input type="time" data-f="from" value="${esc((i.window && i.window.from) || "08:00")}"></div><div class="f"><label>To</label><input type="time" data-f="to" value="${esc((i.window && i.window.to) || "12:00")}"></div></div>
+    <div class="f"><label>Note for the Site</label><input data-f="note" placeholder="e.g. keep the bath open; approved drawings on site"></div>`,
+    {
+      submit: "Book It",
+      onSubmit: (f) => {
+        if (!f.date) return toast("Pick the date"), !1;
+        inspBook(S, i, f);
+      },
+    },
+  );
+}
+function inspBook(p, i, o) {
+  const td = today(),
+    me = (currentUser() || {}).name || DB.me || "",
+    from = o.from || "08:00",
+    to = o.to || "12:00",
+    was = i.status,
+    fore = inspForeman(),
+    v = inspTradeVendor(i),
+    win = `${fmtL(o.date)} ${from}–${to}`;
+  (i.status = "scheduled"), (i.date = o.date), (i.window = { from: from, to: to }), o.docket && (i.permit = o.docket);
+  o.via && (i.bookedVia = o.via), (i.bookedBy = me), (i.bookedAt = appNowIso());
+  czOn(p, () => log(`${i.agency} ${i.name}: ${was} → scheduled ${win}${o.docket ? ` · ${o.docket}` : ""}${o.via ? ` (from ${o.via})` : ""}`, "manual", me));
+  // the window on the calendar
+  DB.calendar = DB.calendar || { external: [], map: {}, last: "", calendarId: "" };
+  DB.calendar.external = (DB.calendar.external || []).filter((e) => e.inspId !== i.id);
+  DB.calendar.external.push({
+    id: uid("ev"),
+    kind: "hold",
+    source: "erp",
+    inspId: i.id,
+    projectId: p.id,
+    title: `${i.name} — ${shortName(p)}`,
+    start: `${o.date}T${from}:00`,
+    end: `${o.date}T${to}:00`,
+    where: (p.project || {}).addr || "",
+    status: "confirmed",
+    owner: "",
+  });
+  try {
+    "function" == typeof gcOn && gcOn() && gaHold({ title: `${i.name} — ${shortName(p)}`, start: `${o.date}T${from}:00`, end: `${o.date}T${to}:00`, note: o.note || "", why: "the inspection window" }).catch(() => {});
+  } catch (e) {}
+  // the foreman: his Today and the job's Chat
+  DB.field = DB.field || {};
+  (DB.field.notes = DB.field.notes || []).push({
+    id: uid("fn"),
+    projectId: p.id,
+    kind: "plan",
+    text: `${i.name} is booked for ${win}${v ? `; ${v.name} is told` : ""}${o.note ? `. ${o.note}` : ""}. Have the work open and the approved drawings on site.`,
+    by: me,
+    at: appNowIso(),
+    ack: "",
+    inspId: i.id,
+  }),
+    (p.chat = p.chat || []).push({ id: uid("ch"), by: me, text: `${i.name}: booked ${win}${o.docket ? ` · ${o.docket}` : ""}.`, t: nowStamp(), files: [] });
+  // the licensed trade: a draft to approve
+  v &&
+    (DB.outbox = DB.outbox || []).push({
+      id: uid("ox"),
+      kind: "followup",
+      to: { name: v.name, email: v.email || "" },
+      subject: `${i.name} — ${win} at ${p.project.name}`,
+      body: `Hi ${(v.contact || v.name).split(" ")[0]},\n\n${i.agency} has ${i.name.toLowerCase()} at ${p.project.name} on ${win}${o.docket ? ` (${o.docket})` : ""}. The licensed trade or a representative needs to be on site for the window with the approved drawings. Please confirm who is coming.\n\n${me}`,
+      about: { projectId: p.id, inspId: i.id, label: `${i.name} ${fmtL(o.date)}` },
+      aboutKey: `insp|${i.id}`,
+      forName: me,
+      status: "draft",
+      at: td,
+      by: "The assistant",
+    });
+  // the task that asked for the booking
+  const words = String(i.name).toLowerCase().match(/rough|final|plumb|elec|lpc|energy|special|insul|structur/g) || [],
+    closed = (p.actions || []).filter((a) => {
+      if ("done" === a.status || !/\bbook/i.test(a.title || "") || !/inspection/i.test(a.title || "")) return !1;
+      const tl = String(a.title).toLowerCase(),
+        tw = tl.match(/rough|final|plumb|elec|lpc|energy|special|insul|structur/g) || [];
+      return !tw.length || tw.some((w) => words.includes(w));
+    });
+  closed.forEach((a) => {
+    (a.status = "done"), (a.completedAt = td), (a.closedBy = "record"), (a.closedWhy = `booked for ${win}`);
+  });
+  save(), render();
+  const out = { closed: closed.length, drafted: !!v };
+  return (
+    toastDone(
+      `${i.name} booked ${win} — on the calendar, ${fore ? fore.name.split(" ")[0] : "the foreman"} told${v ? `, a note to ${v.name} to approve` : ""}${closed.length ? `, ${closed.length === 1 ? "the task to book it is done" : closed.length + " tasks done"}` : ""}`,
+      () => {
+        setCurrent(p.id), (view = "insp"), render();
+      },
+    ),
+    out
+  );
+}
+document.addEventListener(
+  "click",
+  (e) => {
+    const b = e.target && e.target.closest ? e.target.closest("[data-book]") : null;
+    b && (e.preventDefault(), e.stopPropagation(), inspBookDialog(b.dataset.book));
+  },
+  !0,
+);
+// A DOB NOW inspection notice: the inspection it names, the date and the window, matched to the project's
+// open inspection of that kind. Kept on its own so the mail-reading lane can keep it; it proposes, never books.
+function cmDobNow(all, R) {
+  const p = R && R.projectId && (DB.projects || []).find((x) => x.id === R.projectId);
+  if (!p || !/dob\s*now/i.test(all) || !/inspection/i.test(all)) return null;
+  const dm = all.match(/\b(\d{1,2})\/(\d{1,2})\/(\d{4})\b/);
+  if (!dm) return null;
+  const date = `${dm[3]}-${dm[1].padStart(2, "0")}-${dm[2].padStart(2, "0")}`,
+    // the window: "window 8:00 AM – 12:00 PM", or a bare "8:00 AM – 12:00 PM"; never a date's year or a job number
+    wm =
+      all.match(/\bwindow\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*[–—-]\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i) ||
+      all.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*[–—-]\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i),
+    t24 = (h, m, ap) => {
+      let H = +h;
+      const a = String(ap || "").toLowerCase();
+      return "pm" === a && H < 12 && (H += 12), "am" === a && 12 === H && (H = 0), `${String(H).padStart(2, "0")}:${m || "00"}`;
+    },
+    from = wm ? t24(wm[1], wm[2], wm[3] || ("pm" === String(wm[6] || "").toLowerCase() && +wm[1] > +wm[4] ? "pm" : "")) : "",
+    to = wm ? t24(wm[4], wm[5], wm[6]) : "",
+    kind = /plumb/i.test(all) ? /plumb/i : /elec/i.test(all) ? /elec/i : /final|letter of completion/i.test(all) ? /final|completion/i : /energy|insul/i.test(all) ? /energy|insul/i : null,
+    rough = /rough/i.test(all),
+    i = (p.inspections || []).find(
+      (x) => "passed" !== x.status && (!kind || kind.test(x.name || "")) && (!rough || /rough/i.test(x.name || "")) && !/permit issued|\(existing\)/i.test(x.name || ""),
+    );
+  return i
+    ? { inspId: i.id, name: i.name, date: date, from: from, to: to, docket: (all.match(/\b[BME]\d{8}(?:-I\d(?:-EL)?)?\b/) || [])[0] || "", projectId: p.id }
+    : null;
+}
 /* ---- the forecast names its cause (BACKLOG §1.2) ---- */
 // Why the finish is where it is: days given back by a revised change order and not pulled in yet, or the
 // task driving the slip, named only when it is critical or late by more than its float.
@@ -160866,7 +162755,7 @@ function tpForecastWhy(p) {
       crit = (p.tasks || []).filter((t) => cpm[t.id] && cpm[t.id].critical && "done" !== t.status).length,
       c = DB.clients.find((x) => x.id === p.clientId),
       g = ((c && c.changeOrders) || []).find(
-        (d) => d.projectId === p.id && d.czGive && d.czGive.open && (p.tasks || []).some((t) => t.id === d.czGive.taskId),
+        (d) => d.projectId === p.id && d.czGive && czGiveOpen(c, d, p) && (p.tasks || []).some((t) => t.id === d.czGive.taskId),
       );
     let give = null;
     if (g) {
@@ -160877,6 +162766,7 @@ function tpForecastWhy(p) {
     const drv = f && f.driver,
       cp = drv && cpm[drv.t.id],
       driver = drv && cp && (cp.critical || drv.behind > cp.float) ? drv : null,
+      cause = give ? null : czLiveCause(p),
       nm = (t) => String(t.name).replace(/\s*\(.*?\)/g, ""),
       wd = (n) => `${n} working day${1 === n ? "" : "s"}`;
     let text = "";
@@ -160884,16 +162774,125 @@ function tpForecastWhy(p) {
       late > 0
         ? (text = give
             ? `${wd(late)} late · ${give.days} day${1 === give.days ? "" : "s"} still on ${nm(give.task)} from ${give.from} — Pull In`
-            : driver
-              ? `${wd(late)} late · because ${nm(driver.t)} is ${wd(driver.behind)} behind`
-              : `${wd(late)} late against the ${fmtL(p.project.target)} target · ${crit} on the critical path`)
+            : cause
+              ? `${wd(late)} late · +${cause.days} on ${nm(cause.task)}: ${cause.words}`
+              : driver
+                ? `${wd(late)} late · because ${nm(driver.t)} is ${wd(driver.behind)} behind`
+                : `${wd(late)} late against the ${fmtL(p.project.target)} target · ${crit} on the critical path`)
         : give
           ? (text = `${give.days} day${1 === give.days ? "" : "s"} still on ${nm(give.task)} from ${give.from} — Pull In`)
           : driver &&
             (text = `forecast ${fmtL(sc)} · ${nm(driver.t)} is ${wd(driver.behind)} behind${cp && cp.critical ? ", on the critical path" : ""}`),
-      { sc: sc, late: late, give: give, driver: driver, crit: crit, text: text }
+      { sc: sc, late: late, give: give, driver: driver, cause: cause, crit: crit, text: text }
     );
   });
+}
+// The live cause of a late finish: the task history's own moves since the baseline (never the pushes that
+// follow them), grouped by cause, the biggest first. Words are the PM's: the move's reason as typed, or the
+// reason's label (a change order names its number).
+// Exhibits travel with the change order: the editor shows them under the lines, the client's approval dialog
+// shows them, the email says they are attached, and the PDF lists them by caption.
+{
+  const base = renderDocEditor;
+  renderDocEditor = function (c, d) {
+    let h = base.apply(this, arguments);
+    try {
+      if ("string" == typeof h && d && "co" === d.type && (d.exhibits || []).length && !h.includes("co-exhibits")) {
+        const k = h.lastIndexOf('<div class="docacts">'),
+          strip = coExhibitsHtml(d);
+        strip && (h = k > -1 ? h.slice(0, k) + strip + h.slice(k) : h + strip),
+          setTimeout(() => {
+            try {
+              pstFill(document.getElementById(`doc-${d.id}`));
+            } catch (e) {}
+          }, 0);
+      }
+    } catch (e) {
+      console.warn("exhibits", e);
+    }
+    return h;
+  };
+}
+{
+  const base = docSummaryHtml;
+  docSummaryHtml = function (c, d) {
+    let h = base.apply(this, arguments);
+    try {
+      d && "co" === d.type && (d.exhibits || []).length && (h += coExhibitsHtml(d, { client: "client" === role() }), setTimeout(() => pstFill(document.getElementById("mbm")), 0));
+    } catch (e) {}
+    return h;
+  };
+}
+{
+  const base = crDocEmail;
+  crDocEmail = function (c, d) {
+    const E = base.apply(this, arguments);
+    try {
+      const n = d && "co" === d.type ? coExhibits(d).length : 0;
+      n && (E.body = E.body.replace(/\n\nThank you,/, `\n\n${n} photo${1 === n ? "" : "s"} from the site ${1 === n ? "is" : "are"} attached as exhibits; you can also see them in your portal.\n\nThank you,`));
+    } catch (e) {}
+    return E;
+  };
+}
+// The PDF's HTML, read back without a print window (the test and the mail attachment use it).
+function docPrintHtml(c, d) {
+  const w0 = window.open;
+  let html = "";
+  window.open = () => ({ document: { write: (h) => (html = h), close() {} }, focus() {}, print() {} });
+  try {
+    printDoc(c, d);
+  } finally {
+    window.open = w0;
+  }
+  return html;
+}
+{
+  const base = printDoc;
+  printDoc = function (c, d) {
+    const E = d && "co" === d.type ? coExhibits(d) : [];
+    if (!E.length) return base.apply(this, arguments);
+    const w0 = window.open;
+    let html = "";
+    window.open = () => ({ document: { write: (h) => (html = h), close() {} }, focus() {}, print() {} });
+    try {
+      base.apply(this, arguments);
+    } finally {
+      window.open = w0;
+    }
+    const block = `<div class="memo"><b>Exhibits</b>\n${E.map((x, i) => `${i + 1}. ${esc(x.clientCaption || x.caption || "Photo")} — ${fmtL(x.date)}`).join("\n")}\nThe photos are in the client portal under Photos.</div>`,
+      k = html.indexOf("<script>window.onload");
+    html = k > -1 ? html.slice(0, k) + block + html.slice(k) : html + block;
+    const w = w0 ? w0.call(window, "", "_blank") : null;
+    return w && w.document ? (w.document.write(html), void w.document.close()) : void 0;
+  };
+}
+function czLiveCause(p) {
+  const since = (p.baseline && p.baseline.takenOn) || "",
+    by = {};
+  (p.tasks || []).forEach((t) =>
+    (t.history || []).forEach((h) => {
+      if (!czMoved(h) || "push" === h.source || (since && String(h.on) < since)) return;
+      // a change order nets across its revisions (R1 extends, R2 gives back, the pull-in takes it back)
+      const root = czIsCo(h) ? String(czCoNumber(h) || "").replace(/-R\d+$/, "") : "",
+        key = root ? `co:${root}` : `${h.reasonKey || "other"}:${t.id}`;
+      by[key] ||
+        (by[key] = {
+          key: h.reasonKey || (root ? "co" : "other"),
+          task: t,
+          days: 0,
+          on: h.on,
+          words: root
+            ? `change order ${root}`
+            : String(h.reason || "").trim() || ("function" == typeof opsReasonLabel ? opsReasonLabel(h.reasonKey || "other") : h.reasonKey || "rescheduled"),
+        }),
+        (by[key].days += czDays(h)),
+        String(h.on) > String(by[key].on) && (by[key].on = h.on);
+    }),
+  );
+  const L = Object.values(by)
+    .filter((x) => x.days > 0)
+    .sort((a, b) => b.days - a.days || String(b.on).localeCompare(String(a.on)));
+  return L[0] || null;
 }
 function tpPullIn(give) {
   give && "function" == typeof czGiveBackDialog && czGiveBackDialog(give.c, give.d);
@@ -161242,12 +163241,49 @@ predDef("inspToBook", {
     );
   },
 });
+// What still needs a change order: a client's decided choice over its allowance with no change order sent, and
+// a field extra the PM answered "proceed as an extra" with no change order written. A draft keeps it on the list.
+predDef("needsChangeOrder", {
+  label: "Needs a Change Order",
+  rule: "a decided choice over its allowance, or an extra answered 'proceed as an extra', with no change order sent yet (a draft still counts)",
+  rows(scope) {
+    const sentCo = (id) => {
+        const x = id && "function" == typeof clCoOf && clCoOf(id);
+        return x && !["void", "rejected", "superseded"].includes(x.d.status) ? x.d : null;
+      },
+      out = [];
+    predJobs(scope).forEach((p) => {
+      (p.decisions || []).forEach((d) => {
+        if ("open" === d.status) return;
+        const amt = "function" == typeof thDecMoney ? withProject(p, () => thDecMoney(d)) : 0;
+        if (!(amt > 0)) return;
+        const co = sentCo(d.coId);
+        co && "draft" !== co.status || out.push({ kind: "decision", p: p, d: d, amount: amt, co: co, name: "function" == typeof clTitle ? clTitle(d) : d.name });
+      });
+      (((DB.field || {}).raises) || [])
+        .filter((r) => r.projectId === p.id && "extra" === r.type && "extra" === r.decision)
+        .forEach((r) => {
+          const co = sentCo(r.coId);
+          co && "draft" !== co.status || out.push({ kind: "extra", p: p, r: r, amount: 0, co: co, name: "function" == typeof clRewrite ? clRewrite(r.title) : r.title });
+        });
+    });
+    return out;
+  },
+});
 predDef("siteQuestions", {
   label: "Questions from the Site",
   rule: "sent from the site and not yet answered",
   rows(scope) {
     return predJobs(scope).flatMap((p) => ocFieldWaiting(p).map((x) => ({ p: p, x: x })));
   },
+});
+// The questions from the site waiting on me: the same rows as the Approvals chip "Site Questions" (DELEGATION
+// hands a question to the person it was sent to), so Home and Approvals show one number under one label.
+predDef("siteQuestionsMine", {
+  label: "Site Questions",
+  rule: "questions from the site waiting on you to answer, the same list as Approvals' Site Questions",
+  can: () => predCan("mapprove"),
+  rows: () => (predCan("mapprove") ? mApprovals().filter((x) => "raise" === x.kind) : []),
 });
 // A job's Needs You (its Today page, its Today tab badge, the Projects overview): what is late on it,
 // plus the inspections to book and the questions from the site.
@@ -161367,6 +163403,26 @@ predDef("contactsFollowUp", {
     ];
   },
 });
+// Accrued wages with no payroll run (BACKLOG §1.1 #9): approved time a close accrued on days no run covers,
+// once the next pay date after those days has passed. The Close page, Bills & Payroll, the close checklist
+// and Ask count these rows.
+predDef("orphanAccruals", {
+  label: "Accrued Wages with No Payroll Run",
+  rule: "approved time accrued at a close on days no payroll run covers, after the next pay date passed",
+  test: (o) => !!o && !!o.flagged,
+  rows() {
+    return ctOrphanAccruals().filter(this.test);
+  },
+});
+// Typed lines a statement imported for the same account and dates does not have (BACKLOG §1.1 #11).
+predDef("notAtBank", {
+  label: "Not at the Bank",
+  rule: "typed by hand, not reconciled, and missing from the statement imported for its account and dates",
+  test: (t) => !!t,
+  rows(ym) {
+    return ctNotAtBank(ym || "");
+  },
+});
 // What the Buy Board's rail badge and the coordinator's Home card count: rows still to order that are
 // late, held by a decision, due this week or waiting on a decision.
 predDef("buyNeeds", {
@@ -161470,7 +163526,7 @@ function eqRows(entity) {
       })
       .map((r) => {
         const o = {};
-        return Object.keys(r).forEach((f) => EQ_CLIENT_HIDE.test(f) || (o[f] = r[f])), o;
+        return Object.keys(r).forEach((f) => EQ_CLIENT_HIDE.test(f) || ("photos" === k && "by" === f) || (o[f] = r[f])), o;
       });
   } else if ("field" === sc.kind)
     rows = rows.map((r) => {
@@ -162242,6 +164298,26 @@ const AG_FIN = [
 // ---- the work: counted questions read PRED or the brief's own lists
 const AG_OPS = [
   {
+    id: "needsco",
+    re: /\b(need|needs|still need|still needs|without|missing|no|not yet)\b[^.?]*\bchange orders?\b|\bchange orders? (still )?(to|left to) (raise|write|send)\b|\bun-?raised change orders?\b/,
+    kind: "ops",
+    run(P) {
+      if ("client" === role()) return null;
+      const R = PRED.needsChangeOrder.rows().filter((x) => agOnJob(P, x.p.id)),
+        line = (x) =>
+          `${agShort(x.p)} · ${x.name}${x.amount ? ` · +${money(x.amount)} over the allowance` : " · extra, not priced yet"}${x.co ? ` · ${x.co.number} is a draft, not sent` : " · no change order yet"}`;
+      return {
+        headline: R.length
+          ? `${agN(R.length, "thing")} still ${1 === R.length ? "needs" : "need"} a change order: ${agList(R.map((x) => x.name))}.`
+          : "Nothing is waiting on a change order: every decided overage and every extra has one sent.",
+        note: `${agCap(PRED.needsChangeOrder.rule)}.`,
+        work: R.map(line),
+        go: agGo("tkall"),
+        ran: agRan("PRED.needsChangeOrder", P.jobs.length ? [P.jobs.map(agShort).join(", ")] : [], "", R.length),
+      };
+    },
+  },
+  {
     id: "waiting",
     re: /\b(waiting on (me|my)|waiting for (me|my)|need(s)? (me|my)|my approvals?|to approve|do i (need to )?approve|on my desk|my sign[- ]?off)\b/,
     not: /\bam i waiting\b/,
@@ -162767,7 +164843,7 @@ const AG_ENT = [
       who && ((R = R.filter((r) => new RegExp(`\\b${String(who.name).split(/\s+/)[0]}\\b`, "i").test(r.by || ""))), where.push(`taken by ${who.name}`));
       return {
         headline: `${agN(R.length, "photo")}${shared ? " shared" : ""}${who ? ` by ${who === P.meEmp && !P.people.length ? "you" : who.name}` : ""}${P.clients.length ? ` with ${P.clients[0].name}` : ""}${P.jobs.length ? ` on ${agShort(P.jobs[0])}` : ""}${P.period ? ` ${P.period.say}` : ""}.`,
-        work: R.slice(0, 12).map((r) => `${fmtL(r.date)} — ${r.caption || r.task || r.area || "photo"}${r.project ? ` · ${r.project}` : ""}${r.by ? `, ${r.by}` : ""}`),
+        work: R.slice(0, 12).map((r) => `${fmtL(r.date)} — ${r.caption || r.task || r.area || "photo"}${r.project ? ` · ${r.project}` : ""}${r.by && "client" !== role() ? `, ${r.by}` : ""}`),
         go: agGo("photos") || agGo("client"),
         ran: agRan("photos", where, "", R.length),
       };
@@ -163606,8 +165682,8 @@ predDef("jobsAtRisk", {
 // Jobs, not items: the PM thinks in jobs. One row per live job with something late on it, the items underneath.
 // (The Pulse said "Late on Jobs 10" and counted the items; its sheet now lists 2 jobs and the 10 items under them.)
 predDef("jobsLate", {
-  label: "Jobs Late",
-  rule: "jobs with something late on them: materials late to order, decisions past due or late submittals",
+  label: "Jobs With Late Items",
+  rule: "jobs with something late on them: materials late to order, decisions past due or late submittals; not Projects' Finish Dates Late, which is the forecast finish past its target",
   rows(scope) {
     return predJobs(scope)
       .filter((p) => !p.archived && "closed" !== (p.project || {}).status)
@@ -163650,7 +165726,7 @@ const TD_PULSE = {
   pm: [
     {
       k: "late",
-      label: "Jobs Late",
+      label: "Jobs With Late Items",
       pred: "jobsLate",
       noun: "job",
       mine: !0,
@@ -163670,8 +165746,7 @@ const TD_PULSE = {
     {
       k: "site",
       label: "Site Questions",
-      pred: "siteQuestions",
-      mine: !0,
+      pred: "siteQuestionsMine",
       tone: (v) => (v ? "warn" : ""),
       go: () => ((window.mApprKind = "raise"), setView("mapprove")),
       goLabel: "Open Approvals",
@@ -163731,6 +165806,11 @@ function tdPulseLine(t, x, inJob) {
     case "siteQuestions": {
       const r = x.x || {};
       return [r.title || "Question from the site", `${tdJob(x.p)}${r.by ? " · " + r.by : ""}`, null, flowGo.raise(r)];
+    }
+    case "siteQuestionsMine": {
+      const r = ((DB.field || {}).raises || []).find((q) => q.id === x.id) || {},
+        p = r.projectId && DB.projects.find((q) => q.id === r.projectId);
+      return [r.title || x.title || "Question from the site", `${p ? tdJob(p) : ""}${r.by ? " · " + r.by : ""}`, null, r.id ? flowGo.raise(r) : null];
     }
   }
   return [String(x), "", null, null];
@@ -163805,6 +165885,8 @@ function tdScore(it) {
     return 60 + (r.escalated || (r.dueBy && r.dueBy <= soon) ? 20 : 0) + sev + (r.dueBy && r.dueBy <= td ? 3 : 0);
   }
   if ("req" === it.kind) return 55 + sev;
+  // a client waiting on an answer comes right after the field: they wrote to us and see "Sent to Alan"
+  if ("clientq" === it.kind) return 58 + sev;
   if ("bill" === it.kind) {
     const b = (DB.bills || []).find((x) => x.id === it.id);
     if (!b) return 40;
@@ -163875,9 +165957,18 @@ function tdCard(it) {
     if (r) {
       c.line1 = `<a href="#" data-tdrec>${esc(tdWords(r.title, 12))}</a>`;
       c.go = flowGo.raise(r);
-      c.why = `${esc(r.by || "The foreman")} waiting${r.dueBy ? " · needs it " + fmt(r.dueBy) : ""}${p && tdRaiseJobs() > 1 ? " · " + esc(tdJob(p)) : ""}`;
+      c.why = `${esc(r.by || "The foreman")} waiting${r.needBy ? " · needs it " + fmt(r.needBy) + " · answer by " + fmt(r.dueBy) : r.dueBy ? " · answer by " + fmt(r.dueBy) : ""}${p && tdRaiseJobs() > 1 ? " · " + esc(tdJob(p)) : ""}`;
       c.verb = "Answer";
       c.run = () => fAnswerRaise(r, "extra" === r.type ? "extra" : "");
+    }
+  } else if ("clientq" === it.kind) {
+    const Q = "function" == typeof clqFind ? clqFind(it.id) : null;
+    if (Q) {
+      c.line1 = `<a href="#" data-tdrec>Answer ${esc(Q.q.by)}</a>`;
+      c.go = () => clqAnswer(Q.q.id);
+      c.why = `${esc(tdWords(Q.q.text, 12))} · ${esc(tdJob(Q.p))}${Q.q.at ? " · asked " + fmt(Q.q.at) : ""}`;
+      c.verb = "Answer";
+      c.run = () => clqAnswer(Q.q.id);
     }
   } else if ("dec" === it.kind) {
     const D = tdDec(it);
@@ -165706,9 +167797,9 @@ function truthHash(s) {
 const TRUTH_HASH_SCHEME = 'fnv1a-32 over "prior|n|id|key|sourceType:sourceId|date|acct:dr:cr,…", postings of the month in posting order';
 
 // ---- 1. coverage: bank/card-backed, document-backed (accrual), by hand
+// One rule for "only the Demo Feed has seen this line": the bank-feed layer's bfIsDemoOnly.
 function truthDemo(t) {
-  const p = bfProv(t);
-  return !!(p.demo || (p.confirmedBy && p.confirmedBy.demo) || (p.feedSeen && p.feedSeen.demo && !p.stmtSeen && "statement" !== p.kind));
+  return "function" == typeof bfIsDemoOnly ? bfIsDemoOnly(t) : !!(bfProv(t) || {}).demo;
 }
 function truthTxnOfBill(b) {
   if (!b) return null;
@@ -165732,8 +167823,8 @@ function truthBacking(row) {
     ref = row.ref || row;
   if ("txn" === kind) {
     const t = ref;
+    if (truthDemo(t)) return { kind: "hand", why: "the Demo Feed delivered it; a Demo Feed line is not bank evidence" };
     if (bfBacked(t)) {
-      if (truthDemo(t)) return { kind: "hand", why: "the Demo Feed delivered it; a Demo Feed line is not bank evidence" };
       const p = bfProv(t),
         src = p.confirmedBy || p.stmtSeen || p.feedSeen || p;
       return { kind: "bank", why: `${truthAcctWords(t)} ${"statement" === src.kind ? `statement ${src.fileName || ""}`.trim() : "feed"} holds it on ${truthWhen(t.date)}` };
@@ -165793,9 +167884,10 @@ function truthCoverage(range, opts) {
       income.rows.push({ kind: "invoice", date: i.date, desc: `${i.number} · ${c.name}`, amt: net, backing: bank >= net - 0.005 ? "bank" : bank > 0 ? "part" : "document", bank: bank, why: bank > 0 ? `${money(bank)} collected and confirmed by the bank` : "invoiced; the payment has not been confirmed by the bank", projectId: i.projectId || "", id: i.id });
     }),
   );
-  // a manual journal into a revenue account is income by hand
+  // a manual journal into a revenue account is income by hand; a Close, Opening or Accrual entry is a system
+  // entry with a document behind it (the WIP schedule, the opening balances, approved time) and is never "by hand"
   try {
-    truthManual(R, { entityId: "all" }).rows.forEach((m) => {
+    truthManual(R, { entityId: "all", manualOnly: !0 }).rows.forEach((m) => {
       const v = r2(m.j.lines.filter((l) => /^4/.test(l.acct)).reduce((s, l) => s + (l.cr || 0) - (l.dr || 0), 0));
       v && ((income.hand = r2(income.hand + v)), income.n.hand++, income.rows.push({ kind: "journal", date: m.j.date, desc: m.j.memo, amt: v, backing: "hand", why: m.flag.text, id: m.j.id }));
     });
@@ -165853,14 +167945,30 @@ function truthManual(range, opts) {
     const amt = r2(j.lines.reduce((s, l) => s + (l.dr || 0), 0));
     rows.push({ j: j, amt: amt, flag: f }),
       j.lines.forEach((l) => {
-        const b = (byAcct[l.acct] = byAcct[l.acct] || { n: 0, amt: 0, ids: new Set() });
-        b.ids.has(j.id) || (b.ids.add(j.id), b.n++), (b.amt = r2(b.amt + Math.abs((l.dr || 0) - (l.cr || 0))));
+        const b = (byAcct[l.acct] = byAcct[l.acct] || { n: 0, amt: 0, ids: new Set(), kinds: {} });
+        b.ids.has(j.id) || (b.ids.add(j.id), b.n++, (b.kinds[j.kind] = (b.kinds[j.kind] || 0) + 1)),
+          (b.amt = r2(b.amt + Math.abs((l.dr || 0) - (l.cr || 0))));
       });
   });
   const manual = rows.filter((r) => "manual" === r.j.kind);
   return { rows: rows, n: rows.length, amt: r2(rows.reduce((s, r) => s + r.amt, 0)), manual: manual, nManual: manual.length, amtManual: r2(manual.reduce((s, r) => s + r.amt, 0)), byAcct: byAcct };
 }
-const truthManualLine = (m) => `#${m.j.n} ${m.j.memo} — ${money(m.amt)} · ${m.flag.text}`;
+const truthManualLine = (m) => `#${m.j.n} ${m.j.memo} — ${money(m.amt)} · ${m.flag.text}`,
+  // "1 manual · 2 close · 1 accrual": entries not from a document, each by what it is, never all "manual"
+  truthKindWords = (b) => {
+    const K = b && b.kinds ? b.kinds : {};
+    return (
+      Object.keys(K)
+        .sort((x, y) => (x === "manual" ? -1 : y === "manual" ? 1 : x.localeCompare(y)))
+        .map((k) => `${K[k]} ${String(TRUTH_FLAG_KIND[k] || k).toLowerCase()}`)
+        .join(" · ") || `${(b && b.n) || 0} manual`
+    );
+  },
+  truthKindCounts = (M) => {
+    const K = {};
+    (M.rows || []).forEach((m) => (K[m.j.kind] = (K[m.j.kind] || 0) + 1));
+    return truthKindWords({ kinds: K, n: M.n });
+  };
 let truthJKind = "";
 if ("function" == typeof glJournalHtml) {
   const base = glJournalHtml;
@@ -165898,7 +168006,7 @@ if ("function" == typeof glStatementsHtml) {
       d.innerHTML = html;
       d.querySelectorAll("tr[data-glacct]").forEach((tr) => {
         const b = M[tr.dataset.glacct];
-        b && tr.children[0] && tr.children[0].insertAdjacentHTML("beforeend", ` <span class="tr-flag small" data-trdrill="${esc(tr.dataset.glacct)}" title="Entries not from a document on this line; open them">${TRUTH_ICON_PEN}<span>${b.n} manual · ${glM(b.amt)}</span></span>`);
+        b && tr.children[0] && tr.children[0].insertAdjacentHTML("beforeend", ` <span class="tr-flag small" data-trdrill="${esc(tr.dataset.glacct)}" title="Entries not from a document on this line; open them">${TRUTH_ICON_PEN}<span>${truthKindWords(b)} · ${glM(b.amt)}</span></span>`);
       });
       return d.innerHTML;
     } catch (e) {
@@ -166006,6 +168114,18 @@ function truthEdit(kind, ref, why, fn) {
   save();
   return { ok: !0, key: key, before: before, after: after };
 }
+// The record's last audited change in this minute (by a person), or null: how a sync's reversal is attributed.
+function truthLastChange(j) {
+  if (!j || !j.key) return null;
+  const [k, id] = j.key.split(":"),
+    kinds = { inv: "invoice", est: "estimate", co: "co", bill: "bill", txn: "txn", pay: "payment", payroll: "payroll", billpay: "payment" }[k],
+    now = nowStamp(),
+    a = (DB.audit || [])
+      .slice()
+      .reverse()
+      .find((x) => x.t === now && x.refId === id && (!kinds || x.kind === kinds) && "system" !== x.by && !/^(posting|sealed|reversal)/.test(x.action || ""));
+  return a ? { by: a.by, action: a.action, note: a.note || "" } : null;
+}
 // The reason behind a reversal the ledger makes on its own: the record's void or amendment note.
 function truthWhyFor(j) {
   if (!j || !j.key) return null;
@@ -166039,9 +168159,15 @@ if ("function" == typeof glReverse) {
     const ctx = (j && truthWhyNext[j.key]) || truthWhyFor(j),
       r = base.apply(this, arguments);
     if (r && r.ok && r.j) {
-      const rj = r.j;
-      (rj.by = (ctx && ctx.by) || truthWho()), (rj.at = appNowIso());
-      ctx && ctx.why ? ((rj.why = ctx.why), (rj.memo = `${rj.memo} · by ${rj.by}: ${ctx.why}`)) : (rj.memo = `${rj.memo} · by ${rj.by}`);
+      const rj = r.j,
+        // no reason was handed in: the ledger reversed this on its own during a sync. The actor is then the
+        // system, and the reason is the record's own last audited change in this minute, else the derivation
+        // (the posting rule re-derived the lines; nobody edited the record)
+        sys = !ctx && /document changed|voided or withdrawn|derivation/.test(String(why || "")),
+        last = sys ? truthLastChange(j) : null;
+      (rj.by = ctx && ctx.by ? ctx.by : sys ? (last ? last.by : "system") : truthWho()), (rj.at = appNowIso());
+      const w = ctx && ctx.why ? ctx.why : sys ? (last ? `${last.action}: ${last.note}` : /voided|withdrawn/.test(String(why)) ? "the record was voided or withdrawn" : "derivation changed: the posting re-derives from its record; nobody edited the record (its history names any edit)") : "";
+      (rj.why = w), (rj.memo = `${rj.memo} · by ${rj.by}${w ? ": " + w : ""}`), sys && !last && (rj.system = !0);
     }
     return r;
   };
@@ -166846,7 +168972,7 @@ if ("function" == typeof repPack) {
         M = truthManual(P.range, { entityId: "all" }),
         Mp = truthManual([prev + "-01", fin2End(prev)], { entityId: "all" }),
         list = (X) => (X.n ? `<div class="rem">${X.rows.map((m) => `<div class="rem-row"><span>${truthFlagHtml(m.flag)} <span class="small">#${m.j.n} ${esc(m.j.memo)} · ${money(m.amt)}</span></span></div>`).join("")}</div>` : '<p class="small muted">None.</p>'),
-        sec = `<h3 class="rep-h">9 · Coverage and manual entries</h3>${truthCovHtml(C, `Coverage · ${truthLabel(P.ym)}`)}<div class="grid2"><div><h4 class="small" style="margin:6px 0">Manual entries · ${truthLabel(P.ym)} · ${M.n} · ${money(M.amt)}</h4>${list(M)}</div><div><h4 class="small" style="margin:6px 0">Manual entries · ${truthLabel(prev)} · ${Mp.n} · ${money(Mp.amt)}</h4>${list(Mp)}</div></div>`;
+        sec = `<h3 class="rep-h">9 · Coverage and manual entries</h3>${truthCovHtml(C, `Coverage · ${truthLabel(P.ym)}`)}<div class="grid2"><div><h4 class="small" style="margin:6px 0">Entries not from a document · ${truthLabel(P.ym)} · ${M.n} · ${money(M.amt)} <span class="muted">(${truthKindCounts(M)})</span></h4>${list(M)}</div><div><h4 class="small" style="margin:6px 0">Entries not from a document · ${truthLabel(prev)} · ${Mp.n} · ${money(Mp.amt)} <span class="muted">(${truthKindCounts(Mp)})</span></h4>${list(Mp)}</div></div>`;
       h += sec;
     } catch (e) {
       console.warn("pack truth", e);
@@ -167355,4 +169481,2066 @@ AG_FIN.unshift(
       };
     };
   }
+}
+/* ---------------------------------------------------------------------------
+   purchasing (round 5, coordinator review; BACKLOG §1.4 #1). Release Order drafted PO-2026-049 to the
+   electrician who sent the cut sheets, at $0, and Issue PO went through, marking the lighting ordered and
+   taking it off the Buy Board. One house validator now sits in front of every issue path (poValid: the root
+   poAction, Submit for approval, the owner's Approve, the submittal override, buy runs and the picker all
+   end in poAction), a refusal says why, Release Order asks for the supplier and carries the submittal's
+   facts, and a boot repair takes an already-issued PO with no vendor or a $0 line back to draft and puts
+   its materials back on the board.
+   --------------------------------------------------------------------------- */
+const PO_PLACEHOLDER = /^(?:\W*choose (?:the )?(?:vendor|supplier)\W*|vendor tbd|tbd|unassigned vendor|vendor|none|n\/a)$/i;
+// The vendor record a PO's vendor text names, or null for nothing, a placeholder or a name not on file.
+function poVendorReal(name) {
+  const n = String(name || "").trim();
+  if (!n || PO_PLACEHOLDER.test(n)) return null;
+  return (DB.vendors || []).find((v) => String(v.name || "").trim().toLowerCase() === n.toLowerCase()) || null;
+}
+// The reasons a purchase order cannot be issued, in the words the toast carries; [] when it can.
+function poValid(po) {
+  if (!po) return ["no purchase order"];
+  const R = [],
+    v = poVendorReal(po.vendor);
+  v ||
+    R.push(
+      po.vendor && !PO_PLACEHOLDER.test(po.vendor)
+        ? `${po.vendor} is not a vendor on file — choose the supplier`
+        : "no vendor chosen",
+    );
+  const lines = (po.lines || []).filter((l) => l.item || l.desc || +l.price || +l.qty);
+  lines.length || R.push("no lines");
+  lines.forEach((l) => {
+    const nm = l.item || l.desc || "a line";
+    +l.qty > 0 || R.push(`no quantity on ${nm}`), +l.price > 0 || R.push(`$0 on ${nm}`);
+  });
+  po.needBy || po.expected || R.push("no need-by date");
+  return R;
+}
+function poRefuse(po, R) {
+  const msg = `${(po && po.number) || "This purchase order"} cannot be issued — ${(R || []).join("; ")}`;
+  try {
+    rcToast(msg, po && "function" == typeof flowCan && flowCan("po") ? [{ label: `Open ${po.number}`, run: flowGo.po(po) }] : null);
+  } catch (e) {
+    toast(msg);
+  }
+}
+// The outermost poAction: nothing issues, submits or approves past the validator, whichever path called it.
+{
+  const base = poAction;
+  poAction = function (po, a) {
+    if (po && ["issue", "submit", "approve"].includes(a) && ["draft", "pending"].includes(po.status)) {
+      const R = poValid(po);
+      if (R.length) return void poRefuse(po, R);
+    }
+    return base.apply(this, arguments);
+  };
+}
+// Vendors for a released item: those who sold it (a PO line names the material or its words) or work its
+// trade first, everyone else after; the sub who sent the submittal is never offered as the supplier.
+function smReleaseVendors(m, s, p) {
+  const words = String(m.name || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9 ]+/g, " ")
+      .split(/\s+/)
+      .filter((w) => w.length > 3),
+    specWords = String((s && (s.specName || s.title)) || "")
+      .toLowerCase()
+      .split(/\W+/)
+      .filter((w) => w.length > 3),
+    subFirst = String((s && s.sub) || "")
+      .toLowerCase()
+      .split(/[\s(]+/)[0],
+    sold = new Set(),
+    trade = new Set();
+  (DB.pos || []).forEach((po) =>
+    (po.lines || []).forEach((l) => {
+      const it = String(l.item || "").toLowerCase();
+      po.vendor && (l.materialId === m.id || words.some((w) => it.includes(w))) && sold.add(po.vendor.toLowerCase());
+    }),
+  );
+  (DB.vendors || []).forEach((v) => {
+    const t = String(v.trade || "").toLowerCase();
+    t &&
+      (words.some((w) => t.includes(w) || w.includes(t)) || specWords.some((w) => t.includes(w) || w.includes(t))) &&
+      trade.add(String(v.name || "").toLowerCase());
+  });
+  const all = (DB.vendors || [])
+      .filter((v) => v.name && !(subFirst.length > 2 && String(v.name).toLowerCase().includes(subFirst)))
+      .sort((a, b) => String(a.name).localeCompare(String(b.name))),
+    first = all.filter((v) => sold.has(v.name.toLowerCase()) || trade.has(v.name.toLowerCase()));
+  return { first: first, rest: all.filter((v) => !first.includes(v)) };
+}
+// Release Order for a material: the draft carries item, quantity, price, on-site date, task, spec and job from
+// the submittal, and asks who supplies it. The sub who sent the sheets is named as the sender, not the supplier.
+function smReleaseDialog(s, p, mats) {
+  const m = mats[0].m,
+    others = mats.slice(1),
+    D = withProject(p, () => matDates(m)),
+    tk = (p.tasks || []).find((t) => t.id === m.taskId),
+    lf = m.line && "function" == typeof lineFin ? lineFin(m.line) : null,
+    qm = String(m.qty || "").match(/([\d.]+)\s*(\w+)?/),
+    qty = qm ? +qm[1] : 1,
+    unit = qm && qm[2] ? qm[2] : "lot",
+    cost = +String(m.cost || "").replace(/[^0-9.]/g, "") || 0,
+    price = cost ? r2(cost / (qty || 1)) : lf && lf.budget ? r2(lf.budget / (qty || 1)) : 0,
+    V = smReleaseVendors(m, s, p),
+    opt = (v) => `<option value="${esc(v.name)}">${esc(v.name)}${v.trade ? ` · ${esc(v.trade)}` : ""}</option>`;
+  mbModal(
+    `Release Order — <span data-nocase>${esc(s.number)}</span>`,
+    `<p class="small muted" style="margin:0 0 10px"><span data-nocase>${esc(s.spec)} ${esc(s.specName || "")}</span> · ${esc(smJob(p))}${tk ? ` · for ${esc(tk.name)}, starts ${fmt(tk.start)}` : ""}. The order carries the item, quantity, price and on-site date from the submittal; choose who supplies it. ${esc(s.sub || "The sub")} sent the ${SM_TYPE_WORD[s.type] || "submittal"} and is not the supplier.</p>
+    ${mbF("Supplier", `<select data-f="vendor"><option value="">— choose the supplier —</option>${V.first.length ? `<optgroup label="Sold this item or works this trade">${V.first.map(opt).join("")}</optgroup>` : ""}<optgroup label="${V.first.length ? "Other vendors" : "Vendors"}">${V.rest.map(opt).join("")}</optgroup></select>`)}
+    <div class="grid2">${mbF("Item", `<input data-f="item" value="${esc(m.name)}">`)}${mbF("Quantity", `<input type="number" step="any" min="0" data-f="qty" value="${qty}">`)}</div>
+    <div class="grid2">${mbF("Unit", `<input data-f="unit" value="${esc(unit)}">`)}${mbF("Unit Price", `<input type="number" step="0.01" min="0" data-f="price" value="${price || ""}" placeholder="${lf && lf.budget ? "budget " + money(lf.budget) : "no price yet — the order waits for one"}">`)}</div>
+    <div class="grid2">${mbF("Needed on Site", `<input type="date" data-f="needBy" value="${D.needBy || ""}">`)}${mbF("Task", `<input data-f="task" value="${esc(tk ? tk.name : "")}" readonly>`)}</div>
+    ${others.length ? `<p class="small muted" style="margin:0">Also released: ${others.map((x) => esc(x.name)).join(", ")} — each gets its own line.</p>` : ""}`,
+    {
+      submit: "Draft the Purchase Order",
+      onSubmit: (f) => {
+        const v = poVendorReal(f.vendor);
+        if (!v) return toast("Choose the supplier — the vendor who sells it, not the sub who sent the sheets"), !1;
+        if (!f.needBy) return toast("Say when the site needs it"), !1;
+        const po = smDraftPO(p, mats.map((x) => x.m), v.name),
+          l0 = po.lines[0];
+        l0 && ((l0.item = f.item || m.name), (l0.qty = +f.qty || 1), (l0.unit = f.unit || unit), (l0.price = +f.price || 0)),
+          (po.needBy = f.needBy),
+          (po.needTask = tk ? tk.name : ""),
+          (po.spec = s.spec),
+          (po.specName = s.specName || ""),
+          (po.submittalId = s.id),
+          (po.notes = `Released by submittal ${s.number} ${s.title} (${s.spec})`),
+          (s.poId = po.id),
+          smStamp(s, `Order drafted: ${po.number} to ${v.name}`),
+          smLog(p, `${po.number} drafted from submittal ${s.number}`),
+          save(),
+          (poOpen = po.id),
+          (view = "po"),
+          render();
+        try {
+          window.scrollTo(0, 0);
+        } catch (e) {}
+        rcToast(`${po.number} drafted from ${s.number} to ${v.name} — ${+f.price ? "check the price, then Issue PO" : "price the line, then Issue PO"}`, [
+          { label: `Open ${po.number}`, run: flowGo.po(po) },
+        ]);
+      },
+    },
+  );
+}
+// Boot repair: a PO that issued with no vendor or a $0 line (PO-2026-049 in the review) goes back to draft,
+// says so on its record, and its materials return to the board.
+function poRepairInvalid() {
+  let n = 0;
+  (DB.pos || []).forEach((po) => {
+    if (!["issued", "partial"].includes(po.status)) return;
+    const R = poValid(po).filter((r) => /vendor|\$0|no lines/.test(r));
+    if (!R.length) return;
+    const p = (DB.projects || []).find((x) => x.id === po.projectId);
+    (po.status = "draft"), (po.repaired = { at: today(), why: R.join("; ") });
+    p &&
+      (po.lines || []).forEach((l) => {
+        const m = l.materialId && (p.materials || []).find((x) => x.id === l.materialId);
+        m &&
+          m.po === po.number &&
+          ["ordered", "shipped"].includes(m.status) &&
+          ((m.status = withProject(p, () => openDecisionFor("mat", m.id)) ? "needs-decision" : "not-ordered"),
+          (m.po = ""),
+          (m.orderedOn = ""),
+          (m.eta = ""));
+      });
+    try {
+      audit("po", po.id, "repaired", "issued", "draft", R.join("; "));
+    } catch (e) {}
+    n++;
+  });
+  return n && save(), n;
+}
+{
+  const base = finishBoot;
+  finishBoot = function () {
+    const r = base.apply(this, arguments);
+    try {
+      poRepairInvalid() && render();
+    } catch (e) {
+      console.warn("po repair", e);
+    }
+    return r;
+  };
+}
+if ("function" == typeof renderPODoc) {
+  const base = renderPODoc;
+  renderPODoc = function (po) {
+    const h = base.apply(this, arguments);
+    if (!po || !po.repaired) return h;
+    return (
+      `<div class="note warn"><b>Taken back to draft.</b> This order had issued with ${esc(po.repaired.why)}; its materials are back on the Buy Board. Choose the supplier and price the lines, then Issue PO. <span class="small muted">${fmt(po.repaired.at)}</span></div>` +
+      h
+    );
+  };
+}
+
+// ---- a bill the reader makes from a vendor's mail lands on its purchase order (review finding 2)
+// The PO a message names: a PO number in the subject, body or attachment text; failing that, the vendor's
+// one open order. Null when it names none and the vendor has several or no open orders.
+function cmBillPO(c, p) {
+  const text = [c && c.subject, c && c.text, ...((c && c.attachments) || []).map((a) => a.text || "")].join("\n"),
+    nums = [...new Set((text.match(/\bPO[-\s]?\d{4}[-\s]?\d{3,}\b/gi) || []).map((x) => x.replace(/\s+/g, "-").toUpperCase()))],
+    byNum = nums.map((n) => (DB.pos || []).find((po) => String(po.number).toUpperCase() === n)).filter((po) => po && "cancelled" !== po.status);
+  if (byNum.length) return byNum[0];
+  const vn = String((p && p.vendor) || "").toLowerCase(),
+    open = vn ? (DB.pos || []).filter((po) => String(po.vendor || "").toLowerCase() === vn && ["issued", "partial"].includes(po.status)) : [];
+  return 1 === open.length ? open[0] : null;
+}
+// Put a bill on its PO: the job, the first PO line's estimate line, cost code and the PO's category (subs,
+// materials...), never office. The bill's first line points at the PO line so Bill Remaining counts it.
+function poLinkBill(b, po) {
+  if (!b || !po) return b;
+  const l = (po.lines || [])[0] || {};
+  (b.poId = po.id),
+    (b.projectId = po.projectId || b.projectId || ""),
+    (b.cat = ("function" == typeof poCat && poCat(po)) || "subs"),
+    (b.code = l.code || b.code || ""),
+    (b.line = l.line || b.line || ""),
+    (b.lines || []).forEach((x, i) => {
+      0 === i && ((x.poLineId = l.id || ""), (x.line = l.line || x.line || ""), (x.code = l.code || x.code || ""));
+    });
+  return b;
+}
+
+// ---- a submittal response recorded on a reviewer's behalf says so (review finding 3)
+// How a step was answered, for the stamp, the register and the PO: the client's own portal approval, a
+// response someone recorded for the reviewer (with the stamped copy when attached), or nothing for a reviewer
+// who answered as themselves.
+function smHowText(st) {
+  if (!st || !st.respondedOn) return "";
+  if (st.portal) return " · approved on the portal";
+  if (st.recordedBy && st.onBehalf) return ` · recorded by ${st.recordedBy} on behalf of ${smWho(st)}${st.evidence ? ` · ${st.evidence}` : ""}`;
+  if (st.recordedBy) return ` · read from ${st.recordedBy}`;
+  return st.evidence ? ` · ${st.evidence}` : "";
+}
+// The reviewer is told: a Messages line on the job and a task to confirm what was recorded for them.
+function smBehalfNotice(s, p, st) {
+  try {
+    const who = st.name || smWho(st),
+      first = String(who).split(" ")[0];
+    (p.chat = p.chat || []).push({
+      id: uid("ch"),
+      by: "System",
+      text: `${s.number}: ${SM_STAMP[st.stamp] || st.stamp} recorded by ${st.recordedBy} on behalf of ${smWho(st)}${st.evidence ? ` (${st.evidence})` : ""} — ${first}, confirm it is yours.`,
+      t: nowStamp(),
+      files: [],
+      system: !0,
+      submId: s.id,
+    });
+    "client" !== st.role &&
+      "lpc" !== st.role &&
+      cmTask(`Confirm the ${(SM_STAMP[st.stamp] || st.stamp).toLowerCase()} recorded for you on ${s.number} ${s.title}`, p.id, who);
+  } catch (e) {
+    console.warn("submittal on-behalf notice", e);
+  }
+}
+
+// ---- a PO over the threshold reaches the owner (review finding 4)
+// Whose queue: the owner's. The producer sits in the root mApprovals; the last delegation layer hands it over.
+DELEGATION.po = { role: "owner", rule: "a purchase order over the approval threshold waits on the owner, who approves and issues it or sends it back" };
+APPR_CHIPS.some(([k]) => "po" === k) || APPR_CHIPS.splice(APPR_CHIPS.length - 1, 0, ["po", "Purchase Orders"]);
+// The one yes on a pending PO, from Approvals or Do Now: the owner's approve-and-issue through poAction, so the
+// validator, the submittal gate and the vendor block all still apply.
+function apprPOYes(it) {
+  const po = (DB.pos || []).find((x) => x.id === it.id);
+  if (!po) return;
+  const keep = S,
+    p = DB.projects.find((x) => x.id === po.projectId);
+  p && (S = p);
+  try {
+    poAction(po, "approve");
+  } catch (e) {
+    console.warn(e), toast("Could not approve: " + (e.message || e));
+  }
+  (S = keep), render();
+}
+function apprPONo(it) {
+  const po = (DB.pos || []).find((x) => x.id === it.id);
+  if (!po) return;
+  mbModal(
+    `Send Back — <span data-nocase>${esc(po.number)}</span>`,
+    `<p class="small muted" style="margin:0 0 10px">${esc(po.vendor)} · ${money(poTotal(po).total)}. It goes back to draft for ${esc(po.submittedBy || "the coordinator")} with your note.</p>${mbF("Why", '<input data-f="why" placeholder="e.g. get a second price; the line is over budget" enterkeyhint="done">')}`,
+    {
+      submit: "Send Back",
+      onSubmit: (f) => {
+        if (!f.why) return toast("Say why it goes back"), !1;
+        const keep = S,
+          p = DB.projects.find((x) => x.id === po.projectId);
+        p && (S = p);
+        try {
+          (po.sentBack = { by: smMe(), at: today(), why: f.why }), poAction(po, "reject");
+        } catch (e) {
+          console.warn(e);
+        }
+        (S = keep), render();
+        rcToast(`${po.number} sent back to draft — ${f.why}`, flowCan("po") ? [{ label: `Open ${po.number}`, run: flowGo.po(po) }] : null);
+      },
+    },
+  );
+}
+if ("function" == typeof renderMApprove) {
+  const base = renderMApprove;
+  renderMApprove = function () {
+    const r = base.apply(this, arguments);
+    try {
+      const v = document.getElementById("v-mapprove"),
+        items = v ? mApprovals() : [];
+      v &&
+        v.querySelectorAll('.m-appr[data-mk="po"]').forEach((el) => {
+          const it = items.find((x) => "po" === x.kind && String(x.id) === el.dataset.mid);
+          if (!it) return;
+          const yes = el.querySelector("[data-myes]"),
+            no = el.querySelector("[data-mno]");
+          yes && (yes.onclick = () => apprPOYes(it)), no && (no.onclick = () => apprPONo(it));
+        });
+    } catch (e) {
+      console.warn("po approvals", e);
+    }
+    return r;
+  };
+}
+// Open from Approvals or Do Now lands on the PO record.
+{
+  const base = mGo;
+  mGo = function (go) {
+    if (go && go.po && "po" === go.view) {
+      const po = (DB.pos || []).find((x) => x.id === go.po);
+      if (po) return po.projectId && setCurrent(po.projectId), (poOpen = po.id), (view = "po"), render(), void window.scrollTo(0, 0);
+    }
+    return base.apply(this, arguments);
+  };
+}
+// The Do Now card: what it is, why now, one verb (Approve).
+if ("function" == typeof tdCard) {
+  const base = tdCard;
+  tdCard = function (it) {
+    const c = base.apply(this, arguments);
+    if (!it || "po" !== it.kind) return c;
+    const po = (DB.pos || []).find((x) => x.id === it.id);
+    if (!po) return c;
+    const p = DB.projects.find((x) => x.id === po.projectId);
+    (c.line1 = `<a href="#" data-tdrec>${esc(po.number)}</a> · ${esc(po.vendor)}`),
+      (c.go = flowGo.po(po)),
+      (c.why = [money(poTotal(po).total), `over the ${money(DB.company.poApprovalOver)} threshold`, po.submittedBy ? `from ${po.submittedBy}` : "", p ? tdJob(p) : ""].filter(Boolean).map(esc).join(" · ")),
+      (c.verb = "Approve"),
+      (c.run = () => apprPOYes(it));
+    return c;
+  };
+}
+if ("function" == typeof tdScore) {
+  const base = tdScore;
+  tdScore = function (it) {
+    return it && "po" === it.kind ? 45 + ("bad" === it.sev ? 5 : 2) : base.apply(this, arguments);
+  };
+}
+// Submit and approve say what happened, with Open: the submit path had no toast, so the coordinator did not
+// know the PO had left her hands.
+{
+  const base = poAction;
+  poAction = function (po, a) {
+    const was = po ? po.status : "",
+      r = base.apply(this, arguments);
+    try {
+      if (po && ["issue", "submit"].includes(a) && "draft" === was && "pending" === po.status)
+        rcToast(
+          `${po.number} sent for the owner's approval — ${money(poTotal(po).total)} is over the ${money(DB.company.poApprovalOver)} threshold`,
+          flowCan("po") ? [{ label: `Open ${po.number}`, run: flowGo.po(po) }] : null,
+        );
+      else if (po && "approve" === a && "pending" === was && "issued" === po.status)
+        rcToast(`${po.number} approved and issued to ${po.vendor} — ${money(poTotal(po).total)}`, flowCan("po") ? [{ label: `Open ${po.number}`, run: flowGo.po(po) }] : null);
+    } catch (e) {}
+    return r;
+  };
+}
+// ---- the reader finishes the job it started (review findings 6, 8, 9; BACKLOG §1.5 #4, §1.7 #4)
+// Vendor mail that moves records becomes a proposal of its own kind, read on top of the brain's classification
+// (cmRead) and applied here: a delivery date on an open order (eta), a paid order ready at the yard (pickup),
+// a credit memo against a statement credit and the original purchase (credit). A quote's Apply prices the line
+// and links the PDF; a receipt's Apply codes the card line to the job and category it names.
+"object" == typeof CM_CATS && Object.assign(CM_CATS, { eta: "Delivery date", pickup: "Pickup", credit: "Credit memo" });
+const CM_MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+// A date in a vendor's words ("Friday September 18", "9/18", "by Friday"), as ISO on the app clock.
+function cmDateIn(text) {
+  const t = String(text || ""),
+    yr = appNow().getFullYear(),
+    m = t.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b(?:,?\s*(\d{4}))?/i);
+  if (m) {
+    const mo = CM_MONTHS.indexOf(m[1].slice(0, 3).toLowerCase()),
+      y = m[3] ? +m[3] : yr,
+      d = iso(new Date(y, mo, +m[2]));
+    return !m[3] && d < iso(addDays(today(), -60)) ? iso(new Date(y + 1, mo, +m[2])) : d;
+  }
+  const n = t.match(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/);
+  if (n) {
+    const y = n[3] ? (n[3].length === 2 ? 2000 + +n[3] : +n[3]) : yr;
+    return iso(new Date(y, +n[1] - 1, +n[2]));
+  }
+  try {
+    return "function" == typeof fParseDate ? fParseDate(t) || "" : "";
+  } catch (e) {
+    return "";
+  }
+}
+// The job a text names: a project's short name, or its street number and name ("121 State").
+function cmJobNamed(text) {
+  const low = String(text || "").toLowerCase();
+  return (
+    (DB.projects || []).find((p) => {
+      const nm = String((p.project || {}).name || "").replace(/ —.*$/, "").toLowerCase(),
+        two = nm.split(/\s+/).slice(0, 2).join(" ");
+      return (nm && low.includes(nm)) || (two.length > 4 && /\d/.test(two) && low.includes(two));
+    }) || null
+  );
+}
+const cmVendorWord = (name) =>
+  String(name || "")
+    .toLowerCase()
+    .split(/\s+/)
+    .find((w) => w.length > 3) || String(name || "").toLowerCase();
+// Proposals for an incoming vendor message, added to what the brain read.
+function cmVendorMailProposals(c, P) {
+  const R = c.route || cmRoute(c),
+    v = R && R.vendorId && (DB.vendors || []).find((x) => x.id === R.vendorId),
+    // a supplier not on file yet (Brooklyn Lumber in the review) still gets its pickup read; the brain's
+    // unrouted proposal creates the vendor beside it
+    who = v ? v.name : (c.from && (c.from.name || String(c.from.email || "").split("@")[1])) || "";
+  if (!who || "out" === c.direction || (R && (R.clientId || R.employee))) return;
+  const all = [c.subject, c.text, ...(c.attachments || []).map((a) => a.text || "")].join("\n"),
+    low = all.toLowerCase(),
+    push = (kind, summary, o) => P.push(Object.assign({ id: uid("cp"), kind: kind, summary: summary, on: !0, vendorId: v ? v.id : "", vendorName: who }, o || {})),
+    vn = who.toLowerCase(),
+    open = (DB.pos || []).filter((po) => String(po.vendor || "").toLowerCase() === vn && ["issued", "partial"].includes(po.status)),
+    named = (all.match(/\bPO[-\s]?\d{4}[-\s]?\d{3,}\b/gi) || []).map((x) => x.replace(/\s+/g, "-").toUpperCase()),
+    po = open.find((x) => named.includes(String(x.number).toUpperCase())) || (1 === open.length ? open[0] : null);
+  // a delivery date for an open order
+  if (v && po && /\b(deliver|delivery|delivers|arrive|arrives|arriving|on the truck|ship|ships|shipping|lands)\b/i.test(low) && !/\bpick ?up\b|ready at the yard/i.test(low)) {
+    const seg = (all.match(/[^.\n]*\b(deliver\w*|arriv\w*|ship\w*|truck|lands)\b[^.\n]*/i) || [])[0] || all,
+      d = cmDateIn(seg);
+    d &&
+      d !== po.expected &&
+      push("eta", `${who}: ${po.number} ${/deliver/i.test(seg) ? "delivers" : "arrives"} ${fmtL(d)}${po.expected ? ` — the order says ${fmtL(po.expected)}` : " — the order has no date"}; set the expected date`, {
+        poId: po.id,
+        date: d,
+        was: po.expected || "",
+        projectId: po.projectId,
+      });
+  }
+  // a paid order ready for pickup
+  if (/ready (for|to) (pick ?up|collect)|ready at the yard|ready for collection/i.test(low)) {
+    const list = (all.match(/(?:ready[^:\n]*:|yard:)\s*([^.\n]+)/i) || [])[1] || "",
+      items = list
+        .split(/,|;| and /)
+        .map((x) => x.trim())
+        .filter(Boolean)
+        .map((x) => {
+          const q = x.match(/^(\d+(?:\.\d+)?)\s*(ea|pcs?|boxes?|bags?|sheets?|boards?|lf|sf)?\s*(.+)$/i);
+          return q ? { what: q[3].trim(), qty: +q[1], unit: (q[2] || "ea").toLowerCase() } : { what: x, qty: 1, unit: "ea" };
+        }),
+      by = cmDateIn((all.match(/(?:pick ?up|collect)[^.\n]*?\b(by|before)\b[^.\n]*/i) || [])[0] || "") || "",
+      amt = +((all.match(/\$\s?([\d,]+(?:\.\d{2})?)/) || [])[1] || "").replace(/,/g, "") || 0,
+      ref = (all.match(/order\s*#?\s*(\d{3,})/i) || [])[1] || "",
+      job =
+        (R.projectId && (DB.projects || []).find((x) => x.id === R.projectId)) ||
+        cmJobNamed(all) ||
+        (DB.projects || []).find((p) => items.some((it) => (p.materials || []).some((m) => cmVendorWord(it.what) && String(m.name).toLowerCase().includes(cmVendorWord(it.what))))) ||
+        null;
+    items.length &&
+      push("pickup", `${who}: ${items.map((i) => `${i.qty} ${i.unit} ${i.what}`).join(", ")} ready at the yard${amt ? `, paid ${money(amt)}` : ""}${by ? ` — pick up by ${fmtL(by)}` : ""}${job ? ` · a stop on the driver's route for ${String(job.project.name).replace(/ —.*$/, "")}` : " · no job named"}`, {
+        items: items,
+        by: by,
+        amount: amt,
+        orderRef: ref,
+        projectId: job ? job.id : "",
+      });
+  }
+  // a credit memo: the statement credit and the original purchase
+  if (v && /credit memo|credit (has been|was) issued|refund(ed)? (of|for)|credited to (the|your) card|credit of \$/i.test(low)) {
+    const amt = +((all.match(/\$\s?([\d,]+(?:\.\d{2})?)/) || [])[1] || "").replace(/,/g, "") || 0,
+      w = cmVendorWord(who),
+      txn = amt ? (DB.txns || []).find((t) => +t.amt > 0 && Math.abs(+t.amt - amt) < 0.01 && !t.retId && String(t.desc || "").toLowerCase().includes(w)) : null,
+      orig = (DB.txns || [])
+        .filter((t) => +t.amt < 0 && String(t.desc || "").toLowerCase().includes(w) && t.date <= (c.date || "").slice(0, 10) && t.date >= iso(addDays((c.date || today()).slice(0, 10), -120)))
+        .sort((a, b) => b.date.localeCompare(a.date))[0],
+      im = all.match(/returned\s+([^()\n]+?)\s*\((\d+)\s*(\w+)\)/i) || all.match(/(\d+)\s*(boxes?|ea|pcs?|cases?)\s+(?:of\s+)?([A-Z][\w./-]*(?:\s+[\w./-]+){0,4})/),
+      item = im ? (im.length === 4 && /^\d+$/.test(im[2]) ? { name: im[1].trim(), qty: +im[2], unit: im[3] } : { name: im[3].trim(), qty: +im[1], unit: im[2] }) : { name: (c.subject || "credit").replace(/^.*credit memo/i, "").trim() || "returned goods", qty: 1, unit: "ea" },
+      ref = (all.match(/order\s*#?\s*(\d{3,})/i) || [])[1] || "";
+    amt &&
+      push("credit", `${who} credited ${money(amt)} for ${item.name}${item.qty > 1 ? ` (${item.qty} ${item.unit})` : ""}${txn ? ` — matches the ${fmtL(txn.date)} statement credit` : " — no statement credit yet; watch for it"}${orig ? `, against the ${fmtL(orig.date)} purchase${orig.projectId ? " on " + String(((DB.projects || []).find((p) => p.id === orig.projectId) || { project: {} }).project.name || "").replace(/ —.*$/, "") : ""}` : ""}`, {
+        amount: amt,
+        txnId: txn ? txn.id : "",
+        originalTxnId: orig ? orig.id : "",
+        projectId: (orig && orig.projectId) || R.projectId || "",
+        item: item,
+        orderRef: ref,
+      });
+  }
+}
+{
+  const base = cmRead;
+  cmRead = function (c) {
+    const P = base.apply(this, arguments);
+    try {
+      Array.isArray(P) && cmVendorMailProposals(c, P);
+    } catch (e) {
+      console.warn("vendor mail proposals", e);
+    }
+    return P;
+  };
+}
+// The quote's PDF goes on the job, linked to the line it prices, before the message's attachments are filed.
+function cmLinkQuoteFile(c, p) {
+  const pr = p.projectId && (DB.projects || []).find((x) => x.id === p.projectId),
+    m = pr && p.materialId && (pr.materials || []).find((x) => x.id === p.materialId),
+    a = (c.attachments || []).find((x) => !x.filedTo && /pdf|quote|estimate/i.test(`${x.type || ""} ${x.name || ""}`));
+  if (!pr || !m || !a) return;
+  const fid = uid("f");
+  (pr.files = pr.files || []).push({
+    id: fid,
+    name: a.name,
+    type: a.type || "application/pdf",
+    size: a.size || 0,
+    cat: "doc",
+    date: (c.date || "").slice(0, 10) || today(),
+    by: (currentUser() || {}).name || role(),
+    link: { kind: "comm", id: c.id },
+    materialId: m.id,
+    notes: `Quote from ${(c.from && (c.from.name || c.from.email)) || "the vendor"} — prices ${m.name}`,
+    shareClient: !1,
+    ai: null,
+    persisted: !1,
+    pending: !0,
+  }),
+    (a.filedTo = `${pr.project.name} — documents (Buy Board line ${m.name})`),
+    (a.fileId = fid),
+    (m.quoteFileId = fid);
+}
+function cmApplyEta(c, p, by) {
+  const po = (DB.pos || []).find((x) => x.id === p.poId);
+  if (!po) return "the order is gone";
+  const was = po.expected || "";
+  po.expected = p.date;
+  const pr = (DB.projects || []).find((x) => x.id === po.projectId);
+  pr &&
+    (po.lines || []).forEach((l) => {
+      const m = l.materialId && (pr.materials || []).find((x) => x.id === l.materialId);
+      m && "on-site" !== m.status && (m.eta = p.date);
+    }),
+    (po.etaFrom = { commId: c.id, at: today(), by: by, was: was }),
+    log(`${po.number} expected ${fmtL(p.date)}${was ? ` (was ${fmtL(was)})` : ""} — ${po.vendor} wrote`);
+  return `${po.number} expected ${fmtL(p.date)}${was ? ` (was ${fmtL(was)})` : ""} — the foreman's Arriving Today follows`;
+}
+function cmApplyPickup(c, p, by) {
+  const pr = (DB.projects || []).find((x) => x.id === p.projectId);
+  if (!pr) return "no job named — say which job it is for";
+  const v = (DB.vendors || []).find((x) => x.id === p.vendorId),
+    vn = v ? v.name : p.vendorName || (c.from && c.from.name) || "the vendor",
+    keep = S;
+  S = pr;
+  let r = null;
+  try {
+    r = addRequest(
+      {
+        items: (p.items || []).map((i) => ({ what: i.what, qty: i.qty, unit: i.unit, pickupFrom: "v:" + vn })),
+        neededBy: p.by || addWork(today(), 1),
+        note: `Ready for pickup at ${vn}${p.orderRef ? ` (order ${p.orderRef})` : ""}${p.amount ? `, paid ${money(p.amount)}` : ""}`,
+        urgency: "normal",
+      },
+      vn,
+    );
+  } finally {
+    S = keep;
+  }
+  if (!r) return "nothing to pick up";
+  (r.status = "ack"),
+    (r.ackBy = by),
+    (r.ackAt = appNowIso()),
+    (r.pickupVendor = vn),
+    (r.orderRef = p.orderRef || ""),
+    (r.paid = p.amount || 0),
+    (r.fromComm = c.id),
+    (r.items || []).forEach((i) => (i.pickupFrom = "v:" + vn)),
+    r.log.push({ t: nowStamp(), by: by, text: `Pickup stop added for the driver — ${vn}` });
+  return `a pickup stop at ${vn} on the driver's route for ${String(pr.project.name).replace(/ —.*$/, "")}${p.by ? `, by ${fmtL(p.by)}` : ""}`;
+}
+function cmApplyCredit(c, p, by) {
+  const v = (DB.vendors || []).find((x) => x.id === p.vendorId),
+    vn = v ? v.name : (c.from && c.from.name) || "the vendor",
+    t = p.txnId && (DB.txns || []).find((x) => x.id === p.txnId),
+    orig = p.originalTxnId && (DB.txns || []).find((x) => x.id === p.originalTxnId),
+    pr = (DB.projects || []).find((x) => x.id === p.projectId),
+    item = p.item || { name: "returned goods", qty: 1, unit: "ea" },
+    qty = +item.qty || 1,
+    r = {
+      id: uid("rt"),
+      itemId: "",
+      projectId: pr ? pr.id : "",
+      vendor: vn,
+      manufacturer: "",
+      sku: "",
+      name: item.name,
+      reason: "returned",
+      qty: qty,
+      unitCost: r2((+p.amount || 0) / qty),
+      raisedAt: today(),
+      by: by,
+      receivedOn: orig ? orig.date : today(),
+      window: (v && +v.returnWindow) || 30,
+      returnBy: today(),
+      restockPct: 0,
+      freightBack: 0,
+      expect: "refund",
+      status: "shipped",
+      rma: p.orderRef || "",
+      rmaAt: "",
+      shippedAt: (c.date || "").slice(0, 10) || today(),
+      carrier: "",
+      tracking: "",
+      receivedAt: "",
+      location: "",
+      recovered: 0,
+      recoveredAt: "",
+      txnRef: "",
+      replacementItemId: "",
+      claimId: "",
+      owner: by,
+      note: `From ${vn}'s credit memo${p.orderRef ? ` on order ${p.orderRef}` : ""}`,
+      writeOff: null,
+      fromCredit: { commId: c.id, originalTxnId: orig ? orig.id : "" },
+      history: [{ at: today(), status: "shipped", by: by, note: "Read from the vendor's credit memo" }],
+    };
+  retList().unshift(r);
+  try {
+    audit("sel-return", r.id, "raised", null, { item: r.name, vendor: r.vendor, value: +p.amount || 0, from: "credit memo" });
+  } catch (e) {}
+  if (orig && !r.projectId) r.projectId = orig.projectId || "";
+  if (t) {
+    rmConfirm(r, t);
+    orig && ((t.creditOf = orig.id), orig.projectId && !t.projectId && (t.projectId = orig.projectId), orig.code && !t.code && (t.code = orig.code), orig.line && !t.line && (t.line = orig.line));
+  } else {
+    retSet(r, "shipped", { note: "Waiting for the credit on the statement" });
+  }
+  // the original purchase was billed on to the client: a client credit to approve in the Billing Queue
+  const cl = pr && (DB.clients || []).find((x) => x.id === pr.clientId),
+    billed = cl && (cl.invoices || []).some((i) => i.projectId === pr.id && "void" !== i.status);
+  billed &&
+    ((DB.clientCredits = DB.clientCredits || []),
+    DB.clientCredits.push({ id: uid("cc"), projectId: pr.id, clientId: cl.id, amount: +p.amount || 0, retId: r.id, txnId: t ? t.id : "", why: `${vn} credited ${money(+p.amount || 0)} for ${item.name}; the purchase was billed to the client`, status: "proposed", at: today(), by: by }));
+  return `return for ${item.name} matched to ${t ? `the ${fmtL(t.date)} statement credit` : "nothing yet — it waits for the credit"}${orig ? `, against the ${fmtL(orig.date)} purchase` : ""}${billed ? " · a client credit is proposed in the Billing Queue" : ""}`;
+}
+{
+  const base = cmApply;
+  cmApply = function (c, p) {
+    const by = (currentUser() || {}).name || role();
+    if (p && ["eta", "pickup", "credit"].includes(p.kind)) {
+      const did = "eta" === p.kind ? cmApplyEta(c, p, by) : "pickup" === p.kind ? cmApplyPickup(c, p, by) : cmApplyCredit(c, p, by);
+      (p.applied = did), (p.appliedAt = appNowIso()), (p.by = by);
+      try {
+        audit("comm", c.id, "apply-" + p.kind, "", did, "");
+      } catch (e) {}
+      return save(), did;
+    }
+    p && "quote" === p.kind && !p.out && p.materialId && cmLinkQuoteFile(c, p);
+    const did = base.apply(this, arguments);
+    if (p && "receipt" === p.kind && p.txnId) {
+      // the receipt names the job ("Job name entered at register: 121 State"): the card line is coded to it
+      const t = (DB.txns || []).find((x) => x.id === p.txnId),
+        job = (p.projectId && (DB.projects || []).find((x) => x.id === p.projectId)) || cmJobNamed([c.subject, c.text, ...(c.attachments || []).map((a) => a.text || "")].join("\n"));
+      if (t) {
+        job && !t.projectId && (t.projectId = job.id),
+          (!t.cat || "uncat" === t.cat) && ((t.cat = "materials"), (t.status = "categorized"), (t.actor = by)),
+          job && (p.applied = `${did} — coded to ${String(job.project.name).replace(/ —.*$/, "")}, ${t.cat}`),
+          save();
+        return p.applied;
+      }
+    }
+    return did;
+  };
+}
+
+// ---- dates (review finding 11): a due date lands on a working day
+function poWorkday(d) {
+  const x = parse(d);
+  if (!x) return d || "";
+  const dow = x.getDay();
+  return 0 === dow ? iso(addDays(x, 1)) : 6 === dow ? iso(addDays(x, 2)) : iso(x);
+}
+
+// ---- polish (review finding 15): one blocked-vendor predicate; Expedite on an ordered line with no PO
+predDef("vendorsBlocked", {
+  label: "Blocked",
+  rule: "no current certificate of insurance (none on file, or expired) and an order open with them: no new purchase order until it lands",
+  test: (v) => {
+    if (!v) return !1;
+    const td = today(),
+      n = String(v.name || "").toLowerCase();
+    return (!v.insuranceExp || v.insuranceExp < td) && (DB.pos || []).some((po) => String(po.vendor || "").toLowerCase() === n && ["issued", "partial", "pending"].includes(po.status));
+  },
+  rows() {
+    return (DB.vendors || []).filter((v) => this.test(v));
+  },
+});
+// Expedite an ordered line that has no purchase order behind it: who has it, when it lands, and a chase.
+function buyExpedite(p, mid) {
+  const m = p && (p.materials || []).find((x) => x.id === mid);
+  if (!m) return;
+  const vendors = (DB.vendors || []).slice().sort((a, b) => String(a.name).localeCompare(String(b.name))),
+    { needBy } = withProject(p, () => matDates(m));
+  mbModal(
+    `Expedite — <span data-nocase>${esc(m.name)}</span>`,
+    `<p class="small muted" style="margin:0 0 10px">Marked ordered with no purchase order behind it${needBy ? `; the site needs it ${fmtL(needBy)}` : ""}. Say who has the order and when it lands; the chase goes to your mailbox as a draft.</p>${mbF("Vendor", `<select data-f="vendor"><option value="">— choose —</option>${vendors.map((v) => `<option value="${esc(v.name)}" ${v.name === m.vendor ? "selected" : ""}>${esc(v.name)}</option>`).join("")}</select>`)}<div class="grid2">${mbF("Vendor Promised", `<input type="date" data-f="eta" value="${esc(m.eta || "")}">`)}${mbF("Note", '<input data-f="note" placeholder="what they said">')}</div><label class="small"><input type="checkbox" data-f="chase" checked> Draft a chase to the vendor asking for the delivery date</label>`,
+    {
+      submit: "Save",
+      onSubmit: (f) => {
+        if (!f.vendor) return toast("Choose the vendor — someone has to have the order"), !1;
+        const by = (currentUser() || {}).name || role();
+        (m.vendor = f.vendor), f.eta && (m.eta = f.eta), (m.expedite = { at: today(), by: by, note: f.note || "" });
+        log(`${m.name}: expedited with ${f.vendor}${f.eta ? `, promised ${fmtL(f.eta)}` : ""}${f.note ? ` — ${f.note}` : ""}`), save(), render();
+        const v = (DB.vendors || []).find((x) => x.name === f.vendor);
+        f.chase && v
+          ? eaNudge({ kind: "expedite", t: `${v.name} — ${m.name}`, vendor: v, subject: `${m.name} for ${String(p.project.name).replace(/ —.*$/, "")} — delivery date`, msg: `Hi — where does our order for ${m.name} stand? The site needs it ${needBy ? fmtL(needBy) : "soon"}. Please confirm the delivery date today. Thanks.` })
+          : rcToast(`${m.name} expedited with ${f.vendor}${f.eta ? ` — promised ${fmtL(f.eta)}` : ""}`, [{ label: "Open", run: () => openEditor("mat", m.id) }]);
+      },
+    },
+  );
+}
+
+// ---- returns and refunds (BACKLOG §1.5 #4): a credit names what it relieves
+// A vendor credit or refund on the bank or card is scored against the same vendor's purchases in the last
+// 90 days: the card or bank line it reverses (creditOf) and the bill and PO it relieves (creditBillId,
+// creditPOId). It is a proposal; coding it (pay3Suggest proposes refund on the original's job, code and
+// line) or matching it to a return confirms it. When the original was billed on to the client, the Billing
+// Queue proposes a credit to the client.
+function txnCreditScan(t) {
+  if (!t || !(+t.amt > 0) || t.creditOf || t.creditBillId || t.retId || ["transfer", "cc-payment", "income", "loan", "owner"].includes(t.cat)) return null;
+  const amt = +t.amt,
+    since = iso(addDays(t.date || today(), -90)),
+    name = (u) => u.vendor || ("function" == typeof pay3PayeeName ? pay3PayeeName(u) : u.desc),
+    hit = (nm) => ("function" == typeof pay3NameHit ? pay3NameHit(nm, t) : !1),
+    orig = (DB.txns || [])
+      .filter((u) => u.id !== t.id && +u.amt < 0 && u.date >= since && u.date <= (t.date || today()) && hit(name(u)) && Math.abs(+u.amt) >= amt - 0.005)
+      .map((u) => ({ u: u, s: (Math.abs(Math.abs(+u.amt) - amt) < 0.01 ? 0 : 1) * 1e6 + dayDiff(u.date, t.date || today()) }))
+      .sort((a, b) => a.s - b.s)[0],
+    digits = (String(t.desc || "").match(/\d{4,}/g) || []).filter((x) => !/^20\d\d$/.test(x)),
+    bill = (DB.bills || [])
+      .filter((b) => !["void", "rejected", "draft"].includes(b.status) && hit(b.vendor))
+      .map((b) => ({ b: b, s: digits.some((d) => String(b.number || "").includes(d)) ? 0 : b.date >= since && billGross(b) >= amt - 0.005 ? 1 : 9 }))
+      .filter((x) => x.s < 9)
+      .sort((a, b) => a.s - b.s || String(b.b.date).localeCompare(String(a.b.date)))[0];
+  if (!orig && !bill) return null;
+  const o = orig && orig.u,
+    b = bill && bill.b;
+  o && (t.creditOf = o.id);
+  b && ((t.creditBillId = b.id), b.poId && (t.creditPOId = b.poId));
+  t.creditState = "proposed";
+  // a rule already coded it as a vendor credit: it takes the original's job, code and line, still to confirm
+  const src = (o && (o.projectId || o.code) && o) || b;
+  "refund" === t.cat && src && !t.projectId && ((t.projectId = src.projectId || ""), t.code || (t.code = src.code || ""), t.line || (t.line = src.line || ""));
+  return t;
+}
+function txnCreditWhy(t) {
+  const o = t.creditOf && (DB.txns || []).find((x) => x.id === t.creditOf),
+    b = t.creditBillId && (DB.bills || []).find((x) => x.id === t.creditBillId),
+    po = t.creditPOId && (DB.pos || []).find((x) => x.id === t.creditPOId);
+  return [
+    o ? `credit for the ${fmt(o.date)} purchase (${money(Math.abs(+o.amt))}${o.projectId ? " on " + pay3JobName(o.projectId) : ""})` : "",
+    b ? `against bill ${b.number || ""}${po ? " on " + po.number : ""}` : "",
+  ]
+    .filter(Boolean)
+    .join(", ");
+}
+{
+  const base = applyRules;
+  applyRules = function (t) {
+    const r = base.apply(this, arguments);
+    try {
+      txnCreditScan(t);
+    } catch (e) {
+      console.warn("credit scan", e);
+    }
+    return r;
+  };
+}
+// The suggestion for a linked credit: refund, on the original's job, code and line.
+if ("function" == typeof pay3Suggest) {
+  const base = pay3Suggest;
+  pay3Suggest = function (t) {
+    if (t && +t.amt > 0 && (!t.cat || "uncat" === t.cat) && !t.billId) {
+      const o = t.creditOf && (DB.txns || []).find((x) => x.id === t.creditOf),
+        b = t.creditBillId && (DB.bills || []).find((x) => x.id === t.creditBillId),
+        src = o && (o.projectId || o.code) ? o : b;
+      if (src)
+        return {
+          src: "credit",
+          projectId: src.projectId || "",
+          code: src.code || "",
+          cat: "refund",
+          line: src.line || "",
+          why: `${txnCreditWhy(t)} — a vendor credit reduces that job's cost`,
+        };
+    }
+    return base.apply(this, arguments);
+  };
+}
+if ("function" == typeof pay3Accept) {
+  const base = pay3Accept;
+  pay3Accept = function (id) {
+    const r = base.apply(this, arguments),
+      t = (DB.txns || []).find((x) => x.id === id);
+    t && r && (t.creditOf || t.creditBillId) && "refund" === t.cat && (t.creditState = "confirmed");
+    return r;
+  };
+}
+// The bank list says what a credit is and what it is against.
+if ("function" == typeof txnState) {
+  const base = txnState;
+  txnState = function (t) {
+    const st = base.apply(this, arguments);
+    try {
+      if (t && +t.amt > 0 && (t.creditOf || t.creditBillId) && "proposed" === t.creditState && !t.retId && "reconciled" !== t.status) {
+        const coded = t.cat && "uncat" !== t.cat,
+          byPerson = coded && t.actor && "rule" !== t.actor;
+        if (!byPerson)
+          return { sev: coded ? Math.max(1, st.sev || 0) : 2, msg: `Vendor credit — ${txnCreditWhy(t)}; confirm it against the original` };
+      }
+    } catch (e) {}
+    return st;
+  };
+}
+// A credit on a line already billed to the client: the client is owed it, proposed in the Billing Queue.
+function txnClientCredits() {
+  return (DB.txns || [])
+    .filter((t) => +t.amt > 0 && (t.creditOf || t.creditBillId) && !t.clientCreditDone)
+    .map((t) => {
+      const o = t.creditOf && (DB.txns || []).find((x) => x.id === t.creditOf),
+        b = t.creditBillId && (DB.bills || []).find((x) => x.id === t.creditBillId),
+        line = (b && b.line) || (o && o.line) || t.line || "",
+        pid = (b && b.projectId) || (o && o.projectId) || t.projectId || "",
+        f = line && "function" == typeof lineFin ? lineFin(line) : null;
+      return f && f.billed > 0 && pid ? { t: t, projectId: pid, line: line, amount: r2(+t.amt), vendor: (b && b.vendor) || (o && (o.vendor || pay3PayeeName(o))) || "the vendor" } : null;
+    })
+    .filter(Boolean);
+}
+// The client is owed a vendor credit on a line already billed to them: one Billing Queue row per credit, from
+// the reader's credit memo (DB.clientCredits) or from a bank credit linked to its original (txnClientCredits).
+// Billing approves it; nothing is credited without that.
+function blCreditRows() {
+  const out = [],
+    seen = new Set();
+  (DB.clientCredits || []).forEach((cc) => {
+    if ("void" === cc.status) return;
+    const p = (DB.projects || []).find((x) => x.id === cc.projectId),
+      c = (DB.clients || []).find((x) => x.id === cc.clientId);
+    cc.txnId && seen.add(cc.txnId),
+      p &&
+        out.push({ id: "credit:" + cc.id, kind: "credit", cc: cc, key: "credit:" + cc.id, client: c || null, job: p, amount: -Math.abs(+cc.amount || 0), date: cc.at || "", approved: "approved" === cc.status, what: `Credit the client ${money(cc.amount)}`, why: cc.why, needs: "proposed" === cc.status });
+  });
+  txnClientCredits().forEach((x) => {
+    if (seen.has(x.t.id)) return;
+    const p = (DB.projects || []).find((y) => y.id === x.projectId),
+      c = p && (DB.clients || []).find((y) => y.id === p.clientId);
+    p &&
+      out.push({
+        id: "credit:t:" + x.t.id,
+        kind: "credit",
+        txn: x.t,
+        key: "credit:t:" + x.t.id,
+        client: c || null,
+        job: p,
+        amount: -x.amount,
+        date: x.t.date || "",
+        approved: !1,
+        what: `Credit the client ${money(x.amount)}`,
+        why: `${x.vendor} credited ${money(x.amount)} on a line already billed to ${c ? c.name : "the client"} (${txnCreditWhy(x.t)})`,
+        needs: !0,
+      });
+  });
+  return out;
+}
+{
+  const base = billingRows;
+  billingRows = function () {
+    const rows = base.apply(this, arguments) || [];
+    try {
+      return rows.concat(blCreditRows());
+    } catch (e) {
+      return console.warn("client credit rows", e), rows;
+    }
+  };
+}
+function blCreditAct(row) {
+  if (!row) return;
+  if (row.approved) return blOpenRow(row);
+  const amt = Math.abs(row.amount),
+    who = row.client ? row.client.name : "the client";
+  mbModal(
+    `Approve Credit — <span data-nocase>${esc(who)}</span>`,
+    `<p class="small" style="margin:0 0 8px">${esc(row.why)}.</p><p class="small muted" style="margin:0">Approving records that ${esc(who)} is owed ${money(amt)} on ${esc(String(row.job.project.name).replace(/ —.*$/, ""))}; it goes on their next invoice as a credit line. Nothing is sent to the client from here.</p>`,
+    {
+      submit: "Approve Credit",
+      onSubmit: () => {
+        const by = (currentUser() || {}).name || role();
+        let cc = row.cc;
+        cc ||
+          ((DB.clientCredits = DB.clientCredits || []),
+          (cc = { id: uid("cc"), projectId: row.job.id, clientId: row.client ? row.client.id : "", amount: amt, txnId: row.txn ? row.txn.id : "", why: row.why, status: "proposed", at: today(), by: by }),
+          DB.clientCredits.push(cc));
+        (cc.status = "approved"), (cc.approvedBy = by), (cc.approvedAt = today()), row.txn && (row.txn.clientCreditDone = cc.id);
+        try {
+          audit("client-credit", cc.id, "approved", "proposed", money(amt), row.why);
+        } catch (e) {}
+        save(), render();
+        rcToast(`Credit of ${money(amt)} to ${who} approved — it goes on the next invoice`, [{ label: "Open", run: () => ((view = "billing"), (billTab = "billable"), render()) }]);
+      },
+    },
+  );
+}
+// The bank list names a vendor credit and what it relieves, on the row, with Confirm.
+function txnCreditLine(t) {
+  if (!t || !(+t.amt > 0) || !(t.creditOf || t.creditBillId) || "proposed" !== t.creditState || t.retId) return "";
+  const coded = t.cat && "uncat" !== t.cat;
+  if (coded && t.actor && "rule" !== t.actor) return "";
+  return `<span class="sub warn-t">Vendor credit — ${esc(txnCreditWhy(t))} <button type="button" class="btn sm" data-crconfirm="${esc(t.id)}">Confirm</button></span>`;
+}
+document.addEventListener(
+  "click",
+  (e) => {
+    const b = e.target.closest && e.target.closest("[data-crconfirm]");
+    if (!b) return;
+    e.preventDefault(), e.stopPropagation();
+    const t = (DB.txns || []).find((x) => x.id === b.dataset.crconfirm);
+    if (!t) return;
+    const coded = t.cat && "uncat" !== t.cat;
+    coded || ("function" == typeof pay3Accept && pay3Accept(t.id, !0));
+    (t.creditState = "confirmed"), (t.actor = (currentUser() || {}).name || role());
+    try {
+      audit("txn", t.id, "credit-confirmed", "proposed", txnCreditWhy(t), "");
+    } catch (err) {}
+    save(), render();
+    rcToast(`${t.desc} confirmed as a vendor credit — ${txnCreditWhy(t)}`, "function" == typeof flowGo && flowCan("bank") ? [{ label: "Open", run: flowGo.view("bank") }] : null);
+  },
+  !0,
+);
+
+
+
+// ---------------------------------------------------------------------------------------------------------
+// clientfix (round 5, the client reviewer): what a client does on the portal is handled activity for the
+// firm, never inbox work; a client's question is one Do Now item for the PM with a drafted reply; the client
+// has an Ask door (header, Chat switch, a pa surface scoped like every Ask path) and the intents a client
+// really uses; the chips wrap on a phone; Already Settled holds everything settled.
+// ---------------------------------------------------------------------------------------------------------
+
+// ---- the PM's first name, as the client reads it ("Sent to Alan")
+function clPmName(p) {
+  let pm = null;
+  try {
+    const pub = p && p.published;
+    pm = (pub && pub.pm && pub.pm.name ? pub.pm : null) || ("function" == typeof fPeople ? fPeople().pm : null) || null;
+  } catch (e) {}
+  if (!pm || !pm.name)
+    try {
+      pm = (DB.users || []).find((u) => "pm" === u.role) || null;
+    } catch (e) {}
+  return (pm && pm.name) || "your project manager";
+}
+const clPmFirst = (p) => String(clPmName(p)).split(" ")[0];
+
+// ---- one handled activity line in Project Messages for everything a client does on the portal
+function clActivity(p, o) {
+  if (!p) return null;
+  const now = appNow(),
+    row = {
+      id: uid("c"),
+      receivedAt: appIso(now),
+      t: nowStamp(),
+      source: "portal",
+      channel: o.channel || "portal",
+      from: o.from || "",
+      to: "",
+      subject: o.subject || "",
+      date: iso(now),
+      time: now.toLocaleTimeString(void 0, { hour: "numeric", minute: "2-digit" }),
+      text: o.text || o.subject || "",
+      body: o.text || o.subject || "",
+      category: "client",
+      confidence: 1,
+      status: "handled",
+      kind: "activity",
+      clq: o.clq || "",
+      ref: o.ref || null,
+    };
+  return (p.comms = p.comms || []).unshift(row), row;
+}
+// The one activity line: who, what, when; a state pill; no Review, Ignore or Delete.
+function clActivityHtml(c, p) {
+  const q = c.clq && p ? (p.clientQs || []).find((x) => x.id === c.clq) : null,
+    state = q
+      ? "open" === q.status
+        ? ["To Answer", "warn"]
+        : [`Answered by ${String(q.answeredBy || "").split(" ")[0] || "us"} · ${fmtL(q.answeredAt || today())}`, "ok"]
+      : ["Recorded", "neutral"];
+  return `<div class="msg cl-msg cl-act" data-cid="${esc(c.id)}"><div class="top"><span class="pill ok cl-dir">Portal</span><b>${esc(c.from || "")}</b><span class="muted small">${esc(c.channel && "portal" !== c.channel ? c.channel + " · " : "")}${esc(clStamp(c))}</span><span class="grow"></span><span class="pill ${state[1]}" data-nocase>${esc(state[0])}</span></div><div class="small" data-nocase><b>${esc(c.subject || "")}</b></div>${c.text && c.text !== c.subject ? `<div class="small muted" data-nocase>${esc(String(c.text).slice(0, 240))}</div>` : ""}${q && "answered" === q.status && q.answer ? `<div class="small cl-act-a" data-nocase>${esc(String(q.answer).slice(0, 240))}</div>` : ""}</div>`;
+}
+
+// ---- a client's question: raised from Chat or a document, answered by the PM from Do Now
+function clqRaise(o) {
+  const p = o.p,
+    c = o.c || (p && DB.clients.find((x) => x.id === p.clientId)),
+    u = "function" == typeof currentUser ? currentUser() : null,
+    q = {
+      id: uid("cq"),
+      projectId: p.id,
+      clientId: c ? c.id : "",
+      by: o.by || (u && u.name) || (c && c.name) || "Client",
+      uid: (u && u.id) || "",
+      text: String(o.text || "").trim(),
+      about: o.about ? { kind: o.about.type || o.about.kind || "", id: o.about.id, number: o.about.number || "" } : null,
+      at: today(),
+      t: nowStamp(),
+      status: "open",
+      answer: "",
+      answeredBy: "",
+      answeredAt: "",
+    };
+  (p.clientQs = p.clientQs || []).push(q);
+  const row = clActivity(p, {
+    from: q.by,
+    channel: o.channel || "chat",
+    subject: o.about ? `Question on ${o.about.number}: ${q.text}` : `${q.by} asked: ${q.text}`,
+    text: q.text,
+    clq: q.id,
+    ref: o.about ? { kind: o.about.type || o.about.kind || "", id: o.about.id } : null,
+  });
+  q.commId = row ? row.id : "";
+  try {
+    audit("clientq", q.id, "asked", "", "open", `${q.by}: ${q.text}`);
+  } catch (e) {}
+  return q;
+}
+function clqFind(id) {
+  for (const p of DB.projects || []) {
+    const q = (p.clientQs || []).find((x) => x.id === id);
+    if (q) return { q: q, p: p };
+  }
+  return null;
+}
+// The drafted reply: the client's own Ask readers, run on the client's scope by the PM, so the draft comes from
+// the published schedule and the statement and nothing else. The PM edits and sends; nothing goes on its own.
+function clqDraft(q, p, c) {
+  const first = String(q.by || "").split(" ")[0],
+    sc = { kind: "client", cid: c ? c.id : p.clientId, client: c, jobs: [p], p: p, pids: new Set([p.id]) };
+  let a = null;
+  try {
+    a = clAskRead(q.text, sc);
+  } catch (e) {
+    console.warn("client draft", e);
+  }
+  if (!a) return { text: `Hi ${first},\n\n`, how: "" };
+  const lines = (a.work || []).slice(0, 4);
+  return {
+    text: `Hi ${first},\n\n${a.headline}${a.note ? ` ${a.note}` : ""}${lines.length ? `\n\n${lines.map((l) => `- ${l}`).join("\n")}` : ""}\n\n${clPmFirst(p)}`,
+    how: a.how || "your job's records",
+  };
+}
+function clqAnswer(id) {
+  const Q = clqFind(id);
+  if (!Q) return toast("That question is no longer open");
+  const { q: q, p: p } = Q,
+    c = DB.clients.find((x) => x.id === p.clientId),
+    first = String(q.by || "").split(" ")[0],
+    d = clqDraft(q, p, c);
+  mbModal(
+    `Answer ${esc(first)}`,
+    `<p class="small muted" data-nocase><b>${esc(q.by)}</b> asked on ${esc(fmtL(q.at))}${q.about && q.about.number ? ` about ${esc(q.about.number)}` : ""}: "${esc(q.text)}"</p><p class="small muted">${d.how ? `Drafted from ${esc(d.how)}. Edit it; it reaches ${esc(first)} in Chat when you send.` : `The records do not answer this one. Write the answer; it reaches ${esc(first)} in Chat when you send.`}</p><div class="f"><label>Your Reply</label><textarea data-f="a" rows="7">${esc(d.text)}</textarea></div>`,
+    {
+      submit: `Send to ${first}`,
+      onSubmit: (f) => {
+        if (!String(f.a || "").trim() || /^Hi \w+,\s*$/.test(String(f.a || "").trim())) return toast("Write the answer"), !1;
+        clqSendAnswer(q, p, String(f.a).trim());
+      },
+    },
+  );
+}
+function clqSendAnswer(q, p, text) {
+  const u = "function" == typeof currentUser ? currentUser() : null,
+    by = (u && u.name) || clPmName(p);
+  (p.chat = p.chat || []).push({ id: uid("ch"), by: by, text: text, t: nowStamp(), files: [], answerOf: q.id }),
+    (q.status = "answered"),
+    (q.answer = text),
+    (q.answeredBy = by),
+    (q.answeredAt = today());
+  try {
+    audit("clientq", q.id, "answered", "open", "answered", `${by}: ${text.slice(0, 140)}`);
+  } catch (e) {}
+  save(),
+    render(),
+    toast(`Answer sent to ${q.by}`, () => {
+      setCurrent(p.id), (view = "chat"), render();
+    });
+}
+// The client writes in Chat: the message is a question for the PM (one activity line, one Do Now item), never
+// a message for the firm's reader; the client sees "Sent to Alan" and, when it comes, the answer.
+function clChatSend(attach) {
+  const t = document.getElementById("chat-text"),
+    text = t ? t.value.trim() : "";
+  if (!text) return toast("Write a message first"), void (t && t.focus());
+  const p = S,
+    c = "function" == typeof clientUserOf ? clientUserOf() : clientOf(),
+    u = currentUser(),
+    by = (u && u.name) || (c && c.name) || "Client",
+    q = clqRaise({ p: p, c: c, text: text, by: by, channel: "chat" });
+  (p.chat = p.chat || []).push({ id: uid("ch"), by: by, text: text, t: nowStamp(), files: attach || [], clq: q.id }),
+    (t.value = ""),
+    save(),
+    render(),
+    toast(`Sent to ${clPmFirst(p)}`);
+}
+if ("function" == typeof sendChat) {
+  const base = sendChat;
+  sendChat = function (attach) {
+    let cl = !1;
+    try {
+      cl = "client" === role();
+    } catch (e) {}
+    return cl ? clChatSend(attach) : base.apply(this, arguments);
+  };
+}
+// Do Now / Approvals: the verb opens the reply sheet
+if ("function" == typeof mGo) {
+  const base = mGo;
+  mGo = function (go) {
+    if (go && go.clientq) return void clqAnswer(go.clientq);
+    return base.apply(this, arguments);
+  };
+}
+
+// ---- the client's Ask readers. Each reads the client's own scope (the jobs eqScopeOf names for them, the same
+// scope every Ask path and erpQuery read through eqRows) and answers from the published schedule, the account
+// statement figures, their decisions and, on a design job, the design agreement. The PM's drafted reply runs the
+// same readers on the client's scope, so the client and the PM read one answer.
+const CL_STOP = new Set("the a an my our your their of to in on at for is are was were be been do does did will would can could when what how which who where why if not no yes it its this that these those and or but so we i you me us them they he she his her about from with by as than then there here into out up down over under again still already just also only very more most much many any some all each every both few other another such same own done finish finished ready complete completed start started begin end over going".split(" "));
+const clWordsOf = (s) =>
+  String(s || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9' ]+/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length >= 3 && !CL_STOP.has(w));
+const clHit = (q, name) => {
+  const N = new Set(clWordsOf(name));
+  return clWordsOf(q).filter((w) => N.has(w) || [...N].some((n) => n.length >= 5 && (n.startsWith(w) || w.startsWith(n)))).length;
+};
+function clWeekOf(td, next) {
+  const d = parse(td),
+    dow = (d.getDay() + 6) % 7,
+    mon = iso(addDays(td, -dow + (next ? 7 : 0)));
+  return { from: mon, to: iso(addDays(mon, 4)), say: next ? "next week" : "this week" };
+}
+const clUnset = (sc) => {
+  const p = sc.p,
+    design = "function" == typeof designEst && designEst(p) && !p.schedFromStudio;
+  return `Your schedule is being set — ${clPmFirst(p)} will share the dates once ${design ? "the design phases are agreed" : "the dates are agreed"}.`;
+};
+const CL_ASK = [
+  // the firm's own figures (margin, crew pay, the bank, other clients): a plain refusal, never a misread
+  {
+    id: "firmOnly",
+    re: /\b(profit|margin|markup|mark-up|overhead|paid|wages?|salar(y|ies)|other clients?|bank|cash)\b/,
+    test: (l) =>
+      /\b(profit|margin|markup|mark-up|overhead)\b/.test(l) ||
+      (/\b(crew|workers?|team|guys|employees?|staff|subs?|subcontractors?|they|he|she)\b/.test(l) && /\b(get paid|gets paid|wages?|salar(y|ies)|earn|make an hour|hourly)\b/.test(l)) ||
+      /\bother (clients?|customers?|jobs?|projects?)\b/.test(l) ||
+      /\b(firm|company|smartdesign|you)\b.*\b(have in the bank|bank balance|in the bank|cash)\b/.test(l),
+    run(l, sc) {
+      return {
+        headline: "That is the firm's own information; I answer about your job only.",
+        note: "Ask about your schedule, your choices, your invoices and payments, or the photos shared with you.",
+        work: [],
+        how: "",
+        kind: "blocked",
+      };
+    },
+  },
+  {
+    id: "finishMoved",
+    re: /\b(finish|finishing|completion|end|moving|move|moved|slip|slipped|delay|delayed|pushed?|behind|late|on (track|time|target)|same date|still on)\b/,
+    test: (l) =>
+      /\b(finish|completion|end)\s*(date|day)\b/.test(l) ||
+      /\bwhen (will|does|is|do) (my|the|our|this|it) (job|project|renovation|house|work|place|whole thing|all)\b/.test(l) ||
+      /\b(did|has|have|is|are) (the |my |our )?(finish|completion|end|dates?|schedule)\b.*\b(move|moved|slip|slipped|change|changed|delay|delayed|push|pushed|same|still)\b/.test(l) ||
+      /\b(behind|on track|on time|on target|delayed|running late)\b/.test(l) ||
+      /\bwhy (did|has|is) .*\b(move|moved|slip|slipped|late|delayed|behind)\b/.test(l),
+    run(l, sc) {
+      const p = sc.p,
+        pub = p && p.published;
+      if (!pub) return { headline: clUnset(sc), note: "", work: [], how: "your schedule", go: { view: "sched" } };
+      const late = pub.target ? signedWork(pub.target, pub.finish) : 0,
+        drivers = (pub.changes || []).filter((c) => !c.driver),
+        when = `Last update from ${pub.by || clPmName(p)} on ${fmtL(pub.at)}.`,
+        asksMove = /\b(move|moved|moving|slip|slipped|change|changed|delay|delayed|push|pushed|why|still|same|behind|late|on (track|time|target))\b/.test(l),
+        agree = pub.target ? (late > 0 ? `, ${late} working day${1 === late ? "" : "s"} past the date in your agreement (${fmtL(pub.target)})` : ", the date in your agreement") : "";
+      if (!drivers.length)
+        return {
+          headline: asksMove ? `No, the finish date did not move: still ${fmtL(pub.finish)}${agree}.` : `Your job finishes ${fmtL(pub.finish)}${agree}; no dates have moved.`,
+          note: `${when} When a date moves it is listed on your Schedule page with the reason, before anything else changes.`,
+          work: [],
+          how: "your published schedule",
+          go: { view: "sched" },
+        };
+      return {
+        headline: `Yes. The finish date is ${fmtL(pub.finish)}${pub.target ? `, ${late > 0 ? `${late} working day${1 === late ? "" : "s"} past` : "on"} the date in your agreement (${fmtL(pub.target)})` : ""}: ${drivers.map((c) => `${c.task} — ${c.reason || "rescheduled"}, ${c.days > 0 ? "+" : ""}${c.days} working day${1 === Math.abs(c.days) ? "" : "s"}`).join("; ")}.`,
+        note: when,
+        work: drivers.map((c) => `${c.task} — now through ${fmtL(c.to)} · ${c.reason || "rescheduled"}`),
+        how: "your published schedule and what changed on it",
+        go: { view: "sched" },
+      };
+    },
+  },
+  {
+    id: "decideLate",
+    re: /\b(if|happens|consequence|too late|how long|wait|later|deadline|by when|until)\b/,
+    test: (l) =>
+      /\bwhat happens if\b/.test(l) ||
+      /\bif (i|we) (do not|don'?t|wait|take|decide|pick|choose|hold|put off|delay|can'?t|cannot)\b/.test(l) ||
+      /\b(consequence|too late|deadline)\b/.test(l) ||
+      /\bhow long (do|can|have) (i|we)\b/.test(l) ||
+      /\b(decide|pick|choose|decision|choice)\b.*\b(later|next week|next month|wait|late)\b/.test(l) ||
+      /\bby when\b.*\b(decide|pick|choose|choice|decision)\b/.test(l),
+    run(l, sc) {
+      const p = sc.p,
+        open = (p.decisions || []).filter((d) => "Client" === d.owner && "open" === d.status);
+      if (!open.length) return { headline: "Nothing is waiting on a choice from you right now.", note: "When one comes up it appears in Waiting on You with what it holds and the date we need it by.", work: [], how: "your choices", go: { view: "dec" } };
+      const scored = open.map((d) => ({ d: d, n: clHit(l, clTitle(d)), N: clNeed(d, p) })).sort((a, b) => b.n - a.n || String(a.N.due || "9").localeCompare(String(b.N.due || "9"))),
+        pick = scored[0],
+        d = pick.d,
+        N = pick.N,
+        T = clTitle(d),
+        tk = N.tk,
+        m = N.m,
+        tName = tk ? ("function" == typeof opsClientName ? opsClientName(tk) : tk.name) : "",
+        td = today(),
+        O = "function" == typeof thOpts ? thOpts(d) : [];
+      // the Choose sheet's own words (clNeed), then what deciding later does: the task it holds cannot start
+      // before the choice, so each working day past the task's start moves it and what follows it
+      const anchor = tk && tk.start && tk.start >= td ? tk.start : N.due;
+      let h = `${T}: ${N.line}.`;
+      tk && (h += ` ${tName} cannot start until you choose; each working day the choice waits past ${anchor ? fmtL(anchor) : "then"} moves ${tName} and the work after it by a day.`);
+      m && (h += ` It also holds the order for ${clMatName(m).replace(/^./, (ch) => ch.toLowerCase())}; the lead time counts from your choice.`);
+      return {
+        headline: h,
+        note: pick.n ? "" : `I read this as your soonest choice; name the choice if you meant another.`,
+        work: O.map((o) => `${o.label}${o.delta ? ` — ${o.delta > 0 ? "+" : "−"}${money(Math.abs(o.delta))} ${null != o.allowance ? "against the allowance" : "on the price"}` : ""}`),
+        how: `your choice "${T}" and the task it holds`,
+        go: { view: "dec" },
+      };
+    },
+  },
+  {
+    id: "nextPayment",
+    re: /\b(payment|pay|due|owe|invoice|bill)\b/,
+    test: (l) =>
+      /\bnext (payment|invoice|bill)\b/.test(l) ||
+      /\b(payment|invoice|bill|balance)\b.*\bdue\b/.test(l) ||
+      /\bwhen (is|do|does|are) .*\b(due|pay|payment|owe)\b/.test(l) ||
+      /\bdue date\b/.test(l) ||
+      /\bwhat('s| is) due\b/.test(l),
+    run(l, sc) {
+      const c = sc.client,
+        f = clientFin(c),
+        open = f.open.filter((o) => !o.x.projectId || sc.pids.has(o.x.projectId)).sort((a, b) => String(a.x.due || "9").localeCompare(String(b.x.due || "9")));
+      if (!open.length) return { headline: "Nothing is due right now. The next invoice comes with the next pay application, and you see it here and in Account first.", note: "", work: [], how: "your open invoices", go: { view: "clacct" } };
+      const o = open[0];
+      return {
+        headline: `${money(o.bal)} is due ${o.x.due ? fmtL(o.x.due) : "now"} on ${o.x.number}${o.x.title ? ` (${o.x.title})` : ""}${o.age > 0 ? ` — ${o.age} day${1 === o.age ? "" : "s"} past due` : ""}.`,
+        note: open.length > 1 ? `${money(f.outstanding)} is open in all, across ${open.length} invoices.` : "",
+        work: open.map((x) => `${x.x.number} — ${money(x.bal)} due ${x.x.due ? fmtL(x.x.due) : "now"}`),
+        how: "your open invoices on the account statement",
+        go: { view: "clacct" },
+      };
+    },
+  },
+  {
+    id: "coCost",
+    re: /\b(change orders?|\bco\b|cos|extra|extras|added work)\b/,
+    test: (l) => !/\bcontract\b/.test(l) && /\b(change orders?|\bco\b|extras?|added work)\b/.test(l) && /\b(cost|price|how much|amount|total|for|charge)\b/.test(l),
+    run(l, sc) {
+      const c = sc.client,
+        all = (c.changeOrders || []).filter((d) => !["draft", "void", "superseded"].includes(d.status) && (!d.projectId || sc.pids.has(d.projectId))),
+        scored = all.map((d) => ({ d: d, n: clHit(l, `${d.title || ""} ${d.number}`) })).sort((a, b) => b.n - a.n),
+        word = (d) => ("approved" === d.status || "billed" === d.status ? `approved${d.clientApproval ? ` by ${d.clientApproval.name} on ${fmtL(String(d.clientApproval.ts || "").slice(0, 10))}` : ""}` : "sent" === d.status ? "sent to you to approve" : d.status);
+      if (!all.length) return { headline: "You have no change orders. Anything that changes the price comes to you in Waiting on You before the work.", note: "", work: [], how: "your change orders", go: { view: "clacct" } };
+      if (scored[0].n) {
+        const d = scored[0].d;
+        return {
+          headline: `${d.number} (${clWords(d.title || "")}) is ${money(docTotal(d).total)}, ${word(d)}.`,
+          note: d.scheduleDays ? `It adds ${d.scheduleDays} working day${1 === d.scheduleDays ? "" : "s"} to the schedule.` : "",
+          work: scored.filter((x) => x.n && x.d !== d).map((x) => `${x.d.number} · ${clWords(x.d.title || "")} — ${money(docTotal(x.d).total)}, ${word(x.d)}`),
+          how: "your change orders on the account statement",
+          go: { view: "clacct" },
+        };
+      }
+      return {
+        headline: `${all.length} change order${1 === all.length ? "" : "s"}, ${money(all.reduce((a, d) => a + docTotal(d).total, 0))} in all: ${agList(all.map((d) => `${d.number} ${money(docTotal(d).total)}`), 6)}.`,
+        note: "",
+        work: all.map((d) => `${d.number} · ${clWords(d.title || "")} — ${money(docTotal(d).total)}, ${word(d)}`),
+        how: "your change orders on the account statement",
+        go: { view: "clacct" },
+      };
+    },
+  },
+  {
+    id: "contract",
+    re: /\b(contract|total|price|cost|sum|value|revised)\b/,
+    test: (l) =>
+      /\bcontract (total|sum|value|amount|price|now)\b/.test(l) ||
+      /\b(total|revised|current) contract\b/.test(l) ||
+      /\bhow much is (my|the|our) (job|project|contract|renovation|total)\b/.test(l) ||
+      (/\b(total|contract|price|cost)\b/.test(l) && /\b(change orders?|changes|cos?|including|with the|now|so far|after)\b/.test(l)),
+    run(l, sc) {
+      const c = sc.client,
+        f = clientFin(c),
+        ok = (c.changeOrders || []).filter((d) => ["approved", "billed"].includes(d.status) && (!d.projectId || sc.pids.has(d.projectId))),
+        pend = (c.changeOrders || []).filter((d) => "sent" === d.status && (!d.projectId || sc.pids.has(d.projectId)));
+      return {
+        headline: `Your contract is ${money(f.revised)}: ${money(c.contract || 0)} base${ok.length ? ` plus ${ok.length} approved change order${1 === ok.length ? "" : "s"} (${ok.map((d) => `${d.number} ${money(docTotal(d).total)}`).join(", ")})` : ", with no approved change orders"}.`,
+        note: pend.length ? `${money(f.pendingCO)} in ${pend.length} change order${1 === pend.length ? "" : "s"} sent to you (${pend.map((d) => d.number).join(", ")}) is not included until you approve.` : "",
+        work: ok.map((d) => `${d.number} · ${clWords(d.title || "")} — ${money(docTotal(d).total)}`),
+        how: "your contract and approved change orders on the account statement",
+        go: { view: "clacct" },
+      };
+    },
+  },
+  {
+    id: "retainage",
+    re: /\b(retainage|retention|hold(ing)? back|held back|withh[eo]ld|holding)\b/,
+    test: (l) => /\b(retainage|retention|withh[eo]ld(ing)?|hold(ing)? back|held back)\b/.test(l),
+    run(l, sc) {
+      const c = sc.client,
+        f = clientFin(c),
+        live = (c.invoices || []).filter((x) => !["draft", "void"].includes(x.status) && (!x.projectId || sc.pids.has(x.projectId))),
+        held = live.map((x) => ({ x: x, ret: docTotal(x).ret || 0 })).filter((r) => r.ret > 0),
+        pct = (held.find((r) => r.x.retainagePct) || {}).x?.retainagePct || (live.find((x) => x.retainagePct) || {}).retainagePct || 0;
+      return {
+        headline: `${money(f.retHeld)} of retainage is held so far${pct ? `: ${pct}% of each certified amount` : ""}, released with the final invoice after the punch list.`,
+        note: held.length ? "" : "No retainage has been held on your invoices.",
+        work: held.map((r) => `${r.x.number} — ${money(r.ret)} held`),
+        how: "the retainage line on your account statement",
+        go: { view: "clacct" },
+      };
+    },
+  },
+  {
+    id: "thisWeek",
+    re: /\b(week|today|tomorrow|happening|going on|crew|team|on site|working|doing|next up)\b/,
+    test: (l) =>
+      !/\b(photos?|pictures?|pics?|payments?|paid|invoices?|bills?|decisions?|choices?|waiting|owe|contract|retainage|hours?)\b/.test(l) &&
+      (/\b(this|next) week\b/.test(l) ||
+        /\b(today|tomorrow)\b/.test(l) ||
+        /\bwhat('s| is) (happening|going on|next|the crew|the team)\b/.test(l) ||
+        /\b(crew|team|workers?|guys)\b.*\b(doing|working|on site|up to)\b/.test(l) ||
+        /\bon site\b/.test(l)),
+    run(l, sc) {
+      const p = sc.p,
+        pub = p && p.published;
+      if (!pub) {
+        const design = "function" == typeof designEst && designEst(p);
+        let extra = "";
+        if (design)
+          try {
+            const ph = phaseHours(p),
+              cur = phaseCur(ph) || ph.find((x) => x.used > 0 && x.used < x.est),
+              sv = (p.tasks || []).find((t) => /survey/i.test(t.name || ""));
+            extra = ` Now: ${cur ? clPhaseName(cur.line) : "the design"}${sv ? `; the survey is ${fmtL(sv.start)}` : ""}.`;
+          } catch (e) {}
+        return { headline: clUnset(sc) + extra, note: "", work: [], how: "your schedule", go: { view: "sched" } };
+      }
+      const next = /\bnext week\b/.test(l),
+        td = today(),
+        W = /\btoday\b/.test(l) ? { from: td, to: td, say: "today" } : /\btomorrow\b/.test(l) ? { from: iso(addDays(td, 1)), to: iso(addDays(td, 1)), say: "tomorrow" } : clWeekOf(td, next),
+        items = pub.items.filter((i) => "done" !== i.status && i.start <= W.to && i.end >= W.from).sort((a, b) => String(a.start).localeCompare(b.start)),
+        after = pub.items.filter((i) => "done" !== i.status && i.start > W.to).sort((a, b) => String(a.start).localeCompare(b.start))[0];
+      return {
+        headline: items.length ? `${W.say.replace(/^./, (ch) => ch.toUpperCase())} on site: ${agList(items.map((i) => i.name), 6)}.` : `Nothing is scheduled on site ${W.say}.${after ? ` Next: ${after.name} from ${fmtL(after.start)}.` : ""}`,
+        note: items.length && after ? `Next after that: ${after.name} from ${fmtL(after.start)}.` : "",
+        work: items.map((i) => `${i.name} — ${fmtL(i.start)} to ${fmtL(i.end)}${"in-progress" === i.status ? " · under way" : ""}`),
+        how: `your published schedule, ${W.say} (${fmtL(W.from)}${W.to !== W.from ? ` to ${fmtL(W.to)}` : ""})`,
+        go: { view: "sched" },
+      };
+    },
+  },
+  // ---- a design job: the fee, the survey, the kick-off, the hours, the designer, when the design is done
+  {
+    id: "designFee",
+    design: !0,
+    re: /\b(fee|fees|cost|costs|rate|price|agreement|proposal|retainer)\b/,
+    test: (l) => /\b(design )?fees?\b/.test(l) || /\bwhat (do|does|will) (the )?design cost\b/.test(l) || /\bhow much (is|for|does) (the )?design\b/.test(l) || /\b(hourly|your) rate\b/.test(l) || /\bdesign (agreement|contract|proposal)\b/.test(l) || /\bretainer\b/.test(l),
+    run(l, sc) {
+      const p = sc.p,
+        est = designEst(p),
+        hrs = est.lines.filter((x) => "hr" === x.unit),
+        fil = est.lines.filter((x) => "hr" !== x.unit),
+        hours = hrs.reduce((a, x) => a + (+x.qty || 0), 0),
+        hourly = hrs.reduce((a, x) => a + lineAmount(x, est), 0),
+        filings = fil.reduce((a, x) => a + lineAmount(x, est), 0),
+        rate = +(hrs[0] && hrs[0].rate) || designRate(),
+        R = retainerLeft(p),
+        retHrs = R && R.rate ? r2(R.retainer / R.rate) : est.retainer && rate ? r2(est.retainer / rate) : 0;
+      return {
+        headline: `Your design agreement (${est.number}) is ${money(docTotal(est).total)}: ${hours} hours at $${rate}/hr (${money(hourly)})${fil.length ? ` plus ${fil.length} fixed-fee filing${1 === fil.length ? "" : "s"} (${money(filings)})` : ""}.${est.retainer ? ` The retainer is ${money(est.retainer)}, ${retHrs} hours${R ? (R.paid <= 0.5 ? " — not paid yet; hours count from payment" : ` — ${money(R.paid)} paid`) : ""}.` : ""}`,
+        note: est.terms ? String(est.terms).split(".")[0] + "." : "",
+        work: hrs.map((x) => `${clPhaseName(x)} — ${x.qty} hrs · ${money(lineAmount(x, est))}`).concat(fil.map((x) => `${x.item} — ${money(lineAmount(x, est))}`)),
+        how: "your design agreement",
+        go: { view: "clacct" },
+      };
+    },
+  },
+  {
+    id: "survey",
+    design: !0,
+    re: /\b(survey|measure|measured|measuring|site visit|dimensions)\b/,
+    test: (l) => /\b(survey|measur(e|ed|ing|ements?)|site visit|field dimensions)\b/.test(l),
+    run(l, sc) {
+      const p = sc.p,
+        sv = (p.tasks || []).find((t) => /survey/i.test(t.name || "")),
+        des = clDesigner(p),
+        rooms = roomsOf(p.id),
+        unv = rooms.filter((r) => 0 === roomProv(r)).length;
+      if (!sv) return { headline: "The existing-conditions survey is not scheduled yet; it comes before anything is ordered.", note: "", work: [], how: "your design schedule", go: { view: "client" } };
+      return {
+        headline: `The existing-conditions survey is ${fmtL(sv.start)}${sv.end && sv.end !== sv.start ? ` to ${fmtL(sv.end)}` : ""}: ${des ? des.name : "your designer"} measures every room${unv ? `; until then the drawings are on listing dimensions (${unv} of ${rooms.length} rooms)` : ""}.`,
+        note: "",
+        work: [],
+        how: "the survey on your design schedule",
+        go: { view: "client" },
+      };
+    },
+  },
+  {
+    id: "kickoff",
+    design: !0,
+    re: /\b(kick-?off|kickoff|meeting|agree|agreed|decided|outcomes?|minutes|notes)\b/,
+    test: (l) => /\bkick-?off\b/.test(l) || /\bmeeting\b/.test(l) || /\bwhat (did|have) we (agree|agreed|decide|decided)\b/.test(l),
+    run(l, sc) {
+      const p = sc.p,
+        td = today(),
+        M = (DB.studio.meetings || []).filter((m) => m.projectId === p.id).sort((a, b) => String(a.date).localeCompare(String(b.date))),
+        m = M.filter((x) => x.date <= td).pop() || M[0],
+        des = clDesigner(p),
+        first = des ? des.name.split(" ")[0] : "your designer",
+        deck = sheetsOf(p.id).filter((s) => "deck" === s.set && "current" === s.status)[0];
+      if (!m) return { headline: "No design meeting is on your schedule yet.", note: "", work: [], how: "your design meetings", go: { view: "client" } };
+      if (m.date > td)
+        return {
+          headline: `The ${m.title} is coming up on ${fmtL(m.date)} with ${des ? des.name : "your designer"} and ${clPmName(p)}. What we agree there is confirmed by ${first} afterwards and listed on your Overview.`,
+          note: deck ? `The deck for it: ${deck.title}.` : "",
+          work: [],
+          how: "your design meetings",
+          go: { view: "client" },
+        };
+      const K = (DB.studio.intake || {})[m.id],
+        items = (K && K.items) || [],
+        ok = items.filter((i) => "confirmed" === i.status && "decision" === i.kind),
+        open = items.filter((i) => "proposed" === i.status).length;
+      return {
+        headline: `At the ${m.title} on ${fmtL(m.date)}${ok.length ? `, ${ok.length} outcome${1 === ok.length ? " is" : "s are"} confirmed` : ", nothing is confirmed yet"}${open ? `; ${open} note${1 === open ? " is" : "s are"} being confirmed by ${first}` : ""}.`,
+        note: open ? "Confirmed outcomes appear on your Overview under Deliverables." : "",
+        work: ok.map((i) => i.text),
+        how: "the confirmed outcomes of your design meetings",
+        go: { view: "client" },
+      };
+    },
+  },
+  {
+    id: "designHours",
+    design: !0,
+    re: /\b(hours?|time)\b/,
+    test: (l) => /\bhow many hours\b/.test(l) || (/\bhours?\b/.test(l) && /\b(spent|used|logged|so far|to date|billed|left|remaining)\b/.test(l)) || /\btime (spent|used|logged)\b/.test(l),
+    run(l, sc) {
+      const p = sc.p,
+        ph = phaseHours(p),
+        used = r2(ph.reduce((a, x) => a + x.used, 0)),
+        agreed = ph.reduce((a, x) => a + x.est, 0),
+        R = retainerLeft(p),
+        des = clDesigner(p),
+        retHrs = R && R.rate ? r2(R.retainer / R.rate) : 0;
+      return {
+        headline: `${clHrs(used)} of design time so far, of ${clHrs(agreed)} in the agreement${des ? `, by ${des.name}` : ""}.${R ? ` ${clHrs(Math.max(0, retHrs - used))} of the ${clHrs(retHrs)} retainer ${R.paid <= 0.5 ? "remain once it is paid" : "remain"}.` : ""}`,
+        note: "",
+        work: ph.filter((x) => x.used > 0).map((x) => `${clPhaseName(x.line)} — ${clHrs(x.used)} of ${clHrs(x.est)}`),
+        how: "the design hours logged against your agreement",
+        go: { view: "client" },
+      };
+    },
+  },
+  {
+    id: "designer",
+    design: !0,
+    re: /\b(designer|architect|designing|drawing|who)\b/,
+    test: (l) => /\bwho is (my|the|our) (designer|architect)\b/.test(l) || /\bdesigner'?s name\b/.test(l) || /\bmy (designer|architect)\b/.test(l) || /\bwho (is )?(designing|drawing|working on)\b/.test(l),
+    run(l, sc) {
+      const p = sc.p,
+        des = clDesigner(p),
+        pm = ("function" == typeof fPeople ? fPeople().pm : null) || {};
+      if (!des) return { headline: `Your design team at SmartDesign is being assigned; ${clPmName(p)} is your project manager.`, note: "", work: [], how: "your job's team", go: { view: "client" } };
+      return {
+        headline: `${des.name}, ${des.role} at SmartDesign, is your designer. ${pm.name || clPmName(p)} is your project manager${pm.phone ? ` (${pm.phone})` : ""}.`,
+        note: "",
+        work: [],
+        how: "your job's team",
+        go: { view: "client" },
+      };
+    },
+  },
+  {
+    id: "designDone",
+    design: !0,
+    re: /\b(design|drawings|plans|set)\b/,
+    test: (l) => /\bwhen (will|is|are) (the )?(design|drawings|plans|set)\b.*\b(done|finished|ready|complete|issued|out)\b/.test(l) || /\bdesign (be )?(done|finished|complete|ready)\b/.test(l),
+    run(l, sc) {
+      const p = sc.p,
+        pub = p.published;
+      if (pub) return { headline: `The design is scheduled to finish ${fmtL(pub.finish)}.`, note: "", work: [], how: "your published schedule", go: { view: "sched" } };
+      let now = "";
+      try {
+        const ph = phaseHours(p),
+          cur = phaseCur(ph) || ph.find((x) => x.used > 0 && x.used < x.est),
+          sv = (p.tasks || []).find((t) => /survey/i.test(t.name || ""));
+        now = `${cur ? ` Now: ${clPhaseName(cur.line)} (${clHrs(cur.used)} of ${clHrs(cur.est)}).` : ""}${sv ? ` The survey is ${fmtL(sv.start)}.` : ""}`;
+      } catch (e) {}
+      return { headline: `The design schedule is being set — ${clPmFirst(p)} will share the dates once the design phases are agreed.${now}`, note: "", work: [], how: "your design phases", go: { view: "client" } };
+    },
+  },
+  // ---- "when will the kitchen be done": a named stage on the published schedule
+  {
+    id: "stageWhen",
+    re: /\b(when|done|finish|finished|ready|complete|completed|start|starts|begin|install|installed)\b/,
+    test: (l) => /\bwhen\b/.test(l) || /\b(done|finished|ready|complete|installed)\b/.test(l),
+    run(l, sc) {
+      const p = sc.p,
+        pub = p && p.published;
+      if (!pub) return null;
+      const td = today(),
+        S0 = pub.items.map((i) => ({ i: i, n: clHit(l, i.name) })).filter((x) => x.n > 0).sort((a, b) => b.n - a.n || String(a.i.end).localeCompare(b.i.end));
+      if (!S0.length) return null;
+      const best = S0.filter((x) => x.n === S0[0].n).sort((a, b) => String(a.i.end).localeCompare(b.i.end)),
+        i = best[0].i;
+      return {
+        headline: `${i.name} ${"done" === i.status ? `finished ${fmtL(i.end)}` : `finishes ${fmtL(i.end)}${i.start > td ? ` (starts ${fmtL(i.start)})` : "in-progress" === i.status ? " — under way now" : ""}`}.`,
+        note: best.length > 1 ? `${best.length - 1} more stage${2 === best.length ? "" : "s"} match${2 === best.length ? "es" : ""}; they are listed below.` : "",
+        work: S0.slice(0, 6).map((x) => `${x.i.name} — ${fmtL(x.i.start)} to ${fmtL(x.i.end)}${"done" === x.i.status ? " · done" : ""}`),
+        how: "your published schedule",
+        go: { view: "sched" },
+      };
+    },
+  },
+];
+// Read a client's question against their own scope. `sc` is eqScopeOf() for a signed-in client, or the scope the
+// PM's draft hands in; it carries the client, their jobs and the one job the question is about.
+function clAskRead(q, sc) {
+  if (!sc || "client" !== sc.kind) return null;
+  const l = String(q || "")
+    .toLowerCase()
+    .replace(/[’']/g, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!l) return null;
+  // another client's name or another job's address in the question: not ours to answer (the older chain refuses)
+  try {
+    const others = (DB.clients || []).filter((c) => c.id !== sc.cid),
+      sur = others.map((c) => String(c.name).toLowerCase().split(/[^a-z]+/).filter((t) => t.length >= 4 && !/^(family|the|llc)$/.test(t)).pop()).filter(Boolean),
+      jobs = (DB.projects || []).filter((p) => !(sc.pids && sc.pids.has(p.id))).map((p) => agShort(p).toLowerCase());
+    if (sur.some((w) => new RegExp(`\\b${w}`).test(l)) || jobs.some((j) => j && l.includes(j))) return null;
+  } catch (e) {}
+  const p = sc.p || (sc.jobs || [])[0] || (S && sc.pids && sc.pids.has(S.id) ? S : null);
+  if (!p) return null;
+  const scope = Object.assign({}, sc, { p: p, client: sc.client || DB.clients.find((x) => x.id === p.clientId) }),
+    design = "function" == typeof designEst && !!designEst(p);
+  for (const rd of CL_ASK) {
+    if (rd.design && !design) continue;
+    let hit = !1;
+    try {
+      hit = rd.re.test(l) && rd.test(l);
+    } catch (e) {}
+    if (!hit) continue;
+    let a = null;
+    try {
+      a = rd.run(l, scope);
+    } catch (e) {
+      console.warn("client ask", rd.id, e);
+    }
+    if (a) return Object.assign(a, { reader: rd.id, work: a.work || [] });
+  }
+  return null;
+}
+// The outermost paAsk for a client: their readers first, scoped like every other Ask path; the older chain for
+// the rest. The leak check stays underneath.
+{
+  const base = paAsk;
+  paAsk = function (q) {
+    let cl = !1;
+    try {
+      cl = "client" === role();
+    } catch (e) {}
+    if (cl)
+      try {
+        const sc = eqScopeOf(),
+          a = clAskRead(String(q || ""), Object.assign({}, sc, { p: S && sc.pids && sc.pids.has(S.id) ? S : sc.jobs[0] }));
+        if (a) {
+          try {
+            paInit();
+          } catch (e) {}
+          return agLeakCheck(paOut(Object.assign({ kind: "askgen" }, a, { go: a.go ? paGo(a.go) : null, interp: a.how ? `I read this as: ${a.how}.` : null })));
+        }
+      } catch (e) {
+        console.warn("client ask", e);
+      }
+    return base.apply(this, arguments);
+  };
+}
+
+// ---- the client's Ask surface: the pa view, scoped (eqRows; the readers above), with none of the firm's chrome
+const CL_PA_CHIPS = [
+  ["Finish Date", "did the finish date move"],
+  ["Waiting on Me", "what is waiting on me"],
+  ["Next Payment", "when is my next payment due"],
+  ["This Week", "what is happening on site this week"],
+  ["Photos", "show me the latest photos"],
+];
+const CL_PA_DESIGN_CHIPS = [
+  ["The Survey", "when is the survey"],
+  ["Waiting on Me", "what is waiting on me"],
+  ["Design Hours", "how many hours has the designer spent"],
+  ["Next Payment", "when is my next payment due"],
+  ["My Designer", "who is my designer"],
+];
+function clModeHtml(on) {
+  const first = clPmFirst(S);
+  return `<div class="seg cl-mode" role="tablist"><button type="button" class="${"pa" === on ? "on" : ""}" data-clmode="pa">Ask the Assistant</button><button type="button" class="${"chat" === on ? "on" : ""}" data-clmode="chat">Write to ${esc(first)}</button></div>`;
+}
+document.addEventListener("click", (e) => {
+  const b = e.target && e.target.closest ? e.target.closest("[data-clmode]") : null;
+  if (!b) return;
+  e.preventDefault();
+  const v = b.dataset.clmode;
+  v !== view && ((view = v), render(), window.scrollTo(0, 0));
+});
+if ("function" == typeof paIntro) {
+  const base = paIntro;
+  paIntro = function () {
+    let cl = !1;
+    try {
+      cl = "client" === role();
+    } catch (e) {}
+    if (!cl) return base.apply(this, arguments);
+    const u = currentUser(),
+      first = String((u && u.name) || "").split(" ")[0];
+    return {
+      headline: `Ask about your job${first ? `, ${first}` : ""}.`,
+      note: `Your schedule and dates, your choices and what they hold, your invoices and payments, and the photos shared with you. I answer from your job's records only, and nothing is sent in your name. For anything else, write to ${clPmFirst(S)} in Chat.`,
+      work: [],
+    };
+  };
+}
+if ("function" == typeof paHtml) {
+  const base = paHtml;
+  paHtml = function () {
+    let h = base.apply(this, arguments);
+    let cl = !1;
+    try {
+      cl = "client" === role();
+    } catch (e) {}
+    if (!cl) return h;
+    try {
+      const design = "function" == typeof clDesignPhase && clDesignPhase(S),
+        chips = (design ? CL_PA_DESIGN_CHIPS : CL_PA_CHIPS).map(([l, q]) => `<button class="btn sm" data-pachip="${esc(q)}">${esc(l)}</button>`).join("");
+      h = h
+        .replace(/<div class="lead">[\s\S]*?<\/div><\/div><\/div>/, `<div class="lead">Answers about your job only: your schedule, your choices, your invoices and payments, and the photos shared with you. Nothing is sent in your name.</div></div></div>${clModeHtml("pa")}`)
+        .replace(/<div class="pa-live[\s\S]*?<\/div>\s*(?=<div class="pa-thread")/, "")
+        .replace(/<span class="pa-mode[^"]*"[^>]*>[\s\S]*?<\/span>/, "")
+        .replace(/<div class="pa-chips">[\s\S]*?<\/div>\s*(?=<form)/, `<div class="pa-chips">${chips}</div>`)
+        .replace(/placeholder="Ask me anything, or tell me something to remember"/, 'placeholder="Ask about your job"')
+        .replace(/<div class="small muted pa-foot">[\s\S]*?<\/div>/, `<div class="small muted pa-foot">Answers come from your job's records: the published schedule, your account statement, your choices. What I cannot answer, ${esc(clPmFirst(S))} answers in Chat.</div>`);
+    } catch (e) {
+      console.warn("client ask surface", e);
+    }
+    return h;
+  };
+}
+
+// ---- the client header's Ask, the Chat switch, the portal body class (chips wrap), Already Settled
+{
+  const base = render;
+  render = function () {
+    const r = base.apply(this, arguments);
+    try {
+      let cl = !1;
+      try {
+        cl = "client" === role();
+      } catch (e) {}
+      document.body.classList.toggle("cl-portal", cl);
+      if (!cl) return r;
+      // the Ask door in the header, phone and desktop: the same button the office roles have
+      const bar = document.querySelector("header.topbar");
+      if (bar) {
+        let a = document.getElementById("tb-ask");
+        if (!a) {
+          (a = document.createElement("button")),
+            (a.id = "tb-ask"),
+            (a.type = "button"),
+            (a.className = "btn tb-ask no-print"),
+            (a.title = "Ask"),
+            a.setAttribute("aria-label", "Ask"),
+            (a.innerHTML = `${"object" == typeof M_ICON && M_ICON.ask ? M_ICON.ask : ""}<span>Ask</span>`);
+          const m = document.getElementById("tb-msg");
+          m ? m.before(a) : bar.appendChild(a);
+        }
+        (a.hidden = !1), (a.style.display = ""), a.classList.toggle("on", "pa" === view);
+        a.onclick = () => {
+          (view = "pa"), render(), window.scrollTo(0, 0);
+        };
+      }
+      // Ask lives in Chat: one place, headed Chat, the switch picks the mode, and the Chat entry is on
+      if ("pa" === view) {
+        // headed like the client's other pages: the page's own "Chat" under the project in the header
+        const h = document.querySelector("#pa-body .ph h2");
+        h && ((h.textContent = "Chat"), h.classList.remove("td-in-hdr"), h.closest(".ph")?.classList.remove("td-ph-bare"));
+        document.querySelectorAll('#nav-groups button[data-v="chat"], #mtabs [data-mv="chat"]').forEach((b) => b.classList.add("on"));
+        const cr = document.getElementById("crumbs");
+        cr && S && !cr.querySelector("input,select") && (cr.innerHTML = `<span class="tb-co">SmartDesign</span><span class="tb-sep">›</span><b>${esc("function" == typeof tcase ? tcase(S.project.name) : S.project.name)}</b>`);
+      }
+      // the switch on Chat: Ask the Assistant / Write to Alan
+      if ("chat" === view) {
+        const v = document.getElementById("v-chat"),
+          ph = v && v.querySelector(".ph");
+        v && !v.querySelector(".cl-mode") && ph && ph.insertAdjacentHTML("afterend", clModeHtml("chat"));
+      }
+    } catch (e) {
+      console.warn("client door", e);
+    }
+    return r;
+  };
+}
+// Already Settled holds everything the client settled: their choices, the change orders they signed and the
+// samples they approved, with the date, so there is one place to look back at what was agreed.
+if ("function" == typeof clDecHtml) {
+  const base = clDecHtml;
+  clDecHtml = function () {
+    let h = base.apply(this, arguments);
+    try {
+      const p = clProj(),
+        c = p && DB.clients.find((x) => x.id === p.clientId),
+        rows = [];
+      c &&
+        (c.changeOrders || [])
+          .concat(c.estimates || [])
+          .filter((d) => d.clientApproval && (!d.projectId || d.projectId === p.id))
+          .sort((a, b) => String(b.clientApproval.ts || "").localeCompare(String(a.clientApproval.ts || "")))
+          .forEach((d) =>
+            rows.push(
+              `<div class="cl-row cl-settled"><div><b data-nocase>${esc(d.number)} · ${esc(clWords(d.title || ""))}</b><div class="small muted" data-nocase>signed by ${esc(d.clientApproval.name)} · ${esc(fmtL(String(d.clientApproval.ts || "").slice(0, 10) || today()))} · ${money(docTotal(d).total)}</div></div><div class="cl-amt"><span class="pill ok">Signed</span></div></div>`,
+            ),
+          );
+      ("function" == typeof smOf ? smOf(p) : []).forEach((s) => {
+        const st = (s.revs || []).flatMap((r) => r.steps || []).find((x) => "client" === x.role && "approved" === x.stamp);
+        st && rows.push(`<div class="cl-row cl-settled"><div><b data-nocase>${esc(smClientTitle(s))}</b><div class="small muted" data-nocase>sample approved${st.by ? ` by ${esc(st.by)}` : ""} · ${esc(fmtL(st.respondedOn || today()))}</div></div><div class="cl-amt"><span class="pill ok">Approved</span></div></div>`);
+      });
+      rows.length &&
+        (h = h.replace(/(<div class="card"><h3>Already Settled<\/h3>)(\s*<div class="empty">[^<]*<\/div>)?/, (m, a) => a + rows.join("")));
+    } catch (e) {
+      console.warn("already settled", e);
+    }
+    return h;
+  };
+}
+
+/* ---------------------------------------------------------------------------
+   closetie, the outermost layer (controller review, round 5). These sit after every other section because
+   they must see the final figure or the final screen: the revenue-basis hold on jobFin, the Pack's balances
+   at the month end it reports, the drafted journal and the close in the Owner's queue, and a toast on the
+   transaction drawer's Save.
+   --------------------------------------------------------------------------- */
+// Finding 3: a coding click must not print profit. Revenue is earned cost-to-cost, so coding $22,530 of card
+// lines onto a job with an unreviewed estimate moved its basis 5 points and recognised $27,000 in a click.
+// The basis is anchored at its first live read each day; a move of more than 5 points in the day holds
+// revenue at the anchor until the PM reviews the cost to complete (ctcReview), which releases it.
+const CT_BASIS_STEP = 0.05;
+function ctHoldBasis(J, p, range) {
+  if (!J || !p || !J.contract || fin3Raw) return;
+  const td = today();
+  if (range && (range[0] || (range[1] && range[1] < td))) return;
+  if ("undefined" != typeof fin3JobAsOf && fin3JobAsOf) return;
+  // a closed month's Pack renders with the app day set to that month end: not a live read, never an anchor
+  if (("undefined" != typeof fin3PackEnd && fin3PackEnd) || ("undefined" != typeof packMonth && packMonth)) return;
+  const A = ((DB.periods = DB.periods || {}).pctAnchor = DB.periods.pctAnchor || {}),
+    a = A[p.id],
+    raw = +J.pct || 0,
+    reviewed = String(p.ctcReviewed || "").slice(0, 10) === td;
+  if (!a || a.on !== td || reviewed) return void (A[p.id] = { on: td, pct: raw });
+  if (Math.abs(raw - a.pct) <= CT_BASIS_STEP) return;
+  (J.pctRaw = raw),
+    (J.pct = a.pct),
+    (J.earned = r2(J.contract * J.pct)),
+    (J.overUnder = r2(J.billed - J.earned)),
+    (J.over = Math.max(0, J.overUnder)),
+    (J.under = Math.max(0, -J.overUnder)),
+    (J.backlog = r2(Math.max(0, J.contract - J.earned))),
+    (J.backlogGP = r2((J.estGP || 0) * (1 - J.pct))),
+    (J.pctHeld = {
+      since: a.on,
+      at: a.pct,
+      raw: raw,
+      why: `the cost basis moved from ${Math.round(100 * a.pct)}% to ${Math.round(100 * raw)}% today with no cost-to-complete review; revenue stays at ${Math.round(100 * a.pct)}% until the PM reviews the cost to complete`,
+    });
+}
+if ("function" == typeof jobFin) {
+  const base = jobFin;
+  jobFin = function (p, range) {
+    const J = base.apply(this, arguments);
+    try {
+      ctHoldBasis(J, p, range);
+    } catch (e) {
+      console.warn("revenue basis", e);
+    }
+    return J;
+  };
+}
+function ctHeldJobs() {
+  return (DB.projects || [])
+    .map((p) => {
+      try {
+        const J = jobFin(p);
+        return J.pctHeld ? { p: p, J: J } : null;
+      } catch (e) {
+        return null;
+      }
+    })
+    .filter(Boolean);
+}
+function ctHeldNote() {
+  const H = ctHeldJobs();
+  return H.length
+    ? `<p class="small ct-held"><b>Revenue basis held.</b> ${H.map((h) => `${esc(String(h.p.project.name).replace(/ —.*$/, ""))}: ${esc(h.J.pctHeld.why)}`).join(" ")} Review the cost to complete on the job's Costs page to move it.</p>`
+    : "";
+}
+if ("function" == typeof repWIP) {
+  const base = repWIP;
+  repWIP = function () {
+    let h = base.apply(this, arguments);
+    try {
+      const n = ctHeldNote();
+      if (n) {
+        const k = h.indexOf('<h3 class="rep-h">Backlog by job</h3>');
+        h = k > -1 ? h.slice(0, k) + n + h.slice(k) : h + n;
+      }
+    } catch (e) {}
+    return h;
+  };
+}
+// Finding 16: a closed month's Pack reads cash, cards, receivables and payables at that month end, not today's.
+function ctBalanceAt(end) {
+  const out = {};
+  try {
+    const C = finCash(end);
+    (out.cash = C.cash), (out.cards = C.cards), (out.cashBy = C.by);
+  } catch (e) {}
+  try {
+    out.arOut = r2((DB.projects || []).reduce((s, p) => s + Math.max(0, +jobFin(p, ["", end]).outstanding || 0), 0));
+  } catch (e) {}
+  try {
+    out.ap = r2(
+      (DB.bills || [])
+        .filter((b) => b.date <= end && BILL_COSTED.includes(b.status) && (!b.paidAt || b.paidAt > end) && !["paid", "verified"].includes(b.status))
+        .reduce((s, b) => s + billTotal(b), 0),
+    );
+  } catch (e) {}
+  return out;
+}
+if ("function" == typeof companyBalance) {
+  const base = companyBalance;
+  companyBalance = function () {
+    const B = base.apply(this, arguments),
+      end = ("undefined" != typeof fin3PackEnd && fin3PackEnd) || ("undefined" != typeof packMonth && packMonth ? fin2End(packMonth) : "");
+    if (!end || end >= today()) return B;
+    try {
+      Object.assign(B, ctBalanceAt(end), { asOf: end });
+    } catch (e) {}
+    return B;
+  };
+}
+if ("function" == typeof repPack) {
+  const base = repPack;
+  repPack = function () {
+    let h = base.apply(this, arguments);
+    try {
+      const end = ("undefined" != typeof fin3PackEnd && fin3PackEnd) || ("undefined" != typeof packMonth && packMonth ? fin2End(packMonth) : "");
+      end && end < today() && (h = h.replace("<span>cash · AR ", `<span>cash at ${fmt(end)} · AR `));
+      const n = ctHeldNote();
+      if (n) {
+        const k = h.indexOf('<h3 class="rep-h">4 · ');
+        h = k > -1 ? h.slice(0, k) + n + h.slice(k) : h + n;
+      }
+    } catch (e) {}
+    return h;
+  };
+}
+// Finding 14: the controller sends the close checklist to the Owner; a drafted manual journal and a sent
+// checklist are items in the Owner's queue (Approvals, Home's Do Now), through DELEGATION like every other kind.
+function ctCloseAsk(ym, note) {
+  if (!ym) return { ok: !1, why: "No month to close" };
+  if (!["controller", "owner"].includes(role())) return { ok: !1, why: "The controller sends the checklist" };
+  const items = closeChecklist(ym),
+    open = items.filter((i) => !i.ok),
+    block = fin2CloseBlockers(ym),
+    rec = { ym: ym, by: fin2Who(), at: appNowIso(), on: today(), open: open.length, items: items.length, blockers: block.length, note: String(note || "").trim() };
+  (DB.periods = DB.periods || {}), (DB.periods.closeAsk = rec);
+  try {
+    audit("period", ym, "checklist-sent", "", `${open.length} open`, `${rec.by} sent the ${fin3Label(ym)} close checklist to the Owner${rec.note ? ": " + rec.note : ""}`);
+  } catch (e) {}
+  return save(), { ok: !0, rec: rec };
+}
+if ("function" == typeof mApprovals) {
+  const base = mApprovals;
+  mApprovals = function (opts) {
+    const out = base.apply(this, arguments) || [];
+    try {
+      const add = [];
+      (((DB.gl || {}).journals) || [])
+        .filter((j) => "pending" === j.status && "manual" === j.kind)
+        .forEach((j) =>
+          add.push({
+            kind: "journal",
+            id: j.id,
+            sev: "warn",
+            n: money(r2((j.lines || []).reduce((s, l) => s + (l.dr || 0), 0))),
+            title: `Manual entry · ${j.memo || j.id}`,
+            detail: `drafted by ${j.createdBy || "the controller"} on ${fmt(j.createdAt || j.date)} · dated ${fmt(j.date)} · the Owner posts it with a reason, and it is flagged wherever it appears`,
+            yes: "Post",
+            no: "",
+            open: { view: "gl", glTab: "overview" },
+            act: null,
+          }),
+        );
+      const ask = (DB.periods || {}).closeAsk;
+      ask &&
+        ask.ym &&
+        !ctClosed(ask.ym) &&
+        add.push({
+          kind: "close",
+          id: ask.ym,
+          sev: ask.blockers ? "bad" : ask.open ? "warn" : "",
+          n: `${ask.open} open`,
+          title: `Close ${fin3Label(ask.ym)} — checklist sent by ${ask.by}`,
+          detail: `${ask.open} of ${ask.items} checklist items open · ${ask.blockers ? `${ask.blockers} thing${1 === ask.blockers ? "" : "s"} stop the locks` : "nothing stops the locks"}${ask.note ? " · " + ask.note : ""} · sent ${fmt(ask.on)}`,
+          yes: "Open the Close",
+          no: "",
+          open: { view: "gl", glTab: "periods" },
+          act: null,
+        });
+      add.forEach((it) => {
+        it.who = "function" == typeof apprOwner ? apprOwner(it) : "owner";
+        ((opts && opts.everyone) || it.who === role()) && out.push(it);
+      });
+    } catch (e) {
+      console.warn("owner queue", e);
+    }
+    return out;
+  };
+}
+if ("function" == typeof mGo) {
+  const base = mGo;
+  mGo = function (go) {
+    try {
+      go && go.glTab && (glTab = go.glTab);
+    } catch (e) {}
+    return base.apply(this, arguments);
+  };
+}
+if ("function" == typeof fin2RunClose) {
+  const base = fin2RunClose;
+  fin2RunClose = function (ym) {
+    const r = base.apply(this, arguments);
+    try {
+      r && r.ok && DB.periods && DB.periods.closeAsk && DB.periods.closeAsk.ym === ym && delete DB.periods.closeAsk;
+    } catch (e) {}
+    return r;
+  };
+}
+if ("function" == typeof fin2ClosePageHtml) {
+  const base = fin2ClosePageHtml;
+  fin2ClosePageHtml = function () {
+    let h = base.apply(this, arguments);
+    try {
+      const ym = fin2CloseYm();
+      if (!ym) return h;
+      const ask = (DB.periods || {}).closeAsk,
+        sent = ask && ask.ym === ym ? ask : null,
+        ctrl = "controller" === role(),
+        line = sent
+          ? `<p class="small ct-sent">Checklist sent to the Owner by ${esc(sent.by)} on ${fmt(sent.on)} with ${sent.open} item${1 === sent.open ? "" : "s"} open${sent.note ? ": " + esc(sent.note) : ""}. It waits in the Owner's Approvals.</p>`
+          : ctrl
+            ? `<p class="small ct-sent"><button class="btn sm" data-ctsend="${ym}">Send the Checklist to the Owner</button> <span class="muted">puts the ${fin3Label(ym)} close in the Owner's queue with what is still open</span></p>`
+            : "",
+        k = h.indexOf('<h4 class="fin2-step">4 · ');
+      line && (h = k > -1 ? h.slice(0, k) + line + h.slice(k) : h + line);
+    } catch (e) {}
+    return h;
+  };
+}
+if ("function" == typeof glWire) {
+  const base = glWire;
+  glWire = function (host) {
+    base.apply(this, arguments);
+    host &&
+      host.querySelectorAll("[data-ctsend]").forEach(
+        (b) =>
+          (b.onclick = () => {
+            const ym = b.dataset.ctsend;
+            mbModal(
+              `Send the ${fin3Label(ym)} Checklist to the Owner`,
+              `<p class="small">The Owner sees the close in Approvals and on Home with what is still open. Add a note if something needs a word.</p>${mbF("Note", mbIn("note", "", "e.g. the three September lines are coded next month; Home Depot has no statement yet"))}`,
+              {
+                submit: "Send",
+                onSubmit: (f) => {
+                  const r = ctCloseAsk(ym, f.note);
+                  if (!r.ok) return toast(r.why), !1;
+                  render();
+                  try {
+                    rcToast(`${fin3Label(ym)} close checklist sent to the Owner — ${r.rec.open} item${1 === r.rec.open ? "" : "s"} open`, [{ label: "Open", run: () => ((view = "gl"), (glTab = "periods"), render()) }]);
+                  } catch (e) {
+                    toast("Sent");
+                  }
+                },
+              },
+            );
+          }),
+      );
+  };
+}
+// Finding 18: the transaction drawer's Save toasts what happened, with Open.
+if ("function" == typeof txnDialog) {
+  const base = txnDialog;
+  txnDialog = function (id) {
+    base.apply(this, arguments);
+    try {
+      const sv = document.getElementById("d-save");
+      if (!sv || !sv.onclick) return;
+      const prev = sv.onclick;
+      sv.onclick = function () {
+        const had = new Set((DB.txns || []).map((t) => t.id)),
+          r = prev.apply(this, arguments),
+          dr = document.getElementById("drawer");
+        if (dr && dr.classList.contains("on")) return r;
+        const t = id ? (DB.txns || []).find((x) => x.id === id) : (DB.txns || []).find((x) => !had.has(x.id));
+        if (t)
+          try {
+            rcToast(`${t.desc || "Line"} ${money(Math.abs(+t.amt || 0))} saved — ${catName(t.cat)}${t.projectId ? " · " + ctJob(t.projectId) : ""}`, [{ label: "Open", run: () => txnDialog(t.id) }]);
+          } catch (e) {}
+        return r;
+      };
+    } catch (e) {}
+  };
 }
