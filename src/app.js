@@ -14785,10 +14785,26 @@ function timeAction(e, a) {
     save(),
     render();
 }
+// The pay period a day falls in: two weeks, Monday to Sunday, anchored on the firm's first period (the seed's
+// 8/17 – 8/28 run); payday is the second Friday.
+function payPeriodOf(day) {
+  const anchor = (DB.company && DB.company.payAnchor) || "2026-08-17",
+    k = Math.floor(dayDiff(anchor, day) / 14),
+    from = iso(addDays(anchor, 14 * k));
+  return { from: from, to: iso(addDays(from, 13)), payDate: iso(addDays(from, 11)) };
+}
 function payrollFromTime() {
-  const entries = DB.time.filter((t) => "approved" === t.status && !t.payrollId);
-  if (!entries.length) return void toast("No approved hours waiting for a payroll run");
-  const dates = entries.map((t) => t.date).sort(),
+  // A run is built for one pay period: the one today is in (or the last one that ended, if today's has no hours
+  // yet). Approved hours from earlier periods are not swept into it; they were paid by an earlier run or need one
+  // of their own, and the toast says how many there are.
+  const all = DB.time.filter((t) => "approved" === t.status && !t.payrollId);
+  if (!all.length) return void toast("No approved hours waiting for a payroll run");
+  let P = payPeriodOf(today());
+  all.some((t) => t.date >= P.from && t.date <= P.to) || (P = payPeriodOf(iso(addDays(P.from, -1))));
+  const entries = all.filter((t) => t.date >= P.from && t.date <= P.to),
+    older = all.filter((t) => t.date < P.from);
+  if (!entries.length) return void toast(`No approved hours in the ${fmt(P.from)} – ${fmt(P.to)} pay period${older.length ? `; ${older.length} older approved entr${1 === older.length ? "y is" : "ies are"} in no run` : ""}`);
+  const dates = [P.from, P.payDate],
     byEnt = {};
   entries.forEach((t) => {
     const e = DB.employees.find((x) => x.id === t.empId),
@@ -14833,7 +14849,9 @@ function payrollFromTime() {
       run = {
         id: uid("pr"),
         period: `${fmt(dates[0])} – ${fmt(dates[dates.length - 1])}`,
-        payDate: addWork(today(), 3),
+        from: P.from,
+        to: P.payDate,
+        payDate: P.payDate < today() ? addWork(today(), 3) : P.payDate,
         entityId: entityId,
         employees: Object.keys(perEmp).length,
         gross: r2(gross),
@@ -14869,7 +14887,7 @@ function payrollFromTime() {
   }
   save(),
     render(),
-    toast(`${created.length} payroll run${created.length > 1 ? "s" : ""} built — awaiting Owner approval`),
+    toast(`${created.length} payroll run${created.length > 1 ? "s" : ""} built for ${fmt(P.from)} – ${fmt(P.payDate)} — awaiting Owner approval${older.length ? `; ${older.length} older approved entr${1 === older.length ? "y is" : "ies are"} in no run` : ""}`),
     setView("ap");
 }
 function employeesDialog() {
