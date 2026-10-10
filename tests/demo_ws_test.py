@@ -29,7 +29,7 @@ SNAP = r"""
   return {
     conn: gcMine(), on: gcOn(), demo: gcIsDemo(),
     ws: (() => { const W = demoWsFor(uid); return { messages: W.messages.length, events: W.events.length, files: W.files.length }; })(),
-    comms: mine.map(c => ({ id: c.id, msgId: c.msgId, subject: c.subject, from: (c.from || {}).email, route: c.route || {}, status: c.status, labels: c.labels || [], direction: c.direction, kinds: (c.proposals || []).map(p => p.kind) })),
+    comms: mine.map(c => ({ id: c.id, msgId: c.msgId, threadId: c.threadId, subject: c.subject, from: (c.from || {}).email, route: c.route || {}, status: c.status, labels: c.labels || [], direction: c.direction, kinds: (c.proposals || []).map(p => p.kind) })),
     props, ignored: mine.filter(c => c.status === 'ignored').map(c => c.subject),
     events: (DB.calendar.external || []).filter(e => e.owner === uid).map(e => ({ id: e.id, title: e.title, start: e.start, source: e.source })),
     files: (DB.gdrive || []).filter(f => f.owner === uid).map(f => ({ id: f.id, name: f.name, route: f.route, source: f.source })),
@@ -58,6 +58,8 @@ async def persona(p, uid, C):
     ui = await pg.evaluate("() => { const b = document.querySelector('#gc-demo'); const h = document.querySelector('.gc-acct h3'); return { btn: b ? b.textContent.trim() : '', primary: !!(b && b.classList.contains('primary')), h: h ? h.textContent : '', gogo: !!document.querySelector('#gc-go:not([disabled])') }; }")
     C.ok(ui['btn'] == 'Connect Demo Workspace' and not ui['primary'], f'{uid}: Connections shows a Connect Demo Workspace button that is not the primary ({ui})')
     C.ok(not ui['gogo'], f'{uid}: the real Google button stays disabled with no client id')
+    # The owner's landlord is on file as a vendor (no seed vendor is one): rent from a lessor on file is a bill, never AR.
+    if uid == 'u_owner': await pg.evaluate("() => { DB.vendors.push({ id: 'v_landlord', name: 'Court Street Properties', trade: 'Landlord', email: 'office@courtstreetprops.example', w9: true, insuranceExp: '', bankChangedAt: '' }); save(); }")
     d = await pg.evaluate("async () => { const d = await gcDemoConnect(); return d && { mail: d.mail.length, events: d.events.length, files: d.files.length, errors: d.errors }; }")
     C.ok(d and not d['errors'], f'{uid}: connect ran a first sync without errors ({d})')
     S = await pg.evaluate(SNAP, uid)
@@ -184,6 +186,66 @@ async def persona(p, uid, C):
         C.ok(any(e['who'] == 'Marcus Bell' for e in S['expect']), f'{uid}: the sent proposal became an expectation')
         C.ok(bool(one(by_kind(S, 'lead'), lambda p: p.get('name') == 'Sofia Adler')), f'{uid}: Sofia Adler is a lead proposal')
         C.ok(bool(by_kind(S, 'call')) and bool(by_kind(S, 'question')) and bool(by_kind(S, 'decision')), f'{uid}: the Posh call, Jeanette\'s question and the Kleins\' decision are proposals ({sorted(set(p["kind"] for p in S["props"]))})')
+        # ---- S1 money direction (owner review r5, finding 1): who pays whom decides the direction, or it is unclassified.
+        zelle = one(S['comms'], lambda c: c['subject'].startswith('You received a Zelle payment'))
+        C.ok(bool(zelle) and 'bill' not in zelle['kinds'] and 'ar' not in zelle['kinds'] and 'deposit' not in zelle['kinds'] and 'credit' in zelle['kinds'], f"{uid}: a bank's credit notice is never a bill, AR or a claim; it proposes a bank-line match only ({zelle and zelle['kinds']})")
+        arch_in = one(S['comms'], lambda c: c['subject'] == 'Invoice 2290 — 45 Cranberry drawings')
+        arch_out = one(S['comms'], lambda c: c['subject'] == 'Re: Invoice 2290 — 45 Cranberry drawings')
+        C.ok(bool(arch_in) and 'bill' not in arch_in['kinds'] and 'money' in arch_in['kinds'] and 'unrouted' in arch_in['kinds'], f"{uid}: an invoice from a firm nobody has on file is unclassified money mail with an offer to create the vendor, not a bill ({arch_in and arch_in['kinds']})")
+        C.ok(bool(arch_out) and 'ar' not in arch_out['kinds'] and 'bill' not in arch_out['kinds'], f"{uid}: our reply on the architect's invoice thread is not a receivable ({arch_out and arch_out['kinds']})")
+        both = {}
+        for c in S['comms']:
+            for k in c['kinds']:
+                if k in ('ar', 'bill'): both.setdefault(c['threadId'], set()).add(k)
+        C.ok(not any(v == {'ar', 'bill'} for v in both.values()), f'{uid}: one thread never yields both "we billed them" and "they billed us" ({[k for k, v in both.items() if v == {"ar", "bill"}][:3]})')
+        rent_in = one(S['comms'], lambda c: c['subject'] == 'October rent — 31 Belvidere, suite 2')
+        rent_out = one(S['comms'], lambda c: c['subject'] == 'Re: October rent — 31 Belvidere, suite 2')
+        rb = rent_in and one(by_kind(S, 'bill'), lambda p: p['commId'] == rent_in['id'])
+        C.ok(bool(rb) and rb.get('vendorId') == 'v_landlord' and rb.get('amount') == 8200, f"{uid}: rent from the landlord on file is a bill on that vendor ({rb and (rb.get('vendorId'), rb.get('amount'))})")
+        C.ok(bool(rent_out) and 'ar' not in rent_out['kinds'], f"{uid}: our rent reply is never a receivable ({rent_out and rent_out['kinds']})")
+        pike = one(S['comms'], lambda c: c['subject'] == 'Deposit sent')
+        C.ok(bool(pike) and 'deposit' not in pike['kinds'] and 'money' in pike['kinds'], f"{uid}: a stranger's \"we wired\" is unclassified, not a client's payment claim ({pike and pike['kinds']})")
+        C.ok(not any('Jordan Pike' in n['text'] for n in S['nudges']), f'{uid}: no claim nudge watches a stranger\'s money against the bank')
+        jh = one(S['comms'], lambda c: c['subject'] == 'Amex bill — pay from Chase?')
+        C.ok(bool(jh) and 'bill' not in jh['kinds'] and 'ar' not in jh['kinds'], f"{uid}: our own staff never produce a bill or a receivable ({jh and jh['kinds']})")
+        C.ok(all(p.get('vendorId') for p in by_kind(S, 'bill')), f"{uid}: every bill proposal names a vendor on file ({[p['summary'][:60] for p in by_kind(S, 'bill') if not p.get('vendorId')][:3]})")
+        C.ok(all(p.get('clientId') for p in by_kind(S, 'ar') + by_kind(S, 'deposit')), f"{uid}: every receivable and claim names a client on file ({[p['summary'][:60] for p in by_kind(S, 'ar') + by_kind(S, 'deposit') if not p.get('clientId')][:3]})")
+        mon = by_kind(S, 'money')
+        r = await pg.evaluate("""(pid) => { const c = DB.comms.find(x => (x.proposals || []).some(p => p.id === pid)), p = c.proposals.find(p => p.id === pid);
+            const b0 = (DB.bills || []).length, e0 = (DB.expected || []).length, a0 = DB.clients.reduce((a, cl) => a + (cl.activity || []).length, 0);
+            window.__cmBulk = 1; const did = cmApply(c, p); window.__cmBulk = 0;
+            return { did, bills: (DB.bills || []).length - b0, expected: (DB.expected || []).length - e0, activity: DB.clients.reduce((a, cl) => a + (cl.activity || []).length, 0) - a0 }; }""", mon[0]['id']) if mon else None
+        C.ok(bool(r) and r['bills'] == 0 and r['expected'] == 0 and r['activity'] == 0, f'{uid}: approving unclassified money mail writes no money ({r})')
+        # ---- S2 unread attachments (finding 2): every proposal says which attachment was not read; no invented amount.
+        C.ok(bool(arch_in) and all('attachment not read: INV-2290.pdf' in p['summary'] and 'INV-2290.pdf' in (p.get('unread') or []) for p in S['props'] if p['commId'] == arch_in['id']), f"{uid}: a proposal from a message with an unread PDF says so ({[p['summary'][-60:] for p in S['props'] if arch_in and p['commId'] == arch_in['id']]})")
+        cm3 = one(S['comms'], lambda c: c['subject'].startswith('Invoice CM-0103'))
+        b3 = cm3 and one(by_kind(S, 'bill'), lambda p: p['commId'] == cm3['id'])
+        C.ok(bool(b3) and not b3.get('amount') and b3.get('amountUnread') and 'attachment not read: Carlos-Millwork-Invoice-CM-0103.pdf' in b3['summary'], f"{uid}: a bill proposal with an unread invoice PDF carries no amount it did not see ({b3 and (b3.get('amount'), b3['summary'][-80:])})")
+        if b3:
+            r = await pg.evaluate("""(pid) => { const c = DB.comms.find(x => (x.proposals || []).some(p => p.id === pid)), p = c.proposals.find(p => p.id === pid); const b0 = (DB.bills || []).length;
+                window.__cmBulk = 1; const did = cmApply(c, p); window.__cmBulk = 0; return { did, bills: (DB.bills || []).length - b0 }; }""", b3['id'])
+            C.ok(r['bills'] == 0 and 'not read' in r['did'], f'{uid}: approving a bill with no amount read creates no bill, only the task to enter it from the PDF ({r})')
+        amp = one(by_kind(S, 'bill'), lambda p: p.get('number') == 'AMP-318')
+        C.ok(bool(amp) and not amp.get('unread') and 'not read' not in amp['summary'], f'{uid}: a bill read from the PDF carries no unread warning ({amp and amp["summary"][-60:]})')
+        # ---- S2 routing by address (finding 7): a client's mail about another address is not routed to their one job.
+        kg = one(S['comms'], lambda c: c['subject'].startswith("Our friends' parlor floor at 19 Garden Pl"))
+        C.ok(bool(kg) and kg['route'].get('clientId') == 'cl121' and not kg['route'].get('projectId') and kg['route'].get('addr') == '19 Garden Pl' and 'address' in kg['kinds'], f"{uid}: a client with one job writing about another address routes to the client, not the job, and proposes the address ({kg and (kg['route'], kg['kinds'])})")
+        refi = one(S['comms'], lambda c: c['subject'].startswith('206 Lenox Ave — refinance'))
+        C.ok(bool(refi) and not refi['route'].get('projectId') and refi['route'].get('entityId') and refi['route'].get('addr') == '206 Lenox Ave', f"{uid}: a lender's refinance mail about a job's address routes to the entity and the address, never silently onto the construction job ({refi and refi['route']})")
+        # ---- S2 names (findings 8 and 14): no image token is a person; "Alan" in the owner's notes is the owner.
+        wjr = one(S['meetings'], lambda m: m['title'] == 'Weekly jobs review')
+        att = await pg.evaluate("() => { const m = DB.meetings.find(x => x.title === 'Weekly jobs review'); return m ? { attendees: m.attendees, owners: m.steps.map(s => s.owner), tasks: m.proposals.filter(p => p.kind === 'task').map(p => p.apply.assignee) } : null; }")
+        C.ok(bool(att) and not any('image' in str(a).lower() or 'cid:' in str(a).lower() for a in att['attendees'] + att['owners']), f'{uid}: "[image: Meeting records]" is not a person in the meeting ({att})')
+        C.ok(bool(att) and all(re.search(r'[A-Za-z]', str(a)) and ' ' in str(a).strip() or a in ('Alan', 'Angel', 'Chen Biron', 'Sarah Davis', 'Owner') for a in att['attendees']), f'{uid}: an attendee is a name with letters and a space, or a staff member on file ({att and att["attendees"]})')
+        C.ok(bool(att) and 'Owner' in att['tasks'] and 'Alan' not in att['tasks'], f'{uid}: "[Alan]" in the owner\'s own meeting notes is the workspace owner, not the seed PM by first name ({att and att["tasks"]})')
+        # ---- S3 (finding 15): one forwarded thread, one permit proposal; Needs an Answer counts threads with a question and no reply.
+        sup = [p for p in by_kind(S, 'permit') if 'supersede approved' in (p.get('subject') or '')]
+        C.ok(len(sup) == 1, f'{uid}: one forwarded thread yields one permit proposal, not one per message ({len(sup)})')
+        na = await pg.evaluate("""() => { const L = cmNeedsAnswer(); const subj = L.map(c => c.subject); const all = DB.comms.filter(c => c.owner === 'u_owner' && c.status !== 'ignored').length;
+            view = 'comms'; cmFilter = 'open'; render(); const tabs = [...document.querySelectorAll('#v-comms .ctabs button')].map(b => b.textContent.trim());
+            return { n: L.length, all, subj, tabs }; }""")
+        C.ok(na['n'] < na['all'] and any(s.startswith('Field card limit') for s in na['subj']) and not any(s.startswith('Invoice 2290') for s in na['subj']) and not any(s.startswith('October rent') for s in na['subj']), f"{uid}: Needs an Answer counts threads that asked us something with no reply from us ({na['n']} of {na['all']}; {na['subj'][:6]})")
+        C.ok(any(t.startswith('Needs an Answer') and t.replace('Needs an Answer', '').strip() == str(na['n']) for t in na['tabs']), f"{uid}: the Needs an Answer tab shows that count ({na['tabs']})")
         # The loop: a draft the assistant writes lands in the demo Drafts, and the next sync shows it in the app.
         loop = await pg.evaluate("""async () => { const c = DB.comms.find(x => x.owner === 'u_owner' && /backsplash decision/.test(x.subject));
             const o = paRefOffers({ kind: 'mail', id: c.msgId, commId: c.id }).find(o => o.id === 'pa-reply'); await o.run();

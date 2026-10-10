@@ -69519,6 +69519,227 @@ function cmClientFor(from, isStaff) {
   const tok = cmEmailTokens(from);
   return (DB.clients || []).find((cl) => cmNameKeys(cl.name).some((k) => tok.includes(k))) || null;
 }
+// ---- who is who, before the reader decides anything (owner review r5, findings 1, 7, 8) -------------------
+// A bank, card, payment-processor or notification sender. Its mail is never a bill or a receivable; a credit
+// notice may propose a bank-line match and nothing else.
+const CM_BANK_TOKENS = new Set(
+    "chase jpmorgan jpmchase bankofamerica bofa wellsfargo wells citi citibank capitalone amex americanexpress usbank tdbank pnc citizens hsbc santander zelle venmo paypal stripe squareup square melio intuit quickbooks plaid brex ramp mercury wise payoneer cashapp navyfederal synchrony discover lending mortgage".split(
+      " ",
+    ),
+  ),
+  CM_NOTIFY_LOCAL = /^(no-?reply|noreply|donotreply|do-not-reply|no\.reply|notifications?|notify|alerts?|statements?|service|customerservice|automated|mailer-daemon|postmaster|bounce)/i,
+  CM_CREDIT_WORDS =
+    /\b(you(?:'ve| have)? received|received a (?:payment|deposit|wire|transfer)|payment received|was deposited|has been deposited|deposited (?:to|into) your|credited (?:to|into) your|incoming (?:wire|transfer|payment)|sent you (?:\$|money|a payment)|zelle payment (?:from|received)|payment from)\b/i,
+  CM_PAY_WORDS = /invoice|statement|balance|amount due|past due|payment|\brent\b|remit/i,
+  CM_SENT_WORDS =
+    /money (just )?sent|wire (was |has been )?sent|payment (was |has been )?sent|sent the (deposit|payment|wire)|just paid|\bwe (?:paid|wired|mailed (?:the |a )?check|sent (?:the |a )?(?:check|wire|payment|deposit))\b|check (?:went out|is in the mail|was mailed)/i,
+  CM_PROPERTY_RX =
+    /\b(refinanc\w*|refi|mortgage|lender|underwriting|appraisal|loan (?:application|officer|payoff|estimate)|closing (?:date|statement|disclosure)|title (?:company|insurance|report)|rent roll|property tax|insurance (?:policy|declaration|premium|renewal)|co-?op board|condo board|hoa|lease (?:agreement|renewal|abstract))\b/i,
+  CM_IMG_TOKEN = /\[(?:image|cid|inline image|logo)[^\]]*\]|<?\bcid:[^\s>\]]+>?|\[image\]/gi,
+  CM_ORG_WORD =
+    /\b(llc|inc|ltd|corp|co|pllc|pc|studio|group|properties|design|designs|architects?|architecture|engineering|engineers?|partners|associates|bank|lending|capital|realty|brokerage|law|cpa|team|office|dept|department|company)\b/i;
+const cmStripImg = (t) => String(t || "").replace(CM_IMG_TOKEN, " ");
+function cmBankSender(c) {
+  const e = cmEmail((c.from && c.from.email) || c.from || ""),
+    nm = String((c.from && c.from.name) || "").toLowerCase(),
+    local = e.split("@")[0] || "",
+    toks = (e.split("@")[1] || "").split(/[.-]/).concat(nm.split(/[^a-z]+/)).filter(Boolean);
+  return !!e && (toks.some((t) => CM_BANK_TOKENS.has(t)) || CM_NOTIFY_LOCAL.test(local));
+}
+// Who the money is between: we wrote ('staff'), a client on file, a vendor on file, a bank or notification
+// sender, or nobody we know ('unknown'). Only the first three can give a direction.
+function cmMoneyParty(c, R) {
+  return R.employee ? "staff" : R.clientId ? "client" : R.vendorId ? "vendor" : cmBankSender(c) ? "bank" : "unknown";
+}
+// The vendor an address or a display name belongs to: the email on file, the domain inside the vendor's name
+// ("office@albertomplumbing" is Alberto M Plumbing), or the name itself. A public mail provider never matches.
+function cmVendorFor(email, name) {
+  const e = cmEmail(email),
+    dom = (e.split("@")[1] || "").split(".")[0].replace(/[^a-z]/g, ""),
+    pub = "object" == typeof PA_PUBLIC_MAIL && PA_PUBLIC_MAIL.test(e.split("@")[1] || ""),
+    nm = String(name || "")
+      .toLowerCase()
+      .replace(/[^a-z]/g, "");
+  return (
+    (DB.vendors || []).find((v) => {
+      const vk = (v.name || "").toLowerCase().replace(/[^a-z]/g, "");
+      return (v.email || "").toLowerCase() === e || (!pub && dom.length > 3 && vk.includes(dom)) || (nm.length > 5 && vk.length > 5 && (nm === vk || nm.includes(vk)));
+    }) || null
+  );
+}
+// Money kinds the other messages of this thread already carry: one thread never says both directions.
+function cmThreadKinds(c, kinds) {
+  const out = new Set();
+  return (
+    c.threadId &&
+      (DB.comms || []).forEach((x) => {
+        x.id !== c.id &&
+          x.threadId === c.threadId &&
+          (x.proposals || []).forEach((p) => {
+            kinds.includes(p.kind) && out.add(p.kind);
+          });
+      }),
+    out
+  );
+}
+function cmThreadHas(c, kind, pred) {
+  return (
+    !!c.threadId &&
+    (DB.comms || []).some(
+      (x) => x.id !== c.id && x.threadId === c.threadId && (x.proposals || []).some((p) => p.kind === kind && (!pred || pred(p))),
+    )
+  );
+}
+// A sentence that asks the reader, or a named colleague, for something.
+const CM_ASK_RX =
+  /\b(?:can|could|would) you\b|\bplease\s+(?:have|confirm|send|advise|let|get|check|review|sign|call|book|ask|share|forward)\b|\bneed (?:you|your)\b|\bhave [A-Z][a-z]+ (?:confirm|send|sign|check|review|call|approve)\b|\blet (?:me|us) know\b/;
+function cmAskSentence(own) {
+  return (
+    String(own || "")
+      .replace(/\s+/g, " ")
+      .split(/(?<=[.?!])\s+/)
+      .find((s) => CM_ASK_RX.test(s) && s.length < 240) || ""
+  );
+}
+// A person's name: letters, a space, two to four words, no organisation word. "Jpsidford" and "image:
+// Meeting records" are not names.
+const cmLooksLikeName = (s) =>
+  /^[A-Z][A-Za-z'’.-]+(?: [A-Z][A-Za-z'’.-]+){1,3}$/.test(String(s || "").trim()) && !CM_ORG_WORD.test(s);
+// A display name that is only the email's local part dressed up ("Jpsidford" from jpsidford@): not a name.
+function cmNameFromLocal(name, email) {
+  const n = String(name || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, ""),
+    l = cmEmail(email)
+      .split("@")[0]
+      .replace(/[^a-z0-9]/g, "");
+  return !n || n === l || n === l.replace(/\d+$/, "");
+}
+// The signature block of what someone wrote: the lines after the closing ("Thanks,", "Best,") or the last
+// paragraph when it reads like a signature (a phone, a zip, a web address, a title) and not like sentences.
+function cmSigBlock(own) {
+  const t = String(own || "")
+      .replace(/\r/g, "")
+      .trim(),
+    close = t.search(/\n(?:Best|Thanks|Thank you|Regards|Kind regards|Sincerely|Cheers|Many thanks|Warmly|Respectfully)[^\n]{0,20}\n/i);
+  if (close > -1) return t.slice(close).split("\n").slice(2).join("\n").trim();
+  const parts = t.split(/\n\s*\n|\n--\s*\n/),
+    last = parts.length > 1 ? parts[parts.length - 1] : "",
+    lines = last.split("\n").map((l) => l.trim()).filter(Boolean),
+    sigish = /\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}|\b\d{5}(?:-\d{4})?\b|www\.|https?:\/\/|@[a-z0-9.-]+\.[a-z]{2,}|\b(?:PE|AIA|RA|LEED|LLC|Inc\.?|PLLC|Esq\.?|CPA)\b|\b(?:phone|tel|mobile|cell|office|fax)\b/i;
+  return lines.length && lines.length <= 8 && sigish.test(last) && !lines.some((l) => /[.!?]$/.test(l) && l.split(" ").length > 6) ? last : "";
+}
+// The writer's name from the signature block: its first line that looks like a person's name.
+function cmSigName(own) {
+  const sig = cmSigBlock(own);
+  return (
+    (sig &&
+      sig
+        .split("\n")
+        .map((l) => l.trim().replace(/[,|].*$/, "").trim())
+        .find((l) => cmLooksLikeName(l))) ||
+    ""
+  );
+}
+// The best name for a correspondent: the display name when it is a name, else the signature, else the address.
+function cmPersonName(c) {
+  const e = cmEmail((c.from && c.from.email) || c.from),
+    dn = cmStripImg((c.from && c.from.name) || "").trim();
+  if (dn && cmLooksLikeName(dn) && !cmNameFromLocal(dn, e)) return dn;
+  return cmSigName(cmOwnText(c.text)) || (dn && !cmNameFromLocal(dn, e) ? dn : e);
+}
+// Mail about the property rather than the construction: a lender, a lease, an appraisal, a policy. It belongs
+// to the entity or the address, never silently to the job.
+const cmIsPropertyMail = (c, text, party) => CM_PROPERTY_RX.test(text) && ("bank" === party || "unknown" === party);
+function cmEntityFor(text, proj) {
+  const low = String(text || "").toLowerCase(),
+    ent = (DB.entities || []).find((e) => {
+      const k = String(e.name || "")
+        .toLowerCase()
+        .replace(/\s*(llc|inc|corp|ltd)\.?$/, "")
+        .trim();
+      return k.length > 3 && low.includes(k);
+    });
+  return ent ? ent.id : proj && proj.project && proj.project.entityId ? proj.project.entityId : "function" == typeof entDefault ? entDefault() : "";
+}
+// The job a message names: its address, its name, its short name ("121 State", "45 Cranberry"), its tag or an
+// address-like keyword. Generic keywords ("garden unit") never route.
+const cmNormText = (s) =>
+  ` ${String(s || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()} `;
+function cmProjectAliases(p) {
+  const nm = String(p.project.name || "")
+      .replace(/\s[—–-]\s.*$/, "")
+      .trim(),
+    ad = String(p.project.addr || "")
+      .split(",")[0]
+      .trim(),
+    out = new Set();
+  [nm, ad, ...String(p.project.keywords || "").split(/[,\n]/)].map((s) => s.trim()).forEach((s) => {
+    if (!s || !/\d/.test(s) || s.length < 5) return;
+    out.add(cmNormText(s).trim());
+    const m = s.match(/^(\d{1,5})\s+((?:East|West|North|South|E|W|N|S)\.?\s+)?([A-Za-z]{3,}|\d{1,3}(?:st|nd|rd|th))/i);
+    m && out.add(cmNormText(`${m[1]} ${m[2] ? m[2].trim().replace(/\.$/, "") + " " : ""}${m[3]}`).trim());
+  });
+  return [...out].filter((a) => a.length > 4);
+}
+function cmProjectFor(subject, own) {
+  const hay = cmNormText(subject) + cmNormText(own);
+  let best = null,
+    bl = 0;
+  return (
+    (DB.projects || []).forEach((p) => {
+      cmProjectAliases(p).forEach((a) => {
+        hay.includes(` ${a} `) && a.length > bl && ((bl = a.length), (best = p));
+      });
+    }),
+    best
+  );
+}
+// The user whose mailbox a message came from, and the owner's own name in that workspace ("Alan Mishali").
+function cmReaderOf(c) {
+  const uid = (c && c.owner) || ("function" == typeof paMe ? paMe().id : ""),
+    u = (DB.users || []).find((x) => x.id === uid) || ("function" == typeof paMe ? paMe() : {}) || {};
+  let ws = "";
+  try {
+    ws = "function" == typeof demoWsFor && "function" == typeof gcDemoAvailable && gcDemoAvailable(uid) ? demoWsFor(uid).name || "" : "";
+    if (!ws && "function" == typeof gcMine) {
+      const g = gcMine() || {};
+      g.name && !/demo workspace|loaded workspace/i.test(g.name) && (ws = g.name);
+    }
+  } catch (e) {}
+  return { uid: uid, name: u.name || "", wsName: ws || u.name || "" };
+}
+// A first name or a full name to a person on file: the mailbox owner first ("Alan" in Alan's own notes is
+// Alan, whatever a seed user is called), then an exact full name, then a first name only one person has.
+function cmResolvePerson(name, c) {
+  const n = String(cmStripImg(name) || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!n || !/[a-z]/.test(n) || /^(the (group|team|everyone|all)|image|cid|attachment|meeting records)\b/.test(n)) return "";
+  const staff = "function" == typeof mtStaff ? mtStaff() : (DB.users || []).map((u) => u.name),
+    norm = (s) =>
+      String(s || "")
+        .toLowerCase()
+        .replace(/[^a-z0-9 ]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim(),
+    words = n.split(" "),
+    me = cmReaderOf(c),
+    mine = [me.wsName, me.name].map(norm).filter(Boolean);
+  if (mine.some((x) => x === n || (1 === words.length && x.split(" ")[0] === n))) return me.name;
+  const exact = staff.find((x) => norm(x) === n);
+  if (exact) return exact;
+  if (1 === words.length) {
+    const hits = staff.filter((x) => norm(x).split(" ")[0] === n);
+    return 1 === hits.length ? hits[0] : "";
+  }
+  return staff.find((x) => norm(x).split(" ")[0] === words[0] && norm(x).split(" ").slice(-1)[0] === words.slice(-1)[0]) || "";
+}
 function cmRoute(c) {
   const from = cmEmail((c.from && c.from.email) || c.from),
     fromName = (c.from && c.from.name) || cmName(c.from),
@@ -69526,31 +69747,36 @@ function cmRoute(c) {
   cmIsStaff(from) && (r.employee = fromName);
   const cl = cmClientFor(from, r.employee);
   cl && (r.clientId = cl.id);
-  const v = (DB.vendors || []).find(
-    (v) =>
-      (v.email || "").toLowerCase() === from ||
-      ((from.split("@")[1] || "").split(".")[0].length > 3 &&
-        (v.name || "")
-          .toLowerCase()
-          .replace(/[^a-z]/g, "")
-          .includes((from.split("@")[1] || "").split(".")[0].replace(/[^a-z]/g, ""))),
-  );
+  const v = cmVendorFor(from, fromName);
   v && !cl && (r.vendorId = v.id);
-  const addrs = cmAddrs(cmOwnText(c.text), c.subject || "");
+  const own = cmOwnText(c.text),
+    addrs = cmAddrs(own, c.subject || "");
   r.addr = addrs[0] || "";
   const keyOf = (a) => cmAddrKey(a),
-    proj = (DB.projects || []).find((p) =>
+    hits = (p) =>
       addrs.some(
         (a) =>
           keyOf(p.project.addr || "").startsWith(keyOf(a).slice(0, 8)) ||
           keyOf(p.project.name || "").startsWith(keyOf(a).slice(0, 8)),
-      ),
-    );
+      );
+  // The job: an address it names, else its name or short name in the subject or the text (PM review r5, 9).
+  let proj = (DB.projects || []).find(hits) || cmProjectFor(c.subject || "", own);
+  if (proj && cmIsPropertyMail(c, `${c.subject || ""} ${own}`, cmMoneyParty(c, r))) {
+    // A lender, a lease, an appraisal: about the property, not the construction. The entity and the address
+    // carry it; the construction job never gets it silently.
+    (r.entityId = cmEntityFor(`${c.subject || ""} ${own}`, proj)),
+      (r.property = !0),
+      r.addr || (r.addr = String(proj.project.addr || proj.project.name || "").split(",")[0].replace(/\s[—–-]\s.*$/, "")),
+      (proj = null);
+  }
   if (proj) r.projectId = proj.id;
   else if (cl) {
+    // A client with one job: their mail goes to it only when it names no other address. Mail about a
+    // different address proposes that address instead (owner review r5, finding 7).
     const p1 = (DB.projects || []).filter((p) => p.clientId === cl.id);
-    1 === p1.length && (r.projectId = p1[0].id);
+    1 === p1.length && !addrs.length && (r.projectId = p1[0].id);
   }
+  r.addr && !r.projectId && !(DB.projects || []).some(hits) && (r.addrNew = !0);
   const known =
     !r.employee &&
     (DB.comms || []).some(
@@ -69573,13 +69799,19 @@ function cmRoute(c) {
     outs.length && (r.counterpart = cmName(outs[0]));
   }
   if (r.employee && !r.clientId) {
-    const outs = [...(c.to || []), ...(c.cc || [])].map(cmEmail).filter((e) => !cmIsStaff(e)),
+    const outsRaw = [...(c.to || []), ...(c.cc || [])].filter((e) => !cmIsStaff(cmEmail(e))),
+      outs = outsRaw.map(cmEmail),
       cl2 = (DB.clients || []).find(
         (cl) =>
           (cl.contacts || []).some((k) => outs.includes((k.email || "").toLowerCase())) ||
           outs.includes((cl.email || "").toLowerCase()),
       );
-    cl2 && (r.clientId = cl2.id);
+    if (cl2) r.clientId = cl2.id;
+    else if (!r.vendorId) {
+      // We wrote to a vendor on file: the thread is theirs, not a firm nobody knows (PM review r5, 9).
+      const v2 = outsRaw.map((e) => cmVendorFor(e, cmName(e))).find(Boolean);
+      v2 && (r.vendorId = v2.id);
+    }
   }
   return r;
 }
@@ -69609,8 +69841,17 @@ function cmRead(c) {
     P = [],
     push = (kind, summary, o) =>
       P.push(Object.assign({ id: uid("cp"), kind: kind, summary: summary, on: !0 }, o || {})),
+    // The amount is what the text or a READ attachment says; an unread PDF contributes nothing.
     amt = cmMoney(own) || cmMoney(attText),
     att = (c.attachments || []).map((a) => a.name.toLowerCase()),
+    // Documents whose text the reader never got (the PDF reader was lost, or the file is bytes only). Every
+    // proposal from this message says so; a bill never carries an amount it did not see (owner review r5, 2).
+    unread = (c.attachments || [])
+      .filter((a) => !/^image\//.test(String(a.mime || "")) && !/\.(png|jpe?g|gif|bmp|svg|ics|vcf)$/i.test(String(a.name || "")) && !String(a.text || "").trim())
+      .map((a) => a.name),
+    party = cmMoneyParty(c, R),
+    threadMoney = cmThreadKinds(c, ["bill", "ar"]),
+    reader = cmReaderOf(c),
     who = R.clientId
       ? (DB.clients.find((x) => x.id === R.clientId) || {}).name
       : R.vendorId
@@ -69687,7 +69928,9 @@ function cmRead(c) {
   const permits = [...new Set(all.match(/\b(?:B\d{8}(?:-I\d(?:-EL)?)?|SR\d{9}|[BME]\d{8})\b/g) || [])];
   if (
     /dob now|\bdob\b|permit|supersede|inspection|attestation/i.test(all) &&
-    (permits.length || /supersede|attestation|work complete/i.test(own))
+    (permits.length || /supersede|attestation|work complete/i.test(own)) &&
+    // One forwarded thread is one permit event, not one per message (owner review r5, 15).
+    !cmThreadHas(c, "permit", (p) => !permits.length || !(p.permits || []).length || (p.permits || []).some((x) => permits.includes(x)))
   ) {
     const owner = /owner'?s attestation/i.test(own),
       stillOpen = /still open|not closed|remains open|is open|sitting open/i.test(own),
@@ -69740,58 +69983,80 @@ function cmRead(c) {
       owner: "Billing",
     });
   }
-  if (
-    !R.employee &&
-    !R.clientId &&
-    amt &&
-    !ourCard &&
-    !onFile &&
-    /invoice|statement|balance|amount due|past due|payment/i.test(all) &&
-    !/deposit.*sent|money (just )?sent/i.test(low)
-  ) {
+  // ---- money: the direction comes from who pays whom (owner review r5, finding 1) ----
+  // A bill is a vendor on file saying we owe them. A receivable is us billing a client on file. A claim is a
+  // client on file saying their money is on its way. A bank's credit notice is a bank-line match and nothing
+  // more. Everything else that talks money is "unclassified money mail": shown, never written as money until a
+  // person says who the sender is (creating the vendor or the client re-reads the thread).
+  const billWords = CM_PAY_WORDS.test(all) && !/deposit.*sent|money (just )?sent/i.test(low) && !CM_SENT_WORDS.test(low),
+    sentWords = CM_SENT_WORDS.test(low),
+    said = (c.date || "").slice(0, 10) || today();
+  if ("vendor" === party && !ourCard && !onFile && billWords && (amt || (unread.length && /invoice|bill|statement|\brent\b/i.test(all))) && !threadMoney.has("ar")) {
     const num =
-        (all.match(/#\s?(\d{4,})|invoice\s*(?:no\.?|number)\s*[:#]?\s*([A-Z0-9-]*\d[A-Z0-9-]*)/i) || [])
+        (all.match(/#\s?(\d{4,})|invoice\s*(?:no\.?|number)?\s*[:#]?\s*([A-Z]{1,4}-?\d[A-Z0-9-]*|\d{3,})/i) || [])
           .slice(1)
           .find(Boolean) || "",
       due = (all.match(/due\s+([A-Z][a-z]+ \d{1,2},? \d{4})/i) || [])[1] || "",
       ent = (DB.entities || []).find((e) => low.includes((e.name || "").toLowerCase().replace(/ llc$/, ""))),
       // Already paid from the bank? A debit for the same amount near the invoice date is the line it belongs on.
-      said = (c.date || "").slice(0, 10) || today(),
-      paidLine = (DB.txns || []).find(
-        (t) => +t.amt < 0 && Math.abs(Math.abs(+t.amt) - amt) < 0.01 && !t.billId && t.date >= iso(addDays(said, -14)) && t.date <= iso(addDays(said, 14)),
-      );
+      paidLine = amt
+        ? (DB.txns || []).find(
+            (t) => +t.amt < 0 && Math.abs(Math.abs(+t.amt) - amt) < 0.01 && !t.billId && t.date >= iso(addDays(said, -14)) && t.date <= iso(addDays(said, 14)),
+          )
+        : null,
+      rent = /\brent\b|lease/i.test(all);
     push(
       "bill",
-      `${who} says ${money(amt)} is owed${ent ? " by " + ent.name : ""}${num ? " · #" + num : ""}${due ? " · due " + due : ""}${/past due/i.test(all) ? " · past due" : ""}${where ? " · " + where : ""}${attText ? " · read from the attached PDF" : ""}`,
+      amt
+        ? `${who} says ${money(amt)} is owed${ent ? " by " + ent.name : ""}${num ? " · #" + num : ""}${due ? " · due " + due : ""}${/past due/i.test(all) ? " · past due" : ""}${rent ? " · rent, a firm expense" : ""}${where ? " · " + where : ""}${attText ? " · read from the attached PDF" : ""}`
+        : `${who} sent an invoice${num ? " #" + num : ""}${where ? " · " + where : ""} — the amount is not in the text and the PDF was not read; open it before anything is written`,
       {
         vendor: who,
         vendorId: R.vendorId || "",
-        amount: amt,
+        amount: amt || 0,
+        amountUnread: !amt,
         number: num,
         due: due,
         entityId: ent ? ent.id : "",
         projectId: R.projectId || "",
+        rent: rent,
         fromAttachment: !!attText && !cmMoney(own),
         txnId: paidLine ? paidLine.id : "",
       },
     );
     paidLine && (P[P.length - 1].summary += ` · paid ${fmtL(paidLine.date)} from the bank (“${String(paidLine.desc || "").slice(0, 30)}”) — record the bill against that line`);
+  } else if ("bank" === party && amt && CM_CREDIT_WORDS.test(all)) {
+    // A credit landed, says the bank: the only thing to propose is the bank line it is.
+    const banks = new Set((DB.accounts || []).filter((a) => "bank" === a.type).map((a) => a.id)),
+      line = (DB.txns || []).find(
+        (t) => banks.has(t.acct) && +t.amt > 0 && Math.abs(+t.amt - amt) < 0.01 && t.date >= iso(addDays(said, -5)) && t.date <= iso(addDays(said, 5)),
+      ),
+      payer = (own.match(/(?:from|payer:?)\s+([A-Z][A-Za-z.&' -]{2,40}?)(?:\s+via|\s+on\b|\.|,|\n)/) || [])[1] || "";
+    push(
+      "credit",
+      `Bank notice: ${money(amt)} credit${payer ? " from " + payer.trim() : ""}${line ? " · matches the " + fmtL(line.date) + " bank line “" + String(line.desc || "").slice(0, 36) + "”" : " · no bank line yet"} · not a bill, not an invoice — the line is what gets recorded`,
+      { amount: amt, txnId: line ? line.id : "", payer: payer.trim() },
+    );
+  } else if ("unknown" === party && amt && !ourCard && !onFile && (billWords || sentWords)) {
+    push(
+      "money",
+      `${who} <${(c.from || {}).email || ""}> talks money — ${money(amt)}${where ? " · " + where : ""} — but nobody has them on file, so the direction is unknown: ${sentWords ? "they say money was sent" : "it reads like an invoice or a payment request"}. Nothing is written until you say who they are.`,
+      { amount: amt, as: sentWords ? "client" : "vendor", why: "sender not on file", unclassified: !0 },
+    );
   }
   if (
-    (R.employee &&
-      (R.clientId || R.counterpart) &&
+    ("staff" === party &&
+      R.clientId &&
       amt &&
       /invoice|progress billing|deposit request|please send the .*deposit|retainer/i.test(all) &&
       !/money (just )?sent/i.test(low) &&
+      !threadMoney.has("bill") &&
       push(
         "ar",
         `We ${/deposit/i.test(all) ? "asked " + who + " for a " + money(amt) + " deposit" : "billed " + who + " " + money(amt) + (/progress/i.test(all) ? " as a progress bill" : "")}${where ? " on " + where : ""}`,
         { amount: amt, clientId: R.clientId, counterpart: R.counterpart, deposit: /deposit/i.test(all) },
       ),
-    !R.employee &&
-      /money (just )?sent|wire (was |has been )?sent|payment (was |has been )?sent|sent the (deposit|payment|wire)|just paid|\bwe (?:paid|wired|mailed (?:the |a )?check|sent (?:the |a )?(?:check|wire|payment))\b|check (?:went out|is in the mail|was mailed)/i.test(
-        low,
-      ))
+    "client" === party && sentWords)
   ) {
     const prior = (c.text.match(/\$\s?([\d,]+\.\d{2})/g) || []).map((x) => +x.replace(/[^\d.]/g, "")),
       expect = prior.length ? prior[0] : amt,
@@ -69956,6 +70221,26 @@ function cmRead(c) {
       owner: "owner",
     });
   }
+  // Somebody outside asks the reader, or a named colleague, for something: that is a task on them, not a note
+  // (PM review r5, 9: "have Alan confirm the shoring plan").
+  if (!R.employee && "bank" !== party && !P.some((p) => ["question", "call", "escalation", "meeting", "lead", "decision", "money", "bill", "deposit", "credit", "noshow", "alteration"].includes(p.kind))) {
+    const ask = cmAskSentence(own);
+    if (ask) {
+      const named = (ask.match(/\bhave ([A-Z][a-z]+) (?:confirm|send|sign|check|review|call|approve)/) || [])[1],
+        forWho = (named && cmResolvePerson(named, c)) || reader.name || "Owner",
+        task = ask
+          .replace(/^(?:please\s+)?(?:can|could|would) you\s+(?:please\s+)?/i, "")
+          .replace(/^please\s+/i, "")
+          .replace(/\?$/, "")
+          .replace(/^\w/, (ch) => ch.toUpperCase());
+      push("request", `${who} asks ${forWho === reader.name ? "you" : forWho}${where ? " on " + where : ""}: “${ask}”`, {
+        ask: ask,
+        forWho: forWho,
+        task: `${task} — ${who}${where ? " · " + where : ""}`,
+        owner: forWho,
+      });
+    }
+  }
   if (
     (R.clientId &&
       !R.employee &&
@@ -69975,33 +70260,56 @@ function cmRead(c) {
       { name: nm, addr: R.addr, email: [...(c.to || [])].map(cmEmail).find((e) => !cmIsStaff(e)) || "" },
     );
   }
-  return (
-    /delivered|out for delivery|tracking number|shipment/i.test(low) &&
-      !R.employee &&
-      push(
-        "delivery",
-        `${who}: ${(own.match(/[^.\n]*(delivered|out for delivery)[^.\n]*/i) || [own.slice(0, 100)])[0].trim()}`,
-        {},
-      ),
-    P.length ||
-      (R.clientId || R.vendorId || R.employee || R.projectId || R.contact
-        ? push("note", `${who}${where ? " · " + where : ""}: ${own.replace(/\s+/g, " ").slice(0, 140)}`, {})
-        : push(
-            "unrouted",
-            `${who} <${(c.from || {}).email || ""}> is not on file${R.addr ? " · names " + R.addr : ""}: “${own.replace(/\s+/g, " ").slice(0, 110)}”`,
-            {
-              name: who,
-              email: (c.from || {}).email || "",
-              addr: R.addr || "",
-              // The best guess at what to create; the person picks in the dialog.
-              as: /invoice|quote|order|statement|pickup|delivery|yard|supply|lumber|inc\b|llc\b|corp\b/i.test(all) ? "vendor" : "lead",
-            },
-          )),
-    P
-  );
+  /delivered|out for delivery|tracking number|shipment/i.test(low) &&
+    !R.employee &&
+    push(
+      "delivery",
+      `${who}: ${(own.match(/[^.\n]*(delivered|out for delivery)[^.\n]*/i) || [own.slice(0, 100)])[0].trim()}`,
+      {},
+    );
+  // A client with one job wrote about another address: the address is proposed, the job is not assumed.
+  R.clientId &&
+    !R.projectId &&
+    R.addr &&
+    R.addrNew &&
+    push("address", `${who} wrote about ${R.addr}, which is not one of their jobs on file — create the job for them, or file it on the client`, {
+      addr: R.addr,
+      clientId: R.clientId,
+    });
+  const routed = R.clientId || R.vendorId || R.employee || R.projectId || R.contact || R.property;
+  P.length ||
+    (routed
+      ? push(
+          "note",
+          R.property
+            ? `${who} · ${R.addr}: property or finance mail — it belongs on ${((DB.entities || []).find((e) => e.id === R.entityId) || {}).name || "the entity"} and the address, not on a construction job. ${own.replace(/\s+/g, " ").slice(0, 120)}`
+            : `${who}${where ? " · " + where : ""}: ${own.replace(/\s+/g, " ").slice(0, 140)}`,
+          {},
+        )
+      : 0);
+  // Nobody has the sender on file: the offer to create them rides along with whatever else was read.
+  routed ||
+    P.some((p) => "unrouted" === p.kind || "lead" === p.kind) ||
+    push(
+      "unrouted",
+      `${who} <${(c.from || {}).email || ""}> is not on file${R.addr ? " · names " + R.addr : ""}: “${own.replace(/\s+/g, " ").slice(0, 110)}”`,
+      {
+        name: who,
+        email: (c.from || {}).email || "",
+        addr: R.addr || "",
+        // The best guess at what to create; the person picks in the dialog.
+        as: P.some((p) => "money" === p.kind && "client" === p.as) ? "client" : /invoice|quote|order|statement|pickup|delivery|yard|supply|lumber|inc\b|llc\b|corp\b/i.test(all) ? "vendor" : "lead",
+      },
+    );
+  // Every proposal from a message with an unread document says so.
+  unread.length &&
+    P.forEach((p) => {
+      (p.unread = unread.slice()), (p.summary += ` · attachment not read: ${unread.join(", ")}`);
+    });
+  return P;
 }
 const cmSummary = (c) => (c.proposals || []).map((p) => p.summary).join(" · ");
-function cmTask(name, projectId, owner) {
+function cmTask(name, projectId, owner, due) {
   const p = projectId ? DB.projects.find((x) => x.id === projectId) : null;
   if (p) {
     p.tasks = p.tasks || [];
@@ -70015,12 +70323,12 @@ function cmTask(name, projectId, owner) {
       deps: [],
       notes: "From a message",
       start: today(),
-      end: today(),
+      end: due && due >= today() ? due : today(),
       fromComm: !0,
     };
     return p.tasks.push(t), t;
   }
-  return "function" == typeof eaAddNote ? eaAddNote(name, today()) : null;
+  return "function" == typeof eaAddNote ? eaAddNote(name, due || today()) : null;
 }
 function cmNoteAnywhere(c, p) {
   if ("function" != typeof eaAddNote) return null;
@@ -164360,6 +164668,41 @@ function demoWsBuild(uid) {
     M(-6, "11:30", P.cambri, [owner, sarah], "140 Prospect — facade now or later?", "Alan, Sarah — we are leaning to doing the facade and windows now rather than phase 2, if the bid comes in under $90,000. Can you get the bid to us before the 11th?", { thread: "cambri-facade" });
     M(-5, "14:00", P.exp, [owner], "Metro Expediting — August filings invoice", "Invoice for August filings and DOB NOW time is attached: $1,425.00, net 30.", { att: [{ filename: "Metro-Expediting-Aug-2026.pdf", text: "METRO EXPEDITING LLC\nInvoice ME-2608\nBill To: SmartDesign Group LLC\nAugust filings — 121 State Street supersede, 45 Cranberry LPC filing\nAmount Due: $1,425.00\nDue September 30, 2026" }], thread: "exp-inv" });
     M(-13, "09:00", "Daniel Okafor <d.okafor@example.com>", [owner], "11 Riverside Dr 4A — timing", "Hi Alan, we are still deciding between starting in January or waiting for spring. What does your schedule look like? — Daniel", { thread: "okafor" });
+    // ---- money the wrong way round (owner review r5, finding 1): who pays whom decides the direction ----
+    // A bank's credit notice is never a bill; an architect nobody has on file is not a bill until they are a vendor,
+    // and our reply on the same thread is not a receivable; a stranger's "we wired" is not a client's claim.
+    M(0, "09:12", "Chase Alerts <no.reply.alerts@chase.example>", [owner], "You received a Zelle payment of $9,500.00",
+      "Chase Business Checking ····4471\nYou received $9,500.00 from CAMBRI JESSOP via Zelle on 09/03/2026.\nMemo: 140 Prospect retainer.\nThis is an automated message; do not reply.", { thread: "chase-zelle" });
+    M(-3, "10:05", "Archetype Studio <billing@archetypestudio.example>", [owner], "Invoice 2290 — 45 Cranberry drawings",
+      "Hi Alan,\n\nInvoice 2290 attached for the 45 Cranberry drawing set: $6,200.00, due September 30, 2026.\n\nAri Berman\nArchetype Studio", { att: [{ filename: "INV-2290.pdf", text: "" }], thread: "arch-inv" });
+    M(-3, "11:40", owner, ["Archetype Studio <billing@archetypestudio.example>"], "Re: Invoice 2290 — 45 Cranberry drawings",
+      "Thanks Ari — got invoice 2290 for $6,200.00; it goes in with the next AP run. Payment by ACH.\n\nAlan", { thread: "arch-inv" });
+    M(-2, "08:30", "Court Street Properties <office@courtstreetprops.example>", [owner], "October rent — 31 Belvidere, suite 2",
+      "Hello,\n\nOctober rent for suite 2 is $8,200.00, due October 1, 2026 as per the lease. Please remit by ACH.\n\nCourt Street Properties", { thread: "rent" });
+    M(-2, "12:15", owner, ["Court Street Properties <office@courtstreetprops.example>"], "Re: October rent — 31 Belvidere, suite 2",
+      "Received — the $8,200.00 rent payment goes out by ACH on the 1st as usual.\n\nAlan", { thread: "rent" });
+    M(-1, "20:40", "Jordan Pike <jordan.pike@example.com>", [owner], "Deposit sent",
+      "Hi, we wired the $150,000.00 deposit yesterday for the house. Please confirm it arrived and when you can start.\n\nJordan", { thread: "pike" });
+    M(-1, "09:50", P.jeanette, [owner], "Amex bill — pay from Chase?",
+      "Alan — the Amex statement balance is $14,862.10, payment due 9/25. Should I pay it from Chase on the 20th as usual?\n\nJeanette", { thread: "jh-amex" });
+    // A vendor on file whose invoice PDF carried no text: the bill says so and carries no amount it did not see.
+    M(-1, "13:20", P.cm, [owner], "Invoice CM-0103 — 121 State millwork, second progress",
+      "Alan,\n\nSecond progress invoice attached for the 121 State millwork.\n\nCarlos", { cc: [billing], att: [{ filename: "Carlos-Millwork-Invoice-CM-0103.pdf", text: "" }], thread: "cm-inv2" });
+    // ---- routing by address (finding 7): a client with one job writes about another address; a lender writes about a job's address ----
+    M(-4, "17:25", P.sklein, [owner], "Our friends' parlor floor at 19 Garden Pl",
+      "Alan, our friends the Ortegas at 19 Garden Pl want to open up their parlor floor and asked who did ours. Could you take a look with them next week?\n\nSarah", { thread: "klein-garden" });
+    M(-3, "07:45", "Chase Home Lending <no-reply@chase-lending.example>", [owner], "206 Lenox Ave — refinance: appraisal scheduled",
+      "Your refinance application for 206 Lenox Ave is in underwriting. The appraisal is scheduled for September 10, 2026 between 9 and 11. The lender will need the current rent roll and the insurance declaration page.\n\nThis is an automated message.", { thread: "lenox-refi" });
+    // ---- names (findings 8 and 14): an image token is not a person; "Alan" in the owner's own notes is the owner ----
+    M(-1, "17:05", P.meet, [owner, chen], "Notes: “Weekly jobs review” Sep 2, 2026",
+      "Notes from “Weekly jobs review”\n\nSummary\nWeekly review of the open jobs: the line of credit review at the bank is Wednesday; Chen confirms the GWB delivery; the 206 Lenox leases go to the lender.\n\nSuggested next steps\n\n[Alan] Call the Bank: Call the bank about the line of credit review before Wednesday.\n\n[Chen Biron] Confirm GWB Delivery: Confirm the Brooklyn Lumber delivery for Thursday with Angel.\n\n[image: Meeting records]\n\nMeeting records Document Notes", { thread: "notes-wjr" });
+    // ---- one forwarded thread, one permit proposal (finding 15) ----
+    M(-6, "09:00", P.exp, [owner], "DOB NOW: Job B01528834-I1 — supersede approved",
+      "Alan, the plumbing supersede on B01528834-I1 at 121 State Street is approved in DOB NOW. The prior permit is still open until the attestation is in.\n\nMetro Expediting", { thread: "sup-fwd" });
+    M(-6, "09:30", owner, [pm], "Fwd: DOB NOW: Job B01528834-I1 — supersede approved",
+      "Alan — see below, can you get the attestation signed this week?\n\n---------- Forwarded message ---------\nFrom: Metro Expediting <filings@metroexpediting.example>\nSubject: DOB NOW: Job B01528834-I1 — supersede approved\n\nAlan, the plumbing supersede on B01528834-I1 at 121 State Street is approved in DOB NOW. The prior permit is still open until the attestation is in.", { thread: "sup-fwd" });
+    M(-5, "08:10", pm, [owner], "Re: Fwd: DOB NOW: Job B01528834-I1 — supersede approved",
+      "Will do — Sarah Klein signs Thursday.\n\nOn Thu, Aug 27, 2026 Alan Mishali wrote:\n> Alan — see below, can you get the attestation signed this week?", { thread: "sup-fwd" });
     E(0, "14:00", 90, "Site visit — 121 State Street", { where: "121 State Street, Brooklyn", who: ["alan.pm@" + DW_DOMAIN, "angel@" + DW_DOMAIN], desc: "Walk the garden bath rough before the inspection is booked." });
     E(1, "10:00", 60, "Client meeting — 140 Prospect kitchen layout", { where: "140 Prospect Place, Brooklyn", who: ["cambri@example.com", "sarah@" + DW_DOMAIN], desc: "Fireplace, island position, facade now or later." });
     E(5, "09:30", 120, "LPC hearing — 45 Cranberry facade and railing", { where: "1 Centre Street, 9th floor", who: ["sarah@" + DW_DOMAIN, "elena.rivera@example.com"] });
