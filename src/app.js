@@ -138371,7 +138371,8 @@ function a4Correct(raw) {
         infl.some((x) => known.has(x)) ||
         nameToks.has(lw) ||
         nameToks.has(bare) ||
-        /'/.test(lw)
+        /'/.test(lw) ||
+        ("function" == typeof agKnownWord && agKnownWord(lw))
       )
         return w;
       const max = a4Allow(lw);
@@ -163275,6 +163276,47 @@ const AG_SMALL = { wk: "week", wks: "weeks", hrs: "hours", hr: "hour", r: "are",
       " ",
     ),
   );
+// Words Ask takes as typed: plain English and the nouns of the trade and the books. A correction never
+// rewrites one of these ("Amex" is a card, "aging" a report, "land" a delivery); it only fixes a token
+// nobody would type on purpose.
+const AG_DICT = new Set(`able about above accept accepted accepting access according account accountant accounts accrual accruals accrue accrued accruing ach across act action actions active actual actually add added adding address adjust admin advance advice afford afraid after afternoon again against age aged ageing agent ages aging ago agree agreed agreement ahead aia air alarm alive all allow allowed almost alone along already also although always amazing amex among amortization amount and angle angry announce annual another answer answered answering answers any anybody anyone anything anyway anywhere apart apartment apparently appear apply appointment appraisal approach approval approve approved april architect architects area areas argue arm around arrange arrival arrive arrived arriving art article ask asked asking asks asset assets assume attach attached attempt attend attention attic attorney audit auditor audits august author available avoid await award aware away awful back backed backlog backsplash bad badly bag balance ball bank banks bar base baseboard baseline basement basic basis beam beams bear beat beautiful became because become becomes bed been before began begin beginning behalf behind being believe bell below benefit beside best better between beyond bid bids big bigger biggest bill billable billed billing bills bit black blame blank block blocked blocking blue board boat body boiler bonus book booked bookkeeper bored borrow boss both bother bottom bought bounced box boy brand break breakfast bridge brief briefly bright bring broad broke broker brokers brother brought brown brownstone budget build building built bulkhead bunch burn business busy but buy buyer buying cabinetry cake calcs calculations call called calling calls calm came camera camp can cancel cancelled candidate cannot capital car care careful carry carrying case cases cash casing catch caught cause caused cellar cement center central certain certainly certificate certificates chain chair chance change changed changes changing charge charged charges charging chase chased chasing cheap check checked checking checks cheque chief child choice choices choose chose chosen church circle city claim claimed claims class clean clear cleared clearly clerk client clients climb clock close closed closely closeout closer closes closing clothes club co-op coat code coi cois cold collect collected college color come comes comfortable coming comment comments commit commitment commitments committed common comp company compare compared complain complete completed completely concern concerned condition condo confirm confirmed consider contact contacts contain continue contract contractor contractors control cook cool coop copy corner cornice correct cost costs could council count counted countertop countertops country couple course court cover covered crazy create created credit credits crew cross crowd cry current currently customer customers cut cycle daily damage dark data date dated dates daughter day days dead deal dealing dear death debit debt december decide decided decision decisions deep definitely degree delay delayed delete deliver delivered deliveries delivery demand department depend deposit deposited deposits depreciation describe design desk despite detail details develop did die difference different difficult dinner direct direction directly discover discuss discussed dispute disputed distance divide dob doctor document documents does dog doing dollar dollars done door doors double doubt down draft drafted drafts draw drawing drawings dream dress drink drive driver drop dropped dry drywall due dumpster duplicate duplicates during duty eac each eager early earn earned earning east easy eat ebitda edge effect effort eight either elect electrical elevator else email emailed emails employ empty end ended ending energy engine engineer engineers enjoy enough ensure enter entire entry equal equity error escape escrow especially estimate estimates even evening event events ever every everybody everyone everything everywhere exact exactly exam example excellent except exchange excuse exempt exist expect expected expediter expediting expense expenses expensive experience explain extra eye facade face fact factor fail failed fair fall false familiar family far farm fast father faucet faucets fault favor fear feature february fee feed feel feeling fees feet fell felt few field fight figure file filed files filing filings fill filled final finally finance financial find fine finish finished fire firm first fiscal fit five fix fixed fixture fixtures flat flight flitch floor flooring fly focus folder follow followed following food foot for force forecast forecasts foreign forget forgot forgotten form former forward found four framing free fresh friday friend from front full fully fun fund funds further future gain game gantt garden gas gate gather gave general get gets getting gift girl give given glad glass goal goes going gold gone good got government grab great green ground group grow guess guest guy gwb hair half hall hand handle handled handling hang happen happened happening happy hard hardly hardware have head header headers health hear heard hearing hearings heart heat heavy held hello help helped her here herself hide high him himself hire his history hit hold holding holiday home hope horse hospital hot hotel hour hours house how huge human hundred hurry hurt husband hvac idea ideal ill image imagine important improve include income increase indeed inside inspection inspections instead insulation insurance insured interest interested invite invoice invoiced invoices involve iron island issue item items itself january job jobs join joint joist joists joke journal journals judge july jump june just keep key kid kill kind kitchen knew knock know known labor lack lady lake land landed landing landmark landmarks lands language large last late later latest laugh launch law lawyer lay lead leader leads learn learned least leave led ledger ledgers left leg legal lend lender length less lesson lessons letter level liabilities liability lie lien liens life lift light like likely limit line link list listen little live load loan local lock long look looked loose lose loss lost lot loud love low lower lpc lucky lunch machine mad made mail mailbox mailed main major make making man manage many maple march margin margins mark market markup married mastercard match material materials matter maybe meal mean means meant measure meet meeting meetings member memo memory memos mention mentioned message messages met method middle might millwork mind minute miss missed mistake model molding moment monday money month monthly months more morning mortgage most mother moulding move moved movie mtd much music must myself name named near nearly need needed negative neither nervous net never news next nice night nine nobody noise none noon normal north note noted notes nothing notice november now number nurse nysif oak object obvious occur october offer office officer often old once one online only open opened opinion order ordered orders other otherwise ought outside over overbilled overbilling overhead overheads overtime owe owed owes owing own owner page paid pain paint pair paper parent park parlor part particular partner party pass passed past patient pay payable payables paying payment payments payroll peace people per perfect perhaps period periods permit permits person phone pick picked picture piece place plan plane plant play please pleased plenty plumbing plus po pocket point police policy poor popular pos position positive possible post pound power practice prepare present president press pretty price prices primer principal print private probably problem process produce product profit program progress project projects promise promised promises proof proper property proposal proposals prospect prospects protect proud prove provide pto public pull punch purchase purpose push put quarter quarterly question questions quick quickly quiet quietly quite quote quoted quotes race radiant radiator railing rain raise ran range rate rather reach read reading ready real really reason rebate receipt receipts receivable receivables receive received recent recently reconcile reconciled reconciliation reconciliations reconciling record records red reduce refi refinance refund refunds region regular reimbursable reimbursables relate release remain remember remind reminder remove rent reopen reopened repair repeat replace replied replies reply report reports request require respond response rest result retainage retainer retainers return returned returns review rfi rfis rich ride right ring rise risk road rock role rolloff roof room round rule run running safe said salaries salary sale sales same save saw say saying scaffold scaffolding scale school score screen sea seal sealed season seat second section see seem seen sell send sense sent september serious serve service set settle seven several shall shape share sharp she sheen sheetrock ship shoot shop shoring short shot should shoulder shout show shower shown shut sick side sign signed simple since sing single sir sister sit site situation six size skill skin sleep slightly slow slowly small smart smell smile snow social soft sold solid solve some somebody somehow someone something sometimes somewhere son song soon sorry sort sound south sov space speak special speed spend spent spoke sport spring sprinkler square st124 staff stage stain stair stairs stand standard start started state statement statements station status stay steal step stick still stock stone stoop stop store story straight strange street strike strong stud student studs study stuff style sub subcontractor subcontractors subject submittal submittals subs succeed success such sudden suggest suit summer sun sunday supplier suppliers supply support suppose sure surprise sweet system table take taken talk tall tamper task tasks tax taxes teach team tell ten term terrible test text than thank thanks that the then there therefore these thick thin thing think third thirty this those though thought thousand three through throw thursday thus ticket tie tile tiles till time timesheet timesheets tiny tired title today together toilet told tomorrow tone tonight too took top total touch tough toward town townhouse track trade train transfer transfers travel treat tree trim trip trouble true truly trust truth try trying tub tuesday turn twice two type unbilled uncleared under underbilled underbilling understand unit unless until upon upset use used useful usual usually vacation value vanity variance variances various vendor vendors verification verified verify very view visa visit voice void voided w9 wage wages wait waiting waiver waivers wake walk wall walnut want war warm wash watch water way wear weather wednesday week weekend weight welcome well went west wet what wheel when where whether which while white who whole why wide wife will win window winter wip wire wires wish with within without woman wonder wood word words work worked worker workers working world worry worse worst worth would write writing written wrong wrote yard year yellow yes yesterday yet young your yourself ytd zelle`.split(" "));
+// The nouns the records hold that a typo fixer must never turn into somebody else: bank and card accounts,
+// cards, obligations, GL accounts, reports, leads, contacts, users, payees. Rebuilt when the record counts move.
+let agNounsMemo = null;
+function agNouns() {
+  const key = ["accounts", "cards", "leads", "clients", "vendors", "employees", "obligations", "users", "txns", "comms"].map((k) => (DB[k] || []).length).join(":") + ":" + ((DB.field || {}).subs || []).length;
+  if (agNounsMemo && agNounsMemo.key === key) return agNounsMemo.set;
+  const set = new Set(),
+    add = (s) =>
+      String(s || "")
+        .toLowerCase()
+        .split(/[^a-z0-9]+/)
+        .forEach((w) => w.length >= 3 && !/^\d+$/.test(w) && set.add(w));
+  try {
+    (DB.accounts || []).forEach((a) => (add(a.name), add(a.network), add(a.bank))),
+      (DB.cards || []).forEach((c) => (add(c.label), add(c.network))),
+      (DB.obligations || []).forEach((o) => (add(o.name), add(o.issuer || o.agency))),
+      (DB.leads || []).forEach((l) => add(l.name)),
+      (DB.clients || []).forEach((c) => (add(c.name), (c.contacts || []).forEach((k) => add(k.name)))),
+      (DB.vendors || []).forEach((v) => (add(v.name), add(v.trade))),
+      (DB.employees || []).forEach((e) => add(e.name)),
+      (DB.users || []).forEach((u) => add(u.name)),
+      (DB.txns || []).forEach((t) => add(t.vendor)),
+      ((DB.field || {}).subs || []).forEach((x) => (add(x.lead), add(x.vendor))),
+      (DB.comms || []).forEach((c) => add((c.from || {}).name)),
+      ("undefined" != typeof GL_COA ? GL_COA : []).forEach((a) => add(a.name)),
+      Object.values("undefined" != typeof REP_DEFS ? REP_DEFS : {}).forEach((r) => add(r && (r.title || r.name || r.label)));
+  } catch (e) {}
+  return (agNounsMemo = { key: key, set: set }), set;
+}
+// Is this token a word or a name we hold? Its plural, past, -ing and -ly forms count.
+function agKnownWord(t) {
+  const w = String(t || "").toLowerCase().replace(/[^a-z0-9'-]/g, "").replace(/'s$/, "");
+  if (!w) return !0;
+  const N = agNouns(),
+    forms = [w, w.replace(/s$/, ""), w.replace(/es$/, ""), w.replace(/ed$/, ""), w.replace(/ed$/, "e"), w.replace(/d$/, ""), w.replace(/ing$/, ""), w.replace(/ing$/, "e"), w.replace(/([a-z])\1(ed|ing)$/, "$1"), w.replace(/ied$/, "y"), w.replace(/ies$/, "y"), w.replace(/ly$/, ""), w.replace(/ily$/, "y"), w.replace(/er$/, ""), w.replace(/est$/, "")];
+  return forms.some((f) => f.length >= 2 && (AG_DICT.has(f) || N.has(f)));
+}
 let agVocabMemo = null;
 function agVocab() {
   const key = [
@@ -163341,7 +163383,7 @@ function agFix(l, keep) {
       .map((t) => {
         if (!t) return t;
         if (AG_SMALL[t]) return AG_SMALL[t] !== t && fixes.push([t, AG_SMALL[t]]), AG_SMALL[t];
-        if (t.length < 3 || /\d/.test(t) || V.base.has(t) || V.names.has(t) || (keep && keep.has(t))) return t;
+        if (t.length < 3 || /\d/.test(t) || V.base.has(t) || V.names.has(t) || (keep && keep.has(t)) || agKnownWord(t)) return t;
         const sing = t.replace(/'?s$/, "");
         if (sing !== t && (V.base.has(sing) || V.names.has(sing))) return t;
         const cap = t.length <= 4 ? 1 : 2;
@@ -163490,14 +163532,28 @@ function agHomeJobs() {
     return [];
   }
 }
+// People outside the firm a question can name: client contacts, leads and the client-portal users, by full name.
+function agContactsIn(l) {
+  const out = [];
+  (DB.clients || []).forEach((c) => (c.contacts || []).forEach((k) => k.name && String(k.name).includes(" ") && l.includes(String(k.name).toLowerCase()) && out.push({ name: k.name, email: k.email || "", role: k.role || "", client: c, kind: "contact" }))),
+    (DB.leads || []).forEach((x) => x.name && String(x.name).includes(" ") && !/^the /i.test(x.name) && l.includes(String(x.name).toLowerCase()) && out.push({ name: x.name, email: x.email || "", lead: x, kind: "lead" }));
+  return out;
+}
+// A client question names a client's person by first name as often as a staff member: "what did Sarah choose".
+const AG_CLIENTISH = /\b(choose|chose|chosen|picked?|decide[ds]?|decision|select(ed|ion)?|approve[ds]?|sign(ed)?|asking|asked|ask me|email(ed)?|wrote|write to|reply|replied|want(s|ed)?|prefer)\b/;
 function agPeople(l) {
   const E = (DB.employees || []).filter((e) => !1 !== e.active),
     full = E.filter((e) => String(e.name).includes(" ") && l.includes(String(e.name).toLowerCase()));
   if (full.length) return full;
+  // a client contact or lead named in full owns their first name: "sarah klein" is never Sarah Davis
+  let rest = l;
+  agContactsIn(l).forEach((k) => (rest = rest.replace(String(k.name).toLowerCase(), " ")));
+  const contactFirst = new Set((DB.clients || []).flatMap((c) => (c.contacts || []).map((k) => String(k.name || "").toLowerCase().split(/\s+/)[0])));
   return E.filter((e) => {
     const f = String(e.name).toLowerCase().split(/\s+/)[0];
-    if (f.length < 3 || !agWordRe(f).test(l)) return !1;
-    // "Sarah" alone is a client contact as often as Sarah Davis; take her only when no client is named
+    if (f.length < 3 || !agWordRe(f).test(rest)) return !1;
+    // a bare first name a client contact shares, in a question about a client's choice or mail, is the client's
+    if (contactFirst.has(f) && AG_CLIENTISH.test(rest)) return !1;
     return !(E.filter((x) => String(x.name).toLowerCase().split(/\s+/)[0] === f).length > 1);
   });
 }
@@ -163590,15 +163646,18 @@ function agParse(raw) {
         .filter((w) => /^[A-Z][a-z]/.test(w) && !/^(I|I'm|I've)$/.test(w))
         .map((w) => w.toLowerCase().replace(/[^a-z0-9]/g, "")),
     ),
-    F = agFix(l0.replace(/[—–]/g, " ").replace(/\s+/g, " ").trim(), caps),
+    lit = !!agLiteral && agLiteral === String(raw || ""),
+    F = lit ? { text: l0.replace(/[—–]/g, " ").replace(/\s+/g, " ").trim(), fixes: [] } : agFix(l0.replace(/[—–]/g, " ").replace(/\s+/g, " ").trim(), caps),
     l = F.text,
     me = agMeEmp(),
-    P = { raw: String(raw || ""), l: l, fixes: F.fixes };
+    P = { raw: String(raw || ""), l: l, fixes: F.fixes, literal: lit };
+  agLiteral && !lit && (agLiteral = "");
   (P.period = agPeriod(l)),
     (P.jobs = agJobs(l)),
     (P.clients = agClients(l)),
     (P.vendors = agVendors(l)),
     (P.people = agPeople(l)),
+    (P.contacts = agContactsIn(l)),
     (P.self = /\b(i|me|my|mine|myself)\b/.test(l)),
     P.self && me && !P.people.includes(me) && (P.meEmp = me),
     (P.payees = agPayeeIn(P.raw, l).filter((n) => !P.vendors.some((v) => v.name.toLowerCase() === n.toLowerCase()) || /\b(spend|spent|pay|paid|cost|bought|buy)\b/.test(l))),
@@ -165021,9 +165080,24 @@ function agSpecRan(q) {
   const W = normWhere(q.where || {}).map((c) => `${c.field} ${c.op} ${Array.isArray(c.value) ? c.value.join(", ") : c.value}`);
   return { entity: q.entity, where: (q.q ? [`text matches "${q.q}"`] : []).concat(W), group: q.group || "" };
 }
+// A question to read exactly as typed: the next agParse of this text skips the typo fixer once.
+let agLiteral = "";
 function agStamp(a, ran, P) {
   if (!a || "object" != typeof a) return a;
   const fx = P && P.fixes && P.fixes.length ? ` I read ${P.fixes.map(([f, t]) => `"${f}" as "${t}"`).join(", ")}.` : "";
+  if (fx && "function" == typeof csOffer && "function" == typeof paSend) {
+    const raw = P.raw;
+    (a.offers = (a.offers || []).concat([
+      csOffer({
+        id: "ag-literal",
+        label: "Read It as Typed",
+        detail: `Ask "${raw}" again without my corrections (${P.fixes.map(([f]) => `"${f}"`).join(", ")} as written).`,
+        run: () => {
+          (agLiteral = raw), paSend(raw);
+        },
+      }),
+    ]));
+  }
   return ran && (a.interp = ran + "." + fx), a;
 }
 const AG_KIND_READ = {
