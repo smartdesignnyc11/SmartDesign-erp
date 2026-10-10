@@ -329,6 +329,7 @@ async def part_close(p, c):
       out.noWhy = billChangeDate(amp, '2026-09-01', '');
       out.moved = billChangeDate(amp, '2026-09-01', 'the invoice is dated the 1st; the 2nd was the scan date');
       out.hist = amp.dateHistory;
+      amp.date = '2026-09-03'; save(); out.silent = amp.date;
       // the payroll run approved (review of the split, coverage under 80%)
       const pr = DB.payroll.find(x => x.id === 'pr1');
       payrollAction(pr, 'approve', 'office staff are salaried; the crew hours for that fortnight are in');
@@ -341,6 +342,7 @@ async def part_close(p, c):
     c.ok(r['postOn2'] == '2026-09-01', f"#2 recoding the late line lost its posting period {r['postOn2']}")
     c.ok(not (r['intoClosed'] or {}).get('ok') and not (r['noWhy'] or {}).get('ok'), f"#12 Change Date into a closed month or without a reason went through: {r['intoClosed']} {r['noWhy']}")
     c.ok((r['moved'] or {}).get('ok') and r['hist'] and r['hist'][-1]['from'] == '2026-09-02' and r['hist'][-1]['to'] == '2026-09-01' and r['hist'][-1]['why'], f"#12 Change Date history {r['hist']}")
+    c.ok(r['silent'] == '2026-09-01', f"#12 a posted bill was re-dated without a reason: {r['silent']}")
     c.ok(r['pr'] in ('approved', 'verified', 'paid'), f"payroll approval {r['pr']}")
     c.ok(abs(r['aug'][0] - first_aug) < 0.01 and abs(r['aug'][1] - first_aug) < 0.01, f"#2 August moved while closed: {r['aug']} (was {first_aug})")
     c.ok(abs(r['sep'][0] - r['sep'][1]) < 0.01, f"#2 September management {r['sep'][0]} vs ledger {r['sep'][1]} while August is closed")

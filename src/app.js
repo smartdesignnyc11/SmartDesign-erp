@@ -10483,7 +10483,13 @@ function txnDialog(id) {
     }),
     ($("#d-save").onclick = () => {
       const dt = $("#e-date").value;
-      if (dt && "function" == typeof isLocked && isLocked(dt))
+      // A line dated in a closed month that posted in an open one (its postOn) can still be coded there.
+      if (
+        dt &&
+        "function" == typeof isLocked &&
+        isLocked(dt) &&
+        !(id && t.postOn && dt === t.date && !isLocked(t.postOn))
+      )
         return void toast(
           `${dt.slice(0, 7)} is closed — date it in an open month, or reopen the period first`,
         );
@@ -127345,7 +127351,7 @@ function fin2ClosePageHtml() {
     owner = "owner" === role(),
     last = fin2Closes().slice(-1)[0],
     l = lockedThrough(),
-    head = `<div class="fin2-close-head"><h3 style="margin:0">${ym ? `Close ${fin2Label(ym)}` : "Month Close"}</h3><p class="small muted" style="margin:4px 0 0">${l ? `Books closed through ${fin2Label(l)}${last && last.month === l ? ` — by ${esc(last.by)} on ${esc(String(last.at || "").slice(0, 10))}${last.reason ? `, with ${last.open} item${1 === last.open ? "" : "s"} open: ${esc(last.reason)}` : ", clean"}` : ""}.` : "No month has been closed yet."} One close: the checklist, the WIP adjustment and the accrued wages post, Bank, AR, AP, Payroll and the Ledger lock in that order for every entity, and the WIP snapshot is frozen.</p></div>`;
+    head = `<div class="fin2-close-head"><h3 style="margin:0">${ym ? `Close ${fin2Label(ym)}` : "Month Close"}</h3><p class="small muted" style="margin:4px 0 0">${l ? `Books closed through ${fin2Label(l)}${last && last.month === l ? ` — by ${esc(last.by)} on ${esc(String(last.at || "").slice(0, 10))}${last.reason ? `, with ${last.open} item${1 === last.open ? "" : "s"} open: ${esc(last.reason)}` : ", clean"}` : ""}.` : "No month has been closed yet."} One close: the checklist, then the accrued wages and the WIP adjustment post, the WIP is tied to 2500/1200 job by job, Bank, AR, AP, Payroll and the Ledger lock in that order for every entity, and the month is frozen.</p></div>`;
   if (!ym)
     return (
       head +
@@ -127358,7 +127364,7 @@ function fin2ClosePageHtml() {
     wip = fin2WipPlan(ym),
     wages = fin2WagePlan(ym),
     nm = (p) => esc(String(p.project.name).replace(/ —.*$/, ""));
-  return `<div class="card fin2-close">${head}${`<h4 class="fin2-step">1 · Checklist <span class="small muted">${open.length ? `${open.length} of ${items.length} open` : "all clear"}</span></h4><div class="rem fin2-check">${items.map((i) => `<div class="rem-row ${i.ok ? "" : "warn"}" data-f2go='${esc(JSON.stringify(i.go || {}))}'><b>${i.ok ? ICON_CHECK : i.n}</b><span>${esc(i.label)}</span></div>`).join("")}</div>`}${`<h4 class="fin2-step">2 · WIP Adjustment <span class="small muted">${money(wip.toPost)} to post · over/under-billing on the month-end schedule ${money(wip.net)}, on the ledger ${money(wip.onLedger)}</span></h4>${wip.rows.length ? `<div class="tw"><table class="t fin2-wip"><thead><tr><th>Job</th><th class="money">Over at ${fmt(wip.end)}</th><th class="money">Under at ${fmt(wip.end)}</th><th class="money">On Ledger</th><th class="money">Entry</th></tr></thead><tbody>${wip.rows.map((r) => `<tr><td>${nm(r.p)}</td><td class="money">${money(r.over)}</td><td class="money">${money(r.under)}</td><td class="money">${money(r2(r.onOver - r.onUnder))}</td><td class="money">${money(r2(r.dOver - r.dUnder))}</td></tr>`).join("")}</tbody></table></div><p class="small muted">Over-billing is a liability (2500 Billings in excess), under-billing an asset (1200 Costs in excess); the other side is the job's revenue account. The entry brings the ledger to the schedule, so a later close only posts the change.</p>` : '<p class="small muted">No job is over- or under-billed at month end.</p>'}`}${`<h4 class="fin2-step">3 · Accrued Wages <span class="small muted">${money(wages.total)} · ${wages.hours} approved hours no payroll run covers</span></h4>${
+  return `<div class="card fin2-close">${head}${`<h4 class="fin2-step">1 · Checklist <span class="small muted">${open.length ? `${open.length} of ${items.length} open` : "all clear"}</span></h4><div class="rem fin2-check">${items.map((i) => `<div class="rem-row ${i.ok ? "" : "warn"}" data-f2go='${esc(JSON.stringify(i.go || {}))}'><b>${i.ok ? ICON_CHECK : i.n}</b><span>${esc(i.label)}</span></div>`).join("")}</div>`}${`<h4 class="fin2-step">2 · WIP Adjustment <span class="small muted">${money(wip.toPost)} to post · over/under-billing on the month-end schedule ${money(wip.net)}, on the ledger ${money(wip.onLedger)}</span></h4>${wip.rows.length ? `<div class="tw"><table class="t fin2-wip"><thead><tr><th>Job</th><th class="money">Over at ${fmt(wip.end)}</th><th class="money">Under at ${fmt(wip.end)}</th><th class="money">On Ledger</th><th class="money">Entry</th></tr></thead><tbody>${wip.rows.map((r) => `<tr><td>${nm(r.p)}</td><td class="money">${money(r.over)}</td><td class="money">${money(r.under)}</td><td class="money">${money(r2(r.onOver - r.onUnder))}</td><td class="money">${money(r2(r.dOver - r.dUnder))}</td></tr>`).join("")}</tbody></table></div><p class="small muted">Over-billing is a liability (2500 Billings in excess), under-billing an asset (1200 Costs in excess); the other side is the job's revenue account. The entry brings the ledger to the schedule, so a later close only posts the change. The close posts the accrued wages below first and plans this entry after them: an accrued run moves a job's labor to the run's burden, so the entry can differ from this preview by that much, and the close ties the result to 2500/1200 job by job before it locks anything.</p>` : '<p class="small muted">No job is over- or under-billed at month end.</p>'}`}${`<h4 class="fin2-step">3 · Accrued Wages <span class="small muted">${money(wages.total)} · ${wages.hours} approved hours no payroll run covers</span></h4>${
     wages.rows.length
       ? `<div class="tw"><table class="t fin2-wages"><thead><tr><th>Job</th><th class="money">Hours</th><th class="money">Burdened Cost</th><th>Days</th></tr></thead><tbody>${wages.rows
           .map((o) => {
@@ -133696,6 +133702,13 @@ if ("function" == typeof save) {
                   toast(
                     `${label}: ${fin3Label((isLocked(was) ? was : now).slice(0, 7))} is closed — kept at ${fmt(was)}`,
                   );
+                } catch (e) {}
+              } else if ("bill" === kind) {
+                // A posted bill is re-dated only through Change Date…, with a reason kept in its history.
+                (o[f] = was),
+                  fin2Audit("system", kind, o.id, "date-refused", was, now, `${label}: re-dated without a reason`);
+                try {
+                  toast(`${label}: a posted bill is re-dated with Change Date… and a reason — kept at ${fmt(was)}`);
                 } catch (e) {}
               } else fin3Dates.set(o, now);
           });
