@@ -171,8 +171,8 @@ async def main():
         c.ok(v['sheet'], '12: opening the sheets keeps the approval sheet open underneath')
         await tap(pg, 'Close', css='#clv button', wait=400)
         c.ok(await pg.evaluate("() => !!document.getElementById('mbm') && !(document.getElementById('clv') && document.getElementById('clv').getClientRects().length)"), '12: closing the viewer leaves the approval sheet open')
-        w = await pg.evaluate("""() => { const p = DB.projects.find(x => /121 State/.test(x.project.name)); const f = (p.files || [])[0]; const n0 = p.files.length, notes = f.notes;
-            const r1 = fileUpdate(f, { notes: 'CLIENT EDITED THIS', shareClient: true }); const r2 = fileRemove(f.id);
+        w = await pg.evaluate("""async () => { const p = DB.projects.find(x => /121 State/.test(x.project.name)); const f = (p.files || [])[0]; const n0 = p.files.length, notes = f.notes;
+            const r1 = fileUpdate(f, { notes: 'CLIENT EDITED THIS', shareClient: true }); const r2 = await fileRemove(f.id);
             return { r1, r2, same: f.notes === notes, n: p.files.length === n0, any: DB.projects.some(q => (q.files || []).some(x => /CLIENT EDITED/.test(x.notes || ''))) } }""")
         c.ok(w['r1'] is False and w['same'] and not w['any'], f"1: fileUpdate refuses the client role in the function: {w}")
         c.ok(w['r2'] is False and w['n'], f"1: fileRemove refuses the client role in the function: {w}")

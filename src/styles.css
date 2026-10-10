@@ -3244,3 +3244,15 @@ body.crewmode .view.on .dl-sign > span{display:block;flex:1 1 auto;min-width:0}
 .tr-tie td.warn{color:var(--warn)} .tr-tie td.bad{color:var(--bad)} .tr-tie tr.tr-flagged td{background:var(--bad-2)}
 .tr-verify .note{margin:6px 0}
 .pill.warn{background:var(--warn-2);color:var(--warn)} .pill.warn svg{width:11px;height:11px} .pill.warn a{display:inline-flex;margin-left:4px;color:inherit}
+
+/* ---- clientfix: the read-only client file viewer (above an open sheet; closing it keeps the sheet) ---- */
+.clv{position:fixed;inset:0;background:rgba(16,20,28,.92);z-index:120;display:none;flex-direction:column;color:#fff}
+.clv.on{display:flex}
+.clv .clv-hd{display:flex;align-items:center;gap:10px;padding:10px 16px;font-size:13px;min-height:56px}
+.clv .clv-t{display:flex;flex-direction:column;min-width:0;flex:1} .clv .clv-t b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap} .clv .clv-t .small{opacity:.75}
+.clv .clv-hd .btn{background:rgba(255,255,255,.12);border-color:transparent;color:#fff;min-height:44px;display:inline-flex;align-items:center}
+.clv .clv-hd .btn + .btn{margin-left:8px}
+.clv .clv-main{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:auto;padding:12px;min-height:0}
+.clv .clv-main img{max-width:100%;max-height:100%;object-fit:contain} .clv .clv-main iframe{width:100%;flex:1;background:#fff;border:0;min-height:0}
+.clv .clv-note{opacity:.7;text-align:center;padding:6px}
+.clv .clv-empty{text-align:center;display:flex;flex-direction:column;gap:6px;align-items:center;max-width:320px} .clv .clv-empty .clv-ic svg{width:48px;height:48px} .clv .clv-empty .muted{color:rgba(255,255,255,.7)}

@@ -12395,7 +12395,60 @@ function renderFiles() {
     box.innerHTML =
       '<div class="empty">No documents yet. Take a photo of the delivery ticket, the inspection card, or the wall before it closes — it lands here, linked to the task.</div>';
 }
+// A client never sees the staff file editor (Type, Linked to, Notes, Save, Delete): every path a client can
+// open a file from (View the Sheets, a chat attachment, a shared document) lands in clFileView, read-only.
+const fileWriteOk = () => {
+  try {
+    return "client" !== role();
+  } catch (e) {
+    return !0;
+  }
+};
+// The one read-only viewer a client gets: the file, its caption, Download and Close. It sits above an open
+// sheet and closing it leaves that sheet where it was, so approving after a look stays three taps.
+async function clFileView(id) {
+  const p =
+      (S && (S.files || []).some((x) => x.id === id) ? S : null) ||
+      (DB.projects || []).find((q) => (q.files || []).some((x) => x.id === id)),
+    f = p && (p.files || []).find((x) => x.id === id);
+  if (!f) return;
+  let v = document.getElementById("clv");
+  v ||
+    ((v = document.createElement("div")),
+    (v.id = "clv"),
+    (v.className = "clv"),
+    v.setAttribute("role", "dialog"),
+    v.setAttribute("aria-label", "File"),
+    document.body.appendChild(v));
+  const close = () => {
+    v.classList.remove("on"), (v.innerHTML = ""), document.removeEventListener("keydown", onKey, !0);
+  };
+  const onKey = (e) => {
+    "Escape" === e.key && v.classList.contains("on") && (e.stopPropagation(), close());
+  };
+  const cap = String(f.clientCaption || f.caption || "").trim();
+  (v.innerHTML = `<div class="clv-hd"><div class="clv-t"><b data-nocase>${esc(f.name)}</b><span class="small" data-nocase>${esc(fmt(f.date))}${cap ? ` · ${esc(cap)}` : ""}</span></div><a class="btn sm" id="clv-dl" download="${esc(f.name)}" href="#">Download</a><button class="btn sm" id="clv-x" type="button">Close</button></div><div class="clv-main" id="clv-main"><div class="muted">Loading…</div></div>`),
+    v.classList.add("on"),
+    document.addEventListener("keydown", onKey, !0),
+    (v.querySelector("#clv-x").onclick = close),
+    (v.onclick = (e) => {
+      e.target === v && close();
+    });
+  const url = await getBlob(id),
+    main = v.querySelector("#clv-main"),
+    dl = v.querySelector("#clv-dl");
+  if (!main) return;
+  url ? ((dl.href = url), (dl.download = f.name)) : (dl.hidden = !0),
+    (main.innerHTML = url
+      ? /image/.test(f.type)
+        ? `<img src="${url}" alt="${esc(f.name)}">`
+        : "application/pdf" === f.type
+          ? `<iframe src="${url}" title="${esc(f.name)}"></iframe><div class="small clv-note">If the PDF does not display here, use Download.</div>`
+          : `<div class="clv-empty"><div class="clv-ic">${fileIcon(f)}</div><div data-nocase>${esc(f.name)}</div></div>`
+      : `<div class="clv-empty"><div class="clv-ic">${fileIcon(f)}</div><div data-nocase>${esc(f.name)}</div><div class="small">${esc(fmt(f.date))}${cap ? ` · ${esc(cap)}` : ""}</div><div class="small muted">The sheet itself is not on this device. Ask your project manager in Chat and they will send it.</div></div>`);
+}
 async function openFile(id) {
+  if (!fileWriteOk()) return clFileView(id);
   const f = S.files.find((x) => x.id === id);
   if (!f) return;
   (f.seen = !0), save();
@@ -12436,23 +12489,17 @@ function renderFileSide(f) {
       "",
     )}</select></div>\n    <div class="f"><label>Linked to</label><select id="vf-link">${linkOpts.map(([k, v]) => `<option value="${k}" ${cur === k ? "selected" : ""}>${esc(v)}</option>`).join("")}</select></div>\n    <div class="f"><label>Notes</label><textarea id="vf-notes">${esc(f.notes || "")}</textarea></div>\n    <label class="chk" style="margin-bottom:12px"><input type="checkbox" id="vf-share" ${f.shareClient ? "checked" : ""}> Visible to the client in their portal</label>\n    <div class="card" style="margin-bottom:12px"><div class="hd"><h3>Assistant</h3><span class="grow"></span><button class="btn sm primary" id="vf-read">${f.ai ? "Read again" : "Read this document"}</button></div>\n      <div id="vf-ai" class="small">${f.ai ? (f.ai.error ? `<span style="color:var(--bad)">${esc(f.ai.error)}</span>` : `<div><b>${esc(f.ai.kind || "")}</b> — ${esc(f.ai.summary || "")}</div>${(f.ai.fields || []).length ? `<div class="chg" style="margin-top:6px">${f.ai.fields.map((x) => `<span class="muted">${esc(x.k)}:</span> ${esc(x.v)}`).join(" · ")}</div>` : ""}${f.ai.changes?.length ? `<div style="margin-top:8px"><b>Proposed updates</b>${f.ai.changes.map((c, i) => `<div class="prop"><input type="checkbox" ${c._done ? "disabled" : "checked"} data-fprop="${i}"><div><div class="k">${c._done ? ICON_CHECK + " applied · " : ""}${"add" === c.op ? "Add" : "Update"} ${esc(c.kind)}: ${esc(propName(c) || c.name || c.title || c.vendor || "")}</div><div class="diff">${esc(propDiff(c))}</div><div class="why">${esc(c.reason || "")}</div></div></div>`).join("")}${f.ai.changes.some((c) => !c._done) ? '<button class="btn sm primary" id="vf-apply" style="margin-top:6px">Apply checked</button>' : ""}</div>` : '<div class="muted" style="margin-top:6px">No updates proposed.</div>'}`) : '<span class="muted">Reads photos and PDFs: a receipt becomes a transaction, a delivery ticket receives the PO, an inspection card updates the inspection, a sketch becomes a plan note — all as proposals.</span>'}</div></div>\n    <div class="row"><button class="btn sm" id="vf-save">Save</button><button class="btn sm danger" id="vf-del">Delete</button><span class="grow"></span><span class="small muted">${f.persisted ? "Saved on this device" : "Session only"}</span></div>`),
     ($("#vf-save").onclick = () => {
-      f.cat = $("#vf-cat").value;
       const lk = $("#vf-link").value;
-      (f.link = lk ? { kind: lk.split(":")[0], id: lk.split(":")[1] } : null),
-        (f.notes = $("#vf-notes").value),
-        (f.shareClient = $("#vf-share").checked),
-        save(),
-        render(),
-        toast("Saved");
+      !1 !==
+        fileUpdate(f, {
+          cat: $("#vf-cat").value,
+          link: lk ? { kind: lk.split(":")[0], id: lk.split(":")[1] } : null,
+          notes: $("#vf-notes").value,
+          shareClient: $("#vf-share").checked,
+        }) && toast("Saved");
     }),
     ($("#vf-del").onclick = async () => {
-      appConfirm(`Delete ${f.name}?`) &&
-        ((S.files = S.files.filter((x) => x.id !== f.id)),
-        await delBlob(f.id),
-        log(`Document deleted: ${f.name}`),
-        save(),
-        $("#viewer").classList.remove("on"),
-        render());
+      appConfirm(`Delete ${f.name}?`) && !1 !== (await fileRemove(f.id)) && $("#viewer").classList.remove("on");
     }),
     ($("#vf-read").onclick = () => readFile(f)),
     $("#vf-apply")?.addEventListener("click", () => {
@@ -12465,6 +12512,29 @@ function renderFileSide(f) {
         renderFileSide(f),
         toast(`Applied ${res.n}`);
     });
+}
+// Every file write goes through these two, and both refuse the client role in the function itself: a client
+// reads files, and nothing a client can reach (or type into a console) saves a note, a link, a type, the
+// portal flag or a deletion onto the firm's record.
+function fileUpdate(f, patch) {
+  if (!f) return !1;
+  if (!fileWriteOk()) return toast("Files are read-only in the client portal"), !1;
+  const p = (DB.projects || []).find((q) => (q.files || []).includes(f)) || S;
+  ["cat", "link", "notes", "shareClient", "clientCaption", "name"].forEach((k) => {
+    patch && k in patch && (f[k] = patch[k]);
+  });
+  try {
+    audit("file", f.id, "update", "", "", Object.keys(patch || {}).join(", "));
+  } catch (e) {}
+  return save(), render(), p ? f : f;
+}
+async function fileRemove(id) {
+  if (!fileWriteOk()) return toast("Files are read-only in the client portal"), !1;
+  const p = (DB.projects || []).find((q) => (q.files || []).some((x) => x.id === id)) || S,
+    f = p && (p.files || []).find((x) => x.id === id);
+  if (!f) return !1;
+  (p.files = p.files.filter((x) => x.id !== id)), await delBlob(id), log(`Document deleted: ${f.name}`), save(), render();
+  return !0;
 }
 async function readFile(f) {
   const box = $("#vf-ai");
@@ -20447,7 +20517,7 @@ function mbModal(title, body, opts = {}) {
   const alt = $("#mbm-alt");
   alt &&
     (alt.onclick = () => {
-      close(), opts.alt.run && opts.alt.run();
+      opts.alt.keep || close(), opts.alt.run && opts.alt.run();
     });
   const ok = $("#mbm-ok");
   ok &&
@@ -122358,7 +122428,7 @@ Object.assign(FILE_CATS, {
 {
   const base = openFile;
   openFile = async function (id) {
-    const f = (S.files || []).find((x) => x.id === id);
+    const f = fileWriteOk() ? (S.files || []).find((x) => x.id === id) : null;
     if (f && f.autoKey && f.link) {
       if (((f.seen = !0), "po" === f.link.kind)) return void openEditor("po", f.link.id);
       if ("co" === f.link.kind) return void opsGo({ kind: "co", id: f.link.id });
@@ -155061,7 +155131,7 @@ document.addEventListener("click", (e) => {
         `<p class="small" data-nocase>${esc(s.sub || "Our supplier")} sent ${SM_TYPE_WORD[s.type] || "it"} of what we plan to order · ${esc(smClientLine(s, p))}.</p><p class="small muted" style="margin:0">Approving tells us to order it as sent. It is recorded with your name and the date.</p>`,
         {
           submit: "Approve",
-          alt: fid && "function" == typeof openFile ? { label: "View the Sheets", run: () => openFile(fid) } : null,
+          alt: fid && "function" == typeof openFile ? { label: "View the Sheets", run: () => openFile(fid), keep: !0 } : null,
           onSubmit: () => {
             setTimeout(() => {
               const x = document.createElement("button");
