@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Builds, then runs every guard rail one at a time (the machine may be slow) and prints one line per suite.
 # Full logs land in review/run_all/. Usage: tests/run_all.sh [suite ...]   (default: all)
+# Optional, not in the default list (about 15-20 minutes): month_sim, a month of the company with a crack ledger
+# in review/month/ (tests/run_all.sh month_sim). It exits 1 while anything falls through the cracks.
 cd "$(dirname "$0")/.." || exit 1
 python3 build.py || exit 1
 mkdir -p review/run_all
