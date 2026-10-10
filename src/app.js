@@ -142745,9 +142745,7 @@ const blStage = (r) =>
             : ovStatus("sent", "neutral", 4),
   blActLabel = (r) =>
     "credit" === r.kind
-      ? r.approved
-        ? "Open"
-        : "Approve Credit"
+      ? "Draft"
       : "ready" === r.kind
       ? "Draft"
       : "held" === r.kind
@@ -172210,14 +172208,18 @@ function blCreditRows() {
     seen = new Set();
   (DB.clientCredits || []).forEach((cc) => {
     if ("void" === cc.status) return;
+    // a credit on a live invoice line is credited: it leaves the queue (the invoice carries it)
+    if (cc.invoiceLineId && "function" == typeof rbInvLine && rbInvLine(cc.invoiceLineId)) return void (cc.txnId && seen.add(cc.txnId));
     const p = (DB.projects || []).find((x) => x.id === cc.projectId),
       c = (DB.clients || []).find((x) => x.id === cc.clientId);
     cc.txnId && seen.add(cc.txnId),
       p &&
-        out.push({ id: "credit:" + cc.id, kind: "credit", cc: cc, key: "credit:" + cc.id, client: c || null, job: p, amount: -Math.abs(+cc.amount || 0), date: cc.at || "", approved: "approved" === cc.status, what: `Credit the client ${money(cc.amount)}`, why: cc.why, needs: "proposed" === cc.status });
+        out.push({ id: "credit:" + cc.id, kind: "credit", cc: cc, key: "credit:" + cc.id, client: c || null, job: p, amount: -Math.abs(+cc.amount || 0), date: cc.at || "", approved: "approved" === cc.status, what: `Credit the client ${money(cc.amount)}`, why: cc.why, needs: !0 });
   });
   txnClientCredits().forEach((x) => {
-    if (seen.has(x.t.id)) return;
+    // the vendor's credit memo came by mail before the bank line: one credit, not two
+    const memo = (DB.clientCredits || []).find((cc) => "void" !== cc.status && !cc.txnId && cc.projectId === x.projectId && Math.abs(+cc.amount - x.amount) < 0.01);
+    if (seen.has(x.t.id) || memo) return;
     const p = (DB.projects || []).find((y) => y.id === x.projectId),
       c = p && (DB.clients || []).find((y) => y.id === p.clientId);
     p &&
@@ -172249,32 +172251,39 @@ function blCreditRows() {
     }
   };
 }
+// Draft on a credit the client is owed: billing's draft is the approval. The credit goes on the job's open
+// billable-expenses draft, or on a new credit invoice, as a negative line stamped on the credit (cc.invoiceLineId);
+// the draft opens with Send to Client. Nothing reaches the client until it is sent.
 function blCreditAct(row) {
   if (!row) return;
-  if (row.approved) return blOpenRow(row);
   const amt = Math.abs(row.amount),
-    who = row.client ? row.client.name : "the client";
-  mbModal(
-    `Approve Credit — <span data-nocase>${esc(who)}</span>`,
-    `<p class="small" style="margin:0 0 8px">${esc(row.why)}.</p><p class="small muted" style="margin:0">Approving records that ${esc(who)} is owed ${money(amt)} on ${esc(String(row.job.project.name).replace(/ —.*$/, ""))}; it goes on their next invoice as a credit line. Nothing is sent to the client from here.</p>`,
-    {
-      submit: "Approve Credit",
-      onSubmit: () => {
-        const by = (currentUser() || {}).name || role();
-        let cc = row.cc;
-        cc ||
-          ((DB.clientCredits = DB.clientCredits || []),
-          (cc = { id: uid("cc"), projectId: row.job.id, clientId: row.client ? row.client.id : "", amount: amt, txnId: row.txn ? row.txn.id : "", why: row.why, status: "proposed", at: today(), by: by }),
-          DB.clientCredits.push(cc));
-        (cc.status = "approved"), (cc.approvedBy = by), (cc.approvedAt = today()), row.txn && (row.txn.clientCreditDone = cc.id);
-        try {
-          audit("client-credit", cc.id, "approved", "proposed", money(amt), row.why);
-        } catch (e) {}
-        save(), render();
-        rcToast(`Credit of ${money(amt)} to ${who} approved — it goes on the next invoice`, [{ label: "Open", run: () => ((view = "billing"), (billTab = "billable"), render()) }]);
-      },
-    },
-  );
+    c = row.client,
+    p = row.job,
+    by = (currentUser() || {}).name || role();
+  if (!c || !p) return toast("That credit has no client or job to credit");
+  let cc = row.cc;
+  cc ||
+    ((DB.clientCredits = DB.clientCredits || []),
+    (cc = { id: uid("cc"), projectId: p.id, clientId: c.id, amount: amt, txnId: row.txn ? row.txn.id : "", why: row.why, status: "proposed", at: today(), by: by }),
+    DB.clientCredits.push(cc));
+  const was = cc.invoiceLineId && "function" == typeof rbInvLine ? rbInvLine(cc.invoiceLineId) : null;
+  if (was) return (clientOpen = was.c.id), (docOpen = { kind: "invoice", id: was.inv.id }), void render();
+  "approved" !== cc.status && ((cc.status = "approved"), (cc.approvedBy = by), (cc.approvedAt = today()));
+  row.txn && (row.txn.clientCreditDone = cc.id);
+  let inv = (c.invoices || []).find((i) => "draft" === i.status && i.projectId === p.id && "sov" !== i.mode && (i.rebill || i.creditFor));
+  inv ||
+    ((inv = newDoc(c, "invoice", { mode: "items", fields: { projectId: p.id, title: `Credit — ${String(p.project.name).replace(/ —.*$/, "")}`, lines: [], retainagePct: 0 } })),
+    (inv.creditFor = !0),
+    (inv.projectId = p.id),
+    (inv.lines = (inv.lines || []).filter((l) => l.item || +l.rate)));
+  const l = { id: uid("l"), item: `Credit — ${String(row.why || "vendor credit").replace(/\s*\(.*$/, "").slice(0, 70)}`, desc: String(row.why || ""), qty: 1, unit: "ls", rate: -amt, taxable: !1, fromCredit: cc.id, cat: "credit" };
+  inv.lines.push(l), (cc.invoiceLineId = l.id), (cc.invoiceId = inv.id);
+  try {
+    audit("client-credit", cc.id, "drafted", "proposed", `${money(amt)} on ${inv.number}`, row.why);
+  } catch (e) {}
+  save();
+  (view = "billing"), (billTab = "billable"), (clientOpen = c.id), (blClientFlag = c.id), (docOpen = { kind: "invoice", id: inv.id }), render();
+  rcToast(`A credit of ${money(amt)} to ${c.name} is on ${inv.number} — review it, then Send to Client`, [{ label: "Open", run: () => ((view = "billing"), (clientOpen = c.id), (docOpen = { kind: "invoice", id: inv.id }), render()) }]);
 }
 // The bank list names a vendor credit and what it relieves, on the row, with Confirm.
 function txnCreditLine(t) {
@@ -175538,6 +175547,21 @@ document.addEventListener(
           open: () => rtbGo(x.key),
         }),
       );
+      // a credit the client is owed (a refund on a purchase billed to them): billing drafts it onto an invoice
+      ("function" == typeof blCreditRows ? blCreditRows() : []).forEach((x) =>
+        push({
+          key: "lk:" + x.key,
+          route: "billing",
+          kind: "clientcredit",
+          title: `Credit ${x.client ? x.client.name : "the client"} ${money2(Math.abs(x.amount))}: ${String(x.why || "").slice(0, 90)}`,
+          why: `${String(x.job.project.name).replace(/ —.*$/, "")} · the purchase was billed to them, so the refund is theirs`,
+          amount: Math.abs(x.amount),
+          verb: "Draft",
+          no: "",
+          run: () => blCreditAct(x),
+          open: () => ((view = "billing"), (billTab = "billable"), render()),
+        }),
+      );
     } catch (e) {
       console.warn("nyh rebill", e);
     }
@@ -175565,3 +175589,22 @@ AG_FIN.unshift({
   },
 });
 
+// ---- 3. Ask: refunds and vendor credits not matched to their charge, or owed to the client and not yet credited
+AG_FIN.unshift({
+  id: "credits",
+  re: /\b(refunds?|vendor credits?|credits?|returns?)\b.*\b(not|never|haven'?t been|unmatched|un-?credited)\b.*\b(matched|credited|client)\b|\bcredits? (owed|due) to (the )?clients?\b/,
+  kind: "money",
+  run(P) {
+    const C = (DB.txns || []).filter((t) => +t.amt > 0 && (t.creditOf || t.creditBillId || /\b(CREDIT|REFUND|RETURN|RTN)\b/i.test(t.desc || "")) && agOnJob(P, t.projectId || "") && !(P.jobs.length && !t.projectId)),
+      unm = C.filter((t) => "confirmed" !== t.creditState && !t.retId && !(t.match && Object.values(t.match).some(Boolean)) && !t.exception),
+      owe = ("function" == typeof blCreditRows ? blCreditRows() : []).filter((x) => agOnJob(P, x.job && x.job.id));
+    return {
+      headline: unm.length || owe.length
+        ? `${unm.length ? `${agN(unm.length, "credit")} not confirmed against the charge it relieves: ${agList(unm.map((t) => `${t.desc} ${money(t.amt)}`))}` : "Every credit is matched to its charge"}; ${owe.length ? `${agN(owe.length, "credit")} owed to the client and not on an invoice yet: ${agList(owe.map((x) => `${x.client ? x.client.name : "the client"} ${money(Math.abs(x.amount))}`))}` : "no credit is owed to a client"}.`
+        : "Every refund and vendor credit is matched, and no credit is owed to a client.",
+      work: unm.map((t) => `${fmtL(t.date)} · ${t.desc} — ${money(t.amt)}${"function" == typeof txnCreditWhy && txnCreditWhy(t) ? " · " + txnCreditWhy(t) : ""}`).concat(owe.map((x) => `Credit ${x.client ? x.client.name : "the client"} ${money(Math.abs(x.amount))} — ${x.why}`)),
+      go: agGo("billing") || agGo("bank"),
+      ran: agRan("bank credits and client credits", agWhereJob(P).concat(["not matched or not credited"]), "", unm.length + owe.length),
+    };
+  },
+});
