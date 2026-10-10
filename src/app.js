@@ -164985,3 +164985,1678 @@ if ("function" == typeof gcDisconnect) {
     return delete DEMO_WS[id], gcDisconnectBase_dw.apply(this, arguments);
   };
 }
+
+// ---- truth (BACKLOG §1.6): the ERP's financials are the single source of truth.
+// One function is the source of each figure here: truthBacking says what evidence stands behind a money row;
+// truthCoverage adds them up for a period or a job; truthFlagOf names a posting that did not come from a document;
+// truthChain/truthSeal/truthVerify make the postings of a closed month tamper-evident; truthMatchOf is the one
+// link model from a bank or card line to its bill, PO, estimate, invoice or payroll line; qboLoad and truthTieOut
+// bring a QuickBooks snapshot in as a bridge for comparison, never as the truth.
+const truthWho = () => fin2Who(),
+  truthWhen = (s) => (s ? fmtL(String(s).slice(0, 10)) : "—"),
+  truthLabel = (ym) => ("function" == typeof fin2Label ? fin2Label(ym) : ym),
+  truthAbs = (v) => Math.abs(+v || 0),
+  TRUTH_ICON_PEN = ICON_SVG('<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>', 11),
+  TRUTH_ICON_SHIELD = ICON_SVG('<path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/><path d="M9 12l2 2 4-4"/>', 12),
+  TRUTH_ICON_LINK = ICON_SVG('<path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/>', 11);
+// FNV-1a, 32 bits, as eight hex digits: small, deterministic, the same in every browser. Not a secret: it makes a
+// silent change to a sealed month visible, which is what a hash chain over postings is for.
+function truthHash(s) {
+  let h = 0x811c9dc5;
+  const str = String(s);
+  for (let i = 0; i < str.length; i++) (h ^= str.charCodeAt(i)), (h = Math.imul(h, 0x01000193) >>> 0);
+  return h.toString(16).padStart(8, "0");
+}
+const TRUTH_HASH_SCHEME = 'fnv1a-32 over "prior|n|id|key|sourceType:sourceId|date|acct:dr:cr,…", postings of the month in posting order';
+
+// ---- 1. coverage: bank/card-backed, document-backed (accrual), by hand
+function truthDemo(t) {
+  const p = bfProv(t);
+  return !!(p.demo || (p.confirmedBy && p.confirmedBy.demo) || (p.feedSeen && p.feedSeen.demo && !p.stmtSeen && "statement" !== p.kind));
+}
+function truthTxnOfBill(b) {
+  if (!b) return null;
+  const T = DB.txns || [];
+  let t = T.find((x) => x.billId === b.id || (b.txnId && x.id === b.txnId));
+  if (!t && b.poId) {
+    const po = (DB.pos || []).find((p) => p.id === b.poId);
+    po && (t = T.find((x) => (po.matchedTxns || []).includes(x.id) && Math.abs(Math.abs(+x.amt || 0) - billTotal(b)) < 1) || T.find((x) => (po.matchedTxns || []).includes(x.id)));
+  }
+  return t || null;
+}
+function truthAcctWords(t) {
+  const a = (DB.accounts || []).find((x) => x.id === t.acct);
+  return a ? `${a.name.split(" ")[0]} ····${a.last4 || ""}` : "the bank";
+}
+// What stands behind one management-ledger row (ledger(range) / companyPL(range).L): a bank or card line the bank
+// has confirmed ("bank"), an approved document only ("document", the accrual), or a typed figure ("hand").
+function truthBacking(row) {
+  if (!row) return { kind: "hand", why: "nothing behind it" };
+  const kind = row.kind || (row.acct ? "txn" : row.lines ? "bill" : row.payDate ? "payroll" : ""),
+    ref = row.ref || row;
+  if ("txn" === kind) {
+    const t = ref;
+    if (bfBacked(t)) {
+      if (truthDemo(t)) return { kind: "hand", why: "the Demo Feed delivered it; a Demo Feed line is not bank evidence" };
+      const p = bfProv(t),
+        src = p.confirmedBy || p.stmtSeen || p.feedSeen || p;
+      return { kind: "bank", why: `${truthAcctWords(t)} ${"statement" === src.kind ? `statement ${src.fileName || ""}`.trim() : "feed"} holds it on ${truthWhen(t.date)}` };
+    }
+    return { kind: "hand", why: `typed in${t.actor && "rule" !== t.actor ? " by " + t.actor : ""}, not yet seen at ${truthAcctWords(t)}` };
+  }
+  if ("bill" === kind) {
+    const b = ref,
+      t = truthTxnOfBill(b);
+    if (t && bfBacked(t) && !truthDemo(t)) return { kind: "bank", why: `paid from ${truthAcctWords(t)} on ${truthWhen(t.date)}, confirmed by the bank` };
+    return { kind: "document", why: `approved bill ${b.number || ""}${t ? "; its bank line is typed by hand, not yet seen at the bank" : "; no bank line yet (accrual)"}`.trim() };
+  }
+  if ("payroll" === kind) {
+    const r = ref,
+      t = (DB.txns || []).find((x) => x.payrollId === r.id);
+    if (t && bfBacked(t) && !truthDemo(t)) return { kind: "bank", why: `paid from ${truthAcctWords(t)} on ${truthWhen(t.date)}, confirmed by the bank` };
+    return { kind: "document", why: `approved payroll run ${r.period || ""}; no bank line matched yet`.trim() };
+  }
+  if ("accrual" === kind) return { kind: "document", why: "accrued at the close from approved time; reverses when the run is approved" };
+  return { kind: "document", why: `${kind || "record"} approved; no bank line behind it` };
+}
+function truthCoverage(range, opts) {
+  const o = opts || {},
+    R = range || [today().slice(0, 4) + "-01-01", today()],
+    P = companyPL(R),
+    L = (P.L || ledger(R)).filter((r) => !r.income && (!o.projectId || r.projectId === o.projectId)),
+    empty = () => ({ bank: 0, document: 0, hand: 0, n: { bank: 0, document: 0, hand: 0 }, rows: [] }),
+    cost = empty(),
+    income = empty();
+  L.forEach((r) => {
+    const type = "payroll_oh" === r.cat || "payroll-oh" === r.cat ? "oh" : catType(r.cat);
+    if ("cogs" !== type && "oh" !== type) return;
+    const b = truthBacking(r),
+      amt = r2(+r.amt || 0);
+    (cost[b.kind] = r2(cost[b.kind] + amt)), cost.n[b.kind]++;
+    cost.rows.push({ kind: r.kind, date: r.date, desc: r.desc, vendor: r.vendor || "", amt: amt, backing: b.kind, why: b.why, projectId: r.projectId || "", cat: r.cat, id: r.ref && r.ref.id });
+  });
+  cost.sum = r2(cost.bank + cost.document + cost.hand);
+  cost.total = o.projectId ? cost.sum : r2((P.cogsT || 0) + (P.ohT || 0));
+  cost.adjust = r2(cost.total - cost.sum);
+  cost.pct = cost.total ? Math.round((100 * cost.bank) / cost.total) : 100;
+  // income: invoices in the period are the document; the payments on them that the bank confirms are the bank
+  (DB.clients || []).forEach((c) =>
+    (c.invoices || []).forEach((i) => {
+      if (["void", "draft"].includes(i.status) || i.retainageRelease || !within(i.date, R)) return;
+      if (o.projectId && i.projectId !== o.projectId) return;
+      const net = r2("function" == typeof docNet ? docNet(i) : docTotal(i).total);
+      let bank = 0;
+      (c.payments || [])
+        .filter((p) => p.invoiceId === i.id && !p.unapplied)
+        .forEach((p) => {
+          const t = (DB.txns || []).find((x) => (p.txnId && x.id === p.txnId) || x.paymentId === p.id || (x.amt > 0 && Math.abs(x.amt - (+p.amount || 0)) < 0.005 && Math.abs(dayDiff(x.date, p.date)) <= 5 && (!x.cat || ["income", "uncat"].includes(x.cat))));
+          t && bfBacked(t) && !truthDemo(t) && (bank = r2(bank + Math.min(+p.amount || 0, net - bank)));
+        });
+      bank = Math.max(0, Math.min(bank, net));
+      (income.bank = r2(income.bank + bank)), (income.document = r2(income.document + (net - bank))), income.n[bank >= net - 0.005 ? "bank" : "document"]++;
+      income.rows.push({ kind: "invoice", date: i.date, desc: `${i.number} · ${c.name}`, amt: net, backing: bank >= net - 0.005 ? "bank" : bank > 0 ? "part" : "document", bank: bank, why: bank > 0 ? `${money(bank)} collected and confirmed by the bank` : "invoiced; the payment has not been confirmed by the bank", projectId: i.projectId || "", id: i.id });
+    }),
+  );
+  // a manual journal into a revenue account is income by hand
+  try {
+    truthManual(R, { entityId: "all" }).rows.forEach((m) => {
+      const v = r2(m.j.lines.filter((l) => /^4/.test(l.acct)).reduce((s, l) => s + (l.cr || 0) - (l.dr || 0), 0));
+      v && ((income.hand = r2(income.hand + v)), income.n.hand++, income.rows.push({ kind: "journal", date: m.j.date, desc: m.j.memo, amt: v, backing: "hand", why: m.flag.text, id: m.j.id }));
+    });
+  } catch (e) {}
+  // bank + document is what was invoiced; the earned-revenue adjustment (invoiced ahead of or behind the work,
+  // recognised at month end) is shown as its own amount, never folded into the documents
+  income.sum = r2(income.bank + income.document + income.hand);
+  income.total = o.projectId ? income.sum : r2((P.income || 0) + income.hand);
+  income.adjust = r2(income.total - income.sum);
+  income.pct = income.sum ? Math.round((100 * income.bank) / income.sum) : 100;
+  return { range: R, cost: cost, income: income, pct: cost.pct, demo: (DB.txns || []).filter((t) => within(t.date, R) && truthDemo(t)).length };
+}
+const truthCovWords = (K) =>
+  `${money(K.bank)} backed by a bank or card line · ${money(K.document)} by an approved document only (accrual) · ${money(K.hand)} by hand${K.adjust && Math.abs(K.adjust) > 0.5 ? ` · ${money(K.adjust)} ${K.rows.length && "invoice" === K.rows[0].kind ? "of earned-revenue adjustment (invoiced ahead of or behind the work, recognised at month end)" : "in adjustments the P&L makes outside these rows"}` : ""}`;
+function truthCovHtml(C, title) {
+  const bar = (K) => {
+      const T = K.total || 1;
+      return `<div class="tr-bar" aria-hidden="true"><i class="bank" style="width:${(100 * K.bank) / T}%"></i><i class="doc" style="width:${(100 * K.document) / T}%"></i><i class="hand" style="width:${(100 * K.hand) / T}%"></i></div>`;
+    },
+    k = C.cost,
+    i = C.income;
+  return `<div class="card tr-cov" data-trrange="${esc(C.range[0])}|${esc(C.range[1])}"><h3 class="rep-h" style="margin-top:0">${esc(title || "Coverage")} <span class="small muted">a figure with no bank or card line behind it is shown as such</span></h3>
+    <div class="tr-cov-row"><b>Cost ${money(k.total)}</b> <span class="small">${esc(truthCovWords(k))} · <b>${k.pct}%</b> bank-backed</span>${bar(k)}</div>
+    <div class="tr-cov-row"><b>Income ${money(i.total)}</b> <span class="small">${esc(truthCovWords(i))} · <b>${i.pct}%</b> bank-backed</span>${bar(i)}</div>
+    ${C.demo ? `<p class="small muted">${C.demo} line${1 === C.demo ? "" : "s"} came from the Demo Feed and count as typed by hand: the Demo Feed is not bank evidence.</p>` : ""}</div>`;
+}
+
+// ---- 2. postings that did not come from a document are always flagged
+const TRUTH_FLAG_KIND = { manual: "Manual", opening: "Opening", close: "Close", accrual: "Accrual" };
+function truthFlagOf(j) {
+  if (!j || j.sourceType) return null;
+  if ("reversal" === j.kind) {
+    const of = ((DB.gl || {}).journals || []).find((x) => x.id === j.reversalOf);
+    if (!of || of.sourceType) return null;
+  }
+  const label = TRUTH_FLAG_KIND[j.kind] || ("reversal" === j.kind ? "Reversal" : "Manual"),
+    who = j.postedBy || j.approvedBy || j.by || j.createdBy || "system",
+    when = truthWhen(j.approvedAt || j.postedAt || j.createdAt || j.date),
+    why = j.why || j.memo || "";
+  return { kind: j.kind, label: label, who: who, when: when, why: why, text: `${label} · by ${who} · ${when} · ${why}`, icon: TRUTH_ICON_PEN };
+}
+const truthFlagHtml = (f, cls) => (f ? `<span class="tr-flag ${cls || ""}" title="${esc(f.text)}">${f.icon}<span>${esc(f.text)}</span></span>` : "");
+function truthManual(range, opts) {
+  const o = opts || {},
+    R = range || ["", today()],
+    ent = o.entityId && "all" !== o.entityId ? o.entityId : "",
+    rows = [],
+    byAcct = {};
+  ((DB.gl || {}).journals || []).forEach((j) => {
+    if (!["posted", "reversed"].includes(j.status) || "reversal" === j.kind) return;
+    if (!within(j.date, R) || (ent && j.entityId !== ent)) return;
+    if (o.manualOnly && "manual" !== j.kind) return;
+    const f = truthFlagOf(j);
+    if (!f) return;
+    const amt = r2(j.lines.reduce((s, l) => s + (l.dr || 0), 0));
+    rows.push({ j: j, amt: amt, flag: f }),
+      j.lines.forEach((l) => {
+        const b = (byAcct[l.acct] = byAcct[l.acct] || { n: 0, amt: 0, ids: new Set() });
+        b.ids.has(j.id) || (b.ids.add(j.id), b.n++), (b.amt = r2(b.amt + Math.abs((l.dr || 0) - (l.cr || 0))));
+      });
+  });
+  const manual = rows.filter((r) => "manual" === r.j.kind);
+  return { rows: rows, n: rows.length, amt: r2(rows.reduce((s, r) => s + r.amt, 0)), manual: manual, nManual: manual.length, amtManual: r2(manual.reduce((s, r) => s + r.amt, 0)), byAcct: byAcct };
+}
+const truthManualLine = (m) => `#${m.j.n} ${m.j.memo} — ${money(m.amt)} · ${m.flag.text}`;
+let truthJKind = "";
+if ("function" == typeof glJournalHtml) {
+  const base = glJournalHtml;
+  glJournalHtml = function () {
+    const d = document.createElement("div");
+    d.innerHTML = base.apply(this, arguments);
+    const J = (DB.gl || {}).journals || [];
+    let kept = 0;
+    d.querySelectorAll("tr[data-glopen]").forEach((tr) => {
+      const j = J.find((x) => x.id === tr.dataset.glopen),
+        f = j && truthFlagOf(j);
+      if ("flag" === truthJKind && !f) return void tr.remove();
+      kept++;
+      const td = tr.children[3];
+      f && td && td.insertAdjacentHTML("beforeend", " " + truthFlagHtml(f));
+    });
+    if ("flag" === truthJKind) {
+      const n = d.querySelector(".small.muted");
+      n && /entries$/.test(n.textContent) && (n.textContent = `${kept} entries`);
+      const bar = d.querySelector(".row.wrap");
+      bar && bar.insertAdjacentHTML("beforeend", `<span class="pill warn">${TRUTH_ICON_PEN} Not from a document <a href="#" data-trclear="1" title="Show every entry">${ICON_X}</a></span>`);
+    }
+    return d.innerHTML;
+  };
+}
+if ("function" == typeof glStatementsHtml) {
+  const base = glStatementsHtml;
+  glStatementsHtml = function () {
+    const html = base.apply(this, arguments);
+    try {
+      const [from, to] = glRange(),
+        M = truthManual(["bs" === glStmt ? "" : from, to], { entityId: glEnt }).byAcct;
+      if (!Object.keys(M).length) return html;
+      const d = document.createElement("div");
+      d.innerHTML = html;
+      d.querySelectorAll("tr[data-glacct]").forEach((tr) => {
+        const b = M[tr.dataset.glacct];
+        b && tr.children[0] && tr.children[0].insertAdjacentHTML("beforeend", ` <span class="tr-flag small" data-trdrill="${esc(tr.dataset.glacct)}" title="Entries not from a document on this line; open them">${TRUTH_ICON_PEN}<span>${b.n} manual · ${glM(b.amt)}</span></span>`);
+      });
+      return d.innerHTML;
+    } catch (e) {
+      return console.warn("statement flags", e), html;
+    }
+  };
+}
+// The Controller drafts; the Owner posts with a typed reason. glEntrySave reads the form; glApprove posts.
+if ("function" == typeof glEntrySave) {
+  const base = glEntrySave;
+  glEntrySave = function () {
+    if (!["controller", "owner"].includes(role())) return void toast("The Controller drafts a manual entry; the Owner posts it");
+    return base.apply(this, arguments);
+  };
+}
+function truthReasonDialog(j) {
+  const m = mbModal(
+    "Post Manual Entry",
+    `<p class="small">${esc(j.memo || "")} · ${glM(j.lines.reduce((s, l) => s + (l.dr || 0), 0))} · drafted by ${esc(j.createdBy || "—")} on ${truthWhen(j.createdAt || j.date)}.</p><p class="small muted">A manual entry has no document behind it, so it is flagged wherever it appears, with who posted it, when, and why. Say why.</p><div class="f"><label>Why This Entry Is Posted</label><textarea data-f="why" rows="3" placeholder="e.g. straight-line depreciation on the van for August"></textarea></div>`,
+    {
+      submit: "Post",
+      onSubmit: (v) => {
+        if (!String(v.why || "").trim()) return toast("Say why this entry is posted"), !1;
+        glApprove(j.id, String(v.why).trim());
+      },
+    },
+  );
+  return m;
+}
+if ("function" == typeof glApprove) {
+  const base = glApprove;
+  glApprove = function (id, why) {
+    const j = ((DB.gl || {}).journals || []).find((x) => x.id === id);
+    if (j && "manual" === j.kind && "pending" === j.status) {
+      if ("owner" !== role()) return void toast("Only the Owner posts a manual entry");
+      const w = String(why || "").trim();
+      if (!w) return void truthReasonDialog(j);
+      (j.why = w), (j.postedBy = truthWho());
+      const r = base.call(this, id),
+        jj = ((DB.gl || {}).journals || []).find((x) => x.id === id);
+      if (jj && "posted" === jj.status) {
+        (jj.approvedBy = truthWho()), (jj.why = w);
+        try {
+          audit("ledger", id, "posted-with-reason", "", w, `manual entry posted by ${truthWho()}: ${w}`);
+        } catch (e) {}
+        save();
+      }
+      return r;
+    }
+    return base.apply(this, arguments);
+  };
+}
+
+// ---- 3. append-only: an amendment is a linked reversal and re-post, with who, when and why
+let truthWhyNext = {};
+const truthKeyOf = (kind, id) => (({ invoice: "inv", estimate: "est", co: "co", bill: "bill", txn: "txn", payment: "pay", payroll: "payroll" })[kind] || kind) + ":" + id;
+function truthFindRec(kind, ref) {
+  const id = ref && "object" == typeof ref ? ref.id : ref;
+  if (["invoice", "estimate", "co", "payment"].includes(kind)) {
+    for (const c of DB.clients || []) {
+      const coll = { invoice: c.invoices, estimate: c.estimates, co: c.changeOrders, payment: c.payments }[kind] || [],
+        d = coll.find((x) => x.id === id);
+      if (d) return { rec: d, c: c };
+    }
+    return null;
+  }
+  const coll = { bill: DB.bills, txn: DB.txns, payroll: DB.payroll }[kind] || [],
+    d = coll.find((x) => x.id === id);
+  return d ? { rec: d } : null;
+}
+const truthSummary = (kind, d) => {
+  try {
+    return { status: d.status, date: d.date || d.payDate, total: "txn" === kind ? +d.amt || 0 : "bill" === kind ? billTotal(d) : "payroll" === kind ? +d.total || 0 : "payment" === kind ? +d.amount || 0 : docTotal(d).total };
+  } catch (e) {
+    return { status: d.status };
+  }
+};
+function truthEdit(kind, ref, why, fn) {
+  const w = String(why || "").trim();
+  if (!w) return { ok: !1, why: "Say why this posted record changes; the reason goes on the reversal and the re-post" };
+  if (["client", "crew", "driver", "foreman"].includes(role())) return { ok: !1, why: "Your account does not change money records" };
+  const f = truthFindRec(kind, ref);
+  if (!f) return { ok: !1, why: `No ${kind} ${ref && ref.id ? ref.id : ref}` };
+  const d = f.rec,
+    when = d.date || d.payDate || "";
+  if (when && "function" == typeof isLocked && isLocked(when)) return { ok: !1, why: `${when.slice(0, 7)} is closed; reopen the month with a reason first` };
+  const before = truthSummary(kind, d);
+  try {
+    fn && fn(d, f.c);
+  } catch (e) {
+    return { ok: !1, why: String(e && e.message ? e.message : e) };
+  }
+  const after = truthSummary(kind, d),
+    key = truthKeyOf(kind, d.id),
+    by = truthWho();
+  (d.history = d.history || []).push({ t: nowStamp(), by: by, from: before.status, action: "amended", note: w, total: after.total });
+  truthWhyNext[key] = { by: by, why: w, at: appNowIso() };
+  "bill" === kind && (truthWhyNext["billpay:" + d.id] = truthWhyNext[key]);
+  try {
+    audit(kind, d.id, "amended", before, after, `${d.number || d.desc || d.id} · ${by}: ${w}`);
+  } catch (e) {}
+  try {
+    "function" == typeof docMark && ["invoice", "estimate", "co"].includes(kind) && docMark(d);
+  } catch (e) {}
+  save();
+  return { ok: !0, key: key, before: before, after: after };
+}
+// The reason behind a reversal the ledger makes on its own: the record's void or amendment note.
+function truthWhyFor(j) {
+  if (!j || !j.key) return null;
+  const [k, id] = j.key.split(":");
+  try {
+    if (["inv", "est", "co"].includes(k)) {
+      const f = truthFindRec({ inv: "invoice", est: "estimate", co: "co" }[k], id);
+      if (f && "void" === f.rec.status) {
+        const h = (f.rec.history || []).filter((x) => "void" === x.action).pop();
+        return { by: (h && h.by) || truthWho(), why: f.rec.voidReason || (h && h.note) || "voided" };
+      }
+      if (f) {
+        const h = (f.rec.history || []).filter((x) => "amended" === x.action).pop();
+        if (h && h.t === nowStamp()) return { by: h.by, why: h.note };
+      }
+    }
+    if ("txn" === k) {
+      const v = (DB.voided || []).find((x) => x.id === id);
+      if (v) return { by: v.voidedBy, why: v.voidWhy };
+    }
+    if ("bill" === k || "billpay" === k) {
+      const b = (DB.bills || []).find((x) => x.id === id);
+      if (b && ["void", "rejected"].includes(b.status)) return { by: truthWho(), why: b.voidReason || b.rejectReason || b.status };
+    }
+  } catch (e) {}
+  return null;
+}
+if ("function" == typeof glReverse) {
+  const base = glReverse;
+  glReverse = function (j, date, why) {
+    const ctx = (j && truthWhyNext[j.key]) || truthWhyFor(j),
+      r = base.apply(this, arguments);
+    if (r && r.ok && r.j) {
+      const rj = r.j;
+      (rj.by = (ctx && ctx.by) || truthWho()), (rj.at = appNowIso());
+      ctx && ctx.why ? ((rj.why = ctx.why), (rj.memo = `${rj.memo} · by ${rj.by}: ${ctx.why}`)) : (rj.memo = `${rj.memo} · by ${rj.by}`);
+    }
+    return r;
+  };
+}
+if ("function" == typeof glPost) {
+  const base = glPost;
+  glPost = function (j) {
+    try {
+      if (j && "posting" === j.kind && j.key && truthWhyNext[j.key]) {
+        const ctx = truthWhyNext[j.key],
+          prev = ((DB.gl || {}).journals || []).filter((x) => x.key === j.key && "reversed" === x.status).pop();
+        (j.by = ctx.by), (j.why = ctx.why), (j.amends = prev ? prev.id : "");
+      }
+    } catch (e) {}
+    return base.apply(this, arguments);
+  };
+}
+if ("function" == typeof glSync) {
+  const base = glSync;
+  glSync = function () {
+    try {
+      return base.apply(this, arguments);
+    } finally {
+      truthWhyNext = {};
+    }
+  };
+}
+function truthHistory(key) {
+  const J = ((DB.gl || {}).journals || []).filter((j) => j.key === key).sort((a, b) => (a.n || 0) - (b.n || 0)),
+    out = J.map((j) => ({
+      n: j.n,
+      at: j.postedAt || j.approvedAt || j.createdAt || j.date,
+      by: j.by || j.approvedBy || ("manual" === j.kind ? j.createdBy : "rule"),
+      kind: "reversal" === j.kind ? "reversed" : j.amends ? "re-posted" : j.correctionOf ? "corrected" : "posted",
+      why: j.why || "",
+      memo: j.memo || "",
+      status: j.status,
+      id: j.id,
+    })),
+    [k, id] = key.split(":"),
+    f = ["inv", "est", "co", "bill", "txn", "pay", "payroll"].includes(k) ? truthFindRec({ inv: "invoice", est: "estimate", co: "co", bill: "bill", txn: "txn", pay: "payment", payroll: "payroll" }[k], id) : null;
+  f &&
+    (f.rec.history || []).forEach((h) => out.push({ n: 0, at: h.t, by: h.by, kind: h.action, why: h.note || "", memo: "", status: "record", t: h.t })),
+    f && (f.rec.dateHistory || []).forEach((h) => out.push({ n: 0, at: h.at || h.t, by: h.by, kind: "re-dated", why: h.why || h.reason || "", memo: `${h.from || ""} → ${h.to || ""}`, status: "record" }));
+  return out;
+}
+function truthHistoryHtml(key, extra) {
+  const H = truthHistory(key);
+  if (!H.length && !extra) return "";
+  const line = (h) =>
+    `<span class="tr-h ${["reversed", "re-posted", "amended", "void", "corrected", "re-dated"].includes(h.kind) ? "amend" : ""}">${h.n ? `#${h.n} ` : ""}${esc(h.kind)} · by ${esc(h.by || "—")} · ${esc(h.at ? ("string" == typeof h.at && /^\d{4}-\d{2}-\d{2}/.test(h.at) ? truthWhen(h.at) : h.at) : "—")}${h.why ? ` · ${esc(h.why)}` : ""}${h.memo && !h.why ? ` · ${esc(h.memo)}` : ""}</span>`;
+  return `<div class="tr-hist"><b>${TRUTH_ICON_SHIELD} History</b>${extra || ""}${H.map(line).join("")}${H.length ? "" : '<span class="tr-h small muted">Nothing posted yet.</span>'}<span class="tr-h small muted">A posted record is never edited or deleted in place: a change is a reversal and a re-post, linked, with who, when and why.</span></div>`;
+}
+// Void a typed bank line: the record moves to the voided register and the ledger reverses its posting, with the reason.
+function truthVoidTxn(t, why) {
+  if (!t) return { ok: !1, why: "No line" };
+  const w = String(why || "").trim();
+  if (!w) return { ok: !1, why: "Say why this line is voided" };
+  if (["client", "crew", "driver", "foreman"].includes(role())) return { ok: !1, why: "Your account does not void money records" };
+  if (bfBacked(t) && !truthDemo(t)) return { ok: !1, why: `${truthAcctWords(t)} has this line; a line the bank holds is never voided here` };
+  if (bfIsRec(t)) return { ok: !1, why: "This line is reconciled; undo the reconciliation first" };
+  if ("function" == typeof isLocked && isLocked(t.date)) return { ok: !1, why: `${t.date.slice(0, 7)} is closed; reopen the month with a reason first` };
+  const by = truthWho();
+  (DB.voided = DB.voided || []).push(Object.assign(JSON.parse(JSON.stringify(t)), { voidedBy: by, voidedAt: appNowIso(), voidWhy: w }));
+  (DB.pos || []).forEach((po) => {
+    po.matchedTxns && (po.matchedTxns = po.matchedTxns.filter((x) => x !== t.id));
+  }),
+    (DB.bills || []).forEach((b) => {
+      b.txnId === t.id && (b.txnId = "");
+    }),
+    (DB.txns = DB.txns.filter((x) => x.id !== t.id));
+  try {
+    audit("txn", t.id, "void", { desc: t.desc, amt: t.amt, date: t.date }, null, `${by}: ${w}`);
+  } catch (e) {}
+  return save(), { ok: !0 };
+}
+if ("function" == typeof docAction) {
+  const base = docAction;
+  docAction = async function (c, d, a) {
+    if ("del" === a && d && "draft" !== d.status) return void toast(`${d.number || "This document"} is posted — a posted record is never deleted; void it with a reason instead`);
+    return base.apply(this, arguments);
+  };
+}
+if ("function" == typeof txnDialog) {
+  const base = txnDialog;
+  txnDialog = function (id) {
+    base.apply(this, arguments);
+    if (!id) return;
+    const t = (DB.txns || []).find((x) => x.id === id),
+      del = document.getElementById("d-delete"),
+      body = document.getElementById("d-body");
+    if (!t) return;
+    if (del) {
+      (del.style.display = ""),
+        (del.textContent = "Void…"),
+        (del.onclick = () => {
+          if (bfBacked(t) && !truthDemo(t)) return void toast(`${truthAcctWords(t)} has this line — a line the bank holds is never deleted or voided here`);
+          if (bfIsRec(t)) return void toast("A reconciled line is never deleted; undo the reconciliation first");
+          const why = appPrompt("Void this line? It is kept in the voided register and the ledger reverses it. Reason:");
+          if (null == why) return;
+          const r = truthVoidTxn(t, why);
+          r.ok ? (closeEditor(), render(), toast(`${t.desc || "Line"} voided — ${why}`)) : toast(r.why);
+        });
+    }
+    if (body && !body.querySelector(".tr-match")) {
+      const m = truthMatchOf(t),
+        words = truthMatchWords(m),
+        strip = document.createElement("div");
+      (strip.className = "tr-match"),
+        (strip.innerHTML = `<div class="small"><b>${TRUTH_ICON_LINK} Matched to</b> ${words ? esc(words) : '<span class="warn">no line yet — an unmatched line is a flag, never a silent cost</span>'}${t.exception ? ` · <span class="muted">exception signed by ${esc(t.exception.by)}: ${esc(t.exception.why)}</span>` : ""}</div><div class="row" style="gap:8px;margin-top:6px"><button type="button" class="btn sm" data-trmatch="${esc(t.id)}">Match to a Line…</button></div>`),
+        body.appendChild(strip),
+        (strip.querySelector("[data-trmatch]").onclick = () => truthMatchSheet(t));
+      "reconciled" !== t.status && body.appendChild(Object.assign(document.createElement("div"), { innerHTML: truthHistoryHtml("txn:" + t.id) }));
+    }
+  };
+}
+if ("function" == typeof renderDocEditor) {
+  const base = renderDocEditor;
+  renderDocEditor = function (c, d) {
+    let h = base.apply(this, arguments);
+    try {
+      if ("string" == typeof h && d && "draft" !== d.status && ["invoice", "estimate", "co"].includes(d.type) && !h.includes("tr-hist")) {
+        const strip = truthHistoryHtml(truthKeyOf(d.type, d.id)),
+          k = h.lastIndexOf('<div class="docacts">');
+        strip && (h = k > -1 ? h.slice(0, k) + strip + h.slice(k) : h + strip);
+      }
+    } catch (e) {
+      console.warn("history strip", e);
+    }
+    return h;
+  };
+}
+if ("function" == typeof openBill) {
+  const base = openBill;
+  openBill = function (id) {
+    const r = base.apply(this, arguments);
+    try {
+      const b = id && (DB.bills || []).find((x) => x.id === id),
+        body = document.getElementById("d-body");
+      if (b && body && !["draft", "submitted"].includes(b.status) && !body.querySelector(".tr-hist")) {
+        const h = truthHistoryHtml("bill:" + b.id);
+        h && body.insertAdjacentHTML("beforeend", h);
+      }
+    } catch (e) {}
+    return r;
+  };
+}
+if ("function" == typeof glOpenJournal) {
+  const base = glOpenJournal;
+  glOpenJournal = function (id) {
+    const r = base.apply(this, arguments);
+    try {
+      const j = ((DB.gl || {}).journals || []).find((x) => x.id === id),
+        bd = document.querySelector("#mbm .mbm-bd");
+      if (j && bd && !bd.querySelector(".tr-hist")) {
+        const f = truthFlagOf(j);
+        bd.insertAdjacentHTML("beforeend", (f ? `<p>${truthFlagHtml(f)}</p>` : "") + (j.key ? truthHistoryHtml(j.key) : ""));
+      }
+    } catch (e) {}
+    return r;
+  };
+}
+
+// ---- 3b. the hash chain over a month's postings, sealed at close, verified on demand
+function truthChain(ym, entityId) {
+  const J = ((DB.gl || {}).journals || [])
+    .filter((j) => ["posted", "reversed"].includes(j.status) && glYm(j.date) === ym && (!entityId || "all" === entityId || j.entityId === entityId))
+    .sort((a, b) => (a.n || 0) - (b.n || 0)),
+    links = [];
+  let prior = "0";
+  J.forEach((j) => {
+    const s = `${prior}|${j.n}|${j.id}|${j.key || j.kind}|${j.sourceType || ""}:${j.sourceId || ""}|${j.date}|${j.lines.map((l) => `${l.acct}:${r2(l.dr || 0)}:${r2(l.cr || 0)}`).join(",")}`;
+    (prior = truthHash(s)), links.push({ id: j.id, n: j.n, h: prior });
+  });
+  return { ym: ym, n: links.length, head: prior, links: links, scheme: TRUTH_HASH_SCHEME };
+}
+function truthSeal(ym, by) {
+  const C = truthChain(ym);
+  (DB.periods = DB.periods || {}), (DB.periods.chains = DB.periods.chains || {});
+  const prev = DB.periods.chains[ym];
+  DB.periods.chains[ym] = { head: C.head, n: C.n, at: appNowIso(), by: by || truthWho(), links: C.links, scheme: C.scheme, prior: prev ? { head: prev.head, at: prev.at, by: prev.by } : null };
+  try {
+    audit("period", ym, "sealed", prev ? prev.head : "", C.head, `${C.n} postings · ${C.scheme}`);
+  } catch (e) {}
+  return Object.assign({ ok: !0 }, C);
+}
+const truthNameOf = (j, id, n) => (j ? `#${j.n} · ${j.memo || j.key || j.id}` : `#${n || "?"} · ${id}`);
+function truthVerify(ym) {
+  const S = ((DB.periods || {}).chains || {})[ym] || null,
+    now = truthChain(ym),
+    out = { ym: ym, label: truthLabel(ym), sealed: S ? { head: S.head, n: S.n, at: S.at, by: S.by, reopened: S.reopened || null } : null, now: { head: now.head, n: now.n }, changed: [], missing: [], added: [], ok: null, scheme: TRUTH_HASH_SCHEME };
+  if (!S) return (out.why = `${out.label} has not been closed, so its chain is not sealed yet`), out;
+  if (S.reopened) return (out.ok = null), (out.why = `${out.label} was reopened on ${truthWhen(S.reopened.at)} by ${S.reopened.by} (${S.reopened.reason}); re-close it to seal the chain again`), out;
+  const J = (DB.gl || {}).journals || [],
+    nowById = {};
+  now.links.forEach((l) => (nowById[l.id] = l));
+  let prior = "0";
+  S.links.forEach((l) => {
+    const j = J.find((x) => x.id === l.id);
+    if (!j || !["posted", "reversed"].includes(j.status) || glYm(j.date) !== ym) return void out.missing.push(truthNameOf(j, l.id, l.n));
+    const s = `${prior}|${j.n}|${j.id}|${j.key || j.kind}|${j.sourceType || ""}:${j.sourceId || ""}|${j.date}|${j.lines.map((x) => `${x.acct}:${r2(x.dr || 0)}:${r2(x.cr || 0)}`).join(",")}`,
+      h = truthHash(s);
+    h !== l.h && out.changed.push(truthNameOf(j, l.id, l.n)), (prior = l.h);
+  });
+  const sealedIds = new Set(S.links.map((l) => l.id));
+  now.links.forEach((l) => {
+    if (sealedIds.has(l.id)) return;
+    const j = J.find((x) => x.id === l.id);
+    out.added.push(truthNameOf(j, l.id, l.n));
+  });
+  return (out.ok = !out.changed.length && !out.missing.length && !out.added.length && S.head === now.head), out;
+}
+const truthVerifyAll = () =>
+  Object.keys(((DB.periods || {}).chains || {}))
+    .sort()
+    .map((ym) => truthVerify(ym));
+function truthVerifyWords(v) {
+  if (!v.sealed) return `${v.label}: not sealed (not closed yet). ${v.now.n} postings, head ${v.now.head}.`;
+  if (null === v.ok) return `${v.label}: ${v.why}`;
+  if (v.ok) return `${v.label}: ${v.sealed.n} postings verify against the seal of ${truthWhen(v.sealed.at)} by ${v.sealed.by} (head ${v.sealed.head}).`;
+  const parts = [];
+  return (
+    v.changed.length && parts.push(`changed: ${v.changed.join("; ")}`),
+    v.missing.length && parts.push(`missing: ${v.missing.join("; ")}`),
+    v.added.length && parts.push(`added since the seal: ${v.added.join("; ")}`),
+    `${v.label}: the books do not match the seal of ${truthWhen(v.sealed.at)} — ${parts.join(" · ")}.`
+  );
+}
+function truthVerifyDialog() {
+  const V = truthVerifyAll(),
+    body = V.length
+      ? `<p class="small muted">Each closed month's postings are chained (${esc(TRUTH_HASH_SCHEME)}) and the head is stored with the period at close. Verify re-derives the chain and names any posting that changed, went missing or was added since.</p><div class="tr-verify">${V.map((v) => `<div class="note ${v.ok ? "ok" : null === v.ok ? "" : "bad"}">${esc(truthVerifyWords(v))}</div>`).join("")}</div>`
+      : `<p class="small muted">No month has been closed yet, so no chain is sealed. The first close seals its month; Verify the Books then checks every closed month.</p><div class="note">${esc(truthVerifyWords(truthVerify(bfCloseYm())))}</div>`;
+  mbModal("Verify the Books", body, { submit: null });
+}
+if ("function" == typeof fin2RunClose) {
+  const base = fin2RunClose;
+  fin2RunClose = function (ym, reason) {
+    const bad = truthVerifyAll().filter((v) => !1 === v.ok);
+    if (bad.length) return { ok: !1, why: `Verify the Books first: ${bad.map(truthVerifyWords).join(" ")}` };
+    const r = base.apply(this, arguments);
+    if (r && r.ok) {
+      const S = truthSeal(ym, r.rec && r.rec.by);
+      r.rec && (r.rec.chain = S.head), (r.chain = S.head);
+      try {
+        save();
+      } catch (e) {}
+    }
+    return r;
+  };
+}
+if ("function" == typeof fin2ReopenClose) {
+  const base = fin2ReopenClose;
+  fin2ReopenClose = function (ym, reason) {
+    const r = base.apply(this, arguments);
+    if (r && r.ok) {
+      const S = ((DB.periods || {}).chains || {})[ym];
+      S && (S.reopened = { at: appNowIso(), by: truthWho(), reason: String(reason || "").trim() });
+      try {
+        save();
+      } catch (e) {}
+    }
+    return r;
+  };
+}
+
+// ---- 4. every transaction matched to a line: one link model
+function truthMatchOf(t) {
+  const m = Object.assign({ billId: "", billLineId: "", poId: "", poLineId: "", estimateLineId: "", invoiceId: "", invoiceLineId: "", payrollId: "", paymentId: "", kind: "" }, (t && t.match) || {});
+  if (!t) return m;
+  (m.billId = m.billId || t.billId || ""), (m.poId = m.poId || t.poId || ""), (m.invoiceId = m.invoiceId || t.invoiceId || ""), (m.payrollId = m.payrollId || t.payrollId || "");
+  const POS = DB.pos || [],
+    BILLS = DB.bills || [];
+  if (!m.poId) {
+    const po = POS.find((p) => (p.matchedTxns || []).includes(t.id));
+    po && (m.poId = po.id);
+  }
+  if (m.poId) {
+    const po = POS.find((p) => p.id === m.poId);
+    if (po) {
+      !m.poLineId && 1 === (po.lines || []).length && (m.poLineId = po.lines[0].id);
+      const pl = (po.lines || []).find((l) => l.id === m.poLineId);
+      m.estimateLineId || (m.estimateLineId = (pl && pl.line) || ""),
+        m.billId || (m.billId = (BILLS.find((b) => b.poId === po.id && !["void", "rejected", "draft"].includes(b.status) && (b.txnId === t.id || Math.abs(billTotal(b) - truthAbs(t.amt)) < 1)) || {}).id || "");
+    }
+  }
+  if (m.billId) {
+    const b = BILLS.find((x) => x.id === m.billId);
+    if (b) {
+      !m.billLineId && 1 === (b.lines || []).length && (m.billLineId = b.lines[0].id);
+      const bl = (b.lines || []).find((l) => l.id === m.billLineId);
+      m.estimateLineId || (m.estimateLineId = (bl && bl.line) || b.line || ""), m.poId || (m.poId = b.poId || "");
+    }
+  }
+  m.estimateLineId || (m.estimateLineId = t.line || "");
+  if (!m.invoiceId && +t.amt > 0 && !m.payrollId) {
+    for (const c of DB.clients || []) {
+      const p = (c.payments || []).find((p) => p.txnId === t.id || (!p.unapplied && Math.abs((+p.amount || 0) - t.amt) < 0.005 && Math.abs(dayDiff(t.date, p.date)) <= 5 && (!t.cat || ["income", "uncat"].includes(t.cat))));
+      if (p) {
+        (m.invoiceId = p.invoiceId || ""), (m.paymentId = p.id);
+        break;
+      }
+    }
+  }
+  if (m.invoiceId && !m.invoiceLineId) {
+    for (const c of DB.clients || []) {
+      const inv = (c.invoices || []).find((i) => i.id === m.invoiceId);
+      if (inv) {
+        1 === (inv.lines || []).length && (m.invoiceLineId = inv.lines[0].id);
+        break;
+      }
+    }
+  }
+  return (m.kind = m.payrollId ? "payroll" : m.invoiceId ? "income" : m.billId || m.poId || m.estimateLineId ? "cost" : ""), m;
+}
+function truthMatchWords(m) {
+  if (!m || !m.kind) return "";
+  const parts = [],
+    bill = m.billId && (DB.bills || []).find((b) => b.id === m.billId),
+    po = m.poId && (DB.pos || []).find((p) => p.id === m.poId),
+    est = m.estimateLineId && findLine(m.estimateLineId),
+    run = m.payrollId && (DB.payroll || []).find((r) => r.id === m.payrollId);
+  if (bill) {
+    const bl = (bill.lines || []).find((l) => l.id === m.billLineId);
+    parts.push(`bill ${bill.number || bill.id} (${bill.vendor})${bl ? ` line "${bl.desc || ""}"` : ""}`);
+  }
+  if (po) {
+    const pl = (po.lines || []).find((l) => l.id === m.poLineId);
+    parts.push(`${po.number}${pl ? ` line "${pl.item || pl.desc || ""}"` : ""}`);
+  }
+  if (m.invoiceId)
+    for (const c of DB.clients || []) {
+      const inv = (c.invoices || []).find((i) => i.id === m.invoiceId);
+      if (inv) {
+        const il = (inv.lines || []).find((l) => l.id === m.invoiceLineId);
+        parts.push(`invoice ${inv.number}${il ? ` line "${il.item || il.desc || ""}"` : ""} · ${c.name}`);
+        break;
+      }
+    }
+  return run && parts.push(`payroll run ${run.period || run.id}`), est && parts.push(`estimate line "${est.line.item || est.line.desc || ""}" (${est.doc.number})`), parts.join(" → ");
+}
+// Write one match. Legacy fields (billId, poId, line, invoiceId, payrollId) are kept in step so every older
+// reader (txnMatch, txnViaBill, jobFin, bankUnmatched) agrees with the model.
+function truthSetMatch(t, m0, o) {
+  if (!t) return { ok: !1, why: "No line" };
+  if (["client", "crew", "driver", "foreman"].includes(role())) return { ok: !1, why: "Your account does not match money records" };
+  const m = Object.assign({}, m0 || {}),
+    who = truthWho(),
+    opts = o || {};
+  let est = m.estimateLineId || "",
+    cat = t.cat && "uncat" !== t.cat ? t.cat : "",
+    proj = t.projectId || "",
+    code = t.code || "";
+  if (m.poId) {
+    const po = (DB.pos || []).find((p) => p.id === m.poId);
+    if (!po) return { ok: !1, why: "That purchase order is gone" };
+    (po.matchedTxns = po.matchedTxns || []), po.matchedTxns.includes(t.id) || po.matchedTxns.push(t.id), (t.poId = po.id), (t.noPO = !1);
+    const pl = (po.lines || []).find((l) => l.id === m.poLineId) || (1 === (po.lines || []).length ? po.lines[0] : null);
+    (m.poLineId = pl ? pl.id : ""), est || (est = (pl && pl.line) || ""), proj || (proj = po.projectId || ""), cat || (cat = "function" == typeof poCat ? poCat(po) : "materials"), code || (code = (pl && pl.code) || "");
+  }
+  if (m.billId) {
+    const b = (DB.bills || []).find((x) => x.id === m.billId);
+    if (!b) return { ok: !1, why: "That bill is gone" };
+    const bl = (b.lines || []).find((l) => l.id === m.billLineId) || (1 === (b.lines || []).length ? b.lines[0] : null);
+    (m.billLineId = bl ? bl.id : ""), (b.txnId = t.id), (t.billId = b.id), b.paidAt || (b.paidAt = t.date);
+    "approved" === b.status ? (b.status = "paid") : "paid" === b.status ? (b.status = "verified") : ["verified", "void", "rejected"].includes(b.status) || (b.paidBeforeApproval = !0);
+    est || (est = (bl && bl.line) || b.line || ""), proj || (proj = b.projectId || ""), cat || (cat = b.cat || ""), code || (code = b.code || ""), m.poId || (m.poId = b.poId || "");
+  }
+  if (m.invoiceId) {
+    let hit = null;
+    for (const c of DB.clients || []) {
+      const inv = (c.invoices || []).find((i) => i.id === m.invoiceId);
+      if (inv) {
+        hit = { c: c, inv: inv };
+        break;
+      }
+    }
+    if (!hit) return { ok: !1, why: "That invoice is gone" };
+    const il = (hit.inv.lines || []).find((l) => l.id === m.invoiceLineId) || (1 === (hit.inv.lines || []).length ? hit.inv.lines[0] : null);
+    (m.invoiceLineId = il ? il.id : ""), (t.invoiceId = hit.inv.id), cat || (cat = "income"), proj || (proj = hit.inv.projectId || "");
+    let p = (hit.c.payments || []).find((x) => x.id === m.paymentId) || (hit.c.payments || []).find((x) => x.invoiceId === hit.inv.id && !x.txnId && Math.abs((+x.amount || 0) - t.amt) < 0.005);
+    p ? (p.txnId = t.id) : ((p = { id: uid("py"), date: t.date, amount: r2(+t.amt || 0), method: "Bank", invoiceId: hit.inv.id, note: `matched from ${truthAcctWords(t)} by ${who}`, txnId: t.id }), hit.c.payments.push(p)), (m.paymentId = p.id);
+  }
+  if (m.payrollId) {
+    const r = (DB.payroll || []).find((x) => x.id === m.payrollId);
+    if (!r) return { ok: !1, why: "That payroll run is gone" };
+    (t.payrollId = r.id), cat || (cat = "labor");
+  }
+  est && (t.line = est), proj && (t.projectId = proj), cat && (t.cat = cat), code && (t.code = code);
+  !t.code && t.line && "function" == typeof findLine && "function" == typeof codeForLine && (() => { const L = findLine(t.line); L && (t.code = codeForLine(L.line)); })();
+  (t.match = { billId: m.billId || "", billLineId: m.billLineId || "", poId: m.poId || "", poLineId: m.poLineId || "", estimateLineId: t.line || "", invoiceId: m.invoiceId || "", invoiceLineId: m.invoiceLineId || "", payrollId: m.payrollId || "", paymentId: m.paymentId || "" }),
+    t.cat && "uncat" !== t.cat && "reconciled" !== t.status && (t.status = "categorized"),
+    t.actor || (t.actor = who),
+    (t.matchedBy = who),
+    (t.matchedAt = today()),
+    (t.proposal = null),
+    delete t.exception,
+    delete t.noPO;
+  try {
+    audit("txn", t.id, "matched", "", truthMatchWords(truthMatchOf(t)), `${who}: ${opts.why || "matched to a line"}`);
+  } catch (e) {}
+  return save(), { ok: !0, m: truthMatchOf(t) };
+}
+const truthNorm = (s) =>
+  String(s || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]+/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length >= 3 && !/^(inc|llc|the|and|corp|ltd|ach|debit|credit|card|payment|check|wire|sq|pos)$/.test(w));
+const truthVendorHit = (t, vendor) => {
+  const V = truthNorm(vendor),
+    T = new Set(truthNorm(`${t.desc || ""} ${t.vendor || ""} ${t.bankDesc || ""}`));
+  return !!V.length && V.some((w) => T.has(w) || [...T].some((x) => x.startsWith(w) || w.startsWith(x)));
+};
+// Candidates for one line, scored: amount agrees (3), vendor agrees (2), within 7 days (1). 6 is automatic
+// (amount, vendor and date all agree) and becomes a proposal; a person confirms.
+function truthCandidates(t) {
+  if (!t) return [];
+  const amt = truthAbs(t.amt),
+    out = [],
+    near = (d) => !!d && Math.abs(dayDiff(t.date, d)) <= 7,
+    push = (kind, label, m, s, why) => s >= 3 && out.push({ kind: kind, label: label, m: m, score: s, auto: s >= 6, why: why.join(", ") });
+  if (+t.amt < 0) {
+    (DB.bills || []).forEach((b) => {
+      if (["void", "rejected"].includes(b.status) || (b.txnId && b.txnId !== t.id) || b.ic) return;
+      if ((t.rejectedBills || []).includes(b.id)) return;
+      const vh = truthVendorHit(t, b.vendor),
+        tot = billTotal(b);
+      (b.lines && b.lines.length ? b.lines : [{ id: "", amount: tot, desc: "" }]).forEach((l) => {
+        const la = r2(+l.amount || 0),
+          whole = Math.abs(tot - amt) < 0.01,
+          lineHit = Math.abs(la - amt) < 0.01,
+          why = [];
+        let s = 0;
+        (whole || lineHit) && ((s += 3), why.push(whole ? "amount equals the bill" : "amount equals the line")), vh && ((s += 2), why.push("vendor agrees")), (near(b.date) || near(b.due) || near(b.paidAt)) && ((s += 1), why.push("within 7 days"));
+        push("bill", `Bill ${b.number || b.id} · ${b.vendor} · ${l.desc || ""} ${money(la)}`.replace(/\s+/g, " "), { billId: b.id, billLineId: l.id || "", estimateLineId: l.line || b.line || "", poId: b.poId || "" }, s, why);
+      });
+    }),
+      (DB.pos || []).forEach((po) => {
+        if (["draft", "cancelled", "void", "closed"].includes(po.status) || (t.rejectedPOs || []).includes(po.id)) return;
+        const vh = truthVendorHit(t, po.vendor),
+          tot = poTotal(po).total;
+        (po.lines || []).forEach((l) => {
+          const la = r2((+l.qty || 0) * (+l.price || 0)),
+            why = [];
+          let s = 0;
+          (Math.abs(tot - amt) < 1 || Math.abs(la - amt) < 1 || Math.abs(tot / 2 - amt) < 1) && ((s += 3), why.push(Math.abs(tot / 2 - amt) < 1 && Math.abs(tot - amt) >= 1 ? "amount is half the order (deposit)" : "amount equals the order")), vh && ((s += 2), why.push("vendor agrees")), (near(po.date) || near(po.expected)) && ((s += 1), why.push("within 7 days"));
+          push("po", `${po.number} · ${po.vendor} · ${l.item || l.desc || ""} ${money(la)}`.replace(/\s+/g, " "), { poId: po.id, poLineId: l.id, estimateLineId: l.line || "" }, s, why);
+        });
+      }),
+      (DB.payroll || []).forEach((r) => {
+        const why = [];
+        let s = 0;
+        Math.abs((+r.total || 0) - amt) < 1 && ((s += 3), why.push("amount equals the run")), /payroll|gusto|adp|paychex|wages/i.test(t.desc || "") && ((s += 2), why.push("looks like payroll")), near(r.payDate) && ((s += 1), why.push("within 7 days of the pay date"));
+        push("payroll", `Payroll ${r.period || r.id} · ${money(+r.total || 0)}`, { payrollId: r.id }, s, why);
+      });
+  } else if (+t.amt > 0) {
+    (DB.clients || []).forEach((c) =>
+      (c.invoices || []).forEach((inv) => {
+        if (["void", "draft"].includes(inv.status)) return;
+        const bal = r2(docTotal(inv).total - invoicePaid(c, inv)),
+          why = [];
+        let s = 0;
+        (Math.abs(bal - amt) < 0.01 || Math.abs(docTotal(inv).total - amt) < 0.01) && ((s += 3), why.push("amount equals the invoice balance")), truthVendorHit(t, c.name) && ((s += 2), why.push("client name agrees")), (near(inv.date) || near(inv.due)) && ((s += 1), why.push("within 7 days"));
+        push("invoice", `Invoice ${inv.number} · ${c.name} · balance ${money(bal)}`, { invoiceId: inv.id, invoiceLineId: 1 === (inv.lines || []).length ? inv.lines[0].id : "" }, s, why);
+      }),
+    );
+  }
+  return out.sort((a, b) => b.score - a.score);
+}
+function truthProposeAll(ids) {
+  let n = 0;
+  const T = ids ? (DB.txns || []).filter((t) => ids.includes(t.id)) : bankUnmatched().rows;
+  return (
+    T.forEach((t) => {
+      if (t.proposal || t.exception || ("function" == typeof txnMatch && txnMatch(t)) || t.billId || t.poId || t.invoiceId || t.payrollId) return;
+      const best = truthCandidates(t)[0];
+      best && best.auto && ((t.proposal = Object.assign({ t: nowStamp(), by: "auto", kind: best.kind, why: best.why, m: best.m, label: best.label }, best.m.billId ? { billId: best.m.billId } : {}, best.m.poId && !best.m.billId ? { poId: best.m.poId } : {}, best.m.invoiceId ? { invoiceId: best.m.invoiceId } : {}, best.m.payrollId ? { payrollId: best.m.payrollId } : {})), n++);
+    }),
+    n
+  );
+}
+if ("function" == typeof confirmMatch) {
+  const base = confirmMatch;
+  confirmMatch = function (t) {
+    const P = t && t.proposal;
+    if (P && P.m) {
+      if (["bill", "po"].includes(P.kind)) {
+        const m = Object.assign({}, P.m);
+        base.apply(this, arguments);
+        return void truthSetMatch(t, m, { why: P.why });
+      }
+      return void truthSetMatch(t, P.m, { why: P.why });
+    }
+    return base.apply(this, arguments);
+  };
+}
+if ("function" == typeof bfIngest) {
+  const base = bfIngest;
+  bfIngest = function (src, added, removed) {
+    const out = base.apply(this, arguments);
+    try {
+      if (out && !(src && src.dry) && (out.added || out.confirmed)) {
+        const n = truthProposeAll([].concat(out.newIds || [], out.confirmedIds || []));
+        n && (out.proposed = (out.proposed || 0) + n);
+      }
+    } catch (e) {
+      console.warn("line proposals", e);
+    }
+    return out;
+  };
+}
+function truthException(t, why) {
+  if (!t) return { ok: !1, why: "No line" };
+  if (!["owner", "controller"].includes(role())) return { ok: !1, why: "The Owner or the Controller signs an exception" };
+  const w = String(why || "").trim();
+  if (!w) return { ok: !1, why: "Say why this line closes without a match" };
+  t.exception = { by: truthWho(), at: appNowIso(), why: w };
+  try {
+    audit("txn", t.id, "exception", "", w, `${t.desc} ${money(t.amt)} — ${truthWho()}: ${w}`);
+  } catch (e) {}
+  return save(), { ok: !0 };
+}
+function truthMatchSheet(t) {
+  if (!t) return;
+  const C = truthCandidates(t),
+    m = truthMatchOf(t),
+    cur = truthMatchWords(m),
+    canEx = ["owner", "controller"].includes(role()),
+    body = `<div class="small muted">${fmt(t.date)} · ${esc(t.desc || "")} · <b>${money(t.amt)}</b> · ${esc(truthAcctWords(t))}</div>
+    <p class="small">${cur ? `Matched to ${esc(cur)}.` : "Not matched to a line yet. Pick the bill or order line it paid (its estimate line follows), or the invoice line it collected."}</p>
+    ${C.length ? `<table class="t"><thead><tr><th>Line</th><th>Why</th><th></th></tr></thead><tbody>${C.slice(0, 12).map((c, i) => `<tr><td>${esc(c.label)}</td><td class="small muted">${esc(c.why)}${c.auto ? " · proposed" : ""}</td><td><button type="button" class="btn sm" data-trpick="${i}">Match</button></td></tr>`).join("")}</tbody></table>` : '<div class="note">No bill, order, invoice or payroll run agrees with this line on amount. Enter the bill first, or match it by hand from the drawer\'s Line field.</div>'}
+    ${t.exception ? `<p class="small muted">Exception signed by ${esc(t.exception.by)} on ${truthWhen(t.exception.at)}: ${esc(t.exception.why)}</p>` : canEx ? '<div class="f" style="margin-top:10px"><label>Or Close Without a Match</label><input data-f="why" placeholder="Why this line closes with no line behind it (signed with your name)"></div>' : ""}`,
+    mb = mbModal("Match to a Line", body, {
+      submit: canEx && !t.exception ? "Sign an Exception" : null,
+      onSubmit: (v) => {
+        const r = truthException(t, v.why);
+        return r.ok ? (render(), void toast(`Exception signed on ${t.desc || "the line"} — ${v.why}`)) : (toast(r.why), !1);
+      },
+    });
+  mb.querySelectorAll("[data-trpick]").forEach(
+    (b) =>
+      (b.onclick = () => {
+        const c = C[+b.dataset.trpick],
+          r = truthSetMatch(t, c.m, { why: c.why });
+        r.ok ? (mbCloseModal(), render(), toast(`${t.desc || "Line"} matched to ${truthMatchWords(r.m)}`, () => txnDialog(t.id))) : toast(r.why);
+      }),
+  );
+}
+predDef("unmatchedTxns", {
+  label: "Not Matched to a Line",
+  rule: "bank and card lines that reach no bill or PO line, invoice line or payroll run: new, uncategorised, proposed and not yet confirmed, or a job cost with nothing behind it (bankUnmatched, the Banking To Review count)",
+  rows: () => bankUnmatched().rows,
+  figure: () => bankUnmatched().amt,
+  byMonth() {
+    const o = {};
+    return (
+      this.rows().forEach((t) => {
+        const ym = String(t.date || "").slice(0, 7),
+          b = (o[ym] = o[ym] || { n: 0, amt: 0, excepted: 0 });
+        b.n++, (b.amt = r2(b.amt + truthAbs(t.amt))), t.exception && b.excepted++;
+      }),
+      o
+    );
+  },
+});
+const truthByMonthWords = (B) =>
+  Object.keys(B)
+    .sort()
+    .map((ym) => `${truthLabel(ym).replace(/ \d{4}$/, "")}: ${B[ym].n} line${1 === B[ym].n ? "" : "s"} · ${money(B[ym].amt)}${B[ym].excepted ? ` (${B[ym].excepted} excepted)` : ""}`)
+    .join(" · ");
+CATCH.push({
+  name: "unmatchedTxns",
+  label: "Not Matched to a Line",
+  rows: () =>
+    bankUnmatched().rows.map((t) => ({
+      key: "um:" + t.id,
+      what: `Not matched: ${"function" == typeof tdWords ? tdWords(t.vendor || t.desc || "bank line", 4) : String(t.vendor || t.desc || "bank line").slice(0, 40)}`,
+      sub: `${money(truthAbs(t.amt))} on ${fmtL(t.date)} · ${truthAcctWords(t)}${t.exception ? " · exception signed" : ""}`,
+      amount: truthAbs(t.amt),
+      verb: "Match",
+      run: () => truthMatchSheet(t),
+    })),
+});
+if ("function" == typeof renderBank) {
+  const base = renderBank;
+  renderBank = function () {
+    base.apply(this, arguments);
+    try {
+      const v = document.getElementById("v-bank");
+      if (!v || ["client", "crew", "driver", "foreman"].includes(role())) return;
+      v.querySelector("#tr-unm")?.remove();
+      const U = bankUnmatched(),
+        B = PRED.unmatchedTxns.byMonth(),
+        d = document.createElement("div");
+      (d.innerHTML = `<div class="card tr-unm" id="tr-unm"><div class="small"><b>${TRUTH_ICON_LINK} Not Matched to a Line</b> <span class="muted">${U.n ? `${U.n} of the lines to review reach no bill, order, invoice or payroll line — ${money(U.amt)} · ${esc(truthByMonthWords(B))}. Open a line and Match to a Line; a month closes only when each is matched or carries a signed exception.` : "every line reaches a bill, order, invoice or payroll line."}</span></div></div>`),
+        (v.querySelector("#bf-cover") || v.querySelector("#tl-bank") || v.querySelector(".ph"))?.after(d.firstElementChild);
+    } catch (e) {
+      console.warn("unmatched by month", e);
+    }
+  };
+}
+// the close: unmatched lines block it unless each carries a signed exception
+if ("function" == typeof fin2CloseBlockers) {
+  const base = fin2CloseBlockers;
+  fin2CloseBlockers = function (ym) {
+    const out = base.apply(this, arguments);
+    try {
+      const R = [ym + "-01", fin2End(ym)],
+        U = bankUnmatched(R).rows.filter((t) => !t.exception);
+      U.length &&
+        out.push({
+          sub: "bank",
+          why: `${U.length} bank line${1 === U.length ? "" : "s"} in ${truthLabel(ym)} ${1 === U.length ? "is" : "are"} not matched to a line (${U.slice(0, 4).map((t) => `${t.desc || t.vendor} ${money(t.amt)}`).join(", ")}${U.length > 4 ? ", …" : ""}) — match each to its bill, order, invoice or payroll line, or sign an exception with a reason`,
+          go: { view: "bank" },
+        });
+    } catch (e) {
+      console.warn("unmatched blocker", e);
+    }
+    return out;
+  };
+}
+if ("function" == typeof closeChecklist) {
+  const base = closeChecklist;
+  closeChecklist = function (month) {
+    const items = base.apply(this, arguments);
+    try {
+      const R = [month + "-01", fin2End(month)],
+        L = truthLabel(month),
+        U = bankUnmatched(R).rows,
+        ex = U.filter((t) => t.exception).length,
+        open = U.length - ex;
+      items.push({
+        label: `Bank lines not matched to a line in ${L}: ${U.length} · ${money(U.reduce((s, t) => s + truthAbs(t.amt), 0))}${ex ? ` (${ex} with a signed exception)` : ""}`,
+        n: open,
+        ok: !open,
+        go: { view: "bank" },
+        truth: "unmatched",
+      });
+      const M = truthManual(R, { entityId: "all", manualOnly: !0 }),
+        noWhy = M.rows.filter((m) => !m.j.why || !m.j.approvedBy).length;
+      items.push({
+        label: `Manual journal entries dated in ${L}: ${M.n} · ${money(M.amt)}${M.n ? (noWhy ? ` — ${noWhy} without an Owner's reason` : ", each posted by the Owner with a reason") : ""}`,
+        n: noWhy,
+        ok: !noWhy,
+        go: { view: "gl" },
+        truth: "manual",
+      });
+    } catch (e) {
+      console.warn("truth checklist", e);
+    }
+    return items;
+  };
+}
+if ("function" == typeof fin2ClosePageHtml) {
+  const base = fin2ClosePageHtml;
+  fin2ClosePageHtml = function () {
+    let h = base.apply(this, arguments);
+    try {
+      const ym = fin2CloseYm();
+      if (!ym) return h;
+      const R = [ym + "-01", fin2End(ym)],
+        U = bankUnmatched(R).rows,
+        ex = U.filter((t) => t.exception).length,
+        canEx = ["owner", "controller"].includes(role()),
+        M = truthManual(R, { entityId: "all" }),
+        V = truthVerifyAll(),
+        block = `<h4 class="fin2-step">Bank Lines Not Matched to a Line <span class="small muted">${U.length} in ${truthLabel(ym)} · ${money(U.reduce((s, t) => s + truthAbs(t.amt), 0))} · ${ex} with a signed exception</span></h4>${
+          U.length
+            ? `<div class="tw"><table class="t tr-unm-t"><thead><tr><th>Date</th><th>Line</th><th class="money">Amount</th><th>State</th><th></th></tr></thead><tbody>${U.map((t) => `<tr><td class="dim">${fmt(t.date)}</td><td>${esc(t.desc || t.vendor || "")}<div class="small muted">${esc(truthAcctWords(t))}${t.proposal ? " · a match is proposed, to confirm" : ""}</div></td><td class="money">${money(t.amt)}</td><td class="small">${t.exception ? `exception · ${esc(t.exception.by)}: ${esc(t.exception.why)}` : '<span class="warn">no line behind it</span>'}</td><td><button type="button" class="btn sm" data-trmatch="${esc(t.id)}">Match to a Line…</button>${canEx && !t.exception ? ` <button type="button" class="btn sm" data-trexc="${esc(t.id)}">Sign an Exception…</button>` : ""}</td></tr>`).join("")}</tbody></table></div><p class="small muted">The close refuses while a line here has neither a match nor a signed exception. An exception is signed by the Owner or the Controller with a reason and stays on the line.</p>`
+            : '<p class="small muted">Every bank and card line in the month reaches a bill, order, invoice or payroll line.</p>'
+        }<h4 class="fin2-step">Entries Not From a Document <span class="small muted">${M.n} in ${truthLabel(ym)} · ${money(M.amt)}</span></h4>${M.n ? `<div class="rem">${M.rows.map((m) => `<div class="rem-row"><span>${truthFlagHtml(m.flag)} <span class="small">#${m.j.n} ${esc(m.j.memo)} · ${money(m.amt)}</span></span></div>`).join("")}</div>` : '<p class="small muted">Every posting in the month derives from a document.</p>'}${V.length ? `<h4 class="fin2-step">Sealed Months <span class="small muted">the hash chain over each closed month's postings</span></h4><div class="rem">${V.map((v) => `<div class="rem-row ${!1 === v.ok ? "warn" : ""}"><b>${!1 === v.ok ? ICON_WARN : ICON_CHECK}</b><span class="small">${esc(truthVerifyWords(v))}</span></div>`).join("")}</div>` : ""}`,
+        k = h.indexOf('<h4 class="fin2-step">4 · ');
+      h = k > -1 ? h.slice(0, k) + block + h.slice(k) : h + block;
+    } catch (e) {
+      console.warn("close truth", e);
+    }
+    return h;
+  };
+}
+if ("function" == typeof glOverviewHtml) {
+  const base = glOverviewHtml;
+  glOverviewHtml = function () {
+    let h = base.apply(this, arguments);
+    try {
+      const [from, to] = glRange(),
+        C = truthCoverage([from, to]),
+        M = truthManual([from, to], { entityId: glEnt }),
+        chains = (DB.periods || {}).chains || {},
+        sealed = Object.keys(chains).sort(),
+        last = sealed[sealed.length - 1],
+        V = sealed.map((ym) => truthVerify(ym)),
+        bad = V.filter((v) => !1 === v.ok),
+        card = `<div class="card tr-truth"><div class="row wrap" style="gap:8px;align-items:center"><h3 style="margin:0">${TRUTH_ICON_SHIELD} Truth</h3><span class="small muted">${last ? `books sealed through ${truthLabel(last)} · head ${esc(chains[last].head)}${bad.length ? ` · <span class="bad">${bad.length} month${1 === bad.length ? "" : "s"} do${1 === bad.length ? "es" : ""} not verify</span>` : " · verified"}` : "no month sealed yet; the first close seals its postings"}</span><span class="grow"></span><button type="button" class="btn sm" data-trverify="1">Verify the Books</button></div>
+          <div class="small" style="margin-top:8px"><b>Coverage, ${fmt(from)} – ${fmt(to)}</b> · cost ${esc(truthCovWords(C.cost))} · income ${esc(truthCovWords(C.income))}</div>
+          <div class="small" style="margin-top:4px"><b>Entries not from a document</b> · ${M.n ? `${M.n} · ${money(M.amt)} (${M.nManual} manual${M.n - M.nManual ? `, ${M.n - M.nManual} at a close or opening` : ""}) <a href="#" data-trjflag="1">Open them</a>` : "none in the range"}</div></div>`;
+      h = card + h;
+    } catch (e) {
+      console.warn("ledger truth card", e);
+    }
+    return h;
+  };
+}
+if ("function" == typeof glWire) {
+  const base = glWire;
+  glWire = function (host) {
+    base.apply(this, arguments);
+    if (!host) return;
+    host.querySelectorAll("[data-trverify]").forEach((b) => (b.onclick = () => truthVerifyDialog()));
+    host.querySelectorAll("[data-trjflag]").forEach(
+      (a) =>
+        (a.onclick = (e) => {
+          e.preventDefault(), (truthJKind = "flag"), (glAcctFilter = ""), (glTab = "journal"), renderGL();
+        }),
+    );
+    host.querySelectorAll("[data-trclear]").forEach(
+      (a) =>
+        (a.onclick = (e) => {
+          e.preventDefault(), e.stopPropagation(), (truthJKind = ""), renderGL();
+        }),
+    );
+    host.querySelectorAll("[data-trdrill]").forEach(
+      (s) =>
+        (s.onclick = (e) => {
+          e.preventDefault(), e.stopPropagation(), (glAcctFilter = s.dataset.trdrill), (truthJKind = "flag"), (glTab = "journal"), renderGL();
+        }),
+    );
+    host.querySelectorAll("[data-glacct]").forEach((r) => {
+      const prev = r.onclick;
+      r.onclick = (e) => {
+        e.target.closest && e.target.closest("[data-trdrill]") || ((truthJKind = ""), prev && prev.call(r, e));
+      };
+    });
+    const clr = host.querySelector("[data-glclear]");
+    if (clr) {
+      const prev = clr.onclick;
+      clr.onclick = (e) => {
+        (truthJKind = ""), prev && prev.call(clr, e);
+      };
+    }
+    host.querySelectorAll("[data-trmatch]").forEach((b) => (b.onclick = () => truthMatchSheet((DB.txns || []).find((t) => t.id === b.dataset.trmatch))));
+    host.querySelectorAll("[data-trexc]").forEach(
+      (b) =>
+        (b.onclick = () => {
+          const t = (DB.txns || []).find((x) => x.id === b.dataset.trexc),
+            why = appPrompt(`Close ${truthLabel(fin2CloseYm())} with ${t ? t.desc : "this line"} ${t ? money(t.amt) : ""} unmatched? It stays on the line with your name. Reason:`);
+          if (null == why || !t) return;
+          const r = truthException(t, why);
+          r.ok ? (renderGL(), toast(`Exception signed — ${why}`)) : toast(r.why);
+        }),
+    );
+  };
+}
+
+// ---- surfaces: Statements, the Pack, the Flash, the job report
+if ("function" == typeof repFinancials) {
+  const base = repFinancials;
+  repFinancials = function () {
+    let h = base.apply(this, arguments);
+    try {
+      const R = (() => {
+          try {
+            return "function" == typeof repRangeOf ? repRangeOf().range : cfoRange();
+          } catch (e) {
+            return cfoRange();
+          }
+        })(),
+        C = truthCoverage(R),
+        M = truthManual(R, { entityId: void 0 !== repEntity && repEntity ? repEntity : "all" }),
+        man = `<div class="card tr-man"><h3 class="rep-h" style="margin-top:0">Entries Not From a Document <span class="small muted">${M.n ? `${M.n} · ${money(M.amt)} in the period` : "none in the period"}</span></h3>${M.n ? `<div class="rem">${M.rows.map((m) => `<div class="rem-row"><span>${truthFlagHtml(m.flag)} <span class="small">#${m.j.n} ${esc(m.j.memo)} · ${money(m.amt)}</span></span></div>`).join("")}</div>` : '<p class="small muted">Every posting in the period derives from an invoice, payment, bill, bank line or payroll run.</p>'}</div>`,
+        k = h.indexOf('<h3 class="rep-h">Balance sheet');
+      const add = truthCovHtml(C, "Coverage") + man;
+      h = k > -1 ? h.slice(0, k) + add + h.slice(k) : h + add;
+    } catch (e) {
+      console.warn("statement coverage", e);
+    }
+    return h;
+  };
+}
+function truthPackRange() {
+  try {
+    const R = repRangeOf().range,
+      ym = R[1].slice(0, 7),
+      start = ym + "-01",
+      end = fin2End(ym),
+      td = today();
+    return { ym: ym, range: [R[0] > start ? R[0] : start, end > td ? td : end] };
+  } catch (e) {
+    const ym = today().slice(0, 7);
+    return { ym: ym, range: [ym + "-01", today()] };
+  }
+}
+const truthPrevYm = (ym) => iso(addDays(parse(ym + "-01"), -1)).slice(0, 7);
+if ("function" == typeof repPack) {
+  const base = repPack;
+  repPack = function () {
+    let h = base.apply(this, arguments);
+    try {
+      const P = truthPackRange(),
+        C = truthCoverage(P.range),
+        prev = truthPrevYm(P.ym),
+        M = truthManual(P.range, { entityId: "all" }),
+        Mp = truthManual([prev + "-01", fin2End(prev)], { entityId: "all" }),
+        list = (X) => (X.n ? `<div class="rem">${X.rows.map((m) => `<div class="rem-row"><span>${truthFlagHtml(m.flag)} <span class="small">#${m.j.n} ${esc(m.j.memo)} · ${money(m.amt)}</span></span></div>`).join("")}</div>` : '<p class="small muted">None.</p>'),
+        sec = `<h3 class="rep-h">9 · Coverage and manual entries</h3>${truthCovHtml(C, `Coverage · ${truthLabel(P.ym)}`)}<div class="grid2"><div><h4 class="small" style="margin:6px 0">Manual entries · ${truthLabel(P.ym)} · ${M.n} · ${money(M.amt)}</h4>${list(M)}</div><div><h4 class="small" style="margin:6px 0">Manual entries · ${truthLabel(prev)} · ${Mp.n} · ${money(Mp.amt)}</h4>${list(Mp)}</div></div>`;
+      h += sec;
+    } catch (e) {
+      console.warn("pack truth", e);
+    }
+    return h;
+  };
+}
+if ("function" == typeof repFlash) {
+  const base = repFlash;
+  repFlash = function () {
+    let h = base.apply(this, arguments);
+    try {
+      const t = today(),
+        ym = t.slice(0, 7),
+        prev = truthPrevYm(ym),
+        C = truthCoverage([ym + "-01", t]),
+        Cp = truthCoverage([prev + "-01", fin2End(prev)]),
+        M = truthManual([ym + "-01", t], { entityId: "all", manualOnly: !0 }),
+        Mp = truthManual([prev + "-01", fin2End(prev)], { entityId: "all", manualOnly: !0 }),
+        pl = truthLabel(prev).replace(/ \d{4}$/, ""),
+        row = (k, v, i) => `<div class="flash-row"><span>${k}</span><b>${v}</b><i>${i || ""}</i></div>`,
+        card = `<div class="card tr-flash"><h3>Truth</h3>${row("Cost backed by the bank", `${C.cost.pct}% this month · ${Cp.cost.pct}% in ${pl}`, `${money(C.cost.hand)} by hand this month`)}${row("Manual journal entries", `${M.n} this month · ${Mp.n} in ${pl}`, [M, Mp].flatMap((X) => X.rows).slice(0, 2).map((m) => truthManualLine(m)).join("; ") || "none")}${row("Lines not matched", `${PRED.unmatchedTxns.count()} · ${money(PRED.unmatchedTxns.figure())}`, truthByMonthWords(PRED.unmatchedTxns.byMonth()))}</div>`,
+        i = h.indexOf('<div class="flash">'),
+        j = i > -1 && "function" == typeof budCloseDiv ? budCloseDiv(h, i) : -1;
+      h = j > -1 ? h.slice(0, j) + card + h.slice(j) : h + card;
+    } catch (e) {
+      console.warn("flash truth", e);
+    }
+    return h;
+  };
+}
+if ("function" == typeof repProfit) {
+  const base = repProfit;
+  repProfit = function () {
+    let h = base.apply(this, arguments);
+    try {
+      const p = (DB.projects || []).find((x) => x.id === repProj);
+      if (!p) return h;
+      const C = truthCoverage([repFrom || "", repTo || today()], { projectId: p.id }),
+        line = `<p class="small tr-cov-line">${TRUTH_ICON_SHIELD} Of the bills and bank cost on this job, ${esc(truthCovWords(C.cost))}. Income: ${esc(truthCovWords(C.income))}.</p>`,
+        k = h.indexOf('<h3 class="rep-h">By cost code</h3>');
+      h = k > -1 ? h.slice(0, k) + line + h.slice(k) : h + line;
+    } catch (e) {
+      console.warn("job coverage", e);
+    }
+    return h;
+  };
+}
+
+// ---- 5. QuickBooks as a bridge: load a snapshot through the app's own records, then tie out three ways
+const qboS = (v) => (null == v ? "" : String(v)),
+  qboN = (v) => {
+    const n = parseFloat(String(null == v ? "" : v).replace(/[,$\s]/g, ""));
+    return isFinite(n) ? r2(n) : 0;
+  },
+  qboDate = (v) => qboS(v).slice(0, 10);
+function qboLines(L) {
+  return (L || [])
+    .filter((l) => "SubTotalLineDetail" !== l.DetailType && "DiscountLineDetail" !== l.DetailType && null != l.Amount)
+    .map((l) => {
+      const d = l.SalesItemLineDetail || l.ItemBasedExpenseLineDetail || l.AccountBasedExpenseLineDetail || l.DescriptionOnly || {},
+        qty = qboN(d.Qty) || 1,
+        rate = null != d.UnitPrice ? qboN(d.UnitPrice) : r2(qboN(l.Amount) / qty);
+      return { id: uid("l"), item: (d.ItemRef && d.ItemRef.name) || qboS(l.Description).slice(0, 60) || "QuickBooks line", desc: qboS(l.Description), qty: qty, unit: "ea", rate: rate, taxable: !!(d.TaxCodeRef && /^TAX$/i.test(qboS(d.TaxCodeRef.value))), cost: 0, qboLineId: qboS(l.Id), account: (d.AccountRef && d.AccountRef.name) || "" };
+    });
+}
+function qboCat(words) {
+  const w = String(words || "").toLowerCase();
+  return /material|lumber|tile|supply|supplies/.test(w)
+    ? "materials"
+    : /subcontract|plumb|electric|hvac|roof|mason/.test(w)
+      ? "subs"
+      : /labor|wage/.test(w)
+        ? "labor"
+        : /equipment|rental/.test(w)
+          ? "equipment"
+          : /dumpster|disposal|haul/.test(w)
+            ? "disposal"
+            : /permit|filing|dob|fee/.test(w)
+              ? "permits"
+              : /design|engineer|architect/.test(w)
+                ? "design"
+                : /insurance/.test(w)
+                  ? "insurance"
+                  : /vehicle|fuel|auto|truck/.test(w)
+                    ? "vehicle"
+                    : /marketing|advertis/.test(w)
+                      ? "marketing"
+                      : /meal|travel/.test(w)
+                        ? "meals"
+                        : /tax|license/.test(w)
+                          ? "taxes"
+                          : /cost of goods|cogs|job/.test(w)
+                            ? "materials"
+                            : "office";
+}
+const qboStatus = (s) => ({ accepted: "approved", closed: "approved", converted: "approved", pending: "sent", rejected: "rejected" })[qboS(s).toLowerCase()] || "sent";
+function qboLoad(snap) {
+  if (!snap || "object" != typeof snap || "quickbooks" !== snap.source) return { ok: !1, why: 'Not a QuickBooks snapshot: expected {"source": "quickbooks", …}' };
+  if (!["owner", "controller", "billing"].includes(role())) return { ok: !1, why: "The Owner, the Controller or Billing loads a QuickBooks snapshot" };
+  const by = truthWho(),
+    at = appNowIso(),
+    out = { ok: !0, clients: { added: 0, updated: 0 }, estimates: { added: 0, updated: 0, skipped: 0 }, invoices: { added: 0, updated: 0, skipped: 0 }, payments: { added: 0, updated: 0 }, bills: { added: 0, updated: 0 }, payroll: { added: 0, updated: 0 } },
+    pr = snap.payroll || {};
+  DB.qbo = { loadedAt: at, by: by, company: snap.company || {}, pl: snap.pl || {}, cashFlow: snap.cashFlow || {}, balanceSheet: snap.balanceSheet || [], arAging: snap.arAging || {}, apAging: snap.apAging || {}, sales: snap.sales || {}, payroll: { employees: pr.employees || [], schedules: pr.schedules || [], payslips: pr.payslips || [] }, products: snap.products || [], counts: {} };
+  const stamp = { t: nowStamp(), by: "QuickBooks", role: "import", action: `imported from QuickBooks by ${by}` },
+    custById = {},
+    clientByName = (n) => (DB.clients || []).find((c) => c.name.toLowerCase() === qboS(n).toLowerCase()),
+    projOf = (c) => ((DB.projects || []).find((p) => p.clientId === c.id) || {}).id || "";
+  (snap.customers || []).forEach((cu) => {
+    const id = qboS(cu.Id),
+      name = qboS(cu.DisplayName || cu.FullyQualifiedName || cu.CompanyName || cu.GivenName + " " + cu.FamilyName).trim();
+    if (!id || !name) return;
+    let c = (DB.clients || []).find((x) => "quickbooks" === x.source && x.qboId === id) || clientByName(name);
+    c ? out.clients.updated++ : ((c = blankClient(name)), (c.type = "QuickBooks customer"), DB.clients.push(c), out.clients.added++),
+      "function" == typeof migrateClientDocs && migrateClientDocs(c),
+      c.source || (c.source = "quickbooks"),
+      (c.qboId = id),
+      cu.CompanyName && (c.company = qboS(cu.CompanyName)),
+      cu.Notes && (c.notes = qboS(cu.Notes));
+    const B = cu.BillAddr || {},
+      addr = [B.Line1, B.Line2, [B.City, B.CountrySubDivisionCode, B.PostalCode].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+    addr && !c.billingAddr && (c.billingAddr = addr), addr && !c.propertyAddr && (c.propertyAddr = addr);
+    const email = cu.PrimaryEmailAddr && qboS(cu.PrimaryEmailAddr.Address),
+      phone = cu.PrimaryPhone && qboS(cu.PrimaryPhone.FreeFormNumber);
+    (email || phone) && !c.contacts.some((k) => k.email === email) && c.contacts.push({ id: uid("ct"), name: name, email: email || "", phone: phone || "", role: "QuickBooks contact", primary: !c.contacts.length });
+    custById[id] = c;
+  });
+  const clientFor = (ref) => (ref && (custById[qboS(ref.value)] || clientByName(ref.name))) || null;
+  (snap.estimates || []).forEach((e) => {
+    const c = clientFor(e.CustomerRef);
+    if (!c) return void out.estimates.skipped++;
+    const id = qboS(e.Id),
+      lines = qboLines(e.Line),
+      sub = r2(lines.reduce((s, l) => s + l.qty * l.rate, 0)),
+      tax = qboN(e.TxnTaxDetail && e.TxnTaxDetail.TotalTax),
+      rec = { type: "estimate", number: qboS(e.DocNumber) || "QB-" + id, title: qboS(e.CustomerMemo && e.CustomerMemo.value) || `QuickBooks estimate ${qboS(e.DocNumber) || id}`, date: qboDate(e.TxnDate), validUntil: qboDate(e.ExpirationDate), status: qboStatus(e.TxnStatus), projectId: projOf(c), lines: lines.map((l) => Object.assign(l, { taxable: tax > 0 })), discount: { type: "pct", value: 0 }, taxRate: tax > 0 && sub ? r2((100 * tax) / sub) : 0, terms: "", memo: qboS(e.PrivateNote), internal: `imported from QuickBooks on ${at.slice(0, 10)} by ${by}`, source: "quickbooks", qboId: id, qboTotal: qboN(e.TotalAmt) };
+    let d = c.estimates.find((x) => "quickbooks" === x.source && x.qboId === id);
+    d ? (Object.assign(d, rec), out.estimates.updated++) : ((rec.id = uid("es")), c.estimates.push(rec), out.estimates.added++);
+  });
+  const invById = {};
+  (snap.invoices || []).forEach((i) => {
+    const c = clientFor(i.CustomerRef);
+    if (!c) return void out.invoices.skipped++;
+    const id = qboS(i.Id),
+      lines = qboLines(i.Line),
+      sub = r2(lines.reduce((s, l) => s + l.qty * l.rate, 0)),
+      tax = qboN(i.TxnTaxDetail && i.TxnTaxDetail.TotalTax),
+      total = qboN(i.TotalAmt),
+      bal = null == i.Balance ? total : qboN(i.Balance),
+      paid = r2(total - bal),
+      rec = { type: "invoice", number: qboS(i.DocNumber) || "QB-" + id, title: qboS(i.CustomerMemo && i.CustomerMemo.value) || `QuickBooks invoice ${qboS(i.DocNumber) || id}`, mode: "items", date: qboDate(i.TxnDate), due: qboDate(i.DueDate), status: bal <= 0.004 ? "paid" : paid > 0 ? "partial" : "sent", projectId: projOf(c), lines: lines.map((l) => Object.assign(l, { taxable: tax > 0 })), discount: { type: "pct", value: 0 }, taxRate: tax > 0 && sub ? r2((100 * tax) / sub) : 0, retainagePct: 0, terms: "", memo: qboS(i.CustomerMemo && i.CustomerMemo.value), internal: `imported from QuickBooks on ${at.slice(0, 10)} by ${by}`, source: "quickbooks", qboId: id, qboTotal: total, qboBalance: bal };
+    let d = c.invoices.find((x) => "quickbooks" === x.source && x.qboId === id);
+    d ? (Object.assign(d, rec), out.invoices.updated++) : ((rec.id = uid("in")), c.invoices.push(rec), (d = rec), out.invoices.added++), (invById[id] = d);
+    const pk = "inv:" + id;
+    let p = c.payments.find((x) => "quickbooks" === x.source && x.qboId === pk);
+    if (paid > 0) {
+      const linked = (i.LinkedTxn || []).find((x) => "Payment" === x.TxnType),
+        prec = { date: qboDate((linked && linked.TxnDate) || (i.MetaData && i.MetaData.LastUpdatedTime) || i.TxnDate), amount: paid, method: "QuickBooks", invoiceId: d.id, note: "payments applied in QuickBooks", source: "quickbooks", qboId: pk };
+      p ? (Object.assign(p, prec), out.payments.updated++) : ((prec.id = uid("py")), c.payments.push(prec), out.payments.added++);
+    } else p && (c.payments = c.payments.filter((x) => x !== p));
+  });
+  ((snap.arAging && snap.arAging.detail) || []).forEach((r) => {
+    const id = qboS(r.TxnId || r.Id),
+      c = clientFor(r.CustomerRef);
+    if (!id || !c || invById[id] || c.invoices.some((x) => "quickbooks" === x.source && x.qboId === id)) return;
+    const bal = qboN(r.Balance || r.Amount),
+      rec = { id: uid("in"), type: "invoice", number: qboS(r.DocNumber) || "QB-" + id, title: "Open balance from QuickBooks", mode: "items", date: qboDate(r.TxnDate || r.DueDate), due: qboDate(r.DueDate), status: "sent", projectId: projOf(c), lines: [{ id: uid("l"), item: "Open balance from QuickBooks", desc: "", qty: 1, unit: "ea", rate: bal, taxable: !1 }], discount: { type: "pct", value: 0 }, taxRate: 0, retainagePct: 0, terms: "", memo: "", internal: `imported from QuickBooks AR aging on ${at.slice(0, 10)} by ${by}`, source: "quickbooks", qboId: id, qboTotal: bal, qboBalance: bal };
+    c.invoices.push(rec), out.invoices.added++;
+  });
+  const upsertBill = (bl, fromAging) => {
+    const id = qboS(bl.Id || bl.TxnId);
+    if (!id) return;
+    const vendor = qboS(bl.VendorRef && bl.VendorRef.name) || qboS(bl.Vendor || bl.Name) || "QuickBooks vendor",
+      lines = fromAging
+        ? [{ id: uid("bl"), desc: "Open balance from QuickBooks", amount: qboN(bl.Balance || bl.Amount) }]
+        : (bl.Line || []).filter((l) => null != l.Amount && "SubTotalLineDetail" !== l.DetailType).map((l) => {
+            const d = l.AccountBasedExpenseLineDetail || l.ItemBasedExpenseLineDetail || {};
+            return { id: uid("bl"), desc: qboS(l.Description) || (d.ItemRef && d.ItemRef.name) || "QuickBooks bill line", amount: qboN(l.Amount), qboLineId: qboS(l.Id), account: (d.AccountRef && d.AccountRef.name) || (d.ItemRef && d.ItemRef.name) || "" };
+          }),
+      total = fromAging ? qboN(bl.Balance || bl.Amount) : qboN(bl.TotalAmt),
+      bal = null == bl.Balance ? total : qboN(bl.Balance),
+      rec = { vendor: vendor, number: qboS(bl.DocNumber) || "QB-" + id, date: qboDate(bl.TxnDate || bl.DueDate), due: qboDate(bl.DueDate), entityId: entDefault(), projectId: "", poId: "", cat: qboCat(lines.map((l) => l.account + " " + l.desc).join(" ") + " " + vendor), code: "", line: "", lines: lines, payMethod: "", fileId: "", notes: `imported from QuickBooks on ${at.slice(0, 10)} by ${by}${bl.PrivateNote ? " · " + qboS(bl.PrivateNote) : ""}`, status: bal <= 0.004 ? "paid" : "approved", approvals: [stamp], createdBy: "QuickBooks", source: "quickbooks", qboId: id, qboTotal: total, qboBalance: bal };
+    bal <= 0.004 && (rec.paidAt = rec.date);
+    let b = (DB.bills || []).find((x) => "quickbooks" === x.source && x.qboId === id);
+    b ? (Object.assign(b, rec), out.bills.updated++) : ((rec.id = uid("b")), DB.bills.push(rec), out.bills.added++);
+  };
+  ((snap.apAging && snap.apAging.bills) || []).forEach((bl) => upsertBill(bl, !1));
+  ((snap.apAging && snap.apAging.detail) || []).forEach((r) => {
+    const id = qboS(r.TxnId || r.Id);
+    id && !(DB.bills || []).some((x) => "quickbooks" === x.source && x.qboId === id) && upsertBill(r, !0);
+  });
+  (pr.runs || []).forEach((r) => {
+    const id = qboS(r.id || r.Id || r.payrollId || r.runId || r.payDate),
+      from = qboDate(r.payPeriodStart || r.periodStart || r.from || r.startDate),
+      to = qboDate(r.payPeriodEnd || r.periodEnd || r.to || r.endDate),
+      payDate = qboDate(r.payDate || r.checkDate || r.paymentDate) || to,
+      gross = qboN(null != r.grossPay ? r.grossPay : null != r.gross ? r.gross : r.totalGross),
+      taxes = qboN(null != r.employerTaxes ? r.employerTaxes : null != r.taxes ? r.taxes : r.employerTax),
+      total = qboN(null != r.totalCost ? r.totalCost : null != r.total ? r.total : gross + taxes) || r2(gross + taxes),
+      rec = { period: `${fmt(from)} – ${fmt(to)}`, from: from, to: to, payDate: payDate, entityId: entDefault(), employees: +(r.employeeCount || (r.employees || []).length || 0), gross: gross, taxes: taxes, total: total, alloc: [{ projectId: "", pct: 100 }], status: "paid", approvals: [stamp], createdBy: "QuickBooks", notes: `imported from QuickBooks on ${at.slice(0, 10)} by ${by}`, source: "quickbooks", qboId: id };
+    if (!id || !payDate) return;
+    let x = (DB.payroll || []).find((y) => "quickbooks" === y.source && y.qboId === id);
+    x ? (Object.assign(x, rec), out.payroll.updated++) : ((rec.id = uid("pr")), DB.payroll.push(rec), out.payroll.added++);
+  });
+  DB.qbo.counts = out;
+  try {
+    audit("integration", "quickbooks", "snapshot-loaded", "", at, `${by}: ${JSON.stringify({ clients: out.clients, estimates: out.estimates, invoices: out.invoices, bills: out.bills, payroll: out.payroll })}`);
+  } catch (e) {}
+  try {
+    finCash._c = null;
+  } catch (e) {}
+  save();
+  try {
+    void 0 !== view && render();
+  } catch (e) {}
+  return out;
+}
+// Read a QuickBooks report (the API's Rows/Row/ColData shape, or a flat rows list) into labelled amounts.
+function qboReportRows(rep) {
+  const out = [];
+  if (!rep) return out;
+  if (Array.isArray(rep)) return rep.forEach((r) => r && out.push({ label: qboS(r.label || r.name || r.account), amount: qboN(r.amount != null ? r.amount : r.value), group: qboS(r.group || r.type).toLowerCase() })), out;
+  const walk = (node) => {
+    if (!node || "object" != typeof node) return;
+    if (Array.isArray(node)) return void node.forEach(walk);
+    node.ColData && Array.isArray(node.ColData) && node.ColData.length > 1 && out.push({ label: qboS(node.ColData[0].value), amount: qboN(node.ColData[node.ColData.length - 1].value), group: "" }),
+      node.Summary && node.Summary.ColData && out.push({ label: qboS(node.Summary.ColData[0].value), amount: qboN(node.Summary.ColData[node.Summary.ColData.length - 1].value), group: "" }),
+      node.Rows && walk(node.Rows),
+      node.Row && walk(node.Row);
+  };
+  return walk(rep.Rows || rep), out;
+}
+const QBO_GROUP_RE = {
+    income: /^total (income|revenue)$|^(income|revenue|sales)$/i,
+    cogs: /^total cost of (goods sold|sales)$|^cost of (goods sold|sales)$|^cogs$/i,
+    expenses: /^total expenses?$|^(operating )?expenses?$/i,
+    cash: /^total bank accounts?$|^(cash|checking|bank accounts?)$|^total cash/i,
+    ar: /^(total )?accounts receivable( \(a\/r\))?$/i,
+    ap: /^(total )?accounts payable( \(a\/p\))?$/i,
+  },
+  qboPick = (rows, group) => {
+    const g = rows.filter((r) => r.group === group);
+    if (g.length) return r2(g.reduce((s, r) => s + r.amount, 0));
+    const re = QBO_GROUP_RE[group],
+      hit = rows.filter((r) => re.test(r.label.trim())).sort((a, b) => (/^total/i.test(b.label) ? 1 : 0) - (/^total/i.test(a.label) ? 1 : 0));
+    return hit.length ? hit[0].amount : null;
+  };
+function qboMonth(ym) {
+  const Q = DB.qbo;
+  if (!Q) return null;
+  const m = ((Q.pl && Q.pl.months) || []).find((x) => qboS(x.month || x.ym).slice(0, 7) === ym),
+    rows = m ? qboReportRows(m.report || m.rows) : [],
+    end = fin2End(ym),
+    bs = (Q.balanceSheet || [])
+      .filter((b) => qboDate(b.asOf || (b.Header && b.Header.EndPeriod)) <= end)
+      .sort((a, b) => qboDate(a.asOf).localeCompare(qboDate(b.asOf)))
+      .pop(),
+    bsRows = bs ? qboReportRows(bs.report || bs.rows || bs) : [],
+    ar = (Q.arAging && Q.arAging.summary) || null,
+    ap = (Q.apAging && Q.apAging.summary) || null;
+  return {
+    hasPL: !!m,
+    income: m ? qboPick(rows, "income") : null,
+    cogs: m ? qboPick(rows, "cogs") : null,
+    expenses: m ? qboPick(rows, "expenses") : null,
+    cash: bs ? qboPick(bsRows, "cash") : null,
+    ar: bs && null != qboPick(bsRows, "ar") ? qboPick(bsRows, "ar") : ar && null != ar.total ? qboN(ar.total) : null,
+    ap: bs && null != qboPick(bsRows, "ap") ? qboPick(bsRows, "ap") : ap && null != ap.total ? qboN(ap.total) : null,
+    asOf: bs ? qboDate(bs.asOf) : "",
+  };
+}
+// The ERP's own figures at a month end, from the records: open invoices and bills as of that day.
+function truthErpBalances(end) {
+  let ar = 0,
+    ap = 0;
+  return (
+    (DB.clients || []).forEach((c) =>
+      (c.invoices || []).forEach((i) => {
+        if (["void", "draft"].includes(i.status) || i.date > end) return;
+        const paid = (c.payments || []).filter((p) => p.invoiceId === i.id && !p.unapplied && p.date <= end).reduce((s, p) => s + (+p.amount || 0), 0);
+        ar = r2(ar + Math.max(0, docTotal(i).total - paid));
+      }),
+    ),
+    (DB.bills || []).forEach((b) => {
+      if (["void", "rejected", "draft"].includes(b.status) || b.date > end || b.ic) return;
+      const paidOn = b.paidAt || (b.txnId && ((DB.txns || []).find((t) => t.id === b.txnId) || {}).date) || "";
+      (["paid", "verified"].includes(b.status) && paidOn && paidOn <= end) || (ap = r2(ap + billTotal(b)));
+    }),
+    { ar: ar, ap: ap }
+  );
+}
+function truthTieOut(ym) {
+  const start = ym + "-01",
+    end = fin2End(ym),
+    R = [start, end],
+    Q = qboMonth(ym),
+    P = companyPL(R),
+    C = truthCoverage(R),
+    U = bankUnmatched(R),
+    T = (DB.txns || []).filter((t) => within(t.date, R)),
+    nonPL = ["transfer", "cc-payment", "loan", "owner"],
+    bankIncome = r2(T.filter((t) => t.amt > 0 && !nonPL.includes(t.cat) && !["refund"].includes(t.cat)).reduce((s, t) => s + t.amt, 0)),
+    bankCogs = r2(T.filter((t) => t.amt < 0 && ("cogs" === catType(t.cat) || "labor" === t.cat)).reduce((s, t) => s - t.amt, 0)),
+    bankOh = r2(T.filter((t) => t.amt < 0 && ("oh" === catType(t.cat) || "payroll-oh" === t.cat)).reduce((s, t) => s - t.amt, 0)),
+    bankUncoded = r2(T.filter((t) => t.amt < 0 && (!t.cat || "uncat" === t.cat)).reduce((s, t) => s - t.amt, 0)),
+    imp = (DB.bankImports || []).filter((i) => null != i.ending && i.period && i.period[1] >= end && i.period[0] <= end),
+    cashLedger = finCash(end).cash,
+    bankCash = imp.length ? r2((DB.accounts || []).filter((a) => "card" !== a.type).reduce((s, a) => { const x = imp.filter((i) => i.acctId === a.id).sort((p, q) => String(p.period[1]).localeCompare(String(q.period[1]))).pop(); return s + (x ? +x.ending : (finCash(end).by.find((b) => b.id === a.id) || {}).book || 0); }, 0)) : null,
+    E = truthErpBalances(end),
+    hasQ = !!Q,
+    rows = [],
+    row = (group, label, qbo, bank, erp, causes) => {
+      const dq = null == qbo || null == erp ? null : r2(qbo - erp),
+        db = null == bank || null == erp ? null : r2(bank - erp),
+        off = (dq && Math.abs(dq) >= 1) || (db && Math.abs(db) >= 1),
+        parts = (causes || []).filter(Boolean);
+      rows.push({ group: group, label: label, qbo: qbo, bank: bank, erp: erp, diffQbo: dq, diffBank: db, off: !!off, cause: off ? (parts.length ? parts.join("; ") : "flagged: no cause found — look at the postings") : "agrees", explained: !!(off && parts.length) });
+    },
+    manualInc = C.income.hand;
+  row("income", "Income", hasQ ? Q.income : null, bankIncome, r2(P.income), [
+    Math.abs(P.wipAdj || 0) >= 1 ? `the ERP recognises earned revenue: WIP adjustment ${money(P.wipAdj)} on top of ${money(P.invoiced)} invoiced` : "",
+    Math.abs(bankIncome - (P.collected || 0)) >= 1 ? `deposits at the bank ${money(bankIncome)} against ${money(P.collected || 0)} collected on invoices${U.rows.some((t) => t.amt > 0) ? `; ${U.rows.filter((t) => t.amt > 0).length} deposit${1 === U.rows.filter((t) => t.amt > 0).length ? "" : "s"} not matched to an invoice` : ""}` : "",
+    manualInc ? `${money(manualInc)} of income by manual entry` : "",
+    hasQ && !Q.hasPL ? "QuickBooks: no P&L for this month in the snapshot" : "",
+    hasQ ? "" : "no QuickBooks snapshot loaded",
+  ]);
+  row("cogs", "Cost of work (COGS)", hasQ ? Q.cogs : null, bankCogs, r2(P.cogsT), [
+    C.cost.document >= 1 ? `${money(C.cost.document)} of cost stands on approved documents the bank has not paid yet (accrual)` : "",
+    bankUncoded >= 1 ? `${money(bankUncoded)} of bank lines carry no category and sit outside cost` : "",
+    U.n ? `${U.n} bank line${1 === U.n ? "" : "s"} (${money(U.amt)}) not matched to a line` : "",
+    P.accrued ? `${money(P.accrued)} of bills await approval` : "",
+    hasQ ? "" : "no QuickBooks snapshot loaded",
+  ]);
+  row("expenses", "Overhead (expenses)", hasQ ? Q.expenses : null, bankOh, r2(P.ohT), [
+    C.cost.hand >= 1 ? `${money(C.cost.hand)} of cost is typed by hand, not yet seen at the bank` : "",
+    P.needsCat ? `${money(P.needsCat)} needs a category` : "",
+    bankUncoded >= 1 ? `${money(bankUncoded)} of bank lines carry no category` : "",
+    hasQ ? "" : "no QuickBooks snapshot loaded",
+  ]);
+  row("cash", "Cash", hasQ ? Q.cash : null, bankCash, r2(cashLedger), [
+    null == bankCash ? "no statement with an ending balance covers the month end; the bank says nothing until one is imported" : "",
+    C.cost.n.hand ? `${C.cost.n.hand} typed line${1 === C.cost.n.hand ? "" : "s"} not yet seen at the bank` : "",
+    hasQ && Q.asOf && Q.asOf !== end ? `QuickBooks balance sheet is as of ${fmtL(Q.asOf)}, not ${fmtL(end)}` : "",
+    hasQ ? "" : "no QuickBooks snapshot loaded",
+  ]);
+  const qboOpenInv = hasQ ? (DB.clients || []).flatMap((c) => c.invoices.filter((i) => "quickbooks" === i.source && i.qboBalance > 0).map((i) => i.number)) : [],
+    qboOpenBills = hasQ ? (DB.bills || []).filter((b) => "quickbooks" === b.source && b.qboBalance > 0).map((b) => `${b.vendor} ${b.number}`) : [];
+  row("ar", "Receivables (AR)", hasQ ? Q.ar : null, null, E.ar, [
+    "the bank holds no receivables",
+    hasQ && qboOpenInv.length ? `QuickBooks open invoices loaded as ERP invoices: ${qboOpenInv.join(", ")}` : "",
+    hasQ && Q.asOf && Q.asOf !== end ? `QuickBooks aging is as of ${fmtL(Q.asOf)}` : "",
+    hasQ ? "" : "no QuickBooks snapshot loaded",
+  ]);
+  row("ap", "Payables (AP)", hasQ ? Q.ap : null, null, E.ap, [
+    "the bank holds no payables",
+    P.accrued ? `${money(P.accrued)} of bills await approval in the ERP` : "",
+    hasQ && qboOpenBills.length ? `QuickBooks open bills loaded as ERP bills: ${qboOpenBills.join(", ")}` : "",
+    hasQ ? "" : "no QuickBooks snapshot loaded",
+  ]);
+  return { ym: ym, label: truthLabel(ym), rows: rows, hasQbo: hasQ, loadedAt: DB.qbo && DB.qbo.loadedAt, company: DB.qbo && DB.qbo.company && (DB.qbo.company.CompanyName || DB.qbo.company.LegalName || "") };
+}
+function truthTieOutMonths() {
+  const Q = DB.qbo,
+    M = Q && Q.pl && Array.isArray(Q.pl.months) ? Q.pl.months.map((m) => qboS(m.month || m.ym).slice(0, 7)).filter(Boolean) : [];
+  if (M.length) return [...new Set(M)].sort();
+  const t = today(),
+    out = [];
+  for (let i = 2; i >= 0; i--) out.push(iso(new Date(+t.slice(0, 4), +t.slice(5, 7) - 1 - i, 1)).slice(0, 7));
+  return out;
+}
+const truthM = (v) => (null == v ? '<span class="muted">—</span>' : money(v));
+function truthTieOutHtml() {
+  const months = truthTieOutMonths(),
+    Q = DB.qbo,
+    head = `<div class="rep-head"><div><h2 style="margin:0">Three-way tie-out</h2><div class="small muted">QuickBooks says · the bank says · the ERP says, per month and account group. ${Q ? `Snapshot ${Q.company && (Q.company.CompanyName || Q.company.LegalName) ? "of " + esc(Q.company.CompanyName || Q.company.LegalName) + " " : ""}loaded ${fmtL(qboDate(Q.loadedAt))} by ${esc(Q.by || "")}.` : "No QuickBooks snapshot is loaded: the QuickBooks column stays empty until one is, from a file kept outside the repo (qboLoad)."} QuickBooks is a bridge for comparison, never the truth; a difference is explained or flagged, never hidden.</div></div></div>`;
+  return (
+    head +
+    months
+      .map((ym) => {
+        const T = truthTieOut(ym);
+        return `<h3 class="rep-h">${esc(T.label)}</h3><div class="tw"><table class="t rep-t tr-tie"><thead><tr><th>Account Group</th><th class="money">QuickBooks Says</th><th class="money">The Bank Says</th><th class="money">The ERP Says</th><th class="money">QuickBooks − ERP</th><th class="money">Bank − ERP</th><th>Cause</th></tr></thead><tbody>${T.rows.map((r) => `<tr class="${r.off ? (r.explained ? "" : "tr-flagged") : ""}"><td>${esc(r.label)}</td><td class="money">${truthM(r.qbo)}</td><td class="money">${truthM(r.bank)}</td><td class="money">${truthM(r.erp)}</td><td class="money ${r.diffQbo && Math.abs(r.diffQbo) >= 1 ? "warn" : ""}">${truthM(r.diffQbo)}</td><td class="money ${r.diffBank && Math.abs(r.diffBank) >= 1 ? "warn" : ""}">${truthM(r.diffBank)}</td><td class="small ${r.off && !r.explained ? "bad" : "muted"}">${esc(r.cause)}</td></tr>`).join("")}</tbody></table></div>`;
+      })
+      .join("")
+  );
+}
+if (Array.isArray(REP_GROUPS)) {
+  const fin = REP_GROUPS.find((g) => "fin" === g.id);
+  fin && !fin.tabs.some((t) => "tieout" === t[0]) && fin.tabs.push(["tieout", "Three-way tie-out"]), (REP_DEFS.tieout = "QuickBooks says, the bank says, the ERP says: per month and account group, every difference with its cause or a flag.");
+}
+if ("function" == typeof renderReports) {
+  const base = renderReports;
+  renderReports = function () {
+    base.apply(this, arguments);
+    if ("tieout" !== repTab) return;
+    const area = document.getElementById("rep-print-area");
+    if (area)
+      try {
+        area.innerHTML = truthTieOutHtml();
+      } catch (e) {
+        console.error("tie-out", e);
+      }
+  };
+}
+
+// ---- Ask: coverage, manual entries, verify, tie-out; the unmatched reader learns the month
+const truthAskPer = (P) => (P.period ? [P.period.from, P.period.to] : [today().slice(0, 4) + "-01-01", today()]),
+  TRUTH_WORDS = "backed backing coverage covered evidence manual journal journals entry entries posted posting postings verify verified hash chain sealed seal tamper quickbooks qbo tie tieout three unmatched matched match exception exceptions reversal reversed amended void voided document documents accrual accruals".split(" ");
+if ("function" == typeof agVocab) {
+  const base = agVocab;
+  agVocab = function () {
+    const V = base.apply(this, arguments);
+    return V && V.base && !V.base.has("tieout") && TRUTH_WORDS.forEach((w) => V.base.add(w)), V;
+  };
+}
+AG_FIN.unshift(
+  {
+    id: "coverage",
+    re: /\b(backed|coverage|covered|evidence)\b.*\b(bank|card|document|documents|hand|cost|costs|income|revenue|statement|feed|figures?)\b|\bby hand\b|\bbank[- ]backed\b/,
+    not: /\bbudget\b|\binsurance\b|\bliability\b|\bwarranty\b/,
+    kind: "money",
+    run(P) {
+      const R = truthAskPer(P),
+        per = agPerLabel(P),
+        C = truthCoverage(R, P.jobs.length ? { projectId: P.jobs[0].id } : {}),
+        k = C.cost,
+        i = C.income;
+      return {
+        headline: `Of ${per}'s cost (${money(k.total)}${P.jobs.length ? ` on ${agShort(P.jobs[0])}` : ""}), ${money(k.bank)} is backed by a bank or card line, ${money(k.document)} by an approved document only (accrual) and ${money(k.hand)} by hand${k.adjust && Math.abs(k.adjust) > 0.5 ? `, with ${money(k.adjust)} in adjustments` : ""}: ${k.pct}% bank-backed.`,
+        note: `Income ${money(i.total)}: ${money(i.bank)} collected and confirmed by the bank, ${money(i.document)} invoiced only, ${money(i.hand)} by hand${i.adjust && Math.abs(i.adjust) > 0.5 ? `, ${money(i.adjust)} of earned-revenue adjustment (invoiced ahead of or behind the work)` : ""}.${C.demo ? ` ${C.demo} Demo Feed line${1 === C.demo ? "" : "s"} count as typed by hand.` : ""}`,
+        work: k.rows.filter((r) => "bank" !== r.backing).sort((a, b) => b.amt - a.amt).slice(0, 8).map((r) => `${fmtL(r.date)} · ${r.desc} — ${money(r.amt)} · ${"hand" === r.backing ? "by hand" : "document only"}: ${r.why}`),
+        go: agGo("gl") || agGo("bank"),
+        ran: agRan("cost and income rows", [`date in ${per}`].concat(P.jobs.length ? [`job is ${agShort(P.jobs[0])}`] : []), "evidence behind each", k.rows.length + i.rows.length),
+      };
+    },
+  },
+  {
+    id: "manualentries",
+    re: /\bmanual (journal )?entr|\bjournal entr|\bentries? (posted|typed|made) by hand\b|\bmanual journal/,
+    kind: "money",
+    run(P) {
+      const R = truthAskPer(P),
+        per = agPerLabel(P),
+        M = truthManual(R, { entityId: "all" }),
+        man = M.manual,
+        other = M.rows.filter((m) => "manual" !== m.j.kind);
+      return {
+        headline: man.length
+          ? `${agN(man.length, "manual journal entry", "manual journal entries")} in ${per}, ${money(M.amtManual)}: ${man.map((m) => `#${m.j.n} ${m.j.memo} (${money(m.amt)}) · by ${m.flag.who} on ${m.flag.when} · ${m.j.why || "no reason recorded"}`).join("; ")}.${other.length ? ` Also ${agN(other.length, "entry", "entries")} posted at a close or opening, flagged the same way.` : ""}`
+          : `No manual journal entries in ${per}.${other.length ? ` ${agN(other.length, "entry", "entries")} not from a document ${1 === other.length ? "was" : "were"} posted at a close or opening (${other.map((m) => `#${m.j.n} ${m.j.memo}`).join("; ")}), each flagged with who, when and why.` : " Every posting derives from a document."}`,
+        work: M.rows.map(truthManualLine),
+        go: agGo("gl"),
+        ran: agRan("ledger postings", [`date in ${per}`, "no source document"], "", M.n),
+      };
+    },
+  },
+  {
+    id: "verifybooks",
+    re: /\bverify the books\b|\bhash chain\b|\btamper|\bsealed\b.*\b(month|books|period)\b|\b(books|postings?) (been )?(changed|altered|edited) (since|after)\b/,
+    kind: "money",
+    run() {
+      const V = truthVerifyAll();
+      return {
+        headline: V.length ? V.map(truthVerifyWords).join(" ") : `No month is sealed yet: the first close seals its postings (${TRUTH_HASH_SCHEME}) and Verify the Books checks every closed month after that.`,
+        go: agGo("gl"),
+        ran: agRan("sealed periods", ["chain re-derived from the postings"], "", V.length),
+      };
+    },
+  },
+  {
+    id: "tieout",
+    re: /\bquickbooks\b|\bqbo\b|\btie[- ]?out\b|\bthree[- ]way\b/,
+    kind: "money",
+    run(P) {
+      const ym = P.period ? P.period.from.slice(0, 7) : truthTieOutMonths().slice(-1)[0],
+        T = truthTieOut(ym),
+        g = (k) => T.rows.find((r) => r.group === k),
+        inc = g("income"),
+        off = T.rows.filter((r) => r.off),
+        flagged = off.filter((r) => !r.explained);
+      return {
+        headline: T.hasQbo
+          ? `${T.label}: QuickBooks says income ${money(inc.qbo)}, the bank says ${money(inc.bank)}, the ERP says ${money(inc.erp)}; ${off.length - flagged.length} of ${T.rows.length} groups differ with a cause, ${flagged.length} flagged.`
+          : `No QuickBooks snapshot is loaded, so for ${T.label} only the bank and the ERP can be compared: the bank says ${money(inc.bank)} of deposits, the ERP says ${money(inc.erp)} of income. Load a snapshot from outside the repo (qboLoad) to tie out three ways.`,
+        work: T.rows.map((r) => `${r.label}: QuickBooks ${null == r.qbo ? "—" : money(r.qbo)} · bank ${null == r.bank ? "—" : money(r.bank)} · ERP ${money(r.erp)} — ${r.cause}`),
+        go: agGo("reports", { tab: "tieout" }),
+        ran: agRan("three-way tie-out", [`month is ${T.label}`], "account group", T.rows.length),
+      };
+    },
+  },
+);
+{
+  const rd = AG_FIN.find((r) => "unmatched" === r.id);
+  if (rd) {
+    const base = rd.run;
+    rd.run = function (P) {
+      if (!P.period) return base.apply(this, arguments);
+      const U = bankUnmatched([P.period.from, P.period.to]),
+        ex = U.rows.filter((t) => t.exception).length,
+        B = PRED.unmatchedTxns.byMonth();
+      return {
+        headline: `${agN(U.n, "bank line")} not matched to a line in ${P.period.label}: ${money(U.amt)}${ex ? `, ${ex} with a signed exception` : ""}${U.n ? `; ${PRED.unmatchedTxns.count()} in all (${truthByMonthWords(B)})` : ""}.`,
+        work: U.rows.map((t) => `${fmtL(t.date)} · ${t.desc || t.vendor} — ${money(t.amt)}${t.exception ? ` · exception by ${t.exception.by}: ${t.exception.why}` : t.proposal ? " · a match is proposed, to confirm" : ""}`),
+        go: agGo("bank"),
+        ran: agRan("transactions", ["not matched to a bill, order, invoice or payroll line", `date in ${P.period.label}`], "", U.n),
+      };
+    };
+  }
+}

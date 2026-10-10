@@ -54,3 +54,26 @@ async def attach_workspace(pg, uid, path=None):
         raise SystemExit(f'attach_workspace: {path} is inside the repo; workspace files stay outside it')
     with open(real, encoding='utf-8') as f: ws = json.load(f)
     return await pg.evaluate("([u, ws]) => gsAttachWorkspace(u, ws)", [uid, ws])
+# ---------------------------------------------------------------- QuickBooks snapshot (BACKLOG §1.6 item 5)
+def qbo_snapshot_path(path=None):
+    """The snapshot lives OUTSIDE the repo and is never committed: an absolute path, or the SD_QBO_SNAPSHOT
+    environment variable. A path inside the repo is refused so that no real export can be seeded or published."""
+    p = path or os.environ.get('SD_QBO_SNAPSHOT') or ''
+    if not p: raise ValueError('no snapshot path: pass one or set SD_QBO_SNAPSHOT')
+    if not os.path.isabs(p): raise ValueError(f'the snapshot path must be absolute: {p}')
+    real = os.path.realpath(p)
+    root = os.path.realpath(ROOT)
+    if real == root or real.startswith(root + os.sep):
+        raise ValueError(f'refused: {p} is inside the repo; keep the QuickBooks snapshot outside it')
+    return real
+
+async def load_qbo_snapshot(pg, path=None):
+    """Read a QuickBooks snapshot JSON from outside the repo and load it through the app's own import paths
+    (qboLoad in the page). Returns qboLoad's result: counts of what was added or updated."""
+    real = qbo_snapshot_path(path)
+    with open(real, encoding='utf-8') as f: snap = json.load(f)
+    if not isinstance(snap, dict) or snap.get('source') != 'quickbooks':
+        raise ValueError('not a QuickBooks snapshot: expected {"source": "quickbooks", ...}')
+    out = await pg.evaluate("s => qboLoad(s)", snap)
+    await pg.wait_for_timeout(150)
+    return out
