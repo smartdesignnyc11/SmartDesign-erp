@@ -142618,7 +142618,7 @@ function rtbAct(key) {
       ? void blOpenProgress(held.p.id)
       : (toast("That item has been billed already"), void render());
   }
-  if ("application" === r.kind) return void blOpenProgress(r.p.id, !0);
+  if ("application" === r.kind) return void blDraftApplication(r.p.id);
   const c = r.c,
     d = r.d;
   c && d
@@ -142630,6 +142630,20 @@ function rtbAct(key) {
         save(), render();
       }))
     : rtbGo(key);
+}
+// Draft on a ready application: the job's draft is filled (or refreshed) from every line's own evidence and
+// opens, with Send to Client next. A draft already open for the job takes the new lines; nothing is sent.
+function blDraftApplication(pid) {
+  const bad = (pgRows(pid) || []).filter((x) => x.findings.some((f) => "bad" === f.sev)),
+    out = pgApply(pid);
+  if (!out) return;
+  save();
+  const c = out.client;
+  (view = "billing"), (billTab = "billable"), (clientOpen = c.id), (blClientFlag = c.id), (docOpen = { kind: "invoice", id: out.inv.id }), render();
+  try {
+    window.scrollTo(0, 0);
+  } catch (e) {}
+  rcToast(`${out.n} line${1 === out.n ? "" : "s"} on ${out.inv.number} — ${money(docTotal(out.inv).total)} after retainage${bad.length ? `; ${tlN(bad.length, "line")} to look at first on Progress Billing` : ""}. Review it, then Send to Client`, [{ label: "Open", run: () => blOpenProgress(pid) }]);
 }
 function blOpenProgress(pid, apply) {
   (view = "billing"), (billTab = "progress"), (docOpen = null), pid && (blProgJob = pid), render();
@@ -174861,7 +174875,14 @@ function nyhItem(r) {
         ? 44
         : "undeposited" === r.kind
           ? 36
-          : "mail" === r.kind
+          : // a vendor's credit memo closes money held in dispute: it ranks with a bill, by the money at stake
+            "mail" === r.kind && "dispute-credit" === r.pkind
+            ? 50 + Math.min(20, (+r.amount || 0) / 1e3)
+            : "dispute" === r.kind && "dispute-credit" === r.pkind
+              ? 50 + Math.min(20, (+r.amount || 0) / 1e3)
+              : "dispute" === r.kind || "dup" === r.kind || "clientcredit" === r.kind || "rebill" === r.kind
+              ? 40 + Math.min(10, (+r.amount || 0) / 2e3)
+              : "mail" === r.kind
             ? 32 + Math.min(10, (+r.amount || 0) / 2e3)
             : "code" === r.kind
               ? 30
@@ -175993,10 +176014,28 @@ function lkDisputeFor(c, low, amt) {
         end = fin2End(td.slice(0, 7)),
         near = dayDiff(td, end) <= 3;
       (DB.bills || [])
-        .filter((b) => b.short && "open" === b.short.state && (near || dayDiff(b.short.on, td) >= 14))
+        .filter((b) => b.short && "open" === b.short.state)
         .forEach((b) => {
           const key = "lk:disp:" + b.id;
-          if (lnHandDone(key) || out.some((x) => x.key === key) || out.some((x) => "mail" === x.kind && "dispute-credit" === x.pkind)) return;
+          if (lnHandDone(key) || out.some((x) => x.key === key)) return;
+          // the vendor's credit memo is in: the dispute's own row records it (one approval)
+          let memo = null;
+          (DB.comms || []).forEach((c) => (c.proposals || []).forEach((pr) => !memo && "dispute-credit" === pr.kind && pr.billId === b.id && !pr.applied && !1 !== pr.on && (memo = { c: c, pr: pr })));
+          if (memo)
+            return void out.push({
+              key: key,
+              route: "owner",
+              kind: "dispute",
+              pkind: "dispute-credit",
+              title: memo.pr.summary,
+              why: `${(memo.c.from || {}).name || "the vendor"} · ${fmtL(String(memo.c.date || "").slice(0, 10) || today())} · the held ${money(b.short.held)} ${b.short.paid ? "comes off what the vendor owes back (1300)" : "closes"}`,
+              amount: +b.short.held,
+              verb: "Approve",
+              no: "",
+              run: () => nyhApplyMail(memo.c, memo.pr),
+              open: () => ((window.cmFilter = "all"), (view = "comms"), render()),
+            });
+          if (!(near || dayDiff(b.short.on, td) >= 14)) return;
           out.push({
             key: key,
             route: "owner",
@@ -176153,3 +176192,18 @@ AG_FIN.unshift({
     };
   },
 });
+
+// ---- a sync that brings new mail, events or files redraws the list the person is looking at (Home, Approvals,
+// Billing, Banking, the Inbox), so a proposal from the watcher reaches the screen without a click; a sheet or
+// drawer being edited is never redrawn under the person
+if ("function" == typeof gsRun) {
+  const base = gsRun;
+  gsRun = async function () {
+    const r = await base.apply(this, arguments);
+    try {
+      const n = r ? (r.mail || []).length + (r.events || []).length + (r.files || []).length : 0;
+      n && ["home", "mapprove", "billing", "bank", "comms"].includes(view) && !document.querySelector("#mbm") && !document.querySelector("#drawer.on") && render();
+    } catch (e) {}
+    return r;
+  };
+}

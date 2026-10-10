@@ -63,9 +63,17 @@ async def s1_earned(p, S):
         S.check(row and row['verb'] == 'Draft' and 'CO-2026-002' in row['text'], 'Billing Queue: the 121 State application is ready, with CO-2026-002 on it',
                 str(row))
         # Draft: the application fills a draft with every approved change order's line beside the contract's
-        d = await pg.evaluate("""() => { const o = pgApply('p121'); save(); return o && {n: o.n, amt: o.amt, num: o.inv.number,
-              co: o.inv.lines.filter(l => /CO-2026-002/.test(l.item)).map(l => l.pct)}; }""")
-        S.check(d and d['co'] == [100], 'the draft application carries CO-2026-002 billed from 0 to 100%', str(d))
+        # Draft on the queue's row fills the job's draft from every line and opens it, with Send to Client next
+        d = await pg.evaluate("""async () => { const tr = [...document.querySelectorAll('#v-billing tr')].find(tr => tr.querySelector('[data-blact]') && /line-by-line application/.test(tr.innerText));
+              tr.querySelector('[data-blact]').click(); await new Promise(r => setTimeout(r, 80));
+              const c = DB.clients.find(x => x.id === 'cl121'), inv = c.invoices.find(i => i.id === (docOpen || {}).id);
+              return inv && {num: inv.number, co: inv.lines.filter(l => /CO-2026-002/.test(l.item)).map(l => l.pct),
+                             send: [...document.querySelectorAll('section.view.on button')].some(b => b.innerText.trim() === 'Send to Client')}; }""")
+        S.check(d and d['co'] == [100] and d['send'], 'Draft fills the application (CO-2026-002 billed from 0 to 100%) and opens it with Send to Client', str(d))
+        again = await pg.evaluate("""() => { const p = DB.projects.find(x => x.id === 'p121'); prgSet(p, p.tasks.find(t => t.id === 'frame'), {pct: 100, by: 'Angel', role: 'foreman', src: 'field', note: 'Framing complete'}); save(); render();
+              const r = readyToBill().rows.find(x => x.kind === 'application' && x.p.id === 'p121'); if (!r) return 'no row'; rtbAct(blRtbKey(r));
+              const c = DB.clients.find(x => x.id === 'cl121'); return {open: (docOpen || {}).id, drafts: c.invoices.filter(i => i.status === 'draft' && i.mode === 'sov').map(i => i.number)}; }""")
+        S.check(isinstance(again, dict) and len(again['drafts']) == 1, 'measured later, Draft refreshes the same open draft (never a second)', str(again))
         row = await billing_row(pg, d['num'] if d else 'INV-')
         S.check(row and row['verb'] == 'Send', 'Billing Queue: the drafted application says Send', str(row))
         did = await press_row(pg, d['num'] if d else 'INV-', 'Send')

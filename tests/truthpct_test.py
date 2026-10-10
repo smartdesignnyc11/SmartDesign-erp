@@ -178,10 +178,12 @@ async def sec_pay(p, c):
     hdr = await pg.evaluate("() => [...document.querySelectorAll('#v-billing th')].map(x => x.innerText.trim())")
     c.ok(any(re.search(r'Materials Stored', h, re.I) for h in hdr), f"pay application has a Materials Stored column (G703 F): {hdr}")
     c.ok('earned · 25% complete' not in t and 'cost basis' in t.lower(), "the pay application header calls the WIP figure a cost basis, not % complete")
-    await pg.click('#pg-apply[data-blheld]'); await pg.wait_for_timeout(300)
+    # leaks (BACKLOG 1.5 #2): no job-level hold, so the pane's own Put on a Draft button is there (it was the
+    # held note's Fill the Draft Anyway); the lines that disagree are still shown before the draft is filled
+    await pg.click('#pg-apply'); await pg.wait_for_timeout(300)
     await pg.click('#mbm-ok'); await pg.wait_for_timeout(600)
     toast = await pg.evaluate("() => (document.getElementById('toast') || {}).innerText || ''")
-    c.ok('it totals $11,386' in toast, f"Fill the Draft Anyway totals $11,386 (was $29,449): {toast[:160]}")
+    c.ok('it totals $11,386' in toast, f"the draft totals $11,386 (was $29,449): {toast[:160]}")
     c.ok(not errs, f"pay: page errors {errs[:3]}")
     await b.close()
 
