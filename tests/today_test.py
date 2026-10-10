@@ -8,7 +8,12 @@ Truth: each Pulse number equals the rows (or the figure) its sheet lists, read f
 count equals the Approvals queue (PRED.waitingOnMe) and the Approvals page's Everything chip; Caught for You's
 count equals the rows it lists once expanded; one blue button per screen.
 Flows: the Owner's top verb (WW-2026-118, billed $3,800 over PO-2026-044) opens the short-pay sheet through the
-one bill-approval gate; the PM's top verb is Answer and opens the answer to the field."""
+one bill-approval gate; the PM's top verb is Answer and opens the answer to the field.
+Header (phone): the slim header carries the page title, so the page spends no line on an in-page heading; its four
+icon buttons are each 44px tall and 8px apart; "N more in Approvals" opens Approvals at the top.
+Delegation: one item sits in exactly one person's queue (DELEGATION: kind -> the role that owns it), nothing is
+orphaned, and the owner's Everyone view still lists what waits on the others.
+Pulse: "Jobs Late" and "Jobs at Risk" count jobs, and their sheets list each job with its late items underneath."""
 import asyncio, re, sys
 from harness import *
 
@@ -97,6 +102,15 @@ async def main():
             c.ok(not m['fabFixed'], f'{tag} phone: New floats over the content')
             c.ok(not m['menu'], f'{tag} phone: a second navigation button (menu) in the header')
             c.ok(m['ask'], f'{tag} phone: no Ask in the header')
+            # the slim header carries the title; the page does not spend a line repeating it. Its icon buttons: 44px tall, 8px apart.
+            hd = await pg.evaluate("""() => { const vis = el => !!el && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden';
+              const h = document.querySelector('.view.on .td-home .td-ph h2'), cr = document.getElementById('crumbs');
+              const btns = [...document.querySelectorAll('header.topbar button')].filter(vis).map(b => { const r = b.getBoundingClientRect(); return { id: b.id, l: r.left, r: r.right, h: r.height }; }).sort((a, b) => a.l - b.l);
+              return { h2: vis(h), crumb: vis(cr) ? cr.innerText.trim() : '', btns: btns.map(b => b.id + ' ' + Math.round(b.h) + 'px'),
+                       short: btns.filter(b => b.h < 44).map(b => b.id), gaps: btns.slice(1).map((b, i) => Math.round(b.l - btns[i].r)) }; }""")
+            c.ok(not hd['h2'] and hd['crumb'] == 'Home', f"{tag} phone: in-page heading shown {hd['h2']}, header title {hd['crumb']!r}; want the title in the header only")
+            c.ok(len(hd['btns']) == 4 and not hd['short'], f"{tag} phone: header buttons {hd['btns']}; want four, each 44px tall")
+            c.ok(all(g >= 8 for g in hd['gaps']), f"{tag} phone: header button gaps {hd['gaps']}px; want 8px or more")
             await pulse_checks(c, pg, f'{tag} phone')
             # Do Now count = its source = the Approvals page's Everything chip
             n = await pg.evaluate("() => +document.querySelector('.view.on [data-tdcount]').dataset.tdcount")
@@ -115,10 +129,16 @@ async def main():
                 await pg.click('.view.on [data-tdcatchall]'); await pg.wait_for_timeout(200)
             c.ok(shown == cn, f'{tag} phone: Caught for You says {cn}, lists {shown}')
             print(f'{tag} phone: Do Now {n}, Caught for You {cn}')
-            # the Approvals page counts the same queue
+            # the Approvals page counts the same queue, and "N more" opens it at the top (the body is the phone's scroller)
+            await pg.evaluate("() => document.querySelector('.view.on [data-tdall]').scrollIntoView()"); await pg.wait_for_timeout(100)
+            y0 = await pg.evaluate("() => Math.round(Math.max(document.body.scrollTop, document.scrollingElement.scrollTop))")
             await pg.click('.view.on [data-tdall]'); await pg.wait_for_timeout(350)
+            y1 = await pg.evaluate("() => [Math.round(Math.max(document.body.scrollTop, document.scrollingElement.scrollTop)), view]")
+            c.ok(y1 == [0, 'mapprove'], f'{tag} phone: "N more in Approvals" from scroll {y0} lands on {y1[1]} scrolled {y1[0]}px; want Approvals at the top')
             ev = await pg.evaluate("() => { const b = document.querySelector('#mappr-tabs [data-mak=\"all\"] .n'); return b ? +b.innerText : null; }")
             c.ok(ev == n, f'{tag} phone: Approvals Everything {ev} vs Do Now {n}')
+            chips = await pg.evaluate("() => [...document.querySelectorAll('#mappr-tabs [data-mak]:not([data-mak=\"all\"]) .n')].map(b => +b.innerText)")
+            c.ok(sum(chips) == ev, f'{tag} phone: Approvals chips {chips} sum to {sum(chips)}, Everything says {ev}')
             # the brief: three short lines, the full brief one tap away
             await go(pg, 'home'); await pg.wait_for_timeout(250)
             bl = await pg.evaluate("() => [...document.querySelectorAll('.view.on .td-bl li')].map(l => l.innerText)")

@@ -163468,7 +163468,8 @@ if ("function" == typeof renderHome) {
 
 // ---- phone chrome for the office roles (≤760px): one slim header (search, Ask, New) and the bottom tab bar.
 // The sub-tab strip is dropped where it repeats the bottom bar (Home, Approvals); page lead sentences are
-// dropped; the page title moves into the header once the page heading has scrolled away.
+// dropped; the page title lives in the header, so the page's own heading (the "Home" h2 that spent a line
+// above the Pulse) is hidden on every view whose title the header carries.
 function tdChrome() {
   const phone = "function" == typeof mOffice && mOffice(),
     body = document.body;
@@ -163503,14 +163504,16 @@ function tdChrome() {
       c = document.getElementById("crumbs"),
       t = h ? h.textContent.trim() : "";
     c && t && c.textContent.trim() !== t && (c.innerHTML = `<b>${esc(t)}</b>`);
-    tdScrolled();
+    // the header carries the title: the page header does not repeat it, and goes entirely when nothing else
+    // in it shows (its lead sentence is already hidden on the phone)
+    const ph = h && h.closest(".ph");
+    if (ph && c && c.textContent.trim() === t) {
+      h.classList.add("td-in-hdr");
+      const rest = [...ph.querySelectorAll("button, .btn, a, input, select")].some((el) => el.getClientRects().length);
+      ph.classList.toggle("td-ph-bare", !rest && !/\S/.test(ph.innerText || ""));
+    }
   }
 }
-function tdScrolled() {
-  const y = Math.max((document.scrollingElement && document.scrollingElement.scrollTop) || 0, document.body.scrollTop || 0);
-  document.body.classList.toggle("td-scrolled", y > 44);
-}
-document.addEventListener("scroll", tdScrolled, { passive: !0, capture: !0 });
 {
   const base = render;
   render = function () {

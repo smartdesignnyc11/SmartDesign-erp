@@ -3214,12 +3214,15 @@ body.crewmode .view.on .dl-sign > span{display:block;flex:1 1 auto;min-width:0}
   .td-verb{min-height:40px;min-width:88px}
   .td-more{padding:14px 16px}
   .td-bl li{font-size:15px}
-  /* phone chrome for the office roles: navigation is the bottom tab bar; the header carries search, Ask and New */
+  /* phone chrome for the office roles: navigation is the bottom tab bar; the header carries the page title,
+     search, Ask, New and the flag, each 44px tall and 8px apart. The page's own heading is hidden where the
+     header carries the same title (tdChrome marks it), and so is a page header left with nothing to show. */
   body.m-on .view{padding-left:16px;padding-right:16px}
-  body.m-on .topbar{padding-left:16px;padding-right:16px}
+  body.m-on .topbar{padding-left:16px;padding-right:16px;gap:8px}
   body.m-on #menu-btn{display:none}
-  body.m-on .topbar .crumbs{visibility:hidden}
-  body.m-on.td-scrolled .topbar .crumbs{visibility:visible}
+  body.m-on .view .ph h2.td-in-hdr{display:none}
+  body.m-on .view .ph.td-ph-bare{display:none}
+  body.m-on .topbar .search-btn.search-btn,body.m-on .topbar #rp-btn,body.m-on #tb-ask,body.m-on #fab.m-fab{height:44px;min-height:44px}
   body.m-on .view .ph .lead{display:none}
   body.m-on.td-nosub #subnav{display:none}
   body.m-on #tb-ask span{display:none}
