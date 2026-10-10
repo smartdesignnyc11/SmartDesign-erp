@@ -85,8 +85,22 @@ function appDay() {
   } catch (e) {}
   return tzToday();
 }
+// The time of day on the app clock. On a real day it is the wall clock in the firm's time zone. When the day is
+// pinned (the demo's 2026-09-03), the wall clock's day is run through site hours instead, 07:30 to 17:30, so a
+// stamp written at 11:46 PM on the reviewer's machine reads as a site-hours stamp and later stamps still come
+// later; nothing on a pinned day is ever stamped in the middle of the night (review r5_pm, finding 12).
+function appDayPinned() {
+  try {
+    return appDay() !== tzToday();
+  } catch (e) {
+    return !1;
+  }
+}
 function appClock() {
   const x = new Date();
+  let h = x.getHours(),
+    m = x.getMinutes(),
+    sec = x.getSeconds();
   try {
     const f = new Intl.DateTimeFormat("en-GB", {
         timeZone: APP_TZ(),
@@ -96,15 +110,17 @@ function appClock() {
         hourCycle: "h23",
       }),
       p = {};
-    if (
-      (f.formatToParts(x).forEach((o) => {
-        "literal" !== o.type && (p[o.type] = o.value);
-      }),
-      p.hour)
-    )
-      return `${"24" === p.hour ? "00" : p.hour}:${p.minute}:${p.second}`;
+    f.formatToParts(x).forEach((o) => {
+      "literal" !== o.type && (p[o.type] = o.value);
+    }),
+      p.hour && ((h = "24" === p.hour ? 0 : +p.hour), (m = +p.minute), (sec = +p.second));
   } catch (e) {}
-  return `${String(x.getHours()).padStart(2, "0")}:${String(x.getMinutes()).padStart(2, "0")}:${String(x.getSeconds()).padStart(2, "0")}`;
+  if (appDayPinned()) {
+    const t = 27e3 + Math.floor(((3600 * h + 60 * m + sec) / 86400) * 36e3);
+    (h = Math.floor(t / 3600)), (m = Math.floor((t % 3600) / 60)), (sec = t % 60);
+  }
+  const z = (n) => String(n).padStart(2, "0");
+  return `${z(h)}:${z(m)}:${z(sec)}`;
 }
 const appNowIso = () => `${appDay()}T${appClock()}`,
   appNow = () => new Date(appNowIso()),
@@ -38697,7 +38713,11 @@ function h4Go(go) {
       const po = DB.pos.find((x) => x.id === go.po);
       po?.projectId && setCurrent(po.projectId), (poOpen = go.po);
     }
-    go.own && ((mbOwnId = go.own), (ownTab = "overview")), (view = go.view), render(), window.scrollTo(0, 0);
+    go.own && ((mbOwnId = go.own), (ownTab = "overview"));
+    // a view this role cannot open is not a destination: a field question goes to Approvals' Site Questions
+    let v = go.view;
+    "field" === v && "function" == typeof flowCan && !flowCan("field") && flowCan("mapprove") && ((window.mApprKind = "raise"), (v = "mapprove"));
+    (view = v), render(), window.scrollTo(0, 0);
   }
 }
 function jvSpeak() {
@@ -45134,7 +45154,7 @@ function fSeed() {
         at: "2026-09-03T09:40:00",
         status: "answered",
         decision: "extra",
-        answer: "Proceed as an extra — photograph both joists before and after. I will write the CO.",
+        answer: "Photograph both joists before and after. I will write the CO.",
         answeredBy: "Alan",
         answeredAt: "2026-09-03T10:05:00",
         escalated: !1,
@@ -47297,6 +47317,13 @@ function fDockSay(fab) {
     ? (fab.classList.add("btn", "fsay-dock"), nav.firstElementChild !== fab && nav.prepend(fab))
     : fab.classList.contains("fsay-dock") && (fab.classList.remove("btn", "fsay-dock"), document.body.appendChild(fab));
 }
+// The decision the PM made, then the answer: once. An answer that already opens with the decision's words
+// (older records did) is not prefixed again.
+function fDecisionLine(r) {
+  const lbl = r.decision ? { extra: "Proceed as an extra", nocharge: "Do it, no charge", hold: "HOLD — do not proceed", call: "Call me" }[r.decision] || "" : "",
+    a = String(r.answer || "").trim();
+  return !lbl || a.toLowerCase().startsWith(lbl.toLowerCase().replace(/^hold.*$/, "hold")) ? a || lbl : `${lbl}. ${a}`;
+}
 function fNotesForMe() {
   return (
     (DB.field.notes = DB.field.notes || []), DB.field.notes.filter((n) => n.projectId === S.id && !n.ack)
@@ -47313,7 +47340,7 @@ function fForYou() {
           k: "answer",
           id: r.id,
           t: `${fPerson(r.to)?.name.split(" ")[0] || r.answeredBy || "Office"} answered: ${r.title}`,
-          s: `${r.decision ? { extra: "Proceed as an extra", nocharge: "Do it, no charge", hold: "HOLD — do not proceed", call: "Call me" }[r.decision] + ". " : ""}${r.answer || ""}`,
+          s: fDecisionLine(r),
           sev: "hold" === r.decision ? 3 : 2,
           at: r.answeredAt,
         }),
@@ -83589,12 +83616,13 @@ function mApprovals() {
     .sort((a, b) => rank(a.sev) - rank(b.sev));
 }
 function mGo(go) {
-  go &&
-    (go.project && "function" == typeof setCurrent && setCurrent(go.project),
-    go.billId && void 0 !== iaOpenBillAfter && (iaOpenBillAfter = go.billId),
-    (view = go.view),
-    render(),
-    window.scrollTo(0, 0));
+  if (!go) return;
+  go.project && "function" == typeof setCurrent && setCurrent(go.project),
+    go.billId && void 0 !== iaOpenBillAfter && (iaOpenBillAfter = go.billId);
+  // a view this role cannot open is not a destination: a field question goes to Approvals' Site Questions
+  let v = go.view;
+  "field" === v && "function" == typeof flowCan && !flowCan("field") && flowCan("mapprove") && ((window.mApprKind = "raise"), (v = "mapprove"));
+  (view = v), render(), window.scrollTo(0, 0);
 }
 // Every kind an approval can be sits in exactly one chip, so the chips sum to Everything.
 // A kind added later without a chip lands in Other rather than in no chip at all.
@@ -83756,6 +83784,34 @@ function apprOthersSheet(others, apDate) {
         }),
     );
 }
+// A field request's Acknowledge on Approvals acknowledges it there, with a toast, instead of opening the
+// requests page and asking for a second click (review r5_pm, finding 12).
+function apprReqWire(v) {
+  v.querySelectorAll('.m-appr[data-mk="req"]').forEach((el) => {
+    const b = el.querySelector("[data-mopen]");
+    if (!b || b.dataset.ack) return;
+    const p = (DB.projects || []).find((x) => (x.requests || []).some((q) => q.id === el.dataset.mid)),
+      q = p && p.requests.find((x) => x.id === el.dataset.mid);
+    q &&
+      "new" === q.status &&
+      ((b.dataset.ack = "1"),
+      b.addEventListener("click", (e) => {
+        // in the capture phase, ahead of the generic Open wiring this page gives every data-mopen button
+        e.preventDefault(), e.stopPropagation(), e.stopImmediatePropagation();
+        const keep = S;
+        try {
+          S = p;
+          requestAction(p.id, q.id, "ack");
+        } finally {
+          S = keep;
+        }
+        toastDone(`Acknowledged — ${"function" == typeof reqLabel ? reqLabel(q) : q.what || "the request"} (${shortName(p)})`, () => {
+          setCurrent(p.id), (view = "req"), render();
+        }),
+          render();
+      }, !0));
+  });
+}
 function renderMApprove() {
   const v = document.getElementById("v-mapprove");
   if (!v) return;
@@ -83835,6 +83891,7 @@ function renderMApprove() {
         }),
     ),
     v.querySelectorAll("[data-mothers]").forEach((b) => (b.onclick = () => apprOthersSheet(others, apDate))),
+    apprReqWire(v),
     v.querySelectorAll(".m-appr").forEach((el) => {
       const it = items.find((x) => x.kind === el.dataset.mk && String(x.id) === el.dataset.mid);
       if (!it) return;
@@ -92511,12 +92568,11 @@ const BN_TRIGGERS = {
     contact: {
       label: "A project contact has a role",
       hint: "architect, designer, expediter, plumber",
+      // the project's own contacts: a decision owed to "Architect / designer" on a design job is the firm's own
+      // studio, not an outside consultant, and proposing the same task on every job is noise (r5_pm, #14)
       test: (p, m) => {
         const rx = bnRx(m);
-        return (
-          parseContacts(p.project.contacts).some((c) => rx.test(c.role || "")) ||
-          (p.decisions || []).some((d) => rx.test(d.owner || ""))
-        );
+        return parseContacts(p.project.contacts).some((c) => rx.test(`${c.role || ""} ${c.company || ""}`));
       },
     },
     permit: {
@@ -93164,11 +93220,21 @@ function bnLoad(name) {
     open = rows.length,
     late = rows.filter((r) => r.late).length,
     week = rows.filter((r) => r.week && !r.late).length,
-    pressure = late + week + ob;
+    // the yes-or-no queue is work too: a PM holding fifteen approvals is not inside their week
+    appr = (() => {
+      try {
+        const r = "function" == typeof apprRoleOf ? apprRoleOf(name) : "";
+        return r && "function" == typeof mApprovals ? mApprovals({ everyone: !0 }).filter((it) => it.who === r).length : 0;
+      } catch (e) {
+        return 0;
+      }
+    })(),
+    pressure = late + week + ob + appr;
   return {
     name: name,
     cap: cap,
     open: open,
+    appr: appr,
     late: late,
     week: week,
     waits: rows.filter((r) => r.waits).length,
@@ -93190,7 +93256,7 @@ function bnLoad(name) {
 function bnWorkload() {
   return bnStaffNames()
     .map(bnLoad)
-    .filter((w) => w.open || w.ob)
+    .filter((w) => w.open || w.ob || w.appr)
     .sort((a, b) => b.pressure - a.pressure);
 }
 function bnWorkloadHtml(compact) {
@@ -93214,7 +93280,7 @@ function bnWorkloadHtml(compact) {
           ? `${over.map((w) => w.name).join(", ")} ${1 === over.length ? "is" : "are"} at the edge of the week`
           : "everyone is inside their week"
       : ""
-  }</span><span class="grow"></span>${!compact && mgr ? '<button class="btn sm" id="bn-cap">Set Capacities</button>' : ""}</div>\n    ${rows.map((w) => `<div class="bn-row ${w.level}"><div class="bn-who"><b>${esc(w.name)}</b><span class="small muted">${w.open} open · ${w.late ? `<span class="bad">${w.late} overdue</span> · ` : ""}${w.week} due this week${w.waits ? ` · ${w.waits} waiting on others` : ""}${w.escal ? ` · <span class="bad">${w.escal} past escalation</span>` : ""}${w.ob ? ` · ${w.ob} renewal${1 === w.ob ? "" : "s"}` : ""}</span></div><div class="bn-bar" title="${w.pressure} this week against a capacity of ${w.cap}"><i style="width:${Math.min(100, Math.round((w.pressure / w.cap) * 100))}%"></i></div><div class="bn-take">${w.takeable ? `<button class="btn sm ${"ok" === w.level ? "" : "primary"}" data-bntake="${esc(w.name)}">${w.name === me ? "Hand to the Assistant" : "What the Assistant Can Take"} · ${w.takeable}</button>` : '<span class="small muted">nothing the assistant can take</span>'}</div></div>`).join("")}\n    ${mgr && over.length ? `<div class="small" style="margin-top:6px">${over.map((w) => `<b>${esc(w.name)}</b>: ${w.pressure} due or overdue against a week of ${w.cap} — ${w.takeable ? `the assistant can draft ${w.takeable} of them (follow-ups, renewals) for approval; the rest need` : "nothing here is a follow-up the assistant can write, so these need"} a hand or a date moved.`).join("<br>")}</div>` : ""}</div>`;
+  }</span><span class="grow"></span>${!compact && mgr ? '<button class="btn sm" id="bn-cap">Set Capacities</button>' : ""}</div>\n    ${rows.map((w) => `<div class="bn-row ${w.level}"><div class="bn-who"><b>${esc(w.name)}</b><span class="small muted">${w.open} open · ${w.late ? `<span class="bad">${w.late} overdue</span> · ` : ""}${w.week} due this week${w.appr ? ` · ${w.appr} approval${1 === w.appr ? "" : "s"} waiting` : ""}${w.waits ? ` · ${w.waits} waiting on others` : ""}${w.escal ? ` · <span class="bad">${w.escal} past escalation</span>` : ""}${w.ob ? ` · ${w.ob} renewal${1 === w.ob ? "" : "s"}` : ""}</span></div><div class="bn-bar" title="${w.pressure} this week against a capacity of ${w.cap}"><i style="width:${Math.min(100, Math.round((w.pressure / w.cap) * 100))}%"></i></div><div class="bn-take">${w.takeable ? `<button class="btn sm ${"ok" === w.level ? "" : "primary"}" data-bntake="${esc(w.name)}">${w.name === me ? "Hand to the Assistant" : "What the Assistant Can Take"} · ${w.takeable}</button>` : '<span class="small muted">nothing the assistant can take</span>'}</div></div>`).join("")}\n    ${mgr && over.length ? `<div class="small" style="margin-top:6px">${over.map((w) => `<b>${esc(w.name)}</b>: ${w.pressure} due or overdue against a week of ${w.cap} — ${w.takeable ? `the assistant can draft ${w.takeable} of them (follow-ups, renewals) for approval; the rest need` : "nothing here is a follow-up the assistant can write, so these need"} a hand or a date moved.`).join("<br>")}</div>` : ""}</div>`;
 }
 function bnCapModal() {
   const names = bnStaffNames();
@@ -120752,7 +120818,7 @@ function opsRaiseCO(link) {
     render(),
     window.scrollTo(0, 0),
     toast(
-      `${co.number} drafted from ${title.slice(0, 40)} — set the price${days ? "" : " and the days"}, then send`,
+      `${co.number} drafted from ${clipWords(title, 40)} — set the price${days ? "" : " and the days"}, then send`,
     ),
     co
   );
@@ -121808,7 +121874,7 @@ if (
             (fin.tone = late > 0 ? "warn" : ""),
             (fin.s =
               late > 0
-                ? `${late} working day${1 === late ? "" : "s"} past the date in your agreement — ${pub.note ? `"${pub.note.slice(0, 60)}"` : "your project manager has written to you about it"}`
+                ? `${late} working day${1 === late ? "" : "s"} past the date in your agreement — ${pub.note ? `"${clipWords(pub.note, 60)}"` : "your project manager has written to you about it"}`
                 : `on target · last update from ${pub.by || "your project manager"} on ${fmtL(pub.at)}`);
         } else
           (fin.v = "—"),
@@ -122393,7 +122459,7 @@ function opsDecPanel(dc) {
             save(),
             closeEditor(),
             render(),
-            toast(`Sent — ${dc.name.slice(0, 40)} is on the client's portal`);
+            toast(`Sent — ${clipWords(dc.name, 40)} is on the client's portal`);
         });
       const chase = $("#ops-chase");
       chase &&
@@ -122877,8 +122943,9 @@ const flowCan = (v) => {
       (view = vs.find(flowCan) || ROLE_VIEWS[role()][0]), render(), flowTop();
     },
     raise: (r) => () => {
-      r && r.projectId && setCurrent(r.projectId),
-        (view = ["field", "fraise", "ftoday"].find(flowCan) || ROLE_VIEWS[role()][0]),
+      r && r.projectId && setCurrent(r.projectId);
+      const v = ["field", "fraise", "ftoday"].find(flowCan);
+      v ? (view = v) : flowCan("mapprove") ? ((window.mApprKind = "raise"), (view = "mapprove")) : (view = ROLE_VIEWS[role()][0]),
         render(),
         flowTop();
     },
@@ -157872,8 +157939,37 @@ function dlRecordHtml(l, p, preview) {
           })
           .join("<br>")
       : "none",
-  )}${(l.cleared || []).length ? `<div class="small muted">Cleared: ${l.cleared.map((x) => esc(dlCauseLabel(x.cause) + (x.note ? " — " + x.note : ""))).join("; ")}</div>` : ""}\n    ${sec("Safety", l.safety ? `${l.safety.incident ? '<span class="bad-t">Incident reported</span>' : "No incident"}${l.safety.toolbox ? ` · toolbox talk: ${esc(l.safety.toolbox)}` : ""}${l.safety.notes ? ` · ${esc(l.safety.notes)}` : ""}` : none)}\n    ${!preview && l.notes ? `<div class="dl-notes">${esc(l.notes)}</div>` : ""}\n    ${preview ? "" : `<div class="small muted">${l.signedBy ? `Signed by ${esc(l.signedBy)} · ${esc(stampText(l.signedAt || l.at))}` : `By ${esc(l.by || "")}${l.at ? ` · ${esc(stampText(l.at))}` : ""}`}${l.secs ? ` · filed in ${Math.max(1, Math.round(l.secs / 60))} min` : ""}</div>`}</div>`;
+  )}${(l.cleared || []).length ? `<div class="small muted">Cleared: ${l.cleared.map((x) => esc(dlCauseLabel(x.cause) + (x.note ? " — " + x.note : ""))).join("; ")}</div>` : ""}\n    ${sec("Safety", l.safety ? `${l.safety.incident ? '<span class="bad-t">Incident reported</span>' : "No incident"}${l.safety.toolbox ? ` · toolbox talk: ${esc(l.safety.toolbox)}` : ""}${l.safety.notes ? ` · ${esc(l.safety.notes)}` : ""}` : none)}\n    ${!preview && l.notes ? `<div class="dl-notes">${esc(l.notes)}</div>` : ""}\n    ${preview ? "" : `<div class="small muted">${l.signedBy ? `Signed by ${esc(l.signedBy)} · ${esc(stampText(l.signedAt || l.at))}` : `By ${esc(l.by || "")}${l.at ? ` · ${esc(stampText(l.at))}` : ""}`}${l.secs ? ` · filed in ${Math.max(1, Math.round(l.secs / 60))} min` : ""}</div>${dlAckHtml(l)}`}</div>`;
 }
+// The office reads the log and says so: the foreman sees "Read by Alan" on his phone, the record carries who
+// and when (review r5_pm, finding 13).
+function dlAckHtml(l) {
+  if (l.ack && l.ack.by) return `<div class="small dl-ack">Read by ${esc(l.ack.by)} · ${esc(stampText(l.ack.at))}${l.ack.note ? ` — ${esc(l.ack.note)}` : ""}</div>`;
+  return ["pm", "owner", "coord"].includes(role()) && "draft" !== l.status ? `<div class="row dl-ack" style="gap:6px;margin-top:6px"><button type="button" class="btn sm" data-dlack="${esc(l.id)}">Acknowledge</button><span class="small muted">the foreman sees it was read</span></div>` : "";
+}
+function dlAck(id) {
+  const l = ("function" == typeof dlLogs ? dlLogs() : ((DB.field || {}).logs || [])).find((x) => x.id === id);
+  if (!l) return;
+  const me = (currentUser() || {}).name || "";
+  (l.ack = { by: me, at: appNowIso() }), save();
+  const p = fxProj(l.projectId);
+  render(),
+    document.querySelectorAll(`[data-dlack="${id}"]`).forEach((b) => {
+      const w = b.closest(".dl-ack");
+      w && (w.outerHTML = dlAckHtml(l));
+    }),
+    toastDone(`Read — the ${fmtL(l.date)} log${p ? ` on ${shortName(p)}` : ""}; ${l.signedBy || l.by || "the foreman"} sees it`, () => {
+      p && setCurrent(p.id), (view = "field"), "undefined" != typeof fxTab && (fxTab = "log"), render();
+    });
+}
+document.addEventListener(
+  "click",
+  (e) => {
+    const b = e.target && e.target.closest ? e.target.closest("[data-dlack]") : null;
+    b && (e.preventDefault(), e.stopPropagation(), dlAck(b.dataset.dlack));
+  },
+  !0,
+);
 let dlEditing = {};
 function dlSay(el, msg) {
   if (!el) return;
