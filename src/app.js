@@ -67385,43 +67385,52 @@ function eaChase(F, X, r) {
 function eaNudge(item) {
   // A chase is a draft in the person's own mailbox (or outbox) to approve and send, an expectation on the
   // ledger with a three-working-day follow-up, and a note on the record. Nothing is sent from here, nothing
-  // goes to project chat or the client's activity. Before this the modal said both and did neither.
+  // goes to project chat or the client's activity. The address is the record's, else the one their mail came
+  // from; with none on file the draft still goes to the outbox, addressed by name, and says it needs one
+  // (flow: the month scored "nothing went to them" for every chase whose record had no address).
   const v = item.vendor || null,
     who = item.who || null,
     name = (who && who.name) || (v && v.name) || eaPlain(item.t).replace(/ — .*$/, ""),
-    known = (who && who.email) || (v && v.email) || "",
+    onRecord = (who && who.email) || (v && v.email) || "",
+    found = onRecord || ("function" == typeof agEmailFor ? agEmailFor(name) || (v && v.name !== name ? agEmailFor(v.name) : "") : "") || "",
     mail = "function" == typeof gcOn && gcOn(),
     subject = item.subject || ("coi" === item.kind ? `Certificate of insurance — ${name}` : `Following up — ${eaPlain(item.t).replace(/ — .*$/, "")}`);
   mbModal(
     `Chase — ${eaPlain(item.t)}`,
-    `<p class="small muted">${mail ? `The note goes to your mailbox's Drafts${(gcMine() || {}).email ? ` (${esc(gcMine().email)})` : ""} for you to read and send` : "The note goes to your outbox for approval"}. I log that we asked and remind you in three working days if nothing comes back.</p>${known ? "" : mbF("Their Email", `<input type="email" data-f="email" id="ea-email" placeholder="${esc(name)} has no address on file — add it so the draft can go out" autocomplete="off">`)}<div class="f"><label>To</label><input id="ea-to" value="${esc(name)}${known ? ` <${esc(known)}>` : ""}"></div><div class="f"><label>Subject</label><input id="ea-subj" value="${esc(subject)}"></div><div class="f"><label>Message</label><textarea id="ea-msg" rows="5">${esc(item.msg || "")}</textarea></div>`,
+    `<p class="small muted">${mail ? `The note goes to your mailbox's Drafts${(gcMine() || {}).email ? ` (${esc(gcMine().email)})` : ""} for you to read and send` : "The note goes to your outbox for approval"}. I log that we asked and remind you in three working days if nothing comes back.</p>${onRecord ? "" : mbF("Their Email", `<input type="email" data-f="email" id="ea-email" value="${esc(found)}" placeholder="${esc(name)} has no address on file — add it, or the draft waits in your outbox for one" autocomplete="off">${found ? '<span class="hint">from their mail; it is kept on the record</span>' : ""}`)}<div class="f"><label>To</label><input id="ea-to" value="${esc(name)}${onRecord ? ` <${esc(onRecord)}>` : ""}"></div><div class="f"><label>Subject</label><input id="ea-subj" value="${esc(subject)}"></div><div class="f"><label>Message</label><textarea id="ea-msg" rows="5">${esc(item.msg || "")}</textarea></div>`,
     {
       submit: mail ? "Draft in My Mailbox" : "Draft for Approval",
       onSubmit: (f) => {
-        const addr = known || String(f.email || "").trim();
-        if (!addr || !/@/.test(addr)) return toast(`${name} has no email on file — add it so the draft can go out`), !1;
+        const typed = String(f.email || "").trim(),
+          addr = onRecord || (/@/.test(typed) ? typed : "");
         const subj = document.getElementById("ea-subj").value,
           msg = document.getElementById("ea-msg").value,
           by = (currentUser() || {}).name || "",
           due = addWork(today(), 3, !1);
-        v && !v.email && (v.email = addr),
-          who && !who.email && (who.email = addr),
+        v && !v.email && addr && (v.email = addr),
+          who && !who.email && addr && (who.email = addr),
           v && (v.notes = (v.notes ? v.notes + "\n" : "") + `${fmt(today())} asked for ${"coi" === item.kind ? "the COI" : "an answer"}: ${msg.slice(0, 60)}…`);
         const e = paExpect(name, subj.replace(/^Following up — /, ""), due, { kind: item.kind, vendorId: v ? v.id : "", clientId: item.c ? item.c.id : "" }, today());
-        (e.email = addr), (e.chased = (e.chased || 0) + 1), (e.by = due);
+        (e.email = addr || e.email || ""), (e.chased = (e.chased || 0) + 1), (e.by = due);
         eaAddNote(`Follow up: ${eaPlain(item.t)} — asked ${fmtL(today())}`, due, by);
         const openMail = () => {
-          (cmFilter = "all"), (view = "comms"), render();
-        };
+            (cmFilter = "all"), (view = "comms"), render();
+          },
+          outbox = (note) => {
+            const o = paDraftNote(name, subj, msg, `${name} owes ${"coi" === item.kind ? "a certificate of insurance" : "an answer"}`, `ea|${item.kind}|${name}|${today()}`);
+            o && addr && (o.to.email = addr), o && !addr && (o.needsAddress = !0);
+            save(), render(), rcToast(note, [{ label: "Open", run: openMail }]);
+          };
+        if (!addr) return void outbox(`Draft to ${name} is in your outbox — add their address before it goes. I will remind you ${fmtL(due)} if nothing comes back`);
         if (mail)
-          gaDraft({ to: addr, subject: subj, body: msg, why: `${name} owes ${"coi" === item.kind ? "a certificate of insurance" : "an answer"}` })
+          gaDraft({ to: `${name} <${addr}>`, subject: subj, body: msg, why: `${name} owes ${"coi" === item.kind ? "a certificate of insurance" : "an answer"}` })
             .then(() => {
               save(), render(), rcToast(`Draft to ${name} is in your mailbox's Drafts — I will remind you ${fmtL(due)} if nothing comes back`, [{ label: "Open", run: openMail }]);
             })
             .catch((err) => {
-              console.warn("chase draft", err), paDraftNote(name, subj, msg, `${name} owes an answer`, `ea|${item.kind}|${name}|${today()}`), save(), render(), rcToast(`The mailbox refused the draft; it is in your outbox for approval — I will remind you ${fmtL(due)}`, [{ label: "Open", run: openMail }]);
+              console.warn("chase draft", err), outbox(`The mailbox refused the draft; it is in your outbox for approval — I will remind you ${fmtL(due)}`);
             });
-        else paDraftNote(name, subj, msg, `${name} owes an answer`, `ea|${item.kind}|${name}|${today()}`), save(), render(), rcToast(`Draft to ${name} is in your outbox for approval — I will remind you ${fmtL(due)} if nothing comes back`, [{ label: "Open", run: openMail }]);
+        else outbox(`Draft to ${name} is in your outbox for approval — I will remind you ${fmtL(due)} if nothing comes back`);
         save(), render();
       },
     },
@@ -67637,9 +67646,10 @@ function eaToday(r, F, X) {
           out.push({
             n: "!" + money(u.bal),
             t: `${esc(u.i.number)} · ${esc(u.c.name)}`,
-            sub: `${u.age} days past due — a call today beats a statement next week.`,
-            act: "Open",
-            data: { doc: { clientId: u.c.id, kind: "invoice", id: u.i.id } },
+            sub: `${u.age} day${1 === u.age ? "" : "s"} past due — a reminder today beats a statement next week.`,
+            // Chase drafts the reminder to the client's contact (flow: billing had no way to reach them from here)
+            act: "Chase",
+            data: { chaseInv: { clientId: u.c.id, id: u.i.id } },
           }),
         ),
       X.undep.forEach((x) =>
@@ -115219,13 +115229,16 @@ function paHeardFrom(e) {
   const nm = String(e.who || "")
       .toLowerCase()
       .split(" ")[0],
-    dom = String(e.email || "").split("@")[1] || "";
+    em = String(e.email || "").toLowerCase(),
+    // a firm's own domain speaks for the firm; a personal mail provider's speaks for nobody in particular
+    dom0 = em.split("@")[1] || "",
+    dom = /^(gmail|googlemail|yahoo|outlook|hotmail|live|icloud|me|aol|proton|protonmail|example)\.(com|me|net|org)$/.test(dom0) ? "" : dom0;
   return (
     (DB.comms || [])
       .filter((c) => String(c.date || "").slice(0, 10) >= e.since)
       .find((c) => {
         const f = `${(c.from || {}).name || ""} ${(c.from || {}).email || ""}`.toLowerCase();
-        return (nm.length > 2 && f.includes(nm)) || (dom && f.includes("@" + dom));
+        return (nm.length > 2 && f.includes(nm)) || (em && f.includes(em)) || (dom && f.includes("@" + dom));
       }) || null
   );
 }
@@ -166244,26 +166257,27 @@ function chaseParty(D) {
       p && ((p.actions = p.actions || []).push({ id: uid("a"), title: D.subject, assignee: to, due: agWorkDue(1), priority: "med", status: "todo", area: "office", createdAt: appNowIso(), notes: `${D.body}\n\nFrom ${me}.`, source: { assistant: (paMe() || {}).id } }), save());
       return rcToast(`Sent to ${to} as a task due ${fmtL(agWorkDue(1))}`, [{ label: "Open", run: () => setView("tkall") }]), render(), Promise.resolve(!0);
     }
-    if (mail)
+    if (mail && addr)
       return gaDraft({ to: `${to} <${addr}>`, cc: cc, subject: D.subject, body: D.body, why: D.why || D.subject, threadId: D.threadId })
         .then(() => done("mailbox's Drafts"))
         .catch((err) => {
           console.warn("draft", err), paDraftNote(to, D.subject, D.body, D.why || D.subject, `ag|${D.kind}|${to}|${today()}`), done("outbox for approval");
         });
     const o = paDraftNote(to, D.subject, D.body, D.why || D.subject, `ag|${D.kind}|${to}|${today()}`);
-    return o && ((o.to.email = addr), cc && (o.cc = cc)), done("outbox for approval"), Promise.resolve(!0);
+    return o && ((o.to.email = addr || ""), addr || (o.needsAddress = !0), cc && (o.cc = cc)), done(addr ? "outbox for approval" : "outbox — add their address before it goes"), Promise.resolve(!0);
   };
   if (D.internal || (D.to.email && /@/.test(D.to.email))) return go(D.to.email);
-  // no address on file: ask for it once, keep it on the record, then draft
+  // no address on file: ask for it once and keep it on the record; without one the draft still goes to the
+  // outbox, addressed by name, and waits for the address (flow: a chase with no address wrote nothing at all)
   return new Promise((res) =>
     mbModal(
       `Draft to ${D.to.name}`,
-      `<p class="small muted">${esc(D.to.name)} has no email on file. Add it and the draft goes to your ${"function" == typeof gcOn && gcOn() ? "mailbox's Drafts" : "outbox"} for you to read and send.</p>${mbF("Their Email", `<input type="email" data-f="email" autocomplete="off">`)}`,
+      `<p class="small muted">${esc(D.to.name)} has no email on file. Add it and the draft goes to your ${"function" == typeof gcOn && gcOn() ? "mailbox's Drafts" : "outbox"} for you to read and send; without it the draft waits in your outbox until you add one.</p>${mbF("Their Email", `<input type="email" data-f="email" autocomplete="off">`)}`,
       {
         submit: "Draft It",
         onSubmit: (f) => {
           const a = String(f.email || "").trim();
-          if (!/@/.test(a)) return toast(`Add ${D.to.name}'s address so the draft can go out`), !1;
+          if (a && !/@/.test(a)) return toast(`That is not an address — add ${D.to.name}'s email, or leave it blank`), !1;
           res(go(a));
         },
       },
@@ -176092,3 +176106,103 @@ function flObRows() {
   };
 }
 
+// ---- 5. Chases reach the person: from billing's Home, from a proposal nobody answered, from every Chase button
+function flChaseInvoice(clientId, invId) {
+  const c = (DB.clients || []).find((x) => x.id === clientId),
+    d = c && (c.invoices || []).find((x) => x.id === invId);
+  if (!d) return toast("That invoice is not on file");
+  const bal = r2(docTotal(d).total - (c.payments || []).filter((y) => y.invoiceId === d.id).reduce((a, y) => a + (+y.amount || 0), 0)),
+    k = (c.contacts || []).find((x) => /money|pay|billing/i.test(x.role || "")) || (c.contacts || []).find((x) => x.email) || (c.contacts || [])[0] || { name: c.name };
+  return chaseParty(agChaseDraft({ kind: "invoice", to: { name: k.name, email: k.email || agEmailFor(k.name), kind: "contact" }, client: c, invoices: [{ id: d.id, number: d.number, title: d.title, due: d.due, bal: bal }] }));
+}
+document.addEventListener(
+  "click",
+  (e) => {
+    const el = e.target.closest && e.target.closest("#v-home [data-ea]");
+    if (!el) return;
+    let d;
+    try {
+      d = JSON.parse(el.dataset.ea);
+    } catch (x) {
+      return;
+    }
+    d && d.chaseInv && (e.stopPropagation(), e.preventDefault(), flChaseInvoice(d.chaseInv.clientId, d.chaseInv.id));
+  },
+  !0,
+);
+// A proposal or estimate I sent is a question too: an expectation with a three-working-day follow-up.
+{
+  const base = paMailExpectSweep;
+  paMailExpectSweep = function () {
+    const out = base.apply(this, arguments) || [];
+    try {
+      const me = paMe(),
+        mine = String((gcMine() || {}).email || "").toLowerCase();
+      (DB.comms || [])
+        .filter((c) => c.owner === me.id && ((c.labels || []).includes("SENT") || String((c.from || {}).email || "").toLowerCase() === mine) && !(c.labels || []).includes("DRAFT"))
+        .filter((c) => /\b(proposal|estimate)\b/i.test(`${c.subject || ""} ${(c.attachments || []).map((a) => a.name).join(" ")}`) || /\bproposal\b[^.]{0,40}\battached\b/i.test(c.text || ""))
+        .forEach((c) => {
+          const to = (c.to || [])[0];
+          if (!to || cmIsStaff(cmEmail(to))) return;
+          const back = (DB.comms || []).some((x) => x.owner === me.id && x.threadId === c.threadId && x.date > c.date && !cmIsStaff(cmEmail((x.from || {}).email)));
+          if (back) return;
+          const said = String(c.date || "").slice(0, 10),
+            e = paExpect(cmName(to), c.subject || "the proposal", iso(addWork(said || today(), 3, !1)), { kind: "mail", id: c.msgId, commId: c.id, proposal: !0 }, said);
+          e && ((e.email = e.email || cmEmail(to)), out.push(e));
+        });
+    } catch (e) {
+      console.warn("proposal watch", e);
+    }
+    return out;
+  };
+}
+// Caught for You: a message I sent that asked for something, past its follow-up date with nothing back.
+const flLooksLikeName = (s) => /^[A-Z][\w'.-]*(\s+[A-Z&][\w'.-]*){0,3}$/.test(String(s || "").trim());
+CATCH.push({
+  name: "notBack",
+  label: "Not Come Back",
+  rows() {
+    const td = today(),
+      out = [];
+    try {
+      paExpectLedger()
+        .filter((e) => !e.closed && e.by && e.by <= td && e.ref && ["mail", "lead", "reply"].includes(e.ref.kind) && flLooksLikeName(e.who) && !cmIsStaff(e.email || ""))
+        .forEach((e) => {
+          if (paHeardFrom(e)) return;
+          const lead = (DB.leads || []).find((l) => String(l.name || "").toLowerCase() === String(e.who).toLowerCase());
+          out.push({
+            key: "notback:" + e.id,
+            what: `Not come back: ${e.who}`,
+            sub: `${tdWords(String(e.about || "").replace(/^re:\s*/i, ""), 8)} · asked ${fmt(e.since)}${e.chased ? ` · chased ${e.chased}×` : ""}`,
+            amount: lead ? +lead.value || 0 : 0,
+            verb: "Chase",
+            run: () => {
+              const D = agChaseDraft(e.ref.proposal || lead ? { kind: "proposal", to: { name: e.who, email: e.email || (lead && lead.email) || agEmailFor(e.who), kind: lead ? "lead" : "" }, lead: lead || { name: e.who, addr: "" }, sent: (DB.comms || []).find((c) => c.id === e.ref.commId) } : { kind: "other", to: { name: e.who, email: e.email || agEmailFor(e.who) }, about: e.about });
+              D.expect = !1;
+              (e.chased = (e.chased || 0) + 1), (e.by = addWork(today(), 3, !1)), (e.lastChased = today());
+              return chaseParty(D);
+            },
+          });
+        });
+    } catch (x) {
+      console.warn("not back", x);
+    }
+    return out;
+  },
+});
+
+// A chase already sent is not offered again until its follow-up date: the expectation it logged holds it (flow: the
+// same rows came back every morning, and the people further down the list were never reached).
+{
+  const base = eaChase;
+  eaChase = function () {
+    const out = base.apply(this, arguments);
+    try {
+      const td = today(),
+        open = new Set(paExpectLedger().filter((e) => !e.closed && e.chased && e.by >= td).map((e) => String(e.who || "").toLowerCase()));
+      return open.size ? out.filter((c) => !open.has(String((c.who && c.who.name) || (c.vendor && c.vendor.name) || eaPlain(c.t).replace(/ — .*$/, "")).toLowerCase())) : out;
+    } catch (e) {
+      return out;
+    }
+  };
+}
