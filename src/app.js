@@ -69363,7 +69363,10 @@ if ("function" == typeof finishBoot) {
   };
 }
 const CM_STAFF = () =>
-    (DB.users || []).map((u) => (u.contact || "").toLowerCase()).filter((e) => e.includes("@")),
+    (DB.users || [])
+      .filter((u) => "client" !== u.role)
+      .map((u) => (u.contact || "").toLowerCase())
+      .filter((e) => e.includes("@")),
   CM_STAFF_DOMAINS = ["smartdesign.nyc", "smartdesignbuild.com", "mercerandbond.com"],
   CM_CATS = {
     bill: "Vendor bill",
@@ -69381,6 +69384,11 @@ const CM_STAFF = () =>
     delivery: "Delivery",
     coi: "Insurance / W-9",
     onboarding: "New client",
+    lpc: "LPC",
+    noshow: "Sub no-show",
+    receipt: "Receipt",
+    unrouted: "Not on file",
+    statement: "Statement",
     note: "Note",
   },
   CM_ICON = {
@@ -69575,15 +69583,33 @@ function cmRoute(c) {
   }
   return r;
 }
+// The policy period on a certificate of insurance: the later date of "MM/DD/YYYY to MM/DD/YYYY", or the
+// date after "expires" / "expiration".
+function cmCoiExpiry(txt) {
+  const t = String(txt || ""),
+    toIso = (d) => {
+      const m = d.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+      if (m) return `${m[3]}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}`;
+      const n = parse(d);
+      return n && !isNaN(n) ? iso(n) : "";
+    },
+    m1 = t.match(/(?:policy period|period|effective)[^\n]{0,40}?(\d{1,2}\/\d{1,2}\/\d{4})\s*(?:to|-|–|through)\s*(\d{1,2}\/\d{1,2}\/\d{4})/i),
+    m2 = t.match(/(?:expir\w*|exp\.?)[:\s]*([A-Za-z]{3,9} \d{1,2},? \d{4}|\d{1,2}\/\d{1,2}\/\d{4})/i);
+  return m1 ? toIso(m1[2]) : m2 ? toIso(m2[1]) : "";
+}
 function cmRead(c) {
   const own = cmOwnText(c.text),
-    all = `${c.subject || ""}\n${own}`,
+    attText = (c.attachments || [])
+      .map((a) => String(a.text || ""))
+      .filter(Boolean)
+      .join("\n"),
+    all = `${c.subject || ""}\n${own}${attText ? "\n" + attText : ""}`,
     low = all.toLowerCase(),
     R = c.route || cmRoute(c),
     P = [],
     push = (kind, summary, o) =>
       P.push(Object.assign({ id: uid("cp"), kind: kind, summary: summary, on: !0 }, o || {})),
-    amt = cmMoney(own),
+    amt = cmMoney(own) || cmMoney(attText),
     att = (c.attachments || []).map((a) => a.name.toLowerCase()),
     who = R.clientId
       ? (DB.clients.find((x) => x.id === R.clientId) || {}).name
@@ -69661,7 +69687,7 @@ function cmRead(c) {
   const permits = [...new Set(all.match(/\b(?:B\d{8}(?:-I\d(?:-EL)?)?|SR\d{9}|[BME]\d{8})\b/g) || [])];
   if (
     /dob now|\bdob\b|permit|supersede|inspection|attestation/i.test(all) &&
-    (permits.length || /supersede|attestation|work complete/i.test(all))
+    (permits.length || /supersede|attestation|work complete/i.test(own))
   ) {
     const owner = /owner'?s attestation/i.test(own),
       stillOpen = /still open|not closed|remains open|is open|sitting open/i.test(own),
@@ -69684,10 +69710,42 @@ function cmRead(c) {
       },
     );
   }
+  // Our own card's or bank's statement is not a vendor bill: its lines are the feed. It is imported.
+  const ourCard =
+    /statement/i.test(all) &&
+    (DB.accounts || []).find(
+      (a) => a.last4 && new RegExp(`(?:ending|ending in|····|\\.{4}|x{4}|\\*{4})\\s*(?:in\\s*)?${a.last4}\\b`, "i").test(all),
+    );
+  // A statement that names a bill already on file is a chase, not a second bill.
+  const onFile =
+    !R.employee &&
+    !R.clientId &&
+    /invoice|statement|balance|amount due|past due|payment/i.test(all) &&
+    (DB.bills || []).find((b) => b.number && b.number.length > 4 && low.includes(String(b.number).toLowerCase()));
+  if (ourCard) {
+    const bal = (all.match(/(?:new|closing|statement) balance[^$\n]{0,20}\$\s?([\d,]+(?:\.\d{2})?)/i) || [])[1],
+      dueOn = (all.match(/(?:payment )?due\s+(?:date\s*:?\s*)?(\d{2}\/\d{2}\/\d{4})/i) || [])[1] || "";
+    push("statement", `${ourCard.name} ····${ourCard.last4} statement${bal ? " — closing balance $" + bal : ""}${dueOn ? " · payment due " + dueOn : ""} · import it on Bank, do not enter it as a bill`, {
+      acctId: ourCard.id,
+      balance: bal ? +bal.replace(/,/g, "") : 0,
+      due: dueOn,
+      task: `Import the ${ourCard.name} ····${ourCard.last4} statement and reconcile the card`,
+      owner: "Controller",
+    });
+  } else if (onFile) {
+    push("statement", `${who} is chasing ${amt ? money(amt) + " " : ""}on ${onFile.number} — already on file (${onFile.status}${onFile.short ? ", short-paid" : ""})${where ? " · " + where : ""}; no second bill`, {
+      billId: onFile.id,
+      amount: amt,
+      task: `Answer ${who} on ${onFile.number}${onFile.short ? " — say what is held and why" : ""}`,
+      owner: "Billing",
+    });
+  }
   if (
     !R.employee &&
     !R.clientId &&
     amt &&
+    !ourCard &&
+    !onFile &&
     /invoice|statement|balance|amount due|past due|payment/i.test(all) &&
     !/deposit.*sent|money (just )?sent/i.test(low)
   ) {
@@ -69696,12 +69754,28 @@ function cmRead(c) {
           .slice(1)
           .find(Boolean) || "",
       due = (all.match(/due\s+([A-Z][a-z]+ \d{1,2},? \d{4})/i) || [])[1] || "",
-      ent = (DB.entities || []).find((e) => low.includes((e.name || "").toLowerCase().replace(/ llc$/, "")));
+      ent = (DB.entities || []).find((e) => low.includes((e.name || "").toLowerCase().replace(/ llc$/, ""))),
+      // Already paid from the bank? A debit for the same amount near the invoice date is the line it belongs on.
+      said = (c.date || "").slice(0, 10) || today(),
+      paidLine = (DB.txns || []).find(
+        (t) => +t.amt < 0 && Math.abs(Math.abs(+t.amt) - amt) < 0.01 && !t.billId && t.date >= iso(addDays(said, -14)) && t.date <= iso(addDays(said, 14)),
+      );
     push(
       "bill",
-      `${who} says ${money(amt)} is owed${ent ? " by " + ent.name : ""}${num ? " · #" + num : ""}${due ? " · due " + due : ""}${/past due/i.test(all) ? " · past due" : ""}`,
-      { vendor: who, amount: amt, number: num, due: due, entityId: ent ? ent.id : "" },
+      `${who} says ${money(amt)} is owed${ent ? " by " + ent.name : ""}${num ? " · #" + num : ""}${due ? " · due " + due : ""}${/past due/i.test(all) ? " · past due" : ""}${where ? " · " + where : ""}${attText ? " · read from the attached PDF" : ""}`,
+      {
+        vendor: who,
+        vendorId: R.vendorId || "",
+        amount: amt,
+        number: num,
+        due: due,
+        entityId: ent ? ent.id : "",
+        projectId: R.projectId || "",
+        fromAttachment: !!attText && !cmMoney(own),
+        txnId: paidLine ? paidLine.id : "",
+      },
     );
+    paidLine && (P[P.length - 1].summary += ` · paid ${fmtL(paidLine.date)} from the bank (“${String(paidLine.desc || "").slice(0, 30)}”) — record the bill against that line`);
   }
   if (
     (R.employee &&
@@ -69715,18 +69789,22 @@ function cmRead(c) {
         { amount: amt, clientId: R.clientId, counterpart: R.counterpart, deposit: /deposit/i.test(all) },
       ),
     !R.employee &&
-      /money (just )?sent|wire (was |has been )?sent|payment (was |has been )?sent|sent the (deposit|payment|wire)|just paid/i.test(
+      /money (just )?sent|wire (was |has been )?sent|payment (was |has been )?sent|sent the (deposit|payment|wire)|just paid|\bwe (?:paid|wired|mailed (?:the |a )?check|sent (?:the |a )?(?:check|wire|payment))\b|check (?:went out|is in the mail|was mailed)/i.test(
         low,
       ))
   ) {
     const prior = (c.text.match(/\$\s?([\d,]+\.\d{2})/g) || []).map((x) => +x.replace(/[^\d.]/g, "")),
-      expect = prior.length ? prior[0] : amt;
+      expect = prior.length ? prior[0] : amt,
+      saidDay = (own.match(/\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|yesterday|today|last week)\b/i) || [])[1] || "",
+      chk = (own.match(/check\s*#?\s*(\d{3,6})/i) || [])[1] || "";
     push(
       "deposit",
-      `${who} says the money is sent${expect ? " — " + money(expect) : ""}${where ? " for " + where : ""}; watch the feed`,
+      `${who} says the money is sent${expect ? " — " + money(expect) : ""}${saidDay ? " · " + saidDay.toLowerCase() : ""}${chk ? " · check " + chk : ""}${where ? " for " + where : ""}; watch the feed`,
       {
         amount: expect,
         clientId: R.clientId,
+        saidDay: saidDay,
+        check: chk,
         task: `Confirm ${expect ? money(expect) + " " : ""}from ${who} arrived and record the payment`,
       },
     );
@@ -69740,16 +69818,43 @@ function cmRead(c) {
             `Our ${att.find((a) => /estimate/.test(a)) ? "estimate" : "quote"} went to ${who}${where ? " for " + where : ""}${amt ? " — " + money(amt) : ""}`,
             { out: !0, clientId: R.clientId, amount: amt },
           )
-        : push(
-            "quote",
-            `${who} sent a quote${where ? " for " + where : ""}${amt ? " — " + money(amt) : ""}`,
-            {
-              out: !1,
-              vendorId: R.vendorId,
-              amount: amt,
-              task: `Review ${who}'s quote${where ? " for " + where : ""}`,
-            },
-          )),
+        : (() => {
+            // Which Buy Board line does it price? The material on the routed job whose words the quote uses.
+            const mats = proj ? proj.materials || [] : [],
+              words = new Set(
+                low
+                  .replace(/[^a-z0-9 ]+/g, " ")
+                  .split(/\s+/)
+                  .filter((w) => w.length > 3),
+              ),
+              scored = mats
+                .filter((m) => !["ordered", "shipped", "on-site"].includes(m.status))
+                .map((m) => ({
+                  m: m,
+                  n: String(m.name || "")
+                    .toLowerCase()
+                    .replace(/[^a-z0-9 ]+/g, " ")
+                    .split(/\s+/)
+                    .filter((w) => w.length > 3 && words.has(w)).length,
+                }))
+                .filter((x) => x.n > 0)
+                .sort((a, b) => b.n - a.n),
+              lead = (all.match(/(\d{1,3})\s*(?:-\s*\d{1,3}\s*)?(?:working |business )?(?:days|weeks)\b/i) || [])[0] || "",
+              mat = scored[0] ? scored[0].m : null;
+            push(
+              "quote",
+              `${who} sent a quote${where ? " for " + where : ""}${amt ? " — " + money(amt) : ""}${mat ? " · prices the Buy Board line “" + mat.name + "”" : ""}${lead ? " · " + lead + " lead" : ""}`,
+              {
+                out: !1,
+                vendorId: R.vendorId,
+                amount: amt,
+                materialId: mat ? mat.id : "",
+                projectId: proj ? proj.id : "",
+                lead: lead,
+                task: `Review ${who}'s quote${where ? " for " + where : ""}`,
+              },
+            );
+          })()),
     R.leadName &&
       !R.clientId &&
       !P.some((p) => "deposit" === p.kind) &&
@@ -69774,13 +69879,61 @@ function cmRead(c) {
       },
     );
   }
-  !att.some((a) => /\bcoi\b|certificate|w-?9/.test(a)) ||
-    R.employee ||
-    (!R.vendorId && R.clientId) ||
-    push("coi", `${who} sent ${att.find((a) => /w-?9/.test(a)) ? "a W-9" : "a certificate of insurance"}`, {
-      vendorId: R.vendorId,
-      w9: att.some((a) => /w-?9/.test(a)),
+  if (!(!att.some((a) => /\bcoi\b|certificate|w-?9/.test(a)) || R.employee || (!R.vendorId && R.clientId))) {
+    const w9 = att.some((a) => /w-?9/.test(a)),
+      exp = w9 ? "" : cmCoiExpiry(attText || own),
+      // A broker sends on the insured's behalf: the vendor is the one named on the certificate.
+      named = R.vendorId
+        ? null
+        : (DB.vendors || []).find((v) => v.name.length > 3 && low.includes(v.name.toLowerCase())),
+      vid = R.vendorId || (named ? named.id : ""),
+      vn = vid ? (DB.vendors.find((v) => v.id === vid) || {}).name : who,
+      vendor = vid ? DB.vendors.find((v) => v.id === vid) : null;
+    push(
+      "coi",
+      `${vn} sent ${w9 ? "a W-9" : "a certificate of insurance"}${exp ? " · covers to " + fmtL(exp) : ""}${vendor && vendor.insuranceExp && vendor.insuranceExp < today() && exp ? " · their certificate on file expired " + fmtL(vendor.insuranceExp) + ", so this clears the block on paying them" : ""}`,
+      { vendorId: vid, w9: w9, exp: exp },
+    );
+  }
+  // LPC wrote about a landmarked house: the comment belongs on the application and someone answers it.
+  if (/\bLPC\b|landmarks preservation/i.test(all) && !R.employee && !R.clientId && (proj || R.addr)) {
+    const line = (own.match(/[^.\n]*\b(?:brick mold|profile|window|cornice|stoop|facade|façade|railing|paint|color|colour|mortar|sample|drawing|revis\w+|approv\w+|permit|certificate of appropriateness|CNE|staff)\b[^.\n]*[.?]?/i) || [own.slice(0, 140)])[0].trim(),
+      hearing = own.match(/\b(?:hearing|public meeting|committee)\b[^.\n]{0,60}?\b(\w+ \d{1,2}(?:,? \d{4})?)/i),
+      sub = proj
+        ? (proj.submittals || []).find((x) => (x.reviewers || []).some((r) => "lpc" === r.role) && !/^(closed|approved)$/.test(x.status))
+        : null,
+      insp = proj ? (proj.inspections || []).find((x) => /lpc/i.test(x.agency || "") && "passed" !== x.status) : null;
+    push("lpc", `LPC on ${where || R.addr}: ${line}${hearing ? " · " + hearing[0].trim() : ""}`, {
+      projectId: proj ? proj.id : "",
+      comment: line,
+      hearing: hearing ? hearing[1] : "",
+      submittalId: sub ? sub.id : "",
+      inspectionId: insp ? insp.id : "",
+      task: `Answer LPC on ${where || R.addr}: ${line.slice(0, 80)}`,
+      owner: "PM",
     });
+  }
+  // A sub who did not show, or confirms a day: the field has to know and the vendor's record keeps score.
+  if (!R.employee && (R.vendorId || proj) && /no[- ]?show|did(?:n't| not) (?:show|turn) up|never (?:showed|came|arrived)|cannot make it|can't make it|won't make it|have to push|need to reschedule/i.test(own))
+    push("noshow", `${who} ${/no[- ]?show|did(?:n't| not)|never/i.test(own) ? "did not show" : "is pushing the date"}${where ? " at " + where : ""}: “${own.replace(/\s+/g, " ").slice(0, 110)}”`, {
+      vendorId: R.vendorId,
+      projectId: proj ? proj.id : "",
+      task: `Re-book ${who}${where ? " at " + where : ""} and tell the foreman`,
+      owner: "PM",
+    });
+  // A store receipt names a card line: the receipt belongs on the transaction, and a job if it says one.
+  if (!R.employee && !R.clientId && amt && /receipt|your order|order confirmation|thank you for shopping|thanks for your purchase/i.test(all) && !P.some((p) => "bill" === p.kind)) {
+    const last4 = (all.match(/(?:ending|card|x{2,}|\*{2,})\s*(?:in\s*)?(\d{4})\b/i) || [])[1] || "",
+      line = (DB.txns || []).find(
+        (t) => Math.abs(Math.abs(+t.amt || 0) - amt) < 0.01 && !t.receipt && t.date >= iso(addDays((c.date || "").slice(0, 10) || today(), -5)),
+      );
+    push("receipt", `${who} receipt — ${money(amt)}${last4 ? " on card ····" + last4 : ""}${line ? " · matches the " + fmtL(line.date) + " card line “" + String(line.desc || "").slice(0, 36) + "”" : " · no card line yet"}${where ? " · " + where : ""}`, {
+      amount: amt,
+      txnId: line ? line.id : "",
+      projectId: proj ? proj.id : "",
+      last4: last4,
+    });
+  }
   const mt = own.match(
     /\b(?:meet|see you|call)\b[^.\n]{0,60}?\b(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|tomorrow)\b[^.\n]{0,30}?(\d{1,2}(?::\d{2})?\s?(?:am|pm)?)/i,
   );
@@ -69831,7 +69984,19 @@ function cmRead(c) {
         {},
       ),
     P.length ||
-      push("note", `${who}${where ? " · " + where : ""}: ${own.replace(/\s+/g, " ").slice(0, 140)}`, {}),
+      (R.clientId || R.vendorId || R.employee || R.projectId || R.contact
+        ? push("note", `${who}${where ? " · " + where : ""}: ${own.replace(/\s+/g, " ").slice(0, 140)}`, {})
+        : push(
+            "unrouted",
+            `${who} <${(c.from || {}).email || ""}> is not on file${R.addr ? " · names " + R.addr : ""}: “${own.replace(/\s+/g, " ").slice(0, 110)}”`,
+            {
+              name: who,
+              email: (c.from || {}).email || "",
+              addr: R.addr || "",
+              // The best guess at what to create; the person picks in the dialog.
+              as: /invoice|quote|order|statement|pickup|delivery|yard|supply|lumber|inc\b|llc\b|corp\b/i.test(all) ? "vendor" : "lead",
+            },
+          )),
     P
   );
 }
@@ -69936,8 +70101,8 @@ function cmApply(c, p) {
       date: (c.date || "").slice(0, 10) || today(),
       due: p.due ? iso(new Date(p.due)) : "",
       entityId: p.entityId || entDefault(),
-      projectId: "",
-      cat: "office",
+      projectId: p.projectId || R.projectId || "",
+      cat: p.projectId || R.projectId ? "subs" : "office",
       code: "",
       line: "",
       lines: [{ id: uid("l"), desc: c.subject || "Statement", amount: p.amount }],
@@ -69947,6 +70112,10 @@ function cmApply(c, p) {
       createdBy: "reader",
       commId: c.id,
     };
+    if (p.txnId) {
+      const t = (DB.txns || []).find((x) => x.id === p.txnId);
+      t && !t.billId && ((t.billId = b.id), (b.paidTxnId = t.id), (b.status = "paid"), (b.paidAt = t.date));
+    }
     DB.bills.push(b),
       DB.vendors.some((v) => v.name.toLowerCase() === (p.vendor || "").toLowerCase()) ||
         DB.vendors.push({ id: uid("v"), name: p.vendor, trade: "", w9: !1, insuranceExp: "" }),
@@ -69979,10 +70148,19 @@ function cmApply(c, p) {
   else if ("quote" === p.kind) {
     if ((p.out && p.clientId && cmActivity(p.clientId, p.summary), !p.out)) {
       cmTask(p.task, R.projectId, "PM");
-      const v = p.vendorId && DB.vendors.find((x) => x.id === p.vendorId);
-      v && (v.notes = (v.notes ? v.notes + "\n" : "") + `${fmt(today())}: ${p.summary}`);
-    }
-    did = p.out ? "logged on the client" : "review task";
+      const v = p.vendorId && DB.vendors.find((x) => x.id === p.vendorId),
+        pr = p.projectId && DB.projects.find((x) => x.id === p.projectId),
+        m = pr && p.materialId && (pr.materials || []).find((x) => x.id === p.materialId);
+      v && (v.notes = (v.notes ? v.notes + "\n" : "") + `${fmt(today())}: ${p.summary}`),
+        // The price lands on the Buy Board line the person approved it for; the line reads "quoted".
+        m &&
+          ((m.cost = p.amount ? String(p.amount) : m.cost),
+          v && (m.vendor = v.name),
+          ["not-ordered", "needs-decision", "quoted"].includes(m.status) && (m.status = "quoted"),
+          p.lead && /\d/.test(p.lead) && (m.lead = +(p.lead.match(/\d+/) || [m.lead])[0] * (/week/i.test(p.lead) ? 5 : 1)),
+          (m.quoteCommId = c.id));
+      did = m ? `quote on the Buy Board line “${m.name}”` : "review task";
+    } else did = "logged on the client";
   } else if ("lead" === p.kind)
     (DB.leads = DB.leads || []),
       DB.leads.some((l) => (l.email || "").toLowerCase() === (p.email || "").toLowerCase() && p.email) ||
@@ -70006,9 +70184,43 @@ function cmApply(c, p) {
       (did = "lead created");
   else if ("coi" === p.kind) {
     const v = p.vendorId && DB.vendors.find((x) => x.id === p.vendorId);
-    v && (p.w9 ? (v.w9 = !0) : (v.coiReceivedAt = today())),
+    v && (p.w9 ? (v.w9 = !0) : ((v.coiReceivedAt = today()), p.exp && (v.insuranceExp = p.exp))),
       v || cmNoteAnywhere(c, p),
-      (did = v ? (p.w9 ? "W-9 on file" : "COI noted — set the expiry on the vendor") : "noted on your list");
+      (did = v
+        ? p.w9
+          ? "W-9 on file"
+          : p.exp
+            ? `COI on file — insurance expires ${fmtL(p.exp)}`
+            : "COI noted — set the expiry on the vendor"
+        : "noted on your list");
+  } else if ("lpc" === p.kind) {
+    const pr = (p.projectId || R.projectId) && DB.projects.find((x) => x.id === (p.projectId || R.projectId));
+    if (pr) {
+      pr.permitNotes = pr.permitNotes || [];
+      pr.permitNotes.push({ t: nowStamp(), agency: "LPC", text: p.comment || p.summary, hearing: p.hearing || "", commId: c.id });
+      const sub = p.submittalId && (pr.submittals || []).find((x) => x.id === p.submittalId);
+      sub &&
+        ((sub.timeline = sub.timeline || []),
+        sub.timeline.push({ on: today(), by: "LPC staff", text: `LPC comment: ${p.comment || p.summary}`, commId: c.id }));
+      const insp = p.inspectionId && (pr.inspections || []).find((x) => x.id === p.inspectionId);
+      insp && (insp.notes = (insp.notes ? insp.notes + "\n" : "") + `${fmt(today())}: LPC — ${p.comment || p.summary}`);
+    }
+    p.task && cmTask(p.task, R.projectId || p.projectId, "PM"), (did = pr ? "LPC comment on the application" : "task for the PM");
+  } else if ("noshow" === p.kind) {
+    const v = p.vendorId && DB.vendors.find((x) => x.id === p.vendorId);
+    v && ((v.noShows = (v.noShows || 0) + 1), (v.notes = (v.notes ? v.notes + "\n" : "") + `${fmt(today())}: ${p.summary}`)),
+      p.task && cmTask(p.task, R.projectId || p.projectId, "PM"),
+      (did = v ? "on the vendor's record and the PM's list" : "task for the PM");
+  } else if ("statement" === p.kind) {
+    p.task && cmTask(p.task, "", p.owner || "Controller");
+    const b = p.billId && (DB.bills || []).find((x) => x.id === p.billId);
+    b && ((b.notes = (b.notes ? b.notes + "\n" : "") + `${fmt(today())}: ${p.summary}`), (b.chasedAt = today()));
+    did = b ? `noted on ${b.number} and a task for Billing` : "task for the Controller";
+  } else if ("receipt" === p.kind) {
+    const t = p.txnId && (DB.txns || []).find((x) => x.id === p.txnId);
+    t && ((t.receipt = { commId: c.id, at: today(), by: by }), p.projectId && !t.projectId && (t.projectId = p.projectId)),
+      t || cmNoteAnywhere(c, p),
+      (did = t ? `receipt on the ${fmtL(t.date)} card line` : "noted — no card line yet");
   } else if ("meeting" === p.kind) cmTask(p.task, R.projectId, "Owner"), (did = "on the list");
   else if ("question" === p.kind) cmTask(p.task, R.projectId, "Owner"), (did = "question for the Owner");
   else if ("decision" === p.kind)
@@ -70037,7 +70249,31 @@ function cmApply(c, p) {
         DB.clients.push(cl),
         (did = "client created");
     } else did = "client already on file";
-  else if ("delivery" === p.kind)
+  else if ("unrouted" === p.kind) {
+    const as = p.as || "lead";
+    if ("vendor" === as)
+      DB.vendors.some((v) => v.name.toLowerCase() === String(p.name || "").toLowerCase()) ||
+        DB.vendors.push({ id: uid("v"), name: p.name, trade: "", email: p.email || "", w9: !1, insuranceExp: "", bankChangedAt: "", createdFrom: "mail" }),
+        (c.route = Object.assign({}, R, { vendorId: (DB.vendors.find((v) => v.name.toLowerCase() === String(p.name || "").toLowerCase()) || {}).id || "", leadName: "" })),
+        (did = `vendor ${p.name} created`);
+    else if ("client" === as) {
+      const cl = "function" == typeof blankClient ? blankClient(p.name) : { id: uid("cl"), name: p.name, contacts: [], activity: [] };
+      (cl.propertyAddr = p.addr || ""),
+        (cl.contacts = [{ id: uid("k"), name: p.name, email: p.email || "", role: "Client" }]),
+        "function" == typeof entDefault && (cl.entityId = entDefault()),
+        DB.clients.push(cl),
+        (c.route = Object.assign({}, R, { clientId: cl.id, leadName: "" })),
+        (did = `client ${p.name} created`);
+    } else if ("project" === as && "function" == typeof projectFromTemplate) {
+      const pr = projectFromTemplate(p.addr || p.name, p.addr || "", today(), "");
+      pr && ((c.route = Object.assign({}, R, { projectId: pr.id })), (did = `project ${pr.project.name} created`));
+    } else
+      (DB.leads = DB.leads || []),
+        DB.leads.some((l) => p.email && (l.email || "").toLowerCase() === p.email.toLowerCase()) ||
+          DB.leads.push({ id: uid("ld"), created: today(), name: p.name, phone: "", email: p.email, addr: p.addr, buildingType: "", scope: "Design-build", stage: "inquiry", source: "Email", next: "Follow up", nextDue: "", notes: c.subject || "", commId: c.id }),
+        (did = "lead created");
+    c.routeLocked = !0;
+  } else if ("delivery" === p.kind)
     R.projectId
       ? (cmTask(`Check delivery: ${p.summary.slice(0, 80)}`, R.projectId, "Foreman"),
         (did = "delivery check for the foreman"))
@@ -70087,11 +70323,21 @@ function cmImport(list) {
         proposals: [],
         links: m.links || [],
       };
-      (c.route = cmRoute(c)),
-        (c.proposals = cmRead(c)),
-        (c.status = c.proposals.length ? "proposed" : "read"),
-        DB.comms.push(c),
-        n++;
+      (c.route = cmRoute(c)), (c.proposals = cmRead(c));
+      const R = c.route || {},
+        from = String((c.from || {}).email || "").toLowerCase(),
+        junk =
+          !R.clientId &&
+          !R.vendorId &&
+          !R.employee &&
+          !R.projectId &&
+          !R.contact &&
+          c.proposals.every((p) => "note" === p.kind || "unrouted" === p.kind) &&
+          (/noreply|no-reply|newsletter|news@|promo|marketing|notification|digest|hello@|info@/.test(from) ||
+            /\bunsubscribe\b|view (this|in) browser|% off|limited time|webinar|special offer/i.test(c.text || ""));
+      // A newsletter or a promotion with nobody we know on it is noise: read, ignored, never proposed.
+      junk && ((c.proposals = []), (c.ignoredWhy = "not the firm's business"));
+      (c.status = junk ? "ignored" : c.proposals.length ? "proposed" : "read"), DB.comms.push(c), n++;
     }),
     n)
   ) {
@@ -70980,6 +71226,8 @@ cmApply = function (c, p) {
     return cmTaskDialog(c, p), "Choose who and when";
   }
   if ("lead" === p.kind) return cmPersonDialog(c, p, !1), "Check the lead and add it";
+  if ("unrouted" === p.kind && "vendor" !== p.as && "project" !== p.as)
+    return cmPersonDialog(c, p, "client" === p.as), "client" === p.as ? "Check the client and create it" : "Check the lead and add it";
   if ("onboarding" === p.kind)
     return p.name && DB.clients.some((cl) => (cl.name || "").toLowerCase().includes(p.name.toLowerCase()))
       ? cmApplyBase_2(c, p)
@@ -93131,7 +93379,7 @@ const BN_KIND = {
   delivery: "Delivery",
   obligation: "Expiry",
   renewal: "Renewal",
-  google: "Google",
+  google: "Connected Calendar",
 };
 function bnCalendarHtml() {
   const td = today(),
@@ -102744,7 +102992,11 @@ function cmMatches(c, q) {
   );
 }
 function cmListFor(filter) {
-  let L = (DB.comms || []).slice().sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  const me = ("function" == typeof paMe ? paMe() : {}).id;
+  let L = (DB.comms || [])
+    .filter((c) => !c.owner || c.owner === me)
+    .slice()
+    .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
   const open = L.filter(
     (c) => (c.proposals || []).some((p) => !p.applied && !1 !== p.on) && "ignored" !== c.status,
   );
@@ -102790,7 +103042,8 @@ function renderCommsInbox() {
   const host = $("#comms-body");
   if (!host) return;
   cmInit(), cmOpen && ((cmSel = cmOpen), (cmOpen = ""));
-  const all = DB.comms || [],
+  const meId = ("function" == typeof paMe ? paMe() : {}).id,
+    all = (DB.comms || []).filter((c) => !c.owner || c.owner === meId),
     open = all.filter(
       (c) => (c.proposals || []).some((p) => !p.applied && !1 !== p.on) && "ignored" !== c.status,
     ),
@@ -109219,6 +109472,11 @@ function gcInit() {
 }
 const gcCfg = () => (gcInit(), DB.company.google),
   gcMine = () => (gcInit(), (DB.conn[paMe().id] || {}).google || null),
+  // The Demo Workspace is an invented mailbox, calendar and drive per user (see the demows section at the
+  // end). It is served through gcFetch like Google is, so every pull, draft, hold and filing runs on it.
+  gcIsDemo = () => !!(gcMine() || {}).demo,
+  gcKindName = () => (gcIsDemo() ? ((gcMine() || {}).loaded ? "Loaded Workspace" : "Demo Workspace") : "Google"),
+  gcMailName = () => (gcIsDemo() ? gcKindName() : "Gmail"),
   gcOn = () => {
     const g = gcMine();
     return !(!g || !g.email);
@@ -109369,11 +109627,12 @@ function gcDisconnect() {
   try {
     gcServerDisconnect();
   } catch (e) {}
-  gcClearToken(u.id), (DB.conn[u.id].google = null);
+  const kind = gcKindName();
+  gcClearToken(u.id), (DB.conn[u.id].google = null), DB.demoWs && delete DB.demoWs[u.id];
   const n = gcWipe(u.id);
   save(),
     paDid(
-      "Disconnected the Google account",
+      `Disconnected the ${"Google" === kind ? "Google account" : kind}`,
       `and removed the ${n} record${1 === n ? "" : "s"} it had pulled in, so nothing of theirs is left behind`,
       null,
     ),
@@ -109382,10 +109641,30 @@ function gcDisconnect() {
 }
 function gcWipe(userId) {
   let n = 0;
-  const before = (DB.comms || []).length;
-  (DB.comms = (DB.comms || []).filter((c) => !("google" === c.source && c.owner === userId))),
-    (n += before - DB.comms.length),
-    (DB.calendar = DB.calendar || { external: [] });
+  const before = (DB.comms || []).length,
+    gone = (DB.comms || []).filter((c) => ("google" === c.source || "demo" === c.source) && c.owner === userId),
+    goneIds = new Set(gone.map((c) => c.id)),
+    goneMsg = new Set(gone.map((c) => c.msgId).filter(Boolean));
+  (DB.comms = (DB.comms || []).filter((c) => !goneIds.has(c.id))), (n += before - DB.comms.length);
+  // Meetings read from those messages whose proposals nobody approved, the payment claims they made, and
+  // the nudges that pointed at them leave with them. Anything a person approved stays: it is theirs now.
+  (DB.meetings = (DB.meetings || []).filter(
+    (m) => !(goneIds.has(m.commId) && !(m.proposals || []).some((p) => "applied" === p.status)),
+  )),
+    (DB.expected = (DB.expected || []).filter((e) => !goneIds.has(e.commId)));
+  const A = (DB.asst || {})[userId];
+  A &&
+    ((A.thread = (A.thread || []).filter(
+      (m) =>
+        !(
+          m.ref &&
+          (("mail" === m.ref.kind && (goneMsg.has(m.ref.id) || goneIds.has(m.ref.commId))) ||
+            ("event" === m.ref.kind && (DB.calendar?.external || []).some((e) => e.id === m.ref.id && e.owner === userId)) ||
+            ("file" === m.ref.kind && (DB.gdrive || []).some((f) => f.id === m.ref.id && f.owner === userId)))
+        ),
+    )),
+    (A.expect = (A.expect || []).filter((e) => !(e.ref && "mail" === e.ref.kind && goneMsg.has(e.ref.id)))));
+  DB.calendar = DB.calendar || { external: [] };
   const be = (DB.calendar.external || []).length;
   (DB.calendar.external = (DB.calendar.external || []).filter((e) => e.owner !== userId)),
     (n += be - DB.calendar.external.length);
@@ -109395,6 +109674,7 @@ function gcWipe(userId) {
 let gcBack = 0;
 async function gcFetch(path, opts) {
   const o = Object.assign({}, opts || {});
+  if (gcIsDemo()) return gsFetchDemo(/^https?:/.test(path) ? path : "https://www.googleapis.com" + path, o);
   let t = gcToken();
   if (!t && ((t = await gcRefresh()), !t)) throw new Error("not connected");
   const url = /^https?:/.test(path) ? path : "https://www.googleapis.com" + path,
@@ -109569,14 +109849,16 @@ async function gsGmail(first) {
       from: gsAddrs(gsHdr(m, "From"))[0] || { name: "", email: "" },
       to: gsAddrs(gsHdr(m, "To")).map((a) => (a.name ? `${a.name} <${a.email}>` : a.email)),
       cc: gsAddrs(gsHdr(m, "Cc")).map((a) => (a.name ? `${a.name} <${a.email}>` : a.email)),
-      date: date ? new Date(date).toISOString() : new Date(+m.internalDate || Date.now()).toISOString(),
+      date: date ? new Date(date).toISOString() : new Date(+m.internalDate || appNowMs()).toISOString(),
       subject: gsHdr(m, "Subject"),
       text: gsBody(m),
-      source: "google",
+      source: gcIsDemo() ? "demo" : "google",
       owner: me.id,
       labels: m.labelIds || [],
       unread: (m.labelIds || []).includes("UNREAD"),
-      links: [{ label: "Open in Gmail", url: `https://mail.google.com/mail/u/0/#inbox/${m.threadId}` }],
+      links: gcIsDemo()
+        ? []
+        : [{ label: "Open in Gmail", url: `https://mail.google.com/mail/u/0/#inbox/${m.threadId}` }],
       attachments: gsAtt(m),
     });
   }
@@ -109586,7 +109868,7 @@ async function gsGmail(first) {
       const c = (DB.comms || []).find((x) => x.msgId === o.msgId);
       c &&
         ((c.owner = me.id),
-        (c.source = "google"),
+        (c.source = o.source),
         (c.unread = o.unread),
         (c.labels = o.labels),
         (c.links = o.links));
@@ -109602,13 +109884,19 @@ const gsAtt = (m) => {
         (p.filename &&
           p.body &&
           p.body.attachmentId &&
-          out.push({
-            name: p.filename,
-            mime: p.mimeType,
-            size: p.body.size || 0,
-            attachmentId: p.body.attachmentId,
-            msgId: m.id,
-          }),
+          out.push(
+            Object.assign(
+              {
+                name: p.filename,
+                mime: p.mimeType,
+                size: p.body.size || 0,
+                attachmentId: p.body.attachmentId,
+                msgId: m.id,
+              },
+              // A demo attachment carries its extracted text (the server-side PDF reader was lost).
+              p.body.text ? { text: p.body.text } : {},
+            ),
+          ),
         (p.parts || []).forEach(walk));
     };
   return walk(m.payload), out;
@@ -109620,7 +109908,7 @@ async function gsCal(first) {
   const tok = gsCur("calTok");
   let url = tok
       ? `/calendar/v3/calendars/primary/events?syncToken=${encodeURIComponent(tok)}&singleEvents=true`
-      : `/calendar/v3/calendars/primary/events?singleEvents=true&orderBy=startTime&maxResults=250&timeMin=${encodeURIComponent(new Date(Date.now() - 6048e5).toISOString())}&timeMax=${encodeURIComponent(new Date(Date.now() + 7776e6).toISOString())}`,
+      : `/calendar/v3/calendars/primary/events?singleEvents=true&orderBy=startTime&maxResults=250&timeMin=${encodeURIComponent(new Date(appNowMs() - 6048e5).toISOString())}&timeMax=${encodeURIComponent(new Date(appNowMs() + 7776e6).toISOString())}`,
     data = null;
   try {
     data = await gcFetch(url);
@@ -109650,6 +109938,7 @@ async function gsCal(first) {
           status: a.responseStatus,
         })),
         organizer: (ev.organizer || {}).email || "",
+        source: gcIsDemo() ? "demo" : "google",
         at: appNowIso(),
       };
       i >= 0 ? (DB.calendar.external[i] = rec) : (DB.calendar.external.push(rec), fresh.push(rec));
@@ -109682,6 +109971,7 @@ async function gsDrive(first) {
           link: f.webViewLink,
           size: +f.size || 0,
           by: ((f.owners || [])[0] || {}).displayName || "",
+          source: gcIsDemo() ? "demo" : "google",
           at: appNowIso(),
         };
       (rec.route = gsRouteFile(rec)), i >= 0 ? (DB.gdrive[i] = rec) : (DB.gdrive.push(rec), fresh.push(rec));
@@ -109706,8 +109996,31 @@ function gsRouteFile(f) {
         .toLowerCase()
         .split(/\s*&\s*|\s+and\s+/)
         .some((q) => q.length > 3 && n.includes(q.trim())),
-    );
-  return { projectId: p ? p.id : "", clientId: c ? c.id : "" };
+    ),
+    // A vendor's name in the file name routes it to the vendor (a COI, a W-9, a quote).
+    v = (DB.vendors || []).find((x) => {
+      const k = String(x.name || "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, " ")
+        .trim();
+      return k.length > 3 && n.replace(/[^a-z0-9]+/g, " ").includes(k);
+    }),
+    kind = /\bcoi\b|certificate|insurance/.test(n)
+      ? "coi"
+      : /w-?9/.test(n)
+        ? "w9"
+        : /statement/.test(n) && /amex|chase|card|bank|\d{4}/.test(n)
+          ? "statement"
+          : /transcript|notes/.test(n)
+            ? "transcript"
+            : /invoice|bill\b/.test(n)
+              ? "invoice"
+              : /\b[a-z]-?\d{3}\b|drawing|plan|set\b|\.dwg|\.rvt/.test(n)
+                ? "drawing"
+                : /proposal|quote|estimate/.test(n)
+                  ? "proposal"
+                  : "";
+  return { projectId: p ? p.id : "", clientId: c ? c.id : "", vendorId: v && !c ? v.id : "", kind: kind };
 }
 async function gsRun(opts) {
   const o = opts || {};
@@ -109820,6 +110133,11 @@ async function gaSend(draftId) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ id: draftId }),
   });
+  // The draft the pull already holds is now sent: the local copy says so without waiting for a re-pull.
+  try {
+    const c = r && (DB.comms || []).find((x) => x.msgId === r.id);
+    c && ((c.labels = r.labelIds || ["SENT"]), (c.direction = "out"), (c.sentAt = appNowIso()), save());
+  } catch (e) {}
   return paDid("Sent the message you approved", "you pressed send on it", null), r;
 }
 async function gaLabel(msgId, add, remove) {
@@ -109881,7 +110199,7 @@ async function gaBook(o) {
     );
   return paDid(`Booked ${o.title}`, o.why || "you approved it", null), r;
 }
-function gaFile(rec, projectId, clientId) {
+function gaFile(rec, projectId, clientId, vendorId) {
   DB.files = DB.files || [];
   const f = {
     id: uid("f"),
@@ -109891,6 +110209,7 @@ function gaFile(rec, projectId, clientId) {
     mime: rec.mime,
     projectId: projectId || "",
     clientId: clientId || "",
+    vendorId: vendorId || "",
     at: today(),
     by: paMe().name,
     source: "drive",
@@ -109900,7 +110219,11 @@ function gaFile(rec, projectId, clientId) {
     DB.files.push(f),
     (rec.filed = f.id),
     save(),
-    paDid(`Filed ${rec.name}`, "it names the job, so it belongs on the job", { view: "files" }),
+    paDid(
+      `Filed ${rec.name}`,
+      vendorId ? "it is the vendor's paperwork, so it belongs on the vendor" : "it names the job, so it belongs on the job",
+      { view: vendorId ? "vendors" : "files" },
+    ),
     f
   );
 }
@@ -109919,11 +110242,16 @@ function gcHtml() {
     others = Object.keys(DB.conn || {}).filter((k) => k !== me.id && (DB.conn[k] || {}).google).length,
     counts = (g && g.counts) || {},
     why = gcBlocked ? GC_WHY[gcBlocked] : cfg.clientId ? "" : GC_WHY.noclient;
-  return `<div class="ph"><div><h2>Connections</h2><div class="lead">Your assistant reads what you connect here and keeps checking it. Each person connects their own account — what arrives in your mail is yours, and nobody else's assistant can read it.</div></div></div>\n  <div class="gc">\n    <div class="card gc-acct"><div class="hd"><h3>Google — ${esc(me.name)}</h3><span class="grow"></span>\n      ${g && g.email ? `<span class="gc-dot on"></span><span class="small">${esc(g.email)}</span>` : '<span class="gc-dot"></span><span class="small muted">Not connected</span>'}</div>\n      <div class="bd">\n        ${g && g.email ? `\n          <div class="gc-stat">\n            <div><span>Last checked</span><b>${esc(gsAgo(g.lastSync))}</b></div>\n            <div><span>Mail held</span><b>${counts.mail || 0}</b></div>\n            <div><span>Calendar entries</span><b>${counts.events || 0}</b></div>\n            <div><span>Documents</span><b>${counts.files || 0}</b></div>\n          </div>\n          ${g.lastError ? `<div class="gc-err">${esc(g.lastError)}</div>` : ""}\n          <label class="gc-auto"><input type="checkbox" id="gc-auto" ${!1 !== g.auto ? "checked" : ""}> Keep checking on its own while the app is open</label>\n          <div class="gc-always ${(g.server || {}).watching ? "on" : ""}">\n            <span class="gc-dot${(g.server || {}).watching ? " on" : ""}"></span>\n            ${(g.server || {}).watching ? "<b>Watching when nobody is looking.</b> The firm's own server checks every fifteen minutes through the working day and leaves what matters in your conversation, so it is waiting for you when you open the app." : gcServerOn() ? '<b>Only while this is open.</b> <button class="btn sm" id="gc-always">Keep Watching When It Is Closed</button>' : "<b>Only while this is open.</b> Checking when the app is shut needs the hosted copy — there is nowhere for a server to run from here."}\n          </div>\n          <div class="gc-acts"><button class="btn sm" id="gc-now">Check Now</button><button class="btn sm" id="gc-off">Disconnect</button></div>\n        ` : `\n          <p class="small">Connecting signs you in to Google in a window from Google itself. This app never sees your password, and the key it gets back is held for this browser session only — it is not written into the saved data or carried into a backup.</p>\n          ${why ? `<div class="gc-err">${esc(why)}</div>` : ""}\n          <button class="btn" id="gc-go" ${cfg.clientId ? "" : "disabled"}>Connect My Google Account</button>\n        `}\n        <div class="gc-what">${GC_WHAT.map(([k, d]) => `<div><b>${k}</b><span>${esc(d)}</span></div>`).join("")}</div>\n        <div class="small muted gc-note">It writes drafts and holds time on its own. It sends an email or books a meeting only when you press the button on it — nothing in the checking loop can send anything.</div>\n      </div></div>\n    ${others ? `<div class="small muted gc-others">${others} other ${1 === others ? "person has" : "people have"} connected their own account. You cannot see theirs and they cannot see yours.</div>` : ""}\n    ${gcSetupHtml()}\n  </div>`;
+  const demo = !!(g && g.demo),
+    canDemo = "function" == typeof gcDemoAvailable && gcDemoAvailable(),
+    loaded = "function" == typeof dwLoadedFor && dwLoadedFor(),
+    demoName = demo ? (g.loaded ? "Loaded Workspace" : "Demo Workspace") : loaded ? "Loaded Workspace" : "Demo Workspace";
+  return `<div class="ph"><div><h2>Connections</h2><div class="lead">Your assistant reads what you connect here and keeps checking it. Each person connects their own account — what arrives in your mail is yours, and nobody else's assistant can read it.</div></div></div>\n  <div class="gc">\n    <div class="card gc-acct"><div class="hd"><h3>${demo ? demoName : "Google"} — ${esc(me.name)}</h3><span class="grow"></span>\n      ${g && g.email ? `<span class="gc-dot on"></span><span class="small">${esc(g.email)}${demo ? " · invented mailbox, calendar and drive" : ""}</span>` : '<span class="gc-dot"></span><span class="small muted">Not connected</span>'}</div>\n      <div class="bd">\n        ${g && g.email ? `\n          ${demo ? `<p class="small">${g.loaded ? "This is a Loaded Workspace: a mailbox, calendar and drive loaded for this session from a file" : "This is the Demo Workspace: an invented mailbox, calendar and drive for your role"}, served through the same code real Google uses. Nothing it writes leaves this app.</p>` : ""}\n          <div class="gc-stat">\n            <div><span>Last checked</span><b>${esc(gsAgo(g.lastSync))}</b></div>\n            <div><span>Mail held</span><b>${counts.mail || 0}</b></div>\n            <div><span>Calendar entries</span><b>${counts.events || 0}</b></div>\n            <div><span>Documents</span><b>${counts.files || 0}</b></div>\n          </div>\n          ${g.lastError ? `<div class="gc-err">${esc(g.lastError)}</div>` : ""}\n          <label class="gc-auto"><input type="checkbox" id="gc-auto" ${!1 !== g.auto ? "checked" : ""}> Keep checking on its own while the app is open</label>\n          <div class="gc-always ${(g.server || {}).watching ? "on" : ""}">\n            <span class="gc-dot${(g.server || {}).watching ? " on" : ""}"></span>\n            ${demo ? `<b>Checked every ${esc(String(Math.max(2, +(g.every || cfg.every || 5))))} minutes while this is open.</b> The hosted watcher ran every fifteen minutes through the working day; here the same timer runs in the browser, and Sync Now runs it at once.` : (g.server || {}).watching ? "<b>Watching when nobody is looking.</b> The firm's own server checks every fifteen minutes through the working day and leaves what matters in your conversation, so it is waiting for you when you open the app." : gcServerOn() ? '<b>Only while this is open.</b> <button class="btn sm" id="gc-always">Keep Watching When It Is Closed</button>' : "<b>Only while this is open.</b> Checking when the app is shut needs the hosted copy — there is nowhere for a server to run from here."}\n          </div>\n          <div class="gc-acts"><button class="btn sm" id="gc-now">Sync Now</button><button class="btn sm" id="gc-off">Disconnect</button></div>\n        ` : `\n          <p class="small">Connecting signs you in to Google in a window from Google itself. This app never sees your password, and the key it gets back is held for this browser session only — it is not written into the saved data or carried into a backup.</p>\n          ${why ? `<div class="gc-err">${esc(why)}</div>` : ""}\n          <button class="btn" id="gc-go" ${cfg.clientId ? "" : "disabled"}>Connect My Google Account</button>\n          ${!cfg.clientId && canDemo ? `<div class="gc-demo"><b>${demoName}</b><span class="small">${loaded ? "A mailbox, calendar and drive loaded for this session from a file, served through the same code real Google uses." : "An invented mailbox, calendar and drive for your role, served through the same code real Google uses, so the assistant, the inbox routing, the meeting notes, the filing and the brain can be tried without a real account. Nothing in it is real."}</span><button class="btn sm" id="gc-demo">Connect ${demoName}</button></div>` : ""}\n        `}\n        <div class="gc-what">${GC_WHAT.map(([k, d]) => `<div><b>${k}</b><span>${esc(d)}</span></div>`).join("")}</div>\n        <div class="small muted gc-note">It writes drafts and holds time on its own. It sends an email or books a meeting only when you press the button on it — nothing in the checking loop can send anything.</div>\n      </div></div>\n    ${others ? `<div class="small muted gc-others">${others} other ${1 === others ? "person has" : "people have"} connected their own account. You cannot see theirs and they cannot see yours.</div>` : ""}\n    ${gcSetupHtml()}\n  </div>`;
 }
 function gcWire(host) {
   const q = (s) => host.querySelector(s);
   q("#gc-go") && (q("#gc-go").onclick = () => gcConnect()),
+    q("#gc-demo") && (q("#gc-demo").onclick = () => gcDemoConnect()),
     q("#gc-off") &&
       (q("#gc-off").onclick = () => {
         appConfirm("Disconnect this account? What it pulled in for you is removed with it.") &&
@@ -109931,9 +110259,9 @@ function gcWire(host) {
       }),
     q("#gc-now") &&
       (q("#gc-now").onclick = () => {
-        toast("Checking…"),
+        toast("Syncing…"),
           gsRun({}).then((d) => {
-            d && toast(gcSummary(d));
+            d && toast(gcSummary(d), gcOpen("pa"));
           });
       }),
     q("#gc-auto") &&
@@ -109958,6 +110286,15 @@ function gcWire(host) {
           render();
       });
 }
+// An Open link for a toast: {label, run}, the shape toast() reads.
+const gcOpen = (v, label) => [
+  {
+    label: label || "Open",
+    run: () => {
+      (view = v), render();
+    },
+  },
+];
 const gcSummary = (d) => {
   const b = [
     d.mail.length ? `${d.mail.length} new message${1 === d.mail.length ? "" : "s"}` : "",
@@ -110162,7 +110499,9 @@ function paWatch(delta) {
     made.push(
       paNudge(
         `${who} wrote about ${m.subject || "something"}.`,
-        `I brought this to you because it names ${S.term || "something you are working on"} — ${S.why}${bits.length ? `, and ${bits.join(" and ")}` : ""}.`,
+        S.term
+          ? `I brought this to you because it names ${S.term} — ${S.why}${bits.length ? `, and ${bits.join(" and ")}` : ""}.`
+          : `I brought this to you because ${bits.length ? bits.join(" and ") : "it reads like your work"}.`,
         { kind: "mail", id: m.msgId, commId: c ? c.id : "" },
         S.why,
       ),
@@ -110183,14 +110522,34 @@ function paWatch(delta) {
         );
     }),
     (delta.files || []).forEach((f) => {
-      const r = f.route || {};
+      const r = f.route || {},
+        v = r.vendorId && (DB.vendors || []).find((x) => x.id === r.vendorId),
+        fin = ["owner", "controller", "billing"].includes(String(paMe().role || ""));
+      if (v && ("coi" === r.kind || "w9" === r.kind))
+        return void made.push(
+          paNudge(
+            `${f.name} landed in Drive.`,
+            `It is ${v.name}'s ${"w9" === r.kind ? "W-9" : "certificate of insurance"}${v.insuranceExp && v.insuranceExp < today() && "coi" === r.kind ? `, and their certificate on file expired ${fmtL(v.insuranceExp)} — it is blocking payment` : ""}. It belongs on the vendor, with the expiry read off it.`,
+            { kind: "file", id: f.id },
+            "a vendor's paperwork",
+          ),
+        );
+      if ("statement" === r.kind && fin)
+        return void made.push(
+          paNudge(
+            `${f.name} landed in Drive.`,
+            "A card or bank statement. Bank › Import reads it line by line and marks what is already in the books.",
+            { kind: "file", id: f.id },
+            "the books",
+          ),
+        );
       if (!r.projectId && !r.clientId) return;
       const p = (DB.projects || []).find((x) => x.id === r.projectId);
       (p && !paMine().projects.some((x) => x.id === p.id)) ||
         made.push(
           paNudge(
             `${f.name} landed in Drive.`,
-            `It names ${p ? String(p.project.name).replace(/ —.*$/, "") : "a client of yours"}, so it belongs on that job rather than loose in a folder.`,
+            `It names ${p ? String(p.project.name).replace(/ —.*$/, "") : "a client of yours"}${"drawing" === r.kind ? " and reads like a drawing" : ""}, so it belongs on that job rather than loose in a folder.`,
             { kind: "file", id: f.id },
             "a job you run",
           ),
@@ -110209,8 +110568,7 @@ function paRefOffers(ref) {
       csOffer({
         id: "pa-reply",
         label: "Draft the Reply",
-        detail:
-          "Written in your voice into your own Gmail drafts, on the same thread. Nothing sends until you open it and press send.",
+        detail: `Written in your voice into your own ${gcMailName()} drafts, on the same thread. Nothing sends until you open it and press send.`,
         run: async () => {
           try {
             const to = (c.from || {}).email || "",
@@ -110222,7 +110580,7 @@ function paRefOffers(ref) {
               threadId: c.threadId,
               why: `${(c.from || {}).name || to} asked and it touches your work`,
             }),
-              toast("Drafted in your Gmail — open it, read it, send it");
+              toast(`Drafted in your ${gcMailName()} — open it, read it, send it`);
           } catch (e) {
             toast("Could not write the draft — " + e.message);
           }
@@ -110313,14 +110671,52 @@ function paRefOffers(ref) {
   if ("file" === ref.kind) {
     const f = (DB.gdrive || []).find((x) => x.id === ref.id);
     if (!f || f.filed) return out;
-    const r = f.route || {};
+    const r = f.route || {},
+      v = r.vendorId && (DB.vendors || []).find((x) => x.id === r.vendorId);
+    if (v && "coi" === r.kind)
+      return (
+        out.push(
+          csOffer({
+            id: "pa-filecoi",
+            label: `File It On ${v.name} and Set the Expiry`,
+            detail: `Linked on the vendor. I read the policy period off the certificate and set the insurance expiry from it${v.insuranceExp && v.insuranceExp < today() ? ", which clears the block on paying them" : ""}.`,
+            run: async () => {
+              let txt = "";
+              try {
+                txt = await gcDocText(f);
+              } catch (e) {}
+              const exp = "function" == typeof cmCoiExpiry ? cmCoiExpiry(txt) : "";
+              gaFile(f, r.projectId, r.clientId, v.id),
+                exp && ((v.insuranceExp = exp), (v.coiReceivedAt = today()), save()),
+                toast(exp ? `Filed on ${v.name} — insurance now expires ${fmtL(exp)}` : `Filed on ${v.name}`, gcOpen("vendors")),
+                render();
+            },
+          }),
+        ),
+        out
+      );
+    if (v)
+      return (
+        out.push(
+          csOffer({
+            id: "pa-filevendor",
+            label: `File It On ${v.name}`,
+            detail: "Linked, not copied — the document stays where it is in Drive and the vendor points at it.",
+            run: () => {
+              gaFile(f, r.projectId, r.clientId, v.id), toast(`Filed on ${v.name}`, gcOpen("vendors")), render();
+            },
+          }),
+        ),
+        out
+      );
+    if (!r.projectId && !r.clientId) return out;
     out.push(
       csOffer({
         id: "pa-filedrive",
         label: "File It On the Job",
         detail: "Linked, not copied — the document stays where it is in Drive and the job points at it.",
         run: () => {
-          gaFile(f, r.projectId, r.clientId), toast("Filed on the job"), render();
+          gaFile(f, r.projectId, r.clientId), toast("Filed on the job", gcOpen("files")), render();
         },
       }),
     );
@@ -110421,7 +110817,19 @@ if ("function" == typeof paAsk) {
                     (view = "conn"), render();
                   },
                 }),
-              ],
+              ].concat(
+                "function" == typeof gcDemoAvailable && gcDemoAvailable() && !gcCfg().clientId
+                  ? [
+                      csOffer({
+                        id: "pa-demo",
+                        label: `Connect the ${"function" == typeof dwLoadedFor && dwLoadedFor() ? "Loaded Workspace" : "Demo Workspace"}`,
+                        detail:
+                          "An invented mailbox, calendar and drive for your role, read through the same code real Google uses. Nothing in it is real.",
+                        run: () => gcDemoConnect(),
+                      }),
+                    ]
+                  : [],
+              ),
             });
       const need = M.filter(paNeedsReply).slice(0, 8),
         w = need.map(
@@ -111237,7 +111645,7 @@ function eqTxns() {
 }
 const eqOwnOk = (r) =>
   !(
-    (r && "google" === r.source && r.owner && r.owner !== paMe().id) ||
+    (r && ("google" === r.source || "demo" === r.source) && r.owner && r.owner !== paMe().id) ||
     (r && r.owner && r.owner !== paMe().id && /^g_/.test(String(r.id || "")))
   );
 function eqMessages() {
@@ -112536,6 +112944,11 @@ async function gdocText(bytes, mime, name) {
 }
 async function gcDocText(f) {
   if (gdocCache[f.fileId]) return gdocCache[f.fileId];
+  if (gcIsDemo()) {
+    // The Demo Workspace answers files.get with the file's text in place of bytes (doctext.mjs was lost).
+    const j = await gsFetchDemo(`https://www.googleapis.com/drive/v3/files/${f.fileId}?alt=media`, {});
+    return (gdocCache[f.fileId] = String((j && j.text) || "")), gdocCache[f.fileId];
+  }
   const token = gcToken();
   if (!token) throw new Error("not connected");
   const exp = GDOC_EXPORT[f.kind || f.mime],
@@ -112551,8 +112964,10 @@ async function gcDocText(f) {
 async function gcAttachText(at) {
   const key = `${at.msgId}:${at.attachmentId}`;
   if (gdocCache[key]) return gdocCache[key];
-  const j = await gcFetch(`/gmail/v1/users/me/messages/${at.msgId}/attachments/${at.attachmentId}`),
-    raw = String(j.data || "")
+  const j = await gcFetch(`/gmail/v1/users/me/messages/${at.msgId}/attachments/${at.attachmentId}`);
+  // A demo attachment carries its extracted text (the server-side PDF reader was lost); use it directly.
+  if (j && "string" == typeof j.text) return (gdocCache[key] = j.text), j.text;
+  const raw = String(j.data || "")
       .replace(/-/g, "+")
       .replace(/_/g, "/"),
     bin = atob(raw),
