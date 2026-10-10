@@ -345,3 +345,38 @@ These are not reviewer findings. They are what the reviewers kept circling: the 
    - Delegation moves items to the right person, so the owner's queue is only what only the owner can do.
 4. **Performance.** Measure boot, view switch and input latency on a mid-range phone (6x CPU throttle). Target view switch under 100ms and boot under 2s. Memoise jobFin and companyPL per DB revision.
 5. **Accessibility.** Keyboard paths for every primary flow, focus management after dialogs, ARIA on tabs and grids, contrast AA.
+
+---
+
+## §4 Round 5: the role experts' first walk (2026-10-10)
+Reviewers: `.claude/agents/` role experts, each a full day with a linked workspace (the owner on his real one). Reports in `review/r5_<role>/report.md` (git-ignored).
+
+| Role | Screens | Assistant | Brain | Overall | Would choose it over… |
+|---|---|---|---|---|---|
+| Owner | 6.5 | 4 | 4.5 | 5.5 | "beside QuickBooks and my inbox for a quarter; not yet let anyone tap Approve on what it proposes from mail" |
+| PM | 7 | 5 | 6 | 6.5 | Procore / Buildertrend on the schedule story; not until the two S1s are gone |
+| Coordinator | 6 | 5 | 4 | 5.5 | "the day the PO chain and the owner's approval queue hold money correctly" |
+| Controller | 7.5 | 5.5 | 4 | 7 | QuickBooks today for the gates and the audit chain; NetSuite once the WIP ties |
+| Client | 6.5 | 4 | 4 | 5.5 | Buildertrend's portal once the file editor and the design-phase truth are fixed |
+
+### Severity 1, with the lane that owns the fix
+1. Money proposals from mail point the wrong way (Zelle credits as bills, rent as AR, a stranger's deposit claim watched). **brain**
+2. "View the Sheets" opens the staff file editor to the client, with Save and Delete. **clientfix**
+3. The design-phase portal states construction truths on an unpaid retainer. **clientfix**
+4. A give-back never closes; a second Pull In pulls 4 more days; the next publish would send a false finish. **ops**
+5. A client's approved overage has no path to a change order. **ops**
+6. A PO with no vendor and a $0 line issues from a released submittal (§1.4 #1 was never rebuilt). **purchasing**
+7. A bill read from mail lands with no PO and no job; Bill Remaining ignores it ($95,000 billed on a $76,000 order). **purchasing**
+8. Submittal responses recorded on someone's behalf are attributed to the reviewer, including the client. **purchasing**
+9. A PO submitted for the owner's approval reaches nobody. **purchasing**
+10. WIP does not tie to the ledger after the close (§1.1 #1); the close does not refuse. **closetie**
+11. Budget activation and lock are unguarded in the functions (§1.1 #6). **closetie**
+12. One coding click re-recognised $27,000 of revenue by cost-to-cost against an unreviewed EAC. **closetie**
+
+### The classes behind the severity-2 findings
+- **The assistant guesses:** typo correction overreaches on known nouns; client names resolve to staff; "friday" is Thursday; memory rewrites the user's words; drafts are a template; chases send nothing; a slow answer hangs the thread. **assistant**
+- **The brain does not learn from events:** lessons are a fixed menu, fired 0×; nothing from a no-show, an extra before its CO, an LPC resubmit, a wrong-finish return, a $0 PO, a dispute, a void, a reopen, thirteen meetings. **learn**
+- **Proposals never reach a hand:** mail-read bills, imports, quotes, receipts, W-9 chases sit on the Comms screen; "X wrote about Y" with no button. **learn** (Needs Your Hand queue)
+- **Field answers stop at "save a record":** no-show, inspection booking, the client's choice, the sample approval. **ops**, **clientfix**
+- **The reader does not finish the job:** quote → task not price; receipt → uncoded line; delivery date → note; credit memo → nothing. **purchasing**
+- **Clones and counts:** 206 Lenox carries 121 State's decisions and materials; "late" and "blocked" still have several numbers on the purchasing screens; two Alans; "[image: …]" as a person. **ops**, **brain**
