@@ -162,6 +162,25 @@ async def s_order(p, c):
         c.ok(not errs, f'order: page errors {errs[:2]}')
     finally:
         await b.close()
+    # a quote from a stone yard nobody has on file: the offer to put them on file rides along, then Order finds them
+    b, pg, errs = await fresh(p, ['u_chen'], '2026-09-10')
+    try:
+        await inject(pg, 'E074'); await sync(pg, 'u_chen')
+        ks = await pg.evaluate("() => (DB.comms.find(x => /GS-418/.test(x.subject)) || { proposals: [] }).proposals.map(p => p.kind + (p.as ? ':' + p.as : ''))")
+        c.ok('quote' in ks and 'unrouted:vendor' in ks, f'order: the Gowanus quote comes with the offer to put the yard on file ({ks})')
+        await pg.evaluate("""() => { const c = DB.comms.find(x => /GS-418/.test(x.subject)); cmApply(c, c.proposals.find(p => p.kind === 'quote')); mbCloseModal();
+          cmApply(c, c.proposals.find(p => p.kind === 'unrouted')); mbCloseModal(); save(); }""")
+        await home(pg, 'u_chen')
+        await press(pg, r'countertop slab', r'^Order$')
+        m = await modal(pg)
+        c.ok(m and m['fields'].get('vendor') == 'Gowanus Stone Yard' and float(m['fields'].get('price') or 0) == 7450, f"order: the slab's Order picks the yard from its quote at $7,450 ({m and m['fields']})")
+        if m:
+            await ok(pg, 900)
+            po = await pg.evaluate("() => { const o = DB.pos.find(x => x.lines.some(l => l.materialId === 'm19')); return o && [o.status, o.vendor, poTotal(o).total]; }")
+            c.ok(po and po[0] == 'issued' and po[2] == 7450, f'order: the slab PO is issued ({po})')
+        c.ok(not errs, f'order: page errors {errs[:2]}')
+    finally:
+        await b.close()
 
 
 # ------------------------------------------------------------------------------------------------ 2. field
@@ -342,6 +361,13 @@ async def s_chase(p, c):
         if await modal(pg): await ok(pg, 800)
         await pg.wait_for_timeout(400)
         c.ok(await pg.evaluate(SENT, 'adler'), f"chase: Sofia Adler's inquiry gets a reply draft ({await pg.evaluate(SENT, 'adler')})")
+        # a lead's two questions: Draft the Reply, not a task
+        await pg.evaluate("d => appSetDay(d)", '2026-09-14')
+        await inject(pg, 'E115'); await sync(pg, 'u_owner')
+        n0 = len(await pg.evaluate(SENT, 'adler'))
+        v = await press_any(pg, 'u_owner', r'Sofia Adler asks', r'^Draft the Reply$')
+        await pg.wait_for_timeout(500)
+        c.ok(v == 'Draft the Reply' and len(await pg.evaluate(SENT, 'adler')) > n0, f"chase: Sofia Adler's questions get a reply draft ({v!r})")
         # a call: Hannah Brooks on file as a lead, and the call back is a task
         await pg.evaluate("d => appSetDay(d)", '2026-09-25')
         await inject(pg, 'E236'); await sync(pg, 'u_owner')

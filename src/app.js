@@ -45672,21 +45672,28 @@ const fRaises = (pid) => DB.field.raises.filter((r) => r.projectId === (pid || S
   fNow = () => appNowIso();
 // Hours a question from the site has waited, counted on working days only: a raise sent Friday afternoon has
 // not waited the weekend (flow: the damaged laundry boxes escalated past the coordinator before she opened Monday).
+// The hours are site hours (07:30 to 17:30 on working days): a raise at 4:30 on a Friday has waited one hour by
+// Monday morning. A type's allowance of a day or more is that many working days of site hours.
 function fWorkHours(at, nowMs) {
   const from = new Date(at).getTime(),
     to = nowMs || appNowMs();
   if (!(to > from)) return 0;
-  let h = (to - from) / 36e5;
-  for (let d = iso(new Date(from)); d < iso(new Date(to)); d = iso(addDays(d, 1))) isWork(d) || (h -= 24);
-  isWork(iso(new Date(to))) || (h -= (to - new Date(iso(new Date(to)) + "T00:00:00").getTime()) / 36e5);
-  return Math.max(0, h);
+  let h = 0;
+  for (let d = iso(new Date(from)); d <= iso(new Date(to)); d = iso(addDays(d, 1))) {
+    if (!isWork(d)) continue;
+    const a = Math.max(from, new Date(d + "T07:30:00").getTime()),
+      b = Math.min(to, new Date(d + "T17:30:00").getTime());
+    b > a && (h += (b - a) / 36e5);
+  }
+  return h;
 }
+const fAllowHours = (hrs) => (hrs >= 24 ? (hrs / 24) * 10 : hrs);
 function fTick() {
   let changed = !1;
   for (const r of DB.field.raises) {
     if (!["sent", "seen"].includes(r.status) || r.escalated) continue;
     const hrs = F_TYPES[r.type]?.hrs || 24;
-    fWorkHours(r.at) > hrs &&
+    fWorkHours(r.at) > fAllowHours(hrs) &&
       ((r.escalated = !0),
       (r.escalatedAt = fNow()),
       r.cc.includes("owner") || r.cc.push("owner"),
@@ -175154,7 +175161,7 @@ function flVendorFor(r) {
   if (!v && m && m.quoteCommId) {
     const c = (DB.comms || []).find((x) => x.id === m.quoteCommId),
       vid = c && (c.route || {}).vendorId;
-    v = (vid && (DB.vendors || []).find((x) => x.id === vid)) || (c && "function" == typeof cmVendorFor ? cmVendorFor(c) : null) || null;
+    v = (vid && (DB.vendors || []).find((x) => x.id === vid)) || (c && "function" == typeof cmVendorFor ? cmVendorFor((c.from || {}).email || "", (c.from || {}).name || "") : null) || null;
   }
   if (!v && m) {
     const key = normItem(m.name),
@@ -175558,6 +175565,20 @@ function flMeetAsk(c, R) {
         x.summary = `${act.charAt(0).toUpperCase() + act.slice(1)} — ${who}${x.due ? `, by ${fmtL(x.due)}` : ""}`;
         x.task = `${act.charAt(0).toUpperCase() + act.slice(1)}${jn ? " — " + jn : ""}`.slice(0, 140);
       });
+      // a quote from someone not on file: the offer to put them on file rides along, so the quote can become an order
+      const qn = P.find((x) => "quote" === x.kind && !x.out && !x.vendorId);
+      qn &&
+        !R.vendorId &&
+        !R.employee &&
+        !R.clientId &&
+        !P.some((x) => "unrouted" === x.kind) &&
+        push("unrouted", `${(c.from && c.from.name) || "The sender"} <${(c.from || {}).email || ""}> is not on file: their quote prices ${jn || "a job's line"} — put them on file to order from it`, { name: (c.from && c.from.name) || "", email: (c.from || {}).email || "", addr: R.addr || "", as: "vendor" });
+      // a lead's questions want an answer in writing, not a task: the reply is drafted for the person to finish
+      const em0 = String((c.from || {}).email || "").toLowerCase(),
+        lead0 = !R.clientId && !R.employee && (DB.leads || []).find((l) => (em0 && String(l.email || "").toLowerCase() === em0) || (R.leadName && String(l.name || "").toLowerCase() === String(R.leadName).toLowerCase()));
+      lead0 &&
+        /\?/.test(String(c.text || "")) &&
+        P.filter((x) => "request" === x.kind && !x.material).forEach((x) => Object.assign(x, { reply: !0, leadId: lead0.id, summary: `${lead0.name} asks: ${String(x.summary || "").replace(/\s+—\s+[^—]*$/, "")} — draft the reply` }));
       const dis = flCoDispute(c, R);
       dis && !dis.noCo && (push("codispute", `${(DB.clients.find((x) => x.id === R.clientId) || {}).name || "The client"} disputes ${dis.number} ${dis.title}: “${dis.sentence.slice(0, 110)}”`, Object.assign({ clientId: R.clientId, projectId: R.projectId || "" }, dis)), drop());
       const mt = flMeetAsk(c, R);
@@ -175819,12 +175840,19 @@ function flDraftTo(to, subject, body, why, o) {
       .catch(() => (outbox(), save()));
   return outbox(), save(), Promise.resolve(!0);
 }
+function flReplyApply(c, p) {
+  const lead = (DB.leads || []).find((l) => l.id === p.leadId) || null;
+  flReplyDraft(c, p, lead);
+  const did = `a reply to ${(lead && lead.name) || (c.from && c.from.name) || "them"} is in your Drafts — answer each question, then send`;
+  return flMark(c, p, did), save(), render(), rcToast(did, [{ label: "Open", run: () => ((window.cmFilter = "all"), (view = "comms"), render()) }]), did;
+}
 {
   const base = cmApply;
   cmApply = function (c, p) {
     try {
       if (p && c) {
         if ("request" === p.kind && p.material) return flApplyMatReq(c, p);
+        if ("request" === p.kind && p.reply) return flReplyApply(c, p);
         if ("visit" === p.kind) return flApplyVisit(c, p);
         if ("decision" === p.kind && p.decisionId) return flApplyChoice(c, p);
         if (!window.__cmBulk) {
@@ -175880,7 +175908,7 @@ function flAskRoute(c, p) {
   return R.projectId ? "pm" : roles[0] || "owner";
 }
 const FL_NYH = {
-  request: { route: flAskRoute, verb: (c, p) => (p.material ? "Apply" : "Make It a Task"), run: (c, p) => (p.material ? nyhApplyMail(c, p) : flTaskDialog(c, p, flAskRoute(c, p))), pri: (c, p) => (p.material ? 0 : 3), score: (c, p) => (p.material ? 54 : p.due && p.due <= addWork(today(), 1, !1) ? 56 : p.due && p.due <= addWork(today(), 3, !1) ? 44 : 34) },
+  request: { route: flAskRoute, verb: (c, p) => (p.material ? "Apply" : p.reply ? "Draft the Reply" : "Make It a Task"), run: (c, p) => (p.material ? nyhApplyMail(c, p) : p.reply ? flReplyApply(c, p) : flTaskDialog(c, p, flAskRoute(c, p))), pri: (c, p) => (p.material ? 0 : 3), score: (c, p) => (p.material ? 54 : p.due && p.due <= addWork(today(), 1, !1) ? 56 : p.due && p.due <= addWork(today(), 3, !1) ? 44 : 34) },
   visit: { route: () => "coord", verb: () => "Apply", run: (c, p) => nyhApplyMail(c, p), pri: () => 1, score: () => 40 },
   decision: { route: (c, p) => (p.decisionId ? "pm" : ""), verb: () => "Record Choice", run: (c, p) => nyhApplyMail(c, p), pri: () => 0, score: () => 57 },
   hold: { route: (c) => ((DB.users || []).find((x) => x.id === c.owner) || {}).role || "owner", verb: () => "Book It", run: (c, p) => flHoldDialog(c, p), pri: () => 2, score: () => 38 },

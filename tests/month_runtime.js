@@ -221,14 +221,15 @@ const SAY = {
 // Policies: per surface, an ordered list of rules {verb, kind?, text?, not?, sec?, follow?, chase?, prefer?}.
 // The one-tap verbs the app gained for the month's cracks (flow lane): Order on a late line, Record Choice on a choice
 // made by mail, Write the Change Order / Send to Client on an extra, Make It a Task on a dated ask, Book It on a
-// meeting time, Draft the Renewal on an obligation, Chase on billing's past-due row. Each is the button the person
+// meeting time, Draft the Renewal on an obligation, Draft the Reply on a lead's questions, Chase on billing's past-due
+// row; a line with no supplier yet is tried again after three working days, like a chase. Each is the button the person
 // sees on their own screen; the actor presses it like the others and the sheet driver does the rest.
 const POL = {
-  owner: { home: [{ verb: /^Approve$/ }, { verb: /^Dispute Difference$/ }, { verb: /^Chase COI$/, chase: 1, max: 2 }, { verb: /^Chase$/, chase: 1, max: 2 }, { verb: /^(Make It a Task|Book It|Draft the Renewal)$/, max: 2 }],
-    mapprove: [{ verb: /^Approve$/, kind: /^bill$/ }, { verb: /^(Approve|Post|Approve & Post)/, kind: /^(journal|payroll|learn)$/ }, { verb: /^(Make It a Task|Book It|Draft the Renewal)$/, kind: /^hand$/, max: 2 }] },
+  owner: { home: [{ verb: /^Approve$/ }, { verb: /^Dispute Difference$/ }, { verb: /^Chase COI$/, chase: 1, max: 2 }, { verb: /^Chase$/, chase: 1, max: 2 }, { verb: /^(Make It a Task|Book It|Draft the Renewal|Draft the Reply)$/, max: 2 }],
+    mapprove: [{ verb: /^Approve$/, kind: /^bill$/ }, { verb: /^(Approve|Post|Approve & Post)/, kind: /^(journal|payroll|learn)$/ }, { verb: /^(Make It a Task|Book It|Draft the Renewal|Draft the Reply)$/, kind: /^hand$/, max: 2 }] },
   pm: { home: [{ verb: /^Answer$/ }, { verb: /^(Approve|Recommend)$/ }, { verb: /^(Record Choice|Write the Change Order|Send to Client)$/ }, { verb: /^Make It a Task$/, max: 2 }, { verb: /^Chase$/, chase: 1, max: 1 }],
     mapprove: [{ verb: /^Approve All Hours/ }, { verb: /^Answer$/ }, { verb: /^(Approve|Recommend)$/, kind: /^(bill|time)$/ }, { verb: /^(Record Choice|Write the Change Order|Send to Client|Make It a Task)$/, kind: /^hand$/, max: 2 }, { verb: /^Open$/, kind: /^meeting$/, follow: /^Approve All/ }] },
-  coord: { home: [{ verb: /^Acknowledge$/ }, { verb: /^(Apply|Make It a Task)$/, max: 4 }, { verb: /^Order$/, max: 3 }, { verb: /^Chase$/, chase: 1, max: 2 }],
+  coord: { home: [{ verb: /^Acknowledge$/ }, { verb: /^(Apply|Make It a Task)$/, max: 4 }, { verb: /^Order$/, max: 3, chase: 1 }, { verb: /^Chase$/, chase: 1, max: 2 }],
     mapprove: [{ verb: /^Acknowledge$/, follow: /^Acknowledge$/ }, { verb: /^Answer$/, follow: /^Answer$/ }, { verb: /^Open$/, kind: /^meeting$/, follow: /^Approve All/ }] },
   billing: { billing: [{ verb: /^Draft$/, follow: /^Send to Client$/ }, { verb: /^Send$/ }], home: [{ verb: /^(Record Payment|Resolve)$/ }, { verb: /^(Draft|Draft It)$/, follow: /^Send to Client$/ }, { verb: /^Confirm$/ }, { verb: /^Apply$/, max: 3 }, { verb: /^Chase$/, chase: 1, max: 2 }] },
   controller: { home: [{ verb: /^Confirm$/, follow: /^Confirm$/ }, { verb: /^Apply$/, max: 4 }], bank: [{ verb: /^Confirm$/, kind: /^proposal$/ }, { verb: /^Accept$/ }, { verb: /^Match to a Line/, kind: /^unmatched$/ }] },
