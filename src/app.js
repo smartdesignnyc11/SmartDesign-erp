@@ -163360,3 +163360,273 @@ document.addEventListener("scroll", tdScrolled, { passive: !0, capture: !0 });
     return r;
   };
 }
+
+// ---- truth (BACKLOG §1.6): the ERP's financials are the single source of truth.
+// One function is the source of each figure here: truthBacking says what evidence stands behind a money row;
+// truthCoverage adds them up for a period or a job; truthFlagOf names a posting that did not come from a document;
+// truthChain/truthSeal/truthVerify make the postings of a closed month tamper-evident; truthMatchOf is the one
+// link model from a bank or card line to its bill, PO, estimate, invoice or payroll line; qboLoad and truthTieOut
+// bring a QuickBooks snapshot in as a bridge for comparison, never as the truth.
+const truthWho = () => fin2Who(),
+  truthWhen = (s) => (s ? fmtL(String(s).slice(0, 10)) : "—"),
+  truthLabel = (ym) => ("function" == typeof fin2Label ? fin2Label(ym) : ym),
+  truthAbs = (v) => Math.abs(+v || 0),
+  TRUTH_ICON_PEN = ICON_SVG('<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>', 11),
+  TRUTH_ICON_SHIELD = ICON_SVG('<path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/><path d="M9 12l2 2 4-4"/>', 12),
+  TRUTH_ICON_LINK = ICON_SVG('<path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/>', 11);
+// FNV-1a, 32 bits, as eight hex digits: small, deterministic, the same in every browser. Not a secret: it makes a
+// silent change to a sealed month visible, which is what a hash chain over postings is for.
+function truthHash(s) {
+  let h = 0x811c9dc5;
+  const str = String(s);
+  for (let i = 0; i < str.length; i++) (h ^= str.charCodeAt(i)), (h = Math.imul(h, 0x01000193) >>> 0);
+  return h.toString(16).padStart(8, "0");
+}
+const TRUTH_HASH_SCHEME = 'fnv1a-32 over "prior|n|id|key|sourceType:sourceId|date|acct:dr:cr,…", postings of the month in posting order';
+
+// ---- 1. coverage: bank/card-backed, document-backed (accrual), by hand
+function truthDemo(t) {
+  const p = bfProv(t);
+  return !!(p.demo || (p.confirmedBy && p.confirmedBy.demo) || (p.feedSeen && p.feedSeen.demo && !p.stmtSeen && "statement" !== p.kind));
+}
+function truthTxnOfBill(b) {
+  if (!b) return null;
+  const T = DB.txns || [];
+  let t = T.find((x) => x.billId === b.id || (b.txnId && x.id === b.txnId));
+  if (!t && b.poId) {
+    const po = (DB.pos || []).find((p) => p.id === b.poId);
+    po && (t = T.find((x) => (po.matchedTxns || []).includes(x.id) && Math.abs(Math.abs(+x.amt || 0) - billTotal(b)) < 1) || T.find((x) => (po.matchedTxns || []).includes(x.id)));
+  }
+  return t || null;
+}
+function truthAcctWords(t) {
+  const a = (DB.accounts || []).find((x) => x.id === t.acct);
+  return a ? `${a.name.split(" ")[0]} ····${a.last4 || ""}` : "the bank";
+}
+// What stands behind one management-ledger row (ledger(range) / companyPL(range).L): a bank or card line the bank
+// has confirmed ("bank"), an approved document only ("document", the accrual), or a typed figure ("hand").
+function truthBacking(row) {
+  if (!row) return { kind: "hand", why: "nothing behind it" };
+  const kind = row.kind || (row.acct ? "txn" : row.lines ? "bill" : row.payDate ? "payroll" : ""),
+    ref = row.ref || row;
+  if ("txn" === kind) {
+    const t = ref;
+    if (bfBacked(t)) {
+      if (truthDemo(t)) return { kind: "hand", why: "the Demo Feed delivered it; a Demo Feed line is not bank evidence" };
+      const p = bfProv(t),
+        src = p.confirmedBy || p.stmtSeen || p.feedSeen || p;
+      return { kind: "bank", why: `${truthAcctWords(t)} ${"statement" === src.kind ? `statement ${src.fileName || ""}`.trim() : "feed"} holds it on ${truthWhen(t.date)}` };
+    }
+    return { kind: "hand", why: `typed in${t.actor && "rule" !== t.actor ? " by " + t.actor : ""}, not yet seen at ${truthAcctWords(t)}` };
+  }
+  if ("bill" === kind) {
+    const b = ref,
+      t = truthTxnOfBill(b);
+    if (t && bfBacked(t) && !truthDemo(t)) return { kind: "bank", why: `paid from ${truthAcctWords(t)} on ${truthWhen(t.date)}, confirmed by the bank` };
+    return { kind: "document", why: `approved bill ${b.number || ""}${t ? "; its bank line is typed by hand, not yet seen at the bank" : "; no bank line yet (accrual)"}`.trim() };
+  }
+  if ("payroll" === kind) {
+    const r = ref,
+      t = (DB.txns || []).find((x) => x.payrollId === r.id);
+    if (t && bfBacked(t) && !truthDemo(t)) return { kind: "bank", why: `paid from ${truthAcctWords(t)} on ${truthWhen(t.date)}, confirmed by the bank` };
+    return { kind: "document", why: `approved payroll run ${r.period || ""}; no bank line matched yet`.trim() };
+  }
+  if ("accrual" === kind) return { kind: "document", why: "accrued at the close from approved time; reverses when the run is approved" };
+  return { kind: "document", why: `${kind || "record"} approved; no bank line behind it` };
+}
+function truthCoverage(range, opts) {
+  const o = opts || {},
+    R = range || [today().slice(0, 4) + "-01-01", today()],
+    P = companyPL(R),
+    L = (P.L || ledger(R)).filter((r) => !r.income && (!o.projectId || r.projectId === o.projectId)),
+    empty = () => ({ bank: 0, document: 0, hand: 0, n: { bank: 0, document: 0, hand: 0 }, rows: [] }),
+    cost = empty(),
+    income = empty();
+  L.forEach((r) => {
+    const type = "payroll_oh" === r.cat || "payroll-oh" === r.cat ? "oh" : catType(r.cat);
+    if ("cogs" !== type && "oh" !== type) return;
+    const b = truthBacking(r),
+      amt = r2(+r.amt || 0);
+    (cost[b.kind] = r2(cost[b.kind] + amt)), cost.n[b.kind]++;
+    cost.rows.push({ kind: r.kind, date: r.date, desc: r.desc, vendor: r.vendor || "", amt: amt, backing: b.kind, why: b.why, projectId: r.projectId || "", cat: r.cat, id: r.ref && r.ref.id });
+  });
+  cost.sum = r2(cost.bank + cost.document + cost.hand);
+  cost.total = o.projectId ? cost.sum : r2((P.cogsT || 0) + (P.ohT || 0));
+  cost.adjust = r2(cost.total - cost.sum);
+  cost.pct = cost.total ? Math.round((100 * cost.bank) / cost.total) : 100;
+  // income: invoices in the period are the document; the payments on them that the bank confirms are the bank
+  (DB.clients || []).forEach((c) =>
+    (c.invoices || []).forEach((i) => {
+      if (["void", "draft"].includes(i.status) || i.retainageRelease || !within(i.date, R)) return;
+      if (o.projectId && i.projectId !== o.projectId) return;
+      const net = r2("function" == typeof docNet ? docNet(i) : docTotal(i).total);
+      let bank = 0;
+      (c.payments || [])
+        .filter((p) => p.invoiceId === i.id && !p.unapplied)
+        .forEach((p) => {
+          const t = (DB.txns || []).find((x) => (p.txnId && x.id === p.txnId) || x.paymentId === p.id || (x.amt > 0 && Math.abs(x.amt - (+p.amount || 0)) < 0.005 && Math.abs(dayDiff(x.date, p.date)) <= 5 && (!x.cat || ["income", "uncat"].includes(x.cat))));
+          t && bfBacked(t) && !truthDemo(t) && (bank = r2(bank + Math.min(+p.amount || 0, net - bank)));
+        });
+      bank = Math.max(0, Math.min(bank, net));
+      (income.bank = r2(income.bank + bank)), (income.document = r2(income.document + (net - bank))), income.n[bank >= net - 0.005 ? "bank" : "document"]++;
+      income.rows.push({ kind: "invoice", date: i.date, desc: `${i.number} · ${c.name}`, amt: net, backing: bank >= net - 0.005 ? "bank" : bank > 0 ? "part" : "document", bank: bank, why: bank > 0 ? `${money(bank)} collected and confirmed by the bank` : "invoiced; the payment has not been confirmed by the bank", projectId: i.projectId || "", id: i.id });
+    }),
+  );
+  // a manual journal into a revenue account is income by hand
+  try {
+    truthManual(R, { entityId: "all" }).rows.forEach((m) => {
+      const v = r2(m.j.lines.filter((l) => /^4/.test(l.acct)).reduce((s, l) => s + (l.cr || 0) - (l.dr || 0), 0));
+      v && ((income.hand = r2(income.hand + v)), income.n.hand++, income.rows.push({ kind: "journal", date: m.j.date, desc: m.j.memo, amt: v, backing: "hand", why: m.flag.text, id: m.j.id }));
+    });
+  } catch (e) {}
+  income.sum = r2(income.bank + income.document + income.hand);
+  income.total = o.projectId ? income.sum : r2((P.income || 0) + income.hand);
+  income.adjust = r2(income.total - income.sum);
+  Math.abs(income.adjust) > 0.004 && ((income.document = r2(income.document + income.adjust)), (income.adjust = 0), (income.sum = income.total));
+  income.pct = income.total ? Math.round((100 * income.bank) / income.total) : 100;
+  return { range: R, cost: cost, income: income, pct: cost.pct, demo: (DB.txns || []).filter((t) => within(t.date, R) && truthDemo(t)).length };
+}
+const truthCovWords = (K) =>
+  `${money(K.bank)} backed by a bank or card line · ${money(K.document)} by an approved document only (accrual) · ${money(K.hand)} by hand${K.adjust && Math.abs(K.adjust) > 0.5 ? ` · ${money(K.adjust)} in adjustments` : ""}`;
+function truthCovHtml(C, title) {
+  const bar = (K) => {
+      const T = K.total || 1;
+      return `<div class="tr-bar" aria-hidden="true"><i class="bank" style="width:${(100 * K.bank) / T}%"></i><i class="doc" style="width:${(100 * K.document) / T}%"></i><i class="hand" style="width:${(100 * K.hand) / T}%"></i></div>`;
+    },
+    k = C.cost,
+    i = C.income;
+  return `<div class="card tr-cov" data-trrange="${esc(C.range[0])}|${esc(C.range[1])}"><h3 class="rep-h" style="margin-top:0">${esc(title || "Coverage")} <span class="small muted">a figure with no bank or card line behind it is shown as such</span></h3>
+    <div class="tr-cov-row"><b>Cost ${money(k.total)}</b> <span class="small">${esc(truthCovWords(k))} · <b>${k.pct}%</b> bank-backed</span>${bar(k)}</div>
+    <div class="tr-cov-row"><b>Income ${money(i.total)}</b> <span class="small">${esc(truthCovWords(i))} · <b>${i.pct}%</b> bank-backed</span>${bar(i)}</div>
+    ${C.demo ? `<p class="small muted">${C.demo} line${1 === C.demo ? "" : "s"} came from the Demo Feed and count as typed by hand: the Demo Feed is not bank evidence.</p>` : ""}</div>`;
+}
+
+// ---- 2. postings that did not come from a document are always flagged
+const TRUTH_FLAG_KIND = { manual: "Manual", opening: "Opening", close: "Close", accrual: "Accrual" };
+function truthFlagOf(j) {
+  if (!j || j.sourceType) return null;
+  if ("reversal" === j.kind) {
+    const of = ((DB.gl || {}).journals || []).find((x) => x.id === j.reversalOf);
+    if (!of || of.sourceType) return null;
+  }
+  const label = TRUTH_FLAG_KIND[j.kind] || ("reversal" === j.kind ? "Reversal" : "Manual"),
+    who = j.postedBy || j.approvedBy || j.by || j.createdBy || "system",
+    when = truthWhen(j.approvedAt || j.postedAt || j.createdAt || j.date),
+    why = j.why || j.memo || "";
+  return { kind: j.kind, label: label, who: who, when: when, why: why, text: `${label} · by ${who} · ${when} · ${why}`, icon: TRUTH_ICON_PEN };
+}
+const truthFlagHtml = (f, cls) => (f ? `<span class="tr-flag ${cls || ""}" title="${esc(f.text)}">${f.icon}<span>${esc(f.text)}</span></span>` : "");
+function truthManual(range, opts) {
+  const o = opts || {},
+    R = range || ["", today()],
+    ent = o.entityId && "all" !== o.entityId ? o.entityId : "",
+    rows = [],
+    byAcct = {};
+  ((DB.gl || {}).journals || []).forEach((j) => {
+    if (!["posted", "reversed"].includes(j.status) || "reversal" === j.kind) return;
+    if (!within(j.date, R) || (ent && j.entityId !== ent)) return;
+    if (o.manualOnly && "manual" !== j.kind) return;
+    const f = truthFlagOf(j);
+    if (!f) return;
+    const amt = r2(j.lines.reduce((s, l) => s + (l.dr || 0), 0));
+    rows.push({ j: j, amt: amt, flag: f }),
+      j.lines.forEach((l) => {
+        const b = (byAcct[l.acct] = byAcct[l.acct] || { n: 0, amt: 0, ids: new Set() });
+        b.ids.has(j.id) || (b.ids.add(j.id), b.n++), (b.amt = r2(b.amt + Math.abs((l.dr || 0) - (l.cr || 0))));
+      });
+  });
+  const manual = rows.filter((r) => "manual" === r.j.kind);
+  return { rows: rows, n: rows.length, amt: r2(rows.reduce((s, r) => s + r.amt, 0)), manual: manual, nManual: manual.length, amtManual: r2(manual.reduce((s, r) => s + r.amt, 0)), byAcct: byAcct };
+}
+const truthManualLine = (m) => `#${m.j.n} ${m.j.memo} — ${money(m.amt)} · ${m.flag.text}`;
+let truthJKind = "";
+if ("function" == typeof glJournalHtml) {
+  const base = glJournalHtml;
+  glJournalHtml = function () {
+    const d = document.createElement("div");
+    d.innerHTML = base.apply(this, arguments);
+    const J = (DB.gl || {}).journals || [];
+    let kept = 0;
+    d.querySelectorAll("tr[data-glopen]").forEach((tr) => {
+      const j = J.find((x) => x.id === tr.dataset.glopen),
+        f = j && truthFlagOf(j);
+      if ("flag" === truthJKind && !f) return void tr.remove();
+      kept++;
+      const td = tr.children[3];
+      f && td && td.insertAdjacentHTML("beforeend", " " + truthFlagHtml(f));
+    });
+    if ("flag" === truthJKind) {
+      const n = d.querySelector(".small.muted");
+      n && /entries$/.test(n.textContent) && (n.textContent = `${kept} entries`);
+      const bar = d.querySelector(".row.wrap");
+      bar && bar.insertAdjacentHTML("beforeend", `<span class="pill warn">${TRUTH_ICON_PEN} Not from a document <a href="#" data-trclear="1" title="Show every entry">${ICON_X}</a></span>`);
+    }
+    return d.innerHTML;
+  };
+}
+if ("function" == typeof glStatementsHtml) {
+  const base = glStatementsHtml;
+  glStatementsHtml = function () {
+    const html = base.apply(this, arguments);
+    try {
+      const [from, to] = glRange(),
+        M = truthManual(["bs" === glStmt ? "" : from, to], { entityId: glEnt }).byAcct;
+      if (!Object.keys(M).length) return html;
+      const d = document.createElement("div");
+      d.innerHTML = html;
+      d.querySelectorAll("tr[data-glacct]").forEach((tr) => {
+        const b = M[tr.dataset.glacct];
+        b && tr.children[0] && tr.children[0].insertAdjacentHTML("beforeend", ` <span class="tr-flag small" data-trdrill="${esc(tr.dataset.glacct)}" title="Entries not from a document on this line; open them">${TRUTH_ICON_PEN}<span>${b.n} manual · ${glM(b.amt)}</span></span>`);
+      });
+      return d.innerHTML;
+    } catch (e) {
+      return console.warn("statement flags", e), html;
+    }
+  };
+}
+// The Controller drafts; the Owner posts with a typed reason. glEntrySave reads the form; glApprove posts.
+if ("function" == typeof glEntrySave) {
+  const base = glEntrySave;
+  glEntrySave = function () {
+    if (!["controller", "owner"].includes(role())) return void toast("The Controller drafts a manual entry; the Owner posts it");
+    return base.apply(this, arguments);
+  };
+}
+function truthReasonDialog(j) {
+  const m = mbModal(
+    "Post Manual Entry",
+    `<p class="small">${esc(j.memo || "")} · ${glM(j.lines.reduce((s, l) => s + (l.dr || 0), 0))} · drafted by ${esc(j.createdBy || "—")} on ${truthWhen(j.createdAt || j.date)}.</p><p class="small muted">A manual entry has no document behind it, so it is flagged wherever it appears, with who posted it, when, and why. Say why.</p><div class="f"><label>Why This Entry Is Posted</label><textarea data-f="why" rows="3" placeholder="e.g. straight-line depreciation on the van for August"></textarea></div>`,
+    {
+      submit: "Post",
+      onSubmit: (v) => {
+        if (!String(v.why || "").trim()) return toast("Say why this entry is posted"), !1;
+        glApprove(j.id, String(v.why).trim());
+      },
+    },
+  );
+  return m;
+}
+if ("function" == typeof glApprove) {
+  const base = glApprove;
+  glApprove = function (id, why) {
+    const j = ((DB.gl || {}).journals || []).find((x) => x.id === id);
+    if (j && "manual" === j.kind && "pending" === j.status) {
+      if ("owner" !== role()) return void toast("Only the Owner posts a manual entry");
+      const w = String(why || "").trim();
+      if (!w) return void truthReasonDialog(j);
+      (j.why = w), (j.postedBy = truthWho());
+      const r = base.call(this, id),
+        jj = ((DB.gl || {}).journals || []).find((x) => x.id === id);
+      if (jj && "posted" === jj.status) {
+        (jj.approvedBy = truthWho()), (jj.why = w);
+        try {
+          audit("ledger", id, "posted-with-reason", "", w, `manual entry posted by ${truthWho()}: ${w}`);
+        } catch (e) {}
+        save();
+      }
+      return r;
+    }
+    return base.apply(this, arguments);
+  };
+}
+

@@ -3220,3 +3220,17 @@ body.crewmode .view.on .dl-sign > span{display:block;flex:1 1 auto;min-width:0}
   body.m-on #fab.m-fab{position:static;width:40px;height:40px;border-radius:var(--r);background:var(--paper);border-color:var(--rule);color:var(--ink);box-shadow:none;flex:none;z-index:auto}
   body.m-on #fab.m-fab svg{width:18px;height:18px;stroke-width:2}
 }
+/* truth (BACKLOG §1.6): flags on postings not from a document, the History strip, coverage bars, the tie-out */
+.tr-flag{display:inline-block;margin-left:6px;padding:0 7px;border-radius:9px;background:var(--warn-2);color:var(--warn);font-size:11px;font-weight:600;white-space:nowrap;vertical-align:middle;line-height:1.7;max-width:100%}
+.tr-flag svg{width:11px;height:11px;vertical-align:-1px;margin-right:4px} .tr-flag.small{font-weight:500} .tr-flag[data-trdrill]{cursor:pointer}
+.tr-hist{margin:10px 0;padding:8px 12px;border:1px solid var(--rule);border-radius:var(--r);font-size:12px;color:var(--ink-2);background:var(--paper)}
+.tr-hist b{display:flex;align-items:center;gap:6px;margin-bottom:4px} .tr-hist .tr-h{display:block;padding:1px 0} .tr-hist .tr-h.amend{color:var(--warn)}
+.tr-match{margin-top:12px;padding:8px 12px;border:1px solid var(--rule);border-radius:var(--r)} .tr-match b{display:inline-flex;align-items:center;gap:5px} .tr-match .warn{color:var(--warn)}
+.tr-cov .tr-cov-row{margin:8px 0} .tr-cov .tr-cov-row b{margin-right:6px}
+.tr-bar{display:flex;height:8px;border-radius:4px;overflow:hidden;background:var(--paper-2);margin-top:5px} .tr-bar i{display:block;height:100%} .tr-bar .bank{background:var(--ok)} .tr-bar .doc{background:var(--info)} .tr-bar .hand{background:var(--warn)}
+.tr-cov-line{display:flex;align-items:flex-start;gap:6px;margin:6px 0 10px;color:var(--ink-2)} .tr-cov-line svg{flex:none;margin-top:2px}
+.tr-truth h3{display:inline-flex;align-items:center;gap:6px} .tr-truth{margin-bottom:12px}
+.tr-unm{margin:10px 0} .tr-unm b{display:inline-flex;align-items:center;gap:5px}
+.tr-tie td.warn{color:var(--warn)} .tr-tie td.bad{color:var(--bad)} .tr-tie tr.tr-flagged td{background:var(--bad-2)}
+.tr-verify .note{margin:6px 0}
+.pill.warn{background:var(--warn-2);color:var(--warn)} .pill.warn svg{width:11px;height:11px} .pill.warn a{display:inline-flex;margin-left:4px;color:inherit}
