@@ -109767,6 +109767,29 @@ function gcServerDisconnect() {
     : Promise.resolve();
 }
 const GS_BASE = "/gmail/v1/users/me";
+// The clock a sync runs on. Real Google and the built-in demo run on the app clock; a loaded workspace runs
+// on its own exportedAt, so its windows and cursors are its dates, never the wall clock and never the seed's
+// day (which stays 2026-09-03 for the demo records).
+const gsNow = () => {
+    try {
+      if (gcIsDemo() && "function" == typeof demoWsFor) {
+        const W = demoWsFor(paMe().id);
+        if (W && W.now) return W.now;
+      }
+    } catch (e) {}
+    return appNowMs();
+  },
+  gsNowIso = () => appIso(new Date(gsNow())),
+  // The first pull's window in days: 14 for Google and the demo; a loaded workspace's whole span.
+  gsFirstDays = () => {
+    try {
+      if (gcIsDemo() && "function" == typeof demoWsFor) return Math.max(14, +demoWsFor(paMe().id).firstDays || 14);
+    } catch (e) {}
+    return 14;
+  },
+  // How many messages one run reads in full: Google is rate limited, so 40 a run and the cursor waits
+  // until the window is exhausted; a demo or loaded workspace is local, so the whole window at once.
+  gsRunCap = () => (gcIsDemo() ? 5e3 : 40);
 let gsRunning = !1,
   gsTimerId = null,
   gsLast = null;
@@ -109828,13 +109851,29 @@ async function gsGmail(first) {
   if (!gsMine()) return [];
   const since = gsCur("gmailAt"),
     q = encodeURIComponent(
-      since ? `after:${Math.floor(new Date(since).getTime() / 1e3)} -in:chats` : "newer_than:14d -in:chats",
+      since ? `after:${Math.floor(new Date(since).getTime() / 1e3)} -in:chats` : `newer_than:${gsFirstDays()}d -in:chats`,
     ),
-    ids = ((await gcFetch(`${GS_BASE}/messages?maxResults=${first ? 60 : 25}&q=${q}`)).messages || [])
-      .map((m) => m.id)
-      .filter((id) => !(DB.comms || []).some((c) => c.msgId === id)),
-    out = [];
-  for (const id of ids.slice(0, 40)) {
+    cap = gsRunCap(),
+    have = new Set((DB.comms || []).map((c) => c.msgId).filter(Boolean)),
+    ids = [];
+  // Page through the list until the window is exhausted or this run has its fill. One page of the newest
+  // messages, read once, starved everything older: a loaded mailbox showed 40 of 524 landing, then nothing.
+  let token = "",
+    pages = 0,
+    exhausted = !1;
+  do {
+    const page = await gcFetch(
+      `${GS_BASE}/messages?maxResults=${first ? 100 : 50}&q=${q}${token ? "&pageToken=" + encodeURIComponent(token) : ""}`,
+    );
+    (page.messages || []).forEach((m) => {
+      have.has(m.id) || ids.includes(m.id) || ids.push(m.id);
+    }),
+      (token = page.nextPageToken || ""),
+      pages++,
+      token || (exhausted = !0);
+  } while (token && ids.length < cap && pages < 60);
+  const out = [];
+  for (const id of ids.slice(0, cap)) {
     let m = null;
     try {
       m = await gcFetch(`${GS_BASE}/messages/${id}?format=full`);
@@ -109849,7 +109888,7 @@ async function gsGmail(first) {
       from: gsAddrs(gsHdr(m, "From"))[0] || { name: "", email: "" },
       to: gsAddrs(gsHdr(m, "To")).map((a) => (a.name ? `${a.name} <${a.email}>` : a.email)),
       cc: gsAddrs(gsHdr(m, "Cc")).map((a) => (a.name ? `${a.name} <${a.email}>` : a.email)),
-      date: date ? new Date(date).toISOString() : new Date(+m.internalDate || appNowMs()).toISOString(),
+      date: date ? new Date(date).toISOString() : new Date(+m.internalDate || gsNow()).toISOString(),
       subject: gsHdr(m, "Subject"),
       text: gsBody(m),
       source: gcIsDemo() ? "demo" : "google",
@@ -109873,7 +109912,9 @@ async function gsGmail(first) {
         (c.labels = o.labels),
         (c.links = o.links));
     }),
-    gsCur("gmailAt", appNowIso()),
+    // The cursor moves only when this run read everything the window listed; otherwise the next run
+    // lists the same window and carries on (what is already held is skipped by id).
+    exhausted && ids.length <= cap && gsCur("gmailAt", gsNowIso()),
     out
   );
 }
@@ -109901,6 +109942,18 @@ const gsAtt = (m) => {
     };
   return walk(m.payload), out;
 };
+// A week back and ninety days ahead of the sync clock; a loaded workspace's own span when it is wider.
+function gsCalWindow() {
+  const now = gsNow(),
+    w = { min: now - 6048e5, max: now + 7776e6 };
+  try {
+    if (gcIsDemo() && "function" == typeof demoWsFor) {
+      const W = demoWsFor(paMe().id);
+      W && W.calFrom && (w.min = Math.min(w.min, W.calFrom)), W && W.calTo && (w.max = Math.max(w.max, W.calTo));
+    }
+  } catch (e) {}
+  return w;
+}
 async function gsCal(first) {
   const me = paMe();
   if (!gsMine()) return [];
@@ -109908,7 +109961,7 @@ async function gsCal(first) {
   const tok = gsCur("calTok");
   let url = tok
       ? `/calendar/v3/calendars/primary/events?syncToken=${encodeURIComponent(tok)}&singleEvents=true`
-      : `/calendar/v3/calendars/primary/events?singleEvents=true&orderBy=startTime&maxResults=250&timeMin=${encodeURIComponent(new Date(appNowMs() - 6048e5).toISOString())}&timeMax=${encodeURIComponent(new Date(appNowMs() + 7776e6).toISOString())}`,
+      : `/calendar/v3/calendars/primary/events?singleEvents=true&orderBy=startTime&maxResults=250&timeMin=${encodeURIComponent(new Date(gsCalWindow().min).toISOString())}&timeMax=${encodeURIComponent(new Date(gsCalWindow().max).toISOString())}`,
     data = null;
   try {
     data = await gcFetch(url);
@@ -109953,12 +110006,19 @@ async function gsDrive(first) {
   DB.gdrive = DB.gdrive || [];
   const since = gsCur("driveAt"),
     q = encodeURIComponent("trashed = false" + (since ? ` and modifiedTime > '${since}'` : "")),
-    data = await gcFetch(
-      `/drive/v3/files?q=${q}&orderBy=modifiedTime desc&pageSize=${first ? 100 : 30}&fields=files(id,name,mimeType,modifiedTime,webViewLink,iconLink,size,owners(displayName,emailAddress),parents)`,
-    ),
-    fresh = [];
+    fresh = [],
+    files = [];
+  // Drive answers a page at a time; one page of 100 left half of a loaded drive unread.
+  let token = "",
+    pages = 0;
+  do {
+    const data = await gcFetch(
+      `/drive/v3/files?q=${q}&orderBy=modifiedTime desc&pageSize=${first ? 100 : 30}&fields=nextPageToken,files(id,name,mimeType,modifiedTime,webViewLink,iconLink,size,owners(displayName,emailAddress),parents)${token ? "&pageToken=" + encodeURIComponent(token) : ""}`,
+    );
+    files.push(...(data.files || [])), (token = data.nextPageToken || ""), pages++;
+  } while (token && pages < (gcIsDemo() ? 50 : 5));
   return (
-    (data.files || []).forEach((f) => {
+    files.forEach((f) => {
       const id = "g_" + f.id,
         i = DB.gdrive.findIndex((x) => x.id === id),
         rec = {
@@ -109976,7 +110036,7 @@ async function gsDrive(first) {
         };
       (rec.route = gsRouteFile(rec)), i >= 0 ? (DB.gdrive[i] = rec) : (DB.gdrive.push(rec), fresh.push(rec));
     }),
-    gsCur("driveAt", appNowIso()),
+    gsCur("driveAt", gsNowIso()),
     fresh
   );
 }
@@ -110029,7 +110089,7 @@ async function gsRun(opts) {
   if (!g || !gcOn()) return null;
   gsRunning = !0;
   const t0 = Date.now(),
-    delta = { mail: [], events: [], files: [], at: appNowIso(), errors: [] };
+    delta = { mail: [], events: [], files: [], at: appNowIso(), errors: [], first: !!o.first };
   for (const [k, fn] of [
     ["mail", gsGmail],
     ["events", gsCal],
@@ -163896,7 +163956,7 @@ function demoWsBuild(uid) {
     // Day offsets from the app day; a time of day; an ISO stamp on the app clock.
     at = (day, hm) => `${iso(addDays(td, day))}T${hm || "09:00"}:00`,
     ms = (day, hm) => new Date(at(day, hm)).getTime(),
-    W = { email: myEmail, name: myName, messages: [], drafts: [], events: [], files: [], historyId: 100, nextId: 1 },
+    W = { email: myEmail, name: myName, messages: [], drafts: [], events: [], files: [], historyId: 100, nextId: 1, now: appNowMs(), firstDays: 14 },
     pdf = (name, key) => ({ filename: name, mime: "application/pdf", text: DW_DOCS[key]() }),
     // A message. from/to/cc are "Name <email>" strings; SENT when it is from me.
     M = (day, hm, from, to, subject, body, o) => {
@@ -164347,32 +164407,44 @@ function demoWsBuild(uid) {
 const DW_ATTACHED = {};
 function dwFromJson(uid, ws) {
   const td = today(),
+    acct = ws.accounts || {},
     [defName, defEmail] = DW_STAFF[uid] || [String(((DB.users || []).find((u) => u.id === uid) || {}).name || uid), uid + "@" + DW_DOMAIN],
-    W = { email: ws.email || defEmail, name: ws.name || defName, messages: [], drafts: [], events: [], files: [], historyId: 100, nextId: 1, loaded: !0 },
+    email = String(ws.email || acct.gmailMailbox || (acct.ownerEmails || [])[0] || defEmail).toLowerCase(),
+    W = { email: email, name: ws.name || defName, messages: [], drafts: [], events: [], files: [], historyId: 100, nextId: 1, loaded: !0 },
     when = (d, def) => {
       if (!d) return new Date(`${td}T${def || "09:00"}:00`).getTime();
-      if ("object" == typeof d) return new Date(`${iso(addDays(td, +d.day || 0))}T${d.time || def || "09:00"}:00`).getTime();
+      if ("object" == typeof d) {
+        // Google's own shape ({dateTime} or {date}), or relative to the app day ({day, time}).
+        if (d.dateTime || d.date) {
+          const t = new Date(d.dateTime || d.date + "T00:00:00").getTime();
+          return isNaN(t) ? new Date(`${td}T${def || "09:00"}:00`).getTime() : t;
+        }
+        return new Date(`${iso(addDays(td, +d.day || 0))}T${d.time || def || "09:00"}:00`).getTime();
+      }
       const t = new Date(d).getTime();
       return isNaN(t) ? new Date(`${td}T${def || "09:00"}:00`).getTime() : t;
     },
-    addr = (x) => (Array.isArray(x) ? x : x ? [x] : []);
+    addr = (x) => (Array.isArray(x) ? x : x ? [x] : []),
+    str = (x) => ("string" == typeof x ? x : x && x.email ? (x.name ? `${x.name} <${x.email}>` : x.email) : "");
   (((ws.mail || {}).threads || []).forEach((t, ti) => {
     (t.messages || []).forEach((m, mi) => {
       const id = String(m.id || `ldm_${uid}_${ti}_${mi}`),
-        ms = when(m.date, "09:00"),
-        mine = String(m.from || "").toLowerCase().includes(String(W.email).toLowerCase());
+        ms = m.internalDate && !isNaN(+m.internalDate) ? +m.internalDate : when(m.date, "09:00"),
+        from = str(m.from),
+        mine = from.toLowerCase().includes(email),
+        labels = m.labels || m.labelIds || (mine ? ["SENT"] : ["INBOX", "UNREAD"]);
       W.messages.push({
         id: id,
-        threadId: String(t.id || `ldt_${uid}_${ti}`),
-        labelIds: m.labels || (mine ? ["SENT"] : ["INBOX", "UNREAD"]),
+        threadId: String(m.threadId || t.id || `ldt_${uid}_${ti}`),
+        labelIds: labels.slice(),
         internalDate: ms,
         historyId: ++W.historyId,
-        headers: { From: m.from || "", To: addr(m.to).join(", "), Cc: addr(m.cc).join(", "), Subject: m.subject || "", Date: new Date(ms).toUTCString() },
-        body: String(m.text || ""),
+        headers: { From: from, To: addr(m.to).map(str).join(", "), Cc: addr(m.cc).map(str).join(", "), Subject: m.subject || t.subject || "", Date: new Date(ms).toUTCString() },
+        body: String(m.text || m.snippet || ""),
         attachments: (m.attachments || []).map((a, i) => ({
           id: `lda_${id}_${i}`,
           filename: a.name || a.filename || `attachment-${i + 1}`,
-          mime: a.mime || "application/pdf",
+          mime: a.mime || a.mimeType || "application/octet-stream",
           size: +a.size || 40000 + 100 * String(a.text || "").length,
           text: String(a.text || ""),
         })),
@@ -164380,23 +164452,30 @@ function dwFromJson(uid, ws) {
     });
   }),
     ((ws.calendar || {}).events || []).forEach((e, i) => {
-      const s = when(e.start, "09:00"),
-        en = e.end && "object" != typeof e.end ? when(e.end) : "object" == typeof e.start && e.start.mins ? s + 6e4 * +e.start.mins : s + 36e5,
+      if ("cancelled" === e.status) return;
+      const allDay = !!e.allDay || !!(e.start && "object" == typeof e.start && e.start.date && !e.start.dateTime),
+        s0 = when(e.start, "09:00"),
+        en =
+          e.end && (("object" == typeof e.end && (e.end.dateTime || e.end.date)) || "object" != typeof e.end)
+            ? when(e.end)
+            : "object" == typeof e.start && e.start.mins
+              ? s0 + 6e4 * +e.start.mins
+              : s0 + 36e5,
         ev = {
           id: String(e.id || `lde_${uid}_${i + 1}`),
           status: e.status || "confirmed",
           summary: e.title || e.summary || "(no title)",
           description: e.description || "",
           location: e.where || e.location || "",
-          htmlLink: "",
-          updated: e.updated || new Date(when({ day: -14, time: "08:00" }) + 36e5 * i).toISOString(),
-          organizer: { email: e.organizer || W.email },
-          attendees: [W.email].concat(addr(e.attendees)).map((x) => ({ email: "string" == typeof x ? x : x.email, responseStatus: "accepted" })),
-          transparency: e.free ? "transparent" : "opaque",
+          htmlLink: e.htmlLink || "",
+          updated: e.updated || new Date(s0 - 864e5 * 7).toISOString(),
+          organizer: { email: "object" == typeof e.organizer ? e.organizer.email || "" : e.organizer || email },
+          attendees: [email].concat(addr(e.attendees).map((x) => ("string" == typeof x ? x : x.email)).filter(Boolean)).filter((x, k, a) => a.indexOf(x) === k).map((x) => ({ email: x, responseStatus: "accepted" })),
+          transparency: e.free || "free" === e.availability ? "transparent" : "opaque",
         };
-      e.allDay
-        ? ((ev.start = { date: iso(new Date(s)) }), (ev.end = { date: iso(addDays(iso(new Date(s)), 1)) }))
-        : ((ev.start = { dateTime: new Date(s).toISOString() }), (ev.end = { dateTime: new Date(en).toISOString() })),
+      allDay
+        ? ((ev.start = { date: iso(new Date(s0)) }), (ev.end = { date: iso(addDays(iso(new Date(s0)), 1)) }))
+        : ((ev.start = { dateTime: new Date(s0).toISOString() }), (ev.end = { dateTime: new Date(Math.max(en, s0 + 6e5)).toISOString() })),
         W.events.push(ev);
     }),
     ((ws.drive || {}).files || []).forEach((f, i) => {
@@ -164406,14 +164485,21 @@ function dwFromJson(uid, ws) {
         mimeType: f.mime || f.mimeType || "application/pdf",
         modifiedTime: new Date(when(f.modified || f.modifiedTime, "16:00")).toISOString(),
         size: String(+f.size || 60000 + 300 * String(f.text || "").length),
-        owners: [{ displayName: f.by || W.name, emailAddress: f.byEmail || W.email }],
-        webViewLink: f.link || "",
-        parents: ["ldroot_" + uid],
+        owners: (f.owners || []).length ? f.owners : [{ displayName: f.by || W.name, emailAddress: f.byEmail || email }],
+        webViewLink: f.link || f.webViewLink || "",
+        parents: f.parents || ["ldroot_" + uid],
         text: String(f.text || ""),
         trashed: !!f.trashed,
       });
     }));
-  return W.messages.sort((a, b) => a.internalDate - b.internalDate), (W.nextId = W.messages.length + 1), W;
+  W.messages.sort((a, b) => a.internalDate - b.internalDate), (W.nextId = W.messages.length + 1);
+  // The workspace's clock: its exportedAt, else the latest thing in it. Its first window is its whole span.
+  const stamps = W.messages.map((m) => m.internalDate).concat(W.events.map((e) => new Date(e.start.dateTime || e.start.date).getTime()), W.files.map((f) => new Date(f.modifiedTime).getTime())).filter((x) => !isNaN(x)),
+    exp = ws.exportedAt ? new Date(ws.exportedAt).getTime() : NaN;
+  (W.now = !isNaN(exp) ? exp : stamps.length ? Math.max(...stamps) : appNowMs()),
+    (W.firstDays = W.messages.length ? Math.min(400, Math.ceil((W.now - Math.min(...W.messages.map((m) => m.internalDate))) / 864e5) + 1) : 14);
+  const es = W.events.map((e) => new Date(e.start.dateTime || e.start.date).getTime()).filter((x) => !isNaN(x));
+  return es.length && ((W.calFrom = Math.min(...es) - 864e5), (W.calTo = Math.max(...es) + 864e5)), W;
 }
 function gsAttachWorkspace(uid, ws) {
   if (!uid || !ws || "object" != typeof ws) throw new Error("gsAttachWorkspace(uid, workspace) needs both");
@@ -164500,7 +164586,7 @@ async function gsFetchDemo(url, opts) {
         return {};
       }
     })(),
-    now = appNowMs();
+    now = W.now || appNowMs();
   let m;
   if ("/oauth2/v2/userinfo" === p) return { email: W.email, name: W.name, verified_email: !0 };
   // ---- Gmail ----
@@ -164627,14 +164713,15 @@ async function gsFetchDemo(url, opts) {
       contains = (qs.match(/name contains '([^']+)'/i) || [])[1],
       full = (qs.match(/fullText contains '([^']+)'/i) || [])[1],
       size = Math.max(1, Math.min(1000, +(q.get("pageSize") || 100))),
-      files = W.files
+      start = +(q.get("pageToken") || 0),
+      all = W.files
         .filter((f) => !f.trashed)
         .filter((f) => !since || new Date(f.modifiedTime).getTime() > new Date(since).getTime())
         .filter((f) => !contains || f.name.toLowerCase().includes(contains.toLowerCase()))
         .filter((f) => !full || (f.name + " " + f.text).toLowerCase().includes(full.toLowerCase()))
-        .sort((a, b) => String(b.modifiedTime).localeCompare(String(a.modifiedTime)))
-        .slice(0, size);
-    return { kind: "drive#fileList", files: files.map(dwDriveFile) };
+        .sort((a, b) => String(b.modifiedTime).localeCompare(String(a.modifiedTime))),
+      files = all.slice(start, start + size);
+    return Object.assign({ kind: "drive#fileList", files: files.map(dwDriveFile) }, start + size < all.length ? { nextPageToken: String(start + size) } : {});
   }
   if ((m = p.match(/^\/drive\/v3\/files\/([^/]+)(\/export)?$/))) {
     const f = W.files.find((x) => x.id === m[1]);
@@ -164789,10 +164876,40 @@ function paPaymentClaimSweep() {
     made.filter(Boolean)
   );
 }
+
 if ("function" == typeof paWatch) {
   const paWatchBase_dw = paWatch;
   paWatch = function (delta) {
-    const made = paWatchBase_dw.apply(this, arguments) || [];
+    // A first look at an account can hold months of mail. Each message, event and file from the last two
+    // weeks of the sync clock is raised on its own; everything older is read, routed and proposed on the
+    // comms screen, and raised once as one line, so the first sync is not a hundred nudges.
+    let older = null;
+    if (delta && delta.first) {
+      const now = gsNow(),
+        cut = now - 14 * 864e5,
+        recent = (x) => new Date(x).getTime() >= cut,
+        d = Object.assign({}, delta, {
+          mail: (delta.mail || []).filter((m) => recent(m.date)),
+          events: (delta.events || []).filter((e) => new Date(e.start).getTime() >= now - 864e5),
+          files: (delta.files || []).filter((f) => recent(f.modified)),
+        });
+      older = {
+        mail: (delta.mail || []).length - d.mail.length,
+        events: (delta.events || []).length - d.events.length,
+        files: (delta.files || []).length - d.files.length,
+      };
+      delta = d;
+    }
+    const made = paWatchBase_dw.call(this, delta) || [];
+    if (older && older.mail + older.events + older.files > 0) {
+      const n = paNudge(
+        `I read ${older.mail} older message${1 === older.mail ? "" : "s"}, ${older.events} past event${1 === older.events ? "" : "s"} and ${older.files} older document${1 === older.files ? "" : "s"}.`,
+        "Everything before the last two weeks is routed and read; what it proposes is on the comms screen, and I did not raise each one here.",
+        { kind: "firstsync", id: gsNowIso().slice(0, 10) },
+        "a first look at a connected account",
+      );
+      n && made.push(n);
+    }
     try {
       paMailExpectSweep();
     } catch (e) {
