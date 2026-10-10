@@ -156,6 +156,19 @@ def own_uid(e):
     return None
 
 
+def responsible(t, detail):
+    # the step that failed depends on how far the record got
+    d = str(detail or '')
+    if t == 'bill' and d.startswith('submitted'):
+        return 'mApprovals / DELEGATION.bill: the bill at this person\'s turn sits under "waiting on the others", not on their list'
+    if t == 'bill' and d.startswith('approved'):
+        return 'apprBillYes: approved in full with no PO or job to hold it to'
+    if t == 'payment' and 'no payment' in d:
+        return ('Banking + billingNeeds: once the deposit is coded as income it leaves billing\'s screen (only "$N not yet cleared" '
+                'remains); nothing raises Record Payment on the open invoice')
+    return RESPONSIBLE.get(t, '')
+
+
 async def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--days', type=int, default=0)
@@ -316,7 +329,7 @@ async def main():
                      'verdict': verdict, 'done': st['done'], 'late': late if verdict == 'late' else 0, 'detail': st['detail'],
                      'seen': seen_by, 'seen_any': st['seen'], 'money': x.get('money'), 'money_left': round(money_left, 2), 'days_lost': days_lost,
                      'tags': e.get('tags', []), 'check': x['check']['t'], 'injected': str(st['injected'])[:120],
-                     'fn': x.get('fn') or RESPONSIBLE.get(x['check']['t'], '')})
+                     'fn': x.get('fn') or responsible(x['check']['t'], st['detail'])})
     scored = [r for r in rows if r['verdict'] != 'open']
     on_time = sum(1 for r in scored if r['verdict'] == 'on time'); late_n = sum(1 for r in scored if r['verdict'] == 'late')
     missed = sum(1 for r in scored if r['verdict'] == 'missed')
