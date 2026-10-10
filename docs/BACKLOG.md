@@ -169,6 +169,7 @@ This lane was finished and verified at 53 checks. Target figures follow.
      - Open it in the project, with Extends Task = the item's task.
      - Attach the photos as exhibits, shared with the client.
      - Draft the client memo from the item's description; the PM's reply goes to Internal Notes.
+   - Done (lane ops, 2026-10-10): the memo is the item's title and note, the answer is in Internal Notes (never on the approval dialog, the email or the PDF), the item's photos attach as exhibits shared with the client and show in the editor, the dialog and the email; `tests/ops_test.py fieldco`.
 3. **The estimate hint stays out of the description.**
    - What happens: the hint "…Contract line on EST-2026-014: $34,500 — for reference; enter this change's quantity or price" is saved into the CO line `desc` and prints on the client's CO and PDF.
    - Fix: keep it in `refAmount`, shown as a hint only, and clean already-saved descriptions.
@@ -254,7 +255,7 @@ Each is proven by a demo_ws_test check turning from "did not fire" to "fired as 
 6. **Meeting notes and transcripts in Drive are only nudged** ("belongs on the job"); ingest them like mail (`mtIngest` from Drive text).
 7. **A client's dated ask inside a decision email** ("confirm the laundry layout before Friday") becomes a dated task for the PM, not only an offer.
 8. **The quiet-lead chase** fires only when the sent message asked a question; any proposal or quote sent with no reply is watched.
-9. **A DOB NOW notice** sets the inspection date on the project's inspection record (as a proposal), not only a permit note.
+9. **A DOB NOW notice** sets the inspection date on the project's inspection record (as a proposal), not only a permit note. Done (lane ops, 2026-10-10): `cmDobNow` proposes the booking with its window on the matching open inspection; approving it books through `inspBook` (calendar hold, foreman told, trade drafted, the Book task closed); `tests/ops_test.py insp`.
 10. **Lessons are not proposed from events.** The no-show and the expired COI never became lessons; `bnSuggestLessons` runs only when The Brain renders. Run it on every sync and on every closed field issue, bill dispute and late delivery.
 11. **A call from the answering service** matches the client by phone and proposes the reply draft, not only a task.
 12. **A bank or card statement in Drive** proposes the import (and the reconcile), not only a nudge.
@@ -268,6 +269,7 @@ Each is proven by a demo_ws_test check turning from "did not fire" to "fired as 
 - **206 Lenox is a clone (S2).**
   - What happens: "3rd floor turnover", $0 contract, carries 121 State's 39 schedule lines and its decisions verbatim. Owner Approvals shows 3 duplicate decisions, Ask's "11 decisions waiting on the client" includes 5 clones, and Chen's tasks and Purchasing's 28 rows include clone items. Purchasing also lists 140 Prospect's "LPC application" as a thing to buy.
   - Fix: reseed 206 with its own small scope, and strip non-materials from Purchasing.
+  - Done (lane ops, 2026-10-10): the template copies phases and inspections only; 206 Lenox has its own turnover scope (six tasks, one decision, two materials, `lenoxScope`); `tplStripClones` strips clone copies from a saved database at boot; `tests/ops_test.py lenox`. Purchasing's non-materials remain open.
 - **The owner's Approvals is a catch-all (S2).**
   - What happens: 26 items, but the chips cover only 13 (Bills 2, Hours 4, Decisions 7). The rest are crew hours, a material acknowledgement, meeting proposals, "a build" and lessons.
   - Fix:

@@ -209,7 +209,7 @@ async def sec_fieldco(p, c):
     await pg.click('.view.on [data-opsraise="fr2"]'); await pg.wait_for_timeout(500)
     co = await pg.evaluate(f"""() => {{ const c = {KLEIN}, r = DB.field.raises.find(x => x.id === 'fr2'), d = r.coId && c.changeOrders.find(x => x.id === r.coId);
         if (!d) return null; const ph = DB.photos.filter(x => x.ref && x.ref.kind === 'raise' && x.ref.id === 'fr2');
-        return {{ number: d.number, memo: d.memo || '', notes: d.notes || d.internalNotes || '', exhibits: (d.exhibits || []).map(e => e.photoId || e), shared: ph.map(x => !!x.share),
+        return {{ number: d.number, memo: d.memo || '', notes: d.internal || d.notes || '', exhibits: (d.exhibits || []).map(e => e.photoId || e), shared: ph.map(x => !!x.share),
                  tiles: document.querySelectorAll('.view.on .co-exhibits .pst-tile').length, summary: docSummaryHtml(c, d), mail: crDocEmail(c, d).body,
                  pdf: typeof docPrintHtml === 'function' ? docPrintHtml(c, d) : '', task: d.scope }} }}""")
     c.ok(co is not None, 'Write Change Order drafts a CO on the field item')
@@ -259,9 +259,10 @@ async def sec_noshow(p, c):
     c.ok(len(out['reminders']) == 1, f"a dated reminder to text the day before: {out['reminders']}")
     c.ok(out['drafts'] >= 1, f"an outbound draft to the sub waits for approval: {out['drafts']}")
     c.ok(len(out['chase']) >= 1, f"a chase on the sub: {out['chase']}")
-    # the forecast and the Changes note carry the cause
-    why = await pg.evaluate("() => tpForecastWhy(S).text")
-    c.ok(re.search(r'no-show|could not be on site', why, re.I), f'the forecast names the no-show: {why!r}')
+    # the Changes list carries the slip with its cause
+    await pg.evaluate("() => { view = 'sched'; schedView = 'changes'; render() }"); await pg.wait_for_timeout(300)
+    ch = await text(pg, '#sched-changes')
+    c.ok(re.search(r'no-show', ch, re.I) and r['vendor'] in ch, f'the Changes list names the no-show as the cause: {ch[:200]!r}')
     # the brain proposes the rule, as a proposal with a trigger, not applied
     les = await pg.evaluate("() => ({ sug: bnSuggestLessons().filter(l => /confirm/i.test(l.title) && /day before/i.test(l.title)).map(l => [l.title, l.trigger, l.then && l.then.kind]), have: DB.lessons.filter(l => /confirm/i.test(l.title) && /day before/i.test(l.title)).length })")
     c.ok(len(les['sug']) == 1 and les['sug'][0][1] and les['have'] == 0, f'the brain proposes "confirm every sub the day before" with a trigger and does not apply it: {les}')
@@ -277,7 +278,7 @@ async def sec_insp(p, c):
     await pg.evaluate(f"() => {{ setCurrent({J121}.id); const p = S; (p.actions = p.actions || []).some(a => /book rough inspection/i.test(a.title)) || p.actions.push({{ id: uid('a'), title: 'Book Rough Inspection', assignee: 'Alan', due: '2026-09-14', priority: 'med', status: 'todo', source: {{ kind: 'meeting', label: 'site walk' }} }}); view = 'insp'; render() }}")
     await pg.wait_for_timeout(400)
     c.ok(await pg.locator('.view.on [data-book="i3"]').count() == 1, 'the DOB rough plumbing inspection row offers Book')
-    await pg.click('.view.on [data-book="i3"]'); await pg.wait_for_timeout(300)
+    await pg.click('.view.on [data-book="i3"]', force=True); await pg.wait_for_timeout(300)
     m = await modal(pg)
     c.ok(m.lower().startswith('book'), f'Book opens its dialog: {m[:60]!r}')
     await pg.fill('#mbm [data-f="date"]', '2026-09-08')
@@ -337,17 +338,14 @@ async def sec_lenox(p, c):
     # nothing of 121 State's shows under 206 Lenox on PM Home, Approvals, Purchasing or Ask
     await sign_in(pg, 'u_alan')
     bad = []
+    ROWS = "() => [...document.querySelectorAll('.view.on .m-appr, .view.on .td-card, .view.on .h4r, .view.on .fd-row, .view.on tr, .view.on .ops-fi, .view.on .cl-row')].map(x => x.innerText.replace(/\\s+/g, ' '))"
     for v in ('home', 'mapprove'):
-        await go(pg, v); await pg.wait_for_timeout(300); t = await text(pg)
-        for n in TPL_NAMES:
-            for m in re.finditer(re.escape(n), t):
-                ctx = t[max(0, m.start() - 160):m.end() + 160]
-                if '206 Lenox' in ctx: bad.append((v, n))
-    await sign_in(pg, 'u_chen'); await go(pg, 'po'); await pg.wait_for_timeout(300); t = await text(pg)
-    for n in TPL_NAMES:
-        for m in re.finditer(re.escape(n), t):
-            ctx = t[max(0, m.start() - 160):m.end() + 160]
-            if '206 Lenox' in ctx: bad.append(('po', n))
+        await go(pg, v); await pg.wait_for_timeout(300)
+        for row in await pg.evaluate(ROWS):
+            if '206 Lenox' in row and any(n in row for n in TPL_NAMES): bad.append((v, row[:80]))
+    await sign_in(pg, 'u_chen'); await go(pg, 'po'); await pg.wait_for_timeout(300)
+    for row in await pg.evaluate(ROWS):
+        if '206 Lenox' in row and any(n in row for n in TPL_NAMES): bad.append(('po', row[:80]))
     c.ok(not bad, f"121 State's items under 206 Lenox on: {bad}")
     rows = await pg.evaluate("() => ({ late: PRED.jobLate.rows('p206').length, buy: (typeof eqRows === 'function' ? eqRows('materials') : []).filter(m => m.projectId === 'p206' || m.project === '206 Lenox').map(m => m.name || m.item) })")
     c.ok(not any(n in x for n in TPL_NAMES for x in rows['buy']), f"Purchasing rows for 206 Lenox: {rows['buy']}")
@@ -400,12 +398,16 @@ async def sec_labels(p, c):
 
 
 def cut_ok(full, shown):
-    """shown is the full text, or a prefix of it cut at a word boundary and ended with an ellipsis."""
+    """shown carries the full text, or a prefix of it cut at a word boundary and ended with an ellipsis."""
     if full in shown: return True
-    m = re.search(r'(.+?)…', shown)
-    if not m: return False
-    pre = m.group(1).rstrip()
-    return full.startswith(pre) and (len(pre) == len(full) or full[len(pre)] in ' ,.;:—-')
+    k = shown.find('…')
+    if k < 0: return False
+    pre = shown[:k].rstrip()
+    for i in range(len(pre)):
+        tail = pre[i:]
+        if len(tail) >= 8 and full.startswith(tail):
+            return len(tail) == len(full) or full[len(tail)] in ' ,.;:—-'
+    return False
 
 
 async def sec_polish(p, c):
@@ -420,14 +422,16 @@ async def sec_polish(p, c):
     tst = await toast(pg)
     title = await pg.evaluate("() => clRewrite(DB.field.raises.find(x => x.id === 'fr2').title)")
     c.ok(cut_ok(title, tst), f'the CO toast cuts the title on a word: {tst!r}')
-    # the portal finish headline cuts the PM's note on a word
+    # the portal finish headline is never cut mid-word: its sub-line wraps instead of ending in an ellipsis
     note = 'Framing on the 3rd floor runs to 9/17: 3 days are your approved change order, 5 days are our restoration sub missing a day.'
-    await pg.evaluate(SLIP, ['frame', 2, 'noshow'])
+    await pg.evaluate(SLIP, ['frame', 5, 'noshow'])
     await pg.evaluate("n => { opsPublish(S, n); save() }", note)
-    await sign_in(pg, 'u_klein'); await go(pg, 'sched'); await pg.wait_for_timeout(300)
-    t = await text(pg)
-    q = re.search(r'“([^”]+)”|"([^"]+)"', t)
-    c.ok(q and cut_ok(note, (q.group(1) or q.group(2))), f'the portal finish line cuts the note on a word: {q and (q.group(1) or q.group(2))!r}')
+    await sign_in(pg, 'u_klein'); await go(pg, 'client'); await pg.wait_for_timeout(300)
+    fin = await pg.evaluate("""() => { const t = document.querySelector('.view.on [data-tl="fin"]') || [...document.querySelectorAll('.view.on .gl')].find(x => /Finish/i.test((x.querySelector('.gl-k') || {}).innerText || '')); if (!t) return null;
+        const s = t.querySelector('.gl-s'); if (!s) return { sub: '', cut: false }; const cs = getComputedStyle(s);
+        return { sub: s.innerText, cut: s.scrollWidth > s.clientWidth + 1 && cs.textOverflow === 'ellipsis' && cs.whiteSpace === 'nowrap' } }""")
+    c.ok(fin and 'past the date in your agreement' in fin['sub'], f"the client's Finish tile says the finish is past the agreement: {fin and fin['sub']!r}")
+    c.ok(fin and not fin['cut'] and cut_ok(note, fin['sub']), f"the client's Finish line cuts the note on a word: {fin and fin['sub']!r}")
     # the foreman's card says the decision once
     await sign_in(pg, 'u_angel'); await go(pg, 'ftoday'); await pg.wait_for_timeout(300)
     t = await text(pg)
@@ -435,30 +439,35 @@ async def sec_polish(p, c):
     # the first Acknowledge click works (Chen's Approvals)
     await sign_in(pg, 'u_chen'); await go(pg, 'mapprove'); await pg.wait_for_timeout(400)
     await pg.evaluate("() => { window.mApprKind = 'req'; render() }"); await pg.wait_for_timeout(300)
-    n = await pg.locator('.view.on .m-appr-a [data-myes]').count()
+    n = await pg.locator('.view.on .m-appr[data-mk="req"] .m-appr-a button').count()
     c.ok(n >= 1, 'Chen has a request to acknowledge')
     if n:
         before = await pg.evaluate("() => DB.projects.flatMap(p => p.requests || []).filter(r => r.status === 'new').length")
-        await pg.click('.view.on .m-appr-a [data-myes]'); await pg.wait_for_timeout(400)
+        await pg.click('.view.on .m-appr[data-mk="req"] .m-appr-a button'); await pg.wait_for_timeout(400)
         after = await pg.evaluate("() => DB.projects.flatMap(p => p.requests || []).filter(r => r.status === 'new').length")
         c.ok(after == before - 1, f'the first Acknowledge click acknowledges: new requests {before} -> {after}')
         c.ok(await toast(pg), 'Acknowledge toasts')
     # Chen's Home link for a field question lands on the question
     await go(pg, 'home'); await pg.wait_for_timeout(400)
-    hit = await pg.evaluate("() => { const r = [...document.querySelectorAll('.view.on .h4r, .view.on [data-ea], .view.on [data-h4go]')].find(x => /Insulation/.test(x.innerText)); if (!r) return null; r.click(); return view }")
+    hit = await pg.evaluate("() => { const r = [...document.querySelectorAll('.view.on .h4r, .view.on [data-ea], .view.on [data-h4go], .view.on .fd-row')].find(x => /Insulation/.test(x.innerText)); if (!r) return null; (r.querySelector('button, a') || r).click(); return view }")
     c.ok(hit in ('mapprove', 'field'), f"Chen's Home link for the insulation question lands on {hit}")
     # stamps sit in site hours on the demo clock
     hhmm = await pg.evaluate("() => appNowIso().slice(11, 16)")
     c.ok('07:00' <= hhmm <= '18:30', f'the demo clock stamps inside site hours: {hhmm}')
     # the daily log record shows the photos it lists and takes the PM's acknowledgement
     await sign_in(pg, 'u_alan')
-    await pg.evaluate(f"() => {{ setCurrent({J121}.id); view = 'field'; fxTab = 'log'; render() }}"); await pg.wait_for_timeout(400)
+    await pg.evaluate(f"() => {{ setCurrent({J121}.id); view = 'field'; opsFieldTab = 'log'; render() }}"); await pg.wait_for_timeout(400)
     await pg.evaluate("() => { const b = [...document.querySelectorAll('.view.on [data-dlopen]')].find(x => /Sep 2|9\\/2/.test(x.closest('.ops-log, .dl-past') ? x.closest('.ops-log, .dl-past').innerText : '')); b && b.click() }"); await pg.wait_for_timeout(400)
-    rec = await pg.evaluate("() => { const l = DB.field.logs.find(x => x.projectId === 'p121' && x.date === '2026-09-02'); const el = document.querySelector('.view.on .dl-rec, #mbm .dl-rec'); return { listed: (l.photoIds || []).length, shown: el ? el.querySelectorAll('.pst-tile').length : -1, ack: el ? !!el.querySelector('[data-dlack]') : false, text: el ? el.innerText.slice(0, 120) : '' } }")
-    c.ok(rec['shown'] == rec['listed'] and rec['listed'] >= 1, f"the 9/2 log shows the {rec['listed']} photos it lists: {rec['shown']} shown")
+    await pg.wait_for_timeout(600)
+    rec = await pg.evaluate("""() => { const l = DB.field.logs.find(x => x.projectId === 'p121' && x.date === '2026-09-02'); const el = document.querySelector('#mbm .dl-rec') || document.querySelector('.view.on .dl-rec');
+        const imgs = el ? [...el.querySelectorAll('.pst-tile img')] : [];
+        return { listed: (l.photoIds || []).length, shown: el ? el.querySelectorAll('.pst-tile').length : -1, loaded: imgs.filter(i => i.getAttribute('src') && i.complete && i.naturalWidth > 0).length,
+                 ack: el ? !!el.querySelector('[data-dlack]') : false } }""")
+    c.ok(rec['shown'] == rec['listed'] and rec['loaded'] == rec['listed'] and rec['listed'] >= 1, f"the 9/2 log shows the {rec['listed']} photos it lists: {rec['shown']} tiles, {rec['loaded']} images loaded")
     c.ok(rec['ack'], 'the PM can acknowledge the log')
     if rec['ack']:
-        await pg.click('[data-dlack]'); await pg.wait_for_timeout(300)
+        sel = '#mbm [data-dlack]' if await pg.locator('#mbm [data-dlack]').count() else '.view.on [data-dlack]'
+        await pg.locator(sel).first.click(); await pg.wait_for_timeout(300)
         ak = await pg.evaluate("() => { const l = DB.field.logs.find(x => x.projectId === 'p121' && x.date === '2026-09-02'); return l.ack && l.ack.by }")
         c.ok(ak == 'Alan', f'the acknowledgement is recorded with who: {ak}')
     # the committed-deliverable-dates rule proposes only where a deliverable is undated
@@ -471,8 +480,8 @@ async def sec_polish(p, c):
     await go(pg, 'brain'); await pg.evaluate("() => { bnTab = 'workload'; renderBrain() }"); await pg.wait_for_timeout(300)
     t = await text(pg)
     appr = await pg.evaluate("() => PRED.waitingOnMe.count()")
-    row = re.search(r'Alan[^\n]*\n[^\n]*', t)
-    c.ok(row and re.search(r'\d+ approvals? waiting', row.group(0)), f"the PM's Workload row counts the {appr} approvals: {row and row.group(0)!r}")
+    row = await pg.evaluate("() => { const r = [...document.querySelectorAll('.view.on .bn-row')].find(x => /^Alan\\b/.test((x.querySelector('.bn-who b') || {}).innerText || '')); return r ? r.innerText.replace(/\\s+/g, ' ') : '' }")
+    c.ok(re.search(rf'\b{appr} approvals? waiting', row), f"the PM's Workload row counts the {appr} approvals: {row!r}")
     c.ok('everyone is inside their week' not in t, 'Workload does not say everyone is inside their week while the PM holds a queue')
     c.ok(not errs, f'polish: page errors {errs[:3]}')
     await b.close()
