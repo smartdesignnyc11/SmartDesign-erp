@@ -349,8 +349,11 @@ async def part_close(p, c):
         await b.close(); return
     k = r['kinds']
     c.ok(k.index('close:wip') > max(i for i, x in enumerate(k) if x.startswith('accrual')), f"#1 the WIP was planned before the wages posted: {k}")
-    c.ok(abs(r['j121'] - 62466.02) < 0.005 and abs(r['l121'] - 62466.02) < 0.005, f"#1 121 State WIP schedule {r['j121']} / 2500 {r['l121']} (want 62,466.02 both)")
-    c.ok(abs(r['j45'] - 6323.09) < 0.005 and abs(r['l45'] - 6323.09) < 0.005, f"#1 45 Cranberry WIP schedule {r['j45']} / 2500 {r['l45']} (want 6,323.09 both)")
+    # The August refunds coded to the jobs (House of Antique Hardware $125.80 on 121 State, Bedrosians $214.50 on
+    # 45 Cranberry) reduce job cost, as they already reduce cost on the P&L (the -$340.30 refund line); the lost
+    # lane's targets (62,466.02 / 6,323.09) left them out of job cost, so job and company cost disagreed.
+    c.ok(abs(r['j121'] - 62626.90) < 0.005 and abs(r['l121'] - 62626.90) < 0.005, f"#1 121 State WIP schedule {r['j121']} / 2500 {r['l121']} (want 62,626.90 both)")
+    c.ok(abs(r['j45'] - 6891.84) < 0.005 and abs(r['l45'] - 6891.84) < 0.005, f"#1 45 Cranberry WIP schedule {r['j45']} / 2500 {r['l45']} (want 6,891.84 both)")
     c.ok(r['tie'] and r['tie']['ok'] and all(abs(x['diff']) < 0.005 for x in r['tie']['rows']), f"#1 ctWipTie {r['tie']}")
     c.ok(abs(r['lab45'] - 5667.29) < 0.01, f"#10 45 Cranberry labor at run burden {r['lab45']} (want 5,667.29, not 5,790 standard)")
     c.ok(r['status']['closed'] and r['status']['month'] == '2026-08' and 'closed' in r['status']['headline'].lower(), f"Ask ctCloseStatus {r['status']}")
@@ -361,7 +364,7 @@ async def part_close(p, c):
 
     # The Pack for August reads the ledger; the Close page shows the WIP Tie-Out.
     t = await pg.evaluate("() => { packMonth = '2026-08'; repTab = 'pack'; view = 'reports'; render(); const h = document.getElementById('v-reports').innerText; packMonth = ''; return h }")
-    c.ok('$62,466' in t and '$6,323' in t and '$67,326' not in t, f"#1 the August Pack WIP: 121 State $62,466 and 45 Cranberry $6,323 expected (Pack equals the ledger)")
+    c.ok('$62,627' in t and '$6,892' in t and '$67,326' not in t, f"#1 the August Pack WIP: 121 State $62,627 and 45 Cranberry $6,892 expected (Pack equals the ledger)")
     c.ok('$5,667' in t and '$5,790' not in t, '#10 the August Pack labor is not at run burden ($5,667, not $5,790)')
     m = re.search(r'Entries not from a document · August 2026 · (\d+) · \$[\d,.]+ \(([^)]*)\)', t, re.I)
     c.ok(m and m.group(1) == '3' and 'accrual' in m.group(2).lower() and 'close' in m.group(2).lower() and 'manual' not in m.group(2).lower(), f"finding 4: the Pack classes the close's own entries: {m.group(0) if m else 'no line'}")
@@ -371,7 +374,7 @@ async def part_close(p, c):
     cash831 = f"${r[1]:,.0f}"
     c.ok('cash at 8/31' in t and cash831 in t, f"finding 16: the August Pack shows cash at 8/31 ({cash831}): {'cash at 8/31' in t}")
     t = await view_text(pg, 'gl', 'periods')
-    c.ok('wip tie-out' in t.lower() and '62,466.02' in t and '6,323.09' in t, '#1 the Close page has no WIP Tie-Out table for closed August')
+    c.ok('wip tie-out' in t.lower() and '62,626.90' in t and '6,891.84' in t, '#1 the Close page has no WIP Tie-Out table for closed August')
     c.ok('unallocated labor' in t.lower(), '#10 the Close page does not say Unallocated Labor')
     # #9 orphan accrual: $3,699 for 8/4-8/13, flagged once the next pay date (9/1) passed.
     r = await pg.evaluate("() => ctOrphanAccruals()")
