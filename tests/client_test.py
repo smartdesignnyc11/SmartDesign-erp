@@ -102,6 +102,8 @@ async def main():
         c.ok(sw == ['Ask the Assistant', 'Write to Alan'], f'6: Chat has the "Ask the Assistant / Write to Alan" switch, got {sw}')
         if await tap(pg, 'Ask the Assistant', css='[data-clmode]'):
             c.ok(await pg.evaluate("() => view === 'pa' && !!document.getElementById('pa-in')"), '6: "Ask the Assistant" opens the client Ask surface with its input')
+            nav = await pg.evaluate("() => ({ h: (document.querySelector('#pa-body .ph h2') || {}).textContent, on: [...document.querySelectorAll('#mtabs .on, #nav-groups button.on')].filter(e => e.getClientRects().length).map(e => e.innerText.trim()) })")
+            c.ok(nav['h'] == 'Chat' and any(x.startswith('Chat') for x in nav['on']), f'6: Ask is one place with Chat: headed Chat, the Chat entry on: {nav}')
             pa = await text(pg)
             c.ok(not re.search(r'Connect My Account|Watching|Thinking with the firm|Records only|What Changed|Needs A Reply', pa), f'6: the client Ask surface carries no firm chrome')
             c.ok(bool(re.search(r'your job|your schedule|your account', pa, re.I)), '6: the client Ask surface says what it answers about')
@@ -130,6 +132,8 @@ async def main():
         c.ok('Nothing dated' not in a['h'] and a['kind'] != 'none' and not INTERNAL.search(a['all']), f"7: this week's work from the published schedule, no crew names: {a['h']!r} {a['w'][:3]}")
         a = await ask(pg, 'show me the latest photos')
         c.ok(a['w'] and not re.search(r'\bAngel\b|\bAlberto\b|\bTomas\b', a['all']), f"7: photo rows carry no staff name: {a['w'][:2]}")
+        a = await ask(pg, 'what did the change order for the stair treads cost')
+        c.ok('CO-2026-002' in a['h'] and '$1,850' in a['h'], f"7: a named change order's cost: {a['h']!r}")
         a = await ask(pg, 'how much did the Riveras pay you')
         c.ok(a['kind'] == 'blocked' and 'Rivera' not in a['h'] + a['n'], '7: another client is still refused')
         a = await ask(pg, 'what does the firm have in the bank')
@@ -272,8 +276,15 @@ async def main():
         c.ok('Sep 18' in ch and re.search(r'Alan', ch), f'4: the client reads Alan\'s answer in Chat: {ch[-300:]!r}')
         c.ok(not re.search(r'Assistant is reading|Waiting for review|review in Inbox', ch), '4: and nothing of the firm\'s routing')
 
-        # ------------------------------------------------------------- billing's client record reads tpJobPct
+        # ------------------------------------------------------------- 6. the Ask door on the desktop too
         await pg.set_viewport_size({'width': 1440, 'height': 900})
+        await sign_in(pg, 'u_klein'); await go(pg, 'chat'); await pg.wait_for_timeout(300)
+        c.ok(await pg.evaluate("() => { const a = document.getElementById('tb-ask'); return !!(a && !a.hidden && a.getClientRects().length) }"), '6: Ask shows in the client header on the desktop')
+        sw = await pg.evaluate("() => [...document.querySelectorAll('.view.on [data-clmode]')].map(b => b.innerText.trim())")
+        c.ok(sw == ['Ask the Assistant', 'Write to Alan'], f'6: the Chat switch is on the desktop too, got {sw}')
+        c.ok(not errs, f'desktop: no page errors: {errs[:3]}')
+
+        # ------------------------------------------------------------- billing's client record reads tpJobPct
         await sign_in(pg, 'u_billing')
         await pg.evaluate("() => { const c = DB.clients.find(x => /Klein/.test(x.name)); clientOpen = c.id; clientTab = 'overview'; docOpen = null; view = 'clients'; render(); }"); await pg.wait_for_timeout(500)
         pct = await pg.evaluate("() => Math.round(tpJobPct(DB.projects.find(x => /121 State/.test(x.project.name))))")

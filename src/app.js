@@ -167466,10 +167466,12 @@ const CL_ASK = [
       if (!pub) return { headline: clUnset(sc), note: "", work: [], how: "your schedule", go: { view: "sched" } };
       const late = pub.target ? signedWork(pub.target, pub.finish) : 0,
         drivers = (pub.changes || []).filter((c) => !c.driver),
-        when = `Last update from ${pub.by || clPmName(p)} on ${fmtL(pub.at)}.`;
+        when = `Last update from ${pub.by || clPmName(p)} on ${fmtL(pub.at)}.`,
+        asksMove = /\b(move|moved|moving|slip|slipped|change|changed|delay|delayed|push|pushed|why|still|same|behind|late|on (track|time|target))\b/.test(l),
+        agree = pub.target ? (late > 0 ? `, ${late} working day${1 === late ? "" : "s"} past the date in your agreement (${fmtL(pub.target)})` : ", the date in your agreement") : "";
       if (!drivers.length)
         return {
-          headline: `No, the finish date did not move: still ${fmtL(pub.finish)}${pub.target ? (late > 0 ? `, ${late} working day${1 === late ? "" : "s"} past the date in your agreement (${fmtL(pub.target)})` : ", the date in your agreement") : ""}.`,
+          headline: asksMove ? `No, the finish date did not move: still ${fmtL(pub.finish)}${agree}.` : `Your job finishes ${fmtL(pub.finish)}${agree}; no dates have moved.`,
           note: `${when} When a date moves it is listed on your Schedule page with the reason, before anything else changes.`,
           work: [],
           how: "your published schedule",
@@ -167545,6 +167547,35 @@ const CL_ASK = [
     },
   },
   {
+    id: "coCost",
+    re: /\b(change orders?|\bco\b|cos|extra|extras|added work)\b/,
+    test: (l) => !/\bcontract\b/.test(l) && /\b(change orders?|\bco\b|extras?|added work)\b/.test(l) && /\b(cost|price|how much|amount|total|for|charge)\b/.test(l),
+    run(l, sc) {
+      const c = sc.client,
+        all = (c.changeOrders || []).filter((d) => !["draft", "void", "superseded"].includes(d.status) && (!d.projectId || sc.pids.has(d.projectId))),
+        scored = all.map((d) => ({ d: d, n: clHit(l, `${d.title || ""} ${d.number}`) })).sort((a, b) => b.n - a.n),
+        word = (d) => ("approved" === d.status || "billed" === d.status ? `approved${d.clientApproval ? ` by ${d.clientApproval.name} on ${fmtL(String(d.clientApproval.ts || "").slice(0, 10))}` : ""}` : "sent" === d.status ? "sent to you to approve" : d.status);
+      if (!all.length) return { headline: "You have no change orders. Anything that changes the price comes to you in Waiting on You before the work.", note: "", work: [], how: "your change orders", go: { view: "clacct" } };
+      if (scored[0].n) {
+        const d = scored[0].d;
+        return {
+          headline: `${d.number} (${clWords(d.title || "")}) is ${money(docTotal(d).total)}, ${word(d)}.`,
+          note: d.scheduleDays ? `It adds ${d.scheduleDays} working day${1 === d.scheduleDays ? "" : "s"} to the schedule.` : "",
+          work: scored.filter((x) => x.n && x.d !== d).map((x) => `${x.d.number} · ${clWords(x.d.title || "")} — ${money(docTotal(x.d).total)}, ${word(x.d)}`),
+          how: "your change orders on the account statement",
+          go: { view: "clacct" },
+        };
+      }
+      return {
+        headline: `${all.length} change order${1 === all.length ? "" : "s"}, ${money(all.reduce((a, d) => a + docTotal(d).total, 0))} in all: ${agList(all.map((d) => `${d.number} ${money(docTotal(d).total)}`), 6)}.`,
+        note: "",
+        work: all.map((d) => `${d.number} · ${clWords(d.title || "")} — ${money(docTotal(d).total)}, ${word(d)}`),
+        how: "your change orders on the account statement",
+        go: { view: "clacct" },
+      };
+    },
+  },
+  {
     id: "contract",
     re: /\b(contract|total|price|cost|sum|value|revised)\b/,
     test: (l) =>
@@ -167589,11 +167620,12 @@ const CL_ASK = [
     id: "thisWeek",
     re: /\b(week|today|tomorrow|happening|going on|crew|team|on site|working|doing|next up)\b/,
     test: (l) =>
-      /\b(this|next) week\b/.test(l) ||
-      /\b(today|tomorrow)\b/.test(l) ||
-      /\bwhat('s| is) (happening|going on|next|the crew|the team)\b/.test(l) ||
-      /\b(crew|team|workers?|guys)\b.*\b(doing|working|on site|up to)\b/.test(l) ||
-      /\bon site\b/.test(l),
+      !/\b(photos?|pictures?|pics?|payments?|paid|invoices?|bills?|decisions?|choices?|waiting|owe|contract|retainage|hours?)\b/.test(l) &&
+      (/\b(this|next) week\b/.test(l) ||
+        /\b(today|tomorrow)\b/.test(l) ||
+        /\bwhat('s| is) (happening|going on|next|the crew|the team)\b/.test(l) ||
+        /\b(crew|team|workers?|guys)\b.*\b(doing|working|on site|up to)\b/.test(l) ||
+        /\bon site\b/.test(l)),
     run(l, sc) {
       const p = sc.p,
         pub = p && p.published;
@@ -167799,6 +167831,13 @@ function clAskRead(q, sc) {
     .replace(/\s+/g, " ")
     .trim();
   if (!l) return null;
+  // another client's name or another job's address in the question: not ours to answer (the older chain refuses)
+  try {
+    const others = (DB.clients || []).filter((c) => c.id !== sc.cid),
+      sur = others.map((c) => String(c.name).toLowerCase().split(/[^a-z]+/).filter((t) => t.length >= 4 && !/^(family|the|llc)$/.test(t)).pop()).filter(Boolean),
+      jobs = (DB.projects || []).filter((p) => !(sc.pids && sc.pids.has(p.id))).map((p) => agShort(p).toLowerCase());
+    if (sur.some((w) => new RegExp(`\\b${w}`).test(l)) || jobs.some((j) => j && l.includes(j))) return null;
+  } catch (e) {}
   const p = sc.p || (sc.jobs || [])[0] || (S && sc.pids && sc.pids.has(S.id) ? S : null);
   if (!p) return null;
   const scope = Object.assign({}, sc, { p: p, client: sc.client || DB.clients.find((x) => x.id === p.clientId) }),
@@ -167946,6 +167985,15 @@ if ("function" == typeof paHtml) {
         a.onclick = () => {
           (view = "pa"), render(), window.scrollTo(0, 0);
         };
+      }
+      // Ask lives in Chat: one place, headed Chat, the switch picks the mode, and the Chat entry is on
+      if ("pa" === view) {
+        // headed like the client's other pages: the page's own "Chat" under the project in the header
+        const h = document.querySelector("#pa-body .ph h2");
+        h && ((h.textContent = "Chat"), h.classList.remove("td-in-hdr"), h.closest(".ph")?.classList.remove("td-ph-bare"));
+        document.querySelectorAll('#nav-groups button[data-v="chat"], #mtabs [data-mv="chat"]').forEach((b) => b.classList.add("on"));
+        const cr = document.getElementById("crumbs");
+        cr && S && !cr.querySelector("input,select") && (cr.innerHTML = `<span class="tb-co">SmartDesign</span><span class="tb-sep">›</span><b>${esc("function" == typeof tcase ? tcase(S.project.name) : S.project.name)}</b>`);
       }
       // the switch on Chat: Ask the Assistant / Write to Alan
       if ("chat" === view) {

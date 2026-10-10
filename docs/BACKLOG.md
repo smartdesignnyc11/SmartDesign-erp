@@ -172,15 +172,15 @@ This lane was finished and verified at 53 checks. Target figures follow.
 3. **The estimate hint stays out of the description.**
    - What happens: the hint "…Contract line on EST-2026-014: $34,500 — for reference; enter this change's quantity or price" is saved into the CO line `desc` and prints on the client's CO and PDF.
    - Fix: keep it in `refAmount`, shown as a hint only, and clean already-saved descriptions.
-4. **The client sees what they approve.**
+4. **The client sees what they approve.** Done (clientfix, tests/client_test.py): "View the Sheets" opens the read-only client viewer (`clFileView`), the approval sheet stays open underneath, and every file write refuses the client role in the function.
    - Each client submittal approval gets "View the Sheets", which opens the file, plus a confirmation step like CO signing.
    - It counts in Waiting on You, the nav badge and the Decisions tile.
    - Fold the client's four lists (Your Decisions / To Sign / Waiting on You / Approve Before We Order) into ONE Waiting on You list, with one count.
-5. **The client Overview shows progress.**
+5. **The client Overview shows progress.** Done; and a design job before its schedule is published reads a design-phase Overview (`clDesignOverviewHtml`), never a construction card; one billed figure ("Billed to date $238,015 after retainage ($253,684 before)").
    - Show Progress (the certified figure from §1.2) plus the last 3 shared photos.
    - Retire the stale "last update from Alan on Tue, Jul 28" line.
    - The PM writes a client caption when sharing; internal tags (DAILY LOG) are never shown.
-6. **Portal approvals are not inbox work.** They land in project Messages as handled activity, not "New" with Review / Ignore / Delete.
+6. **Portal approvals are not inbox work.** Done (clientfix): a choice, a signature, a sample approval and a question each land in Project Messages as one handled activity line (`clActivity`); a client's question is the PM's Do Now item "Answer <client>" with a drafted reply from the published schedule and the statement (`clqRaise` / `clqAnswer`), and the client reads "Sent to Alan" and the answer. The client has an Ask door (header, the Chat switch, a scoped `pa` surface) and the intents a client uses (`CL_ASK`).
 7. **Phone document overflow (regression).** On the CO draft, the meta block (621px in 268px) pushes Title / Project / Date to x=645. Collapse the meta block to one column under 480px, and sweep every document type on phone for elements wider than the viewport.
 8. **Icons.**
    - `.bp-ic` has no size: the PO "Documents:" note renders a ~1,000px PDF glyph, and the Documents grid crops 209px glyphs.
