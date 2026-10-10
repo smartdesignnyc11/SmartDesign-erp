@@ -167451,6 +167451,25 @@ const clUnset = (sc) => {
   return `Your schedule is being set — ${clPmFirst(p)} will share the dates once ${design ? "the design phases are agreed" : "the dates are agreed"}.`;
 };
 const CL_ASK = [
+  // the firm's own figures (margin, crew pay, the bank, other clients): a plain refusal, never a misread
+  {
+    id: "firmOnly",
+    re: /\b(profit|margin|markup|mark-up|overhead|paid|wages?|salar(y|ies)|other clients?|bank|cash)\b/,
+    test: (l) =>
+      /\b(profit|margin|markup|mark-up|overhead)\b/.test(l) ||
+      (/\b(crew|workers?|team|guys|employees?|staff|subs?|subcontractors?|they|he|she)\b/.test(l) && /\b(get paid|gets paid|wages?|salar(y|ies)|earn|make an hour|hourly)\b/.test(l)) ||
+      /\bother (clients?|customers?|jobs?|projects?)\b/.test(l) ||
+      /\b(firm|company|smartdesign|you)\b.*\b(have in the bank|bank balance|in the bank|cash)\b/.test(l),
+    run(l, sc) {
+      return {
+        headline: "That is the firm's own information; I answer about your job only.",
+        note: "Ask about your schedule, your choices, your invoices and payments, or the photos shared with you.",
+        work: [],
+        how: "",
+        kind: "blocked",
+      };
+    },
+  },
   {
     id: "finishMoved",
     re: /\b(finish|finishing|completion|end|moving|move|moved|slip|slipped|delay|delayed|pushed?|behind|late|on (track|time|target)|same date|still on)\b/,
@@ -167510,8 +167529,11 @@ const CL_ASK = [
         tName = tk ? ("function" == typeof opsClientName ? opsClientName(tk) : tk.name) : "",
         td = today(),
         O = "function" == typeof thOpts ? thOpts(d) : [];
-      let h = `${T}: we need your choice by ${N.due ? fmtL(N.due) : "as soon as you can"}${N.late ? " — that date has passed, so the work waits on it now" : ""}.`;
-      tk && (h += ` It holds ${tName}, which ${tk.start >= td ? `starts ${fmtL(tk.start)}` : "is waiting on it"}; every working day the choice waits past ${N.due ? fmtL(N.due) : "then"} moves ${tName} and what follows it by a day.`);
+      // the Choose sheet's own words (clNeed), then what deciding later does: the task it holds cannot start
+      // before the choice, so each working day past the task's start moves it and what follows it
+      const anchor = tk && tk.start && tk.start >= td ? tk.start : N.due;
+      let h = `${T}: ${N.line}.`;
+      tk && (h += ` ${tName} cannot start until you choose; each working day the choice waits past ${anchor ? fmtL(anchor) : "then"} moves ${tName} and the work after it by a day.`);
       m && (h += ` It also holds the order for ${clMatName(m).replace(/^./, (ch) => ch.toLowerCase())}; the lead time counts from your choice.`);
       return {
         headline: h,
@@ -167876,7 +167898,7 @@ function clAskRead(q, sc) {
           try {
             paInit();
           } catch (e) {}
-          return agLeakCheck(paOut(Object.assign({ kind: "askgen" }, a, { go: a.go ? paGo(a.go) : null, interp: `I read this as: ${a.how}.` })));
+          return agLeakCheck(paOut(Object.assign({ kind: "askgen" }, a, { go: a.go ? paGo(a.go) : null, interp: a.how ? `I read this as: ${a.how}.` : null })));
         }
       } catch (e) {
         console.warn("client ask", e);

@@ -136,8 +136,11 @@ async def main():
         c.ok('CO-2026-002' in a['h'] and '$1,850' in a['h'], f"7: a named change order's cost: {a['h']!r}")
         a = await ask(pg, 'how much did the Riveras pay you')
         c.ok(a['kind'] == 'blocked' and 'Rivera' not in a['h'] + a['n'], '7: another client is still refused')
-        a = await ask(pg, 'what does the firm have in the bank')
-        c.ok(not re.search(r'\$\s?\d', a['all']), '7: the firm\'s bank stays out of a client answer')
+        for q in ('what does the firm have in the bank', 'who is on the crew at my house and what do they get paid', 'what is your profit margin on my job', 'which other clients owe you money'):
+            a = await ask(pg, q)
+            c.ok(a['kind'] == 'blocked' and not re.search(r'\$\s?\d', a['all']), f"7: a firm-only question is refused plainly, not misread: {q!r} -> {a['h']!r}")
+        a = await ask(pg, 'when is the next payment due on my account')
+        c.ok('INV-2026-038' in a['h'], f"7: a payment question is not taken for a firm-only one: {a['h']!r}")
 
         # ------------------------------------------------------------- 8. one billed figure
         ov = await text(pg)
