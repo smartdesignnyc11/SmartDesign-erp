@@ -24,7 +24,7 @@ SHOTS = os.path.join(ROOT, 'review', 'daywalk')
 
 # Round-4 costs from docs/REVIEW_PROTOCOL.md (the eight jobs), as clicks + typed fields where it gives them.
 ROUND4 = {
-    'owner': 'Brief 0; 2 clicks each for WW-2026-118 and AMP-311; 1 click to open a decision',
+    'owner': 'Brief 0; 2 clicks each for WW-2026-118 and AMP-311 (since delegation AMP-311 is the PM\'s turn: reached through "wait on the others"); 1 click to open a decision',
     'pm': 'CO: 3 clicks + 1 field + 1 tick, then 3 (Start, price, Send to Client, Send); Task: New Task > title > assignee > Friday > Enter (no cost given)',
     'coord': '4 clicks + 1 field',
     'billing': '6 clicks, 0 typed',
@@ -342,6 +342,8 @@ class DeadEnd(Exception):
 
 async def walk_owner(w):
     pg = w.pg
+    # Home is Today (BACKLOG §3.3): Pulse, Do Now (the Approvals queue, ranked, one verb each), Caught for You,
+    # and the Morning Brief in three lines. The Do Now verbs below are the same gates the brief's buttons were.
     w.step('Morning Brief on landing')
     ok = await w.see('Morning Brief')
     if not ok: await w.flag('next step hidden', 'the Morning Brief is not on the owner\'s landing screen')
@@ -349,14 +351,14 @@ async def walk_owner(w):
     # WW-2026-118: $33,500 billed against PO-2026-044 ($29,700), paid from Amex before approval, COI and W-9 blocks.
     w.step('Approve WW-2026-118 (short-pay: Approve PO Amount, Dispute Difference)')
     await w.toast_mark()
-    # The brief's inline Approve only offers Approve as Billed (the full $33,500, $3,800 over the PO): check it.
+    # Do Now's Approve on WW-2026-118 must open the short-pay sheet (the bill is $3,800 over the PO), never Approve as Billed alone.
     hit = await w.find('Approve', within='WW-2026-118', css='button')
     if hit:
         await w.pg.locator('[data-dw="1"]').first.click(); await pg.wait_for_timeout(400)
         dlg = await w.see('Approve PO Amount') or await w.see('Dispute Difference')
         if not dlg:
-            await w.flag('wrong path', 'the brief\'s inline Approve on WW-2026-118 opens "Approve as Billed" only: no Approve PO Amount / Dispute Difference, '
-                   'although the bill is $3,800 over PO-2026-044 (flowBillInline -> billAction approve -> fin2ApproveAsBilled)', controls=False)
+            await w.flag('wrong path', 'Do Now\'s Approve on WW-2026-118 opens "Approve as Billed" only: no Approve PO Amount / Dispute Difference, '
+                   'although the bill is $3,800 over PO-2026-044 (apprBillYes -> billAction approve must reach pay3ShortPay)', controls=False)
         await pg.keyboard.press('Escape'); await pg.wait_for_timeout(300)
         await w.click('Cancel', optional=True, wait=200)
         w.cur['clicks'] = 0
@@ -369,22 +371,32 @@ async def walk_owner(w):
     w.step('Back to Home (close the bill sheet, Home in the rail)')
     await pg.keyboard.press('Escape'); await pg.wait_for_timeout(300)
     await w.click('Home', prefix=True, scope='nav, aside, .rail, #rail')
-    w.step('Approve AMP-311')
+    # AMP-311 is submitted, so it is the PM's review (DELEGATION): it is not on the owner's Do Now. The owner can
+    # still step in from Approvals, where what waits on the others is one Show away; the yes skips the PM step and logs it.
+    w.step("Approve AMP-311 (the PM's turn: Approvals > wait on the others > Show > Open > Approve)")
+    await w.click('Approvals', prefix=True)
+    await w.click('Show', within='wait on the others')
     await w.toast_mark()
-    await w.click('Approve', within='AMP-311', css='button')
+    # every row's button reads "Open", so pick the row by its text
+    nth = await pg.evaluate("() => [...document.querySelectorAll('#mbm .m-appr-o')].findIndex(r => r.innerText.includes('AMP-311'))")
+    if nth < 0: await w.flag('dead end', 'AMP-311 is not in Waiting on the Others'); raise DeadEnd('AMP-311')
+    await w.click('Open', css='#mbm .m-appr-o button', nth=nth)
+    # the bill drawer: AMP-311 was paid from the bank before approval, so its one yes is Approve as Billed, which
+    # opens the sheet listing the open controls (no PO, round dollars, no W-9) and asks for the reason
     await w.see('Approve as Billed')
-    if await w.find('Reason', css='label'):
-        await w.fill('COI renewal requested', label='Reason')
-    await w.click('Approve as Billed', wait=600, optional=True) or await w.click('Approve', wait=600)
+    await w.click('Approve as Billed')
+    await w.fill('COI renewal requested', label='Reason')
+    await w.click('Approve as Billed', wait=600)
     await w.mutated('AMP-311 approved', "() => { const b = DB.bills.find(x => x.number === 'AMP-311'); return b && ['approved', 'paid', 'verified'].includes(b.status) }")
 
     w.step('Back to Home (Home in the rail)')
     await w.click('Home', prefix=True, scope='nav, aside, .rail, #rail')
-    w.step('Open a decision (Approvals > Decisions > Open)')
-    await w.click('Decisions', regex=False, optional=True) or await w.click('Approvals', prefix=True)
-    await w.click('Decisions', prefix=True, optional=True)
-    await w.click('Open', within='ecision')
-    ok = await pg.evaluate("() => view === 'dec' || !!document.querySelector('.view.on [data-dec], #ops-dec')")
+    # The decisions we owe are the PM's to drive (DELEGATION), so they are not in the owner's Approvals. The owner
+    # reaches one from the Pulse: Jobs at Risk lists each job with its late items, a decision past due among them.
+    w.step('Open a decision (Pulse > Jobs at Risk > a decision past due under its job)')
+    await w.click('Jobs at Risk', regex=True, css='[data-tdpulse]')
+    await w.click('decision$', regex=True, css='.td-sh-item')
+    ok = await pg.evaluate("() => view === 'dec' || !!document.querySelector('.view.on [data-dec], #ops-dec, .drawer.on')")
     if not ok: await w.flag('wrong record', 'Open on a decision row did not open a decision')
     elif not await w.see('Decide'): await w.flag('next step hidden', 'the decision opened but its next step (Decide) is not on screen')
 
@@ -417,7 +429,7 @@ async def walk_pm(w):
     await w.click('Send', wait=800)
     await w.mutated('CO sent to the client at $2,400', "() => { const d = DB.clients.flatMap(c => c.changeOrders || []).find(d => /garden wall cabinets/.test(d.title || '')); return d && d.status === 'sent' && JSON.stringify(d.lines || d.items || []).includes('2400') }")
 
-    w.step("Answer the foreman's field question (Home brief > Answer > Send to the Field)")
+    w.step("Answer the foreman's field question (Home Do Now > Answer > Send to the Field)")
     await w.click('Home', prefix=True, scope='nav, aside, .rail, #rail')
     await w.toast_mark()
     await w.click('Answer')

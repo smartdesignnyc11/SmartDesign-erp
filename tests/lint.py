@@ -234,6 +234,11 @@ COLLECT = r"""
   const grpEls = [grpOn, ...document.querySelectorAll('#mtabs .on, #tabbar .on, .mtabs .on')].filter(Boolean);
   const grpL = (grpEls.find(vis) ? srcText(grpEls.find(vis)) : '') || (grpOn ? (grpOn.textContent || '').replace(/\d+\s*$/, '').trim() : '');
   let hEl = view && ([...view.querySelectorAll('h1')].find(vis) || [...view.querySelectorAll('h2')].find(vis));
+  // On the phone the office roles' page title lives in the slim header: tdChrome marks the page's own heading
+  // (.td-in-hdr) and hides it, so the header's title is the page heading there, not the next h2 down the page
+  // ("Company" on Reports, "Look-Ahead" on Today).
+  const hdrT = document.querySelector('#crumbs b');
+  if (PHONE && view && view.querySelector('.ph h2.td-in-hdr') && hdrT && vis(hdrT)) hEl = hdrT;
   const heading = hEl ? srcText(hEl) : '';
   const navL = tabL || grpL;
   // "Selections — 45 Cranberry St" matches "Selections": the nav label plus a record suffix after a dash or dot

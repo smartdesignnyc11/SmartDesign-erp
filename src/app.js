@@ -10047,7 +10047,7 @@ function lineProfit(p) {
         budget &&
         billedPct / 100 > pctComplete + 0.35 &&
         billedPct > 50 &&
-        flags.push(`billed ${Math.round(billedPct)}% vs ${Math.round(100 * pctComplete)}% complete`),
+        flags.push(`billed ${Math.round(billedPct)}% vs ${Math.round(100 * pctComplete)}% of its budget spent`),
       {
         key: key,
         label: o.label,
@@ -16800,7 +16800,8 @@ function signIn(userId) {
   (DB.workspace = String(u.role).startsWith("mb_") ? "mb" : "sd"),
     home && ROLE_VIEWS[u.role]?.includes(home) && (view = home),
     render(),
-    toast(`Signed in as ${u.name}`);
+    // on a phone the header already says who and where; the toast only covered the bottom of the first screen
+    window.innerWidth <= 760 || toast(`Signed in as ${u.name}`);
 }
 function signOut() {
   (DB.deviceUser = ""), save(), showSignIn();
@@ -23295,7 +23296,7 @@ function repProfit() {
     range = repFrom || repTo ? ` · ${repFrom || "start"} → ${repTo || "today"}` : " · to date",
     kpi = (label, v, sub, cls = "") =>
       `<div class="kpi ${cls}"><b>${"number" == typeof v ? money(v) : v}</b><span>${label}${sub ? ` · ${sub}` : ""}</span></div>`;
-  return `<div class="rep-head"><div><h2 style="margin:0">${esc(p.project.name)}</h2><div class="small muted">${esc(c?.name || "")}${p.project.address ? " · " + esc(p.project.address) : ""}${range} · prepared ${fmtL(today())}</div></div></div>\n    <h3 class="rep-h">Revenue</h3><div class="fin rep-kpis">${kpi("Contract incl. approved COs", r.contract)}${kpi("Billed", r.billedGross, `${r.contract ? Math.round((r.billedGross / r.contract) * 100) : 0}% of contract`)}${kpi("Collected", r.collected, "", "good")}${kpi("Outstanding", r.outstanding, `${money(r.retHeld)} retainage held`, r.outstanding > 0 ? "warn" : "")}${kpi("Earned (cost-to-cost)", r.earned, r.overUnder >= 0 ? `over-billed ${money(r.overUnder)}` : `under-billed ${money(-r.overUnder)}`)}</div>\n    <h3 class="rep-h">Cost & margin</h3><div class="fin rep-kpis">${kpi("Budget (estimate cost)", r.budget, `planned margin ${money(r.plannedMargin)} · ${r.contract ? Math.round((r.plannedMargin / r.contract) * 100) : 0}%`)}${kpi("Committed (POs)", r.committed)}${kpi("Actual to date", r.actual, `bills & bank ${money(r.direct + r.unlinked)} · labor ${money(r.labor.cost)}`)}${kpi("Projected cost", r.projCost, `${Math.round(100 * r.pctComplete)}% complete by cost`)}${kpi("Projected margin", `${money(r.margin)} · ${r.marginPct}%`, "", r.margin < 0.8 * r.plannedMargin ? "warn" : "good")}</div>\n    <h3 class="rep-h">By cost code</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Code</th><th class="money">Contract</th><th class="money">Budget</th><th class="money">Committed</th><th class="money">Bills & bank</th><th class="money">Labor</th><th class="money">Actual</th><th class="money">Remaining</th><th style="width:120px">Spent</th></tr></thead><tbody>${
+  return `<div class="rep-head"><div><h2 style="margin:0">${esc(p.project.name)}</h2><div class="small muted">${esc(c?.name || "")}${p.project.address ? " · " + esc(p.project.address) : ""}${range} · prepared ${fmtL(today())}</div></div></div>\n    <h3 class="rep-h">Revenue</h3><div class="fin rep-kpis">${kpi("Contract incl. approved COs", r.contract)}${kpi("Billed", r.billedGross, `${r.contract ? Math.round((r.billedGross / r.contract) * 100) : 0}% of contract`)}${kpi("Collected", r.collected, "", "good")}${kpi("Outstanding", r.outstanding, `${money(r.retHeld)} retainage held`, r.outstanding > 0 ? "warn" : "")}${kpi("Earned (cost-to-cost)", r.earned, r.overUnder >= 0 ? `over-billed ${money(r.overUnder)}` : `under-billed ${money(-r.overUnder)}`)}</div>\n    <h3 class="rep-h">Cost & margin</h3><div class="fin rep-kpis">${kpi("Budget (estimate cost)", r.budget, `planned margin ${money(r.plannedMargin)} · ${r.contract ? Math.round((r.plannedMargin / r.contract) * 100) : 0}%`)}${kpi("Committed (POs)", r.committed)}${kpi("Actual to date", r.actual, `bills & bank ${money(r.direct + r.unlinked)} · labor ${money(r.labor.cost)}`)}${kpi("Projected cost", r.projCost, tpCostWords(r.J))}${kpi("Projected margin", `${money(r.margin)} · ${r.marginPct}%`, "", r.margin < 0.8 * r.plannedMargin ? "warn" : "good")}</div>\n    <h3 class="rep-h">By cost code</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Code</th><th class="money">Contract</th><th class="money">Budget</th><th class="money">Committed</th><th class="money">Bills & bank</th><th class="money">Labor</th><th class="money">Actual</th><th class="money">Remaining</th><th style="width:120px">Spent</th></tr></thead><tbody>${
     r.byCode
       .map((b) => {
         const act = b.actual + b.labor,
@@ -23324,7 +23325,7 @@ function repPortfolio() {
       ),
       {},
     );
-  return `<div class="rep-head"><h2 style="margin:0">Portfolio profitability</h2><div class="small muted">${DB.projects.length} project${1 === DB.projects.length ? "" : "s"} · prepared ${fmtL(today())}</div></div><div class="fin rep-kpis"><div class="kpi"><b>${money(T.contract)}</b><span>contracts</span></div><div class="kpi"><b>${money(T.billedGross)}</b><span>billed</span></div><div class="kpi good"><b>${money(T.collected)}</b><span>collected</span></div><div class="kpi ${T.outstanding > 0 ? "warn" : ""}"><b>${money(T.outstanding)}</b><span>outstanding</span></div><div class="kpi ${T.margin >= 0 ? "good" : "warn"}"><b>${money(T.margin)} · ${T.contract ? Math.round((T.margin / T.contract) * 100) : 0}%</b><span>projected margin</span></div></div>\n    <div class="tw"><table class="t rep-t"><thead><tr><th>Project</th><th>Client</th><th class="money">Contract</th><th class="money">Billed</th><th class="money">Collected</th><th class="money">Outstanding</th><th class="money">Budget</th><th class="money">Committed</th><th class="money">Actual</th><th class="money">Proj. cost</th><th class="money">Margin</th><th>Complete</th></tr></thead><tbody>${rows.map(({ p: p, r: r }) => `<tr class="click" data-repproj="${p.id}"><td><b>${esc(p.project.name)}</b></td><td>${esc(r.c?.name || "")}</td><td class="money">${repMoney(r.contract)}</td><td class="money">${repMoney(r.billedGross)}</td><td class="money">${repMoney(r.collected)}</td><td class="money">${repMoney(r.outstanding)}</td><td class="money">${repMoney(r.budget)}</td><td class="money">${repMoney(r.committed)}</td><td class="money">${repMoney(r.actual)}</td><td class="money">${repMoney(r.projCost)}</td><td class="money" style="color:${r.margin >= 0 ? "inherit" : "var(--bad)"}">${money(r.margin)}<div class="small muted">${r.marginPct}%</div></td><td>${Math.round(100 * r.pctComplete)}%</td></tr>`).join("")}<tr style="font-weight:600"><td>Total</td><td></td>${["contract", "billedGross", "collected", "outstanding", "budget", "committed", "actual", "projCost", "margin"].map((k) => `<td class="money">${money(T[k])}</td>`).join("")}<td></td></tr></tbody></table></div>`;
+  return `<div class="rep-head"><h2 style="margin:0">Portfolio profitability</h2><div class="small muted">${DB.projects.length} project${1 === DB.projects.length ? "" : "s"} · prepared ${fmtL(today())}</div></div><div class="fin rep-kpis"><div class="kpi"><b>${money(T.contract)}</b><span>contracts</span></div><div class="kpi"><b>${money(T.billedGross)}</b><span>billed</span></div><div class="kpi good"><b>${money(T.collected)}</b><span>collected</span></div><div class="kpi ${T.outstanding > 0 ? "warn" : ""}"><b>${money(T.outstanding)}</b><span>outstanding</span></div><div class="kpi ${T.margin >= 0 ? "good" : "warn"}"><b>${money(T.margin)} · ${T.contract ? Math.round((T.margin / T.contract) * 100) : 0}%</b><span>projected margin</span></div></div>\n    <div class="tw"><table class="t rep-t"><thead><tr><th>Project</th><th>Client</th><th class="money">Contract</th><th class="money">Billed</th><th class="money">Collected</th><th class="money">Outstanding</th><th class="money">Budget</th><th class="money">Committed</th><th class="money">Actual</th><th class="money">Proj. Cost</th><th class="money">Margin</th><th>% Complete</th></tr></thead><tbody>${rows.map(({ p: p, r: r }) => `<tr class="click" data-repproj="${p.id}"><td><b>${esc(p.project.name)}</b></td><td>${esc(r.c?.name || "")}</td><td class="money">${repMoney(r.contract)}</td><td class="money">${repMoney(r.billedGross)}</td><td class="money">${repMoney(r.collected)}</td><td class="money">${repMoney(r.outstanding)}</td><td class="money">${repMoney(r.budget)}</td><td class="money">${repMoney(r.committed)}</td><td class="money">${repMoney(r.actual)}</td><td class="money">${repMoney(r.projCost)}</td><td class="money" style="color:${r.margin >= 0 ? "inherit" : "var(--bad)"}">${money(r.margin)}<div class="small muted">${r.marginPct}%</div></td><td>${tpJobPct(p)}%</td></tr>`).join("")}<tr style="font-weight:600"><td>Total</td><td></td>${["contract", "billedGross", "collected", "outstanding", "budget", "committed", "actual", "projCost", "margin"].map((k) => `<td class="money">${money(T[k])}</td>`).join("")}<td></td></tr></tbody></table></div>`;
 }
 function repStatement() {
   const c = DB.clients.find((x) => x.id === (repClient || DB.clients[0]?.id));
@@ -24077,7 +24078,7 @@ function analystFindings() {
             "low",
             "Billing",
             `Retainage not released — ${p.project.name}`,
-            `${money(r.retHeld)} held with the job ${Math.round(100 * r.pctComplete)}% complete`,
+            `${money(r.retHeld)} held with the job ${tpJobPct(p)}% complete`,
             r.retHeld,
             { view: "clients", client: r.c?.id },
           );
@@ -24772,7 +24773,7 @@ function repDashboard() {
       color: "current" === f ? VZ.c1 : "d30" === f ? VZ.c3 : "d60" === f ? VZ.c2 : VZ.bad,
     })),
     { note: "open balances" },
-  )}</div>\n      <div class="card dcard wide"><h3>By project</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Project</th><th>Client</th><th class="money">Contract</th><th class="money">Billed</th><th class="money">Collected</th><th class="money">Cost to date</th><th class="money">Proj. margin</th><th style="width:140px">Billed / complete</th></tr></thead><tbody>${D.projects.map(({ p: p, r: r }) => `<tr class="click" data-repproj="${p.id}"><td><b>${esc(p.project.name)}</b></td><td>${esc(r.c?.name || "")}</td><td class="money">${money(r.contract)}</td><td class="money">${money(r.billedGross)}</td><td class="money">${money(r.collected)}</td><td class="money">${money(r.actual)}</td><td class="money" style="color:${r.margin >= 0 ? "inherit" : "var(--bad)"}">${money(r.margin)} <span class="small muted">${r.marginPct}%</span></td><td><div class="vz-dual"><i style="width:${r.contract ? Math.min(100, Math.round((r.billedGross / r.contract) * 100)) : 0}%;background:${VZ.c1}"></i><i style="width:${Math.round(100 * r.pctComplete)}%;background:${VZ.c2}"></i></div><span class="small muted">${r.contract ? Math.round((r.billedGross / r.contract) * 100) : 0}% billed · ${Math.round(100 * r.pctComplete)}% complete</span></td></tr>`).join("")}</tbody></table></div></div>\n      <div class="card dcard wide"><h3>Invoice register</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Invoice</th><th>Client</th><th>Date</th><th>Due</th><th class="money">Amount</th><th class="money">Paid</th><th class="money">Balance</th><th>Status</th></tr></thead><tbody>${
+  )}</div>\n      <div class="card dcard wide"><h3>By project</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Project</th><th>Client</th><th class="money">Contract</th><th class="money">Billed</th><th class="money">Collected</th><th class="money">Cost to date</th><th class="money">Proj. margin</th><th style="width:140px">Billed / complete</th></tr></thead><tbody>${D.projects.map(({ p: p, r: r }) => `<tr class="click" data-repproj="${p.id}"><td><b>${esc(p.project.name)}</b></td><td>${esc(r.c?.name || "")}</td><td class="money">${money(r.contract)}</td><td class="money">${money(r.billedGross)}</td><td class="money">${money(r.collected)}</td><td class="money">${money(r.actual)}</td><td class="money" style="color:${r.margin >= 0 ? "inherit" : "var(--bad)"}">${money(r.margin)} <span class="small muted">${r.marginPct}%</span></td><td><div class="vz-dual"><i style="width:${r.contract ? Math.min(100, Math.round((r.billedGross / r.contract) * 100)) : 0}%;background:${VZ.c1}"></i><i style="width:${tpJobPct(p)}%;background:${VZ.c2}"></i></div><span class="small muted">${r.contract ? Math.round((r.billedGross / r.contract) * 100) : 0}% billed · ${tpJobPct(p)}% complete</span></td></tr>`).join("")}</tbody></table></div></div>\n      <div class="card dcard wide"><h3>Invoice register</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Invoice</th><th>Client</th><th>Date</th><th>Due</th><th class="money">Amount</th><th class="money">Paid</th><th class="money">Balance</th><th>Status</th></tr></thead><tbody>${
     D.invs
       .sort((a, b) => b.i.date.localeCompare(a.i.date))
       .map(
@@ -26067,7 +26068,7 @@ function repWIP() {
     B = companyBalance(),
     avgRev = companyPL([monthKeys(6)[0] + "-01", today()]).income / 6,
     M = (v) => (v ? money(v) : '<span class="muted">—</span>');
-  return `<div class="rep-head"><div><h2 style="margin:0">Work-in-progress schedule</h2><div class="small muted">Cost-to-cost percentage of completion · ${entName(repEntity)} · as of ${fmtL(today())}</div></div></div>${entityBar()}\n    <div class="fin rep-kpis"><div class="kpi"><b>${money(T.contract)}</b><span>revised contracts · ${money(T.pending)} pending COs (memo)</span></div><div class="kpi"><b>${money(T.estGP)} · ${T.contract ? r2((T.estGP / T.contract) * 100) : 0}%</b><span>estimated gross profit at completion</span></div><div class="kpi ${T.over > 0.1 * T.contract ? "warn" : ""}"><b>${money(T.over)}</b><span>billings in excess of earnings (liability)${B.cash && T.over ? ` · cash-to-overbillings ${r2(B.cash / T.over)}` : ""}</span></div><div class="kpi ${T.under > 0 ? "warn" : ""}"><b>${money(T.under)}</b><span>earnings in excess of billings (asset) · unbilled work</span></div><div class="kpi"><b>${money(T.backlog)}</b><span>backlog · ${money(T.backlogGP)} backlog GP · ${avgRev ? r2(T.backlog / avgRev) : "—"} months at recent run-rate</span></div></div>\n    <div class="tw"><table class="t rep-t wip"><thead><tr><th>Job</th><th class="money">Original</th><th class="money">Appr. COs</th><th class="money">Revised contract</th><th class="money">Est. total cost</th><th class="money">Est. GP</th><th class="money">GP %</th><th class="money">Cost to date</th><th class="money">% complete</th><th class="money">Earned revenue</th><th class="money">Billed to date</th><th class="money">Over-billed</th><th class="money">Under-billed</th><th class="money">Cost to complete</th><th class="money">Retainage rec.</th><th class="money">Fade vs prior</th><th class="money">Fade vs bid</th></tr></thead><tbody>${rows.map(({ w: w, f: f }) => `<tr class="click" data-repproj="${w.p.id}"><td><b>${esc(w.p.project.name)}</b><div class="small muted">${esc(w.c?.name || "")}${w.pending ? ` · pending COs ${money(w.pending)}` : ""}</div></td><td class="money">${M(w.orig)}</td><td class="money">${M(w.cos)}</td><td class="money">${money(w.contract)}</td><td class="money">${money(w.eac)}</td><td class="money">${money(w.estGP)}</td><td class="money">${w.gpPct}%</td><td class="money">${money(w.costToDate)}</td><td class="money">${Math.round(100 * w.pct)}%</td><td class="money">${money(w.earned)}</td><td class="money">${money(w.billed)}</td><td class="money ${w.over ? "warn" : ""}">${M(w.over)}</td><td class="money ${w.under ? "warn" : ""}">${M(w.under)}</td><td class="money">${money(w.ctc)}</td><td class="money">${M(w.retain)}</td><td class="money" style="color:${null == f.fadePts ? "inherit" : f.fadePts < 0 ? "var(--bad)" : "var(--ok)"}">${null == f.fadePts ? '<span class="muted">first month</span>' : `${f.fadePts > 0 ? "+" : ""}${f.fadePts} pts<div class="small">${money(f.fadeAmt)}</div>`}</td><td class="money" style="color:${f.vsBidPts < 0 ? "var(--bad)" : "var(--ok)"}">${f.vsBidPts > 0 ? "+" : ""}${f.vsBidPts} pts<div class="small">${money(f.vsBidAmt)}</div></td></tr>`).join("") || '<tr><td colspan="17" class="muted">No contracts.</td></tr>'}<tr style="font-weight:600"><td>Total</td><td class="money">${money(rows.reduce((a, { w: w }) => a + w.orig, 0))}</td><td class="money">${money(rows.reduce((a, { w: w }) => a + w.cos, 0))}</td><td class="money">${money(T.contract)}</td><td class="money">${money(T.eac)}</td><td class="money">${money(T.estGP)}</td><td class="money">${T.contract ? r2((T.estGP / T.contract) * 100) : 0}%</td><td class="money">${money(T.costToDate)}</td><td class="money">${T.eac ? Math.round((T.costToDate / T.eac) * 100) : 0}%</td><td class="money">${money(T.earned)}</td><td class="money">${money(T.billed)}</td><td class="money">${money(T.over)}</td><td class="money">${money(T.under)}</td><td class="money">${money(T.ctc)}</td><td class="money">${money(T.retain)}</td><td></td><td></td></tr></tbody></table></div>\n    <p class="small muted" style="margin-top:8px">Revised contract = base contract + approved change orders (pending COs shown as memo only). Estimated total cost = actual + the PM's cost-to-complete review when one exists; otherwise the greater of estimate budget and actual + open POs. % complete = cost to date ÷ estimated total cost. Earned = contract × % complete. Over/under = billed − earned. Fade compares GP% to the prior month-end snapshot (snapshots are captured automatically each month this report is opened) and to the original bid margin.</p>\n    <h3 class="rep-h">Backlog by job</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Job</th><th class="money">Contract</th><th class="money">Earned</th><th class="money">Backlog</th><th class="money">Backlog GP</th><th class="money">% complete</th><th>Remaining</th></tr></thead><tbody>${rows.map(({ w: w }) => `<tr><td>${esc(w.p.project.name)}</td><td class="money">${money(w.contract)}</td><td class="money">${money(w.earned)}</td><td class="money">${money(w.backlog)}</td><td class="money">${money(w.backlogGP)}</td><td class="money">${Math.round(100 * w.pct)}%</td><td><div class="rep-bar-wrap"><i style="width:${Math.round(100 * (1 - w.pct))}%;background:var(--accent)"></i></div></td></tr>`).join("")}</tbody></table></div><p class="small muted">CFMA rule of thumb: backlog gross profit should cover at least half of annual overhead — this year's overhead to date is ${money(P.ohT)}${P.ohT ? ` (${Math.round((T.backlogGP / P.ohT) * 100)}% covered)` : ""}.</p>`;
+  return `<div class="rep-head"><div><h2 style="margin:0">Work-in-progress schedule</h2><div class="small muted">Revenue earned on a cost-to-cost basis; % complete measured on site · ${entName(repEntity)} · as of ${fmtL(today())}</div></div></div>${entityBar()}\n    <div class="fin rep-kpis"><div class="kpi"><b>${money(T.contract)}</b><span>revised contracts · ${money(T.pending)} pending COs (memo)</span></div><div class="kpi"><b>${money(T.estGP)} · ${T.contract ? r2((T.estGP / T.contract) * 100) : 0}%</b><span>estimated gross profit at completion</span></div><div class="kpi ${T.over > 0.1 * T.contract ? "warn" : ""}"><b>${money(T.over)}</b><span>billings in excess of earnings (liability)${B.cash && T.over ? ` · cash-to-overbillings ${r2(B.cash / T.over)}` : ""}</span></div><div class="kpi ${T.under > 0 ? "warn" : ""}"><b>${money(T.under)}</b><span>earnings in excess of billings (asset) · unbilled work</span></div><div class="kpi"><b>${money(T.backlog)}</b><span>backlog · ${money(T.backlogGP)} backlog GP · ${avgRev ? r2(T.backlog / avgRev) : "—"} months at recent run-rate</span></div></div>\n    <div class="tw"><table class="t rep-t wip"><thead><tr><th>Job</th><th class="money">Original</th><th class="money">Appr. COs</th><th class="money">Revised contract</th><th class="money">Est. total cost</th><th class="money">Est. GP</th><th class="money">GP %</th><th class="money">Cost to date</th><th class="money">% complete</th><th class="money">Earned revenue</th><th class="money">Billed to date</th><th class="money">Over-billed</th><th class="money">Under-billed</th><th class="money">Cost to complete</th><th class="money">Retainage rec.</th><th class="money">Fade vs prior</th><th class="money">Fade vs bid</th></tr></thead><tbody>${rows.map(({ w: w, f: f }) => `<tr class="click" data-repproj="${w.p.id}"><td><b>${esc(w.p.project.name)}</b><div class="small muted">${esc(w.c?.name || "")}${w.pending ? ` · pending COs ${money(w.pending)}` : ""}</div></td><td class="money">${M(w.orig)}</td><td class="money">${M(w.cos)}</td><td class="money">${money(w.contract)}</td><td class="money">${money(w.eac)}</td><td class="money">${money(w.estGP)}</td><td class="money">${w.gpPct}%</td><td class="money">${money(w.costToDate)}</td><td class="money">${Math.round(100 * w.pct)}%</td><td class="money">${money(w.earned)}</td><td class="money">${money(w.billed)}</td><td class="money ${w.over ? "warn" : ""}">${M(w.over)}</td><td class="money ${w.under ? "warn" : ""}">${M(w.under)}</td><td class="money">${money(w.ctc)}</td><td class="money">${M(w.retain)}</td><td class="money" style="color:${null == f.fadePts ? "inherit" : f.fadePts < 0 ? "var(--bad)" : "var(--ok)"}">${null == f.fadePts ? '<span class="muted">first month</span>' : `${f.fadePts > 0 ? "+" : ""}${f.fadePts} pts<div class="small">${money(f.fadeAmt)}</div>`}</td><td class="money" style="color:${f.vsBidPts < 0 ? "var(--bad)" : "var(--ok)"}">${f.vsBidPts > 0 ? "+" : ""}${f.vsBidPts} pts<div class="small">${money(f.vsBidAmt)}</div></td></tr>`).join("") || '<tr><td colspan="17" class="muted">No contracts.</td></tr>'}<tr style="font-weight:600"><td>Total</td><td class="money">${money(rows.reduce((a, { w: w }) => a + w.orig, 0))}</td><td class="money">${money(rows.reduce((a, { w: w }) => a + w.cos, 0))}</td><td class="money">${money(T.contract)}</td><td class="money">${money(T.eac)}</td><td class="money">${money(T.estGP)}</td><td class="money">${T.contract ? r2((T.estGP / T.contract) * 100) : 0}%</td><td class="money">${money(T.costToDate)}</td><td class="money">${T.eac ? Math.round((T.costToDate / T.eac) * 100) : 0}%</td><td class="money">${money(T.earned)}</td><td class="money">${money(T.billed)}</td><td class="money">${money(T.over)}</td><td class="money">${money(T.under)}</td><td class="money">${money(T.ctc)}</td><td class="money">${money(T.retain)}</td><td></td><td></td></tr></tbody></table></div>\n    <p class="small muted" style="margin-top:8px">Revised contract = base contract + approved change orders (pending COs shown as memo only). Estimated total cost = actual + the PM's cost-to-complete review when one exists; otherwise the greater of estimate budget and actual + open POs. % complete = cost to date ÷ estimated total cost. Earned = contract × % complete. Over/under = billed − earned. Fade compares GP% to the prior month-end snapshot (snapshots are captured automatically each month this report is opened) and to the original bid margin.</p>\n    <h3 class="rep-h">Backlog by job</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Job</th><th class="money">Contract</th><th class="money">Earned</th><th class="money">Backlog</th><th class="money">Backlog GP</th><th class="money">Cost Basis %</th><th>Remaining</th></tr></thead><tbody>${rows.map(({ w: w }) => `<tr><td>${esc(w.p.project.name)}</td><td class="money">${money(w.contract)}</td><td class="money">${money(w.earned)}</td><td class="money">${money(w.backlog)}</td><td class="money">${money(w.backlogGP)}</td><td class="money">${Math.round(100 * w.pct)}%</td><td><div class="rep-bar-wrap"><i style="width:${Math.round(100 * (1 - w.pct))}%;background:var(--accent)"></i></div></td></tr>`).join("")}</tbody></table></div><p class="small muted">CFMA rule of thumb: backlog gross profit should cover at least half of annual overhead — this year's overhead to date is ${money(P.ohT)}${P.ohT ? ` (${Math.round((T.backlogGP / P.ohT) * 100)}% covered)` : ""}.</p>`;
 }
 function budgetCats() {
   return [
@@ -26416,7 +26417,7 @@ function repPack() {
       )
       .join(
         "",
-      )}</tbody></table></div>\n    <h3 class="rep-h">3 · WIP & profit fade</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Job</th><th class="money">Contract</th><th class="money">% complete</th><th class="money">Est. GP %</th><th class="money">Bid GP %</th><th class="money">Fade vs prior</th><th class="money">Over / (under) billed</th><th class="money">Cost to complete</th></tr></thead><tbody>${wip.map(({ w: w, f: f }) => `<tr><td>${esc(w.p.project.name)}</td><td class="money">${money(w.contract)}</td><td class="money">${Math.round(100 * w.pct)}%</td><td class="money">${w.gpPct}%</td><td class="money">${w.bidGPPct}%</td><td class="money" style="color:${f.fadePts < 0 ? "var(--bad)" : "inherit"}">${null == f.fadePts ? "—" : (f.fadePts > 0 ? "+" : "") + f.fadePts + " pts"}</td><td class="money">${w.over ? money(w.over) : w.under ? "(" + money(w.under) + ")" : "—"}</td><td class="money">${money(w.ctc)}</td></tr>`).join("")}</tbody></table></div>\n    <h3 class="rep-h">4 · Change orders</h3><div class="tw"><table class="t rep-t"><thead><tr><th>CO</th><th>Client</th><th>Status</th><th class="money">Amount</th><th>Days open</th></tr></thead><tbody>${cos.map(({ c: c, x: x }) => `<tr><td>${esc(x.number)} · ${esc(x.title)}</td><td>${esc(c.name)}</td><td><span class="pill ${"approved" === x.status || "billed" === x.status ? "ok" : "sent" === x.status ? "warn" : "neutral"}">${x.status}</span></td><td class="money">${money(docTotal(x).total)}</td><td>${"sent" === x.status ? Math.round((parse(today()) - parse(x.date)) / 864e5) : ""}</td></tr>`).join("") || '<tr><td colspan="5" class="muted">None.</td></tr>'}</tbody></table></div>\n    <h3 class="rep-h">5 · Labor</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Project</th><th class="money">Hours (month)</th><th class="money">Burdened cost</th><th class="money">Labor % of income</th></tr></thead><tbody>${lab.map(({ p: p, l: l }) => `<tr><td>${esc(p.project.name)}</td><td class="money">${l.hours}</td><td class="money">${money(l.cost)}</td><td class="money">${P.income ? Math.round((l.cost / P.income) * 100) + "%" : "—"}</td></tr>`).join("")}</tbody></table></div>\n    <h3 class="rep-h">6 · Receivables & payables</h3>${(() => {
+      )}</tbody></table></div>\n    <h3 class="rep-h">3 · WIP & profit fade</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Job</th><th class="money">Contract</th><th class="money">% Complete<div class="small muted">Cost Basis %</div></th><th class="money">Est. GP %</th><th class="money">Bid GP %</th><th class="money">Fade vs prior</th><th class="money">Over / (under) billed</th><th class="money">Cost to complete</th></tr></thead><tbody>${wip.map(({ w: w, f: f }) => `<tr><td>${esc(w.p.project.name)}</td><td class="money">${money(w.contract)}</td><td class="money"><b>${tpJobPct(w.p)}%</b><div class="small muted">${Math.round(100 * w.pct)}% cost basis</div></td><td class="money">${w.gpPct}%</td><td class="money">${w.bidGPPct}%</td><td class="money" style="color:${f.fadePts < 0 ? "var(--bad)" : "inherit"}">${null == f.fadePts ? "—" : (f.fadePts > 0 ? "+" : "") + f.fadePts + " pts"}</td><td class="money">${w.over ? money(w.over) : w.under ? "(" + money(w.under) + ")" : "—"}</td><td class="money">${money(w.ctc)}</td></tr>`).join("")}</tbody></table></div>\n    <h3 class="rep-h">4 · Change orders</h3><div class="tw"><table class="t rep-t"><thead><tr><th>CO</th><th>Client</th><th>Status</th><th class="money">Amount</th><th>Days open</th></tr></thead><tbody>${cos.map(({ c: c, x: x }) => `<tr><td>${esc(x.number)} · ${esc(x.title)}</td><td>${esc(c.name)}</td><td><span class="pill ${"approved" === x.status || "billed" === x.status ? "ok" : "sent" === x.status ? "warn" : "neutral"}">${x.status}</span></td><td class="money">${money(docTotal(x).total)}</td><td>${"sent" === x.status ? Math.round((parse(today()) - parse(x.date)) / 864e5) : ""}</td></tr>`).join("") || '<tr><td colspan="5" class="muted">None.</td></tr>'}</tbody></table></div>\n    <h3 class="rep-h">5 · Labor</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Project</th><th class="money">Hours (month)</th><th class="money">Burdened cost</th><th class="money">Labor % of income</th></tr></thead><tbody>${lab.map(({ p: p, l: l }) => `<tr><td>${esc(p.project.name)}</td><td class="money">${l.hours}</td><td class="money">${money(l.cost)}</td><td class="money">${P.income ? Math.round((l.cost / P.income) * 100) + "%" : "—"}</td></tr>`).join("")}</tbody></table></div>\n    <h3 class="rep-h">6 · Receivables & payables</h3>${(() => {
       const ag = DB.clients.reduce((a, c) => {
           const f = clientFin(c);
           return Object.keys(f.buckets).forEach((k) => (a[k] = (a[k] || 0) + f.buckets[k])), a;
@@ -27594,13 +27595,20 @@ function jobFin(p, range) {
     }
   );
 }
-// After an adjustment moves a job's actual cost, the figures that follow from it are derived again here, in
-// one place, instead of in a copy inside each adjusting section.
-function jobRederive(J, p) {
+// Everything jobFin derives from actual, committed, budget, contract and billed, in one place. Each later
+// wrapper that adjusts actual (awaiting-approval bills, paid-before-approval duplicates, short-pays,
+// disputed bank lines) calls this instead of repeating the arithmetic. eac, when given, is the estimate
+// at completion the caller already worked out (the per-line roll-up, jobFinEac); otherwise a PM-reviewed
+// cost to complete wins, else the greater of budget and actual + committed.
+function jobFinDerive(J, p, eac) {
   const ctc = +(p.ctc || 0);
   return (
     (J.eac = r2(
-      p.ctcReviewed ? Math.max(J.actual + J.committed, J.actual + ctc) : Math.max(J.budget, J.actual + J.committed),
+      null != eac
+        ? eac
+        : p.ctcReviewed
+          ? Math.max(J.actual + J.committed, J.actual + ctc)
+          : Math.max(J.budget, J.actual + J.committed),
     )),
     (J.pct = J.eac ? Math.min(1, J.actual / J.eac) : 0),
     (J.earned = r2(J.contract * J.pct)),
@@ -27700,7 +27708,7 @@ function ptJobs() {
       .sort((a, b) => (a.h.health?.score ?? 50) - (b.h.health?.score ?? 50))
       .map(({ p: p, J: J, h: h }) => {
         const billedPct = J.contract ? Math.round((J.billed / J.contract) * 100) : 0,
-          compPct = Math.round(100 * J.pct),
+          compPct = tpJobPct(p),
           ahead = billedPct - compPct,
           gpFade = J.plannedGPPct ? r2(J.estGPPct - J.plannedGPPct) : 0,
           flags = [];
@@ -30073,7 +30081,7 @@ function renderMBOwnP() {
         .map((x) => {
           const J = jobFin(x),
             h = projectHealth(x);
-          return `<tr><td><b>${esc(x.project.name)}</b></td><td class="money">${M(J.contract)}</td><td class="money">${M(J.actual)}</td><td class="money">${Math.round(100 * J.pct)}%</td><td class="money">${M(J.billed)}</td><td class="small">${h.sc ? fmt(h.sc) : "—"}</td><td><button class="btn sm" data-capexgo="${x.id}">Open job</button></td></tr>`;
+          return `<tr><td><b>${esc(x.project.name)}</b></td><td class="money">${M(J.contract)}</td><td class="money">${M(J.actual)}</td><td class="money">${tpJobPct(x)}%</td><td class="money">${M(J.billed)}</td><td class="small">${h.sc ? fmt(h.sc) : "—"}</td><td><button class="btn sm" data-capexgo="${x.id}">Open job</button></td></tr>`;
         })
         .join("") || '<tr><td colspan="7" class="muted">No capex jobs yet.</td></tr>'
     }</tbody></table></div>`),
@@ -30609,7 +30617,7 @@ function billingSuggestions() {
           const J = jobFin(p);
           if (!c.invoices.some((i) => "draft" === i.status && ("sov" === i.mode || i.fromDoc === d.id))) {
             if ("construction" === d.template || !d.template) {
-              const compPct = Math.round(100 * J.pct),
+              const compPct = tpJobPct(p),
                 billedPct = J.contract ? Math.round((J.billed / J.contract) * 100) : 0,
                 gap = compPct - billedPct,
                 amt = r2((J.contract * Math.max(0, gap)) / 100);
@@ -32034,12 +32042,11 @@ jobFin = function (p, range) {
     }),
     J.byCode.sort((a, b) => a.code.localeCompare(b.code));
   return (
-    jobRederive(J, p),
     (J.defs = J.defs.replace(
       "actual = approved bills",
       "actual = all bills entered (approved or awaiting approval)",
     )),
-    J
+    jobFinDerive(J, p)
   );
 };
 const ledgerBase3 = ledger;
@@ -34239,7 +34246,7 @@ const renderPortalApprovalsBase = renderPortalApprovals;
     card = document.createElement("div");
   (card.className = "card"),
     (card.style.marginBottom = "14px"),
-    (card.innerHTML = `<h3 style="margin:0 0 6px">Your account</h3><div class="cash-grid" style="grid-template-columns:repeat(3,1fr)"><div><span>Contract</span><b>${money(contract)}</b><i>incl. approved changes</i></div><div><span>Work completed</span><b>${money(earned)}</b><i>${contract ? Math.round((earned / contract) * 100) : 0}% of contract</i></div><div><span>Billed to date</span><b>${money(billed)}</b><i>${dep ? `deposit on account ${money(dep)}` : "ex tax"}</i></div><div><span>Retainage held</span><b>${money(f.retHeld)}</b><i>released at completion</i></div><div><span>Paid to date</span><b>${money(f.paid)}</b><i>${f.credits ? `credit on account ${money(f.credits)}` : ""}</i></div><div><span>Balance due</span><b class="${f.overdue ? "bad" : ""}">${money(f.outstanding)}</b><i>${f.overdue ? money(f.overdue) + " overdue" : "nothing overdue"}</i></div></div>`),
+    (card.innerHTML = `<h3 style="margin:0 0 6px">Your account</h3><div class="cash-grid" style="grid-template-columns:repeat(3,1fr)"><div><span>Contract</span><b>${money(contract)}</b><i>incl. approved changes</i></div><div class="tp-cert"><span>Completed to Date</span>${tpCertifiedHtml(c)}</div><div><span>Billed to date</span><b>${money(billed)}</b><i>${dep ? `deposit on account ${money(dep)}` : "ex tax"}</i></div><div><span>Retainage held</span><b>${money(f.retHeld)}</b><i>released at completion</i></div><div><span>Paid to date</span><b>${money(f.paid)}</b><i>${f.credits ? `credit on account ${money(f.credits)}` : ""}</i></div><div><span>Balance due</span><b class="${f.overdue ? "bad" : ""}">${money(f.outstanding)}</b><i>${f.overdue ? money(f.overdue) + " overdue" : "nothing overdue"}</i></div></div>`),
     host.append(card);
 }),
   (REP_GROUPS.find((g) => "build" === g.id).tabs = [["searches", "Report builder"]]),
@@ -34267,7 +34274,8 @@ const renderPortalApprovalsBase = renderPortalApprovals;
             estGPPct: J.estGPPct,
             bidGPPct: J.plannedGPPct,
             fadePts: r2(J.estGPPct - J.plannedGPPct),
-            pctComplete: r2(100 * J.pct),
+            pctComplete: tpJobPct(p),
+            costBasisPct: r2(100 * J.pct),
             earned: J.earned,
             billed: J.billed,
             overUnder: J.overUnder,
@@ -34598,7 +34606,7 @@ wireSearches = function (root) {
 const budgetForBase = budgetFor,
   BUDGET_EMPTY = {};
 function wipCards(rows) {
-  return `<div class="jobcards">${rows.map(({ w: w, f: f }) => `<div class="jobcard" data-jobgo="${w.p.id}"><div class="jc-top"><b>${esc(w.p.project.name)}</b><span class="small muted">${Math.round(100 * w.pct)}%</span></div><div class="jc-nums"><span>Contract ${money(w.contract)}</span><span>Est. cost ${money(w.eac)}</span><span>GP ${w.gpPct}%${null != f?.fadePts ? ` (${f.fadePts >= 0 ? "+" : ""}${f.fadePts} pts)` : ""}</span></div><div class="jc-nums"><span>Earned ${money(w.earned)}</span><span>Billed ${money(w.billed)}</span><span class="${w.over ? "warn" : w.under ? "bad" : ""}">${w.over ? "Over-billed " + money(w.over) : w.under ? "Under-billed " + money(w.under) : "Billed = earned"}</span></div><div class="jc-nums"><span>Cost to complete ${money(w.ctc)}</span><span>Backlog ${money(w.backlog)}</span></div></div>`).join("")}</div>`;
+  return `<div class="jobcards">${rows.map(({ w: w, f: f }) => `<div class="jobcard" data-jobgo="${w.p.id}"><div class="jc-top"><b>${esc(w.p.project.name)}</b><span class="small muted">${tpJobPct(w.p)}% complete</span></div><div class="jc-nums"><span>Contract ${money(w.contract)}</span><span>Est. cost ${money(w.eac)}</span><span>GP ${w.gpPct}%${null != f?.fadePts ? ` (${f.fadePts >= 0 ? "+" : ""}${f.fadePts} pts)` : ""}</span></div><div class="jc-nums"><span>Earned ${money(w.earned)}</span><span>Billed ${money(w.billed)}</span><span class="${w.over ? "warn" : w.under ? "bad" : ""}">${w.over ? "Over-billed " + money(w.over) : w.under ? "Under-billed " + money(w.under) : "Billed = earned"}</span></div><div class="jc-nums"><span>Cost to complete ${money(w.ctc)}</span><span>Backlog ${money(w.backlog)}</span></div></div>`).join("")}</div>`;
 }
 budgetFor = function (year) {
   const b = budgetForBase(year),
@@ -38259,6 +38267,13 @@ const openBillBase_wf3 = openBill;
     !0,
   );
 const openVendorBase_wf5 = openVendor;
+// A predicate's rows, or the fallback while the registry (defined at the end of the file) is not up yet.
+function predOr(name, fallback) {
+  try {
+    if ("undefined" != typeof PRED && PRED[name]) return PRED[name].rows();
+  } catch (e) {}
+  return fallback ? fallback() : null;
+}
 function briefFacts() {
   const td = today(),
     in7 = iso(addDays(td, 7)),
@@ -38311,18 +38326,22 @@ function briefFacts() {
         .filter((i) => i.date && i.date >= td && i.date <= in7 && "passed" !== i.status)
         .map((i) => ({ p: p, i: i })),
     ),
-    decisions = DB.projects.flatMap((p) =>
-      (p.decisions || [])
-        .filter((d) => "made" !== d.status && d.due && d.due < td)
-        .map((d) => ({ p: p, d: d })),
+    // the brief counts what the screens count: past-due decisions, late-to-order and order-this-week are
+    // the predicate registry's (PRED, end of file), so the brief, Ask and the tiles say one number
+    decisions = predOr("lateDecision", () =>
+      DB.projects.flatMap((p) =>
+        (p.decisions || [])
+          .filter((d) => "made" !== d.status && d.due && d.due < td)
+          .map((d) => ({ p: p, d: d })),
+      ),
     ),
     props = proposals(),
     posPending = DB.pos.filter((po) => "pending" === po.status),
     needs = needsMe(),
     bills = reminders().filter((r) => "bill" === r.sev),
     buy = "function" == typeof buyList ? buyList("") : [],
-    buyLate = buy.filter((r) => 3 === r.sev).length,
-    buyWeek = buy.filter((r) => 2 === r.sev).length,
+    buyLate = predOr("lateMaterial", () => buy.filter((r) => 3 === r.sev)).length,
+    buyWeek = predOr("orderThisWeek", () => buy.filter((r) => 2 === r.sev)).length,
     est = DB.clients.flatMap((c) => c.estimates.filter((e) => "sent" === e.status)),
     estOut = r2(est.reduce((a, e) => a + docTotal(e).total, 0));
   return {
@@ -38562,7 +38581,7 @@ function h4Home(F) {
       .slice(0, 6)
       .map(
         (j) =>
-          `<div class="h4r" data-h4go='${esc(JSON.stringify({ view: "dash", proj: j.p.id }))}'><span class="h4dot ${j.score >= 70 ? "ok" : j.score >= 45 ? "warn" : "bad"}"></span><span class="grow"><b>${esc(j.name)}</b><span class="small muted"> · ${j.late > 0 ? `${j.late}d behind` : "on target"}${j.next ? ` · ${esc(j.next.n)} ${fmt(j.next.d)}` : ""}</span></span><span class="small muted">${j.J.contract ? Math.round(100 * (j.J.pct || 0)) + "%" : ""}</span></div>`,
+          `<div class="h4r" data-h4go='${esc(JSON.stringify({ view: "dash", proj: j.p.id }))}'><span class="h4dot ${j.score >= 70 ? "ok" : j.score >= 45 ? "warn" : "bad"}"></span><span class="grow"><b>${esc(j.name)}</b><span class="small muted"> · ${j.late > 0 ? `${j.late}d behind` : "on target"}${j.next ? ` · ${esc(j.next.n)} ${fmt(j.next.d)}` : ""}</span></span><span class="small muted">${j.J.contract ? tpJobPct(j.p) + "% complete" : ""}</span></div>`,
       )
       .join(""),
     todayHtml = [
@@ -38776,7 +38795,8 @@ async function jvAsk(F) {
         daysBehind: j.late,
         urgent: j.urgent,
         next: j.next,
-        pctComplete: Math.round(100 * (j.J.pct || 0)),
+        pctComplete: tpJobPct(j.p),
+        costBasisPct: Math.round(100 * (j.J.pct || 0)),
         contract: j.J.contract,
         billed: j.J.billed,
         earned: j.J.earned,
@@ -40717,7 +40737,7 @@ function renderSDay() {
     .map((p) => {
       const ph = phaseHours(p),
         R = retainerLeft(p),
-        cur = ph.find((x) => x.left > 0 && x.used > 0) || ph[0];
+        cur = phaseCur(ph) || ph.find((x) => x.left > 0 && x.used > 0) || ph[0];
       return `<div class="st-item" data-goproj="${p.id}" style="cursor:pointer"><span class="k">${cur ? `${esc(cur.line.item.split(" and ")[0])} · ${cur.left} hrs left` : "No proposal"}${R ? ` · retainer ${R.hours} hrs` : ""}</span><b>${esc(p.project.name)}</b><span class="small muted">${roomsOf(p.id).length} rooms · ${sheetsOf(p.id).filter((s) => "current" === s.status).length} current sheets · ${roomsOf(p.id).filter((r) => 0 === roomProv(r)).length} unverified</span></div>`;
     })
     .join("")}</div>\n      </div></div>`;
@@ -40822,7 +40842,7 @@ function renderStudio() {
         gates = p.decisions.filter((d) => "open" === d.status && d.gate),
         late = p.decisions.filter((d) => "open" === d.status && d.due && d.due < td).length,
         c = DB.clients.find((x) => x.id === p.clientId),
-        cur = ph.find((x) => x.left > 0 && x.used > 0) || ph[0];
+        cur = phaseCur(ph) || ph.find((x) => x.left > 0 && x.used > 0) || ph[0];
       return {
         p: p,
         c: c,
@@ -42032,7 +42052,7 @@ const renderBase_c = render,
     open = p.decisions.filter((d) => "open" === d.status && d.gate),
     td = today(),
     bar = ph.length
-      ? `<div class="st-bar">${ph.map((x) => `<div class="st-seg" title="${esc(x.line.item)}: ${x.used} of ${x.est} hrs"><i style="width:${Math.min(100, x.est ? (x.used / x.est) * 100 : 0)}%" class="${x.left < 0 ? "over" : ""}"></i></div>`).join("")}</div><div class="st-barl">${ph.map((x) => `<div><span class="n">${esc({ "Existing-conditions site survey": "Survey", "Schematic and conceptual design": "Schematic", "Design development and material selection": "Design dev", "Material and vendor pricing / quotations": "Pricing", "Client meetings": "Meetings" }[x.line.item] || x.line.item.split(" and ")[0])}</span><b class="${x.left < 0 ? "bad" : ""}">${x.used}</b><span class="muted">/${x.est}</span></div>`).join("")}</div>`
+      ? `<div class="st-bar">${ph.map((x) => `<div class="st-seg" title="${esc(x.line.item)}: ${x.used} of ${x.est} hrs"><i style="width:${Math.min(100, x.est ? (x.used / x.est) * 100 : 0)}%" class="${x.left < 0 ? "over" : ""}"></i></div>`).join("")}</div><div class="st-barl">${ph.map((x) => `<div><span class="n">${esc({ "Existing-conditions site survey": "Survey", "Schematic and conceptual design": "Schematic", "Design development and material selection": "Design dev", "Material and vendor pricing / quotations": "Pricing", "Client meetings": "Meetings" }[x.line.item] || x.line.item.split(" and ")[0])}</span>${"done" === x.status ? '<span class="pill ok">Done</span>' : x === phaseCur(ph) ? '<span class="pill info">Current</span>' : ""}<b class="${x.left < 0 ? "bad" : ""}">${x.used}</b><span class="muted">/${x.est}</span></div>`).join("")}</div>`
       : '<div class="small muted">No design proposal on this job yet.</div>',
     blocks = [];
   unv.length &&
@@ -42142,7 +42162,7 @@ ensureStudioProject = function () {
 const renderBase_rw = (render = function () {
     if ((renderBase_c(), !isDesignProject(S))) return;
     const ph = phaseHours(S),
-      cur = ph.find((x) => x.left > 0 && x.used > 0) || ph.find((x) => x.used > 0) || ph[0],
+      cur = phaseCur(ph) || ph.find((x) => x.left > 0 && x.used > 0) || ph.find((x) => x.used > 0) || ph[0],
       nextDue = S.tasks
         .filter((t) => "done" !== t.status && t.end >= today())
         .sort((a, b) => a.end.localeCompare(b.end))[0],
@@ -42812,7 +42832,7 @@ function ptStudio() {
           est: ph.reduce((a, x) => a + x.est, 0),
           used: ph.reduce((a, x) => a + x.used, 0),
           R: R,
-          cur: ph.find((x) => x.left > 0 && x.used > 0) || ph[0],
+          cur: phaseCur(ph) || ph.find((x) => x.left > 0 && x.used > 0) || ph[0],
         };
       })
       .map(
@@ -43430,7 +43450,7 @@ function ptMarginFc() {
       .sort((a, b) => a.delta - b.delta)
       .map(
         (r) =>
-          `<div class="rem-row ${r.delta <= -6 || r.d$ <= -25e3 ? "bad" : r.delta <= -3 ? "warn" : ""}" data-remgo='${esc(JSON.stringify({ view: "costs", project: r.p.id }))}'><b>${r.J.estGPPct}%</b><span><b>${esc(shortName(r.p))}</b> · bid ${r.J.plannedGPPct}% → forecast ${r.J.estGPPct}% (${r.d$ >= 0 ? "+" : ""}${money(r.d$)}) · ${Math.round(100 * r.J.pct)}% complete${bullet(r.J.estGPPct, r.J.plannedGPPct, r.delta < -3 ? "bad" : "ok")}</span></div>`,
+          `<div class="rem-row ${r.delta <= -6 || r.d$ <= -25e3 ? "bad" : r.delta <= -3 ? "warn" : ""}" data-remgo='${esc(JSON.stringify({ view: "costs", project: r.p.id }))}'><b>${r.J.estGPPct}%</b><span><b>${esc(shortName(r.p))}</b> · bid ${r.J.plannedGPPct}% → forecast ${r.J.estGPPct}% (${r.d$ >= 0 ? "+" : ""}${money(r.d$)}) · ${tpJobPct(r.p)}% complete${bullet(r.J.estGPPct, r.J.plannedGPPct, r.delta < -3 ? "bad" : "ok")}</span></div>`,
       )
       .join("") || '<div class="muted small">No contracts.</div>'
   }</div><div class="small muted">Forecast at completion = cost to date + committed + estimate to complete. Amber 3 points under bid, red 6 or $25k.</div>`;
@@ -43544,7 +43564,7 @@ function ptRetainage() {
     due.map((x) =>
       dashItem(
         money(x.J.retHeld),
-        `${esc(shortName(x.p))} · ${Math.round(100 * x.J.pct)}% complete — release invoice?`,
+        `${esc(shortName(x.p))} · ${tpJobPct(x.p)}% complete — release invoice?`,
         { view: "clients" },
         "warn",
       ),
@@ -43858,7 +43878,7 @@ function ptUnpriced() {
       .map((o) =>
         dashItem(
           money(o.unpriced),
-          `${esc(shortName(o.p))} · ${o.pct}% of budget unpriced · ${Math.round(100 * o.J.pct)}% complete`,
+          `${esc(shortName(o.p))} · ${o.pct}% of budget unpriced · ${tpJobPct(o.p)}% complete`,
           { view: "costs", project: o.p.id },
           o.J.pct > 0.3 && o.pct > 25 ? "bad" : o.pct > 15 ? "warn" : "",
         ),
@@ -43873,7 +43893,7 @@ function ptBuyout() {
         p: p,
         J: J,
         cov: J.budget ? Math.round(((J.actual + J.committed) / J.budget) * 100) : 0,
-        done: Math.round(100 * J.pct),
+        done: tpJobPct(p),
       }))
       .map(
         (r) =>
@@ -43976,7 +43996,7 @@ function ptEVTriple() {
     activeJobs()
       .map(({ p: p, J: J }) => ({
         p: p,
-        work: Math.round(100 * J.pct),
+        work: tpJobPct(p),
         billed: J.contract ? Math.round((J.billed / J.contract) * 100) : 0,
         cost: J.eac ? Math.round((J.actual / J.eac) * 100) : 0,
       }))
@@ -44072,7 +44092,7 @@ function ptCloseout() {
       insp: p.inspections.filter((i) => "passed" !== i.status).length,
     }));
   return rows.length
-    ? `<table class="t dash-t"><thead><tr><th>Project</th><th class="money">Done</th><th class="money">Punch</th><th class="money">Inspections</th><th class="money">Retainage</th></tr></thead><tbody>${rows.map((r) => `<tr data-remgo='${esc(JSON.stringify({ view: "close", project: r.p.id }))}' style="cursor:pointer"><td><b>${esc(shortName(r.p))}</b></td><td class="money">${Math.round(100 * r.J.pct)}%</td><td class="money ${r.punch ? "warn" : ""}">${r.punch}</td><td class="money ${r.insp ? "warn" : ""}">${r.insp}</td><td class="money">${money(r.J.retHeld || 0)}</td></tr>`).join("")}</tbody></table>`
+    ? `<table class="t dash-t"><thead><tr><th>Project</th><th class="money">Done</th><th class="money">Punch</th><th class="money">Inspections</th><th class="money">Retainage</th></tr></thead><tbody>${rows.map((r) => `<tr data-remgo='${esc(JSON.stringify({ view: "close", project: r.p.id }))}' style="cursor:pointer"><td><b>${esc(shortName(r.p))}</b></td><td class="money">${tpJobPct(r.p)}%</td><td class="money ${r.punch ? "warn" : ""}">${r.punch}</td><td class="money ${r.insp ? "warn" : ""}">${r.insp}</td><td class="money">${money(r.J.retHeld || 0)}</td></tr>`).join("")}</tbody></table>`
     : '<div class="muted small">No project is past 85% — nothing in close-out.</div>';
 }
 const studioRate = (p) => +(designEst(p)?.lines.find((l) => "hr" === l.unit)?.rate || designRate());
@@ -46228,14 +46248,11 @@ function fOfficeCard(opts = {}) {
       "",
     )}\n    ${logs.length ? `<div class="small muted" style="margin-top:8px"><b>Daily logs:</b> ${logs.map((l) => `${fmt(l.date)} — ${l.crew.length} crew${l.subs.length ? `, ${l.subs.length} sub${l.subs.length > 1 ? "s" : ""}` : ""}${l.notes ? `: ${esc(l.notes.slice(0, 90))}${l.notes.length > 90 ? "…" : ""}` : ""}`).join(" · ")}</div>` : ""}</div>`;
 }
-function fWireOffice(root) {
-  root &&
-    (root.querySelectorAll("[data-fans]").forEach(
-      (b) =>
-        (b.onclick = () => {
-          const r = DB.field.raises.find((x) => x.id === b.dataset.fans),
-            dec = b.dataset.dec,
-            lbl = {
+// Answer a question from the field: the one flow every Answer button runs (the From the Field card,
+// Home's Do Now). dec is the extra-work choice ("extra", "nocharge", "hold") or empty for a plain answer.
+function fAnswerRaise(r, dec) {
+  if (!r) return;
+  const lbl = {
               extra: "Proceed as an extra",
               nocharge: "Do it, no charge",
               hold: "Hold — do not proceed",
@@ -46282,7 +46299,12 @@ function fWireOffice(root) {
               },
             },
           );
-        }),
+}
+function fWireOffice(root) {
+  root &&
+    (root.querySelectorAll("[data-fans]").forEach(
+      (b) =>
+        (b.onclick = () => fAnswerRaise(DB.field.raises.find((x) => x.id === b.dataset.fans), b.dataset.dec)),
     ),
     root.querySelectorAll("[data-fhand]").forEach(
       (b) =>
@@ -46341,7 +46363,8 @@ function fOfficeMount() {
     }
     if ("home" === view && ["pm", "owner"].includes(k)) {
       const root = $("#home-body") || $("#v-home");
-      if (!root) return;
+      // Today (the Owner's and PM's Home) lists the questions from the field in Do Now, with Answer
+      if (!root || root.querySelector(".td-home")) return;
       if (!fForMe().filter((r) => "answered" !== r.status).length) return;
       const html = fOfficeCard({});
       if (!html) return;
@@ -60434,7 +60457,7 @@ function pgPaneHtml() {
           .map(([r, f]) => `<div class="small">${esc(r.sv.desc)} — ${esc(f.msg)}</div>`)
           .join("")}</div>`
       : ""
-  }\n\n  <div class="row" style="gap:8px;margin:14px 0 8px"><h3 style="margin:0">${esc(p.project ? p.project.name : "This job")} — ready to bill</h3>\n    <span class="grow"></span>\n    <label class="cl-chk" style="margin:0"><input type="checkbox" id="pg-stored" ${cfg.stored ? "checked" : ""}><span class="small">Contract allows billing stored materials</span></label>\n    <button class="btn sm primary" id="pg-apply" ${T.propose ? "" : "disabled"}>Put ${money(T.propose)} on a draft</button></div>\n\n  <table class="t"><thead><tr><th>Line</th><th style="width:110px">Scheduled</th><th style="width:110px">Billed</th>\n    <th style="width:240px">Complete, and how we know</th><th style="width:130px">This period</th>\n    <th style="width:120px">Cost landed</th><th>What the evidence says</th></tr></thead>\n    <tbody>${rows.map(({ sv: sv, ev: ev, pr: pr, findings: findings }) => `<tr data-pgrow="${sv.id}">\n    <td><b>${esc(sv.desc)}</b><div class="small muted">${esc(sv.source || "")}${ev.code ? " · " + esc(ev.code) : ""}</div></td>\n    <td class="n">${money(ev.scheduled)}</td>\n    <td class="n">${ev.billedPct}%<div class="small muted">${money(r2((ev.scheduled * ev.billedPct) / 100))}</div></td>\n    <td>${null == pr.pct ? '<span class="muted small">nothing to measure it by</span>' : `<b class="${"cost" === pr.basis ? "warn" : ""}">${pr.pct}%</b>\n         <div class="small muted">${esc(pr.label)} — ${esc(pr.extra)}</div>`}</td>\n    <td class="n">${pr.period ? `<b>${money(r2((ev.scheduled * pr.period) / 100))}</b><div class="small muted">${pr.period}% this period</div>` : '<span class="muted">—</span>'}</td>\n    <td>${ev.cost ? `${money(ev.cost)}${null != ev.costPct ? `<div class="small muted">${ev.costPct}% of budget</div>` : ""}` : '<span class="muted small">—</span>'}</td>\n    <td>${findings.map((f) => `<div class="small ${"bad" === f.sev ? "bad" : "warn" === f.sev ? "warn" : "muted"}">${esc(f.msg)}</div>`).join("") || ""}</td></tr>`).join("") || '<tr><td colspan="7" class="muted small">No schedule of values on this job. Convert an approved estimate and every line appears here with what has landed on it.</td></tr>'}</tbody></table>\n  <p class="small muted" style="margin:10px 0 0">Percentages are complete-to-date; the pay application works out this period, the retainage, the previous applications and the deposit as it already does. Nothing here is sent — it fills a draft you still have to look at.</p>`;
+  }\n\n  <div class="row" style="gap:8px;margin:14px 0 8px"><h3 style="margin:0">${esc(p.project ? p.project.name : "This job")} — ready to bill</h3>\n    <span class="grow"></span>\n    <label class="cl-chk" style="margin:0"><input type="checkbox" id="pg-stored" ${cfg.stored ? "checked" : ""}><span class="small">Contract allows billing stored materials</span></label>\n    <button class="btn sm primary" id="pg-apply" ${T.propose ? "" : "disabled"}>Put ${money(T.propose)} on a draft</button></div>\n\n  <table class="t"><thead><tr><th>Line</th><th style="width:110px">Scheduled</th><th style="width:110px">Billed</th>\n    <th style="width:240px">Complete, and how we know</th><th style="width:130px">This period</th><th style="width:120px">Materials Stored</th>\n    <th style="width:120px">Cost landed</th><th>What the evidence says</th></tr></thead>\n    <tbody>${rows.map(({ sv: sv, ev: ev, pr: pr, findings: findings }) => `<tr data-pgrow="${sv.id}">\n    <td><b>${esc(sv.desc)}</b><div class="small muted">${esc(sv.source || "")}${ev.code ? " · " + esc(ev.code) : ""}</div></td>\n    <td class="n">${money(ev.scheduled)}</td>\n    <td class="n">${ev.billedPct}%<div class="small muted">${money(r2((ev.scheduled * ev.billedPct) / 100))}</div></td>\n    <td>${null == pr.pct ? '<span class="muted small">nothing to measure it by</span>' : `<b class="${"cost" === pr.basis ? "warn" : ""}">${pr.pct}%</b>${"cost" === pr.basis ? ' <span class="pill warn">No Field Measure</span>' : ""}\n         <div class="small muted">${esc(pr.label)} — ${esc(pr.extra)}</div>`}</td>\n    <td class="n">${pr.period ? `<b>${money(r2((ev.scheduled * pr.period) / 100))}</b><div class="small muted">${pr.period}% this period</div>` : '<span class="muted">—</span>'}</td>\n    <td class="n">${pr.stored > 0 ? `${money(pr.stored)}<div class="small muted">${pr.storedPct ? `${pr.storedPct}% billed as stored` : "on site, not billed"}</div>` : '<span class="muted">—</span>'}</td>\n    <td>${ev.cost ? `${money(ev.cost)}${null != ev.costPct ? `<div class="small muted">${ev.costPct}% of budget</div>` : ""}` : '<span class="muted small">—</span>'}</td>\n    <td>${findings.map((f) => `<div class="small ${"bad" === f.sev ? "bad" : "warn" === f.sev ? "warn" : "muted"}">${esc(f.msg)}</div>`).join("") || ""}</td></tr>`).join("") || '<tr><td colspan="8" class="muted small">No schedule of values on this job. Convert an approved estimate and every line appears here with what has landed on it.</td></tr>'}</tbody></table>\n  <p class="small muted" style="margin:10px 0 0">Percentages are complete-to-date; the pay application works out this period, the retainage, the previous applications and the deposit as it already does. Nothing here is sent — it fills a draft you still have to look at.</p>`;
 }
 function pgWire(root) {
   root.querySelector("#pg-stored")?.addEventListener("change", (e) => {
@@ -64518,7 +64541,7 @@ if ("function" == typeof lineProfit) {
       ? (rows.forEach((r) => {
           if (Array.isArray(r.flags)) {
             const n = r.flags.length;
-            (r.flags = r.flags.filter((f) => !/^billed \d+% vs \d+% complete$/.test(f))),
+            (r.flags = r.flags.filter((f) => !/^billed \d+% vs \d+% (complete|of its budget spent)$/.test(f))),
               r.flags.length !== n && (r.lumpBilled = !0);
           }
         }),
@@ -65584,14 +65607,16 @@ function b2Facts(F) {
         .filter((i) => issueState(i).sev >= 2 && "answered" !== i.status && "closed" !== i.status)
         .map((i) => ({ p: p, i: i })),
     )),
-    (X.decOver = DB.projects.flatMap((p) => {
-      const keep = S;
-      (S = p), applyHolidays();
-      const r = (p.decisions || [])
-        .filter((d) => "open" === d.status && decState(d).sev >= 2)
-        .map((d) => ({ p: p, d: d, st: decState(d), due: decDue(d) }));
-      return (S = keep), applyHolidays(), r;
-    })),
+    (X.decOver = predOr("lateDecision", null)
+      ? PRED.lateDecision.rows().map((x) => withProject(x.p, () => ({ p: x.p, d: x.d, st: decState(x.d), due: decDue(x.d) })))
+      : DB.projects.flatMap((p) => {
+          const keep = S;
+          (S = p), applyHolidays();
+          const r = (p.decisions || [])
+            .filter((d) => "open" === d.status && decState(d).sev >= 2)
+            .map((d) => ({ p: p, d: d, st: decState(d), due: decDue(d) }));
+          return (S = keep), applyHolidays(), r;
+        })),
     (X.noShows = ((DB.field && DB.field.subs) || [])
       .filter((s) => "noshow" === s.status && s.date >= iso(addDays(td, -3)))
       .map((s) => ({ s: s, p: DB.projects.find((p) => p.id === s.projectId) }))),
@@ -65608,8 +65633,8 @@ function b2Facts(F) {
       .filter((x) => x.fade <= -3)
       .sort((a, b) => a.fade - b.fade)),
     (X.buy = "function" == typeof buyList ? buyList("") : []),
-    (X.buyLate = X.buy.filter((r) => 3 === r.sev)),
-    (X.buyWeek = X.buy.filter((r) => 2 === r.sev)),
+    (X.buyLate = predOr("lateMaterial", () => X.buy.filter((r) => 3 === r.sev))),
+    (X.buyWeek = predOr("orderThisWeek", () => X.buy.filter((r) => 2 === r.sev))),
     (X.unacked = DB.projects.flatMap((p) =>
       (p.requests || []).filter((r) => "new" === r.status && !r.ackAt).map((r) => ({ p: p, r: r })),
     )),
@@ -65827,7 +65852,7 @@ const h4HomeBase_b2 = h4Home;
       list
         .map(
           (j) =>
-            `<div class="h4r" data-h4go='${esc(JSON.stringify({ view: "dash", proj: j.p.id }))}'><span class="h4dot ${j.score >= 70 ? "ok" : j.score >= 45 ? "warn" : "bad"}"></span><span class="grow"><b>${esc(j.name)}</b><span class="small muted"> · ${esc(((j) => (j.late > 0 ? `${j.late} d behind` : j.score < 65 ? (j.h.health && j.h.health.why && j.h.health.why[0]) || `${j.urgent} urgent` : "on target"))(j))}${((j) => (j.next ? ` · ${esc(String(j.next.n).replace(/^(Starts|Finishes|Due):\s*/i, ""))} ${fmt(j.next.d)}` : ""))(j)}</span></span><span class="small muted">${j.J && j.J.contract ? Math.round(100 * (j.J.pct || 0)) + "%" : ""}</span></div>`,
+            `<div class="h4r" data-h4go='${esc(JSON.stringify({ view: "dash", proj: j.p.id }))}'><span class="h4dot ${j.score >= 70 ? "ok" : j.score >= 45 ? "warn" : "bad"}"></span><span class="grow"><b>${esc(j.name)}</b><span class="small muted"> · ${esc(((j) => (j.late > 0 ? `${j.late} d behind` : j.score < 65 ? (j.h.health && j.h.health.why && j.h.health.why[0]) || `${j.urgent} urgent` : "on target"))(j))}${((j) => (j.next ? ` · ${esc(String(j.next.n).replace(/^(Starts|Finishes|Due):\s*/i, ""))} ${fmt(j.next.d)}` : ""))(j)}</span></span><span class="small muted">${j.J && j.J.contract ? tpJobPct(j.p) + "% complete" : ""}</span></div>`,
         )
         .join("");
   if ("owner" === r) {
@@ -69385,7 +69410,10 @@ if ("function" == typeof finishBoot) {
   };
 }
 const CM_STAFF = () =>
-    (DB.users || []).map((u) => (u.contact || "").toLowerCase()).filter((e) => e.includes("@")),
+    (DB.users || [])
+      .filter((u) => "client" !== u.role)
+      .map((u) => (u.contact || "").toLowerCase())
+      .filter((e) => e.includes("@")),
   CM_STAFF_DOMAINS = ["smartdesign.nyc", "smartdesignbuild.com", "mercerandbond.com"],
   CM_CATS = {
     bill: "Vendor bill",
@@ -69403,6 +69431,11 @@ const CM_STAFF = () =>
     delivery: "Delivery",
     coi: "Insurance / W-9",
     onboarding: "New client",
+    lpc: "LPC",
+    noshow: "Sub no-show",
+    receipt: "Receipt",
+    unrouted: "Not on file",
+    statement: "Statement",
     note: "Note",
   },
   CM_ICON = {
@@ -69597,15 +69630,33 @@ function cmRoute(c) {
   }
   return r;
 }
+// The policy period on a certificate of insurance: the later date of "MM/DD/YYYY to MM/DD/YYYY", or the
+// date after "expires" / "expiration".
+function cmCoiExpiry(txt) {
+  const t = String(txt || ""),
+    toIso = (d) => {
+      const m = d.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+      if (m) return `${m[3]}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}`;
+      const n = parse(d);
+      return n && !isNaN(n) ? iso(n) : "";
+    },
+    m1 = t.match(/(?:policy period|period|effective)[^\n]{0,40}?(\d{1,2}\/\d{1,2}\/\d{4})\s*(?:to|-|–|through)\s*(\d{1,2}\/\d{1,2}\/\d{4})/i),
+    m2 = t.match(/(?:expir\w*|exp\.?)[:\s]*([A-Za-z]{3,9} \d{1,2},? \d{4}|\d{1,2}\/\d{1,2}\/\d{4})/i);
+  return m1 ? toIso(m1[2]) : m2 ? toIso(m2[1]) : "";
+}
 function cmRead(c) {
   const own = cmOwnText(c.text),
-    all = `${c.subject || ""}\n${own}`,
+    attText = (c.attachments || [])
+      .map((a) => String(a.text || ""))
+      .filter(Boolean)
+      .join("\n"),
+    all = `${c.subject || ""}\n${own}${attText ? "\n" + attText : ""}`,
     low = all.toLowerCase(),
     R = c.route || cmRoute(c),
     P = [],
     push = (kind, summary, o) =>
       P.push(Object.assign({ id: uid("cp"), kind: kind, summary: summary, on: !0 }, o || {})),
-    amt = cmMoney(own),
+    amt = cmMoney(own) || cmMoney(attText),
     att = (c.attachments || []).map((a) => a.name.toLowerCase()),
     who = R.clientId
       ? (DB.clients.find((x) => x.id === R.clientId) || {}).name
@@ -69683,7 +69734,7 @@ function cmRead(c) {
   const permits = [...new Set(all.match(/\b(?:B\d{8}(?:-I\d(?:-EL)?)?|SR\d{9}|[BME]\d{8})\b/g) || [])];
   if (
     /dob now|\bdob\b|permit|supersede|inspection|attestation/i.test(all) &&
-    (permits.length || /supersede|attestation|work complete/i.test(all))
+    (permits.length || /supersede|attestation|work complete/i.test(own))
   ) {
     const owner = /owner'?s attestation/i.test(own),
       stillOpen = /still open|not closed|remains open|is open|sitting open/i.test(own),
@@ -69706,10 +69757,42 @@ function cmRead(c) {
       },
     );
   }
+  // Our own card's or bank's statement is not a vendor bill: its lines are the feed. It is imported.
+  const ourCard =
+    /statement/i.test(all) &&
+    (DB.accounts || []).find(
+      (a) => a.last4 && new RegExp(`(?:ending|ending in|····|\\.{4}|x{4}|\\*{4})\\s*(?:in\\s*)?${a.last4}\\b`, "i").test(all),
+    );
+  // A statement that names a bill already on file is a chase, not a second bill.
+  const onFile =
+    !R.employee &&
+    !R.clientId &&
+    /invoice|statement|balance|amount due|past due|payment/i.test(all) &&
+    (DB.bills || []).find((b) => b.number && b.number.length > 4 && low.includes(String(b.number).toLowerCase()));
+  if (ourCard) {
+    const bal = (all.match(/(?:new|closing|statement) balance[^$\n]{0,20}\$\s?([\d,]+(?:\.\d{2})?)/i) || [])[1],
+      dueOn = (all.match(/(?:payment )?due\s+(?:date\s*:?\s*)?(\d{2}\/\d{2}\/\d{4})/i) || [])[1] || "";
+    push("statement", `${ourCard.name} ····${ourCard.last4} statement${bal ? " — closing balance $" + bal : ""}${dueOn ? " · payment due " + dueOn : ""} · import it on Bank, do not enter it as a bill`, {
+      acctId: ourCard.id,
+      balance: bal ? +bal.replace(/,/g, "") : 0,
+      due: dueOn,
+      task: `Import the ${ourCard.name} ····${ourCard.last4} statement and reconcile the card`,
+      owner: "Controller",
+    });
+  } else if (onFile) {
+    push("statement", `${who} is chasing ${amt ? money(amt) + " " : ""}on ${onFile.number} — already on file (${onFile.status}${onFile.short ? ", short-paid" : ""})${where ? " · " + where : ""}; no second bill`, {
+      billId: onFile.id,
+      amount: amt,
+      task: `Answer ${who} on ${onFile.number}${onFile.short ? " — say what is held and why" : ""}`,
+      owner: "Billing",
+    });
+  }
   if (
     !R.employee &&
     !R.clientId &&
     amt &&
+    !ourCard &&
+    !onFile &&
     /invoice|statement|balance|amount due|past due|payment/i.test(all) &&
     !/deposit.*sent|money (just )?sent/i.test(low)
   ) {
@@ -69718,12 +69801,28 @@ function cmRead(c) {
           .slice(1)
           .find(Boolean) || "",
       due = (all.match(/due\s+([A-Z][a-z]+ \d{1,2},? \d{4})/i) || [])[1] || "",
-      ent = (DB.entities || []).find((e) => low.includes((e.name || "").toLowerCase().replace(/ llc$/, "")));
+      ent = (DB.entities || []).find((e) => low.includes((e.name || "").toLowerCase().replace(/ llc$/, ""))),
+      // Already paid from the bank? A debit for the same amount near the invoice date is the line it belongs on.
+      said = (c.date || "").slice(0, 10) || today(),
+      paidLine = (DB.txns || []).find(
+        (t) => +t.amt < 0 && Math.abs(Math.abs(+t.amt) - amt) < 0.01 && !t.billId && t.date >= iso(addDays(said, -14)) && t.date <= iso(addDays(said, 14)),
+      );
     push(
       "bill",
-      `${who} says ${money(amt)} is owed${ent ? " by " + ent.name : ""}${num ? " · #" + num : ""}${due ? " · due " + due : ""}${/past due/i.test(all) ? " · past due" : ""}`,
-      { vendor: who, amount: amt, number: num, due: due, entityId: ent ? ent.id : "" },
+      `${who} says ${money(amt)} is owed${ent ? " by " + ent.name : ""}${num ? " · #" + num : ""}${due ? " · due " + due : ""}${/past due/i.test(all) ? " · past due" : ""}${where ? " · " + where : ""}${attText ? " · read from the attached PDF" : ""}`,
+      {
+        vendor: who,
+        vendorId: R.vendorId || "",
+        amount: amt,
+        number: num,
+        due: due,
+        entityId: ent ? ent.id : "",
+        projectId: R.projectId || "",
+        fromAttachment: !!attText && !cmMoney(own),
+        txnId: paidLine ? paidLine.id : "",
+      },
     );
+    paidLine && (P[P.length - 1].summary += ` · paid ${fmtL(paidLine.date)} from the bank (“${String(paidLine.desc || "").slice(0, 30)}”) — record the bill against that line`);
   }
   if (
     (R.employee &&
@@ -69737,18 +69836,22 @@ function cmRead(c) {
         { amount: amt, clientId: R.clientId, counterpart: R.counterpart, deposit: /deposit/i.test(all) },
       ),
     !R.employee &&
-      /money (just )?sent|wire (was |has been )?sent|payment (was |has been )?sent|sent the (deposit|payment|wire)|just paid/i.test(
+      /money (just )?sent|wire (was |has been )?sent|payment (was |has been )?sent|sent the (deposit|payment|wire)|just paid|\bwe (?:paid|wired|mailed (?:the |a )?check|sent (?:the |a )?(?:check|wire|payment))\b|check (?:went out|is in the mail|was mailed)/i.test(
         low,
       ))
   ) {
     const prior = (c.text.match(/\$\s?([\d,]+\.\d{2})/g) || []).map((x) => +x.replace(/[^\d.]/g, "")),
-      expect = prior.length ? prior[0] : amt;
+      expect = prior.length ? prior[0] : amt,
+      saidDay = (own.match(/\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|yesterday|today|last week)\b/i) || [])[1] || "",
+      chk = (own.match(/check\s*#?\s*(\d{3,6})/i) || [])[1] || "";
     push(
       "deposit",
-      `${who} says the money is sent${expect ? " — " + money(expect) : ""}${where ? " for " + where : ""}; watch the feed`,
+      `${who} says the money is sent${expect ? " — " + money(expect) : ""}${saidDay ? " · " + saidDay.toLowerCase() : ""}${chk ? " · check " + chk : ""}${where ? " for " + where : ""}; watch the feed`,
       {
         amount: expect,
         clientId: R.clientId,
+        saidDay: saidDay,
+        check: chk,
         task: `Confirm ${expect ? money(expect) + " " : ""}from ${who} arrived and record the payment`,
       },
     );
@@ -69762,16 +69865,43 @@ function cmRead(c) {
             `Our ${att.find((a) => /estimate/.test(a)) ? "estimate" : "quote"} went to ${who}${where ? " for " + where : ""}${amt ? " — " + money(amt) : ""}`,
             { out: !0, clientId: R.clientId, amount: amt },
           )
-        : push(
-            "quote",
-            `${who} sent a quote${where ? " for " + where : ""}${amt ? " — " + money(amt) : ""}`,
-            {
-              out: !1,
-              vendorId: R.vendorId,
-              amount: amt,
-              task: `Review ${who}'s quote${where ? " for " + where : ""}`,
-            },
-          )),
+        : (() => {
+            // Which Buy Board line does it price? The material on the routed job whose words the quote uses.
+            const mats = proj ? proj.materials || [] : [],
+              words = new Set(
+                low
+                  .replace(/[^a-z0-9 ]+/g, " ")
+                  .split(/\s+/)
+                  .filter((w) => w.length > 3),
+              ),
+              scored = mats
+                .filter((m) => !["ordered", "shipped", "on-site"].includes(m.status))
+                .map((m) => ({
+                  m: m,
+                  n: String(m.name || "")
+                    .toLowerCase()
+                    .replace(/[^a-z0-9 ]+/g, " ")
+                    .split(/\s+/)
+                    .filter((w) => w.length > 3 && words.has(w)).length,
+                }))
+                .filter((x) => x.n > 0)
+                .sort((a, b) => b.n - a.n),
+              lead = (all.match(/(\d{1,3})\s*(?:-\s*\d{1,3}\s*)?(?:working |business )?(?:days|weeks)\b/i) || [])[0] || "",
+              mat = scored[0] ? scored[0].m : null;
+            push(
+              "quote",
+              `${who} sent a quote${where ? " for " + where : ""}${amt ? " — " + money(amt) : ""}${mat ? " · prices the Buy Board line “" + mat.name + "”" : ""}${lead ? " · " + lead + " lead" : ""}`,
+              {
+                out: !1,
+                vendorId: R.vendorId,
+                amount: amt,
+                materialId: mat ? mat.id : "",
+                projectId: proj ? proj.id : "",
+                lead: lead,
+                task: `Review ${who}'s quote${where ? " for " + where : ""}`,
+              },
+            );
+          })()),
     R.leadName &&
       !R.clientId &&
       !P.some((p) => "deposit" === p.kind) &&
@@ -69796,13 +69926,61 @@ function cmRead(c) {
       },
     );
   }
-  !att.some((a) => /\bcoi\b|certificate|w-?9/.test(a)) ||
-    R.employee ||
-    (!R.vendorId && R.clientId) ||
-    push("coi", `${who} sent ${att.find((a) => /w-?9/.test(a)) ? "a W-9" : "a certificate of insurance"}`, {
-      vendorId: R.vendorId,
-      w9: att.some((a) => /w-?9/.test(a)),
+  if (!(!att.some((a) => /\bcoi\b|certificate|w-?9/.test(a)) || R.employee || (!R.vendorId && R.clientId))) {
+    const w9 = att.some((a) => /w-?9/.test(a)),
+      exp = w9 ? "" : cmCoiExpiry(attText || own),
+      // A broker sends on the insured's behalf: the vendor is the one named on the certificate.
+      named = R.vendorId
+        ? null
+        : (DB.vendors || []).find((v) => v.name.length > 3 && low.includes(v.name.toLowerCase())),
+      vid = R.vendorId || (named ? named.id : ""),
+      vn = vid ? (DB.vendors.find((v) => v.id === vid) || {}).name : who,
+      vendor = vid ? DB.vendors.find((v) => v.id === vid) : null;
+    push(
+      "coi",
+      `${vn} sent ${w9 ? "a W-9" : "a certificate of insurance"}${exp ? " · covers to " + fmtL(exp) : ""}${vendor && vendor.insuranceExp && vendor.insuranceExp < today() && exp ? " · their certificate on file expired " + fmtL(vendor.insuranceExp) + ", so this clears the block on paying them" : ""}`,
+      { vendorId: vid, w9: w9, exp: exp },
+    );
+  }
+  // LPC wrote about a landmarked house: the comment belongs on the application and someone answers it.
+  if (/\bLPC\b|landmarks preservation/i.test(all) && !R.employee && !R.clientId && (proj || R.addr)) {
+    const line = (own.match(/[^.\n]*\b(?:brick mold|profile|window|cornice|stoop|facade|façade|railing|paint|color|colour|mortar|sample|drawing|revis\w+|approv\w+|permit|certificate of appropriateness|CNE|staff)\b[^.\n]*[.?]?/i) || [own.slice(0, 140)])[0].trim(),
+      hearing = own.match(/\b(?:hearing|public meeting|committee)\b[^.\n]{0,60}?\b(\w+ \d{1,2}(?:,? \d{4})?)/i),
+      sub = proj
+        ? (proj.submittals || []).find((x) => (x.reviewers || []).some((r) => "lpc" === r.role) && !/^(closed|approved)$/.test(x.status))
+        : null,
+      insp = proj ? (proj.inspections || []).find((x) => /lpc/i.test(x.agency || "") && "passed" !== x.status) : null;
+    push("lpc", `LPC on ${where || R.addr}: ${line}${hearing ? " · " + hearing[0].trim() : ""}`, {
+      projectId: proj ? proj.id : "",
+      comment: line,
+      hearing: hearing ? hearing[1] : "",
+      submittalId: sub ? sub.id : "",
+      inspectionId: insp ? insp.id : "",
+      task: `Answer LPC on ${where || R.addr}: ${line.slice(0, 80)}`,
+      owner: "PM",
     });
+  }
+  // A sub who did not show, or confirms a day: the field has to know and the vendor's record keeps score.
+  if (!R.employee && (R.vendorId || proj) && /no[- ]?show|did(?:n't| not) (?:show|turn) up|never (?:showed|came|arrived)|cannot make it|can't make it|won't make it|have to push|need to reschedule/i.test(own))
+    push("noshow", `${who} ${/no[- ]?show|did(?:n't| not)|never/i.test(own) ? "did not show" : "is pushing the date"}${where ? " at " + where : ""}: “${own.replace(/\s+/g, " ").slice(0, 110)}”`, {
+      vendorId: R.vendorId,
+      projectId: proj ? proj.id : "",
+      task: `Re-book ${who}${where ? " at " + where : ""} and tell the foreman`,
+      owner: "PM",
+    });
+  // A store receipt names a card line: the receipt belongs on the transaction, and a job if it says one.
+  if (!R.employee && !R.clientId && amt && /receipt|your order|order confirmation|thank you for shopping|thanks for your purchase/i.test(all) && !P.some((p) => "bill" === p.kind)) {
+    const last4 = (all.match(/(?:ending|card|x{2,}|\*{2,})\s*(?:in\s*)?(\d{4})\b/i) || [])[1] || "",
+      line = (DB.txns || []).find(
+        (t) => Math.abs(Math.abs(+t.amt || 0) - amt) < 0.01 && !t.receipt && t.date >= iso(addDays((c.date || "").slice(0, 10) || today(), -5)),
+      );
+    push("receipt", `${who} receipt — ${money(amt)}${last4 ? " on card ····" + last4 : ""}${line ? " · matches the " + fmtL(line.date) + " card line “" + String(line.desc || "").slice(0, 36) + "”" : " · no card line yet"}${where ? " · " + where : ""}`, {
+      amount: amt,
+      txnId: line ? line.id : "",
+      projectId: proj ? proj.id : "",
+      last4: last4,
+    });
+  }
   const mt = own.match(
     /\b(?:meet|see you|call)\b[^.\n]{0,60}?\b(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|tomorrow)\b[^.\n]{0,30}?(\d{1,2}(?::\d{2})?\s?(?:am|pm)?)/i,
   );
@@ -69853,7 +70031,19 @@ function cmRead(c) {
         {},
       ),
     P.length ||
-      push("note", `${who}${where ? " · " + where : ""}: ${own.replace(/\s+/g, " ").slice(0, 140)}`, {}),
+      (R.clientId || R.vendorId || R.employee || R.projectId || R.contact
+        ? push("note", `${who}${where ? " · " + where : ""}: ${own.replace(/\s+/g, " ").slice(0, 140)}`, {})
+        : push(
+            "unrouted",
+            `${who} <${(c.from || {}).email || ""}> is not on file${R.addr ? " · names " + R.addr : ""}: “${own.replace(/\s+/g, " ").slice(0, 110)}”`,
+            {
+              name: who,
+              email: (c.from || {}).email || "",
+              addr: R.addr || "",
+              // The best guess at what to create; the person picks in the dialog.
+              as: /invoice|quote|order|statement|pickup|delivery|yard|supply|lumber|inc\b|llc\b|corp\b/i.test(all) ? "vendor" : "lead",
+            },
+          )),
     P
   );
 }
@@ -69958,8 +70148,8 @@ function cmApply(c, p) {
       date: (c.date || "").slice(0, 10) || today(),
       due: p.due ? iso(new Date(p.due)) : "",
       entityId: p.entityId || entDefault(),
-      projectId: "",
-      cat: "office",
+      projectId: p.projectId || R.projectId || "",
+      cat: p.projectId || R.projectId ? "subs" : "office",
       code: "",
       line: "",
       lines: [{ id: uid("l"), desc: c.subject || "Statement", amount: p.amount }],
@@ -69969,6 +70159,10 @@ function cmApply(c, p) {
       createdBy: "reader",
       commId: c.id,
     };
+    if (p.txnId) {
+      const t = (DB.txns || []).find((x) => x.id === p.txnId);
+      t && !t.billId && ((t.billId = b.id), (b.paidTxnId = t.id), (b.status = "paid"), (b.paidAt = t.date));
+    }
     DB.bills.push(b),
       DB.vendors.some((v) => v.name.toLowerCase() === (p.vendor || "").toLowerCase()) ||
         DB.vendors.push({ id: uid("v"), name: p.vendor, trade: "", w9: !1, insuranceExp: "" }),
@@ -70001,10 +70195,19 @@ function cmApply(c, p) {
   else if ("quote" === p.kind) {
     if ((p.out && p.clientId && cmActivity(p.clientId, p.summary), !p.out)) {
       cmTask(p.task, R.projectId, "PM");
-      const v = p.vendorId && DB.vendors.find((x) => x.id === p.vendorId);
-      v && (v.notes = (v.notes ? v.notes + "\n" : "") + `${fmt(today())}: ${p.summary}`);
-    }
-    did = p.out ? "logged on the client" : "review task";
+      const v = p.vendorId && DB.vendors.find((x) => x.id === p.vendorId),
+        pr = p.projectId && DB.projects.find((x) => x.id === p.projectId),
+        m = pr && p.materialId && (pr.materials || []).find((x) => x.id === p.materialId);
+      v && (v.notes = (v.notes ? v.notes + "\n" : "") + `${fmt(today())}: ${p.summary}`),
+        // The price lands on the Buy Board line the person approved it for; the line reads "quoted".
+        m &&
+          ((m.cost = p.amount ? String(p.amount) : m.cost),
+          v && (m.vendor = v.name),
+          ["not-ordered", "needs-decision", "quoted"].includes(m.status) && (m.status = "quoted"),
+          p.lead && /\d/.test(p.lead) && (m.lead = +(p.lead.match(/\d+/) || [m.lead])[0] * (/week/i.test(p.lead) ? 5 : 1)),
+          (m.quoteCommId = c.id));
+      did = m ? `quote on the Buy Board line “${m.name}”` : "review task";
+    } else did = "logged on the client";
   } else if ("lead" === p.kind)
     (DB.leads = DB.leads || []),
       DB.leads.some((l) => (l.email || "").toLowerCase() === (p.email || "").toLowerCase() && p.email) ||
@@ -70028,9 +70231,43 @@ function cmApply(c, p) {
       (did = "lead created");
   else if ("coi" === p.kind) {
     const v = p.vendorId && DB.vendors.find((x) => x.id === p.vendorId);
-    v && (p.w9 ? (v.w9 = !0) : (v.coiReceivedAt = today())),
+    v && (p.w9 ? (v.w9 = !0) : ((v.coiReceivedAt = today()), p.exp && (v.insuranceExp = p.exp))),
       v || cmNoteAnywhere(c, p),
-      (did = v ? (p.w9 ? "W-9 on file" : "COI noted — set the expiry on the vendor") : "noted on your list");
+      (did = v
+        ? p.w9
+          ? "W-9 on file"
+          : p.exp
+            ? `COI on file — insurance expires ${fmtL(p.exp)}`
+            : "COI noted — set the expiry on the vendor"
+        : "noted on your list");
+  } else if ("lpc" === p.kind) {
+    const pr = (p.projectId || R.projectId) && DB.projects.find((x) => x.id === (p.projectId || R.projectId));
+    if (pr) {
+      pr.permitNotes = pr.permitNotes || [];
+      pr.permitNotes.push({ t: nowStamp(), agency: "LPC", text: p.comment || p.summary, hearing: p.hearing || "", commId: c.id });
+      const sub = p.submittalId && (pr.submittals || []).find((x) => x.id === p.submittalId);
+      sub &&
+        ((sub.timeline = sub.timeline || []),
+        sub.timeline.push({ on: today(), by: "LPC staff", text: `LPC comment: ${p.comment || p.summary}`, commId: c.id }));
+      const insp = p.inspectionId && (pr.inspections || []).find((x) => x.id === p.inspectionId);
+      insp && (insp.notes = (insp.notes ? insp.notes + "\n" : "") + `${fmt(today())}: LPC — ${p.comment || p.summary}`);
+    }
+    p.task && cmTask(p.task, R.projectId || p.projectId, "PM"), (did = pr ? "LPC comment on the application" : "task for the PM");
+  } else if ("noshow" === p.kind) {
+    const v = p.vendorId && DB.vendors.find((x) => x.id === p.vendorId);
+    v && ((v.noShows = (v.noShows || 0) + 1), (v.notes = (v.notes ? v.notes + "\n" : "") + `${fmt(today())}: ${p.summary}`)),
+      p.task && cmTask(p.task, R.projectId || p.projectId, "PM"),
+      (did = v ? "on the vendor's record and the PM's list" : "task for the PM");
+  } else if ("statement" === p.kind) {
+    p.task && cmTask(p.task, "", p.owner || "Controller");
+    const b = p.billId && (DB.bills || []).find((x) => x.id === p.billId);
+    b && ((b.notes = (b.notes ? b.notes + "\n" : "") + `${fmt(today())}: ${p.summary}`), (b.chasedAt = today()));
+    did = b ? `noted on ${b.number} and a task for Billing` : "task for the Controller";
+  } else if ("receipt" === p.kind) {
+    const t = p.txnId && (DB.txns || []).find((x) => x.id === p.txnId);
+    t && ((t.receipt = { commId: c.id, at: today(), by: by }), p.projectId && !t.projectId && (t.projectId = p.projectId)),
+      t || cmNoteAnywhere(c, p),
+      (did = t ? `receipt on the ${fmtL(t.date)} card line` : "noted — no card line yet");
   } else if ("meeting" === p.kind) cmTask(p.task, R.projectId, "Owner"), (did = "on the list");
   else if ("question" === p.kind) cmTask(p.task, R.projectId, "Owner"), (did = "question for the Owner");
   else if ("decision" === p.kind)
@@ -70059,7 +70296,31 @@ function cmApply(c, p) {
         DB.clients.push(cl),
         (did = "client created");
     } else did = "client already on file";
-  else if ("delivery" === p.kind)
+  else if ("unrouted" === p.kind) {
+    const as = p.as || "lead";
+    if ("vendor" === as)
+      DB.vendors.some((v) => v.name.toLowerCase() === String(p.name || "").toLowerCase()) ||
+        DB.vendors.push({ id: uid("v"), name: p.name, trade: "", email: p.email || "", w9: !1, insuranceExp: "", bankChangedAt: "", createdFrom: "mail" }),
+        (c.route = Object.assign({}, R, { vendorId: (DB.vendors.find((v) => v.name.toLowerCase() === String(p.name || "").toLowerCase()) || {}).id || "", leadName: "" })),
+        (did = `vendor ${p.name} created`);
+    else if ("client" === as) {
+      const cl = "function" == typeof blankClient ? blankClient(p.name) : { id: uid("cl"), name: p.name, contacts: [], activity: [] };
+      (cl.propertyAddr = p.addr || ""),
+        (cl.contacts = [{ id: uid("k"), name: p.name, email: p.email || "", role: "Client" }]),
+        "function" == typeof entDefault && (cl.entityId = entDefault()),
+        DB.clients.push(cl),
+        (c.route = Object.assign({}, R, { clientId: cl.id, leadName: "" })),
+        (did = `client ${p.name} created`);
+    } else if ("project" === as && "function" == typeof projectFromTemplate) {
+      const pr = projectFromTemplate(p.addr || p.name, p.addr || "", today(), "");
+      pr && ((c.route = Object.assign({}, R, { projectId: pr.id })), (did = `project ${pr.project.name} created`));
+    } else
+      (DB.leads = DB.leads || []),
+        DB.leads.some((l) => p.email && (l.email || "").toLowerCase() === p.email.toLowerCase()) ||
+          DB.leads.push({ id: uid("ld"), created: today(), name: p.name, phone: "", email: p.email, addr: p.addr, buildingType: "", scope: "Design-build", stage: "inquiry", source: "Email", next: "Follow up", nextDue: "", notes: c.subject || "", commId: c.id }),
+        (did = "lead created");
+    c.routeLocked = !0;
+  } else if ("delivery" === p.kind)
     R.projectId
       ? (cmTask(`Check delivery: ${p.summary.slice(0, 80)}`, R.projectId, "Foreman"),
         (did = "delivery check for the foreman"))
@@ -70109,11 +70370,21 @@ function cmImport(list) {
         proposals: [],
         links: m.links || [],
       };
-      (c.route = cmRoute(c)),
-        (c.proposals = cmRead(c)),
-        (c.status = c.proposals.length ? "proposed" : "read"),
-        DB.comms.push(c),
-        n++;
+      (c.route = cmRoute(c)), (c.proposals = cmRead(c));
+      const R = c.route || {},
+        from = String((c.from || {}).email || "").toLowerCase(),
+        junk =
+          !R.clientId &&
+          !R.vendorId &&
+          !R.employee &&
+          !R.projectId &&
+          !R.contact &&
+          c.proposals.every((p) => "note" === p.kind || "unrouted" === p.kind) &&
+          (/noreply|no-reply|newsletter|news@|promo|marketing|notification|digest|hello@|info@/.test(from) ||
+            /\bunsubscribe\b|view (this|in) browser|% off|limited time|webinar|special offer/i.test(c.text || ""));
+      // A newsletter or a promotion with nobody we know on it is noise: read, ignored, never proposed.
+      junk && ((c.proposals = []), (c.ignoredWhy = "not the firm's business"));
+      (c.status = junk ? "ignored" : c.proposals.length ? "proposed" : "read"), DB.comms.push(c), n++;
     }),
     n)
   ) {
@@ -71002,6 +71273,8 @@ cmApply = function (c, p) {
     return cmTaskDialog(c, p), "Choose who and when";
   }
   if ("lead" === p.kind) return cmPersonDialog(c, p, !1), "Check the lead and add it";
+  if ("unrouted" === p.kind && "vendor" !== p.as && "project" !== p.as)
+    return cmPersonDialog(c, p, "client" === p.as), "client" === p.as ? "Check the client and create it" : "Check the lead and add it";
   if ("onboarding" === p.kind)
     return p.name && DB.clients.some((cl) => (cl.name || "").toLowerCase().includes(p.name.toLowerCase()))
       ? cmApplyBase_2(c, p)
@@ -82983,119 +83256,119 @@ if (void 0 !== NAV_GROUPS) {
   const g = NAV_GROUPS.find((x) => "home" === x.id);
   g && !g.views.includes("mapprove") && g.views.push("mapprove");
 }
+// The approvals queue. Every producer (here and in the layers that wrap this) pushes every item someone in the
+// office owes a yes or no on, whoever is signed in; the role only shapes a bill's verb and wording (the PM
+// recommends, the owner releases). The last layer then hands each item to the one person who owns it
+// (DELEGATION below) and keeps only the signed-in role's, so one seat never hides what another seat owns.
+// mApprovals({everyone: true}) returns the whole queue with `who` set on each item: the owner's Everyone view.
 function mApprovals() {
-  const r = mRole(),
-    out = [],
+  const out = [],
     owner = "function" == typeof isOwner && isOwner();
-  if (
-    ((DB.bills || [])
-      .filter((b) => ["submitted", "pm-approved"].includes(b.status))
-      .forEach((b) => {
-        const tot = billTotal(b),
-          fl = "function" == typeof billFlags ? billFlags(b) : [];
-        if (!(("pm-approved" === b.status && owner) || ("submitted" === b.status && ("pm" === r || owner))))
-          return;
-        let act =
-          "submitted" !== b.status || owner
-            ? "submitted" === b.status && "function" == typeof needsOwner && needsOwner(tot) && owner
-              ? "pmok"
-              : "approve"
-            : "pmok";
-        const vb = (DB.vendors || []).find(
-            (x) => (x.name || "").toLowerCase() === (b.vendor || "").toLowerCase(),
-          ),
-          blocked =
-            vb && vb.bankPending
-              ? "Vendor bank change awaiting your verification — resolve under Vendors first"
-              : "function" != typeof canApprove || "approve" !== act || canApprove(b)
-                ? ""
-                : "Separation of duties: a second person must approve this one";
-        blocked && (act = null);
-        const comp =
-          "function" == typeof complianceIssues
-            ? complianceIssues(b)
-                .filter((x) => "block" === x.lvl)
-                .map((x) => x.m)
-            : [];
-        comp.length && !owner && (act = null),
-          out.push({
-            kind: "bill",
-            id: b.id,
-            comp: comp,
-            sev: blocked || comp.length ? "bad" : fl.length ? "warn" : "",
-            n: money(tot),
-            title: `${b.vendor} · bill ${b.number || ""}`,
-            detail: [
-              blocked,
-              "pmok" === act
-                ? "First review — your recommendation goes to the Owner, who releases the payment"
-                : "",
-              comp.length
-                ? `Compliance block${comp.length > 1 ? "s" : ""}: ${comp.join("; ")}${owner ? " — approving asks for your override reason" : ""}`
-                : "",
-              "pm-approved" === b.status ? "PM has reviewed" : "Awaiting review",
-              (() => {
-                const rest = fl.filter(
-                  (f) =>
-                    !comp.some(
-                      (c) => String(f).replace(/\s+/g, " ").trim() === String(c).replace(/\s+/g, " ").trim(),
-                    ),
-                );
-                return rest.length
-                  ? `${rest.length} control flag${rest.length > 1 ? "s" : ""}: ${rest.join("; ")}`
-                  : "";
-              })(),
-              b.due ? `due ${fmtL ? fmtL(b.due) : b.due}` : "",
-            ]
-              .filter(Boolean)
-              .join(" · "),
-            yes: act ? ("pmok" === act ? "Recommend" : "Approve") : "Open",
-            no: "Reject",
-            open: blocked && vb && vb.bankPending ? { view: "vendors" } : { view: "ap", billId: b.id },
-            act: act,
-          });
-      }),
-    owner || "pm" === r || "controller" === r)
-  ) {
-    const by = ("function" == typeof currentUser && currentUser()?.name) || DB.me || "";
-    (DB.time || [])
-      .filter((t) => "submitted" === t.status)
-      .forEach((t) => {
-        const nm = "function" == typeof empName ? empName(t.empId) : t.empId;
-        if (nm && by && nm.toLowerCase() === by.toLowerCase()) return;
-        const p = DB.projects.find((x) => x.id === t.projectId),
-          fl = "function" == typeof timeFlags ? timeFlags(t) : [];
+  (DB.bills || [])
+    .filter((b) => ["submitted", "pm-approved"].includes(b.status))
+    .forEach((b) => {
+      const tot = billTotal(b),
+        fl = "function" == typeof billFlags ? billFlags(b) : [];
+      let act =
+        "submitted" !== b.status || owner
+          ? "submitted" === b.status && "function" == typeof needsOwner && needsOwner(tot) && owner
+            ? "pmok"
+            : "approve"
+          : "pmok";
+      const vb = (DB.vendors || []).find(
+          (x) => (x.name || "").toLowerCase() === (b.vendor || "").toLowerCase(),
+        ),
+        blocked =
+          vb && vb.bankPending
+            ? "Vendor bank change awaiting your verification — resolve under Vendors first"
+            : "function" != typeof canApprove || "approve" !== act || canApprove(b)
+              ? ""
+              : "Separation of duties: a second person must approve this one";
+      blocked && (act = null);
+      const comp =
+        "function" == typeof complianceIssues
+          ? complianceIssues(b)
+              .filter((x) => "block" === x.lvl)
+              .map((x) => x.m)
+          : [];
+      comp.length && !owner && (act = null),
         out.push({
-          kind: "time",
-          id: t.id,
-          sev: fl.length ? "warn" : "",
-          n: `${("function" == typeof hoursOf ? hoursOf(t) : t.hours || 0).toFixed(1)} h`,
-          title: `${nm} · ${t.date || ""}`,
-          detail: [p ? p.project.name : "", fl.join("; ")].filter(Boolean).join(" · "),
-          yes: "Approve",
+          kind: "bill",
+          id: b.id,
+          comp: comp,
+          sev: blocked || comp.length ? "bad" : fl.length ? "warn" : "",
+          n: money(tot),
+          title: `${b.vendor} · bill ${b.number || ""}`,
+          detail: [
+            blocked,
+            "pmok" === act
+              ? "First review — your recommendation goes to the Owner, who releases the payment"
+              : "",
+            comp.length
+              ? `Compliance block${comp.length > 1 ? "s" : ""}: ${comp.join("; ")}${owner ? " — approving asks for your override reason" : ""}`
+              : "",
+            "pm-approved" === b.status ? "PM has reviewed" : "Awaiting review",
+            (() => {
+              const rest = fl.filter(
+                (f) =>
+                  !comp.some(
+                    (c) => String(f).replace(/\s+/g, " ").trim() === String(c).replace(/\s+/g, " ").trim(),
+                  ),
+              );
+              return rest.length
+                ? `${rest.length} control flag${rest.length > 1 ? "s" : ""}: ${rest.join("; ")}`
+                : "";
+            })(),
+            b.due ? `due ${fmtL ? fmtL(b.due) : b.due}` : "",
+          ]
+            .filter(Boolean)
+            .join(" · "),
+          yes: act ? ("pmok" === act ? "Recommend" : "Approve") : "Open",
           no: "Reject",
-          open: { view: "time" },
+          open: blocked && vb && vb.bankPending ? { view: "vendors" } : { view: "ap", billId: b.id },
+          act: act,
+        });
+    });
+  // hours: nobody approves their own; a PM's own go to the owner (DELEGATION)
+  const by = ("function" == typeof currentUser && currentUser()?.name) || DB.me || "";
+  (DB.time || [])
+    .filter((t) => "submitted" === t.status)
+    .forEach((t) => {
+      const nm = "function" == typeof empName ? empName(t.empId) : t.empId;
+      if (nm && by && nm.toLowerCase() === by.toLowerCase()) return;
+      const p = DB.projects.find((x) => x.id === t.projectId),
+        fl = "function" == typeof timeFlags ? timeFlags(t) : [];
+      out.push({
+        kind: "time",
+        id: t.id,
+        sev: fl.length ? "warn" : "",
+        n: `${("function" == typeof hoursOf ? hoursOf(t) : t.hours || 0).toFixed(1)} h`,
+        title: `${nm} · ${t.date || ""}`,
+        detail: [p ? p.project.name : "", fl.join("; ")].filter(Boolean).join(" · "),
+        yes: "Approve",
+        no: "Reject",
+        open: { view: "time" },
+      });
+    });
+  // questions from the site: every open one. The queue it sits in is the person it was sent to (DELEGATION);
+  // fForMe keeps feeding the field card to everyone cc'd, which is being told, not being asked.
+  try {
+    (((DB.field || {}).raises) || [])
+      .filter((x) => fOpen(x) && "answered" !== x.status)
+      .forEach((x) => {
+        const p = DB.projects.find((y) => y.id === x.projectId);
+        out.push({
+          kind: "raise",
+          id: x.id,
+          sev: x.escalated || "incident" === x.type ? "bad" : "warn",
+          n: x.dueBy ? `by ${x.dueBy.slice(5)}` : "site",
+          title: x.title || x.type,
+          detail: [p ? p.project.name : "", x.by || "", x.note || ""].filter(Boolean).join(" · "),
+          yes: "Answer",
+          open: { view: "field", project: x.projectId },
         });
       });
-  }
-  if ("function" == typeof fForMe)
-    try {
-      fForMe()
-        .filter((x) => "answered" !== x.status)
-        .forEach((x) => {
-          const p = DB.projects.find((y) => y.id === x.projectId);
-          out.push({
-            kind: "raise",
-            id: x.id,
-            sev: x.escalated || "incident" === x.type ? "bad" : "warn",
-            n: x.dueBy ? `by ${x.dueBy.slice(5)}` : "site",
-            title: x.title || x.type,
-            detail: [p ? p.project.name : "", x.by || "", x.note || ""].filter(Boolean).join(" · "),
-            yes: "Answer",
-            open: { view: "field", project: x.projectId },
-          });
-        });
-    } catch (e) {}
+  } catch (e) {}
   DB.projects.forEach((p) =>
     (p.decisions || [])
       .filter((d) => "open" === d.status && /smartdesign|owner|pm|design/i.test(d.owner || ""))
@@ -83112,23 +83385,22 @@ function mApprovals() {
         }),
       ),
   ),
-    ("coord" === r || owner) &&
-      DB.projects.forEach((p) =>
-        (p.requests || [])
-          .filter((q) => "new" === q.status)
-          .forEach((q) =>
-            out.push({
-              kind: "req",
-              id: q.id,
-              sev: q.urgent ? "bad" : "",
-              n: q.neededBy ? String(q.neededBy).slice(5) : "",
-              title: ("function" == typeof reqLabel ? reqLabel(q) : q.what) || "Field request",
-              detail: `${p.project.name}${q.by ? " · " + q.by : ""} · not acknowledged`,
-              yes: "Acknowledge",
-              open: { view: "req", project: p.id },
-            }),
-          ),
-      );
+    DB.projects.forEach((p) =>
+      (p.requests || [])
+        .filter((q) => "new" === q.status)
+        .forEach((q) =>
+          out.push({
+            kind: "req",
+            id: q.id,
+            sev: q.urgent ? "bad" : "",
+            n: q.neededBy ? String(q.neededBy).slice(5) : "",
+            title: ("function" == typeof reqLabel ? reqLabel(q) : q.what) || "Field request",
+            detail: `${p.project.name}${q.by ? " · " + q.by : ""} · not acknowledged`,
+            yes: "Acknowledge",
+            open: { view: "req", project: p.id },
+          }),
+        ),
+    );
   const rank = (s) => ("bad" === s ? 0 : "warn" === s ? 1 : 2),
     live = (id) => !id || (DB.projects || []).some((p) => p.id === id);
   return out
@@ -83159,6 +83431,150 @@ const APPR_CHIPS = [
     ["other", "Other"],
   ],
   apprChip = (it) => (APPR_CHIPS.some(([k]) => k === it.kind) ? it.kind : "other");
+// Whose queue an approval sits in: one item, one person (BACKLOG §2 "the owner's Approvals is a catch-all").
+// kind -> the role that owns it by default, the rule in words, and `who(it)` for the kinds whose owner depends on
+// the record (it may name the owner: these are the owner-only overrides). A role named here must be one that can
+// open Approvals (ROLE_VIEWS holds "mapprove": owner, pm, coord, billing, controller), or the item falls back to
+// the default, then to the owner: nothing is ever in nobody's queue. The owner's Everyone view on Approvals
+// still lists what waits on the others. Applied once, by the last mApprovals layer (apprOwner).
+const DELEGATION = {
+  bill: {
+    role: "pm",
+    rule: "a submitted bill is the PM's review (under the owner threshold the PM's yes approves it); once the PM has recommended it, the owner releases the payment",
+    who: (it) => {
+      const b = (DB.bills || []).find((x) => x.id === it.id);
+      return b && "pm-approved" === b.status ? "owner" : "pm";
+    },
+  },
+  time: {
+    role: "pm",
+    rule: "crew hours are the PM's (the foreman has no Approvals); a PM's own hours go to the owner",
+    who: (it) => {
+      const t = (DB.time || []).find((x) => x.id === it.id);
+      return t && "pm" === apprRoleOf("function" == typeof empName ? empName(t.empId) : t.empId) ? "owner" : "pm";
+    },
+  },
+  raise: {
+    role: "pm",
+    rule: "a question from the site waits on the person it was sent to (or the first person copied who can answer here); an escalation or an incident waits on the owner",
+    who: (it) => {
+      const r = (((DB.field || {}).raises) || []).find((x) => x.id === it.id);
+      if (!r) return "";
+      if (r.escalated || "incident" === r.type) return "owner";
+      return [r.to].concat(r.cc || []).find(apprCanOpen) || "";
+    },
+  },
+  dec: {
+    role: "pm",
+    rule: "a decision we owe is the PM's to drive; one that names the owner is the owner's",
+    who: (it) => {
+      const [did, pid] = String(it.id).split("@"),
+        p = (DB.projects || []).find((x) => (!pid || x.id === pid) && (x.decisions || []).some((d) => d.id === did)),
+        d = p && p.decisions.find((x) => x.id === did);
+      return d && /\b(owner|ceo)\b/i.test(d.owner || "") ? "owner" : "pm";
+    },
+  },
+  req: { role: "coord", rule: "a material request from the field is the coordinator's to acknowledge" },
+  subm: { role: "pm", rule: "a submittal at the PM's review step is the PM's" },
+  meeting: {
+    role: "pm",
+    rule: "proposals from a meeting go to someone who was in it and can approve here: the PM, then the coordinator, then the owner",
+    who: (it) => {
+      const m = (DB.meetings || []).find((x) => x.id === it.id),
+        roles = ((m && m.attendees) || []).map(apprRoleOf);
+      return ["pm", "coord", "owner", "controller", "billing"].find((r) => roles.includes(r)) || "";
+    },
+  },
+  change: { role: "owner", rule: "a change to the ERP, a rule or a setting is the owner's" },
+  lesson: { role: "owner", rule: "a lesson becomes a rule for the firm, so it is the owner's" },
+  draft: {
+    role: "owner",
+    rule: "a draft waits on the person it was written for",
+    who: (it) => apprRoleOf(((DB.outbox || []).find((x) => x.id === it.id) || {}).forName),
+  },
+  other: { role: "owner", rule: "anything without a rule lands on the owner, never nowhere" },
+};
+const APPR_WHO = { owner: "the owner", pm: "the PM", coord: "the coordinator", billing: "billing", controller: "the controller" },
+  apprCanOpen = (r) => !!r && (ROLE_VIEWS[r] || []).includes("mapprove"),
+  apprRoleOf = (name) => {
+    const n = String(name || "").trim().toLowerCase(),
+      u = n && (DB.users || []).find((x) => String(x.name || "").trim().toLowerCase() === n);
+    return u ? u.role : "";
+  };
+function apprOwner(it) {
+  const d = DELEGATION[it.kind] || DELEGATION.other;
+  let r = "";
+  try {
+    r = d.who ? d.who(it) : "";
+  } catch (e) {}
+  return apprCanOpen(r) ? r : apprCanOpen(d.role) ? d.role : "owner";
+}
+// "19 more wait on the others (the PM 16, the coordinator 3)"
+function apprWhoSay(items) {
+  const by = {};
+  items.forEach((it) => (by[it.who] = (by[it.who] || 0) + 1));
+  return Object.keys(by)
+    .sort((a, b) => by[b] - by[a])
+    .map((k) => `${APPR_WHO[k] || k} ${by[k]}`)
+    .join(", ");
+}
+// The yes on a bill waiting for approval, wherever it is pressed (Approvals, Home's Do Now). billAction is the
+// one bill-approval gate: billed over its PO it opens the short-pay sheet (Approve PO Amount is the safe default);
+// paid by the bank before approval it asks Approve as Billed with every open control listed, compliance blocks
+// included, and a reason. Only a compliance block on a bill neither of those covers asks for the override here.
+function apprBillYes(it) {
+  const b = it && (DB.bills || []).find((x) => x.id === it.id);
+  if (!b || !it.act) return;
+  const keep = S,
+    p = DB.projects.find((x) => x.id === b.projectId),
+    run = (why) => {
+      p && (S = p);
+      try {
+        billAction(b, it.act, why);
+      } catch (e) {
+        console.warn(e), toast("Could not approve: " + (e.message || e));
+      }
+      (S = keep), render();
+    },
+    asked =
+      ("function" == typeof billOverPO && billOverPO(b)) ||
+      ("function" == typeof billPaidUnapproved && billPaidUnapproved(b) && isOwner());
+  "approve" === it.act && it.comp && it.comp.length && !asked
+    ? mbModal(
+        `Override — ${esc(b.vendor)}`,
+        `<div class="note warn">${it.comp.map(esc).join("<br>")}</div><div class="f" style="margin-top:10px"><label>Owner override — reason</label><input data-f="why" placeholder="e.g. COI renewal received by email, filing tomorrow" enterkeyhint="done"></div>`,
+        {
+          submit: "Approve Anyway",
+          onSubmit: (v) => {
+            if (!v.why) return toast("Say why you are overriding it"), !1;
+            run(v.why);
+          },
+        },
+      )
+    : run("");
+}
+// The owner's Everyone view: what the delegation handed to the others, each with who owns it and the rule, read-only
+// but for Open. A sheet, so the owner's own list stays where it is.
+function apprOthersSheet(others, apDate) {
+  const m = mbModal(
+    "Waiting on the Others",
+    `<p class="small muted td-sh-rule">One item sits in one person's queue. These wait on the others; Open takes you to the record.</p><div class="m-appr-olist">${others
+      .map(
+        (it, i) =>
+          `<div class="m-appr-o ${it.sev || ""}" data-mo="${i}"><span class="grow"><b>${esc(apDate(it.title))}</b><span class="small muted">${esc(APPR_WHO[it.who] || it.who)}${it.n ? " · " + esc(String(it.n)) : ""} · ${esc((DELEGATION[it.kind] || DELEGATION.other).rule.split(";")[0])}</span></span><button type="button" class="btn ghost sm" data-moopen="${i}" aria-label="Open ${esc(apDate(it.title))}">Open</button></div>`,
+      )
+      .join("")}</div>`,
+    { submit: null },
+  );
+  m &&
+    m.querySelectorAll("[data-moopen]").forEach(
+      (b) =>
+        (b.onclick = () => {
+          const it = others[+b.dataset.moopen];
+          mbCloseModal(), it && mGo(it.open);
+        }),
+    );
+}
 function renderMApprove() {
   const v = document.getElementById("v-mapprove");
   if (!v) return;
@@ -83170,6 +83586,11 @@ function renderMApprove() {
     );
   } catch (e) {}
   const apDate = (t) => String(t || "").replace(/(\d{4})-(\d{2})-(\d{2})/g, (m, y, mo, d) => fmt(m));
+  // what the delegation handed to the others: the owner can still see all of it, read-only, under their own list
+  let others = [];
+  try {
+    others = isOwner() ? mApprovals({ everyone: !0 }).filter((x) => "owner" !== x.who) : [];
+  } catch (e) {}
   "undefined" == typeof mApprKind && (window.mApprKind = "all"),
     (v.innerHTML = `<div class="ph"><div><h2>Approvals</h2><div class="lead">Every yes or no that is waiting on you — bills, hours, questions from the site, decisions we owe. Approve here; open the record when you need the detail.</div></div></div>\n    ${
       items.length
@@ -83181,6 +83602,10 @@ function renderMApprove() {
                 `<button class="${mApprKind === k ? "on" : ""}" data-mak="${k}">${l}<i class="n">${"all" === k ? items.length : items.filter((x) => apprChip(x) === k).length}</i></button>`,
             )
             .join("")}</div>`
+        : ""
+    }\n    ${
+      others.length
+        ? `<div class="m-appr-others"><span class="small muted" data-mothersn="${others.length}">${others.length} more wait on the others (${esc(apprWhoSay(others))})</span><button type="button" class="btn ghost sm" data-mothers>Show</button></div>`
         : ""
     }\n    ${
       items.length
@@ -83228,6 +83653,7 @@ function renderMApprove() {
           (window.mApprKind = b.dataset.mak), renderMApprove();
         }),
     ),
+    v.querySelectorAll("[data-mothers]").forEach((b) => (b.onclick = () => apprOthersSheet(others, apDate))),
     v.querySelectorAll(".m-appr").forEach((el) => {
       const it = items.find((x) => x.kind === el.dataset.mk && String(x.id) === el.dataset.mid);
       if (!it) return;
@@ -83237,32 +83663,8 @@ function renderMApprove() {
       if ((op && (op.onclick = () => mGo(it.open)), "bill" === it.kind)) {
         const b = DB.bills.find((x) => x.id === it.id),
           keep = S,
-          p = DB.projects.find((x) => x.id === b.projectId),
-          runBill = (why) => {
-            p && (S = p);
-            try {
-              billAction(b, it.act, why);
-            } catch (e) {
-              console.warn(e), toast("Could not approve: " + (e.message || e));
-            }
-            (S = keep), render();
-          };
-        yes &&
-          (yes.onclick = () => {
-            "approve" === it.act && it.comp && it.comp.length && !billOverPO(b)
-              ? mbModal(
-                  `Override — ${esc(b.vendor)}`,
-                  `<div class="note warn">${it.comp.map(esc).join("<br>")}</div><div class="f" style="margin-top:10px"><label>Owner override — reason</label><input data-f="why" placeholder="e.g. COI renewal received by email, filing tomorrow" enterkeyhint="done"></div>`,
-                  {
-                    submit: "Approve Anyway",
-                    onSubmit: (v) => {
-                      if (!v.why) return toast("Say why you are overriding it"), !1;
-                      runBill(v.why);
-                    },
-                  },
-                )
-              : runBill("");
-          }),
+          p = DB.projects.find((x) => x.id === b.projectId);
+        yes && (yes.onclick = () => apprBillYes(it)),
           no &&
             (no.onclick = () => {
               billAskWhy(
@@ -87621,7 +88023,7 @@ if (
         R = retainerLeft(p),
         ph = phaseHours(p),
         used = ph.reduce((a, x) => a + x.used, 0),
-        cur = ph.find((x) => x.used < x.est) || ph[ph.length - 1];
+        cur = phaseCur(ph) || ph.find((x) => x.used < x.est) || ph[ph.length - 1];
         tiles.push({
           key: "rooms",
           k: "Rooms Measured",
@@ -93142,7 +93544,7 @@ const BN_KIND = {
   delivery: "Delivery",
   obligation: "Expiry",
   renewal: "Renewal",
-  google: "Google",
+  google: "Connected Calendar",
 };
 function bnCalendarHtml() {
   const td = today(),
@@ -93785,29 +94187,32 @@ if ("function" == typeof mApprovals) {
   mApprovals = function () {
     const out = mApprovalsBase_bn.apply(this, arguments);
     try {
+      // produced for every seat; DELEGATION (the last mApprovals layer) hands a lesson to the owner and a draft
+      // to the person it was written for. The id is the record's, so three lessons from one rule stay three items.
       bnInit(),
-        ["owner", "pm", "coord", "design_mgr"].includes(role()) &&
-          (DB.brainQueue
-            .filter((x) => "proposed" === x.status)
-            .forEach((q) => {
-              const p = DB.projects.find((x) => x.id === q.projectId);
-              out.push({
-                kind: "lesson",
-                title: q.title,
-                sub: `${p ? p.project.name.replace(/ —.*$/, "") + " · " : ""}${q.detail}`,
-                open: { view: "brain", bnTab: "queue" },
-              });
+        DB.brainQueue
+          .filter((x) => "proposed" === x.status)
+          .forEach((q) => {
+            const p = DB.projects.find((x) => x.id === q.projectId);
+            out.push({
+              kind: "lesson",
+              id: q.id,
+              title: q.title,
+              sub: `${p ? p.project.name.replace(/ —.*$/, "") + " · " : ""}${q.detail}`,
+              open: { view: "brain", bnTab: "queue" },
+            });
+          }),
+        DB.outbox
+          .filter((o) => "draft" === o.status)
+          .forEach((o) =>
+            out.push({
+              kind: "draft",
+              id: o.id,
+              title: `Send: ${o.subject}`,
+              sub: `to ${o.to.name || o.to.email || "—"}`,
+              open: { view: "brain", bnTab: "hands" },
             }),
-          DB.outbox
-            .filter((o) => "draft" === o.status)
-            .forEach((o) =>
-              out.push({
-                kind: "draft",
-                title: `Send: ${o.subject}`,
-                sub: `to ${o.to.name || o.to.email || "—"}`,
-                open: { view: "brain", bnTab: "hands" },
-              }),
-            ));
+          );
     } catch (e) {}
     return out;
   };
@@ -100657,9 +101062,21 @@ function clDocs() {
   };
 }
 function clPhotos() {
-  return (clProj().files || [])
-    .filter((f) => /\.(jpe?g|png|heic|webp)$/i.test(f.name || "") && !0 !== f.clientHidden)
-    .sort((a, b) => String(b.at || b.date || "").localeCompare(String(a.at || a.date || "")));
+  // the photos shared from the site's photo stream (with the PM's caption), then any photo files on the job
+  const p = clProj(),
+    shared =
+      "function" == typeof pstRows && p
+        ? pstRows({ projectId: p.id, shared: !0 }).map((x) => ({
+            id: x.id,
+            name: pstClientCaption(x),
+            at: String(x.sharedAt || x.at || x.date || ""),
+            pst: x,
+          }))
+        : [];
+  return [
+    ...shared,
+    ...(p.files || []).filter((f) => /\.(jpe?g|png|heic|webp)$/i.test(f.name || "") && !0 !== f.clientHidden),
+  ].sort((a, b) => String(b.at || b.date || "").localeCompare(String(a.at || a.date || "")));
 }
 function clBal(c, d) {
   try {
@@ -100730,7 +101147,9 @@ function clAcctHtml() {
           .slice(0, 24)
           .map(
             (f) =>
-              `<figure data-clphoto="${esc(f.id)}"><div class="cl-ph-box"><span>${esc((f.name || "").split(".")[0].slice(0, 28))}</span></div><figcaption>${f.at || f.date ? fmtL(String(f.at || f.date).slice(0, 10)) : ""}</figcaption></figure>`,
+              f.pst
+                ? pstTile(f.pst)
+                : `<figure data-clphoto="${esc(f.id)}"><div class="cl-ph-box"><span>${esc((f.name || "").split(".")[0].slice(0, 28))}</span></div><figcaption>${f.at || f.date ? fmtL(String(f.at || f.date).slice(0, 10)) : ""}</figcaption></figure>`,
           )
           .join("")}</div>`
       : `<div class="empty">No photos yet. ${esc(pmName() || "Your project manager")} and the site team post progress photos here as the work goes on — you will see them without asking.</div>`
@@ -100763,7 +101182,7 @@ function clSchedHtml() {
   let pct = all ? Math.round((done / all) * 100) : 0;
   try {
     const J = jobFin(p);
-    J && J.pct && (pct = Math.max(pct, Math.round(100 * J.pct)));
+    J && J.contract && (pct = Math.max(pct, tpJobPct(p)));
   } catch (e) {}
   const now = T.filter((t) => !isDone(t) && "in-progress" === t.status),
     soon = T.filter((t) => !isDone(t) && "in-progress" !== t.status && t.start).sort((a, b) =>
@@ -102741,7 +103160,11 @@ function cmMatches(c, q) {
   );
 }
 function cmListFor(filter) {
-  let L = (DB.comms || []).slice().sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  const me = ("function" == typeof paMe ? paMe() : {}).id;
+  let L = (DB.comms || [])
+    .filter((c) => !c.owner || c.owner === me)
+    .slice()
+    .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
   const open = L.filter(
     (c) => (c.proposals || []).some((p) => !p.applied && !1 !== p.on) && "ignored" !== c.status,
   );
@@ -102787,7 +103210,8 @@ function renderCommsInbox() {
   const host = $("#comms-body");
   if (!host) return;
   cmInit(), cmOpen && ((cmSel = cmOpen), (cmOpen = ""));
-  const all = DB.comms || [],
+  const meId = ("function" == typeof paMe ? paMe() : {}).id,
+    all = (DB.comms || []).filter((c) => !c.owner || c.owner === meId),
     open = all.filter(
       (c) => (c.proposals || []).some((p) => !p.applied && !1 !== p.on) && "ignored" !== c.status,
     ),
@@ -106132,7 +106556,7 @@ const csEv = (label, text, go, ref) => ({
               out.push({
                 sev: gap >= 15e3 ? 3 : 2,
                 title: `${n} — ${money(gap)} earned and not billed`,
-                why: `Earned ${money(f.earned)} against ${money(f.billed)} invoiced. The job is ${Math.round(100 * (f.pct || 0))}% through its cost.`,
+                why: `Earned ${money(f.earned)} against ${money(f.billed)} invoiced. The job is ${tpCostWords(f)}.`,
                 ev: [
                   csEv("Earned", money(f.earned), { view: "costs", project: p.id }),
                   csEv("Invoiced", money(f.billed), { view: "billing" }),
@@ -106290,7 +106714,7 @@ const csEv = (label, text, go, ref) => ({
                 out.push({
                   sev: 2,
                   title: `${n} — ${money(f.retHeld)} of retainage still held`,
-                  why: `The job is ${Math.round(100 * (f.pct || 0))}% through its cost. Retainage releases with the final invoice.`,
+                  why: `The job is ${tpCostWords(f)}. Retainage releases with the final invoice.`,
                   ev: [
                     csEv("Held", money(f.retHeld), { view: "billing" }),
                     csEv("Released so far", money(f.retReleased || 0), { view: "billing" }),
@@ -107202,7 +107626,7 @@ function csAnswer(q, facts) {
           `Invoiced ${money(f.billed)}, earned ${money(f.earned)}, outstanding ${money(f.outstanding)}`,
         ),
         out({
-          headline: `${String(job.project.name).replace(/ —.*$/, "")} — ${money(f.estGP)} estimated gross profit, ${f.estGPPct}% of contract, ${Math.round(100 * (f.pct || 0))}% through its cost.`,
+          headline: `${String(job.project.name).replace(/ —.*$/, "")} — ${money(f.estGP)} estimated gross profit, ${f.estGPPct}% of contract, ${tpCostWords(f)}.`,
           note:
             f.estGPPct < (DB.company.minMargin || 20)
               ? `That is below the ${DB.company.minMargin || 20}% the firm sets as its floor.`
@@ -108857,7 +109281,7 @@ function paAsk(q) {
       try {
         f = jobFin(p);
       } catch (e) {}
-      return `${p.project.name.replace(/ —.*$/, "")}${f ? ` — ${money(f.contract)} contract, ${Math.round(100 * (f.pct || 0))}% through cost, ${money(f.outstanding)} outstanding` : ""}`;
+      return `${p.project.name.replace(/ —.*$/, "")}${f ? ` — ${money(f.contract)} contract, ${tpCostWords(f)}, ${money(f.outstanding)} outstanding` : ""}`;
     });
     return paOut({
       headline: M.projects.length
@@ -109217,6 +109641,11 @@ function gcInit() {
 }
 const gcCfg = () => (gcInit(), DB.company.google),
   gcMine = () => (gcInit(), (DB.conn[paMe().id] || {}).google || null),
+  // The Demo Workspace is an invented mailbox, calendar and drive per user (see the demows section at the
+  // end). It is served through gcFetch like Google is, so every pull, draft, hold and filing runs on it.
+  gcIsDemo = () => !!(gcMine() || {}).demo,
+  gcKindName = () => (gcIsDemo() ? ((gcMine() || {}).loaded ? "Loaded Workspace" : "Demo Workspace") : "Google"),
+  gcMailName = () => (gcIsDemo() ? gcKindName() : "Gmail"),
   gcOn = () => {
     const g = gcMine();
     return !(!g || !g.email);
@@ -109367,11 +109796,12 @@ function gcDisconnect() {
   try {
     gcServerDisconnect();
   } catch (e) {}
-  gcClearToken(u.id), (DB.conn[u.id].google = null);
+  const kind = gcKindName();
+  gcClearToken(u.id), (DB.conn[u.id].google = null), DB.demoWs && delete DB.demoWs[u.id];
   const n = gcWipe(u.id);
   save(),
     paDid(
-      "Disconnected the Google account",
+      `Disconnected the ${"Google" === kind ? "Google account" : kind}`,
       `and removed the ${n} record${1 === n ? "" : "s"} it had pulled in, so nothing of theirs is left behind`,
       null,
     ),
@@ -109380,10 +109810,30 @@ function gcDisconnect() {
 }
 function gcWipe(userId) {
   let n = 0;
-  const before = (DB.comms || []).length;
-  (DB.comms = (DB.comms || []).filter((c) => !("google" === c.source && c.owner === userId))),
-    (n += before - DB.comms.length),
-    (DB.calendar = DB.calendar || { external: [] });
+  const before = (DB.comms || []).length,
+    gone = (DB.comms || []).filter((c) => ("google" === c.source || "demo" === c.source) && c.owner === userId),
+    goneIds = new Set(gone.map((c) => c.id)),
+    goneMsg = new Set(gone.map((c) => c.msgId).filter(Boolean));
+  (DB.comms = (DB.comms || []).filter((c) => !goneIds.has(c.id))), (n += before - DB.comms.length);
+  // Meetings read from those messages whose proposals nobody approved, the payment claims they made, and
+  // the nudges that pointed at them leave with them. Anything a person approved stays: it is theirs now.
+  (DB.meetings = (DB.meetings || []).filter(
+    (m) => !(goneIds.has(m.commId) && !(m.proposals || []).some((p) => "applied" === p.status)),
+  )),
+    (DB.expected = (DB.expected || []).filter((e) => !goneIds.has(e.commId)));
+  const A = (DB.asst || {})[userId];
+  A &&
+    ((A.thread = (A.thread || []).filter(
+      (m) =>
+        !(
+          m.ref &&
+          (("mail" === m.ref.kind && (goneMsg.has(m.ref.id) || goneIds.has(m.ref.commId))) ||
+            ("event" === m.ref.kind && (DB.calendar?.external || []).some((e) => e.id === m.ref.id && e.owner === userId)) ||
+            ("file" === m.ref.kind && (DB.gdrive || []).some((f) => f.id === m.ref.id && f.owner === userId)))
+        ),
+    )),
+    (A.expect = (A.expect || []).filter((e) => !(e.ref && "mail" === e.ref.kind && goneMsg.has(e.ref.id)))));
+  DB.calendar = DB.calendar || { external: [] };
   const be = (DB.calendar.external || []).length;
   (DB.calendar.external = (DB.calendar.external || []).filter((e) => e.owner !== userId)),
     (n += be - DB.calendar.external.length);
@@ -109393,6 +109843,7 @@ function gcWipe(userId) {
 let gcBack = 0;
 async function gcFetch(path, opts) {
   const o = Object.assign({}, opts || {});
+  if (gcIsDemo()) return gsFetchDemo(/^https?:/.test(path) ? path : "https://www.googleapis.com" + path, o);
   let t = gcToken();
   if (!t && ((t = await gcRefresh()), !t)) throw new Error("not connected");
   const url = /^https?:/.test(path) ? path : "https://www.googleapis.com" + path,
@@ -109485,6 +109936,29 @@ function gcServerDisconnect() {
     : Promise.resolve();
 }
 const GS_BASE = "/gmail/v1/users/me";
+// The clock a sync runs on. Real Google and the built-in demo run on the app clock; a loaded workspace runs
+// on its own exportedAt, so its windows and cursors are its dates, never the wall clock and never the seed's
+// day (which stays 2026-09-03 for the demo records).
+const gsNow = () => {
+    try {
+      if (gcIsDemo() && "function" == typeof demoWsFor) {
+        const W = demoWsFor(paMe().id);
+        if (W && W.now) return W.now;
+      }
+    } catch (e) {}
+    return appNowMs();
+  },
+  gsNowIso = () => appIso(new Date(gsNow())),
+  // The first pull's window in days: 14 for Google and the demo; a loaded workspace's whole span.
+  gsFirstDays = () => {
+    try {
+      if (gcIsDemo() && "function" == typeof demoWsFor) return Math.max(14, +demoWsFor(paMe().id).firstDays || 14);
+    } catch (e) {}
+    return 14;
+  },
+  // How many messages one run reads in full: Google is rate limited, so 40 a run and the cursor waits
+  // until the window is exhausted; a demo or loaded workspace is local, so the whole window at once.
+  gsRunCap = () => (gcIsDemo() ? 5e3 : 40);
 let gsRunning = !1,
   gsTimerId = null,
   gsLast = null;
@@ -109546,13 +110020,29 @@ async function gsGmail(first) {
   if (!gsMine()) return [];
   const since = gsCur("gmailAt"),
     q = encodeURIComponent(
-      since ? `after:${Math.floor(new Date(since).getTime() / 1e3)} -in:chats` : "newer_than:14d -in:chats",
+      since ? `after:${Math.floor(new Date(since).getTime() / 1e3)} -in:chats` : `newer_than:${gsFirstDays()}d -in:chats`,
     ),
-    ids = ((await gcFetch(`${GS_BASE}/messages?maxResults=${first ? 60 : 25}&q=${q}`)).messages || [])
-      .map((m) => m.id)
-      .filter((id) => !(DB.comms || []).some((c) => c.msgId === id)),
-    out = [];
-  for (const id of ids.slice(0, 40)) {
+    cap = gsRunCap(),
+    have = new Set((DB.comms || []).map((c) => c.msgId).filter(Boolean)),
+    ids = [];
+  // Page through the list until the window is exhausted or this run has its fill. One page of the newest
+  // messages, read once, starved everything older: a loaded mailbox showed 40 of 524 landing, then nothing.
+  let token = "",
+    pages = 0,
+    exhausted = !1;
+  do {
+    const page = await gcFetch(
+      `${GS_BASE}/messages?maxResults=${first ? 100 : 50}&q=${q}${token ? "&pageToken=" + encodeURIComponent(token) : ""}`,
+    );
+    (page.messages || []).forEach((m) => {
+      have.has(m.id) || ids.includes(m.id) || ids.push(m.id);
+    }),
+      (token = page.nextPageToken || ""),
+      pages++,
+      token || (exhausted = !0);
+  } while (token && ids.length < cap && pages < 60);
+  const out = [];
+  for (const id of ids.slice(0, cap)) {
     let m = null;
     try {
       m = await gcFetch(`${GS_BASE}/messages/${id}?format=full`);
@@ -109567,14 +110057,16 @@ async function gsGmail(first) {
       from: gsAddrs(gsHdr(m, "From"))[0] || { name: "", email: "" },
       to: gsAddrs(gsHdr(m, "To")).map((a) => (a.name ? `${a.name} <${a.email}>` : a.email)),
       cc: gsAddrs(gsHdr(m, "Cc")).map((a) => (a.name ? `${a.name} <${a.email}>` : a.email)),
-      date: date ? new Date(date).toISOString() : new Date(+m.internalDate || Date.now()).toISOString(),
+      date: date ? new Date(date).toISOString() : new Date(+m.internalDate || gsNow()).toISOString(),
       subject: gsHdr(m, "Subject"),
       text: gsBody(m),
-      source: "google",
+      source: gcIsDemo() ? "demo" : "google",
       owner: me.id,
       labels: m.labelIds || [],
       unread: (m.labelIds || []).includes("UNREAD"),
-      links: [{ label: "Open in Gmail", url: `https://mail.google.com/mail/u/0/#inbox/${m.threadId}` }],
+      links: gcIsDemo()
+        ? []
+        : [{ label: "Open in Gmail", url: `https://mail.google.com/mail/u/0/#inbox/${m.threadId}` }],
       attachments: gsAtt(m),
     });
   }
@@ -109584,12 +110076,14 @@ async function gsGmail(first) {
       const c = (DB.comms || []).find((x) => x.msgId === o.msgId);
       c &&
         ((c.owner = me.id),
-        (c.source = "google"),
+        (c.source = o.source),
         (c.unread = o.unread),
         (c.labels = o.labels),
         (c.links = o.links));
     }),
-    gsCur("gmailAt", appNowIso()),
+    // The cursor moves only when this run read everything the window listed; otherwise the next run
+    // lists the same window and carries on (what is already held is skipped by id).
+    exhausted && ids.length <= cap && gsCur("gmailAt", gsNowIso()),
     out
   );
 }
@@ -109600,17 +110094,35 @@ const gsAtt = (m) => {
         (p.filename &&
           p.body &&
           p.body.attachmentId &&
-          out.push({
-            name: p.filename,
-            mime: p.mimeType,
-            size: p.body.size || 0,
-            attachmentId: p.body.attachmentId,
-            msgId: m.id,
-          }),
+          out.push(
+            Object.assign(
+              {
+                name: p.filename,
+                mime: p.mimeType,
+                size: p.body.size || 0,
+                attachmentId: p.body.attachmentId,
+                msgId: m.id,
+              },
+              // A demo attachment carries its extracted text (the server-side PDF reader was lost).
+              p.body.text ? { text: p.body.text } : {},
+            ),
+          ),
         (p.parts || []).forEach(walk));
     };
   return walk(m.payload), out;
 };
+// A week back and ninety days ahead of the sync clock; a loaded workspace's own span when it is wider.
+function gsCalWindow() {
+  const now = gsNow(),
+    w = { min: now - 6048e5, max: now + 7776e6 };
+  try {
+    if (gcIsDemo() && "function" == typeof demoWsFor) {
+      const W = demoWsFor(paMe().id);
+      W && W.calFrom && (w.min = Math.min(w.min, W.calFrom)), W && W.calTo && (w.max = Math.max(w.max, W.calTo));
+    }
+  } catch (e) {}
+  return w;
+}
 async function gsCal(first) {
   const me = paMe();
   if (!gsMine()) return [];
@@ -109618,7 +110130,7 @@ async function gsCal(first) {
   const tok = gsCur("calTok");
   let url = tok
       ? `/calendar/v3/calendars/primary/events?syncToken=${encodeURIComponent(tok)}&singleEvents=true`
-      : `/calendar/v3/calendars/primary/events?singleEvents=true&orderBy=startTime&maxResults=250&timeMin=${encodeURIComponent(new Date(Date.now() - 6048e5).toISOString())}&timeMax=${encodeURIComponent(new Date(Date.now() + 7776e6).toISOString())}`,
+      : `/calendar/v3/calendars/primary/events?singleEvents=true&orderBy=startTime&maxResults=250&timeMin=${encodeURIComponent(new Date(gsCalWindow().min).toISOString())}&timeMax=${encodeURIComponent(new Date(gsCalWindow().max).toISOString())}`,
     data = null;
   try {
     data = await gcFetch(url);
@@ -109648,6 +110160,7 @@ async function gsCal(first) {
           status: a.responseStatus,
         })),
         organizer: (ev.organizer || {}).email || "",
+        source: gcIsDemo() ? "demo" : "google",
         at: appNowIso(),
       };
       i >= 0 ? (DB.calendar.external[i] = rec) : (DB.calendar.external.push(rec), fresh.push(rec));
@@ -109662,12 +110175,19 @@ async function gsDrive(first) {
   DB.gdrive = DB.gdrive || [];
   const since = gsCur("driveAt"),
     q = encodeURIComponent("trashed = false" + (since ? ` and modifiedTime > '${since}'` : "")),
-    data = await gcFetch(
-      `/drive/v3/files?q=${q}&orderBy=modifiedTime desc&pageSize=${first ? 100 : 30}&fields=files(id,name,mimeType,modifiedTime,webViewLink,iconLink,size,owners(displayName,emailAddress),parents)`,
-    ),
-    fresh = [];
+    fresh = [],
+    files = [];
+  // Drive answers a page at a time; one page of 100 left half of a loaded drive unread.
+  let token = "",
+    pages = 0;
+  do {
+    const data = await gcFetch(
+      `/drive/v3/files?q=${q}&orderBy=modifiedTime desc&pageSize=${first ? 100 : 30}&fields=nextPageToken,files(id,name,mimeType,modifiedTime,webViewLink,iconLink,size,owners(displayName,emailAddress),parents)${token ? "&pageToken=" + encodeURIComponent(token) : ""}`,
+    );
+    files.push(...(data.files || [])), (token = data.nextPageToken || ""), pages++;
+  } while (token && pages < (gcIsDemo() ? 50 : 5));
   return (
-    (data.files || []).forEach((f) => {
+    files.forEach((f) => {
       const id = "g_" + f.id,
         i = DB.gdrive.findIndex((x) => x.id === id),
         rec = {
@@ -109680,11 +110200,12 @@ async function gsDrive(first) {
           link: f.webViewLink,
           size: +f.size || 0,
           by: ((f.owners || [])[0] || {}).displayName || "",
+          source: gcIsDemo() ? "demo" : "google",
           at: appNowIso(),
         };
       (rec.route = gsRouteFile(rec)), i >= 0 ? (DB.gdrive[i] = rec) : (DB.gdrive.push(rec), fresh.push(rec));
     }),
-    gsCur("driveAt", appNowIso()),
+    gsCur("driveAt", gsNowIso()),
     fresh
   );
 }
@@ -109704,8 +110225,31 @@ function gsRouteFile(f) {
         .toLowerCase()
         .split(/\s*&\s*|\s+and\s+/)
         .some((q) => q.length > 3 && n.includes(q.trim())),
-    );
-  return { projectId: p ? p.id : "", clientId: c ? c.id : "" };
+    ),
+    // A vendor's name in the file name routes it to the vendor (a COI, a W-9, a quote).
+    v = (DB.vendors || []).find((x) => {
+      const k = String(x.name || "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, " ")
+        .trim();
+      return k.length > 3 && n.replace(/[^a-z0-9]+/g, " ").includes(k);
+    }),
+    kind = /\bcoi\b|certificate|insurance/.test(n)
+      ? "coi"
+      : /w-?9/.test(n)
+        ? "w9"
+        : /statement/.test(n) && /amex|chase|card|bank|\d{4}/.test(n)
+          ? "statement"
+          : /transcript|notes/.test(n)
+            ? "transcript"
+            : /invoice|bill\b/.test(n)
+              ? "invoice"
+              : /\b[a-z]-?\d{3}\b|drawing|plan|set\b|\.dwg|\.rvt/.test(n)
+                ? "drawing"
+                : /proposal|quote|estimate/.test(n)
+                  ? "proposal"
+                  : "";
+  return { projectId: p ? p.id : "", clientId: c ? c.id : "", vendorId: v && !c ? v.id : "", kind: kind };
 }
 async function gsRun(opts) {
   const o = opts || {};
@@ -109714,7 +110258,7 @@ async function gsRun(opts) {
   if (!g || !gcOn()) return null;
   gsRunning = !0;
   const t0 = Date.now(),
-    delta = { mail: [], events: [], files: [], at: appNowIso(), errors: [] };
+    delta = { mail: [], events: [], files: [], at: appNowIso(), errors: [], first: !!o.first };
   for (const [k, fn] of [
     ["mail", gsGmail],
     ["events", gsCal],
@@ -109818,6 +110362,11 @@ async function gaSend(draftId) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ id: draftId }),
   });
+  // The draft the pull already holds is now sent: the local copy says so without waiting for a re-pull.
+  try {
+    const c = r && (DB.comms || []).find((x) => x.msgId === r.id);
+    c && ((c.labels = r.labelIds || ["SENT"]), (c.direction = "out"), (c.sentAt = appNowIso()), save());
+  } catch (e) {}
   return paDid("Sent the message you approved", "you pressed send on it", null), r;
 }
 async function gaLabel(msgId, add, remove) {
@@ -109879,7 +110428,7 @@ async function gaBook(o) {
     );
   return paDid(`Booked ${o.title}`, o.why || "you approved it", null), r;
 }
-function gaFile(rec, projectId, clientId) {
+function gaFile(rec, projectId, clientId, vendorId) {
   DB.files = DB.files || [];
   const f = {
     id: uid("f"),
@@ -109889,6 +110438,7 @@ function gaFile(rec, projectId, clientId) {
     mime: rec.mime,
     projectId: projectId || "",
     clientId: clientId || "",
+    vendorId: vendorId || "",
     at: today(),
     by: paMe().name,
     source: "drive",
@@ -109898,7 +110448,11 @@ function gaFile(rec, projectId, clientId) {
     DB.files.push(f),
     (rec.filed = f.id),
     save(),
-    paDid(`Filed ${rec.name}`, "it names the job, so it belongs on the job", { view: "files" }),
+    paDid(
+      `Filed ${rec.name}`,
+      vendorId ? "it is the vendor's paperwork, so it belongs on the vendor" : "it names the job, so it belongs on the job",
+      { view: vendorId ? "vendors" : "files" },
+    ),
     f
   );
 }
@@ -109917,11 +110471,16 @@ function gcHtml() {
     others = Object.keys(DB.conn || {}).filter((k) => k !== me.id && (DB.conn[k] || {}).google).length,
     counts = (g && g.counts) || {},
     why = gcBlocked ? GC_WHY[gcBlocked] : cfg.clientId ? "" : GC_WHY.noclient;
-  return `<div class="ph"><div><h2>Connections</h2><div class="lead">Your assistant reads what you connect here and keeps checking it. Each person connects their own account — what arrives in your mail is yours, and nobody else's assistant can read it.</div></div></div>\n  <div class="gc">\n    <div class="card gc-acct"><div class="hd"><h3>Google — ${esc(me.name)}</h3><span class="grow"></span>\n      ${g && g.email ? `<span class="gc-dot on"></span><span class="small">${esc(g.email)}</span>` : '<span class="gc-dot"></span><span class="small muted">Not connected</span>'}</div>\n      <div class="bd">\n        ${g && g.email ? `\n          <div class="gc-stat">\n            <div><span>Last checked</span><b>${esc(gsAgo(g.lastSync))}</b></div>\n            <div><span>Mail held</span><b>${counts.mail || 0}</b></div>\n            <div><span>Calendar entries</span><b>${counts.events || 0}</b></div>\n            <div><span>Documents</span><b>${counts.files || 0}</b></div>\n          </div>\n          ${g.lastError ? `<div class="gc-err">${esc(g.lastError)}</div>` : ""}\n          <label class="gc-auto"><input type="checkbox" id="gc-auto" ${!1 !== g.auto ? "checked" : ""}> Keep checking on its own while the app is open</label>\n          <div class="gc-always ${(g.server || {}).watching ? "on" : ""}">\n            <span class="gc-dot${(g.server || {}).watching ? " on" : ""}"></span>\n            ${(g.server || {}).watching ? "<b>Watching when nobody is looking.</b> The firm's own server checks every fifteen minutes through the working day and leaves what matters in your conversation, so it is waiting for you when you open the app." : gcServerOn() ? '<b>Only while this is open.</b> <button class="btn sm" id="gc-always">Keep Watching When It Is Closed</button>' : "<b>Only while this is open.</b> Checking when the app is shut needs the hosted copy — there is nowhere for a server to run from here."}\n          </div>\n          <div class="gc-acts"><button class="btn sm" id="gc-now">Check Now</button><button class="btn sm" id="gc-off">Disconnect</button></div>\n        ` : `\n          <p class="small">Connecting signs you in to Google in a window from Google itself. This app never sees your password, and the key it gets back is held for this browser session only — it is not written into the saved data or carried into a backup.</p>\n          ${why ? `<div class="gc-err">${esc(why)}</div>` : ""}\n          <button class="btn" id="gc-go" ${cfg.clientId ? "" : "disabled"}>Connect My Google Account</button>\n        `}\n        <div class="gc-what">${GC_WHAT.map(([k, d]) => `<div><b>${k}</b><span>${esc(d)}</span></div>`).join("")}</div>\n        <div class="small muted gc-note">It writes drafts and holds time on its own. It sends an email or books a meeting only when you press the button on it — nothing in the checking loop can send anything.</div>\n      </div></div>\n    ${others ? `<div class="small muted gc-others">${others} other ${1 === others ? "person has" : "people have"} connected their own account. You cannot see theirs and they cannot see yours.</div>` : ""}\n    ${gcSetupHtml()}\n  </div>`;
+  const demo = !!(g && g.demo),
+    canDemo = "function" == typeof gcDemoAvailable && gcDemoAvailable(),
+    loaded = "function" == typeof dwLoadedFor && dwLoadedFor(),
+    demoName = demo ? (g.loaded ? "Loaded Workspace" : "Demo Workspace") : loaded ? "Loaded Workspace" : "Demo Workspace";
+  return `<div class="ph"><div><h2>Connections</h2><div class="lead">Your assistant reads what you connect here and keeps checking it. Each person connects their own account — what arrives in your mail is yours, and nobody else's assistant can read it.</div></div></div>\n  <div class="gc">\n    <div class="card gc-acct"><div class="hd"><h3>${demo ? demoName : "Google"} — ${esc(me.name)}</h3><span class="grow"></span>\n      ${g && g.email ? `<span class="gc-dot on"></span><span class="small">${esc(g.email)}${demo ? " · invented mailbox, calendar and drive" : ""}</span>` : '<span class="gc-dot"></span><span class="small muted">Not connected</span>'}</div>\n      <div class="bd">\n        ${g && g.email ? `\n          ${demo ? `<p class="small">${g.loaded ? "This is a Loaded Workspace: a mailbox, calendar and drive loaded for this session from a file" : "This is the Demo Workspace: an invented mailbox, calendar and drive for your role"}, served through the same code real Google uses. Nothing it writes leaves this app.</p>` : ""}\n          <div class="gc-stat">\n            <div><span>Last checked</span><b>${esc(gsAgo(g.lastSync))}</b></div>\n            <div><span>Mail held</span><b>${counts.mail || 0}</b></div>\n            <div><span>Calendar entries</span><b>${counts.events || 0}</b></div>\n            <div><span>Documents</span><b>${counts.files || 0}</b></div>\n          </div>\n          ${g.lastError ? `<div class="gc-err">${esc(g.lastError)}</div>` : ""}\n          <label class="gc-auto"><input type="checkbox" id="gc-auto" ${!1 !== g.auto ? "checked" : ""}> Keep checking on its own while the app is open</label>\n          <div class="gc-always ${(g.server || {}).watching ? "on" : ""}">\n            <span class="gc-dot${(g.server || {}).watching ? " on" : ""}"></span>\n            ${demo ? `<b>Checked every ${esc(String(Math.max(2, +(g.every || cfg.every || 5))))} minutes while this is open.</b> The hosted watcher ran every fifteen minutes through the working day; here the same timer runs in the browser, and Sync Now runs it at once.` : (g.server || {}).watching ? "<b>Watching when nobody is looking.</b> The firm's own server checks every fifteen minutes through the working day and leaves what matters in your conversation, so it is waiting for you when you open the app." : gcServerOn() ? '<b>Only while this is open.</b> <button class="btn sm" id="gc-always">Keep Watching When It Is Closed</button>' : "<b>Only while this is open.</b> Checking when the app is shut needs the hosted copy — there is nowhere for a server to run from here."}\n          </div>\n          <div class="gc-acts"><button class="btn sm" id="gc-now">Sync Now</button><button class="btn sm" id="gc-off">Disconnect</button></div>\n        ` : `\n          <p class="small">Connecting signs you in to Google in a window from Google itself. This app never sees your password, and the key it gets back is held for this browser session only — it is not written into the saved data or carried into a backup.</p>\n          ${why ? `<div class="gc-err">${esc(why)}</div>` : ""}\n          <button class="btn" id="gc-go" ${cfg.clientId ? "" : "disabled"}>Connect My Google Account</button>\n          ${!cfg.clientId && canDemo ? `<div class="gc-demo"><b>${demoName}</b><span class="small">${loaded ? "A mailbox, calendar and drive loaded for this session from a file, served through the same code real Google uses." : "An invented mailbox, calendar and drive for your role, served through the same code real Google uses, so the assistant, the inbox routing, the meeting notes, the filing and the brain can be tried without a real account. Nothing in it is real."}</span><button class="btn sm" id="gc-demo">Connect ${demoName}</button></div>` : ""}\n        `}\n        <div class="gc-what">${GC_WHAT.map(([k, d]) => `<div><b>${k}</b><span>${esc(d)}</span></div>`).join("")}</div>\n        <div class="small muted gc-note">It writes drafts and holds time on its own. It sends an email or books a meeting only when you press the button on it — nothing in the checking loop can send anything.</div>\n      </div></div>\n    ${others ? `<div class="small muted gc-others">${others} other ${1 === others ? "person has" : "people have"} connected their own account. You cannot see theirs and they cannot see yours.</div>` : ""}\n    ${gcSetupHtml()}\n  </div>`;
 }
 function gcWire(host) {
   const q = (s) => host.querySelector(s);
   q("#gc-go") && (q("#gc-go").onclick = () => gcConnect()),
+    q("#gc-demo") && (q("#gc-demo").onclick = () => gcDemoConnect()),
     q("#gc-off") &&
       (q("#gc-off").onclick = () => {
         appConfirm("Disconnect this account? What it pulled in for you is removed with it.") &&
@@ -109929,9 +110488,9 @@ function gcWire(host) {
       }),
     q("#gc-now") &&
       (q("#gc-now").onclick = () => {
-        toast("Checking…"),
+        toast("Syncing…"),
           gsRun({}).then((d) => {
-            d && toast(gcSummary(d));
+            d && toast(gcSummary(d), gcOpen("pa"));
           });
       }),
     q("#gc-auto") &&
@@ -109956,6 +110515,15 @@ function gcWire(host) {
           render();
       });
 }
+// An Open link for a toast: {label, run}, the shape toast() reads.
+const gcOpen = (v, label) => [
+  {
+    label: label || "Open",
+    run: () => {
+      (view = v), render();
+    },
+  },
+];
 const gcSummary = (d) => {
   const b = [
     d.mail.length ? `${d.mail.length} new message${1 === d.mail.length ? "" : "s"}` : "",
@@ -110160,7 +110728,9 @@ function paWatch(delta) {
     made.push(
       paNudge(
         `${who} wrote about ${m.subject || "something"}.`,
-        `I brought this to you because it names ${S.term || "something you are working on"} — ${S.why}${bits.length ? `, and ${bits.join(" and ")}` : ""}.`,
+        S.term
+          ? `I brought this to you because it names ${S.term} — ${S.why}${bits.length ? `, and ${bits.join(" and ")}` : ""}.`
+          : `I brought this to you because ${bits.length ? bits.join(" and ") : "it reads like your work"}.`,
         { kind: "mail", id: m.msgId, commId: c ? c.id : "" },
         S.why,
       ),
@@ -110181,14 +110751,34 @@ function paWatch(delta) {
         );
     }),
     (delta.files || []).forEach((f) => {
-      const r = f.route || {};
+      const r = f.route || {},
+        v = r.vendorId && (DB.vendors || []).find((x) => x.id === r.vendorId),
+        fin = ["owner", "controller", "billing"].includes(String(paMe().role || ""));
+      if (v && ("coi" === r.kind || "w9" === r.kind))
+        return void made.push(
+          paNudge(
+            `${f.name} landed in Drive.`,
+            `It is ${v.name}'s ${"w9" === r.kind ? "W-9" : "certificate of insurance"}${v.insuranceExp && v.insuranceExp < today() && "coi" === r.kind ? `, and their certificate on file expired ${fmtL(v.insuranceExp)} — it is blocking payment` : ""}. It belongs on the vendor, with the expiry read off it.`,
+            { kind: "file", id: f.id },
+            "a vendor's paperwork",
+          ),
+        );
+      if ("statement" === r.kind && fin)
+        return void made.push(
+          paNudge(
+            `${f.name} landed in Drive.`,
+            "A card or bank statement. Bank › Import reads it line by line and marks what is already in the books.",
+            { kind: "file", id: f.id },
+            "the books",
+          ),
+        );
       if (!r.projectId && !r.clientId) return;
       const p = (DB.projects || []).find((x) => x.id === r.projectId);
       (p && !paMine().projects.some((x) => x.id === p.id)) ||
         made.push(
           paNudge(
             `${f.name} landed in Drive.`,
-            `It names ${p ? String(p.project.name).replace(/ —.*$/, "") : "a client of yours"}, so it belongs on that job rather than loose in a folder.`,
+            `It names ${p ? String(p.project.name).replace(/ —.*$/, "") : "a client of yours"}${"drawing" === r.kind ? " and reads like a drawing" : ""}, so it belongs on that job rather than loose in a folder.`,
             { kind: "file", id: f.id },
             "a job you run",
           ),
@@ -110207,8 +110797,7 @@ function paRefOffers(ref) {
       csOffer({
         id: "pa-reply",
         label: "Draft the Reply",
-        detail:
-          "Written in your voice into your own Gmail drafts, on the same thread. Nothing sends until you open it and press send.",
+        detail: `Written in your voice into your own ${gcMailName()} drafts, on the same thread. Nothing sends until you open it and press send.`,
         run: async () => {
           try {
             const to = (c.from || {}).email || "",
@@ -110220,7 +110809,7 @@ function paRefOffers(ref) {
               threadId: c.threadId,
               why: `${(c.from || {}).name || to} asked and it touches your work`,
             }),
-              toast("Drafted in your Gmail — open it, read it, send it");
+              toast(`Drafted in your ${gcMailName()} — open it, read it, send it`);
           } catch (e) {
             toast("Could not write the draft — " + e.message);
           }
@@ -110311,14 +110900,52 @@ function paRefOffers(ref) {
   if ("file" === ref.kind) {
     const f = (DB.gdrive || []).find((x) => x.id === ref.id);
     if (!f || f.filed) return out;
-    const r = f.route || {};
+    const r = f.route || {},
+      v = r.vendorId && (DB.vendors || []).find((x) => x.id === r.vendorId);
+    if (v && "coi" === r.kind)
+      return (
+        out.push(
+          csOffer({
+            id: "pa-filecoi",
+            label: `File It On ${v.name} and Set the Expiry`,
+            detail: `Linked on the vendor. I read the policy period off the certificate and set the insurance expiry from it${v.insuranceExp && v.insuranceExp < today() ? ", which clears the block on paying them" : ""}.`,
+            run: async () => {
+              let txt = "";
+              try {
+                txt = await gcDocText(f);
+              } catch (e) {}
+              const exp = "function" == typeof cmCoiExpiry ? cmCoiExpiry(txt) : "";
+              gaFile(f, r.projectId, r.clientId, v.id),
+                exp && ((v.insuranceExp = exp), (v.coiReceivedAt = today()), save()),
+                toast(exp ? `Filed on ${v.name} — insurance now expires ${fmtL(exp)}` : `Filed on ${v.name}`, gcOpen("vendors")),
+                render();
+            },
+          }),
+        ),
+        out
+      );
+    if (v)
+      return (
+        out.push(
+          csOffer({
+            id: "pa-filevendor",
+            label: `File It On ${v.name}`,
+            detail: "Linked, not copied — the document stays where it is in Drive and the vendor points at it.",
+            run: () => {
+              gaFile(f, r.projectId, r.clientId, v.id), toast(`Filed on ${v.name}`, gcOpen("vendors")), render();
+            },
+          }),
+        ),
+        out
+      );
+    if (!r.projectId && !r.clientId) return out;
     out.push(
       csOffer({
         id: "pa-filedrive",
         label: "File It On the Job",
         detail: "Linked, not copied — the document stays where it is in Drive and the job points at it.",
         run: () => {
-          gaFile(f, r.projectId, r.clientId), toast("Filed on the job"), render();
+          gaFile(f, r.projectId, r.clientId), toast("Filed on the job", gcOpen("files")), render();
         },
       }),
     );
@@ -110419,7 +111046,19 @@ if ("function" == typeof paAsk) {
                     (view = "conn"), render();
                   },
                 }),
-              ],
+              ].concat(
+                "function" == typeof gcDemoAvailable && gcDemoAvailable() && !gcCfg().clientId
+                  ? [
+                      csOffer({
+                        id: "pa-demo",
+                        label: `Connect the ${"function" == typeof dwLoadedFor && dwLoadedFor() ? "Loaded Workspace" : "Demo Workspace"}`,
+                        detail:
+                          "An invented mailbox, calendar and drive for your role, read through the same code real Google uses. Nothing in it is real.",
+                        run: () => gcDemoConnect(),
+                      }),
+                    ]
+                  : [],
+              ),
             });
       const need = M.filter(paNeedsReply).slice(0, 8),
         w = need.map(
@@ -111235,7 +111874,7 @@ function eqTxns() {
 }
 const eqOwnOk = (r) =>
   !(
-    (r && "google" === r.source && r.owner && r.owner !== paMe().id) ||
+    (r && ("google" === r.source || "demo" === r.source) && r.owner && r.owner !== paMe().id) ||
     (r && r.owner && r.owner !== paMe().id && /^g_/.test(String(r.id || "")))
   );
 function eqMessages() {
@@ -111493,7 +112132,8 @@ function erpQuery(spec) {
     };
   let rows = [];
   try {
-    rows = fn() || [];
+    // eqRows is the one scope: a client reads only their own jobs' rows, field roles read no money
+    rows = "function" == typeof eqRows ? eqRows(s.entity) : fn() || [];
   } catch (e) {
     return { error: `${s.entity}: ${e.message}`, rows: [], n: 0 };
   }
@@ -111986,7 +112626,8 @@ function qaAnswer(raw) {
         kind: "unknown",
       };
   }
-  let whoSaid = "";
+  let whoSaid = "",
+    textQ = "";
   if (who) {
     new Set(who.hits.map((h) => h.type));
     const mapped = who.hits.map((h) => (QA_NAME_FIELD[h.type] || {})[entity]).filter(Boolean),
@@ -112012,12 +112653,10 @@ function qaAnswer(raw) {
         (whoSaid = `${who.hits[0].name} (${who.hits[0].type})`);
     } else {
       if (!fields.length && who.hits.length) {
+        // A name with no field on this table ("206 Lenox" asked of people) is searched as text in its rows,
+        // never refused: the rows that mention it answer, and none is an answer too.
         const h = who.hits[0];
-        return {
-          headline: `${h.name} is ${/^[aeiou]/.test(h.type) ? "an" : "a"} ${h.type}, so there are no ${entity.replace(/orders$/, " orders")} on them.`,
-          note: `If you meant somebody else by ${who.text}, give me the full name.`,
-          kind: "kind",
-        };
+        (textQ = String(h.name).split(/\s+&\s+|\s+and\s+/)[0]), (whoSaid = `${h.name} (${h.type}, searched as text)`);
       }
       if (fields.length > 1)
         return {
@@ -112033,6 +112672,7 @@ function qaAnswer(raw) {
   }
   const mf = QA_MONEY_FIELD[entity],
     spec = { entity: entity, where: where, limit: wantsNumber ? 5 : 20 };
+  textQ && (spec.q = textQ);
   groupBy
     ? ((spec.group = groupBy), (spec.agg = mf ? [`sum(${mf})`] : []), (spec.rows = !1))
     : wantsNumber && mf && (spec.agg = [`sum(${mf})`]);
@@ -112160,7 +112800,7 @@ const qaRow = (entity) => (r) => {
       add(r.name),
         add(r.client),
         add(money(r.contract)),
-        add(`${r.pct}% through cost`),
+        add(`${r.pct}% through its estimated cost (cost-to-cost)`),
         add(r.outstanding ? `${money(r.outstanding)} outstanding` : "");
       break;
     case "tasks":
@@ -112257,8 +112897,10 @@ function qaProfile(hit) {
         line("Outstanding", money(f.outstanding)),
         line(
           "Cost",
-          `${money(f.actual)} spent, ${money(f.committed)} committed, ${Math.round(100 * (f.pct || 0))}% through`,
+          `${money(f.actual)} spent, ${money(f.committed)} committed, ${tpCostWords(f)}`,
         ),
+        line("Estimate at completion", money(f.eac)),
+        line("Progress", `${tpJobPct(p)}% complete, measured on site`),
         line("Gross profit", `${money(f.estGP)} at ${f.estGPPct}%`)),
       line("Client", c ? c.name : ""),
       line("Project manager", p.project.pm || "nobody named"),
@@ -112531,6 +113173,11 @@ async function gdocText(bytes, mime, name) {
 }
 async function gcDocText(f) {
   if (gdocCache[f.fileId]) return gdocCache[f.fileId];
+  if (gcIsDemo()) {
+    // The Demo Workspace answers files.get with the file's text in place of bytes (doctext.mjs was lost).
+    const j = await gsFetchDemo(`https://www.googleapis.com/drive/v3/files/${f.fileId}?alt=media`, {});
+    return (gdocCache[f.fileId] = String((j && j.text) || "")), gdocCache[f.fileId];
+  }
   const token = gcToken();
   if (!token) throw new Error("not connected");
   const exp = GDOC_EXPORT[f.kind || f.mime],
@@ -112546,8 +113193,10 @@ async function gcDocText(f) {
 async function gcAttachText(at) {
   const key = `${at.msgId}:${at.attachmentId}`;
   if (gdocCache[key]) return gdocCache[key];
-  const j = await gcFetch(`/gmail/v1/users/me/messages/${at.msgId}/attachments/${at.attachmentId}`),
-    raw = String(j.data || "")
+  const j = await gcFetch(`/gmail/v1/users/me/messages/${at.msgId}/attachments/${at.attachmentId}`);
+  // A demo attachment carries its extracted text (the server-side PDF reader was lost); use it directly.
+  if (j && "string" == typeof j.text) return (gdocCache[key] = j.text), j.text;
+  const raw = String(j.data || "")
       .replace(/-/g, "+")
       .replace(/_/g, "/"),
     bin = atob(raw),
@@ -112610,7 +113259,7 @@ let mindState = { ok: null, why: "", model: "", last: 0 };
 const MIND_TOOLS = () => [
   {
     name: "query",
-    description: `Read any table in the ERP with real filters. Tables: ${EQ_ENTITIES().join(", ")}. Fields differ per table — call this with just {entity} first to see a row and learn the fields. where accepts {field:value} or {field:{op:value}} with ops eq, ne, gt, gte, lt, lte, after, before, contains, in, notin, between, truthy, empty. Useful flags already computed: invoices.unpaid, invoices.overdue, bills.unpaid, purchaseorders.open, purchaseorders.late, clients.active, projects.active, tasks.late, tasks.done, obligations.expired, obligations.expiringSoon, transactions.matched. Use group with agg like ["sum(amount)"] for totals by vendor, client, project or status.`,
+    description: `Read any table in the ERP with real filters. Tables: ${EQ_ENTITIES().join(", ")}. Fields differ per table — call this with just {entity} first to see a row and learn the fields. where accepts {field:value} or {field:{op:value}} with ops eq, ne, gt, gte, lt, lte, after, before, contains, in, notin, between, truthy, empty. Useful flags already computed: invoices.unpaid, invoices.overdue, bills.unpaid, purchaseorders.open, purchaseorders.late, clients.active, projects.active, tasks.late, tasks.done, obligations.expired, obligations.expiringSoon, transactions.matched. Use group with agg like ["sum(amount)"] for totals by vendor, client, project or status. Every table and its fields: ${"function" == typeof eqSchema ? eqSchema() : EQ_ENTITIES().join(", ")}. Rows are already limited to what the signed-in person may see.`,
     input_schema: {
       type: "object",
       properties: {
@@ -115120,78 +115769,6 @@ if ("function" == typeof jvAsk) {
         ? jvAskBase_fd.apply(this, arguments)
         : ((inp.value = ""), (briefAsk = ""), setView("pa"), void paSend(q))
       : jvAskBase_fd.apply(this, arguments);
-  };
-}
-if ("function" == typeof paAsk) {
-  const paAskBase_fd = paAsk;
-  paAsk = function (q) {
-    const s = String(q || "").toLowerCase(),
-      r = role();
-    try {
-      if (
-        ["owner", "pm", "coord", "billing", "controller"].includes(r) &&
-        "function" == typeof briefFacts &&
-        "function" == typeof b2Facts &&
-        /(mine to sign|sign today|how is cash|which job is bleeding|which job is behind|could we invoice|invoice today)/.test(
-          s,
-        )
-      ) {
-        const F = briefFacts(),
-          X = b2Facts(F);
-        if (/sign/.test(s)) {
-          const L = String(b2Plate(r, F) || "")
-            .split("\n")
-            .filter(Boolean);
-          if (L.length)
-            return paOut({
-              headline: L[0],
-              work: L.slice(1),
-              kind: "brief",
-              go: (ROLE_VIEWS[r] || []).includes("mapprove") ? { view: "mapprove" } : null,
-              note: "From the morning brief — Approvals holds the yes and the no.",
-            });
-        }
-        if (/cash/.test(s))
-          return paOut({
-            headline: `Cash ${money(F.B.cash)} — safe to spend ${money(F.B.trulyOurs)} once client funds and payables are set aside.`,
-            work: [
-              `13-week low ${money(F.low)}`,
-              `Receivables ${money(F.arTotal)}${F.arOver ? `, ${money(F.arOver)} overdue` : ""}`,
-              `Payables ${money(F.B.ap)}`,
-            ],
-            kind: "brief",
-            go: (ROLE_VIEWS[r] || []).includes("bank") ? { view: "bank" } : null,
-          });
-        if (/bleed|behind/.test(s)) {
-          const J = F.jobs.slice(0, 4);
-          return paOut({
-            headline: J.length
-              ? `${J[0].name} first — health ${J[0].score}${J[0].late > 0 ? `, ${J[0].late} days behind` : ""}.`
-              : "No active jobs.",
-            work: J.map(
-              (j) =>
-                `${j.name} — health ${j.score}, ${Math.round(100 * (j.J.pct || 0))}% complete${j.late > 0 ? `, ${j.late}d behind` : ""}, cost ${money(j.J.actual || 0)} of ${money(j.J.budget || 0)}`,
-            ),
-            kind: "brief",
-            go: J.length && (ROLE_VIEWS[r] || []).includes("port") ? { view: "port" } : null,
-          });
-        }
-        if (/invoice/.test(s)) {
-          const R = X.ready || [];
-          return paOut({
-            headline: R.length
-              ? `${R.length} thing${1 === R.length ? "" : "s"} earned an invoice — ${money(R.reduce((a, x) => a + (+x.amount || 0), 0))}.`
-              : "Nothing has earned an invoice since the last one.",
-            work: R.map((x) => `${x.title} — ${money(x.amount)}`),
-            kind: "brief",
-            go: (ROLE_VIEWS[r] || []).includes("billing") ? { view: "billing" } : null,
-          });
-        }
-      }
-    } catch (e) {
-      console.warn("frontdoor brief answer", e);
-    }
-    return paAskBase_fd.apply(this, arguments);
   };
 }
 if ("function" == typeof renderPa) {
@@ -117880,7 +118457,7 @@ if ("function" == typeof jobFin) {
       const row = J.byCode.find((x) => x.code === (b.code || "99"));
       row && ((row.bills = r2(row.bills - amt)), (row.actual = r2(row.actual - amt)));
     });
-    return jobRederive(J, p);
+    return jobFinDerive(J, p);
   };
 }
 if ("function" == typeof glDerive) {
@@ -118693,9 +119270,9 @@ function finWipTable() {
       `<td><b>${esc(w.p.project.name)}</b><div class="small muted">${esc(w.c ? w.c.name : "")}${w.contract ? "" : " · no contract — cost only"}${w.pending ? ` · pending COs ${money(w.pending)}` : ""}</div></td>`;
   return "margin" === wipTab
     ? tabs +
-        `<div class="tw"><table class="t rep-t wip"><thead><tr><th>Job</th><th class="money">Original</th><th class="money">Appr. COs</th><th class="money">Est. Total Cost</th><th class="money">Est. GP</th><th class="money">GP %</th><th class="money">Cost to Complete</th><th class="money">Retainage Rec.</th><th class="money">Fade vs Prior</th><th class="money">Fade vs Bid</th></tr></thead><tbody>${rows.map(({ w: w, f: f }) => `<tr class="click" data-repproj="${w.p.id}">${job(w)}<td class="money">${M(w.orig)}</td><td class="money">${M(w.cos)}</td><td class="money">${M(w.eac)}</td><td class="money">${M(w.estGP)}</td><td class="money">${w.contract ? w.gpPct + "%" : "—"}</td><td class="money">${M(w.ctc)}</td><td class="money">${M(w.retain)}</td><td class="money" style="color:${null == f.fadePts ? "inherit" : f.fadePts < 0 ? "var(--bad)" : "var(--ok)"}">${w.contract ? (null == f.fadePts ? '<span class="muted">first month</span>' : `${f.fadePts > 0 ? "+" : ""}${f.fadePts} pts<div class="small">${money(f.fadeAmt)}</div>`) : "—"}</td><td class="money" style="color:${f.vsBidPts < 0 ? "var(--bad)" : "var(--ok)"}">${w.contract ? `${f.vsBidPts > 0 ? "+" : ""}${f.vsBidPts} pts<div class="small">${money(f.vsBidAmt)}</div>` : "—"}</td></tr>`).join("") || '<tr><td colspan="10" class="muted">No jobs.</td></tr>'}<tr style="font-weight:600"><td>Total</td><td class="money">${money(T.orig)}</td><td class="money">${money(T.cos)}</td><td class="money">${money(T.eac)}</td><td class="money">${money(T.estGP)}</td><td class="money">${T.contract ? r2((T.estGP / T.contract) * 100) : 0}%</td><td class="money">${money(T.ctc)}</td><td class="money">${money(T.retain)}</td><td></td><td></td></tr></tbody></table></div><p class="small muted" style="margin-top:8px">Estimated total cost = actual + the PM's cost-to-complete review when one exists; otherwise the greater of estimate budget and actual + open POs. Fade compares GP% to the prior month-end snapshot and to the original bid margin.</p>`
+        `<div class="tw"><table class="t rep-t wip"><thead><tr><th>Job</th><th class="money">Original</th><th class="money">Appr. COs</th><th class="money">Est. Total Cost</th><th class="money">Est. GP</th><th class="money">GP %</th><th class="money">Cost to Complete</th><th class="money">Retainage Rec.</th><th class="money">Fade vs Prior</th><th class="money">Fade vs Bid</th></tr></thead><tbody>${rows.map(({ w: w, f: f }) => `<tr class="click" data-repproj="${w.p.id}">${job(w)}<td class="money">${M(w.orig)}</td><td class="money">${M(w.cos)}</td><td class="money">${M(w.eac)}</td><td class="money">${M(w.estGP)}</td><td class="money">${w.contract ? w.gpPct + "%" : "—"}</td><td class="money">${M(w.ctc)}</td><td class="money">${M(w.retain)}</td><td class="money" style="color:${null == f.fadePts ? "inherit" : f.fadePts < 0 ? "var(--bad)" : "var(--ok)"}">${w.contract ? (null == f.fadePts ? '<span class="muted">first month</span>' : `${f.fadePts > 0 ? "+" : ""}${f.fadePts} pts<div class="small">${money(f.fadeAmt)}</div>`) : "—"}</td><td class="money" style="color:${f.vsBidPts < 0 ? "var(--bad)" : "var(--ok)"}">${w.contract ? `${f.vsBidPts > 0 ? "+" : ""}${f.vsBidPts} pts<div class="small">${money(f.vsBidAmt)}</div>` : "—"}</td></tr>`).join("") || '<tr><td colspan="10" class="muted">No jobs.</td></tr>'}<tr style="font-weight:600"><td>Total</td><td class="money">${money(T.orig)}</td><td class="money">${money(T.cos)}</td><td class="money">${money(T.eac)}</td><td class="money">${money(T.estGP)}</td><td class="money">${T.contract ? r2((T.estGP / T.contract) * 100) : 0}%</td><td class="money">${money(T.ctc)}</td><td class="money">${money(T.retain)}</td><td></td><td></td></tr></tbody></table></div><p class="small muted" style="margin-top:8px">Estimated total cost = actual + the PM's cost-to-complete review when one exists; otherwise each estimate and change-order line at the greater of its budget and actual + open POs. Fade compares GP% to the prior month-end snapshot and to the original bid margin.</p>`
     : tabs +
-        `<div class="tw"><table class="t rep-t wip"><thead><tr><th>Job</th><th class="money">Contract</th><th class="money">Cost to Date</th><th class="money">% Complete</th><th class="money">Earned</th><th class="money">Billed (Gross)</th><th class="money">Over</th><th class="money">Under</th><th class="money">Backlog</th></tr></thead><tbody>${rows.map(({ w: w }) => `<tr class="click" data-repproj="${w.p.id}">${job(w)}<td class="money">${M(w.contract)}</td><td class="money">${M(w.costToDate)}</td><td class="money">${w.contract ? Math.round(100 * w.pct) + "%" : "—"}</td><td class="money">${M(w.earned)}</td><td class="money">${M(w.billed)}</td><td class="money ${w.over ? "warn" : ""}">${M(w.over)}</td><td class="money ${w.under ? "warn" : ""}">${M(w.under)}</td><td class="money">${M(w.backlog)}</td></tr>`).join("") || '<tr><td colspan="9" class="muted">No jobs.</td></tr>'}<tr style="font-weight:600"><td>Total · ${live.length} contract${1 === live.length ? "" : "s"}</td><td class="money">${money(T.contract)}</td><td class="money">${money(T.costToDate)}</td><td class="money">${T.eac ? Math.round((T.costToDate / T.eac) * 100) : 0}%</td><td class="money">${money(T.earned)}</td><td class="money">${money(T.billed)}</td><td class="money">${money(T.over)}</td><td class="money">${money(T.under)}</td><td class="money">${money(T.backlog)}</td></tr></tbody></table></div><p class="small muted" style="margin-top:8px">Contract = base + approved change orders. % complete = cost to date ÷ estimated total cost (cost-to-cost). Earned = contract × % complete. Over = billed − earned where billed is ahead; Under where the work is ahead. Billed is gross, before retainage. Backlog = contract − earned. A job with no contract shows its cost only.</p>`;
+        `<div class="tw"><table class="t rep-t wip"><thead><tr><th>Job</th><th class="money">Contract</th><th class="money">Cost to Date</th><th class="money">% Complete<div class="small muted">Cost Basis %</div></th><th class="money">Earned</th><th class="money">Billed (Gross)</th><th class="money">Over</th><th class="money">Under</th><th class="money">Backlog</th></tr></thead><tbody>${rows.map(({ w: w }) => `<tr class="click" data-repproj="${w.p.id}">${job(w)}<td class="money">${M(w.contract)}</td><td class="money">${M(w.costToDate)}</td><td class="money">${w.contract ? `<b>${tpJobPct(w.p)}%</b><div class="small muted">${Math.round(100 * w.pct)}% cost basis</div>` : "—"}</td><td class="money">${M(w.earned)}</td><td class="money">${M(w.billed)}</td><td class="money ${w.over ? "warn" : ""}">${M(w.over)}</td><td class="money ${w.under ? "warn" : ""}">${M(w.under)}</td><td class="money">${M(w.backlog)}</td></tr>`).join("") || '<tr><td colspan="9" class="muted">No jobs.</td></tr>'}<tr style="font-weight:600"><td>Total · ${live.length} contract${1 === live.length ? "" : "s"}</td><td class="money">${money(T.contract)}</td><td class="money">${money(T.costToDate)}</td><td class="money"><b>${T.contract ? Math.round(live.reduce((a, { w: w }) => a + w.contract * tpJobPct(w.p), 0) / T.contract) : 0}%</b><div class="small muted">${T.eac ? Math.round((T.costToDate / T.eac) * 100) : 0}% cost basis</div></td><td class="money">${money(T.earned)}</td><td class="money">${money(T.billed)}</td><td class="money">${money(T.over)}</td><td class="money">${money(T.under)}</td><td class="money">${money(T.backlog)}</td></tr></tbody></table></div><p class="small muted" style="margin-top:8px">Contract = base + approved change orders. % Complete is measured on site: each schedule-of-values line at the measured % of its tasks, weighted by its value. Cost Basis % = cost to date ÷ estimated total cost; it is the revenue basis, so Earned = contract × cost basis %. Estimated total cost = each estimate and change-order line at the greater of its budget and actual + committed. Over = billed − earned where billed is ahead; Under where the work is ahead. Billed is gross, before retainage. Backlog = contract − earned. A job with no contract shows its cost only.</p>`;
 }
 if ("function" == typeof repWIP) {
   const repWIPBase_fin = repWIP;
@@ -118864,6 +119441,26 @@ function finAnswer(raw) {
             : "that: fixed assets, loans, equity and tax balances live in the accounting system, not here",
         )
       : finBlocked();
+  if (
+    job &&
+    has(/\b(eac|estimate at completion|estimated (total )?cost|forecast (cost )?at completion|projected cost|cost at completion)\b/)
+  ) {
+    if (!finJobsOk()) return finBlocked();
+    const J = jobFin(job),
+      over = (J.eacLines || []).filter((x) => x.over > 0.5).sort((a, b) => b.over - a.over);
+    return out(
+      `Estimate at completion on ${finName(job)} is ${money(J.eac)} — ${money(J.actual)} spent, ${money(J.committed)} committed, ${money(r2(Math.max(0, J.eac - J.actual - J.committed)))} still to come; ${J.estGPPct}% margin at completion against ${J.plannedGPPct}% bid.`,
+      tpEacNote(J, job),
+      [
+        ...over.map(
+          (x) =>
+            `${x.name} — ${money(x.actual)} spent + ${money(x.committed)} committed against a ${money(x.budget)} budget: over by ${money(x.over)}`,
+        ),
+        `Budget ${money(J.budget)} · estimate at completion ${money(J.eac)} · ${tpCostWords(J)} · ${tpJobPct(job)}% complete, measured on site`,
+      ],
+      finGoJob(job.id),
+    );
+  }
   if (job && has(/\b(cost codes?|by code)\b/)) {
     if (!finJobsOk()) return finBlocked();
     const J = jobFin(job),
@@ -118914,7 +119511,7 @@ function finAnswer(raw) {
       gpTD = r2(J.earned - J.actual);
     return out(
       `${J.estGPPct}% estimated gross margin at completion on ${finName(job)} — ${money(J.estGP)} on a ${money(J.contract)} contract, bid at ${J.plannedGPPct}%.`,
-      `At completion = contract − estimated total cost (${money(J.eac)}). To date: earned ${money(J.earned)} less cost ${money(J.actual)} = ${money(gpTD)}, ${Math.round(100 * (J.pct || 0))}% complete cost-to-cost.`,
+      `At completion = contract − estimated total cost (${money(J.eac)}). To date: earned ${money(J.earned)} less cost ${money(J.actual)} = ${money(gpTD)}; the job is ${tpCostWords(J)} and ${tpJobPct(job)}% complete on site.`,
       [
         `Gross profit ${money(J.estGP)} at ${J.estGPPct}% at completion · ${money(gpTD)} to date`,
         `Contract ${money(J.contract)}${J.coAmt ? ` including ${money(J.coAmt)} of approved change orders` : ""}`,
@@ -118988,7 +119585,7 @@ function finAnswer(raw) {
         .sort((a, b) => Math.abs(b.J.overUnder) - Math.abs(a.J.overUnder))
         .map(
           (x) =>
-            `${finName(x.p)} · billed ${money(x.J.billed)} · earned ${money(x.J.earned)} · ${x.J.overUnder >= 0 ? "over" : "under"}-billed ${money(Math.abs(x.J.overUnder))} · ${Math.round(100 * x.J.pct)}% complete`,
+            `${finName(x.p)} · billed ${money(x.J.billed)} · earned ${money(x.J.earned)} · ${x.J.overUnder >= 0 ? "over" : "under"}-billed ${money(Math.abs(x.J.overUnder))} · ${tpJobPct(x.p)}% complete`,
         ),
       finGoRep("wip"),
     );
@@ -119008,7 +119605,7 @@ function finAnswer(raw) {
       "At completion = contract − estimated total cost (actual + committed + cost to complete). Bid margin is the estimate; the gap is fade.",
       rows.map(
         (x) =>
-          `${finName(x.p)} · ${x.J.estGPPct}% (${money(x.J.estGP)} on ${money(x.J.contract)}) · bid ${x.J.plannedGPPct}% · ${Math.round(100 * x.J.pct)}% complete`,
+          `${finName(x.p)} · ${x.J.estGPPct}% (${money(x.J.estGP)} on ${money(x.J.contract)}) · bid ${x.J.plannedGPPct}% · ${tpJobPct(x.p)}% complete`,
       ),
       finGoRep("wip"),
     );
@@ -119164,7 +119761,7 @@ function finAnswer(raw) {
     const C = companyPL(P.range);
     return out(
       `${money(C.income)} of revenue recognised ${P.label} — ${money(C.invoiced)} invoiced ${C.wipAdj >= 0 ? "plus" : "less"} a ${money(Math.abs(C.wipAdj))} WIP adjustment.`,
-      `Revenue is earned, not billed: invoices issued ex tax ± the change in over/under-billing, where earned = contract × % complete cost-to-cost. ${fmtL(P.range[0] || "2026-01-01")} to ${fmtL(P.range[1])}. ${money(C.collected)} was collected in the same stretch.`,
+      `Revenue is earned, not billed: invoices issued ex tax ± the change in over/under-billing, where earned = contract × the cost basis % (cost-to-cost). ${fmtL(P.range[0] || "2026-01-01")} to ${fmtL(P.range[1])}. ${money(C.collected)} was collected in the same stretch.`,
       [
         `Invoiced ${money(C.invoiced)}`,
         `WIP adjustment ${money(C.wipAdj)}`,
@@ -119320,7 +119917,7 @@ function finAnswer(raw) {
         .sort((a, b) => b.J.backlog - a.J.backlog)
         .map(
           (x) =>
-            `${finName(x.p)} · ${money(x.J.backlog)} backlog · ${money(x.J.backlogGP)} GP · ${Math.round(100 * x.J.pct)}% complete`,
+            `${finName(x.p)} · ${money(x.J.backlog)} backlog · ${money(x.J.backlogGP)} GP · ${tpJobPct(x.p)}% complete`,
         ),
       finGoRep("wip"),
     );
@@ -123639,7 +124236,7 @@ const OV_BUILD = {},
       const est = ph.reduce((a, x) => a + x.est, 0),
         used = ph.reduce((a, x) => a + x.used, 0),
         over = ph.filter((x) => x.used > x.est).length,
-        cur = ph.find((x) => x.left > 0 && x.used > 0) || ph[0],
+        cur = phaseCur(ph) || ph.find((x) => x.left > 0 && x.used > 0) || ph[0],
         unv = roomsOf(p.id).filter((r) => 0 === roomProv(r)).length,
         stale = sheetsOf(p.id).filter((s) => s.stale && "current" === s.status).length,
         F = (DB.studio.filings || []).filter((f) => f.projectId === p.id),
@@ -124011,6 +124608,17 @@ function ovProjectCols() {
     { key: "contract", label: "Contract", type: "money", w: "96px", get: (r) => r.J.contract || "" },
     { key: "billed", label: "Billed", type: "money", w: "92px", get: (r) => r.J.billed || "" },
     { key: "out", label: "Owed", type: "money", w: "92px", get: (r) => r.J.outstanding || "" },
+    {
+      key: "pct",
+      label: "% Complete",
+      w: "92px",
+      get: (r) => {
+        if (!r.J.contract && !(r.p.tasks || []).length) return "";
+        const v = tpJobPct(r.p);
+        return { text: `${v}%`, sort: v };
+      },
+    },
+    { key: "eac", label: "EAC", type: "money", w: "96px", get: (r) => (r.J.contract ? r.J.eac : "") },
     {
       key: "next",
       label: "Next Milestone",
@@ -126505,7 +127113,7 @@ if ("function" == typeof jobFin) {
       const row = J.byCode.find((x) => x.code === (b.code || "99"));
       row && ((row.bills = r2(row.bills - amt)), (row.actual = r2(row.actual - amt)));
     });
-    return jobRederive(J, p);
+    return jobFinDerive(J, p);
   };
 }
 if ("function" == typeof glDerive) {
@@ -127925,7 +128533,7 @@ if ("function" == typeof pgPaneHtml) {
           : w.under
             ? `<b class="ok">${money(w.under)}</b><span>under-billed — the work is ahead of billing</span>`
             : `<b>${money(0)}</b><span>billed in step with the work</span>`,
-        head = `<div class="sel-stats fin2-wiphead"><div class="sel-stat"><b>${money(w.earned)}</b><span>earned · ${Math.round(100 * w.pct)}% complete, cost-to-cost</span></div><div class="sel-stat"><b>${money(w.billed)}</b><span>billed to date (gross)</span></div><div class="sel-stat">${pos}</div></div><p class="small muted fin2-wipsrc">From the WIP schedule. The lines below bill on each line's own evidence; the job as a whole is measured on cost.</p>`,
+        head = `<div class="sel-stats fin2-wiphead"><div class="sel-stat"><b>${money(w.earned)}</b><span>earned on a ${Math.round(100 * w.pct)}% cost basis · ${tpJobPct(w.p)}% measured on site</span></div><div class="sel-stat"><b>${money(w.billed)}</b><span>billed to date (gross)</span></div><div class="sel-stat">${pos}</div></div><p class="small muted fin2-wipsrc">From the WIP schedule. The lines below bill on each line's own evidence; the job as a whole is measured on cost.</p>`,
         i = h.indexOf('<div class="pg-rule">');
       if (i > -1) h = h.slice(0, i) + head + h.slice(i);
       else {
@@ -134337,7 +134945,7 @@ fin3JobAdjust(function (J, p, range) {
           const row = (J.byCode || []).find((x) => x.code === k);
           row && ((row.bills = r2((row.bills || 0) + v)), (row.actual = r2((row.actual || 0) + v)));
         });
-      jobRederive(J, p), (J.disputed = r2(-d));
+      jobFinDerive(J, p), (J.disputed = r2(-d));
     } catch (e) {
       console.warn("short-pay job cost", e);
     }
@@ -134460,7 +135068,7 @@ fin3JobAdjust(function (J, p, range) {
         const row = (J.byCode || []).find((x) => x.code === (t.code || "99"));
         row && (null != row.txns && (row.txns = r2(row.txns - a)), (row.actual = r2((row.actual || 0) - a)));
       });
-      jobRederive(J, p);
+      jobFinDerive(J, p);
     } catch (e) {
       console.warn("disputed job cost", e);
     }
@@ -138138,7 +138746,7 @@ ASK_INTENTS.push({
         return {
           headline: over.length
             ? `${over[0].n} is the most over budget — forecast ${money(over[0].J.eac)} against a ${money(over[0].J.budget)} budget, ${money(over[0].over)} over.`
-            : `No job is over its budget, and none is forecast to finish over. Closest: ${B[0] ? `${B[0].n}, ${money(B[0].J.actual)} spent of ${money(B[0].J.budget)} (${B[0].spentPct}%) at ${Math.round(100 * (B[0].J.pct || 0))}% complete` : "no job carries a budget"}.`,
+            : `No job is over its budget, and none is forecast to finish over. Closest: ${B[0] ? `${B[0].n}, ${money(B[0].J.actual)} spent of ${money(B[0].J.budget)} (${B[0].spentPct}%), ${tpCostWords(B[0].J)}` : "no job carries a budget"}.`,
           note: "Budget is the estimate's cost; the forecast is cost to date plus open commitments plus cost to complete — the figures on Reports › Job Profitability.",
           work: B.map(
             (x) =>
@@ -138801,13 +139409,6 @@ function a4Honest(q, a, lines) {
       cannot: !0,
     });
   const recHead = A4_RECORDISH.concat(["tasks", "decisions"]).includes(a4Head(askNorm(q)));
-  if ("kind" === a.kind)
-    return Object.assign({}, a, {
-      headline: String(a.headline || "").replace(
-        /, so there are no (.+?) on them\.$/,
-        ", so I hold no $1 against them.",
-      ),
-    });
   if (("query" === a.kind && ent) || ("records" === a.kind && wh && recHead)) {
     const head = ent ? A4_ENTITY_SAY[ent.head] : a4Head(askNorm(q)) ? A4_ENTITY_SAY[a4Head(askNorm(q))] : "";
     return Object.assign({}, a, {
@@ -150039,7 +150640,7 @@ function bfReconHtml() {
         const w = bfSourceWords(t),
           on = R.ticks.has(t.id),
           pv = bfProv(t),
-          notAt = !on && R.importId && "manual" === pv.kind && !pv.confirmedBy && ["owner", "controller"].includes(role());
+          notAt = !on && "manual" === pv.kind && !pv.confirmedBy && ["owner", "controller"].includes(role());
         return `<tr class="${on ? "on" : ""}" data-bfrow="${t.id}"><td class="bf-ck"><input type="checkbox" data-bfrc="${t.id}" ${on ? "checked" : ""} aria-label="Cleared"></td><td class="bf-d">${fmt(t.date)}</td><td><div>${esc(t.desc)}</div><div class="small muted"><span class="pill ${w.cls}" title="${esc(w.why)}">${w.text}</span>${t.vendor ? " " + esc(t.vendor) : ""}${notAt ? ` <button class="btn sm" data-bfvoid="${t.id}" title="The statement does not list this line">Not at the Bank — Void</button>` : ""}</div></td><td class="money ${t.amt > 0 ? "ok" : ""}">${t.amt > 0 ? "+" : ""}${bfM2(t.amt)}</td></tr>`;
       })
       .join("") ||
@@ -155777,15 +156378,16 @@ function prgWipRows() {
       } catch (e) {}
       if (!J || !J.contract) return null;
       const cost = Math.round(100 * (J.pct || 0)),
-        gap = ph.pct - cost;
-      return { p: p, ph: ph, cost: cost, gap: gap, flag: Math.abs(gap) > 15, J: J };
+        pct = tpJobPct(p),
+        gap = pct - cost;
+      return { p: p, ph: Object.assign({}, ph, { pct: pct }), cost: cost, gap: gap, flag: Math.abs(gap) > 15, J: J };
     })
     .filter(Boolean);
 }
 function prgWipHtml() {
   const R = prgWipRows();
   if (!R.length) return "";
-  return `<h3 class="rep-h">Physical % vs Cost %</h3><p class="small muted">Revenue above stays cost-to-cost. This is the check on it: what the site says is built (measured % on the construction tasks, weighted by working days) against the cost ratio the schedule earns on. A gap over 15 points is flagged.</p>\n    <div class="tw"><table class="t rep-t prg-wip"><thead><tr><th>Job</th><th class="money">Physical %</th><th class="money">Cost %</th><th class="money">Gap</th><th>Measured</th><th>Reading</th></tr></thead><tbody>${R.map((r) => `<tr class="${r.flag ? "warn" : ""}"><td>${esc(fxJob(r.p))}</td><td class="money">${r.ph.pct}%</td><td class="money">${r.cost}%</td><td class="money ${r.flag ? "bad" : ""}">${r.gap > 0 ? "+" : r.gap < 0 ? "−" : ""}${Math.abs(r.gap)} pts</td><td class="small">${r.ph.measured} of ${r.ph.n} tasks measured${r.ph.estimated ? ` · ${r.ph.estimated} on the plan` : ""}${r.ph.last ? ` · last ${fmt(r.ph.last.on)} by ${esc(r.ph.last.by)}` : ""}</td><td class="small ${r.flag ? "bad" : "muted"}">${((r) => (r.gap < -15 ? `Cost is ${-r.gap} points ahead of the work — check the cost to complete before it shows up as fade` : r.gap > 15 ? `The work is ${r.gap} points ahead of the cost — costs not posted yet, or the estimate is light; revenue stays on cost` : "Within 15 points"))(r)}</td></tr>`).join("")}</tbody></table></div>`;
+  return `<h3 class="rep-h">Variance Flag: Measured on Site vs Cost Basis</h3><p class="small muted">Revenue above stays cost-to-cost. This is the check on it: what the site says is built (each schedule-of-values line at the measured % of its tasks, weighted by value, the % Complete every screen shows) against the cost basis the schedule earns on. A gap over 15 points is flagged.</p>\n    <div class="tw"><table class="t rep-t prg-wip"><thead><tr><th>Job</th><th class="money">Measured %</th><th class="money">Cost Basis %</th><th class="money">Gap</th><th>Measured</th><th>Reading</th></tr></thead><tbody>${R.map((r) => `<tr class="${r.flag ? "warn" : ""}"><td>${esc(fxJob(r.p))}</td><td class="money">${r.ph.pct}%</td><td class="money">${r.cost}%</td><td class="money ${r.flag ? "bad" : ""}">${r.gap > 0 ? "+" : r.gap < 0 ? "−" : ""}${Math.abs(r.gap)} pts</td><td class="small">${r.ph.measured} of ${r.ph.n} tasks measured${r.ph.estimated ? ` · ${r.ph.estimated} on the plan` : ""}${r.ph.last ? ` · last ${fmt(r.ph.last.on)} by ${esc(r.ph.last.by)}` : ""}</td><td class="small ${r.flag ? "bad" : "muted"}">${((r) => (r.gap < -15 ? `Cost is ${-r.gap} points ahead of the work — check the cost to complete before it shows up as fade` : r.gap > 15 ? `The work is ${r.gap} points ahead of the cost — costs not posted yet, or the estimate is light; revenue stays on cost` : "Within 15 points"))(r)}</td></tr>`).join("")}</tbody></table></div>`;
 }
 if ("function" == typeof repWIP) {
   const base = repWIP;
@@ -156319,6 +156921,12 @@ function pstTile(x) {
   const t = x.taskId
     ? ((fxProj(x.projectId) || { tasks: [] }).tasks || []).find((k) => k.id === x.taskId)
     : null;
+  if ("client" === role()) {
+    // The client reads the caption the PM wrote when sharing, and nothing internal: no source tag (DAILY LOG),
+    // no task, no crew name.
+    const cap = pstClientCaption(x);
+    return `<button type="button" class="pst-tile" data-pstopen="${esc(x.id)}" title="${esc(cap)}"><img data-pstimg="${esc(x.id)}|thumb" alt="${esc(cap)}" loading="lazy"><span class="pst-cap">${esc(cap)}</span></button>`;
+  }
   return `<button type="button" class="pst-tile" data-pstopen="${esc(x.id)}" title="${esc(x.caption)}${t ? ` · ${esc(t.name)}` : ""}"><img data-pstimg="${esc(x.id)}|thumb" alt="${esc(x.caption)}" loading="lazy"><span class="pst-cap"><b>${esc(PST_SRC[x.source] || x.source)}</b>${esc(x.caption || (t ? t.name : ""))}</span>${x.share ? `<span class="pst-sh" title="Shared with the client">${FX_ICON.share}</span>` : ""}</button>`;
 }
 function pstViewHtml() {
@@ -156446,7 +157054,7 @@ function pstLightbox(id, list) {
     el.setAttribute("role", "dialog"),
     el.setAttribute("aria-label", "Photo");
   const src = x.ref && x.ref.kind ? pstRefLabel(x) : "";
-  (el.innerHTML = `<div class="pst-lb-top"><span class="small">${i + 1} of ${pstLbList.length}</span><button class="pst-lb-x" aria-label="Close" title="Close">${FX_ICON.close}</button></div>\n    <div class="pst-lb-img"><button class="pst-lb-nav prev" aria-label="Previous" ${i <= 0 ? "disabled" : ""}>${FX_ICON.prev}</button><img data-pstimg="${esc(x.id)}|full" alt="${esc(x.caption)}"><button class="pst-lb-nav next" aria-label="Next" ${i >= pstLbList.length - 1 ? "disabled" : ""}>${FX_ICON.next}</button></div>\n    <div class="pst-lb-info"><b>${esc(x.caption)}</b><div class="small">${fmtL(x.date)} · ${esc(stampText(x.at).split(", ")[1] || "")} · ${esc(x.by || "")}</div>\n      <div class="pst-tags"><span class="pill neutral">${esc(PST_SRC[x.source] || x.source)}</span>${t ? `<span class="pill neutral">${esc(t.name)}</span>` : ""}${x.area ? `<span class="pill neutral">${esc(x.area)}</span>` : ""}${x.trade ? `<span class="pill neutral">${esc(x.trade)}</span>` : ""}${x.share ? '<span class="pill ok">Shared With Client</span>' : ""}</div>\n      ${src ? `<div class="small muted">From ${esc(src)}</div>` : ""}\n      ${pstCanShare() ? `<div class="pst-lb-acts"><button class="btn ${x.share ? "" : "primary"}" data-pstshare="${esc(x.id)}">${x.share ? "Stop Sharing" : "Share With Client"}</button></div>` : ""}</div>`),
+  (el.innerHTML = `<div class="pst-lb-top"><span class="small">${i + 1} of ${pstLbList.length}</span><button class="pst-lb-x" aria-label="Close" title="Close">${FX_ICON.close}</button></div>\n    <div class="pst-lb-img"><button class="pst-lb-nav prev" aria-label="Previous" ${i <= 0 ? "disabled" : ""}>${FX_ICON.prev}</button><img data-pstimg="${esc(x.id)}|full" alt="${esc(x.caption)}"><button class="pst-lb-nav next" aria-label="Next" ${i >= pstLbList.length - 1 ? "disabled" : ""}>${FX_ICON.next}</button></div>\n    ${"client" === role() ? `<div class="pst-lb-info"><b>${esc(pstClientCaption(x))}</b><div class="small">${fmtL(x.date)}</div></div>` : `<div class="pst-lb-info"><b>${esc(x.caption)}</b><div class="small">${fmtL(x.date)} · ${esc(stampText(x.at).split(", ")[1] || "")} · ${esc(x.by || "")}</div>\n      <div class="pst-tags"><span class="pill neutral">${esc(PST_SRC[x.source] || x.source)}</span>${t ? `<span class="pill neutral">${esc(t.name)}</span>` : ""}${x.area ? `<span class="pill neutral">${esc(x.area)}</span>` : ""}${x.trade ? `<span class="pill neutral">${esc(x.trade)}</span>` : ""}${x.share ? '<span class="pill ok">Shared With Client</span>' : ""}</div>\n      ${src ? `<div class="small muted">From ${esc(src)}</div>` : ""}\n      ${pstCanShare() ? `<div class="pst-lb-acts"><button class="btn ${x.share ? "" : "primary"}" data-pstshare="${esc(x.id)}">${x.share ? "Stop Sharing" : "Share With Client"}</button></div>` : ""}</div>`}`),
     document.body.appendChild(el),
     pstFill(el);
   const close = () => el.remove();
@@ -158547,7 +159155,7 @@ function fxRepProgress() {
                 prgLast(t) ||
                 ("planned" === t.status && parse(t.start) <= parse(td))),
           );
-        return `<h3 class="rep-h">${esc(fxJob(p))} <span class="small muted">physical ${ph ? ph.pct : 0}%${null != cost && J0 && J0.contract ? ` · cost ${cost}%` : ""}${f ? ` · forecast finish ${fmtL(f.finish)}` : ""}</span></h3>\n      <div class="tw"><table class="t rep-t fx-rep"><thead><tr><th>Task</th><th class="money">Planned % Today</th><th class="money">Measured %</th><th class="money">Gap</th><th>Last Update</th><th class="money">Planned End</th><th class="money">Forecast End</th></tr></thead>\n      <tbody>${
+        return `<h3 class="rep-h">${esc(fxJob(p))} <span class="small muted">${tpJobPct(p)}% complete, measured on site${null != cost && J0 && J0.contract ? ` · cost basis ${cost}%` : ""}${f ? ` · forecast finish ${fmtL(f.finish)}` : ""}</span></h3>\n      <div class="tw"><table class="t rep-t fx-rep"><thead><tr><th>Task</th><th class="money">Planned % Today</th><th class="money">Measured %</th><th class="money">Gap</th><th>Last Update</th><th class="money">Planned End</th><th class="money">Forecast End</th></tr></thead>\n      <tbody>${
           T.map((t) => {
             const pc = prgPct(t),
               pl = prgPlanned(t, td),
@@ -158568,7 +159176,7 @@ if (
     Array.isArray(ASK_INTENTS) &&
     (ASK_INTENTS.push({
       id: "fxprogress",
-      views: ["sched", "ftoday", "flog"],
+      views: ["sched", "ftoday", "flog", "dash", "ovjobs", "port", "reports"],
       score: (l) =>
         /\b(how far along|how far is|percent complete|% complete|per ?cent done|progress (on|of)|how much of .+ (is )?(done|complete|finished)|physical (%|percent)|behind (its|the) plan|progress vs plan)\b/.test(
           l,
@@ -158586,12 +159194,12 @@ if (
         return {
           headline: H.length
             ? all
-              ? `${askJobName(p)} is ${ph ? ph.pct : 0}% complete on site — ${fxN(H.filter((t) => prgLast(t)).length, "running task")} measured.`
+              ? `${askJobName(p)} is ${tpJobPct(p)}% complete, measured on site — ${fxN(H.filter((t) => prgLast(t)).length, "running task")} measured.`
               : 1 === H.length
                 ? `${first.name} at ${askJobName(p)} is ${withProject(p, () => ("done" === first.status ? "done" : null == prgPct(first) ? `not measured yet — the plan has it at ${prgPlanned(first, td)}% by today` : `${prgPct(first)}% complete`))}.`
                 : `${fxN(H.length, "task")} match at ${askJobName(p)}: ${H.map((t) => `${t.name.replace(/\s*\(.*?\)/g, "")} ${withProject(p, () => ("done" === t.status ? "done" : null == prgPct(t) ? "not measured" : prgPct(t) + "%"))}`).join(", ")}.`
             : `Nothing is under way on ${askJobName(p)} to measure yet.`,
-          note: "Measured % from the task's progress updates (who and when), against where the schedule says it should be by today. A task is behind when it trails its plan by more than 10 points; that moves the forecast finish.",
+          note: "The job's % complete is each schedule-of-values line at the measured % of its tasks, weighted by the line's value (a line with no task is cost-to-cost, deposits left out). Measured % comes from the task's progress updates (who and when), against where the schedule says it should be by today; a task more than 10 points behind its plan moves the forecast finish.",
           work: H.slice(0, 12).map((t) =>
             withProject(p, () => {
               const pc = prgPct(t),
@@ -159426,9 +160034,12 @@ function igDlPhotos(dr, p) {
     return igDlPhotos(dr, p), base.apply(this, arguments);
   };
 }
+// The last mApprovals layer: every producer above has pushed. A decision's open carries its id; then DELEGATION
+// names the one person each item waits on (`who`) and, unless everyone's queue was asked for
+// (mApprovals({everyone: true}), the owner's Everyone view), only the signed-in role's items remain.
 {
   const base = mApprovals;
-  mApprovals = function () {
+  mApprovals = function (opts) {
     const out = base.apply(this, arguments);
     try {
       (out || []).forEach((it) => {
@@ -159445,6 +160056,17 @@ function igDlPhotos(dr, p) {
         d && (it.open = Object.assign({}, o, { dec: d.id }));
       });
     } catch (e) {}
+    try {
+      (out || []).forEach((it) => {
+        it.who = apprOwner(it);
+      });
+      if (!(opts && opts.everyone)) {
+        const me = role();
+        return (out || []).filter((it) => it.who === me);
+      }
+    } catch (e) {
+      console.warn("delegation", e);
+    }
     return out;
   };
 }
@@ -159916,30 +160538,27 @@ function ctClosedHtml() {
 // "Not at the Bank — Void": a typed line the bank's statement does not have. The line leaves the books with
 // its reason; the ledger reverses it (on its date while the month is open, on the first open day after).
 function bfVoidNotAtBank(id, why) {
-  const note = String(why || "").trim(),
-    t = (DB.txns || []).find((x) => x.id === id);
+  const t = (DB.txns || []).find((x) => x.id === id);
   if (!t) return { ok: !1, why: "That line is not in the register" };
   if (!ctCanFix()) return { ok: !1, why: "The Owner or the controller voids a bank line" };
-  if (!note) return { ok: !1, why: "Say why the line is not at the bank" };
-  if (bfIsRec(t)) return { ok: !1, why: "That line is reconciled — undo the reconciliation first" };
+  if (!String(why || "").trim()) return { ok: !1, why: "Say why the line is not at the bank" };
   if (t.billId || t.poId || t.invoiceId) return { ok: !1, why: "That line is matched to a document — unmatch it first" };
-  const i = DB.txns.indexOf(t);
-  DB.txns.splice(i, 1),
-    (DB.txnsVoid = DB.txnsVoid || []).push(
-      Object.assign(t, { status: "void", voidWhy: note, voidBy: fin2Who(), voidOn: today(), voidFrom: "reconcile" }),
-    ),
-    bfRec && bfRec.ticks && bfRec.ticks.delete(id);
+  const r = truthVoidTxn(t, why);
+  if (!r.ok) return r;
+  const v = (DB.voided || []).find((x) => x.id === id);
+  v && ((v.status = "void"), (v.voidFrom = "reconcile"), (v.voidOn = today()));
+  bfRec && bfRec.ticks && bfRec.ticks.delete(id);
   try {
-    audit("txn", t.id, "void-not-at-bank", { desc: t.desc, amt: t.amt, date: t.date }, "void", note);
+    audit("txn", id, "void-not-at-bank", { desc: t.desc, amt: t.amt, date: t.date }, "void", `not on the statement being reconciled — ${String(why).trim()}`);
   } catch (e) {}
-  return save(), { ok: !0, t: t };
+  return save(), { ok: !0, t: v || t };
 }
 function bfVoidDialog(id) {
   const t = (DB.txns || []).find((x) => x.id === id);
   t &&
     mbModal(
       "Not at the Bank — Void",
-      `<p class="small">${esc(t.desc)} · ${fmt(t.date)} · ${bfM2(t.amt)}. The bank's statement does not list this line. Voiding takes it out of the register and the books${isLocked(t.date) ? `; ${fin3Label(t.date.slice(0, 7))} is closed, so the ledger reverses it on the first open day` : "; the ledger reverses it"}. The line and the reason are kept.</p>${mbF("Reason", mbIn("why", "", "e.g. the charge was typed twice; the card was charged once"))}`,
+      `<p class="small">${esc(t.desc)} · ${fmt(t.date)} · ${bfM2(t.amt)}. The bank's statement does not list this line. Voiding takes it out of the register and the books; the ledger reverses it with your reason, and the line is kept in the voided register.${isLocked(t.date) ? ` ${fin3Label(t.date.slice(0, 7))} is closed: reopen it first.` : ""}</p>${mbF("Reason", mbIn("why", "", "e.g. the charge was typed twice; the card was charged once"))}`,
       {
         submit: "Void the Line",
         onSubmit: (f) => {
@@ -160225,6 +160844,782 @@ function budImportApply() {
       accruedwages: "orphanaccruals",
     }));
 /* ---------------------------------------------------------------------------
+   truthpct (BACKLOG §1.2): one completion number, an EAC that moves, portal truth.
+
+   jobFinEac(J, p)  the estimate at completion rolled up from the estimate and approved change-order lines.
+                    Each line counts at max(budget, actual + committed); cost not traced to a line draws on
+                    the job's remaining headroom, so the EAC is never below actual + committed. A short-pay
+                    counts only the amount approved. A PM-reviewed cost to complete wins over the roll-up.
+                    The line figures are read from jobFin's own cost codes, never from lineFin (lineFin adds
+                    the overhead burden, which reads the P&L, which reads jobFin), and a re-entry guard
+                    keeps the roll-up from ever calling itself.
+                    A change in the estimate is recognised in the period it is made (cumulative catch-up):
+                    the roll-up applies to the live read (as of the open day). Closed and earlier months keep
+                    the estimate they were reported on.
+   tpJobPct(p)      the job's % complete, measured on site: each schedule-of-values line weighted by its
+                    value, at the measured % of the tasks mapped to it (prgMeasure: done 100, measured at the
+                    last update, running and unmeasured at the share of its planned time elapsed, not started
+                    0). A line with no task is cost-to-cost, deposits excluded. This is the % complete every
+                    screen and Ask print. The WIP schedule keeps cost-to-cost (J.pct) as the revenue basis and
+                    labels it "Cost Basis %".
+   tpTaskLine(p,t)  the SOV line a task measures (its lineRef, else the line its name leads with, else the
+                    line of its trade's cost code).
+--------------------------------------------------------------------------- */
+let jobFinEacBusy = !1;
+function jobFinEacLines(J, p) {
+  const c = J && J.c;
+  if (!c) return [];
+  const est = J.est,
+    cos = (c.changeOrders || []).filter(
+      (x) => ["approved", "billed"].includes(x.status) && (x.projectId === p.id || !x.projectId),
+    ),
+    L = [];
+  est && (est.lines || []).forEach((l) => L.push({ key: `estimate:${est.id}:${l.id}`, doc: est, line: l }));
+  cos.forEach((x) => (x.lines || []).forEach((l) => L.push({ key: `co:${x.id}:${l.id}`, doc: x, line: l })));
+  if (!L.length) return [];
+  const byKey = {};
+  L.forEach((x) => {
+    (x.budget = r2(lineBudget(x.line, x.doc).budget)),
+      (x.code = String(lineCode(x.line, x.doc) || "99")),
+      (x.name = x.line.item || x.line.desc || x.doc.title || x.doc.number || ""),
+      (x.tagA = 0),
+      (x.tagC = 0),
+      (x.deposit = 0),
+      (x.actual = 0),
+      (x.committed = 0),
+      (byKey[x.key] = x);
+  });
+  const R = J.range || ["", today()],
+    bills = (DB.bills || []).filter((b) => b.projectId === p.id),
+    isDeposit = (b) =>
+      /\bdeposit\b/i.test([b.notes || "", ...(b.lines || []).map((l) => l.desc || "")].join(" ")),
+    dup = (b) => "function" == typeof fin2Dup && fin2Dup(b);
+  bills.forEach((b) => {
+    const x = b.line && byKey[b.line];
+    if (!x || !(BILL_COSTED.includes(b.status) || BILL_ACCRUED.includes(b.status)) || !within(b.date, R) || dup(b))
+      return;
+    let a = billTotal(b);
+    "function" == typeof pay3Short &&
+      pay3Short(b) &&
+      !("accepted" === b.short.state && within(b.short.resolvedOn, R)) &&
+      (a -= +b.short.held || 0),
+      (x.tagA += a),
+      isDeposit(b) && (x.deposit += a);
+  }),
+    (DB.txns || []).forEach((t) => {
+      const x = t.line && byKey[t.line];
+      !x ||
+        t.projectId !== p.id ||
+        t.amt >= 0 ||
+        !isJobCat(t.cat) ||
+        "labor" === t.cat ||
+        !within(t.date, R) ||
+        txnViaBill(t, bills) ||
+        ("function" == typeof pay3Disputed && pay3Disputed(t)) ||
+        (x.tagA += -t.amt);
+    }),
+    (DB.pos || [])
+      .filter((po) => po.projectId === p.id && ["issued", "partial", "received"].includes(po.status))
+      .forEach((po) => {
+        const tot = poTotal(po).sub,
+          open = Math.max(
+            0,
+            tot - bills.filter((b) => b.poId === po.id && "void" !== b.status).reduce((a, b) => a + billTotal(b), 0),
+          );
+        tot &&
+          open &&
+          (po.lines || []).forEach((l) => {
+            const x = l.line && byKey[l.line];
+            x && (x.tagC += (open * ((+l.qty || 0) * (+l.price || 0))) / tot);
+          });
+      });
+  // Distribute each cost code's actual and committed (jobFin's own figures, after every adjustment) to its
+  // lines: a code with one line carries it all; a code with several gives each line what is traced to it
+  // (never more than the code holds) and shares the untraced rest (clocked labour, bank lines with no line)
+  // by budget. Cost on a code with no line stays with the job.
+  const byCode = {};
+  L.forEach((x) => (byCode[x.code] = byCode[x.code] || []).push(x)),
+    (J.byCode || []).forEach((row) => {
+      const ls = byCode[row.code];
+      if (!ls) return;
+      const ra = Math.max(0, +row.actual || 0),
+        rc = Math.max(0, +row.committed || 0);
+      if (1 === ls.length) return (ls[0].actual = r2(ra)), void (ls[0].committed = r2(rc));
+      const ta = ls.reduce((a, x) => a + Math.max(0, x.tagA), 0),
+        tc = ls.reduce((a, x) => a + x.tagC, 0),
+        fa = ta > ra ? ra / ta : 1,
+        fc = tc > rc ? rc / tc : 1,
+        restA = Math.max(0, ra - ta * fa),
+        restC = Math.max(0, rc - tc * fc),
+        bud = ls.reduce((a, x) => a + x.budget, 0),
+        share = (x) => (bud ? x.budget / bud : 1 / ls.length);
+      ls.forEach((x) => {
+        (x.actual = r2(Math.max(0, x.tagA) * fa + restA * share(x))),
+          (x.committed = r2(x.tagC * fc + restC * share(x)));
+      });
+    });
+  return (
+    L.forEach((x) => {
+      (x.deposit = r2(Math.min(x.deposit, x.actual))),
+        (x.eac = r2(Math.max(x.budget, x.actual + x.committed))),
+        (x.over = r2(Math.max(0, x.actual + x.committed - x.budget)));
+    }),
+    L
+  );
+}
+function jobFinEac(J, p) {
+  if (jobFinEacBusy) return null;
+  jobFinEacBusy = !0;
+  try {
+    const L = jobFinEacLines(J, p);
+    if (!L.length) return null;
+    const lines = r2(L.reduce((a, x) => a + x.eac, 0));
+    return { eac: r2(Math.max(lines, J.actual + J.committed)), lines: L };
+  } finally {
+    jobFinEacBusy = !1;
+  }
+}
+if ("function" == typeof jobFin) {
+  const jobFinBase_tp = jobFin;
+  jobFin = function (p, range) {
+    const J = jobFinBase_tp.apply(this, arguments);
+    try {
+      if (!J || !p || J.frozenAt) return J;
+      const asOf = ("undefined" != typeof fin3JobAsOf && fin3JobAsOf) || today(),
+        R = range || ["", asOf];
+      if ((R[1] || today()) < today()) return J;
+      if (R[0]) {
+        // A report for a period that runs to today (year to date, a custom range): the estimate at
+        // completion is the job's, as of today, whatever the period's first day.
+        const L = jobFin(p);
+        return (
+          L &&
+            L.eacFromLines &&
+            ((J.eacLines = L.eacLines),
+            (J.eacFromLines = !0),
+            jobFinDerive(J, p, Math.max(L.eac, r2(J.actual + J.committed)))),
+          J
+        );
+      }
+      J.range = R;
+      const E = p.ctcReviewed ? null : jobFinEac(J, p);
+      E &&
+        ((J.eacLines = E.lines),
+        (J.eacFromLines = !0),
+        jobFinDerive(J, p, E.eac),
+        (J.defs = String(J.defs || "").replace(
+          "% complete = actual ÷ estimated total cost",
+          "estimated total cost = each estimate and change-order line at the greater of its budget and actual + committed · cost basis % = actual ÷ estimated total cost",
+        )));
+    } catch (e) {
+      console.warn("eac by line", e);
+    }
+    return J;
+  };
+}
+const TP_SKIP = /^(rough|finish|final|close|new|install|installation|order|the|and|for|with|from|of)$/,
+  tpWords = (s) =>
+    String(s || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9 ]+/g, " ")
+      .split(/\s+/)
+      .filter((w) => w.length > 2 && !TP_SKIP.test(w)),
+  tpSame = (a, b) => a === b || (Math.min(a.length, b.length) >= 4 && (a.startsWith(b) || b.startsWith(a)));
+// The schedule-of-values lines of a job, each with its value, cost code and the words it is called by.
+function tpSovLines(p) {
+  const c = DB.clients.find((x) => x.id === p.clientId);
+  if (!c) return [];
+  const sov = (c.sov || []).filter((sv) => null == sv.projectId || sv.projectId === p.id),
+    out = [];
+  return (
+    sov.forEach((sv) => {
+      const ref = sv.lineRef && "function" == typeof findLine ? findLine(sv.lineRef) : null,
+        co = sv.coId ? (c.changeOrders || []).find((x) => x.id === sv.coId) : null;
+      (ref || co) &&
+        out.push({
+          sv: sv,
+          key: sv.lineRef || "",
+          co: co,
+          value: +sv.scheduled || 0,
+          code: ref ? String(lineCode(ref.line, ref.doc) || "") : "",
+          words: tpWords(sv.desc || (ref && (ref.line.item || ref.line.desc)) || ""),
+        });
+    }),
+    out
+  );
+}
+function tpTaskLine(p, t, lines) {
+  if (!t || !p) return null;
+  const L = (lines || tpSovLines(p)).filter((x) => x.key && !x.co);
+  if (t.lineRef) return L.find((x) => x.key === t.lineRef) || null;
+  const w = tpWords(t.name),
+    score = (x) => x.words.filter((a) => w.some((b) => tpSame(a, b))).length,
+    best = (list) => list.reduce((b, x) => (score(x) > score(b) ? x : b), list[0]),
+    lead = w.length ? L.filter((x) => x.words.length && tpSame(x.words[0], w[0])) : [];
+  if (lead.length) return best(lead);
+  const code = t.trade && "function" == typeof codeForTrade ? codeForTrade(t.trade) : "",
+    same = L.filter((x) => x.code && x.code === code);
+  if (same.length) return 1 === same.length ? same[0] : best(same);
+  const any = L.filter((x) => score(x) > 0);
+  return any.length ? best(any) : null;
+}
+// The tasks each SOV line is measured by: the build tasks, or a design job's phases when it has no build task.
+function tpLineTasks(p, lines) {
+  const L = lines || tpSovLines(p),
+    by = {},
+    real = (p.tasks || []).filter((t) => "milestone" !== t.type),
+    build = real.filter((t) => ("function" == typeof fxBuild ? fxBuild(t) : !0));
+  return (
+    (build.length ? build : real.filter((t) => "design" === (t.track || "")))
+      .forEach((t) => {
+        const x = tpTaskLine(p, t, L);
+        x && (by[x.key] = by[x.key] || []).push(t);
+      }),
+    by
+  );
+}
+// One line's % complete and how it is known: measured on site, or cost-to-cost (deposits excluded).
+function tpLinePct(p, x, tasks, J) {
+  if (tasks && tasks.length && "function" == typeof prgMeasure) {
+    const m = withProject(p, () => prgMeasure(tasks));
+    return { pct: Math.max(0, Math.min(100, m.pct)), basis: "measured", m: m };
+  }
+  const E = ((J && J.eacLines) || []).find((y) => y.key === x.key);
+  if (E && E.budget) {
+    const prog = Math.max(0, E.actual - E.deposit);
+    return { pct: r2(Math.min(100, (prog / E.budget) * 100)), basis: "cost", deposit: E.deposit };
+  }
+  return { pct: 0, basis: "none" };
+}
+function tpJobPctDetail(p) {
+  if (!p) return null;
+  const lines = tpSovLines(p);
+  let J = null;
+  try {
+    J = jobFin(p);
+  } catch (e) {}
+  if (!lines.length) {
+    const ph = "function" == typeof prgJob ? prgJob(p) : null;
+    return ph
+      ? { pct: ph.pct, lines: [], measured: ph.measured, basis: "measured" }
+      : { pct: J && J.contract ? Math.round(100 * (J.pct || 0)) : 0, lines: [], measured: 0, basis: "cost" };
+  }
+  const T = tpLineTasks(p, lines),
+    rows = lines.map((x) => Object.assign({ x: x }, tpLinePct(p, x, T[x.key], J))),
+    W = rows.reduce((a, r) => a + r.x.value, 0),
+    got = rows.reduce((a, r) => a + (r.x.value * r.pct) / 100, 0),
+    measured = (p.tasks || []).filter((t) => "function" == typeof prgLast && prgLast(t) && "done" !== t.status).length;
+  return {
+    pct: W ? Math.round((got / W) * 100) : 0,
+    exact: W ? r2((got / W) * 100) : 0,
+    lines: rows,
+    measured: measured,
+    costLines: rows.filter((r) => "cost" === r.basis).length,
+    basis: "measured",
+  };
+}
+function tpJobPct(p) {
+  try {
+    const d = tpJobPctDetail(p);
+    return d ? d.pct : 0;
+  } catch (e) {
+    return console.warn("job % complete", e), 0;
+  }
+}
+// The cost ratio is never "% complete": this is how it is worded wherever it is shown.
+const tpCostWords = (J) => `${Math.round(100 * ((J && J.pct) || 0))}% through its estimated cost (cost-to-cost)`;
+// The measured pay application. Each contract line is measured by the tasks mapped to it (tpTaskLine), so
+// "Windows & interior trim" measures Windows, not Trim. A measured line proposes its measured %; cost never
+// lifts it. A line with nothing measured falls back to cost and says so (No Field Measure, and a confirm
+// finding). A deposit is not progress: it is left out of the cost the line is judged by, and whether the
+// line is heading over is read from its estimate at completion.
+if ("function" == typeof pgEvidence) {
+  const pgEvidenceBase_tp = pgEvidence;
+  pgEvidence = function (c, p, sv) {
+    const ev = pgEvidenceBase_tp.apply(this, arguments);
+    try {
+      if (!ev || !p || !sv || sv.coId || !sv.lineRef) return ev;
+      const T = tpLineTasks(p)[sv.lineRef] || [];
+      T.length
+        ? (ev.sched = Object.assign(
+            withProject(p, () => prgMeasure(T)),
+            { exact: !0, mapped: !0 },
+          ))
+        : ev.sched && !ev.sched.exact && (ev.sched = null);
+      const E = ((jobFin(p).eacLines || []).find((x) => x.key === sv.lineRef)) || null;
+      E && ((ev.deposit = E.deposit), (ev.lineOver = E.over), (ev.lineEac = E.eac));
+    } catch (e) {
+      console.warn("pay app by line", e);
+    }
+    return ev;
+  };
+}
+if ("function" == typeof pgProposal) {
+  const pgProposalBase_tp = pgProposal;
+  pgProposal = function (ev) {
+    const pr = pgProposalBase_tp.apply(this, arguments);
+    try {
+      const m = ev && ev.sched && ev.sched.measured;
+      if (m && "schedule" !== pr.basis) {
+        const pct = r2(Math.max(0, Math.min(100, ev.sched.pct)));
+        Object.assign(pr, {
+          pct: pct,
+          own: pct,
+          basis: "schedule",
+          stale: !1,
+          stored: 0,
+          storedPct: 0,
+          label: PG_BASIS.schedule[0],
+          why: PG_BASIS.schedule[1],
+          measured: !0,
+          measuredOn: m.last ? m.last.on : "",
+          extra: `measured by ${m.last ? prgWho(m.last) : "the site"} — ${m.tasks.slice(0, 3).join(", ")}`,
+          period: r2(Math.max(0, pct - ev.billedPct)),
+        });
+      }
+      pr.noMeasure = "cost" === pr.basis;
+    } catch (e) {}
+    return pr;
+  };
+}
+if ("function" == typeof pgFindings) {
+  const pgFindingsBase_tp = pgFindings;
+  pgFindings = function (ev, pr) {
+    let f = pgFindingsBase_tp.apply(this, arguments);
+    try {
+      if (ev && ev.deposit > 0.5) {
+        f = f.filter((x) => "over" !== x.kind && "under" !== x.kind);
+        const msg = `${money(ev.cost)} has landed on this line, ${money(ev.deposit)} of it a deposit, not progress — ${ev.lineOver > 0.5 ? `heading over by about ${money(ev.lineOver)}` : "on budget so far"}`;
+        f.unshift({ sev: ev.lineOver > 0.5 ? "bad" : "info", kind: ev.lineOver > 0.5 ? "over" : "deposit", msg: msg });
+      }
+      pr &&
+        "cost" === pr.basis &&
+        f.push({
+          sev: "warn",
+          kind: "confirm",
+          msg: `No field measure — the ${pr.pct}% comes from cost against budget. Confirm it on site before it goes on the application`,
+        });
+    } catch (e) {}
+    return f;
+  };
+}
+/* ---- portal truth (BACKLOG §1.2, §1.4 item 5) ---- */
+// The caption a client reads: the one the PM wrote when sharing, else the photo's own caption.
+function pstClientCaption(x) {
+  return String((x && (x.clientCaption || x.caption)) || "Progress photo");
+}
+// Sharing a photo asks the PM for the line the client will read; internal tags never travel with it.
+if ("function" == typeof pstShare) {
+  const pstShareBase_tp = pstShare;
+  pstShare = function (x, on) {
+    if (!on || !x || ("function" == typeof pstCanShare && !pstCanShare()) || x.__tpCap)
+      return delete (x || {}).__tpCap, pstShareBase_tp.apply(this, arguments);
+    mbModal(
+      "Share With Client",
+      `<p class="small muted">The client sees this photo with the caption below and nothing else: not the log it came from, the task or who took it.</p><div class="f"><label>Caption the Client Reads</label><input data-f="cap" value="${esc(x.clientCaption || x.caption || "")}" maxlength="140"></div>`,
+      {
+        submit: "Share",
+        onSubmit: (f) => {
+          const cap = String(f.cap || "").trim();
+          if (!cap) return toast("Write the caption the client will read"), !1;
+          (x.clientCaption = cap), (x.__tpCap = !0), pstShare(x, !0);
+        },
+      },
+    );
+  };
+}
+// The client Overview's Progress card: the certified figure and the last three photos shared with them.
+function tpClientProgressHtml(c, p) {
+  const T = tpCertified(c, p && p.id),
+    shots =
+      "function" == typeof pstRows && p
+        ? pstRows({ projectId: p.id, shared: !0 })
+            .sort((a, b) => String(b.sharedAt || b.at).localeCompare(String(a.sharedAt || a.at)))
+            .slice(0, 3)
+        : [];
+  return `<div class="card tp-clprog" id="tp-clprog" style="margin-bottom:14px"><h3>Progress</h3><div class="tp-cert-line"><b>Completed to Date</b> ${money(T.completed)} · ${esc(tpCertifiedText(c, p && p.id))}</div><div class="small muted" style="margin:4px 0 8px">Completed to date is what the pay applications have certified; the measured % is what the crew and your project manager have measured on site.</div>${shots.length ? `<div class="pst-grid sm">${shots.map(pstTile).join("")}</div>` : '<div class="small muted">Photos your project manager shares appear here.</div>'}</div>`;
+}
+if ("function" == typeof clOverview) {
+  const clOverviewBase_tp = clOverview;
+  clOverview = function () {
+    const r = clOverviewBase_tp.apply(this, arguments);
+    try {
+      const v = document.getElementById("v-client"),
+        p = clProj(),
+        c = p && DB.clients.find((x) => x.id === p.clientId);
+      if (!v || !p || !c) return r;
+      // the stale "last update from Alan on Tue, Jul 28" line is retired: progress is measured, not published
+      v.querySelectorAll("#cl-next .small.muted").forEach((el) => {
+        /^Last update from /.test(el.textContent.trim()) && el.remove();
+      }),
+        v.querySelector("#tp-clprog")?.remove();
+      const host = v.querySelector("#cl-done"),
+        card = host && host.closest(".card"),
+        html = tpClientProgressHtml(c, p);
+      card ? card.insertAdjacentHTML("beforebegin", html) : v.insertAdjacentHTML("beforeend", html);
+      "function" == typeof pstFill && pstFill(v.querySelector("#tp-clprog"));
+    } catch (e) {
+      console.warn("client progress", e);
+    }
+    return r;
+  };
+}
+if ("object" == typeof TL_SETS && TL_SETS && TL_SETS.client) {
+  const tlClientBase_tp = TL_SETS.client;
+  TL_SETS.client = function () {
+    const tiles = tlClientBase_tp.apply(this, arguments);
+    try {
+      const fin = tiles.find((t) => "fin" === t.key);
+      fin && fin.s && (fin.s = String(fin.s).replace(/ · last update from .* on .*$/, ""));
+    } catch (e) {}
+    return tiles;
+  };
+}
+// Client milestone pills: Done, Upcoming, or how many working days past the agreed date. Never "Ahead".
+function tpMilestonePill(p, pub, i) {
+  if ("done" === i.status) return '<span class="pill ok">Done</span>';
+  let agreed = "";
+  try {
+    agreed =
+      p.project.scTaskId && i.id === p.project.scTaskId
+        ? pub.target || ""
+        : (p.baseline && p.baseline.tasks && p.baseline.tasks[i.id] && p.baseline.tasks[i.id].end) || "";
+    !agreed && pub.target && /substantial completion/i.test(i.name || "") && (agreed = pub.target);
+  } catch (e) {}
+  const n = agreed ? withProject(p, () => signedWork(agreed, i.end)) : 0;
+  return n > 0
+    ? `<span class="pill warn">${n} Working Day${1 === n ? "" : "s"} Past Agreement</span>`
+    : '<span class="pill neutral">Upcoming</span>';
+}
+if ("function" == typeof clSchedHtml) {
+  const clSchedHtmlBase_tp = clSchedHtml;
+  clSchedHtml = function () {
+    let h = clSchedHtmlBase_tp.apply(this, arguments);
+    try {
+      const p = clProj(),
+        pub = p && p.published;
+      if (!pub) return h;
+      h = h.replace(/ Last update from [^.<]* on [^.<]*\./, "");
+      const a = h.indexOf('<div class="card"><h3>Milestones</h3>'),
+        b = a > -1 ? h.indexOf('<div class="card"><h3>', a + 10) : -1;
+      if (a > -1 && b > a) {
+        const ms = (pub.items || []).filter((i) => i.milestone);
+        let k = 0;
+        const part = h
+          .slice(a, b)
+          .replace(/<span class="pill (?:ok|neutral)">(?:Done|Ahead)<\/span>/g, (m) => {
+            const i = ms[k++];
+            return i ? tpMilestonePill(p, pub, i) : m;
+          });
+        h = h.slice(0, a) + part + h.slice(b);
+      }
+      h = h.replace(/<span class="pst-cap"><b>[^<]*<\/b>/g, '<span class="pst-cap">');
+    } catch (e) {
+      console.warn("client milestones", e);
+    }
+    return h;
+  };
+}
+// A change order and its revisions are one change to the client: their days net into one row,
+// "Your change order CO-2026-004 (as revised, R2) +3".
+function tpCoChainLabel(n) {
+  const root = String(n || "").replace(/-R\d+$/, "");
+  if (!root) return "";
+  let rev = 0;
+  (DB.clients || []).forEach((c) =>
+    (c.changeOrders || []).forEach((d) => {
+      (d.number === root || d.revisionRoot === root) &&
+        !["void", "rejected", "draft"].includes(d.status) &&
+        (rev = Math.max(rev, +d.rev || 0));
+    }),
+  );
+  return rev ? `Your change order ${root} (as revised, R${rev})` : `Your change order ${root}`;
+}
+if ("function" == typeof czCauseOf) {
+  const czCauseOfBase_tp = czCauseOf;
+  czCauseOf = function (P, h) {
+    const k = czCauseOfBase_tp.apply(this, arguments);
+    try {
+      k && "co" === k.key && k.co && ((k.label = tpCoChainLabel(k.co)), (k.co = String(k.co).replace(/-R\d+$/, "")));
+    } catch (e) {}
+    return k;
+  };
+}
+if ("function" == typeof thClientReason) {
+  const thClientReasonBase_tp = thClientReason;
+  thClientReason = function (h, P) {
+    const r = thClientReasonBase_tp.apply(this, arguments);
+    try {
+      const m = /^Your change order (CO-[\w-]+)$/.exec(r || "");
+      if (m) return tpCoChainLabel(m[1]);
+    } catch (e) {}
+    return r;
+  };
+}
+// A superseded copy of a change order says so wherever it is linked (chips, the task editor's Linked list).
+if ("function" == typeof opsChip) {
+  const opsChipBase_tp = opsChip;
+  opsChip = function (link, p) {
+    const h = opsChipBase_tp.apply(this, arguments);
+    try {
+      if (!h || !link || "co" !== link.kind) return h;
+      const c = DB.clients.find((x) => (x.changeOrders || []).some((d) => d.id === link.id)),
+        d = c && c.changeOrders.find((x) => x.id === link.id);
+      if (!d) return h;
+      // a change order chip names its number, so a revision and the copy it replaced can be told apart
+      const named = h.includes(esc(d.number))
+        ? h
+        : h.replace(/(<span class="k">[^<]*<\/span>)/, `$1${esc(d.number)} · `);
+      if (!("superseded" === d.status || d.revisedBy)) return named;
+      return named
+        .replace('class="ops-chip"', 'class="ops-chip superseded" title="Superseded by ' + esc(d.revisedBy || "a revision") + '"')
+        .replace(/<\/a>$/, ` <span class="small muted">· superseded by ${esc(d.revisedBy || "a revision")}</span></a>`);
+    } catch (e) {
+      return h;
+    }
+  };
+}
+// The task editor's Linked list includes every change order that extends the task (by its Extends Task),
+// revisions and the copies they superseded alike, so the superseded ones can be seen for what they are.
+if ("function" == typeof openEditor) {
+  const openEditorBase_tp = openEditor;
+  openEditor = function (kind, id) {
+    const r = openEditorBase_tp.apply(this, arguments);
+    try {
+      if ("task" !== kind || !id || !S) return r;
+      const body = document.getElementById("d-body"),
+        c = "function" == typeof clientOf ? clientOf() : null;
+      if (!body || !c) return r;
+      const have = new Set(
+          [...body.querySelectorAll('.ops-chip[data-opsgo^="co:"]')].map((a) => a.dataset.opsgo.slice(3)),
+        ),
+        add = (c.changeOrders || [])
+          .filter(
+            (d) =>
+              d.projectId === S.id &&
+              !have.has(d.id) &&
+              (d.taskId === id || ("function" == typeof thCoTaskId && thCoTaskId(d, S) === id)),
+          )
+          .map((d) => opsChip({ kind: "co", id: d.id }))
+          .filter(Boolean);
+      if (!add.length) return r;
+      const note = [...body.querySelectorAll(".note")].find((n) => /^Linked\b/.test(n.textContent.trim()));
+      note
+        ? note.insertAdjacentHTML("beforeend", " " + add.join(" "))
+        : body.insertAdjacentHTML("beforeend", `<div class="note"><b>Linked</b> ${add.join(" ")}</div>`);
+    } catch (e) {
+      console.warn("linked change orders", e);
+    }
+    return r;
+  };
+}
+/* ---- the forecast names its cause (BACKLOG §1.2) ---- */
+// Why the finish is where it is: days given back by a revised change order and not pulled in yet, or the
+// task driving the slip, named only when it is critical or late by more than its float.
+function tpForecastWhy(p) {
+  return withProject(p, () => {
+    const { cpm: cpm, projEnd: projEnd } = computeCPM(),
+      sc = scDate(cpm, projEnd),
+      late = p.project.target ? signedWork(p.project.target, sc) : 0,
+      f = "function" == typeof opsForecast ? opsForecast(p) : null,
+      crit = (p.tasks || []).filter((t) => cpm[t.id] && cpm[t.id].critical && "done" !== t.status).length,
+      c = DB.clients.find((x) => x.id === p.clientId),
+      g = ((c && c.changeOrders) || []).find(
+        (d) => d.projectId === p.id && d.czGive && d.czGive.open && (p.tasks || []).some((t) => t.id === d.czGive.taskId),
+      );
+    let give = null;
+    if (g) {
+      const tk = p.tasks.find((t) => t.id === g.czGive.taskId),
+        prior = "function" == typeof lkOriginal ? lkOriginal(c, g) : null;
+      give = { c: c, d: g, days: g.czGive.days, task: tk, from: prior ? prior.number : g.number };
+    }
+    const drv = f && f.driver,
+      cp = drv && cpm[drv.t.id],
+      driver = drv && cp && (cp.critical || drv.behind > cp.float) ? drv : null,
+      nm = (t) => String(t.name).replace(/\s*\(.*?\)/g, ""),
+      wd = (n) => `${n} working day${1 === n ? "" : "s"}`;
+    let text = "";
+    return (
+      late > 0
+        ? (text = give
+            ? `${wd(late)} late · ${give.days} day${1 === give.days ? "" : "s"} still on ${nm(give.task)} from ${give.from} — Pull In`
+            : driver
+              ? `${wd(late)} late · because ${nm(driver.t)} is ${wd(driver.behind)} behind`
+              : `${wd(late)} late against the ${fmtL(p.project.target)} target · ${crit} on the critical path`)
+        : give
+          ? (text = `${give.days} day${1 === give.days ? "" : "s"} still on ${nm(give.task)} from ${give.from} — Pull In`)
+          : driver &&
+            (text = `forecast ${fmtL(sc)} · ${nm(driver.t)} is ${wd(driver.behind)} behind${cp && cp.critical ? ", on the critical path" : ""}`),
+      { sc: sc, late: late, give: give, driver: driver, crit: crit, text: text }
+    );
+  });
+}
+function tpPullIn(give) {
+  give && "function" == typeof czGiveBackDialog && czGiveBackDialog(give.c, give.d);
+}
+if ("function" == typeof glnProject) {
+  const glnProjectBase_tp = glnProject;
+  glnProject = function () {
+    const r = glnProjectBase_tp.apply(this, arguments);
+    try {
+      const tile = document.querySelector('#kpis .gl[data-gl="sched"]');
+      if (!tile || !S || !(S.tasks || []).length) return r;
+      const W = tpForecastWhy(S),
+        v = tile.querySelector(".gl-v"),
+        s = tile.querySelector(".gl-s");
+      if (!s) return r;
+      if (W.late > 0) v && (v.textContent = `Forecast ${fmtL(W.sc)}`), tile.classList.add("bad");
+      if (W.text) s.textContent = W.text;
+      else if (/inside its float/.test(s.textContent))
+        s.textContent = `forecast ${fmtL(W.sc)} · ${W.crit} on the critical path`;
+      W.give &&
+        ((tile.dataset.tppull = W.give.d.id),
+        tile.addEventListener(
+          "click",
+          (e) => {
+            e.preventDefault(), e.stopImmediatePropagation(), tpPullIn(tpForecastWhy(S).give);
+          },
+          !0,
+        ));
+    } catch (e) {
+      console.warn("forecast cause tile", e);
+    }
+    return r;
+  };
+}
+{
+  const renderBase_tpfc = render;
+  render = function () {
+    const r = renderBase_tpfc.apply(this, arguments);
+    try {
+      "clacct" === view && "function" == typeof pstFill && pstFill(document.getElementById("v-clacct"));
+      if ("sched" === view && S && (S.tasks || []).length) {
+        const strip = document.querySelector("#track-cards");
+        if (strip) {
+          const W = tpForecastWhy(S);
+          strip.querySelector(".ops-fc")?.remove(),
+            (W.late > 0 || W.give) &&
+              (strip.insertAdjacentHTML(
+                "afterbegin",
+                `<div class="track ops-fc tp-fc ${W.late > 0 ? "bad" : "warn"}"><b>Forecast ${fmtL(W.sc)}</b><div class="s">${esc(W.text)}</div>${W.give ? '<button class="btn sm" data-tppull="1">Pull In</button>' : ""}</div>`,
+              ),
+              W.give &&
+                (strip.querySelector("[data-tppull]").onclick = (e) => {
+                  e.stopPropagation(), tpPullIn(tpForecastWhy(S).give);
+                }));
+        }
+      }
+    } catch (e) {
+      console.warn("forecast cause card", e);
+    }
+    return r;
+  };
+}
+/* ---- Studio phases read their status from the task (BACKLOG §1.2) ---- */
+// Each design phase's status is its schedule task's (sp_<line>), so marking Design development done makes
+// Construction documents current on the board, the phase strip and the Studio list.
+if ("function" == typeof phaseHours) {
+  const phaseHoursBase_tp = phaseHours;
+  phaseHours = function (p) {
+    const ph = phaseHoursBase_tp.apply(this, arguments);
+    try {
+      ph.forEach((x) => {
+        const t = ((p && p.tasks) || []).find((k) => k.phaseLine === x.line.id);
+        t && ((x.task = t), (x.status = t.status));
+      });
+    } catch (e) {}
+    return ph;
+  };
+}
+// The current phase: the first one whose task is not done. Null when the phases have no tasks yet.
+function phaseCur(ph) {
+  return ph && ph.some((x) => x.task) ? ph.find((x) => x.task && "done" !== x.status) || ph[ph.length - 1] : null;
+}
+if ("function" == typeof phaseStrip) {
+  const phaseStripBase_tp = phaseStrip;
+  phaseStrip = function (p) {
+    let h = phaseStripBase_tp.apply(this, arguments);
+    try {
+      const ph = phaseHours(p),
+        cur = phaseCur(ph);
+      let i = 0;
+      h = h.replace(/<div class="st-ph( [^"]*)?"([^>]*)>([\s\S]*?)<div class="v">/g, (m, cls, attrs, mid) => {
+        const x = ph[i++];
+        if (!x || !x.task) return m;
+        const tag =
+          "done" === x.status
+            ? '<span class="pill ok">Done</span> '
+            : x === cur
+              ? '<span class="pill info">Current</span> '
+              : "";
+        return `<div class="st-ph${cls || ""}${"done" === x.status ? " done" : x === cur ? " cur" : ""}"${attrs}>${mid}<div class="v">${tag}`;
+      });
+    } catch (e) {}
+    return h;
+  };
+}
+// A phase marked done by a person stays done when the Studio schedule is rebuilt from the hours.
+if ("function" == typeof opsStudioSchedule) {
+  const opsStudioScheduleBase_tp = opsStudioSchedule;
+  opsStudioSchedule = function (p) {
+    const was = Object.fromEntries(
+        ((p && p.tasks) || [])
+          .filter((t) => "studio" === t.gen)
+          .map((t) => [t.id, { status: t.status, actualEnd: t.actualEnd, actualStart: t.actualStart }]),
+      ),
+      r = opsStudioScheduleBase_tp.apply(this, arguments);
+    try {
+      const rank = { planned: 0, "in-progress": 1, done: 2 };
+      ((p && p.tasks) || []).forEach((t) => {
+        const o = "studio" === t.gen && was[t.id];
+        o &&
+          (rank[o.status] || 0) > (rank[t.status] || 0) &&
+          ((t.status = o.status),
+          (t.actualStart = t.actualStart || o.actualStart || ""),
+          "done" === o.status && (t.actualEnd = o.actualEnd || t.actualEnd || today()));
+      });
+    } catch (e) {}
+    return r;
+  };
+}
+function tpEacNote(J, p) {
+  return p && p.ctcReviewed
+    ? "Estimate at completion = actual + the PM's reviewed cost to complete (it wins over the line roll-up)."
+    : "Estimate at completion = actual + committed + cost to complete, rolled up from the estimate and approved change-order lines: each line at the greater of its budget and what is spent and committed on it. A short-paid bill counts only the amount approved.";
+}
+// What the client is shown as complete: what the pay applications certified (billed to date, gross, on the
+// latest application) and what is measured on site. Never the firm's internal earned revenue.
+function tpCertified(c, pid) {
+  const ps = (DB.projects || []).filter((p) => p.clientId === c.id && (!pid || p.id === pid)),
+    J = ps.map((p) => ({ p: p, J: jobFin(p) })).filter((x) => x.J.contract),
+    contract = r2(J.reduce((a, x) => a + x.J.contract, 0)),
+    completed = r2(J.reduce((a, x) => a + x.J.billed, 0)),
+    apps = (c.invoices || [])
+      .filter(
+        (i) =>
+          !["void", "draft"].includes(i.status) &&
+          !i.retainageRelease &&
+          (!pid || !i.projectId || i.projectId === pid),
+      )
+      .sort((a, b) => String(a.date).localeCompare(String(b.date))),
+    measured = contract ? Math.round(J.reduce((a, x) => a + x.J.contract * tpJobPct(x.p), 0) / contract) : 0;
+  return {
+    contract: contract,
+    completed: completed,
+    pct: contract ? r2((completed / contract) * 100) : 0,
+    app: apps.length ? apps[apps.length - 1] : null,
+    measured: measured,
+  };
+}
+function tpCertifiedText(c, pid) {
+  const T = tpCertified(c, pid);
+  return `${T.pct}% certified${T.app ? ` on ${T.app.number}` : ""} · ${T.measured}% measured on site`;
+}
+function tpCertifiedHtml(c, pid) {
+  const T = tpCertified(c, pid);
+  return `<b>${money(T.completed)}</b><i>${esc(tpCertifiedText(c, pid))}</i>`;
+}
+/* ---------------------------------------------------------------------------
    The predicate registry (BACKLOG §3.2; CLAUDE.md "One question, one number").
    Each question the app counts is answered once, here, by name. The screen, the
    rail and tab badges, the tiles, the header lines, Ask, ⌘K and the Report
@@ -160254,7 +161649,7 @@ const predJobs = (scope) => (DB.projects || []).filter((p) => !scope || p.id ===
 // ---- what is waiting on me
 predDef("waitingOnMe", {
   label: "Approvals",
-  rule: "every yes or no waiting on you: bills, hours, site questions, decisions we owe, field requests, submittals, meeting proposals, changes and lessons",
+  rule: "every yes or no waiting on you, and only you: bills, hours, site questions, decisions we owe, field requests, submittals, meeting proposals, changes and lessons, each in the one queue of the person who owns it (DELEGATION)",
   can: () => predCan("mapprove"),
   rows: () => (predCan("mapprove") ? mApprovals() : []),
 });
@@ -160562,3 +161957,5946 @@ predDef("buyNeeds", {
     return buyList(scope || "").filter(this.test);
   },
 });
+/* ---------------------------------------------------------------------------
+   askgen (BACKLOG §1.3): one schema-aware reader in front of every refusal.
+   Ask used to be a chain of keyword intents: a question that matched no script
+   was refused ("Nothing in the records matches that", "206 Lenox is a job, so I
+   hold no people against them") before erpQuery, which could answer it, was
+   reached. agParse reads any question into the parts a query needs:
+     entity   what it is about (EQ_TABLES names, aliases, plurals, synonyms)
+     filters  master records named (job, client, vendor, person), a name the
+              records do not hold (searched as text in transactions, bills, POs),
+              a period on the app clock (today(), appWeek()), statuses, negation
+     measure  count, sum, max, min, a date, or a list
+     group    by vendor, per job, by client, by category, by person
+   and the readers below answer from the same rows the screens count (PRED for
+   every counted question, apOpenBills for AP, briefFacts for AR and cash,
+   jobFin for EAC). Every answer says what was run: "I ran: <entity> where …
+   grouped by … (N rows)". A question no reader takes still goes to the older
+   chain, and a refusal from that chain comes back here for a text search.
+   Privacy lives in one place, eqRows: a client's rows are their own jobs'
+   rows before any reader or intent sees them, and field roles get no money.
+--------------------------------------------------------------------------- */
+// ---- the query layer's one scope: what the signed-in person may read
+const EQ_MONEY_TABLES = [
+    "invoices", "estimates", "changeorders", "payments", "bills", "transactions", "payroll", "journal",
+    "financials", "apaging", "irs_register", "lienwaivers", "salestax", "budget", "bankfeeds", "bankrecons",
+    "bankstatements", "bankpending", "opportunities", "costcodes", "clients",
+  ],
+  EQ_MONEY_FIELDS =
+    /^(contract|billed|earned|outstanding|actual|committed|estGP|estGPPct|leftToBill|overBy|overBudget|amount|rate|ordered|unpaidBills|value|paid|owed|money|budget|remaining|cost|price)$/,
+  // The tables a client may read, and only their own rows of them.
+  EQ_CLIENT_TABLES = ["projects", "invoices", "estimates", "changeorders", "payments", "decisions", "photos", "tasks", "memory"],
+  EQ_CLIENT_HIDE = /^(earned|actual|committed|estGP|estGPPct|overBudget|overBy|pct)$/,
+  eqKey = (name) => {
+    const k = String(name || "")
+      .toLowerCase()
+      .replace(/[^a-z_]/g, "");
+    return EQ_TABLES[k] ? k : EQ_ALIAS[k] && EQ_TABLES[EQ_ALIAS[k]] ? EQ_ALIAS[k] : "";
+  },
+  eqFieldRole = () => {
+    try {
+      return ["foreman", "crew", "driver"].includes(role());
+    } catch (e) {
+      return !1;
+    }
+  };
+function eqScopeOf() {
+  let r = "",
+    u = null;
+  try {
+    (r = role()), (u = currentUser());
+  } catch (e) {}
+  if ("client" === r) {
+    const cid = (u && u.clientId) || "__none__",
+      jobs = (DB.projects || []).filter((p) => p.clientId === cid),
+      c = (DB.clients || []).find((x) => x.id === cid);
+    return {
+      kind: "client",
+      cid: cid,
+      client: c || null,
+      pids: new Set(jobs.map((p) => p.id)),
+      jobs: jobs,
+      names: new Set(jobs.map((p) => String(p.project.name).replace(/ —.*$/, "")).concat(jobs.map((p) => p.project.name))),
+    };
+  }
+  return eqFieldRole() ? { kind: "field" } : { kind: "firm" };
+}
+// Every row any Ask path reads comes through here, once, already scoped.
+function eqRows(entity) {
+  let k = "",
+    fn = null,
+    sc = null;
+  try {
+    (k = eqKey(entity)), (fn = k && EQ_TABLES[k]), (sc = eqScopeOf());
+  } catch (e) {
+    // read before this section loaded (boot): nobody is signed in yet
+    const t = "function" == typeof eqTable ? eqTable(entity) : null;
+    return t ? t() || [] : [];
+  }
+  if (!fn) return [];
+  if ("client" === sc.kind && !EQ_CLIENT_TABLES.includes(k)) return [];
+  if ("field" === sc.kind && EQ_MONEY_TABLES.includes(k)) return [];
+  let rows = fn() || [];
+  if ("client" === sc.kind) {
+    rows = rows
+      .filter((r) => {
+        if (!r) return !1;
+        if ("memory" === k) return !0;
+        if ("photos" === k && !r.shared) return !1;
+        if ("projects" === k) return sc.pids.has(r._id);
+        return r.clientId ? r.clientId === sc.cid : r.projectId ? sc.pids.has(r.projectId) : r.project ? sc.names.has(r.project) : !1;
+      })
+      .map((r) => {
+        const o = {};
+        return Object.keys(r).forEach((f) => EQ_CLIENT_HIDE.test(f) || (o[f] = r[f])), o;
+      });
+  } else if ("field" === sc.kind)
+    rows = rows.map((r) => {
+      const o = {};
+      return Object.keys(r || {}).forEach((f) => EQ_MONEY_FIELDS.test(f) || (o[f] = r[f])), o;
+    });
+  return rows;
+}
+// ---- the words a question is made of
+const AG_SMALL = { wk: "week", wks: "weeks", hrs: "hours", hr: "hour", r: "are", u: "you", yr: "year", mo: "month", amt: "amount", ytd: "ytd", qty: "quantity", w: "with", pls: "please", thx: "thanks", tmrw: "tomorrow", yday: "yesterday", "w/": "with", b4: "before", ur: "your", dont: "do not", cant: "cannot", wont: "will not" },
+  AG_BASE = `a about above after again against all almost already also always am among an and another any anybody anyone anything are around as ask asked at away back be because been before behind being below between both but by can could did do does doing done down during each either else enough even ever every everyone everything few find first for from full further get gets getting give given go goes going gone got had has have having he her here hers him his how however i if in into is it its itself just keep kept know last least less let like likely look looking looks lot made make many may me might mine more most much must my need needs never new next no nobody none nor not nothing now of off often on once one only or other our ours out over own per please put rather really right said same say says see seen she should show since so some somebody someone something still such sure take tell than that the their them then there these they thing things think this those though through till to today together told too top toward under until up upon us use used very want was way we well were what whatever when where whether which while who whole whom whose why will with within without would yes yet you your yours
+  am pm week weeks month months year years day days today yesterday tomorrow tonight morning afternoon evening monday tuesday wednesday thursday friday saturday sunday mon tue tues wed thu thur thurs fri sat sun january february march april may june july august september october november december jan feb mar apr jun jul aug sep sept oct nov dec quarter weekend date dates time times hour hours minute minutes ago now soon late later early earliest latest due overdue past upcoming current currently recent recently so far ytd annual daily weekly monthly
+  how much many total sum count number average avg max min most least biggest largest highest lowest smallest fewest top bottom more less compare versus vs than cost costs costing spend spends spending spent pay pays paid paying payment payments owe owes owed owing collect collected collection collections received receive came come comes coming bill bills billed billing billable invoice invoices invoiced invoicing estimate estimates proposal proposals quote quotes contract contracts value worth amount amounts price prices cash bank banks banking money balance balances revenue revenues income profit profits loss margin margins gross net expense expenses expensed category categories categorized uncategorized receivable receivables payable payables ar ap wip backlog overbilled underbilled over under retainage retention deposit deposits draw draws dispute disputes disputed disputing hold held short accrued accrual accruals close closed closing open opened reconcile reconciled reconciliation unmatched matched match safe software insurance fuel meals rent office permits permit fees materials material subs sub subcontractor subcontractors labor payroll tax taxes 1099 lien waiver waivers eac completion complete completed along far progress percent pct exceptions exception
+  job jobs project projects site sites client clients customer customers vendor vendors supplier suppliers crew crews people person employee employees staff team worker workers foreman driver designer architect owner pm coordinator controller office lead leads deal deals pipeline prospect prospects order orders ordered ordering purchase purchases po pos delivery deliveries deliver delivered arriving arrive arrives arrival expected expect shipment ship shipped return returns returned refund refunds request requests requested decision decisions decide decided choice choices selection selections submittal submittals review reviewed approve approved approval approvals approving unapproved signed sign signature signatures unsigned send sent draft drafts change changes changed co cos task tasks todo todos list item items schedule schedules scheduled finish finished finishing finishes start started starts starting end ends ending inspection inspections photo photos picture pictures pic pics log logs logged logging daily report reports note notes hours hour timesheet timesheets clocked worked work working works submitted submit submitting entered blocking blocked block holding hold stuck waiting wait waits needs mine assigned plate budget budgets feed feeds statement statements document documents file files drawing drawings message messages email emails mail calendar meeting meetings event events inventory stock tool tools obligation obligations expire expires expiring expiration expired renewal general liability workers comp moved move moves slipped slip delay delayed delays whose took take taken did do done shared share sharing take took took taking took uploaded
+  what whats which who whos where when why how is are was were do does did can could should would will has have had any there their this that these those it its me my i we our us you your they them he she his her get got show tell give list find`,
+  AG_MORE = `pending status statuses lock locks locked unlock unlocked version versions reforecast lose losing lost win winning won wins qualified inquiry inquiries stage stages convert converted hired fired sick vacation looking like still anything something everything nothing able account accounts actually added address agreement ahead allowance already amount answer approve architect area assign available average balance based basement bath bathroom bathrooms beam beams bedroom best better big biggest board boards book booked booking box brick bring broken budget building built busy buy call called calls card cards care carpentry case cause caused ceiling certificate change charge charged check checked city clean clear close code coded come company confirm confirmed contact contractor correct count counted country cover covered create created credit daily data deadline deal deliver department deposit design designs detail details different dining door doors drywall electric electrical electrician else empty entry equipment estimate exact expect extra fail failed family fast field figure fill final finance fine fire fixture flooring floor floors follow following form found free front garden gave general give glass going good great group half hand happen happened hardware heat help high hire hold holiday home house idea important include included including inside install installed issue issues kitchen know labor large laundry layout leave left level light lighting line lines living long lost lumber main manager mark measure measured meet missing mold name named needed normal note number numbers offer okay once only open opening order original outside owner page paint panel parlor part partial party passed pending phone pick piece place plan plans plumber plumbing point possible primary print problem problems profile proposal provide pull quality question questions quick rate ready real reason receipt recent record records red reject rejected release remaining repair report request required review room rough round run running sample samples save scope second see sent service set share shared ship short show side sign signature signed site size small sort source special stair stairs stand standard start state stone stop store street stuff subfloor supply system talk team text third tile title total track trade trim truck turn type unit units update upload value wall walls want warranty water week window windows wood word work worker working wrong yard`,
+  AG_STOPW = new Set(
+    "a an the of to in on at for from by with and or but is are was were be been do does did done have has had what whats which who whom whose when where why how much many any some all our we us i me my mine you your it its this that these those there their they them he she his her so far yet up please tell show give list get got can could would should will just still also about into than then as if not no".split(
+      " ",
+    ),
+  );
+let agVocabMemo = null;
+function agVocab() {
+  const key = [
+    (DB.projects || []).length,
+    (DB.vendors || []).length,
+    (DB.employees || []).length,
+    (DB.txns || []).length,
+    (DB.clients || []).length,
+  ].join(":");
+  if (agVocabMemo && agVocabMemo.key === key) return agVocabMemo;
+  const base = new Set((AG_BASE + " " + AG_MORE).split(/\s+/).filter(Boolean)),
+    names = new Set(),
+    add = (s) =>
+      String(s || "")
+        .toLowerCase()
+        .split(/[^a-z0-9]+/)
+        .filter((w) => w.length >= 3 && !/^\d+$/.test(w))
+        .forEach((w) => names.add(w));
+  (DB.projects || []).forEach((p) => {
+    add(p.project.name),
+      (p.tasks || []).forEach((t) => add(t.name)),
+      (p.materials || []).forEach((m) => add(m.name)),
+      (p.decisions || []).forEach((d) => add(d.name));
+  }),
+    (DB.clients || []).forEach((c) => add(c.name)),
+    (DB.vendors || []).forEach((v) => add(v.name)),
+    (DB.employees || []).forEach((e) => add(e.name)),
+    (DB.txns || []).forEach((t) => {
+      add(t.vendor), add(t.desc);
+    }),
+    (DB.spend || []).forEach((s) => add(s.vendor)),
+    (DB.leads || []).forEach((l) => add(l.name));
+  return (agVocabMemo = { key: key, base: base, names: names });
+}
+// Optimal string alignment distance, capped.
+function agDist(a, b, cap) {
+  if (Math.abs(a.length - b.length) > cap) return cap + 1;
+  const d = [];
+  for (let i = 0; i <= a.length; i++) d.push([i]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    let best = 1e9;
+    for (let j = 1; j <= b.length; j++) {
+      const c = a[i - 1] === b[j - 1] ? 0 : 1;
+      (d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + c)),
+        i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1] && (d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1)),
+        (best = Math.min(best, d[i][j]));
+    }
+    if (best > cap) return cap + 1;
+  }
+  return d[a.length][b.length];
+}
+const agSubseq = (t, w) => {
+  let i = 0;
+  for (const ch of w) ch === t[i] && i++;
+  return i === t.length;
+};
+// Typos fixed against the words the app and its records use; names win over guesses.
+function agFix(l, keep) {
+  const V = agVocab(),
+    fixes = [],
+    out = String(l)
+      .split(" ")
+      .map((t) => {
+        if (!t) return t;
+        if (AG_SMALL[t]) return AG_SMALL[t] !== t && fixes.push([t, AG_SMALL[t]]), AG_SMALL[t];
+        if (t.length < 3 || /\d/.test(t) || V.base.has(t) || V.names.has(t) || (keep && keep.has(t))) return t;
+        const sing = t.replace(/'?s$/, "");
+        if (sing !== t && (V.base.has(sing) || V.names.has(sing))) return t;
+        const cap = t.length <= 4 ? 1 : 2;
+        let best = null;
+        for (const pool of [V.base, V.names])
+          for (const w of pool) {
+            if (Math.abs(w.length - t.length) > cap || w.length < 3) continue;
+            const dd = agDist(t, w, cap);
+            if (dd > cap) continue;
+            const sc = 10 * dd - (agSubseq(t, w) ? 5 : 0) - (w[0] === t[0] ? 2 : 0) - (pool === V.base ? 1 : 0);
+            (!best || sc < best.sc) && (best = { w: w, sc: sc });
+          }
+        return best ? (fixes.push([t, best.w]), best.w) : t;
+      })
+      .join(" ");
+  return { text: out, fixes: fixes };
+}
+const AG_MONTHS = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"],
+  AG_MON3 = { jan: 0, feb: 1, mar: 2, apr: 3, jun: 5, jul: 6, aug: 7, sep: 8, sept: 8, oct: 9, nov: 10, dec: 11 },
+  AG_DOW = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"],
+  agIso = (d) => iso(d),
+  agMonthRange = (y, m) => {
+    const a = `${y}-${String(m + 1).padStart(2, "0")}-01`,
+      b = iso(addDays(parse(m === 11 ? `${y + 1}-01-01` : `${y}-${String(m + 2).padStart(2, "0")}-01`), -1));
+    return [a, b];
+  };
+// A period on the app clock: today() and appWeek() (Monday to today), never the wall clock.
+function agPeriod(l) {
+  const td = today(),
+    d = parse(td),
+    y = d.getFullYear(),
+    W = "function" == typeof appWeek ? appWeek() : null,
+    mon = W ? W.mon : iso(addDays(d, -((d.getDay() + 6) % 7))),
+    P = (from, to, label, key, say) => ({ from: from, to: to, label: label, key: key || label, say: say || label });
+  if (/\b(today|this morning|right now|so far today)\b/.test(l)) return P(td, td, "today");
+  if (/\byesterday\b/.test(l)) {
+    const t = iso(addDays(d, -1));
+    return P(t, t, "yesterday");
+  }
+  if (/\btomorrow\b/.test(l)) {
+    const t = iso(addDays(d, 1));
+    return P(t, t, "tomorrow");
+  }
+  if (/\blast week\b|\bprevious week\b|\bpast week\b/.test(l))
+    return P(W ? W.last[0] : iso(addDays(parse(mon), -7)), W ? W.last[1] : iso(addDays(parse(mon), -1)), "last week");
+  if (/\bnext week\b|\bcoming week\b/.test(l)) return P(iso(addDays(parse(mon), 7)), iso(addDays(parse(mon), 13)), "next week");
+  if (/\bthis week\b|\bthe week\b|\bweek so far\b|\bthis wk\b/.test(l))
+    return P(W ? W.toDate[0] : mon, W ? W.toDate[1] : td, "this week", "this week");
+  if (/\b(last|past) (7|seven) days\b/.test(l)) return P(iso(addDays(d, -6)), td, "the last 7 days", "", "in the last 7 days");
+  if (/\b(last|past) (30|thirty) days\b/.test(l)) return P(iso(addDays(d, -29)), td, "the last 30 days", "", "in the last 30 days");
+  if (/\bthis month\b|\bmonth to date\b|\bmtd\b/.test(l)) return P(td.slice(0, 8) + "01", td, "this month");
+  if (/\blast month\b|\bprevious month\b/.test(l)) {
+    const m = d.getMonth() - 1,
+      R = m < 0 ? agMonthRange(y - 1, 11) : agMonthRange(y, m);
+    return P(R[0], R[1], AG_MONTHS[(m + 12) % 12][0].toUpperCase() + AG_MONTHS[(m + 12) % 12].slice(1), "last month", "in " + AG_MONTHS[(m + 12) % 12][0].toUpperCase() + AG_MONTHS[(m + 12) % 12].slice(1));
+  }
+  if (/\b(this year|year to date|ytd|so far this year)\b/.test(l)) return P(`${y}-01-01`, td, "year to date");
+  if (/\blast year\b/.test(l)) return P(`${y - 1}-01-01`, `${y - 1}-12-31`, String(y - 1), "", "in " + (y - 1));
+  // a month by name: "in August", "aug", "for september"
+  let mi = -1;
+  AG_MONTHS.forEach((m, i) => {
+    if ("may" === m ? /\b(in|during|for|since|of|last) may\b/.test(l) : new RegExp(`\\b${m}\\b`).test(l)) mi = i;
+  }),
+    mi < 0 &&
+      Object.keys(AG_MON3).forEach((k) => {
+        new RegExp(`\\b${k}\\b`).test(l) && !/\bdec(ision)?s?\b/.test(k + "x") && (mi = AG_MON3[k]);
+      });
+  if (mi >= 0) {
+    const yy = mi > d.getMonth() ? y - 1 : y,
+      R = agMonthRange(yy, mi),
+      to = R[1] > td ? td : R[1],
+      name = AG_MONTHS[mi][0].toUpperCase() + AG_MONTHS[mi].slice(1);
+    return /\bsince\b/.test(l) ? P(R[0], td, `since ${name} 1`) : P(R[0], to, name, name, "in " + name);
+  }
+  // a weekday: the most recent one, this week or last
+  const di = AG_DOW.findIndex((w) => new RegExp(`\\b(on |last )?${w}\\b`).test(l));
+  if (di >= 0) {
+    let back = (d.getDay() - di + 7) % 7;
+    /\blast\b/.test(l) && 0 === back && (back = 7);
+    const t = iso(addDays(d, -back));
+    return P(t, t, `${AG_DOW[di][0].toUpperCase() + AG_DOW[di].slice(1)} ${fmt(t)}`, "", `on ${AG_DOW[di][0].toUpperCase() + AG_DOW[di].slice(1)} ${fmt(t)}`);
+  }
+  return null;
+}
+const agShort = (p) => String((p && p.project && p.project.name) || "").replace(/ —.*$/, ""),
+  AG_GENERIC = /^(street|st|place|pl|avenue|ave|road|rd|lane|ln|drive|dr|blvd|family|llc|inc|co|corp|group|the|and|of|unit|apt|floor|fl|design|turnover|3rd|garden|parlor|house|window|works|supply|services|service|building|circa|diamond|build|com|lighting|tile|plumbing|millwork|state)$/,
+  agWordRe = (w) => new RegExp(`(?<![\\w$.,/-])${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:'?s)?(?![\\w%/-])`);
+// The jobs a question names: "121 State", "206", "Lenox", "45 cranberry".
+function agJobs(l, pool) {
+  const P = pool || DB.projects || [];
+  return P.filter((p) => {
+    const nm = agShort(p).toLowerCase(),
+      toks = nm.split(/[^a-z0-9]+/).filter(Boolean),
+      num = /^\d+$/.test(toks[0]) ? toks[0] : "",
+      distinct = toks.filter((t) => t.length >= 4 && !/^\d+$/.test(t) && !AG_GENERIC.test(t));
+    if (l.includes(nm)) return !0;
+    if (num && new RegExp(`(?<![\\d$.,/-])${num}(?![\\d,.%/:-]|\\s*(?:hours?|hrs?|days?|minutes?|%|percent|dollars?|k\\b))`).test(l)) return !0;
+    if (toks.length > 1 && toks.slice(0, 2).join(" ") !== nm && l.includes(toks.slice(0, 2).join(" "))) return !0;
+    return distinct.some((t) => agWordRe(t).test(l));
+  });
+}
+function agClients(l, pool) {
+  return (pool || DB.clients || []).filter((c) => {
+    const toks = String(c.name || "")
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter((t) => t.length >= 4 && !AG_GENERIC.test(t) && !/^\d+$/.test(t));
+    if (!toks.length || /llc|inc\b/i.test(c.name)) return !1;
+    const sur = toks[toks.length - 1].replace(/s$/, "");
+    return new RegExp(`\\b${sur}(s|es|'s|s')?\\b`).test(l);
+  });
+}
+function agVendors(l) {
+  const firsts = new Set((DB.employees || []).map((e) => String(e.name).toLowerCase().split(/\s+/)[0]));
+  return (DB.vendors || []).filter((v) => {
+    const nm = String(v.name || "").toLowerCase(),
+      toks = nm.split(/[^a-z0-9.]+/).filter(Boolean);
+    if (nm.length >= 3 && agWordRe(nm).test(l)) return !0;
+    const t0 = toks[0] || "";
+    return toks.length > 1 && t0.length >= 4 && !AG_GENERIC.test(t0) && !firsts.has(t0) && agWordRe(t0).test(l);
+  });
+}
+function agMeEmp() {
+  try {
+    if ("client" === role()) return null;
+    const u = currentUser() || {},
+      E = DB.employees || [];
+    return (
+      (u.empId && E.find((e) => e.id === u.empId)) ||
+      E.find((e) => String(e.name).toLowerCase() === String(u.name || "").toLowerCase()) ||
+      E.find((e) => String(e.name).toLowerCase().split(/\s+/)[0] === String(u.name || "").toLowerCase().split(/\s+/)[0]) ||
+      null
+    );
+  } catch (e) {
+    return null;
+  }
+}
+// The job a field person is on: where they last clocked in.
+function agHomeJobs() {
+  try {
+    if (!["foreman", "crew", "driver"].includes(role())) return [];
+    const me = agMeEmp(),
+      te = me && (DB.time || []).filter((t) => t.empId === me.id).sort((a, b) => String(b.date).localeCompare(a.date))[0];
+    return te ? (DB.projects || []).filter((p) => p.id === te.projectId) : [];
+  } catch (e) {
+    return [];
+  }
+}
+function agPeople(l) {
+  const E = (DB.employees || []).filter((e) => !1 !== e.active),
+    full = E.filter((e) => String(e.name).includes(" ") && l.includes(String(e.name).toLowerCase()));
+  if (full.length) return full;
+  return E.filter((e) => {
+    const f = String(e.name).toLowerCase().split(/\s+/)[0];
+    if (f.length < 3 || !agWordRe(f).test(l)) return !1;
+    // "Sarah" alone is a client contact as often as Sarah Davis; take her only when no client is named
+    return !(E.filter((x) => String(x.name).toLowerCase().split(/\s+/)[0] === f).length > 1);
+  });
+}
+// Payees the books know that are not master vendors: transaction vendors, field receipts.
+function agPayees() {
+  const S0 = new Set();
+  (DB.txns || []).forEach((t) => t.vendor && S0.add(t.vendor)),
+    (DB.spend || []).forEach((s) => s.vendor && S0.add(s.vendor)),
+    (DB.bills || []).forEach((b) => b.vendor && S0.add(b.vendor)),
+    (DB.pos || []).forEach((p) => p.vendor && S0.add(p.vendor));
+  return [...S0].filter((n) => String(n).trim().length >= 3);
+}
+const AG_ABBR = { building: ["bldg"], street: ["st"], company: ["co"], insurance: ["ins"], services: ["svc", "svcs"], service: ["svc"], supply: ["sply", "supply"], brothers: ["bros"], and: ["&"] },
+  agNorm2 = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+// Does a record's text name this payee? "Home Depot" ~ "HOME DEPOT #6166", "Quality Building Supply" ~ "QUALITY BLDG SUPPLY 118".
+function agNameHit(name, hay) {
+  const h = String(hay || "").toLowerCase(),
+    n = String(name || "").toLowerCase().trim();
+  if (!n) return !1;
+  if (agNorm2(h).includes(agNorm2(n)) && agNorm2(n).length >= 4) return !0;
+  const words = n.split(/[^a-z0-9]+/).filter((w) => w && !["the", "of", "inc", "llc"].includes(w));
+  return (
+    words.length > 0 &&
+    words.every((w) => new RegExp(`\\b${w}`).test(h) || (AG_ABBR[w] || []).some((a) => new RegExp(`\\b${a.replace(/[&]/g, "\\&")}\\b`).test(h)) || (w.length <= 2 && h.includes(w)))
+  );
+}
+// A payee named in the question: a known payee first, then a capitalised name nobody holds.
+function agPayeeIn(raw, l) {
+  const found = agPayees()
+    .filter((n) => {
+      const nl = n.toLowerCase();
+      if (agWordRe(nl).test(l)) return !0;
+      const w = nl.split(/[^a-z0-9]+/).filter(Boolean);
+      return w.length >= 2 && w.every((x) => agWordRe(x).test(l) || (x.length <= 2 && l.includes(x + " ")));
+    })
+    .sort((a, b) => b.length - a.length);
+  const uniq = [];
+  found.forEach((n) => uniq.some((u) => u.toLowerCase().includes(n.toLowerCase())) || uniq.push(n));
+  if (uniq.length) return uniq;
+  const m = String(raw || "").match(
+    /\b(?:at|from|to|with|pay|paid|on|for)\s+((?:[A-Z][\w&.'-]*|[A-Z]{2,})(?:\s+(?:[A-Z][\w&.'-]*|&|of)){0,4})/,
+  );
+  if (m) {
+    const nm = m[1].replace(/\s+(In|On|Last|This|Since|During|For)$/i, "").trim(),
+      skip = new RegExp(`^(${AG_MONTHS.join("|")}|${AG_DOW.join("|")}|I|We|Our|The|Today|Yesterday|Home|Tasks?)$`, "i");
+    if (!skip.test(nm) && !agJobs(nm.toLowerCase()).length && !agPeople(nm.toLowerCase()).length) return [nm];
+  }
+  return [];
+}
+
+// ---- the entity a question is about: EQ_TABLES names, their aliases, plurals and the words people use
+const AG_ENTITY = [
+  ["submittals", /\b(submittals?|shop drawings?|samples? to approve|cut sheets?)\b/],
+  ["dailylogs", /\b(daily logs?|site logs?|crew do|crew did|did the crew|the crew (do|did|work)|on site yesterday)\b/],
+  ["photos", /\b(photos?|pictures?|pics?|images?)\b/],
+  ["progress", /\b(progress|percent complete|% complete|logged progress)\b/],
+  ["changeorders", /\b(change ?orders?|cos?\b|co-\d)/],
+  ["decisions", /\b(decisions?|selections?|choices?)\b/],
+  ["time", /\b(hours?|timesheets?|time entries|clocked|hrs)\b/],
+  ["payments", /\b(payments?|collected|collect|came in|paid us|received from)\b/],
+  ["invoices", /\b(invoices?|invoiced|receivables?|\bar\b)\b/],
+  ["bills", /\b(bills?|payables?|\bap\b)\b/],
+  ["purchaseorders", /\b(purchase orders?|\bpos?\b|on order|orders?|deliver(y|ies)|arriving|expected)\b/],
+  ["materials", /\b(materials?|insulation|lumber|tile|fixtures?)\b/],
+  ["transactions", /\b(spend|spent|spending|expenses?|bank lines?|transactions?|charges?|bought|buy|cost us|pay|paid)\b/],
+  ["vendors", /\b(vendors?|suppliers?|subs?|subcontractors?)\b/],
+  ["people", /\b(crew|employees?|staff|team|people|who)\b/],
+  ["tasks", /\b(tasks?|to-?dos?|punch|open items?)\b/],
+  ["projects", /\b(jobs?|projects?|sites?)\b/],
+  ["clients", /\b(clients?|customers?)\b/],
+  ["obligations", /\b(insurance|licen[cs]es?|permits?|obligations?|policy|policies)\b/],
+  ["opportunities", /\b(leads?|deals?|pipeline|prospects?|opportunit(y|ies))\b/],
+  ["budget", /\b(budgets?)\b/],
+  ["bankfeeds", /\b(bank feeds?|feeds?)\b/],
+  ["estimates", /\b(estimates?|proposals?|quotes?|bids?)\b/],
+];
+const AG_LABEL = {
+  submittals: "submittals", dailylogs: "daily logs", photos: "photos", progress: "progress logs", changeorders: "change orders",
+  decisions: "decisions", time: "time entries", payments: "client payments", invoices: "invoices", bills: "bills",
+  purchaseorders: "purchase orders", materials: "materials", transactions: "bank and card lines", vendors: "vendors",
+  people: "people", tasks: "tasks", projects: "projects", clients: "clients", obligations: "obligations",
+  opportunities: "leads", budget: "budget lines", bankfeeds: "bank feeds", estimates: "estimates",
+};
+function agParse(raw) {
+  const l0 = typeof askNorm === "function" ? askNorm(raw) : String(raw || "").toLowerCase(),
+    caps = new Set(
+      String(raw || "")
+        .split(/\s+/)
+        .slice(1)
+        .filter((w) => /^[A-Z][a-z]/.test(w) && !/^(I|I'm|I've)$/.test(w))
+        .map((w) => w.toLowerCase().replace(/[^a-z0-9]/g, "")),
+    ),
+    F = agFix(l0.replace(/[—–]/g, " ").replace(/\s+/g, " ").trim(), caps),
+    l = F.text,
+    me = agMeEmp(),
+    P = { raw: String(raw || ""), l: l, fixes: F.fixes };
+  (P.period = agPeriod(l)),
+    (P.jobs = agJobs(l)),
+    (P.clients = agClients(l)),
+    (P.vendors = agVendors(l)),
+    (P.people = agPeople(l)),
+    (P.self = /\b(i|me|my|mine|myself)\b/.test(l)),
+    P.self && me && !P.people.includes(me) && (P.meEmp = me),
+    (P.payees = agPayeeIn(P.raw, l).filter((n) => !P.vendors.some((v) => v.name.toLowerCase() === n.toLowerCase()) || /\b(spend|spent|pay|paid|cost|bought|buy)\b/.test(l))),
+    (P.neg = /\b(not|no|never|without|has not|have not|did not|does not|un(approved|signed|paid|billed|ordered|submitted|matched))\b/.test(l)),
+    (P.measure = /^(when|what date|what day|by when)\b|\bwhen (is|are|was|will|does|do|did)\b|\b(expire|expires|expiring|expiration)\b/.test(l)
+      ? "when"
+      : /\bhow many\b|\bnumber of\b|\bcount\b/.test(l)
+        ? "count"
+        : /\b(most|biggest|largest|highest|top|more)\b/.test(l)
+          ? "max"
+          : /\b(least|smallest|lowest|fewest)\b/.test(l)
+            ? "min"
+            : /\bhow much\b|\btotal\b|\bsum\b|\bspend|\bspent\b|\bcost\b|\bworth\b|\bvalue\b/.test(l)
+              ? "sum"
+              : "list");
+  const g = l.match(/\b(?:by|per|for each|each|grouped by|broken down by|split by)\s+(vendor|supplier|client|customer|job|project|category|categories|person|employee|month|status|week|payee|account)s?\b/);
+  (P.group = g ? { supplier: "vendor", customer: "client", project: "job", categories: "category", employee: "person", payee: "vendor" }[g[1]] || g[1] : ""),
+    (P.top = (() => {
+      const m = l.match(/\btop (\d+|three|five|ten|two)\b/);
+      return m ? { three: 3, five: 5, ten: 10, two: 2 }[m[1]] || +m[1] : 0;
+    })()),
+    (P.entity = (AG_ENTITY.find((e) => e[1].test(l)) || [""])[0]);
+  return P;
+}
+const agWhereJob = (P) => (P.jobs.length ? [`job is ${P.jobs.map(agShort).join(" or ")}`] : []),
+  agWherePer = (P) => (P.period ? [`date in ${P.period.label}${P.period.from !== P.period.to ? ` (${fmtL(P.period.from)} to ${fmtL(P.period.to)})` : ` (${fmtL(P.period.from)})`}`] : []),
+  agInPer = (P, d) => !P.period || (!!d && d >= P.period.from && d <= P.period.to),
+  agOnJob = (P, pid) => !P.jobs.length || P.jobs.some((p) => p.id === pid),
+  agN = (n, one, many) => `${n} ${1 === n ? one : many || one + "s"}`,
+  agHrs = (h) => String(Math.round(100 * h) / 100),
+  agCap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s),
+  agList = (a, n) => {
+    const L = a.slice(0, n || 6);
+    return L.length <= 1 ? L.join("") : L.slice(0, -1).join(", ") + " and " + L[L.length - 1] + (a.length > L.length ? ` and ${a.length - L.length} more` : "");
+  };
+function agRan(entity, where, group, n) {
+  const W = (where || []).filter(Boolean);
+  return `I ran: ${entity}${W.length ? " where " + W.join(" and ") : ""}${group ? " grouped by " + group : ""} (${agN(n, "row")})`;
+}
+function agGo(view, extra) {
+  try {
+    return view && paCanSee(view) ? Object.assign({ view: view }, extra || {}) : null;
+  } catch (e) {
+    return null;
+  }
+}
+// What a role may read, by the data, not by a view: money is the firm's books; ops is the work.
+function agMay(kind) {
+  let r = "";
+  try {
+    r = role();
+  } catch (e) {}
+  if ("client" === r) return "client" === kind;
+  if (["foreman", "crew", "driver"].includes(r)) return "ops" === kind || "self" === kind;
+  if (["designer"].includes(r)) return "ops" === kind || "self" === kind || "design" === kind;
+  if ("client" === kind) return !1;
+  return "client" !== kind;
+}
+const agBlocked = (what) => ({
+  headline: `${agCap(what)} ${/s$/.test(what) ? "are" : "is"} not part of what your account sees, so I will not answer around it.`,
+  note: "Ask me about your own work, your jobs, your hours, your photos and logs, and I will answer in full.",
+  kind: "blocked",
+});
+
+// ---- figures the firm runs on: each reads the function its screen reads
+const agBF = () => briefFacts(),
+  agB2 = () => b2Facts(briefFacts()),
+  agYTD = (P) => (P.period ? [P.period.from, P.period.to] : [`${today().slice(0, 4)}-01-01`, today()]),
+  agPerLabel = (P) => (P.period ? P.period.say : "year to date"),
+  agJobPct = (p) => {
+    try {
+      // the one job % complete (truthpct); prgJob only says how many tasks were measured
+      const g = prgJob(p) || {};
+      return { pct: tpJobPct(p), how: "tpJobPct", measured: g.measured, n: g.n };
+    } catch (e) {
+      return { pct: 0, how: "tpJobPct" };
+    }
+  };
+function agCloseState(ym) {
+  // the closetie lane's ctCloseStatus when it is there; otherwise the periods the close writes
+  try {
+    if ("function" == typeof ctCloseStatus) {
+      const s = ctCloseStatus(ym);
+      if (s && "object" == typeof s) return { closed: !!(s.closed || s.locked), wages: s.wages, at: s.at || s.on || "", src: "ctCloseStatus" };
+    }
+  } catch (e) {}
+  const per = DB.periods || {},
+    closes = (per.closes || []).filter((x) => "close" === x.run && x.month === ym),
+    c = closes[closes.length - 1] || null,
+    lt = "function" == typeof lockedThrough ? lockedThrough() || "" : "";
+  return { closed: (!!lt && lt >= ym) || !!c, rec: c, wages: c ? c.wages : null, lockedThrough: lt, src: "DB.periods" };
+}
+const AG_FIN = [
+  {
+    id: "dispute",
+    re: /\b(dispute[sd]?|disputing|short[- ]?pa(y|id|ys)|held back from (a )?vendor)\b/,
+    kind: "money",
+    run(P) {
+      const D = pay3Disputes(),
+        held = D.reduce((a, d) => a + (+d.held || 0), 0);
+      return {
+        headline: D.length
+          ? `${money(held)} in dispute with vendors on ${agN(D.length, "bill")}: ${D.map((d) => `${d.b.number} (${d.b.vendor}) ${money(d.held)} held${d.paid ? ", in 1300 until it is settled" : ""}`).join("; ")}.`
+          : "Nothing is in dispute with vendors: no bill is short-paid or held.",
+        work: D.map((d) => `${d.b.number} · ${d.b.vendor} — ${money(d.held)} held${d.approved ? `, ${money(d.approved)} approved` : ""}${d.why ? ` — ${d.why}` : ""}${d.paid ? " — the approved part is paid; the difference sits in 1300 Vendor disputes" : ""}`),
+        go: agGo("ap"),
+        ran: agRan("bills", ["a short-pay or dispute is open (pay3Disputes)"], "", D.length),
+      };
+    },
+  },
+  {
+    id: "accrued",
+    re: /\baccru(ed|al|als)\b.*\bclose\b|\bclose\b.*\baccru/,
+    kind: "money",
+    run(P) {
+      const ym = P.period ? P.period.from.slice(0, 7) : today().slice(0, 7),
+        mn = P.period ? P.period.label : "this month",
+        s = agCloseState(ym);
+      return {
+        headline: s.rec || null != s.wages
+          ? `${money(s.wages)} of wages was accrued at the ${mn} close.`
+          : `${mn} has not been closed, so nothing was accrued at a ${mn} close.`,
+        note: s.rec ? "" : "The close accrues wages earned and not yet paid; it runs from Accounting › Close.",
+        go: agGo("close") || agGo("gl"),
+        ran: agRan("closes", [`month is ${mn}`, "run is close"], "", s.rec ? 1 : 0),
+      };
+    },
+  },
+  {
+    id: "closed",
+    re: /\b(is|are|has|have|was)\b.*\b(closed|close[d]?|locked)\b|\bclose status\b|\bbooks closed\b/,
+    not: /\bbudgets?\b|\b(pos?|purchase orders?|submittals?|tasks?|decisions?|invoices?|bills?|leads?|jobs?|projects?)\b/,
+    kind: "money",
+    run(P) {
+      if (!P.period && !/\b(books|month|period|year)\b/.test(P.l)) return null;
+      const ym = P.period ? P.period.from.slice(0, 7) : iso(addDays(parse(today().slice(0, 8) + "01"), -1)).slice(0, 7),
+        mn = P.period ? P.period.label : "last month",
+        s = agCloseState(ym);
+      return {
+        headline: s.closed ? `${mn} is closed${s.lockedThrough ? `; the books are locked through ${s.lockedThrough}` : ""}.` : `${mn} is not closed yet${s.lockedThrough ? `; the books are locked through ${s.lockedThrough}` : "; no month is locked"}.`,
+        go: agGo("close") || agGo("gl"),
+        ran: agRan("periods", [`month is ${mn}`], "", s.rec ? 1 : 0),
+      };
+    },
+  },
+  {
+    id: "needscat",
+    re: /\bneeds? (a )?categor|\buncategori[sz]ed\b|\bno category\b|\bnot categori[sz]ed\b/,
+    kind: "money",
+    run(P) {
+      const R = agYTD(P),
+        pl = companyPL(R);
+      return {
+        headline: `${money(pl.needsCat)} of spending needs a category, ${agPerLabel(P)}.`,
+        note: "Bank and card lines with no category; Needs Category on the P&L until each is coded.",
+        go: agGo("bank"),
+        ran: agRan("transactions", ["category is empty", `date in ${agPerLabel(P)}`], "", (DB.txns || []).filter((t) => "uncat" === t.cat && t.date >= R[0] && t.date <= R[1]).length),
+      };
+    },
+  },
+  {
+    id: "grossmargin",
+    re: /\bgross (margin|profit)\b|\bmargin\b/,
+    kind: "money",
+    run(P) {
+      if (P.jobs.length) {
+        const J = P.jobs.map((p) => ({ p: p, f: jobFin(p) }));
+        return {
+          headline: J.map((x) => `${agShort(x.p)}: ${x.f.estGPPct}% gross margin at completion (${money(x.f.estGP)} on ${money(x.f.contract)})`).join("; ") + ".",
+          go: agGo("costs", { project: J[0].p.id }),
+          ran: agRan("projects", agWhereJob(P), "", J.length),
+        };
+      }
+      const R = agYTD(P),
+        pl = companyPL(R),
+        pct = pl.income ? Math.round((1e3 * pl.gross) / pl.income) / 10 : 0;
+      return {
+        headline: `${pct}% gross margin ${agPerLabel(P)}: ${money(pl.gross)} gross profit on ${money(pl.income)} revenue.`,
+        work: [`Revenue ${money(pl.income)}`, `Cost of work ${money(pl.cogsT)}`, `Gross profit ${money(pl.gross)}`, `Overhead ${money(pl.ohT)}`, `Net ${money(pl.net)}`],
+        go: agGo("reports", { tab: "pl" }),
+        ran: agRan("profit and loss", [`date in ${agPerLabel(P)}`], "", 1),
+      };
+    },
+  },
+  {
+    id: "eac",
+    re: /\beac\b|\bestimate(d)? (cost )?at completion\b|\bcost at completion\b|\bforecast(ed)? (final )?cost\b|\bprojected cost\b/,
+    kind: "money",
+    run(P) {
+      const L = P.jobs.length ? P.jobs : (DB.projects || []).filter((p) => p.project && !/design/i.test(p.project.name));
+      const J = L.map((p) => ({ p: p, f: jobFin(p) }));
+      return {
+        headline: J.map((x) => `EAC on ${agShort(x.p)} is ${money(x.f.eac)}: ${money(x.f.actual)} actual + ${money(x.f.committed)} committed + cost to complete`).join("; ") + ".",
+        work: J.map((x) => `${agShort(x.p)} — EAC ${money(x.f.eac)}, contract ${money(x.f.contract)}, margin at completion ${x.f.estGPPct}%`),
+        go: J.length ? agGo("costs", { project: J[0].p.id }) : null,
+        ran: agRan("projects", agWhereJob(P).concat(["EAC from jobFin"]), "", J.length),
+      };
+    },
+  },
+  {
+    id: "overbilled",
+    re: /\bover[- ]?bill(ed|ing)?\b|\bbilled ahead\b|\bwip\b/,
+    kind: "money",
+    run(P) {
+      if (P.jobs.length) {
+        const J = P.jobs.map((p) => ({ p: p, f: jobFin(p) }));
+        return {
+          headline: J.map((x) => (x.f.over > 0.5 ? `${agShort(x.p)} is over-billed by ${money(x.f.over)}: ${money(x.f.billed)} billed against ${money(x.f.earned)} earned` : `${agShort(x.p)} is not over-billed (${money(x.f.under)} under-billed)`)).join("; ") + ".",
+          go: agGo("wip") || agGo("reports"),
+          ran: agRan("projects", agWhereJob(P), "", J.length),
+        };
+      }
+      const B = agBF().B,
+        jobs = (DB.projects || []).filter((p) => jobFin(p).over > 0.5);
+      return {
+        headline: `${money(B.wip)} billed ahead of the work (over-billed, a liability) across ${agN(jobs.length, "job")}.`,
+        work: jobs.map((p) => `${agShort(p)} — ${money(jobFin(p).over)} invoiced ahead of the work`),
+        go: agGo("wip") || agGo("reports"),
+        ran: agRan("projects", ["billed is more than earned"], "", jobs.length),
+      };
+    },
+  },
+  {
+    id: "held",
+    re: /\b(held|hold|holding)\b.*\bbill(ing|ed)?\b|\bwhy (is|are|can'?t|cannot)\b.*\bbill\b/,
+    kind: "money",
+    run(P) {
+      const R = readyToBill(),
+        H = (R.held || []).filter((h) => agOnJob(P, h.p && h.p.id));
+      return {
+        headline: H.length
+          ? H.map((h) => `${agShort(h.p)} is held from billing: ${h.why || `it is billed ${money(h.over)} ahead of earned work`}`).join("; ") + "."
+          : `${P.jobs.length ? agShort(P.jobs[0]) + " is" : "Nothing is"} not held from billing.`,
+        work: H.map((h) => `${agShort(h.p)} — over-billed ${money(h.over)}; it bills again when earned work passes what is billed`),
+        go: agGo("billing"),
+        ran: agRan("ready to bill", agWhereJob(P).concat(["held"]), "", H.length),
+      };
+    },
+  },
+  {
+    id: "ap",
+    re: /\b(ap|a\/p|accounts payable|payables?)\b|\b(we|do we|we still) owe\b|\bowe (the )?(most|vendors?|suppliers?|subs?)\b|\bvendors?\b.*\bowe\b/,
+    kind: "money",
+    not: /\bpayroll\b/,
+    run(P) {
+      const A = apOpenBills(),
+        R = (A.rows || []).filter((x) => !P.vendors.length || P.vendors.some((v) => v.name === x.who)),
+        by = {};
+      R.forEach((x) => (by[x.who] = (by[x.who] || 0) + (+x.amt || 0)));
+      const rank = Object.entries(by).sort((a, b) => b[1] - a[1]),
+        B = agBF().B,
+        pay = ((A.A && A.A.items) || []).filter((i) => "payroll" === i.kind),
+        extra = [pay.length ? `payroll ${money(pay.reduce((a, i) => a + (+i.amt || 0), 0))} past due is owed to the crew, not a vendor` : "", B.apAccrued ? `${money(B.apAccrued)} is awaiting approval, not owed` : ""].filter(Boolean),
+        most = "max" === P.measure || /\bmost\b/.test(P.l);
+      return {
+        headline: rank.length
+          ? most
+            ? `${rank[0][0]}: ${money(rank[0][1])} owed on open bills${rank[1] ? `; then ${rank[1][0]}, ${money(rank[1][1])}` : ""}.`
+            : `${money(A.total)} owed to vendors on ${agN(R.length, "open bill")}.`
+          : `${money(0)} owed to vendors: no vendor bill is approved and unpaid${most ? ", so no vendor is owed the most" : ""}.`,
+        note: extra.length ? agCap(extra.join("; ")) + "." : "",
+        work: rank.map(([w, a]) => `${w} — ${money(a)} owed`),
+        go: agGo("ap"),
+        ran: agRan("bills", ["approved and unpaid (apOpenBills)"].concat(P.vendors.length ? [`vendor is ${P.vendors.map((v) => v.name).join(" or ")}`] : []), most || rank.length > 1 ? "vendor" : "", R.length),
+      };
+    },
+  },
+  {
+    id: "ar",
+    re: /\b(ar|a\/r|accounts receivable|receivables?)\b|\b(are we owed|owed to us|owe us|owes us)\b|\boutstanding\b|\bclients?\b.*\bbalances?\b|\bbalances?\b.*\bclients?\b/,
+    kind: "money",
+    run(P) {
+      const inv = eqRows("invoices").filter((r) => r.unpaid && r.outstanding > 0.005 && agOnJob(P, r.projectId) && (!P.clients.length || P.clients.some((c) => c.id === r.clientId)));
+      if (P.group || "max" === P.measure || P.clients.length || P.jobs.length || /\bwhich client|\bwho owes\b/.test(P.l)) {
+        const by = {};
+        inv.forEach((r) => (by[r.client] = (by[r.client] || 0) + r.outstanding));
+        const rank = Object.entries(by).sort((a, b) => b[1] - a[1]),
+          tot = inv.reduce((a, r) => a + r.outstanding, 0);
+        return {
+          headline: rank.length
+            ? "max" === P.measure
+              ? `${rank[0][0]} owes the most: ${money(rank[0][1])} open${rank[1] ? `; then ${rank[1][0]}, ${money(rank[1][1])}` : ""}.`
+              : `${money(tot)} open across ${agN(rank.length, "client")}: ${rank.map(([c, a]) => `${c} ${money(a)}`).join(", ")}.`
+            : "No client owes us anything on an open invoice.",
+          work: inv.map((r) => `${r.number} · ${r.client} — ${money(r.outstanding)} open${r.due ? `, due ${fmtL(r.due)}` : ""}`),
+          go: agGo("billing"),
+          ran: agRan("invoices", ["unpaid", "balance above $0"].concat(P.clients.length ? [`client is ${P.clients.map((c) => c.name).join(" or ")}`] : []).concat(agWhereJob(P)), "client", inv.length),
+        };
+      }
+      const B = agBF().B;
+      return {
+        headline: `${money(B.arOut)} in receivables (1100) on ${agN(inv.length, "open invoice")}${B.arOver ? `, ${money(B.arOver)} overdue` : ", none overdue"}.`,
+        work: inv.map((r) => `${r.number} · ${r.client} — ${money(r.outstanding)} open${r.due ? `, due ${fmtL(r.due)}` : ""}`),
+        go: agGo("billing"),
+        ran: agRan("invoices", ["unpaid", "balance above $0"], "", inv.length),
+      };
+    },
+  },
+  {
+    id: "unmatched",
+    re: /\bunmatched\b|\bnot matched\b|\bunreconciled\b/,
+    kind: "money",
+    run(P) {
+      const U = bankUnmatched(),
+        rows = U.rows || [];
+      return {
+        headline: `${agN(rows.length, "bank item")} not yet matched: ${money(U.amt)}${rows.length ? `, the oldest from ${fmtL(rows.map((r) => r.date).sort()[0])}` : ""}.`,
+        go: agGo("bank"),
+        ran: agRan("transactions", ["not matched to a record"], "", rows.length),
+      };
+    },
+  },
+  {
+    id: "cash",
+    re: /\b(cash|in the bank|bank balance)\b/,
+    kind: "money",
+    not: /\b(truly|safe to spend|flow|runway|13[- ]week)\b/,
+    run(P) {
+      const B = agBF().B;
+      return {
+        headline: `${money(B.cash)} in the bank; ${money(-B.cards)} owed on cards; safe to spend ${money(B.trulyOurs)} once client funds and payables are set aside.`,
+        go: agGo("bank"),
+        ran: agRan("bank accounts", ["balance as of " + fmtL(today())], "", (DB.accounts || []).length),
+      };
+    },
+  },
+  {
+    id: "budgetlock",
+    re: /\bbudgets?\b.*\b(lock|locked|unlocked|status|version|approved|active)\b|\b(lock|locked|status|version)\b.*\bbudgets?\b/,
+    kind: "money",
+    run(P) {
+      const BP = DB.budgetPlan || {},
+        y = (P.period ? P.period.from : today()).slice(0, 4),
+        V = (BP.versions || []).filter((v) => String(v.year) === y),
+        act = V.find((v) => v.id === (BP.active || {})[y]) || V[V.length - 1];
+      if (!act) return { headline: `No budget is set up for ${y}.`, ran: agRan("budget versions", [`year is ${y}`], "", 0) };
+      return {
+        headline: `The ${y} budget in use is ${act.name}, ${"locked" === act.status ? `locked ${fmtL(act.lockedOn)} by ${act.lockedBy}` : `${act.status || "open"}, not locked`}.`,
+        note: act.lockNote || "",
+        work: V.map((v) => `${v.name} — ${v.status || "open"}${v.lockedOn ? `, locked ${fmtL(v.lockedOn)} by ${v.lockedBy}` : ""}${v.id === act.id ? " (in use)" : ""}`),
+        go: agGo("reports", { tab: "budget" }),
+        ran: agRan("budget versions", [`year is ${y}`], "", V.length),
+      };
+    },
+  },
+  {
+    id: "budget",
+    re: /\bbudget(ed)?\b|\bover budget\b|\bunder budget\b/,
+    kind: "money",
+    run(P) {
+      if (P.jobs.length) return null;
+      const stop = new Set(["budget", "budgeted", "what", "how", "much", "is", "our", "the", "for", "did", "we", "are", "over", "under", "this", "year", "month", "against", "actual", "vs", "versus", "compared", "spend", "spent", "total"]),
+        words = P.l.split(" ").filter((w) => w.length >= 4 && !stop.has(w) && !AG_STOPW.has(w) && !AG_MONTHS.includes(w)),
+        R0 = eqRows("budget").filter((r) => r.active && (!P.period || (r.month >= P.period.from.slice(0, 7) && r.month <= P.period.to.slice(0, 7))) && (P.period || r.month.slice(0, 4) === today().slice(0, 4))),
+        R = words.length ? R0.filter((r) => words.some((w) => new RegExp(`\\b${w.replace(/s$/, "")}`).test(String(r.account || "").toLowerCase() + " " + String(r.section || "").toLowerCase()))) : R0;
+      if (!R.length) return null;
+      const b = R.reduce((a, r) => a + (+r.budget || 0), 0),
+        bt = R.reduce((a, r) => a + (+r.budgetToDate || 0), 0),
+        ac = R.reduce((a, r) => a + (+r.actual || 0), 0),
+        accts = [...new Set(R.map((r) => r.account))];
+      return {
+        headline: `${money(b)} budgeted${words.length ? ` for ${agList(accts, 3)}` : ""} ${P.period ? P.period.say : "this year"}; ${money(ac)} actual against ${money(bt)} budgeted to date, ${ac > bt ? `${money(ac - bt)} over` : `${money(bt - ac)} under`}.`,
+        work: accts.slice(0, 10).map((a) => {
+          const X = R.filter((r) => r.account === a);
+          return `${a} — budget ${money(X.reduce((x, r) => x + (+r.budget || 0), 0))}, actual ${money(X.reduce((x, r) => x + (+r.actual || 0), 0))}`;
+        }),
+        go: agGo("reports", { tab: "budget" }),
+        ran: agRan("budget", ["version in use"].concat(words.length ? [`account matches "${words.join(" ")}"`] : [], agWherePer(P)), "account", R.length),
+      };
+    },
+  },
+  {
+    id: "pastdue",
+    re: /\b(past due|overdue)\b/,
+    not: /\b(decisions?|tasks?|materials?|submittals?|order-?by|payroll|insurance|on \d+|state|lenox|cranberry|prospect)\b/,
+    kind: "money",
+    run(P) {
+      if (P.jobs.length) return null;
+      const inv = eqRows("invoices").filter((r) => r.unpaid && r.overdue && r.outstanding > 0.005),
+        bills = (apOpenBills().rows || []).filter((x) => x.due && x.due < today()),
+        pay = ((apOpenBills().A || {}).items || []).filter((i) => "payroll" === i.kind && i.due && i.due < today()),
+        pt = pay.reduce((a, i) => a + (+i.amt || 0), 0);
+      return {
+        headline: `${inv.length ? `${agN(inv.length, "client invoice")} past due, ${money(inv.reduce((a, r) => a + r.outstanding, 0))}` : "No client invoice is past due: none"}; ${bills.length ? `${agN(bills.length, "vendor bill")} past due` : "no vendor bill is past due"}${pay.length ? `; payroll ${money(pt)} is past due` : ""}.`,
+        work: inv.map((r) => `${r.number} · ${r.client} — ${money(r.outstanding)}, due ${fmtL(r.due)}`).concat(bills.map((x) => `${x.who} ${x.number} — ${money(x.amt)}, due ${fmtL(x.due)}`)),
+        go: agGo("billing") || agGo("ap"),
+        ran: agRan("invoices and bills", ["unpaid", "due date has passed"], "", inv.length + bills.length + pay.length),
+      };
+    },
+  },
+  {
+    id: "exceptions",
+    re: /\bexceptions?\b/,
+    kind: "money",
+    run(P) {
+      const E = openExceptions();
+      return {
+        headline: E.length ? `${agN(E.length, "exception")} open.` : "No exceptions are open.",
+        work: E.slice(0, 10).map((x) => String(x.title || x.text || x.why || x.kind || "")),
+        go: agGo("exceptions") || agGo("ap"),
+        ran: agRan("exceptions", ["open"], "", E.length),
+      };
+    },
+  },
+  {
+    id: "goesout",
+    re: /\b(goes|going|go|money) out\b|\bpayments? due\b|\bdue to (pay|vendors)\b|\bwhat do we (have to )?pay\b/,
+    kind: "money",
+    run(P) {
+      const X = agB2(),
+        bills = X.dueWeek || [],
+        pr = X.payrollDue || [],
+        tot = bills.reduce((a, b) => a + billTotal(b), 0) + pr.reduce((a, r) => a + (+r.total || 0), 0);
+      return {
+        headline: `${money(tot)} goes out this week: ${agN(bills.length, "bill")}${pr.length ? ` and payroll ${money(pr.reduce((a, r) => a + (+r.total || 0), 0))}` : ""}.`,
+        work: bills.map((b) => `${b.vendor} ${b.number} — ${money(billTotal(b))}, due ${fmtL(b.due)}`).concat(pr.map((r) => `Payroll ${r.period} — ${money(r.total)}, due ${fmtL(r.payDate || r.due)}`)),
+        go: agGo("ap"),
+        ran: agRan("bills and payroll", ["due this week or past due"], "", bills.length + pr.length),
+      };
+    },
+  },
+];
+
+// ---- the work: counted questions read PRED or the brief's own lists
+const AG_OPS = [
+  {
+    id: "waiting",
+    re: /\b(waiting on (me|my)|waiting for (me|my)|need(s)? (me|my)|my approvals?|to approve|do i (need to )?approve|on my desk|my sign[- ]?off)\b/,
+    not: /\bam i waiting\b/,
+    kind: "ops",
+    run(P) {
+      if ("client" === role()) return null;
+      const A = mApprovals(),
+        by = {};
+      A.forEach((a) => {
+        const k = String(a.kind || a.type || a.cat || "item");
+        by[k] = (by[k] || 0) + 1;
+      });
+      return {
+        headline: A.length ? `${agN(A.length, "thing")} ${1 === A.length ? "is" : "are"} waiting on you.` : "Nothing is waiting on you.",
+        note: "The same list as Approvals: every yes or no waiting on you.",
+        work: A.slice(0, 12).map((a) => `${a.title || a.label || ""}${a.detail ? ` · ${a.detail}` : ""}`),
+        go: agGo("mapprove"),
+        ran: agRan("approvals", ["waiting on you (PRED.waitingOnMe)"], "", A.length),
+      };
+    },
+  },
+  {
+    id: "late",
+    re: /\b(late|behind|overdue|past due)\b/,
+    not: /\b(invoices?|bills?|payroll|pay|paid|decisions?|submittals?|materials?|order-?by|tasks?|hours?|timesheets?|insurance)\b/,
+    kind: "ops",
+    run(P) {
+      if ("client" === role()) return null;
+      if (!P.jobs.length) {
+        if (!/\bjobs?\b|\bprojects?\b|\bsites?\b/.test(P.l)) return null;
+        const J = (DB.projects || []).map((p) => ({ p: p, n: PRED.jobLate.count(p.id) })).filter((x) => x.n > 0).sort((a, b) => b.n - a.n);
+        return {
+          headline: J.length ? `${agN(J.length, "job")} ${1 === J.length ? "has" : "have"} something late: ${J.map((x) => `${agShort(x.p)} ${x.n}`).join(", ")}.` : "Nothing is late on any job.",
+          note: "Late is materials late to order, decisions past due and late submittals, the same count as each job's Late figure.",
+          work: J.map((x) => `${agShort(x.p)} — ${agList(predNeedsSay(PRED.jobLate.parts(x.p.id), ["material", "decision", "submittal"]))}`),
+          go: agGo("ovjobs") || agGo("port"),
+          ran: agRan("PRED.jobLate", [], "job", J.reduce((a, x) => a + x.n, 0)),
+        };
+      }
+      const out = P.jobs.map((p) => {
+        const L = PRED.jobLate.parts(p.id),
+          N = PRED.jobNeeds.parts(p.id),
+          n = PRED.jobLate.count(p.id),
+          needs = PRED.jobNeeds.count(p.id),
+          lateSay = predNeedsSay(L, ["material", "decision", "submittal"]),
+          alsoSay = predNeedsSay(N, ["inspection", "question"]);
+        return {
+          p: p,
+          n: n,
+          head: `Late on ${agShort(p)}: ${n}${lateSay.length ? ` — ${agList(lateSay)}` : " — nothing"}.${alsoSay.length ? ` Also needs you: ${agList(alsoSay)} (Needs You: ${needs}).` : ""}`,
+          work: [].concat(
+            L.material.map((r) => `Late to order — ${r.name || r.item || (r.m && r.m.name) || (r.l && r.l.item) || "material"}${r.orderBy ? `, order-by ${fmtL(r.orderBy)}` : ""}`),
+            L.decision.map((x) => `Decision past due — ${x.d.name}${x.d.owner ? ` (${x.d.owner})` : ""}`),
+            L.submittal.map((x) => `Submittal late — ${x.s ? x.s.number + " " + (x.s.title || "") : x.number || x.title || ""}`),
+          ),
+        };
+      });
+      return {
+        headline: out.map((o) => o.head).join(" "),
+        work: [].concat(...out.map((o) => o.work)),
+        go: agGo("dash", { project: P.jobs[0].id }),
+        ran: agRan("PRED.jobLate", agWhereJob(P), "kind", out.reduce((a, o) => a + o.n, 0)),
+      };
+    },
+  },
+  {
+    id: "blocking",
+    re: /\b(blocking|blocks|holding up|held up|stuck)\b.*\b(field|site|crew|work)\b|\bwhat('s| is) blocking\b/,
+    not: /\bsubmittals?\b|\border\b/,
+    kind: "ops",
+    run(P) {
+      const F = (agB2().field || []).filter((x) => agOnJob(P, x.p && x.p.id));
+      return {
+        headline: F.length ? `${agN(F.length, "question")} from the field ${1 === F.length ? "is" : "are"} blocking work: ${agList(F.map((x) => x.i.title))}.` : "Nothing from the field is blocking work.",
+        work: F.map((x) => `${agShort(x.p)} — ${x.i.title}${x.i.owner ? `, waiting on ${x.i.owner}` : ""}${x.i.due ? `, needed ${fmtL(x.i.due)}` : ""}`),
+        go: agGo("field"),
+        ran: agRan("site questions", ["open and holding a task"].concat(agWhereJob(P)), "", F.length),
+      };
+    },
+  },
+  {
+    id: "dlmissing",
+    re: /\b(daily )?logs?\b.*\b(missing|not (filed|submitted|done|in))\b|\bmissing\b.*\b(daily )?logs?\b/,
+    kind: "ops",
+    run(P) {
+      if ("function" != typeof dlMissing) return null;
+      const R = (dlMissing() || []).filter((x) => agOnJob(P, x.p && x.p.id));
+      return {
+        headline: R.length ? `${agN(R.length, "daily log")} missing: ${agList(R.map((x) => `${agShort(x.p)}${x.date ? ` ${fmtL(x.date)}` : ""}`))}.` : "No daily log is missing.",
+        go: agGo("dlog") || agGo("field"),
+        ran: agRan("daily logs", ["a site day with no log filed"].concat(agWhereJob(P)), "", R.length),
+      };
+    },
+  },
+  {
+    id: "orderweek",
+    re: /\b(must|need(s)? to|has to|have to|should|to) be ordered\b|\border(ed)? this week\b|\bto order this week\b|\bbuy this week\b/,
+    kind: "ops",
+    run(P) {
+      const R = (agB2().buyWeek || []).filter((r) => agOnJob(P, r.p && r.p.id));
+      return {
+        headline: `${agN(R.length, "item")} must be ordered this week.`,
+        work: R.slice(0, 12).map((r) => `${agShort(r.p)} — ${(r.m && r.m.name) || (r.l && r.l.item) || r.name || ""}${r.orderBy ? `, order by ${fmtL(r.orderBy)}` : ""}`),
+        go: agGo("proc"),
+        ran: agRan("Buy Board", ["to order this week"].concat(agWhereJob(P)), "", R.length),
+      };
+    },
+  },
+  {
+    id: "orderby",
+    re: /\b(past|passed|missed) (its |their |the )?order[- ]?by\b|\blate to order\b|\bshould have been ordered\b/,
+    kind: "ops",
+    run(P) {
+      const R = (agB2().buyLate || []).filter((r) => agOnJob(P, r.p && r.p.id));
+      return {
+        headline: `${agN(R.length, "item")} ${1 === R.length ? "is" : "are"} past ${1 === R.length ? "its" : "their"} order-by date.`,
+        work: R.slice(0, 12).map((r) => `${agShort(r.p)} — ${(r.m && r.m.name) || (r.l && r.l.item) || r.name || ""}${r.orderBy ? `, order-by ${fmtL(r.orderBy)}` : ""}`),
+        go: agGo("proc"),
+        ran: agRan("Buy Board", ["order-by date has passed", "not ordered"].concat(agWhereJob(P)), "", R.length),
+      };
+    },
+  },
+  {
+    id: "requests",
+    re: /\b(field )?requests?\b/,
+    kind: "ops",
+    run(P) {
+      if (!/\bnew\b|\bunacknowledged\b|\bnot (seen|acknowledged)\b|\bopen\b/.test(P.l)) return null;
+      const R = (agB2().unacked || []).filter((x) => agOnJob(P, x.p && x.p.id));
+      return {
+        headline: R.length ? `${agN(R.length, "new request")} from the field: ${agList(R.map((x) => `${x.r.qty || ""} ${x.r.unit || ""} ${x.r.what}`.trim()))}.` : "No new requests from the field.",
+        work: R.map((x) => `${agShort(x.p)} — ${x.r.what}, from ${x.r.by}${x.r.neededBy ? `, needed by ${fmtL(x.r.neededBy)}` : ""}`),
+        go: agGo("req"),
+        ran: agRan("requests", ["status is new"].concat(agWhereJob(P)), "", R.length),
+      };
+    },
+  },
+  {
+    id: "returns",
+    re: /\breturns?\b/,
+    kind: "ops",
+    run(P) {
+      const R = agB2().returns || [];
+      return {
+        headline: R.length ? `${agN(R.length, "return")} open.` : "No returns are open.",
+        work: R.map((r) => `${r.item || r.what || r.name || r.id}${r.vendor ? ` · ${r.vendor}` : ""}${r.raisedAt ? `, raised ${fmtL(r.raisedAt)}` : ""}${r.owner ? `, with ${r.owner}` : ""}`),
+        go: agGo("returns") || agGo("proc"),
+        ran: agRan("returns", ["open"], "", R.length),
+      };
+    },
+  },
+  {
+    id: "drafts",
+    re: /\bdrafts?\b.*\b(not|never|un)\s*(been )?sent\b|\bunsent\b|\bnot (been )?sent\b/,
+    kind: "money",
+    run(P) {
+      const R = agB2().drafts || [];
+      return {
+        headline: R.length ? `${agN(R.length, "draft")} not sent.` : "No drafts are waiting to be sent: none.",
+        work: R.map((x) => `${(x.d || x.i || x).number || ""} ${(x.c && x.c.name) || ""}`),
+        go: agGo("billing"),
+        ran: agRan("invoices and change orders", ["status is draft"], "", R.length),
+      };
+    },
+  },
+  {
+    id: "decover",
+    re: /\bdecisions?\b.*\b(overdue|past due|late)\b|\b(overdue|late) decisions?\b/,
+    kind: "ops",
+    run(P) {
+      const R = (agB2().decOver || []).filter((x) => agOnJob(P, x.p && x.p.id));
+      return {
+        headline: R.length ? `${agN(R.length, "decision")} ${1 === R.length ? "is" : "are"} overdue: ${agList([...new Set(R.map((x) => x.d.owner || "unassigned"))].map((o) => `${R.filter((x) => (x.d.owner || "unassigned") === o).length} on ${o}`))}.` : "No decision is overdue.",
+        work: R.map((x) => `${agShort(x.p)} — ${x.d.name}, owed by ${x.d.owner || "nobody named"}`),
+        go: agGo("dec"),
+        ran: agRan("decisions", ["open", "past the date the schedule needs it"].concat(agWhereJob(P)), "owner", R.length),
+      };
+    },
+  },
+  {
+    id: "myweek",
+    re: /\bmy week\b|\bweek look like\b|\bon my plate this week\b/,
+    kind: "self",
+    run(P) {
+      const td = today(),
+        to = iso(addDays(parse(td), 7)),
+        T = openTasks("me").filter((t) => t.due && t.due <= to);
+      return {
+        headline: T.length ? `${agN(T.length, "item")} on you due by ${fmtL(to)}.` : `Nothing of yours is due by ${fmtL(to)}.`,
+        work: T.map((t) => `${t.due < td ? "Late" : fmtL(t.due)} — ${t.title}${t.project ? ` · ${t.project}` : ""}`),
+        go: agGo("tasks"),
+        ran: agRan("tasks", ["assigned to you", "open", `due by ${fmtL(to)}`], "", T.length),
+      };
+    },
+  },
+  {
+    id: "fieldday",
+    re: /\b(on my day|my day|today'?s work|on today|what am i doing today|what('s| is) on today)\b/,
+    kind: "self",
+    run(P) {
+      if (!["foreman", "crew", "driver"].includes(role())) return null;
+      const me = agMeEmp(),
+        td = today(),
+        te = me && (DB.time || []).find((t) => t.empId === me.id && t.date === td),
+        p = te ? (DB.projects || []).find((x) => x.id === te.projectId) : null;
+      if (!p) return null;
+      const T = (p.tasks || []).filter((t) => "done" !== t.status && t.start <= td && t.end >= td);
+      return {
+        headline: `${fmtL(td)} at ${agShort(p)}: ${agN(T.length, "task")} running — ${agList(T.map((t) => t.name), 4)}.`,
+        work: T.map((t) => `${t.name} — through ${fmtL(t.end)}`),
+        go: agGo("field") || agGo("dash", { project: p.id }),
+        ran: agRan("tasks", [`job is ${agShort(p)} (where you clocked in today)`, "running today", "not done"], "", T.length),
+      };
+    },
+  },
+  {
+    id: "dhours",
+    re: /\bdesign hours\b.*\b(bill|banked|invoice)\b|\b(bill|banked)\b.*\bdesign hours\b|\bbanked\b/,
+    kind: "design",
+    run(P) {
+      const R = (readyToBill().rows || []).filter((r) => "dhours" === r.kind && agOnJob(P, r.p && r.p.id)),
+        tot = R.reduce((a, r) => a + (+r.amount || 0), 0);
+      return {
+        headline: R.length ? `${money(tot)} can be billed for design hours banked${P.jobs.length ? ` on ${agShort(P.jobs[0])}` : ""}: ${agList(R.map((r) => r.title))}.` : `No design hours are banked to bill${P.jobs.length ? ` on ${agShort(P.jobs[0])}` : ""}: $0.`,
+        go: agGo("billing"),
+        ran: agRan("ready to bill", ["kind is design hours"].concat(agWhereJob(P)), "", R.length),
+      };
+    },
+  },
+  {
+    id: "invoicenow",
+    re: /\b(ready to bill|ready to invoice|invoice today|bill today|could we invoice|can (i|we) (bill|invoice)|should we invoice|what can (i|we) bill)\b/,
+    kind: "money",
+    run(P) {
+      const R0 = readyToBill(),
+        R = (R0.rows || []).filter((r) => agOnJob(P, r.p && r.p.id) && (!P.clients.length || P.clients.some((c) => r.c && r.c.id === c.id))),
+        tot = R.reduce((a, r) => a + (+r.amount || 0), 0),
+        held = (R0.held || []).filter((h) => agOnJob(P, h.p && h.p.id));
+      return {
+        headline: R.length ? `${money(tot)} is ready to bill on ${agN(R.length, "item")}: ${R.map((r) => `${agShort(r.p)} ${money(r.amount)}`).join(", ")}.` : `Nothing is ready to bill${P.clients.length ? ` for ${P.clients[0].name}` : ""}: $0.`,
+        note: held.length ? held.map((h) => `${agShort(h.p)} is held: billed ${money(h.over)} ahead of earned work.`).join(" ") : "",
+        work: R.map((r) => r.title),
+        go: agGo("billing"),
+        ran: agRan("ready to bill", (P.clients.length ? [`client is ${P.clients.map((c) => c.name).join(" or ")}`] : []).concat(agWhereJob(P)), "", R.length),
+      };
+    },
+  },
+];
+
+// ---- entity readers: the parsed filters applied to the query layer's rows
+const AG_CAT = {
+  software: ["design-software"], insurance: ["insurance"], fuel: ["vehicle"], vehicle: ["vehicle"], gas: ["vehicle"], meals: ["meals"], food: ["meals"],
+  lunch: ["meals"], permits: ["permits"], permit: ["permits"], fees: ["permits"], dumpsters: ["disposal"], dumpster: ["disposal"], disposal: ["disposal"],
+  materials: ["materials"], material: ["materials"], subs: ["subs"], subcontractors: ["subs"], office: ["office"], rent: ["office"],
+};
+function agOutRows(P) {
+  return eqRows("transactions").filter((r) => "out" === r.direction && !["cc-payment", "transfer"].includes(r.category) && agInPer(P, r.date) && agOnJob(P, r.projectId));
+}
+const agTxnHay = (r) => `${r.description || ""} ${r.vendor || ""} ${r.memo || ""}`;
+const AG_ENT = [
+  {
+    // money out: "how much did we spend at Home Depot in August", "what did we pay M Rodriguez", "spend by vendor"
+    id: "spend",
+    kind: "money",
+    test: (P) =>
+      "client" !== role() &&
+      !/\bsafe to spend\b/.test(P.l) &&
+      (/\b(spend|spent|spending|expenses?|cost us|bought|buy|purchases?)\b/.test(P.l) ||
+        (/\b(pay|paid)\b/.test(P.l) && (P.payees.length || P.vendors.length || /\b(we|did we|have we) (pay|paid)\b/.test(P.l)) && !/\b(invoices?|bills?)\b/.test(P.l))) &&
+      !/\b(paid us|pay us|collect|came in|client pa|payments? (came|in)|payroll)\b/.test(P.l) &&
+      !(P.clients.length && /\b(pay|paid)\b/.test(P.l) && !/\bwe\b/.test(P.l)) &&
+      !/\bdesign hours\b/.test(P.l),
+    run(P) {
+      let rows = agOutRows(P);
+      const where = [].concat(agWherePer(P), agWhereJob(P));
+      const cats = [].concat(...Object.keys(AG_CAT).filter((k) => new RegExp(`\\bon ${k}\\b|\\b${k} (spend|cost|expenses?)\\b`).test(P.l)).map((k) => AG_CAT[k]));
+      cats.length && ((rows = rows.filter((r) => cats.includes(r.category))), where.push(`category is ${cats.join(" or ")}`));
+      const names = P.payees.length ? P.payees : P.vendors.map((v) => v.name);
+      if (names.length > 1 && (/\bor\b|\bvs\b|\bversus\b|\bmore\b|\bcompare/.test(P.l))) {
+        const S0 = names.map((n) => {
+          const R = rows.filter((r) => agNameHit(n, agTxnHay(r)));
+          return { n: n, R: R, t: R.reduce((a, r) => a + r.money, 0) };
+        }).sort((a, b) => b.t - a.t);
+        return {
+          headline: `${S0[0].n}: ${money(S0[0].t)}${P.period ? ` ${P.period.say}` : ""}, more than ${S0.slice(1).map((s) => `${s.n} at ${money(s.t)}`).join(" and ")}.`,
+          work: [].concat(...S0.map((s) => s.R.map((r) => `${fmtL(r.date)} — ${r.description} — ${money(r.money)}`))),
+          go: agGo("bank"),
+          ran: agRan("transactions", ["money out", `payee is ${names.join(" or ")}`].concat(where), "payee", S0.reduce((a, s) => a + s.R.length, 0)),
+        };
+      }
+      if (names.length) {
+        const nm = names[0];
+        (rows = rows.filter((r) => agNameHit(nm, agTxnHay(r)))), where.unshift(`text matches "${nm}"`);
+        // a field receipt the bank has not shown yet still counts
+        if (!rows.length) {
+          const sp = (DB.spend || []).filter((s) => agNameHit(nm, s.vendor) && agInPer(P, s.date) && agOnJob(P, s.projectId)),
+            t = sp.reduce((a, s) => a + (s.lines || []).reduce((x, l) => x + (+l.amount || 0), 0), 0);
+          if (sp.length && "client" !== role() && !eqFieldRole())
+            return {
+              headline: `${money(t)} bought from ${nm}${P.period ? ` ${P.period.say}` : ""}, on ${agN(sp.length, "field receipt")}.`,
+              work: sp.map((s) => `${fmtL(s.date)} — ${s.vendor} — ${money((s.lines || []).reduce((x, l) => x + (+l.amount || 0), 0))}${s.by ? `, by ${s.by}` : ""}`),
+              go: agGo("bank"),
+              ran: agRan("field receipts", [`vendor matches "${nm}"`].concat(where.slice(1)), "", sp.length),
+            };
+        }
+      }
+      const tot = rows.reduce((a, r) => a + (+r.money || 0), 0);
+      if (("max" === P.measure || "min" === P.measure) && !P.group && !P.top && !names.length && /\b(expense|purchase|charge|line|payment|transaction|single)\b/.test(P.l)) {
+        const S0 = rows.slice().sort((a, b) => ("max" === P.measure ? b.money - a.money : a.money - b.money));
+        return S0.length
+          ? {
+              headline: `${S0[0].description}: ${money(S0[0].money)} on ${fmtL(S0[0].date)}, the ${"max" === P.measure ? "largest" : "smallest"} of ${agN(rows.length, "bank or card line")}${P.period ? ` ${P.period.say}` : ""}.`,
+              work: S0.slice(1, 6).map((r) => `${fmtL(r.date)} — ${r.description} — ${money(r.money)}`),
+              go: agGo("bank"),
+              ran: agRan("transactions", ["money out"].concat(where, [`sorted by amount ${"max" === P.measure ? "high to low" : "low to high"}`]), "", rows.length),
+            }
+          : null;
+      }
+      if (P.group || P.top) {
+        const key = "category" === P.group ? "category" : "job" === P.group ? "project" : "vendor",
+          by = {};
+        rows.forEach((r) => {
+          const k = r[key] || ("vendor" === key ? String(r.description || "").slice(0, 28) : "(none)");
+          by[k] = (by[k] || 0) + r.money;
+        });
+        const rank = Object.entries(by).sort((a, b) => b[1] - a[1]).slice(0, P.top || 10);
+        return {
+          headline: `${money(tot)} spent${P.period ? ` ${P.period.say}` : ""}; ${P.top ? `top ${rank.length}` : "by " + key}: ${rank.map(([k, v]) => `${k} ${money(v)}`).join(", ")}.`,
+          work: rank.map(([k, v]) => `${k} — ${money(v)}`),
+          go: agGo("bank"),
+          ran: agRan("transactions", ["money out"].concat(where), key, rows.length),
+        };
+      }
+      return {
+        headline: names.length
+          ? rows.length
+            ? `${money(tot)} paid to ${names[0]}${P.period ? ` ${P.period.say}` : ""}${P.jobs.length ? ` on ${agShort(P.jobs[0])}` : ""}, on ${agN(rows.length, "bank or card line")}.`
+            : `Nothing was paid to ${names[0]}${P.period ? ` ${P.period.say}` : ""}: $0 on the bank and card lines.`
+          : `${money(tot)} spent${cats.length ? ` on ${cats.join(", ")}` : ""}${P.period ? ` ${P.period.say}` : ""}${P.jobs.length ? ` on ${agShort(P.jobs[0])}` : ""}, on ${agN(rows.length, "bank or card line")}.`,
+        work: rows.slice(0, 12).map((r) => `${fmtL(r.date)} — ${r.description}${r.project ? ` · ${r.project}` : ""} — ${money(r.money)}`),
+        go: agGo("bank"),
+        ran: agRan("transactions", ["money out"].concat(where), "", rows.length),
+      };
+    },
+  },
+  {
+    // money in from clients
+    id: "payments",
+    kind: "money",
+    client: !0,
+    test: (P) =>
+      /\b(collect(ed|ions?)?|came in|payments?|paid us|pay us|received|deposits?)\b/.test(P.l) ||
+      (P.clients.length && /\b(pay|paid)\b/.test(P.l)) ||
+      ("client" === role() && /\b(pay|paid|payments?)\b/.test(P.l)),
+    run(P) {
+      let rows = eqRows("payments").filter((r) => agInPer(P, r.date) && agOnJob(P, r.projectId || ""));
+      const where = agWherePer(P);
+      if (P.clients.length > 1 && /\bmore\b|\bor\b|\bthan\b|\bvs\b/.test(P.l)) {
+        const S0 = P.clients.map((c) => {
+          const R = rows.filter((r) => r.clientId === c.id);
+          return { c: c, R: R, t: R.reduce((a, r) => a + r.amount, 0) };
+        }).sort((a, b) => b.t - a.t);
+        return {
+          headline: `${S0[0].c.name} paid more${P.period ? ` ${P.period.say}` : ""}: ${money(S0[0].t)}, against ${S0.slice(1).map((s) => `${s.c.name} ${money(s.t)}`).join(", ")}.`,
+          work: [].concat(...S0.map((s) => s.R.map((r) => `${fmtL(r.date)} — ${r.client} — ${money(r.amount)}`))),
+          go: agGo("billing"),
+          ran: agRan("payments", [`client is ${P.clients.map((c) => c.name).join(" or ")}`].concat(where), "client", S0.reduce((a, s) => a + s.R.length, 0)),
+        };
+      }
+      P.clients.length && ((rows = rows.filter((r) => P.clients.some((c) => c.id === r.clientId))), where.unshift(`client is ${P.clients.map((c) => c.name).join(" or ")}`));
+      const tot = rows.reduce((a, r) => a + (+r.amount || 0), 0),
+        mine = "client" === role();
+      if ("when" === P.measure || /\blast payment\b|\blatest payment\b|\bmost recent\b/.test(P.l)) {
+        const last = rows.slice().sort((a, b) => String(b.date).localeCompare(a.date))[0];
+        return {
+          headline: last ? `${mine ? "Your last payment" : `The last payment${P.clients.length ? ` from ${P.clients[0].name}` : ""}`} was ${money(last.amount)} on ${fmtL(last.date)}${last.invoice ? `, against ${last.invoice}` : ""}.` : "No payment is on record.",
+          work: rows.map((r) => `${fmtL(r.date)} — ${money(r.amount)}${r.method ? ` by ${r.method}` : ""}${r.invoice ? ` · ${r.invoice}` : ""}`),
+          go: agGo(mine ? "client" : "billing"),
+          ran: agRan("payments", where, "", rows.length),
+        };
+      }
+      if (P.group || (/\bby client\b|\bper client\b/.test(P.l))) {
+        const by = {};
+        rows.forEach((r) => (by[r.client] = (by[r.client] || 0) + r.amount));
+        const rank = Object.entries(by).sort((a, b) => b[1] - a[1]);
+        return {
+          headline: `${money(tot)} collected${P.period ? ` ${P.period.say}` : ""} from ${agN(rank.length, "client")}: ${rank.map(([c, a]) => `${c} ${money(a)}`).join(", ")}.`,
+          work: rows.map((r) => `${fmtL(r.date)} — ${r.client} — ${money(r.amount)}`),
+          go: agGo("billing"),
+          ran: agRan("payments", where, "client", rows.length),
+        };
+      }
+      return {
+        headline: rows.length
+          ? `${money(tot)} ${mine ? (P.period ? "paid" : "paid so far") : "collected"}${P.period ? ` ${P.period.say}` : mine ? "" : " to date"}${P.clients.length && !mine ? ` from ${P.clients[0].name}` : ""}, across ${agN(rows.length, "payment")}.`
+          : `No payment ${mine ? "from you" : "came in"}${P.period ? ` ${P.period.say}` : ""}: $0.`,
+        work: rows.map((r) => `${fmtL(r.date)} — ${mine ? "" : r.client + " — "}${money(r.amount)}${r.invoice ? ` · ${r.invoice}` : ""}`),
+        go: agGo(mine ? "client" : "billing"),
+        ran: agRan("payments", where, "", rows.length),
+      };
+    },
+  },
+  {
+    // what the crew did on a day at a job: the daily log, then the hours
+    id: "crewlog",
+    kind: "ops",
+    test: (P) => /\b(crew|guys|team)\b.*\b(do|did|done|work on|up to)\b|\bdaily logs?\b|\bsite log\b/.test(P.l) || (/^who\b/.test(P.l) && /\bon site\b|\bat the site\b|\bon the job\b/.test(P.l) && (P.jobs.length || P.period)),
+    run(P) {
+      if ("client" === role()) return null;
+      const jobs = P.jobs.length ? P.jobs : DB.projects || [],
+        day = P.period || { from: iso(addDays(parse(today()), -1)), to: iso(addDays(parse(today()), -1)), label: "yesterday", say: "yesterday" },
+        L = [].concat(...jobs.map((p) => ("function" == typeof dlLogs ? dlLogs(p.id) : []).filter((g) => g.date >= day.from && g.date <= day.to).map((g) => ({ p: p, g: g }))));
+      const T = (DB.time || []).filter((t) => t.date >= day.from && t.date <= day.to && jobs.some((p) => p.id === t.projectId));
+      if (!L.length && !T.length) return { headline: `No daily log or time is on record for ${P.jobs.length ? agShort(P.jobs[0]) : "any job"} ${day.say || day.label}.`, ran: agRan("daily logs", [`date in ${day.label}`].concat(agWhereJob(P)), "", 0) };
+      const crew = [...new Set([].concat(...L.map((x) => (x.g.crew || []).map((c) => c.name || empName(c.empId)))).concat(L.length ? [] : T.map((t) => empName(t.empId))))],
+        done = [].concat(...L.map((x) => x.g.done || []));
+      return {
+        headline: `${agCap(day.say || day.label)}${P.jobs.length ? ` at ${agShort(P.jobs[0])}` : ""}: ${agList(crew, 8)} on site${done.length ? ` — ${done.slice(0, 2).join("; ")}` : ""}.`,
+        work: done.concat(L.map((x) => x.g.notes).filter(Boolean)).concat(T.map((t) => `${empName(t.empId)} — ${agHrs(hoursOf(t))} hours`)),
+        go: agGo("dlog") || agGo("field"),
+        ran: agRan("daily logs", [`date in ${day.label}`].concat(agWhereJob(P)), "", L.length) + `; time entries (${agN(T.length, "row")})`,
+      };
+    },
+  },
+  {
+    // "what did Angel log today", "what did I log", "what did satish log this week": progress logged and hours
+    id: "logged",
+    kind: "ops",
+    test: (P) =>
+      (/\b(log|logged|logs)\b/.test(P.l) || (/\bwhat (did|has|is)\b/.test(P.l) && /\b(do|done|doing|did|work on|working on|up to)\b/.test(P.l))) &&
+      (P.people.length || P.meEmp) &&
+      !/\bdaily log/.test(P.l) &&
+      !/\b(spend|spent|pay|paid|bill|invoice|cost)\b/.test(P.l),
+    run(P) {
+      const e = P.people[0] || P.meEmp,
+        nm = String(e.name).split(/\s+/)[0],
+        per = P.period || { from: today(), to: today(), label: "today", say: "today" },
+        tasks = [];
+      (DB.projects || []).forEach((p) =>
+        (p.tasks || []).forEach((t) =>
+          prgLog(t).forEach((g) => g.on >= per.from && g.on <= per.to && agOnJob(P, p.id) && new RegExp(`\\b${nm}\\b`, "i").test(g.by || "") && tasks.push({ p: p, t: t, g: g })),
+        ),
+      );
+      const T = (DB.time || []).filter((t) => t.empId === e.id && t.date >= per.from && t.date <= per.to && agOnJob(P, t.projectId)),
+        hrs = T.reduce((a, t) => a + hoursOf(t), 0),
+        names = [...new Set(tasks.map((x) => x.t.name))],
+        logs = "client" === role() || "function" != typeof dlLogs ? [] : [].concat(...(DB.projects || []).filter((p) => agOnJob(P, p.id)).map((p) => dlLogs(p.id).filter((g) => g.date >= per.from && g.date <= per.to && (g.crew || []).some((c) => c.empId === e.id || c.name === e.name)).map((g) => ({ p: p, g: g })))),
+        who = e === P.meEmp && !P.people.length ? "You" : e.name;
+      return {
+        headline: `${who} logged ${agHrs(hrs)} hours${" " + per.say}${names.length ? ` and progress on ${agN(names.length, "task")}: ${agList(names)}` : ""}${!names.length && logs.length ? `; the daily log${logs.length > 1 ? "s" : ""} at ${agList([...new Set(logs.map((x) => agShort(x.p)))])}: ${logs.flatMap((x) => x.g.done || []).slice(0, 2).join("; ") || "no work noted"}` : ""}.`,
+        work: tasks.map((x) => `${agShort(x.p)} — ${x.t.name} ${x.g.pct}%${x.g.note ? `: ${x.g.note}` : ""}`).concat(T.map((t) => `${fmtL(t.date)} — ${agHrs(hoursOf(t))} hours${t.projectId ? ` · ${agShort((DB.projects || []).find((p) => p.id === t.projectId))}` : ""}`)),
+        go: agGo("time") || agGo("field"),
+        ran: agRan("progress logs", [`by ${e.name}`, `date in ${per.label}`], "", tasks.length) + `; ${agRan("time entries", [`person is ${e.name}`, `date in ${per.label}`], "", T.length).replace(/^I ran: /, "")}`,
+      };
+    },
+  },
+  {
+    // hours: per person, per job, "who has not submitted hours", "who worked at X on Tuesday", "most hours"
+    id: "time",
+    kind: "ops",
+    test: (P) =>
+      (/\b(hours?|timesheets?|time entries|clocked|worked|work at|on the clock)\b/.test(P.l) || /\b(submit|submitted|log|logged|enter|entered|put in)\b.*\btime\b/.test(P.l)) &&
+      !/\bdesign hours\b.*\bbill|\bbanked\b/.test(P.l),
+    run(P) {
+      const self = ["foreman", "crew", "driver", "designer"].includes(role()) || P.meEmp,
+        per = P.period || ("what did" === P.l.slice(0, 8) ? { from: today(), to: today(), label: "today", say: "today" } : null),
+        T0 = eqRows("time").filter((t) => (!per || (t.date >= per.from && t.date <= per.to)) && agOnJob(P, t.projectId)),
+        where = (per ? [`date in ${per.label}`] : []).concat(agWhereJob(P)),
+        E = DB.employees || [];
+      if (P.neg && /\b(submit|submitted|log|logged|entered|enter|turned in|put in|sent|clock|clocked)\b/.test(P.l)) {
+        const crew = E.filter((e) => !1 !== e.active),
+          miss = crew.filter((e) => !T0.some((t) => t.employee === e.name));
+        return {
+          headline: miss.length ? `${agN(miss.length, "person", "people")} ${1 === miss.length ? "has" : "have"} not submitted hours ${per ? per.say : ""}: ${agList(miss.map((e) => e.name), 10)}.` : `Everyone has submitted hours ${per ? per.say : ""}.`,
+          work: crew.map((e) => `${e.name} — ${agHrs(T0.filter((t) => t.employee === e.name).reduce((a, t) => a + t.hours, 0))} hours`),
+          go: agGo("time"),
+          ran: agRan("people", ["active", `no time entry ${per ? "in " + per.label : ""}`.trim()], "", miss.length),
+        };
+      }
+      const who = P.people.length ? P.people : P.meEmp ? [P.meEmp] : self && !/\bcrew|who|everyone|team\b/.test(P.l) ? [agMeEmp()].filter(Boolean) : [];
+      const T = who.length ? T0.filter((t) => who.some((e) => e.name === t.employee)) : T0,
+        hrs = T.reduce((a, t) => a + (+t.hours || 0), 0),
+        W = where.concat(who.length ? [`person is ${who.map((e) => e.name).join(" or ")}`] : []);
+      if (/^who\b/.test(P.l) || "max" === P.measure || P.group) {
+        const by = {};
+        T.forEach((t) => (by[t.employee] = (by[t.employee] || 0) + (+t.hours || 0)));
+        const rank = Object.entries(by).sort((a, b) => b[1] - a[1]);
+        return {
+          headline: rank.length
+            ? "max" === P.measure
+              ? `${rank[0][0]} logged the most${per ? ` ${per.say}` : ""}: ${agHrs(rank[0][1])} hours${rank[1] ? `; then ${rank[1][0]}, ${agHrs(rank[1][1])}` : ""}.`
+              : `${agN(rank.length, "person", "people")} worked${P.jobs.length ? ` at ${agShort(P.jobs[0])}` : ""}${per ? ` ${per.say}` : ""}: ${agList(rank.map(([n, h]) => `${n} (${agHrs(h)} hours)`), 10)}.`
+            : `Nobody logged time${P.jobs.length ? ` at ${agShort(P.jobs[0])}` : ""}${per ? ` ${per.say}` : ""}.`,
+          work: T.map((t) => `${fmtL(t.date)} — ${t.employee} — ${agHrs(t.hours)} hours${t.project ? ` · ${t.project}` : ""}`),
+          go: agGo("time"),
+          ran: agRan("time entries", W, "person", T.length),
+        };
+      }
+      const subj = who.length === 1 ? (who[0] === agMeEmp() && (P.self || self) ? "You" : who[0].name) : P.jobs.length ? "The crew" : "Everyone";
+      return {
+        headline: `${subj} logged ${agHrs(hrs)} hours${P.jobs.length ? ` at ${agShort(P.jobs[0])}` : ""}${per ? ` ${per.say}` : ""}, on ${agN(T.length, "time entry", "time entries")}.`,
+        work: T.map((t) => `${fmtL(t.date)} — ${t.employee} — ${agHrs(t.hours)} hours${t.project ? ` · ${t.project}` : ""} (${t.status})`),
+        go: agGo("time"),
+        ran: agRan("time entries", W, "", T.length),
+      };
+    },
+  },
+  {
+    id: "photos",
+    kind: "ops",
+    client: !0,
+    test: (P) => "photos" === P.entity,
+    run(P) {
+      const shared = /\bshared?\b|\bsent to\b|\bwith the\b/.test(P.l) || "client" === role();
+      let R = eqRows("photos").filter((r) => agInPer(P, r.date) && agOnJob(P, r.projectId));
+      const where = agWherePer(P).concat(agWhereJob(P));
+      shared && ((R = R.filter((r) => r.shared)), where.push("shared with the client"));
+      if (P.clients.length && "client" !== role()) {
+        const pids = (DB.projects || []).filter((p) => P.clients.some((c) => c.id === p.clientId)).map((p) => p.id);
+        (R = R.filter((r) => pids.includes(r.projectId))), where.push(`client is ${P.clients.map((c) => c.name).join(" or ")}`);
+      }
+      const who = P.people.length ? P.people[0] : P.self && P.meEmp ? P.meEmp : null;
+      who && ((R = R.filter((r) => new RegExp(`\\b${String(who.name).split(/\s+/)[0]}\\b`, "i").test(r.by || ""))), where.push(`taken by ${who.name}`));
+      return {
+        headline: `${agN(R.length, "photo")}${shared ? " shared" : ""}${who ? ` by ${who === P.meEmp && !P.people.length ? "you" : who.name}` : ""}${P.clients.length ? ` with ${P.clients[0].name}` : ""}${P.jobs.length ? ` on ${agShort(P.jobs[0])}` : ""}${P.period ? ` ${P.period.say}` : ""}.`,
+        work: R.slice(0, 12).map((r) => `${fmtL(r.date)} — ${r.caption || r.task || r.area || "photo"}${r.project ? ` · ${r.project}` : ""}${r.by ? `, ${r.by}` : ""}`),
+        go: agGo("photos") || agGo("client"),
+        ran: agRan("photos", where, "", R.length),
+      };
+    },
+  },
+  {
+    id: "submittals",
+    kind: "ops",
+    test: (P) => "submittals" === P.entity,
+    run(P) {
+      if ("client" === role()) return null;
+      let R = eqRows("submittals").filter((r) => !P.jobs.length || P.jobs.some((p) => agShort(p) === r.project || p.project.name === r.project));
+      const where = agWhereJob(P);
+      if (/\b(late|holding up|hold(ing)? up|blocking|overdue|behind)\b/.test(P.l)) (R = R.filter((r) => r.late)), where.push("late (holding an order or past its date)");
+      else if (/\bin review\b|\bunder review\b|\bbeing reviewed\b/.test(P.l)) (R = R.filter((r) => /review/i.test(r.status))), where.push("status is In Review");
+      else if (P.neg && /\bapproved\b/.test(P.l)) (R = R.filter((r) => !r.approved && !/closed/i.test(r.status))), where.push("not approved");
+      else if (/\bapproved\b/.test(P.l)) (R = R.filter((r) => r.approved)), where.push("approved");
+      else if (/\bopen\b/.test(P.l)) (R = R.filter((r) => r.open)), where.push("open");
+      return {
+        headline: R.length ? `${agN(R.length, "submittal")}: ${agList(R.map((r) => `${r.number} ${r.title}`), 6)}.` : "No submittal matches: none.",
+        work: R.map((r) => `${r.number} ${r.title} · ${r.project} — ${r.status}${r.lateWhy ? ` — ${r.lateWhy}` : ""}${r.ballInCourt ? `, with ${r.ballInCourt}` : ""}`),
+        go: agGo("subm") || agGo("dash"),
+        ran: agRan("submittals", where, "", R.length),
+      };
+    },
+  },
+  {
+    id: "decisions",
+    kind: "ops",
+    test: (P) => "decisions" === P.entity && !/\bwaiting on me\b/.test(P.l),
+    run(P) {
+      if ("client" === role()) return null;
+      let R = eqRows("decisions").filter((r) => r.open && agOnJob(P, r.projectId));
+      const where = ["open"].concat(agWhereJob(P)),
+        onClient = /\b(client|clients|owner'?s?)\b/.test(P.l) || P.clients.length;
+      if (P.clients.length) {
+        const pids = (DB.projects || []).filter((p) => P.clients.some((c) => c.id === p.clientId)).map((p) => p.id);
+        (R = R.filter((r) => pids.includes(r.projectId))), where.push(`client is ${P.clients.map((c) => c.name).join(" or ")}`);
+      }
+      if (onClient) {
+        const isC = (r) => /client/i.test(r.owner || "");
+        (R = R.filter((r) => (P.neg ? !isC(r) : isC(r)))), where.push(`owner is ${P.neg ? "not " : ""}the client`);
+      }
+      if (P.group || /\bper job\b|\bby job\b|\beach job\b/.test(P.l)) {
+        const by = {};
+        R.forEach((r) => (by[r.project] = (by[r.project] || 0) + 1));
+        const rank = Object.entries(by).sort((a, b) => b[1] - a[1]);
+        return {
+          headline: `${agN(R.length, "decision")} open across ${agN(rank.length, "job")}: ${rank.map(([j, n]) => `${j} ${n}`).join(", ")}.`,
+          work: R.map((r) => `${r.project} — ${r.name}${r.owner ? ` (${r.owner})` : ""}`),
+          go: agGo("dec"),
+          ran: agRan("decisions", where, "job", R.length),
+        };
+      }
+      return {
+        headline: `${agN(R.length, "decision")} open${onClient ? (P.neg ? " and not waiting on " : " and waiting on ") + (P.clients.length ? P.clients.map((c) => c.name).join(" or ") : "the client") : ""}${P.jobs.length ? ` on ${agShort(P.jobs[0])}` : ""}.`,
+        work: R.map((r) => `${r.project} — ${r.name}${r.owner ? ` (${r.owner})` : ""}${r.due ? `, due ${fmtL(r.due)}` : ""}`),
+        go: agGo("dec"),
+        ran: agRan("decisions", where, "", R.length),
+      };
+    },
+  },
+  {
+    id: "cobilled",
+    kind: "money",
+    test: (P) => "changeorders" === P.entity && /\bbilled\b|\binvoiced\b/.test(P.l),
+    run(P) {
+      const inv = [].concat(...(DB.clients || []).map((c) => (c.invoices || []).filter((d) => "draft" !== d.status && "void" !== d.status)));
+      const R = [].concat(
+        ...(DB.clients || []).map((c) =>
+          (c.changeOrders || [])
+            .filter((d) => "approved" === d.status && agOnJob(P, d.projectId))
+            .map((d) => {
+              const billed = inv.flatMap((i) => i.lines || []).filter((l) => String(l.item || "").includes(d.number)).reduce((a, l) => a + ((+l.scheduled || 0) * (+l.pct || 0)) / 100, 0),
+                total = docTotal(d).total;
+              return { c: c, d: d, billed: billed, total: total };
+            }),
+        ),
+      ).filter((x) => (P.neg ? x.billed < x.total - 0.5 : x.billed >= x.total - 0.5));
+      return {
+        headline: R.length ? `${agN(R.length, "change order")} ${P.neg ? "approved and not yet billed in full" : "approved and billed"}: ${agList(R.map((x) => `${x.d.number} ${x.d.title} (${money(x.total - x.billed)} to bill)`))}.` : `No approved change order is ${P.neg ? "waiting to be billed" : "billed yet"}: none.`,
+        work: R.map((x) => `${x.d.number} · ${x.c.name} — ${money(x.total)} approved, ${money(x.billed)} billed`),
+        go: agGo("billing"),
+        ran: agRan("change orders", ["status is approved", `${P.neg ? "billed less than" : "billed in full at"} its total on sent invoices`].concat(agWhereJob(P)), "", R.length),
+      };
+    },
+  },
+  {
+    // "when will 206 Lenox finish": the Projects table's finish; "when does framing on the 3rd floor finish": the task
+    id: "when",
+    kind: "ops",
+    client: !0,
+    test: (P) => "when" === P.measure && /\b(finish|finished|done|complete|completed|end|ends|wrap|due|start|starts|begin)\b/.test(P.l) && !/\b(invoice|bill|payment|insurance|po|order|inv-|expire)\b/.test(P.l),
+    run(P) {
+      const mine = "client" === role() ? eqScopeOf().jobs : DB.projects || [],
+        jobs = P.jobs.length ? P.jobs.filter((p) => mine.includes(p)) : "client" === role() ? mine : [],
+        stop = new Set(["when", "will", "does", "do", "is", "the", "on", "at", "of", "finish", "finished", "done", "complete", "be", "due", "end", "start", "starts", "begin", "wrap", "up", "job", "project", "site"]),
+        words = P.l.split(" ").filter((w) => w.length >= 3 && !stop.has(w) && !AG_STOPW.has(w) && !jobs.some((p) => agShort(p).toLowerCase().includes(w)));
+      // a task named in the question
+      const pool = (jobs.length ? jobs : mine).flatMap((p) => (p.tasks || []).map((t) => ({ p: p, t: t }))),
+        norm = (s) => String(s || "").toLowerCase().replace(/(\d)(st|nd|rd|th)\b/g, "$1"),
+        sc = (x) => words.filter((w) => new RegExp(`\\b${norm(w).replace(/[^a-z0-9 ]/g, "")}`).test(norm(x.t.name))).length,
+        home = agHomeJobs(),
+        best = words.length ? pool.map((x) => ({ x: x, s: sc(x) + (home.includes(x.p) ? 0.5 : 0) })).filter((y) => y.s >= 1).sort((a, b) => b.s - a.s || a.x.t.end.localeCompare(b.x.t.end)) : [];
+      const start = /\b(start|starts|begin)\b/.test(P.l);
+      if (best.length && Math.floor(best[0].s) >= Math.min(2, words.length)) {
+        const { p, t } = best[0].x;
+        return {
+          headline: `${t.name} on ${agShort(p)} ${start ? "starts" : "finishes"} ${fmtL(start ? t.start : t.end)}${"done" === t.status ? " (done)" : ""}.`,
+          work: best.slice(1, 4).map((y) => `${y.x.t.name} · ${agShort(y.x.p)} — ${fmtL(y.x.t.start)} to ${fmtL(y.x.t.end)}`),
+          go: agGo("sched", { project: p.id }) || agGo("dash", { project: p.id }),
+          ran: agRan("tasks", [`name matches "${words.join(" ")}"`].concat(agWhereJob(P)), "", best.length),
+        };
+      }
+      if (!jobs.length) return null;
+      return {
+        headline: jobs.map((p) => {
+          const h = projectHealth(p);
+          return `${agShort(p)} ${start ? "started" : "finishes"} ${fmtL(start ? p.project.start || (p.tasks[0] || {}).start : h.sc)}${!start && h.projEnd && h.projEnd !== h.sc ? ` (the schedule's last task ends ${fmtL(h.projEnd)})` : ""}`;
+        }).join("; ") + ".",
+        note: "The finish the Projects table shows.",
+        go: agGo("sched", { project: jobs[0].id }) || agGo("dash", { project: jobs[0].id }),
+        ran: agRan("projects", agWhereJob(P).concat(["finish from the schedule"]), "", jobs.length),
+      };
+    },
+  },
+  {
+    id: "cause",
+    kind: "ops",
+    test: (P) => /\b(moved|slipped|pushed|delayed|changed)\b.*\b(finish|end|date|schedule)\b|\bwhose days\b|\bwhy (is|did)\b.*\b(late|slip)/.test(P.l),
+    run(P) {
+      if ("client" === role() || !P.jobs.length) return null;
+      const p = P.jobs[0],
+        H = [].concat(...(p.tasks || []).map((t) => (t.history || []).map((h) => ({ t: t, h: h })))).sort((a, b) => String(a.h.on).localeCompare(b.h.on)),
+        whose = { inspection: "the city's (inspection)", weather: "nobody's (weather)", client: "the client's", change: "the client's (change order)", co: "the client's (change order)", vendor: "the vendor's", sub: "the sub's", material: "the supplier's", design: "the designer's", crew: "ours" };
+      return {
+        headline: H.length
+          ? `${agN(H.length, "change")} moved dates on ${agShort(p)}: ${H.map((x) => `${x.h.reasonKey || "edit"} +${x.h.days || 0} ${1 === x.h.days ? "day" : "days"} on ${x.t.name} (${whose[x.h.reasonKey] || "unassigned"})`).join("; ")}.`
+          : `Nothing has moved a date on ${agShort(p)}.`,
+        work: H.map((x) => `${fmtL(x.h.on)} — ${x.t.name}: ${x.h.reason || x.h.reasonKey || ""}${x.h.by ? `, by ${x.h.by}` : ""}${x.h.critical ? " — on the critical path" : ""}`),
+        go: agGo("sched", { project: p.id }),
+        ran: agRan("schedule history", agWhereJob(P), "cause", H.length),
+      };
+    },
+  },
+  {
+    id: "orders",
+    kind: "ops",
+    test: (P) => (P.vendors.length || P.payees.length) && /\b(order|orders|ordered|on order|po|pos|expected|arriv|deliver)/.test(P.l),
+    run(P) {
+      if ("client" === role()) return null;
+      const names = P.vendors.length ? P.vendors.map((v) => v.name) : P.payees;
+      let R = eqRows("purchaseorders").filter((r) => names.some((n) => agNameHit(n, r.vendor)) && agOnJob(P, r.projectId));
+      const where = [`vendor is ${names.join(" or ")}`].concat(agWhereJob(P));
+      /\bon order|still open|\bopen\b|\boutstanding\b|\bpending\b/.test(P.l) && ((R = R.filter((r) => r.open)), where.push("open"));
+      if ("when" === P.measure || /\bexpected\b|\barriv|\bdeliver/.test(P.l)) {
+        const O = R.filter((r) => r.open);
+        return {
+          headline: O.length ? O.map((r) => `${r.number} from ${r.vendor} is expected ${fmtL(r.expected)}${r.late ? " (late)" : ""}`).join("; ") + "." : `Nothing from ${names[0]} is still on order.`,
+          work: R.map((r) => `${r.number} · ${r.project} — ${r.status}, expected ${fmtL(r.expected)}${r.items ? ` — ${r.items}` : ""}`),
+          go: agGo("po"),
+          ran: agRan("purchase orders", where.concat(["open"]), "", O.length),
+        };
+      }
+      return {
+        headline: R.length ? `${agN(R.length, "order")} from ${names[0]}: ${agList(R.map((r) => `${r.number} (${r.status}${r.open ? `, expected ${fmtL(r.expected)}` : ""})`))}.` : `Nothing is on order from ${names[0]}.`,
+        work: R.map((r) => `${r.number} · ${r.project} — ${r.items || ""}${eqFieldRole() ? "" : ` — ${money(r.amount)}`}`),
+        go: agGo("po"),
+        ran: agRan("purchase orders", where, "", R.length),
+      };
+    },
+  },
+  {
+    id: "arriving",
+    kind: "ops",
+    test: (P) => /\b(arriv|deliver|coming in|expected)/.test(P.l),
+    run(P) {
+      if ("client" === role()) return null;
+      const per = P.period || { from: today(), to: iso(addDays(parse(today()), 6)), label: "this week", key: "this week", say: "this week" };
+      if ("this week" === per.key && !P.jobs.length) {
+        const A = agB2().arriving || [];
+        return {
+          headline: A.length ? `${agN(A.length, "delivery", "deliveries")} this week.` : "No deliveries are due this week: none.",
+          work: A.map((x) => `${fmtL(x.date || x.eta || x.expected || "")} — ${x.name || x.what || (x.m && x.m.name) || (x.po && x.po.number) || ""}`),
+          go: agGo("proc") || agGo("field"),
+          ran: agRan("deliveries", ["due this week (the brief's Arriving list)"], "", A.length),
+        };
+      }
+      const O = eqRows("purchaseorders").filter((r) => r.open && r.expected >= per.from && r.expected <= per.to && agOnJob(P, r.projectId)),
+        M = [].concat(...(DB.projects || []).filter((p) => agOnJob(P, p.id)).map((p) => (p.materials || []).filter((m) => "ordered" === m.status && m.eta >= per.from && m.eta <= per.to).map((m) => ({ p: p, m: m }))));
+      const n = O.length + M.length;
+      return {
+        headline: n ? `${agN(n, "delivery", "deliveries")} due ${per.say}: ${agList(O.map((r) => `${r.number} from ${r.vendor} ${fmtL(r.expected)}`).concat(M.map((x) => `${x.m.name} ${fmtL(x.m.eta)}`)))}.` : `Nothing is due to arrive ${per.say}: none.`,
+        go: agGo("proc") || agGo("field"),
+        ran: agRan("purchase orders and materials", ["open or ordered", `expected in ${per.label} (${fmtL(per.from)} to ${fmtL(per.to)})`].concat(agWhereJob(P)), "", n),
+      };
+    },
+  },
+  {
+    id: "materials",
+    kind: "ops",
+    test: (P) => "materials" === P.entity || /\b(here yet|on site yet|arrived|delivered yet|in yet)\b/.test(P.l),
+    run(P) {
+      if ("client" === role()) return null;
+      const mine = (() => {
+          const me = agMeEmp(),
+            te = me && (DB.time || []).filter((t) => t.empId === me.id).sort((a, b) => String(b.date).localeCompare(a.date))[0];
+          return te ? (DB.projects || []).filter((p) => p.id === te.projectId) : [];
+        })(),
+        jobs = P.jobs.length ? P.jobs : DB.projects || [];
+      let R = [].concat(...jobs.map((p) => (p.materials || []).map((m) => ({ p: p, m: m }))));
+      const where = agWhereJob(P),
+        words = P.l.split(" ").filter((w) => w.length >= 4 && !AG_STOPW.has(w) && !/^(materials?|here|site|ordered|order|arrived|delivered|many|much|have|state|street|lenox|cranberry|prospect)$/.test(w)),
+        named = R.filter((x) => words.some((w) => new RegExp(`\\b${w.replace(/s$/, "")}`).test(String(x.m.name).toLowerCase())));
+      if (named.length && !/\bhow many\b/.test(P.l)) {
+        const own = named.filter((x) => !mine.length || mine.includes(x.p)),
+          L = own.length ? own : named;
+        return {
+          headline: L.map((x) => `${x.m.name} on ${agShort(x.p)} is ${String(x.m.status).replace(/-/g, " ")}${"ordered" === x.m.status ? `, not on site yet${x.m.eta ? ` — expected ${fmtL(x.m.eta)}` : ""}` : ""}`).join("; ") + ".",
+          go: agGo("mat") || agGo("proc"),
+          ran: agRan("materials", [`name matches "${words.join(" ")}"`].concat(where), "", L.length),
+        };
+      }
+      if (P.neg && /\bordered\b/.test(P.l)) (R = R.filter((x) => "not-ordered" === x.m.status)), where.push("status is not ordered");
+      else if (/\bon order\b|\bordered\b/.test(P.l)) (R = R.filter((x) => "ordered" === x.m.status)), where.push("status is ordered");
+      else if (/\bon site\b|\bdelivered\b|\barrived\b/.test(P.l)) (R = R.filter((x) => "on-site" === x.m.status)), where.push("status is on site");
+      return {
+        headline: `${agN(R.length, "material")}${where.length > agWhereJob(P).length ? " " + where[where.length - 1].replace(/^status is /, "") : ""}${P.jobs.length ? ` on ${agShort(P.jobs[0])}` : ""}.`,
+        work: R.slice(0, 15).map((x) => `${agShort(x.p)} — ${x.m.name} (${x.m.status})`),
+        go: agGo("mat") || agGo("proc"),
+        ran: agRan("materials", where, "", R.length),
+      };
+    },
+  },
+  {
+    id: "leads",
+    kind: "sales",
+    test: (P) => "opportunities" === P.entity,
+    run(P) {
+      const ST = [["proposal", /\bproposals?\b/], ["lost", /\blost\b|\blose\b|\blosing\b/], ["won", /\bwon\b|\bwin\b/], ["qualified", /\bqualified\b/], ["inquiry", /\binquir(y|ies)\b|\bnew leads?\b/], ["site-visit", /\bsite visits?\b/], ["design", /\bin design\b/]],
+        st = ST.find((x) => x[1].test(P.l)),
+        stage = (l) => String(l.stage || l.status || ""),
+        L = (DB.leads || []).filter((l) => (!st || stage(l) === st[0]) && (!P.period || agInPer(P, String(l.created || l.date || l.at || "").slice(0, 10))));
+      return {
+        headline: `${agN(L.length, "lead")}${st ? ` ${"lost" === st[0] || "won" === st[0] ? st[0] : "in " + st[0].replace("-", " ")}` : ""}${L.length && L.length <= 6 ? `: ${agList(L.map((l) => l.name))}` : ""}.`,
+        work: L.map((l) => `${l.name} — ${stage(l).replace("-", " ")}${l.value ? `, ${money(l.value)}` : ""}`),
+        go: agGo("scleads") || agGo("sales"),
+        ran: agRan("leads", st ? [`stage is ${st[0]}`] : [], "", L.length),
+      };
+    },
+  },
+  {
+    // a client's own balance: their open invoices, read through eqRows
+    id: "myowe",
+    kind: "client",
+    test: (P) => "client" === role() && /\b(owe|balance|outstanding|due|unpaid|open)\b/.test(P.l) && !/\bdecisions?\b|\bchoices?\b/.test(P.l),
+    run(P) {
+      const R = eqRows("invoices").filter((r) => r.unpaid && r.outstanding > 0.005),
+        t = R.reduce((a, r) => a + r.outstanding, 0);
+      return {
+        headline: R.length ? `${money(t)} is open on ${agN(R.length, "invoice")}: ${R.map((r) => `${r.number} ${money(r.outstanding)}${r.due ? `, due ${fmtL(r.due)}` : ""}`).join("; ")}.` : "You owe nothing: no invoice of yours is open.",
+        go: agGo("client"),
+        ran: agRan("invoices", ["yours", "unpaid", "balance above $0"], "", R.length),
+      };
+    },
+  },
+  {
+    id: "insurance",
+    kind: "ops",
+    test: (P) => P.vendors.length && /\b(insurance|coi|certificate|expire|expires|expiring|expiration)\b/.test(P.l),
+    run(P) {
+      const V = P.vendors;
+      return {
+        headline: V.map((v) => (v.insuranceExp ? `${v.name}'s insurance ${v.insuranceExp < today() ? "expired" : "expires"} ${fmtL(v.insuranceExp)}${v.insuranceExp < today() ? " — ask for a new certificate" : ""}` : `${v.name} has no insurance certificate on file`)).join("; ") + ".",
+        go: agGo("vendors"),
+        ran: agRan("vendors", [`vendor is ${V.map((v) => v.name).join(" or ")}`], "", V.length),
+      };
+    },
+  },
+];
+
+// ---- the generic reader: any EQ_TABLES entity, the parsed filters, a measure, a grouping
+const AG_DATE = { invoices: "date", estimates: "date", changeorders: "date", payments: "date", bills: "date", purchaseorders: "expected", time: "date", transactions: "date", tasks: "due", decisions: "due", obligations: "expires", dailylogs: "date", photos: "date", progress: "date", calendar: "date", submittals: "submitBy" },
+  AG_MONEY = { invoices: "amount", estimates: "amount", changeorders: "amount", payments: "amount", bills: "amount", purchaseorders: "amount", transactions: "money", projects: "contract", opportunities: "value", budget: "budget", time: "hours" },
+  AG_STATUS = [
+    [/\b(open|outstanding|pending|active)\b/, (r) => (null != r.open ? r.open : null != r.active ? r.active : null != r.done ? !r.done : null != r.unpaid ? r.unpaid : null), "open"],
+    [/\b(late|overdue|past due|behind)\b/, (r) => !!(r.late || r.overdue), "late"],
+    [/\bunpaid\b/, (r) => !!r.unpaid, "unpaid"],
+    [/\bpaid\b/, (r) => (null != r.paid ? !!r.paid : "paid" === r.status), "paid"],
+    [/\bapproved\b/, (r) => (null != r.approved ? !!r.approved : "approved" === String(r.status).toLowerCase()), "approved"],
+    [/\b(drafts?)\b/, (r) => /draft/i.test(r.status || ""), "draft"],
+    [/\bsent\b/, (r) => /sent/i.test(r.status || ""), "sent"],
+    [/\b(done|complete|completed|finished)\b/, (r) => (null != r.done ? !!r.done : /done|complete|closed/i.test(r.status || "")), "done"],
+    [/\bexpired\b/, (r) => !!r.expired, "expired"],
+  ];
+function agGeneric(P, why) {
+  const ent = eqKey(P.entity) || "";
+  if (!ent || "materials" === P.entity) return null;
+  let R = eqRows(ent);
+  if (!R.length && !EQ_TABLES[ent]) return null;
+  const where = [],
+    has = (f) => R.some((r) => r && null != r[f]);
+  if (P.jobs.length && (has("projectId") || has("project")))
+    (R = R.filter((r) => P.jobs.some((p) => r.projectId === p.id || r.project === agShort(p) || r.project === p.project.name || r._id === p.id))), where.push(...agWhereJob(P));
+  if (P.clients.length && (has("clientId") || has("client"))) (R = R.filter((r) => P.clients.some((c) => r.clientId === c.id || r.client === c.name))), where.push(`client is ${P.clients.map((c) => c.name).join(" or ")}`);
+  if (P.vendors.length && has("vendor")) (R = R.filter((r) => P.vendors.some((v) => r.vendor === v.name))), where.push(`vendor is ${P.vendors.map((v) => v.name).join(" or ")}`);
+  const who = P.people.length ? P.people : P.meEmp ? [P.meEmp] : [];
+  if (who.length) {
+    const f = ["employee", "assignee", "by", "owner", "name"].find(has);
+    f && ((R = R.filter((r) => who.some((e) => new RegExp(`\\b${String(e.name).split(/\s+/)[0]}\\b`, "i").test(String(r[f] || ""))))), where.push(`${f} is ${who.map((e) => e.name).join(" or ")}`));
+  }
+  const df = AG_DATE[ent] || (has("date") ? "date" : "");
+  P.period && df && ((R = R.filter((r) => agInPer(P, r[df]))), where.push(`${df} in ${P.period.label}`));
+  AG_STATUS.forEach(([re, fn, label]) => {
+    if (!re.test(P.l)) return;
+    const vals = R.map(fn);
+    if (vals.every((v) => null == v)) return;
+    const neg = P.neg && new RegExp(`\\b(not|un)\\s*${label}`).test(P.l.replace(/\bnot (yet )?/g, "not "));
+    (R = R.filter((r) => (neg ? !fn(r) : !!fn(r)))), where.push(`${neg ? "not " : ""}${label}`);
+  });
+  P.payees.length && ((R = R.filter((r) => P.payees.some((n) => agNameHit(n, Object.values(r).filter((v) => "string" == typeof v).join(" "))))), where.push(`text matches "${P.payees.join('" or "')}"`));
+  const mf = AG_MONEY[ent],
+    label = AG_LABEL[ent] || ent,
+    lab = (r) => r._label || r.name || r.title || r.number || r._id,
+    moneyOk = !EQ_MONEY_TABLES.includes(ent) || agMay("money");
+  if (P.group) {
+    const key = { vendor: "vendor", client: "client", job: "project", category: "category", person: ["employee", "assignee", "by"].find(has) || "employee", status: "status", month: "date" }[P.group] || P.group,
+      by = {};
+    R.forEach((r) => {
+      const k = "month" === P.group ? String(r[key] || "").slice(0, 7) : String(r[key] || "(none)");
+      (by[k] = by[k] || { n: 0, t: 0 }), by[k].n++, mf && (by[k].t += +r[mf] || 0);
+    });
+    const rank = Object.entries(by).sort((a, b) => b[1].t - a[1].t || b[1].n - a[1].n);
+    return {
+      headline: `${agN(R.length, label.replace(/s$/, ""), label)} across ${agN(rank.length, P.group)}: ${rank.slice(0, 8).map(([k, v]) => `${k} ${v.n}${mf && moneyOk && "time" !== ent ? ` (${money(v.t)})` : ""}`).join(", ")}.`,
+      work: R.slice(0, 15).map(lab),
+      ran: agRan(ent, where, key, R.length),
+    };
+  }
+  if (("sum" === P.measure || "max" === P.measure || "min" === P.measure) && mf && moneyOk) {
+    const tot = R.reduce((a, r) => a + (+r[mf] || 0), 0),
+      fmtv = (v) => ("time" === ent ? `${agHrs(v)} hours` : money(v));
+    if ("max" === P.measure || "min" === P.measure) {
+      const S0 = R.slice().sort((a, b) => ("max" === P.measure ? b[mf] - a[mf] : a[mf] - b[mf]));
+      return S0.length
+        ? { headline: `${lab(S0[0])}: ${fmtv(S0[0][mf])}, the ${"max" === P.measure ? "largest" : "smallest"} of ${agN(R.length, label.replace(/s$/, ""), label)}.`, work: S0.slice(0, 8).map((r) => `${lab(r)} — ${fmtv(r[mf])}`), ran: agRan(ent, where.concat([`sorted by ${mf}`]), "", R.length) }
+        : null;
+    }
+    return { headline: `${fmtv(tot)} across ${agN(R.length, label.replace(/s$/, ""), label)}.`, work: R.slice(0, 12).map((r) => `${lab(r)} — ${fmtv(r[mf])}`), ran: agRan(ent, where, "", R.length) };
+  }
+  if ("when" === P.measure && df) {
+    const S0 = R.filter((r) => r[df]).sort((a, b) => String(a[df]).localeCompare(b[df])),
+      up = S0.filter((r) => r[df] >= today()),
+      pick = /\blast\b|\bmost recent\b|\blatest\b/.test(P.l) ? S0[S0.length - 1] : up[0] || S0[S0.length - 1];
+    return pick ? { headline: `${lab(pick)}: ${fmtL(pick[df])}.`, work: S0.slice(0, 8).map((r) => `${fmtL(r[df])} — ${lab(r)}`), ran: agRan(ent, where, "", R.length) } : null;
+  }
+  if (!R.length && !where.length) return null;
+  return {
+    headline: R.length ? `${agN(R.length, label.replace(/s$/, ""), label)}${where.length ? ` ${where.join(", ")}` : ""}${"list" === P.measure || "count" === P.measure ? (R.length <= 6 ? `: ${agList(R.map(lab))}` : "") : ""}.` : `No ${label} ${where.join(", ")}: none.`,
+    work: R.slice(0, 15).map(lab),
+    ran: agRan(ent, where, "", R.length),
+  };
+}
+// A name the master records do not hold: search the books' text before saying no.
+function agTextSearch(P) {
+  const names = P.payees.length ? P.payees : [];
+  if (!names.length || !agMay("money")) return null;
+  const nm = names[0],
+    T = agOutRows(P).filter((r) => agNameHit(nm, agTxnHay(r))),
+    B = eqRows("bills").filter((r) => agNameHit(nm, `${r.vendor} ${r.items} ${r.notes}`) && agInPer(P, r.date)),
+    O = eqRows("purchaseorders").filter((r) => agNameHit(nm, `${r.vendor} ${r.items}`) && agInPer(P, r.date));
+  const n = T.length + B.length + O.length,
+    tot = T.reduce((a, r) => a + r.money, 0);
+  return {
+    headline: n ? `${nm}: ${money(tot)} on ${agN(T.length, "bank or card line")}${B.length ? `, ${agN(B.length, "bill")}` : ""}${O.length ? `, ${agN(O.length, "purchase order")}` : ""}${P.period ? ` ${P.period.say}` : ""}.` : `No bank line, bill or purchase order names ${nm}${P.period ? ` ${P.period.say}` : ""}: $0.`,
+    work: T.map((r) => `${fmtL(r.date)} — ${r.description} — ${money(r.money)}`).concat(B.map((r) => `${r.number} · ${r.vendor} — ${money(r.amount)}`), O.map((r) => `${r.number} · ${r.vendor} — ${money(r.amount)}`)),
+    go: agGo("bank"),
+    ran: agRan("transactions, bills and purchase orders", [`text matches "${nm}"`].concat(agWherePer(P)), "", n),
+  };
+}
+const AG_READ_KIND = { money: "Money figures", ops: "That", self: "That", design: "Design billing", client: "That" };
+function agRead(P) {
+  const tryOne = (rd, hit) => {
+    if (!hit) return null;
+    if (!agMay(rd.kind) && !(rd.client && agMay("client"))) return "client" === role() ? null : agBlocked(AG_READ_KIND[rd.kind] || "That");
+    const out = rd.run(P);
+    return out ? Object.assign(out, { reader: rd.id }) : null;
+  };
+  for (const rd of AG_FIN) {
+    const a = tryOne(rd, rd.re.test(P.l) && !(rd.not && rd.not.test(P.l)));
+    if (a) return a;
+  }
+  for (const rd of AG_OPS) {
+    const a = tryOne(rd, rd.re.test(P.l) && !(rd.not && rd.not.test(P.l)));
+    if (a) return a;
+  }
+  for (const rd of AG_ENT) {
+    let hit = !1;
+    try {
+      hit = !!rd.test(P);
+    } catch (e) {}
+    const a = tryOne(rd, hit);
+    if (a) return a;
+  }
+  return null;
+}
+// What the older chain must keep: memory, reminders, drafting, mail, documents by number.
+const AG_LEGACY =
+  /^(remember|note|keep in mind|forget|drop|never mind|stop reminding)\b|\bremind me\b|\bdon'?t let me forget\b|\b(draft|write|compose|send|email|e-mail)\b.*\b(to|email|note|letter)\b|\b(inbox|my mail|my email|new mail|unread)\b|\bwhat did i tell you\b|\bwhat (do you|are you) (remember|holding)\b|^(hi|hey|hello|yo|good (morning|afternoon|evening))\b|^what can you do/i;
+const AG_DOCNO = /\b(?:inv|po|co|est|ww|nt|cm|amp|bl|pr)-[a-z0-9-]*\d[a-z0-9-]*\b|\b\d{2} \d{2} \d{2}-\d{3}\b/i;
+const AG_REFUSED = /I have nothing called|Nothing in the records matches|so I hold no|I do not hold|I can't answer that|I cannot answer|I can't tell|I cannot find|I could not find|I couldn't find|I have no record of/i,
+  AG_GENERIC_HEAD = /^\d+ records? across \d+ modules?|^\d+ records?\b|^The earliest record is/i;
+// A document asked for by number: say which table and number were read.
+function agDocRan(raw, b) {
+  if (!b || "object" != typeof b || b.interp || AG_REFUSED.test(String(b.headline || ""))) return b;
+  const m = String(raw).match(AG_DOCNO);
+  if (!m) return b;
+  const no = m[0].toUpperCase(),
+    ent = /^PO-/.test(no) ? "purchaseorders" : /^INV-/.test(no) ? "invoices" : /^CO-/.test(no) ? "changeorders" : /^EST-/.test(no) ? "estimates" : /^\d{2} /.test(no) ? "submittals" : "bills";
+  let n = 0;
+  try {
+    n = eqRows(ent).filter((r) => String(r.number || "").toUpperCase() === no || String(r._label || "").toUpperCase().startsWith(no)).length;
+  } catch (e) {}
+  return (b.interp = agRan(ent, [`number is ${no}`], "", n) + "."), b;
+}
+function agSpecRan(q) {
+  const W = normWhere(q.where || {}).map((c) => `${c.field} ${c.op} ${Array.isArray(c.value) ? c.value.join(", ") : c.value}`);
+  return { entity: q.entity, where: (q.q ? [`text matches "${q.q}"`] : []).concat(W), group: q.group || "" };
+}
+function agStamp(a, ran, P) {
+  if (!a || "object" != typeof a) return a;
+  const fx = P && P.fixes && P.fixes.length ? ` I read ${P.fixes.map(([f, t]) => `"${f}" as "${t}"`).join(", ")}.` : "";
+  return ran && (a.interp = ran + "." + fx), a;
+}
+const AG_KIND_READ = {
+  "fin-bankrecon": "bank reconciliations",
+  iwait: "tasks and decisions waiting on somebody else",
+  field: "projects",
+  "ops-inspections": "inspections",
+  "ops-onsite": "field crews and subs on site",
+  profile: "the record's profile (every module at once)",
+  finance: "the ledger",
+  "ops-readytobill": "ready to bill",
+  "ops-tasks": "tasks",
+  "ops-leads": "leads",
+  "ops-rank": "clients",
+  "ops-materials": "materials and purchase orders",
+  "ops-schedule": "the schedule",
+  record: "the record",
+  late: "late items",
+  week: "your calendar and dated items",
+  day: "your tasks, calendar and approvals",
+  onme: "your waiting list",
+};
+// Legacy answers keep their words and gain the query they ran, when they carry one.
+function agAfter(P, b) {
+  if (!b || "object" != typeof b) return b;
+  const head = String(b.headline || "");
+  if (P && (AG_REFUSED.test(head) || AG_GENERIC_HEAD.test(head.trim()) || "none" === b.kind)) {
+    let g = null;
+    try {
+      g = agTextSearch(P) || agGeneric(P);
+    } catch (e) {
+      console.warn("askgen fallback", e);
+    }
+    if (g) return agStamp(paOut(Object.assign({ kind: "askgen" }, g, { go: g.go ? paGo(g.go) : null })), g.ran, P);
+  }
+  if (!b.interp || !/I ran:/.test(b.interp)) {
+    let n = 0;
+    if (b.query && b.query.entity) {
+      try {
+        const R = erpQuery(Object.assign({}, b.query, { limit: 200 }));
+        n = +(R.matched != null ? R.matched : (R.rows || []).length) || 0;
+      } catch (e) {}
+      const s = agSpecRan(b.query);
+      b.interp = [agRan(s.entity, s.where, s.group, n) + ".", b.interp].filter(Boolean).join(" ");
+    } else if (P && (P.entity || AG_KIND_READ[b.kind]) && !AG_REFUSED.test(head) && "blocked" !== b.kind) {
+      const w = [].concat(agWhereJob(P), agWherePer(P), P.people.length ? [`person is ${P.people.map((e) => e.name).join(" or ")}`] : [], P.vendors.length ? [`vendor is ${P.vendors.map((v) => v.name).join(" or ")}`] : [], P.clients.length ? [`client is ${P.clients.map((c) => c.name).join(" or ")}`] : []),
+        m = null;
+      b.interp = [`I read this as: ${AG_KIND_READ[b.kind] || AG_LABEL[P.entity] || P.entity}${w.length ? " where " + w.join(" and ") : ""}.`, b.interp].filter(Boolean).join(" ");
+    }
+  }
+  return b;
+}
+
+// ---- figures folded in from the frontdoor brief layer, with the % complete rule kept
+AG_FIN.push(
+  {
+    id: "safe",
+    re: /\bsafe to spend\b|\bcash,? truly\b|\btruly ours\b/,
+    kind: "money",
+    run(P) {
+      const B = agBF().B;
+      return {
+        headline: B.trulyOurs < 0
+          ? `Short by ${money(-B.trulyOurs)} today: safe to spend is ${money(B.trulyOurs)} once client funds and payables are set aside, from ${money(B.cash)} in the bank.`
+          : `${money(B.trulyOurs)} is safe to spend once client funds and payables are set aside, from ${money(B.cash)} in the bank.`,
+        work: [`Cash ${money(B.cash)}`, `Cards owed ${money(-B.cards)}`, `Client funds held ${money(B.clientFunds)}`, `Payables accrued ${money(B.apAccrued)}`, `Payroll accrued ${money(B.payrollAccrued)}`],
+        go: agGo("bank"),
+        ran: agRan("bank accounts, client funds and payables", ["as of " + fmtL(today())], "", (DB.accounts || []).length),
+      };
+    },
+  },
+  {
+    id: "payroll",
+    re: /\bpayroll\b/,
+    kind: "money",
+    run(P) {
+      const R = (DB.payroll || []).filter((r) => !["paid", "void"].includes(r.status)),
+        due = R.filter((r) => (r.payDate || r.due || "") < today()),
+        t = due.reduce((a, r) => a + (+r.total || 0), 0);
+      if (!/\b(past due|overdue|late|due|owe|unpaid|open)\b/.test(P.l)) return null;
+      return {
+        headline: due.length ? `Payroll of ${money(t)} is past due: ${due.map((r) => `the ${r.period} run, due ${fmtL(r.payDate || r.due)}, ${"submitted" === r.status ? "submitted and not yet approved" : r.status}`).join("; ")}.` : "No payroll is past due.",
+        go: agGo("payroll") || agGo("ap"),
+        ran: agRan("payroll", ["not paid", "pay date has passed"], "", due.length),
+      };
+    },
+  },
+  {
+    id: "backlog",
+    re: /\bbacklog\b|\bleft to (bill|earn)\b/,
+    kind: "money",
+    run(P) {
+      if (P.jobs.length) {
+        const J = P.jobs.map((p) => ({ p: p, f: jobFin(p) })).sort((a, b) => b.f.backlog - a.f.backlog);
+        return {
+          headline: J.length > 1 ? `${agShort(J[0].p)} has the bigger backlog: ${money(J[0].f.backlog)}, against ${J.slice(1).map((x) => `${agShort(x.p)} ${money(x.f.backlog)}`).join(", ")}.` : `${money(J[0].f.backlog)} of backlog on ${agShort(J[0].p)}.`,
+          go: agGo("wip") || agGo("reports"),
+          ran: agRan("projects", agWhereJob(P), "", J.length),
+        };
+      }
+      const B = agBF().B,
+        L = (DB.projects || []).filter((p) => jobFin(p).backlog > 0.5);
+      return {
+        headline: `${money(B.backlog)} of backlog across ${agN(L.length, "contract")}: contract value not yet earned.`,
+        work: L.map((p) => `${agShort(p)} — ${money(jobFin(p).backlog)}`),
+        go: agGo("wip") || agGo("reports"),
+        ran: agRan("projects", ["contract value not yet earned"], "", L.length),
+      };
+    },
+  },
+  {
+    id: "pl",
+    re: /\b(net (income|profit)|profit|revenue|income|sales|overhead)\b/,
+    kind: "money",
+    not: /\bgross\b|\bmargin\b|\bincome tax\b|\bsales ?tax\b|\bleads?\b|\bpipeline\b/,
+    run(P) {
+      const R = agYTD(P),
+        pl = companyPL(R),
+        per = agPerLabel(P),
+        rev = /\b(revenue|income|sales)\b/.test(P.l) && !/\bnet\b|\bprofit\b/.test(P.l);
+      if (/\boverhead\b/.test(P.l))
+        return {
+          headline: `${money(pl.ohT)} of overhead ${per}: ${Object.entries(pl.oh || {}).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, v]) => `${k} ${money(v)}`).join(", ")}.`,
+          work: Object.entries(pl.oh || {}).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} — ${money(v)}`),
+          go: agGo("reports", { tab: "pl" }),
+          ran: agRan("profit and loss", [`date in ${per}`, "overhead accounts"], "account", Object.keys(pl.oh || {}).length),
+        };
+      return {
+        headline: rev
+          ? `${money(pl.income)} of revenue ${per}, earned (invoiced ${money(pl.invoiced)}, less ${money(-pl.wipAdj)} billed ahead of the work).`
+          : `${money(pl.net)} net profit ${per}: ${pl.income ? Math.round((100 * pl.net) / pl.income) : 0}% of ${money(pl.income)} revenue.`,
+        work: [`Revenue ${money(pl.income)}`, `Cost of work ${money(pl.cogsT)}`, `Gross profit ${money(pl.gross)}`, `Overhead ${money(pl.ohT)}`, `Net ${money(pl.net)}`],
+        go: agGo("reports", { tab: "pl" }),
+        ran: agRan("profit and loss", [`date in ${per}`], "", 1),
+      };
+    },
+  },
+  {
+    id: "sign",
+    re: /\b(mine to sign|sign today|to sign today|do i (need to )?sign)\b/,
+    kind: "money",
+    run(P) {
+      const r = role(),
+        L = String(("function" == typeof b2Plate && b2Plate(r, agBF())) || "")
+          .split("\n")
+          .filter(Boolean);
+      if (!L.length) return null;
+      return { headline: L[0], work: L.slice(1), note: "From the morning brief; Approvals holds the yes and the no.", go: agGo("mapprove"), ran: agRan("approvals", ["yours to sign today"], "", L.length) };
+    },
+  },
+);
+AG_OPS.push(
+  {
+    id: "pct",
+    re: /\b(how far along|percent complete|% complete|how complete|how much is done|progress on)\b/,
+    kind: "ops",
+    client: !0,
+    run(P) {
+      const L = P.jobs.length ? P.jobs : "client" === role() ? eqScopeOf().jobs : [];
+      if (!L.length) return null;
+      return {
+        headline: L.map((p) => {
+          const x = agJobPct(p);
+          return `${agShort(p)} is ${Math.round(x.pct || 0)}% complete, measured on site${null != x.measured ? ` (${x.measured} of ${x.n} tasks measured)` : ""}`;
+        }).join("; ") + ".",
+        note: "Physical progress from the field; cost spent is not progress.",
+        go: agGo("dash", { project: L[0].id }),
+        ran: agRan("progress", agWhereJob(P).concat([`% complete from ${agJobPct(L[0]).how}`]), "", L.length),
+      };
+    },
+  },
+  {
+    id: "bleeding",
+    re: /\b(bleeding|which job is behind|jobs? (are|is) behind|worst job|in trouble)\b/,
+    kind: "money",
+    run(P) {
+      const F = agBF(),
+        J = (F.jobs || []).slice(0, 4);
+      return {
+        headline: J.length ? `${J[0].name} first: health ${J[0].score}${J[0].late > 0 ? `, ${J[0].late} days behind` : ""}.` : "No active jobs.",
+        work: J.map((j) => {
+          const x = j.p ? agJobPct(j.p) : null;
+          return `${j.name} — health ${j.score}${x ? `, ${Math.round(x.pct || 0)}% complete measured on site` : ""}${j.late > 0 ? `, ${j.late}d behind` : ""}, ${Math.round(100 * (j.J.pct || 0))}% through its estimated cost (cost-to-cost)`;
+        }),
+        go: agGo("port"),
+        ran: agRan("projects", ["active", "sorted by health"], "", J.length),
+      };
+    },
+  },
+);
+// ---- one entry for every question
+function agClientOk(b) {
+  // the older chain may answer a client only with what is theirs alone: memory, reminders, their day, their waiting list
+  return !!b && ["remember", "forget", "recall", "remind", "standing", "day", "onme", "ask", "client", "week", "mine"].includes(b.kind);
+}
+function agLeakCheck(b) {
+  // a backstop under the scope: nothing of another client's may leave in a client's answer
+  const sc = eqScopeOf();
+  if ("client" !== sc.kind || !b) return b;
+  const text = [b.headline, b.note].concat(b.work || []).map(String).join(" \n ").toLowerCase(),
+    others = (DB.clients || []).filter((c) => c.id !== sc.cid),
+    otherJobs = (DB.projects || []).filter((p) => !sc.pids.has(p.id)),
+    bad = others.some((c) => {
+      const sur = String(c.name).toLowerCase().split(/[^a-z]+/).filter((t) => t.length >= 4 && !AG_GENERIC.test(t)).pop();
+      return (sur && new RegExp(`\\b${sur}`).test(text)) || [].concat(c.invoices || [], c.estimates || [], c.changeOrders || []).some((d) => d.number && text.includes(String(d.number).toLowerCase()));
+    }) || otherJobs.some((p) => text.includes(agShort(p).toLowerCase()));
+  return bad
+    ? paOut({ headline: "I answer about your own job only, and that answer reached past it.", note: "Ask about your schedule, your choices, your invoices and payments, or the photos shared with you.", kind: "blocked" })
+    : b;
+}
+function agMoneyCheck(b) {
+  if (!eqFieldRole() || !b) return b;
+  const text = [b.headline, b.note].concat(b.work || []).map(String).join(" ");
+  return /[−-]?\$\s?\d/.test(text) ? paOut(agBlocked("Money figures")) : b;
+}
+{
+  const base = paAsk;
+  paAsk = function (q) {
+    const raw = String(q || "").trim(),
+      self = this,
+      args = arguments,
+      legacy = () => base.apply(self, args),
+      done = (b) => agMoneyCheck(agLeakCheck(b));
+    let isClient = !1;
+    try {
+      isClient = "client" === role();
+    } catch (e) {}
+    if (!raw || AG_LEGACY.test(raw) || (AG_DOCNO.test(raw) && !isClient)) {
+      const b = legacy(),
+        doc = (x) => done(agDocRan(raw, x));
+      return b && "function" == typeof b.then ? b.then(doc) : doc(b);
+    }
+    let P = null,
+      a = null;
+    try {
+      P = agParse(raw);
+      if (isClient) {
+        const sc = eqScopeOf();
+        if (P.clients.some((c) => c.id !== sc.cid) || P.jobs.some((p) => !sc.pids.has(p.id)))
+          return paOut({
+            headline: "I answer about your own job only.",
+            note: "Ask about your schedule, your choices, your invoices and payments, or the photos shared with you.",
+            kind: "blocked",
+          });
+      }
+      (a = agRead(P)) || (isClient && "decisions" !== P.entity && !/\bwaiting\b|\bchoices?\b/.test(P.l) && (a = agGeneric(P)));
+    } catch (e) {
+      console.warn("askgen", e), (a = null);
+    }
+    if (a) {
+      try {
+        paInit();
+      } catch (e) {}
+      try {
+        const one = [].concat(P.jobs, P.clients, P.vendors, P.people);
+        1 === one.length && one[0] && "function" == typeof paCtxSet && paCtxSet({ name: one[0].name || agShort(one[0]), type: P.jobs.includes(one[0]) ? "job" : P.clients.includes(one[0]) ? "client" : P.vendors.includes(one[0]) ? "vendor" : "person on the crew", id: one[0].id });
+      } catch (e) {}
+      const out = paOut(Object.assign({ kind: "askgen" }, a, { go: a.go ? paGo(a.go) : null, offers: a.offers || [] }));
+      return done(agStamp(out, a.ran, P));
+    }
+    const fin = (b) => {
+      if (isClient && b && !agClientOk(b) && !(b.kind || "").startsWith("cl"))
+        return paOut({
+          headline: "I could not read that as a question about your job.",
+          note: 'Ask it the way you would ask us: "when will my job finish", "what is waiting on me", "how much have we paid so far", "which photos were shared this week".',
+          kind: "none",
+        });
+      return done(agAfter(P, b));
+    };
+    const b = legacy();
+    return b && "function" == typeof b.then ? b.then(fin) : fin(b);
+  };
+}
+// ---- the hosted model's query tool lists every entity and its fields, and shows what it ran
+function eqSchema() {
+  return EQ_ENTITIES()
+    .map((k) => {
+      let row = null;
+      try {
+        row = (EQ_TABLES[k]() || [])[0];
+      } catch (e) {}
+      const f = row ? Object.keys(row).filter((x) => !/^_/.test(x)) : [];
+      return `${k}${f.length ? ` (${f.slice(0, 24).join(", ")})` : ""}`;
+    })
+    .join("; ");
+}
+{
+  const base = mindSystem;
+  mindSystem = function () {
+    return (
+      base.apply(this, arguments) +
+      '\n- Show the query you ran under every answer, in one line: "I ran: <entity> where <filters> grouped by <field> (N rows)". A count you state must be the row count the tool returned.\n- A name the records do not hold as a client, job, vendor or person may still be in the books: query transactions, bills and purchaseorders with q before saying there is nothing.'
+    );
+  };
+}
+
+/* ---------------------------------------------------------------------------
+   Today: the Owner's and the PM's Home (BACKLOG §3.3 "every person's day starts in one place").
+   Home was eight stacked sections (a prose brief, The Brain, Workload, Inbox, Tasks, Obligations, Daily
+   Logs, the field card), 1,100 words on a phone. It is now four short parts, each read from one source:
+     Pulse          three numbers, each from one named predicate, each opening the rows behind it;
+     Do Now         the Approvals queue (PRED.waitingOnMe), ranked by who is blocked and the money at stake,
+                    five shown, one verb each; the verb runs the same function the Approvals page runs;
+     Caught for You what the detectors found that would cost money or slip (the CATCH registry below),
+                    each with a proposed action a person takes;
+     Brief          three short lines from the morning brief, the full brief one tap away.
+   Everything else (Inbox, Tasks, Obligations, Workload, The Brain, Daily Logs) has its own page.
+   This is the outermost renderHome: for the Owner and the PM it draws Today and returns, so none of the
+   older Home layers (h4, b2, bn, b4, fd, ov, dl) run for them; every other role keeps its Home.
+--------------------------------------------------------------------------- */
+const TD_ROLES = ["owner", "pm"];
+let tdBriefFull = !1,
+  tdCatchAll = !1,
+  tdCtx = null;
+const tdOn = () =>
+  "home" === view &&
+  TD_ROLES.includes(role()) &&
+  "classic" !== ((DB.company || {}).homeMode || "brief") &&
+  !document.body.classList.contains("ws-mb");
+const tdJob = (p) => (p ? shortName(p) : "");
+const tdMoney0 = (v) => money(Math.round(+v || 0)).replace(/\.00$/, "");
+// Per-render facts that several parts read (the brief's facts are not cheap).
+function tdFacts() {
+  if (tdCtx) return tdCtx;
+  const F = briefFacts();
+  let X = null;
+  try {
+    X = b2Facts(F);
+  } catch (e) {}
+  return (tdCtx = { F: F, X: X });
+}
+// The jobs a person runs: the PM's own jobs (or every job when none carries their name); the Owner sees all.
+function tdMyJobs() {
+  const live = (DB.projects || []).filter((p) => !p.archived && "closed" !== (p.project || {}).status);
+  if (isOwner()) return live;
+  const me = (currentUser() || {}).name || "";
+  const mine = live.filter((p) => [p.project.pm, p.project.userName].includes(me));
+  return mine.length ? mine : live;
+}
+
+// ---- the Pulse's predicates (added to the registry so Ask, tiles and saved searches can read them)
+predDef("safeToSpend", {
+  label: "Safe to Spend",
+  rule: "the lower of truly ours (cash, less cards, unpaid bills, payroll due and money billed ahead of work) and the 13-week low",
+  figure: () => safeToSpend().safe,
+  // the build-up behind the figure, line for line as companyBalance computes it: cash today is the bank
+  // plus the card balances (negative) less unpaid bills and payroll due; truly ours takes off what was billed ahead
+  rows() {
+    const X = safeToSpend(),
+      B = X.B;
+    return [
+      ["In the bank", B.cash],
+      ["Credit cards", B.cards],
+      ["Unpaid bills", -B.ap],
+      ["Payroll due", -(B.payrollAccrued || 0)],
+      ["Billed ahead of work", -(B.over || 0)],
+      ["Truly ours", B.trulyOurs, "total"],
+      ["13-week low", X.low, "total"],
+      ["Safe to spend", X.safe, "figure"],
+    ].filter((r) => r[2] || Math.abs(+r[1] || 0) >= 0.005);
+  },
+});
+predDef("overdueAR", {
+  label: "Overdue AR",
+  rule: "client invoices with a balance, past their due date",
+  rows: () =>
+    (DB.clients || []).flatMap((c) =>
+      clientFin(c)
+        .open.filter((o) => o.x && o.x.due && o.x.due < today())
+        .map((o) => ({ c: c, o: o })),
+    ),
+  figure() {
+    return r2(this.rows().reduce((a, x) => a + (+x.o.bal || 0), 0));
+  },
+});
+predDef("jobsAtRisk", {
+  label: "Jobs at Risk",
+  rule: "something on the job is late (materials, decisions, submittals), the forecast finish is past the agreed finish, or the margin has faded 3 points or more from plan",
+  why(p) {
+    const out = [],
+      late = PRED.jobLate.count(p.id);
+    late && out.push(`${late} late`);
+    try {
+      const d = withProject(p, () => {
+        const { cpm: cpm, projEnd: projEnd } = computeCPM();
+        return p.project.target ? signedWork(p.project.target, scDate(cpm, projEnd)) : 0;
+      });
+      d > 0 && out.push(`finish ${d} working day${1 === d ? "" : "s"} past ${fmt(p.project.target)}`);
+    } catch (e) {}
+    try {
+      const J = jobFin(p),
+        fade = J.contract && J.plannedGPPct ? r2((J.estGPPct || 0) - J.plannedGPPct) : 0;
+      fade <= -3 && out.push(`margin down ${Math.abs(fade)} pts`);
+    } catch (e) {}
+    return out;
+  },
+  rows(scope) {
+    return predJobs(scope)
+      .filter((p) => !p.archived && "closed" !== (p.project || {}).status)
+      .map((p) => ({ p: p, why: this.why(p), late: PRED.jobLate.rows(p.id) }))
+      .filter((x) => x.why.length);
+  },
+});
+// Jobs, not items: the PM thinks in jobs. One row per live job with something late on it, the items underneath.
+// (The Pulse said "Late on Jobs 10" and counted the items; its sheet now lists 2 jobs and the 10 items under them.)
+predDef("jobsLate", {
+  label: "Jobs Late",
+  rule: "jobs with something late on them: materials late to order, decisions past due or late submittals",
+  rows(scope) {
+    return predJobs(scope)
+      .filter((p) => !p.archived && "closed" !== (p.project || {}).status)
+      .map((p) => ({ p: p, late: PRED.jobLate.rows(p.id) }))
+      .filter((x) => x.late.length);
+  },
+});
+
+// ---- Pulse: three numbers per role, each read from one predicate
+const TD_PULSE = {
+  owner: [
+    {
+      k: "safe",
+      label: "Safe to Spend",
+      pred: "safeToSpend",
+      money: !0,
+      tone: (v) => (v < 0 ? "bad" : ""),
+      go: () => h4Go({ view: "reports", tab: "financials" }),
+      goLabel: "Open Statements",
+    },
+    {
+      k: "ar",
+      label: "Overdue AR",
+      pred: "overdueAR",
+      money: !0,
+      tone: (v) => (v > 0 ? "warn" : ""),
+      go: () => setView("billing"),
+      goLabel: "Open Billing",
+    },
+    {
+      k: "risk",
+      label: "Jobs at Risk",
+      pred: "jobsAtRisk",
+      noun: "job",
+      tone: (v) => (v ? "warn" : ""),
+      go: () => setView("ovjobs"),
+      goLabel: "Open Projects",
+    },
+  ],
+  pm: [
+    {
+      k: "late",
+      label: "Jobs Late",
+      pred: "jobsLate",
+      noun: "job",
+      mine: !0,
+      tone: (v) => (v ? "bad" : ""),
+      go: () => setView("ovjobs"),
+      goLabel: "Open Projects",
+    },
+    {
+      k: "client",
+      label: "Waiting on Client",
+      pred: "clientDecisionsDue",
+      mine: !0,
+      tone: (v) => (v ? "warn" : ""),
+      go: () => setView("dec"),
+      goLabel: "Open Decisions",
+    },
+    {
+      k: "site",
+      label: "Site Questions",
+      pred: "siteQuestions",
+      mine: !0,
+      tone: (v) => (v ? "warn" : ""),
+      go: () => ((window.mApprKind = "raise"), setView("mapprove")),
+      goLabel: "Open Approvals",
+    },
+  ],
+};
+function tdPulseRows(t) {
+  const P = PRED[t.pred];
+  return t.mine ? tdMyJobs().flatMap((p) => P.rows(p.id)) : P.rows();
+}
+function tdPulseValue(t) {
+  const P = PRED[t.pred];
+  return t.money ? P.figure() : tdPulseRows(t).length;
+}
+// One line per row behind a Pulse number: [what, detail, amount, open, class, items under it].
+// A job-level number (Jobs at Risk, Jobs Late) lists each job with its late items underneath.
+const tdLateLines = (L) => (L || []).map((i) => tdPulseLine({ pred: "jobLate" }, i, !0));
+function tdPulseLine(t, x, inJob) {
+  switch (t.pred) {
+    case "safeToSpend":
+      return [x[0], "", x[1], null, x[2]];
+    case "overdueAR":
+      return [
+        `${x.o.x.number} · ${x.c.name}`,
+        `due ${fmt(x.o.x.due)}`,
+        x.o.bal,
+        flowGo.doc(x.c, "invoice", x.o.x),
+      ];
+    case "jobsAtRisk":
+      return [tdJob(x.p), x.why.join(" · "), null, flowGo.project(x.p), "", tdLateLines(x.late)];
+    case "jobsLate":
+      return [tdJob(x.p), predSay(x.late.length, "item late", "items late"), null, flowGo.project(x.p), "", tdLateLines(x.late)];
+    case "jobLate": {
+      const r = x.r,
+        p = r.p || DB.projects.find((q) => q.id === (r.projectId || r.pid)),
+        name =
+          "material" === x.kind
+            ? r.name || r.item || r.title
+            : "decision" === x.kind
+              ? (r.d || {}).name
+              : (r.s && (r.s.number + " " + (r.s.title || ""))) || r.title || "Submittal";
+      return [
+        name || x.kind,
+        `${x.kind}${p && !inJob ? " · " + tdJob(p) : ""}`,
+        null,
+        "decision" === x.kind && r.d && p
+          ? flowGo.decision(p, r.d)
+          : "submittal" === x.kind && r.s && p && "function" == typeof smGo
+            ? smGo(r.s, p)
+            : p
+              ? () => (setCurrent(p.id), setView("decision" === x.kind ? "dec" : "po"))
+              : null,
+      ];
+    }
+    case "clientDecisionsDue":
+      return [x.d.name, `${tdJob(x.p)} · owed by ${x.d.owner}`, null, flowGo.decision(x.p, x.d)];
+    case "siteQuestions": {
+      const r = x.x || {};
+      return [r.title || "Question from the site", `${tdJob(x.p)}${r.by ? " · " + r.by : ""}`, null, flowGo.raise(r)];
+    }
+  }
+  return [String(x), "", null, null];
+}
+function tdPulseOpen(t) {
+  const rows = tdPulseRows(t),
+    v = tdPulseValue(t),
+    lines = rows.map((x) => tdPulseLine(t, x)),
+    head = t.money ? tdMoneyC(v) : predSay(v, t.noun || "item"),
+    item = (s, k) =>
+      `<div class="td-sh-item" ${s[3] ? `data-tdsh="${k}"` : ""}><span class="grow"><b>${esc(s[0])}</b>${s[1] ? `<span class="small muted">${esc(s[1])}</span>` : ""}</span></div>`,
+    m = mbModal(
+      esc(t.label),
+      `<p class="small muted td-sh-rule">${esc(PRED[t.pred].rule)}.</p><div class="td-sh-n" data-tdsheet="${t.k}" data-n="${t.money ? v : rows.length}">${esc(head)}</div>${
+        lines.length
+          ? `<div class="td-sh-list">${lines
+              .map(
+                (l, i) =>
+                  `<div class="td-sh-row ${l[4] || ""}" ${l[3] ? `data-tdsh="${i}"` : ""}><span class="grow"><b>${esc(l[0])}</b>${l[1] ? `<span class="small muted">${esc(l[1])}</span>` : ""}</span>${null != l[2] ? `<span class="money">${tdMoneyC(l[2])}</span>` : ""}</div>${(l[5] || []).map((s, j) => item(s, `${i}.${j}`)).join("")}`,
+              )
+              .join("")}</div>`
+          : `<div class="empty">Nothing here today.</div>`
+      }<div class="td-sh-ft"><a href="#" data-tdshgo>${esc(t.goLabel)}</a></div>`,
+      { submit: null },
+    );
+  if (!m) return;
+  m.querySelectorAll("[data-tdsh]").forEach(
+    (el) =>
+      (el.onclick = () => {
+        const [i, j] = el.dataset.tdsh.split("."),
+          l = lines[+i],
+          go = null == j ? l[3] : l[5][+j][3];
+        mbCloseModal(), go && go();
+      }),
+  );
+  const g = m.querySelector("[data-tdshgo]");
+  g &&
+    (g.onclick = (e) => {
+      e.preventDefault(), mbCloseModal(), t.go();
+    });
+}
+
+// ---- Do Now: the Approvals queue, ranked
+// how many jobs the questions from the field in the queue come from (the job is named only when it varies)
+function tdRaiseJobs() {
+  const R = (DB.field || {}).raises || [];
+  return new Set(
+    PRED.waitingOnMe
+      .rows()
+      .filter((it) => "raise" === it.kind)
+      .map((it) => (R.find((r) => r.id === it.id) || {}).projectId),
+  ).size;
+}
+function tdRaise(it) {
+  return "raise" === it.kind ? ((DB.field || {}).raises || []).find((r) => r.id === it.id) : null;
+}
+function tdDec(it) {
+  if ("dec" !== it.kind) return null;
+  const [did, pid0] = String(it.id).split("@"),
+    pid = pid0 || (it.open && it.open.project),
+    p = DB.projects.find((x) => (!pid || x.id === pid) && (x.decisions || []).some((d) => d.id === did));
+  return p ? { p: p, d: p.decisions.find((d) => d.id === did) } : null;
+}
+// Who is blocked and what is at stake: a person in the field waiting comes first, then money that has
+// already left or is about to, then what holds the schedule; housekeeping (lessons, meeting notes) last.
+function tdScore(it) {
+  const td = today(),
+    soon = iso(addDays(td, 1)),
+    sev = "bad" === it.sev ? 5 : "warn" === it.sev ? 2 : 0;
+  if ("raise" === it.kind) {
+    const r = tdRaise(it) || {};
+    return 60 + (r.escalated || (r.dueBy && r.dueBy <= soon) ? 20 : 0) + sev + (r.dueBy && r.dueBy <= td ? 3 : 0);
+  }
+  if ("req" === it.kind) return 55 + sev;
+  if ("bill" === it.kind) {
+    const b = (DB.bills || []).find((x) => x.id === it.id);
+    if (!b) return 40;
+    return 50 + Math.min(30, billTotal(b) / 1e3) + (billPaidUnapproved(b) ? 10 : 0) + sev;
+  }
+  if ("dec" === it.kind) {
+    const D = tdDec(it);
+    return 25 + (D && (D.d.gate || D.d.blocks || D.d.ref) ? 15 : 0) + ("bad" === it.sev ? 15 : 0);
+  }
+  if ("subm" === it.kind) return 40 + sev;
+  if ("time" === it.kind) return 30 + sev;
+  if ("draft" === it.kind) return 20 + sev;
+  if ("meeting" === it.kind) return 15 + sev;
+  return 10 + sev;
+}
+function tdQueue() {
+  const A = PRED.waitingOnMe.rows();
+  return A.map((it, i) => ({ it: it, i: i, s: tdScore(it) }))
+    .sort((a, b) => b.s - a.s || a.i - b.i)
+    .map((x) => x.it);
+}
+const tdPlain = (s) =>
+  String(s || "")
+    .replace(/<[^>]*>/g, "")
+    .replace(/(\d{4})-(\d{2})-(\d{2})/g, (m) => fmt(m));
+// One card: line 1 what it is (a link to the record), line 2 why now, and one verb.
+function tdCard(it) {
+  const go = () => mGo(it.open),
+    c = { line1: esc(tdPlain(it.title)), go: go, why: "", verb: "Open", run: go };
+  if ("bill" === it.kind) {
+    const b = (DB.bills || []).find((x) => x.id === it.id);
+    if (b) {
+      const P = "function" == typeof pay3PO ? pay3PO(b) : null,
+        over = "function" == typeof pay3Default ? pay3Default(b) : 0,
+        bits = [money(billTotal(b))];
+      over > 0 && P && P.po && bits.push(`${tdMoney0(billTotal(b) - over)} over ${P.po.number}`);
+      billPaidUnapproved(b) && bits.push("paid before approval");
+      (it.comp || []).length && bits.push(String(it.comp[0]).replace(/\s*\(.*$/, ""));
+      c.line1 = `<a href="#" data-tdrec>${esc(b.number || "Bill")}</a> · ${esc(b.vendor)}`;
+      c.go = flowGo.bill(b);
+      c.why = bits.slice(0, 3).join(" · ");
+      it.act && ((c.verb = "pmok" === it.act ? "Recommend" : "Approve"), (c.run = () => apprBillYes(it)));
+      it.act || (c.run = c.go);
+    }
+  } else if ("time" === it.kind) {
+    const t = (DB.time || []).find((x) => x.id === it.id),
+      p = t && DB.projects.find((x) => x.id === t.projectId);
+    if (t) {
+      const fl = ("function" == typeof timeFlags ? timeFlags(t) : []) || [];
+      c.line1 = `<a href="#" data-tdrec>${esc(empName(t.empId))}</a> · ${esc(it.n)}${p ? " on " + esc(tdJob(p)) : ""}`;
+      c.go = flowGo.time(t);
+      c.why = `hours for ${fmt(t.date)}${fl.length ? " · " + tdPlain(fl[0]).replace(/\s*\(.*$/, "") : " · no flags"}`;
+      c.verb = "Approve";
+      c.run = () => {
+        const keep = S;
+        p && (S = p);
+        try {
+          timeAction(t, "approve");
+        } catch (e) {
+          console.warn(e);
+        }
+        (S = keep), render();
+      };
+    }
+  } else if ("raise" === it.kind) {
+    const r = tdRaise(it),
+      p = r && DB.projects.find((x) => x.id === r.projectId);
+    if (r) {
+      c.line1 = `<a href="#" data-tdrec>${esc(tdWords(r.title, 12))}</a>`;
+      c.go = flowGo.raise(r);
+      c.why = `${esc(r.by || "The foreman")} waiting${r.dueBy ? " · needs it " + fmt(r.dueBy) : ""}${p && tdRaiseJobs() > 1 ? " · " + esc(tdJob(p)) : ""}`;
+      c.verb = "Answer";
+      c.run = () => fAnswerRaise(r, "extra" === r.type ? "extra" : "");
+    }
+  } else if ("dec" === it.kind) {
+    const D = tdDec(it);
+    if (D) {
+      const name = String(D.d.name || "").replace(/ — .*$/, "");
+      c.line1 = `<a href="#" data-tdrec>${esc(name)}</a>`;
+      c.go = flowGo.decision(D.p, D.d);
+      const due = (() => {
+        try {
+          return withProject(D.p, () => decDue(D.d));
+        } catch (e) {
+          return "";
+        }
+      })();
+      c.why = [tdJob(D.p), D.d.gate ? "holds " + D.d.gate : "", due ? (due < today() ? "past due " : "due ") + fmt(due) : ""]
+        .filter(Boolean)
+        .map(esc)
+        .join(" · ");
+      c.verb = "Choose";
+      c.run = () => flowDecide(D.p, D.d);
+    }
+  } else {
+    // a lesson, a change, a meeting, a draft: the record's words, cut to a card (the brain writes paragraphs)
+    const parts = tdPlain(it.detail)
+        .split(/\s+·\s+/)
+        .filter(Boolean),
+      cut = (x) => tdWords(String(x).replace(/ — .*$/, "").replace(/\.\s.*$/, ""), 8);
+    c.line1 = esc(tdWords(tdPlain(it.title).replace(/ — .*$/, ""), 8));
+    c.why = esc(parts.slice(0, 2).map(cut).join(" · "));
+    // the title of a lesson or a change already says what it is; line 2 says where it came from
+    "lesson" === it.kind && (c.why = esc(`${parts[0] ? parts[0] + " · " : ""}a rule the brain proposes`));
+    "change" === it.kind && (c.why = esc(`${it.n || "a change"} the brain proposes`));
+    "req" === it.kind && ((c.line1 = esc(tdPlain(it.title))), (c.why = esc(parts.slice(1, 3).join(" · ") || parts[0] || "")));
+  }
+  c.why = c.why || esc(tdPlain(it.detail).split(/\s+·\s+/)[0] || "");
+  return c;
+}
+
+// ---- Caught for You: the detectors, as a registry. Each entry: rows() of {key, what, sub, amount, verb, run}.
+// Another lane plugs a new detector in by pushing an entry; Home reads them in this order.
+const tdWords = (s, n) => {
+  const w = String(s || "").split(/\s+/);
+  return w.length > n ? w.slice(0, n).join(" ") + "…" : String(s || "");
+};
+const CATCH = [
+  {
+    name: "earnedNotBilled",
+    label: "Earned, Not Billed",
+    rows() {
+      const R = readyToBill();
+      return R.rows
+        .map((r) => ({
+          key: "rtb:" + blRtbKey(r),
+          what: `Not billed: ${blRowName(r) || tdJob(r.p)}`,
+          sub: `${money(r.amount)} ${"dhours" === r.kind ? "of design hours banked" : "dmilestone" === r.kind ? "milestone reached" : "earned"}`,
+          amount: r.amount,
+          verb: "Bill It",
+          run: () => rtbAct(blRtbKey(r)),
+        }))
+        .concat(
+          R.held.map((h) => ({
+            key: "held:" + h.p.id,
+            what: `Held: ${tdJob(h.p)}`,
+            sub: `${money(h.amount)} earned, held because ${h.why}`,
+            amount: h.amount,
+            verb: "Review",
+            run: () => rtbAct("app:" + h.p.id),
+          })),
+        );
+    },
+  },
+  {
+    name: "costNotBilled",
+    label: "Cost Not Billed",
+    rows: () =>
+      ("function" == typeof spUnbilled ? spUnbilled() : []).map((r) => ({
+        key: "sp:" + (r.key || (r.txn && r.txn.id)),
+        what: `Cost not billed: ${tdWords((r.line && (r.line.item || r.line.desc)) || r.label, 5)}`,
+        sub: `${money(r.gap)} on ${tdJob(r.project)}${"over-contract" === r.kind ? " · over contract" : "no-line" === r.kind ? " · on no line" : ""}`,
+        amount: r.gap,
+        verb: "Review",
+        run: () => {
+          try {
+            (spTab = "unbilled"), (spProj = "all");
+          } catch (e) {}
+          setView("spend");
+        },
+      })),
+  },
+  {
+    name: "overPO",
+    label: "Billed Over the PO",
+    rows: () =>
+      (DB.bills || [])
+        .filter((b) => !["void", "rejected", "draft"].includes(b.status) && "function" == typeof pay3Default && pay3Can(b) && pay3Default(b) > 0)
+        .map((b) => {
+          const over = r2(billTotal(b) - pay3Default(b)),
+            P = pay3PO(b);
+          return {
+            key: "bill:" + b.id,
+            what: `Over PO: ${b.number} · ${b.vendor}`,
+            sub: `${money(over)} over ${P && P.po ? P.po.number : "the PO"}`,
+            amount: over,
+            verb: isOwner() ? "Dispute Difference" : "Review",
+            run: isOwner() ? () => billAction(b, "short") : flowGo.bill(b),
+          };
+        }),
+  },
+  {
+    name: "budgetOverrun",
+    label: "Over Budget",
+    rows: () =>
+      ("function" == typeof analystFindings ? analystFindings() : [])
+        .filter((f) => /over budget/i.test(f.title || ""))
+        .map((f, i) => ({
+          key: "bud:" + f.title,
+          what: tdWords(f.title, 8),
+          sub: `${money(f.amount)}${f.detail ? " · " + tdWords(tdPlain(f.detail), 6) : ""}`,
+          amount: f.amount,
+          verb: "Review",
+          run: () => h4Go(f.go || { view: "reports", tab: "budget" }),
+        })),
+  },
+  {
+    name: "compliance",
+    label: "Compliance",
+    rows: () =>
+      tdChase()
+        .filter((c) => "coi" === c.kind)
+        .map((c) => ({
+          key: "coi:" + (c.vendor ? c.vendor.id : c.t),
+          what: tdPlain(c.t),
+          sub: tdPlain(c.sub),
+          amount: 0,
+          verb: "Chase COI",
+          run: () => eaNudge(c),
+        })),
+  },
+  {
+    name: "unmatchedCredit",
+    label: "Credit With No Return",
+    rows: () =>
+      ("function" == typeof rmOrphans ? rmOrphans() : []).map((t) => ({
+        key: "txn:" + t.id,
+        what: `Credit with no return: ${tdWords(t.vendor || t.desc, 4)}`,
+        sub: `${money(+t.amt || 0)} came in ${fmt(t.date)}`,
+        amount: +t.amt || 0,
+        verb: "Match",
+        run: () => rmModal(),
+      })),
+  },
+  {
+    name: "followUp",
+    label: "Not Come Back",
+    rows: () =>
+      tdChase()
+        .filter((c) => !["coi", "field"].includes(c.kind) && c.msg)
+        .map((c) => ({
+          key: "chase:" + c.kind + ":" + tdPlain(c.t),
+          what: `Waiting on: ${tdWords(tdPlain(c.t).replace(/ — .*$/, ""), 7)}`,
+          sub: tdWords(tdPlain(c.sub), 8),
+          amount: 0,
+          verb: "Chase",
+          run: () => eaNudge(c),
+        })),
+  },
+  {
+    name: "lateTasks",
+    label: "Late Tasks",
+    rows() {
+      const me = tkMe();
+      return me
+        ? tkItems()
+            .filter((x) => x.late && x.assignee && tkOwnerMatch(x.assignee, me) && "sched" !== x.kind)
+            .map((x) => ({
+              key: "task:" + x.id,
+              what: `Late: ${tdWords(x.title, 7)}`,
+              sub: `was due ${fmt(x.due)}${x.project ? " · " + x.project : ""}`,
+              amount: 0,
+              verb: "Open",
+              run: () => setView("tkall"),
+            }))
+        : [];
+    },
+  },
+];
+function tdChase() {
+  const C = tdFacts();
+  if (C.chase) return C.chase;
+  try {
+    C.chase = C.X ? eaChase(C.F, C.X, role()) : [];
+  } catch (e) {
+    C.chase = [];
+  }
+  return C.chase;
+}
+// Every detector's rows, less anything already waiting in the person's queue (a bill billed over its PO
+// that waits for approval says so on its Do Now card), in turns: each detector's biggest first, then the next.
+function tdCaught(queue) {
+  const inQ = new Set((queue || []).filter((it) => "bill" === it.kind).map((it) => "bill:" + it.id)),
+    lists = CATCH.map((C) => {
+      let R = [];
+      try {
+        R = C.rows() || [];
+      } catch (e) {
+        console.warn("catch", C.name, e);
+      }
+      return R.filter((r) => !inQ.has(r.key))
+        .sort((a, b) => (b.amount || 0) - (a.amount || 0))
+        .map((r) => Object.assign({ src: C.name }, r));
+    }),
+    out = [];
+  for (let i = 0; lists.some((l) => l.length > i); i++) lists.forEach((l) => l[i] && out.push(l[i]));
+  return out;
+}
+
+// ---- Brief: three short lines from the morning brief, the brief itself one tap away
+const TD_BRIEF_PICK = [
+  [/(?:^|[:;] )([A-Z][^;:]*?) escalated in writing/, (m) => `${m[1]} escalated in writing: call first`],
+  [/^Since you were last here I (.+?)(?: — |, and |\.$)/, (m) => "I " + m[1]],
+  [/(\d+ deals? needs? a hand today)/i, (m) => m[1]],
+  [/^Budget: the biggest variances this year are ([^;]+?)(?:;|$)/, (m) => "Budget: " + m[1]],
+  [/(\d+ messages? read and routed[^;.]*)/i, (m) => m[1]],
+  [/^You asked me to remember .*/, (m) => m[0].replace(/\.$/, "")],
+];
+function tdBriefText() {
+  const F = tdFacts().F,
+    key = F.td + "|" + role(),
+    cached = ((DB.company || {}).briefCache || {})[key];
+  return cached && cached.text ? cached.text.split(/\n+/).filter(Boolean) : briefSentences(F, role());
+}
+function tdBriefLines() {
+  const L = briefSentences(tdFacts().F, role()).slice(1),
+    out = [];
+  for (const [re, f] of TD_BRIEF_PICK) {
+    if (out.length >= 3) break;
+    for (const s of L) {
+      const m = re.exec(s);
+      if (m) {
+        const line = tdWords(f(m, s).replace(/\s+/g, " ").trim().replace(/[.;,]$/, ""), 10);
+        // what Do Now and Caught for You already show is not repeated here
+        line && !out.includes(line) && !/earned and not billed|not come back/i.test(line) && out.push(line);
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+// ---- the page
+function tdRender() {
+  const root = homeRoot();
+  if (!root) return;
+  tdCtx = null;
+  const r = role(),
+    pulse = (TD_PULSE[r] || TD_PULSE.owner).map((t) => {
+      let v = 0;
+      try {
+        v = tdPulseValue(t);
+      } catch (e) {
+        console.warn("pulse", t.k, e);
+      }
+      return { t: t, v: v };
+    }),
+    Q = tdQueue(),
+    top = Q.slice(0, 5).map((it) => Object.assign({ it: it }, tdCard(it))),
+    caught = tdCaught(Q),
+    shownC = tdCatchAll ? caught : caught.slice(0, 4),
+    brief = tdBriefLines(),
+    ic = (d) =>
+      `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+  root.innerHTML = `<div class="td-home" data-tdrole="${r}">
+  <div class="ph td-ph"><div><h2>Home</h2></div></div>
+  <div class="td-pulse">${pulse
+    .map(
+      ({ t: t, v: v }) =>
+        `<a href="#" class="td-pl ${t.tone ? t.tone(v) : ""}" data-tdpulse="${t.k}" data-n="${v}"><b>${t.money ? esc(tdMoney(v)) : v}</b><span>${esc(t.label)}</span></a>`,
+    )
+    .join("")}</div>
+  <div class="td-cols"><section class="td-sec td-do" aria-label="Do Now"><div class="td-hd"><h3>Do Now</h3><span class="td-cnt" data-tdcount="${Q.length}">${Q.length}</span></div>${
+    top.length
+      ? top
+          .map(
+            (c, i) =>
+              `<div class="td-card" data-kind="${c.it.kind}" data-id="${esc(String(c.it.id))}"><div class="td-txt"><div class="td-l1">${c.line1}</div>${c.why ? `<div class="td-l2">${c.why}</div>` : ""}</div><button type="button" class="btn ${0 === i ? "primary" : ""} td-verb" data-tdverb="${i}">${esc(c.verb)}</button></div>`,
+          )
+          .join("")
+      : '<div class="td-empty">Nothing is waiting on you.</div>'
+  }${Q.length > top.length ? `<a href="#" class="td-more" data-tdall>${Q.length - top.length} more in Approvals</a>` : ""}</section>
+  <div class="td-side"><section class="td-sec td-catch" aria-label="Caught for You"><div class="td-hd"><h3>Caught for You</h3><span class="td-cnt" data-tdcaught="${caught.length}">${caught.length}</span></div>${
+    shownC.length
+      ? shownC
+          .map(
+            (x, i) =>
+              `<div class="td-card td-c" data-src="${x.src}"><span class="td-ic">${ic('<path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/>')}</span><div class="td-txt"><div class="td-l1">${esc(x.what)}</div><div class="td-l2">${esc(x.sub)}</div></div><button type="button" class="btn sm td-verb" data-tdcatch="${i}">${esc(x.verb)}</button></div>`,
+          )
+          .join("")
+      : '<div class="td-empty">Nothing caught today.</div>'
+  }${caught.length > 4 ? `<a href="#" class="td-more" data-tdcatchall>${tdCatchAll ? "Show Fewer" : `${caught.length - 4} more`}</a>` : ""}</section>
+  <section class="td-sec td-brief" aria-label="Morning Brief"><div class="td-hd"><h3>Morning Brief</h3></div>${
+    tdBriefFull
+      ? `<div id="jv" class="td-jv"><div class="jv-body">${tdBriefText()
+          .map((s, i) => `<p class="${0 === i ? "jv-lead" : ""}">${esc(s)}</p>`)
+          .join("")}</div></div><a href="#" class="td-more" data-tdbrief>Shorter</a>`
+      : `${brief.length ? `<ul class="td-bl">${brief.map((s) => `<li>${esc(s)}</li>`).join("")}</ul>` : ""}<a href="#" class="td-more" data-tdbrief>Read the Full Brief</a>`
+  }</section></div></div></div>`;
+  const P = TD_PULSE[r] || TD_PULSE.owner;
+  root.querySelectorAll("[data-tdpulse]").forEach(
+    (a) =>
+      (a.onclick = (e) => {
+        e.preventDefault();
+        const t = P.find((x) => x.k === a.dataset.tdpulse);
+        t && tdPulseOpen(t);
+      }),
+  );
+  root.querySelectorAll(".td-do .td-card").forEach((el, i) => {
+    const c = top[i];
+    if (!c) return;
+    const a = el.querySelector("[data-tdrec]");
+    a &&
+      (a.onclick = (e) => {
+        e.preventDefault(), c.go();
+      });
+    el.querySelector("[data-tdverb]").onclick = (e) => {
+      e.preventDefault(), c.run();
+    };
+  });
+  root.querySelectorAll("[data-tdcatch]").forEach(
+    (b) =>
+      (b.onclick = (e) => {
+        e.preventDefault();
+        const x = shownC[+b.dataset.tdcatch];
+        x && x.run();
+      }),
+  );
+  const all = root.querySelector("[data-tdall]");
+  all &&
+    (all.onclick = (e) => {
+      e.preventDefault(), (window.mApprKind = "all"), setView("mapprove");
+    });
+  const ca = root.querySelector("[data-tdcatchall]");
+  ca &&
+    (ca.onclick = (e) => {
+      e.preventDefault(), (tdCatchAll = !tdCatchAll), render();
+    });
+  const br = root.querySelector("[data-tdbrief]");
+  br &&
+    (br.onclick = (e) => {
+      e.preventDefault(), (tdBriefFull = !tdBriefFull), render();
+    });
+  tdCtx = null;
+}
+// The Pulse prints to the cent below $100k (the Statements cash card's safe-to-spend, −$4,150.74), in $k above.
+const tdMoneyC = (v) => ((+v || 0) < -0.004 ? "−" : "") + money2(Math.abs(+v || 0)),
+  tdMoney = (v) => {
+    const a = Math.abs(+v || 0);
+    return a >= 1e5 ? (v < 0 ? "−" : "") + "$" + Math.round(a / 1e3) + "k" : tdMoneyC(v);
+  };
+if ("function" == typeof renderHome) {
+  const base = renderHome;
+  renderHome = function () {
+    if (tdOn())
+      try {
+        return tdRender();
+      } catch (e) {
+        console.error("today", e);
+      }
+    return base.apply(this, arguments);
+  };
+}
+
+// ---- phone chrome for the office roles (≤760px): one slim header (search, Ask, New) and the bottom tab bar.
+// The sub-tab strip is dropped where it repeats the bottom bar (Home, Approvals); page lead sentences are
+// dropped; the page title lives in the header, so the page's own heading (the "Home" h2 that spent a line
+// above the Pulse) is hidden on every view whose title the header carries.
+function tdChrome() {
+  const phone = "function" == typeof mOffice && mOffice(),
+    body = document.body;
+  body.classList.toggle("td-phone", !!phone);
+  const bar = document.querySelector("header.topbar");
+  if (bar) {
+    let a = document.getElementById("tb-ask");
+    const show =
+      M_OFFICE.includes(role()) && (ROLE_VIEWS[role()] || []).includes("pa") && !body.classList.contains("ws-mb");
+    if (!a && show) {
+      (a = document.createElement("button")),
+        (a.id = "tb-ask"),
+        (a.type = "button"),
+        (a.className = "btn tb-ask no-print"),
+        (a.title = "Ask"),
+        a.setAttribute("aria-label", "Ask"),
+        (a.innerHTML = `${M_ICON.ask}<span>Ask</span>`),
+        (a.onclick = () => setView("pa"));
+      const s = document.getElementById("btn-search");
+      s ? s.after(a) : bar.appendChild(a);
+    }
+    a && (a.hidden = !show);
+  }
+  const tabs = [...document.querySelectorAll("#mtabs [data-mv]")].map((b) => b.dataset.mv),
+    sub = document.getElementById("subnav");
+  body.classList.toggle(
+    "td-nosub",
+    !!(phone && sub && tabs.includes(view) && sub.querySelector('[data-sub="home"], [data-sub="mapprove"]')),
+  );
+  if (phone) {
+    const h = document.querySelector(".view.on .ph h2, .view.on h2"),
+      c = document.getElementById("crumbs"),
+      t = h ? h.textContent.trim() : "";
+    c && t && c.textContent.trim() !== t && (c.innerHTML = `<b>${esc(t)}</b>`);
+    // the header carries the title: the page header does not repeat it, and goes entirely when nothing else
+    // in it shows (its lead sentence is already hidden on the phone)
+    const ph = h && h.closest(".ph");
+    if (ph && c && c.textContent.trim() === t) {
+      h.classList.add("td-in-hdr");
+      const rest = [...ph.querySelectorAll("button, .btn, a, input, select")].some((el) => el.getClientRects().length);
+      ph.classList.toggle("td-ph-bare", !rest && !/\S/.test(ph.innerText || ""));
+    }
+  }
+}
+{
+  const base = render;
+  render = function () {
+    const r = base.apply(this, arguments);
+    try {
+      tdChrome();
+    } catch (e) {
+      console.warn("phone chrome", e);
+    }
+    return r;
+  };
+}
+// ---------------------------------------------------------------------------------------------------------
+// demows: the Demo Workspace. An invented Google-shaped workspace (mailbox, calendar, drive) per app user,
+// served through the SAME code paths real Google uses. gcFetch hands every request to gsFetchDemo when the
+// user's connection is the demo (DB.conn[uid].google.demo), so gsGmail / gsCal / gsDrive pull from it with
+// their cursors, gaDraft / gaSend / gaHold / gaBook write into it, gcDocText / gcAttachText read its files,
+// and every watcher, router, nudge, draft, filing and lesson runs on it exactly as it would on Google.
+// Everything in it is invented. Dates are relative to the app clock (today(), 2026-09-03); never the wall
+// clock. The hosted server half of Google (assistant-watch every 15 minutes, doctext.mjs for PDFs) was
+// lost: the browser's gsTimer stands in for the watcher, and each PDF carries its text in `text` so the
+// browser can read it without a server. Real Google is untouched: a real token never reaches this code.
+// Connecting is explicit and per user (Settings › Connections › Connect Demo Workspace, or
+// gcDemoConnect()); a boot adds nothing. The client role has no workspace.
+// ---------------------------------------------------------------------------------------------------------
+const DEMO_WS = {},
+  DW_DOMAIN = "smartdesign.nyc",
+  DW_STAFF = {
+    u_owner: ["Alan Mishali", "alan@" + DW_DOMAIN],
+    u_alan: ["Alan", "alan.pm@" + DW_DOMAIN],
+    u_chen: ["Chen Biron", "chen@" + DW_DOMAIN],
+    u_angel: ["Angel", "angel@" + DW_DOMAIN],
+    u_sarah: ["Sarah Davis", "sarah@" + DW_DOMAIN],
+    u_billing: ["Billing", "billing@" + DW_DOMAIN],
+    u_controller: ["Controller", "controller@" + DW_DOMAIN],
+    u_alberto: ["Alberto", "alberto@" + DW_DOMAIN],
+    u_alex: ["Alex", "alex@" + DW_DOMAIN],
+  },
+  DW_P = {
+    sklein: "Sarah Klein <sarah.klein@example.com>",
+    dklein: "David Klein <david.klein@example.com>",
+    rivera: "Elena Rivera <elena.rivera@example.com>",
+    cambri: "Cambri Jessop <cambri@example.com>",
+    jaleena: "Jaleena Jessop <jaleena@example.com>",
+    lenox: "Lenox Coffee Co. <manager@lenoxcoffee.example>",
+    ww: "Window Works <quotes@windowworks.example>",
+    amp: "Alberto M Plumbing <office@albertomplumbing.example>",
+    cm: "Carlos Millwork <carlos@carlosmillwork.example>",
+    tino: "Tino <orders@tino.example>",
+    nemo: "Nemo Tile <sales@nemotile.example>",
+    bed: "Bedrosians <orders@bedrosians.example>",
+    pe: "Priya Natarajan, PE <pn@natarajanstructural.example>",
+    exp: "Metro Expediting <filings@metroexpediting.example>",
+    dob: "DOB NOW <donotreply@dobnow.example>",
+    lpc: "LPC Staff <noreply@lpc.example>",
+    posh: "Answering service <noreply@poshanswering.example>",
+    hd: "Home Depot Pro <noreply@homedepot.example>",
+    news: "Stoop and Cornice Weekly <news@stoopandcornice.example>",
+    promo: "ToolPro Deals <promo@toolpro.example>",
+    bell: "Marcus Bell <marcus.bell@example.com>",
+    adler: "Sofia Adler <sofia.adler@example.com>",
+    broker: "Harbor Insurance Brokers <certs@harborins.example>",
+    meet: "Meeting notes <notes@meet.example>",
+    jeanette: "Jeanette Hernandez <jeanette@" + DW_DOMAIN + ">",
+    maya: "Maya <maya@" + DW_DOMAIN + ">",
+    amex: "American Express <noreply@amex-statements.example>",
+  },
+  dwAddr = (uid) => `${DW_STAFF[uid][0]} <${DW_STAFF[uid][1]}>`,
+  dwB64 = (t) => {
+    try {
+      return btoa(unescape(encodeURIComponent(String(t || ""))))
+        .replace(/\+/g, "-")
+        .replace(/\//g, "_")
+        .replace(/=+$/, "");
+    } catch (e) {
+      return "";
+    }
+  },
+  dwUnB64 = (d) => {
+    try {
+      return decodeURIComponent(escape(atob(String(d || "").replace(/-/g, "+").replace(/_/g, "/"))));
+    } catch (e) {
+      return "";
+    }
+  };
+// The firm has a Demo Workspace for these personas; the client role has none.
+function gcDemoAvailable(uid) {
+  return !!DW_STAFF[uid || paMe().id] || ("object" == typeof DW_ATTACHED && !!DW_ATTACHED[uid || paMe().id]);
+}
+// ---- the invented documents: a PDF's extractable text, as doctext.mjs would have returned it ------------
+const DW_DOCS = {
+  cmInvoice: () =>
+    "CARLOS MILLWORK INC\n14 Scott Avenue, Brooklyn NY\nInvoice No. CM-0102\nDate: 09/01/2026\nBill To: SmartDesign Group LLC\nJob: 121 State Street, Brooklyn — parlor kitchen and laundry millwork\nAgainst PO-2026-048 (per approved shop drawings)\n\nProgress billing — shop drawings approved, lumber and veneer purchased, carcasses cut   $19,000.00\n\nAmount Due: $19,000.00\nTerms: net 15. Due September 16, 2026\nRemit by ACH to the account on file. Thank you.",
+  ampInvoice: () =>
+    "ALBERTO M PLUMBING LLC\nLicensed Master Plumber\nInvoice No. AMP-318\nDate: 09/02/2026\nBill To: SmartDesign Group LLC\nJob: 121 State Street — garden bath rough plumbing\n\nRough-in supply and waste, garden bath, per plan P-101   $4,600.00\n\nAmount Due: $4,600.00\nDue September 17, 2026",
+  wwCoi: () =>
+    "CERTIFICATE OF LIABILITY INSURANCE\nDate: 08/20/2026\nProducer: Harbor Insurance Brokers\nInsured: Window Works LLC, 88 Kent Avenue, Brooklyn NY\nCertificate holder: SmartDesign Group LLC\n\nCommercial General Liability — Policy GL-7731-2026 — Policy Period 08/15/2026 to 08/15/2027\nEach occurrence $1,000,000 · General aggregate $2,000,000\nWorkers Compensation — Policy WC-2210-2026 — Policy Period 08/15/2026 to 08/15/2027\nDescription of operations: window fabrication and installation, 121 State Street, Brooklyn. Certificate holder is named additional insured.",
+  ampCoi: () =>
+    "CERTIFICATE OF LIABILITY INSURANCE\nDate: 08/28/2026\nInsured: Alberto M Plumbing LLC\nCertificate holder: SmartDesign Group LLC\nCommercial General Liability — Policy Period 12/31/2025 to 12/31/2026\nWorkers Compensation — Policy Period 12/31/2025 to 12/31/2026\nDescription of operations: plumbing, 121 State Street, Brooklyn.",
+  nemoQuote: () =>
+    "NEMO TILE + STONE\nQuote Q-2271\nDate: 09/02/2026\nTo: SmartDesign Group LLC — Chen Biron\nJob: 121 State St, Brooklyn — garden bath\n\nCarrara 2x2 mosaic, floor, 48 sf + 10% waste   $864.00\nWhite 3x6 subway, walls, 192 sf + 10% waste   $1,536.00\nSchluter edge, thinset, grout   $480.00\n\nQuote total: $2,880.00\nLead time: 10 working days from deposit. Price holds 30 days.",
+  bedQuote: () =>
+    "BEDROSIANS TILE & STONE\nQuote BQ-55810\nTo: SmartDesign — Sarah Davis\nJob: 140 Prospect Place — kitchen backsplash\nZellige 4x4, weathered white, 62 sf + 15% waste   $2,170.00\nQuote total: $2,170.00\nLead time: 4 weeks from order. Samples shipped 9/1.",
+  amexStatement: () =>
+    "AMERICAN EXPRESS — BUSINESS PLATINUM CARD\nAccount ending 1009 · SmartDesign Group LLC\nStatement closing date: 08/31/2026\nPrevious balance $31,334.82\nPayments and credits -$31,334.82\nNew charges $14,862.10\nNew balance $14,862.10\nPayment due 09/25/2026\n\n08/14  HOME DEPOT #6166 BROOKLYN NY   $1,287.44\n08/18  NYC DEPT OF BUILDINGS   $1,425.00\n08/25  BEDROSIANS TILE CREDIT MEMO   -$214.50\n08/31  HOUSE OF ANTIQUE HDW CREDIT   -$125.80\n09/01  TINO FLOORING WHITE OAK 5IN   $8,000.00\n09/02  WATERWORKS SHOWROOM SOHO   $1,900.00\n09/02  AMAZON MKTPLACE 2X HEAT MAT THERMOSTAT   $389.99\n09/02  SQ *BROOKLYN LUMBER   $2,140.50",
+  flitch: () =>
+    "NATARAJAN STRUCTURAL ENGINEERING PLLC\n45 Cranberry Street, Brooklyn — parlor floor opening\nFlitch beam calculation, rev 1, 09/01/2026\nBeam FB-1: (2) 2x12 LVL with 1/2 inch x 11 inch A36 steel plate, through-bolted 5/8 inch at 16 inches staggered.\nSpan 14 ft 2 in. Load: parlor floor plus partition above. Bearing: 4x4 steel post to the rear wall footing.\nShop drawings from the fabricator require the engineer's stamp before fabrication.",
+  a301: () =>
+    "SMARTDESIGN · 121 STATE STREET · A-301 STAIR SECTION · REV 2 · 09/02/2026\nSection A — garden to parlor stair. Rise 7 3/8, run 10, 14 risers. Guard 36 in. Handrail 34–38 in.\nRevision 2: landing widened to 42 in per the site walk 09/01; flitch header at the opening per S-101.",
+  s101: () =>
+    "SMARTDESIGN · 45 CRANBERRY STREET · S-101 FLITCH BEAM PLAN · 08/31/2026\nFB-1 at the parlor opening per Natarajan Structural rev 1. Steel post P-1 at the rear wall. Temporary shoring both floors during the cut.",
+  transcript: () =>
+    "Transcript — 121 State St site walk — Tuesday September 1, 2026, 2:00 PM\nPresent: Alan (PM), Sarah Davis, Chen Biron, Angel, Sarah Klein, David Klein\n\nAlan: Let's start at the stair. The landing is tight at 36; the Kleins want it wider.\nSarah Klein: We would like 42 if the structure allows it.\nSarah Davis: It does if the flitch header carries the opening. I'll send the revised drawings Friday — A-301 with the landing at 42.\nChen Biron: The 3rd floor tile — I will confirm with Nemo that the new selection is in stock by Thursday.\nAngel: Rough plumbing in the garden bath finishes Wednesday. We need the inspection the week of the 14th.\nAlan: I'll book the DOB rough plumbing inspection for the week of September 14.\nDavid Klein: On the invoice — we paid Tuesday, check 2214, so that should be with you.\nAlan: Thank you, Billing will confirm when it clears.\nSarah Klein: And the garden kitchen backsplash — we are going with the honed Calacatta.\nSarah Davis: Noted, that closes the backsplash decision.",
+  proposalBell: () =>
+    "SMARTDESIGN — DESIGN-BUILD PROPOSAL\n77 Bleecker Street 3F — kitchen, two baths and finishes\nPrepared for Marcus Bell · August 20, 2026\nDesign phase: $18,500. Construction, allowance-based: $212,000–$238,000. Twelve weeks on site after permits.",
+  notesDoc: () =>
+    "Notes — 121 State St - Site Walk — Sep 1, 2026\nSummary: landing widened to 42 inches pending the revised A-301; 3rd floor tile stock to be confirmed; DOB rough plumbing inspection to be booked for the week of September 14; the Kleins approved honed Calacatta for the garden kitchen backsplash; check 2214 for invoice 2 said to be in the mail.\nNext steps: Sarah Davis sends the revised A-301 by Friday. Chen Biron confirms tile stock by Thursday. Alan books the rough inspection.",
+};
+// The meeting-notes email, in the shape the notes assistant sends and mtParseEmail reads.
+function dwNotesBody() {
+  return (
+    "Notes from “121 State St - Site Walk”\n\nSummary\nSite walk at 121 State with the Kleins: the garden-to-parlor stair landing goes to 42 inches if the flitch header carries the opening; the new 3rd floor tile selection needs a stock check with Nemo Tile; rough plumbing in the garden bath finishes Wednesday and the DOB rough inspection is wanted the week of September 14; the Kleins approved honed Calacatta for the garden kitchen backsplash; David Klein said check 2214 for invoice 2 went out Tuesday.\n\nStair Landing\nThe landing at 36 inches is tight. Widening to 42 inches depends on the flitch header at the opening. Sarah Davis will revise A-301 and send it by Friday.\n\nTile Stock\nThe new 3rd floor tile selection must be confirmed in stock before the order is placed. Vendor dates are confirmed in writing before the schedule relies on them.\n\nInspections\nRough plumbing in the garden bath finishes Wednesday; the DOB rough plumbing inspection is wanted the week of September 14.\n\nSuggested next steps\n\n[Sarah Davis] Send Revised Drawings: Send the revised A-301 stair section with the 42 inch landing to the Kleins by Friday.\n\n[Chen Biron] Confirm Tile Stock: Confirm the new 3rd floor tile selection is in stock with Nemo Tile by Thursday.\n\n[Alan] Book Rough Inspection: Book the DOB rough plumbing inspection for the week of September 14.\n\n[Angel] Finish Garden Bath Rough: Finish the garden bath rough plumbing by Wednesday so the inspection can be booked.\n\nMeeting records Document Notes"
+  );
+}
+// ---- building a persona's workspace -------------------------------------------------------------------
+function demoWsBuild(uid) {
+  const td = today(),
+    me = dwAddr(uid),
+    [myName, myEmail] = DW_STAFF[uid],
+    role = String(((DB.users || []).find((u) => u.id === uid) || {}).role || ""),
+    // Day offsets from the app day; a time of day; an ISO stamp on the app clock.
+    at = (day, hm) => `${iso(addDays(td, day))}T${hm || "09:00"}:00`,
+    ms = (day, hm) => new Date(at(day, hm)).getTime(),
+    W = { email: myEmail, name: myName, messages: [], drafts: [], events: [], files: [], historyId: 100, nextId: 1, now: appNowMs(), firstDays: 14 },
+    pdf = (name, key) => ({ filename: name, mime: "application/pdf", text: DW_DOCS[key]() }),
+    // A message. from/to/cc are "Name <email>" strings; SENT when it is from me.
+    M = (day, hm, from, to, subject, body, o) => {
+      o = o || {};
+      const mine = String(from).includes(myEmail),
+        id = `dwm_${uid}_${W.nextId++}`,
+        thread = `dwt_${uid}_${o.thread || id}`,
+        labels = o.labels || (mine ? ["SENT"] : ["INBOX", "UNREAD"]);
+      return (
+        W.messages.push({
+          id: id,
+          threadId: thread,
+          labelIds: labels,
+          internalDate: ms(day, hm),
+          historyId: ++W.historyId,
+          headers: {
+            From: from,
+            To: [].concat(to).join(", "),
+            Cc: [].concat(o.cc || []).join(", "),
+            Subject: subject,
+            Date: new Date(ms(day, hm)).toUTCString(),
+          },
+          body: body,
+          attachments: (o.att || []).map((a, i) => ({
+            id: `dwa_${id}_${i}`,
+            filename: a.filename,
+            mime: a.mime || "application/pdf",
+            size: 40000 + 100 * (a.text || "").length,
+            text: a.text || "",
+          })),
+        }),
+        id
+      );
+    },
+    // A calendar event (minutes long) or an all-day one.
+    E = (day, hm, mins, title, o) => {
+      o = o || {};
+      const id = `dwe_${uid}_${W.events.length + 1}`,
+        start = ms(day, hm),
+        ev = {
+          id: id,
+          status: "confirmed",
+          summary: title,
+          description: o.desc || "",
+          location: o.where || "",
+          htmlLink: "",
+          updated: new Date(ms(-14, "08:00") + 36e5 * W.events.length).toISOString(),
+          organizer: { email: o.organizer || myEmail },
+          attendees: [myEmail].concat(o.who || []).map((e) => ({ email: e, responseStatus: "accepted" })),
+          transparency: o.free ? "transparent" : "opaque",
+        };
+      return (
+        o.allDay
+          ? ((ev.start = { date: iso(addDays(td, day)) }), (ev.end = { date: iso(addDays(td, day + 1)) }))
+          : ((ev.start = { dateTime: new Date(start).toISOString() }),
+            (ev.end = { dateTime: new Date(start + 6e4 * (mins || 60)).toISOString() })),
+        W.events.push(ev),
+        id
+      );
+    },
+    // A Drive file; its text stands in for its bytes.
+    F = (name, dayAgo, key, o) => {
+      o = o || {};
+      const id = `dwf_${uid}_${W.files.length + 1}`;
+      return (
+        W.files.push({
+          id: id,
+          name: name,
+          mimeType: o.mime || (/\.txt$/.test(name) ? "text/plain" : /\.gdoc$/.test(name) ? "application/vnd.google-apps.document" : "application/pdf"),
+          modifiedTime: new Date(ms(-dayAgo, o.hm || "16:00")).toISOString(),
+          size: String(60000 + 300 * (DW_DOCS[key] ? DW_DOCS[key]().length : 100)),
+          owners: [{ displayName: o.by || myName, emailAddress: o.byEmail || myEmail }],
+          webViewLink: "",
+          parents: ["dwroot_" + uid],
+          text: DW_DOCS[key] ? DW_DOCS[key]() : o.text || "",
+          trashed: !1,
+        }),
+        id
+      );
+    },
+    P = DW_P,
+    office = ["u_owner", "u_alan", "u_chen", "u_billing", "u_controller"].includes(uid),
+    pm = dwAddr("u_alan"),
+    owner = dwAddr("u_owner"),
+    chen = dwAddr("u_chen"),
+    sarah = dwAddr("u_sarah"),
+    angel = dwAddr("u_angel"),
+    billing = dwAddr("u_billing"),
+    controller = dwAddr("u_controller");
+
+  // ---- scenes shared by several personas; each writes into whoever's mailbox is being built ----
+  const scenes = {
+    kleinDecision: () =>
+      M(-1, "08:40", P.sklein, [pm, sarah], "121 State — backsplash decision and the laundry layout",
+        "Hi Alan, hi Sarah,\n\nAfter the walk on Tuesday we'd like to go with the honed Calacatta for the garden kitchen backsplash — approved, please order the slab. Also, can you confirm the laundry layout works with the 27-inch units David ordered? We need to know before Friday.\n\nThank you,\nSarah Klein",
+        { cc: [owner], thread: "klein-dec" }),
+    kleinPaid: () =>
+      M(-3, "17:10", P.dklein, [billing, pm], "Re: 121 State — invoice 2",
+        "Hi,\n\nWe paid Tuesday — check 2214 for $72,750.00 went out for invoice 2 on 121 State Street. Please confirm when it clears so we can plan the next draw.\n\nDavid Klein",
+        { thread: "klein-inv2" }),
+    jessopWire: () =>
+      M(-1, "12:30", P.jaleena, [billing, owner], "140 Prospect — design retainer",
+        "Hello,\n\nWe wired the design retainer for 140 Prospect Place yesterday — $12,000.00 from our Chase account. Let us know when it arrives.\n\nJaleena Jessop",
+        { thread: "jessop-ret" }),
+    cambriQuestion: () =>
+      M(-2, "19:05", P.cambri, [sarah], "140 Prospect — fireplace and the island",
+        "Hi Sarah,\n\nDid the chimney person come back about whether the kitchen fireplace works? It decides the island position, and we want to settle the layout at Friday's meeting. Could you send the two options before then?\n\nCambri",
+        { cc: [pm], thread: "cambri-fp" }),
+    nemoQuote: () =>
+      M(-1, "10:15", P.nemo, [chen], "Quote Q-2271 — 121 State St garden bath tile",
+        "Hi Chen,\n\nQuote attached for the garden bath at 121 State St: Carrara 2x2 mosaic floor and 3x6 subway walls, 240 sf plus 10% waste. $2,880.00 all in, 10 working days from deposit. Price holds 30 days.\n\nNemo Tile",
+        { cc: [pm], att: [pdf("Nemo-Tile-Quote-Q2271.pdf", "nemoQuote")], thread: "nemo-q" }),
+    cmInvoice: () =>
+      M(-2, "11:20", P.cm, [billing], "Invoice CM-0102 — 121 State millwork progress",
+        "Hello,\n\nProgress invoice CM-0102 attached for the 121 State millwork, against PO-2026-048. Shop drawings are approved and the lumber and veneer are in. Terms net 15.\n\nCarlos",
+        { cc: [chen], att: [pdf("Carlos-Millwork-Invoice-CM-0102.pdf", "cmInvoice")], thread: "cm-inv" }),
+    ampInvoice: () =>
+      M(-1, "07:55", P.amp, [pm], "Invoice AMP-318 — 121 State garden bath rough",
+        "Alan,\n\nInvoice attached for the garden bath rough-in at 121 State. Net 15.\n\nAlberto M Plumbing",
+        { cc: [billing], att: [pdf("AMP-318.pdf", "ampInvoice")], thread: "amp-inv" }),
+    wwCoiMail: () =>
+      M(-6, "15:30", P.broker, [chen], "Certificate of insurance — Window Works LLC",
+        "Hello,\n\nAttached is the renewed certificate for our insured Window Works LLC naming SmartDesign Group LLC as certificate holder and additional insured, for the work at 121 State Street.\n\nHarbor Insurance Brokers",
+        { cc: [billing], att: [pdf("COI-Window-Works-LLC-2026-27.pdf", "wwCoi")], thread: "ww-coi" }),
+    subConfirm: () => {
+      M(-7, "16:40", P.amp, [pm, angel], "Confirming Tuesday 7am — 121 State garden bath rough",
+        "Confirming my crew Tuesday 7am at 121 State for the garden bath rough-in. Two men, one day. Please have the wall open on the waste side.\n\nAlberto M Plumbing",
+        { thread: "amp-tue" });
+      M(-2, "07:35", angel, [pm, P.amp], "Re: Confirming Tuesday 7am — 121 State garden bath rough",
+        "Nobody showed at 7. Called the office twice, no answer. Crew is standing by on the wall. Alan, do we open the parlor floor instead or wait?",
+        { thread: "amp-tue" });
+      M(-2, "09:50", P.amp, [pm, angel], "Re: Confirming Tuesday 7am — 121 State garden bath rough",
+        "Sorry — the truck broke down on the BQE and I can't make it today. I need to reschedule to Thursday 7am, same crew. Apologies to Angel.",
+        { thread: "amp-tue" });
+    },
+    lpcBrickMold: () => {
+      M(-8, "11:05", pm, ["LPC Staff <staff@lpc.example>"], "121 State Street — brick mold profile for the window replacement",
+        "Good morning,\n\nAttached is the brick mold profile for the nine replacement windows at 121 State Street, per the approved Certificate of Appropriateness. Please confirm the 1-3/4 inch ogee is acceptable so Window Works can fabricate.\n\nThank you,\nAlan",
+        { thread: "lpc-bm" });
+      M(-1, "14:20", "LPC Staff <staff@lpc.example>", [pm], "Re: 121 State Street — brick mold profile for the window replacement",
+        "Staff reviewed the brick mold profile for 121 State Street. The 1-3/4 inch ogee is acceptable. Please revise the drawing to show the sill horn and the back band depth and resubmit; this is a staff-level approval, no hearing is needed. Mortar colour on the facade repair must match the existing sample before work starts.\n\nLPC Staff",
+        { cc: [sarah], thread: "lpc-bm" });
+    },
+    lpcHearing: () =>
+      M(-3, "09:30", P.lpc, [sarah, pm], "45 Cranberry Street — Certificate of Appropriateness — public hearing September 8",
+        "The Landmarks Preservation Commission has scheduled the public hearing for 45 Cranberry Street, Brooklyn Heights Historic District, on September 8, 2026 at 9:30 AM. The application covers the front facade windows and the stoop and areaway railing. Staff comment: the railing mock-up photographs should show the picket spacing against the historic photograph; the window drawing should call out the muntin profile.\n\nThis is an automated notice.",
+        { thread: "lpc-45" }),
+    dobInspection: () =>
+      M(-2, "06:10", P.dob, [pm], "DOB NOW: Job B01528834-I1 — inspection scheduled 09/08/2026 — 121 STATE STREET",
+        "DOB NOW Inspections\nJob B01528834-I1, 121 STATE STREET, BROOKLYN\nInspection type: Plumbing — rough\nScheduled: 09/08/2026, window 8:00 AM – 12:00 PM\nThe licensed master plumber or a representative must be on site with the approved drawings.\n\nThis is an automated message. Do not reply.",
+        { cc: [angel, chen], thread: "dob-insp" }),
+    expediter: () =>
+      M(-3, "13:45", P.exp, [pm], "121 State — plumbing supersede filed; owner's attestation needed",
+        "Alan,\n\nThe PW1 for the plumbing supersede on B01528834-I1 is filed in DOB NOW. DOB needs the owner's attestation on the supersede before it is approved — can you get Sarah Klein to sign it this week? Also the permit from the prior contractor is still open; we cannot close it until the attestation is in.\n\nMetro Expediting",
+        { cc: [owner], thread: "exp-sup" }),
+    peFlitch: () => {
+      M(-4, "10:00", sarah, [P.pe], "45 Cranberry — flitch beam calcs for the parlor opening",
+        "Hi Priya,\n\nCould you send the flitch beam calcs for the parlor floor opening at 45 Cranberry? Window Works and the fabricator are waiting on the steel plate size, and LPC has the hearing on the 8th.\n\nThanks,\nSarah Davis",
+        { cc: [pm], thread: "pe-fb" });
+      M(-2, "16:15", P.pe, [sarah], "Re: 45 Cranberry — flitch beam calcs for the parlor opening",
+        "Sarah,\n\nCalcs attached, rev 1. FB-1 is two 2x12 LVL with a 1/2 inch steel plate, through-bolted at 16 inches. Bearing wants a 4x4 steel post at the rear wall. The fabricator's shop drawings need my stamp before anything is ordered; I can turn them in 3 working days. Please have Alan confirm the temporary shoring plan for both floors.\n\nPriya",
+        { cc: [pm], att: [pdf("45-Cranberry-Flitch-Beam-Calcs-rev1.pdf", "flitch")], thread: "pe-fb" });
+    },
+    meetingNotes: (to) =>
+      M(-2, "16:35", P.meet, to, "Notes: “121 State St - Site Walk” Sep 1, 2026", dwNotesBody(), { thread: "notes-sw" }),
+    posh: (who, re) =>
+      M(-1, "15:52", P.posh, [owner], `Posh Assist from ${who}`,
+        `Caller's Full Name: ${who}\nPhone Number: (718) 555-0142\nRegarding: ${re}\nTransfer Result: Not Transferred\nReason Not Transferred: No answer on the line\nMessage taken by the answering service.`,
+        { thread: "posh-" + who.replace(/\W/g, "") }),
+    hdReceipt: () =>
+      M(-2, "17:48", P.hd, [chen], "Your Home Depot Pro receipt — $286.70",
+        "Thank you for shopping at The Home Depot Pro.\nStore 6166 Brooklyn NY · 09/01/2026 4:41 PM\n\nDECK SCREWS 3IN 5LB   $42.97\nSPF 2X4X8 BLOCKING x 24   $187.68\nCONSTRUCTION ADHESIVE x 6   $56.05\n\nTotal $286.70\nPro Xtra card ending 7720\nJob name entered at register: 121 State",
+        { thread: "hd-rcpt" }),
+    newsletter: (to) =>
+      M(-5, "07:00", P.news, [to], "This week: the stoops of Fort Greene, a cornice restored, and three open houses",
+        "Stoop and Cornice Weekly\n\nThis week we walk Fort Greene's finest stoops, visit a cornice restored in zinc, and list three open houses.\n\nRead this issue in your browser. You are receiving this because you signed up at an event.\nUnsubscribe · Update preferences",
+        { thread: "news" }),
+    promo: (to) =>
+      M(-4, "05:30", P.promo, [to], "40% off cordless tools — this week only",
+        "ToolPro Deals\n\nLimited time: 40% off all cordless tools through Sunday. Free shipping over $99.\n\nShop now. Unsubscribe.",
+        { thread: "promo" }),
+    tinoDelivery: () =>
+      M(-1, "09:05", P.tino, [chen, angel], "121 State — white oak delivery Friday Sept 18",
+        "Chen,\n\nThe white oak 5 inch for the 3rd floor at 121 State is milled. Delivery Friday September 18, truck between 8 and 11, curbside. Nine hundred square feet on four pallets; somebody has to be there to sign.\n\nTino",
+        { thread: "tino-del" }),
+    cmDelivery: () =>
+      M(-3, "08:20", P.cm, [chen, pm], "121 State — millwork delivery and elevator",
+        "Hi Chen,\n\nThe parlor kitchen carcasses deliver Friday September 18 as on the PO. We need the elevator reserved with the managing agent from 8 to 12 and the hall protected. Can you confirm by Monday?\n\nCarlos",
+        { thread: "cm-del" }),
+    bellQuiet: () =>
+      M(-12, "10:30", owner, [P.bell], "Proposal for 77 Bleecker St 3F — any questions?",
+        "Hi Marcus,\n\nThe design-build proposal for 77 Bleecker St 3F is attached: design at $18,500, construction in the $212,000–$238,000 range, twelve weeks on site after permits. Let me know if you have questions, and whether Thursday works for a call with Dana.\n\nBest,\nAlan Mishali",
+        { att: [pdf("Proposal-77-Bleecker-3F-Marcus-Bell.pdf", "proposalBell")], thread: "bell" }),
+    adlerLead: () =>
+      M(-1, "21:10", P.adler, [owner], "70 Remsen St 3 — next steps?",
+        "Hi Alan,\n\nThank you for the call. We would like an estimate for the kitchen and the two bathrooms at 70 Remsen St 3, and ideally a site visit next week — Tuesday afternoon works for us. The building is a co-op, so there will be an alteration agreement.\n\nSofia Adler",
+        { thread: "adler" }),
+    riveraEscalation: () =>
+      M(-1, "18:22", P.rivera, [owner, pm], "45 Cranberry — three weeks for the beam calcs",
+        "Alan,\n\nWith all due respect, three weeks for the flitch beam calcs is unacceptable. The hearing is on the 8th and we still do not have the window drawing LPC asked for. This is costing us a month on the schedule. Please call me tomorrow.\n\nElena Rivera",
+        { thread: "rivera-esc" }),
+    jeanetteQ: () =>
+      M(-2, "12:05", P.jeanette, [owner], "Field card limit — which?",
+        "Alan,\n\nThe Amex field card renews this month. Should I keep the $4,000 monthly limit or raise it to $6,000 like Gabriel asked? The August statement is in Drive.\n\nJeanette",
+        { thread: "jh-card" }),
+    lenoxTenant: () =>
+      M(-2, "10:45", P.lenox, [pm, owner], "206 Lenox Ave — 3rd floor noise and the water shutoff",
+        "Hello,\n\nThe 3rd floor turnover work at 206 Lenox Ave started before 8 again today, and the water was off from 10 to 11 with no notice. Please send the shutoff schedule for the week so we can tell our customers.\n\nLenox Coffee Co.",
+        { thread: "lenox" }),
+    amexStatementMail: () =>
+      M(-2, "03:15", P.amex, [controller], "Your August statement is ready — account ending 1009",
+        "Your American Express Business Platinum statement for the period ending 08/31/2026 is ready. New balance $14,862.10. Payment due 09/25/2026. The statement PDF is attached and has been saved to Drive.",
+        { cc: [billing], att: [pdf("Amex-Business-Platinum-1009-Statement-Aug-2026.pdf", "amexStatement")], thread: "amex" }),
+    wwStatement: () =>
+      M(-4, "09:40", P.ww, [billing], "Statement — SmartDesign Group LLC — balance $3,800.00",
+        "Hello,\n\nOur statement shows a balance of $3,800.00 on invoice WW-2026-118 for 121 State Street past due since 09/01/2026. Payment was not received. Please advise when this will be paid.\n\nWindow Works",
+        { thread: "ww-stmt" }),
+    chenBillingQ: () =>
+      M(-1, "16:00", chen, [billing], "WW-2026-118 — the $3,800 over the PO",
+        "Billing — Window Works is chasing the $3,800 over PO-2026-044. Alan short-paid it pending the brick mold rework; do you want me to tell them it is held, or do you want to write to them?",
+        { thread: "chen-ww" }),
+    angelField: () =>
+      M(-1, "06:58", angel, [pm, chen], "121 State — need 25 boards GWB and cement board by Thursday",
+        "Alan, Chen — garden bath rough is done Wednesday. I need the 25 boards of GWB and the cement board on site Thursday or the crew has nothing to hang. Also the radiant heat mats for the primary bath are still not ordered.",
+        { thread: "angel-gwb" }),
+  };
+
+  // ---- the mailbox, calendar and drive per persona ----
+  if ("u_owner" === uid) {
+    scenes.kleinDecision(); scenes.kleinPaid(); scenes.jessopWire(); scenes.expediter(); scenes.riveraEscalation();
+    scenes.jeanetteQ(); scenes.lenoxTenant(); scenes.meetingNotes([owner, pm, sarah, chen]); scenes.bellQuiet();
+    scenes.adlerLead(); scenes.posh("Elena Rivera", "the beam calcs at 45 Cranberry and the LPC hearing; wants to speak to Alan");
+    scenes.ampInvoice(); scenes.newsletter(owner); scenes.promo(owner); scenes.subConfirm(); scenes.cmDelivery();
+    M(-9, "08:15", P.sklein, [owner], "121 State — thank you", "Alan, thank you for walking us through the schedule on Monday. We feel much better about the fall. — Sarah", { thread: "klein-ty" });
+    M(-6, "11:30", P.cambri, [owner, sarah], "140 Prospect — facade now or later?", "Alan, Sarah — we are leaning to doing the facade and windows now rather than phase 2, if the bid comes in under $90,000. Can you get the bid to us before the 11th?", { thread: "cambri-facade" });
+    M(-5, "14:00", P.exp, [owner], "Metro Expediting — August filings invoice", "Invoice for August filings and DOB NOW time is attached: $1,425.00, net 30.", { att: [{ filename: "Metro-Expediting-Aug-2026.pdf", text: "METRO EXPEDITING LLC\nInvoice ME-2608\nBill To: SmartDesign Group LLC\nAugust filings — 121 State Street supersede, 45 Cranberry LPC filing\nAmount Due: $1,425.00\nDue September 30, 2026" }], thread: "exp-inv" });
+    M(-13, "09:00", "Daniel Okafor <d.okafor@example.com>", [owner], "11 Riverside Dr 4A — timing", "Hi Alan, we are still deciding between starting in January or waiting for spring. What does your schedule look like? — Daniel", { thread: "okafor" });
+    E(0, "14:00", 90, "Site visit — 121 State Street", { where: "121 State Street, Brooklyn", who: ["alan.pm@" + DW_DOMAIN, "angel@" + DW_DOMAIN], desc: "Walk the garden bath rough before the inspection is booked." });
+    E(1, "10:00", 60, "Client meeting — 140 Prospect kitchen layout", { where: "140 Prospect Place, Brooklyn", who: ["cambri@example.com", "sarah@" + DW_DOMAIN], desc: "Fireplace, island position, facade now or later." });
+    E(5, "09:30", 120, "LPC hearing — 45 Cranberry facade and railing", { where: "1 Centre Street, 9th floor", who: ["sarah@" + DW_DOMAIN, "elena.rivera@example.com"] });
+    E(5, "08:00", 240, "DOB rough plumbing inspection window — 121 State", { where: "121 State Street, Brooklyn", who: ["alan.pm@" + DW_DOMAIN] });
+    E(15, "08:00", 180, "Carlos Millwork delivery — 121 State", { where: "121 State Street, Brooklyn", who: ["chen@" + DW_DOMAIN], desc: "PO-2026-048 carcasses. Elevator reserved 8–12." });
+    E(2, "09:00", 30, "Call — Sofia Adler, 70 Remsen", { who: ["sofia.adler@example.com"] });
+    E(-2, "14:00", 90, "Site walk — 121 State with the Kleins", { where: "121 State Street, Brooklyn", who: ["sarah.klein@example.com", "sarah@" + DW_DOMAIN, "chen@" + DW_DOMAIN] });
+    E(8, "15:00", 60, "Weekly jobs review", { who: ["alan.pm@" + DW_DOMAIN, "chen@" + DW_DOMAIN] });
+    E(4, "00:00", 0, "Labor Day — office closed", { allDay: !0, free: !0 });
+    E(6, "13:00", 60, "Bank — line of credit review", { where: "Chase, Court Street", free: !1 });
+    F("Amex-Business-Platinum-1009-Statement-Aug-2026.pdf", 2, "amexStatement", { by: "Jeanette Hernandez", byEmail: "jeanette@" + DW_DOMAIN });
+    F("121 State - A-301 Stair Section Rev 2.pdf", 1, "a301", { by: "Sarah Davis", byEmail: "sarah@" + DW_DOMAIN });
+    F("45 Cranberry - S-101 Flitch Beam Plan.pdf", 3, "s101", { by: "Sarah Davis" });
+    F("Proposal - 77 Bleecker St 3F - Marcus Bell.pdf", 12, "proposalBell");
+    F("Transcript - 121 State site walk - 2026-09-01.txt", 2, "transcript", { mime: "text/plain" });
+    F("Notes - 121 State St - Site Walk - 2026-09-01.gdoc", 2, "notesDoc", { mime: "application/vnd.google-apps.document" });
+    F("COI - Window Works LLC - GL 2026-27.pdf", 6, "wwCoi", { by: "Chen Biron", byEmail: "chen@" + DW_DOMAIN });
+    F("Carlos Millwork - Invoice CM-0102.pdf", 2, "cmInvoice", { by: "Billing" });
+    F("45 Cranberry - Flitch Beam Calcs rev1.pdf", 2, "flitch", { by: "Sarah Davis" });
+  } else if ("u_alan" === uid) {
+    scenes.kleinDecision(); scenes.kleinPaid(); scenes.ampInvoice(); scenes.nemoQuote(); scenes.subConfirm();
+    scenes.lpcBrickMold(); scenes.lpcHearing(); scenes.dobInspection(); scenes.expediter(); scenes.peFlitch();
+    scenes.meetingNotes([pm, sarah, chen, owner]); scenes.cmDelivery(); scenes.cambriQuestion(); scenes.lenoxTenant();
+    scenes.riveraEscalation(); scenes.angelField(); scenes.newsletter(pm); scenes.promo(pm);
+    M(-5, "09:10", P.ww, [pm], "121 State — brick mold rework and the $3,800", "Alan, we can rework the brick mold to the sill horn profile once LPC confirms. The $3,800 over the PO is the second set of shop drawings; we would like it released when the profile is approved. — Window Works", { thread: "ww-bm" });
+    M(-6, "12:00", P.maya, [pm], "121 State — special inspections list", "Alan — the special inspections list for the energy code is done; the insulation inspection has to happen before the GWB goes up, so tell Angel not to close the walls until I confirm the date. — Maya", { thread: "maya-si" });
+    E(0, "14:00", 90, "Site visit — 121 State Street", { where: "121 State Street, Brooklyn", who: ["angel@" + DW_DOMAIN], desc: "Garden bath rough; landing at 42." });
+    E(1, "10:00", 60, "Client meeting — 140 Prospect kitchen layout", { where: "140 Prospect Place, Brooklyn", who: ["cambri@example.com", "sarah@" + DW_DOMAIN] });
+    E(5, "08:00", 240, "DOB rough plumbing inspection window — 121 State", { where: "121 State Street, Brooklyn", who: ["angel@" + DW_DOMAIN, "office@albertomplumbing.example"] });
+    E(5, "09:30", 120, "LPC hearing — 45 Cranberry facade and railing", { where: "1 Centre Street, 9th floor", who: ["sarah@" + DW_DOMAIN] });
+    E(15, "08:00", 180, "Carlos Millwork delivery — 121 State", { where: "121 State Street, Brooklyn", who: ["chen@" + DW_DOMAIN] });
+    E(-2, "14:00", 90, "Site walk — 121 State with the Kleins", { where: "121 State Street, Brooklyn", who: ["sarah.klein@example.com"] });
+    E(2, "07:00", 60, "Alberto M Plumbing — re-booked rough-in, 121 State", { where: "121 State Street, Brooklyn", who: ["office@albertomplumbing.example", "angel@" + DW_DOMAIN] });
+    E(8, "15:00", 60, "Weekly jobs review", { who: ["alan@" + DW_DOMAIN, "chen@" + DW_DOMAIN] });
+    E(4, "00:00", 0, "Labor Day — office closed", { allDay: !0, free: !0 });
+    F("121 State - A-301 Stair Section Rev 2.pdf", 1, "a301", { by: "Sarah Davis", byEmail: "sarah@" + DW_DOMAIN });
+    F("45 Cranberry - S-101 Flitch Beam Plan.pdf", 3, "s101", { by: "Sarah Davis" });
+    F("45 Cranberry - Flitch Beam Calcs rev1.pdf", 2, "flitch", { by: "Priya Natarajan" });
+    F("Transcript - 121 State site walk - 2026-09-01.txt", 2, "transcript", { mime: "text/plain" });
+    F("Notes - 121 State St - Site Walk - 2026-09-01.gdoc", 2, "notesDoc", { mime: "application/vnd.google-apps.document" });
+    F("COI - Alberto M Plumbing LLC - 2026.pdf", 6, "ampCoi", { by: "Chen Biron" });
+    F("Nemo Tile - Quote Q-2271 - 121 State garden bath.pdf", 1, "nemoQuote", { by: "Chen Biron" });
+    F("121 State - DOB NOW inspection notice B01528834-I1.pdf", 2, "a301", { text: "DOB NOW inspection notice — B01528834-I1 — 121 State Street — plumbing rough — 09/08/2026 8:00–12:00" });
+  } else if ("u_chen" === uid) {
+    scenes.nemoQuote(); scenes.cmInvoice(); scenes.wwCoiMail(); scenes.tinoDelivery(); scenes.cmDelivery();
+    scenes.dobInspection(); scenes.hdReceipt(); scenes.meetingNotes([chen, pm, sarah, owner]); scenes.angelField();
+    scenes.chenBillingQ(); scenes.newsletter(chen); scenes.promo(chen);
+    M(-3, "10:20", P.bed, [chen], "Order 55802 — Bedrosians credit memo", "Your credit memo for the returned Cloe 2.5x8 (12 boxes) has been issued: $214.50 to the card on file. Allow 5 business days. Order 55802.", { thread: "bed-cr" });
+    M(-4, "11:00", P.tino, [chen], "121 State — white oak milled", "Chen — the white oak is milled and acclimating. Call when the slab is dry enough to take it; we can hold it two weeks. — Tino", { thread: "tino-mill" });
+    M(-1, "13:10", P.amp, [chen], "121 State — rough-in Thursday 7am", "Chen, confirming Thursday 7am for the garden bath rough-in. Please have the waste wall open. — Alberto M Plumbing", { thread: "amp-thu" });
+    M(-7, "15:00", P.ww, [chen], "Quote WQ-2290 — 206 Lenox 3rd floor windows", "Chen, quote attached for the four replacement windows on the 3rd floor at 206 Lenox Ave: $9,200.00, 6 weeks. — Window Works", { att: [{ filename: "Window-Works-Quote-WQ-2290.pdf", text: "WINDOW WORKS LLC\nQuote WQ-2290\nJob: 206 Lenox Ave — 3rd floor\nFour double-hung replacement windows, aluminum clad, per the elevation\nQuote total: $9,200.00\nLead time: 6 weeks from deposit." }], thread: "ww-q206" });
+    M(-2, "11:00", "Brooklyn Lumber <orders@brooklynlumber.example>", [chen], "Order 88412 ready for pickup", "Order 88412 is ready at the yard: 25 GWB 1/2 x 4x8, 6 cement board. Paid on the Square card $2,140.50. Pickup by Friday; after that we restock it.", { thread: "bl" });
+    M(-2, "08:05", angel, [chen], "Radiant mats", "Chen — the radiant heat mats for the primary bath are still not ordered and the tile is two weeks out. Who is the vendor? — Angel", { thread: "angel-mats" });
+    E(0, "11:00", 30, "Call Nemo Tile — 3rd floor tile stock", { who: ["sales@nemotile.example"] });
+    E(5, "08:00", 240, "DOB rough plumbing inspection window — 121 State", { where: "121 State Street, Brooklyn" });
+    E(15, "08:00", 180, "Carlos Millwork delivery — 121 State", { where: "121 State Street, Brooklyn", who: ["carlos@carlosmillwork.example"], desc: "PO-2026-048. Reserve the elevator 8–12." });
+    E(15, "08:00", 180, "Tino delivery — white oak, 121 State", { where: "121 State Street, Brooklyn", who: ["orders@tino.example"] });
+    E(1, "09:00", 60, "Vendor check-ins", { free: !0 });
+    E(8, "15:00", 60, "Weekly jobs review", { who: ["alan.pm@" + DW_DOMAIN] });
+    E(-2, "14:00", 90, "Site walk — 121 State with the Kleins", { where: "121 State Street, Brooklyn" });
+    E(4, "00:00", 0, "Labor Day — office closed", { allDay: !0, free: !0 });
+    F("COI - Window Works LLC - GL 2026-27.pdf", 6, "wwCoi");
+    F("COI - Alberto M Plumbing LLC - 2026.pdf", 6, "ampCoi");
+    F("Nemo Tile - Quote Q-2271 - 121 State garden bath.pdf", 1, "nemoQuote");
+    F("Carlos Millwork - Invoice CM-0102.pdf", 2, "cmInvoice");
+    F("121 State - A-301 Stair Section Rev 2.pdf", 1, "a301", { by: "Sarah Davis" });
+    F("Transcript - 121 State site walk - 2026-09-01.txt", 2, "transcript", { mime: "text/plain" });
+    F("Window Works - Quote WQ-2290 - 206 Lenox.pdf", 7, "nemoQuote", { text: "WINDOW WORKS LLC\nQuote WQ-2290\nJob: 206 Lenox Ave — 3rd floor\nQuote total: $9,200.00\nLead time: 6 weeks." });
+    F("Home Depot Pro receipt 2026-09-01 - 121 State blocking.pdf", 2, "a301", { text: "HOME DEPOT PRO · Store 6166 · 09/01/2026\nDECK SCREWS 3IN 5LB $42.97\nSPF 2X4X8 BLOCKING x24 $187.68\nCONSTRUCTION ADHESIVE x6 $56.05\nTotal $286.70 · card ending 7720 · Job: 121 State" });
+  } else if ("u_angel" === uid) {
+    scenes.subConfirm(); scenes.dobInspection(); scenes.tinoDelivery(); scenes.angelField();
+    scenes.meetingNotes([angel, pm, chen]); scenes.promo(angel);
+    M(-1, "13:10", P.amp, [angel, pm], "121 State — rough-in Thursday 7am", "Angel, Thursday 7am for the garden bath rough-in, two men. Have the waste wall open. — Alberto M Plumbing", { thread: "amp-thu" });
+    M(-2, "12:00", P.maya, [angel, pm], "121 State — do not close the walls", "Angel — the insulation inspection has to happen before the GWB goes up. Do not close the walls until I confirm the date. — Maya", { thread: "maya-walls" });
+    M(-3, "07:20", dwAddr("u_alex"), [angel], "Dumpster swap", "Angel — the dumpster at 121 State is full, swap is Thursday 6am. Move the van. — Alex", { thread: "dump" });
+    M(-4, "15:30", P.sklein, [angel], "121 State — key for the garden gate", "Angel, the new key for the garden gate is with the super, Luis. Please do not leave the gate propped. Thank you — Sarah Klein", { thread: "klein-key" });
+    M(-1, "17:00", chen, [angel], "GWB Thursday", "Angel — 25 boards GWB and the cement board deliver Thursday 7am from Brooklyn Lumber. — Chen", { thread: "chen-gwb" });
+    M(-6, "08:00", P.hd, [angel], "Your Home Depot Pro receipt — $42.97", "Thank you for shopping at The Home Depot Pro. Store 6166 · 08/28/2026\nDECK SCREWS 3IN 5LB $42.97\nTotal $42.97 · Pro Xtra card ending 7720", { thread: "hd-angel" });
+    E(0, "14:00", 90, "Site visit — 121 State Street", { where: "121 State Street, Brooklyn", who: ["alan.pm@" + DW_DOMAIN] });
+    E(2, "07:00", 60, "Alberto M Plumbing — rough-in, 121 State", { where: "121 State Street, Brooklyn" });
+    E(5, "08:00", 240, "DOB rough plumbing inspection window — 121 State", { where: "121 State Street, Brooklyn" });
+    E(15, "08:00", 180, "Tino delivery — white oak, 121 State", { where: "121 State Street, Brooklyn" });
+    E(15, "08:00", 180, "Carlos Millwork delivery — 121 State", { where: "121 State Street, Brooklyn" });
+    E(2, "06:00", 30, "Dumpster swap — 121 State", { where: "121 State Street, Brooklyn" });
+    E(1, "07:00", 30, "GWB delivery — Brooklyn Lumber", { where: "121 State Street, Brooklyn" });
+    E(4, "00:00", 0, "Labor Day — no work", { allDay: !0, free: !0 });
+    F("121 State - A-301 Stair Section Rev 2.pdf", 1, "a301", { by: "Sarah Davis" });
+    F("121 State - P-101 Plumbing Plan.pdf", 9, "a301", { text: "SMARTDESIGN · 121 STATE STREET · P-101 PLUMBING PLAN · garden bath and laundry · waste and vent riser diagram" });
+    F("121 State - DOB NOW inspection notice B01528834-I1.pdf", 2, "a301", { text: "DOB NOW inspection notice — B01528834-I1 — 121 State Street — plumbing rough — 09/08/2026 8:00–12:00" });
+    F("Transcript - 121 State site walk - 2026-09-01.txt", 2, "transcript", { mime: "text/plain" });
+    F("Site photos 121 State 2026-09-02.pdf", 1, "a301", { text: "Photo sheet — garden bath rough — 09/02/2026 — 12 photos" });
+    F("Daily log template.pdf", 20, "a301", { text: "Daily log — crew, weather, work done, deliveries, visitors, issues" });
+    F("121 State - safety plan.pdf", 30, "a301", { text: "Site safety plan — 121 State Street — shoring, fall protection, dumpster, hours 8–5" });
+    F("Dumpster schedule September.pdf", 3, "a301", { text: "Dumpster swaps September: 4th, 11th, 18th, 25th — 6am" });
+  } else if ("u_sarah" === uid) {
+    scenes.kleinDecision(); scenes.cambriQuestion(); scenes.lpcHearing(); scenes.lpcBrickMold(); scenes.peFlitch();
+    scenes.meetingNotes([sarah, pm, chen, owner]); scenes.newsletter(sarah); scenes.promo(sarah);
+    M(-1, "11:40", P.bed, [sarah], "Quote BQ-55810 — 140 Prospect kitchen backsplash zellige", "Sarah, quote attached for the zellige backsplash at 140 Prospect Place: 62 sf plus waste, $2,170.00, 4 weeks from order. Samples shipped 9/1. — Bedrosians", { att: [pdf("Bedrosians-Quote-BQ-55810.pdf", "bedQuote")], thread: "bed-q" });
+    M(-3, "16:20", P.rivera, [sarah], "45 Cranberry — window drawing for LPC", "Sarah, LPC asked for the muntin profile on the window drawing. When can we have it? The hearing is the 8th. — Elena", { thread: "rivera-win" });
+    M(-5, "09:00", P.cambri, [sarah], "140 Prospect — roof stair", "Sarah, we'd like the roof stair drawn now so the structure allows phase 2, as you suggested. Go ahead. — Cambri", { thread: "cambri-roof" });
+    M(-2, "10:10", P.maya, [sarah], "121 State — A-301 landing", "Sarah — if the landing goes to 42 the header moves 6 inches; check it against S-101 before you send it to the Kleins. — Maya", { thread: "maya-a301" });
+    M(-4, "14:00", P.ww, [sarah], "121 State — brick mold shop drawing rev 2", "Sarah, rev 2 of the brick mold shop drawing attached showing the sill horn. Please confirm before we cut. — Window Works", { att: [{ filename: "Window-Works-Brick-Mold-Shop-Drawing-rev2.pdf", text: "WINDOW WORKS — 121 State Street — brick mold shop drawing rev 2 — 1-3/4 inch ogee, sill horn 1-1/2 inch, back band 3/4 inch" }], thread: "ww-sd" });
+    E(1, "10:00", 60, "Client meeting — 140 Prospect kitchen layout", { where: "140 Prospect Place, Brooklyn", who: ["cambri@example.com", "alan.pm@" + DW_DOMAIN] });
+    E(5, "09:30", 120, "LPC hearing — 45 Cranberry facade and railing", { where: "1 Centre Street, 9th floor", who: ["elena.rivera@example.com"] });
+    E(0, "15:30", 60, "Design review — A-301 landing with Maya", { who: ["maya@" + DW_DOMAIN] });
+    E(-2, "14:00", 90, "Site walk — 121 State with the Kleins", { where: "121 State Street, Brooklyn" });
+    E(1, "14:00", 120, "Drawing time — A-301 rev 3", { free: !0 });
+    E(6, "11:00", 60, "Bedrosians showroom — zellige samples", { where: "Bedrosians, Manhattan" });
+    E(8, "15:00", 60, "Weekly jobs review", { who: ["alan.pm@" + DW_DOMAIN] });
+    E(4, "00:00", 0, "Labor Day — office closed", { allDay: !0, free: !0 });
+    F("121 State - A-301 Stair Section Rev 2.pdf", 1, "a301");
+    F("45 Cranberry - S-101 Flitch Beam Plan.pdf", 3, "s101");
+    F("45 Cranberry - Flitch Beam Calcs rev1.pdf", 2, "flitch", { by: "Priya Natarajan" });
+    F("140 Prospect - kitchen layout options A and B.pdf", 2, "a301", { text: "SMARTDESIGN · 140 PROSPECT PLACE · kitchen layout options · A: island centred on the fireplace · B: galley with the fireplace closed" });
+    F("45 Cranberry - A-201 Front Elevation for LPC.pdf", 4, "a301", { text: "SMARTDESIGN · 45 CRANBERRY STREET · A-201 FRONT ELEVATION · windows 2-over-2, ogee lugs · stoop railing picket spacing 4 inches" });
+    F("Transcript - 121 State site walk - 2026-09-01.txt", 2, "transcript", { mime: "text/plain" });
+    F("Notes - 121 State St - Site Walk - 2026-09-01.gdoc", 2, "notesDoc", { mime: "application/vnd.google-apps.document" });
+    F("Bedrosians - Quote BQ-55810 - 140 Prospect zellige.pdf", 1, "bedQuote");
+    F("Window Works - brick mold shop drawing rev2 - 121 State.pdf", 4, "a301", { text: "WINDOW WORKS — 121 State Street — brick mold shop drawing rev 2" });
+  } else if ("u_billing" === uid) {
+    scenes.kleinPaid(); scenes.jessopWire(); scenes.cmInvoice(); scenes.ampInvoice(); scenes.wwCoiMail();
+    scenes.wwStatement(); scenes.chenBillingQ(); scenes.amexStatementMail(); scenes.newsletter(billing); scenes.promo(billing);
+    scenes.meetingNotes([billing, pm]);
+    M(-2, "09:30", P.sklein, [billing], "121 State — invoice 3 timing", "Hello, when should we expect invoice 3? We would like to plan the transfer for the week of the 14th. — Sarah Klein", { thread: "klein-inv3" });
+    M(-5, "10:00", P.nemo, [billing], "Statement — SmartDesign Group LLC", "Statement attached. Balance $0.00 — invoice NT-88412 paid 08/12. Thank you.", { att: [{ filename: "Nemo-Tile-Statement-Aug-2026.pdf", text: "NEMO TILE — Statement — SmartDesign Group LLC — Balance $0.00" }], thread: "nemo-stmt" });
+    M(-3, "14:20", P.lenox, [billing], "206 Lenox — September rent", "September rent for the ground floor was sent by ACH on the 1st: $6,800.00. — Lenox Coffee Co.", { thread: "lenox-rent" });
+    M(-1, "08:50", controller, [billing], "Kleins' check 2214", "Billing — the Kleins' check 2214 for $72,750 posted 8/29 and is recorded against invoice 2. Please reply to David and close the thread. — Controller", { thread: "ctl-2214" });
+    E(0, "10:00", 45, "Billing queue review", { who: ["controller@" + DW_DOMAIN] });
+    E(1, "11:00", 30, "Call David Klein — invoice 3 timing", { who: ["david.klein@example.com"] });
+    E(8, "15:00", 60, "Weekly jobs review", { who: ["alan.pm@" + DW_DOMAIN] });
+    E(11, "09:00", 60, "Draw 3 — 121 State pay application", { where: "Office" });
+    E(4, "00:00", 0, "Labor Day — office closed", { allDay: !0, free: !0 });
+    E(5, "14:00", 60, "AP run — approvals due", { who: ["controller@" + DW_DOMAIN] });
+    E(15, "09:00", 30, "Carlos Millwork delivery — bill against PO-2026-048 on receipt", { where: "121 State Street, Brooklyn" });
+    E(-2, "16:00", 30, "Klein — invoice 2 follow-up", {});
+    F("Carlos Millwork - Invoice CM-0102.pdf", 2, "cmInvoice");
+    F("AMP-318.pdf", 1, "ampInvoice");
+    F("COI - Window Works LLC - GL 2026-27.pdf", 6, "wwCoi", { by: "Chen Biron" });
+    F("Amex-Business-Platinum-1009-Statement-Aug-2026.pdf", 2, "amexStatement", { by: "Jeanette Hernandez" });
+    F("121 State - Pay Application 2 - signed.pdf", 9, "a301", { text: "AIA G702 — 121 State Street — Application 2 — $72,750.00 — signed by David Klein 08/25/2026" });
+    F("Window Works - Statement Aug 2026.pdf", 4, "a301", { text: "WINDOW WORKS — statement — balance $3,800.00 on WW-2026-118 — past due" });
+    F("Nemo Tile - Statement Aug 2026.pdf", 5, "a301", { text: "NEMO TILE — statement — balance $0.00" });
+    F("Transcript - 121 State site walk - 2026-09-01.txt", 2, "transcript", { mime: "text/plain" });
+  } else if ("u_controller" === uid) {
+    scenes.kleinPaid(); scenes.jessopWire(); scenes.cmInvoice(); scenes.amexStatementMail(); scenes.wwStatement();
+    scenes.wwCoiMail(); scenes.jeanetteQ(); scenes.newsletter(controller); scenes.promo(controller);
+    scenes.meetingNotes([controller, pm]);
+    M(-2, "08:30", "Chase for Business <noreply@chase-business.example>", [controller], "Your August statement is available — Business Checking ····4471", "Your statement for the period 08/01/2026–08/31/2026 is available. Ending balance $184,231.00. Sign in to download.", { thread: "chase-stmt" });
+    M(-1, "10:05", P.jeanette, [controller], "Zelle to J Rosario — $2,400", "The $2,400 Zelle on 9/2 to J Rosario is the demolition helper for 121 State, two weeks. He has no W-9 yet. — Jeanette", { thread: "zelle" });
+    M(-3, "15:40", "Satish Electric Inc <office@satishelectric.example>", [controller], "Invoice SE-0922 — 121 State rough electric", "Invoice SE-0922 attached for the 121 State rough electric, $7,400.00, paid by ACH 9/2 — thank you.", { att: [{ filename: "Satish-Electric-SE-0922.pdf", text: "SATISH ELECTRIC INC\nInvoice No. SE-0922\nBill To: SmartDesign Group LLC\nJob: 121 State Street — rough electric, 3rd floor\nAmount Due: $7,400.00\nPaid by ACH 09/02/2026" }], thread: "satish" });
+    M(-4, "09:15", pm, [controller], "WW-2026-118 short pay", "Controller — I approved WW-2026-118 at the PO amount, $29,700, and disputed the $3,800 over the PO pending the brick mold rework. Please hold the difference until LPC confirms the profile. — Alan", { thread: "ww-sp" });
+    E(0, "09:30", 60, "Bank reconciliation — August", { where: "Office" });
+    E(1, "14:00", 60, "Period close — August", { who: ["billing@" + DW_DOMAIN] });
+    E(5, "14:00", 60, "AP run — approvals due", { who: ["billing@" + DW_DOMAIN] });
+    E(6, "13:00", 60, "Bank — line of credit review", { where: "Chase, Court Street", who: ["alan@" + DW_DOMAIN] });
+    E(8, "15:00", 60, "Weekly jobs review", {});
+    E(12, "10:00", 60, "Sales tax — Q3 prep", {});
+    E(4, "00:00", 0, "Labor Day — office closed", { allDay: !0, free: !0 });
+    E(21, "09:00", 60, "Amex payment due — 1009", { free: !0 });
+    F("Amex-Business-Platinum-1009-Statement-Aug-2026.pdf", 2, "amexStatement", { by: "Jeanette Hernandez" });
+    F("Chase_Checking_4471_Aug2026.qfx", 1, "a301", { mime: "application/x-ofx", text: "OFX — Chase Business Checking 4471 — 08/01/2026–08/31/2026 — 16 transactions — ending balance 184231.00" });
+    F("Carlos Millwork - Invoice CM-0102.pdf", 2, "cmInvoice");
+    F("COI - Window Works LLC - GL 2026-27.pdf", 6, "wwCoi", { by: "Chen Biron" });
+    F("Satish Electric - SE-0922.pdf", 3, "a301", { text: "SATISH ELECTRIC INC — Invoice SE-0922 — $7,400.00 — paid by ACH 09/02/2026" });
+    F("August close checklist.pdf", 1, "a301", { text: "August close — bank rec, card rec, WIP, accruals, payroll, sales tax, lock" });
+    F("1099 register 2026 YTD.pdf", 8, "a301", { text: "1099 register — payees over $2,000 by payment instrument — J Rosario (Zelle) no W-9" });
+    F("Transcript - 121 State site walk - 2026-09-01.txt", 2, "transcript", { mime: "text/plain" });
+  } else if ("u_alberto" === uid) {
+    M(-1, "06:40", angel, [dwAddr("u_alberto")], "Thursday", "Alberto — Thursday the plumber is back at 7. You are on the parlor floor opening with me. Bring the shoring posts. — Angel", { thread: "thu" });
+    M(-2, "17:30", chen, [dwAddr("u_alberto")], "Hours", "Alberto — your hours for Monday are missing in the app. Please enter them tonight. — Chen", { thread: "hrs" });
+    M(-3, "12:00", P.promo, [dwAddr("u_alberto")], "40% off cordless tools — this week only", "ToolPro Deals — 40% off all cordless tools. Unsubscribe.", { thread: "promo" });
+    M(-5, "08:00", angel, [dwAddr("u_alberto"), dwAddr("u_alex")], "Dumpster swap Thursday 6am", "Move the van before 6. — Angel", { thread: "dump" });
+    M(-6, "15:00", P.hd, [dwAddr("u_alberto")], "Your Home Depot Pro receipt — $56.05", "Thank you for shopping at The Home Depot Pro. CONSTRUCTION ADHESIVE x6 $56.05. Total $56.05. Card ending 7720.", { thread: "hd" });
+    E(0, "07:00", 540, "121 State — crew day", { where: "121 State Street, Brooklyn" });
+    E(2, "07:00", 540, "121 State — plumber back, parlor opening", { where: "121 State Street, Brooklyn" });
+    E(4, "00:00", 0, "Labor Day — no work", { allDay: !0, free: !0 });
+    F("121 State - safety plan.pdf", 30, "a301", { text: "Site safety plan — 121 State Street" });
+    F("Shoring detail - parlor opening.pdf", 3, "s101");
+  } else if ("u_alex" === uid) {
+    M(-1, "06:30", chen, [dwAddr("u_alex")], "Pickups Thursday", "Alex — Thursday: Brooklyn Lumber 7am (GWB, cement board, paid), then Nemo Tile for the sample board. Drop both at 121 State. — Chen", { thread: "pick" });
+    M(-3, "07:20", dwAddr("u_alex"), [angel], "Dumpster swap", "Angel — dumpster swap at 121 State is Thursday 6am. Move the van. — Alex", { thread: "dump" });
+    M(-2, "11:00", "Brooklyn Lumber <orders@brooklynlumber.example>", [dwAddr("u_alex"), chen], "Order 88412 ready for pickup", "Order 88412 is ready at the yard: 25 GWB 1/2 x 4x8, 6 cement board. Paid on the Square card $2,140.50. Pickup by Friday.", { thread: "bl" });
+    M(-4, "09:00", P.promo, [dwAddr("u_alex")], "40% off cordless tools — this week only", "ToolPro Deals — 40% off. Unsubscribe.", { thread: "promo" });
+    E(1, "07:00", 90, "Pickup — Brooklyn Lumber order 88412", { where: "Brooklyn Lumber" });
+    E(1, "09:00", 60, "Pickup — Nemo Tile sample board", { where: "Nemo Tile" });
+    E(2, "06:00", 30, "Dumpster swap — 121 State", { where: "121 State Street, Brooklyn" });
+    E(4, "00:00", 0, "Labor Day — no work", { allDay: !0, free: !0 });
+    F("Van inspection September.pdf", 2, "a301", { text: "Van inspection due 09/15/2026" });
+    F("Brooklyn Lumber order 88412.pdf", 2, "a301", { text: "BROOKLYN LUMBER — order 88412 — 25 GWB, 6 cement board — $2,140.50 paid" });
+  }
+  // Oldest first, as a mailbox is read; then whatever earlier sessions wrote into it (drafts, sent, holds).
+  W.messages.sort((a, b) => a.internalDate - b.internalDate);
+  const added = ((DB.demoWs || {})[uid] || {});
+  (added.messages || []).forEach((m) => W.messages.push(m)),
+    (added.events || []).forEach((e) => W.events.push(e)),
+    (added.drafts || []).forEach((d) => W.drafts.push(d)),
+    Object.entries(added.labels || {}).forEach(([id, L]) => {
+      const m = W.messages.find((x) => x.id === id);
+      m && (m.labelIds = L);
+    });
+  return (W.nextId += (added.messages || []).length), W;
+}
+// ---- a workspace loaded at run time (the same shape, from a JSON file outside the repo) --------------
+// gsAttachWorkspace(uid, ws) registers it; gcDemoConnect(uid) then serves it instead of the built-in demo.
+// The JSON shape (docs/ARCHITECTURE.md, "Demo Workspace"): {email, name, mail:{threads:[{id, messages:[{id,
+// date | {day,time}, from, to[], cc[], subject, text, labels[], attachments:[{name, mime, text}]}]}]},
+// calendar:{events:[{id, title, start, end | {day,time,mins}, allDay, where, description, attendees[],
+// organizer, free}]}, drive:{files:[{id, name, mime, modified | {day,time}, by, text}]}}. Dates are ISO on
+// the app clock, or relative to the app day. It lives for the session only; nothing of it is written to
+// the saved data except what a sync pulls from it, which Disconnect removes like any connection's rows.
+const DW_ATTACHED = {};
+function dwFromJson(uid, ws) {
+  const td = today(),
+    acct = ws.accounts || {},
+    [defName, defEmail] = DW_STAFF[uid] || [String(((DB.users || []).find((u) => u.id === uid) || {}).name || uid), uid + "@" + DW_DOMAIN],
+    email = String(ws.email || acct.gmailMailbox || (acct.ownerEmails || [])[0] || defEmail).toLowerCase(),
+    W = { email: email, name: ws.name || defName, messages: [], drafts: [], events: [], files: [], historyId: 100, nextId: 1, loaded: !0 },
+    when = (d, def) => {
+      if (!d) return new Date(`${td}T${def || "09:00"}:00`).getTime();
+      if ("object" == typeof d) {
+        // Google's own shape ({dateTime} or {date}), or relative to the app day ({day, time}).
+        if (d.dateTime || d.date) {
+          const t = new Date(d.dateTime || d.date + "T00:00:00").getTime();
+          return isNaN(t) ? new Date(`${td}T${def || "09:00"}:00`).getTime() : t;
+        }
+        return new Date(`${iso(addDays(td, +d.day || 0))}T${d.time || def || "09:00"}:00`).getTime();
+      }
+      const t = new Date(d).getTime();
+      return isNaN(t) ? new Date(`${td}T${def || "09:00"}:00`).getTime() : t;
+    },
+    addr = (x) => (Array.isArray(x) ? x : x ? [x] : []),
+    str = (x) => ("string" == typeof x ? x : x && x.email ? (x.name ? `${x.name} <${x.email}>` : x.email) : "");
+  (((ws.mail || {}).threads || []).forEach((t, ti) => {
+    (t.messages || []).forEach((m, mi) => {
+      const id = String(m.id || `ldm_${uid}_${ti}_${mi}`),
+        ms = m.internalDate && !isNaN(+m.internalDate) ? +m.internalDate : when(m.date, "09:00"),
+        from = str(m.from),
+        mine = from.toLowerCase().includes(email),
+        labels = m.labels || m.labelIds || (mine ? ["SENT"] : ["INBOX", "UNREAD"]);
+      W.messages.push({
+        id: id,
+        threadId: String(m.threadId || t.id || `ldt_${uid}_${ti}`),
+        labelIds: labels.slice(),
+        internalDate: ms,
+        historyId: ++W.historyId,
+        headers: { From: from, To: addr(m.to).map(str).join(", "), Cc: addr(m.cc).map(str).join(", "), Subject: m.subject || t.subject || "", Date: new Date(ms).toUTCString() },
+        body: String(m.text || m.snippet || ""),
+        attachments: (m.attachments || []).map((a, i) => ({
+          id: `lda_${id}_${i}`,
+          filename: a.name || a.filename || `attachment-${i + 1}`,
+          mime: a.mime || a.mimeType || "application/octet-stream",
+          size: +a.size || 40000 + 100 * String(a.text || "").length,
+          text: String(a.text || ""),
+        })),
+      });
+    });
+  }),
+    ((ws.calendar || {}).events || []).forEach((e, i) => {
+      if ("cancelled" === e.status) return;
+      const allDay = !!e.allDay || !!(e.start && "object" == typeof e.start && e.start.date && !e.start.dateTime),
+        s0 = when(e.start, "09:00"),
+        en =
+          e.end && (("object" == typeof e.end && (e.end.dateTime || e.end.date)) || "object" != typeof e.end)
+            ? when(e.end)
+            : "object" == typeof e.start && e.start.mins
+              ? s0 + 6e4 * +e.start.mins
+              : s0 + 36e5,
+        ev = {
+          id: String(e.id || `lde_${uid}_${i + 1}`),
+          status: e.status || "confirmed",
+          summary: e.title || e.summary || "(no title)",
+          description: e.description || "",
+          location: e.where || e.location || "",
+          htmlLink: e.htmlLink || "",
+          updated: e.updated || new Date(s0 - 864e5 * 7).toISOString(),
+          organizer: { email: "object" == typeof e.organizer ? e.organizer.email || "" : e.organizer || email },
+          attendees: [email].concat(addr(e.attendees).map((x) => ("string" == typeof x ? x : x.email)).filter(Boolean)).filter((x, k, a) => a.indexOf(x) === k).map((x) => ({ email: x, responseStatus: "accepted" })),
+          transparency: e.free || "free" === e.availability ? "transparent" : "opaque",
+        };
+      allDay
+        ? ((ev.start = { date: iso(new Date(s0)) }), (ev.end = { date: iso(addDays(iso(new Date(s0)), 1)) }))
+        : ((ev.start = { dateTime: new Date(s0).toISOString() }), (ev.end = { dateTime: new Date(Math.max(en, s0 + 6e5)).toISOString() })),
+        W.events.push(ev);
+    }),
+    ((ws.drive || {}).files || []).forEach((f, i) => {
+      W.files.push({
+        id: String(f.id || `ldf_${uid}_${i + 1}`),
+        name: f.name || `file-${i + 1}`,
+        mimeType: f.mime || f.mimeType || "application/pdf",
+        modifiedTime: new Date(when(f.modified || f.modifiedTime, "16:00")).toISOString(),
+        size: String(+f.size || 60000 + 300 * String(f.text || "").length),
+        owners: (f.owners || []).length ? f.owners : [{ displayName: f.by || W.name, emailAddress: f.byEmail || email }],
+        webViewLink: f.link || f.webViewLink || "",
+        parents: f.parents || ["ldroot_" + uid],
+        text: String(f.text || ""),
+        trashed: !!f.trashed,
+      });
+    }));
+  W.messages.sort((a, b) => a.internalDate - b.internalDate), (W.nextId = W.messages.length + 1);
+  // The workspace's clock: its exportedAt, else the latest thing in it. Its first window is its whole span.
+  const stamps = W.messages.map((m) => m.internalDate).concat(W.events.map((e) => new Date(e.start.dateTime || e.start.date).getTime()), W.files.map((f) => new Date(f.modifiedTime).getTime())).filter((x) => !isNaN(x)),
+    exp = ws.exportedAt ? new Date(ws.exportedAt).getTime() : NaN;
+  (W.now = !isNaN(exp) ? exp : stamps.length ? Math.max(...stamps) : appNowMs()),
+    (W.firstDays = W.messages.length ? Math.min(400, Math.ceil((W.now - Math.min(...W.messages.map((m) => m.internalDate))) / 864e5) + 1) : 14);
+  const es = W.events.map((e) => new Date(e.start.dateTime || e.start.date).getTime()).filter((x) => !isNaN(x));
+  return es.length && ((W.calFrom = Math.min(...es) - 864e5), (W.calTo = Math.max(...es) + 864e5)), W;
+}
+function gsAttachWorkspace(uid, ws) {
+  if (!uid || !ws || "object" != typeof ws) throw new Error("gsAttachWorkspace(uid, workspace) needs both");
+  const W = dwFromJson(uid, ws);
+  return (DW_ATTACHED[uid] = W), delete DEMO_WS[uid], { messages: W.messages.length, events: W.events.length, files: W.files.length };
+}
+const dwLoadedFor = (uid) => !!DW_ATTACHED[uid || paMe().id];
+function demoWsFor(uid) {
+  return DW_ATTACHED[uid] || DEMO_WS[uid] || (DEMO_WS[uid] = demoWsBuild(uid));
+}
+// What a session writes into the demo workspace outlives the session: it is kept beside the connection.
+function dwAdded(uid) {
+  DB.demoWs = DB.demoWs || {};
+  return (DB.demoWs[uid] = DB.demoWs[uid] || { messages: [], events: [], drafts: [], labels: {} });
+}
+// ---- Gmail / Calendar / Drive API shapes ---------------------------------------------------------------
+function dwMessageFull(m) {
+  const parts = [{ partId: "0", mimeType: "text/plain", body: { size: m.body.length, data: dwB64(m.body) } }].concat(
+    (m.attachments || []).map((a, i) => ({
+      partId: String(i + 1),
+      mimeType: a.mime,
+      filename: a.filename,
+      // `text` is the demo's stand-in for the server-side PDF reader that was lost.
+      body: { attachmentId: a.id, size: a.size, text: a.text },
+    })),
+  );
+  return {
+    id: m.id,
+    threadId: m.threadId,
+    labelIds: m.labelIds,
+    snippet: m.body.slice(0, 120),
+    historyId: String(m.historyId),
+    internalDate: String(m.internalDate),
+    payload: {
+      mimeType: "multipart/mixed",
+      headers: Object.entries(m.headers)
+        .filter(([k, v]) => v)
+        .map(([k, v]) => ({ name: k, value: v })),
+      parts: parts,
+    },
+    sizeEstimate: m.body.length + (m.attachments || []).reduce((a, x) => a + x.size, 0),
+  };
+}
+function dwParseRaw(raw) {
+  const txt = dwUnB64(raw).replace(/\r/g, ""),
+    i = txt.indexOf("\n\n"),
+    head = i >= 0 ? txt.slice(0, i) : txt,
+    body = i >= 0 ? txt.slice(i + 2) : "",
+    H = {};
+  return (
+    head.split("\n").forEach((l) => {
+      const m = l.match(/^([A-Za-z-]+):\s*(.*)$/);
+      m && (H[m[1].toLowerCase()] = m[2]);
+    }),
+    { to: H.to || "", cc: H.cc || "", subject: H.subject || "", inReplyTo: H["in-reply-to"] || "", body: body }
+  );
+}
+function dwDriveFile(f) {
+  return {
+    id: f.id,
+    name: f.name,
+    mimeType: f.mimeType,
+    modifiedTime: f.modifiedTime,
+    webViewLink: f.webViewLink,
+    iconLink: "",
+    size: f.size,
+    owners: f.owners,
+    parents: f.parents,
+  };
+}
+// The server. Answers like Google's APIs do, from the demo workspace of the signed-in user.
+async function gsFetchDemo(url, opts) {
+  const uid = paMe().id,
+    W = demoWsFor(uid),
+    A = dwAdded(uid),
+    u = new URL(url, "https://www.googleapis.com"),
+    p = u.pathname,
+    q = u.searchParams,
+    method = String((opts || {}).method || "GET").toUpperCase(),
+    body = (() => {
+      try {
+        return (opts || {}).body ? JSON.parse(opts.body) : {};
+      } catch (e) {
+        return {};
+      }
+    })(),
+    now = W.now || appNowMs();
+  let m;
+  if ("/oauth2/v2/userinfo" === p) return { email: W.email, name: W.name, verified_email: !0 };
+  // ---- Gmail ----
+  if ("/gmail/v1/users/me/messages" === p) {
+    const qs = q.get("q") || "",
+      after = (qs.match(/after:(\d+)/) || [])[1],
+      newer = (qs.match(/newer_than:(\d+)d/) || [])[1],
+      floor = after ? 1e3 * +after : newer ? now - 864e5 * +newer : 0,
+      inSent = /\bin:sent\b/.test(qs),
+      label = (qs.match(/label:([A-Za-z_]+)/) || [])[1],
+      from = (qs.match(/from:(\S+)/) || [])[1],
+      max = Math.max(1, Math.min(500, +(q.get("maxResults") || 100))),
+      start = +(q.get("pageToken") || 0),
+      all = W.messages
+        .filter((x) => x.internalDate >= floor)
+        .filter((x) => !inSent || x.labelIds.includes("SENT"))
+        .filter((x) => !label || x.labelIds.includes(label.toUpperCase()))
+        .filter((x) => !from || String(x.headers.From).toLowerCase().includes(from.toLowerCase()))
+        .sort((a, b) => b.internalDate - a.internalDate),
+      page = all.slice(start, start + max);
+    return Object.assign(
+      { messages: page.map((x) => ({ id: x.id, threadId: x.threadId })), resultSizeEstimate: all.length, historyId: String(W.historyId) },
+      start + max < all.length ? { nextPageToken: String(start + max) } : {},
+    );
+  }
+  if ((m = p.match(/^\/gmail\/v1\/users\/me\/messages\/([^/]+)\/attachments\/([^/]+)$/))) {
+    const msg = W.messages.find((x) => x.id === m[1]),
+      a = msg && (msg.attachments || []).find((x) => x.id === m[2]);
+    if (!a) throw new Error("Demo Workspace: no such attachment");
+    return { attachmentId: a.id, size: a.size, data: dwB64(a.text), text: a.text };
+  }
+  if ((m = p.match(/^\/gmail\/v1\/users\/me\/messages\/([^/]+)\/modify$/))) {
+    const msg = W.messages.find((x) => x.id === m[1]);
+    if (!msg) throw new Error("Demo Workspace: no such message");
+    const L = new Set(msg.labelIds);
+    return (
+      (body.addLabelIds || []).forEach((l) => L.add(l)),
+      (body.removeLabelIds || []).forEach((l) => L.delete(l)),
+      (msg.labelIds = [...L]),
+      (A.labels[msg.id] = msg.labelIds),
+      save(),
+      { id: msg.id, threadId: msg.threadId, labelIds: msg.labelIds }
+    );
+  }
+  if ((m = p.match(/^\/gmail\/v1\/users\/me\/messages\/([^/]+)$/))) {
+    const msg = W.messages.find((x) => x.id === m[1]);
+    if (!msg) throw new Error("Demo Workspace: no such message");
+    return dwMessageFull(msg);
+  }
+  if ("/gmail/v1/users/me/history" === p) {
+    const since = +(q.get("startHistoryId") || 0),
+      H = W.messages.filter((x) => x.historyId > since);
+    return { historyId: String(W.historyId), history: H.map((x) => ({ id: String(x.historyId), messagesAdded: [{ message: { id: x.id, threadId: x.threadId, labelIds: x.labelIds } }] })) };
+  }
+  if ("/gmail/v1/users/me/drafts" === p && "POST" === method) {
+    // A draft written by the assistant: it lands in Drafts, on the thread, and sends only through drafts/send.
+    const r = dwParseRaw((body.message || {}).raw || ""),
+      id = `dwm_${uid}_${W.nextId++}`,
+      msg = {
+        id: id,
+        threadId: (body.message || {}).threadId || `dwt_${uid}_${id}`,
+        labelIds: ["DRAFT"],
+        internalDate: now,
+        historyId: ++W.historyId,
+        headers: { From: dwAddr(uid), To: r.to, Cc: r.cc, Subject: r.subject, Date: new Date(now).toUTCString() },
+        body: r.body,
+        attachments: [],
+      },
+      d = { id: "dwd_" + id, message: { id: id, threadId: msg.threadId } };
+    return W.messages.push(msg), W.drafts.push(d), A.messages.push(msg), A.drafts.push(d), save(), d;
+  }
+  if ("/gmail/v1/users/me/drafts/send" === p && "POST" === method) {
+    const d = W.drafts.find((x) => x.id === body.id),
+      msg = d && W.messages.find((x) => x.id === d.message.id);
+    if (!msg) throw new Error("Demo Workspace: no such draft");
+    return (
+      (msg.labelIds = ["SENT"]),
+      (msg.internalDate = now),
+      (msg.historyId = ++W.historyId),
+      (W.drafts = W.drafts.filter((x) => x.id !== d.id)),
+      (A.drafts = A.drafts.filter((x) => x.id !== d.id)),
+      (A.labels[msg.id] = msg.labelIds),
+      save(),
+      { id: msg.id, threadId: msg.threadId, labelIds: msg.labelIds }
+    );
+  }
+  // ---- Calendar ----
+  if ("/calendar/v3/calendars/primary/events" === p && "GET" === method) {
+    const tok = q.get("syncToken"),
+      since = tok ? +String(tok).replace(/^demo-/, "") : 0,
+      tMin = q.get("timeMin") ? new Date(q.get("timeMin")).getTime() : 0,
+      tMax = q.get("timeMax") ? new Date(q.get("timeMax")).getTime() : 1 / 0,
+      uMin = q.get("updatedMin") ? new Date(q.get("updatedMin")).getTime() : 0,
+      startOf = (e) => new Date((e.start || {}).dateTime || (e.start || {}).date).getTime(),
+      items = W.events.filter((e) => {
+        const upd = new Date(e.updated).getTime();
+        return tok ? upd > since : startOf(e) >= tMin && startOf(e) <= tMax && upd >= uMin;
+      }),
+      maxUpd = W.events.reduce((a, e) => Math.max(a, new Date(e.updated).getTime()), since);
+    return { kind: "calendar#events", items: items, nextSyncToken: "demo-" + maxUpd };
+  }
+  if ("/calendar/v3/calendars/primary/events" === p && "POST" === method) {
+    // A hold or a booking the person approved; it comes back on the next pull like any other event.
+    const ev = Object.assign(
+      { id: `dwe_${uid}_${W.events.length + 1}`, status: "confirmed", htmlLink: "", updated: new Date(now).toISOString(), organizer: { email: W.email }, attendees: [] },
+      body,
+    );
+    return W.events.push(ev), A.events.push(ev), save(), ev;
+  }
+  if ("/calendar/v3/freeBusy" === p) {
+    const a = new Date(body.timeMin).getTime(),
+      b = new Date(body.timeMax).getTime(),
+      busy = W.events
+        .filter((e) => "transparent" !== e.transparency && (e.start || {}).dateTime)
+        .map((e) => [new Date(e.start.dateTime).getTime(), new Date(e.end.dateTime).getTime()])
+        .filter(([s, e]) => e > a && s < b)
+        .map(([s, e]) => ({ start: new Date(s).toISOString(), end: new Date(e).toISOString() }));
+    return { calendars: { primary: { busy: busy } } };
+  }
+  // ---- Drive ----
+  if ("/drive/v3/files" === p) {
+    const qs = q.get("q") || "",
+      since = (qs.match(/modifiedTime\s*>\s*'([^']+)'/) || [])[1],
+      contains = (qs.match(/name contains '([^']+)'/i) || [])[1],
+      full = (qs.match(/fullText contains '([^']+)'/i) || [])[1],
+      size = Math.max(1, Math.min(1000, +(q.get("pageSize") || 100))),
+      start = +(q.get("pageToken") || 0),
+      all = W.files
+        .filter((f) => !f.trashed)
+        .filter((f) => !since || new Date(f.modifiedTime).getTime() > new Date(since).getTime())
+        .filter((f) => !contains || f.name.toLowerCase().includes(contains.toLowerCase()))
+        .filter((f) => !full || (f.name + " " + f.text).toLowerCase().includes(full.toLowerCase()))
+        .sort((a, b) => String(b.modifiedTime).localeCompare(String(a.modifiedTime))),
+      files = all.slice(start, start + size);
+    return Object.assign({ kind: "drive#fileList", files: files.map(dwDriveFile) }, start + size < all.length ? { nextPageToken: String(start + size) } : {});
+  }
+  if ((m = p.match(/^\/drive\/v3\/files\/([^/]+)(\/export)?$/))) {
+    const f = W.files.find((x) => x.id === m[1]);
+    if (!f) throw new Error("Demo Workspace: no such file");
+    // files.get alt=media and files.export both answer with the text the file holds.
+    return m[2] || "media" === q.get("alt") ? { text: f.text } : dwDriveFile(f);
+  }
+  throw new Error("Demo Workspace has no answer for " + method + " " + p);
+}
+// ---- connecting ---------------------------------------------------------------------------------------
+// Explicit and per user. Sets the same connection record the real path sets (DB.conn[uid].google), marked
+// demo, so gcOn() / gcMine() / cursors / lastSync live where Google's would; then runs a first sync.
+function gcDemoConnect(uid) {
+  gcInit();
+  const u = paMe();
+  if (uid && uid !== u.id) return toast("Sign in as that user to connect their workspace"), null;
+  if (!gcDemoAvailable(u.id)) return toast("There is no Demo Workspace for this role"), null;
+  if (gcMine() && !gcIsDemo()) return toast("A real account is connected; disconnect it first"), null;
+  const W = demoWsFor(u.id),
+    loaded = dwLoadedFor(u.id),
+    kind = loaded ? "Loaded Workspace" : "Demo Workspace";
+  (DB.conn[u.id] = DB.conn[u.id] || {}),
+    (DB.conn[u.id].google = {
+      demo: !0,
+      loaded: loaded,
+      email: W.email,
+      name: kind,
+      scopes: GC_SCOPES.slice(),
+      connectedAt: appNowIso(),
+      lastSync: "",
+      lastError: "",
+      cursors: {},
+      auto: !0,
+      // The lost hosted watcher ran every fifteen minutes through the working day; gsTimer stands in for it.
+      every: 15,
+    }),
+    save(),
+    paDid(
+      `Connected the ${kind}`,
+      loaded
+        ? "a mailbox, calendar and drive loaded for this session, read through the same code real Google uses"
+        : "an invented mailbox, calendar and drive for your role, read through the same code real Google uses; nothing in it is real",
+      { view: "conn" },
+    ),
+    toast(`Connected the ${kind} — syncing`, gcOpen("pa", "Open Assistant")),
+    render();
+  try {
+    gsTimer();
+  } catch (e) {}
+  return gsRun({ first: !0 }).then((d) => (d && toast(gcSummary(d), gcOpen("pa", "Open Assistant")), d));
+}
+// ---- what the assistant does after every sync, on any connected mailbox --------------------------------
+// A message I sent that asked for something, with nothing back on the thread: I am waiting on them.
+function paMailExpectSweep() {
+  const me = paMe(),
+    mine = String((gcMine() || {}).email || "").toLowerCase(),
+    td = today(),
+    M = (DB.comms || []).filter((c) => c.owner === me.id),
+    out = [];
+  return (
+    M.filter(
+      (c) =>
+        ((c.labels || []).includes("SENT") || String((c.from || {}).email || "").toLowerCase() === mine) &&
+        !(c.labels || []).includes("DRAFT") &&
+        PA_ASK.test(`${c.subject || ""} ${c.text || ""}`),
+    ).forEach((c) => {
+      const to = (c.to || [])[0];
+      if (!to || cmIsStaff(cmEmail(to))) return;
+      const back = M.some((x) => x.threadId === c.threadId && x.date > c.date && !cmIsStaff(cmEmail((x.from || {}).email)));
+      if (back) return;
+      const said = String(c.date || "").slice(0, 10),
+        e = paExpect(cmName(to), c.subject || "my message", iso(addWork(said || td, 3, !1)), { kind: "mail", id: c.msgId, commId: c.id }, said);
+      e && out.push(e);
+    }),
+    out
+  );
+}
+// A payment a client says they sent: is it in the bank? Match the claim to a bank credit by amount and
+// date and say so; nothing is recorded by this, the person records (or the match is already recorded).
+function paPaymentClaimSweep() {
+  const me = paMe(),
+    made = [],
+    banks = new Set((DB.accounts || []).filter((a) => "bank" === a.type).map((a) => a.id)),
+    credit = (amt, said) =>
+      (DB.txns || []).find(
+        (t) =>
+          banks.has(t.acct) &&
+          +t.amt > 0 &&
+          Math.abs(+t.amt - amt) < 0.01 &&
+          t.date >= iso(addDays(said, -10)) &&
+          t.date <= iso(addDays(said, 7)),
+      ),
+    recorded = (t) => {
+      for (const cl of DB.clients || [])
+        for (const py of cl.payments || [])
+          if (Math.abs(+py.amount - +t.amt) < 0.01 && Math.abs(new Date(py.date) - new Date(t.date)) <= 7 * 864e5)
+            return { client: cl, pay: py, inv: (cl.invoices || []).find((i) => i.id === py.invoiceId) };
+      return null;
+    };
+  return (
+    (DB.comms || [])
+      .filter((c) => c.owner === me.id && "ignored" !== c.status)
+      .forEach((c) => {
+        (c.proposals || [])
+          .filter((p) => "deposit" === p.kind && !p.applied && p.amount && !p.bankChecked)
+          .forEach((p) => {
+            p.bankChecked = today();
+            const said = String(c.date || "").slice(0, 10) || today(),
+              t = credit(+p.amount, said),
+              who = (c.from || {}).name || (c.from || {}).email || "the client",
+              acct = t && ((DB.accounts || []).find((a) => a.id === t.acct) || {});
+            if (t) {
+              const r = recorded(t);
+              (p.txnId = t.id),
+                (p.recorded = r ? r.pay.id : ""),
+                (p.summary += ` · in the bank ${fmtL(t.date)}${acct.last4 ? " (····" + acct.last4 + ")" : ""}${r ? " and recorded" + (r.inv ? " on " + r.inv.number : "") : " — not yet recorded"}`),
+                r && (p.on = !1),
+                made.push(
+                  paNudge(
+                    `${who}'s ${money(+p.amount)} is in the bank.`,
+                    `They said it was sent${p.saidDay ? " " + String(p.saidDay).toLowerCase() : ""}; it posted ${fmtL(t.date)} to ${acct.name || "the bank"}${r ? `, and it is recorded${r.inv ? ` against ${r.inv.number}` : ""}. Nothing to do but tell them it cleared.` : ". It is not recorded against an invoice yet — the match is on the comms screen for you to record."}`,
+                    { kind: "claim", id: p.id, commId: c.id },
+                    "money a client says they sent",
+                  ),
+                );
+            } else
+              made.push(
+                paNudge(
+                  `${who} says ${money(+p.amount)} was sent; it is not in the bank yet.`,
+                  `Nothing in the feed matches it since ${fmtL(said)}. I will say when it lands; if it has not by ${fmtL(iso(addWork(said, 5, !1)))}, ask them for the confirmation.`,
+                  { kind: "claim", id: p.id, commId: c.id },
+                  "money a client says they sent",
+                ),
+              );
+          });
+      }),
+    (DB.expected || [])
+      .filter((e) => !e.matched && e.amount)
+      .forEach((e) => {
+        const t = credit(+e.amount, e.said || today());
+        t &&
+          ((e.matched = t.id),
+          made.push(
+            paNudge(
+              `The ${money(+e.amount)} from ${e.from || "the client"} has landed.`,
+              `It posted ${fmtL(t.date)}. Record it against the invoice from Bank, or it stays an unmatched line.`,
+              { kind: "expect-landed", id: e.id },
+              "money you were watching for",
+            ),
+          ));
+      }),
+    made.filter(Boolean)
+  );
+}
+
+// ---- master data from unrouted mail (BACKLOG 1.7 #13) -------------------------------------------------
+// On a real mailbox almost nothing matches the seed's jobs. Threads that match no client, project or vendor
+// are clustered by correspondent (an organisation's domain, or a person at a public mail provider) and by
+// the project-like addresses they name, and each cluster is one proposal: create the vendor, the client or
+// lead, or the job, and route every thread in it. The owner approves in one tap; nothing is created on its own.
+const PA_PUBLIC_MAIL = /^(gmail|googlemail|yahoo|ymail|outlook|hotmail|live|msn|icloud|me|mac|aol|protonmail|proton|pm|comcast|verizon|att|optonline|optimum|rr|earthlink|mail|email|example)\./i,
+  PA_AUTOMATED = /noreply|no-reply|donotreply|do-not-reply|notification|notifications|newsletter|mailer|daemon|bounce|calendar-notification|alerts?@|updates?@|info@|news@|hello@|support@|billing@|receipts?@|statements?@|marketing|promo/i;
+function paMasterClusters() {
+  const me = paMe(),
+    mine = (DB.comms || []).filter((c) => c.owner === me.id && "ignored" !== c.status && !c.routeLocked),
+    isUnrouted = (c) => {
+      const R = c.route || {};
+      return !R.clientId && !R.projectId && !R.vendorId;
+    },
+    C = {},
+    put = (key, init) => C[key] || (C[key] = Object.assign({ key: key, ids: [], threads: new Set(), first: "", last: "", money: 0, attachments: 0, names: {}, people: new Set(), addrs: new Set() }, init)),
+    add = (K, c, who, name) => {
+      K.ids.push(c.id), c.threadId && K.threads.add(c.threadId);
+      const d = String(c.date || "").slice(0, 10);
+      (!K.first || d < K.first) && (K.first = d), (!K.last || d > K.last) && (K.last = d);
+      PA_MONEY.test(`${c.subject || ""} ${c.text || ""}`) && K.money++, (K.attachments += (c.attachments || []).length);
+      name && (K.names[name] = (K.names[name] || 0) + 1), who && K.people.add(who);
+    };
+  mine.filter(isUnrouted).forEach((c) => {
+    const R = c.route || {},
+      outs = [...(c.to || []), ...(c.cc || [])].map(cmEmail).filter((e) => e && !cmIsStaff(e)),
+      who = R.employee ? outs[0] || "" : cmEmail((c.from || {}).email),
+      name = R.employee ? (outs[0] ? cmName([...(c.to || []), ...(c.cc || [])].find((x) => cmEmail(x) === outs[0]) || outs[0]) : "") : (c.from || {}).name || "",
+      addrs = cmAddrs(cmOwnText(c.text), c.subject || "");
+    if (who && !PA_AUTOMATED.test(who)) {
+      const dom = who.split("@")[1] || "";
+      if (PA_PUBLIC_MAIL.test(dom)) add(put("person:" + who, { kind: "person", who: who, dom: dom }), c, who, name);
+      else {
+        const K = put("org:" + dom, { kind: "org", dom: dom, who: who, label: dom.split(".")[0] });
+        add(K, c, who, name), (K.who = K.who || who);
+      }
+    }
+    addrs.forEach((a) => {
+      const K = put("addr:" + cmAddrKey(a), { kind: "project", addr: a });
+      add(K, c, who, name), who && K.people.add(who);
+    });
+  });
+  return Object.values(C)
+    .map((K) => {
+      const top = Object.entries(K.names).sort((a, b) => b[1] - a[1])[0],
+        tc = K.threads.size;
+      return Object.assign(K, {
+        count: K.ids.length,
+        threadCount: tc,
+        contact: top ? top[0] : "",
+        // What to create: an organisation that talks money, invoices or quotes is a vendor; a person at a
+        // public provider is a client or lead; an address with mail about it is a job.
+        as: "org" === K.kind ? "vendor" : "person" === K.kind ? "lead" : "project",
+        name:
+          "org" === K.kind
+            ? top && top[1] >= 2 && !/^[A-Z][a-z]+$/.test(top[0]) && top[0].toLowerCase().includes(K.label.slice(0, 4))
+              ? top[0]
+              : K.label.charAt(0).toUpperCase() + K.label.slice(1)
+            : "person" === K.kind
+              ? (top && top[0]) || K.who
+              : K.addr,
+        people: [...K.people],
+        addrs: [...K.addrs],
+        threads: [...K.threads],
+      });
+    })
+    .filter((K) => K.count >= ("project" === K.as ? 2 : 1))
+    .sort((a, b) => 2 * (b.threadCount - a.threadCount) + (b.money - a.money) + ((b.attachments ? 1 : 0) - (a.attachments ? 1 : 0)) || b.count - a.count);
+}
+// Keep the clusters on the assistant's record so screens and tests read one list.
+function paMasterSweep() {
+  const A = paInit(),
+    cl = paMasterClusters(),
+    kept = Object.fromEntries((A.master || []).map((m) => [m.key, m]));
+  A.master = cl.map((K) =>
+    Object.assign({}, K, { status: (kept[K.key] || {}).status || "proposed", seenAt: (kept[K.key] || {}).seenAt || today() }),
+  );
+  const open = A.master.filter((m) => "proposed" === m.status);
+  if (!open.length) return [];
+  const v = open.filter((m) => "vendor" === m.as),
+    p = open.filter((m) => "lead" === m.as),
+    j = open.filter((m) => "project" === m.as),
+    say = (L) => L.slice(0, 3).map((m) => m.name).join(", ") + (L.length > 3 ? ` and ${L.length - 3} more` : ""),
+    n = paNudge(
+      `${open.length} correspondent${1 === open.length ? "" : "s"} and ${j.length ? j.length + " address" + (1 === j.length ? "" : "es") : "no addresses"} nobody has on file.`,
+      `${v.length ? `${v.length} read like vendors or firms (${say(v)}). ` : ""}${p.length ? `${p.length} like homeowners or leads (${say(p)}). ` : ""}${j.length ? `${j.length} look like jobs (${say(j)}). ` : ""}Say once who they are and their threads route themselves; I create nothing on my own. Ask me "who is not on file" for the list.`,
+      { kind: "master", id: "all" },
+      "mail nobody can route",
+    );
+  // The nudge is kept current rather than repeated: one record of the same question.
+  if (!n) {
+    const old = A.thread.find((m) => m.nudge && m.ref && "master" === m.ref.kind);
+    old && ((old.text = `${open.length} correspondent${1 === open.length ? "" : "s"} and ${j.length ? j.length + " address" + (1 === j.length ? "" : "es") : "no addresses"} nobody has on file.`), (old.unread = !0));
+  }
+  return n ? [n] : [];
+}
+// One tap: create the record and route every thread in the cluster; proposals are read again on the route.
+function paMasterApply(key, as) {
+  const A = paInit(),
+    K = (A.master || []).find((m) => m.key === key);
+  if (!K) return null;
+  as = as || K.as;
+  const by = paMe().name,
+    comms = (DB.comms || []).filter((c) => K.ids.includes(c.id)),
+    route = (patch) =>
+      comms.forEach((c) => {
+        (c.route = Object.assign({}, c.route || {}, patch, { leadName: "", leadEmail: "" })), (c.routeLocked = !0);
+        const keep = (c.proposals || []).filter((p) => p.applied);
+        (c.proposals = keep.concat(cmRead(c).filter((p) => "unrouted" !== p.kind && !keep.some((k) => k.kind === p.kind)))),
+          (c.status = c.proposals.length ? "proposed" : "read");
+      });
+  let made = "",
+    go = null;
+  if ("vendor" === as) {
+    let v = (DB.vendors || []).find((x) => x.name.toLowerCase() === String(K.name).toLowerCase());
+    v ||
+      ((v = { id: uid("v"), name: K.name, trade: "", email: K.who || "", contact: K.contact || "", w9: !1, insuranceExp: "", bankChangedAt: "", createdFrom: "mail", notes: `Created from ${K.threadCount} thread${1 === K.threadCount ? "" : "s"} (${fmtL(K.first)} to ${fmtL(K.last)})` }),
+      DB.vendors.push(v));
+    route({ vendorId: v.id }), (made = `vendor ${v.name}`), (go = "vendors");
+  } else if ("client" === as) {
+    let cl = (DB.clients || []).find((x) => (x.contacts || []).some((k) => (k.email || "").toLowerCase() === K.who));
+    cl ||
+      ((cl = "function" == typeof blankClient ? blankClient(K.name) : { id: uid("cl"), name: K.name, contacts: [], activity: [] }),
+      (cl.contacts = [{ id: uid("k"), name: K.name, email: K.who || "", role: "Client" }]),
+      (cl.propertyAddr = K.addrs[0] || ""),
+      "function" == typeof entDefault && (cl.entityId = entDefault()),
+      DB.clients.push(cl));
+    route({ clientId: cl.id }), (made = `client ${cl.name}`), (go = "clients");
+  } else if ("project" === as && "function" == typeof projectFromTemplate) {
+    const pr = projectFromTemplate(K.addr, K.addr, today(), "");
+    if (!pr) return null;
+    (DB.projects || []).includes(pr) || DB.projects.push(pr);
+    // One person wrote about this address and only this address: the job is theirs.
+    const person = (A.master || []).find((m) => "person" === m.kind && K.people.includes(m.who)),
+      cl = person && (DB.clients || []).find((x) => (x.contacts || []).some((k) => (k.email || "").toLowerCase() === person.who));
+    cl && (pr.clientId = cl.id), route(Object.assign({ projectId: pr.id }, cl ? { clientId: cl.id } : {})), (made = `job ${pr.project.name}`), (go = "port");
+  } else {
+    DB.leads = DB.leads || [];
+    let ld = DB.leads.find((l) => K.who && (l.email || "").toLowerCase() === K.who);
+    ld ||
+      ((ld = { id: uid("ld"), created: today(), name: K.name, phone: "", email: K.who || "", addr: K.addrs[0] || "", buildingType: "", scope: "Design-build", stage: "inquiry", source: "Email", next: "Follow up", nextDue: "", notes: `${K.threadCount} thread${1 === K.threadCount ? "" : "s"} (${fmtL(K.first)} to ${fmtL(K.last)})` }),
+      DB.leads.push(ld));
+    comms.forEach((c) => {
+      (c.route = Object.assign({}, c.route || {}, { leadName: K.name, leadEmail: K.who || "" })), (c.routeLocked = !0);
+      c.proposals = (c.proposals || []).filter((p) => "unrouted" !== p.kind);
+      c.status = c.proposals.length ? "proposed" : "read";
+    }),
+      (made = `lead ${ld.name}`),
+      (go = "leads");
+  }
+  (K.status = "applied"), (K.appliedAs = as), (K.appliedAt = today()), (K.by = by);
+  try {
+    "function" == typeof cmReroute && cmReroute();
+  } catch (e) {}
+  return save(), paDid(`Created ${made}`, `from ${K.threadCount} thread${1 === K.threadCount ? "" : "s"} nobody could route; they route to it now`, go ? { view: go } : null), { made: made, routed: comms.length, go: go };
+}
+function paMasterIgnore(key) {
+  const A = paInit(),
+    K = (A.master || []).find((m) => m.key === key);
+  if (!K) return 0;
+  (DB.comms || []).filter((c) => K.ids.includes(c.id)).forEach((c) => {
+    (c.status = "ignored"), (c.proposals = []), (c.ignoredWhy = "not the firm's business, you said");
+  });
+  return (K.status = "ignored"), save(), K.ids.length;
+}
+const paMasterOffer = (K) =>
+  csOffer({
+    id: "pa-master-" + K.key,
+    label:
+      "vendor" === K.as
+        ? `Create Vendor or Firm ${K.name} — ${K.threadCount} Thread${1 === K.threadCount ? "" : "s"}`
+        : "project" === K.as
+          ? `Create the Job at ${K.addr} — ${K.threadCount} Thread${1 === K.threadCount ? "" : "s"}`
+          : `Add ${K.name} as a Lead — ${K.threadCount} Thread${1 === K.threadCount ? "" : "s"}`,
+    detail: `${K.count} message${1 === K.count ? "" : "s"} from ${fmtL(K.first)} to ${fmtL(K.last)}${K.money ? `, ${K.money} about money` : ""}${K.attachments ? `, ${K.attachments} attachment${1 === K.attachments ? "" : "s"}` : ""}${K.contact && "vendor" === K.as ? ` · contact ${K.contact}` : ""}${K.addrs.length ? ` · names ${K.addrs.slice(0, 2).join(", ")}` : ""}. Created once, every thread in it routes there.`,
+    run: () => {
+      const r = paMasterApply(K.key);
+      r && (toast(`Created ${r.made} — ${r.routed} message${1 === r.routed ? "" : "s"} routed`, r.go ? gcOpen(r.go) : null), render());
+    },
+  });
+if ("function" == typeof paRefOffers) {
+  const paRefOffersBase_master = paRefOffers;
+  paRefOffers = function (ref) {
+    if (ref && "master" === ref.kind) {
+      const A = paInit(),
+        open = (A.master || []).filter((m) => "proposed" === m.status);
+      return open.slice(0, 8).map(paMasterOffer).concat(
+        open.length
+          ? [
+              csOffer({
+                id: "pa-master-list",
+                label: "Show Me Everyone Not on File",
+                detail: `${open.length} in all. Ask "who is not on file" any time.`,
+                run: () => {
+                  "function" == typeof paSend && paSend("who is not on file");
+                },
+              }),
+            ]
+          : [],
+      );
+    }
+    return paRefOffersBase_master.apply(this, arguments);
+  };
+}
+if ("function" == typeof paAsk) {
+  const paAskBase_master = paAsk;
+  paAsk = function (q) {
+    const l = String(q || "").toLowerCase();
+    if (/\b(not on file|unrouted|nobody (we )?know|who (are|is) (these|this|they)|master data)\b/.test(l)) {
+      const A = paInit();
+      A.master || paMasterSweep();
+      const open = (A.master || []).filter((m) => "proposed" === m.status),
+        v = open.filter((m) => "vendor" === m.as),
+        p = open.filter((m) => "lead" === m.as),
+        j = open.filter((m) => "project" === m.as);
+      return paOut({
+        headline: open.length
+          ? `${open.length} correspondent${1 === open.length ? "" : "s"} or address${1 === open.length ? "" : "es"} nobody has on file.`
+          : "Everyone in your mail is on file.",
+        note: open.length
+          ? `${v.length} read like vendors or firms, ${p.length} like homeowners or leads, ${j.length} like jobs. Each is one tap: I create the record and route its threads. Approve all of them and the mailbox is routed.`
+          : "Every thread routes to a client, a job or a vendor, or was set aside as not ours.",
+        work: open.slice(0, 20).map((m) => `${"vendor" === m.as ? "Vendor" : "project" === m.as ? "Job" : "Lead"} — ${m.name} · ${m.threadCount} thread${1 === m.threadCount ? "" : "s"}, ${m.count} message${1 === m.count ? "" : "s"}, ${fmtL(m.first)} to ${fmtL(m.last)}`),
+        offers: open.slice(0, 8).map(paMasterOffer),
+        go: paGo({ view: "comms" }),
+        kind: "master",
+      });
+    }
+    return paAskBase_master.apply(this, arguments);
+  };
+}
+if ("function" == typeof paWatch) {
+  const paWatchBase_dw = paWatch;
+  paWatch = function (delta) {
+    // A first look at an account can hold months of mail. Each message, event and file from the last two
+    // weeks of the sync clock is raised on its own; everything older is read, routed and proposed on the
+    // comms screen, and raised once as one line, so the first sync is not a hundred nudges.
+    let older = null;
+    if (delta && delta.first) {
+      const now = gsNow(),
+        cut = now - 14 * 864e5,
+        recent = (x) => new Date(x).getTime() >= cut,
+        d = Object.assign({}, delta, {
+          mail: (delta.mail || []).filter((m) => recent(m.date)),
+          events: (delta.events || []).filter((e) => new Date(e.start).getTime() >= now - 864e5),
+          files: (delta.files || []).filter((f) => recent(f.modified)),
+        });
+      older = {
+        mail: (delta.mail || []).length - d.mail.length,
+        events: (delta.events || []).length - d.events.length,
+        files: (delta.files || []).length - d.files.length,
+      };
+      delta = d;
+    }
+    const made = paWatchBase_dw.call(this, delta) || [];
+    if (older && older.mail + older.events + older.files > 0) {
+      const n = paNudge(
+        `I read ${older.mail} older message${1 === older.mail ? "" : "s"}, ${older.events} past event${1 === older.events ? "" : "s"} and ${older.files} older document${1 === older.files ? "" : "s"}.`,
+        "Everything before the last two weeks is routed and read; what it proposes is on the comms screen, and I did not raise each one here.",
+        { kind: "firstsync", id: gsNowIso().slice(0, 10) },
+        "a first look at a connected account",
+      );
+      n && made.push(n);
+    }
+    try {
+      paMailExpectSweep();
+    } catch (e) {
+      console.warn("expect sweep", e);
+    }
+    try {
+      made.push(...paPaymentClaimSweep());
+    } catch (e) {
+      console.warn("claim sweep", e);
+    }
+    try {
+      made.push(...paMasterSweep());
+    } catch (e) {
+      console.warn("master sweep", e);
+    }
+    try {
+      made.push(...(paChaseWatch() || []));
+    } catch (e) {
+      console.warn("chase", e);
+    }
+    return made.length && (save(), paBadge()), made.filter(Boolean);
+  };
+}
+// Signing in as another user must not carry the previous user's demo cache into the next build.
+if ("function" == typeof gcDisconnect) {
+  const gcDisconnectBase_dw = gcDisconnect;
+  gcDisconnect = function () {
+    const id = paMe().id;
+    return delete DEMO_WS[id], gcDisconnectBase_dw.apply(this, arguments);
+  };
+}
+
+// ---- truth (BACKLOG §1.6): the ERP's financials are the single source of truth.
+// One function is the source of each figure here: truthBacking says what evidence stands behind a money row;
+// truthCoverage adds them up for a period or a job; truthFlagOf names a posting that did not come from a document;
+// truthChain/truthSeal/truthVerify make the postings of a closed month tamper-evident; truthMatchOf is the one
+// link model from a bank or card line to its bill, PO, estimate, invoice or payroll line; qboLoad and truthTieOut
+// bring a QuickBooks snapshot in as a bridge for comparison, never as the truth.
+const truthWho = () => fin2Who(),
+  truthWhen = (s) => (s ? fmtL(String(s).slice(0, 10)) : "—"),
+  truthLabel = (ym) => ("function" == typeof fin2Label ? fin2Label(ym) : ym),
+  truthAbs = (v) => Math.abs(+v || 0),
+  TRUTH_ICON_PEN = ICON_SVG('<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>', 11),
+  TRUTH_ICON_SHIELD = ICON_SVG('<path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/><path d="M9 12l2 2 4-4"/>', 12),
+  TRUTH_ICON_LINK = ICON_SVG('<path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/>', 11);
+// FNV-1a, 32 bits, as eight hex digits: small, deterministic, the same in every browser. Not a secret: it makes a
+// silent change to a sealed month visible, which is what a hash chain over postings is for.
+function truthHash(s) {
+  let h = 0x811c9dc5;
+  const str = String(s);
+  for (let i = 0; i < str.length; i++) (h ^= str.charCodeAt(i)), (h = Math.imul(h, 0x01000193) >>> 0);
+  return h.toString(16).padStart(8, "0");
+}
+const TRUTH_HASH_SCHEME = 'fnv1a-32 over "prior|n|id|key|sourceType:sourceId|date|acct:dr:cr,…", postings of the month in posting order';
+
+// ---- 1. coverage: bank/card-backed, document-backed (accrual), by hand
+function truthDemo(t) {
+  const p = bfProv(t);
+  return !!(p.demo || (p.confirmedBy && p.confirmedBy.demo) || (p.feedSeen && p.feedSeen.demo && !p.stmtSeen && "statement" !== p.kind));
+}
+function truthTxnOfBill(b) {
+  if (!b) return null;
+  const T = DB.txns || [];
+  let t = T.find((x) => x.billId === b.id || (b.txnId && x.id === b.txnId));
+  if (!t && b.poId) {
+    const po = (DB.pos || []).find((p) => p.id === b.poId);
+    po && (t = T.find((x) => (po.matchedTxns || []).includes(x.id) && Math.abs(Math.abs(+x.amt || 0) - billTotal(b)) < 1) || T.find((x) => (po.matchedTxns || []).includes(x.id)));
+  }
+  return t || null;
+}
+function truthAcctWords(t) {
+  const a = (DB.accounts || []).find((x) => x.id === t.acct);
+  return a ? `${a.name.split(" ")[0]} ····${a.last4 || ""}` : "the bank";
+}
+// What stands behind one management-ledger row (ledger(range) / companyPL(range).L): a bank or card line the bank
+// has confirmed ("bank"), an approved document only ("document", the accrual), or a typed figure ("hand").
+function truthBacking(row) {
+  if (!row) return { kind: "hand", why: "nothing behind it" };
+  const kind = row.kind || (row.acct ? "txn" : row.lines ? "bill" : row.payDate ? "payroll" : ""),
+    ref = row.ref || row;
+  if ("txn" === kind) {
+    const t = ref;
+    if (bfBacked(t)) {
+      if (truthDemo(t)) return { kind: "hand", why: "the Demo Feed delivered it; a Demo Feed line is not bank evidence" };
+      const p = bfProv(t),
+        src = p.confirmedBy || p.stmtSeen || p.feedSeen || p;
+      return { kind: "bank", why: `${truthAcctWords(t)} ${"statement" === src.kind ? `statement ${src.fileName || ""}`.trim() : "feed"} holds it on ${truthWhen(t.date)}` };
+    }
+    return { kind: "hand", why: `typed in${t.actor && "rule" !== t.actor ? " by " + t.actor : ""}, not yet seen at ${truthAcctWords(t)}` };
+  }
+  if ("bill" === kind) {
+    const b = ref,
+      t = truthTxnOfBill(b);
+    if (t && bfBacked(t) && !truthDemo(t)) return { kind: "bank", why: `paid from ${truthAcctWords(t)} on ${truthWhen(t.date)}, confirmed by the bank` };
+    return { kind: "document", why: `approved bill ${b.number || ""}${t ? "; its bank line is typed by hand, not yet seen at the bank" : "; no bank line yet (accrual)"}`.trim() };
+  }
+  if ("payroll" === kind) {
+    const r = ref,
+      t = (DB.txns || []).find((x) => x.payrollId === r.id);
+    if (t && bfBacked(t) && !truthDemo(t)) return { kind: "bank", why: `paid from ${truthAcctWords(t)} on ${truthWhen(t.date)}, confirmed by the bank` };
+    return { kind: "document", why: `approved payroll run ${r.period || ""}; no bank line matched yet`.trim() };
+  }
+  if ("accrual" === kind) return { kind: "document", why: "accrued at the close from approved time; reverses when the run is approved" };
+  return { kind: "document", why: `${kind || "record"} approved; no bank line behind it` };
+}
+function truthCoverage(range, opts) {
+  const o = opts || {},
+    R = range || [today().slice(0, 4) + "-01-01", today()],
+    P = companyPL(R),
+    L = (P.L || ledger(R)).filter((r) => !r.income && (!o.projectId || r.projectId === o.projectId)),
+    empty = () => ({ bank: 0, document: 0, hand: 0, n: { bank: 0, document: 0, hand: 0 }, rows: [] }),
+    cost = empty(),
+    income = empty();
+  L.forEach((r) => {
+    const type = "payroll_oh" === r.cat || "payroll-oh" === r.cat ? "oh" : catType(r.cat);
+    if ("cogs" !== type && "oh" !== type) return;
+    const b = truthBacking(r),
+      amt = r2(+r.amt || 0);
+    (cost[b.kind] = r2(cost[b.kind] + amt)), cost.n[b.kind]++;
+    cost.rows.push({ kind: r.kind, date: r.date, desc: r.desc, vendor: r.vendor || "", amt: amt, backing: b.kind, why: b.why, projectId: r.projectId || "", cat: r.cat, id: r.ref && r.ref.id });
+  });
+  cost.sum = r2(cost.bank + cost.document + cost.hand);
+  cost.total = o.projectId ? cost.sum : r2((P.cogsT || 0) + (P.ohT || 0));
+  cost.adjust = r2(cost.total - cost.sum);
+  cost.pct = cost.total ? Math.round((100 * cost.bank) / cost.total) : 100;
+  // income: invoices in the period are the document; the payments on them that the bank confirms are the bank
+  (DB.clients || []).forEach((c) =>
+    (c.invoices || []).forEach((i) => {
+      if (["void", "draft"].includes(i.status) || i.retainageRelease || !within(i.date, R)) return;
+      if (o.projectId && i.projectId !== o.projectId) return;
+      const net = r2("function" == typeof docNet ? docNet(i) : docTotal(i).total);
+      let bank = 0;
+      (c.payments || [])
+        .filter((p) => p.invoiceId === i.id && !p.unapplied)
+        .forEach((p) => {
+          const t = (DB.txns || []).find((x) => (p.txnId && x.id === p.txnId) || x.paymentId === p.id || (x.amt > 0 && Math.abs(x.amt - (+p.amount || 0)) < 0.005 && Math.abs(dayDiff(x.date, p.date)) <= 5 && (!x.cat || ["income", "uncat"].includes(x.cat))));
+          t && bfBacked(t) && !truthDemo(t) && (bank = r2(bank + Math.min(+p.amount || 0, net - bank)));
+        });
+      bank = Math.max(0, Math.min(bank, net));
+      (income.bank = r2(income.bank + bank)), (income.document = r2(income.document + (net - bank))), income.n[bank >= net - 0.005 ? "bank" : "document"]++;
+      income.rows.push({ kind: "invoice", date: i.date, desc: `${i.number} · ${c.name}`, amt: net, backing: bank >= net - 0.005 ? "bank" : bank > 0 ? "part" : "document", bank: bank, why: bank > 0 ? `${money(bank)} collected and confirmed by the bank` : "invoiced; the payment has not been confirmed by the bank", projectId: i.projectId || "", id: i.id });
+    }),
+  );
+  // a manual journal into a revenue account is income by hand
+  try {
+    truthManual(R, { entityId: "all" }).rows.forEach((m) => {
+      const v = r2(m.j.lines.filter((l) => /^4/.test(l.acct)).reduce((s, l) => s + (l.cr || 0) - (l.dr || 0), 0));
+      v && ((income.hand = r2(income.hand + v)), income.n.hand++, income.rows.push({ kind: "journal", date: m.j.date, desc: m.j.memo, amt: v, backing: "hand", why: m.flag.text, id: m.j.id }));
+    });
+  } catch (e) {}
+  // bank + document is what was invoiced; the earned-revenue adjustment (invoiced ahead of or behind the work,
+  // recognised at month end) is shown as its own amount, never folded into the documents
+  income.sum = r2(income.bank + income.document + income.hand);
+  income.total = o.projectId ? income.sum : r2((P.income || 0) + income.hand);
+  income.adjust = r2(income.total - income.sum);
+  income.pct = income.sum ? Math.round((100 * income.bank) / income.sum) : 100;
+  return { range: R, cost: cost, income: income, pct: cost.pct, demo: (DB.txns || []).filter((t) => within(t.date, R) && truthDemo(t)).length };
+}
+const truthCovWords = (K) =>
+  `${money(K.bank)} backed by a bank or card line · ${money(K.document)} by an approved document only (accrual) · ${money(K.hand)} by hand${K.adjust && Math.abs(K.adjust) > 0.5 ? ` · ${money(K.adjust)} ${K.rows.length && "invoice" === K.rows[0].kind ? "of earned-revenue adjustment (invoiced ahead of or behind the work, recognised at month end)" : "in adjustments the P&L makes outside these rows"}` : ""}`;
+function truthCovHtml(C, title) {
+  const bar = (K) => {
+      const T = K.total || 1;
+      return `<div class="tr-bar" aria-hidden="true"><i class="bank" style="width:${(100 * K.bank) / T}%"></i><i class="doc" style="width:${(100 * K.document) / T}%"></i><i class="hand" style="width:${(100 * K.hand) / T}%"></i></div>`;
+    },
+    k = C.cost,
+    i = C.income;
+  return `<div class="card tr-cov" data-trrange="${esc(C.range[0])}|${esc(C.range[1])}"><h3 class="rep-h" style="margin-top:0">${esc(title || "Coverage")} <span class="small muted">a figure with no bank or card line behind it is shown as such</span></h3>
+    <div class="tr-cov-row"><b>Cost ${money(k.total)}</b> <span class="small">${esc(truthCovWords(k))} · <b>${k.pct}%</b> bank-backed</span>${bar(k)}</div>
+    <div class="tr-cov-row"><b>Income ${money(i.total)}</b> <span class="small">${esc(truthCovWords(i))} · <b>${i.pct}%</b> bank-backed</span>${bar(i)}</div>
+    ${C.demo ? `<p class="small muted">${C.demo} line${1 === C.demo ? "" : "s"} came from the Demo Feed and count as typed by hand: the Demo Feed is not bank evidence.</p>` : ""}</div>`;
+}
+
+// ---- 2. postings that did not come from a document are always flagged
+const TRUTH_FLAG_KIND = { manual: "Manual", opening: "Opening", close: "Close", accrual: "Accrual" };
+function truthFlagOf(j) {
+  if (!j || j.sourceType) return null;
+  if ("reversal" === j.kind) {
+    const of = ((DB.gl || {}).journals || []).find((x) => x.id === j.reversalOf);
+    if (!of || of.sourceType) return null;
+  }
+  const label = TRUTH_FLAG_KIND[j.kind] || ("reversal" === j.kind ? "Reversal" : "Manual"),
+    who = j.postedBy || j.approvedBy || j.by || j.createdBy || "system",
+    when = truthWhen(j.approvedAt || j.postedAt || j.createdAt || j.date),
+    why = j.why || j.memo || "";
+  return { kind: j.kind, label: label, who: who, when: when, why: why, text: `${label} · by ${who} · ${when} · ${why}`, icon: TRUTH_ICON_PEN };
+}
+const truthFlagHtml = (f, cls) => (f ? `<span class="tr-flag ${cls || ""}" title="${esc(f.text)}">${f.icon}<span>${esc(f.text)}</span></span>` : "");
+function truthManual(range, opts) {
+  const o = opts || {},
+    R = range || ["", today()],
+    ent = o.entityId && "all" !== o.entityId ? o.entityId : "",
+    rows = [],
+    byAcct = {};
+  ((DB.gl || {}).journals || []).forEach((j) => {
+    if (!["posted", "reversed"].includes(j.status) || "reversal" === j.kind) return;
+    if (!within(j.date, R) || (ent && j.entityId !== ent)) return;
+    if (o.manualOnly && "manual" !== j.kind) return;
+    const f = truthFlagOf(j);
+    if (!f) return;
+    const amt = r2(j.lines.reduce((s, l) => s + (l.dr || 0), 0));
+    rows.push({ j: j, amt: amt, flag: f }),
+      j.lines.forEach((l) => {
+        const b = (byAcct[l.acct] = byAcct[l.acct] || { n: 0, amt: 0, ids: new Set() });
+        b.ids.has(j.id) || (b.ids.add(j.id), b.n++), (b.amt = r2(b.amt + Math.abs((l.dr || 0) - (l.cr || 0))));
+      });
+  });
+  const manual = rows.filter((r) => "manual" === r.j.kind);
+  return { rows: rows, n: rows.length, amt: r2(rows.reduce((s, r) => s + r.amt, 0)), manual: manual, nManual: manual.length, amtManual: r2(manual.reduce((s, r) => s + r.amt, 0)), byAcct: byAcct };
+}
+const truthManualLine = (m) => `#${m.j.n} ${m.j.memo} — ${money(m.amt)} · ${m.flag.text}`;
+let truthJKind = "";
+if ("function" == typeof glJournalHtml) {
+  const base = glJournalHtml;
+  glJournalHtml = function () {
+    const d = document.createElement("div");
+    d.innerHTML = base.apply(this, arguments);
+    const J = (DB.gl || {}).journals || [];
+    let kept = 0;
+    d.querySelectorAll("tr[data-glopen]").forEach((tr) => {
+      const j = J.find((x) => x.id === tr.dataset.glopen),
+        f = j && truthFlagOf(j);
+      if ("flag" === truthJKind && !f) return void tr.remove();
+      kept++;
+      const td = tr.children[3];
+      f && td && td.insertAdjacentHTML("beforeend", " " + truthFlagHtml(f));
+    });
+    if ("flag" === truthJKind) {
+      const n = d.querySelector(".small.muted");
+      n && /entries$/.test(n.textContent) && (n.textContent = `${kept} entries`);
+      const bar = d.querySelector(".row.wrap");
+      bar && bar.insertAdjacentHTML("beforeend", `<span class="pill warn">${TRUTH_ICON_PEN} Not from a document <a href="#" data-trclear="1" title="Show every entry">${ICON_X}</a></span>`);
+    }
+    return d.innerHTML;
+  };
+}
+if ("function" == typeof glStatementsHtml) {
+  const base = glStatementsHtml;
+  glStatementsHtml = function () {
+    const html = base.apply(this, arguments);
+    try {
+      const [from, to] = glRange(),
+        M = truthManual(["bs" === glStmt ? "" : from, to], { entityId: glEnt }).byAcct;
+      if (!Object.keys(M).length) return html;
+      const d = document.createElement("div");
+      d.innerHTML = html;
+      d.querySelectorAll("tr[data-glacct]").forEach((tr) => {
+        const b = M[tr.dataset.glacct];
+        b && tr.children[0] && tr.children[0].insertAdjacentHTML("beforeend", ` <span class="tr-flag small" data-trdrill="${esc(tr.dataset.glacct)}" title="Entries not from a document on this line; open them">${TRUTH_ICON_PEN}<span>${b.n} manual · ${glM(b.amt)}</span></span>`);
+      });
+      return d.innerHTML;
+    } catch (e) {
+      return console.warn("statement flags", e), html;
+    }
+  };
+}
+// The Controller drafts; the Owner posts with a typed reason. glEntrySave reads the form; glApprove posts.
+if ("function" == typeof glEntrySave) {
+  const base = glEntrySave;
+  glEntrySave = function () {
+    if (!["controller", "owner"].includes(role())) return void toast("The Controller drafts a manual entry; the Owner posts it");
+    return base.apply(this, arguments);
+  };
+}
+function truthReasonDialog(j) {
+  const m = mbModal(
+    "Post Manual Entry",
+    `<p class="small">${esc(j.memo || "")} · ${glM(j.lines.reduce((s, l) => s + (l.dr || 0), 0))} · drafted by ${esc(j.createdBy || "—")} on ${truthWhen(j.createdAt || j.date)}.</p><p class="small muted">A manual entry has no document behind it, so it is flagged wherever it appears, with who posted it, when, and why. Say why.</p><div class="f"><label>Why This Entry Is Posted</label><textarea data-f="why" rows="3" placeholder="e.g. straight-line depreciation on the van for August"></textarea></div>`,
+    {
+      submit: "Post",
+      onSubmit: (v) => {
+        if (!String(v.why || "").trim()) return toast("Say why this entry is posted"), !1;
+        glApprove(j.id, String(v.why).trim());
+      },
+    },
+  );
+  return m;
+}
+if ("function" == typeof glApprove) {
+  const base = glApprove;
+  glApprove = function (id, why) {
+    const j = ((DB.gl || {}).journals || []).find((x) => x.id === id);
+    if (j && "manual" === j.kind && "pending" === j.status) {
+      if ("owner" !== role()) return void toast("Only the Owner posts a manual entry");
+      const w = String(why || "").trim();
+      if (!w) return void truthReasonDialog(j);
+      (j.why = w), (j.postedBy = truthWho());
+      const r = base.call(this, id),
+        jj = ((DB.gl || {}).journals || []).find((x) => x.id === id);
+      if (jj && "posted" === jj.status) {
+        (jj.approvedBy = truthWho()), (jj.why = w);
+        try {
+          audit("ledger", id, "posted-with-reason", "", w, `manual entry posted by ${truthWho()}: ${w}`);
+        } catch (e) {}
+        save();
+      }
+      return r;
+    }
+    return base.apply(this, arguments);
+  };
+}
+
+// ---- 3. append-only: an amendment is a linked reversal and re-post, with who, when and why
+let truthWhyNext = {};
+const truthKeyOf = (kind, id) => (({ invoice: "inv", estimate: "est", co: "co", bill: "bill", txn: "txn", payment: "pay", payroll: "payroll" })[kind] || kind) + ":" + id;
+function truthFindRec(kind, ref) {
+  const id = ref && "object" == typeof ref ? ref.id : ref;
+  if (["invoice", "estimate", "co", "payment"].includes(kind)) {
+    for (const c of DB.clients || []) {
+      const coll = { invoice: c.invoices, estimate: c.estimates, co: c.changeOrders, payment: c.payments }[kind] || [],
+        d = coll.find((x) => x.id === id);
+      if (d) return { rec: d, c: c };
+    }
+    return null;
+  }
+  const coll = { bill: DB.bills, txn: DB.txns, payroll: DB.payroll }[kind] || [],
+    d = coll.find((x) => x.id === id);
+  return d ? { rec: d } : null;
+}
+const truthSummary = (kind, d) => {
+  try {
+    return { status: d.status, date: d.date || d.payDate, total: "txn" === kind ? +d.amt || 0 : "bill" === kind ? billTotal(d) : "payroll" === kind ? +d.total || 0 : "payment" === kind ? +d.amount || 0 : docTotal(d).total };
+  } catch (e) {
+    return { status: d.status };
+  }
+};
+function truthEdit(kind, ref, why, fn) {
+  const w = String(why || "").trim();
+  if (!w) return { ok: !1, why: "Say why this posted record changes; the reason goes on the reversal and the re-post" };
+  if (["client", "crew", "driver", "foreman"].includes(role())) return { ok: !1, why: "Your account does not change money records" };
+  const f = truthFindRec(kind, ref);
+  if (!f) return { ok: !1, why: `No ${kind} ${ref && ref.id ? ref.id : ref}` };
+  const d = f.rec,
+    when = d.date || d.payDate || "";
+  if (when && "function" == typeof isLocked && isLocked(when)) return { ok: !1, why: `${when.slice(0, 7)} is closed; reopen the month with a reason first` };
+  const before = truthSummary(kind, d);
+  try {
+    fn && fn(d, f.c);
+  } catch (e) {
+    return { ok: !1, why: String(e && e.message ? e.message : e) };
+  }
+  const after = truthSummary(kind, d),
+    key = truthKeyOf(kind, d.id),
+    by = truthWho();
+  (d.history = d.history || []).push({ t: nowStamp(), by: by, from: before.status, action: "amended", note: w, total: after.total });
+  truthWhyNext[key] = { by: by, why: w, at: appNowIso() };
+  "bill" === kind && (truthWhyNext["billpay:" + d.id] = truthWhyNext[key]);
+  try {
+    audit(kind, d.id, "amended", before, after, `${d.number || d.desc || d.id} · ${by}: ${w}`);
+  } catch (e) {}
+  try {
+    "function" == typeof docMark && ["invoice", "estimate", "co"].includes(kind) && docMark(d);
+  } catch (e) {}
+  save();
+  return { ok: !0, key: key, before: before, after: after };
+}
+// The reason behind a reversal the ledger makes on its own: the record's void or amendment note.
+function truthWhyFor(j) {
+  if (!j || !j.key) return null;
+  const [k, id] = j.key.split(":");
+  try {
+    if (["inv", "est", "co"].includes(k)) {
+      const f = truthFindRec({ inv: "invoice", est: "estimate", co: "co" }[k], id);
+      if (f && "void" === f.rec.status) {
+        const h = (f.rec.history || []).filter((x) => "void" === x.action).pop();
+        return { by: (h && h.by) || truthWho(), why: f.rec.voidReason || (h && h.note) || "voided" };
+      }
+      if (f) {
+        const h = (f.rec.history || []).filter((x) => "amended" === x.action).pop();
+        if (h && h.t === nowStamp()) return { by: h.by, why: h.note };
+      }
+    }
+    if ("txn" === k) {
+      const v = (DB.voided || []).find((x) => x.id === id);
+      if (v) return { by: v.voidedBy, why: v.voidWhy };
+    }
+    if ("bill" === k || "billpay" === k) {
+      const b = (DB.bills || []).find((x) => x.id === id);
+      if (b && ["void", "rejected"].includes(b.status)) return { by: truthWho(), why: b.voidReason || b.rejectReason || b.status };
+    }
+  } catch (e) {}
+  return null;
+}
+if ("function" == typeof glReverse) {
+  const base = glReverse;
+  glReverse = function (j, date, why) {
+    const ctx = (j && truthWhyNext[j.key]) || truthWhyFor(j),
+      r = base.apply(this, arguments);
+    if (r && r.ok && r.j) {
+      const rj = r.j;
+      (rj.by = (ctx && ctx.by) || truthWho()), (rj.at = appNowIso());
+      ctx && ctx.why ? ((rj.why = ctx.why), (rj.memo = `${rj.memo} · by ${rj.by}: ${ctx.why}`)) : (rj.memo = `${rj.memo} · by ${rj.by}`);
+    }
+    return r;
+  };
+}
+if ("function" == typeof glPost) {
+  const base = glPost;
+  glPost = function (j) {
+    try {
+      if (j && "posting" === j.kind && j.key && truthWhyNext[j.key]) {
+        const ctx = truthWhyNext[j.key],
+          prev = ((DB.gl || {}).journals || []).filter((x) => x.key === j.key && "reversed" === x.status).pop();
+        (j.by = ctx.by), (j.why = ctx.why), (j.amends = prev ? prev.id : "");
+      }
+    } catch (e) {}
+    return base.apply(this, arguments);
+  };
+}
+if ("function" == typeof glSync) {
+  const base = glSync;
+  glSync = function () {
+    try {
+      return base.apply(this, arguments);
+    } finally {
+      truthWhyNext = {};
+    }
+  };
+}
+function truthHistory(key) {
+  const J = ((DB.gl || {}).journals || []).filter((j) => j.key === key).sort((a, b) => (a.n || 0) - (b.n || 0)),
+    out = J.map((j) => ({
+      n: j.n,
+      at: j.postedAt || j.approvedAt || j.createdAt || j.date,
+      by: j.by || j.approvedBy || ("manual" === j.kind ? j.createdBy : "rule"),
+      kind: "reversal" === j.kind ? "reversed" : j.amends ? "re-posted" : j.correctionOf ? "corrected" : "posted",
+      why: j.why || "",
+      memo: j.memo || "",
+      status: j.status,
+      id: j.id,
+    })),
+    [k, id] = key.split(":"),
+    f = ["inv", "est", "co", "bill", "txn", "pay", "payroll"].includes(k) ? truthFindRec({ inv: "invoice", est: "estimate", co: "co", bill: "bill", txn: "txn", pay: "payment", payroll: "payroll" }[k], id) : null;
+  f &&
+    (f.rec.history || []).forEach((h) => out.push({ n: 0, at: h.t, by: h.by, kind: h.action, why: h.note || "", memo: "", status: "record", t: h.t })),
+    f && (f.rec.dateHistory || []).forEach((h) => out.push({ n: 0, at: h.at || h.t, by: h.by, kind: "re-dated", why: h.why || h.reason || "", memo: `${h.from || ""} → ${h.to || ""}`, status: "record" }));
+  return out;
+}
+function truthHistoryHtml(key, extra) {
+  const H = truthHistory(key);
+  if (!H.length && !extra) return "";
+  const line = (h) =>
+    `<span class="tr-h ${["reversed", "re-posted", "amended", "void", "corrected", "re-dated"].includes(h.kind) ? "amend" : ""}">${h.n ? `#${h.n} ` : ""}${esc(h.kind)} · by ${esc(h.by || "—")} · ${esc(h.at ? ("string" == typeof h.at && /^\d{4}-\d{2}-\d{2}/.test(h.at) ? truthWhen(h.at) : h.at) : "—")}${h.why ? ` · ${esc(h.why)}` : ""}${h.memo && !h.why ? ` · ${esc(h.memo)}` : ""}</span>`;
+  return `<div class="tr-hist"><b>${TRUTH_ICON_SHIELD} History</b>${extra || ""}${H.map(line).join("")}${H.length ? "" : '<span class="tr-h small muted">Nothing posted yet.</span>'}<span class="tr-h small muted">A posted record is never edited or deleted in place: a change is a reversal and a re-post, linked, with who, when and why.</span></div>`;
+}
+// Void a typed bank line: the record moves to the voided register and the ledger reverses its posting, with the reason.
+function truthVoidTxn(t, why) {
+  if (!t) return { ok: !1, why: "No line" };
+  const w = String(why || "").trim();
+  if (!w) return { ok: !1, why: "Say why this line is voided" };
+  if (["client", "crew", "driver", "foreman"].includes(role())) return { ok: !1, why: "Your account does not void money records" };
+  if (bfBacked(t) && !truthDemo(t)) return { ok: !1, why: `${truthAcctWords(t)} has this line; a line the bank holds is never voided here` };
+  if (bfIsRec(t)) return { ok: !1, why: "This line is reconciled; undo the reconciliation first" };
+  if ("function" == typeof isLocked && isLocked(t.date)) return { ok: !1, why: `${t.date.slice(0, 7)} is closed; reopen the month with a reason first` };
+  const by = truthWho();
+  (DB.voided = DB.voided || []).push(Object.assign(JSON.parse(JSON.stringify(t)), { voidedBy: by, voidedAt: appNowIso(), voidWhy: w }));
+  (DB.pos || []).forEach((po) => {
+    po.matchedTxns && (po.matchedTxns = po.matchedTxns.filter((x) => x !== t.id));
+  }),
+    (DB.bills || []).forEach((b) => {
+      b.txnId === t.id && (b.txnId = "");
+    }),
+    (DB.txns = DB.txns.filter((x) => x.id !== t.id));
+  try {
+    audit("txn", t.id, "void", { desc: t.desc, amt: t.amt, date: t.date }, null, `${by}: ${w}`);
+  } catch (e) {}
+  return save(), { ok: !0 };
+}
+if ("function" == typeof docAction) {
+  const base = docAction;
+  docAction = async function (c, d, a) {
+    if ("del" === a && d && "draft" !== d.status) return void toast(`${d.number || "This document"} is posted — a posted record is never deleted; void it with a reason instead`);
+    return base.apply(this, arguments);
+  };
+}
+if ("function" == typeof txnDialog) {
+  const base = txnDialog;
+  txnDialog = function (id) {
+    base.apply(this, arguments);
+    if (!id) return;
+    const t = (DB.txns || []).find((x) => x.id === id),
+      del = document.getElementById("d-delete"),
+      body = document.getElementById("d-body");
+    if (!t) return;
+    if (del) {
+      (del.style.display = ""),
+        (del.textContent = "Void…"),
+        (del.onclick = () => {
+          if (bfBacked(t) && !truthDemo(t)) return void toast(`${truthAcctWords(t)} has this line — a line the bank holds is never deleted or voided here`);
+          if (bfIsRec(t)) return void toast("A reconciled line is never deleted; undo the reconciliation first");
+          const why = appPrompt("Void this line? It is kept in the voided register and the ledger reverses it. Reason:");
+          if (null == why) return;
+          const r = truthVoidTxn(t, why);
+          r.ok ? (closeEditor(), render(), toast(`${t.desc || "Line"} voided — ${why}`)) : toast(r.why);
+        });
+    }
+    if (body && !body.querySelector(".tr-match")) {
+      const m = truthMatchOf(t),
+        words = truthMatchWords(m),
+        strip = document.createElement("div");
+      (strip.className = "tr-match"),
+        (strip.innerHTML = `<div class="small"><b>${TRUTH_ICON_LINK} Matched to</b> ${words ? esc(words) : '<span class="warn">no line yet — an unmatched line is a flag, never a silent cost</span>'}${t.exception ? ` · <span class="muted">exception signed by ${esc(t.exception.by)}: ${esc(t.exception.why)}</span>` : ""}</div><div class="row" style="gap:8px;margin-top:6px"><button type="button" class="btn sm" data-trmatch="${esc(t.id)}">Match to a Line…</button></div>`),
+        body.appendChild(strip),
+        (strip.querySelector("[data-trmatch]").onclick = () => truthMatchSheet(t));
+      "reconciled" !== t.status && body.appendChild(Object.assign(document.createElement("div"), { innerHTML: truthHistoryHtml("txn:" + t.id) }));
+    }
+  };
+}
+if ("function" == typeof renderDocEditor) {
+  const base = renderDocEditor;
+  renderDocEditor = function (c, d) {
+    let h = base.apply(this, arguments);
+    try {
+      if ("string" == typeof h && d && "draft" !== d.status && ["invoice", "estimate", "co"].includes(d.type) && !h.includes("tr-hist")) {
+        const strip = truthHistoryHtml(truthKeyOf(d.type, d.id)),
+          k = h.lastIndexOf('<div class="docacts">');
+        strip && (h = k > -1 ? h.slice(0, k) + strip + h.slice(k) : h + strip);
+      }
+    } catch (e) {
+      console.warn("history strip", e);
+    }
+    return h;
+  };
+}
+if ("function" == typeof openBill) {
+  const base = openBill;
+  openBill = function (id) {
+    const r = base.apply(this, arguments);
+    try {
+      const b = id && (DB.bills || []).find((x) => x.id === id),
+        body = document.getElementById("d-body");
+      if (b && body && !["draft", "submitted"].includes(b.status) && !body.querySelector(".tr-hist")) {
+        const h = truthHistoryHtml("bill:" + b.id);
+        h && body.insertAdjacentHTML("beforeend", h);
+      }
+    } catch (e) {}
+    return r;
+  };
+}
+if ("function" == typeof glOpenJournal) {
+  const base = glOpenJournal;
+  glOpenJournal = function (id) {
+    const r = base.apply(this, arguments);
+    try {
+      const j = ((DB.gl || {}).journals || []).find((x) => x.id === id),
+        bd = document.querySelector("#mbm .mbm-bd");
+      if (j && bd && !bd.querySelector(".tr-hist")) {
+        const f = truthFlagOf(j);
+        bd.insertAdjacentHTML("beforeend", (f ? `<p>${truthFlagHtml(f)}</p>` : "") + (j.key ? truthHistoryHtml(j.key) : ""));
+      }
+    } catch (e) {}
+    return r;
+  };
+}
+
+// ---- 3b. the hash chain over a month's postings, sealed at close, verified on demand
+function truthChain(ym, entityId) {
+  const J = ((DB.gl || {}).journals || [])
+    .filter((j) => ["posted", "reversed"].includes(j.status) && glYm(j.date) === ym && (!entityId || "all" === entityId || j.entityId === entityId))
+    .sort((a, b) => (a.n || 0) - (b.n || 0)),
+    links = [];
+  let prior = "0";
+  J.forEach((j) => {
+    const s = `${prior}|${j.n}|${j.id}|${j.key || j.kind}|${j.sourceType || ""}:${j.sourceId || ""}|${j.date}|${j.lines.map((l) => `${l.acct}:${r2(l.dr || 0)}:${r2(l.cr || 0)}`).join(",")}`;
+    (prior = truthHash(s)), links.push({ id: j.id, n: j.n, h: prior });
+  });
+  return { ym: ym, n: links.length, head: prior, links: links, scheme: TRUTH_HASH_SCHEME };
+}
+function truthSeal(ym, by) {
+  const C = truthChain(ym);
+  (DB.periods = DB.periods || {}), (DB.periods.chains = DB.periods.chains || {});
+  const prev = DB.periods.chains[ym];
+  DB.periods.chains[ym] = { head: C.head, n: C.n, at: appNowIso(), by: by || truthWho(), links: C.links, scheme: C.scheme, prior: prev ? { head: prev.head, at: prev.at, by: prev.by } : null };
+  try {
+    audit("period", ym, "sealed", prev ? prev.head : "", C.head, `${C.n} postings · ${C.scheme}`);
+  } catch (e) {}
+  return Object.assign({ ok: !0 }, C);
+}
+const truthNameOf = (j, id, n) => (j ? `#${j.n} · ${j.memo || j.key || j.id}` : `#${n || "?"} · ${id}`);
+function truthVerify(ym) {
+  const S = ((DB.periods || {}).chains || {})[ym] || null,
+    now = truthChain(ym),
+    out = { ym: ym, label: truthLabel(ym), sealed: S ? { head: S.head, n: S.n, at: S.at, by: S.by, reopened: S.reopened || null } : null, now: { head: now.head, n: now.n }, changed: [], missing: [], added: [], ok: null, scheme: TRUTH_HASH_SCHEME };
+  if (!S) return (out.why = `${out.label} has not been closed, so its chain is not sealed yet`), out;
+  if (S.reopened) return (out.ok = null), (out.why = `${out.label} was reopened on ${truthWhen(S.reopened.at)} by ${S.reopened.by} (${S.reopened.reason}); re-close it to seal the chain again`), out;
+  const J = (DB.gl || {}).journals || [],
+    nowById = {};
+  now.links.forEach((l) => (nowById[l.id] = l));
+  let prior = "0";
+  S.links.forEach((l) => {
+    const j = J.find((x) => x.id === l.id);
+    if (!j || !["posted", "reversed"].includes(j.status) || glYm(j.date) !== ym) return void out.missing.push(truthNameOf(j, l.id, l.n));
+    const s = `${prior}|${j.n}|${j.id}|${j.key || j.kind}|${j.sourceType || ""}:${j.sourceId || ""}|${j.date}|${j.lines.map((x) => `${x.acct}:${r2(x.dr || 0)}:${r2(x.cr || 0)}`).join(",")}`,
+      h = truthHash(s);
+    h !== l.h && out.changed.push(truthNameOf(j, l.id, l.n)), (prior = l.h);
+  });
+  const sealedIds = new Set(S.links.map((l) => l.id));
+  now.links.forEach((l) => {
+    if (sealedIds.has(l.id)) return;
+    const j = J.find((x) => x.id === l.id);
+    out.added.push(truthNameOf(j, l.id, l.n));
+  });
+  return (out.ok = !out.changed.length && !out.missing.length && !out.added.length && S.head === now.head), out;
+}
+const truthVerifyAll = () =>
+  Object.keys(((DB.periods || {}).chains || {}))
+    .sort()
+    .map((ym) => truthVerify(ym));
+function truthVerifyWords(v) {
+  if (!v.sealed) return `${v.label}: not sealed (not closed yet). ${v.now.n} postings, head ${v.now.head}.`;
+  if (null === v.ok) return `${v.label}: ${v.why}`;
+  if (v.ok) return `${v.label}: ${v.sealed.n} postings verify against the seal of ${truthWhen(v.sealed.at)} by ${v.sealed.by} (head ${v.sealed.head}).`;
+  const parts = [];
+  return (
+    v.changed.length && parts.push(`changed: ${v.changed.join("; ")}`),
+    v.missing.length && parts.push(`missing: ${v.missing.join("; ")}`),
+    v.added.length && parts.push(`added since the seal: ${v.added.join("; ")}`),
+    `${v.label}: the books do not match the seal of ${truthWhen(v.sealed.at)} — ${parts.join(" · ")}.`
+  );
+}
+function truthVerifyDialog() {
+  const V = truthVerifyAll(),
+    body = V.length
+      ? `<p class="small muted">Each closed month's postings are chained (${esc(TRUTH_HASH_SCHEME)}) and the head is stored with the period at close. Verify re-derives the chain and names any posting that changed, went missing or was added since.</p><div class="tr-verify">${V.map((v) => `<div class="note ${v.ok ? "ok" : null === v.ok ? "" : "bad"}">${esc(truthVerifyWords(v))}</div>`).join("")}</div>`
+      : `<p class="small muted">No month has been closed yet, so no chain is sealed. The first close seals its month; Verify the Books then checks every closed month.</p><div class="note">${esc(truthVerifyWords(truthVerify(bfCloseYm())))}</div>`;
+  mbModal("Verify the Books", body, { submit: null });
+}
+if ("function" == typeof fin2RunClose) {
+  const base = fin2RunClose;
+  fin2RunClose = function (ym, reason) {
+    const bad = truthVerifyAll().filter((v) => !1 === v.ok);
+    if (bad.length) return { ok: !1, why: `Verify the Books first: ${bad.map(truthVerifyWords).join(" ")}` };
+    const r = base.apply(this, arguments);
+    if (r && r.ok) {
+      const S = truthSeal(ym, r.rec && r.rec.by);
+      r.rec && (r.rec.chain = S.head), (r.chain = S.head);
+      try {
+        save();
+      } catch (e) {}
+    }
+    return r;
+  };
+}
+if ("function" == typeof fin2ReopenClose) {
+  const base = fin2ReopenClose;
+  fin2ReopenClose = function (ym, reason) {
+    const r = base.apply(this, arguments);
+    if (r && r.ok) {
+      const S = ((DB.periods || {}).chains || {})[ym];
+      S && (S.reopened = { at: appNowIso(), by: truthWho(), reason: String(reason || "").trim() });
+      try {
+        save();
+      } catch (e) {}
+    }
+    return r;
+  };
+}
+
+// ---- 4. every transaction matched to a line: one link model
+function truthMatchOf(t) {
+  const m = Object.assign({ billId: "", billLineId: "", poId: "", poLineId: "", estimateLineId: "", invoiceId: "", invoiceLineId: "", payrollId: "", paymentId: "", kind: "" }, (t && t.match) || {});
+  if (!t) return m;
+  (m.billId = m.billId || t.billId || ""), (m.poId = m.poId || t.poId || ""), (m.invoiceId = m.invoiceId || t.invoiceId || ""), (m.payrollId = m.payrollId || t.payrollId || "");
+  const POS = DB.pos || [],
+    BILLS = DB.bills || [];
+  if (!m.poId) {
+    const po = POS.find((p) => (p.matchedTxns || []).includes(t.id));
+    po && (m.poId = po.id);
+  }
+  if (m.poId) {
+    const po = POS.find((p) => p.id === m.poId);
+    if (po) {
+      !m.poLineId && 1 === (po.lines || []).length && (m.poLineId = po.lines[0].id);
+      const pl = (po.lines || []).find((l) => l.id === m.poLineId);
+      m.estimateLineId || (m.estimateLineId = (pl && pl.line) || ""),
+        m.billId || (m.billId = (BILLS.find((b) => b.poId === po.id && !["void", "rejected", "draft"].includes(b.status) && (b.txnId === t.id || Math.abs(billTotal(b) - truthAbs(t.amt)) < 1)) || {}).id || "");
+    }
+  }
+  if (m.billId) {
+    const b = BILLS.find((x) => x.id === m.billId);
+    if (b) {
+      !m.billLineId && 1 === (b.lines || []).length && (m.billLineId = b.lines[0].id);
+      const bl = (b.lines || []).find((l) => l.id === m.billLineId);
+      m.estimateLineId || (m.estimateLineId = (bl && bl.line) || b.line || ""), m.poId || (m.poId = b.poId || "");
+    }
+  }
+  m.estimateLineId || (m.estimateLineId = t.line || "");
+  if (!m.invoiceId && +t.amt > 0 && !m.payrollId) {
+    for (const c of DB.clients || []) {
+      const p = (c.payments || []).find((p) => p.txnId === t.id || (!p.unapplied && Math.abs((+p.amount || 0) - t.amt) < 0.005 && Math.abs(dayDiff(t.date, p.date)) <= 5 && (!t.cat || ["income", "uncat"].includes(t.cat))));
+      if (p) {
+        (m.invoiceId = p.invoiceId || ""), (m.paymentId = p.id);
+        break;
+      }
+    }
+  }
+  if (m.invoiceId && !m.invoiceLineId) {
+    for (const c of DB.clients || []) {
+      const inv = (c.invoices || []).find((i) => i.id === m.invoiceId);
+      if (inv) {
+        1 === (inv.lines || []).length && (m.invoiceLineId = inv.lines[0].id);
+        break;
+      }
+    }
+  }
+  return (m.kind = m.payrollId ? "payroll" : m.invoiceId ? "income" : m.billId || m.poId || m.estimateLineId ? "cost" : ""), m;
+}
+function truthMatchWords(m) {
+  if (!m || !m.kind) return "";
+  const parts = [],
+    bill = m.billId && (DB.bills || []).find((b) => b.id === m.billId),
+    po = m.poId && (DB.pos || []).find((p) => p.id === m.poId),
+    est = m.estimateLineId && findLine(m.estimateLineId),
+    run = m.payrollId && (DB.payroll || []).find((r) => r.id === m.payrollId);
+  if (bill) {
+    const bl = (bill.lines || []).find((l) => l.id === m.billLineId);
+    parts.push(`bill ${bill.number || bill.id} (${bill.vendor})${bl ? ` line "${bl.desc || ""}"` : ""}`);
+  }
+  if (po) {
+    const pl = (po.lines || []).find((l) => l.id === m.poLineId);
+    parts.push(`${po.number}${pl ? ` line "${pl.item || pl.desc || ""}"` : ""}`);
+  }
+  if (m.invoiceId)
+    for (const c of DB.clients || []) {
+      const inv = (c.invoices || []).find((i) => i.id === m.invoiceId);
+      if (inv) {
+        const il = (inv.lines || []).find((l) => l.id === m.invoiceLineId);
+        parts.push(`invoice ${inv.number}${il ? ` line "${il.item || il.desc || ""}"` : ""} · ${c.name}`);
+        break;
+      }
+    }
+  return run && parts.push(`payroll run ${run.period || run.id}`), est && parts.push(`estimate line "${est.line.item || est.line.desc || ""}" (${est.doc.number})`), parts.join(" → ");
+}
+// Write one match. Legacy fields (billId, poId, line, invoiceId, payrollId) are kept in step so every older
+// reader (txnMatch, txnViaBill, jobFin, bankUnmatched) agrees with the model.
+function truthSetMatch(t, m0, o) {
+  if (!t) return { ok: !1, why: "No line" };
+  if (["client", "crew", "driver", "foreman"].includes(role())) return { ok: !1, why: "Your account does not match money records" };
+  const m = Object.assign({}, m0 || {}),
+    who = truthWho(),
+    opts = o || {};
+  let est = m.estimateLineId || "",
+    cat = t.cat && "uncat" !== t.cat ? t.cat : "",
+    proj = t.projectId || "",
+    code = t.code || "";
+  if (m.poId) {
+    const po = (DB.pos || []).find((p) => p.id === m.poId);
+    if (!po) return { ok: !1, why: "That purchase order is gone" };
+    (po.matchedTxns = po.matchedTxns || []), po.matchedTxns.includes(t.id) || po.matchedTxns.push(t.id), (t.poId = po.id), (t.noPO = !1);
+    const pl = (po.lines || []).find((l) => l.id === m.poLineId) || (1 === (po.lines || []).length ? po.lines[0] : null);
+    (m.poLineId = pl ? pl.id : ""), est || (est = (pl && pl.line) || ""), proj || (proj = po.projectId || ""), cat || (cat = "function" == typeof poCat ? poCat(po) : "materials"), code || (code = (pl && pl.code) || "");
+  }
+  if (m.billId) {
+    const b = (DB.bills || []).find((x) => x.id === m.billId);
+    if (!b) return { ok: !1, why: "That bill is gone" };
+    const bl = (b.lines || []).find((l) => l.id === m.billLineId) || (1 === (b.lines || []).length ? b.lines[0] : null);
+    (m.billLineId = bl ? bl.id : ""), (b.txnId = t.id), (t.billId = b.id), b.paidAt || (b.paidAt = t.date);
+    "approved" === b.status ? (b.status = "paid") : "paid" === b.status ? (b.status = "verified") : ["verified", "void", "rejected"].includes(b.status) || (b.paidBeforeApproval = !0);
+    est || (est = (bl && bl.line) || b.line || ""), proj || (proj = b.projectId || ""), cat || (cat = b.cat || ""), code || (code = b.code || ""), m.poId || (m.poId = b.poId || "");
+  }
+  if (m.invoiceId) {
+    let hit = null;
+    for (const c of DB.clients || []) {
+      const inv = (c.invoices || []).find((i) => i.id === m.invoiceId);
+      if (inv) {
+        hit = { c: c, inv: inv };
+        break;
+      }
+    }
+    if (!hit) return { ok: !1, why: "That invoice is gone" };
+    const il = (hit.inv.lines || []).find((l) => l.id === m.invoiceLineId) || (1 === (hit.inv.lines || []).length ? hit.inv.lines[0] : null);
+    (m.invoiceLineId = il ? il.id : ""), (t.invoiceId = hit.inv.id), cat || (cat = "income"), proj || (proj = hit.inv.projectId || "");
+    let p = (hit.c.payments || []).find((x) => x.id === m.paymentId) || (hit.c.payments || []).find((x) => x.invoiceId === hit.inv.id && !x.txnId && Math.abs((+x.amount || 0) - t.amt) < 0.005);
+    p ? (p.txnId = t.id) : ((p = { id: uid("py"), date: t.date, amount: r2(+t.amt || 0), method: "Bank", invoiceId: hit.inv.id, note: `matched from ${truthAcctWords(t)} by ${who}`, txnId: t.id }), hit.c.payments.push(p)), (m.paymentId = p.id);
+  }
+  if (m.payrollId) {
+    const r = (DB.payroll || []).find((x) => x.id === m.payrollId);
+    if (!r) return { ok: !1, why: "That payroll run is gone" };
+    (t.payrollId = r.id), cat || (cat = "labor");
+  }
+  est && (t.line = est), proj && (t.projectId = proj), cat && (t.cat = cat), code && (t.code = code);
+  !t.code && t.line && "function" == typeof findLine && "function" == typeof codeForLine && (() => { const L = findLine(t.line); L && (t.code = codeForLine(L.line)); })();
+  (t.match = { billId: m.billId || "", billLineId: m.billLineId || "", poId: m.poId || "", poLineId: m.poLineId || "", estimateLineId: t.line || "", invoiceId: m.invoiceId || "", invoiceLineId: m.invoiceLineId || "", payrollId: m.payrollId || "", paymentId: m.paymentId || "" }),
+    t.cat && "uncat" !== t.cat && "reconciled" !== t.status && (t.status = "categorized"),
+    t.actor || (t.actor = who),
+    (t.matchedBy = who),
+    (t.matchedAt = today()),
+    (t.proposal = null),
+    delete t.exception,
+    delete t.noPO;
+  try {
+    audit("txn", t.id, "matched", "", truthMatchWords(truthMatchOf(t)), `${who}: ${opts.why || "matched to a line"}`);
+  } catch (e) {}
+  return save(), { ok: !0, m: truthMatchOf(t) };
+}
+const truthNorm = (s) =>
+  String(s || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]+/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length >= 3 && !/^(inc|llc|the|and|corp|ltd|ach|debit|credit|card|payment|check|wire|sq|pos)$/.test(w));
+const truthVendorHit = (t, vendor) => {
+  const V = truthNorm(vendor),
+    T = new Set(truthNorm(`${t.desc || ""} ${t.vendor || ""} ${t.bankDesc || ""}`));
+  return !!V.length && V.some((w) => T.has(w) || [...T].some((x) => x.startsWith(w) || w.startsWith(x)));
+};
+// Candidates for one line, scored: amount agrees (3), vendor agrees (2), within 7 days (1). 6 is automatic
+// (amount, vendor and date all agree) and becomes a proposal; a person confirms.
+function truthCandidates(t) {
+  if (!t) return [];
+  const amt = truthAbs(t.amt),
+    out = [],
+    near = (d) => !!d && Math.abs(dayDiff(t.date, d)) <= 7,
+    push = (kind, label, m, s, why) => s >= 3 && out.push({ kind: kind, label: label, m: m, score: s, auto: s >= 6, why: why.join(", ") });
+  if (+t.amt < 0) {
+    (DB.bills || []).forEach((b) => {
+      if (["void", "rejected"].includes(b.status) || (b.txnId && b.txnId !== t.id) || b.ic) return;
+      if ((t.rejectedBills || []).includes(b.id)) return;
+      const vh = truthVendorHit(t, b.vendor),
+        tot = billTotal(b);
+      (b.lines && b.lines.length ? b.lines : [{ id: "", amount: tot, desc: "" }]).forEach((l) => {
+        const la = r2(+l.amount || 0),
+          whole = Math.abs(tot - amt) < 0.01,
+          lineHit = Math.abs(la - amt) < 0.01,
+          why = [];
+        let s = 0;
+        (whole || lineHit) && ((s += 3), why.push(whole ? "amount equals the bill" : "amount equals the line")), vh && ((s += 2), why.push("vendor agrees")), (near(b.date) || near(b.due) || near(b.paidAt)) && ((s += 1), why.push("within 7 days"));
+        push("bill", `Bill ${b.number || b.id} · ${b.vendor} · ${l.desc || ""} ${money(la)}`.replace(/\s+/g, " "), { billId: b.id, billLineId: l.id || "", estimateLineId: l.line || b.line || "", poId: b.poId || "" }, s, why);
+      });
+    }),
+      (DB.pos || []).forEach((po) => {
+        if (["draft", "cancelled", "void", "closed"].includes(po.status) || (t.rejectedPOs || []).includes(po.id)) return;
+        const vh = truthVendorHit(t, po.vendor),
+          tot = poTotal(po).total;
+        (po.lines || []).forEach((l) => {
+          const la = r2((+l.qty || 0) * (+l.price || 0)),
+            why = [];
+          let s = 0;
+          (Math.abs(tot - amt) < 1 || Math.abs(la - amt) < 1 || Math.abs(tot / 2 - amt) < 1) && ((s += 3), why.push(Math.abs(tot / 2 - amt) < 1 && Math.abs(tot - amt) >= 1 ? "amount is half the order (deposit)" : "amount equals the order")), vh && ((s += 2), why.push("vendor agrees")), (near(po.date) || near(po.expected)) && ((s += 1), why.push("within 7 days"));
+          push("po", `${po.number} · ${po.vendor} · ${l.item || l.desc || ""} ${money(la)}`.replace(/\s+/g, " "), { poId: po.id, poLineId: l.id, estimateLineId: l.line || "" }, s, why);
+        });
+      }),
+      (DB.payroll || []).forEach((r) => {
+        const why = [];
+        let s = 0;
+        Math.abs((+r.total || 0) - amt) < 1 && ((s += 3), why.push("amount equals the run")), /payroll|gusto|adp|paychex|wages/i.test(t.desc || "") && ((s += 2), why.push("looks like payroll")), near(r.payDate) && ((s += 1), why.push("within 7 days of the pay date"));
+        push("payroll", `Payroll ${r.period || r.id} · ${money(+r.total || 0)}`, { payrollId: r.id }, s, why);
+      });
+  } else if (+t.amt > 0) {
+    (DB.clients || []).forEach((c) =>
+      (c.invoices || []).forEach((inv) => {
+        if (["void", "draft"].includes(inv.status)) return;
+        const bal = r2(docTotal(inv).total - invoicePaid(c, inv)),
+          why = [];
+        let s = 0;
+        (Math.abs(bal - amt) < 0.01 || Math.abs(docTotal(inv).total - amt) < 0.01) && ((s += 3), why.push("amount equals the invoice balance")), truthVendorHit(t, c.name) && ((s += 2), why.push("client name agrees")), (near(inv.date) || near(inv.due)) && ((s += 1), why.push("within 7 days"));
+        push("invoice", `Invoice ${inv.number} · ${c.name} · balance ${money(bal)}`, { invoiceId: inv.id, invoiceLineId: 1 === (inv.lines || []).length ? inv.lines[0].id : "" }, s, why);
+      }),
+    );
+  }
+  return out.sort((a, b) => b.score - a.score);
+}
+function truthProposeAll(ids) {
+  let n = 0;
+  const T = ids ? (DB.txns || []).filter((t) => ids.includes(t.id)) : bankUnmatched().rows;
+  return (
+    T.forEach((t) => {
+      if (t.proposal || t.exception || ("function" == typeof txnMatch && txnMatch(t)) || t.billId || t.poId || t.invoiceId || t.payrollId) return;
+      const best = truthCandidates(t)[0];
+      best && best.auto && ((t.proposal = Object.assign({ t: nowStamp(), by: "auto", kind: best.kind, why: best.why, m: best.m, label: best.label }, best.m.billId ? { billId: best.m.billId } : {}, best.m.poId && !best.m.billId ? { poId: best.m.poId } : {}, best.m.invoiceId ? { invoiceId: best.m.invoiceId } : {}, best.m.payrollId ? { payrollId: best.m.payrollId } : {})), n++);
+    }),
+    n
+  );
+}
+if ("function" == typeof confirmMatch) {
+  const base = confirmMatch;
+  confirmMatch = function (t) {
+    const P = t && t.proposal;
+    if (P && P.m) {
+      if (["bill", "po"].includes(P.kind)) {
+        const m = Object.assign({}, P.m);
+        base.apply(this, arguments);
+        return void truthSetMatch(t, m, { why: P.why });
+      }
+      return void truthSetMatch(t, P.m, { why: P.why });
+    }
+    return base.apply(this, arguments);
+  };
+}
+if ("function" == typeof bfIngest) {
+  const base = bfIngest;
+  bfIngest = function (src, added, removed) {
+    const out = base.apply(this, arguments);
+    try {
+      if (out && !(src && src.dry) && (out.added || out.confirmed)) {
+        const n = truthProposeAll([].concat(out.newIds || [], out.confirmedIds || []));
+        n && (out.proposed = (out.proposed || 0) + n);
+      }
+    } catch (e) {
+      console.warn("line proposals", e);
+    }
+    return out;
+  };
+}
+function truthException(t, why) {
+  if (!t) return { ok: !1, why: "No line" };
+  if (!["owner", "controller"].includes(role())) return { ok: !1, why: "The Owner or the Controller signs an exception" };
+  const w = String(why || "").trim();
+  if (!w) return { ok: !1, why: "Say why this line closes without a match" };
+  t.exception = { by: truthWho(), at: appNowIso(), why: w };
+  try {
+    audit("txn", t.id, "exception", "", w, `${t.desc} ${money(t.amt)} — ${truthWho()}: ${w}`);
+  } catch (e) {}
+  return save(), { ok: !0 };
+}
+function truthMatchSheet(t) {
+  if (!t) return;
+  const C = truthCandidates(t),
+    m = truthMatchOf(t),
+    cur = truthMatchWords(m),
+    canEx = ["owner", "controller"].includes(role()),
+    body = `<div class="small muted">${fmt(t.date)} · ${esc(t.desc || "")} · <b>${money(t.amt)}</b> · ${esc(truthAcctWords(t))}</div>
+    <p class="small">${cur ? `Matched to ${esc(cur)}.` : "Not matched to a line yet. Pick the bill or order line it paid (its estimate line follows), or the invoice line it collected."}</p>
+    ${C.length ? `<table class="t"><thead><tr><th>Line</th><th>Why</th><th></th></tr></thead><tbody>${C.slice(0, 12).map((c, i) => `<tr><td>${esc(c.label)}</td><td class="small muted">${esc(c.why)}${c.auto ? " · proposed" : ""}</td><td><button type="button" class="btn sm" data-trpick="${i}">Match</button></td></tr>`).join("")}</tbody></table>` : '<div class="note">No bill, order, invoice or payroll run agrees with this line on amount. Enter the bill first, or match it by hand from the drawer\'s Line field.</div>'}
+    ${t.exception ? `<p class="small muted">Exception signed by ${esc(t.exception.by)} on ${truthWhen(t.exception.at)}: ${esc(t.exception.why)}</p>` : canEx ? '<div class="f" style="margin-top:10px"><label>Or Close Without a Match</label><input data-f="why" placeholder="Why this line closes with no line behind it (signed with your name)"></div>' : ""}`,
+    mb = mbModal("Match to a Line", body, {
+      submit: canEx && !t.exception ? "Sign an Exception" : null,
+      onSubmit: (v) => {
+        const r = truthException(t, v.why);
+        return r.ok ? (render(), void toast(`Exception signed on ${t.desc || "the line"} — ${v.why}`)) : (toast(r.why), !1);
+      },
+    });
+  mb.querySelectorAll("[data-trpick]").forEach(
+    (b) =>
+      (b.onclick = () => {
+        const c = C[+b.dataset.trpick],
+          r = truthSetMatch(t, c.m, { why: c.why });
+        r.ok ? (mbCloseModal(), render(), toast(`${t.desc || "Line"} matched to ${truthMatchWords(r.m)}`, () => txnDialog(t.id))) : toast(r.why);
+      }),
+  );
+}
+predDef("unmatchedTxns", {
+  label: "Not Matched to a Line",
+  rule: "bank and card lines that reach no bill or PO line, invoice line or payroll run: new, uncategorised, proposed and not yet confirmed, or a job cost with nothing behind it (bankUnmatched, the Banking To Review count)",
+  rows: () => bankUnmatched().rows,
+  figure: () => bankUnmatched().amt,
+  byMonth() {
+    const o = {};
+    return (
+      this.rows().forEach((t) => {
+        const ym = String(t.date || "").slice(0, 7),
+          b = (o[ym] = o[ym] || { n: 0, amt: 0, excepted: 0 });
+        b.n++, (b.amt = r2(b.amt + truthAbs(t.amt))), t.exception && b.excepted++;
+      }),
+      o
+    );
+  },
+});
+const truthByMonthWords = (B) =>
+  Object.keys(B)
+    .sort()
+    .map((ym) => `${truthLabel(ym).replace(/ \d{4}$/, "")}: ${B[ym].n} line${1 === B[ym].n ? "" : "s"} · ${money(B[ym].amt)}${B[ym].excepted ? ` (${B[ym].excepted} excepted)` : ""}`)
+    .join(" · ");
+CATCH.push({
+  name: "unmatchedTxns",
+  label: "Not Matched to a Line",
+  rows: () =>
+    bankUnmatched().rows.map((t) => ({
+      key: "um:" + t.id,
+      what: `Not matched: ${"function" == typeof tdWords ? tdWords(t.vendor || t.desc || "bank line", 4) : String(t.vendor || t.desc || "bank line").slice(0, 40)}`,
+      sub: `${money(truthAbs(t.amt))} on ${fmtL(t.date)} · ${truthAcctWords(t)}${t.exception ? " · exception signed" : ""}`,
+      amount: truthAbs(t.amt),
+      verb: "Match",
+      run: () => truthMatchSheet(t),
+    })),
+});
+if ("function" == typeof renderBank) {
+  const base = renderBank;
+  renderBank = function () {
+    base.apply(this, arguments);
+    try {
+      const v = document.getElementById("v-bank");
+      if (!v || ["client", "crew", "driver", "foreman"].includes(role())) return;
+      v.querySelector("#tr-unm")?.remove();
+      const U = bankUnmatched(),
+        B = PRED.unmatchedTxns.byMonth(),
+        d = document.createElement("div");
+      (d.innerHTML = `<div class="card tr-unm" id="tr-unm"><div class="small"><b>${TRUTH_ICON_LINK} Not Matched to a Line</b> <span class="muted">${U.n ? `${U.n} of the lines to review reach no bill, order, invoice or payroll line — ${money(U.amt)} · ${esc(truthByMonthWords(B))}. Open a line and Match to a Line; a month closes only when each is matched or carries a signed exception.` : "every line reaches a bill, order, invoice or payroll line."}</span></div></div>`),
+        (v.querySelector("#bf-cover") || v.querySelector("#tl-bank") || v.querySelector(".ph"))?.after(d.firstElementChild);
+    } catch (e) {
+      console.warn("unmatched by month", e);
+    }
+  };
+}
+// the close: unmatched lines block it unless each carries a signed exception
+if ("function" == typeof fin2CloseBlockers) {
+  const base = fin2CloseBlockers;
+  fin2CloseBlockers = function (ym) {
+    const out = base.apply(this, arguments);
+    try {
+      const R = [ym + "-01", fin2End(ym)],
+        U = bankUnmatched(R).rows.filter((t) => !t.exception);
+      U.length &&
+        out.push({
+          sub: "bank",
+          why: `${U.length} bank line${1 === U.length ? "" : "s"} in ${truthLabel(ym)} ${1 === U.length ? "is" : "are"} not matched to a line (${U.slice(0, 4).map((t) => `${t.desc || t.vendor} ${money(t.amt)}`).join(", ")}${U.length > 4 ? ", …" : ""}) — match each to its bill, order, invoice or payroll line, or sign an exception with a reason`,
+          go: { view: "bank" },
+        });
+    } catch (e) {
+      console.warn("unmatched blocker", e);
+    }
+    return out;
+  };
+}
+if ("function" == typeof closeChecklist) {
+  const base = closeChecklist;
+  closeChecklist = function (month) {
+    const items = base.apply(this, arguments);
+    try {
+      const R = [month + "-01", fin2End(month)],
+        L = truthLabel(month),
+        U = bankUnmatched(R).rows,
+        ex = U.filter((t) => t.exception).length,
+        open = U.length - ex;
+      items.push({
+        label: `Bank lines not matched to a line in ${L}: ${U.length} · ${money(U.reduce((s, t) => s + truthAbs(t.amt), 0))}${ex ? ` (${ex} with a signed exception)` : ""}`,
+        n: open,
+        ok: !open,
+        go: { view: "bank" },
+        truth: "unmatched",
+      });
+      const M = truthManual(R, { entityId: "all", manualOnly: !0 }),
+        noWhy = M.rows.filter((m) => !m.j.why || !m.j.approvedBy).length;
+      items.push({
+        label: `Manual journal entries dated in ${L}: ${M.n} · ${money(M.amt)}${M.n ? (noWhy ? ` — ${noWhy} without an Owner's reason` : ", each posted by the Owner with a reason") : ""}`,
+        n: noWhy,
+        ok: !noWhy,
+        go: { view: "gl" },
+        truth: "manual",
+      });
+    } catch (e) {
+      console.warn("truth checklist", e);
+    }
+    return items;
+  };
+}
+if ("function" == typeof fin2ClosePageHtml) {
+  const base = fin2ClosePageHtml;
+  fin2ClosePageHtml = function () {
+    let h = base.apply(this, arguments);
+    try {
+      const ym = fin2CloseYm();
+      if (!ym) return h;
+      const R = [ym + "-01", fin2End(ym)],
+        U = bankUnmatched(R).rows,
+        ex = U.filter((t) => t.exception).length,
+        canEx = ["owner", "controller"].includes(role()),
+        M = truthManual(R, { entityId: "all" }),
+        V = truthVerifyAll(),
+        block = `<h4 class="fin2-step">Bank Lines Not Matched to a Line <span class="small muted">${U.length} in ${truthLabel(ym)} · ${money(U.reduce((s, t) => s + truthAbs(t.amt), 0))} · ${ex} with a signed exception</span></h4>${
+          U.length
+            ? `<div class="tw"><table class="t tr-unm-t"><thead><tr><th>Date</th><th>Line</th><th class="money">Amount</th><th>State</th><th></th></tr></thead><tbody>${U.map((t) => `<tr><td class="dim">${fmt(t.date)}</td><td>${esc(t.desc || t.vendor || "")}<div class="small muted">${esc(truthAcctWords(t))}${t.proposal ? " · a match is proposed, to confirm" : ""}</div></td><td class="money">${money(t.amt)}</td><td class="small">${t.exception ? `exception · ${esc(t.exception.by)}: ${esc(t.exception.why)}` : '<span class="warn">no line behind it</span>'}</td><td><button type="button" class="btn sm" data-trmatch="${esc(t.id)}">Match to a Line…</button>${canEx && !t.exception ? ` <button type="button" class="btn sm" data-trexc="${esc(t.id)}">Sign an Exception…</button>` : ""}</td></tr>`).join("")}</tbody></table></div><p class="small muted">The close refuses while a line here has neither a match nor a signed exception. An exception is signed by the Owner or the Controller with a reason and stays on the line.</p>`
+            : '<p class="small muted">Every bank and card line in the month reaches a bill, order, invoice or payroll line.</p>'
+        }<h4 class="fin2-step">Entries Not From a Document <span class="small muted">${M.n} in ${truthLabel(ym)} · ${money(M.amt)}</span></h4>${M.n ? `<div class="rem">${M.rows.map((m) => `<div class="rem-row"><span>${truthFlagHtml(m.flag)} <span class="small">#${m.j.n} ${esc(m.j.memo)} · ${money(m.amt)}</span></span></div>`).join("")}</div>` : '<p class="small muted">Every posting in the month derives from a document.</p>'}${V.length ? `<h4 class="fin2-step">Sealed Months <span class="small muted">the hash chain over each closed month's postings</span></h4><div class="rem">${V.map((v) => `<div class="rem-row ${!1 === v.ok ? "warn" : ""}"><b>${!1 === v.ok ? ICON_WARN : ICON_CHECK}</b><span class="small">${esc(truthVerifyWords(v))}</span></div>`).join("")}</div>` : ""}`,
+        k = h.indexOf('<h4 class="fin2-step">4 · ');
+      h = k > -1 ? h.slice(0, k) + block + h.slice(k) : h + block;
+    } catch (e) {
+      console.warn("close truth", e);
+    }
+    return h;
+  };
+}
+if ("function" == typeof glOverviewHtml) {
+  const base = glOverviewHtml;
+  glOverviewHtml = function () {
+    let h = base.apply(this, arguments);
+    try {
+      const [from, to] = glRange(),
+        C = truthCoverage([from, to]),
+        M = truthManual([from, to], { entityId: glEnt }),
+        chains = (DB.periods || {}).chains || {},
+        sealed = Object.keys(chains).sort(),
+        last = sealed[sealed.length - 1],
+        V = sealed.map((ym) => truthVerify(ym)),
+        bad = V.filter((v) => !1 === v.ok),
+        card = `<div class="card tr-truth"><div class="row wrap" style="gap:8px;align-items:center"><h3 style="margin:0">${TRUTH_ICON_SHIELD} Truth</h3><span class="small muted">${last ? `books sealed through ${truthLabel(last)} · head ${esc(chains[last].head)}${bad.length ? ` · <span class="bad">${bad.length} month${1 === bad.length ? "" : "s"} do${1 === bad.length ? "es" : ""} not verify</span>` : " · verified"}` : "no month sealed yet; the first close seals its postings"}</span><span class="grow"></span><button type="button" class="btn sm" data-trverify="1">Verify the Books</button></div>
+          <div class="small" style="margin-top:8px"><b>Coverage, ${fmt(from)} – ${fmt(to)}</b> · cost ${esc(truthCovWords(C.cost))} · income ${esc(truthCovWords(C.income))}</div>
+          <div class="small" style="margin-top:4px"><b>Entries not from a document</b> · ${M.n ? `${M.n} · ${money(M.amt)} (${M.nManual} manual${M.n - M.nManual ? `, ${M.n - M.nManual} at a close or opening` : ""}) <a href="#" data-trjflag="1">Open them</a>` : "none in the range"}</div></div>`;
+      h = card + h;
+    } catch (e) {
+      console.warn("ledger truth card", e);
+    }
+    return h;
+  };
+}
+if ("function" == typeof glWire) {
+  const base = glWire;
+  glWire = function (host) {
+    base.apply(this, arguments);
+    if (!host) return;
+    host.querySelectorAll("[data-trverify]").forEach((b) => (b.onclick = () => truthVerifyDialog()));
+    host.querySelectorAll("[data-trjflag]").forEach(
+      (a) =>
+        (a.onclick = (e) => {
+          e.preventDefault(), (truthJKind = "flag"), (glAcctFilter = ""), (glTab = "journal"), renderGL();
+        }),
+    );
+    host.querySelectorAll("[data-trclear]").forEach(
+      (a) =>
+        (a.onclick = (e) => {
+          e.preventDefault(), e.stopPropagation(), (truthJKind = ""), renderGL();
+        }),
+    );
+    host.querySelectorAll("[data-trdrill]").forEach(
+      (s) =>
+        (s.onclick = (e) => {
+          e.preventDefault(), e.stopPropagation(), (glAcctFilter = s.dataset.trdrill), (truthJKind = "flag"), (glTab = "journal"), renderGL();
+        }),
+    );
+    host.querySelectorAll("[data-glacct]").forEach((r) => {
+      const prev = r.onclick;
+      r.onclick = (e) => {
+        e.target.closest && e.target.closest("[data-trdrill]") || ((truthJKind = ""), prev && prev.call(r, e));
+      };
+    });
+    const clr = host.querySelector("[data-glclear]");
+    if (clr) {
+      const prev = clr.onclick;
+      clr.onclick = (e) => {
+        (truthJKind = ""), prev && prev.call(clr, e);
+      };
+    }
+    host.querySelectorAll("[data-trmatch]").forEach((b) => (b.onclick = () => truthMatchSheet((DB.txns || []).find((t) => t.id === b.dataset.trmatch))));
+    host.querySelectorAll("[data-trexc]").forEach(
+      (b) =>
+        (b.onclick = () => {
+          const t = (DB.txns || []).find((x) => x.id === b.dataset.trexc),
+            why = appPrompt(`Close ${truthLabel(fin2CloseYm())} with ${t ? t.desc : "this line"} ${t ? money(t.amt) : ""} unmatched? It stays on the line with your name. Reason:`);
+          if (null == why || !t) return;
+          const r = truthException(t, why);
+          r.ok ? (renderGL(), toast(`Exception signed — ${why}`)) : toast(r.why);
+        }),
+    );
+  };
+}
+
+// ---- surfaces: Statements, the Pack, the Flash, the job report
+if ("function" == typeof repFinancials) {
+  const base = repFinancials;
+  repFinancials = function () {
+    let h = base.apply(this, arguments);
+    try {
+      const R = (() => {
+          try {
+            return "function" == typeof repRangeOf ? repRangeOf().range : cfoRange();
+          } catch (e) {
+            return cfoRange();
+          }
+        })(),
+        C = truthCoverage(R),
+        M = truthManual(R, { entityId: void 0 !== repEntity && repEntity ? repEntity : "all" }),
+        man = `<div class="card tr-man"><h3 class="rep-h" style="margin-top:0">Entries Not From a Document <span class="small muted">${M.n ? `${M.n} · ${money(M.amt)} in the period` : "none in the period"}</span></h3>${M.n ? `<div class="rem">${M.rows.map((m) => `<div class="rem-row"><span>${truthFlagHtml(m.flag)} <span class="small">#${m.j.n} ${esc(m.j.memo)} · ${money(m.amt)}</span></span></div>`).join("")}</div>` : '<p class="small muted">Every posting in the period derives from an invoice, payment, bill, bank line or payroll run.</p>'}</div>`,
+        k = h.indexOf('<h3 class="rep-h">Balance sheet');
+      const add = truthCovHtml(C, "Coverage") + man;
+      h = k > -1 ? h.slice(0, k) + add + h.slice(k) : h + add;
+    } catch (e) {
+      console.warn("statement coverage", e);
+    }
+    return h;
+  };
+}
+function truthPackRange() {
+  try {
+    const R = repRangeOf().range,
+      ym = R[1].slice(0, 7),
+      start = ym + "-01",
+      end = fin2End(ym),
+      td = today();
+    return { ym: ym, range: [R[0] > start ? R[0] : start, end > td ? td : end] };
+  } catch (e) {
+    const ym = today().slice(0, 7);
+    return { ym: ym, range: [ym + "-01", today()] };
+  }
+}
+const truthPrevYm = (ym) => iso(addDays(parse(ym + "-01"), -1)).slice(0, 7);
+if ("function" == typeof repPack) {
+  const base = repPack;
+  repPack = function () {
+    let h = base.apply(this, arguments);
+    try {
+      const P = truthPackRange(),
+        C = truthCoverage(P.range),
+        prev = truthPrevYm(P.ym),
+        M = truthManual(P.range, { entityId: "all" }),
+        Mp = truthManual([prev + "-01", fin2End(prev)], { entityId: "all" }),
+        list = (X) => (X.n ? `<div class="rem">${X.rows.map((m) => `<div class="rem-row"><span>${truthFlagHtml(m.flag)} <span class="small">#${m.j.n} ${esc(m.j.memo)} · ${money(m.amt)}</span></span></div>`).join("")}</div>` : '<p class="small muted">None.</p>'),
+        sec = `<h3 class="rep-h">9 · Coverage and manual entries</h3>${truthCovHtml(C, `Coverage · ${truthLabel(P.ym)}`)}<div class="grid2"><div><h4 class="small" style="margin:6px 0">Manual entries · ${truthLabel(P.ym)} · ${M.n} · ${money(M.amt)}</h4>${list(M)}</div><div><h4 class="small" style="margin:6px 0">Manual entries · ${truthLabel(prev)} · ${Mp.n} · ${money(Mp.amt)}</h4>${list(Mp)}</div></div>`;
+      h += sec;
+    } catch (e) {
+      console.warn("pack truth", e);
+    }
+    return h;
+  };
+}
+if ("function" == typeof repFlash) {
+  const base = repFlash;
+  repFlash = function () {
+    let h = base.apply(this, arguments);
+    try {
+      const t = today(),
+        ym = t.slice(0, 7),
+        prev = truthPrevYm(ym),
+        C = truthCoverage([ym + "-01", t]),
+        Cp = truthCoverage([prev + "-01", fin2End(prev)]),
+        M = truthManual([ym + "-01", t], { entityId: "all", manualOnly: !0 }),
+        Mp = truthManual([prev + "-01", fin2End(prev)], { entityId: "all", manualOnly: !0 }),
+        pl = truthLabel(prev).replace(/ \d{4}$/, ""),
+        row = (k, v, i) => `<div class="flash-row"><span>${k}</span><b>${v}</b><i>${i || ""}</i></div>`,
+        card = `<div class="card tr-flash"><h3>Truth</h3>${row("Cost backed by the bank", `${C.cost.pct}% this month · ${Cp.cost.pct}% in ${pl}`, `${money(C.cost.hand)} by hand this month`)}${row("Manual journal entries", `${M.n} this month · ${Mp.n} in ${pl}`, [M, Mp].flatMap((X) => X.rows).slice(0, 2).map((m) => truthManualLine(m)).join("; ") || "none")}${row("Lines not matched", `${PRED.unmatchedTxns.count()} · ${money(PRED.unmatchedTxns.figure())}`, truthByMonthWords(PRED.unmatchedTxns.byMonth()))}</div>`,
+        i = h.indexOf('<div class="flash">'),
+        j = i > -1 && "function" == typeof budCloseDiv ? budCloseDiv(h, i) : -1;
+      h = j > -1 ? h.slice(0, j) + card + h.slice(j) : h + card;
+    } catch (e) {
+      console.warn("flash truth", e);
+    }
+    return h;
+  };
+}
+if ("function" == typeof repProfit) {
+  const base = repProfit;
+  repProfit = function () {
+    let h = base.apply(this, arguments);
+    try {
+      const p = (DB.projects || []).find((x) => x.id === repProj);
+      if (!p) return h;
+      const C = truthCoverage([repFrom || "", repTo || today()], { projectId: p.id }),
+        line = `<p class="small tr-cov-line">${TRUTH_ICON_SHIELD} Of the bills and bank cost on this job, ${esc(truthCovWords(C.cost))}. Income: ${esc(truthCovWords(C.income))}.</p>`,
+        k = h.indexOf('<h3 class="rep-h">By cost code</h3>');
+      h = k > -1 ? h.slice(0, k) + line + h.slice(k) : h + line;
+    } catch (e) {
+      console.warn("job coverage", e);
+    }
+    return h;
+  };
+}
+
+// ---- 5. QuickBooks as a bridge: load a snapshot through the app's own records, then tie out three ways
+const qboS = (v) => (null == v ? "" : String(v)),
+  qboN = (v) => {
+    const n = parseFloat(String(null == v ? "" : v).replace(/[,$\s]/g, ""));
+    return isFinite(n) ? r2(n) : 0;
+  },
+  qboDate = (v) => qboS(v).slice(0, 10);
+function qboLines(L) {
+  return (L || [])
+    .filter((l) => "SubTotalLineDetail" !== l.DetailType && "DiscountLineDetail" !== l.DetailType && null != l.Amount)
+    .map((l) => {
+      const d = l.SalesItemLineDetail || l.ItemBasedExpenseLineDetail || l.AccountBasedExpenseLineDetail || l.DescriptionOnly || {},
+        qty = qboN(d.Qty) || 1,
+        rate = null != d.UnitPrice ? qboN(d.UnitPrice) : r2(qboN(l.Amount) / qty);
+      return { id: uid("l"), item: (d.ItemRef && d.ItemRef.name) || qboS(l.Description).slice(0, 60) || "QuickBooks line", desc: qboS(l.Description), qty: qty, unit: "ea", rate: rate, taxable: !!(d.TaxCodeRef && /^TAX$/i.test(qboS(d.TaxCodeRef.value))), cost: 0, qboLineId: qboS(l.Id), account: (d.AccountRef && d.AccountRef.name) || "" };
+    });
+}
+function qboCat(words) {
+  const w = String(words || "").toLowerCase();
+  return /material|lumber|tile|supply|supplies/.test(w)
+    ? "materials"
+    : /subcontract|plumb|electric|hvac|roof|mason/.test(w)
+      ? "subs"
+      : /labor|wage/.test(w)
+        ? "labor"
+        : /equipment|rental/.test(w)
+          ? "equipment"
+          : /dumpster|disposal|haul/.test(w)
+            ? "disposal"
+            : /permit|filing|dob|fee/.test(w)
+              ? "permits"
+              : /design|engineer|architect/.test(w)
+                ? "design"
+                : /insurance/.test(w)
+                  ? "insurance"
+                  : /vehicle|fuel|auto|truck/.test(w)
+                    ? "vehicle"
+                    : /marketing|advertis/.test(w)
+                      ? "marketing"
+                      : /meal|travel/.test(w)
+                        ? "meals"
+                        : /tax|license/.test(w)
+                          ? "taxes"
+                          : /cost of goods|cogs|job/.test(w)
+                            ? "materials"
+                            : "office";
+}
+const qboStatus = (s) => ({ accepted: "approved", closed: "approved", converted: "approved", pending: "sent", rejected: "rejected" })[qboS(s).toLowerCase()] || "sent";
+function qboLoad(snap) {
+  if (!snap || "object" != typeof snap || "quickbooks" !== snap.source) return { ok: !1, why: 'Not a QuickBooks snapshot: expected {"source": "quickbooks", …}' };
+  if (!["owner", "controller", "billing"].includes(role())) return { ok: !1, why: "The Owner, the Controller or Billing loads a QuickBooks snapshot" };
+  const by = truthWho(),
+    at = appNowIso(),
+    out = { ok: !0, clients: { added: 0, updated: 0 }, estimates: { added: 0, updated: 0, skipped: 0 }, invoices: { added: 0, updated: 0, skipped: 0 }, payments: { added: 0, updated: 0 }, bills: { added: 0, updated: 0 }, payroll: { added: 0, updated: 0 } },
+    pr = snap.payroll || {};
+  DB.qbo = { loadedAt: at, by: by, company: snap.company || {}, pl: snap.pl || {}, cashFlow: snap.cashFlow || {}, balanceSheet: snap.balanceSheet || [], arAging: snap.arAging || {}, apAging: snap.apAging || {}, sales: snap.sales || {}, payroll: { employees: pr.employees || [], schedules: pr.schedules || [], payslips: pr.payslips || [] }, products: snap.products || [], counts: {} };
+  const stamp = { t: nowStamp(), by: "QuickBooks", role: "import", action: `imported from QuickBooks by ${by}` },
+    custById = {},
+    clientByName = (n) => (DB.clients || []).find((c) => c.name.toLowerCase() === qboS(n).toLowerCase()),
+    projOf = (c) => ((DB.projects || []).find((p) => p.clientId === c.id) || {}).id || "";
+  (snap.customers || []).forEach((cu) => {
+    const id = qboS(cu.Id),
+      name = qboS(cu.DisplayName || cu.FullyQualifiedName || cu.CompanyName || cu.GivenName + " " + cu.FamilyName).trim();
+    if (!id || !name) return;
+    let c = (DB.clients || []).find((x) => "quickbooks" === x.source && x.qboId === id) || clientByName(name);
+    c ? out.clients.updated++ : ((c = blankClient(name)), (c.type = "QuickBooks customer"), DB.clients.push(c), out.clients.added++),
+      "function" == typeof migrateClientDocs && migrateClientDocs(c),
+      c.source || (c.source = "quickbooks"),
+      (c.qboId = id),
+      cu.CompanyName && (c.company = qboS(cu.CompanyName)),
+      cu.Notes && (c.notes = qboS(cu.Notes));
+    const B = cu.BillAddr || {},
+      addr = [B.Line1, B.Line2, [B.City, B.CountrySubDivisionCode, B.PostalCode].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+    addr && !c.billingAddr && (c.billingAddr = addr), addr && !c.propertyAddr && (c.propertyAddr = addr);
+    const email = cu.PrimaryEmailAddr && qboS(cu.PrimaryEmailAddr.Address),
+      phone = cu.PrimaryPhone && qboS(cu.PrimaryPhone.FreeFormNumber);
+    (email || phone) && !c.contacts.some((k) => k.email === email) && c.contacts.push({ id: uid("ct"), name: name, email: email || "", phone: phone || "", role: "QuickBooks contact", primary: !c.contacts.length });
+    custById[id] = c;
+  });
+  const clientFor = (ref) => (ref && (custById[qboS(ref.value)] || clientByName(ref.name))) || null;
+  (snap.estimates || []).forEach((e) => {
+    const c = clientFor(e.CustomerRef);
+    if (!c) return void out.estimates.skipped++;
+    const id = qboS(e.Id),
+      lines = qboLines(e.Line),
+      sub = r2(lines.reduce((s, l) => s + l.qty * l.rate, 0)),
+      tax = qboN(e.TxnTaxDetail && e.TxnTaxDetail.TotalTax),
+      rec = { type: "estimate", number: qboS(e.DocNumber) || "QB-" + id, title: qboS(e.CustomerMemo && e.CustomerMemo.value) || `QuickBooks estimate ${qboS(e.DocNumber) || id}`, date: qboDate(e.TxnDate), validUntil: qboDate(e.ExpirationDate), status: qboStatus(e.TxnStatus), projectId: projOf(c), lines: lines.map((l) => Object.assign(l, { taxable: tax > 0 })), discount: { type: "pct", value: 0 }, taxRate: tax > 0 && sub ? r2((100 * tax) / sub) : 0, terms: "", memo: qboS(e.PrivateNote), internal: `imported from QuickBooks on ${at.slice(0, 10)} by ${by}`, source: "quickbooks", qboId: id, qboTotal: qboN(e.TotalAmt) };
+    let d = c.estimates.find((x) => "quickbooks" === x.source && x.qboId === id);
+    d ? (Object.assign(d, rec), out.estimates.updated++) : ((rec.id = uid("es")), c.estimates.push(rec), out.estimates.added++);
+  });
+  const invById = {};
+  (snap.invoices || []).forEach((i) => {
+    const c = clientFor(i.CustomerRef);
+    if (!c) return void out.invoices.skipped++;
+    const id = qboS(i.Id),
+      lines = qboLines(i.Line),
+      sub = r2(lines.reduce((s, l) => s + l.qty * l.rate, 0)),
+      tax = qboN(i.TxnTaxDetail && i.TxnTaxDetail.TotalTax),
+      total = qboN(i.TotalAmt),
+      bal = null == i.Balance ? total : qboN(i.Balance),
+      paid = r2(total - bal),
+      rec = { type: "invoice", number: qboS(i.DocNumber) || "QB-" + id, title: qboS(i.CustomerMemo && i.CustomerMemo.value) || `QuickBooks invoice ${qboS(i.DocNumber) || id}`, mode: "items", date: qboDate(i.TxnDate), due: qboDate(i.DueDate), status: bal <= 0.004 ? "paid" : paid > 0 ? "partial" : "sent", projectId: projOf(c), lines: lines.map((l) => Object.assign(l, { taxable: tax > 0 })), discount: { type: "pct", value: 0 }, taxRate: tax > 0 && sub ? r2((100 * tax) / sub) : 0, retainagePct: 0, terms: "", memo: qboS(i.CustomerMemo && i.CustomerMemo.value), internal: `imported from QuickBooks on ${at.slice(0, 10)} by ${by}`, source: "quickbooks", qboId: id, qboTotal: total, qboBalance: bal };
+    let d = c.invoices.find((x) => "quickbooks" === x.source && x.qboId === id);
+    d ? (Object.assign(d, rec), out.invoices.updated++) : ((rec.id = uid("in")), c.invoices.push(rec), (d = rec), out.invoices.added++), (invById[id] = d);
+    const pk = "inv:" + id;
+    let p = c.payments.find((x) => "quickbooks" === x.source && x.qboId === pk);
+    if (paid > 0) {
+      const linked = (i.LinkedTxn || []).find((x) => "Payment" === x.TxnType),
+        prec = { date: qboDate((linked && linked.TxnDate) || (i.MetaData && i.MetaData.LastUpdatedTime) || i.TxnDate), amount: paid, method: "QuickBooks", invoiceId: d.id, note: "payments applied in QuickBooks", source: "quickbooks", qboId: pk };
+      p ? (Object.assign(p, prec), out.payments.updated++) : ((prec.id = uid("py")), c.payments.push(prec), out.payments.added++);
+    } else p && (c.payments = c.payments.filter((x) => x !== p));
+  });
+  ((snap.arAging && snap.arAging.detail) || []).forEach((r) => {
+    const id = qboS(r.TxnId || r.Id),
+      c = clientFor(r.CustomerRef);
+    if (!id || !c || invById[id] || c.invoices.some((x) => "quickbooks" === x.source && x.qboId === id)) return;
+    const bal = qboN(r.Balance || r.Amount),
+      rec = { id: uid("in"), type: "invoice", number: qboS(r.DocNumber) || "QB-" + id, title: "Open balance from QuickBooks", mode: "items", date: qboDate(r.TxnDate || r.DueDate), due: qboDate(r.DueDate), status: "sent", projectId: projOf(c), lines: [{ id: uid("l"), item: "Open balance from QuickBooks", desc: "", qty: 1, unit: "ea", rate: bal, taxable: !1 }], discount: { type: "pct", value: 0 }, taxRate: 0, retainagePct: 0, terms: "", memo: "", internal: `imported from QuickBooks AR aging on ${at.slice(0, 10)} by ${by}`, source: "quickbooks", qboId: id, qboTotal: bal, qboBalance: bal };
+    c.invoices.push(rec), out.invoices.added++;
+  });
+  const upsertBill = (bl, fromAging) => {
+    const id = qboS(bl.Id || bl.TxnId);
+    if (!id) return;
+    const vendor = qboS(bl.VendorRef && bl.VendorRef.name) || qboS(bl.Vendor || bl.Name) || "QuickBooks vendor",
+      lines = fromAging
+        ? [{ id: uid("bl"), desc: "Open balance from QuickBooks", amount: qboN(bl.Balance || bl.Amount) }]
+        : (bl.Line || []).filter((l) => null != l.Amount && "SubTotalLineDetail" !== l.DetailType).map((l) => {
+            const d = l.AccountBasedExpenseLineDetail || l.ItemBasedExpenseLineDetail || {};
+            return { id: uid("bl"), desc: qboS(l.Description) || (d.ItemRef && d.ItemRef.name) || "QuickBooks bill line", amount: qboN(l.Amount), qboLineId: qboS(l.Id), account: (d.AccountRef && d.AccountRef.name) || (d.ItemRef && d.ItemRef.name) || "" };
+          }),
+      total = fromAging ? qboN(bl.Balance || bl.Amount) : qboN(bl.TotalAmt),
+      bal = null == bl.Balance ? total : qboN(bl.Balance),
+      rec = { vendor: vendor, number: qboS(bl.DocNumber) || "QB-" + id, date: qboDate(bl.TxnDate || bl.DueDate), due: qboDate(bl.DueDate), entityId: entDefault(), projectId: "", poId: "", cat: qboCat(lines.map((l) => l.account + " " + l.desc).join(" ") + " " + vendor), code: "", line: "", lines: lines, payMethod: "", fileId: "", notes: `imported from QuickBooks on ${at.slice(0, 10)} by ${by}${bl.PrivateNote ? " · " + qboS(bl.PrivateNote) : ""}`, status: bal <= 0.004 ? "paid" : "approved", approvals: [stamp], createdBy: "QuickBooks", source: "quickbooks", qboId: id, qboTotal: total, qboBalance: bal };
+    bal <= 0.004 && (rec.paidAt = rec.date);
+    let b = (DB.bills || []).find((x) => "quickbooks" === x.source && x.qboId === id);
+    b ? (Object.assign(b, rec), out.bills.updated++) : ((rec.id = uid("b")), DB.bills.push(rec), out.bills.added++);
+  };
+  ((snap.apAging && snap.apAging.bills) || []).forEach((bl) => upsertBill(bl, !1));
+  ((snap.apAging && snap.apAging.detail) || []).forEach((r) => {
+    const id = qboS(r.TxnId || r.Id);
+    id && !(DB.bills || []).some((x) => "quickbooks" === x.source && x.qboId === id) && upsertBill(r, !0);
+  });
+  (pr.runs || []).forEach((r) => {
+    const id = qboS(r.id || r.Id || r.payrollId || r.runId || r.payDate),
+      from = qboDate(r.payPeriodStart || r.periodStart || r.from || r.startDate),
+      to = qboDate(r.payPeriodEnd || r.periodEnd || r.to || r.endDate),
+      payDate = qboDate(r.payDate || r.checkDate || r.paymentDate) || to,
+      gross = qboN(null != r.grossPay ? r.grossPay : null != r.gross ? r.gross : r.totalGross),
+      taxes = qboN(null != r.employerTaxes ? r.employerTaxes : null != r.taxes ? r.taxes : r.employerTax),
+      total = qboN(null != r.totalCost ? r.totalCost : null != r.total ? r.total : gross + taxes) || r2(gross + taxes),
+      rec = { period: `${fmt(from)} – ${fmt(to)}`, from: from, to: to, payDate: payDate, entityId: entDefault(), employees: +(r.employeeCount || (r.employees || []).length || 0), gross: gross, taxes: taxes, total: total, alloc: [{ projectId: "", pct: 100 }], status: "paid", approvals: [stamp], createdBy: "QuickBooks", notes: `imported from QuickBooks on ${at.slice(0, 10)} by ${by}`, source: "quickbooks", qboId: id };
+    if (!id || !payDate) return;
+    let x = (DB.payroll || []).find((y) => "quickbooks" === y.source && y.qboId === id);
+    x ? (Object.assign(x, rec), out.payroll.updated++) : ((rec.id = uid("pr")), DB.payroll.push(rec), out.payroll.added++);
+  });
+  DB.qbo.counts = out;
+  try {
+    audit("integration", "quickbooks", "snapshot-loaded", "", at, `${by}: ${JSON.stringify({ clients: out.clients, estimates: out.estimates, invoices: out.invoices, bills: out.bills, payroll: out.payroll })}`);
+  } catch (e) {}
+  try {
+    finCash._c = null;
+  } catch (e) {}
+  save();
+  try {
+    void 0 !== view && render();
+  } catch (e) {}
+  return out;
+}
+// Read a QuickBooks report (the API's Rows/Row/ColData shape, or a flat rows list) into labelled amounts.
+function qboReportRows(rep) {
+  const out = [];
+  if (!rep) return out;
+  if (Array.isArray(rep)) return rep.forEach((r) => r && out.push({ label: qboS(r.label || r.name || r.account), amount: qboN(r.amount != null ? r.amount : r.value), group: qboS(r.group || r.type).toLowerCase() })), out;
+  const walk = (node) => {
+    if (!node || "object" != typeof node) return;
+    if (Array.isArray(node)) return void node.forEach(walk);
+    node.ColData && Array.isArray(node.ColData) && node.ColData.length > 1 && out.push({ label: qboS(node.ColData[0].value), amount: qboN(node.ColData[node.ColData.length - 1].value), group: "" }),
+      node.Summary && node.Summary.ColData && out.push({ label: qboS(node.Summary.ColData[0].value), amount: qboN(node.Summary.ColData[node.Summary.ColData.length - 1].value), group: "" }),
+      node.Rows && walk(node.Rows),
+      node.Row && walk(node.Row);
+  };
+  return walk(rep.Rows || rep), out;
+}
+const QBO_GROUP_RE = {
+    income: /^total (income|revenue)$|^(income|revenue|sales)$/i,
+    cogs: /^total cost of (goods sold|sales)$|^cost of (goods sold|sales)$|^cogs$/i,
+    expenses: /^total expenses?$|^(operating )?expenses?$/i,
+    cash: /^total bank accounts?$|^(cash|checking|bank accounts?)$|^total cash/i,
+    ar: /^(total )?accounts receivable( \(a\/r\))?$/i,
+    ap: /^(total )?accounts payable( \(a\/p\))?$/i,
+  },
+  qboPick = (rows, group) => {
+    const g = rows.filter((r) => r.group === group);
+    if (g.length) return r2(g.reduce((s, r) => s + r.amount, 0));
+    const re = QBO_GROUP_RE[group],
+      hit = rows.filter((r) => re.test(r.label.trim())).sort((a, b) => (/^total/i.test(b.label) ? 1 : 0) - (/^total/i.test(a.label) ? 1 : 0));
+    return hit.length ? hit[0].amount : null;
+  };
+function qboMonth(ym) {
+  const Q = DB.qbo;
+  if (!Q) return null;
+  const m = ((Q.pl && Q.pl.months) || []).find((x) => qboS(x.month || x.ym).slice(0, 7) === ym),
+    rows = m ? qboReportRows(m.report || m.rows) : [],
+    end = fin2End(ym),
+    bs = (Q.balanceSheet || [])
+      .filter((b) => qboDate(b.asOf || (b.Header && b.Header.EndPeriod)) <= end)
+      .sort((a, b) => qboDate(a.asOf).localeCompare(qboDate(b.asOf)))
+      .pop(),
+    bsRows = bs ? qboReportRows(bs.report || bs.rows || bs) : [],
+    ar = (Q.arAging && Q.arAging.summary) || null,
+    ap = (Q.apAging && Q.apAging.summary) || null;
+  return {
+    hasPL: !!m,
+    income: m ? qboPick(rows, "income") : null,
+    cogs: m ? qboPick(rows, "cogs") : null,
+    expenses: m ? qboPick(rows, "expenses") : null,
+    cash: bs ? qboPick(bsRows, "cash") : null,
+    ar: bs && null != qboPick(bsRows, "ar") ? qboPick(bsRows, "ar") : ar && null != ar.total ? qboN(ar.total) : null,
+    ap: bs && null != qboPick(bsRows, "ap") ? qboPick(bsRows, "ap") : ap && null != ap.total ? qboN(ap.total) : null,
+    asOf: bs ? qboDate(bs.asOf) : "",
+  };
+}
+// The ERP's own figures at a month end, from the records: open invoices and bills as of that day.
+function truthErpBalances(end) {
+  let ar = 0,
+    ap = 0;
+  return (
+    (DB.clients || []).forEach((c) =>
+      (c.invoices || []).forEach((i) => {
+        if (["void", "draft"].includes(i.status) || i.date > end) return;
+        const paid = (c.payments || []).filter((p) => p.invoiceId === i.id && !p.unapplied && p.date <= end).reduce((s, p) => s + (+p.amount || 0), 0);
+        ar = r2(ar + Math.max(0, docTotal(i).total - paid));
+      }),
+    ),
+    (DB.bills || []).forEach((b) => {
+      if (["void", "rejected", "draft"].includes(b.status) || b.date > end || b.ic) return;
+      const paidOn = b.paidAt || (b.txnId && ((DB.txns || []).find((t) => t.id === b.txnId) || {}).date) || "";
+      (["paid", "verified"].includes(b.status) && paidOn && paidOn <= end) || (ap = r2(ap + billTotal(b)));
+    }),
+    { ar: ar, ap: ap }
+  );
+}
+function truthTieOut(ym) {
+  const start = ym + "-01",
+    end = fin2End(ym),
+    R = [start, end],
+    Q = qboMonth(ym),
+    P = companyPL(R),
+    C = truthCoverage(R),
+    U = bankUnmatched(R),
+    T = (DB.txns || []).filter((t) => within(t.date, R)),
+    nonPL = ["transfer", "cc-payment", "loan", "owner"],
+    bankIncome = r2(T.filter((t) => t.amt > 0 && !nonPL.includes(t.cat) && !["refund"].includes(t.cat)).reduce((s, t) => s + t.amt, 0)),
+    bankCogs = r2(T.filter((t) => t.amt < 0 && ("cogs" === catType(t.cat) || "labor" === t.cat)).reduce((s, t) => s - t.amt, 0)),
+    bankOh = r2(T.filter((t) => t.amt < 0 && ("oh" === catType(t.cat) || "payroll-oh" === t.cat)).reduce((s, t) => s - t.amt, 0)),
+    bankUncoded = r2(T.filter((t) => t.amt < 0 && (!t.cat || "uncat" === t.cat)).reduce((s, t) => s - t.amt, 0)),
+    imp = (DB.bankImports || []).filter((i) => null != i.ending && i.period && i.period[1] >= end && i.period[0] <= end),
+    cashLedger = finCash(end).cash,
+    bankCash = imp.length ? r2((DB.accounts || []).filter((a) => "card" !== a.type).reduce((s, a) => { const x = imp.filter((i) => i.acctId === a.id).sort((p, q) => String(p.period[1]).localeCompare(String(q.period[1]))).pop(); return s + (x ? +x.ending : (finCash(end).by.find((b) => b.id === a.id) || {}).book || 0); }, 0)) : null,
+    E = truthErpBalances(end),
+    hasQ = !!Q,
+    rows = [],
+    row = (group, label, qbo, bank, erp, causes) => {
+      const dq = null == qbo || null == erp ? null : r2(qbo - erp),
+        db = null == bank || null == erp ? null : r2(bank - erp),
+        off = (dq && Math.abs(dq) >= 1) || (db && Math.abs(db) >= 1),
+        parts = (causes || []).filter(Boolean);
+      rows.push({ group: group, label: label, qbo: qbo, bank: bank, erp: erp, diffQbo: dq, diffBank: db, off: !!off, cause: off ? (parts.length ? parts.join("; ") : "flagged: no cause found — look at the postings") : "agrees", explained: !!(off && parts.length) });
+    },
+    manualInc = C.income.hand;
+  row("income", "Income", hasQ ? Q.income : null, bankIncome, r2(P.income), [
+    Math.abs(P.wipAdj || 0) >= 1 ? `the ERP recognises earned revenue: WIP adjustment ${money(P.wipAdj)} on top of ${money(P.invoiced)} invoiced` : "",
+    Math.abs(bankIncome - (P.collected || 0)) >= 1 ? `deposits at the bank ${money(bankIncome)} against ${money(P.collected || 0)} collected on invoices${U.rows.some((t) => t.amt > 0) ? `; ${U.rows.filter((t) => t.amt > 0).length} deposit${1 === U.rows.filter((t) => t.amt > 0).length ? "" : "s"} not matched to an invoice` : ""}` : "",
+    manualInc ? `${money(manualInc)} of income by manual entry` : "",
+    hasQ && !Q.hasPL ? "QuickBooks: no P&L for this month in the snapshot" : "",
+    hasQ ? "" : "no QuickBooks snapshot loaded",
+  ]);
+  row("cogs", "Cost of work (COGS)", hasQ ? Q.cogs : null, bankCogs, r2(P.cogsT), [
+    C.cost.document >= 1 ? `${money(C.cost.document)} of cost stands on approved documents the bank has not paid yet (accrual)` : "",
+    bankUncoded >= 1 ? `${money(bankUncoded)} of bank lines carry no category and sit outside cost` : "",
+    U.n ? `${U.n} bank line${1 === U.n ? "" : "s"} (${money(U.amt)}) not matched to a line` : "",
+    P.accrued ? `${money(P.accrued)} of bills await approval` : "",
+    hasQ ? "" : "no QuickBooks snapshot loaded",
+  ]);
+  row("expenses", "Overhead (expenses)", hasQ ? Q.expenses : null, bankOh, r2(P.ohT), [
+    C.cost.hand >= 1 ? `${money(C.cost.hand)} of cost is typed by hand, not yet seen at the bank` : "",
+    P.needsCat ? `${money(P.needsCat)} needs a category` : "",
+    bankUncoded >= 1 ? `${money(bankUncoded)} of bank lines carry no category` : "",
+    hasQ ? "" : "no QuickBooks snapshot loaded",
+  ]);
+  row("cash", "Cash", hasQ ? Q.cash : null, bankCash, r2(cashLedger), [
+    null == bankCash ? "no statement with an ending balance covers the month end; the bank says nothing until one is imported" : "",
+    C.cost.n.hand ? `${C.cost.n.hand} typed line${1 === C.cost.n.hand ? "" : "s"} not yet seen at the bank` : "",
+    hasQ && Q.asOf && Q.asOf !== end ? `QuickBooks balance sheet is as of ${fmtL(Q.asOf)}, not ${fmtL(end)}` : "",
+    hasQ ? "" : "no QuickBooks snapshot loaded",
+  ]);
+  const qboOpenInv = hasQ ? (DB.clients || []).flatMap((c) => c.invoices.filter((i) => "quickbooks" === i.source && i.qboBalance > 0).map((i) => i.number)) : [],
+    qboOpenBills = hasQ ? (DB.bills || []).filter((b) => "quickbooks" === b.source && b.qboBalance > 0).map((b) => `${b.vendor} ${b.number}`) : [];
+  row("ar", "Receivables (AR)", hasQ ? Q.ar : null, null, E.ar, [
+    "the bank holds no receivables",
+    hasQ && qboOpenInv.length ? `QuickBooks open invoices loaded as ERP invoices: ${qboOpenInv.join(", ")}` : "",
+    hasQ && Q.asOf && Q.asOf !== end ? `QuickBooks aging is as of ${fmtL(Q.asOf)}` : "",
+    hasQ ? "" : "no QuickBooks snapshot loaded",
+  ]);
+  row("ap", "Payables (AP)", hasQ ? Q.ap : null, null, E.ap, [
+    "the bank holds no payables",
+    P.accrued ? `${money(P.accrued)} of bills await approval in the ERP` : "",
+    hasQ && qboOpenBills.length ? `QuickBooks open bills loaded as ERP bills: ${qboOpenBills.join(", ")}` : "",
+    hasQ ? "" : "no QuickBooks snapshot loaded",
+  ]);
+  return { ym: ym, label: truthLabel(ym), rows: rows, hasQbo: hasQ, loadedAt: DB.qbo && DB.qbo.loadedAt, company: DB.qbo && DB.qbo.company && (DB.qbo.company.CompanyName || DB.qbo.company.LegalName || "") };
+}
+function truthTieOutMonths() {
+  const Q = DB.qbo,
+    M = Q && Q.pl && Array.isArray(Q.pl.months) ? Q.pl.months.map((m) => qboS(m.month || m.ym).slice(0, 7)).filter(Boolean) : [];
+  if (M.length) return [...new Set(M)].sort();
+  const t = today(),
+    out = [];
+  for (let i = 2; i >= 0; i--) out.push(iso(new Date(+t.slice(0, 4), +t.slice(5, 7) - 1 - i, 1)).slice(0, 7));
+  return out;
+}
+const truthM = (v) => (null == v ? '<span class="muted">—</span>' : money(v));
+function truthTieOutHtml() {
+  const months = truthTieOutMonths(),
+    Q = DB.qbo,
+    head = `<div class="rep-head"><div><h2 style="margin:0">Three-way tie-out</h2><div class="small muted">QuickBooks says · the bank says · the ERP says, per month and account group. ${Q ? `Snapshot ${Q.company && (Q.company.CompanyName || Q.company.LegalName) ? "of " + esc(Q.company.CompanyName || Q.company.LegalName) + " " : ""}loaded ${fmtL(qboDate(Q.loadedAt))} by ${esc(Q.by || "")}.` : "No QuickBooks snapshot is loaded: the QuickBooks column stays empty until one is, from a file kept outside the repo (qboLoad)."} QuickBooks is a bridge for comparison, never the truth; a difference is explained or flagged, never hidden.</div></div></div>`;
+  return (
+    head +
+    months
+      .map((ym) => {
+        const T = truthTieOut(ym);
+        return `<h3 class="rep-h">${esc(T.label)}</h3><div class="tw"><table class="t rep-t tr-tie"><thead><tr><th>Account Group</th><th class="money">QuickBooks Says</th><th class="money">The Bank Says</th><th class="money">The ERP Says</th><th class="money">QuickBooks − ERP</th><th class="money">Bank − ERP</th><th>Cause</th></tr></thead><tbody>${T.rows.map((r) => `<tr class="${r.off ? (r.explained ? "" : "tr-flagged") : ""}"><td>${esc(r.label)}</td><td class="money">${truthM(r.qbo)}</td><td class="money">${truthM(r.bank)}</td><td class="money">${truthM(r.erp)}</td><td class="money ${r.diffQbo && Math.abs(r.diffQbo) >= 1 ? "warn" : ""}">${truthM(r.diffQbo)}</td><td class="money ${r.diffBank && Math.abs(r.diffBank) >= 1 ? "warn" : ""}">${truthM(r.diffBank)}</td><td class="small ${r.off && !r.explained ? "bad" : "muted"}">${esc(r.cause)}</td></tr>`).join("")}</tbody></table></div>`;
+      })
+      .join("")
+  );
+}
+if (Array.isArray(REP_GROUPS)) {
+  const fin = REP_GROUPS.find((g) => "fin" === g.id);
+  fin && !fin.tabs.some((t) => "tieout" === t[0]) && fin.tabs.push(["tieout", "Three-way tie-out"]), (REP_DEFS.tieout = "QuickBooks says, the bank says, the ERP says: per month and account group, every difference with its cause or a flag.");
+}
+if ("function" == typeof renderReports) {
+  const base = renderReports;
+  renderReports = function () {
+    base.apply(this, arguments);
+    if ("tieout" !== repTab) return;
+    const area = document.getElementById("rep-print-area");
+    if (area)
+      try {
+        area.innerHTML = truthTieOutHtml();
+      } catch (e) {
+        console.error("tie-out", e);
+      }
+  };
+}
+
+// ---- Ask: coverage, manual entries, verify, tie-out; the unmatched reader learns the month
+const truthAskPer = (P) => (P.period ? [P.period.from, P.period.to] : [today().slice(0, 4) + "-01-01", today()]),
+  TRUTH_WORDS = "backed backing coverage covered evidence manual journal journals entry entries posted posting postings verify verified hash chain sealed seal tamper quickbooks qbo tie tieout three unmatched matched match exception exceptions reversal reversed amended void voided document documents accrual accruals".split(" ");
+if ("function" == typeof agVocab) {
+  const base = agVocab;
+  agVocab = function () {
+    const V = base.apply(this, arguments);
+    return V && V.base && !V.base.has("tieout") && TRUTH_WORDS.forEach((w) => V.base.add(w)), V;
+  };
+}
+AG_FIN.unshift(
+  {
+    id: "coverage",
+    re: /\b(backed|coverage|covered|evidence)\b.*\b(bank|card|document|documents|hand|cost|costs|income|revenue|statement|feed|figures?)\b|\bby hand\b|\bbank[- ]backed\b/,
+    not: /\bbudget\b|\binsurance\b|\bliability\b|\bwarranty\b/,
+    kind: "money",
+    run(P) {
+      const R = truthAskPer(P),
+        per = agPerLabel(P),
+        C = truthCoverage(R, P.jobs.length ? { projectId: P.jobs[0].id } : {}),
+        k = C.cost,
+        i = C.income;
+      return {
+        headline: `Of ${per}'s cost (${money(k.total)}${P.jobs.length ? ` on ${agShort(P.jobs[0])}` : ""}), ${money(k.bank)} is backed by a bank or card line, ${money(k.document)} by an approved document only (accrual) and ${money(k.hand)} by hand${k.adjust && Math.abs(k.adjust) > 0.5 ? `, with ${money(k.adjust)} in adjustments` : ""}: ${k.pct}% bank-backed.`,
+        note: `Income ${money(i.total)}: ${money(i.bank)} collected and confirmed by the bank, ${money(i.document)} invoiced only, ${money(i.hand)} by hand${i.adjust && Math.abs(i.adjust) > 0.5 ? `, ${money(i.adjust)} of earned-revenue adjustment (invoiced ahead of or behind the work)` : ""}.${C.demo ? ` ${C.demo} Demo Feed line${1 === C.demo ? "" : "s"} count as typed by hand.` : ""}`,
+        work: k.rows.filter((r) => "bank" !== r.backing).sort((a, b) => b.amt - a.amt).slice(0, 8).map((r) => `${fmtL(r.date)} · ${r.desc} — ${money(r.amt)} · ${"hand" === r.backing ? "by hand" : "document only"}: ${r.why}`),
+        go: agGo("gl") || agGo("bank"),
+        ran: agRan("cost and income rows", [`date in ${per}`].concat(P.jobs.length ? [`job is ${agShort(P.jobs[0])}`] : []), "evidence behind each", k.rows.length + i.rows.length),
+      };
+    },
+  },
+  {
+    id: "manualentries",
+    re: /\bmanual (journal )?entr|\bjournal entr|\bentries? (posted|typed|made) by hand\b|\bmanual journal/,
+    kind: "money",
+    run(P) {
+      const R = truthAskPer(P),
+        per = agPerLabel(P),
+        M = truthManual(R, { entityId: "all" }),
+        man = M.manual,
+        other = M.rows.filter((m) => "manual" !== m.j.kind);
+      return {
+        headline: man.length
+          ? `${agN(man.length, "manual journal entry", "manual journal entries")} in ${per}, ${money(M.amtManual)}: ${man.map((m) => `#${m.j.n} ${m.j.memo} (${money(m.amt)}) · by ${m.flag.who} on ${m.flag.when} · ${m.j.why || "no reason recorded"}`).join("; ")}.${other.length ? ` Also ${agN(other.length, "entry", "entries")} posted at a close or opening, flagged the same way.` : ""}`
+          : `No manual journal entries in ${per}.${other.length ? ` ${agN(other.length, "entry", "entries")} not from a document ${1 === other.length ? "was" : "were"} posted at a close or opening (${other.map((m) => `#${m.j.n} ${m.j.memo}`).join("; ")}), each flagged with who, when and why.` : " Every posting derives from a document."}`,
+        work: M.rows.map(truthManualLine),
+        go: agGo("gl"),
+        ran: agRan("ledger postings", [`date in ${per}`, "no source document"], "", M.n),
+      };
+    },
+  },
+  {
+    id: "verifybooks",
+    re: /\bverify the books\b|\bhash chain\b|\btamper|\bsealed\b.*\b(month|books|period)\b|\b(books|postings?) (been )?(changed|altered|edited) (since|after)\b/,
+    kind: "money",
+    run() {
+      const V = truthVerifyAll();
+      return {
+        headline: V.length ? V.map(truthVerifyWords).join(" ") : `No month is sealed yet: the first close seals its postings (${TRUTH_HASH_SCHEME}) and Verify the Books checks every closed month after that.`,
+        go: agGo("gl"),
+        ran: agRan("sealed periods", ["chain re-derived from the postings"], "", V.length),
+      };
+    },
+  },
+  {
+    id: "tieout",
+    re: /\bquickbooks\b|\bqbo\b|\btie[- ]?out\b|\bthree[- ]way\b/,
+    kind: "money",
+    run(P) {
+      const ym = P.period ? P.period.from.slice(0, 7) : truthTieOutMonths().slice(-1)[0],
+        T = truthTieOut(ym),
+        g = (k) => T.rows.find((r) => r.group === k),
+        inc = g("income"),
+        off = T.rows.filter((r) => r.off),
+        flagged = off.filter((r) => !r.explained);
+      return {
+        headline: T.hasQbo
+          ? `${T.label}: QuickBooks says income ${money(inc.qbo)}, the bank says ${money(inc.bank)}, the ERP says ${money(inc.erp)}; ${off.length - flagged.length} of ${T.rows.length} groups differ with a cause, ${flagged.length} flagged.`
+          : `No QuickBooks snapshot is loaded, so for ${T.label} only the bank and the ERP can be compared: the bank says ${money(inc.bank)} of deposits, the ERP says ${money(inc.erp)} of income. Load a snapshot from outside the repo (qboLoad) to tie out three ways.`,
+        work: T.rows.map((r) => `${r.label}: QuickBooks ${null == r.qbo ? "—" : money(r.qbo)} · bank ${null == r.bank ? "—" : money(r.bank)} · ERP ${money(r.erp)} — ${r.cause}`),
+        go: agGo("reports", { tab: "tieout" }),
+        ran: agRan("three-way tie-out", [`month is ${T.label}`], "account group", T.rows.length),
+      };
+    },
+  },
+);
+{
+  const rd = AG_FIN.find((r) => "unmatched" === r.id);
+  if (rd) {
+    const base = rd.run;
+    rd.run = function (P) {
+      if (!P.period) return base.apply(this, arguments);
+      const U = bankUnmatched([P.period.from, P.period.to]),
+        ex = U.rows.filter((t) => t.exception).length,
+        B = PRED.unmatchedTxns.byMonth();
+      return {
+        headline: `${agN(U.n, "bank line")} not matched to a line in ${P.period.label}: ${money(U.amt)}${ex ? `, ${ex} with a signed exception` : ""}${U.n ? `; ${PRED.unmatchedTxns.count()} in all (${truthByMonthWords(B)})` : ""}.`,
+        work: U.rows.map((t) => `${fmtL(t.date)} · ${t.desc || t.vendor} — ${money(t.amt)}${t.exception ? ` · exception by ${t.exception.by}: ${t.exception.why}` : t.proposal ? " · a match is proposed, to confirm" : ""}`),
+        go: agGo("bank"),
+        ran: agRan("transactions", ["not matched to a bill, order, invoice or payroll line", `date in ${P.period.label}`], "", U.n),
+      };
+    };
+  }
+}

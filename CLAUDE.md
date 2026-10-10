@@ -7,6 +7,12 @@ Read this file, then HANDOFF.md, then docs/BACKLOG.md, before touching code.
 - **What it is:** one ERP for every person in the firm (owner, PM, coordinator/procurement, foreman, crew, driver, designer, billing, controller) and for the firm's clients through a portal.
 - **The goal:** each person runs their day from it and is 10x more productive. The firm stops needing NetSuite, QuickBooks, Procore, Buildertrend and a CRM.
 
+## The mission (Alan, 2026-10-10): never forget this
+SmartDesigns Projects is a living, breathing, evolving ERP that constantly wants to improve and help the company succeed at the highest level. Two things make it that, and they are the most important features in the system:
+- **The brain.** It consumes all the data it can: every record, email, calendar, drive file, meeting transcript, bank line, field report and outcome. It learns what is working and what is not, analyses it, and turns that into changes that raise productivity and stop mistakes from recurring: new rules, process changes, reminders, lessons and, when a person approves, changes to the ERP itself and to each role's process.
+- **The personal assistant, one per person.** Think of a frontier chat assistant fully customised to SmartDesign and to that person's role. It uses all the information in the company to help its user succeed at a very high level: it makes sure they never miss an opportunity or a deadline, helps them do their work, manages their day to day, and acts on their behalf (drafts, chases, schedules, files, proposes) with the ability to get things done. People approve what moves money, commits the firm or reaches a client.
+- The experts who test every round are role experts from a design-build firm with in-house trades (construction, plumbing, electric, design, architecture, permitting and LPC, coordination with engineers and consultants), 20 years in their field and fluent in today's AI. Their definitions live in `.claude/agents/`. They judge the assistant and the brain as hard as they judge the screens.
+
 ## The north star (Alan, 2026-10-08): weigh every change against this
 A custom, tailored ERP for SmartDesign, built for the future. It uses AI to raise each employee's output and to make sure nothing is forgotten:
 - **Nothing slips.** No forgotten task, follow-up, reminder or promise. Agents in the ERP originate, chase and remind; people approve.
@@ -18,6 +24,12 @@ A custom, tailored ERP for SmartDesign, built for the future. It uses AI to rais
   - returns and refunds that were never credited or matched;
   - overhead analysed and reported automatically.
 - **It learns.** It learns from emails and transcripts, keeps a memory, and turns lessons into process changes, so the same mistake does not happen twice.
+- **Financial truth (Alan, 2026-10-10).** The ERP's financials are the single most valuable source of truth for income and expenses, so:
+  - every income and expense figure is linked directly to the bank and credit-card accounts; a figure with no bank or card line behind it is not truth and is shown as such;
+  - manual journal entries are always flagged, everywhere they appear (ledger, statements, Pack, drill-downs, Ask), with who, when and why;
+  - nothing posted can be changed or manipulated silently: posted money records are append-only, a change is a linked reversal and re-post with a reason, and the audit trail is tamper-evident;
+  - every transaction is matched to a line item: cost to a bill or PO line and its estimate line, income to an invoice line; an unmatched transaction is a flag, never a silent cost;
+  - QuickBooks is a bridge for comparison and import, never the truth; the ERP shows where QuickBooks, the bank and the ERP disagree.
 
 ## The bar
 Four expert lenses grade every round against the field leaders:

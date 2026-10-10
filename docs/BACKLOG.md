@@ -235,6 +235,31 @@ Baseline: 2 MISSED, 4 PARTIAL. Every item is proven by its leak_test scenario tu
      - The person's due-soon items go to Home and Ask "My Day".
 7. **Bug.** The New Bill drawer's Vendor gate (`vfHold`) stays on the shared `#d-save` button, so the transaction drawer cannot save until Vendor is filled. Clear it when the drawer opens.
 
+### 1.6 truth: the ERP's financials are the single source of truth (Alan, 2026-10-10; CLAUDE.md "Financial truth")
+Proven by `tests/truth_test.py`. Every item is a class, applied to every money record type (invoice, payment, bill, bill payment, PO, bank and card line, payroll run, journal).
+**Delivered 2026-10-10 (lane truth):** `tests/truth_test.py` runs 112 checks across six sections (cov, manual, tamper, match, qbo, guard) by driving the real flows; docs/ARCHITECTURE.md lists the functions (`truth*`, `qboLoad`). The hash chain is FNV-1a 32 over the month's postings in posting order; a close seals it into `DB.periods.chains[ym]`. The match model is `txn.match = {billId, billLineId, poId, poLineId, estimateLineId, invoiceId, invoiceLineId, payrollId}` (`truthMatchOf`). `*.qbo.json` is git-ignored; the harness refuses a snapshot path inside the repo.
+1. **Bank and card are the source.** Every P&L and job-cost figure carries its coverage: backed by a bank or card line, backed by an approved document only (accrual), or by hand. Coverage shows on the Statements, the Pack, the job report and Ask ("how much of August's cost is backed by the bank"). The Demo Feed never counts as bank evidence (§1.1 #5).
+2. **Journal entries always flagged.** A manual journal (and any posting that did not derive from a document) carries a visible flag on every surface it touches: ledger rows, statement lines (count and amount of manual entries per line, drill-down), the Pack, the close checklist and Ask. Drafted by the Controller, posted by the Owner with a typed reason; never silent.
+3. **Tamper-evident.** Posted money records and ledger postings are append-only: an edit is a reversal plus a re-post, linked, with who, when and why (already the rule for open periods; make it universal and visible). A hash chain over postings per period, verified at close and on demand ("Verify the Books" on Ledger), so a changed or deleted posting is detected and named. Deleting a posted record is refused; voiding is a reversal with a reason.
+4. **Every transaction matched to a line.** A bank or card line resolves to a bill line or PO line and through it to an estimate line (cost side), or to an invoice line (income side); a payroll run to its time entries; a client payment to invoice lines. Unmatched is a named state with a count on Banking, Home (Caught for You), the close checklist and Ask, never a silent cost. A close refuses while unmatched lines exist in the month, or lists them with a signed exception.
+5. **QuickBooks is a bridge, not the truth.** Load a QuickBooks snapshot (customers, estimates and invoices with lines, open AR and AP, P&L, balance sheet, payroll) through the app's own import paths into clients, documents and periods, marked `source: quickbooks`; then show a Three-Way Tie-Out: QuickBooks says / the bank says / the ERP says, per month and per account, with every difference listed and explained or flagged. The snapshot file lives outside the repo (`tests/harness.py: load_qbo_snapshot(pg, path)`, refusing paths inside the repo) and is never committed, seeded or published.
+
+### 1.7 assistant gaps: what did not fire on a synced workspace (from tests/demo_ws_test.py, 2026-10-10)
+Each is proven by a demo_ws_test check turning from "did not fire" to "fired as a proposal". AI proposes, people approve, throughout.
+1. **Field and design assistants know no jobs (S2).** `paMine().projects` is empty unless the person is the project's PM, so `paTerms` carries no project or client terms: the foreman got 1 nudge from 14 messages (the DOB inspection window and the plumber's no-show never reached him); the designer 4 of 15. A person's jobs are the jobs they are assigned to, clocked on, or named on (schedule, submittals, decisions), not only the ones they manage.
+2. **Meeting tasks apply without approval (S2).** The seed ships `company.meetAuto.task = true`, so tasks from meeting notes are created on sync. Default to proposals; a firm may switch auto-apply on per kind, and the Brain says so.
+3. **Engineer's calcs are only a note.** The PE's flitch-beam calcs should file on the job, update the S-101 submittal, and propose "stamp the shop drawings before fabrication".
+4. **Vendor delivery dates in mail stay notes.** Propose setting or confirming the PO's expected date, the foreman's Arriving Today, and an elevator or street reservation task.
+5. **Field requests in mail stay notes.** "25 boards GWB by Thursday" becomes a material request on the Buy Board with its order-by date.
+6. **Meeting notes and transcripts in Drive are only nudged** ("belongs on the job"); ingest them like mail (`mtIngest` from Drive text).
+7. **A client's dated ask inside a decision email** ("confirm the laundry layout before Friday") becomes a dated task for the PM, not only an offer.
+8. **The quiet-lead chase** fires only when the sent message asked a question; any proposal or quote sent with no reply is watched.
+9. **A DOB NOW notice** sets the inspection date on the project's inspection record (as a proposal), not only a permit note.
+10. **Lessons are not proposed from events.** The no-show and the expired COI never became lessons; `bnSuggestLessons` runs only when The Brain renders. Run it on every sync and on every closed field issue, bill dispute and late delivery.
+11. **A call from the answering service** matches the client by phone and proposes the reply draft, not only a task.
+12. **A bank or card statement in Drive** proposes the import (and the reconcile), not only a nudge.
+13. **Unrouted mail becomes master data** (from the real-workspace test): a thread matching no client, project or vendor proposes creating it, with the evidence; the owner approves in one tap and the thread routes. **Done (lane realws, 2026-10-10):** `paMasterClusters` clusters unrouted threads by correspondent domain, person and project-like address; one nudge and Ask ("who is not on file") carry one-tap offers; `paMasterApply` creates the vendor, lead, client or job and routes the cluster. Proven on an invented loaded workspace in `demo_ws_test.py` ("loaded"). Still open from the same run: a Loaded Workspace dated after the app day reads as the future to the chase and due-date logic (two clocks, documented in ARCHITECTURE.md), and the first sync of a seven-month mailbox still proposes per-message notes by the hundred.
+
 ---
 
 ## §2 Remaining round-4 findings
@@ -249,6 +274,7 @@ Baseline: 2 MISSED, 4 PARTIAL. Every item is proven by its leak_test scenario tu
     - Chips sum to Everything.
     - Delegation rules: hours to the PM or foreman, material acknowledgements to Chen, bills under a threshold to the PM.
     - One waiting count shared by Home, the rail and Ask.
+  - Done (2026-10-10, lane polish): `DELEGATION` in `src/app.js` (next to `APPR_CHIPS`) names the one role each kind waits on, with the owner-only overrides as `who(it)`; the last `mApprovals` layer applies it, so every queue, badge, tile and Ask count follows. Owner 26 → 10 (WW-2026-118, the brain's change, 8 lessons), PM 26 → 16, Chen 20 → 3, billing 9 → 0, controller 13 → 0; the owner's Approvals still lists what waits on the others under "N more wait on the others".
 - **Purchasing overview is a third "to buy" list (S2).**
   - What happens: the overview has 28 rows, Buy Board › Contract Lines 33, Finish Selections 5 (the submittal-gated items are missing from the overview), and clicking a row opens the top of the Buy Board.
   - Fix: the overview IS the Buy Board's rows, with row actions (New PO, Set Up to Order) and the submittal gate shown.
@@ -319,3 +345,38 @@ These are not reviewer findings. They are what the reviewers kept circling: the 
    - Delegation moves items to the right person, so the owner's queue is only what only the owner can do.
 4. **Performance.** Measure boot, view switch and input latency on a mid-range phone (6x CPU throttle). Target view switch under 100ms and boot under 2s. Memoise jobFin and companyPL per DB revision.
 5. **Accessibility.** Keyboard paths for every primary flow, focus management after dialogs, ARIA on tabs and grids, contrast AA.
+
+---
+
+## §4 Round 5: the role experts' first walk (2026-10-10)
+Reviewers: `.claude/agents/` role experts, each a full day with a linked workspace (the owner on his real one). Reports in `review/r5_<role>/report.md` (git-ignored).
+
+| Role | Screens | Assistant | Brain | Overall | Would choose it over… |
+|---|---|---|---|---|---|
+| Owner | 6.5 | 4 | 4.5 | 5.5 | "beside QuickBooks and my inbox for a quarter; not yet let anyone tap Approve on what it proposes from mail" |
+| PM | 7 | 5 | 6 | 6.5 | Procore / Buildertrend on the schedule story; not until the two S1s are gone |
+| Coordinator | 6 | 5 | 4 | 5.5 | "the day the PO chain and the owner's approval queue hold money correctly" |
+| Controller | 7.5 | 5.5 | 4 | 7 | QuickBooks today for the gates and the audit chain; NetSuite once the WIP ties |
+| Client | 6.5 | 4 | 4 | 5.5 | Buildertrend's portal once the file editor and the design-phase truth are fixed |
+
+### Severity 1, with the lane that owns the fix
+1. Money proposals from mail point the wrong way (Zelle credits as bills, rent as AR, a stranger's deposit claim watched). **brain**
+2. "View the Sheets" opens the staff file editor to the client, with Save and Delete. **clientfix**
+3. The design-phase portal states construction truths on an unpaid retainer. **clientfix**
+4. A give-back never closes; a second Pull In pulls 4 more days; the next publish would send a false finish. **ops**
+5. A client's approved overage has no path to a change order. **ops**
+6. A PO with no vendor and a $0 line issues from a released submittal (§1.4 #1 was never rebuilt). **purchasing**
+7. A bill read from mail lands with no PO and no job; Bill Remaining ignores it ($95,000 billed on a $76,000 order). **purchasing**
+8. Submittal responses recorded on someone's behalf are attributed to the reviewer, including the client. **purchasing**
+9. A PO submitted for the owner's approval reaches nobody. **purchasing**
+10. WIP does not tie to the ledger after the close (§1.1 #1); the close does not refuse. **closetie**
+11. Budget activation and lock are unguarded in the functions (§1.1 #6). **closetie**
+12. One coding click re-recognised $27,000 of revenue by cost-to-cost against an unreviewed EAC. **closetie**
+
+### The classes behind the severity-2 findings
+- **The assistant guesses:** typo correction overreaches on known nouns; client names resolve to staff; "friday" is Thursday; memory rewrites the user's words; drafts are a template; chases send nothing; a slow answer hangs the thread. **assistant**
+- **The brain does not learn from events:** lessons are a fixed menu, fired 0×; nothing from a no-show, an extra before its CO, an LPC resubmit, a wrong-finish return, a $0 PO, a dispute, a void, a reopen, thirteen meetings. **learn**
+- **Proposals never reach a hand:** mail-read bills, imports, quotes, receipts, W-9 chases sit on the Comms screen; "X wrote about Y" with no button. **learn** (Needs Your Hand queue)
+- **Field answers stop at "save a record":** no-show, inspection booking, the client's choice, the sample approval. **ops**, **clientfix**
+- **The reader does not finish the job:** quote → task not price; receipt → uncoded line; delivery date → note; credit memo → nothing. **purchasing**
+- **Clones and counts:** 206 Lenox carries 121 State's decisions and materials; "late" and "blocked" still have several numbers on the purchasing screens; two Alans; "[image: …]" as a person. **ops**, **brain**

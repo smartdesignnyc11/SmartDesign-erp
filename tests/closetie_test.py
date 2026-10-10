@@ -78,9 +78,16 @@ LIB = r"""
     out.tinoPO = (tx('t13') || {}).poId;
     const t = tx('tsp1'); t.cat = 'materials'; t.projectId = 'p121'; t.code = '03'; t.status = 'categorized'; t.actor = 'Alan';
     save();
+    out.exceptions = exceptAugust('August line reviewed; the vendor record arrives next month');
     return out;
   }
-  window.CT = {bill, tx, p, csvOf, importCsv, reconcile, connectDemo, augCost, sepCost, monthEnd};
+  // The truth lane's close gate: every unmatched line in the month carries a signed exception (the controller signed three).
+  function exceptAugust(why) {
+    let n = 0;
+    bankUnmatched(['2026-08-01', '2026-08-31']).rows.filter(t => !t.exception).forEach(t => { if (truthException(t, why).ok) n++; });
+    return n;
+  }
+  window.CT = {bill, tx, p, csvOf, importCsv, reconcile, connectDemo, augCost, sepCost, monthEnd, exceptAugust};
   return true;
 }
 """
@@ -234,7 +241,7 @@ async def part_void(p, c):
       const ok = bfVoidNotAtBank('ta7', 'Amex charged the dumpster once; the second line was typed twice');
       glSync();
       const after = glPL('all', '2026-08-01', '2026-08-31').cogsT;
-      const t = DB.txns.find(x => x.id === 'ta7') || (DB.txnsVoid || []).find(x => x.id === 'ta7');
+      const t = DB.txns.find(x => x.id === 'ta7') || (DB.voided || []).find(x => x.id === 'ta7');
       const rev = DB.gl.journals.filter(j => j.key === 'txn:ta7');
       const list = closeChecklist('2026-08').find(i => /not at the bank/i.test(i.label));
       const fin = bfReconFinish();
@@ -364,6 +371,7 @@ async def part_close(p, c):
       const a = CT.tx('tsp1'); a.cat = 'office'; a.projectId = ''; a.code = ''; save();
       const late = DB.txns.find(x => x.desc === 'NEMO TILE SUPPLY LATE POST');
       out.latePostOn = late.postOn;
+      out.exceptions2 = CT.exceptAugust('reviewed at the re-close; the Ferguson and late Nemo lines await their bills');
       const r = fin2RunClose('2026-08', 'September lines are coded next month');
       out.reclose = r.ok || r.why;
       out.tie = ctWipTie('2026-08').ok;

@@ -1409,7 +1409,7 @@ button.kpi{text-align:left;cursor:pointer;font:inherit;color:inherit} button.kpi
 .cp-today .sl-nba-row a{color:inherit}
 
 /* ---------- HubSpot-style Sales Hub ---------- */
-:root,.hb-view{--hb-orange:#ff7a59;--hb-orange-d:#ff5c35;--hb-blue:#0091ae;--hb-navy:#33475b;--hb-ink:#33475b;--hb-ink2:#516f90;--hb-ink3:#7c98b6;--hb-rule:#cbd6e2;--hb-rule2:#dfe3eb;--hb-bg:#f5f8fa;--hb-bg2:#eaf0f6;--hb-white:#fff;--hb-green:#00bda5;--hb-red:#f2545b;--hb-yellow:#f5c26b;background:var(--hb-bg);color:var(--hb-ink);font-family:"Lexend Deca","Avenir Next","Segoe UI",var(--sans);padding:0 !important}
+:root,.hb-view{--hb-orange:#ff7a59;--hb-orange-d:#ff5c35;--hb-blue:#0091ae;--hb-navy:#33475b;--hb-ink:#33475b;--hb-ink2:#516f90;--hb-ink3:#7c98b6;--hb-rule:#cbd6e2;--hb-rule2:#dfe3eb;--hb-bg:#f5f8fa;--hb-bg2:#eaf0f6;--hb-white:#fff;--hb-green:#00bda5;--hb-red:#f2545b;--hb-yellow:#f5c26b;background:var(--hb-bg);color:var(--hb-ink);font-family:"Lexend Deca","Avenir Next","Segoe UI",var(--sans)} .hb-view{padding:0 !important}
 .hb-page{padding:20px 28px 60px} .hb-page h1{font-size:24px;font-weight:600;color:var(--hb-ink);margin:0} .hb-page h4{font-size:13px;font-weight:600;color:var(--hb-ink);margin:0 0 8px} .hb-page h5{font-size:12px;color:var(--hb-ink2);margin:14px 0 6px;font-weight:600}
 .hb-view a{color:var(--hb-blue)} .hb-view .muted{color:var(--hb-ink3)} .hb-view .bad{color:var(--hb-red)} .hb-view .warn{color:#b26a00}
 .hb-btn{border:1px solid var(--hb-rule);background:var(--hb-white);color:var(--hb-ink);border-radius:3px;padding:8px 16px;font-size:14px;font-weight:500;cursor:pointer;line-height:1;white-space:nowrap} .hb-btn:hover{background:var(--hb-bg)} .hb-btn.sm{padding:6px 12px;font-size:13px} .hb-btn.primary{background:var(--hb-orange);border-color:var(--hb-orange);color:#fff} .hb-btn.primary:hover{background:var(--hb-orange-d)} .hb-btn.link{border-color:transparent;background:transparent;color:var(--hb-blue)} .hb-btn.link:hover{text-decoration:underline;background:transparent} .hb-btn.danger{color:var(--hb-red)} .hb-btn[disabled]{opacity:.45;cursor:default} .hb-btn.on{background:var(--hb-bg2)}
@@ -1538,6 +1538,11 @@ body.hb-on .mbm .btn.primary{background:var(--hb-orange);border-color:var(--hb-o
 .m-appr{background:var(--paper);border:1px solid var(--rule);border-left:4px solid var(--ink-4);border-radius:10px;padding:12px 14px} .m-appr.warn{border-left-color:var(--warn)} .m-appr.bad{border-left-color:var(--bad)}
 .m-appr-t{display:flex;justify-content:space-between;gap:10px;align-items:baseline;font-size:14.5px} .m-appr-n{font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums} .m-appr-d{color:var(--ink-2);font-size:12.5px;margin-top:3px} .m-appr-a{display:flex;gap:8px;margin-top:10px} .m-appr-a .btn{flex:1;justify-content:center;min-height:44px} .m-appr-a .btn.ghost{flex:0 0 auto}
 .m-appr-list{display:flex;flex-direction:column;gap:8px;max-width:720px}
+/* what the delegation handed to the others (DELEGATION): one line under the chips, the rows in a sheet */
+.m-appr-others{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:-2px 0 12px}
+.m-appr-olist{border:1px solid var(--rule);border-radius:8px;overflow:hidden}
+.m-appr-o{display:flex;align-items:center;gap:12px;padding:10px 12px;border-top:1px solid var(--rule-2)} .m-appr-o:first-child{border-top:0}
+.m-appr-o .grow{display:flex;flex-direction:column;min-width:0} .m-appr-o b{font-size:13.5px}
 .m-callbar{position:fixed;left:12px;right:12px;bottom:calc(80px + env(safe-area-inset-bottom));background:var(--ink);color:#fff;border-radius:12px;padding:10px 12px;display:flex;gap:8px;align-items:center;z-index:60;font-size:14px;box-shadow:0 10px 30px rgba(0,0,0,.3)} .m-callbar span{flex:1} .m-callbar .btn.ghost{color:#fff}
 .m-a2hs{background:rgba(255,255,255,.08);border-radius:8px;padding:10px;margin-bottom:10px;font-size:12px;color:rgba(255,255,255,.8)} .m-a2hs b{display:block;color:#fff} .m-a2hs span{display:block;margin:2px 0 8px}
 @media (max-width:760px){
@@ -1728,7 +1733,7 @@ td.name:has(.ls-wait){white-space:normal} td.name .ls-wait{display:inline-block;
 .b4-w{padding:8px 0;border-top:1px solid var(--rule)} .b4-w:first-of-type{border-top:0} .b4-w.closed,.b4-w.expired{opacity:.6}
 .b4-many{margin-top:2px}
 /* ---------- sales, the Copper way 2026-09-14 (v93): the hub wears the ERP's own clothes ---------- */
-:root,.hb-view{--hb-orange:var(--accent);--hb-orange-d:var(--accent-3);--hb-blue:var(--accent);--hb-navy:var(--ink);--hb-ink:var(--ink);--hb-ink2:var(--ink-2);--hb-ink3:var(--ink-3);--hb-rule:var(--rule);--hb-rule2:var(--rule-2);--hb-bg:var(--paper-2);--hb-bg2:var(--paper-3);--hb-green:var(--ok);--hb-red:var(--bad);--hb-yellow:var(--warn);font-family:var(--sans);background:transparent;padding:20px 24px 48px !important}
+:root,.hb-view{--hb-orange:var(--accent);--hb-orange-d:var(--accent-3);--hb-blue:var(--accent);--hb-navy:var(--ink);--hb-ink:var(--ink);--hb-ink2:var(--ink-2);--hb-ink3:var(--ink-3);--hb-rule:var(--rule);--hb-rule2:var(--rule-2);--hb-bg:var(--paper-2);--hb-bg2:var(--paper-3);--hb-green:var(--ok);--hb-red:var(--bad);--hb-yellow:var(--warn);font-family:var(--sans);background:transparent} .hb-view{padding:20px 24px 48px !important}
 .hb-page{padding:0} .hb-page h1{font-size:18px;font-weight:600;letter-spacing:0} .hb-page h4{font-size:13px} .hb-head{margin-bottom:14px}
 .hb-btn{border-radius:6px;height:32px;padding:0 12px;font-size:var(--fs-body,12.5px);font-weight:500;display:inline-flex;align-items:center;gap:6px;line-height:1.2} .hb-btn.sm{height:28px;padding:0 10px;font-size:var(--fs-cap,12px)} .hb-btn.primary{background:var(--accent);border-color:var(--accent)} .hb-btn.primary:hover{background:var(--accent-3)} .hb-btn.on{background:var(--accent-2);color:var(--accent);border-color:var(--accent-2)}
 .hb-table{font-size:13px} .hb-table th{text-transform:uppercase;letter-spacing:.02em;font-size:11px;color:var(--ink-3);padding:7px 10px;background:var(--paper-3)} .hb-table td{padding:7px 10px} .hb-table td.hb-name a{color:var(--ink)} .hb-table tr:hover td{background:var(--paper-2)} .hb-table tr.sel td{background:var(--accent-2)}
@@ -3160,3 +3165,82 @@ body.crewmode .view.on .dl-sign > span{display:block;flex:1 1 auto;min-width:0}
 .br-dec{display:flex;gap:10px;align-items:center;padding:4px 0}
 .br-dec .grow{min-width:0}
 .br-decs-all{display:inline-block;margin-top:4px}
+
+/* ---------- Today: the Owner's and PM's Home (one type scale: 16 body / 16-17 titles / 14 secondary on phone) ---------- */
+.td-home{max-width:1180px;font-size:14px}
+.td-home .td-ph{margin-bottom:12px}
+.td-pulse{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:16px}
+.td-pl{display:flex;flex-direction:column;gap:2px;padding:12px 16px;background:var(--paper);border:1px solid var(--rule);border-radius:10px;color:var(--ink);text-decoration:none;min-width:0}
+.td-pl:hover{border-color:var(--ink-4);text-decoration:none}
+.td-pl b{font-size:22px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.2;white-space:nowrap}
+.td-pl span{font-size:13px;color:var(--ink-2)}
+.td-pl.bad b{color:var(--bad)} .td-pl.warn b{color:var(--warn)}
+.td-cols{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:16px;align-items:start}
+.td-side{display:grid;gap:16px}
+.td-sec{background:var(--paper);border:1px solid var(--rule);border-radius:10px;overflow:hidden}
+.td-hd{display:flex;align-items:baseline;gap:8px;padding:12px 16px 8px}
+.td-hd h3{font-size:15px;font-weight:600}
+.td-cnt{font-size:13px;color:var(--ink-3);font-variant-numeric:tabular-nums}
+.td-card{display:flex;align-items:center;gap:12px;padding:12px 16px;border-top:1px solid var(--rule-2)}
+.td-txt{flex:1;min-width:0}
+.td-l1{font-weight:600;font-size:14px;line-height:1.35;overflow-wrap:anywhere}
+.td-l1 a{color:var(--ink)} .td-l1 a:hover{color:var(--accent)}
+.td-l2{font-size:13px;color:var(--ink-2);margin-top:2px;line-height:1.35;overflow-wrap:anywhere}
+.td-verb{flex:none;min-width:84px;justify-content:center}
+.td-ic{flex:none;color:var(--warn);display:grid;place-items:center}
+.td-more{display:block;padding:12px 16px;border-top:1px solid var(--rule-2);font-weight:500}
+.td-empty{padding:12px 16px 16px;color:var(--ink-3)}
+.td-bl{margin:0;padding:0 16px 8px 34px} .td-bl li{padding:4px 0;line-height:1.4;color:var(--ink)}
+.td-jv{padding:0 16px 8px} .td-jv .jv-body p{margin:0 0 8px;line-height:1.5}
+.td-sh-rule{margin:0 0 8px} .td-sh-n{font-size:20px;font-weight:600;font-variant-numeric:tabular-nums;margin-bottom:8px}
+.td-sh-list{border-top:1px solid var(--rule-2)}
+.td-sh-row{display:flex;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--rule-2)}
+.td-sh-row[data-tdsh]{cursor:pointer} .td-sh-row .grow{display:flex;flex-direction:column;min-width:0}
+.td-sh-row .money{flex:none} .td-sh-row.total b,.td-sh-row.total .money{font-weight:600}
+.td-sh-row.figure b,.td-sh-row.figure .money{font-weight:700}
+.td-sh-item{display:flex;gap:12px;align-items:center;padding:7px 0 7px 18px;border-bottom:1px solid var(--rule-2);font-size:13px}
+.td-sh-item[data-tdsh]{cursor:pointer} .td-sh-item .grow{display:flex;flex-direction:column;min-width:0} .td-sh-item b{font-weight:500}
+.td-sh-ft{margin-top:12px}
+#tb-ask svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+#tb-ask[hidden]{display:none}
+@media (max-width:760px){
+  .td-home{font-size:16px}
+  .td-home .td-ph{margin-bottom:8px} .td-home .td-ph h2{font-size:24px}
+  .td-pulse{gap:8px;margin-bottom:12px}
+  .td-pl{padding:10px 10px} .td-pl b{font-size:17px} .td-pl span{font-size:13px;line-height:1.25}
+  .td-cols,.td-side{grid-template-columns:1fr;gap:12px}
+  .td-hd h3{font-size:17px}
+  .td-l1{font-size:16px} .td-l2{font-size:14px}
+  .td-verb{min-height:40px;min-width:88px}
+  .td-more{padding:14px 16px}
+  .td-bl li{font-size:15px}
+  /* phone chrome for the office roles: navigation is the bottom tab bar; the header carries the page title,
+     search, Ask, New and the flag, each 44px tall and 8px apart. The page's own heading is hidden where the
+     header carries the same title (tdChrome marks it), and so is a page header left with nothing to show. */
+  body.m-on .view{padding-left:16px;padding-right:16px}
+  body.m-on .topbar{padding-left:16px;padding-right:16px;gap:8px}
+  body.m-on #menu-btn{display:none}
+  body.m-on .view .ph h2.td-in-hdr{display:none}
+  body.m-on .view .ph.td-ph-bare{display:none}
+  body.m-on .topbar .search-btn.search-btn,body.m-on .topbar #rp-btn,body.m-on #tb-ask,body.m-on #fab.m-fab{height:44px;min-height:44px}
+  body.m-on .view .ph .lead{display:none}
+  body.m-on.td-nosub #subnav{display:none}
+  body.m-on #tb-ask span{display:none}
+  body.m-on #tb-ask{width:40px;height:40px;padding:0;justify-content:center;flex:none}
+  body.m-on #fab.m-fab{position:static;width:40px;height:40px;border-radius:var(--r);background:var(--paper);border-color:var(--rule);color:var(--ink);box-shadow:none;flex:none;z-index:auto}
+  body.m-on #fab.m-fab svg{width:18px;height:18px;stroke-width:2}
+}
+/* truth (BACKLOG §1.6): flags on postings not from a document, the History strip, coverage bars, the tie-out */
+.tr-flag{display:inline-block;margin-left:6px;padding:0 7px;border-radius:9px;background:var(--warn-2);color:var(--warn);font-size:11px;font-weight:600;white-space:nowrap;vertical-align:middle;line-height:1.7;max-width:100%}
+.tr-flag svg{width:11px;height:11px;vertical-align:-1px;margin-right:4px} .tr-flag.small{font-weight:500} .tr-flag[data-trdrill]{cursor:pointer}
+.tr-hist{margin:10px 0;padding:8px 12px;border:1px solid var(--rule);border-radius:var(--r);font-size:12px;color:var(--ink-2);background:var(--paper)}
+.tr-hist b{display:flex;align-items:center;gap:6px;margin-bottom:4px} .tr-hist .tr-h{display:block;padding:1px 0} .tr-hist .tr-h.amend{color:var(--warn)}
+.tr-match{margin-top:12px;padding:8px 12px;border:1px solid var(--rule);border-radius:var(--r)} .tr-match b{display:inline-flex;align-items:center;gap:5px} .tr-match .warn{color:var(--warn)}
+.tr-cov .tr-cov-row{margin:8px 0} .tr-cov .tr-cov-row b{margin-right:6px}
+.tr-bar{display:flex;height:8px;border-radius:4px;overflow:hidden;background:var(--paper-2);margin-top:5px} .tr-bar i{display:block;height:100%} .tr-bar .bank{background:var(--ok)} .tr-bar .doc{background:var(--info)} .tr-bar .hand{background:var(--warn)}
+.tr-cov-line{display:flex;align-items:flex-start;gap:6px;margin:6px 0 10px;color:var(--ink-2)} .tr-cov-line svg{flex:none;margin-top:2px}
+.tr-truth h3{display:inline-flex;align-items:center;gap:6px} .tr-truth{margin-bottom:12px}
+.tr-unm{margin:10px 0} .tr-unm b{display:inline-flex;align-items:center;gap:5px}
+.tr-tie td.warn{color:var(--warn)} .tr-tie td.bad{color:var(--bad)} .tr-tie tr.tr-flagged td{background:var(--bad-2)}
+.tr-verify .note{margin:6px 0}
+.pill.warn{background:var(--warn-2);color:var(--warn)} .pill.warn svg{width:11px;height:11px} .pill.warn a{display:inline-flex;margin-left:4px;color:inherit}

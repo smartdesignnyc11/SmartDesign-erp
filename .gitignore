@@ -1,7 +1,9 @@
+*.pyc
+*.qbo.json
+*.workspace.json
+.DS_Store
+.claude/worktrees/
+__pycache__/
 dist/
 node_modules/
 review/
-__pycache__/
-*.pyc
-.DS_Store
-.claude/worktrees/
