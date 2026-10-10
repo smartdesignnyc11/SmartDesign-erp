@@ -3198,6 +3198,8 @@ body.crewmode .view.on .dl-sign > span{display:block;flex:1 1 auto;min-width:0}
 .td-sh-row[data-tdsh]{cursor:pointer} .td-sh-row .grow{display:flex;flex-direction:column;min-width:0}
 .td-sh-row .money{flex:none} .td-sh-row.total b,.td-sh-row.total .money{font-weight:600}
 .td-sh-row.figure b,.td-sh-row.figure .money{font-weight:700}
+.td-sh-item{display:flex;gap:12px;align-items:center;padding:7px 0 7px 18px;border-bottom:1px solid var(--rule-2);font-size:13px}
+.td-sh-item[data-tdsh]{cursor:pointer} .td-sh-item .grow{display:flex;flex-direction:column;min-width:0} .td-sh-item b{font-weight:500}
 .td-sh-ft{margin-top:12px}
 #tb-ask svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
 #tb-ask[hidden]{display:none}

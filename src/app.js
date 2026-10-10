@@ -162816,8 +162816,20 @@ predDef("jobsAtRisk", {
   rows(scope) {
     return predJobs(scope)
       .filter((p) => !p.archived && "closed" !== (p.project || {}).status)
-      .map((p) => ({ p: p, why: this.why(p) }))
+      .map((p) => ({ p: p, why: this.why(p), late: PRED.jobLate.rows(p.id) }))
       .filter((x) => x.why.length);
+  },
+});
+// Jobs, not items: the PM thinks in jobs. One row per live job with something late on it, the items underneath.
+// (The Pulse said "Late on Jobs 10" and counted the items; its sheet now lists 2 jobs and the 10 items under them.)
+predDef("jobsLate", {
+  label: "Jobs Late",
+  rule: "jobs with something late on them: materials late to order, decisions past due or late submittals",
+  rows(scope) {
+    return predJobs(scope)
+      .filter((p) => !p.archived && "closed" !== (p.project || {}).status)
+      .map((p) => ({ p: p, late: PRED.jobLate.rows(p.id) }))
+      .filter((x) => x.late.length);
   },
 });
 
@@ -162846,6 +162858,7 @@ const TD_PULSE = {
       k: "risk",
       label: "Jobs at Risk",
       pred: "jobsAtRisk",
+      noun: "job",
       tone: (v) => (v ? "warn" : ""),
       go: () => setView("ovjobs"),
       goLabel: "Open Projects",
@@ -162854,8 +162867,9 @@ const TD_PULSE = {
   pm: [
     {
       k: "late",
-      label: "Late on Jobs",
-      pred: "jobLate",
+      label: "Jobs Late",
+      pred: "jobsLate",
+      noun: "job",
       mine: !0,
       tone: (v) => (v ? "bad" : ""),
       go: () => setView("ovjobs"),
@@ -162889,8 +162903,10 @@ function tdPulseValue(t) {
   const P = PRED[t.pred];
   return t.money ? P.figure() : tdPulseRows(t).length;
 }
-// One line per row behind a Pulse number: [what, detail, amount, open].
-function tdPulseLine(t, x) {
+// One line per row behind a Pulse number: [what, detail, amount, open, class, items under it].
+// A job-level number (Jobs at Risk, Jobs Late) lists each job with its late items underneath.
+const tdLateLines = (L) => (L || []).map((i) => tdPulseLine({ pred: "jobLate" }, i, !0));
+function tdPulseLine(t, x, inJob) {
   switch (t.pred) {
     case "safeToSpend":
       return [x[0], "", x[1], null, x[2]];
@@ -162902,7 +162918,9 @@ function tdPulseLine(t, x) {
         flowGo.doc(x.c, "invoice", x.o.x),
       ];
     case "jobsAtRisk":
-      return [tdJob(x.p), x.why.join(" · "), null, flowGo.project(x.p)];
+      return [tdJob(x.p), x.why.join(" · "), null, flowGo.project(x.p), "", tdLateLines(x.late)];
+    case "jobsLate":
+      return [tdJob(x.p), predSay(x.late.length, "item late", "items late"), null, flowGo.project(x.p), "", tdLateLines(x.late)];
     case "jobLate": {
       const r = x.r,
         p = r.p || DB.projects.find((q) => q.id === (r.projectId || r.pid)),
@@ -162914,7 +162932,7 @@ function tdPulseLine(t, x) {
               : (r.s && (r.s.number + " " + (r.s.title || ""))) || r.title || "Submittal";
       return [
         name || x.kind,
-        `${x.kind}${p ? " · " + tdJob(p) : ""}`,
+        `${x.kind}${p && !inJob ? " · " + tdJob(p) : ""}`,
         null,
         "decision" === x.kind && r.d && p
           ? flowGo.decision(p, r.d)
@@ -162938,7 +162956,9 @@ function tdPulseOpen(t) {
   const rows = tdPulseRows(t),
     v = tdPulseValue(t),
     lines = rows.map((x) => tdPulseLine(t, x)),
-    head = t.money ? tdMoneyC(v) : `${v} ${1 === v ? "item" : "items"}`,
+    head = t.money ? tdMoneyC(v) : predSay(v, t.noun || "item"),
+    item = (s, k) =>
+      `<div class="td-sh-item" ${s[3] ? `data-tdsh="${k}"` : ""}><span class="grow"><b>${esc(s[0])}</b>${s[1] ? `<span class="small muted">${esc(s[1])}</span>` : ""}</span></div>`,
     m = mbModal(
       esc(t.label),
       `<p class="small muted td-sh-rule">${esc(PRED[t.pred].rule)}.</p><div class="td-sh-n" data-tdsheet="${t.k}" data-n="${t.money ? v : rows.length}">${esc(head)}</div>${
@@ -162946,7 +162966,7 @@ function tdPulseOpen(t) {
           ? `<div class="td-sh-list">${lines
               .map(
                 (l, i) =>
-                  `<div class="td-sh-row ${l[4] || ""}" ${l[3] ? `data-tdsh="${i}"` : ""}><span class="grow"><b>${esc(l[0])}</b>${l[1] ? `<span class="small muted">${esc(l[1])}</span>` : ""}</span>${null != l[2] ? `<span class="money">${tdMoneyC(l[2])}</span>` : ""}</div>`,
+                  `<div class="td-sh-row ${l[4] || ""}" ${l[3] ? `data-tdsh="${i}"` : ""}><span class="grow"><b>${esc(l[0])}</b>${l[1] ? `<span class="small muted">${esc(l[1])}</span>` : ""}</span>${null != l[2] ? `<span class="money">${tdMoneyC(l[2])}</span>` : ""}</div>${(l[5] || []).map((s, j) => item(s, `${i}.${j}`)).join("")}`,
               )
               .join("")}</div>`
           : `<div class="empty">Nothing here today.</div>`
@@ -162957,7 +162977,9 @@ function tdPulseOpen(t) {
   m.querySelectorAll("[data-tdsh]").forEach(
     (el) =>
       (el.onclick = () => {
-        const go = lines[+el.dataset.tdsh][3];
+        const [i, j] = el.dataset.tdsh.split("."),
+          l = lines[+i],
+          go = null == j ? l[3] : l[5][+j][3];
         mbCloseModal(), go && go();
       }),
   );

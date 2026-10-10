@@ -61,6 +61,18 @@ async def pulse_checks(c, pg, tag):
             c.ok(abs(t['n'] - want) < 0.005, f'{tag}: Overdue AR {t["n"]} vs PRED.overdueAR {want}')
         else:
             c.ok(sh['rows'] == t['n'], f'{tag}: Pulse {t["label"]} {t["n"]} vs {sh["rows"]} rows listed')
+        if t['k'] in ('late', 'risk'):
+            # jobs, not items: one row per job, the job's late items listed under it
+            j = await pg.evaluate("""k => { const jobs = k === 'late' ? tdMyJobs() : DB.projects.filter(p => !p.archived && (p.project || {}).status !== 'closed');
+              const late = jobs.filter(p => PRED.jobLate.count(p.id)).length, items = jobs.reduce((a, p) => a + PRED.jobLate.count(p.id), 0);
+              return { late, items, shownItems: document.querySelectorAll('#mbm .td-sh-item').length,
+                       head: (document.querySelector('#mbm .td-sh-n') || {}).innerText || '' }; }""", t['k'])
+            if t['k'] == 'late':
+                c.ok(t['label'] == 'Jobs Late' and t['n'] == j['late'], f"{tag}: Pulse \"{t['label']} {t['n']}\": {j['late']} jobs have late items ({j['items']} items); want \"Jobs Late {j['late']}\"")
+                c.ok(j['shownItems'] == j['items'], f"{tag}: the Jobs Late sheet lists {j['shownItems']} late items under its jobs, PRED.jobLate has {j['items']}")
+            c.ok(re.search(r'\bjobs?\b', j['head']), f"{tag}: the {t['label']} sheet is headed \"{j['head']}\", want jobs")
+            if t['k'] == 'risk' and j['items']:
+                c.ok(j['shownItems'] == j['items'], f"{tag}: the Jobs at Risk sheet lists {j['shownItems']} late items under its jobs, PRED.jobLate has {j['items']}")
         await pg.evaluate("() => mbCloseModal()"); await pg.wait_for_timeout(150)
     return tiles
 
