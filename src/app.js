@@ -70294,10 +70294,10 @@ function cmReaderOf(c) {
     u = (DB.users || []).find((x) => x.id === uid) || ("function" == typeof paMe ? paMe() : {}) || {};
   let ws = "";
   try {
-    ws = "function" == typeof demoWsFor && "function" == typeof gcDemoAvailable && gcDemoAvailable(uid) ? demoWsFor(uid).name || "" : "";
-    if (!ws && "function" == typeof gcMine) {
-      const g = gcMine() || {};
-      g.name && !/demo workspace|loaded workspace/i.test(g.name) && (ws = g.name);
+    const g = ((DB.conn || {})[uid] || {}).google || null;
+    if (g) {
+      const W = ("object" == typeof DW_ATTACHED && DW_ATTACHED[uid]) || ("object" == typeof DEMO_WS && DEMO_WS[uid]) || null;
+      ws = (W && W.name) || (g.name && !/demo workspace|loaded workspace/i.test(g.name) ? g.name : "") || g.ownerName || "";
     }
   } catch (e) {}
   return { uid: uid, name: u.name || "", wsName: ws || u.name || "" };
@@ -89896,7 +89896,8 @@ function mtIsNotes(c) {
   return /^notes:/i.test(s) && /(suggested next steps|notes from|summary)/i.test(c.text || "");
 }
 function mtParseEmail(c) {
-  const raw = String(c.text || "").replace(/\r/g, ""),
+  // Image and inline-content tokens ("[image: Meeting records]", "cid:…") are never a person or a step owner.
+  const raw = cmStripImg(String(c.text || "").replace(/\r/g, "")),
     m = {
       title: "",
       date: (c.date || "").slice(0, 10),
@@ -89937,7 +89938,7 @@ function mtParseEmail(c) {
     else if (/^Quick Notes$/i.test(l)) mode = "quick";
     else if (/^Suggested next steps$/i.test(l)) mode = "steps";
     else if (
-      /^(We['’]ve updated the Decisions|Meeting records|Is the Next Steps|Google LLC|You have received this email|Not Useful|Open meeting notes|The content was auto-generated|These notes have been sent)/i.test(
+      /^(We['’]ve updated the Decisions|Meeting records|Is the Next Steps|Google LLC|You have received this email|Not Useful|Open meeting notes|The content was auto-generated|These notes have been sent|Notes by\b)/i.test(
         l,
       )
     )
@@ -89985,6 +89986,14 @@ function mtParseEmail(c) {
   }
   return (
     !m.summary && m.sections.length && (m.summary = mtTopicLine(m.sections)),
+    // Step owners resolve against the mailbox owner first ("Alan" in Alan's own notes is Alan), then full
+    // names, then a first name only one person on file has; anything that is not a name owns nothing.
+    m.steps.forEach((s) => {
+      const hands = mtOwners(s.owner).filter((n) => /[A-Za-z]/.test(n) && !/^(image|cid|attachment)\b/i.test(n));
+      if (!hands.length) return void ((s.rawOwner = s.owner), (s.owner = ""));
+      const res = hands.map((n) => cmResolvePerson(n, c) || n);
+      res.join(", ") !== s.owner && ((s.rawOwner = s.owner), (s.owner = res.join(", ")));
+    }),
     (m.attendees = mtAttendees(c, m)),
     m
   );
@@ -90000,6 +90009,8 @@ function mtAttendees(c, m) {
     (m.steps || []).forEach((s) => {
       if (!s.owner || /^the (group|team)$/i.test(s.owner)) return;
       const n = mtPerson(s.owner) || s.owner;
+      // A person is a name with letters and a space, or someone on file.
+      if (!mtPerson(s.owner) && !cmLooksLikeName(n) && !/^[A-Z][a-z]+$/.test(n)) return;
       names.some((x) => mtNorm(x) === mtNorm(n)) || names.push(n);
     }),
     names
@@ -166826,7 +166837,7 @@ function demoWsBuild(uid) {
       "Your refinance application for 206 Lenox Ave is in underwriting. The appraisal is scheduled for September 10, 2026 between 9 and 11. The lender will need the current rent roll and the insurance declaration page.\n\nThis is an automated message.", { thread: "lenox-refi" });
     // ---- names (findings 8 and 14): an image token is not a person; "Alan" in the owner's own notes is the owner ----
     M(-1, "17:05", P.meet, [owner, chen], "Notes: “Weekly jobs review” Sep 2, 2026",
-      "Notes from “Weekly jobs review”\n\nSummary\nWeekly review of the open jobs: the line of credit review at the bank is Wednesday; Chen confirms the GWB delivery; the 206 Lenox leases go to the lender.\n\nSuggested next steps\n\n[Alan] Call the Bank: Call the bank about the line of credit review before Wednesday.\n\n[Chen Biron] Confirm GWB Delivery: Confirm the Brooklyn Lumber delivery for Thursday with Angel.\n\n[image: Meeting records]\n\nMeeting records Document Notes", { thread: "notes-wjr" });
+      "Notes from “Weekly jobs review”\n\nSummary\nWeekly review of the open jobs: the line of credit review at the bank is Wednesday; Chen confirms the GWB delivery; the 206 Lenox leases go to the lender.\n\nSuggested next steps\n\n[Alan] Send the Rent Roll: Send the 206 Lenox rent roll to the lender before Wednesday.\n\n[Chen Biron] Confirm GWB Delivery: Confirm the Brooklyn Lumber delivery for Thursday with Angel.\n\n[image: Meeting records] [image: Document]Notes by the notes assistant: Weekly jobs review\n\nMeeting records Document Notes", { thread: "notes-wjr" });
     // ---- one forwarded thread, one permit proposal (finding 15) ----
     M(-6, "09:00", P.exp, [owner], "DOB NOW: Job B01528834-I1 — supersede approved",
       "Alan, the plumbing supersede on B01528834-I1 at 121 State Street is approved in DOB NOW. The prior permit is still open until the attestation is in.\n\nMetro Expediting", { thread: "sup-fwd" });
