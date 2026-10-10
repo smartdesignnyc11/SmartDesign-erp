@@ -164943,8 +164943,8 @@ if ("function" == typeof agVocab) {
 AG_FIN.unshift(
   {
     id: "coverage",
-    re: /\b(backed|coverage|covered|evidence)\b|\bby hand\b|\bbank[- ]backed\b/,
-    not: /\bbudget\b|\binsurance\b/,
+    re: /\b(backed|coverage|covered|evidence)\b.*\b(bank|card|document|documents|hand|cost|costs|income|revenue|statement|feed|figures?)\b|\bby hand\b|\bbank[- ]backed\b/,
+    not: /\bbudget\b|\binsurance\b|\bliability\b|\bwarranty\b/,
     kind: "money",
     run(P) {
       const R = truthAskPer(P),
