@@ -114,6 +114,13 @@ const appNowIso = () => `${appDay()}T${appClock()}`,
       z = (n) => String(n).padStart(2, "0");
     return `${x.getFullYear()}-${z(x.getMonth() + 1)}-${z(x.getDate())}T${z(x.getHours())}:${z(x.getMinutes())}:${z(x.getSeconds())}`;
   },
+  clipWords = (str, n) => {
+    const t = String(str || "").trim();
+    if (t.length <= n) return t;
+    const cut = t.slice(0, n + 1),
+      at = Math.max(cut.lastIndexOf(" "), cut.lastIndexOf("—"), cut.lastIndexOf(","));
+    return `${(at > n / 2 ? cut.slice(0, at) : t.slice(0, n)).replace(/[\s,;:—–-]+$/, "")}…`;
+  },
   stampText = (ts) => {
     if (!ts) return "";
     const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(String(ts));
@@ -143324,16 +143331,35 @@ function clSrc(a, p) {
     if (!d) return null;
     const m = a.link && "mat" === a.link.kind ? (p.materials || []).find((x) => x.id === a.link.id) : null,
       tk = a.link && "task" === a.link.kind ? (p.tasks || []).find((x) => x.id === a.link.id) : null;
+    // the CO a decided choice led to; a draft keeps the task open (it closes when the CO is sent)
+    const coOf = () => {
+      const x = d.coId && clCoOf(d.coId);
+      return x && !["void", "rejected", "superseded"].includes(x.d.status) ? x : null;
+    };
     return {
       kind: "dec",
       label: `Decision · ${d.name}`,
       view: "dec",
       open: () => opsGo({ kind: "dec", id: d.id }, p),
+      verb:
+        "raise-co" === a.next
+          ? (() => {
+              const x = coOf();
+              return x ? `Open ${x.d.number}` : "Raise Change Order";
+            })()
+          : "",
+      run:
+        "raise-co" === a.next
+          ? () => {
+              const x = coOf();
+              x ? opsGo({ kind: "co", id: x.d.id }, p) : opsRaiseCO({ kind: "dec", id: d.id }, p);
+            }
+          : null,
       done:
         "raise-co" === a.next
           ? () => {
-              const x = d.coId && clCoOf(d.coId);
-              return !(!x || "void" === x.d.status) && `${x.d.number} raised`;
+              const x = coOf();
+              return !!x && "draft" !== x.d.status && `${x.d.number} sent`;
             }
           : m
             ? () =>
@@ -144066,12 +144092,11 @@ function clWireStrip(root) {
                 : ""
             }`));
         clTaskSweep();
-        const n = openT.filter((x) => "done" === x.status).length;
         save(),
           render(),
-          n &&
+          openT.length &&
             toastDone(
-              `${co.number} drafted — ${co.title}. Your task to raise it is done; set the price${+co.scheduleDays ? "" : " and the days"}, then send`,
+              `${co.number} drafted — ${clipWords(co.title, 48)}. Set the price${+co.scheduleDays ? "" : " and the days"}, then send; your task closes when it goes`,
               () => opsGo({ kind: "co", id: co.id }, p),
               7e3,
             );
@@ -144678,10 +144703,40 @@ const t2Valid = () => {
           `<div class="t2-sub"><span class="t2-kind k-${esc(x.kind)}">${k}</span>`,
         )),
       x.done && (h = h.replace('class="t2-row ', 'class="t2-row done ')),
+      (h = clTaskVerbHtml(x, h)),
       h
     );
   };
 }
+// A task that stands for a record's next step carries that step as its verb (the decision's "Raise Change
+// Order" opens the CO editor prefilled with the chosen option), so the task is never a dead end.
+function clTaskVerbHtml(x, h) {
+  try {
+    if ("action" !== x.kind || x.done) return h;
+    const f = clTaskFind(x.id),
+      src = f && clSrc(f.a, f.p);
+    if (!src || !src.verb || !src.run) return h;
+    return h.replace(
+      '<button class="t2-later-btn"',
+      `<button class="btn sm t2-verb" data-clraise="${esc(x.id)}">${esc(src.verb)}</button><button class="t2-later-btn"`,
+    );
+  } catch (e) {
+    return h;
+  }
+}
+function clTaskVerb(id) {
+  const f = clTaskFind(id),
+    src = f && clSrc(f.a, f.p);
+  return !!(src && src.run) && (src.run(), !0);
+}
+document.addEventListener(
+  "click",
+  (e) => {
+    const b = e.target && e.target.closest ? e.target.closest("[data-clraise]") : null;
+    b && (e.preventDefault(), e.stopPropagation(), clTaskVerb(b.dataset.clraise));
+  },
+  !0,
+);
 function t2Lead(ctx, R, C) {
   const late = C.overdue;
   if ("job" === ctx) {
@@ -161016,6 +161071,35 @@ predDef("inspToBook", {
     );
   },
 });
+// What still needs a change order: a client's decided choice over its allowance with no change order sent, and
+// a field extra the PM answered "proceed as an extra" with no change order written. A draft keeps it on the list.
+predDef("needsChangeOrder", {
+  label: "Needs a Change Order",
+  rule: "a decided choice over its allowance, or an extra answered 'proceed as an extra', with no change order sent yet (a draft still counts)",
+  rows(scope) {
+    const sentCo = (id) => {
+        const x = id && "function" == typeof clCoOf && clCoOf(id);
+        return x && !["void", "rejected", "superseded"].includes(x.d.status) ? x.d : null;
+      },
+      out = [];
+    predJobs(scope).forEach((p) => {
+      (p.decisions || []).forEach((d) => {
+        if ("open" === d.status) return;
+        const amt = "function" == typeof thDecMoney ? withProject(p, () => thDecMoney(d)) : 0;
+        if (!(amt > 0)) return;
+        const co = sentCo(d.coId);
+        co && "draft" !== co.status || out.push({ kind: "decision", p: p, d: d, amount: amt, co: co, name: "function" == typeof clTitle ? clTitle(d) : d.name });
+      });
+      (((DB.field || {}).raises) || [])
+        .filter((r) => r.projectId === p.id && "extra" === r.type && "extra" === r.decision)
+        .forEach((r) => {
+          const co = sentCo(r.coId);
+          co && "draft" !== co.status || out.push({ kind: "extra", p: p, r: r, amount: 0, co: co, name: "function" == typeof clRewrite ? clRewrite(r.title) : r.title });
+        });
+    });
+    return out;
+  },
+});
 predDef("siteQuestions", {
   label: "Questions from the Site",
   rule: "sent from the site and not yet answered",
@@ -162015,6 +162099,26 @@ const AG_FIN = [
 
 // ---- the work: counted questions read PRED or the brief's own lists
 const AG_OPS = [
+  {
+    id: "needsco",
+    re: /\b(need|needs|still need|still needs|without|missing|no|not yet)\b[^.?]*\bchange orders?\b|\bchange orders? (still )?(to|left to) (raise|write|send)\b|\bun-?raised change orders?\b/,
+    kind: "ops",
+    run(P) {
+      if ("client" === role()) return null;
+      const R = PRED.needsChangeOrder.rows().filter((x) => agOnJob(P, x.p.id)),
+        line = (x) =>
+          `${agShort(x.p)} · ${x.name}${x.amount ? ` · +${money(x.amount)} over the allowance` : " · extra, not priced yet"}${x.co ? ` · ${x.co.number} is a draft, not sent` : " · no change order yet"}`;
+      return {
+        headline: R.length
+          ? `${agN(R.length, "thing")} still ${1 === R.length ? "needs" : "need"} a change order: ${agList(R.map((x) => x.name))}.`
+          : "Nothing is waiting on a change order: every decided overage and every extra has one sent.",
+        note: `${agCap(PRED.needsChangeOrder.rule)}.`,
+        work: R.map(line),
+        go: agGo("tkall"),
+        ran: agRan("PRED.needsChangeOrder", P.jobs.length ? [P.jobs.map(agShort).join(", ")] : [], "", R.length),
+      };
+    },
+  },
   {
     id: "waiting",
     re: /\b(waiting on (me|my)|waiting for (me|my)|need(s)? (me|my)|my approvals?|to approve|do i (need to )?approve|on my desk|my sign[- ]?off)\b/,
