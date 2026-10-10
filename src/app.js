@@ -109894,11 +109894,42 @@ const paOut = (r) => Object.assign({ work: [], hits: [], offers: [], note: "" },
   },
   PA_REMEMBER = /^(remember|note|keep in mind|file|hold on to)\b|^(please )?remember\b/i,
   PA_FORGET = /^(forget|drop|stop reminding me about|never mind)\b/i;
+// When a reminder is for, read on the app clock: the date, the time of day if one is named, and the words that
+// said so (only those words leave the reminder's text). A weekday named is this coming one; "next friday" is the
+// Friday of next week; "about next week" stays part of what to do when a weekday is also named.
+function paWhenParts(s) {
+  const raw = String(s || ""),
+    l = raw.toLowerCase(),
+    td = today(),
+    tod = l.match(/\b(morning|afternoon|evening|tonight|end of (the )?day|eod|noon|at (\d{1,2})(:(\d{2}))? ?(am|pm)?)\b/),
+    time = !tod ? "" : /morning/.test(tod[1]) ? "09:00" : /afternoon/.test(tod[1]) ? "14:00" : /evening|tonight|end of|eod/.test(tod[1]) ? "17:00" : /noon/.test(tod[1]) ? "12:00" : (() => {
+      let h = +tod[3];
+      return "pm" === tod[6] && h < 12 && (h += 12), "am" === tod[6] && 12 === h && (h = 0), !tod[6] && h < 7 && (h += 12), `${String(h).padStart(2, "0")}:${tod[5] || "00"}`;
+    })(),
+    dow = PA_DAYS.find(([n]) => new RegExp(`\\b${n}\\b`).test(l));
+  if (dow) {
+    const m = l.match(new RegExp(`\\b((on|by|before|this|next|coming)\\s+)?${dow[0]}\\b(\\s+(morning|afternoon|evening|night))?`)),
+      nextWk = m && "next" === m[2];
+    let d = iso(addDays(td, 1));
+    for (let i = 0; i < 8 && parse(d).getDay() !== dow[1]; i++) d = iso(addDays(d, 1));
+    if (nextWk) {
+      const mon = iso(addDays(parse(td), 7 - ((parse(td).getDay() + 6) % 7)));
+      d < mon && (d = iso(addDays(parse(d), 7)));
+    }
+    return { date: d, time: time, phrase: m ? m[0] : dow[0], label: `${dow[0][0].toUpperCase() + dow[0].slice(1)}${time ? " " + tod[1] : ""}` };
+  }
+  const d0 = paWhen(raw);
+  return { date: d0, time: time, phrase: "", label: time ? tod[1] : "" };
+}
 function paWhen(s) {
   const l = String(s || "").toLowerCase(),
     td = today();
   if (/\btomorrow\b/.test(l)) return iso(addDays(td, 1));
   if (/\btoday\b|\btonight\b/.test(l)) return td;
+  {
+    const dw = PA_DAYS.find(([n]) => new RegExp(`\\b${n}\\b`).test(l));
+    if (dw) return paWhenParts(s).date;
+  }
   if (/\bnext week\b/.test(l)) return iso(addDays(td, 7));
   if (/\bnext month\b/.test(l)) return iso(addDays(td, 30));
   const inN = l.match(/\bin (\d+) (day|week|month)s?\b/);
@@ -110202,18 +110233,35 @@ function paAsk(q) {
     });
   }
   if (PA_WORDS.remind.test(l)) {
-    const body = paStripWhen(raw),
-      due = paWhen(raw) || iso(addDays(td, 1)),
-      slot = paNextOpen(due);
+    const W = paWhenParts(raw),
+      body0 = W.phrase
+        ? paStrip(
+            raw
+              .replace(new RegExp(W.phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"), " ")
+              .replace(/\bremind me (to|that|about)?\s*/i, "")
+              .replace(/\bdon'?t let me forget (to|that|about)?\s*/i, ""),
+          )
+            .replace(/\s{2,}/g, " ")
+            .replace(/^(to|that|about)\s+/i, "")
+            .trim()
+        : paStripWhen(raw),
+      body = body0 ? body0[0].toUpperCase() + body0.slice(1) : body0,
+      due = W.date || iso(addDays(td, 1)),
+      // a reminder lands on a working day: Saturday and Sunday roll to Monday
+      slot0 = paNextOpen(due),
+      slot = { date: "function" == typeof poWorkday ? poWorkday(slot0.date) : slot0.date };
     if (!body) return paOut({ headline: "Remind you of what, and when?", kind: "remind" });
-    const t = paTask(body, slot.date, `You asked me on ${fmtL(td)} to remind you.`);
+    const t = paTask(body, slot.date, `You asked me on ${fmtL(td)} to remind you${W.label ? ` ${W.label}` : ""}.`);
+    t && W.time && ((t.a.time = W.time), save());
     return (
       paRemember(body, slot.date),
       paOut({
-        headline: `On your list for ${fmtL(slot.date)} — "${body}".`,
+        headline: `On your list for ${fmtL(slot.date)}${W.time ? ` at ${W.time}` : ""} — "${body}".`,
         note:
           (slot.date !== due
-            ? `You asked for ${fmtL(due)}; your own rules rule that day out, so I took the next day that is open. `
+            ? "function" == typeof isWork && !isWork(due)
+              ? `You asked for ${fmtL(due)}, which is not a working day, so I took the next working day. `
+              : `You asked for ${fmtL(due)}; your own rules rule that day out, so I took the next day that is open. `
             : "") +
           "It is a dated item on you in the task list, not a note in a corner, so it shows up where the rest of your work does.",
         work: t ? [`${t.p.project.name.replace(/ —.*$/, "")} — ${body} — due ${fmtL(slot.date)}`] : [],
@@ -110515,6 +110563,9 @@ function paScroll() {
   const t = document.getElementById("pa-thread");
   t && (t.scrollTop = t.scrollHeight);
 }
+// The questions typed while one is being answered, and how long one answer may hold the thread.
+let paQueue = [];
+const PA_TIMEBOX = 8e3;
 function paSend(text) {
   const q = String(text || "").trim();
   q &&
@@ -114982,57 +115033,6 @@ function paExpect(who, about, by, ref, since) {
     };
   return L.unshift(e), L.length > 60 && (L.length = 60), e;
 }
-paSend = function (text) {
-  const q = String(text || "").trim();
-  if (!q || paBusy) return;
-  paSay("me", q), (paBusy = !0), (paSteps = []), save(), renderPa(), paScroll();
-  const deterministic = () => {
-    let a = null;
-    try {
-      a = paAsk(q);
-    } catch (e) {
-      console.error("assistant", e),
-        (a = paOut({
-          headline: "That broke on my side.",
-          note: "Say it another way and I will try again; nothing was changed.",
-        }));
-    }
-    (a.q = q),
-      (paNow = a),
-      paSay("a", a.headline, {
-        note: a.note,
-        work: a.work || [],
-        go: a.go || null,
-        mine: (a.mine || []).map((m) => ({ text: m.text, at: m.at })),
-        kind: a.kind,
-        readAs: a.readAs || "",
-      }),
-      (paBusy = !1),
-      (paSteps = []),
-      save(),
-      renderPa(),
-      paScroll();
-  };
-  if (!mindCan()) return setTimeout(deterministic, 160);
-  mindAsk(q, (step) => {
-    paSteps.push(step), renderPa(), paScroll();
-  })
-    .then((r) => {
-      if (!r || !String(r.text || "").trim()) return deterministic();
-      (paNow = paOut({ headline: r.text, kind: "mind", q: q, offers: [] })),
-        paSay("a", r.text, { md: !0, sources: paSources(r.used), kind: "mind", steps: r.steps }),
-        (paBusy = !1),
-        (paSteps = []),
-        save(),
-        renderPa(),
-        paScroll();
-    })
-    .catch((e) => {
-      (mindState = { ok: !1, why: String(e.message || e), model: "", last: Date.now() }),
-        console.warn("mind", e),
-        deterministic();
-    });
-};
 const paEmailFor = (who) => {
   const n = String(who || "").toLowerCase();
   if (!n) return "";
@@ -115350,8 +115350,19 @@ function paThirdPerson(text) {
 if ("function" == typeof paAsk) {
   const paAskBase_c = paAsk;
   paAsk = function (q) {
+    // The last person asked about stands in for "he" or "her" only in a question that names nobody itself.
+    // Words to remember, a reminder and a draft are the person's own, kept exactly as typed.
     const raw = String(q || ""),
-      text = paCtxText(raw),
+      own = PA_REMEMBER.test(raw.trim()) || PA_WORDS.remind.test(raw.toLowerCase()) || /^(please )?(draft|write|compose|email|chase|nudge)\b/i.test(raw.trim()),
+      named = (() => {
+        try {
+          const P = agParse(raw);
+          return P.jobs.length + P.clients.length + P.vendors.length + P.people.length + (P.contacts || []).length > 0;
+        } catch (e) {
+          return !1;
+        }
+      })(),
+      text = own || named ? raw : paCtxText(raw),
       out = paThirdPerson(text) || paAskBase_c.call(this, text);
     if (out && "ask" === out.kind) {
       delete paCtx().who, save();
@@ -116243,62 +116254,72 @@ if ("function" == typeof mindSystem) {
       clearTimeout(t);
     }
   }),
-  (paSend = function (text) {
+  (paSend = function (text, opts) {
+    // One send for the thread. A question typed while another is still being answered waits its turn instead of
+    // being dropped; the records answer first (a reader's answer is the one number the screens show), the
+    // firm's model is asked only when no reader takes the question, and nothing holds the thread longer than
+    // PA_TIMEBOX: past it the thread is free again and the answer lands when it comes.
     const q = String(text || "").trim();
-    if (!q || paBusy) return;
-    paSay("me", q), (paBusy = !0), (paSteps = []), save(), renderPa(), paScroll();
-    const done = () => {
+    if (!q) return;
+    if (paBusy && !(opts && opts.next)) return paQueue.push(q), paSay("me", q), save(), renderPa(), paScroll(), toast("Next in line — I will answer it as soon as the one above is done");
+    (opts && opts.next) || paSay("me", q);
+    (paBusy = !0), (paSteps = []), save(), renderPa(), paScroll();
+    let settled = !1;
+    const show = (a, late) => {
+        a = a || paOut({ headline: "That broke on my side.", note: "Say it another way and I will try again; nothing was changed." });
+        (a.q = q),
+          (paNow = a),
+          paSay("a", late ? `On "${q.length > 60 ? q.slice(0, 57) + "…" : q}": ${a.headline}` : a.headline, a.md ? { md: !0, sources: a.sources, kind: a.kind, steps: a.steps } : {
+            note: a.note,
+            work: a.work || [],
+            go: a.go || null,
+            mine: (a.mine || []).map((m) => ({ text: m.text, at: m.at })),
+            kind: a.kind,
+            readAs: a.readAs || "",
+          });
+      },
+      release = () => {
         (paBusy = !1), (paSteps = []);
         try {
           save(), renderPa(), paScroll();
         } catch (e) {}
+        const nx = paQueue.shift();
+        nx && setTimeout(() => paSend(nx, { next: !0 }), 60);
       },
-      deterministic = () => {
+      finish = (a) => {
+        if (settled) return show(a, !0), save(), renderPa(), paScroll();
+        (settled = !0), clearTimeout(timer), show(a), release();
+      },
+      timer = setTimeout(() => {
+        settled ||
+          ((settled = !0),
+          paSay("a", "Still working on that one. I will put the answer here when it lands; ask the next thing meanwhile.", { kind: "slow" }),
+          release());
+      }, PA_TIMEBOX),
+      records = () => {
         try {
-          let a = null;
-          try {
-            a = paAsk(q);
-          } catch (e) {
-            console.error("assistant", e),
-              (a = paOut({
-                headline: "That broke on my side.",
-                note: "Say it another way and I will try again; nothing was changed.",
-              }));
-          }
-          (a.q = q),
-            (paNow = a),
-            paSay("a", a.headline, {
-              note: a.note,
-              work: a.work || [],
-              go: a.go || null,
-              mine: (a.mine || []).map((m) => ({ text: m.text, at: m.at })),
-              kind: a.kind,
-              readAs: a.readAs || "",
-            });
-        } finally {
-          done();
+          return Promise.resolve(paAsk(q)).catch((e) => (console.error("assistant", e), null));
+        } catch (e) {
+          return console.error("assistant", e), Promise.resolve(null);
         }
-      };
-    if (!mindCan()) return setTimeout(deterministic, 160);
-    mindAsk(q, (step) => {
-      paSteps.push(step), renderPa(), paScroll();
-    })
-      .then((r) => {
-        if (!r || !String(r.text || "").trim()) return deterministic();
-        (paNow = paOut({
-          headline: r.text,
-          kind: "mind",
-          q: q,
-          offers: (r.pending || []).filter((o) => !o.done),
-        })),
-          paSay("a", r.text, { md: !0, sources: paSources(r.used), kind: "mind", steps: r.steps }),
-          done();
-      })
-      .catch((e) => {
-        (mindState = { ok: !1, why: String(e.message || e), model: "", last: Date.now() }),
-          console.warn("mind", e),
-          deterministic();
+      },
+      answered = (a) => !!a && !/^(none|blocked)$/.test(a.kind || "") && !AG_REFUSED.test(String(a.headline || "")) && !AG_GENERIC_HEAD.test(String(a.headline || "").trim());
+    setTimeout(() => {
+      records().then((a) => {
+        if (answered(a) || !mindCan()) return finish(a);
+        mindAsk(q, (step) => {
+          settled || (paSteps.push(step), renderPa(), paScroll());
+        })
+          .then((r) =>
+            r && String(r.text || "").trim()
+              ? finish(Object.assign(paOut({ headline: r.text, kind: "mind", q: q, offers: (r.pending || []).filter((o) => !o.done) }), { md: !0, sources: paSources(r.used), steps: r.steps }))
+              : finish(a),
+          )
+          .catch((e) => {
+            (mindState = { ok: !1, why: String(e.message || e), model: "", last: Date.now() }), console.warn("mind", e), finish(a);
+          });
       });
+    }, 120);
   });
 const FD_OVERVIEW = {
     jobs: "ovjobs",
@@ -138887,7 +138908,8 @@ function a4Correct(raw) {
         infl.some((x) => known.has(x)) ||
         nameToks.has(lw) ||
         nameToks.has(bare) ||
-        /'/.test(lw)
+        /'/.test(lw) ||
+        ("function" == typeof agKnownWord && agKnownWord(lw))
       )
         return w;
       const max = a4Allow(lw);
@@ -163791,6 +163813,47 @@ const AG_SMALL = { wk: "week", wks: "weeks", hrs: "hours", hr: "hour", r: "are",
       " ",
     ),
   );
+// Words Ask takes as typed: plain English and the nouns of the trade and the books. A correction never
+// rewrites one of these ("Amex" is a card, "aging" a report, "land" a delivery); it only fixes a token
+// nobody would type on purpose.
+const AG_DICT = new Set(`able about above accept accepted accepting access according account accountant accounts accrual accruals accrue accrued accruing ach across act action actions active actual actually add added adding address adjust admin advance advice afford afraid after afternoon again against age aged ageing agent ages aging ago agree agreed agreement ahead aia air alarm alive all allow allowed almost alone along already also although always amazing amex among amortization amount and angle angry announce annual another answer answered answering answers any anybody anyone anything anyway anywhere apart apartment apparently appear apply appointment appraisal approach approval approve approved april architect architects area areas argue arm around arrange arrival arrive arrived arriving art article ask asked asking asks asset assets assume attach attached attempt attend attention attic attorney audit auditor audits august author available avoid await award aware away awful back backed backlog backsplash bad badly bag balance ball bank banks bar base baseboard baseline basement basic basis beam beams bear beat beautiful became because become becomes bed been before began begin beginning behalf behind being believe bell below benefit beside best better between beyond bid bids big bigger biggest bill billable billed billing bills bit black blame blank block blocked blocking blue board boat body boiler bonus book booked bookkeeper bored borrow boss both bother bottom bought bounced box boy brand break breakfast bridge brief briefly bright bring broad broke broker brokers brother brought brown brownstone budget build building built bulkhead bunch burn business busy but buy buyer buying cabinetry cake calcs calculations call called calling calls calm came camera camp can cancel cancelled candidate cannot capital car care careful carry carrying case cases cash casing catch caught cause caused cellar cement center central certain certainly certificate certificates chain chair chance change changed changes changing charge charged charges charging chase chased chasing cheap check checked checking checks cheque chief child choice choices choose chose chosen church circle city claim claimed claims class clean clear cleared clearly clerk client clients climb clock close closed closely closeout closer closes closing clothes club co-op coat code coi cois cold collect collected college color come comes comfortable coming comment comments commit commitment commitments committed common comp company compare compared complain complete completed completely concern concerned condition condo confirm confirmed consider contact contacts contain continue contract contractor contractors control cook cool coop copy corner cornice correct cost costs could council count counted countertop countertops country couple course court cover covered crazy create created credit credits crew cross crowd cry current currently customer customers cut cycle daily damage dark data date dated dates daughter day days dead deal dealing dear death debit debt december decide decided decision decisions deep definitely degree delay delayed delete deliver delivered deliveries delivery demand department depend deposit deposited deposits depreciation describe design desk despite detail details develop did die difference different difficult dinner direct direction directly discover discuss discussed dispute disputed distance divide dob doctor document documents does dog doing dollar dollars done door doors double doubt down draft drafted drafts draw drawing drawings dream dress drink drive driver drop dropped dry drywall due dumpster duplicate duplicates during duty eac each eager early earn earned earning east easy eat ebitda edge effect effort eight either elect electrical elevator else email emailed emails employ empty end ended ending energy engine engineer engineers enjoy enough ensure enter entire entry equal equity error escape escrow especially estimate estimates even evening event events ever every everybody everyone everything everywhere exact exactly exam example excellent except exchange excuse exempt exist expect expected expediter expediting expense expenses expensive experience explain extra eye facade face fact factor fail failed fair fall false familiar family far farm fast father faucet faucets fault favor fear feature february fee feed feel feeling fees feet fell felt few field fight figure file filed files filing filings fill filled final finally finance financial find fine finish finished fire firm first fiscal fit five fix fixed fixture fixtures flat flight flitch floor flooring fly focus folder follow followed following food foot for force forecast forecasts foreign forget forgot forgotten form former forward found four framing free fresh friday friend from front full fully fun fund funds further future gain game gantt garden gas gate gather gave general get gets getting gift girl give given glad glass goal goes going gold gone good got government grab great green ground group grow guess guest guy gwb hair half hall hand handle handled handling hang happen happened happening happy hard hardly hardware have head header headers health hear heard hearing hearings heart heat heavy held hello help helped her here herself hide high him himself hire his history hit hold holding holiday home hope horse hospital hot hotel hour hours house how huge human hundred hurry hurt husband hvac idea ideal ill image imagine important improve include income increase indeed inside inspection inspections instead insulation insurance insured interest interested invite invoice invoiced invoices involve iron island issue item items itself january job jobs join joint joist joists joke journal journals judge july jump june just keep key kid kill kind kitchen knew knock know known labor lack lady lake land landed landing landmark landmarks lands language large last late later latest laugh launch law lawyer lay lead leader leads learn learned least leave led ledger ledgers left leg legal lend lender length less lesson lessons letter level liabilities liability lie lien liens life lift light like likely limit line link list listen little live load loan local lock long look looked loose lose loss lost lot loud love low lower lpc lucky lunch machine mad made mail mailbox mailed main major make making man manage many maple march margin margins mark market markup married mastercard match material materials matter maybe meal mean means meant measure meet meeting meetings member memo memory memos mention mentioned message messages met method middle might millwork mind minute miss missed mistake model molding moment monday money month monthly months more morning mortgage most mother moulding move moved movie mtd much music must myself name named near nearly need needed negative neither nervous net never news next nice night nine nobody noise none noon normal north note noted notes nothing notice november now number nurse nysif oak object obvious occur october offer office officer often old once one online only open opened opinion order ordered orders other otherwise ought outside over overbilled overbilling overhead overheads overtime owe owed owes owing own owner page paid pain paint pair paper parent park parlor part particular partner party pass passed past patient pay payable payables paying payment payments payroll peace people per perfect perhaps period periods permit permits person phone pick picked picture piece place plan plane plant play please pleased plenty plumbing plus po pocket point police policy poor popular pos position positive possible post pound power practice prepare present president press pretty price prices primer principal print private probably problem process produce product profit program progress project projects promise promised promises proof proper property proposal proposals prospect prospects protect proud prove provide pto public pull punch purchase purpose push put quarter quarterly question questions quick quickly quiet quietly quite quote quoted quotes race radiant radiator railing rain raise ran range rate rather reach read reading ready real really reason rebate receipt receipts receivable receivables receive received recent recently reconcile reconciled reconciliation reconciliations reconciling record records red reduce refi refinance refund refunds region regular reimbursable reimbursables relate release remain remember remind reminder remove rent reopen reopened repair repeat replace replied replies reply report reports request require respond response rest result retainage retainer retainers return returned returns review rfi rfis rich ride right ring rise risk road rock role rolloff roof room round rule run running safe said salaries salary sale sales same save saw say saying scaffold scaffolding scale school score screen sea seal sealed season seat second section see seem seen sell send sense sent september serious serve service set settle seven several shall shape share sharp she sheen sheetrock ship shoot shop shoring short shot should shoulder shout show shower shown shut sick side sign signed simple since sing single sir sister sit site situation six size skill skin sleep slightly slow slowly small smart smell smile snow social soft sold solid solve some somebody somehow someone something sometimes somewhere son song soon sorry sort sound south sov space speak special speed spend spent spoke sport spring sprinkler square st124 staff stage stain stair stairs stand standard start started state statement statements station status stay steal step stick still stock stone stoop stop store story straight strange street strike strong stud student studs study stuff style sub subcontractor subcontractors subject submittal submittals subs succeed success such sudden suggest suit summer sun sunday supplier suppliers supply support suppose sure surprise sweet system table take taken talk tall tamper task tasks tax taxes teach team tell ten term terrible test text than thank thanks that the then there therefore these thick thin thing think third thirty this those though thought thousand three through throw thursday thus ticket tie tile tiles till time timesheet timesheets tiny tired title today together toilet told tomorrow tone tonight too took top total touch tough toward town townhouse track trade train transfer transfers travel treat tree trim trip trouble true truly trust truth try trying tub tuesday turn twice two type unbilled uncleared under underbilled underbilling understand unit unless until upon upset use used useful usual usually vacation value vanity variance variances various vendor vendors verification verified verify very view visa visit voice void voided w9 wage wages wait waiting waiver waivers wake walk wall walnut want war warm wash watch water way wear weather wednesday week weekend weight welcome well went west wet what wheel when where whether which while white who whole why wide wife will win window winter wip wire wires wish with within without woman wonder wood word words work worked worker workers working world worry worse worst worth would write writing written wrong wrote yard year yellow yes yesterday yet young your yourself ytd zelle`.split(" "));
+// The nouns the records hold that a typo fixer must never turn into somebody else: bank and card accounts,
+// cards, obligations, GL accounts, reports, leads, contacts, users, payees. Rebuilt when the record counts move.
+let agNounsMemo = null;
+function agNouns() {
+  const key = ["accounts", "cards", "leads", "clients", "vendors", "employees", "obligations", "users", "txns", "comms"].map((k) => (DB[k] || []).length).join(":") + ":" + ((DB.field || {}).subs || []).length;
+  if (agNounsMemo && agNounsMemo.key === key) return agNounsMemo.set;
+  const set = new Set(),
+    add = (s) =>
+      String(s || "")
+        .toLowerCase()
+        .split(/[^a-z0-9]+/)
+        .forEach((w) => w.length >= 3 && !/^\d+$/.test(w) && set.add(w));
+  try {
+    (DB.accounts || []).forEach((a) => (add(a.name), add(a.network), add(a.bank))),
+      (DB.cards || []).forEach((c) => (add(c.label), add(c.network))),
+      (DB.obligations || []).forEach((o) => (add(o.name), add(o.issuer || o.agency))),
+      (DB.leads || []).forEach((l) => add(l.name)),
+      (DB.clients || []).forEach((c) => (add(c.name), (c.contacts || []).forEach((k) => add(k.name)))),
+      (DB.vendors || []).forEach((v) => (add(v.name), add(v.trade))),
+      (DB.employees || []).forEach((e) => add(e.name)),
+      (DB.users || []).forEach((u) => add(u.name)),
+      (DB.txns || []).forEach((t) => add(t.vendor)),
+      ((DB.field || {}).subs || []).forEach((x) => (add(x.lead), add(x.vendor))),
+      (DB.comms || []).forEach((c) => add((c.from || {}).name)),
+      ("undefined" != typeof GL_COA ? GL_COA : []).forEach((a) => add(a.name)),
+      Object.values("undefined" != typeof REP_DEFS ? REP_DEFS : {}).forEach((r) => add(r && (r.title || r.name || r.label)));
+  } catch (e) {}
+  return (agNounsMemo = { key: key, set: set }), set;
+}
+// Is this token a word or a name we hold? Its plural, past, -ing and -ly forms count.
+function agKnownWord(t) {
+  const w = String(t || "").toLowerCase().replace(/[^a-z0-9'-]/g, "").replace(/'s$/, "");
+  if (!w) return !0;
+  const N = agNouns(),
+    forms = [w, w.replace(/s$/, ""), w.replace(/es$/, ""), w.replace(/ed$/, ""), w.replace(/ed$/, "e"), w.replace(/d$/, ""), w.replace(/ing$/, ""), w.replace(/ing$/, "e"), w.replace(/([a-z])\1(ed|ing)$/, "$1"), w.replace(/ied$/, "y"), w.replace(/ies$/, "y"), w.replace(/ly$/, ""), w.replace(/ily$/, "y"), w.replace(/er$/, ""), w.replace(/est$/, "")];
+  return forms.some((f) => f.length >= 2 && (AG_DICT.has(f) || N.has(f)));
+}
 let agVocabMemo = null;
 function agVocab() {
   const key = [
@@ -163857,7 +163920,7 @@ function agFix(l, keep) {
       .map((t) => {
         if (!t) return t;
         if (AG_SMALL[t]) return AG_SMALL[t] !== t && fixes.push([t, AG_SMALL[t]]), AG_SMALL[t];
-        if (t.length < 3 || /\d/.test(t) || V.base.has(t) || V.names.has(t) || (keep && keep.has(t))) return t;
+        if (t.length < 3 || /\d/.test(t) || V.base.has(t) || V.names.has(t) || (keep && keep.has(t)) || agKnownWord(t)) return t;
         const sing = t.replace(/'?s$/, "");
         if (sing !== t && (V.base.has(sing) || V.names.has(sing))) return t;
         const cap = t.length <= 4 ? 1 : 2;
@@ -164006,14 +164069,28 @@ function agHomeJobs() {
     return [];
   }
 }
+// People outside the firm a question can name: client contacts, leads and the client-portal users, by full name.
+function agContactsIn(l) {
+  const out = [];
+  (DB.clients || []).forEach((c) => (c.contacts || []).forEach((k) => k.name && String(k.name).includes(" ") && l.includes(String(k.name).toLowerCase()) && out.push({ name: k.name, email: k.email || "", role: k.role || "", client: c, kind: "contact" }))),
+    (DB.leads || []).forEach((x) => x.name && String(x.name).includes(" ") && !/^the /i.test(x.name) && l.includes(String(x.name).toLowerCase()) && out.push({ name: x.name, email: x.email || "", lead: x, kind: "lead" }));
+  return out;
+}
+// A client question names a client's person by first name as often as a staff member: "what did Sarah choose".
+const AG_CLIENTISH = /\b(choose|chose|chosen|picked?|decide[ds]?|decision|select(ed|ion)?|approve[ds]?|sign(ed)?|asking|asked|ask me|email(ed)?|wrote|write to|reply|replied|want(s|ed)?|prefer)\b/;
 function agPeople(l) {
   const E = (DB.employees || []).filter((e) => !1 !== e.active),
     full = E.filter((e) => String(e.name).includes(" ") && l.includes(String(e.name).toLowerCase()));
   if (full.length) return full;
+  // a client contact or lead named in full owns their first name: "sarah klein" is never Sarah Davis
+  let rest = l;
+  agContactsIn(l).forEach((k) => (rest = rest.replace(String(k.name).toLowerCase(), " ")));
+  const contactFirst = new Set((DB.clients || []).flatMap((c) => (c.contacts || []).map((k) => String(k.name || "").toLowerCase().split(/\s+/)[0])));
   return E.filter((e) => {
     const f = String(e.name).toLowerCase().split(/\s+/)[0];
-    if (f.length < 3 || !agWordRe(f).test(l)) return !1;
-    // "Sarah" alone is a client contact as often as Sarah Davis; take her only when no client is named
+    if (f.length < 3 || !agWordRe(f).test(rest)) return !1;
+    // a bare first name a client contact shares, in a question about a client's choice or mail, is the client's
+    if (contactFirst.has(f) && AG_CLIENTISH.test(rest)) return !1;
     return !(E.filter((x) => String(x.name).toLowerCase().split(/\s+/)[0] === f).length > 1);
   });
 }
@@ -164106,15 +164183,18 @@ function agParse(raw) {
         .filter((w) => /^[A-Z][a-z]/.test(w) && !/^(I|I'm|I've)$/.test(w))
         .map((w) => w.toLowerCase().replace(/[^a-z0-9]/g, "")),
     ),
-    F = agFix(l0.replace(/[—–]/g, " ").replace(/\s+/g, " ").trim(), caps),
+    lit = !!agLiteral && agLiteral === String(raw || ""),
+    F = lit ? { text: l0.replace(/[—–]/g, " ").replace(/\s+/g, " ").trim(), fixes: [] } : agFix(l0.replace(/[—–]/g, " ").replace(/\s+/g, " ").trim(), caps),
     l = F.text,
     me = agMeEmp(),
-    P = { raw: String(raw || ""), l: l, fixes: F.fixes };
+    P = { raw: String(raw || ""), l: l, fixes: F.fixes, literal: lit };
+  agLiteral && !lit && (agLiteral = "");
   (P.period = agPeriod(l)),
     (P.jobs = agJobs(l)),
     (P.clients = agClients(l)),
     (P.vendors = agVendors(l)),
     (P.people = agPeople(l)),
+    (P.contacts = agContactsIn(l)),
     (P.self = /\b(i|me|my|mine|myself)\b/.test(l)),
     P.self && me && !P.people.includes(me) && (P.meEmp = me),
     (P.payees = agPayeeIn(P.raw, l).filter((n) => !P.vendors.some((v) => v.name.toLowerCase() === n.toLowerCase()) || /\b(spend|spent|pay|paid|cost|bought|buy)\b/.test(l))),
@@ -164198,7 +164278,7 @@ function agCloseState(ym) {
   try {
     if ("function" == typeof ctCloseStatus) {
       const s = ctCloseStatus(ym);
-      if (s && "object" == typeof s) return { closed: !!(s.closed || s.locked), wages: s.wages, at: s.at || s.on || "", src: "ctCloseStatus" };
+      if (s && "object" == typeof s) return { closed: !!(s.closed || s.locked), wages: s.wages, at: s.at || s.on || "", by: s.by || "", reason: s.reason || "", src: "ctCloseStatus" };
     }
   } catch (e) {}
   const per = DB.periods || {},
@@ -164206,6 +164286,17 @@ function agCloseState(ym) {
     c = closes[closes.length - 1] || null,
     lt = "function" == typeof lockedThrough ? lockedThrough() || "" : "";
   return { closed: (!!lt && lt >= ym) || !!c, rec: c, wages: c ? c.wages : null, lockedThrough: lt, src: "DB.periods" };
+}
+// The job-cost answers (finAnswer) for a job's margin, EAC and margin by job: one wording with the screens.
+function agFinAnswer(P, text) {
+  let f = null;
+  try {
+    f = finAnswer(text || P.l);
+  } catch (e) {
+    f = null;
+  }
+  if (!f || "finance" !== f.kind) return null;
+  return Object.assign(f, { ran: agRan("projects", agWhereJob(P).concat(["job cost from jobFin"]), P.jobs.length ? "" : "job", (f.work || []).length || P.jobs.length) });
 }
 const AG_FIN = [
   {
@@ -164254,7 +164345,9 @@ const AG_FIN = [
         mn = P.period ? P.period.label : "last month",
         s = agCloseState(ym);
       return {
-        headline: s.closed ? `${mn} is closed${s.lockedThrough ? `; the books are locked through ${s.lockedThrough}` : ""}.` : `${mn} is not closed yet${s.lockedThrough ? `; the books are locked through ${s.lockedThrough}` : "; no month is locked"}.`,
+        headline: s.closed
+          ? `${mn} is closed${s.by ? ` — closed by ${s.by}${s.at ? ` on ${fmtL(String(s.at).slice(0, 10))}` : ""}${s.reason ? ` ("${s.reason}")` : ""}` : ""}${s.lockedThrough ? `; the books are locked through ${s.lockedThrough}` : ""}.`
+          : `${mn} is not closed yet, so nobody has closed it${s.lockedThrough ? `; the books are locked through ${s.lockedThrough}` : "; no month is locked"}.`,
         go: agGo("close") || agGo("gl"),
         ran: agRan("periods", [`month is ${mn}`], "", s.rec ? 1 : 0),
       };
@@ -164280,6 +164373,12 @@ const AG_FIN = [
     re: /\bgross (margin|profit)\b|\bmargin\b/,
     kind: "money",
     run(P) {
+      // a job's margin, or margin by job: the job-cost answer (at completion, bid, cost-to-cost and measured % complete)
+      const byJob = "job" === P.group || /\b(by|per|each|every|across) (job|project)s?\b|\b(jobs|projects)\b/.test(P.l);
+      if (P.jobs.length || byJob) {
+        const f = agFinAnswer(P, byJob ? "margin by job" : null);
+        if (f) return f;
+      }
       if (P.jobs.length) {
         const J = P.jobs.map((p) => ({ p: p, f: jobFin(p) }));
         return {
@@ -164304,6 +164403,10 @@ const AG_FIN = [
     re: /\beac\b|\bestimate(d)? (cost )?at completion\b|\bcost at completion\b|\bforecast(ed)? (final )?cost\b|\bprojected cost\b/,
     kind: "money",
     run(P) {
+      if (1 === P.jobs.length) {
+        const f = agFinAnswer(P);
+        if (f) return f;
+      }
       const L = P.jobs.length ? P.jobs : (DB.projects || []).filter((p) => p.project && !/design/i.test(p.project.name));
       const J = L.map((p) => ({ p: p, f: jobFin(p) }));
       return {
@@ -164387,6 +164490,10 @@ const AG_FIN = [
     re: /\b(ar|a\/r|accounts receivable|receivables?)\b|\b(are we owed|owed to us|owe us|owes us)\b|\boutstanding\b|\bclients?\b.*\bbalances?\b|\bbalances?\b.*\bclients?\b/,
     kind: "money",
     run(P) {
+      if (/\b(aging|ageing|aged|buckets?)\b/.test(P.l)) {
+        const f = agFinAnswer(P, "ar aging");
+        if (f) return Object.assign(f, { ran: agRan("invoices", ["unpaid", "aged from the due date"], "bucket", eqRows("invoices").filter((r) => r.unpaid && r.outstanding > 0.005).length) });
+      }
       const inv = eqRows("invoices").filter((r) => r.unpaid && r.outstanding > 0.005 && agOnJob(P, r.projectId) && (!P.clients.length || P.clients.some((c) => c.id === r.clientId)));
       if (P.group || "max" === P.measure || P.clients.length || P.jobs.length || /\bwhich client|\bwho owes\b/.test(P.l)) {
         const by = {};
@@ -164660,12 +164767,14 @@ const AG_OPS = [
     re: /\b(must|need(s)? to|has to|have to|should|to) be ordered\b|\border(ed)? this week\b|\bto order this week\b|\bbuy this week\b/,
     kind: "ops",
     run(P) {
-      const R = (agB2().buyWeek || []).filter((r) => agOnJob(P, r.p && r.p.id));
+      const R = (agB2().buyWeek || []).filter((r) => agOnJob(P, r.p && r.p.id)),
+        late = (agB2().buyLate || []).filter((r) => agOnJob(P, r.p && r.p.id)),
+        nm = (r) => `${agShort(r.p)} — ${(r.m && r.m.name) || (r.l && r.l.item) || r.name || ""}${r.orderBy ? `, order by ${fmtL(r.orderBy)}` : ""}`;
       return {
-        headline: `${agN(R.length, "item")} must be ordered this week.`,
-        work: R.slice(0, 12).map((r) => `${agShort(r.p)} — ${(r.m && r.m.name) || (r.l && r.l.item) || r.name || ""}${r.orderBy ? `, order by ${fmtL(r.orderBy)}` : ""}`),
+        headline: `${agN(R.length, "item")} must be ordered this week${late.length ? `, and ${late.length} ${1 === late.length ? "is" : "are"} already past ${1 === late.length ? "its" : "their"} order-by date: ${agList(late.map((r) => (r.m && r.m.name) || (r.l && r.l.item) || r.name || ""), 5)}` : ""}.`,
+        work: late.slice(0, 8).map((r) => `Late — ${nm(r)}`).concat(R.slice(0, 12).map(nm)),
         go: agGo("proc"),
-        ran: agRan("Buy Board", ["to order this week"].concat(agWhereJob(P)), "", R.length),
+        ran: agRan("Buy Board", ["to order this week, or past the order-by date"].concat(agWhereJob(P)), "", R.length + late.length),
       };
     },
   },
@@ -165475,6 +165584,12 @@ function agRead(P) {
     const out = rd.run(P);
     return out ? Object.assign(out, { reader: rd.id }) : null;
   };
+  for (const rd of "undefined" != typeof AG_ASST ? AG_ASST : []) {
+    if (P.firstOnly && !rd.first) continue;
+    const a = tryOne(rd, rd.re.test(P.l) && !(rd.not && rd.not.test(P.l)));
+    if (a) return a;
+  }
+  if (P.firstOnly) return null;
   for (const rd of AG_FIN) {
     const a = tryOne(rd, rd.re.test(P.l) && !(rd.not && rd.not.test(P.l)));
     if (a) return a;
@@ -165516,9 +165631,24 @@ function agSpecRan(q) {
   const W = normWhere(q.where || {}).map((c) => `${c.field} ${c.op} ${Array.isArray(c.value) ? c.value.join(", ") : c.value}`);
   return { entity: q.entity, where: (q.q ? [`text matches "${q.q}"`] : []).concat(W), group: q.group || "" };
 }
+// A question to read exactly as typed: the next agParse of this text skips the typo fixer once.
+let agLiteral = "";
 function agStamp(a, ran, P) {
   if (!a || "object" != typeof a) return a;
   const fx = P && P.fixes && P.fixes.length ? ` I read ${P.fixes.map(([f, t]) => `"${f}" as "${t}"`).join(", ")}.` : "";
+  if (fx && "function" == typeof csOffer && "function" == typeof paSend) {
+    const raw = P.raw;
+    (a.offers = (a.offers || []).concat([
+      csOffer({
+        id: "ag-literal",
+        label: "Read It as Typed",
+        detail: `Ask "${raw}" again without my corrections (${P.fixes.map(([f]) => `"${f}"`).join(", ")} as written).`,
+        run: () => {
+          (agLiteral = raw), paSend(raw);
+        },
+      }),
+    ]));
+  }
   return ran && (a.interp = ran + "." + fx), a;
 }
 const AG_KIND_READ = {
@@ -165623,7 +165753,10 @@ AG_FIN.push(
         L = (DB.projects || []).filter((p) => jobFin(p).backlog > 0.5);
       return {
         headline: `${money(B.backlog)} of backlog across ${agN(L.length, "contract")}: contract value not yet earned.`,
-        work: L.map((p) => `${agShort(p)} — ${money(jobFin(p).backlog)}`),
+        note: "Backlog = contract − earned. % complete is measured on site; earned revenue runs on cost-to-cost.",
+        work: L.map((p) => ({ p: p, J: jobFin(p) }))
+          .sort((a, b) => b.J.backlog - a.J.backlog)
+          .map((x) => `${finName(x.p)} · ${money(x.J.backlog)} backlog · ${money(x.J.backlogGP)} GP · ${tpJobPct(x.p)}% complete`),
         go: agGo("wip") || agGo("reports"),
         ran: agRan("projects", ["contract value not yet earned"], "", L.length),
       };
@@ -165709,6 +165842,1178 @@ AG_OPS.push(
     },
   },
 );
+// ---- the assistant's own readers (round 5): mail, meetings and promises before hours and invoices; drafts and
+// chases that produce a draft to approve; the day's log. They sit in agRead's lists like every other reader, and
+// read only the asker's own mailbox (paMail), so a client and the field never reach them (kind "self").
+const agMine = () => {
+    try {
+      return paMail();
+    } catch (e) {
+      return [];
+    }
+  },
+  agDay = (c) => String((c && c.date) || "").slice(0, 10),
+  agSnip = (t, n) => {
+    const s = String(t || "")
+      .replace(/^(hi|hello|dear|hey)\b[^,\n]*,?\s*/i, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (s.length <= (n || 220)) return s;
+    const cut = s.slice(0, n || 220),
+      dot = cut.lastIndexOf(". ");
+    return (dot > 60 ? cut.slice(0, dot + 1) : cut.replace(/\s+\S*$/, "") + "…").trim();
+  },
+  agFirst = (n) => String(n || "").replace(/^the\s+/i, "").split(/[\s&,]+/)[0] || "there",
+  agMeName = () => {
+    try {
+      return paMe().name || "";
+    } catch (e) {
+      return "";
+    }
+  },
+  agSign = () => {
+    const n = agMeName();
+    return /^(owner|billing|controller)$/i.test(n) ? (DB.company && DB.company.name) || n : agFirst(n);
+  };
+// An address for a person or firm: the record, then any mail that came from or went to them.
+function agEmailFor(name) {
+  const n = String(name || "").toLowerCase().trim();
+  if (!n) return "";
+  let e = "";
+  try {
+    e = paEmailFor(name);
+  } catch (x) {}
+  if (e) return e;
+  const lead = (DB.leads || []).find((l) => String(l.name).toLowerCase() === n);
+  if (lead && lead.email) return lead.email;
+  const re = new RegExp(`(^|[^a-z])${n.replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, "\\s+")}\\s*<([^>]+)>`, "i");
+  for (const c of DB.comms || []) {
+    for (const t of [].concat(c.to || [], c.cc || [])) {
+      const m = String(t).match(re);
+      if (m) return m[2];
+    }
+  }
+  return "";
+}
+// Who a question names, across everyone Ask can address: client contacts and leads in full, clients, vendors,
+// payees, staff and users, and the people in my mail. A role noun ("the PE", "LPC", "the expediter") is read
+// off the mail. Each carries the record it came from, so "the Lindqvists" is the lead and its contact.
+const AG_ROLE_NOUNS = [
+  [/\b(the )?(pe|p\.e\.|structural( engineer)?|engineer)\b/, (c) => /\bcalc|structural|\bp\.?e\.?\b|engineer|flitch|shoring|beam/i.test(c.subject + " " + c.text)],
+  [/\blpc\b|\blandmarks\b/, (c) => /lpc|landmarks/i.test((c.from || {}).name + " " + (c.from || {}).email)],
+  [/\bdob\b|\bbuildings department\b/, (c) => /dob/i.test((c.from || {}).name + " " + (c.from || {}).email)],
+  [/\bexpediter\b|\bexpediting\b/, (c) => /expedit/i.test((c.from || {}).name + " " + (c.from || {}).email)],
+];
+function agParty(P, opts) {
+  const l = P.l,
+    out = [],
+    seen = new Set(),
+    push = (x) => {
+      const k = String(x.name).toLowerCase();
+      seen.has(k) || (seen.add(k), out.push(x));
+    },
+    mail = agMine(),
+    staffDom = /@smartdesign\b|smartdesign\.nyc/i;
+  (P.contacts || []).forEach((k) => push(Object.assign({}, k)));
+  (P.clients || []).forEach((c) => {
+    const money = /\b(pay|paid|invoice|retainer|deposit|owe|balance|inv-)/.test(l),
+      k = (c.contacts || []).find((x) => (money ? /money|pay/i : /decision|decides design|homeowner/i).test(x.role || "")) || (c.contacts || [])[0];
+    k ? push({ name: k.name, email: k.email || "", client: c, kind: "contact", role: k.role || "" }) : push({ name: c.name, email: "", client: c, kind: "client" });
+  });
+  // leads by full name, or by a surname nobody else carries ("the Lindqvists", "Marcus Bell")
+  (DB.leads || []).forEach((x) => {
+    if (["won", "lost"].includes(x.stage)) return;
+    const nm = String(x.name).toLowerCase().replace(/^the /, ""),
+      sur = nm.split(/\s+/).pop().replace(/s$/, "");
+    if (l.includes(nm) || (sur.length >= 4 && new RegExp(`\\b${sur}s?\\b`).test(l))) {
+      const c = x.clientId ? (DB.clients || []).find((y) => y.id === x.clientId) : null,
+        k = c && (c.contacts || [])[0];
+      push({ name: k ? k.name : x.name, email: (k && k.email) || x.email || "", lead: x, client: c, kind: k ? "contact" : "lead" });
+    }
+  });
+  (P.vendors || []).forEach((v) => push({ name: v.name, email: v.email || "", vendor: v, kind: "vendor" }));
+  (P.payees || []).forEach((n) => (DB.vendors || []).some((v) => v.name === n) || push({ name: n, email: "", kind: "payee" }));
+  // people in my mail: a full name, or a first name or surname of four letters or more that only one sender has
+  const senders = {};
+  mail.forEach((c) => {
+    const f = c.from || {},
+      nm = String(f.name || "").trim();
+    !nm || staffDom.test(f.email || "") || /^(meeting notes|accounts)$/i.test(nm) || ((senders[nm] = senders[nm] || []), senders[nm].push(c));
+  });
+  // a sender's word that is also plain English ("Chase", "Works") never names them from inside a sentence
+  const toks = (nm) => nm.toLowerCase().split(/[^a-z]+/).filter((t) => t.length >= 4 && !AG_GENERIC.test(t) && !AG_DICT.has(t) && !/^(staff|office|sales|notes|service|insurance|brokers|works|plumbing|millwork|tile|lumber)$/.test(t));
+  Object.keys(senders).forEach((nm) => {
+    const low = nm.toLowerCase(),
+      hit = l.includes(low) || toks(nm).some((t) => new RegExp(`\\b${t}\\b`).test(l) && Object.keys(senders).filter((o) => toks(o).includes(t)).length === 1);
+    hit && push({ name: nm, email: (senders[nm][0].from || {}).email || "", mail: senders[nm], kind: "sender" });
+  });
+  AG_ROLE_NOUNS.forEach(([re, test]) => {
+    if (!re.test(l)) return;
+    const M = mail.filter((c) => "in" === c.direction && !(c.route || {}).clientId && !staffDom.test((c.from || {}).email || "") && !/meeting notes|^notes@|no-?reply|donotreply|notifications?@/i.test(`${(c.from || {}).name} ${(c.from || {}).email}`) && test(c));
+    M.length && push({ name: M[0].from.name, email: M[0].from.email || "", mail: M, kind: "sender", role: true });
+  });
+  // a capitalised name nobody holds, after the verb: "chase J Rosario", a payee the bank lines carry in their text
+  if (!out.length) {
+    const m = String(P.raw).match(/\b(?:chase|nudge|ping|remind|email|e-mail|write to|draft to|to|for|from|is)\s+((?:[A-Z][\w.'&-]*)(?:\s+(?:[A-Z][\w.'&-]*|&)){0,3})/);
+    if (m && !/^(I|The|My|Our|What|When|Who|COI|W-?9)$/.test(m[1])) {
+      const nm = m[1].replace(/\s+(For|About|On|Re|Today|Tomorrow)$/, "").trim(),
+        lines = (DB.txns || []).filter((t) => agNameHit(nm, `${t.vendor || ""} ${t.desc || ""}`));
+      lines.length && push({ name: nm, email: "", kind: "payee", lines: lines });
+    }
+  }
+  if (!opts || !opts.noStaff) {
+    (P.people || []).forEach((e) => push({ name: e.name, email: "", staff: e, kind: "staff" }));
+    const U = (DB.users || []).filter((u) => ["billing", "controller", "coord", "pm", "owner", "designer"].includes(u.role));
+    U.forEach((u) => new RegExp(`\\b${String(u.name).toLowerCase().split(/\s+/)[0]}\\b`).test(l) && /^(billing|controller)$/i.test(u.name) && push({ name: u.name, email: u.email || "", user: u, kind: "staff" }));
+  }
+  return out;
+}
+const agMailOf = (party) => {
+  const n = String(party.name || "").toLowerCase(),
+    em = String(party.email || "").toLowerCase();
+  return agMine().filter((c) => {
+    const f = c.from || {};
+    return "in" === c.direction && ((em && String(f.email || "").toLowerCase() === em) || (n && String(f.name || "").toLowerCase() === n));
+  });
+};
+const AG_TOPIC_STOP = new Set("what did does do has have had send sent say said ask asked asking tell told write wrote written email emailed mail reply replied respond responded answer answered back hear heard get got about from with for that this they them their there her his him she he me my i you your we our us the a an to of on in at and or is are was were be been any anything anyone anybody someone yet still not dont didnt haven't havent hasnt there's whats what's which who when where why how did yes please".split(" "));
+function agTopic(P, party) {
+  const drop = new Set();
+  [].concat(party || []).forEach((x) => String(x.name || "").toLowerCase().split(/[^a-z0-9]+/).forEach((t) => drop.add(t)));
+  P.jobs.forEach((p) => agShort(p).toLowerCase().split(/[^a-z0-9]+/).forEach((t) => drop.add(t)));
+  return P.l
+    .split(/[^a-z0-9-]+/)
+    .filter((w) => w.length >= 3 && !AG_TOPIC_STOP.has(w) && !AG_STOPW.has(w) && !drop.has(w) && !/^(pe|lpc|dob|engineer|structural|she|her)$/.test(w));
+}
+const agTopicHit = (c, words) => {
+  const t = String(c.subject + " " + c.text).toLowerCase();
+  return words.filter((w) => t.includes(w.replace(/s$/, ""))).length;
+};
+const agMailRow = (c) => `${fmtL(agDay(c))} — ${(c.from || {}).name || (c.from || {}).email}: ${c.subject}${(c.proposals || []).length ? ` · ${c.proposals.map((p) => p.summary || p.kind).filter(Boolean)[0] || ""}` : ""}`;
+function agMailOffers(c) {
+  try {
+    return (paRefOffers({ kind: "mail", id: c.msgId, commId: c.id }) || []).slice(0, 3);
+  } catch (e) {
+    return [];
+  }
+}
+// The connected-mailbox caveat: a question about mail with no mailbox says so instead of answering from records.
+const agNoMail = () => {
+  let on = !1;
+  try {
+    on = gcOn();
+  } catch (e) {}
+  return on || agMine().length
+    ? null
+    : {
+        headline: "Your mailbox is not connected, so I cannot read what anybody sent you.",
+        note: "Connect it under Settings › Connections and I will read it, route it to the jobs, and answer this from the thread.",
+        go: agGo("conn"),
+        ran: agRan("mail", ["mailbox not connected"], "", 0),
+      };
+};
+// One date named in a question: "on Sep 1", "on 9/1", "september 1st".
+function agDayIn(l) {
+  const y = today().slice(0, 4),
+    m = l.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(st|nd|rd|th)?\b/);
+  if (m) {
+    const mi = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, sept: 8, oct: 9, nov: 10, dec: 11 }[m[1]];
+    return `${y}-${String(mi + 1).padStart(2, "0")}-${String(+m[2]).padStart(2, "0")}`;
+  }
+  const n = l.match(/\b(\d{1,2})\/(\d{1,2})\b/);
+  return n ? `${y}-${String(+n[1]).padStart(2, "0")}-${String(+n[2]).padStart(2, "0")}` : "";
+}
+// ---- drafts and chases: a draft to approve, built from the record and the thread now. The hosted model only
+// improves the wording when the firm has an AI endpoint; nothing waits on it. The person's standing orders apply.
+const agStaffEmail = (name) => {
+  const n = String(name || "").toLowerCase();
+  const u = (DB.users || []).find((x) => String(x.name).toLowerCase() === n && x.email);
+  return (u && u.email) || agEmailFor(name);
+};
+// "always copy Chen on vendor COIs": a cc on every draft whose context carries every word of the order's scope.
+function agStandingCc(ctx) {
+  const out = [],
+    have = String(ctx || "").toLowerCase(),
+    syn = { cois: "coi", coi: "coi|certificate|insurance", vendor: "vendor|sub|supplier", vendors: "vendor|sub|supplier", client: "client|contact|homeowner", clients: "client|contact|homeowner", rfi: "rfi", rfis: "rfi", invoice: "invoice|retainer|inv-", invoices: "invoice|retainer|inv-" };
+  let A = null;
+  try {
+    A = paInit();
+  } catch (e) {
+    return out;
+  }
+  (A.standing || []).forEach((s) => {
+    const m = String(s.text || "").match(/\b(?:always\s+)?(?:copy|cc|include|loop in|add)\s+([a-z][a-z .'-]*?)\s+(?:on|in|for|into)\s+(?:all\s+|every\s+|any\s+)?(.+?)\.?$/i);
+    if (!m) return;
+    const scope = m[2].toLowerCase().split(/[^a-z0-9-]+/).filter((w) => w.length >= 3 && !["the", "and", "emails", "email", "mail", "messages", "drafts", "chases"].includes(w));
+    if (!scope.length || !scope.every((w) => new RegExp(`\\b(${syn[w] || w.replace(/s$/, "")})`).test(have))) return;
+    const first = m[1].trim().toLowerCase(),
+      e = (DB.employees || []).find((x) => String(x.name).toLowerCase() === first) || (DB.employees || []).find((x) => String(x.name).toLowerCase().split(/\s+/)[0] === first.split(/\s+/)[0]),
+      name = e ? e.name : m[1].trim();
+    out.some((x) => x.name === name) || out.push({ name: name, email: agStaffEmail(name), why: s.text });
+  });
+  return out;
+}
+const agWorkDue = (n) => addWork(today(), n || 3, !1);
+// Save a draft: into the connected mailbox's Drafts (the outbox when none is connected), an expectation on the
+// ledger with a follow-up when it asks for something back, and a note on the record. Nothing is sent from here.
+function chaseParty(D) {
+  const go = (addr) => {
+    const to = D.to.name,
+      cc = (D.cc || []).filter((x) => x.email).map((x) => `${x.name} <${x.email}>`).join(", "),
+      due = agWorkDue(3),
+      me = agMeName(),
+      mail = "function" == typeof gcOn && gcOn(),
+      done = (where) => {
+        if (D.expect) {
+          const e = paExpect(to, D.subject.replace(/^(Following up|Reminder|Chasing) — /, ""), due, D.ref || { kind: D.kind }, today());
+          (e.email = addr), (e.chased = (e.chased || 0) + 1), "function" == typeof eaAddNote && eaAddNote(`Follow up: ${D.subject} — asked ${fmtL(today())}`, due, me);
+        }
+        D.vendor && !D.vendor.email && (D.vendor.email = addr);
+        D.lead && !D.lead.email && (D.lead.email = addr);
+        try {
+          paDid(`Wrote a draft to ${to}`, D.why || D.subject, { view: "comms" });
+        } catch (e) {}
+        save(), render();
+        rcToast(`Draft to ${to} is in your ${where}${D.expect ? ` — I will remind you ${fmtL(due)} if nothing comes back` : ""}`, [{ label: "Open", run: () => ((cmFilter = "all"), (view = "comms"), render()) }]);
+      };
+    if (D.internal) {
+      const p = (D.job && D.job.id ? D.job : null) || (DB.projects || [])[0];
+      p && ((p.actions = p.actions || []).push({ id: uid("a"), title: D.subject, assignee: to, due: agWorkDue(1), priority: "med", status: "todo", area: "office", createdAt: appNowIso(), notes: `${D.body}\n\nFrom ${me}.`, source: { assistant: (paMe() || {}).id } }), save());
+      return rcToast(`Sent to ${to} as a task due ${fmtL(agWorkDue(1))}`, [{ label: "Open", run: () => setView("tkall") }]), render(), Promise.resolve(!0);
+    }
+    if (mail)
+      return gaDraft({ to: `${to} <${addr}>`, cc: cc, subject: D.subject, body: D.body, why: D.why || D.subject, threadId: D.threadId })
+        .then(() => done("mailbox's Drafts"))
+        .catch((err) => {
+          console.warn("draft", err), paDraftNote(to, D.subject, D.body, D.why || D.subject, `ag|${D.kind}|${to}|${today()}`), done("outbox for approval");
+        });
+    const o = paDraftNote(to, D.subject, D.body, D.why || D.subject, `ag|${D.kind}|${to}|${today()}`);
+    return o && ((o.to.email = addr), cc && (o.cc = cc)), done("outbox for approval"), Promise.resolve(!0);
+  };
+  if (D.internal || (D.to.email && /@/.test(D.to.email))) return go(D.to.email);
+  // no address on file: ask for it once, keep it on the record, then draft
+  return new Promise((res) =>
+    mbModal(
+      `Draft to ${D.to.name}`,
+      `<p class="small muted">${esc(D.to.name)} has no email on file. Add it and the draft goes to your ${"function" == typeof gcOn && gcOn() ? "mailbox's Drafts" : "outbox"} for you to read and send.</p>${mbF("Their Email", `<input type="email" data-f="email" autocomplete="off">`)}`,
+      {
+        submit: "Draft It",
+        onSubmit: (f) => {
+          const a = String(f.email || "").trim();
+          if (!/@/.test(a)) return toast(`Add ${D.to.name}'s address so the draft can go out`), !1;
+          res(go(a));
+        },
+      },
+    ),
+  );
+}
+// A vendor chase the purchasing screens and Ask share: COI or W-9, the vendor's address or a prompt for it.
+function chaseVendor(kind, vendor, by) {
+  const v = "string" == typeof vendor ? (DB.vendors || []).find((x) => x.name === vendor) || { name: vendor } : vendor;
+  return chaseParty(agChaseDraft({ kind: kind, to: { name: v.name, email: v.email || agEmailFor(v.name) }, vendor: v.id ? v : null, by: by }));
+}
+// The words of each chase, from the record. Plain, specific, one ask, a date.
+function agChaseDraft(o) {
+  const to = o.to,
+    first = agFirst(to.name),
+    sign = agSign(),
+    due = o.by || agWorkDue(3),
+    D = { kind: o.kind, to: to, vendor: o.vendor || null, lead: o.lead || null, expect: !0, ref: { kind: o.kind } };
+  if ("coi" === o.kind) {
+    const v = o.vendor || {},
+      exp = v.insuranceExp ? ` (the one on file expired ${fmtL(v.insuranceExp)})` : "";
+    (D.subject = `Certificate of insurance — ${v.name || to.name}`),
+      (D.body = `Hi ${first},\n\nWe need a current certificate of insurance for ${v.name || to.name} before the next purchase order can go out${exp}. General liability and workers' comp, with SmartDesign named as certificate holder. Could you send it over by ${fmtL(due)}?\n\nThanks,\n${sign}`),
+      (D.why = `${v.name || to.name} owes a certificate of insurance`);
+  } else if ("w9" === o.kind) {
+    const paid = r2((DB.txns || []).filter((t) => t.amt < 0 && String(t.year || t.date).startsWith(today().slice(0, 4)) && agNameHit(to.name, `${t.vendor || ""} ${t.desc || ""}`)).reduce((a, t) => a - t.amt, 0));
+    (D.subject = `W-9 for our records — ${to.name}`),
+      (D.body = `Hi ${first},\n\nFor our 1099 records we need a signed W-9 for ${to.name}${paid ? `: we have paid you ${money(paid)} this year` : ""}. Could you send it back by ${fmtL(due)}? A photo of the signed form is fine.\n\nThanks,\n${sign}`),
+      (D.why = `${to.name} owes a W-9`),
+      (D.ref = { kind: "w9" });
+  } else if ("invoice" === o.kind) {
+    const L = o.invoices || [],
+      late = L.filter((x) => x.due && x.due < today()),
+      one = L[0];
+    (D.subject = one ? `${late.length ? "Reminder" : "Following up"} — ${one.number}${one.title ? ` (${one.title})` : ""}` : `Following up — your account`),
+      (D.body = `Hi ${first},\n\n${L.length ? L.map((x) => `${x.number}${x.title ? `, ${x.title},` : ""} is ${money(x.bal)} and ${x.due && x.due < today() ? `was due ${fmtL(x.due)}` : `is due ${fmtL(x.due)}`}`).join("; ") + "." : "Following up on your account."} Could you let me know when the payment goes out? If it already has, send me the date and I will match it.\n\nThank you,\n${sign}`),
+      (D.why = `${o.client ? o.client.name : to.name} owes ${L.length ? money(L.reduce((a, x) => a + x.bal, 0)) : "a payment"}`),
+      (D.ref = { kind: "invoice", clientId: o.client ? o.client.id : "", ids: L.map((x) => x.id) });
+  } else if ("decision" === o.kind) {
+    const d = o.decision,
+      p = o.job;
+    (D.subject = `${p ? agShort(p) : "Your project"} — we need your call on ${d.clientTitle || d.name}`),
+      (D.body = `Hi ${first},\n\nQuick one on ${p ? agShort(p) : "the project"}: we need your call on "${d.clientTitle || d.name}"${d.blocks ? ` to keep ${d.blocks} moving` : " to keep the next trade moving"}. Could you let us know by ${fmtL(d.due && d.due > today() ? d.due : due)}?\n\nThank you,\n${sign}`),
+      (D.why = `${to.name} owes a decision on ${d.name}`),
+      (D.about = `Decision — ${d.name} (${p ? agShort(p) : ""})`),
+      (D.ref = { kind: "decision", projectId: p ? p.id : "", decisionId: d.id });
+  } else if ("proposal" === o.kind) {
+    const L = o.lead || {},
+      sent = o.sent,
+      when = sent ? agDay(sent) : ((L.touches || []).filter((t) => /proposal|presented/.test(t.channel || "")).pop() || {}).at;
+    (D.subject = sent ? `Following up — ${String(sent.subject).replace(/\s*—\s*any questions\??$/i, "")}` : `Following up — ${L.addr || "our proposal"}`),
+      (D.body = `Hi ${first},\n\nFollowing up on the proposal${L.addr ? ` for ${L.addr}` : ""}${when ? ` we sent on ${fmtL(when)}` : ""}. Happy to walk through any of it, or to adjust the scope; if it works as it is, a signature gets you on the calendar.\n\nIs a call this week useful?\n\n${sign}`),
+      (D.why = `${to.name} has not answered the proposal`),
+      (D.ref = { kind: "lead", leadId: L.id || "" }),
+      sent && (D.threadId = sent.threadId);
+  } else
+    (D.subject = `Following up — ${o.about || "my last note"}`),
+      (D.body = `Hi ${first},\n\nFollowing up on ${o.about || "my last note"}. Could you come back to me by ${fmtL(due)}?\n\nThanks,\n${sign}`),
+      (D.why = `${to.name} owes an answer`);
+  return D;
+}
+// How a draft reads in Ask: who, the cc and why, the subject and the body, and one button.
+function agDraftAnswer(D, P, ran) {
+  const ctx = `${D.kind} ${D.to.kind || ""} ${D.vendor ? "vendor" : ""} ${D.subject} ${D.body}`;
+  D.cc = (D.cc || []).concat(D.internal ? [] : agStandingCc(ctx));
+  let mail = !1;
+  try {
+    mail = gcOn();
+  } catch (e) {}
+  const where = D.internal ? `a task on ${D.to.name}` : mail ? "your mailbox's Drafts" : "your outbox";
+  return {
+    headline: `Draft to ${D.to.name} — ${D.subject}.`,
+    note: D.internal
+      ? `Nothing is sent until you press Send to ${D.to.name}: it becomes ${where}, with the facts below.`
+      : `Nothing is sent: ${mail ? "Draft in My Mailbox" : "Put It in My Outbox"} puts it in ${where} for you to read and send${D.expect ? `, logs that we asked, and I remind you ${fmtL(agWorkDue(3))} if nothing comes back` : ""}.${D.to.email ? "" : ` ${D.to.name} has no address on file; I will ask for it.`}`,
+    work: (D.about ? [D.about] : []).concat([`To: ${D.to.name}${D.to.email ? ` <${D.to.email}>` : ""}`])
+      .concat((D.cc || []).map((c) => `Cc: ${c.name}${c.email ? ` <${c.email}>` : ""} — your standing order "${c.why}"`))
+      .concat([`Subject: ${D.subject}`])
+      .concat(String(D.body).split(/\n+/).filter(Boolean)),
+    offers: [
+      csOffer({
+        id: "ag-draft-" + D.kind,
+        label: D.internal ? `Send to ${D.to.name}` : mail ? "Draft in My Mailbox" : "Put It in My Outbox",
+        detail: D.internal ? `A task on ${D.to.name}, due ${fmtL(agWorkDue(1))}.` : `To ${D.to.name}${(D.cc || []).length ? `, cc ${D.cc.map((c) => c.name).join(", ")}` : ""}. You read it and press Send yourself.`,
+        run: () => chaseParty(D),
+      }),
+    ],
+    go: agGo("comms"),
+    kind: "draft",
+    ran: ran || agRan("drafts", [`to ${D.to.name}`, `about ${D.subject}`], "", 1),
+  };
+}
+// Who a draft or chase goes to, by what the draft is for: an RFI goes to a consultant in the mail, a follow-up to
+// a lead or client, an email to a vendor. Two people at the same rank: ask which one.
+const AG_DRAFT_RANK = {
+  rfi: { sender: 3, vendor: 2, staff: 1, contact: 0, lead: -1, payee: 0, client: 0 },
+  followup: { lead: 3, contact: 3, client: 2, sender: 1, vendor: 1, payee: 0, staff: -1 },
+  update: { contact: 3, client: 2, lead: 1, sender: 0, vendor: -1, payee: -1, staff: -1 },
+  email: { vendor: 3, contact: 2, sender: 2, lead: 1, client: 1, payee: 1, staff: 0 },
+  internal: { staff: 3 },
+  chase: { vendor: 3, payee: 3, contact: 3, lead: 3, client: 2, sender: 1, staff: -1 },
+};
+function agPick(L, kind) {
+  const R = AG_DRAFT_RANK[kind] || AG_DRAFT_RANK.email,
+    S = L.map((x) => ({ x: x, s: R[x.kind] == null ? -2 : R[x.kind] })).filter((y) => y.s >= 0).sort((a, b) => b.s - a.s);
+  if (!S.length) return { none: !0 };
+  const top = S.filter((y) => y.s === S[0].s).map((y) => y.x);
+  return top.length > 1 && new Set(top.map((x) => x.name)).size > 1 ? { ask: top } : { one: top[0] };
+}
+const agWhich = (L, what) => ({
+  headline: `Which ${agFirst(L[0].name)} do you mean: ${L.map((x) => x.name).join(" or ")}?`,
+  note: `More than one person fits, and the ${what} would go to the wrong one. Say the full name.`,
+  work: L.map((x) => `${x.name} — ${{ contact: "client contact", lead: "lead", vendor: "vendor", sender: "wrote to you", staff: "staff", payee: "payee", client: "client" }[x.kind] || x.kind}`),
+  kind: "ask",
+  ran: agRan("people", [`name matches "${agFirst(L[0].name)}"`], "", L.length),
+});
+const agAbout = (raw) => {
+  const m = String(raw).match(/\b(?:about|on|re|regarding|whether|if|for|concerning)\s+(?:the\s+)?(.+?)[?.!]*$/i);
+  return m ? m[1].replace(/\s+in my voice$/i, "").trim() : "";
+};
+// The client update: only what the client may see (clientJSON: progress, the next two weeks, decisions needed,
+// the finish), plus this week's measured progress from the daily logs, never the notes, crew, hours or costs.
+function agClientUpdate(p) {
+  return withProject(p, () => {
+    const j = clientJSON(),
+      W = appWeek(),
+      moved = (p.tasks || [])
+        .map((t) => {
+          const L = ("function" == typeof prgLog ? prgLog(t) : []).filter((x) => x.on >= W.mon && x.on <= today());
+          return L.length ? `${t.clientTitle || t.name} — ${L[L.length - 1].pct}% complete` : "";
+        })
+        .filter(Boolean),
+      next = (j.tasks || []).filter((t) => "done" !== t.status && t.start <= iso(addDays(parse(today()), 14)) && t.end >= today()).slice(0, 5),
+      dec = j.decisionsNeededFromClient || [];
+    return [
+      `Here is where ${agShort(p)} stands this week.`,
+      moved.length ? `Progress on site: ${moved.slice(0, 5).join("; ")}.` : "",
+      next.length ? `Next two weeks: ${next.map((t) => `${t.name} (${fmt(t.start)}–${fmt(t.end)})`).join("; ")}.` : "",
+      dec.length ? `What we need from you: ${dec.map((d) => `${d.name} by ${fmt(d.due)}${d.holdsUp ? ` (it holds ${d.holdsUp})` : ""}`).join("; ")}.` : "Nothing is waiting on you this week.",
+      j.projectedCompletion ? `Expected completion: ${fmtL(j.projectedCompletion)}.` : "",
+    ].filter(Boolean).join("\n\n");
+  });
+}
+// A lead has gone quiet when our last touch went out a week or more ago and nothing came back, in its history
+// or in my mail. One rule for Ask ("which leads went quiet") and Caught for You.
+function agQuietLeads() {
+  const mail = agMine();
+  return (DB.leads || [])
+    .filter((x) => !["won", "lost"].includes(x.stage) && (x.touches || []).length)
+    .map((x) => {
+      const t = x.touches.slice().sort((a, b) => String(a.at).localeCompare(b.at)).pop(),
+        back = mail.some((c) => "in" === c.direction && agDay(c) >= t.at && agNameHit(agFirst(x.name), (c.from || {}).name));
+      return { x: x, t: t, days: dayDiff(t.at, today()), back: back };
+    })
+    .filter((y) => "out" === y.t.direction && y.days >= 7 && !y.back)
+    .sort((a, b) => b.days - a.days);
+}
+// The chase for a quiet lead: the proposal thread I sent, if there is one, and the address it went to.
+function agLeadChase(lead) {
+  const sent = agMine()
+    .filter((c) => "out" === c.direction || (c.labels || []).includes("SENT"))
+    .find((c) => [].concat(c.to || []).some((t) => new RegExp(agFirst(lead.name), "i").test(t)));
+  return agChaseDraft({ kind: "proposal", to: { name: lead.name, email: lead.email || agEmailFor(lead.name), kind: "lead" }, lead: lead, sent: sent });
+}
+const AG_ASST = [
+  {
+    id: "chase",
+    first: !0,
+    kind: "self",
+    re: /^(please |can you |could you )?(chase|nudge|ping|follow up with|remind (?!me\b))|\bchase\b/,
+    not: /\bremind me\b|^(what|who|which|did|has|have|is|are|when|how)\b/,
+    run(P) {
+      const L = agParty(P, { noStaff: !0 }),
+        pk = agPick(L, "chase");
+      if (pk.none) return null;
+      if (pk.ask) return agWhich(pk.ask, "chase");
+      const x = pk.one,
+        l = P.l,
+        to = { name: x.name, email: x.email || agEmailFor(x.name), kind: x.kind };
+      let D;
+      if (/\bcoi\b|\bcertificate|insurance\b/.test(l)) D = agChaseDraft({ kind: "coi", to: to, vendor: x.vendor || (DB.vendors || []).find((v) => v.name === x.name) });
+      else if (/\bw-?9\b/.test(l)) D = agChaseDraft({ kind: "w9", to: to });
+      else if (x.client && /\b(retainer|invoice|inv-|payment|pay|paid|owe|balance|deposit)\b/.test(l + " " + P.raw.toLowerCase())) {
+        const no = (P.raw.match(/\bINV-[A-Z0-9-]+/i) || [])[0],
+          I = (x.client.invoices || [])
+            .map((d) => ({ id: d.id, number: d.number, title: d.title, due: d.due, bal: r2(docTotal(d).total - (x.client.payments || []).filter((y) => y.invoiceId === d.id).reduce((a, y) => a + (+y.amount || 0), 0)), status: d.status }))
+            .filter((d) => !["paid", "void", "draft"].includes(d.status) && d.bal > 0.005 && (!no || d.number.toLowerCase() === no.toLowerCase()) && (!/\bretainer\b/.test(l) || /retainer|-D\d/i.test(d.number + " " + (d.title || ""))));
+        D = agChaseDraft({ kind: "invoice", to: to, client: x.client, invoices: I.length ? I : [] });
+      } else if (x.client) {
+        const words = agTopic(P, L).filter((w) => !/^(chase|nudge|kleins?|jessops?|riveras?)$/.test(w)),
+          jobs = (DB.projects || []).filter((p) => p.clientId === x.client.id),
+          open = jobs.flatMap((p) => (p.decisions || []).filter((d) => "open" === d.status && /client/i.test(d.owner || "")).map((d) => ({ p: p, d: d }))),
+          hit = open.map((y) => ({ y: y, s: words.filter((w) => String(y.d.name + " " + (y.d.clientTitle || "")).toLowerCase().includes(w.replace(/s$/, ""))).length })).sort((a, b) => b.s - a.s)[0];
+        if (hit && (hit.s > 0 || 1 === open.length)) D = agChaseDraft({ kind: "decision", to: to, decision: hit.y.d, job: hit.y.p });
+        else D = agChaseDraft({ kind: "answer", to: to, about: agAbout(P.raw) || "my last note" });
+      } else if (x.lead || "lead" === x.kind) {
+        const lead = x.lead || (DB.leads || []).find((y) => y.name === x.name),
+          sent = agMine().filter((c) => "out" === c.direction || (c.labels || []).includes("SENT")).find((c) => [].concat(c.to || []).some((t) => new RegExp(agFirst(x.name), "i").test(t)));
+        D = agChaseDraft({ kind: "proposal", to: to, lead: lead, sent: sent });
+      } else D = agChaseDraft({ kind: x.vendor ? "answer" : "answer", to: to, vendor: x.vendor, about: agAbout(P.raw) || "my last note" });
+      return agDraftAnswer(D, P, agRan("chases", [`to ${x.name}`, `for ${D.kind}`], "", 1));
+    },
+  },
+  {
+    id: "draft",
+    first: !0,
+    kind: "self",
+    re: /^(please |can you |could you )?(draft|write|compose|prepare|email|e-mail|put together)\b|\bdraft (a|an|the|my)\b|\bin my voice\b|^(please )?ask (billing|the controller|accounting|the office|chen|alan|sarah|jeanette|maya)\b.*\b(whether|if|to|about|for|when|why)\b/,
+    not: /^(what|did|has|have|who|when|which|where|how|is|are)\b/,
+    run(P) {
+      const l = P.l,
+        kind = /^(please )?ask\b/.test(l) ? "internal" : /\brfi\b/.test(l) ? "rfi" : /\bupdate\b/.test(l) && /\b(client|weekly|logs?|owner)\b/.test(l) ? "update" : /\bfollow[- ]?up\b/.test(l) ? "followup" : "email",
+        about = agAbout(P.raw);
+      let L = agParty(P, { noStaff: "internal" !== kind });
+      if ("internal" === kind) {
+        const nm = (l.match(/^(?:please )?ask (?:the )?([a-z]+)/) || [])[1] || "",
+          u = (DB.users || []).find((x) => String(x.name).toLowerCase() === nm || String(x.role).toLowerCase() === nm) || (DB.employees || []).find((x) => String(x.name).toLowerCase().split(/\s+/)[0] === nm);
+        if (!u) return null;
+        const c = (P.clients || [])[0],
+          facts = c
+            ? (c.invoices || []).map((d) => {
+                const paid = (c.payments || []).filter((y) => y.invoiceId === d.id).reduce((a, y) => a + (+y.amount || 0), 0);
+                return `${d.number}${d.title ? ` (${d.title})` : ""} · ${d.status} ${fmtL(d.date)} · ${money(docTotal(d).total)}, ${money(r2(docTotal(d).total - paid))} open`;
+              })
+            : [],
+          D = {
+            kind: "internal",
+            internal: !0,
+            to: { name: u.name, email: "", kind: "staff" },
+            job: c ? (DB.projects || []).find((p) => p.clientId === c.id) : P.jobs[0],
+            subject: `Question from ${agMeName() || "the office"}: ${about ? agCap(about) : "a quick one"}`,
+            body: `${agCap(about || P.raw)}?${facts.length ? `\n\nWhat the records show:\n${facts.map((f) => `- ${f}`).join("\n")}` : ""}`,
+          };
+        return agDraftAnswer(D, P, agRan("tasks", [`to ${u.name}`, about ? `about ${about}` : ""], "", 1));
+      }
+      if ("update" === kind) {
+        const p = P.jobs[0] || ((P.clients || [])[0] && (DB.projects || []).find((x) => x.clientId === P.clients[0].id));
+        if (!p) return null;
+        const c = (DB.clients || []).find((x) => x.id === p.clientId),
+          k = c && ((c.contacts || []).find((x) => /decision/i.test(x.role || "")) || (c.contacts || [])[0]);
+        if (!k) return null;
+        const D = { kind: "update", to: { name: k.name, email: k.email || "", kind: "contact" }, subject: `${agShort(p)} — this week`, body: `Hi ${agFirst(k.name)},\n\n${agClientUpdate(p)}\n\n${agSign()}`, why: `the weekly update for ${agShort(p)}`, expect: !1 };
+        return agDraftAnswer(D, P, agRan("client-safe schedule and daily logs", [`job is ${agShort(p)}`, "this week", "no costs, crew, hours or internal notes"], "", 1));
+      }
+      const pk = agPick(L, kind);
+      if (pk.none) return null;
+      if (pk.ask) return agWhich(pk.ask, "draft");
+      const x = pk.one,
+        to = { name: x.name, email: x.email || agEmailFor(x.name), kind: x.kind },
+        first = agFirst(x.name),
+        sign = agSign();
+      if ("rfi" === kind) {
+        const last0 = (x.mail || [])[0],
+          pid = (P.jobs[0] || {}).id || (last0 && ((last0.route || {}).projectId || "")) || ((last0 && agJobs(String(last0.subject + " " + last0.text).toLowerCase())[0]) || {}).id,
+          p = (DB.projects || []).find((y) => y.id === pid),
+          last = (x.mail || [])[0],
+          n = (DB.projects || []).reduce((a, y) => a + (y.issues || []).filter((i) => /rfi/i.test(i.kind || i.type || "")).length, 0) + 1,
+          D = {
+            kind: "rfi",
+            to: to,
+            expect: !0,
+            subject: `RFI ${String(n).padStart(3, "0")} — ${p ? agShort(p) : "the job"}: ${agCap(about || "a question")}`,
+            body: `Hi ${first},\n\n${last ? `Following your note of ${fmtL(agDay(last))} ("${last.subject}"): ` : ""}a request for information on ${p ? agShort(p) : "the job"} — ${about || "the item below"}. Please confirm the design intent and anything we must do on site before we proceed, and mark up the drawing if it changes.\n\nWe need the answer by ${fmtL(agWorkDue(3))} to hold the schedule.\n\nThanks,\n${sign}`,
+            why: `RFI to ${x.name}: ${about}`,
+            ref: { kind: "rfi", projectId: p ? p.id : "" },
+          };
+        return agDraftAnswer(D, P, agRan("mail and jobs", [`to ${x.name}`, p ? `job is ${agShort(p)}` : ""].filter(Boolean), "", 1));
+      }
+      if ("followup" === kind || x.lead || "contact" === x.kind) {
+        const lead = x.lead || (DB.leads || []).find((y) => y.clientId && x.client && y.clientId === x.client.id),
+          T = (lead && lead.touches) || [],
+          last = T.slice().sort((a, b) => String(a.at).localeCompare(b.at)).pop(),
+          D = {
+            kind: "followup",
+            to: to,
+            lead: lead,
+            expect: !0,
+            subject: `Following up${lead && lead.addr ? ` — ${lead.addr}` : x.client ? ` — ${x.client.name}` : ""}`,
+            body: `Hi ${first},\n\n${last ? `Good to ${/meeting|visit|walk/i.test((last.channel || "") + " " + (last.note || "")) ? "walk the house with you" : "talk with you"} on ${fmtL(last.at)}. ` : ""}${lead && lead.next ? `Next on our side: ${String(lead.next).replace(/\.$/, "")}${lead.nextDue ? `, by ${fmtL(lead.nextDue)}` : ""}. ` : ""}${about ? `About ${about}: ` : ""}Is a short call this week useful to settle the open points?\n\n${sign}`,
+            why: `follow-up with ${x.name}`,
+            ref: { kind: "lead", leadId: lead ? lead.id : "" },
+          };
+        return agDraftAnswer(D, P, agRan("leads and mail", [`to ${x.name}`], "", 1));
+      }
+      const v = x.vendor || (DB.vendors || []).find((y) => y.name === x.name),
+        pos = v ? (DB.pos || []).filter((po) => po.vendor === v.name && !["received", "cancelled"].includes(po.status)) : [],
+        D = {
+          kind: "email",
+          to: to,
+          vendor: v || null,
+          expect: /\b(confirm|deliver|when|late|eta|quote|price)\b/.test(l),
+          subject: `${pos[0] ? pos[0].number + " — " : ""}${agCap(about || "a question")}`,
+          body: `Hi ${first},\n\n${about ? `About ${about}` : "A quick one"}${pos.length ? `: ${pos.map((po) => `${po.number} (${(po.lines || []).map((li) => li.item).slice(0, 2).join(", ")}) for ${agShort((DB.projects || []).find((p) => p.id === po.projectId) || { project: { name: "the job" } })} is due ${fmtL(po.expected || po.needBy)}`).join("; ")}` : ""}. Could you confirm the date${/deliver|window|late/.test(l) ? " and the delivery window" : ""} by ${fmtL(agWorkDue(2))}?\n\nThanks,\n${sign}`,
+          why: `${about || "a question"} to ${x.name}`,
+        };
+      return agDraftAnswer(D, P, agRan("vendors and orders", [`to ${x.name}`], "", pos.length || 1));
+    },
+  },
+  {
+    id: "mailkind",
+    first: !0,
+    kind: "self",
+    re: /\b(in|from|by) (my |the )?(mail|inbox|email|e-mail)\b|\bcame in by (e-?mail|mail)\b|\b(did|has|have) (anyone|anybody|someone|any vendor|a vendor) (send|sent)\b|\bwho (said|says|claims?|told us) (they|he|she|we) (paid|sent)\b|\bsaid they paid\b|\bsend (a |his |her |their |the )?(price|quote|coi|w-?9|certificate|bid)\b|\b(price|quote|bid)\b.*\b(in yet|come in|arrived)\b|'s (quote|price|bid) in\b/,
+    run(P) {
+      const no = agNoMail();
+      if (no) return no;
+      const l = P.l,
+        k = /\b(coi|certificate|insurance)\b/.test(l) ? "coi" : /\b(paid|payment|check|wire|deposit)\b/.test(l) ? "deposit" : /\b(quote|price|pricing|bid)\b/.test(l) ? "quote" : /\bstatements?\b/.test(l) ? "statement" : /\b(bills?|invoices?)\b/.test(l) ? "bill" : "",
+        say = { coi: "certificates of insurance", deposit: "payment claims", quote: "quotes", statement: "statements", bill: "vendor bills" },
+        one = { coi: "certificate of insurance", deposit: "payment claim", quote: "quote", statement: "statement", bill: "vendor bill" };
+      if (!k) return null;
+      const L = agParty(P, { noStaff: !0 }).filter((x) => "vendor" === x.kind || "sender" === x.kind),
+        words = agTopic(P, L).filter((w) => !/^(bills?|invoices?|quotes?|price|coi|certificate|insurance|paid|payment|mail|inbox|anyone|anybody|vendor|vendors|said|send|sent|yet)$/.test(w));
+      let M = agMine().filter((c) => "in" === c.direction && (c.proposals || []).some((p) => p.kind === k));
+      L.length && (M = M.filter((c) => L.some((x) => agNameHit(x.name.split(/\s+/)[0], (c.from || {}).name + " " + (c.from || {}).email))));
+      words.length && M.some((c) => agTopicHit(c, words)) && (M = M.filter((c) => agTopicHit(c, words)));
+      const who = [...new Set(M.map((c) => (c.from || {}).name))];
+      return {
+        headline: M.length
+          ? `${agN(M.length, one[k], say[k])} in your mail${L.length ? ` from ${L[0].name}` : ""}: ${M.slice(0, 4).map((c) => `${(c.from || {}).name} — ${c.subject} (${fmtL(agDay(c))})`).join("; ")}.`
+          : `No ${say[k]} in your mail${L.length ? ` from ${L[0].name}` : ""}${words.length ? ` about ${words.join(" ")}` : ""}.`,
+        note: M.length ? `Each is read and waiting on the comms screen with what I would do about it; nothing is applied until you approve it.` : `I read every message in your mailbox (${agMine().length}) for one.`,
+        work: M.map((c) => agMailRow(c)),
+        offers: M.length ? agMailOffers(M[0]) : [],
+        go: agGo("comms"),
+        ran: agRan("mail", [`proposal is ${k}`].concat(L.length ? [`from ${L.map((x) => x.name).join(" or ")}`] : []).concat(words.length ? [`text matches "${words.join(" ")}"`] : []), "", M.length),
+        who: who,
+      };
+    },
+  },
+  {
+    id: "mailfrom",
+    first: !0,
+    kind: "self",
+    // the person's own act: "did X send", "what is X asking", "has X replied", "heard back from X", "X's email"
+    re: /\b(did|has|have|is|was|were)\s+(?!(we|i|you)\b)(\S+\s+){0,4}?(send|sent|say|said|ask|asked|asking|tell|told|write|wrote|written|email(ed)?|reply|replied|respond(ed)?|answer(ed)?|get back|got back|hear(d)?|want(ed)?)\b|\bhear(d)? (back )?from\b|\b(email|mail|message|note|reply) from\b|'s (email|reply|message|note)\b/,
+    not: /^(please |can you |could you )?(draft|write|compose|email|chase|remind)\b|\bwhat did you (learn|do|handle)\b|\b(did|have|has) (we|i)\b|\b(which|how many|what) (invoices?|change orders?|cos|pos?|purchase orders?|bills?|estimates?|proposals?|decisions?|drafts?|submittals?)\b/,
+    run(P) {
+      const L = agParty(P, { noStaff: !1 });
+      if (!L.length) return null;
+      const no = agNoMail();
+      if (no) return no;
+      const x = L[0],
+        words = agTopic(P, L),
+        reply = /\b(reply|replied|respond(ed)?|written back|wrote back|get back|got back|heard? back|answer(ed)? me)\b/.test(P.l) && !/\bhaven'?t|not answered|unanswered|need(s)? (a )?reply\b/.test(P.l);
+      let M = agMailOf(x);
+      if (!M.length && x.staff) M = agMine().filter((c) => agNameHit(agFirst(x.name), (c.from || {}).name));
+      if (reply) {
+        const sent = agMine().filter((c) => ("out" === c.direction || (c.labels || []).includes("SENT")) && [].concat(c.to || []).some((t) => new RegExp(agFirst(x.name), "i").test(t))).sort((a, b) => String(b.date).localeCompare(a.date))[0],
+          back = sent ? M.filter((c) => String(c.date) > String(sent.date)) : M;
+        if (sent && !back.length)
+          return {
+            headline: `No reply from ${x.name}: you wrote on ${fmtL(agDay(sent))} ("${sent.subject}") and nothing has come back in ${dayDiff(agDay(sent), today())} days.`,
+            note: "I watch it on your expectation ledger; Chase writes the follow-up into your drafts for you to send.",
+            work: [agMailRow(sent).replace(/^([^—]+— )[^:]+:/, "$1you:")],
+            offers: (() => {
+              const D = agChaseDraft({ kind: x.lead || "lead" === x.kind ? "proposal" : "answer", to: { name: x.name, email: x.email || agEmailFor(x.name) }, lead: x.lead, sent: sent, about: sent.subject });
+              return [csOffer({ id: "ag-chase-reply", label: `Chase ${x.name}`, detail: `A follow-up to ${x.name} in your drafts, and a reminder in three working days.`, run: () => chaseParty(D) })];
+            })(),
+            go: agGo("comms"),
+            ran: agRan("mail", [`to or from ${x.name}`], "", 1),
+          };
+        if (back.length)
+          return {
+            headline: `Yes — ${x.name} replied ${fmtL(agDay(back[0]))}: "${back[0].subject}" — ${agSnip(back[0].text, 180)}`,
+            work: back.map(agMailRow),
+            offers: agMailOffers(back[0]),
+            go: agGo("comms"),
+            ran: agRan("mail", [`from ${x.name}`, "after your last message"], "", back.length),
+          };
+      }
+      if (/\bhaven'?t|have not|not (yet )?answered|unanswered|no reply\b/.test(P.l)) M = M.filter((c) => !c.repliedAt);
+      const hit = words.length ? M.filter((c) => agTopicHit(c, words)) : [];
+      hit.length && (M = hit);
+      if (!M.length)
+        return {
+          headline: `Nothing from ${x.name} in your mail${words.length ? ` about ${words.join(" ")}` : ""}.`,
+          note: `I read your mailbox (${agMine().length} messages) for it.`,
+          go: agGo("comms"),
+          ran: agRan("mail", [`from ${x.name}`].concat(words.length ? [`text matches "${words.join(" ")}"`] : []), "", 0),
+        };
+      const c = M[0];
+      return {
+        headline: `${x.name} wrote ${fmtL(agDay(c))}: "${c.subject}" — ${agSnip(c.text, 240)}`,
+        note: (c.proposals || []).length ? `What I would do about it: ${c.proposals.map((p) => p.summary || p.kind).filter(Boolean).slice(0, 2).join("; ")}.` : "",
+        work: M.slice(0, 5).map(agMailRow),
+        offers: agMailOffers(c),
+        go: agGo("comms"),
+        ran: agRan("mail", [`from ${x.name}`].concat(words.length ? [`text matches "${words.join(" ")}"`] : []), "", M.length),
+      };
+    },
+  },
+  {
+    id: "meeting",
+    first: !0,
+    kind: "self",
+    re: /\b(meeting|site walk|walk-?through|catch[- ]?up|check[- ]?in|schedule review|kick-?off|minutes|call notes)\b/,
+    not: /^(please |can you )?(draft|write|schedule|book|set up)\b|\bwhen is (the|my|our) next\b/,
+    run(P) {
+      const M = (DB.meetings || []).slice();
+      if (!M.length) return null;
+      const day = agDayIn(P.l),
+        tw = P.l.split(/[^a-z0-9]+/).filter((w) => w.length >= 4 && !/^(meeting|what|happened|agree|agreed|decide|decided|discuss|discussed|with|that|about|from)$/.test(w)),
+        sc = (m) => (day && m.date === day ? 5 : 0) + (P.jobs.length && P.jobs.some((p) => p.id === m.projectId) ? 2 : 0) + tw.filter((w) => String(m.title).toLowerCase().includes(w)).length,
+        R = M.map((m) => ({ m: m, s: sc(m) })).filter((x) => x.s > 0 || (!day && !tw.length)).sort((a, b) => b.s - a.s || String(b.m.date).localeCompare(a.m.date));
+      if (!R.length)
+        return {
+          headline: `No meeting on file${day ? ` on ${fmtL(day)}` : ""}${tw.length ? ` matching "${tw.join(" ")}"` : ""}.`,
+          note: `The meetings I hold: ${M.slice(-4).map((m) => `${m.title} (${fmtL(m.date)})`).join(", ")}.`,
+          go: agGo("meetings"),
+          ran: agRan("meetings", [day ? `date is ${fmtL(day)}` : "", tw.length ? `title matches "${tw.join(" ")}"` : ""].filter(Boolean), "", 0),
+        };
+      const m = R[0].m,
+        D = (m.decisions || []).map((d) => `${"aligned" === d.status ? "Agreed" : "Open"} — ${d.name}${d.text ? `: ${d.text}` : ""}`),
+        S = (m.steps || []).map((s) => `${s.owner || "Nobody named"} — ${s.title}${s.detail ? `: ${s.detail}` : ""}${s.waitsOn ? ` (waits on ${s.waitsOn})` : ""}`),
+        open = (m.proposals || []).filter((x) => "proposed" === x.status).length;
+      return {
+        headline: `${m.title}, ${fmtL(m.date)}: ${m.summary || "no summary in the notes"}`,
+        note: `${D.length ? `${agN(D.length, "decision")}, ` : ""}${agN(S.length, "next step")}${open ? `; ${open} of my proposals from it wait for your approval` : ""}.`,
+        work: D.concat(S),
+        go: agGo("meetings", { meeting: m.id }),
+        ran: agRan("meetings", [day ? `date is ${fmtL(day)}` : "", tw.length ? `title matches "${tw.join(" ")}"` : "", P.jobs.length ? `job is ${P.jobs.map(agShort).join(" or ")}` : ""].filter(Boolean), "", R.length),
+      };
+    },
+  },
+  {
+    id: "promised",
+    first: !0,
+    kind: "self",
+    re: /\b(promise[ds]?|committed to|said i would|i owe (people|anyone|others|them)|my commitments|not deliver(ed)?|didn'?t deliver)\b/,
+    run(P) {
+      const me = agMeName().toLowerCase(),
+        mine = (o) => {
+          const n = String(o || "").toLowerCase();
+          return !!n && (n === me || (me.includes(" ") && n === me.split(" ")[0] && !(DB.employees || []).some((e) => String(e.name).toLowerCase() === n)));
+        },
+        done = (t) => (DB.projects || []).some((p) => [].concat(p.tasks || [], p.actions || []).some((a) => String(a.title || a.name || "").toLowerCase() === String(t).toLowerCase() && ["done", "complete", "closed"].includes(a.status))),
+        S = (DB.meetings || []).flatMap((m) => (m.steps || []).filter((s) => mine(s.owner) && !done(s.title)).map((s) => ({ m: m, s: s }))),
+        T = eqTasks().filter((t) => !t.done && t.due && t.due < today() && paIsMine(t.assignee, paMe()) && /meeting|mail|promis/i.test(JSON.stringify(t.source || "") + " " + (t.notes || ""))),
+        n = S.length + T.length;
+      return {
+        headline: n
+          ? `${agN(n, "thing")} you said you would do ${1 === n ? "is" : "are"} still open: ${S.slice(0, 4).map((x) => `${x.s.title} (${x.m.title}, ${fmtL(x.m.date)})`).concat(T.slice(0, 3).map((t) => `${t.title} (due ${fmtL(t.due)})`)).join("; ")}.`
+          : "Nothing you said you would do is still open: every step the meeting notes put on you is done.",
+        note: "Read from the next steps meeting notes put on you by name, and your late tasks that came from a meeting or mail.",
+        work: S.map((x) => `${x.s.title} — ${x.s.detail || ""} (${x.m.title}, ${fmtL(x.m.date)})`).concat(T.map((t) => `${t.title} — due ${fmtL(t.due)}${t.project ? ` · ${t.project}` : ""}`)),
+        go: agGo("tasks"),
+        ran: agRan("meeting steps and tasks", [`owner is ${agMeName()}`, "not done"], "", n),
+      };
+    },
+  },
+  {
+    id: "quiet",
+    first: !0,
+    kind: "self",
+    re: /\b(went|gone|going|gotten|are|is|has) quiet\b|\bquiet leads?\b|\bleads?\b.*\b(no reply|not replied|silent|cold|stalled|no answer|not heard)\b|\bghost(ed)?\b/,
+    run(P) {
+      const mail = agMine(),
+        R = agQuietLeads();
+      return {
+        headline: R.length ? `${agN(R.length, "lead")} ${1 === R.length ? "has" : "have"} gone quiet: ${R.map((y) => `${y.x.name} (${y.days} days since ${String(y.t.note || y.t.channel).replace(/\.$/, "").toLowerCase()})`).join("; ")}.` : "No lead has gone quiet: every open lead has heard from us or answered within the week.",
+        note: "Quiet means our last touch went out a week or more ago and nothing has come back, in the lead's history or in your mail.",
+        work: R.map((y) => `${y.x.name} · ${y.x.stage} · ${y.x.value ? money(y.x.value) : ""} — last touch ${fmtL(y.t.at)} (${y.t.channel}), next: ${y.x.next || "none set"}`),
+        offers: R.slice(0, 3).map((y) =>
+          csOffer({
+            id: "ag-quiet-" + y.x.id,
+            label: `Chase ${y.x.name}`,
+            detail: `A follow-up in your drafts and a reminder in three working days.`,
+            run: () => chaseParty(agLeadChase(y.x)),
+          }),
+        ),
+        go: agGo("hbdeals") || agGo("sales"),
+        ran: agRan("leads", ["open", "last touch ours", "7 days or more", "no reply in your mail"], "", R.length),
+      };
+    },
+  },
+  {
+    id: "statusof",
+    first: !0,
+    kind: "self",
+    re: /\b(status of|update on|news on|latest on|where (are we|do we stand|is it|are things) (on|with)|what'?s happening with|any news (on|about))\b/,
+    run(P) {
+      const after = (P.l.match(/\b(?:status of|update on|news on|latest on|on|with|about)\s+(?:the\s+)?(.+)$/) || [])[1] || "",
+        jobw = new Set(P.jobs.flatMap((p) => agShort(p).toLowerCase().split(/[^a-z0-9]+/))),
+        words = after.split(/[^a-z0-9-]+/).filter((w) => w.length >= 3 && !jobw.has(w) && !AG_TOPIC_STOP.has(w) && !AG_STOPW.has(w));
+      if (!words.length || AG_DOCNO.test(P.raw)) return null;
+      // a topic the records already answer (a PO, an invoice, a permit) is theirs; this reads the mail for the rest
+      if (words.some((w) => /^(po|pos|invoice|permit|inspection|submittal|decision|order|co|change|delivery|payment|bill|budget|schedule)s?$/.test(w))) return null;
+      const re = new RegExp(words.map((w) => (/^refi/.test(w) ? "refi|refinanc" : w.replace(/s$/, ""))).join("|"), "i"),
+        M = agMine().filter((c) => re.test(c.subject + " " + c.text) && (!P.jobs.length || P.jobs.some((p) => (c.route || {}).projectId === p.id || new RegExp(agShort(p).split(" ").slice(0, 2).join(" "), "i").test(c.subject + " " + c.text)))),
+        notes = P.jobs.flatMap((p) => [].concat(p.tasks || [], p.actions || [], p.files || []).filter((t) => re.test(String(t.name || t.title || "") + " " + (t.notes || ""))));
+      return {
+        headline: M.length
+          ? `${agN(M.length, "message")} about the ${words.join(" ")}${P.jobs.length ? ` on ${agShort(P.jobs[0])}` : ""}; the latest, ${fmtL(agDay(M[0]))} from ${(M[0].from || {}).name}: "${M[0].subject}" — ${agSnip(M[0].text, 160)}`
+          : `No message in your mailbox mentions a ${words.join(" ")}${P.jobs.length ? ` on ${agShort(P.jobs[0])}` : ""}, and no task, note or file on ${P.jobs.length ? "the job" : "a job"} does either.`,
+        note: M.length ? "" : `I read ${agMine().length} messages and the job's tasks, notes and files. If it lives somewhere else (a lender's portal, a call), it is not here yet.`,
+        work: M.slice(0, 5).map(agMailRow).concat(notes.slice(0, 3).map((t) => `On the job — ${t.name || t.title}`)),
+        offers: M.length ? agMailOffers(M[0]) : [],
+        go: agGo("comms"),
+        ran: agRan("mail, tasks and files", [`text matches "${words.join(" ")}"`].concat(agWhereJob(P)), "", M.length + notes.length),
+      };
+    },
+  },
+  {
+    id: "daylog",
+    first: !0,
+    kind: "self",
+    re: /\bwhat (did|have) you (learn(ed|t)?|handle[d]?|done|do|did|take[n]? care of)\b|\bwhat have you handled\b|\bwhat did you (do|handle) (for me )?today\b|\bwhat have you done (for me )?today\b|\bwhat did you pick up\b/,
+    run(P) {
+      const A = paInit(),
+        td = today(),
+        L = (A.log || []).filter((x) => x.at === td),
+        mail = agMine().filter((c) => agDay(c) <= td),
+        read = mail.filter((c) => (c.proposals || []).length),
+        applied = mail.flatMap((c) => (c.proposals || []).filter((p) => "applied" === p.status && (!p.appliedAt || p.appliedAt === td)).map((p) => ({ c: c, p: p }))),
+        mt = (DB.meetings || []).flatMap((m) => (m.proposals || []).filter((x) => "applied" === x.status && x.appliedAt === td).map((x) => ({ m: m, x: x }))),
+        ex = (A.expect || []).filter((e) => !e.closed && (e.since === td || e.lastRaised === td)),
+        // lessons I learned today, not the ones a person taught me
+        les = (DB.lessons || []).filter((x) => String(x.at || x.createdAt || "").slice(0, 10) === td && !/owner|taught/i.test(`${x.source || ""} ${x.taughtBy || ""}`)),
+        parts = [];
+      L.length && parts.push(L.slice(0, 3).map((x) => String(x.what).replace(/^./, (c) => c.toLowerCase())).join(", "));
+      read.length && parts.push(`read ${agN(mail.length, "message")} and proposed what to do on ${read.length}`);
+      applied.length + mt.length && parts.push(`applied ${agN(applied.length + mt.length, "proposal")} you approved`);
+      ex.length && parts.push(`kept ${agN(ex.length, "promise")} owed to you on the ledger`);
+      les.length && parts.push(`learned ${agN(les.length, "lesson")}: ${les.slice(0, 2).map((x) => x.title || x.text).join("; ")}`);
+      return {
+        headline: parts.length ? `Today I ${parts.join("; ")}.` : "Nothing yet today: I have not read, drafted, applied or learned anything since this morning.",
+        note: les.length ? "" : "No new lesson today: a lesson comes from a mistake that repeats (a no-show, a bill over its PO, a late delivery), and The Brain proposes it for your approval.",
+        work: L.map((x) => `${x.what}${x.why ? ` — ${x.why}` : ""}`)
+          .concat(applied.slice(0, 6).map((y) => `Applied — ${y.p.summary || y.p.kind} (${(y.c.from || {}).name})`))
+          .concat(mt.slice(0, 4).map((y) => `Applied from ${y.m.title} — ${y.x.title}`))
+          .concat(ex.slice(0, 4).map((e) => `Watching — ${e.who}: ${e.about} (by ${fmtL(e.by)})`))
+          .concat(les.map((x) => `Lesson — ${x.title || x.text}`)),
+        go: agGo("pa"),
+        ran: agRan("the assistant's log", ["today", "proposals applied", "expectations", "lessons"], "", L.length + applied.length + mt.length + ex.length + les.length),
+      };
+    },
+  },
+];
+// A vendor's paperwork (COI, W-9): the record, then the mail. Before "did X send" reads the mail alone.
+AG_ASST.splice(2, 0, {
+  id: "vendorpaper",
+  first: !0,
+  kind: "self",
+  re: /\b(w-?9|coi|certificate of insurance|insurance cert(ificate)?)\b/,
+  not: /^(please |can you )?(chase|nudge|draft|write|email)\b|\b(did|has|have) (anyone|anybody|someone)\b|\bwhich vendors\b|\bwho needs\b/,
+  run(P) {
+    const L = agParty(P, { noStaff: !0 }),
+      nm = (P.l.match(/\bwho is ([a-z0-9 &'.-]+?)(?: and\b|\?|$)/) || [])[1],
+      x = L.find((y) => "vendor" === y.kind || "payee" === y.kind || "sender" === y.kind) || (nm ? { name: nm.replace(/\b\w/g, (c) => c.toUpperCase()), kind: "unknown" } : null);
+    if (!x) return null;
+    const w9 = /\bw-?9\b/.test(P.l),
+      v = x.vendor || (DB.vendors || []).find((y) => String(y.name).toLowerCase() === String(x.name).toLowerCase()),
+      lines = (DB.txns || []).filter((t) => agNameHit(x.name, `${t.vendor || ""} ${t.desc || ""}`)),
+      spent = r2(lines.filter((t) => t.amt < 0).reduce((a, t) => a - t.amt, 0)),
+      mail = agMine().filter((c) => agNameHit(x.name, `${(c.from || {}).name} ${c.subject} ${c.text}`) && (w9 ? /w-?9/i.test(c.subject + " " + c.text + JSON.stringify(c.attachments || [])) : (c.proposals || []).some((p) => "coi" === p.kind))),
+      has = w9 ? !!(v && v.w9) : !!(v && v.insuranceExp && v.insuranceExp >= today()),
+      what = w9 ? "W-9" : "certificate of insurance";
+    let head;
+    if (!v)
+      head = `${x.name} is not on file as a vendor${lines.length ? `: it is on ${agN(lines.length, "bank or card line")}${spent ? ` (${money(spent)} paid)` : ""}` : ""}, so there is no ${what} on file${mail.length ? `; your mail holds ${agN(mail.length, "message")} with one` : ""}.`;
+    else if (has) head = `Yes — ${v.name}'s ${what} is on file${!w9 ? `, current through ${fmtL(v.insuranceExp)}` : ""}.`;
+    else
+      head = `No — ${v.name} has no ${!w9 && v.insuranceExp ? `current ${what} (the one on file expired ${fmtL(v.insuranceExp)})` : `${what} on file`}${mail.length ? `; your mail holds ${agN(mail.length, "message")} that may carry it, waiting on the comms screen` : ", and nothing in your mail carries one"}.`;
+    const to = { name: v ? v.name : x.name, email: (v && v.email) || x.email || agEmailFor(x.name) };
+    return {
+      headline: head,
+      note: !has ? `${w9 ? "A 1099 payee needs a W-9 before year end" : "No new PO until a current certificate arrives"}. Chase writes the ask into your drafts.` : "",
+      work: (v ? [`${v.name}${v.trade ? ` · ${v.trade}` : ""} — W-9 ${v.w9 ? "on file" : "not on file"}; insurance ${v.insuranceExp ? `${v.insuranceExp >= today() ? "current through" : "expired"} ${fmtL(v.insuranceExp)}` : "not on file"}`] : [])
+        .concat(lines.slice(0, 4).map((t) => `${fmtL(t.date)} — ${t.desc} — ${money(Math.abs(t.amt))}`))
+        .concat(mail.slice(0, 3).map(agMailRow)),
+      offers: has ? [] : [csOffer({ id: "ag-paper", label: `Chase ${to.name} for the ${w9 ? "W-9" : "COI"}`, detail: "A draft in your mailbox and a reminder in three working days.", run: () => chaseParty(agChaseDraft({ kind: w9 ? "w9" : "coi", to: to, vendor: v })) })],
+      go: agGo("vendors"),
+      ran: agRan("vendors, bank lines and mail", [`name is ${x.name}`, `${what} on file`], "", (v ? 1 : 0) + lines.length + mail.length),
+    };
+  },
+});
+// ---- finance nouns the controller uses
+AG_FIN.unshift(
+  {
+    id: "statementimport",
+    re: /\bstatements?\b/,
+    not: /\b(which|what) statements\b/,
+    kind: "money",
+    run(P) {
+      if (!/\b(drive|import|reconcile|load|my mail|inbox|came in|arrived|is in|got)\b/.test(P.l)) return null;
+      const acct = (DB.accounts || []).filter((a) => String(a.name).toLowerCase().split(/[^a-z]+/).some((w) => w.length >= 4 && new RegExp(`\\b${w}\\b`).test(P.l))),
+        files = (() => {
+          try {
+            return paDrive();
+          } catch (e) {
+            return [];
+          }
+        })().filter((f) => "statement" === ((f.route || {}).kind || "") || /statement|\.qfx|\.ofx/i.test(f.name)),
+        F = acct.length ? files.filter((f) => acct.some((a) => String(a.name).toLowerCase().split(/[^a-z]+/).some((w) => w.length >= 4 && new RegExp(w, "i").test(f.name)) || (a.last4 && f.name.includes(a.last4)))) : files,
+        a = acct[0];
+      if (!F.length && !a) return null;
+      return {
+        headline: F.length
+          ? `${F[0].name} is in your Drive${a ? ` — the ${a.name} statement` : ""}. Import it on Bank${a ? `, then reconcile ${a.name} from ${a.recon && a.recon.date ? fmtL(a.recon.date) + ", its last reconciled statement" : "its first statement"}` : ""}.`
+          : `No ${a ? a.name + " " : ""}statement is in your Drive yet${a && a.recon && a.recon.date ? `; ${a.name} is reconciled through ${fmtL(a.recon.date)}` : ""}.`,
+        note: "Import reads the file into the register (the bank's lines confirm what was typed by hand); Reconcile then ties the statement's ending balance to the cleared lines. Both wait for you.",
+        work: F.map((f) => `${f.name}${f.modified ? ` · ${fmtL(String(f.modified).slice(0, 10))}` : ""}`).concat(acct.map((x) => `${x.name} — reconciled through ${x.recon && x.recon.date ? fmtL(x.recon.date) : "never"}`)),
+        offers: F.length ? [csOffer({ id: "ag-import", label: "Import the Statement", detail: `Opens Bank with ${F[0].name} to import, then Reconcile.`, run: () => setView("bank") })] : [],
+        go: agGo("bank"),
+        ran: agRan("drive files and bank accounts", ["kind is statement"].concat(a ? [`account is ${a.name}`] : []), "", F.length),
+      };
+    },
+  },
+  {
+    id: "recon",
+    re: /\breconcil(ed|e|iation|iations)?\b/,
+    kind: "money",
+    run(P) {
+      if (!/\b(through|thru|what date|when|last|up to|as of|books|accounts?|which|is|are|was)\b/.test(P.l)) return null;
+      const A = (DB.accounts || []).filter((a) => !P.l.match(/\b(chase|amex|home depot)\b/) || new RegExp(P.l.match(/\b(chase|amex|home depot)\b/)[1], "i").test(a.name)),
+        has = A.filter((a) => a.recon && a.recon.date),
+        never = A.filter((a) => !(a.recon && a.recon.date)),
+        low = has.map((a) => a.recon.date).sort()[0];
+      return {
+        headline: `${has.map((a) => `${a.name} is reconciled through ${fmtL(a.recon.date)}`).join("; ")}${never.length ? `${has.length ? "; " : ""}${never.map((a) => a.name).join(" and ")} ${1 === never.length ? "has" : "have"} never been reconciled` : ""}.${A.length > 1 && low ? ` The books as a whole are reconciled through ${fmtL(low)}${never.length ? ` on the accounts that have a statement; ${never[0].name} has none` : ""}.` : ""}`,
+        note: "Reconciled means a statement's ending balance was tied to the cleared lines with a $0.00 difference and those lines were locked.",
+        work: A.map((a) => `${a.name}${a.last4 ? ` ····${a.last4}` : ""} — ${a.recon && a.recon.date ? `through ${fmtL(a.recon.date)}, by ${a.recon.by || "—"}, difference ${money(a.recon.difference || 0)}` : "never reconciled"}`),
+        go: agGo("bank"),
+        ran: agRan("bank accounts", ["last reconciled statement"], "account", A.length),
+      };
+    },
+  },
+  {
+    id: "duplicate",
+    re: /\bduplicat(e|es|ed)\b|\bdouble[- ]?(charge|charged|billed)\b|\bcharged twice\b|\bdupes?\b|\bbilled twice\b/,
+    kind: "money",
+    run(P) {
+      if (!/\b(charges?|charged|cards?|amex|chase|bank|lines?|transactions?|payments?|bills?|expenses?|debits?|statements?)\b|\bduplicates\b/.test(P.l)) return null;
+      const acc = (DB.accounts || []).filter((a) => String(a.name).toLowerCase().split(/[^a-z]+/).some((w) => w.length >= 4 && new RegExp(`\\b${w}\\b`).test(P.l))),
+        T = (DB.txns || []).filter((t) => !acc.length || acc.some((a) => a.id === t.acct)),
+        D = [];
+      for (let i = 0; i < T.length; i++)
+        for (let j = i + 1; j < T.length; j++)
+          T[i].acct === T[j].acct && T[i].amt === T[j].amt && T[i].amt < 0 && String(T[i].desc).slice(0, 10) === String(T[j].desc).slice(0, 10) && Math.abs(dayDiff(T[i].date, T[j].date)) <= 3 && D.push([T[i], T[j]].sort((a, b) => String(a.date).localeCompare(b.date)));
+      const an = (t) => ((DB.accounts || []).find((a) => a.id === t.acct) || {}).name || "the bank";
+      return {
+        headline: D.length
+          ? `${agN(D.length, "possible duplicate")}${acc.length ? ` on the ${acc[0].name}` : ""}: ${D.map(([a, b]) => `${a.desc} ${money(-a.amt)} on ${fmtL(a.date)} and again on ${fmtL(b.date)}`).join("; ")}.`
+          : `No duplicate charges${acc.length ? ` on the ${acc[0].name}` : ""}: no two lines share an amount and a payee within three days.`,
+        note: D.length ? "Same account, same amount, same payee, within three days. Void the second line on its drawer with a reason, or match it to its own bill if it is real." : "",
+        work: D.map(([a, b]) => `${an(a)} — ${a.desc} · ${money(-a.amt)} · ${fmtL(a.date)} and ${fmtL(b.date)}${b.status ? ` · ${b.status}` : ""}`),
+        go: agGo("bank"),
+        ran: agRan("transactions", ["same account, amount and payee within 3 days"].concat(acc.length ? [`account is ${acc[0].name}`] : []), "", D.length),
+      };
+    },
+  },
+  {
+    id: "wageaccrual",
+    re: /\baccru(al|als|e|ed|ing)\b/,
+    kind: "money",
+    run(P) {
+      if (!/\b(payroll|wages?|labor|salar(y|ies)|time)\b/.test(P.l) || /\bat the (\w+ )?close\b/.test(P.l)) return null;
+      const ym = P.period ? P.period.from.slice(0, 7) : iso(addDays(parse(today().slice(0, 8) + "01"), -1)).slice(0, 7),
+        mn = P.period ? P.period.label : AG_MONTHS[+ym.slice(5) - 1].replace(/^./, (c) => c.toUpperCase()),
+        W = fin2WagePlan(ym),
+        s = agCloseState(ym);
+      return {
+        headline: `${money(W.total)} of wages accrue${s.closed ? "d" : ""} for ${mn}: ${(W.runs || []).map((r) => `${money(r.amt)} on the ${r.r.period} run (${r.r.status}, pays ${fmtL(r.r.payDate)})`).join(", ")}${W.timeTotal ? `${(W.runs || []).length ? " and " : ""}${money(W.timeTotal)} of approved time${(W.rows || []).length ? ` from ${fmt(W.rows[0].from)} to ${fmt(W.rows[W.rows.length - 1].to)}` : ""} that no run covers` : ""}.`,
+        note: s.closed ? `${mn} is closed; the close posted this accrual.` : `${mn} is not closed yet: the close posts this accrual and reverses it on the 1st.`,
+        work: (W.runs || []).map((r) => `Run ${r.r.period} — ${money(r.amt)} · ${r.r.status}`).concat((W.rows || []).map((o) => `Time with no run — ${money(o.amt)}, ${o.hours} hours, ${fmt(o.from)} to ${fmt(o.to)}${o.projectId ? ` · ${agShort((DB.projects || []).find((p) => p.id === o.projectId) || { project: { name: "" } })}` : ""}`)),
+        go: agGo("close") || agGo("payroll"),
+        ran: agRan("payroll runs and approved time", [`month is ${mn}`, "not covered by a posted run"], "", (W.runs || []).length + (W.rows || []).length),
+      };
+    },
+  },
+  {
+    id: "verify",
+    re: /\bverif(y|ies|ied|ication)\b|\btamper(ed|ing)?\b|\bchain (intact|sealed|ok)\b/,
+    kind: "money",
+    run(P) {
+      const t0 = Date.now();
+      let V = [];
+      try {
+        V = truthVerifyAll();
+      } catch (e) {
+        V = [];
+      }
+      const bad = V.filter((v) => !1 === v.ok),
+        cur = (() => {
+          try {
+            return truthVerify("function" == typeof bfCloseYm ? bfCloseYm() : today().slice(0, 7));
+          } catch (e) {
+            return null;
+          }
+        })();
+      return {
+        headline: V.length
+          ? bad.length
+            ? `The books do not verify: ${bad.map((v) => truthVerifyWords(v)).join(" ")}`
+            : `The books verify: ${V.map((v) => truthVerifyWords(v)).join(" ")}`
+          : `No month is sealed yet, so there is nothing to verify: the first close seals its month's postings, and Verify the Books then checks them.${cur ? ` Today ${cur.label} holds ${cur.now.n} postings (head ${cur.now.head}).` : ""}`,
+        note: `Each closed month's postings are chained and the head is stored at the close; verifying re-derives the chain. Read in ${Date.now() - t0} ms.`,
+        work: V.map((v) => truthVerifyWords(v)),
+        go: agGo("gl") || agGo("close"),
+        ran: agRan("the sealed chains", ["every closed month"], "", V.length),
+      };
+    },
+  },
+);
+// ---- buying, field and schedule nouns the coordinator and the PM use
+const AG_MAT_SKIP = /^(the|is|are|was|po|pos|vendor|vendors|order|ordered|orders|lead|time|when|land|lands|does|did|do|it|its|what|whats|who|whos|issued|have|has|to|for|on|of|and|a|an|i|my|me|we|our|by|how|long|much|line|left|buy|eta|arrive|arrives|due|yet|still|state|street|place|prospect|cranberry|lenox)$/;
+function agMatIn(P) {
+  const pool = (P.jobs.length ? P.jobs : DB.projects || []).flatMap((p) => (p.materials || []).map((m) => ({ p: p, m: m }))),
+    words = P.l.split(/[^a-z0-9-]+/).filter((w) => w.length >= 4 && !AG_MAT_SKIP.test(w)),
+    sc = (m) => {
+      const mw = String(m.name).toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3);
+      return words.filter((w) => mw.some((x) => x.startsWith(w.slice(0, 5)) || w.startsWith(x.slice(0, 5)))).length;
+    },
+    R = pool.map((x) => ({ x: x, s: sc(x.m) })).filter((y) => y.s > 0).sort((a, b) => b.s - a.s);
+  return R.length && (R.length < 2 || R[0].s > R[1].s || words.length === 1) ? R[0].x : R.length ? R[0].x : null;
+}
+AG_OPS.unshift(
+  {
+    id: "subsbooked",
+    kind: "ops",
+    re: /\b(subs?|subcontractors?|trades?)\b/,
+    run(P) {
+      if (!/\b(booked|scheduled|coming|on site|onsite|confirmed|due|next week|this week|tomorrow|today)\b/.test(P.l) || /\bno[- ]?show|didn'?t show|did not show\b/.test(P.l)) return null;
+      const R = P.period || { from: today(), to: iso(addDays(parse(today()), 6)), label: "the next seven days" },
+        S0 = ((DB.field || {}).subs || []).filter((s) => s.date >= R.from && s.date <= R.to && agOnJob(P, s.projectId)).sort((a, b) => a.date.localeCompare(b.date)),
+        st = (s) => ({ confirmed: "confirmed", unconfirmed: "not confirmed", onsite: "on site", noshow: "did not show" })[s.status] || s.status;
+      return {
+        headline: S0.length
+          ? `${agN(S0.length, "sub day")} booked ${R.label}${P.jobs.length ? ` on ${agShort(P.jobs[0])}` : ""}: ${S0.map((s) => `${s.vendor} ${fmtL(s.date)} (${st(s)})`).join("; ")}.`
+          : `No sub is booked ${R.label}${P.jobs.length ? ` on ${agShort(P.jobs[0])}` : ""}.`,
+        note: S0.some((s) => "unconfirmed" === s.status) ? "A sub day is confirmed when the lead has said yes for that date; confirm the open ones the day before." : "",
+        work: S0.map((s) => `${fmtL(s.date)} · ${s.vendor} (${s.lead}) · ${agShort((DB.projects || []).find((p) => p.id === s.projectId) || { project: { name: "" } })} · ${st(s)}${s.note ? ` · ${s.note}` : ""}`),
+        go: agGo("fsite") || agGo("field"),
+        ran: agRan("sub days", [`date in ${R.label}`].concat(agWhereJob(P)), "", S0.length),
+      };
+    },
+  },
+  {
+    id: "noshow",
+    kind: "ops",
+    re: /\b(didn'?t|did not|didnt|never|doesn'?t|did n't) (show|turn up|come|arrive)\b|\bno[- ]?show(ed)?\b|\bstood (us|me) up\b/,
+    run(P) {
+      const subs = (DB.field || {}).subs || [],
+        words = P.l.split(/[^a-z0-9]+/).filter((w) => w.length >= 4),
+        hit = (s) => words.some((w) => new RegExp(`\\b${w.slice(0, 6)}`, "i").test(`${s.vendor} ${s.lead} ${s.trade}`)),
+        ns = subs.filter((s) => "noshow" === s.status && hit(s) && agOnJob(P, s.projectId)).sort((a, b) => b.date.localeCompare(a.date))[0] || subs.filter((s) => "noshow" === s.status && agOnJob(P, s.projectId)).sort((a, b) => b.date.localeCompare(a.date))[0];
+      if (!ns) return null;
+      const p = (DB.projects || []).find((x) => x.id === ns.projectId),
+        nxt = subs.filter((s) => s.vendor === ns.vendor && s.date > ns.date).sort((a, b) => a.date.localeCompare(b.date))[0],
+        memo = ((paInit().memo || []).find((m) => new RegExp(String(ns.lead || "").toLowerCase(), "i").test(m.text)) || {}).text,
+        t = p && ns.taskId && (p.tasks || []).find((x) => x.id === ns.taskId);
+      return {
+        headline: `${ns.lead} (${ns.vendor}) did not show on ${p ? agShort(p) : "the job"} ${ns.date === today() ? "today" : fmtL(ns.date)}.${nxt ? ` Next booked ${fmtL(nxt.date)}, ${"confirmed" === nxt.status ? "confirmed" : "not confirmed yet"}: confirm with ${ns.lead} today, or move it.` : ` Nothing else is booked: rebook ${ns.lead} and confirm the day before.`}`,
+        note: `${t ? `${t.name} waits on it (${fmtL(t.start)} to ${fmtL(t.end)}); slip it on the schedule with the reason "a trade could not be on site" if the day is lost. ` : ""}${memo ? `You told me: "${memo}".` : ""}`,
+        work: subs.filter((s) => s.vendor === ns.vendor).sort((a, b) => a.date.localeCompare(b.date)).map((s) => `${fmtL(s.date)} · ${s.vendor} (${s.lead}, ${s.phone || "no phone"}) — ${({ confirmed: "confirmed", unconfirmed: "not confirmed", onsite: "on site", noshow: "did not show" })[s.status] || s.status}`),
+        offers: nxt
+          ? [csOffer({ id: "ag-noshow-confirm", label: `Draft the Confirmation to ${ns.lead}`, detail: `"Confirming ${fmtL(nxt.date)} at ${p ? agShort(p) : "the job"}" — a draft for you to send, and a reminder if he does not answer.`, run: () => chaseParty({ kind: "confirm", to: { name: ns.lead, email: agEmailFor(ns.lead) || agEmailFor(ns.vendor) }, expect: !0, subject: `Confirming ${fmtL(nxt.date)} — ${p ? agShort(p) : "the job"}`, body: `Hi ${ns.lead},\n\nYou were booked at ${p ? agShort(p) : "the job"} ${ns.date === today() ? "today" : fmtL(ns.date)} and did not make it. Can you confirm you will be there ${fmtL(nxt.date)} at 7:30? Reply yes or tell me the day that works.\n\nThanks,\n${agSign()}`, why: `${ns.lead} to confirm ${fmtL(nxt.date)}` }) })]
+          : [],
+        go: agGo("fsite") || agGo("field"),
+        ran: agRan("sub days", [`${ns.vendor}`, "did not show"], "", 1),
+      };
+    },
+  },
+  {
+    id: "material",
+    kind: "ops",
+    re: /\b(order[- ]?by|have to order|need to order|must (be )?order|when (do|should|must) (i|we) order|lead time|land|lands|arrive|arrives|arriving|eta|ordered|po\b|purchase order|vendor|who'?s the vendor|issued)\b/,
+    not: /\b(every|all|which|any) (pos?|purchase orders|orders)\b|\bthis week\b|\bnext week\b|\btoday\b/,
+    run(P) {
+      const x = agMatIn(P);
+      if (!x) return null;
+      const { p, m } = x,
+        D = withProject(p, () => matDates(m)) || {},
+        st = withProject(p, () => matState(m)) || {},
+        po = (DB.pos || []).find((o) => (m.po && o.number === m.po) || (o.projectId === p.id && (o.lines || []).some((li) => String(li.item).toLowerCase().split(/[^a-z]+/).some((w) => w.length >= 4 && String(m.name).toLowerCase().includes(w))))),
+        dec = (p.decisions || []).find((d) => "open" === d.status && ((d.kind === "mat" && d.ref === m.id) || String(d.name).toLowerCase().split(/[^a-z]+/).filter((w) => w.length >= 5).some((w) => String(m.name).toLowerCase().includes(w.slice(0, 5))))),
+        vendor = m.vendor && "TBD" !== m.vendor ? m.vendor : po ? po.vendor : "",
+        name = `${m.name} on ${agShort(p)}`,
+        l = P.l;
+      let head;
+      if (/\b(po|purchase order|issued|vendor)\b/.test(l))
+        head = po
+          ? `${po.number} for ${name} is ${po.status}${po.status === "issued" ? "" : ""}; the vendor is ${po.vendor}${po.expected ? `, due ${fmtL(po.expected)}` : ""}.`
+          : `No PO for ${name} yet: the line is ${String(m.status).replace(/-/g, " ")}${dec ? ` (waiting on "${dec.name}", ${dec.owner})` : ""}, and ${vendor ? `${vendor} is the vendor on it` : "no vendor is set"}.`;
+      else if (/\b(lead time|land|lands|arrive|arrives|arriving|eta)\b/.test(l))
+        head = `${name}: ${m.lead || 0} working days' lead${vendor ? ` from ${vendor}` : ""}; ${m.eta ? `due ${fmtL(m.eta)}${D.needBy ? `, ${m.eta > D.needBy ? "after" : "before"} the ${fmtL(D.needBy)} it is needed on site` : ""}` : String(m.status) === "ordered" ? "ordered, no delivery date yet" : `not ordered yet — order by ${fmtL(D.orderBy)} to have it on site ${fmtL(D.needBy)}`}.`;
+      else
+        head = `${name}: order by ${fmtL(D.orderBy)} to have it on site ${fmtL(D.needBy)} (${m.lead || 0} working days' lead)${["ordered", "on-site", "received"].includes(m.status) ? ` — it is already ${String(m.status).replace(/-/g, " ")}${m.eta ? `, due ${fmtL(m.eta)}` : ""}` : st.msg ? ` — ${st.msg.replace(/^./, (c) => c.toLowerCase())}` : ""}.`;
+      return {
+        headline: head,
+        note: st.msg && !head.includes(st.msg) ? `Buy Board: ${st.msg}.` : "",
+        work: [`${m.name} · ${String(m.status).replace(/-/g, " ")}${vendor ? ` · ${vendor}` : ""} — order by ${fmtL(D.orderBy)}, needed ${fmtL(D.needBy)}, lead ${m.lead || 0} days${m.eta ? `, ETA ${fmtL(m.eta)}` : ""}`].concat(po ? [`${po.number} · ${po.vendor} · ${po.status} · ${money(poTotal(po).total)}${po.expected ? ` · expected ${fmtL(po.expected)}` : ""}`] : []).concat(dec ? [`Decision — ${dec.name} (${dec.owner})`] : []),
+        go: agGo("proc") || agGo("mat"),
+        ran: agRan("materials", [`name matches "${m.name}"`, `job is ${agShort(p)}`, "order-by from the schedule and the lead time"], "", 1),
+      };
+    },
+  },
+  {
+    id: "budgetline",
+    kind: "money",
+    re: /\bline\b/,
+    run(P) {
+      if (!/\b(budget|left|remaining|committed|spent|how much|available)\b/.test(P.l)) return null;
+      const words = P.l.split(/[^a-z0-9]+/).filter((w) => w.length >= 4 && !/^(line|much|left|budget|remaining|committed|spent|what|whats|have|there|buy|available)$/.test(w)),
+        L = (P.jobs.length ? P.jobs : DB.projects || []).flatMap((p) => (jobFin(p).eacLines || []).map((x) => ({ p: p, x: x }))).filter((y) => words.some((w) => new RegExp(`\\b${w.slice(0, 5)}`, "i").test(y.x.name)));
+      if (!L.length) return null;
+      return {
+        headline: L.slice(0, 3).map(({ p, x }) => `${x.name} on ${agShort(p)}: ${money(x.budget)} budget, ${money(x.actual)} spent, ${money(x.committed)} committed — ${money(Math.max(0, r2(x.budget - x.actual - x.committed)))} left to buy${x.over > 0.5 ? ` (over by ${money(x.over)})` : ""}`).join("; ") + ".",
+        note: "Left to buy = budget − spent − committed on open POs; the estimate line is the budget.",
+        work: L.map(({ p, x }) => `${agShort(p)} · ${x.code || ""} ${x.name} — budget ${money(x.budget)}, actual ${money(x.actual)}, committed ${money(x.committed)}, EAC ${money(x.eac)}`),
+        go: agGo("costs", { project: L[0].p.id }) || agGo("budget"),
+        ran: agRan("estimate lines", [`name matches "${words.join(" ")}"`].concat(agWhereJob(P)), "", L.length),
+      };
+    },
+  },
+  {
+    id: "potoday",
+    kind: "ops",
+    re: /\b(order(ed)?|pos?|purchase orders?|issued|buy|bought)\b/,
+    run(P) {
+      if (!/\b(today|this morning)\b/.test(P.l) || !/\b(i|my|me)\b/.test(P.l)) return null;
+      const me = agMeName().toLowerCase().split(/\s+/)[0],
+        R = (DB.pos || []).filter((o) => o.date === today() && String(o.createdBy || o.by || "").toLowerCase().startsWith(me)),
+        over = /\bover\b/.test(P.l)
+          ? R.filter((o) => {
+              const J = jobFin((DB.projects || []).find((p) => p.id === o.projectId) || {});
+              return (J.eacLines || []).some((x) => x.over > 0.5 && x.committed > 0);
+            })
+          : null;
+      return {
+        headline: R.length
+          ? over
+            ? over.length
+              ? `${agN(over.length, "of today's POs")} sits on a line that is over budget: ${over.map((o) => o.number).join(", ")}.`
+              : `None: the ${agN(R.length, "PO")} you issued today ${1 === R.length ? "sits" : "sit"} inside ${1 === R.length ? "its" : "their"} budget lines.`
+            : `You issued ${agN(R.length, "purchase order")} today: ${R.map((o) => `${o.number} to ${o.vendor || "no vendor"} for ${money(poTotal(o).total)}`).join("; ")}.`
+          : `None: you issued no purchase order today${over ? ", so none is over budget" : ""}.`,
+        work: R.map((o) => `${o.number} · ${o.vendor || "no vendor"} · ${o.status} · ${money(poTotal(o).total)}`),
+        go: agGo("po"),
+        ran: agRan("purchase orders", ["dated today", `created by ${agMeName()}`].concat(over ? ["on a line over budget"] : []), "", R.length),
+      };
+    },
+  },
+  {
+    id: "pogaps",
+    kind: "ops",
+    re: /\b(pos?|purchase orders?|orders?)\b/,
+    run(P) {
+      if (!/\b(no vendor|without a vendor|missing (a )?vendor|\$0|zero dollars?|no price|unpriced|no amount|\$ ?0 )\b|\bor \$0\b/.test(P.l + " ")) return null;
+      const R = (DB.pos || []).filter((o) => "cancelled" !== o.status && (!o.vendor || !(poTotal(o).total > 0) || (o.lines || []).some((li) => !(+li.price > 0))));
+      return {
+        headline: R.length ? `${agN(R.length, "purchase order")} with no vendor or a $0 line: ${R.map((o) => `${o.number} (${o.vendor || "no vendor"}, ${money(poTotal(o).total)})`).join("; ")}.` : "None: every purchase order has a vendor and priced lines.",
+        work: R.map((o) => `${o.number} · ${o.vendor || "no vendor"} · ${o.status} · ${money(poTotal(o).total)}`),
+        go: agGo("po"),
+        ran: agRan("purchase orders", ["no vendor, or a line at $0", "not cancelled"], "", R.length),
+      };
+    },
+  },
+  {
+    id: "finishwhy",
+    kind: "ops",
+    re: /\bwhy\b/,
+    run(P) {
+      if (!/\b(finish|completion|end date|done)\b/.test(P.l) || !/\b(move|moved|slip|slipped|change|changed|push|pushed|late|later)\b/.test(P.l) || "client" === role()) return null;
+      const L = P.jobs.length ? P.jobs : [];
+      if (!L.length) return null;
+      const p = L[0],
+        h = projectHealth(p),
+        w = tpForecastWhy(p) || {},
+        H = [].concat(...(p.tasks || []).map((t) => (t.history || []).map((x) => ({ t: t, h: x })))).sort((a, b) => String(b.h.on).localeCompare(a.h.on));
+      return {
+        headline: `${agShort(p)} finishes ${fmtL(h.sc)}${p.project.target ? `, against the ${fmtL(p.project.target)} target` : ""}. ${w.text ? `Why: ${w.text}.` : H.length ? `It moved ${agN(H.length, "time")}; the latest, ${H[0].t.name} ${H[0].h.days > 0 ? "+" : ""}${H[0].h.days || 0} ${1 === Math.abs(H[0].h.days) ? "day" : "days"} (${H[0].h.reason || H[0].h.reasonKey || "no reason given"}).` : "Nothing has moved it: the finish holds to the plan."}`,
+        note: "The finish the Projects table shows, and its cause from the live schedule history.",
+        work: H.slice(0, 8).map((x) => `${fmtL(x.h.on)} — ${x.t.name}: ${x.h.days > 0 ? "+" : ""}${x.h.days || 0} · ${x.h.reason || x.h.reasonKey || ""}${x.h.by ? `, by ${x.h.by}` : ""}`),
+        go: agGo("sched", { project: p.id }),
+        ran: agRan("projects and schedule history", agWhereJob(P).concat(["finish from the schedule", "cause from tpForecastWhy"]), "", 1 + H.length),
+      };
+    },
+  },
+);
+// What a client chose (or has not yet) on a decision named in the question: "what did Sarah choose for the 2nd
+// floor bathroom". The decision's own record, never the staff member who shares her first name.
+AG_OPS.unshift({
+  id: "choice",
+  kind: "ops",
+  re: /\b(choose|chose|chosen|pick|picked|select|selected|decide|decided|went with|go(ing)? with|approve[d]?)\b/,
+  not: /\bwhich decisions\b|\bhow many\b|\bwaiting on\b/,
+  run(P) {
+    if ("client" === role()) return null;
+    const norm = (s) => String(s || "").toLowerCase().replace(/\bfloor\b/g, "fl").replace(/\b(\d)(st|nd|rd|th)\b/g, "$1$2"),
+      l = norm(P.l),
+      words = l.split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !AG_STOPW.has(w) && !/^(what|did|does|choose|chose|chosen|pick|picked|select|selected|decide|decided|went|with|for|the|sarah|david|klein|kleins|client|they|she|approve|approved|going)$/.test(w)),
+      pool = (P.jobs.length ? P.jobs : (P.clients || []).length ? (DB.projects || []).filter((p) => P.clients.some((c) => c.id === p.clientId)) : (P.contacts || []).length ? (DB.projects || []).filter((p) => P.contacts.some((k) => k.client && k.client.id === p.clientId)) : DB.projects || []).flatMap((p) => (p.decisions || []).map((d) => ({ p: p, d: d }))),
+      R = pool
+        .map((x) => ({ x: x, s: words.filter((w) => new RegExp(`\\b${w}`).test(norm(x.d.name + " " + (x.d.clientTitle || "")))).length }))
+        .filter((y) => y.s >= Math.min(2, words.length) && y.s > 0)
+        .sort((a, b) => b.s - a.s);
+    if (!R.length) return null;
+    const { p, d } = R[0].x,
+      ch = (d.options || []).find((o) => o.id === (d.chosen || d.choice || d.optionId || d.picked)),
+      opts = (d.options || []).map((o) => `${o.label}${o.delta ? ` (${o.delta > 0 ? "+" : "−"}${money(Math.abs(o.delta))})` : ""}`);
+    return {
+      headline: "open" !== d.status
+        ? `${d.name} on ${agShort(p)} is decided${ch ? `: ${ch.label}${ch.delta ? ` (${ch.delta > 0 ? "+" : "−"}${money(Math.abs(ch.delta))} against the allowance)` : ""}` : d.decision ? `: ${d.decision}` : ""}${d.decidedAt || d.at ? `, ${fmtL(String(d.decidedAt || d.at).slice(0, 10))}` : ""}.`
+        : `Nothing chosen yet: ${d.name} on ${agShort(p)} is open with ${d.owner || "the client"}${opts.length ? `; the options are ${agList(opts, 4)}` : ""}.`,
+      note: "open" === d.status ? `${d.notes ? d.notes + " " : ""}Chase writes the ask to the client into your drafts.` : "",
+      work: [`${d.name} · ${d.status} · ${d.owner || ""}${d.due ? ` · due ${fmtL(d.due)}` : ""}`].concat(opts.map((o) => `Option — ${o}`)),
+      go: agGo("dec", { project: p.id }) || agGo("dash", { project: p.id }),
+      ran: agRan("decisions", [`name matches "${words.join(" ")}"`, `job is ${agShort(p)}`], "", R.length),
+    };
+  },
+});
 // ---- one entry for every question
 function agClientOk(b) {
   // the older chain may answer a client only with what is theirs alone: memory, reminders, their day, their waiting list
@@ -165746,6 +167051,23 @@ function agMoneyCheck(b) {
     try {
       isClient = "client" === role();
     } catch (e) {}
+    // drafts, chases, mail, meetings and the day's log answer before the older chain's keyword gate
+    if (raw && !isClient && !/^(remember|note|keep in mind|forget|drop|never mind|stop reminding)\b|\bremind me\b/i.test(raw)) {
+      let P0 = null,
+        a0 = null;
+      try {
+        (P0 = agParse(raw)), (P0.firstOnly = !0), (a0 = agRead(P0)), P0 && (P0.firstOnly = !1);
+      } catch (e) {
+        console.warn("askgen first", e), (a0 = null);
+      }
+      if (a0) {
+        try {
+          paInit();
+        } catch (e) {}
+        const out0 = paOut(Object.assign({ kind: "askgen" }, a0, { go: a0.go ? paGo(a0.go) : null, offers: a0.offers || [] }));
+        return done(agStamp(out0, a0.ran, P0));
+      }
+    }
     if (!raw || AG_LEGACY.test(raw) || (AG_DOCNO.test(raw) && !isClient)) {
       const b = legacy(),
         doc = (x) => done(agDocRan(raw, x));
@@ -171953,3 +173275,46 @@ if ("function" == typeof txnDialog) {
     } catch (e) {}
   };
 }
+// ---- chases for people on Caught for You (BACKLOG §8 #6): a quiet lead and a client invoice past due get a
+// Chase, like a vendor's COI and a client's late decision already do. Chase writes the draft into the connected
+// mailbox (the outbox when none), logs that we asked and follows up in three working days; nothing is sent.
+CATCH.push({
+  name: "chasePeople",
+  label: "Not Come Back",
+  rows() {
+    const r = role(),
+      out = [],
+      open = new Set(((paInit().expect || []).filter((e) => !e.closed && e.chased && e.by >= today()) || []).map((e) => String(e.who).toLowerCase()));
+    if ("owner" === r)
+      agQuietLeads()
+        .filter((y) => !open.has(String(y.x.name).toLowerCase()))
+        .forEach((y) =>
+          out.push({
+            key: "chase:lead:" + y.x.id,
+            what: `Gone quiet: ${y.x.name}`,
+            sub: `${y.days} days since ${String(y.t.note || y.t.channel).replace(/\.$/, "").toLowerCase()}`,
+            amount: +y.x.value || 0,
+            verb: "Chase",
+            run: () => chaseParty(agLeadChase(y.x)),
+          }),
+        );
+    if (["owner", "billing"].includes(r))
+      (DB.clients || []).forEach((c) =>
+        (c.invoices || []).forEach((d) => {
+          if (["paid", "void", "draft"].includes(d.status) || !d.due || d.due >= today()) return;
+          const bal = r2(docTotal(d).total - (c.payments || []).filter((y) => y.invoiceId === d.id).reduce((a, y) => a + (+y.amount || 0), 0)),
+            k = (c.contacts || []).find((x) => /money|pay/i.test(x.role || "")) || (c.contacts || [])[0];
+          if (bal <= 0.005 || !k || open.has(String(k.name).toLowerCase())) return;
+          out.push({
+            key: "chase:inv:" + d.id,
+            what: `Past due: ${d.number} — ${c.name}`,
+            sub: `${money(bal)} was due ${fmtL(d.due)}`,
+            amount: bal,
+            verb: "Chase",
+            run: () => chaseParty(agChaseDraft({ kind: "invoice", to: { name: k.name, email: k.email || agEmailFor(k.name), kind: "contact" }, client: c, invoices: [{ id: d.id, number: d.number, title: d.title, due: d.due, bal: bal }] })),
+          });
+        }),
+      );
+    return out;
+  },
+});

@@ -14,6 +14,15 @@ Checks:
   any      headline + work rows contain at least one listed string.
   date     headline + work rows show the date (12/15, Dec 15, December 15, Tue, Dec 15, 2026-12-15).
 A refusal ("I have nothing called…", "Nothing in the records matches…") fails unless refuse_ok.
+Optional fields:
+  setup    JS run in the page before the question (connect a Demo Workspace, run a close). Questions with the
+           same setup share one fresh browser, in order; `isolate: true` gives a question a browser of its own.
+  before   questions asked first in the same thread, with no reset between (carry-over, pronouns, memory).
+  post     JS evaluated after the answer; it must be truthy (a stored memo, a task's date, a draft's cc).
+  absent   JS list of strings the answer must not show (another client, a staff name for a client's).
+  maxMs    the answer must come back within this many milliseconds (a slow reader must not hang the thread).
+  noread   words that must be taken as typed: the answer may not say it read one of them as another word
+           ("Amex" is a card, not Alex; "aging" is not "again").
 Separately reported, not a failure: a non-refusal answer shows how it was read (interp, readAs,
 "I ran:" or "I read this as").
 
@@ -27,7 +36,8 @@ from collections import Counter, defaultdict
 from harness import *
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SETS = {'tune': os.path.join(HERE, 'ask_bank_tune.json'), 'heldout': os.path.join(HERE, 'ask_bank_heldout.json')}
+SETS = {'tune': os.path.join(HERE, 'ask_bank_tune.json'), 'heldout': os.path.join(HERE, 'ask_bank_heldout.json'),
+        'heldout2': os.path.join(HERE, 'ask_bank_heldout2.json')}
 
 # Raw-DB helpers for truth expressions. Test code, not app code: it reads DB and screen functions only.
 HELPERS = r"""
@@ -91,13 +101,18 @@ async ({ e, reset }) => {
     });
   }
   R();
-  let a = null, aerr = '';
+  for (const b of (e.before || [])) { try { await Promise.resolve(paAsk(b)); } catch (err) {} }
+  let a = null, aerr = '', ms = 0;
+  const t0 = performance.now();
   try { a = await Promise.resolve(paAsk(e.q)); } catch (err) { aerr = String(err && err.message || err); }
+  ms = Math.round(performance.now() - t0);
+  let post = null;
+  if (e.post) { try { post = !!(await new Function('H', `return (async () => (${e.post}))()`)(window.__AB)); } catch (err) { post = false; terr = 'post: ' + String(err && err.message || err); } }
   R();
   a = a || {};
   const str = x => typeof x === 'string' ? x : x == null ? '' : JSON.stringify(x);
   return { truth, terr, dates, absent, aerr, headline: str(a.headline), note: str(a.note), work: (a.work || []).map(str),
-           kind: str(a.kind), interp: str(a.interp), readAs: str(a.readAs) };
+           kind: str(a.kind), interp: str(a.interp), readAs: str(a.readAs), ms, post };
 }
 """
 
@@ -153,6 +168,14 @@ def judge(e, r):
     leak = [s for s in (r.get('absent') or []) if s and norm(s) in norm(' '.join([head, r['note']] + r['work']))]
     if leak:
         return False, f"shows records outside the asker's own jobs: {leak}", refused
+    if e.get('maxMs') and r.get('ms', 0) > e['maxMs']:
+        return False, f"took {r['ms']} ms (limit {e['maxMs']})", refused
+    said = norm(' '.join([r['interp'], r['readAs'], head, r['note']]))
+    bad = [w for w in (e.get('noread') or []) if re.search(r'"' + re.escape(norm(w)) + r'" as\b|\b' + re.escape(norm(w)) + r'" as\b|read ' + re.escape(norm(w)) + r' as\b', said)]
+    if bad:
+        return False, f"corrected a word it should have taken as typed: {bad}", refused
+    if e.get('post') and not r.get('post'):
+        return False, 'post check failed', refused
     t, ck = r['truth'], e['check']
     if ck == 'number':
         vals = t if isinstance(t, list) else [t]
@@ -174,6 +197,7 @@ def judge(e, r):
 def load(which):
     out = []
     for s in (['tune', 'heldout'] if which == 'all' else [which]):
+        if not os.path.exists(SETS[s]): continue
         for e in json.load(open(SETS[s]))['questions']:
             out.append(dict(e, _set=s))
     return out
@@ -185,32 +209,35 @@ async def fresh_page(p):
 
 async def run(qs):
     res = []
+    plain = [x for x in qs if not x.get('setup') and not x.get('isolate')]
+    staged = [x for x in qs if x.get('setup') or x.get('isolate')]
+    staged.sort(key=lambda x: (x.get('setup') or '', bool(x.get('isolate'))))  # stable: same setup together, in order
     async with async_playwright() as p:
         b, pg, errs = await fresh_page(p)
-        for e in [x for x in qs if not x.get('setup')] + [x for x in qs if x.get('setup')]:
-            if e.get('setup'):  # a mutating setup gets its own browser, so nothing it changes leaks
+        cur = None  # the setup the open browser was prepared with
+        for e in plain + staged:
+            key = (e.get('setup') or '') + ('|' + e['id'] if e.get('isolate') else '')
+            if (e.get('setup') or e.get('isolate')) and key != cur:  # a mutating setup gets its own browser
                 await b.close()
                 b, pg, errs = await fresh_page(p)
-                await pg.evaluate(e['setup'])
-            r = await pg.evaluate(ASK_ONE, {'e': {k: e.get(k) for k in ('role', 'q', 'truth', 'check', 'absent')}, 'reset': RESET})
+                if e.get('setup'): await pg.evaluate(e['setup'])
+                cur = key
+            r = await pg.evaluate(ASK_ONE, {'e': {k: e.get(k) for k in ('role', 'q', 'truth', 'check', 'absent', 'before', 'post')}, 'reset': RESET})
             ok, why, refused = judge(e, r)
             shown = bool(r['interp'] or r['readAs'] or SHOWN.search(' '.join([r['note'], r['headline']] + r['work'])))
             res.append(dict(id=e['id'], set=e['_set'], role=e['role'], q=e['q'], tags=e['tags'], ok=ok, why=why,
                             refused=refused, shown=shown, truth=r['truth'], headline=r['headline'], work=r['work'][:6],
-                            kind=r['kind'], terr=r['terr']))
-            if e.get('setup'):
-                await b.close()
-                b, pg, errs = await fresh_page(p)
+                            kind=r['kind'], terr=r['terr'], ms=r.get('ms')))
         await b.close()
     return res
 
 # HANDOFF.md figures (app day 2026-09-03). A truth that disagrees with these is wrong, not the app.
 SANITY = {  # question text -> HANDOFF.md figure
     'how much cash do we have': 184231, 'How is cash?': 184231, "what's our AR": 92265, 'what should we invoice today': 20980,
-    'What could we invoice today?': 20980, 'What can I invoice today?': 20980, 'How is cash, truly?': -2618,
-    'what is safe to spend': -2618, 'how much is unmatched in the bank': 75272, 'what is the backlog': 581408,
-    'net income year to date': -3797, 'what was revenue this year': 144292, 'what do we owe vendors': 0,
-    'how much payroll is past due': 16040, 'how much is WIP over billed': 154742}
+    'What could we invoice today?': 20980, 'What can I invoice today?': 20980, 'How is cash, truly?': -4151,
+    'what is safe to spend': -4151, 'how much is unmatched in the bank': 75272, 'what is the backlog': 582941,
+    'net income year to date': -5330, 'what was revenue this year': 142759, 'what do we owe vendors': 0,
+    'how much payroll is past due': 16040, 'how much is WIP over billed': 156274}  # HANDOFF.md after truthpct
 # BACKLOG 1.3: the screens' Approvals counts. Since DELEGATION (one item, one queue) the owner holds WW-2026-118,
 # the brain's change and 8 lessons; the PM the submitted bill, crew hours, site questions, decisions, a meeting and
 # the submittal; billing and the controller own no approval kind (they were shown everyone's decisions and hours).
@@ -233,7 +260,7 @@ def sanity(res):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--set', default='all', choices=['tune', 'heldout', 'all'])
+    ap.add_argument('--set', default='all', choices=['tune', 'heldout', 'heldout2', 'all'])
     ap.add_argument('--id', action='append', help='question id (repeatable)')
     ap.add_argument('--tag', action='append', help='only questions with this tag (repeatable)')
     ap.add_argument('--json', action='store_true', help='print results as JSON')
@@ -267,7 +294,7 @@ def main():
         print('failures by tag:', ', '.join(f'{t} {n}' for t, n in fails.most_common()) or 'none')
         print(f"shows how it read the question: {sum(r['shown'] for r in nr)}/{len(nr)} non-refusal answers;"
               f" refusals {len(res) - len(nr)}/{len(res)}")
-        print('  '.join(f"{s.upper()} {by[s][0]}/{by[s][1]}" for s in ('tune', 'heldout') if s in by))
+        print('  '.join(f"{s.upper()} {by[s][0]}/{by[s][1]}" for s in ('tune', 'heldout', 'heldout2') if s in by))
     sys.exit(0 if all(r['ok'] for r in res) else 1)
 
 if __name__ == '__main__':
