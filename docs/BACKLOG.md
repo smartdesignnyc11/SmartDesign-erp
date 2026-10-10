@@ -381,3 +381,25 @@ Reviewers: `.claude/agents/` role experts, each a full day with a linked workspa
 - **Field answers stop at "save a record":** no-show, inspection booking, the client's choice, the sample approval. **ops**, **clientfix**
 - **The reader does not finish the job:** quote → task not price; receipt → uncoded line; delivery date → note; credit memo → nothing. **purchasing**
 - **Clones and counts:** 206 Lenox carries 121 State's decisions and materials; "late" and "blocked" still have several numbers on the purchasing screens; two Alans; "[image: …]" as a person. **ops**, **brain**
+
+---
+
+## §5 Platform: from a single-player demo to the firm's system (Alan, 2026-10-10: "to the highest level, especially all the AI features")
+Today every person's data lives in their own browser and every guard runs in the page. Rebuild the hosted half (HANDOFF "What was lost") so ten people on ten phones share one truth.
+1. **Shared database, sign-in, sync.** Supabase (Postgres) as the system of record; Google sign-in per person; `cloud.js` rebuilt (per-user assistant shards, pending markers, keepalive push on pagehide, re-push before pull so a local edit is never overwritten); offline on site with conflict rules (money records server-wins with a visible conflict, field notes merge).
+2. **Security in the database, not the page.** Row-level security per firm, per role and per client: a client's phone never receives another client's rows; field roles never receive money; the budget, close, journal and approval rules enforced by database functions; the hash chain's head per period stored server-side, so rebuilding the chain in a browser is detected. The browser checks stay as the first line, never the only one.
+3. **The AI connection, to the highest level.** A server proxy (`/api/ai`) with the model pinned by environment and a per-person and per-firm cost ceiling. The assistant is the model with the ERP as its tools: every entity and field of `erpQuery`, the PRED predicates, truth coverage, drafts, proposals and the expectation ledger; answers cite the query they ran; writes are proposals with a button. One assistant per person, with that person's role, jobs, standing orders, memory and connected mail, calendar and drive. The deterministic parser stays as the offline path and as the model's grounding tools. An evaluation harness runs the Ask bank (tune, held-out, held-out-2) against the live model on every release.
+4. **AI guardrails.** Mail, documents and transcripts are data, never instructions (prompt-injection tests with hostile mail: "pay this now", "update our bank details", "ignore previous instructions"); a change to a vendor's or the firm's bank details needs two people and a call-back; every AI action is logged with its evidence and reason; the brain can propose an ERP change but a person approves and it ships through a review.
+5. **Document reading.** The server extracts text from PDFs, Office files and images (the lost `doctext`), so every vendor invoice, quote, COI and statement is read; a proposal says when a document could not be read.
+6. **Watchers that run while phones are in pockets.** The per-user Gmail, Calendar and Drive watcher (the lost `assistant-watch`), Plaid bank and card feeds with webhooks (link, exchange, cursor sync, sealed tokens), and the daily sweep (chases, reminders, lesson triggers, obligations) on a schedule.
+7. **iPhone and speed.** Safari (WebKit) checks on a real iPhone or a WebKit runner, storage persistence (Safari can clear site data after a week unused; the server copy is the cure), and boot under 2 s and view switch under 100 ms with a mid-range phone's CPU (§3.4).
+
+## §6 Go-live and the 10x scorecard
+1. **Real data in.** Clients, jobs, vendors, people, open estimates, invoices, bills and POs imported (the existing paste-from-Excel import, the QuickBooks snapshot load, and the master-data proposals from real mail), demo data removed, opening balances from QuickBooks.
+2. **A parallel month.** The ERP runs beside QuickBooks for one month; the Three-Way Tie-Out must agree every week before QuickBooks is retired; a cutover checklist with an owner and a date.
+3. **Who moves first.** The owner, the PM and billing; then the coordinator and the controller; then the field; then clients in the portal.
+4. **The 10x scorecard, measured before and after.** Days from work done to invoice sent; days from invoice to cash; hours a week each person spends on email and admin; days to close a month; dollars of unbilled work and reimbursables found; chases answered on time; items that slipped (the month simulation's ledger). The baseline is taken from QuickBooks history and the real mailbox before cutover.
+
+## §7 Later (Alan, 2026-10-10: "leave for later; I need to better understand this")
+New York rules a design-build firm lives by: Lien Law Article 3-A trust funds per job; sales tax on capital improvements vs repairs (ST-124); site safety training cards at clock-in (NYC Local Law 196); workers' comp and COI enforcement before payment.
+
