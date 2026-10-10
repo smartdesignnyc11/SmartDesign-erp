@@ -163691,6 +163691,17 @@ function agCloseState(ym) {
     lt = "function" == typeof lockedThrough ? lockedThrough() || "" : "";
   return { closed: (!!lt && lt >= ym) || !!c, rec: c, wages: c ? c.wages : null, lockedThrough: lt, src: "DB.periods" };
 }
+// The job-cost answers (finAnswer) for a job's margin, EAC and margin by job: one wording with the screens.
+function agFinAnswer(P, text) {
+  let f = null;
+  try {
+    f = finAnswer(text || P.l);
+  } catch (e) {
+    f = null;
+  }
+  if (!f || "finance" !== f.kind) return null;
+  return Object.assign(f, { ran: agRan("projects", agWhereJob(P).concat(["job cost from jobFin"]), P.jobs.length ? "" : "job", (f.work || []).length || P.jobs.length) });
+}
 const AG_FIN = [
   {
     id: "dispute",
@@ -163764,6 +163775,12 @@ const AG_FIN = [
     re: /\bgross (margin|profit)\b|\bmargin\b/,
     kind: "money",
     run(P) {
+      // a job's margin, or margin by job: the job-cost answer (at completion, bid, cost-to-cost and measured % complete)
+      const byJob = "job" === P.group || /\b(by|per|each|every|across) (job|project)s?\b|\b(jobs|projects)\b/.test(P.l);
+      if (P.jobs.length || byJob) {
+        const f = agFinAnswer(P, byJob ? "margin by job" : null);
+        if (f) return f;
+      }
       if (P.jobs.length) {
         const J = P.jobs.map((p) => ({ p: p, f: jobFin(p) }));
         return {
@@ -163788,6 +163805,10 @@ const AG_FIN = [
     re: /\beac\b|\bestimate(d)? (cost )?at completion\b|\bcost at completion\b|\bforecast(ed)? (final )?cost\b|\bprojected cost\b/,
     kind: "money",
     run(P) {
+      if (1 === P.jobs.length) {
+        const f = agFinAnswer(P);
+        if (f) return f;
+      }
       const L = P.jobs.length ? P.jobs : (DB.projects || []).filter((p) => p.project && !/design/i.test(p.project.name));
       const J = L.map((p) => ({ p: p, f: jobFin(p) }));
       return {
@@ -165107,7 +165128,10 @@ AG_FIN.push(
         L = (DB.projects || []).filter((p) => jobFin(p).backlog > 0.5);
       return {
         headline: `${money(B.backlog)} of backlog across ${agN(L.length, "contract")}: contract value not yet earned.`,
-        work: L.map((p) => `${agShort(p)} — ${money(jobFin(p).backlog)}`),
+        note: "Backlog = contract − earned. % complete is measured on site; earned revenue runs on cost-to-cost.",
+        work: L.map((p) => ({ p: p, J: jobFin(p) }))
+          .sort((a, b) => b.J.backlog - a.J.backlog)
+          .map((x) => `${finName(x.p)} · ${money(x.J.backlog)} backlog · ${money(x.J.backlogGP)} GP · ${tpJobPct(x.p)}% complete`),
         go: agGo("wip") || agGo("reports"),
         ran: agRan("projects", ["contract value not yet earned"], "", L.length),
       };
