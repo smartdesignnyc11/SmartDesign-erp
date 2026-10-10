@@ -70115,6 +70115,10 @@ function cmApply(c, p) {
       createdBy: "reader",
       commId: c.id,
     };
+    // The bill lands on the purchase order the message names (cmBillPO): job, line, code and category from
+    // the PO line, so Bill Remaining and the over-PO flag count it (purchasing section).
+    const poFor = cmBillPO(c, p);
+    poFor && poLinkBill(b, poFor);
     if (p.txnId) {
       const t = (DB.txns || []).find((x) => x.id === p.txnId);
       t && !t.billId && ((t.billId = b.id), (b.paidTxnId = t.id), (b.status = "paid"), (b.paidAt = t.date));
@@ -70122,7 +70126,7 @@ function cmApply(c, p) {
     DB.bills.push(b),
       DB.vendors.some((v) => v.name.toLowerCase() === (p.vendor || "").toLowerCase()) ||
         DB.vendors.push({ id: uid("v"), name: p.vendor, trade: "", w9: !1, insuranceExp: "" }),
-      (did = `bill ${money(p.amount)} submitted for approval`);
+      (did = `bill ${money(p.amount)} submitted for approval${poFor ? ` against ${poFor.number}${((pr) => (pr ? " on " + String(pr.project.name).replace(/ —.*$/, "") : ""))((DB.projects || []).find((x) => x.id === poFor.projectId))}` : ""}`);
   } else if ("ar" === p.kind)
     p.clientId
       ? cmActivity(
@@ -167189,4 +167193,32 @@ if ("function" == typeof renderPODoc) {
       h
     );
   };
+}
+
+// ---- a bill the reader makes from a vendor's mail lands on its purchase order (review finding 2)
+// The PO a message names: a PO number in the subject, body or attachment text; failing that, the vendor's
+// one open order. Null when it names none and the vendor has several or no open orders.
+function cmBillPO(c, p) {
+  const text = [c && c.subject, c && c.text, ...((c && c.attachments) || []).map((a) => a.text || "")].join("\n"),
+    nums = [...new Set((text.match(/\bPO[-\s]?\d{4}[-\s]?\d{3,}\b/gi) || []).map((x) => x.replace(/\s+/g, "-").toUpperCase()))],
+    byNum = nums.map((n) => (DB.pos || []).find((po) => String(po.number).toUpperCase() === n)).filter((po) => po && "cancelled" !== po.status);
+  if (byNum.length) return byNum[0];
+  const vn = String((p && p.vendor) || "").toLowerCase(),
+    open = vn ? (DB.pos || []).filter((po) => String(po.vendor || "").toLowerCase() === vn && ["issued", "partial"].includes(po.status)) : [];
+  return 1 === open.length ? open[0] : null;
+}
+// Put a bill on its PO: the job, the first PO line's estimate line, cost code and the PO's category (subs,
+// materials...), never office. The bill's first line points at the PO line so Bill Remaining counts it.
+function poLinkBill(b, po) {
+  if (!b || !po) return b;
+  const l = (po.lines || [])[0] || {};
+  (b.poId = po.id),
+    (b.projectId = po.projectId || b.projectId || ""),
+    (b.cat = ("function" == typeof poCat && poCat(po)) || "subs"),
+    (b.code = l.code || b.code || ""),
+    (b.line = l.line || b.line || ""),
+    (b.lines || []).forEach((x, i) => {
+      0 === i && ((x.poLineId = l.id || ""), (x.line = l.line || x.line || ""), (x.code = l.code || x.code || ""));
+    });
+  return b;
 }

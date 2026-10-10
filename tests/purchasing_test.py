@@ -226,11 +226,11 @@ async def s_bill(p, c):
                 # Over the PO: a second bill that takes the total past $76,000 is flagged at landing.
                 ov = await pg.evaluate("""() => { const c = DB.comms.find(x => (x.subject || '').includes('CM-0102')), p = c.proposals.find(x => x.kind === 'bill');
                   const p2 = Object.assign({}, p, { id: uid('cp'), number: 'CM-0199', amount: 60000, applied: '', appliedAt: '' }); c.proposals.push(p2);
-                  cmApply(c, p2); const b = DB.bills.find(x => x.number === 'CM-0199'); return b ? { poId: b.poId, flags: billFlags(b), sev: (mApprovals({ everyone: true }).find(it => it.kind === 'bill' && it.id === b.id) || {}).sev || '' } : null; }""")
+                  cmApply(c, p2); const b = DB.bills.find(x => x.number === 'CM-0199'); const it = mApprovals({ everyone: true }).find(it => it.kind === 'bill' && it.id === b.id) || {}; return b ? { poId: b.poId, flags: billFlags(b), sev: it.sev || '', detail: it.detail || '' } : null; }""")
                 m = await modal(pg)
                 if m: await pg.keyboard.press('Escape')
                 c.ok(ov and any('vs PO' in f for f in ov['flags']), f'bill: a bill over the PO is flagged when it lands ({ov})')
-                c.ok(ov and ov['sev'] == 'warn', f"bill: the Approvals row carries the flag ({ov and ov['sev']!r})")
+                c.ok(ov and ov['sev'] in ('warn', 'bad') and 'vs PO' in ov['detail'], f"bill: the Approvals row carries the flag ({ov and (ov['sev'], ov['detail'][:120])})")
         c.ok(not errs, f'bill: page errors {errs[:2]}')
     finally:
         await b.close()
