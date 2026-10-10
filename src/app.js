@@ -11450,33 +11450,74 @@ function printPO(po) {
     w = window.open("", "_blank");
   w ? (w.document.write(html), w.document.close()) : toast("Allow pop-ups to print");
 }
+function poDrawings(p) {
+  // the job's drawings: files on the job and Drive files routed to it that read like a sheet
+  const out = [];
+  (p && p.files ? p.files : []).forEach((f) => {
+    ("drawing" === f.cat || /\b[A-Z]-?\d{3}\b|drawing|plan|\.dwg|\.rvt/i.test(f.name || "")) && out.push({ name: f.name, link: f.link && f.link.url ? f.link.url : "" });
+  }),
+    (DB.gdrive || []).forEach((f) => {
+      f.route && f.route.projectId === (p && p.id) && "drawing" === f.route.kind && !out.some((x) => x.name === f.name) && out.push({ name: f.name, link: f.link || "" });
+    });
+  return out.slice(0, 8);
+}
+function poEmailTemplate(po) {
+  const t = poTotal(po),
+    p = DB.projects.find((x) => x.id === po.projectId) || S,
+    job = String((p && p.project && p.project.name) || "").replace(/ —.*$/, ""),
+    v = "function" == typeof vendorRec ? vendorRec(po.vendor) : null,
+    first = ((v && v.contact) || po.vendor || "").split(/[\s,]+/)[0],
+    me = (currentUser() || {}).name || (S.project && S.project.userName) || DB.company.name || "",
+    dr = poDrawings(p),
+    lines = (po.lines || []).map((l) => `- ${l.qty} ${l.unit} ${l.item}${l.desc ? ` (${l.desc})` : ""} @ ${money(l.price)}`).join("\n");
+  return {
+    subject: `${po.number} — ${job}${po.needBy ? ` — needed on site ${fmtL(po.needBy)}` : ""}`,
+    body: `Hi ${first || "there"},\n\nAttached is ${po.number} for ${money(t.total)}${po.needBy ? `, needed on site ${fmtL(po.needBy)}` : ""}${po.expected ? ` (you promised ${fmtL(po.expected)})` : ""}.\n\n${lines}${po.shipTo ? `\n\nDeliver to: ${"function" == typeof shipToLabel ? shipToLabel(po) : po.shipTo}` : ""}\n\nPlease confirm the price, the lead time and the delivery date, and put the PO number on your invoice.${dr.length ? `\n\nDrawings for this order:\n${dr.map((d) => `- ${d.name}${d.link ? ` — ${d.link}` : ""}`).join("\n")}` : ""}\n\nThanks,\n${me}`,
+    drawings: dr,
+    vendorEmail: (v && v.email) || "",
+  };
+}
+const aiConfigured = () => !!(window.SDP_CONFIG && window.SDP_CONFIG.aiUrl);
 async function draftPOEmail(po) {
-  const t = poTotal(po);
-  toast("Drafting…");
-  const r = await ai(
-      `Write a short email from ${DB.company.name || "our firm"} to vendor ${po.vendor} transmitting purchase order ${po.number} for ${money(t.total)}${po.expected ? `, requested delivery ${fmtL(po.expected)}` : ""}. Lines: ${po.lines.map((l) => `${l.qty} ${l.unit} ${l.item} @ ${money(l.price)}`).join("; ")}. Ask them to confirm price, lead time and the delivery date, and to reference the PO number on invoices. Plain text, under 110 words, subject line first.`,
-    ),
-    text = r.startsWith("__ERR")
-      ? `Subject: ${po.number} — ${S.project.name}\n\nHi,\n\nAttached is ${po.number} for ${money(t.total)}${po.expected ? `, requested delivery ${fmtL(po.expected)}` : ""}. Please confirm price, lead time and delivery date, and reference the PO number on your invoice.\n\nThanks,\n${S.project.userName || DB.company.name}`
-      : r,
-    subj = (text.match(/^Subject:\s*(.*)$/im) || [])[1] || po.number,
-    body = text.replace(/^Subject:.*\n+/im, "");
+  // The template opens at once; the model only improves the wording when the firm has an AI endpoint
+  // (before this, ai() retried against no endpoint for 23 seconds before the same template appeared).
+  const T = poEmailTemplate(po),
+    mail = "function" == typeof gcOn && gcOn();
   (editing = { kind: "emaildraft" }),
     $("#scrim").classList.add("on"),
     $("#drawer").classList.add("on"),
-    ($("#d-title").textContent = "Email to vendor"),
+    ($("#d-title").textContent = "Email to Vendor"),
     ($("#d-delete").style.display = "none"),
     ($("#d-body").innerHTML =
-      `<div class="f"><label>Subject</label><input id="em-subj" value="${esc(subj)}"></div><div class="f"><label>Body</label><textarea style="min-height:200px" id="em-body">${esc(body)}</textarea></div><button class="btn sm" id="em-copy">Copy</button>`),
+      `<div class="f"><label>To</label><input id="em-to" value="${esc(T.vendorEmail)}" placeholder="${esc(po.vendor)}'s address"></div><div class="f"><label>Subject</label><input id="em-subj" value="${esc(T.subject)}"></div><div class="f"><label>Body</label><textarea style="min-height:220px" id="em-body">${esc(T.body)}</textarea></div><div class="small muted" id="em-note">${T.drawings.length ? `${T.drawings.length} drawing${1 === T.drawings.length ? "" : "s"} linked.` : "No drawings on this job yet."}${aiConfigured() ? " Improving the wording…" : ""}</div><button class="btn sm" id="em-copy">Copy</button>`),
     ($("#em-copy").onclick = () => {
-      navigator.clipboard?.writeText(`Subject: ${$("#em-subj").value}\n\n${$("#em-body").value}`),
-        toast("Copied");
+      navigator.clipboard?.writeText(`Subject: ${$("#em-subj").value}\n\n${$("#em-body").value}`), toast("Copied");
     }),
-    ($("#d-save").textContent = "Open in mail app"),
+    ($("#d-save").textContent = mail ? "Save to Mailbox Drafts" : "Open in Mail App"),
     ($("#d-save").onclick = () => {
-      (window.location.href = `mailto:?subject=${encodeURIComponent($("#em-subj").value)}&body=${encodeURIComponent($("#em-body").value)}`),
-        closeEditor();
+      const to = $("#em-to").value.trim(),
+        subject = $("#em-subj").value,
+        body = $("#em-body").value;
+      if (!mail)
+        return (window.location.href = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`), void closeEditor();
+      if (!to || !/@/.test(to)) return void toast(`${po.vendor} has no email on file — add it in To`);
+      const v = "function" == typeof vendorRec ? vendorRec(po.vendor) : null;
+      v && !v.email && (v.email = to);
+      gaDraft({ to: to, subject: subject, body: body, why: `${po.number} to ${po.vendor}` })
+        .then(() => {
+          (po.emailedAt = today()), (po.emailDraft = { at: appNowIso(), to: to, drawings: T.drawings.map((d) => d.name) }), save(), closeEditor(), render();
+          rcToast(`${po.number} drafted to ${po.vendor} in your mailbox's Drafts${T.drawings.length ? ` — ${T.drawings.length} drawing${1 === T.drawings.length ? "" : "s"} linked` : ""}`, [{ label: "Open", run: () => ((cmFilter = "all"), (view = "comms"), render()) }]);
+        })
+        .catch((e) => toast("The mailbox refused the draft: " + (e.message || e)));
     });
+  if (!aiConfigured()) return;
+  const before = $("#em-body").value,
+    r = await ai(
+      `Improve this purchase order email from ${DB.company.name || "our firm"} to vendor ${po.vendor}. Keep every fact, number, date and link; plain text; under 140 words; no subject line.\n\n${before}`,
+    );
+  const ta = $("#em-body"),
+    note = $("#em-note");
+  ta && !r.startsWith("__ERR") && ta.value === before && (ta.value = r), note && (note.textContent = note.textContent.replace(" Improving the wording…", ""));
 }
 let mtgState = null;
 function meetingSkillUI() {
@@ -66744,43 +66785,46 @@ function eaChase(F, X, r) {
   return r ? uniq.filter((c) => (EA_CHASE_FOR[c.kind] || []).includes(r)) : uniq;
 }
 function eaNudge(item) {
+  // A chase is a draft in the person's own mailbox (or outbox) to approve and send, an expectation on the
+  // ledger with a three-working-day follow-up, and a note on the record. Nothing is sent from here, nothing
+  // goes to project chat or the client's activity. Before this the modal said both and did neither.
+  const v = item.vendor || null,
+    who = item.who || null,
+    name = (who && who.name) || (v && v.name) || eaPlain(item.t).replace(/ — .*$/, ""),
+    known = (who && who.email) || (v && v.email) || "",
+    mail = "function" == typeof gcOn && gcOn(),
+    subject = item.subject || ("coi" === item.kind ? `Certificate of insurance — ${name}` : `Following up — ${eaPlain(item.t).replace(/ — .*$/, "")}`);
   mbModal(
-    `Chase — ${item.t.replace(/<[^>]+>/g, "")}`,
-    `<p class="small muted">I've drafted the note. Change anything, then send. It goes on the project chat and the client's activity so everyone knows it was asked.</p><div class="f"><label>To</label><input id="ea-to" value="${esc(item.who ? `${item.who.name}${item.who.email ? " <" + item.who.email + ">" : ""}` : item.vendor ? item.vendor.name : "")}"></div><div class="f"><label>Message</label><textarea id="ea-msg" rows="5">${esc(item.msg || "")}</textarea></div>`,
+    `Chase — ${eaPlain(item.t)}`,
+    `<p class="small muted">${mail ? `The note goes to your mailbox's Drafts${(gcMine() || {}).email ? ` (${esc(gcMine().email)})` : ""} for you to read and send` : "The note goes to your outbox for approval"}. I log that we asked and remind you in three working days if nothing comes back.</p>${known ? "" : mbF("Their Email", `<input type="email" data-f="email" id="ea-email" placeholder="${esc(name)} has no address on file — add it so the draft can go out" autocomplete="off">`)}<div class="f"><label>To</label><input id="ea-to" value="${esc(name)}${known ? ` <${esc(known)}>` : ""}"></div><div class="f"><label>Subject</label><input id="ea-subj" value="${esc(subject)}"></div><div class="f"><label>Message</label><textarea id="ea-msg" rows="5">${esc(item.msg || "")}</textarea></div>`,
     {
-      submit: "Send the nudge",
-      onSubmit: () => {
-        const to = document.getElementById("ea-to").value,
+      submit: mail ? "Draft in My Mailbox" : "Draft for Approval",
+      onSubmit: (f) => {
+        const addr = known || String(f.email || "").trim();
+        if (!addr || !/@/.test(addr)) return toast(`${name} has no email on file — add it so the draft can go out`), !1;
+        const subj = document.getElementById("ea-subj").value,
           msg = document.getElementById("ea-msg").value,
-          by = (currentUser() || {}).name || "";
-        item.p &&
-          item.p.chat &&
-          item.p.chat.push({
-            id: uid("ch"),
-            by: "System",
-            text: `Nudge sent to ${to}: ${msg}`,
-            t: nowStamp(),
-            files: [],
-            system: !0,
-          }),
-          item.c &&
-            item.c.activity.push({
-              t: nowStamp(),
-              by: by,
-              text: `Nudged ${to} — ${"decision" === item.kind ? "decision" : "proposal" === item.kind ? "proposal" : "change order"}: ${msg.slice(0, 80)}…`,
-            }),
-          item.vendor &&
-            (item.vendor.notes =
-              (item.vendor.notes ? item.vendor.notes + "\n" : "") +
-              `${today()} asked for COI: ${msg.slice(0, 60)}…`),
-          eaAddNote(
-            `Follow up: ${item.t.replace(/<[^>]+>/g, "")} — nudged ${fmtL(today())}`,
-            iso(addDays(today(), 3)),
-            by,
-          ),
-          save(),
-          render(),
-          toast("Sent — I'll remind you in three days if nothing comes back");
+          by = (currentUser() || {}).name || "",
+          due = addWork(today(), 3, !1);
+        v && !v.email && (v.email = addr),
+          who && !who.email && (who.email = addr),
+          v && (v.notes = (v.notes ? v.notes + "\n" : "") + `${fmt(today())} asked for ${"coi" === item.kind ? "the COI" : "an answer"}: ${msg.slice(0, 60)}…`);
+        const e = paExpect(name, subj.replace(/^Following up — /, ""), due, { kind: item.kind, vendorId: v ? v.id : "", clientId: item.c ? item.c.id : "" }, today());
+        (e.email = addr), (e.chased = (e.chased || 0) + 1), (e.by = due);
+        eaAddNote(`Follow up: ${eaPlain(item.t)} — asked ${fmtL(today())}`, due, by);
+        const openMail = () => {
+          (cmFilter = "all"), (view = "comms"), render();
+        };
+        if (mail)
+          gaDraft({ to: addr, subject: subj, body: msg, why: `${name} owes ${"coi" === item.kind ? "a certificate of insurance" : "an answer"}` })
+            .then(() => {
+              save(), render(), rcToast(`Draft to ${name} is in your mailbox's Drafts — I will remind you ${fmtL(due)} if nothing comes back`, [{ label: "Open", run: openMail }]);
+            })
+            .catch((err) => {
+              console.warn("chase draft", err), paDraftNote(name, subj, msg, `${name} owes an answer`, `ea|${item.kind}|${name}|${today()}`), save(), render(), rcToast(`The mailbox refused the draft; it is in your outbox for approval — I will remind you ${fmtL(due)}`, [{ label: "Open", run: openMail }]);
+            });
+        else paDraftNote(name, subj, msg, `${name} owes an answer`, `ea|${item.kind}|${name}|${today()}`), save(), render(), rcToast(`Draft to ${name} is in your outbox for approval — I will remind you ${fmtL(due)} if nothing comes back`, [{ label: "Open", run: openMail }]);
+        save(), render();
       },
     },
   );
@@ -66796,7 +66840,7 @@ const eaFirst = () => ((currentUser() || {}).name || "there").split(" ")[0],
       .replace(/&gt;/g, ">");
 function eaRow(n, t, sub, act, data) {
   const N = h4n(n);
-  return `<div class="h4r" ${data ? `data-ea='${esc(JSON.stringify(data))}'` : ""}>${N.col}<span class="grow">${N.tag}${t}${sub ? ` <span class="small muted">· ${sub}</span>` : ""}</span>${act ? `<em class="small">${act}</em>` : ""}</div>`;
+  return `<div class="h4r" ${data ? `data-ea='${esc(JSON.stringify(data))}'` : ""}>${N.col}<span class="grow">${N.tag}${t}${sub ? ` <span class="small muted">· ${sub}</span>` : ""}</span>${act ? `<button type="button" class="btn sm h4-act">${act}</button>` : ""}</div>`;
 }
 function eaToday(r, F, X) {
   const out = [];
@@ -100848,7 +100892,7 @@ function b3SaveVerb() {
     b = document.getElementById("d-save");
   if (!t || !b) return;
   if (
-    /^(Import|Create Draft|Open in Mail App|Apply|Done|Close|Send|Record|Post|Approve|Add Time|Build|Run)\b/i.test(
+    /^(Import|Create Draft|Draft|Save to|Open in Mail App|Apply|Done|Close|Send|Record|Post|Approve|Add Time|Build|Run)\b/i.test(
       (b.textContent || "").trim(),
     )
   )
