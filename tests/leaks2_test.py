@@ -331,6 +331,7 @@ SCENARIOS = [
     (3, 'credit', 'A refund on a purchase billed to the client: a client credit drafted onto an invoice', s3_credit),
     (4, 'match', 'Every bank line matched to a line: payroll runs, POs, a bill from a check, a typed cost', s4_match),
     (5, 'dup', 'A duplicate charge at import: a proposed dispute (or void) on the controller\'s Needs Your Hand', s5_dup),
+    (6, 'stmt', 'A statement in mail: one tap opens Import Statement, then the reconcile; no task', s6_stmt),
     (7, 'payroll', 'One payroll run per pay period across entities, built from every hour approved by its date', s7_payroll),
     (8, 'dispute', 'A vendor credit memo closes the held difference with one approval; or the Owner accepts it', s8_dispute),
 ]

@@ -71334,6 +71334,10 @@ function cmApply(c, p) {
     v && ((v.noShows = (v.noShows || 0) + 1), (v.notes = (v.notes ? v.notes + "\n" : "") + `${fmt(today())}: ${p.summary}`)),
       p.task && cmTask(p.task, R.projectId || p.projectId, "PM"),
       (did = v ? "on the vendor's record and the PM's list" : "task for the PM");
+  } else if ("statement" === p.kind && p.acctId && "function" == typeof lkStmtImport) {
+    // our own card's or bank's statement: one tap opens Import Statement with the statement's lines, then the
+    // reconcile (lkStmtImport); never a task to do it later
+    did = lkStmtImport(p.acctId, cmStmtText(c), String(((c.attachments || []).find((a) => /statement|\.pdf/i.test(a.name || "") && a.text) || {}).name || c.subject || "statement").replace(/\.pdf$/i, ""));
   } else if ("statement" === p.kind) {
     p.task && cmTask(p.task, "", p.owner || "Controller");
     const b = p.billId && (DB.bills || []).find((x) => x.id === p.billId);
@@ -176012,3 +176016,140 @@ function lkDisputeFor(c, low, amt) {
     return out;
   };
 }
+
+// ---- 6. a statement in mail or Drive: one tap opens Import Statement with its lines, then the reconcile
+const cmStmtText = (c) => [...((c && c.attachments) || []).map((a) => a.text || ""), (c && c.text) || ""].find((x) => /\d{2}\/\d{2}\s+\S.*\$\s?[\d,]+\.\d{2}/.test(x)) || [...((c && c.attachments) || []).map((a) => a.text || "")].join("\n") || (c && c.text) || "";
+// The statement's own words: its lines (MM/DD DESCRIPTION $AMOUNT, a card's charges positive), its closing date and balance.
+function lkStmtParse(text, acctId) {
+  const T = String(text || ""),
+    a = (DB.accounts || []).find((x) => x.id === acctId),
+    card = a && "function" == typeof bfIsCard ? bfIsCard(a) : /card|amex/i.test((a && a.name) || ""),
+    cl = T.match(/(?:closing date|statement closing date|closing)[^0-9]{0,12}(\d{2})\/(\d{2})\/(\d{4})/i) || T.match(/(\d{2})\/(\d{2})\/(\d{4})\s*$/m),
+    to = cl ? `${cl[3]}-${cl[1]}-${cl[2]}` : "",
+    yr = cl ? +cl[3] : +today().slice(0, 4),
+    bal = (T.match(/(?:new|closing|ending|statement) balance[^$\n]{0,20}\$\s?([\d,]+(?:\.\d{2})?)/i) || [])[1],
+    lines = [];
+  T.split(/\n/).forEach((ln) => {
+    const m = ln.match(/^\s*(\d{2})\/(\d{2})\s+(.+?)\s+(-?)\$\s?([\d,]+\.\d{2})\s*$/);
+    if (!m) return;
+    const v = +m[5].replace(/,/g, "") * ("-" === m[4] ? -1 : 1);
+    lines.push({ date: `${yr}-${m[1]}-${m[2]}`, desc: m[3].trim(), amt: r2(card ? -v : v) });
+  });
+  const dates = lines.map((l) => l.date).sort();
+  return { lines: lines, from: dates[0] || "", to: to && dates.length && dates[dates.length - 1] > to ? dates[dates.length - 1] : to || dates[dates.length - 1] || "", ending: bal ? +bal.replace(/,/g, "") : null, card: card };
+}
+let lkStmtPending = null;
+function lkStmtImport(acctId, text, name) {
+  const P = lkStmtParse(text, acctId),
+    a = (DB.accounts || []).find((x) => x.id === acctId);
+  if (!a) return "no account for that statement";
+  bfImportDialog(acctId);
+  const csvText = "Date,Description,Amount\n" + P.lines.map((l) => `${l.date},"${l.desc.replace(/"/g, "'")}",${l.amt.toFixed(2)}`).join("\n") + "\n";
+  lkStmtPending = { acctId: acctId, name: name };
+  if (!P.lines.length) {
+    toast(`${name}: the statement's lines could not be read from the file — choose the bank's QFX or CSV for ${a.name}`);
+    return `Import Statement open for ${a.name}`;
+  }
+  Promise.resolve(bfImportRead(`${String(name).replace(/[^\w .-]+/g, "").slice(0, 40) || "statement"}.csv`, csvText)).then(() => {
+    const S0 = bfImportState;
+    if (!S0) return;
+    (S0.from = P.from || S0.from), (S0.to = P.to || S0.to), null != P.ending && (S0.ending = String(P.ending)), S0.draw && S0.draw();
+  });
+  return `${P.lines.length} statement line${1 === P.lines.length ? "" : "s"} open in Import Statement for ${a.name}${null != P.ending ? `, ending balance ${money(P.ending)}` : ""} — then the reconcile`;
+}
+// after a statement from mail is imported, the reconcile follows: a sheet when it ties, the reconcile page when not
+{
+  const base = bfImportRun;
+  bfImportRun = function () {
+    const S0 = bfImportState,
+      pend = lkStmtPending && S0 && S0.acctId === lkStmtPending.acctId ? lkStmtPending : null,
+      r = base.apply(this, arguments);
+    try {
+      if (r && pend) {
+        lkStmtPending = null;
+        const imp = (DB.bankImports || []).filter((i) => i.acctId === pend.acctId).slice(-1)[0];
+        imp &&
+          null != imp.ending &&
+          setTimeout(() => {
+            bfReconOpen(pend.acctId, imp.period[1], imp.ending, imp.id);
+            const C = bfRec ? bfReconCalc(bfRec) : null;
+            C &&
+              mbModal(
+                `Reconcile ${esc(C.a.name)} Through ${fmt(imp.period[1])}`,
+                `<p class="small">Statement ending balance ${money(C.ending)} · cleared in the register ${money(C.cleared)} · ${C.ticked.length} line${1 === C.ticked.length ? "" : "s"} ticked.</p><p class="small ${C.ok ? "" : "bad"}">${C.ok ? "It ties to $0.00." : `It is off by ${money(C.diff)}: the lines the statement holds and the register do not agree yet. The reconcile stays open on Bank with every line to tick or void.`}</p>`,
+                C.ok
+                  ? {
+                      submit: "Finish the Reconcile",
+                      onSubmit: () => {
+                        const f = bfReconFinish();
+                        f && f.ok === !1 && toast(f.why);
+                        render();
+                      },
+                    }
+                  : { submit: "Open the Reconcile", onSubmit: () => render() },
+              );
+          }, 0);
+      }
+    } catch (e) {
+      console.warn("statement reconcile", e);
+    }
+    return r;
+  };
+}
+// a statement in Drive that is the firm's: the Controller's Needs Your Hand, Import (one tap)
+{
+  const base = nyhRowsAll;
+  nyhRowsAll = function () {
+    const out = base.apply(this, arguments);
+    try {
+      (DB.gdrive || [])
+        .filter((f) => f.route && "statement" === f.route.kind && f.route.ours && !f.lkImported)
+        .forEach((f) => {
+          const txt = `${f.name || ""}\n${f.text || ""}`,
+            acct = (DB.accounts || []).find((a) => a.last4 && new RegExp(`(?:^|[^0-9])${a.last4}(?:[^0-9]|$)`).test(txt));
+          if (!acct) return;
+          const key = "lk:stmt:" + f.id;
+          lnHandDone(key) ||
+            out.some((x) => x.key === key) ||
+            out.push({
+              key: key,
+              route: "controller",
+              kind: "statement",
+              title: `Import the ${acct.name} ····${acct.last4} statement: ${f.name}`,
+              why: "in Drive · import it on Bank, then reconcile it",
+              verb: "Apply",
+              no: "",
+              run: () => {
+                (f.lkImported = today()), save();
+                const did = lkStmtImport(acct.id, f.text || "", f.name);
+                toast(did);
+              },
+              open: () => ((view = "bank"), render()),
+            });
+        });
+    } catch (e) {
+      console.warn("nyh statements", e);
+    }
+    return out;
+  };
+}
+
+// ---- 3. Ask: refunds and vendor credits not matched to their charge, or owed to the client and not yet credited
+AG_FIN.unshift({
+  id: "credits",
+  re: /\b(refunds?|vendor credits?|credits?|returns?)\b.*\b(not|never|haven'?t been|unmatched|un-?credited)\b.*\b(matched|credited|client)\b|\bcredits? (owed|due) to (the )?clients?\b/,
+  kind: "money",
+  run(P) {
+    const C = (DB.txns || []).filter((t) => +t.amt > 0 && (t.creditOf || t.creditBillId || /\b(CREDIT|REFUND|RETURN|RTN)\b/i.test(t.desc || "")) && agOnJob(P, t.projectId || "") && !(P.jobs.length && !t.projectId)),
+      unm = C.filter((t) => "confirmed" !== t.creditState && !t.retId && !(t.match && Object.values(t.match).some(Boolean)) && !t.exception),
+      owe = ("function" == typeof blCreditRows ? blCreditRows() : []).filter((x) => agOnJob(P, x.job && x.job.id));
+    return {
+      headline: unm.length || owe.length
+        ? `${unm.length ? `${agN(unm.length, "credit")} not confirmed against the charge it relieves: ${agList(unm.map((t) => `${t.desc} ${money(t.amt)}`))}` : "Every credit is matched to its charge"}; ${owe.length ? `${agN(owe.length, "credit")} owed to the client and not on an invoice yet: ${agList(owe.map((x) => `${x.client ? x.client.name : "the client"} ${money(Math.abs(x.amount))}`))}` : "no credit is owed to a client"}.`
+        : "Every refund and vendor credit is matched, and no credit is owed to a client.",
+      work: unm.map((t) => `${fmtL(t.date)} · ${t.desc} — ${money(t.amt)}${"function" == typeof txnCreditWhy && txnCreditWhy(t) ? " · " + txnCreditWhy(t) : ""}`).concat(owe.map((x) => `Credit ${x.client ? x.client.name : "the client"} ${money(Math.abs(x.amount))} — ${x.why}`)),
+      go: agGo("billing") || agGo("bank"),
+      ran: agRan("bank credits and client credits", agWhereJob(P).concat(["not matched or not credited"]), "", unm.length + owe.length),
+    };
+  },
+});
