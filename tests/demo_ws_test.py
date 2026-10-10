@@ -416,6 +416,8 @@ async def loaded(p, C):
     C.ok(len(g) == 1 and g[0]['count'] == 3, f"loaded: 426 W 144th St and 426 West 144th are one job cluster ({[(m['addr'], m['count']) for m in g]})")
     gl = [m for m in M if m['kind'] == 'person' and 'Grace' in m['name']] if 'kind' in (M[0] if M else {}) else [m for m in M if 'Grace' in m['name']]
     C.ok(len(gl) == 1 and sorted(gl[0]['emails']) == ['grace.lin@gmail.example', 'gracelin@icloud.example'] and gl[0]['as'] == 'client' and gl[0]['name'] == 'Grace Lin', f"loaded: one person on two addresses, billed by us and paying, is one client record ({[(m['name'], m['as'], m['emails']) for m in gl]})")
+    gk = await pg.evaluate("() => { const c = DB.comms.find(x => x.subject === 'Progress invoice 3 — 426 W 144th St'); return c ? c.proposals.map(p => p.kind) : null; }")
+    C.ok(gk is not None and 'money' in gk and 'ar' not in gk, f"loaded: our invoice to someone not a client on file is unclassified money, not a receivable ({gk})")
     sid = one(M, lambda m: m['who'] == 'jsidford@gmail.example')
     C.ok(bool(sid) and sid['name'] == 'John Sidford' and sid['as'] == 'lead', f"loaded: the name comes from the signature, never the local part ({sid and sid['name']})")
     acme = one(M, lambda m: m['who'] == 'orders@acmestone.example')

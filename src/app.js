@@ -70663,6 +70663,17 @@ function cmRead(c) {
         `We ${/deposit/i.test(all) ? "asked " + who + " for a " + money(amt) + " deposit" : "billed " + who + " " + money(amt) + (/progress/i.test(all) ? " as a progress bill" : "")}${where ? " on " + where : ""}`,
         { amount: amt, clientId: R.clientId, counterpart: R.counterpart, deposit: /deposit/i.test(all) },
       ),
+    ("staff" === party &&
+      !R.clientId &&
+      amt &&
+      /invoice|progress billing|deposit request|please send the .*deposit|retainer/i.test(all) &&
+      !threadMoney.has("bill") &&
+      !P.some((p) => "money" === p.kind) &&
+      push(
+        "money",
+        `We billed ${R.counterpart || "someone"} ${money(amt)}${where ? " on " + where : ""}, but they are not a client on file — no receivable is written until they are.`,
+        { amount: amt, as: "client", why: "recipient not a client on file", unclassified: !0, counterpart: R.counterpart || "" },
+      )),
     "client" === party && sentWords)
   ) {
     const prior = (c.text.match(/\$\s?([\d,]+\.\d{2})/g) || []).map((x) => +x.replace(/[^\d.]/g, "")),
@@ -97669,8 +97680,11 @@ function b4Sweep() {
             w.unread++,
             n++,
             (c.watchIds = [...new Set([...(c.watchIds || []), w.id])]),
+            // A watch never moves property or finance mail, or mail about another address, onto the job.
             w.projectId &&
               !(c.route || {}).projectId &&
+              !(c.route || {}).property &&
+              !((c.route || {}).addrNew && (c.route || {}).clientId) &&
               (c.route = Object.assign({}, c.route || {}, { projectId: w.projectId }));
           const p = DB.projects.find((x) => x.id === w.projectId);
           if (p) {
