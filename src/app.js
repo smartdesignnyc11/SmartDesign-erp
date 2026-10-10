@@ -83882,7 +83882,9 @@ function mApprovals() {
               .filter((x) => "block" === x.lvl)
               .map((x) => x.m)
           : [];
-      comp.length && !owner && (act = null),
+      // a compliance block (no W-9, an expired COI) stops the payment, not the PM's review: the PM still
+      // recommends, and the Owner sees the block and overrides or chases
+      comp.length && !owner && "pmok" !== act && (act = null),
         out.push({
           kind: "bill",
           id: b.id,
