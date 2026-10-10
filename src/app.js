@@ -8677,8 +8677,19 @@ function renderDocEditor(c, d) {
       : ""
   }\n      <div class="f"><label>Project</label><select data-d="projectId" ${editable ? "" : "disabled"}>${projOpts || '<option value="">—</option>'}</select></div>\n      <div class="f"><label>Date</label><input type="date" data-d="date" value="${d.date}" ${editable ? "" : "readonly"}></div>\n      ${"invoice" === kind ? `<div class="f"><label>Due</label><input type="date" data-d="due" value="${d.due || ""}" ${editable ? "" : "readonly"}></div>` : "estimate" === kind ? `<div class="f"><label>Valid until</label><input type="date" data-d="validUntil" value="${d.validUntil || ""}" ${editable ? "" : "readonly"}></div>` : `<div class="f"><label>Schedule impact (working days)</label><input type="number" data-d="scheduleDays" value="${d.scheduleDays || 0}" ${editable ? "" : "readonly"}></div>`}\n    </div></details>\n    ${"function" == typeof designStrip ? designStrip(c, d) : ""}${"function" == typeof materialsStrip ? materialsStrip(c, d) : ""}\n    ${linesHtml}\n    <div class="totals"><div><div class="f"><label>${"estimate" === kind ? "Scope notes / allowances / exclusions" : "Memo (printed)"}</label><textarea data-d="memo" ${editable ? "" : "readonly"}>${esc(d.memo || "")}</textarea></div><div class="f"><label>Terms</label><input data-d="terms" value="${esc(d.terms || "")}" ${editable ? "" : "readonly"}></div><div class="f no-doc-print"><label>Internal notes (not printed)</label><textarea data-d="internal" style="min-height:44px">${esc(d.internal || "")}</textarea></div></div>\n      <div class="tt"><span class="k">Subtotal</span><span class="v">${money(t.sub)}</span>\n        <span class="k">Discount ${editable ? `<select data-d="discType" style="width:auto;padding:2px 4px;font-size:12px"><option value="pct" ${"pct" === d.discount.type ? "selected" : ""}>%</option><option value="amt" ${"amt" === d.discount.type ? "selected" : ""}>$</option></select> <input type="number" step="any" data-d="discValue" value="${d.discount.value || 0}">` : `(${"pct" === d.discount.type ? d.discount.value + "%" : money(d.discount.value)})`}</span><span class="v">${t.disc ? "− " + money(t.disc) : "—"}</span>\n        <span class="k">Sales tax ${editable ? `<input type="number" step="0.001" data-d="taxRate" value="${d.taxRate || 0}">%` : `(${d.taxRate || 0}%)`}${t.taxable ? ` <span class="muted small">on ${money(t.taxable)}</span>` : ""}</span><span class="v">${t.tax ? money(t.tax) : "—"}</span>\n        ${"invoice" === kind ? `<span class="k">Retainage held ${editable ? `<input type="number" step="0.5" data-d="retainagePct" value="${d.retainagePct || 0}">%` : `(${d.retainagePct || 0}%)`}</span><span class="v">${t.ret ? "− " + money(t.ret) : "—"}</span>` : ""}${t.dep ? `<span class="k">Less deposit applied</span><span class="v">− ${money(t.dep)}</span>` : ""}\n        <span class="k big">${"invoice" === kind ? "Total this invoice" : "Total"}</span><span class="v big">${money(t.total)}</span>\n        ${paidOn ? `<span class="k">Payments received</span><span class="v">− ${money(paidOn)}</span><span class="k" style="font-weight:600">Balance due</span><span class="v" style="font-weight:600">${money(t.total - paidOn)}</span>` : ""}</div></div>\n    ${DB.company.tc ? `<div class="small muted" style="margin-top:14px;white-space:pre-wrap">${esc(DB.company.tc)}</div>` : ""}\n    <div class="docacts">${docActions(c, d, st)}</div></div>`;
 }
-const docSnap = (d) => (
-    "construction" === d.template && ctNumber(d), JSON.stringify(Object.assign({}, d, { _base: void 0 }))
+// "Unsaved changes" means what the editor's own inputs changed and nothing else. The snapshot a document is
+// compared against holds only the fields the editor writes (DOC_EDIT_KEYS): what the app writes on its own
+// (status, history, the client's answer, a change order's give-back, approvals) never reads as an edit. Before
+// this the whole record was compared, so an approved, read-only change order read as dirty after Pull In, leaving
+// it asked "Save changes?" and the modal's first answer reverted the record to its snapshot, which reopened the
+// give-back (review r5_pm, findings 1 and 12).
+const DOC_EDIT_KEYS = [
+    "title", "projectId", "date", "due", "validUntil", "terms", "taxRate", "discount", "lines", "memo", "notes",
+    "internal", "internalNotes", "scheduleDays", "retainagePct", "depositPct", "billFrom", "template", "mode",
+    "estimateId", "taskId", "clientId", "exhibits",
+  ],
+  docSnap = (d) => (
+    "construction" === d.template && ctNumber(d), JSON.stringify(DOC_EDIT_KEYS.map((k) => [k, d[k]]))
   ),
   docDirty = (d) => void 0 !== d._base && d._base !== docSnap(d);
 function docMark(d) {
@@ -8686,21 +8697,30 @@ function docMark(d) {
 }
 function docRevert(c, d) {
   if (void 0 === d._base) return;
-  const prev = JSON.parse(d._base);
-  Object.keys(d).forEach((k) => {
-    "_base" !== k && delete d[k];
+  const prev = Object.fromEntries(JSON.parse(d._base));
+  DOC_EDIT_KEYS.forEach((k) => {
+    void 0 === prev[k] ? delete d[k] : (d[k] = prev[k]);
   }),
-    Object.assign(d, prev),
     (d._base = docSnap(d));
 }
+// A saved database may still hold whole-record snapshots from before DOC_EDIT_KEYS; they are re-taken at boot,
+// so no document reads as dirty for what the app wrote on its own.
+function docSnapBoot() {
+  (DB.clients || []).forEach((c) =>
+    [...(c.estimates || []), ...(c.changeOrders || []), ...(c.invoices || [])].forEach((d) => {
+      void 0 !== d._base && !String(d._base).startsWith("[[") && (d._base = docSnap(d));
+    }),
+  );
+}
+// Leaving a document keeps what was typed (a quantity commits on blur, Send saves first: the edits are live
+// already); nothing is reverted on the way out and nothing is asked. Discard is the docbar's own button.
 function docLeave(c, d) {
   ctCloseSheet(),
     d &&
       docDirty(d) &&
-      (appConfirm(`Save changes to ${d.number}?\n\nOK = save · Cancel = discard`)
-        ? docMark(d)
-        : docRevert(c, d),
-      save());
+      (docMark(d),
+      save(),
+      toastDone(`Kept your changes to ${d.number}`, () => flowGo.doc(c, d.type, d)()));
 }
 function docActions(c, d, st) {
   const k = d.type,
@@ -122477,7 +122497,7 @@ if (void 0 !== BH && BH.dash) {
 }
 function opsBoot() {
   try {
-    DB.projects.forEach(opsNormalize), opsStudioBoot(), opsAutoBaseline(), opsPublishBoot(), opsFileDocs();
+    DB.projects.forEach(opsNormalize), opsStudioBoot(), opsAutoBaseline(), opsPublishBoot(), opsFileDocs(), docSnapBoot();
   } catch (e) {
     console.error("ops boot", e);
   }
@@ -139985,12 +140005,40 @@ function czGiveBack(c, d, p, tk, n, pre) {
       30,
     );
 }
+// The record of a pull-in is the task's history: the "co" entry czPull writes against this change order with
+// the days coming back. A give-back is open only while no such entry exists, whatever the flag says, so the
+// forecast tile, the Changes note, the change order's bar and the publish preview all read one history, and a
+// flag reverted or copied by mistake cannot offer a second Pull In (review r5_pm, finding 1).
+function czPullRecord(d, p) {
+  const g = d && d.czGive,
+    P = p || (g && DB.projects.find((x) => x.id === d.projectId)),
+    tk = g && P && (P.tasks || []).find((t) => t.id === g.taskId);
+  return (
+    (tk &&
+      (tk.history || []).find(
+        (h) => h.coId === d.id && "co" === h.source && czMoved(h) && czDays(h) < 0 && /given back/.test(h.reason || ""),
+      )) ||
+    null
+  );
+}
+function czGiveOpen(c, d, p) {
+  const g = d && d.czGive;
+  if (!g) return !1;
+  const rec = czPullRecord(d, p);
+  return rec ? (g.open && ((g.open = !1), (g.pulled = g.pulled || rec.on)), !1) : !!g.open;
+}
 function czGiveBackDialog(c, d) {
   const g = d.czGive,
     p = DB.projects.find((x) => x.id === d.projectId);
   if (!g || !p) return;
   const tk = (p.tasks || []).find((t) => t.id === g.taskId);
   if (!tk) return;
+  if (!czGiveOpen(c, d, p))
+    return void toast(
+      g.pulled
+        ? `${tk.name} was pulled in ${g.days} working day${1 === g.days ? "" : "s"} on ${fmt(g.pulled)} — ${d.number} has nothing left to give back`
+        : `${d.number}: the dates were kept on ${fmt(g.kept || today())} — those days are ours`,
+    );
   const sim = czSim(p, () =>
       czPull(
         S,
@@ -140036,7 +140084,7 @@ function czGiveBackDialog(c, d) {
 function czDoPull(c, d, note) {
   const g = d.czGive,
     p = DB.projects.find((x) => x.id === d.projectId);
-  if (!g || !p || !g.open) return !1;
+  if (!g || !p || !czGiveOpen(c, d, p)) return !1;
   const tk = (p.tasks || []).find((t) => t.id === g.taskId);
   if (!tk) return !1;
   let moved = [];
@@ -140199,7 +140247,7 @@ if ("function" == typeof crDocEmail) {
           ));
       }
       const g = d.czGive;
-      g && g.open && tk && canEdit()
+      g && czGiveOpen(c, d) && tk && canEdit()
         ? (h = h.replace(
             /<\/div>$/,
             `<span class="cz-give"><button class="btn sm" data-czpull="${esc(d.id)}">Pull In ${g.days} Day${1 === g.days ? "" : "s"}</button><span class="small muted">or keep the dates and the days count as ours</span></span></div>`,
@@ -140475,7 +140523,7 @@ if (
       nOwn = moves.filter((m) => "push" !== m.h.source).length,
       pushedTasks = new Set(moves.filter((m) => "push" === m.h.source).map((m) => m.t.id)).size,
       giveHtml = ((clientOf() || {}).changeOrders || [])
-        .filter((d) => d.projectId === S.id && d.czGive && d.czGive.open)
+        .filter((d) => d.projectId === S.id && czGiveOpen(clientOf(), d, S))
         .map((d) => {
           const tk = task(d.czGive.taskId);
           return tk
@@ -160558,7 +160606,7 @@ function tpForecastWhy(p) {
       crit = (p.tasks || []).filter((t) => cpm[t.id] && cpm[t.id].critical && "done" !== t.status).length,
       c = DB.clients.find((x) => x.id === p.clientId),
       g = ((c && c.changeOrders) || []).find(
-        (d) => d.projectId === p.id && d.czGive && d.czGive.open && (p.tasks || []).some((t) => t.id === d.czGive.taskId),
+        (d) => d.projectId === p.id && d.czGive && czGiveOpen(c, d, p) && (p.tasks || []).some((t) => t.id === d.czGive.taskId),
       );
     let give = null;
     if (g) {
@@ -160569,6 +160617,7 @@ function tpForecastWhy(p) {
     const drv = f && f.driver,
       cp = drv && cpm[drv.t.id],
       driver = drv && cp && (cp.critical || drv.behind > cp.float) ? drv : null,
+      cause = give ? null : czLiveCause(p),
       nm = (t) => String(t.name).replace(/\s*\(.*?\)/g, ""),
       wd = (n) => `${n} working day${1 === n ? "" : "s"}`;
     let text = "";
@@ -160576,16 +160625,49 @@ function tpForecastWhy(p) {
       late > 0
         ? (text = give
             ? `${wd(late)} late · ${give.days} day${1 === give.days ? "" : "s"} still on ${nm(give.task)} from ${give.from} — Pull In`
-            : driver
-              ? `${wd(late)} late · because ${nm(driver.t)} is ${wd(driver.behind)} behind`
-              : `${wd(late)} late against the ${fmtL(p.project.target)} target · ${crit} on the critical path`)
+            : cause
+              ? `${wd(late)} late · +${cause.days} on ${nm(cause.task)}: ${cause.words}`
+              : driver
+                ? `${wd(late)} late · because ${nm(driver.t)} is ${wd(driver.behind)} behind`
+                : `${wd(late)} late against the ${fmtL(p.project.target)} target · ${crit} on the critical path`)
         : give
           ? (text = `${give.days} day${1 === give.days ? "" : "s"} still on ${nm(give.task)} from ${give.from} — Pull In`)
           : driver &&
             (text = `forecast ${fmtL(sc)} · ${nm(driver.t)} is ${wd(driver.behind)} behind${cp && cp.critical ? ", on the critical path" : ""}`),
-      { sc: sc, late: late, give: give, driver: driver, crit: crit, text: text }
+      { sc: sc, late: late, give: give, driver: driver, cause: cause, crit: crit, text: text }
     );
   });
+}
+// The live cause of a late finish: the task history's own moves since the baseline (never the pushes that
+// follow them), grouped by cause, the biggest first. Words are the PM's: the move's reason as typed, or the
+// reason's label (a change order names its number).
+function czLiveCause(p) {
+  const since = (p.baseline && p.baseline.takenOn) || "",
+    by = {};
+  (p.tasks || []).forEach((t) =>
+    (t.history || []).forEach((h) => {
+      if (!czMoved(h) || "push" === h.source || (since && String(h.on) < since)) return;
+      // a change order nets across its revisions (R1 extends, R2 gives back, the pull-in takes it back)
+      const root = czIsCo(h) ? String(czCoNumber(h) || "").replace(/-R\d+$/, "") : "",
+        key = root ? `co:${root}` : `${h.reasonKey || "other"}:${t.id}`;
+      by[key] ||
+        (by[key] = {
+          key: h.reasonKey || (root ? "co" : "other"),
+          task: t,
+          days: 0,
+          on: h.on,
+          words: root
+            ? `change order ${root}`
+            : String(h.reason || "").trim() || ("function" == typeof opsReasonLabel ? opsReasonLabel(h.reasonKey || "other") : h.reasonKey || "rescheduled"),
+        }),
+        (by[key].days += czDays(h)),
+        String(h.on) > String(by[key].on) && (by[key].on = h.on);
+    }),
+  );
+  const L = Object.values(by)
+    .filter((x) => x.days > 0)
+    .sort((a, b) => b.days - a.days || String(b.on).localeCompare(String(a.on)));
+  return L[0] || null;
 }
 function tpPullIn(give) {
   give && "function" == typeof czGiveBackDialog && czGiveBackDialog(give.c, give.d);
