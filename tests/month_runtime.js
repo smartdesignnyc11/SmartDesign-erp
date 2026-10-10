@@ -135,7 +135,7 @@ const COLLECT = {
       .concat(its([...R.querySelectorAll('section, .td-sec')].filter(s => /needs your hand/i.test(norm((s.querySelector('h2,h3') || {}).innerText))).flatMap(s => [...s.querySelectorAll('.td-card, .card, li')]),
         el => ({ sec: 'Needs Your Hand', kind: 'hand', text: norm(el.innerText).slice(0, 240), verbs: btns(el) })));
     return its([...R.querySelectorAll('.h4c')].flatMap(card => [...card.querySelectorAll('.h4r[data-ea]')].map(el => [card, el])).map(x => x[1]), el => {
-      const card = el.closest('.h4c'); return { sec: norm((card.querySelector('.h4c-hd b') || {}).innerText), kind: 'ea', text: norm(el.innerText).slice(0, 240), verbs: [{ label: norm((el.querySelector('em') || {}).innerText || 'Open'), el }] }; });
+      const card = el.closest('.h4c'); return { sec: norm((card.querySelector('.h4c-hd b') || {}).innerText), kind: 'ea', text: norm(el.innerText).slice(0, 240), verbs: [{ label: norm((el.querySelector('em, .h4-act') || {}).innerText || 'Open'), el }] }; });
   },
   mapprove: R => { const out = its([...R.querySelectorAll('.m-appr')], el => ({ sec: 'Approvals', kind: el.dataset.mk, id: el.dataset.mid, text: norm(el.querySelector('.m-appr-t') ? el.querySelector('.m-appr-t').innerText : el.innerText).slice(0, 240), verbs: btns(el, '.m-appr-a button') }));
     const all = R.querySelector('#mappr-allhours'); if (all && vis(all) && !all.disabled) out.unshift({ sec: 'Approvals', kind: 'hours', text: norm(all.innerText), verbs: [{ label: norm(all.innerText), el: all }] });
@@ -147,7 +147,7 @@ const COLLECT = {
       return { sec: 'Needs Category', kind: 'suggest', text: norm(row.innerText).slice(0, 240), verbs: [{ label: 'Accept', el: b }] }; })
     .concat(its([...R.querySelectorAll('tr')].filter(tr => tr.querySelector('[data-trmatch]')), el => ({ sec: 'Not Matched', kind: 'unmatched', text: norm(el.innerText).slice(0, 240), verbs: btns(el, '[data-trmatch]') })))),
   ftoday: R => its([...R.querySelectorAll('.f-row')].filter(r => r.querySelector('[data-fack], [data-fneed]')), el => ({ sec: 'Today', kind: 'f', text: norm(el.innerText).slice(0, 240), verbs: btns(el, '[data-fack], [data-fneed]') })),
-  sday: R => its([...R.querySelectorAll('.f-row')].filter(r => r.querySelector('[data-fans]')), el => ({ sec: 'From the Field', kind: 'raise', text: norm(el.innerText).slice(0, 240), verbs: btns(el, '[data-fans]') })),
+  sday: R => its([...R.querySelectorAll('.f-row')].filter(r => r.querySelector('[data-fans], [data-nyh]')), el => ({ sec: el.querySelector('[data-nyh]') ? 'Needs Your Hand' : 'From the Field', kind: el.querySelector('[data-nyh]') ? 'hand' : 'raise', text: norm(el.innerText).slice(0, 240), verbs: btns(el, '[data-fans], [data-nyh]') })),
   client: R => its([...R.querySelectorAll('.cl-waiting .pa-row')], el => ({ sec: 'Waiting on You', kind: (el.querySelector('[data-pdecide]') ? 'dec' : 'doc'), id: ((el.querySelector('[data-pdecide]') || {}).dataset || {}).pdecide || ((el.querySelector('[data-papprove]') || {}).dataset || {}).papprove || '',
     text: norm(el.innerText).slice(0, 240), verbs: btns(el, '[data-pdecide], [data-papprove]') })),
 };
@@ -218,14 +218,14 @@ const SAY = {
 // Policies: per surface, an ordered list of rules {verb, kind?, text?, not?, sec?, follow?, chase?, prefer?}.
 const POL = {
   owner: { home: [{ verb: /^Approve$/ }, { verb: /^Dispute Difference$/ }, { verb: /^Chase COI$/, chase: 1, max: 2 }, { verb: /^Chase$/, chase: 1, max: 2 }],
-    mapprove: [{ verb: /^Approve$/, kind: /^bill$/ }, { verb: /^(Approve|Post|Approve & Post)/, kind: /^(journal|payroll)$/ }] },
-  pm: { home: [{ verb: /^Answer$/ }, { verb: /^(Approve|Recommend)$/ }, { verb: /^Chase$/, chase: 1, max: 1 }],
+    mapprove: [{ verb: /^Approve$/, kind: /^bill$/ }, { verb: /^(Approve|Post|Approve & Post)/, kind: /^(journal|payroll|learn)$/ }] },
+  pm: { home: [{ verb: /^Answer$/ }, { verb: /^(Approve|Recommend)$/ }, { verb: /^Make It a Task$/, max: 2 }, { verb: /^Chase$/, chase: 1, max: 1 }],
     mapprove: [{ verb: /^Approve All Hours/ }, { verb: /^Answer$/ }, { verb: /^(Approve|Recommend)$/, kind: /^(bill|time)$/ }, { verb: /^Open$/, kind: /^meeting$/, follow: /^Approve All/ }] },
-  coord: { home: [{ verb: /^Acknowledge$/ }, { verb: /^Chase$/, chase: 1, max: 2 }],
+  coord: { home: [{ verb: /^Acknowledge$/ }, { verb: /^(Apply|Make It a Task)$/, max: 4 }, { verb: /^Chase$/, chase: 1, max: 2 }],
     mapprove: [{ verb: /^Acknowledge$/, follow: /^Acknowledge$/ }, { verb: /^Answer$/, follow: /^Answer$/ }, { verb: /^Open$/, kind: /^meeting$/, follow: /^Approve All/ }] },
-  billing: { billing: [{ verb: /^Draft$/, follow: /^Send to Client$/ }, { verb: /^Send$/ }], home: [{ verb: /^(Draft|Draft It)$/, follow: /^Send to Client$/ }, { verb: /^Confirm$/ }] },
-  controller: { home: [{ verb: /^Confirm$/, follow: /^Confirm$/ }], bank: [{ verb: /^Confirm$/, kind: /^proposal$/ }, { verb: /^Accept$/ }, { verb: /^Match to a Line/, kind: /^unmatched$/ }] },
-  designer: { sday: [{ verb: /^Answer$/ }] },
+  billing: { billing: [{ verb: /^Draft$/, follow: /^Send to Client$/ }, { verb: /^Send$/ }], home: [{ verb: /^(Record Payment|Resolve)$/ }, { verb: /^(Draft|Draft It)$/, follow: /^Send to Client$/ }, { verb: /^Confirm$/ }, { verb: /^Apply$/, max: 3 }] },
+  controller: { home: [{ verb: /^Confirm$/, follow: /^Confirm$/ }, { verb: /^Apply$/, max: 4 }], bank: [{ verb: /^Confirm$/, kind: /^proposal$/ }, { verb: /^Accept$/ }, { verb: /^Match to a Line/, kind: /^unmatched$/ }] },
+  designer: { sday: [{ verb: /^Answer$/ }, { verb: /^Make It a Task$/ }] },
   foreman: { ftoday: [{ verb: /^Got It$/ }, { verb: /^Still Need This$/, chase: 1, max: 2 }] },
   client: { client: [{ verb: /^(Choose|Approve)$/ }] },
 };
