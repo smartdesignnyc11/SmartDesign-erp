@@ -4741,12 +4741,12 @@ function renderInsps() {
       {
         key: "a",
         label: "",
-        w: "80px",
+        w: "150px",
         get: (d) => ({
           text: "",
           html:
             "passed" !== d.i.status
-              ? `<button class="btn sm act" data-passed="${d.i.id}">Passed</button>`
+              ? `<button class="btn sm act ${"scheduled" === d.i.status ? "" : "primary"}" data-book="${d.i.id}">${"scheduled" === d.i.status ? "Rebook" : "Book"}</button><button class="btn sm act" data-passed="${d.i.id}">Passed</button>`
               : "",
         }),
       },
@@ -69873,6 +69873,11 @@ function cmRead(c) {
       },
     );
   }
+  // A DOB NOW inspection notice proposes the booking with its window (cmDobNow, kept apart; see Book Inspection).
+  {
+    const bk = "function" == typeof cmDobNow ? cmDobNow(all, R) : null;
+    bk && push("inspection", `${where || "Inspection"}: book ${bk.name} for ${fmtL(bk.date)}${bk.from ? ` ${bk.from}–${bk.to}` : ""} — from the DOB NOW notice`, bk);
+  }
   // Our own card's or bank's statement is not a vendor bill: its lines are the feed. It is imported.
   const ourCard =
     /statement/i.test(all) &&
@@ -70255,6 +70260,11 @@ function cmApply(c, p) {
       pr.permitNotes.push({ t: nowStamp(), text: p.summary, permits: p.permits })),
       R.clientId && cmActivity(R.clientId, p.summary),
       (did = p.task ? "permit task" : "permit note");
+  } else if ("inspection" === p.kind) {
+    const pr = p.projectId && DB.projects.find((x) => x.id === p.projectId),
+      i = pr && (pr.inspections || []).find((x) => x.id === p.inspId);
+    i && "function" == typeof inspBook && inspBook(pr, i, { date: p.date, from: p.from, to: p.to, docket: p.docket, via: "DOB NOW" }),
+      (did = i ? "inspection booked" : "no matching inspection");
   } else if ("bill" === p.kind) {
     DB.bills = DB.bills || [];
     const b = {
@@ -160836,6 +160846,157 @@ if ("function" == typeof openEditor) {
     }
     return r;
   };
+}
+// ---- Book Inspection (review r5_pm, finding 5; BACKLOG §1.7 #9) ----
+// Booking an inspection is one act: the record, the window held on the calendar (and on Google when connected),
+// a word to the foreman (his Today and the job's Chat), a draft to the licensed trade to approve, and the task
+// that asked for the booking closed with the date. A DOB NOW notice in mail proposes the same booking (cmDobNow);
+// a person books it.
+function inspTradeVendor(i) {
+  const n = String((i && i.name) || "").toLowerCase(),
+    rx = /plumb/.test(n) ? /plumb/i : /elec/.test(n) ? /elec/i : /energy|insul/.test(n) ? /insul|energy|special/i : /struct|firestop/.test(n) ? /struct|special|engineer/i : null;
+  return rx ? (DB.vendors || []).find((v) => rx.test(`${v.trade || ""} ${v.name || ""}`)) || null : null;
+}
+function inspForeman() {
+  return (DB.users || []).find((u) => "foreman" === u.role) || null;
+}
+function inspBookDialog(id) {
+  const i = (S.inspections || []).find((x) => x.id === id);
+  if (!i) return;
+  const v = inspTradeVendor(i),
+    fore = inspForeman();
+  mbModal(
+    `Book <span data-nocase>${esc(i.name)}</span>`,
+    `<p class="small muted" style="margin:0 0 8px">Holds the window on the calendar, tells ${esc(fore ? fore.name.split(" ")[0] : "the foreman")}${v ? ` and drafts a note to ${esc(v.name)}` : ""}, and closes the task to book it.</p>
+    <div class="grid2"><div class="f"><label>Date</label><input type="date" data-f="date" value="${esc(i.date || nextWork(today()))}"></div><div class="f"><label>Permit / Docket</label><input data-f="docket" value="${esc(i.permit || "")}" placeholder="e.g. B01528834-I1"></div></div>
+    <div class="grid2"><div class="f"><label>Window From</label><input type="time" data-f="from" value="${esc((i.window && i.window.from) || "08:00")}"></div><div class="f"><label>To</label><input type="time" data-f="to" value="${esc((i.window && i.window.to) || "12:00")}"></div></div>
+    <div class="f"><label>Note for the Site</label><input data-f="note" placeholder="e.g. keep the bath open; approved drawings on site"></div>`,
+    {
+      submit: "Book It",
+      onSubmit: (f) => {
+        if (!f.date) return toast("Pick the date"), !1;
+        inspBook(S, i, f);
+      },
+    },
+  );
+}
+function inspBook(p, i, o) {
+  const td = today(),
+    me = (currentUser() || {}).name || DB.me || "",
+    from = o.from || "08:00",
+    to = o.to || "12:00",
+    was = i.status,
+    fore = inspForeman(),
+    v = inspTradeVendor(i),
+    win = `${fmtL(o.date)} ${from}–${to}`;
+  (i.status = "scheduled"), (i.date = o.date), (i.window = { from: from, to: to }), o.docket && (i.permit = o.docket);
+  o.via && (i.bookedVia = o.via), (i.bookedBy = me), (i.bookedAt = appNowIso());
+  czOn(p, () => log(`${i.agency} ${i.name}: ${was} → scheduled ${win}${o.docket ? ` · ${o.docket}` : ""}${o.via ? ` (from ${o.via})` : ""}`, "manual", me));
+  // the window on the calendar
+  DB.calendar = DB.calendar || { external: [], map: {}, last: "", calendarId: "" };
+  DB.calendar.external = (DB.calendar.external || []).filter((e) => e.inspId !== i.id);
+  DB.calendar.external.push({
+    id: uid("ev"),
+    kind: "hold",
+    source: "erp",
+    inspId: i.id,
+    projectId: p.id,
+    title: `${i.name} — ${shortName(p)}`,
+    start: `${o.date}T${from}:00`,
+    end: `${o.date}T${to}:00`,
+    where: (p.project || {}).addr || "",
+    status: "confirmed",
+    owner: "",
+  });
+  try {
+    "function" == typeof gcOn && gcOn() && gaHold({ title: `${i.name} — ${shortName(p)}`, start: `${o.date}T${from}:00`, end: `${o.date}T${to}:00`, note: o.note || "", why: "the inspection window" }).catch(() => {});
+  } catch (e) {}
+  // the foreman: his Today and the job's Chat
+  DB.field = DB.field || {};
+  (DB.field.notes = DB.field.notes || []).push({
+    id: uid("fn"),
+    projectId: p.id,
+    kind: "plan",
+    text: `${i.name} is booked for ${win}${v ? `; ${v.name} is told` : ""}${o.note ? `. ${o.note}` : ""}. Have the work open and the approved drawings on site.`,
+    by: me,
+    at: appNowIso(),
+    ack: "",
+    inspId: i.id,
+  }),
+    (p.chat = p.chat || []).push({ id: uid("ch"), by: me, text: `${i.name}: booked ${win}${o.docket ? ` · ${o.docket}` : ""}.`, t: nowStamp(), files: [] });
+  // the licensed trade: a draft to approve
+  v &&
+    (DB.outbox = DB.outbox || []).push({
+      id: uid("ox"),
+      kind: "followup",
+      to: { name: v.name, email: v.email || "" },
+      subject: `${i.name} — ${win} at ${p.project.name}`,
+      body: `Hi ${(v.contact || v.name).split(" ")[0]},\n\n${i.agency} has ${i.name.toLowerCase()} at ${p.project.name} on ${win}${o.docket ? ` (${o.docket})` : ""}. The licensed trade or a representative needs to be on site for the window with the approved drawings. Please confirm who is coming.\n\n${me}`,
+      about: { projectId: p.id, inspId: i.id, label: `${i.name} ${fmtL(o.date)}` },
+      aboutKey: `insp|${i.id}`,
+      forName: me,
+      status: "draft",
+      at: td,
+      by: "The assistant",
+    });
+  // the task that asked for the booking
+  const words = String(i.name).toLowerCase().match(/rough|final|plumb|elec|lpc|energy|special|insul|structur/g) || [],
+    closed = (p.actions || []).filter((a) => {
+      if ("done" === a.status || !/\bbook/i.test(a.title || "") || !/inspection/i.test(a.title || "")) return !1;
+      const tl = String(a.title).toLowerCase(),
+        tw = tl.match(/rough|final|plumb|elec|lpc|energy|special|insul|structur/g) || [];
+      return !tw.length || tw.some((w) => words.includes(w));
+    });
+  closed.forEach((a) => {
+    (a.status = "done"), (a.completedAt = td), (a.closedBy = "record"), (a.closedWhy = `booked for ${win}`);
+  });
+  save(), render();
+  const out = { closed: closed.length, drafted: !!v };
+  return (
+    toastDone(
+      `${i.name} booked ${win} — on the calendar, ${fore ? fore.name.split(" ")[0] : "the foreman"} told${v ? `, a note to ${v.name} to approve` : ""}${closed.length ? `, ${closed.length === 1 ? "the task to book it is done" : closed.length + " tasks done"}` : ""}`,
+      () => {
+        setCurrent(p.id), (view = "insp"), render();
+      },
+    ),
+    out
+  );
+}
+document.addEventListener(
+  "click",
+  (e) => {
+    const b = e.target && e.target.closest ? e.target.closest("[data-book]") : null;
+    b && (e.preventDefault(), e.stopPropagation(), inspBookDialog(b.dataset.book));
+  },
+  !0,
+);
+// A DOB NOW inspection notice: the inspection it names, the date and the window, matched to the project's
+// open inspection of that kind. Kept on its own so the mail-reading lane can keep it; it proposes, never books.
+function cmDobNow(all, R) {
+  const p = R && R.projectId && (DB.projects || []).find((x) => x.id === R.projectId);
+  if (!p || !/dob\s*now/i.test(all) || !/inspection/i.test(all)) return null;
+  const dm = all.match(/\b(\d{1,2})\/(\d{1,2})\/(\d{4})\b/);
+  if (!dm) return null;
+  const date = `${dm[3]}-${dm[1].padStart(2, "0")}-${dm[2].padStart(2, "0")}`,
+    // the window: "window 8:00 AM – 12:00 PM", or a bare "8:00 AM – 12:00 PM"; never a date's year or a job number
+    wm =
+      all.match(/\bwindow\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*[–—-]\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i) ||
+      all.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*[–—-]\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i),
+    t24 = (h, m, ap) => {
+      let H = +h;
+      const a = String(ap || "").toLowerCase();
+      return "pm" === a && H < 12 && (H += 12), "am" === a && 12 === H && (H = 0), `${String(H).padStart(2, "0")}:${m || "00"}`;
+    },
+    from = wm ? t24(wm[1], wm[2], wm[3] || ("pm" === String(wm[6] || "").toLowerCase() && +wm[1] > +wm[4] ? "pm" : "")) : "",
+    to = wm ? t24(wm[4], wm[5], wm[6]) : "",
+    kind = /plumb/i.test(all) ? /plumb/i : /elec/i.test(all) ? /elec/i : /final|letter of completion/i.test(all) ? /final|completion/i : /energy|insul/i.test(all) ? /energy|insul/i : null,
+    rough = /rough/i.test(all),
+    i = (p.inspections || []).find(
+      (x) => "passed" !== x.status && (!kind || kind.test(x.name || "")) && (!rough || /rough/i.test(x.name || "")) && !/permit issued|\(existing\)/i.test(x.name || ""),
+    );
+  return i
+    ? { inspId: i.id, name: i.name, date: date, from: from, to: to, docket: (all.match(/\b[BME]\d{8}(?:-I\d(?:-EL)?)?\b/) || [])[0] || "", projectId: p.id }
+    : null;
 }
 /* ---- the forecast names its cause (BACKLOG §1.2) ---- */
 // Why the finish is where it is: days given back by a revised change order and not pulled in yet, or the
