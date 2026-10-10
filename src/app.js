@@ -20404,14 +20404,32 @@ function askText(msg) {
 function appConfirm(msg, opts) {
   const had = askTake(msg);
   if (void 0 !== had) return !0 === had;
-  const o = opts || {};
-  return (
-    mbModal(o.title || "Please Confirm", `<div class="note ${o.tone || "warn"}">${askText(msg)}</div>`, {
-      submit: o.yes || "Yes, Continue",
-      onSubmit: () => askReplay(msg, !0),
-    }),
-    !1
-  );
+  const o = opts || {},
+    // Asked from inside a modal's submit (the PO picker's budget check): that modal is held aside, not
+    // destroyed, so "Yes, Continue" can replay its submit; before this the replay clicked a removed button
+    // and created nothing.
+    asker = askEl && askEl.isConnected ? askEl : null,
+    held = asker ? asker.closest("#mbm") : null;
+  held && ((held.id = "mbm-held"), (held.style.display = "none"));
+  const restore = () => {
+    held && held.isConnected && ((held.id = "mbm"), (held.style.display = ""));
+  };
+  const m = mbModal(o.title || "Please Confirm", `<div class="note ${o.tone || "warn"}">${askText(msg)}</div>`, {
+    submit: o.yes || "Yes, Continue",
+    // the confirm closes itself first (it is the only #mbm then); the asking modal comes back and its
+    // submit is replayed with the answer remembered
+    onSubmit: () => {
+      setTimeout(() => {
+        restore(), (askEl = asker), askReplay(msg, !0);
+      }, 0);
+    },
+  });
+  if (held) {
+    const iv = setInterval(() => {
+      document.body.contains(m) || (clearInterval(iv), restore());
+    }, 120);
+  }
+  return !1;
 }
 function appPrompt(msg, def, opts) {
   const had = askTake(msg);
@@ -20441,23 +20459,27 @@ function mbModal(title, body, opts = {}) {
     (m.innerHTML = `<div class="mbm-box" role="dialog" aria-label="${esc(title)}"><div class="mbm-hd"><h3>${title}</h3><button class="mbm-x" aria-label="Close" title="Close"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div><div class="mbm-bd">${body}</div><div class="mbm-ft"><button class="btn" id="mbm-cancel">Cancel</button>${opts.alt ? `<button class="btn" id="mbm-alt">${opts.alt.label}</button>` : ""}${null !== opts.submit ? `<button class="btn primary" id="mbm-ok">${opts.submit || "Save"}</button>` : ""}</div></div>`),
     document.body.appendChild(m);
   const close = () => mbCloseModal();
+  // the buttons are looked up inside this modal: a confirm asked from another modal's submit holds that
+  // modal aside in the document, and a document-wide lookup found its buttons first
   (m.querySelector(".mbm-x").onclick = close),
-    ($("#mbm-cancel").onclick = close),
+    (m.querySelector("#mbm-cancel").onclick = close),
     m.addEventListener("click", (e) => {
       e.target === m && close();
     });
-  const alt = $("#mbm-alt");
+  const alt = m.querySelector("#mbm-alt");
   alt &&
     (alt.onclick = () => {
       close(), opts.alt.run && opts.alt.run();
     });
-  const ok = $("#mbm-ok");
+  const ok = m.querySelector("#mbm-ok");
   ok &&
     (ok.onclick = () => {
       const f = {};
       m.querySelectorAll("[data-f]").forEach(
         (i) => (f[i.dataset.f] = "checkbox" === i.type ? i.checked : i.value.trim()),
       );
+      // appConfirm asked from inside this submit replays by clicking this button (askReplay)
+      askEl = ok;
       !1 !== (opts.onSubmit && opts.onSubmit(f)) && close();
     }),
     m.addEventListener("keydown", (e) => {
@@ -47994,11 +48016,15 @@ function ctPOPicker(projectId, preferId, preKey) {
               g = (s) => m.querySelector(`[data-${s}="${sel}"]`).value,
               add = (+g("ctpq") || 1) * (+g("ctpc") || 0),
               f = lineFin(ctKey(d, l));
-            l.cost && f && f.committed + add > 1.001 * l.cost && !over.includes(l) && over.push(l);
+            l.cost &&
+              f &&
+              f.committed + add > 1.001 * l.cost &&
+              !over.some((o) => o.l === l) &&
+              over.push({ l: l, by: r2(f.committed + add - l.cost), budget: l.cost });
           }),
           over.length &&
             !appConfirm(
-              `This would commit more than the budget on: ${over.map((l) => (l.num ? l.num + ". " : "") + l.item).join("; ")}. Create anyway?`,
+              `This would commit more than the budget: ${over.map((o) => `${money(o.by)} over the ${money(o.budget)} line (${o.l.num ? o.l.num + ". " : ""}${o.l.item})`).join("; ")}. Create anyway?`,
             ))
         )
           return !1;

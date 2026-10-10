@@ -109,7 +109,8 @@ async def s_release(p, c):
         badge0 = await pg.evaluate("() => needs('buy')")
         await open_subm(pg, '26 51 00-001')
         for i in range(3):
-            r = await record_response(pg, 'approved')
+            role_ = await pg.evaluate("() => { const s = smFind('sb121lite').s, st = smStepOf(s); return st ? st.role : ''; }")
+            r = await record_response(pg, 'approved', file='Klein-approval-stamped.pdf' if role_ == 'client' else None)
             if not r: break
         st = await pg.evaluate("() => { const s = smFind('sb121lite'); return s ? s.s.status : ''; }")
         c.ok(st in ('approved', 'noted'), f'release: the submittal is {st!r} after three responses, want approved')
