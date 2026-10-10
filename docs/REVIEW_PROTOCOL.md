@@ -1,4 +1,6 @@
-# Review protocol: the four expert lenses
+# Review protocol: the role experts and the four lenses
+
+From round 5 the reviewers are the role experts in `.claude/agents/` (owner, pm, coordinator, foreman, crew, designer, billing, controller, client) plus the founder lens. Each runs a full working day as that person with their Demo Workspace (mailbox, calendar, drive) connected, tests every hand-off to the other roles, and grades the screens, the assistant and the brain separately (`.claude/agents/_PROTOCOL.md` has the report format). The four lenses below remain the grading scale: founder, UX (the role experts' flow findings), finance (the controller and billing), ops (the pm, coordinator, foreman and client).
 
 Every improvement round ends with the same four independent reviewers re-scoring. Run each reviewer as a separate subagent that did NOT write the code. Each one:
 - drives `dist/smartdesigns_projects.html` with Playwright;
