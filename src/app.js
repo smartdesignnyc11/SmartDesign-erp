@@ -35514,8 +35514,9 @@ function proposalsHtml(list, title) {
           const P = t.proposal,
             target =
               "po" === P.kind ? DB.pos.find((x) => x.id === P.poId) : DB.bills.find((x) => x.id === P.billId),
-            label =
-              "po" === P.kind
+            label = !["po", "bill"].includes(P.kind) && P.label
+              ? esc(P.label)
+              : "po" === P.kind
                 ? `${target?.number || "PO"} · ${esc(target?.vendor || "")} · ordered ${money(target ? poTotal(target).total : 0)}`
                 : `Bill ${target?.number || ""} · ${esc(target?.vendor || "")} · ${money(target ? billTotal(target) : 0)} · ${target?.status || ""}`;
           return `<div class="prop-row"><div class="prop-main"><b>${fmt(t.date)} · ${esc(t.desc)}</b> <span class="small muted">${money(-t.amt)} · ${esc(DB.accounts.find((a) => a.id === t.acct)?.name || "")}</span><div class="small">→ ${label}</div><div class="small muted">${P.why}</div></div><div class="prop-acts"><button class="btn sm primary" data-mconfirm="${t.id}">Confirm</button><button class="btn sm" data-mreject="${t.id}">Not this</button></div></div>`;
@@ -170522,21 +170523,63 @@ function truthCandidates(t) {
       (DB.pos || []).forEach((po) => {
         if (["draft", "cancelled", "void", "closed"].includes(po.status) || (t.rejectedPOs || []).includes(po.id)) return;
         const vh = truthVendorHit(t, po.vendor),
-          tot = poTotal(po).total;
+          tot = poTotal(po).total,
+          // a card charge lands any time in the order's life: a deposit at order, the balance at delivery or after
+          life = !!t.date && t.date >= iso(addDays(po.date || t.date, -3)) && t.date <= iso(addDays(po.expected || po.date || t.date, 45));
         (po.lines || []).forEach((l) => {
           const la = r2((+l.qty || 0) * (+l.price || 0)),
             why = [];
           let s = 0;
-          (Math.abs(tot - amt) < 1 || Math.abs(la - amt) < 1 || Math.abs(tot / 2 - amt) < 1) && ((s += 3), why.push(Math.abs(tot / 2 - amt) < 1 && Math.abs(tot - amt) >= 1 ? "amount is half the order (deposit)" : "amount equals the order")), vh && ((s += 2), why.push("vendor agrees")), (near(po.date) || near(po.expected)) && ((s += 1), why.push("within 7 days"));
+          (Math.abs(tot - amt) < 1 || Math.abs(la - amt) < 1 || Math.abs(tot / 2 - amt) < 1) && ((s += 3), why.push(Math.abs(tot / 2 - amt) < 1 && Math.abs(tot - amt) >= 1 ? "amount is half the order (deposit)" : "amount equals the order")), vh && ((s += 2), why.push("vendor agrees")), (near(po.date) || near(po.expected) || life) && ((s += 1), why.push(near(po.date) || near(po.expected) ? "within 7 days" : "inside the order's dates"));
           push("po", `${po.number} · ${po.vendor} · ${l.item || l.desc || ""} ${money(la)}`.replace(/\s+/g, " "), { poId: po.id, poLineId: l.id, estimateLineId: l.line || "" }, s, why);
         });
-      }),
-      (DB.payroll || []).forEach((r) => {
-        const why = [];
-        let s = 0;
-        Math.abs((+r.total || 0) - amt) < 1 && ((s += 3), why.push("amount equals the run")), /payroll|gusto|adp|paychex|wages/i.test(t.desc || "") && ((s += 2), why.push("looks like payroll")), near(r.payDate) && ((s += 1), why.push("within 7 days of the pay date"));
-        push("payroll", `Payroll ${r.period || r.id} · ${money(+r.total || 0)}`, { payrollId: r.id }, s, why);
       });
+    // payroll: the service debits net pay and taxes separately, on or near the pay date. A debit from the payroll
+    // service inside a run's pay window is that run's, when it is the only run paid in the window; the amount
+    // agrees when it is the run, its taxes, or the day's payroll debits together.
+    const pay = /payroll|gusto|adp|paychex|wages|net pay/i.test(`${t.desc || ""} ${t.vendor || ""}`),
+      winOf = (r) => !!t.date && t.date >= iso(addDays(r.from || r.payDate || t.date, 0)) && t.date <= iso(addDays(r.payDate || r.to || t.date, 5)),
+      runs = (DB.payroll || []).filter((r) => !["rejected", "void"].includes(r.status)),
+      inWin = runs.filter(winOf),
+      day = (DB.txns || []).filter((x) => x.acct === t.acct && x.date === t.date && +x.amt < 0 && /payroll|net pay|payroll tax/i.test(x.desc || "")),
+      dayAmt = r2(day.reduce((a, x) => a - +x.amt, 0));
+    runs.forEach((r) => {
+      const why = [],
+        tot = +r.total || 0;
+      let s = 0;
+      Math.abs(tot - amt) < 1
+        ? ((s += 3), why.push("amount equals the run"))
+        : Math.abs((+r.taxes || 0) - amt) < 1 && +r.taxes
+          ? ((s += 3), why.push("amount equals the run's taxes"))
+          : day.length > 1 && Math.abs(tot - dayAmt) < 1 && ((s += 3), why.push(`the day's payroll debits (${money(dayAmt)}) equal the run`));
+      pay && ((s += 2), why.push("paid to the payroll service"));
+      winOf(r) ? ((s += 1), why.push("inside the run's pay window")) : near(r.payDate) && ((s += 1), why.push("within 7 days of the pay date"));
+      pay && winOf(r) && 1 === inWin.length && s < 6 && ((s = 6), why.push(`the only run paid in this window; the bank paid ${money(dayAmt || amt)} against a run of ${money(tot)}`));
+      push("payroll", `Payroll ${r.period || r.id} · ${money(tot)}`, { payrollId: r.id }, s, why);
+    });
+    // a payment to a vendor with no bill on file (a check, a Zelle): propose entering the bill from it
+    const acctT = ((DB.accounts || []).find((a) => a.id === t.acct) || {}).type || "",
+      isPay = "card" !== acctT && /\b(CHECK\s*#?\s*\d|ZELLE TO|ACH (TO|DEBIT|PMT)|BILL ?PAY)/i.test(t.desc || "");
+    if (isPay && !out.some((c) => c.score >= 5) && "function" == typeof truthPayeeVendor) {
+      const v = truthPayeeVendor(t);
+      if (v && !/payroll/i.test(t.desc || "")) {
+        const st = "function" == typeof vendorState ? vendorState(v).filter((f) => /insurance/i.test(f.m)) : [],
+          ck = (String(t.desc || "").match(/\bCHECK\s*#?\s*(\d{3,})/i) || [])[1] || "",
+          job = (DB.projects || []).find((p) => p.id === t.projectId);
+        push("newbill", `Enter the bill: ${v.name} ${money(amt)}${job ? " on " + String(job.project.name).replace(/ —.*$/, "") : ""} — no bill on file${st.length ? ` · ${st.map((f) => f.m).join(", ")}` : ""}`, { newBill: { vendor: v.name, vendorId: v.id, amount: amt, number: ck ? `CHK-${ck}` : "", projectId: t.projectId || "", cat: t.cat && "uncat" !== t.cat ? t.cat : "subs", code: t.code || "", line: t.line || "" } }, 6, [`paid to ${v.name}`, "no bill or order on file", st.length ? `${st.map((f) => f.m).join(", ")}: chase the certificate before the next payment` : "the bill is entered from the payment and flagged paid before approval"]);
+      }
+    }
+    // a job cost with no bill or order behind it: its estimate line, from the line's own job and cost code
+    if (t.projectId && t.code && !t.line && "function" == typeof lineOptions && !("function" == typeof rbWhy && rbWhy(t)) && !out.some((c) => c.score >= 5)) {
+      const L = lineOptions(t.projectId).filter((o) => {
+        try {
+          return (o.line && o.line.code === t.code) || ("function" == typeof codeForLine && codeForLine(o.line) === t.code);
+        } catch (e) {
+          return !1;
+        }
+      });
+      1 === L.length && push("line", `Estimate line ${L[0].label} (the line's job and cost code ${t.code})`, { estimateLineId: L[0].key }, 6, ["job agrees", `cost code ${t.code} agrees`, "the only estimate line with that code on the job"]);
+    }
   } else if (+t.amt > 0) {
     (DB.clients || []).forEach((c) =>
       (c.invoices || []).forEach((inv) => {
@@ -175626,6 +175669,90 @@ AG_FIN.unshift({
     };
   },
 });
+
+// ---- 4. every bank line matched to a line: the payee of a payment, a bill entered from a payment
+// Who a payment went to: a vendor on file the line names, else the name after CHECK nnnn / ZELLE TO / ACH TO.
+function truthPayeeVendor(t) {
+  if (!t || !(+t.amt < 0)) return null;
+  const V = (DB.vendors || []).filter((v) => v.name && truthVendorHit(t, v.name)).sort((a, b) => b.name.length - a.name.length);
+  if (V.length) return V[0];
+  const m = String(t.desc || "").match(/\b(?:CHECK\s*#?\s*\d{3,}|ZELLE TO|ACH (?:TO|PMT TO)|BILL ?PAY(?:MENT)? TO)\s+(.{3,40}?)\s*$/i);
+  if (!m) return null;
+  const name = m[1].toLowerCase().replace(/\b\w/g, (x) => x.toUpperCase()).replace(/\b(Llc|Inc)\b/g, (x) => x.toUpperCase());
+  return { id: "", name: name, notOnFile: !0 };
+}
+// Enter the bill a payment paid: the vendor, the amount, the job and code the line carries; it waits for its
+// approvals like any bill, flagged as paid before approval (truthSetMatch), with the payment as its evidence.
+function lkBillFromTxn(t, nb) {
+  const who = (currentUser() || {}).name || role(),
+    b = {
+      id: uid("b"),
+      vendor: nb.vendor,
+      number: nb.number || `PAY-${String(t.date || today()).replace(/-/g, "").slice(2)}`,
+      date: t.date || today(),
+      due: t.date || today(),
+      entityId: ((DB.accounts || []).find((a) => a.id === t.acct) || {}).entityId || "ent1",
+      projectId: nb.projectId || t.projectId || "",
+      poId: "",
+      cat: nb.cat || "subs",
+      code: nb.code || t.code || "",
+      line: nb.line || t.line || "",
+      lines: [{ id: uid("bl"), desc: `${t.desc} — entered from the payment; the vendor's invoice is still to come`, amount: r2(Math.abs(+t.amt)) }],
+      payMethod: /CHECK/i.test(t.desc || "") ? "Check" : /ZELLE/i.test(t.desc || "") ? "Zelle" : "ACH",
+      fileId: "",
+      notes: `Entered by ${who} from ${t.desc} (${fmtL(t.date)}), paid before a bill was on file.`,
+      status: "submitted",
+      approvals: [{ t: nowStamp(), ts: appNowIso(), by: who, role: role(), action: "entered from the payment" }],
+      createdBy: who,
+      fromTxn: t.id,
+    };
+  (DB.bills = DB.bills || []).push(b);
+  try {
+    audit("bill", b.id, "created", "", `${b.vendor} ${money(billTotal(b))}`, `entered from the bank line ${t.desc}`);
+  } catch (e) {}
+  return b;
+}
+{
+  const base = truthSetMatch;
+  truthSetMatch = function (t, m0, o) {
+    if (t && m0 && m0.newBill) {
+      if (["client", "crew", "driver", "foreman"].includes(role())) return { ok: !1, why: "Your account does not match money records" };
+      const b = lkBillFromTxn(t, m0.newBill);
+      return base.call(this, t, { billId: b.id }, Object.assign({}, o || {}, { why: (o && o.why) || "the bill entered from the payment" }));
+    }
+    return base.apply(this, arguments);
+  };
+}
+// the lines still open at the end of each day get their best proposal (people confirm on Banking)
+"undefined" != typeof APP_DAY_HOOKS &&
+  APP_DAY_HOOKS.push([
+    "truthProposeAll",
+    () => {
+      try {
+        return truthProposeAll(), !0;
+      } catch (e) {
+        return !1;
+      }
+    },
+  ]);
+// On the bank row: a line typed by hand has no bank line behind it; say so, with the match.
+function lkTxnMoreFlags(t) {
+  const out = [];
+  if ("manual" === t.source && !bfBacked(t) && !t.exception)
+    out.push(`<span class="sub warn-t lk-flag">No bank line behind it: typed by hand${t.actor ? " by " + esc(t.actor) : ""}, never seen at ${esc(truthAcctWords(t))} <button type="button" class="btn sm" data-lknobank="${esc(t.id)}">Match to a Line…</button></span>`);
+  return out.join("");
+}
+document.addEventListener(
+  "click",
+  (e) => {
+    const b = e.target.closest && e.target.closest("[data-lknobank]");
+    if (!b) return;
+    e.preventDefault(), e.stopPropagation();
+    const t = (DB.txns || []).find((x) => x.id === b.dataset.lknobank);
+    t && truthMatchSheet(t);
+  },
+  !0,
+);
 
 // ---- 7. payroll: one run per pay period across entities; each entity's share posts to its own books
 {
