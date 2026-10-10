@@ -70196,6 +70196,7 @@ const cmLooksLikeName = (s) =>
   /^[A-Z][A-Za-z'’.-]+(?: [A-Z][A-Za-z'’.-]+){1,3}$/.test(String(s || "").trim()) && !CM_ORG_WORD.test(s);
 // A display name that is only the email's local part dressed up ("Jpsidford" from jpsidford@): not a name.
 function cmNameFromLocal(name, email) {
+  if (/\S\s+\S/.test(String(name || "").trim())) return !1;
   const n = String(name || "")
       .toLowerCase()
       .replace(/[^a-z0-9]/g, ""),
@@ -70381,7 +70382,7 @@ function cmRoute(c) {
       r.employee ||
       known ||
       /noreply|no-reply|notification|donotreply|newsletter|billing@|accounts@|statements?@/.test(from) ||
-      ((r.leadName = fromName), (r.leadEmail = from)),
+      ((r.leadName = cmPersonName(c)), (r.leadEmail = from)),
     r.employee)
   ) {
     const outs = [...(c.to || []), ...(c.cc || [])].filter((e) => !cmIsStaff(cmEmail(e)));
@@ -71208,9 +71209,11 @@ function cmApply(c, p) {
         DB.clients.push(cl),
         (c.route = Object.assign({}, R, { clientId: cl.id, leadName: "" })),
         (did = `client ${p.name} created`);
-    } else if ("project" === as && "function" == typeof projectFromTemplate) {
-      const pr = projectFromTemplate(p.addr || p.name, p.addr || "", today(), "");
-      pr && ((c.route = Object.assign({}, R, { projectId: pr.id })), (did = `project ${pr.project.name} created`));
+    } else if ("project" === as && "function" == typeof blankProject) {
+      // A job from a message has no template tasks until its scope is set (BACKLOG §2, "206 Lenox is a clone").
+      const pr = blankProject(p.addr || p.name, p.addr || "", today(), "");
+      pr && ((pr.project.scopeUnset = !0), (pr.project.createdFrom = "mail"), DB.projects.includes(pr) || DB.projects.push(pr));
+      pr && ((c.route = Object.assign({}, R, { projectId: pr.id })), (did = `project ${pr.project.name} created — set its scope before any tasks`));
     } else
       (DB.leads = DB.leads || []),
         DB.leads.some((l) => p.email && (l.email || "").toLowerCase() === p.email.toLowerCase()) ||
@@ -167521,68 +167524,186 @@ function paPaymentClaimSweep() {
 // lead, or the job, and route every thread in it. The owner approves in one tap; nothing is created on its own.
 const PA_PUBLIC_MAIL = /^(gmail|googlemail|yahoo|ymail|outlook|hotmail|live|msn|icloud|me|mac|aol|protonmail|proton|pm|comcast|verizon|att|optonline|optimum|rr|earthlink|mail|email|example)\./i,
   PA_AUTOMATED = /noreply|no-reply|donotreply|do-not-reply|notification|notifications|newsletter|mailer|daemon|bounce|calendar-notification|alerts?@|updates?@|info@|news@|hello@|support@|billing@|receipts?@|statements?@|marketing|promo/i;
+// Noise in mail nobody can route (owner review r5, finding 3): a promotion or newsletter, a job seeker, cold
+// outreach, a property listing. Such a cluster is never offered as a vendor or a lead; it waits under Not Ours
+// with one bulk button.
+const PA_PROMO_RX = /\bunsubscribe\b|view (this|it|in) (in )?(your )?browser|% off|limited time|special offer|webinar|newsletter|you are receiving this|manage (your )?preferences|this week in\b/i,
+  PA_SEEKER_RX = /\b(resume|résumé|curriculum vitae|\bcv\b|cover letter|applying for|application for (the )?(position|role|job)|job application|internship|open (position|role)s?|looking for (a |an )?(job|position|role|opportunit))/i,
+  PA_OUTREACH_RX = /\b(i'?m reaching out|reaching out (to|because)|would you be open|we help (contractors|companies|firms|builders|businesses|you)|book (a|more) (call|demo|projects)|schedule a (quick )?(call|demo)|quick call|15[- ]minute call|grow your (business|firm)|lead generation|\bseo\b|marketing (services|agency)|our (platform|software|solution|services)|free (trial|consultation|audit)|case study|partnership opportunit|following up on my (note|email|last))/i,
+  PA_LISTING_RX = /\b(for sale|just listed|price (improvement|reduction|reduced)|asking \$|open house|\bmls\b|\d+\s*(bed(room)?s?|br)\b|square feet|sq\.? ?ft|listing (alert|agent)|new listing)\b/i,
+  PA_HOME_RX = /renovat|remodel|kitchen|bath(room)?|brownstone|townhouse|apartment|\bapt\b|co-?op|condo|parlor|estimate|proposal|walk-?through|leak|the house|our (home|house|place)/i,
+  PA_JOBMONEY_RX = /invoice|quote|estimate|proposal|order|delivery|deliver|statement|balance|payment|deposit|po\b|purchase order|change order|\$\s?\d/i;
+// One key for one place: "426 W 144" = "426 W 144th St" = "426 West 144th"; "55 E 65th" = "55 East 65th St".
+const paAddrKey = (a) =>
+  String(a || "")
+    .toLowerCase()
+    .replace(/\b(east|e)\b\.?/g, "e")
+    .replace(/\b(west|w)\b\.?/g, "w")
+    .replace(/\b(north|n)\b\.?/g, "n")
+    .replace(/\b(south|s)\b\.?/g, "s")
+    .replace(/\b(avenue|ave)\b\.?/g, "ave")
+    .replace(/\b(place|pl)\b\.?/g, "pl")
+    .replace(/\b(street|st)\b\.?$/g, "")
+    .replace(/\s(street|st)\.?(?=\s|$)/g, " ")
+    .replace(/(\d)(st|nd|rd|th)\b/g, "$1")
+    .replace(/[^a-z0-9]/g, "");
+// The addresses a message is ABOUT: not the ones in the signature block, and none from a property listing.
+function paAddrsAbout(c) {
+  const own = cmStripImg(cmOwnText(c.text)),
+    sig = cmSigBlock(own),
+    body = sig ? own.slice(0, own.lastIndexOf(sig)) : own;
+  if (PA_LISTING_RX.test(`${c.subject || ""} ${own}`)) return [];
+  const sigKeys = new Set(cmAddrs(sig, "").map(paAddrKey));
+  return cmAddrs(body, c.subject || "").filter((a) => !sigKeys.has(paAddrKey(a)) || cmAddrs(body, "").some((b) => paAddrKey(b) === paAddrKey(a)));
+}
+// The firm's name for an organisation: a signature line that names it, else the display name when it is not
+// a person, else the domain made readable ("archetype-ny" is "Archetype NY", never "Archetype-ny").
+function paOrgName(K, msgs) {
+  const lab = K.label.toLowerCase().replace(/[^a-z]/g, "");
+  for (const c of msgs) {
+    const lines = cmSigBlock(cmOwnText(c.text))
+      .split(/\n|\|/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+    const hit = lines.find((l) => l.length < 50 && !/\d{3}/.test(l) && (l.toLowerCase().replace(/[^a-z]/g, "").includes(lab.slice(0, 5)) || (CM_ORG_WORD.test(l) && !cmLooksLikeName(l))));
+    if (hit) return hit.replace(/[,;]$/, "");
+  }
+  const dn = msgs.map((c) => cmStripImg((c.from && c.from.name) || "").trim()).find((n) => n && !cmLooksLikeName(n) && !cmNameFromLocal(n, (c => (c.from || {}).email)(msgs[0])) && n.toLowerCase().replace(/[^a-z]/g, "").includes(lab.slice(0, 4)));
+  return (
+    dn ||
+    K.label
+      .split(/[-_.]/)
+      .filter(Boolean)
+      .map((w) => (w.length <= 3 ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1)))
+      .join(" ")
+  );
+}
 function paMasterClusters() {
   const me = paMe(),
-    mine = (DB.comms || []).filter((c) => c.owner === me.id && "ignored" !== c.status && !c.routeLocked),
+    mineAll = (DB.comms || []).filter((c) => c.owner === me.id),
+    mine = mineAll.filter((c) => "ignored" !== c.status && !c.routeLocked),
     isUnrouted = (c) => {
       const R = c.route || {};
-      return !R.clientId && !R.projectId && !R.vendorId;
+      return !R.clientId && !R.projectId && !R.vendorId && !R.property;
     },
-    C = {},
-    put = (key, init) => C[key] || (C[key] = Object.assign({ key: key, ids: [], threads: new Set(), first: "", last: "", money: 0, attachments: 0, names: {}, people: new Set(), addrs: new Set() }, init)),
-    add = (K, c, who, name) => {
-      K.ids.push(c.id), c.threadId && K.threads.add(c.threadId);
-      const d = String(c.date || "").slice(0, 10);
+    // Addresses we have written to, and the threads we have written on: "never replied" is a fact, not a guess.
+    sentTo = new Set(),
+    sentOn = new Set();
+  mineAll.forEach((c) => {
+    (c.from && cmIsStaff(cmEmail(c.from.email))) || "out" === c.direction || (c.labels || []).includes("SENT")
+      ? (c.threadId && sentOn.add(c.threadId), [...(c.to || []), ...(c.cc || [])].forEach((e) => sentTo.add(cmEmail(e))))
+      : 0;
+  });
+  const C = {},
+    alias = {},
+    put = (key, init) => C[alias[key] || key] || (C[key] = Object.assign({ key: key, ids: [], msgs: [], threads: new Set(), first: "", last: "", money: 0, attachments: 0, names: {}, people: new Set(), addrs: new Set(), emails: new Set(), sigNames: {}, signals: { promo: 0, seeker: 0, outreach: 0, listing: 0, home: 0, jobmoney: 0, billed: 0, paid: 0, ours: 0 } }, init)),
+    add = (K, c, who, name, sigName) => {
+      if (K.ids.includes(c.id)) return;
+      K.ids.push(c.id), K.msgs.push(c), c.threadId && K.threads.add(c.threadId);
+      const d = String(c.date || "").slice(0, 10),
+        txt = `${c.subject || ""} ${cmOwnText(c.text || "")}`,
+        out = cmIsStaff(cmEmail((c.from || {}).email));
       (!K.first || d < K.first) && (K.first = d), (!K.last || d > K.last) && (K.last = d);
-      PA_MONEY.test(`${c.subject || ""} ${c.text || ""}`) && K.money++, (K.attachments += (c.attachments || []).length);
-      name && (K.names[name] = (K.names[name] || 0) + 1), who && K.people.add(who);
+      PA_MONEY.test(txt) && K.money++, (K.attachments += (c.attachments || []).length);
+      name && (K.names[name] = (K.names[name] || 0) + 1), sigName && (K.sigNames[sigName] = (K.sigNames[sigName] || 0) + 1), who && (K.people.add(who), K.emails.add(who));
+      const S = K.signals;
+      out
+        ? (S.ours++, /invoice|progress bill|payment request|deposit request|retainer|draw\b|pay application/i.test(txt) && /\$\s?\d/.test(txt) && S.billed++)
+        : (PA_PROMO_RX.test(c.text || "") && S.promo++,
+          PA_SEEKER_RX.test(txt) && S.seeker++,
+          PA_OUTREACH_RX.test(txt) && S.outreach++,
+          PA_LISTING_RX.test(txt) && S.listing++,
+          PA_HOME_RX.test(txt) && S.home++,
+          PA_JOBMONEY_RX.test(txt) && S.jobmoney++,
+          CM_SENT_WORDS.test(txt.toLowerCase()) && S.paid++);
     };
   mine.filter(isUnrouted).forEach((c) => {
     const R = c.route || {},
-      outs = [...(c.to || []), ...(c.cc || [])].map(cmEmail).filter((e) => e && !cmIsStaff(e)),
-      who = R.employee ? outs[0] || "" : cmEmail((c.from || {}).email),
-      name = R.employee ? (outs[0] ? cmName([...(c.to || []), ...(c.cc || [])].find((x) => cmEmail(x) === outs[0]) || outs[0]) : "") : (c.from || {}).name || "",
-      addrs = cmAddrs(cmOwnText(c.text), c.subject || "");
-    if (who && !PA_AUTOMATED.test(who)) {
+      outsRaw = [...(c.to || []), ...(c.cc || [])].filter((e) => cmEmail(e) && !cmIsStaff(cmEmail(e))),
+      who = R.employee ? cmEmail(outsRaw[0] || "") : cmEmail((c.from || {}).email),
+      name = R.employee ? (outsRaw[0] ? cmStripImg(cmName(outsRaw[0])) : "") : cmStripImg((c.from || {}).name || ""),
+      sigName = R.employee ? "" : cmSigName(cmOwnText(c.text)),
+      addrs = paAddrsAbout(c),
+      bank = !R.employee && cmBankSender(c);
+    if (who && !PA_AUTOMATED.test(who) && !bank && !cmVendorFor(who, name)) {
       const dom = who.split("@")[1] || "";
-      if (PA_PUBLIC_MAIL.test(dom)) add(put("person:" + who, { kind: "person", who: who, dom: dom }), c, who, name);
-      else {
+      if (PA_PUBLIC_MAIL.test(dom)) {
+        // One person on two addresses is one record: the same name (a real one, with a space) is one key.
+        const pn = cmLooksLikeName(name) && !cmNameFromLocal(name, who) ? name : cmLooksLikeName(sigName) ? sigName : "",
+          nk = pn ? "person:name:" + pn.toLowerCase() : "",
+          ek = "person:" + who;
+        let K = (nk && (C[nk] || (alias[nk] && C[alias[nk]]))) || C[alias[ek] || ek];
+        K || (K = put(nk || ek, { kind: "person", who: who, dom: dom })), nk && !alias[nk] && (alias[nk] = K.key), (alias[ek] = K.key);
+        add(K, c, who, name, sigName);
+      } else {
         const K = put("org:" + dom, { kind: "org", dom: dom, who: who, label: dom.split(".")[0] });
-        add(K, c, who, name), (K.who = K.who || who);
+        add(K, c, who, name, sigName), (K.who = K.who || who);
       }
     }
     addrs.forEach((a) => {
-      const K = put("addr:" + cmAddrKey(a), { kind: "project", addr: a });
-      add(K, c, who, name), who && K.people.add(who);
+      const k = "addr:" + paAddrKey(a),
+        K = put(k, { kind: "project", addr: a });
+      // The fullest spelling names the job ("426 W 144th St" over "426 West 144th").
+      /\b(St|Street|Ave|Avenue|Pl|Place|Rd|Road)\.?$/i.test(a) && !/\b(St|Street|Ave|Avenue|Pl|Place|Rd|Road)\.?$/i.test(K.addr) && (K.addr = a);
+      add(K, c, who, name, ""), who && K.people.add(who);
     });
   });
   return Object.values(C)
     .map((K) => {
-      const top = Object.entries(K.names).sort((a, b) => b[1] - a[1])[0],
-        tc = K.threads.size;
+      const S = K.signals,
+        top = Object.entries(K.names).sort((a, b) => b[1] - a[1])[0],
+        realNames = Object.entries(K.names).filter(([n]) => cmLooksLikeName(n) && ![...K.emails].some((e) => cmNameFromLocal(n, e))).sort((a, b) => b[1] - a[1]),
+        sigTop = Object.entries(K.sigNames).sort((a, b) => b[1] - a[1])[0],
+        tc = K.threads.size,
+        replied = [...K.threads].some((t) => sentOn.has(t)) || [...K.emails].some((e) => sentTo.has(e)),
+        // Why it is not ours, if it is not: said, so the person can disagree.
+        noise =
+          "project" === K.kind
+            ? ""
+            : S.seeker
+              ? "job seeker"
+              : S.promo
+                ? "promotion or newsletter"
+                : S.listing && !S.ours
+                  ? "property listing"
+                  : S.outreach && !S.ours
+                    ? "cold outreach"
+                    : !replied && !S.jobmoney && !(K.attachments && "org" === K.kind) && !("person" === K.kind && S.home)
+                      ? "we never replied, and nothing about a job or money"
+                      : "",
+        personName = (realNames[0] && realNames[0][0]) || (sigTop && cmLooksLikeName(sigTop[0]) ? sigTop[0] : "") || "",
+        orgContact = (sigTop && cmLooksLikeName(sigTop[0]) && sigTop[0]) || ((realNames.find(([n]) => n.toLowerCase().replace(/[^a-z]/g, "") !== String(K.label || "").toLowerCase().replace(/[^a-z]/g, "") && !n.toLowerCase().replace(/[^a-z]/g, "").includes(String(K.label || "").toLowerCase().replace(/[^a-z]/g, "").slice(0, 5))) || [])[0]) || "";
       return Object.assign(K, {
         count: K.ids.length,
         threadCount: tc,
-        contact: top ? top[0] : "",
-        // What to create: an organisation that talks money, invoices or quotes is a vendor; a person at a
-        // public provider is a client or lead; an address with mail about it is a job.
-        as: "org" === K.kind ? "vendor" : "person" === K.kind ? "lead" : "project",
-        name:
-          "org" === K.kind
-            ? top && top[1] >= 2 && !/^[A-Z][a-z]+$/.test(top[0]) && top[0].toLowerCase().includes(K.label.slice(0, 4))
-              ? top[0]
-              : K.label.charAt(0).toUpperCase() + K.label.slice(1)
-            : "person" === K.kind
-              ? (top && top[0]) || K.who
-              : K.addr,
+        contact: "org" === K.kind ? orgContact : top ? top[0] : "",
+        noise: noise,
+        replied: replied,
+        // What to create: an organisation is a vendor or firm; a person we bill or who pays us is a client, any
+        // other person a lead; an address with mail about it is a job.
+        as: "org" === K.kind ? "vendor" : "person" === K.kind ? (S.billed || S.paid ? "client" : "lead") : "project",
+        name: "org" === K.kind ? paOrgName(K, K.msgs) : "person" === K.kind ? personName || K.who : K.addr,
+        nameFromLocal: "person" === K.kind && !personName,
         people: [...K.people],
+        emails: [...K.emails],
         addrs: [...K.addrs],
         threads: [...K.threads],
+        msgs: void 0,
       });
     })
     .filter((K) => K.count >= ("project" === K.as ? 2 : 1))
-    .sort((a, b) => 2 * (b.threadCount - a.threadCount) + (b.money - a.money) + ((b.attachments ? 1 : 0) - (a.attachments ? 1 : 0)) || b.count - a.count);
+    .sort((a, b) => (a.noise ? 1 : 0) - (b.noise ? 1 : 0) || 2 * (b.threadCount - a.threadCount) + (b.money - a.money) + ((b.attachments ? 1 : 0) - (a.attachments ? 1 : 0)) || b.count - a.count);
 }
+const paMasterOpen = () => (paInit().master || []).filter((m) => "proposed" === m.status && !m.noise),
+  paMasterNoise = () => (paInit().master || []).filter((m) => "proposed" === m.status && m.noise),
+  paMasterWhat = (m) =>
+    "vendor" === m.as
+      ? `creates the vendor ${m.name}${m.contact ? ` (contact ${m.contact})` : ""}`
+      : "client" === m.as
+        ? `creates the client ${m.name}`
+        : "project" === m.as
+          ? `creates the job at ${m.addr}, with no tasks until its scope is set`
+          : `creates the lead ${m.name}`;
 // Keep the clusters on the assistant's record so screens and tests read one list.
 function paMasterSweep() {
   const A = paInit(),
@@ -167591,22 +167712,24 @@ function paMasterSweep() {
   A.master = cl.map((K) =>
     Object.assign({}, K, { status: (kept[K.key] || {}).status || "proposed", seenAt: (kept[K.key] || {}).seenAt || today() }),
   );
-  const open = A.master.filter((m) => "proposed" === m.status);
-  if (!open.length) return [];
+  const open = paMasterOpen(),
+    noise = paMasterNoise();
+  if (!open.length && !noise.length) return [];
   const v = open.filter((m) => "vendor" === m.as),
-    p = open.filter((m) => "lead" === m.as),
+    p = open.filter((m) => "lead" === m.as || "client" === m.as),
     j = open.filter((m) => "project" === m.as),
     say = (L) => L.slice(0, 3).map((m) => m.name).join(", ") + (L.length > 3 ? ` and ${L.length - 3} more` : ""),
+    head = `${open.length - j.length} correspondent${1 === open.length - j.length ? "" : "s"} and ${j.length ? j.length + " address" + (1 === j.length ? "" : "es") : "no addresses"} nobody has on file.`,
     n = paNudge(
-      `${open.length} correspondent${1 === open.length ? "" : "s"} and ${j.length ? j.length + " address" + (1 === j.length ? "" : "es") : "no addresses"} nobody has on file.`,
-      `${v.length ? `${v.length} read like vendors or firms (${say(v)}). ` : ""}${p.length ? `${p.length} like homeowners or leads (${say(p)}). ` : ""}${j.length ? `${j.length} look like jobs (${say(j)}). ` : ""}Say once who they are and their threads route themselves; I create nothing on my own. Ask me "who is not on file" for the list.`,
+      head,
+      `${v.length ? `${v.length} read like vendors or firms (${say(v)}). ` : ""}${p.length ? `${p.length} like clients or leads (${say(p)}). ` : ""}${j.length ? `${j.length} look like jobs (${say(j)}). ` : ""}${noise.length ? `${noise.length} more look like promotions, job seekers, cold outreach or mail we never answered; they wait under Not Ours. ` : ""}Each approval creates one record and routes its threads; I create nothing on my own. Ask me "who is not on file" for the list.`,
       { kind: "master", id: "all" },
       "mail nobody can route",
     );
   // The nudge is kept current rather than repeated: one record of the same question.
   if (!n) {
     const old = A.thread.find((m) => m.nudge && m.ref && "master" === m.ref.kind);
-    old && ((old.text = `${open.length} correspondent${1 === open.length ? "" : "s"} and ${j.length ? j.length + " address" + (1 === j.length ? "" : "es") : "no addresses"} nobody has on file.`), (old.unread = !0));
+    old && old.text !== head && ((old.text = head), (old.unread = !0));
   }
   return n ? [n] : [];
 }
@@ -167624,37 +167747,40 @@ function paMasterApply(key, as) {
         const keep = (c.proposals || []).filter((p) => p.applied);
         (c.proposals = keep.concat(cmRead(c).filter((p) => "unrouted" !== p.kind && !keep.some((k) => k.kind === p.kind)))),
           (c.status = c.proposals.length ? "proposed" : "read");
-      });
+      }),
+    emails = K.emails && K.emails.length ? K.emails : [K.who].filter(Boolean);
   let made = "",
     go = null;
   if ("vendor" === as) {
-    let v = (DB.vendors || []).find((x) => x.name.toLowerCase() === String(K.name).toLowerCase());
+    let v = cmVendorFor(K.who || "", K.name) || (DB.vendors || []).find((x) => x.name.toLowerCase() === String(K.name).toLowerCase());
     v ||
       ((v = { id: uid("v"), name: K.name, trade: "", email: K.who || "", contact: K.contact || "", w9: !1, insuranceExp: "", bankChangedAt: "", createdFrom: "mail", notes: `Created from ${K.threadCount} thread${1 === K.threadCount ? "" : "s"} (${fmtL(K.first)} to ${fmtL(K.last)})` }),
       DB.vendors.push(v));
     route({ vendorId: v.id }), (made = `vendor ${v.name}`), (go = "vendors");
   } else if ("client" === as) {
-    let cl = (DB.clients || []).find((x) => (x.contacts || []).some((k) => (k.email || "").toLowerCase() === K.who));
+    let cl = (DB.clients || []).find((x) => (x.contacts || []).some((k) => emails.includes((k.email || "").toLowerCase())));
     cl ||
       ((cl = "function" == typeof blankClient ? blankClient(K.name) : { id: uid("cl"), name: K.name, contacts: [], activity: [] }),
-      (cl.contacts = [{ id: uid("k"), name: K.name, email: K.who || "", role: "Client" }]),
+      (cl.contacts = emails.map((e) => ({ id: uid("k"), name: K.name, email: e, role: "Client" }))),
       (cl.propertyAddr = K.addrs[0] || ""),
       "function" == typeof entDefault && (cl.entityId = entDefault()),
       DB.clients.push(cl));
     route({ clientId: cl.id }), (made = `client ${cl.name}`), (go = "clients");
-  } else if ("project" === as && "function" == typeof projectFromTemplate) {
-    const pr = projectFromTemplate(K.addr, K.addr, today(), "");
+  } else if ("project" === as) {
+    // A job from mail is a name and an address, not a clone of 121 State: no template tasks, materials,
+    // inspections or decisions until somebody sets its scope (BACKLOG §2, "206 Lenox is a clone").
+    const pr = "function" == typeof blankProject ? blankProject(K.addr, K.addr, today(), "") : null;
     if (!pr) return null;
-    (DB.projects || []).includes(pr) || DB.projects.push(pr);
+    (pr.project.scopeUnset = !0), (pr.project.createdFrom = "mail"), (DB.projects || []).includes(pr) || DB.projects.push(pr);
     // One person wrote about this address and only this address: the job is theirs.
-    const person = (A.master || []).find((m) => "person" === m.kind && K.people.includes(m.who)),
-      cl = person && (DB.clients || []).find((x) => (x.contacts || []).some((k) => (k.email || "").toLowerCase() === person.who));
+    const person = (A.master || []).find((m) => "person" === m.kind && (m.emails || [m.who]).some((e) => K.people.includes(e))),
+      cl = person && (DB.clients || []).find((x) => (x.contacts || []).some((k) => (person.emails || [person.who]).includes((k.email || "").toLowerCase())));
     cl && (pr.clientId = cl.id), route(Object.assign({ projectId: pr.id }, cl ? { clientId: cl.id } : {})), (made = `job ${pr.project.name}`), (go = "port");
   } else {
     DB.leads = DB.leads || [];
-    let ld = DB.leads.find((l) => K.who && (l.email || "").toLowerCase() === K.who);
+    let ld = DB.leads.find((l) => emails.includes((l.email || "").toLowerCase()));
     ld ||
-      ((ld = { id: uid("ld"), created: today(), name: K.name, phone: "", email: K.who || "", addr: K.addrs[0] || "", buildingType: "", scope: "Design-build", stage: "inquiry", source: "Email", next: "Follow up", nextDue: "", notes: `${K.threadCount} thread${1 === K.threadCount ? "" : "s"} (${fmtL(K.first)} to ${fmtL(K.last)})` }),
+      ((ld = { id: uid("ld"), created: today(), name: K.name, phone: "", email: K.who || "", addr: K.addrs[0] || "", buildingType: "", scope: "Design-build", stage: "inquiry", source: "Email", next: "Follow up", nextDue: "", notes: `${K.threadCount} thread${1 === K.threadCount ? "" : "s"} (${fmtL(K.first)} to ${fmtL(K.last)})${emails.length > 1 ? ` · also writes from ${emails.slice(1).join(", ")}` : ""}` }),
       DB.leads.push(ld));
     comms.forEach((c) => {
       (c.route = Object.assign({}, c.route || {}, { leadName: K.name, leadEmail: K.who || "" })), (c.routeLocked = !0);
@@ -167675,9 +167801,13 @@ function paMasterIgnore(key) {
     K = (A.master || []).find((m) => m.key === key);
   if (!K) return 0;
   (DB.comms || []).filter((c) => K.ids.includes(c.id)).forEach((c) => {
-    (c.status = "ignored"), (c.proposals = []), (c.ignoredWhy = "not the firm's business, you said");
+    (c.status = "ignored"), (c.proposals = []), (c.ignoredWhy = K.noise ? `not ours: ${K.noise}` : "not the firm's business, you said");
   });
   return (K.status = "ignored"), save(), K.ids.length;
+}
+// Not Ours in bulk: every cluster the reader set aside as noise, in one tap. Returns the messages set aside.
+function paMasterIgnoreAll() {
+  return paMasterNoise().reduce((n, K) => n + paMasterIgnore(K.key), 0);
 }
 const paMasterOffer = (K) =>
   csOffer({
@@ -167687,33 +167817,53 @@ const paMasterOffer = (K) =>
         ? `Create Vendor or Firm ${K.name} — ${K.threadCount} Thread${1 === K.threadCount ? "" : "s"}`
         : "project" === K.as
           ? `Create the Job at ${K.addr} — ${K.threadCount} Thread${1 === K.threadCount ? "" : "s"}`
-          : `Add ${K.name} as a Lead — ${K.threadCount} Thread${1 === K.threadCount ? "" : "s"}`,
-    detail: `${K.count} message${1 === K.count ? "" : "s"} from ${fmtL(K.first)} to ${fmtL(K.last)}${K.money ? `, ${K.money} about money` : ""}${K.attachments ? `, ${K.attachments} attachment${1 === K.attachments ? "" : "s"}` : ""}${K.contact && "vendor" === K.as ? ` · contact ${K.contact}` : ""}${K.addrs.length ? ` · names ${K.addrs.slice(0, 2).join(", ")}` : ""}. Created once, every thread in it routes there.`,
+          : "client" === K.as
+            ? `Create the Client ${K.name} — ${K.threadCount} Thread${1 === K.threadCount ? "" : "s"}`
+            : `Add ${K.name} as a Lead — ${K.threadCount} Thread${1 === K.threadCount ? "" : "s"}`,
+    detail: `It ${paMasterWhat(K)} and routes ${K.count} message${1 === K.count ? "" : "s"} (${fmtL(K.first)} to ${fmtL(K.last)})${K.money ? `, ${K.money} about money` : ""}${K.attachments ? `, ${K.attachments} attachment${1 === K.attachments ? "" : "s"}` : ""}${(K.emails || []).length > 1 ? ` · writes from ${K.emails.join(" and ")}` : ""}${K.addrs.length ? ` · names ${K.addrs.slice(0, 2).join(", ")}` : ""}${K.nameFromLocal ? " · no name in the mail; rename it after" : ""}.`,
     run: () => {
       const r = paMasterApply(K.key);
       r && (toast(`Created ${r.made} — ${r.routed} message${1 === r.routed ? "" : "s"} routed`, r.go ? gcOpen(r.go) : null), render());
     },
   });
+const paMasterNoiseOffer = () => {
+  const N = paMasterNoise(),
+    why = [...new Set(N.map((m) => m.noise))];
+  return N.length
+    ? csOffer({
+        id: "pa-master-notours",
+        label: `Set Aside ${N.length} as Not Ours`,
+        detail: `${N.slice(0, 4).map((m) => m.name).join(", ")}${N.length > 4 ? ` and ${N.length - 4} more` : ""}: ${why.join("; ")}. Their messages are set aside, not deleted.`,
+        run: () => {
+          const n = paMasterIgnoreAll();
+          toast(`Set aside ${n} message${1 === n ? "" : "s"} as not ours`), render();
+        },
+      })
+    : null;
+};
 if ("function" == typeof paRefOffers) {
   const paRefOffersBase_master = paRefOffers;
   paRefOffers = function (ref) {
     if (ref && "master" === ref.kind) {
-      const A = paInit(),
-        open = (A.master || []).filter((m) => "proposed" === m.status);
-      return open.slice(0, 8).map(paMasterOffer).concat(
-        open.length
-          ? [
-              csOffer({
-                id: "pa-master-list",
-                label: "Show Me Everyone Not on File",
-                detail: `${open.length} in all. Ask "who is not on file" any time.`,
-                run: () => {
-                  "function" == typeof paSend && paSend("who is not on file");
-                },
-              }),
-            ]
-          : [],
-      );
+      const open = paMasterOpen();
+      return open
+        .slice(0, 8)
+        .map(paMasterOffer)
+        .concat([paMasterNoiseOffer()].filter(Boolean))
+        .concat(
+          open.length
+            ? [
+                csOffer({
+                  id: "pa-master-list",
+                  label: "Show Me Everyone Not on File",
+                  detail: `${open.length} in all. Ask "who is not on file" any time.`,
+                  run: () => {
+                    "function" == typeof paSend && paSend("who is not on file");
+                  },
+                }),
+              ]
+            : [],
+        );
     }
     return paRefOffersBase_master.apply(this, arguments);
   };
@@ -167725,19 +167875,25 @@ if ("function" == typeof paAsk) {
     if (/\b(not on file|unrouted|nobody (we )?know|who (are|is) (these|this|they)|master data)\b/.test(l)) {
       const A = paInit();
       A.master || paMasterSweep();
-      const open = (A.master || []).filter((m) => "proposed" === m.status),
+      const open = paMasterOpen(),
+        noise = paMasterNoise(),
         v = open.filter((m) => "vendor" === m.as),
-        p = open.filter((m) => "lead" === m.as),
+        p = open.filter((m) => "lead" === m.as || "client" === m.as),
         j = open.filter((m) => "project" === m.as);
       return paOut({
         headline: open.length
           ? `${open.length} correspondent${1 === open.length ? "" : "s"} or address${1 === open.length ? "" : "es"} nobody has on file.`
           : "Everyone in your mail is on file.",
         note: open.length
-          ? `${v.length} read like vendors or firms, ${p.length} like homeowners or leads, ${j.length} like jobs. Each is one tap: I create the record and route its threads. Approve all of them and the mailbox is routed.`
-          : "Every thread routes to a client, a job or a vendor, or was set aside as not ours.",
-        work: open.slice(0, 20).map((m) => `${"vendor" === m.as ? "Vendor" : "project" === m.as ? "Job" : "Lead"} — ${m.name} · ${m.threadCount} thread${1 === m.threadCount ? "" : "s"}, ${m.count} message${1 === m.count ? "" : "s"}, ${fmtL(m.first)} to ${fmtL(m.last)}`),
-        offers: open.slice(0, 8).map(paMasterOffer),
+          ? `${v.length} read like vendors or firms, ${p.length} like clients or leads, ${j.length} like jobs. Check each before you approve it: an approval creates one record, under the name shown, and routes that one's threads.${noise.length ? ` ${noise.length} more look like promotions, job seekers, cold outreach or mail we never answered; they are under Not Ours.` : ""}`
+          : noise.length
+            ? `${noise.length} look like promotions, job seekers, cold outreach or mail we never answered; they are under Not Ours.`
+            : "Every thread routes to a client, a job or a vendor, or was set aside as not ours.",
+        work: open
+          .slice(0, 20)
+          .map((m) => `${"vendor" === m.as ? "Vendor" : "project" === m.as ? "Job" : "client" === m.as ? "Client" : "Lead"} — ${m.name} · ${m.threadCount} thread${1 === m.threadCount ? "" : "s"}, ${m.count} message${1 === m.count ? "" : "s"}, ${fmtL(m.first)} to ${fmtL(m.last)} · approving ${paMasterWhat(m)}`)
+          .concat(noise.length ? [`Not Ours — ${noise.length}: ${[...new Set(noise.map((m) => m.noise))].join("; ")}`] : []),
+        offers: open.slice(0, 8).map(paMasterOffer).concat([paMasterNoiseOffer()].filter(Boolean)),
         go: paGo({ view: "comms" }),
         kind: "master",
       });
