@@ -148,8 +148,11 @@ const COLLECT = {
     .concat(its([...R.querySelectorAll('tr')].filter(tr => tr.querySelector('[data-trmatch]')), el => ({ sec: 'Not Matched', kind: 'unmatched', text: norm(el.innerText).slice(0, 240), verbs: btns(el, '[data-trmatch]') })))),
   ftoday: R => its([...R.querySelectorAll('.f-row')].filter(r => r.querySelector('[data-fack], [data-fneed]')), el => ({ sec: 'Today', kind: 'f', text: norm(el.innerText).slice(0, 240), verbs: btns(el, '[data-fack], [data-fneed]') })),
   sday: R => its([...R.querySelectorAll('.f-row')].filter(r => r.querySelector('[data-fans], [data-nyh]')), el => ({ sec: el.querySelector('[data-nyh]') ? 'Needs Your Hand' : 'From the Field', kind: el.querySelector('[data-nyh]') ? 'hand' : 'raise', text: norm(el.innerText).slice(0, 240), verbs: btns(el, '[data-fans], [data-nyh]') })),
-  client: R => its([...R.querySelectorAll('.cl-waiting .pa-row')], el => ({ sec: 'Waiting on You', kind: (el.querySelector('[data-pdecide]') ? 'dec' : 'doc'), id: ((el.querySelector('[data-pdecide]') || {}).dataset || {}).pdecide || ((el.querySelector('[data-papprove]') || {}).dataset || {}).papprove || '',
-    text: norm(el.innerText).slice(0, 240), verbs: btns(el, '[data-pdecide], [data-papprove]') })),
+  // a submittal the client approves (the tile sample) carries its Approve as [data-smcl], not [data-papprove]: the
+  // client sees and presses it, so the collector reads it too (flow: the month scored the sample missed because the
+  // actor never saw the button the client sees)
+  client: R => its([...R.querySelectorAll('.cl-waiting .pa-row')], el => ({ sec: 'Waiting on You', kind: (el.querySelector('[data-pdecide]') ? 'dec' : 'doc'), id: ((el.querySelector('[data-pdecide]') || {}).dataset || {}).pdecide || ((el.querySelector('[data-papprove]') || {}).dataset || {}).papprove || ((el.querySelector('[data-smcl]') || {}).dataset || {}).smcl || '',
+    text: norm(el.innerText).slice(0, 240), verbs: btns(el, '[data-pdecide], [data-papprove], [data-smcl]') })),
 };
 const VIEWOF = { home: 'home', mapprove: 'mapprove', billing: 'billing', bank: 'bank', ftoday: 'ftoday', sday: 'sday', client: 'client', comms: 'comms', tkall: 'tkall', time: 'time', route: 'route', close: 'gl', pa: 'pa' };
 M.texts = {};
@@ -216,14 +219,18 @@ const SAY = {
   foreman: { say: 'Got it.', name: 'Angel' }, crew: { say: 'Done.', name: 'Alberto' }, driver: { say: 'Bought and dropped.', name: 'Alex' },
   client: { say: 'Thank you, that works for us.', name: 'Sarah Klein' } };
 // Policies: per surface, an ordered list of rules {verb, kind?, text?, not?, sec?, follow?, chase?, prefer?}.
+// The one-tap verbs the app gained for the month's cracks (flow lane): Order on a late line, Record Choice on a choice
+// made by mail, Write the Change Order / Send to Client on an extra, Make It a Task on a dated ask, Book It on a
+// meeting time, Draft the Renewal on an obligation, Chase on billing's past-due row. Each is the button the person
+// sees on their own screen; the actor presses it like the others and the sheet driver does the rest.
 const POL = {
-  owner: { home: [{ verb: /^Approve$/ }, { verb: /^Dispute Difference$/ }, { verb: /^Chase COI$/, chase: 1, max: 2 }, { verb: /^Chase$/, chase: 1, max: 2 }],
-    mapprove: [{ verb: /^Approve$/, kind: /^bill$/ }, { verb: /^(Approve|Post|Approve & Post)/, kind: /^(journal|payroll|learn)$/ }] },
-  pm: { home: [{ verb: /^Answer$/ }, { verb: /^(Approve|Recommend)$/ }, { verb: /^Make It a Task$/, max: 2 }, { verb: /^Chase$/, chase: 1, max: 1 }],
-    mapprove: [{ verb: /^Approve All Hours/ }, { verb: /^Answer$/ }, { verb: /^(Approve|Recommend)$/, kind: /^(bill|time)$/ }, { verb: /^Open$/, kind: /^meeting$/, follow: /^Approve All/ }] },
-  coord: { home: [{ verb: /^Acknowledge$/ }, { verb: /^(Apply|Make It a Task)$/, max: 4 }, { verb: /^Chase$/, chase: 1, max: 2 }],
+  owner: { home: [{ verb: /^Approve$/ }, { verb: /^Dispute Difference$/ }, { verb: /^Chase COI$/, chase: 1, max: 2 }, { verb: /^Chase$/, chase: 1, max: 2 }, { verb: /^(Make It a Task|Book It|Draft the Renewal)$/, max: 2 }],
+    mapprove: [{ verb: /^Approve$/, kind: /^bill$/ }, { verb: /^(Approve|Post|Approve & Post)/, kind: /^(journal|payroll|learn)$/ }, { verb: /^(Make It a Task|Book It|Draft the Renewal)$/, kind: /^hand$/, max: 2 }] },
+  pm: { home: [{ verb: /^Answer$/ }, { verb: /^(Approve|Recommend)$/ }, { verb: /^(Record Choice|Write the Change Order|Send to Client)$/ }, { verb: /^Make It a Task$/, max: 2 }, { verb: /^Chase$/, chase: 1, max: 1 }],
+    mapprove: [{ verb: /^Approve All Hours/ }, { verb: /^Answer$/ }, { verb: /^(Approve|Recommend)$/, kind: /^(bill|time)$/ }, { verb: /^(Record Choice|Write the Change Order|Send to Client|Make It a Task)$/, kind: /^hand$/, max: 2 }, { verb: /^Open$/, kind: /^meeting$/, follow: /^Approve All/ }] },
+  coord: { home: [{ verb: /^Acknowledge$/ }, { verb: /^(Apply|Make It a Task)$/, max: 4 }, { verb: /^Order$/, max: 3 }, { verb: /^Chase$/, chase: 1, max: 2 }],
     mapprove: [{ verb: /^Acknowledge$/, follow: /^Acknowledge$/ }, { verb: /^Answer$/, follow: /^Answer$/ }, { verb: /^Open$/, kind: /^meeting$/, follow: /^Approve All/ }] },
-  billing: { billing: [{ verb: /^Draft$/, follow: /^Send to Client$/ }, { verb: /^Send$/ }], home: [{ verb: /^(Record Payment|Resolve)$/ }, { verb: /^(Draft|Draft It)$/, follow: /^Send to Client$/ }, { verb: /^Confirm$/ }, { verb: /^Apply$/, max: 3 }] },
+  billing: { billing: [{ verb: /^Draft$/, follow: /^Send to Client$/ }, { verb: /^Send$/ }], home: [{ verb: /^(Record Payment|Resolve)$/ }, { verb: /^(Draft|Draft It)$/, follow: /^Send to Client$/ }, { verb: /^Confirm$/ }, { verb: /^Apply$/, max: 3 }, { verb: /^Chase$/, chase: 1, max: 2 }] },
   controller: { home: [{ verb: /^Confirm$/, follow: /^Confirm$/ }, { verb: /^Apply$/, max: 4 }], bank: [{ verb: /^Confirm$/, kind: /^proposal$/ }, { verb: /^Accept$/ }, { verb: /^Match to a Line/, kind: /^unmatched$/ }] },
   designer: { sday: [{ verb: /^Answer$/ }, { verb: /^Make It a Task$/ }] },
   foreman: { ftoday: [{ verb: /^Got It$/ }, { verb: /^Still Need This$/, chase: 1, max: 2 }] },
@@ -315,7 +322,8 @@ M.clientReady = async (uid, it) => {   // the client takes up to two days, waits
   return workBetween(M.firstSeen[key], day) >= 1 || /as soon as you can/i.test(it.text);
 };
 // ---- the Inbox: open each message that has something to decide, Apply what is this role's to apply
-const KINDS = { owner: /^(lead|call)$/, coord: /^(bill|quote|delivery|coi|receipt|unrouted|statement|request|noshow)$/, billing: /^(deposit|statement|bill)$/, controller: /^(bill|statement)$/, pm: /^(permit|lpc|noshow|question|decision)$/ };
+// visit: a vendor's delivery date or a sub's day read from mail (flow lane), the coordinator's to apply like a delivery
+const KINDS = { owner: /^(lead|call)$/, coord: /^(bill|quote|delivery|visit|coi|receipt|unrouted|statement|request|noshow)$/, billing: /^(deposit|statement|bill)$/, controller: /^(bill|statement)$/, pm: /^(permit|lpc|noshow|question|decision)$/ };
 M.inbox = async (uid, roleName, cap, did) => {
   let done = 0; const tried = new Set();
   for (let k = 0; k < 40 && done < cap; k++) {
