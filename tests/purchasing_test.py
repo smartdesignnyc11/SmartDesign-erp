@@ -287,9 +287,13 @@ async def s_behalf(p, c):
     b, pg, errs = await fresh(p)
     try:
         await sign_in(pg, 'u_chen')
-        await pg.evaluate("() => { const { s, p } = smFind('sb121lite'); smRespond(s, p, { stamp: 'approved', comments: '' }, true); smRespond(s, p, { stamp: 'approved', comments: '' }, true); save(); }")
+        # the PM and the architect have answered; the set was sent to the client (Send to Client stamps sentOn)
+        await pg.evaluate("() => { const { s, p } = smFind('sb121lite'); smRespond(s, p, { stamp: 'approved', comments: '' }, true); smRespond(s, p, { stamp: 'approved', comments: '' }, true); const st = smStepOf(s); st && (st.sentOn = today()); save(); }")
         await sign_in(pg, 'u_klein'); await go(pg, 'dec'); await pg.wait_for_timeout(300)
         btn = pg.locator('[data-smcl="ok|sb121lite"]:visible').first
+        if not await btn.count():
+            await go(pg, 'client'); await pg.wait_for_timeout(300)
+            btn = pg.locator('[data-smcl="ok|sb121lite"]:visible').first
         c.ok(await btn.count() > 0, 'behalf: the client sees Approve on the lighting submittal')
         if await btn.count():
             await btn.click(); await pg.wait_for_timeout(500)

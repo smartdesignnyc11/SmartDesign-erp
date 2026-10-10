@@ -153135,6 +153135,7 @@ function smSweep() {
               comments: `${f.name} approved — read from the Studio filing register`,
               date: f.approvedOn || today(),
               by: "LPC (filing register)",
+              system: !0,
             },
             !0,
           )
@@ -153147,6 +153148,7 @@ function smSweep() {
               comments: `LPC raised objections on ${f.name} — see the Studio filing register`,
               date: today(),
               by: "LPC (filing register)",
+              system: !0,
             },
             !0,
           ));
@@ -153491,12 +153493,22 @@ function smRespond(s, p, o, quiet) {
   const r = smRev(s),
     st = smStepOf(s);
   if (!r || !st) return !1;
+  // Who answered is the reviewer (st.by); who clicked is the actor. A response recorded by someone else says
+  // so (recordedBy, onBehalf), a client's own portal approval says portal, a stamped copy is the evidence.
+  const actor = o.system ? "" : smMe(),
+    reviewer = o.by || st.name,
+    onBehalf = !o.portal && !o.system && !!actor && actor.toLowerCase() !== String(reviewer).toLowerCase();
   (st.respondedOn = o.date || today()),
     (st.stamp = o.stamp),
     (st.comments = o.comments || ""),
-    (st.by = o.by || st.name),
+    (st.by = reviewer),
+    (st.recordedBy = onBehalf ? actor : o.system ? "the filing register" : ""),
+    (st.onBehalf = onBehalf),
+    (st.portal = !!o.portal),
+    (st.evidence = o.evidence || ""),
     st.sentOn || (st.sentOn = st.respondedOn),
-    smStamp(s, `${smWho(st)}: ${SM_STAMP[o.stamp]}${st.comments ? ` — ${st.comments}` : ""}`, st.by);
+    smStamp(s, `${smWho(st)}: ${SM_STAMP[o.stamp]}${st.comments ? ` — ${st.comments}` : ""}${smHowText(st)}`, onBehalf ? actor : st.by),
+    onBehalf && smBehalfNotice(s, p, st);
   let msg = "";
   if (["approved", "noted"].includes(o.stamp)) {
     const nx = smStepOf(s);
@@ -153559,7 +153571,7 @@ function smRespondDialog(s, p) {
   st &&
     mbModal(
       `Record Response — <span data-nocase>${esc(smWho(st))}</span>`,
-      `<p class="small muted" style="margin:0 0 10px">${esc(s.number)} Rev ${smRev(s).n} · ${esc(s.title)}. ${"pm" === st.role ? "Your review: check it against the contract, the drawings and the selection before it goes on." : "Copy the stamp and comments from the returned set; attach it if you have it."}</p>\n    <div class="grid2">${mbF("Response", `<select data-f="stamp">${SM_STAMPS.map(([k, l]) => `<option value="${k}">${l}</option>`).join("")}</select>`)}${mbF("Date", `<input type="date" data-f="date" value="${today()}">`)}</div>\n    ${mbF("Reviewer", `<input data-f="by" value="${esc(("pm" === st.role && smMe()) || st.name)}">`)}${mbF("Comments", '<textarea data-f="comments" rows="4" placeholder="What the reviewer marked — the notes travel to the sub and the field"></textarea>')}${mbF("Attach the Stamped Copy", '<input type="file" id="sm-respfile" multiple aria-label="Attach the stamped copy">')}`,
+      `<p class="small muted" style="margin:0 0 10px">${esc(s.number)} Rev ${smRev(s).n} · ${esc(s.title)}. ${"pm" === st.role && smMe().toLowerCase() === String(st.name).toLowerCase() ? "Your review: check it against the contract, the drawings and the selection before it goes on." : `Copy the stamp and comments from the returned set. This is recorded as ${esc(smMe())} on behalf of ${esc(smWho(st))}${"client" === st.role ? ": a client response needs the client's own approval on the portal or the stamped copy attached" : `, and ${esc(st.name)} is told`}.`}</p>\n    <div class="grid2">${mbF("Response", `<select data-f="stamp">${SM_STAMPS.map(([k, l]) => `<option value="${k}">${l}</option>`).join("")}</select>`)}${mbF("Date", `<input type="date" data-f="date" value="${today()}">`)}</div>\n    ${mbF("Reviewer", `<input data-f="by" value="${esc(st.name)}">`)}${mbF("Comments", '<textarea data-f="comments" rows="4" placeholder="What the reviewer marked — the notes travel to the sub and the field"></textarea>')}${mbF("client" === st.role ? "Attach the Stamped Copy (required)" : "Attach the Stamped Copy", '<input type="file" id="sm-respfile" multiple aria-label="Attach the stamped copy">')}`,
       {
         submit: "Record",
         onSubmit: (f) => {
@@ -153567,7 +153579,9 @@ function smRespondDialog(s, p) {
             return toast("Say what has to change — the sub works from these comments"), !1;
           const files = (document.getElementById("sm-respfile") || {}).files,
             fl = files && files.length ? [...files] : [];
-          smRespond(s, p, f), fl.length && smAttach(s, p, fl);
+          if ("client" === st.role && !fl.length)
+            return toast("A client response needs the client's own approval on the portal or the stamped copy attached"), !1;
+          (f.evidence = fl.length ? `stamped copy attached: ${fl.map((x) => x.name).join(", ")}` : ""), smRespond(s, p, f), fl.length && smAttach(s, p, fl);
         },
       },
     );
@@ -154075,7 +154089,7 @@ function smRecHtml(s, p) {
             .filter((x) => x.sentOn || x.respondedOn)
             .map(
               (x) =>
-                `<div class="ops-tle"><span>${fmt(x.respondedOn || x.sentOn)}</span><div><b>${esc(smWho(x))}</b> ${x.respondedOn ? `<span class="pill ${["approved", "noted"].includes(x.stamp) ? "ok" : "revise" === x.stamp ? "warn" : "bad"}">${SM_STAMP[x.stamp]}</span>${x.comments ? `<div class="small">${esc(x.comments)}</div>` : ""}` : `<span class="small muted">sent ${fmt(x.sentOn)} — no answer yet</span>`}</div></div>`,
+                `<div class="ops-tle"><span>${fmt(x.respondedOn || x.sentOn)}</span><div><b>${esc(smWho(x))}</b> ${x.respondedOn ? `<span class="pill ${["approved", "noted"].includes(x.stamp) ? "ok" : "revise" === x.stamp ? "warn" : "bad"}">${SM_STAMP[x.stamp]}</span>${smHowText(x) ? `<span class="small muted">${esc(smHowText(x))}</span>` : ""}${x.comments ? `<div class="small">${esc(x.comments)}</div>` : ""}` : `<span class="small muted">sent ${fmt(x.sentOn)} — no answer yet</span>`}</div></div>`,
             )
             .join("") || '<div class="small muted">No reviewer has seen this revision yet.</div>'
         }</div></div>`;
@@ -154085,7 +154099,7 @@ function smRecHtml(s, p) {
   return `<div class="thd sm-rec" id="sm-rec">\n    <div class="row thd-top"><button class="btn sm" id="sm-back">${thBack} Submittals</button><span class="small muted">${esc(smJob(p))}</span></div>\n    <div class="thd-head"><div class="grow"><h3><span data-nocase>${esc(s.number)}</span> · <span data-nocase>${esc(s.title)}</span></h3><div class="row thd-pills">${smPill(s)}<span class="pill neutral">${SM_TYPES[s.type] || ""}</span><span class="pill neutral">Rev ${r ? r.n : 0}</span><span class="small muted">${esc(s.spec)} ${esc(s.specName || "")} · ${esc(s.sub || "no sub named")}</span>${L.late ? `<span class="small sm-bad">${esc(L.why)}</span>` : L.risk ? `<span class="small sm-warn">${esc(L.riskWhy)}</span>` : ""}</div></div></div>\n    <div class="thd-acts">${acts}</div>\n    <div class="thd-stats">\n      <div><span>Submit By</span><b class="${L.late && "draft" === s.status ? "sm-bad" : ""}">${D.submitBy ? fmtL(D.submitBy) : "—"}</b><i>${D.reviewDays} working days of review before the approve-by date</i></div>\n      <div><span>Approve By</span><b>${D.approveBy ? fmtL(D.approveBy) : "—"}</b><i>${reqSel}</i></div>\n      <div><span>On Site</span><b>${D.onSite ? fmtL(D.onSite) : "—"}</b><i>${D.tk ? `${esc(D.tk.name)} starts ${fmt(D.tk.start)}` : "no task linked"}</i></div>\n      <div><span>Ball in Court</span><b class="${L.late && B ? "sm-bad" : ""}">${B ? esc(smBallText(B)) : "Closed"}</b><i>${B ? esc(smDaysText(B)) : s.closedOn ? `closed ${fmt(s.closedOn)}` : ""}</i></div>\n    </div>\n    ${s.notes ? `<div class="note">${esc(s.notes)}</div>` : ""}\n    <div class="sm-grid2"><div class="card"><div class="hd"><h3>Reviewers</h3><span class="small muted">${smLandmarked(p) ? "landmarked house" : "not landmarked"}</span></div><ol class="sm-steps">${steps
     .map((x, i) => {
       const cur = st === x && live;
-      return `<li class="sm-step ${x.respondedOn ? (["approved", "noted"].includes(x.stamp) ? "ok" : "bad") : cur ? "on" : ""}"><span class="sm-step-n">${i + 1}</span><div class="grow"><b>${esc(SM_ROLE[x.role])}</b> <span class="small muted">${esc("lpc" === x.role ? "LPC staff" : x.name)} · ${+x.days || SM_DAYS[x.role]} working days</span><div class="small">${x.respondedOn ? `<span class="pill ${["approved", "noted"].includes(x.stamp) ? "ok" : "revise" === x.stamp ? "warn" : "bad"}">${SM_STAMP[x.stamp]}</span> ${fmt(x.respondedOn)}${x.by && x.by !== x.name ? ` · ${esc(x.by)}` : ""}` : live && cur && B && !B.toSend ? `Ball in court · ${esc(smDaysText(B))}${x.sentOn ? ` · sent ${fmt(x.sentOn)}` : ""}` : live && cur && B && B.toSend ? "checked by us — to send" : ["revise", "rejected"].includes(s.status) ? "not reached on this revision" : x.sentOn ? `sent ${fmt(x.sentOn)}` : "draft" === s.status ? "after it is submitted" : "not sent yet"}</div></div></li>`;
+      return `<li class="sm-step ${x.respondedOn ? (["approved", "noted"].includes(x.stamp) ? "ok" : "bad") : cur ? "on" : ""}"><span class="sm-step-n">${i + 1}</span><div class="grow"><b>${esc(SM_ROLE[x.role])}</b> <span class="small muted">${esc("lpc" === x.role ? "LPC staff" : x.name)} · ${+x.days || SM_DAYS[x.role]} working days</span><div class="small">${x.respondedOn ? `<span class="pill ${["approved", "noted"].includes(x.stamp) ? "ok" : "revise" === x.stamp ? "warn" : "bad"}">${SM_STAMP[x.stamp]}</span> ${fmt(x.respondedOn)}${x.by && x.by !== x.name ? ` · ${esc(x.by)}` : ""}${esc(smHowText(x))}` : live && cur && B && !B.toSend ? `Ball in court · ${esc(smDaysText(B))}${x.sentOn ? ` · sent ${fmt(x.sentOn)}` : ""}` : live && cur && B && B.toSend ? "checked by us — to send" : ["revise", "rejected"].includes(s.status) ? "not reached on this revision" : x.sentOn ? `sent ${fmt(x.sentOn)}` : "draft" === s.status ? "after it is submitted" : "not sent yet"}</div></div></li>`;
     })
     .join(
       "",
@@ -154725,7 +154739,8 @@ if ("function" == typeof renderPODoc) {
         })().map((s) => {
           const r = smRev(s),
             n = r ? r.steps.filter((x) => "noted" === x.stamp && x.comments).map((x) => x.comments) : [];
-          return `<a href="#" data-smgo="${esc(s.id)}">${esc(s.number)}</a> ${esc(SM_STATUS["closed" === s.status ? (r && r.steps.some((x) => "noted" === x.stamp) ? "noted" : "approved") : s.status])}${s.approvedOn ? ` ${fmt(s.approvedOn)}` : ""}${n.length ? ` — build to the notes: ${esc(n.join(" "))}` : ""}`;
+          const how = r ? r.steps.filter((x) => x.respondedOn && smHowText(x)).map((x) => `${smWho(x)}${smHowText(x)}`) : [];
+          return `<a href="#" data-smgo="${esc(s.id)}">${esc(s.number)}</a> ${esc(SM_STATUS["closed" === s.status ? (r && r.steps.some((x) => "noted" === x.stamp) ? "noted" : "approved") : s.status])}${s.approvedOn ? ` ${fmt(s.approvedOn)}` : ""}${how.length ? ` (${esc(how.join("; "))})` : ""}${n.length ? ` — build to the notes: ${esc(n.join(" "))}` : ""}`;
         }),
         okNote = notes.length
           ? `<div class="note sm-ponote small"><b>Submittal${1 === notes.length ? "" : "s"}:</b> ${notes.join("; ")}</div>`
@@ -155059,7 +155074,7 @@ document.addEventListener("click", (e) => {
   }
   if ("ok" === k)
     return (
-      smRespond(s, p, { stamp: "approved", comments: "Approved on the portal", by: me }, !0),
+      smRespond(s, p, { stamp: "approved", comments: "", by: me, portal: !0 }, !0),
       (p.chat = p.chat || []).push({
         id: uid("ch"),
         by: me,
@@ -155079,7 +155094,7 @@ document.addEventListener("click", (e) => {
       submit: "Send",
       onSubmit: (f) => {
         if (!f.why) return toast("Tell us what you would like changed"), !1;
-        smRespond(s, p, { stamp: "revise", comments: f.why, by: me }, !0),
+        smRespond(s, p, { stamp: "revise", comments: f.why, by: me, portal: !0 }, !0),
           (p.chat = p.chat || []).push({
             id: uid("ch"),
             by: me,
@@ -167221,4 +167236,37 @@ function poLinkBill(b, po) {
       0 === i && ((x.poLineId = l.id || ""), (x.line = l.line || x.line || ""), (x.code = l.code || x.code || ""));
     });
   return b;
+}
+
+// ---- a submittal response recorded on a reviewer's behalf says so (review finding 3)
+// How a step was answered, for the stamp, the register and the PO: the client's own portal approval, a
+// response someone recorded for the reviewer (with the stamped copy when attached), or nothing for a reviewer
+// who answered as themselves.
+function smHowText(st) {
+  if (!st || !st.respondedOn) return "";
+  if (st.portal) return " · approved on the portal";
+  if (st.recordedBy && st.onBehalf) return ` · recorded by ${st.recordedBy} on behalf of ${smWho(st)}${st.evidence ? ` · ${st.evidence}` : ""}`;
+  if (st.recordedBy) return ` · read from ${st.recordedBy}`;
+  return st.evidence ? ` · ${st.evidence}` : "";
+}
+// The reviewer is told: a Messages line on the job and a task to confirm what was recorded for them.
+function smBehalfNotice(s, p, st) {
+  try {
+    const who = st.name || smWho(st),
+      first = String(who).split(" ")[0];
+    (p.chat = p.chat || []).push({
+      id: uid("ch"),
+      by: "System",
+      text: `${s.number}: ${SM_STAMP[st.stamp] || st.stamp} recorded by ${st.recordedBy} on behalf of ${smWho(st)}${st.evidence ? ` (${st.evidence})` : ""} — ${first}, confirm it is yours.`,
+      t: nowStamp(),
+      files: [],
+      system: !0,
+      submId: s.id,
+    });
+    "client" !== st.role &&
+      "lpc" !== st.role &&
+      cmTask(`Confirm the ${(SM_STAMP[st.stamp] || st.stamp).toLowerCase()} recorded for you on ${s.number} ${s.title}`, p.id, who);
+  } catch (e) {
+    console.warn("submittal on-behalf notice", e);
+  }
 }
