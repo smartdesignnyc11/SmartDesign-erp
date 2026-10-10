@@ -11158,7 +11158,9 @@ function wirePODoc(po) {
 function poAction(po, a) {
   S.project.userName;
   if ("issue" === a) {
-    if (!po.vendor || !po.lines.length) return void toast("Add a vendor and at least one line");
+    // One house validator (poValid, purchasing section): a real vendor, lines, no $0 line, a need-by date.
+    const bad = poValid(po);
+    if (bad.length) return void poRefuse(po, bad);
     const blk = vendorBlocked(po.vendor);
     if (blk.length)
       return void toast(`Cannot issue: ${blk.map((f) => f.m).join("; ")} — update the vendor record first`);
@@ -32572,7 +32574,8 @@ ctPOPicker = function (projectId, preferId, preKey) {
 const poActionBase = poAction;
 poAction = function (po, a) {
   const r = poActionBase(po, a);
-  if ("issue" === a) {
+  // Only an issued PO marks its materials ordered: a refused issue (poValid) leaves the board alone.
+  if ("issue" === a && "issued" === po.status) {
     const p = DB.projects.find((x) => x.id === po.projectId);
     p &&
       po.lines.forEach((l) => {
@@ -36393,7 +36396,7 @@ poAction = function (po, a) {
     ("issue" === a && "draft" === po.status && poNeedsApproval(po) && !owner && (a = "submit"),
     "submit" === a)
   )
-    return po.vendor && po.lines.length
+    return !poValid(po).length
       ? ((po.status = "pending"),
         (po.submittedBy = by),
         (po.submittedAt = today()),
@@ -36401,7 +36404,7 @@ poAction = function (po, a) {
         log(`${po.number} submitted for approval — ${money(poTotal(po).total)}`),
         save(),
         void render())
-      : void toast("Add a vendor and at least one line");
+      : void poRefuse(po, poValid(po));
   if ("approve" === a)
     return owner
       ? ((po.status = "draft"),
@@ -153656,31 +153659,9 @@ function smRelease(s, p) {
         return void ctPOPicker(p.id, doc || void 0, m.line);
       } catch (e) {}
     }
-    const vend = m.vendor && !/^tbd$/i.test(m.vendor) ? m.vendor : s.sub,
-      po2 = smDraftPO(
-        p,
-        mats.map((x) => x.m),
-        vend,
-      );
-    smStamp(s, `Order drafted: ${po2.number} to ${vend || "a vendor"}`),
-      smLog(p, `${po2.number} drafted from submittal ${s.number}`),
-      save(),
-      (poOpen = po2.id),
-      (view = "po"),
-      render();
-    try {
-      window.scrollTo(0, 0);
-    } catch (e) {}
-    "function" == typeof rcToast
-      ? rcToast(`${po2.number} drafted from ${s.number} — check the price, then Issue PO`, [
-          {
-            label: `Open ${po2.number}`,
-            run: () => {
-              (poOpen = po2.id), (view = "po"), render();
-            },
-          },
-        ])
-      : toast(`${po2.number} drafted from ${s.number}`);
+    // Release Order asks for the supplier (never the sub who sent the sheets) and carries the submittal's
+    // item, quantity, price, on-site date, task, spec and job onto the draft: smReleaseDialog, purchasing section.
+    smReleaseDialog(s, p, mats);
   }
 }
 function smClose(s, p) {
@@ -167012,4 +166993,200 @@ AG_FIN.unshift(
       };
     };
   }
+}
+/* ---------------------------------------------------------------------------
+   purchasing (round 5, coordinator review; BACKLOG §1.4 #1). Release Order drafted PO-2026-049 to the
+   electrician who sent the cut sheets, at $0, and Issue PO went through, marking the lighting ordered and
+   taking it off the Buy Board. One house validator now sits in front of every issue path (poValid: the root
+   poAction, Submit for approval, the owner's Approve, the submittal override, buy runs and the picker all
+   end in poAction), a refusal says why, Release Order asks for the supplier and carries the submittal's
+   facts, and a boot repair takes an already-issued PO with no vendor or a $0 line back to draft and puts
+   its materials back on the board.
+   --------------------------------------------------------------------------- */
+const PO_PLACEHOLDER = /^(?:\W*choose (?:the )?(?:vendor|supplier)\W*|vendor tbd|tbd|unassigned vendor|vendor|none|n\/a)$/i;
+// The vendor record a PO's vendor text names, or null for nothing, a placeholder or a name not on file.
+function poVendorReal(name) {
+  const n = String(name || "").trim();
+  if (!n || PO_PLACEHOLDER.test(n)) return null;
+  return (DB.vendors || []).find((v) => String(v.name || "").trim().toLowerCase() === n.toLowerCase()) || null;
+}
+// The reasons a purchase order cannot be issued, in the words the toast carries; [] when it can.
+function poValid(po) {
+  if (!po) return ["no purchase order"];
+  const R = [],
+    v = poVendorReal(po.vendor);
+  v ||
+    R.push(
+      po.vendor && !PO_PLACEHOLDER.test(po.vendor)
+        ? `${po.vendor} is not a vendor on file — choose the supplier`
+        : "no vendor chosen",
+    );
+  const lines = (po.lines || []).filter((l) => l.item || l.desc || +l.price || +l.qty);
+  lines.length || R.push("no lines");
+  lines.forEach((l) => {
+    const nm = l.item || l.desc || "a line";
+    +l.qty > 0 || R.push(`no quantity on ${nm}`), +l.price > 0 || R.push(`$0 on ${nm}`);
+  });
+  po.needBy || po.expected || R.push("no need-by date");
+  return R;
+}
+function poRefuse(po, R) {
+  const msg = `${(po && po.number) || "This purchase order"} cannot be issued — ${(R || []).join("; ")}`;
+  try {
+    rcToast(msg, po && "function" == typeof flowCan && flowCan("po") ? [{ label: `Open ${po.number}`, run: flowGo.po(po) }] : null);
+  } catch (e) {
+    toast(msg);
+  }
+}
+// The outermost poAction: nothing issues, submits or approves past the validator, whichever path called it.
+{
+  const base = poAction;
+  poAction = function (po, a) {
+    if (po && ["issue", "submit", "approve"].includes(a) && ["draft", "pending"].includes(po.status)) {
+      const R = poValid(po);
+      if (R.length) return void poRefuse(po, R);
+    }
+    return base.apply(this, arguments);
+  };
+}
+// Vendors for a released item: those who sold it (a PO line names the material or its words) or work its
+// trade first, everyone else after; the sub who sent the submittal is never offered as the supplier.
+function smReleaseVendors(m, s, p) {
+  const words = String(m.name || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9 ]+/g, " ")
+      .split(/\s+/)
+      .filter((w) => w.length > 3),
+    specWords = String((s && (s.specName || s.title)) || "")
+      .toLowerCase()
+      .split(/\W+/)
+      .filter((w) => w.length > 3),
+    subFirst = String((s && s.sub) || "")
+      .toLowerCase()
+      .split(/[\s(]+/)[0],
+    sold = new Set(),
+    trade = new Set();
+  (DB.pos || []).forEach((po) =>
+    (po.lines || []).forEach((l) => {
+      const it = String(l.item || "").toLowerCase();
+      po.vendor && (l.materialId === m.id || words.some((w) => it.includes(w))) && sold.add(po.vendor.toLowerCase());
+    }),
+  );
+  (DB.vendors || []).forEach((v) => {
+    const t = String(v.trade || "").toLowerCase();
+    t &&
+      (words.some((w) => t.includes(w) || w.includes(t)) || specWords.some((w) => t.includes(w) || w.includes(t))) &&
+      trade.add(String(v.name || "").toLowerCase());
+  });
+  const all = (DB.vendors || [])
+      .filter((v) => v.name && !(subFirst.length > 2 && String(v.name).toLowerCase().includes(subFirst)))
+      .sort((a, b) => String(a.name).localeCompare(String(b.name))),
+    first = all.filter((v) => sold.has(v.name.toLowerCase()) || trade.has(v.name.toLowerCase()));
+  return { first: first, rest: all.filter((v) => !first.includes(v)) };
+}
+// Release Order for a material: the draft carries item, quantity, price, on-site date, task, spec and job from
+// the submittal, and asks who supplies it. The sub who sent the sheets is named as the sender, not the supplier.
+function smReleaseDialog(s, p, mats) {
+  const m = mats[0].m,
+    others = mats.slice(1),
+    D = withProject(p, () => matDates(m)),
+    tk = (p.tasks || []).find((t) => t.id === m.taskId),
+    lf = m.line && "function" == typeof lineFin ? lineFin(m.line) : null,
+    qm = String(m.qty || "").match(/([\d.]+)\s*(\w+)?/),
+    qty = qm ? +qm[1] : 1,
+    unit = qm && qm[2] ? qm[2] : "lot",
+    cost = +String(m.cost || "").replace(/[^0-9.]/g, "") || 0,
+    price = cost ? r2(cost / (qty || 1)) : lf && lf.budget ? r2(lf.budget / (qty || 1)) : 0,
+    V = smReleaseVendors(m, s, p),
+    opt = (v) => `<option value="${esc(v.name)}">${esc(v.name)}${v.trade ? ` · ${esc(v.trade)}` : ""}</option>`;
+  mbModal(
+    `Release Order — <span data-nocase>${esc(s.number)}</span>`,
+    `<p class="small muted" style="margin:0 0 10px"><span data-nocase>${esc(s.spec)} ${esc(s.specName || "")}</span> · ${esc(smJob(p))}${tk ? ` · for ${esc(tk.name)}, starts ${fmt(tk.start)}` : ""}. The order carries the item, quantity, price and on-site date from the submittal; choose who supplies it. ${esc(s.sub || "The sub")} sent the ${SM_TYPE_WORD[s.type] || "submittal"} and is not the supplier.</p>
+    ${mbF("Supplier", `<select data-f="vendor"><option value="">— choose the supplier —</option>${V.first.length ? `<optgroup label="Sold this item or works this trade">${V.first.map(opt).join("")}</optgroup>` : ""}<optgroup label="${V.first.length ? "Other vendors" : "Vendors"}">${V.rest.map(opt).join("")}</optgroup></select>`)}
+    <div class="grid2">${mbF("Item", `<input data-f="item" value="${esc(m.name)}">`)}${mbF("Quantity", `<input type="number" step="any" min="0" data-f="qty" value="${qty}">`)}</div>
+    <div class="grid2">${mbF("Unit", `<input data-f="unit" value="${esc(unit)}">`)}${mbF("Unit Price", `<input type="number" step="0.01" min="0" data-f="price" value="${price || ""}" placeholder="${lf && lf.budget ? "budget " + money(lf.budget) : "no price yet — the order waits for one"}">`)}</div>
+    <div class="grid2">${mbF("Needed on Site", `<input type="date" data-f="needBy" value="${D.needBy || ""}">`)}${mbF("Task", `<input data-f="task" value="${esc(tk ? tk.name : "")}" readonly>`)}</div>
+    ${others.length ? `<p class="small muted" style="margin:0">Also released: ${others.map((x) => esc(x.name)).join(", ")} — each gets its own line.</p>` : ""}`,
+    {
+      submit: "Draft the Purchase Order",
+      onSubmit: (f) => {
+        const v = poVendorReal(f.vendor);
+        if (!v) return toast("Choose the supplier — the vendor who sells it, not the sub who sent the sheets"), !1;
+        if (!f.needBy) return toast("Say when the site needs it"), !1;
+        const po = smDraftPO(p, mats.map((x) => x.m), v.name),
+          l0 = po.lines[0];
+        l0 && ((l0.item = f.item || m.name), (l0.qty = +f.qty || 1), (l0.unit = f.unit || unit), (l0.price = +f.price || 0)),
+          (po.needBy = f.needBy),
+          (po.needTask = tk ? tk.name : ""),
+          (po.spec = s.spec),
+          (po.specName = s.specName || ""),
+          (po.submittalId = s.id),
+          (po.notes = `Released by submittal ${s.number} ${s.title} (${s.spec})`),
+          (s.poId = po.id),
+          smStamp(s, `Order drafted: ${po.number} to ${v.name}`),
+          smLog(p, `${po.number} drafted from submittal ${s.number}`),
+          save(),
+          (poOpen = po.id),
+          (view = "po"),
+          render();
+        try {
+          window.scrollTo(0, 0);
+        } catch (e) {}
+        rcToast(`${po.number} drafted from ${s.number} to ${v.name} — ${+f.price ? "check the price, then Issue PO" : "price the line, then Issue PO"}`, [
+          { label: `Open ${po.number}`, run: flowGo.po(po) },
+        ]);
+      },
+    },
+  );
+}
+// Boot repair: a PO that issued with no vendor or a $0 line (PO-2026-049 in the review) goes back to draft,
+// says so on its record, and its materials return to the board.
+function poRepairInvalid() {
+  let n = 0;
+  (DB.pos || []).forEach((po) => {
+    if (!["issued", "partial"].includes(po.status)) return;
+    const R = poValid(po).filter((r) => /vendor|\$0|no lines/.test(r));
+    if (!R.length) return;
+    const p = (DB.projects || []).find((x) => x.id === po.projectId);
+    (po.status = "draft"), (po.repaired = { at: today(), why: R.join("; ") });
+    p &&
+      (po.lines || []).forEach((l) => {
+        const m = l.materialId && (p.materials || []).find((x) => x.id === l.materialId);
+        m &&
+          m.po === po.number &&
+          ["ordered", "shipped"].includes(m.status) &&
+          ((m.status = withProject(p, () => openDecisionFor("mat", m.id)) ? "needs-decision" : "not-ordered"),
+          (m.po = ""),
+          (m.orderedOn = ""),
+          (m.eta = ""));
+      });
+    try {
+      audit("po", po.id, "repaired", "issued", "draft", R.join("; "));
+    } catch (e) {}
+    n++;
+  });
+  return n && save(), n;
+}
+{
+  const base = finishBoot;
+  finishBoot = function () {
+    const r = base.apply(this, arguments);
+    try {
+      poRepairInvalid() && render();
+    } catch (e) {
+      console.warn("po repair", e);
+    }
+    return r;
+  };
+}
+if ("function" == typeof renderPODoc) {
+  const base = renderPODoc;
+  renderPODoc = function (po) {
+    const h = base.apply(this, arguments);
+    if (!po || !po.repaired) return h;
+    return (
+      `<div class="note warn"><b>Taken back to draft.</b> This order had issued with ${esc(po.repaired.why)}; its materials are back on the Buy Board. Choose the supplier and price the lines, then Issue PO. <span class="small muted">${fmt(po.repaired.at)}</span></div>` +
+      h
+    );
+  };
 }

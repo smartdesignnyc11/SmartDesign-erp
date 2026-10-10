@@ -47,6 +47,9 @@ TOAST = """() => { const t = document.getElementById('toast'); if (!t) return { 
 PDF = base64.b64decode(b'JVBERi0xLjQKMSAwIG9iajw8L1R5cGUvQ2F0YWxvZy9QYWdlcyAyIDAgUj4+ZW5kb2JqCjIgMCBvYmo8PC9UeXBlL1BhZ2VzL0tpZHNbXS9Db3VudCAwPj5lbmRvYmoKdHJhaWxlcjw8L1Jvb3QgMSAwIFI+Pg==')
 
 async def modal(pg): return await pg.evaluate(MODAL)
+async def refusal(pg):
+    """What a refused submit said: the toast, or the inline field message the modal layer turned it into."""
+    return await pg.evaluate("() => [((document.getElementById('toast') || {}).innerText || ''), ...[...document.querySelectorAll('#mbm .f-msg')].map(e => e.innerText)].join(' | ')")
 async def toast(pg): return await pg.evaluate(TOAST)
 async def click_rx(pg, rx, scope='body', timeout=5000, wait=600):
     loc = pg.locator(f'{scope} button:visible, {scope} a.btn:visible').filter(has_text=re.compile(rx)).first
@@ -123,15 +126,16 @@ async def s_release(p, c):
             need = await pg.evaluate("() => { const p = DB.projects.find(x => x.id === 'p121'); return withProject(p, () => matDates(p.materials.find(m => m.id === 'm17')).needBy); }")
             nb = next((f for f in m['fields'] if f['f'] == 'needBy'), None)
             c.ok(bool(nb) and nb['val'] == need, f"release: Needed on Site prefilled {nb and nb['val']!r}, the material needs it {need!r}")
-            c.ok('26 51 00' in m['text'] and '121 State' in m['text'] and 'Light fixtures' in m['text'], 'release: the picker names the spec section, the job and the item')
+            item = next((f for f in m['fields'] if f['f'] == 'item'), None)
+            c.ok('26 51 00' in m['text'] and '121 State' in m['text'] and bool(item) and 'Light fixtures' in item['val'], f"release: the picker names the spec section, the job and the item ({item and item['val']!r})")
             qty = next((f for f in m['fields'] if f['f'] == 'qty'), None)
             c.ok(bool(qty) and float(qty['val'] or 0) >= 1, 'release: a quantity is carried')
             # no supplier: refused
             n0 = await pg.evaluate("() => DB.pos.length")
             await modal_ok(pg)
-            m2 = await modal(pg); t = await toast(pg)
-            c.ok(bool(m2) and await pg.evaluate("() => DB.pos.length") == n0, f'release: Draft with no supplier is refused ({t["text"]!r})')
-            c.ok(re.search(r'supplier|vendor', t['text'], re.I), f'release: the refusal says why ({t["text"]!r})')
+            m2 = await modal(pg); why = await refusal(pg)
+            c.ok(bool(m2) and await pg.evaluate("() => DB.pos.length") == n0, f'release: Draft with no supplier is refused ({why!r})')
+            c.ok(re.search(r'supplier|vendor', why, re.I), f'release: the refusal says why ({why!r})')
             if m2:
                 opts = vend['opts'] if vend else []
                 pick = next((o for o in opts if o and not o.startswith('—')), None)
@@ -256,8 +260,8 @@ async def s_behalf(p, c):
         cs = await pg.evaluate("() => { const s = smFind('sb121lite').s, st = smStepOf(s); return st ? { role: st.role, name: st.name } : null; }")
         c.ok(cs and cs['role'] == 'client', f'behalf: the third step is the client ({cs})')
         if cs and cs['role'] == 'client':
-            r = await record_response(pg, 'approved')
-            c.ok(r and r['stayed'] and re.search(r'portal|stamped', r['toast']['text'], re.I), f"behalf: a client response with no stamped copy is refused ({r and r['toast']['text']!r})")
+            r = await record_response(pg, 'approved'); why = await refusal(pg)
+            c.ok(r and r['stayed'] and re.search(r'portal|stamped', why, re.I), f"behalf: a client response with no stamped copy is refused ({why!r})")
             if r and r['stayed']: await pg.keyboard.press('Escape'); await pg.wait_for_timeout(200)
             r2 = await record_response(pg, 'approved', file='Klein-approval-stamped.pdf')
             st2 = await pg.evaluate("() => { const s = smFind('sb121lite').s, r = smRev(s), x = r.steps.find(z => z.role === 'client'); return { by: x.by, recordedBy: x.recordedBy || '', evidence: x.evidence || '', portal: !!x.portal, status: s.status }; }")
