@@ -1538,6 +1538,11 @@ body.hb-on .mbm .btn.primary{background:var(--hb-orange);border-color:var(--hb-o
 .m-appr{background:var(--paper);border:1px solid var(--rule);border-left:4px solid var(--ink-4);border-radius:10px;padding:12px 14px} .m-appr.warn{border-left-color:var(--warn)} .m-appr.bad{border-left-color:var(--bad)}
 .m-appr-t{display:flex;justify-content:space-between;gap:10px;align-items:baseline;font-size:14.5px} .m-appr-n{font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums} .m-appr-d{color:var(--ink-2);font-size:12.5px;margin-top:3px} .m-appr-a{display:flex;gap:8px;margin-top:10px} .m-appr-a .btn{flex:1;justify-content:center;min-height:44px} .m-appr-a .btn.ghost{flex:0 0 auto}
 .m-appr-list{display:flex;flex-direction:column;gap:8px;max-width:720px}
+/* what the delegation handed to the others (DELEGATION): one line under the chips, the rows in a sheet */
+.m-appr-others{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:-2px 0 12px}
+.m-appr-olist{border:1px solid var(--rule);border-radius:8px;overflow:hidden}
+.m-appr-o{display:flex;align-items:center;gap:12px;padding:10px 12px;border-top:1px solid var(--rule-2)} .m-appr-o:first-child{border-top:0}
+.m-appr-o .grow{display:flex;flex-direction:column;min-width:0} .m-appr-o b{font-size:13.5px}
 .m-callbar{position:fixed;left:12px;right:12px;bottom:calc(80px + env(safe-area-inset-bottom));background:var(--ink);color:#fff;border-radius:12px;padding:10px 12px;display:flex;gap:8px;align-items:center;z-index:60;font-size:14px;box-shadow:0 10px 30px rgba(0,0,0,.3)} .m-callbar span{flex:1} .m-callbar .btn.ghost{color:#fff}
 .m-a2hs{background:rgba(255,255,255,.08);border-radius:8px;padding:10px;margin-bottom:10px;font-size:12px;color:rgba(255,255,255,.8)} .m-a2hs b{display:block;color:#fff} .m-a2hs span{display:block;margin:2px 0 8px}
 @media (max-width:760px){

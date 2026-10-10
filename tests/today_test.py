@@ -145,6 +145,47 @@ async def main():
                 await pulse_checks(c, pg, f'{tag} desktop')
             c.ok(not errs, f'{tag} desktop: errors {errs[:2]}')
             await b.close()
+        # ---- delegation: one item sits in exactly one person's queue; nothing is orphaned; the owner can still see it all
+        b, pg, errs = await open_app(p, False)
+        await sign_in(pg, 'u_owner')
+        KEY = "x => x.kind + '|' + x.id + ('lesson' === x.kind ? '|' + String(x.detail || '').slice(0, 24) : '')"
+        every = await pg.evaluate(f"() => mApprovals({{everyone: true}}).map({KEY})")
+        c.ok(len(every) >= 26, f'owner: everyone\'s queue holds {len(every)} items (was 26 before delegation)')
+        c.ok(len(set(every)) == len(every), f'owner: everyone\'s queue repeats {len(every) - len(set(every))} key(s)')
+        seen, counts = {}, {}
+        for uid, r in (('u_owner', 'owner'), ('u_alan', 'pm'), ('u_chen', 'coord'), ('u_billing', 'billing'), ('u_controller', 'controller')):
+            await sign_in(pg, uid)
+            q = await pg.evaluate(f"() => PRED.waitingOnMe.rows().map(x => [{KEY.split('=> ')[1]}, x.who])")
+            counts[r] = len(q)
+            bad = sorted(set(w for k, w in q if w != r))
+            c.ok(not bad, f'{r}: the queue holds items owned by {bad}')
+            for k, w in q: seen.setdefault(k, []).append(r)
+            if r == 'owner':
+                kinds = sorted(set(k.split('|')[0] for k, w in q))
+                c.ok(not set(kinds) & {'req', 'time', 'subm', 'meeting'}, f"owner: queue kinds {kinds}; field requests, hours, submittals and meetings belong to the PM and Chen")
+            if r == 'coord':
+                c.ok(any(k.startswith('req|') for k, w in q), 'coord: no material request to acknowledge in the queue')
+            if r == 'pm':
+                c.ok(sum(k.startswith('time|') for k, w in q) == 4, f"pm: {sum(k.startswith('time|') for k, w in q)} crew hours to approve, want 4")
+        dup = {k: v for k, v in seen.items() if len(v) > 1}
+        orphan = [k for k in every if k not in seen]
+        c.ok(not dup, f'{len(dup)} item(s) in two queues: {list(dup.items())[:3]}')
+        c.ok(not orphan, f'{len(orphan)} item(s) in nobody\'s queue: {orphan[:4]}')
+        c.ok(sum(counts.values()) == len(every), f'queues {counts} add to {sum(counts.values())}, everyone\'s holds {len(every)}')
+        print('delegation:', counts)
+        # the owner's Approvals still shows what waits on the others
+        await sign_in(pg, 'u_owner'); await go(pg, 'mapprove'); await pg.wait_for_timeout(250)
+        oth = await pg.evaluate("() => { const a = document.querySelector('.view.on .m-appr-others'); return a ? a.innerText.replace(/\\s+/g, ' ') : null; }")
+        c.ok(oth and str(len(every) - counts['owner']) in oth, f"owner: Approvals' Everyone line reads {oth!r}, want the {len(every) - counts['owner']} items on the others")
+        if oth:
+            vis = await pg.evaluate("() => { const b = document.querySelector('.view.on [data-mothers]'), r = b.getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight; }")
+            c.ok(vis, 'owner: the "wait on the others" line is below the first screen of Approvals')
+            await pg.click('.view.on [data-mothers]'); await pg.wait_for_timeout(250)
+            rows = await pg.evaluate("() => document.querySelectorAll('#mbm .m-appr-o').length")
+            c.ok(rows == len(every) - counts['owner'], f'owner: Waiting on the Others lists {rows} rows, want {len(every) - counts["owner"]}')
+            await pg.evaluate("() => mbCloseModal()")
+        c.ok(not errs, f'delegation: errors {errs[:2]}')
+        await b.close()
         # ---- the other roles keep their Home
         b, pg, errs = await open_app(p, False)
         for uid in ('u_chen', 'u_billing', 'u_controller'):
