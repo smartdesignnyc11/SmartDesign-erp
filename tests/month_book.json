@@ -1,0 +1,9008 @@
+{
+ "title": "SmartDesign — a month of the company, September 2026 (invented)",
+ "seed": 20260903,
+ "days": [
+  "2026-09-03",
+  "2026-09-04",
+  "2026-09-08",
+  "2026-09-09",
+  "2026-09-10",
+  "2026-09-11",
+  "2026-09-14",
+  "2026-09-15",
+  "2026-09-16",
+  "2026-09-17",
+  "2026-09-18",
+  "2026-09-21",
+  "2026-09-22",
+  "2026-09-23",
+  "2026-09-24",
+  "2026-09-25",
+  "2026-09-28",
+  "2026-09-29",
+  "2026-09-30",
+  "2026-10-01",
+  "2026-10-02"
+ ],
+ "note": "Invented data only. Every name, address, amount and reference is invented and matches the seed.",
+ "events": [
+  {
+   "id": "E001",
+   "day": "2026-09-03",
+   "time": "06:00",
+   "kind": "client",
+   "actor": "u_klein",
+   "payload": {
+    "do": "hold",
+    "decision": "d2",
+    "until": "2026-09-21"
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "The Kleins sit on the 3rd floor tile (needed 9/16): chase them once it is past due, before the tile order slips",
+    "by": 11,
+    "see": [
+     "3rd floor tile"
+    ],
+    "check": {
+     "t": "outreach",
+     "to": "klein",
+     "after": "2026-09-16"
+    },
+    "days": 4
+   },
+   "tags": [
+    "a client decision held late"
+   ]
+  },
+  {
+   "id": "E002",
+   "day": "2026-09-03",
+   "time": "06:01",
+   "kind": "client",
+   "actor": "u_klein",
+   "payload": {
+    "do": "choose",
+    "decision": "d8",
+    "option": 1,
+    "on": "2026-09-08"
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "The Kleins choose the Zellige on 9/8 (+$1,850 over allowance): raise the change order",
+    "by": 5,
+    "see": [
+     "1,850",
+     "Zellige"
+    ],
+    "check": {
+     "t": "co",
+     "project": "p121",
+     "amount": 1850,
+     "rx": "bathroom|Zellige|finishes",
+     "status": [
+      "sent",
+      "approved"
+     ]
+    },
+    "money": 1850
+   },
+   "tags": [
+    "r5 pm #2",
+    "an approved overage to a CO"
+   ]
+  },
+  {
+   "id": "E003",
+   "day": "2026-09-03",
+   "time": "06:02",
+   "kind": "client",
+   "actor": "u_klein",
+   "payload": {
+    "do": "choose",
+    "decision": "d6",
+    "match": "Calacatta|honed|stone",
+    "on": "2026-09-03"
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "Record the Kleins' mailed backsplash choice (honed Calacatta) on the decision, so the portal stops asking them",
+    "by": 2,
+    "see": [
+     "backsplash"
+    ],
+    "check": {
+     "t": "decision",
+     "project": "p121",
+     "id": "d6",
+     "choice": "Calacatta|honed|stone",
+     "notBy": "Klein"
+    }
+   },
+   "tags": [
+    "§1.7 #7",
+    "a decision made by mail"
+   ]
+  },
+  {
+   "id": "E004",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "actor": "the seed",
+   "payload": {
+    "note": "Invoice PDF in the mailbox names PO-2026-048"
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Enter Carlos Millwork CM-0102 ($19,000) against PO-2026-048 on 121 State",
+    "by": 2,
+    "see": [
+     "CM-0102"
+    ],
+    "check": {
+     "t": "bill",
+     "number": "CM-0102",
+     "poNumber": "PO-2026-048",
+     "projectId": "p121"
+    },
+    "money": 19000
+   },
+   "tags": [
+    "r5 coord #2",
+    "r5 controller #13"
+   ]
+  },
+  {
+   "id": "E005",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "actor": "the seed",
+   "payload": {
+    "note": ""
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Carlos CM-0102 sits in Billing's and Chen's mailboxes: it becomes one bill, not two",
+    "by": 3,
+    "see": [
+     "CM-0102"
+    ],
+    "check": {
+     "t": "billOnce",
+     "number": "CM-0102"
+    },
+    "money": 19000
+   },
+   "tags": [
+    "duplicate entry"
+   ]
+  },
+  {
+   "id": "E006",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "actor": "the seed",
+   "payload": {
+    "note": ""
+   },
+   "expect": {
+    "who": "u_billing",
+    "what": "Enter Alberto M Plumbing AMP-318 ($4,600) on 121 State",
+    "by": 2,
+    "see": [
+     "AMP-318"
+    ],
+    "check": {
+     "t": "bill",
+     "number": "AMP-318",
+     "projectId": "p121"
+    },
+    "money": 4600
+   },
+   "tags": [
+    "r5 pm #9"
+   ]
+  },
+  {
+   "id": "E007",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "actor": "the seed",
+   "payload": {
+    "note": ""
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Apply Nemo Tile's quote Q-2271: $2,880 on the garden bath tile line",
+    "by": 2,
+    "see": [
+     "Q-2271"
+    ],
+    "check": {
+     "t": "mat",
+     "project": "p121",
+     "id": "m9",
+     "cost": 2880
+    }
+   },
+   "tags": [
+    "r5 coord #6"
+   ]
+  },
+  {
+   "id": "E008",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "actor": "the seed",
+   "payload": {
+    "note": ""
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "File the Window Works COI (policy to 8/15/2027) so the compliance block clears",
+    "by": 2,
+    "see": [
+     "Window Works"
+    ],
+    "check": {
+     "t": "coi",
+     "vendor": "Window Works",
+     "expAfter": "2027-01-01"
+    }
+   },
+   "tags": [
+    "demo_ws"
+   ]
+  },
+  {
+   "id": "E009",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "actor": "the seed",
+   "payload": {
+    "note": ""
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Move PO-2026-047 (Tino, white oak) to Tino's confirmed delivery Friday 9/18",
+    "by": 1,
+    "see": [
+     "white oak",
+     "Tino"
+    ],
+    "check": {
+     "t": "poEta",
+     "number": "PO-2026-047",
+     "eta": "2026-09-18"
+    }
+   },
+   "tags": [
+    "r5 coord #8",
+    "§1.7 #4"
+   ]
+  },
+  {
+   "id": "E010",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "actor": "the seed",
+   "payload": {
+    "note": ""
+   },
+   "expect": {
+    "who": "u_alex",
+    "what": "Pick up Brooklyn Lumber order 88412 (25 GWB, 6 cement board, already paid) for 121 State",
+    "by": 2,
+    "see": [
+     "88412",
+     "GWB"
+    ],
+    "check": {
+     "t": "request",
+     "project": "p121",
+     "what": "GWB|cement board|88412",
+     "status": [
+      "bought",
+      "delivered",
+      "picked",
+      "done"
+     ]
+    }
+   },
+   "tags": [
+    "r5 coord #8",
+    "§1.7 #5"
+   ]
+  },
+  {
+   "id": "E011",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "actor": "the seed",
+   "payload": {
+    "note": ""
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Put Angel's emailed ask (25 GWB + cement board by Thursday) on the Buy Board",
+    "by": 1,
+    "see": [
+     "GWB"
+    ],
+    "check": {
+     "t": "request",
+     "project": "p121",
+     "what": "GWB|cement board",
+     "status": [
+      "new",
+      "ack",
+      "bought",
+      "delivered",
+      "ordered"
+     ]
+    }
+   },
+   "tags": [
+    "§1.7 #5"
+   ]
+  },
+  {
+   "id": "E012",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "actor": "the seed",
+   "payload": {
+    "note": ""
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Match the Bedrosians $215 card credit to its return (credit memo for 12 boxes Cloe)",
+    "by": 3,
+    "see": [
+     "BEDROSIANS"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "BEDROSIANS TILE CREDIT MEMO",
+     "matched": true
+    },
+    "money": 214.5
+   },
+   "tags": [
+    "§1.5 #4",
+    "r5 coord #8"
+   ]
+  },
+  {
+   "id": "E013",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "actor": "the seed",
+   "payload": {
+    "note": ""
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Code the 9/1 Home Depot card line to 121 State (the receipt names the job)",
+    "by": 3,
+    "see": [
+     "HOME DEPOT"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "HOME DEPOT PRO SCREWS BLOCKING",
+     "coded": true,
+     "project": "p121"
+    }
+   },
+   "tags": [
+    "r5 coord #9"
+   ]
+  },
+  {
+   "id": "E014",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "actor": "the seed",
+   "payload": {
+    "note": ""
+   },
+   "expect": {
+    "who": "u_angel",
+    "what": "See the DOB plumbing inspection (9/8, 8–12) on Today before the day",
+    "by": 2,
+    "see": [
+     "plumbing inspection",
+     "inspection"
+    ],
+    "check": {
+     "t": "seenBy",
+     "uid": "u_angel"
+    }
+   },
+   "tags": [
+    "§1.7 #1",
+    "§1.7 #9"
+   ]
+  },
+  {
+   "id": "E015",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "actor": "the seed",
+   "payload": {
+    "note": ""
+   },
+   "expect": {
+    "who": "u_sarah",
+    "what": "LPC's brick mold comment on 121 State becomes Sarah's dated revise-and-resubmit task",
+    "by": 2,
+    "see": [
+     "brick mold"
+    ],
+    "check": {
+     "t": "task",
+     "assignee": "Sarah",
+     "title": "LPC|brick mold|resubmit"
+    }
+   },
+   "tags": [
+    "r5 pm #10"
+   ]
+  },
+  {
+   "id": "E016",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "actor": "the seed",
+   "payload": {
+    "note": ""
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "The Kleins' dated ask (confirm the laundry layout before Friday) becomes the PM's task due 9/4",
+    "by": 1,
+    "see": [
+     "laundry layout"
+    ],
+    "check": {
+     "t": "task",
+     "assignee": "Alan",
+     "title": "laundry"
+    }
+   },
+   "tags": [
+    "§1.7 #7"
+   ]
+  },
+  {
+   "id": "E017",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "actor": "the seed",
+   "payload": {
+    "note": ""
+   },
+   "expect": {
+    "who": "u_billing",
+    "what": "Watch for the Jessops' $12,000 wire; record it when it lands",
+    "by": 3,
+    "see": [
+     "12,000",
+     "Jessop"
+    ],
+    "check": {
+     "t": "payment",
+     "client": "cl140",
+     "amount": 12000
+    },
+    "money": 12000
+   },
+   "tags": [
+    "demo_ws"
+   ]
+  },
+  {
+   "id": "E018",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "actor": "the seed",
+   "payload": {
+    "note": ""
+   },
+   "expect": {
+    "who": "u_owner",
+    "what": "Follow up with Marcus Bell on the 77 Bleecker proposal (quiet lead)",
+    "by": 3,
+    "see": [
+     "Marcus Bell"
+    ],
+    "check": {
+     "t": "outreach",
+     "to": "marcus.bell|Marcus Bell"
+    }
+   },
+   "tags": [
+    "§1.7 #8",
+    "r5 owner #5"
+   ]
+  },
+  {
+   "id": "E019",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "actor": "the seed",
+   "payload": {
+    "note": ""
+   },
+   "expect": {
+    "who": "u_owner",
+    "what": "Answer Sofia Adler (new inquiry in the mailbox)",
+    "by": 2,
+    "see": [
+     "Sofia Adler",
+     "Adler"
+    ],
+    "check": {
+     "t": "outreach",
+     "to": "adler"
+    }
+   },
+   "tags": [
+    "demo_ws"
+   ]
+  },
+  {
+   "id": "E020",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "actor": "the seed",
+   "payload": {
+    "note": ""
+   },
+   "expect": {
+    "who": "u_owner",
+    "what": "Return the answering-service call from Robert Torres",
+    "by": 1,
+    "see": [
+     "Robert Torres",
+     "Torres"
+    ],
+    "check": {
+     "t": "task",
+     "title": "Torres|call",
+     "anyone": true
+    }
+   },
+   "tags": [
+    "§1.7 #11"
+   ]
+  },
+  {
+   "id": "E021",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "actor": "the seed",
+   "payload": {
+    "note": ""
+   },
+   "expect": {
+    "who": "u_sarah",
+    "what": "Send the revised A-301 (42 inch landing) to the Kleins by Friday 9/4 (promise at the site walk)",
+    "by": 1,
+    "see": [
+     "Revised Drawings",
+     "A-301"
+    ],
+    "check": {
+     "t": "task",
+     "title": "Send Revised Drawings",
+     "assignee": "Sarah",
+     "done": true
+    }
+   },
+   "tags": [
+    "§1.5 #6",
+    "r5 pm (her My Day)"
+   ]
+  },
+  {
+   "id": "E022",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "actor": "the seed",
+   "payload": {
+    "note": ""
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "Book the DOB rough plumbing inspection (meeting task due 9/14)",
+    "by": 7,
+    "see": [
+     "Book Rough Inspection",
+     "rough plumbing inspection"
+    ],
+    "check": {
+     "t": "insp",
+     "project": "p121",
+     "id": "i3",
+     "status": [
+      "scheduled",
+      "passed",
+      "booked"
+     ]
+    },
+    "days": 3
+   },
+   "tags": [
+    "r5 pm #5"
+   ]
+  },
+  {
+   "id": "E023",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "actor": "the seed",
+   "payload": {
+    "note": ""
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Confirm the 3rd floor tile stock with Nemo (meeting task due 9/3)",
+    "by": 1,
+    "see": [
+     "Confirm Tile Stock",
+     "tile stock"
+    ],
+    "check": {
+     "t": "task",
+     "title": "Confirm Tile Stock",
+     "done": true
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E024",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "actor": "the seed",
+   "payload": {
+    "note": ""
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Chase Tino's missing COI (no new PO until it arrives); the chase must reach Tino",
+    "by": 2,
+    "see": [
+     "Tino"
+    ],
+    "check": {
+     "t": "outreach",
+     "to": "tino"
+    }
+   },
+   "tags": [
+    "r5 owner #5",
+    "r5 coord #7"
+   ]
+  },
+  {
+   "id": "E025",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "actor": "the seed",
+   "payload": {
+    "note": ""
+   },
+   "expect": {
+    "who": "u_owner",
+    "what": "Approve WW-2026-118 at the PO amount ($29,700) and dispute the $3,800 difference",
+    "by": 1,
+    "see": [
+     "WW-2026-118"
+    ],
+    "check": {
+     "t": "billShort",
+     "number": "WW-2026-118",
+     "approved": 29700
+    },
+    "money": 3800
+   },
+   "tags": [
+    "payables"
+   ]
+  },
+  {
+   "id": "E026",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "actor": "the seed",
+   "payload": {
+    "note": ""
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "Review AMP-311 ($9,800, paid before approval)",
+    "by": 2,
+    "see": [
+     "AMP-311"
+    ],
+    "check": {
+     "t": "bill",
+     "number": "AMP-311",
+     "status": [
+      "approved",
+      "paid",
+      "verified",
+      "pm-approved"
+     ]
+    },
+    "money": 9800
+   },
+   "tags": []
+  },
+  {
+   "id": "E027",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "actor": "the seed",
+   "payload": {
+    "note": ""
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Void or dispute the duplicate $1,650 dumpster charge (8/21 and again 8/22)",
+    "by": 3,
+    "see": [
+     "Dumpster",
+     "duplicate"
+    ],
+    "check": {
+     "t": "dup",
+     "desc": "Dumpster|DUMPSTER",
+     "amt": -1650
+    },
+    "money": 1650
+   },
+   "tags": [
+    "§1.1 #5"
+   ]
+  },
+  {
+   "id": "E028",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "actor": "the seed",
+   "payload": {
+    "note": ""
+   },
+   "expect": {
+    "who": "u_owner",
+    "what": "Approve the 8/17–8/28 payroll run ($16,040, past due; the Owner approves payroll)",
+    "by": 1,
+    "see": [
+     "16,040",
+     "payroll",
+     "Payroll"
+    ],
+    "check": {
+     "t": "payroll",
+     "id": "pr1",
+     "status": [
+      "approved",
+      "paid"
+     ]
+    },
+    "money": 16040
+   },
+   "tags": []
+  },
+  {
+   "id": "E029",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "actor": "the seed",
+   "payload": {
+    "note": ""
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Enter Satish SE-0922 ($7,400) and match it to the 9/2 ACH",
+    "by": 3,
+    "see": [
+     "SE-0922",
+     "Satish"
+    ],
+    "check": {
+     "t": "bill",
+     "number": "SE-0922"
+    },
+    "money": 7400
+   },
+   "tags": [
+    "r5 controller #13"
+   ]
+  },
+  {
+   "id": "E030",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "actor": "the seed",
+   "payload": {
+    "note": ""
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Import the Amex August statement from the mailbox and reconcile Amex August",
+    "by": 5,
+    "see": [
+     "Amex",
+     "statement"
+    ],
+    "check": {
+     "t": "recon",
+     "acct": "ac2",
+     "month": "2026-08"
+    }
+   },
+   "tags": [
+    "§1.7 #12",
+    "r5 controller #13"
+   ]
+  },
+  {
+   "id": "E031",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "actor": "the seed",
+   "payload": {
+    "note": ""
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Answer Angel's insulation question (ETA 9/16 vs needed 9/14) and expedite",
+    "by": 1,
+    "see": [
+     "Insulation"
+    ],
+    "check": {
+     "t": "raise",
+     "title": "Insulation"
+    },
+    "days": 2
+   },
+   "tags": []
+  },
+  {
+   "id": "E032",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "actor": "the seed",
+   "payload": {
+    "note": ""
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Acknowledge Alberto's 40 studs request so Alex can buy them",
+    "by": 1,
+    "see": [
+     "studs"
+    ],
+    "check": {
+     "t": "request",
+     "project": "p121",
+     "what": "studs",
+     "status": [
+      "ack",
+      "bought",
+      "delivered"
+     ]
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E033",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "actor": "the seed",
+   "payload": {
+    "note": ""
+   },
+   "expect": {
+    "who": "u_billing",
+    "what": "Bill the 45 Cranberry filing milestone ($17,080)",
+    "by": 2,
+    "see": [
+     "17,080",
+     "45 Cranberry"
+    ],
+    "check": {
+     "t": "invoice",
+     "client": "cl45",
+     "amount": 17080
+    },
+    "money": 17080
+   },
+   "tags": [
+    "§1.5 #2"
+   ]
+  },
+  {
+   "id": "E034",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "actor": "the seed",
+   "payload": {
+    "note": ""
+   },
+   "expect": {
+    "who": "u_billing",
+    "what": "Bill the 19.5 banked design hours on 140 Prospect ($3,900)",
+    "by": 5,
+    "see": [
+     "3,900",
+     "19.5"
+    ],
+    "check": {
+     "t": "invoice",
+     "client": "cl140",
+     "amount": 3900
+    },
+    "money": 3900
+   },
+   "tags": [
+    "§1.5 #2"
+   ]
+  },
+  {
+   "id": "E035",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "actor": "the seed",
+   "payload": {
+    "note": ""
+   },
+   "expect": {
+    "who": "u_billing",
+    "what": "Bill back the Waterworks faucet bought on the Amex for the Kleins (9/2, $1,900)",
+    "by": 10,
+    "see": [
+     "Waterworks",
+     "WATERWORKS"
+    ],
+    "check": {
+     "t": "rebilled",
+     "desc": "WATERWORKS",
+     "amt": -1900
+    },
+    "money": 1900
+   },
+   "tags": [
+    "§1.5 #1"
+   ]
+  },
+  {
+   "id": "E036",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "actor": "the seed",
+   "payload": {
+    "note": ""
+   },
+   "expect": {
+    "who": "u_billing",
+    "what": "Bill the floating client purchases on the windows line ($13,970 spent beyond what the Kleins paid for)",
+    "by": 15,
+    "see": [
+     "13,970",
+     "Windows"
+    ],
+    "check": {
+     "t": "rtbGone",
+     "rx": "Windows",
+     "kind": "spUnbilled"
+    },
+    "money": 13970
+   },
+   "tags": [
+    "§1.5 #1",
+    "§1.5 #2"
+   ]
+  },
+  {
+   "id": "E037",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "actor": "the seed",
+   "payload": {
+    "note": ""
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "Answer the Restoration crew no-show: rebook Tomas and slip or protect Restoration",
+    "by": 1,
+    "see": [
+     "Restoration crew",
+     "Tomas"
+    ],
+    "check": {
+     "t": "raise",
+     "title": "Restoration crew"
+    },
+    "days": 2
+   },
+   "tags": [
+    "r5 pm #4"
+   ]
+  },
+  {
+   "id": "E038",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "actor": "the seed",
+   "payload": {
+    "note": ""
+   },
+   "expect": {
+    "who": "u_sarah",
+    "what": "Answer Angel's exposed-beam question (3\" or 2\" drop) before 9/4",
+    "by": 1,
+    "see": [
+     "Exposed-beam",
+     "Exposed beam"
+    ],
+    "check": {
+     "t": "raise",
+     "title": "Exposed-beam"
+    },
+    "days": 1
+   },
+   "tags": []
+  },
+  {
+   "id": "E039",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "actor": "the seed",
+   "payload": {
+    "note": ""
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "Write the change order for the notched joist sistering (\"I will write the CO\")",
+    "by": 3,
+    "see": [
+     "joist"
+    ],
+    "check": {
+     "t": "co",
+     "project": "p121",
+     "rx": "joist|sister",
+     "status": [
+      "sent",
+      "approved"
+     ]
+    },
+    "money": 1450
+   },
+   "tags": [
+    "r5 pm #3",
+    "r5 ops"
+   ]
+  },
+  {
+   "id": "E040",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "actor": "the seed",
+   "payload": {
+    "note": ""
+   },
+   "expect": {
+    "who": "u_klein",
+    "what": "Sign CO-2026-002 ($1,850, sand and stain the 3rd floor treads)",
+    "by": 2,
+    "see": [
+     "CO-2026-002"
+    ],
+    "check": {
+     "t": "coStatus",
+     "number": "CO-2026-002",
+     "status": [
+      "approved"
+     ]
+    },
+    "money": 1850
+   },
+   "tags": []
+  },
+  {
+   "id": "E041",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "actor": "the seed",
+   "payload": {
+    "note": ""
+   },
+   "expect": {
+    "who": "u_klein",
+    "what": "Approve the garden bathroom tile sample by 9/9 so it can be ordered",
+    "by": 4,
+    "see": [
+     "Garden bathroom tile"
+    ],
+    "check": {
+     "t": "subm",
+     "project": "p121",
+     "id": "sb121tile2",
+     "status": [
+      "approved",
+      "noted",
+      "closed"
+     ]
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E042",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "actor": "the seed",
+   "payload": {
+    "note": ""
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "Take the 3rd floor lighting submittal (26 51 00-001) to Release Order",
+    "by": 8,
+    "see": [
+     "26 51 00-001",
+     "Lighting fixtures"
+    ],
+    "check": {
+     "t": "subm",
+     "project": "p121",
+     "id": "sb121lite",
+     "status": [
+      "approved",
+      "noted",
+      "closed",
+      "released"
+     ]
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E043",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "actor": "the seed",
+   "payload": {
+    "note": ""
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Issue the 3rd floor lighting PO with a vendor and a price (no $0, no blank vendor)",
+    "by": 12,
+    "see": [
+     "Light fixtures",
+     "lighting"
+    ],
+    "check": {
+     "t": "po",
+     "project": "p121",
+     "mat": "m17"
+    }
+   },
+   "tags": [
+    "r5 coord #1",
+    "§1.4 #1"
+   ]
+  },
+  {
+   "id": "E044",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "actor": "the seed",
+   "payload": {
+    "note": ""
+   },
+   "expect": {
+    "who": "u_billing",
+    "what": "Resolve the two Rivera payments recorded but not in the bank ($5,000 7/30, $16,350 8/14)",
+    "by": 5,
+    "see": [
+     "Rivera"
+    ],
+    "check": {
+     "t": "riveraFixed"
+    },
+    "money": 21350
+   },
+   "tags": []
+  },
+  {
+   "id": "E045",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "actor": "the seed",
+   "payload": {
+    "note": ""
+   },
+   "expect": {
+    "who": "u_owner",
+    "what": "File the LLC biennial statement before 9/28",
+    "by": 17,
+    "see": [
+     "biennial"
+    ],
+    "check": {
+     "t": "oblig",
+     "rx": "biennial"
+    }
+   },
+   "tags": [
+    "owner"
+   ]
+  },
+  {
+   "id": "E046",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "actor": "the seed",
+   "payload": {
+    "note": ""
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Order the late Trim, doors, paint & hardware line (order-by 8/24 passed)",
+    "by": 3,
+    "see": [
+     "Trim, doors"
+    ],
+    "check": {
+     "t": "po",
+     "project": "p121",
+     "item": "Trim|casing|Base molding|doors"
+    },
+    "days": 3
+   },
+   "tags": []
+  },
+  {
+   "id": "E047",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "actor": "the seed",
+   "payload": {
+    "note": ""
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Order the parlor kitchen countertop slab (order-by 9/1 passed)",
+    "by": 5,
+    "see": [
+     "countertop slab"
+    ],
+    "check": {
+     "t": "po",
+     "project": "p121",
+     "mat": "m19"
+    },
+    "days": 3
+   },
+   "tags": []
+  },
+  {
+   "id": "E048",
+   "day": "2026-09-03",
+   "time": "07:00",
+   "kind": "seed",
+   "actor": "the seed",
+   "payload": {
+    "note": ""
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "Confirm the meeting proposals from the Team Catch Up (8/28) so nothing is created unseen",
+    "by": 2,
+    "see": [
+     "Team Catch Up"
+    ],
+    "check": {
+     "t": "meeting",
+     "rx": "Team Catch Up"
+    }
+   },
+   "tags": [
+    "§1.7 #2"
+   ]
+  },
+  {
+   "id": "E049",
+   "day": "2026-09-03",
+   "time": "07:40",
+   "kind": "bank",
+   "actor": "Amex 1009",
+   "payload": {
+    "acct": "ac2",
+    "date": "2026-09-03",
+    "desc": "SHELL OIL 57442 BROOKLYN",
+    "amt": -68.2,
+    "ref": "AC2-20260903-06820"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Code van fuel to overhead",
+    "by": 3,
+    "see": [
+     "SHELL OIL 57442 BROOKL"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "SHELL OIL 57442 BROOKL",
+     "coded": true
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E050",
+   "day": "2026-09-03",
+   "time": "19:30",
+   "kind": "client",
+   "actor": "u_klein",
+   "payload": {
+    "do": "coAsk",
+    "number": "CO-2026-002",
+    "text": "Does the $1,850 include refinishing the landing?"
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "Answer Sarah Klein's question on CO-2026-002 (does it include the landing?)",
+    "by": 1,
+    "see": [
+     "landing"
+    ],
+    "check": {
+     "t": "clientAnswered",
+     "project": "p121",
+     "rx": "landing"
+    }
+   },
+   "tags": [
+    "r5 client #3"
+   ]
+  },
+  {
+   "id": "E051",
+   "day": "2026-09-04",
+   "time": "07:30",
+   "kind": "bank",
+   "actor": "Amex 1009",
+   "payload": {
+    "acct": "ac2",
+    "date": "2026-09-04",
+    "desc": "THE HOME DEPOT #6177 BROOKLYN NY",
+    "amt": -487.36,
+    "ref": "AC2-20260904-48736"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Code the Home Depot blocking lumber to 121 State",
+    "by": 3,
+    "see": [
+     "THE HOME DEPOT #6177 B"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "HOME DEPOT #6177",
+     "coded": true,
+     "project": "p121"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E052",
+   "day": "2026-09-04",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_angel",
+    "what": "Daily logs filed for every working day of 9/3–9/4 on 121 State",
+    "by": 1,
+    "see": [
+     "Daily Log",
+     "log"
+    ],
+    "check": {
+     "t": "logs",
+     "project": "p121",
+     "days": [
+      "2026-09-03",
+      "2026-09-04"
+     ]
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E053",
+   "day": "2026-09-04",
+   "time": "10:30",
+   "kind": "mail",
+   "actor": "Kings Insurance Agency",
+   "payload": {
+    "from": "Kings Insurance Agency <certs@kingsins.example>",
+    "to": [
+     "Chen Biron <chen@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Certificate of insurance — Tomas Restoration",
+    "text": "Attached is the certificate for Tomas Restoration naming SmartDesign Group LLC.",
+    "att": [
+     {
+      "filename": "COI-Tomas-Restoration.pdf",
+      "text": "CERTIFICATE OF LIABILITY INSURANCE\nInsured: Tomas Restoration\nCertificate holder: SmartDesign Group LLC\nCommercial General Liability — Policy Period 09/15/2025 to 09/15/2026\nWorkers Compensation — Policy Period 09/15/2025 to 09/15/2026\nDescription of operations: masonry and brownstone restoration, 121 State Street, Brooklyn."
+     }
+    ],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "File Tomas Restoration's COI (it runs to 9/15)",
+    "by": 2,
+    "see": [
+     "Tomas Restoration"
+    ],
+    "check": {
+     "t": "coi",
+     "vendor": "Tomas Restoration|Restoration",
+     "expAfter": "2026-09-14"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E054",
+   "day": "2026-09-04",
+   "time": "14:10",
+   "kind": "mail",
+   "actor": "Carlos Millwork",
+   "payload": {
+    "from": "Carlos Millwork <carlos@carlosmillwork.example>",
+    "to": [
+     "Sarah Davis <sarah@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Shop drawings — 121 State office portals",
+    "text": "Sarah, shop drawings for the office portals attached for your review. Carlos",
+    "att": [
+     {
+      "filename": "Portals-shop-drawings.pdf",
+      "text": "CARLOS MILLWORK — 121 State office portals — shop drawings rev 0"
+     }
+    ],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_sarah",
+    "what": "Review the office portal shop drawings",
+    "by": 4,
+    "see": [
+     "office portals"
+    ],
+    "check": {
+     "t": "seenBy",
+     "uid": "u_sarah"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E055",
+   "day": "2026-09-04",
+   "time": "15:30",
+   "kind": "field",
+   "actor": "u_angel",
+   "payload": {
+    "do": "pct",
+    "project": "p121",
+    "taskId": "frame",
+    "pct": 100,
+    "note": "Framing and blocking on the 3rd floor complete"
+   },
+   "expect": {
+    "who": "u_billing",
+    "what": "Bill the measured work (frame at 100%) on the month-end application",
+    "by": 17,
+    "see": [
+     "121 State"
+    ],
+    "check": {
+     "t": "lineBilled",
+     "project": "p121",
+     "taskId": "frame",
+     "pct": 100
+    }
+   },
+   "tags": [
+    "§1.5 #2",
+    "work done, not billed"
+   ]
+  },
+  {
+   "id": "E056",
+   "day": "2026-09-08",
+   "time": "07:10",
+   "kind": "mail",
+   "actor": "Tomas Restoration",
+   "payload": {
+    "from": "Tomas Restoration <tomas@tomasrestoration.example>",
+    "to": [
+     "Alan <alan.pm@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "121 State — sorry about Thursday",
+    "text": "Alan, sorry about Thursday, my truck broke down. We will be there Monday 9/14 at 7.",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "Rebook Tomas for 9/14 and confirm the day before",
+    "by": 2,
+    "see": [
+     "Tomas",
+     "Restoration"
+    ],
+    "check": {
+     "t": "confirmSub",
+     "rx": "Tomas|Restoration"
+    },
+    "days": 2
+   },
+   "tags": []
+  },
+  {
+   "id": "E057",
+   "day": "2026-09-08",
+   "time": "07:30",
+   "kind": "bank",
+   "actor": "Chase 4471",
+   "payload": {
+    "acct": "ac1",
+    "date": "2026-09-08",
+    "desc": "WIRE IN JESSOP J",
+    "amt": 12000.0,
+    "ref": "AC1-20260908-00000"
+   },
+   "expect": {
+    "who": "u_billing",
+    "what": "Record the Jessops' $12,000 wire on INV-2026-D140-R",
+    "by": 2,
+    "see": [
+     "12,000"
+    ],
+    "check": {
+     "t": "payment",
+     "client": "cl140",
+     "amount": 12000
+    },
+    "money": 12000
+   },
+   "tags": []
+  },
+  {
+   "id": "E058",
+   "day": "2026-09-08",
+   "time": "07:31",
+   "kind": "bank",
+   "actor": "Amex 1009",
+   "payload": {
+    "acct": "ac2",
+    "date": "2026-09-08",
+    "desc": "RESTORATION HARDWARE 0412 NEW YORK NY",
+    "amt": -1268.4,
+    "ref": "AC2-20260908-26840"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Code the Kleins' pendants (Restoration Hardware) to 121 State as billable",
+    "by": 3,
+    "see": [
+     "RESTORATION HARDWARE 0"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "RESTORATION HARDWARE",
+     "coded": true,
+     "project": "p121"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E059",
+   "day": "2026-09-08",
+   "time": "07:32",
+   "kind": "bank",
+   "actor": "Home Depot 7720",
+   "payload": {
+    "acct": "ac3",
+    "date": "2026-09-08",
+    "desc": "THE HOME DEPOT #6166 BROOKLYN NY",
+    "amt": -342.18,
+    "ref": "AC3-20260908-34218"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Code the Home Depot screws and adhesive to 121 State",
+    "by": 3,
+    "see": [
+     "THE HOME DEPOT #6166 B"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "HOME DEPOT #6166",
+     "coded": true,
+     "project": "p121"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E060",
+   "day": "2026-09-08",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_alan",
+    "what": "Review CM-0102 for payment",
+    "by": 3,
+    "see": [
+     "CM-0102"
+    ],
+    "check": {
+     "t": "bill",
+     "number": "CM-0102",
+     "status": [
+      "approved",
+      "paid",
+      "verified",
+      "pm-approved"
+     ]
+    },
+    "money": 19000
+   },
+   "tags": [
+    "approval"
+   ]
+  },
+  {
+   "id": "E061",
+   "day": "2026-09-08",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_alan",
+    "what": "Approve the crew hours for 8/31–9/4",
+    "by": 2,
+    "see": [
+     "hours",
+     "Hours"
+    ],
+    "check": {
+     "t": "hours",
+     "from": "2026-08-31",
+     "to": "2026-09-04"
+    }
+   },
+   "tags": [
+    "payroll"
+   ]
+  },
+  {
+   "id": "E062",
+   "day": "2026-09-08",
+   "time": "08:10",
+   "kind": "field",
+   "actor": "u_angel",
+   "payload": {
+    "do": "raise",
+    "project": "p121",
+    "type": "rfi",
+    "title": "Laundry closet depth: A-201 says 30\", field measures 28\" — which wins?",
+    "note": "Carlos needs it before the boxes are cut.",
+    "taskId": "millpk"
+   },
+   "expect": {
+    "who": "u_sarah",
+    "what": "Answer Angel's laundry closet depth question",
+    "by": 1,
+    "see": [
+     "Laundry closet depth"
+    ],
+    "check": {
+     "t": "raise",
+     "title": "Laundry closet depth"
+    },
+    "days": 2
+   },
+   "tags": []
+  },
+  {
+   "id": "E063",
+   "day": "2026-09-08",
+   "time": "08:40",
+   "kind": "mail",
+   "actor": "Alberto M Plumbing",
+   "payload": {
+    "from": "Alberto M Plumbing <office@albertomplumbing.example>",
+    "to": [
+     "Chen Biron <chen@smartdesign.nyc>"
+    ],
+    "cc": [
+     "Billing <billing@smartdesign.nyc>"
+    ],
+    "subject": "Invoice AMP-325 — 121 State rough plumbing progress",
+    "text": "Chen,\n\nProgress invoice AMP-325 attached for the 121 State rough plumbing, 50% of the rough. Net 15.\n\nAlberto M Plumbing",
+    "att": [
+     {
+      "filename": "AMP-325.pdf",
+      "text": "ALBERTO M PLUMBING LLC\nInvoice No. AMP-325\nDate: 09/08/2026\nBill To: SmartDesign Group LLC\nJob: 121 State Street — rough plumbing\nRough plumbing, 50% of rough-in   $6,200.00\n\nAmount Due: $6,200.00\nDue September 23, 2026"
+     }
+    ],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Enter AMP-325 ($6,200) on 121 State",
+    "by": 2,
+    "see": [
+     "AMP-325"
+    ],
+    "check": {
+     "t": "bill",
+     "number": "AMP-325",
+     "projectId": "p121"
+    },
+    "money": 6200
+   },
+   "tags": []
+  },
+  {
+   "id": "E064",
+   "day": "2026-09-08",
+   "time": "09:20",
+   "kind": "mail",
+   "actor": "DOB NOW",
+   "payload": {
+    "from": "DOB NOW <donotreply@dobnow.example>",
+    "to": [
+     "Alan <alan.pm@smartdesign.nyc>",
+     "Angel <angel@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "DOB NOW: Job B01528834-I1 — rough plumbing inspection window 09/22/2026 8:00–12:00 — 121 STATE STREET",
+    "text": "DOB NOW Inspections\nJob B01528834-I1, 121 STATE STREET, BROOKLYN\nInspection type: Plumbing rough\nWindow: 09/22/2026 8:00 AM – 12:00 PM\nThe licensed plumber must be present.",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "Book the rough plumbing inspection for 9/22 8–12 and tell Angel and the plumber",
+    "by": 1,
+    "see": [
+     "rough plumbing inspection",
+     "B01528834"
+    ],
+    "check": {
+     "t": "insp",
+     "project": "p121",
+     "id": "i3",
+     "date": "2026-09-22"
+    },
+    "days": 3
+   },
+   "tags": [
+    "an inspection window",
+    "r5 pm #5",
+    "§1.7 #9"
+   ]
+  },
+  {
+   "id": "E065",
+   "day": "2026-09-08",
+   "time": "13:20",
+   "kind": "mail",
+   "actor": "Brooklyn Lumber",
+   "payload": {
+    "from": "Brooklyn Lumber <orders@brooklynlumber.example>",
+    "to": [
+     "Chen Biron <chen@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Quote BLQ-2210 — trim, casing and base, 121 State",
+    "text": "Hi Chen,\n\nQuote BLQ-2210 attached for the 121 State trim package: casing, base and stool, primed poplar. $6,840.00, in stock, delivery in 3 days.\n\nBrooklyn Lumber",
+    "att": [
+     {
+      "filename": "BLQ-2210.pdf",
+      "text": "BROOKLYN LUMBER\nQuote BLQ-2210\nJob: 121 State Street — base molding & casing\nCasing, base and stool, primed poplar   $6,840.00\nQuote total: $6,840.00\nIn stock, delivery 3 days"
+     }
+    ],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Apply the Brooklyn Lumber quote ($6,840) to the trim line and order it",
+    "by": 2,
+    "see": [
+     "BLQ-2210"
+    ],
+    "check": {
+     "t": "po",
+     "project": "p121",
+     "item": "Trim|casing|Base molding",
+     "vendor": "Brooklyn Lumber"
+    },
+    "days": 3
+   },
+   "tags": []
+  },
+  {
+   "id": "E066",
+   "day": "2026-09-08",
+   "time": "15:20",
+   "kind": "field",
+   "actor": "u_angel",
+   "payload": {
+    "do": "pct",
+    "project": "p121",
+    "taskId": "relec",
+    "pct": 70,
+    "note": "Home runs pulled on the 3rd floor"
+   },
+   "expect": {
+    "who": "u_billing",
+    "what": "Bill the measured work (relec at 70%) on the month-end application",
+    "by": 16,
+    "see": [
+     "121 State"
+    ],
+    "check": {
+     "t": "lineBilled",
+     "project": "p121",
+     "taskId": "relec",
+     "pct": 70
+    }
+   },
+   "tags": [
+    "§1.5 #2",
+    "work done, not billed"
+   ]
+  },
+  {
+   "id": "E067",
+   "day": "2026-09-08",
+   "time": "16:10",
+   "kind": "mail",
+   "actor": "Carlos Millwork",
+   "payload": {
+    "from": "Carlos Millwork <carlos@carlosmillwork.example>",
+    "to": [
+     "Chen Biron <chen@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "121 State — carcasses Friday 9/18, elevator 8–10",
+    "text": "Chen, confirming the parlor kitchen carcasses deliver Friday 9/18 between 8 and 10. Please reserve the service elevator.\nCarlos",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Confirm Carlos's 9/18 delivery on PO-2026-048 and reserve the elevator",
+    "by": 2,
+    "see": [
+     "carcasses",
+     "elevator"
+    ],
+    "check": {
+     "t": "poEta",
+     "number": "PO-2026-048",
+     "eta": "2026-09-18"
+    }
+   },
+   "tags": [
+    "§1.7 #4"
+   ]
+  },
+  {
+   "id": "E068",
+   "day": "2026-09-08",
+   "time": "21:15",
+   "kind": "mail",
+   "actor": "Ines Ward",
+   "payload": {
+    "from": "Ines Ward <ines.ward@example.com>",
+    "to": [
+     "Alan Mishali <alan@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "15 Lefferts Pl — brownstone gut renovation",
+    "text": "Hi, we just closed on 15 Lefferts Place, a four-story brownstone, and want a full gut renovation with a new kitchen and three baths. Could we meet? Ines Ward",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_owner",
+    "what": "Put Ines Ward on file as a lead and answer within 2 days",
+    "by": 2,
+    "see": [
+     "Ward",
+     "15 Lefferts"
+    ],
+    "check": {
+     "t": "lead",
+     "name": "Ward"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E069",
+   "day": "2026-09-09",
+   "time": "06:00",
+   "kind": "mail",
+   "actor": "ToolPro Deals",
+   "payload": {
+    "from": "ToolPro Deals <promo@toolpro.example>",
+    "to": [
+     "Chen Biron <chen@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "40% off cordless tools — this week only",
+    "text": "ToolPro Deals — 40% off all cordless tools. Unsubscribe.",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Ignore \"40% off cordless tools — this \" (noise: no proposal, no nudge)",
+    "by": 1,
+    "see": [
+     "40% off cordless tools —"
+    ],
+    "check": {
+     "t": "ignored",
+     "subject": "40% off cordless tools — this week only"
+    }
+   },
+   "tags": [
+    "noise"
+   ]
+  },
+  {
+   "id": "E070",
+   "day": "2026-09-09",
+   "time": "07:00",
+   "kind": "mail",
+   "actor": "Payroll Service",
+   "payload": {
+    "from": "Payroll Service <noreply@payrollservice.example>",
+    "to": [
+     "Controller <controller@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Payroll for 8/31–9/11 needs approval by Thursday 5pm",
+    "text": "Your payroll for the period 8/31–9/11 (pay date 9/15) needs approval by Thursday 9/10 at 5 PM.",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Build the 8/31–9/11 payroll run from approved time and get it approved by 9/10",
+    "by": 1,
+    "see": [
+     "payroll",
+     "Payroll"
+    ],
+    "check": {
+     "t": "payrollRun",
+     "from": "2026-08-31",
+     "to": "2026-09-11"
+    }
+   },
+   "tags": [
+    "payroll 9/11"
+   ]
+  },
+  {
+   "id": "E071",
+   "day": "2026-09-09",
+   "time": "07:30",
+   "kind": "bank",
+   "actor": "Amex 1009",
+   "payload": {
+    "acct": "ac2",
+    "date": "2026-09-09",
+    "desc": "ROLL OFF DUMPSTER SVC BKLYN",
+    "amt": -1650.0,
+    "ref": "AC2-20260909-65000"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Code the 9/9 dumpster swap to 121 State",
+    "by": 3,
+    "see": [
+     "ROLL OFF DUMPSTER SVC "
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "ROLL OFF DUMPSTER SVC",
+     "coded": true,
+     "project": "p121"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E072",
+   "day": "2026-09-09",
+   "time": "07:40",
+   "kind": "bank",
+   "actor": "Amex 1009",
+   "payload": {
+    "acct": "ac2",
+    "date": "2026-09-09",
+    "desc": "EZPASS REPLENISH",
+    "amt": -50.0,
+    "ref": "AC2-20260909-05000"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Code tolls to overhead",
+    "by": 3,
+    "see": [
+     "EZPASS REPLENISH"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "EZPASS REPLENISH",
+     "coded": true
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E073",
+   "day": "2026-09-09",
+   "time": "08:20",
+   "kind": "field",
+   "actor": "u_angel",
+   "payload": {
+    "do": "request",
+    "project": "p121",
+    "what": "3/4 ply sheets for the stair landing",
+    "qty": 6,
+    "unit": "ea",
+    "neededBy": "2026-09-11",
+    "taskId": "treads"
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Acknowledge the request: 6 ea 3/4 ply sheets for the stair landing (needed 09-11)",
+    "by": 1,
+    "see": [
+     "3/4 ply sheets for t"
+    ],
+    "check": {
+     "t": "request",
+     "project": "p121",
+     "what": "3/4 ply sheets for",
+     "status": [
+      "ack",
+      "bought",
+      "delivered"
+     ]
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E074",
+   "day": "2026-09-09",
+   "time": "10:45",
+   "kind": "mail",
+   "actor": "Gowanus Stone Yard",
+   "payload": {
+    "from": "Gowanus Stone Yard <quotes@gowanusstone.example>",
+    "to": [
+     "Chen Biron <chen@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Quote GS-418 — 121 State parlor kitchen countertop",
+    "text": "Hello Chen,\n\nQuote GS-418 for the parlor kitchen countertop slab, honed Calacatta, template to install: $7,450.00. Two weeks from template.\n\nGowanus Stone Yard",
+    "att": [
+     {
+      "filename": "GS-418.pdf",
+      "text": "GOWANUS STONE YARD\nQuote GS-418\nJob: 121 State Street — parlor kitchen countertop slab\nHoned Calacatta slab, fabricate and install   $7,450.00\nQuote total: $7,450.00\nLead time: 2 weeks from template"
+     }
+    ],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Put Gowanus Stone Yard on file and price the parlor kitchen countertop slab ($7,450)",
+    "by": 2,
+    "see": [
+     "GS-418",
+     "Gowanus Stone"
+    ],
+    "check": {
+     "t": "mat",
+     "project": "p121",
+     "id": "m19",
+     "cost": 7450
+    }
+   },
+   "tags": [
+    "unrouted vendor"
+   ]
+  },
+  {
+   "id": "E075",
+   "day": "2026-09-09",
+   "time": "13:30",
+   "kind": "mail",
+   "actor": "Nemo Tile",
+   "payload": {
+    "from": "Nemo Tile <sales@nemotile.example>",
+    "to": [
+     "Chen Biron <chen@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Sample board ready — 140 Prospect",
+    "text": "Chen, the backsplash sample board for 140 Prospect is ready for pickup at the showroom.",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Put the Nemo sample board pickup on the driver's route",
+    "by": 2,
+    "see": [
+     "sample board"
+    ],
+    "check": {
+     "t": "request",
+     "project": "any",
+     "what": "sample",
+     "status": [
+      "new",
+      "ack",
+      "bought",
+      "delivered"
+     ]
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E076",
+   "day": "2026-09-09",
+   "time": "17:30",
+   "kind": "mail",
+   "actor": "Alan Mishali",
+   "payload": {
+    "from": "Alan Mishali <alan@smartdesign.nyc>",
+    "to": [
+     "Billing <billing@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "The Lindqvists",
+    "text": "Please send the Lindqvists their design agreement invoice on Friday 9/11. Alan",
+    "att": [],
+    "thread": "",
+    "labels": [
+     "SENT"
+    ]
+   },
+   "expect": {
+    "who": "u_billing",
+    "what": "The owner's hand-off (Lindqvists' invoice Friday) is on Billing's list the next morning, not only on Friday",
+    "by": 1,
+    "see": [
+     "Lindqvist"
+    ],
+    "check": {
+     "t": "seenBy",
+     "uid": "u_billing"
+    }
+   },
+   "tags": [
+    "r5 owner #12"
+   ]
+  },
+  {
+   "id": "E077",
+   "day": "2026-09-09",
+   "time": "19:20",
+   "kind": "mail",
+   "actor": "David Klein",
+   "payload": {
+    "from": "David Klein <david.klein@example.com>",
+    "to": [
+     "Billing <billing@smartdesign.nyc>"
+    ],
+    "cc": [
+     "Alan <alan.pm@smartdesign.nyc>"
+    ],
+    "subject": "Re: INV-2026-038",
+    "text": "Hi, we will settle INV-2026-038 after the walkthrough on the 24th. Thanks, David",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_billing",
+    "what": "Billing sees the Kleins' payment promise (after 9/24) the next morning",
+    "by": 1,
+    "see": [
+     "INV-2026-038",
+     "David Klein"
+    ],
+    "check": {
+     "t": "seenBy",
+     "uid": "u_billing"
+    }
+   },
+   "tags": [
+    "a client who pays late"
+   ]
+  },
+  {
+   "id": "E078",
+   "day": "2026-09-10",
+   "time": "07:30",
+   "kind": "bank",
+   "actor": "Amex 1009",
+   "payload": {
+    "acct": "ac2",
+    "date": "2026-09-10",
+    "desc": "ROLL OFF DUMPSTER SVC BKLYN",
+    "amt": -1650.0,
+    "ref": "AC2-20260910-DUP"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Dispute the duplicate dumpster charge (same amount, next day)",
+    "by": 3,
+    "see": [
+     "DUMPSTER",
+     "duplicate"
+    ],
+    "check": {
+     "t": "dup",
+     "desc": "ROLL OFF DUMPSTER SVC",
+     "amt": -1650,
+     "after": "2026-09-09"
+    },
+    "money": 1650
+   },
+   "tags": [
+    "a duplicate card charge"
+   ]
+  },
+  {
+   "id": "E079",
+   "day": "2026-09-10",
+   "time": "07:31",
+   "kind": "bank",
+   "actor": "Amex 1009",
+   "payload": {
+    "acct": "ac2",
+    "date": "2026-09-10",
+    "desc": "SQ *BROOKLYN LUMBER",
+    "amt": -6840.0,
+    "ref": "AC2-20260910-84000"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Match the Brooklyn Lumber card charge to the trim PO",
+    "by": 3,
+    "see": [
+     "BROOKLYN LUMBER"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "SQ *BROOKLYN LUMBER",
+     "amt": -6840,
+     "matched": true
+    },
+    "money": 6840
+   },
+   "tags": []
+  },
+  {
+   "id": "E080",
+   "day": "2026-09-10",
+   "time": "07:40",
+   "kind": "bank",
+   "actor": "Home Depot 7720",
+   "payload": {
+    "acct": "ac3",
+    "date": "2026-09-10",
+    "desc": "THE HOME DEPOT #6166 BROOKLYN NY",
+    "amt": -86.12,
+    "ref": "AC3-20260910-08612"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Code the 9/10 Home Depot run to 121 State",
+    "by": 3,
+    "see": [
+     "THE HOME DEPOT #6166 B"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "THE HOME DEPOT #6166 B",
+     "coded": true,
+     "project": "p121"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E081",
+   "day": "2026-09-10",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_alan",
+    "what": "Review AMP-325 for payment",
+    "by": 3,
+    "see": [
+     "AMP-325"
+    ],
+    "check": {
+     "t": "bill",
+     "number": "AMP-325",
+     "status": [
+      "approved",
+      "paid",
+      "verified",
+      "pm-approved"
+     ]
+    },
+    "money": 6200
+   },
+   "tags": [
+    "approval"
+   ]
+  },
+  {
+   "id": "E082",
+   "day": "2026-09-10",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_alex",
+    "what": "Buy and drop 3/4 ply sheets at 121 State by 09-11",
+    "by": 1,
+    "see": [
+     "3/4 ply sheets"
+    ],
+    "check": {
+     "t": "request",
+     "project": "p121",
+     "what": "3/4 ply sheets",
+     "status": [
+      "bought",
+      "delivered"
+     ]
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E083",
+   "day": "2026-09-10",
+   "time": "09:15",
+   "kind": "mail",
+   "actor": "Carlos Millwork",
+   "payload": {
+    "from": "Carlos Millwork <carlos@carlosmillwork.example>",
+    "to": [
+     "Chen Biron <chen@smartdesign.nyc>"
+    ],
+    "cc": [
+     "Billing <billing@smartdesign.nyc>"
+    ],
+    "subject": "Invoice CM-0105 — 121 State laundry cabinets",
+    "text": "Hi Chen,\n\nInvoice CM-0105 attached for the laundry cabinets, against PO-2026-048. Thank you,\nCarlos",
+    "att": [
+     {
+      "filename": "CM-0105.pdf",
+      "text": "CARLOS MILLWORK INC\nInvoice No. CM-0105\nDate: 09/10/2026\nBill To: SmartDesign Group LLC\nJob: 121 State Street, Brooklyn\nAgainst PO-2026-048\nLaundry cabinets, delivered   $12,400.00\n\nAmount Due: $12,400.00\nDue September 25, 2026"
+     }
+    ],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Enter CM-0105 ($12,400) against PO-2026-048",
+    "by": 2,
+    "see": [
+     "CM-0105"
+    ],
+    "check": {
+     "t": "bill",
+     "number": "CM-0105",
+     "poNumber": "PO-2026-048"
+    },
+    "money": 12400
+   },
+   "tags": [
+    "r5 coord #2"
+   ]
+  },
+  {
+   "id": "E084",
+   "day": "2026-09-10",
+   "time": "09:30",
+   "kind": "field",
+   "actor": "u_angel",
+   "payload": {
+    "do": "raise",
+    "project": "p121",
+    "type": "extra",
+    "title": "Rotted sill under the rear parlor window, about 6 ft",
+    "note": "Needs replacing before the trim. Photos taken. Est. $2,350 with blocking.",
+    "taskId": "win"
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "Answer the rotted-sill extra and raise the change order ($2,350)",
+    "by": 2,
+    "see": [
+     "Rotted sill"
+    ],
+    "check": {
+     "t": "co",
+     "project": "p121",
+     "rx": "sill",
+     "status": [
+      "sent",
+      "approved"
+     ]
+    },
+    "money": 2350
+   },
+   "tags": [
+    "an approved overage to a CO",
+    "r5 pm #2"
+   ]
+  },
+  {
+   "id": "E085",
+   "day": "2026-09-10",
+   "time": "10:00",
+   "kind": "mail",
+   "actor": "LPC Staff",
+   "payload": {
+    "from": "LPC Staff <noreply@lpc.example>",
+    "to": [
+     "Alan <alan.pm@smartdesign.nyc>",
+     "Sarah Davis <sarah@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "LPC hearing — 45 Cranberry Street rear windows — Tuesday 9/29 9:30",
+    "text": "Your application for 45 Cranberry Street (rear windows) is scheduled for the public hearing on Tuesday 9/29 at 9:30 AM. Presentation materials are due to staff by 9/24.",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_sarah",
+    "what": "Prepare the LPC hearing presentation for 45 Cranberry (due to staff 9/24)",
+    "by": 3,
+    "see": [
+     "hearing",
+     "LPC"
+    ],
+    "check": {
+     "t": "task",
+     "title": "LPC|hearing|presentation",
+     "assignee": "Sarah"
+    },
+    "days": 5
+   },
+   "tags": [
+    "an LPC hearing"
+   ]
+  },
+  {
+   "id": "E086",
+   "day": "2026-09-10",
+   "time": "10:05",
+   "kind": "calendar",
+   "actor": "calendar",
+   "payload": {
+    "uid": "u_alan",
+    "title": "LPC hearing — 45 Cranberry rear windows",
+    "start": "2026-09-29T09:30",
+    "mins": 90,
+    "where": "LPC, 1 Centre St"
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "The LPC hearing (9/29 9:30) is on the PM's calendar and Coming Up",
+    "by": 3,
+    "see": [
+     "LPC hearing"
+    ],
+    "check": {
+     "t": "seenBy",
+     "uid": "u_alan"
+    }
+   },
+   "tags": [
+    "an LPC hearing"
+   ]
+  },
+  {
+   "id": "E087",
+   "day": "2026-09-10",
+   "time": "10:06",
+   "kind": "calendar",
+   "actor": "calendar",
+   "payload": {
+    "uid": "u_sarah",
+    "title": "LPC hearing — 45 Cranberry rear windows",
+    "start": "2026-09-29T09:30",
+    "mins": 90,
+    "where": "LPC, 1 Centre St"
+   },
+   "expect": {
+    "who": "u_sarah",
+    "what": "The LPC hearing is on Sarah's day",
+    "by": 12,
+    "see": [
+     "LPC hearing"
+    ],
+    "check": {
+     "t": "seenBy",
+     "uid": "u_sarah"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E088",
+   "day": "2026-09-10",
+   "time": "10:40",
+   "kind": "mail",
+   "actor": "Diamond Appliances",
+   "payload": {
+    "from": "Diamond Appliances <delivery@diamondappliances.example>",
+    "to": [
+     "Chen Biron <chen@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Order confirmed — 121 State appliances",
+    "text": "Order confirmed, ships for delivery 9/25.",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Confirm the appliance order date on the line (9/25)",
+    "by": 2,
+    "see": [
+     "appliances"
+    ],
+    "check": {
+     "t": "mat",
+     "project": "p121",
+     "id": "m24",
+     "eta": "2026-09-25"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E089",
+   "day": "2026-09-10",
+   "time": "15:40",
+   "kind": "field",
+   "actor": "u_angel",
+   "payload": {
+    "do": "pct",
+    "project": "p121",
+    "taskId": "win",
+    "pct": 50,
+    "note": "Interior casing on the front windows"
+   },
+   "expect": {
+    "who": "u_billing",
+    "what": "Bill the measured work (win at 50%) on the month-end application",
+    "by": 14,
+    "see": [
+     "121 State"
+    ],
+    "check": {
+     "t": "lineBilled",
+     "project": "p121",
+     "taskId": "win",
+     "pct": 50
+    }
+   },
+   "tags": [
+    "§1.5 #2",
+    "work done, not billed"
+   ]
+  },
+  {
+   "id": "E090",
+   "day": "2026-09-10",
+   "time": "15:45",
+   "kind": "field",
+   "actor": "u_angel",
+   "payload": {
+    "do": "pct",
+    "project": "p121",
+    "taskId": "gframe",
+    "pct": 100,
+    "note": "Garden bedroom framed per layout"
+   },
+   "expect": {
+    "who": "u_billing",
+    "what": "Bill the measured work (gframe at 100%) on the month-end application",
+    "by": 14,
+    "see": [
+     "121 State"
+    ],
+    "check": {
+     "t": "lineBilled",
+     "project": "p121",
+     "taskId": "gframe",
+     "pct": 100
+    }
+   },
+   "tags": [
+    "§1.5 #2",
+    "work done, not billed"
+   ]
+  },
+  {
+   "id": "E091",
+   "day": "2026-09-10",
+   "time": "18:05",
+   "kind": "mail",
+   "actor": "Elena Rivera",
+   "payload": {
+    "from": "Elena Rivera <elena.rivera@example.com>",
+    "to": [
+     "Alan <alan.pm@smartdesign.nyc>"
+    ],
+    "cc": [
+     "Sarah Davis <sarah@smartdesign.nyc>"
+    ],
+    "subject": "45 Cranberry — design schedule",
+    "text": "Hi Alan, could you send us the updated design schedule by Friday? We are planning the move-out. Elena",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "Send the Riveras the updated design schedule by Friday 9/11",
+    "by": 1,
+    "see": [
+     "Rivera",
+     "design schedule"
+    ],
+    "check": {
+     "t": "outreach",
+     "to": "elena.rivera|Rivera",
+     "from": "u_alan|u_sarah"
+    }
+   },
+   "tags": [
+    "§1.7 #7"
+   ]
+  },
+  {
+   "id": "E092",
+   "day": "2026-09-11",
+   "time": "07:30",
+   "kind": "bank",
+   "actor": "Chase 4471",
+   "payload": {
+    "acct": "ac1",
+    "date": "2026-09-11",
+    "desc": "PAYROLL SERVICE NET PAY",
+    "amt": -14980.0,
+    "ref": "AC1-20260911-98000"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Match the 9/11 payroll debit to its run",
+    "by": 3,
+    "see": [
+     "PAYROLL"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "PAYROLL SERVICE NET PAY",
+     "amt": -14980,
+     "matched": true
+    },
+    "money": 14980
+   },
+   "tags": [
+    "payroll 9/11"
+   ]
+  },
+  {
+   "id": "E093",
+   "day": "2026-09-11",
+   "time": "07:31",
+   "kind": "bank",
+   "actor": "Chase 4471",
+   "payload": {
+    "acct": "ac1",
+    "date": "2026-09-11",
+    "desc": "PAYROLL SERVICE TAX",
+    "amt": -3120.0,
+    "ref": "AC1-20260911-12000"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Match the 9/11 payroll tax debit to its run",
+    "by": 3,
+    "see": [
+     "PAYROLL"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "PAYROLL SERVICE TAX",
+     "amt": -3120,
+     "matched": true
+    },
+    "money": 3120
+   },
+   "tags": [
+    "payroll 9/11"
+   ]
+  },
+  {
+   "id": "E094",
+   "day": "2026-09-11",
+   "time": "07:40",
+   "kind": "bank",
+   "actor": "Amex 1009",
+   "payload": {
+    "acct": "ac2",
+    "date": "2026-09-11",
+    "desc": "LOWES #01234 BROOKLYN NY",
+    "amt": -232.4,
+    "ref": "AC2-20260911-23240"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Code the Lowe's run to 206 Lenox",
+    "by": 3,
+    "see": [
+     "LOWES #01234 BROOKLYN "
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "LOWES #01234 BROOKLYN ",
+     "coded": true,
+     "project": "p206"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E095",
+   "day": "2026-09-11",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_billing",
+    "what": "Send the Lindqvists' design agreement invoice (the owner's ask)",
+    "by": 1,
+    "see": [
+     "Lindqvist"
+    ],
+    "check": {
+     "t": "invoice",
+     "client": "cld1zgv",
+     "amount": 1
+    }
+   },
+   "tags": [
+    "r5 owner #12"
+   ]
+  },
+  {
+   "id": "E096",
+   "day": "2026-09-11",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_angel",
+    "what": "Daily logs filed for every working day of 9/8–9/11 on 121 State",
+    "by": 1,
+    "see": [
+     "Daily Log",
+     "log"
+    ],
+    "check": {
+     "t": "logs",
+     "project": "p121",
+     "days": [
+      "2026-09-08",
+      "2026-09-09",
+      "2026-09-10",
+      "2026-09-11"
+     ]
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E097",
+   "day": "2026-09-11",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_owner",
+    "what": "Payday 9/11: the run is approved before the money leaves",
+    "by": 0,
+    "see": [
+     "payroll"
+    ],
+    "check": {
+     "t": "payrollRun",
+     "from": "2026-08-31",
+     "to": "2026-09-11",
+     "approved": true
+    },
+    "money": 18100
+   },
+   "tags": [
+    "payroll 9/11"
+   ]
+  },
+  {
+   "id": "E098",
+   "day": "2026-09-11",
+   "time": "09:00",
+   "kind": "mail",
+   "actor": "Alan Mishali",
+   "payload": {
+    "from": "Alan Mishali <alan@smartdesign.nyc>",
+    "to": [
+     "Alan <alan.pm@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Paint sample",
+    "text": "Can you get the Kleins to sign off the paint sample by Wednesday? Alan",
+    "att": [],
+    "thread": "",
+    "labels": [
+     "SENT"
+    ]
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "The owner's ask (paint sample signed by Wednesday 9/16) is a dated task on the PM",
+    "by": 1,
+    "see": [
+     "paint sample"
+    ],
+    "check": {
+     "t": "task",
+     "title": "paint",
+     "anyone": true
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E099",
+   "day": "2026-09-11",
+   "time": "10:40",
+   "kind": "field",
+   "actor": "u_angel",
+   "payload": {
+    "do": "raise",
+    "project": "p121",
+    "type": "delivery",
+    "title": "Carlos delivered 2 laundry boxes damaged",
+    "note": "Corners crushed on two boxes. Photos on the job.",
+    "taskId": "millpk"
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Answer the damaged laundry boxes and get replacements from Carlos",
+    "by": 1,
+    "see": [
+     "damaged"
+    ],
+    "check": {
+     "t": "raise",
+     "title": "laundry boxes damaged"
+    },
+    "days": 2
+   },
+   "tags": []
+  },
+  {
+   "id": "E100",
+   "day": "2026-09-11",
+   "time": "11:00",
+   "kind": "mail",
+   "actor": "Meeting notes",
+   "payload": {
+    "from": "Meeting notes <notes@meet.example>",
+    "to": [
+     "Alan <alan.pm@smartdesign.nyc>",
+     "Chen Biron <chen@smartdesign.nyc>",
+     "Angel <angel@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Notes: “121 State weekly site meeting” Sep 11, 2026",
+    "text": "Notes from “121 State weekly site meeting”\n\nSummary\nWeekly site meeting at 121 State. Framing is done; rough plumbing starts; the millwork lands 9/18.\n\nSuggested next steps\n\n[Alan] Send Revised Schedule: Send the revised schedule to the Kleins by Monday.\n\n[Chen Biron] Confirm Appliance Window: Confirm the appliance delivery window with Diamond by Wednesday.\n\n[Angel] Clear Parlor Floor: Clear the parlor floor for the millwork by Friday.\n\nMeeting records Document Notes",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "Confirm the weekly site meeting proposals (three dated tasks)",
+    "by": 1,
+    "see": [
+     "weekly site meeting"
+    ],
+    "check": {
+     "t": "meeting",
+     "rx": "121 State weekly site meeting"
+    }
+   },
+   "tags": [
+    "a promise in a meeting",
+    "§1.7 #2"
+   ]
+  },
+  {
+   "id": "E101",
+   "day": "2026-09-11",
+   "time": "15:10",
+   "kind": "field",
+   "actor": "u_angel",
+   "payload": {
+    "do": "pct",
+    "project": "p121",
+    "taskId": "demo",
+    "pct": 100,
+    "note": "Demo and subfloor prep done"
+   },
+   "expect": {
+    "who": "u_billing",
+    "what": "Bill the measured work (demo at 100%) on the month-end application",
+    "by": 13,
+    "see": [
+     "121 State"
+    ],
+    "check": {
+     "t": "lineBilled",
+     "project": "p121",
+     "taskId": "demo",
+     "pct": 100
+    }
+   },
+   "tags": [
+    "§1.5 #2",
+    "work done, not billed"
+   ]
+  },
+  {
+   "id": "E102",
+   "day": "2026-09-11",
+   "time": "16:00",
+   "kind": "mail",
+   "actor": "Alan Mishali",
+   "payload": {
+    "from": "Alan Mishali <alan@smartdesign.nyc>",
+    "to": [
+     "Ines Ward <ines.ward@example.com>"
+    ],
+    "cc": [],
+    "subject": "Proposal — 15 Lefferts Pl",
+    "text": "Ines, the proposal for 15 Lefferts Place is attached: design phase $28,500, construction allowance-based. Happy to walk you through it next week. Alan",
+    "att": [],
+    "thread": "",
+    "labels": [
+     "SENT"
+    ]
+   },
+   "expect": {
+    "who": "u_owner",
+    "what": "The proposal to Ines Ward is watched; follow up when he goes quiet (3 working days)",
+    "by": 6,
+    "see": [
+     "Ward"
+    ],
+    "check": {
+     "t": "outreach",
+     "to": "ines.ward|Ines Ward",
+     "after": "2026-09-12"
+    }
+   },
+   "tags": [
+    "a quiet lead",
+    "§1.7 #8"
+   ]
+  },
+  {
+   "id": "E103",
+   "day": "2026-09-11",
+   "time": "16:30",
+   "kind": "calendar",
+   "actor": "calendar",
+   "payload": {
+    "uid": "u_owner",
+    "title": "Walkthrough — 15 Lefferts Pl with Ines Ward",
+    "start": "2026-09-17T14:00",
+    "mins": 90,
+    "where": "15 Lefferts Place"
+   },
+   "expect": {
+    "who": "u_owner",
+    "what": "The Ward walkthrough is on the owner's day",
+    "by": 4,
+    "see": [
+     "Ward",
+     "Lefferts"
+    ],
+    "check": {
+     "t": "seenBy",
+     "uid": "u_owner"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E104",
+   "day": "2026-09-11",
+   "time": "17:00",
+   "kind": "drive",
+   "actor": "drive",
+   "payload": {
+    "uid": "u_sarah",
+    "name": "121 State - A-302 Kitchen Elevations Rev 3.pdf",
+    "text": "SMARTDESIGN · 121 STATE STREET · A-302 KITCHEN ELEVATIONS · REV 3 · 09/11/2026"
+   },
+   "expect": {
+    "who": "u_sarah",
+    "what": "File A-302 rev 3 on 121 State",
+    "by": 2,
+    "see": [
+     "A-302"
+    ],
+    "check": {
+     "t": "fileRouted",
+     "rx": "A-302",
+     "project": "p121"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E105",
+   "day": "2026-09-14",
+   "time": "06:30",
+   "kind": "mail",
+   "actor": "Stoop and Cornice Weekly",
+   "payload": {
+    "from": "Stoop and Cornice Weekly <news@stoopandcornice.example>",
+    "to": [
+     "Alan Mishali <alan@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Stoop and Cornice Weekly: three restored stoops",
+    "text": "This week: three restored stoops in Fort Greene. Unsubscribe.",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_owner",
+    "what": "Ignore \"Stoop and Cornice Weekly: thre\" (noise: no proposal, no nudge)",
+    "by": 1,
+    "see": [
+     "Stoop and Cornice Weekly"
+    ],
+    "check": {
+     "t": "ignored",
+     "subject": "Stoop and Cornice Weekly: three restored stoops"
+    }
+   },
+   "tags": [
+    "noise"
+   ]
+  },
+  {
+   "id": "E106",
+   "day": "2026-09-14",
+   "time": "07:30",
+   "kind": "bank",
+   "actor": "Amex 1009",
+   "payload": {
+    "acct": "ac2",
+    "date": "2026-09-14",
+    "desc": "THE HOME DEPOT #6177 BROOKLYN NY",
+    "amt": -612.48,
+    "ref": "AC2-20260914-61248"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Code the Home Depot door slabs to 121 State",
+    "by": 3,
+    "see": [
+     "THE HOME DEPOT #6177 B"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "HOME DEPOT #6177",
+     "coded": true,
+     "project": "p121"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E107",
+   "day": "2026-09-14",
+   "time": "07:40",
+   "kind": "bank",
+   "actor": "Amex 1009",
+   "payload": {
+    "acct": "ac2",
+    "date": "2026-09-14",
+    "desc": "NYC DEPT OF BUILDINGS",
+    "amt": -130.0,
+    "ref": "AC2-20260914-13000"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Code the DOB fee to 206 Lenox",
+    "by": 3,
+    "see": [
+     "NYC DEPT OF BUILDINGS"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "NYC DEPT OF BUILDINGS",
+     "coded": true,
+     "project": "p206"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E108",
+   "day": "2026-09-14",
+   "time": "07:45",
+   "kind": "field",
+   "actor": "u_angel",
+   "payload": {
+    "do": "raise",
+    "project": "p121",
+    "type": "noshow",
+    "title": "Restoration crew (Tomas) did not show again",
+    "note": "Second time. Nobody called.",
+    "taskId": "rest"
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "Answer the second Tomas no-show and slip or protect Restoration",
+    "by": 1,
+    "see": [
+     "did not show again"
+    ],
+    "check": {
+     "t": "raise",
+     "title": "did not show again"
+    },
+    "days": 3
+   },
+   "tags": [
+    "a sub who no-shows twice"
+   ]
+  },
+  {
+   "id": "E109",
+   "day": "2026-09-14",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_alan",
+    "what": "Review CM-0105 for payment",
+    "by": 3,
+    "see": [
+     "CM-0105"
+    ],
+    "check": {
+     "t": "bill",
+     "number": "CM-0105",
+     "status": [
+      "approved",
+      "paid",
+      "verified",
+      "pm-approved"
+     ]
+    },
+    "money": 12400
+   },
+   "tags": [
+    "approval"
+   ]
+  },
+  {
+   "id": "E110",
+   "day": "2026-09-14",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_alan",
+    "what": "Send the revised schedule to the Kleins (meeting promise, due Monday 9/14)",
+    "by": 1,
+    "see": [
+     "Revised Schedule"
+    ],
+    "check": {
+     "t": "task",
+     "title": "Revised Schedule",
+     "done": true
+    }
+   },
+   "tags": [
+    "a promise in a meeting"
+   ]
+  },
+  {
+   "id": "E111",
+   "day": "2026-09-14",
+   "time": "08:00",
+   "kind": "calendar",
+   "actor": "calendar",
+   "payload": {
+    "uid": "u_alan",
+    "title": "Client walkthrough — 121 State with the Kleins",
+    "start": "2026-09-24T16:00",
+    "mins": 60,
+    "where": "121 State Street"
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "The 9/24 client walkthrough is on the PM's day",
+    "by": 8,
+    "see": [
+     "walkthrough"
+    ],
+    "check": {
+     "t": "seenBy",
+     "uid": "u_alan"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E112",
+   "day": "2026-09-14",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_alan",
+    "what": "Approve the crew hours for 9/8–9/11",
+    "by": 2,
+    "see": [
+     "hours",
+     "Hours"
+    ],
+    "check": {
+     "t": "hours",
+     "from": "2026-09-08",
+     "to": "2026-09-11"
+    }
+   },
+   "tags": [
+    "payroll"
+   ]
+  },
+  {
+   "id": "E113",
+   "day": "2026-09-14",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {
+    "create": {
+     "project": "p121",
+     "title": "Follow up with the DOB examiner on the plan-exam objection",
+     "due": "2026-09-11",
+     "assignee": ""
+    }
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "An unowned overdue follow-up (DOB examiner objection, due 9/11) gets an owner",
+    "by": 1,
+    "see": [
+     "DOB examiner"
+    ],
+    "check": {
+     "t": "task",
+     "title": "DOB examiner",
+     "assigned": true
+    }
+   },
+   "tags": [
+    "§1.5 #6"
+   ]
+  },
+  {
+   "id": "E114",
+   "day": "2026-09-14",
+   "time": "10:05",
+   "kind": "mail",
+   "actor": "Quality Bldg Supply",
+   "payload": {
+    "from": "Quality Bldg Supply <ar@qualitybldg.example>",
+    "to": [
+     "Chen Biron <chen@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Invoice QB-3301",
+    "text": "Please see the attached invoice QB-3301 for $300.00 (blocking lumber, 121 State).\nQuality Bldg Supply",
+    "att": [
+     {
+      "filename": "QB-3301-scan.pdf",
+      "text": ""
+     }
+    ],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Enter the scanned Quality Bldg invoice QB-3301 ($300) the reader could not read",
+    "by": 3,
+    "see": [
+     "QB-3301"
+    ],
+    "check": {
+     "t": "bill",
+     "number": "QB-3301"
+    },
+    "money": 300
+   },
+   "tags": [
+    "r5 owner #2"
+   ]
+  },
+  {
+   "id": "E115",
+   "day": "2026-09-14",
+   "time": "11:05",
+   "kind": "mail",
+   "actor": "Sofia Adler",
+   "payload": {
+    "from": "Sofia Adler <sofia.adler@example.com>",
+    "to": [
+     "Alan Mishali <alan@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Re: our townhouse",
+    "text": "Hi Alan, two questions before we sign the design agreement: do you handle the LPC filing, and when could you start? Sofia",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_owner",
+    "what": "Answer Sofia Adler's two questions",
+    "by": 2,
+    "see": [
+     "Sofia Adler",
+     "Adler"
+    ],
+    "check": {
+     "t": "outreach",
+     "to": "adler"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E116",
+   "day": "2026-09-14",
+   "time": "14:00",
+   "kind": "mail",
+   "actor": "Ferguson",
+   "payload": {
+    "from": "Ferguson <quotes@ferguson.example>",
+    "to": [
+     "Chen Biron <chen@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Quote FQ-55210 — 121 State plumbing fixtures",
+    "text": "Chen,\n\nQuote FQ-55210 for the plumbing fixtures, both baths and the kitchens: $11,980.00, 3 weeks.\n\nFerguson",
+    "att": [
+     {
+      "filename": "FQ-55210.pdf",
+      "text": "FERGUSON\nQuote FQ-55210\nJob: 121 State Street — plumbing fixtures (both baths, kitchens)\nFixtures per schedule P-601   $11,980.00\nQuote total: $11,980.00\nLead time: 3 weeks"
+     }
+    ],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Apply the Ferguson quote ($11,980) to the plumbing fixtures line",
+    "by": 2,
+    "see": [
+     "FQ-55210"
+    ],
+    "check": {
+     "t": "mat",
+     "project": "p121",
+     "id": "m16",
+     "cost": 11980
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E117",
+   "day": "2026-09-14",
+   "time": "15:05",
+   "kind": "mail",
+   "actor": "Sarah Davis",
+   "payload": {
+    "from": "Sarah Davis <sarah@smartdesign.nyc>",
+    "to": [
+     "Sarah Klein <sarah.klein@example.com>"
+    ],
+    "cc": [],
+    "subject": "121 State — kitchen elevations",
+    "text": "Hi Sarah, thanks for the walk today. I'll send the revised kitchen elevations Friday, with the pantry on the left wall. Sarah Davis",
+    "att": [],
+    "thread": "",
+    "labels": [
+     "SENT"
+    ]
+   },
+   "expect": {
+    "who": "u_sarah",
+    "what": "Sarah's promise in mail (revised kitchen elevations Friday) becomes her task due 9/18",
+    "by": 1,
+    "see": [
+     "kitchen elevations"
+    ],
+    "check": {
+     "t": "task",
+     "title": "kitchen elevations|revised",
+     "assignee": "Sarah",
+     "due": "2026-09-18"
+    }
+   },
+   "tags": [
+    "a promise in mail",
+    "§1.5 #6"
+   ]
+  },
+  {
+   "id": "E118",
+   "day": "2026-09-14",
+   "time": "20:15",
+   "kind": "mail",
+   "actor": "Cambri Jessop",
+   "payload": {
+    "from": "Cambri Jessop <cambri@example.com>",
+    "to": [
+     "Sarah Davis <sarah@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "140 Prospect — a powder room?",
+    "text": "Sarah, could we add a powder room under the stair? What would it add to the design fee? Cambri",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_sarah",
+    "what": "Answer the Jessops about the powder room (a scope change with a fee)",
+    "by": 2,
+    "see": [
+     "powder room"
+    ],
+    "check": {
+     "t": "outreach",
+     "to": "cambri|jessop",
+     "after": "2026-09-14"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E119",
+   "day": "2026-09-15",
+   "time": "07:30",
+   "kind": "bank",
+   "actor": "Chase 4471",
+   "payload": {
+    "acct": "ac1",
+    "date": "2026-09-15",
+    "desc": "CON ED OF NY",
+    "amt": -286.12,
+    "ref": "AC1-20260915-28612"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Code Con Ed to overhead utilities",
+    "by": 3,
+    "see": [
+     "CON ED OF NY"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "CON ED",
+     "coded": true
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E120",
+   "day": "2026-09-15",
+   "time": "07:31",
+   "kind": "bank",
+   "actor": "Chase 4471",
+   "payload": {
+    "acct": "ac1",
+    "date": "2026-09-15",
+    "desc": "GEICO COMMERCIAL AUTO",
+    "amt": -412.18,
+    "ref": "AC1-20260915-41218"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Code the van insurance to overhead",
+    "by": 3,
+    "see": [
+     "GEICO COMMERCIAL AUTO"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "GEICO",
+     "coded": true
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E121",
+   "day": "2026-09-15",
+   "time": "07:32",
+   "kind": "bank",
+   "actor": "Amex 1009",
+   "payload": {
+    "acct": "ac2",
+    "date": "2026-09-15",
+    "desc": "AMAZON MKTPLACE US*R83K1",
+    "amt": -129.99,
+    "ref": "AC2-20260915-12999"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Code the Amazon office order to overhead",
+    "by": 3,
+    "see": [
+     "AMAZON MKTPLACE US*R83"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "AMAZON MKTPLACE US*R83K1",
+     "coded": true
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E122",
+   "day": "2026-09-15",
+   "time": "07:33",
+   "kind": "bank",
+   "actor": "Home Depot 7720",
+   "payload": {
+    "acct": "ac3",
+    "date": "2026-09-15",
+    "desc": "THE HOME DEPOT #6166 BROOKLYN NY",
+    "amt": -198.55,
+    "ref": "AC3-20260915-19855"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Code the 9/15 Home Depot run to 121 State",
+    "by": 3,
+    "see": [
+     "THE HOME DEPOT #6166 B"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "HOME DEPOT #6166",
+     "coded": true,
+     "project": "p121"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E123",
+   "day": "2026-09-15",
+   "time": "07:45",
+   "kind": "bank",
+   "actor": "Chase 4471",
+   "payload": {
+    "acct": "ac1",
+    "date": "2026-09-15",
+    "desc": "CHECK 2216 TOMAS RESTORATION",
+    "amt": -2750.0,
+    "ref": "AC1-20260915-75000"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Match check 2216 to Tomas Restoration (paid with no bill and the COI expiring)",
+    "by": 3,
+    "see": [
+     "CHECK 2216",
+     "TOMAS"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "CHECK 2216",
+     "matched": true
+    },
+    "money": 2750
+   },
+   "tags": [
+    "paid before approval"
+   ]
+  },
+  {
+   "id": "E124",
+   "day": "2026-09-15",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_owner",
+    "what": "Two no-shows by the same sub: the brain proposes a lesson (confirm subs the day before)",
+    "by": 2,
+    "see": [
+     "no-show",
+     "confirm"
+    ],
+    "check": {
+     "t": "lesson",
+     "rx": "confirm|no-show|noshow|day before",
+     "after": "2026-09-14"
+    }
+   },
+   "tags": [
+    "a lesson that never fires twice",
+    "§1.7 #10",
+    "r5 owner #9"
+   ]
+  },
+  {
+   "id": "E125",
+   "day": "2026-09-15",
+   "time": "08:25",
+   "kind": "mail",
+   "actor": "Cambri Jessop",
+   "payload": {
+    "from": "Cambri Jessop <cambri@example.com>",
+    "to": [
+     "Sarah Davis <sarah@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "140 Prospect — kick-off on the 22nd?",
+    "text": "Hi Sarah, could we move the design kick-off presentation to Tuesday 9/22 at 10? Cambri",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_sarah",
+    "what": "Move the 140 Prospect kick-off to 9/22 10:00 and confirm",
+    "by": 2,
+    "see": [
+     "kick-off"
+    ],
+    "check": {
+     "t": "calendar",
+     "uid": "u_sarah",
+     "rx": "kick-off|Kick-off",
+     "day": "2026-09-22"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E126",
+   "day": "2026-09-15",
+   "time": "09:00",
+   "kind": "calendar",
+   "actor": "calendar",
+   "payload": {
+    "uid": "u_sarah",
+    "title": "140 Prospect — design kick-off presentation",
+    "start": "2026-09-22T10:00",
+    "mins": 120,
+    "where": "140 Prospect Place"
+   },
+   "expect": {
+    "who": "u_sarah",
+    "what": "The 140 Prospect kick-off is on Sarah's day",
+    "by": 5,
+    "see": [
+     "kick-off"
+    ],
+    "check": {
+     "t": "seenBy",
+     "uid": "u_sarah"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E127",
+   "day": "2026-09-15",
+   "time": "09:00",
+   "kind": "field",
+   "actor": "u_alberto",
+   "payload": {
+    "do": "request",
+    "project": "p121",
+    "what": "3-inch GRK screws",
+    "qty": 2,
+    "unit": "box",
+    "neededBy": "2026-09-16",
+    "taskId": "millpk"
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Acknowledge the request: 2 box 3-inch GRK screws (needed 09-16)",
+    "by": 1,
+    "see": [
+     "3-inch GRK screws"
+    ],
+    "check": {
+     "t": "request",
+     "project": "p121",
+     "what": "3-inch GRK screws",
+     "status": [
+      "ack",
+      "bought",
+      "delivered"
+     ]
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E128",
+   "day": "2026-09-15",
+   "time": "11:20",
+   "kind": "mail",
+   "actor": "Window Works",
+   "payload": {
+    "from": "Window Works <quotes@windowworks.example>",
+    "to": [
+     "Chen Biron <chen@smartdesign.nyc>"
+    ],
+    "cc": [
+     "Alan <alan.pm@smartdesign.nyc>"
+    ],
+    "subject": "Invoice WW-2026-131 — brick mold, front facade",
+    "text": "Chen,\n\nInvoice for the brick mold restoration at 121 State, front facade. There is no PO on this one; Alan approved it on site.\n\nWindow Works",
+    "att": [
+     {
+      "filename": "WW-2026-131.pdf",
+      "text": "WINDOW WORKS LLC\nInvoice No. WW-2026-131\nDate: 09/15/2026\nBill To: SmartDesign Group LLC\nJob: 121 State Street — front facade\nBrick mold restoration, front facade   $4,250.00\n\nAmount Due: $4,250.00\nDue September 30, 2026"
+     }
+    ],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "Review WW-2026-131 ($4,250, work with no PO): approve against a CO or the budget, or dispute",
+    "by": 3,
+    "see": [
+     "WW-2026-131"
+    ],
+    "check": {
+     "t": "bill",
+     "number": "WW-2026-131",
+     "status": [
+      "approved",
+      "paid",
+      "pm-approved",
+      "disputed",
+      "rejected"
+     ]
+    },
+    "money": 4250
+   },
+   "tags": [
+    "§1.5 #3"
+   ]
+  },
+  {
+   "id": "E129",
+   "day": "2026-09-15",
+   "time": "12:30",
+   "kind": "mail",
+   "actor": "Brooklyn Lumber",
+   "payload": {
+    "from": "Brooklyn Lumber <orders@brooklynlumber.example>",
+    "to": [
+     "Chen Biron <chen@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Your trim order ships Thursday 9/17",
+    "text": "Trim order (casing, base, stool) ships Thursday 9/17 to 121 State.",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Set the trim PO delivery to 9/17",
+    "by": 2,
+    "see": [
+     "ships Thursday"
+    ],
+    "check": {
+     "t": "poEtaAny",
+     "vendor": "Brooklyn Lumber",
+     "eta": "2026-09-17"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E130",
+   "day": "2026-09-15",
+   "time": "13:40",
+   "kind": "mail",
+   "actor": "Priya Natarajan, PE",
+   "payload": {
+    "from": "Priya Natarajan, PE <pn@natarajanstructural.example>",
+    "to": [
+     "Alan <alan.pm@smartdesign.nyc>",
+     "Sarah Davis <sarah@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "45 Cranberry — flitch beam calcs rev 2 and the shoring plan",
+    "text": "Alan, Sarah — rev 2 of the flitch beam calcs attached. Please have Alan confirm the shoring plan before the cut; the fabricator needs my stamp on the shop drawings before fabrication. Priya",
+    "att": [
+     {
+      "filename": "Flitch-calcs-rev2.pdf",
+      "text": "NATARAJAN STRUCTURAL ENGINEERING PLLC\n45 Cranberry Street — flitch beam calculation rev 2\nFB-1 (2) 2x12 LVL with steel plate. Shoring both floors during the cut."
+     }
+    ],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "Confirm the shoring plan for Priya before the cut (a task on Alan)",
+    "by": 2,
+    "see": [
+     "shoring"
+    ],
+    "check": {
+     "t": "task",
+     "title": "shoring",
+     "assignee": "Alan"
+    }
+   },
+   "tags": [
+    "r5 pm #9",
+    "§1.7 #3"
+   ]
+  },
+  {
+   "id": "E131",
+   "day": "2026-09-15",
+   "time": "15:30",
+   "kind": "field",
+   "actor": "u_angel",
+   "payload": {
+    "do": "pct",
+    "project": "p121",
+    "taskId": "millpk",
+    "pct": 30,
+    "note": "Laundry boxes set"
+   },
+   "expect": {
+    "who": "u_billing",
+    "what": "Bill the measured work (millpk at 30%) on the month-end application",
+    "by": 11,
+    "see": [
+     "121 State"
+    ],
+    "check": {
+     "t": "lineBilled",
+     "project": "p121",
+     "taskId": "millpk",
+     "pct": 30
+    }
+   },
+   "tags": [
+    "§1.5 #2",
+    "work done, not billed"
+   ]
+  },
+  {
+   "id": "E132",
+   "day": "2026-09-15",
+   "time": "15:35",
+   "kind": "field",
+   "actor": "u_angel",
+   "payload": {
+    "do": "pct",
+    "project": "p121",
+    "taskId": "rplumb",
+    "pct": 50,
+    "note": "Garden bath supply and waste roughed"
+   },
+   "expect": {
+    "who": "u_billing",
+    "what": "Bill the measured work (rplumb at 50%) on the month-end application",
+    "by": 11,
+    "see": [
+     "121 State"
+    ],
+    "check": {
+     "t": "lineBilled",
+     "project": "p121",
+     "taskId": "rplumb",
+     "pct": 50
+    }
+   },
+   "tags": [
+    "§1.5 #2",
+    "work done, not billed"
+   ]
+  },
+  {
+   "id": "E133",
+   "day": "2026-09-15",
+   "time": "17:30",
+   "kind": "mail",
+   "actor": "Carlos Millwork",
+   "payload": {
+    "from": "Carlos Millwork <carlos@carlosmillwork.example>",
+    "to": [
+     "Chen Biron <chen@smartdesign.nyc>",
+     "Alan <alan.pm@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "121 State — carcass delivery moves to Friday 9/25",
+    "text": "Chen, Alan — the veneer for the carcasses came in short. The delivery moves from 9/18 to Friday 9/25. Sorry for this.\nCarlos",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "The millwork delivery slips 9/18 → 9/25: move PO-2026-048 and the millwork task, tell the client if the finish moves",
+    "by": 2,
+    "see": [
+     "9/25",
+     "carcass"
+    ],
+    "check": {
+     "t": "poEta",
+     "number": "PO-2026-048",
+     "eta": "2026-09-25"
+    },
+    "days": 5
+   },
+   "tags": [
+    "a delivery that slips"
+   ]
+  },
+  {
+   "id": "E134",
+   "day": "2026-09-16",
+   "time": "07:30",
+   "kind": "bank",
+   "actor": "Amex 1009",
+   "payload": {
+    "acct": "ac2",
+    "date": "2026-09-16",
+    "desc": "CHIPOTLE 1122 ATLANTIC AVE",
+    "amt": -38.4,
+    "ref": "AC2-20260916-03840"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Code the crew lunch to meals",
+    "by": 3,
+    "see": [
+     "CHIPOTLE 1122 ATLANTIC"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "CHIPOTLE",
+     "coded": true
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E135",
+   "day": "2026-09-16",
+   "time": "07:30",
+   "kind": "field",
+   "actor": "u_angel",
+   "payload": {
+    "do": "raise",
+    "project": "p121",
+    "type": "blocker",
+    "title": "Dumpster full — need a swap Thursday",
+    "note": "Full to the top. Swap before 7 Thursday.",
+    "taskId": "demo"
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Book the dumpster swap for Thursday",
+    "by": 1,
+    "see": [
+     "Dumpster full"
+    ],
+    "check": {
+     "t": "raise",
+     "title": "Dumpster full"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E136",
+   "day": "2026-09-16",
+   "time": "07:31",
+   "kind": "bank",
+   "actor": "Chase 4471",
+   "payload": {
+    "acct": "ac1",
+    "date": "2026-09-16",
+    "desc": "ACH DEBIT CARLOS MILLWORK INC",
+    "amt": -19000.0,
+    "ref": "AC1-20260916-00000"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Match the $19,000 ACH to Carlos to CM-0102 (and flag if paid before approval)",
+    "by": 3,
+    "see": [
+     "CARLOS MILLWORK"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "ACH DEBIT CARLOS MILLWORK",
+     "amt": -19000,
+     "matched": true
+    },
+    "money": 19000
+   },
+   "tags": []
+  },
+  {
+   "id": "E137",
+   "day": "2026-09-16",
+   "time": "07:40",
+   "kind": "bank",
+   "actor": "Amex 1009",
+   "payload": {
+    "acct": "ac2",
+    "date": "2026-09-16",
+    "desc": "SHELL OIL 57442 BROOKLYN",
+    "amt": -71.45,
+    "ref": "AC2-20260916-07145"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Code van fuel to overhead",
+    "by": 3,
+    "see": [
+     "SHELL OIL 57442 BROOKL"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "SHELL OIL 57442 BROOKL",
+     "coded": true
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E138",
+   "day": "2026-09-16",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_chen",
+    "what": "Tomas Restoration's COI expired 9/15: chase the renewal before the next payment",
+    "by": 2,
+    "see": [
+     "Restoration",
+     "Tomas"
+    ],
+    "check": {
+     "t": "outreach",
+     "to": "tomas|Restoration"
+    }
+   },
+   "tags": [
+    "a COI that expires mid-month"
+   ]
+  },
+  {
+   "id": "E139",
+   "day": "2026-09-16",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_alex",
+    "what": "Buy and drop 3-inch GRK screws at 121 State by 09-16",
+    "by": 1,
+    "see": [
+     "3-inch GRK scr"
+    ],
+    "check": {
+     "t": "request",
+     "project": "p121",
+     "what": "3-inch GRK scr",
+     "status": [
+      "bought",
+      "delivered"
+     ]
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E140",
+   "day": "2026-09-16",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_billing",
+    "what": "INV-2026-038 ($68,265) is a day past due: send the Kleins a reminder",
+    "by": 1,
+    "see": [
+     "INV-2026-038"
+    ],
+    "check": {
+     "t": "outreach",
+     "to": "klein",
+     "rx": "INV-2026-038|invoice|past due|reminder",
+     "after": "2026-09-15"
+    }
+   },
+   "tags": [
+    "a client who pays late"
+   ]
+  },
+  {
+   "id": "E141",
+   "day": "2026-09-16",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_billing",
+    "what": "INV-2026-D140-R: $12,000 of the Jessops' $24,000 retainer is a day past due: remind them",
+    "by": 2,
+    "see": [
+     "D140-R"
+    ],
+    "check": {
+     "t": "outreach",
+     "to": "jessop|cambri|jaleena",
+     "after": "2026-09-15"
+    },
+    "money": 12000
+   },
+   "tags": []
+  },
+  {
+   "id": "E142",
+   "day": "2026-09-16",
+   "time": "09:35",
+   "kind": "mail",
+   "actor": "Radiant Floors Direct",
+   "payload": {
+    "from": "Radiant Floors Direct <orders@radiantfloors.example>",
+    "to": [
+     "Chen Biron <chen@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Quote RF-2044 — radiant heat mats, primary bath",
+    "text": "Hi, quote RF-2044 for the radiant heat mats for the 121 State primary bath, $1,240.00 with thermostat, 5 days.",
+    "att": [
+     {
+      "filename": "RF-2044.pdf",
+      "text": "RADIANT FLOORS DIRECT\nQuote RF-2044\nJob: 121 State Street — radiant heat mats (primary bath)\nMats and thermostat   $1,240.00\nQuote total: $1,240.00\nLead time: 5 days"
+     }
+    ],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Price the radiant heat mats ($1,240) and order them before 9/18 (on site by 10/6)",
+    "by": 2,
+    "see": [
+     "RF-2044",
+     "Radiant"
+    ],
+    "check": {
+     "t": "po",
+     "project": "p121",
+     "mat": "m6"
+    },
+    "days": 2
+   },
+   "tags": []
+  },
+  {
+   "id": "E143",
+   "day": "2026-09-16",
+   "time": "10:20",
+   "kind": "mail",
+   "actor": "LPC Staff",
+   "payload": {
+    "from": "LPC Staff <noreply@lpc.example>",
+    "to": [
+     "Sarah Davis <sarah@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "LPC staff comments — 121 State window profiles",
+    "text": "Please revise the window profile drawings to show the sill horn and the back band, and resubmit.",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_sarah",
+    "what": "Revise and resubmit the 121 State window profiles (Sarah's dated task)",
+    "by": 2,
+    "see": [
+     "window profile",
+     "sill horn"
+    ],
+    "check": {
+     "t": "task",
+     "title": "window profile|resubmit|LPC",
+     "assignee": "Sarah"
+    }
+   },
+   "tags": [
+    "r5 pm #10"
+   ]
+  },
+  {
+   "id": "E144",
+   "day": "2026-09-16",
+   "time": "11:00",
+   "kind": "mail",
+   "actor": "Diamond Appliances",
+   "payload": {
+    "from": "Diamond Appliances <delivery@diamondappliances.example>",
+    "to": [
+     "Chen Biron <chen@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Delivery window — 121 State appliances Friday 9/25, 8–12",
+    "text": "Your appliance delivery for 121 State is Friday 9/25 between 8 and 12. Two-person crew, needs the elevator.",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_angel",
+    "what": "The appliance delivery (9/25, 8–12) shows on the foreman's Arriving Today",
+    "by": 7,
+    "see": [
+     "Diamond",
+     "appliance"
+    ],
+    "check": {
+     "t": "seenBy",
+     "uid": "u_angel"
+    }
+   },
+   "tags": [
+    "§1.7 #4"
+   ]
+  },
+  {
+   "id": "E145",
+   "day": "2026-09-16",
+   "time": "13:30",
+   "kind": "mail",
+   "actor": "Satish Electric",
+   "payload": {
+    "from": "Satish Electric <office@satishelectric.example>",
+    "to": [
+     "Chen Biron <chen@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "COI — Satish Electric Inc",
+    "text": "Our certificate attached.",
+    "att": [
+     {
+      "filename": "COI-Satish-Electric.pdf",
+      "text": "CERTIFICATE OF LIABILITY INSURANCE\nInsured: Satish Electric Inc\nCertificate holder: SmartDesign Group LLC\nCommercial General Liability — Policy Period 06/01/2026 to 06/01/2027\nWorkers Compensation — Policy Period 06/01/2026 to 06/01/2027"
+     }
+    ],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "File Satish Electric's COI (he is paid by ACH)",
+    "by": 2,
+    "see": [
+     "Satish"
+    ],
+    "check": {
+     "t": "coi",
+     "vendor": "Satish",
+     "expAfter": "2027-01-01"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E146",
+   "day": "2026-09-16",
+   "time": "18:00",
+   "kind": "client",
+   "actor": "u_cambri",
+   "payload": {
+    "do": "chat",
+    "text": "Is the survey still on for 9/19? We need to let the tenant know."
+   },
+   "expect": {
+    "who": "u_sarah",
+    "what": "Answer the Jessops' survey question",
+    "by": 1,
+    "see": [
+     "survey"
+    ],
+    "check": {
+     "t": "clientAnswered",
+     "project": "p140",
+     "rx": "survey"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E147",
+   "day": "2026-09-17",
+   "time": "07:30",
+   "kind": "bank",
+   "actor": "Amex 1009",
+   "payload": {
+    "acct": "ac2",
+    "date": "2026-09-17",
+    "desc": "NYC DEPT OF BUILDINGS",
+    "amt": -280.0,
+    "ref": "AC2-20260917-28000"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Code the DOB fee to 121 State permits",
+    "by": 3,
+    "see": [
+     "NYC DEPT OF BUILDINGS"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "NYC DEPT OF BUILDINGS",
+     "coded": true,
+     "project": "p121"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E148",
+   "day": "2026-09-17",
+   "time": "07:40",
+   "kind": "bank",
+   "actor": "Amex 1009",
+   "payload": {
+    "acct": "ac2",
+    "date": "2026-09-17",
+    "desc": "AMAZON MKTPLACE 3X LED DRIVERS",
+    "amt": -189.0,
+    "ref": "AC2-20260917-18900"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Code the LED drivers to 121 State electrical",
+    "by": 3,
+    "see": [
+     "AMAZON MKTPLACE 3X LED"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "AMAZON MKTPLACE 3X LED",
+     "coded": true,
+     "project": "p121"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E149",
+   "day": "2026-09-17",
+   "time": "07:50",
+   "kind": "bank",
+   "actor": "Chase 4471",
+   "payload": {
+    "acct": "ac1",
+    "date": "2026-09-17",
+    "desc": "CHECK 2217 ALBERTO M PLUMBING LLC",
+    "amt": -4600.0,
+    "ref": "AC1-20260917-60000"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Match check 2217 to AMP-318 ($4,600)",
+    "by": 3,
+    "see": [
+     "CHECK 2217"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "CHECK 2217",
+     "matched": true
+    },
+    "money": 4600
+   },
+   "tags": []
+  },
+  {
+   "id": "E150",
+   "day": "2026-09-17",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_alan",
+    "what": "Review QB-3301 for payment",
+    "by": 3,
+    "see": [
+     "QB-3301"
+    ],
+    "check": {
+     "t": "bill",
+     "number": "QB-3301",
+     "status": [
+      "approved",
+      "paid",
+      "verified",
+      "pm-approved"
+     ]
+    },
+    "money": 300
+   },
+   "tags": [
+    "approval"
+   ]
+  },
+  {
+   "id": "E151",
+   "day": "2026-09-17",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_klein",
+    "what": "The Kleins choose the exterior paint finish by 9/17",
+    "by": 2,
+    "see": [
+     "Exterior"
+    ],
+    "check": {
+     "t": "decision",
+     "project": "p121",
+     "id": "d4"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E152",
+   "day": "2026-09-17",
+   "time": "08:00",
+   "kind": "mail",
+   "actor": "Luis (super, 121 State)",
+   "payload": {
+    "from": "Luis (super, 121 State) <super@121state.example>",
+    "to": [
+     "Chen Biron <chen@smartdesign.nyc>",
+     "Angel <angel@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "121 State — service elevator out 9/24 and 9/25",
+    "text": "The service elevator is out for inspection Thursday 9/24 and Friday 9/25. No deliveries those days. Luis",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Move the 9/25 deliveries (Diamond, Carlos) off the elevator outage",
+    "by": 2,
+    "see": [
+     "elevator"
+    ],
+    "check": {
+     "t": "task",
+     "title": "elevator",
+     "anyone": true
+    },
+    "days": 1
+   },
+   "tags": []
+  },
+  {
+   "id": "E153",
+   "day": "2026-09-17",
+   "time": "08:30",
+   "kind": "mail",
+   "actor": "Tino",
+   "payload": {
+    "from": "Tino <orders@tino.example>",
+    "to": [
+     "Chen Biron <chen@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Invoice TF-5512 — white oak, 121 State",
+    "text": "Chen, invoice TF-5512 for the white oak against PO-2026-047. You paid $8,000 on the Amex on 9/1; the $10 balance is the delivery fee.\nTino",
+    "att": [
+     {
+      "filename": "TF-5512.pdf",
+      "text": "TINO FLOORING\nInvoice No. TF-5512\nDate: 09/17/2026\nBill To: SmartDesign Group LLC\nJob: 121 State Street, 3rd floor\nAgainst PO-2026-047\nWhite oak 5 inch, 900 sf   $8,000.00\nDelivery   $10.00\n\nAmount Due: $8,010.00\nDue October 2, 2026"
+     }
+    ],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Enter TF-5512 ($8,010) on PO-2026-047 and see it was already paid on the Amex ($8,000)",
+    "by": 2,
+    "see": [
+     "TF-5512"
+    ],
+    "check": {
+     "t": "bill",
+     "number": "TF-5512",
+     "poNumber": "PO-2026-047"
+    },
+    "money": 8010
+   },
+   "tags": []
+  },
+  {
+   "id": "E154",
+   "day": "2026-09-17",
+   "time": "09:10",
+   "kind": "mail",
+   "actor": "Sarah Klein",
+   "payload": {
+    "from": "Sarah Klein <sarah.klein@example.com>",
+    "to": [
+     "Alan <alan.pm@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "121 State — paint sample before you order",
+    "text": "Alan, please confirm the exterior paint color with a sample on the door before you order the paint. Sarah",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "Put the Kleins' ask (paint sample on the door before ordering) on a dated task",
+    "by": 2,
+    "see": [
+     "paint"
+    ],
+    "check": {
+     "t": "task",
+     "title": "paint|sample",
+     "anyone": true
+    }
+   },
+   "tags": [
+    "§1.7 #7"
+   ]
+  },
+  {
+   "id": "E155",
+   "day": "2026-09-17",
+   "time": "12:00",
+   "kind": "mail",
+   "actor": "Nemo Tile",
+   "payload": {
+    "from": "Nemo Tile <sales@nemotile.example>",
+    "to": [
+     "Chen Biron <chen@smartdesign.nyc>",
+     "Controller <controller@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Credit memo CM-NT-118 — returned primary bath tile",
+    "text": "Credit memo CM-NT-118 for 6 boxes returned from PO-2026-041: $850.00, refunded to your checking account.",
+    "att": [
+     {
+      "filename": "CM-NT-118.pdf",
+      "text": "NEMO TILE + STONE\nCredit Memo CM-NT-118\nAgainst invoice NT-88412, PO-2026-041\n6 boxes primary bath floor tile returned   -$850.00\nCredit total: $850.00, refunded to the account on file"
+     }
+    ],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Match the Nemo $850 credit to NT-88412 / PO-2026-041 and relieve the job",
+    "by": 3,
+    "see": [
+     "NEMO",
+     "CM-NT-118"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "NEMO TILE CREDIT",
+     "matched": true
+    },
+    "money": 850
+   },
+   "tags": [
+    "a vendor credit memo",
+    "§1.5 #4"
+   ]
+  },
+  {
+   "id": "E156",
+   "day": "2026-09-17",
+   "time": "13:20",
+   "kind": "field",
+   "actor": "u_angel",
+   "payload": {
+    "do": "raise",
+    "project": "p121",
+    "type": "insp",
+    "title": "Garden bath rough plumbing ready for inspection",
+    "note": "Top-out pending; rough is complete.",
+    "taskId": "rplumb"
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "Answer Angel: the rough plumbing inspection is booked for 9/22",
+    "by": 1,
+    "see": [
+     "ready for inspection"
+    ],
+    "check": {
+     "t": "raise",
+     "title": "ready for inspection"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E157",
+   "day": "2026-09-17",
+   "time": "15:20",
+   "kind": "field",
+   "actor": "u_angel",
+   "payload": {
+    "do": "pct",
+    "project": "p121",
+    "taskId": "relec",
+    "pct": 85,
+    "note": "Devices boxed on all floors"
+   },
+   "expect": {
+    "who": "u_billing",
+    "what": "Bill the measured work (relec at 85%) on the month-end application",
+    "by": 9,
+    "see": [
+     "121 State"
+    ],
+    "check": {
+     "t": "lineBilled",
+     "project": "p121",
+     "taskId": "relec",
+     "pct": 85
+    }
+   },
+   "tags": [
+    "§1.5 #2",
+    "work done, not billed"
+   ]
+  },
+  {
+   "id": "E158",
+   "day": "2026-09-18",
+   "time": "07:30",
+   "kind": "bank",
+   "actor": "Chase 4471",
+   "payload": {
+    "acct": "ac1",
+    "date": "2026-09-18",
+    "desc": "NEMO TILE CREDIT RTN 88412",
+    "amt": 850.0,
+    "ref": "AC1-20260918-85000"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Code the Nemo credit as a vendor credit on 121 State (not income)",
+    "by": 3,
+    "see": [
+     "NEMO"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "NEMO TILE CREDIT",
+     "coded": true,
+     "project": "p121",
+     "notIncome": true
+    },
+    "money": 850
+   },
+   "tags": [
+    "§1.5 #4"
+   ]
+  },
+  {
+   "id": "E159",
+   "day": "2026-09-18",
+   "time": "07:40",
+   "kind": "bank",
+   "actor": "Amex 1009",
+   "payload": {
+    "acct": "ac2",
+    "date": "2026-09-18",
+    "desc": "ADOBE CREATIVE CLOUD",
+    "amt": -89.99,
+    "ref": "AC2-20260918-08999"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Code software to overhead",
+    "by": 3,
+    "see": [
+     "ADOBE CREATIVE CLOUD"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "ADOBE CREATIVE CLOUD",
+     "coded": true
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E160",
+   "day": "2026-09-18",
+   "time": "07:45",
+   "kind": "bank",
+   "actor": "Chase 4471",
+   "payload": {
+    "acct": "ac1",
+    "date": "2026-09-18",
+    "desc": "WIRE IN 206 LENOX LLC",
+    "amt": 15000.0,
+    "ref": "AC1-20260918-00000"
+   },
+   "expect": {
+    "who": "u_billing",
+    "what": "Apply 206 Lenox's $15,000 wire (no invoice on file: record it as a deposit and bill it)",
+    "by": 2,
+    "see": [
+     "206 LENOX",
+     "15,000"
+    ],
+    "check": {
+     "t": "payment",
+     "client": "cl206",
+     "amount": 15000
+    },
+    "money": 15000
+   },
+   "tags": [
+    "unapplied cash"
+   ]
+  },
+  {
+   "id": "E161",
+   "day": "2026-09-18",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_billing",
+    "what": "Bill back the extra blocking lumber the Kleins asked for ($487.36, Home Depot 9/4)",
+    "by": 10,
+    "see": [
+     "487"
+    ],
+    "check": {
+     "t": "rebilled",
+     "desc": "HOME DEPOT #6177",
+     "amt": -487.36
+    },
+    "money": 487.36
+   },
+   "tags": [
+    "§1.5 #1",
+    "a reimbursable purchase for a client"
+   ]
+  },
+  {
+   "id": "E162",
+   "day": "2026-09-18",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_angel",
+    "what": "Daily logs filed for every working day of 9/14–9/18 on 121 State",
+    "by": 1,
+    "see": [
+     "Daily Log",
+     "log"
+    ],
+    "check": {
+     "t": "logs",
+     "project": "p121",
+     "days": [
+      "2026-09-14",
+      "2026-09-15",
+      "2026-09-16",
+      "2026-09-17",
+      "2026-09-18"
+     ]
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E163",
+   "day": "2026-09-18",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_chen",
+    "what": "Receive the Tino white oak on 9/18 and bill it against PO-2026-047",
+    "by": 2,
+    "see": [
+     "white oak"
+    ],
+    "check": {
+     "t": "poStatus",
+     "number": "PO-2026-047",
+     "status": [
+      "received",
+      "partial",
+      "closed"
+     ]
+    },
+    "money": 8010
+   },
+   "tags": []
+  },
+  {
+   "id": "E164",
+   "day": "2026-09-18",
+   "time": "09:10",
+   "kind": "mail",
+   "actor": "Elena Rivera",
+   "payload": {
+    "from": "Elena Rivera <elena.rivera@example.com>",
+    "to": [
+     "Billing <billing@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Design invoices",
+    "text": "Please hold the next design invoice until 9/23, our transfer limit resets then. Elena",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_billing",
+    "what": "Billing sees the Riveras' ask to hold the next invoice to 9/23",
+    "by": 1,
+    "see": [
+     "Rivera"
+    ],
+    "check": {
+     "t": "seenBy",
+     "uid": "u_billing"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E165",
+   "day": "2026-09-18",
+   "time": "11:50",
+   "kind": "field",
+   "actor": "u_angel",
+   "payload": {
+    "do": "raise",
+    "project": "p121",
+    "type": "clientq",
+    "title": "Mrs. Klein asked for an outlet in the pantry",
+    "note": "She asked if we can add one GFI outlet in the pantry wall.",
+    "taskId": "relec"
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "Answer the Kleins' pantry outlet request (price it as a change order)",
+    "by": 2,
+    "see": [
+     "pantry"
+    ],
+    "check": {
+     "t": "co",
+     "project": "p121",
+     "rx": "outlet|pantry",
+     "status": [
+      "sent",
+      "approved",
+      "draft"
+     ]
+    },
+    "money": 450
+   },
+   "tags": [
+    "an approved overage to a CO"
+   ]
+  },
+  {
+   "id": "E166",
+   "day": "2026-09-18",
+   "time": "15:00",
+   "kind": "mail",
+   "actor": "Metro Expediting",
+   "payload": {
+    "from": "Metro Expediting <filings@metroexpediting.example>",
+    "to": [
+     "Alan <alan.pm@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "121 State — plumbing permit issued",
+    "text": "Alan — the plumbing permit for 121 State is issued. Copy attached. Metro Expediting",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "Close the DOB plumbing permit task",
+    "by": 2,
+    "see": [
+     "plumbing permit"
+    ],
+    "check": {
+     "t": "taskDone",
+     "project": "p121",
+     "id": "pm_plumb"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E167",
+   "day": "2026-09-18",
+   "time": "15:30",
+   "kind": "field",
+   "actor": "u_angel",
+   "payload": {
+    "do": "pct",
+    "project": "p121",
+    "taskId": "win",
+    "pct": 80,
+    "note": "Rear windows cased"
+   },
+   "expect": {
+    "who": "u_billing",
+    "what": "Bill the measured work (win at 80%) on the month-end application",
+    "by": 8,
+    "see": [
+     "121 State"
+    ],
+    "check": {
+     "t": "lineBilled",
+     "project": "p121",
+     "taskId": "win",
+     "pct": 80
+    }
+   },
+   "tags": [
+    "§1.5 #2",
+    "work done, not billed"
+   ]
+  },
+  {
+   "id": "E168",
+   "day": "2026-09-18",
+   "time": "15:40",
+   "kind": "field",
+   "actor": "u_angel",
+   "payload": {
+    "do": "pct",
+    "project": "p121",
+    "taskId": "ext",
+    "pct": 30,
+    "note": "Scaffold up; brick mold stripped"
+   },
+   "expect": {
+    "who": "u_billing",
+    "what": "Bill the measured work (ext at 30%) on the month-end application",
+    "by": 8,
+    "see": [
+     "121 State"
+    ],
+    "check": {
+     "t": "lineBilled",
+     "project": "p121",
+     "taskId": "ext",
+     "pct": 30
+    }
+   },
+   "tags": [
+    "§1.5 #2",
+    "work done, not billed"
+   ]
+  },
+  {
+   "id": "E169",
+   "day": "2026-09-18",
+   "time": "16:00",
+   "kind": "mail",
+   "actor": "Meeting notes",
+   "payload": {
+    "from": "Meeting notes <notes@meet.example>",
+    "to": [
+     "Sarah Davis <sarah@smartdesign.nyc>",
+     "Alan <alan.pm@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Notes: “45 Cranberry design review” Sep 18, 2026",
+    "text": "Notes from “45 Cranberry design review”\n\nSummary\nDesign review with the Riveras. The kitchen rear wall moves; drawings re-issue.\n\nSuggested next steps\n\n[Sarah Davis] Send Revised Drawings: I'll send the revised drawings Friday: A-101, A-201 and A-501 with the rear wall at 13'-6\".\n\n[Alan] Update Design Schedule: Send the Riveras the updated design schedule by Tuesday.\n\nMeeting records Document Notes",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_sarah",
+    "what": "\"I'll send the revised drawings Friday\" becomes Sarah's task due Friday 9/25",
+    "by": 1,
+    "see": [
+     "Revised Drawings"
+    ],
+    "check": {
+     "t": "task",
+     "title": "Revised Drawings",
+     "assignee": "Sarah",
+     "due": "2026-09-25"
+    }
+   },
+   "tags": [
+    "a promise in a meeting",
+    "§1.5 #6"
+   ]
+  },
+  {
+   "id": "E170",
+   "day": "2026-09-18",
+   "time": "17:30",
+   "kind": "drive",
+   "actor": "drive",
+   "payload": {
+    "uid": "u_sarah",
+    "name": "Transcript — 45 Cranberry design review.txt",
+    "text": "Transcript — 45 Cranberry design review — Friday September 18, 2026\nSarah Davis: I'll send the revised drawings Friday the 25th.\nElena Rivera: And the schedule by Tuesday please.\nAlan: I will send it Tuesday."
+   },
+   "expect": {
+    "who": "u_sarah",
+    "what": "Ingest the transcript in Drive like the notes (meeting on 45 Cranberry)",
+    "by": 2,
+    "see": [
+     "Transcript"
+    ],
+    "check": {
+     "t": "meetingFrom",
+     "rx": "45 Cranberry design review"
+    }
+   },
+   "tags": [
+    "§1.7 #6"
+   ]
+  },
+  {
+   "id": "E171",
+   "day": "2026-09-21",
+   "time": "06:15",
+   "kind": "mail",
+   "actor": "Builder Webinars",
+   "payload": {
+    "from": "Builder Webinars <events@builderwebinars.example>",
+    "to": [
+     "Alan <alan.pm@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Webinar: estimating with AI",
+    "text": "Join our free webinar on estimating with AI. Unsubscribe.",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "Ignore \"Webinar: estimating with AI\" (noise: no proposal, no nudge)",
+    "by": 1,
+    "see": [
+     "Webinar: estimating with"
+    ],
+    "check": {
+     "t": "ignored",
+     "subject": "Webinar: estimating with AI"
+    }
+   },
+   "tags": [
+    "noise"
+   ]
+  },
+  {
+   "id": "E172",
+   "day": "2026-09-21",
+   "time": "07:30",
+   "kind": "bank",
+   "actor": "Chase 4471",
+   "payload": {
+    "acct": "ac1",
+    "date": "2026-09-21",
+    "desc": "ZELLE TO J ROSARIO",
+    "amt": -2400.0,
+    "ref": "AC1-20260921-40000"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Code the second Zelle to J Rosario (and chase his W-9)",
+    "by": 3,
+    "see": [
+     "ROSARIO"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "ZELLE TO J ROSARIO",
+     "amt": -2400,
+     "coded": true,
+     "after": "2026-09-20"
+    },
+    "money": 2400
+   },
+   "tags": []
+  },
+  {
+   "id": "E173",
+   "day": "2026-09-21",
+   "time": "07:31",
+   "kind": "bank",
+   "actor": "Amex 1009",
+   "payload": {
+    "acct": "ac2",
+    "date": "2026-09-21",
+    "desc": "WATERWORKS SHOWROOM SOHO",
+    "amt": -2350.0,
+    "ref": "AC2-20260921-35000"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Code the Kleins' tub filler (Waterworks) to 121 State as billable",
+    "by": 3,
+    "see": [
+     "WATERWORKS SHOWROOM SO"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "WATERWORKS SHOWROOM",
+     "coded": true,
+     "project": "p121"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E174",
+   "day": "2026-09-21",
+   "time": "07:40",
+   "kind": "bank",
+   "actor": "Amex 1009",
+   "payload": {
+    "acct": "ac2",
+    "date": "2026-09-21",
+    "desc": "SHELL OIL 57442 BROOKLYN",
+    "amt": -66.1,
+    "ref": "AC2-20260921-06609"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Code van fuel to overhead",
+    "by": 3,
+    "see": [
+     "SHELL OIL 57442 BROOKL"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "SHELL OIL 57442 BROOKL",
+     "coded": true
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E175",
+   "day": "2026-09-21",
+   "time": "07:50",
+   "kind": "field",
+   "actor": "u_angel",
+   "payload": {
+    "do": "request",
+    "project": "p121",
+    "what": "Blue tape + rosin paper for the floors",
+    "qty": 4,
+    "unit": "roll",
+    "neededBy": "2026-09-22",
+    "taskId": "floor"
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Acknowledge the request: 4 roll Blue tape + rosin paper for the floors (needed 09-22)",
+    "by": 1,
+    "see": [
+     "Blue tape + rosin pa"
+    ],
+    "check": {
+     "t": "request",
+     "project": "p121",
+     "what": "Blue tape + rosin ",
+     "status": [
+      "ack",
+      "bought",
+      "delivered"
+     ]
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E176",
+   "day": "2026-09-21",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_alan",
+    "what": "Review TF-5512 for payment",
+    "by": 3,
+    "see": [
+     "TF-5512"
+    ],
+    "check": {
+     "t": "bill",
+     "number": "TF-5512",
+     "status": [
+      "approved",
+      "paid",
+      "verified",
+      "pm-approved"
+     ]
+    },
+    "money": 8010
+   },
+   "tags": [
+    "approval"
+   ]
+  },
+  {
+   "id": "E177",
+   "day": "2026-09-21",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_billing",
+    "what": "Credit the Kleins for the returned tile ($850; the tile line was billed to them)",
+    "by": 8,
+    "see": [
+     "850",
+     "credit"
+    ],
+    "check": {
+     "t": "clientCredit",
+     "client": "cl121",
+     "amount": 850
+    },
+    "money": 850
+   },
+   "tags": [
+    "§1.5 #4"
+   ]
+  },
+  {
+   "id": "E178",
+   "day": "2026-09-21",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_angel",
+    "what": "Angel sees tomorrow's rough plumbing inspection (8–12) on Today",
+    "by": 1,
+    "see": [
+     "inspection"
+    ],
+    "check": {
+     "t": "seenBy",
+     "uid": "u_angel"
+    }
+   },
+   "tags": [
+    "§1.7 #1"
+   ]
+  },
+  {
+   "id": "E179",
+   "day": "2026-09-21",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_alan",
+    "what": "Approve the crew hours for 9/14–9/18",
+    "by": 2,
+    "see": [
+     "hours",
+     "Hours"
+    ],
+    "check": {
+     "t": "hours",
+     "from": "2026-09-14",
+     "to": "2026-09-18"
+    }
+   },
+   "tags": [
+    "payroll"
+   ]
+  },
+  {
+   "id": "E180",
+   "day": "2026-09-21",
+   "time": "08:30",
+   "kind": "calendar",
+   "actor": "calendar",
+   "payload": {
+    "uid": "u_controller",
+    "title": "September close",
+    "start": "2026-10-01T10:00",
+    "mins": 120,
+    "where": "Office"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "The September close (10/1) is on the controller's calendar",
+    "by": 8,
+    "see": [
+     "close",
+     "Close"
+    ],
+    "check": {
+     "t": "seenBy",
+     "uid": "u_controller"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E181",
+   "day": "2026-09-21",
+   "time": "08:50",
+   "kind": "mail",
+   "actor": "Alan",
+   "payload": {
+    "from": "Alan <alan.pm@smartdesign.nyc>",
+    "to": [
+     "Chen Biron <chen@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Stair runner price",
+    "text": "Chen, please get me a price for the stair runner by Thursday. Alan",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Price the stair runner by Thursday 9/24 (the PM's ask)",
+    "by": 3,
+    "see": [
+     "stair runner"
+    ],
+    "check": {
+     "t": "mat",
+     "project": "p121",
+     "id": "m23",
+     "priced": true
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E182",
+   "day": "2026-09-21",
+   "time": "09:40",
+   "kind": "mail",
+   "actor": "Satish Electric",
+   "payload": {
+    "from": "Satish Electric <office@satishelectric.example>",
+    "to": [
+     "Controller <controller@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Invoice SE-0951 — 121 State rough electrical progress",
+    "text": "Hello,\n\nInvoice SE-0951 attached: rough electrical at 121 State, second progress draw. Net 15.\n\nSatish Electric Inc",
+    "att": [
+     {
+      "filename": "SE-0951.pdf",
+      "text": "SATISH ELECTRIC INC\nInvoice No. SE-0951\nDate: 09/21/2026\nBill To: SmartDesign Group LLC\nJob: 121 State Street — rough electrical\nRough electrical, progress 2   $9,600.00\n\nAmount Due: $9,600.00\nDue October 6, 2026"
+     }
+    ],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Enter Satish SE-0951 ($9,600) on 121 State",
+    "by": 3,
+    "see": [
+     "SE-0951"
+    ],
+    "check": {
+     "t": "bill",
+     "number": "SE-0951",
+     "projectId": "p121"
+    },
+    "money": 9600
+   },
+   "tags": []
+  },
+  {
+   "id": "E183",
+   "day": "2026-09-21",
+   "time": "11:40",
+   "kind": "mail",
+   "actor": "Bedrosians",
+   "payload": {
+    "from": "Bedrosians <orders@bedrosians.example>",
+    "to": [
+     "Sarah Davis <sarah@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Samples shipped — 140 Prospect backsplash",
+    "text": "Zellige samples shipped today for 140 Prospect.",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_sarah",
+    "what": "Sarah sees the samples are on the way",
+    "by": 2,
+    "see": [
+     "Zellige",
+     "samples"
+    ],
+    "check": {
+     "t": "seenBy",
+     "uid": "u_sarah"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E184",
+   "day": "2026-09-21",
+   "time": "12:40",
+   "kind": "field",
+   "actor": "u_angel",
+   "payload": {
+    "do": "raise",
+    "project": "p121",
+    "type": "clientq",
+    "title": "Neighbor complained about dust in the shared hall",
+    "note": "Building super passed it on. Need a plan for daily cleanup.",
+    "taskId": "gwb"
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "Answer the dust complaint with a cleanup plan",
+    "by": 1,
+    "see": [
+     "dust"
+    ],
+    "check": {
+     "t": "raise",
+     "title": "dust"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E185",
+   "day": "2026-09-21",
+   "time": "13:15",
+   "kind": "mail",
+   "actor": "Liberty Brokerage",
+   "payload": {
+    "from": "Liberty Brokerage <coi@libertybrokerage.example>",
+    "to": [
+     "Chen Biron <chen@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "COI — Tino Flooring",
+    "text": "Certificate for Tino Flooring attached, as requested.",
+    "att": [
+     {
+      "filename": "COI-Tino-Flooring.pdf",
+      "text": "CERTIFICATE OF LIABILITY INSURANCE\nInsured: Tino Flooring\nCertificate holder: SmartDesign Group LLC\nCommercial General Liability — Policy Period 09/01/2026 to 09/01/2027\nWorkers Compensation — Policy Period 09/01/2026 to 09/01/2027"
+     }
+    ],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "File Tino's COI so his PO can be paid",
+    "by": 2,
+    "see": [
+     "Tino"
+    ],
+    "check": {
+     "t": "coi",
+     "vendor": "Tino",
+     "expAfter": "2027-01-01"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E186",
+   "day": "2026-09-21",
+   "time": "16:20",
+   "kind": "mail",
+   "actor": "Alberto M Plumbing",
+   "payload": {
+    "from": "Alberto M Plumbing <office@albertomplumbing.example>",
+    "to": [
+     "Alan <alan.pm@smartdesign.nyc>",
+     "Angel <angel@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "121 State — top-out Thursday 9/24 7am",
+    "text": "Confirming top-out Thursday 9/24 at 7. Alberto M Plumbing",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_angel",
+    "what": "The plumber on Thursday shows on the foreman's Today",
+    "by": 3,
+    "see": [
+     "Alberto M Plumbing",
+     "plumber"
+    ],
+    "check": {
+     "t": "seenBy",
+     "uid": "u_angel"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E187",
+   "day": "2026-09-21",
+   "time": "20:40",
+   "kind": "mail",
+   "actor": "Sarah Klein",
+   "payload": {
+    "from": "Sarah Klein <sarah.klein@example.com>",
+    "to": [
+     "Alan <alan.pm@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Re: the joist change order",
+    "text": "Alan, we don't think the joist repair should be an extra. The old plumber's damage was there before we bought the house, but you opened the floor. Can we talk? Sarah",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "Resolve the disputed joist CO with the Kleins (revise, explain or withdraw)",
+    "by": 3,
+    "see": [
+     "joist"
+    ],
+    "check": {
+     "t": "coResolved",
+     "project": "p121",
+     "rx": "joist|sister"
+    },
+    "money": 1450
+   },
+   "tags": [
+    "a change order disputed by the client"
+   ]
+  },
+  {
+   "id": "E188",
+   "day": "2026-09-22",
+   "time": "07:30",
+   "kind": "bank",
+   "actor": "Home Depot 7720",
+   "payload": {
+    "acct": "ac3",
+    "date": "2026-09-22",
+    "desc": "THE HOME DEPOT #6166 BROOKLYN NY",
+    "amt": -1104.32,
+    "ref": "AC3-20260922-10432"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Code the extra GWB to 121 State",
+    "by": 3,
+    "see": [
+     "THE HOME DEPOT #6166 B"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "HOME DEPOT #6166",
+     "coded": true,
+     "project": "p121"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E189",
+   "day": "2026-09-22",
+   "time": "07:40",
+   "kind": "bank",
+   "actor": "Amex 1009",
+   "payload": {
+    "acct": "ac2",
+    "date": "2026-09-22",
+    "desc": "SQ *BROOKLYN LUMBER",
+    "amt": -412.75,
+    "ref": "AC2-20260922-41275"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Code the 8 GWB sheets to 121 State",
+    "by": 3,
+    "see": [
+     "SQ *BROOKLYN LUMBER"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "SQ *BROOKLYN LUMBER",
+     "coded": true,
+     "project": "p121"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E190",
+   "day": "2026-09-22",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_billing",
+    "what": "Bill the Kleins for their pendants at cost plus 10% ($1,395.24)",
+    "by": 8,
+    "see": [
+     "RESTORATION",
+     "pendants"
+    ],
+    "check": {
+     "t": "rebilled",
+     "desc": "RESTORATION HARDWARE",
+     "amt": -1268.4
+    },
+    "money": 1395.24
+   },
+   "tags": [
+    "§1.5 #1",
+    "a reimbursable purchase for a client"
+   ]
+  },
+  {
+   "id": "E191",
+   "day": "2026-09-22",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_alex",
+    "what": "Buy and drop Blue tape + rosin at 121 State by 09-22",
+    "by": 1,
+    "see": [
+     "Blue tape + ro"
+    ],
+    "check": {
+     "t": "request",
+     "project": "p121",
+     "what": "Blue tape + ro",
+     "status": [
+      "bought",
+      "delivered"
+     ]
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E192",
+   "day": "2026-09-22",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {
+    "typed": {
+     "acct": "ac1",
+     "date": "2026-09-21",
+     "desc": "Cash at lumber yard (receipt lost)",
+     "amt": -300,
+     "project": "p121",
+     "code": "03",
+     "cat": "materials"
+    }
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "A hand-typed petty cash cost ($300, lumber yard) is flagged with no bank line behind it and matched or excepted",
+    "by": 3,
+    "see": [
+     "Cash at lumber yard",
+     "by hand"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "Cash at lumber yard",
+     "resolved": true
+    },
+    "money": 300
+   },
+   "tags": [
+    "§1.5 #5"
+   ]
+  },
+  {
+   "id": "E193",
+   "day": "2026-09-22",
+   "time": "08:00",
+   "kind": "calendar",
+   "actor": "calendar",
+   "payload": {
+    "uid": "u_alan",
+    "title": "Weekly site meeting — 121 State",
+    "start": "2026-09-25T08:00",
+    "mins": 60,
+    "where": "121 State Street"
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "The weekly site meeting is on the PM's day",
+    "by": 3,
+    "see": [
+     "site meeting"
+    ],
+    "check": {
+     "t": "seenBy",
+     "uid": "u_alan"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E194",
+   "day": "2026-09-22",
+   "time": "09:05",
+   "kind": "mail",
+   "actor": "Kings Insurance Agency",
+   "payload": {
+    "from": "Kings Insurance Agency <certs@kingsins.example>",
+    "to": [
+     "Chen Biron <chen@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Renewed certificate — Tomas Restoration 2026-27",
+    "text": "Renewed certificate attached.",
+    "att": [
+     {
+      "filename": "COI-Tomas-Restoration-2026-27.pdf",
+      "text": "CERTIFICATE OF LIABILITY INSURANCE\nInsured: Tomas Restoration\nCertificate holder: SmartDesign Group LLC\nCommercial General Liability — Policy Period 09/15/2026 to 09/15/2027\nWorkers Compensation — Policy Period 09/15/2026 to 09/15/2027"
+     }
+    ],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "File Tomas Restoration's renewed COI",
+    "by": 2,
+    "see": [
+     "Tomas Restoration"
+    ],
+    "check": {
+     "t": "coi",
+     "vendor": "Tomas Restoration|Restoration",
+     "expAfter": "2027-01-01"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E195",
+   "day": "2026-09-22",
+   "time": "09:05",
+   "kind": "field",
+   "actor": "u_angel",
+   "payload": {
+    "do": "raise",
+    "project": "p121",
+    "type": "rfi",
+    "title": "Stair landing guard height: 36 or 42 inches?",
+    "note": "A-301 rev 2 shows 36\", the code note says 42\" at the open side.",
+    "taskId": "treads"
+   },
+   "expect": {
+    "who": "u_sarah",
+    "what": "Answer the stair guard height question",
+    "by": 1,
+    "see": [
+     "guard height"
+    ],
+    "check": {
+     "t": "raise",
+     "title": "guard height"
+    },
+    "days": 2
+   },
+   "tags": []
+  },
+  {
+   "id": "E196",
+   "day": "2026-09-22",
+   "time": "10:10",
+   "kind": "mail",
+   "actor": "Carlos Millwork",
+   "payload": {
+    "from": "Carlos Millwork <carlos@carlosmillwork.example>",
+    "to": [
+     "Chen Biron <chen@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Invoice CM-0109 — 121 State parlor kitchen install",
+    "text": "Hi Chen,\n\nInvoice CM-0109 for the parlor kitchen install, against PO-2026-048. Thank you,\nCarlos",
+    "att": [
+     {
+      "filename": "CM-0109.pdf",
+      "text": "CARLOS MILLWORK INC\nInvoice No. CM-0109\nDate: 09/22/2026\nBill To: SmartDesign Group LLC\nJob: 121 State Street, Brooklyn\nAgainst PO-2026-048\nParlor kitchen install   $11,200.00\n\nAmount Due: $11,200.00\nDue October 7, 2026"
+     }
+    ],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Enter CM-0109 ($11,200) against PO-2026-048 (it takes the PO past $76,000)",
+    "by": 2,
+    "see": [
+     "CM-0109"
+    ],
+    "check": {
+     "t": "bill",
+     "number": "CM-0109",
+     "poNumber": "PO-2026-048"
+    },
+    "money": 11200
+   },
+   "tags": [
+    "§1.5 #3"
+   ]
+  },
+  {
+   "id": "E197",
+   "day": "2026-09-22",
+   "time": "11:15",
+   "kind": "mail",
+   "actor": "Sarah Klein",
+   "payload": {
+    "from": "Sarah Klein <sarah.klein@example.com>",
+    "to": [
+     "Chen Biron <chen@smartdesign.nyc>",
+     "Alan <alan.pm@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Insurance certificate for the managing agent",
+    "text": "The managing agent needs a certificate of insurance naming the building before the deliveries next week. Could you send it to them? Sarah",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Send the COI naming the building to the managing agent",
+    "by": 2,
+    "see": [
+     "managing agent"
+    ],
+    "check": {
+     "t": "task",
+     "title": "certificate|COI|managing agent",
+     "anyone": true
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E198",
+   "day": "2026-09-22",
+   "time": "15:30",
+   "kind": "field",
+   "actor": "u_angel",
+   "payload": {
+    "do": "pct",
+    "project": "p121",
+    "taskId": "rplumb",
+    "pct": 100,
+    "note": "Rough plumbing done and inspected"
+   },
+   "expect": {
+    "who": "u_billing",
+    "what": "Bill the measured work (rplumb at 100%) on the month-end application",
+    "by": 6,
+    "see": [
+     "121 State"
+    ],
+    "check": {
+     "t": "lineBilled",
+     "project": "p121",
+     "taskId": "rplumb",
+     "pct": 100
+    }
+   },
+   "tags": [
+    "§1.5 #2",
+    "work done, not billed"
+   ]
+  },
+  {
+   "id": "E199",
+   "day": "2026-09-22",
+   "time": "15:40",
+   "kind": "mail",
+   "actor": "Clear Cut Glass",
+   "payload": {
+    "from": "Clear Cut Glass <office@clearcutglass.example>",
+    "to": [
+     "Chen Biron <chen@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Quote CC-771 — primary bath shower glass",
+    "text": "Chen, quote CC-771 for the primary bath shower glass, 3/8 low-iron, template to install: $3,900.00.",
+    "att": [
+     {
+      "filename": "CC-771.pdf",
+      "text": "CLEAR CUT GLASS\nQuote CC-771\nJob: 121 State Street — shower glass (primary bath)\n3/8 low-iron, template to install   $3,900.00\nQuote total: $3,900.00"
+     }
+    ],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Price the shower glass line ($3,900)",
+    "by": 3,
+    "see": [
+     "CC-771",
+     "shower glass"
+    ],
+    "check": {
+     "t": "mat",
+     "project": "p121",
+     "id": "m21",
+     "cost": 3900
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E200",
+   "day": "2026-09-22",
+   "time": "21:00",
+   "kind": "client",
+   "actor": "u_klein",
+   "payload": {
+    "do": "chat",
+    "text": "Can we see the paint drawdowns on the door before Friday?"
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "Answer the Kleins' chat question about the paint drawdowns",
+    "by": 1,
+    "see": [
+     "drawdowns"
+    ],
+    "check": {
+     "t": "clientAnswered",
+     "project": "p121",
+     "rx": "drawdown|paint"
+    }
+   },
+   "tags": [
+    "r5 client #3"
+   ]
+  },
+  {
+   "id": "E201",
+   "day": "2026-09-23",
+   "time": "07:00",
+   "kind": "mail",
+   "actor": "Payroll Service",
+   "payload": {
+    "from": "Payroll Service <noreply@payrollservice.example>",
+    "to": [
+     "Controller <controller@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Payroll for 9/14–9/25 needs approval by Thursday 5pm",
+    "text": "Your payroll for the period 9/14–9/25 (pay date 9/29) needs approval by Thursday 9/24 at 5 PM.",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Build the 9/14–9/25 payroll run from approved time and get it approved by 9/24",
+    "by": 1,
+    "see": [
+     "payroll",
+     "Payroll"
+    ],
+    "check": {
+     "t": "payrollRun",
+     "from": "2026-09-14",
+     "to": "2026-09-25"
+    }
+   },
+   "tags": [
+    "payroll 9/25"
+   ]
+  },
+  {
+   "id": "E202",
+   "day": "2026-09-23",
+   "time": "07:40",
+   "kind": "bank",
+   "actor": "Chase 4471",
+   "payload": {
+    "acct": "ac1",
+    "date": "2026-09-23",
+    "desc": "VERIZON WIRELESS",
+    "amt": -342.18,
+    "ref": "AC1-20260923-34218"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Code phones to overhead",
+    "by": 3,
+    "see": [
+     "VERIZON WIRELESS"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "VERIZON WIRELESS",
+     "coded": true
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E203",
+   "day": "2026-09-23",
+   "time": "07:45",
+   "kind": "bank",
+   "actor": "Amex 1009",
+   "payload": {
+    "acct": "ac2",
+    "date": "2026-09-23",
+    "desc": "FERGUSON #1124 BROOKLYN",
+    "amt": -11980.0,
+    "ref": "AC2-20260923-98000"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Match the Ferguson card charge to the fixtures PO",
+    "by": 3,
+    "see": [
+     "FERGUSON"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "FERGUSON #1124",
+     "matched": true
+    },
+    "money": 11980
+   },
+   "tags": []
+  },
+  {
+   "id": "E204",
+   "day": "2026-09-23",
+   "time": "07:50",
+   "kind": "bank",
+   "actor": "Chase 4471",
+   "payload": {
+    "acct": "ac1",
+    "date": "2026-09-23",
+    "desc": "ACH DEBIT TINO FLOORING",
+    "amt": -10.0,
+    "ref": "AC1-20260923-01000"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Match the $10 Tino delivery fee to TF-5512",
+    "by": 3,
+    "see": [
+     "TINO FLOORING"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "ACH DEBIT TINO FLOORING",
+     "matched": true
+    },
+    "money": 10
+   },
+   "tags": []
+  },
+  {
+   "id": "E205",
+   "day": "2026-09-23",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_alan",
+    "what": "Review SE-0951 for payment",
+    "by": 3,
+    "see": [
+     "SE-0951"
+    ],
+    "check": {
+     "t": "bill",
+     "number": "SE-0951",
+     "status": [
+      "approved",
+      "paid",
+      "verified",
+      "pm-approved"
+     ]
+    },
+    "money": 9600
+   },
+   "tags": [
+    "approval"
+   ]
+  },
+  {
+   "id": "E206",
+   "day": "2026-09-23",
+   "time": "10:00",
+   "kind": "mail",
+   "actor": "Metro Expediting",
+   "payload": {
+    "from": "Metro Expediting <filings@metroexpediting.example>",
+    "to": [
+     "Alan Mishali <alan@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "45 Cranberry — PW1 signature by 9/28",
+    "text": "Alan, the Alt-2 filing for 45 Cranberry needs the owner signature on the PW1 by Monday 9/28.",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_owner",
+    "what": "Sign the 45 Cranberry PW1 by 9/28",
+    "by": 3,
+    "see": [
+     "PW1"
+    ],
+    "check": {
+     "t": "task",
+     "title": "PW1|signature",
+     "anyone": true
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E207",
+   "day": "2026-09-23",
+   "time": "10:30",
+   "kind": "mail",
+   "actor": "Window Works",
+   "payload": {
+    "from": "Window Works <quotes@windowworks.example>",
+    "to": [
+     "Chen Biron <chen@smartdesign.nyc>",
+     "Angel <angel@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "121 State — brick mold delivery Monday 9/28",
+    "text": "The restored brick mold for the rear windows delivers Monday 9/28 at 9.",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_angel",
+    "what": "Angel sees the Window Works delivery (9/28) on Today",
+    "by": 3,
+    "see": [
+     "Window Works"
+    ],
+    "check": {
+     "t": "seenBy",
+     "uid": "u_angel"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E208",
+   "day": "2026-09-23",
+   "time": "12:45",
+   "kind": "mail",
+   "actor": "Elena Rivera",
+   "payload": {
+    "from": "Elena Rivera <elena.rivera@example.com>",
+    "to": [
+     "Billing <billing@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "45 Cranberry — filing milestone paid",
+    "text": "Hello, we wired $17,080.00 today for the filing milestone. Elena Rivera",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_billing",
+    "what": "Record the Riveras' $17,080 when it lands",
+    "by": 2,
+    "see": [
+     "17,080",
+     "Rivera"
+    ],
+    "check": {
+     "t": "payment",
+     "client": "cl45",
+     "amount": 17080
+    },
+    "money": 17080
+   },
+   "tags": []
+  },
+  {
+   "id": "E209",
+   "day": "2026-09-23",
+   "time": "14:10",
+   "kind": "field",
+   "actor": "u_angel",
+   "payload": {
+    "do": "raise",
+    "project": "p121",
+    "type": "blocker",
+    "title": "GWB short 8 sheets for the 3rd floor",
+    "note": "Need 8 sheets 1/2\" by Thursday morning.",
+    "taskId": "gwb"
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Answer the GWB shortage and get 8 sheets on the driver's route",
+    "by": 1,
+    "see": [
+     "GWB short"
+    ],
+    "check": {
+     "t": "raise",
+     "title": "GWB short"
+    },
+    "days": 1
+   },
+   "tags": []
+  },
+  {
+   "id": "E210",
+   "day": "2026-09-23",
+   "time": "17:45",
+   "kind": "mail",
+   "actor": "Alan Mishali",
+   "payload": {
+    "from": "Alan Mishali <alan@smartdesign.nyc>",
+    "to": [
+     "Controller <controller@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Cash forecast",
+    "text": "Can you send me the cash forecast for October on Monday? Alan",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "The owner's ask (October cash forecast Monday 9/28) is on the controller's list the next morning",
+    "by": 1,
+    "see": [
+     "cash forecast"
+    ],
+    "check": {
+     "t": "seenBy",
+     "uid": "u_controller"
+    }
+   },
+   "tags": [
+    "r5 owner #12"
+   ]
+  },
+  {
+   "id": "E211",
+   "day": "2026-09-23",
+   "time": "20:30",
+   "kind": "client",
+   "actor": "u_klein",
+   "payload": {
+    "do": "chat",
+    "text": "What time is the walkthrough on Thursday?"
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "Answer the Kleins' walkthrough time question",
+    "by": 1,
+    "see": [
+     "walkthrough"
+    ],
+    "check": {
+     "t": "clientAnswered",
+     "project": "p121",
+     "rx": "walkthrough"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E212",
+   "day": "2026-09-24",
+   "time": "07:30",
+   "kind": "bank",
+   "actor": "Amex 1009",
+   "payload": {
+    "acct": "ac2",
+    "date": "2026-09-24",
+    "desc": "THE HOME DEPOT #6177 RETURN",
+    "amt": 612.48,
+    "ref": "AC2-20260924-61248"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Match the Home Depot return to the 9/14 door slabs and relieve the job",
+    "by": 3,
+    "see": [
+     "RETURN"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "HOME DEPOT #6177 RETURN",
+     "matched": true,
+     "project": "p121"
+    },
+    "money": 612.48
+   },
+   "tags": [
+    "§1.5 #4"
+   ]
+  },
+  {
+   "id": "E213",
+   "day": "2026-09-24",
+   "time": "07:31",
+   "kind": "bank",
+   "actor": "Chase 4471",
+   "payload": {
+    "acct": "ac1",
+    "date": "2026-09-24",
+    "desc": "WIRE IN RIVERA E",
+    "amt": 17080.0,
+    "ref": "AC1-20260924-08000"
+   },
+   "expect": {
+    "who": "u_billing",
+    "what": "Record the Riveras' $17,080 on the filing milestone invoice",
+    "by": 2,
+    "see": [
+     "17,080"
+    ],
+    "check": {
+     "t": "payment",
+     "client": "cl45",
+     "amount": 17080
+    },
+    "money": 17080
+   },
+   "tags": []
+  },
+  {
+   "id": "E214",
+   "day": "2026-09-24",
+   "time": "07:40",
+   "kind": "bank",
+   "actor": "Home Depot 7720",
+   "payload": {
+    "acct": "ac3",
+    "date": "2026-09-24",
+    "desc": "THE HOME DEPOT #6166 BROOKLYN NY",
+    "amt": -158.33,
+    "ref": "AC3-20260924-15833"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Code the 9/24 Home Depot run to 121 State",
+    "by": 3,
+    "see": [
+     "THE HOME DEPOT #6166 B"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "THE HOME DEPOT #6166 B",
+     "coded": true,
+     "project": "p121"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E215",
+   "day": "2026-09-24",
+   "time": "07:50",
+   "kind": "mail",
+   "actor": "Alberto M Plumbing",
+   "payload": {
+    "from": "Alberto M Plumbing <office@albertomplumbing.example>",
+    "to": [
+     "Chen Biron <chen@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Invoice AMP-331 — 121 State garden bath top-out",
+    "text": "Chen, invoice AMP-331 attached for the garden bath top-out. Net 15.\nAlberto M Plumbing",
+    "att": [
+     {
+      "filename": "AMP-331.pdf",
+      "text": "ALBERTO M PLUMBING LLC\nInvoice No. AMP-331\nDate: 09/24/2026\nBill To: SmartDesign Group LLC\nJob: 121 State Street — garden bath\nTop-out, garden bath   $3,400.00\n\nAmount Due: $3,400.00\nDue October 9, 2026"
+     }
+    ],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Enter AMP-331 ($3,400) on 121 State",
+    "by": 2,
+    "see": [
+     "AMP-331"
+    ],
+    "check": {
+     "t": "bill",
+     "number": "AMP-331",
+     "projectId": "p121"
+    },
+    "money": 3400
+   },
+   "tags": []
+  },
+  {
+   "id": "E216",
+   "day": "2026-09-24",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_owner",
+    "what": "CM-0109 takes PO-2026-048 over its $76,000: approve at the PO balance and dispute the difference",
+    "by": 2,
+    "see": [
+     "CM-0109"
+    ],
+    "check": {
+     "t": "billShortAny",
+     "number": "CM-0109"
+    },
+    "money": 4600
+   },
+   "tags": [
+    "a bill over its PO",
+    "§1.5 #3"
+   ]
+  },
+  {
+   "id": "E217",
+   "day": "2026-09-24",
+   "time": "08:05",
+   "kind": "mail",
+   "actor": "DOB NOW",
+   "payload": {
+    "from": "DOB NOW <donotreply@dobnow.example>",
+    "to": [
+     "Alan <alan.pm@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "DOB NOW: Job B01528834-I1 — rough plumbing inspection PASSED",
+    "text": "DOB NOW Inspections\nJob B01528834-I1, 121 STATE STREET\nRough plumbing inspection result: PASSED on 09/22/2026.",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "Record the passed rough plumbing inspection so walls can close",
+    "by": 2,
+    "see": [
+     "PASSED"
+    ],
+    "check": {
+     "t": "insp",
+     "project": "p121",
+     "id": "i3",
+     "status": [
+      "passed",
+      "done",
+      "complete"
+     ]
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E218",
+   "day": "2026-09-24",
+   "time": "08:10",
+   "kind": "field",
+   "actor": "u_angel",
+   "payload": {
+    "do": "request",
+    "project": "p121",
+    "what": "Dust masks + Tyvek suits",
+    "qty": 2,
+    "unit": "box",
+    "neededBy": "2026-09-25",
+    "taskId": "gwb"
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Acknowledge the request: 2 box Dust masks + Tyvek suits (needed 09-25)",
+    "by": 1,
+    "see": [
+     "Dust masks + Tyvek s"
+    ],
+    "check": {
+     "t": "request",
+     "project": "p121",
+     "what": "Dust masks + Tyvek",
+     "status": [
+      "ack",
+      "bought",
+      "delivered"
+     ]
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E219",
+   "day": "2026-09-24",
+   "time": "13:00",
+   "kind": "mail",
+   "actor": "Tino",
+   "payload": {
+    "from": "Tino <orders@tino.example>",
+    "to": [
+     "Alan <alan.pm@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "121 State — flooring install",
+    "text": "Alan, our install crew is free from 10/12 for the 3rd floor. Tino",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "Confirm the flooring install date with Tino",
+    "by": 3,
+    "see": [
+     "flooring install"
+    ],
+    "check": {
+     "t": "seenBy",
+     "uid": "u_alan"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E220",
+   "day": "2026-09-24",
+   "time": "15:00",
+   "kind": "mail",
+   "actor": "Diamond Appliances",
+   "payload": {
+    "from": "Diamond Appliances <delivery@diamondappliances.example>",
+    "to": [
+     "Chen Biron <chen@smartdesign.nyc>",
+     "Angel <angel@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Tomorrow — 121 State appliances 8–12",
+    "text": "Confirming tomorrow 9/25 between 8 and 12 for the 121 State appliances. Diamond Appliances",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_angel",
+    "what": "Angel sees tomorrow's appliance delivery on Today",
+    "by": 1,
+    "see": [
+     "Diamond"
+    ],
+    "check": {
+     "t": "seenBy",
+     "uid": "u_angel"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E221",
+   "day": "2026-09-24",
+   "time": "15:20",
+   "kind": "field",
+   "actor": "u_angel",
+   "payload": {
+    "do": "pct",
+    "project": "p121",
+    "taskId": "treads",
+    "pct": 100,
+    "note": "Treads and spindles set"
+   },
+   "expect": {
+    "who": "u_billing",
+    "what": "Bill the measured work (treads at 100%) on the month-end application",
+    "by": 4,
+    "see": [
+     "121 State"
+    ],
+    "check": {
+     "t": "lineBilled",
+     "project": "p121",
+     "taskId": "treads",
+     "pct": 100
+    }
+   },
+   "tags": [
+    "§1.5 #2",
+    "work done, not billed"
+   ]
+  },
+  {
+   "id": "E222",
+   "day": "2026-09-24",
+   "time": "17:00",
+   "kind": "drive",
+   "actor": "drive",
+   "payload": {
+    "uid": "u_sarah",
+    "name": "45 Cranberry - LPC hearing presentation.pdf",
+    "text": "45 CRANBERRY STREET — REAR WINDOWS — LPC PUBLIC HEARING 09/29/2026 — PRESENTATION"
+   },
+   "expect": {
+    "who": "u_sarah",
+    "what": "File the LPC presentation on 45 Cranberry",
+    "by": 2,
+    "see": [
+     "LPC hearing presentation"
+    ],
+    "check": {
+     "t": "fileRouted",
+     "rx": "LPC hearing presentation",
+     "project": "p45"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E223",
+   "day": "2026-09-24",
+   "time": "19:00",
+   "kind": "client",
+   "actor": "u_cambri",
+   "payload": {
+    "do": "chat",
+    "text": "Did the survey happen? We have not seen the measurements."
+   },
+   "expect": {
+    "who": "u_sarah",
+    "what": "Answer the Jessops about the survey measurements",
+    "by": 1,
+    "see": [
+     "survey"
+    ],
+    "check": {
+     "t": "clientAnswered",
+     "project": "p140",
+     "rx": "survey|measurements"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E224",
+   "day": "2026-09-25",
+   "time": "07:30",
+   "kind": "bank",
+   "actor": "Chase 4471",
+   "payload": {
+    "acct": "ac1",
+    "date": "2026-09-25",
+    "desc": "PAYROLL SERVICE NET PAY",
+    "amt": -15420.0,
+    "ref": "AC1-20260925-42000"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Match the 9/25 payroll debit to its run",
+    "by": 3,
+    "see": [
+     "PAYROLL"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "PAYROLL SERVICE NET PAY",
+     "amt": -15420,
+     "matched": true
+    },
+    "money": 15420
+   },
+   "tags": [
+    "payroll 9/25"
+   ]
+  },
+  {
+   "id": "E225",
+   "day": "2026-09-25",
+   "time": "07:31",
+   "kind": "bank",
+   "actor": "Chase 4471",
+   "payload": {
+    "acct": "ac1",
+    "date": "2026-09-25",
+    "desc": "PAYROLL SERVICE TAX",
+    "amt": -3260.0,
+    "ref": "AC1-20260925-26000"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Match the 9/25 payroll tax debit to its run",
+    "by": 3,
+    "see": [
+     "PAYROLL"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "PAYROLL SERVICE TAX",
+     "amt": -3260,
+     "matched": true
+    },
+    "money": 3260
+   },
+   "tags": [
+    "payroll 9/25"
+   ]
+  },
+  {
+   "id": "E226",
+   "day": "2026-09-25",
+   "time": "07:32",
+   "kind": "bank",
+   "actor": "Chase 4471",
+   "payload": {
+    "acct": "ac1",
+    "date": "2026-09-25",
+    "desc": "MOBILE DEPOSIT CHK 2291 KLEIN",
+    "amt": 68265.0,
+    "ref": "AC1-20260925-26500"
+   },
+   "expect": {
+    "who": "u_billing",
+    "what": "Record the Kleins' $68,265 (ten days late) on INV-2026-038",
+    "by": 1,
+    "see": [
+     "68,265"
+    ],
+    "check": {
+     "t": "payment",
+     "client": "cl121",
+     "amount": 68265
+    },
+    "money": 68265
+   },
+   "tags": [
+    "a client who pays late"
+   ]
+  },
+  {
+   "id": "E227",
+   "day": "2026-09-25",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_sarah",
+    "what": "Send the 45 Cranberry revised drawings (promised in the design review, due today)",
+    "by": 1,
+    "see": [
+     "Revised Drawings"
+    ],
+    "check": {
+     "t": "task",
+     "title": "Revised Drawings",
+     "assignee": "Sarah",
+     "done": true,
+     "dueOn": "2026-09-25"
+    },
+    "days": 2
+   },
+   "tags": []
+  },
+  {
+   "id": "E228",
+   "day": "2026-09-25",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_angel",
+    "what": "Daily logs filed for every working day of 9/21–9/25 on 121 State",
+    "by": 1,
+    "see": [
+     "Daily Log",
+     "log"
+    ],
+    "check": {
+     "t": "logs",
+     "project": "p121",
+     "days": [
+      "2026-09-21",
+      "2026-09-22",
+      "2026-09-23",
+      "2026-09-24",
+      "2026-09-25"
+     ]
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E229",
+   "day": "2026-09-25",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_chen",
+    "what": "Receive the Carlos carcasses (9/25) and bill the receipt against PO-2026-048",
+    "by": 2,
+    "see": [
+     "PO-2026-048",
+     "Carlos"
+    ],
+    "check": {
+     "t": "poStatus",
+     "number": "PO-2026-048",
+     "status": [
+      "received",
+      "partial",
+      "closed"
+     ]
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E230",
+   "day": "2026-09-25",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_angel",
+    "what": "The appliance delivery (8–12) and the carcasses are on today's Arriving",
+    "by": 0,
+    "see": [
+     "Diamond",
+     "Carlos"
+    ],
+    "check": {
+     "t": "seenBy",
+     "uid": "u_angel"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E231",
+   "day": "2026-09-25",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_owner",
+    "what": "Payday 9/25: the run is approved before the money leaves",
+    "by": 0,
+    "see": [
+     "payroll"
+    ],
+    "check": {
+     "t": "payrollRun",
+     "from": "2026-09-14",
+     "to": "2026-09-25",
+     "approved": true
+    },
+    "money": 18680
+   },
+   "tags": [
+    "payroll 9/25"
+   ]
+  },
+  {
+   "id": "E232",
+   "day": "2026-09-25",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_alan",
+    "what": "A cost line lands over its budget (121 State general conditions): the PM sees it the day it lands",
+    "by": 1,
+    "see": [
+     "over budget",
+     "General conditions",
+     "Over Budget"
+    ],
+    "check": {
+     "t": "seenBy",
+     "uid": "u_alan"
+    }
+   },
+   "tags": [
+    "§1.5 #3"
+   ]
+  },
+  {
+   "id": "E233",
+   "day": "2026-09-25",
+   "time": "08:30",
+   "kind": "client",
+   "actor": "u_klein",
+   "payload": {
+    "do": "chat",
+    "text": "We deposited the check for INV-2026-038 this morning."
+   },
+   "expect": {
+    "who": "u_billing",
+    "what": "Billing sees the Kleins' payment note and records the deposit",
+    "by": 1,
+    "see": [
+     "INV-2026-038"
+    ],
+    "check": {
+     "t": "payment",
+     "client": "cl121",
+     "amount": 68265
+    },
+    "money": 68265
+   },
+   "tags": []
+  },
+  {
+   "id": "E234",
+   "day": "2026-09-25",
+   "time": "09:00",
+   "kind": "mail",
+   "actor": "Brooklyn Lumber",
+   "payload": {
+    "from": "Brooklyn Lumber <orders@brooklynlumber.example>",
+    "to": [
+     "Chen Biron <chen@smartdesign.nyc>",
+     "Billing <billing@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Statement — order 88412",
+    "text": "Statement attached for order 88412 (25 GWB, 6 cement board), $2,140.50. Our records show it was paid on your Square card on 9/2. Thank you.\nBrooklyn Lumber",
+    "att": [
+     {
+      "filename": "BL-88412-statement.pdf",
+      "text": "BROOKLYN LUMBER\nStatement\nOrder 88412 — 25 GWB 1/2 x 4x8, 6 cement board — $2,140.50\nPaid 09/02/2026, card ending 1009\nBalance $0.00"
+     }
+    ],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Read Brooklyn Lumber's statement for 88412 as already paid (no second bill)",
+    "by": 2,
+    "see": [
+     "88412"
+    ],
+    "check": {
+     "t": "noDupBill",
+     "rx": "88412",
+     "amount": 2140.5
+    },
+    "money": 2140.5
+   },
+   "tags": [
+    "r5 controller",
+    "statement not a bill"
+   ]
+  },
+  {
+   "id": "E235",
+   "day": "2026-09-25",
+   "time": "10:15",
+   "kind": "field",
+   "actor": "u_angel",
+   "payload": {
+    "do": "raise",
+    "project": "p121",
+    "type": "extra",
+    "title": "Old knob-and-tube in the 3rd floor ceiling",
+    "note": "Live knob-and-tube in two bays. Satish says replace; about $3,200.",
+    "taskId": "relec"
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "Answer the knob-and-tube extra and raise the change order ($3,200)",
+    "by": 2,
+    "see": [
+     "knob-and-tube"
+    ],
+    "check": {
+     "t": "co",
+     "project": "p121",
+     "rx": "knob",
+     "status": [
+      "sent",
+      "approved"
+     ]
+    },
+    "money": 3200
+   },
+   "tags": [
+    "an approved overage to a CO"
+   ]
+  },
+  {
+   "id": "E236",
+   "day": "2026-09-25",
+   "time": "14:30",
+   "kind": "mail",
+   "actor": "Answering service",
+   "payload": {
+    "from": "Answering service <noreply@poshanswering.example>",
+    "to": [
+     "Alan Mishali <alan@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Posh Assist from Hannah Brooks",
+    "text": "NEW CALLER: Caller's Full Name : Hannah Brooks Phone Number: +17185550177 Regarding: kitchen and two baths in a Park Slope limestone, would like a call back.",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_owner",
+    "what": "Call Hannah Brooks back and put her on file as a lead",
+    "by": 2,
+    "see": [
+     "Hannah Brooks"
+    ],
+    "check": {
+     "t": "lead",
+     "name": "Brooks"
+    }
+   },
+   "tags": [
+    "§1.7 #11"
+   ]
+  },
+  {
+   "id": "E237",
+   "day": "2026-09-25",
+   "time": "15:10",
+   "kind": "field",
+   "actor": "u_angel",
+   "payload": {
+    "do": "pct",
+    "project": "p121",
+    "taskId": "win",
+    "pct": 100,
+    "note": "Windows and trim complete"
+   },
+   "expect": {
+    "who": "u_billing",
+    "what": "Bill the measured work (win at 100%) on the month-end application",
+    "by": 3,
+    "see": [
+     "121 State"
+    ],
+    "check": {
+     "t": "lineBilled",
+     "project": "p121",
+     "taskId": "win",
+     "pct": 100
+    }
+   },
+   "tags": [
+    "§1.5 #2",
+    "work done, not billed"
+   ]
+  },
+  {
+   "id": "E238",
+   "day": "2026-09-25",
+   "time": "15:15",
+   "kind": "field",
+   "actor": "u_angel",
+   "payload": {
+    "do": "pct",
+    "project": "p121",
+    "taskId": "millpk",
+    "pct": 60,
+    "note": "Parlor kitchen boxes set"
+   },
+   "expect": {
+    "who": "u_billing",
+    "what": "Bill the measured work (millpk at 60%) on the month-end application",
+    "by": 3,
+    "see": [
+     "121 State"
+    ],
+    "check": {
+     "t": "lineBilled",
+     "project": "p121",
+     "taskId": "millpk",
+     "pct": 60
+    }
+   },
+   "tags": [
+    "§1.5 #2",
+    "work done, not billed"
+   ]
+  },
+  {
+   "id": "E239",
+   "day": "2026-09-28",
+   "time": "06:05",
+   "kind": "mail",
+   "actor": "ToolPro Deals",
+   "payload": {
+    "from": "ToolPro Deals <promo@toolpro.example>",
+    "to": [
+     "Alan <alan.pm@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Last chance: 40% off cordless tools",
+    "text": "ToolPro Deals — last chance. Unsubscribe.",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "Ignore \"Last chance: 40% off cordless \" (noise: no proposal, no nudge)",
+    "by": 1,
+    "see": [
+     "Last chance: 40% off cor"
+    ],
+    "check": {
+     "t": "ignored",
+     "subject": "Last chance: 40% off cordless tools"
+    }
+   },
+   "tags": [
+    "noise"
+   ]
+  },
+  {
+   "id": "E240",
+   "day": "2026-09-28",
+   "time": "07:30",
+   "kind": "bank",
+   "actor": "Amex 1009",
+   "payload": {
+    "acct": "ac2",
+    "date": "2026-09-28",
+    "desc": "BROOKLYN SCAFFOLD RENTAL",
+    "amt": -1850.0,
+    "ref": "AC2-20260928-85000"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Code the scaffold rental to 121 State general conditions (watch the budget)",
+    "by": 3,
+    "see": [
+     "BROOKLYN SCAFFOLD RENT"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "BROOKLYN SCAFFOLD",
+     "coded": true,
+     "project": "p121"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E241",
+   "day": "2026-09-28",
+   "time": "07:45",
+   "kind": "bank",
+   "actor": "Chase 4471",
+   "payload": {
+    "acct": "ac1",
+    "date": "2026-09-28",
+    "desc": "ACH DEBIT GOWANUS STONE YARD",
+    "amt": -3725.0,
+    "ref": "AC1-20260928-72500"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Match the stone yard deposit to the countertop PO",
+    "by": 3,
+    "see": [
+     "GOWANUS"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "GOWANUS STONE",
+     "matched": true
+    },
+    "money": 3725
+   },
+   "tags": []
+  },
+  {
+   "id": "E242",
+   "day": "2026-09-28",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_alan",
+    "what": "Review AMP-331 for payment",
+    "by": 3,
+    "see": [
+     "AMP-331"
+    ],
+    "check": {
+     "t": "bill",
+     "number": "AMP-331",
+     "status": [
+      "approved",
+      "paid",
+      "verified",
+      "pm-approved"
+     ]
+    },
+    "money": 3400
+   },
+   "tags": [
+    "approval"
+   ]
+  },
+  {
+   "id": "E243",
+   "day": "2026-09-28",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_alan",
+    "what": "Approve the crew hours for 9/21–9/25",
+    "by": 2,
+    "see": [
+     "hours",
+     "Hours"
+    ],
+    "check": {
+     "t": "hours",
+     "from": "2026-09-21",
+     "to": "2026-09-25"
+    }
+   },
+   "tags": [
+    "payroll"
+   ]
+  },
+  {
+   "id": "E244",
+   "day": "2026-09-28",
+   "time": "08:05",
+   "kind": "field",
+   "actor": "u_alberto",
+   "payload": {
+    "do": "request",
+    "project": "p121",
+    "what": "Construction adhesive",
+    "qty": 12,
+    "unit": "tube",
+    "neededBy": "2026-09-29",
+    "taskId": "gwb"
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Acknowledge the request: 12 tube Construction adhesive (needed 09-29)",
+    "by": 1,
+    "see": [
+     "Construction adhesiv"
+    ],
+    "check": {
+     "t": "request",
+     "project": "p121",
+     "what": "Construction adhes",
+     "status": [
+      "ack",
+      "bought",
+      "delivered"
+     ]
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E245",
+   "day": "2026-09-28",
+   "time": "08:15",
+   "kind": "mail",
+   "actor": "Nemo Tile",
+   "payload": {
+    "from": "Nemo Tile <sales@nemotile.example>",
+    "to": [
+     "Chen Biron <chen@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Invoice NT-88533 — 121 State garden bath tile",
+    "text": "Hi Chen,\n\nInvoice NT-88533 for the garden bath tile per quote Q-2271. Net 30.\nNemo Tile",
+    "att": [
+     {
+      "filename": "NT-88533.pdf",
+      "text": "NEMO TILE + STONE\nInvoice No. NT-88533\nDate: 09/28/2026\nBill To: SmartDesign Group LLC\nJob: 121 State St, Brooklyn — garden bath\nCarrara mosaic, subway, edge   $2,880.00\n\nAmount Due: $2,880.00\nDue October 28, 2026"
+     }
+    ],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Enter NT-88533 ($2,880) on the garden bath tile line",
+    "by": 2,
+    "see": [
+     "NT-88533"
+    ],
+    "check": {
+     "t": "bill",
+     "number": "NT-88533",
+     "projectId": "p121"
+    },
+    "money": 2880
+   },
+   "tags": []
+  },
+  {
+   "id": "E246",
+   "day": "2026-09-28",
+   "time": "09:20",
+   "kind": "mail",
+   "actor": "Window Works",
+   "payload": {
+    "from": "Window Works <quotes@windowworks.example>",
+    "to": [
+     "Alan Mishali <alan@smartdesign.nyc>",
+     "Chen Biron <chen@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Credit memo CM-WW-031 — PO-2026-044",
+    "text": "Credit memo CM-WW-031 for $3,800 against WW-2026-118, as discussed. Window Works",
+    "att": [
+     {
+      "filename": "CM-WW-031.pdf",
+      "text": "WINDOW WORKS LLC\nCredit Memo CM-WW-031\nAgainst invoice WW-2026-118, PO-2026-044\nCredit $3,800.00"
+     }
+    ],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_owner",
+    "what": "Close the WW-2026-118 dispute with the $3,800 credit memo",
+    "by": 2,
+    "see": [
+     "CM-WW-031",
+     "WW-2026-118"
+    ],
+    "check": {
+     "t": "disputeResolved",
+     "number": "WW-2026-118"
+    },
+    "money": 3800
+   },
+   "tags": [
+    "a vendor credit memo"
+   ]
+  },
+  {
+   "id": "E247",
+   "day": "2026-09-28",
+   "time": "11:10",
+   "kind": "mail",
+   "actor": "LPC Staff",
+   "payload": {
+    "from": "LPC Staff <noreply@lpc.example>",
+    "to": [
+     "Alan <alan.pm@smartdesign.nyc>",
+     "Sarah Davis <sarah@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "LPC — 121 State brick mold approved",
+    "text": "Staff approves the revised brick mold detail for 121 State Street. Permit to follow.",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "Close the LPC window profile sign-off",
+    "by": 3,
+    "see": [
+     "brick mold"
+    ],
+    "check": {
+     "t": "taskDone",
+     "project": "p121",
+     "id": "pm_lpc"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E248",
+   "day": "2026-09-28",
+   "time": "15:30",
+   "kind": "field",
+   "actor": "u_angel",
+   "payload": {
+    "do": "pct",
+    "project": "p121",
+    "taskId": "relec",
+    "pct": 100,
+    "note": "Rough electrical complete"
+   },
+   "expect": {
+    "who": "u_billing",
+    "what": "Bill the measured work (relec at 100%) on the month-end application",
+    "by": 2,
+    "see": [
+     "121 State"
+    ],
+    "check": {
+     "t": "lineBilled",
+     "project": "p121",
+     "taskId": "relec",
+     "pct": 100
+    }
+   },
+   "tags": [
+    "§1.5 #2",
+    "work done, not billed"
+   ]
+  },
+  {
+   "id": "E249",
+   "day": "2026-09-29",
+   "time": "07:30",
+   "kind": "bank",
+   "actor": "Chase 4471",
+   "payload": {
+    "acct": "ac1",
+    "date": "2026-09-29",
+    "desc": "ZELLE FROM MARK HYLAND",
+    "amt": 2000.0,
+    "ref": "AC1-20260929-00000"
+   },
+   "expect": {
+    "who": "u_billing",
+    "what": "Record Mark Hyland's $2,000 Zelle as money in",
+    "by": 2,
+    "see": [
+     "HYLAND"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "ZELLE FROM MARK HYLAND",
+     "coded": true,
+     "notExpense": true
+    },
+    "money": 2000
+   },
+   "tags": [
+    "r5 owner #1"
+   ]
+  },
+  {
+   "id": "E250",
+   "day": "2026-09-29",
+   "time": "07:31",
+   "kind": "bank",
+   "actor": "Home Depot 7720",
+   "payload": {
+    "acct": "ac3",
+    "date": "2026-09-29",
+    "desc": "THE HOME DEPOT #6166 BROOKLYN NY",
+    "amt": -265.1,
+    "ref": "AC3-20260929-26510"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Code the 9/29 Home Depot run to 121 State",
+    "by": 3,
+    "see": [
+     "THE HOME DEPOT #6166 B"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "HOME DEPOT #6166",
+     "coded": true,
+     "project": "p121"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E251",
+   "day": "2026-09-29",
+   "time": "07:40",
+   "kind": "bank",
+   "actor": "Amex 1009",
+   "payload": {
+    "acct": "ac2",
+    "date": "2026-09-29",
+    "desc": "EZPASS REPLENISH",
+    "amt": -50.0,
+    "ref": "AC2-20260929-05000"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Code tolls to overhead",
+    "by": 3,
+    "see": [
+     "EZPASS REPLENISH"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "EZPASS REPLENISH",
+     "coded": true
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E252",
+   "day": "2026-09-29",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_alex",
+    "what": "Buy and drop Construction adhesive at 121 State by 09-29",
+    "by": 1,
+    "see": [
+     "Construction a"
+    ],
+    "check": {
+     "t": "request",
+     "project": "p121",
+     "what": "Construction a",
+     "status": [
+      "bought",
+      "delivered"
+     ]
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E253",
+   "day": "2026-09-29",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_klein",
+    "what": "The Kleins choose the garden kitchen backsplash by 9/29",
+    "by": 2,
+    "see": [
+     "Garden"
+    ],
+    "check": {
+     "t": "decision",
+     "project": "p121",
+     "id": "d6"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E254",
+   "day": "2026-09-29",
+   "time": "09:30",
+   "kind": "mail",
+   "actor": "Mark Hyland",
+   "payload": {
+    "from": "Mark Hyland <mark.hyland@example.com>",
+    "to": [
+     "Billing <billing@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Re: 47 West 76th St — ceiling repair",
+    "text": "Jeanette — sent $2,000 by Zelle this morning for the ceiling repair. Mark",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_billing",
+    "what": "Mark Hyland's Zelle is money in (a receivable to record), never a bill",
+    "by": 2,
+    "see": [
+     "Hyland"
+    ],
+    "check": {
+     "t": "noBillFrom",
+     "rx": "Hyland"
+    },
+    "money": 2000
+   },
+   "tags": [
+    "r5 owner #1"
+   ]
+  },
+  {
+   "id": "E255",
+   "day": "2026-09-29",
+   "time": "09:40",
+   "kind": "field",
+   "actor": "u_angel",
+   "payload": {
+    "do": "raise",
+    "project": "p121",
+    "type": "rfi",
+    "title": "Office portal casing profile — which detail?",
+    "note": "Shop drawings show the ogee, A-501 shows square. Carlos needs it Thursday.",
+    "taskId": "milloff"
+   },
+   "expect": {
+    "who": "u_sarah",
+    "what": "Answer the office portal casing question",
+    "by": 1,
+    "see": [
+     "portal casing"
+    ],
+    "check": {
+     "t": "raise",
+     "title": "portal casing"
+    },
+    "days": 1
+   },
+   "tags": []
+  },
+  {
+   "id": "E256",
+   "day": "2026-09-29",
+   "time": "10:05",
+   "kind": "mail",
+   "actor": "Ines Ward",
+   "payload": {
+    "from": "Ines Ward <ines.ward@example.com>",
+    "to": [
+     "Alan Mishali <alan@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Re: Proposal — 15 Lefferts Pl",
+    "text": "Alan, sorry for the delay. Could we meet on 10/6 at 10 at the house? Ines",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_owner",
+    "what": "Book the 10/6 meeting with Ines Ward",
+    "by": 2,
+    "see": [
+     "Ward"
+    ],
+    "check": {
+     "t": "calendar",
+     "uid": "u_owner",
+     "rx": "Ward|Lefferts",
+     "day": "2026-10-06"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E257",
+   "day": "2026-09-29",
+   "time": "11:30",
+   "kind": "mail",
+   "actor": "Diamond Appliances",
+   "payload": {
+    "from": "Diamond Appliances <delivery@diamondappliances.example>",
+    "to": [
+     "Chen Biron <chen@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Invoice DA-7731 — parlor kitchen appliances",
+    "text": "Invoice DA-7731 for the parlor kitchen appliances delivered 9/25. Paid by card 9/30 per your call.\nDiamond Appliances",
+    "att": [
+     {
+      "filename": "DA-7731.pdf",
+      "text": "DIAMOND APPLIANCES\nInvoice No. DA-7731\nDate: 09/29/2026\nBill To: SmartDesign Group LLC\nJob: 121 State Street — parlor kitchen\nRange, dishwasher, refrigerator, hood   $14,950.00\n\nAmount Due: $14,950.00\nDue October 14, 2026"
+     }
+    ],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Enter DA-7731 ($14,950) and match it to the 9/30 Amex charge",
+    "by": 2,
+    "see": [
+     "DA-7731"
+    ],
+    "check": {
+     "t": "bill",
+     "number": "DA-7731"
+    },
+    "money": 14950
+   },
+   "tags": []
+  },
+  {
+   "id": "E258",
+   "day": "2026-09-29",
+   "time": "14:20",
+   "kind": "mail",
+   "actor": "Nemo Tile",
+   "payload": {
+    "from": "Nemo Tile <sales@nemotile.example>",
+    "to": [
+     "Chen Biron <chen@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Delivery — 121 State garden bath tile Friday 10/2",
+    "text": "Chen, the garden bath tile ships to 121 State Friday 10/2, morning.",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Receive the garden bath tile on 10/2 and bill it",
+    "by": 1,
+    "see": [
+     "garden bath tile"
+    ],
+    "check": {
+     "t": "mat",
+     "project": "p121",
+     "id": "m9",
+     "status": [
+      "on-site",
+      "received"
+     ]
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E259",
+   "day": "2026-09-29",
+   "time": "15:20",
+   "kind": "field",
+   "actor": "u_angel",
+   "payload": {
+    "do": "pct",
+    "project": "p121",
+    "taskId": "ext",
+    "pct": 60,
+    "note": "Brick mold restored; prime coat on"
+   },
+   "expect": {
+    "who": "u_billing",
+    "what": "Bill the measured work (ext at 60%) on the month-end application",
+    "by": 1,
+    "see": [
+     "121 State"
+    ],
+    "check": {
+     "t": "lineBilled",
+     "project": "p121",
+     "taskId": "ext",
+     "pct": 60
+    }
+   },
+   "tags": [
+    "§1.5 #2",
+    "work done, not billed"
+   ]
+  },
+  {
+   "id": "E260",
+   "day": "2026-09-29",
+   "time": "15:30",
+   "kind": "mail",
+   "actor": "Satish Electric",
+   "payload": {
+    "from": "Satish Electric <office@satishelectric.example>",
+    "to": [
+     "Alan <alan.pm@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "121 State — rough electrical complete",
+    "text": "Alan, rough electrical is complete on all floors and ready for inspection. Satish",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "Request the rough electrical inspection now that Satish is done",
+    "by": 2,
+    "see": [
+     "rough electrical"
+    ],
+    "check": {
+     "t": "insp",
+     "project": "p121",
+     "id": "i4",
+     "status": [
+      "scheduled",
+      "requested",
+      "booked"
+     ]
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E261",
+   "day": "2026-09-29",
+   "time": "16:10",
+   "kind": "mail",
+   "actor": "Ferguson",
+   "payload": {
+    "from": "Ferguson <quotes@ferguson.example>",
+    "to": [
+     "Chen Biron <chen@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Ship date — 121 State plumbing fixtures",
+    "text": "Your fixtures ship Monday 10/5 for delivery Tuesday 10/6.",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Set the fixtures PO to the 10/6 delivery",
+    "by": 2,
+    "see": [
+     "Ferguson"
+    ],
+    "check": {
+     "t": "poEtaAny",
+     "vendor": "Ferguson",
+     "eta": "2026-10-06"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E262",
+   "day": "2026-09-30",
+   "time": "07:30",
+   "kind": "bank",
+   "actor": "Amex 1009",
+   "payload": {
+    "acct": "ac2",
+    "date": "2026-09-30",
+    "desc": "DIAMOND APPLIANCES",
+    "amt": -14950.0,
+    "ref": "AC2-20260930-95000"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Match the Diamond card charge to DA-7731 (paid before the bill was approved)",
+    "by": 3,
+    "see": [
+     "DIAMOND"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "DIAMOND APPLIANCES",
+     "amt": -14950,
+     "matched": true
+    },
+    "money": 14950
+   },
+   "tags": []
+  },
+  {
+   "id": "E263",
+   "day": "2026-09-30",
+   "time": "07:40",
+   "kind": "bank",
+   "actor": "Chase 4471",
+   "payload": {
+    "acct": "ac1",
+    "date": "2026-09-30",
+    "desc": "SERVICE FEE",
+    "amt": -45.0,
+    "ref": "AC1-20260930-04500"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Code the bank fee to overhead",
+    "by": 3,
+    "see": [
+     "SERVICE FEE"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "SERVICE FEE",
+     "coded": true
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E264",
+   "day": "2026-09-30",
+   "time": "07:41",
+   "kind": "bank",
+   "actor": "Chase 4471",
+   "payload": {
+    "acct": "ac1",
+    "date": "2026-09-30",
+    "desc": "INTEREST PAYMENT",
+    "amt": 12.4,
+    "ref": "AC1-20260930-01240"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Code the interest to other income",
+    "by": 3,
+    "see": [
+     "INTEREST PAYMENT"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "INTEREST PAYMENT",
+     "coded": true
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E265",
+   "day": "2026-09-30",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_alan",
+    "what": "Review NT-88533 for payment",
+    "by": 3,
+    "see": [
+     "NT-88533"
+    ],
+    "check": {
+     "t": "bill",
+     "number": "NT-88533",
+     "status": [
+      "approved",
+      "paid",
+      "verified",
+      "pm-approved"
+     ]
+    },
+    "money": 2880
+   },
+   "tags": [
+    "approval"
+   ]
+  },
+  {
+   "id": "E266",
+   "day": "2026-09-30",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_billing",
+    "what": "Earned-not-billed at month end: send the 121 State progress application for the measured work",
+    "by": 2,
+    "see": [
+     "121 State",
+     "application"
+    ],
+    "check": {
+     "t": "invoice",
+     "client": "cl121",
+     "amount": 5000,
+     "kind": "progress",
+     "after": "2026-09-24"
+    },
+    "money": 25000
+   },
+   "tags": [
+    "earned-not-billed at month end",
+    "§1.5 #2"
+   ]
+  },
+  {
+   "id": "E267",
+   "day": "2026-09-30",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_billing",
+    "what": "Bill the approved change orders that are done (CO lines from 0)",
+    "by": 2,
+    "see": [
+     "CO-2026"
+    ],
+    "check": {
+     "t": "coBilled",
+     "client": "cl121"
+    },
+    "money": 1850
+   },
+   "tags": [
+    "§1.5 #2"
+   ]
+  },
+  {
+   "id": "E268",
+   "day": "2026-09-30",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_klein",
+    "what": "The Kleins choose the 3rd floor lighting layout by 9/30",
+    "by": 2,
+    "see": [
+     "3Rd"
+    ],
+    "check": {
+     "t": "decision",
+     "project": "p121",
+     "id": "d5"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E269",
+   "day": "2026-09-30",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_owner",
+    "what": "The Window Works $3,800 dispute is resolved by month end (credit memo or accepted)",
+    "by": 1,
+    "see": [
+     "WW-2026-118",
+     "3,800"
+    ],
+    "check": {
+     "t": "disputeResolved",
+     "number": "WW-2026-118"
+    },
+    "money": 3800
+   },
+   "tags": [
+    "disputed amount"
+   ]
+  },
+  {
+   "id": "E270",
+   "day": "2026-09-30",
+   "time": "09:15",
+   "kind": "field",
+   "actor": "u_angel",
+   "payload": {
+    "do": "raise",
+    "project": "p121",
+    "type": "blocker",
+    "title": "Need the countertop template date for the parlor kitchen",
+    "note": "Carlos needs the slab templated before the backsplash.",
+    "taskId": "ctpk"
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Answer the countertop template question (10/5)",
+    "by": 1,
+    "see": [
+     "countertop template"
+    ],
+    "check": {
+     "t": "raise",
+     "title": "countertop template"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E271",
+   "day": "2026-09-30",
+   "time": "09:45",
+   "kind": "mail",
+   "actor": "DOB NOW",
+   "payload": {
+    "from": "DOB NOW <donotreply@dobnow.example>",
+    "to": [
+     "Alan <alan.pm@smartdesign.nyc>",
+     "Angel <angel@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "DOB NOW: Job B01528835-E1 — rough electrical inspection window 10/06/2026 8:00–12:00",
+    "text": "DOB NOW Inspections\nJob B01528835-E1, 121 STATE STREET\nInspection type: Electrical rough\nWindow: 10/06/2026 8:00 AM – 12:00 PM",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "Book the rough electrical inspection for 10/6",
+    "by": 2,
+    "see": [
+     "rough electrical inspection"
+    ],
+    "check": {
+     "t": "insp",
+     "project": "p121",
+     "id": "i4",
+     "date": "2026-10-06"
+    },
+    "days": 2
+   },
+   "tags": []
+  },
+  {
+   "id": "E272",
+   "day": "2026-09-30",
+   "time": "15:10",
+   "kind": "mail",
+   "actor": "Tomas Restoration",
+   "payload": {
+    "from": "Tomas Restoration <tomas@tomasrestoration.example>",
+    "to": [
+     "Chen Biron <chen@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Invoice RC-1009 — 121 State restoration progress",
+    "text": "Chen, invoice RC-1009 for restoration work to date at 121 State. Tomas",
+    "att": [
+     {
+      "filename": "RC-1009.pdf",
+      "text": "TOMAS RESTORATION\nInvoice No. RC-1009\nDate: 09/30/2026\nBill To: SmartDesign Group LLC\nJob: 121 State Street — restoration\nRestoration, progress   $5,500.00\n\nAmount Due: $5,500.00\nDue October 15, 2026"
+     }
+    ],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Enter RC-1009 ($5,500) on 121 State",
+    "by": 2,
+    "see": [
+     "RC-1009"
+    ],
+    "check": {
+     "t": "bill",
+     "number": "RC-1009",
+     "projectId": "p121"
+    },
+    "money": 5500
+   },
+   "tags": []
+  },
+  {
+   "id": "E273",
+   "day": "2026-09-30",
+   "time": "16:00",
+   "kind": "mail",
+   "actor": "Gowanus Stone Yard",
+   "payload": {
+    "from": "Gowanus Stone Yard <quotes@gowanusstone.example>",
+    "to": [
+     "Chen Biron <chen@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Template date — 121 State countertop",
+    "text": "Template is set for Monday 10/5 at 8. Gowanus Stone Yard",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Put the countertop template (10/5) on the schedule",
+    "by": 2,
+    "see": [
+     "Template"
+    ],
+    "check": {
+     "t": "seenBy",
+     "uid": "u_chen"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E274",
+   "day": "2026-10-01",
+   "time": "06:30",
+   "kind": "mail",
+   "actor": "American Express",
+   "payload": {
+    "from": "American Express <noreply@amex-statements.example>",
+    "to": [
+     "Controller <controller@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Your September statement is ready — account ending 1009",
+    "text": "Your Business Platinum statement closing 09/30/2026 is ready to download.",
+    "att": [
+     {
+      "filename": "Amex-Sep-2026.pdf",
+      "text": "AMERICAN EXPRESS — BUSINESS PLATINUM CARD\nAccount ending 1009\nStatement closing date: 09/30/2026"
+     }
+    ],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Import the Amex September statement and reconcile Amex for September",
+    "by": 1,
+    "see": [
+     "Amex",
+     "September statement"
+    ],
+    "check": {
+     "t": "recon",
+     "acct": "ac2",
+     "month": "2026-09"
+    }
+   },
+   "tags": [
+    "close"
+   ]
+  },
+  {
+   "id": "E275",
+   "day": "2026-10-01",
+   "time": "06:40",
+   "kind": "mail",
+   "actor": "Stoop and Cornice Weekly",
+   "payload": {
+    "from": "Stoop and Cornice Weekly <news@stoopandcornice.example>",
+    "to": [
+     "Sarah Davis <sarah@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Stoop and Cornice Weekly: cornice repair season",
+    "text": "Cornice repair season is here. Unsubscribe.",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_sarah",
+    "what": "Ignore \"Stoop and Cornice Weekly: corn\" (noise: no proposal, no nudge)",
+    "by": 1,
+    "see": [
+     "Stoop and Cornice Weekly"
+    ],
+    "check": {
+     "t": "ignored",
+     "subject": "Stoop and Cornice Weekly: cornice repair season"
+    }
+   },
+   "tags": [
+    "noise"
+   ]
+  },
+  {
+   "id": "E276",
+   "day": "2026-10-01",
+   "time": "07:00",
+   "kind": "drive",
+   "actor": "drive",
+   "payload": {
+    "uid": "u_controller",
+    "name": "Chase checking statement Sep 2026.pdf",
+    "text": "JPMORGAN CHASE BANK — BUSINESS CHECKING ending 4471 — statement 09/01/2026–09/30/2026"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Import the Chase September statement and reconcile Chase for September",
+    "by": 1,
+    "see": [
+     "Chase",
+     "statement"
+    ],
+    "check": {
+     "t": "recon",
+     "acct": "ac1",
+     "month": "2026-09"
+    }
+   },
+   "tags": [
+    "§1.7 #12",
+    "close"
+   ]
+  },
+  {
+   "id": "E277",
+   "day": "2026-10-01",
+   "time": "07:30",
+   "kind": "bank",
+   "actor": "Chase 4471",
+   "payload": {
+    "acct": "ac1",
+    "date": "2026-10-01",
+    "desc": "ACH DEBIT 400 ATLANTIC LLC RENT",
+    "amt": -6500.0,
+    "ref": "AC1-20261001-50000"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Code the October rent to overhead",
+    "by": 3,
+    "see": [
+     "ACH DEBIT 400 ATLANTIC"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "400 ATLANTIC",
+     "coded": true
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E278",
+   "day": "2026-10-01",
+   "time": "07:31",
+   "kind": "bank",
+   "actor": "Chase 4471",
+   "payload": {
+    "acct": "ac1",
+    "date": "2026-10-01",
+    "desc": "AMEX EPAYMENT ACH PMT",
+    "amt": -14862.1,
+    "ref": "AC1-20261001-86210"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Match the Amex autopay as a card payment (a transfer, not a cost)",
+    "by": 2,
+    "see": [
+     "AMEX EPAYMENT"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "AMEX EPAYMENT",
+     "coded": true,
+     "transfer": true
+    },
+    "money": 14862.1
+   },
+   "tags": []
+  },
+  {
+   "id": "E279",
+   "day": "2026-10-01",
+   "time": "07:50",
+   "kind": "bank",
+   "actor": "Chase 4471",
+   "payload": {
+    "acct": "ac1",
+    "date": "2026-10-01",
+    "desc": "ACH DEBIT SATISH ELECTRIC INC",
+    "amt": -9600.0,
+    "ref": "AC1-20261001-60000"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Match the Satish ACH to SE-0951 (paid before approval if it was not approved)",
+    "by": 2,
+    "see": [
+     "SATISH"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "ACH DEBIT SATISH ELECTRIC",
+     "amt": -9600,
+     "matched": true
+    },
+    "money": 9600
+   },
+   "tags": []
+  },
+  {
+   "id": "E280",
+   "day": "2026-10-01",
+   "time": "07:55",
+   "kind": "field",
+   "actor": "u_alberto",
+   "payload": {
+    "do": "request",
+    "project": "p121",
+    "what": "Shims + composite",
+    "qty": 3,
+    "unit": "bundle",
+    "neededBy": "2026-10-02",
+    "taskId": "case"
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Acknowledge the request: 3 bundle Shims + composite (needed 10-02)",
+    "by": 1,
+    "see": [
+     "Shims + composite"
+    ],
+    "check": {
+     "t": "request",
+     "project": "p121",
+     "what": "Shims + composite",
+     "status": [
+      "ack",
+      "bought",
+      "delivered"
+     ]
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E281",
+   "day": "2026-10-01",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_alan",
+    "what": "Review DA-7731 for payment",
+    "by": 3,
+    "see": [
+     "DA-7731"
+    ],
+    "check": {
+     "t": "bill",
+     "number": "DA-7731",
+     "status": [
+      "approved",
+      "paid",
+      "verified",
+      "pm-approved"
+     ]
+    },
+    "money": 14950
+   },
+   "tags": [
+    "approval"
+   ]
+  },
+  {
+   "id": "E282",
+   "day": "2026-10-01",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_controller",
+    "what": "Run the September close (the controller runs it on 10/1)",
+    "by": 1,
+    "see": [
+     "September",
+     "Close"
+    ],
+    "check": {
+     "t": "close",
+     "ym": "2026-09"
+    }
+   },
+   "tags": [
+    "the September close"
+   ]
+  },
+  {
+   "id": "E283",
+   "day": "2026-10-01",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {
+    "journal": {
+     "date": "2026-09-30",
+     "memo": "Van depreciation, September (straight-line)",
+     "amount": 1200
+    }
+   },
+   "expect": {
+    "who": "u_owner",
+    "what": "Post the controller's month-end journal (van depreciation $1,200) with a reason",
+    "by": 1,
+    "see": [
+     "depreciation",
+     "journal"
+    ],
+    "check": {
+     "t": "journal",
+     "rx": "depreciation",
+     "posted": true
+    }
+   },
+   "tags": [
+    "r5 controller #14"
+   ]
+  },
+  {
+   "id": "E284",
+   "day": "2026-10-01",
+   "time": "08:20",
+   "kind": "field",
+   "actor": "u_angel",
+   "payload": {
+    "do": "raise",
+    "project": "p121",
+    "type": "delivery",
+    "title": "Nemo tile: wrong color lot on 4 boxes",
+    "note": "Lot numbers do not match the sample.",
+    "taskId": "tileg"
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "Answer the wrong-lot tile and set up the return",
+    "by": 1,
+    "see": [
+     "wrong color lot"
+    ],
+    "check": {
+     "t": "raise",
+     "title": "wrong color lot"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E285",
+   "day": "2026-10-01",
+   "time": "12:00",
+   "kind": "mail",
+   "actor": "Jaleena Jessop",
+   "payload": {
+    "from": "Jaleena Jessop <jaleena@example.com>",
+    "to": [
+     "Sarah Davis <sarah@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Signed amendment — powder room",
+    "text": "Signed amendment attached for the powder room design. Jaleena",
+    "att": [
+     {
+      "filename": "140-Prospect-amendment-signed.pdf",
+      "text": "DESIGN AGREEMENT AMENDMENT — 140 Prospect Place — powder room — signed"
+     }
+    ],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_sarah",
+    "what": "File the signed amendment on 140 Prospect",
+    "by": 2,
+    "see": [
+     "amendment"
+    ],
+    "check": {
+     "t": "seenBy",
+     "uid": "u_sarah"
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E286",
+   "day": "2026-10-02",
+   "time": "07:30",
+   "kind": "bank",
+   "actor": "Amex 1009",
+   "payload": {
+    "acct": "ac2",
+    "date": "2026-10-02",
+    "desc": "BROOKLYN SCAFFOLD RENTAL",
+    "amt": -925.0,
+    "ref": "AC2-20261002-92500"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "A 9/30 charge that posts after the close lands in October with who and why",
+    "by": 1,
+    "see": [
+     "SCAFFOLD"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "BROOKLYN SCAFFOLD",
+     "amt": -925,
+     "coded": true
+    },
+    "money": 925
+   },
+   "tags": [
+    "late after close",
+    "r5 controller #8"
+   ]
+  },
+  {
+   "id": "E287",
+   "day": "2026-10-02",
+   "time": "07:40",
+   "kind": "bank",
+   "actor": "Amex 1009",
+   "payload": {
+    "acct": "ac2",
+    "date": "2026-10-02",
+    "desc": "SHELL OIL 57442 BROOKLYN",
+    "amt": -70.05,
+    "ref": "AC2-20261002-07005"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Code van fuel to overhead",
+    "by": 3,
+    "see": [
+     "SHELL OIL 57442 BROOKL"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "SHELL OIL 57442 BROOKL",
+     "coded": true
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E288",
+   "day": "2026-10-02",
+   "time": "07:50",
+   "kind": "bank",
+   "actor": "Chase 4471",
+   "payload": {
+    "acct": "ac1",
+    "date": "2026-10-02",
+    "desc": "ACH DEBIT NEMO TILE",
+    "amt": -2880.0,
+    "ref": "AC1-20261002-88000"
+   },
+   "expect": {
+    "who": "u_controller",
+    "what": "Match the Nemo ACH to NT-88533",
+    "by": 1,
+    "see": [
+     "NEMO TILE"
+    ],
+    "check": {
+     "t": "txn",
+     "desc": "ACH DEBIT NEMO TILE",
+     "amt": -2880,
+     "matched": true
+    },
+    "money": 2880
+   },
+   "tags": []
+  },
+  {
+   "id": "E289",
+   "day": "2026-10-02",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_billing",
+    "what": "Bill the Kleins for the Waterworks tub filler ($2,350, 9/21)",
+    "by": 1,
+    "see": [
+     "Waterworks",
+     "WATERWORKS"
+    ],
+    "check": {
+     "t": "rebilled",
+     "desc": "WATERWORKS",
+     "amt": -2350
+    },
+    "money": 2350
+   },
+   "tags": [
+    "§1.5 #1",
+    "a reimbursable purchase for a client"
+   ]
+  },
+  {
+   "id": "E290",
+   "day": "2026-10-02",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_angel",
+    "what": "Daily logs filed for every working day of 9/28–10/2 on 121 State",
+    "by": 1,
+    "see": [
+     "Daily Log",
+     "log"
+    ],
+    "check": {
+     "t": "logs",
+     "project": "p121",
+     "days": [
+      "2026-09-28",
+      "2026-09-29",
+      "2026-09-30",
+      "2026-10-01",
+      "2026-10-02"
+     ]
+    }
+   },
+   "tags": []
+  },
+  {
+   "id": "E291",
+   "day": "2026-10-02",
+   "time": "08:00",
+   "kind": "due",
+   "actor": "the calendar",
+   "payload": {},
+   "expect": {
+    "who": "u_controller",
+    "what": "Every September bank and card line is matched or excepted by close",
+    "by": 0,
+    "see": [
+     "unmatched",
+     "Not Matched"
+    ],
+    "check": {
+     "t": "unmatched",
+     "month": "2026-09",
+     "max": 0
+    }
+   },
+   "tags": [
+    "close"
+   ]
+  },
+  {
+   "id": "E292",
+   "day": "2026-10-02",
+   "time": "08:30",
+   "kind": "field",
+   "actor": "u_angel",
+   "payload": {
+    "do": "raise",
+    "project": "p121",
+    "type": "blocker",
+    "title": "Paint crew needs the exterior color by Monday",
+    "note": "Prime coat is on; finish starts Tuesday.",
+    "taskId": "ext"
+   },
+   "expect": {
+    "who": "u_alan",
+    "what": "Get the exterior color to the paint crew by Monday",
+    "by": 1,
+    "see": [
+     "exterior color"
+    ],
+    "check": {
+     "t": "raise",
+     "title": "exterior color"
+    },
+    "days": 2
+   },
+   "tags": []
+  },
+  {
+   "id": "E293",
+   "day": "2026-10-02",
+   "time": "09:00",
+   "kind": "mail",
+   "actor": "Carlos Millwork",
+   "payload": {
+    "from": "Carlos Millwork <carlos@carlosmillwork.example>",
+    "to": [
+     "Chen Biron <chen@smartdesign.nyc>"
+    ],
+    "cc": [],
+    "subject": "Final invoice next week — PO-2026-048",
+    "text": "Chen, the final invoice for PO-2026-048 comes next week with the office portals. Carlos",
+    "att": [],
+    "thread": ""
+   },
+   "expect": {
+    "who": "u_chen",
+    "what": "See that PO-2026-048 has a final invoice coming (it is already over)",
+    "by": 1,
+    "see": [
+     "PO-2026-048"
+    ],
+    "check": {
+     "t": "seenBy",
+     "uid": "u_chen"
+    }
+   },
+   "tags": []
+  }
+ ]
+}

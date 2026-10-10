@@ -64587,6 +64587,44 @@ function iaOneClock() {
     p.project && (p.project.today || "") !== asOf && (p.project.today = asOf);
   });
 }
+// The one way to move the app's day: the Firm's Clock card and tests/month_sim.py both call it. It pins
+// DB.company.asOf ("" unpins it, back to the firm's today), re-reads every project's day through iaOneClock,
+// moves the built-in Demo Workspaces' clock with it (a Loaded Workspace keeps its own), then runs what a new
+// day runs (APP_DAY_HOOKS, the same functions boot and the timers run: field escalations, task and watch
+// sweeps, submittal sweeps, sales sequences, the brain's tick) and saves. Per-person watchers (mail chases,
+// payment claims) run on that person's next sync. Returns {from, to, ran, errors}.
+const APP_DAY_HOOKS = [
+  ["fTick", () => "function" == typeof fTick && (fTick(), !0)],
+  ["clTaskSweep", () => "function" == typeof clTaskSweep && (clTaskSweep(), !0)],
+  ["b4Sweep", () => "function" == typeof b4Sweep && (b4Sweep(), !0)],
+  ["smSweep", () => "function" == typeof smSweep && (smSweep(), !0)],
+  ["hbSeqTick", () => "function" == typeof hbSeqTick && DB.hub && (hbSeqTick(), !0)],
+  ["bnTick", () => "function" == typeof bnTick && (bnTick(), !0)],
+];
+function appSetDay(day) {
+  const d = String(null == day ? "" : day);
+  if (d && !/^\d{4}-\d{2}-\d{2}$/.test(d)) throw new Error("appSetDay(day): the day is YYYY-MM-DD, or empty for today");
+  if (void 0 === DB || !DB || !DB.company) throw new Error("appSetDay: the data has not loaded");
+  const from = appDay();
+  (DB.company.asOf = d), (DB.company.asOfManual = !!d), iaOneClock();
+  const to = appDay(),
+    ran = [],
+    errors = [];
+  try {
+    "undefined" != typeof DEMO_WS &&
+      Object.values(DEMO_WS).forEach((W) => {
+        W && !W.loaded && (W.now = appNowMs());
+      });
+  } catch (e) {}
+  if (to !== from)
+    for (const [name, fn] of APP_DAY_HOOKS)
+      try {
+        fn() && ran.push(name);
+      } catch (e) {
+        errors.push(`${name}: ${e.message || e}`), console.warn("day hook", name, e);
+      }
+  return save(), { from: from, to: to, ran: ran, errors: errors };
+}
 const renderBase_p4d = render;
 render = function () {
   return iaOneClock(), renderBase_p4d();
@@ -64604,10 +64642,7 @@ renderProj = function () {
   (card.innerHTML = `<h3>The Firm's Clock</h3><p class="small muted">Every screen reads one date, and every timestamp is written in one timezone — the firm's, not whichever machine happens to be typing.</p>\n    <div class="f2" style="max-width:460px">\n      <div class="f"><label>Timezone</label><select id="asof-tz">${["America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles", "America/Phoenix", "America/Anchorage", "Pacific/Honolulu", "Europe/London", "Europe/Paris", "Asia/Jerusalem"].map((z) => `<option value="${z}" ${z === tz ? "selected" : ""}>${z.split("/")[1].replace(/_/g, " ")} · ${z.split("/")[0]}</option>`).join("")}</select><span class="hint">It is ${esc(nowStamp())} there now.</span></div>\n      <div class="f"><label>As Of</label><input type="date" id="asof-date" value="${esc((DB.company && DB.company.asOf) || "")}"><span class="hint">${DB.company && DB.company.asOf ? "Pinned — every screen reads this date." : "Today — leave it blank unless you are demonstrating."}</span></div>\n    </div>`),
     col.prepend(card),
     card.querySelector("#asof-date").addEventListener("change", (e) => {
-      (DB.company.asOf = e.target.value || ""),
-        (DB.company.asOfManual = !!DB.company.asOf),
-        iaOneClock(),
-        save(),
+      appSetDay(e.target.value || ""),
         render(),
         toast(
           DB.company.asOf
