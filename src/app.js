@@ -163630,3 +163630,847 @@ if ("function" == typeof glApprove) {
   };
 }
 
+// ---- 3. append-only: an amendment is a linked reversal and re-post, with who, when and why
+let truthWhyNext = {};
+const truthKeyOf = (kind, id) => (({ invoice: "inv", estimate: "est", co: "co", bill: "bill", txn: "txn", payment: "pay", payroll: "payroll" })[kind] || kind) + ":" + id;
+function truthFindRec(kind, ref) {
+  const id = ref && "object" == typeof ref ? ref.id : ref;
+  if (["invoice", "estimate", "co", "payment"].includes(kind)) {
+    for (const c of DB.clients || []) {
+      const coll = { invoice: c.invoices, estimate: c.estimates, co: c.changeOrders, payment: c.payments }[kind] || [],
+        d = coll.find((x) => x.id === id);
+      if (d) return { rec: d, c: c };
+    }
+    return null;
+  }
+  const coll = { bill: DB.bills, txn: DB.txns, payroll: DB.payroll }[kind] || [],
+    d = coll.find((x) => x.id === id);
+  return d ? { rec: d } : null;
+}
+const truthSummary = (kind, d) => {
+  try {
+    return { status: d.status, date: d.date || d.payDate, total: "txn" === kind ? +d.amt || 0 : "bill" === kind ? billTotal(d) : "payroll" === kind ? +d.total || 0 : "payment" === kind ? +d.amount || 0 : docTotal(d).total };
+  } catch (e) {
+    return { status: d.status };
+  }
+};
+function truthEdit(kind, ref, why, fn) {
+  const w = String(why || "").trim();
+  if (!w) return { ok: !1, why: "Say why this posted record changes; the reason goes on the reversal and the re-post" };
+  if (["client", "crew", "driver", "foreman"].includes(role())) return { ok: !1, why: "Your account does not change money records" };
+  const f = truthFindRec(kind, ref);
+  if (!f) return { ok: !1, why: `No ${kind} ${ref && ref.id ? ref.id : ref}` };
+  const d = f.rec,
+    when = d.date || d.payDate || "";
+  if (when && "function" == typeof isLocked && isLocked(when)) return { ok: !1, why: `${when.slice(0, 7)} is closed; reopen the month with a reason first` };
+  const before = truthSummary(kind, d);
+  try {
+    fn && fn(d, f.c);
+  } catch (e) {
+    return { ok: !1, why: String(e && e.message ? e.message : e) };
+  }
+  const after = truthSummary(kind, d),
+    key = truthKeyOf(kind, d.id),
+    by = truthWho();
+  (d.history = d.history || []).push({ t: nowStamp(), by: by, from: before.status, action: "amended", note: w, total: after.total });
+  truthWhyNext[key] = { by: by, why: w, at: appNowIso() };
+  "bill" === kind && (truthWhyNext["billpay:" + d.id] = truthWhyNext[key]);
+  try {
+    audit(kind, d.id, "amended", before, after, `${d.number || d.desc || d.id} · ${by}: ${w}`);
+  } catch (e) {}
+  try {
+    "function" == typeof docMark && ["invoice", "estimate", "co"].includes(kind) && docMark(d);
+  } catch (e) {}
+  save();
+  return { ok: !0, key: key, before: before, after: after };
+}
+// The reason behind a reversal the ledger makes on its own: the record's void or amendment note.
+function truthWhyFor(j) {
+  if (!j || !j.key) return null;
+  const [k, id] = j.key.split(":");
+  try {
+    if (["inv", "est", "co"].includes(k)) {
+      const f = truthFindRec({ inv: "invoice", est: "estimate", co: "co" }[k], id);
+      if (f && "void" === f.rec.status) {
+        const h = (f.rec.history || []).filter((x) => "void" === x.action).pop();
+        return { by: (h && h.by) || truthWho(), why: f.rec.voidReason || (h && h.note) || "voided" };
+      }
+      if (f) {
+        const h = (f.rec.history || []).filter((x) => "amended" === x.action).pop();
+        if (h && h.t === nowStamp()) return { by: h.by, why: h.note };
+      }
+    }
+    if ("txn" === k) {
+      const v = (DB.voided || []).find((x) => x.id === id);
+      if (v) return { by: v.voidedBy, why: v.voidWhy };
+    }
+    if ("bill" === k || "billpay" === k) {
+      const b = (DB.bills || []).find((x) => x.id === id);
+      if (b && ["void", "rejected"].includes(b.status)) return { by: truthWho(), why: b.voidReason || b.rejectReason || b.status };
+    }
+  } catch (e) {}
+  return null;
+}
+if ("function" == typeof glReverse) {
+  const base = glReverse;
+  glReverse = function (j, date, why) {
+    const ctx = (j && truthWhyNext[j.key]) || truthWhyFor(j),
+      r = base.apply(this, arguments);
+    if (r && r.ok && r.j) {
+      const rj = r.j;
+      (rj.by = (ctx && ctx.by) || truthWho()), (rj.at = appNowIso());
+      ctx && ctx.why ? ((rj.why = ctx.why), (rj.memo = `${rj.memo} · by ${rj.by}: ${ctx.why}`)) : (rj.memo = `${rj.memo} · by ${rj.by}`);
+    }
+    return r;
+  };
+}
+if ("function" == typeof glPost) {
+  const base = glPost;
+  glPost = function (j) {
+    try {
+      if (j && "posting" === j.kind && j.key && truthWhyNext[j.key]) {
+        const ctx = truthWhyNext[j.key],
+          prev = ((DB.gl || {}).journals || []).filter((x) => x.key === j.key && "reversed" === x.status).pop();
+        (j.by = ctx.by), (j.why = ctx.why), (j.amends = prev ? prev.id : "");
+      }
+    } catch (e) {}
+    return base.apply(this, arguments);
+  };
+}
+if ("function" == typeof glSync) {
+  const base = glSync;
+  glSync = function () {
+    try {
+      return base.apply(this, arguments);
+    } finally {
+      truthWhyNext = {};
+    }
+  };
+}
+function truthHistory(key) {
+  const J = ((DB.gl || {}).journals || []).filter((j) => j.key === key).sort((a, b) => (a.n || 0) - (b.n || 0)),
+    out = J.map((j) => ({
+      n: j.n,
+      at: j.postedAt || j.approvedAt || j.createdAt || j.date,
+      by: j.by || j.approvedBy || ("manual" === j.kind ? j.createdBy : "rule"),
+      kind: "reversal" === j.kind ? "reversed" : j.amends ? "re-posted" : j.correctionOf ? "corrected" : "posted",
+      why: j.why || "",
+      memo: j.memo || "",
+      status: j.status,
+      id: j.id,
+    })),
+    [k, id] = key.split(":"),
+    f = ["inv", "est", "co", "bill", "txn", "pay", "payroll"].includes(k) ? truthFindRec({ inv: "invoice", est: "estimate", co: "co", bill: "bill", txn: "txn", pay: "payment", payroll: "payroll" }[k], id) : null;
+  f &&
+    (f.rec.history || []).forEach((h) => out.push({ n: 0, at: h.t, by: h.by, kind: h.action, why: h.note || "", memo: "", status: "record", t: h.t })),
+    f && (f.rec.dateHistory || []).forEach((h) => out.push({ n: 0, at: h.at || h.t, by: h.by, kind: "re-dated", why: h.why || h.reason || "", memo: `${h.from || ""} → ${h.to || ""}`, status: "record" }));
+  return out;
+}
+function truthHistoryHtml(key, extra) {
+  const H = truthHistory(key);
+  if (!H.length && !extra) return "";
+  const line = (h) =>
+    `<span class="tr-h ${["reversed", "re-posted", "amended", "void", "corrected", "re-dated"].includes(h.kind) ? "amend" : ""}">${h.n ? `#${h.n} ` : ""}${esc(h.kind)} · by ${esc(h.by || "—")} · ${esc(h.at ? ("string" == typeof h.at && /^\d{4}-\d{2}-\d{2}/.test(h.at) ? truthWhen(h.at) : h.at) : "—")}${h.why ? ` · ${esc(h.why)}` : ""}${h.memo && !h.why ? ` · ${esc(h.memo)}` : ""}</span>`;
+  return `<div class="tr-hist"><b>${TRUTH_ICON_SHIELD} History</b>${extra || ""}${H.map(line).join("")}${H.length ? "" : '<span class="tr-h small muted">Nothing posted yet.</span>'}<span class="tr-h small muted">A posted record is never edited or deleted in place: a change is a reversal and a re-post, linked, with who, when and why.</span></div>`;
+}
+// Void a typed bank line: the record moves to the voided register and the ledger reverses its posting, with the reason.
+function truthVoidTxn(t, why) {
+  if (!t) return { ok: !1, why: "No line" };
+  const w = String(why || "").trim();
+  if (!w) return { ok: !1, why: "Say why this line is voided" };
+  if (["client", "crew", "driver", "foreman"].includes(role())) return { ok: !1, why: "Your account does not void money records" };
+  if (bfBacked(t) && !truthDemo(t)) return { ok: !1, why: `${truthAcctWords(t)} has this line; a line the bank holds is never voided here` };
+  if (bfIsRec(t)) return { ok: !1, why: "This line is reconciled; undo the reconciliation first" };
+  if ("function" == typeof isLocked && isLocked(t.date)) return { ok: !1, why: `${t.date.slice(0, 7)} is closed; reopen the month with a reason first` };
+  const by = truthWho();
+  (DB.voided = DB.voided || []).push(Object.assign(JSON.parse(JSON.stringify(t)), { voidedBy: by, voidedAt: appNowIso(), voidWhy: w }));
+  (DB.pos || []).forEach((po) => {
+    po.matchedTxns && (po.matchedTxns = po.matchedTxns.filter((x) => x !== t.id));
+  }),
+    (DB.bills || []).forEach((b) => {
+      b.txnId === t.id && (b.txnId = "");
+    }),
+    (DB.txns = DB.txns.filter((x) => x.id !== t.id));
+  try {
+    audit("txn", t.id, "void", { desc: t.desc, amt: t.amt, date: t.date }, null, `${by}: ${w}`);
+  } catch (e) {}
+  return save(), { ok: !0 };
+}
+if ("function" == typeof docAction) {
+  const base = docAction;
+  docAction = async function (c, d, a) {
+    if ("del" === a && d && "draft" !== d.status) return void toast(`${d.number || "This document"} is posted — a posted record is never deleted; void it with a reason instead`);
+    return base.apply(this, arguments);
+  };
+}
+if ("function" == typeof txnDialog) {
+  const base = txnDialog;
+  txnDialog = function (id) {
+    base.apply(this, arguments);
+    if (!id) return;
+    const t = (DB.txns || []).find((x) => x.id === id),
+      del = document.getElementById("d-delete"),
+      body = document.getElementById("d-body");
+    if (!t) return;
+    if (del) {
+      (del.style.display = ""),
+        (del.textContent = "Void…"),
+        (del.onclick = () => {
+          if (bfBacked(t) && !truthDemo(t)) return void toast(`${truthAcctWords(t)} has this line — a line the bank holds is never deleted or voided here`);
+          if (bfIsRec(t)) return void toast("A reconciled line is never deleted; undo the reconciliation first");
+          const why = appPrompt("Void this line? It is kept in the voided register and the ledger reverses it. Reason:");
+          if (null == why) return;
+          const r = truthVoidTxn(t, why);
+          r.ok ? (closeEditor(), render(), toast(`${t.desc || "Line"} voided — ${why}`)) : toast(r.why);
+        });
+    }
+    if (body && !body.querySelector(".tr-match")) {
+      const m = truthMatchOf(t),
+        words = truthMatchWords(m),
+        strip = document.createElement("div");
+      (strip.className = "tr-match"),
+        (strip.innerHTML = `<div class="small"><b>${TRUTH_ICON_LINK} Matched to</b> ${words ? esc(words) : '<span class="warn">no line yet — an unmatched line is a flag, never a silent cost</span>'}${t.exception ? ` · <span class="muted">exception signed by ${esc(t.exception.by)}: ${esc(t.exception.why)}</span>` : ""}</div><div class="row" style="gap:8px;margin-top:6px"><button type="button" class="btn sm" data-trmatch="${esc(t.id)}">Match to a Line…</button></div>`),
+        body.appendChild(strip),
+        (strip.querySelector("[data-trmatch]").onclick = () => truthMatchSheet(t));
+      "reconciled" !== t.status && body.appendChild(Object.assign(document.createElement("div"), { innerHTML: truthHistoryHtml("txn:" + t.id) }));
+    }
+  };
+}
+if ("function" == typeof renderDocEditor) {
+  const base = renderDocEditor;
+  renderDocEditor = function (c, d) {
+    let h = base.apply(this, arguments);
+    try {
+      if ("string" == typeof h && d && "draft" !== d.status && ["invoice", "estimate", "co"].includes(d.type) && !h.includes("tr-hist")) {
+        const strip = truthHistoryHtml(truthKeyOf(d.type, d.id)),
+          k = h.lastIndexOf('<div class="docacts">');
+        strip && (h = k > -1 ? h.slice(0, k) + strip + h.slice(k) : h + strip);
+      }
+    } catch (e) {
+      console.warn("history strip", e);
+    }
+    return h;
+  };
+}
+if ("function" == typeof openBill) {
+  const base = openBill;
+  openBill = function (id) {
+    const r = base.apply(this, arguments);
+    try {
+      const b = id && (DB.bills || []).find((x) => x.id === id),
+        body = document.getElementById("d-body");
+      if (b && body && !["draft", "submitted"].includes(b.status) && !body.querySelector(".tr-hist")) {
+        const h = truthHistoryHtml("bill:" + b.id);
+        h && body.insertAdjacentHTML("beforeend", h);
+      }
+    } catch (e) {}
+    return r;
+  };
+}
+if ("function" == typeof glOpenJournal) {
+  const base = glOpenJournal;
+  glOpenJournal = function (id) {
+    const r = base.apply(this, arguments);
+    try {
+      const j = ((DB.gl || {}).journals || []).find((x) => x.id === id),
+        bd = document.querySelector("#mbm .mbm-bd");
+      if (j && bd && !bd.querySelector(".tr-hist")) {
+        const f = truthFlagOf(j);
+        bd.insertAdjacentHTML("beforeend", (f ? `<p>${truthFlagHtml(f)}</p>` : "") + (j.key ? truthHistoryHtml(j.key) : ""));
+      }
+    } catch (e) {}
+    return r;
+  };
+}
+
+// ---- 3b. the hash chain over a month's postings, sealed at close, verified on demand
+function truthChain(ym, entityId) {
+  const J = ((DB.gl || {}).journals || [])
+    .filter((j) => ["posted", "reversed"].includes(j.status) && glYm(j.date) === ym && (!entityId || "all" === entityId || j.entityId === entityId))
+    .sort((a, b) => (a.n || 0) - (b.n || 0)),
+    links = [];
+  let prior = "0";
+  J.forEach((j) => {
+    const s = `${prior}|${j.n}|${j.id}|${j.key || j.kind}|${j.sourceType || ""}:${j.sourceId || ""}|${j.date}|${j.lines.map((l) => `${l.acct}:${r2(l.dr || 0)}:${r2(l.cr || 0)}`).join(",")}`;
+    (prior = truthHash(s)), links.push({ id: j.id, n: j.n, h: prior });
+  });
+  return { ym: ym, n: links.length, head: prior, links: links, scheme: TRUTH_HASH_SCHEME };
+}
+function truthSeal(ym, by) {
+  const C = truthChain(ym);
+  (DB.periods = DB.periods || {}), (DB.periods.chains = DB.periods.chains || {});
+  const prev = DB.periods.chains[ym];
+  DB.periods.chains[ym] = { head: C.head, n: C.n, at: appNowIso(), by: by || truthWho(), links: C.links, scheme: C.scheme, prior: prev ? { head: prev.head, at: prev.at, by: prev.by } : null };
+  try {
+    audit("period", ym, "sealed", prev ? prev.head : "", C.head, `${C.n} postings · ${C.scheme}`);
+  } catch (e) {}
+  return Object.assign({ ok: !0 }, C);
+}
+const truthNameOf = (j, id, n) => (j ? `#${j.n} · ${j.memo || j.key || j.id}` : `#${n || "?"} · ${id}`);
+function truthVerify(ym) {
+  const S = ((DB.periods || {}).chains || {})[ym] || null,
+    now = truthChain(ym),
+    out = { ym: ym, label: truthLabel(ym), sealed: S ? { head: S.head, n: S.n, at: S.at, by: S.by, reopened: S.reopened || null } : null, now: { head: now.head, n: now.n }, changed: [], missing: [], added: [], ok: null, scheme: TRUTH_HASH_SCHEME };
+  if (!S) return (out.why = `${out.label} has not been closed, so its chain is not sealed yet`), out;
+  if (S.reopened) return (out.ok = null), (out.why = `${out.label} was reopened on ${truthWhen(S.reopened.at)} by ${S.reopened.by} (${S.reopened.reason}); re-close it to seal the chain again`), out;
+  const J = (DB.gl || {}).journals || [],
+    nowById = {};
+  now.links.forEach((l) => (nowById[l.id] = l));
+  let prior = "0";
+  S.links.forEach((l) => {
+    const j = J.find((x) => x.id === l.id);
+    if (!j || !["posted", "reversed"].includes(j.status) || glYm(j.date) !== ym) return void out.missing.push(truthNameOf(j, l.id, l.n));
+    const s = `${prior}|${j.n}|${j.id}|${j.key || j.kind}|${j.sourceType || ""}:${j.sourceId || ""}|${j.date}|${j.lines.map((x) => `${x.acct}:${r2(x.dr || 0)}:${r2(x.cr || 0)}`).join(",")}`,
+      h = truthHash(s);
+    h !== l.h && out.changed.push(truthNameOf(j, l.id, l.n)), (prior = l.h);
+  });
+  const sealedIds = new Set(S.links.map((l) => l.id));
+  now.links.forEach((l) => {
+    if (sealedIds.has(l.id)) return;
+    const j = J.find((x) => x.id === l.id);
+    out.added.push(truthNameOf(j, l.id, l.n));
+  });
+  return (out.ok = !out.changed.length && !out.missing.length && !out.added.length && S.head === now.head), out;
+}
+const truthVerifyAll = () =>
+  Object.keys(((DB.periods || {}).chains || {}))
+    .sort()
+    .map((ym) => truthVerify(ym));
+function truthVerifyWords(v) {
+  if (!v.sealed) return `${v.label}: not sealed (not closed yet). ${v.now.n} postings, head ${v.now.head}.`;
+  if (null === v.ok) return `${v.label}: ${v.why}`;
+  if (v.ok) return `${v.label}: ${v.sealed.n} postings verify against the seal of ${truthWhen(v.sealed.at)} by ${v.sealed.by} (head ${v.sealed.head}).`;
+  const parts = [];
+  return (
+    v.changed.length && parts.push(`changed: ${v.changed.join("; ")}`),
+    v.missing.length && parts.push(`missing: ${v.missing.join("; ")}`),
+    v.added.length && parts.push(`added since the seal: ${v.added.join("; ")}`),
+    `${v.label}: the books do not match the seal of ${truthWhen(v.sealed.at)} — ${parts.join(" · ")}.`
+  );
+}
+function truthVerifyDialog() {
+  const V = truthVerifyAll(),
+    body = V.length
+      ? `<p class="small muted">Each closed month's postings are chained (${esc(TRUTH_HASH_SCHEME)}) and the head is stored with the period at close. Verify re-derives the chain and names any posting that changed, went missing or was added since.</p><div class="tr-verify">${V.map((v) => `<div class="note ${v.ok ? "ok" : null === v.ok ? "" : "bad"}">${esc(truthVerifyWords(v))}</div>`).join("")}</div>`
+      : `<p class="small muted">No month has been closed yet, so no chain is sealed. The first close seals its month; Verify the Books then checks every closed month.</p><div class="note">${esc(truthVerifyWords(truthVerify(bfCloseYm())))}</div>`;
+  mbModal("Verify the Books", body, { submit: null });
+}
+if ("function" == typeof fin2RunClose) {
+  const base = fin2RunClose;
+  fin2RunClose = function (ym, reason) {
+    const bad = truthVerifyAll().filter((v) => !1 === v.ok);
+    if (bad.length) return { ok: !1, why: `Verify the Books first: ${bad.map(truthVerifyWords).join(" ")}` };
+    const r = base.apply(this, arguments);
+    if (r && r.ok) {
+      const S = truthSeal(ym, r.rec && r.rec.by);
+      r.rec && (r.rec.chain = S.head), (r.chain = S.head);
+      try {
+        save();
+      } catch (e) {}
+    }
+    return r;
+  };
+}
+if ("function" == typeof fin2ReopenClose) {
+  const base = fin2ReopenClose;
+  fin2ReopenClose = function (ym, reason) {
+    const r = base.apply(this, arguments);
+    if (r && r.ok) {
+      const S = ((DB.periods || {}).chains || {})[ym];
+      S && (S.reopened = { at: appNowIso(), by: truthWho(), reason: String(reason || "").trim() });
+      try {
+        save();
+      } catch (e) {}
+    }
+    return r;
+  };
+}
+
+// ---- 4. every transaction matched to a line: one link model
+function truthMatchOf(t) {
+  const m = Object.assign({ billId: "", billLineId: "", poId: "", poLineId: "", estimateLineId: "", invoiceId: "", invoiceLineId: "", payrollId: "", paymentId: "", kind: "" }, (t && t.match) || {});
+  if (!t) return m;
+  (m.billId = m.billId || t.billId || ""), (m.poId = m.poId || t.poId || ""), (m.invoiceId = m.invoiceId || t.invoiceId || ""), (m.payrollId = m.payrollId || t.payrollId || "");
+  const POS = DB.pos || [],
+    BILLS = DB.bills || [];
+  if (!m.poId) {
+    const po = POS.find((p) => (p.matchedTxns || []).includes(t.id));
+    po && (m.poId = po.id);
+  }
+  if (m.poId) {
+    const po = POS.find((p) => p.id === m.poId);
+    if (po) {
+      !m.poLineId && 1 === (po.lines || []).length && (m.poLineId = po.lines[0].id);
+      const pl = (po.lines || []).find((l) => l.id === m.poLineId);
+      m.estimateLineId || (m.estimateLineId = (pl && pl.line) || ""),
+        m.billId || (m.billId = (BILLS.find((b) => b.poId === po.id && !["void", "rejected", "draft"].includes(b.status) && (b.txnId === t.id || Math.abs(billTotal(b) - truthAbs(t.amt)) < 1)) || {}).id || "");
+    }
+  }
+  if (m.billId) {
+    const b = BILLS.find((x) => x.id === m.billId);
+    if (b) {
+      !m.billLineId && 1 === (b.lines || []).length && (m.billLineId = b.lines[0].id);
+      const bl = (b.lines || []).find((l) => l.id === m.billLineId);
+      m.estimateLineId || (m.estimateLineId = (bl && bl.line) || b.line || ""), m.poId || (m.poId = b.poId || "");
+    }
+  }
+  m.estimateLineId || (m.estimateLineId = t.line || "");
+  if (!m.invoiceId && +t.amt > 0 && !m.payrollId) {
+    for (const c of DB.clients || []) {
+      const p = (c.payments || []).find((p) => p.txnId === t.id || (!p.unapplied && Math.abs((+p.amount || 0) - t.amt) < 0.005 && Math.abs(dayDiff(t.date, p.date)) <= 5 && (!t.cat || ["income", "uncat"].includes(t.cat))));
+      if (p) {
+        (m.invoiceId = p.invoiceId || ""), (m.paymentId = p.id);
+        break;
+      }
+    }
+  }
+  if (m.invoiceId && !m.invoiceLineId) {
+    for (const c of DB.clients || []) {
+      const inv = (c.invoices || []).find((i) => i.id === m.invoiceId);
+      if (inv) {
+        1 === (inv.lines || []).length && (m.invoiceLineId = inv.lines[0].id);
+        break;
+      }
+    }
+  }
+  return (m.kind = m.payrollId ? "payroll" : m.invoiceId ? "income" : m.billId || m.poId || m.estimateLineId ? "cost" : ""), m;
+}
+function truthMatchWords(m) {
+  if (!m || !m.kind) return "";
+  const parts = [],
+    bill = m.billId && (DB.bills || []).find((b) => b.id === m.billId),
+    po = m.poId && (DB.pos || []).find((p) => p.id === m.poId),
+    est = m.estimateLineId && findLine(m.estimateLineId),
+    run = m.payrollId && (DB.payroll || []).find((r) => r.id === m.payrollId);
+  if (bill) {
+    const bl = (bill.lines || []).find((l) => l.id === m.billLineId);
+    parts.push(`bill ${bill.number || bill.id} (${bill.vendor})${bl ? ` line "${bl.desc || ""}"` : ""}`);
+  }
+  if (po) {
+    const pl = (po.lines || []).find((l) => l.id === m.poLineId);
+    parts.push(`${po.number}${pl ? ` line "${pl.item || pl.desc || ""}"` : ""}`);
+  }
+  if (m.invoiceId)
+    for (const c of DB.clients || []) {
+      const inv = (c.invoices || []).find((i) => i.id === m.invoiceId);
+      if (inv) {
+        const il = (inv.lines || []).find((l) => l.id === m.invoiceLineId);
+        parts.push(`invoice ${inv.number}${il ? ` line "${il.item || il.desc || ""}"` : ""} · ${c.name}`);
+        break;
+      }
+    }
+  return run && parts.push(`payroll run ${run.period || run.id}`), est && parts.push(`estimate line "${est.line.item || est.line.desc || ""}" (${est.doc.number})`), parts.join(" → ");
+}
+// Write one match. Legacy fields (billId, poId, line, invoiceId, payrollId) are kept in step so every older
+// reader (txnMatch, txnViaBill, jobFin, bankUnmatched) agrees with the model.
+function truthSetMatch(t, m0, o) {
+  if (!t) return { ok: !1, why: "No line" };
+  if (["client", "crew", "driver", "foreman"].includes(role())) return { ok: !1, why: "Your account does not match money records" };
+  const m = Object.assign({}, m0 || {}),
+    who = truthWho(),
+    opts = o || {};
+  let est = m.estimateLineId || "",
+    cat = t.cat && "uncat" !== t.cat ? t.cat : "",
+    proj = t.projectId || "",
+    code = t.code || "";
+  if (m.poId) {
+    const po = (DB.pos || []).find((p) => p.id === m.poId);
+    if (!po) return { ok: !1, why: "That purchase order is gone" };
+    (po.matchedTxns = po.matchedTxns || []), po.matchedTxns.includes(t.id) || po.matchedTxns.push(t.id), (t.poId = po.id), (t.noPO = !1);
+    const pl = (po.lines || []).find((l) => l.id === m.poLineId) || (1 === (po.lines || []).length ? po.lines[0] : null);
+    (m.poLineId = pl ? pl.id : ""), est || (est = (pl && pl.line) || ""), proj || (proj = po.projectId || ""), cat || (cat = "function" == typeof poCat ? poCat(po) : "materials"), code || (code = (pl && pl.code) || "");
+  }
+  if (m.billId) {
+    const b = (DB.bills || []).find((x) => x.id === m.billId);
+    if (!b) return { ok: !1, why: "That bill is gone" };
+    const bl = (b.lines || []).find((l) => l.id === m.billLineId) || (1 === (b.lines || []).length ? b.lines[0] : null);
+    (m.billLineId = bl ? bl.id : ""), (b.txnId = t.id), (t.billId = b.id), b.paidAt || (b.paidAt = t.date);
+    "approved" === b.status ? (b.status = "paid") : "paid" === b.status ? (b.status = "verified") : ["verified", "void", "rejected"].includes(b.status) || (b.paidBeforeApproval = !0);
+    est || (est = (bl && bl.line) || b.line || ""), proj || (proj = b.projectId || ""), cat || (cat = b.cat || ""), code || (code = b.code || ""), m.poId || (m.poId = b.poId || "");
+  }
+  if (m.invoiceId) {
+    let hit = null;
+    for (const c of DB.clients || []) {
+      const inv = (c.invoices || []).find((i) => i.id === m.invoiceId);
+      if (inv) {
+        hit = { c: c, inv: inv };
+        break;
+      }
+    }
+    if (!hit) return { ok: !1, why: "That invoice is gone" };
+    const il = (hit.inv.lines || []).find((l) => l.id === m.invoiceLineId) || (1 === (hit.inv.lines || []).length ? hit.inv.lines[0] : null);
+    (m.invoiceLineId = il ? il.id : ""), (t.invoiceId = hit.inv.id), cat || (cat = "income"), proj || (proj = hit.inv.projectId || "");
+    let p = (hit.c.payments || []).find((x) => x.id === m.paymentId) || (hit.c.payments || []).find((x) => x.invoiceId === hit.inv.id && !x.txnId && Math.abs((+x.amount || 0) - t.amt) < 0.005);
+    p ? (p.txnId = t.id) : ((p = { id: uid("py"), date: t.date, amount: r2(+t.amt || 0), method: "Bank", invoiceId: hit.inv.id, note: `matched from ${truthAcctWords(t)} by ${who}`, txnId: t.id }), hit.c.payments.push(p)), (m.paymentId = p.id);
+  }
+  if (m.payrollId) {
+    const r = (DB.payroll || []).find((x) => x.id === m.payrollId);
+    if (!r) return { ok: !1, why: "That payroll run is gone" };
+    (t.payrollId = r.id), cat || (cat = "labor");
+  }
+  est && (t.line = est), proj && (t.projectId = proj), cat && (t.cat = cat), code && (t.code = code);
+  !t.code && t.line && "function" == typeof findLine && "function" == typeof codeForLine && (() => { const L = findLine(t.line); L && (t.code = codeForLine(L.line)); })();
+  (t.match = { billId: m.billId || "", billLineId: m.billLineId || "", poId: m.poId || "", poLineId: m.poLineId || "", estimateLineId: t.line || "", invoiceId: m.invoiceId || "", invoiceLineId: m.invoiceLineId || "", payrollId: m.payrollId || "", paymentId: m.paymentId || "" }),
+    t.cat && "uncat" !== t.cat && "reconciled" !== t.status && (t.status = "categorized"),
+    t.actor || (t.actor = who),
+    (t.matchedBy = who),
+    (t.matchedAt = today()),
+    (t.proposal = null),
+    delete t.exception,
+    delete t.noPO;
+  try {
+    audit("txn", t.id, "matched", "", truthMatchWords(truthMatchOf(t)), `${who}: ${opts.why || "matched to a line"}`);
+  } catch (e) {}
+  return save(), { ok: !0, m: truthMatchOf(t) };
+}
+const truthNorm = (s) =>
+  String(s || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]+/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length >= 3 && !/^(inc|llc|the|and|corp|ltd|ach|debit|credit|card|payment|check|wire|sq|pos)$/.test(w));
+const truthVendorHit = (t, vendor) => {
+  const V = truthNorm(vendor),
+    T = new Set(truthNorm(`${t.desc || ""} ${t.vendor || ""} ${t.bankDesc || ""}`));
+  return !!V.length && V.some((w) => T.has(w) || [...T].some((x) => x.startsWith(w) || w.startsWith(x)));
+};
+// Candidates for one line, scored: amount agrees (3), vendor agrees (2), within 7 days (1). 6 is automatic
+// (amount, vendor and date all agree) and becomes a proposal; a person confirms.
+function truthCandidates(t) {
+  if (!t) return [];
+  const amt = truthAbs(t.amt),
+    out = [],
+    near = (d) => !!d && Math.abs(dayDiff(t.date, d)) <= 7,
+    push = (kind, label, m, s, why) => s >= 3 && out.push({ kind: kind, label: label, m: m, score: s, auto: s >= 6, why: why.join(", ") });
+  if (+t.amt < 0) {
+    (DB.bills || []).forEach((b) => {
+      if (["void", "rejected"].includes(b.status) || (b.txnId && b.txnId !== t.id) || b.ic) return;
+      if ((t.rejectedBills || []).includes(b.id)) return;
+      const vh = truthVendorHit(t, b.vendor),
+        tot = billTotal(b);
+      (b.lines && b.lines.length ? b.lines : [{ id: "", amount: tot, desc: "" }]).forEach((l) => {
+        const la = r2(+l.amount || 0),
+          whole = Math.abs(tot - amt) < 0.01,
+          lineHit = Math.abs(la - amt) < 0.01,
+          why = [];
+        let s = 0;
+        (whole || lineHit) && ((s += 3), why.push(whole ? "amount equals the bill" : "amount equals the line")), vh && ((s += 2), why.push("vendor agrees")), (near(b.date) || near(b.due) || near(b.paidAt)) && ((s += 1), why.push("within 7 days"));
+        push("bill", `Bill ${b.number || b.id} · ${b.vendor} · ${l.desc || ""} ${money(la)}`.replace(/\s+/g, " "), { billId: b.id, billLineId: l.id || "", estimateLineId: l.line || b.line || "", poId: b.poId || "" }, s, why);
+      });
+    }),
+      (DB.pos || []).forEach((po) => {
+        if (["draft", "cancelled", "void", "closed"].includes(po.status) || (t.rejectedPOs || []).includes(po.id)) return;
+        const vh = truthVendorHit(t, po.vendor),
+          tot = poTotal(po).total;
+        (po.lines || []).forEach((l) => {
+          const la = r2((+l.qty || 0) * (+l.price || 0)),
+            why = [];
+          let s = 0;
+          (Math.abs(tot - amt) < 1 || Math.abs(la - amt) < 1 || Math.abs(tot / 2 - amt) < 1) && ((s += 3), why.push(Math.abs(tot / 2 - amt) < 1 && Math.abs(tot - amt) >= 1 ? "amount is half the order (deposit)" : "amount equals the order")), vh && ((s += 2), why.push("vendor agrees")), (near(po.date) || near(po.expected)) && ((s += 1), why.push("within 7 days"));
+          push("po", `${po.number} · ${po.vendor} · ${l.item || l.desc || ""} ${money(la)}`.replace(/\s+/g, " "), { poId: po.id, poLineId: l.id, estimateLineId: l.line || "" }, s, why);
+        });
+      }),
+      (DB.payroll || []).forEach((r) => {
+        const why = [];
+        let s = 0;
+        Math.abs((+r.total || 0) - amt) < 1 && ((s += 3), why.push("amount equals the run")), /payroll|gusto|adp|paychex|wages/i.test(t.desc || "") && ((s += 2), why.push("looks like payroll")), near(r.payDate) && ((s += 1), why.push("within 7 days of the pay date"));
+        push("payroll", `Payroll ${r.period || r.id} · ${money(+r.total || 0)}`, { payrollId: r.id }, s, why);
+      });
+  } else if (+t.amt > 0) {
+    (DB.clients || []).forEach((c) =>
+      (c.invoices || []).forEach((inv) => {
+        if (["void", "draft"].includes(inv.status)) return;
+        const bal = r2(docTotal(inv).total - invoicePaid(c, inv)),
+          why = [];
+        let s = 0;
+        (Math.abs(bal - amt) < 0.01 || Math.abs(docTotal(inv).total - amt) < 0.01) && ((s += 3), why.push("amount equals the invoice balance")), truthVendorHit(t, c.name) && ((s += 2), why.push("client name agrees")), (near(inv.date) || near(inv.due)) && ((s += 1), why.push("within 7 days"));
+        push("invoice", `Invoice ${inv.number} · ${c.name} · balance ${money(bal)}`, { invoiceId: inv.id, invoiceLineId: 1 === (inv.lines || []).length ? inv.lines[0].id : "" }, s, why);
+      }),
+    );
+  }
+  return out.sort((a, b) => b.score - a.score);
+}
+function truthProposeAll(ids) {
+  let n = 0;
+  const T = ids ? (DB.txns || []).filter((t) => ids.includes(t.id)) : bankUnmatched().rows;
+  return (
+    T.forEach((t) => {
+      if (t.proposal || t.exception || ("function" == typeof txnMatch && txnMatch(t)) || t.billId || t.poId || t.invoiceId || t.payrollId) return;
+      const best = truthCandidates(t)[0];
+      best && best.auto && ((t.proposal = Object.assign({ t: nowStamp(), by: "auto", kind: best.kind, why: best.why, m: best.m, label: best.label }, best.m.billId ? { billId: best.m.billId } : {}, best.m.poId && !best.m.billId ? { poId: best.m.poId } : {}, best.m.invoiceId ? { invoiceId: best.m.invoiceId } : {}, best.m.payrollId ? { payrollId: best.m.payrollId } : {})), n++);
+    }),
+    n
+  );
+}
+if ("function" == typeof confirmMatch) {
+  const base = confirmMatch;
+  confirmMatch = function (t) {
+    const P = t && t.proposal;
+    if (P && P.m) {
+      if (["bill", "po"].includes(P.kind)) {
+        const m = Object.assign({}, P.m);
+        base.apply(this, arguments);
+        return void truthSetMatch(t, m, { why: P.why });
+      }
+      return void truthSetMatch(t, P.m, { why: P.why });
+    }
+    return base.apply(this, arguments);
+  };
+}
+if ("function" == typeof bfIngest) {
+  const base = bfIngest;
+  bfIngest = function (src, added, removed) {
+    const out = base.apply(this, arguments);
+    try {
+      if (out && !(src && src.dry) && (out.added || out.confirmed)) {
+        const n = truthProposeAll([].concat(out.newIds || [], out.confirmedIds || []));
+        n && (out.proposed = (out.proposed || 0) + n);
+      }
+    } catch (e) {
+      console.warn("line proposals", e);
+    }
+    return out;
+  };
+}
+function truthException(t, why) {
+  if (!t) return { ok: !1, why: "No line" };
+  if (!["owner", "controller"].includes(role())) return { ok: !1, why: "The Owner or the Controller signs an exception" };
+  const w = String(why || "").trim();
+  if (!w) return { ok: !1, why: "Say why this line closes without a match" };
+  t.exception = { by: truthWho(), at: appNowIso(), why: w };
+  try {
+    audit("txn", t.id, "exception", "", w, `${t.desc} ${money(t.amt)} — ${truthWho()}: ${w}`);
+  } catch (e) {}
+  return save(), { ok: !0 };
+}
+function truthMatchSheet(t) {
+  if (!t) return;
+  const C = truthCandidates(t),
+    m = truthMatchOf(t),
+    cur = truthMatchWords(m),
+    canEx = ["owner", "controller"].includes(role()),
+    body = `<div class="small muted">${fmt(t.date)} · ${esc(t.desc || "")} · <b>${money(t.amt)}</b> · ${esc(truthAcctWords(t))}</div>
+    <p class="small">${cur ? `Matched to ${esc(cur)}.` : "Not matched to a line yet. Pick the bill or order line it paid (its estimate line follows), or the invoice line it collected."}</p>
+    ${C.length ? `<table class="t"><thead><tr><th>Line</th><th>Why</th><th></th></tr></thead><tbody>${C.slice(0, 12).map((c, i) => `<tr><td>${esc(c.label)}</td><td class="small muted">${esc(c.why)}${c.auto ? " · proposed" : ""}</td><td><button type="button" class="btn sm" data-trpick="${i}">Match</button></td></tr>`).join("")}</tbody></table>` : '<div class="note">No bill, order, invoice or payroll run agrees with this line on amount. Enter the bill first, or match it by hand from the drawer\'s Line field.</div>'}
+    ${t.exception ? `<p class="small muted">Exception signed by ${esc(t.exception.by)} on ${truthWhen(t.exception.at)}: ${esc(t.exception.why)}</p>` : canEx ? '<div class="f" style="margin-top:10px"><label>Or Close Without a Match</label><input data-f="why" placeholder="Why this line closes with no line behind it (signed with your name)"></div>' : ""}`,
+    mb = mbModal("Match to a Line", body, {
+      submit: canEx && !t.exception ? "Sign an Exception" : null,
+      onSubmit: (v) => {
+        const r = truthException(t, v.why);
+        return r.ok ? (render(), void toast(`Exception signed on ${t.desc || "the line"} — ${v.why}`)) : (toast(r.why), !1);
+      },
+    });
+  mb.querySelectorAll("[data-trpick]").forEach(
+    (b) =>
+      (b.onclick = () => {
+        const c = C[+b.dataset.trpick],
+          r = truthSetMatch(t, c.m, { why: c.why });
+        r.ok ? (mbCloseModal(), render(), toast(`${t.desc || "Line"} matched to ${truthMatchWords(r.m)}`, () => txnDialog(t.id))) : toast(r.why);
+      }),
+  );
+}
+predDef("unmatchedTxns", {
+  label: "Not Matched to a Line",
+  rule: "bank and card lines that reach no bill or PO line, invoice line or payroll run: new, uncategorised, proposed and not yet confirmed, or a job cost with nothing behind it (bankUnmatched, the Banking To Review count)",
+  rows: () => bankUnmatched().rows,
+  figure: () => bankUnmatched().amt,
+  byMonth() {
+    const o = {};
+    return (
+      this.rows().forEach((t) => {
+        const ym = String(t.date || "").slice(0, 7),
+          b = (o[ym] = o[ym] || { n: 0, amt: 0, excepted: 0 });
+        b.n++, (b.amt = r2(b.amt + truthAbs(t.amt))), t.exception && b.excepted++;
+      }),
+      o
+    );
+  },
+});
+const truthByMonthWords = (B) =>
+  Object.keys(B)
+    .sort()
+    .map((ym) => `${truthLabel(ym).replace(/ \d{4}$/, "")}: ${B[ym].n} line${1 === B[ym].n ? "" : "s"} · ${money(B[ym].amt)}${B[ym].excepted ? ` (${B[ym].excepted} excepted)` : ""}`)
+    .join(" · ");
+CATCH.push({
+  name: "unmatchedTxns",
+  label: "Not Matched to a Line",
+  rows: () =>
+    bankUnmatched().rows.map((t) => ({
+      key: "um:" + t.id,
+      what: `Not matched: ${"function" == typeof tdWords ? tdWords(t.vendor || t.desc || "bank line", 4) : String(t.vendor || t.desc || "bank line").slice(0, 40)}`,
+      sub: `${money(truthAbs(t.amt))} on ${fmtL(t.date)} · ${truthAcctWords(t)}${t.exception ? " · exception signed" : ""}`,
+      amount: truthAbs(t.amt),
+      verb: "Match",
+      run: () => truthMatchSheet(t),
+    })),
+});
+if ("function" == typeof renderBank) {
+  const base = renderBank;
+  renderBank = function () {
+    base.apply(this, arguments);
+    try {
+      const v = document.getElementById("v-bank");
+      if (!v || ["client", "crew", "driver", "foreman"].includes(role())) return;
+      v.querySelector("#tr-unm")?.remove();
+      const U = bankUnmatched(),
+        B = PRED.unmatchedTxns.byMonth(),
+        d = document.createElement("div");
+      (d.innerHTML = `<div class="card tr-unm" id="tr-unm"><div class="small"><b>${TRUTH_ICON_LINK} Not Matched to a Line</b> <span class="muted">${U.n ? `${U.n} of the lines to review reach no bill, order, invoice or payroll line — ${money(U.amt)} · ${esc(truthByMonthWords(B))}. Open a line and Match to a Line; a month closes only when each is matched or carries a signed exception.` : "every line reaches a bill, order, invoice or payroll line."}</span></div></div>`),
+        (v.querySelector("#bf-cover") || v.querySelector("#tl-bank") || v.querySelector(".ph"))?.after(d.firstElementChild);
+    } catch (e) {
+      console.warn("unmatched by month", e);
+    }
+  };
+}
+// the close: unmatched lines block it unless each carries a signed exception
+if ("function" == typeof fin2CloseBlockers) {
+  const base = fin2CloseBlockers;
+  fin2CloseBlockers = function (ym) {
+    const out = base.apply(this, arguments);
+    try {
+      const R = [ym + "-01", fin2End(ym)],
+        U = bankUnmatched(R).rows.filter((t) => !t.exception);
+      U.length &&
+        out.push({
+          sub: "bank",
+          why: `${U.length} bank line${1 === U.length ? "" : "s"} in ${truthLabel(ym)} ${1 === U.length ? "is" : "are"} not matched to a line (${U.slice(0, 4).map((t) => `${t.desc || t.vendor} ${money(t.amt)}`).join(", ")}${U.length > 4 ? ", …" : ""}) — match each to its bill, order, invoice or payroll line, or sign an exception with a reason`,
+          go: { view: "bank" },
+        });
+    } catch (e) {
+      console.warn("unmatched blocker", e);
+    }
+    return out;
+  };
+}
+if ("function" == typeof closeChecklist) {
+  const base = closeChecklist;
+  closeChecklist = function (month) {
+    const items = base.apply(this, arguments);
+    try {
+      const R = [month + "-01", fin2End(month)],
+        L = truthLabel(month),
+        U = bankUnmatched(R).rows,
+        ex = U.filter((t) => t.exception).length,
+        open = U.length - ex;
+      items.push({
+        label: `Bank lines not matched to a line in ${L}: ${U.length} · ${money(U.reduce((s, t) => s + truthAbs(t.amt), 0))}${ex ? ` (${ex} with a signed exception)` : ""}`,
+        n: open,
+        ok: !open,
+        go: { view: "bank" },
+        truth: "unmatched",
+      });
+      const M = truthManual(R, { entityId: "all", manualOnly: !0 }),
+        noWhy = M.rows.filter((m) => !m.j.why || !m.j.approvedBy).length;
+      items.push({
+        label: `Manual journal entries dated in ${L}: ${M.n} · ${money(M.amt)}${M.n ? (noWhy ? ` — ${noWhy} without an Owner's reason` : ", each posted by the Owner with a reason") : ""}`,
+        n: noWhy,
+        ok: !noWhy,
+        go: { view: "gl" },
+        truth: "manual",
+      });
+    } catch (e) {
+      console.warn("truth checklist", e);
+    }
+    return items;
+  };
+}
+if ("function" == typeof fin2ClosePageHtml) {
+  const base = fin2ClosePageHtml;
+  fin2ClosePageHtml = function () {
+    let h = base.apply(this, arguments);
+    try {
+      const ym = fin2CloseYm();
+      if (!ym) return h;
+      const R = [ym + "-01", fin2End(ym)],
+        U = bankUnmatched(R).rows,
+        ex = U.filter((t) => t.exception).length,
+        canEx = ["owner", "controller"].includes(role()),
+        M = truthManual(R, { entityId: "all" }),
+        V = truthVerifyAll(),
+        block = `<h4 class="fin2-step">Bank Lines Not Matched to a Line <span class="small muted">${U.length} in ${truthLabel(ym)} · ${money(U.reduce((s, t) => s + truthAbs(t.amt), 0))} · ${ex} with a signed exception</span></h4>${
+          U.length
+            ? `<div class="tw"><table class="t tr-unm-t"><thead><tr><th>Date</th><th>Line</th><th class="money">Amount</th><th>State</th><th></th></tr></thead><tbody>${U.map((t) => `<tr><td class="dim">${fmt(t.date)}</td><td>${esc(t.desc || t.vendor || "")}<div class="small muted">${esc(truthAcctWords(t))}${t.proposal ? " · a match is proposed, to confirm" : ""}</div></td><td class="money">${money(t.amt)}</td><td class="small">${t.exception ? `exception · ${esc(t.exception.by)}: ${esc(t.exception.why)}` : '<span class="warn">no line behind it</span>'}</td><td><button type="button" class="btn sm" data-trmatch="${esc(t.id)}">Match to a Line…</button>${canEx && !t.exception ? ` <button type="button" class="btn sm" data-trexc="${esc(t.id)}">Sign an Exception…</button>` : ""}</td></tr>`).join("")}</tbody></table></div><p class="small muted">The close refuses while a line here has neither a match nor a signed exception. An exception is signed by the Owner or the Controller with a reason and stays on the line.</p>`
+            : '<p class="small muted">Every bank and card line in the month reaches a bill, order, invoice or payroll line.</p>'
+        }<h4 class="fin2-step">Entries Not From a Document <span class="small muted">${M.n} in ${truthLabel(ym)} · ${money(M.amt)}</span></h4>${M.n ? `<div class="rem">${M.rows.map((m) => `<div class="rem-row"><span>${truthFlagHtml(m.flag)} <span class="small">#${m.j.n} ${esc(m.j.memo)} · ${money(m.amt)}</span></span></div>`).join("")}</div>` : '<p class="small muted">Every posting in the month derives from a document.</p>'}${V.length ? `<h4 class="fin2-step">Sealed Months <span class="small muted">the hash chain over each closed month's postings</span></h4><div class="rem">${V.map((v) => `<div class="rem-row ${!1 === v.ok ? "warn" : ""}"><b>${!1 === v.ok ? ICON_WARN : ICON_CHECK}</b><span class="small">${esc(truthVerifyWords(v))}</span></div>`).join("")}</div>` : ""}`,
+        k = h.indexOf('<h4 class="fin2-step">4 · ');
+      h = k > -1 ? h.slice(0, k) + block + h.slice(k) : h + block;
+    } catch (e) {
+      console.warn("close truth", e);
+    }
+    return h;
+  };
+}
+if ("function" == typeof glOverviewHtml) {
+  const base = glOverviewHtml;
+  glOverviewHtml = function () {
+    let h = base.apply(this, arguments);
+    try {
+      const [from, to] = glRange(),
+        C = truthCoverage([from, to]),
+        M = truthManual([from, to], { entityId: glEnt }),
+        chains = (DB.periods || {}).chains || {},
+        sealed = Object.keys(chains).sort(),
+        last = sealed[sealed.length - 1],
+        V = sealed.map((ym) => truthVerify(ym)),
+        bad = V.filter((v) => !1 === v.ok),
+        card = `<div class="card tr-truth"><div class="row wrap" style="gap:8px;align-items:center"><h3 style="margin:0">${TRUTH_ICON_SHIELD} Truth</h3><span class="small muted">${last ? `books sealed through ${truthLabel(last)} · head ${esc(chains[last].head)}${bad.length ? ` · <span class="bad">${bad.length} month${1 === bad.length ? "" : "s"} do${1 === bad.length ? "es" : ""} not verify</span>` : " · verified"}` : "no month sealed yet; the first close seals its postings"}</span><span class="grow"></span><button type="button" class="btn sm" data-trverify="1">Verify the Books</button></div>
+          <div class="small" style="margin-top:8px"><b>Coverage, ${fmt(from)} – ${fmt(to)}</b> · cost ${esc(truthCovWords(C.cost))} · income ${esc(truthCovWords(C.income))}</div>
+          <div class="small" style="margin-top:4px"><b>Entries not from a document</b> · ${M.n ? `${M.n} · ${money(M.amt)} (${M.nManual} manual${M.n - M.nManual ? `, ${M.n - M.nManual} at a close or opening` : ""}) <a href="#" data-trjflag="1">Open them</a>` : "none in the range"}</div></div>`;
+      h = card + h;
+    } catch (e) {
+      console.warn("ledger truth card", e);
+    }
+    return h;
+  };
+}
+if ("function" == typeof glWire) {
+  const base = glWire;
+  glWire = function (host) {
+    base.apply(this, arguments);
+    if (!host) return;
+    host.querySelectorAll("[data-trverify]").forEach((b) => (b.onclick = () => truthVerifyDialog()));
+    host.querySelectorAll("[data-trjflag]").forEach(
+      (a) =>
+        (a.onclick = (e) => {
+          e.preventDefault(), (truthJKind = "flag"), (glAcctFilter = ""), (glTab = "journal"), renderGL();
+        }),
+    );
+    host.querySelectorAll("[data-trclear]").forEach(
+      (a) =>
+        (a.onclick = (e) => {
+          e.preventDefault(), e.stopPropagation(), (truthJKind = ""), renderGL();
+        }),
+    );
+    host.querySelectorAll("[data-trdrill]").forEach(
+      (s) =>
+        (s.onclick = (e) => {
+          e.preventDefault(), e.stopPropagation(), (glAcctFilter = s.dataset.trdrill), (truthJKind = "flag"), (glTab = "journal"), renderGL();
+        }),
+    );
+    host.querySelectorAll("[data-glacct]").forEach((r) => {
+      const prev = r.onclick;
+      r.onclick = (e) => {
+        e.target.closest && e.target.closest("[data-trdrill]") || ((truthJKind = ""), prev && prev.call(r, e));
+      };
+    });
+    const clr = host.querySelector("[data-glclear]");
+    if (clr) {
+      const prev = clr.onclick;
+      clr.onclick = (e) => {
+        (truthJKind = ""), prev && prev.call(clr, e);
+      };
+    }
+    host.querySelectorAll("[data-trmatch]").forEach((b) => (b.onclick = () => truthMatchSheet((DB.txns || []).find((t) => t.id === b.dataset.trmatch))));
+    host.querySelectorAll("[data-trexc]").forEach(
+      (b) =>
+        (b.onclick = () => {
+          const t = (DB.txns || []).find((x) => x.id === b.dataset.trexc),
+            why = appPrompt(`Close ${truthLabel(fin2CloseYm())} with ${t ? t.desc : "this line"} ${t ? money(t.amt) : ""} unmatched? It stays on the line with your name. Reason:`);
+          if (null == why || !t) return;
+          const r = truthException(t, why);
+          r.ok ? (renderGL(), toast(`Exception signed — ${why}`)) : toast(r.why);
+        }),
+    );
+  };
+}
+
