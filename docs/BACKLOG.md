@@ -406,3 +406,20 @@ Today every person's data lives in their own browser and every guard runs in the
 ## §7 Later (Alan, 2026-10-10: "leave for later; I need to better understand this")
 New York rules a design-build firm lives by: Lien Law Article 3-A trust funds per job; sales tax on capital improvements vs repairs (ST-124); site safety training cards at clock-in (NYC Local Law 196); workers' comp and COI enforcement before payment.
 
+---
+
+## §8 The month (tests/month_sim.py, first full run 2026-10-10, on the build before the ops, clientfix and purchasing merges)
+`MONTH caught 153/290 on time · 3 late · 134 missed · $519,735 left behind · 29 schedule days lost` (dollars summed per event; the same money can count twice).
+Per person (expected · on time · missed): owner 21 · 4 · 17; PM 56 · 28 · 28; coordinator 58 · 26 · 30; billing 42 · 17 · 25; controller 68 · 48 · 20; designer 23 · 14 · 8; foreman 12 · 8 · 4; driver 5 · 4 · 1; Kleins 5 · 4 · 1.
+The cracks, each owned by a lane:
+1. **Deposits never recorded** (Kleins $68,265, Lenox $15,000, Jessops $12,000): once the controller codes a deposit, nothing raises Record Payment for billing; Rivera $21,350 recorded but never in the bank has no path to resolve. **learn** (Needs Your Hand) with billingNeeds.
+2. **Payroll runs in no one's Approvals** ($16,040, $18,100, $18,680): DELEGATION has no payroll kind; the controller cannot approve a run he built; payrollFromTime spans 8/4–9/4. **learn**
+3. **Payroll and tax debits and card charges matched to nothing** (34 lines unmatched at close); the 10/1 close refused. **brain** (truthCandidates) and **learn**
+4. **Earned-not-billed held by a job-level hold** ($25,000; measured 60–100% billed at 51.67%); floating client purchases and reimbursables reported, never billed (spUnbilled $111,269 at month end). §1.5 #1–#2. **leaks** (next)
+5. **Bills at the PM's turn hide under "waiting on the others"** (AMP-311, SE-0951, TF-5512, WW-131). **learn** (delegation of bills)
+6. **Chases send nothing** for leads, retainers and client decisions (4 days lost). purchasing built vendor chases; **assistant** extends to people.
+7. **A bill over its PO approved in full** when it had no PO link (CM-0109, $4,600 over); the Window Works dispute has no path to close by credit memo. **purchasing** (verify on the re-run)
+8. **Late order lines have no order path from the line** (11 days). **purchasing**
+9. **Vendor slips, LPC revisions, hearing decks, mailed promises stay notes** (5 days on the hearing deck); calendar events are not on Today. **brain** and **learn**
+10. **The designer has no Inbox; the foreman's Today lacks deliveries and the plumber's visit; the driver never saw the pickup; the client's sample approval failed on the portal.** **learn** / **clientfix** (verify on the re-run)
+
