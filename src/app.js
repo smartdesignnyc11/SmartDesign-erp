@@ -93570,10 +93570,36 @@ function bnTeachModal(pre) {
     },
   );
 }
+// What the brain proposes as lessons: the loop's, from what happened (LEARN_EVENTS, each with its events as
+// evidence and its trigger), then what the meetings' reasons for delay suggest. Reading it runs the loop, so the
+// list is never staler than the records.
 function bnSuggestLessons() {
-  if ("function" != typeof mtLearn) return [];
+  const out = [];
+  try {
+    "function" == typeof lnLoop && lnLoop("read");
+    Object.values(lnInit().props)
+      .filter((P) => "proposed" === P.status)
+      .forEach((P) => {
+        const E = LEARN_EVENTS.find((x) => x.kind === P.kind),
+          ev = P.events.map((k) => DB.learn.events[k]).filter(Boolean);
+        E &&
+          out.push({
+            title: P.title,
+            learn: P.kind,
+            trigger: "learn",
+            match: P.kind,
+            when: "now",
+            then: { kind: E.change.type, title: E.change.text, owner: E.for },
+            why: ev.map((e) => e.what).join(" · "),
+            evidence: ev,
+            for: E.for,
+          });
+      });
+  } catch (e) {
+    console.warn("learned lessons", e);
+  }
+  if ("function" != typeof mtLearn) return out;
   const L = mtLearn(),
-    out = [],
     have = (t) => DB.lessons.some((l) => l.title === t),
     w = Object.fromEntries(L.why || []);
   return (
@@ -93608,29 +93634,6 @@ function bnSuggestLessons() {
         },
         why: w["decision latency"].quotes.map((q) => q.t).join(" · "),
       }),
-    (() => {
-      // a sub that did not show (the foreman's tap, or a no-show raised from the site) is a lesson to propose:
-      // confirm every sub the day before. Proposed with its trigger; the owner teaches it or not.
-      const ns = ((DB.field || {}).subs || []).filter((s) => "noshow" === s.status),
-        rs = ((DB.field || {}).raises || []).filter((r) => "noshow" === r.type);
-      (ns.length || rs.length) &&
-        !have("Every sub is confirmed by text the day before their date") &&
-        out.push({
-          title: "Every sub is confirmed by text the day before their date",
-          trigger: "vendor",
-          match: ".",
-          when: "now",
-          then: {
-            kind: "task",
-            title: "Text each sub the day before their date and keep the reply",
-            owner: "foreman",
-          },
-          why: ns
-            .map((s) => `${s.vendor}${s.lead ? ` (${s.lead})` : ""} did not show ${fmtL(s.date)}`)
-            .concat(rs.filter((r) => !ns.some((s) => r.subId === s.id)).map((r) => r.title))
-            .join(" · "),
-        });
-    })(),
     w["hidden condition"] &&
       !have("Existing conditions are opened up and photographed before the estimate is final") &&
       out.push({
@@ -94639,13 +94642,14 @@ if ("function" == typeof mtIngest) {
     return m;
   };
 }
-let bnTab = "lessons";
+let bnTab = "today";
 function renderBrain() {
   const host = document.getElementById("brain-body");
   if (!host) return;
   bnInit();
   const q = DB.brainQueue.filter((x) => "proposed" === x.status);
   (host.innerHTML = `<div class="ph"><div><h2>The Brain</h2><div class="lead">What the ERP has learned, what it proposes from it, who is carrying too much, and the follow-ups it has written for approval.</div></div><div class="acts">${"lessons" === bnTab ? '<button class="btn sm primary" id="bn-teach">Teach a Lesson</button>' : ""}</div></div>\n    <div class="seg" style="margin:8px 0">${[
+    ["today", "Today"],
     ["lessons", "Lessons"],
     ["queue", "Proposed"],
     ["workload", "Workload"],
@@ -94657,12 +94661,44 @@ function renderBrain() {
     )
     .join(
       "",
-    )}</div>\n    ${"lessons" === bnTab ? bnLessonsHtml() : "queue" === bnTab ? bnQueueHtml() : "workload" === bnTab ? bnWorkloadHtml(!1) : bnHandsHtml()}`),
+    )}</div>\n    ${"today" === bnTab ? bnTodayHtml() : "lessons" === bnTab ? bnLessonsHtml() : "queue" === bnTab ? bnQueueHtml() : "workload" === bnTab ? bnWorkloadHtml(!1) : bnHandsHtml()}`),
     bnWire(host);
 }
+// A lesson card: what it is, what fires it, what it does and for whom, where it came from, and "fired N×" with
+// the records it fired on (a learned lesson's records are the events' own words; a taught one's are its jobs).
+function bnLessonCard(l) {
+  const learned = !!l.learn,
+    T = learned ? (LEARN_EVENTS.find((x) => x.kind === l.learn) || {}).trigger || {} : BN_TRIGGERS[l.trigger] || {},
+    fired = l.fired || [],
+    on = fired.map((f) => (learned ? f.what : (DB.projects.find((p) => p.id === f.projectId) || { project: { name: "?" } }).project.name.replace(/ —.*$/, "")));
+  return `<div class="bn-lesson ${!1 === l.active ? "off" : ""}" data-lesson="${esc(l.id)}"><div class="bn-lesson-h"><b>${esc(l.title)}</b><span class="small muted">${learned ? `Fires on ${esc(T.label || "")}` : `${esc(T.label || l.trigger)}${l.match && "." !== l.match ? ` — ${esc(l.match)}` : ""} · ${esc(BN_WHEN[l.when] || "")}`}${l.auto ? " · applies on its own" : ""}</span></div><div class="small">${learned ? `${esc((lnChangeWords[(l.then || {}).kind] || "A rule").replace(/^a/, "A"))}` : "Then"}: <b>${esc((l.then || {}).title || "")}</b>${(l.then || {}).owner ? ` → ${esc(("object" == typeof ROLE_NAMES && ROLE_NAMES[l.then.owner]) || l.then.owner)}` : ""}</div><div class="small muted">${esc(String(l.why || "").slice(0, 260))}</div><div class="small muted">${learned ? `Learned from ${(l.evidence || []).length} event${1 === (l.evidence || []).length ? "" : "s"} · approved by ${esc(l.taughtBy || "")} ${fmtL(l.at)}` : `Taught by ${esc(l.taughtBy || l.source || "")} ${fmtL(l.at)}`} · fired ${fired.length}×${fired.length ? " — " + esc(on.slice(-4).join("; ")) : ""}</div><div class="row" style="gap:6px;margin-top:4px">${learned ? "" : `<button class="btn sm" data-bnedit-l="${l.id}">Edit</button>`}<button class="btn sm ghost" data-bnoff="${l.id}">${!1 === l.active ? "Turn On" : "Turn Off"}</button></div></div>`;
+}
+// A proposed lesson: the evidence (each event and the record it points at), who it is for, what it changes.
+function bnProposalCard(s, i, first) {
+  const ev = s.evidence || [];
+  return `<div class="bn-lesson sug" data-lnprop="${esc(s.learn || "")}"><b>${esc(s.title)}</b><div class="small">${s.learn ? `${esc((lnChangeWords[(s.then || {}).kind] || "a rule").replace(/^a/, "A"))} for ${esc(lnRoleWords(s.for))}: ${esc((s.then || {}).title || "")}` : `From the meetings: ${esc((s.then || {}).title || "")}`}</div>${ev.length ? `<ul class="small muted ln-ev">${ev.slice(-4).map((e) => `<li>${esc(e.what)}${e.on ? ` <span class="muted">· ${fmtL(e.on)}</span>` : ""}</li>`).join("")}${ev.length > 4 ? `<li>and ${ev.length - 4} more</li>` : ""}</ul>` : `<div class="small muted">${esc(String(s.why || "").slice(0, 220))}</div>`}<div class="row" style="gap:6px;margin-top:4px">${s.learn ? `<button class="btn sm ${first ? "primary" : ""}" data-bnsug="${i}" data-lnok="${esc(s.learn)}">Approve</button><button class="btn sm ghost" data-lnno="${esc(s.learn)}">Decline</button>` : `<button class="btn sm" data-bnsug="${i}">Teach It</button>`}</div></div>`;
+}
 function bnLessonsHtml() {
-  const S_ = bnSuggestLessons();
-  return `<div class="small muted" style="margin-bottom:8px">A lesson is a trigger and a task. It fires on every project that matches — the next one with millwork gets the samples task in the design phase without anyone remembering the last job. Teach one from anything that went wrong; the meetings suggest their own below.</div>\n    ${DB.lessons.map((l) => `<div class="bn-lesson ${!1 === l.active ? "off" : ""}"><div class="bn-lesson-h"><b>${esc(l.title)}</b><span class="small muted">${esc((BN_TRIGGERS[l.trigger] || {}).label || l.trigger)}${l.match && "." !== l.match ? ` — ${esc(l.match)}` : ""} · ${esc(BN_WHEN[l.when] || "")}${l.auto ? " · applies on its own" : ""}</span></div><div class="small">Then: <b>${esc((l.then || {}).title || "")}</b>${(l.then || {}).owner ? ` → ${esc(("object" == typeof ROLE_NAMES && ROLE_NAMES[l.then.owner]) || l.then.owner)}` : ""}</div><div class="small muted">${esc(l.why || "")}</div><div class="small muted">Taught by ${esc(l.taughtBy || l.source || "")} ${fmtL(l.at)} · fired ${(l.fired || []).length}×${(l.fired || []).length ? " — " + (l.fired || []).map((f) => (DB.projects.find((p) => p.id === f.projectId) || { project: { name: "?" } }).project.name.replace(/ —.*$/, "")).join(", ") : ""}</div><div class="row" style="gap:6px;margin-top:4px"><button class="btn sm" data-bnedit-l="${l.id}">Edit</button><button class="btn sm ghost" data-bnoff="${l.id}">${!1 === l.active ? "Turn On" : "Turn Off"}</button></div></div>`).join("")}\n    ${S_.length ? `<div class="card" style="margin-top:10px"><div class="hd"><h3>The Meetings Suggest</h3><span class="small muted">from the reasons the notes give for delays</span></div>${S_.map((s, i) => `<div class="bn-lesson sug"><b>${esc(s.title)}</b><div class="small muted">${esc(s.why).slice(0, 220)}</div><div class="row" style="gap:6px;margin-top:4px"><button class="btn sm primary" data-bnsug="${i}">Teach It</button></div></div>`).join("")}</div>` : ""}`;
+  const S_ = bnSuggestLessons(),
+    learned = DB.lessons.filter((l) => l.learn),
+    taught = DB.lessons.filter((l) => !l.learn);
+  return `<div class="small muted" style="margin-bottom:8px">A lesson is a trigger and what it does. A taught lesson fires on every project that matches; a learned one came from something that happened, and fires once on every record that matches it from then on. Nothing here applies itself.</div>
+    ${S_.length ? `<div class="card" style="margin-bottom:10px"><div class="hd"><h3>Proposed</h3><span class="small muted">${S_.filter((s) => s.learn).length} from what happened, ${S_.filter((s) => !s.learn).length} from the meetings</span></div>${S_.map((s, i) => bnProposalCard(s, i, !1)).join("")}</div>` : ""}
+    ${learned.length ? `<h3 style="margin:10px 0 6px">Learned</h3>${learned.map(bnLessonCard).join("")}` : ""}
+    <h3 style="margin:10px 0 6px">Taught</h3>${taught.map(bnLessonCard).join("")}`;
+}
+// The Brain's Today: what the loop saw, proposed, fired and drafted today, and what applies without asking.
+function bnTodayHtml() {
+  const T = lnToday(),
+    S_ = bnSuggestLessons(),
+    a = DB.company.meetAuto || {},
+    on = [["log", "the meeting log"], ["note", "the client note"], ["task", "tasks from meeting steps"], ["update", "task updates"], ["decision", "decisions"], ["event", "follow-up meetings"], ["eta", "material dates"], ["rule", "rules"]].filter(([k]) => a[k]).map(([, l]) => l),
+    tile = (k, n, label) => `<div class="kpi" data-lntile="${k}" data-n="${n}"><b>${n}</b><span>${label}</span></div>`;
+  return `<div class="kpis ln-kpis">${tile("events", T.events.length, "events seen today")}${tile("proposed", T.proposed.length, "lessons proposed today")}${tile("fired", T.fired.length, "rules fired today")}${tile("changes", T.changes.length, "changes drafted today")}</div>
+    <div class="small muted" style="margin:6px 0 10px">I read the records on every sync, every closed field issue, every dispute, every delivery, every close and every new day${T.sources.length ? ` — today: ${esc(T.sources.join(", "))}` : ""}. Tasks from meeting steps: <b>${a.task ? "applied on their own" : "proposed"}</b>, each approved by a person. What applies without asking: ${esc(on.length ? on.join(", ") : "nothing")}.</div>
+    ${S_.filter((s) => s.learn).length ? `<div class="card" style="margin-bottom:10px"><div class="hd"><h3>Lessons to Approve</h3><span class="small muted">${T.open.length} waiting on the Owner</span></div>${S_.map((s, i) => (s.learn ? bnProposalCard(s, i, "owner" === role() && i === S_.findIndex((x) => x.learn)) : "")).join("")}</div>` : ""}
+    <div class="card" style="margin-bottom:10px"><div class="hd"><h3>Seen Today</h3><span class="small muted">${T.events.length}</span></div>${T.events.length ? `<ul class="small ln-ev">${T.events.slice(0, 20).map((e) => `<li><span class="muted">${esc((LEARN_EVENTS.find((x) => x.kind === e.kind) || {}).label || e.kind)}:</span> ${esc(e.what)}</li>`).join("")}</ul>` : '<div class="small muted">Nothing new in the records today.</div>'}</div>
+    <div class="card"><div class="hd"><h3>Rules Fired Today</h3><span class="small muted">${T.fired.length}</span></div>${T.fired.length ? `<ul class="small ln-ev">${T.fired.slice(0, 20).map((k) => { const [lid, rk] = k.split("|"), l = DB.lessons.find((x) => x.id === lid), f = l && (l.fired || []).find((x) => x.key === rk); return `<li>${esc(l ? l.title : "a rule")} — ${esc(f ? f.what : rk)}</li>`; }).join("")}</ul>` : '<div class="small muted">No rule fired today.</div>'}${T.changes.length ? `<div class="small" style="margin-top:6px">Changes drafted today: ${esc(T.changes.map((c) => c.title).join("; "))}</div>` : ""}</div>`;
 }
 function bnQueueHtml() {
   const Q = DB.brainQueue
@@ -94673,7 +94709,12 @@ function bnQueueHtml() {
             { proposed: 0, applied: 1, skipped: 2 }[b.status] || (b.at || "").localeCompare(a.at || ""),
       ),
     can = ["owner", "pm", "coord", "design_mgr"].includes(role());
-  return `<div class="small muted" style="margin-bottom:8px">What the lessons propose on the projects that match today. Approve puts the task on the project with the lesson as its source.</div>${
+  const byL = {};
+  Q.filter((q) => "proposed" === q.status).forEach((q) => (byL[q.lessonId] = (byL[q.lessonId] || 0) + 1));
+  const learnedN = Object.values(lnInit().props).filter((p) => "proposed" === p.status),
+    evN = learnedN.reduce((a, p) => a + p.events.length, 0),
+    head = `<div class="small" style="margin-bottom:8px" data-bnevidence><b>By evidence:</b> ${Object.keys(byL).length} lesson${1 === Object.keys(byL).length ? "" : "s"} propose ${Object.values(byL).reduce((a, n) => a + n, 0)} task${1 === Object.values(byL).reduce((a, n) => a + n, 0) ? "" : "s"} on the records that match them, once per record; ${learnedN.length} lesson${1 === learnedN.length ? "" : "s"} wait${1 === learnedN.length ? "s" : ""} on approval from ${evN} event${1 === evN ? "" : "s"} (${learnedN.map((p) => `${p.events.length} from ${esc((LEARN_EVENTS.find((x) => x.kind === p.kind) || {}).label || p.kind).toLowerCase()}`).join("; ") || "none"}).</div>`;
+  return `${head}<div class="small muted" style="margin-bottom:8px">What the lessons propose on the records that match today. Approve puts the task on the project with the lesson as its source.</div>${
     Q.length
       ? Q.map((q) => {
           const p = DB.projects.find((x) => x.id === q.projectId) || { project: { name: "" } };
@@ -94704,8 +94745,18 @@ function bnWire(host) {
     host.querySelectorAll("[data-bnsug]").forEach(
       (b) =>
         (b.onclick = () => {
+          if (b.dataset.lnok) {
+            const l = lnApprove(b.dataset.lnok);
+            return void (l && (rcToast(`Lesson approved: ${l.title} — fired ${l.fired.length}× so far`, [{ label: "Open", run: () => ((bnTab = "lessons"), renderBrain()) }]), render()));
+          }
           const s = bnSuggestLessons()[+b.dataset.bnsug];
           s && bnTeachModal(Object.assign({}, s));
+        }),
+    ),
+    host.querySelectorAll("[data-lnno]").forEach(
+      (b) =>
+        (b.onclick = () => {
+          lnDecline(b.dataset.lnno) && (toast("Declined — it will not be proposed again"), render());
         }),
     ),
     host.querySelectorAll("[data-bnok]").forEach(
@@ -171295,5 +171346,1605 @@ if ("function" == typeof txnDialog) {
         return r;
       };
     } catch (e) {}
+  };
+}
+
+/* ---------------------------------------------------------------------------
+   learn: the brain learns from what happened (BACKLOG §1.7 #2 and #10; the round-5 brain findings).
+   Five role experts graded the brain 4 to 6 for one reason: its lessons were a fixed menu the owner had
+   taught, every one "fired 0×", and nothing was learned from the day's events (a sub no-show, an extra done
+   before its CO, an LPC revise-and-resubmit, a wrong-finish return, a $0 PO, a vendor with no COI on an open
+   order, a bill over its PO, a duplicate card charge, an unmatched credit, a WIP miss, a dispute, a void, an
+   exception, a reopen, steps carried over twice, a promise with no delivery).
+     LEARN_EVENTS  event kind -> what it reads in the records (scan: the events), the lesson it proposes (who it
+                   is for, what it changes: a rule, a reminder, a checklist item or a process step) and the
+                   trigger that fires once a person approves it (trigger.rows: the records it fires on).
+     lnLoop(src)   runs on every sync, every closed field issue, every bill dispute, every late delivery, every
+                   close and every new day (APP_DAY_HOOKS). It records the events it has not seen
+                   (DB.learn.events), proposes one lesson per kind with those events as its evidence
+                   (DB.learn.props; never applied on its own), and for each approved lesson fires its trigger once
+                   per record that matches (l.fired lists the records, so "fired N×" is honest). A firing is a
+                   card in the Needs Your Hand queue of the person the lesson is for.
+     nyhRows()     Needs Your Hand: every proposal the reader made from mail (a bill from a PDF, a statement to
+                   import, a quote onto a line, a receipt to code, a COI or W-9 to file, a Zelle explanation to
+                   code, master data to create), the deposits the bank holds that nobody recorded, the payments
+                   recorded that the bank never saw, the payroll runs waiting on a yes, the lessons' firings and
+                   the promises in mail; each routed by DELEGATION to one person, a card with one tap on their Do
+                   Now (Approvals), and the same rows when they ask "what needs my hand".
+   Nothing here applies itself: a person approves the lesson, taps the card, adds the task.
+--------------------------------------------------------------------------- */
+const lnJob = (pid) => {
+    const p = (DB.projects || []).find((x) => x.id === pid);
+    return p ? String(p.project.name).replace(/ —.*$/, "") : "";
+  },
+  lnUserOf = (r) => ((DB.users || []).find((u) => u.role === r) || {}).name || ("object" == typeof ROLE_NAMES && ROLE_NAMES[r]) || r,
+  lnRoleWords = (r) => ({ owner: "the Owner", pm: "the PM", coord: "the coordinator", billing: "Billing", controller: "the Controller", designer: "the designer", foreman: "the foreman" })[r] || r,
+  lnNext = () => {
+    try {
+      return addWork(today(), 1);
+    } catch (e) {
+      return iso(addDays(today(), 1));
+    }
+  },
+  lnDay = (s) => String(s || "").slice(0, 10),
+  lnMailKey = (c) => `${String((c.from || {}).email || "").toLowerCase()}|${String(c.subject || "").replace(/^(re|fwd?):\s*/i, "").toLowerCase()}|${String(c.date || "").slice(0, 16)}`,
+  lnAll = (c) => [c.subject, c.text, ...(c.attachments || []).map((a) => a.text || "")].join("\n"),
+  lnOpenProp = (pr) => pr && !pr.applied && !1 !== pr.on && !["applied", "skipped", "dismissed"].includes(pr.status || ""),
+  lnMoney = (v) => money(Math.abs(+v || 0)).replace(/\.00$/, "");
+function lnInit() {
+  const L = (DB.learn = DB.learn || {});
+  return (L.events = L.events || {}), (L.props = L.props || {}), (L.runs = L.runs || []), (L.cal = L.cal || {}), (L.hand = L.hand || {}), L;
+}
+// the reader's proposals of one kind, one per message (the same message lands in several mailboxes)
+function lnMailProps(kind) {
+  const seen = new Set(),
+    out = [];
+  (DB.comms || []).forEach((c) => {
+    if (["ignored", "spam"].includes(c.status)) return;
+    (c.proposals || [])
+      .filter((pr) => pr.kind === kind)
+      .forEach((pr) => {
+        const k = lnMailKey(c) + "|" + kind;
+        seen.has(k) || (seen.add(k), out.push({ c: c, pr: pr }));
+      });
+  });
+  return out;
+}
+const lnOpenPO = (vendor) => {
+  const n = String(vendor || "").toLowerCase();
+  return n ? (DB.pos || []).find((po) => String(po.vendor || "").toLowerCase() === n && ["issued", "partial", "pending", "approved"].includes(po.status)) : null;
+};
+const lnCoiOk = (v) => !!(v && v.insuranceExp && v.insuranceExp >= today());
+const lnOver = (b) => {
+  try {
+    const P = "function" == typeof pay3PO ? pay3PO(b) : null,
+      at = "function" == typeof pay3Default ? pay3Default(b) : 0;
+    return P && P.po && at > 0 ? r2(billTotal(b) - at) : 0;
+  } catch (e) {
+    return 0;
+  }
+};
+const lnShort = (b) => {
+  const s = b && b.short;
+  return s ? +(s.held || s.amount || s.diff || 0) || (+s > 0 ? +s : 0) : 0;
+};
+const lnPoProblem = (po) => {
+  if (!po) return "";
+  if (!String(po.vendor || "").trim()) return "no vendor";
+  const L = po.lines || [];
+  if (!L.length) return "no lines";
+  const zero = L.find((l) => !((+l.qty || 0) * (+(null != l.price ? l.price : null != l.rate ? l.rate : l.cost) || 0) > 0));
+  return zero ? `a $0 line (${String(zero.item || zero.desc || "a line").slice(0, 40)})` : "";
+};
+// a duplicate: the same account, amount and description within three days, neither voided
+function lnDupPairs() {
+  const T = (DB.txns || []).filter((t) => +t.amt < 0),
+    norm = (s) => String(s || "").toUpperCase().replace(/[^A-Z]/g, ""),
+    out = [];
+  T.forEach((a, i) => {
+    T.slice(i + 1).forEach((b) => {
+      a.acct === b.acct && Math.abs(+a.amt - +b.amt) < 0.005 && norm(a.desc) === norm(b.desc) && Math.abs(dayDiff(a.date, b.date)) <= 3 && out.push([a, b]);
+    });
+  });
+  return out;
+}
+const lnMatched = (t) => {
+  const m = t.match || {};
+  return !!(m.billId || m.poId || m.invoiceId || m.payrollId || t.billId || t.poId || t.invoiceId || t.payrollId);
+};
+const lnCredits = () => (DB.txns || []).filter((t) => +t.amt > 0 && /\b(CREDIT|REFUND|RETURN|RTN)\b/i.test(t.desc || "") && !lnMatched(t) && !t.exception);
+// what LPC (or an examiner) asked to change, in its own words: "revise ... to show the sill horn and the back band"
+function lnLpcItem(text) {
+  const t = String(text || "").replace(/\s+/g, " "),
+    m = t.match(/\b(?:revise|update|amend)\b[^.]*?\bto (?:show|include|indicate|detail)\s+([^.;]+)/i) || t.match(/\b(?:show|include|provide)\s+(the [^.;]+)/i) || t.match(/\b(?:revise|revision to|comments? on)\s+(the [^.;]+)/i);
+  return m ? m[1].replace(/,?\s*and resubmit.*$/i, "").replace(/\s+for (?:the )?(?:staff|commission).*$/i, "").trim().slice(0, 80) : "";
+}
+// what the application was about, from the subject ("121 State Street — brick mold profile for the windows")
+const lnLpcTopic = (c) => {
+  const sub = String(c.subject || "").replace(/^(re|fwd?):\s*/i, ""),
+    m = sub.match(/\s[—–-]\s(.+)$/);
+  return m ? m[1].replace(/\s+for the .*$/i, "").trim().slice(0, 60) : "";
+};
+const lnLpcRevise = (c) => /\b(revise|revision|resubmit|re-?submit|please (show|provide|include|update))\b/i.test(lnAll(c));
+// the person's own mail: a promise with a day in it ("I'll send the revised kitchen elevations Friday")
+const LN_PROMISE = /\b(?:I(?:'|’)ll|I will|we(?:'|’)ll|we will)\s+(send|get|have|deliver|finish|issue|share|email|submit|bring|forward)\s+([^.!?\n]{4,90}?)\s+(?:by\s+|on\s+|before\s+)?(today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|next week|\d{1,2}\/\d{1,2}|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.? \d{1,2})\b/i;
+function lnMyEmail(uid) {
+  try {
+    const g = (((DB.conn || {})[uid] || {}).google || {}).email || "";
+    if (g) return g.toLowerCase();
+  } catch (e) {}
+  return "";
+}
+function lnPromises() {
+  const out = [],
+    seen = new Set();
+  (DB.comms || []).forEach((c) => {
+    if (!c.owner || ["ignored", "spam"].includes(c.status)) return;
+    const me = lnMyEmail(c.owner),
+      from = String((c.from || {}).email || "").toLowerCase(),
+      mine = "out" === c.direction || (me && from === me) || (c.labels || []).includes("SENT");
+    if (!mine) return;
+    const m = String(c.text || "").replace(/\s+/g, " ").match(LN_PROMISE);
+    if (!m) return;
+    const k = lnMailKey(c);
+    if (seen.has(k)) return;
+    seen.add(k);
+    const u = (DB.users || []).find((x) => x.id === c.owner) || {},
+      sent = lnDay(c.date) || today();
+    let due = "";
+    try {
+      due = "function" == typeof cmDateIn ? cmDateIn(m[3]) : "";
+    } catch (e) {}
+    if (!due || due < sent) {
+      // a weekday is the next one after the day it was written
+      const dw = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"].indexOf(m[3].toLowerCase());
+      if (dw >= 0) {
+        const d0 = parse(sent);
+        let n = (dw - d0.getDay() + 7) % 7;
+        0 === n && (n = 7), (due = iso(addDays(sent, n)));
+      } else /tomorrow/i.test(m[3]) ? (due = iso(addDays(sent, 1))) : /today/i.test(m[3]) ? (due = sent) : /next week/i.test(m[3]) && (due = iso(addDays(sent, 7)));
+    }
+    const to = ((c.to || [])[0] || {}).name || ((c.to || [])[0] || {}).email || (typeof (c.to || [])[0] === "string" ? c.to[0] : "") || "",
+      what = `${m[1]} ${m[2]}`.replace(/\s+/g, " ").trim();
+    out.push({ key: "promise:mail:" + k, c: c, uid: c.owner, role: u.role || "", name: u.name || "", what: what, due: due, to: String(to).replace(/<.*$/, "").trim(), projectId: ((c.route || {}).projectId) || ((("function" == typeof cmJobNamed && cmJobNamed(lnAll(c))) || {}).id) || "" });
+  });
+  return out;
+}
+const lnTaskHas = (pid, rx, who) =>
+  (DB.projects || []).some((p) => (!pid || p.id === pid) && (p.actions || []).some((a) => rx.test(a.title || "") && (!who || String(a.assignee || "").toLowerCase().includes(String(who).toLowerCase().split(" ")[0]))));
+// ---- the registry ----------------------------------------------------------------------------------------
+const LEARN_EVENTS = [
+  {
+    kind: "noshow",
+    label: "A sub did not show",
+    area: "field",
+    for: "coord",
+    lesson: () => "Every sub is confirmed by text the day before their date",
+    change: { type: "reminder", text: "Text each sub the day before their date and keep the reply" },
+    scan() {
+      const F = DB.field || {},
+        out = [];
+      (F.subs || [])
+        .filter((s) => "noshow" === s.status)
+        .forEach((s) => out.push({ key: "noshow:sub:" + s.id, what: `${s.vendor}${s.lead ? ` (${s.lead})` : ""} did not show at ${lnJob(s.projectId)} on ${fmtL(s.date)}`, ref: { kind: "sub", id: s.id, projectId: s.projectId }, on: s.date }));
+      (F.raises || [])
+        .filter((r) => "noshow" === r.type && !(F.subs || []).some((s) => "noshow" === s.status && s.projectId === r.projectId && (r.subId ? s.id === r.subId : s.taskId === r.taskId)))
+        .forEach((r) => out.push({ key: "noshow:raise:" + r.id, what: r.title, ref: { kind: "raise", id: r.id, projectId: r.projectId }, on: lnDay(r.at) }));
+      lnMailProps("noshow").forEach(({ c: c, pr: pr }) => out.push({ key: "noshow:mail:" + lnMailKey(c), what: pr.summary, ref: { kind: "mail", id: c.id, projectId: (c.route || {}).projectId || "" }, on: lnDay(c.date) }));
+      return out;
+    },
+    trigger: {
+      label: "a sub booked for the next working day with no confirmation",
+      rows() {
+        const nx = lnNext(),
+          tm = iso(addDays(today(), 1));
+        return ((DB.field || {}).subs || [])
+          .filter((s) => (s.date === nx || s.date === tm) && !["confirmed", "onsite", "noshow", "done", "cancelled", "canceled"].includes(s.status))
+          .map((s) => ({
+            key: "sub:" + s.id,
+            what: `${s.vendor} at ${lnJob(s.projectId)} on ${fmtL(s.date)} is not confirmed`,
+            projectId: s.projectId,
+            task: { title: `Text ${s.lead || s.vendor} to confirm ${fmtL(s.date)} at ${lnJob(s.projectId)} and keep the reply`, due: today(), role: "coord" },
+          }));
+      },
+    },
+  },
+  {
+    kind: "coafter",
+    label: "Work done before its change order",
+    area: "field",
+    for: "pm",
+    lesson: () => "A change order goes out before the extra work starts, photos first",
+    change: { type: "process", text: "An extra from the site: photograph it, price it and send the change order before the crew starts" },
+    scan: () =>
+      (((DB.field || {}).raises) || [])
+        .filter((r) => "extra" === r.type && "answered" === r.status && /extra|proceed|go ahead|write the co/i.test(`${r.decision || ""} ${r.answer || ""}`))
+        .map((r) => ({ key: "coafter:" + r.id, what: `${r.title} — answered "${String(r.answer || r.decision || "").slice(0, 60)}" before a change order`, ref: { kind: "raise", id: r.id, projectId: r.projectId }, on: lnDay(r.answeredAt || r.at) })),
+    trigger: {
+      label: "an extra raised from the site with no change order yet",
+      rows: () =>
+        (((DB.field || {}).raises) || [])
+          .filter((r) => "extra" === r.type && "answered" !== r.status && "closed" !== r.status && !r.coId)
+          .map((r) => ({ key: "extra:" + r.id, what: `${r.title} (${lnJob(r.projectId)})`, projectId: r.projectId, task: { title: `Photograph and price the extra, send the change order before work starts: ${String(r.title).slice(0, 60)}`, due: today(), role: "pm" } })),
+    },
+  },
+  {
+    kind: "lpcrevise",
+    label: "LPC or an examiner asked to revise and resubmit",
+    area: "design",
+    for: "designer",
+    lesson(ev) {
+      const items = [...new Set(ev.map((e) => e.item).filter(Boolean))];
+      return `Check ${items.length ? items.slice(0, 2).join(" and ") : "what LPC sent back last time"} on every new landmark application`;
+    },
+    change: { type: "checklist", text: "A checklist item on every landmark application, from what LPC sent back" },
+    scan: () =>
+      lnMailProps("lpc")
+        .filter(({ c: c }) => lnLpcRevise(c))
+        .map(({ c: c, pr: pr }) => {
+          const item = lnLpcItem(lnAll(c));
+          const topic = lnLpcTopic(c);
+          return { key: "lpc:" + lnMailKey(c), what: `LPC on ${lnJob((c.route || {}).projectId || pr.projectId) || "a landmark job"}${topic ? `, ${topic}` : ""}: ${item ? "show " + item : String(pr.summary || c.subject).slice(0, 80)}`, item: item, ref: { kind: "mail", id: c.id, projectId: (c.route || {}).projectId || pr.projectId || "" }, on: lnDay(c.date) };
+        }),
+    trigger: {
+      label: "a landmark application still being prepared",
+      rows() {
+        const ev = Object.values(lnInit().events).filter((e) => "lpcrevise" === e.kind),
+          items = [...new Set(ev.map((e) => e.item).filter(Boolean))].slice(0, 3);
+        return (DB.projects || []).flatMap((p) =>
+          [...(p.permits || []), ...(p.inspections || [])]
+            .filter((x) => /\bLPC\b|landmark|appropriateness/i.test(x.name || "") && !/approved|issued|done|closed|passed/i.test(x.status || "") && "active" !== x.status)
+            .map((x) => ({ key: `lpcapp:${p.id}:${x.id || x.name}`, what: `${x.name} (${lnJob(p.id)})`, projectId: p.id, task: { title: `Before it goes to LPC: check ${items.join("; ") || "what LPC sent back last time"} on ${String(x.name).slice(0, 50)}`, due: addWork(today(), 2), role: "designer" } })),
+        );
+      },
+    },
+  },
+  {
+    kind: "wrongreturn",
+    label: "A wrong-finish or duplicate purchase went back",
+    area: "buy",
+    for: "coord",
+    lesson: () => "Finish and quantity are confirmed on the PO line before it is issued",
+    change: { type: "checklist", text: "Finish and quantity confirmed on every PO line before Issue" },
+    scan: () =>
+      (((DB.sel || {}).returns) || [])
+        .filter((r) => /wrong|dup|over-?order|finish|picking/i.test(`${r.reason || ""} ${r.name || ""}`))
+        .map((r) => ({ key: "return:" + r.id, what: `${r.name} back to ${r.vendor} — ${String(r.reason || "").replace(/-/g, " ")}`, ref: { kind: "return", id: r.id, projectId: r.projectId }, on: r.raisedAt || "" })),
+    trigger: {
+      label: "a purchase order about to be issued",
+      rows: () =>
+        (DB.pos || [])
+          .filter((po) => ["draft", "pending"].includes(po.status) && (po.lines || []).length && !po.finishConfirmed)
+          .map((po) => ({ key: "po:" + po.id, what: `${po.number} · ${po.vendor || "no vendor"} (${lnJob(po.projectId)})`, projectId: po.projectId, task: { title: `Confirm finish and quantity on every line of ${po.number} before it is issued`, due: today(), role: "coord" } })),
+    },
+  },
+  {
+    kind: "poinvalid",
+    label: "A purchase order went out with no vendor or a $0 line",
+    area: "buy",
+    for: "coord",
+    lesson: () => "Every way a PO is issued checks the vendor, the lines and the amounts",
+    change: { type: "rule", text: "Issue is refused with no vendor, no line or a $0 line, on every issue path" },
+    scan: () =>
+      (DB.pos || [])
+        .filter((po) => !["draft", "void", "cancelled"].includes(po.status) && lnPoProblem(po))
+        .map((po) => ({ key: "poinvalid:" + po.id, what: `${po.number} was ${po.status} with ${lnPoProblem(po)}`, ref: { kind: "po", id: po.id, projectId: po.projectId }, on: po.issuedAt || po.date || "" })),
+    trigger: {
+      label: "a draft purchase order with no vendor or a $0 line",
+      rows: () =>
+        (DB.pos || [])
+          .filter((po) => ["draft", "pending"].includes(po.status) && lnPoProblem(po))
+          .map((po) => ({ key: "podraft:" + po.id, what: `${po.number}: ${lnPoProblem(po)}`, projectId: po.projectId, task: { title: `Fix ${po.number} before it is issued: ${lnPoProblem(po)}`, due: today(), role: "coord" } })),
+    },
+  },
+  {
+    kind: "nocoi",
+    label: "A vendor with no current COI holds an open order",
+    area: "buy",
+    for: "coord",
+    lesson: () => "A vendor's certificate of insurance is on file before the first PO",
+    change: { type: "rule", text: "A PO to a vendor with no current COI asks for the certificate before it is issued" },
+    scan: () =>
+      (DB.vendors || [])
+        .filter((v) => !lnCoiOk(v))
+        .flatMap((v) =>
+          (DB.pos || [])
+            .filter((po) => String(po.vendor || "").toLowerCase() === String(v.name || "").toLowerCase() && ["issued", "partial", "pending", "approved"].includes(po.status))
+            .map((po) => ({ key: `nocoi:${v.id}:${po.id}`, what: `${v.name} holds ${po.number} with ${v.insuranceExp ? "a COI that expired " + fmtL(v.insuranceExp) : "no COI on file"}`, ref: { kind: "po", id: po.id, projectId: po.projectId }, on: po.issuedAt || po.date || "" })),
+        ),
+    trigger: {
+      label: "a draft PO to a vendor with no current COI",
+      rows: () =>
+        (DB.pos || [])
+          .filter((po) => ["draft", "pending"].includes(po.status) && po.vendor)
+          .filter((po) => {
+            const v = (DB.vendors || []).find((x) => String(x.name || "").toLowerCase() === String(po.vendor).toLowerCase());
+            return !v || !lnCoiOk(v);
+          })
+          .map((po) => ({ key: "coipo:" + po.id, what: `${po.number} to ${po.vendor}`, projectId: po.projectId, task: { title: `Get ${po.vendor}'s certificate of insurance before ${po.number} goes out`, due: today(), role: "coord" } })),
+    },
+  },
+  {
+    kind: "overpo",
+    label: "A bill came in over its PO",
+    area: "money",
+    for: "owner",
+    lesson: () => "A bill is approved at the PO amount and the difference is disputed",
+    change: { type: "rule", text: "Approve stops at the PO balance; the difference goes to a dispute with the vendor" },
+    scan: () =>
+      (DB.bills || [])
+        .filter((b) => lnShort(b) > 0 || (["submitted", "pm-approved", "approved", "paid"].includes(b.status) && lnOver(b) > 0.005))
+        .map((b) => ({ key: "overpo:" + b.id, what: `${b.number} · ${b.vendor} billed ${lnMoney(lnShort(b) || lnOver(b))} over its PO`, ref: { kind: "bill", id: b.id, projectId: b.projectId }, on: b.date || "" })),
+    trigger: {
+      label: "a bill waiting on a yes that is over its PO balance",
+      rows: () =>
+        (DB.bills || [])
+          .filter((b) => ["submitted", "pm-approved"].includes(b.status) && lnOver(b) > 0.005)
+          .map((b) => ({ key: "billover:" + b.id, what: `${b.number} · ${b.vendor}: ${lnMoney(lnOver(b))} over the PO`, projectId: b.projectId, card: !1 })),
+    },
+  },
+  {
+    kind: "dupcharge",
+    label: "A card charge came in twice",
+    area: "money",
+    for: "controller",
+    lesson: () => "The duplicate check runs on every bank and card import",
+    change: { type: "rule", text: "Every import is checked for the same amount, payee and account within three days; a match waits for the Controller" },
+    scan() {
+      const out = lnDupPairs().map(([a, b]) => ({ key: `dup:${a.id}:${b.id}`, what: `${a.desc} ${lnMoney(a.amt)} on ${fmtL(a.date)} and ${fmtL(b.date)}`, ref: { kind: "txn", id: b.id, projectId: b.projectId || "" }, on: b.date }));
+      (DB.voided || [])
+        .filter((t) => /dup/i.test(t.voidWhy || ""))
+        .forEach((t) => out.push({ key: "dup:void:" + t.id, what: `${t.desc} ${lnMoney(t.amt)} voided as a duplicate`, ref: { kind: "txn", id: t.id }, on: t.date }));
+      return out;
+    },
+    trigger: {
+      label: "the same charge twice in one import",
+      rows: () => lnDupPairs().map(([a, b]) => ({ key: `dupt:${a.id}:${b.id}`, what: `${b.desc} ${lnMoney(b.amt)} twice (${fmtL(a.date)}, ${fmtL(b.date)})`, txnId: b.id, task: { title: `Void the duplicate ${b.desc} ${lnMoney(b.amt)} on ${fmtL(b.date)} or say why it is two charges`, due: today(), role: "controller" } })),
+    },
+  },
+  {
+    kind: "credit",
+    label: "A credit sits unmatched",
+    area: "money",
+    for: "controller",
+    lesson: () => "A vendor credit is matched to its charge within 90 days",
+    change: { type: "reminder", text: "Every credit on a card or bank line is matched to the charge or return it relieves" },
+    scan: () => lnCredits().map((t) => ({ key: "credit:" + t.id, what: `${t.desc} ${lnMoney(t.amt)} on ${fmtL(t.date)} is matched to nothing`, ref: { kind: "txn", id: t.id }, on: t.date })),
+    trigger: {
+      label: "a credit on a card or bank line matched to nothing",
+      rows: () => lnCredits().map((t) => ({ key: "creditt:" + t.id, what: `${t.desc} ${lnMoney(t.amt)}`, txnId: t.id, task: { title: `Match the ${lnMoney(t.amt)} credit (${t.desc}) to the charge or return it relieves`, due: addWork(today(), 2), role: "controller" } })),
+    },
+  },
+  {
+    kind: "wipmiss",
+    label: "The WIP did not tie at a close",
+    area: "close",
+    for: "controller",
+    lesson: () => "The WIP schedule ties to the ledger before a close is signed",
+    change: { type: "checklist", text: "Tie the WIP schedule to 1200 and 2500 on the close checklist; the close waits on it" },
+    scan() {
+      const out = [];
+      ((DB.periods || {}).closes || []).forEach((cl) => {
+        try {
+          const W = ctWipTie(cl.month);
+          W && !W.ok && out.push({ key: "wip:" + cl.month, what: `${W.month}: the WIP schedule and the ledger differ by ${lnMoney(W.diff)}`, ref: { kind: "period", id: cl.month }, on: cl.on || "" });
+        } catch (e) {}
+      });
+      return out;
+    },
+    trigger: {
+      label: "a month being closed whose WIP does not tie",
+      rows() {
+        try {
+          const ym = "function" == typeof fin2CloseYm ? fin2CloseYm() : "";
+          if (!ym || ctClosed(ym)) return [];
+          const W = ctWipTie(ym);
+          return W && !W.ok ? [{ key: "wipclose:" + ym, what: `${W.month} WIP off by ${lnMoney(W.diff)}`, task: { title: `Tie the ${W.month} WIP to the ledger before the close (${lnMoney(W.diff)} apart)`, due: today(), role: "controller" } }] : [];
+        } catch (e) {
+          return [];
+        }
+      },
+    },
+  },
+  {
+    kind: "dispute",
+    label: "A bill went to a dispute",
+    area: "close",
+    for: "controller",
+    lesson: () => "A disputed difference is closed by a credit memo or a decision within 30 days",
+    change: { type: "reminder", text: "Every held difference has a date to close; the Controller chases the credit memo" },
+    scan: () => (DB.bills || []).filter((b) => lnShort(b) > 0).map((b) => ({ key: "dispute:" + b.id, what: `${b.number} · ${b.vendor}: ${lnMoney(lnShort(b))} held in dispute`, ref: { kind: "bill", id: b.id, projectId: b.projectId }, on: (b.short || {}).at || b.date || "" })),
+    trigger: {
+      label: "a held difference older than two weeks",
+      rows: () =>
+        (DB.bills || [])
+          .filter((b) => lnShort(b) > 0 && !(b.short || {}).closed && dayDiff(lnDay((b.short || {}).at || b.date) || today(), today()) >= 14)
+          .map((b) => ({ key: "disputeold:" + b.id, what: `${b.number} · ${lnMoney(lnShort(b))}`, projectId: b.projectId, task: { title: `Close the ${lnMoney(lnShort(b))} dispute on ${b.number} with ${b.vendor}: a credit memo or a decision`, due: today(), role: "controller" } })),
+    },
+  },
+  {
+    kind: "void",
+    label: "A money record was voided",
+    area: "close",
+    for: "controller",
+    lesson: () => "Every void is reviewed at the close with its reason",
+    change: { type: "checklist", text: "The close checklist lists the month's voids with who and why" },
+    scan: () => (DB.voided || []).map((t) => ({ key: "void:" + t.id, what: `${t.desc} ${lnMoney(t.amt)} voided by ${t.voidedBy || "someone"}: ${t.voidWhy || ""}`, ref: { kind: "txn", id: t.id }, on: lnDay(t.voidedAt) })),
+    trigger: {
+      label: "a void in the month being closed",
+      rows() {
+        const ym = ("function" == typeof fin2CloseYm && fin2CloseYm()) || "";
+        return (DB.voided || []).filter((t) => ym && String(t.date || "").slice(0, 7) === ym).map((t) => ({ key: "voidclose:" + t.id, what: `${t.desc} ${lnMoney(t.amt)}`, card: !1 }));
+      },
+    },
+  },
+  {
+    kind: "exception",
+    label: "A line closed on a signed exception",
+    area: "close",
+    for: "owner",
+    lesson: () => "Signed exceptions are listed for the Owner at every close",
+    change: { type: "checklist", text: "The close shows each exception with who signed it and why; the Owner reads them before the lock" },
+    scan: () => (DB.txns || []).filter((t) => t.exception).map((t) => ({ key: "exc:" + t.id, what: `${t.desc} ${lnMoney(t.amt)} closed without a match — ${t.exception.by}: ${t.exception.why}`, ref: { kind: "txn", id: t.id }, on: lnDay(t.exception.at) })),
+    trigger: {
+      label: "an exception in the month being closed",
+      rows() {
+        const ym = ("function" == typeof fin2CloseYm && fin2CloseYm()) || "";
+        return (DB.txns || []).filter((t) => t.exception && ym && String(t.date || "").slice(0, 7) === ym).map((t) => ({ key: "excclose:" + t.id, what: `${t.desc} ${lnMoney(t.amt)}`, card: !1 }));
+      },
+    },
+  },
+  {
+    kind: "reopen",
+    label: "A closed month was reopened",
+    area: "close",
+    for: "owner",
+    lesson: () => "A reopened month is closed again with the tie-out re-run and the reason on the Pack",
+    change: { type: "process", text: "Reopen asks for the reason, re-runs the tie-out and puts the reason on the Pack" },
+    scan: () => (DB.audit || []).filter((a) => "period" === a.kind && "reopen" === a.action).map((a) => ({ key: `reopen:${a.refId}:${a.ts}`, what: `${a.refId} reopened by ${a.by}: ${a.note || ""}`, ref: { kind: "period", id: a.refId }, on: lnDay(a.ts) })),
+    trigger: {
+      label: "a reopened month not yet closed again",
+      rows: () =>
+        (DB.audit || [])
+          .filter((a) => "period" === a.kind && "reopen" === a.action && /^\d{4}-\d{2}$/.test(String(a.refId)) && !ctClosed(a.refId))
+          .map((a) => ({ key: "reopened:" + a.refId, what: `${a.refId} is open again`, task: { title: `Close ${a.refId} again: re-run the tie-out and put the reopen reason on the Pack`, due: addWork(today(), 2), role: "owner" } })),
+    },
+  },
+  {
+    kind: "carried",
+    label: "A meeting step came back twice",
+    area: "meetings",
+    for: "pm",
+    lesson: () => "A step carried twice becomes a dated task with an owner",
+    change: { type: "process", text: "A step that comes back in a second meeting is proposed as a task with a date and the person who owns it" },
+    scan() {
+      let C = [];
+      try {
+        C = ("function" == typeof mtLearn ? mtLearn().carried : []) || [];
+      } catch (e) {}
+      return C.filter((c) => (c.times || 0) >= 2).map((c) => ({ key: `carried:${c.title}|${c.owner}`, what: `${c.title} (${c.owner || "nobody"}) — ${c.times}× across ${(c.meetings || []).join(", ")}`, ref: { kind: "meeting", id: c.mid }, on: c.last || "" }));
+    },
+    trigger: {
+      label: "a carried step with no open task",
+      rows() {
+        let C = [];
+        try {
+          C = ("function" == typeof mtLearn ? mtLearn().carried : []) || [];
+        } catch (e) {}
+        return C.filter((c) => (c.times || 0) >= 2 && !lnTaskHas("", new RegExp(String(c.title).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"), c.owner)).map((c) => {
+          const m = (DB.meetings || []).find((x) => x.id === c.mid) || {};
+          return { key: `carriedt:${c.title}|${c.owner}`, what: `${c.title} — ${c.owner || "nobody"}`, projectId: m.projectId || "", task: { title: c.title + (c.detail ? `: ${String(c.detail).slice(0, 80)}` : ""), due: addWork(today(), 2), role: "pm", assignee: c.owner && "Nobody" !== c.owner ? c.owner : "" } };
+        });
+      },
+    },
+  },
+  {
+    kind: "promise",
+    label: "A promise came due with nothing delivered",
+    area: "meetings",
+    for: "pm",
+    lesson: () => "Every promise goes on the ledger with a date and an owner",
+    change: { type: "process", text: "A promise in mail or a meeting is a dated task for the person who made it, or an expectation chased when someone else made it" },
+    scan() {
+      const out = [];
+      Object.entries(DB.asst || {}).forEach(([u, A]) =>
+        (A.expect || [])
+          .filter((e) => !e.closed && e.by && e.by < today())
+          .forEach((e) => out.push({ key: "promise:" + e.id, what: `${e.who} owed ${e.about} by ${fmtL(e.by)}; nothing came back`, ref: { kind: "expect", id: e.id }, on: e.by })),
+      );
+      lnPromises()
+        .filter((p) => p.due && p.due < today() && !lnTaskHas(p.projectId, new RegExp(String(p.what).split(" ").slice(1, 4).join(" ").replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i")))
+        .forEach((p) => out.push({ key: "promise:due:" + p.key, what: `${p.name} promised to ${p.what} by ${fmtL(p.due)}`, ref: { kind: "mail", id: p.c.id, projectId: p.projectId }, on: p.due }));
+      return out;
+    },
+    trigger: { label: "a promise in mail with no task behind it", rows: () => [] },
+  },
+];
+// ---- the loop -----------------------------------------------------------------------------------------------
+function lnEvents(kind) {
+  return Object.values(lnInit().events).filter((e) => !kind || e.kind === kind);
+}
+function lnPropOf(kind) {
+  return lnInit().props[kind] || null;
+}
+function lnLoop(src) {
+  const L = lnInit(),
+    td = today(),
+    run = { day: td, at: appNowIso(), src: src || "", events: [], proposed: [], fired: [] };
+  LEARN_EVENTS.forEach((E) => {
+    let rows = [];
+    try {
+      rows = E.scan() || [];
+    } catch (e) {
+      console.warn("learn scan", E.kind, e);
+    }
+    rows.forEach((r) => {
+      if (L.events[r.key]) return;
+      (L.events[r.key] = { key: r.key, kind: E.kind, what: r.what, item: r.item || "", ref: r.ref || null, on: r.on || "", seen: td, src: src || "" }), run.events.push(r.key);
+    });
+    const ev = lnEvents(E.kind);
+    if (!ev.length) return;
+    let P = L.props[E.kind];
+    P ||
+      ((P = L.props[E.kind] = { id: uid("lp"), kind: E.kind, status: "proposed", at: td, events: [], for: E.for, change: E.change }), run.proposed.push(E.kind));
+    ev.forEach((x) => P.events.includes(x.key) || P.events.push(x.key));
+    "proposed" === P.status && (P.title = E.lesson(ev));
+  });
+  // an approved lesson fires its trigger once per record that matches (never once per job by default)
+  (DB.lessons || [])
+    .filter((l) => l.learn && !1 !== l.active)
+    .forEach((l) => {
+      const E = LEARN_EVENTS.find((x) => x.kind === l.learn);
+      if (!E) return;
+      let rows = [];
+      try {
+        rows = E.trigger.rows() || [];
+      } catch (e) {
+        console.warn("learn trigger", E.kind, e);
+      }
+      l.fired = l.fired || [];
+      rows.forEach((r) => {
+        l.fired.some((f) => f.key === r.key) ||
+          (l.fired.push({ key: r.key, what: r.what, projectId: r.projectId || "", txnId: r.txnId || "", at: td, hand: r.task && !1 !== r.card ? "open" : "", task: r.task || null }), run.fired.push(`${l.id}|${r.key}`));
+      });
+    });
+  // the calendar: the first day each event was on someone's calendar, so a new booking is shown when it lands
+  try {
+    ((DB.calendar || {}).external || []).forEach((e) => {
+      e && e.id && !L.cal[e.id] && (L.cal[e.id] = td);
+    });
+  } catch (e) {}
+  (run.events.length || run.proposed.length || run.fired.length) && (L.runs.push(run), L.runs.length > 400 && L.runs.splice(0, L.runs.length - 400));
+  L.last = { at: run.at, day: td, src: src || "" };
+  return run;
+}
+// What the loop did on one day (the Brain's Today, "what did you learn today")
+function lnToday(day) {
+  const L = lnInit(),
+    d = day || today(),
+    R = L.runs.filter((r) => r.day === d),
+    uniq = (A) => [...new Set(A)],
+    ev = uniq(R.flatMap((r) => r.events)).map((k) => L.events[k]).filter(Boolean),
+    fired = uniq(R.flatMap((r) => r.fired)),
+    proposedToday = Object.values(L.props).filter((p) => p.at === d),
+    changes = (DB.changes || []).filter((c) => c.at === d && "draft" === c.status),
+    srcs = uniq(R.map((r) => r.src).filter(Boolean));
+  return { day: d, events: ev, proposed: proposedToday, open: Object.values(L.props).filter((p) => "proposed" === p.status), fired: fired, changes: changes, sources: srcs };
+}
+function lnApprove(kind, why) {
+  const L = lnInit(),
+    P = L.props[kind],
+    E = LEARN_EVENTS.find((x) => x.kind === kind);
+  if (!P || !E || "proposed" !== P.status) return null;
+  const by = ((currentUser() || {}).name) || role(),
+    ev = P.events.map((k) => L.events[k]).filter(Boolean),
+    l = {
+      id: uid("ln"),
+      title: P.title || E.lesson(ev),
+      trigger: "learn",
+      match: kind,
+      learn: kind,
+      when: "now",
+      then: { kind: E.change.type, title: E.change.text, owner: E.for },
+      why: ev.map((e) => e.what).slice(0, 6).join(" · "),
+      evidence: P.events.slice(),
+      source: "Learned",
+      taughtBy: by,
+      at: today(),
+      auto: !1,
+      active: !0,
+      fired: [],
+    };
+  DB.lessons.push(l), Object.assign(P, { status: "approved", lessonId: l.id, by: by, decidedAt: today(), note: why || "" });
+  try {
+    audit("lesson", l.id, "approved", "", l.title, `${by} approved a lesson learned from ${ev.length} event${1 === ev.length ? "" : "s"}`);
+  } catch (e) {}
+  lnLoop("approve");
+  return save(), l;
+}
+function lnDecline(kind, why) {
+  const P = lnInit().props[kind];
+  if (!P || "proposed" !== P.status) return null;
+  return Object.assign(P, { status: "declined", by: ((currentUser() || {}).name) || role(), decidedAt: today(), note: why || "" }), save(), P;
+}
+const lnChangeWords = { rule: "a rule", reminder: "a reminder", checklist: "a checklist item", process: "a process step" };
+// ---- Needs Your Hand ----------------------------------------------------------------------------------------
+// The reader's proposal kinds, and whose hand each needs (DELEGATION.hand reads `route` off the row).
+const NYH_MAIL = {
+  bill: (c, pr) => (pr.poId || /\bPO[-\s]?\d{4}/i.test(lnAll(c)) || lnOpenPO(pr.vendor || pr.vendorName) ? "coord" : "controller"),
+  statement: (c, pr) => (pr.billId || /already on file|chasing/i.test(pr.summary || "") ? "" : "controller"),
+  quote: (c, pr) => (pr.out ? "" : "coord"),
+  receipt: () => "coord",
+  coi: () => "coord",
+  w9: () => "coord",
+  eta: () => "coord",
+  pickup: () => "coord",
+  credit: () => "coord",
+  deposit: () => "billing",
+  lpc: () => "designer",
+};
+const NYH_VERB = { bill: "Apply", statement: "Apply", quote: "Apply", receipt: "Apply", coi: "Apply", w9: "Apply", eta: "Apply", pickup: "Apply", credit: "Apply", deposit: "Apply", lpc: "Add Task" };
+const lnHandDone = (key) => !!(lnInit().hand[key] && lnInit().hand[key].done);
+const lnUid = () => ((currentUser() || {}).id) || "";
+// a row: {key, route (role), kind (mail|deposit|undeposited|payroll|master|rule|promise|learn), title, why, amount, verb, run, open}
+// One read per moment: Home, Approvals, the badges and Ask ask for the same rows several times in one render, so
+// the whole list is kept until the current task ends or anything is saved (every tap saves).
+let nyhCache = null;
+function nyhInvalidate() {
+  nyhCache = null;
+}
+function nyhRows(opts) {
+  const o = opts || {};
+  if (!nyhCache) {
+    nyhCache = nyhRowsAll();
+    try {
+      setTimeout(nyhInvalidate, 0);
+    } catch (e) {}
+  }
+  const me = role(),
+    out = nyhCache;
+  return o.everyone ? out.slice() : out.filter((r) => r.route === (o.role || me) && (!r.uid || !lnUid() || r.uid === lnUid()));
+}
+function nyhRowsAll() {
+  const out = [],
+    push = (r) => {
+      r && r.route && !lnHandDone(r.key) && !out.some((x) => x.key === r.key) && out.push(r);
+    };
+  // 1. the reader's proposals from mail, one per message, routed by kind
+  try {
+    const best = {};
+    (DB.comms || []).forEach((c) => {
+      if (["ignored", "spam", "applied"].includes(c.status)) return;
+      (c.proposals || []).forEach((pr) => {
+        const f = NYH_MAIL[pr.kind];
+        if (!f || !lnOpenProp(pr)) return;
+        const route = f(c, pr);
+        if (!route) return;
+        const id = String(pr.number || pr.billId || "") || `${pr.vendorId || pr.vendorName || pr.vendor || pr.clientId || ""}:${pr.amount || pr.exp || pr.date || ""}`,
+          key = `mail:${pr.kind}:${id && ":" !== id ? id.toLowerCase() : lnMailKey(c)}`,
+          owner = (DB.users || []).find((u) => u.id === c.owner) || {},
+          rank = owner.role === route ? 2 : c.owner ? 1 : 0;
+        (!best[key] || best[key].rank < rank) && (best[key] = { c: c, pr: pr, route: route, rank: rank });
+      });
+    });
+    Object.entries(best).forEach(([key, x]) => {
+      const { c: c, pr: pr, route: route } = x;
+      // a copy of the same proposal applied in another mailbox counts as done
+      if (lnSameProps(c, pr).some((y) => !lnOpenProp(y.pr))) return;
+      const job = lnJob((c.route || {}).projectId || pr.projectId);
+      push({
+        key: key,
+        route: route,
+        kind: "mail",
+        pkind: pr.kind,
+        title: "lpc" === pr.kind ? `LPC${lnLpcTopic(c) ? " on " + lnLpcTopic(c) : ""}: ${lnLpcItem(lnAll(c)) ? "show " + lnLpcItem(lnAll(c)) : String(pr.summary || c.subject).slice(0, 70)}` : String(pr.summary || c.subject || "").slice(0, 110),
+        why: `${(c.from || {}).name || (c.from || {}).email || "mail"} · ${fmtL(lnDay(c.date))}${job ? " · " + job : ""}${"lpc" === pr.kind ? ` · a dated task for ${lnUserOf("designer")}` : ""}`,
+        amount: +pr.amount || 0,
+        verb: NYH_VERB[pr.kind] || "Apply",
+        no: "Not This",
+        run: () => ("lpc" === pr.kind ? nyhLpcTask(c, pr) : nyhApplyMail(c, pr)),
+        skip: () => nyhSkipMail(c, pr),
+        open: () => {
+          (window.cmFilter = "all"), (view = "comms"), render();
+        },
+        commId: c.id,
+      });
+    });
+  } catch (e) {
+    console.warn("nyh mail", e);
+  }
+  // 2. a Zelle (or a check) someone explained in mail: a coding proposal for the line it names
+  try {
+    lnZelleNotes().forEach((z) =>
+      push({
+        key: "zelle:" + z.t.id,
+        route: "controller",
+        kind: "code",
+        title: `Code ${z.t.desc} ${lnMoney(z.t.amt)}: ${z.catName}${z.p ? " on " + lnJob(z.p.id) : ""}`,
+        why: `${z.who} explained it on ${fmtL(lnDay(z.c.date))}: "${String(z.line).slice(0, 80)}"`,
+        amount: Math.abs(+z.t.amt),
+        verb: "Apply",
+        no: "Not This",
+        run: () => nyhCodeZelle(z),
+        open: () => "function" == typeof txnDialog && txnDialog(z.t.id),
+      }),
+    );
+  } catch (e) {
+    console.warn("nyh zelle", e);
+  }
+  // 3. money the bank holds that nobody recorded (a client's deposit), and money recorded that the bank never saw
+  try {
+    nyhDeposits().forEach((d) =>
+      push({
+        key: "dep:" + d.t.id,
+        route: "billing",
+        kind: "deposit",
+        title: d.inv ? `Record payment: ${d.c.name} ${lnMoney(d.t.amt)} against ${d.inv.number}` : `Record payment: ${d.c.name} ${lnMoney(d.t.amt)} as a deposit on account`,
+        why: `${d.t.desc} · in ${("function" == typeof truthAcctWords && truthAcctWords(d.t)) || "the bank"} on ${fmtL(d.t.date)}${d.inv ? "" : " · no open invoice for it: bill against it"}`,
+        amount: +d.t.amt,
+        verb: "Record Payment",
+        no: "",
+        run: () => nyhRecordDeposit(d),
+        open: () => "function" == typeof txnDialog && txnDialog(d.t.id),
+      }),
+    );
+    ("function" == typeof finUndeposited ? finUndeposited() : []).forEach((x) =>
+      push({
+        key: "undep:" + x.py.id,
+        route: "billing",
+        kind: "undeposited",
+        title: `Resolve: ${x.c.name} ${lnMoney(x.py.amount)} recorded ${fmtL(x.py.date)}, not in the bank`,
+        why: `${x.days} days on the books with no bank line behind it · match it to the deposit, or reverse it with a reason`,
+        amount: +x.py.amount,
+        verb: "Resolve",
+        no: "",
+        run: () => nyhResolveUndeposited(x),
+        open: () => {
+          (view = "bank"), render();
+        },
+      }),
+    );
+  } catch (e) {
+    console.warn("nyh deposits", e);
+  }
+  // 4. payroll runs waiting on a yes (separation of duties: whoever prepared a run does not approve it)
+  try {
+    (DB.payroll || [])
+      .filter((r) => "submitted" === r.status)
+      .forEach((r) => {
+        const built = String(r.createdBy || "").toLowerCase(),
+          route = "owner" === built || built === String(lnUserOf("owner")).toLowerCase() ? "controller" : "owner";
+        push({
+          key: "payroll:" + r.id,
+          route: route,
+          kind: "payroll",
+          title: `Payroll ${r.period} · ${lnMoney(r.total)}`,
+          why: `${r.employees || ""} ${1 === r.employees ? "person" : "people"} · prepared by ${r.createdBy || "the controller"} · pays ${fmtL(r.payDate)}${r.payDate && r.payDate < today() ? " (past due)" : ""}`,
+          amount: +r.total || 0,
+          verb: "Approve",
+          no: "Reject",
+          run: () => nyhPayroll(r, "approve"),
+          skip: () => nyhPayroll(r, "reject"),
+          open: () => ("function" == typeof openPayroll ? openPayroll(r.id) : ((view = "ap"), render())),
+          id: r.id,
+        });
+      });
+  } catch (e) {
+    console.warn("nyh payroll", e);
+  }
+  // 5. master data from unrouted mail: the owner's own mailbox to the owner, the coordinator's to the coordinator
+  try {
+    Object.entries(DB.asst || {}).forEach(([u, A]) => {
+      const usr = (DB.users || []).find((x) => x.id === u) || {},
+        route = "owner" === usr.role ? "owner" : "coord" === usr.role ? "coord" : "";
+      route &&
+        (A.master || [])
+          .filter((m) => "proposed" === m.status)
+          .forEach((m) =>
+            push({
+              key: `master:${u}:${m.key}`,
+              route: route,
+              kind: "master",
+              title: "vendor" === m.as ? `Create vendor or firm: ${m.name}` : "project" === m.as ? `Create the job at ${m.addr}` : `Add ${m.name} as a lead`,
+              why: `${m.threadCount} thread${1 === m.threadCount ? "" : "s"} nobody has on file · ${fmtL(m.first)} to ${fmtL(m.last)}`,
+              verb: "Create",
+              no: "Not Ours",
+              run: () => nyhMaster(u, m, !0),
+              skip: () => nyhMaster(u, m, !1),
+              open: () => {
+                (view = "comms"), render();
+              },
+            }),
+          );
+    });
+  } catch (e) {
+    console.warn("nyh master", e);
+  }
+  // 6. what an approved lesson fired on
+  try {
+    (DB.lessons || [])
+      .filter((l) => l.learn)
+      .forEach((l) =>
+        (l.fired || [])
+          .filter((f) => "open" === f.hand && f.task)
+          .forEach((f) =>
+            push({
+              key: `rule:${l.id}:${f.key}`,
+              route: f.task.role || (l.then || {}).owner || "pm",
+              kind: "rule",
+              title: f.task.title,
+              why: `the rule "${l.title}" fired on ${f.what}`,
+              verb: "Add Task",
+              no: "Not Now",
+              run: () => nyhRuleTask(l, f),
+              skip: () => {
+                (f.hand = "skipped"), save(), render();
+              },
+              open: () => (f.txnId && "function" == typeof txnDialog ? txnDialog(f.txnId) : f.projectId ? (setCurrent(f.projectId), (view = "tasks"), render()) : ((view = "brain"), (bnTab = "lessons"), render())),
+            }),
+          ),
+      );
+  } catch (e) {
+    console.warn("nyh rules", e);
+  }
+  // 7. promises the person made in mail ("I'll send the revised drawings Friday"): a dated task for them
+  try {
+    lnPromises()
+      .filter((p) => p.role && p.due && p.due >= iso(addDays(today(), -3)) && !lnTaskHas(p.projectId, new RegExp(String(p.what).split(" ").slice(1, 4).join(" ").replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i")))
+      .forEach((p) =>
+        push({
+          key: p.key,
+          route: p.role,
+          uid: p.uid,
+          kind: "promise",
+          title: `You promised ${p.to || "them"}: ${p.what}`,
+          why: `in your mail of ${fmtL(lnDay(p.c.date))} · due ${fmtL(p.due)}${p.projectId ? " · " + lnJob(p.projectId) : ""}`,
+          verb: "Add Task",
+          no: "Not Now",
+          run: () => nyhPromiseTask(p),
+          open: () => {
+            (view = "comms"), render();
+          },
+        }),
+      );
+  } catch (e) {
+    console.warn("nyh promises", e);
+  }
+  // 8. lessons the loop proposed: the owner approves them (they become the firm's rules)
+  try {
+    Object.values(lnInit().props)
+      .filter((P) => "proposed" === P.status)
+      .forEach((P) =>
+        push({
+          key: "learn:" + P.kind,
+          route: "owner",
+          kind: "learn",
+          title: `Lesson: ${P.title}`,
+          why: `${lnChangeWords[(P.change || {}).type] || "a rule"} for ${lnRoleWords(P.for)} · from ${P.events.length} event${1 === P.events.length ? "" : "s"}: ${String((lnInit().events[P.events[P.events.length - 1]] || {}).what || "").slice(0, 70)}`,
+          verb: "Approve",
+          no: "Decline",
+          run: () => {
+            const l = lnApprove(P.kind);
+            l && rcToast(`Lesson approved: ${l.title} — it fires on every matching record from now on`, [{ label: "Open", run: () => ((view = "brain"), (bnTab = "lessons"), render()) }]), render();
+          },
+          skip: () => {
+            lnDecline(P.kind), render();
+          },
+          open: () => {
+            (view = "brain"), (bnTab = "today"), render();
+          },
+        }),
+      );
+  } catch (e) {
+    console.warn("nyh lessons", e);
+  }
+  return out;
+}
+// the same proposal in other mailboxes (one message, several copies)
+function lnSameProps(c, pr) {
+  const k = lnMailKey(c);
+  return (DB.comms || []).filter((x) => lnMailKey(x) === k).flatMap((x) => (x.proposals || []).filter((y) => y.kind === pr.kind).map((y) => ({ c: x, pr: y })));
+}
+function nyhMarkCopies(c, pr, did) {
+  const by = ((currentUser() || {}).name) || role();
+  lnSameProps(c, pr).forEach((y) => {
+    y.pr === pr || y.pr.applied || ((y.pr.applied = `${did || "applied"} (from ${by}'s copy)`), (y.pr.appliedAt = appNowIso()), (y.pr.by = by)), y.c.proposals.every((z) => z.applied || !1 === z.on) && (y.c.status = "applied");
+  });
+}
+function nyhApplyMail(c, pr) {
+  let did = "";
+  try {
+    did = cmApply(c, pr) || "";
+  } catch (e) {
+    return void toast("Could not apply: " + (e.message || e));
+  }
+  pr.applied || (pr.applied = did || "applied"), (pr.appliedAt = pr.appliedAt || appNowIso()), (pr.by = pr.by || ((currentUser() || {}).name) || role());
+  nyhMarkCopies(c, pr, did);
+  save(), render();
+  rcToast(did || `Applied: ${String(pr.summary || "").slice(0, 60)}`, [{ label: "Open", run: () => ((window.cmFilter = "all"), (view = "comms"), render()) }]);
+}
+function nyhSkipMail(c, pr) {
+  const by = ((currentUser() || {}).name) || role();
+  lnSameProps(c, pr).forEach((y) => {
+    (y.pr.on = !1), (y.pr.applied = "set aside"), (y.pr.by = by), y.c.proposals.every((z) => z.applied) && (y.c.status = "applied");
+  });
+  save(), render(), toast(`Set aside: ${String(pr.summary || "").slice(0, 60)}`);
+}
+// LPC or an examiner wrote back: the comment goes on the application (the reader's apply) and the designer
+// gets a dated task to revise and resubmit
+function nyhLpcTask(c, pr) {
+  try {
+    cmApply(c, pr);
+  } catch (e) {}
+  const item = lnLpcItem(lnAll(c)),
+    pid = (c.route || {}).projectId || pr.projectId || ((("function" == typeof cmJobNamed && cmJobNamed(lnAll(c))) || {}).id) || "",
+    p = (DB.projects || []).find((x) => x.id === pid) || S,
+    who = lnUserOf("designer"),
+    due = addWork(lnDay(c.date) > today() ? lnDay(c.date) : today(), 5),
+    title = lnLpcRevise(c) ? `Revise and resubmit to LPC: ${lnLpcTopic(c) || String(c.subject || "").replace(/^(re|fwd?):\s*/i, "")}${item ? ", showing " + item : ""}` : `Answer LPC: ${String(c.subject || pr.summary || "").replace(/^(re|fwd?):\s*/i, "").slice(0, 70)}`;
+  const a = lnAddTask(p, title, who, due, `LPC wrote on ${fmtL(lnDay(c.date))}: ${String(c.text || "").replace(/\s+/g, " ").slice(0, 300)}`, { kind: "mail", id: c.id, label: `Mail · ${c.subject || "LPC"}` });
+  (pr.applied = pr.applied || `task for ${who} due ${fmtL(due)}`), nyhMarkCopies(c, pr, pr.applied);
+  save(), render(), rcToast(`On ${who}'s list: ${title} — due ${fmtL(due)}`, [{ label: "Open", run: () => (p && setCurrent(p.id), (view = "tasks"), render()) }]);
+  return a;
+}
+function lnAddTask(p, title, assignee, due, notes, source) {
+  if (!p) return null;
+  p.actions = p.actions || [];
+  const a = { id: uid("a"), title: title, assignee: assignee || "", due: due || "", priority: "high", status: "todo", link: null, notes: notes || "", source: source || null, createdAt: today(), completedAt: "" };
+  return p.actions.push(a), a;
+}
+function nyhRuleTask(l, f) {
+  const p = (DB.projects || []).find((x) => x.id === f.projectId) || ((f.txnId || !f.projectId) && (DB.projects || [])[0]) || S,
+    t = f.task || {},
+    who = t.assignee || lnUserOf(t.role || (l.then || {}).owner || "pm"),
+    a = lnAddTask(p, t.title, who, t.due || today(), `The rule "${l.title}" fired on ${f.what}.`, { kind: "lesson", id: l.id, label: `Lesson · ${l.title}` });
+  a && (a.lessonId = l.id), (f.hand = "done"), (f.taskId = a ? a.id : ""), save(), render();
+  rcToast(`On ${who}'s list: ${t.title}`, [{ label: "Open", run: () => (p && setCurrent(p.id), (view = "tasks"), render()) }]);
+}
+function nyhPromiseTask(pr) {
+  const p = (DB.projects || []).find((x) => x.id === pr.projectId) || (DB.projects || []).find((x) => (x.actions || []).some((a) => tkOwnerSafe(a.assignee, pr.name))) || (DB.projects || [])[0],
+    title = `${pr.what.charAt(0).toUpperCase()}${pr.what.slice(1)}${pr.to ? ` (promised to ${pr.to})` : ""}`,
+    a = lnAddTask(p, title, pr.name, pr.due, `Promised in mail on ${fmtL(lnDay(pr.c.date))}.`, { kind: "mail", id: pr.c.id, label: `Mail · ${pr.c.subject || ""}` });
+  (lnInit().hand[pr.key] = { done: !0, at: today(), taskId: a ? a.id : "" }), save(), render();
+  rcToast(`On your list: ${title} — due ${fmtL(pr.due)}`, [{ label: "Open", run: () => (p && setCurrent(p.id), (view = "tasks"), render()) }]);
+}
+const tkOwnerSafe = (a, b) => {
+  try {
+    return "function" == typeof tkOwnerMatch ? tkOwnerMatch(a, b) : String(a || "").toLowerCase() === String(b || "").toLowerCase();
+  } catch (e) {
+    return !1;
+  }
+};
+function nyhMaster(u, m, yes) {
+  const keep = DB.deviceUser;
+  try {
+    DB.deviceUser = u;
+    if (yes) {
+      const r = paMasterApply(m.key);
+      r && rcToast(`Created ${r.made} — ${r.routed} message${1 === r.routed ? "" : "s"} routed`, r.go && "function" == typeof gcOpen ? [{ label: "Open", run: gcOpen(r.go) }] : null);
+    } else paMasterIgnore(m.key), toast(`Set aside: ${m.name || m.addr}`);
+  } finally {
+    DB.deviceUser = keep;
+  }
+  save(), render();
+}
+function nyhPayroll(r, a) {
+  const keep = S;
+  S = S || (DB.projects || [])[0];
+  try {
+    payrollAction(r, a);
+  } catch (e) {
+    console.warn("payroll", e), toast("Could not " + a + ": " + (e.message || e));
+  } finally {
+    S = keep;
+  }
+  save(), render();
+  "approved" === r.status && rcToast(`Payroll ${r.period} approved — ${lnMoney(r.total)} pays ${fmtL(r.payDate)}`, [{ label: "Open", run: () => ("function" == typeof openPayroll ? openPayroll(r.id) : ((view = "ap"), render())) }]);
+}
+// ---- deposits: a credit in a bank account from a client, with no payment recorded against it
+const lnIsBank = (acct) => {
+  const a = (DB.accounts || []).find((x) => x.id === acct);
+  return !!a && "bank" === a.type;
+};
+function nyhDeposits() {
+  const out = [],
+    open = [];
+  (DB.clients || []).forEach((c) => {
+    try {
+      (clientFin(c).open || []).forEach((o) => open.push({ c: c, inv: o.x, bal: +o.bal || 0 }));
+    } catch (e) {}
+  });
+  const recorded = (t) =>
+    (DB.clients || []).some((c) => (c.payments || []).some((py) => py.txnId === t.id || (!py.txnId && Math.abs((+py.amount || 0) - t.amt) <= 1 && Math.abs(dayDiff(py.date, t.date)) <= 10)));
+  (DB.txns || [])
+    .filter((t) => +t.amt > 0 && lnIsBank(t.acct) && !lnMatched(t) && !["transfer", "cc-payment", "loan", "owner"].includes(t.cat) && !/\b(INTEREST|REFUND|CREDIT MEMO|TRANSFER|XFER)\b/i.test(t.desc || "") && !recorded(t))
+    .forEach((t) => {
+      const D = String(t.desc || "").toUpperCase(),
+        byAmt = open.filter((o) => Math.abs(o.bal - t.amt) <= 0.5),
+        word = (c) =>
+          String(c.name || "")
+            .toUpperCase()
+            .replace(/&/g, " ")
+            .split(/[^A-Z0-9]+/)
+            .filter((w) => w.length > 3 && !["FAMILY", "SARAH", "DAVID", "STREET"].includes(w)),
+        named = (DB.clients || []).find((c) => word(c).some((w) => D.includes(w))) || (DB.clients || []).find((c) => (DB.projects || []).some((p) => p.clientId === c.id && String(p.project.name || "").split(/\s+/).slice(0, 2).join(" ").toUpperCase().length > 4 && D.includes(String(p.project.name).split(/\s+/).slice(0, 2).join(" ").toUpperCase()))),
+        hit = (named && byAmt.find((o) => o.c.id === named.id)) || (1 === byAmt.length ? byAmt[0] : null) || (named && open.filter((o) => o.c.id === named.id).sort((a, b) => String(a.inv.due || a.inv.date || "").localeCompare(String(b.inv.due || b.inv.date || "")))[0]);
+      if (hit && (!named || hit.c.id === named.id)) out.push({ t: t, c: hit.c, inv: Math.abs(hit.bal - t.amt) <= 0.5 || hit.bal >= t.amt ? hit.inv : null });
+      else named && out.push({ t: t, c: named, inv: null });
+    });
+  return out;
+}
+function nyhRecordDeposit(d) {
+  const t = d.t;
+  if (d.inv) {
+    const r = truthSetMatch(t, { invoiceId: d.inv.id }, { why: "deposit recorded from Needs Your Hand" });
+    if (!r || !r.ok) return void toast((r && r.why) || "Could not record it");
+    try {
+      const f = clientFin(d.c),
+        o = (f.open || []).find((x) => x.x.id === d.inv.id);
+      (!o || o.bal <= 0.005) && (d.inv.status = "paid");
+    } catch (e) {}
+  } else {
+    (d.c.payments = d.c.payments || []).push({ id: uid("py"), date: t.date, amount: r2(+t.amt), method: "Bank", unapplied: !0, txnId: t.id, note: `deposit on account from ${t.desc}; bill against it` });
+    (t.cat && "uncat" !== t.cat) || (t.cat = "income"), "reconciled" !== t.status && (t.status = "categorized"), (t.match = Object.assign({}, t.match || {}, { clientId: d.c.id }));
+  }
+  try {
+    audit("payment", t.id, "recorded", "", +t.amt, `${d.c.name} ${lnMoney(t.amt)} ${d.inv ? "on " + d.inv.number : "on account"} from ${t.desc}`);
+  } catch (e) {}
+  save(), render();
+  rcToast(`Recorded ${lnMoney(t.amt)} from ${d.c.name}${d.inv ? " on " + d.inv.number : " on account"}`, [{ label: "Open", run: () => ((clientOpen = d.c.id), (view = "clients"), render()) }]);
+}
+// a payment on the books the bank never saw: match it to the deposit, or reverse it with the reason
+function nyhResolveUndeposited(x) {
+  const cand = (DB.txns || []).filter((t) => +t.amt > 0 && Math.abs(+t.amt - +x.py.amount) <= 1 && !lnMatched(t)).slice(0, 4);
+  const m = mbModal(
+    `Resolve — ${esc(x.c.name)} ${lnMoney(x.py.amount)}`,
+    `<p class="small muted" style="margin:0 0 10px">Recorded ${fmtL(x.py.date)}${x.py.method ? " · " + esc(x.py.method) : ""}${x.py.ref ? " · " + esc(x.py.ref) : ""}. No bank line within ten days agrees with it.</p>${
+      cand.length ? `<div class="small" style="margin-bottom:8px">Bank lines for the same amount:</div>${cand.map((t, i) => `<div class="row" style="gap:8px;margin-bottom:6px"><span class="grow small">${fmtL(t.date)} · ${esc(t.desc)} · ${money(t.amt)}</span><button type="button" class="btn sm" data-nyhm="${i}">Match</button></div>`).join("")}` : '<div class="note small">No bank line for this amount at all. If the money never arrived, reverse the payment: the reversal is posted on the first open day with your reason, and the invoice opens again.</div>'
+    }${mbF("Why It Is Reversed", '<input data-f="why" placeholder="e.g. the check bounced; the client paid by wire instead">')}`,
+    {
+      submit: "Reverse the Payment",
+      onSubmit: (v) => {
+        if (!String(v.why || "").trim()) return toast("Say why the payment is reversed"), !1;
+        nyhReverse(x, v.why);
+      },
+    },
+  );
+  m &&
+    m.querySelectorAll("[data-nyhm]").forEach(
+      (b) =>
+        (b.onclick = () => {
+          const t = cand[+b.dataset.nyhm];
+          (x.py.txnId = t.id), (t.match = Object.assign({}, t.match || {}, { invoiceId: x.py.invoiceId || "", paymentId: x.py.id })), x.py.invoiceId && (t.invoiceId = x.py.invoiceId), (t.cat && "uncat" !== t.cat) || (t.cat = "income");
+          mbCloseModal(), save(), render(), toast(`${x.c.name} ${lnMoney(x.py.amount)} matched to ${t.desc} on ${fmtL(t.date)}`);
+        }),
+    );
+}
+function nyhReverse(x, why) {
+  const by = ((currentUser() || {}).name) || role(),
+    locked = "function" == typeof isLocked && isLocked(x.py.date);
+  if (!locked && "function" == typeof truthEdit) {
+    const r = truthEdit("payment", { id: x.py.id }, why, (d) => {
+      (d.reversed = { by: by, at: appNowIso(), why: why, amount: +d.amount }), (d.origAmount = +d.amount), (d.amount = 0), (d.note = `${d.note ? d.note + " · " : ""}reversed: ${why}`);
+    });
+    if (!r.ok) return void toast(r.why);
+  } else
+    (x.c.payments || []).push({ id: uid("py"), date: today(), amount: -r2(+x.py.amount), method: x.py.method || "Reversal", invoiceId: x.py.invoiceId || "", reverses: x.py.id, note: `reverses the ${fmtL(x.py.date)} payment: ${why}`, by: by }),
+      (x.py.reversedBy = by);
+  try {
+    audit("payment", x.py.id, "reversed", +x.py.amount, 0, `${x.c.name} ${lnMoney(x.py.origAmount || x.py.amount)} recorded ${fmtL(x.py.date)} — ${by}: ${why}`);
+  } catch (e) {}
+  save(), render(), rcToast(`${x.c.name}'s ${fmtL(x.py.date)} payment reversed — ${why}`, [{ label: "Open", run: () => ((clientOpen = x.c.id), (view = "clients"), render()) }]);
+}
+// ---- a Zelle someone explained ("the $2,400 Zelle on 9/2 to J Rosario is the demolition on 121 State")
+function lnZelleNotes() {
+  const out = [],
+    seen = new Set();
+  (DB.comms || []).forEach((c) => {
+    if (["ignored", "spam"].includes(c.status)) return;
+    const T = String(c.text || "").replace(/\s+/g, " ");
+    if (!/\bzelle\b|\bcheck (?:no\.? ?|#)?\d{3,}/i.test(T)) return;
+    const m = T.match(/\$\s?([\d,]+(?:\.\d{2})?)/);
+    if (!m) return;
+    const amt = +m[1].replace(/,/g, ""),
+      t = (DB.txns || []).find((x) => +x.amt < 0 && Math.abs(Math.abs(+x.amt) - amt) < 0.01 && /ZELLE|CHECK|CHK/i.test(x.desc || "") && (!x.cat || "uncat" === x.cat || !x.projectId) && !lnMatched(x));
+    if (!t || seen.has(t.id)) return;
+    seen.add(t.id);
+    const line = (T.match(/[^.]*\bzelle\b[^.]*\./i) || T.match(/[^.]*\$[\d,]+[^.]*\./) || [T])[0].trim(),
+      p = "function" == typeof cmJobNamed ? cmJobNamed(T) : null,
+      cat = /demoli|labor|crew|install|sub\b|plumb|electric|carpent|paint/i.test(T) ? "subs" : /material|lumber|supply|tile/i.test(T) ? "materials" : /permit|filing/i.test(T) ? "permits" : "subs";
+    out.push({ c: c, t: t, p: p, cat: cat, catName: "function" == typeof catName ? catName(cat) : cat, line: line, who: (c.from || {}).name || "a colleague" });
+  });
+  return out;
+}
+function nyhCodeZelle(z) {
+  const t = z.t,
+    by = ((currentUser() || {}).name) || role();
+  (t.cat = z.cat), z.p && (t.projectId = z.p.id), (t.memo = `${t.memo ? t.memo + " · " : ""}${z.line}`), "reconciled" !== t.status && (t.status = "categorized"), (t.actor = by);
+  try {
+    audit("txn", t.id, "coded", "", { cat: t.cat, projectId: t.projectId }, `${by} coded it from ${z.who}'s explanation`);
+  } catch (e) {}
+  (lnInit().hand["zelle:" + t.id] = { done: !0, at: today() }), save(), render();
+  rcToast(`${t.desc} ${lnMoney(t.amt)} coded to ${z.catName}${z.p ? " on " + lnJob(z.p.id) : ""}`, [{ label: "Open", run: () => "function" == typeof txnDialog && txnDialog(t.id) }]);
+}
+// run a row by its key, from any surface (Home, Approvals, My Day, Ask)
+function nyhRun(key, no) {
+  const r = nyhRows({ everyone: !0 }).find((x) => x.key === key);
+  if (!r) return toast("That has been handled already"), void render();
+  no && r.skip ? r.skip() : r.run();
+}
+if ("function" == typeof save) {
+  const base = save;
+  save = function () {
+    return nyhInvalidate(), base.apply(this, arguments);
+  };
+}
+// ---- where the loop runs: every new day, every sync, every closed field issue, bill dispute, late delivery and
+// close (a wrapper per path: the base runs first, then the loop reads what changed)
+APP_DAY_HOOKS.push(["lnLoop", () => (lnLoop("day"), !0)]);
+if ("function" == typeof finishBoot) {
+  const base = finishBoot;
+  finishBoot = function () {
+    const r = base.apply(this, arguments);
+    try {
+      lnLoop("boot"), save();
+    } catch (e) {
+      console.error("learn boot", e);
+    }
+    return r;
+  };
+}
+if ("function" == typeof gsRun) {
+  const base = gsRun;
+  gsRun = async function () {
+    const r = await base.apply(this, arguments);
+    try {
+      lnLoop("sync"), save();
+    } catch (e) {
+      console.warn("learn after sync", e);
+    }
+    return r;
+  };
+}
+if ("function" == typeof fAnswerRaise) {
+  const base = fAnswerRaise;
+  fAnswerRaise = function () {
+    const r = base.apply(this, arguments);
+    try {
+      lnLoop("field");
+    } catch (e) {}
+    return r;
+  };
+}
+if ("function" == typeof fSend) {
+  const base = fSend;
+  fSend = function () {
+    const r = base.apply(this, arguments);
+    try {
+      lnLoop("field");
+    } catch (e) {}
+    return r;
+  };
+}
+if ("function" == typeof pay3ShortPay) {
+  const base = pay3ShortPay;
+  pay3ShortPay = function () {
+    const r = base.apply(this, arguments);
+    try {
+      lnLoop("dispute");
+    } catch (e) {}
+    return r;
+  };
+}
+if ("function" == typeof poAction) {
+  const base = poAction;
+  poAction = function (po, a) {
+    const r = base.apply(this, arguments);
+    try {
+      ["receive", "issue", "approve"].includes(a) && lnLoop("receive" === a ? "delivery" : "po");
+    } catch (e) {}
+    return r;
+  };
+}
+["fin2RunClose", "fin2ReopenClose", "truthVoidTxn", "truthException"].forEach((n) => {
+  try {
+    const f = { fin2RunClose: "function" == typeof fin2RunClose ? fin2RunClose : null, fin2ReopenClose: "function" == typeof fin2ReopenClose ? fin2ReopenClose : null, truthVoidTxn: "function" == typeof truthVoidTxn ? truthVoidTxn : null, truthException: "function" == typeof truthException ? truthException : null }[n];
+    if (!f) return;
+    const w = function () {
+      const r = f.apply(this, arguments);
+      try {
+        lnLoop("fin2RunClose" === n ? "close" : "fin2ReopenClose" === n ? "reopen" : "truthVoidTxn" === n ? "void" : "exception");
+      } catch (e) {}
+      return r;
+    };
+    "fin2RunClose" === n ? (fin2RunClose = w) : "fin2ReopenClose" === n ? (fin2ReopenClose = w) : "truthVoidTxn" === n ? (truthVoidTxn = w) : (truthException = w);
+  } catch (e) {}
+});
+// ---- Needs Your Hand in the one queue (Approvals, Do Now), routed by DELEGATION
+Object.assign(DELEGATION, {
+  hand: {
+    role: "controller",
+    rule: "a proposal the reader made from mail, a deposit to record or a lesson's firing waits on the person whose work it is: the Controller imports statements and codes bills with no PO; the coordinator files quotes, receipts, certificates and vendor records and enters bills against a PO; Billing records payments and resolves what the bank never saw; the Owner creates master data",
+    who: (it) => it.route || "",
+  },
+  payroll: {
+    role: "owner",
+    rule: "a payroll run is approved by the Owner; the person who prepared it never approves it (a run the Owner prepared goes to the Controller)",
+    who: (it) => it.route || "owner",
+  },
+  learn: { role: "owner", rule: "a lesson the brain proposes from what happened becomes a rule for the firm, so the Owner approves it" },
+});
+"undefined" != typeof APPR_WHO && (APPR_WHO.designer = "the designer");
+function nyhItem(r) {
+  return {
+    kind: "payroll" === r.kind ? "payroll" : "learn" === r.kind ? "learn" : "hand",
+    id: r.key,
+    route: r.route,
+    sev: "deposit" === r.kind || "undeposited" === r.kind || "payroll" === r.kind ? "warn" : "",
+    n: r.amount ? lnMoney(r.amount) : "",
+    title: r.title,
+    detail: r.why,
+    yes: r.verb,
+    no: r.no || "",
+    act: "nyh",
+    open: { nyh: r.key },
+    nyh: r,
+  };
+}
+{
+  const base = mApprovals;
+  mApprovals = function (opts) {
+    const out = base.apply(this, arguments) || [];
+    try {
+      const me = role();
+      nyhRows({ everyone: !0 })
+        .filter((r) => "designer" !== r.route && (!r.uid || !lnUid() || r.uid === lnUid() || (opts && opts.everyone)))
+        .map(nyhItem)
+        .forEach((it) => {
+          it.who = apprOwner(it);
+          ((opts && opts.everyone) || it.who === me) && out.push(it);
+        });
+    } catch (e) {
+      console.warn("needs your hand", e);
+    }
+    return out;
+  };
+}
+{
+  const base = mGo;
+  mGo = function (go) {
+    if (go && go.nyh) {
+      const r = nyhRows({ everyone: !0 }).find((x) => x.key === go.nyh);
+      return r ? r.open() : void render();
+    }
+    return base.apply(this, arguments);
+  };
+}
+{
+  const base = tdCard;
+  tdCard = function (it) {
+    const c = base.apply(this, arguments);
+    if (!it || !it.nyh) return c;
+    const r = it.nyh;
+    return Object.assign(c, { line1: `<a href="#" data-tdrec>${esc(tdWords(r.title, 12))}</a>`, why: esc(tdWords(r.why, 14)), verb: r.verb, run: () => nyhRun(r.key), go: () => r.open() });
+  };
+}
+{
+  const base = tdScore;
+  tdScore = function (it) {
+    if (!it || !it.nyh) return base.apply(this, arguments);
+    const r = it.nyh;
+    return "payroll" === r.kind
+      ? 48 + Math.min(20, (+r.amount || 0) / 2e3)
+      : "deposit" === r.kind
+        ? 44
+        : "undeposited" === r.kind
+          ? 36
+          : "mail" === r.kind
+            ? 32 + Math.min(10, (+r.amount || 0) / 2e3)
+            : "code" === r.kind
+              ? 30
+              : "rule" === r.kind || "promise" === r.kind
+                ? 24
+                : "learn" === r.kind
+                  ? 12
+                  : 14;
+  };
+}
+{
+  const base = renderMApprove;
+  renderMApprove = function () {
+    const r = base.apply(this, arguments);
+    try {
+      const v = document.getElementById("v-mapprove");
+      v &&
+        v.querySelectorAll('.m-appr[data-mk="hand"], .m-appr[data-mk="payroll"], .m-appr[data-mk="learn"]').forEach((el) => {
+          const key = el.dataset.mid,
+            yes = el.querySelector("[data-myes]"),
+            no = el.querySelector("[data-mno]"),
+            op = el.querySelector("[data-mopen]");
+          yes && (yes.onclick = () => nyhRun(key));
+          no && (no.textContent.trim() ? (no.onclick = () => nyhRun(key, !0)) : no.remove());
+          op && (op.onclick = () => mGo({ nyh: key }));
+        });
+    } catch (e) {
+      console.warn("nyh approvals", e);
+    }
+    return r;
+  };
+}
+// ---- the classic Home (coordinator, Billing, the Controller) and My Day (the designer): a Needs Your Hand card
+function nyhCardHtml(rows) {
+  return h4Card(
+    "Needs Your Hand",
+    rows.length
+      ? rows
+          .map((r, i) => `<div class="h4r" data-ea='${esc(JSON.stringify({ nyh: r.key }))}' data-nyhrow="${esc(r.key)}"><span class="h4r-n ">${i + 1}</span><span class="grow"><b>${esc(r.title)}</b>${r.amount ? ` <span class="small muted">${esc(lnMoney(r.amount))}</span>` : ""}<div class="small muted">${esc(r.why)}</div></span><button type="button" class="btn sm h4-act">${esc(r.verb)}</button></div>`)
+          .join("")
+      : '<div class="muted small">Nothing from the mail, the bank or the brain is waiting on you.</div>',
+    null,
+  ).replace('<div class="h4c">', `<div class="h4c nyh-card" data-nyhn="${rows.length}">`);
+}
+window.addEventListener(
+  "click",
+  (e) => {
+    const el = e.target && e.target.closest ? e.target.closest("[data-nyhrow]") : null;
+    if (!el) return;
+    e.preventDefault(), e.stopPropagation(), e.stopImmediatePropagation();
+    const no = e.target.closest("[data-nyhno]");
+    nyhRun(el.dataset.nyhrow, !!no);
+  },
+  !0,
+);
+{
+  const base = renderHome;
+  renderHome = function () {
+    const r = base.apply(this, arguments);
+    try {
+      const v = document.getElementById("v-home");
+      if (v && !("function" == typeof tdOn && tdOn()) && ["coord", "billing", "controller", "owner", "pm"].includes(role())) {
+        const first = v.querySelector(".h4c");
+        if (first && !v.querySelector(".nyh-card")) {
+          const d = document.createElement("div");
+          (d.innerHTML = nyhCardHtml(nyhRows())), first.parentNode.insertBefore(d.firstElementChild, first);
+        }
+      }
+      v && "function" == typeof tdOn && tdOn() && lnCalTd(v);
+    } catch (e) {
+      console.warn("needs your hand home", e);
+    }
+    return r;
+  };
+}
+// ---- calendar events on each person's day: today's, the next seven days', and a booking made in the last three
+function lnCalFor(uid) {
+  const td = today(),
+    in7 = iso(addDays(td, 7)),
+    seen = lnInit().cal,
+    me = (DB.users || []).find((u) => u.id === uid) || {},
+    email = lnMyEmail(uid);
+  return ((DB.calendar || {}).external || [])
+    .filter((e) => e && "cancelled" !== e.status && (e.owner === uid || (email && (e.attendees || []).some((a) => String((a && a.email) || a || "").toLowerCase() === email))))
+    .map((e) => ({ e: e, day: lnDay(e.start) }))
+    .filter((x) => x.day >= td && (x.day <= in7 || (seen[x.e.id] && dayDiff(seen[x.e.id], td) <= 3)))
+    .filter((x, i, A) => A.findIndex((y) => y.e.title === x.e.title && y.day === x.day) === i)
+    .sort((a, b) => String(a.e.start).localeCompare(String(b.e.start)))
+    .slice(0, 6)
+    .map((x) => ({ e: x.e, day: x.day, when: `${x.day === td ? "Today" : fmtL(x.day)}${String(x.e.start).length > 10 ? " " + lnTime(x.e.start) : ""}`, title: String(x.e.title || "").trim(), where: x.e.location || x.e.where || "" }));
+}
+const lnTime = (s) => {
+  const m = String(s || "").match(/T(\d{2}):(\d{2})/);
+  if (!m) return "";
+  let h = +m[1];
+  const ap = h >= 12 ? "PM" : "AM";
+  return (h = h % 12 || 12), `${h}:${m[2]} ${ap}`;
+};
+function lnCalTd(v) {
+  const side = v.querySelector(".td-side");
+  if (!side || side.querySelector(".td-cal")) return;
+  const C = lnCalFor(lnUid());
+  if (!C.length) return;
+  const s = document.createElement("section");
+  (s.className = "td-sec td-cal"),
+    s.setAttribute("aria-label", "Your Calendar"),
+    (s.innerHTML = `<div class="td-hd"><h3>Your Calendar</h3></div><ul class="td-bl">${C.slice(0, 3)
+      .map((x) => `<li>${esc(x.when)} · ${esc(tdWords(x.title, 7))}</li>`)
+      .join("")}</ul>`);
+  const brief = side.querySelector(".td-brief");
+  brief ? side.insertBefore(s, brief) : side.appendChild(s);
+}
+if ("function" == typeof eaComing) {
+  const base = eaComing;
+  eaComing = function () {
+    const out = base.apply(this, arguments) || [];
+    try {
+      return lnCalFor(lnUid())
+        .map((x) => eaRow(x.day === today() ? "Today" : fmt(x.day), `${esc(x.title)}${x.where ? ` <span class="small muted">· ${esc(x.where)}</span>` : ""}`, x.when.replace(/^\S+\s?/, ""), "", null))
+        .concat(out);
+    } catch (e) {
+      return out;
+    }
+  };
+}
+if ("function" == typeof renderSDay) {
+  const base = renderSDay;
+  renderSDay = function () {
+    const r = base.apply(this, arguments);
+    try {
+      const host = document.getElementById("sday-body");
+      if (host && !host.querySelector(".nyh-day")) {
+        const rows = nyhRows({ role: "designer" }),
+          C = lnCalFor(lnUid()),
+          d = document.createElement("div");
+        (d.className = "nyh-day"),
+          (d.innerHTML = `${
+            rows.length
+              ? `<div class="card" style="margin-bottom:12px"><div class="hd"><h3>Needs Your Hand</h3><span class="small muted" data-nyhn="${rows.length}">${rows.length}</span></div>${rows
+                  .map((x) => `<div class="f-row col" data-nyhday="${esc(x.key)}"><div class="grow"><b>${esc(x.title)}</b><span class="small muted">${esc(x.why)}</span></div><div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap"><button type="button" class="btn sm primary" data-nyh="${esc(x.key)}">${esc(x.verb)}</button>${x.no ? `<button type="button" class="btn sm ghost" data-nyhnot="${esc(x.key)}">${esc(x.no)}</button>` : ""}</div></div>`)
+                  .join("")}</div>`
+              : ""
+          }${C.length ? `<div class="card" style="margin-bottom:12px"><div class="hd"><h3>Your Calendar</h3></div>${C.map((x) => `<div class="small" style="padding:4px 0;border-top:1px solid var(--rule)"><b>${esc(x.when)}</b> · ${esc(x.title)}${x.where ? ` <span class="muted">· ${esc(x.where)}</span>` : ""}</div>`).join("")}</div>` : ""}`);
+        const at = host.querySelector(".ds-banner") || host.querySelector(".kpis") || host.firstElementChild;
+        at && at.nextSibling ? host.insertBefore(d, at.nextSibling) : host.appendChild(d);
+        // one blue button per screen: the designer's first card keeps it, the rest are quiet
+        const prim = [...host.querySelectorAll(".btn.primary")];
+        prim.length > 1 && prim.slice(1).forEach((b) => b.classList.remove("primary"));
+        d.querySelectorAll("[data-nyh]").forEach((b) => (b.onclick = () => nyhRun(b.dataset.nyh)));
+        d.querySelectorAll("[data-nyhnot]").forEach((b) => (b.onclick = () => nyhRun(b.dataset.nyhnot, !0)));
+      }
+    } catch (e) {
+      console.warn("designer day", e);
+    }
+    return r;
+  };
+}
+// the designer reads her own mail in an Inbox (her proposals and the tasks they make). The studio builds the
+// designer's views at boot (studioInit), so the Inbox is added there.
+const lnDesignInbox = () =>
+  ["designer", "design_mgr"].forEach((r) => {
+    ROLE_VIEWS[r] && !ROLE_VIEWS[r].includes("comms") && ROLE_VIEWS[r].push("comms");
+  });
+lnDesignInbox();
+if ("function" == typeof studioInit) {
+  const base = studioInit;
+  studioInit = function () {
+    const r = base.apply(this, arguments);
+    return lnDesignInbox(), r;
+  };
+}
+// ---- standing orders with a scope ("remember: always copy Chen on vendor COIs"): any draft can read them
+const LN_SCOPES = [
+  ["coi", /\b(coi|cois|certificates? of insurance|insurance cert)/i],
+  ["w9", /\bw-?9s?\b/i],
+  ["vendor", /\bvendors?\b|\bsubs?\b|\bsuppliers?\b/i],
+  ["client", /\bclients?\b|\bhomeowners?\b/i],
+  ["invoice", /\binvoices?\b|\bbills?\b/i],
+  ["schedule", /\bschedul|\bmeetings?\b|\bcalendar/i],
+];
+function standingScope(text) {
+  const t = String(text || ""),
+    scope = LN_SCOPES.filter(([, rx]) => rx.test(t)).map(([k]) => k),
+    m = t.match(/\b(?:copy|cc|include|loop in|add)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/),
+    cc = [];
+  if (m) {
+    const n = m[1].toLowerCase(),
+      u = (DB.users || []).find((x) => String(x.name || "").toLowerCase().split(" ")[0] === n.split(" ")[0] && !["client"].includes(x.role));
+    cc.push({ name: u ? u.name : m[1], email: (u && (lnMyEmail(u.id) || u.email)) || (u ? `${String(u.name).split(" ")[0].toLowerCase()}@smartdesign.nyc` : "") });
+  }
+  return { scope: scope, cc: cc };
+}
+// standingFor(uid, scope): the standing orders that apply to a draft of that scope (a word like "coi", or a list):
+// the person's own, and the Owner's (firm-wide). Each carries the cc it asks for.
+function standingFor(uid, scope) {
+  const want = [].concat(scope || []).flatMap((s) => String(s).toLowerCase().split(/[\s,|]+/)).filter(Boolean),
+    owner = ((DB.users || []).find((u) => "owner" === u.role) || {}).id,
+    from = [...new Set([uid, owner].filter(Boolean))];
+  return from.flatMap((u) =>
+    (((DB.asst || {})[u] || {}).standing || [])
+      .map((s) => Object.assign({ uid: u }, s, standingScope(s.text)))
+      .filter((s) => !want.length || s.scope.some((k) => want.includes(k)) || (!s.scope.length && want.includes("any"))),
+  );
+}
+// the scope a draft is about, read from its words and its recipient
+function standingScopeOf(o) {
+  const t = `${o.subject || ""} ${o.body || ""} ${o.why || ""}`,
+    to = String(o.to || "").toLowerCase(),
+    vendor = (DB.vendors || []).some((v) => v.email && to.includes(String(v.email).toLowerCase())) || /certificate of insurance|\bcoi\b|\bw-?9\b/i.test(t);
+  return LN_SCOPES.filter(([, rx]) => rx.test(t)).map(([k]) => k).concat(vendor ? ["vendor"] : []);
+}
+function standingApply(uid, scope, o) {
+  const S0 = standingFor(uid, scope).filter((s) => s.cc.length),
+    have = String(o.cc || "").toLowerCase(),
+    add = S0.flatMap((s) => s.cc).filter((c) => c.email && !have.includes(c.email.toLowerCase()) && !String(o.to || "").toLowerCase().includes(c.email.toLowerCase()));
+  return add.length ? Object.assign({}, o, { cc: [o.cc, ...add.map((c) => `${c.name} <${c.email}>`)].filter(Boolean).join(", "), standing: S0.map((s) => s.text) }) : o;
+}
+if ("function" == typeof gaDraft) {
+  const base = gaDraft;
+  gaDraft = function (o) {
+    try {
+      const sc = standingScopeOf(o || {});
+      sc.length && (o = standingApply(lnUid(), sc, o));
+    } catch (e) {}
+    return base.call(this, o);
+  };
+}
+if ("function" == typeof paDraftNote) {
+  const base = paDraftNote;
+  paDraftNote = function (to, subject, body, why) {
+    const o = base.apply(this, arguments);
+    try {
+      if (o) {
+        const sc = standingScopeOf({ to: to, subject: subject, body: body, why: why }),
+          d = sc.length ? standingApply(lnUid(), sc, {}) : {};
+        d.cc && ((o.cc = d.cc), (o.standing = d.standing));
+      }
+    } catch (e) {}
+    return o;
+  };
+}
+// ---- Ask: "what did you learn today" and "what needs my hand" answer from the loop and the queue
+{
+  const base = paAsk;
+  paAsk = function (q) {
+    const l = String(q || "").toLowerCase();
+    try {
+      if ("client" !== role() && /\bwhat (did|have) (you|the brain|we) learn(ed|t)?\b|\bwhat (did|has) the brain (learn|pick|notice)|\blessons? (from )?today\b/.test(l)) {
+        lnLoop("ask");
+        const T = lnToday(),
+          A = Object.values(lnInit().props);
+        return paOut({
+          kind: "learn",
+          headline: `Today I saw ${T.events.length} new event${1 === T.events.length ? "" : "s"}, proposed ${T.proposed.length} lesson${1 === T.proposed.length ? "" : "s"}, fired rules ${T.fired.length} time${1 === T.fired.length ? "" : "s"} and drafted ${T.changes.length} change${1 === T.changes.length ? "" : "s"}.`,
+          note: `${T.open.length} lesson${1 === T.open.length ? "" : "s"} wait on the Owner's approval; nothing applies itself. I read the records on every sync, closed field issue, dispute, delivery and close${T.sources.length ? ` (today: ${T.sources.join(", ")})` : ""}.`,
+          work: T.events
+            .slice(0, 8)
+            .map((e) => `Saw: ${e.what}`)
+            .concat(A.filter((p) => "proposed" === p.status).slice(0, 6).map((p) => `Proposed: ${p.title} — from ${p.events.length} event${1 === p.events.length ? "" : "s"}`))
+            .concat(T.fired.slice(0, 6).map((k) => {
+              const [lid, rk] = k.split("|"),
+                L0 = (DB.lessons || []).find((x) => x.id === lid),
+                f = L0 && (L0.fired || []).find((x) => x.key === rk);
+              return `Fired: ${L0 ? L0.title : "a rule"} — on ${f ? f.what : rk}`;
+            })),
+          offers: A.filter((p) => "proposed" === p.status)
+            .slice(0, 4)
+            .map((p) => csOffer({ id: "ln-" + p.kind, label: `Approve: ${p.title}`, detail: `${lnChangeWords[(p.change || {}).type] || "a rule"} for ${lnRoleWords(p.for)}, from ${p.events.length} event${1 === p.events.length ? "" : "s"}`, run: () => lnApprove(p.kind) && (toast(`Lesson approved: ${p.title}`), render()) })),
+          go: paGo({ view: "brain" }),
+        });
+      }
+      if (/\b(what|anything|which|show me)\b.*\b(needs?|waiting (on|for))\b.*\bmy (hand|tap|ok|okay|yes)\b|\bneeds? your hand\b|\bneeds my hand\b/.test(l)) {
+        const R = "designer" === role() ? nyhRows({ role: "designer" }) : nyhRows();
+        return paOut({
+          kind: "hand",
+          headline: R.length ? `${R.length} thing${1 === R.length ? "" : "s"} need${1 === R.length ? "s" : ""} your hand.` : "Nothing needs your hand.",
+          note: "Proposals from your mail, deposits and payments to record, payroll, master data and what the rules fired on — each one tap. The same rows as Needs Your Hand on your Home.",
+          work: R.slice(0, 20).map((r) => `${r.title}${r.amount ? " · " + lnMoney(r.amount) : ""} — ${r.why}`),
+          offers: R.slice(0, 8).map((r) => csOffer({ id: "nyh-" + r.key, label: `${r.verb}: ${tdWords(r.title, 9)}`, detail: r.why, run: () => nyhRun(r.key) })),
+          rows: R.length,
+          go: paGo({ view: "designer" === role() ? "sday" : "home" }),
+        });
+      }
+    } catch (e) {
+      console.warn("learn ask", e);
+    }
+    return base.apply(this, arguments);
+  };
+}
+// ---- the Close page: what the brain learned from the month (finance lessons live where the controller works)
+if ("function" == typeof fin2ClosePageHtml) {
+  const base = fin2ClosePageHtml;
+  fin2ClosePageHtml = function () {
+    let h = base.apply(this, arguments);
+    try {
+      const FIN = ["wipmiss", "dispute", "void", "exception", "reopen", "overpo", "dupcharge", "credit"],
+        L = lnInit(),
+        P = Object.values(L.props).filter((p) => FIN.includes(p.kind) && "declined" !== p.status);
+      if (!P.length) return h;
+      h += `<div class="card ln-close" style="margin-top:14px"><div class="hd"><h3>Learned from the Books</h3><span class="small muted">lessons from the month's misses, disputes, voids, exceptions and reopens</span></div>${P.map((p) => {
+        const les = p.lessonId && (DB.lessons || []).find((x) => x.id === p.lessonId);
+        return `<div class="bn-lesson"><b>${esc(p.title)}</b><div class="small muted">${p.events.length} event${1 === p.events.length ? "" : "s"}: ${esc(p.events.slice(-2).map((k) => (L.events[k] || {}).what || "").join(" · "))}</div><div class="small">${"approved" === p.status ? `Approved · fired ${(les && les.fired.length) || 0}×` : `Proposed · ${esc(lnChangeWords[(p.change || {}).type] || "a rule")} for ${esc(lnRoleWords(p.for))} · the Owner approves it`}</div></div>`;
+      }).join("")}</div>`;
+    } catch (e) {}
+    return h;
   };
 }
