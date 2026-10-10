@@ -69363,7 +69363,10 @@ if ("function" == typeof finishBoot) {
   };
 }
 const CM_STAFF = () =>
-    (DB.users || []).map((u) => (u.contact || "").toLowerCase()).filter((e) => e.includes("@")),
+    (DB.users || [])
+      .filter((u) => "client" !== u.role)
+      .map((u) => (u.contact || "").toLowerCase())
+      .filter((e) => e.includes("@")),
   CM_STAFF_DOMAINS = ["smartdesign.nyc", "smartdesignbuild.com", "mercerandbond.com"],
   CM_CATS = {
     bill: "Vendor bill",
@@ -69381,6 +69384,11 @@ const CM_STAFF = () =>
     delivery: "Delivery",
     coi: "Insurance / W-9",
     onboarding: "New client",
+    lpc: "LPC",
+    noshow: "Sub no-show",
+    receipt: "Receipt",
+    unrouted: "Not on file",
+    statement: "Statement",
     note: "Note",
   },
   CM_ICON = {
@@ -69575,15 +69583,33 @@ function cmRoute(c) {
   }
   return r;
 }
+// The policy period on a certificate of insurance: the later date of "MM/DD/YYYY to MM/DD/YYYY", or the
+// date after "expires" / "expiration".
+function cmCoiExpiry(txt) {
+  const t = String(txt || ""),
+    toIso = (d) => {
+      const m = d.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+      if (m) return `${m[3]}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}`;
+      const n = parse(d);
+      return n && !isNaN(n) ? iso(n) : "";
+    },
+    m1 = t.match(/(?:policy period|period|effective)[^\n]{0,40}?(\d{1,2}\/\d{1,2}\/\d{4})\s*(?:to|-|–|through)\s*(\d{1,2}\/\d{1,2}\/\d{4})/i),
+    m2 = t.match(/(?:expir\w*|exp\.?)[:\s]*([A-Za-z]{3,9} \d{1,2},? \d{4}|\d{1,2}\/\d{1,2}\/\d{4})/i);
+  return m1 ? toIso(m1[2]) : m2 ? toIso(m2[1]) : "";
+}
 function cmRead(c) {
   const own = cmOwnText(c.text),
-    all = `${c.subject || ""}\n${own}`,
+    attText = (c.attachments || [])
+      .map((a) => String(a.text || ""))
+      .filter(Boolean)
+      .join("\n"),
+    all = `${c.subject || ""}\n${own}${attText ? "\n" + attText : ""}`,
     low = all.toLowerCase(),
     R = c.route || cmRoute(c),
     P = [],
     push = (kind, summary, o) =>
       P.push(Object.assign({ id: uid("cp"), kind: kind, summary: summary, on: !0 }, o || {})),
-    amt = cmMoney(own),
+    amt = cmMoney(own) || cmMoney(attText),
     att = (c.attachments || []).map((a) => a.name.toLowerCase()),
     who = R.clientId
       ? (DB.clients.find((x) => x.id === R.clientId) || {}).name
@@ -69661,7 +69687,7 @@ function cmRead(c) {
   const permits = [...new Set(all.match(/\b(?:B\d{8}(?:-I\d(?:-EL)?)?|SR\d{9}|[BME]\d{8})\b/g) || [])];
   if (
     /dob now|\bdob\b|permit|supersede|inspection|attestation/i.test(all) &&
-    (permits.length || /supersede|attestation|work complete/i.test(all))
+    (permits.length || /supersede|attestation|work complete/i.test(own))
   ) {
     const owner = /owner'?s attestation/i.test(own),
       stillOpen = /still open|not closed|remains open|is open|sitting open/i.test(own),
@@ -69684,10 +69710,42 @@ function cmRead(c) {
       },
     );
   }
+  // Our own card's or bank's statement is not a vendor bill: its lines are the feed. It is imported.
+  const ourCard =
+    /statement/i.test(all) &&
+    (DB.accounts || []).find(
+      (a) => a.last4 && new RegExp(`(?:ending|ending in|····|\\.{4}|x{4}|\\*{4})\\s*(?:in\\s*)?${a.last4}\\b`, "i").test(all),
+    );
+  // A statement that names a bill already on file is a chase, not a second bill.
+  const onFile =
+    !R.employee &&
+    !R.clientId &&
+    /invoice|statement|balance|amount due|past due|payment/i.test(all) &&
+    (DB.bills || []).find((b) => b.number && b.number.length > 4 && low.includes(String(b.number).toLowerCase()));
+  if (ourCard) {
+    const bal = (all.match(/(?:new|closing|statement) balance[^$\n]{0,20}\$\s?([\d,]+(?:\.\d{2})?)/i) || [])[1],
+      dueOn = (all.match(/(?:payment )?due\s+(?:date\s*:?\s*)?(\d{2}\/\d{2}\/\d{4})/i) || [])[1] || "";
+    push("statement", `${ourCard.name} ····${ourCard.last4} statement${bal ? " — closing balance $" + bal : ""}${dueOn ? " · payment due " + dueOn : ""} · import it on Bank, do not enter it as a bill`, {
+      acctId: ourCard.id,
+      balance: bal ? +bal.replace(/,/g, "") : 0,
+      due: dueOn,
+      task: `Import the ${ourCard.name} ····${ourCard.last4} statement and reconcile the card`,
+      owner: "Controller",
+    });
+  } else if (onFile) {
+    push("statement", `${who} is chasing ${amt ? money(amt) + " " : ""}on ${onFile.number} — already on file (${onFile.status}${onFile.short ? ", short-paid" : ""})${where ? " · " + where : ""}; no second bill`, {
+      billId: onFile.id,
+      amount: amt,
+      task: `Answer ${who} on ${onFile.number}${onFile.short ? " — say what is held and why" : ""}`,
+      owner: "Billing",
+    });
+  }
   if (
     !R.employee &&
     !R.clientId &&
     amt &&
+    !ourCard &&
+    !onFile &&
     /invoice|statement|balance|amount due|past due|payment/i.test(all) &&
     !/deposit.*sent|money (just )?sent/i.test(low)
   ) {
@@ -69696,12 +69754,28 @@ function cmRead(c) {
           .slice(1)
           .find(Boolean) || "",
       due = (all.match(/due\s+([A-Z][a-z]+ \d{1,2},? \d{4})/i) || [])[1] || "",
-      ent = (DB.entities || []).find((e) => low.includes((e.name || "").toLowerCase().replace(/ llc$/, "")));
+      ent = (DB.entities || []).find((e) => low.includes((e.name || "").toLowerCase().replace(/ llc$/, ""))),
+      // Already paid from the bank? A debit for the same amount near the invoice date is the line it belongs on.
+      said = (c.date || "").slice(0, 10) || today(),
+      paidLine = (DB.txns || []).find(
+        (t) => +t.amt < 0 && Math.abs(Math.abs(+t.amt) - amt) < 0.01 && !t.billId && t.date >= iso(addDays(said, -14)) && t.date <= iso(addDays(said, 14)),
+      );
     push(
       "bill",
-      `${who} says ${money(amt)} is owed${ent ? " by " + ent.name : ""}${num ? " · #" + num : ""}${due ? " · due " + due : ""}${/past due/i.test(all) ? " · past due" : ""}`,
-      { vendor: who, amount: amt, number: num, due: due, entityId: ent ? ent.id : "" },
+      `${who} says ${money(amt)} is owed${ent ? " by " + ent.name : ""}${num ? " · #" + num : ""}${due ? " · due " + due : ""}${/past due/i.test(all) ? " · past due" : ""}${where ? " · " + where : ""}${attText ? " · read from the attached PDF" : ""}`,
+      {
+        vendor: who,
+        vendorId: R.vendorId || "",
+        amount: amt,
+        number: num,
+        due: due,
+        entityId: ent ? ent.id : "",
+        projectId: R.projectId || "",
+        fromAttachment: !!attText && !cmMoney(own),
+        txnId: paidLine ? paidLine.id : "",
+      },
     );
+    paidLine && (P[P.length - 1].summary += ` · paid ${fmtL(paidLine.date)} from the bank (“${String(paidLine.desc || "").slice(0, 30)}”) — record the bill against that line`);
   }
   if (
     (R.employee &&
@@ -69715,18 +69789,22 @@ function cmRead(c) {
         { amount: amt, clientId: R.clientId, counterpart: R.counterpart, deposit: /deposit/i.test(all) },
       ),
     !R.employee &&
-      /money (just )?sent|wire (was |has been )?sent|payment (was |has been )?sent|sent the (deposit|payment|wire)|just paid/i.test(
+      /money (just )?sent|wire (was |has been )?sent|payment (was |has been )?sent|sent the (deposit|payment|wire)|just paid|\bwe (?:paid|wired|mailed (?:the |a )?check|sent (?:the |a )?(?:check|wire|payment))\b|check (?:went out|is in the mail|was mailed)/i.test(
         low,
       ))
   ) {
     const prior = (c.text.match(/\$\s?([\d,]+\.\d{2})/g) || []).map((x) => +x.replace(/[^\d.]/g, "")),
-      expect = prior.length ? prior[0] : amt;
+      expect = prior.length ? prior[0] : amt,
+      saidDay = (own.match(/\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|yesterday|today|last week)\b/i) || [])[1] || "",
+      chk = (own.match(/check\s*#?\s*(\d{3,6})/i) || [])[1] || "";
     push(
       "deposit",
-      `${who} says the money is sent${expect ? " — " + money(expect) : ""}${where ? " for " + where : ""}; watch the feed`,
+      `${who} says the money is sent${expect ? " — " + money(expect) : ""}${saidDay ? " · " + saidDay.toLowerCase() : ""}${chk ? " · check " + chk : ""}${where ? " for " + where : ""}; watch the feed`,
       {
         amount: expect,
         clientId: R.clientId,
+        saidDay: saidDay,
+        check: chk,
         task: `Confirm ${expect ? money(expect) + " " : ""}from ${who} arrived and record the payment`,
       },
     );
@@ -69740,16 +69818,43 @@ function cmRead(c) {
             `Our ${att.find((a) => /estimate/.test(a)) ? "estimate" : "quote"} went to ${who}${where ? " for " + where : ""}${amt ? " — " + money(amt) : ""}`,
             { out: !0, clientId: R.clientId, amount: amt },
           )
-        : push(
-            "quote",
-            `${who} sent a quote${where ? " for " + where : ""}${amt ? " — " + money(amt) : ""}`,
-            {
-              out: !1,
-              vendorId: R.vendorId,
-              amount: amt,
-              task: `Review ${who}'s quote${where ? " for " + where : ""}`,
-            },
-          )),
+        : (() => {
+            // Which Buy Board line does it price? The material on the routed job whose words the quote uses.
+            const mats = proj ? proj.materials || [] : [],
+              words = new Set(
+                low
+                  .replace(/[^a-z0-9 ]+/g, " ")
+                  .split(/\s+/)
+                  .filter((w) => w.length > 3),
+              ),
+              scored = mats
+                .filter((m) => !["ordered", "shipped", "on-site"].includes(m.status))
+                .map((m) => ({
+                  m: m,
+                  n: String(m.name || "")
+                    .toLowerCase()
+                    .replace(/[^a-z0-9 ]+/g, " ")
+                    .split(/\s+/)
+                    .filter((w) => w.length > 3 && words.has(w)).length,
+                }))
+                .filter((x) => x.n > 0)
+                .sort((a, b) => b.n - a.n),
+              lead = (all.match(/(\d{1,3})\s*(?:-\s*\d{1,3}\s*)?(?:working |business )?(?:days|weeks)\b/i) || [])[0] || "",
+              mat = scored[0] ? scored[0].m : null;
+            push(
+              "quote",
+              `${who} sent a quote${where ? " for " + where : ""}${amt ? " — " + money(amt) : ""}${mat ? " · prices the Buy Board line “" + mat.name + "”" : ""}${lead ? " · " + lead + " lead" : ""}`,
+              {
+                out: !1,
+                vendorId: R.vendorId,
+                amount: amt,
+                materialId: mat ? mat.id : "",
+                projectId: proj ? proj.id : "",
+                lead: lead,
+                task: `Review ${who}'s quote${where ? " for " + where : ""}`,
+              },
+            );
+          })()),
     R.leadName &&
       !R.clientId &&
       !P.some((p) => "deposit" === p.kind) &&
@@ -69774,13 +69879,61 @@ function cmRead(c) {
       },
     );
   }
-  !att.some((a) => /\bcoi\b|certificate|w-?9/.test(a)) ||
-    R.employee ||
-    (!R.vendorId && R.clientId) ||
-    push("coi", `${who} sent ${att.find((a) => /w-?9/.test(a)) ? "a W-9" : "a certificate of insurance"}`, {
-      vendorId: R.vendorId,
-      w9: att.some((a) => /w-?9/.test(a)),
+  if (!(!att.some((a) => /\bcoi\b|certificate|w-?9/.test(a)) || R.employee || (!R.vendorId && R.clientId))) {
+    const w9 = att.some((a) => /w-?9/.test(a)),
+      exp = w9 ? "" : cmCoiExpiry(attText || own),
+      // A broker sends on the insured's behalf: the vendor is the one named on the certificate.
+      named = R.vendorId
+        ? null
+        : (DB.vendors || []).find((v) => v.name.length > 3 && low.includes(v.name.toLowerCase())),
+      vid = R.vendorId || (named ? named.id : ""),
+      vn = vid ? (DB.vendors.find((v) => v.id === vid) || {}).name : who,
+      vendor = vid ? DB.vendors.find((v) => v.id === vid) : null;
+    push(
+      "coi",
+      `${vn} sent ${w9 ? "a W-9" : "a certificate of insurance"}${exp ? " · covers to " + fmtL(exp) : ""}${vendor && vendor.insuranceExp && vendor.insuranceExp < today() && exp ? " · their certificate on file expired " + fmtL(vendor.insuranceExp) + ", so this clears the block on paying them" : ""}`,
+      { vendorId: vid, w9: w9, exp: exp },
+    );
+  }
+  // LPC wrote about a landmarked house: the comment belongs on the application and someone answers it.
+  if (/\bLPC\b|landmarks preservation/i.test(all) && !R.employee && !R.clientId && (proj || R.addr)) {
+    const line = (own.match(/[^.\n]*\b(?:brick mold|profile|window|cornice|stoop|facade|façade|railing|paint|color|colour|mortar|sample|drawing|revis\w+|approv\w+|permit|certificate of appropriateness|CNE|staff)\b[^.\n]*[.?]?/i) || [own.slice(0, 140)])[0].trim(),
+      hearing = own.match(/\b(?:hearing|public meeting|committee)\b[^.\n]{0,60}?\b(\w+ \d{1,2}(?:,? \d{4})?)/i),
+      sub = proj
+        ? (proj.submittals || []).find((x) => (x.reviewers || []).some((r) => "lpc" === r.role) && !/^(closed|approved)$/.test(x.status))
+        : null,
+      insp = proj ? (proj.inspections || []).find((x) => /lpc/i.test(x.agency || "") && "passed" !== x.status) : null;
+    push("lpc", `LPC on ${where || R.addr}: ${line}${hearing ? " · " + hearing[0].trim() : ""}`, {
+      projectId: proj ? proj.id : "",
+      comment: line,
+      hearing: hearing ? hearing[1] : "",
+      submittalId: sub ? sub.id : "",
+      inspectionId: insp ? insp.id : "",
+      task: `Answer LPC on ${where || R.addr}: ${line.slice(0, 80)}`,
+      owner: "PM",
     });
+  }
+  // A sub who did not show, or confirms a day: the field has to know and the vendor's record keeps score.
+  if (!R.employee && (R.vendorId || proj) && /no[- ]?show|did(?:n't| not) (?:show|turn) up|never (?:showed|came|arrived)|cannot make it|can't make it|won't make it|have to push|need to reschedule/i.test(own))
+    push("noshow", `${who} ${/no[- ]?show|did(?:n't| not)|never/i.test(own) ? "did not show" : "is pushing the date"}${where ? " at " + where : ""}: “${own.replace(/\s+/g, " ").slice(0, 110)}”`, {
+      vendorId: R.vendorId,
+      projectId: proj ? proj.id : "",
+      task: `Re-book ${who}${where ? " at " + where : ""} and tell the foreman`,
+      owner: "PM",
+    });
+  // A store receipt names a card line: the receipt belongs on the transaction, and a job if it says one.
+  if (!R.employee && !R.clientId && amt && /receipt|your order|order confirmation|thank you for shopping|thanks for your purchase/i.test(all) && !P.some((p) => "bill" === p.kind)) {
+    const last4 = (all.match(/(?:ending|card|x{2,}|\*{2,})\s*(?:in\s*)?(\d{4})\b/i) || [])[1] || "",
+      line = (DB.txns || []).find(
+        (t) => Math.abs(Math.abs(+t.amt || 0) - amt) < 0.01 && !t.receipt && t.date >= iso(addDays((c.date || "").slice(0, 10) || today(), -5)),
+      );
+    push("receipt", `${who} receipt — ${money(amt)}${last4 ? " on card ····" + last4 : ""}${line ? " · matches the " + fmtL(line.date) + " card line “" + String(line.desc || "").slice(0, 36) + "”" : " · no card line yet"}${where ? " · " + where : ""}`, {
+      amount: amt,
+      txnId: line ? line.id : "",
+      projectId: proj ? proj.id : "",
+      last4: last4,
+    });
+  }
   const mt = own.match(
     /\b(?:meet|see you|call)\b[^.\n]{0,60}?\b(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|tomorrow)\b[^.\n]{0,30}?(\d{1,2}(?::\d{2})?\s?(?:am|pm)?)/i,
   );
@@ -69831,7 +69984,19 @@ function cmRead(c) {
         {},
       ),
     P.length ||
-      push("note", `${who}${where ? " · " + where : ""}: ${own.replace(/\s+/g, " ").slice(0, 140)}`, {}),
+      (R.clientId || R.vendorId || R.employee || R.projectId || R.contact
+        ? push("note", `${who}${where ? " · " + where : ""}: ${own.replace(/\s+/g, " ").slice(0, 140)}`, {})
+        : push(
+            "unrouted",
+            `${who} <${(c.from || {}).email || ""}> is not on file${R.addr ? " · names " + R.addr : ""}: “${own.replace(/\s+/g, " ").slice(0, 110)}”`,
+            {
+              name: who,
+              email: (c.from || {}).email || "",
+              addr: R.addr || "",
+              // The best guess at what to create; the person picks in the dialog.
+              as: /invoice|quote|order|statement|pickup|delivery|yard|supply|lumber|inc\b|llc\b|corp\b/i.test(all) ? "vendor" : "lead",
+            },
+          )),
     P
   );
 }
@@ -69936,8 +70101,8 @@ function cmApply(c, p) {
       date: (c.date || "").slice(0, 10) || today(),
       due: p.due ? iso(new Date(p.due)) : "",
       entityId: p.entityId || entDefault(),
-      projectId: "",
-      cat: "office",
+      projectId: p.projectId || R.projectId || "",
+      cat: p.projectId || R.projectId ? "subs" : "office",
       code: "",
       line: "",
       lines: [{ id: uid("l"), desc: c.subject || "Statement", amount: p.amount }],
@@ -69947,6 +70112,10 @@ function cmApply(c, p) {
       createdBy: "reader",
       commId: c.id,
     };
+    if (p.txnId) {
+      const t = (DB.txns || []).find((x) => x.id === p.txnId);
+      t && !t.billId && ((t.billId = b.id), (b.paidTxnId = t.id), (b.status = "paid"), (b.paidAt = t.date));
+    }
     DB.bills.push(b),
       DB.vendors.some((v) => v.name.toLowerCase() === (p.vendor || "").toLowerCase()) ||
         DB.vendors.push({ id: uid("v"), name: p.vendor, trade: "", w9: !1, insuranceExp: "" }),
@@ -69979,10 +70148,19 @@ function cmApply(c, p) {
   else if ("quote" === p.kind) {
     if ((p.out && p.clientId && cmActivity(p.clientId, p.summary), !p.out)) {
       cmTask(p.task, R.projectId, "PM");
-      const v = p.vendorId && DB.vendors.find((x) => x.id === p.vendorId);
-      v && (v.notes = (v.notes ? v.notes + "\n" : "") + `${fmt(today())}: ${p.summary}`);
-    }
-    did = p.out ? "logged on the client" : "review task";
+      const v = p.vendorId && DB.vendors.find((x) => x.id === p.vendorId),
+        pr = p.projectId && DB.projects.find((x) => x.id === p.projectId),
+        m = pr && p.materialId && (pr.materials || []).find((x) => x.id === p.materialId);
+      v && (v.notes = (v.notes ? v.notes + "\n" : "") + `${fmt(today())}: ${p.summary}`),
+        // The price lands on the Buy Board line the person approved it for; the line reads "quoted".
+        m &&
+          ((m.cost = p.amount ? String(p.amount) : m.cost),
+          v && (m.vendor = v.name),
+          ["not-ordered", "needs-decision", "quoted"].includes(m.status) && (m.status = "quoted"),
+          p.lead && /\d/.test(p.lead) && (m.lead = +(p.lead.match(/\d+/) || [m.lead])[0] * (/week/i.test(p.lead) ? 5 : 1)),
+          (m.quoteCommId = c.id));
+      did = m ? `quote on the Buy Board line “${m.name}”` : "review task";
+    } else did = "logged on the client";
   } else if ("lead" === p.kind)
     (DB.leads = DB.leads || []),
       DB.leads.some((l) => (l.email || "").toLowerCase() === (p.email || "").toLowerCase() && p.email) ||
@@ -70006,9 +70184,43 @@ function cmApply(c, p) {
       (did = "lead created");
   else if ("coi" === p.kind) {
     const v = p.vendorId && DB.vendors.find((x) => x.id === p.vendorId);
-    v && (p.w9 ? (v.w9 = !0) : (v.coiReceivedAt = today())),
+    v && (p.w9 ? (v.w9 = !0) : ((v.coiReceivedAt = today()), p.exp && (v.insuranceExp = p.exp))),
       v || cmNoteAnywhere(c, p),
-      (did = v ? (p.w9 ? "W-9 on file" : "COI noted — set the expiry on the vendor") : "noted on your list");
+      (did = v
+        ? p.w9
+          ? "W-9 on file"
+          : p.exp
+            ? `COI on file — insurance expires ${fmtL(p.exp)}`
+            : "COI noted — set the expiry on the vendor"
+        : "noted on your list");
+  } else if ("lpc" === p.kind) {
+    const pr = (p.projectId || R.projectId) && DB.projects.find((x) => x.id === (p.projectId || R.projectId));
+    if (pr) {
+      pr.permitNotes = pr.permitNotes || [];
+      pr.permitNotes.push({ t: nowStamp(), agency: "LPC", text: p.comment || p.summary, hearing: p.hearing || "", commId: c.id });
+      const sub = p.submittalId && (pr.submittals || []).find((x) => x.id === p.submittalId);
+      sub &&
+        ((sub.timeline = sub.timeline || []),
+        sub.timeline.push({ on: today(), by: "LPC staff", text: `LPC comment: ${p.comment || p.summary}`, commId: c.id }));
+      const insp = p.inspectionId && (pr.inspections || []).find((x) => x.id === p.inspectionId);
+      insp && (insp.notes = (insp.notes ? insp.notes + "\n" : "") + `${fmt(today())}: LPC — ${p.comment || p.summary}`);
+    }
+    p.task && cmTask(p.task, R.projectId || p.projectId, "PM"), (did = pr ? "LPC comment on the application" : "task for the PM");
+  } else if ("noshow" === p.kind) {
+    const v = p.vendorId && DB.vendors.find((x) => x.id === p.vendorId);
+    v && ((v.noShows = (v.noShows || 0) + 1), (v.notes = (v.notes ? v.notes + "\n" : "") + `${fmt(today())}: ${p.summary}`)),
+      p.task && cmTask(p.task, R.projectId || p.projectId, "PM"),
+      (did = v ? "on the vendor's record and the PM's list" : "task for the PM");
+  } else if ("statement" === p.kind) {
+    p.task && cmTask(p.task, "", p.owner || "Controller");
+    const b = p.billId && (DB.bills || []).find((x) => x.id === p.billId);
+    b && ((b.notes = (b.notes ? b.notes + "\n" : "") + `${fmt(today())}: ${p.summary}`), (b.chasedAt = today()));
+    did = b ? `noted on ${b.number} and a task for Billing` : "task for the Controller";
+  } else if ("receipt" === p.kind) {
+    const t = p.txnId && (DB.txns || []).find((x) => x.id === p.txnId);
+    t && ((t.receipt = { commId: c.id, at: today(), by: by }), p.projectId && !t.projectId && (t.projectId = p.projectId)),
+      t || cmNoteAnywhere(c, p),
+      (did = t ? `receipt on the ${fmtL(t.date)} card line` : "noted — no card line yet");
   } else if ("meeting" === p.kind) cmTask(p.task, R.projectId, "Owner"), (did = "on the list");
   else if ("question" === p.kind) cmTask(p.task, R.projectId, "Owner"), (did = "question for the Owner");
   else if ("decision" === p.kind)
@@ -70037,7 +70249,31 @@ function cmApply(c, p) {
         DB.clients.push(cl),
         (did = "client created");
     } else did = "client already on file";
-  else if ("delivery" === p.kind)
+  else if ("unrouted" === p.kind) {
+    const as = p.as || "lead";
+    if ("vendor" === as)
+      DB.vendors.some((v) => v.name.toLowerCase() === String(p.name || "").toLowerCase()) ||
+        DB.vendors.push({ id: uid("v"), name: p.name, trade: "", email: p.email || "", w9: !1, insuranceExp: "", bankChangedAt: "", createdFrom: "mail" }),
+        (c.route = Object.assign({}, R, { vendorId: (DB.vendors.find((v) => v.name.toLowerCase() === String(p.name || "").toLowerCase()) || {}).id || "", leadName: "" })),
+        (did = `vendor ${p.name} created`);
+    else if ("client" === as) {
+      const cl = "function" == typeof blankClient ? blankClient(p.name) : { id: uid("cl"), name: p.name, contacts: [], activity: [] };
+      (cl.propertyAddr = p.addr || ""),
+        (cl.contacts = [{ id: uid("k"), name: p.name, email: p.email || "", role: "Client" }]),
+        "function" == typeof entDefault && (cl.entityId = entDefault()),
+        DB.clients.push(cl),
+        (c.route = Object.assign({}, R, { clientId: cl.id, leadName: "" })),
+        (did = `client ${p.name} created`);
+    } else if ("project" === as && "function" == typeof projectFromTemplate) {
+      const pr = projectFromTemplate(p.addr || p.name, p.addr || "", today(), "");
+      pr && ((c.route = Object.assign({}, R, { projectId: pr.id })), (did = `project ${pr.project.name} created`));
+    } else
+      (DB.leads = DB.leads || []),
+        DB.leads.some((l) => p.email && (l.email || "").toLowerCase() === p.email.toLowerCase()) ||
+          DB.leads.push({ id: uid("ld"), created: today(), name: p.name, phone: "", email: p.email, addr: p.addr, buildingType: "", scope: "Design-build", stage: "inquiry", source: "Email", next: "Follow up", nextDue: "", notes: c.subject || "", commId: c.id }),
+        (did = "lead created");
+    c.routeLocked = !0;
+  } else if ("delivery" === p.kind)
     R.projectId
       ? (cmTask(`Check delivery: ${p.summary.slice(0, 80)}`, R.projectId, "Foreman"),
         (did = "delivery check for the foreman"))
@@ -70087,11 +70323,21 @@ function cmImport(list) {
         proposals: [],
         links: m.links || [],
       };
-      (c.route = cmRoute(c)),
-        (c.proposals = cmRead(c)),
-        (c.status = c.proposals.length ? "proposed" : "read"),
-        DB.comms.push(c),
-        n++;
+      (c.route = cmRoute(c)), (c.proposals = cmRead(c));
+      const R = c.route || {},
+        from = String((c.from || {}).email || "").toLowerCase(),
+        junk =
+          !R.clientId &&
+          !R.vendorId &&
+          !R.employee &&
+          !R.projectId &&
+          !R.contact &&
+          c.proposals.every((p) => "note" === p.kind || "unrouted" === p.kind) &&
+          (/noreply|no-reply|newsletter|news@|promo|marketing|notification|digest|hello@|info@/.test(from) ||
+            /\bunsubscribe\b|view (this|in) browser|% off|limited time|webinar|special offer/i.test(c.text || ""));
+      // A newsletter or a promotion with nobody we know on it is noise: read, ignored, never proposed.
+      junk && ((c.proposals = []), (c.ignoredWhy = "not the firm's business"));
+      (c.status = junk ? "ignored" : c.proposals.length ? "proposed" : "read"), DB.comms.push(c), n++;
     }),
     n)
   ) {
@@ -70980,6 +71226,8 @@ cmApply = function (c, p) {
     return cmTaskDialog(c, p), "Choose who and when";
   }
   if ("lead" === p.kind) return cmPersonDialog(c, p, !1), "Check the lead and add it";
+  if ("unrouted" === p.kind && "vendor" !== p.as && "project" !== p.as)
+    return cmPersonDialog(c, p, "client" === p.as), "client" === p.as ? "Check the client and create it" : "Check the lead and add it";
   if ("onboarding" === p.kind)
     return p.name && DB.clients.some((cl) => (cl.name || "").toLowerCase().includes(p.name.toLowerCase()))
       ? cmApplyBase_2(c, p)
@@ -93131,7 +93379,7 @@ const BN_KIND = {
   delivery: "Delivery",
   obligation: "Expiry",
   renewal: "Renewal",
-  google: "Google",
+  google: "Connected Calendar",
 };
 function bnCalendarHtml() {
   const td = today(),
@@ -102744,7 +102992,11 @@ function cmMatches(c, q) {
   );
 }
 function cmListFor(filter) {
-  let L = (DB.comms || []).slice().sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  const me = ("function" == typeof paMe ? paMe() : {}).id;
+  let L = (DB.comms || [])
+    .filter((c) => !c.owner || c.owner === me)
+    .slice()
+    .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
   const open = L.filter(
     (c) => (c.proposals || []).some((p) => !p.applied && !1 !== p.on) && "ignored" !== c.status,
   );
@@ -102790,7 +103042,8 @@ function renderCommsInbox() {
   const host = $("#comms-body");
   if (!host) return;
   cmInit(), cmOpen && ((cmSel = cmOpen), (cmOpen = ""));
-  const all = DB.comms || [],
+  const meId = ("function" == typeof paMe ? paMe() : {}).id,
+    all = (DB.comms || []).filter((c) => !c.owner || c.owner === meId),
     open = all.filter(
       (c) => (c.proposals || []).some((p) => !p.applied && !1 !== p.on) && "ignored" !== c.status,
     ),
@@ -109219,6 +109472,11 @@ function gcInit() {
 }
 const gcCfg = () => (gcInit(), DB.company.google),
   gcMine = () => (gcInit(), (DB.conn[paMe().id] || {}).google || null),
+  // The Demo Workspace is an invented mailbox, calendar and drive per user (see the demows section at the
+  // end). It is served through gcFetch like Google is, so every pull, draft, hold and filing runs on it.
+  gcIsDemo = () => !!(gcMine() || {}).demo,
+  gcKindName = () => (gcIsDemo() ? ((gcMine() || {}).loaded ? "Loaded Workspace" : "Demo Workspace") : "Google"),
+  gcMailName = () => (gcIsDemo() ? gcKindName() : "Gmail"),
   gcOn = () => {
     const g = gcMine();
     return !(!g || !g.email);
@@ -109369,11 +109627,12 @@ function gcDisconnect() {
   try {
     gcServerDisconnect();
   } catch (e) {}
-  gcClearToken(u.id), (DB.conn[u.id].google = null);
+  const kind = gcKindName();
+  gcClearToken(u.id), (DB.conn[u.id].google = null), DB.demoWs && delete DB.demoWs[u.id];
   const n = gcWipe(u.id);
   save(),
     paDid(
-      "Disconnected the Google account",
+      `Disconnected the ${"Google" === kind ? "Google account" : kind}`,
       `and removed the ${n} record${1 === n ? "" : "s"} it had pulled in, so nothing of theirs is left behind`,
       null,
     ),
@@ -109382,10 +109641,30 @@ function gcDisconnect() {
 }
 function gcWipe(userId) {
   let n = 0;
-  const before = (DB.comms || []).length;
-  (DB.comms = (DB.comms || []).filter((c) => !("google" === c.source && c.owner === userId))),
-    (n += before - DB.comms.length),
-    (DB.calendar = DB.calendar || { external: [] });
+  const before = (DB.comms || []).length,
+    gone = (DB.comms || []).filter((c) => ("google" === c.source || "demo" === c.source) && c.owner === userId),
+    goneIds = new Set(gone.map((c) => c.id)),
+    goneMsg = new Set(gone.map((c) => c.msgId).filter(Boolean));
+  (DB.comms = (DB.comms || []).filter((c) => !goneIds.has(c.id))), (n += before - DB.comms.length);
+  // Meetings read from those messages whose proposals nobody approved, the payment claims they made, and
+  // the nudges that pointed at them leave with them. Anything a person approved stays: it is theirs now.
+  (DB.meetings = (DB.meetings || []).filter(
+    (m) => !(goneIds.has(m.commId) && !(m.proposals || []).some((p) => "applied" === p.status)),
+  )),
+    (DB.expected = (DB.expected || []).filter((e) => !goneIds.has(e.commId)));
+  const A = (DB.asst || {})[userId];
+  A &&
+    ((A.thread = (A.thread || []).filter(
+      (m) =>
+        !(
+          m.ref &&
+          (("mail" === m.ref.kind && (goneMsg.has(m.ref.id) || goneIds.has(m.ref.commId))) ||
+            ("event" === m.ref.kind && (DB.calendar?.external || []).some((e) => e.id === m.ref.id && e.owner === userId)) ||
+            ("file" === m.ref.kind && (DB.gdrive || []).some((f) => f.id === m.ref.id && f.owner === userId)))
+        ),
+    )),
+    (A.expect = (A.expect || []).filter((e) => !(e.ref && "mail" === e.ref.kind && goneMsg.has(e.ref.id)))));
+  DB.calendar = DB.calendar || { external: [] };
   const be = (DB.calendar.external || []).length;
   (DB.calendar.external = (DB.calendar.external || []).filter((e) => e.owner !== userId)),
     (n += be - DB.calendar.external.length);
@@ -109395,6 +109674,7 @@ function gcWipe(userId) {
 let gcBack = 0;
 async function gcFetch(path, opts) {
   const o = Object.assign({}, opts || {});
+  if (gcIsDemo()) return gsFetchDemo(/^https?:/.test(path) ? path : "https://www.googleapis.com" + path, o);
   let t = gcToken();
   if (!t && ((t = await gcRefresh()), !t)) throw new Error("not connected");
   const url = /^https?:/.test(path) ? path : "https://www.googleapis.com" + path,
@@ -109569,14 +109849,16 @@ async function gsGmail(first) {
       from: gsAddrs(gsHdr(m, "From"))[0] || { name: "", email: "" },
       to: gsAddrs(gsHdr(m, "To")).map((a) => (a.name ? `${a.name} <${a.email}>` : a.email)),
       cc: gsAddrs(gsHdr(m, "Cc")).map((a) => (a.name ? `${a.name} <${a.email}>` : a.email)),
-      date: date ? new Date(date).toISOString() : new Date(+m.internalDate || Date.now()).toISOString(),
+      date: date ? new Date(date).toISOString() : new Date(+m.internalDate || appNowMs()).toISOString(),
       subject: gsHdr(m, "Subject"),
       text: gsBody(m),
-      source: "google",
+      source: gcIsDemo() ? "demo" : "google",
       owner: me.id,
       labels: m.labelIds || [],
       unread: (m.labelIds || []).includes("UNREAD"),
-      links: [{ label: "Open in Gmail", url: `https://mail.google.com/mail/u/0/#inbox/${m.threadId}` }],
+      links: gcIsDemo()
+        ? []
+        : [{ label: "Open in Gmail", url: `https://mail.google.com/mail/u/0/#inbox/${m.threadId}` }],
       attachments: gsAtt(m),
     });
   }
@@ -109586,7 +109868,7 @@ async function gsGmail(first) {
       const c = (DB.comms || []).find((x) => x.msgId === o.msgId);
       c &&
         ((c.owner = me.id),
-        (c.source = "google"),
+        (c.source = o.source),
         (c.unread = o.unread),
         (c.labels = o.labels),
         (c.links = o.links));
@@ -109602,13 +109884,19 @@ const gsAtt = (m) => {
         (p.filename &&
           p.body &&
           p.body.attachmentId &&
-          out.push({
-            name: p.filename,
-            mime: p.mimeType,
-            size: p.body.size || 0,
-            attachmentId: p.body.attachmentId,
-            msgId: m.id,
-          }),
+          out.push(
+            Object.assign(
+              {
+                name: p.filename,
+                mime: p.mimeType,
+                size: p.body.size || 0,
+                attachmentId: p.body.attachmentId,
+                msgId: m.id,
+              },
+              // A demo attachment carries its extracted text (the server-side PDF reader was lost).
+              p.body.text ? { text: p.body.text } : {},
+            ),
+          ),
         (p.parts || []).forEach(walk));
     };
   return walk(m.payload), out;
@@ -109620,7 +109908,7 @@ async function gsCal(first) {
   const tok = gsCur("calTok");
   let url = tok
       ? `/calendar/v3/calendars/primary/events?syncToken=${encodeURIComponent(tok)}&singleEvents=true`
-      : `/calendar/v3/calendars/primary/events?singleEvents=true&orderBy=startTime&maxResults=250&timeMin=${encodeURIComponent(new Date(Date.now() - 6048e5).toISOString())}&timeMax=${encodeURIComponent(new Date(Date.now() + 7776e6).toISOString())}`,
+      : `/calendar/v3/calendars/primary/events?singleEvents=true&orderBy=startTime&maxResults=250&timeMin=${encodeURIComponent(new Date(appNowMs() - 6048e5).toISOString())}&timeMax=${encodeURIComponent(new Date(appNowMs() + 7776e6).toISOString())}`,
     data = null;
   try {
     data = await gcFetch(url);
@@ -109650,6 +109938,7 @@ async function gsCal(first) {
           status: a.responseStatus,
         })),
         organizer: (ev.organizer || {}).email || "",
+        source: gcIsDemo() ? "demo" : "google",
         at: appNowIso(),
       };
       i >= 0 ? (DB.calendar.external[i] = rec) : (DB.calendar.external.push(rec), fresh.push(rec));
@@ -109682,6 +109971,7 @@ async function gsDrive(first) {
           link: f.webViewLink,
           size: +f.size || 0,
           by: ((f.owners || [])[0] || {}).displayName || "",
+          source: gcIsDemo() ? "demo" : "google",
           at: appNowIso(),
         };
       (rec.route = gsRouteFile(rec)), i >= 0 ? (DB.gdrive[i] = rec) : (DB.gdrive.push(rec), fresh.push(rec));
@@ -109706,8 +109996,31 @@ function gsRouteFile(f) {
         .toLowerCase()
         .split(/\s*&\s*|\s+and\s+/)
         .some((q) => q.length > 3 && n.includes(q.trim())),
-    );
-  return { projectId: p ? p.id : "", clientId: c ? c.id : "" };
+    ),
+    // A vendor's name in the file name routes it to the vendor (a COI, a W-9, a quote).
+    v = (DB.vendors || []).find((x) => {
+      const k = String(x.name || "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, " ")
+        .trim();
+      return k.length > 3 && n.replace(/[^a-z0-9]+/g, " ").includes(k);
+    }),
+    kind = /\bcoi\b|certificate|insurance/.test(n)
+      ? "coi"
+      : /w-?9/.test(n)
+        ? "w9"
+        : /statement/.test(n) && /amex|chase|card|bank|\d{4}/.test(n)
+          ? "statement"
+          : /transcript|notes/.test(n)
+            ? "transcript"
+            : /invoice|bill\b/.test(n)
+              ? "invoice"
+              : /\b[a-z]-?\d{3}\b|drawing|plan|set\b|\.dwg|\.rvt/.test(n)
+                ? "drawing"
+                : /proposal|quote|estimate/.test(n)
+                  ? "proposal"
+                  : "";
+  return { projectId: p ? p.id : "", clientId: c ? c.id : "", vendorId: v && !c ? v.id : "", kind: kind };
 }
 async function gsRun(opts) {
   const o = opts || {};
@@ -109820,6 +110133,11 @@ async function gaSend(draftId) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ id: draftId }),
   });
+  // The draft the pull already holds is now sent: the local copy says so without waiting for a re-pull.
+  try {
+    const c = r && (DB.comms || []).find((x) => x.msgId === r.id);
+    c && ((c.labels = r.labelIds || ["SENT"]), (c.direction = "out"), (c.sentAt = appNowIso()), save());
+  } catch (e) {}
   return paDid("Sent the message you approved", "you pressed send on it", null), r;
 }
 async function gaLabel(msgId, add, remove) {
@@ -109881,7 +110199,7 @@ async function gaBook(o) {
     );
   return paDid(`Booked ${o.title}`, o.why || "you approved it", null), r;
 }
-function gaFile(rec, projectId, clientId) {
+function gaFile(rec, projectId, clientId, vendorId) {
   DB.files = DB.files || [];
   const f = {
     id: uid("f"),
@@ -109891,6 +110209,7 @@ function gaFile(rec, projectId, clientId) {
     mime: rec.mime,
     projectId: projectId || "",
     clientId: clientId || "",
+    vendorId: vendorId || "",
     at: today(),
     by: paMe().name,
     source: "drive",
@@ -109900,7 +110219,11 @@ function gaFile(rec, projectId, clientId) {
     DB.files.push(f),
     (rec.filed = f.id),
     save(),
-    paDid(`Filed ${rec.name}`, "it names the job, so it belongs on the job", { view: "files" }),
+    paDid(
+      `Filed ${rec.name}`,
+      vendorId ? "it is the vendor's paperwork, so it belongs on the vendor" : "it names the job, so it belongs on the job",
+      { view: vendorId ? "vendors" : "files" },
+    ),
     f
   );
 }
@@ -109919,11 +110242,16 @@ function gcHtml() {
     others = Object.keys(DB.conn || {}).filter((k) => k !== me.id && (DB.conn[k] || {}).google).length,
     counts = (g && g.counts) || {},
     why = gcBlocked ? GC_WHY[gcBlocked] : cfg.clientId ? "" : GC_WHY.noclient;
-  return `<div class="ph"><div><h2>Connections</h2><div class="lead">Your assistant reads what you connect here and keeps checking it. Each person connects their own account — what arrives in your mail is yours, and nobody else's assistant can read it.</div></div></div>\n  <div class="gc">\n    <div class="card gc-acct"><div class="hd"><h3>Google — ${esc(me.name)}</h3><span class="grow"></span>\n      ${g && g.email ? `<span class="gc-dot on"></span><span class="small">${esc(g.email)}</span>` : '<span class="gc-dot"></span><span class="small muted">Not connected</span>'}</div>\n      <div class="bd">\n        ${g && g.email ? `\n          <div class="gc-stat">\n            <div><span>Last checked</span><b>${esc(gsAgo(g.lastSync))}</b></div>\n            <div><span>Mail held</span><b>${counts.mail || 0}</b></div>\n            <div><span>Calendar entries</span><b>${counts.events || 0}</b></div>\n            <div><span>Documents</span><b>${counts.files || 0}</b></div>\n          </div>\n          ${g.lastError ? `<div class="gc-err">${esc(g.lastError)}</div>` : ""}\n          <label class="gc-auto"><input type="checkbox" id="gc-auto" ${!1 !== g.auto ? "checked" : ""}> Keep checking on its own while the app is open</label>\n          <div class="gc-always ${(g.server || {}).watching ? "on" : ""}">\n            <span class="gc-dot${(g.server || {}).watching ? " on" : ""}"></span>\n            ${(g.server || {}).watching ? "<b>Watching when nobody is looking.</b> The firm's own server checks every fifteen minutes through the working day and leaves what matters in your conversation, so it is waiting for you when you open the app." : gcServerOn() ? '<b>Only while this is open.</b> <button class="btn sm" id="gc-always">Keep Watching When It Is Closed</button>' : "<b>Only while this is open.</b> Checking when the app is shut needs the hosted copy — there is nowhere for a server to run from here."}\n          </div>\n          <div class="gc-acts"><button class="btn sm" id="gc-now">Check Now</button><button class="btn sm" id="gc-off">Disconnect</button></div>\n        ` : `\n          <p class="small">Connecting signs you in to Google in a window from Google itself. This app never sees your password, and the key it gets back is held for this browser session only — it is not written into the saved data or carried into a backup.</p>\n          ${why ? `<div class="gc-err">${esc(why)}</div>` : ""}\n          <button class="btn" id="gc-go" ${cfg.clientId ? "" : "disabled"}>Connect My Google Account</button>\n        `}\n        <div class="gc-what">${GC_WHAT.map(([k, d]) => `<div><b>${k}</b><span>${esc(d)}</span></div>`).join("")}</div>\n        <div class="small muted gc-note">It writes drafts and holds time on its own. It sends an email or books a meeting only when you press the button on it — nothing in the checking loop can send anything.</div>\n      </div></div>\n    ${others ? `<div class="small muted gc-others">${others} other ${1 === others ? "person has" : "people have"} connected their own account. You cannot see theirs and they cannot see yours.</div>` : ""}\n    ${gcSetupHtml()}\n  </div>`;
+  const demo = !!(g && g.demo),
+    canDemo = "function" == typeof gcDemoAvailable && gcDemoAvailable(),
+    loaded = "function" == typeof dwLoadedFor && dwLoadedFor(),
+    demoName = demo ? (g.loaded ? "Loaded Workspace" : "Demo Workspace") : loaded ? "Loaded Workspace" : "Demo Workspace";
+  return `<div class="ph"><div><h2>Connections</h2><div class="lead">Your assistant reads what you connect here and keeps checking it. Each person connects their own account — what arrives in your mail is yours, and nobody else's assistant can read it.</div></div></div>\n  <div class="gc">\n    <div class="card gc-acct"><div class="hd"><h3>${demo ? demoName : "Google"} — ${esc(me.name)}</h3><span class="grow"></span>\n      ${g && g.email ? `<span class="gc-dot on"></span><span class="small">${esc(g.email)}${demo ? " · invented mailbox, calendar and drive" : ""}</span>` : '<span class="gc-dot"></span><span class="small muted">Not connected</span>'}</div>\n      <div class="bd">\n        ${g && g.email ? `\n          ${demo ? `<p class="small">${g.loaded ? "This is a Loaded Workspace: a mailbox, calendar and drive loaded for this session from a file" : "This is the Demo Workspace: an invented mailbox, calendar and drive for your role"}, served through the same code real Google uses. Nothing it writes leaves this app.</p>` : ""}\n          <div class="gc-stat">\n            <div><span>Last checked</span><b>${esc(gsAgo(g.lastSync))}</b></div>\n            <div><span>Mail held</span><b>${counts.mail || 0}</b></div>\n            <div><span>Calendar entries</span><b>${counts.events || 0}</b></div>\n            <div><span>Documents</span><b>${counts.files || 0}</b></div>\n          </div>\n          ${g.lastError ? `<div class="gc-err">${esc(g.lastError)}</div>` : ""}\n          <label class="gc-auto"><input type="checkbox" id="gc-auto" ${!1 !== g.auto ? "checked" : ""}> Keep checking on its own while the app is open</label>\n          <div class="gc-always ${(g.server || {}).watching ? "on" : ""}">\n            <span class="gc-dot${(g.server || {}).watching ? " on" : ""}"></span>\n            ${demo ? `<b>Checked every ${esc(String(Math.max(2, +(g.every || cfg.every || 5))))} minutes while this is open.</b> The hosted watcher ran every fifteen minutes through the working day; here the same timer runs in the browser, and Sync Now runs it at once.` : (g.server || {}).watching ? "<b>Watching when nobody is looking.</b> The firm's own server checks every fifteen minutes through the working day and leaves what matters in your conversation, so it is waiting for you when you open the app." : gcServerOn() ? '<b>Only while this is open.</b> <button class="btn sm" id="gc-always">Keep Watching When It Is Closed</button>' : "<b>Only while this is open.</b> Checking when the app is shut needs the hosted copy — there is nowhere for a server to run from here."}\n          </div>\n          <div class="gc-acts"><button class="btn sm" id="gc-now">Sync Now</button><button class="btn sm" id="gc-off">Disconnect</button></div>\n        ` : `\n          <p class="small">Connecting signs you in to Google in a window from Google itself. This app never sees your password, and the key it gets back is held for this browser session only — it is not written into the saved data or carried into a backup.</p>\n          ${why ? `<div class="gc-err">${esc(why)}</div>` : ""}\n          <button class="btn" id="gc-go" ${cfg.clientId ? "" : "disabled"}>Connect My Google Account</button>\n          ${!cfg.clientId && canDemo ? `<div class="gc-demo"><b>${demoName}</b><span class="small">${loaded ? "A mailbox, calendar and drive loaded for this session from a file, served through the same code real Google uses." : "An invented mailbox, calendar and drive for your role, served through the same code real Google uses, so the assistant, the inbox routing, the meeting notes, the filing and the brain can be tried without a real account. Nothing in it is real."}</span><button class="btn sm" id="gc-demo">Connect ${demoName}</button></div>` : ""}\n        `}\n        <div class="gc-what">${GC_WHAT.map(([k, d]) => `<div><b>${k}</b><span>${esc(d)}</span></div>`).join("")}</div>\n        <div class="small muted gc-note">It writes drafts and holds time on its own. It sends an email or books a meeting only when you press the button on it — nothing in the checking loop can send anything.</div>\n      </div></div>\n    ${others ? `<div class="small muted gc-others">${others} other ${1 === others ? "person has" : "people have"} connected their own account. You cannot see theirs and they cannot see yours.</div>` : ""}\n    ${gcSetupHtml()}\n  </div>`;
 }
 function gcWire(host) {
   const q = (s) => host.querySelector(s);
   q("#gc-go") && (q("#gc-go").onclick = () => gcConnect()),
+    q("#gc-demo") && (q("#gc-demo").onclick = () => gcDemoConnect()),
     q("#gc-off") &&
       (q("#gc-off").onclick = () => {
         appConfirm("Disconnect this account? What it pulled in for you is removed with it.") &&
@@ -109931,9 +110259,9 @@ function gcWire(host) {
       }),
     q("#gc-now") &&
       (q("#gc-now").onclick = () => {
-        toast("Checking…"),
+        toast("Syncing…"),
           gsRun({}).then((d) => {
-            d && toast(gcSummary(d));
+            d && toast(gcSummary(d), gcOpen("pa"));
           });
       }),
     q("#gc-auto") &&
@@ -109958,6 +110286,15 @@ function gcWire(host) {
           render();
       });
 }
+// An Open link for a toast: {label, run}, the shape toast() reads.
+const gcOpen = (v, label) => [
+  {
+    label: label || "Open",
+    run: () => {
+      (view = v), render();
+    },
+  },
+];
 const gcSummary = (d) => {
   const b = [
     d.mail.length ? `${d.mail.length} new message${1 === d.mail.length ? "" : "s"}` : "",
@@ -110162,7 +110499,9 @@ function paWatch(delta) {
     made.push(
       paNudge(
         `${who} wrote about ${m.subject || "something"}.`,
-        `I brought this to you because it names ${S.term || "something you are working on"} — ${S.why}${bits.length ? `, and ${bits.join(" and ")}` : ""}.`,
+        S.term
+          ? `I brought this to you because it names ${S.term} — ${S.why}${bits.length ? `, and ${bits.join(" and ")}` : ""}.`
+          : `I brought this to you because ${bits.length ? bits.join(" and ") : "it reads like your work"}.`,
         { kind: "mail", id: m.msgId, commId: c ? c.id : "" },
         S.why,
       ),
@@ -110183,14 +110522,34 @@ function paWatch(delta) {
         );
     }),
     (delta.files || []).forEach((f) => {
-      const r = f.route || {};
+      const r = f.route || {},
+        v = r.vendorId && (DB.vendors || []).find((x) => x.id === r.vendorId),
+        fin = ["owner", "controller", "billing"].includes(String(paMe().role || ""));
+      if (v && ("coi" === r.kind || "w9" === r.kind))
+        return void made.push(
+          paNudge(
+            `${f.name} landed in Drive.`,
+            `It is ${v.name}'s ${"w9" === r.kind ? "W-9" : "certificate of insurance"}${v.insuranceExp && v.insuranceExp < today() && "coi" === r.kind ? `, and their certificate on file expired ${fmtL(v.insuranceExp)} — it is blocking payment` : ""}. It belongs on the vendor, with the expiry read off it.`,
+            { kind: "file", id: f.id },
+            "a vendor's paperwork",
+          ),
+        );
+      if ("statement" === r.kind && fin)
+        return void made.push(
+          paNudge(
+            `${f.name} landed in Drive.`,
+            "A card or bank statement. Bank › Import reads it line by line and marks what is already in the books.",
+            { kind: "file", id: f.id },
+            "the books",
+          ),
+        );
       if (!r.projectId && !r.clientId) return;
       const p = (DB.projects || []).find((x) => x.id === r.projectId);
       (p && !paMine().projects.some((x) => x.id === p.id)) ||
         made.push(
           paNudge(
             `${f.name} landed in Drive.`,
-            `It names ${p ? String(p.project.name).replace(/ —.*$/, "") : "a client of yours"}, so it belongs on that job rather than loose in a folder.`,
+            `It names ${p ? String(p.project.name).replace(/ —.*$/, "") : "a client of yours"}${"drawing" === r.kind ? " and reads like a drawing" : ""}, so it belongs on that job rather than loose in a folder.`,
             { kind: "file", id: f.id },
             "a job you run",
           ),
@@ -110209,8 +110568,7 @@ function paRefOffers(ref) {
       csOffer({
         id: "pa-reply",
         label: "Draft the Reply",
-        detail:
-          "Written in your voice into your own Gmail drafts, on the same thread. Nothing sends until you open it and press send.",
+        detail: `Written in your voice into your own ${gcMailName()} drafts, on the same thread. Nothing sends until you open it and press send.`,
         run: async () => {
           try {
             const to = (c.from || {}).email || "",
@@ -110222,7 +110580,7 @@ function paRefOffers(ref) {
               threadId: c.threadId,
               why: `${(c.from || {}).name || to} asked and it touches your work`,
             }),
-              toast("Drafted in your Gmail — open it, read it, send it");
+              toast(`Drafted in your ${gcMailName()} — open it, read it, send it`);
           } catch (e) {
             toast("Could not write the draft — " + e.message);
           }
@@ -110313,14 +110671,52 @@ function paRefOffers(ref) {
   if ("file" === ref.kind) {
     const f = (DB.gdrive || []).find((x) => x.id === ref.id);
     if (!f || f.filed) return out;
-    const r = f.route || {};
+    const r = f.route || {},
+      v = r.vendorId && (DB.vendors || []).find((x) => x.id === r.vendorId);
+    if (v && "coi" === r.kind)
+      return (
+        out.push(
+          csOffer({
+            id: "pa-filecoi",
+            label: `File It On ${v.name} and Set the Expiry`,
+            detail: `Linked on the vendor. I read the policy period off the certificate and set the insurance expiry from it${v.insuranceExp && v.insuranceExp < today() ? ", which clears the block on paying them" : ""}.`,
+            run: async () => {
+              let txt = "";
+              try {
+                txt = await gcDocText(f);
+              } catch (e) {}
+              const exp = "function" == typeof cmCoiExpiry ? cmCoiExpiry(txt) : "";
+              gaFile(f, r.projectId, r.clientId, v.id),
+                exp && ((v.insuranceExp = exp), (v.coiReceivedAt = today()), save()),
+                toast(exp ? `Filed on ${v.name} — insurance now expires ${fmtL(exp)}` : `Filed on ${v.name}`, gcOpen("vendors")),
+                render();
+            },
+          }),
+        ),
+        out
+      );
+    if (v)
+      return (
+        out.push(
+          csOffer({
+            id: "pa-filevendor",
+            label: `File It On ${v.name}`,
+            detail: "Linked, not copied — the document stays where it is in Drive and the vendor points at it.",
+            run: () => {
+              gaFile(f, r.projectId, r.clientId, v.id), toast(`Filed on ${v.name}`, gcOpen("vendors")), render();
+            },
+          }),
+        ),
+        out
+      );
+    if (!r.projectId && !r.clientId) return out;
     out.push(
       csOffer({
         id: "pa-filedrive",
         label: "File It On the Job",
         detail: "Linked, not copied — the document stays where it is in Drive and the job points at it.",
         run: () => {
-          gaFile(f, r.projectId, r.clientId), toast("Filed on the job"), render();
+          gaFile(f, r.projectId, r.clientId), toast("Filed on the job", gcOpen("files")), render();
         },
       }),
     );
@@ -110421,7 +110817,19 @@ if ("function" == typeof paAsk) {
                     (view = "conn"), render();
                   },
                 }),
-              ],
+              ].concat(
+                "function" == typeof gcDemoAvailable && gcDemoAvailable() && !gcCfg().clientId
+                  ? [
+                      csOffer({
+                        id: "pa-demo",
+                        label: `Connect the ${"function" == typeof dwLoadedFor && dwLoadedFor() ? "Loaded Workspace" : "Demo Workspace"}`,
+                        detail:
+                          "An invented mailbox, calendar and drive for your role, read through the same code real Google uses. Nothing in it is real.",
+                        run: () => gcDemoConnect(),
+                      }),
+                    ]
+                  : [],
+              ),
             });
       const need = M.filter(paNeedsReply).slice(0, 8),
         w = need.map(
@@ -111237,7 +111645,7 @@ function eqTxns() {
 }
 const eqOwnOk = (r) =>
   !(
-    (r && "google" === r.source && r.owner && r.owner !== paMe().id) ||
+    (r && ("google" === r.source || "demo" === r.source) && r.owner && r.owner !== paMe().id) ||
     (r && r.owner && r.owner !== paMe().id && /^g_/.test(String(r.id || "")))
   );
 function eqMessages() {
@@ -112536,6 +112944,11 @@ async function gdocText(bytes, mime, name) {
 }
 async function gcDocText(f) {
   if (gdocCache[f.fileId]) return gdocCache[f.fileId];
+  if (gcIsDemo()) {
+    // The Demo Workspace answers files.get with the file's text in place of bytes (doctext.mjs was lost).
+    const j = await gsFetchDemo(`https://www.googleapis.com/drive/v3/files/${f.fileId}?alt=media`, {});
+    return (gdocCache[f.fileId] = String((j && j.text) || "")), gdocCache[f.fileId];
+  }
   const token = gcToken();
   if (!token) throw new Error("not connected");
   const exp = GDOC_EXPORT[f.kind || f.mime],
@@ -112551,8 +112964,10 @@ async function gcDocText(f) {
 async function gcAttachText(at) {
   const key = `${at.msgId}:${at.attachmentId}`;
   if (gdocCache[key]) return gdocCache[key];
-  const j = await gcFetch(`/gmail/v1/users/me/messages/${at.msgId}/attachments/${at.attachmentId}`),
-    raw = String(j.data || "")
+  const j = await gcFetch(`/gmail/v1/users/me/messages/${at.msgId}/attachments/${at.attachmentId}`);
+  // A demo attachment carries its extracted text (the server-side PDF reader was lost); use it directly.
+  if (j && "string" == typeof j.text) return (gdocCache[key] = j.text), j.text;
+  const raw = String(j.data || "")
       .replace(/-/g, "+")
       .replace(/_/g, "/"),
     bin = atob(raw),
@@ -163358,5 +163773,1049 @@ document.addEventListener("scroll", tdScrolled, { passive: !0, capture: !0 });
       console.warn("phone chrome", e);
     }
     return r;
+  };
+}
+// ---------------------------------------------------------------------------------------------------------
+// demows: the Demo Workspace. An invented Google-shaped workspace (mailbox, calendar, drive) per app user,
+// served through the SAME code paths real Google uses. gcFetch hands every request to gsFetchDemo when the
+// user's connection is the demo (DB.conn[uid].google.demo), so gsGmail / gsCal / gsDrive pull from it with
+// their cursors, gaDraft / gaSend / gaHold / gaBook write into it, gcDocText / gcAttachText read its files,
+// and every watcher, router, nudge, draft, filing and lesson runs on it exactly as it would on Google.
+// Everything in it is invented. Dates are relative to the app clock (today(), 2026-09-03); never the wall
+// clock. The hosted server half of Google (assistant-watch every 15 minutes, doctext.mjs for PDFs) was
+// lost: the browser's gsTimer stands in for the watcher, and each PDF carries its text in `text` so the
+// browser can read it without a server. Real Google is untouched: a real token never reaches this code.
+// Connecting is explicit and per user (Settings › Connections › Connect Demo Workspace, or
+// gcDemoConnect()); a boot adds nothing. The client role has no workspace.
+// ---------------------------------------------------------------------------------------------------------
+const DEMO_WS = {},
+  DW_DOMAIN = "smartdesign.nyc",
+  DW_STAFF = {
+    u_owner: ["Alan Mishali", "alan@" + DW_DOMAIN],
+    u_alan: ["Alan", "alan.pm@" + DW_DOMAIN],
+    u_chen: ["Chen Biron", "chen@" + DW_DOMAIN],
+    u_angel: ["Angel", "angel@" + DW_DOMAIN],
+    u_sarah: ["Sarah Davis", "sarah@" + DW_DOMAIN],
+    u_billing: ["Billing", "billing@" + DW_DOMAIN],
+    u_controller: ["Controller", "controller@" + DW_DOMAIN],
+    u_alberto: ["Alberto", "alberto@" + DW_DOMAIN],
+    u_alex: ["Alex", "alex@" + DW_DOMAIN],
+  },
+  DW_P = {
+    sklein: "Sarah Klein <sarah.klein@example.com>",
+    dklein: "David Klein <david.klein@example.com>",
+    rivera: "Elena Rivera <elena.rivera@example.com>",
+    cambri: "Cambri Jessop <cambri@example.com>",
+    jaleena: "Jaleena Jessop <jaleena@example.com>",
+    lenox: "Lenox Coffee Co. <manager@lenoxcoffee.example>",
+    ww: "Window Works <quotes@windowworks.example>",
+    amp: "Alberto M Plumbing <office@albertomplumbing.example>",
+    cm: "Carlos Millwork <carlos@carlosmillwork.example>",
+    tino: "Tino <orders@tino.example>",
+    nemo: "Nemo Tile <sales@nemotile.example>",
+    bed: "Bedrosians <orders@bedrosians.example>",
+    pe: "Priya Natarajan, PE <pn@natarajanstructural.example>",
+    exp: "Metro Expediting <filings@metroexpediting.example>",
+    dob: "DOB NOW <donotreply@dobnow.example>",
+    lpc: "LPC Staff <noreply@lpc.example>",
+    posh: "Answering service <noreply@poshanswering.example>",
+    hd: "Home Depot Pro <noreply@homedepot.example>",
+    news: "Stoop and Cornice Weekly <news@stoopandcornice.example>",
+    promo: "ToolPro Deals <promo@toolpro.example>",
+    bell: "Marcus Bell <marcus.bell@example.com>",
+    adler: "Sofia Adler <sofia.adler@example.com>",
+    broker: "Harbor Insurance Brokers <certs@harborins.example>",
+    meet: "Meeting notes <notes@meet.example>",
+    jeanette: "Jeanette Hernandez <jeanette@" + DW_DOMAIN + ">",
+    maya: "Maya <maya@" + DW_DOMAIN + ">",
+    amex: "American Express <noreply@amex-statements.example>",
+  },
+  dwAddr = (uid) => `${DW_STAFF[uid][0]} <${DW_STAFF[uid][1]}>`,
+  dwB64 = (t) => {
+    try {
+      return btoa(unescape(encodeURIComponent(String(t || ""))))
+        .replace(/\+/g, "-")
+        .replace(/\//g, "_")
+        .replace(/=+$/, "");
+    } catch (e) {
+      return "";
+    }
+  },
+  dwUnB64 = (d) => {
+    try {
+      return decodeURIComponent(escape(atob(String(d || "").replace(/-/g, "+").replace(/_/g, "/"))));
+    } catch (e) {
+      return "";
+    }
+  };
+// The firm has a Demo Workspace for these personas; the client role has none.
+function gcDemoAvailable(uid) {
+  return !!DW_STAFF[uid || paMe().id] || ("object" == typeof DW_ATTACHED && !!DW_ATTACHED[uid || paMe().id]);
+}
+// ---- the invented documents: a PDF's extractable text, as doctext.mjs would have returned it ------------
+const DW_DOCS = {
+  cmInvoice: () =>
+    "CARLOS MILLWORK INC\n14 Scott Avenue, Brooklyn NY\nInvoice No. CM-0102\nDate: 09/01/2026\nBill To: SmartDesign Group LLC\nJob: 121 State Street, Brooklyn — parlor kitchen and laundry millwork\nAgainst PO-2026-048 (per approved shop drawings)\n\nProgress billing — shop drawings approved, lumber and veneer purchased, carcasses cut   $19,000.00\n\nAmount Due: $19,000.00\nTerms: net 15. Due September 16, 2026\nRemit by ACH to the account on file. Thank you.",
+  ampInvoice: () =>
+    "ALBERTO M PLUMBING LLC\nLicensed Master Plumber\nInvoice No. AMP-318\nDate: 09/02/2026\nBill To: SmartDesign Group LLC\nJob: 121 State Street — garden bath rough plumbing\n\nRough-in supply and waste, garden bath, per plan P-101   $4,600.00\n\nAmount Due: $4,600.00\nDue September 17, 2026",
+  wwCoi: () =>
+    "CERTIFICATE OF LIABILITY INSURANCE\nDate: 08/20/2026\nProducer: Harbor Insurance Brokers\nInsured: Window Works LLC, 88 Kent Avenue, Brooklyn NY\nCertificate holder: SmartDesign Group LLC\n\nCommercial General Liability — Policy GL-7731-2026 — Policy Period 08/15/2026 to 08/15/2027\nEach occurrence $1,000,000 · General aggregate $2,000,000\nWorkers Compensation — Policy WC-2210-2026 — Policy Period 08/15/2026 to 08/15/2027\nDescription of operations: window fabrication and installation, 121 State Street, Brooklyn. Certificate holder is named additional insured.",
+  ampCoi: () =>
+    "CERTIFICATE OF LIABILITY INSURANCE\nDate: 08/28/2026\nInsured: Alberto M Plumbing LLC\nCertificate holder: SmartDesign Group LLC\nCommercial General Liability — Policy Period 12/31/2025 to 12/31/2026\nWorkers Compensation — Policy Period 12/31/2025 to 12/31/2026\nDescription of operations: plumbing, 121 State Street, Brooklyn.",
+  nemoQuote: () =>
+    "NEMO TILE + STONE\nQuote Q-2271\nDate: 09/02/2026\nTo: SmartDesign Group LLC — Chen Biron\nJob: 121 State St, Brooklyn — garden bath\n\nCarrara 2x2 mosaic, floor, 48 sf + 10% waste   $864.00\nWhite 3x6 subway, walls, 192 sf + 10% waste   $1,536.00\nSchluter edge, thinset, grout   $480.00\n\nQuote total: $2,880.00\nLead time: 10 working days from deposit. Price holds 30 days.",
+  bedQuote: () =>
+    "BEDROSIANS TILE & STONE\nQuote BQ-55810\nTo: SmartDesign — Sarah Davis\nJob: 140 Prospect Place — kitchen backsplash\nZellige 4x4, weathered white, 62 sf + 15% waste   $2,170.00\nQuote total: $2,170.00\nLead time: 4 weeks from order. Samples shipped 9/1.",
+  amexStatement: () =>
+    "AMERICAN EXPRESS — BUSINESS PLATINUM CARD\nAccount ending 1009 · SmartDesign Group LLC\nStatement closing date: 08/31/2026\nPrevious balance $31,334.82\nPayments and credits -$31,334.82\nNew charges $14,862.10\nNew balance $14,862.10\nPayment due 09/25/2026\n\n08/14  HOME DEPOT #6166 BROOKLYN NY   $1,287.44\n08/18  NYC DEPT OF BUILDINGS   $1,425.00\n08/25  BEDROSIANS TILE CREDIT MEMO   -$214.50\n08/31  HOUSE OF ANTIQUE HDW CREDIT   -$125.80\n09/01  TINO FLOORING WHITE OAK 5IN   $8,000.00\n09/02  WATERWORKS SHOWROOM SOHO   $1,900.00\n09/02  AMAZON MKTPLACE 2X HEAT MAT THERMOSTAT   $389.99\n09/02  SQ *BROOKLYN LUMBER   $2,140.50",
+  flitch: () =>
+    "NATARAJAN STRUCTURAL ENGINEERING PLLC\n45 Cranberry Street, Brooklyn — parlor floor opening\nFlitch beam calculation, rev 1, 09/01/2026\nBeam FB-1: (2) 2x12 LVL with 1/2 inch x 11 inch A36 steel plate, through-bolted 5/8 inch at 16 inches staggered.\nSpan 14 ft 2 in. Load: parlor floor plus partition above. Bearing: 4x4 steel post to the rear wall footing.\nShop drawings from the fabricator require the engineer's stamp before fabrication.",
+  a301: () =>
+    "SMARTDESIGN · 121 STATE STREET · A-301 STAIR SECTION · REV 2 · 09/02/2026\nSection A — garden to parlor stair. Rise 7 3/8, run 10, 14 risers. Guard 36 in. Handrail 34–38 in.\nRevision 2: landing widened to 42 in per the site walk 09/01; flitch header at the opening per S-101.",
+  s101: () =>
+    "SMARTDESIGN · 45 CRANBERRY STREET · S-101 FLITCH BEAM PLAN · 08/31/2026\nFB-1 at the parlor opening per Natarajan Structural rev 1. Steel post P-1 at the rear wall. Temporary shoring both floors during the cut.",
+  transcript: () =>
+    "Transcript — 121 State St site walk — Tuesday September 1, 2026, 2:00 PM\nPresent: Alan (PM), Sarah Davis, Chen Biron, Angel, Sarah Klein, David Klein\n\nAlan: Let's start at the stair. The landing is tight at 36; the Kleins want it wider.\nSarah Klein: We would like 42 if the structure allows it.\nSarah Davis: It does if the flitch header carries the opening. I'll send the revised drawings Friday — A-301 with the landing at 42.\nChen Biron: The 3rd floor tile — I will confirm with Nemo that the new selection is in stock by Thursday.\nAngel: Rough plumbing in the garden bath finishes Wednesday. We need the inspection the week of the 14th.\nAlan: I'll book the DOB rough plumbing inspection for the week of September 14.\nDavid Klein: On the invoice — we paid Tuesday, check 2214, so that should be with you.\nAlan: Thank you, Billing will confirm when it clears.\nSarah Klein: And the garden kitchen backsplash — we are going with the honed Calacatta.\nSarah Davis: Noted, that closes the backsplash decision.",
+  proposalBell: () =>
+    "SMARTDESIGN — DESIGN-BUILD PROPOSAL\n77 Bleecker Street 3F — kitchen, two baths and finishes\nPrepared for Marcus Bell · August 20, 2026\nDesign phase: $18,500. Construction, allowance-based: $212,000–$238,000. Twelve weeks on site after permits.",
+  notesDoc: () =>
+    "Notes — 121 State St - Site Walk — Sep 1, 2026\nSummary: landing widened to 42 inches pending the revised A-301; 3rd floor tile stock to be confirmed; DOB rough plumbing inspection to be booked for the week of September 14; the Kleins approved honed Calacatta for the garden kitchen backsplash; check 2214 for invoice 2 said to be in the mail.\nNext steps: Sarah Davis sends the revised A-301 by Friday. Chen Biron confirms tile stock by Thursday. Alan books the rough inspection.",
+};
+// The meeting-notes email, in the shape the notes assistant sends and mtParseEmail reads.
+function dwNotesBody() {
+  return (
+    "Notes from “121 State St - Site Walk”\n\nSummary\nSite walk at 121 State with the Kleins: the garden-to-parlor stair landing goes to 42 inches if the flitch header carries the opening; the new 3rd floor tile selection needs a stock check with Nemo Tile; rough plumbing in the garden bath finishes Wednesday and the DOB rough inspection is wanted the week of September 14; the Kleins approved honed Calacatta for the garden kitchen backsplash; David Klein said check 2214 for invoice 2 went out Tuesday.\n\nStair Landing\nThe landing at 36 inches is tight. Widening to 42 inches depends on the flitch header at the opening. Sarah Davis will revise A-301 and send it by Friday.\n\nTile Stock\nThe new 3rd floor tile selection must be confirmed in stock before the order is placed. Vendor dates are confirmed in writing before the schedule relies on them.\n\nInspections\nRough plumbing in the garden bath finishes Wednesday; the DOB rough plumbing inspection is wanted the week of September 14.\n\nSuggested next steps\n\n[Sarah Davis] Send Revised Drawings: Send the revised A-301 stair section with the 42 inch landing to the Kleins by Friday.\n\n[Chen Biron] Confirm Tile Stock: Confirm the new 3rd floor tile selection is in stock with Nemo Tile by Thursday.\n\n[Alan] Book Rough Inspection: Book the DOB rough plumbing inspection for the week of September 14.\n\n[Angel] Finish Garden Bath Rough: Finish the garden bath rough plumbing by Wednesday so the inspection can be booked.\n\nMeeting records Document Notes"
+  );
+}
+// ---- building a persona's workspace -------------------------------------------------------------------
+function demoWsBuild(uid) {
+  const td = today(),
+    me = dwAddr(uid),
+    [myName, myEmail] = DW_STAFF[uid],
+    role = String(((DB.users || []).find((u) => u.id === uid) || {}).role || ""),
+    // Day offsets from the app day; a time of day; an ISO stamp on the app clock.
+    at = (day, hm) => `${iso(addDays(td, day))}T${hm || "09:00"}:00`,
+    ms = (day, hm) => new Date(at(day, hm)).getTime(),
+    W = { email: myEmail, name: myName, messages: [], drafts: [], events: [], files: [], historyId: 100, nextId: 1 },
+    pdf = (name, key) => ({ filename: name, mime: "application/pdf", text: DW_DOCS[key]() }),
+    // A message. from/to/cc are "Name <email>" strings; SENT when it is from me.
+    M = (day, hm, from, to, subject, body, o) => {
+      o = o || {};
+      const mine = String(from).includes(myEmail),
+        id = `dwm_${uid}_${W.nextId++}`,
+        thread = `dwt_${uid}_${o.thread || id}`,
+        labels = o.labels || (mine ? ["SENT"] : ["INBOX", "UNREAD"]);
+      return (
+        W.messages.push({
+          id: id,
+          threadId: thread,
+          labelIds: labels,
+          internalDate: ms(day, hm),
+          historyId: ++W.historyId,
+          headers: {
+            From: from,
+            To: [].concat(to).join(", "),
+            Cc: [].concat(o.cc || []).join(", "),
+            Subject: subject,
+            Date: new Date(ms(day, hm)).toUTCString(),
+          },
+          body: body,
+          attachments: (o.att || []).map((a, i) => ({
+            id: `dwa_${id}_${i}`,
+            filename: a.filename,
+            mime: a.mime || "application/pdf",
+            size: 40000 + 100 * (a.text || "").length,
+            text: a.text || "",
+          })),
+        }),
+        id
+      );
+    },
+    // A calendar event (minutes long) or an all-day one.
+    E = (day, hm, mins, title, o) => {
+      o = o || {};
+      const id = `dwe_${uid}_${W.events.length + 1}`,
+        start = ms(day, hm),
+        ev = {
+          id: id,
+          status: "confirmed",
+          summary: title,
+          description: o.desc || "",
+          location: o.where || "",
+          htmlLink: "",
+          updated: new Date(ms(-14, "08:00") + 36e5 * W.events.length).toISOString(),
+          organizer: { email: o.organizer || myEmail },
+          attendees: [myEmail].concat(o.who || []).map((e) => ({ email: e, responseStatus: "accepted" })),
+          transparency: o.free ? "transparent" : "opaque",
+        };
+      return (
+        o.allDay
+          ? ((ev.start = { date: iso(addDays(td, day)) }), (ev.end = { date: iso(addDays(td, day + 1)) }))
+          : ((ev.start = { dateTime: new Date(start).toISOString() }),
+            (ev.end = { dateTime: new Date(start + 6e4 * (mins || 60)).toISOString() })),
+        W.events.push(ev),
+        id
+      );
+    },
+    // A Drive file; its text stands in for its bytes.
+    F = (name, dayAgo, key, o) => {
+      o = o || {};
+      const id = `dwf_${uid}_${W.files.length + 1}`;
+      return (
+        W.files.push({
+          id: id,
+          name: name,
+          mimeType: o.mime || (/\.txt$/.test(name) ? "text/plain" : /\.gdoc$/.test(name) ? "application/vnd.google-apps.document" : "application/pdf"),
+          modifiedTime: new Date(ms(-dayAgo, o.hm || "16:00")).toISOString(),
+          size: String(60000 + 300 * (DW_DOCS[key] ? DW_DOCS[key]().length : 100)),
+          owners: [{ displayName: o.by || myName, emailAddress: o.byEmail || myEmail }],
+          webViewLink: "",
+          parents: ["dwroot_" + uid],
+          text: DW_DOCS[key] ? DW_DOCS[key]() : o.text || "",
+          trashed: !1,
+        }),
+        id
+      );
+    },
+    P = DW_P,
+    office = ["u_owner", "u_alan", "u_chen", "u_billing", "u_controller"].includes(uid),
+    pm = dwAddr("u_alan"),
+    owner = dwAddr("u_owner"),
+    chen = dwAddr("u_chen"),
+    sarah = dwAddr("u_sarah"),
+    angel = dwAddr("u_angel"),
+    billing = dwAddr("u_billing"),
+    controller = dwAddr("u_controller");
+
+  // ---- scenes shared by several personas; each writes into whoever's mailbox is being built ----
+  const scenes = {
+    kleinDecision: () =>
+      M(-1, "08:40", P.sklein, [pm, sarah], "121 State — backsplash decision and the laundry layout",
+        "Hi Alan, hi Sarah,\n\nAfter the walk on Tuesday we'd like to go with the honed Calacatta for the garden kitchen backsplash — approved, please order the slab. Also, can you confirm the laundry layout works with the 27-inch units David ordered? We need to know before Friday.\n\nThank you,\nSarah Klein",
+        { cc: [owner], thread: "klein-dec" }),
+    kleinPaid: () =>
+      M(-3, "17:10", P.dklein, [billing, pm], "Re: 121 State — invoice 2",
+        "Hi,\n\nWe paid Tuesday — check 2214 for $72,750.00 went out for invoice 2 on 121 State Street. Please confirm when it clears so we can plan the next draw.\n\nDavid Klein",
+        { thread: "klein-inv2" }),
+    jessopWire: () =>
+      M(-1, "12:30", P.jaleena, [billing, owner], "140 Prospect — design retainer",
+        "Hello,\n\nWe wired the design retainer for 140 Prospect Place yesterday — $12,000.00 from our Chase account. Let us know when it arrives.\n\nJaleena Jessop",
+        { thread: "jessop-ret" }),
+    cambriQuestion: () =>
+      M(-2, "19:05", P.cambri, [sarah], "140 Prospect — fireplace and the island",
+        "Hi Sarah,\n\nDid the chimney person come back about whether the kitchen fireplace works? It decides the island position, and we want to settle the layout at Friday's meeting. Could you send the two options before then?\n\nCambri",
+        { cc: [pm], thread: "cambri-fp" }),
+    nemoQuote: () =>
+      M(-1, "10:15", P.nemo, [chen], "Quote Q-2271 — 121 State St garden bath tile",
+        "Hi Chen,\n\nQuote attached for the garden bath at 121 State St: Carrara 2x2 mosaic floor and 3x6 subway walls, 240 sf plus 10% waste. $2,880.00 all in, 10 working days from deposit. Price holds 30 days.\n\nNemo Tile",
+        { cc: [pm], att: [pdf("Nemo-Tile-Quote-Q2271.pdf", "nemoQuote")], thread: "nemo-q" }),
+    cmInvoice: () =>
+      M(-2, "11:20", P.cm, [billing], "Invoice CM-0102 — 121 State millwork progress",
+        "Hello,\n\nProgress invoice CM-0102 attached for the 121 State millwork, against PO-2026-048. Shop drawings are approved and the lumber and veneer are in. Terms net 15.\n\nCarlos",
+        { cc: [chen], att: [pdf("Carlos-Millwork-Invoice-CM-0102.pdf", "cmInvoice")], thread: "cm-inv" }),
+    ampInvoice: () =>
+      M(-1, "07:55", P.amp, [pm], "Invoice AMP-318 — 121 State garden bath rough",
+        "Alan,\n\nInvoice attached for the garden bath rough-in at 121 State. Net 15.\n\nAlberto M Plumbing",
+        { cc: [billing], att: [pdf("AMP-318.pdf", "ampInvoice")], thread: "amp-inv" }),
+    wwCoiMail: () =>
+      M(-6, "15:30", P.broker, [chen], "Certificate of insurance — Window Works LLC",
+        "Hello,\n\nAttached is the renewed certificate for our insured Window Works LLC naming SmartDesign Group LLC as certificate holder and additional insured, for the work at 121 State Street.\n\nHarbor Insurance Brokers",
+        { cc: [billing], att: [pdf("COI-Window-Works-LLC-2026-27.pdf", "wwCoi")], thread: "ww-coi" }),
+    subConfirm: () => {
+      M(-7, "16:40", P.amp, [pm, angel], "Confirming Tuesday 7am — 121 State garden bath rough",
+        "Confirming my crew Tuesday 7am at 121 State for the garden bath rough-in. Two men, one day. Please have the wall open on the waste side.\n\nAlberto M Plumbing",
+        { thread: "amp-tue" });
+      M(-2, "07:35", angel, [pm, P.amp], "Re: Confirming Tuesday 7am — 121 State garden bath rough",
+        "Nobody showed at 7. Called the office twice, no answer. Crew is standing by on the wall. Alan, do we open the parlor floor instead or wait?",
+        { thread: "amp-tue" });
+      M(-2, "09:50", P.amp, [pm, angel], "Re: Confirming Tuesday 7am — 121 State garden bath rough",
+        "Sorry — the truck broke down on the BQE and I can't make it today. I need to reschedule to Thursday 7am, same crew. Apologies to Angel.",
+        { thread: "amp-tue" });
+    },
+    lpcBrickMold: () => {
+      M(-8, "11:05", pm, ["LPC Staff <staff@lpc.example>"], "121 State Street — brick mold profile for the window replacement",
+        "Good morning,\n\nAttached is the brick mold profile for the nine replacement windows at 121 State Street, per the approved Certificate of Appropriateness. Please confirm the 1-3/4 inch ogee is acceptable so Window Works can fabricate.\n\nThank you,\nAlan",
+        { thread: "lpc-bm" });
+      M(-1, "14:20", "LPC Staff <staff@lpc.example>", [pm], "Re: 121 State Street — brick mold profile for the window replacement",
+        "Staff reviewed the brick mold profile for 121 State Street. The 1-3/4 inch ogee is acceptable. Please revise the drawing to show the sill horn and the back band depth and resubmit; this is a staff-level approval, no hearing is needed. Mortar colour on the facade repair must match the existing sample before work starts.\n\nLPC Staff",
+        { cc: [sarah], thread: "lpc-bm" });
+    },
+    lpcHearing: () =>
+      M(-3, "09:30", P.lpc, [sarah, pm], "45 Cranberry Street — Certificate of Appropriateness — public hearing September 8",
+        "The Landmarks Preservation Commission has scheduled the public hearing for 45 Cranberry Street, Brooklyn Heights Historic District, on September 8, 2026 at 9:30 AM. The application covers the front facade windows and the stoop and areaway railing. Staff comment: the railing mock-up photographs should show the picket spacing against the historic photograph; the window drawing should call out the muntin profile.\n\nThis is an automated notice.",
+        { thread: "lpc-45" }),
+    dobInspection: () =>
+      M(-2, "06:10", P.dob, [pm], "DOB NOW: Job B01528834-I1 — inspection scheduled 09/08/2026 — 121 STATE STREET",
+        "DOB NOW Inspections\nJob B01528834-I1, 121 STATE STREET, BROOKLYN\nInspection type: Plumbing — rough\nScheduled: 09/08/2026, window 8:00 AM – 12:00 PM\nThe licensed master plumber or a representative must be on site with the approved drawings.\n\nThis is an automated message. Do not reply.",
+        { cc: [angel, chen], thread: "dob-insp" }),
+    expediter: () =>
+      M(-3, "13:45", P.exp, [pm], "121 State — plumbing supersede filed; owner's attestation needed",
+        "Alan,\n\nThe PW1 for the plumbing supersede on B01528834-I1 is filed in DOB NOW. DOB needs the owner's attestation on the supersede before it is approved — can you get Sarah Klein to sign it this week? Also the permit from the prior contractor is still open; we cannot close it until the attestation is in.\n\nMetro Expediting",
+        { cc: [owner], thread: "exp-sup" }),
+    peFlitch: () => {
+      M(-4, "10:00", sarah, [P.pe], "45 Cranberry — flitch beam calcs for the parlor opening",
+        "Hi Priya,\n\nCould you send the flitch beam calcs for the parlor floor opening at 45 Cranberry? Window Works and the fabricator are waiting on the steel plate size, and LPC has the hearing on the 8th.\n\nThanks,\nSarah Davis",
+        { cc: [pm], thread: "pe-fb" });
+      M(-2, "16:15", P.pe, [sarah], "Re: 45 Cranberry — flitch beam calcs for the parlor opening",
+        "Sarah,\n\nCalcs attached, rev 1. FB-1 is two 2x12 LVL with a 1/2 inch steel plate, through-bolted at 16 inches. Bearing wants a 4x4 steel post at the rear wall. The fabricator's shop drawings need my stamp before anything is ordered; I can turn them in 3 working days. Please have Alan confirm the temporary shoring plan for both floors.\n\nPriya",
+        { cc: [pm], att: [pdf("45-Cranberry-Flitch-Beam-Calcs-rev1.pdf", "flitch")], thread: "pe-fb" });
+    },
+    meetingNotes: (to) =>
+      M(-2, "16:35", P.meet, to, "Notes: “121 State St - Site Walk” Sep 1, 2026", dwNotesBody(), { thread: "notes-sw" }),
+    posh: (who, re) =>
+      M(-1, "15:52", P.posh, [owner], `Posh Assist from ${who}`,
+        `Caller's Full Name: ${who}\nPhone Number: (718) 555-0142\nRegarding: ${re}\nTransfer Result: Not Transferred\nReason Not Transferred: No answer on the line\nMessage taken by the answering service.`,
+        { thread: "posh-" + who.replace(/\W/g, "") }),
+    hdReceipt: () =>
+      M(-2, "17:48", P.hd, [chen], "Your Home Depot Pro receipt — $286.70",
+        "Thank you for shopping at The Home Depot Pro.\nStore 6166 Brooklyn NY · 09/01/2026 4:41 PM\n\nDECK SCREWS 3IN 5LB   $42.97\nSPF 2X4X8 BLOCKING x 24   $187.68\nCONSTRUCTION ADHESIVE x 6   $56.05\n\nTotal $286.70\nPro Xtra card ending 7720\nJob name entered at register: 121 State",
+        { thread: "hd-rcpt" }),
+    newsletter: (to) =>
+      M(-5, "07:00", P.news, [to], "This week: the stoops of Fort Greene, a cornice restored, and three open houses",
+        "Stoop and Cornice Weekly\n\nThis week we walk Fort Greene's finest stoops, visit a cornice restored in zinc, and list three open houses.\n\nRead this issue in your browser. You are receiving this because you signed up at an event.\nUnsubscribe · Update preferences",
+        { thread: "news" }),
+    promo: (to) =>
+      M(-4, "05:30", P.promo, [to], "40% off cordless tools — this week only",
+        "ToolPro Deals\n\nLimited time: 40% off all cordless tools through Sunday. Free shipping over $99.\n\nShop now. Unsubscribe.",
+        { thread: "promo" }),
+    tinoDelivery: () =>
+      M(-1, "09:05", P.tino, [chen, angel], "121 State — white oak delivery Friday Sept 18",
+        "Chen,\n\nThe white oak 5 inch for the 3rd floor at 121 State is milled. Delivery Friday September 18, truck between 8 and 11, curbside. Nine hundred square feet on four pallets; somebody has to be there to sign.\n\nTino",
+        { thread: "tino-del" }),
+    cmDelivery: () =>
+      M(-3, "08:20", P.cm, [chen, pm], "121 State — millwork delivery and elevator",
+        "Hi Chen,\n\nThe parlor kitchen carcasses deliver Friday September 18 as on the PO. We need the elevator reserved with the managing agent from 8 to 12 and the hall protected. Can you confirm by Monday?\n\nCarlos",
+        { thread: "cm-del" }),
+    bellQuiet: () =>
+      M(-12, "10:30", owner, [P.bell], "Proposal for 77 Bleecker St 3F — any questions?",
+        "Hi Marcus,\n\nThe design-build proposal for 77 Bleecker St 3F is attached: design at $18,500, construction in the $212,000–$238,000 range, twelve weeks on site after permits. Let me know if you have questions, and whether Thursday works for a call with Dana.\n\nBest,\nAlan Mishali",
+        { att: [pdf("Proposal-77-Bleecker-3F-Marcus-Bell.pdf", "proposalBell")], thread: "bell" }),
+    adlerLead: () =>
+      M(-1, "21:10", P.adler, [owner], "70 Remsen St 3 — next steps?",
+        "Hi Alan,\n\nThank you for the call. We would like an estimate for the kitchen and the two bathrooms at 70 Remsen St 3, and ideally a site visit next week — Tuesday afternoon works for us. The building is a co-op, so there will be an alteration agreement.\n\nSofia Adler",
+        { thread: "adler" }),
+    riveraEscalation: () =>
+      M(-1, "18:22", P.rivera, [owner, pm], "45 Cranberry — three weeks for the beam calcs",
+        "Alan,\n\nWith all due respect, three weeks for the flitch beam calcs is unacceptable. The hearing is on the 8th and we still do not have the window drawing LPC asked for. This is costing us a month on the schedule. Please call me tomorrow.\n\nElena Rivera",
+        { thread: "rivera-esc" }),
+    jeanetteQ: () =>
+      M(-2, "12:05", P.jeanette, [owner], "Field card limit — which?",
+        "Alan,\n\nThe Amex field card renews this month. Should I keep the $4,000 monthly limit or raise it to $6,000 like Gabriel asked? The August statement is in Drive.\n\nJeanette",
+        { thread: "jh-card" }),
+    lenoxTenant: () =>
+      M(-2, "10:45", P.lenox, [pm, owner], "206 Lenox Ave — 3rd floor noise and the water shutoff",
+        "Hello,\n\nThe 3rd floor turnover work at 206 Lenox Ave started before 8 again today, and the water was off from 10 to 11 with no notice. Please send the shutoff schedule for the week so we can tell our customers.\n\nLenox Coffee Co.",
+        { thread: "lenox" }),
+    amexStatementMail: () =>
+      M(-2, "03:15", P.amex, [controller], "Your August statement is ready — account ending 1009",
+        "Your American Express Business Platinum statement for the period ending 08/31/2026 is ready. New balance $14,862.10. Payment due 09/25/2026. The statement PDF is attached and has been saved to Drive.",
+        { cc: [billing], att: [pdf("Amex-Business-Platinum-1009-Statement-Aug-2026.pdf", "amexStatement")], thread: "amex" }),
+    wwStatement: () =>
+      M(-4, "09:40", P.ww, [billing], "Statement — SmartDesign Group LLC — balance $3,800.00",
+        "Hello,\n\nOur statement shows a balance of $3,800.00 on invoice WW-2026-118 for 121 State Street past due since 09/01/2026. Payment was not received. Please advise when this will be paid.\n\nWindow Works",
+        { thread: "ww-stmt" }),
+    chenBillingQ: () =>
+      M(-1, "16:00", chen, [billing], "WW-2026-118 — the $3,800 over the PO",
+        "Billing — Window Works is chasing the $3,800 over PO-2026-044. Alan short-paid it pending the brick mold rework; do you want me to tell them it is held, or do you want to write to them?",
+        { thread: "chen-ww" }),
+    angelField: () =>
+      M(-1, "06:58", angel, [pm, chen], "121 State — need 25 boards GWB and cement board by Thursday",
+        "Alan, Chen — garden bath rough is done Wednesday. I need the 25 boards of GWB and the cement board on site Thursday or the crew has nothing to hang. Also the radiant heat mats for the primary bath are still not ordered.",
+        { thread: "angel-gwb" }),
+  };
+
+  // ---- the mailbox, calendar and drive per persona ----
+  if ("u_owner" === uid) {
+    scenes.kleinDecision(); scenes.kleinPaid(); scenes.jessopWire(); scenes.expediter(); scenes.riveraEscalation();
+    scenes.jeanetteQ(); scenes.lenoxTenant(); scenes.meetingNotes([owner, pm, sarah, chen]); scenes.bellQuiet();
+    scenes.adlerLead(); scenes.posh("Elena Rivera", "the beam calcs at 45 Cranberry and the LPC hearing; wants to speak to Alan");
+    scenes.ampInvoice(); scenes.newsletter(owner); scenes.promo(owner); scenes.subConfirm(); scenes.cmDelivery();
+    M(-9, "08:15", P.sklein, [owner], "121 State — thank you", "Alan, thank you for walking us through the schedule on Monday. We feel much better about the fall. — Sarah", { thread: "klein-ty" });
+    M(-6, "11:30", P.cambri, [owner, sarah], "140 Prospect — facade now or later?", "Alan, Sarah — we are leaning to doing the facade and windows now rather than phase 2, if the bid comes in under $90,000. Can you get the bid to us before the 11th?", { thread: "cambri-facade" });
+    M(-5, "14:00", P.exp, [owner], "Metro Expediting — August filings invoice", "Invoice for August filings and DOB NOW time is attached: $1,425.00, net 30.", { att: [{ filename: "Metro-Expediting-Aug-2026.pdf", text: "METRO EXPEDITING LLC\nInvoice ME-2608\nBill To: SmartDesign Group LLC\nAugust filings — 121 State Street supersede, 45 Cranberry LPC filing\nAmount Due: $1,425.00\nDue September 30, 2026" }], thread: "exp-inv" });
+    M(-13, "09:00", "Daniel Okafor <d.okafor@example.com>", [owner], "11 Riverside Dr 4A — timing", "Hi Alan, we are still deciding between starting in January or waiting for spring. What does your schedule look like? — Daniel", { thread: "okafor" });
+    E(0, "14:00", 90, "Site visit — 121 State Street", { where: "121 State Street, Brooklyn", who: ["alan.pm@" + DW_DOMAIN, "angel@" + DW_DOMAIN], desc: "Walk the garden bath rough before the inspection is booked." });
+    E(1, "10:00", 60, "Client meeting — 140 Prospect kitchen layout", { where: "140 Prospect Place, Brooklyn", who: ["cambri@example.com", "sarah@" + DW_DOMAIN], desc: "Fireplace, island position, facade now or later." });
+    E(5, "09:30", 120, "LPC hearing — 45 Cranberry facade and railing", { where: "1 Centre Street, 9th floor", who: ["sarah@" + DW_DOMAIN, "elena.rivera@example.com"] });
+    E(5, "08:00", 240, "DOB rough plumbing inspection window — 121 State", { where: "121 State Street, Brooklyn", who: ["alan.pm@" + DW_DOMAIN] });
+    E(15, "08:00", 180, "Carlos Millwork delivery — 121 State", { where: "121 State Street, Brooklyn", who: ["chen@" + DW_DOMAIN], desc: "PO-2026-048 carcasses. Elevator reserved 8–12." });
+    E(2, "09:00", 30, "Call — Sofia Adler, 70 Remsen", { who: ["sofia.adler@example.com"] });
+    E(-2, "14:00", 90, "Site walk — 121 State with the Kleins", { where: "121 State Street, Brooklyn", who: ["sarah.klein@example.com", "sarah@" + DW_DOMAIN, "chen@" + DW_DOMAIN] });
+    E(8, "15:00", 60, "Weekly jobs review", { who: ["alan.pm@" + DW_DOMAIN, "chen@" + DW_DOMAIN] });
+    E(4, "00:00", 0, "Labor Day — office closed", { allDay: !0, free: !0 });
+    E(6, "13:00", 60, "Bank — line of credit review", { where: "Chase, Court Street", free: !1 });
+    F("Amex-Business-Platinum-1009-Statement-Aug-2026.pdf", 2, "amexStatement", { by: "Jeanette Hernandez", byEmail: "jeanette@" + DW_DOMAIN });
+    F("121 State - A-301 Stair Section Rev 2.pdf", 1, "a301", { by: "Sarah Davis", byEmail: "sarah@" + DW_DOMAIN });
+    F("45 Cranberry - S-101 Flitch Beam Plan.pdf", 3, "s101", { by: "Sarah Davis" });
+    F("Proposal - 77 Bleecker St 3F - Marcus Bell.pdf", 12, "proposalBell");
+    F("Transcript - 121 State site walk - 2026-09-01.txt", 2, "transcript", { mime: "text/plain" });
+    F("Notes - 121 State St - Site Walk - 2026-09-01.gdoc", 2, "notesDoc", { mime: "application/vnd.google-apps.document" });
+    F("COI - Window Works LLC - GL 2026-27.pdf", 6, "wwCoi", { by: "Chen Biron", byEmail: "chen@" + DW_DOMAIN });
+    F("Carlos Millwork - Invoice CM-0102.pdf", 2, "cmInvoice", { by: "Billing" });
+    F("45 Cranberry - Flitch Beam Calcs rev1.pdf", 2, "flitch", { by: "Sarah Davis" });
+  } else if ("u_alan" === uid) {
+    scenes.kleinDecision(); scenes.kleinPaid(); scenes.ampInvoice(); scenes.nemoQuote(); scenes.subConfirm();
+    scenes.lpcBrickMold(); scenes.lpcHearing(); scenes.dobInspection(); scenes.expediter(); scenes.peFlitch();
+    scenes.meetingNotes([pm, sarah, chen, owner]); scenes.cmDelivery(); scenes.cambriQuestion(); scenes.lenoxTenant();
+    scenes.riveraEscalation(); scenes.angelField(); scenes.newsletter(pm); scenes.promo(pm);
+    M(-5, "09:10", P.ww, [pm], "121 State — brick mold rework and the $3,800", "Alan, we can rework the brick mold to the sill horn profile once LPC confirms. The $3,800 over the PO is the second set of shop drawings; we would like it released when the profile is approved. — Window Works", { thread: "ww-bm" });
+    M(-6, "12:00", P.maya, [pm], "121 State — special inspections list", "Alan — the special inspections list for the energy code is done; the insulation inspection has to happen before the GWB goes up, so tell Angel not to close the walls until I confirm the date. — Maya", { thread: "maya-si" });
+    E(0, "14:00", 90, "Site visit — 121 State Street", { where: "121 State Street, Brooklyn", who: ["angel@" + DW_DOMAIN], desc: "Garden bath rough; landing at 42." });
+    E(1, "10:00", 60, "Client meeting — 140 Prospect kitchen layout", { where: "140 Prospect Place, Brooklyn", who: ["cambri@example.com", "sarah@" + DW_DOMAIN] });
+    E(5, "08:00", 240, "DOB rough plumbing inspection window — 121 State", { where: "121 State Street, Brooklyn", who: ["angel@" + DW_DOMAIN, "office@albertomplumbing.example"] });
+    E(5, "09:30", 120, "LPC hearing — 45 Cranberry facade and railing", { where: "1 Centre Street, 9th floor", who: ["sarah@" + DW_DOMAIN] });
+    E(15, "08:00", 180, "Carlos Millwork delivery — 121 State", { where: "121 State Street, Brooklyn", who: ["chen@" + DW_DOMAIN] });
+    E(-2, "14:00", 90, "Site walk — 121 State with the Kleins", { where: "121 State Street, Brooklyn", who: ["sarah.klein@example.com"] });
+    E(2, "07:00", 60, "Alberto M Plumbing — re-booked rough-in, 121 State", { where: "121 State Street, Brooklyn", who: ["office@albertomplumbing.example", "angel@" + DW_DOMAIN] });
+    E(8, "15:00", 60, "Weekly jobs review", { who: ["alan@" + DW_DOMAIN, "chen@" + DW_DOMAIN] });
+    E(4, "00:00", 0, "Labor Day — office closed", { allDay: !0, free: !0 });
+    F("121 State - A-301 Stair Section Rev 2.pdf", 1, "a301", { by: "Sarah Davis", byEmail: "sarah@" + DW_DOMAIN });
+    F("45 Cranberry - S-101 Flitch Beam Plan.pdf", 3, "s101", { by: "Sarah Davis" });
+    F("45 Cranberry - Flitch Beam Calcs rev1.pdf", 2, "flitch", { by: "Priya Natarajan" });
+    F("Transcript - 121 State site walk - 2026-09-01.txt", 2, "transcript", { mime: "text/plain" });
+    F("Notes - 121 State St - Site Walk - 2026-09-01.gdoc", 2, "notesDoc", { mime: "application/vnd.google-apps.document" });
+    F("COI - Alberto M Plumbing LLC - 2026.pdf", 6, "ampCoi", { by: "Chen Biron" });
+    F("Nemo Tile - Quote Q-2271 - 121 State garden bath.pdf", 1, "nemoQuote", { by: "Chen Biron" });
+    F("121 State - DOB NOW inspection notice B01528834-I1.pdf", 2, "a301", { text: "DOB NOW inspection notice — B01528834-I1 — 121 State Street — plumbing rough — 09/08/2026 8:00–12:00" });
+  } else if ("u_chen" === uid) {
+    scenes.nemoQuote(); scenes.cmInvoice(); scenes.wwCoiMail(); scenes.tinoDelivery(); scenes.cmDelivery();
+    scenes.dobInspection(); scenes.hdReceipt(); scenes.meetingNotes([chen, pm, sarah, owner]); scenes.angelField();
+    scenes.chenBillingQ(); scenes.newsletter(chen); scenes.promo(chen);
+    M(-3, "10:20", P.bed, [chen], "Order 55802 — Bedrosians credit memo", "Your credit memo for the returned Cloe 2.5x8 (12 boxes) has been issued: $214.50 to the card on file. Allow 5 business days. Order 55802.", { thread: "bed-cr" });
+    M(-4, "11:00", P.tino, [chen], "121 State — white oak milled", "Chen — the white oak is milled and acclimating. Call when the slab is dry enough to take it; we can hold it two weeks. — Tino", { thread: "tino-mill" });
+    M(-1, "13:10", P.amp, [chen], "121 State — rough-in Thursday 7am", "Chen, confirming Thursday 7am for the garden bath rough-in. Please have the waste wall open. — Alberto M Plumbing", { thread: "amp-thu" });
+    M(-7, "15:00", P.ww, [chen], "Quote WQ-2290 — 206 Lenox 3rd floor windows", "Chen, quote attached for the four replacement windows on the 3rd floor at 206 Lenox Ave: $9,200.00, 6 weeks. — Window Works", { att: [{ filename: "Window-Works-Quote-WQ-2290.pdf", text: "WINDOW WORKS LLC\nQuote WQ-2290\nJob: 206 Lenox Ave — 3rd floor\nFour double-hung replacement windows, aluminum clad, per the elevation\nQuote total: $9,200.00\nLead time: 6 weeks from deposit." }], thread: "ww-q206" });
+    M(-2, "11:00", "Brooklyn Lumber <orders@brooklynlumber.example>", [chen], "Order 88412 ready for pickup", "Order 88412 is ready at the yard: 25 GWB 1/2 x 4x8, 6 cement board. Paid on the Square card $2,140.50. Pickup by Friday; after that we restock it.", { thread: "bl" });
+    M(-2, "08:05", angel, [chen], "Radiant mats", "Chen — the radiant heat mats for the primary bath are still not ordered and the tile is two weeks out. Who is the vendor? — Angel", { thread: "angel-mats" });
+    E(0, "11:00", 30, "Call Nemo Tile — 3rd floor tile stock", { who: ["sales@nemotile.example"] });
+    E(5, "08:00", 240, "DOB rough plumbing inspection window — 121 State", { where: "121 State Street, Brooklyn" });
+    E(15, "08:00", 180, "Carlos Millwork delivery — 121 State", { where: "121 State Street, Brooklyn", who: ["carlos@carlosmillwork.example"], desc: "PO-2026-048. Reserve the elevator 8–12." });
+    E(15, "08:00", 180, "Tino delivery — white oak, 121 State", { where: "121 State Street, Brooklyn", who: ["orders@tino.example"] });
+    E(1, "09:00", 60, "Vendor check-ins", { free: !0 });
+    E(8, "15:00", 60, "Weekly jobs review", { who: ["alan.pm@" + DW_DOMAIN] });
+    E(-2, "14:00", 90, "Site walk — 121 State with the Kleins", { where: "121 State Street, Brooklyn" });
+    E(4, "00:00", 0, "Labor Day — office closed", { allDay: !0, free: !0 });
+    F("COI - Window Works LLC - GL 2026-27.pdf", 6, "wwCoi");
+    F("COI - Alberto M Plumbing LLC - 2026.pdf", 6, "ampCoi");
+    F("Nemo Tile - Quote Q-2271 - 121 State garden bath.pdf", 1, "nemoQuote");
+    F("Carlos Millwork - Invoice CM-0102.pdf", 2, "cmInvoice");
+    F("121 State - A-301 Stair Section Rev 2.pdf", 1, "a301", { by: "Sarah Davis" });
+    F("Transcript - 121 State site walk - 2026-09-01.txt", 2, "transcript", { mime: "text/plain" });
+    F("Window Works - Quote WQ-2290 - 206 Lenox.pdf", 7, "nemoQuote", { text: "WINDOW WORKS LLC\nQuote WQ-2290\nJob: 206 Lenox Ave — 3rd floor\nQuote total: $9,200.00\nLead time: 6 weeks." });
+    F("Home Depot Pro receipt 2026-09-01 - 121 State blocking.pdf", 2, "a301", { text: "HOME DEPOT PRO · Store 6166 · 09/01/2026\nDECK SCREWS 3IN 5LB $42.97\nSPF 2X4X8 BLOCKING x24 $187.68\nCONSTRUCTION ADHESIVE x6 $56.05\nTotal $286.70 · card ending 7720 · Job: 121 State" });
+  } else if ("u_angel" === uid) {
+    scenes.subConfirm(); scenes.dobInspection(); scenes.tinoDelivery(); scenes.angelField();
+    scenes.meetingNotes([angel, pm, chen]); scenes.promo(angel);
+    M(-1, "13:10", P.amp, [angel, pm], "121 State — rough-in Thursday 7am", "Angel, Thursday 7am for the garden bath rough-in, two men. Have the waste wall open. — Alberto M Plumbing", { thread: "amp-thu" });
+    M(-2, "12:00", P.maya, [angel, pm], "121 State — do not close the walls", "Angel — the insulation inspection has to happen before the GWB goes up. Do not close the walls until I confirm the date. — Maya", { thread: "maya-walls" });
+    M(-3, "07:20", dwAddr("u_alex"), [angel], "Dumpster swap", "Angel — the dumpster at 121 State is full, swap is Thursday 6am. Move the van. — Alex", { thread: "dump" });
+    M(-4, "15:30", P.sklein, [angel], "121 State — key for the garden gate", "Angel, the new key for the garden gate is with the super, Luis. Please do not leave the gate propped. Thank you — Sarah Klein", { thread: "klein-key" });
+    M(-1, "17:00", chen, [angel], "GWB Thursday", "Angel — 25 boards GWB and the cement board deliver Thursday 7am from Brooklyn Lumber. — Chen", { thread: "chen-gwb" });
+    M(-6, "08:00", P.hd, [angel], "Your Home Depot Pro receipt — $42.97", "Thank you for shopping at The Home Depot Pro. Store 6166 · 08/28/2026\nDECK SCREWS 3IN 5LB $42.97\nTotal $42.97 · Pro Xtra card ending 7720", { thread: "hd-angel" });
+    E(0, "14:00", 90, "Site visit — 121 State Street", { where: "121 State Street, Brooklyn", who: ["alan.pm@" + DW_DOMAIN] });
+    E(2, "07:00", 60, "Alberto M Plumbing — rough-in, 121 State", { where: "121 State Street, Brooklyn" });
+    E(5, "08:00", 240, "DOB rough plumbing inspection window — 121 State", { where: "121 State Street, Brooklyn" });
+    E(15, "08:00", 180, "Tino delivery — white oak, 121 State", { where: "121 State Street, Brooklyn" });
+    E(15, "08:00", 180, "Carlos Millwork delivery — 121 State", { where: "121 State Street, Brooklyn" });
+    E(2, "06:00", 30, "Dumpster swap — 121 State", { where: "121 State Street, Brooklyn" });
+    E(1, "07:00", 30, "GWB delivery — Brooklyn Lumber", { where: "121 State Street, Brooklyn" });
+    E(4, "00:00", 0, "Labor Day — no work", { allDay: !0, free: !0 });
+    F("121 State - A-301 Stair Section Rev 2.pdf", 1, "a301", { by: "Sarah Davis" });
+    F("121 State - P-101 Plumbing Plan.pdf", 9, "a301", { text: "SMARTDESIGN · 121 STATE STREET · P-101 PLUMBING PLAN · garden bath and laundry · waste and vent riser diagram" });
+    F("121 State - DOB NOW inspection notice B01528834-I1.pdf", 2, "a301", { text: "DOB NOW inspection notice — B01528834-I1 — 121 State Street — plumbing rough — 09/08/2026 8:00–12:00" });
+    F("Transcript - 121 State site walk - 2026-09-01.txt", 2, "transcript", { mime: "text/plain" });
+    F("Site photos 121 State 2026-09-02.pdf", 1, "a301", { text: "Photo sheet — garden bath rough — 09/02/2026 — 12 photos" });
+    F("Daily log template.pdf", 20, "a301", { text: "Daily log — crew, weather, work done, deliveries, visitors, issues" });
+    F("121 State - safety plan.pdf", 30, "a301", { text: "Site safety plan — 121 State Street — shoring, fall protection, dumpster, hours 8–5" });
+    F("Dumpster schedule September.pdf", 3, "a301", { text: "Dumpster swaps September: 4th, 11th, 18th, 25th — 6am" });
+  } else if ("u_sarah" === uid) {
+    scenes.kleinDecision(); scenes.cambriQuestion(); scenes.lpcHearing(); scenes.lpcBrickMold(); scenes.peFlitch();
+    scenes.meetingNotes([sarah, pm, chen, owner]); scenes.newsletter(sarah); scenes.promo(sarah);
+    M(-1, "11:40", P.bed, [sarah], "Quote BQ-55810 — 140 Prospect kitchen backsplash zellige", "Sarah, quote attached for the zellige backsplash at 140 Prospect Place: 62 sf plus waste, $2,170.00, 4 weeks from order. Samples shipped 9/1. — Bedrosians", { att: [pdf("Bedrosians-Quote-BQ-55810.pdf", "bedQuote")], thread: "bed-q" });
+    M(-3, "16:20", P.rivera, [sarah], "45 Cranberry — window drawing for LPC", "Sarah, LPC asked for the muntin profile on the window drawing. When can we have it? The hearing is the 8th. — Elena", { thread: "rivera-win" });
+    M(-5, "09:00", P.cambri, [sarah], "140 Prospect — roof stair", "Sarah, we'd like the roof stair drawn now so the structure allows phase 2, as you suggested. Go ahead. — Cambri", { thread: "cambri-roof" });
+    M(-2, "10:10", P.maya, [sarah], "121 State — A-301 landing", "Sarah — if the landing goes to 42 the header moves 6 inches; check it against S-101 before you send it to the Kleins. — Maya", { thread: "maya-a301" });
+    M(-4, "14:00", P.ww, [sarah], "121 State — brick mold shop drawing rev 2", "Sarah, rev 2 of the brick mold shop drawing attached showing the sill horn. Please confirm before we cut. — Window Works", { att: [{ filename: "Window-Works-Brick-Mold-Shop-Drawing-rev2.pdf", text: "WINDOW WORKS — 121 State Street — brick mold shop drawing rev 2 — 1-3/4 inch ogee, sill horn 1-1/2 inch, back band 3/4 inch" }], thread: "ww-sd" });
+    E(1, "10:00", 60, "Client meeting — 140 Prospect kitchen layout", { where: "140 Prospect Place, Brooklyn", who: ["cambri@example.com", "alan.pm@" + DW_DOMAIN] });
+    E(5, "09:30", 120, "LPC hearing — 45 Cranberry facade and railing", { where: "1 Centre Street, 9th floor", who: ["elena.rivera@example.com"] });
+    E(0, "15:30", 60, "Design review — A-301 landing with Maya", { who: ["maya@" + DW_DOMAIN] });
+    E(-2, "14:00", 90, "Site walk — 121 State with the Kleins", { where: "121 State Street, Brooklyn" });
+    E(1, "14:00", 120, "Drawing time — A-301 rev 3", { free: !0 });
+    E(6, "11:00", 60, "Bedrosians showroom — zellige samples", { where: "Bedrosians, Manhattan" });
+    E(8, "15:00", 60, "Weekly jobs review", { who: ["alan.pm@" + DW_DOMAIN] });
+    E(4, "00:00", 0, "Labor Day — office closed", { allDay: !0, free: !0 });
+    F("121 State - A-301 Stair Section Rev 2.pdf", 1, "a301");
+    F("45 Cranberry - S-101 Flitch Beam Plan.pdf", 3, "s101");
+    F("45 Cranberry - Flitch Beam Calcs rev1.pdf", 2, "flitch", { by: "Priya Natarajan" });
+    F("140 Prospect - kitchen layout options A and B.pdf", 2, "a301", { text: "SMARTDESIGN · 140 PROSPECT PLACE · kitchen layout options · A: island centred on the fireplace · B: galley with the fireplace closed" });
+    F("45 Cranberry - A-201 Front Elevation for LPC.pdf", 4, "a301", { text: "SMARTDESIGN · 45 CRANBERRY STREET · A-201 FRONT ELEVATION · windows 2-over-2, ogee lugs · stoop railing picket spacing 4 inches" });
+    F("Transcript - 121 State site walk - 2026-09-01.txt", 2, "transcript", { mime: "text/plain" });
+    F("Notes - 121 State St - Site Walk - 2026-09-01.gdoc", 2, "notesDoc", { mime: "application/vnd.google-apps.document" });
+    F("Bedrosians - Quote BQ-55810 - 140 Prospect zellige.pdf", 1, "bedQuote");
+    F("Window Works - brick mold shop drawing rev2 - 121 State.pdf", 4, "a301", { text: "WINDOW WORKS — 121 State Street — brick mold shop drawing rev 2" });
+  } else if ("u_billing" === uid) {
+    scenes.kleinPaid(); scenes.jessopWire(); scenes.cmInvoice(); scenes.ampInvoice(); scenes.wwCoiMail();
+    scenes.wwStatement(); scenes.chenBillingQ(); scenes.amexStatementMail(); scenes.newsletter(billing); scenes.promo(billing);
+    scenes.meetingNotes([billing, pm]);
+    M(-2, "09:30", P.sklein, [billing], "121 State — invoice 3 timing", "Hello, when should we expect invoice 3? We would like to plan the transfer for the week of the 14th. — Sarah Klein", { thread: "klein-inv3" });
+    M(-5, "10:00", P.nemo, [billing], "Statement — SmartDesign Group LLC", "Statement attached. Balance $0.00 — invoice NT-88412 paid 08/12. Thank you.", { att: [{ filename: "Nemo-Tile-Statement-Aug-2026.pdf", text: "NEMO TILE — Statement — SmartDesign Group LLC — Balance $0.00" }], thread: "nemo-stmt" });
+    M(-3, "14:20", P.lenox, [billing], "206 Lenox — September rent", "September rent for the ground floor was sent by ACH on the 1st: $6,800.00. — Lenox Coffee Co.", { thread: "lenox-rent" });
+    M(-1, "08:50", controller, [billing], "Kleins' check 2214", "Billing — the Kleins' check 2214 for $72,750 posted 8/29 and is recorded against invoice 2. Please reply to David and close the thread. — Controller", { thread: "ctl-2214" });
+    E(0, "10:00", 45, "Billing queue review", { who: ["controller@" + DW_DOMAIN] });
+    E(1, "11:00", 30, "Call David Klein — invoice 3 timing", { who: ["david.klein@example.com"] });
+    E(8, "15:00", 60, "Weekly jobs review", { who: ["alan.pm@" + DW_DOMAIN] });
+    E(11, "09:00", 60, "Draw 3 — 121 State pay application", { where: "Office" });
+    E(4, "00:00", 0, "Labor Day — office closed", { allDay: !0, free: !0 });
+    E(5, "14:00", 60, "AP run — approvals due", { who: ["controller@" + DW_DOMAIN] });
+    E(15, "09:00", 30, "Carlos Millwork delivery — bill against PO-2026-048 on receipt", { where: "121 State Street, Brooklyn" });
+    E(-2, "16:00", 30, "Klein — invoice 2 follow-up", {});
+    F("Carlos Millwork - Invoice CM-0102.pdf", 2, "cmInvoice");
+    F("AMP-318.pdf", 1, "ampInvoice");
+    F("COI - Window Works LLC - GL 2026-27.pdf", 6, "wwCoi", { by: "Chen Biron" });
+    F("Amex-Business-Platinum-1009-Statement-Aug-2026.pdf", 2, "amexStatement", { by: "Jeanette Hernandez" });
+    F("121 State - Pay Application 2 - signed.pdf", 9, "a301", { text: "AIA G702 — 121 State Street — Application 2 — $72,750.00 — signed by David Klein 08/25/2026" });
+    F("Window Works - Statement Aug 2026.pdf", 4, "a301", { text: "WINDOW WORKS — statement — balance $3,800.00 on WW-2026-118 — past due" });
+    F("Nemo Tile - Statement Aug 2026.pdf", 5, "a301", { text: "NEMO TILE — statement — balance $0.00" });
+    F("Transcript - 121 State site walk - 2026-09-01.txt", 2, "transcript", { mime: "text/plain" });
+  } else if ("u_controller" === uid) {
+    scenes.kleinPaid(); scenes.jessopWire(); scenes.cmInvoice(); scenes.amexStatementMail(); scenes.wwStatement();
+    scenes.wwCoiMail(); scenes.jeanetteQ(); scenes.newsletter(controller); scenes.promo(controller);
+    scenes.meetingNotes([controller, pm]);
+    M(-2, "08:30", "Chase for Business <noreply@chase-business.example>", [controller], "Your August statement is available — Business Checking ····4471", "Your statement for the period 08/01/2026–08/31/2026 is available. Ending balance $184,231.00. Sign in to download.", { thread: "chase-stmt" });
+    M(-1, "10:05", P.jeanette, [controller], "Zelle to J Rosario — $2,400", "The $2,400 Zelle on 9/2 to J Rosario is the demolition helper for 121 State, two weeks. He has no W-9 yet. — Jeanette", { thread: "zelle" });
+    M(-3, "15:40", "Satish Electric Inc <office@satishelectric.example>", [controller], "Invoice SE-0922 — 121 State rough electric", "Invoice SE-0922 attached for the 121 State rough electric, $7,400.00, paid by ACH 9/2 — thank you.", { att: [{ filename: "Satish-Electric-SE-0922.pdf", text: "SATISH ELECTRIC INC\nInvoice No. SE-0922\nBill To: SmartDesign Group LLC\nJob: 121 State Street — rough electric, 3rd floor\nAmount Due: $7,400.00\nPaid by ACH 09/02/2026" }], thread: "satish" });
+    M(-4, "09:15", pm, [controller], "WW-2026-118 short pay", "Controller — I approved WW-2026-118 at the PO amount, $29,700, and disputed the $3,800 over the PO pending the brick mold rework. Please hold the difference until LPC confirms the profile. — Alan", { thread: "ww-sp" });
+    E(0, "09:30", 60, "Bank reconciliation — August", { where: "Office" });
+    E(1, "14:00", 60, "Period close — August", { who: ["billing@" + DW_DOMAIN] });
+    E(5, "14:00", 60, "AP run — approvals due", { who: ["billing@" + DW_DOMAIN] });
+    E(6, "13:00", 60, "Bank — line of credit review", { where: "Chase, Court Street", who: ["alan@" + DW_DOMAIN] });
+    E(8, "15:00", 60, "Weekly jobs review", {});
+    E(12, "10:00", 60, "Sales tax — Q3 prep", {});
+    E(4, "00:00", 0, "Labor Day — office closed", { allDay: !0, free: !0 });
+    E(21, "09:00", 60, "Amex payment due — 1009", { free: !0 });
+    F("Amex-Business-Platinum-1009-Statement-Aug-2026.pdf", 2, "amexStatement", { by: "Jeanette Hernandez" });
+    F("Chase_Checking_4471_Aug2026.qfx", 1, "a301", { mime: "application/x-ofx", text: "OFX — Chase Business Checking 4471 — 08/01/2026–08/31/2026 — 16 transactions — ending balance 184231.00" });
+    F("Carlos Millwork - Invoice CM-0102.pdf", 2, "cmInvoice");
+    F("COI - Window Works LLC - GL 2026-27.pdf", 6, "wwCoi", { by: "Chen Biron" });
+    F("Satish Electric - SE-0922.pdf", 3, "a301", { text: "SATISH ELECTRIC INC — Invoice SE-0922 — $7,400.00 — paid by ACH 09/02/2026" });
+    F("August close checklist.pdf", 1, "a301", { text: "August close — bank rec, card rec, WIP, accruals, payroll, sales tax, lock" });
+    F("1099 register 2026 YTD.pdf", 8, "a301", { text: "1099 register — payees over $2,000 by payment instrument — J Rosario (Zelle) no W-9" });
+    F("Transcript - 121 State site walk - 2026-09-01.txt", 2, "transcript", { mime: "text/plain" });
+  } else if ("u_alberto" === uid) {
+    M(-1, "06:40", angel, [dwAddr("u_alberto")], "Thursday", "Alberto — Thursday the plumber is back at 7. You are on the parlor floor opening with me. Bring the shoring posts. — Angel", { thread: "thu" });
+    M(-2, "17:30", chen, [dwAddr("u_alberto")], "Hours", "Alberto — your hours for Monday are missing in the app. Please enter them tonight. — Chen", { thread: "hrs" });
+    M(-3, "12:00", P.promo, [dwAddr("u_alberto")], "40% off cordless tools — this week only", "ToolPro Deals — 40% off all cordless tools. Unsubscribe.", { thread: "promo" });
+    M(-5, "08:00", angel, [dwAddr("u_alberto"), dwAddr("u_alex")], "Dumpster swap Thursday 6am", "Move the van before 6. — Angel", { thread: "dump" });
+    M(-6, "15:00", P.hd, [dwAddr("u_alberto")], "Your Home Depot Pro receipt — $56.05", "Thank you for shopping at The Home Depot Pro. CONSTRUCTION ADHESIVE x6 $56.05. Total $56.05. Card ending 7720.", { thread: "hd" });
+    E(0, "07:00", 540, "121 State — crew day", { where: "121 State Street, Brooklyn" });
+    E(2, "07:00", 540, "121 State — plumber back, parlor opening", { where: "121 State Street, Brooklyn" });
+    E(4, "00:00", 0, "Labor Day — no work", { allDay: !0, free: !0 });
+    F("121 State - safety plan.pdf", 30, "a301", { text: "Site safety plan — 121 State Street" });
+    F("Shoring detail - parlor opening.pdf", 3, "s101");
+  } else if ("u_alex" === uid) {
+    M(-1, "06:30", chen, [dwAddr("u_alex")], "Pickups Thursday", "Alex — Thursday: Brooklyn Lumber 7am (GWB, cement board, paid), then Nemo Tile for the sample board. Drop both at 121 State. — Chen", { thread: "pick" });
+    M(-3, "07:20", dwAddr("u_alex"), [angel], "Dumpster swap", "Angel — dumpster swap at 121 State is Thursday 6am. Move the van. — Alex", { thread: "dump" });
+    M(-2, "11:00", "Brooklyn Lumber <orders@brooklynlumber.example>", [dwAddr("u_alex"), chen], "Order 88412 ready for pickup", "Order 88412 is ready at the yard: 25 GWB 1/2 x 4x8, 6 cement board. Paid on the Square card $2,140.50. Pickup by Friday.", { thread: "bl" });
+    M(-4, "09:00", P.promo, [dwAddr("u_alex")], "40% off cordless tools — this week only", "ToolPro Deals — 40% off. Unsubscribe.", { thread: "promo" });
+    E(1, "07:00", 90, "Pickup — Brooklyn Lumber order 88412", { where: "Brooklyn Lumber" });
+    E(1, "09:00", 60, "Pickup — Nemo Tile sample board", { where: "Nemo Tile" });
+    E(2, "06:00", 30, "Dumpster swap — 121 State", { where: "121 State Street, Brooklyn" });
+    E(4, "00:00", 0, "Labor Day — no work", { allDay: !0, free: !0 });
+    F("Van inspection September.pdf", 2, "a301", { text: "Van inspection due 09/15/2026" });
+    F("Brooklyn Lumber order 88412.pdf", 2, "a301", { text: "BROOKLYN LUMBER — order 88412 — 25 GWB, 6 cement board — $2,140.50 paid" });
+  }
+  // Oldest first, as a mailbox is read; then whatever earlier sessions wrote into it (drafts, sent, holds).
+  W.messages.sort((a, b) => a.internalDate - b.internalDate);
+  const added = ((DB.demoWs || {})[uid] || {});
+  (added.messages || []).forEach((m) => W.messages.push(m)),
+    (added.events || []).forEach((e) => W.events.push(e)),
+    (added.drafts || []).forEach((d) => W.drafts.push(d)),
+    Object.entries(added.labels || {}).forEach(([id, L]) => {
+      const m = W.messages.find((x) => x.id === id);
+      m && (m.labelIds = L);
+    });
+  return (W.nextId += (added.messages || []).length), W;
+}
+// ---- a workspace loaded at run time (the same shape, from a JSON file outside the repo) --------------
+// gsAttachWorkspace(uid, ws) registers it; gcDemoConnect(uid) then serves it instead of the built-in demo.
+// The JSON shape (docs/ARCHITECTURE.md, "Demo Workspace"): {email, name, mail:{threads:[{id, messages:[{id,
+// date | {day,time}, from, to[], cc[], subject, text, labels[], attachments:[{name, mime, text}]}]}]},
+// calendar:{events:[{id, title, start, end | {day,time,mins}, allDay, where, description, attendees[],
+// organizer, free}]}, drive:{files:[{id, name, mime, modified | {day,time}, by, text}]}}. Dates are ISO on
+// the app clock, or relative to the app day. It lives for the session only; nothing of it is written to
+// the saved data except what a sync pulls from it, which Disconnect removes like any connection's rows.
+const DW_ATTACHED = {};
+function dwFromJson(uid, ws) {
+  const td = today(),
+    [defName, defEmail] = DW_STAFF[uid] || [String(((DB.users || []).find((u) => u.id === uid) || {}).name || uid), uid + "@" + DW_DOMAIN],
+    W = { email: ws.email || defEmail, name: ws.name || defName, messages: [], drafts: [], events: [], files: [], historyId: 100, nextId: 1, loaded: !0 },
+    when = (d, def) => {
+      if (!d) return new Date(`${td}T${def || "09:00"}:00`).getTime();
+      if ("object" == typeof d) return new Date(`${iso(addDays(td, +d.day || 0))}T${d.time || def || "09:00"}:00`).getTime();
+      const t = new Date(d).getTime();
+      return isNaN(t) ? new Date(`${td}T${def || "09:00"}:00`).getTime() : t;
+    },
+    addr = (x) => (Array.isArray(x) ? x : x ? [x] : []);
+  (((ws.mail || {}).threads || []).forEach((t, ti) => {
+    (t.messages || []).forEach((m, mi) => {
+      const id = String(m.id || `ldm_${uid}_${ti}_${mi}`),
+        ms = when(m.date, "09:00"),
+        mine = String(m.from || "").toLowerCase().includes(String(W.email).toLowerCase());
+      W.messages.push({
+        id: id,
+        threadId: String(t.id || `ldt_${uid}_${ti}`),
+        labelIds: m.labels || (mine ? ["SENT"] : ["INBOX", "UNREAD"]),
+        internalDate: ms,
+        historyId: ++W.historyId,
+        headers: { From: m.from || "", To: addr(m.to).join(", "), Cc: addr(m.cc).join(", "), Subject: m.subject || "", Date: new Date(ms).toUTCString() },
+        body: String(m.text || ""),
+        attachments: (m.attachments || []).map((a, i) => ({
+          id: `lda_${id}_${i}`,
+          filename: a.name || a.filename || `attachment-${i + 1}`,
+          mime: a.mime || "application/pdf",
+          size: +a.size || 40000 + 100 * String(a.text || "").length,
+          text: String(a.text || ""),
+        })),
+      });
+    });
+  }),
+    ((ws.calendar || {}).events || []).forEach((e, i) => {
+      const s = when(e.start, "09:00"),
+        en = e.end && "object" != typeof e.end ? when(e.end) : "object" == typeof e.start && e.start.mins ? s + 6e4 * +e.start.mins : s + 36e5,
+        ev = {
+          id: String(e.id || `lde_${uid}_${i + 1}`),
+          status: e.status || "confirmed",
+          summary: e.title || e.summary || "(no title)",
+          description: e.description || "",
+          location: e.where || e.location || "",
+          htmlLink: "",
+          updated: e.updated || new Date(when({ day: -14, time: "08:00" }) + 36e5 * i).toISOString(),
+          organizer: { email: e.organizer || W.email },
+          attendees: [W.email].concat(addr(e.attendees)).map((x) => ({ email: "string" == typeof x ? x : x.email, responseStatus: "accepted" })),
+          transparency: e.free ? "transparent" : "opaque",
+        };
+      e.allDay
+        ? ((ev.start = { date: iso(new Date(s)) }), (ev.end = { date: iso(addDays(iso(new Date(s)), 1)) }))
+        : ((ev.start = { dateTime: new Date(s).toISOString() }), (ev.end = { dateTime: new Date(en).toISOString() })),
+        W.events.push(ev);
+    }),
+    ((ws.drive || {}).files || []).forEach((f, i) => {
+      W.files.push({
+        id: String(f.id || `ldf_${uid}_${i + 1}`),
+        name: f.name || `file-${i + 1}`,
+        mimeType: f.mime || f.mimeType || "application/pdf",
+        modifiedTime: new Date(when(f.modified || f.modifiedTime, "16:00")).toISOString(),
+        size: String(+f.size || 60000 + 300 * String(f.text || "").length),
+        owners: [{ displayName: f.by || W.name, emailAddress: f.byEmail || W.email }],
+        webViewLink: f.link || "",
+        parents: ["ldroot_" + uid],
+        text: String(f.text || ""),
+        trashed: !!f.trashed,
+      });
+    }));
+  return W.messages.sort((a, b) => a.internalDate - b.internalDate), (W.nextId = W.messages.length + 1), W;
+}
+function gsAttachWorkspace(uid, ws) {
+  if (!uid || !ws || "object" != typeof ws) throw new Error("gsAttachWorkspace(uid, workspace) needs both");
+  const W = dwFromJson(uid, ws);
+  return (DW_ATTACHED[uid] = W), delete DEMO_WS[uid], { messages: W.messages.length, events: W.events.length, files: W.files.length };
+}
+const dwLoadedFor = (uid) => !!DW_ATTACHED[uid || paMe().id];
+function demoWsFor(uid) {
+  return DW_ATTACHED[uid] || DEMO_WS[uid] || (DEMO_WS[uid] = demoWsBuild(uid));
+}
+// What a session writes into the demo workspace outlives the session: it is kept beside the connection.
+function dwAdded(uid) {
+  DB.demoWs = DB.demoWs || {};
+  return (DB.demoWs[uid] = DB.demoWs[uid] || { messages: [], events: [], drafts: [], labels: {} });
+}
+// ---- Gmail / Calendar / Drive API shapes ---------------------------------------------------------------
+function dwMessageFull(m) {
+  const parts = [{ partId: "0", mimeType: "text/plain", body: { size: m.body.length, data: dwB64(m.body) } }].concat(
+    (m.attachments || []).map((a, i) => ({
+      partId: String(i + 1),
+      mimeType: a.mime,
+      filename: a.filename,
+      // `text` is the demo's stand-in for the server-side PDF reader that was lost.
+      body: { attachmentId: a.id, size: a.size, text: a.text },
+    })),
+  );
+  return {
+    id: m.id,
+    threadId: m.threadId,
+    labelIds: m.labelIds,
+    snippet: m.body.slice(0, 120),
+    historyId: String(m.historyId),
+    internalDate: String(m.internalDate),
+    payload: {
+      mimeType: "multipart/mixed",
+      headers: Object.entries(m.headers)
+        .filter(([k, v]) => v)
+        .map(([k, v]) => ({ name: k, value: v })),
+      parts: parts,
+    },
+    sizeEstimate: m.body.length + (m.attachments || []).reduce((a, x) => a + x.size, 0),
+  };
+}
+function dwParseRaw(raw) {
+  const txt = dwUnB64(raw).replace(/\r/g, ""),
+    i = txt.indexOf("\n\n"),
+    head = i >= 0 ? txt.slice(0, i) : txt,
+    body = i >= 0 ? txt.slice(i + 2) : "",
+    H = {};
+  return (
+    head.split("\n").forEach((l) => {
+      const m = l.match(/^([A-Za-z-]+):\s*(.*)$/);
+      m && (H[m[1].toLowerCase()] = m[2]);
+    }),
+    { to: H.to || "", cc: H.cc || "", subject: H.subject || "", inReplyTo: H["in-reply-to"] || "", body: body }
+  );
+}
+function dwDriveFile(f) {
+  return {
+    id: f.id,
+    name: f.name,
+    mimeType: f.mimeType,
+    modifiedTime: f.modifiedTime,
+    webViewLink: f.webViewLink,
+    iconLink: "",
+    size: f.size,
+    owners: f.owners,
+    parents: f.parents,
+  };
+}
+// The server. Answers like Google's APIs do, from the demo workspace of the signed-in user.
+async function gsFetchDemo(url, opts) {
+  const uid = paMe().id,
+    W = demoWsFor(uid),
+    A = dwAdded(uid),
+    u = new URL(url, "https://www.googleapis.com"),
+    p = u.pathname,
+    q = u.searchParams,
+    method = String((opts || {}).method || "GET").toUpperCase(),
+    body = (() => {
+      try {
+        return (opts || {}).body ? JSON.parse(opts.body) : {};
+      } catch (e) {
+        return {};
+      }
+    })(),
+    now = appNowMs();
+  let m;
+  if ("/oauth2/v2/userinfo" === p) return { email: W.email, name: W.name, verified_email: !0 };
+  // ---- Gmail ----
+  if ("/gmail/v1/users/me/messages" === p) {
+    const qs = q.get("q") || "",
+      after = (qs.match(/after:(\d+)/) || [])[1],
+      newer = (qs.match(/newer_than:(\d+)d/) || [])[1],
+      floor = after ? 1e3 * +after : newer ? now - 864e5 * +newer : 0,
+      inSent = /\bin:sent\b/.test(qs),
+      label = (qs.match(/label:([A-Za-z_]+)/) || [])[1],
+      from = (qs.match(/from:(\S+)/) || [])[1],
+      max = Math.max(1, Math.min(500, +(q.get("maxResults") || 100))),
+      start = +(q.get("pageToken") || 0),
+      all = W.messages
+        .filter((x) => x.internalDate >= floor)
+        .filter((x) => !inSent || x.labelIds.includes("SENT"))
+        .filter((x) => !label || x.labelIds.includes(label.toUpperCase()))
+        .filter((x) => !from || String(x.headers.From).toLowerCase().includes(from.toLowerCase()))
+        .sort((a, b) => b.internalDate - a.internalDate),
+      page = all.slice(start, start + max);
+    return Object.assign(
+      { messages: page.map((x) => ({ id: x.id, threadId: x.threadId })), resultSizeEstimate: all.length, historyId: String(W.historyId) },
+      start + max < all.length ? { nextPageToken: String(start + max) } : {},
+    );
+  }
+  if ((m = p.match(/^\/gmail\/v1\/users\/me\/messages\/([^/]+)\/attachments\/([^/]+)$/))) {
+    const msg = W.messages.find((x) => x.id === m[1]),
+      a = msg && (msg.attachments || []).find((x) => x.id === m[2]);
+    if (!a) throw new Error("Demo Workspace: no such attachment");
+    return { attachmentId: a.id, size: a.size, data: dwB64(a.text), text: a.text };
+  }
+  if ((m = p.match(/^\/gmail\/v1\/users\/me\/messages\/([^/]+)\/modify$/))) {
+    const msg = W.messages.find((x) => x.id === m[1]);
+    if (!msg) throw new Error("Demo Workspace: no such message");
+    const L = new Set(msg.labelIds);
+    return (
+      (body.addLabelIds || []).forEach((l) => L.add(l)),
+      (body.removeLabelIds || []).forEach((l) => L.delete(l)),
+      (msg.labelIds = [...L]),
+      (A.labels[msg.id] = msg.labelIds),
+      save(),
+      { id: msg.id, threadId: msg.threadId, labelIds: msg.labelIds }
+    );
+  }
+  if ((m = p.match(/^\/gmail\/v1\/users\/me\/messages\/([^/]+)$/))) {
+    const msg = W.messages.find((x) => x.id === m[1]);
+    if (!msg) throw new Error("Demo Workspace: no such message");
+    return dwMessageFull(msg);
+  }
+  if ("/gmail/v1/users/me/history" === p) {
+    const since = +(q.get("startHistoryId") || 0),
+      H = W.messages.filter((x) => x.historyId > since);
+    return { historyId: String(W.historyId), history: H.map((x) => ({ id: String(x.historyId), messagesAdded: [{ message: { id: x.id, threadId: x.threadId, labelIds: x.labelIds } }] })) };
+  }
+  if ("/gmail/v1/users/me/drafts" === p && "POST" === method) {
+    // A draft written by the assistant: it lands in Drafts, on the thread, and sends only through drafts/send.
+    const r = dwParseRaw((body.message || {}).raw || ""),
+      id = `dwm_${uid}_${W.nextId++}`,
+      msg = {
+        id: id,
+        threadId: (body.message || {}).threadId || `dwt_${uid}_${id}`,
+        labelIds: ["DRAFT"],
+        internalDate: now,
+        historyId: ++W.historyId,
+        headers: { From: dwAddr(uid), To: r.to, Cc: r.cc, Subject: r.subject, Date: new Date(now).toUTCString() },
+        body: r.body,
+        attachments: [],
+      },
+      d = { id: "dwd_" + id, message: { id: id, threadId: msg.threadId } };
+    return W.messages.push(msg), W.drafts.push(d), A.messages.push(msg), A.drafts.push(d), save(), d;
+  }
+  if ("/gmail/v1/users/me/drafts/send" === p && "POST" === method) {
+    const d = W.drafts.find((x) => x.id === body.id),
+      msg = d && W.messages.find((x) => x.id === d.message.id);
+    if (!msg) throw new Error("Demo Workspace: no such draft");
+    return (
+      (msg.labelIds = ["SENT"]),
+      (msg.internalDate = now),
+      (msg.historyId = ++W.historyId),
+      (W.drafts = W.drafts.filter((x) => x.id !== d.id)),
+      (A.drafts = A.drafts.filter((x) => x.id !== d.id)),
+      (A.labels[msg.id] = msg.labelIds),
+      save(),
+      { id: msg.id, threadId: msg.threadId, labelIds: msg.labelIds }
+    );
+  }
+  // ---- Calendar ----
+  if ("/calendar/v3/calendars/primary/events" === p && "GET" === method) {
+    const tok = q.get("syncToken"),
+      since = tok ? +String(tok).replace(/^demo-/, "") : 0,
+      tMin = q.get("timeMin") ? new Date(q.get("timeMin")).getTime() : 0,
+      tMax = q.get("timeMax") ? new Date(q.get("timeMax")).getTime() : 1 / 0,
+      uMin = q.get("updatedMin") ? new Date(q.get("updatedMin")).getTime() : 0,
+      startOf = (e) => new Date((e.start || {}).dateTime || (e.start || {}).date).getTime(),
+      items = W.events.filter((e) => {
+        const upd = new Date(e.updated).getTime();
+        return tok ? upd > since : startOf(e) >= tMin && startOf(e) <= tMax && upd >= uMin;
+      }),
+      maxUpd = W.events.reduce((a, e) => Math.max(a, new Date(e.updated).getTime()), since);
+    return { kind: "calendar#events", items: items, nextSyncToken: "demo-" + maxUpd };
+  }
+  if ("/calendar/v3/calendars/primary/events" === p && "POST" === method) {
+    // A hold or a booking the person approved; it comes back on the next pull like any other event.
+    const ev = Object.assign(
+      { id: `dwe_${uid}_${W.events.length + 1}`, status: "confirmed", htmlLink: "", updated: new Date(now).toISOString(), organizer: { email: W.email }, attendees: [] },
+      body,
+    );
+    return W.events.push(ev), A.events.push(ev), save(), ev;
+  }
+  if ("/calendar/v3/freeBusy" === p) {
+    const a = new Date(body.timeMin).getTime(),
+      b = new Date(body.timeMax).getTime(),
+      busy = W.events
+        .filter((e) => "transparent" !== e.transparency && (e.start || {}).dateTime)
+        .map((e) => [new Date(e.start.dateTime).getTime(), new Date(e.end.dateTime).getTime()])
+        .filter(([s, e]) => e > a && s < b)
+        .map(([s, e]) => ({ start: new Date(s).toISOString(), end: new Date(e).toISOString() }));
+    return { calendars: { primary: { busy: busy } } };
+  }
+  // ---- Drive ----
+  if ("/drive/v3/files" === p) {
+    const qs = q.get("q") || "",
+      since = (qs.match(/modifiedTime\s*>\s*'([^']+)'/) || [])[1],
+      contains = (qs.match(/name contains '([^']+)'/i) || [])[1],
+      full = (qs.match(/fullText contains '([^']+)'/i) || [])[1],
+      size = Math.max(1, Math.min(1000, +(q.get("pageSize") || 100))),
+      files = W.files
+        .filter((f) => !f.trashed)
+        .filter((f) => !since || new Date(f.modifiedTime).getTime() > new Date(since).getTime())
+        .filter((f) => !contains || f.name.toLowerCase().includes(contains.toLowerCase()))
+        .filter((f) => !full || (f.name + " " + f.text).toLowerCase().includes(full.toLowerCase()))
+        .sort((a, b) => String(b.modifiedTime).localeCompare(String(a.modifiedTime)))
+        .slice(0, size);
+    return { kind: "drive#fileList", files: files.map(dwDriveFile) };
+  }
+  if ((m = p.match(/^\/drive\/v3\/files\/([^/]+)(\/export)?$/))) {
+    const f = W.files.find((x) => x.id === m[1]);
+    if (!f) throw new Error("Demo Workspace: no such file");
+    // files.get alt=media and files.export both answer with the text the file holds.
+    return m[2] || "media" === q.get("alt") ? { text: f.text } : dwDriveFile(f);
+  }
+  throw new Error("Demo Workspace has no answer for " + method + " " + p);
+}
+// ---- connecting ---------------------------------------------------------------------------------------
+// Explicit and per user. Sets the same connection record the real path sets (DB.conn[uid].google), marked
+// demo, so gcOn() / gcMine() / cursors / lastSync live where Google's would; then runs a first sync.
+function gcDemoConnect(uid) {
+  gcInit();
+  const u = paMe();
+  if (uid && uid !== u.id) return toast("Sign in as that user to connect their workspace"), null;
+  if (!gcDemoAvailable(u.id)) return toast("There is no Demo Workspace for this role"), null;
+  if (gcMine() && !gcIsDemo()) return toast("A real account is connected; disconnect it first"), null;
+  const W = demoWsFor(u.id),
+    loaded = dwLoadedFor(u.id),
+    kind = loaded ? "Loaded Workspace" : "Demo Workspace";
+  (DB.conn[u.id] = DB.conn[u.id] || {}),
+    (DB.conn[u.id].google = {
+      demo: !0,
+      loaded: loaded,
+      email: W.email,
+      name: kind,
+      scopes: GC_SCOPES.slice(),
+      connectedAt: appNowIso(),
+      lastSync: "",
+      lastError: "",
+      cursors: {},
+      auto: !0,
+      // The lost hosted watcher ran every fifteen minutes through the working day; gsTimer stands in for it.
+      every: 15,
+    }),
+    save(),
+    paDid(
+      `Connected the ${kind}`,
+      loaded
+        ? "a mailbox, calendar and drive loaded for this session, read through the same code real Google uses"
+        : "an invented mailbox, calendar and drive for your role, read through the same code real Google uses; nothing in it is real",
+      { view: "conn" },
+    ),
+    toast(`Connected the ${kind} — syncing`, gcOpen("pa", "Open Assistant")),
+    render();
+  try {
+    gsTimer();
+  } catch (e) {}
+  return gsRun({ first: !0 }).then((d) => (d && toast(gcSummary(d), gcOpen("pa", "Open Assistant")), d));
+}
+// ---- what the assistant does after every sync, on any connected mailbox --------------------------------
+// A message I sent that asked for something, with nothing back on the thread: I am waiting on them.
+function paMailExpectSweep() {
+  const me = paMe(),
+    mine = String((gcMine() || {}).email || "").toLowerCase(),
+    td = today(),
+    M = (DB.comms || []).filter((c) => c.owner === me.id),
+    out = [];
+  return (
+    M.filter(
+      (c) =>
+        ((c.labels || []).includes("SENT") || String((c.from || {}).email || "").toLowerCase() === mine) &&
+        !(c.labels || []).includes("DRAFT") &&
+        PA_ASK.test(`${c.subject || ""} ${c.text || ""}`),
+    ).forEach((c) => {
+      const to = (c.to || [])[0];
+      if (!to || cmIsStaff(cmEmail(to))) return;
+      const back = M.some((x) => x.threadId === c.threadId && x.date > c.date && !cmIsStaff(cmEmail((x.from || {}).email)));
+      if (back) return;
+      const said = String(c.date || "").slice(0, 10),
+        e = paExpect(cmName(to), c.subject || "my message", iso(addWork(said || td, 3, !1)), { kind: "mail", id: c.msgId, commId: c.id }, said);
+      e && out.push(e);
+    }),
+    out
+  );
+}
+// A payment a client says they sent: is it in the bank? Match the claim to a bank credit by amount and
+// date and say so; nothing is recorded by this, the person records (or the match is already recorded).
+function paPaymentClaimSweep() {
+  const me = paMe(),
+    made = [],
+    banks = new Set((DB.accounts || []).filter((a) => "bank" === a.type).map((a) => a.id)),
+    credit = (amt, said) =>
+      (DB.txns || []).find(
+        (t) =>
+          banks.has(t.acct) &&
+          +t.amt > 0 &&
+          Math.abs(+t.amt - amt) < 0.01 &&
+          t.date >= iso(addDays(said, -10)) &&
+          t.date <= iso(addDays(said, 7)),
+      ),
+    recorded = (t) => {
+      for (const cl of DB.clients || [])
+        for (const py of cl.payments || [])
+          if (Math.abs(+py.amount - +t.amt) < 0.01 && Math.abs(new Date(py.date) - new Date(t.date)) <= 7 * 864e5)
+            return { client: cl, pay: py, inv: (cl.invoices || []).find((i) => i.id === py.invoiceId) };
+      return null;
+    };
+  return (
+    (DB.comms || [])
+      .filter((c) => c.owner === me.id && "ignored" !== c.status)
+      .forEach((c) => {
+        (c.proposals || [])
+          .filter((p) => "deposit" === p.kind && !p.applied && p.amount && !p.bankChecked)
+          .forEach((p) => {
+            p.bankChecked = today();
+            const said = String(c.date || "").slice(0, 10) || today(),
+              t = credit(+p.amount, said),
+              who = (c.from || {}).name || (c.from || {}).email || "the client",
+              acct = t && ((DB.accounts || []).find((a) => a.id === t.acct) || {});
+            if (t) {
+              const r = recorded(t);
+              (p.txnId = t.id),
+                (p.recorded = r ? r.pay.id : ""),
+                (p.summary += ` · in the bank ${fmtL(t.date)}${acct.last4 ? " (····" + acct.last4 + ")" : ""}${r ? " and recorded" + (r.inv ? " on " + r.inv.number : "") : " — not yet recorded"}`),
+                r && (p.on = !1),
+                made.push(
+                  paNudge(
+                    `${who}'s ${money(+p.amount)} is in the bank.`,
+                    `They said it was sent${p.saidDay ? " " + String(p.saidDay).toLowerCase() : ""}; it posted ${fmtL(t.date)} to ${acct.name || "the bank"}${r ? `, and it is recorded${r.inv ? ` against ${r.inv.number}` : ""}. Nothing to do but tell them it cleared.` : ". It is not recorded against an invoice yet — the match is on the comms screen for you to record."}`,
+                    { kind: "claim", id: p.id, commId: c.id },
+                    "money a client says they sent",
+                  ),
+                );
+            } else
+              made.push(
+                paNudge(
+                  `${who} says ${money(+p.amount)} was sent; it is not in the bank yet.`,
+                  `Nothing in the feed matches it since ${fmtL(said)}. I will say when it lands; if it has not by ${fmtL(iso(addWork(said, 5, !1)))}, ask them for the confirmation.`,
+                  { kind: "claim", id: p.id, commId: c.id },
+                  "money a client says they sent",
+                ),
+              );
+          });
+      }),
+    (DB.expected || [])
+      .filter((e) => !e.matched && e.amount)
+      .forEach((e) => {
+        const t = credit(+e.amount, e.said || today());
+        t &&
+          ((e.matched = t.id),
+          made.push(
+            paNudge(
+              `The ${money(+e.amount)} from ${e.from || "the client"} has landed.`,
+              `It posted ${fmtL(t.date)}. Record it against the invoice from Bank, or it stays an unmatched line.`,
+              { kind: "expect-landed", id: e.id },
+              "money you were watching for",
+            ),
+          ));
+      }),
+    made.filter(Boolean)
+  );
+}
+if ("function" == typeof paWatch) {
+  const paWatchBase_dw = paWatch;
+  paWatch = function (delta) {
+    const made = paWatchBase_dw.apply(this, arguments) || [];
+    try {
+      paMailExpectSweep();
+    } catch (e) {
+      console.warn("expect sweep", e);
+    }
+    try {
+      made.push(...paPaymentClaimSweep());
+    } catch (e) {
+      console.warn("claim sweep", e);
+    }
+    try {
+      made.push(...(paChaseWatch() || []));
+    } catch (e) {
+      console.warn("chase", e);
+    }
+    return made.length && (save(), paBadge()), made.filter(Boolean);
+  };
+}
+// Signing in as another user must not carry the previous user's demo cache into the next build.
+if ("function" == typeof gcDisconnect) {
+  const gcDisconnectBase_dw = gcDisconnect;
+  gcDisconnect = function () {
+    const id = paMe().id;
+    return delete DEMO_WS[id], gcDisconnectBase_dw.apply(this, arguments);
   };
 }

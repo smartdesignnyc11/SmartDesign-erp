@@ -2,6 +2,8 @@
 
 From round 5 the reviewers are the role experts in `.claude/agents/` (owner, pm, coordinator, foreman, crew, designer, billing, controller, client) plus the founder lens. Each runs a full working day as that person with their Demo Workspace (mailbox, calendar, drive) connected, tests every hand-off to the other roles, and grades the screens, the assistant and the brain separately (`.claude/agents/_PROTOCOL.md` has the report format). The four lenses below remain the grading scale: founder, UX (the role experts' flow findings), finance (the controller and billing), ops (the pm, coordinator, foreman and client).
 
+- **Connect your Demo Workspace first.** Settings › Connections › "Connect Demo Workspace" (or `gcDemoConnect()` as your user), then Sync Now: an invented mailbox, calendar and drive for your persona, served through the same code real Google uses; nothing in it is real, and Disconnect removes it (docs/ARCHITECTURE.md, "Demo Workspace").
+
 Every improvement round ends with the same four independent reviewers re-scoring. Run each reviewer as a separate subagent that did NOT write the code. Each one:
 - drives `dist/smartdesigns_projects.html` with Playwright;
 - saves screenshots and scripts under `review/r<N>_<lens>_*`;
