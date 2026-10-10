@@ -45670,12 +45670,23 @@ const fRaises = (pid) => DB.field.raises.filter((r) => r.projectId === (pid || S
         : `${Math.round(h / 24)} d`;
   },
   fNow = () => appNowIso();
+// Hours a question from the site has waited, counted on working days only: a raise sent Friday afternoon has
+// not waited the weekend (flow: the damaged laundry boxes escalated past the coordinator before she opened Monday).
+function fWorkHours(at, nowMs) {
+  const from = new Date(at).getTime(),
+    to = nowMs || appNowMs();
+  if (!(to > from)) return 0;
+  let h = (to - from) / 36e5;
+  for (let d = iso(new Date(from)); d < iso(new Date(to)); d = iso(addDays(d, 1))) isWork(d) || (h -= 24);
+  isWork(iso(new Date(to))) || (h -= (to - new Date(iso(new Date(to)) + "T00:00:00").getTime()) / 36e5);
+  return Math.max(0, h);
+}
 function fTick() {
   let changed = !1;
   for (const r of DB.field.raises) {
     if (!["sent", "seen"].includes(r.status) || r.escalated) continue;
     const hrs = F_TYPES[r.type]?.hrs || 24;
-    (appNowMs() - new Date(r.at).getTime()) / 36e5 > hrs &&
+    fWorkHours(r.at) > hrs &&
       ((r.escalated = !0),
       (r.escalatedAt = fNow()),
       r.cc.includes("owner") || r.cc.push("owner"),
@@ -45707,8 +45718,9 @@ function fSend(o) {
       o,
     );
   if (("pm" === r.to || r.cc.includes("pm") || r.cc.push("pm"), !r.dueBy)) {
+    // due on a working day: the hours run on working days, as the escalation counts them
     const d = new Date(appNowMs() + 36e5 * (t.hrs || 24));
-    r.dueBy = iso(d);
+    r.dueBy = isWork(iso(d)) ? iso(d) : nextWork(iso(d));
   }
   DB.field.raises.push(r);
   const p = fPerson(r.to);
@@ -63979,6 +63991,15 @@ function f3ArrivingHtml() {
           late = d < td;
         return `<div class="f3-row ${late ? "late" : ""}"><div><span class="k">Delivery</span><b>${esc(po.vendor || "Vendor")}</b><div class="small ${late ? "bad-t" : "muted"}">${esc(po.number)} · ${(po.lines || []).length} line${1 === (po.lines || []).length ? "" : "s"}${late ? ` · was due ${fmt(d)} and has not landed` : ""}</div></div></div>`;
       }),
+      // deliveries and visits on the job's calendar (a vendor's or a sub's date read from mail and applied):
+      // the ones a PO or the sub calendar already lists are not repeated
+      ...(((DB.calendar || {}).external || [])
+        .filter((e) => e && e.projectId === S.id && ["delivery", "visit"].includes(e.kind) && String(e.start || "").slice(0, 10) === td && "cancelled" !== e.status && !e.subId && !pos.some((po) => po.vendorId && po.vendorId === e.vendorId))
+        .map((e) => {
+          const t = (String(e.start).match(/T(\d{2}:\d{2})/) || [])[1] || "",
+            t2 = (String(e.end || "").match(/T(\d{2}:\d{2})/) || [])[1] || "";
+          return `<div class="f3-row"><div><span class="k">${"delivery" === e.kind ? "Delivery" : "On Site"}</span><b>${esc(String(e.title || "").replace(/^(Delivery|On site):\s*/, ""))}</b><div class="small muted">${t ? `${t}${t2 ? "–" + t2 : ""}` : "today"} · from the vendor's email</div></div></div>`;
+        })),
     ];
   return (
     (DB.pos || [])
@@ -175272,6 +175293,790 @@ if ("function" == typeof h4Go) {
   const base = h4Go;
   h4Go = function (go) {
     return go && go.order ? buyOrderDialog(go.order) : base.apply(this, arguments);
+  };
+}
+
+// ---- reading mail into what it asks for: a field ask for material, a dated ask or deadline, a delivery or a
+// sub's visit, a client's choice, a client disputing a change order, a meeting time. Each is a proposal a person
+// applies with one tap; nothing is written by reading.
+const FL_DOW = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+// A day in someone's words, on the day they wrote it: "Thursday" in a Tuesday mail is two days later, "9/25"
+// is 9/25, "tomorrow" is the day after they wrote.
+function flDayIn(text, base) {
+  const t = String(text || "").toLowerCase(),
+    b = base && /^\d{4}-\d{2}-\d{2}/.test(base) ? String(base).slice(0, 10) : today(),
+    yr = +b.slice(0, 4),
+    n = t.match(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/);
+  if (n) return iso(new Date(n[3] ? (n[3].length === 2 ? 2000 + +n[3] : +n[3]) : yr, +n[1] - 1, +n[2]));
+  const mm = t.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b/);
+  if (mm) {
+    const d = iso(new Date(yr, ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"].indexOf(mm[1]), +mm[2]));
+    return d < iso(addDays(b, -60)) ? iso(new Date(yr + 1, +d.slice(5, 7) - 1, +mm[2])) : d;
+  }
+  if (/\btomorrow\b/.test(t)) return iso(addDays(b, 1));
+  if (/\btoday\b|\bthis morning\b/.test(t)) return b;
+  const w = FL_DOW.findIndex((d) => new RegExp(`\\b${d}\\b`).test(t));
+  if (w >= 0) {
+    let k = (w - new Date(b + "T12:00:00").getDay() + 7) % 7;
+    return 0 === k && (k = 7), iso(addDays(b, k));
+  }
+  return "";
+}
+// The first date a text names: "September 18", "9/25", "tomorrow", "Thursday" (in that order of trust).
+function flFirstDate(text, base) {
+  const t = String(text || ""),
+    m = t.match(/\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+\d{1,2}(?:st|nd|rd|th)?\b/i) || t.match(/\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b/) || t.match(/\b(?:mon|tues|wednes|thurs|fri|satur|sun)day\b/i) || t.match(/\btomorrow\b/i) || t.match(/\btoday\b/i);
+  return m ? flDayIn(m[0], base) : "";
+}
+// A time window in someone's words: "between 8 and 12", "8–12", "at 7", "7am". Site hours: 1 to 6 is the afternoon.
+function flTimeIn(text) {
+  const t = String(text || "").toLowerCase().replace(/\b\d{1,2}\/\d{1,2}(\/\d{2,4})?\b/g, " "),
+    h = (x, ap) => {
+      let v = +x;
+      return ap ? ("pm" === ap && v < 12 && (v += 12), "am" === ap && 12 === v && (v = 0)) : v >= 1 && v <= 6 && (v += 12), String(v).padStart(2, "0") + ":00";
+    },
+    w = t.match(/\bbetween\s+(\d{1,2})(?::\d\d)?\s*(am|pm)?\s+and\s+(\d{1,2})(?::\d\d)?\s*(am|pm)?/) || t.match(/\b(\d{1,2})\s*(am|pm)?\s*[–-]\s*(\d{1,2})\s*(am|pm)?\b/);
+  if (w) return { from: h(w[1], w[2] || (w[4] && +w[1] <= +w[3] ? w[4] : "")), to: h(w[3], w[4]) };
+  const a = t.match(/\b(\d{1,2})(?::(\d\d))?\s*(am|pm)\b/) || t.match(/\bat\s+(\d{1,2})(?::(\d\d))?\s*(am|pm)?\b(?!\s*(?:[a-z]+\s+)?(?:st|street|ave|avenue|pl|place|rd|road|blvd|lane|ln)\b)/);
+  if (a && +a[1] >= 1 && +a[1] <= 12) {
+    const f = h(a[1], a[3]),
+      to = String(Math.min(18, +f.slice(0, 2) + 2)).padStart(2, "0") + ":00";
+    return { from: a[2] ? f.slice(0, 3) + a[2] : f, to: to };
+  }
+  if (/\bafternoon\b/.test(t)) return { from: "14:00", to: "15:00" };
+  if (/\bmorning\b/.test(t)) return { from: "09:00", to: "10:00" };
+  return null;
+}
+const flUserOf = (name) => {
+  const n = String(name || "").toLowerCase().trim();
+  return n ? (DB.users || []).find((u) => String(u.name || "").toLowerCase() === n) || (DB.users || []).find((u) => String(u.name || "").toLowerCase().split(/\s+/)[0] === n.split(/\s+/)[0]) || null : null;
+};
+const flSentences = (t) => String(t || "").replace(/\s+/g, " ").split(/(?<=[.?!])\s+(?=[A-Z])/);
+// A field ask for material in mail ("I need the 25 boards of GWB and the cement board on site Thursday").
+function flFieldAsk(c, R) {
+  if (!R.employee || !R.projectId) return null;
+  const u = flUserOf(R.employee);
+  if (u && !["foreman", "crew", "driver"].includes(u.role)) return null;
+  const own = "function" == typeof cmOwnText ? cmOwnText(c.text) : String(c.text || "");
+  for (const s of flSentences(own)) {
+    const m = s.match(/\b(?:i|we)\s+(?:still\s+)?(?:need|needs|have to have)\b[^.]*?\b(\d+)\s*(boards?|sheets?|pcs|pieces|ea|each|bags?|boxes?|bundles?|rolls?|tubes?|gallons?|gal|lf|sf|pails?|studs?)?\s+(?:of\s+)?([^.;]+?)(?=\s+(?:on site|delivered|here|by|before|for the|or|so|because|tomorrow|today)\b|[.;!]|$)/i);
+    if (!m) continue;
+    const what = m[3].replace(/^the\s+/i, "").replace(/\band the\b/gi, "and").replace(/\s+/g, " ").trim();
+    if (!what || what.length > 60) continue;
+    const day = flDayIn((s.match(/\b(?:on site|by|before|for|delivered)\s+([a-z]+day(?:\s+\d{1,2}\/\d{1,2})?|\d{1,2}\/\d{1,2}|tomorrow|today)/i) || [])[1] || "", String(c.date || "").slice(0, 10));
+    return { what: what, qty: +m[1] || 1, unit: (m[2] || "ea").toLowerCase(), neededBy: day, by: R.employee, sentence: s.trim() };
+  }
+  return null;
+}
+// A dated ask or a deadline for the reader: "confirm the laundry layout ... before Friday", "needs the owner
+// signature on the PW1 by Monday 9/28". The task is the ask in the sender's words, due the day they named.
+function flDatedAsk(c, R) {
+  if (R.bot || flIsNotes(c)) return null;
+  const own = "function" == typeof cmOwnText ? cmOwnText(c.text) : String(c.text || ""),
+    base = String(c.date || "").slice(0, 10) || today(),
+    out = [];
+  flSentences(own).forEach((s) => {
+    const d = s.match(/\b(?:by|before|no later than|until)\s+((?:next\s+)?(?:mon|tues|wednes|thurs|fri|satur|sun)day(?:\s+\d{1,2}\/\d{1,2})?|\d{1,2}\/\d{1,2}|tomorrow|end of (?:the )?(?:day|week))/i);
+    if (!d) return;
+    const due = /end of (?:the )?week/i.test(d[1]) ? flDayIn("friday", base) : flDayIn(d[1], base);
+    due && out.push({ sentence: s.trim(), due: due, act: /\b(sign|signature|confirm|send|submit|file|approve|pay|attest|review|return|book|schedule|call|price)\w*/i.test(s) });
+  });
+  return out.find((x) => x.act) || out[0] || null;
+}
+const flIsNotes = (c) => {
+  try {
+    return ("function" == typeof mtIsNotes && mtIsNotes(c)) || /^notes:/i.test(c.subject || "") || /meeting notes/i.test(((c.from || {}).name) || "");
+  } catch (e) {
+    return !1;
+  }
+};
+// A delivery or a sub's visit on a job, from a vendor on file: the date, the window and what it is.
+function flVisit(c, R) {
+  if (!R.vendorId || !R.projectId) return null;
+  const own = "function" == typeof cmOwnText ? cmOwnText(c.text) : String(c.text || ""),
+    all = `${c.subject || ""}. ${own}`;
+  if (!/\b(deliver(?:y|s|ed|ing)?|drop(?:ping)? off|on site|arriv\w+|top-?out|rough-?in|install\w*|template|crew|we will be there|coming)\b/i.test(all)) return null;
+  if (/\b(invoice|statement|balance due|amount due|paid)\b/i.test(all) && !/deliver/i.test(all)) return null;
+  const date = flFirstDate(own, String(c.date || "").slice(0, 10)) || flFirstDate(c.subject, String(c.date || "").slice(0, 10));
+  if (!date || date < String(c.date || today()).slice(0, 10)) return null;
+  // an order already on the job for that day is on Arriving Today as the PO
+  if ((DB.pos || []).some((po) => po.projectId === R.projectId && ["issued", "partial"].includes(po.status) && (po.vendorId === R.vendorId || String(po.vendor || "").toLowerCase() === String(((DB.vendors || []).find((x) => x.id === R.vendorId) || {}).name || "").toLowerCase()) && (po.expected === date || po.needBy === date))) return null;
+  const v = (DB.vendors || []).find((x) => x.id === R.vendorId) || {},
+    delivery = /\bdeliver|drop(?:ping)? off|arriv/i.test(all),
+    tm = flTimeIn(all),
+    what = (String(c.subject || "").replace(/^(re|fwd?):\s*/i, "").replace(/\b\d{1,3}\s+[A-Z][a-z]+(\s+(St|Street|Ave|Avenue|Pl|Place))?\b\s*[—-]?\s*/, "").replace(/\b(delivery window|tomorrow|confirming|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/gi, "").replace(/\d{1,2}\/\d{1,2}|\d{1,2}\s*[–-]\s*\d{1,2}|\b\d{1,2}\s*(am|pm)\b|[—,]/gi, " ").replace(/\s+/g, " ").trim()) || (delivery ? "delivery" : "on site");
+  return { date: date, from: tm ? tm.from : "", to: tm ? tm.to : "", delivery: delivery, what: what, vendorId: v.id || "", vendor: v.name || "", trade: v.trade || "" };
+}
+// A client's choice by mail: which open decision, which option, in their words.
+function flMailChoice(c, R) {
+  if (!R.clientId || !R.projectId) return null;
+  const p = (DB.projects || []).find((x) => x.id === R.projectId);
+  if (!p) return null;
+  const own = "function" == typeof cmOwnText ? cmOwnText(c.text) : String(c.text || ""),
+    words = (s) => new Set(String(s || "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter((w) => w.length > 3 && !/^(with|that|this|from|your|have|will|please|order|approved|choose|like|would|after|walk|tuesday)$/.test(w)));
+  let best = null;
+  flSentences(own)
+    .filter((s) => /\b(go with|we choose|we chose|we'?d like|let'?s go with|approved?|we pick|decided on|our choice)\b/i.test(s))
+    .forEach((s) => {
+      const W = words(s);
+      (p.decisions || [])
+        .filter((d) => "open" === d.status)
+        .forEach((d) => {
+          const nameHit = [...words(`${d.name} ${d.clientTitle || ""}`)].filter((w) => W.has(w)).length;
+          if (nameHit < 2) return;
+          const opts = (d.options || []).map((o) => ({ o: o, n: [...words(`${o.label} ${o.note || ""}`)].filter((w) => W.has(w)).length })).sort((a, b) => b.n - a.n),
+            top = opts[0] && opts[0].n > 0 && (!opts[1] || opts[1].n < opts[0].n) ? opts[0].o : null,
+            score = nameHit * 2 + (top ? 3 : 0);
+          (!best || score > best.score) && (best = { d: d, option: top, sentence: s.trim(), score: score });
+        });
+    });
+  return best;
+}
+// A client disputing a change order by mail: which CO, in their words.
+function flCoDispute(c, R) {
+  if (!R.clientId) return null;
+  const own = "function" == typeof cmOwnText ? cmOwnText(c.text) : String(c.text || ""),
+    all = `${c.subject || ""} ${own}`;
+  if (!/\b(change order|\bco\b|co-\d|extra)\b/i.test(all) || !/\b(don'?t (think|agree)|do not (think|agree)|disagree|dispute|shouldn'?t be|should not be|not (an|our) extra|not fair|object|can we talk)\b/i.test(own)) return null;
+  const cl = (DB.clients || []).find((x) => x.id === R.clientId);
+  if (!cl) return null;
+  const words = new Set(all.toLowerCase().replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter((w) => w.length > 3 && !/^(change|order|extra|think|should|there|before|house|floor)$/.test(w))),
+    num = (all.match(/\bCO-\d{4}-\d{3}(?:-R\d+)?\b/i) || [])[0],
+    C = (cl.changeOrders || []).filter((d) => !["void", "rejected", "superseded", "withdrawn"].includes(d.status) && (!R.projectId || !d.projectId || d.projectId === R.projectId));
+  const co =
+    (num && C.find((d) => String(d.number).toUpperCase() === num.toUpperCase())) ||
+    C.map((d) => ({ d: d, n: [...words].filter((w) => String(`${d.title} ${d.memo || ""}`).toLowerCase().includes(w)).length }))
+      .filter((x) => x.n > 0)
+      .sort((a, b) => b.n - a.n)
+      .map((x) => x.d)[0];
+  return co ? { coId: co.id, number: co.number, title: co.title, sentence: own.replace(/\s+/g, " ").slice(0, 200) } : { coId: "", number: "", title: "", sentence: own.replace(/\s+/g, " ").slice(0, 200), noCo: !0 };
+}
+// A meeting time someone proposes ("Could we meet on 10/6 at 10 at the house?").
+function flMeetAsk(c, R) {
+  if (R.employee || R.bot || flIsNotes(c)) return null;
+  const own = "function" == typeof cmOwnText ? cmOwnText(c.text) : String(c.text || ""),
+    s = flSentences(own).find((x) => /\b(meet|walk ?through|site visit|come by|sit down)\b/i.test(x) && !/'s meeting\b/i.test(x) && /\b(could we|can we|shall we|let'?s|plan to|how about|works for (us|me)|are you free|would you|we'?d like)\b/i.test(x) && /\b(\d{1,2}\/\d{1,2}|(?:mon|tues|wednes|thurs|fri|satur|sun)day|tomorrow)\b/i.test(x));
+  if (!s) return null;
+  const date = flFirstDate(s, String(c.date || "").slice(0, 10)),
+    tm = flTimeIn(s);
+  if (!date || date < today()) return null;
+  const who = R.leadName || (c.from && c.from.name) || "them",
+    where = (s.match(/\b(?:at|in) (the (?:house|site|apartment|office|lobby)|\d+ [A-Z][\w ]+)/) || [])[1] || R.addr || "";
+  return { date: date, from: tm ? tm.from : "10:00", to: tm ? tm.to : "11:00", who: who, where: where && !/^the /.test(where) ? where : R.addr ? `${where ? where + ", " : ""}${R.addr}` : where, sentence: s.trim() };
+}
+{
+  const base = cmRead;
+  cmRead = function (c) {
+    const P = base.apply(this, arguments);
+    try {
+      if (!Array.isArray(P) || !c) return P;
+      const R = c.route || {},
+        push = (kind, summary, o) => P.push(Object.assign({ id: uid("cp"), kind: kind, summary: summary, on: !0 }, o || {})),
+        // a plain note gives way to the proposal that does something
+        drop = () => {
+          for (let i = P.length - 1; i >= 0; i--) "note" === P[i].kind && P.length > 1 && P.splice(i, 1);
+        };
+      const job = R.projectId ? (DB.projects || []).find((x) => x.id === R.projectId) : null,
+        jn = job ? shortName(job) : "";
+      const ask = flFieldAsk(c, R);
+      ask &&
+        !P.some((x) => "request" === x.kind && x.material) &&
+        (push("request", `${ask.by} asks for ${ask.qty} ${ask.unit} ${ask.what}${jn ? " on " + jn : ""}${ask.neededBy ? ", on site " + fmtL(ask.neededBy) : ""} — a request on the Buy Board`, {
+          material: ask,
+          projectId: R.projectId,
+          route: "coord",
+        }),
+        drop());
+      const vis = !R.employee && !R.clientId ? flVisit(c, R) : null;
+      vis &&
+        !P.some((x) => "eta" === x.kind || "visit" === x.kind) &&
+        (push("visit", `${vis.vendor}: ${vis.delivery ? "delivery" : "on site"} ${fmtL(vis.date)}${vis.from ? ` ${vis.from}${vis.to ? "–" + vis.to : ""}` : ""}${jn ? " at " + jn : ""} — on the job's calendar and the foreman's Today`, Object.assign({ projectId: R.projectId }, vis)), drop());
+      const ch = flMailChoice(c, R);
+      if (ch) {
+        // the card leads with the client's own words ("honed Calacatta"), then the option it records
+        const said = ((ch.sentence.match(/\b(?:go with|choose|chose|pick|picked|like|decided on)\s+(?:the\s+)?([^,.;—]+?)(?=\s+for\b|[,.;—]|$)/i) || [])[1] || "").trim(),
+          who0 = (DB.clients.find((x) => x.id === R.clientId) || {}).name || "The client";
+        ch.summary = `${who0}: “${said || ch.sentence.slice(0, 60)}” for ${ch.d.clientTitle || ch.d.name}, chosen by email${ch.option ? ` — records ${ch.option.label}` : ""}`;
+      }
+      if (ch) {
+        const dp = P.find((x) => "decision" === x.kind);
+        dp
+          ? Object.assign(dp, { decisionId: ch.d.id, projectId: R.projectId, optionId: ch.option ? ch.option.id : "", choice: ch.option ? ch.option.label : "", words: ch.sentence, summary: ch.summary })
+          : push("decision", ch.summary, { clientId: R.clientId, decisionId: ch.d.id, projectId: R.projectId, optionId: ch.option ? ch.option.id : "", choice: ch.option ? ch.option.label : "", words: ch.sentence });
+      }
+      const da = flDatedAsk(c, R);
+      if (da) {
+        const rq = P.find((x) => "request" === x.kind && !x.material && x.task && x.task.slice(0, 30) && da.sentence.toLowerCase().includes(x.task.replace(/\s+—.*$/, "").slice(0, 25).toLowerCase()));
+        rq
+          ? (rq.due = da.due)
+          : P.some((x) => "request" === x.kind && !x.material && !x.due)
+            ? P.filter((x) => "request" === x.kind && !x.material && !x.due).forEach((x) => (x.due = da.due))
+            : !da.act || P.some((x) => "permit" === x.kind && x.task) ||
+              (push("request", `${(c.from && c.from.name) || R.contact || "They"} asks by ${fmtL(da.due)}: “${da.sentence.slice(0, 120)}”`, {
+                task: `${da.sentence.replace(/^(alan|chen|sarah|hi|hello)[,\s]+/i, "").replace(/[.?!]+$/, "").slice(0, 110)}${jn ? " — " + jn : ""}`,
+                due: da.due,
+                projectId: R.projectId || "",
+                forWho: "",
+                dated: !0,
+              }),
+              drop());
+      }
+      // an ask reads as the thing to do, in the sender's words, with who asked and by when
+      P.filter((x) => "request" === x.kind && !x.material && !x.flWorded).forEach((x) => {
+        const q = (String(x.summary || "").match(/“([^”]+)”/) || [])[1] || "";
+        if (!q) return;
+        const act = q.replace(/^(also|and|alan|chen|sarah|hi|hello)[,\s]+/i, "").replace(/^(?:can|could|would|will) you (?:please )?/i, "").replace(/[?.!]+$/, "").trim(),
+          who = (c.from && c.from.name) || R.contact || "they";
+        if (!act) return;
+        x.flWorded = !0;
+        x.summary = `${act.charAt(0).toUpperCase() + act.slice(1)} — ${who}${x.due ? `, by ${fmtL(x.due)}` : ""}`;
+        x.task = `${act.charAt(0).toUpperCase() + act.slice(1)}${jn ? " — " + jn : ""}`.slice(0, 140);
+      });
+      const dis = flCoDispute(c, R);
+      dis && !dis.noCo && (push("codispute", `${(DB.clients.find((x) => x.id === R.clientId) || {}).name || "The client"} disputes ${dis.number} ${dis.title}: “${dis.sentence.slice(0, 110)}”`, Object.assign({ clientId: R.clientId, projectId: R.projectId || "" }, dis)), drop());
+      const mt = flMeetAsk(c, R);
+      mt && !P.some((x) => "hold" === x.kind) && push("hold", `Meeting with ${mt.who} ${fmtL(mt.date)} ${mt.from}${mt.where ? " at " + mt.where : ""} — hold it on your calendar`, Object.assign({ projectId: R.projectId || "" }, mt));
+    } catch (e) {
+      console.warn("flow read", e);
+    }
+    return P;
+  };
+}
+
+// ---- applying what the reader proposed (one tap each; a sheet where the person has to say something)
+const flMe = () => (currentUser() || {}).name || role();
+const flMark = (c, p, did) => {
+  (p.applied = did), (p.appliedAt = appNowIso()), (p.by = flMe());
+  try {
+    "function" == typeof nyhMarkCopies && nyhMarkCopies(c, p, did);
+  } catch (e) {}
+  c && (c.proposals || []).length && c.proposals.every((x) => x.applied || !1 === x.on) && (c.status = "applied");
+  return did;
+};
+const flPM = (p) => {
+  const pm = ("function" == typeof fPeople ? fPeople().pm : null) || {};
+  return (p && p.project && p.project.pm) || pm.name || "Alan";
+};
+// 2. A field ask in mail becomes a material request on the Buy Board, the same record the foreman's own ask makes.
+function flApplyMatReq(c, p) {
+  const pr = (DB.projects || []).find((x) => x.id === p.projectId),
+    M = p.material || {};
+  if (!pr) return flMark(c, p, "no job on it — nothing was written");
+  const have = (pr.requests || []).find((r) => r.commId === c.id || (r.fromMail && r.fromMail === lnMailKey(c)));
+  if (have) return flMark(c, p, `already on the Buy Board as ${have.qty} ${have.unit} ${have.what}`);
+  const keep = S;
+  S = pr;
+  pr.requests = pr.requests || [];
+  let r = null;
+  try {
+    r = addRequest({ what: M.what, qty: M.qty || 1, unit: M.unit || "ea", neededBy: M.neededBy || addWork(today(), 1), note: `From ${M.by}'s email: “${String(M.sentence || "").slice(0, 160)}”`, commId: c.id, fromMail: lnMailKey(c) }, M.by || "the foreman");
+  } catch (e) {
+    console.warn("request from mail", e);
+  }
+  S = keep;
+  return flMark(c, p, r ? `${r.qty} ${r.unit} ${r.what} is on the Buy Board for ${shortName(pr)}, needed ${fmtL(r.neededBy)} — acknowledge it and the driver can buy it` : "the request could not be written");
+}
+// 6. A delivery or a sub's visit from mail goes on the job's calendar; the foreman's Today shows it on its day and
+// a note tells him now.
+function flApplyVisit(c, p) {
+  const pr = (DB.projects || []).find((x) => x.id === p.projectId);
+  if (!pr) return flMark(c, p, "no job on it — nothing was written");
+  DB.calendar = DB.calendar || { external: [], map: {}, last: "", calendarId: "" };
+  DB.calendar.external = DB.calendar.external || [];
+  const key = `visit|${p.vendorId}|${p.date}|${pr.id}`,
+    from = p.from || "08:00",
+    to = p.to || String(Math.min(18, +from.slice(0, 2) + 2)).padStart(2, "0") + ":00",
+    win = `${fmtL(p.date)}${p.from ? ` ${from}–${to}` : ""}`;
+  let ev = DB.calendar.external.find((e) => e.key === key);
+  if (!ev) {
+    ev = { id: uid("ev"), key: key, kind: p.delivery ? "delivery" : "visit", source: "erp", projectId: pr.id, vendorId: p.vendorId, title: `${p.delivery ? "Delivery" : "On site"}: ${p.vendor}${p.what ? " — " + p.what : ""}`, start: `${p.date}T${from}:00`, end: `${p.date}T${to}:00`, where: (pr.project || {}).addr || "", status: "confirmed", owner: "", commId: c.id };
+    DB.calendar.external.push(ev);
+    // a sub's visit is a day on the sub calendar too (Arriving Today lists it as the sub)
+    if (!p.delivery && p.trade) {
+      DB.field = DB.field || {};
+      DB.field.subs = DB.field.subs || [];
+      let s = DB.field.subs.find((x) => x.projectId === pr.id && x.vendor === p.vendor && x.date === p.date);
+      s || ((s = { id: uid("fs"), projectId: pr.id, vendor: p.vendor, lead: "", phone: "", trade: p.trade, taskId: "", workers: 0, date: p.date, status: "confirmed", note: `${p.what}${p.from ? " " + from : ""} (confirmed by email)` }), DB.field.subs.push(s));
+      "unconfirmed" === s.status && (s.status = "confirmed");
+      ev.subId = s.id;
+    }
+    DB.field = DB.field || {};
+    (DB.field.notes = DB.field.notes || []).push({ id: uid("fn"), projectId: pr.id, kind: "plan", text: `${p.vendor}: ${p.delivery ? "delivery" : "on site"} ${win}${p.what ? ` — ${p.what}` : ""}. It is on Arriving Today that day.`, by: flMe(), at: appNowIso(), ack: "", calId: ev.id });
+    try {
+      "function" == typeof gcOn && gcOn() && "function" == typeof gaHold && gaHold({ title: `${ev.title} — ${shortName(pr)}`, start: ev.start, end: ev.end, note: c.subject || "", why: "a delivery or visit on the job" }).catch(() => {});
+    } catch (e) {}
+  }
+  return flMark(c, p, `on the ${shortName(pr)} calendar ${win} — on the foreman's Today that day`);
+}
+// 4. A client's choice made by mail is recorded on the decision (the portal stops asking); the PM recorded it.
+function flApplyChoice(c, p) {
+  const pr = (DB.projects || []).find((x) => x.id === p.projectId),
+    dec = pr && (pr.decisions || []).find((d) => d.id === p.decisionId);
+  if (!dec) return flMark(c, p, "the decision is not on the job any more");
+  if ("open" !== dec.status) return flMark(c, p, `already decided: ${dec.decision || dec.choice || ""}`);
+  const picked = (dec.options || []).find((o) => o.id === p.optionId) || null,
+    ch = picked ? picked.label : String(p.words || "").slice(0, 120),
+    who = ((DB.clients || []).find((x) => x.id === (p.clientId || pr.clientId)) || {}).name || "the client",
+    from = (c.from && c.from.name) || who,
+    by = flMe(),
+    td = today(),
+    delta = picked && picked.delta ? +picked.delta : 0,
+    keep = S;
+  S = pr;
+  try {
+    const m = "mat" === dec.kind ? (pr.materials || []).find((x) => x.id === dec.ref) : null,
+      tk = "task" === dec.kind ? (pr.tasks || []).find((x) => x.id === dec.ref) : m ? (pr.tasks || []).find((x) => x.id === m.taskId) : null,
+      T = dec.clientTitle || dec.name;
+    Object.assign(dec, { status: "made", decision: ch, choice: ch, decidedBy: by, decidedAt: td, decidedOn: td, madeOn: td, chosen: picked || "", clientChoice: { by: from, via: "email", commId: c.id, words: String(p.words || "").slice(0, 240), at: String(c.date || "").slice(0, 10) } });
+    (dec.timeline = dec.timeline || []).push({ on: td, by: by, text: `${from} chose by email: ${ch}${delta ? ` (${delta > 0 ? "+" : "−"}${money(Math.abs(delta))} against the allowance)` : ""} — recorded by ${by}` });
+    m && "needs-decision" === m.status && (m.status = "not-ordered");
+    tk && ((tk.released = { on: td, by: by, decisionId: dec.id, what: ch }), (tk.history = tk.history || []).push({ on: td, from: { start: tk.start, end: tk.end }, to: { start: tk.start, end: tk.end }, source: "release", reason: `decision made — ${dec.name}`, by: by }));
+    const cl = clientOf(pr);
+    cl && (cl.activity = cl.activity || []).push({ t: nowStamp(), by: by, text: `Choice made by email (${from}), recorded by ${by}: ${T} — ${ch}` });
+    if (delta > 0 || m)
+      (pr.actions = pr.actions || []).push({
+        id: uid("a"),
+        title: delta > 0 ? `Raise the ${money(delta)} change order — ${T}` : `Order ${m.name} — ${T}`,
+        notes: delta > 0 ? `${from} chose "${ch}" by email, ${money(delta)} over the allowance. Raise the change order from the decision.` : `${from} chose "${ch}" by email. Order ${m.name}.`,
+        clShort: 1,
+        assignee: flPM(pr),
+        due: td,
+        priority: "high",
+        status: "todo",
+        area: delta > 0 ? "billing" : "procurement",
+        link: delta > 0 ? { kind: "dec", id: dec.id } : { kind: "mat", id: m.id },
+        source: { kind: "decision", id: dec.id, label: dec.name },
+        money: delta || 0,
+        next: delta > 0 ? "raise-co" : "",
+        createdAt: td,
+        completedAt: "",
+      });
+    log(`Choice by email (${from}), recorded by ${by}: ${dec.name} — ${ch}`);
+    audit("decision", dec.id, "decided-by-email", "open", "made", `${from} by email; recorded by ${by}: ${ch}`);
+  } catch (e) {
+    console.warn("choice by email", e);
+  }
+  S = keep;
+  return flMark(c, p, `${dec.clientTitle || dec.name}: ${ch} — recorded from ${from}'s email; the portal shows it decided`);
+}
+// A dated ask or deadline becomes a task for the person it is on, due the day it names.
+function flTaskDialog(c, p, route) {
+  const R = c.route || {},
+    pr = (DB.projects || []).find((x) => x.id === (p.projectId || R.projectId)),
+    rl = route || flAskRoute(c, p),
+    pp = "function" == typeof fPeople ? fPeople() : {},
+    who = "pm" === rl ? flPM(pr) : ((pp[rl] || {}).name || flMe());
+  newTaskDialog(
+    { title: String(p.task || c.subject || "Follow up").replace(/\s+—\s+(Sarah|David|Metro|.*?) · .*$/, ""), assignee: who, due: p.due || addWork(today(), 2), projectId: pr ? pr.id : "", notes: `${c.subject ? c.subject + " — " : ""}${String(p.summary || "").slice(0, 200)}`, source: { commId: c.id, label: "a message" + (c.from && c.from.name ? " from " + c.from.name : "") } },
+    { onSaved: (made) => (flMark(c, p, `task for ${made.assignee || who}${made.due ? ", due " + fmt(made.due) : ""}`), save(), render()) },
+  );
+  return "Choose who and when";
+}
+// 5. A meeting time someone proposed: a hold on the person's calendar, and a reply confirming it to approve.
+function flHoldDialog(c, p) {
+  const who = p.who || (c.from && c.from.name) || "them",
+    addr = (c.from && c.from.email) || "";
+  mbModal(
+    `Hold the Time — Meeting with ${esc(who)}`,
+    `<p class="small muted" style="margin:0 0 10px">${esc(who)} wrote: “${esc(String(p.sentence || "").slice(0, 160))}”. The hold goes on your calendar; the reply goes to your Drafts for you to send.</p>${mbF("Title", `<input data-f="title" value="${esc(`Meeting — ${who}${p.where ? " · " + p.where : ""}`)}">`)}<div class="grid2">${mbF("Date", `<input type="date" data-f="date" value="${esc(p.date)}">`)}${mbF("From", `<input type="time" data-f="from" value="${esc(p.from || "10:00")}">`)}</div><div class="grid2">${mbF("To", `<input type="time" data-f="to" value="${esc(p.to || "11:00")}">`)}${mbF("Where", `<input data-f="where" value="${esc(p.where || "")}">`)}</div><label class="chk"><input type="checkbox" data-f="reply" checked> <span class="chk-t">Draft a reply confirming the time</span></label>`,
+    {
+      submit: "Hold It",
+      onSubmit: (f) => {
+        if (!f.date) return toast("Say the day"), !1;
+        DB.calendar = DB.calendar || { external: [], map: {}, last: "", calendarId: "" };
+        DB.calendar.external = DB.calendar.external || [];
+        const me = currentUser() || {},
+          ev = { id: uid("ev"), kind: "hold", source: "erp", owner: me.id, title: f.title || `Meeting — ${who}`, start: `${f.date}T${f.from || "10:00"}:00`, end: `${f.date}T${f.to || "11:00"}:00`, where: f.where || "", status: "confirmed", attendees: addr ? [{ email: addr, name: who }] : [], commId: c.id, who: me.name };
+        DB.calendar.external.push(ev);
+        try {
+          "function" == typeof gcOn && gcOn() && gaHold({ title: ev.title, start: ev.start, end: ev.end, note: c.subject || "", why: `${who} asked to meet` }).catch(() => {});
+        } catch (e) {}
+        f.reply && addr &&
+          flDraftTo({ name: who, email: addr }, `Re: ${String(c.subject || "our meeting").replace(/^re:\s*/i, "")}`, `Hi ${String(who).split(" ")[0]},\n\n${fmtL(f.date)} at ${f.from || "10:00"}${f.where ? `, ${f.where}` : ""} works — it is on my calendar. See you then.\n\n${(me.name || "").split(" ")[0]}`, `${who} asked to meet`, { threadId: c.threadId, expect: !1 });
+        flMark(c, p, `held ${fmtL(f.date)} ${f.from || ""} on your calendar${f.reply && addr ? "; a reply is in your Drafts" : ""}`);
+        save(), render();
+        rcToast(`Held ${fmtL(f.date)} ${f.from || ""} — ${ev.title}`, [{ label: "Open", run: () => ((view = "calendar"), render()) }]);
+      },
+    },
+  );
+  return "Hold the time";
+}
+// 3. A client disputing a change order: Revise (a revision at the amount you set), Explain (a reply keeping it),
+// Withdraw (void it with the reason). The PM answers it from Do Now.
+function flDisputeDialog(c, p) {
+  const X = p.coId && clCoOf(p.coId);
+  if (!X) return flMark(c, p, "the change order is not on file"), toast("That change order is not on file"), null;
+  const { c: cl, d: co } = X,
+    who = (c.from && c.from.name) || cl.name,
+    amt = docTotal(co).total;
+  mbModal(
+    `Answer the Dispute — <span data-nocase>${esc(co.number)}</span>`,
+    `<p class="small muted" style="margin:0 0 10px">${esc(who)} on ${esc(co.number)} ${esc(co.title || "")} (${money(amt)}, ${esc(co.status)}): “${esc(String(p.sentence || "").slice(0, 200))}”</p>
+    <div class="sel-opts"><label class="chk"><input type="radio" name="fl-disp" value="revise"> <span class="chk-t"><b>Revise</b> — a revision at the amount below goes to ${esc(who)} for approval; this one is superseded</span></label><label class="chk"><input type="radio" name="fl-disp" value="explain"> <span class="chk-t"><b>Explain</b> — keep it and send a reply with the reason</span></label><label class="chk"><input type="radio" name="fl-disp" value="withdraw"> <span class="chk-t"><b>Withdraw</b> — void it, with the reason on the record</span></label></div>
+    ${mbF("Revised Amount", `<input type="number" step="0.01" min="0" data-f="amount" value="${amt}">`)}${mbF("Why (goes to the client)", '<textarea data-f="why" rows="3" placeholder="e.g. The damage was there before; we split the repair."></textarea>')}`,
+    {
+      submit: "Send the Answer",
+      onSubmit: (f) => {
+        const pick = ((document.querySelector('#mbm input[name="fl-disp"]:checked') || {}).value || "").trim();
+        if (!pick) return toast("Choose Revise, Explain or Withdraw"), !1;
+        if (!f.why) return toast("Say why — it goes to the client"), !1;
+        let did = "";
+        if ("revise" === pick) {
+          const n = "function" == typeof lkRevise ? lkRevise(cl, co) : null;
+          if (n) {
+            const t = docTotal(n).total,
+              target = +f.amount || t;
+            n.lines && n.lines.length && Math.abs(target - t) > 0.5 && (n.lines.length > 1 ? n.lines.push({ id: uid("l"), item: "Adjustment after review with the client", desc: f.why, qty: 1, unit: "ls", rate: r2(target - t), taxable: !1 }) : ((n.lines[0].rate = r2(target / (+n.lines[0].qty || 1))), (n.lines[0].qty = n.lines[0].qty || 1)));
+            n.memo = [n.memo, `Revised after ${who}'s note: ${f.why}`].filter(Boolean).join("\n");
+            did = `${n.number} drafted at ${money(docTotal(n).total)} — send it to ${who}`;
+            setTimeout(() => {
+              try {
+                (clientOpen = cl.id), docAction(cl, n, "sendclient");
+              } catch (e) {}
+            }, 0);
+          } else did = "the change order cannot be revised (it is billed or closed)";
+        } else if ("withdraw" === pick) {
+          const was = co.status;
+          (co.status = "void"), (co.voidWhy = f.why), (co.withdrawnOn = today()), (co.history = co.history || []).push({ t: nowStamp(), by: flMe(), from: was, action: "withdrawn", note: f.why });
+          try {
+            audit("co", co.id, "withdrawn", was, "void", f.why);
+          } catch (e) {}
+          (cl.activity = cl.activity || []).push({ t: nowStamp(), by: flMe(), text: `${co.number} withdrawn after ${who}'s note: ${f.why}` });
+          did = `${co.number} withdrawn — ${f.why}`;
+        } else {
+          const k = (cl.contacts || []).find((x) => x.email && agNameHit && agNameHit(String(who).split(" ")[0], x.name)) || (cl.contacts || [])[0] || {};
+          flDraftTo({ name: k.name || who, email: k.email || (c.from && c.from.email) || "" }, `Re: ${co.number} ${co.title || ""}`.trim(), `Hi ${String(k.name || who).split(" ")[0]},\n\n${f.why}\n\n${co.number} stays at ${money(amt)}. Happy to walk through it on site.\n\n${flMe().split(" ")[0]}`, `${who} disputed ${co.number}`, { threadId: c.threadId, expect: !0 });
+          (co.disputes = co.disputes || []).push({ on: today(), by: who, answer: "explained", why: f.why });
+          did = `${co.number} kept; the explanation is in your Drafts`;
+        }
+        (co.disputes = co.disputes || []).some((x) => x.commId === c.id) || co.disputes.push({ on: today(), by: who, commId: c.id, answer: pick, why: f.why });
+        flMark(c, p, did);
+        save(), render(), rcToast(did, [{ label: "Open", run: () => ((clientOpen = cl.id), (docOpen = { kind: "co", id: co.id }), (view = "clients"), render()) }]);
+      },
+    },
+  );
+  return "Answer the dispute";
+}
+// The reply to someone who wrote to us: a draft in the mailbox (the outbox without one); questions are quoted so
+// the person answers each.
+function flReplyDraft(c, p, lead) {
+  const to = { name: (lead && lead.name) || p.name || (c.from && c.from.name) || "", email: (c.from && c.from.email) || (lead && lead.email) || p.email || "" };
+  if (!to.email) return null;
+  const first = String(to.name).split(" ")[0] || "there",
+    own = "function" == typeof cmOwnText ? cmOwnText(c.text) : String(c.text || ""),
+    Q = flSentences(own).filter((s) => /\?\s*$/.test(s) || /\b(do you|could you|can you|when could|how much|would you)\b/i.test(s)),
+    sign = (currentUser() || {}).name ? String(currentUser().name).split(" ")[0] : "",
+    addr = (lead && lead.addr) || p.addr || "",
+    body = Q.length
+      ? `Hi ${first},\n\nThank you for your note. To your questions:\n\n${Q.map((q) => `— ${q.trim()}\n  `).join("\n")}\n\nHappy to talk it through on a call this week.\n\n${sign}`
+      : `Hi ${first},\n\nThank you for reaching out${addr ? ` about ${addr}` : ""}. I would like to see it and hear what you have in mind — could we set a time for a site visit this week or next?\n\n${sign}`;
+  return flDraftTo(to, `Re: ${String(c.subject || "your note").replace(/^re:\s*/i, "")}`, body, `${to.name} wrote and is waiting on an answer`, { threadId: c.threadId, expect: !0, ref: lead ? { kind: "lead", leadId: lead.id } : { kind: "mail", commId: c.id } });
+}
+// One draft writer for replies: the connected mailbox's Drafts, the outbox without one; an expectation when it asks.
+function flDraftTo(to, subject, body, why, o) {
+  const O = o || {},
+    mail = "function" == typeof gcOn && gcOn(),
+    due = addWork(today(), 3, !1);
+  if (O.expect && "function" == typeof paExpect) {
+    try {
+      const e = paExpect(to.name, subject.replace(/^re:\s*/i, ""), due, O.ref || { kind: "reply" }, today());
+      e && ((e.email = to.email || e.email), (e.chased = (e.chased || 0) + 1));
+    } catch (e) {}
+  }
+  const outbox = () => {
+    const x = paDraftNote(to.name, subject, body, why, `fl|${to.name}|${subject}|${today()}`);
+    return x && to.email && (x.to.email = to.email), x;
+  };
+  if (mail && to.email)
+    return gaDraft({ to: `${to.name} <${to.email}>`, subject: subject, body: body, why: why, threadId: O.threadId })
+      .then(() => save())
+      .catch(() => (outbox(), save()));
+  return outbox(), save(), Promise.resolve(!0);
+}
+{
+  const base = cmApply;
+  cmApply = function (c, p) {
+    try {
+      if (p && c) {
+        if ("request" === p.kind && p.material) return flApplyMatReq(c, p);
+        if ("visit" === p.kind) return flApplyVisit(c, p);
+        if ("decision" === p.kind && p.decisionId) return flApplyChoice(c, p);
+        if (!window.__cmBulk) {
+          if ("hold" === p.kind) return flHoldDialog(c, p);
+          if ("codispute" === p.kind) return flDisputeDialog(c, p);
+          if ("request" === p.kind && (p.due || p.dated)) return flTaskDialog(c, p);
+          if ("lead" === p.kind) {
+            const em = String(p.email || (c.from && c.from.email) || "").toLowerCase(),
+              have = (DB.leads || []).find((l) => (em && String(l.email || "").toLowerCase() === em) || (p.name && String(l.name || "").toLowerCase() === String(p.name).toLowerCase()));
+            if (have) return flReplyDraft(c, p, have), flMark(c, p, `${have.name} is on file as a lead (${have.stage}); a reply is in your Drafts`);
+            const r = base.apply(this, arguments);
+            flReplyDraft(c, p, null);
+            return r;
+          }
+          if ("call" === p.kind && p.name) {
+            const nm = String(p.name).trim(),
+              onFile = (DB.leads || []).some((l) => String(l.name || "").toLowerCase() === nm.toLowerCase()) || (DB.clients || []).some((x) => (x.contacts || []).some((k) => String(k.name || "").toLowerCase() === nm.toLowerCase()) || String(x.name || "").toLowerCase().includes(nm.toLowerCase()));
+            if (!onFile && /kitchen|bath|renovat|brownstone|townhouse|limestone|apartment|estimate|design|gut|addition|extension/i.test(p.regarding || "")) {
+              (DB.leads = DB.leads || []).push({ id: uid("ld"), created: today(), name: nm, phone: p.phone || "", email: "", addr: "", buildingType: /limestone|brownstone|townhouse/i.test(p.regarding) ? (p.regarding.match(/limestone|brownstone|townhouse/i) || [""])[0].toLowerCase() : "", scope: "Design-build", stage: "inquiry", source: "Call", next: "Call back", nextDue: today(), notes: p.regarding || "", commId: c.id, touches: [{ at: today(), direction: "in", channel: "call", note: p.regarding || "called" }] });
+              try {
+                audit("lead", nm, "from-call", "", p.regarding || "", c.subject || "");
+              } catch (e) {}
+              toast(`${nm} is on file as a lead — now set the call back`);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("flow apply", e);
+    }
+    return base.apply(this, arguments);
+  };
+}
+
+// ---- Needs Your Hand: the new proposals, whose hand each needs, and the verb that does it
+// A dated ask on a client's job is the PM's; otherwise it is on whoever's mailbox it reached.
+function flAskRoute(c, p) {
+  const R = c.route || {};
+  if (p && p.material) return "coord";
+  // a client's ask on their job is the PM's
+  if (R.clientId && (R.projectId || p.projectId)) return "pm";
+  // "Hi Chen," — the person it greets
+  const hi = ((("function" == typeof cmOwnText ? cmOwnText(c.text) : c.text) || "").match(/^\s*(?:[Hh]i|[Hh]ello|[Dd]ear|[Hh]ey)?\s*([A-Z][a-z]+)\s*[,—-]/) || [])[1],
+    first = (u) => String(u.name || "").split(" ")[0],
+    holders = (DB.comms || []).filter((x) => lnMailKey(x) === lnMailKey(c) && x.owner).map((x) => (DB.users || []).find((u) => u.id === x.owner)).filter(Boolean),
+    // the person it greets among those it reached (two people share a first name here), else anyone of that name
+    greeted = hi ? (holders.filter((u) => first(u) === hi).length ? holders.filter((u) => first(u) === hi) : (DB.users || []).filter((u) => first(u) === hi)) : [];
+  // the people whose mailboxes it reached: one is theirs; several, the one it greets; several on a job, the PM's
+  const roles = [...new Set(holders.map((u) => u.role).filter(Boolean))];
+  if (1 === roles.length) return roles[0];
+  if (1 === greeted.length && greeted[0].role) return greeted[0].role;
+  if (roles.includes("owner") && /\bowner\b/i.test(c.text || "")) return "owner";
+  return R.projectId ? "pm" : roles[0] || "owner";
+}
+const FL_NYH = {
+  request: { route: flAskRoute, verb: (c, p) => (p.material ? "Apply" : "Make It a Task"), run: (c, p) => (p.material ? nyhApplyMail(c, p) : flTaskDialog(c, p, flAskRoute(c, p))), pri: (c, p) => (p.material ? 0 : 3), score: (c, p) => (p.material ? 54 : p.due && p.due <= addWork(today(), 1, !1) ? 56 : p.due && p.due <= addWork(today(), 3, !1) ? 44 : 34) },
+  visit: { route: () => "coord", verb: () => "Apply", run: (c, p) => nyhApplyMail(c, p), pri: () => 1, score: () => 40 },
+  decision: { route: (c, p) => (p.decisionId ? "pm" : ""), verb: () => "Record Choice", run: (c, p) => nyhApplyMail(c, p), pri: () => 0, score: () => 57 },
+  hold: { route: (c) => ((DB.users || []).find((x) => x.id === c.owner) || {}).role || "owner", verb: () => "Book It", run: (c, p) => flHoldDialog(c, p), pri: () => 2, score: () => 38 },
+  codispute: { route: () => "pm", verb: () => "Answer", run: (c, p) => flDisputeDialog(c, p), pri: () => 0, score: () => 58 },
+};
+// What still needs a change order also counts a client's ask the PM answered "price it as a change order".
+if ("object" == typeof PRED && PRED.needsChangeOrder) {
+  const P0 = PRED.needsChangeOrder,
+    base = P0.rows;
+  P0.rows = function (scope) {
+    const out = base.apply(this, arguments);
+    try {
+      const sent = (id) => {
+        const x = id && clCoOf(id);
+        return x && !["void", "rejected", "superseded"].includes(x.d.status) ? x.d : null;
+      };
+      predJobs(scope).forEach((p) =>
+        (((DB.field || {}).raises) || [])
+          .filter((r) => r.projectId === p.id && r.coWanted && !("extra" === r.type && "extra" === r.decision))
+          .forEach((r) => {
+            const co = sent(r.coId);
+            (co && "draft" !== co.status) || out.push({ kind: "extra", p: p, r: r, amount: +r.coAmount || 0, co: co, name: "function" == typeof clRewrite ? clRewrite(r.title) : r.title });
+          }),
+      );
+    } catch (e) {}
+    return out;
+  };
+}
+// The amount a field note names ("about $3,200").
+const flAmountIn = (t) => {
+  const m = String(t || "").match(/\$\s?([\d,]+(?:\.\d{2})?)\b/);
+  return m ? +m[1].replace(/,/g, "") : 0;
+};
+// Write the change order from an extra (or a decision): the draft, priced from what the record says; the send
+// sheet follows when it has a price.
+function flWriteCO(x, amount, thenSend) {
+  const p = x.p,
+    keep = { view: view, clientOpen: clientOpen, docOpen: docOpen, clientTab: "undefined" != typeof clientTab ? clientTab : "", finTab: "undefined" != typeof finTab ? finTab : "" },
+    link = "decision" === x.kind ? { kind: "dec", id: x.d.id } : { kind: "raise", id: x.r.id };
+  let co = x.co;
+  if (!co) {
+    const k = S;
+    S = p;
+    try {
+      co = opsRaiseCO(link);
+    } catch (e) {
+      console.warn("write co", e);
+    }
+    S = k;
+    // stay where the person was: the CO is one tap away (Open), the answer flow is not interrupted
+    (view = keep.view), (clientOpen = keep.clientOpen), (docOpen = keep.docOpen);
+  }
+  if (!co) return null;
+  const amt = +amount || 0,
+    l = (co.lines || [])[0];
+  amt > 0 && l && !(+l.rate > 0) && ((l.rate = r2(amt / (+l.qty || 1))), (l.qty = l.qty || 1));
+  "raise" === link.kind && ((x.r.coId = co.id), amt > 0 && (x.r.coAmount = amt));
+  save(), render();
+  const cl = clientOf(p),
+    priced = docTotal(co).total > 0;
+  rcToast(`${co.number} drafted for ${clipWords(x.name || co.title, 40)}${priced ? ` at ${money(docTotal(co).total)}` : " — price it, then send"}`, [{ label: `Open ${co.number}`, run: () => ((clientOpen = cl.id), (docOpen = { kind: "co", id: co.id }), (view = "clients"), render()) }]);
+  thenSend && priced && cl && setTimeout(() => ((clientOpen = cl.id), docAction(cl, co, "sendclient")), 0);
+  return co;
+}
+function flWriteCODialog(x) {
+  const amt = x.co ? docTotal(x.co).total : +x.amount || flAmountIn(`${(x.r || {}).note || ""} ${(x.r || {}).title || ""} ${(x.r || {}).answer || ""}`) || 0;
+  mbModal(
+    `Write the Change Order — <span data-nocase>${esc(clipWords(x.name || "", 40))}</span>`,
+    `<p class="small muted" style="margin:0 0 10px">${esc(shortName(x.p))}${x.r ? ` · ${esc(x.r.by || "the foreman")} raised it ${fmt(String(x.r.at || "").slice(0, 10))}${x.r.answer ? `; answered: “${esc(clipWords(x.r.answer, 18))}”` : ""}` : ""}. The draft carries the item, the note and the photos; a priced draft goes to the client for approval next.</p>${mbF("Amount", `<input type="number" step="0.01" min="0" data-f="amount" value="${amt || ""}" placeholder="what it adds — the client approves it">`)}`,
+    { submit: "Draft It", onSubmit: (f) => void setTimeout(() => flWriteCO(x, +f.amount || 0, !0), 0) },
+  );
+}
+function flNeedsCoRows() {
+  const out = [];
+  try {
+    PRED.needsChangeOrder.rows().forEach((x) => {
+      const id = "decision" === x.kind ? x.d.id : x.r.id,
+        co = x.co,
+        priced = co && docTotal(co).total > 0,
+        cl = clientOf(x.p);
+      out.push({
+        key: `needco:${id}`,
+        route: "pm",
+        kind: "needco",
+        title: `${co ? co.number + " is a draft" : "No change order yet"}: ${clipWords(String((x.r && x.r.title) || (x.d && (x.d.clientTitle || x.d.name)) || x.name || ""), 60)}${priced ? ` · ${money(docTotal(co).total)}` : x.amount ? ` · ${money(x.amount)}` : ""}`,
+        why: `${shortName(x.p)} · ${"decision" === x.kind ? "the client chose over the allowance" : `${x.r.decision === "extra" ? "answered as an extra" : "the client asked for it"} ${fmt(String(x.r.answeredAt || x.r.at || "").slice(0, 10))}`} — it stays here until a change order goes out`,
+        amount: priced ? docTotal(co).total : +x.amount || 0,
+        verb: !co ? "Write the Change Order" : priced ? "Send to Client" : "Price It",
+        no: "",
+        run: () => (!co ? flWriteCODialog(x) : priced ? ((clientOpen = cl.id), docAction(cl, co, "sendclient")) : ((clientOpen = cl.id), (docOpen = { kind: "co", id: co.id }), (view = "clients"), render())),
+        open: () => (co ? ((clientOpen = cl.id), (docOpen = { kind: "co", id: co.id }), (view = "clients"), render()) : x.r ? flowGo.raise(x.r)() : ((view = "dec"), render())),
+        pri: 2,
+        score: 52,
+      });
+    });
+  } catch (e) {
+    console.warn("needs co rows", e);
+  }
+  return out;
+}
+// 7. An obligation inside its renewal lead: the owner's Do Now (or the obligation owner's) until it is renewed.
+function flObRole(o) {
+  const n = String(o.owner || "").toLowerCase();
+  if (!n || /office|owner|company/.test(n)) return "owner";
+  const u = flUserOf(o.owner);
+  return (u && u.role) || "owner";
+}
+const flObYears = (o) => (/biennial/i.test(o.name || "") ? 2 : 1);
+function flRenewDialog(o) {
+  const next = o.expires ? iso(new Date(+o.expires.slice(0, 4) + flObYears(o), +o.expires.slice(5, 7) - 1, +o.expires.slice(8, 10))) : "",
+    filing = "filing" === o.kind;
+  mbModal(
+    `Renew — ${esc(o.name)}`,
+    `<p class="small muted" style="margin:0 0 10px">${esc(o.party || "")}${o.amount ? ` · ${money(o.amount)}` : ""} · expires ${fmtL(o.expires)}. ${filing ? `File it with ${esc(o.party || "the agency")}${o.notes ? ` (${esc(o.notes)})` : ""}, then record it here: the register moves to the next period and the renewal task closes.` : `Record the renewed period when the new ${esc(o.kind)} is in hand; Draft a Request asks ${esc(o.party || "them")} for it.`}</p><div class="grid2">${mbF(filing ? "Filed On" : "Renewed On", `<input type="date" data-f="on" value="${today()}">`)}${mbF("Next Expiry", `<input type="date" data-f="next" value="${esc(next)}">`)}</div>${mbF("Confirmation or Policy Number", `<input data-f="conf" value="" placeholder="${filing ? "the filing receipt number" : "the new policy number"}">`)}`,
+    {
+      submit: filing ? "Record the Filing" : "Record the Renewal",
+      alt: filing ? null : { label: "Draft a Request", run: () => ("function" == typeof bnDraftFor && bnDraftFor({ kind: "obligation", o: o }) ? (save(), toast(`Renewal request to ${o.party || "them"} drafted — approve it under The Brain › Hands`)) : toast("A request for this renewal is already drafted")) },
+      onSubmit: (f) => {
+        if (!f.next || f.next <= (o.expires || "")) return toast("Set the next expiry after the current one"), !1;
+        const was = { starts: o.starts, expires: o.expires };
+        (o.history = o.history || []).push({ at: today(), by: flMe(), from: was, to: { starts: o.expires, expires: f.next }, conf: f.conf || "", on: f.on || today() }),
+          (o.starts = o.expires || f.on),
+          (o.expires = f.next),
+          (o.status = "active"),
+          (o.renewedOn = f.on || today()),
+          f.conf && (o.number = o.number || f.conf);
+        try {
+          const T = o.taskId && "function" == typeof bnObTask ? bnObTask(o) : null;
+          T && T.a && ((T.a.status = "done"), (T.a.completedAt = today()), (T.a.notes = [T.a.notes, `${fmtL(today())}: ${filing ? "filed" : "renewed"} to ${fmtL(f.next)}${f.conf ? " · " + f.conf : ""}`].filter(Boolean).join("\n"))), (o.taskId = "");
+          audit("obligation", o.id, filing ? "filed" : "renewed", was.expires || "", f.next, f.conf || "");
+          "function" == typeof bnObligationTasks && bnObligationTasks();
+        } catch (e) {}
+        save(), render(), rcToast(`${o.name} ${filing ? "filed" : "renewed"} — runs to ${fmtL(f.next)}`, [{ label: "Open", run: () => ((view = "obligations"), render()) }]);
+      },
+    },
+  );
+}
+function flObRows() {
+  const td = today();
+  return (DB.obligations || [])
+    .filter((o) => "active" === o.status && o.expires && dayDiff(td, iso(addDays(o.expires, -(+o.renewLead || 30)))) <= 0 && dayDiff(td, o.expires) > -60)
+    .map((o) => ({
+      key: `oblig:${o.id}:${o.expires}`,
+      route: flObRole(o),
+      kind: "oblig",
+      title: `Renew ${o.name.replace(/\s+—.*$/, "")} by ${fmt(o.expires)}`,
+      why: dayDiff(td, o.expires) >= 0 ? `${dayDiff(td, o.expires)} days left` : "lapsed",
+      amount: 0,
+      verb: "Draft the Renewal",
+      no: "",
+      run: () => flRenewDialog(o),
+      open: () => ((view = "obligations"), render()),
+      pri: 3,
+      score: o.expires <= iso(addDays(td, 7)) ? 50 : 30,
+    }));
+}
+{
+  const base = nyhRowsAll;
+  nyhRowsAll = function () {
+    const out = base.apply(this, arguments);
+    try {
+      const have = new Set(out.map((r) => r.key)),
+        add = (r) => {
+          r && r.route && !lnHandDone(r.key) && !have.has(r.key) && (have.add(r.key), out.push(r));
+        },
+        best = {};
+      (DB.comms || []).forEach((c) => {
+        if (["ignored", "spam", "applied"].includes(c.status)) return;
+        (c.proposals || []).forEach((pr) => {
+          const F = FL_NYH[pr.kind];
+          if (!F || !lnOpenProp(pr)) return;
+          // a delivery or visit whose day has passed is history, not a proposal
+          if ("visit" === pr.kind && pr.date && pr.date < today()) return;
+          if ("hold" === pr.kind && pr.date && pr.date < today()) return;
+          const route = F.route(c, pr);
+          if (!route) return;
+          const key = `flmail:${pr.kind}:${"visit" === pr.kind ? `${pr.vendorId}|${pr.date}` : lnMailKey(c)}`,
+            owner = (DB.users || []).find((u) => u.id === c.owner) || {},
+            rank = owner.role === route ? 2 : c.owner ? 1 : 0;
+          (!best[key] || best[key].rank < rank) && (best[key] = { c: c, pr: pr, route: route, rank: rank });
+        });
+      });
+      Object.entries(best).forEach(([key, x]) => {
+        const { c: c, pr: pr, route: route } = x,
+          F = FL_NYH[pr.kind];
+        if (lnSameProps(c, pr).some((y) => !lnOpenProp(y.pr))) return;
+        const job = lnJob((c.route || {}).projectId || pr.projectId);
+        add({
+          key: key,
+          route: route,
+          kind: "mail",
+          pkind: pr.kind,
+          title: String(pr.summary || c.subject || "").slice(0, 120),
+          why: `${(c.from || {}).name || (c.from || {}).email || "mail"} · ${fmt(lnDay(c.date))}`,
+          amount: 0,
+          verb: F.verb(c, pr),
+          no: "Not This",
+          run: () => F.run(c, pr),
+          skip: () => nyhSkipMail(c, pr),
+          open: () => {
+            (window.cmFilter = "all"), (view = "comms"), render();
+          },
+          commId: c.id,
+          pri: F.pri(c, pr),
+          score: F.score(c, pr),
+        });
+      });
+      flNeedsCoRows().forEach(add);
+      flObRows().forEach(add);
+      // what the field and the clients are waiting on comes first; the rest keep their order
+      out.forEach((r, i) => (r._i = i));
+      out.sort((a, b) => (null != a.pri ? a.pri : 5) - (null != b.pri ? b.pri : 5) || a._i - b._i);
+    } catch (e) {
+      console.warn("flow nyh", e);
+    }
+    return out;
+  };
+}
+{
+  const base = tdScore;
+  tdScore = function (it) {
+    return it && it.nyh && null != it.nyh.score ? it.nyh.score : base.apply(this, arguments);
   };
 }
 
