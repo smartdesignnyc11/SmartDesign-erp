@@ -14,13 +14,26 @@ const DAY = 864e5,
     return x.setDate(x.getDate() + n), x;
   },
   dayDiff = (a, b) => Math.round((parse(b) - parse(a)) / DAY),
+  // the app's year is understood; any other year is said ("8/15/2027", "Aug 15, 2027"), so a COI that
+  // expires next year never reads like one that expired last month
+  fmtYear = () => {
+    try {
+      return "function" == typeof appNow ? appNow().getFullYear() : new Date().getFullYear();
+    } catch (e) {
+      return new Date().getFullYear();
+    }
+  },
   fmt = (s) => {
     const d = parse(s);
-    return d ? `${d.getMonth() + 1}/${d.getDate()}` : "—";
+    return d ? `${d.getMonth() + 1}/${d.getDate()}${d.getFullYear() !== fmtYear() ? "/" + d.getFullYear() : ""}` : "—";
   },
   fmtL = (s) => {
     const d = parse(s);
-    return d ? d.toLocaleDateString(void 0, { weekday: "short", month: "short", day: "numeric" }) : "—";
+    return d
+      ? d.getFullYear() === fmtYear()
+        ? d.toLocaleDateString(void 0, { weekday: "short", month: "short", day: "numeric" })
+        : d.toLocaleDateString(void 0, { month: "short", day: "numeric", year: "numeric" })
+      : "—";
   },
   DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
   APP_TZ = () => {
@@ -45150,6 +45163,7 @@ function fSeed() {
         to: "coord",
         cc: ["pm"],
         dueBy: "2026-09-04",
+        needBy: "2026-09-14",
         by: "Angel",
         at: "2026-09-03T07:50:00",
         status: "sent",
@@ -46267,7 +46281,7 @@ function fOfficeCard(opts = {}) {
         p = DB.projects.find((x) => x.id === r.projectId),
         late = r.dueBy < today(),
         mine = r.to === k;
-      return `<div class="f-row col ${r.escalated || late ? "bad" : "answered" === r.status ? "ok" : ""}"><div class="row" style="gap:6px;align-items:flex-start"><div class="grow"><span class="small muted">${esc(t.n)} · ${esc(shortName ? shortName(p) : p?.project.name || "")} · ${esc(r.by)} · ${fAgo(r.at)} ago · needs it by <b>${fmt(r.dueBy)}</b>${r.taskId ? ` · holds ${esc(p?.tasks.find((x) => x.id === r.taskId)?.name || "")}` : ""}${mine ? "" : ` · to ${esc(fPerson(r.to)?.name || r.to)}`}</span><b>${esc(r.title)}</b>${r.sheet ? `<span class="small">Sheet ${esc(r.sheet)}</span>` : ""}${r.guess ? `<span class="small">Foreman's take: ${esc(r.guess)}</span>` : ""}${r.note ? `<span class="small">${esc(r.note)}</span>` : ""}${r.photos?.length ? `<div class="f-thumbs">${r.photos.map((s) => `<img src="${s}">`).join("")}</div>` : ""}${r.answer ? `<div class="f-answer">${esc(r.answer)} <span class="small muted">— ${esc(r.answeredBy)}</span></div>` : ""}</div><span class="pill ${"answered" === r.status ? "ok" : r.escalated || late ? "bad" : "warn"}">${"answered" === r.status ? "answered" : r.escalated ? `no answer in ${t.hrs} h` : late ? "past due" : r.status}</span></div>\n      ${
+      return `<div class="f-row col ${r.escalated || late ? "bad" : "answered" === r.status ? "ok" : ""}"><div class="row" style="gap:6px;align-items:flex-start"><div class="grow"><span class="small muted">${esc(t.n)} · ${esc(shortName ? shortName(p) : p?.project.name || "")} · ${esc(r.by)} · ${fAgo(r.at)} ago · ${r.needBy ? `needs it by <b>${fmt(r.needBy)}</b> · answer by ${fmt(r.dueBy)}` : `needs an answer by <b>${fmt(r.dueBy)}</b>`}${r.taskId ? ` · holds ${esc(p?.tasks.find((x) => x.id === r.taskId)?.name || "")}` : ""}${mine ? "" : ` · to ${esc(fPerson(r.to)?.name || r.to)}`}</span><b>${esc(r.title)}</b>${r.sheet ? `<span class="small">Sheet ${esc(r.sheet)}</span>` : ""}${r.guess ? `<span class="small">Foreman's take: ${esc(r.guess)}</span>` : ""}${r.note ? `<span class="small">${esc(r.note)}</span>` : ""}${r.photos?.length ? `<div class="f-thumbs">${r.photos.map((s) => `<img src="${s}">`).join("")}</div>` : ""}${r.answer ? `<div class="f-answer">${esc(r.answer)} <span class="small muted">— ${esc(r.answeredBy)}</span></div>` : ""}</div><span class="pill ${"answered" === r.status ? "ok" : r.escalated || late ? "bad" : "warn"}">${"answered" === r.status ? "answered" : r.escalated ? `no answer in ${t.hrs} h` : late ? "past due" : r.status}</span></div>\n      ${
         "answered" !== r.status
           ? `<div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap">${"extra" === r.type ? `<button class="btn sm primary" data-fans="${r.id}" data-dec="extra">Proceed as extra</button><button class="btn sm" data-fans="${r.id}" data-dec="nocharge">Do it, no charge</button><button class="btn sm" data-fans="${r.id}" data-dec="hold">Hold</button>` : `<button class="btn sm primary" data-fans="${r.id}">Answer</button>`}${"rfi" === r.type && "designer" !== k ? `<button class="btn sm" data-fhand="${r.id}" data-to="designer">Hand to designer</button>` : ""}${"blocker" === r.type && "coord" !== k ? `<button class="btn sm" data-fhand="${r.id}" data-to="coord">Hand to coordinator</button>` : ""}${(() => {
               const u = DB.users.find((x) => x.name === r.by);
@@ -66574,7 +66588,8 @@ function eaAddNote(text, due, by) {
   const n = {
     id: uid("ea"),
     text: text,
-    due: due || "",
+    // a reminder never lands on a weekend: Saturday and Sunday roll to Monday
+    due: due ? poWorkday(due) : "",
     by: by || (currentUser() || {}).name || "",
     at: today(),
     done: !1,
@@ -83407,7 +83422,7 @@ function mApprovals() {
           kind: "raise",
           id: x.id,
           sev: x.escalated || "incident" === x.type ? "bad" : "warn",
-          n: x.dueBy ? `by ${x.dueBy.slice(5)}` : "site",
+          n: x.needBy || x.dueBy ? `by ${fmt(x.needBy || x.dueBy)}` : "site",
           title: x.title || x.type,
           detail: [p ? p.project.name : "", x.by || "", x.note || ""].filter(Boolean).join(" · "),
           yes: "Answer",
@@ -113830,7 +113845,7 @@ function paExpect(who, about, by, ref, since) {
       email: paEmailFor(who),
       about: String(about || ""),
       since: from,
-      by: by || iso(addDays(today(), 3)),
+      by: poWorkday(by || addWork(today(), 3, !1)),
       ref: ref || null,
       chased: 0,
       closed: !1,
@@ -163681,7 +163696,7 @@ function tdCard(it) {
     if (r) {
       c.line1 = `<a href="#" data-tdrec>${esc(tdWords(r.title, 12))}</a>`;
       c.go = flowGo.raise(r);
-      c.why = `${esc(r.by || "The foreman")} waiting${r.dueBy ? " · needs it " + fmt(r.dueBy) : ""}${p && tdRaiseJobs() > 1 ? " · " + esc(tdJob(p)) : ""}`;
+      c.why = `${esc(r.by || "The foreman")} waiting${r.needBy ? " · needs it " + fmt(r.needBy) + " · answer by " + fmt(r.dueBy) : r.dueBy ? " · answer by " + fmt(r.dueBy) : ""}${p && tdRaiseJobs() > 1 ? " · " + esc(tdJob(p)) : ""}`;
       c.verb = "Answer";
       c.run = () => fAnswerRaise(r, "extra" === r.type ? "extra" : "");
     }
@@ -167835,3 +167850,12 @@ if ("function" == typeof billingSuggestions) {
     return out;
   };
 }
+
+// ---- dates (review finding 11): a due date lands on a working day
+function poWorkday(d) {
+  const x = parse(d);
+  if (!x) return d || "";
+  const dow = x.getDay();
+  return 0 === dow ? iso(addDays(x, 1)) : 6 === dow ? iso(addDays(x, 2)) : iso(x);
+}
+
