@@ -3672,9 +3672,24 @@ const toastLinksOf = (go) =>
   (Array.isArray(go) ? go : go ? [go] : [])
     .map((l) => ("function" == typeof l ? { label: "Open", run: l } : l))
     .filter((l) => l && "function" == typeof l.run);
+// A toast over an open sheet moves to the top of the screen, so it never sits on the sheet's controls (the sign
+// sheet's tick was under one for six seconds and the tap went to the toast). A tap on the toast dismisses it.
+function toastPlace(t) {
+  t.classList.remove("toast-up");
+  const box = document.querySelector("#mbm .mbm-box, .modal.on .modal-box, .drawer.on");
+  if (!box || !box.getClientRects().length) return;
+  const r = t.getBoundingClientRect(),
+    b = box.getBoundingClientRect();
+  r.bottom > b.top && r.top < b.bottom && r.right > b.left && r.left < b.right && t.classList.add("toast-up");
+}
 function toast(msg, go, ms) {
   const t = $("#toast");
   (t.textContent = msg), t.classList.remove("act"), t.classList.add("on"), clearTimeout(t._t);
+  t.onclick ||
+    (t.onclick = (e) => {
+      if (e.target.closest("a, button")) return;
+      t.classList.remove("on", "act", "toast-up"), clearTimeout(t._t);
+    });
   const L = toastLinksOf(go);
   L.length &&
     ((t.textContent = ""),
@@ -3696,7 +3711,8 @@ function toast(msg, go, ms) {
         t.appendChild(a);
     }),
     t.classList.add("act")),
-    (t._t = setTimeout(() => t.classList.remove("on", "act"), ms || (L.length ? 6500 : 2400)));
+    toastPlace(t),
+    (t._t = setTimeout(() => t.classList.remove("on", "act", "toast-up"), ms || (L.length ? 6500 : 2400)));
 }
 const sevPill = (s) => (3 === s ? "red" : 2 === s ? "orange" : 1 === s ? "amber" : "green");
 // One place resets the scroll: a new view, or a tab / sub-tab press, starts at the top. The page
@@ -7667,7 +7683,10 @@ function renderChat() {
     ? S.chat
         .map((m) => {
           const c = S.comms.find((x) => x.id === m.commId),
-            st = c ? c.status : "";
+            st = c ? c.status : "",
+            cq = m.clq ? (S.clientQs || []).find((x) => x.id === m.clq) : null,
+            clRole = "function" == typeof role && "client" === role(),
+            pmFirst = "function" == typeof clPmFirst ? clPmFirst(S) : "your project manager";
           return `<div class="cm ${m.by === me ? "me" : ""}"><div class="who"><b>${esc(m.by)}</b> · ${esc(m.t)}</div>${esc(m.text)}${
             (m.files || []).length
               ? `<div class="row" style="margin-top:4px">${m.files
@@ -7679,7 +7698,17 @@ function renderChat() {
                   })
                   .join("")}</div>`
               : ""
-          }${c ? `<div class="st">${"new" === st ? '<a href="#" data-go="view:inbox" class="muted">Waiting for review in Inbox</a>' : "proposed" === st ? `<a href="#" data-go="view:inbox">${(c.proposal || []).length} proposed update${1 === (c.proposal || []).length ? "" : "s"} — review in Inbox</a>` : "applied" === st || "auto" === st ? `<span style="color:var(--green)">${esc(c.appliedSummary || "Applied")}</span>` : "reviewing" === st ? '<span class="muted">Assistant is reading…</span>' : "ignored" === st ? '<span class="muted">No project update</span>' : ""}</div>` : ""}</div>`;
+          }${
+            clRole
+              ? cq && "open" === cq.status
+                ? `<div class="st"><span class="muted">Sent to ${esc(pmFirst)}</span></div>`
+                : ""
+              : cq
+                ? `<div class="st"><span class="muted">${"open" === cq.status ? "A question for you — Answer it from Home" : `Answered by ${esc(cq.answeredBy || "")}`}</span></div>`
+                : c
+                  ? `<div class="st">${"new" === st ? '<a href="#" data-go="view:inbox" class="muted">Waiting for review in Inbox</a>' : "proposed" === st ? `<a href="#" data-go="view:inbox">${(c.proposal || []).length} proposed update${1 === (c.proposal || []).length ? "" : "s"} — review in Inbox</a>` : "applied" === st || "auto" === st ? `<span style="color:var(--green)">${esc(c.appliedSummary || "Applied")}</span>` : "reviewing" === st ? '<span class="muted">Assistant is reading…</span>' : "ignored" === st ? '<span class="muted">No project update</span>' : ""}</div>`
+                  : ""
+          }</div>`;
         })
         .join("")
     : '<div class="empty">No messages yet. Post what happened on site today.</div>'),
@@ -8127,8 +8156,9 @@ function renderClients() {
       projs.length
         ? projs
             .map((p) => {
-              const h = projectHealth(p);
-              return `<div class="cl-row"><div><b>${esc(p.project.name)}</b><div class="small muted">${esc(p.project.addr || "")} · completion ${fmtL(h.sc)}${p.project.target ? ` (target ${fmt(p.project.target)})` : ""} · ${h.pct}% done</div></div><button class="btn sm" data-open="${p.id}">Open</button></div>`;
+              const h = projectHealth(p),
+                pc = "function" == typeof tpJobPct ? Math.round(tpJobPct(p)) : h.pct;
+              return `<div class="cl-row"><div><b>${esc(p.project.name)}</b><div class="small muted">${esc(p.project.addr || "")} · completion ${fmtL(h.sc)}${p.project.target ? ` (target ${fmt(p.project.target)})` : ""} · ${pc}% done</div></div><button class="btn sm" data-open="${p.id}">Open</button></div>`;
             })
             .join("")
         : '<div class="muted small">No projects linked. In a project\'s Settings, choose this client.</div>'
@@ -8140,6 +8170,7 @@ function renderClients() {
           ? `<table class="t"><thead><tr><th>Project</th><th>Status</th><th>Completion</th><th class="money">Contract</th><th class="money">Billed</th><th class="money">Outstanding</th><th>Decisions owed</th><th>Health</th><th></th></tr></thead><tbody>${projs
               .map((p) => {
                 const h = projectHealth(p),
+                  pc = "function" == typeof tpJobPct ? Math.round(tpJobPct(p)) : h.pct,
                   billed = c.invoices
                     .filter((x) => x.projectId === p.id && !["draft", "void"].includes(x.status))
                     .reduce((a, x) => a + docTotal(x).total, 0),
@@ -8152,7 +8183,7 @@ function renderClients() {
                       .filter((x) => x.projectId === p.id && ["approved", "billed"].includes(x.status))
                       .reduce((a, x) => a + docTotal(x).total, 0),
                   decs = p.decisions.filter((d) => "Client" === d.owner && "open" === d.status).length;
-                return `<tr class="click" data-open="${p.id}"><td><b>${esc(p.project.name)}</b><br><span class="sub">${esc(p.project.addr || "")}</span></td><td><span class="pill ${h.pct >= 100 ? "ok" : h.tasks ? "info" : "neutral"}">${h.pct >= 100 ? "complete" : h.tasks ? `${h.pct}% done` : "not started"}</span></td><td class="num">${h.tasks ? fmt(h.sc) : "—"}${p.project.target ? `<br><span class="sub">target ${fmt(p.project.target)}</span>` : ""}</td><td class="money">${contract ? money(contract) : 1 === projs.length ? money(f.revised) : "—"}</td><td class="money">${money(billed)}</td><td class="money ${outstanding ? "" : "dim"}">${money(outstanding)}</td><td>${decs || "—"}</td><td>${h.tasks ? `<span class="pill ${"g" === h.health.grade ? "ok" : "a" === h.health.grade ? "warn" : "bad"}">${h.health.score}</span>` : "—"}</td><td><button class="btn sm act" data-open="${p.id}">Open</button></td></tr>`;
+                return `<tr class="click" data-open="${p.id}"><td><b>${esc(p.project.name)}</b><br><span class="sub">${esc(p.project.addr || "")}</span></td><td><span class="pill ${pc >= 100 ? "ok" : h.tasks ? "info" : "neutral"}">${pc >= 100 ? "complete" : h.tasks ? `${pc}% done` : "not started"}</span></td><td class="num">${h.tasks ? fmt(h.sc) : "—"}${p.project.target ? `<br><span class="sub">target ${fmt(p.project.target)}</span>` : ""}</td><td class="money">${contract ? money(contract) : 1 === projs.length ? money(f.revised) : "—"}</td><td class="money">${money(billed)}</td><td class="money ${outstanding ? "" : "dim"}">${money(outstanding)}</td><td>${decs || "—"}</td><td>${h.tasks ? `<span class="pill ${"g" === h.health.grade ? "ok" : "a" === h.health.grade ? "warn" : "bad"}">${h.health.score}</span>` : "—"}</td><td><button class="btn sm act" data-open="${p.id}">Open</button></td></tr>`;
               })
               .join("")}</tbody></table>`
           : '<div class="empty">No projects yet for this client.</div>')),
@@ -12446,7 +12477,60 @@ function renderFiles() {
     box.innerHTML =
       '<div class="empty">No documents yet. Take a photo of the delivery ticket, the inspection card, or the wall before it closes — it lands here, linked to the task.</div>';
 }
+// A client never sees the staff file editor (Type, Linked to, Notes, Save, Delete): every path a client can
+// open a file from (View the Sheets, a chat attachment, a shared document) lands in clFileView, read-only.
+const fileWriteOk = () => {
+  try {
+    return "client" !== role();
+  } catch (e) {
+    return !0;
+  }
+};
+// The one read-only viewer a client gets: the file, its caption, Download and Close. It sits above an open
+// sheet and closing it leaves that sheet where it was, so approving after a look stays three taps.
+async function clFileView(id) {
+  const p =
+      (S && (S.files || []).some((x) => x.id === id) ? S : null) ||
+      (DB.projects || []).find((q) => (q.files || []).some((x) => x.id === id)),
+    f = p && (p.files || []).find((x) => x.id === id);
+  if (!f) return;
+  let v = document.getElementById("clv");
+  v ||
+    ((v = document.createElement("div")),
+    (v.id = "clv"),
+    (v.className = "clv"),
+    v.setAttribute("role", "dialog"),
+    v.setAttribute("aria-label", "File"),
+    document.body.appendChild(v));
+  const close = () => {
+    v.classList.remove("on"), (v.innerHTML = ""), document.removeEventListener("keydown", onKey, !0);
+  };
+  const onKey = (e) => {
+    "Escape" === e.key && v.classList.contains("on") && (e.stopPropagation(), close());
+  };
+  const cap = String(f.clientCaption || f.caption || "").trim();
+  (v.innerHTML = `<div class="clv-hd"><div class="clv-t"><b data-nocase>${esc(f.name)}</b><span class="small" data-nocase>${esc(fmt(f.date))}${cap ? ` · ${esc(cap)}` : ""}</span></div><a class="btn sm" id="clv-dl" download="${esc(f.name)}" href="#">Download</a><button class="btn sm" id="clv-x" type="button">Close</button></div><div class="clv-main" id="clv-main"><div class="muted">Loading…</div></div>`),
+    v.classList.add("on"),
+    document.addEventListener("keydown", onKey, !0),
+    (v.querySelector("#clv-x").onclick = close),
+    (v.onclick = (e) => {
+      e.target === v && close();
+    });
+  const url = await getBlob(id),
+    main = v.querySelector("#clv-main"),
+    dl = v.querySelector("#clv-dl");
+  if (!main) return;
+  url ? ((dl.href = url), (dl.download = f.name)) : (dl.hidden = !0),
+    (main.innerHTML = url
+      ? /image/.test(f.type)
+        ? `<img src="${url}" alt="${esc(f.name)}">`
+        : "application/pdf" === f.type
+          ? `<iframe src="${url}" title="${esc(f.name)}"></iframe><div class="small clv-note">If the PDF does not display here, use Download.</div>`
+          : `<div class="clv-empty"><div class="clv-ic">${fileIcon(f)}</div><div data-nocase>${esc(f.name)}</div></div>`
+      : `<div class="clv-empty"><div class="clv-ic">${fileIcon(f)}</div><div data-nocase>${esc(f.name)}</div><div class="small">${esc(fmt(f.date))}${cap ? ` · ${esc(cap)}` : ""}</div><div class="small muted">The sheet itself is not on this device. Ask your project manager in Chat and they will send it.</div></div>`);
+}
 async function openFile(id) {
+  if (!fileWriteOk()) return clFileView(id);
   const f = S.files.find((x) => x.id === id);
   if (!f) return;
   (f.seen = !0), save();
@@ -12487,23 +12571,17 @@ function renderFileSide(f) {
       "",
     )}</select></div>\n    <div class="f"><label>Linked to</label><select id="vf-link">${linkOpts.map(([k, v]) => `<option value="${k}" ${cur === k ? "selected" : ""}>${esc(v)}</option>`).join("")}</select></div>\n    <div class="f"><label>Notes</label><textarea id="vf-notes">${esc(f.notes || "")}</textarea></div>\n    <label class="chk" style="margin-bottom:12px"><input type="checkbox" id="vf-share" ${f.shareClient ? "checked" : ""}> Visible to the client in their portal</label>\n    <div class="card" style="margin-bottom:12px"><div class="hd"><h3>Assistant</h3><span class="grow"></span><button class="btn sm primary" id="vf-read">${f.ai ? "Read again" : "Read this document"}</button></div>\n      <div id="vf-ai" class="small">${f.ai ? (f.ai.error ? `<span style="color:var(--bad)">${esc(f.ai.error)}</span>` : `<div><b>${esc(f.ai.kind || "")}</b> — ${esc(f.ai.summary || "")}</div>${(f.ai.fields || []).length ? `<div class="chg" style="margin-top:6px">${f.ai.fields.map((x) => `<span class="muted">${esc(x.k)}:</span> ${esc(x.v)}`).join(" · ")}</div>` : ""}${f.ai.changes?.length ? `<div style="margin-top:8px"><b>Proposed updates</b>${f.ai.changes.map((c, i) => `<div class="prop"><input type="checkbox" ${c._done ? "disabled" : "checked"} data-fprop="${i}"><div><div class="k">${c._done ? ICON_CHECK + " applied · " : ""}${"add" === c.op ? "Add" : "Update"} ${esc(c.kind)}: ${esc(propName(c) || c.name || c.title || c.vendor || "")}</div><div class="diff">${esc(propDiff(c))}</div><div class="why">${esc(c.reason || "")}</div></div></div>`).join("")}${f.ai.changes.some((c) => !c._done) ? '<button class="btn sm primary" id="vf-apply" style="margin-top:6px">Apply checked</button>' : ""}</div>` : '<div class="muted" style="margin-top:6px">No updates proposed.</div>'}`) : '<span class="muted">Reads photos and PDFs: a receipt becomes a transaction, a delivery ticket receives the PO, an inspection card updates the inspection, a sketch becomes a plan note — all as proposals.</span>'}</div></div>\n    <div class="row"><button class="btn sm" id="vf-save">Save</button><button class="btn sm danger" id="vf-del">Delete</button><span class="grow"></span><span class="small muted">${f.persisted ? "Saved on this device" : "Session only"}</span></div>`),
     ($("#vf-save").onclick = () => {
-      f.cat = $("#vf-cat").value;
       const lk = $("#vf-link").value;
-      (f.link = lk ? { kind: lk.split(":")[0], id: lk.split(":")[1] } : null),
-        (f.notes = $("#vf-notes").value),
-        (f.shareClient = $("#vf-share").checked),
-        save(),
-        render(),
-        toast("Saved");
+      !1 !==
+        fileUpdate(f, {
+          cat: $("#vf-cat").value,
+          link: lk ? { kind: lk.split(":")[0], id: lk.split(":")[1] } : null,
+          notes: $("#vf-notes").value,
+          shareClient: $("#vf-share").checked,
+        }) && toast("Saved");
     }),
     ($("#vf-del").onclick = async () => {
-      appConfirm(`Delete ${f.name}?`) &&
-        ((S.files = S.files.filter((x) => x.id !== f.id)),
-        await delBlob(f.id),
-        log(`Document deleted: ${f.name}`),
-        save(),
-        $("#viewer").classList.remove("on"),
-        render());
+      appConfirm(`Delete ${f.name}?`) && !1 !== (await fileRemove(f.id)) && $("#viewer").classList.remove("on");
     }),
     ($("#vf-read").onclick = () => readFile(f)),
     $("#vf-apply")?.addEventListener("click", () => {
@@ -12516,6 +12594,29 @@ function renderFileSide(f) {
         renderFileSide(f),
         toast(`Applied ${res.n}`);
     });
+}
+// Every file write goes through these two, and both refuse the client role in the function itself: a client
+// reads files, and nothing a client can reach (or type into a console) saves a note, a link, a type, the
+// portal flag or a deletion onto the firm's record.
+function fileUpdate(f, patch) {
+  if (!f) return !1;
+  if (!fileWriteOk()) return toast("Files are read-only in the client portal"), !1;
+  const p = (DB.projects || []).find((q) => (q.files || []).includes(f)) || S;
+  ["cat", "link", "notes", "shareClient", "clientCaption", "name"].forEach((k) => {
+    patch && k in patch && (f[k] = patch[k]);
+  });
+  try {
+    audit("file", f.id, "update", "", "", Object.keys(patch || {}).join(", "));
+  } catch (e) {}
+  return save(), render(), p ? f : f;
+}
+async function fileRemove(id) {
+  if (!fileWriteOk()) return toast("Files are read-only in the client portal"), !1;
+  const p = (DB.projects || []).find((q) => (q.files || []).some((x) => x.id === id)) || S,
+    f = p && (p.files || []).find((x) => x.id === id);
+  if (!f) return !1;
+  (p.files = p.files.filter((x) => x.id !== id)), await delBlob(id), log(`Document deleted: ${f.name}`), save(), render();
+  return !0;
 }
 async function readFile(f) {
   const box = $("#vf-ai");
@@ -20498,7 +20599,7 @@ function mbModal(title, body, opts = {}) {
   const alt = $("#mbm-alt");
   alt &&
     (alt.onclick = () => {
-      close(), opts.alt.run && opts.alt.run();
+      opts.alt.keep || close(), opts.alt.run && opts.alt.run();
     });
   const ok = $("#mbm-ok");
   ok &&
@@ -31611,7 +31712,8 @@ function portalApprove(c, d) {
       submit: `Approve ${money(t.total)}`,
       onSubmit: () => {
         const name = $("#pa-name").value.trim();
-        if (!name || !$("#pa-agree").checked) return toast("Type your name and tick the box to approve"), !1;
+        if (!name) return toast("Type your name to approve"), !1;
+        if (!$("#pa-agree").checked) return toast("Tick the box to approve"), !1;
         d.clientApproval = {
           name: name,
           t: nowStamp(),
@@ -31639,21 +31741,12 @@ function portalApprove(c, d) {
         try {
           const p = DB.projects.find((x) => x.id === d.projectId);
           if (p) {
-            const now2 = appNow();
-            (p.comms = p.comms || []).unshift({
-              id: uid("c"),
-              receivedAt: appIso(now2),
-              t: nowStamp(),
-              source: "portal",
+            // one handled activity line in Project Messages (BACKLOG 1.4 #6): a signature is not inbox work
+            clActivity(p, {
               from: name,
-              to: "",
-              subject: `${d.number} approved — ${money(t.total)}`,
-              date: iso(now2),
-              time: now2.toLocaleTimeString(void 0, { hour: "numeric", minute: "2-digit" }),
+              subject: `Signed: ${d.number} — ${money(t.total)}`,
               text: `${name} approved ${kind} ${d.number} for ${money(t.total)} in the client portal.`,
-              category: "client",
-              confidence: 0,
-              status: "new",
+              ref: { kind: d.type, id: d.id },
             }),
               (p.actions = p.actions || []).push({
                 id: uid("a"),
@@ -31679,24 +31772,8 @@ function portalQuestion(c, d) {
   const u = currentUser(),
     q = appPrompt(`Question or change request about ${d.number}:`);
   if (!q) return;
-  const p = DB.projects.find((x) => x.id === d.projectId) || S,
-    now = appNow();
-  (p.comms = p.comms || []).unshift({
-    id: uid("c"),
-    receivedAt: appIso(now),
-    t: nowStamp(),
-    source: "portal",
-    from: u?.name || c.name,
-    to: "",
-    subject: `Re: ${d.number} ${d.title || ""}`,
-    date: iso(now),
-    time: now.toLocaleTimeString(void 0, { hour: "numeric", minute: "2-digit" }),
-    text: q,
-    body: q,
-    category: "client",
-    confidence: 0,
-    status: "new",
-  }),
+  const p = DB.projects.find((x) => x.id === d.projectId) || S;
+  clqRaise({ p: p, c: c, text: q, by: u?.name || c.name, about: d, channel: "portal" }),
     c.activity.push({ t: nowStamp(), by: u?.name || c.name, text: `Question on ${d.number}: ${q}` }),
     (d.clientNote = { t: nowStamp(), by: u?.name || "", text: q });
   try {
@@ -34341,10 +34418,13 @@ const renderPortalApprovalsBase = renderPortalApprovals;
     earned = r2(J.reduce((a, x) => a + x.earned, 0)),
     billed = r2(J.reduce((a, x) => a + x.billed, 0)),
     dep = r2(c.estimates.reduce((a, e) => a + depositBalance(c, e.id), 0)),
+    // a design job before its schedule is published: no certified figure and no retainage cell (clDesignPhase)
+    design = "function" == typeof clDesignPhase && clDesignPhase(S),
+    taxed = (c.invoices || []).some((x) => !["draft", "void"].includes(x.status) && docTotal(x).tax > 0),
     card = document.createElement("div");
   (card.className = "card"),
     (card.style.marginBottom = "14px"),
-    (card.innerHTML = `<h3 style="margin:0 0 6px">Your account</h3><div class="cash-grid" style="grid-template-columns:repeat(3,1fr)"><div><span>Contract</span><b>${money(contract)}</b><i>incl. approved changes</i></div><div class="tp-cert"><span>Completed to Date</span>${tpCertifiedHtml(c)}</div><div><span>Billed to date</span><b>${money(billed)}</b><i>${dep ? `deposit on account ${money(dep)}` : "ex tax"}</i></div><div><span>Retainage held</span><b>${money(f.retHeld)}</b><i>released at completion</i></div><div><span>Paid to date</span><b>${money(f.paid)}</b><i>${f.credits ? `credit on account ${money(f.credits)}` : ""}</i></div><div><span>Balance due</span><b class="${f.overdue ? "bad" : ""}">${money(f.outstanding)}</b><i>${f.overdue ? money(f.overdue) + " overdue" : "nothing overdue"}</i></div></div>`),
+    (card.innerHTML = `<h3 style="margin:0 0 6px">Your account</h3><div class="cash-grid" style="grid-template-columns:repeat(${design ? 2 : 3},1fr)"><div><span>Contract</span><b>${money(contract)}</b><i>incl. approved changes</i></div>${design ? "" : `<div class="tp-cert"><span>Completed to Date</span>${tpCertifiedHtml(c)}</div>`}<div><span>Billed to date</span><b>${money(f.invoiced)}</b><i>${f.retHeld > 0.5 ? `after retainage (${money(billed)} before)` : dep ? `deposit on account ${money(dep)}` : taxed ? "incl. tax" : ""}</i></div>${design ? "" : `<div><span>Retainage held</span><b>${money(f.retHeld)}</b><i>released at completion</i></div>`}<div><span>Paid to date</span><b>${money(f.paid)}</b><i>${f.credits ? `credit on account ${money(f.credits)}` : ""}</i></div><div><span>Balance due</span><b class="${f.overdue ? "bad" : ""}">${money(f.outstanding)}</b><i>${f.overdue ? money(f.overdue) + " overdue" : "nothing overdue"}</i></div></div>`),
     host.append(card);
 }),
   (REP_GROUPS.find((g) => "build" === g.id).tabs = [["searches", "Report builder"]]),
@@ -40032,6 +40112,31 @@ function designEst(p) {
     c.estimates.find((e) => "design" === e.template && ["converted", "billed", "approved"].includes(e.status))
   );
 }
+// A design job before its schedule is published: the client reads a design-phase Overview (retainer hours,
+// phases, deliverables, the kick-off), never a construction card.
+function clDesignPhase(p) {
+  return !!(p && designEst(p) && !p.published);
+}
+// The client's designer: the person on the job's design tasks, else the design staff with the most hours on it.
+function clDesigner(p) {
+  if (!p) return null;
+  const by = {};
+  (p.tasks || []).filter((t) => "design" === (t.track || "") && t.assignee).forEach((t) => (by[t.assignee] = (by[t.assignee] || 0) + 1));
+  let name = Object.keys(by).sort((a, b) => by[b] - by[a])[0] || "";
+  if (!name) {
+    const h = {};
+    (DB.time || [])
+      .filter((t) => t.projectId === p.id)
+      .forEach((t) => {
+        const e = (DB.employees || []).find((x) => x.id === t.empId);
+        e && isDesignStaff(e) && (h[e.name] = (h[e.name] || 0) + hoursOf(t));
+      });
+    name = Object.keys(h).sort((a, b) => h[b] - h[a])[0] || "";
+  }
+  if (!name) return null;
+  const e = (DB.employees || []).find((x) => x.name === name);
+  return { name: name, role: (e && e.role) || "Designer", emp: e || null };
+}
 function phaseHours(p) {
   const est = designEst(p);
   if (!est) return [];
@@ -41926,14 +42031,23 @@ issueDialog = function (p) {
   };
 };
 const renderClientBase_b = renderClient;
-renderClient = function (cpm, projEnd) {
-  renderClientBase_b(cpm, projEnd);
-  const v = document.getElementById("v-client");
-  if (!v) return;
-  v.querySelector("#cl-studio")?.remove();
-  const p = S;
-  if (!roomsOf(p.id).length && !designEst(p)) return;
-  const rooms = roomsOf(p.id),
+// The client Overview on a design job: where the design stands (designer, retainer hours used and left, the
+// survey, the latest deck), the phases and their status, the deliverables and the kick-off with its outcomes,
+// what we owe each other, the filings, and the decisions so far. Stacked rows, so it reads at 390px.
+const CL_PHASE_WORDS = [
+  [/survey/i, "Site survey"],
+  [/schematic/i, "Schematic design"],
+  [/design development/i, "Design development"],
+  [/pricing|quotation/i, "Pricing and quotes"],
+  [/client meetings?/i, "Client meetings"],
+];
+function clPhaseName(l) {
+  const hit = CL_PHASE_WORDS.find(([re]) => re.test(l.item || ""));
+  return hit ? hit[1] : String(l.item || "").split(" and ")[0];
+}
+function clDesignOverviewHtml(p) {
+  const td = today(),
+    rooms = roomsOf(p.id),
     unv = rooms.filter((r) => 0 === roomProv(r)).length,
     prs = promisesOf(p.id),
     us = prs.filter((x) => "us" === x.dir && "open" === x.status),
@@ -41947,33 +42061,101 @@ renderClient = function (cpm, projEnd) {
   const ex = p.tasks.filter((t) => t.exploration),
     R = retainerLeft(p),
     ph = phaseHours(p),
+    cur = phaseCur(ph) || ph.find((x) => x.used > 0 && x.used < x.est) || null,
+    used = r2(ph.reduce((a, x) => a + x.used, 0)),
     F = DB.studio.filings.filter((f) => f.projectId === p.id),
-    deck = sheetsOf(p.id)
-      .filter((s) => "deck" === s.set && "current" === s.status)
-      .sort((a, b) => (b.issuedOn || "").localeCompare(a.issuedOn || ""))[0],
-    rate = designEst(p)?.lines.find((l) => "hr" === l.unit)?.rate || designRate(),
-    d = document.createElement("div");
-  (d.id = "cl-studio"),
-    (d.innerHTML = `<div class="card" style="margin-bottom:14px"><div class="row" style="align-items:flex-start;gap:14px;flex-wrap:wrap"><div class="grow"><h3 style="margin:0 0 4px">Where the design stands</h3><div class="small">${unv ? `<span class="pill warn lg">Drawn on listing dimensions — conceptual until the survey (${unv} of ${rooms.length} rooms)</span>` : '<span class="pill ok">Drawn on measured dimensions</span>'}${deck ? ` <span class="small muted">Latest deck: ${esc(deck.title)} (rev ${esc(deck.rev)}, ${fmt(deck.issuedOn)})</span>` : ""}</div></div>${R ? `<div class="st-kv"><b>${R.hours} hrs</b><span>retainer remaining · ${money(R.dollars)}</span></div>` : ""}<div class="st-kv"><b>${r2(ph.reduce((a, x) => a + x.used, 0))} hrs</b><span>design hours to date</span></div></div></div>\n    <div class="grid3" style="margin-bottom:14px"><div class="card"><h3>What we owe you</h3>${us.map((x) => promiseRow(x, "client")).join("") || '<div class="small muted">Nothing outstanding.</div>'}</div><div class="card"><h3>What we need from you</h3>${cl.map((x) => promiseRow(x, "client")).join("") || '<div class="small muted">Nothing outstanding.</div>'}${
+    sheets = sheetsOf(p.id).filter((s) => "current" === s.status),
+    deck = sheets.filter((s) => "deck" === s.set).sort((a, b) => (b.issuedOn || "").localeCompare(a.issuedOn || ""))[0],
+    est = designEst(p),
+    rate = est?.lines.find((l) => "hr" === l.unit)?.rate || designRate(),
+    des = clDesigner(p),
+    pm = ("function" == typeof fPeople ? fPeople().pm : null) || {},
+    survey = (p.tasks || []).find((t) => /survey/i.test(t.name || "")),
+    inv = "function" == typeof clRetainerInv ? clRetainerInv(p) : null,
+    meetings = (DB.studio.meetings || []).filter((m) => m.projectId === p.id).sort((a, b) => String(a.date).localeCompare(String(b.date))),
+    kv = (k, v, sub) => `<div class="cl-kv"><span>${k}</span><b data-nocase>${v}${sub ? `<i class="small muted">${sub}</i>` : ""}</b></div>`,
+    retHrs = R && R.rate ? r2(R.retainer / R.rate) : 0,
+    retLine = R
+      ? `${clHrs(R.used || used)} used · ${clHrs(Math.max(0, retHrs - (R.used || used)))} left of ${clHrs(retHrs)}`
+      : `${clHrs(used)} used`,
+    retSub = R
+      ? R.paid <= 0.5
+        ? `the ${money(R.retainer)} retainer is not paid yet${inv && inv.due ? ` — its invoice is due ${fmtL(inv.due)}` : ""}; hours count from payment`
+        : `${money(R.paid)} paid · ${money(R.dollars)} of it left`
+      : "",
+    phaseStatus = (x) =>
+      "done" === x.status
+        ? ["Done", "ok"]
+        : x === cur || (!cur && x.used > 0)
+          ? ["Under Way", "info"]
+          : x.used >= x.est && x.est
+            ? ["Hours Used", "warn"]
+            : ["Upcoming", "neutral"],
+    phaseWhen = (x, i) => {
+      const t = x.task || (0 === i && survey) || null;
+      return t && t.start ? `${fmtL(t.start)}${t.end && t.end !== t.start ? ` to ${fmtL(t.end)}` : ""}` : "";
+    },
+    outcomes = (m) => {
+      const K = (DB.studio.intake || {})[m.id],
+        items = (K && K.items) || [],
+        ok = items.filter((i) => "confirmed" === i.status && "decision" === i.kind),
+        open = items.filter((i) => "proposed" === i.status).length;
+      if (m.date > td)
+        return `<div class="small muted">Coming up on ${fmtL(m.date)} with ${esc(des ? des.name : "your designer")} and ${esc(pm.name || "your project manager")}. What we agree there is confirmed by ${esc(des ? des.name.split(" ")[0] : "your designer")} afterwards and listed here.</div>`;
+      return (
+        (ok.length ? `<div class="small" style="margin-top:4px">Agreed:</div>${ok.map((i) => `<div class="small cl-out" data-nocase>· ${esc(i.text)}</div>`).join("")}` : "") +
+        (open ? `<div class="small muted">${open} note${1 === open ? "" : "s"} from the meeting ${1 === open ? "is" : "are"} being confirmed by ${esc(des ? des.name.split(" ")[0] : "your designer")}; they appear here once confirmed.</div>` : "") +
+        (!ok.length && !open ? '<div class="small muted">No outcomes recorded yet.</div>' : "")
+      );
+    };
+  return `<div class="card" style="margin-bottom:14px"><h3>Where the Design Stands</h3><div class="small" style="margin-bottom:6px">${unv ? `<span class="pill warn">Conceptual until the survey</span> <span class="muted">drawn on listing dimensions · ${unv} of ${rooms.length} rooms still to measure</span>` : '<span class="pill ok">Drawn on measured dimensions</span>'}</div>${des ? kv("Your designer", `${esc(des.name)}<i class="small muted">${esc(des.role)} at SmartDesign</i>`) : ""}${kv("Retainer", esc(retLine), esc(retSub))}${kv("Site survey", survey ? `${fmtL(survey.start)}${survey.end && survey.end !== survey.start ? ` to ${fmtL(survey.end)}` : ""}<i class="small muted">${esc(des ? des.name.split(" ")[0] : "we")} measure${des ? "s" : ""} every room before anything is ordered</i>` : "to be scheduled")}${deck ? kv("Latest deck", `${esc(deck.title)}<i class="small muted">rev ${esc(deck.rev)} · ${deck.issuedOn && deck.issuedOn <= td ? `issued ${fmtL(deck.issuedOn)}` : deck.issuedOn ? `for the kick-off on ${fmtL(deck.issuedOn)}` : "in preparation"}</i>`) : ""}</div>
+    <div class="card" style="margin-bottom:14px"><h3>Design Phases</h3>${
+      ph.length
+        ? ph
+            .map((x, i) => {
+              const [w, cls] = phaseStatus(x),
+                when = phaseWhen(x, i);
+              return `<div class="cl-row cl-ph"><div><b data-nocase>${esc(clPhaseName(x.line))}</b><div class="small muted">${clHrs(x.used)} of ${clHrs(x.est)}${when ? ` · ${when}` : ""}</div></div><div class="cl-amt"><span class="pill ${cls}">${w}</span></div></div>`;
+            })
+            .join("")
+        : '<div class="small muted">The phases are set out in your design agreement.</div>'
+    }</div>
+    <div class="card" style="margin-bottom:14px"><h3>Deliverables</h3>${
+      meetings.length
+        ? meetings.map((m) => `<div class="cl-row cl-ph"><div><b data-nocase>${esc(m.title)}</b><div class="small muted">${fmtL(m.date)}${deck && deck.issuedOn === m.date ? ` · ${esc(deck.title)}` : ""}</div>${outcomes(m)}</div></div>`).join("")
+        : ""
+    }${
+      sheets.filter((x) => "deck" !== x.set).length
+        ? sheets
+            .filter((x) => "deck" !== x.set)
+            .map((x) => `<div class="cl-row cl-ph"><div><b data-nocase>${esc(x.number)} ${esc(x.title)}</b><div class="small muted">${esc(SETS[x.set] || x.set)} · rev ${esc(x.rev)}${x.issuedOn ? ` · ${x.issuedOn <= td ? "issued" : "due"} ${fmtL(x.issuedOn)}` : ""}</div></div></div>`)
+            .join("")
+        : '<div class="small muted">Drawings and renderings appear here as they are issued.</div>'
+    }</div>
+    <div class="grid3" style="margin-bottom:14px"><div class="card"><h3>What We Owe You</h3>${us.map((x) => promiseRow(x, "client")).join("") || '<div class="small muted">Nothing outstanding.</div>'}</div><div class="card"><h3>What We Need from You</h3>${cl.map((x) => promiseRow(x, "client")).join("") || '<div class="small muted">Nothing outstanding.</div>'}${
       ex.filter((t) => !t.clientApproved).length
         ? `<div class="small muted" style="margin-top:8px">Studies you asked for — each costs design hours at $${rate}/hr:</div>${ex
             .filter((t) => !t.clientApproved)
-            .map(
-              (t) =>
-                `<div class="st-item"><span class="k">est. ${t.hours} hrs · ${money(t.hours * rate)}</span><b>${esc(t.name)}</b></div>`,
-            )
+            .map((t) => `<div class="st-item"><span class="k">est. ${t.hours} hrs · ${money(t.hours * rate)}</span><b>${esc(t.name)}</b></div>`)
             .join("")}`
         : ""
-    }</div><div class="card"><h3>Filings</h3>${F.map((f) => `<div class="row small" style="padding:4px 0"><span class="grow">${esc(f.name)}</span><span class="pill ${FILING_STATUS[f.status][1]}">${FILING_STATUS[f.status][0]}</span></div>`).join("") || '<div class="small muted">—</div>'}</div></div>\n    <div class="card" style="margin-bottom:14px"><h3>Decisions so far</h3>${
+    }</div><div class="card"><h3>Filings</h3>${F.map((f) => `<div class="row small" style="padding:4px 0"><span class="grow">${esc(f.name)}</span><span class="pill ${FILING_STATUS[f.status][1]}">${FILING_STATUS[f.status][0]}</span></div>`).join("") || '<div class="small muted">—</div>'}</div></div>
+    <div class="card" style="margin-bottom:14px"><h3>Decisions So Far</h3>${
       Object.entries(byRoom)
-        .map(
-          ([rn, ds]) =>
-            `<div style="padding:6px 0;border-top:1px solid var(--rule)"><b>${esc(rn)}</b>${ds.map((x) => `<div class="small">· ${esc(x.name)} <span class="muted">— ${esc(x.decidedBy || "")}, ${fmt(x.madeOn)}</span></div>`).join("")}</div>`,
-        )
-        .join("") ||
-      '<div class="small muted">Decisions confirmed in meetings will appear here by room.</div>'
-    }</div>\n    ${DB.studio.prefs[p.id] ? `<div class="card" style="margin-bottom:14px"><h3>What you told us you love, and never</h3>${prefsHtml(p.id, !1)}</div>` : ""}`),
-    v.querySelector(".grid3")?.before(d);
+        .map(([rn, ds]) => `<div style="padding:6px 0;border-top:1px solid var(--rule)"><b>${esc(rn)}</b>${ds.map((x) => `<div class="small">· ${esc(x.name)} <span class="muted">— ${esc(x.decidedBy || "")}, ${fmt(x.madeOn)}</span></div>`).join("")}</div>`)
+        .join("") || '<div class="small muted">Decisions confirmed in meetings will appear here by room.</div>'
+    }</div>
+    ${DB.studio.prefs[p.id] ? `<div class="card" style="margin-bottom:14px"><h3>What You Told Us You Love, and Never</h3>${prefsHtml(p.id, !1)}</div>` : ""}`;
+}
+renderClient = function (cpm, projEnd) {
+  renderClientBase_b(cpm, projEnd);
+  const v = document.getElementById("v-client");
+  if (!v) return;
+  v.querySelector("#cl-studio")?.remove();
+  const p = S;
+  if (!roomsOf(p.id).length && !designEst(p)) return;
+  const d = document.createElement("div");
+  (d.id = "cl-studio"), (d.innerHTML = clDesignOverviewHtml(p)), v.querySelector(".grid3")?.before(d);
 };
 const renderSDayBase_b = renderSDay,
   remindersBase_b = reminders;
@@ -83624,6 +83806,25 @@ function mApprovals() {
         });
       });
   } catch (e) {}
+  // a client's question from the portal or their chat: the PM answers it from Do Now, the assistant drafts
+  try {
+    DB.projects.forEach((p) =>
+      (p.clientQs || [])
+        .filter((q) => "open" === q.status)
+        .forEach((q) =>
+          out.push({
+            kind: "clientq",
+            id: q.id,
+            sev: "warn",
+            n: "client",
+            title: `Answer ${q.by}`,
+            detail: `${p.project.name} · ${q.text}`,
+            yes: "Answer",
+            open: { view: "inbox", project: p.id, clientq: q.id },
+          }),
+        ),
+    );
+  } catch (e) {}
   DB.projects.forEach((p) =>
     (p.decisions || [])
       .filter((d) => "open" === d.status && /smartdesign|owner|pm|design/i.test(d.owner || ""))
@@ -83680,6 +83881,7 @@ const APPR_CHIPS = [
     ["subm", "Submittals"],
     ["req", "Field Requests"],
     ["raise", "Site Questions"],
+    ["clientq", "Client Questions"],
     ["meeting", "Meetings"],
     ["change", "Changes"],
     ["lesson", "Lessons"],
@@ -83734,6 +83936,7 @@ const DELEGATION = {
   },
   req: { role: "coord", rule: "a material request from the field is the coordinator's to acknowledge" },
   subm: { role: "pm", rule: "a submittal at the PM's review step is the PM's" },
+  clientq: { role: "pm", rule: "a client's question from the portal or their chat is the PM's to answer; the assistant drafts the reply from the published schedule and the statement" },
   meeting: {
     role: "pm",
     rule: "proposals from a meeting go to someone who was in it and can approve here: the PM, then the coordinator, then the owner",
@@ -100257,24 +100460,9 @@ if ("function" == typeof mbModal) {
         onSubmit: (f) => {
           const q = (f.q || "").trim();
           if (!q) return toast("Say what you would like to ask"), !1;
-          const p = DB.projects.find((x) => x.id === d.projectId) || S,
-            now = appNow();
-          (p.comms = p.comms || []).unshift({
-            id: uid("c"),
-            receivedAt: appIso(now),
-            t: nowStamp(),
-            source: "portal",
-            from: (u && u.name) || c.name,
-            to: "",
-            subject: `Re: ${d.number} ${d.title || ""}`,
-            date: iso(now),
-            time: now.toLocaleTimeString(void 0, { hour: "numeric", minute: "2-digit" }),
-            text: q,
-            body: q,
-            category: "client",
-            confidence: 0,
-            status: "new",
-          }),
+          const p = DB.projects.find((x) => x.id === d.projectId) || S;
+          // the question is the PM's to answer: one activity line in Messages, one Do Now item with a draft
+          clqRaise({ p: p, c: c, text: q, by: (u && u.name) || c.name, about: d, channel: "portal" }),
             c.activity.push({
               t: nowStamp(),
               by: (u && u.name) || c.name,
@@ -100284,7 +100472,7 @@ if ("function" == typeof mbModal) {
           try {
             audit(d.type, d.id, "client-question", d.status, d.status, q);
           } catch (e) {}
-          save(), render(), toast("Sent to your project manager");
+          save(), render(), toast(`Sent to ${clPmFirst(p)}`);
         },
       },
     );
@@ -115558,7 +115746,7 @@ function fdRoles() {
     ["owner", "pm", "controller"].forEach((r) => {
       ROLE_VIEWS[r] && !ROLE_VIEWS[r].includes("setup") && ROLE_VIEWS[r].push("setup");
     }),
-    ROLE_VIEWS.client && (ROLE_VIEWS.client = ROLE_VIEWS.client.filter((v) => "pa" !== v && "conn" !== v)));
+    ROLE_VIEWS.client && (ROLE_VIEWS.client = ROLE_VIEWS.client.filter((v) => "conn" !== v)));
 }
 if (
   (void 0 !== IA_H2_SKIP &&
@@ -115583,7 +115771,7 @@ if (
   paField = function () {
     const r = paFieldBase_fd.apply(this, arguments);
     try {
-      ROLE_VIEWS.client && (ROLE_VIEWS.client = ROLE_VIEWS.client.filter((v) => "pa" !== v && "conn" !== v));
+      ROLE_VIEWS.client && (ROLE_VIEWS.client = ROLE_VIEWS.client.filter((v) => "conn" !== v));
     } catch (e) {}
     return r;
   };
@@ -122814,7 +123002,7 @@ Object.assign(FILE_CATS, {
 {
   const base = openFile;
   openFile = async function (id) {
-    const f = (S.files || []).find((x) => x.id === id);
+    const f = fileWriteOk() ? (S.files || []).find((x) => x.id === id) : null;
     if (f && f.autoKey && f.link) {
       if (((f.seen = !0), "po" === f.link.kind)) return void openEditor("po", f.link.id);
       if ("co" === f.link.kind) return void opsGo({ kind: "co", id: f.link.id });
@@ -128749,6 +128937,8 @@ if ("function" == typeof save) {
   };
 }
 const fin2DateNote = (d) => {
+  // a client reads the invoice as issued; the earlier date lives in its history for the firm
+  if ("function" == typeof role && "client" === role()) return "";
   const h = (d && d.dateHistory) || [],
     first = h.length ? h[0].from : d && d.dateWas;
   return first && first !== d.date ? `originally dated ${fmt(first)}` : "";
@@ -144517,7 +144707,14 @@ function clWireStrip(root) {
                 t: nowStamp(),
                 by: by,
                 text: `Choice made on the portal: ${T} — ${ch}${tk ? ` · releases ${tk.name}` : m ? ` · releases the order for ${m.name}` : ""}`,
-              });
+              }),
+              "function" == typeof clActivity &&
+                clActivity(S, {
+                  from: by,
+                  subject: `Chose: ${T} — ${ch}`,
+                  text: `${by} chose "${ch}" for ${T}${delta ? ` (${delta > 0 ? "+" : "−"}${money(Math.abs(delta))} against the allowance)` : ""} on the portal${tk ? `; ${tName} can go ahead` : ""}.`,
+                  ref: { kind: "dec", id: dec.id },
+                });
             const pm = ("function" == typeof fPeople ? fPeople().pm : null) || {},
               writeIn = !picked;
             if (delta > 0 || m || writeIn) {
@@ -144992,7 +145189,7 @@ function clOutboxFor(p) {
           R.push({
             k: clStampKey(c),
             dir: "in",
-            html: `<div class="msg ${esc(c.status || "")} cl-msg" data-cid="${esc(c.id)}"><div class="top"><span class="pill neutral cl-dir">In</span><b>${esc(c.from || ("notes" === c.source ? "Meeting notes" : "Pasted"))}</b><span class="muted small">${esc(c.source || "message")} · ${esc(clStamp(c))}</span><span class="grow"></span><span class="pill ${"new" === c.status ? "blue" : "neutral"}">${esc(c.status || "")}</span></div>${c.subject ? `<div class="small"><b>${esc(c.subject)}</b></div>` : ""}<div class="small muted">${esc(String(c.text || "").slice(0, 220))}</div><div class="acts">${"new" === c.status ? `<button class="btn sm" data-review="${esc(c.id)}">Review</button>` : ""}${["ignored", "applied", "auto"].includes(c.status) ? "" : `<button class="btn sm" data-ignore="${esc(c.id)}">Ignore</button>`}<button class="btn sm ghost" data-delmsg="${esc(c.id)}">Delete</button></div></div>`,
+            html: "handled" === c.status || "activity" === c.kind ? clActivityHtml(c, S) : `<div class="msg ${esc(c.status || "")} cl-msg" data-cid="${esc(c.id)}"><div class="top"><span class="pill neutral cl-dir">In</span><b>${esc(c.from || ("notes" === c.source ? "Meeting notes" : "Pasted"))}</b><span class="muted small">${esc(c.source || "message")} · ${esc(clStamp(c))}</span><span class="grow"></span><span class="pill ${"new" === c.status ? "blue" : "neutral"}">${esc(c.status || "")}</span></div>${c.subject ? `<div class="small"><b>${esc(c.subject)}</b></div>` : ""}<div class="small muted">${esc(String(c.text || "").slice(0, 220))}</div><div class="acts">${"new" === c.status ? `<button class="btn sm" data-review="${esc(c.id)}">Review</button>` : ""}${["ignored", "applied", "auto"].includes(c.status) ? "" : `<button class="btn sm" data-ignore="${esc(c.id)}">Ignore</button>`}<button class="btn sm ghost" data-delmsg="${esc(c.id)}">Delete</button></div></div>`,
           }),
         ),
         out.forEach((o) =>
@@ -155718,7 +155915,7 @@ document.addEventListener("click", (e) => {
         `<p class="small" data-nocase>${esc(s.sub || "Our supplier")} sent ${SM_TYPE_WORD[s.type] || "it"} of what we plan to order · ${esc(smClientLine(s, p))}.</p><p class="small muted" style="margin:0">Approving tells us to order it as sent. It is recorded with your name and the date.</p>`,
         {
           submit: "Approve",
-          alt: fid && "function" == typeof openFile ? { label: "View the Sheets", run: () => openFile(fid) } : null,
+          alt: fid && "function" == typeof openFile ? { label: "View the Sheets", run: () => openFile(fid), keep: !0 } : null,
           onSubmit: () => {
             setTimeout(() => {
               const x = document.createElement("button");
@@ -155740,6 +155937,13 @@ document.addEventListener("click", (e) => {
         files: [],
         submId: s.id,
       }),
+      "function" == typeof clActivity &&
+        clActivity(p, {
+          from: me,
+          subject: `Approved the sample: ${title}`,
+          text: `${me} approved ${title} on the portal — it can be ordered as sent.`,
+          ref: { kind: "subm", id: s.id },
+        }),
       save(),
       render(),
       void toast(`Thank you — ${title} is approved and we will order it`, flowGo.viewOf("dec", "client"))
@@ -161760,8 +161964,12 @@ if ("function" == typeof clOverview) {
       }),
         v.querySelector("#tp-clprog")?.remove();
       const host = v.querySelector("#cl-done"),
-        card = host && host.closest(".card"),
-        html = tpClientProgressHtml(c, p);
+        card = host && host.closest(".card");
+      // a design job before its schedule is published has no construction card: no certified figure, no
+      // "completed work as the crew signs it off"; the design-phase Overview (clDesignOverviewHtml) stands in
+      if ("function" == typeof clDesignPhase && clDesignPhase(p)) return card && (card.hidden = !0), r;
+      card && (card.hidden = !1);
+      const html = tpClientProgressHtml(c, p);
       card ? card.insertAdjacentHTML("beforebegin", html) : v.insertAdjacentHTML("beforeend", html);
       "function" == typeof pstFill && pstFill(v.querySelector("#tp-clprog"));
     } catch (e) {
@@ -162853,7 +163061,7 @@ function eqRows(entity) {
       })
       .map((r) => {
         const o = {};
-        return Object.keys(r).forEach((f) => EQ_CLIENT_HIDE.test(f) || (o[f] = r[f])), o;
+        return Object.keys(r).forEach((f) => EQ_CLIENT_HIDE.test(f) || ("photos" === k && "by" === f) || (o[f] = r[f])), o;
       });
   } else if ("field" === sc.kind)
     rows = rows.map((r) => {
@@ -164170,7 +164378,7 @@ const AG_ENT = [
       who && ((R = R.filter((r) => new RegExp(`\\b${String(who.name).split(/\s+/)[0]}\\b`, "i").test(r.by || ""))), where.push(`taken by ${who.name}`));
       return {
         headline: `${agN(R.length, "photo")}${shared ? " shared" : ""}${who ? ` by ${who === P.meEmp && !P.people.length ? "you" : who.name}` : ""}${P.clients.length ? ` with ${P.clients[0].name}` : ""}${P.jobs.length ? ` on ${agShort(P.jobs[0])}` : ""}${P.period ? ` ${P.period.say}` : ""}.`,
-        work: R.slice(0, 12).map((r) => `${fmtL(r.date)} — ${r.caption || r.task || r.area || "photo"}${r.project ? ` · ${r.project}` : ""}${r.by ? `, ${r.by}` : ""}`),
+        work: R.slice(0, 12).map((r) => `${fmtL(r.date)} — ${r.caption || r.task || r.area || "photo"}${r.project ? ` · ${r.project}` : ""}${r.by && "client" !== role() ? `, ${r.by}` : ""}`),
         go: agGo("photos") || agGo("client"),
         ran: agRan("photos", where, "", R.length),
       };
@@ -165212,6 +165420,8 @@ function tdScore(it) {
     return 60 + (r.escalated || (r.dueBy && r.dueBy <= soon) ? 20 : 0) + sev + (r.dueBy && r.dueBy <= td ? 3 : 0);
   }
   if ("req" === it.kind) return 55 + sev;
+  // a client waiting on an answer comes right after the field: they wrote to us and see "Sent to Alan"
+  if ("clientq" === it.kind) return 58 + sev;
   if ("bill" === it.kind) {
     const b = (DB.bills || []).find((x) => x.id === it.id);
     if (!b) return 40;
@@ -165285,6 +165495,15 @@ function tdCard(it) {
       c.why = `${esc(r.by || "The foreman")} waiting${r.dueBy ? " · needs it " + fmt(r.dueBy) : ""}${p && tdRaiseJobs() > 1 ? " · " + esc(tdJob(p)) : ""}`;
       c.verb = "Answer";
       c.run = () => fAnswerRaise(r, "extra" === r.type ? "extra" : "");
+    }
+  } else if ("clientq" === it.kind) {
+    const Q = "function" == typeof clqFind ? clqFind(it.id) : null;
+    if (Q) {
+      c.line1 = `<a href="#" data-tdrec>Answer ${esc(Q.q.by)}</a>`;
+      c.go = () => clqAnswer(Q.q.id);
+      c.why = `${esc(tdWords(Q.q.text, 12))} · ${esc(tdJob(Q.p))}${Q.q.at ? " · asked " + fmt(Q.q.at) : ""}`;
+      c.verb = "Answer";
+      c.run = () => clqAnswer(Q.q.id);
     }
   } else if ("dec" === it.kind) {
     const D = tdDec(it);
@@ -168762,6 +168981,835 @@ AG_FIN.unshift(
       };
     };
   }
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// clientfix (round 5, the client reviewer): what a client does on the portal is handled activity for the
+// firm, never inbox work; a client's question is one Do Now item for the PM with a drafted reply; the client
+// has an Ask door (header, Chat switch, a pa surface scoped like every Ask path) and the intents a client
+// really uses; the chips wrap on a phone; Already Settled holds everything settled.
+// ---------------------------------------------------------------------------------------------------------
+
+// ---- the PM's first name, as the client reads it ("Sent to Alan")
+function clPmName(p) {
+  let pm = null;
+  try {
+    const pub = p && p.published;
+    pm = (pub && pub.pm && pub.pm.name ? pub.pm : null) || ("function" == typeof fPeople ? fPeople().pm : null) || null;
+  } catch (e) {}
+  if (!pm || !pm.name)
+    try {
+      pm = (DB.users || []).find((u) => "pm" === u.role) || null;
+    } catch (e) {}
+  return (pm && pm.name) || "your project manager";
+}
+const clPmFirst = (p) => String(clPmName(p)).split(" ")[0];
+
+// ---- one handled activity line in Project Messages for everything a client does on the portal
+function clActivity(p, o) {
+  if (!p) return null;
+  const now = appNow(),
+    row = {
+      id: uid("c"),
+      receivedAt: appIso(now),
+      t: nowStamp(),
+      source: "portal",
+      channel: o.channel || "portal",
+      from: o.from || "",
+      to: "",
+      subject: o.subject || "",
+      date: iso(now),
+      time: now.toLocaleTimeString(void 0, { hour: "numeric", minute: "2-digit" }),
+      text: o.text || o.subject || "",
+      body: o.text || o.subject || "",
+      category: "client",
+      confidence: 1,
+      status: "handled",
+      kind: "activity",
+      clq: o.clq || "",
+      ref: o.ref || null,
+    };
+  return (p.comms = p.comms || []).unshift(row), row;
+}
+// The one activity line: who, what, when; a state pill; no Review, Ignore or Delete.
+function clActivityHtml(c, p) {
+  const q = c.clq && p ? (p.clientQs || []).find((x) => x.id === c.clq) : null,
+    state = q
+      ? "open" === q.status
+        ? ["To Answer", "warn"]
+        : [`Answered by ${String(q.answeredBy || "").split(" ")[0] || "us"} · ${fmtL(q.answeredAt || today())}`, "ok"]
+      : ["Recorded", "neutral"];
+  return `<div class="msg cl-msg cl-act" data-cid="${esc(c.id)}"><div class="top"><span class="pill ok cl-dir">Portal</span><b>${esc(c.from || "")}</b><span class="muted small">${esc(c.channel && "portal" !== c.channel ? c.channel + " · " : "")}${esc(clStamp(c))}</span><span class="grow"></span><span class="pill ${state[1]}" data-nocase>${esc(state[0])}</span></div><div class="small" data-nocase><b>${esc(c.subject || "")}</b></div>${c.text && c.text !== c.subject ? `<div class="small muted" data-nocase>${esc(String(c.text).slice(0, 240))}</div>` : ""}${q && "answered" === q.status && q.answer ? `<div class="small cl-act-a" data-nocase>${esc(String(q.answer).slice(0, 240))}</div>` : ""}</div>`;
+}
+
+// ---- a client's question: raised from Chat or a document, answered by the PM from Do Now
+function clqRaise(o) {
+  const p = o.p,
+    c = o.c || (p && DB.clients.find((x) => x.id === p.clientId)),
+    u = "function" == typeof currentUser ? currentUser() : null,
+    q = {
+      id: uid("cq"),
+      projectId: p.id,
+      clientId: c ? c.id : "",
+      by: o.by || (u && u.name) || (c && c.name) || "Client",
+      uid: (u && u.id) || "",
+      text: String(o.text || "").trim(),
+      about: o.about ? { kind: o.about.type || o.about.kind || "", id: o.about.id, number: o.about.number || "" } : null,
+      at: today(),
+      t: nowStamp(),
+      status: "open",
+      answer: "",
+      answeredBy: "",
+      answeredAt: "",
+    };
+  (p.clientQs = p.clientQs || []).push(q);
+  const row = clActivity(p, {
+    from: q.by,
+    channel: o.channel || "chat",
+    subject: o.about ? `Question on ${o.about.number}: ${q.text}` : `${q.by} asked: ${q.text}`,
+    text: q.text,
+    clq: q.id,
+    ref: o.about ? { kind: o.about.type || o.about.kind || "", id: o.about.id } : null,
+  });
+  q.commId = row ? row.id : "";
+  try {
+    audit("clientq", q.id, "asked", "", "open", `${q.by}: ${q.text}`);
+  } catch (e) {}
+  return q;
+}
+function clqFind(id) {
+  for (const p of DB.projects || []) {
+    const q = (p.clientQs || []).find((x) => x.id === id);
+    if (q) return { q: q, p: p };
+  }
+  return null;
+}
+// The drafted reply: the client's own Ask readers, run on the client's scope by the PM, so the draft comes from
+// the published schedule and the statement and nothing else. The PM edits and sends; nothing goes on its own.
+function clqDraft(q, p, c) {
+  const first = String(q.by || "").split(" ")[0],
+    sc = { kind: "client", cid: c ? c.id : p.clientId, client: c, jobs: [p], p: p, pids: new Set([p.id]) };
+  let a = null;
+  try {
+    a = clAskRead(q.text, sc);
+  } catch (e) {
+    console.warn("client draft", e);
+  }
+  if (!a) return { text: `Hi ${first},\n\n`, how: "" };
+  const lines = (a.work || []).slice(0, 4);
+  return {
+    text: `Hi ${first},\n\n${a.headline}${a.note ? ` ${a.note}` : ""}${lines.length ? `\n\n${lines.map((l) => `- ${l}`).join("\n")}` : ""}\n\n${clPmFirst(p)}`,
+    how: a.how || "your job's records",
+  };
+}
+function clqAnswer(id) {
+  const Q = clqFind(id);
+  if (!Q) return toast("That question is no longer open");
+  const { q: q, p: p } = Q,
+    c = DB.clients.find((x) => x.id === p.clientId),
+    first = String(q.by || "").split(" ")[0],
+    d = clqDraft(q, p, c);
+  mbModal(
+    `Answer ${esc(first)}`,
+    `<p class="small muted" data-nocase><b>${esc(q.by)}</b> asked on ${esc(fmtL(q.at))}${q.about && q.about.number ? ` about ${esc(q.about.number)}` : ""}: "${esc(q.text)}"</p><p class="small muted">${d.how ? `Drafted from ${esc(d.how)}. Edit it; it reaches ${esc(first)} in Chat when you send.` : `The records do not answer this one. Write the answer; it reaches ${esc(first)} in Chat when you send.`}</p><div class="f"><label>Your Reply</label><textarea data-f="a" rows="7">${esc(d.text)}</textarea></div>`,
+    {
+      submit: `Send to ${first}`,
+      onSubmit: (f) => {
+        if (!String(f.a || "").trim() || /^Hi \w+,\s*$/.test(String(f.a || "").trim())) return toast("Write the answer"), !1;
+        clqSendAnswer(q, p, String(f.a).trim());
+      },
+    },
+  );
+}
+function clqSendAnswer(q, p, text) {
+  const u = "function" == typeof currentUser ? currentUser() : null,
+    by = (u && u.name) || clPmName(p);
+  (p.chat = p.chat || []).push({ id: uid("ch"), by: by, text: text, t: nowStamp(), files: [], answerOf: q.id }),
+    (q.status = "answered"),
+    (q.answer = text),
+    (q.answeredBy = by),
+    (q.answeredAt = today());
+  try {
+    audit("clientq", q.id, "answered", "open", "answered", `${by}: ${text.slice(0, 140)}`);
+  } catch (e) {}
+  save(),
+    render(),
+    toast(`Answer sent to ${q.by}`, () => {
+      setCurrent(p.id), (view = "chat"), render();
+    });
+}
+// The client writes in Chat: the message is a question for the PM (one activity line, one Do Now item), never
+// a message for the firm's reader; the client sees "Sent to Alan" and, when it comes, the answer.
+function clChatSend(attach) {
+  const t = document.getElementById("chat-text"),
+    text = t ? t.value.trim() : "";
+  if (!text) return toast("Write a message first"), void (t && t.focus());
+  const p = S,
+    c = "function" == typeof clientUserOf ? clientUserOf() : clientOf(),
+    u = currentUser(),
+    by = (u && u.name) || (c && c.name) || "Client",
+    q = clqRaise({ p: p, c: c, text: text, by: by, channel: "chat" });
+  (p.chat = p.chat || []).push({ id: uid("ch"), by: by, text: text, t: nowStamp(), files: attach || [], clq: q.id }),
+    (t.value = ""),
+    save(),
+    render(),
+    toast(`Sent to ${clPmFirst(p)}`);
+}
+if ("function" == typeof sendChat) {
+  const base = sendChat;
+  sendChat = function (attach) {
+    let cl = !1;
+    try {
+      cl = "client" === role();
+    } catch (e) {}
+    return cl ? clChatSend(attach) : base.apply(this, arguments);
+  };
+}
+// Do Now / Approvals: the verb opens the reply sheet
+if ("function" == typeof mGo) {
+  const base = mGo;
+  mGo = function (go) {
+    if (go && go.clientq) return void clqAnswer(go.clientq);
+    return base.apply(this, arguments);
+  };
+}
+
+// ---- the client's Ask readers. Each reads the client's own scope (the jobs eqScopeOf names for them, the same
+// scope every Ask path and erpQuery read through eqRows) and answers from the published schedule, the account
+// statement figures, their decisions and, on a design job, the design agreement. The PM's drafted reply runs the
+// same readers on the client's scope, so the client and the PM read one answer.
+const CL_STOP = new Set("the a an my our your their of to in on at for is are was were be been do does did will would can could when what how which who where why if not no yes it its this that these those and or but so we i you me us them they he she his her about from with by as than then there here into out up down over under again still already just also only very more most much many any some all each every both few other another such same own done finish finished ready complete completed start started begin end over going".split(" "));
+const clWordsOf = (s) =>
+  String(s || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9' ]+/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length >= 3 && !CL_STOP.has(w));
+const clHit = (q, name) => {
+  const N = new Set(clWordsOf(name));
+  return clWordsOf(q).filter((w) => N.has(w) || [...N].some((n) => n.length >= 5 && (n.startsWith(w) || w.startsWith(n)))).length;
+};
+function clWeekOf(td, next) {
+  const d = parse(td),
+    dow = (d.getDay() + 6) % 7,
+    mon = iso(addDays(td, -dow + (next ? 7 : 0)));
+  return { from: mon, to: iso(addDays(mon, 4)), say: next ? "next week" : "this week" };
+}
+const clUnset = (sc) => {
+  const p = sc.p,
+    design = "function" == typeof designEst && designEst(p) && !p.schedFromStudio;
+  return `Your schedule is being set — ${clPmFirst(p)} will share the dates once ${design ? "the design phases are agreed" : "the dates are agreed"}.`;
+};
+const CL_ASK = [
+  // the firm's own figures (margin, crew pay, the bank, other clients): a plain refusal, never a misread
+  {
+    id: "firmOnly",
+    re: /\b(profit|margin|markup|mark-up|overhead|paid|wages?|salar(y|ies)|other clients?|bank|cash)\b/,
+    test: (l) =>
+      /\b(profit|margin|markup|mark-up|overhead)\b/.test(l) ||
+      (/\b(crew|workers?|team|guys|employees?|staff|subs?|subcontractors?|they|he|she)\b/.test(l) && /\b(get paid|gets paid|wages?|salar(y|ies)|earn|make an hour|hourly)\b/.test(l)) ||
+      /\bother (clients?|customers?|jobs?|projects?)\b/.test(l) ||
+      /\b(firm|company|smartdesign|you)\b.*\b(have in the bank|bank balance|in the bank|cash)\b/.test(l),
+    run(l, sc) {
+      return {
+        headline: "That is the firm's own information; I answer about your job only.",
+        note: "Ask about your schedule, your choices, your invoices and payments, or the photos shared with you.",
+        work: [],
+        how: "",
+        kind: "blocked",
+      };
+    },
+  },
+  {
+    id: "finishMoved",
+    re: /\b(finish|finishing|completion|end|moving|move|moved|slip|slipped|delay|delayed|pushed?|behind|late|on (track|time|target)|same date|still on)\b/,
+    test: (l) =>
+      /\b(finish|completion|end)\s*(date|day)\b/.test(l) ||
+      /\bwhen (will|does|is|do) (my|the|our|this|it) (job|project|renovation|house|work|place|whole thing|all)\b/.test(l) ||
+      /\b(did|has|have|is|are) (the |my |our )?(finish|completion|end|dates?|schedule)\b.*\b(move|moved|slip|slipped|change|changed|delay|delayed|push|pushed|same|still)\b/.test(l) ||
+      /\b(behind|on track|on time|on target|delayed|running late)\b/.test(l) ||
+      /\bwhy (did|has|is) .*\b(move|moved|slip|slipped|late|delayed|behind)\b/.test(l),
+    run(l, sc) {
+      const p = sc.p,
+        pub = p && p.published;
+      if (!pub) return { headline: clUnset(sc), note: "", work: [], how: "your schedule", go: { view: "sched" } };
+      const late = pub.target ? signedWork(pub.target, pub.finish) : 0,
+        drivers = (pub.changes || []).filter((c) => !c.driver),
+        when = `Last update from ${pub.by || clPmName(p)} on ${fmtL(pub.at)}.`,
+        asksMove = /\b(move|moved|moving|slip|slipped|change|changed|delay|delayed|push|pushed|why|still|same|behind|late|on (track|time|target))\b/.test(l),
+        agree = pub.target ? (late > 0 ? `, ${late} working day${1 === late ? "" : "s"} past the date in your agreement (${fmtL(pub.target)})` : ", the date in your agreement") : "";
+      if (!drivers.length)
+        return {
+          headline: asksMove ? `No, the finish date did not move: still ${fmtL(pub.finish)}${agree}.` : `Your job finishes ${fmtL(pub.finish)}${agree}; no dates have moved.`,
+          note: `${when} When a date moves it is listed on your Schedule page with the reason, before anything else changes.`,
+          work: [],
+          how: "your published schedule",
+          go: { view: "sched" },
+        };
+      return {
+        headline: `Yes. The finish date is ${fmtL(pub.finish)}${pub.target ? `, ${late > 0 ? `${late} working day${1 === late ? "" : "s"} past` : "on"} the date in your agreement (${fmtL(pub.target)})` : ""}: ${drivers.map((c) => `${c.task} — ${c.reason || "rescheduled"}, ${c.days > 0 ? "+" : ""}${c.days} working day${1 === Math.abs(c.days) ? "" : "s"}`).join("; ")}.`,
+        note: when,
+        work: drivers.map((c) => `${c.task} — now through ${fmtL(c.to)} · ${c.reason || "rescheduled"}`),
+        how: "your published schedule and what changed on it",
+        go: { view: "sched" },
+      };
+    },
+  },
+  {
+    id: "decideLate",
+    re: /\b(if|happens|consequence|too late|how long|wait|later|deadline|by when|until)\b/,
+    test: (l) =>
+      /\bwhat happens if\b/.test(l) ||
+      /\bif (i|we) (do not|don'?t|wait|take|decide|pick|choose|hold|put off|delay|can'?t|cannot)\b/.test(l) ||
+      /\b(consequence|too late|deadline)\b/.test(l) ||
+      /\bhow long (do|can|have) (i|we)\b/.test(l) ||
+      /\b(decide|pick|choose|decision|choice)\b.*\b(later|next week|next month|wait|late)\b/.test(l) ||
+      /\bby when\b.*\b(decide|pick|choose|choice|decision)\b/.test(l),
+    run(l, sc) {
+      const p = sc.p,
+        open = (p.decisions || []).filter((d) => "Client" === d.owner && "open" === d.status);
+      if (!open.length) return { headline: "Nothing is waiting on a choice from you right now.", note: "When one comes up it appears in Waiting on You with what it holds and the date we need it by.", work: [], how: "your choices", go: { view: "dec" } };
+      const scored = open.map((d) => ({ d: d, n: clHit(l, clTitle(d)), N: clNeed(d, p) })).sort((a, b) => b.n - a.n || String(a.N.due || "9").localeCompare(String(b.N.due || "9"))),
+        pick = scored[0],
+        d = pick.d,
+        N = pick.N,
+        T = clTitle(d),
+        tk = N.tk,
+        m = N.m,
+        tName = tk ? ("function" == typeof opsClientName ? opsClientName(tk) : tk.name) : "",
+        td = today(),
+        O = "function" == typeof thOpts ? thOpts(d) : [];
+      // the Choose sheet's own words (clNeed), then what deciding later does: the task it holds cannot start
+      // before the choice, so each working day past the task's start moves it and what follows it
+      const anchor = tk && tk.start && tk.start >= td ? tk.start : N.due;
+      let h = `${T}: ${N.line}.`;
+      tk && (h += ` ${tName} cannot start until you choose; each working day the choice waits past ${anchor ? fmtL(anchor) : "then"} moves ${tName} and the work after it by a day.`);
+      m && (h += ` It also holds the order for ${clMatName(m).replace(/^./, (ch) => ch.toLowerCase())}; the lead time counts from your choice.`);
+      return {
+        headline: h,
+        note: pick.n ? "" : `I read this as your soonest choice; name the choice if you meant another.`,
+        work: O.map((o) => `${o.label}${o.delta ? ` — ${o.delta > 0 ? "+" : "−"}${money(Math.abs(o.delta))} ${null != o.allowance ? "against the allowance" : "on the price"}` : ""}`),
+        how: `your choice "${T}" and the task it holds`,
+        go: { view: "dec" },
+      };
+    },
+  },
+  {
+    id: "nextPayment",
+    re: /\b(payment|pay|due|owe|invoice|bill)\b/,
+    test: (l) =>
+      /\bnext (payment|invoice|bill)\b/.test(l) ||
+      /\b(payment|invoice|bill|balance)\b.*\bdue\b/.test(l) ||
+      /\bwhen (is|do|does|are) .*\b(due|pay|payment|owe)\b/.test(l) ||
+      /\bdue date\b/.test(l) ||
+      /\bwhat('s| is) due\b/.test(l),
+    run(l, sc) {
+      const c = sc.client,
+        f = clientFin(c),
+        open = f.open.filter((o) => !o.x.projectId || sc.pids.has(o.x.projectId)).sort((a, b) => String(a.x.due || "9").localeCompare(String(b.x.due || "9")));
+      if (!open.length) return { headline: "Nothing is due right now. The next invoice comes with the next pay application, and you see it here and in Account first.", note: "", work: [], how: "your open invoices", go: { view: "clacct" } };
+      const o = open[0];
+      return {
+        headline: `${money(o.bal)} is due ${o.x.due ? fmtL(o.x.due) : "now"} on ${o.x.number}${o.x.title ? ` (${o.x.title})` : ""}${o.age > 0 ? ` — ${o.age} day${1 === o.age ? "" : "s"} past due` : ""}.`,
+        note: open.length > 1 ? `${money(f.outstanding)} is open in all, across ${open.length} invoices.` : "",
+        work: open.map((x) => `${x.x.number} — ${money(x.bal)} due ${x.x.due ? fmtL(x.x.due) : "now"}`),
+        how: "your open invoices on the account statement",
+        go: { view: "clacct" },
+      };
+    },
+  },
+  {
+    id: "coCost",
+    re: /\b(change orders?|\bco\b|cos|extra|extras|added work)\b/,
+    test: (l) => !/\bcontract\b/.test(l) && /\b(change orders?|\bco\b|extras?|added work)\b/.test(l) && /\b(cost|price|how much|amount|total|for|charge)\b/.test(l),
+    run(l, sc) {
+      const c = sc.client,
+        all = (c.changeOrders || []).filter((d) => !["draft", "void", "superseded"].includes(d.status) && (!d.projectId || sc.pids.has(d.projectId))),
+        scored = all.map((d) => ({ d: d, n: clHit(l, `${d.title || ""} ${d.number}`) })).sort((a, b) => b.n - a.n),
+        word = (d) => ("approved" === d.status || "billed" === d.status ? `approved${d.clientApproval ? ` by ${d.clientApproval.name} on ${fmtL(String(d.clientApproval.ts || "").slice(0, 10))}` : ""}` : "sent" === d.status ? "sent to you to approve" : d.status);
+      if (!all.length) return { headline: "You have no change orders. Anything that changes the price comes to you in Waiting on You before the work.", note: "", work: [], how: "your change orders", go: { view: "clacct" } };
+      if (scored[0].n) {
+        const d = scored[0].d;
+        return {
+          headline: `${d.number} (${clWords(d.title || "")}) is ${money(docTotal(d).total)}, ${word(d)}.`,
+          note: d.scheduleDays ? `It adds ${d.scheduleDays} working day${1 === d.scheduleDays ? "" : "s"} to the schedule.` : "",
+          work: scored.filter((x) => x.n && x.d !== d).map((x) => `${x.d.number} · ${clWords(x.d.title || "")} — ${money(docTotal(x.d).total)}, ${word(x.d)}`),
+          how: "your change orders on the account statement",
+          go: { view: "clacct" },
+        };
+      }
+      return {
+        headline: `${all.length} change order${1 === all.length ? "" : "s"}, ${money(all.reduce((a, d) => a + docTotal(d).total, 0))} in all: ${agList(all.map((d) => `${d.number} ${money(docTotal(d).total)}`), 6)}.`,
+        note: "",
+        work: all.map((d) => `${d.number} · ${clWords(d.title || "")} — ${money(docTotal(d).total)}, ${word(d)}`),
+        how: "your change orders on the account statement",
+        go: { view: "clacct" },
+      };
+    },
+  },
+  {
+    id: "contract",
+    re: /\b(contract|total|price|cost|sum|value|revised)\b/,
+    test: (l) =>
+      /\bcontract (total|sum|value|amount|price|now)\b/.test(l) ||
+      /\b(total|revised|current) contract\b/.test(l) ||
+      /\bhow much is (my|the|our) (job|project|contract|renovation|total)\b/.test(l) ||
+      (/\b(total|contract|price|cost)\b/.test(l) && /\b(change orders?|changes|cos?|including|with the|now|so far|after)\b/.test(l)),
+    run(l, sc) {
+      const c = sc.client,
+        f = clientFin(c),
+        ok = (c.changeOrders || []).filter((d) => ["approved", "billed"].includes(d.status) && (!d.projectId || sc.pids.has(d.projectId))),
+        pend = (c.changeOrders || []).filter((d) => "sent" === d.status && (!d.projectId || sc.pids.has(d.projectId)));
+      return {
+        headline: `Your contract is ${money(f.revised)}: ${money(c.contract || 0)} base${ok.length ? ` plus ${ok.length} approved change order${1 === ok.length ? "" : "s"} (${ok.map((d) => `${d.number} ${money(docTotal(d).total)}`).join(", ")})` : ", with no approved change orders"}.`,
+        note: pend.length ? `${money(f.pendingCO)} in ${pend.length} change order${1 === pend.length ? "" : "s"} sent to you (${pend.map((d) => d.number).join(", ")}) is not included until you approve.` : "",
+        work: ok.map((d) => `${d.number} · ${clWords(d.title || "")} — ${money(docTotal(d).total)}`),
+        how: "your contract and approved change orders on the account statement",
+        go: { view: "clacct" },
+      };
+    },
+  },
+  {
+    id: "retainage",
+    re: /\b(retainage|retention|hold(ing)? back|held back|withh[eo]ld|holding)\b/,
+    test: (l) => /\b(retainage|retention|withh[eo]ld(ing)?|hold(ing)? back|held back)\b/.test(l),
+    run(l, sc) {
+      const c = sc.client,
+        f = clientFin(c),
+        live = (c.invoices || []).filter((x) => !["draft", "void"].includes(x.status) && (!x.projectId || sc.pids.has(x.projectId))),
+        held = live.map((x) => ({ x: x, ret: docTotal(x).ret || 0 })).filter((r) => r.ret > 0),
+        pct = (held.find((r) => r.x.retainagePct) || {}).x?.retainagePct || (live.find((x) => x.retainagePct) || {}).retainagePct || 0;
+      return {
+        headline: `${money(f.retHeld)} of retainage is held so far${pct ? `: ${pct}% of each certified amount` : ""}, released with the final invoice after the punch list.`,
+        note: held.length ? "" : "No retainage has been held on your invoices.",
+        work: held.map((r) => `${r.x.number} — ${money(r.ret)} held`),
+        how: "the retainage line on your account statement",
+        go: { view: "clacct" },
+      };
+    },
+  },
+  {
+    id: "thisWeek",
+    re: /\b(week|today|tomorrow|happening|going on|crew|team|on site|working|doing|next up)\b/,
+    test: (l) =>
+      !/\b(photos?|pictures?|pics?|payments?|paid|invoices?|bills?|decisions?|choices?|waiting|owe|contract|retainage|hours?)\b/.test(l) &&
+      (/\b(this|next) week\b/.test(l) ||
+        /\b(today|tomorrow)\b/.test(l) ||
+        /\bwhat('s| is) (happening|going on|next|the crew|the team)\b/.test(l) ||
+        /\b(crew|team|workers?|guys)\b.*\b(doing|working|on site|up to)\b/.test(l) ||
+        /\bon site\b/.test(l)),
+    run(l, sc) {
+      const p = sc.p,
+        pub = p && p.published;
+      if (!pub) {
+        const design = "function" == typeof designEst && designEst(p);
+        let extra = "";
+        if (design)
+          try {
+            const ph = phaseHours(p),
+              cur = phaseCur(ph) || ph.find((x) => x.used > 0 && x.used < x.est),
+              sv = (p.tasks || []).find((t) => /survey/i.test(t.name || ""));
+            extra = ` Now: ${cur ? clPhaseName(cur.line) : "the design"}${sv ? `; the survey is ${fmtL(sv.start)}` : ""}.`;
+          } catch (e) {}
+        return { headline: clUnset(sc) + extra, note: "", work: [], how: "your schedule", go: { view: "sched" } };
+      }
+      const next = /\bnext week\b/.test(l),
+        td = today(),
+        W = /\btoday\b/.test(l) ? { from: td, to: td, say: "today" } : /\btomorrow\b/.test(l) ? { from: iso(addDays(td, 1)), to: iso(addDays(td, 1)), say: "tomorrow" } : clWeekOf(td, next),
+        items = pub.items.filter((i) => "done" !== i.status && i.start <= W.to && i.end >= W.from).sort((a, b) => String(a.start).localeCompare(b.start)),
+        after = pub.items.filter((i) => "done" !== i.status && i.start > W.to).sort((a, b) => String(a.start).localeCompare(b.start))[0];
+      return {
+        headline: items.length ? `${W.say.replace(/^./, (ch) => ch.toUpperCase())} on site: ${agList(items.map((i) => i.name), 6)}.` : `Nothing is scheduled on site ${W.say}.${after ? ` Next: ${after.name} from ${fmtL(after.start)}.` : ""}`,
+        note: items.length && after ? `Next after that: ${after.name} from ${fmtL(after.start)}.` : "",
+        work: items.map((i) => `${i.name} — ${fmtL(i.start)} to ${fmtL(i.end)}${"in-progress" === i.status ? " · under way" : ""}`),
+        how: `your published schedule, ${W.say} (${fmtL(W.from)}${W.to !== W.from ? ` to ${fmtL(W.to)}` : ""})`,
+        go: { view: "sched" },
+      };
+    },
+  },
+  // ---- a design job: the fee, the survey, the kick-off, the hours, the designer, when the design is done
+  {
+    id: "designFee",
+    design: !0,
+    re: /\b(fee|fees|cost|costs|rate|price|agreement|proposal|retainer)\b/,
+    test: (l) => /\b(design )?fees?\b/.test(l) || /\bwhat (do|does|will) (the )?design cost\b/.test(l) || /\bhow much (is|for|does) (the )?design\b/.test(l) || /\b(hourly|your) rate\b/.test(l) || /\bdesign (agreement|contract|proposal)\b/.test(l) || /\bretainer\b/.test(l),
+    run(l, sc) {
+      const p = sc.p,
+        est = designEst(p),
+        hrs = est.lines.filter((x) => "hr" === x.unit),
+        fil = est.lines.filter((x) => "hr" !== x.unit),
+        hours = hrs.reduce((a, x) => a + (+x.qty || 0), 0),
+        hourly = hrs.reduce((a, x) => a + lineAmount(x, est), 0),
+        filings = fil.reduce((a, x) => a + lineAmount(x, est), 0),
+        rate = +(hrs[0] && hrs[0].rate) || designRate(),
+        R = retainerLeft(p),
+        retHrs = R && R.rate ? r2(R.retainer / R.rate) : est.retainer && rate ? r2(est.retainer / rate) : 0;
+      return {
+        headline: `Your design agreement (${est.number}) is ${money(docTotal(est).total)}: ${hours} hours at $${rate}/hr (${money(hourly)})${fil.length ? ` plus ${fil.length} fixed-fee filing${1 === fil.length ? "" : "s"} (${money(filings)})` : ""}.${est.retainer ? ` The retainer is ${money(est.retainer)}, ${retHrs} hours${R ? (R.paid <= 0.5 ? " — not paid yet; hours count from payment" : ` — ${money(R.paid)} paid`) : ""}.` : ""}`,
+        note: est.terms ? String(est.terms).split(".")[0] + "." : "",
+        work: hrs.map((x) => `${clPhaseName(x)} — ${x.qty} hrs · ${money(lineAmount(x, est))}`).concat(fil.map((x) => `${x.item} — ${money(lineAmount(x, est))}`)),
+        how: "your design agreement",
+        go: { view: "clacct" },
+      };
+    },
+  },
+  {
+    id: "survey",
+    design: !0,
+    re: /\b(survey|measure|measured|measuring|site visit|dimensions)\b/,
+    test: (l) => /\b(survey|measur(e|ed|ing|ements?)|site visit|field dimensions)\b/.test(l),
+    run(l, sc) {
+      const p = sc.p,
+        sv = (p.tasks || []).find((t) => /survey/i.test(t.name || "")),
+        des = clDesigner(p),
+        rooms = roomsOf(p.id),
+        unv = rooms.filter((r) => 0 === roomProv(r)).length;
+      if (!sv) return { headline: "The existing-conditions survey is not scheduled yet; it comes before anything is ordered.", note: "", work: [], how: "your design schedule", go: { view: "client" } };
+      return {
+        headline: `The existing-conditions survey is ${fmtL(sv.start)}${sv.end && sv.end !== sv.start ? ` to ${fmtL(sv.end)}` : ""}: ${des ? des.name : "your designer"} measures every room${unv ? `; until then the drawings are on listing dimensions (${unv} of ${rooms.length} rooms)` : ""}.`,
+        note: "",
+        work: [],
+        how: "the survey on your design schedule",
+        go: { view: "client" },
+      };
+    },
+  },
+  {
+    id: "kickoff",
+    design: !0,
+    re: /\b(kick-?off|kickoff|meeting|agree|agreed|decided|outcomes?|minutes|notes)\b/,
+    test: (l) => /\bkick-?off\b/.test(l) || /\bmeeting\b/.test(l) || /\bwhat (did|have) we (agree|agreed|decide|decided)\b/.test(l),
+    run(l, sc) {
+      const p = sc.p,
+        td = today(),
+        M = (DB.studio.meetings || []).filter((m) => m.projectId === p.id).sort((a, b) => String(a.date).localeCompare(String(b.date))),
+        m = M.filter((x) => x.date <= td).pop() || M[0],
+        des = clDesigner(p),
+        first = des ? des.name.split(" ")[0] : "your designer",
+        deck = sheetsOf(p.id).filter((s) => "deck" === s.set && "current" === s.status)[0];
+      if (!m) return { headline: "No design meeting is on your schedule yet.", note: "", work: [], how: "your design meetings", go: { view: "client" } };
+      if (m.date > td)
+        return {
+          headline: `The ${m.title} is coming up on ${fmtL(m.date)} with ${des ? des.name : "your designer"} and ${clPmName(p)}. What we agree there is confirmed by ${first} afterwards and listed on your Overview.`,
+          note: deck ? `The deck for it: ${deck.title}.` : "",
+          work: [],
+          how: "your design meetings",
+          go: { view: "client" },
+        };
+      const K = (DB.studio.intake || {})[m.id],
+        items = (K && K.items) || [],
+        ok = items.filter((i) => "confirmed" === i.status && "decision" === i.kind),
+        open = items.filter((i) => "proposed" === i.status).length;
+      return {
+        headline: `At the ${m.title} on ${fmtL(m.date)}${ok.length ? `, ${ok.length} outcome${1 === ok.length ? " is" : "s are"} confirmed` : ", nothing is confirmed yet"}${open ? `; ${open} note${1 === open ? " is" : "s are"} being confirmed by ${first}` : ""}.`,
+        note: open ? "Confirmed outcomes appear on your Overview under Deliverables." : "",
+        work: ok.map((i) => i.text),
+        how: "the confirmed outcomes of your design meetings",
+        go: { view: "client" },
+      };
+    },
+  },
+  {
+    id: "designHours",
+    design: !0,
+    re: /\b(hours?|time)\b/,
+    test: (l) => /\bhow many hours\b/.test(l) || (/\bhours?\b/.test(l) && /\b(spent|used|logged|so far|to date|billed|left|remaining)\b/.test(l)) || /\btime (spent|used|logged)\b/.test(l),
+    run(l, sc) {
+      const p = sc.p,
+        ph = phaseHours(p),
+        used = r2(ph.reduce((a, x) => a + x.used, 0)),
+        agreed = ph.reduce((a, x) => a + x.est, 0),
+        R = retainerLeft(p),
+        des = clDesigner(p),
+        retHrs = R && R.rate ? r2(R.retainer / R.rate) : 0;
+      return {
+        headline: `${clHrs(used)} of design time so far, of ${clHrs(agreed)} in the agreement${des ? `, by ${des.name}` : ""}.${R ? ` ${clHrs(Math.max(0, retHrs - used))} of the ${clHrs(retHrs)} retainer ${R.paid <= 0.5 ? "remain once it is paid" : "remain"}.` : ""}`,
+        note: "",
+        work: ph.filter((x) => x.used > 0).map((x) => `${clPhaseName(x.line)} — ${clHrs(x.used)} of ${clHrs(x.est)}`),
+        how: "the design hours logged against your agreement",
+        go: { view: "client" },
+      };
+    },
+  },
+  {
+    id: "designer",
+    design: !0,
+    re: /\b(designer|architect|designing|drawing|who)\b/,
+    test: (l) => /\bwho is (my|the|our) (designer|architect)\b/.test(l) || /\bdesigner'?s name\b/.test(l) || /\bmy (designer|architect)\b/.test(l) || /\bwho (is )?(designing|drawing|working on)\b/.test(l),
+    run(l, sc) {
+      const p = sc.p,
+        des = clDesigner(p),
+        pm = ("function" == typeof fPeople ? fPeople().pm : null) || {};
+      if (!des) return { headline: `Your design team at SmartDesign is being assigned; ${clPmName(p)} is your project manager.`, note: "", work: [], how: "your job's team", go: { view: "client" } };
+      return {
+        headline: `${des.name}, ${des.role} at SmartDesign, is your designer. ${pm.name || clPmName(p)} is your project manager${pm.phone ? ` (${pm.phone})` : ""}.`,
+        note: "",
+        work: [],
+        how: "your job's team",
+        go: { view: "client" },
+      };
+    },
+  },
+  {
+    id: "designDone",
+    design: !0,
+    re: /\b(design|drawings|plans|set)\b/,
+    test: (l) => /\bwhen (will|is|are) (the )?(design|drawings|plans|set)\b.*\b(done|finished|ready|complete|issued|out)\b/.test(l) || /\bdesign (be )?(done|finished|complete|ready)\b/.test(l),
+    run(l, sc) {
+      const p = sc.p,
+        pub = p.published;
+      if (pub) return { headline: `The design is scheduled to finish ${fmtL(pub.finish)}.`, note: "", work: [], how: "your published schedule", go: { view: "sched" } };
+      let now = "";
+      try {
+        const ph = phaseHours(p),
+          cur = phaseCur(ph) || ph.find((x) => x.used > 0 && x.used < x.est),
+          sv = (p.tasks || []).find((t) => /survey/i.test(t.name || ""));
+        now = `${cur ? ` Now: ${clPhaseName(cur.line)} (${clHrs(cur.used)} of ${clHrs(cur.est)}).` : ""}${sv ? ` The survey is ${fmtL(sv.start)}.` : ""}`;
+      } catch (e) {}
+      return { headline: `The design schedule is being set — ${clPmFirst(p)} will share the dates once the design phases are agreed.${now}`, note: "", work: [], how: "your design phases", go: { view: "client" } };
+    },
+  },
+  // ---- "when will the kitchen be done": a named stage on the published schedule
+  {
+    id: "stageWhen",
+    re: /\b(when|done|finish|finished|ready|complete|completed|start|starts|begin|install|installed)\b/,
+    test: (l) => /\bwhen\b/.test(l) || /\b(done|finished|ready|complete|installed)\b/.test(l),
+    run(l, sc) {
+      const p = sc.p,
+        pub = p && p.published;
+      if (!pub) return null;
+      const td = today(),
+        S0 = pub.items.map((i) => ({ i: i, n: clHit(l, i.name) })).filter((x) => x.n > 0).sort((a, b) => b.n - a.n || String(a.i.end).localeCompare(b.i.end));
+      if (!S0.length) return null;
+      const best = S0.filter((x) => x.n === S0[0].n).sort((a, b) => String(a.i.end).localeCompare(b.i.end)),
+        i = best[0].i;
+      return {
+        headline: `${i.name} ${"done" === i.status ? `finished ${fmtL(i.end)}` : `finishes ${fmtL(i.end)}${i.start > td ? ` (starts ${fmtL(i.start)})` : "in-progress" === i.status ? " — under way now" : ""}`}.`,
+        note: best.length > 1 ? `${best.length - 1} more stage${2 === best.length ? "" : "s"} match${2 === best.length ? "es" : ""}; they are listed below.` : "",
+        work: S0.slice(0, 6).map((x) => `${x.i.name} — ${fmtL(x.i.start)} to ${fmtL(x.i.end)}${"done" === x.i.status ? " · done" : ""}`),
+        how: "your published schedule",
+        go: { view: "sched" },
+      };
+    },
+  },
+];
+// Read a client's question against their own scope. `sc` is eqScopeOf() for a signed-in client, or the scope the
+// PM's draft hands in; it carries the client, their jobs and the one job the question is about.
+function clAskRead(q, sc) {
+  if (!sc || "client" !== sc.kind) return null;
+  const l = String(q || "")
+    .toLowerCase()
+    .replace(/[’']/g, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!l) return null;
+  // another client's name or another job's address in the question: not ours to answer (the older chain refuses)
+  try {
+    const others = (DB.clients || []).filter((c) => c.id !== sc.cid),
+      sur = others.map((c) => String(c.name).toLowerCase().split(/[^a-z]+/).filter((t) => t.length >= 4 && !/^(family|the|llc)$/.test(t)).pop()).filter(Boolean),
+      jobs = (DB.projects || []).filter((p) => !(sc.pids && sc.pids.has(p.id))).map((p) => agShort(p).toLowerCase());
+    if (sur.some((w) => new RegExp(`\\b${w}`).test(l)) || jobs.some((j) => j && l.includes(j))) return null;
+  } catch (e) {}
+  const p = sc.p || (sc.jobs || [])[0] || (S && sc.pids && sc.pids.has(S.id) ? S : null);
+  if (!p) return null;
+  const scope = Object.assign({}, sc, { p: p, client: sc.client || DB.clients.find((x) => x.id === p.clientId) }),
+    design = "function" == typeof designEst && !!designEst(p);
+  for (const rd of CL_ASK) {
+    if (rd.design && !design) continue;
+    let hit = !1;
+    try {
+      hit = rd.re.test(l) && rd.test(l);
+    } catch (e) {}
+    if (!hit) continue;
+    let a = null;
+    try {
+      a = rd.run(l, scope);
+    } catch (e) {
+      console.warn("client ask", rd.id, e);
+    }
+    if (a) return Object.assign(a, { reader: rd.id, work: a.work || [] });
+  }
+  return null;
+}
+// The outermost paAsk for a client: their readers first, scoped like every other Ask path; the older chain for
+// the rest. The leak check stays underneath.
+{
+  const base = paAsk;
+  paAsk = function (q) {
+    let cl = !1;
+    try {
+      cl = "client" === role();
+    } catch (e) {}
+    if (cl)
+      try {
+        const sc = eqScopeOf(),
+          a = clAskRead(String(q || ""), Object.assign({}, sc, { p: S && sc.pids && sc.pids.has(S.id) ? S : sc.jobs[0] }));
+        if (a) {
+          try {
+            paInit();
+          } catch (e) {}
+          return agLeakCheck(paOut(Object.assign({ kind: "askgen" }, a, { go: a.go ? paGo(a.go) : null, interp: a.how ? `I read this as: ${a.how}.` : null })));
+        }
+      } catch (e) {
+        console.warn("client ask", e);
+      }
+    return base.apply(this, arguments);
+  };
+}
+
+// ---- the client's Ask surface: the pa view, scoped (eqRows; the readers above), with none of the firm's chrome
+const CL_PA_CHIPS = [
+  ["Finish Date", "did the finish date move"],
+  ["Waiting on Me", "what is waiting on me"],
+  ["Next Payment", "when is my next payment due"],
+  ["This Week", "what is happening on site this week"],
+  ["Photos", "show me the latest photos"],
+];
+const CL_PA_DESIGN_CHIPS = [
+  ["The Survey", "when is the survey"],
+  ["Waiting on Me", "what is waiting on me"],
+  ["Design Hours", "how many hours has the designer spent"],
+  ["Next Payment", "when is my next payment due"],
+  ["My Designer", "who is my designer"],
+];
+function clModeHtml(on) {
+  const first = clPmFirst(S);
+  return `<div class="seg cl-mode" role="tablist"><button type="button" class="${"pa" === on ? "on" : ""}" data-clmode="pa">Ask the Assistant</button><button type="button" class="${"chat" === on ? "on" : ""}" data-clmode="chat">Write to ${esc(first)}</button></div>`;
+}
+document.addEventListener("click", (e) => {
+  const b = e.target && e.target.closest ? e.target.closest("[data-clmode]") : null;
+  if (!b) return;
+  e.preventDefault();
+  const v = b.dataset.clmode;
+  v !== view && ((view = v), render(), window.scrollTo(0, 0));
+});
+if ("function" == typeof paIntro) {
+  const base = paIntro;
+  paIntro = function () {
+    let cl = !1;
+    try {
+      cl = "client" === role();
+    } catch (e) {}
+    if (!cl) return base.apply(this, arguments);
+    const u = currentUser(),
+      first = String((u && u.name) || "").split(" ")[0];
+    return {
+      headline: `Ask about your job${first ? `, ${first}` : ""}.`,
+      note: `Your schedule and dates, your choices and what they hold, your invoices and payments, and the photos shared with you. I answer from your job's records only, and nothing is sent in your name. For anything else, write to ${clPmFirst(S)} in Chat.`,
+      work: [],
+    };
+  };
+}
+if ("function" == typeof paHtml) {
+  const base = paHtml;
+  paHtml = function () {
+    let h = base.apply(this, arguments);
+    let cl = !1;
+    try {
+      cl = "client" === role();
+    } catch (e) {}
+    if (!cl) return h;
+    try {
+      const design = "function" == typeof clDesignPhase && clDesignPhase(S),
+        chips = (design ? CL_PA_DESIGN_CHIPS : CL_PA_CHIPS).map(([l, q]) => `<button class="btn sm" data-pachip="${esc(q)}">${esc(l)}</button>`).join("");
+      h = h
+        .replace(/<div class="lead">[\s\S]*?<\/div><\/div><\/div>/, `<div class="lead">Answers about your job only: your schedule, your choices, your invoices and payments, and the photos shared with you. Nothing is sent in your name.</div></div></div>${clModeHtml("pa")}`)
+        .replace(/<div class="pa-live[\s\S]*?<\/div>\s*(?=<div class="pa-thread")/, "")
+        .replace(/<span class="pa-mode[^"]*"[^>]*>[\s\S]*?<\/span>/, "")
+        .replace(/<div class="pa-chips">[\s\S]*?<\/div>\s*(?=<form)/, `<div class="pa-chips">${chips}</div>`)
+        .replace(/placeholder="Ask me anything, or tell me something to remember"/, 'placeholder="Ask about your job"')
+        .replace(/<div class="small muted pa-foot">[\s\S]*?<\/div>/, `<div class="small muted pa-foot">Answers come from your job's records: the published schedule, your account statement, your choices. What I cannot answer, ${esc(clPmFirst(S))} answers in Chat.</div>`);
+    } catch (e) {
+      console.warn("client ask surface", e);
+    }
+    return h;
+  };
+}
+
+// ---- the client header's Ask, the Chat switch, the portal body class (chips wrap), Already Settled
+{
+  const base = render;
+  render = function () {
+    const r = base.apply(this, arguments);
+    try {
+      let cl = !1;
+      try {
+        cl = "client" === role();
+      } catch (e) {}
+      document.body.classList.toggle("cl-portal", cl);
+      if (!cl) return r;
+      // the Ask door in the header, phone and desktop: the same button the office roles have
+      const bar = document.querySelector("header.topbar");
+      if (bar) {
+        let a = document.getElementById("tb-ask");
+        if (!a) {
+          (a = document.createElement("button")),
+            (a.id = "tb-ask"),
+            (a.type = "button"),
+            (a.className = "btn tb-ask no-print"),
+            (a.title = "Ask"),
+            a.setAttribute("aria-label", "Ask"),
+            (a.innerHTML = `${"object" == typeof M_ICON && M_ICON.ask ? M_ICON.ask : ""}<span>Ask</span>`);
+          const m = document.getElementById("tb-msg");
+          m ? m.before(a) : bar.appendChild(a);
+        }
+        (a.hidden = !1), (a.style.display = ""), a.classList.toggle("on", "pa" === view);
+        a.onclick = () => {
+          (view = "pa"), render(), window.scrollTo(0, 0);
+        };
+      }
+      // Ask lives in Chat: one place, headed Chat, the switch picks the mode, and the Chat entry is on
+      if ("pa" === view) {
+        // headed like the client's other pages: the page's own "Chat" under the project in the header
+        const h = document.querySelector("#pa-body .ph h2");
+        h && ((h.textContent = "Chat"), h.classList.remove("td-in-hdr"), h.closest(".ph")?.classList.remove("td-ph-bare"));
+        document.querySelectorAll('#nav-groups button[data-v="chat"], #mtabs [data-mv="chat"]').forEach((b) => b.classList.add("on"));
+        const cr = document.getElementById("crumbs");
+        cr && S && !cr.querySelector("input,select") && (cr.innerHTML = `<span class="tb-co">SmartDesign</span><span class="tb-sep">›</span><b>${esc("function" == typeof tcase ? tcase(S.project.name) : S.project.name)}</b>`);
+      }
+      // the switch on Chat: Ask the Assistant / Write to Alan
+      if ("chat" === view) {
+        const v = document.getElementById("v-chat"),
+          ph = v && v.querySelector(".ph");
+        v && !v.querySelector(".cl-mode") && ph && ph.insertAdjacentHTML("afterend", clModeHtml("chat"));
+      }
+    } catch (e) {
+      console.warn("client door", e);
+    }
+    return r;
+  };
+}
+// Already Settled holds everything the client settled: their choices, the change orders they signed and the
+// samples they approved, with the date, so there is one place to look back at what was agreed.
+if ("function" == typeof clDecHtml) {
+  const base = clDecHtml;
+  clDecHtml = function () {
+    let h = base.apply(this, arguments);
+    try {
+      const p = clProj(),
+        c = p && DB.clients.find((x) => x.id === p.clientId),
+        rows = [];
+      c &&
+        (c.changeOrders || [])
+          .concat(c.estimates || [])
+          .filter((d) => d.clientApproval && (!d.projectId || d.projectId === p.id))
+          .sort((a, b) => String(b.clientApproval.ts || "").localeCompare(String(a.clientApproval.ts || "")))
+          .forEach((d) =>
+            rows.push(
+              `<div class="cl-row cl-settled"><div><b data-nocase>${esc(d.number)} · ${esc(clWords(d.title || ""))}</b><div class="small muted" data-nocase>signed by ${esc(d.clientApproval.name)} · ${esc(fmtL(String(d.clientApproval.ts || "").slice(0, 10) || today()))} · ${money(docTotal(d).total)}</div></div><div class="cl-amt"><span class="pill ok">Signed</span></div></div>`,
+            ),
+          );
+      ("function" == typeof smOf ? smOf(p) : []).forEach((s) => {
+        const st = (s.revs || []).flatMap((r) => r.steps || []).find((x) => "client" === x.role && "approved" === x.stamp);
+        st && rows.push(`<div class="cl-row cl-settled"><div><b data-nocase>${esc(smClientTitle(s))}</b><div class="small muted" data-nocase>sample approved${st.by ? ` by ${esc(st.by)}` : ""} · ${esc(fmtL(st.respondedOn || today()))}</div></div><div class="cl-amt"><span class="pill ok">Approved</span></div></div>`);
+      });
+      rows.length &&
+        (h = h.replace(/(<div class="card"><h3>Already Settled<\/h3>)(\s*<div class="empty">[^<]*<\/div>)?/, (m, a) => a + rows.join("")));
+    } catch (e) {
+      console.warn("already settled", e);
+    }
+    return h;
+  };
 }
 
 /* ---------------------------------------------------------------------------

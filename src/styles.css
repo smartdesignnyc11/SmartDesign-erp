@@ -3247,3 +3247,29 @@ body.crewmode .view.on .dl-sign > span{display:block;flex:1 1 auto;min-width:0}
 
 /* exhibits on a change order (photos from the field item, shared with the client) */
 .co-exhibits{margin:12px 0 4px} .co-exhibits .pst-grid.xs{margin-top:6px} #mbm .co-exhibits .pst-grid.xs{grid-template-columns:repeat(auto-fill,minmax(96px,1fr))}
+/* ---- clientfix: the read-only client file viewer (above an open sheet; closing it keeps the sheet) ---- */
+.clv{position:fixed;inset:0;background:rgba(16,20,28,.92);z-index:120;display:none;flex-direction:column;color:#fff}
+.clv.on{display:flex}
+.clv .clv-hd{display:flex;align-items:center;gap:10px;padding:10px 16px;font-size:13px;min-height:56px}
+.clv .clv-t{display:flex;flex-direction:column;min-width:0;flex:1} .clv .clv-t b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap} .clv .clv-t .small{opacity:.75}
+.clv .clv-hd .btn{background:rgba(255,255,255,.12);border-color:transparent;color:#fff;min-height:44px;display:inline-flex;align-items:center}
+.clv .clv-hd .btn + .btn{margin-left:8px}
+.clv .clv-main{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:auto;padding:12px;min-height:0}
+.clv .clv-main img{max-width:100%;max-height:100%;object-fit:contain} .clv .clv-main iframe{width:100%;flex:1;background:#fff;border:0;min-height:0}
+.clv .clv-note{opacity:.7;text-align:center;padding:6px}
+.clv .clv-empty{text-align:center;display:flex;flex-direction:column;gap:6px;align-items:center;max-width:320px} .clv .clv-empty .clv-ic svg{width:48px;height:48px} .clv .clv-empty .muted{color:rgba(255,255,255,.7)}
+/* clientfix: the design-phase Overview reads as stacked rows at every width */
+.cl-kv{display:flex;justify-content:space-between;gap:14px;padding:8px 0;border-top:1px solid var(--rule)} .cl-kv:first-of-type{border-top:0}
+.cl-kv > span{color:var(--ink-3);font-size:12.5px;flex:0 0 auto} .cl-kv > b{text-align:right;font-weight:600;min-width:0} .cl-kv > b i{display:block;font-style:normal;font-weight:400;margin-top:2px}
+.cl-ph .cl-out{margin-top:2px}
+@media (max-width:480px){ .cl-kv{flex-direction:column;gap:2px} .cl-kv > b{text-align:left} }
+/* clientfix: a toast over an open sheet moves to the top; the client's chips wrap; the Chat switch; activity lines */
+#toast.toast-up{top:calc(10px + env(safe-area-inset-top));bottom:auto !important}
+@media (max-width:480px){
+  body.cl-portal .glance.tl:not([hidden]):not([style*="display: none"]):not([style*="display:none"]),body.cl-portal .glance.tl-auto:not([hidden]):not([style*="display: none"]):not([style*="display:none"]),body.cl-portal .ov-tiles.glance:not([hidden]):not([style*="display: none"]):not([style*="display:none"]){flex-wrap:wrap !important;overflow-x:visible !important;overflow-y:visible !important}
+  body.cl-portal .glance.tl > .gl,body.cl-portal .glance.tl-auto > .gl{max-width:100%}
+}
+.cl-mode{margin:0 0 12px;display:inline-flex} .cl-mode button{min-height:36px}
+@media (max-width:760px){ .cl-mode{display:flex;width:100%} .cl-mode button{flex:1;min-height:44px} }
+.cl-act .cl-act-a{margin-top:4px;padding:6px 8px;background:var(--paper-2);border-radius:var(--r)}
+body.cl-portal #tb-ask{display:inline-flex}
