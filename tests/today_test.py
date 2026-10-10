@@ -73,7 +73,7 @@ async def pulse_checks(c, pg, tag):
               return { late, items, shownItems: document.querySelectorAll('#mbm .td-sh-item').length,
                        head: (document.querySelector('#mbm .td-sh-n') || {}).innerText || '' }; }""", t['k'])
             if t['k'] == 'late':
-                c.ok(t['label'] == 'Jobs Late' and t['n'] == j['late'], f"{tag}: Pulse \"{t['label']} {t['n']}\": {j['late']} jobs have late items ({j['items']} items); want \"Jobs Late {j['late']}\"")
+                c.ok(t['label'] == 'Jobs With Late Items' and t['n'] == j['late'], f"{tag}: Pulse \"{t['label']} {t['n']}\": {j['late']} jobs have late items ({j['items']} items); want \"Jobs With Late Items {j['late']}\"")
                 c.ok(j['shownItems'] == j['items'], f"{tag}: the Jobs Late sheet lists {j['shownItems']} late items under its jobs, PRED.jobLate has {j['items']}")
             c.ok(re.search(r'\bjobs?\b', j['head']), f"{tag}: the {t['label']} sheet is headed \"{j['head']}\", want jobs")
             if t['k'] == 'risk' and j['items']:
@@ -182,7 +182,10 @@ async def main():
         await sign_in(pg, 'u_owner')
         KEY = "x => x.kind + '|' + x.id + ('lesson' === x.kind ? '|' + String(x.detail || '').slice(0, 24) : '')"
         every = await pg.evaluate(f"() => mApprovals({{everyone: true}}).map({KEY})")
-        c.ok(len(every) >= 26, f'owner: everyone\'s queue holds {len(every)} items (was 26 before delegation)')
+        # 25 since lane ops (2026-10-10): 206 Lenox no longer carries 121 State's three "we owe" decisions (its own paint
+        # decision joined the PM's queue), and the deliverable-dates rule proposes only where an outside designer is on
+        # the job, so the two design jobs' duplicate proposals left the owner's queue: 29 -> 25, owner 10 -> 8, PM 16 -> 14.
+        c.ok(len(every) >= 25, f'owner: everyone\'s queue holds {len(every)} items (25 since lane ops; 26 before delegation)')
         c.ok(len(set(every)) == len(every), f'owner: everyone\'s queue repeats {len(every) - len(set(every))} key(s)')
         seen, counts = {}, {}
         for uid, r in (('u_owner', 'owner'), ('u_alan', 'pm'), ('u_chen', 'coord'), ('u_billing', 'billing'), ('u_controller', 'controller')):

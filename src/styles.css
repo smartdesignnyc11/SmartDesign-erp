@@ -3244,3 +3244,6 @@ body.crewmode .view.on .dl-sign > span{display:block;flex:1 1 auto;min-width:0}
 .tr-tie td.warn{color:var(--warn)} .tr-tie td.bad{color:var(--bad)} .tr-tie tr.tr-flagged td{background:var(--bad-2)}
 .tr-verify .note{margin:6px 0}
 .pill.warn{background:var(--warn-2);color:var(--warn)} .pill.warn svg{width:11px;height:11px} .pill.warn a{display:inline-flex;margin-left:4px;color:inherit}
+
+/* exhibits on a change order (photos from the field item, shared with the client) */
+.co-exhibits{margin:12px 0 4px} .co-exhibits .pst-grid.xs{margin-top:6px} #mbm .co-exhibits .pst-grid.xs{grid-template-columns:repeat(auto-fill,minmax(96px,1fr))}
