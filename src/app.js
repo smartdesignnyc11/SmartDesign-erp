@@ -172558,3 +172558,46 @@ if ("function" == typeof txnDialog) {
     } catch (e) {}
   };
 }
+// ---- chases for people on Caught for You (BACKLOG §8 #6): a quiet lead and a client invoice past due get a
+// Chase, like a vendor's COI and a client's late decision already do. Chase writes the draft into the connected
+// mailbox (the outbox when none), logs that we asked and follows up in three working days; nothing is sent.
+CATCH.push({
+  name: "chasePeople",
+  label: "Not Come Back",
+  rows() {
+    const r = role(),
+      out = [],
+      open = new Set(((paInit().expect || []).filter((e) => !e.closed && e.chased && e.by >= today()) || []).map((e) => String(e.who).toLowerCase()));
+    if ("owner" === r)
+      agQuietLeads()
+        .filter((y) => !open.has(String(y.x.name).toLowerCase()))
+        .forEach((y) =>
+          out.push({
+            key: "chase:lead:" + y.x.id,
+            what: `Gone quiet: ${y.x.name}`,
+            sub: `${y.days} days since ${String(y.t.note || y.t.channel).replace(/\.$/, "").toLowerCase()}`,
+            amount: +y.x.value || 0,
+            verb: "Chase",
+            run: () => chaseParty(agLeadChase(y.x)),
+          }),
+        );
+    if (["owner", "billing"].includes(r))
+      (DB.clients || []).forEach((c) =>
+        (c.invoices || []).forEach((d) => {
+          if (["paid", "void", "draft"].includes(d.status) || !d.due || d.due >= today()) return;
+          const bal = r2(docTotal(d).total - (c.payments || []).filter((y) => y.invoiceId === d.id).reduce((a, y) => a + (+y.amount || 0), 0)),
+            k = (c.contacts || []).find((x) => /money|pay/i.test(x.role || "")) || (c.contacts || [])[0];
+          if (bal <= 0.005 || !k || open.has(String(k.name).toLowerCase())) return;
+          out.push({
+            key: "chase:inv:" + d.id,
+            what: `Past due: ${d.number} — ${c.name}`,
+            sub: `${money(bal)} was due ${fmtL(d.due)}`,
+            amount: bal,
+            verb: "Chase",
+            run: () => chaseParty(agChaseDraft({ kind: "invoice", to: { name: k.name, email: k.email || agEmailFor(k.name), kind: "contact" }, client: c, invoices: [{ id: d.id, number: d.number, title: d.title, due: d.due, bal: bal }] })),
+          });
+        }),
+      );
+    return out;
+  },
+});
