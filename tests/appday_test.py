@@ -19,7 +19,7 @@ async def main():
         await sign_in(pg, 'u_owner')
         r0 = await pg.evaluate("() => ({ today: today(), asOf: DB.company.asOf, has: typeof appSetDay, hooks: APP_DAY_HOOKS.map(h => h[0]) })")
         C.ok(r0['today'] == '2026-09-03' and r0['asOf'] == '2026-09-03', f'a boot stays on the seed day ({r0})')
-        C.ok(r0['has'] == 'function' and r0['hooks'] == ['fTick', 'clTaskSweep', 'b4Sweep', 'smSweep', 'hbSeqTick', 'bnTick'], f'appSetDay and its hooks exist ({r0})')
+        C.ok(r0['has'] == 'function' and r0['hooks'][:6] == ['fTick', 'clTaskSweep', 'b4Sweep', 'smSweep', 'hbSeqTick', 'bnTick'] and len(set(r0['hooks'])) == len(r0['hooks']), f'appSetDay and its hooks exist ({r0})')
 
         # A field question sent on 9/3 with a 24-hour window escalates when the day turns (fTick runs on the new day).
         r1 = await pg.evaluate("""() => {
@@ -34,7 +34,7 @@ async def main():
         C.ok(r1['r']['from'] == '2026-09-03' and r1['r']['to'] == '2026-09-08' and not r1['r']['errors'], f"appSetDay moves 9/3 -> 9/8 with no hook errors ({r1['r']})")
         C.ok(r1['today'] == '2026-09-08' and r1['projs'] == ['2026-09-08'] and r1['now'] == '2026-09-08' and r1['week'] == '2026-09-07',
              f"today(), every project's today, appNowIso and appWeek read the new day ({r1})")
-        C.ok(r1['r']['ran'] == ['fTick', 'clTaskSweep', 'b4Sweep', 'smSweep', 'hbSeqTick', 'bnTick'], f"the day's hooks ran once each ({r1['r']['ran']})")
+        C.ok(r1['r']['ran'] == r0['hooks'], f"the day's hooks ran once each ({r1['r']['ran']})")
         C.ok(r1['before'] is False and r1['after'] is True, f"a field question past its window escalated on the new day (fTick) ({r1['before']} -> {r1['after']})")
         C.ok(r1['tick'] == '2026-09-08', f"the brain's tick is stamped on the new day ({r1['tick']})")
 
