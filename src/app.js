@@ -109460,11 +109460,42 @@ const paOut = (r) => Object.assign({ work: [], hits: [], offers: [], note: "" },
   },
   PA_REMEMBER = /^(remember|note|keep in mind|file|hold on to)\b|^(please )?remember\b/i,
   PA_FORGET = /^(forget|drop|stop reminding me about|never mind)\b/i;
+// When a reminder is for, read on the app clock: the date, the time of day if one is named, and the words that
+// said so (only those words leave the reminder's text). A weekday named is this coming one; "next friday" is the
+// Friday of next week; "about next week" stays part of what to do when a weekday is also named.
+function paWhenParts(s) {
+  const raw = String(s || ""),
+    l = raw.toLowerCase(),
+    td = today(),
+    tod = l.match(/\b(morning|afternoon|evening|tonight|end of (the )?day|eod|noon|at (\d{1,2})(:(\d{2}))? ?(am|pm)?)\b/),
+    time = !tod ? "" : /morning/.test(tod[1]) ? "09:00" : /afternoon/.test(tod[1]) ? "14:00" : /evening|tonight|end of|eod/.test(tod[1]) ? "17:00" : /noon/.test(tod[1]) ? "12:00" : (() => {
+      let h = +tod[3];
+      return "pm" === tod[6] && h < 12 && (h += 12), "am" === tod[6] && 12 === h && (h = 0), !tod[6] && h < 7 && (h += 12), `${String(h).padStart(2, "0")}:${tod[5] || "00"}`;
+    })(),
+    dow = PA_DAYS.find(([n]) => new RegExp(`\\b${n}\\b`).test(l));
+  if (dow) {
+    const m = l.match(new RegExp(`\\b((on|by|before|this|next|coming)\\s+)?${dow[0]}\\b(\\s+(morning|afternoon|evening|night))?`)),
+      nextWk = m && "next" === m[2];
+    let d = iso(addDays(td, 1));
+    for (let i = 0; i < 8 && parse(d).getDay() !== dow[1]; i++) d = iso(addDays(d, 1));
+    if (nextWk) {
+      const mon = iso(addDays(parse(td), 7 - ((parse(td).getDay() + 6) % 7)));
+      d < mon && (d = iso(addDays(parse(d), 7)));
+    }
+    return { date: d, time: time, phrase: m ? m[0] : dow[0], label: `${dow[0][0].toUpperCase() + dow[0].slice(1)}${time ? " " + tod[1] : ""}` };
+  }
+  const d0 = paWhen(raw);
+  return { date: d0, time: time, phrase: "", label: time ? tod[1] : "" };
+}
 function paWhen(s) {
   const l = String(s || "").toLowerCase(),
     td = today();
   if (/\btomorrow\b/.test(l)) return iso(addDays(td, 1));
   if (/\btoday\b|\btonight\b/.test(l)) return td;
+  {
+    const dw = PA_DAYS.find(([n]) => new RegExp(`\\b${n}\\b`).test(l));
+    if (dw) return paWhenParts(s).date;
+  }
   if (/\bnext week\b/.test(l)) return iso(addDays(td, 7));
   if (/\bnext month\b/.test(l)) return iso(addDays(td, 30));
   const inN = l.match(/\bin (\d+) (day|week|month)s?\b/);
@@ -109768,18 +109799,35 @@ function paAsk(q) {
     });
   }
   if (PA_WORDS.remind.test(l)) {
-    const body = paStripWhen(raw),
-      due = paWhen(raw) || iso(addDays(td, 1)),
-      slot = paNextOpen(due);
+    const W = paWhenParts(raw),
+      body0 = W.phrase
+        ? paStrip(
+            raw
+              .replace(new RegExp(W.phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"), " ")
+              .replace(/\bremind me (to|that|about)?\s*/i, "")
+              .replace(/\bdon'?t let me forget (to|that|about)?\s*/i, ""),
+          )
+            .replace(/\s{2,}/g, " ")
+            .replace(/^(to|that|about)\s+/i, "")
+            .trim()
+        : paStripWhen(raw),
+      body = body0 ? body0[0].toUpperCase() + body0.slice(1) : body0,
+      due = W.date || iso(addDays(td, 1)),
+      // a reminder lands on a working day: Saturday and Sunday roll to Monday
+      slot0 = paNextOpen(due),
+      slot = { date: "function" == typeof poWorkday ? poWorkday(slot0.date) : slot0.date };
     if (!body) return paOut({ headline: "Remind you of what, and when?", kind: "remind" });
-    const t = paTask(body, slot.date, `You asked me on ${fmtL(td)} to remind you.`);
+    const t = paTask(body, slot.date, `You asked me on ${fmtL(td)} to remind you${W.label ? ` ${W.label}` : ""}.`);
+    t && W.time && ((t.a.time = W.time), save());
     return (
       paRemember(body, slot.date),
       paOut({
-        headline: `On your list for ${fmtL(slot.date)} — "${body}".`,
+        headline: `On your list for ${fmtL(slot.date)}${W.time ? ` at ${W.time}` : ""} — "${body}".`,
         note:
           (slot.date !== due
-            ? `You asked for ${fmtL(due)}; your own rules rule that day out, so I took the next day that is open. `
+            ? "function" == typeof isWork && !isWork(due)
+              ? `You asked for ${fmtL(due)}, which is not a working day, so I took the next working day. `
+              : `You asked for ${fmtL(due)}; your own rules rule that day out, so I took the next day that is open. `
             : "") +
           "It is a dated item on you in the task list, not a note in a corner, so it shows up where the rest of your work does.",
         work: t ? [`${t.p.project.name.replace(/ —.*$/, "")} — ${body} — due ${fmtL(slot.date)}`] : [],
@@ -114827,8 +114875,19 @@ function paThirdPerson(text) {
 if ("function" == typeof paAsk) {
   const paAskBase_c = paAsk;
   paAsk = function (q) {
+    // The last person asked about stands in for "he" or "her" only in a question that names nobody itself.
+    // Words to remember, a reminder and a draft are the person's own, kept exactly as typed.
     const raw = String(q || ""),
-      text = paCtxText(raw),
+      own = PA_REMEMBER.test(raw.trim()) || PA_WORDS.remind.test(raw.toLowerCase()) || /^(please )?(draft|write|compose|email|chase|nudge)\b/i.test(raw.trim()),
+      named = (() => {
+        try {
+          const P = agParse(raw);
+          return P.jobs.length + P.clients.length + P.vendors.length + P.people.length + (P.contacts || []).length > 0;
+        } catch (e) {
+          return !1;
+        }
+      })(),
+      text = own || named ? raw : paCtxText(raw),
       out = paThirdPerson(text) || paAskBase_c.call(this, text);
     if (out && "ask" === out.kind) {
       delete paCtx().who, save();
