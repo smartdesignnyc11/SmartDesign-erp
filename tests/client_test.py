@@ -276,7 +276,7 @@ async def main():
         await pg.set_viewport_size({'width': 1440, 'height': 900})
         await sign_in(pg, 'u_billing')
         await pg.evaluate("() => { const c = DB.clients.find(x => /Klein/.test(x.name)); clientOpen = c.id; clientTab = 'overview'; docOpen = null; view = 'clients'; render(); }"); await pg.wait_for_timeout(500)
-        pct = await pg.evaluate("() => Math.round(100 * tpJobPct(DB.projects.find(x => /121 State/.test(x.project.name))))")
+        pct = await pg.evaluate("() => Math.round(tpJobPct(DB.projects.find(x => /121 State/.test(x.project.name))))")
         bt = await text(pg)
         c.ok(f'{pct}% done' in bt and '0% done' not in bt, f'billing: the client record reads "{pct}% done" like the portal: {re.findall(r"[0-9]+% done", bt)}')
 

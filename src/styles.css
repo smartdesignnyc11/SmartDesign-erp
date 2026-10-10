@@ -3261,3 +3261,13 @@ body.crewmode .view.on .dl-sign > span{display:block;flex:1 1 auto;min-width:0}
 .cl-kv > span{color:var(--ink-3);font-size:12.5px;flex:0 0 auto} .cl-kv > b{text-align:right;font-weight:600;min-width:0} .cl-kv > b i{display:block;font-style:normal;font-weight:400;margin-top:2px}
 .cl-ph .cl-out{margin-top:2px}
 @media (max-width:480px){ .cl-kv{flex-direction:column;gap:2px} .cl-kv > b{text-align:left} }
+/* clientfix: a toast over an open sheet moves to the top; the client's chips wrap; the Chat switch; activity lines */
+#toast.toast-up{top:calc(10px + env(safe-area-inset-top));bottom:auto !important}
+@media (max-width:480px){
+  body.cl-portal .glance.tl:not([hidden]):not([style*="display: none"]):not([style*="display:none"]),body.cl-portal .glance.tl-auto:not([hidden]):not([style*="display: none"]):not([style*="display:none"]),body.cl-portal .ov-tiles.glance:not([hidden]):not([style*="display: none"]):not([style*="display:none"]){flex-wrap:wrap !important;overflow-x:visible !important;overflow-y:visible !important}
+  body.cl-portal .glance.tl > .gl,body.cl-portal .glance.tl-auto > .gl{max-width:100%}
+}
+.cl-mode{margin:0 0 12px;display:inline-flex} .cl-mode button{min-height:36px}
+@media (max-width:760px){ .cl-mode{display:flex;width:100%} .cl-mode button{flex:1;min-height:44px} }
+.cl-act .cl-act-a{margin-top:4px;padding:6px 8px;background:var(--paper-2);border-radius:var(--r)}
+body.cl-portal #tb-ask{display:inline-flex}
