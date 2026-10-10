@@ -164877,6 +164877,237 @@ function paPaymentClaimSweep() {
   );
 }
 
+// ---- master data from unrouted mail (BACKLOG 1.7 #13) -------------------------------------------------
+// On a real mailbox almost nothing matches the seed's jobs. Threads that match no client, project or vendor
+// are clustered by correspondent (an organisation's domain, or a person at a public mail provider) and by
+// the project-like addresses they name, and each cluster is one proposal: create the vendor, the client or
+// lead, or the job, and route every thread in it. The owner approves in one tap; nothing is created on its own.
+const PA_PUBLIC_MAIL = /^(gmail|googlemail|yahoo|ymail|outlook|hotmail|live|msn|icloud|me|mac|aol|protonmail|proton|pm|comcast|verizon|att|optonline|optimum|rr|earthlink|mail|email|example)\./i,
+  PA_AUTOMATED = /noreply|no-reply|donotreply|do-not-reply|notification|notifications|newsletter|mailer|daemon|bounce|calendar-notification|alerts?@|updates?@|info@|news@|hello@|support@|billing@|receipts?@|statements?@|marketing|promo/i;
+function paMasterClusters() {
+  const me = paMe(),
+    mine = (DB.comms || []).filter((c) => c.owner === me.id && "ignored" !== c.status && !c.routeLocked),
+    isUnrouted = (c) => {
+      const R = c.route || {};
+      return !R.clientId && !R.projectId && !R.vendorId;
+    },
+    C = {},
+    put = (key, init) => C[key] || (C[key] = Object.assign({ key: key, ids: [], threads: new Set(), first: "", last: "", money: 0, attachments: 0, names: {}, people: new Set(), addrs: new Set() }, init)),
+    add = (K, c, who, name) => {
+      K.ids.push(c.id), c.threadId && K.threads.add(c.threadId);
+      const d = String(c.date || "").slice(0, 10);
+      (!K.first || d < K.first) && (K.first = d), (!K.last || d > K.last) && (K.last = d);
+      PA_MONEY.test(`${c.subject || ""} ${c.text || ""}`) && K.money++, (K.attachments += (c.attachments || []).length);
+      name && (K.names[name] = (K.names[name] || 0) + 1), who && K.people.add(who);
+    };
+  mine.filter(isUnrouted).forEach((c) => {
+    const R = c.route || {},
+      outs = [...(c.to || []), ...(c.cc || [])].map(cmEmail).filter((e) => e && !cmIsStaff(e)),
+      who = R.employee ? outs[0] || "" : cmEmail((c.from || {}).email),
+      name = R.employee ? (outs[0] ? cmName([...(c.to || []), ...(c.cc || [])].find((x) => cmEmail(x) === outs[0]) || outs[0]) : "") : (c.from || {}).name || "",
+      addrs = cmAddrs(cmOwnText(c.text), c.subject || "");
+    if (who && !PA_AUTOMATED.test(who)) {
+      const dom = who.split("@")[1] || "";
+      if (PA_PUBLIC_MAIL.test(dom)) add(put("person:" + who, { kind: "person", who: who, dom: dom }), c, who, name);
+      else {
+        const K = put("org:" + dom, { kind: "org", dom: dom, who: who, label: dom.split(".")[0] });
+        add(K, c, who, name), (K.who = K.who || who);
+      }
+    }
+    addrs.forEach((a) => {
+      const K = put("addr:" + cmAddrKey(a), { kind: "project", addr: a });
+      add(K, c, who, name), who && K.people.add(who);
+    });
+  });
+  return Object.values(C)
+    .map((K) => {
+      const top = Object.entries(K.names).sort((a, b) => b[1] - a[1])[0],
+        tc = K.threads.size;
+      return Object.assign(K, {
+        count: K.ids.length,
+        threadCount: tc,
+        contact: top ? top[0] : "",
+        // What to create: an organisation that talks money, invoices or quotes is a vendor; a person at a
+        // public provider is a client or lead; an address with mail about it is a job.
+        as: "org" === K.kind ? "vendor" : "person" === K.kind ? "lead" : "project",
+        name:
+          "org" === K.kind
+            ? top && top[1] >= 2 && !/^[A-Z][a-z]+$/.test(top[0]) && top[0].toLowerCase().includes(K.label.slice(0, 4))
+              ? top[0]
+              : K.label.charAt(0).toUpperCase() + K.label.slice(1)
+            : "person" === K.kind
+              ? (top && top[0]) || K.who
+              : K.addr,
+        people: [...K.people],
+        addrs: [...K.addrs],
+        threads: [...K.threads],
+      });
+    })
+    .filter((K) => K.count >= ("project" === K.as ? 2 : 1))
+    .sort((a, b) => 2 * (b.threadCount - a.threadCount) + (b.money - a.money) + ((b.attachments ? 1 : 0) - (a.attachments ? 1 : 0)) || b.count - a.count);
+}
+// Keep the clusters on the assistant's record so screens and tests read one list.
+function paMasterSweep() {
+  const A = paInit(),
+    cl = paMasterClusters(),
+    kept = Object.fromEntries((A.master || []).map((m) => [m.key, m]));
+  A.master = cl.map((K) =>
+    Object.assign({}, K, { status: (kept[K.key] || {}).status || "proposed", seenAt: (kept[K.key] || {}).seenAt || today() }),
+  );
+  const open = A.master.filter((m) => "proposed" === m.status);
+  if (!open.length) return [];
+  const v = open.filter((m) => "vendor" === m.as),
+    p = open.filter((m) => "lead" === m.as),
+    j = open.filter((m) => "project" === m.as),
+    say = (L) => L.slice(0, 3).map((m) => m.name).join(", ") + (L.length > 3 ? ` and ${L.length - 3} more` : ""),
+    n = paNudge(
+      `${open.length} correspondent${1 === open.length ? "" : "s"} and ${j.length ? j.length + " address" + (1 === j.length ? "" : "es") : "no addresses"} nobody has on file.`,
+      `${v.length ? `${v.length} read like vendors or firms (${say(v)}). ` : ""}${p.length ? `${p.length} like homeowners or leads (${say(p)}). ` : ""}${j.length ? `${j.length} look like jobs (${say(j)}). ` : ""}Say once who they are and their threads route themselves; I create nothing on my own. Ask me "who is not on file" for the list.`,
+      { kind: "master", id: "all" },
+      "mail nobody can route",
+    );
+  // The nudge is kept current rather than repeated: one record of the same question.
+  if (!n) {
+    const old = A.thread.find((m) => m.nudge && m.ref && "master" === m.ref.kind);
+    old && ((old.text = `${open.length} correspondent${1 === open.length ? "" : "s"} and ${j.length ? j.length + " address" + (1 === j.length ? "" : "es") : "no addresses"} nobody has on file.`), (old.unread = !0));
+  }
+  return n ? [n] : [];
+}
+// One tap: create the record and route every thread in the cluster; proposals are read again on the route.
+function paMasterApply(key, as) {
+  const A = paInit(),
+    K = (A.master || []).find((m) => m.key === key);
+  if (!K) return null;
+  as = as || K.as;
+  const by = paMe().name,
+    comms = (DB.comms || []).filter((c) => K.ids.includes(c.id)),
+    route = (patch) =>
+      comms.forEach((c) => {
+        (c.route = Object.assign({}, c.route || {}, patch, { leadName: "", leadEmail: "" })), (c.routeLocked = !0);
+        const keep = (c.proposals || []).filter((p) => p.applied);
+        (c.proposals = keep.concat(cmRead(c).filter((p) => "unrouted" !== p.kind && !keep.some((k) => k.kind === p.kind)))),
+          (c.status = c.proposals.length ? "proposed" : "read");
+      });
+  let made = "",
+    go = null;
+  if ("vendor" === as) {
+    let v = (DB.vendors || []).find((x) => x.name.toLowerCase() === String(K.name).toLowerCase());
+    v ||
+      ((v = { id: uid("v"), name: K.name, trade: "", email: K.who || "", contact: K.contact || "", w9: !1, insuranceExp: "", bankChangedAt: "", createdFrom: "mail", notes: `Created from ${K.threadCount} thread${1 === K.threadCount ? "" : "s"} (${fmtL(K.first)} to ${fmtL(K.last)})` }),
+      DB.vendors.push(v));
+    route({ vendorId: v.id }), (made = `vendor ${v.name}`), (go = "vendors");
+  } else if ("client" === as) {
+    let cl = (DB.clients || []).find((x) => (x.contacts || []).some((k) => (k.email || "").toLowerCase() === K.who));
+    cl ||
+      ((cl = "function" == typeof blankClient ? blankClient(K.name) : { id: uid("cl"), name: K.name, contacts: [], activity: [] }),
+      (cl.contacts = [{ id: uid("k"), name: K.name, email: K.who || "", role: "Client" }]),
+      (cl.propertyAddr = K.addrs[0] || ""),
+      "function" == typeof entDefault && (cl.entityId = entDefault()),
+      DB.clients.push(cl));
+    route({ clientId: cl.id }), (made = `client ${cl.name}`), (go = "clients");
+  } else if ("project" === as && "function" == typeof projectFromTemplate) {
+    const pr = projectFromTemplate(K.addr, K.addr, today(), "");
+    if (!pr) return null;
+    (DB.projects || []).includes(pr) || DB.projects.push(pr);
+    // One person wrote about this address and only this address: the job is theirs.
+    const person = (A.master || []).find((m) => "person" === m.kind && K.people.includes(m.who)),
+      cl = person && (DB.clients || []).find((x) => (x.contacts || []).some((k) => (k.email || "").toLowerCase() === person.who));
+    cl && (pr.clientId = cl.id), route(Object.assign({ projectId: pr.id }, cl ? { clientId: cl.id } : {})), (made = `job ${pr.project.name}`), (go = "port");
+  } else {
+    DB.leads = DB.leads || [];
+    let ld = DB.leads.find((l) => K.who && (l.email || "").toLowerCase() === K.who);
+    ld ||
+      ((ld = { id: uid("ld"), created: today(), name: K.name, phone: "", email: K.who || "", addr: K.addrs[0] || "", buildingType: "", scope: "Design-build", stage: "inquiry", source: "Email", next: "Follow up", nextDue: "", notes: `${K.threadCount} thread${1 === K.threadCount ? "" : "s"} (${fmtL(K.first)} to ${fmtL(K.last)})` }),
+      DB.leads.push(ld));
+    comms.forEach((c) => {
+      (c.route = Object.assign({}, c.route || {}, { leadName: K.name, leadEmail: K.who || "" })), (c.routeLocked = !0);
+      c.proposals = (c.proposals || []).filter((p) => "unrouted" !== p.kind);
+      c.status = c.proposals.length ? "proposed" : "read";
+    }),
+      (made = `lead ${ld.name}`),
+      (go = "leads");
+  }
+  (K.status = "applied"), (K.appliedAs = as), (K.appliedAt = today()), (K.by = by);
+  try {
+    "function" == typeof cmReroute && cmReroute();
+  } catch (e) {}
+  return save(), paDid(`Created ${made}`, `from ${K.threadCount} thread${1 === K.threadCount ? "" : "s"} nobody could route; they route to it now`, go ? { view: go } : null), { made: made, routed: comms.length, go: go };
+}
+function paMasterIgnore(key) {
+  const A = paInit(),
+    K = (A.master || []).find((m) => m.key === key);
+  if (!K) return 0;
+  (DB.comms || []).filter((c) => K.ids.includes(c.id)).forEach((c) => {
+    (c.status = "ignored"), (c.proposals = []), (c.ignoredWhy = "not the firm's business, you said");
+  });
+  return (K.status = "ignored"), save(), K.ids.length;
+}
+const paMasterOffer = (K) =>
+  csOffer({
+    id: "pa-master-" + K.key,
+    label:
+      "vendor" === K.as
+        ? `Create Vendor or Firm ${K.name} — ${K.threadCount} Thread${1 === K.threadCount ? "" : "s"}`
+        : "project" === K.as
+          ? `Create the Job at ${K.addr} — ${K.threadCount} Thread${1 === K.threadCount ? "" : "s"}`
+          : `Add ${K.name} as a Lead — ${K.threadCount} Thread${1 === K.threadCount ? "" : "s"}`,
+    detail: `${K.count} message${1 === K.count ? "" : "s"} from ${fmtL(K.first)} to ${fmtL(K.last)}${K.money ? `, ${K.money} about money` : ""}${K.attachments ? `, ${K.attachments} attachment${1 === K.attachments ? "" : "s"}` : ""}${K.contact && "vendor" === K.as ? ` · contact ${K.contact}` : ""}${K.addrs.length ? ` · names ${K.addrs.slice(0, 2).join(", ")}` : ""}. Created once, every thread in it routes there.`,
+    run: () => {
+      const r = paMasterApply(K.key);
+      r && (toast(`Created ${r.made} — ${r.routed} message${1 === r.routed ? "" : "s"} routed`, r.go ? gcOpen(r.go) : null), render());
+    },
+  });
+if ("function" == typeof paRefOffers) {
+  const paRefOffersBase_master = paRefOffers;
+  paRefOffers = function (ref) {
+    if (ref && "master" === ref.kind) {
+      const A = paInit(),
+        open = (A.master || []).filter((m) => "proposed" === m.status);
+      return open.slice(0, 8).map(paMasterOffer).concat(
+        open.length
+          ? [
+              csOffer({
+                id: "pa-master-list",
+                label: "Show Me Everyone Not on File",
+                detail: `${open.length} in all. Ask "who is not on file" any time.`,
+                run: () => {
+                  "function" == typeof paSend && paSend("who is not on file");
+                },
+              }),
+            ]
+          : [],
+      );
+    }
+    return paRefOffersBase_master.apply(this, arguments);
+  };
+}
+if ("function" == typeof paAsk) {
+  const paAskBase_master = paAsk;
+  paAsk = function (q) {
+    const l = String(q || "").toLowerCase();
+    if (/\b(not on file|unrouted|nobody (we )?know|who (are|is) (these|this|they)|master data)\b/.test(l)) {
+      const A = paInit();
+      A.master || paMasterSweep();
+      const open = (A.master || []).filter((m) => "proposed" === m.status),
+        v = open.filter((m) => "vendor" === m.as),
+        p = open.filter((m) => "lead" === m.as),
+        j = open.filter((m) => "project" === m.as);
+      return paOut({
+        headline: open.length
+          ? `${open.length} correspondent${1 === open.length ? "" : "s"} or address${1 === open.length ? "" : "es"} nobody has on file.`
+          : "Everyone in your mail is on file.",
+        note: open.length
+          ? `${v.length} read like vendors or firms, ${p.length} like homeowners or leads, ${j.length} like jobs. Each is one tap: I create the record and route its threads. Approve all of them and the mailbox is routed.`
+          : "Every thread routes to a client, a job or a vendor, or was set aside as not ours.",
+        work: open.slice(0, 20).map((m) => `${"vendor" === m.as ? "Vendor" : "project" === m.as ? "Job" : "Lead"} — ${m.name} · ${m.threadCount} thread${1 === m.threadCount ? "" : "s"}, ${m.count} message${1 === m.count ? "" : "s"}, ${fmtL(m.first)} to ${fmtL(m.last)}`),
+        offers: open.slice(0, 8).map(paMasterOffer),
+        go: paGo({ view: "comms" }),
+        kind: "master",
+      });
+    }
+    return paAskBase_master.apply(this, arguments);
+  };
+}
 if ("function" == typeof paWatch) {
   const paWatchBase_dw = paWatch;
   paWatch = function (delta) {
@@ -164919,6 +165150,11 @@ if ("function" == typeof paWatch) {
       made.push(...paPaymentClaimSweep());
     } catch (e) {
       console.warn("claim sweep", e);
+    }
+    try {
+      made.push(...paMasterSweep());
+    } catch (e) {
+      console.warn("master sweep", e);
     }
     try {
       made.push(...(paChaseWatch() || []));
