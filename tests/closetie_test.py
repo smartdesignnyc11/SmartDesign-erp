@@ -61,6 +61,8 @@ LIB = r"""
   }
   async function monthEnd() {
     const out = {};
+    const Jo = jobFin(p('p121')), Io = companyPL(['2026-01-01', today()]);
+    out.open = {pct: Jo.pct, income: Io.income, net: Io.net};
     out.short = pay3ShortPay(bill('WW-2026-118'), 29700, 'credit memo requested for the 10th unit');
     out.amp = fin2ApproveAsBilled(bill('AMP-311'), 'COI renewal received by email, W-9 requested');
     // The bank's August file: every Amex line in the register but the second dumpster charge (ta7).
@@ -73,11 +75,23 @@ LIB = r"""
     out.recJul = reconcile('ac1', '2026-07-31', 'imp_ac1_202607').ok;
     out.recAug = reconcile('ac1', '2026-08-31', 'imp_ac1_202608').ok;
     out.committedBefore = jobFin(p('p121')).committed;
+    const J0 = jobFin(p('p121')), I0 = companyPL(['2026-01-01', today()]);
+    out.before = {pct: J0.pct, income: I0.income, net: I0.net};
     out.accepted = pay3AcceptAll();
     out.committedAfter = jobFin(p('p121')).committed;
     out.tinoPO = (tx('t13') || {}).poId;
     const t = tx('tsp1'); t.cat = 'materials'; t.projectId = 'p121'; t.code = '03'; t.status = 'categorized'; t.actor = 'Alan';
+    // the drawer codings of the controller's day: J Rosario's Zelle, Brooklyn Lumber, Quality Bldg to 121 State
+    [['t21', 'subs', '02'], ['ta9', 'materials', '03'], ['tsp0', 'materials', '03']].forEach(([id, cat, code]) => { const x = tx(id); if (x) { x.cat = cat; x.projectId = 'p121'; x.code = code; x.status = 'categorized'; x.actor = 'Alan'; } });
     save();
+    const J1 = jobFin(p('p121')), I1 = companyPL(['2026-01-01', today()]);
+    out.after = {pct: J1.pct, raw: J1.pctRaw, held: J1.pctHeld, income: I1.income, net: I1.net};
+    // the PM reviews the cost to complete (keeping the estimate at completion): the basis moves. The review is
+    // then taken back so the rest of the day runs as the controller's did, with no review on the job.
+    const pj = p('p121'); pj.ctcReviewed = today(); pj.ctcBy = 'Alan'; pj.ctc = r2(J1.eac - J1.actual);
+    const J2 = jobFin(pj), I2 = companyPL(['2026-01-01', today()]);
+    out.reviewed = {pct: J2.pct, held: !!J2.pctHeld, income: I2.income};
+    delete pj.ctcReviewed; delete pj.ctcBy; delete pj.ctc; save();
     out.exceptions = exceptAugust('August line reviewed; the vendor record arrives next month');
     return out;
   }
@@ -139,6 +153,8 @@ async def part_feed(p, c):
     c.ok(r['words'].count('Demo Feed') == 2, f"#5 August Amex lines from the Demo Feed should read 'Demo Feed': {r['words']}")
     c.ok(r['backedDemo'] == 0 and r['ticksDemo'] == 0, f"#5 Demo Feed lines counted as backed ({r['backedDemo']}) or ticked at reconcile ({r['ticksDemo']})")
     c.ok('Demo Feed' in r['sub'], f"#5 coverage line does not name the Demo Feed lines: {r['sub']}")
+    r9 = await pg.evaluate("() => { const C = bfCoverage('2026-09'); return {demo: C.demo, backed: C.backed, n: C.n, bad: DB.txns.filter(t => t.date >= '2026-09-01' && bfIsDemoOnly(t) && bfBacked(t)).length, line: bfCoverLine(C)} }")
+    c.ok(r9['demo'] >= 1 and r9['bad'] == 0, f"finding 10: September Banking coverage counts Demo Feed lines as backed: {r9}")
     c.ok('51%' in r['close'], f"#5 close checklist coverage line: {r['close']}")
     t = await view_text(pg, 'bank')
     c.ok('Demo Feed' in t and '96%' not in t, '#5 Banking does not show the Demo Feed lines as such, or shows 96%')
@@ -153,6 +169,50 @@ async def part_outside(p, c):
     t = await pg.evaluate("() => { cfoPeriod = 'ytd'; repTab = 'company'; view = 'reports'; render(); return document.getElementById('v-reports').innerText }")
     m = re.search(r'Outside the P&L:[^\n]*', t)
     c.ok(m and '$42,013' in m.group(0) and '84,026' not in m.group(0), f"#8 Reports > Company reads: {m.group(0) if m else 'no Outside the P&L line'}")
+    # finding 18: the transaction drawer's Save toasts, with Open
+    r = await pg.evaluate("""() => { view = 'bank'; render(); txnDialog('t12'); document.getElementById('e-memo').value = 'auto policy, September'; document.getElementById('d-save').click();
+      const el = document.getElementById('toast'); return {text: el ? el.innerText : '', open: !!(el && [...el.querySelectorAll('a, button')].some(x => /Open/.test(x.innerText))), memo: (DB.txns.find(x => x.id === 't12') || {}).memo}; }""")
+    c.ok(r['memo'] == 'auto policy, September' and 'saved' in r['text'] and r['open'], f"finding 18: the transaction drawer Save does not toast with Open: {r}")
+    # finding 14: a drafted journal and a sent close checklist reach the Owner's queue through DELEGATION
+    r = await pg.evaluate("""() => {
+      const out = {};
+      signIn('u_controller');
+      const n0 = PRED.waitingOnMe.count();
+      glInit();
+      DB.gl.journals.push({id: uid('je'), kind: 'manual', status: 'pending', entityId: 'ent1', date: '2026-09-02', memo: 'Van depreciation, August', createdBy: 'Jeanette', createdAt: appNowIso(), lines: [glL('7100', 1200, 0), glL('1500', 0, 1200)]});
+      out.ask = ctCloseAsk('2026-08', 'Home Depot has no statement yet');
+      out.ctrlKinds = mApprovals().map(x => x.kind).filter(k => ['journal', 'close'].includes(k));
+      signIn('u_owner');
+      const Q = mApprovals();
+      out.ownerKinds = Q.filter(x => ['journal', 'close'].includes(x.kind)).map(x => [x.kind, x.who, x.title]);
+      out.count = PRED.waitingOnMe.count(); out.rows = PRED.waitingOnMe.rows().length;
+      out.deleg = [!!DELEGATION.journal, !!DELEGATION.close, APPR_CHIPS.some(c => c[0] === 'journal'), APPR_CHIPS.some(c => c[0] === 'close')];
+      out.doNow = tdQueue().map(x => x.kind);
+      view = 'home'; render(); out.home = (document.getElementById('v-home') || document.body).innerText;
+      return out;
+    }""")
+    c.ok(r['ask'] and r['ask'].get('ok'), f"finding 14: the controller could not send the checklist: {r['ask']}")
+    c.ok(r['ctrlKinds'] == [], f"finding 14: the journal or the close sits in the controller's own queue: {r['ctrlKinds']}")
+    c.ok(sorted(k[0] for k in r['ownerKinds']) == ['close', 'journal'] and all(k[1] == 'owner' for k in r['ownerKinds']), f"finding 14: the Owner's queue lacks the journal or the close: {r['ownerKinds']}")
+    c.ok(all(r['deleg']), f"finding 14: DELEGATION or the chips lack journal/close: {r['deleg']}")
+    c.ok(r['count'] == r['rows'] and 'journal' in r['doNow'] and 'close' in r['doNow'] and 'Close August 2026' in r['home'], f"finding 14: the Owner's Do Now lacks the journal or the close: {r['doNow']}")
+    # finding 5: the bridge names the posted manual entry instead of an unexplained difference
+    r = await pg.evaluate("""() => { const j = DB.gl.journals.find(x => x.memo === 'Van depreciation, August'); glApprove(j.id, 'straight-line depreciation on the van'); glTab = 'overview'; view = 'gl'; render();
+      const t = document.getElementById('v-gl').innerText, i = t.indexOf('Net income on the ledger'); return {status: j.status, text: i > -1 ? t.slice(i, i + 1500) : ''}; }""")
+    c.ok(r['status'] == 'posted' and 'Manual journal entries' in r['text'] and '$1,200.00' in r['text'] and 'Unexplained difference' not in r['text'] and 'fully explained' in r['text'], f"finding 5: the bridge after a posted journal: {r['text'][:400]!r}")
+    # finding 6: a re-derivation during a sync names the system and the derivation, not a person
+    r = await pg.evaluate("""() => {
+      // the first sync of a session re-derives invoice postings seeded under an older rule (INV-2026-038 in the controller's run)
+      const boot = DB.gl.journals.filter(j => j.kind === 'reversal' && /document changed/.test(j.memo || ''));
+      const b = DB.bills.find(x => x.id === 'b1');
+      signIn('u_alan'); b.lines[0].amount = r2((+b.lines[0].amount || 0) + 1); glSync();
+      const rev = DB.gl.journals.filter(j => j.kind === 'reversal' && j.key === 'bill:b1').pop();
+      audit('bill', 'b1', 'amended', '', '', 'amount corrected per the vendor credit'); b.lines[0].amount = r2(b.lines[0].amount + 1); glSync();
+      const rev2 = DB.gl.journals.filter(j => j.kind === 'reversal' && j.key === 'bill:b1').pop();
+      signIn('u_owner'); return {boot: boot.map(j => [j.by, (j.memo || '').slice(0, 80)]), by: rev && rev.by, why: rev && rev.why, memo: rev && rev.memo, by2: rev2 && rev2.by, why2: rev2 && rev2.why}; }""")
+    c.ok(r['boot'] and all(x[0] == 'system' for x in r['boot']) and not any('by pm' in x[1] for x in r['boot']), f"finding 6: the first sync's re-derivations are blamed on a person: {r['boot']}")
+    c.ok(r['by'] == 'system' and re.search(r'derivation changed', r['why'] or ''), f"finding 6: an unaudited re-derivation is not named system: {r}")
+    c.ok(r['by2'] and r['by2'] != 'system' and 'amount corrected' in (r['why2'] or ''), f"finding 6: an audited edit is not attributed to its actor: {r}")
     c.ok(not errs, f'#8 errors {errs[:3]}')
     await b.close()
 
@@ -264,6 +324,12 @@ async def part_close(p, c):
     # #3 PO relief: TINO $8,000 accepted against PO-2026-047 relieves the PO in committed.
     c.ok(r['tinoPO'] == 'po3', f"#3 TINO was not matched to PO-2026-047: {r['tinoPO']}")
     c.ok(r['committedBefore'] == 46010 and r['committedAfter'] == 38010, f"#3 121 State committed {r['committedBefore']} -> {r['committedAfter']} (want 46,010 -> 38,010)")
+    # controller finding 3: a coding click does not print profit. The cost basis moved over 5 points in the day
+    # with no cost-to-complete review, so revenue held at the day's anchor; the review released it.
+    o0, a1, rv = r['open'], r['after'], r['reviewed']
+    c.ok(a1['held'] and a1['raw'] - o0['pct'] > 0.05 and abs(a1['pct'] - a1['held']['at']) < 1e-9 and abs(a1['held']['at'] - o0['pct']) < 0.01, f"finding 3: basis {o0['pct']:.4f} -> raw {a1.get('raw')} should be held at the day's anchor: {a1['held']}")
+    c.ok(abs(a1['income'] - o0['income']) < 1000, f"finding 3: coding moved YTD income {o0['income']} -> {a1['income']} (the controller saw +$27,000)")
+    c.ok(not rv['held'] and abs(rv['pct'] - (a1.get('raw') or 0)) < 1e-9 and rv['income'] > a1['income'] + 5000, f"finding 3: the CTC review did not release the basis: {rv}")
     r = await pg.evaluate("""() => { const J = jobFin(CT.p('p121')); const row = J.byCode.find(x => x.code === '09') || {}; return [J.committed, row.committed] }""")
     c.ok(r[0] == 38010 and abs(r[1] or 0) < 10.01, f"#3 by-code committed for 09 still carries the relieved PO: {r}")
 
@@ -297,6 +363,13 @@ async def part_close(p, c):
     t = await pg.evaluate("() => { packMonth = '2026-08'; repTab = 'pack'; view = 'reports'; render(); const h = document.getElementById('v-reports').innerText; packMonth = ''; return h }")
     c.ok('$62,466' in t and '$6,323' in t and '$67,326' not in t, f"#1 the August Pack WIP: 121 State $62,466 and 45 Cranberry $6,323 expected (Pack equals the ledger)")
     c.ok('$5,667' in t and '$5,790' not in t, '#10 the August Pack labor is not at run burden ($5,667, not $5,790)')
+    m = re.search(r'Entries not from a document · August 2026 · (\d+) · \$[\d,.]+ \(([^)]*)\)', t, re.I)
+    c.ok(m and m.group(1) == '3' and 'accrual' in m.group(2).lower() and 'close' in m.group(2).lower() and 'manual' not in m.group(2).lower(), f"finding 4: the Pack classes the close's own entries: {m.group(0) if m else 'no line'}")
+    c.ok('5 manual' not in t and not re.search(r'Manual entries · August', t, re.I), 'finding 4: the Pack still calls system entries manual')
+    r = await pg.evaluate("() => { const C = truthCoverage(['2026-08-01', '2026-08-31']); return [C.income.hand, finCash('2026-08-31').cash] }")
+    c.ok(abs(r[0]) < 0.005, f"finding 4: the WIP close entry counts as income by hand: {r[0]}")
+    cash831 = f"${r[1]:,.0f}"
+    c.ok('cash at 8/31' in t and cash831 in t, f"finding 16: the August Pack shows cash at 8/31 ({cash831}): {'cash at 8/31' in t}")
     t = await view_text(pg, 'gl', 'periods')
     c.ok('wip tie-out' in t.lower() and '62,466.02' in t and '6,323.09' in t, '#1 the Close page has no WIP Tie-Out table for closed August')
     c.ok('unallocated labor' in t.lower(), '#10 the Close page does not say Unallocated Labor')

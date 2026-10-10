@@ -83428,6 +83428,8 @@ const APPR_CHIPS = [
     ["change", "Changes"],
     ["lesson", "Lessons"],
     ["draft", "Drafts"],
+    ["journal", "Journal Entries"],
+    ["close", "Month Close"],
     ["other", "Other"],
   ],
   apprChip = (it) => (APPR_CHIPS.some(([k]) => k === it.kind) ? it.kind : "other");
@@ -83492,6 +83494,8 @@ const DELEGATION = {
     rule: "a draft waits on the person it was written for",
     who: (it) => apprRoleOf(((DB.outbox || []).find((x) => x.id === it.id) || {}).forName),
   },
+  journal: { role: "owner", rule: "a manual journal the controller drafted is posted by the Owner, with a typed reason" },
+  close: { role: "owner", rule: "the month-end close is the Owner's to run; the controller sends the checklist when it is ready" },
   other: { role: "owner", rule: "anything without a rule lands on the owner, never nowhere" },
 };
 const APPR_WHO = { owner: "the owner", pm: "the PM", coord: "the coordinator", billing: "billing", controller: "the controller" },
@@ -118869,6 +118873,24 @@ if ("function" == typeof glOverviewHtml) {
           [
             "Spend with no category (Needs Category in the management view; clearing on the ledger until coded)",
             -r2(e.needsCat || 0),
+          ],
+          [
+            "Manual journal entries, posted by the Owner with a reason (on the ledger only; the management view carries nothing posted by hand)",
+            -(() => {
+              try {
+                const T = {};
+                glAccounts().forEach((a) => (T[a.id] = a.type));
+                const J = DB.gl.journals,
+                  manual = (j) => "manual" === j.kind || ("reversal" === j.kind && "manual" === ((J.find((x) => x.id === j.reversalOf) || {}).kind));
+                return r2(
+                  glLines({ entityId: ent, from: from, to: to })
+                    .filter((l) => manual(l.j) && ["revenue", "cogs", "expense"].includes(T[l.acct]))
+                    .reduce((s2, l) => s2 + (l.cr || 0) - (l.dr || 0), 0),
+                );
+              } catch (x) {
+                return 0;
+              }
+            })(),
           ],
         ].filter((x) => Math.abs(x[1]) > 0.5),
         explained = r2(items.reduce((s, x) => s + x[1], 0)),
@@ -166337,9 +166359,10 @@ function truthCoverage(range, opts) {
       income.rows.push({ kind: "invoice", date: i.date, desc: `${i.number} · ${c.name}`, amt: net, backing: bank >= net - 0.005 ? "bank" : bank > 0 ? "part" : "document", bank: bank, why: bank > 0 ? `${money(bank)} collected and confirmed by the bank` : "invoiced; the payment has not been confirmed by the bank", projectId: i.projectId || "", id: i.id });
     }),
   );
-  // a manual journal into a revenue account is income by hand
+  // a manual journal into a revenue account is income by hand; a Close, Opening or Accrual entry is a system
+  // entry with a document behind it (the WIP schedule, the opening balances, approved time) and is never "by hand"
   try {
-    truthManual(R, { entityId: "all" }).rows.forEach((m) => {
+    truthManual(R, { entityId: "all", manualOnly: !0 }).rows.forEach((m) => {
       const v = r2(m.j.lines.filter((l) => /^4/.test(l.acct)).reduce((s, l) => s + (l.cr || 0) - (l.dr || 0), 0));
       v && ((income.hand = r2(income.hand + v)), income.n.hand++, income.rows.push({ kind: "journal", date: m.j.date, desc: m.j.memo, amt: v, backing: "hand", why: m.flag.text, id: m.j.id }));
     });
@@ -166397,14 +166420,30 @@ function truthManual(range, opts) {
     const amt = r2(j.lines.reduce((s, l) => s + (l.dr || 0), 0));
     rows.push({ j: j, amt: amt, flag: f }),
       j.lines.forEach((l) => {
-        const b = (byAcct[l.acct] = byAcct[l.acct] || { n: 0, amt: 0, ids: new Set() });
-        b.ids.has(j.id) || (b.ids.add(j.id), b.n++), (b.amt = r2(b.amt + Math.abs((l.dr || 0) - (l.cr || 0))));
+        const b = (byAcct[l.acct] = byAcct[l.acct] || { n: 0, amt: 0, ids: new Set(), kinds: {} });
+        b.ids.has(j.id) || (b.ids.add(j.id), b.n++, (b.kinds[j.kind] = (b.kinds[j.kind] || 0) + 1)),
+          (b.amt = r2(b.amt + Math.abs((l.dr || 0) - (l.cr || 0))));
       });
   });
   const manual = rows.filter((r) => "manual" === r.j.kind);
   return { rows: rows, n: rows.length, amt: r2(rows.reduce((s, r) => s + r.amt, 0)), manual: manual, nManual: manual.length, amtManual: r2(manual.reduce((s, r) => s + r.amt, 0)), byAcct: byAcct };
 }
-const truthManualLine = (m) => `#${m.j.n} ${m.j.memo} — ${money(m.amt)} · ${m.flag.text}`;
+const truthManualLine = (m) => `#${m.j.n} ${m.j.memo} — ${money(m.amt)} · ${m.flag.text}`,
+  // "1 manual · 2 close · 1 accrual": entries not from a document, each by what it is, never all "manual"
+  truthKindWords = (b) => {
+    const K = b && b.kinds ? b.kinds : {};
+    return (
+      Object.keys(K)
+        .sort((x, y) => (x === "manual" ? -1 : y === "manual" ? 1 : x.localeCompare(y)))
+        .map((k) => `${K[k]} ${String(TRUTH_FLAG_KIND[k] || k).toLowerCase()}`)
+        .join(" · ") || `${(b && b.n) || 0} manual`
+    );
+  },
+  truthKindCounts = (M) => {
+    const K = {};
+    (M.rows || []).forEach((m) => (K[m.j.kind] = (K[m.j.kind] || 0) + 1));
+    return truthKindWords({ kinds: K, n: M.n });
+  };
 let truthJKind = "";
 if ("function" == typeof glJournalHtml) {
   const base = glJournalHtml;
@@ -166442,7 +166481,7 @@ if ("function" == typeof glStatementsHtml) {
       d.innerHTML = html;
       d.querySelectorAll("tr[data-glacct]").forEach((tr) => {
         const b = M[tr.dataset.glacct];
-        b && tr.children[0] && tr.children[0].insertAdjacentHTML("beforeend", ` <span class="tr-flag small" data-trdrill="${esc(tr.dataset.glacct)}" title="Entries not from a document on this line; open them">${TRUTH_ICON_PEN}<span>${b.n} manual · ${glM(b.amt)}</span></span>`);
+        b && tr.children[0] && tr.children[0].insertAdjacentHTML("beforeend", ` <span class="tr-flag small" data-trdrill="${esc(tr.dataset.glacct)}" title="Entries not from a document on this line; open them">${TRUTH_ICON_PEN}<span>${truthKindWords(b)} · ${glM(b.amt)}</span></span>`);
       });
       return d.innerHTML;
     } catch (e) {
@@ -166550,6 +166589,18 @@ function truthEdit(kind, ref, why, fn) {
   save();
   return { ok: !0, key: key, before: before, after: after };
 }
+// The record's last audited change in this minute (by a person), or null: how a sync's reversal is attributed.
+function truthLastChange(j) {
+  if (!j || !j.key) return null;
+  const [k, id] = j.key.split(":"),
+    kinds = { inv: "invoice", est: "estimate", co: "co", bill: "bill", txn: "txn", pay: "payment", payroll: "payroll", billpay: "payment" }[k],
+    now = nowStamp(),
+    a = (DB.audit || [])
+      .slice()
+      .reverse()
+      .find((x) => x.t === now && x.refId === id && (!kinds || x.kind === kinds) && "system" !== x.by && !/^(posting|sealed|reversal)/.test(x.action || ""));
+  return a ? { by: a.by, action: a.action, note: a.note || "" } : null;
+}
 // The reason behind a reversal the ledger makes on its own: the record's void or amendment note.
 function truthWhyFor(j) {
   if (!j || !j.key) return null;
@@ -166583,9 +166634,15 @@ if ("function" == typeof glReverse) {
     const ctx = (j && truthWhyNext[j.key]) || truthWhyFor(j),
       r = base.apply(this, arguments);
     if (r && r.ok && r.j) {
-      const rj = r.j;
-      (rj.by = (ctx && ctx.by) || truthWho()), (rj.at = appNowIso());
-      ctx && ctx.why ? ((rj.why = ctx.why), (rj.memo = `${rj.memo} · by ${rj.by}: ${ctx.why}`)) : (rj.memo = `${rj.memo} · by ${rj.by}`);
+      const rj = r.j,
+        // no reason was handed in: the ledger reversed this on its own during a sync. The actor is then the
+        // system, and the reason is the record's own last audited change in this minute, else the derivation
+        // (the posting rule re-derived the lines; nobody edited the record)
+        sys = !ctx && /document changed|voided or withdrawn|derivation/.test(String(why || "")),
+        last = sys ? truthLastChange(j) : null;
+      (rj.by = ctx && ctx.by ? ctx.by : sys ? (last ? last.by : "system") : truthWho()), (rj.at = appNowIso());
+      const w = ctx && ctx.why ? ctx.why : sys ? (last ? `${last.action}: ${last.note}` : /voided|withdrawn/.test(String(why)) ? "the record was voided or withdrawn" : "derivation changed: the posting re-derives from its record; nobody edited the record (its history names any edit)") : "";
+      (rj.why = w), (rj.memo = `${rj.memo} · by ${rj.by}${w ? ": " + w : ""}`), sys && !last && (rj.system = !0);
     }
     return r;
   };
@@ -167390,7 +167447,7 @@ if ("function" == typeof repPack) {
         M = truthManual(P.range, { entityId: "all" }),
         Mp = truthManual([prev + "-01", fin2End(prev)], { entityId: "all" }),
         list = (X) => (X.n ? `<div class="rem">${X.rows.map((m) => `<div class="rem-row"><span>${truthFlagHtml(m.flag)} <span class="small">#${m.j.n} ${esc(m.j.memo)} · ${money(m.amt)}</span></span></div>`).join("")}</div>` : '<p class="small muted">None.</p>'),
-        sec = `<h3 class="rep-h">9 · Coverage and manual entries</h3>${truthCovHtml(C, `Coverage · ${truthLabel(P.ym)}`)}<div class="grid2"><div><h4 class="small" style="margin:6px 0">Manual entries · ${truthLabel(P.ym)} · ${M.n} · ${money(M.amt)}</h4>${list(M)}</div><div><h4 class="small" style="margin:6px 0">Manual entries · ${truthLabel(prev)} · ${Mp.n} · ${money(Mp.amt)}</h4>${list(Mp)}</div></div>`;
+        sec = `<h3 class="rep-h">9 · Coverage and manual entries</h3>${truthCovHtml(C, `Coverage · ${truthLabel(P.ym)}`)}<div class="grid2"><div><h4 class="small" style="margin:6px 0">Entries not from a document · ${truthLabel(P.ym)} · ${M.n} · ${money(M.amt)} <span class="muted">(${truthKindCounts(M)})</span></h4>${list(M)}</div><div><h4 class="small" style="margin:6px 0">Entries not from a document · ${truthLabel(prev)} · ${Mp.n} · ${money(Mp.amt)} <span class="muted">(${truthKindCounts(Mp)})</span></h4>${list(Mp)}</div></div>`;
       h += sec;
     } catch (e) {
       console.warn("pack truth", e);
@@ -167899,4 +167956,290 @@ AG_FIN.unshift(
       };
     };
   }
+}
+
+/* ---------------------------------------------------------------------------
+   closetie, the outermost layer (controller review, round 5). These sit after every other section because
+   they must see the final figure or the final screen: the revenue-basis hold on jobFin, the Pack's balances
+   at the month end it reports, the drafted journal and the close in the Owner's queue, and a toast on the
+   transaction drawer's Save.
+   --------------------------------------------------------------------------- */
+// Finding 3: a coding click must not print profit. Revenue is earned cost-to-cost, so coding $22,530 of card
+// lines onto a job with an unreviewed estimate moved its basis 5 points and recognised $27,000 in a click.
+// The basis is anchored at its first live read each day; a move of more than 5 points in the day holds
+// revenue at the anchor until the PM reviews the cost to complete (ctcReview), which releases it.
+const CT_BASIS_STEP = 0.05;
+function ctHoldBasis(J, p, range) {
+  if (!J || !p || !J.contract || fin3Raw) return;
+  const td = today();
+  if (range && (range[0] || (range[1] && range[1] < td))) return;
+  if ("undefined" != typeof fin3JobAsOf && fin3JobAsOf) return;
+  const A = ((DB.periods = DB.periods || {}).pctAnchor = DB.periods.pctAnchor || {}),
+    a = A[p.id],
+    raw = +J.pct || 0,
+    reviewed = String(p.ctcReviewed || "").slice(0, 10) === td;
+  if (!a || a.on !== td || reviewed) return void (A[p.id] = { on: td, pct: raw });
+  if (Math.abs(raw - a.pct) <= CT_BASIS_STEP) return;
+  (J.pctRaw = raw),
+    (J.pct = a.pct),
+    (J.earned = r2(J.contract * J.pct)),
+    (J.overUnder = r2(J.billed - J.earned)),
+    (J.over = Math.max(0, J.overUnder)),
+    (J.under = Math.max(0, -J.overUnder)),
+    (J.backlog = r2(Math.max(0, J.contract - J.earned))),
+    (J.backlogGP = r2((J.estGP || 0) * (1 - J.pct))),
+    (J.pctHeld = {
+      since: a.on,
+      at: a.pct,
+      raw: raw,
+      why: `the cost basis moved from ${Math.round(100 * a.pct)}% to ${Math.round(100 * raw)}% today with no cost-to-complete review; revenue stays at ${Math.round(100 * a.pct)}% until the PM reviews the cost to complete`,
+    });
+}
+if ("function" == typeof jobFin) {
+  const base = jobFin;
+  jobFin = function (p, range) {
+    const J = base.apply(this, arguments);
+    try {
+      ctHoldBasis(J, p, range);
+    } catch (e) {
+      console.warn("revenue basis", e);
+    }
+    return J;
+  };
+}
+function ctHeldJobs() {
+  return (DB.projects || [])
+    .map((p) => {
+      try {
+        const J = jobFin(p);
+        return J.pctHeld ? { p: p, J: J } : null;
+      } catch (e) {
+        return null;
+      }
+    })
+    .filter(Boolean);
+}
+function ctHeldNote() {
+  const H = ctHeldJobs();
+  return H.length
+    ? `<p class="small ct-held"><b>Revenue basis held.</b> ${H.map((h) => `${esc(String(h.p.project.name).replace(/ —.*$/, ""))}: ${esc(h.J.pctHeld.why)}`).join(" ")} Review the cost to complete on the job's Costs page to move it.</p>`
+    : "";
+}
+if ("function" == typeof repWIP) {
+  const base = repWIP;
+  repWIP = function () {
+    let h = base.apply(this, arguments);
+    try {
+      const n = ctHeldNote();
+      if (n) {
+        const k = h.indexOf('<h3 class="rep-h">Backlog by job</h3>');
+        h = k > -1 ? h.slice(0, k) + n + h.slice(k) : h + n;
+      }
+    } catch (e) {}
+    return h;
+  };
+}
+// Finding 16: a closed month's Pack reads cash, cards, receivables and payables at that month end, not today's.
+function ctBalanceAt(end) {
+  const out = {};
+  try {
+    const C = finCash(end);
+    (out.cash = C.cash), (out.cards = C.cards), (out.cashBy = C.by);
+  } catch (e) {}
+  try {
+    out.arOut = r2((DB.projects || []).reduce((s, p) => s + Math.max(0, +jobFin(p, ["", end]).outstanding || 0), 0));
+  } catch (e) {}
+  try {
+    out.ap = r2(
+      (DB.bills || [])
+        .filter((b) => b.date <= end && BILL_COSTED.includes(b.status) && (!b.paidAt || b.paidAt > end) && !["paid", "verified"].includes(b.status))
+        .reduce((s, b) => s + billTotal(b), 0),
+    );
+  } catch (e) {}
+  return out;
+}
+if ("function" == typeof companyBalance) {
+  const base = companyBalance;
+  companyBalance = function () {
+    const B = base.apply(this, arguments),
+      end = ("undefined" != typeof fin3PackEnd && fin3PackEnd) || ("undefined" != typeof packMonth && packMonth ? fin2End(packMonth) : "");
+    if (!end || end >= today()) return B;
+    try {
+      Object.assign(B, ctBalanceAt(end), { asOf: end });
+    } catch (e) {}
+    return B;
+  };
+}
+if ("function" == typeof repPack) {
+  const base = repPack;
+  repPack = function () {
+    let h = base.apply(this, arguments);
+    try {
+      const end = ("undefined" != typeof fin3PackEnd && fin3PackEnd) || ("undefined" != typeof packMonth && packMonth ? fin2End(packMonth) : "");
+      end && end < today() && (h = h.replace("<span>cash · AR ", `<span>cash at ${fmt(end)} · AR `));
+      const n = ctHeldNote();
+      if (n) {
+        const k = h.indexOf('<h3 class="rep-h">4 · ');
+        h = k > -1 ? h.slice(0, k) + n + h.slice(k) : h + n;
+      }
+    } catch (e) {}
+    return h;
+  };
+}
+// Finding 14: the controller sends the close checklist to the Owner; a drafted manual journal and a sent
+// checklist are items in the Owner's queue (Approvals, Home's Do Now), through DELEGATION like every other kind.
+function ctCloseAsk(ym, note) {
+  if (!ym) return { ok: !1, why: "No month to close" };
+  if (!["controller", "owner"].includes(role())) return { ok: !1, why: "The controller sends the checklist" };
+  const items = closeChecklist(ym),
+    open = items.filter((i) => !i.ok),
+    block = fin2CloseBlockers(ym),
+    rec = { ym: ym, by: fin2Who(), at: appNowIso(), on: today(), open: open.length, items: items.length, blockers: block.length, note: String(note || "").trim() };
+  (DB.periods = DB.periods || {}), (DB.periods.closeAsk = rec);
+  try {
+    audit("period", ym, "checklist-sent", "", `${open.length} open`, `${rec.by} sent the ${fin3Label(ym)} close checklist to the Owner${rec.note ? ": " + rec.note : ""}`);
+  } catch (e) {}
+  return save(), { ok: !0, rec: rec };
+}
+if ("function" == typeof mApprovals) {
+  const base = mApprovals;
+  mApprovals = function (opts) {
+    const out = base.apply(this, arguments) || [];
+    try {
+      const add = [];
+      (((DB.gl || {}).journals) || [])
+        .filter((j) => "pending" === j.status && "manual" === j.kind)
+        .forEach((j) =>
+          add.push({
+            kind: "journal",
+            id: j.id,
+            sev: "warn",
+            n: money(r2((j.lines || []).reduce((s, l) => s + (l.dr || 0), 0))),
+            title: `Manual entry · ${j.memo || j.id}`,
+            detail: `drafted by ${j.createdBy || "the controller"} on ${fmt(j.createdAt || j.date)} · dated ${fmt(j.date)} · the Owner posts it with a reason, and it is flagged wherever it appears`,
+            yes: "Post",
+            no: "",
+            open: { view: "gl", glTab: "overview" },
+            act: null,
+          }),
+        );
+      const ask = (DB.periods || {}).closeAsk;
+      ask &&
+        ask.ym &&
+        !ctClosed(ask.ym) &&
+        add.push({
+          kind: "close",
+          id: ask.ym,
+          sev: ask.blockers ? "bad" : ask.open ? "warn" : "",
+          n: `${ask.open} open`,
+          title: `Close ${fin3Label(ask.ym)} — checklist sent by ${ask.by}`,
+          detail: `${ask.open} of ${ask.items} checklist items open · ${ask.blockers ? `${ask.blockers} thing${1 === ask.blockers ? "" : "s"} stop the locks` : "nothing stops the locks"}${ask.note ? " · " + ask.note : ""} · sent ${fmt(ask.on)}`,
+          yes: "Open the Close",
+          no: "",
+          open: { view: "gl", glTab: "periods" },
+          act: null,
+        });
+      add.forEach((it) => {
+        it.who = "function" == typeof apprOwner ? apprOwner(it) : "owner";
+        ((opts && opts.everyone) || it.who === role()) && out.push(it);
+      });
+    } catch (e) {
+      console.warn("owner queue", e);
+    }
+    return out;
+  };
+}
+if ("function" == typeof mGo) {
+  const base = mGo;
+  mGo = function (go) {
+    try {
+      go && go.glTab && (glTab = go.glTab);
+    } catch (e) {}
+    return base.apply(this, arguments);
+  };
+}
+if ("function" == typeof fin2RunClose) {
+  const base = fin2RunClose;
+  fin2RunClose = function (ym) {
+    const r = base.apply(this, arguments);
+    try {
+      r && r.ok && DB.periods && DB.periods.closeAsk && DB.periods.closeAsk.ym === ym && delete DB.periods.closeAsk;
+    } catch (e) {}
+    return r;
+  };
+}
+if ("function" == typeof fin2ClosePageHtml) {
+  const base = fin2ClosePageHtml;
+  fin2ClosePageHtml = function () {
+    let h = base.apply(this, arguments);
+    try {
+      const ym = fin2CloseYm();
+      if (!ym) return h;
+      const ask = (DB.periods || {}).closeAsk,
+        sent = ask && ask.ym === ym ? ask : null,
+        ctrl = "controller" === role(),
+        line = sent
+          ? `<p class="small ct-sent">Checklist sent to the Owner by ${esc(sent.by)} on ${fmt(sent.on)} with ${sent.open} item${1 === sent.open ? "" : "s"} open${sent.note ? ": " + esc(sent.note) : ""}. It waits in the Owner's Approvals.</p>`
+          : ctrl
+            ? `<p class="small ct-sent"><button class="btn sm" data-ctsend="${ym}">Send the Checklist to the Owner</button> <span class="muted">puts the ${fin3Label(ym)} close in the Owner's queue with what is still open</span></p>`
+            : "",
+        k = h.indexOf('<h4 class="fin2-step">4 · ');
+      line && (h = k > -1 ? h.slice(0, k) + line + h.slice(k) : h + line);
+    } catch (e) {}
+    return h;
+  };
+}
+if ("function" == typeof glWire) {
+  const base = glWire;
+  glWire = function (host) {
+    base.apply(this, arguments);
+    host &&
+      host.querySelectorAll("[data-ctsend]").forEach(
+        (b) =>
+          (b.onclick = () => {
+            const ym = b.dataset.ctsend;
+            mbModal(
+              `Send the ${fin3Label(ym)} Checklist to the Owner`,
+              `<p class="small">The Owner sees the close in Approvals and on Home with what is still open. Add a note if something needs a word.</p>${mbF("Note", mbIn("note", "", "e.g. the three September lines are coded next month; Home Depot has no statement yet"))}`,
+              {
+                submit: "Send",
+                onSubmit: (f) => {
+                  const r = ctCloseAsk(ym, f.note);
+                  if (!r.ok) return toast(r.why), !1;
+                  render();
+                  try {
+                    rcToast(`${fin3Label(ym)} close checklist sent to the Owner — ${r.rec.open} item${1 === r.rec.open ? "" : "s"} open`, [{ label: "Open", run: () => ((view = "gl"), (glTab = "periods"), render()) }]);
+                  } catch (e) {
+                    toast("Sent");
+                  }
+                },
+              },
+            );
+          }),
+      );
+  };
+}
+// Finding 18: the transaction drawer's Save toasts what happened, with Open.
+if ("function" == typeof txnDialog) {
+  const base = txnDialog;
+  txnDialog = function (id) {
+    base.apply(this, arguments);
+    try {
+      const sv = document.getElementById("d-save");
+      if (!sv || !sv.onclick) return;
+      const prev = sv.onclick;
+      sv.onclick = function () {
+        const had = new Set((DB.txns || []).map((t) => t.id)),
+          r = prev.apply(this, arguments),
+          dr = document.getElementById("drawer");
+        if (dr && dr.classList.contains("on")) return r;
+        const t = id ? (DB.txns || []).find((x) => x.id === id) : (DB.txns || []).find((x) => !had.has(x.id));
+        if (t)
+          try {
+            rcToast(`${t.desc || "Line"} ${money(Math.abs(+t.amt || 0))} saved — ${catName(t.cat)}${t.projectId ? " · " + ctJob(t.projectId) : ""}`, [{ label: "Open", run: () => txnDialog(t.id) }]);
+          } catch (e) {}
+        return r;
+      };
+    } catch (e) {}
+  };
 }
