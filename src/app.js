@@ -90660,18 +90660,36 @@ function mtDraftChanges(L) {
   }
   L.carried.length &&
     push(
-      "Carry-overs get a date and a reminder",
-      `${L.carried.length} next step${1 === L.carried.length ? "" : "s"} came back in a later meeting without being closed. A step with no due date is not a commitment; the ERP should date every step from a meeting and remind the owner the day before.`,
+      "A step carried twice becomes a dated task with an owner",
+      `${L.carried.length} next step${1 === L.carried.length ? "" : "s"} came back in a later meeting without being closed: ${L.carried
+        .slice(0, 3)
+        .map((c) => `${c.title} (${c.owner || "nobody"}, ${c.times}×)`)
+        .join("; ")}. A step with no date is not a commitment; the second time a step comes back, the ERP proposes it as a task with a date and the person who owns it.`,
       "rule",
       {
-        path: "company.meetAuto.task",
-        from: !!(DB.company.meetAuto || {}).task,
+        path: "company.carryTask",
+        from: !!DB.company.carryTask,
         to: !0,
-        label: "Create tasks from meeting next steps automatically",
+        label: "Propose a dated task for a step carried over twice",
       },
       L.carried
         .slice(0, 3)
-        .map((c) => ({ t: `${c.title} — ${c.times}× (${c.meetings.slice(0, 2).join(", ")})`, m: "" })),
+        .map((c) => ({ t: `${c.title} — ${c.times}× (${c.meetings.slice(0, 2).join(", ")})`, m: (c.meetings || [])[0] || "" })),
+    );
+  // any other reason the notes give for delay, twice or more, is drafted from its evidence (not from a fixed menu)
+  (L.why || [])
+    .filter(([k, v]) => v && v.n >= 2 && !["vendor lead time", "decision latency", "data and process", "permits and inspections", "hidden condition"].includes(k))
+    .forEach(([k, v]) =>
+      push(
+        `${k.charAt(0).toUpperCase() + k.slice(1)}: a step on the checklist`,
+        `"${k}" came up in ${v.n} meeting notes. The notes say: ${v.quotes
+          .slice(0, 2)
+          .map((q) => q.t)
+          .join(" · ")}`,
+        "rule",
+        { path: "company.learned." + k.replace(/\W+/g, "_"), from: !1, to: !0, label: `A checklist step for ${k}` },
+        v.quotes,
+      ),
     );
   const waits = Object.entries(L.waits || {}).sort((a, b) => b[1] - a[1]);
   return (
@@ -91493,13 +91511,13 @@ const LS_CHANGES = [
     [
       "A",
       "setting",
-      "Tasks from meeting steps, automatically",
-      "Next steps written by the note-taker were not landing in any system; they were re-read aloud at the next meeting.",
+      "Tasks from meeting steps, proposed on every meeting",
+      "Next steps written by the note-taker were not landing in any system; they were re-read aloud at the next meeting. Every step now becomes a proposed task for the person who owns it, approved on the meeting or in Approvals.",
       {
         path: "company.meetAuto.task",
-        from: !1,
-        to: !0,
-        label: "Create tasks from meeting next steps automatically",
+        from: !0,
+        to: !1,
+        label: "Create tasks from meeting next steps without asking",
       },
     ],
     [
@@ -91638,7 +91656,8 @@ function lsInit() {
   )
     return;
   (DB.__lessons1 = 1),
-    (DB.company.meetAuto = Object.assign({ log: !0, note: !0 }, DB.company.meetAuto || {}, { task: !0 })),
+    // meeting tasks are proposals a person approves (BACKLOG §1.7 #2); a firm may switch auto-apply on per kind
+    (DB.company.meetAuto = Object.assign({ log: !0, note: !0, task: !1 }, DB.company.meetAuto || {})),
     (DB.company.meetRefine = !0),
     (DB.company.sampleGate = !0),
     (DB.company.meetTemplates = DB.company.meetTemplates || {
@@ -91664,7 +91683,7 @@ function lsInit() {
           mtAutoApply(m);
         } catch (e) {}
     });
-  const covered = ["project.matBuf", "project.decBuf", "company.meetAuto.task"];
+  const covered = ["project.matBuf", "project.decBuf"];
   DB.changes.forEach((c) => {
     !c.key &&
       "draft" === c.status &&
@@ -91713,7 +91732,7 @@ if ("function" == typeof mtDraftChanges) {
   mtDraftChanges = function (L) {
     const out = mtDraftChangesBase_ls.apply(this, arguments);
     if (DB.__lessons1) {
-      const covered = ["project.matBuf", "project.decBuf", "company.meetAuto.task"];
+      const covered = ["project.matBuf", "project.decBuf"];
       for (let i = DB.changes.length - 1; i >= 0; i--) {
         const c = DB.changes[i];
         !c.key &&
