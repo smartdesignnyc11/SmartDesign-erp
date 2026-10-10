@@ -32560,7 +32560,8 @@ ctPOPicker = function (projectId, preferId, preKey) {
                     ((need = nb.needBy), (needTask = nb.task?.name || ""));
                 }
               }),
-                need && ((po.needBy = need), (po.needTask = needTask), po.expected || (po.expected = need));
+                // the need-by is ours; Vendor Promised stays empty until the vendor gives a date
+                need && ((po.needBy = need), (po.needTask = needTask));
               const v = DB.vendors.find((x) => x.name.toLowerCase() === po.vendor.toLowerCase());
               v && v.depositPct && !po.schedule && (po.depositPct = v.depositPct);
             }),
@@ -63345,10 +63346,11 @@ if (
 function f3ArrivingHtml() {
   const td = today(),
     subs = ((DB.field && DB.field.subs) || []).filter((s) => s.projectId === S.id && s.date === td),
+    // issued orders only: a draft or a PO still waiting for the owner's approval is not coming to site
     pos = (DB.pos || []).filter(
       (po) =>
         po.projectId === S.id &&
-        !["cancelled", "draft", "received"].includes(po.status) &&
+        ["issued", "partial"].includes(po.status) &&
         (po.expected || po.needBy) &&
         (po.expected || po.needBy) <= td,
     ),
@@ -83361,6 +83363,34 @@ function mApprovals() {
           }),
         ),
     );
+  // purchase orders over the approval threshold, submitted: the owner's yes or no (DELEGATION po -> owner)
+  (DB.pos || [])
+    .filter((po) => "pending" === po.status)
+    .forEach((po) => {
+      const p = DB.projects.find((x) => x.id === po.projectId),
+        bad = "function" == typeof poValid ? poValid(po) : [];
+      out.push({
+        kind: "po",
+        id: po.id,
+        projectId: po.projectId,
+        sev: bad.length ? "bad" : "warn",
+        n: money(poTotal(po).total),
+        title: `${po.number} · ${po.vendor}`,
+        detail: [
+          p ? p.project.name : "",
+          po.submittedBy ? `submitted by ${po.submittedBy} ${fmt(po.submittedAt)}` : "submitted for approval",
+          `over the ${money(DB.company.poApprovalOver)} threshold`,
+          po.needBy ? `needed on site ${fmt(po.needBy)}` : "",
+          bad.join("; "),
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        yes: "Approve",
+        no: "Reject",
+        open: { view: "po", po: po.id, project: po.projectId },
+        act: "approve",
+      });
+    });
   const rank = (s) => ("bad" === s ? 0 : "warn" === s ? 1 : 2),
     live = (id) => !id || (DB.projects || []).some((p) => p.id === id);
   return out
@@ -167269,4 +167299,122 @@ function smBehalfNotice(s, p, st) {
   } catch (e) {
     console.warn("submittal on-behalf notice", e);
   }
+}
+
+// ---- a PO over the threshold reaches the owner (review finding 4)
+// Whose queue: the owner's. The producer sits in the root mApprovals; the last delegation layer hands it over.
+DELEGATION.po = { role: "owner", rule: "a purchase order over the approval threshold waits on the owner, who approves and issues it or sends it back" };
+APPR_CHIPS.some(([k]) => "po" === k) || APPR_CHIPS.splice(APPR_CHIPS.length - 1, 0, ["po", "Purchase Orders"]);
+// The one yes on a pending PO, from Approvals or Do Now: the owner's approve-and-issue through poAction, so the
+// validator, the submittal gate and the vendor block all still apply.
+function apprPOYes(it) {
+  const po = (DB.pos || []).find((x) => x.id === it.id);
+  if (!po) return;
+  const keep = S,
+    p = DB.projects.find((x) => x.id === po.projectId);
+  p && (S = p);
+  try {
+    poAction(po, "approve");
+  } catch (e) {
+    console.warn(e), toast("Could not approve: " + (e.message || e));
+  }
+  (S = keep), render();
+}
+function apprPONo(it) {
+  const po = (DB.pos || []).find((x) => x.id === it.id);
+  if (!po) return;
+  mbModal(
+    `Send Back — <span data-nocase>${esc(po.number)}</span>`,
+    `<p class="small muted" style="margin:0 0 10px">${esc(po.vendor)} · ${money(poTotal(po).total)}. It goes back to draft for ${esc(po.submittedBy || "the coordinator")} with your note.</p>${mbF("Why", '<input data-f="why" placeholder="e.g. get a second price; the line is over budget" enterkeyhint="done">')}`,
+    {
+      submit: "Send Back",
+      onSubmit: (f) => {
+        if (!f.why) return toast("Say why it goes back"), !1;
+        const keep = S,
+          p = DB.projects.find((x) => x.id === po.projectId);
+        p && (S = p);
+        try {
+          (po.sentBack = { by: smMe(), at: today(), why: f.why }), poAction(po, "reject");
+        } catch (e) {
+          console.warn(e);
+        }
+        (S = keep), render();
+        rcToast(`${po.number} sent back to draft — ${f.why}`, flowCan("po") ? [{ label: `Open ${po.number}`, run: flowGo.po(po) }] : null);
+      },
+    },
+  );
+}
+if ("function" == typeof renderMApprove) {
+  const base = renderMApprove;
+  renderMApprove = function () {
+    const r = base.apply(this, arguments);
+    try {
+      const v = document.getElementById("v-mapprove"),
+        items = v ? mApprovals() : [];
+      v &&
+        v.querySelectorAll('.m-appr[data-mk="po"]').forEach((el) => {
+          const it = items.find((x) => "po" === x.kind && String(x.id) === el.dataset.mid);
+          if (!it) return;
+          const yes = el.querySelector("[data-myes]"),
+            no = el.querySelector("[data-mno]");
+          yes && (yes.onclick = () => apprPOYes(it)), no && (no.onclick = () => apprPONo(it));
+        });
+    } catch (e) {
+      console.warn("po approvals", e);
+    }
+    return r;
+  };
+}
+// Open from Approvals or Do Now lands on the PO record.
+{
+  const base = mGo;
+  mGo = function (go) {
+    if (go && go.po && "po" === go.view) {
+      const po = (DB.pos || []).find((x) => x.id === go.po);
+      if (po) return po.projectId && setCurrent(po.projectId), (poOpen = po.id), (view = "po"), render(), void window.scrollTo(0, 0);
+    }
+    return base.apply(this, arguments);
+  };
+}
+// The Do Now card: what it is, why now, one verb (Approve).
+if ("function" == typeof tdCard) {
+  const base = tdCard;
+  tdCard = function (it) {
+    const c = base.apply(this, arguments);
+    if (!it || "po" !== it.kind) return c;
+    const po = (DB.pos || []).find((x) => x.id === it.id);
+    if (!po) return c;
+    const p = DB.projects.find((x) => x.id === po.projectId);
+    (c.line1 = `<a href="#" data-tdrec>${esc(po.number)}</a> · ${esc(po.vendor)}`),
+      (c.go = flowGo.po(po)),
+      (c.why = [money(poTotal(po).total), `over the ${money(DB.company.poApprovalOver)} threshold`, po.submittedBy ? `from ${po.submittedBy}` : "", p ? tdJob(p) : ""].filter(Boolean).map(esc).join(" · ")),
+      (c.verb = "Approve"),
+      (c.run = () => apprPOYes(it));
+    return c;
+  };
+}
+if ("function" == typeof tdScore) {
+  const base = tdScore;
+  tdScore = function (it) {
+    return it && "po" === it.kind ? 45 + ("bad" === it.sev ? 5 : 2) : base.apply(this, arguments);
+  };
+}
+// Submit and approve say what happened, with Open: the submit path had no toast, so the coordinator did not
+// know the PO had left her hands.
+{
+  const base = poAction;
+  poAction = function (po, a) {
+    const was = po ? po.status : "",
+      r = base.apply(this, arguments);
+    try {
+      if (po && ["issue", "submit"].includes(a) && "draft" === was && "pending" === po.status)
+        rcToast(
+          `${po.number} sent for the owner's approval — ${money(poTotal(po).total)} is over the ${money(DB.company.poApprovalOver)} threshold`,
+          flowCan("po") ? [{ label: `Open ${po.number}`, run: flowGo.po(po) }] : null,
+        );
+      else if (po && "approve" === a && "pending" === was && "issued" === po.status)
+        rcToast(`${po.number} approved and issued to ${po.vendor} — ${money(poTotal(po).total)}`, flowCan("po") ? [{ label: `Open ${po.number}`, run: flowGo.po(po) }] : null);
+    } catch (e) {}
+    return r;
+  };
 }
