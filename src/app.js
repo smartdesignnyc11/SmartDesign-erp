@@ -20553,6 +20553,11 @@ function mbModal(title, body, opts = {}) {
     m.addEventListener("keydown", (e) => {
       "Escape" === e.key && close(), "Enter" === e.key && "TEXTAREA" !== e.target.tagName && ok && ok.click();
     });
+  // Escape closes the modal from anywhere on the page, not only when a field inside it has focus
+  const onEsc = (e) => {
+    document.body.contains(m) ? "Escape" === e.key && "mbm" === m.id && (e.preventDefault(), close()) : document.removeEventListener("keydown", onEsc);
+  };
+  document.addEventListener("keydown", onEsc);
   const first = m.querySelector("input,textarea,select");
   return first && setTimeout(() => first.focus(), 30), m;
 }
@@ -32309,7 +32314,8 @@ function buyList(scope) {
             }),
             c &&
               c.estimates
-                .filter((e) => "converted" === e.status && e.projectId === p.id)
+                // a design or services estimate (hours, filings) has nothing to buy
+                .filter((e) => "converted" === e.status && e.projectId === p.id && "design" !== e.template)
                 .forEach((d) => {
                   "construction" === d.template && ctNumber(d),
                     d.lines.forEach((l) => {
@@ -32437,9 +32443,12 @@ function renderBuyBoard() {
     shown
       .map((r, i) => {
         const act = r.ordered
-          ? r.eta
-            ? `<button class="btn sm" data-buy="recv|${r.p.id}">Received</button>`
-            : `<input type="date" data-buyeta="${r.p.id}:${r.m?.id || ""}" title="Confirm ETA" style="height:30px">`
+          ? (r.po
+              ? ""
+              : `<button class="btn sm" data-buy="exp|${r.p.id}|||${r.m ? r.m.id : ""}" title="No purchase order behind this: ask the vendor where it is, set the vendor and the date">Expedite</button>${r.vendor ? "" : `<button class="btn sm" data-buy="vend|${r.p.id}|||${r.m ? r.m.id : ""}">Set Vendor</button>`}`) +
+            (r.eta
+              ? `<button class="btn sm" data-buy="recv|${r.p.id}">Received</button>`
+              : `<input type="date" data-buyeta="${r.p.id}:${r.m?.id || ""}" title="Confirm ETA" style="height:30px">`)
           : r.dec
             ? `<button class="btn sm" data-buy="dec|${r.p.id}|${r.dec.id}">Get decision</button>`
             : `<button class="btn sm ${r.key ? "primary" : ""}" data-buy="po|${r.p.id}|${r.d ? r.d.id : ""}|${r.key || ""}|${r.m ? r.m.id : ""}" title="${r.key ? "Start a purchase order for this line" : "This item is not on an estimate line yet — set the vendor and cost first"}">${r.key ? "Create PO" : "Set Up to Order"}</button>`;
@@ -32467,7 +32476,11 @@ function renderBuyBoard() {
               S.id !== p.id && setCurrent(p.id),
               "recv" === k
                 ? ((view = "recv"), void render())
-                : "dec" === k
+                : "exp" === k
+                  ? void buyExpedite(p, mid)
+                  : "vend" === k
+                    ? (openEditor("mat", mid), void toast("Set the vendor, then the order has someone to chase"))
+                    : "dec" === k
                   ? ((view = "dec"), void render())
                   : void (
                       "po" === k &&
@@ -52066,7 +52079,7 @@ function renderProc() {
   (root.innerHTML = `\n  <div class="ph"><div><h2>Procurement — ${esc(S.project.name)}</h2>\n    <p class="lead">Sorted by the date each item has to be bought, not by how long it takes. <b>Order by</b> is the site date minus the lead time minus ${DB.company.recvBuffer ?? 5} business days to receive and move it — the row turns red the day it goes past.</p></div>\n    <div class="acts">\n      <button class="btn" id="proc-clip">Clipper access</button>\n      <button class="btn" id="proc-vendors">Vendors</button>\n      <button class="btn" id="proc-link">Link to schedule${(() => {
     const n = selItems().filter((i) => !i.taskId && selSuggestTask(i)).length;
     return n ? ` · ${n}` : "";
-  })()}</button>\n      <button class="btn" id="proc-recv">Receiving</button>\n      <button class="btn primary" id="proc-run" ${procSel.size ? "" : "disabled"}>Buy run${procSel.size ? ` · ${procSel.size}` : ""}</button>\n    </div></div>\n\n  <div class="sel-stats">\n    <div class="sel-stat ${late.length ? "bad" : ""}"><b>${late.length}</b><span>past the order-by date</span></div>\n    <div class="sel-stat ${soon.length ? "warn" : ""}"><b>${soon.length}</b><span>to order this week</span></div>\n    <div class="sel-stat"><b>${money(openVal)}</b><span>left to buy</span></div>\n    <div class="sel-stat"><b>${money(spent)}</b><span>committed or spent</span></div>\n    <div class="sel-stat ${saved > 0 ? "ok" : ""}"><b>${money(saved)}</b><span>under budget so far</span></div>\n  </div>\n\n  <div class="proc-bar">\n    <div class="proc-filters">\n      ${[
+  })()}</button>\n      <button class="btn" id="proc-recv">Receiving</button>\n      <button class="btn primary" id="proc-run">New Buy Run${procSel.size ? ` · ${procSel.size}` : ""}</button>\n    </div></div>\n\n  <div class="sel-stats">\n    <div class="sel-stat ${late.length ? "bad" : ""}"><b>${late.length}</b><span>past the order-by date</span></div>\n    <div class="sel-stat ${soon.length ? "warn" : ""}"><b>${soon.length}</b><span>to order this week</span></div>\n    <div class="sel-stat"><b>${money(openVal)}</b><span>left to buy</span></div>\n    <div class="sel-stat"><b>${money(spent)}</b><span>committed or spent</span></div>\n    <div class="sel-stat ${saved > 0 ? "ok" : ""}"><b>${money(saved)}</b><span>under budget so far</span></div>\n  </div>\n\n  <div class="proc-bar">\n    <div class="proc-filters">\n      ${[
     ["open", "To buy"],
     ["late", "Late"],
     ["flag", "Flagged"],
@@ -52204,7 +52217,7 @@ function procLinkModal() {
 }
 function procRunModal() {
   const items = [...procSel].map(selItem).filter(Boolean);
-  if (!items.length) return void toast("Pick some items");
+  if (!items.length) return void toast("Tick the items to buy first — a buy run makes one purchase order per vendor from them");
   ((opts) => {
     const made = selPORun(
       items.map((i) => i.id),
@@ -65703,13 +65716,8 @@ function b2Facts(F) {
     (X.returns = ("function" == typeof retList ? retList() : []).filter(
       (r) => void 0 !== RET_OPEN && RET_OPEN.includes(r.status),
     )),
-    (X.vendorsWeak = [
-      ...new Set(
-        DB.pos.filter((po) => !["cancelled", "draft", "received"].includes(po.status)).map((po) => po.vendor),
-      ),
-    ]
-      .map((v) => DB.vendors.find((x) => x.name === v))
-      .filter((v) => v && (!v.insuranceExp || v.insuranceExp < td))),
+    // one predicate (PRED.vendorsBlocked) for Home's chases and the Vendors tile
+    (X.vendorsWeak = "object" == typeof PRED && PRED.vendorsBlocked ? PRED.vendorsBlocked.rows() : []),
     (X.billsVsPO = DB.bills
       .filter((b) => ["submitted", "pm-approved"].includes(b.status) && b.poId)
       .map((b) => {
@@ -85471,7 +85479,8 @@ const TL_SETS = {},
 (TL_SETS.vendors = () => {
   const vs = DB.vendors || [],
     st = (v) => vendorState(v),
-    blocked = vs.filter((v) => st(v).some((f) => "bad" === f.lvl)),
+    blocked = PRED.vendorsBlocked ? PRED.vendorsBlocked.rows() : vs.filter((v) => st(v).some((f) => "bad" === f.lvl)),
+    noCoi = vs.filter((v) => !v.insuranceExp),
     soon = vs.filter((v) => !st(v).some((f) => "bad" === f.lvl) && st(v).some((f) => /expires/i.test(f.m))),
     openB = tlBills().filter((b) => !["paid", "verified"].includes(b.status)),
     byV = {};
@@ -85488,10 +85497,19 @@ const TL_SETS = {},
       v: blocked.length,
       tone: blocked.length ? "bad" : "",
       s: blocked.length
-        ? "expired insurance or license — new POs blocked"
-        : "everyone current on insurance and license",
+        ? "no current certificate of insurance and an order open with them — no new PO until it lands"
+        : "every vendor with an open order has a current certificate",
       grid: "vendors",
-      pred: (v) => st(v).some((f) => "bad" === f.lvl),
+      pred: (v) => PRED.vendorsBlocked.test(v),
+    },
+    {
+      key: "nocoi",
+      k: "No Certificate",
+      v: noCoi.length,
+      tone: noCoi.length ? "warn" : "",
+      s: noCoi.length ? `of ${vs.length} vendors have no certificate of insurance on file` : "a certificate is on file for every vendor",
+      grid: "vendors",
+      pred: (v) => !v.insuranceExp,
     },
     {
       key: "soon",
@@ -126438,7 +126456,7 @@ function lkBillDialog(po, o) {
             o.over ? o.over.reason : S.project.userName || role(),
           ),
           log(
-            `Bill ${b.number} from ${po.number} — ${money(billTotal(b))}${o.over ? ` (beyond the order: ${o.over.reason})` : ""}`,
+            `Bill ${b.number} from ${po.number} — ${money(billGross(b))}${+b.retainagePct ? ` (${b.retainagePct}% retainage held)` : ""}${o.over ? ` (beyond the order: ${o.over.reason})` : ""}`,
           ),
           save(),
           render();
@@ -126448,7 +126466,8 @@ function lkBillDialog(po, o) {
                 (view = "ap"), render(), setTimeout(() => openBill(b.id), 60);
               }
             : flowGo.bill(b),
-          text = `Bill from ${po.number} submitted — ${money(billTotal(b))}, due ${fmt(b.due)}${after.remaining > 0.5 ? ` — ${money(after.remaining)} left to bill` : st.billed || o.over ? " — billed in full" : ""}`;
+          held = +b.retainagePct ? r2(billGross(b) - billTotal(b)) : 0,
+          text = `Bill from ${po.number} submitted — ${money(billGross(b))}${held ? ` (${b.retainagePct}% retainage held, ${money(billTotal(b))} payable)` : ""}, due ${fmt(b.due)}${after.remaining > 0.5 ? ` — ${money(after.remaining)} left to bill` : st.billed || o.over ? " — billed in full" : ""}`;
         go ? crToast(text, { label: "Open", run: go }) : toast(text);
       },
     },
@@ -167859,3 +167878,41 @@ function poWorkday(d) {
   return 0 === dow ? iso(addDays(x, 1)) : 6 === dow ? iso(addDays(x, 2)) : iso(x);
 }
 
+// ---- polish (review finding 15): one blocked-vendor predicate; Expedite on an ordered line with no PO
+predDef("vendorsBlocked", {
+  label: "Blocked",
+  rule: "no current certificate of insurance (none on file, or expired) and an order open with them: no new purchase order until it lands",
+  test: (v) => {
+    if (!v) return !1;
+    const td = today(),
+      n = String(v.name || "").toLowerCase();
+    return (!v.insuranceExp || v.insuranceExp < td) && (DB.pos || []).some((po) => String(po.vendor || "").toLowerCase() === n && ["issued", "partial", "pending"].includes(po.status));
+  },
+  rows() {
+    return (DB.vendors || []).filter((v) => this.test(v));
+  },
+});
+// Expedite an ordered line that has no purchase order behind it: who has it, when it lands, and a chase.
+function buyExpedite(p, mid) {
+  const m = p && (p.materials || []).find((x) => x.id === mid);
+  if (!m) return;
+  const vendors = (DB.vendors || []).slice().sort((a, b) => String(a.name).localeCompare(String(b.name))),
+    { needBy } = withProject(p, () => matDates(m));
+  mbModal(
+    `Expedite — <span data-nocase>${esc(m.name)}</span>`,
+    `<p class="small muted" style="margin:0 0 10px">Marked ordered with no purchase order behind it${needBy ? `; the site needs it ${fmtL(needBy)}` : ""}. Say who has the order and when it lands; the chase goes to your mailbox as a draft.</p>${mbF("Vendor", `<select data-f="vendor"><option value="">— choose —</option>${vendors.map((v) => `<option value="${esc(v.name)}" ${v.name === m.vendor ? "selected" : ""}>${esc(v.name)}</option>`).join("")}</select>`)}<div class="grid2">${mbF("Vendor Promised", `<input type="date" data-f="eta" value="${esc(m.eta || "")}">`)}${mbF("Note", '<input data-f="note" placeholder="what they said">')}</div><label class="small"><input type="checkbox" data-f="chase" checked> Draft a chase to the vendor asking for the delivery date</label>`,
+    {
+      submit: "Save",
+      onSubmit: (f) => {
+        if (!f.vendor) return toast("Choose the vendor — someone has to have the order"), !1;
+        const by = (currentUser() || {}).name || role();
+        (m.vendor = f.vendor), f.eta && (m.eta = f.eta), (m.expedite = { at: today(), by: by, note: f.note || "" });
+        log(`${m.name}: expedited with ${f.vendor}${f.eta ? `, promised ${fmtL(f.eta)}` : ""}${f.note ? ` — ${f.note}` : ""}`), save(), render();
+        const v = (DB.vendors || []).find((x) => x.name === f.vendor);
+        f.chase && v
+          ? eaNudge({ kind: "expedite", t: `${v.name} — ${m.name}`, vendor: v, subject: `${m.name} for ${String(p.project.name).replace(/ —.*$/, "")} — delivery date`, msg: `Hi — where does our order for ${m.name} stand? The site needs it ${needBy ? fmtL(needBy) : "soon"}. Please confirm the delivery date today. Thanks.` })
+          : rcToast(`${m.name} expedited with ${f.vendor}${f.eta ? ` — promised ${fmtL(f.eta)}` : ""}`, [{ label: "Open", run: () => openEditor("mat", m.id) }]);
+      },
+    },
+  );
+}

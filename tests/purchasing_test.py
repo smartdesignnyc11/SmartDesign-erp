@@ -547,7 +547,8 @@ async def s_polish(p, c):
                     await pg.locator('#mbm [data-f="number"]').fill('CM-0103')
                     await modal_ok(pg, 1000)
                     t2 = await toast(pg)
-                    c.ok('$38,000' in t2['text'] and '$34,200' not in t2['text'], f"polish: the toast shows the record's amount ({t2['text']!r})")
+                    # the record's amount leads; a netted figure may follow only as what is payable after retainage
+                    c.ok(re.search(r'submitted — \$38,000', t2['text']) and not re.search(r'\$34,200(?! payable)', t2['text']), f"polish: the toast shows the record's amount ({t2['text']!r})")
                     c.ok(re.search(r'retainage', t2['text'], re.I), f"polish: the toast names the retainage netted ({t2['text']!r})")
         c.ok(not errs, f'polish (phone): page errors {errs[:2]}')
     finally:
