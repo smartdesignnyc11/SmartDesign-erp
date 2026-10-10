@@ -14,13 +14,26 @@ const DAY = 864e5,
     return x.setDate(x.getDate() + n), x;
   },
   dayDiff = (a, b) => Math.round((parse(b) - parse(a)) / DAY),
+  // the app's year is understood; any other year is said ("8/15/2027", "Aug 15, 2027"), so a COI that
+  // expires next year never reads like one that expired last month
+  fmtYear = () => {
+    try {
+      return "function" == typeof appNow ? appNow().getFullYear() : new Date().getFullYear();
+    } catch (e) {
+      return new Date().getFullYear();
+    }
+  },
   fmt = (s) => {
     const d = parse(s);
-    return d ? `${d.getMonth() + 1}/${d.getDate()}` : "—";
+    return d ? `${d.getMonth() + 1}/${d.getDate()}${d.getFullYear() !== fmtYear() ? "/" + d.getFullYear() : ""}` : "—";
   },
   fmtL = (s) => {
     const d = parse(s);
-    return d ? d.toLocaleDateString(void 0, { weekday: "short", month: "short", day: "numeric" }) : "—";
+    return d
+      ? d.getFullYear() === fmtYear()
+        ? d.toLocaleDateString(void 0, { weekday: "short", month: "short", day: "numeric" })
+        : d.toLocaleDateString(void 0, { month: "short", day: "numeric", year: "numeric" })
+      : "—";
   },
   DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
   APP_TZ = () => {
@@ -9477,7 +9490,8 @@ function applyRules(t) {
   const r = DB.rules.find((r) => d.includes(r.match.toLowerCase()));
   return (
     !!r &&
-    ((t.cat = r.cat),
+    // money coming in on a job-cost rule is a vendor credit, never materials
+    ((t.cat = +t.amt > 0 && isJobCat(r.cat) ? "refund" : r.cat),
     (t.code = r.code || ""),
     (t.vendor = r.vendor || t.vendor),
     r.projectId && (t.projectId = r.projectId),
@@ -9618,7 +9632,8 @@ function renderBank() {
         cls: "name",
         get: (t) => ({
           text: t.desc,
-          html: `${esc(t.desc)}${t.vendor ? `<span class="sub">${esc(t.vendor)}</span>` : ""}`,
+          // a vendor credit says what it is against, with Confirm (txnCreditLine, purchasing section)
+          html: `${esc(t.desc)}${t.vendor ? `<span class="sub">${esc(t.vendor)}</span>` : ""}${"function" == typeof txnCreditLine ? txnCreditLine(t) : ""}`,
         }),
       },
       {
@@ -11240,7 +11255,9 @@ function wirePODoc(po) {
 function poAction(po, a) {
   S.project.userName;
   if ("issue" === a) {
-    if (!po.vendor || !po.lines.length) return void toast("Add a vendor and at least one line");
+    // One house validator (poValid, purchasing section): a real vendor, lines, no $0 line, a need-by date.
+    const bad = poValid(po);
+    if (bad.length) return void poRefuse(po, bad);
     const blk = vendorBlocked(po.vendor);
     if (blk.length)
       return void toast(`Cannot issue: ${blk.map((f) => f.m).join("; ")} — update the vendor record first`);
@@ -11530,33 +11547,74 @@ function printPO(po) {
     w = window.open("", "_blank");
   w ? (w.document.write(html), w.document.close()) : toast("Allow pop-ups to print");
 }
+function poDrawings(p) {
+  // the job's drawings: files on the job and Drive files routed to it that read like a sheet
+  const out = [];
+  (p && p.files ? p.files : []).forEach((f) => {
+    ("drawing" === f.cat || /\b[A-Z]-?\d{3}\b|drawing|plan|\.dwg|\.rvt/i.test(f.name || "")) && out.push({ name: f.name, link: f.link && f.link.url ? f.link.url : "" });
+  }),
+    (DB.gdrive || []).forEach((f) => {
+      f.route && f.route.projectId === (p && p.id) && "drawing" === f.route.kind && !out.some((x) => x.name === f.name) && out.push({ name: f.name, link: f.link || "" });
+    });
+  return out.slice(0, 8);
+}
+function poEmailTemplate(po) {
+  const t = poTotal(po),
+    p = DB.projects.find((x) => x.id === po.projectId) || S,
+    job = String((p && p.project && p.project.name) || "").replace(/ —.*$/, ""),
+    v = "function" == typeof vendorRec ? vendorRec(po.vendor) : null,
+    first = ((v && v.contact) || po.vendor || "").split(/[\s,]+/)[0],
+    me = (currentUser() || {}).name || (S.project && S.project.userName) || DB.company.name || "",
+    dr = poDrawings(p),
+    lines = (po.lines || []).map((l) => `- ${l.qty} ${l.unit} ${l.item}${l.desc ? ` (${l.desc})` : ""} @ ${money(l.price)}`).join("\n");
+  return {
+    subject: `${po.number} — ${job}${po.needBy ? ` — needed on site ${fmtL(po.needBy)}` : ""}`,
+    body: `Hi ${first || "there"},\n\nAttached is ${po.number} for ${money(t.total)}${po.needBy ? `, needed on site ${fmtL(po.needBy)}` : ""}${po.expected ? ` (you promised ${fmtL(po.expected)})` : ""}.\n\n${lines}${po.shipTo ? `\n\nDeliver to: ${"function" == typeof shipToLabel ? shipToLabel(po) : po.shipTo}` : ""}\n\nPlease confirm the price, the lead time and the delivery date, and put the PO number on your invoice.${dr.length ? `\n\nDrawings for this order:\n${dr.map((d) => `- ${d.name}${d.link ? ` — ${d.link}` : ""}`).join("\n")}` : ""}\n\nThanks,\n${me}`,
+    drawings: dr,
+    vendorEmail: (v && v.email) || "",
+  };
+}
+const aiConfigured = () => !!(window.SDP_CONFIG && window.SDP_CONFIG.aiUrl);
 async function draftPOEmail(po) {
-  const t = poTotal(po);
-  toast("Drafting…");
-  const r = await ai(
-      `Write a short email from ${DB.company.name || "our firm"} to vendor ${po.vendor} transmitting purchase order ${po.number} for ${money(t.total)}${po.expected ? `, requested delivery ${fmtL(po.expected)}` : ""}. Lines: ${po.lines.map((l) => `${l.qty} ${l.unit} ${l.item} @ ${money(l.price)}`).join("; ")}. Ask them to confirm price, lead time and the delivery date, and to reference the PO number on invoices. Plain text, under 110 words, subject line first.`,
-    ),
-    text = r.startsWith("__ERR")
-      ? `Subject: ${po.number} — ${S.project.name}\n\nHi,\n\nAttached is ${po.number} for ${money(t.total)}${po.expected ? `, requested delivery ${fmtL(po.expected)}` : ""}. Please confirm price, lead time and delivery date, and reference the PO number on your invoice.\n\nThanks,\n${S.project.userName || DB.company.name}`
-      : r,
-    subj = (text.match(/^Subject:\s*(.*)$/im) || [])[1] || po.number,
-    body = text.replace(/^Subject:.*\n+/im, "");
+  // The template opens at once; the model only improves the wording when the firm has an AI endpoint
+  // (before this, ai() retried against no endpoint for 23 seconds before the same template appeared).
+  const T = poEmailTemplate(po),
+    mail = "function" == typeof gcOn && gcOn();
   (editing = { kind: "emaildraft" }),
     $("#scrim").classList.add("on"),
     $("#drawer").classList.add("on"),
-    ($("#d-title").textContent = "Email to vendor"),
+    ($("#d-title").textContent = "Email to Vendor"),
     ($("#d-delete").style.display = "none"),
     ($("#d-body").innerHTML =
-      `<div class="f"><label>Subject</label><input id="em-subj" value="${esc(subj)}"></div><div class="f"><label>Body</label><textarea style="min-height:200px" id="em-body">${esc(body)}</textarea></div><button class="btn sm" id="em-copy">Copy</button>`),
+      `<div class="f"><label>To</label><input id="em-to" value="${esc(T.vendorEmail)}" placeholder="${esc(po.vendor)}'s address"></div><div class="f"><label>Subject</label><input id="em-subj" value="${esc(T.subject)}"></div><div class="f"><label>Body</label><textarea style="min-height:220px" id="em-body">${esc(T.body)}</textarea></div><div class="small muted" id="em-note">${T.drawings.length ? `${T.drawings.length} drawing${1 === T.drawings.length ? "" : "s"} linked.` : "No drawings on this job yet."}${aiConfigured() ? " Improving the wording…" : ""}</div><button class="btn sm" id="em-copy">Copy</button>`),
     ($("#em-copy").onclick = () => {
-      navigator.clipboard?.writeText(`Subject: ${$("#em-subj").value}\n\n${$("#em-body").value}`),
-        toast("Copied");
+      navigator.clipboard?.writeText(`Subject: ${$("#em-subj").value}\n\n${$("#em-body").value}`), toast("Copied");
     }),
-    ($("#d-save").textContent = "Open in mail app"),
+    ($("#d-save").textContent = mail ? "Save to Mailbox Drafts" : "Open in Mail App"),
     ($("#d-save").onclick = () => {
-      (window.location.href = `mailto:?subject=${encodeURIComponent($("#em-subj").value)}&body=${encodeURIComponent($("#em-body").value)}`),
-        closeEditor();
+      const to = $("#em-to").value.trim(),
+        subject = $("#em-subj").value,
+        body = $("#em-body").value;
+      if (!mail)
+        return (window.location.href = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`), void closeEditor();
+      if (!to || !/@/.test(to)) return void toast(`${po.vendor} has no email on file — add it in To`);
+      const v = "function" == typeof vendorRec ? vendorRec(po.vendor) : null;
+      v && !v.email && (v.email = to);
+      gaDraft({ to: to, subject: subject, body: body, why: `${po.number} to ${po.vendor}` })
+        .then(() => {
+          (po.emailedAt = today()), (po.emailDraft = { at: appNowIso(), to: to, drawings: T.drawings.map((d) => d.name) }), save(), closeEditor(), render();
+          rcToast(`${po.number} drafted to ${po.vendor} in your mailbox's Drafts${T.drawings.length ? ` — ${T.drawings.length} drawing${1 === T.drawings.length ? "" : "s"} linked` : ""}`, [{ label: "Open", run: () => ((cmFilter = "all"), (view = "comms"), render()) }]);
+        })
+        .catch((e) => toast("The mailbox refused the draft: " + (e.message || e)));
     });
+  if (!aiConfigured()) return;
+  const before = $("#em-body").value,
+    r = await ai(
+      `Improve this purchase order email from ${DB.company.name || "our firm"} to vendor ${po.vendor}. Keep every fact, number, date and link; plain text; under 140 words; no subject line.\n\n${before}`,
+    );
+  const ta = $("#em-body"),
+    note = $("#em-note");
+  ta && !r.startsWith("__ERR") && ta.value === before && (ta.value = r), note && (note.textContent = note.textContent.replace(" Improving the wording…", ""));
 }
 let mtgState = null;
 function meetingSkillUI() {
@@ -15624,10 +15682,12 @@ function planDriverDay(driverName) {
         }
       } else s.drop.push(x);
     });
-  const buys = items.filter((x) => !x.it.invId && !x.it.garbage),
+  const vendorPick = items.filter((x) => !x.it.invId && !x.it.garbage && /^v:/.test(x.it.pickupFrom || "")),
+    buys = items.filter((x) => !x.it.invId && !x.it.garbage && !vendorPick.includes(x)),
     whPickups = items.filter(
       (x) => x.it.invId && (!x.it.pickupFrom || "wh" === x.it.pickupFrom || "truck" === x.it.pickupFrom),
-    ),
+    );
+  const
     stops = [];
   let load = 0,
     garbageOnBoard = 0;
@@ -15642,6 +15702,18 @@ function planDriverDay(driverName) {
         load: r2(load),
         garbage: r2(garbageOnBoard),
       });
+  // a paid order ready at a vendor's yard (the "ready for pickup" mail) is a stop of its own
+  [...new Set(vendorPick.map((x) => x.it.pickupFrom.slice(2)))].forEach((vn) => {
+    const mine = vendorPick.filter((x) => x.it.pickupFrom.slice(2) === vn);
+    mine.forEach((x) => (load += itemVolume(x.it)));
+    push(
+      "pickup",
+      vn,
+      null,
+      mine.map((x) => `Pick up ${x.it.qty} ${x.it.unit} ${x.it.what} → ${x.p.project.name}${x.r.orderRef ? ` (order ${x.r.orderRef}, paid)` : " (paid)"}`),
+      mine[0].r.neededBy ? `Ready at the yard; pick up by ${fmt(mine[0].r.neededBy)} or it is restocked.` : "Ready at the yard.",
+    );
+  });
   if (
     (whPickups.length &&
       (whPickups.forEach((x) => (load += itemVolume(x.it))),
@@ -20554,14 +20626,32 @@ function askText(msg) {
 function appConfirm(msg, opts) {
   const had = askTake(msg);
   if (void 0 !== had) return !0 === had;
-  const o = opts || {};
-  return (
-    mbModal(o.title || "Please Confirm", `<div class="note ${o.tone || "warn"}">${askText(msg)}</div>`, {
-      submit: o.yes || "Yes, Continue",
-      onSubmit: () => askReplay(msg, !0),
-    }),
-    !1
-  );
+  const o = opts || {},
+    // Asked from inside a modal's submit (the PO picker's budget check): that modal is held aside, not
+    // destroyed, so "Yes, Continue" can replay its submit; before this the replay clicked a removed button
+    // and created nothing.
+    asker = askEl && askEl.isConnected ? askEl : null,
+    held = asker ? asker.closest("#mbm") : null;
+  held && ((held.id = "mbm-held"), (held.style.display = "none"));
+  const restore = () => {
+    held && held.isConnected && ((held.id = "mbm"), (held.style.display = ""));
+  };
+  const m = mbModal(o.title || "Please Confirm", `<div class="note ${o.tone || "warn"}">${askText(msg)}</div>`, {
+    submit: o.yes || "Yes, Continue",
+    // the confirm closes itself first (it is the only #mbm then); the asking modal comes back and its
+    // submit is replayed with the answer remembered
+    onSubmit: () => {
+      setTimeout(() => {
+        restore(), (askEl = asker), askReplay(msg, !0);
+      }, 0);
+    },
+  });
+  if (held) {
+    const iv = setInterval(() => {
+      document.body.contains(m) || (clearInterval(iv), restore());
+    }, 120);
+  }
+  return !1;
 }
 function appPrompt(msg, def, opts) {
   const had = askTake(msg);
@@ -20591,28 +20681,37 @@ function mbModal(title, body, opts = {}) {
     (m.innerHTML = `<div class="mbm-box" role="dialog" aria-label="${esc(title)}"><div class="mbm-hd"><h3>${title}</h3><button class="mbm-x" aria-label="Close" title="Close"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div><div class="mbm-bd">${body}</div><div class="mbm-ft"><button class="btn" id="mbm-cancel">Cancel</button>${opts.alt ? `<button class="btn" id="mbm-alt">${opts.alt.label}</button>` : ""}${null !== opts.submit ? `<button class="btn primary" id="mbm-ok">${opts.submit || "Save"}</button>` : ""}</div></div>`),
     document.body.appendChild(m);
   const close = () => mbCloseModal();
+  // the buttons are looked up inside this modal: a confirm asked from another modal's submit holds that
+  // modal aside in the document, and a document-wide lookup found its buttons first
   (m.querySelector(".mbm-x").onclick = close),
-    ($("#mbm-cancel").onclick = close),
+    (m.querySelector("#mbm-cancel").onclick = close),
     m.addEventListener("click", (e) => {
       e.target === m && close();
     });
-  const alt = $("#mbm-alt");
+  const alt = m.querySelector("#mbm-alt");
   alt &&
     (alt.onclick = () => {
       opts.alt.keep || close(), opts.alt.run && opts.alt.run();
     });
-  const ok = $("#mbm-ok");
+  const ok = m.querySelector("#mbm-ok");
   ok &&
     (ok.onclick = () => {
       const f = {};
       m.querySelectorAll("[data-f]").forEach(
         (i) => (f[i.dataset.f] = "checkbox" === i.type ? i.checked : i.value.trim()),
       );
+      // appConfirm asked from inside this submit replays by clicking this button (askReplay)
+      askEl = ok;
       !1 !== (opts.onSubmit && opts.onSubmit(f)) && close();
     }),
     m.addEventListener("keydown", (e) => {
       "Escape" === e.key && close(), "Enter" === e.key && "TEXTAREA" !== e.target.tagName && ok && ok.click();
     });
+  // Escape closes the modal from anywhere on the page, not only when a field inside it has focus
+  const onEsc = (e) => {
+    document.body.contains(m) ? "Escape" === e.key && "mbm" === m.id && (e.preventDefault(), close()) : document.removeEventListener("keydown", onEsc);
+  };
+  document.addEventListener("keydown", onEsc);
   const first = m.querySelector("input,textarea,select");
   return first && setTimeout(() => first.focus(), 30), m;
 }
@@ -27579,10 +27678,11 @@ function jobFin(p, range) {
     accruedBills = bills.filter((b) => BILL_ACCRUED.includes(b.status)),
     billsAmt = r2(costedBills.reduce((a, b) => a + billTotal(b), 0)),
     accrued = r2(accruedBills.reduce((a, b) => a + billTotal(b), 0)),
+    // a vendor credit coded to the job (refund) reduces its cost: it is summed with its sign (BACKLOG §1.5 #4)
     txns = DB.txns.filter(
       (t) =>
         t.projectId === p.id &&
-        t.amt < 0 &&
+        (t.amt < 0 || "refund" === t.cat) &&
         isJobCat(t.cat) &&
         "labor" !== t.cat &&
         inRng(t.date) &&
@@ -32439,7 +32539,8 @@ function buyList(scope) {
             }),
             c &&
               c.estimates
-                .filter((e) => "converted" === e.status && e.projectId === p.id)
+                // a design or services estimate (hours, filings) has nothing to buy
+                .filter((e) => "converted" === e.status && e.projectId === p.id && "design" !== e.template)
                 .forEach((d) => {
                   "construction" === d.template && ctNumber(d),
                     d.lines.forEach((l) => {
@@ -32567,9 +32668,12 @@ function renderBuyBoard() {
     shown
       .map((r, i) => {
         const act = r.ordered
-          ? r.eta
-            ? `<button class="btn sm" data-buy="recv|${r.p.id}">Received</button>`
-            : `<input type="date" data-buyeta="${r.p.id}:${r.m?.id || ""}" title="Confirm ETA" style="height:30px">`
+          ? (r.po
+              ? ""
+              : `<button class="btn sm" data-buy="exp|${r.p.id}|||${r.m ? r.m.id : ""}" title="No purchase order behind this: ask the vendor where it is, set the vendor and the date">Expedite</button>${r.vendor ? "" : `<button class="btn sm" data-buy="vend|${r.p.id}|||${r.m ? r.m.id : ""}">Set Vendor</button>`}`) +
+            (r.eta
+              ? `<button class="btn sm" data-buy="recv|${r.p.id}">Received</button>`
+              : `<input type="date" data-buyeta="${r.p.id}:${r.m?.id || ""}" title="Confirm ETA" style="height:30px">`)
           : r.dec
             ? `<button class="btn sm" data-buy="dec|${r.p.id}|${r.dec.id}">Get decision</button>`
             : `<button class="btn sm ${r.key ? "primary" : ""}" data-buy="po|${r.p.id}|${r.d ? r.d.id : ""}|${r.key || ""}|${r.m ? r.m.id : ""}" title="${r.key ? "Start a purchase order for this line" : "This item is not on an estimate line yet — set the vendor and cost first"}">${r.key ? "Create PO" : "Set Up to Order"}</button>`;
@@ -32597,7 +32701,11 @@ function renderBuyBoard() {
               S.id !== p.id && setCurrent(p.id),
               "recv" === k
                 ? ((view = "recv"), void render())
-                : "dec" === k
+                : "exp" === k
+                  ? void buyExpedite(p, mid)
+                  : "vend" === k
+                    ? (openEditor("mat", mid), void toast("Set the vendor, then the order has someone to chase"))
+                    : "dec" === k
                   ? ((view = "dec"), void render())
                   : void (
                       "po" === k &&
@@ -32780,7 +32888,8 @@ ctPOPicker = function (projectId, preferId, preKey) {
                     ((need = nb.needBy), (needTask = nb.task?.name || ""));
                 }
               }),
-                need && ((po.needBy = need), (po.needTask = needTask), po.expected || (po.expected = need));
+                // the need-by is ours; Vendor Promised stays empty until the vendor gives a date
+                need && ((po.needBy = need), (po.needTask = needTask));
               const v = DB.vendors.find((x) => x.name.toLowerCase() === po.vendor.toLowerCase());
               v && v.depositPct && !po.schedule && (po.depositPct = v.depositPct);
             }),
@@ -32794,7 +32903,8 @@ ctPOPicker = function (projectId, preferId, preKey) {
 const poActionBase = poAction;
 poAction = function (po, a) {
   const r = poActionBase(po, a);
-  if ("issue" === a) {
+  // Only an issued PO marks its materials ordered: a refused issue (poValid) leaves the board alone.
+  if ("issue" === a && "issued" === po.status) {
     const p = DB.projects.find((x) => x.id === po.projectId);
     p &&
       po.lines.forEach((l) => {
@@ -36618,7 +36728,7 @@ poAction = function (po, a) {
     ("issue" === a && "draft" === po.status && poNeedsApproval(po) && !owner && (a = "submit"),
     "submit" === a)
   )
-    return po.vendor && po.lines.length
+    return !poValid(po).length
       ? ((po.status = "pending"),
         (po.submittedBy = by),
         (po.submittedAt = today()),
@@ -36626,7 +36736,7 @@ poAction = function (po, a) {
         log(`${po.number} submitted for approval — ${money(poTotal(po).total)}`),
         save(),
         void render())
-      : void toast("Add a vendor and at least one line");
+      : void poRefuse(po, poValid(po));
   if ("approve" === a)
     return owner
       ? ((po.status = "draft"),
@@ -45400,6 +45510,7 @@ function fSeed() {
         to: "coord",
         cc: ["pm"],
         dueBy: "2026-09-04",
+        needBy: "2026-09-14",
         by: "Angel",
         at: "2026-09-03T07:50:00",
         status: "sent",
@@ -46518,7 +46629,7 @@ function fOfficeCard(opts = {}) {
         p = DB.projects.find((x) => x.id === r.projectId),
         late = r.dueBy < today(),
         mine = r.to === k;
-      return `<div class="f-row col ${r.escalated || late ? "bad" : "answered" === r.status ? "ok" : ""}"><div class="row" style="gap:6px;align-items:flex-start"><div class="grow"><span class="small muted">${esc(t.n)} · ${esc(shortName ? shortName(p) : p?.project.name || "")} · ${esc(r.by)} · ${fAgo(r.at)} ago · needs it by <b>${fmt(r.dueBy)}</b>${r.taskId ? ` · holds ${esc(p?.tasks.find((x) => x.id === r.taskId)?.name || "")}` : ""}${mine ? "" : ` · to ${esc(fPerson(r.to)?.name || r.to)}`}</span><b>${esc(r.title)}</b>${r.sheet ? `<span class="small">Sheet ${esc(r.sheet)}</span>` : ""}${r.guess ? `<span class="small">Foreman's take: ${esc(r.guess)}</span>` : ""}${r.note ? `<span class="small">${esc(r.note)}</span>` : ""}${r.photos?.length ? `<div class="f-thumbs">${r.photos.map((s) => `<img src="${s}">`).join("")}</div>` : ""}${r.answer ? `<div class="f-answer">${esc(r.answer)} <span class="small muted">— ${esc(r.answeredBy)}</span></div>` : ""}</div><span class="pill ${"answered" === r.status ? "ok" : r.escalated || late ? "bad" : "warn"}">${"answered" === r.status ? "answered" : r.escalated ? `no answer in ${t.hrs} h` : late ? "past due" : r.status}</span></div>\n      ${
+      return `<div class="f-row col ${r.escalated || late ? "bad" : "answered" === r.status ? "ok" : ""}"><div class="row" style="gap:6px;align-items:flex-start"><div class="grow"><span class="small muted">${esc(t.n)} · ${esc(shortName ? shortName(p) : p?.project.name || "")} · ${esc(r.by)} · ${fAgo(r.at)} ago · ${r.needBy ? `needs it by <b>${fmt(r.needBy)}</b> · answer by ${fmt(r.dueBy)}` : `needs an answer by <b>${fmt(r.dueBy)}</b>`}${r.taskId ? ` · holds ${esc(p?.tasks.find((x) => x.id === r.taskId)?.name || "")}` : ""}${mine ? "" : ` · to ${esc(fPerson(r.to)?.name || r.to)}`}</span><b>${esc(r.title)}</b>${r.sheet ? `<span class="small">Sheet ${esc(r.sheet)}</span>` : ""}${r.guess ? `<span class="small">Foreman's take: ${esc(r.guess)}</span>` : ""}${r.note ? `<span class="small">${esc(r.note)}</span>` : ""}${r.photos?.length ? `<div class="f-thumbs">${r.photos.map((s) => `<img src="${s}">`).join("")}</div>` : ""}${r.answer ? `<div class="f-answer">${esc(r.answer)} <span class="small muted">— ${esc(r.answeredBy)}</span></div>` : ""}</div><span class="pill ${"answered" === r.status ? "ok" : r.escalated || late ? "bad" : "warn"}">${"answered" === r.status ? "answered" : r.escalated ? `no answer in ${t.hrs} h` : late ? "past due" : r.status}</span></div>\n      ${
         "answered" !== r.status
           ? `<div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap">${"extra" === r.type ? `<button class="btn sm primary" data-fans="${r.id}" data-dec="extra">Proceed as extra</button><button class="btn sm" data-fans="${r.id}" data-dec="nocharge">Do it, no charge</button><button class="btn sm" data-fans="${r.id}" data-dec="hold">Hold</button>` : `<button class="btn sm primary" data-fans="${r.id}">Answer</button>`}${"rfi" === r.type && "designer" !== k ? `<button class="btn sm" data-fhand="${r.id}" data-to="designer">Hand to designer</button>` : ""}${"blocker" === r.type && "coord" !== k ? `<button class="btn sm" data-fhand="${r.id}" data-to="coord">Hand to coordinator</button>` : ""}${(() => {
               const u = DB.users.find((x) => x.name === r.by);
@@ -48464,11 +48575,15 @@ function ctPOPicker(projectId, preferId, preKey) {
               g = (s) => m.querySelector(`[data-${s}="${sel}"]`).value,
               add = (+g("ctpq") || 1) * (+g("ctpc") || 0),
               f = lineFin(ctKey(d, l));
-            l.cost && f && f.committed + add > 1.001 * l.cost && !over.includes(l) && over.push(l);
+            l.cost &&
+              f &&
+              f.committed + add > 1.001 * l.cost &&
+              !over.some((o) => o.l === l) &&
+              over.push({ l: l, by: r2(f.committed + add - l.cost), budget: l.cost });
           }),
           over.length &&
             !appConfirm(
-              `This would commit more than the budget on: ${over.map((l) => (l.num ? l.num + ". " : "") + l.item).join("; ")}. Create anyway?`,
+              `This would commit more than the budget: ${over.map((o) => `${money(o.by)} over the ${money(o.budget)} line (${o.l.num ? o.l.num + ". " : ""}${o.l.item})`).join("; ")}. Create anyway?`,
             ))
         )
           return !1;
@@ -52441,7 +52556,7 @@ function renderProc() {
   (root.innerHTML = `\n  <div class="ph"><div><h2>Procurement — ${esc(S.project.name)}</h2>\n    <p class="lead">Sorted by the date each item has to be bought, not by how long it takes. <b>Order by</b> is the site date minus the lead time minus ${DB.company.recvBuffer ?? 5} business days to receive and move it — the row turns red the day it goes past.</p></div>\n    <div class="acts">\n      <button class="btn" id="proc-clip">Clipper access</button>\n      <button class="btn" id="proc-vendors">Vendors</button>\n      <button class="btn" id="proc-link">Link to schedule${(() => {
     const n = selItems().filter((i) => !i.taskId && selSuggestTask(i)).length;
     return n ? ` · ${n}` : "";
-  })()}</button>\n      <button class="btn" id="proc-recv">Receiving</button>\n      <button class="btn primary" id="proc-run" ${procSel.size ? "" : "disabled"}>Buy run${procSel.size ? ` · ${procSel.size}` : ""}</button>\n    </div></div>\n\n  <div class="sel-stats">\n    <div class="sel-stat ${late.length ? "bad" : ""}"><b>${late.length}</b><span>past the order-by date</span></div>\n    <div class="sel-stat ${soon.length ? "warn" : ""}"><b>${soon.length}</b><span>to order this week</span></div>\n    <div class="sel-stat"><b>${money(openVal)}</b><span>left to buy</span></div>\n    <div class="sel-stat"><b>${money(spent)}</b><span>committed or spent</span></div>\n    <div class="sel-stat ${saved > 0 ? "ok" : ""}"><b>${money(saved)}</b><span>under budget so far</span></div>\n  </div>\n\n  <div class="proc-bar">\n    <div class="proc-filters">\n      ${[
+  })()}</button>\n      <button class="btn" id="proc-recv">Receiving</button>\n      <button class="btn primary" id="proc-run">New Buy Run${procSel.size ? ` · ${procSel.size}` : ""}</button>\n    </div></div>\n\n  <div class="sel-stats">\n    <div class="sel-stat ${late.length ? "bad" : ""}"><b>${late.length}</b><span>past the order-by date</span></div>\n    <div class="sel-stat ${soon.length ? "warn" : ""}"><b>${soon.length}</b><span>to order this week</span></div>\n    <div class="sel-stat"><b>${money(openVal)}</b><span>left to buy</span></div>\n    <div class="sel-stat"><b>${money(spent)}</b><span>committed or spent</span></div>\n    <div class="sel-stat ${saved > 0 ? "ok" : ""}"><b>${money(saved)}</b><span>under budget so far</span></div>\n  </div>\n\n  <div class="proc-bar">\n    <div class="proc-filters">\n      ${[
     ["open", "To buy"],
     ["late", "Late"],
     ["flag", "Flagged"],
@@ -52579,7 +52694,7 @@ function procLinkModal() {
 }
 function procRunModal() {
   const items = [...procSel].map(selItem).filter(Boolean);
-  if (!items.length) return void toast("Pick some items");
+  if (!items.length) return void toast("Tick the items to buy first — a buy run makes one purchase order per vendor from them");
   ((opts) => {
     const made = selPORun(
       items.map((i) => i.id),
@@ -63816,10 +63931,11 @@ if (
 function f3ArrivingHtml() {
   const td = today(),
     subs = ((DB.field && DB.field.subs) || []).filter((s) => s.projectId === S.id && s.date === td),
+    // issued orders only: a draft or a PO still waiting for the owner's approval is not coming to site
     pos = (DB.pos || []).filter(
       (po) =>
         po.projectId === S.id &&
-        !["cancelled", "draft", "received"].includes(po.status) &&
+        ["issued", "partial"].includes(po.status) &&
         (po.expected || po.needBy) &&
         (po.expected || po.needBy) <= td,
     ),
@@ -66077,13 +66193,8 @@ function b2Facts(F) {
     (X.returns = ("function" == typeof retList ? retList() : []).filter(
       (r) => void 0 !== RET_OPEN && RET_OPEN.includes(r.status),
     )),
-    (X.vendorsWeak = [
-      ...new Set(
-        DB.pos.filter((po) => !["cancelled", "draft", "received"].includes(po.status)).map((po) => po.vendor),
-      ),
-    ]
-      .map((v) => DB.vendors.find((x) => x.name === v))
-      .filter((v) => v && (!v.insuranceExp || v.insuranceExp < td))),
+    // one predicate (PRED.vendorsBlocked) for Home's chases and the Vendors tile
+    (X.vendorsWeak = "object" == typeof PRED && PRED.vendorsBlocked ? PRED.vendorsBlocked.rows() : []),
     (X.billsVsPO = DB.bills
       .filter((b) => ["submitted", "pm-approved"].includes(b.status) && b.poId)
       .map((b) => {
@@ -66962,7 +67073,8 @@ function eaAddNote(text, due, by) {
   const n = {
     id: uid("ea"),
     text: text,
-    due: due || "",
+    // a reminder never lands on a weekend: Saturday and Sunday roll to Monday
+    due: due ? poWorkday(due) : "",
     by: by || (currentUser() || {}).name || "",
     at: today(),
     done: !1,
@@ -67173,43 +67285,46 @@ function eaChase(F, X, r) {
   return r ? uniq.filter((c) => (EA_CHASE_FOR[c.kind] || []).includes(r)) : uniq;
 }
 function eaNudge(item) {
+  // A chase is a draft in the person's own mailbox (or outbox) to approve and send, an expectation on the
+  // ledger with a three-working-day follow-up, and a note on the record. Nothing is sent from here, nothing
+  // goes to project chat or the client's activity. Before this the modal said both and did neither.
+  const v = item.vendor || null,
+    who = item.who || null,
+    name = (who && who.name) || (v && v.name) || eaPlain(item.t).replace(/ — .*$/, ""),
+    known = (who && who.email) || (v && v.email) || "",
+    mail = "function" == typeof gcOn && gcOn(),
+    subject = item.subject || ("coi" === item.kind ? `Certificate of insurance — ${name}` : `Following up — ${eaPlain(item.t).replace(/ — .*$/, "")}`);
   mbModal(
-    `Chase — ${item.t.replace(/<[^>]+>/g, "")}`,
-    `<p class="small muted">I've drafted the note. Change anything, then send. It goes on the project chat and the client's activity so everyone knows it was asked.</p><div class="f"><label>To</label><input id="ea-to" value="${esc(item.who ? `${item.who.name}${item.who.email ? " <" + item.who.email + ">" : ""}` : item.vendor ? item.vendor.name : "")}"></div><div class="f"><label>Message</label><textarea id="ea-msg" rows="5">${esc(item.msg || "")}</textarea></div>`,
+    `Chase — ${eaPlain(item.t)}`,
+    `<p class="small muted">${mail ? `The note goes to your mailbox's Drafts${(gcMine() || {}).email ? ` (${esc(gcMine().email)})` : ""} for you to read and send` : "The note goes to your outbox for approval"}. I log that we asked and remind you in three working days if nothing comes back.</p>${known ? "" : mbF("Their Email", `<input type="email" data-f="email" id="ea-email" placeholder="${esc(name)} has no address on file — add it so the draft can go out" autocomplete="off">`)}<div class="f"><label>To</label><input id="ea-to" value="${esc(name)}${known ? ` <${esc(known)}>` : ""}"></div><div class="f"><label>Subject</label><input id="ea-subj" value="${esc(subject)}"></div><div class="f"><label>Message</label><textarea id="ea-msg" rows="5">${esc(item.msg || "")}</textarea></div>`,
     {
-      submit: "Send the nudge",
-      onSubmit: () => {
-        const to = document.getElementById("ea-to").value,
+      submit: mail ? "Draft in My Mailbox" : "Draft for Approval",
+      onSubmit: (f) => {
+        const addr = known || String(f.email || "").trim();
+        if (!addr || !/@/.test(addr)) return toast(`${name} has no email on file — add it so the draft can go out`), !1;
+        const subj = document.getElementById("ea-subj").value,
           msg = document.getElementById("ea-msg").value,
-          by = (currentUser() || {}).name || "";
-        item.p &&
-          item.p.chat &&
-          item.p.chat.push({
-            id: uid("ch"),
-            by: "System",
-            text: `Nudge sent to ${to}: ${msg}`,
-            t: nowStamp(),
-            files: [],
-            system: !0,
-          }),
-          item.c &&
-            item.c.activity.push({
-              t: nowStamp(),
-              by: by,
-              text: `Nudged ${to} — ${"decision" === item.kind ? "decision" : "proposal" === item.kind ? "proposal" : "change order"}: ${msg.slice(0, 80)}…`,
-            }),
-          item.vendor &&
-            (item.vendor.notes =
-              (item.vendor.notes ? item.vendor.notes + "\n" : "") +
-              `${today()} asked for COI: ${msg.slice(0, 60)}…`),
-          eaAddNote(
-            `Follow up: ${item.t.replace(/<[^>]+>/g, "")} — nudged ${fmtL(today())}`,
-            iso(addDays(today(), 3)),
-            by,
-          ),
-          save(),
-          render(),
-          toast("Sent — I'll remind you in three days if nothing comes back");
+          by = (currentUser() || {}).name || "",
+          due = addWork(today(), 3, !1);
+        v && !v.email && (v.email = addr),
+          who && !who.email && (who.email = addr),
+          v && (v.notes = (v.notes ? v.notes + "\n" : "") + `${fmt(today())} asked for ${"coi" === item.kind ? "the COI" : "an answer"}: ${msg.slice(0, 60)}…`);
+        const e = paExpect(name, subj.replace(/^Following up — /, ""), due, { kind: item.kind, vendorId: v ? v.id : "", clientId: item.c ? item.c.id : "" }, today());
+        (e.email = addr), (e.chased = (e.chased || 0) + 1), (e.by = due);
+        eaAddNote(`Follow up: ${eaPlain(item.t)} — asked ${fmtL(today())}`, due, by);
+        const openMail = () => {
+          (cmFilter = "all"), (view = "comms"), render();
+        };
+        if (mail)
+          gaDraft({ to: addr, subject: subj, body: msg, why: `${name} owes ${"coi" === item.kind ? "a certificate of insurance" : "an answer"}` })
+            .then(() => {
+              save(), render(), rcToast(`Draft to ${name} is in your mailbox's Drafts — I will remind you ${fmtL(due)} if nothing comes back`, [{ label: "Open", run: openMail }]);
+            })
+            .catch((err) => {
+              console.warn("chase draft", err), paDraftNote(name, subj, msg, `${name} owes an answer`, `ea|${item.kind}|${name}|${today()}`), save(), render(), rcToast(`The mailbox refused the draft; it is in your outbox for approval — I will remind you ${fmtL(due)}`, [{ label: "Open", run: openMail }]);
+            });
+        else paDraftNote(name, subj, msg, `${name} owes an answer`, `ea|${item.kind}|${name}|${today()}`), save(), render(), rcToast(`Draft to ${name} is in your outbox for approval — I will remind you ${fmtL(due)} if nothing comes back`, [{ label: "Open", run: openMail }]);
+        save(), render();
       },
     },
   );
@@ -67225,7 +67340,7 @@ const eaFirst = () => ((currentUser() || {}).name || "there").split(" ")[0],
       .replace(/&gt;/g, ">");
 function eaRow(n, t, sub, act, data) {
   const N = h4n(n);
-  return `<div class="h4r" ${data ? `data-ea='${esc(JSON.stringify(data))}'` : ""}>${N.col}<span class="grow">${N.tag}${t}${sub ? ` <span class="small muted">· ${sub}</span>` : ""}</span>${act ? `<em class="small">${act}</em>` : ""}</div>`;
+  return `<div class="h4r" ${data ? `data-ea='${esc(JSON.stringify(data))}'` : ""}>${N.col}<span class="grow">${N.tag}${t}${sub ? ` <span class="small muted">· ${sub}</span>` : ""}</span>${act ? `<button type="button" class="btn sm h4-act">${act}</button>` : ""}</div>`;
 }
 function eaToday(r, F, X) {
   const out = [];
@@ -70596,6 +70711,10 @@ function cmApply(c, p) {
       createdBy: "reader",
       commId: c.id,
     };
+    // The bill lands on the purchase order the message names (cmBillPO): job, line, code and category from
+    // the PO line, so Bill Remaining and the over-PO flag count it (purchasing section).
+    const poFor = cmBillPO(c, p);
+    poFor && poLinkBill(b, poFor);
     if (p.txnId) {
       const t = (DB.txns || []).find((x) => x.id === p.txnId);
       t && !t.billId && ((t.billId = b.id), (b.paidTxnId = t.id), (b.status = "paid"), (b.paidAt = t.date));
@@ -70603,7 +70722,7 @@ function cmApply(c, p) {
     DB.bills.push(b),
       DB.vendors.some((v) => v.name.toLowerCase() === (p.vendor || "").toLowerCase()) ||
         DB.vendors.push({ id: uid("v"), name: p.vendor, trade: "", w9: !1, insuranceExp: "" }),
-      (did = `bill ${money(p.amount)} submitted for approval`);
+      (did = `bill ${money(p.amount)} submitted for approval${poFor ? ` against ${poFor.number}${((pr) => (pr ? " on " + String(pr.project.name).replace(/ —.*$/, "") : ""))((DB.projects || []).find((x) => x.id === poFor.projectId))}` : ""}`);
   } else if ("ar" === p.kind)
     p.clientId
       ? cmActivity(
@@ -71701,7 +71820,7 @@ cmApply = function (c, p) {
     "question" === p.kind ||
     "meeting" === p.kind ||
     ("permit" === p.kind && p.task) ||
-    ("quote" === p.kind && !p.out) ||
+    ("quote" === p.kind && !p.out && !p.materialId) ||
     "deposit" === p.kind
   ) {
     if ("deposit" === p.kind) {
@@ -83798,7 +83917,7 @@ function mApprovals() {
           kind: "raise",
           id: x.id,
           sev: x.escalated || "incident" === x.type ? "bad" : "warn",
-          n: x.dueBy ? `by ${x.dueBy.slice(5)}` : "site",
+          n: x.needBy || x.dueBy ? `by ${fmt(x.needBy || x.dueBy)}` : "site",
           title: x.title || x.type,
           detail: [p ? p.project.name : "", x.by || "", x.note || ""].filter(Boolean).join(" · "),
           yes: "Answer",
@@ -83857,6 +83976,34 @@ function mApprovals() {
           }),
         ),
     );
+  // purchase orders over the approval threshold, submitted: the owner's yes or no (DELEGATION po -> owner)
+  (DB.pos || [])
+    .filter((po) => "pending" === po.status)
+    .forEach((po) => {
+      const p = DB.projects.find((x) => x.id === po.projectId),
+        bad = "function" == typeof poValid ? poValid(po) : [];
+      out.push({
+        kind: "po",
+        id: po.id,
+        projectId: po.projectId,
+        sev: bad.length ? "bad" : "warn",
+        n: money(poTotal(po).total),
+        title: `${po.number} · ${po.vendor}`,
+        detail: [
+          p ? p.project.name : "",
+          po.submittedBy ? `submitted by ${po.submittedBy} ${fmt(po.submittedAt)}` : "submitted for approval",
+          `over the ${money(DB.company.poApprovalOver)} threshold`,
+          po.needBy ? `needed on site ${fmt(po.needBy)}` : "",
+          bad.join("; "),
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        yes: "Approve",
+        no: "Reject",
+        open: { view: "po", po: po.id, project: po.projectId },
+        act: "approve",
+      });
+    });
   const rank = (s) => ("bad" === s ? 0 : "warn" === s ? 1 : 2),
     live = (id) => !id || (DB.projects || []).some((p) => p.id === id);
   return out
@@ -85874,7 +86021,8 @@ const TL_SETS = {},
 (TL_SETS.vendors = () => {
   const vs = DB.vendors || [],
     st = (v) => vendorState(v),
-    blocked = vs.filter((v) => st(v).some((f) => "bad" === f.lvl)),
+    blocked = PRED.vendorsBlocked ? PRED.vendorsBlocked.rows() : vs.filter((v) => st(v).some((f) => "bad" === f.lvl)),
+    noCoi = vs.filter((v) => !v.insuranceExp),
     soon = vs.filter((v) => !st(v).some((f) => "bad" === f.lvl) && st(v).some((f) => /expires/i.test(f.m))),
     openB = tlBills().filter((b) => !["paid", "verified"].includes(b.status)),
     byV = {};
@@ -85891,10 +86039,19 @@ const TL_SETS = {},
       v: blocked.length,
       tone: blocked.length ? "bad" : "",
       s: blocked.length
-        ? "expired insurance or license — new POs blocked"
-        : "everyone current on insurance and license",
+        ? "no current certificate of insurance and an order open with them — no new PO until it lands"
+        : "every vendor with an open order has a current certificate",
       grid: "vendors",
-      pred: (v) => st(v).some((f) => "bad" === f.lvl),
+      pred: (v) => PRED.vendorsBlocked.test(v),
+    },
+    {
+      key: "nocoi",
+      k: "No Certificate",
+      v: noCoi.length,
+      tone: noCoi.length ? "warn" : "",
+      s: noCoi.length ? `of ${vs.length} vendors have no certificate of insurance on file` : "a certificate is on file for every vendor",
+      grid: "vendors",
+      pred: (v) => !v.insuranceExp,
     },
     {
       key: "soon",
@@ -101328,7 +101485,7 @@ function b3SaveVerb() {
     b = document.getElementById("d-save");
   if (!t || !b) return;
   if (
-    /^(Import|Create Draft|Open in Mail App|Apply|Done|Close|Send|Record|Post|Approve|Add Time|Build|Run)\b/i.test(
+    /^(Import|Create Draft|Draft|Save to|Open in Mail App|Apply|Done|Close|Send|Record|Post|Approve|Add Time|Build|Run)\b/i.test(
       (b.textContent || "").trim(),
     )
   )
@@ -114260,7 +114417,7 @@ function paExpect(who, about, by, ref, since) {
       email: paEmailFor(who),
       about: String(about || ""),
       since: from,
-      by: by || iso(addDays(today(), 3)),
+      by: poWorkday(by || addWork(today(), 3, !1)),
       ref: ref || null,
       chased: 0,
       closed: !1,
@@ -126948,7 +127105,7 @@ function lkBillDialog(po, o) {
             o.over ? o.over.reason : S.project.userName || role(),
           ),
           log(
-            `Bill ${b.number} from ${po.number} — ${money(billTotal(b))}${o.over ? ` (beyond the order: ${o.over.reason})` : ""}`,
+            `Bill ${b.number} from ${po.number} — ${money(billGross(b))}${+b.retainagePct ? ` (${b.retainagePct}% retainage held)` : ""}${o.over ? ` (beyond the order: ${o.over.reason})` : ""}`,
           ),
           save(),
           render();
@@ -126958,7 +127115,8 @@ function lkBillDialog(po, o) {
                 (view = "ap"), render(), setTimeout(() => openBill(b.id), 60);
               }
             : flowGo.bill(b),
-          text = `Bill from ${po.number} submitted — ${money(billTotal(b))}, due ${fmt(b.due)}${after.remaining > 0.5 ? ` — ${money(after.remaining)} left to bill` : st.billed || o.over ? " — billed in full" : ""}`;
+          held = +b.retainagePct ? r2(billGross(b) - billTotal(b)) : 0,
+          text = `Bill from ${po.number} submitted — ${money(billGross(b))}${held ? ` (${b.retainagePct}% retainage held, ${money(billTotal(b))} payable)` : ""}, due ${fmt(b.due)}${after.remaining > 0.5 ? ` — ${money(after.remaining)} left to bill` : st.billed || o.over ? " — billed in full" : ""}`;
         go ? crToast(text, { label: "Open", run: go }) : toast(text);
       },
     },
@@ -141727,7 +141885,7 @@ function blOpenRow(row) {
   }
 }
 function blRowAct(row) {
-  if (row) return "ready" === row.kind ? rtbAct(row.key) : blOpenRow(row);
+  if (row) return "credit" === row.kind ? blCreditAct(row) : "ready" === row.kind ? rtbAct(row.key) : blOpenRow(row);
 }
 function blTiles() {
   const rows = billingRows(),
@@ -141817,7 +141975,9 @@ if (
     BILL_TABS.some((t) => "progress" === t[0]) || BILL_TABS.splice(1, 0, ["progress", "Progress Billing"]);
 }
 const blStage = (r) =>
-    "ready" === r.kind
+    "credit" === r.kind
+      ? ovStatus(r.approved ? "credit approved" : "credit owed", r.approved ? "neutral" : "warn", 1)
+      : "ready" === r.kind
       ? ovStatus("ready", "info", 0)
       : "held" === r.kind
         ? ovStatus("held", "warn", 1)
@@ -141827,7 +141987,11 @@ const blStage = (r) =>
             ? ovStatus("past due", "bad", 3)
             : ovStatus("sent", "neutral", 4),
   blActLabel = (r) =>
-    "ready" === r.kind
+    "credit" === r.kind
+      ? r.approved
+        ? "Open"
+        : "Approve Credit"
+      : "ready" === r.kind
       ? "Draft"
       : "held" === r.kind
         ? "Open WIP"
@@ -153982,6 +154146,7 @@ function smSweep() {
               comments: `${f.name} approved — read from the Studio filing register`,
               date: f.approvedOn || today(),
               by: "LPC (filing register)",
+              system: !0,
             },
             !0,
           )
@@ -153994,6 +154159,7 @@ function smSweep() {
               comments: `LPC raised objections on ${f.name} — see the Studio filing register`,
               date: today(),
               by: "LPC (filing register)",
+              system: !0,
             },
             !0,
           ));
@@ -154338,12 +154504,22 @@ function smRespond(s, p, o, quiet) {
   const r = smRev(s),
     st = smStepOf(s);
   if (!r || !st) return !1;
+  // Who answered is the reviewer (st.by); who clicked is the actor. A response recorded by someone else says
+  // so (recordedBy, onBehalf), a client's own portal approval says portal, a stamped copy is the evidence.
+  const actor = o.system ? "" : smMe(),
+    reviewer = o.by || st.name,
+    onBehalf = !o.portal && !o.system && !!actor && actor.toLowerCase() !== String(reviewer).toLowerCase();
   (st.respondedOn = o.date || today()),
     (st.stamp = o.stamp),
     (st.comments = o.comments || ""),
-    (st.by = o.by || st.name),
+    (st.by = reviewer),
+    (st.recordedBy = onBehalf ? actor : o.system ? "the filing register" : ""),
+    (st.onBehalf = onBehalf),
+    (st.portal = !!o.portal),
+    (st.evidence = o.evidence || ""),
     st.sentOn || (st.sentOn = st.respondedOn),
-    smStamp(s, `${smWho(st)}: ${SM_STAMP[o.stamp]}${st.comments ? ` — ${st.comments}` : ""}`, st.by);
+    smStamp(s, `${smWho(st)}: ${SM_STAMP[o.stamp]}${st.comments ? ` — ${st.comments}` : ""}${smHowText(st)}`, onBehalf ? actor : st.by),
+    onBehalf && smBehalfNotice(s, p, st);
   let msg = "";
   if (["approved", "noted"].includes(o.stamp)) {
     const nx = smStepOf(s);
@@ -154406,7 +154582,7 @@ function smRespondDialog(s, p) {
   st &&
     mbModal(
       `Record Response — <span data-nocase>${esc(smWho(st))}</span>`,
-      `<p class="small muted" style="margin:0 0 10px">${esc(s.number)} Rev ${smRev(s).n} · ${esc(s.title)}. ${"pm" === st.role ? "Your review: check it against the contract, the drawings and the selection before it goes on." : "Copy the stamp and comments from the returned set; attach it if you have it."}</p>\n    <div class="grid2">${mbF("Response", `<select data-f="stamp">${SM_STAMPS.map(([k, l]) => `<option value="${k}">${l}</option>`).join("")}</select>`)}${mbF("Date", `<input type="date" data-f="date" value="${today()}">`)}</div>\n    ${mbF("Reviewer", `<input data-f="by" value="${esc(("pm" === st.role && smMe()) || st.name)}">`)}${mbF("Comments", '<textarea data-f="comments" rows="4" placeholder="What the reviewer marked — the notes travel to the sub and the field"></textarea>')}${mbF("Attach the Stamped Copy", '<input type="file" id="sm-respfile" multiple aria-label="Attach the stamped copy">')}`,
+      `<p class="small muted" style="margin:0 0 10px">${esc(s.number)} Rev ${smRev(s).n} · ${esc(s.title)}. ${"pm" === st.role && smMe().toLowerCase() === String(st.name).toLowerCase() ? "Your review: check it against the contract, the drawings and the selection before it goes on." : `Copy the stamp and comments from the returned set. This is recorded as ${esc(smMe())} on behalf of ${esc(smWho(st))}${"client" === st.role ? ": a client response needs the client's own approval on the portal or the stamped copy attached" : `, and ${esc(st.name)} is told`}.`}</p>\n    <div class="grid2">${mbF("Response", `<select data-f="stamp">${SM_STAMPS.map(([k, l]) => `<option value="${k}">${l}</option>`).join("")}</select>`)}${mbF("Date", `<input type="date" data-f="date" value="${today()}">`)}</div>\n    ${mbF("Reviewer", `<input data-f="by" value="${esc(st.name)}">`)}${mbF("Comments", '<textarea data-f="comments" rows="4" placeholder="What the reviewer marked — the notes travel to the sub and the field"></textarea>')}${mbF("client" === st.role ? "Attach the Stamped Copy (required)" : "Attach the Stamped Copy", '<input type="file" id="sm-respfile" multiple aria-label="Attach the stamped copy">')}`,
       {
         submit: "Record",
         onSubmit: (f) => {
@@ -154414,7 +154590,9 @@ function smRespondDialog(s, p) {
             return toast("Say what has to change — the sub works from these comments"), !1;
           const files = (document.getElementById("sm-respfile") || {}).files,
             fl = files && files.length ? [...files] : [];
-          smRespond(s, p, f), fl.length && smAttach(s, p, fl);
+          if ("client" === st.role && !fl.length)
+            return toast("A client response needs the client's own approval on the portal or the stamped copy attached"), !1;
+          (f.evidence = fl.length ? `stamped copy attached: ${fl.map((x) => x.name).join(", ")}` : ""), smRespond(s, p, f), fl.length && smAttach(s, p, fl);
         },
       },
     );
@@ -154510,31 +154688,9 @@ function smRelease(s, p) {
         return void ctPOPicker(p.id, doc || void 0, m.line);
       } catch (e) {}
     }
-    const vend = m.vendor && !/^tbd$/i.test(m.vendor) ? m.vendor : s.sub,
-      po2 = smDraftPO(
-        p,
-        mats.map((x) => x.m),
-        vend,
-      );
-    smStamp(s, `Order drafted: ${po2.number} to ${vend || "a vendor"}`),
-      smLog(p, `${po2.number} drafted from submittal ${s.number}`),
-      save(),
-      (poOpen = po2.id),
-      (view = "po"),
-      render();
-    try {
-      window.scrollTo(0, 0);
-    } catch (e) {}
-    "function" == typeof rcToast
-      ? rcToast(`${po2.number} drafted from ${s.number} — check the price, then Issue PO`, [
-          {
-            label: `Open ${po2.number}`,
-            run: () => {
-              (poOpen = po2.id), (view = "po"), render();
-            },
-          },
-        ])
-      : toast(`${po2.number} drafted from ${s.number}`);
+    // Release Order asks for the supplier (never the sub who sent the sheets) and carries the submittal's
+    // item, quantity, price, on-site date, task, spec and job onto the draft: smReleaseDialog, purchasing section.
+    smReleaseDialog(s, p, mats);
   }
 }
 function smClose(s, p) {
@@ -154944,7 +155100,7 @@ function smRecHtml(s, p) {
             .filter((x) => x.sentOn || x.respondedOn)
             .map(
               (x) =>
-                `<div class="ops-tle"><span>${fmt(x.respondedOn || x.sentOn)}</span><div><b>${esc(smWho(x))}</b> ${x.respondedOn ? `<span class="pill ${["approved", "noted"].includes(x.stamp) ? "ok" : "revise" === x.stamp ? "warn" : "bad"}">${SM_STAMP[x.stamp]}</span>${x.comments ? `<div class="small">${esc(x.comments)}</div>` : ""}` : `<span class="small muted">sent ${fmt(x.sentOn)} — no answer yet</span>`}</div></div>`,
+                `<div class="ops-tle"><span>${fmt(x.respondedOn || x.sentOn)}</span><div><b>${esc(smWho(x))}</b> ${x.respondedOn ? `<span class="pill ${["approved", "noted"].includes(x.stamp) ? "ok" : "revise" === x.stamp ? "warn" : "bad"}">${SM_STAMP[x.stamp]}</span>${smHowText(x) ? `<span class="small muted">${esc(smHowText(x))}</span>` : ""}${x.comments ? `<div class="small">${esc(x.comments)}</div>` : ""}` : `<span class="small muted">sent ${fmt(x.sentOn)} — no answer yet</span>`}</div></div>`,
             )
             .join("") || '<div class="small muted">No reviewer has seen this revision yet.</div>'
         }</div></div>`;
@@ -154954,7 +155110,7 @@ function smRecHtml(s, p) {
   return `<div class="thd sm-rec" id="sm-rec">\n    <div class="row thd-top"><button class="btn sm" id="sm-back">${thBack} Submittals</button><span class="small muted">${esc(smJob(p))}</span></div>\n    <div class="thd-head"><div class="grow"><h3><span data-nocase>${esc(s.number)}</span> · <span data-nocase>${esc(s.title)}</span></h3><div class="row thd-pills">${smPill(s)}<span class="pill neutral">${SM_TYPES[s.type] || ""}</span><span class="pill neutral">Rev ${r ? r.n : 0}</span><span class="small muted">${esc(s.spec)} ${esc(s.specName || "")} · ${esc(s.sub || "no sub named")}</span>${L.late ? `<span class="small sm-bad">${esc(L.why)}</span>` : L.risk ? `<span class="small sm-warn">${esc(L.riskWhy)}</span>` : ""}</div></div></div>\n    <div class="thd-acts">${acts}</div>\n    <div class="thd-stats">\n      <div><span>Submit By</span><b class="${L.late && "draft" === s.status ? "sm-bad" : ""}">${D.submitBy ? fmtL(D.submitBy) : "—"}</b><i>${D.reviewDays} working days of review before the approve-by date</i></div>\n      <div><span>Approve By</span><b>${D.approveBy ? fmtL(D.approveBy) : "—"}</b><i>${reqSel}</i></div>\n      <div><span>On Site</span><b>${D.onSite ? fmtL(D.onSite) : "—"}</b><i>${D.tk ? `${esc(D.tk.name)} starts ${fmt(D.tk.start)}` : "no task linked"}</i></div>\n      <div><span>Ball in Court</span><b class="${L.late && B ? "sm-bad" : ""}">${B ? esc(smBallText(B)) : "Closed"}</b><i>${B ? esc(smDaysText(B)) : s.closedOn ? `closed ${fmt(s.closedOn)}` : ""}</i></div>\n    </div>\n    ${s.notes ? `<div class="note">${esc(s.notes)}</div>` : ""}\n    <div class="sm-grid2"><div class="card"><div class="hd"><h3>Reviewers</h3><span class="small muted">${smLandmarked(p) ? "landmarked house" : "not landmarked"}</span></div><ol class="sm-steps">${steps
     .map((x, i) => {
       const cur = st === x && live;
-      return `<li class="sm-step ${x.respondedOn ? (["approved", "noted"].includes(x.stamp) ? "ok" : "bad") : cur ? "on" : ""}"><span class="sm-step-n">${i + 1}</span><div class="grow"><b>${esc(SM_ROLE[x.role])}</b> <span class="small muted">${esc("lpc" === x.role ? "LPC staff" : x.name)} · ${+x.days || SM_DAYS[x.role]} working days</span><div class="small">${x.respondedOn ? `<span class="pill ${["approved", "noted"].includes(x.stamp) ? "ok" : "revise" === x.stamp ? "warn" : "bad"}">${SM_STAMP[x.stamp]}</span> ${fmt(x.respondedOn)}${x.by && x.by !== x.name ? ` · ${esc(x.by)}` : ""}` : live && cur && B && !B.toSend ? `Ball in court · ${esc(smDaysText(B))}${x.sentOn ? ` · sent ${fmt(x.sentOn)}` : ""}` : live && cur && B && B.toSend ? "checked by us — to send" : ["revise", "rejected"].includes(s.status) ? "not reached on this revision" : x.sentOn ? `sent ${fmt(x.sentOn)}` : "draft" === s.status ? "after it is submitted" : "not sent yet"}</div></div></li>`;
+      return `<li class="sm-step ${x.respondedOn ? (["approved", "noted"].includes(x.stamp) ? "ok" : "bad") : cur ? "on" : ""}"><span class="sm-step-n">${i + 1}</span><div class="grow"><b>${esc(SM_ROLE[x.role])}</b> <span class="small muted">${esc("lpc" === x.role ? "LPC staff" : x.name)} · ${+x.days || SM_DAYS[x.role]} working days</span><div class="small">${x.respondedOn ? `<span class="pill ${["approved", "noted"].includes(x.stamp) ? "ok" : "revise" === x.stamp ? "warn" : "bad"}">${SM_STAMP[x.stamp]}</span> ${fmt(x.respondedOn)}${x.by && x.by !== x.name ? ` · ${esc(x.by)}` : ""}${esc(smHowText(x))}` : live && cur && B && !B.toSend ? `Ball in court · ${esc(smDaysText(B))}${x.sentOn ? ` · sent ${fmt(x.sentOn)}` : ""}` : live && cur && B && B.toSend ? "checked by us — to send" : ["revise", "rejected"].includes(s.status) ? "not reached on this revision" : x.sentOn ? `sent ${fmt(x.sentOn)}` : "draft" === s.status ? "after it is submitted" : "not sent yet"}</div></div></li>`;
     })
     .join(
       "",
@@ -155594,7 +155750,8 @@ if ("function" == typeof renderPODoc) {
         })().map((s) => {
           const r = smRev(s),
             n = r ? r.steps.filter((x) => "noted" === x.stamp && x.comments).map((x) => x.comments) : [];
-          return `<a href="#" data-smgo="${esc(s.id)}">${esc(s.number)}</a> ${esc(SM_STATUS["closed" === s.status ? (r && r.steps.some((x) => "noted" === x.stamp) ? "noted" : "approved") : s.status])}${s.approvedOn ? ` ${fmt(s.approvedOn)}` : ""}${n.length ? ` — build to the notes: ${esc(n.join(" "))}` : ""}`;
+          const how = r ? r.steps.filter((x) => x.respondedOn && smHowText(x)).map((x) => `${smWho(x)}${smHowText(x)}`) : [];
+          return `<a href="#" data-smgo="${esc(s.id)}">${esc(s.number)}</a> ${esc(SM_STATUS["closed" === s.status ? (r && r.steps.some((x) => "noted" === x.stamp) ? "noted" : "approved") : s.status])}${s.approvedOn ? ` ${fmt(s.approvedOn)}` : ""}${how.length ? ` (${esc(how.join("; "))})` : ""}${n.length ? ` — build to the notes: ${esc(n.join(" "))}` : ""}`;
         }),
         okNote = notes.length
           ? `<div class="note sm-ponote small"><b>Submittal${1 === notes.length ? "" : "s"}:</b> ${notes.join("; ")}</div>`
@@ -155928,7 +156085,7 @@ document.addEventListener("click", (e) => {
   }
   if ("ok" === k)
     return (
-      smRespond(s, p, { stamp: "approved", comments: "Approved on the portal", by: me }, !0),
+      smRespond(s, p, { stamp: "approved", comments: "", by: me, portal: !0 }, !0),
       (p.chat = p.chat || []).push({
         id: uid("ch"),
         by: me,
@@ -155955,7 +156112,7 @@ document.addEventListener("click", (e) => {
       submit: "Send",
       onSubmit: (f) => {
         if (!f.why) return toast("Tell us what you would like changed"), !1;
-        smRespond(s, p, { stamp: "revise", comments: f.why, by: me }, !0),
+        smRespond(s, p, { stamp: "revise", comments: f.why, by: me, portal: !0 }, !0),
           (p.chat = p.chat || []).push({
             id: uid("ch"),
             by: me,
@@ -165492,7 +165649,7 @@ function tdCard(it) {
     if (r) {
       c.line1 = `<a href="#" data-tdrec>${esc(tdWords(r.title, 12))}</a>`;
       c.go = flowGo.raise(r);
-      c.why = `${esc(r.by || "The foreman")} waiting${r.dueBy ? " · needs it " + fmt(r.dueBy) : ""}${p && tdRaiseJobs() > 1 ? " · " + esc(tdJob(p)) : ""}`;
+      c.why = `${esc(r.by || "The foreman")} waiting${r.needBy ? " · needs it " + fmt(r.needBy) + " · answer by " + fmt(r.dueBy) : r.dueBy ? " · answer by " + fmt(r.dueBy) : ""}${p && tdRaiseJobs() > 1 ? " · " + esc(tdJob(p)) : ""}`;
       c.verb = "Answer";
       c.run = () => fAnswerRaise(r, "extra" === r.type ? "extra" : "");
     }
@@ -168982,6 +169139,951 @@ AG_FIN.unshift(
     };
   }
 }
+/* ---------------------------------------------------------------------------
+   purchasing (round 5, coordinator review; BACKLOG §1.4 #1). Release Order drafted PO-2026-049 to the
+   electrician who sent the cut sheets, at $0, and Issue PO went through, marking the lighting ordered and
+   taking it off the Buy Board. One house validator now sits in front of every issue path (poValid: the root
+   poAction, Submit for approval, the owner's Approve, the submittal override, buy runs and the picker all
+   end in poAction), a refusal says why, Release Order asks for the supplier and carries the submittal's
+   facts, and a boot repair takes an already-issued PO with no vendor or a $0 line back to draft and puts
+   its materials back on the board.
+   --------------------------------------------------------------------------- */
+const PO_PLACEHOLDER = /^(?:\W*choose (?:the )?(?:vendor|supplier)\W*|vendor tbd|tbd|unassigned vendor|vendor|none|n\/a)$/i;
+// The vendor record a PO's vendor text names, or null for nothing, a placeholder or a name not on file.
+function poVendorReal(name) {
+  const n = String(name || "").trim();
+  if (!n || PO_PLACEHOLDER.test(n)) return null;
+  return (DB.vendors || []).find((v) => String(v.name || "").trim().toLowerCase() === n.toLowerCase()) || null;
+}
+// The reasons a purchase order cannot be issued, in the words the toast carries; [] when it can.
+function poValid(po) {
+  if (!po) return ["no purchase order"];
+  const R = [],
+    v = poVendorReal(po.vendor);
+  v ||
+    R.push(
+      po.vendor && !PO_PLACEHOLDER.test(po.vendor)
+        ? `${po.vendor} is not a vendor on file — choose the supplier`
+        : "no vendor chosen",
+    );
+  const lines = (po.lines || []).filter((l) => l.item || l.desc || +l.price || +l.qty);
+  lines.length || R.push("no lines");
+  lines.forEach((l) => {
+    const nm = l.item || l.desc || "a line";
+    +l.qty > 0 || R.push(`no quantity on ${nm}`), +l.price > 0 || R.push(`$0 on ${nm}`);
+  });
+  po.needBy || po.expected || R.push("no need-by date");
+  return R;
+}
+function poRefuse(po, R) {
+  const msg = `${(po && po.number) || "This purchase order"} cannot be issued — ${(R || []).join("; ")}`;
+  try {
+    rcToast(msg, po && "function" == typeof flowCan && flowCan("po") ? [{ label: `Open ${po.number}`, run: flowGo.po(po) }] : null);
+  } catch (e) {
+    toast(msg);
+  }
+}
+// The outermost poAction: nothing issues, submits or approves past the validator, whichever path called it.
+{
+  const base = poAction;
+  poAction = function (po, a) {
+    if (po && ["issue", "submit", "approve"].includes(a) && ["draft", "pending"].includes(po.status)) {
+      const R = poValid(po);
+      if (R.length) return void poRefuse(po, R);
+    }
+    return base.apply(this, arguments);
+  };
+}
+// Vendors for a released item: those who sold it (a PO line names the material or its words) or work its
+// trade first, everyone else after; the sub who sent the submittal is never offered as the supplier.
+function smReleaseVendors(m, s, p) {
+  const words = String(m.name || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9 ]+/g, " ")
+      .split(/\s+/)
+      .filter((w) => w.length > 3),
+    specWords = String((s && (s.specName || s.title)) || "")
+      .toLowerCase()
+      .split(/\W+/)
+      .filter((w) => w.length > 3),
+    subFirst = String((s && s.sub) || "")
+      .toLowerCase()
+      .split(/[\s(]+/)[0],
+    sold = new Set(),
+    trade = new Set();
+  (DB.pos || []).forEach((po) =>
+    (po.lines || []).forEach((l) => {
+      const it = String(l.item || "").toLowerCase();
+      po.vendor && (l.materialId === m.id || words.some((w) => it.includes(w))) && sold.add(po.vendor.toLowerCase());
+    }),
+  );
+  (DB.vendors || []).forEach((v) => {
+    const t = String(v.trade || "").toLowerCase();
+    t &&
+      (words.some((w) => t.includes(w) || w.includes(t)) || specWords.some((w) => t.includes(w) || w.includes(t))) &&
+      trade.add(String(v.name || "").toLowerCase());
+  });
+  const all = (DB.vendors || [])
+      .filter((v) => v.name && !(subFirst.length > 2 && String(v.name).toLowerCase().includes(subFirst)))
+      .sort((a, b) => String(a.name).localeCompare(String(b.name))),
+    first = all.filter((v) => sold.has(v.name.toLowerCase()) || trade.has(v.name.toLowerCase()));
+  return { first: first, rest: all.filter((v) => !first.includes(v)) };
+}
+// Release Order for a material: the draft carries item, quantity, price, on-site date, task, spec and job from
+// the submittal, and asks who supplies it. The sub who sent the sheets is named as the sender, not the supplier.
+function smReleaseDialog(s, p, mats) {
+  const m = mats[0].m,
+    others = mats.slice(1),
+    D = withProject(p, () => matDates(m)),
+    tk = (p.tasks || []).find((t) => t.id === m.taskId),
+    lf = m.line && "function" == typeof lineFin ? lineFin(m.line) : null,
+    qm = String(m.qty || "").match(/([\d.]+)\s*(\w+)?/),
+    qty = qm ? +qm[1] : 1,
+    unit = qm && qm[2] ? qm[2] : "lot",
+    cost = +String(m.cost || "").replace(/[^0-9.]/g, "") || 0,
+    price = cost ? r2(cost / (qty || 1)) : lf && lf.budget ? r2(lf.budget / (qty || 1)) : 0,
+    V = smReleaseVendors(m, s, p),
+    opt = (v) => `<option value="${esc(v.name)}">${esc(v.name)}${v.trade ? ` · ${esc(v.trade)}` : ""}</option>`;
+  mbModal(
+    `Release Order — <span data-nocase>${esc(s.number)}</span>`,
+    `<p class="small muted" style="margin:0 0 10px"><span data-nocase>${esc(s.spec)} ${esc(s.specName || "")}</span> · ${esc(smJob(p))}${tk ? ` · for ${esc(tk.name)}, starts ${fmt(tk.start)}` : ""}. The order carries the item, quantity, price and on-site date from the submittal; choose who supplies it. ${esc(s.sub || "The sub")} sent the ${SM_TYPE_WORD[s.type] || "submittal"} and is not the supplier.</p>
+    ${mbF("Supplier", `<select data-f="vendor"><option value="">— choose the supplier —</option>${V.first.length ? `<optgroup label="Sold this item or works this trade">${V.first.map(opt).join("")}</optgroup>` : ""}<optgroup label="${V.first.length ? "Other vendors" : "Vendors"}">${V.rest.map(opt).join("")}</optgroup></select>`)}
+    <div class="grid2">${mbF("Item", `<input data-f="item" value="${esc(m.name)}">`)}${mbF("Quantity", `<input type="number" step="any" min="0" data-f="qty" value="${qty}">`)}</div>
+    <div class="grid2">${mbF("Unit", `<input data-f="unit" value="${esc(unit)}">`)}${mbF("Unit Price", `<input type="number" step="0.01" min="0" data-f="price" value="${price || ""}" placeholder="${lf && lf.budget ? "budget " + money(lf.budget) : "no price yet — the order waits for one"}">`)}</div>
+    <div class="grid2">${mbF("Needed on Site", `<input type="date" data-f="needBy" value="${D.needBy || ""}">`)}${mbF("Task", `<input data-f="task" value="${esc(tk ? tk.name : "")}" readonly>`)}</div>
+    ${others.length ? `<p class="small muted" style="margin:0">Also released: ${others.map((x) => esc(x.name)).join(", ")} — each gets its own line.</p>` : ""}`,
+    {
+      submit: "Draft the Purchase Order",
+      onSubmit: (f) => {
+        const v = poVendorReal(f.vendor);
+        if (!v) return toast("Choose the supplier — the vendor who sells it, not the sub who sent the sheets"), !1;
+        if (!f.needBy) return toast("Say when the site needs it"), !1;
+        const po = smDraftPO(p, mats.map((x) => x.m), v.name),
+          l0 = po.lines[0];
+        l0 && ((l0.item = f.item || m.name), (l0.qty = +f.qty || 1), (l0.unit = f.unit || unit), (l0.price = +f.price || 0)),
+          (po.needBy = f.needBy),
+          (po.needTask = tk ? tk.name : ""),
+          (po.spec = s.spec),
+          (po.specName = s.specName || ""),
+          (po.submittalId = s.id),
+          (po.notes = `Released by submittal ${s.number} ${s.title} (${s.spec})`),
+          (s.poId = po.id),
+          smStamp(s, `Order drafted: ${po.number} to ${v.name}`),
+          smLog(p, `${po.number} drafted from submittal ${s.number}`),
+          save(),
+          (poOpen = po.id),
+          (view = "po"),
+          render();
+        try {
+          window.scrollTo(0, 0);
+        } catch (e) {}
+        rcToast(`${po.number} drafted from ${s.number} to ${v.name} — ${+f.price ? "check the price, then Issue PO" : "price the line, then Issue PO"}`, [
+          { label: `Open ${po.number}`, run: flowGo.po(po) },
+        ]);
+      },
+    },
+  );
+}
+// Boot repair: a PO that issued with no vendor or a $0 line (PO-2026-049 in the review) goes back to draft,
+// says so on its record, and its materials return to the board.
+function poRepairInvalid() {
+  let n = 0;
+  (DB.pos || []).forEach((po) => {
+    if (!["issued", "partial"].includes(po.status)) return;
+    const R = poValid(po).filter((r) => /vendor|\$0|no lines/.test(r));
+    if (!R.length) return;
+    const p = (DB.projects || []).find((x) => x.id === po.projectId);
+    (po.status = "draft"), (po.repaired = { at: today(), why: R.join("; ") });
+    p &&
+      (po.lines || []).forEach((l) => {
+        const m = l.materialId && (p.materials || []).find((x) => x.id === l.materialId);
+        m &&
+          m.po === po.number &&
+          ["ordered", "shipped"].includes(m.status) &&
+          ((m.status = withProject(p, () => openDecisionFor("mat", m.id)) ? "needs-decision" : "not-ordered"),
+          (m.po = ""),
+          (m.orderedOn = ""),
+          (m.eta = ""));
+      });
+    try {
+      audit("po", po.id, "repaired", "issued", "draft", R.join("; "));
+    } catch (e) {}
+    n++;
+  });
+  return n && save(), n;
+}
+{
+  const base = finishBoot;
+  finishBoot = function () {
+    const r = base.apply(this, arguments);
+    try {
+      poRepairInvalid() && render();
+    } catch (e) {
+      console.warn("po repair", e);
+    }
+    return r;
+  };
+}
+if ("function" == typeof renderPODoc) {
+  const base = renderPODoc;
+  renderPODoc = function (po) {
+    const h = base.apply(this, arguments);
+    if (!po || !po.repaired) return h;
+    return (
+      `<div class="note warn"><b>Taken back to draft.</b> This order had issued with ${esc(po.repaired.why)}; its materials are back on the Buy Board. Choose the supplier and price the lines, then Issue PO. <span class="small muted">${fmt(po.repaired.at)}</span></div>` +
+      h
+    );
+  };
+}
+
+// ---- a bill the reader makes from a vendor's mail lands on its purchase order (review finding 2)
+// The PO a message names: a PO number in the subject, body or attachment text; failing that, the vendor's
+// one open order. Null when it names none and the vendor has several or no open orders.
+function cmBillPO(c, p) {
+  const text = [c && c.subject, c && c.text, ...((c && c.attachments) || []).map((a) => a.text || "")].join("\n"),
+    nums = [...new Set((text.match(/\bPO[-\s]?\d{4}[-\s]?\d{3,}\b/gi) || []).map((x) => x.replace(/\s+/g, "-").toUpperCase()))],
+    byNum = nums.map((n) => (DB.pos || []).find((po) => String(po.number).toUpperCase() === n)).filter((po) => po && "cancelled" !== po.status);
+  if (byNum.length) return byNum[0];
+  const vn = String((p && p.vendor) || "").toLowerCase(),
+    open = vn ? (DB.pos || []).filter((po) => String(po.vendor || "").toLowerCase() === vn && ["issued", "partial"].includes(po.status)) : [];
+  return 1 === open.length ? open[0] : null;
+}
+// Put a bill on its PO: the job, the first PO line's estimate line, cost code and the PO's category (subs,
+// materials...), never office. The bill's first line points at the PO line so Bill Remaining counts it.
+function poLinkBill(b, po) {
+  if (!b || !po) return b;
+  const l = (po.lines || [])[0] || {};
+  (b.poId = po.id),
+    (b.projectId = po.projectId || b.projectId || ""),
+    (b.cat = ("function" == typeof poCat && poCat(po)) || "subs"),
+    (b.code = l.code || b.code || ""),
+    (b.line = l.line || b.line || ""),
+    (b.lines || []).forEach((x, i) => {
+      0 === i && ((x.poLineId = l.id || ""), (x.line = l.line || x.line || ""), (x.code = l.code || x.code || ""));
+    });
+  return b;
+}
+
+// ---- a submittal response recorded on a reviewer's behalf says so (review finding 3)
+// How a step was answered, for the stamp, the register and the PO: the client's own portal approval, a
+// response someone recorded for the reviewer (with the stamped copy when attached), or nothing for a reviewer
+// who answered as themselves.
+function smHowText(st) {
+  if (!st || !st.respondedOn) return "";
+  if (st.portal) return " · approved on the portal";
+  if (st.recordedBy && st.onBehalf) return ` · recorded by ${st.recordedBy} on behalf of ${smWho(st)}${st.evidence ? ` · ${st.evidence}` : ""}`;
+  if (st.recordedBy) return ` · read from ${st.recordedBy}`;
+  return st.evidence ? ` · ${st.evidence}` : "";
+}
+// The reviewer is told: a Messages line on the job and a task to confirm what was recorded for them.
+function smBehalfNotice(s, p, st) {
+  try {
+    const who = st.name || smWho(st),
+      first = String(who).split(" ")[0];
+    (p.chat = p.chat || []).push({
+      id: uid("ch"),
+      by: "System",
+      text: `${s.number}: ${SM_STAMP[st.stamp] || st.stamp} recorded by ${st.recordedBy} on behalf of ${smWho(st)}${st.evidence ? ` (${st.evidence})` : ""} — ${first}, confirm it is yours.`,
+      t: nowStamp(),
+      files: [],
+      system: !0,
+      submId: s.id,
+    });
+    "client" !== st.role &&
+      "lpc" !== st.role &&
+      cmTask(`Confirm the ${(SM_STAMP[st.stamp] || st.stamp).toLowerCase()} recorded for you on ${s.number} ${s.title}`, p.id, who);
+  } catch (e) {
+    console.warn("submittal on-behalf notice", e);
+  }
+}
+
+// ---- a PO over the threshold reaches the owner (review finding 4)
+// Whose queue: the owner's. The producer sits in the root mApprovals; the last delegation layer hands it over.
+DELEGATION.po = { role: "owner", rule: "a purchase order over the approval threshold waits on the owner, who approves and issues it or sends it back" };
+APPR_CHIPS.some(([k]) => "po" === k) || APPR_CHIPS.splice(APPR_CHIPS.length - 1, 0, ["po", "Purchase Orders"]);
+// The one yes on a pending PO, from Approvals or Do Now: the owner's approve-and-issue through poAction, so the
+// validator, the submittal gate and the vendor block all still apply.
+function apprPOYes(it) {
+  const po = (DB.pos || []).find((x) => x.id === it.id);
+  if (!po) return;
+  const keep = S,
+    p = DB.projects.find((x) => x.id === po.projectId);
+  p && (S = p);
+  try {
+    poAction(po, "approve");
+  } catch (e) {
+    console.warn(e), toast("Could not approve: " + (e.message || e));
+  }
+  (S = keep), render();
+}
+function apprPONo(it) {
+  const po = (DB.pos || []).find((x) => x.id === it.id);
+  if (!po) return;
+  mbModal(
+    `Send Back — <span data-nocase>${esc(po.number)}</span>`,
+    `<p class="small muted" style="margin:0 0 10px">${esc(po.vendor)} · ${money(poTotal(po).total)}. It goes back to draft for ${esc(po.submittedBy || "the coordinator")} with your note.</p>${mbF("Why", '<input data-f="why" placeholder="e.g. get a second price; the line is over budget" enterkeyhint="done">')}`,
+    {
+      submit: "Send Back",
+      onSubmit: (f) => {
+        if (!f.why) return toast("Say why it goes back"), !1;
+        const keep = S,
+          p = DB.projects.find((x) => x.id === po.projectId);
+        p && (S = p);
+        try {
+          (po.sentBack = { by: smMe(), at: today(), why: f.why }), poAction(po, "reject");
+        } catch (e) {
+          console.warn(e);
+        }
+        (S = keep), render();
+        rcToast(`${po.number} sent back to draft — ${f.why}`, flowCan("po") ? [{ label: `Open ${po.number}`, run: flowGo.po(po) }] : null);
+      },
+    },
+  );
+}
+if ("function" == typeof renderMApprove) {
+  const base = renderMApprove;
+  renderMApprove = function () {
+    const r = base.apply(this, arguments);
+    try {
+      const v = document.getElementById("v-mapprove"),
+        items = v ? mApprovals() : [];
+      v &&
+        v.querySelectorAll('.m-appr[data-mk="po"]').forEach((el) => {
+          const it = items.find((x) => "po" === x.kind && String(x.id) === el.dataset.mid);
+          if (!it) return;
+          const yes = el.querySelector("[data-myes]"),
+            no = el.querySelector("[data-mno]");
+          yes && (yes.onclick = () => apprPOYes(it)), no && (no.onclick = () => apprPONo(it));
+        });
+    } catch (e) {
+      console.warn("po approvals", e);
+    }
+    return r;
+  };
+}
+// Open from Approvals or Do Now lands on the PO record.
+{
+  const base = mGo;
+  mGo = function (go) {
+    if (go && go.po && "po" === go.view) {
+      const po = (DB.pos || []).find((x) => x.id === go.po);
+      if (po) return po.projectId && setCurrent(po.projectId), (poOpen = po.id), (view = "po"), render(), void window.scrollTo(0, 0);
+    }
+    return base.apply(this, arguments);
+  };
+}
+// The Do Now card: what it is, why now, one verb (Approve).
+if ("function" == typeof tdCard) {
+  const base = tdCard;
+  tdCard = function (it) {
+    const c = base.apply(this, arguments);
+    if (!it || "po" !== it.kind) return c;
+    const po = (DB.pos || []).find((x) => x.id === it.id);
+    if (!po) return c;
+    const p = DB.projects.find((x) => x.id === po.projectId);
+    (c.line1 = `<a href="#" data-tdrec>${esc(po.number)}</a> · ${esc(po.vendor)}`),
+      (c.go = flowGo.po(po)),
+      (c.why = [money(poTotal(po).total), `over the ${money(DB.company.poApprovalOver)} threshold`, po.submittedBy ? `from ${po.submittedBy}` : "", p ? tdJob(p) : ""].filter(Boolean).map(esc).join(" · ")),
+      (c.verb = "Approve"),
+      (c.run = () => apprPOYes(it));
+    return c;
+  };
+}
+if ("function" == typeof tdScore) {
+  const base = tdScore;
+  tdScore = function (it) {
+    return it && "po" === it.kind ? 45 + ("bad" === it.sev ? 5 : 2) : base.apply(this, arguments);
+  };
+}
+// Submit and approve say what happened, with Open: the submit path had no toast, so the coordinator did not
+// know the PO had left her hands.
+{
+  const base = poAction;
+  poAction = function (po, a) {
+    const was = po ? po.status : "",
+      r = base.apply(this, arguments);
+    try {
+      if (po && ["issue", "submit"].includes(a) && "draft" === was && "pending" === po.status)
+        rcToast(
+          `${po.number} sent for the owner's approval — ${money(poTotal(po).total)} is over the ${money(DB.company.poApprovalOver)} threshold`,
+          flowCan("po") ? [{ label: `Open ${po.number}`, run: flowGo.po(po) }] : null,
+        );
+      else if (po && "approve" === a && "pending" === was && "issued" === po.status)
+        rcToast(`${po.number} approved and issued to ${po.vendor} — ${money(poTotal(po).total)}`, flowCan("po") ? [{ label: `Open ${po.number}`, run: flowGo.po(po) }] : null);
+    } catch (e) {}
+    return r;
+  };
+}
+// ---- the reader finishes the job it started (review findings 6, 8, 9; BACKLOG §1.5 #4, §1.7 #4)
+// Vendor mail that moves records becomes a proposal of its own kind, read on top of the brain's classification
+// (cmRead) and applied here: a delivery date on an open order (eta), a paid order ready at the yard (pickup),
+// a credit memo against a statement credit and the original purchase (credit). A quote's Apply prices the line
+// and links the PDF; a receipt's Apply codes the card line to the job and category it names.
+"object" == typeof CM_CATS && Object.assign(CM_CATS, { eta: "Delivery date", pickup: "Pickup", credit: "Credit memo" });
+const CM_MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+// A date in a vendor's words ("Friday September 18", "9/18", "by Friday"), as ISO on the app clock.
+function cmDateIn(text) {
+  const t = String(text || ""),
+    yr = appNow().getFullYear(),
+    m = t.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b(?:,?\s*(\d{4}))?/i);
+  if (m) {
+    const mo = CM_MONTHS.indexOf(m[1].slice(0, 3).toLowerCase()),
+      y = m[3] ? +m[3] : yr,
+      d = iso(new Date(y, mo, +m[2]));
+    return !m[3] && d < iso(addDays(today(), -60)) ? iso(new Date(y + 1, mo, +m[2])) : d;
+  }
+  const n = t.match(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/);
+  if (n) {
+    const y = n[3] ? (n[3].length === 2 ? 2000 + +n[3] : +n[3]) : yr;
+    return iso(new Date(y, +n[1] - 1, +n[2]));
+  }
+  try {
+    return "function" == typeof fParseDate ? fParseDate(t) || "" : "";
+  } catch (e) {
+    return "";
+  }
+}
+// The job a text names: a project's short name, or its street number and name ("121 State").
+function cmJobNamed(text) {
+  const low = String(text || "").toLowerCase();
+  return (
+    (DB.projects || []).find((p) => {
+      const nm = String((p.project || {}).name || "").replace(/ —.*$/, "").toLowerCase(),
+        two = nm.split(/\s+/).slice(0, 2).join(" ");
+      return (nm && low.includes(nm)) || (two.length > 4 && /\d/.test(two) && low.includes(two));
+    }) || null
+  );
+}
+const cmVendorWord = (name) =>
+  String(name || "")
+    .toLowerCase()
+    .split(/\s+/)
+    .find((w) => w.length > 3) || String(name || "").toLowerCase();
+// Proposals for an incoming vendor message, added to what the brain read.
+function cmVendorMailProposals(c, P) {
+  const R = c.route || cmRoute(c),
+    v = R && R.vendorId && (DB.vendors || []).find((x) => x.id === R.vendorId),
+    // a supplier not on file yet (Brooklyn Lumber in the review) still gets its pickup read; the brain's
+    // unrouted proposal creates the vendor beside it
+    who = v ? v.name : (c.from && (c.from.name || String(c.from.email || "").split("@")[1])) || "";
+  if (!who || "out" === c.direction || (R && (R.clientId || R.employee))) return;
+  const all = [c.subject, c.text, ...(c.attachments || []).map((a) => a.text || "")].join("\n"),
+    low = all.toLowerCase(),
+    push = (kind, summary, o) => P.push(Object.assign({ id: uid("cp"), kind: kind, summary: summary, on: !0, vendorId: v ? v.id : "", vendorName: who }, o || {})),
+    vn = who.toLowerCase(),
+    open = (DB.pos || []).filter((po) => String(po.vendor || "").toLowerCase() === vn && ["issued", "partial"].includes(po.status)),
+    named = (all.match(/\bPO[-\s]?\d{4}[-\s]?\d{3,}\b/gi) || []).map((x) => x.replace(/\s+/g, "-").toUpperCase()),
+    po = open.find((x) => named.includes(String(x.number).toUpperCase())) || (1 === open.length ? open[0] : null);
+  // a delivery date for an open order
+  if (v && po && /\b(deliver|delivery|delivers|arrive|arrives|arriving|on the truck|ship|ships|shipping|lands)\b/i.test(low) && !/\bpick ?up\b|ready at the yard/i.test(low)) {
+    const seg = (all.match(/[^.\n]*\b(deliver\w*|arriv\w*|ship\w*|truck|lands)\b[^.\n]*/i) || [])[0] || all,
+      d = cmDateIn(seg);
+    d &&
+      d !== po.expected &&
+      push("eta", `${who}: ${po.number} ${/deliver/i.test(seg) ? "delivers" : "arrives"} ${fmtL(d)}${po.expected ? ` — the order says ${fmtL(po.expected)}` : " — the order has no date"}; set the expected date`, {
+        poId: po.id,
+        date: d,
+        was: po.expected || "",
+        projectId: po.projectId,
+      });
+  }
+  // a paid order ready for pickup
+  if (/ready (for|to) (pick ?up|collect)|ready at the yard|ready for collection/i.test(low)) {
+    const list = (all.match(/(?:ready[^:\n]*:|yard:)\s*([^.\n]+)/i) || [])[1] || "",
+      items = list
+        .split(/,|;| and /)
+        .map((x) => x.trim())
+        .filter(Boolean)
+        .map((x) => {
+          const q = x.match(/^(\d+(?:\.\d+)?)\s*(ea|pcs?|boxes?|bags?|sheets?|boards?|lf|sf)?\s*(.+)$/i);
+          return q ? { what: q[3].trim(), qty: +q[1], unit: (q[2] || "ea").toLowerCase() } : { what: x, qty: 1, unit: "ea" };
+        }),
+      by = cmDateIn((all.match(/(?:pick ?up|collect)[^.\n]*?\b(by|before)\b[^.\n]*/i) || [])[0] || "") || "",
+      amt = +((all.match(/\$\s?([\d,]+(?:\.\d{2})?)/) || [])[1] || "").replace(/,/g, "") || 0,
+      ref = (all.match(/order\s*#?\s*(\d{3,})/i) || [])[1] || "",
+      job =
+        (R.projectId && (DB.projects || []).find((x) => x.id === R.projectId)) ||
+        cmJobNamed(all) ||
+        (DB.projects || []).find((p) => items.some((it) => (p.materials || []).some((m) => cmVendorWord(it.what) && String(m.name).toLowerCase().includes(cmVendorWord(it.what))))) ||
+        null;
+    items.length &&
+      push("pickup", `${who}: ${items.map((i) => `${i.qty} ${i.unit} ${i.what}`).join(", ")} ready at the yard${amt ? `, paid ${money(amt)}` : ""}${by ? ` — pick up by ${fmtL(by)}` : ""}${job ? ` · a stop on the driver's route for ${String(job.project.name).replace(/ —.*$/, "")}` : " · no job named"}`, {
+        items: items,
+        by: by,
+        amount: amt,
+        orderRef: ref,
+        projectId: job ? job.id : "",
+      });
+  }
+  // a credit memo: the statement credit and the original purchase
+  if (v && /credit memo|credit (has been|was) issued|refund(ed)? (of|for)|credited to (the|your) card|credit of \$/i.test(low)) {
+    const amt = +((all.match(/\$\s?([\d,]+(?:\.\d{2})?)/) || [])[1] || "").replace(/,/g, "") || 0,
+      w = cmVendorWord(who),
+      txn = amt ? (DB.txns || []).find((t) => +t.amt > 0 && Math.abs(+t.amt - amt) < 0.01 && !t.retId && String(t.desc || "").toLowerCase().includes(w)) : null,
+      orig = (DB.txns || [])
+        .filter((t) => +t.amt < 0 && String(t.desc || "").toLowerCase().includes(w) && t.date <= (c.date || "").slice(0, 10) && t.date >= iso(addDays((c.date || today()).slice(0, 10), -120)))
+        .sort((a, b) => b.date.localeCompare(a.date))[0],
+      im = all.match(/returned\s+([^()\n]+?)\s*\((\d+)\s*(\w+)\)/i) || all.match(/(\d+)\s*(boxes?|ea|pcs?|cases?)\s+(?:of\s+)?([A-Z][\w./-]*(?:\s+[\w./-]+){0,4})/),
+      item = im ? (im.length === 4 && /^\d+$/.test(im[2]) ? { name: im[1].trim(), qty: +im[2], unit: im[3] } : { name: im[3].trim(), qty: +im[1], unit: im[2] }) : { name: (c.subject || "credit").replace(/^.*credit memo/i, "").trim() || "returned goods", qty: 1, unit: "ea" },
+      ref = (all.match(/order\s*#?\s*(\d{3,})/i) || [])[1] || "";
+    amt &&
+      push("credit", `${who} credited ${money(amt)} for ${item.name}${item.qty > 1 ? ` (${item.qty} ${item.unit})` : ""}${txn ? ` — matches the ${fmtL(txn.date)} statement credit` : " — no statement credit yet; watch for it"}${orig ? `, against the ${fmtL(orig.date)} purchase${orig.projectId ? " on " + String(((DB.projects || []).find((p) => p.id === orig.projectId) || { project: {} }).project.name || "").replace(/ —.*$/, "") : ""}` : ""}`, {
+        amount: amt,
+        txnId: txn ? txn.id : "",
+        originalTxnId: orig ? orig.id : "",
+        projectId: (orig && orig.projectId) || R.projectId || "",
+        item: item,
+        orderRef: ref,
+      });
+  }
+}
+{
+  const base = cmRead;
+  cmRead = function (c) {
+    const P = base.apply(this, arguments);
+    try {
+      Array.isArray(P) && cmVendorMailProposals(c, P);
+    } catch (e) {
+      console.warn("vendor mail proposals", e);
+    }
+    return P;
+  };
+}
+// The quote's PDF goes on the job, linked to the line it prices, before the message's attachments are filed.
+function cmLinkQuoteFile(c, p) {
+  const pr = p.projectId && (DB.projects || []).find((x) => x.id === p.projectId),
+    m = pr && p.materialId && (pr.materials || []).find((x) => x.id === p.materialId),
+    a = (c.attachments || []).find((x) => !x.filedTo && /pdf|quote|estimate/i.test(`${x.type || ""} ${x.name || ""}`));
+  if (!pr || !m || !a) return;
+  const fid = uid("f");
+  (pr.files = pr.files || []).push({
+    id: fid,
+    name: a.name,
+    type: a.type || "application/pdf",
+    size: a.size || 0,
+    cat: "doc",
+    date: (c.date || "").slice(0, 10) || today(),
+    by: (currentUser() || {}).name || role(),
+    link: { kind: "comm", id: c.id },
+    materialId: m.id,
+    notes: `Quote from ${(c.from && (c.from.name || c.from.email)) || "the vendor"} — prices ${m.name}`,
+    shareClient: !1,
+    ai: null,
+    persisted: !1,
+    pending: !0,
+  }),
+    (a.filedTo = `${pr.project.name} — documents (Buy Board line ${m.name})`),
+    (a.fileId = fid),
+    (m.quoteFileId = fid);
+}
+function cmApplyEta(c, p, by) {
+  const po = (DB.pos || []).find((x) => x.id === p.poId);
+  if (!po) return "the order is gone";
+  const was = po.expected || "";
+  po.expected = p.date;
+  const pr = (DB.projects || []).find((x) => x.id === po.projectId);
+  pr &&
+    (po.lines || []).forEach((l) => {
+      const m = l.materialId && (pr.materials || []).find((x) => x.id === l.materialId);
+      m && "on-site" !== m.status && (m.eta = p.date);
+    }),
+    (po.etaFrom = { commId: c.id, at: today(), by: by, was: was }),
+    log(`${po.number} expected ${fmtL(p.date)}${was ? ` (was ${fmtL(was)})` : ""} — ${po.vendor} wrote`);
+  return `${po.number} expected ${fmtL(p.date)}${was ? ` (was ${fmtL(was)})` : ""} — the foreman's Arriving Today follows`;
+}
+function cmApplyPickup(c, p, by) {
+  const pr = (DB.projects || []).find((x) => x.id === p.projectId);
+  if (!pr) return "no job named — say which job it is for";
+  const v = (DB.vendors || []).find((x) => x.id === p.vendorId),
+    vn = v ? v.name : p.vendorName || (c.from && c.from.name) || "the vendor",
+    keep = S;
+  S = pr;
+  let r = null;
+  try {
+    r = addRequest(
+      {
+        items: (p.items || []).map((i) => ({ what: i.what, qty: i.qty, unit: i.unit, pickupFrom: "v:" + vn })),
+        neededBy: p.by || addWork(today(), 1),
+        note: `Ready for pickup at ${vn}${p.orderRef ? ` (order ${p.orderRef})` : ""}${p.amount ? `, paid ${money(p.amount)}` : ""}`,
+        urgency: "normal",
+      },
+      vn,
+    );
+  } finally {
+    S = keep;
+  }
+  if (!r) return "nothing to pick up";
+  (r.status = "ack"),
+    (r.ackBy = by),
+    (r.ackAt = appNowIso()),
+    (r.pickupVendor = vn),
+    (r.orderRef = p.orderRef || ""),
+    (r.paid = p.amount || 0),
+    (r.fromComm = c.id),
+    (r.items || []).forEach((i) => (i.pickupFrom = "v:" + vn)),
+    r.log.push({ t: nowStamp(), by: by, text: `Pickup stop added for the driver — ${vn}` });
+  return `a pickup stop at ${vn} on the driver's route for ${String(pr.project.name).replace(/ —.*$/, "")}${p.by ? `, by ${fmtL(p.by)}` : ""}`;
+}
+function cmApplyCredit(c, p, by) {
+  const v = (DB.vendors || []).find((x) => x.id === p.vendorId),
+    vn = v ? v.name : (c.from && c.from.name) || "the vendor",
+    t = p.txnId && (DB.txns || []).find((x) => x.id === p.txnId),
+    orig = p.originalTxnId && (DB.txns || []).find((x) => x.id === p.originalTxnId),
+    pr = (DB.projects || []).find((x) => x.id === p.projectId),
+    item = p.item || { name: "returned goods", qty: 1, unit: "ea" },
+    qty = +item.qty || 1,
+    r = {
+      id: uid("rt"),
+      itemId: "",
+      projectId: pr ? pr.id : "",
+      vendor: vn,
+      manufacturer: "",
+      sku: "",
+      name: item.name,
+      reason: "returned",
+      qty: qty,
+      unitCost: r2((+p.amount || 0) / qty),
+      raisedAt: today(),
+      by: by,
+      receivedOn: orig ? orig.date : today(),
+      window: (v && +v.returnWindow) || 30,
+      returnBy: today(),
+      restockPct: 0,
+      freightBack: 0,
+      expect: "refund",
+      status: "shipped",
+      rma: p.orderRef || "",
+      rmaAt: "",
+      shippedAt: (c.date || "").slice(0, 10) || today(),
+      carrier: "",
+      tracking: "",
+      receivedAt: "",
+      location: "",
+      recovered: 0,
+      recoveredAt: "",
+      txnRef: "",
+      replacementItemId: "",
+      claimId: "",
+      owner: by,
+      note: `From ${vn}'s credit memo${p.orderRef ? ` on order ${p.orderRef}` : ""}`,
+      writeOff: null,
+      fromCredit: { commId: c.id, originalTxnId: orig ? orig.id : "" },
+      history: [{ at: today(), status: "shipped", by: by, note: "Read from the vendor's credit memo" }],
+    };
+  retList().unshift(r);
+  try {
+    audit("sel-return", r.id, "raised", null, { item: r.name, vendor: r.vendor, value: +p.amount || 0, from: "credit memo" });
+  } catch (e) {}
+  if (orig && !r.projectId) r.projectId = orig.projectId || "";
+  if (t) {
+    rmConfirm(r, t);
+    orig && ((t.creditOf = orig.id), orig.projectId && !t.projectId && (t.projectId = orig.projectId), orig.code && !t.code && (t.code = orig.code), orig.line && !t.line && (t.line = orig.line));
+  } else {
+    retSet(r, "shipped", { note: "Waiting for the credit on the statement" });
+  }
+  // the original purchase was billed on to the client: a client credit to approve in the Billing Queue
+  const cl = pr && (DB.clients || []).find((x) => x.id === pr.clientId),
+    billed = cl && (cl.invoices || []).some((i) => i.projectId === pr.id && "void" !== i.status);
+  billed &&
+    ((DB.clientCredits = DB.clientCredits || []),
+    DB.clientCredits.push({ id: uid("cc"), projectId: pr.id, clientId: cl.id, amount: +p.amount || 0, retId: r.id, txnId: t ? t.id : "", why: `${vn} credited ${money(+p.amount || 0)} for ${item.name}; the purchase was billed to the client`, status: "proposed", at: today(), by: by }));
+  return `return for ${item.name} matched to ${t ? `the ${fmtL(t.date)} statement credit` : "nothing yet — it waits for the credit"}${orig ? `, against the ${fmtL(orig.date)} purchase` : ""}${billed ? " · a client credit is proposed in the Billing Queue" : ""}`;
+}
+{
+  const base = cmApply;
+  cmApply = function (c, p) {
+    const by = (currentUser() || {}).name || role();
+    if (p && ["eta", "pickup", "credit"].includes(p.kind)) {
+      const did = "eta" === p.kind ? cmApplyEta(c, p, by) : "pickup" === p.kind ? cmApplyPickup(c, p, by) : cmApplyCredit(c, p, by);
+      (p.applied = did), (p.appliedAt = appNowIso()), (p.by = by);
+      try {
+        audit("comm", c.id, "apply-" + p.kind, "", did, "");
+      } catch (e) {}
+      return save(), did;
+    }
+    p && "quote" === p.kind && !p.out && p.materialId && cmLinkQuoteFile(c, p);
+    const did = base.apply(this, arguments);
+    if (p && "receipt" === p.kind && p.txnId) {
+      // the receipt names the job ("Job name entered at register: 121 State"): the card line is coded to it
+      const t = (DB.txns || []).find((x) => x.id === p.txnId),
+        job = (p.projectId && (DB.projects || []).find((x) => x.id === p.projectId)) || cmJobNamed([c.subject, c.text, ...(c.attachments || []).map((a) => a.text || "")].join("\n"));
+      if (t) {
+        job && !t.projectId && (t.projectId = job.id),
+          (!t.cat || "uncat" === t.cat) && ((t.cat = "materials"), (t.status = "categorized"), (t.actor = by)),
+          job && (p.applied = `${did} — coded to ${String(job.project.name).replace(/ —.*$/, "")}, ${t.cat}`),
+          save();
+        return p.applied;
+      }
+    }
+    return did;
+  };
+}
+
+// ---- dates (review finding 11): a due date lands on a working day
+function poWorkday(d) {
+  const x = parse(d);
+  if (!x) return d || "";
+  const dow = x.getDay();
+  return 0 === dow ? iso(addDays(x, 1)) : 6 === dow ? iso(addDays(x, 2)) : iso(x);
+}
+
+// ---- polish (review finding 15): one blocked-vendor predicate; Expedite on an ordered line with no PO
+predDef("vendorsBlocked", {
+  label: "Blocked",
+  rule: "no current certificate of insurance (none on file, or expired) and an order open with them: no new purchase order until it lands",
+  test: (v) => {
+    if (!v) return !1;
+    const td = today(),
+      n = String(v.name || "").toLowerCase();
+    return (!v.insuranceExp || v.insuranceExp < td) && (DB.pos || []).some((po) => String(po.vendor || "").toLowerCase() === n && ["issued", "partial", "pending"].includes(po.status));
+  },
+  rows() {
+    return (DB.vendors || []).filter((v) => this.test(v));
+  },
+});
+// Expedite an ordered line that has no purchase order behind it: who has it, when it lands, and a chase.
+function buyExpedite(p, mid) {
+  const m = p && (p.materials || []).find((x) => x.id === mid);
+  if (!m) return;
+  const vendors = (DB.vendors || []).slice().sort((a, b) => String(a.name).localeCompare(String(b.name))),
+    { needBy } = withProject(p, () => matDates(m));
+  mbModal(
+    `Expedite — <span data-nocase>${esc(m.name)}</span>`,
+    `<p class="small muted" style="margin:0 0 10px">Marked ordered with no purchase order behind it${needBy ? `; the site needs it ${fmtL(needBy)}` : ""}. Say who has the order and when it lands; the chase goes to your mailbox as a draft.</p>${mbF("Vendor", `<select data-f="vendor"><option value="">— choose —</option>${vendors.map((v) => `<option value="${esc(v.name)}" ${v.name === m.vendor ? "selected" : ""}>${esc(v.name)}</option>`).join("")}</select>`)}<div class="grid2">${mbF("Vendor Promised", `<input type="date" data-f="eta" value="${esc(m.eta || "")}">`)}${mbF("Note", '<input data-f="note" placeholder="what they said">')}</div><label class="small"><input type="checkbox" data-f="chase" checked> Draft a chase to the vendor asking for the delivery date</label>`,
+    {
+      submit: "Save",
+      onSubmit: (f) => {
+        if (!f.vendor) return toast("Choose the vendor — someone has to have the order"), !1;
+        const by = (currentUser() || {}).name || role();
+        (m.vendor = f.vendor), f.eta && (m.eta = f.eta), (m.expedite = { at: today(), by: by, note: f.note || "" });
+        log(`${m.name}: expedited with ${f.vendor}${f.eta ? `, promised ${fmtL(f.eta)}` : ""}${f.note ? ` — ${f.note}` : ""}`), save(), render();
+        const v = (DB.vendors || []).find((x) => x.name === f.vendor);
+        f.chase && v
+          ? eaNudge({ kind: "expedite", t: `${v.name} — ${m.name}`, vendor: v, subject: `${m.name} for ${String(p.project.name).replace(/ —.*$/, "")} — delivery date`, msg: `Hi — where does our order for ${m.name} stand? The site needs it ${needBy ? fmtL(needBy) : "soon"}. Please confirm the delivery date today. Thanks.` })
+          : rcToast(`${m.name} expedited with ${f.vendor}${f.eta ? ` — promised ${fmtL(f.eta)}` : ""}`, [{ label: "Open", run: () => openEditor("mat", m.id) }]);
+      },
+    },
+  );
+}
+
+// ---- returns and refunds (BACKLOG §1.5 #4): a credit names what it relieves
+// A vendor credit or refund on the bank or card is scored against the same vendor's purchases in the last
+// 90 days: the card or bank line it reverses (creditOf) and the bill and PO it relieves (creditBillId,
+// creditPOId). It is a proposal; coding it (pay3Suggest proposes refund on the original's job, code and
+// line) or matching it to a return confirms it. When the original was billed on to the client, the Billing
+// Queue proposes a credit to the client.
+function txnCreditScan(t) {
+  if (!t || !(+t.amt > 0) || t.creditOf || t.creditBillId || t.retId || ["transfer", "cc-payment", "income", "loan", "owner"].includes(t.cat)) return null;
+  const amt = +t.amt,
+    since = iso(addDays(t.date || today(), -90)),
+    name = (u) => u.vendor || ("function" == typeof pay3PayeeName ? pay3PayeeName(u) : u.desc),
+    hit = (nm) => ("function" == typeof pay3NameHit ? pay3NameHit(nm, t) : !1),
+    orig = (DB.txns || [])
+      .filter((u) => u.id !== t.id && +u.amt < 0 && u.date >= since && u.date <= (t.date || today()) && hit(name(u)) && Math.abs(+u.amt) >= amt - 0.005)
+      .map((u) => ({ u: u, s: (Math.abs(Math.abs(+u.amt) - amt) < 0.01 ? 0 : 1) * 1e6 + dayDiff(u.date, t.date || today()) }))
+      .sort((a, b) => a.s - b.s)[0],
+    digits = (String(t.desc || "").match(/\d{4,}/g) || []).filter((x) => !/^20\d\d$/.test(x)),
+    bill = (DB.bills || [])
+      .filter((b) => !["void", "rejected", "draft"].includes(b.status) && hit(b.vendor))
+      .map((b) => ({ b: b, s: digits.some((d) => String(b.number || "").includes(d)) ? 0 : b.date >= since && billGross(b) >= amt - 0.005 ? 1 : 9 }))
+      .filter((x) => x.s < 9)
+      .sort((a, b) => a.s - b.s || String(b.b.date).localeCompare(String(a.b.date)))[0];
+  if (!orig && !bill) return null;
+  const o = orig && orig.u,
+    b = bill && bill.b;
+  o && (t.creditOf = o.id);
+  b && ((t.creditBillId = b.id), b.poId && (t.creditPOId = b.poId));
+  t.creditState = "proposed";
+  // a rule already coded it as a vendor credit: it takes the original's job, code and line, still to confirm
+  const src = (o && (o.projectId || o.code) && o) || b;
+  "refund" === t.cat && src && !t.projectId && ((t.projectId = src.projectId || ""), t.code || (t.code = src.code || ""), t.line || (t.line = src.line || ""));
+  return t;
+}
+function txnCreditWhy(t) {
+  const o = t.creditOf && (DB.txns || []).find((x) => x.id === t.creditOf),
+    b = t.creditBillId && (DB.bills || []).find((x) => x.id === t.creditBillId),
+    po = t.creditPOId && (DB.pos || []).find((x) => x.id === t.creditPOId);
+  return [
+    o ? `credit for the ${fmt(o.date)} purchase (${money(Math.abs(+o.amt))}${o.projectId ? " on " + pay3JobName(o.projectId) : ""})` : "",
+    b ? `against bill ${b.number || ""}${po ? " on " + po.number : ""}` : "",
+  ]
+    .filter(Boolean)
+    .join(", ");
+}
+{
+  const base = applyRules;
+  applyRules = function (t) {
+    const r = base.apply(this, arguments);
+    try {
+      txnCreditScan(t);
+    } catch (e) {
+      console.warn("credit scan", e);
+    }
+    return r;
+  };
+}
+// The suggestion for a linked credit: refund, on the original's job, code and line.
+if ("function" == typeof pay3Suggest) {
+  const base = pay3Suggest;
+  pay3Suggest = function (t) {
+    if (t && +t.amt > 0 && (!t.cat || "uncat" === t.cat) && !t.billId) {
+      const o = t.creditOf && (DB.txns || []).find((x) => x.id === t.creditOf),
+        b = t.creditBillId && (DB.bills || []).find((x) => x.id === t.creditBillId),
+        src = o && (o.projectId || o.code) ? o : b;
+      if (src)
+        return {
+          src: "credit",
+          projectId: src.projectId || "",
+          code: src.code || "",
+          cat: "refund",
+          line: src.line || "",
+          why: `${txnCreditWhy(t)} — a vendor credit reduces that job's cost`,
+        };
+    }
+    return base.apply(this, arguments);
+  };
+}
+if ("function" == typeof pay3Accept) {
+  const base = pay3Accept;
+  pay3Accept = function (id) {
+    const r = base.apply(this, arguments),
+      t = (DB.txns || []).find((x) => x.id === id);
+    t && r && (t.creditOf || t.creditBillId) && "refund" === t.cat && (t.creditState = "confirmed");
+    return r;
+  };
+}
+// The bank list says what a credit is and what it is against.
+if ("function" == typeof txnState) {
+  const base = txnState;
+  txnState = function (t) {
+    const st = base.apply(this, arguments);
+    try {
+      if (t && +t.amt > 0 && (t.creditOf || t.creditBillId) && "proposed" === t.creditState && !t.retId && "reconciled" !== t.status) {
+        const coded = t.cat && "uncat" !== t.cat,
+          byPerson = coded && t.actor && "rule" !== t.actor;
+        if (!byPerson)
+          return { sev: coded ? Math.max(1, st.sev || 0) : 2, msg: `Vendor credit — ${txnCreditWhy(t)}; confirm it against the original` };
+      }
+    } catch (e) {}
+    return st;
+  };
+}
+// A credit on a line already billed to the client: the client is owed it, proposed in the Billing Queue.
+function txnClientCredits() {
+  return (DB.txns || [])
+    .filter((t) => +t.amt > 0 && (t.creditOf || t.creditBillId) && !t.clientCreditDone)
+    .map((t) => {
+      const o = t.creditOf && (DB.txns || []).find((x) => x.id === t.creditOf),
+        b = t.creditBillId && (DB.bills || []).find((x) => x.id === t.creditBillId),
+        line = (b && b.line) || (o && o.line) || t.line || "",
+        pid = (b && b.projectId) || (o && o.projectId) || t.projectId || "",
+        f = line && "function" == typeof lineFin ? lineFin(line) : null;
+      return f && f.billed > 0 && pid ? { t: t, projectId: pid, line: line, amount: r2(+t.amt), vendor: (b && b.vendor) || (o && (o.vendor || pay3PayeeName(o))) || "the vendor" } : null;
+    })
+    .filter(Boolean);
+}
+// The client is owed a vendor credit on a line already billed to them: one Billing Queue row per credit, from
+// the reader's credit memo (DB.clientCredits) or from a bank credit linked to its original (txnClientCredits).
+// Billing approves it; nothing is credited without that.
+function blCreditRows() {
+  const out = [],
+    seen = new Set();
+  (DB.clientCredits || []).forEach((cc) => {
+    if ("void" === cc.status) return;
+    const p = (DB.projects || []).find((x) => x.id === cc.projectId),
+      c = (DB.clients || []).find((x) => x.id === cc.clientId);
+    cc.txnId && seen.add(cc.txnId),
+      p &&
+        out.push({ id: "credit:" + cc.id, kind: "credit", cc: cc, key: "credit:" + cc.id, client: c || null, job: p, amount: -Math.abs(+cc.amount || 0), date: cc.at || "", approved: "approved" === cc.status, what: `Credit the client ${money(cc.amount)}`, why: cc.why, needs: "proposed" === cc.status });
+  });
+  txnClientCredits().forEach((x) => {
+    if (seen.has(x.t.id)) return;
+    const p = (DB.projects || []).find((y) => y.id === x.projectId),
+      c = p && (DB.clients || []).find((y) => y.id === p.clientId);
+    p &&
+      out.push({
+        id: "credit:t:" + x.t.id,
+        kind: "credit",
+        txn: x.t,
+        key: "credit:t:" + x.t.id,
+        client: c || null,
+        job: p,
+        amount: -x.amount,
+        date: x.t.date || "",
+        approved: !1,
+        what: `Credit the client ${money(x.amount)}`,
+        why: `${x.vendor} credited ${money(x.amount)} on a line already billed to ${c ? c.name : "the client"} (${txnCreditWhy(x.t)})`,
+        needs: !0,
+      });
+  });
+  return out;
+}
+{
+  const base = billingRows;
+  billingRows = function () {
+    const rows = base.apply(this, arguments) || [];
+    try {
+      return rows.concat(blCreditRows());
+    } catch (e) {
+      return console.warn("client credit rows", e), rows;
+    }
+  };
+}
+function blCreditAct(row) {
+  if (!row) return;
+  if (row.approved) return blOpenRow(row);
+  const amt = Math.abs(row.amount),
+    who = row.client ? row.client.name : "the client";
+  mbModal(
+    `Approve Credit — <span data-nocase>${esc(who)}</span>`,
+    `<p class="small" style="margin:0 0 8px">${esc(row.why)}.</p><p class="small muted" style="margin:0">Approving records that ${esc(who)} is owed ${money(amt)} on ${esc(String(row.job.project.name).replace(/ —.*$/, ""))}; it goes on their next invoice as a credit line. Nothing is sent to the client from here.</p>`,
+    {
+      submit: "Approve Credit",
+      onSubmit: () => {
+        const by = (currentUser() || {}).name || role();
+        let cc = row.cc;
+        cc ||
+          ((DB.clientCredits = DB.clientCredits || []),
+          (cc = { id: uid("cc"), projectId: row.job.id, clientId: row.client ? row.client.id : "", amount: amt, txnId: row.txn ? row.txn.id : "", why: row.why, status: "proposed", at: today(), by: by }),
+          DB.clientCredits.push(cc));
+        (cc.status = "approved"), (cc.approvedBy = by), (cc.approvedAt = today()), row.txn && (row.txn.clientCreditDone = cc.id);
+        try {
+          audit("client-credit", cc.id, "approved", "proposed", money(amt), row.why);
+        } catch (e) {}
+        save(), render();
+        rcToast(`Credit of ${money(amt)} to ${who} approved — it goes on the next invoice`, [{ label: "Open", run: () => ((view = "billing"), (billTab = "billable"), render()) }]);
+      },
+    },
+  );
+}
+// The bank list names a vendor credit and what it relieves, on the row, with Confirm.
+function txnCreditLine(t) {
+  if (!t || !(+t.amt > 0) || !(t.creditOf || t.creditBillId) || "proposed" !== t.creditState || t.retId) return "";
+  const coded = t.cat && "uncat" !== t.cat;
+  if (coded && t.actor && "rule" !== t.actor) return "";
+  return `<span class="sub warn-t">Vendor credit — ${esc(txnCreditWhy(t))} <button type="button" class="btn sm" data-crconfirm="${esc(t.id)}">Confirm</button></span>`;
+}
+document.addEventListener(
+  "click",
+  (e) => {
+    const b = e.target.closest && e.target.closest("[data-crconfirm]");
+    if (!b) return;
+    e.preventDefault(), e.stopPropagation();
+    const t = (DB.txns || []).find((x) => x.id === b.dataset.crconfirm);
+    if (!t) return;
+    const coded = t.cat && "uncat" !== t.cat;
+    coded || ("function" == typeof pay3Accept && pay3Accept(t.id, !0));
+    (t.creditState = "confirmed"), (t.actor = (currentUser() || {}).name || role());
+    try {
+      audit("txn", t.id, "credit-confirmed", "proposed", txnCreditWhy(t), "");
+    } catch (err) {}
+    save(), render();
+    rcToast(`${t.desc} confirmed as a vendor credit — ${txnCreditWhy(t)}`, "function" == typeof flowGo && flowCan("bank") ? [{ label: "Open", run: flowGo.view("bank") }] : null);
+  },
+  !0,
+);
+
+
 
 // ---------------------------------------------------------------------------------------------------------
 // clientfix (round 5, the client reviewer): what a client does on the portal is handled activity for the
