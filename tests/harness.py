@@ -40,3 +40,17 @@ class Checks:
     def done(self):
         print('ALL PASS' if not self.fail else f'{len(self.fail)} FAILED', f'({self.n} checks)')
         return 0 if not self.fail else 1
+
+async def attach_workspace(pg, uid, path=None):
+    """Load a workspace JSON for `uid` into the open page (gsAttachWorkspace), so gcDemoConnect() serves it as
+    the Loaded Workspace. The file comes from an absolute path OUTSIDE the repo, or from the env var
+    SD_WORKSPACE_<UID> (e.g. SD_WORKSPACE_u_chen); a path inside the repo is refused, so a real mailbox never
+    lands in the tree (CLAUDE.md, Privacy). docs/ARCHITECTURE.md ("Demo Workspace") has the JSON shape."""
+    path = path or os.environ.get('SD_WORKSPACE_' + uid) or os.environ.get('SD_WORKSPACE_' + uid.upper())
+    if not path: raise SystemExit(f'attach_workspace: no path and no SD_WORKSPACE_{uid} in the environment')
+    real = os.path.realpath(path)
+    if not os.path.isabs(path): raise SystemExit(f'attach_workspace: {path} is not an absolute path')
+    if real == os.path.realpath(ROOT) or real.startswith(os.path.realpath(ROOT) + os.sep):
+        raise SystemExit(f'attach_workspace: {path} is inside the repo; workspace files stay outside it')
+    with open(real, encoding='utf-8') as f: ws = json.load(f)
+    return await pg.evaluate("([u, ws]) => gsAttachWorkspace(u, ws)", [uid, ws])
