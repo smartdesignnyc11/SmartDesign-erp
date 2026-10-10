@@ -63,6 +63,7 @@ Order of work:
 
 ### 1.1 closetie: the WIP ties to the GL on close day (finance S1/S2)
 This lane was finished and verified at 96 checks before it was lost. Re-implement it and hit the same figures.
+- **Status (2026-10-10): re-implemented.** `tests/closetie_test.py` drives the finance lens's month-end and reads every target below (114 checks), plus the controller's round-5 findings 3, 4, 5, 6, 10, 14, 16, 17 and 18. The code sits in two `closetie` sections of `src/app.js` (`ct*`, `fin3JobAdjust`, `fin3PostDated`, `budGuard`, `bfIsDemoOnly`, `bfVoidNotAtBank`, `billChangeDate`, `ctHoldBasis`).
 - **#1 Tie-out.**
   - What happens: with WW-2026-118 short-paid (PO $29,700 approved, $3,800 held in 1300), `jobFin` for a closed month reads the frozen figures, and the short-pay wrapper then subtracts the hold a second time (frozen actual $90,210 → $86,410).
   - Wages are accrued AFTER the WIP is planned (45 Cranberry labour −$123 moves its over-billing $325).
