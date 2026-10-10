@@ -70627,7 +70627,7 @@ function cmRead(c) {
       ),
       payer = (own.match(/(?:from|payer:?)\s+([A-Z][A-Za-z.&' -]{2,40}?)(?:\s+via|\s+on\b|\.|,|\n)/) || [])[1] || "";
     push(
-      "credit",
+      "bankline",
       `Bank notice: ${money(amt)} credit${payer ? " from " + payer.trim() : ""}${line ? " · matches the " + fmtL(line.date) + " bank line “" + String(line.desc || "").slice(0, 36) + "”" : " · no bank line yet"} · not a bill, not an invoice — the line is what gets recorded`,
       { amount: amt, txnId: line ? line.id : "", payer: payer.trim() },
     );
@@ -70870,7 +70870,8 @@ function cmRead(c) {
       addr: R.addr,
       clientId: R.clientId,
     });
-  const routed = R.clientId || R.vendorId || R.employee || R.projectId || R.contact || R.property;
+  const onFileR = R.clientId || R.vendorId || R.employee || R.projectId || R.property,
+    routed = onFileR || R.contact;
   P.length ||
     (routed
       ? push(
@@ -70882,7 +70883,11 @@ function cmRead(c) {
         )
       : 0);
   // Nobody has the sender on file: the offer to create them rides along with whatever else was read.
-  routed ||
+  // Someone we have written to is still not on file; when they talk money they get the offer too.
+  // A sender who talks money and is no party on file (even on a job's thread) gets the offer too, so the money
+  // can be classified once they are.
+  const moneyNoParty = P.some((p) => "money" === p.kind) && !(R.clientId || R.vendorId || R.employee);
+  ((onFileR || R.contact) && !moneyNoParty) ||
     P.some((p) => "unrouted" === p.kind || "lead" === p.kind) ||
     push(
       "unrouted",
@@ -70932,6 +70937,17 @@ function cmNoteAnywhere(c, p) {
 function cmActivity(clientId, text) {
   const c = DB.clients.find((x) => x.id === clientId);
   c && ((c.activity = c.activity || []), c.activity.push({ t: nowStamp(), by: "reader", text: text }));
+}
+function cmRereadSender(c, patch) {
+  const e = cmEmail((c.from && c.from.email) || c.from);
+  (DB.comms || [])
+    .filter((x) => x.owner === c.owner && "ignored" !== x.status && (x.id === c.id || (e && cmEmail((x.from && x.from.email) || x.from) === e)))
+    .forEach((x) => {
+      (x.route = Object.assign({}, x.route || {}, patch, { leadName: "", leadEmail: "" })), (x.routeLocked = !0);
+      const keep = (x.proposals || []).filter((p) => p.applied);
+      (x.proposals = keep.concat(cmRead(x).filter((p) => "unrouted" !== p.kind && !keep.some((k) => k.kind === p.kind)))),
+        x.proposals.some((p) => !p.applied) && (x.status = "proposed");
+    });
 }
 function cmApply(c, p) {
   const R = c.route || cmRoute(c),
@@ -70999,6 +71015,11 @@ function cmApply(c, p) {
       i = pr && (pr.inspections || []).find((x) => x.id === p.inspId);
     i && "function" == typeof inspBook && inspBook(pr, i, { date: p.date, from: p.from, to: p.to, docket: p.docket, via: "DOB NOW" }),
       (did = i ? "inspection booked" : "no matching inspection");
+  } else if ("bill" === p.kind && (p.amountUnread || !(+p.amount > 0) || !(p.vendorId || R.vendorId))) {
+    // A bill whose amount the reader never saw (an unread PDF), or whose sender is not a vendor on file, writes
+    // no money: the person opens the document and enters it (owner review r5, findings 1 and 2).
+    cmTask(`Enter ${p.vendor || "the vendor"}'s invoice${p.number ? " " + p.number : ""} from the PDF — the amount was not read`, R.projectId, "Billing"),
+      (did = "task to enter it from the PDF — the amount was not read, so no bill was written");
   } else if ("bill" === p.kind) {
     DB.bills = DB.bills || [];
     const b = {
@@ -71031,7 +71052,19 @@ function cmApply(c, p) {
       DB.vendors.some((v) => v.name.toLowerCase() === (p.vendor || "").toLowerCase()) ||
         DB.vendors.push({ id: uid("v"), name: p.vendor, trade: "", w9: !1, insuranceExp: "" }),
       (did = `bill ${money(p.amount)} submitted for approval${poFor ? ` against ${poFor.number}${((pr) => (pr ? " on " + String(pr.project.name).replace(/ —.*$/, "") : ""))((DB.projects || []).find((x) => x.id === poFor.projectId))}` : ""}`);
-  } else if ("ar" === p.kind)
+  } else if ("money" === p.kind || "bankline" === p.kind) {
+    // Unclassified money mail and a bank's credit notice write no money. The notice notes the bank line it
+    // names (the line is what gets recorded); the unclassified one waits for the person to say who sent it.
+    const t = "bankline" === p.kind && p.txnId && (DB.txns || []).find((x) => x.id === p.txnId);
+    t && (t.notices = (t.notices || []).concat(c.id)),
+      (did = t ? `bank notice noted on the ${fmtL(t.date)} line — record it from Bank` : "bankline" === p.kind ? "noted — no bank line yet; nothing was written" : "noted — nothing was written; say who the sender is to classify it");
+  } else if ("request" === p.kind)
+    cmTask(p.task, R.projectId, p.forWho || p.owner || "PM", p.due), (did = `task for ${p.forWho || "you"}`);
+  else if ("address" === p.kind)
+    cmActivity(p.clientId || R.clientId, `Wrote about ${p.addr}: ${p.summary}`), (did = `noted on the client — ${p.addr} is not a job yet`);
+  else if ("ar" === p.kind && !p.clientId) did = "noted — no client on file, so no receivable was written";
+  else if ("deposit" === p.kind && !p.clientId) did = "noted — no client on file, so nothing is watched as client money";
+  else if ("ar" === p.kind)
     p.clientId
       ? cmActivity(
           p.clientId,
@@ -71184,6 +71217,9 @@ function cmApply(c, p) {
           DB.leads.push({ id: uid("ld"), created: today(), name: p.name, phone: "", email: p.email, addr: p.addr, buildingType: "", scope: "Design-build", stage: "inquiry", source: "Email", next: "Follow up", nextDue: "", notes: c.subject || "", commId: c.id }),
         (did = "lead created");
     c.routeLocked = !0;
+    // Once the sender is on file as a vendor or a client, their messages are read again: unclassified money
+    // becomes a bill (a vendor's invoice) or a claim (a client's "we wired"), in the right direction.
+    ("vendor" === as || "client" === as) && cmRereadSender(c, { vendorId: c.route.vendorId || "", clientId: c.route.clientId || "" });
   } else if ("delivery" === p.kind)
     R.projectId
       ? (cmTask(`Check delivery: ${p.summary.slice(0, 80)}`, R.projectId, "Foreman"),
@@ -72129,6 +72165,7 @@ cmApply = function (c, p) {
     "meeting" === p.kind ||
     ("permit" === p.kind && p.task) ||
     ("quote" === p.kind && !p.out && !p.materialId) ||
+    "request" === p.kind ||
     "deposit" === p.kind
   ) {
     if ("deposit" === p.kind) {
@@ -167714,7 +167751,17 @@ if ("function" == typeof paWatch) {
     // A first look at an account can hold months of mail. Each message, event and file from the last two
     // weeks of the sync clock is raised on its own; everything older is read, routed and proposed on the
     // comms screen, and raised once as one line, so the first sync is not a hundred nudges.
-    let older = null;
+    let older = null,
+      atts = null;
+    if (delta && delta.first) {
+      // What the reader could see: every attachment counted, and how many had text it read. An unread PDF is
+      // said, here and on each proposal it touched (owner review r5, finding 2).
+      const A = (delta.mail || []).flatMap((m) => {
+        const c = (DB.comms || []).find((x) => x.msgId === m.msgId);
+        return (c || m).attachments || [];
+      });
+      atts = delta.attachments = { n: A.length, read: A.filter((a) => String(a.text || "").trim()).length };
+    }
     if (delta && delta.first) {
       const now = gsNow(),
         cut = now - 14 * 864e5,
@@ -167732,10 +167779,11 @@ if ("function" == typeof paWatch) {
       delta = d;
     }
     const made = paWatchBase_dw.call(this, delta) || [];
-    if (older && older.mail + older.events + older.files > 0) {
-      const n = paNudge(
-        `I read ${older.mail} older message${1 === older.mail ? "" : "s"}, ${older.events} past event${1 === older.events ? "" : "s"} and ${older.files} older document${1 === older.files ? "" : "s"}.`,
-        "Everything before the last two weeks is routed and read; what it proposes is on the comms screen, and I did not raise each one here.",
+    if (older && (older.mail + older.events + older.files > 0 || (atts && atts.n))) {
+      const attLine = atts && atts.n ? ` ${atts.n} attachment${1 === atts.n ? "" : "s"}, ${atts.read} read.` : "",
+        n = paNudge(
+        `I read ${older.mail} older message${1 === older.mail ? "" : "s"}, ${older.events} past event${1 === older.events ? "" : "s"} and ${older.files} older document${1 === older.files ? "" : "s"}.${attLine}`,
+        `Everything before the last two weeks is routed and read; what it proposes is on the comms screen, and I did not raise each one here.${atts && atts.n > atts.read ? ` ${atts.n - atts.read} attachment${atts.n - atts.read === 1 ? " was" : "s were"} not read (no text came with ${atts.n - atts.read === 1 ? "it" : "them"}); every proposal from those messages says so, and none carries an amount it did not see.` : ""}`,
         { kind: "firstsync", id: gsNowIso().slice(0, 10) },
         "a first look at a connected account",
       );
@@ -169862,7 +169910,7 @@ if ("function" == typeof tdScore) {
 // (cmRead) and applied here: a delivery date on an open order (eta), a paid order ready at the yard (pickup),
 // a credit memo against a statement credit and the original purchase (credit). A quote's Apply prices the line
 // and links the PDF; a receipt's Apply codes the card line to the job and category it names.
-"object" == typeof CM_CATS && Object.assign(CM_CATS, { eta: "Delivery date", pickup: "Pickup", credit: "Credit memo" });
+"object" == typeof CM_CATS && Object.assign(CM_CATS, { eta: "Delivery date", pickup: "Pickup", credit: "Credit memo", bankline: "Bank notice", money: "Money, unclassified", request: "Asks for something", address: "New address" });
 const CM_MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
 // A date in a vendor's words ("Friday September 18", "9/18", "by Friday"), as ISO on the app clock.
 function cmDateIn(text) {

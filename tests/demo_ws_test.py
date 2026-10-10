@@ -85,7 +85,7 @@ async def persona(p, uid, C):
     # --- Routing: the Kleins to cl121/p121, the Jessops to cl140/p140, vendors to their vendor record.
     for c in S['comms']:
         f = c['from'] or ''
-        if 'klein@example.com' in f: C.ok(c['route'].get('clientId') == 'cl121' and c['route'].get('projectId') == 'p121', f"{uid}: Klein mail routed to the Kleins and 121 State ({c['subject']} -> {c['route']})")
+        if 'klein@example.com' in f and '19 Garden Pl' not in c['subject']: C.ok(c['route'].get('clientId') == 'cl121' and c['route'].get('projectId') == 'p121', f"{uid}: Klein mail routed to the Kleins and 121 State ({c['subject']} -> {c['route']})")
         if f in ('cambri@example.com', 'jaleena@example.com'): C.ok(c['route'].get('clientId') == 'cl140', f"{uid}: Jessop mail routed to the Jessops ({c['subject']})")
         if 'elena.rivera' in f: C.ok(c['route'].get('clientId') == 'cl45', f"{uid}: Rivera mail routed to the Riveras ({c['subject']})")
         if 'carlosmillwork' in f: C.ok(c['route'].get('vendorId') == 'v3', f"{uid}: Carlos Millwork mail routed to the vendor ({c['subject']})")
@@ -188,7 +188,7 @@ async def persona(p, uid, C):
         C.ok(bool(by_kind(S, 'call')) and bool(by_kind(S, 'question')) and bool(by_kind(S, 'decision')), f'{uid}: the Posh call, Jeanette\'s question and the Kleins\' decision are proposals ({sorted(set(p["kind"] for p in S["props"]))})')
         # ---- S1 money direction (owner review r5, finding 1): who pays whom decides the direction, or it is unclassified.
         zelle = one(S['comms'], lambda c: c['subject'].startswith('You received a Zelle payment'))
-        C.ok(bool(zelle) and 'bill' not in zelle['kinds'] and 'ar' not in zelle['kinds'] and 'deposit' not in zelle['kinds'] and 'credit' in zelle['kinds'], f"{uid}: a bank's credit notice is never a bill, AR or a claim; it proposes a bank-line match only ({zelle and zelle['kinds']})")
+        C.ok(bool(zelle) and 'bill' not in zelle['kinds'] and 'ar' not in zelle['kinds'] and 'deposit' not in zelle['kinds'] and 'bankline' in zelle['kinds'], f"{uid}: a bank's credit notice is never a bill, AR or a claim; it proposes a bank-line match only ({zelle and zelle['kinds']})")
         arch_in = one(S['comms'], lambda c: c['subject'] == 'Invoice 2290 — 45 Cranberry drawings')
         arch_out = one(S['comms'], lambda c: c['subject'] == 'Re: Invoice 2290 — 45 Cranberry drawings')
         C.ok(bool(arch_in) and 'bill' not in arch_in['kinds'] and 'money' in arch_in['kinds'] and 'unrouted' in arch_in['kinds'], f"{uid}: an invoice from a firm nobody has on file is unclassified money mail with an offer to create the vendor, not a bill ({arch_in and arch_in['kinds']})")
@@ -299,7 +299,7 @@ def invented_workspace():
     def thread(tid, msgs): threads.append({'id': tid, 'messages': msgs})
     thread('t_org1', [msg(1, 6, '09:10', org, me, 'Quote for the honed limestone treads', 'Hi Alan, quote attached for the twelve honed limestone treads: $4,860.00, three weeks from deposit. Acme Stone', atts=[{'filename': 'Acme-Stone-Quote-Q-118.pdf', 'mimeType': 'application/pdf', 'text': 'ACME STONE\nQuote Q-118\nTwelve honed limestone treads $4,860.00\nLead time three weeks'}], thread='t_org1')])
     thread('t_org2', [msg(2, 8, '14:20', org, me, 'Invoice AS-2211 for the slab deposit', 'Invoice attached for the slab deposit, $2,400.00, due October 22, 2026. Acme Stone', atts=[{'filename': 'Acme-Stone-Invoice-AS-2211.pdf', 'mimeType': 'application/pdf', 'text': 'ACME STONE\nInvoice No. AS-2211\nSlab deposit\nAmount Due: $2,400.00\nDue October 22, 2026'}], thread='t_org2')])
-    thread('t_org3', [msg(3, 9, '11:05', org, me, 'Delivery window for the treads', 'The treads deliver the week of October 19, truck between 8 and 11. Acme Stone', thread='t_org3')])
+    thread('t_org3', [msg(3, 9, '11:05', org, me, 'Delivery window for the treads', 'The treads deliver the week of October 19, truck between 8 and 11. Acme Stone', atts=[{'filename': 'Acme-Stone-Delivery-Ticket.pdf', 'mimeType': 'application/pdf', 'text': ''}], thread='t_org3')])
     thread('t_home1', [msg(4, 7, '19:30', home, me, '88 Pierrepont St — our brownstone', 'Hi Alan, we own the brownstone at 88 Pierrepont St and want to open the parlor floor and redo the kitchen. Could we meet next week? Noor', thread='t_home1')])
     thread('t_home2', [msg(5, 9, '08:15', home, me, 'Re: 88 Pierrepont St — our brownstone', 'Following up on 88 Pierrepont St — does Thursday work for a walk-through? Noor', thread='t_home2')])
     thread('t_sent', [msg(6, 1, '10:00', me, 'Theo Brandt <theo.brandt@gmail.example>', 'Proposal for 14 Willow Pl — any questions?', 'Hi Theo, the proposal for 14 Willow Pl is attached. Let me know if you have questions. Alan', labels=['SENT'], thread='t_sent')])
@@ -341,7 +341,7 @@ async def loaded(p, C):
         return { delta: d && { mail: d.mail.length, events: d.events.length, files: d.files.length, errors: d.errors }, name: g.name, loaded: g.loaded, cursors: g.cursors,
           comms: mine.length, events: (DB.calendar.external || []).filter(e => e.owner === 'u_owner').length, files: (DB.gdrive || []).filter(f => f.owner === 'u_owner').length,
           ignored: mine.filter(c => c.status === 'ignored').length, unroutedProps: mine.reduce((a, c) => a + (c.proposals || []).filter(p => p.kind === 'unrouted').length, 0),
-          nudges: A.thread.filter(m => m.nudge).length, nudgeKinds: A.thread.filter(m => m.nudge).map(m => (m.ref || {}).kind), expect: (A.expect || []).map(e => e.who),
+          nudges: A.thread.filter(m => m.nudge).length, nudgeKinds: A.thread.filter(m => m.nudge).map(m => (m.ref || {}).kind), firstsync: (A.thread.find(m => m.nudge && (m.ref || {}).kind === 'firstsync') || {}).text || '', att: d && d.attachments, expect: (A.expect || []).map(e => e.who),
           master: M.map(m => ({ key: m.key, as: m.as, name: m.name, threads: m.threadCount, count: m.count, who: m.who || '', addr: m.addr || '' })) }; }""")
     C.ok(S['delta'] and not S['delta']['errors'] and S['comms'] == 130 and S['events'] == 2 and S['files'] == 110, f"loaded: one sync pages the whole workspace in (mail {S['comms']}/130, events {S['events']}/2, files {S['files']}/110, {S['delta'] and S['delta']['errors']})")
     C.ok(S['name'] == 'Loaded Workspace' and S['loaded'], f"loaded: the connection is named Loaded Workspace ({S['name']})")
@@ -349,6 +349,7 @@ async def loaded(p, C):
     C.ok(S['ignored'] == 1, f"loaded: the newsletter is ignored ({S['ignored']})")
     nk = S['nudgeKinds']
     C.ok(nk.count('firstsync') == 1 and nk.count('master') == 1 and S['nudges'] <= 12, f"loaded: a first sync raises the last two weeks one by one and the September tail as one line, not a storm ({S['nudges']} nudges: {nk})")
+    C.ok('3 attachments, 2 read' in S['firstsync'] and S['att'] == {'n': 3, 'read': 2}, f"loaded: the first-sync summary reports the attachments and how many were read ({S['firstsync']}, {S['att']})")
     C.ok('Theo Brandt' in S['expect'], f"loaded: the sent proposal with no answer is an expectation ({S['expect']})")
     M = S['master']
     vend = one(M, lambda m: m['as'] == 'vendor' and m['who'] == 'orders@acmestone.example')
