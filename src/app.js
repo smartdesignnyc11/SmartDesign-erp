@@ -46697,7 +46697,12 @@ function fAnswerRaise(r, dec) {
             }[dec];
           mbModal(
             dec ? lbl : "Answer",
-            `<p class="small muted" style="margin:0 0 8px"><b>${esc(r.title)}</b>${r.note ? ` — ${esc(r.note)}` : ""}</p><div class="f"><label>${dec ? "Tell the foreman what to do" : "Answer"}</label><textarea data-f="a" rows="3" placeholder="${"extra" === dec ? "e.g. Photograph before and after; I will write the CO today." : "hold" === dec ? "e.g. Do not close that wall. I am coming at 2." : "noshow" === r.type ? "e.g. Rebooked for Friday; the framing crew covers today." : "Short and definite — this goes to the field"}"></textarea></div>${"rfi" === r.type ? '<div class="f"><label>Revised sheet / detail (optional)</label><input data-f="sheet" placeholder="e.g. A-301 rev 3 issued"></div>' : ""}${"noshow" === r.type ? fNoShowHtml(r) : ""}`,
+            `<p class="small muted" style="margin:0 0 8px"><b>${esc(r.title)}</b>${r.note ? ` — ${esc(r.note)}` : ""}</p><div class="f"><label>${dec ? "Tell the foreman what to do" : "Answer"}</label><textarea data-f="a" rows="3" placeholder="${"extra" === dec ? "e.g. Photograph before and after; I will write the CO today." : "hold" === dec ? "e.g. Do not close that wall. I am coming at 2." : "noshow" === r.type ? "e.g. Rebooked for Friday; the framing crew covers today." : "Short and definite — this goes to the field"}"></textarea></div>${"rfi" === r.type ? '<div class="f"><label>Revised sheet / detail (optional)</label><input data-f="sheet" placeholder="e.g. A-301 rev 3 issued"></div>' : ""}${"noshow" === r.type ? fNoShowHtml(r) : ""}${
+              // an extra, or a client's ask for more work, is priced as a change order from the answer itself
+              "extra" === dec || "clientq" === r.type
+                ? `<div class="grid2 fl-co"><label class="chk"><input type="checkbox" data-f="co" ${"extra" === dec || /\b(add|another|new|extra|asked (?:for|if)|can we|could we|outlet|upgrade|change)\b/i.test(`${r.title} ${r.note || ""}`) ? "checked" : ""}> <span class="chk-t">Write the Change Order</span></label>${mbF("Amount", `<input type="number" step="0.01" min="0" data-f="coAmt" value="${("function" == typeof flAmountIn && flAmountIn(`${r.note || ""} ${r.title}`)) || ""}" placeholder="what it adds">`)}</div>`
+                : ""
+            }`,
             {
               submit: "Send to the field",
               onSubmit: (f) => {
@@ -46714,8 +46719,10 @@ function fAnswerRaise(r, dec) {
                   const is = S.issues.find((i) => i.raiseId === r.id);
                   is && ((is.status = "answered"), (is.notes = `${is.notes} — Answer: ${f.a}`));
                 }
+                f.co && ((r.coWanted = !0), +f.coAmt > 0 && (r.coAmount = +f.coAmt));
                 "extra" === r.type &&
                   "extra" === dec &&
+                  !f.co &&
                   ((S.actions = S.actions || []),
                   S.actions.push({
                     id: uid("a"),
@@ -46738,6 +46745,11 @@ function fAnswerRaise(r, dec) {
                     `Answer sent to ${r.by} — ${clipWords(r.title, 60)}${acted && acted.said.length ? ` · ${acted.said.join(", ")}` : ""}`,
                     flowGo.raise(r),
                   );
+                if (f.co && "function" == typeof flWriteCO) {
+                  const pj = DB.projects.find((x) => x.id === r.projectId),
+                    have = r.coId && clCoOf(r.coId);
+                  pj && setTimeout(() => flWriteCO({ kind: "extra", p: pj, r: r, name: r.title, co: have && !["void", "rejected", "superseded"].includes(have.d.status) ? have.d : null }, +f.coAmt || 0, !0), 0);
+                }
               },
             },
           );
