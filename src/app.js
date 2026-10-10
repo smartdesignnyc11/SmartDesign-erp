@@ -174875,12 +174875,11 @@ function nyhItem(r) {
         ? 44
         : "undeposited" === r.kind
           ? 36
-          : // a vendor's credit memo closes money held in dispute: it ranks with a bill, by the money at stake
-            "mail" === r.kind && "dispute-credit" === r.pkind
-            ? 50 + Math.min(20, (+r.amount || 0) / 1e3)
-            : "dispute" === r.kind && "dispute-credit" === r.pkind
-              ? 50 + Math.min(20, (+r.amount || 0) / 1e3)
-              : "dispute" === r.kind || "dup" === r.kind || "clientcredit" === r.kind || "rebill" === r.kind
+          : // money held in dispute ranks with a bill, by the money at stake; in the month's last days (the close
+            // waits on it) or two weeks open it goes to the top of Do Now
+            ("mail" === r.kind && "dispute-credit" === r.pkind) || "dispute" === r.kind
+            ? (lkDisputeUrgent() ? 85 : 50) + Math.min(10, (+r.amount || 0) / 1e3)
+              : "dup" === r.kind || "clientcredit" === r.kind || "rebill" === r.kind
               ? 40 + Math.min(10, (+r.amount || 0) / 2e3)
               : "mail" === r.kind
             ? 32 + Math.min(10, (+r.amount || 0) / 2e3)
@@ -175951,6 +175950,11 @@ document.addEventListener(
 }
 
 // ---- 8. a vendor's credit memo closes the difference held in dispute (1300), with one approval
+// the month's last three days, or a dispute open two weeks: the Owner settles it before the close
+function lkDisputeUrgent() {
+  const td = today();
+  return dayDiff(td, fin2End(td.slice(0, 7))) <= 3 || (DB.bills || []).some((b) => b.short && "open" === b.short.state && dayDiff(b.short.on, td) >= 14);
+}
 // A credit memo naming a bill whose difference is held in dispute (or its vendor's one open dispute, for that
 // amount) is a "dispute-credit" proposal for the Owner, not a return; applying it records the credit (pay3Resolve).
 function lkDisputeFor(c, low, amt) {
@@ -176021,6 +176025,8 @@ function lkDisputeFor(c, low, amt) {
           // the vendor's credit memo is in: the dispute's own row records it (one approval)
           let memo = null;
           (DB.comms || []).forEach((c) => (c.proposals || []).forEach((pr) => !memo && "dispute-credit" === pr.kind && pr.billId === b.id && !pr.applied && !1 !== pr.on && (memo = { c: c, pr: pr })));
+          // (one row: the reader's own row for the memo when Needs Your Hand already holds it)
+          if (memo && out.some((x) => "mail" === x.kind && "dispute-credit" === x.pkind)) return;
           if (memo)
             return void out.push({
               key: key,
