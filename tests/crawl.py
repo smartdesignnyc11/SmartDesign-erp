@@ -7,13 +7,21 @@ cursor or a data-* action attribute), dedupes them by a stable key (view + acces
 attributes), samples repeated rows (at most --per-family alike controls per view) and caps each view
 (--max-per-view, 60), reporting what it skipped.
 
-Each control is pressed from a FRESH known state. The state of a view (the DB as JSON, the current job, the
-view, the scroll and the overlays the shell holds) is snapshotted once; before each press the page is put
-back in place, in memory: DB is replaced the way the app's own Import does it (DB = parsed copy,
-setCurrent, render()). When the previous press changed nothing in DB and stayed on the view, only the
-overlays it opened are closed (render costs 0.5-1 s on this build, so it runs only when needed). The
-visible state is then compared with the snapshot; if it drifted the page is reloaded and the view replayed.
-Saving is switched off for the crawl, so nothing reaches IndexedDB and no press leaks into the next.
+Each control is pressed from a FRESH known state. A view's state is snapshotted once: the DB as JSON, the
+current job, the view, the scroll, the overlays the shell holds, the app's own UI state (every top-level
+let/const and window property that can be cloned, named by the debugger's Runtime.globalLexicalScopeNames:
+filters, tabs, open rows, a tile's focus) and localStorage / sessionStorage. Before each press the page is
+put back in place, in memory: DB is replaced the way the app's own Import does it (DB = parsed copy,
+setCurrent, render()). When the previous press changed nothing in DB and left the page itself alone, only
+the overlays it opened are closed (render costs about 0.3 s, so it runs only when needed). The visible
+state is then compared with the snapshot; if it drifted the page is reloaded and the view replayed. Saving
+is switched off for the crawl, so nothing reaches IndexedDB and no press leaks into the next. Transitions
+and animations are off, Math.random is seeded (the seed's ids are the same every boot), window.open,
+print and links that would leave the page are recorded instead of followed.
+
+Every flag is then pressed again from a freshly booted page (the view opened straight after sign-in, the
+control pressed once). A flag that does not come back was made by the crawl's own sequence, not by a press
+from a fresh state: it is listed under Info as "not reproduced from a fresh boot" and does not count.
 
 After each press (settled when the DOM is quiet for 150 ms, at most 1.5 s; native dialogs are recorded and
 dismissed) it records: page and console errors; the destination (view, heading, the drawer / modal / sheet
@@ -38,10 +46,10 @@ worst 30 with screenshots in review/crawl/shots/) and the last line
 `CRAWL N flags (clicked X controls over Y screens)`. Exit 1 if N > 0.
 
   python3 crawl.py [--user u_owner,u_alan] [--view home,inv] [--phone|--desktop] [--rule NOOP,SILENT]
-                   [--max-per-view 60] [--per-family 3] [--json path] [--quiet]
+                   [--max-per-view 60] [--per-family 3] [--json path] [--quiet] [--no-confirm]
 
-A full run takes well over 45 minutes on this build (render is slow), so it is an optional suite in
-tests/run_all.sh (tests/run_all.sh crawl), like month_sim.
+A full run takes about three hours on this build, so it is an optional suite in tests/run_all.sh
+(tests/run_all.sh crawl), like month_sim; filter by --user / --view / --phone / --desktop while fixing.
 """
 import asyncio, json, os, re, sys, time, argparse
 from collections import Counter, defaultdict
@@ -924,10 +932,13 @@ class Crawler:
         """The flags one press earns: (rule, detail) pairs, the allowlist applied."""
         if r['keys'] and not r['toasts'] and r['view'] != '?':
             # what drawing the destination writes by itself (lazy defaults, caches) is not the press's doing
+            # a new page's own writes are cached per page and job; a press that stayed on the page (a tab, a
+            # filter) is measured each time, since what the page draws depends on the state the press set
             ck = (r['view'], r.get('cur'))
-            rk = rw_cache.get(ck)
+            rk = rw_cache.get(ck) if r['viewChanged'] else None
             if rk is None:
-                rk = rw_cache[ck] = set(await self.pg.evaluate('([v, c]) => window.__cr.renderWrites(v, c)', [r['view'], r.get('cur')]))
+                rk = set(await self.pg.evaluate('([v, c]) => window.__cr.renderWrites(v, c)', [r['view'], r.get('cur')]))
+                if r['viewChanged']: rw_cache[ck] = rk
             r['renderKeys'] = sorted(rk & set(r['keys']))
             r['keys'] = [k for k in r['keys'] if k not in rk]
         found = judge(c, r, ctx)
