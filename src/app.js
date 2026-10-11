@@ -187380,3 +187380,75 @@ if (!document.getElementById("req-co-css")) {
   const st = document.createElement("style");
   (st.id = "req-co-css"), (st.textContent = ".req-co{margin-bottom:14px}.req-co-row{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--rule,#eee);overflow-wrap:anywhere}.req-co-row .grow{display:flex;flex-direction:column;gap:2px;min-width:0}.req-co-acts{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}.req-co-acts .btn{min-height:36px}@media (max-width:760px){.req-co-row{flex-direction:column}.req-co-acts{justify-content:flex-start}.req-co-acts .btn{min-height:44px}}"), document.head.appendChild(st);
 }
+// ---- Statement imports are findable on Banking (the agent-month selftest, 2026-10-11) -------------------------
+// An imported statement was named only in its toast. Banking now lists every import (file, account, period, lines,
+// matched to a record, still unmatched), newest first; right after an import the new row is highlighted and the
+// toast's Open lands on it (the reconcile stays one tap away on the row).
+let bfImpFlash = "",
+  bfImpFlashUntil = 0;
+function bfImpStats(imp) {
+  const T = (DB.txns || []).filter((t) => t.importId === imp.id && !t.voided),
+    un = new Set(((("function" == typeof bankUnmatched && bankUnmatched()) || {}).rows || []).map((t) => t.id)),
+    unmatched = T.filter((t) => un.has(t.id) || ((!t.cat || "uncat" === t.cat) && !t.billId && !t.poId)).length;
+  return { lines: imp.lines || T.length, here: T.length, matched: T.length - unmatched, unmatched: unmatched };
+}
+function bfImportsHtml() {
+  const L = (DB.bankImports || []).slice().sort((a, b) => String(b.at || "").localeCompare(String(a.at || ""))).slice(0, 12);
+  if (!L.length) return "";
+  return `<div class="card bf-imps" id="bf-imports"><div class="hd"><h3>Statement Imports</h3><span class="small muted">${(DB.bankImports || []).length} imported</span></div>${L.map((imp) => {
+    const a = (DB.accounts || []).find((x) => x.id === imp.acctId) || {},
+      st = bfImpStats(imp);
+    return `<div class="bf-imp ${bfImpFlash === imp.id && Date.now() < bfImpFlashUntil ? "tk-flash" : ""}" data-bfimp="${esc(imp.id)}"><div class="grow"><b data-nocase>${esc(imp.fileName || "statement")}</b><span class="small muted" data-nocase>${esc(a.name || imp.institution || "")}${imp.mask ? ` ····${esc(imp.mask)}` : ""} · ${imp.period && imp.period[0] ? `${fmtL(imp.period[0])} to ${fmtL(imp.period[1])}` : ""} · imported by ${esc(imp.by || "")} ${imp.at ? fmtL(String(imp.at).slice(0, 10)) : ""}</span></div><span class="small">${st.lines} line${1 === st.lines ? "" : "s"} · ${st.matched} matched · <span class="${st.unmatched ? "bad" : ""}">${st.unmatched} unmatched</span></span>${null != imp.ending ? `<button class="btn sm" data-bfimprec="${esc(imp.id)}">Reconcile</button>` : ""}</div>`;
+  }).join("")}</div>`;
+}
+{
+  const base = renderBank;
+  renderBank = function () {
+    const r = base.apply(this, arguments);
+    try {
+      const v = document.getElementById("v-bank");
+      if (v) {
+        const old = v.querySelector("#bf-imports");
+        old && old.remove();
+        const h = bfImportsHtml();
+        if (h) {
+          const at = v.querySelector("#feeds-card") || v.querySelector("#bank-accts");
+          at ? at.insertAdjacentHTML("afterend", h) : v.insertAdjacentHTML("beforeend", h);
+          const host = v.querySelector("#bf-imports");
+          host.querySelectorAll("[data-bfimprec]").forEach((b) => (b.onclick = () => { const imp = DB.bankImports.find((x) => x.id === b.dataset.bfimprec); imp && bfReconOpen(imp.acctId, imp.period[1], imp.ending, imp.id); }));
+          const f = bfImpFlash && Date.now() < bfImpFlashUntil && host.querySelector(`[data-bfimp="${bfImpFlash}"]`);
+          f && setTimeout(() => f.scrollIntoView({ block: "center" }), 30);
+        }
+      }
+    } catch (e) {
+      console.warn("statement imports", e);
+    }
+    return r;
+  };
+}
+function bfImpLand(id) {
+  (bfImpFlash = id), (bfImpFlashUntil = Date.now() + 4e3), (view = "bank"), render();
+}
+{
+  const base = bfImportRun;
+  bfImportRun = function () {
+    const n0 = (DB.bankImports || []).length,
+      r = base.apply(this, arguments);
+    try {
+      const imp = (DB.bankImports || []).length > n0 ? DB.bankImports[DB.bankImports.length - 1] : null;
+      if (imp) {
+        bfImpLand(imp.id);
+        const st = bfImpStats(imp);
+        toast(`${imp.fileName || "Statement"} imported: ${st.lines} line${1 === st.lines ? "" : "s"}, ${st.matched} matched, ${st.unmatched} unmatched`, [{ label: "Open", run: () => bfImpLand(imp.id) }]);
+      }
+    } catch (e) {
+      console.warn("import land", e);
+    }
+    return r;
+  };
+}
+if (!document.getElementById("bf-imps-css")) {
+  const st = document.createElement("style");
+  (st.id = "bf-imps-css"), (st.textContent = ".bf-imps{margin:12px 0}.bf-imp{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 6px;border-top:1px solid var(--rule,#eee);overflow-wrap:anywhere}.bf-imp .grow{display:flex;flex-direction:column;min-width:0;flex:1 1 220px}.bf-imp.tk-flash{background:var(--accent-2);box-shadow:inset 3px 0 0 var(--accent)}"), document.head.appendChild(st);
+}
+
