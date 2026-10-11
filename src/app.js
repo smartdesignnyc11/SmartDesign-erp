@@ -9986,8 +9986,9 @@ async function categorizeAI() {
     "uncat" === t.cat && applyRules(t) && ruled++;
   });
   const rest = open.filter((t) => txnState(t).sev >= 2);
-  if (!rest.length) return save(), render(), void toast(`${ruled} categorized by rules`);
-  toast(`${ruled} by rules · asking the assistant about ${rest.length}…`);
+  const bankOpen = txnListOpen("bank", () => ((txnFilter = "all"), (txnAcct = "")));
+  if (!rest.length) return save(), render(), void toast(`${ruled} categorized by rules`, bankOpen);
+  toast(`${ruled} by rules · asking the assistant about ${rest.length}…`, bankOpen);
   const ctx = {
       categories: CATEGORIES.map((c) => ({ id: c.id, name: c.n, type: c.type })),
       costCodes: COST_CODES.map((c) => ({ code: c[0], name: c[1] })),
@@ -10543,6 +10544,7 @@ function budgetFromEstimate() {
       est.lines.some((l) => +l.cost)
         ? "Budget loaded from line costs"
         : "Budget loaded from prices — add budget costs to the estimate lines for a real margin view",
+      () => editBudgetDialog(),
     );
 }
 function editBudgetDialog() {
@@ -11453,6 +11455,8 @@ function matchAllPOs() {
     render(),
     toast(
       `${n} match${1 === n ? "" : "es"} proposed — confirm in Banking or on the PO · ${DB.txns.filter((t) => t.projectId === S.id && t.noPO).length} without a PO`,
+      // the proposals wait in Banking's review list
+      txnListOpen("bank", () => ((txnFilter = "open"), (txnAcct = ""))),
     );
 }
 function newPODialog() {
@@ -13710,7 +13714,10 @@ function verifyAll() {
   }
   (DB.lastVerify = appNowIso()), save(), render();
   const open = DB.txns.filter((t) => t.verification && !t.verified && "reconciled" !== t.status).length;
-  toast(`${n} verified · ${open} exception${1 === open ? "" : "s"} for the Owner`);
+  toast(
+    `${n} verified · ${open} exception${1 === open ? "" : "s"} for the Owner`,
+    txnListOpen("verify", () => (vfFilter = "open")),
+  );
 }
 function openExceptions() {
   return DB.txns.filter((t) => t.verification && !t.verified && "reconciled" !== t.status && !t.ownerCleared);
@@ -14752,7 +14759,8 @@ async function clockEvent(kind) {
     render(),
     toast(
       "in" === kind ? `Clocked in at ${S.project.name}` : "Clocked out — now log what you worked on",
-      flowGo.time(te),
+      // the entry itself: the person is already on the time page, so Open opens the punch they just made
+      () => (te ? openTime(te.id) : flowGo.time(te)()),
     );
 }
 function openTime(id) {
@@ -18492,7 +18500,17 @@ function wire() {
       }
       const nx = e.target.closest("[data-nudgex]");
       if (nx)
-        return (DB.dismissed = DB.dismissed || []).push("nudge:" + nx.dataset.nudgex), save(), void render();
+        return (
+          (DB.dismissed = DB.dismissed || []).push("nudge:" + nx.dataset.nudgex),
+          save(),
+          render(),
+          void toast(`Dismissed: the ${task(nx.dataset.nudgex)?.name || "kit"} reminder`, {
+            label: "Undo",
+            run: () => {
+              (DB.dismissed = (DB.dismissed || []).filter((k) => k !== "nudge:" + nx.dataset.nudgex)), save(), render();
+            },
+          })
+        );
       const mr = e.target.closest("[data-myreq]");
       if (mr) {
         const r = S.requests.find((x) => x.id === mr.dataset.myreq);
@@ -18628,7 +18646,7 @@ function wire() {
           log(`${m.name} on site`),
           save(),
           render(),
-          void toast(`${m.name} marked on site`)
+          void toast(`${m.name} marked on site`, () => openEditor("mat", m.id))
         );
       }
       const ps = e.target.closest("[data-passed]");
@@ -18640,7 +18658,7 @@ function wire() {
           log(`${i.agency} ${i.name} passed ${fmt(i.date)}`),
           save(),
           render(),
-          void toast(`${i.name} passed`)
+          void toast(`${i.name} passed`, () => openEditor("insp", i.id))
         );
       }
       const dd = e.target.closest("[data-decided]");
@@ -35581,17 +35599,57 @@ function proposalsHtml(list, title) {
         .join("")}</div>`
     : "";
 }
+// The record a bank line's toast opens: the bill or PO it is matched to, else the line itself (its Verify
+// sheet: the line, what it is coded to and the approved item behind it).
+function txnOpen(t) {
+  return () => {
+    const b = t && t.billId && (DB.bills || []).find((x) => x.id === t.billId),
+      po = t && t.poId && (DB.pos || []).find((x) => x.id === t.poId);
+    b && "object" == typeof flowGo ? flowGo.bill(b)() : po && "object" == typeof flowGo ? flowGo.po(po)() : t && openVerifyTxn(t.id);
+  };
+}
+// The Open link for a record that lives as a row on its page (a drawing sheet, a filing, a selection): the
+// page opens at the row that carries the record's name or number, and the row is marked for a moment.
+function goRow(v, text, setup) {
+  return () => {
+    try {
+      setup && setup();
+    } catch (e) {}
+    (view = v), render(), window.scrollTo(0, 0);
+    const want = String(text || "").trim();
+    if (!want) return;
+    const rows = [...document.querySelectorAll(".view.on tr, .view.on li, .view.on .card, .view.on [class*='card'], .view.on [class*='row']")].filter(
+        (r) => r.getClientRects().length && (r.textContent || "").includes(want),
+      ),
+      row = rows.sort((a, b) => (a.textContent || "").length - (b.textContent || "").length)[0];
+    row && (row.scrollIntoView({ block: "center" }), row.classList.add("rec-hl"), setTimeout(() => row.classList.remove("rec-hl"), 2600));
+  };
+}
+// A batch over bank lines (rules, matching, verification) opens the list it worked on.
+function txnListOpen(v, set) {
+  return () => {
+    try {
+      set && set();
+    } catch (e) {}
+    (view = v), render(), window.scrollTo(0, 0);
+    // the list itself, brought into view and marked: the person may already be on this page
+    const list = [...document.querySelectorAll(".view.on .dg, .view.on table")].find((x) => x.getClientRects().length);
+    list && (list.scrollIntoView({ block: "start" }), list.classList.add("rec-hl"), setTimeout(() => list.classList.remove("rec-hl"), 2600));
+  };
+}
 function wireProposals(root) {
   (root || document).querySelectorAll("[data-mconfirm]").forEach(
     (b) =>
       (b.onclick = () => {
-        confirmMatch(DB.txns.find((x) => x.id === b.dataset.mconfirm)), render(), toast("Match confirmed");
+        const t = DB.txns.find((x) => x.id === b.dataset.mconfirm);
+        confirmMatch(t), render(), toast("Match confirmed", txnOpen(t));
       }),
   ),
     (root || document).querySelectorAll("[data-mreject]").forEach(
       (b) =>
         (b.onclick = () => {
-          rejectMatch(DB.txns.find((x) => x.id === b.dataset.mreject)), render(), toast("Kept unmatched");
+          const t = DB.txns.find((x) => x.id === b.dataset.mreject);
+          rejectMatch(t), render(), toast("Kept unmatched", txnOpen(t));
         }),
     );
 }
@@ -40861,7 +40919,7 @@ function renderSDraw() {
             touch("sheet", n.id, `${n.number} rev ${n.rev}`, p.id, 30),
             save(),
             renderSDraw(),
-            toast(`${n.number} rev ${n.rev} is current — rev ${s.rev} superseded`);
+            toast(`${n.number} rev ${n.rev} is current — rev ${s.rev} superseded`, goRow("sdraw", n.number));
         }),
     ),
     root.querySelectorAll("[data-aff]").forEach(
@@ -41102,9 +41160,13 @@ function wireFilings(root, p) {
             "round" === a &&
               (f.rounds++,
               (f.status = "objections"),
-              f.rounds > 2 &&
-                toast(`Round ${f.rounds} — beyond the two included; bill additional services hourly`)),
-            "resubmit" === a && (f.status = "submitted"),
+              toast(
+                f.rounds > 2
+                  ? `${f.name}: round ${f.rounds} of objections — beyond the two included; bill additional services hourly`
+                  : `${f.name}: objections received, round ${f.rounds} of 2`,
+                goRow("sfile", f.name),
+              )),
+            "resubmit" === a && ((f.status = "submitted"), toast(`${f.name}: resubmitted`, goRow("sfile", f.name))),
             "approve" === a &&
               ((f.status = "approved"),
               (f.approvedOn = today()),
@@ -41114,7 +41176,7 @@ function wireFilings(root, p) {
             log(`${f.name}: ${FILING_STATUS[f.status][0]}`),
             save(),
             render(),
-            inv && toast(`${inv.number} drafted — ${money(docTotal(inv).total)} · Clients & billing`);
+            inv && toast(`${inv.number} drafted — ${money(docTotal(inv).total)} · Clients & billing`, flowGo.doc(DB.clients.find((c) => (c.invoices || []).includes(inv)) || {}, "invoice", inv));
         }),
     );
 }
@@ -46166,12 +46228,22 @@ function fRenderToday() {
     root.querySelectorAll("[data-fstart]").forEach(
       (b) =>
         (b.onclick = () => {
-          const t = task(b.dataset.fstart);
+          const t = task(b.dataset.fstart),
+            was = { status: t.status, actualStart: t.actualStart };
           (t.status = "in-progress"),
             (t.actualStart = t.actualStart || td),
             log(`${t.name} started (foreman)`, "field", fWho()),
             save(),
-            render();
+            render(),
+            toast(`${t.name} — started; the schedule and the PM see it`, [
+              { label: "Open", run: () => (flowCan("sched") && canEdit() ? openEditor("task", t.id) : goRow(view, t.name)()) },
+              {
+                label: "Undo",
+                run: () => {
+                  Object.assign(t, was), log(`${t.name}: start undone (foreman)`, "field", fWho()), save(), render();
+                },
+              },
+            ]);
         }),
     ),
     root.querySelectorAll("[data-fdone]").forEach(
@@ -46268,7 +46340,16 @@ function fSubStatus(id, st) {
         subId: s.id,
         note: s.phone ? `Lead: ${s.lead} ${s.phone}` : "",
       }),
-    render();
+    render(),
+    // the foreman's tap says what it recorded, with the way back to the sub's row on Site
+    toast(
+      `${s.vendor} — ${"onsite" === st ? "on site" : "confirmed" === st ? "confirmed for " + fmt(s.date) : "noshow" === st ? "no-show, the PM is told" : "not confirmed"}`,
+      goRow(fRouteFor("fsite"), s.vendor),
+    );
+}
+// The field page a record lives on for this person (the foreman's Site, else the office's Field).
+function fRouteFor(v) {
+  return "function" == typeof flowCan && !flowCan(v) ? (flowCan("field") ? "field" : roleHome(role())) : v;
 }
 function fRenderRaise() {
   const root = $("#fraise-body");
@@ -46500,7 +46581,11 @@ function fRenderSite() {
         (b.onclick = () => {
           const [id, st] = b.dataset.fpunch.split(":"),
             x = DB.field.punch.find((y) => y.id === id);
-          (x.status = st), (x[st + "At"] = fNow()), save(), fRenderSite();
+          (x.status = st),
+            (x[st + "At"] = fNow()),
+            save(),
+            fRenderSite(),
+            toast(`Punch: ${x.item || "item"} — ${"open" === st ? "reopened" : st}`, goRow(fRouteFor("fsite"), x.item || ""));
         }),
     ),
     ($("#fsub-add").onclick = () => {
@@ -46700,7 +46785,17 @@ function fRenderCrew() {
   root.querySelectorAll("[data-fappr]").forEach(
     (b) =>
       (b.onclick = () => {
-        appr(DB.time.find((x) => x.id === b.dataset.fappr)), save(), render();
+        const t = DB.time.find((x) => x.id === b.dataset.fappr),
+          was = t.status;
+        appr(t),
+          save(),
+          render(),
+          toast(`${empName(t.empId)} · ${fmt(t.date)} — ${hoursOf(t).toFixed(1)} h approved`, {
+            label: "Undo",
+            run: () => {
+              (t.status = was), (t.approvedBy = ""), delete t.approvedAt, audit("time", t.id, "approval undone", null, { by: fWho() }), save(), render();
+            },
+          });
       }),
   ),
     root.querySelectorAll("[data-ffix]").forEach(
@@ -46732,7 +46827,7 @@ function fRenderCrew() {
   const all = $("#fappr-all");
   all &&
     (all.onclick = () => {
-      clean.forEach(appr), save(), render(), toast(`${clean.length} approved`);
+      clean.forEach(appr), save(), render(), toast(`${clean.length} approved`, flowGo.viewOf("time", "fcrew"));
     }),
     ($("#ftalk").onclick = () =>
       mbModal(
@@ -47027,7 +47122,7 @@ function fWireOffice(root) {
             (r.status = "sent"),
             save(),
             render(),
-            toast(`Handed to ${fPerson(r.to)?.name || r.to}`);
+            toast(`Handed to ${fPerson(r.to)?.name || r.to}`, flowGo.raise(r));
         }),
     ));
 }
@@ -47938,6 +48033,23 @@ function fWireForYou(root) {
           DB.field.notes.find((x) => x.id === id).ack = fNow();
         } else (DB.field.acks = DB.field.acks || []), DB.field.acks.push(k + ":" + id);
         save(), render();
+        // what was acknowledged, and where it now sits (the field's record of it)
+        const r = "answer" === k ? DB.field.raises.find((x) => x.id === id) : null,
+          d = "dec" === k ? S.decisions.find((x) => x.id === id) : null,
+          undo = {
+            label: "Undo",
+            run: () => {
+              "note" === k
+                ? ((DB.field.notes.find((x) => x.id === id) || {}).ack = "")
+                : (DB.field.acks = (DB.field.acks || []).filter((x) => x !== k + ":" + id)),
+                save(),
+                render();
+            },
+          };
+        toast(
+          r ? `Closed: ${r.title}` : d ? `Noted: ${d.name}` : "Noted — the office sees you have it",
+          r ? flowGo.raise(r) : d ? [{ label: "Open", run: flowGo.decision(S, d) }, undo] : undo,
+        );
       }),
   );
 }
@@ -52243,6 +52355,8 @@ function wireSel(root) {
           n
             ? `${n} thing${1 === n ? "" : "s"} to look at`
             : "Everything on the board agrees with what was clipped",
+          // the items with something to check, under the To Check tile
+          n ? () => tlLand("sel", "chk") || render() : null,
         );
     }),
     root.querySelectorAll("[data-open]").forEach((b) => (b.onclick = () => selOpenItem(b.dataset.open))),
@@ -52545,11 +52659,11 @@ function selOverride(it) {
 async function selVerifyItem(id) {
   const it = selItem(id);
   if (!it) return;
-  toast("Comparing the record against the page…");
+  toast("Comparing the record against the page…", () => selOpenItem(it.id));
   await selVerifyLive(it);
   save(), renderSel(), "proc" === view && renderProc();
   const n = selOpenChecks(it).length;
-  toast(n ? `${n} thing${1 === n ? "" : "s"} to look at on ${it.name}` : `${it.name} agrees with the page`);
+  toast(n ? `${n} thing${1 === n ? "" : "s"} to look at on ${it.name}` : `${it.name} agrees with the page`, () => selOpenItem(it.id));
 }
 async function selConfirmDoc(it, doc) {
   if (!doc?.url || !it.sku) return null;
@@ -57441,13 +57555,9 @@ function wireSpend(root) {
     root.querySelectorAll("[data-spok]").forEach(
       (b) =>
         (b.onclick = (e) => {
-          e.stopPropagation(),
-            spApprove(
-              spAll().find((s) => s.id === b.dataset.spok),
-              !0,
-            ),
-            go(),
-            toast("Approved");
+          e.stopPropagation();
+          const sp = spAll().find((s) => s.id === b.dataset.spok);
+          spApprove(sp, !0), go(), toast("Approved", () => sp && spCaptureModal({ spend: sp }));
         }),
     ),
     root.querySelectorAll("[data-spno]").forEach(
@@ -57477,7 +57587,7 @@ function wireSpend(root) {
             t &&
             (spSettle(s, t),
             go(),
-            toast(`${money(spTotal(s))} settled — the line, the code and the receipt went with it`));
+            toast(`${money(spTotal(s))} settled — the line, the code and the receipt went with it`, () => spCaptureModal({ spend: s })));
         }),
     ),
     root.querySelectorAll("[data-spclaim]").forEach(
@@ -62868,7 +62978,7 @@ function fRenderAsk() {
             audit("raise", r.id, "chased", null, { to: r.to }),
             save(),
             render(),
-            toast(`${p ? p.name.split(" ")[0] : "They"} chased again`);
+            toast(`${p ? p.name.split(" ")[0] : "They"} chased again — ${String(r.title || "").slice(0, 50)}`, goRow(fRouteFor("fraise"), String(r.title || "").slice(0, 40)));
         }),
     ),
     root.querySelectorAll("[data-f3go]").forEach(
@@ -68166,11 +68276,26 @@ const h4HomeBase_ea = h4Home;
           requestAction(d.ack.pid, d.ack.rid, "ack"),
           save(),
           render(),
-          void toast("Acknowledged — the foreman can see it, the driver can buy it")
+          void toast(
+            "Acknowledged — the foreman can see it, the driver can buy it",
+            flowGo.request(DB.projects.find((x) => x.id === d.ack.pid)),
+          )
         );
       if (d.note) {
         const n = eaNotes().find((x) => x.id === d.note);
-        return void (n && ((n.done = !0), (n.doneAt = today()), save(), render()));
+        return void (
+          n &&
+          ((n.done = !0),
+          (n.doneAt = today()),
+          save(),
+          render(),
+          toast(`Done: ${String(n.text || n.title || "the note").slice(0, 60)}`, {
+            label: "Undo",
+            run: () => {
+              (n.done = !1), delete n.doneAt, save(), render();
+            },
+          }))
+        );
       }
       if (d.chase) {
         if ("coi" === d.chase && d.vendor) {
@@ -95430,7 +95555,7 @@ function bnWire(host) {
     host.querySelectorAll("[data-lnno]").forEach(
       (b) =>
         (b.onclick = () => {
-          lnDecline(b.dataset.lnno) && (toast("Declined — it will not be proposed again"), render());
+          lnDecline(b.dataset.lnno) && render();
         }),
     ),
     host.querySelectorAll("[data-bnok]").forEach(
@@ -146851,7 +146976,7 @@ function t2BoardHtml(list) {
                 tkToggle(kind, id, pid),
                   "ob" !== kind &&
                     "lead" !== kind &&
-                    (save(), renderTkAll(), toast(x ? `Done: ${x.title}` : "Done"));
+                    (save(), renderTkAll(), toast(x ? `Done: ${x.title}` : "Done", x ? () => openEditor("tk", `${x.kind}|${x.projectId}|${x.id}`) : null));
               }),
           );
         const meet = host.querySelector("#t2-meeting");
@@ -146928,7 +147053,7 @@ function t2BoardHtml(list) {
                     tkToggle(kind, id, pid),
                       "ob" !== kind &&
                         "lead" !== kind &&
-                        (save(), renderTkAll(), toast(x ? `Done: ${x.title}` : "Done"));
+                        (save(), renderTkAll(), toast(x ? `Done: ${x.title}` : "Done", x ? () => openEditor("tk", `${x.kind}|${x.projectId}|${x.id}`) : null));
                   }),
               ),
               wrap.querySelectorAll(".t2-bcard").forEach(
@@ -174446,10 +174571,16 @@ function lnApprove(kind, why) {
   lnLoop("approve");
   return save(), l;
 }
+// Declining says so, wherever it is pressed (The Brain, Approvals, Do Now), with the way back to the lesson.
 function lnDecline(kind, why) {
   const P = lnInit().props[kind];
   if (!P || "proposed" !== P.status) return null;
-  return Object.assign(P, { status: "declined", by: ((currentUser() || {}).name) || role(), decidedAt: today(), note: why || "" }), save(), P;
+  return (
+    Object.assign(P, { status: "declined", by: ((currentUser() || {}).name) || role(), decidedAt: today(), note: why || "" }),
+    save(),
+    rcToast(`Declined: ${P.title || "the lesson"} — it will not be proposed again`, [{ label: "Open", run: () => ((view = "brain"), (bnTab = "lessons"), render()) }]),
+    P
+  );
 }
 const lnChangeWords = { rule: "a rule", reminder: "a reminder", checklist: "a checklist item", process: "a process step" };
 // ---- Needs Your Hand ----------------------------------------------------------------------------------------
@@ -174531,7 +174662,7 @@ function nyhRowsAll() {
         run: () => ("lpc" === pr.kind ? nyhLpcTask(c, pr, key) : nyhApplyMail(c, pr)),
         skip: () => nyhSkipMail(c, pr),
         open: () => {
-          (window.cmFilter = "all"), (view = "comms"), render();
+          (cmFilter = "all"), (view = "comms"), render();
         },
         commId: c.id,
       });
@@ -174747,14 +174878,14 @@ function nyhApplyMail(c, pr) {
   pr.applied || (pr.applied = did || "applied"), (pr.appliedAt = pr.appliedAt || appNowIso()), (pr.by = pr.by || ((currentUser() || {}).name) || role());
   nyhMarkCopies(c, pr, did);
   save(), render();
-  rcToast(did || `Applied: ${String(pr.summary || "").slice(0, 60)}`, [{ label: "Open", run: () => ((window.cmFilter = "all"), (view = "comms"), render()) }]);
+  rcToast(did || `Applied: ${String(pr.summary || "").slice(0, 60)}`, [{ label: "Open", run: () => ((cmOpen = c.id), (cmFilter = "all"), (view = "comms"), render()) }]);
 }
 function nyhSkipMail(c, pr) {
   const by = ((currentUser() || {}).name) || role();
   lnSameProps(c, pr).forEach((y) => {
     (y.pr.on = !1), (y.pr.applied = "set aside"), (y.pr.by = by), y.c.proposals.every((z) => z.applied) && (y.c.status = "applied");
   });
-  save(), render(), toast(`Set aside: ${String(pr.summary || "").slice(0, 60)}`);
+  save(), render(), toast(`Set aside: ${String(pr.summary || "").slice(0, 60)}`, () => ((cmOpen = c.id), (cmFilter = "all"), (view = "comms"), render()));
 }
 // LPC or an examiner wrote back: the comment goes on the application (the reader's apply) and the designer
 // gets a dated task to revise and resubmit
@@ -174809,7 +174940,7 @@ function nyhMaster(u, m, yes) {
     if (yes) {
       const r = paMasterApply(m.key);
       r && rcToast(`Created ${r.made} — ${r.routed} message${1 === r.routed ? "" : "s"} routed`, r.go && "function" == typeof gcOpen ? [{ label: "Open", run: gcOpen(r.go) }] : null);
-    } else paMasterIgnore(m.key), toast(`Set aside: ${m.name || m.addr}`);
+    } else paMasterIgnore(m.key), toast(`Set aside: ${m.name || m.addr}`, () => ((cmFilter = "all"), (view = "comms"), render()));
   } finally {
     DB.deviceUser = keep;
   }
@@ -176295,7 +176426,7 @@ function lkDisputeFor(c, low, amt) {
               verb: "Approve",
               no: "",
               run: () => nyhApplyMail(memo.c, memo.pr),
-              open: () => ((window.cmFilter = "all"), (view = "comms"), render()),
+              open: () => ((cmFilter = "all"), (view = "comms"), render()),
             });
           if (!(near || dayDiff(b.short.on, td) >= 14)) return;
           out.push({
@@ -177193,7 +177324,7 @@ function flReplyApply(c, p) {
   const lead = (DB.leads || []).find((l) => l.id === p.leadId) || null;
   flReplyDraft(c, p, lead);
   const did = `a reply to ${(lead && lead.name) || (c.from && c.from.name) || "them"} is in your Drafts — answer each question, then send`;
-  return flMark(c, p, did), save(), render(), rcToast(did, [{ label: "Open", run: () => ((window.cmFilter = "all"), (view = "comms"), render()) }]), did;
+  return flMark(c, p, did), save(), render(), rcToast(did, [{ label: "Open", run: () => ((cmFilter = "all"), (view = "comms"), render()) }]), did;
 }
 {
   const base = cmApply;
@@ -177458,7 +177589,7 @@ function flObRows() {
           run: () => F.run(c, pr),
           skip: () => nyhSkipMail(c, pr),
           open: () => {
-            (window.cmFilter = "all"), (view = "comms"), render();
+            (cmFilter = "all"), (view = "comms"), render();
           },
           commId: c.id,
           pri: F.pri(c, pr),
