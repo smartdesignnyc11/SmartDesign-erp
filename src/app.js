@@ -36248,7 +36248,9 @@ function jobTrueProfit(p, range) {
     rate = ohTrailing().rate,
     atBase = "revenue" === b ? contract : "labor" === b ? (Jt.actual ? (+Jt.laborCost || 0) * (eac / Jt.actual) : 0) : "hours" === b ? (Jt.actual ? (+Jt.hours || 0) * (eac / Jt.actual) : 0) : eac,
     burden = r2(rate * atBase),
-    margin = r2(contract - eac);
+    // the job's estimated gross profit at completion as jobFin states it (contract plus what is billed back, less the
+    // estimate at completion): the same figure Ask's margin and the WIP schedule give
+    margin = r2(null != Jt.estGP ? +Jt.estGP : contract - eac);
   return {
     p: p,
     range: R,
@@ -36440,7 +36442,7 @@ repProfit = function () {
   const T = jobTrueProfit(p),
     kpi = (label, v, sub, cls = "") =>
       `<div class="kpi ${cls}"><b>${"number" == typeof v ? money(v) : v}</b><span>${label}${sub ? ` · ${sub}` : ""}</span></div>`,
-    block = `<h3 class="rep-h">Profit After Overhead</h3><div class="fin rep-kpis oh-job">${kpi("Earned to Date", T.revenue)}${kpi("Job Cost to Date", T.cost)}${kpi("Gross Profit", T.gross, `${T.grossPct}%`, T.gross < 0 ? "bad" : "")}${kpi("Overhead Allocated", T.oh, `${money(T.basisAmt)} of ${OH_BASES[T.basis][1]}`)}${kpi("Net Profit", T.net, `${T.netPct}%`, T.net < 0 ? "bad" : T.netPct < 10 ? "warn" : "good")}</div><div class="fin rep-kpis oh-job-eac">${kpi("Margin at Completion", T.margin, `contract ${money(T.contract)} less estimated cost ${money(T.eac)}`)}${kpi("Overhead at Completion", T.burden, `${pct1(T.burdenRate)} burden rate`)}${kpi("Net at Completion", T.netAtCompletion, `${T.netAtCompletionPct}%`, T.netAtCompletion < 0 ? "bad" : "")}</div><div class="small muted oh-method" style="margin:-4px 0 10px">${esc(T.method)} The burden rate is the last three full months' pool over their ${OH_BASES[T.basis][1]}.</div>`,
+    block = `<h3 class="rep-h">Profit After Overhead</h3><div class="fin rep-kpis oh-job">${kpi("Earned to Date", T.revenue)}${kpi("Job Cost to Date", T.cost)}${kpi("Gross Profit", T.gross, `${T.grossPct}%`, T.gross < 0 ? "bad" : "")}${kpi("Overhead Allocated", T.oh, `${money(T.basisAmt)} of ${OH_BASES[T.basis][1]}`)}${kpi("Net Profit", T.net, `${T.netPct}%`, T.net < 0 ? "bad" : T.netPct < 10 ? "warn" : "good")}</div><div class="fin rep-kpis oh-job-eac">${kpi("Margin at Completion", T.margin, `revenue ${money(r2(T.margin + T.eac))} (contract ${money(T.contract)}${r2(T.margin + T.eac - T.contract) ? ` and ${money(r2(T.margin + T.eac - T.contract))} billed back` : ""}) less estimated cost ${money(T.eac)}`)}${kpi("Overhead at Completion", T.burden, `${pct1(T.burdenRate)} burden rate`)}${kpi("Net at Completion", T.netAtCompletion, `${T.netAtCompletionPct}%`, T.netAtCompletion < 0 ? "bad" : "")}</div><div class="small muted oh-method" style="margin:-4px 0 10px">${esc(T.method)} The burden rate is the last three full months' pool over their ${OH_BASES[T.basis][1]}.</div>`,
     j = h.indexOf('<h3 class="rep-h">', h.indexOf("Cost &amp; margin") > -1 ? h.indexOf("Cost &amp; margin") : h.indexOf("Cost & margin")),
     k = j > -1 ? h.indexOf('<h3 class="rep-h">', j + 10) : -1;
   return k > -1 ? h.slice(0, k) + block + h.slice(k) : h + block;
