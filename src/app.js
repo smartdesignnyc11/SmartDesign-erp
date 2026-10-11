@@ -86427,6 +86427,8 @@ if (
 }
 const GLN_CHEV = '<svg class="gl-chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>';
 function glnTile(o) {
+  // a reading whose page this role does not have is shown, not linked
+  if (!o.go) return `<div class="gl static ${o.tone || ""}"><span class="gl-k">${esc(o.k)}</span><b class="gl-v">${o.v}</b><span class="gl-s">${o.s || ""}</span></div>`;
   return `<button type="button" class="gl ${o.tone || ""}" data-gl="${o.go}" ${o.project ? `data-glp="${o.project}"` : ""}${o.land ? ` data-glland="${o.land}"` : ""}${o.at ? ` data-glat="${esc(o.at)}"` : ""}><span class="gl-k">${esc(o.k)}</span><b class="gl-v">${o.v}</b><span class="gl-s">${o.s || ""}</span>${GLN_CHEV}</button>`;
 }
 function glnWire(root) {
@@ -86634,7 +86636,8 @@ function glnAll(td) {
   (k.className = "glance"),
     (k.innerHTML = tiles
       .map((t) =>
-        glnTile(Object.assign(t, { go: (ROLE_VIEWS[role()] || []).includes(t.go) ? t.go : "port" })),
+        // a tile whose page the role lacks reads in place rather than opening a page about something else
+        glnTile(Object.assign(t, { go: (ROLE_VIEWS[role()] || []).includes(t.go) ? t.go : null })),
       )
       .join("")),
     glnWire(k);
