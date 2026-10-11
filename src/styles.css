@@ -2530,7 +2530,7 @@ tr.rx-detail td.rx-dcell{background:var(--paper-2);padding:8px 12px 10px 14px;bo
 .ov-pointer{margin:0 0 12px}
 .ov-tb{display:flex;align-items:center;gap:8px;margin:0 0 8px;flex-wrap:wrap} .ov-tb .seg.sm{margin:0}
 .ov-procfoot{margin-top:10px} .ov-procfoot .sel-stats{margin:0 0 8px} .ov-procacts{display:flex;gap:8px;flex-wrap:wrap}
-.ov-kpifoot{display:flex;flex-wrap:wrap;gap:6px 22px;margin:10px 0 16px;padding:8px 14px;border:1px solid var(--rule);border-radius:var(--r,8px);background:var(--paper-2)} .ov-kpifoot .ov-stat{display:flex;gap:6px;align-items:baseline;cursor:pointer;min-width:0;max-width:100%} .ov-kpifoot .ov-stat span{font-size:12px;color:var(--ink-3)} .ov-kpifoot .ov-stat b{font-size:13px;font-weight:600} .ov-kpifoot .ov-stat.ok b{color:var(--ok)} .ov-kpifoot .ov-stat.bad b{color:var(--bad)}
+.ov-kpifoot{display:flex;flex-wrap:wrap;gap:8px 22px;margin:10px 0 16px;padding:8px 14px;border:1px solid var(--rule);border-radius:var(--r,8px);background:var(--paper-2)} .ov-kpifoot .ov-stat{display:flex;gap:6px;align-items:baseline;min-width:0;max-width:100%} .ov-kpifoot .ov-stat.go{cursor:pointer} .ov-kpifoot .ov-stat span{font-size:12px;color:var(--ink-3)} .ov-kpifoot .ov-stat b{font-size:13px;font-weight:600} .ov-kpifoot .ov-stat.ok b{color:var(--ok)} .ov-kpifoot .ov-stat.bad b{color:var(--bad)}
 .ov-per{max-width:170px}
 .rep-frame .ov-repsub{margin-right:4px}
 #fab.ov-fab-hidden:not(.m-fab){display:none !important}
@@ -3273,3 +3273,9 @@ body.crewmode .view.on .dl-sign > span{display:block;flex:1 1 auto;min-width:0}
 @media (max-width:760px){ .cl-mode{display:flex;width:100%} .cl-mode button{flex:1;min-height:44px} }
 .cl-act .cl-act-a{margin-top:4px;padding:6px 8px;background:var(--paper-2);border-radius:var(--r)}
 body.cl-portal #tb-ask{display:inline-flex}
+/* crawl: a tile drawn as a <div> is a reading, not a control: no pointer, no hover (a live tile is a <button>) */
+div.gl{cursor:default} div.gl:hover{border-color:var(--rule);background:var(--paper)}
+/* crawl: the row a toast's Open landed on, marked for a moment */
+.rec-hl{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px;background:var(--accent-2)}
+/* crawl: Today on the schedule marks the day line, even when the chart already shows it */
+.todayline.today-pulse{stroke-width:4;stroke:var(--accent)}

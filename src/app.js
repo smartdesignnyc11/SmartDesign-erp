@@ -4502,6 +4502,9 @@ function renderGantt(cpm) {
         left: Math.max(0, X(td) - (mob ? 1.5 * px : chart.clientWidth / 3)),
         behavior: "smooth",
       });
+      // the press shows where today is even when the chart already sits there: the line pulses once
+      const tl = chart.querySelector(".todayline");
+      tl && (tl.classList.remove("today-pulse"), void tl.getBBox(), tl.classList.add("today-pulse"), setTimeout(() => tl.classList.remove("today-pulse"), 1600));
     });
   const startDrag = (el, e) => {
     const t = task(el.dataset.id);
@@ -39092,12 +39095,23 @@ function h4Go(go) {
     (view = v), render(), window.scrollTo(0, 0);
   }
 }
+// Read reads the brief aloud and becomes Stop while it speaks, so the press always shows it took.
 function jvSpeak() {
-  const text = [...document.querySelectorAll("#jv .jv-body p")].map((p) => p.textContent).join(" ");
+  const text = [...document.querySelectorAll("#jv .jv-body p")].map((p) => p.textContent).join(" "),
+    b = document.getElementById("jv-speak");
   if (!("speechSynthesis" in window)) return void toast("This browser cannot read aloud");
+  if (b && "Stop" === b.textContent) return speechSynthesis.cancel(), void (b.textContent = "Read");
   speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
-  (u.rate = 1.02), speechSynthesis.speak(u);
+  (u.rate = 1.02),
+    (u.onend = () => {
+      b && b.isConnected && (b.textContent = "Read");
+    }),
+    (u.onerror = () => {
+      b && b.isConnected && (b.textContent = "Read"), toast("This browser could not read it aloud — it has no voice to read with");
+    }),
+    b && (b.textContent = "Stop"),
+    speechSynthesis.speak(u);
 }
 renderHome = function () {
   if ("classic" === (DB.company.homeMode || "brief")) {
@@ -39146,7 +39160,7 @@ renderHome = function () {
         }),
     ),
     ($("#jv-refresh").onclick = () => {
-      delete (DB.company.briefCache || {})[key], render();
+      delete (DB.company.briefCache || {})[key], render(), toast("The brief is recomposed from the live records");
     }),
     ($("#jv-speak").onclick = () => jvSpeak()),
     ($("#jv-go").onclick = () => jvAsk(F)),
@@ -80230,7 +80244,7 @@ function hbIndexHtml(obj) {
     bulk = hbSel.size
       ? `<div class="hb-bulk"><b>${hbSel.size} selected</b><button class="hb-btn sm" data-hbbulk="assign">Assign</button><button class="hb-btn sm" data-hbbulk="edit">Edit</button>${"contact" === obj ? '<button class="hb-btn sm" data-hbbulk="sequence">Enroll in sequence</button>' : ""}<button class="hb-btn sm" data-hbbulk="tasks">Create tasks</button><button class="hb-btn sm" data-hbbulk="export">Export</button><button class="hb-btn sm danger" data-hbbulk="delete">Delete</button><a href="#" data-hbbulk="all" class="small">Select all ${total} records</a></div>`
       : "",
-    filterbar = `<div class="hb-filterbar">${"deal" === obj ? `<div class="hb-modes"><button class="${"table" === hbMode.deal ? "on" : ""}" data-hbmode="table" title="Table">☰</button><button class="${"board" === hbMode.deal ? "on" : ""}" data-hbmode="board" title="Board">▥</button></div><div class="hb-pill"><label>Pipeline</label><select><option>${esc(H.pipeline.label)}</option></select></div>` : ""}${quick}<button class="hb-btn link sm" id="hb-more">More Filters</button><button class="hb-btn link sm" id="hb-advanced">Advanced filters${adv ? ` (${adv})` : ""}</button>${filtered ? '<button class="hb-btn link sm" id="hb-clear">Clear all</button>' : ""}<span class="grow"></span><input class="hb-search" id="hb-q" placeholder="Search ${"deal" === obj ? "name, property, email" : "contact" === obj ? "name, phone, email" : "name, domain"}…" value="${esc(hbQ[obj] || "")}">${"table" === hbMode[obj] || "deal" !== obj ? '<button class="hb-btn sm" id="hb-editcols">Edit columns</button>' : '<button class="hb-btn sm" id="hb-boardopts">Board options</button>'}<button class="hb-btn sm" id="hb-export">Export</button></div>`,
+    filterbar = `<div class="hb-filterbar">${"deal" === obj ? `<div class="hb-modes"><button class="${"table" === hbMode.deal ? "on" : ""}" data-hbmode="table" title="Table">☰</button><button class="${"board" === hbMode.deal ? "on" : ""}" data-hbmode="board" title="Board">▥</button></div><div class="hb-pill"><label>Pipeline</label><select><option>${esc(H.pipeline.label)}</option></select></div>` : ""}${quick}${hbMoreProps(obj).length ? '<button class="hb-btn link sm" id="hb-more">More Filters</button>' : ""}<button class="hb-btn link sm" id="hb-advanced">Advanced filters${adv ? ` (${adv})` : ""}</button>${filtered ? '<button class="hb-btn link sm" id="hb-clear">Clear all</button>' : ""}<span class="grow"></span><input class="hb-search" id="hb-q" placeholder="Search ${"deal" === obj ? "name, property, email" : "contact" === obj ? "name, phone, email" : "name, domain"}…" value="${esc(hbQ[obj] || "")}">${"table" === hbMode[obj] || "deal" !== obj ? '<button class="hb-btn sm" id="hb-editcols">Edit columns</button>' : '<button class="hb-btn sm" id="hb-boardopts">Board options</button>'}<button class="hb-btn sm" id="hb-export">Export</button></div>`,
     table = `<div class="hb-tablewrap"><table class="hb-table"><thead><tr><th class="hb-chk"><input type="checkbox" id="hb-selall" ${page.length && page.every((r) => hbSel.has(r.id)) ? "checked" : ""}></th>${cols
       .map((n) => {
         const p = hbProp(obj, n) || { label: n };
@@ -80346,6 +80360,14 @@ function hbEditColumnsModal(obj) {
         });
     });
   wire();
+}
+// The filters that can still join the bar; More Filters shows only while there is one to add.
+function hbMoreProps(obj) {
+  try {
+    return hbProps(obj).filter((p) => !HB_QUICK[obj].includes(p.name) && ["select", "user", "date", "stage"].includes(p.type));
+  } catch (e) {
+    return [];
+  }
 }
 function hbAdvancedPanel(obj) {
   const F = (hbAdv[obj] || []).slice(),
@@ -80532,9 +80554,7 @@ function hbWireIndex(host, obj) {
   const more = host.querySelector("#hb-more");
   more &&
     (more.onclick = async () => {
-      const props = hbProps(obj).filter(
-          (p) => !HB_QUICK[obj].includes(p.name) && ["select", "user", "date", "stage"].includes(p.type),
-        ),
+      const props = hbMoreProps(obj),
         k = await hbDropdown(
           more,
           props.map((p) => [p.name, p.label]),
@@ -83870,8 +83890,10 @@ if (
 }
 if (
   (document.addEventListener("click", (e) => {
+    // a floating menu (hbDropdown) closes itself on the next click outside it; closing it here shut it on the
+    // very click that opened it, so More Filters and every other floating menu opened to nothing
     e.target.closest(".hb-dd") ||
-      document.querySelectorAll(".hb-menu.open").forEach((m) => m.classList.remove("open"));
+      document.querySelectorAll(".hb-menu.open:not(.float)").forEach((m) => m.classList.remove("open"));
   }),
   "function" == typeof slTouchDialog)
 ) {
@@ -85938,6 +85960,34 @@ function fmCrewClock() {
         i.checked = all.checked;
       }));
 }
+// What is missing for today's work, item by item, with the way to raise it: the sheet the foreman's Today line
+// opens on the phone and on a desktop alike (before, only field mode wired it, so the line did nothing on a desktop).
+function fMissingSheet() {
+  const items = fmActive(today())
+    .map((t) =>
+      ("function" == typeof fTaskNeeds ? fTaskNeeds(t) : [])
+        .filter((n) => "pred" !== n.k)
+        .map((n) => ({ t: t, n: n })),
+    )
+    .flat();
+  mbModal(
+    "Missing for today",
+    items.length
+      ? items
+          .map(
+            (x) =>
+              `<div class="fm-row"><div class="grow"><b>${esc(x.n.t)}</b><span class="small muted">${esc(x.t.name)}</span></div></div>`,
+          )
+          .join("")
+      : '<div class="small muted">Nothing missing.</div>',
+    {
+      submit: "Raise it",
+      onSubmit: () => {
+        (view = "fraise"), render();
+      },
+    },
+  );
+}
 function fmForeman() {
   if ("fcrew" === view) {
     const hd = document.querySelector("#fcrew-body .f-card .hd");
@@ -85956,32 +86006,7 @@ function fmForeman() {
         el.dataset.fmWired ||
         !/missing for today/.test(el.textContent) ||
         ((el.dataset.fmWired = "1"),
-        (el.onclick = () => {
-          const items = fmActive(today())
-            .map((t) =>
-              ("function" == typeof fTaskNeeds ? fTaskNeeds(t) : [])
-                .filter((n) => "pred" !== n.k)
-                .map((n) => ({ t: t, n: n })),
-            )
-            .flat();
-          mbModal(
-            "Missing for today",
-            items.length
-              ? items
-                  .map(
-                    (x) =>
-                      `<div class="fm-row"><div class="grow"><b>${esc(x.n.t)}</b><span class="small muted">${esc(x.t.name)}</span></div></div>`,
-                  )
-                  .join("")
-              : '<div class="small muted">Nothing missing.</div>',
-            {
-              submit: "Raise it",
-              onSubmit: () => {
-                (view = "fraise"), render();
-              },
-            },
-          );
-        }));
+        (el.onclick = fMissingSheet));
     });
 }
 if ("function" == typeof fParse) {
@@ -101682,16 +101707,32 @@ function bhTiles(root) {
         : t.classList.add("kpi-flat");
     });
 }
+// A report tile opens the report that explains it, and only when that report exists for this person: the tab
+// whose first word the tile names, or the place its figure is worked out. A tile with nowhere to go is drawn
+// flat (no pointer, no button role), so it never reads as a control that does nothing.
+const BH_REP_GO = [
+  [/receivable|cash in bank|collected/, { grp: "Cash & Receivables" }],
+  [/payable/, { view: "ap" }],
+  [/backlog|job cost|cogs/, { grp: "Projects" }],
+  [/payroll/, { view: "payroll" }],
+];
 function bhTileTarget(v, label) {
   const l = String(label).toLowerCase();
-  return "reports" === v
-    ? () => {
-        const t = [
-          ...document.querySelectorAll("#v-reports .rep-sub button, #v-reports .rep-groups button"),
-        ].find((b) => l.includes(b.textContent.trim().toLowerCase().split(" ")[0]));
-        t && t.click();
-      }
-    : null;
+  if ("reports" !== v) return null;
+  const tabs = () => [...document.querySelectorAll("#v-reports .rep-sub button, #v-reports .rep-groups button")].filter((b) => !b.classList.contains("on"));
+  const byWord = () => tabs().find((b) => l.includes(b.textContent.trim().toLowerCase().split(" ")[0]));
+  if (byWord()) return () => { const t = byWord(); t && t.click(); };
+  const hit = BH_REP_GO.find(([re]) => re.test(l)),
+    go = hit && hit[1];
+  if (go && go.grp) {
+    const find = () => tabs().find((b) => b.textContent.trim().toLowerCase() === go.grp.toLowerCase());
+    return find() ? () => { const t = find(); t && t.click(); } : null;
+  }
+  if (go && go.view && (ROLE_VIEWS[role()] || []).includes(go.view))
+    return () => {
+      (view = go.view), render();
+    };
+  return null;
 }
 {
   const base = render;
@@ -104215,7 +104256,7 @@ function rdHtml() {
             "",
           )}</tbody></table></div>${rdRows.length > 12 ? `<div class="small muted" style="margin-top:4px">and ${rdRows.length - 12} more rows</div>` : ""}`
       : ""
-  }\n  </div>\n\n  <div class="card"><h3>Move This Device's Data</h3>\n    <p class="small muted">Everything lives in this browser, on this device. A backup is one file with all of it — send it to someone else and they see exactly what you see, which is the only way to chase a problem that only happens on one person's phone.</p>\n    <div class="row" style="gap:8px"><button class="btn" id="rd-backup2">Save a Backup</button><label class="btn">Load a Backup<input type="file" accept="application/json,.json" id="rd-restore" hidden></label></div>\n  </div>\n\n  <div class="card"><h3>Take the Demo Out</h3>\n    <p class="small muted">The demo jobs make every screen look busy. Once your own work is in, clear them so what you see is your own work.</p>\n    <div class="row" style="gap:8px"><button class="btn danger" id="rd-wipe-jobs">Clear the Jobs and Clients</button><button class="btn danger" id="rd-wipe-all">Clear Everything</button><button class="btn" id="rd-restore">Start Again from the Sample Company</button></div>\n    <div class="small muted" style="margin-top:6px">Clearing the jobs keeps your entities, bank accounts, vendors, people and settings. Clearing everything keeps only the settings.</div>\n  </div>`;
+  }\n  </div>\n\n  <div class="card"><h3>Move This Device's Data</h3>\n    <p class="small muted">Everything lives in this browser, on this device. A backup is one file with all of it — send it to someone else and they see exactly what you see, which is the only way to chase a problem that only happens on one person's phone.</p>\n    <div class="row" style="gap:8px"><button class="btn" id="rd-backup2">Save a Backup</button><label class="btn">Load a Backup<input type="file" accept="application/json,.json" id="rd-restore" hidden></label></div>\n  </div>\n\n  <div class="card"><h3>Take the Demo Out</h3>\n    <p class="small muted">The demo jobs make every screen look busy. Once your own work is in, clear them so what you see is your own work.</p>\n    <div class="row" style="gap:8px"><button class="btn danger" id="rd-wipe-jobs">Clear the Jobs and Clients</button><button class="btn danger" id="rd-wipe-all">Clear Everything</button><button class="btn" id="rd-sample">Start Again from the Sample Company</button></div>\n    <div class="small muted" style="margin-top:6px">Clearing the jobs keeps your entities, bank accounts, vendors, people and settings. Clearing everything keeps only the settings.</div>\n  </div>`;
 }
 function renderRealData() {
   const host = document.getElementById("rdata-body");
@@ -104275,8 +104316,10 @@ function renderRealData() {
           },
         ),
       ),
+    // its own id: it shared "rd-restore" with the backup file input, so the listener went to the hidden input
+    // and Start Again did nothing
     host
-      .querySelector("#rd-restore")
+      .querySelector("#rd-sample")
       ?.addEventListener("click", () =>
         mbModal(
           "Start Again from the Sample Company",
@@ -104404,7 +104447,7 @@ renderTimeBase_h4 &&
     first ? first.after(div.firstChild) : v.prepend(div.firstChild);
     const key = today() + "|" + role();
     ($("#jv-refresh").onclick = () => {
-      delete (DB.company.briefCache || {})[key], render();
+      delete (DB.company.briefCache || {})[key], render(), toast("The brief is recomposed from the live records");
     }),
       ($("#jv-speak").onclick = () => jvSpeak()),
       ($("#jv-go").onclick = () => jvAsk(F)),
@@ -110934,7 +110977,8 @@ function paWire(host) {
     (f.onsubmit = (e) => {
       e.preventDefault();
       const v = inp.value;
-      (inp.value = ""), paSend(v);
+      if (!v.trim()) return;
+      (inp.value = ""), sendGates(), paSend(v);
     }),
     host.querySelectorAll("[data-pachip]").forEach((b) => (b.onclick = () => paSend(b.dataset.pachip))),
     host.querySelectorAll("[data-pago]").forEach(
@@ -126933,8 +126977,12 @@ if ("function" == typeof renderReports) {
                 .replace(/\s+/g, " ")
                 .trim();
             (d.innerHTML = `<b>${b ? b.innerHTML : ""}</b><span>${esc(full)}</span>`),
-              (k.classList.contains("click") || k.classList.contains("kpi-go")) &&
-                (d.onclick = () => k.click()),
+              // the figure keeps its drill-down: the tile's own handler, else the report that explains it
+              // (resolved here: the tile is removed before the tiles pass wires its target)
+              (() => {
+                const go = k.classList.contains("click") ? () => k.click() : bhTileTarget("reports", full);
+                go && ((d.onclick = go), d.classList.add("go"), d.setAttribute("role", "button"));
+              })(),
               foot.appendChild(d),
               k.remove();
           }),
@@ -142791,7 +142839,11 @@ function blOpenRow(row) {
       try {
         window.scrollTo(0, 0);
       } catch (e) {}
+      return;
     }
+    // a line ready to bill with no document of its own (stored materials, a purchase to bill back) opens the
+    // job's progress billing, where the line is: before, pressing the row did nothing
+    row.job && blOpenProgress(row.job.id);
   }
 }
 function blRowAct(row) {
@@ -168254,7 +168306,8 @@ function tdChrome() {
       const s = document.getElementById("btn-search");
       s ? s.after(a) : bar.appendChild(a);
     }
-    a && (a.hidden = !show);
+    // on Ask, the header's Ask reads as the page you are on (pressing it again has nothing to do)
+    a && ((a.hidden = !show), a.classList.toggle("on", "pa" === view), a.toggleAttribute("aria-current", "pa" === view));
   }
   const tabs = [...document.querySelectorAll("#mtabs [data-mv]")].map((b) => b.dataset.mv),
     sub = document.getElementById("subnav");
@@ -173306,7 +173359,7 @@ if ("function" == typeof paHtml) {
           const m = document.getElementById("tb-msg");
           m ? m.before(a) : bar.appendChild(a);
         }
-        (a.hidden = !1), (a.style.display = ""), a.classList.toggle("on", "pa" === view);
+        (a.hidden = !1), (a.style.display = ""), a.classList.toggle("on", "pa" === view), a.toggleAttribute("aria-current", "pa" === view);
         a.onclick = () => {
           (view = "pa"), render(), window.scrollTo(0, 0);
         };
@@ -177446,5 +177499,125 @@ CATCH.push({
     } catch (e) {
       return out;
     }
+  };
+}
+
+// ---- crawl: the static filter strips show the filter their list is drawn with ----------------------------
+// The strips in the shell markup (#ap-filter, #vf-filter, #inv-filter ...) were lit only by the click on
+// them, so a tile or a link that set the same filter (the Verify tiles set vfFilter = "all") left the old
+// button lit over a different list. Every render now lights the button that matches the state.
+const SEG_STATE = {
+  "txn-filter": ["f", () => txnFilter],
+  "inv-filter": ["f", () => invFilter],
+  "time-filter": ["f", () => timeFilter],
+  "ap-filter": ["f", () => apFilter],
+  "vf-filter": ["f", () => vfFilter],
+  "file-filter": ["f", () => fileFilter],
+  "file-view": ["fv", () => fileView],
+  "act-filter": ["f", () => actFilter],
+  "act-view": ["av", () => actView],
+  "jl-filter": ["f", () => jlFilter],
+  "mat-filter": ["f", () => matFilter],
+  "mat-group": ["g", () => matGroup],
+  "dec-filter": ["f", () => decFilter],
+  "iss-filter": ["f", () => issFilter],
+};
+function segSync() {
+  "undefined" != typeof tlCameFor && tlCameFor && tlCameFor.view !== view && (tlCameFor = null);
+  for (const [id, [k, get]] of Object.entries(SEG_STATE)) {
+    const s = document.getElementById(id);
+    if (!s) continue;
+    let v;
+    try {
+      v = String(get());
+    } catch (e) {
+      continue;
+    }
+    const bs = [...s.querySelectorAll("button")].filter((b) => void 0 !== b.dataset[k]);
+    bs.some((b) => b.dataset[k] === v) && bs.forEach((b) => b.classList.toggle("on", b.dataset[k] === v));
+  }
+}
+{
+  const base = render;
+  render = function () {
+    const r = base.apply(this, arguments);
+    try {
+      segSync();
+    } catch (e) {}
+    return r;
+  };
+}
+
+// ---- crawl: a Send with nothing to send looks it ---------------------------------------------------------
+// Each composer's button stays disabled while its text field is empty (the Ask box, the job's Chat, the
+// field request box), so it never reads as an action that then does nothing. A button the app disabled for
+// its own reason (a read in progress) is left alone: only what this gate disabled is enabled again.
+const SEND_GATES = [
+  ['#pa-ask button[type="submit"]', "#pa-in"],
+  ["#chat-send", "#chat-text"],
+  ["#cp-read", "#cp-text"],
+  ["#jv-go", "#jv-q"],
+];
+function sendGates() {
+  for (const [bs, is] of SEND_GATES)
+    document.querySelectorAll(bs).forEach((b) => {
+      const box = b.closest("form, .card, .chat-compose, .view") || document,
+        inp = box.querySelector(is) || document.querySelector(is);
+      if (!inp) return;
+      const empty = !String(inp.value || "").trim();
+      empty && !b.disabled ? ((b.disabled = !0), (b.dataset.sendGated = "1")) : !empty && b.dataset.sendGated && ((b.disabled = !1), delete b.dataset.sendGated);
+    });
+}
+document.addEventListener(
+  "input",
+  (e) => {
+    const t = e.target;
+    t && t.matches && SEND_GATES.some(([, is]) => t.matches(is)) && sendGates();
+  },
+  !0,
+);
+{
+  const base = render;
+  render = function () {
+    const r = base.apply(this, arguments);
+    try {
+      sendGates();
+    } catch (e) {}
+    return r;
+  };
+}
+// the Ask thread and the request box draw themselves outside render(): gate after them too
+if ("function" == typeof renderPa) {
+  const base = renderPa;
+  renderPa = function () {
+    const r = base.apply(this, arguments);
+    try {
+      sendGates();
+    } catch (e) {}
+    return r;
+  };
+}
+if ("function" == typeof renderRequestsPage) {
+  const base = renderRequestsPage;
+  renderRequestsPage = function () {
+    const r = base.apply(this, arguments);
+    try {
+      sendGates();
+    } catch (e) {}
+    return r;
+  };
+}
+// the foreman's "N things missing for today's work" line opens the sheet on every screen size
+{
+  const base = render;
+  render = function () {
+    const r = base.apply(this, arguments);
+    try {
+      "ftoday" === view &&
+        document.querySelectorAll("#ftoday-body .f-now").forEach((el) => {
+          el.dataset.fview || el.dataset.fmWired || !/missing for today/.test(el.textContent) || ((el.dataset.fmWired = "1"), (el.onclick = fMissingSheet));
+        });
+    } catch (e) {}
+    return r;
   };
 }
