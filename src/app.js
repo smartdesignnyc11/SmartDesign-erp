@@ -144012,7 +144012,7 @@ const TRK_KINDS = {
   },
   // Words a follow-up may never carry (money, payment, a new date, a change, a dispute, bank details).
   TRK_FORBIDDEN =
-    /\$\s?\d|\b\d+(?:\.\d+)?\s?%|\bpay(?:s|ing|ment|ments|able)?\b|\bpaid\b|\bprice[sd]?\b|\bpricing\b|\bcost[s]?\b|\bdiscount|\bcredit|\brefund|\bcharge[sd]?\b|\bdisput|\bwrong\b|\bovercharg|\bcancel|\bchange (?:the|your|our|this) order|\bmodify|\bsubstitut|\bwe accept|\bwe agree|\bagreed\b|\bapproved?\b|\bthat (?:date )?works|\bnew date is fine|\bpush (?:it|the date)|\breschedul|\bbank\b|\bwire\b|\bach\b|\bremit|\brouting|\baccount number|\bterms\b/i,
+    /\$\s?\d|\b\d+(?:\.\d+)?\s?%|\bpay(?:s|ing|ment|ments|able)?\b|\bpaid\b|\bprice[sd]?\b|\bpricing\b|\bcost[s]?\b|\bdiscount|\bcredit|\brefund|\bcharge[sd]?\b|\bdisput|\bwrong\b|\bovercharg|\bcancel|\bchange (?:the|your|our|this) order|\bmodify|\bsubstitut|\bwe accept|\bwe agree|\bagreed\b|\bapproved?\b|\bthat (?:date )?works|\bworks for (?:us|me)\b|\bfine with (?:us|me)\b|\bnew (?:ship |delivery )?date\b|\bwe can wait\b|\bnew date is fine|\bpush (?:it|the date)|\breschedul|\bbank\b|\bwire\b|\bach\b|\bremit|\brouting|\baccount number|\bterms\b/i,
   TRK_ICON_CLIP = ICON_SVG('<path d="M21 12.5l-8.5 8.5a5 5 0 0 1-7-7L14 5.5a3.5 3.5 0 0 1 5 5L10.5 19a2 2 0 0 1-3-3L15 8.5"/>', 13),
   TRK_ICON_CAM = ICON_SVG('<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>', 13),
   TRK_ICON_OK = ICON_SVG('<path d="M5 12l5 5L20 7"/>', 13),
@@ -144135,10 +144135,10 @@ function trkRead(text, o) {
   }
   let x;
   (x = amt(/sub\s?-?total\s*:?\s*\$?([\d,.?]+)/i)) && put("subtotal", x.v, x.raw);
-  (x = amt(/(?:sales\s+)?tax[^\n$]*?\$?([\d,]+\.\d{2}\??)\s*$/im)) && put("tax", x.v, x.raw);
-  (x = amt(/(?:freight|shipping|delivery charge)[^\n$]*?\$?([\d,]+\.\d{2}\??)\s*$/im)) && put("freight", x.v, x.raw);
-  (x = amt(/\btip\b[^\n$]*?\$?([\d,]+\.\d{2}\??)\s*$/im)) && put("tip", x.v, x.raw);
-  (x = amt(/^\s*(?:invoice |order )?(?:total|amount due|balance due|total due|credit)(?: due)?\s*:?\s*\$?([\d,]+\.\d{2}\??)/im)) && put("total", x.v, x.raw);
+  (x = amt(/(?:sales\s+)?tax[^\n$]*?\$?([\d,?]+\.\d{2}\??)\s*$/im)) && put("tax", x.v, x.raw);
+  (x = amt(/(?:freight|shipping|delivery charge)[^\n$]*?\$?([\d,?]+\.\d{2}\??)\s*$/im)) && put("freight", x.v, x.raw);
+  (x = amt(/\btip\b[^\n$]*?\$?([\d,?]+\.\d{2}\??)\s*$/im)) && put("tip", x.v, x.raw);
+  (x = amt(/^\s*(?:invoice |order )?(?:total|amount due|balance due|total due|credit)(?: due)?\s*:?\s*\$?([\d,?]+\.\d{2}\??)/im)) && put("total", x.v, x.raw);
   put("terms", grab(/^(?:Terms|Payment terms):\s*(.+)$/im));
   put("remit", grab(/^Remit(?:\s+payment)?\s+to:\s*(.+)$/im));
   put("bankLast4", grab(/(?:account|acct)[^\n\d]{0,30}(?:\d[\d -]*)?(\d{4})\b/i));
@@ -144167,9 +144167,9 @@ function trkRead(text, o) {
 // Text from what was handed in: a text file, an uncompressed PDF's text operators, an SVG's <text> nodes.
 function trkTextOf(dataUrl, mime, name) {
   try {
-    const m = String(dataUrl || "").match(/^data:([^;,]*)(;base64)?,(.*)$/s);
+    const m = String(dataUrl || "").match(/^data:([^;,]*)((?:;[^;,]*)*),(.*)$/s);
     if (!m) return "";
-    const raw = m[2] ? atob(m[3]) : decodeURIComponent(m[3]),
+    const raw = /;base64/.test(m[2]) ? atob(m[3]) : decodeURIComponent(m[3]),
       type = mime || m[1] || "";
     if (/^text\//.test(type) || /\.txt$/i.test(name || "")) return decodeURIComponent(escape(raw));
     if (/svg/.test(type)) {
@@ -144233,7 +144233,7 @@ function trkStable(o) {
   return JSON.stringify(o, Object.keys(o || {}).sort());
 }
 function trkHashOf(d) {
-  return truthHash(`${d.kind}|${d.blobHash || ""}|${String((d.orig || {}).text || "")}|${JSON.stringify((d.orig || {}).fields || {})}`);
+  return truthHash(`${d.blobHash || ""}|${String((d.orig || {}).text || "")}|${JSON.stringify((d.orig || {}).fields || {})}`);
 }
 function trkVerify(d) {
   return !!d && d.hash === trkHashOf(d) && d.chain === truthHash(`${d.prev || ""}|${d.hash}`);
@@ -144308,13 +144308,7 @@ function trkLink(d) {
     const b = (DB.bills || []).find((x) => String(x.number || "").toUpperCase() === String(F.number).toUpperCase() && trkSameVendor(x.vendor, vend) && !["void"].includes(x.status));
     b && (L.billId = b.id);
   }
-  if (!L.billId && "invoice" === d.kind && L.poId) {
-    const P = trkPO(L.poId),
-      bs = (DB.bills || []).filter((b) => b.poId === L.poId && !["void", "rejected"].includes(b.status) && !trkDocs().some((x) => x !== d && trkLive(x) && "invoice" === x.kind && x.links.billId === b.id));
-    // only a bill whose total matches this invoice is the same document; never guess between two
-    const hit = bs.filter((b) => F.total && Math.abs(billTotal(b) - F.total) <= trkCfg().tol);
-    P && 1 === hit.length && (L.billId = hit[0].id);
-  }
+  // a bill is the same document only by its invoice number (above); an amount alone is never enough
   if (!L.txnId && "receipt" === d.kind && F.total) {
     const t = (DB.txns || []).find(
       (x) => +x.amt < 0 && Math.abs(Math.abs(+x.amt) - F.total) < 0.01 && (DB.accounts || []).some((a) => a.id === x.acct && "card" === a.type) && (!F.card4 || !(DB.accounts || []).find((a) => a.id === x.acct).mask || (DB.accounts || []).find((a) => a.id === x.acct).mask === F.card4),
@@ -144425,13 +144419,13 @@ function trkCheck(d) {
     fr = +F.freight || 0;
   if (null != F.subtotal && lines.length) Math.abs(sumExt - sub) > tol ? add("subtotal", "subtotal", "Subtotal", trkUsd(r2(sumExt)), trkUsd(sub), sub - sumExt, "draft", trkWhy("money")) : checked.push("subtotal");
   if (["invoice", "receipt"].includes(d.kind) && sub) {
-    const rate = (+C.useTaxRate || 0) / 100,
+    const rate = ((P && +P.tax) || +C.useTaxRate || 0) / 100,
       due = r2(sub * rate),
       ts = (P && P.taxStatus) || "",
       outOfState = !!(V && V.region && !/^(NY|NYC|New York)$/i.test(V.region));
     if (/^exempt/.test(ts) && tax > tol) add("taxExempt", "tax", `Tax charged on an exempt job (${TAX_STATUS[ts] || ts})`, trkUsd(0), trkUsd(tax), tax, "draft", trkWhy("money"));
     else if (("taxable" === ts || (P && P.useTax)) && tax <= tol && (outOfState || (P && P.useTax))) add("useTax", "tax", `Use tax due at ${C.useTaxRate}% (the vendor charged none)`, trkUsd(due), trkUsd(0), due, "accrue", "Use tax is owed by us when an out-of-state vendor charges no sales tax.");
-    else if ("taxable" === ts && Math.abs(tax - due) > tol) add("taxRate", "tax", `Sales tax at ${C.useTaxRate}%`, trkUsd(due), trkUsd(tax), tax - due, "draft", trkWhy("money"));
+    else if ("taxable" === ts && Math.abs(tax - due) > tol) add("taxRate", "tax", `Sales tax at ${r2(rate * 100)}%`, trkUsd(due), trkUsd(tax), tax - due, "draft", trkWhy("money"));
     else checked.push(tax ? "tax rate" : "tax");
   }
   if (P && "invoice" === d.kind) {
@@ -144688,7 +144682,7 @@ function trkPromiseAdd(o) {
     V = trkVendor(o.vendor || ""),
     key = `${(V && V.id) || trkNorm(o.vendor)}|${o.poId || ""}|${o.kind}|${o.due}`;
   if (!o.due || L.some((p) => p.key === key)) return L.find((p) => p.key === key) || null;
-  const p = { id: uid("pm"), key: key, vendor: (V && V.name) || o.vendor || "", vendorId: (V && V.id) || "", poId: o.poId || "", projectId: o.projectId || ((o.poId && (trkPO(o.poId) || {}).projectId) || ""), kind: o.kind || "other", what: o.what || "", due: o.due, value: o.value || "", who: o.who || "", loggedBy: o.loggedBy || "assistant", at: appNowIso(), source: o.source || { kind: "mail" }, status: "open" };
+  const p = { id: uid("pm"), key: key, vendor: (V && V.name) || o.vendor || "", vendorId: (V && V.id) || "", poId: o.poId || "", projectId: o.projectId || ((o.poId && (trkPO(o.poId) || {}).projectId) || ""), kind: o.kind || "other", what: o.what || "", due: o.due, value: o.value || "", who: o.who || "", loggedBy: o.loggedBy || "assistant", at: o.at || appNowIso(), source: o.source || { kind: "mail" }, status: "open" };
   return L.push(p), p;
 }
 // Due promises are checked against tracking, receiving, documents and mail.
@@ -145050,7 +145044,7 @@ function trkPromisesIn(m) {
     const s = (t.match(re) || [])[0];
     if (!s) return;
     const due = cmDateIn(s) || trkWeekday(s);
-    due && trkPromiseAdd(Object.assign({ vendor: vendor, poId: P ? P.id : "", projectId: P ? P.projectId : (cmJobNamed(t) || {}).id || "", kind: kind, due: due, what: s.trim().replace(/\s+/g, " "), source: Object.assign({}, src, { text: s.trim() }), who: (m.from || "").replace(/<.*$/, "").trim() }, o || {})) && n++;
+    due && trkPromiseAdd(Object.assign({ at: String(m.date || "").slice(0, 19) || appNowIso(), vendor: vendor, poId: P ? P.id : "", projectId: P ? P.projectId : (cmJobNamed(t) || {}).id || "", kind: kind, due: due, what: s.trim().replace(/\s+/g, " "), source: Object.assign({}, src, { text: s.trim() }), who: (m.from || "").replace(/<.*$/, "").trim() }, o || {})) && n++;
   };
   add("ship", /[^.\n]*\bwill ship\b[^.\n]*/i);
   add("deliver", /[^.\n]*\bwill (?:deliver|be delivered|arrive)\b[^.\n]*/i);

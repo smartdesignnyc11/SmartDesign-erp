@@ -6,7 +6,7 @@
 cd "$(dirname "$0")/.." || exit 1
 python3 build.py || exit 1
 mkdir -p review/run_all
-SUITES=${*:-"baseline_test smoke_test lint counts_lint daywalk finance_xcheck ask_bank leak_test truth_test closetie_test truthpct_test today_test askgen_privacy_test demo_ws_test ops_test client_test purchasing_test appday_test learn_test flow_test leaks2_test"}
+SUITES=${*:-"baseline_test smoke_test lint counts_lint daywalk finance_xcheck ask_bank leak_test truth_test closetie_test truthpct_test today_test askgen_privacy_test demo_ws_test ops_test client_test purchasing_test appday_test learn_test flow_test leaks2_test track_test"}
 rc=0
 for s in $SUITES; do
   start=$(date +%s)
