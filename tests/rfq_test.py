@@ -414,10 +414,32 @@ async def main():
         for k in ('w9', 'coi', 'registration', 'address', 'reviews'):
             await pg.locator(f'#mbm [data-f="{k}"]').check()
         await ok_modal(pg, 400)
+        # a second person approves a new vendor: never the person who added it
+        mid = await pg.evaluate("() => poValid({ number: 'PO-TEST', vendor: 'Tri-State Connector Supply', lines: [{ item: 'hanger', qty: 10, price: 2 }], needBy: '2026-09-10' })")
+        C.ok(any('second person' in x for x in mid), f'until a second person approves, the vendor gets no PO ({mid})')
+        await pg.locator('[data-rfqvet]').first.click(); await pg.wait_for_timeout(300)
+        await pg.locator('#mbm [data-f="approval"]').check(); await ok_modal(pg, 400)
+        self_ok = await pg.evaluate("() => !!(DB.vendors.find(v => v.name === 'Tri-State Connector Supply').vetting || {}).approval")
+        C.ok(not self_ok, 'the person who added the vendor cannot approve it')
+        await pg.evaluate("() => { try { mbCloseModal(); } catch (e) {} signIn('u_owner'); rfqOpen = ''; rfqTab = 'prospects'; view = 'rfq'; render(); }"); await pg.wait_for_timeout(300)
+        await pg.evaluate("() => rfqVetSheet(DB.vendors.find(v => v.name === 'Tri-State Connector Supply').id)"); await pg.wait_for_timeout(300)
+        await pg.locator('#mbm [data-f="approval"]').check(); await ok_modal(pg, 400)
+        await pg.evaluate("() => { signIn('u_chen'); render(); }"); await pg.wait_for_timeout(200)
         vv = await pg.evaluate("() => ({ r: poValid({ number: 'PO-TEST', vendor: 'Tri-State Connector Supply', lines: [{ item: 'hanger', qty: 10, price: 2 }], needBy: '2026-09-10' }), by: DB.vendors.find(v => v.name === 'Tri-State Connector Supply').vetting.w9.by })")
         # since the chain lane, poValid also refuses a line with no estimate, change-order or overhead link; this
         # synthetic PO has none, so only that reason may remain: vetting no longer stops it
         C.ok(not [x for x in vv['r'] if 'not linked' not in x] and vv['by'] == 'Chen Biron', f'vetted, with who and when recorded; vetting no longer stops the PO ({vv})')
+        # New PO never creates a vendor silently: an unknown name stops it with New Vendor…, which adds a draft
+        await pg.evaluate("() => { setCurrent('p121'); view = 'po'; render(); ctPOPicker('p121', '*'); }"); await pg.wait_for_timeout(400)
+        g0 = await pg.evaluate("""() => { const m = document.getElementById('mbm'), c = m.querySelector('[data-ctpsel]'); c.checked = true; c.dispatchEvent(new Event('change', { bubbles: true }));
+            m.querySelector(`[data-ctpv="${c.dataset.ctpsel}"]`).value = 'Zed Phantom Supply'; const n0 = DB.pos.length, v0 = DB.vendors.length;
+            m.querySelector('#mbm-ok').click(); return { pos: DB.pos.length - n0, vendors: DB.vendors.length - v0, note: (document.getElementById('po-unknown-vendor') || {}).innerText || '' }; }""")
+        C.ok(g0['pos'] == 0 and g0['vendors'] == 0 and 'not a vendor on file' in g0['note'] and 'New Vendor' in g0['note'], f'an unknown vendor name stops New PO and offers New Vendor… ({g0})')
+        g1 = await pg.evaluate("""async () => { document.querySelector('[data-ponewv]').click(); await new Promise(r => setTimeout(r, 100)); document.querySelector('[data-ponvadd]').click(); await new Promise(r => setTimeout(r, 100));
+            const v = DB.vendors.find(x => x.name === 'Zed Phantom Supply'); const n0 = DB.pos.length; document.querySelector('#mbm #mbm-ok').click(); await new Promise(r => setTimeout(r, 300));
+            const po = DB.pos.slice(n0).find(p => p.vendor === 'Zed Phantom Supply'); return { draft: !!(v && v.draft && v.needsVetting), by: v && v.createdBy, po: !!po, valid: po ? poValid(po) : [] }; }""")
+        C.ok(g1['draft'] and g1['by'] == 'Chen Biron' and g1['po'] and any('not yet vetted' in x for x in g1['valid']), f'New Vendor… adds a draft, and its PO cannot go out until it is vetted ({g1})')
+        await pg.evaluate("() => { try { mbCloseModal(); } catch (e) {} }")
 
         # ---- sourcing research
         R = await pg.evaluate("() => JSON.parse(JSON.stringify(sourcingResearch('Lumber')))")

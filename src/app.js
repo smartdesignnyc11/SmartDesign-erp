@@ -178988,7 +178988,7 @@ function rfqProspectAct(id, act, f) {
   DB.vendors = DB.vendors || [];
   let v = DB.vendors.find((y) => String(y.name).toLowerCase() === name.toLowerCase());
   v ||
-    ((v = { id: uid("v"), name: name, trade: x.category || "Materials", email: email, region: (f && f.region) || x.region || "", channel: x.channel || "", demo: !!x.demo, researchId: x.researchId || "", hyps: x.hyps || [], insuranceExp: "", bankChangedAt: "", needsVetting: !0, delivery: x.delivery || null }),
+    ((v = { id: uid("v"), name: name, trade: x.category || "Materials", email: email, region: (f && f.region) || x.region || "", channel: x.channel || "", demo: !!x.demo, researchId: x.researchId || "", hyps: x.hyps || [], insuranceExp: "", bankChangedAt: "", needsVetting: !0, draft: !0, createdBy: rfqMe(), createdAt: appNowIso(), delivery: x.delivery || null }),
     DB.vendors.push(v));
   (v.rfqSuggest = `${"research" === x.source ? "sourcing research" : "gap" === x.source ? "a thin category" : "your mail"} (${fmtL(today())})`), (x.status = "added"), (x.vendorId = v.id), (x.by = rfqMe());
   try {
@@ -179003,7 +179003,7 @@ function rfqProspectAct(id, act, f) {
 // works on site, and a business check (registration, address, reviews), each recorded with who and when. Until
 // then poValid refuses its PO on every path. A bank-detail change still goes through the two-person verification
 // (vendor.bankPending, the Owner's call-back) like every vendor's.
-const RFQ_VET = [["w9", "W-9 Received"], ["coi", "COI Received (It Delivers or Works on Site)"], ["registration", "Business Registration Checked"], ["address", "Address Checked"], ["reviews", "Reviews and References Checked"]],
+const RFQ_VET = [["w9", "W-9 Received"], ["coi", "COI Received (It Delivers or Works on Site)"], ["registration", "Business Registration Checked"], ["address", "Address Checked"], ["reviews", "Reviews and References Checked"], ["approval", "Approved by a Second Person (Not Who Added It)"]],
   rfqVetDone = (v) => !v || !v.needsVetting || RFQ_VET.every(([k]) => !!((v.vetting || {})[k])),
   rfqVetMissing = (v) => RFQ_VET.filter(([k]) => !((v.vetting || {})[k])).map(([k, l]) => l.replace(/ \(.*\)/, "").replace(/ (Received|Checked)$/, "").toLowerCase());
 function rfqVetSheet(vid) {
@@ -179017,7 +179017,10 @@ function rfqVetSheet(vid) {
       submit: "Record the Checks",
       onSubmit: (f) => {
         v.vetting = v.vetting || {};
+        // the second person's approval is never the person who added the vendor (fraud control: two people)
+        if (f.approval && !v.vetting.approval && v.createdBy && v.createdBy === rfqMe()) return toast(`A second person approves ${v.name}: not ${v.createdBy}, who added it`), !1;
         RFQ_VET.forEach(([k]) => (f[k] ? v.vetting[k] || (v.vetting[k] = { by: rfqMe(), on: today(), at: appNowIso() }) : delete v.vetting[k]));
+        rfqVetDone(v) && v.draft && (v.draft = !1);
         f.notes && (v.vetting.notes = (v.vetting.notes ? v.vetting.notes + " · " : "") + f.notes);
         try {
           audit("vendor", v.id, "vetting", "", RFQ_VET.filter(([k]) => v.vetting[k]).map(([k]) => k).join(","), f.notes || "");
@@ -187190,5 +187193,93 @@ function trkBillFromDoc(id) {
       console.warn("enter the bill", e);
     }
     return out;
+  };
+}
+
+// ---- No vendor is created silently (fraud control; the agent-month selftest, 2026-10-11) ----------------------
+// Typing an unknown name on New PO used to create a vendor record without a word (ensureVendor). Now:
+//   - a name that is not on file stops New PO with "Name is not a vendor on file" and an explicit New Vendor…;
+//   - every vendor made after boot from a PO path is a draft that needs vetting (the RFQ lane's RFQ_VET: W-9, COI
+//     when it delivers or works on site, the business checks, and a second person's approval), so poValid
+//     refuses its PO on every path until it is vetted (rfqVetSheet, the one vetting sheet).
+const poVendorKnown = (name) => {
+  const n = String(name || "").trim().toLowerCase();
+  return !n || "vendor tbd" === n || (DB.vendors || []).some((v) => String(v.name).trim().toLowerCase() === n);
+};
+{
+  const base = ensureVendor;
+  ensureVendor = function (name, extra) {
+    const booted = "1" === (document.body && document.body.dataset.booted),
+      had = vendorRec(name),
+      v = base.apply(this, arguments);
+    if (v && !had && booted && !/^vendor tbd$/i.test(String(name).trim())) {
+      Object.assign(v, { needsVetting: !0, draft: !0, createdBy: v.createdBy || ((currentUser() || {}).name) || role(), createdAt: v.createdAt || appNowIso() });
+      try {
+        audit("vendor", v.id, "created-draft", "", v.name, "a draft until vetted: W-9, COI, checks, a second person's approval");
+      } catch (e) {}
+    }
+    return v;
+  };
+}
+// New Vendor…: the explicit way to add one, as a draft; Open lands on its vetting sheet.
+function poNewVendorSheet(name, after) {
+  mbModal(
+    "New Vendor",
+    `<p class="small muted">${esc(name || "This vendor")} is not on file. It is added as a draft: it can receive a purchase order only once it is vetted (W-9, a COI when it delivers or works on site, the business checks) and a second person approves it.</p>${mbF("Name", `<input data-f="name" value="${esc(name || "")}">`)}<div class="grid2">${mbF("Trade", '<input data-f="trade" placeholder="Tile, Lumber, Plumbing">')}${mbF("Email", '<input data-f="email" type="email">')}</div>`,
+    {
+      submit: "Add as a Draft",
+      onSubmit: (f) => {
+        const n = String(f.name || "").trim();
+        if (!n) return toast("Name the vendor"), !1;
+        const v = vendorRec(n) || ensureVendor(n, { trade: f.trade || "", email: f.email || "", createdFrom: "po" });
+        Object.assign(v, { needsVetting: !0, draft: !0, createdBy: v.createdBy || ((currentUser() || {}).name) || role() });
+        save();
+        rcToast(`${v.name} added as a draft vendor: vet it before its first purchase order`, [{ label: "Open", run: () => rfqVetSheet(v.id) }]);
+        after && after(v);
+      },
+    },
+  );
+}
+{
+  const base = ctPOPicker;
+  ctPOPicker = function () {
+    const r = base.apply(this, arguments);
+    try {
+      const m = document.getElementById("mbm"),
+        ok = m && m.querySelector("#mbm-ok");
+      ok &&
+        ok.addEventListener(
+          "click",
+          (ev) => {
+            const names = [...new Set([...m.querySelectorAll("[data-ctpsel]:checked")].map((c) => ((m.querySelector(`[data-ctpv="${c.dataset.ctpsel}"]`) || {}).value || "").trim()).filter((n) => !poVendorKnown(n)))];
+            if (!names.length) return;
+            ev.stopImmediatePropagation(), ev.preventDefault();
+            let note = m.querySelector("#po-unknown-vendor");
+            note || ((note = document.createElement("div")), (note.id = "po-unknown-vendor"), (note.className = "note bad"), (m.querySelector(".mbm-bd") || m).prepend(note));
+            // inline, so the lines ticked in this sheet are kept: New Vendor… opens a small form right here
+            note.innerHTML = names.map((n) => `<div class="row po-nv" style="gap:8px;align-items:center;flex-wrap:wrap"><span class="grow small"><b data-nocase>${esc(n)}</b> is not a vendor on file. Pick one from the list, or add it as a draft vendor that must be vetted before it gets a PO.</span><button type="button" class="btn sm" data-ponewv="${esc(n)}">New Vendor…</button></div>`).join("");
+            note.querySelectorAll("[data-ponewv]").forEach(
+              (b) =>
+                (b.onclick = () => {
+                  const row = b.closest(".po-nv"),
+                    n = b.dataset.ponewv;
+                  row.innerHTML = `<span class="small grow">New vendor <b data-nocase>${esc(n)}</b>, added as a draft: W-9, a COI when it delivers or works on site, the business checks and a second person's approval before its first PO.</span><input data-ponvtrade placeholder="Trade" style="max-width:140px"><button type="button" class="btn sm" data-ponvadd>Add as a Draft</button>`;
+                  row.querySelector("[data-ponvadd]").onclick = () => {
+                    const v = ensureVendor(n, { trade: row.querySelector("[data-ponvtrade]").value.trim(), createdFrom: "po" });
+                    Object.assign(v, { needsVetting: !0, draft: !0, createdBy: v.createdBy || ((currentUser() || {}).name) || role() });
+                    save(), row.remove(), note.children.length || note.remove();
+                    const dl = document.getElementById("ct-vendors");
+                    dl && dl.insertAdjacentHTML("beforeend", `<option value="${esc(v.name)}">`);
+                    rcToast(`${v.name} added as a draft vendor: vet it before its first purchase order`, [{ label: "Open", run: () => rfqVetSheet(v.id) }]);
+                  };
+                }),
+            );
+          },
+          !0,
+        );
+    } catch (e) {
+      console.warn("unknown vendor gate", e);
+    }
+    return r;
   };
 }
