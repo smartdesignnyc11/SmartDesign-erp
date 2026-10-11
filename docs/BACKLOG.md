@@ -666,6 +666,49 @@ Alan gets a gallery of the client-facing documents to judge for himself.
 
 **Order.** This is the highest-risk gap after v11.1. Phase 1 on the demo (register, VOID, holds, acknowledgments, pinned plans, the order flag) comes right after the pilot, before Simplify. The detection from mail and Drive, the compare, offline storage and the QR codes complete it on the platform.
 
+### 1.23 Cross-set consistency: the AI checks every set against the others (Alan, 2026-10-11)
+**The problem.** The field builds from one set while another set (design presentation, LPC, DOB, construction documents, shop drawings) carries different dimensions. It is found weeks later and redone.
+
+**What the AI reads.** Every set in the drawing register (§1.22): design presentations, LPC submissions, DOB filings, construction documents, consultant sets (structural, MEP), shop drawings, and the finish and selections schedules. It extracts:
+- dimension strings, room names and areas;
+- door, window and finish schedules;
+- ceiling heights, keynotes and general notes;
+- fixture and appliance tags, and specified products;
+- the revision clouds.
+
+It then matches the same room, element or tag across sets. Geometry overlay between versions of the same sheet comes second. Vector PDFs are read precisely; scanned sheets are read with lower confidence, and the confidence shows. The AI never edits a drawing.
+
+**When it runs.** On every new revision (a gate before a set can be marked Issued for Construction), and on demand.
+
+**What happens after it finds an inconsistency (the recommended workflow):**
+1. **Triage at once.** Each finding states:
+   - what differs: the two values, the sheets, the location, a side-by-side crop;
+   - its confidence;
+   - its risk, measured by how close the work is: in progress or starting this week; ordered or in fabrication (millwork, stone, windows, steel); in a filed drawing; or design only for now.
+2. **Hold what's at risk.** When work or an order is affected in the next few days, the area and the order go on hold automatically ("In Revision", §1.22). The foreman and the procurement manager are told before anyone builds or buys. This follows the escalation table: drawing doesn't work goes from foreman to PM and designer, before building that element.
+3. **Ask the right person, with a deadline.** The finding becomes a coordination issue (an RFI) routed to whoever owns the drawing:
+   - our designer;
+   - the architect or engineer of record (as a guest in the job thread, or by email);
+   - the sub, for a shop drawing.
+   The due date comes from the schedule's need-by date, not "when they get to it".
+4. **Say which set governs.** The issue shows the order of precedence:
+   - filed DOB and LPC drawings govern what is legal;
+   - construction documents govern what is built;
+   - the design presentation shows intent only;
+   - shop drawings must match the construction documents.
+   If the fix changes a filed drawing, an amendment is flagged before work (Standard principle 2).
+5. **Resolve through the register.** The answer becomes a new revision or a sketch. The register updates, the old sheets go VOID, the field acknowledges (§1.22), and the holds lift.
+6. **Follow the money.**
+   - **Ripple effects:** POs and fabrication dimensions to correct, a return or re-order, and schedule days.
+   - **Who pays:**
+     - a client change is a CO to the client;
+     - a design or coordination error is our cost (the Standard: our rework is on us), tracked so it is visible;
+     - a consultant's error is a backcharge to them.
+7. **Learn from it.** The issue log feeds the brain: which sets disagree most, at which hand-off (for example, presentation dimensions not updated after LPC comments), and from which consultant. The pattern becomes a lesson and a pre-issue checklist the owner approves, so the same kind of inconsistency stops recurring.
+8. **Measured.** Issues found before work starts against issues found in the field, rework dollars avoided, and time to resolve. The first is the number that proves it works.
+
+**Platform and cost.** Reading drawing sets needs the Claude API with vision on the platform. A full pass over a 50-sheet set is likely a few dollars to around $20, depending on the sheets; that is an estimate, and it gets measured on the first real set. Re-checks only read the sheets that changed. In the demo, phase 1 runs the workflow (issues, holds, routing, precedence, resolution, money) on invented sets, with the extraction simulated.
+
 ## §2 Remaining round-4 findings
 
 ### Founder
