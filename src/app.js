@@ -16841,7 +16841,7 @@ function stockRouteCard() {
   const ph = v.querySelector(".ph");
   (ph || v).insertAdjacentHTML(
     ph ? "afterend" : "afterbegin",
-    `<div class="card stk-card" id="stk-route"><div class="hd"><h3>Picks From Stock</h3><span class="small muted" data-stkn="${held.length}">${held.length}</span></div>
+    `<div class="card stk-card" id="stk-route"><div class="hd"><h3>Picks from Stock</h3><span class="small muted" data-stkn="${held.length}">${held.length}</span></div>
     ${held.length ? held.map((sp) => `<div class="stk-row"><div class="grow"><b>${sp.fromStock} ${esc(sp.unit)} ${esc(sp.invName)}</b><div class="small muted">at ${esc(locName(sp.loc))} to ${esc(stockJobName(sp.projectId))} · ${esc(sp.by)}${sp.toBuy > 0 ? ` · ${sp.toBuy} being bought` : ""}</div></div>${can ? `<button class="btn sm" data-stkov="${sp.id}">Override</button>` : ""}</div>`).join("") : '<div class="small muted">Nothing reserved from stock right now.</div>'}
     ${rel.map((e) => `<div class="stk-row"><div class="grow"><b>Released: ${e.qty} ${esc(e.unit)} ${esc(e.invName)}</b><div class="small muted">not picked in ${e.days} days for ${esc(stockJobName(e.projectId))}; back on the shelf</div></div><button class="btn sm" data-stkseen="${e.id}">Got It</button></div>`).join("")}
     ${rc.length ? `<div class="small" style="margin-top:8px"><b>Recount at the yard</b></div>${rc.map((i) => `<div class="stk-row"><div class="grow">${esc(i.name)}<div class="small muted">count corrected by an override; ${+i.qty} ${esc(i.unit)} on file</div></div><button class="btn sm" data-stkcount="${i.id}">Count This</button></div>`).join("")}` : ""}
@@ -17093,7 +17093,7 @@ function stockRegister() {
   // one count per label
   if ("function" == typeof predDef) {
     predDef("boughtWhileInStock", { label: "Bought While in Stock", rule: "a card or bank purchase of a stocked item, matched by spec, while it sat available and no driver or coordinator override covered it", rows: () => boughtWhileInStock() });
-    predDef("stockPicks", { label: "Picks From Stock", rule: "material reserved from stock for a request, waiting for the driver's pick", rows: () => stockHeld() });
+    predDef("stockPicks", { label: "Picks from Stock", rule: "material reserved from stock for a request, waiting for the driver's pick", rows: () => stockHeld() });
     predDef("stockQuestions", { label: "Stock Questions", rule: "a request whose match to stock is uncertain, waiting on the coordinator", rows: () => stockOpenQs() });
   }
   // erpQuery, ⌘K, the Report Builder

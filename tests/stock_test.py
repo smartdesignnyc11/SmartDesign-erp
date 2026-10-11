@@ -83,7 +83,7 @@ async def s_split(p, c):
         await go(pg, 'route')
         card = await pg.evaluate("() => { const c = document.getElementById('stk-route'); return c ? { text: c.innerText, n: +c.querySelector('[data-stkn]').dataset.stkn, rows: c.querySelectorAll('[data-stkov]').length, pred: PRED.stockPicks.count() } : null; }")
         c.ok(bool(card) and 'Warehouse' in card['text'] and card['rows'] == 1, f'split: the driver route shows the pick with Override, got {card}')
-        c.ok(bool(card) and card['n'] == card['rows'] == card['pred'], f'split: Picks From Stock count equals its rows and PRED, got {card}')
+        c.ok(bool(card) and card['n'] == card['rows'] == card['pred'], f'split: Picks from Stock count equals its rows and PRED, got {card}')
         sw = await pg.evaluate("() => document.scrollingElement.scrollWidth")
         c.ok(sw <= 390, f'split: the driver route has no sideways scroll, scrollWidth {sw}')
         await reload(pg)
