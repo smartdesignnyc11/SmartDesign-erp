@@ -21,8 +21,8 @@ Status: **Built** (merged and tested) · **Building** (a lane is on it) · **Spe
 | Tracking numbers, invoices, receipts, delivery dates and vendor promises filed in place; vendor follow-ups sent autonomously (within delegation) | BACKLOG §1.9 | Building (lane "track") |
 | Think past every ask: what's missed, how to make it better, what could go wrong | `CLAUDE.md` | Built (standing rule) |
 | Check inventory before buying; only the driver or procurement manager overrides, with a reason | BACKLOG §1.8 item 12 | Building (lane "stock") |
-| Owner approves price-watch explanations and baseline changes ("lumber up 8%") | BACKLOG §1.8 item 11 | Spec (lane "pricewatch", queued) |
-| Price watch: flag purchases above past prices and anything abnormal | BACKLOG §1.8 item 11 | Spec (lane "pricewatch", queued) |
+| Owner approves price-watch explanations and baseline changes ("lumber up 8%") | BACKLOG §1.8 item 11 | Built in lane; merging |
+| Price watch: flag purchases above past prices and anything abnormal | BACKLOG §1.8 item 11 | Built in lane; merging |
 | "75% start from a line item" is context, not a benchmark. Build line-first defaults; no metric | `CLAUDE.md` "How purchasing starts" | Building (lanes "rfq", "chain") |
 | Create an RFQ from one or several line items | BACKLOG §1.8 | Building (lane "rfq") |
 | PO lines link to estimate, CO or invoice lines, both ways | lane "chain" | Building |
