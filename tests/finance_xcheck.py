@@ -9,7 +9,7 @@ The run ends with `N flags` and exits 1 when N > 0.
 
   python3 finance_xcheck.py                 all figures, owner and controller
   python3 finance_xcheck.py --figure cash   only one figure family (cash, ar, unmatched, ap, wip, backlog,
-                                            net, safe, rtb, job121, ledger); repeatable or comma-separated
+                                            net, safe, rtb, job121, ledger, stock); repeatable or comma-separated
   python3 finance_xcheck.py --json          machine-readable result (flags, every reading, not-shown notes)
   python3 finance_xcheck.py -v              also print every reading that agreed
 """
@@ -497,9 +497,53 @@ async def check_role(pg, R, uid):
                 else: R.money(key, s(q), head, pat)
             if R.verbose: print('   Ask:', q, '->', head[:140])
 
+# ---- stock used on a job is job cost (BACKLOG §1.8 item 12; integration pass): issue 12 sheets from the shop to
+# 121 State Street, then return 2. The expected movement is computed here from the raw inventory record (quantity x
+# carried cost), never from the app's own totals, and every surface that reads the job's one number must move by it.
+STOCK_SURFACES = ('jobFin actual', 'jobFin cost by code (stock)', 'lineFin actual (the estimate line)', 'Cost by Line',
+                  'Overhead basis (direct cost)', 'GL 5100 Materials on the job', 'GL 1250 Inventory')
+STOCK_JS = """(key) => { const p = DB.projects.find(x => x.id === 'p121'), J = jobFin(p), f = lineFin(key);
+  const row = (typeof clRows === 'function' ? (clScope = 'all', clRows()) : []).find(r => r.key === key || (r.f && r.f.key === key)) || {};
+  try { glSync(); } catch (e) {}
+  const gl = (acct) => (DB.gl.journals || []).filter(j => j.status === 'posted').flatMap(j => j.lines).filter(l => l.acct === acct && (acct === '1250' || l.projectId === 'p121')).reduce((a, l) => a + (+l.dr || 0) - (+l.cr || 0), 0);
+  DB.company.ohBasis = 'cost'; const ym = today().slice(0, 7); __ohMemo = { key: '', m: {} };
+  const oh = (ohMonth(ym).base || {})['p121'] || 0;
+  return { 'jobFin actual': J.actual, 'jobFin cost by code (stock)': (J.byCode || []).reduce((a, b) => a + (+b.stock || 0), 0), 'lineFin actual (the estimate line)': f ? f.actual : null,
+    'Cost by Line': row.actual != null ? row.actual : null, 'Overhead basis (direct cost)': oh, 'GL 5100 Materials on the job': gl('5100'), 'GL 1250 Inventory': gl('1250'),
+    eac: J.eac, journals: (DB.gl.journals || []).filter(j => j.key && j.key.startsWith('stk:')).map(j => [j.key, j.memo, j.status]) }; }"""
+
+async def check_stock(p, R):
+    if not R.want('stock'): return
+    b, pg, errs = await open_app(p)
+    await sign_in(pg, 'u_owner')
+    raw = await pg.evaluate("() => { const iv = DB.inventory.find(i => i.id === 'iv16'), p = DB.projects.find(x => x.id === 'p121'); return { cost: iv.cost, qty: iv.qty, unit: iv.unit, key: stockLineKey(p, iv), owned: stockClientOwned(p) }; }")
+    cost, key = float(raw['cost']), raw['key']
+    if not key:
+        R.flag('stock', 'the estimate line', 'none', 'the drywall line on 121 State Street'); await b.close(); return
+    before = await pg.evaluate(STOCK_JS, key)
+    await pg.evaluate("() => { invMove(DB.inventory.find(i => i.id === 'iv16'), 'p:p121', 12, 'finance_xcheck: issue to the job'); }")
+    issued = await pg.evaluate(STOCK_JS, key)
+    await pg.evaluate("() => stockReturn({ projectId: 'p121', invId: 'iv16', qty: 2, loc: 'wh', reason: 'finance_xcheck: two sheets left over', force: true })")
+    back = await pg.evaluate(STOCK_JS, key)
+    up, down = round(12 * cost, 2), round(-2 * cost, 2)   # computed here, from the inventory record
+    want = {k: (up, down) for k in STOCK_SURFACES}
+    want['GL 1250 Inventory'] = (-up, -down)   # the asset is credited on the issue, debited on the return
+    for k in STOCK_SURFACES:
+        for (a0, a1, w, step) in ((before, issued, want[k][0], 'issue 12'), (issued, back, want[k][1], 'return 2')):
+            seen = None if a0[k] is None or a1[k] is None else round(a1[k] - a0[k], 2)
+            ok = seen is not None and abs(seen - w) <= 0.01
+            R.readings.append({'figure': 'stock', 'surface': f'{k} ({step})', 'raw': str(seen), 'value': seen, 'expected': w, 'ok': ok})
+            if not ok: R.flag('stock', f'{k} ({step})', str(seen), f'{w:+,.2f}')
+            elif R.verbose: print('  ok STOCK |', k, step, seen)
+    J = back['journals']
+    if len(J) != 2 or not any('finance_xcheck: two sheets left over' in m for _, m, _ in J):
+        R.flag('stock', 'GL journals (append-only, the return carries its reason)', str(J), 'one issue and one return journal, the return naming its reason')
+    for e in errs[:3]: R.flag('stock', 'page', e[:200], 'no page errors')
+    await b.close()
+
 async def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--figure', action='append', default=[], help='cash, ar, unmatched, ap, wip, backlog, net, safe, rtb, job121, ledger')
+    ap.add_argument('--figure', action='append', default=[], help='cash, ar, unmatched, ap, wip, backlog, net, safe, rtb, job121, ledger, stock')
     ap.add_argument('--json', action='store_true')
     ap.add_argument('-v', '--verbose', action='store_true')
     ap.add_argument('--role', action='append', default=[], help='owner or controller (default both)')
@@ -513,6 +557,7 @@ async def main():
         for uid in roles:
             await check_role(pg, R, uid)
         await b.close()
+        await check_stock(p, R)
     for e in errs[:5]:
         R.flags.append({'figure': 'errors', 'surface': 'page', 'seen': e[:200], 'expected': 'no page errors'})
         if not a.json: print('FLAG ERRORS | page |', e[:200], '| no page errors')

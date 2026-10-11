@@ -16774,6 +16774,16 @@ function stockUseAdd(kind, inv, pid, qty, note, extra) {
     u = Object.assign({ id: uid("sku"), at: appNowIso(), by: stockWho(), kind: kind, projectId: pid, invId: inv.id, invName: inv.name, qty: +qty || 0, unit: inv.unit, unitCost: +inv.cost || 0, amount: r2((+qty || 0) * (+inv.cost || 0) * ("return" === kind ? -1 : 1)), line: stockLineKey(p, inv), note: note || "" }, extra || {});
   return stockDB().use.push(u), u;
 }
+// Stock used on jobs, read by jobFin (per job, in a date range) and lineFin / Cost by Line (per line): a "use" is cost
+// at the carried cost when issued, a "return" its credit. The records are append-only; nothing edits one.
+function stockUseIn(pid, range, lineKey) {
+  const U = ((DB.stock || {}).use) || [];
+  return U.filter((u) => (!pid || u.projectId === pid) && (!lineKey || u.line === lineKey) && (!range || within(String(u.at).slice(0, 10), range)));
+}
+const stockUseCode = (u) => {
+  const ref = u.line && "function" == typeof findLine ? findLine(u.line) : null;
+  return (ref && (ref.line.code || ("function" == typeof codeForLine ? codeForLine(ref.line) : ""))) || ((DB.inventory || []).find((i) => i.id === u.invId) || {}).code || "99";
+};
 {
   const base = invMove;
   invMove = function (item, toLoc, qty, note) {
@@ -16802,8 +16812,9 @@ function stockReturnDialog(pre) {
     `<p class="small muted" style="margin:0 0 10px">Leftover material back from a job: it goes back on the count where you put it, and the job's line gets the credit.</p>
     ${mbF("From Job", `<select data-f="pid">${jobs.map((p) => `<option value="${p.id}" ${p.id === (pre.projectId || S.id) ? "selected" : ""}>${esc(stockJobName(p.id))}</option>`).join("")}</select>`)}
     ${mbF("Item", `<select data-f="inv">${items.map((i) => `<option value="${i.id}" ${i.id === pre.invId ? "selected" : ""}>${esc(i.name)} (${esc(i.unit)})</option>`).join("")}</select>`)}
-    <div class="grid2">${mbF("How Many", `<input type="number" min="0" step="any" data-f="qty" value="${pre.qty || ""}" inputmode="decimal">`)}${mbF("Put It At", `<select data-f="loc">${locs.map((l) => `<option value="${l.id}">${esc(l.n)}</option>`).join("")}</select>`)}</div>`,
-    { submit: "Return to Stock", onSubmit: (f) => (stockReturn({ projectId: f.pid, invId: f.inv, qty: f.qty, loc: f.loc }) ? void 0 : !1) },
+    <div class="grid2">${mbF("How Many", `<input type="number" min="0" step="any" data-f="qty" value="${pre.qty || ""}" inputmode="decimal">`)}${mbF("Put It At", `<select data-f="loc">${locs.map((l) => `<option value="${l.id}">${esc(l.n)}</option>`).join("")}</select>`)}</div>
+    ${mbF("Why It Came Back", `<input data-f="reason" value="${esc(pre.reason || "Leftover from the job")}" placeholder="Leftover from the job">`)}`,
+    { submit: "Return to Stock", onSubmit: (f) => (stockReturn({ projectId: f.pid, invId: f.inv, qty: f.qty, loc: f.loc, reason: f.reason }) ? void 0 : !1) },
   );
 }
 function stockReturn(o) {
@@ -16811,6 +16822,8 @@ function stockReturn(o) {
     inv = (DB.inventory || []).find((i) => i.id === o.invId),
     qty = +o.qty || 0;
   if (!p || !inv || !(qty > 0)) return toast("Say what came back and how many"), null;
+  // a return reverses part of a posted job cost, so it carries its reason (append-only: the issue is never edited)
+  const reason = String(o.reason || "").trim() || "Leftover from the job";
   const S0 = stockDB();
   if (!o.force && stockClientOwned(p)) {
     const x = { id: uid("sks"), at: appNowIso(), by: stockWho(), projectId: p.id, invId: inv.id, invName: inv.name, unit: inv.unit, qty: qty, loc: o.loc || inv.loc, cost: +inv.cost || 0, state: "open" };
@@ -16825,7 +16838,8 @@ function stockReturn(o) {
   }
   const before = +at.qty || 0;
   at.qty = r2(before + qty);
-  const u = stockUseAdd("return", at, p.id, qty, `returned to ${locName(loc)}`);
+  const issued = S0.use.filter((x) => "use" === x.kind && x.projectId === p.id && x.invId === inv.id).pop(),
+    u = stockUseAdd("return", at, p.id, qty, `returned to ${locName(loc)}`, { reason: reason, reverses: issued ? issued.id : "", line: (issued && issued.line) || stockLineKey(p, at), unitCost: issued ? issued.unitCost : +at.cost || 0, amount: -r2(qty * (issued ? +issued.unitCost || 0 : +at.cost || 0)) });
   S0.adjust.push({ id: uid("ska"), at: appNowIso(), by: stockWho(), invId: at.id, invName: at.name, unit: at.unit, from: before, to: at.qty, delta: qty, reason: `Returned from ${stockJobName(p.id)}`, useId: u.id });
   audit("inventory", at.id, `returned ${qty} ${at.unit} from ${stockJobName(p.id)} — ${at.qty} now`, null, null, "");
   save(), render();
@@ -24345,7 +24359,9 @@ function lineFin(key) {
     ),
     txnAmt = r2(txns.reduce((a, t) => a - t.amt, 0)),
     laborAmt = lineLabor(doc, line),
-    actual = r2(billsAmt + txnAmt + laborAmt),
+    // stock issued to the job on this line at carried cost, less returns
+    stockAmt = r2(stockUseIn("", null, key).reduce((a, u) => a + (+u.amount || 0), 0)),
+    actual = r2(billsAmt + txnAmt + laborAmt + stockAmt),
     budget = +line.cost || 0,
     projCost = Math.max(budget, actual, committed),
     invoiced = live.filter((i) => sv && i.lines.some((l) => l.sovId === sv.id)).map((i) => i.number);
@@ -24369,6 +24385,7 @@ function lineFin(key) {
     bills: bills,
     billsAmt: billsAmt,
     txnAmt: txnAmt,
+    stockAmt: stockAmt,
     laborAmt: laborAmt,
     actual: actual,
     budget: budget,
@@ -28962,6 +28979,9 @@ function jobFin(p, range) {
         !txnViaBill(t, bills),
     ),
     txnAmt = r2(txns.reduce((a, t) => a - t.amt, 0)),
+    // stock issued from the shop to this job at carried cost, less what came back (DB.stock.use, append-only)
+    stockRows = stockUseIn(p.id, R),
+    stockAmt = r2(stockRows.reduce((a, u) => a + (+u.amount || 0), 0)),
     time = DB.time.filter((e) => e.projectId === p.id && "rejected" !== e.status && inRng(e.date)),
     laborByEmp = {};
   let laborCost = 0,
@@ -28986,7 +29006,7 @@ function jobFin(p, range) {
   }),
     (laborCost = r2(laborCost)),
     (hours = r2(hours));
-  const actual = r2(billsAmt + txnAmt + laborCost),
+  const actual = r2(billsAmt + txnAmt + laborCost + stockAmt),
     pos = DB.pos.filter(
       (po) => po.projectId === p.id && ["issued", "partial", "received"].includes(po.status),
     ),
@@ -29028,6 +29048,7 @@ function jobFin(p, range) {
         committed: 0,
         bills: 0,
         bank: 0,
+        stock: 0,
         labor: 0,
         actual: 0,
       })[k] += v;
@@ -29049,6 +29070,7 @@ function jobFin(p, range) {
     }),
     txns.forEach((t) => bump(txnRebilled(t) ? "RB" : t.code || "99", "bank", -t.amt)),
     Object.entries(laborByCode).forEach(([code, v]) => bump(code, "labor", v)),
+    stockRows.forEach((u) => bump(stockUseCode(u), "stock", +u.amount || 0)),
     pos.forEach((po) => {
       const tot = poTotal(po).sub,
         open = Math.max(
@@ -29067,8 +29089,8 @@ function jobFin(p, range) {
     }),
     byCode.RB && (byCode.RB.name = "Billed back to the client"),
     Object.values(byCode).forEach((b) => {
-      (b.actual = r2(b.bills + b.bank + b.labor)),
-        ["contract", "budget", "committed", "bills", "bank", "labor"].forEach((k) => (b[k] = r2(b[k])));
+      (b.actual = r2(b.bills + b.bank + b.stock + b.labor)),
+        ["contract", "budget", "committed", "bills", "bank", "stock", "labor"].forEach((k) => (b[k] = r2(b[k])));
     }),
     jobFinDerive({
       p: p,
@@ -29098,6 +29120,8 @@ function jobFin(p, range) {
       accrued: accrued,
       accruedBills: accruedBills,
       txnAmt: txnAmt,
+      stockAmt: stockAmt,
+      stockRows: stockRows,
       laborCost: laborCost,
       hours: hours,
       laborByEmp: Object.values(laborByEmp),
@@ -29115,7 +29139,7 @@ function jobFin(p, range) {
       backlog: backlog,
       backlogGP: r2(estGP * (1 - pct)),
       byCode: Object.values(byCode).sort((a, b) => a.code.localeCompare(b.code)),
-      defs: "billed = invoices ex tax before retainage · actual = approved bills + bank items without a bill + burdened labor · committed = open POs net of bills · % complete = contract cost ÷ estimated contract cost (purchases billed back to the client are earned when billed)",
+      defs: "billed = invoices ex tax before retainage · actual = approved bills + bank items without a bill + stock issued from the shop at carried cost (less returns) + burdened labor · committed = open POs net of bills · % complete = contract cost ÷ estimated contract cost (purchases billed back to the client are earned when billed)",
     }, p)
   );
 }
@@ -37219,7 +37243,7 @@ function ohMonthsIn(range) {
 let __ohMemo = { key: "", m: {} },
   __ohBusy = 0;
 function ohKey() {
-  return [today(), "undefined" != typeof trSaveSeq ? trSaveSeq : 0, ohBasis(), (DB.txns || []).length, (DB.bills || []).length, (DB.payroll || []).length, (DB.time || []).length].join("|");
+  return [today(), "undefined" != typeof trSaveSeq ? trSaveSeq : 0, ohBasis(), (DB.txns || []).length, (DB.bills || []).length, (DB.payroll || []).length, (DB.time || []).length, (((DB.stock || {}).use) || []).length].join("|");
 }
 function ohMonth(ym) {
   const k = ohKey();
@@ -56349,6 +56373,10 @@ function clCosts(key, ctx) {
           doc: t,
         });
       }),
+    // stock issued from the shop to this line (and returns), at carried cost: lineFin counts the same rows
+    stockUseIn("", null, key).forEach((u) =>
+      out.push({ kind: "stock", id: u.id, date: String(u.at).slice(0, 10), vendor: "Shop stock", ref: `${"return" === u.kind ? "Returned" : "From stock"}: ${u.qty} ${u.unit} ${u.invName}`, amount: r2(+u.amount || 0), cls: clClassify({ cat: "materials" }, ctx), doc: u }),
+    ),
     out.sort((a, b) => String(a.date).localeCompare(String(b.date)))
   );
 }
@@ -69526,6 +69554,8 @@ const GL_COA = [
     ["1100", "Accounts receivable", "asset", "ar", "ar", !1],
     ["1150", "Retainage receivable", "asset", "retainageReceivable", "none", !0],
     ["1200", "Costs in excess of billings (WIP)", "asset", "wipUnderBilled", "none", !0],
+    // shop stock at carried cost: credited when stock is issued to a job (Dr 5100 on the job's line), debited on a return
+    ["1250", "Inventory (shop stock)", "asset", "inventory", "none", !1],
     ["1300", "Vendor prepayments", "asset", "prepaid", "none", !0],
     ["1400", "Client escrow (GBL 771-a)", "asset", "cash", "none", !1],
     ["1500", "Fixed assets", "asset", "fixedAsset", "none", !1],
@@ -183672,3 +183702,39 @@ function stdDelegHtml() {
 }
 "object" == typeof EQ_TABLES &&
   (EQ_TABLES.delegations = () => stdDelegLog().map((e) => ({ _id: e.id, _module: "The SmartDesign Standard", _label: `${e.name}: ${(STD_SEND_TYPES.find((t) => t.id === e.type) || { label: e.type }).label} ${e.on ? "on" : "off"}`, _go: { view: "standard" }, date: String(e.at).slice(0, 10), person: e.name, type: e.type, on: e.on, by: e.by, why: e.why })));
+// ---- stock used on a job is job cost, in the books too (BACKLOG §1.8 item 12, the open item) -------------------
+// jobFin, lineFin and Cost by Line read DB.stock.use directly (stockUseIn), so the job report, WIP, EAC, the
+// overhead basis, Portfolio, Pack and Ask carry it. The general ledger gets one system journal per record: an issue
+// is Dr 5100 Materials on the job and its estimate line, Cr 1250 Inventory, at the carried cost; a return is the
+// reverse with its reason. Records are append-only, so each journal posts once and is never re-posted.
+"object" == typeof GL_SUB_OF && (GL_SUB_OF.stock = "inventory");
+function glStockLines(u) {
+  const amt = Math.abs(r2(+u.amount || 0)),
+    dims = { projectId: u.projectId || "", lineId: u.line || "", code: stockUseCode(u), cat: "materials", partyType: "", partyId: "" };
+  return "return" === u.kind ? [glL("1250", amt, 0, dims), glL("5100", 0, amt, dims)] : [glL("5100", amt, 0, dims), glL("1250", 0, amt, dims)];
+}
+{
+  const base = glDerive;
+  glDerive = function () {
+    const out = base.apply(this, arguments);
+    try {
+      stockUseIn("", null).forEach((u) => {
+        const amt = Math.abs(r2(+u.amount || 0));
+        if (!amt || !u.projectId) return;
+        out.push({
+          key: "stk:" + u.id,
+          sourceType: "stock",
+          sourceId: u.id,
+          entityId: "function" == typeof glProjectEntity ? glProjectEntity(u.projectId) : "ent1",
+          date: String(u.at).slice(0, 10),
+          memo: `${"return" === u.kind ? `Returned to stock (${u.reason || "no reason recorded"})` : "Issued from stock"} · ${u.qty} ${u.unit} ${u.invName} · ${stockJobName(u.projectId)}`,
+          lines: glStockLines(u),
+          system: !0,
+        });
+      });
+    } catch (e) {
+      console.warn("stock ledger", e);
+    }
+    return out;
+  };
+}
