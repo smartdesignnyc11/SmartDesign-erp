@@ -54429,17 +54429,18 @@ renderPickupBase_ret &&
     if (!card) return;
     const out = retList().filter((r) => ["authorised", "toship"].includes(r.status));
     if (!out.length) return;
-    const val = out.reduce((a, r) => a + retValue(r), 0);
+    const val = out.reduce((a, r) => a + retValue(r), 0),
+      noMoney = ["foreman", "crew", "driver"].includes(role());
     card.insertAdjacentHTML(
       "beforeend",
-      `\n      <div class="pick-stop pick-out">\n        <div class="pick-hd"><b>Going back</b><span class="small muted">${out.length} box${1 === out.length ? "" : "es"} · ${money(val)} of ours until they are gone</span></div>\n        ${out
+      `\n      <div class="pick-stop pick-out">\n        <div class="pick-hd"><b>Going back</b><span class="small muted">${out.length} box${1 === out.length ? "" : "es"}${noMoney ? " to hand back to the vendor" : ` · ${money(val)} of ours until they are gone`}</span></div>\n        ${out
         .map((r) => {
           const risk = retRisk(r);
-          return `<label class="pick-row ${risk.lvl >= 3 ? "late" : ""}">\n          <input type="checkbox" data-shipped="${r.id}">\n          <span class="pick-tag">${esc((r.location || "").split("·").pop().trim() || "—")}</span>\n          <span class="pick-what"><b>${esc(r.name)}</b><span class="small muted">back to ${esc(r.vendor)}${r.rma ? ` · ${esc(r.rma)}` : " · no RMA yet"} · ${money(retValue(r))}</span></span>\n          <span class="pick-when ${risk.cls}">${esc(risk.label || "")}</span></label>`;
+          return `<label class="pick-row ${risk.lvl >= 3 ? "late" : ""}">\n          <input type="checkbox" data-shipped="${r.id}">\n          <span class="pick-tag">${esc((r.location || "").split("·").pop().trim() || "—")}</span>\n          <span class="pick-what"><b>${esc(r.name)}</b><span class="small muted">back to ${esc(r.vendor)}${r.rma ? ` · ${esc(r.rma)}` : " · no RMA yet"}${noMoney ? "" : ` · ${money(retValue(r))}`}</span></span>\n          <span class="pick-when ${risk.cls}">${esc(risk.label || "")}</span></label>`;
         })
         .join(
           "",
-        )}\n        <p class="small muted" style="margin:6px 0 0">Ticking one marks it shipped back. It is still our money until the credit lands.</p>\n      </div>`,
+        )}\n        <p class="small muted" style="margin:6px 0 0">Ticking one marks it shipped back.${noMoney ? "" : " It is still our money until the credit lands."}</p>\n      </div>`,
     ),
       card.querySelectorAll("[data-shipped]").forEach(
         (cb) =>
@@ -54454,7 +54455,7 @@ renderPickupBase_ret &&
               retSet(r, "shipped", { note: "Handed over on the run." }),
                 renderPickup(),
                 "proc" === view && renderProc(),
-                toast(`${r.name} on its way back — ${money(retExpected(r))} to chase`);
+                toast(noMoney ? `${r.name} on its way back to ${r.vendor}` : `${r.name} on its way back — ${money(retExpected(r))} to chase`);
             }
           }),
       );
@@ -124780,8 +124781,8 @@ if ("function" == typeof poAction) {
           po.lines.reduce((s, l, i) => s + Math.max(0, (+l.received || 0) - before[i]) * (+l.price || 0), 0),
         );
         toastDone(
-          `${po.number} · ${po.vendor} — ${got.length === po.lines.length && "received" === po.status ? "received in full" : `${got.length} line${1 === got.length ? "" : "s"} received`}${amt ? `, ${money(amt)}` : ""}${"received" === po.status ? " · ready to bill" : ""}`,
-          flowCan("po") ? flowGo.po(po) : null,
+          `${po.number} · ${po.vendor} — ${got.length === po.lines.length && "received" === po.status ? "received in full" : `${got.length} line${1 === got.length ? "" : "s"} received`}${amt && !["foreman", "crew", "driver"].includes(role()) ? `, ${money(amt)}` : ""}${"received" === po.status ? " · ready to bill" : ""}`,
+          flowCan("po") ? flowGo.po(po) : flowCan("recv") ? goRow("recv", po.number) : null,
         );
       }
     }
@@ -144487,7 +144488,12 @@ function rcReceiptToast(po, text) {
     !["foreman", "crew", "driver"].includes(role()) &&
     !lkPOBillState(po).full &&
     L.push({ label: "Bill It", run: () => lkBillPO(po) }),
-    flowCan("po") && L.push({ label: "Open PO", run: flowGo.po(po) }),
+    flowCan("po") && L.push({ label: "Open PO", run: flowGo.po(po) });
+  // the crew and the driver check deliveries in on Receiving: their Open is the order's row there, and their
+  // toast carries no money (the amount the office toast names)
+  const field = ["foreman", "crew", "driver"].includes(role());
+  field && (text = String(text).replace(/,?\s*\$[\d,.]+/g, ""));
+  !L.length && flowCan("recv") && L.push({ label: "Open", run: goRow("recv", po.number) }),
     L.length ? rcToast(text, L) : toast(text);
 }
 if ("function" == typeof poAction) {
