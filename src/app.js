@@ -145448,11 +145448,8 @@ const TRK_KINDS = {
     USPS: { re: /\b(9[2-5]\d{20})\b/, api: "USPS Tracking v3 (/tracking/v3/tracking)" },
     Freight: { re: /\bPRO\s*(?:#|No\.?|number)?\s*:?\s*([0-9][0-9-]{6,14})\b/i, api: "LTL tracking by PRO number (project44 or the carrier's own API)" },
   },
-  // Message types the assistant may be handed to send alone. Settings › Connections lists them.
-  TRK_MSG_TYPES = [
-    { id: "orderFollowups", label: "Order Follow-Ups", roles: ["coord", "owner", "pm"], what: "to vendors: confirm the order and its date, ask for tracking before the ship date, reconfirm 48 hours before delivery, ask for a missing invoice, receipt or packing slip, chase a promise that was not kept. Never money, never a new date, never a change." },
-    { id: "rfqChases", label: "RFQ Reminders", roles: ["coord", "owner", "pm"], what: "to vendors: a reminder the day before a request for quote is due. Never a price or an award." },
-  ],
+  // The message types the assistant may be handed to send alone are STD_SEND_TYPES (one list, one log, one card
+  // in Settings › Connections); this section reads and switches them through standardDelegated and stdDelegSet.
   // The follow-ups a delegated assistant may send: each only asks, confirms or requests a document.
   TRK_FOLLOW = {
     confirm: "Confirm the order and its date",
@@ -146281,22 +146278,17 @@ function trkTaskFor(po) {
 }
 
 // ---- 8. vendor follow-ups within delegation --------------------------------------------------------------------
-function trkDelegated(uidX, type) {
-  const A = (DB.asst || {})[uidX] || {};
-  return (A.delegated || []).includes(type) || ("rfqChases" === type && !!(A.delegate || {}).rfqChases);
-}
+// One delegation model: DB.asst[uid].delegated, read through the Standard's own reader.
+const trkDelegated = (uidX, type) => !!uidX && standardDelegated(uidX).includes(type);
 // The guard every follow-up passes: an allowed type, and words that only ask, confirm or request a document.
-// Then the Standard: alone only when the person delegated this type (standardAllows once the charter lane merges).
+// Then the Standard decides: standardAllows sends alone only for a type this person delegated; otherwise a draft.
 function trkSendGuard(type, msg, uidX) {
   if (!TRK_FOLLOW[type]) return { ok: !1, mode: "refused", why: `"${type}" is not an order follow-up` };
   const text = `${msg.subject || ""}\n${msg.body || ""}`,
     bad = text.match(TRK_FORBIDDEN);
   if (bad) return { ok: !1, mode: "refused", why: `a follow-up never discusses money, payment, a new date, a change or a dispute ("${bad[0]}")` };
-  if ("function" == typeof standardAllows) {
-    const A = standardAllows({ action: "send", type: "orderFollowups", uid: uidX });
-    return A && A.ok ? { ok: !0, mode: "alone" === A.mode ? "send" : "draft", why: A.line || "" } : { ok: !1, mode: "refused", why: (A && A.line) || "the Standard refuses it" };
-  }
-  return { ok: !0, mode: trkDelegated(uidX, "orderFollowups") ? "send" : "draft", why: trkWhy("send") };
+  const A = standardAllows({ action: "send", type: "orderFollowups", uid: uidX });
+  return A && A.ok ? { ok: !0, mode: "alone" === A.mode ? "send" : "draft", why: A.line || trkWhy("send") } : { ok: !1, mode: "refused", why: (A && A.line) || "the Standard refuses it" };
 }
 const TRK_TEMPLATES = {
   confirm: (po, x) => ({ subject: `${po.number} — please confirm the order and the ship date`, body: `Hi ${x.first},\n\nWe sent ${po.number} on ${fmtL(po.date)} for ${x.items}, for ${x.job}. Could you confirm you have it and reply with your acknowledgment and the ship date?\n\nThank you,\n${x.sign}\nSmartDesign` }),
@@ -146741,37 +146733,24 @@ function trkWireCapture(host) {
     save();
   };
 }
-// "What My Assistant May Send for Me": the one screen that grants autonomy. Each person's own types; the owner
-// sees everyone and can switch any of them off. Every change is logged with who and when.
-function trkDelegLog() {
-  return (DB.company.delegationLog = DB.company.delegationLog || []);
-}
+// "What My Assistant May Send for Me": the one screen that grants autonomy (Settings › Connections). Each person
+// switches their own types (STD_SEND_TYPES); the owner sees everyone and can switch anyone's off, never on (the
+// Standard: sending alone needs the person's own delegation). Every change goes through stdDelegSet: one list
+// (DB.asst[uid].delegated), one append-only log (stdDelegLog), who and when.
+const trkDelegLog = () => stdDelegLog();
 function trkSetDelegated(uidX, type, on) {
-  const me = currentUser() || {},
-    owner = isOwner();
-  if (uidX !== me.id && !owner) return toast("Only the owner can change another person's"), !1;
-  DB.asst = DB.asst || {};
-  const A = (DB.asst[uidX] = DB.asst[uidX] || { thread: [], memo: [], standing: [], log: [], since: today() }),
-    L = (A.delegated = A.delegated || []),
-    was = L.includes(type);
-  on ? was || L.push(type) : was && L.splice(L.indexOf(type), 1);
-  // the RFQ lane reads delegate.rfqChases until the merge unifies it on `delegated`
-  "rfqChases" === type && ((A.delegate = A.delegate || {}), (A.delegate.rfqChases = !!on));
-  trkDelegLog().push({ at: appNowIso(), by: me.name || role(), uid: uidX, type: type, on: !!on });
-  try {
-    audit("delegation", uidX, on ? "on" : "off", String(was), String(!!on), type);
-  } catch (e) {}
-  return save(), !0;
+  return stdDelegSet(uidX, type, on);
 }
 function trkDelegHtml() {
   const me = currentUser() || {},
     owner = isOwner(),
-    people = (DB.users || []).filter((u) => (owner ? ["owner", "pm", "coord"].includes(u.role) : u.id === me.id) && TRK_MSG_TYPES.some((t) => t.roles.includes(u.role)));
+    people = (DB.users || []).filter((u) => (owner || u.id === me.id) && stdTypesFor(u.role).length).sort((a, b) => (a.id === me.id ? -1 : b.id === me.id ? 1 : 0));
   if (!people.length) return "";
-  const log = trkDelegLog().slice(-5).reverse();
-  return `<div class="card trk-card" id="trk-deleg"><div class="hd"><h3>What My Assistant May Send for Me</h3></div><p class="small muted" style="margin:0 0 8px">The assistant sends a message on its own only for a type switched on here. Everything else is a draft you approve. ${esc(trkWhy("send"))}</p>
-    ${people.map((u) => `<div class="trk-dp"><div class="small"><b>${esc(u.name)}</b>${owner && u.id !== me.id ? ` <span class="muted">· ${esc(APPR_WHO[u.role] || u.role)}</span>` : ""}</div>${TRK_MSG_TYPES.filter((t) => t.roles.includes(u.role)).map((t) => { const on = trkDelegated(u.id, t.id); return `<label class="trk-tog"><input type="checkbox" data-trkdeleg="${t.id}" data-uid="${u.id}" ${on ? "checked" : ""} ${!owner && u.id !== me.id ? "disabled" : ""}><span><b>${esc(t.label)}</b> <span class="small muted">${on ? "sent on its own" : "drafts for approval"}: ${esc(t.what)}</span></span></label>`; }).join("")}</div>`).join("")}
-    ${log.length ? `<div class="small muted" style="margin-top:6px">${log.map((l) => `${esc(l.by)} switched ${esc((TRK_MSG_TYPES.find((t) => t.id === l.type) || {}).label || l.type)} ${l.on ? "on" : "off"} for ${esc(((DB.users || []).find((u) => u.id === l.uid) || {}).name || l.uid)}, ${esc(stampText ? stampText(l.at) : l.at)}`).join("<br>")}</div>` : ""}</div>`;
+  const log = stdDelegLog().slice(-5).reverse(),
+    tname = (id) => (STD_SEND_TYPES.find((t) => t.id === id) || { label: id }).label;
+  return `<div class="card trk-card" id="trk-deleg"><div class="hd"><h3>What My Assistant May Send for Me</h3></div><p class="small muted" style="margin:0 0 8px">The assistant sends a message on its own only for a type switched on here. Everything else is a draft you approve. ${esc(trkWhy("send"))}.${owner ? " Each person hands these over themselves; you can switch anyone's off." : ""}</p>
+    ${people.map((u) => `<div class="trk-dp"><div class="small"><b>${esc(u.name)}</b>${u.id !== me.id ? ` <span class="muted">· ${esc(APPR_WHO[u.role] || u.role)}</span>` : ""}</div>${stdTypesFor(u.role).map((t) => { const on = trkDelegated(u.id, t.id), mine = u.id === me.id; return `<label class="trk-tog"><input type="checkbox" data-trkdeleg="${t.id}" data-uid="${u.id}" ${on ? "checked" : ""} ${mine || on ? "" : "disabled"} ${mine || on ? "" : `title="Only ${esc(u.name)} can switch it on"`}><span><b>${esc(t.label)}</b> <span class="small muted">${on ? "sent on its own" : mine ? "drafts for approval" : `drafts for approval; only ${esc(u.name)} can switch it on`}: ${esc(t.what)}</span></span></label>`; }).join("")}</div>`).join("")}
+    ${log.length ? `<div class="small muted" style="margin-top:6px">${log.map((l) => `${esc(l.by)} switched ${esc(tname(l.type))} ${l.on ? "on" : "off"} for ${esc(l.name || stdUserName(l.uid))}, ${esc(stampText ? stampText(l.at) : l.at)}${l.why ? ` (${esc(l.why)})` : ""}`).join("<br>")}</div>` : ""}</div>`;
 }
 const TRK_CSS = `.trk-card{margin-bottom:14px}.trk-doc{border-top:1px solid var(--line,#e5e5e5);padding:8px 0}.trk-dh{overflow-wrap:anywhere}.trk-ok{color:var(--ok,#2a7a3b);display:flex;gap:6px;align-items:flex-start;margin:4px 0}.trk-case{border-left:3px solid var(--warn,#b7791f);padding:4px 8px;margin:6px 0}.trk-low{margin:6px 0}.trk-lowrow{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:4px 0}.trk-lowrow input{width:110px;max-width:40vw}.trk-seal{display:inline-flex;gap:4px;align-items:center;overflow-wrap:anywhere}.trk-drop{display:flex;gap:8px;flex-wrap:wrap;align-items:center;border:1px dashed var(--line,#ccc);border-radius:8px;padding:8px;margin-top:8px}.trk-drop.on{background:var(--bg-2,#f4f7fb)}.trk-counts{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}.trk-count{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:8px 10px;border:1px solid var(--line,#ddd);border-radius:8px;background:var(--card,#fff);color:inherit;text-align:left;cursor:pointer;font:inherit}.trk-count b{font-size:18px}.trk-row{padding:6px 0;border-top:1px solid var(--line,#eee);overflow-wrap:anywhere}.trk-big{width:100%;min-height:48px;justify-content:center;display:flex;gap:8px;align-items:center}.trk-dp{padding:8px 0;border-top:1px solid var(--line,#eee)}.trk-tog{display:flex;gap:10px;align-items:flex-start;padding:8px 0;min-height:44px}.trk-tog input{width:22px;height:22px;flex:none;margin-top:2px}.trk-sheet{max-height:70vh;overflow:auto}@media (max-width:760px){.trk-counts{grid-template-columns:1fr 1fr}.trk-dz{display:none}}`;
 function trkStyle() {
@@ -146870,10 +146849,8 @@ function trkHoldRefuse(b) {
           host.querySelector("#trk-deleg").addEventListener("change", (e) => {
             const i = e.target.closest("[data-trkdeleg]");
             if (!i) return;
-            const t = TRK_MSG_TYPES.find((x) => x.id === i.dataset.trkdeleg),
-              u = (DB.users || []).find((x) => x.id === i.dataset.uid) || {};
-            trkSetDelegated(u.id, t.id, i.checked) ? toast(`${t.label} ${i.checked ? "on" : "off"} for ${u.name}: ${i.checked ? "the assistant sends them on its own" : "they come to you as drafts"}`, [{ label: "Open", run: () => ((view = "conn"), render()) }]) : (i.checked = !i.checked);
-            render();
+            // stdDelegSet checks who may switch it, logs it, saves, re-renders and toasts with Open
+            stdDelegSet(i.dataset.uid, i.dataset.trkdeleg, i.checked) || ((i.checked = !i.checked), render());
           }));
       }
     } catch (e) {
@@ -146908,7 +146885,7 @@ function trkHoldRefuse(b) {
       if (!DB.__tkSeed) {
         DB.__tkSeed = 1;
         const co = trkUserOf("coord");
-        co && !trkDelegated(co.id, "orderFollowups") && ((DB.asst = DB.asst || {}), (DB.asst[co.id] = DB.asst[co.id] || { thread: [], memo: [], standing: [], log: [], since: today() }), (DB.asst[co.id].delegated = DB.asst[co.id].delegated || []).push("orderFollowups"), trkDelegLog().push({ at: appNowIso(), by: "new install", uid: co.id, type: "orderFollowups", on: !0 }));
+        co && !trkDelegated(co.id, "orderFollowups") && stdDelegSet(co.id, "orderFollowups", !0, { system: !0, why: "on by default for a new install; the coordinator or the owner can switch it off" });
         save();
       }
     } catch (e) {
@@ -179641,7 +179618,7 @@ function renderRfq() {
       sv = rfqSavings();
     body = `${R.length ? `<div class="rfq-cards">${R.map((x) => `<div class="rfq-card"><b class="rfq-h" data-nocase>${esc(x.number)} · ${esc(x.title)}</b><div class="small muted" data-nocase>${esc(rfqJobName(x))} · ${x.lines.length} lines · on site by ${fmt(x.needBy)}</div><div class="rfq-row" style="margin-top:6px">${rfqPill(x.status)}<span class="small" data-nocase>${esc(rfqNext(x) || "")}</span></div><div class="rfq-row" style="margin-top:8px"><button class="btn sm" data-rfqopen="${esc(x.id)}">Open</button></div></div>`).join("")}</div>` : '<div class="empty card" style="padding:16px"><b>No requests for quote yet.</b><p class="small muted">New RFQ starts from the estimate and change order lines you are buying for; the assistant drafts the material list from the plans when a line is a lump sum, the foreman checks it on his phone, and you pick the vendors.</p></div>'}
       <div class="card rfq-sec"><h3>Savings This Month</h3><p class="small">${sv.n ? `${money(sv.vsFirst)} saved on ${sv.n} RFQ${1 === sv.n ? "" : "s"} awarded in ${sv.ym}: final price against the first quote${sv.nBudget ? `; ${money(Math.abs(sv.vsBudget))} ${sv.vsBudget >= 0 ? "under" : "over"} the material budget` : ""}${sv.noBudget ? `; ${sv.noBudget} with no material budget on the line, so no figure against budget` : ""}.` : `Nothing awarded in ${sv.ym} yet.`} <span class="muted">${esc(rfqWhy("savings"))}</span></p></div>
-      ${u ? `<div class="card rfq-sec"><h3>What I May Send for You</h3><label class="rfq-pick"><input type="checkbox" id="rfq-deleg" ${rfqDelegated(u) ? "checked" : ""}><span class="grow"><b>Send RFQ Chases for Me</b><span class="small muted">Off: a reminder to a vendor who has not quoted waits in your Approvals as a draft. On: the assistant sends it the day before the due date. ${esc(rfqWhy("approve"))}. Every type is listed under The SmartDesign Standard, What My Assistant May Send for Me.</span></span></label></div>` : ""}`;
+      ${u && stdTypesFor(role()).some((t) => "rfqChases" === t.id) ? `<p class="small muted rfq-deleg-note">RFQ chases: ${rfqDelegated(u) ? "the assistant sends them for you the day before the due date" : "a reminder to a vendor who has not quoted waits in your Approvals as a draft"}. <a href="#" data-rfqdeleg="1">Change it in Settings, Connections</a>.</p>` : ""}`;
   } else if ("prospects" === tab) {
     const P = rfqProspects();
     body = `<p class="small muted">Suppliers the assistant found: named in your mail and not on file, categories with fewer than three vendors or none outside NYC, and sourcing research. Add puts one on file and suggests it on the next RFQ.</p><div class="rfq-cards">${P.map((x) => `<div class="rfq-card"><b class="rfq-h" data-nocase>${esc(x.name)}${x.demo ? ' <span class="pill">Demo Data</span>' : ""}</b><div class="small muted" data-nocase>${esc({ mail: "From your mail", gap: "A thin category", research: "Sourcing research" }[x.source] || x.source)}${x.category ? ` · ${esc(x.category)}` : ""} · ${esc(x.status)}</div><p class="small" data-nocase>${esc(x.evidence || "")}</p>${x.web ? `<p class="small muted">${esc(x.web)}</p>` : ""}${"proposed" === x.status ? `<div class="rfq-row"><button class="btn sm" data-rfqpadd="${esc(x.id)}">Add</button><button class="btn sm" data-rfqpdis="${esc(x.id)}">Dismiss</button></div>` : ""}${"added" === x.status && x.vendorId && !rfqVetDone(rfqVendor(x.vendorId)) ? `<p class="small">Before its first PO: ${esc(rfqVetMissing(rfqVendor(x.vendorId)).join(", "))}.</p><div class="rfq-row"><button class="btn sm" data-rfqvet="${esc(x.vendorId)}">Vet</button></div>` : ""}</div>`).join("") || '<p class="small muted">No prospects right now.</p>'}</div>`;
@@ -179651,12 +179628,9 @@ function renderRfq() {
   host.querySelectorAll("[data-rfqtab]").forEach((b) => (b.onclick = () => ((window.rfqTab = b.dataset.rfqtab), renderRfq())));
   host.querySelector("#rfq-new").onclick = () => rfqNewSheet();
   host.querySelectorAll("[data-rfqopen]").forEach((b) => (b.onclick = () => ((window.rfqOpen = b.dataset.rfqopen), renderRfq(), window.scrollTo(0, 0))));
-  const dl = host.querySelector("#rfq-deleg");
-  dl &&
-    (dl.onchange = () => {
-      // the one delegation model (DB.asst[uid].delegated, logged): the same switch as on the Standard's page
-      stdDelegSet(paMe().id, "rfqChases", dl.checked) || (dl.checked = !dl.checked);
-    });
+  const dl = host.querySelector("[data-rfqdeleg]");
+  // one switch for what the assistant may send, in Settings › Connections
+  dl && (dl.onclick = (e) => (e.preventDefault(), setView("conn")));
   host.querySelectorAll("[data-rfqpadd]").forEach(
     (b) =>
       (b.onclick = () => {
@@ -186855,14 +186829,14 @@ predDef("poLinesUnlinked", {
    integrate (version 11): the charter, stock, rfq and chain lanes joined (docs/LANES.md, "Integration pass").
      - one delegation model: DB.asst[uid].delegated holds the message types a person lets the assistant send
        alone; the RFQ lane's DB.asst[uid].delegate.rfqChases moves onto it once at boot; every autonomous send
-       asks standardAllows; the card "What My Assistant May Send for Me" (Settings › The SmartDesign Standard)
-       switches each type, the owner can switch anyone's off, and every change is logged (who, when, for whom).
+       asks standardAllows; the card "What My Assistant May Send for Me" (Settings › Connections) switches each
+       type, the owner can switch anyone's off, and every change is logged (who, when, for whom).
 --------------------------------------------------------------------------------------------------------- */
-// The message types the assistant can send alone once delegated. `live: false` lists a type whose sender is not
-// built yet (order follow-ups arrive with the track lane), so switching it on is recorded but sends nothing.
+// The message types the assistant can send alone once delegated: the one list. The card that switches them is
+// track's "What My Assistant May Send for Me" in Settings › Connections (trkDelegHtml); there is no second card.
 const STD_SEND_TYPES = [
-  { id: "rfqChases", label: "RFQ Chases", roles: ["coord", "owner"], what: "A reminder to a vendor who has not quoted, sent the day before the RFQ is due.", live: !0 },
-  { id: "orderFollowups", label: "Order Follow-Ups", roles: ["coord", "owner", "pm"], what: "A follow-up to a vendor on an order that is late or has no confirmed date.", live: !1, later: "Order tracking sends these once it is in; until then nothing goes out." },
+  { id: "orderFollowups", label: "Order Follow-Ups", roles: ["coord", "owner", "pm"], what: "to vendors: confirm the order and its date, ask for tracking before the ship date, reconfirm 48 hours before delivery, ask for a missing invoice, receipt or packing slip, chase a promise that was not kept. Never money, never a new date, never a change.", live: !0 },
+  { id: "rfqChases", label: "RFQ Chases", roles: ["coord", "owner"], what: "to vendors: a reminder the day before a request for quote is due. Never a price or an award.", live: !0 },
 ];
 const stdDelegLog = () => ((DB.company = DB.company || {}), (DB.company.delegationLog = DB.company.delegationLog || []));
 const stdUserName = (uid) => ((DB.users || []).find((u) => u.id === uid) || {}).name || uid;
@@ -186890,9 +186864,9 @@ function stdDelegSet(who, type, on, opt) {
   if (o.system) return !0;
   save();
   try {
-    "standard" === view ? renderStandard() : "rfq" === view && "function" == typeof renderRfq && renderRfq();
+    render();
   } catch (er) {}
-  rcToast(`${T.label} ${on ? "on" : "off"}${self ? "" : ` for ${e.name}`}: ${on ? "the assistant sends them for you" : "they wait in Approvals as drafts"}`, [{ label: "Open", run: () => setView("standard") }]);
+  rcToast(`${T.label} ${on ? "on" : "off"}${self ? "" : ` for ${e.name}`}: ${on ? "the assistant sends them for you" : "they wait in Approvals as drafts"}`, [{ label: "Open", run: () => setView("conn") }]);
   return !0;
 }
 // Once at boot: rfq's per-person switch moves onto the one list, with a log line saying where it came from.
@@ -186917,63 +186891,8 @@ function stdDelegMigrate() {
     return base.apply(this, arguments);
   };
 }
-const STD_SWITCH = (attrs, on, label) => `<label class="dlg-sw"><input type="checkbox" ${attrs} ${on ? "checked" : ""} aria-label="${esc(label)}"><span class="dlg-knob" aria-hidden="true"></span></label>`;
-function stdDelegHtml() {
-  const me = paMe(),
-    mine = stdTypesFor(role()),
-    on = standardDelegated(me.id),
-    staff = (DB.users || []).filter((u) => u.id !== me.id && stdTypesFor(u.role).length),
-    log = stdDelegLog().slice(-8).reverse(),
-    when = (at) => `${fmtL(String(at).slice(0, 10))}, ${String(at).slice(11, 16)}`,
-    tname = (id) => (STD_SEND_TYPES.find((t) => t.id === id) || { label: id }).label;
-  const rowsMine = mine.length
-    ? mine.map((t) => `<div class="dlg-row" data-dlgrow="${t.id}"><div class="grow"><b>${esc(t.label)}</b><span class="small muted">${esc(t.what)}${t.live ? "" : ` ${esc(t.later)}`}</span></div>${STD_SWITCH(`data-dlgme="${t.id}"`, on.includes(t.id), t.label)}</div>`).join("")
-    : '<p class="small muted">Your assistant sends nothing for you on its own: every message waits for you as a draft.</p>';
-  const everyone = isOwner()
-    ? `<h4>Everyone</h4><p class="small muted">Each person hands these over themselves. You can switch anyone's off.</p>${staff
-        .map((u) => {
-          const D = ((DB.asst || {})[u.id] || {}).delegated || [];
-          return stdTypesFor(u.role)
-            .map((t) => `<div class="dlg-row" data-dlgfor="${u.id}:${t.id}"><div class="grow"><b data-nocase>${esc(u.name)}</b><span class="small muted">${esc(t.label)} · ${D.includes(t.id) ? "on" : "off"}</span></div>${D.includes(t.id) ? `<button type="button" class="btn sm" data-dlgoff="${u.id}:${t.id}">Switch Off</button>` : '<span class="small muted dlg-off">Off</span>'}</div>`)
-            .join("");
-        })
-        .join("")}`
-    : "";
-  const changes = log.length ? `<h4>Changes</h4>${log.map((e) => `<div class="dlg-log small" data-nocase>${esc(e.name)}: ${esc(tname(e.type))} ${e.on ? "on" : "off"} · ${esc(when(e.at))} · by ${esc(e.by)}${e.why ? ` (${esc(e.why)})` : ""}</div>`).join("")}` : "";
-  return `<section class="card ch-card std-deleg" data-dlgcard><div class="hd"><h3>What My Assistant May Send for Me</h3></div><div class="bd"><p class="small muted">${esc(standardWhy("rfq:approve"))}. Off, a message waits in your Approvals as a draft; on, the assistant sends it and logs it.</p>${rowsMine}${everyone}${changes}</div></section>`;
-}
-{
-  const base = stdWatchHtml;
-  stdWatchHtml = function () {
-    const h = base.apply(this, arguments);
-    try {
-      return stdDelegHtml() + h;
-    } catch (e) {
-      console.warn("delegation card", e);
-      return h;
-    }
-  };
-}
-{
-  const base = renderStandard;
-  renderStandard = function () {
-    const r = base.apply(this, arguments);
-    try {
-      const host = document.getElementById("standard-body");
-      host &&
-        (host.querySelectorAll("[data-dlgme]").forEach((x) => (x.onchange = () => stdDelegSet(paMe().id, x.dataset.dlgme, x.checked) || (x.checked = !x.checked))),
-        host.querySelectorAll("[data-dlgoff]").forEach((b) => (b.onclick = () => {
-          const [u, t] = b.dataset.dlgoff.split(":");
-          stdDelegSet(u, t, !1);
-        })));
-    } catch (e) {
-      console.warn("delegation wire", e);
-    }
-    return r;
-  };
-}
 "object" == typeof EQ_TABLES &&
-  (EQ_TABLES.delegations = () => stdDelegLog().map((e) => ({ _id: e.id, _module: "The SmartDesign Standard", _label: `${e.name}: ${(STD_SEND_TYPES.find((t) => t.id === e.type) || { label: e.type }).label} ${e.on ? "on" : "off"}`, _go: { view: "standard" }, date: String(e.at).slice(0, 10), person: e.name, type: e.type, on: e.on, by: e.by, why: e.why })));
+  (EQ_TABLES.delegations = () => stdDelegLog().map((e) => ({ _id: e.id, _module: "The SmartDesign Standard", _label: `${e.name}: ${(STD_SEND_TYPES.find((t) => t.id === e.type) || { label: e.type }).label} ${e.on ? "on" : "off"}`, _go: { view: "conn" }, date: String(e.at).slice(0, 10), person: e.name, type: e.type, on: e.on, by: e.by, why: e.why })));
 // ---- stock used on a job is job cost, in the books too (BACKLOG §1.8 item 12, the open item) -------------------
 // jobFin, lineFin and Cost by Line read DB.stock.use directly (stockUseIn), so the job report, WIP, EAC, the
 // overhead basis, Portfolio, Pack and Ask carry it. The general ledger gets one system journal per record: an issue

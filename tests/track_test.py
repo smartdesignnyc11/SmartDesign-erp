@@ -208,7 +208,20 @@ async def main():
             trkSendGuard('tracking', { subject: 'PO-2026-047 tracking', body: 'Could you reply with the tracking number?' }, 'u_chen')]""")
         c.ok(not g[0]['ok'] and 'money' in g[0]['why'], f'the guard refuses a template that discusses payment: {g[0]}')
         c.ok(not g[1]['ok'] and not g[2]['ok'] and g[3]['ok'], f'and one that accepts a date, and a type nobody delegated; a plain ask passes: {g}')
+        # one delegation model: the owner can switch anyone's off, never on; only the person hands it over
+        own = await pg.evaluate("() => [trkSetDelegated('u_chen', 'orderFollowups', true), DB.asst.u_chen.delegated.includes('orderFollowups')]")
+        c.ok(own == [False, False], f'the owner cannot switch the coordinator\'s follow-ups on: {own}')
+        sg = await pg.evaluate("""() => { const keep = standardAllows; let asked = 0; standardAllows = function () { asked++; return keep.apply(this, arguments); };
+            try { trkSendGuard('tracking', { subject: 'PO-2026-047 tracking', body: 'Could you reply with the tracking number?' }, 'u_chen'); } finally { standardAllows = keep; } return asked; }""")
+        c.ok(sg == 1, f'trkSendGuard asks standardAllows: {sg}')
+        await sign_in(pg, 'u_chen')
         await pg.evaluate("() => trkSetDelegated('u_chen', 'orderFollowups', true)")
+        await sign_in(pg, 'u_owner')
+        one = await pg.evaluate("""async () => { view = 'standard'; render(); await new Promise(r => setTimeout(r, 300)); const std = !!document.querySelector('[data-dlgcard], #trk-deleg');
+            view = 'rfq'; window.rfqTab = 'requests'; render(); await new Promise(r => setTimeout(r, 300)); const rfq = !!document.querySelector('#rfq-deleg');
+            view = 'conn'; render(); await new Promise(r => setTimeout(r, 300)); const n = document.querySelectorAll('#trk-deleg').length;
+            return [std, rfq, n, STD_SEND_TYPES.map(t => t.id).sort().join(','), DB.asst.u_chen.delegated.includes('orderFollowups')]; }""")
+        c.ok(one == [False, False, 1, 'orderFollowups,rfqChases', True], f'one card, in Settings › Connections, on the one list of types: {one}')
 
         # ---- 8. the promise ledger: kept and broken; the vendor's record; the brain's lesson --------------
         await pg.evaluate("""() => { trkPromiseAdd({ vendor: 'Nemo Tile', poId: 'tpo3', kind: 'ship', due: '2026-09-05', what: 'ship the glass mosaic by Sep 5', loggedBy: 'Chen', source: { kind: 'text' } }); trkPromiseAdd({ vendor: 'Nemo Tile', poId: 'tpo1', kind: 'deliver', due: '2026-09-05', what: 'deliver the tile by Sep 5', loggedBy: 'Chen', source: { kind: 'call' } }); save(); }""")
