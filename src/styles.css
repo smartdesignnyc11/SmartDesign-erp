@@ -3292,4 +3292,4 @@ button.pol-chip{cursor:pointer} button.pol-chip:hover{border-color:var(--accent)
   .pol-which table.ctp tr.ctp-doc td{grid-column:1 / 4} .pol-which table.ctp td input{height:44px;font-size:15px}
 }
 @media (max-width:760px){ .pol-which table.ctp td:empty{display:none} }
-@media (max-width:760px){ .pol-cell{gap:10px} .pol-cell .btn,.pol-cell button.pol-chip{min-height:44px;min-width:64px} }
+@media (max-width:760px){ .pol-cell{gap:10px} .view.on .pol-cell .btn,.view.on .pol-cell button.pol-chip{min-height:44px;min-width:64px} }
