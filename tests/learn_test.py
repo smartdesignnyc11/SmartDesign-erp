@@ -190,12 +190,15 @@ async def sec_nyh(p, c):
     k = await pg.evaluate("() => (nyhRows().find(r => /Satish/.test(r.title)) || {}).key || ''")
     n0 = await pg.evaluate("() => +document.querySelector('.view.on .nyh-card').dataset.nyhn")
     c.ok(n0 == await pg.evaluate("() => nyhRows().length"), f"the Controller's Needs Your Hand card counts its rows: {n0}")
+    n0p = await pg.evaluate("() => nyhRows().filter(r => r.kind !== 'standard').length")
     if k:
         await pg.locator(f'.view.on [data-nyhrow="{k}"] .h4-act').click(); await pg.wait_for_timeout(300)
         await pg.evaluate("() => { const m = document.getElementById('mbm'); const b = m && [...m.querySelectorAll('.btn.primary')].find(x => x.offsetParent); b && b.click(); }")
         await pg.wait_for_timeout(200)
-        s = await pg.evaluate("k => ({ bill: (DB.bills || []).filter(b => /SE-0922/.test(b.number || '')).length, left: nyhRows().some(r => r.key === k), n: +document.querySelector('.view.on .nyh-card').dataset.nyhn })", k)
-        c.ok(s['bill'] == 1 and not s['left'] and s['n'] == n0 - 1, f'one tap applies the Satish bill once and the row leaves: {s}')
+        # Standard Watch rows (kind "standard") may change with the books: a bill paid with no PO is a three-way-match
+        # breach for the Controller. The proposals themselves go down by one.
+        s = await pg.evaluate("k => ({ bill: (DB.bills || []).filter(b => /SE-0922/.test(b.number || '')).length, left: nyhRows().some(r => r.key === k), n: nyhRows().filter(r => r.kind !== 'standard').length, card: +document.querySelector('.view.on .nyh-card').dataset.nyhn, all: nyhRows().length })", k)
+        c.ok(s['bill'] == 1 and not s['left'] and s['n'] == n0p - 1 and s['card'] == s['all'], f'one tap applies the Satish bill once and the row leaves: {s}')
     z = await pg.evaluate("() => { const r = nyhRows().find(r => r.kind === 'code'); if (!r) return null; nyhRun(r.key); const t = DB.txns.find(t => /ZELLE/i.test(t.desc) && Math.abs(Math.abs(t.amt) - 2400) < 1); return { title: r.title, cat: t && t.cat, job: t && t.projectId } }")
     c.ok(z and z['cat'] and z['cat'] != 'uncat' and z['job'] == 'p121', f"Jeanette's Zelle explanation becomes a coding proposal; Apply codes the line to the job: {z}")
     # Billing: a deposit in the bank becomes Record Payment; a payment the bank never saw gets Resolve
