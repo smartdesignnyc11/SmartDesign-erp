@@ -1124,9 +1124,16 @@ const clientOf = (p) => DB.clients.find((c) => c.id === (p || S).clientId),
   },
   r2 = (n) => Math.round(100 * (+n || 0)) / 100;
 function lineAmount(l, doc) {
-  return doc && "sov" === doc.mode
-    ? r2((+l.scheduled || 0) * ((+l.pct || 0) / 100))
-    : r2((+l.qty || 0) * (+l.rate || 0));
+  if (doc && "sov" === doc.mode) {
+    // stored materials bill their dollars (G703 column F), not a percentage rounded to two places: $23,400 stored
+    // on a $32,000 line was 73.13% = $23,401.60. The rest of the line's % is work in place.
+    const st = +l.stored || 0,
+      stPct = st && +l.scheduled ? (100 * st) / +l.scheduled : 0;
+    return st && (+l.pct || 0) >= r2(stPct) - 1e-9
+      ? r2((+l.scheduled || 0) * Math.max(0, (+l.pct || 0) - r2(stPct)) / 100 + st)
+      : r2((+l.scheduled || 0) * ((+l.pct || 0) / 100));
+  }
+  return r2((+l.qty || 0) * (+l.rate || 0));
 }
 function docTotal(d) {
   const lines = d.lines || [],
@@ -8910,7 +8917,7 @@ function wireDocEditor(c) {
           if ("taxable" === f) l.taxable = e.target.checked;
           else if (["qty", "rate", "pct", "cost"].includes(f)) {
             let v = +e.target.value || 0;
-            "pct" === f && (v = Math.min(v, 100 - (+l.prevPct || 0))), (l[f] = v);
+            "pct" === f && ((v = Math.min(v, 100 - (+l.prevPct || 0))), (l.pctByHand = !0)), (l[f] = v);
           } else l[f] = e.target.value;
           save(), ("function" == typeof rxLineSync && rxLineSync(c, d)) || rerender();
         }),
@@ -23191,7 +23198,11 @@ function lineFin(key) {
           .filter((l) => l.sovId === sv.id)
           .reduce((a, l) => a + (+l.pct || 0), 0)
       : 0,
-    billed = r2((price * billedPct) / 100);
+    // billed in dollars, line by line: a line with stored materials bills their exact dollars (lineAmount), which a
+    // percentage of the price rounds away
+    billed = sv
+      ? r2(live.reduce((a, i) => a + i.lines.filter((l) => l.sovId === sv.id).reduce((b, l) => b + lineAmount(l, i) * share, 0), 0))
+      : 0;
   let collected = 0,
     retained = 0;
   sv &&
@@ -23231,7 +23242,8 @@ function lineFin(key) {
     committed = Math.max(0, r2(poGross - poBilled)),
     draftPOs = DB.pos.filter((po) => "draft" === po.status && po.lines.some((l) => l.line === key)),
     bills = DB.bills.filter((b) => b.line === key && "void" !== b.status && "rejected" !== b.status),
-    billsAmt = r2(bills.reduce((a, b) => a + billCost(b), 0)),
+    // a difference disputed with the vendor is not cost until it is settled (as job cost reads it, by code)
+    billsAmt = r2(bills.reduce((a, b) => a + billCost(b) - ("function" == typeof pay3HeldCost ? pay3HeldCost(b) : 0), 0)),
     txns = DB.txns.filter(
       (t) =>
         t.line === key &&
@@ -60966,6 +60978,10 @@ function pgProposal(ev) {
     extra = "",
     stale = !1;
   (stale = !!(ev.sched && ev.sched.n && 0 === ev.sched.pct && ev.cost > 0)),
+    // Materials delivered to a line whose work has not started: nothing is installed (the tasks say 0%) and what
+    // arrived is stored on site (G703 column F), billed as stored materials once a person says so. Before, the line
+    // fell back to cost-to-cost (cabinets on site read as 99% complete) and was held as "cost is not progress".
+    stale && ev.del && ev.del.received > 0 && (stale = !1),
     ev.sched && ev.sched.n && !stale
       ? ((pct = ev.sched.pct),
         (basis = "schedule"),
@@ -61198,7 +61214,7 @@ function pgApply(projectId, only) {
       // a held line goes on only when the person names it (the Bill button on the held line)
       if (!only && pgLineHold(r)) return;
       const l = (d.inv.lines || []).find((x) => x.sovId === r.sv.id);
-      if (!l) return;
+      if (!l || l.pctByHand) return;
       const room = r2(100 - (+l.prevPct || 0));
       (l.pct = r2(Math.min(r.pr.period, room))),
         (l.desc = l.desc || r.pr.extra),
@@ -64158,6 +64174,12 @@ if (
     return mbModalBase_p2b(title, body, opts);
   };
 }
+document.addEventListener("click", (e) => {
+  const b = e.target.closest && e.target.closest("[data-f3recv]");
+  if (!b) return;
+  const po = (DB.pos || []).find((x) => x.id === b.dataset.f3recv);
+  po && "function" == typeof rcReceiveSome && rcReceiveSome(po);
+});
 function f3ArrivingHtml() {
   const td = today(),
     subs = ((DB.field && DB.field.subs) || []).filter((s) => s.projectId === S.id && s.date === td),
@@ -64166,6 +64188,8 @@ function f3ArrivingHtml() {
       (po) =>
         po.projectId === S.id &&
         ["issued", "partial"].includes(po.status) &&
+        // a subcontract or a service is a sub's work, not a delivery to check in
+        !["subcontract", "service"].includes(po.type || "") &&
         (po.expected || po.needBy) &&
         (po.expected || po.needBy) <= td,
     ),
@@ -64177,7 +64201,10 @@ function f3ArrivingHtml() {
       ...pos.map((po) => {
         const d = po.expected || po.needBy,
           late = d < td;
-        return `<div class="f3-row ${late ? "late" : ""}"><div><span class="k">Delivery</span><b>${esc(po.vendor || "Vendor")}</b><div class="small ${late ? "bad-t" : "muted"}">${esc(po.number)} · ${(po.lines || []).length} line${1 === (po.lines || []).length ? "" : "s"}${late ? ` · was due ${fmt(d)} and has not landed` : ""}</div></div></div>`;
+        // the foreman checks a delivery in from here (Receive Some: what arrived, line by line); a part delivery says what is in
+        const part = "partial" === po.status || (po.lines || []).some((l) => +l.received > 0),
+          got = part ? (po.lines || []).map((l) => `${r2(+l.received || 0)} of ${r2(+l.qty || 0)} ${esc(l.unit || "")}`.trim()).join(", ") : "";
+        return `<div class="f3-row ${late ? "late" : ""}"><div class="grow"><span class="k">Delivery</span><b>${esc(po.vendor || "Vendor")}</b><div class="small ${late ? "bad-t" : "muted"}">${esc(po.number)} · ${(po.lines || []).length} line${1 === (po.lines || []).length ? "" : "s"}${part ? ` · ${got} in` : late ? ` · was due ${fmt(d)} and has not landed` : ""}</div></div><button class="btn sm" data-f3recv="${esc(po.id)}">Check In</button></div>`;
       }),
       // deliveries and visits on the job's calendar (a vendor's or a sub's date read from mail and applied):
       // the ones a PO or the sub calendar already lists are not repeated
@@ -64364,7 +64391,8 @@ if (
         d.inv &&
         Array.isArray(d.inv.lines) &&
         d.inv.lines.forEach((l) => {
-          (only && !only.includes(l.sovId)) || (l.pct = 0);
+          // a % a person typed on the draft stays; refreshing the application never wipes it
+          (only && !only.includes(l.sovId)) || l.pctByHand || (l.pct = 0);
         }),
       pgApplyBase_p3b(projectId, only)
     );
@@ -138868,7 +138896,10 @@ function readyToBill() {
             return;
           }
           if (!T) return;
-          if (rows.some((r) => r.p && r.p.id === p.id && "progress" === r.kind)) return;
+          // A job with a schedule of values bills line by line (held per line on its own evidence), never by the
+          // job-level "N% complete, M% billed" suggestion: that one drafted every line at its cost-to-cost %, held
+          // lines included (a $28,120 row opened a $72,605 application).
+          rows = rows.filter((r) => !(r.p && r.p.id === p.id && "progress" === r.kind));
           const c = DB.clients.find((x) => x.id === p.clientId);
           // held per line, never per job: each held line keeps its own reason and amount
           R.forEach((r) => {
@@ -175635,12 +175666,17 @@ function rbRows(pid) {
     }
     R.forEach((r) => {
       if (pgIsCO(r.sv) || !(r.ev.del && r.ev.del.received > 0) || !(r.pr && r.pr.stored > 0)) return;
-      const sched = +r.ev.scheduled || 0,
-        billed = r2((sched * (+r.ev.billedPct || 0)) / 100),
+      // what was bought for the line and is the client's to pay as contract work: not a purchase billed back on its
+      // own (a reimbursable is billed at cost plus markup on its own invoice line), billed in dollars
+      const key = r.sv.lineRef || "",
+        rebilled = r2((DB.txns || []).filter((t) => t.line === key && +t.amt < 0 && (t.billable || t.invoiceLineId) && ("function" != typeof rbWhy || rbWhy(t) || t.invoiceLineId)).reduce((a, t) => a - +t.amt, 0)),
+        cost = r2((+r.ev.cost || 0) - rebilled),
+        sched = +r.ev.scheduled || 0,
+        billed = r2(((r.c && r.c.invoices) || []).filter((i) => "sov" === i.mode && !["void", "draft"].includes(i.status)).reduce((a, i) => a + i.lines.filter((l) => l.sovId === r.sv.id).reduce((b, l) => b + lineAmount(l, i), 0), 0)),
         per = pgLineHold(r) ? 0 : pgPeriodAmt(r),
-        amt = r2(Math.min(Math.min(+r.ev.cost || 0, sched) - billed - per, +r.pr.stored || 0));
+        amt = r2(Math.min(Math.min(cost, sched) - billed - per, +r.pr.stored || 0));
       amt >= 100 &&
-        out.push({ kind: "floated", key: `fl:${p.id}:${r.sv.id}`, sv: r.sv, p: p, c: r.c, cost: r2(+r.ev.cost || 0), billed: billed, price: sched, line: r.ev.line, doc: r.ev.line ? (findLine(r.sv.lineRef) || {}).doc : null, amount: amt, markupPct: 0, date: "", label: r.sv.desc, why: `${money(r.ev.cost)} bought and ${money(r.ev.del.received)} delivered on this line, ${money(billed)} billed: ${money(amt)} of materials on site the client has not been billed for` });
+        out.push({ kind: "floated", key: `fl:${p.id}:${r.sv.id}`, sv: r.sv, p: p, c: r.c, cost: r2(+r.ev.cost || 0), billed: billed, price: sched, line: r.ev.line, doc: r.ev.line ? (findLine(r.sv.lineRef) || {}).doc : null, amount: amt, markupPct: 0, date: "", label: r.sv.desc, why: `${money(cost)} bought and ${money(r.ev.del.received)} delivered on this line, ${money(billed)} billed: ${money(amt)} of materials on site the client has not been billed for` });
     });
   });
   return out;

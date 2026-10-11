@@ -42,7 +42,7 @@ PINNED = {
     'net':             -5330,    # YTD net, management view (-$5,329.88; -$3,797.41 before truthpct)
     'income':          142759,   # YTD earned revenue ($142,759.24; $144,291.71 before truthpct)
     'safe':            -4151,    # safe to spend (-$4,150.74; -$2,618.27 before truthpct)
-    'rtb':             47600,    # ready to bill ($20,980 / 2 rows before leaks; see above)
+    'rtb':             47601,    # ready to bill ($20,980 / 2 rows before leaks; $47,600 before the chain lane read a line's billing in dollars)
     'rtb_n':           4,
     'wip_job:121 State Street':   131058,   # $131,057.72; $129,525.25 before truthpct
     'wip_job:45 Cranberry St':    2705,

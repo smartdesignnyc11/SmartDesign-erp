@@ -75,6 +75,8 @@ class Chain:
         self.pg, self.errs = pg, errs
         self.n = 0; self.fail = []; self.lines = []; self.ids = {}; self.figs = []; self.findings = []
         self.step_name = ''
+        self.phone = []
+        self.ph = None
 
     # ---- bookkeeping
     def step(self, title):
@@ -110,7 +112,7 @@ class Chain:
         head = [f'# Chain trace: {JOB} for {CLIENT}', '',
                 'Every step as a person did it, what was clicked, what was created (ids and links), and each figure read off',
                 'each surface against the figure computed from the records this run created.', '']
-        tail = ['', '## Ids', '', '```json', json.dumps(self.ids, indent=1, default=str), '```', '',
+        tail = ['', '## Phone', '', 'Each phone step: what was tapped and typed, whether the next control was on screen without scrolling, its size and the gap to its neighbour, sideways scroll and clipped text.'] + self.phone + ['', '## Ids', '', '```json', json.dumps(self.ids, indent=1, default=str), '```', '',
                 f'CHAIN {self.n} checks · {len(self.fail)} failed']
         with open(os.path.join(TRACE_DIR, 'trace.md'), 'w', encoding='utf-8') as f:
             f.write('\n'.join(head + self.lines + tail) + '\n')
@@ -150,6 +152,75 @@ class Chain:
         await loc.fill(str(val))
         if tab: await loc.press('Tab')
 
+    # ---- the phone: a 390x844 touch context of its own; the data is handed over through the persisted DB
+    async def phone_open(self, browser):
+        ctx = await browser.new_context(viewport=PHONE, is_mobile=True, has_touch=True)
+        self.ph = await ctx.new_page()
+        self.ph.on('pageerror', lambda e: self.errs.append('phone: ' + str(e)))
+        await self.ph.goto(URL)
+        await self.ph.wait_for_function("document.body.dataset.booted==='1'", timeout=60000)
+
+    async def _hand(self, src, dst):
+        s = await src.evaluate("() => JSON.stringify(DB)")
+        await dst.evaluate("async s => { DB = JSON.parse(s); save(); await saveNow(); }", s)
+        await dst.reload()
+        await dst.wait_for_function("document.body.dataset.booted==='1'", timeout=60000)
+
+    async def to_phone(self, uid, who, setup=''):
+        """Hand the books to the phone (the desk saves, the phone loads what was saved) and sign in there."""
+        await self._hand(self.pg, self.ph)
+        await self.ph.evaluate("([u, s]) => { signIn(u); if (s) (0, eval)(s); render(); window.scrollTo(0, 0); }", [uid, setup])
+        await self.ph.wait_for_timeout(500)
+        self.phone.append(f'\n### {who} on the phone (390x844, touch), {await self.ph.evaluate("() => today()")}\n')
+        await self.pcheck(f'{who}: first screen ({await self.ph.evaluate("() => view")})')
+
+    async def to_desk(self):
+        await self._hand(self.ph, self.pg)
+
+    def plog(self, s):
+        self.phone.append(f'- {s}')
+        print('  [phone] ' + s)
+
+    async def pcheck(self, where):
+        """Sideways scroll and clipped text on the screen as it stands."""
+        r = await self.ph.evaluate("""() => { const sw = document.documentElement.scrollWidth, vw = innerWidth;
+            const root = document.querySelector('#mbm') || document.querySelector('section.view.on') || document.body;
+            const clip = [...root.querySelectorAll('button, h2, h3, .btn, label, b, .pill')].filter(e => e.getClientRects().length && e.scrollWidth > e.clientWidth + 1 && getComputedStyle(e).overflow !== 'visible' && (e.innerText || '').trim()).map(e => e.innerText.trim().slice(0, 40));
+            const off = [...root.querySelectorAll('button, input, select, a')].filter(e => { const b = e.getBoundingClientRect(); return e.getClientRects().length && b.width && (b.right > vw + 1 || b.left < -1); }).map(e => (e.innerText || e.value || e.dataset.f || '').trim().slice(0, 30));
+            return {sideways: sw > vw + 1, sw, clip: clip.slice(0, 6), off: off.slice(0, 6)}; }""")
+        bad = r['sideways'] or r['clip'] or r['off']
+        self.plog(f"{where}: {'scrolls sideways (' + str(r['sw']) + 'px) ' if r['sideways'] else 'no sideways scroll'}"
+                  f"{'; clipped: ' + ', '.join(r['clip']) if r['clip'] else ''}{'; off screen: ' + ', '.join(r['off']) if r['off'] else ''}")
+        self.ok(not r['sideways'], f'phone: {where} does not scroll sideways', r)
+        return r
+
+    async def ptap(self, sel, label, scope_top=False):
+        """A real tap. Records whether the control was on screen without scrolling, its size and its nearest neighbour."""
+        loc = self.ph.locator(sel).first
+        await loc.wait_for(state='attached', timeout=8000)
+        g = await loc.evaluate("""e => { const r = e.getBoundingClientRect(), vh = innerHeight;
+            const others = [...document.querySelectorAll('button, a, input, select, [data-tdverb]')].filter(x => x !== e && !e.contains(x) && !x.contains(e) && x.getClientRects().length).map(x => x.getBoundingClientRect())
+              .filter(b => b.width && b.height && Math.abs(b.top - r.top) < 80 && (b.right <= r.left || b.left >= r.right || b.bottom <= r.top || b.top >= r.bottom));
+            const gap = others.reduce((m, b) => { const dx = Math.max(0, Math.max(b.left - r.right, r.left - b.right)), dy = Math.max(0, Math.max(b.top - r.bottom, r.top - b.bottom)); return Math.min(m, Math.max(dx, dy)); }, 999);
+            return {y: Math.round(r.top + scrollY), h: Math.round(r.height), w: Math.round(r.width), visible: r.top >= 0 && r.bottom <= vh, sy: Math.round(scrollY), vh, gap: Math.round(gap)}; }""")
+        await loc.scroll_into_view_if_needed()
+        await loc.tap()
+        await self.ph.wait_for_timeout(500)
+        notes = []
+        if not g['visible']: notes.append(f"below the fold at y={g['y']} (scrolled to reach it)")
+        if g['h'] < 44 or g['w'] < 44: notes.append(f"small target {g['w']}x{g['h']}")
+        if g['gap'] < 8: notes.append(f"{g['gap']}px from the next control")
+        self.plog(f"tap **{label}** ({g['w']}x{g['h']}){': ' + '; '.join(notes) if notes else ', on screen, clear of its neighbours'}")
+        return g
+
+    async def pfill(self, sel, val, label):
+        loc = self.ph.locator(sel).first
+        await loc.tap(); await loc.fill(str(val))
+        self.plog(f"type {label}: \"{val}\"")
+
+    async def pmodal(self):
+        return await self.ph.evaluate(MODAL)
+
     async def day(self, d):
         await self.pg.evaluate("d => appSetDay(d)", d)
         await self.wait(200)
@@ -162,7 +233,10 @@ def fmtm(v):
     return ('−' if v < 0 else '') + '${:,.2f}'.format(abs(v))
 
 
-def r2(x): return round(x + 1e-9, 2)
+def r2(x):
+    """The app's rounding (Math.round(100 x) / 100): half away from zero, not Python's half to even."""
+    import math
+    return (math.floor(abs(x) * 100 + 0.5 + 1e-9) / 100) * (1 if x >= 0 else -1)
 
 
 # ================================================================ 1. lead > client > project > estimate > signed
@@ -260,14 +334,21 @@ async def s1_client(C):
     if not u: return False
     C.rec('portalUser', 'id', u['id'])
     C.t(f"Settings > Company Settings > Users: Imogen Varga, Client, {EMAIL} > Add user → `{u['id']}` linked to `{u['clientId']}`")
-    await C.as_(u['id'])
-    sc = await C.js("() => { const s = eqScopeOf(); return {cid: s.cid, jobs: s.jobs.map(p => p.id), shown: (document.querySelector('section.view.on') || {}).innerText.slice(0, 300)}; }")
+    # the client signs on her phone
+    await C.to_phone(u['id'], 'The client, Imogen Varga, signing the proposal')
+    sc = await C.ph.evaluate("() => { const s = eqScopeOf(); return {cid: s.cid, jobs: s.jobs.map(p => p.id), shown: (document.querySelector('section.view.on') || {}).innerText.slice(0, 300)}; }")
     C.ok(sc['cid'] == cl['id'] and sc['jobs'] == [p['id']], 'signed in on the portal, the client sees their own job only', sc)
-    await C.click(f"section.view.on [data-papprove='estimate:{est['id']}']", 600)
-    m = await C.modal()
+    await C.ptap(f"section.view.on [data-papprove='estimate:{est['id']}']", 'Approve (the proposal under Waiting on You)')
+    m = await C.pmodal()
     C.ok(m and 'Approve Proposal' in m['title'], 'the portal Approve opens the signature sheet', m and m['title'])
-    await C.pg.check('#pa-agree')
-    await C.modal_ok(900)
+    await C.pcheck('the signature sheet')
+    nm = await C.ph.evaluate("() => (document.querySelector('#pa-name') || {}).value || ''")
+    if not nm: await C.pfill('#pa-name', 'Imogen Varga', 'full name')
+    else: C.plog(f'full name already filled in: "{nm}"')
+    await C.ptap('#pa-agree', 'I approve this proposal (checkbox)')
+    await C.ptap('#mbm #mbm-ok', f"Approve {fmtm(est['total'])}")
+    C.plog(f"→ {await C.ph.evaluate(TOAST)}")
+    await C.to_desk()
     sig = await C.js("""([c, e]) => { const cl = DB.clients.find(x => x.id === c), es = cl.estimates.find(x => x.id === e);
         return {status: es.status, approval: es.clientApproval || null, contract: cl.contract,
                 sov: (cl.sov || []).filter(s => s.projectId === es.projectId).map(s => ({id: s.id, desc: s.desc, scheduled: +s.scheduled, lineRef: s.lineRef}))}; }""", [cl['id'], est['id']])
@@ -278,6 +359,36 @@ async def s1_client(C):
     C.t(f"Portal (signed in as `{u['id']}`): Approve > typed name, I approve > Approve {fmtm(est['total'])} → {sig['status']}; contract "
         f"{fmtm(sig['contract'])}; SOV {len(sig['sov'])} lines linked to the estimate lines")
     return True
+
+
+async def phone_approve(C, needle, what, dispute=None):
+    """The Owner on the phone: the Do Now card naming `needle`, else '<n> more in Approvals' or the Approvals tab, then
+    its Approve; an over-PO bill's Approve PO Amount sheet takes a typed reason."""
+    card = await C.ph.evaluate("""n => { const e = [...document.querySelectorAll('#v-home .td-do .td-card')].find(x => x.getClientRects().length && x.innerText.includes(n));
+        if (!e) return null; e.setAttribute('data-chaincard', '1'); const b = [...e.querySelectorAll('button, [data-tdverb]')].find(x => /^Approve/.test((x.innerText || '').trim())); b && b.setAttribute('data-chainyes', '1'); return !!b; }""", needle)
+    if card:
+        C.plog(f'Do Now shows {what} ({needle}) with Approve')
+        await C.ptap('[data-chainyes]', f'Approve on the Do Now card for {needle}')
+    else:
+        more = await C.ph.evaluate("() => { const a = document.querySelector('#v-home [data-tdall]'); return a ? a.innerText.trim() : ''; }")
+        C.plog(f"Do Now's first five do not include {what} ({needle}); " + (f'"{more}" is under them' if more else 'no link under them'))
+        C.findings.append(f"Phone: {what} ({needle}) waiting on the Owner is not in Do Now's first five; it is reached through \"{more or 'Approvals'}\".")
+        if more: await C.ptap('#v-home [data-tdall]', more)
+        else: await C.ptap('[data-mv=mapprove]', 'Approvals (bottom tab)')
+        await C.pcheck('Approvals')
+        ok = await C.ph.evaluate("""n => { const e = [...document.querySelectorAll('.m-appr')].find(x => x.getClientRects().length && x.innerText.includes(n));
+            const b = e && e.querySelector('[data-myes]'); b && b.setAttribute('data-chainyes', '1'); return !!b; }""", needle)
+        C.ok(ok, f'phone: Approvals lists {needle} with its yes', needle)
+        if not ok: return
+        await C.ptap('[data-chainyes]', f'Approve on the Approvals card for {needle}')
+    for _ in range(3):
+        m = await C.pmodal()
+        if not m: break
+        await C.pcheck(f"the sheet \"{m['title']}\"")
+        if 'why' in m['fields']:
+            await C.pfill('#mbm [data-f=why]', dispute or 'Checked against the order', 'the reason')
+        await C.ptap('#mbm #mbm-ok', m['buttons'][-1] if m['buttons'] else 'OK')
+    C.plog(f"→ {await C.ph.evaluate(TOAST)}")
 
 
 # ================================================================ 2. purchasing from the estimate lines
@@ -351,8 +462,15 @@ async def s2_buy(C):
     C.ok(sub['status'] == 'pending' and sub['retainagePct'] == 10, 'the sub commitment ($13,200, 10% retainage) waits for the Owner', sub)
     C.t(f"Purchase Orders > Client Funds > 3. Rough plumbing > New PO: ticked, cost $13,200, Halvorsen > Create the Purchase Orders → {sub['number']} draft; "
         f"entity {ent}, retainage 10% > Submit for Approval → {sub['status']}")
-    # the Owner approves both from Approvals
-    for po in (mill, sub):
+    # the Owner approves the millwork order on the phone (Do Now, or Approvals when Do Now's first five are full)
+    await C.to_phone('u_owner', 'The Owner approving the $23,400 millwork order', "view = 'home';")
+    await phone_approve(C, mill['number'], 'the millwork order')
+    st = await C.ph.evaluate("n => DB.pos.find(p => p.number === n).status", mill['number'])
+    C.ok(st == 'issued', f"phone: the Owner's Approve issues {mill['number']}", st)
+    C.t(f"Owner on the phone > {mill['number']} > Approve → {st} (see Phone)")
+    await C.to_desk()
+    # the sub commitment from Approvals on the desk
+    for po in (sub,):
         await C.as_('u_owner', 'mapprove', "window.mApprKind = 'all';")
         got = await C.js("""n => { const e = [...document.querySelectorAll('.m-appr')].find(x => x.getClientRects().length && x.innerText.includes(n));
             const b = e && e.querySelector('[data-myes]'); b && b.click(); return b ? b.innerText.trim() : ''; }""", po['number'])
@@ -430,23 +548,6 @@ async def s3_receive(C):
     C.ok(fc and abs(fc['total'] - 23400) < 0.01 and fc['poId'] == POS['millwork']['id'], 'Save Bill: FC-20417 $23,400 on the millwork PO', fc)
     C.ok(fc and all(l['id'] and l['poLineId'] and l['line'] for l in fc['lines']), 'every bill line carries its own id, its PO line and its estimate line', fc and fc['lines'])
     C.t(f"Bill It > Vendor Invoice # FC-20417 > Save Bill → bill `{fc and fc['id']}` {fmtm(fc and fc['total'])} ({await C.toast()})")
-    # 80 of the 140 sf of tile arrive
-    await C.as_('u_chen', 'recv', f"setCurrent('{pid}');")
-    tl = POS['tile']['lines'][0]['id']
-    await C.fill(f"section.view.on [data-rq='{POS['tile']['id']}:{tl}']", '80')
-    await C.click(f"section.view.on [data-rin='{POS['tile']['id']}:{tl}']", 700)
-    t = await C.toast()
-    rcv = await C.js("id => { const o = DB.pos.find(x => x.id === id); return {status: o.status, received: o.lines.map(l => +l.received || 0)}; }", POS['tile']['id'])
-    C.ok(rcv['received'] == [80] and rcv['status'] in ('partial', 'issued'), 'the tile PO is received in part: 80 of 140 sf', rcv)
-    C.t(f"Receiving > {POS['tile']['number']} > 80 sf > Received → \"{t}\" ({rcv})")
-    await C.pg.locator('#toast .toast-open', has_text='Bill It').first.click(timeout=5000); await C.wait(600)
-    m = await C.modal()
-    C.ok(m and 'Bill' in m['title'], 'Bill It on the partial receipt opens the bill', m and m['title'])
-    await C.fill('#mbm [data-f=number]', 'AT-7731')
-    await C.modal_ok(700)
-    at = await C.js("n => { const b = DB.bills.find(b => b.number === n); return b && {id: b.id, total: billTotal(b), poId: b.poId}; }", 'AT-7731')
-    C.ok(at and abs(at['total'] - 3800) < 0.01, 'the bill from the partial receipt is for what arrived: 80 sf × $47.50 = $3,800', at)
-    C.t(f"Bill It > AT-7731 > Save Bill → bill `{at and at['id']}` {fmtm(at and at['total'])}")
     await C.day('2026-09-11')
     await C.as_('u_chen', 'recv', f"setCurrent('{pid}');")
     await C.click(f"section.view.on [data-rall='{POS['fixtures']['id']}']", 700)
@@ -491,21 +592,59 @@ async def s3_receive(C):
     hph = await C.js("n => { const b = DB.bills.find(b => b.number === n); return b && {ret: +b.retainagePct || 0, due: b.due || ''}; }", 'HPH-2291')
     C.ok(hph and hph['ret'] == 10, 'the mailed sub bill carries its subcontract\'s 10% retainage', hph)
     C.ok(hph and hph['due'] == '2026-10-11', 'the mailed bill keeps the due date printed on the invoice', hph)
-    C.rec('bill', 'FC-20417', fc and fc['id']); C.rec('bill', 'AT-7731', at and at['id'])
-    # the PM recommends, the Owner approves; KBS-5531 is $240 over its PO: approve the PO amount, dispute the rest
-    for num in ('FC-20417', 'AT-7731', 'HPH-2291', 'KBS-5531'):
+    C.rec('bill', 'FC-20417', fc and fc['id'])
+    # the PM recommends; the Owner approves on the desk, and KBS-5531 ($240 over its PO) on the phone
+    for num in ('FC-20417', 'HPH-2291', 'KBS-5531'):
         v, said = await approvals_yes(C, 'u_alan', num)
         st = await C.js("n => DB.bills.find(b => b.number === n).status", num)
         C.ok(v == 'Recommend' and st == 'pm-approved', f'PM > Approvals > {num} > Recommend', f'{v} {st}')
-    for num, why, disp in (('FC-20417', 'Bill equals the PO and the receipt', None), ('AT-7731', 'Bill equals what arrived', None),
-                           ('HPH-2291', 'Progress bill on the subcontract; the rough-in is under way', None),
-                           ('KBS-5531', None, 'Freight was quoted as included; Kingsland is asked to credit the $240')):
-        v, said = await approvals_yes(C, 'u_owner', num, why, disp)
-        st = await C.js("n => { const b = DB.bills.find(b => b.number === n); return {status: b.status, short: b.short ? {approved: b.short.approved, held: b.short.held, state: b.short.state} : null}; }", num)
-        C.ok(v == 'Approve' and st['status'] == 'approved', f'Owner > Approvals > {num} > Approve{said}', st)
+    for num, why in (('FC-20417', 'Bill equals the PO and the receipt'), ('HPH-2291', 'Progress bill on the subcontract; the rough-in is under way')):
+        v, said = await approvals_yes(C, 'u_owner', num, why)
+        st = await C.js("n => DB.bills.find(b => b.number === n).status", num)
+        C.ok(v == 'Approve' and st == 'approved', f'Owner > Approvals > {num} > Approve{said}', st)
         C.t(f"PM > Approvals > {num} > Recommend; Owner > Approvals > {num} > Approve{said} → {st}")
-    kb = await C.js("() => DB.bills.find(b => b.number === 'KBS-5531').short")
-    C.ok(kb and kb['approved'] == 7450 and kb['held'] == 240, 'KBS-5531: $7,450 approved at the PO, $240 held as disputed', kb)
+    await C.to_phone('u_owner', 'The Owner approving the over-PO bill KBS-5531', "view = 'home';")
+    await phone_approve(C, 'KBS-5531', 'the Kingsland bill, $240 over its PO', 'Freight was quoted as included; Kingsland is asked to credit the $240')
+    await C.to_desk()
+    kb = await C.js("() => { const b = DB.bills.find(b => b.number === 'KBS-5531'); return {status: b.status, short: b.short}; }")
+    C.ok(kb['status'] == 'approved' and kb['short'] and kb['short']['approved'] == 7450 and kb['short']['held'] == 240,
+         'phone: KBS-5531 approved at the PO amount ($7,450), $240 held as disputed', kb)
+    C.t(f"PM > Approvals > KBS-5531 > Recommend; Owner on the phone > KBS-5531 > Approve > Approve PO Amount, Dispute Difference > reason > Approve and Dispute → {kb['status']}, {kb['short'] and {k: kb['short'][k] for k in ('approved', 'held', 'state')}}")
+    # 9/16: 80 of the 140 sf of tile land; the foreman checks them in on his phone, the coordinator bills what arrived
+    await C.day('2026-09-16')
+    tl = POS['tile']['lines'][0]['id']
+    await C.to_phone('u_angel', 'The foreman checking in a part delivery', f"setCurrent('{pid}');")
+    row = await C.ph.evaluate("id => { const b = document.querySelector(`[data-f3recv='${id}']`); return b ? b.closest('.f3-row').innerText.replace(/\\s+/g, ' ') : ''; }", POS['tile']['id'])
+    C.ok(row, "phone: the foreman's Today lists the tile delivery with Check In", row)
+    if row:
+        C.plog(f'Arriving Today: "{row}"')
+        await C.ptap(f"[data-f3recv='{POS['tile']['id']}']", 'Check In (Arcadia Tile Supply)')
+        await C.pcheck('Receive Some')
+        await C.pfill(f"#mbm [data-f='q_{tl}']", '80', 'square feet that arrived')
+        await C.pfill('#mbm [data-f=note]', '80 sf on two pallets; 60 sf back-ordered', 'note')
+        await C.ptap('#mbm #mbm-ok', 'Record Receipt')
+        C.plog(f"→ {await C.ph.evaluate(TOAST)}")
+    await C.to_desk()
+    rcv = await C.js("id => { const o = DB.pos.find(x => x.id === id); return {status: o.status, received: o.lines.map(l => +l.received || 0), by: (o.receipts || []).map(r => r.by)}; }", POS['tile']['id'])
+    C.ok(rcv['received'] == [80] and rcv['status'] == 'partial', 'the tile PO is received in part: 80 of 140 sf, by the foreman', rcv)
+    C.t(f"Foreman on the phone > Today > Arriving Today > {POS['tile']['number']} > Check In > 80 sf > Record Receipt → {rcv}")
+    await C.as_('u_chen', 'po', f"setCurrent('{pid}'); poOpen = '{POS['tile']['id']}';")
+    lbl = await C.js("() => { const b = document.querySelector('section.view.on [data-poact=bill]'); return b ? b.innerText.trim() : ''; }")
+    C.ok(lbl.startswith('Bill What Arrived') and '3,800' in lbl, "the coordinator's PO page offers Bill What Arrived $3,800", lbl)
+    await C.click('section.view.on [data-poact=bill]', 600)
+    m = await C.modal()
+    C.ok(m and 'Bill What Arrived' in m['title'], 'it opens the bill for what arrived', m and m['title'])
+    await C.fill('#mbm [data-f=number]', 'AT-7731')
+    await C.modal_ok(700)
+    at = await C.js("n => { const b = DB.bills.find(b => b.number === n); return b && {id: b.id, total: billTotal(b), poId: b.poId, lines: b.lines.map(l => ({id: l.id, poLineId: l.poLineId, line: l.line, amount: l.amount}))}; }", 'AT-7731')
+    C.ok(at and abs(at['total'] - 3800) < 0.01, 'the bill is for what arrived: 80 sf × $47.50 = $3,800', at)
+    C.t(f"Coordinator > {POS['tile']['number']} > {lbl} > Vendor Invoice # AT-7731 > Save Bill → bill `{at and at['id']}` {fmtm(at and at['total'])}")
+    C.rec('bill', 'AT-7731', at and at['id'])
+    v, said = await approvals_yes(C, 'u_alan', 'AT-7731')
+    v2, said2 = await approvals_yes(C, 'u_owner', 'AT-7731', 'Bill equals what arrived')
+    st = await C.js("n => DB.bills.find(b => b.number === n).status", 'AT-7731')
+    C.ok(st == 'approved', 'AT-7731: PM Recommend, Owner Approve', f'{v} {v2}{said2} {st}')
+    C.t(f"PM > Approvals > AT-7731 > {v}; Owner > Approvals > AT-7731 > {v2}{said2} → {st}")
     return True
 
 
@@ -581,7 +720,7 @@ CARD = [('2026-09-08', 'STAPLES #0412 BROOKLYN NY', -186.40, 'CX-0908-1', 'offic
 async def s4_pay(C):
     C.step('4. Pay: bills paid, hours and payroll, the card statement coded and matched (overhead and a purchase for the client)')
     pid = C.ids['project']['id']; L = C.ids['estimate']['lines']; est = C.ids['estimate']['id']
-    PAY = [('FC-20417', '2026-09-15', 23400, 'ACH', 'ACH 0915-FC'), ('AT-7731', '2026-09-22', 3800, 'ACH', 'ACH 0922-AT'),
+    PAY = [('FC-20417', '2026-09-16', 23400, 'ACH', 'ACH 0916-FC'), ('AT-7731', '2026-09-22', 3800, 'ACH', 'ACH 0922-AT'),
            ('HPH-2291', '2026-09-24', 5940, 'Check', '1187'), ('KBS-5531', '2026-09-24', 7450, 'ACH', 'ACH 0924-KB')]
     for num, date, amt, meth, ref in PAY[:1]:
         await C.day(date)
@@ -665,20 +804,191 @@ async def s4_pay(C):
     return True
 
 
+# ================================================================ 5. progress billing: measured on site, a CO, the application
+async def phone_measure(C, task_id, pct, name):
+    """The foreman's Today: Update on the task, then the % step (prgSet is what the step runs)."""
+    sel = f"section.view.on [data-prgopen^='{task_id}|']"
+    if not await C.ph.locator(sel).count():
+        C.plog(f'{name} is not on Today\'s Work for {await C.ph.evaluate("() => today()")}; measured through prgSet, the function the Update sheet calls')
+        C.findings.append(f"Phone: the foreman can only measure tasks on today's list; {name} had ended, so its % was set through prgSet (the Update sheet's function).")
+        await C.ph.evaluate("([id, pc]) => { prgSet(S, S.tasks.find(t => t.id === id), {pct: pc, by: 'Angel', role: 'foreman', src: 'field', note: 'measured on site'}); save(); render(); }", [task_id, pct])
+        return
+    await C.ptap(sel, f'Update on {name}')
+    await C.pcheck(f'Progress — {name}')
+    await C.ptap(f"#mbm [data-prgstep='{pct}']", f'{pct}%')
+    m = await C.pmodal()
+    if m and m['buttons'] and 'Save' in ' '.join(m['buttons']):
+        await C.ptap('#mbm #mbm-ok', m['buttons'][-1])
+    C.plog(f"→ {await C.ph.evaluate(TOAST)}")
+
+
+async def billing_row(C, needle):
+    await C.as_('u_billing', 'billing', "billTab = 'billable'; docOpen = null;")
+    return await C.js("""n => { const tr = [...document.querySelectorAll('#v-billing tr')].find(tr => tr.querySelector('[data-blact]') && tr.innerText.includes(n) && tr.innerText.includes('318 Clinton'));
+        return tr ? {text: tr.innerText.replace(/\\s+/g, ' ').slice(0, 260), verb: tr.querySelector('[data-blact]').innerText.trim(), key: tr.querySelector('[data-blact]').dataset.blact} : null; }""", needle)
+
+
+async def press_row(C, key):
+    await C.click(f"#v-billing [data-blact='{key}']", 700)
+
+
+async def s5_bill(C):
+    C.step('5. Progress billing: measured on site, a change order signed on the portal, the application, the purchase billed back')
+    pid = C.ids['project']['id']; cid = C.ids['client']['id']
+    await C.day('2026-09-25')
+    # the foreman measures on his phone
+    await C.to_phone('u_angel', 'The foreman measuring progress', f"setCurrent('{pid}');")
+    for tid, pc, name in (('demo', 100, 'Demo & subfloor prep'), ('frame', 75, 'Framing & blocking – 3rd floor'), ('rplumb', 50, 'Rough plumbing')):
+        await phone_measure(C, tid, pc, name)
+    await C.to_desk()
+    got = await C.js("id => { const p = DB.projects.find(x => x.id === id); return ['demo', 'frame', 'rplumb'].map(t => { const k = p.tasks.find(x => x.id === t); const l = prgLast(k); return [t, l ? l.pct : null, l ? l.by : '']; }); }", pid)
+    C.ok(all(g[1] is not None for g in got), 'the measured % are on the tasks, by the foreman', got)
+    C.t(f"Foreman on the phone > Today > Update > % : {got}")
+    # the PM writes the change order on the phone and sends it; the client signs it on hers
+    await C.to_phone('u_alan', 'The PM writing and sending a change order', f"view = 'clients'; clientOpen = '{cid}'; clientTab = 'fin'; finTab = 'co'; docOpen = null;")
+    await C.ptap("section.view.on [data-newdoc^='co']", 'New Change Order')
+    await C.pcheck('New Change Order')
+    await C.pfill('#mbm [data-f=title]', 'Pot filler over the range', 'title')
+    await C.ptap('#mbm #mbm-ok', 'Create')
+    await C.pcheck('the change order')
+    await C.pfill('section.view.on [data-f=item]', 'Pot filler over the range: supply line, valve and blocking', 'line item')
+    await C.pfill('section.view.on [data-f=rate]', '2400', 'rate')
+    await C.ph.locator('section.view.on [data-f=rate]').first.press('Tab')
+    await C.pfill('section.view.on [data-f=cost]', '1500', 'cost (budget)')
+    await C.ph.locator('section.view.on [data-f=cost]').first.press('Tab'); await C.ph.wait_for_timeout(300)
+    await C.ptap('section.view.on [data-docact=sendclient]', 'Send to Client')
+    for _ in range(2):
+        m = await C.pmodal()
+        if not m: break
+        await C.pcheck(f"the sheet \"{m['title']}\"")
+        await C.ptap('#mbm #mbm-ok', m['buttons'][-1])
+    C.plog(f"→ {await C.ph.evaluate(TOAST)}")
+    await C.to_desk()
+    co = await C.js("id => { const c = DB.clients.find(x => x.id === id), x = c.changeOrders[c.changeOrders.length - 1]; return x && {id: x.id, number: x.number, status: x.status, total: docTotal(x).total, lines: x.lines.map(l => ({id: l.id, item: l.item, rate: +l.rate, qty: +l.qty, cost: l.cost}))}; }", cid)
+    C.ok(co and co['status'] == 'sent' and abs(co['total'] - 2400) < 0.01, 'the PM sent the $2,400 change order from the phone', co)
+    C.rec('co', 'co', co)
+    C.t(f"PM on the phone > Billing > Change Orders > New Change Order > title > Create > line, rate $2,400, cost $1,500 > Send to Client → {co and co['number']} {co and co['status']}")
+    await C.to_phone(C.ids['portalUser']['id'], 'The client signing the change order')
+    await C.ptap(f"section.view.on [data-papprove='co:{co['id']}']", f"Approve ({co['number']})")
+    await C.pcheck('the change order signature sheet')
+    nm = await C.ph.evaluate("() => (document.querySelector('#pa-name') || {}).value || ''")
+    if not nm: await C.pfill('#pa-name', 'Imogen Varga', 'full name')
+    if await C.ph.locator('#pa-agree').count(): await C.ptap('#pa-agree', 'I approve (checkbox)')
+    await C.ptap('#mbm #mbm-ok', 'Approve')
+    C.plog(f"→ {await C.ph.evaluate(TOAST)}")
+    await C.to_desk()
+    st = await C.js("([c, id]) => { const x = DB.clients.find(y => y.id === c).changeOrders.find(y => y.id === id); const sv = DB.clients.find(y => y.id === c).sov.find(v => v.source === x.number); return {status: x.status, sov: sv ? {id: sv.id, scheduled: sv.scheduled} : null}; }", [cid, co['id']])
+    C.ok(st['status'] == 'approved' and st['sov'] and abs(st['sov']['scheduled'] - 2400) < 0.01, 'the client signed it on the portal; it is a $2,400 SOV line', st)
+    C.rec('co', 'sov', st['sov'])
+    C.t(f"Client on the phone > Approve {co['number']} > Approve → {st}")
+    # billing: the application, line by line
+    row = await billing_row(C, 'line-by-line application')
+    C.ok(row and row['verb'] == 'Draft', "Billing Queue: the job's line-by-line application, with Draft", row)
+    held = await C.js("pid => readyToBill().held.filter(h => h.p.id === pid).map(h => [h.line, h.why])", pid)
+    C.t(f"Billing > Billing Queue: \"{row and row['text']}\"; held lines: {held}")
+    await press_row(C, row['key'])
+    inv = await C.js("id => { const c = DB.clients.find(x => x.id === id); const i = c.invoices.find(x => x.id === (docOpen || {}).id); return i && {id: i.id, number: i.number, status: i.status, mode: i.mode, ret: i.retainagePct, lines: i.lines.map(l => ({id: l.id, sovId: l.sovId, item: l.item, scheduled: +l.scheduled, prevPct: +l.prevPct || 0, pct: +l.pct || 0, stored: +l.stored || 0}))}; }", cid)
+    C.ok(inv and inv['mode'] == 'sov', 'Draft opens the pay application (G702/G703 from the SOV)', inv and inv['number'])
+    co_line = next((l for l in inv['lines'] if co['number'] in l['item']), None) if inv else None
+    C.ok(co_line is not None and co_line['prevPct'] == 0, f"the change order {co['number']} is on the application, billed from 0", co_line)
+    C.rec('invoice', 'app', inv and inv['id'])
+    # stored materials: the floated rows (bought and delivered, not installed) go onto the same application
+    for needle in ('4. Millwork', '5. Tile', '6. Fixture'):
+        r = await billing_row(C, needle)
+        C.ok(r and 'stored materials' in r['text'] and r['verb'] == 'Draft', f'Billing Queue: {needle} materials delivered, not installed (stored materials), with Draft', r)
+        if r:
+            await press_row(C, r['key'])
+            C.t(f"Billing Queue > \"{r['text'][:150]}\" > Draft")
+    # the PM confirmed the pot filler rough-in is in: the billing clerk types 100% on the CO line of the draft
+    await C.as_('u_billing', 'billing', f"billTab = 'billable'; clientOpen = '{cid}'; docOpen = {{kind: 'invoice', id: '{inv['id']}'}};")
+    if co_line:
+        loc = C.pg.locator(f"section.view.on tr[data-line='{co_line['id']}'] [data-f=pct]").first
+        C.ok(await loc.count() == 1, f"the draft's {co['number']} line has its % input")
+        if await loc.count():
+            await loc.fill('100'); await loc.press('Tab'); await C.wait(500)
+            C.t(f"Billing > {inv['number']} > {co['number']} line > % this period: 100 (the PM confirmed the rough-in)")
+    app = await C.js("""id => { const c = DB.clients.find(x => x.id === id); const i = c.invoices.find(x => x.id === (docOpen || {}).id) || c.invoices.find(x => x.mode === 'sov' && x.status === 'draft');
+        return i && {id: i.id, number: i.number, ret: +i.retainagePct || 0, T: docTotal(i), lines: i.lines.map(l => ({sovId: l.sovId, item: l.item, scheduled: +l.scheduled, prevPct: +l.prevPct || 0, pct: +l.pct || 0, stored: +l.stored || 0, amount: lineAmount(l, i)}))}; }""", cid)
+    C.rec('invoice', 'appDraft', app)
+    # what the application should hold, from the records: the foreman's measures, what arrived, the CO
+    # a line measured by several tasks weighs each by its calendar days (start to end); an unmeasured task counts 0
+    tasks = await C.js("id => { const p = DB.projects.find(x => x.id === id); return p.tasks.filter(t => ['demo', 'frame', 'gframe', 'rplumb'].includes(t.id)).map(t => ({id: t.id, start: t.start, end: t.end || t.start, pct: (prgLast(t) || {}).pct || 0})); }", pid)
+    import datetime as _dt
+    span = lambda t: max(1, (_dt.date.fromisoformat(t['end']) - _dt.date.fromisoformat(t['start'])).days + 1)
+    T = {t['id']: t for t in tasks}
+    wfr = r2((span(T['frame']) * T['frame']['pct'] + span(T['gframe']) * T['gframe']['pct']) / (span(T['frame']) + span(T['gframe'])))
+    want = {'1. Demolition': 9500.0, '2. Framing': r2(14000 * wfr / 100), '3. Rough plumbing': 9000.0, '4. Millwork': 23400.0, '5. Tile': 3800.0,
+            '6. Fixture': 7450.0, '7. General': 0.0, co['number']: 2400.0}
+    for k, w in want.items():
+        l = next((x for x in app['lines'] if k in x['item']), None)
+        C.ok(l is not None and abs(l['amount'] - w) <= 0.01, f"the application's {k} line bills {fmtm(w)} (measured on site, stored at cost, the CO from 0)", l and (l['pct'], l['stored'], l['amount']))
+    sub = r2(sum(want.values()))
+    C.ok(abs(app['T']['sub'] - sub) < 0.02 and abs(app['T']['ret'] - r2(sub * 0.10)) < 0.02, f"the application: {fmtm(sub)} this period, 10% retainage {fmtm(r2(sub * .1))}, {fmtm(r2(sub - r2(sub * .1)))} due", app['T'])
+    C.t(f"the application {app['number']}: " + '; '.join(f"{l['item'][:28]} {l['pct']}%{' (stored ' + fmtm(l['stored']) + ')' if l['stored'] else ''} {fmtm(l['amount'])}" for l in app['lines']) + f" → subtotal {fmtm(app['T']['sub'])}, retainage {fmtm(app['T']['ret'])}, due {fmtm(app['T']['total'])}")
+    # the purchase bought for the client: billed at cost plus 10%
+    r = await billing_row(C, 'bought for')
+    C.ok(r and r['verb'] == 'Draft' and '453.86' in r['text'], 'Billing Queue: the Home Depot purchase for the Vargas at cost plus 10% ($453.86), with Draft', r)
+    if r:
+        await press_row(C, r['key'])
+        rb = await C.js("id => { const c = DB.clients.find(x => x.id === id); const i = c.invoices.find(x => x.id === (docOpen || {}).id); return i && {id: i.id, number: i.number, lines: i.lines.map(l => ({id: l.id, item: l.item, rate: +l.rate, fromTxn: l.fromTxn || ''}))}; }", cid)
+        C.rec('invoice', 'rebill', rb and rb['id'])
+        C.t(f"Billing Queue > the purchase bought for the client > Draft → {rb and rb['number']} {rb and rb['lines']}")
+        C.ok(rb and len(rb['lines']) == 1 and abs(rb['lines'][0]['rate'] - 453.86) < 0.005, 'the reimbursable is on its own invoice line at $412.60 + 10% = $453.86', rb)
+    # Send to Client: the application, then the billable expenses
+    for key in ('app', 'rebill'):
+        iid = (C.ids['invoice'].get('appDraft') or {}).get('id') if key == 'app' else C.ids['invoice'].get('rebill')
+        await C.as_('u_billing', 'billing', f"billTab = 'billable'; clientOpen = '{cid}'; docOpen = {{kind: 'invoice', id: '{iid}'}};")
+        await C.click_text('section.view.on', r'^Send to Client$', 600)
+        m = await C.modal()
+        if m: await C.modal_ok(700)
+        st = await C.js("([c, id]) => { const i = DB.clients.find(x => x.id === c).invoices.find(x => x.id === id); return {number: i.number, status: i.status, total: docTotal(i).total}; }", [cid, iid])
+        C.ok(st['status'] == 'sent', f"{st['number']} > Send to Client > {m and m['buttons'][-1]} → sent", st)
+        C.t(f"Billing > {st['number']} > Send to Client{' > ' + m['title'] + ' > ' + m['buttons'][-1] if m else ''} → {st['status']} {fmtm(st['total'])}")
+        C.rec('invoice', key + 'Sent', st)
+    after = await C.js("pid => { const t = DB.txns.find(x => /HOME DEPOT #1207/.test(x.desc)); return {stamped: !!t.invoiceLineId, match: truthMatchOf(t).invoiceLineId || '', left: rbRows(pid).length}; }", pid)
+    C.ok(after['stamped'] and after['match'] and after['left'] == 0, 'the card line is matched to its invoice line; nothing bought for the client is left unbilled', after)
+    # the client reads the application on her phone; the portal says how to pay
+    await C.to_phone(C.ids['portalUser']['id'], 'The client reading the pay application')
+    app_id = C.ids['invoice']['appDraft']['id']
+    has = await C.ph.locator(f"section.view.on [data-pview='invoice:{app_id}']").count()
+    if has:
+        await C.ptap(f"section.view.on [data-pview='invoice:{app_id}']", 'View (the application)')
+    else:
+        C.plog('the Overview has no View for the new invoice; opening Invoices Due')
+        await C.ptap("section.view.on [data-tl=inv]", 'Invoices Due')
+    await C.pcheck('the invoice')
+    txt = await C.ph.evaluate("() => ((document.querySelector('#mbm') || document.querySelector('section.view.on')).innerText || '')")
+    C.ok('How to Pay' in txt, 'the portal shows the invoice with How to Pay', txt[-300:])
+    C.plog('the portal has no way to pay online or to say "we paid": How to Pay lists cheque or bank transfer; the payment arrives as a bank deposit')
+    C.findings.append('Portal: the client can read an invoice and How to Pay, but cannot pay it or tell us it was paid; payment is a bank transfer the controller matches.')
+    await C.to_desk()
+    return True
+
+
 # ================================================================ main
-STEPS = [s1_client, s2_buy, s3_receive, s4_pay]
+STEPS = [s1_client, s2_buy, s3_receive, s4_pay, s5_bill]
 
 
 async def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--upto', type=int, default=99)
     ap.add_argument('--dump', default='', help='development: write the DB as JSON here after the steps run')
+    ap.add_argument('--resume', default='', help='development: load a --dump file and start at --start')
+    ap.add_argument('--start', type=int, default=1)
     a = ap.parse_args()
     async with async_playwright() as p:
         b, pg, errs = await open_app(p)
         C = Chain(pg, errs)
+        await C.phone_open(b)
         try:
+            if a.resume:
+                with open(a.resume) as f: src = f.read()
+                await pg.evaluate("async s => { DB = JSON.parse(s).DB; save(); await saveNow(); }", src)
+                await pg.reload(); await pg.wait_for_function("document.body.dataset.booted==='1'", timeout=60000)
+                with open(a.resume + '.ids.json') as f: C.ids = json.load(f)
+                C.t(f'(development) resumed from {a.resume} at step {a.start}')
             for i, fn in enumerate(STEPS, 1):
+                if i < a.start: continue
                 if i > a.upto: break
                 go_on = await fn(C)
                 if go_on is False:
