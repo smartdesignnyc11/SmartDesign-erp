@@ -11,6 +11,25 @@ Read this file, then HANDOFF.md, then docs/BACKLOG.md, before touching code.
 - **What it is:** one ERP for every person in the firm (owner, PM, coordinator/procurement, foreman, crew, driver, designer, billing, controller) and for the firm's clients through a portal.
 - **The goal:** each person runs their day from it and is 10x more productive. The firm stops needing NetSuite, QuickBooks, Procore, Buildertrend and a CRM.
 
+## The ambition and how to think (Alan, 2026-10-11): this is how I work
+**The ambition.** SmartDesigns Projects becomes, on its own, the best ERP and CRM for construction, design, and design-build firms. It must be better than NetSuite, QuickBooks, Salesforce, Procore and Buildertrend for this industry, because it is built for how this industry actually works. It gets there by being living and learning. It improves itself autonomously from everything that happens, and people approve every change that commits money, the firm, a client or the system itself.
+
+**Alan's lens: apply it to every feature, fix and report before he has to ask.**
+1. **End to end.** Does it work across the whole chain and every role it touches: prospect, estimate, contract, PO and RFQ, receiving, bill, bank, invoice and progress billing, job cost, reports? Prove it by doing it as each person would, not by checking one screen.
+2. **On the go.** Is it fast and easy on a phone, one-handed, outdoors, interrupted? Does it fill itself in (items, descriptions, defaults from context), so nobody types what the system knows?
+3. **The back end.** Does every record carry the accounting truth (job, client, entity, cost code, line links, accounts, tax, retainage)? Does it flow into the reports with the right number and tie to the bank?
+4. **The client's eyes.** How does it look and read to the client: clear, premium, nothing that makes them call to ask?
+5. **Money.** Where could money leak? Overpaying, not billing, paying more than before, buying what is in stock, waste. "Every dollar matters."
+6. **Findable, one place.** Can the person find what they just made, and everything they owe, in one place? Saved is not enough.
+7. **What the checks didn't check.** Why would our tests miss this? Fix the class and add the check that makes it fail loudly next time.
+8. **The people who use it.** What would the role experts say after working with it? Ask them through the agent month and the workshops, and let real use decide, not guesses.
+9. **Autonomy with approval.** What can the AI do on its own, and what needs a person? Is it delegated, logged and switchable?
+10. **Learning.** Does it get better from what happens (lessons, price history, lead times, descriptions), with the owner approving changes to rules?
+11. **Think past it.** What isn't he thinking about? How can it be better? What goes wrong if it isn't thought through?
+12. **The bar.** Would a seasoned professional in that seat pick this over NetSuite, QuickBooks, Salesforce or Procore for this firm? If not, what closes the gap?
+
+**Speed with no bugs.** Expedite toward a platform the firm can use, without bugs. Fix by class, never by instance. Test as the person, on the phone. Measure, don't assume. Never ship a red test net.
+
 ## The mission (Alan, 2026-10-10): never forget this
 SmartDesigns Projects is a living, breathing, evolving ERP that constantly wants to improve and help the company succeed at the highest level. Two things make it that, and they are the most important features in the system:
 - **The brain.** It consumes all the data it can: every record, email, calendar, drive file, meeting transcript, bank line, field report and outcome. It learns what is working and what is not, analyses it, and turns that into changes that raise productivity and stop mistakes from recurring: new rules, process changes, reminders, lessons and, when a person approves, changes to the ERP itself and to each role's process.

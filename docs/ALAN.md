@@ -37,6 +37,18 @@ On why money matters (his words): "money wasted hurts employees from getting rai
 - **He adds requirements in a stream.** Each new one is folded into the right lane and the spec the same hour, not queued for "later".
 - **He wants me to think past his ask.** For every request, answer three questions: what is he not thinking about, how could this be better, and what goes wrong if it isn't thought through? Bring back only what needs his call.
 
+## How he reasons (patterns from 2026-10-11; use the same reasoning)
+- **From one concrete case to the whole class.** "24 sheets with 12 in stock" became inventory-first at every door. "Lumber mills" became sourcing research for every category.
+- **He follows the money and the trust.** Who could be overpaid, what isn't billed, what a client could be charged wrongly, who approves whose explanation.
+- **He walks the workflow end to end and asks what happens at each hand-off,** especially on the go and in the field.
+- **He checks the evidence behind "it works".** "How did the experts not catch that?" A test that didn't catch it is itself a bug.
+- **He wants the people who use it consulted,** and wants their real experience, not opinions about a list.
+- **He asks for structure before building** (the menu: "let's discuss and have a plan"), then wants speed once it's agreed.
+- **He cares how it looks to the client** as much as how it works for staff.
+- **He wants autonomy with control.** Agents act on their own where delegated, people approve commitments, and he can see and switch everything.
+- **He keeps raising the bar against the leaders** (NetSuite, QuickBooks, Salesforce), because this one is built for his industry.
+- **He watches cost.** He chose fewer roles and shorter days when usage was high. Give him the real number and the trade-offs.
+
 ## How he works with me
 - **He reads on an iPhone,** often between sites. Replies are short, lead with the answer, and use plain words with no jargon or internal IDs.
 - **He is cost-conscious about usage.** Warn him before anything that uses a lot. Never buy or turn on extra usage. He did not approve extra spending, and was alarmed when he thought he had been charged.

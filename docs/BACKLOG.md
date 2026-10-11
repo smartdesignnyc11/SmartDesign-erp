@@ -567,6 +567,19 @@ Alan gets a gallery of the client-facing documents to judge for himself.
 7. **On the phone:** search, voice and recent items first. A line added in a client's kitchen takes seconds.
 8. **Measured in the Documents Workshop:** how much of each document was typed against filled in, and whether descriptions read well to the client.
 
+### 1.19 The improvement loop: the ERP gets better on its own, with approval (Alan, 2026-10-11)
+"Living, learning, getting better autonomously with human approval" needs a loop that runs in production, not only in our build sessions:
+1. **Signals in.** Each of these lands in one Improvement queue:
+   - Report a Problem from any screen (with the screen and the steps captured automatically);
+   - the agents' findings and the brain's lessons;
+   - the Standard Watch breaches;
+   - what people do around the system (exports to Excel, texts, repeated typing, back-tracking, abandoned forms, measured as in the agent month);
+   - the experts' workshop findings.
+2. **The brain triages.** It groups signals into one problem each, ranks them by the Standard (safety, law, integrity, quality, client, schedule, cost) and by how many people they hurt and how often, and writes a proposal: what's wrong, the evidence, the fix, and the risk.
+3. **The owner approves.** Small rule or setting changes apply when approved. Changes to the ERP itself become a build ticket. On the platform, an agent builds them on a branch, runs the full test net and an agent-month day, and the owner approves the release.
+4. **Close the loop.** The person who reported it is told what changed. The brain checks a month later whether the problem stopped, and if not, reopens it.
+5. **Measured.** Problems found against fixed, time to fix, repeat problems (the Standard: "When something goes wrong twice, fix the system"), and the scorecard against the leaders.
+
 ## §2 Remaining round-4 findings
 
 ### Founder
