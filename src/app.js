@@ -14805,7 +14805,23 @@ function openTime(id) {
     }),
     document
       .querySelectorAll("[data-tact]")
-      .forEach((b) => b.addEventListener("click", () => timeAction(e, b.dataset.tact)));
+      .forEach((b) =>
+        b.addEventListener("click", () => ("reject" === b.dataset.tact ? timeRejectAsk(e) : timeAction(e, b.dataset.tact))),
+      );
+}
+// Rejecting a person's hours asks why, as rejecting a bill or a PO does: the reason goes on the entry and the
+// audit trail, and the person sees it. A reject is never one unexplained tap.
+function timeRejectAsk(e, done, act) {
+  e &&
+    billAskWhy(
+      `Reject — ${esc(empName(e.empId))} · ${fmt(e.date)}`,
+      "",
+      "Reject Hours",
+      "e.g. wrong job, hours do not match the log",
+      (why) => {
+        (e.rejectWhy = why), act ? act("reject") : timeAction(e, "reject"), done && done();
+      },
+    );
 }
 function saveTime() {
   const o = editing.collect(),
@@ -85129,7 +85145,7 @@ function renderMApprove() {
             }
             (S = keep), render();
           };
-        yes && (yes.onclick = () => run("approve")), no && (no.onclick = () => run("reject"));
+        yes && (yes.onclick = () => run("approve")), no && (no.onclick = () => timeRejectAsk(t, null, run));
       }
     }),
     v.querySelectorAll("[data-remgo]").forEach(
