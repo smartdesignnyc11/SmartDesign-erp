@@ -266,6 +266,19 @@ Each is proven by a demo_ws_test check turning from "did not fire" to "fired as 
 
 ---
 
+### 1.8 rfq: AI-run requests for quote, from the plans to the negotiated price (Alan, 2026-10-11)
+Alan: "create an RFQ and choose the vendors to send it to and the AI takes it from there … constantly be looking for new vendors … the AI helps in every step." The flow, each step with its owner and the AI's part:
+1. **Draft from the plans (AI).** A rough-materials RFQ (framing first: studs, plates, headers, joists, rim, blocking, sheathing, fasteners, hangers) drafted from the job's drawings and room-by-room takeoff. Every line shows how it was derived (wall length, height, spacing, waste factor) and what was assumed, kept apart from what was read (the Standard: label facts, assumptions and recommendations). Need-by dates come from the schedule and lead times.
+2. **Foreman review (foreman).** The draft lands in the foreman's queue, on the phone: adjust quantities, add or remove lines, approve. One tap per line, big targets.
+3. **Purchasing (procurement manager).** Picks the vendors. The AI proposes the list: vendors in the category, past price and on-time record, at least one out-of-NYC vendor for shippable materials, direct versus middleman per the Standard, and new prospects. The manager sets the due date and presses Send. That press is the approval to send.
+4. **Out to vendors (AI).** One email per vendor with the RFQ number in the subject and a line-item sheet. Non-responders are chased before the due date (drafts the manager approves, or sent automatically only if the manager has delegated RFQ chases).
+5. **Quotes back (AI).** Replies are matched to the RFQ by number and sender, read (email body, PDF or spreadsheet) and entered as quote lines: price, unit, freight, lead time, validity, substitutions and missing items flagged. A reply that could not be read says so.
+6. **Leveling (AI).** Who is cheapest for the whole basket; who is cheapest per item; the best split award once freight and minimums are counted; landed cost, lead time against the need-by date, region. A recommendation in the Standard's format.
+7. **Negotiation (AI drafts, manager approves).** An email per vendor asking for reductions on the items where they are not best, citing only real competing figures and never naming the competitor (the Standard: integrity; never mislead a vendor). The manager edits and approves; round-two quotes are read the same way.
+8. **Award (manager).** Award by vendor or by line; POs are created from the award with the sourcing choice recorded; savings recorded as final price against first quote and against budget, rolled into the monthly savings report.
+9. **Vendor discovery (AI, always on).** A prospects list fed by unknown suppliers in the mail, categories with fewer than three vendors or no out-of-NYC vendor, and (on the platform) web search. Each prospect is a proposal the manager adds or dismisses; added ones are suggested for the next RFQ.
+Phase one runs in the demo and on the Demo Workspace (invented vendors and replies). Real sending, inbox watching, PDF and drawing reading, and web search arrive with the platform (§5: AI proxy, watchers, document reader).
+
 ## §2 Remaining round-4 findings
 
 ### Founder
