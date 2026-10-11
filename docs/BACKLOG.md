@@ -625,6 +625,45 @@ Alan gets a gallery of the client-facing documents to judge for himself.
 - Phase 1 on the demo: merge the job Chat and Inbox into Messages, with message-to-work actions and pinned Plans.
 - Phase 2 on the platform: real-time delivery, push, guests, the SMS and email bridge, voice and translation, and the WhatsApp import. These need the server, and the SMS bridge has a small per-message cost.
 
+### 1.22 Plans control: nobody builds from an outdated drawing (Alan, 2026-10-11: "very, very important")
+**Why it matters.** Building from an outdated set costs tens of thousands in rework. Today the app versions money documents (estimates, COs), but there is no drawing register: plans are files like any other.
+1. **One drawing register per job.** Each sheet (A-101, S-201, M/E/P) has:
+   - its current revision and date;
+   - its status: for pricing, for permit, issued for construction, in revision (hold), superseded or void;
+   - who issued it, and what changed (the narrative and clouded areas).
+   It also covers shop drawings with their approval status (approved, approved as noted, revise and resubmit), RFI sketches that change a sheet, and specs and finish schedules.
+2. **Catch every new revision, wherever it arrives.** The brain watches:
+   - messages ("updated plans", "rev C", a PDF from the architect);
+   - email attachments;
+   - the job's Drive or Dropbox folder.
+   It proposes "New revision of A-201?". The designer or PM confirms it in one tap. The register updates, old sheets are stamped VOID, and no older version can be opened as current.
+3. **Everyone gets the latest, and the field acknowledges it.** The pinned Plans in every job thread (§1.21) show only current sheets. When a sheet changes:
+   - the foreman and the affected trades are told what changed;
+   - they acknowledge ("Angel viewed Rev C, 9:14");
+   - work on the affected area waits for that acknowledgment.
+   Who viewed which revision, and when, is kept. That protects the firm in a dispute.
+4. **"In revision" puts the area on hold.** When design is reworking an area (the kitchen layout, a stair), the designer marks the sheets or rooms "In Revision". Then:
+   - the foreman's tasks there show a hold, and the crew is warned before starting;
+   - the schedule shows the hold;
+   - **POs, RFQs and requests for that area are flagged before ordering** (no cabinets ordered while the kitchen is being redrawn).
+   The hold lifts when the new revision is issued and acknowledged.
+5. **What changed, and what it touches.** The AI compares revisions sheet against sheet and lists the changes. It then lists what each change affects:
+   - tasks and the schedule;
+   - open POs, RFQs and materials already ordered;
+   - selections;
+   - estimate lines.
+   From that it proposes the follow-ups: a change order if scope or cost changed, a PO change or return, a resequence.
+6. **Law and landmarks first (Standard principle 2).** A revision that changes drawings already filed with DOB or LPC is flagged: "amendment or LPC approval needed before this work". Work on it is held until the filing is approved.
+7. **Paper on site.** Every printed sheet carries a QR code that opens its current revision ("scan to check you have the latest"). When a revision is issued, the foreman gets a task to remove the old printed sheets and photograph the current set posted (the Standard: superseded sets removed from site).
+8. **Built for the site.**
+   - **Offline:** the current set is saved on the phone or tablet for basements with no signal, with a warning if the saved copy is out of date.
+   - **Plans viewer:** a fast viewer with a sheet index, room search, pinch zoom and side-by-side revisions.
+   - **Links in from the job:** links from a room, task or daily log straight to its sheet.
+9. **Field markups and as-builts.** The field marks up sheets (red lines, photos pinned to locations). These collect into the as-built set delivered at close-out (the Standard).
+10. **Access.** Staff see the whole set. Subs see the sheets for their trade. Clients see the design set when the PM shares it.
+
+**Order.** This is the highest-risk gap after v11.1. Phase 1 on the demo (register, VOID, holds, acknowledgments, pinned plans, the order flag) comes right after the pilot, before Simplify. The detection from mail and Drive, the compare, offline storage and the QR codes complete it on the platform.
+
 ## §2 Remaining round-4 findings
 
 ### Founder
