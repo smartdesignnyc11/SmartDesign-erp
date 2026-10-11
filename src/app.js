@@ -174566,7 +174566,7 @@ function renderRfq() {
     R = DB.rfqs.slice().reverse(),
     mine = rfqQueueItems().filter((it) => apprOwner(it) === role()).length,
     open = R.filter((x) => !["awarded", "closed"].includes(x.status)).length,
-    seg = `<div class="seg rfq-seg" role="tablist">${[["requests", "Requests"], ["prospects", "Prospects"], ["research", "Sourcing Research"]].map(([k, l]) => `<button type="button" role="tab" class="${tab === k ? "on" : ""}" data-rfqtab="${k}">${l}</button>`).join("")}</div>`;
+    seg = `<div class="seg rfq-seg" role="tablist">${[["requests", "Requests"], ["prospects", "Prospects"], ["research", "Sourcing Research"], ["pricewatch", "Price Watch"]].map(([k, l]) => `<button type="button" role="tab" class="${tab === k ? "on" : ""}" data-rfqtab="${k}">${l}</button>`).join("")}</div>`;
   let body = "";
   if ("requests" === tab) {
     const u = (paMe() || {}).id,
@@ -174577,8 +174577,9 @@ function renderRfq() {
   } else if ("prospects" === tab) {
     const P = rfqProspects();
     body = `<p class="small muted">Suppliers the assistant found: named in your mail and not on file, categories with fewer than three vendors or none outside NYC, and sourcing research. Add puts one on file and suggests it on the next RFQ.</p><div class="rfq-cards">${P.map((x) => `<div class="rfq-card"><b class="rfq-h" data-nocase>${esc(x.name)}${x.demo ? ' <span class="pill">Demo Data</span>' : ""}</b><div class="small muted" data-nocase>${esc({ mail: "From your mail", gap: "A thin category", research: "Sourcing research" }[x.source] || x.source)}${x.category ? ` · ${esc(x.category)}` : ""} · ${esc(x.status)}</div><p class="small" data-nocase>${esc(x.evidence || "")}</p>${x.web ? `<p class="small muted">${esc(x.web)}</p>` : ""}${"proposed" === x.status ? `<div class="rfq-row"><button class="btn sm" data-rfqpadd="${esc(x.id)}">Add</button><button class="btn sm" data-rfqpdis="${esc(x.id)}">Dismiss</button></div>` : ""}${"added" === x.status && x.vendorId && !rfqVetDone(rfqVendor(x.vendorId)) ? `<p class="small">Before its first PO: ${esc(rfqVetMissing(rfqVendor(x.vendorId)).join(", "))}.</p><div class="rfq-row"><button class="btn sm" data-rfqvet="${esc(x.vendorId)}">Vet</button></div>` : ""}</div>`).join("") || '<p class="small muted">No prospects right now.</p>'}</div>`;
-  } else body = rfqResearchHtml();
-  host.innerHTML = `<div class="ph"><div><h2>RFQs</h2><div class="lead">${open} open${mine ? ` · ${mine} waiting on you` : ""}</div></div><div class="acts"><button class="btn ${"research" === tab ? "" : "primary"}" id="rfq-new">New RFQ</button></div></div>${seg}<div style="margin-top:12px">${body}</div>`;
+  } else if ("pricewatch" === tab) body = pwPageHtml();
+  else body = rfqResearchHtml();
+  host.innerHTML = `<div class="ph"><div><h2>RFQs</h2><div class="lead">${open} open${mine ? ` · ${mine} waiting on you` : ""}</div></div><div class="acts"><button class="btn ${["research", "pricewatch"].includes(tab) ? "" : "primary"}" id="rfq-new">New RFQ</button></div></div>${seg}<div style="margin-top:12px">${body}</div>`;
   host.querySelectorAll("[data-rfqtab]").forEach((b) => (b.onclick = () => ((window.rfqTab = b.dataset.rfqtab), renderRfq())));
   host.querySelector("#rfq-new").onclick = () => rfqNewSheet();
   host.querySelectorAll("[data-rfqopen]").forEach((b) => (b.onclick = () => ((window.rfqOpen = b.dataset.rfqopen), renderRfq(), window.scrollTo(0, 0))));
@@ -174603,6 +174604,7 @@ function renderRfq() {
   host.querySelectorAll("[data-rfqpdis]").forEach((b) => (b.onclick = () => rfqProspectAct(b.dataset.rfqpdis, "dismiss")));
   host.querySelectorAll("[data-rfqvet]").forEach((b) => (b.onclick = () => rfqVetSheet(b.dataset.rfqvet)));
   rfqWireResearch(host);
+  "pricewatch" === tab && pwWirePage(host);
 }
 function rfqNewSheet() {
   const m = rfqLinesSheet(S && S.id);
@@ -174823,6 +174825,1399 @@ function rfqWireResearch(host) {
     });
 }
 /* ---- end rfq --------------------------------------------------------------------------------------------- */
+
+
+
+/* ---------------------------------------------------------------------------
+   pricewatch: paid more than before, or something looks off (BACKLOG §1.8 item 11; Alan, 2026-10-11).
+   Every purchase is read against what the firm has paid before, at three moments: a PO draft (an inline
+   Price Check with the history, before money is committed), a bill's arrival (billFlags, and the use-tax flag
+   when an out-of-state vendor charged no NY tax), and a bank or card line's match (truthSetMatch).
+     history      itemPriceHistory(q): ONE history for the RFQ vendor suggestions, leveling and price watch,
+                  drawn from PO lines, bill lines, confirmed RFQ quotes and matched card/bank lines; unit prices
+                  normalised by unit and pack size (a box of 50 is 50 ea). Item identity is the normalised
+                  description + SKU + category + unit; a near match is a proposal a person confirms
+                  (DELEGATION "priceMatch", the coordinator), never assumed.
+     detectors    one PRED and one CATCH entry each, count = rows: pwPaidMore (over the trailing median by
+                  overPct, over a cheaper recent price from another vendor, or over the PO/quote it was bought
+                  against; the history tests need minBuys prior buys, else "not enough history"), pwQtyOver,
+                  pwDupCharge, pwSplit, pwFeeSpike, pwRareVendor, pwNotDelivered, pwCardNoJob, pwUseTax.
+                  Reused, never counted twice: a bill over its PO stays on "Billed Over the PO" (overPO, the
+                  three-way match); exact duplicate bank lines stay with lkDup; a card line nobody matched stays
+                  on "Not Matched to a Line"; budget overspend and uncredited refunds keep their own entries.
+     a case       pwCaseSheet: the history with sources, the money at stake, innocent explanations labelled
+                  hypotheses, a next step (Ask Vendor for Credit as a draft the coordinator approves, Update the
+                  Price Book, Add to Next RFQ, Propose Explanation) and Alan's money line. Neutral words.
+     Alan's rule  anyone proposes an explanation (one purchase, or a baseline change such as "lumber up 8% this
+                  quarter"); it waits on the owner (DELEGATION "priceExplain": Approvals and Do Now). Until the
+                  owner approves, the flag stays open and counted and the baseline does not move. Approve, or
+                  decline with a reason; the history is append-only. Only an approval moves the baseline and
+                  records a LEARN_EVENTS lesson ("priceExplained").
+     precision    each flag is ledgered when first raised (DB.priceWatch.flags); the owner's Confirm Real marks it
+                  real, an approved explanation marks it normal. Under 50% over 30 days, the owner is asked to
+                  tune the detector's threshold (DELEGATION "priceTune").
+     the figure   pwAboveBest(ym): dollars paid above the best recent price, in erpQuery (paidabovebest).
+   Records: DB.priceWatch {settings, alias, matchProps, flags, closed, acts, expl, baselines, tune, priceBook,
+   rfqQueue, settingsLog}. Seen on RFQs › Price Watch, Caught for You, Approvals, Do Now, Ask, ⌘K and erpQuery.
+   MERGE NOTE (stock lane): the stock lane adds CATCH "boughtWhileInStock". Absorb it into price watch by name
+   in PW_ABSORB below (its rows are listed on Price Watch and in a case's history, counted only by its own
+   CATCH entry); do not register a second detector for it.
+   --------------------------------------------------------------------------- */
+const PW_DEFAULTS = {
+    overPct: 10, // Paid More Than Before: over the trailing median by more than this (editable by the owner)
+    minBuys: 3, // prior buys the history tests need
+    windowDays: 365, // the trailing window the median reads
+    recentDays: 90, // "recent" for another vendor's cheaper price and the best recent price
+    checkDays: 60, // purchases this recent are checked
+    tolPct: null, // over the PO price: the AP tolerance (DB.company.ap.tol, 2%) unless set
+    qtyOverPct: 25,
+    nearDupPct: 3,
+    dupDays: 7,
+    splitDays: 3,
+    feeSpikePct: 50,
+    feeSpikeMin: 25,
+    rareMax: 1,
+    rareCatMin: 3,
+    lateDays: 7,
+    precisionDays: 30,
+    precisionMin: 4,
+    precisionFloor: 50,
+  },
+  PW_MONEY_LINE = "Wasted money comes out of raises, bonuses, staff and the extra value we give clients.",
+  PW_PO_LIVE = ["issued", "partial", "received", "closed", "billed", "paid"],
+  PW_FEE_RE = /\b(freight|delivery|shipping|fuel surcharge|surcharge|restocking|handling fee|service fee|small order fee|lift gate|liftgate|crane fee|hazmat)\b/i,
+  PW_PACKU = ["box", "pack", "case", "bundle"],
+  PW_UNITS = { ea: "ea", each: "ea", pc: "ea", pcs: "ea", piece: "ea", pieces: "ea", unit: "ea", units: "ea", stick: "ea", sf: "sf", sqft: "sf", "sq ft": "sf", ft2: "sf", lf: "lf", lnft: "lf", box: "box", bx: "box", boxes: "box", pk: "pack", pack: "pack", pkg: "pack", cs: "case", case: "case", ctn: "case", carton: "case", bdl: "bundle", bundle: "bundle", lb: "lb", lbs: "lb", gal: "gal", sheet: "sheet", sht: "sheet", sheets: "sheet", ls: "ls", lot: "ls", lump: "ls" },
+  // order matters: a drywall or tile size (4x12, 12x24) is not lumber, and a joist hanger is hardware
+  PW_CATS = [
+    ["Drywall", /\b(drywall|gwb|sheetrock|gypsum|joint compound)\b/],
+    ["Tile and stone", /\b(tile|porcelain|marble|stone|grout|thinset|mortar)\b/],
+    ["Windows and doors", /\b(windows?|doors?|sash|brick mold)\b/],
+    ["Fasteners and hardware", /\b(hangers?|nails?|screws?|bolts?|anchors?|fasteners?|connectors?|straps?|clips?|adhesive|staples?)\b/],
+    ["Lumber", /\b([1-6]x(?:2|3|4|6|8|10|12)(?:x\d+\w*)?|studs?|joists?|lumber|timber|plywood|osb|sheathing|lvl|rim board|headers?|blocking|subfloor|plate stock|furring)\b/],
+    ["Plumbing", /\b(pipe|pex|copper|valves?|fittings?|faucets?|toilets?|drains?|plumbing)\b/],
+    ["Electrical", /\b(wire|romex|conduit|breakers?|panel|outlets?|switch(es)?|electrical)\b/],
+    ["Millwork", /\b(millwork|cabinets?|trim|molding|moulding)\b/],
+    ["Flooring", /\b(flooring|oak|hardwood)\b/],
+    ["Paint", /\b(paint|primer|stain)\b/],
+  ],
+  PW_SUPPLY_RE = /depot|lowe'?s|lumber|supply|supplies|hardware|building|bldg|tile|plumbing|electric|ferguson|grainger|fastenal|menards|amazon|home ?depot|stone|millwork/i,
+  // detectors absorbed by name when another lane registers them (see the MERGE NOTE above)
+  PW_ABSORB = ["boughtWhileInStock"];
+const PW_DET = {
+  pwPaidMore: { label: "Paid More Than Before", short: "paid more", rule: "a purchase in the last 60 days over its usual price: more than the threshold over the trailing median of at least three earlier buys, over a cheaper recent price from another vendor, or over the PO or quote it was bought against" },
+  pwQtyOver: { label: "Quantity Over the Estimate", short: "quantity", rule: "ordered more than 25% beyond the estimate line's quantity or the RFQ takeoff" },
+  pwDupCharge: { label: "Possible Duplicate Charge", short: "duplicate", rule: "the same vendor billed or charged a near-identical amount within a week (exact bank duplicates stay with the duplicate check)" },
+  pwSplit: { label: "Split Under a Limit", short: "split", rule: "two or more orders to one vendor for one job within three days, each under the $2,500 three-quote rule or the owner's approval limit, together over it" },
+  pwFeeSpike: { label: "Fee or Freight Spike", short: "fee", rule: "a vendor's freight or fee more than 50% over its usual on at least three earlier orders" },
+  pwRareVendor: { label: "Rarely Used Vendor", short: "rare vendor", rule: "a purchase from a vendor the firm has used at most once for the category, while it has three or more orders there with others (RFQ awards excepted)" },
+  pwNotDelivered: { label: "Not Delivered to the Job", short: "not delivered", rule: "a job's order shipped to the shop or another address, or billed and still not received a week after its date" },
+  pwCardNoJob: { label: "Card Buy, No Job, PO or Receipt", short: "card", rule: "a card purchase at a supply house with no job, no PO or bill, and no receipt (a line nobody matched stays on Not Matched to a Line)" },
+  pwUseTax: { label: "Use Tax to Accrue", short: "use tax", rule: "a bill for goods from an out-of-state vendor that charged no NY sales tax: use tax to accrue at the job's rate (confirm with the accountant)" },
+};
+function pwInit() {
+  const P = (DB.priceWatch = DB.priceWatch || {});
+  ["settings", "alias", "matchProps", "flags", "closed", "acts", "tune", "priceBook"].forEach((k) => (P[k] = P[k] || {}));
+  ["expl", "baselines", "rfqQueue", "settingsLog"].forEach((k) => (P[k] = P[k] || []));
+  pwLearnReg();
+  return P;
+}
+function pwSet() {
+  const S0 = Object.assign({}, PW_DEFAULTS, (DB.priceWatch && DB.priceWatch.settings) || {});
+  null == S0.tolPct && (S0.tolPct = +(((DB.company || {}).ap || {}).tol || 2));
+  return S0;
+}
+const pwR4 = (x) => Math.round((+x || 0) * 1e4) / 1e4,
+  pwU2 = (x) => `$${rfqMoney2(x)}`,
+  pwPct = (a, b) => (b ? Math.round(((a - b) / b) * 1000) / 10 : 0),
+  pwVKey = (v) => String(v || "").toLowerCase().replace(/[^a-z0-9]/g, ""),
+  pwByDate = (a, b) => String(a.date).localeCompare(String(b.date)) || String(a.id).localeCompare(String(b.id)),
+  pwMe = () => ((typeof currentUser == "function" && currentUser()) || {}).name || role(),
+  pwVendor = (name) => (DB.vendors || []).find((v) => pwVKey(v.name) === pwVKey(name)) || null;
+function pwMedian(a) {
+  const s = a.filter((x) => null != x && isFinite(x)).slice().sort((x, y) => x - y),
+    n = s.length;
+  return n ? (n % 2 ? s[(n - 1) / 2] : pwR4((s[n / 2 - 1] + s[n / 2]) / 2)) : null;
+}
+// ---- item identity: one normalised key per item, the pack size taken out of the unit price
+function pwUnit(u) {
+  const k = String(u || "").toLowerCase().trim().replace(/\.$/, "");
+  return PW_UNITS[k] || k || "ea";
+}
+function pwPack(desc) {
+  const m = String(desc || "").match(/\b(?:box|pack|pk|case|bundle|bdl|carton|ctn)\s*(?:of\s*)?(\d+)\b|\b(\d+)\s*(?:\/|per\s*)(?:box|pack|pk|case|bundle|bdl|ctn)\b|\b(\d+)\s*-?\s*(?:pack|pk|ct|count)\b/i);
+  return m ? +(m[1] || m[2] || m[3]) || 0 : 0;
+}
+function pwNorm(desc) {
+  let s = String(desc || "").toLowerCase().replace(/[×]/g, "x").replace(/[–—]/g, " ").replace(/\(([^)]*)\)/g, " $1 ");
+  s = s.replace(/\b(?:box|pack|pk|case|bundle|bdl|carton|ctn)\s*(?:of\s*)?\d+\b|\b\d+\s*(?:\/|per\s*)(?:box|pack|pk|case|bundle|bdl|ctn)\b|\b\d+\s*-?\s*(?:pack|pk|ct|count)\b/g, " ");
+  s = s.replace(/(\d)\s*x\s*(?=\d)/g, "$1x");
+  s = s.replace(/(\d+)\s*(?:'|ft\b|feet\b|foot\b)/g, "$1ft").replace(/(\d+)\s*(?:"|in\b|inch(?:es)?\b)/g, "$1in").replace(/(\d+x\d+)\s+(\d+ft)\b/g, "$1x$2");
+  const STOP = new Set(["the", "a", "an", "of", "and", "for", "with", "ea", "each", "pc", "pcs", "piece", "pieces", "per", "new", "qty", "x"]);
+  const toks = s
+    .replace(/[^a-z0-9#./ ]+/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => (w.length > 3 && /[a-z]s$/.test(w) && !/ss$/.test(w) ? w.slice(0, -1) : w))
+    .filter((w) => !STOP.has(w));
+  return [...new Set(toks)].sort().join(" ");
+}
+function pwCat(desc, code) {
+  const d = String(desc || "").toLowerCase();
+  for (const [c, re] of PW_CATS) if (re.test(d)) return c;
+  return code ? `cost code ${code}` : "Materials";
+}
+function pwResolve(k) {
+  const A = (DB.priceWatch && DB.priceWatch.alias) || {};
+  let n = 0;
+  while (A[k] && A[k] !== k && n++ < 10) k = A[k];
+  return k;
+}
+function pwMake(o) {
+  const item = String(o.item || "").trim();
+  if (!item || !(+o.qty > 0) || !(+o.price > 0)) return null;
+  const u = pwUnit(o.unit),
+    pack = PW_PACKU.includes(u) ? pwPack(item) : 0,
+    f = pack || 1,
+    nu = pack ? "ea" : u,
+    cat = pwCat(item, o.code),
+    norm = pwNorm(item),
+    sku = String(o.sku || "").trim().toLowerCase(),
+    raw = sku ? `sku:${sku}` : `${cat}|${norm}|${nu}`;
+  return Object.assign({}, o, { item: item, unitIn: o.unit || "", normUnit: nu, packF: f, pack: pack, normQty: pwR4(+o.qty * f), price: pwR4(+o.price / f), poPrice: "po" === o.kind || "draft" === o.kind ? pwR4(+o.price / f) : null, paidPrice: null, cat: cat, norm: norm, sku: sku, rawKey: raw, key: pwResolve(raw), sources: o.src ? [Object.assign({ unitPrice: pwR4(+o.price / f) }, o.src)] : [] });
+}
+// ---- the memo: one read per moment (Home, Approvals, badges and Ask ask several times in one render)
+let pwMemo = null;
+function pwSig() {
+  const P = pwInit();
+  return [today(), (DB.pos || []).length, (DB.pos || []).filter((p) => PW_PO_LIVE.includes(p.status)).length, (DB.bills || []).length, (DB.bills || []).filter((b) => "draft" !== b.status).length, (DB.txns || []).length, (DB.txns || []).filter((t) => t.match || t.poId || t.billId || t.receipt).length, rfqInit().reduce((a, r) => a + (r.quotes || []).filter((q) => q.confirmed).length, 0), (DB.vendors || []).length, Object.keys(P.closed).length, Object.keys(P.acts).length, P.expl.length, P.expl.filter((e) => "proposed" !== e.status).length, P.baselines.length, Object.keys(P.alias).length, JSON.stringify(P.settings), (DB.outbox || []).filter((o) => "pwcredit" === o.kind && "sent" === o.status).length].join("|");
+}
+function pwMemoGet(k, fn) {
+  const sig = pwSig();
+  if (!pwMemo || pwMemo.sig !== sig) {
+    pwMemo = { sig: sig, v: {} };
+    try {
+      setTimeout(() => (pwMemo = null), 0);
+    } catch (e) {}
+  }
+  return k in pwMemo.v ? pwMemo.v[k] : (pwMemo.v[k] = fn());
+}
+const pwFresh = () => (pwMemo = null);
+// ---- the history: buys (PO lines; a bill line or a bank/card line on the same order is the same buy, with its
+// paid price and its source), standalone bill and card lines with a quantity, confirmed quotes, and fees.
+function pwData() {
+  return pwMemoGet("data", pwBuild);
+}
+function pwBuild() {
+  const rate = rfqTaxRate(),
+    buys = [],
+    byId = {},
+    quotes = [];
+  let fees = [];
+  const add = (o) => {
+    const b = pwMake(o);
+    return b ? (buys.push(b), (byId[b.id] = b), b) : null;
+  };
+  (DB.pos || []).forEach((po) => {
+    if (!PW_PO_LIVE.includes(po.status)) return;
+    let goods = 0,
+      fee = 0;
+    const what = [];
+    (po.lines || []).forEach((l) => {
+      const desc = l.item || l.desc || "",
+        q = +l.qty || 0,
+        pr = +l.price || 0;
+      if (PW_FEE_RE.test(desc)) return (fee += r2(q * pr)), void what.push(desc);
+      const b = add({ id: `po:${po.id}:${l.id}`, kind: "po", date: po.date, vendor: po.vendor, projectId: po.projectId || "", item: l.item || l.desc, sku: l.sku || "", unit: l.unit, qty: q, price: pr, code: l.code || "", line: l.line || "", rfqId: l.rfqId || po.rfqId || "", rfqLineId: l.rfqLineId || "", origin: po.origin || "", poId: po.id, poLineId: l.id, doc: "po:" + po.id, docNo: po.number, needBy: po.needBy || "", src: { kind: "po", label: `${po.number} · ${po.vendor}`, date: po.date, poId: po.id } });
+      b && (goods += r2(q * pr));
+    });
+    +po.shipping > 0 && ((fee = r2(fee + +po.shipping)), what.push("shipping on the PO"));
+    fee > 0 && fees.push({ id: "po:" + po.id, kind: "po", date: po.date, vendor: po.vendor, amount: r2(fee), goods: r2(goods), what: what.join(", "), docNo: po.number, poId: po.id, projectId: po.projectId || "" });
+  });
+  (DB.bills || []).forEach((b) => {
+    if (["void", "rejected", "draft"].includes(b.status)) return;
+    const po = b.poId ? (DB.pos || []).find((p) => p.id === b.poId) : null,
+      goodsLines = po ? (po.lines || []).filter((x) => !PW_FEE_RE.test(x.item || x.desc || "")) : [];
+    let fee = 0,
+      goods = 0;
+    const what = [];
+    (b.lines || []).forEach((l, i) => {
+      const desc = String(l.desc || l.item || "").split(" — ")[0],
+        amt = +l.amount || 0,
+        lid = l.id || `l${i}`;
+      if (/^(sales |use )?tax\b/i.test(desc)) return;
+      if (PW_FEE_RE.test(desc)) return (fee = r2(fee + amt)), void what.push(desc);
+      const pl = po && ((l.poLineId && po.lines.find((x) => x.id === l.poLineId)) || (1 === goodsLines.length ? goodsLines[0] : null)),
+        B = pl && byId[`po:${po.id}:${pl.id}`];
+      if (B) {
+        const q = +l.qty || +pl.qty || 0;
+        q > 0 && amt > 0 && ((B.paidPrice = pwR4(amt / q / B.packF)), (B.price = B.paidPrice), (B.billId = b.id), (B.billLineId = lid), (B.billNo = b.number), (B.billDate = b.date), B.sources.push({ kind: "bill", label: `bill ${b.number} · ${b.vendor}`, date: b.date, unitPrice: B.paidPrice, billId: b.id }));
+        return void (goods += amt);
+      }
+      const q = +l.qty || 0;
+      q > 0 && amt > 0 && add({ id: `bill:${b.id}:${lid}`, kind: "bill", date: b.date, vendor: b.vendor, projectId: b.projectId || "", item: desc, sku: l.sku || "", unit: l.unit, qty: q, price: +l.price || amt / q, code: l.code || b.code || "", line: l.line || b.line || "", billId: b.id, billLineId: lid, billNo: b.number, doc: "bill:" + b.id, docNo: b.number, src: { kind: "bill", label: `bill ${b.number} · ${b.vendor}`, date: b.date, billId: b.id } });
+      goods += amt;
+    });
+    if (fee > 0) {
+      po && (fees = fees.filter((f) => f.id !== "po:" + po.id));
+      fees.push({ id: "bill:" + b.id, kind: "bill", date: b.date, vendor: b.vendor, amount: r2(fee), goods: r2(goods), what: what.join(", "), docNo: b.number, billId: b.id, poId: b.poId || "", projectId: b.projectId || "" });
+    }
+  });
+  const cards = new Set((DB.accounts || []).filter((a) => /card/i.test(a.kind || a.type || "")).map((a) => a.id));
+  (DB.txns || []).forEach((t) => {
+    if (!(+t.amt < 0) || t.voided || "disputed" === t.dupState) return;
+    const m = t.match || {},
+      card = cards.has(t.acct),
+      label = `${card ? "card" : "bank"} line ${fmt(t.date)} · ${t.vendor || t.desc}`,
+      B = (m.poId && m.poLineId && byId[`po:${m.poId}:${m.poLineId}`]) || (t.billId && buys.find((x) => x.billId === t.billId)) || ((t.poId || m.poId) && buys.find((x) => x.poId === (t.poId || m.poId)));
+    if (B) return (B.txnIds = (B.txnIds || []).concat(t.id)), void B.sources.push({ kind: card ? "card" : "bank", label: label, date: t.date, amount: Math.abs(+t.amt), txnId: t.id });
+    if (+t.qty > 0) {
+      const net = Math.abs(+t.amt) / (!1 === t.taxIncl ? 1 : 1 + rate / 100);
+      add({ id: "txn:" + t.id, kind: card ? "card" : "bank", date: t.date, vendor: t.vendor || t.desc, projectId: t.projectId || "", item: t.item || t.memo || t.desc, unit: t.unit, qty: +t.qty, price: net / +t.qty, code: t.code || "", line: t.line || "", txnId: t.id, txnIds: [t.id], doc: "txn:" + t.id, docNo: label, src: { kind: card ? "card" : "bank", label: `${label} (total less NY tax, divided by the quantity)`, date: t.date, txnId: t.id } });
+    }
+  });
+  rfqInit().forEach((r) =>
+    (r.quotes || [])
+      .filter((q) => q.confirmed && !q.unreadable)
+      .forEach((q) =>
+        (q.lines || []).forEach((x) => {
+          const l = (r.lines || []).find((y) => y.id === x.lineId);
+          if (!l || x.missing || x.sub || null == x.unit) return;
+          const o = pwMake({ id: `quote:${q.id}:${x.lineId}`, kind: "quote", date: q.date || String(r.createdAt || "").slice(0, 10), vendor: q.vendor, projectId: r.projectId, item: l.item, unit: l.unit, qty: +l.qty || 1, price: +x.unit, rfqId: r.id, rfqLineId: l.id, src: { kind: "quote", label: `${q.vendor}'s confirmed quote on ${r.number}, round ${q.round}`, date: q.date } });
+          o && quotes.push(o);
+        }),
+      ),
+  );
+  const items = {},
+    put = (x, arr) => {
+      const I = (items[x.key] = items[x.key] || { key: x.key, label: x.item, cat: x.cat, unit: x.normUnit, buys: [], quotes: [], raw: [] });
+      I.raw.includes(x.rawKey) || I.raw.push(x.rawKey), I[arr].push(x);
+    };
+  buys.forEach((b) => put(b, "buys")), quotes.forEach((q) => put(q, "quotes"));
+  Object.values(items).forEach((I) => (I.buys.sort(pwByDate), I.quotes.sort(pwByDate)));
+  return { buys: buys.sort(pwByDate), quotes: quotes, fees: fees.sort(pwByDate), items: items, byId: byId };
+}
+// An approved baseline change ("lumber up 8% this quarter") scales every earlier price from its date on; it
+// applies to one item or to a whole category. Nothing else moves a baseline.
+function pwAdj(I, price, priceDate, atDate) {
+  let f = 1;
+  pwInit().baselines.forEach((b) => {
+    (b.itemKey ? b.itemKey === I.key : b.category && b.category === I.cat) && b.from <= atDate && String(priceDate) < b.from && (f *= 1 + (+b.pct || 0) / 100);
+  });
+  return pwR4(price * f);
+}
+// The price an RFQ award bought at: the awarded vendor's latest quote on that line.
+function pwAwardQuote(B) {
+  const r = B.rfqId && rfqById(B.rfqId);
+  if (!r) return null;
+  const q = (r.quotes || []).filter((x) => pwVKey(x.vendor) === pwVKey(B.vendor) && !x.unreadable).sort((a, b) => b.round - a.round)[0],
+    x = q && (q.lines || []).find((y) => y.lineId === B.rfqLineId);
+  return x && null != x.unit ? pwR4(+x.unit / (B.packF || 1)) : null;
+}
+// A bill over its PO is counted once, on "Billed Over the PO" (the three-way match); price watch names it there.
+function pwOverPOCovered(B) {
+  if (!B.billId) return !1;
+  try {
+    const b = (DB.bills || []).find((x) => x.id === B.billId);
+    return !!b && "function" == typeof pay3Default && "function" == typeof pay3Can && pay3Can(b) && pay3Default(b) > 0;
+  } catch (e) {
+    return !1;
+  }
+}
+// ---- the price test: one function, for a recorded buy and for a PO line still in draft
+function pwPriceCheck(B, I, S0) {
+  const S = S0 || pwSet(),
+    td = B.date,
+    from = iso(addDays(td, -S.windowDays)),
+    recent = iso(addDays(td, -S.recentDays)),
+    prior = ((I && I.buys) || []).filter((x) => x.id !== B.id && (x.date < td || (x.date === td && String(x.id) < String(B.id))) && x.date >= from),
+    adj = (x) => pwAdj(I, x.price, x.date, td),
+    n = prior.length,
+    med = n ? pwMedian(prior.map(adj)) : null,
+    enough = n >= S.minBuys,
+    thr = 1 + S.overPct / 100,
+    reasons = [];
+  if (enough && B.price > med * thr + 1e-9) reasons.push({ kind: "median", ref: med, t: `${pwPct(B.price, med)}% over the usual ${pwU2(med)} per ${I.unit} (the median of ${n} earlier buy${1 === n ? "" : "s"})` });
+  const others = enough ? prior.filter((x) => x.date >= recent && pwVKey(x.vendor) !== pwVKey(B.vendor)).concat(((I && I.quotes) || []).filter((q) => q.date && q.date <= td && q.date >= recent && pwVKey(q.vendor) !== pwVKey(B.vendor))) : [],
+    best = others.length ? others.reduce((a, x) => (adj(x) < adj(a) ? x : a)) : null;
+  best && B.price > adj(best) * thr + 1e-9 && reasons.push({ kind: "otherVendor", ref: adj(best), t: `${pwPct(B.price, adj(best))}% over ${best.vendor}'s ${pwU2(adj(best))} on ${fmtL(best.date)} (${best.sources[0] ? best.sources[0].label : best.kind})` });
+  if (null != B.paidPrice && null != B.poPrice && B.paidPrice > B.poPrice * (1 + S.tolPct / 100) + 0.005) {
+    pwOverPOCovered(B) ? (B.overPO = !0) : reasons.push({ kind: "againstPO", ref: B.poPrice, t: `billed ${pwU2(B.paidPrice)} per ${B.normUnit} against the PO's ${pwU2(B.poPrice)} (${pwPct(B.paidPrice, B.poPrice)}% more)` });
+  }
+  if (B.rfqLineId && null != B.poPrice) {
+    const q = pwAwardQuote(B);
+    null != q && B.poPrice > q * 1.005 + 0.005 && reasons.push({ kind: "againstQuote", ref: q, t: `the PO's ${pwU2(B.poPrice)} is over the quoted ${pwU2(q)} it was awarded at` });
+  }
+  return { n: n, med: med, enough: enough, prior: prior, best: best, reasons: reasons, note: enough ? "" : `not enough history (${n} earlier buy${1 === n ? "" : "s"}; ${S.minBuys} needed)` };
+}
+// One row of history, for the case sheet, the PO draft, Ask and erpQuery.
+function pwHistRow(x, I, atDate) {
+  return { date: x.date, vendor: x.vendor, kind: x.kind, price: x.price, adjusted: I && atDate ? pwAdj(I, x.price, x.date, atDate) : x.price, unit: x.normUnit, qty: x.normQty, item: x.item, projectId: x.projectId || "", sources: (x.sources || []).map((s) => s.label), id: x.id };
+}
+// The ONE item price history: by key, or by words ("2x4 studs"). RFQ vendor suggestions, leveling and price
+// watch all read it.
+function itemPriceHistory(q, opts) {
+  const D = pwData(),
+    o = opts || {};
+  let I = D.items[pwResolve(q)] || null;
+  if (!I && q) {
+    const want = pwNorm(q).split(" ").filter(Boolean),
+      score = (it) => {
+        const have = it.norm || pwNorm(it.label);
+        return want.filter((w) => have.split(" ").some((h) => h === w || h.startsWith(w) || (w.length > 2 && h.includes(w)))).length;
+      };
+    const cand = Object.values(D.items)
+      .map((it) => ({ it: it, s: score(Object.assign({ norm: (it.buys[0] || it.quotes[0] || {}).norm }, it)) }))
+      .filter((x) => x.s >= Math.max(1, Math.ceil(want.length * 0.6)))
+      .sort((a, b) => b.s - a.s || b.it.buys.length - a.it.buys.length);
+    I = cand.length ? cand[0].it : null;
+    I && (I.alsoMatched = cand.slice(1, 4).map((x) => x.it.label));
+  }
+  if (!I) return null;
+  const at = o.at || today(),
+    rows = I.buys.concat(o.quotes === !1 ? [] : I.quotes).sort(pwByDate).map((x) => pwHistRow(x, I, at)),
+    buys = I.buys,
+    recent = iso(addDays(at, -pwSet().recentDays)),
+    rec = I.buys.concat(I.quotes).filter((x) => x.date >= recent && x.date <= at),
+    best = rec.length ? rec.reduce((a, x) => (pwAdj(I, x.price, x.date, at) < pwAdj(I, a.price, a.date, at) ? x : a)) : null,
+    last = buys[buys.length - 1] || null;
+  return { key: I.key, label: I.label, cat: I.cat, unit: I.unit, rows: rows, n: buys.length, median: buys.length ? pwMedian(buys.map((x) => pwAdj(I, x.price, x.date, at))) : null, last: last && pwHistRow(last, I, at), best: best && pwHistRow(best, I, at), alsoMatched: I.alsoMatched || [], vendors: [...new Set(buys.map((x) => x.vendor))], item: I };
+}
+// ---- the detectors. Each returns cases {key, det, what, sub, amount, at (the purchase date), refs (record ids
+// it is about), hist (rows with sources), facts, hyps (innocent explanations, labelled hypotheses), steps}.
+const PW_HYP = {
+  pwPaidMore: ["the market moved (a category-wide rise, such as lumber this quarter)", "a small quantity priced above the volume price", "a rush or after-hours delivery folded into the price", "a different grade, species or spec from the earlier buys"],
+  pwQtyOver: ["scope added by a change order not yet on the estimate", "waste, breakage or a replacement delivery", "material for a neighbouring line coded to this one", "the estimate counts in a different unit from how it is sold"],
+  pwDupCharge: ["two deliveries of the same size", "a reorder after a return", "a deposit and a final payment of similar size"],
+  pwSplit: ["deliveries scheduled on different days on purpose", "two different scopes on the same job", "the vendor invoices each delivery separately"],
+  pwFeeSpike: ["a rush or after-hours delivery", "a small truck or carry-in for a brownstone with no dock", "a fuel surcharge", "a second trip after a short shipment"],
+  pwRareVendor: ["the usual vendors were out of stock", "a special item only this vendor carries", "an emergency on site"],
+  pwNotDelivered: ["shop stock the crew will carry to site", "a delivery the foreman has not logged yet", "a will-call pickup recorded as a delivery"],
+  pwCardNoJob: ["shop or truck stock for several jobs", "the receipt is not uploaded yet", "an office purchase"],
+  pwUseTax: ["the vendor did charge tax and the line is missing from the bill", "the purchase is exempt (resale, or a capital improvement with an ST-124)"],
+};
+const PW_STEPS = {
+  pwPaidMore: ["credit", "pricebook", "rfq", "explain"],
+  pwQtyOver: ["explain", "credit"],
+  pwDupCharge: ["credit", "explain"],
+  pwSplit: ["explain"],
+  pwFeeSpike: ["credit", "explain"],
+  pwRareVendor: ["rfq", "explain"],
+  pwNotDelivered: ["explain", "credit"],
+  pwCardNoJob: ["explain"],
+  pwUseTax: ["accrue", "explain"],
+};
+function pwCasesAll() {
+  return pwMemoGet("cases", () => {
+    const D = pwData(),
+      S = pwSet(),
+      td = today(),
+      since = iso(addDays(td, -S.checkDays)),
+      out = [],
+      push = (c) => out.push(Object.assign({ steps: PW_STEPS[c.det], hyps: PW_HYP[c.det], label: PW_DET[c.det].label }, c));
+    const tryDet = (name, fn) => {
+      try {
+        fn();
+      } catch (e) {
+        console.warn("price watch", name, e);
+      }
+    };
+    // 1. paid more than before
+    tryDet("paid", () =>
+      D.buys
+        .filter((B) => B.date >= since && B.date <= td)
+        .forEach((B) => {
+          const I = D.items[B.key],
+            R = pwPriceCheck(B, I, S);
+          if (!R.reasons.length) return;
+          const ref = Math.min(...R.reasons.map((x) => x.ref)),
+            at = r2(Math.max(0, (B.price - ref) * B.normQty));
+          push({ key: "pw:paid:" + B.id, det: "pwPaidMore", at: B.date, what: `${B.item} from ${B.vendor}`, sub: `${pwU2(B.price)} per ${B.normUnit}: ${R.reasons[0].t}`, amount: at, buy: B, itemKey: B.key, vendor: B.vendor, projectId: B.projectId, refs: [B.poId, B.billId].concat(B.txnIds || []).filter(Boolean), docNos: [B.docNo, B.billNo].filter(Boolean), facts: R.reasons.map((x) => x.t).concat(R.enough ? [] : [`Against its history: ${R.note}.`]).concat(B.overPO ? ["The bill is over its PO: that difference is counted once, under Billed Over the PO."] : []), hist: I.buys.concat(I.quotes).sort(pwByDate).map((x) => pwHistRow(x, I, B.date)), n: R.n, median: R.med, price: B.price, unit: B.normUnit, kinds: R.reasons.map((x) => x.kind), trend: pwCatTrend(B.cat, B.date) });
+        }),
+    );
+    // 2. quantity beyond the estimate line or the RFQ takeoff
+    tryDet("qty", () => {
+      const byLine = {};
+      D.buys.filter((B) => "po" === B.kind && B.line && "ls" !== B.normUnit).forEach((B) => (byLine[B.line] = byLine[B.line] || []).push(B));
+      Object.entries(byLine).forEach(([key, L]) => {
+        const ref = "function" == typeof findLine ? findLine(key) : null;
+        if (!ref || !(+ref.line.qty > 0) || pwUnit(ref.line.unit) === "ls") return;
+        const u = pwUnit(ref.line.unit),
+          same = L.filter((B) => B.normUnit === u || pwUnit(B.unitIn) === u),
+          tot = r2(same.reduce((a, B) => a + B.normQty, 0)),
+          est = +ref.line.qty;
+        if (!same.length || tot <= est * (1 + S.qtyOverPct / 100) + 1e-9 || !same.some((B) => B.date >= since)) return;
+        const avg = same.reduce((a, B) => a + B.price * B.normQty, 0) / tot,
+          last = same[same.length - 1];
+        push({ key: "pw:qty:" + key, det: "pwQtyOver", at: last.date, what: `${ref.line.item || ref.line.desc} on ${ref.doc.number}`, sub: `${tot} ${u} ordered against ${est} ${u} on the estimate line (${pwPct(tot, est)}% more)`, amount: r2((tot - est) * avg), vendor: last.vendor, projectId: last.projectId, refs: [...new Set(same.map((B) => B.poId))], docNos: [...new Set(same.map((B) => B.docNo))], facts: [`${ref.doc.number} · ${ref.line.item || ref.line.desc}: ${est} ${u} estimated`, `ordered on ${same.length} PO line${1 === same.length ? "" : "s"}: ${tot} ${u}`], hist: same.map((B) => pwHistRow(B, D.items[B.key], B.date)), lineKey: key });
+      });
+      const byRfq = {};
+      D.buys.filter((B) => "po" === B.kind && B.rfqId && B.rfqLineId).forEach((B) => (byRfq[`${B.rfqId}:${B.rfqLineId}`] = byRfq[`${B.rfqId}:${B.rfqLineId}`] || []).push(B));
+      Object.entries(byRfq).forEach(([k, L]) => {
+        const [rid, lid] = k.split(":"),
+          r = rfqById(rid),
+          l = r && (r.lines || []).find((x) => x.id === lid);
+        if (!l || !(+l.qty > 0)) return;
+        const tot = r2(L.reduce((a, B) => a + +B.qty, 0));
+        if (tot <= +l.qty * (1 + S.qtyOverPct / 100) + 1e-9 || !L.some((B) => B.date >= since)) return;
+        push({ key: "pw:qty:rfq:" + k, det: "pwQtyOver", at: L[L.length - 1].date, what: `${l.item} on ${r.number}`, sub: `${tot} ${l.unit} ordered against the takeoff's ${l.qty} ${l.unit}`, amount: r2((tot - +l.qty) * L[0].price * (L[0].packF || 1)), vendor: L[0].vendor, projectId: r.projectId, refs: [...new Set(L.map((B) => B.poId))], docNos: [...new Set(L.map((B) => B.docNo))], facts: [`${r.number} line ${l.id}: ${l.qty} ${l.unit} from the takeoff (${l.derivation || "as the line reads"})`], hist: L.map((B) => pwHistRow(B, D.items[B.key], B.date)) });
+      });
+    });
+    // 3. near-duplicate bills and charges (an exact bank duplicate is lkDup's; billFlags names exact bill copies)
+    tryDet("dup", () => {
+      const B = (DB.bills || []).filter((b) => !["void", "rejected", "draft"].includes(b.status) && b.date <= td),
+        near = (a, b) => {
+          const x = Math.abs(a),
+            y = Math.abs(b);
+          return Math.max(x, y) > 50 && Math.abs(x - y) <= (Math.max(x, y) * S.nearDupPct) / 100 + 0.005;
+        };
+      B.forEach((b) => {
+        if (b.date < since) return;
+        const tw = B.filter((x) => x.id !== b.id && pwVKey(x.vendor) === pwVKey(b.vendor) && Math.abs(dayDiff(x.date, b.date)) <= S.dupDays && near(billTotal(x), billTotal(b)) && (x.date < b.date || (x.date === b.date && String(x.id) < String(b.id))) && !(x.poId && b.poId && x.poId !== b.poId) && x.number !== b.number).sort(pwByDate).pop();
+        tw && push({ key: "pw:dup:bill:" + b.id, det: "pwDupCharge", at: b.date, what: `${b.vendor}: bill ${b.number} next to ${tw.number}`, sub: `${money(billTotal(b))} and ${money(billTotal(tw))}, ${Math.abs(dayDiff(tw.date, b.date))} days apart`, amount: billTotal(b), vendor: b.vendor, projectId: b.projectId || "", refs: [b.id, tw.id], docNos: [b.number, tw.number], facts: [`bill ${tw.number} on ${fmtL(tw.date)}: ${money(billTotal(tw))}`, `bill ${b.number} on ${fmtL(b.date)}: ${money(billTotal(b))}`], hist: [tw, b].map((x) => ({ date: x.date, vendor: x.vendor, item: (x.lines || []).map((l) => l.desc).join("; ").slice(0, 80), price: billTotal(x), qty: 1, unit: "bill", sources: [`bill ${x.number}`], id: x.id })) });
+      });
+      const T = (DB.txns || []).filter((t) => +t.amt < 0 && !t.voided && !["disputed", "notdup", "proposed"].includes(t.dupState) && t.date <= td),
+        pk = (t) => ("undefined" != typeof lkPayeeKey ? lkPayeeKey(t) : pwVKey(t.vendor || t.desc)),
+        docOf = (t) => t.billId || (t.match || {}).billId || t.poId || (t.match || {}).poId || "";
+      T.forEach((t) => {
+        if (t.date < since) return;
+        const tw = T.filter((x) => x.id !== t.id && pk(x) === pk(t) && Math.abs(dayDiff(x.date, t.date)) <= S.dupDays && Math.abs(+x.amt - +t.amt) >= 0.005 && near(+x.amt, +t.amt) && (x.date < t.date || (x.date === t.date && String(x.id) < String(t.id))) && !(docOf(x) && docOf(t) && docOf(x) !== docOf(t))).sort(pwByDate).pop();
+        tw && push({ key: "pw:dup:txn:" + t.id, det: "pwDupCharge", at: t.date, what: `${t.vendor || t.desc}: two charges in ${Math.abs(dayDiff(tw.date, t.date))} days`, sub: `${money(Math.abs(+t.amt))} and ${money(Math.abs(+tw.amt))}`, amount: Math.abs(+t.amt), vendor: t.vendor || t.desc, projectId: t.projectId || "", refs: [t.id, tw.id], docNos: [], facts: [`${fmtL(tw.date)}: ${money(Math.abs(+tw.amt))}`, `${fmtL(t.date)}: ${money(Math.abs(+t.amt))}`], hist: [tw, t].map((x) => ({ date: x.date, vendor: x.vendor || x.desc, item: x.desc, price: Math.abs(+x.amt), qty: 1, unit: "charge", sources: [`bank or card line ${fmt(x.date)}`], id: x.id })) });
+      });
+    });
+    // 4. split under the three-quote rule or the owner's approval limit
+    tryDet("split", () => {
+      const lim3 = +(((DB.company || {}).ap || {}).splitAbove || 2500),
+        limA = +((DB.company || {}).poApprovalOver || 0),
+        docs = [];
+      (DB.pos || []).filter((po) => PW_PO_LIVE.concat(["pending"]).includes(po.status) && "rfq" !== po.origin).forEach((po) => docs.push({ id: po.id, kind: "po", no: po.number, vendor: po.vendor, projectId: po.projectId || "", date: po.date, amount: poTotal(po).total }));
+      const cards = new Set((DB.accounts || []).filter((a) => /card/i.test(a.kind || a.type || "")).map((a) => a.id));
+      // the later copy of an exact duplicate is lkDup's (Dispute or Void), never also a split
+      const exactDup = (t) => ["proposed", "disputed"].includes(t.dupState) || ("function" == typeof lkDupOf && !t.dupState && !!lkDupOf(t));
+      (DB.txns || []).filter((t) => cards.has(t.acct) && +t.amt < 0 && !t.poId && !t.billId && !(t.match || {}).poId && !t.voided && !exactDup(t)).forEach((t) => docs.push({ id: t.id, kind: "card", no: `card ${fmt(t.date)}`, vendor: t.vendor || t.desc, projectId: t.projectId || "", date: t.date, amount: Math.abs(+t.amt) }));
+      const groups = {};
+      docs.forEach((d) => (groups[`${pwVKey(d.vendor).slice(0, 12)}|${d.projectId}`] = groups[`${pwVKey(d.vendor).slice(0, 12)}|${d.projectId}`] || []).push(d));
+      Object.values(groups).forEach((G) => {
+        G.sort(pwByDate);
+        let run = [];
+        const flush = () => {
+          if (run.length >= 2 && run.some((d) => d.date >= since)) {
+            const sum = r2(run.reduce((a, d) => a + d.amount, 0)),
+              lim = [limA, lim3].filter((L) => L > 0).find((L) => run.every((d) => d.amount < L) && sum >= L);
+            lim &&
+              push({ key: "pw:split:" + run.map((d) => d.id).join("+"), det: "pwSplit", at: run[run.length - 1].date, what: `${run[0].vendor}: ${run.length} orders in ${Math.max(1, dayDiff(run[0].date, run[run.length - 1].date) + 1)} days`, sub: `${money(sum)} together, each under ${lim === lim3 ? `the ${money(lim3)} three-quote rule` : `the owner's ${money(limA)} approval limit`}`, amount: sum, vendor: run[0].vendor, projectId: run[0].projectId, refs: run.map((d) => d.id), docNos: run.map((d) => d.no), facts: run.map((d) => `${d.no} on ${fmtL(d.date)}: ${money(d.amount)}`).concat([lim === lim3 ? rfqWhy("quotes3") : `POs over ${money(limA)} need the owner's approval`]), hist: run.map((d) => ({ date: d.date, vendor: d.vendor, item: d.no, price: d.amount, qty: 1, unit: d.kind, sources: [d.no], id: d.id })), limit: lim });
+          }
+          run = [];
+        };
+        G.forEach((d) => {
+          run.length && dayDiff(run[run.length - 1].date, d.date) > S.splitDays && flush();
+          run.push(d);
+        });
+        flush();
+      });
+    });
+    // 5. a fee or freight spike against the vendor's own usual fee
+    tryDet("fee", () =>
+      D.fees
+        .filter((f) => f.date >= since && f.date <= td)
+        .forEach((f) => {
+          const prior = D.fees.filter((x) => x.id !== f.id && pwVKey(x.vendor) === pwVKey(f.vendor) && x.date < f.date);
+          if (prior.length < S.minBuys) return;
+          const med = pwMedian(prior.map((x) => x.amount));
+          f.amount > med * (1 + S.feeSpikePct / 100) &&
+            f.amount - med >= S.feeSpikeMin &&
+            push({ key: "pw:fee:" + f.id, det: "pwFeeSpike", at: f.date, what: `${f.vendor}: ${f.what || "fees"} on ${f.docNo}`, sub: `${money(f.amount)} against a usual ${money(med)} (${pwPct(f.amount, med)}% more)`, amount: r2(f.amount - med), vendor: f.vendor, projectId: f.projectId, refs: [f.poId, f.billId].filter(Boolean), docNos: [f.docNo], facts: [`the usual fee is the median of ${prior.length} earlier orders: ${money(med)}`], hist: prior.concat([f]).map((x) => ({ date: x.date, vendor: x.vendor, item: x.what, price: x.amount, qty: 1, unit: "order", sources: [x.docNo], id: x.id })) });
+        }),
+    );
+    // 6. a vendor the firm rarely uses for the category (an RFQ award was chosen against three quotes)
+    tryDet("rare", () => {
+      const docs = {};
+      D.buys.forEach((B) => {
+        const d = (docs[B.doc] = docs[B.doc] || { doc: B.doc, no: B.docNo, vendor: B.vendor, date: B.date, cats: {}, amount: 0, origin: B.origin, projectId: B.projectId, refs: [B.poId, B.billId, B.txnId].filter(Boolean) });
+        (d.cats[B.cat] = (d.cats[B.cat] || 0) + B.price * B.normQty), (d.amount = r2(d.amount + B.price * B.normQty));
+      });
+      const L = Object.values(docs).map((d) => Object.assign(d, { cat: Object.entries(d.cats).sort((a, b) => b[1] - a[1])[0][0] }));
+      L.filter((d) => d.date >= since && d.date <= td && "rfq" !== d.origin && !/^cost code|^Materials$/.test(d.cat)).forEach((d) => {
+        const prior = L.filter((x) => x.doc !== d.doc && x.cat === d.cat && (x.date < d.date || (x.date === d.date && x.doc < d.doc))),
+          mine = prior.filter((x) => pwVKey(x.vendor) === pwVKey(d.vendor)),
+          theirs = prior.filter((x) => pwVKey(x.vendor) !== pwVKey(d.vendor));
+        if (mine.length > S.rareMax || theirs.length < S.rareCatMin) return;
+        const usual = Object.entries(theirs.reduce((a, x) => ((a[x.vendor] = (a[x.vendor] || 0) + 1), a), {})).sort((a, b) => b[1] - a[1]);
+        push({ key: "pw:rare:" + d.doc, det: "pwRareVendor", at: d.date, what: `${d.vendor} for ${d.cat.toLowerCase()}`, sub: `${mine.length ? "once before" : "first time"}; usually ${usual.slice(0, 2).map(([v, n]) => `${v} (${n})`).join(", ")}`, amount: d.amount, vendor: d.vendor, projectId: d.projectId, refs: d.refs, docNos: [d.no], facts: [`${d.no}: ${money(d.amount)} of ${d.cat.toLowerCase()} from ${d.vendor}`, `${theirs.length} earlier ${d.cat.toLowerCase()} orders went to ${usual.map(([v, n]) => `${v} (${n})`).join(", ")}`], hist: prior.concat([d]).map((x) => ({ date: x.date, vendor: x.vendor, item: x.cat, price: x.amount, qty: 1, unit: "order", sources: [x.no], id: x.doc })) });
+      });
+    });
+    // 7. not delivered to the job: shipped elsewhere, or billed and never received
+    tryDet("away", () =>
+      (DB.pos || [])
+        .filter((po) => po.projectId && PW_PO_LIVE.includes(po.status) && "subcontract" !== po.type)
+        .forEach((po) => {
+          const p = (DB.projects || []).find((x) => x.id === po.projectId),
+            addr = String((p && p.project && (p.project.address || p.project.name)) || "").toLowerCase().split(",")[0],
+            ship = po.shipTo || "site",
+            away = "shop" === ship || ("other" === ship && !(addr && String(po.shipToText || "").toLowerCase().includes(addr))),
+            got = (po.lines || []).some((l) => +l.received > 0) || (po.receipts || []).length,
+            billed = (DB.bills || []).filter((b) => b.poId === po.id && !["void", "rejected", "draft"].includes(b.status)),
+            amt = poTotal(po).total,
+            // a deposit before a shop-built item is normal: only an order billed or paid in full (90%) counts
+            out = Math.max(r2(billed.reduce((a, b) => a + billTotal(b), 0)), r2((DB.txns || []).filter((t) => (po.matchedTxns || []).includes(t.id)).reduce((a, t) => a + Math.abs(+t.amt || 0), 0))),
+            paid = amt > 0 && out >= amt * 0.9,
+            due = po.expected || po.needBy || "",
+            late = !got && paid && due && iso(addDays(due, S.lateDays)) < td;
+          if (!(away && po.date >= since) && !late) return;
+          push({ key: (away ? "pw:away:" : "pw:notrecv:") + po.id, det: "pwNotDelivered", at: po.date, what: `${po.number} · ${po.vendor}`, sub: away ? `for ${p ? shortName(p) : "the job"}, shipped to ${"shop" === ship ? "the shop" : po.shipToText || "another address"}` : `billed, nothing received ${dayDiff(due, td)} days after ${fmtL(due)}`, amount: amt, vendor: po.vendor, projectId: po.projectId, refs: [po.id].concat(billed.map((b) => b.id)), docNos: [po.number].concat(billed.map((b) => b.number)), facts: [away ? `ship-to on ${po.number}: ${"shop" === ship ? "Shop / office" : po.shipToText || "Other"}; the job is ${p ? shortName(p) : po.projectId}` : `expected ${fmtL(due)}; no receipt on the PO; ${billed.length ? `billed on ${billed.map((b) => b.number).join(", ")}` : "paid from the bank"}`], hist: (po.lines || []).map((l) => ({ date: po.date, vendor: po.vendor, item: l.item, price: +l.price || 0, qty: +l.qty || 0, unit: l.unit, sources: [`${po.number}${+l.received > 0 ? `, ${l.received} received` : ", none received"}`], id: l.id })) });
+        }),
+    );
+    // 8. a card buy at a supply house with no job, PO or receipt (an unmatched line is "Not Matched to a Line")
+    tryDet("card", () => {
+      const cards = new Set((DB.accounts || []).filter((a) => /card/i.test(a.kind || a.type || "")).map((a) => a.id)),
+        un = new Set((("function" == typeof bankUnmatched && bankUnmatched().rows) || []).map((t) => t.id));
+      (DB.txns || [])
+        .filter((t) => cards.has(t.acct) && +t.amt < 0 && t.date >= since && t.date <= td && !t.projectId && !t.poId && !t.billId && !(t.match || {}).poId && !(t.match || {}).billId && !t.receipt && !t.fileId && !t.voided && !un.has(t.id))
+        .filter((t) => PW_SUPPLY_RE.test(`${t.vendor || ""} ${t.desc || ""}`) || ["materials", "equipment"].includes(t.cat))
+        .forEach((t) => push({ key: "pw:card:" + t.id, det: "pwCardNoJob", at: t.date, what: `${t.vendor || t.desc} on the card`, sub: `${money(Math.abs(+t.amt))} on ${fmtL(t.date)}, coded ${t.cat || "nothing"}: no job, PO or receipt`, amount: Math.abs(+t.amt), vendor: t.vendor || t.desc, projectId: "", refs: [t.id], docNos: [], facts: [`${t.desc} · ${money(Math.abs(+t.amt))} · ${"function" == typeof truthAcctWords ? truthAcctWords(t) : "card"}`, "no job, no PO or bill, no receipt on the line"], hist: (DB.txns || []).filter((x) => cards.has(x.acct) && +x.amt < 0 && pwVKey(x.vendor || x.desc).slice(0, 8) === pwVKey(t.vendor || t.desc).slice(0, 8)).sort(pwByDate).slice(-6).map((x) => ({ date: x.date, vendor: x.vendor || x.desc, item: `${x.desc}${x.projectId ? "" : " (no job)"}`, price: Math.abs(+x.amt), qty: 1, unit: "charge", sources: [`card line ${fmt(x.date)}${x.receipt || x.fileId ? ", receipt" : ""}`], id: x.id })) }));
+    });
+    // 9. use tax: an out-of-state vendor's bill for goods with no NY tax on it
+    tryDet("usetax", () => pwUseTaxRows().forEach(push));
+    // the stock lane's CATCH "boughtWhileInStock" is listed with these when it lands (PW_ABSORB), never re-counted
+    out.forEach(pwLedger);
+    return out;
+  });
+}
+// A vendor is out of state when its region says so or its address names another state.
+function pwOutOfState(v) {
+  if (!v) return !1;
+  if ("Out of state" === v.region) return !0;
+  const st = String(v.state || (String(v.city || v.address || "").match(/,\s*([A-Z]{2})\b/) || [])[1] || "").toUpperCase();
+  return !!st && "NY" !== st;
+}
+// One bill: a use-tax row, or null. Also read for a bill still in the editor (billFlags), so the flag shows the
+// moment the bill arrives.
+function pwUseTaxOf(b) {
+  if (!b || ["void", "rejected"].includes(b.status) || b.useTaxAccrued || /^exempt/.test(b.taxStatus || "")) return null;
+  const rate = rfqTaxRate(),
+    v = pwVendor(b.vendor),
+    po = b.poId && (DB.pos || []).find((p) => p.id === b.poId);
+  if (!pwOutOfState(v) || (v && null != v.chargesTax && v.chargesTax)) return null;
+  if ((po && "subcontract" === po.type) || (b.cat && !["materials", "equipment"].includes(b.cat))) return null;
+  const L = b.lines || [];
+  if (L.some((l) => /\btax\b/i.test(l.desc || "") && +l.amount > 0)) return null;
+  const goods = r2(L.filter((l) => !PW_FEE_RE.test(l.desc || "")).reduce((a, l) => a + (+l.amount || 0), 0)),
+    tax = r2((goods * rate) / 100);
+  return tax > 0
+    ? { key: "pw:usetax:" + b.id, det: "pwUseTax", at: b.date, what: `${b.vendor}: bill ${b.number}`, sub: `no NY tax charged on ${money(goods)}: use tax ${money(tax)} to accrue (${rate}%)`, amount: tax, vendor: b.vendor, projectId: b.projectId || "", refs: [b.id], docNos: [b.number], facts: [`${b.vendor} is out of state${v && v.city ? ` (${v.city})` : ""} and charged no NY sales tax`, `use tax at the job's rate, ${rate}% (Purchasing settings, the RFQ module's tax rate): ${money(tax)}`, "confirm with the accountant; it is not tax advice"], hist: L.map((l) => ({ date: b.date, vendor: b.vendor, item: l.desc, price: +l.amount || 0, qty: 1, unit: "line", sources: [`bill ${b.number}`], id: l.id || "" })), billId: b.id, tax: tax }
+    : null;
+}
+function pwUseTaxRows() {
+  return (DB.bills || []).filter((b) => "draft" !== b.status).map(pwUseTaxOf).filter(Boolean);
+}
+function pwUseTaxAccrue(billId) {
+  const b = (DB.bills || []).find((x) => x.id === billId),
+    r = pwUseTaxRows().find((x) => x.billId === billId);
+  if (!b || !r) return toast("Nothing to accrue on that bill"), null;
+  if (!["owner", "controller", "billing"].includes(role())) return toast("The controller, billing or the owner records the accrual"), null;
+  b.useTaxAccrued = { amount: r.tax, rate: rfqTaxRate(), by: pwMe(), at: appNowIso(), on: today() };
+  try {
+    audit("bill", b.id, "use-tax-accrued", "", money(r.tax), `${pwMe()}: use tax on ${b.number}, ${b.vendor} (out of state, no NY tax charged)`);
+  } catch (e) {}
+  pwClose(r.key, "accrued", `use tax ${money(r.tax)} recorded to accrue`);
+  save(), render();
+  rcToast(`Use tax of ${money(r.tax)} on ${b.number} recorded to accrue`, [{ label: "Open", run: "function" == typeof flowGo ? flowGo.bill(b) : () => setView("ap") }]);
+  return b.useTaxAccrued;
+}
+// How the category moved: recent buys against each item's own earlier median (evidence for "the market moved").
+function pwCatTrend(cat, at) {
+  const D = pwData(),
+    S = pwSet(),
+    recent = iso(addDays(at, -S.recentDays)),
+    R = [];
+  Object.values(D.items)
+    .filter((I) => I.cat === cat)
+    .forEach((I) => {
+      const old = I.buys.filter((x) => x.date < recent),
+        neu = I.buys.filter((x) => x.date >= recent && x.date <= at);
+      old.length && neu.length && R.push(pwMedian(neu.map((x) => x.price)) / pwMedian(old.map((x) => x.price)));
+    });
+  return R.length ? { items: R.length, pct: pwPct(pwMedian(R), 1) } : null;
+}
+// ---- the flag ledger (precision) and closing
+function pwLedger(c) {
+  const F = pwInit().flags;
+  F[c.key] || (F[c.key] = { key: c.key, det: c.det, raisedOn: today(), what: c.what, amount: c.amount, verdict: "" });
+}
+function pwClose(key, how, note) {
+  const P = pwInit();
+  P.closed[key] || (P.closed[key] = { how: how, note: note || "", by: pwMe(), role: role(), at: appNowIso(), on: today() });
+  pwFresh();
+}
+function pwIsClosed(key) {
+  const P = pwInit();
+  if (P.closed[key]) return !0;
+  const a = P.acts[key];
+  return !!(a && "credit" === a.kind && (DB.outbox || []).some((o) => o.id === a.outboxId && "sent" === o.status));
+}
+function pwCases(det) {
+  return pwCasesAll().filter((c) => (!det || c.det === det) && !pwIsClosed(c.key));
+}
+const pwCase = (key) => pwCasesAll().find((c) => c.key === key) || null;
+Object.keys(PW_DET).forEach((name) => {
+  predDef(name, { label: PW_DET[name].label, rule: PW_DET[name].rule, rows: (scope) => pwCases(name).filter((c) => !scope || c.projectId === scope) });
+  CATCH.push({ name: name, label: PW_DET[name].label, rows: () => PRED[name].rows().map((c) => ({ key: c.key, what: `${PW_DET[name].label}: ${c.what}`, sub: c.sub, amount: c.amount, verb: "pwUseTax" === name ? "Review" : "Open Case", run: () => pwCaseSheet(c.key) })) });
+});
+predDef("pwExplainWaiting", { label: "Price Explanations to Approve", rule: "explanations for a price watch flag, proposed by anyone, waiting on the owner; the flag stays open and the baseline does not move until the owner approves", rows: () => pwInit().expl.filter((e) => "proposed" === e.status) });
+// ---- Alan's rule: anyone proposes an explanation; only the owner's approval closes the flag or moves a baseline.
+// The history is append-only: entries are added through pwExplLog, never edited or removed.
+function pwExplLog(e, what, note) {
+  e.history.push(Object.freeze({ what: what, by: pwMe(), role: role(), at: appNowIso(), on: today(), note: note || "" }));
+}
+function pwPropose(o) {
+  if (["client", "crew", "driver"].includes(role())) return toast("Your account cannot explain a purchase here"), null;
+  const text = String((o && o.text) || "").trim(),
+    c = o.flagKey ? pwCase(o.flagKey) : null,
+    base = "baseline" === o.scope;
+  if (!text) return toast("Say what explains it"), null;
+  if (o.flagKey && !c) return toast("That flag is not open"), null;
+  if (base && !(+o.pct > 0 || +o.pct < 0)) return toast("Give the change in percent, for example 8"), null;
+  if (base && !o.itemKey && !o.category) return toast("Say whether it is this item or the whole category"), null;
+  const P = pwInit(),
+    td = today(),
+    qm = +td.slice(5, 7) - ((+td.slice(5, 7) - 1) % 3),
+    from = base ? o.from || `${td.slice(0, 4)}-${String(qm).padStart(2, "0")}-01` : "",
+    e = {
+      id: uid("pwx"),
+      flagKey: o.flagKey || "",
+      det: c ? c.det : "",
+      scope: base ? "baseline" : "purchase",
+      what: c ? `${c.label}: ${c.what}` : o.what || "",
+      amount: c ? c.amount : 0,
+      itemKey: base ? o.itemKey || "" : (c && c.itemKey) || "",
+      category: base && !o.itemKey ? o.category || "" : "",
+      pct: base ? +o.pct : null,
+      from: from,
+      text: text,
+      status: "proposed",
+      by: pwMe(),
+      role: role(),
+      at: appNowIso(),
+      on: today(),
+      history: [],
+    };
+  pwExplLog(e, "proposed", text), P.expl.push(e);
+  try {
+    audit("pricewatch", e.id, "explanation-proposed", "", text, `${e.by} (${e.role}): ${e.what}`);
+  } catch (err) {}
+  pwFresh(), save(), render();
+  rcToast(`Explanation sent to the owner — the flag stays open until the owner decides`, [{ label: "Open", run: () => pwOpenExpl(e.id) }]);
+  return e;
+}
+DELEGATION.priceExplain = { role: "owner", rule: "an explanation for a price watch flag is proposed by anyone and approved or declined by the owner (with a reason); until then the flag stays open and the baseline does not move" };
+DELEGATION.priceMatch = { role: "coord", rule: "a near match between two items in the price history is confirmed by the coordinator before the histories are merged" };
+DELEGATION.priceTune = { role: "owner", rule: "a price watch threshold changes only with the owner's approval, proposed when a detector's precision falls under 50% over 30 days" };
+APPR_CHIPS.splice(Math.max(0, APPR_CHIPS.findIndex(([k]) => "other" === k)), 0, ["priceExplain", "Price Explanations"]);
+function pwDecide(id, verdict, reason) {
+  const P = pwInit(),
+    e = P.expl.find((x) => x.id === id),
+    why = String(reason || "").trim();
+  if (!e || "proposed" !== e.status) return toast("That explanation is not waiting on a decision"), null;
+  if ("owner" !== role()) return toast("The owner approves or declines an explanation"), null;
+  if ("decline" === verdict && !why) return toast("Say why it is declined"), null;
+  (e.status = "approve" === verdict ? "approved" : "declined"), (e.decidedBy = pwMe()), (e.decidedAt = appNowIso()), (e.decidedOn = today()), (e.reason = why);
+  pwExplLog(e, e.status, why);
+  try {
+    audit("pricewatch", e.id, "explanation-" + e.status, "proposed", e.status, `${e.decidedBy}: ${why || e.text}`);
+  } catch (err) {}
+  if ("approved" === e.status) {
+    if ("baseline" === e.scope) P.baselines.push({ id: uid("pwb"), itemKey: e.itemKey, category: e.category, pct: e.pct, from: e.from, explId: e.id, by: e.decidedBy, at: e.decidedAt, text: e.text });
+    else e.flagKey && pwClose(e.flagKey, "explained", e.text);
+    e.flagKey && P.flags[e.flagKey] && !P.flags[e.flagKey].verdict && Object.assign(P.flags[e.flagKey], { verdict: "normal", verdictBy: e.decidedBy, verdictOn: today() });
+    pwFresh();
+    // the brain records the lesson only now, so the same normal change is not flagged again
+    try {
+      lnLoop("priceExplain");
+      const L = lnInit().props.priceExplained;
+      L && "proposed" === L.status && lnApprove("priceExplained", `approved with the explanation by ${e.decidedBy}`);
+    } catch (err) {
+      console.warn("price watch lesson", err);
+    }
+  }
+  pwTuneSweep(), save(), render();
+  rcToast(`${"approved" === e.status ? "Approved" : "Declined"}: ${e.text}${"approved" === e.status ? ("baseline" === e.scope ? ` — the baseline for ${e.itemKey ? pwItemLabel(e.itemKey) : e.category} moves ${e.pct > 0 ? "up" : "down"} ${Math.abs(e.pct)}% from ${fmtL(e.from)}` : " — the flag is closed") : ` — the flag stays open (${why})`}`, [{ label: "Open", run: () => pwOpenExpl(e.id) }]);
+  return e;
+}
+const pwItemLabel = (k) => ((pwData().items[k] || {}).label || k);
+function pwLearnReg() {
+  try {
+    if ("undefined" == typeof LEARN_EVENTS || LEARN_EVENTS.some((x) => "priceExplained" === x.kind)) return;
+  } catch (e) {
+    return; // not initialised yet (the learn section loads after this one); registered on the next call
+  }
+  LEARN_EVENTS.push({
+    kind: "priceExplained",
+    label: "A price the owner explained",
+    area: "purchasing",
+    for: "coord",
+    lesson(ev) {
+      const items = [...new Set(ev.map((e) => e.item).filter(Boolean))];
+      return `Price watch measures ${items.length ? items.slice(0, 2).join(" and ") : "the explained items"} against the baseline the owner approved, so the same normal change is not flagged again`;
+    },
+    change: { type: "rule", text: "An explained price change moves the price watch baseline, once the owner approves it" },
+    scan: () =>
+      pwInit()
+        .expl.filter((e) => "approved" === e.status)
+        .map((e) => ({ key: "pricex:" + e.id, what: `${e.what || "a baseline change"}: ${e.text} (approved by ${e.decidedBy})`, item: e.itemKey ? pwItemLabel(e.itemKey) : e.category || "", ref: { kind: "priceExplain", id: e.id }, on: e.decidedOn })),
+    trigger: { label: "a later purchase is measured against the moved baseline", rows: () => [] },
+  });
+}
+setTimeout(pwLearnReg, 0);
+// ---- precision: the owner's Confirm Real against flags raised, per detector, over 30 days
+function pwConfirmReal(key) {
+  if ("owner" !== role()) return toast("The owner confirms a flag as real"), null;
+  const F = pwInit().flags[key];
+  if (!F) return null;
+  Object.assign(F, { verdict: "real", verdictBy: pwMe(), verdictOn: today() });
+  try {
+    audit("pricewatch", key, "confirmed-real", "", F.what, pwMe());
+  } catch (e) {}
+  pwTuneSweep(), save(), render();
+  rcToast(`Confirmed real: ${F.what}`, [{ label: "Open", run: () => pwCaseSheet(key) }]);
+  return F;
+}
+function pwPrecision(det) {
+  const S = pwSet(),
+    td = today(),
+    from = iso(addDays(td, -S.precisionDays)),
+    young = iso(addDays(td, -7)),
+    F = Object.values(pwInit().flags).filter((f) => f.det === det && f.raisedOn >= from),
+    counted = F.filter((f) => f.verdict || f.raisedOn <= young),
+    real = counted.filter((f) => "real" === f.verdict).length;
+  return { det: det, raised: F.length, counted: counted.length, real: real, normal: counted.filter((f) => "normal" === f.verdict).length, pct: counted.length ? Math.round((real / counted.length) * 100) : null };
+}
+const PW_TUNE = { pwPaidMore: ["overPct", 5, "%"], pwQtyOver: ["qtyOverPct", 15, "%"], pwFeeSpike: ["feeSpikePct", 25, "%"], pwDupCharge: ["nearDupPct", -1, "%"], pwSplit: ["splitDays", -1, " days"], pwNotDelivered: ["lateDays", 7, " days"] };
+function pwTuneSweep() {
+  const S = pwSet(),
+    T = pwInit().tune;
+  Object.keys(PW_DET).forEach((det) => {
+    const R = pwPrecision(det),
+      t = PW_TUNE[det];
+    if (!t || null == R.pct || R.counted < S.precisionMin || R.pct >= S.precisionFloor || (T[det] && "proposed" === T[det].status)) return;
+    const cur = S[t[0]],
+      to = Math.max(t[1] < 0 ? 1 : cur, cur + t[1]);
+    if (T[det] && T[det].from === cur && "declined" === T[det].status && T[det].on >= iso(addDays(today(), -S.precisionDays))) return;
+    T[det] = { det: det, setting: t[0], from: cur, to: to, unit: t[2], precision: R.pct, counted: R.counted, real: R.real, status: "proposed", on: today(), at: appNowIso() };
+  });
+}
+function pwTuneDecide(det, ok, note) {
+  const T = pwInit().tune[det];
+  if (!T || "proposed" !== T.status) return null;
+  if ("owner" !== role()) return toast("The owner changes a price watch threshold"), null;
+  Object.assign(T, { status: ok ? "approved" : "declined", by: pwMe(), decidedOn: today(), note: note || "" });
+  ok && pwSetting(T.setting, T.to, `precision ${T.precision}% over ${pwSet().precisionDays} days (${T.real} of ${T.counted} confirmed real)`, !0);
+  save(), render();
+  rcToast(ok ? `${PW_DET[det].label}: ${T.setting} moves from ${T.from}${T.unit} to ${T.to}${T.unit}` : `${PW_DET[det].label}: the threshold stays at ${T.from}${T.unit}`, [{ label: "Open", run: () => pwOpenPage() }]);
+  return T;
+}
+function pwSetting(k, v, why, quiet) {
+  if ("owner" !== role()) return toast("The owner changes a price watch threshold"), null;
+  const P = pwInit(),
+    was = pwSet()[k],
+    n = +v;
+  if (!(k in PW_DEFAULTS) || !isFinite(n) || n < 0) return toast("Enter a number"), null;
+  (P.settings[k] = n), P.settingsLog.push({ k: k, from: was, to: n, by: pwMe(), at: appNowIso(), on: today(), why: why || "" });
+  pwFresh();
+  quiet || (save(), render(), rcToast(`Price watch: ${k === "overPct" ? "Paid More Than Before threshold" : k} ${was} to ${n}`, [{ label: "Open", run: () => pwOpenPage() }]));
+  return n;
+}
+// ---- uncertain item matches: proposals the coordinator confirms (never assumed)
+function pwMatchProps() {
+  return pwMemoGet("match", () => {
+    const D = pwData(),
+      P = pwInit(),
+      I = Object.values(D.items).filter((x) => x.buys.length),
+      out = [];
+    const tok = (it) => ((it.buys[0] || {}).norm || "").split(" ").filter(Boolean);
+    for (let i = 0; i < I.length; i++)
+      for (let j = i + 1; j < I.length; j++) {
+        const a = I[i],
+          b = I[j];
+        if (a.cat !== b.cat || a.unit !== b.unit) continue;
+        const A = tok(a),
+          B = tok(b),
+          inter = A.filter((w) => B.includes(w)).length,
+          uni = new Set(A.concat(B)).size,
+          jac = uni ? inter / uni : 0,
+          dims = (T) => T.filter((w) => /\d/.test(w)).sort().join(" ");
+        if (jac < 0.6 || dims(A) !== dims(B)) continue;
+        const [keep, fold] = a.buys.length >= b.buys.length ? [a, b] : [b, a],
+          id = `${fold.key}=>${keep.key}`;
+        if (P.matchProps[id] && "proposed" !== P.matchProps[id].status) continue;
+        out.push({ id: id, from: fold.key, to: keep.key, fromLabel: fold.label, toLabel: keep.label, why: `the same size and ${Math.round(jac * 100)}% of the words; ${fold.buys.length} and ${keep.buys.length} buys` });
+      }
+    return out;
+  });
+}
+function pwMatchDecide(id, same) {
+  if (!["coord", "owner"].includes(role())) return toast("The coordinator confirms an item match"), null;
+  const M = pwMatchProps().find((x) => x.id === id);
+  if (!M) return null;
+  const P = pwInit();
+  P.matchProps[id] = { status: same ? "confirmed" : "rejected", by: pwMe(), on: today(), from: M.from, to: M.to };
+  same && (P.alias[M.from] = M.to);
+  pwFresh(), save(), render();
+  rcToast(same ? `${M.fromLabel} is now read as ${M.toLabel} in the price history` : `${M.fromLabel} and ${M.toLabel} stay apart`, [{ label: "Open", run: () => pwOpenPage() }]);
+  return P.matchProps[id];
+}
+// ---- the next steps
+function pwCreditDraft(key) {
+  const c = pwCase(key);
+  if (!c) return null;
+  const v = pwVendor(c.vendor) || { name: c.vendor },
+    coord = (DB.users || []).find((u) => "coord" === u.role) || {},
+    first = String(v.contact || v.name || "").split(" ")[0],
+    ask =
+      "pwDupCharge" === c.det
+        ? `We have two charges close together: ${c.facts.join("; ")}. If the second is a duplicate, could you refund or credit it?`
+        : "pwFeeSpike" === c.det
+          ? `The fees on ${c.docNos[0] || "this order"} came to ${money(c.amount + (c.median || 0))}; ${c.sub}. Could you check them and credit any difference?`
+          : "pwQtyOver" === c.det
+            ? `We ordered more than the job needs on ${c.docNos.join(", ")} (${c.sub}). Could we return the extra for credit?`
+            : `On ${c.docNos.join(", ") || "our recent order"} we were charged ${pwU2(c.price)} per ${c.unit} for ${c.what.replace(/ from .*$/, "")}; our recent price for the same item is ${pwU2(c.median || c.price)}. Could you review the price and credit the difference of ${money(c.amount)}?`,
+    body = `Hi ${first},\n\n${ask}\n\nThank you,\n${coord.name || pwMe()}\nSmartDesign`,
+    o = { id: uid("ox"), kind: "pwcredit", to: { name: v.contact || v.name, email: v.email || "" }, subject: `Credit request — ${c.docNos[0] || c.what}`, body: body, about: { label: `${c.label}: ${c.what}`, pwKey: key }, aboutKey: `pw|${key}|credit`, forName: coord.name || "", status: "draft", at: today(), by: "assistant" };
+  (DB.outbox = DB.outbox || []).push(o), (pwInit().acts[key] = { kind: "credit", outboxId: o.id, by: pwMe(), on: today() });
+  pwFresh(), save(), render();
+  rcToast(`Credit request to ${v.name} drafted — it waits on ${coord.name || "the coordinator"} to approve`, [{ label: "Open", run: () => pwCaseSheet(key) }]);
+  return o;
+}
+function pwPriceBook(key) {
+  const c = pwCase(key);
+  if (!c || !c.itemKey) return null;
+  const H = itemPriceHistory(c.itemKey),
+    best = H && H.best;
+  if (!best) return toast("No recent price to put in the price book"), null;
+  pwInit().priceBook[c.itemKey] = { label: H.label, price: best.adjusted, unit: H.unit, vendor: best.vendor, from: best.date, by: pwMe(), on: today() };
+  pwClose(key, "pricebook", `price book: ${pwU2(best.adjusted)} per ${H.unit} (${best.vendor})`), save(), render();
+  rcToast(`Price book: ${H.label} at ${pwU2(best.adjusted)} per ${H.unit} from ${best.vendor}`, [{ label: "Open", run: () => pwOpenPage() }]);
+  return pwInit().priceBook[c.itemKey];
+}
+function pwAddToRfq(key) {
+  const c = pwCase(key);
+  if (!c) return null;
+  const P = pwInit(),
+    label = c.buy ? c.buy.item : c.what;
+  P.rfqQueue.some((x) => x.key === key) || P.rfqQueue.push({ key: key, item: label, itemKey: c.itemKey || "", vendor: c.vendor, by: pwMe(), on: today() });
+  pwClose(key, "rfq", "added to the next RFQ"), save(), render();
+  rcToast(`${label} goes on the next RFQ for its category`, [{ label: "Open", run: () => pwOpenPage() }]);
+  return P.rfqQueue;
+}
+// ---- the people's queues: the owner's Approvals and Do Now (explanations, tuning), the coordinator's (matches)
+function pwQueueItems() {
+  const out = [],
+    P = pwInit();
+  P.expl
+    .filter((e) => "proposed" === e.status)
+    .forEach((e) =>
+      out.push({ kind: "priceExplain", id: e.id, title: `Explanation: ${e.what || "a baseline change"}`, detail: `${"baseline" === e.scope ? `a baseline change of ${e.pct > 0 ? "+" : ""}${e.pct}% for ${e.itemKey ? pwItemLabel(e.itemKey) : e.category} from ${fmtL(e.from)}` : "this purchase only"} · "${e.text}" · proposed by ${e.by} on ${fmtL(e.on)} · the flag stays open until you decide`, n: e.amount ? money(e.amount) : "", yes: "Approve", no: "Decline", act: "pwexpl", open: { pwexpl: e.id }, sev: "" }),
+    );
+  pwMatchProps().forEach((M) => out.push({ kind: "priceMatch", id: "pwm:" + M.id, mid: M.id, title: `Same item? ${M.fromLabel} and ${M.toLabel}`, detail: `${M.why} · confirm before the two price histories are read as one`, yes: "Same Item", no: "Different Items", act: "pwmatch", open: { view: "rfq", rfqTab: "pricewatch" }, sev: "" }));
+  Object.values(P.tune)
+    .filter((t) => "proposed" === t.status)
+    .forEach((t) => out.push({ kind: "priceTune", id: "pwt:" + t.det, det: t.det, title: `Tune ${PW_DET[t.det].label}: ${t.from}${t.unit} to ${t.to}${t.unit}`, detail: `${t.real} of ${t.counted} flags confirmed real in ${pwSet().precisionDays} days (${t.precision}%, under ${pwSet().precisionFloor}%) · ${PW_DET[t.det].rule}`, yes: "Change It", no: "Keep It", act: "pwtune", open: { view: "rfq", rfqTab: "pricewatch" }, sev: "" }));
+  return out;
+}
+{
+  const base = mApprovals;
+  mApprovals = function (opts) {
+    const out = base.apply(this, arguments) || [];
+    try {
+      pwQueueItems().forEach((it) => {
+        it.who = apprOwner(it);
+        ((opts && opts.everyone) || it.who === role()) && out.push(it);
+      });
+    } catch (e) {
+      console.warn("price watch queue", e);
+    }
+    return out;
+  };
+}
+{
+  const base = mGo;
+  mGo = function (go) {
+    if (go && go.pwexpl) return pwOpenExpl(go.pwexpl);
+    if (go && go.pwcase) return pwCaseSheet(go.pwcase);
+    go && "rfq" === go.view && go.rfqTab && (window.rfqTab = go.rfqTab, (window.rfqOpen = ""));
+    return base.apply(this, arguments);
+  };
+}
+{
+  const base = renderMApprove;
+  renderMApprove = function () {
+    const out = base.apply(this, arguments);
+    try {
+      document.querySelectorAll('#v-mapprove .m-appr[data-mk="priceExplain"], #v-mapprove .m-appr[data-mk="priceMatch"], #v-mapprove .m-appr[data-mk="priceTune"]').forEach((el) => {
+        const it = pwQueueItems().find((x) => x.id === el.dataset.mid),
+          y = el.querySelector("[data-myes]"),
+          no = el.querySelector("[data-mno]"),
+          op = el.querySelector("[data-mopen]");
+        if (!it) return;
+        const k = el.dataset.mk;
+        y && (y.onclick = () => ("priceExplain" === k ? pwDecide(it.id, "approve") : "priceMatch" === k ? pwMatchDecide(it.mid, !0) : pwTuneDecide(it.det, !0)));
+        no && (no.onclick = () => ("priceExplain" === k ? pwDecideSheet(it.id, !0) : "priceMatch" === k ? pwMatchDecide(it.mid, !1) : pwTuneDecide(it.det, !1)));
+        op && (op.onclick = () => ("priceExplain" === k ? pwDecideSheet(it.id) : pwOpenPage()));
+      });
+    } catch (e) {
+      console.warn("price watch approvals", e);
+    }
+    return out;
+  };
+}
+{
+  const base = tdCard;
+  tdCard = function (it) {
+    const c = base.apply(this, arguments);
+    if (!it || !["priceExplain", "priceMatch", "priceTune"].includes(it.kind)) return c;
+    const run = "priceExplain" === it.kind ? () => pwDecideSheet(it.id) : () => pwOpenPage();
+    return Object.assign(c, { line1: `<a href="#" data-tdrec>${esc(tdWords(it.title, 10))}</a>`, why: esc(tdWords(String(it.detail || "").split(" · ").slice(0, 2).join(" · "), 14)), verb: "priceMatch" === it.kind ? "Confirm" : "Decide", run: run, go: run });
+  };
+}
+{
+  const base = tdScore;
+  tdScore = function (it) {
+    if (it && "priceExplain" === it.kind) {
+      const e = pwInit().expl.find((x) => x.id === it.id) || {};
+      return 26 + Math.min(10, (+e.amount || 0) / 500);
+    }
+    if (it && "priceTune" === it.kind) return 14;
+    if (it && "priceMatch" === it.kind) return 12;
+    return base.apply(this, arguments);
+  };
+}
+// ---- the case: history with sources, money at stake, hypotheses, next step, the money line
+const PW_STEP_WORDS = { credit: "Ask Vendor for Credit", pricebook: "Update the Price Book", rfq: "Add to Next RFQ", explain: "Propose Explanation", accrue: "Record Use Tax Accrual" };
+function pwHistHtml(rows, unitWord) {
+  if (!rows || !rows.length) return '<p class="small muted">No earlier records.</p>';
+  return `<div class="pw-tw"><table class="t pw-hist"><thead><tr><th>Date</th><th>Vendor</th><th>What</th><th class="money">${esc(unitWord || "Price")}</th><th class="money">Qty</th><th>Source</th></tr></thead><tbody>${rows
+    .map((h) => `<tr><td>${fmt(h.date)}</td><td data-nocase>${esc(h.vendor || "")}</td><td data-nocase>${esc(String(h.item || "").slice(0, 60))}</td><td class="money">${"bill" === h.unit || "order" === h.unit || "charge" === h.unit || "line" === h.unit || "po" === h.unit || "card" === h.unit ? money(h.price) : `${pwU2(h.price)}${null != h.adjusted && Math.abs(h.adjusted - h.price) > 0.0001 ? ` <span class="muted">(${pwU2(h.adjusted)} adjusted)</span>` : ""}`}</td><td class="money">${h.qty}${h.unit && !["bill", "order", "charge", "line", "po", "card"].includes(h.unit) ? " " + esc(h.unit) : ""}</td><td class="small" data-nocase>${esc((h.sources || []).join("; "))}</td></tr>`)
+    .join("")}</tbody></table></div>`;
+}
+function pwExplHtml(E) {
+  return E.length
+    ? E.map(
+        (e) =>
+          `<div class="pw-ex"><div><span class="pill ${"approved" === e.status ? "ok" : "declined" === e.status ? "bad" : "warn"}">${{ proposed: "Waiting on the Owner", approved: "Approved", declined: "Declined" }[e.status]}</span> <span data-nocase>${esc(e.text)}</span>${"baseline" === e.scope ? ` <span class="small muted">(baseline ${e.pct > 0 ? "+" : ""}${e.pct}% from ${fmtL(e.from)})</span>` : ""}</div><ul class="small muted pw-exh">${e.history.map((h) => `<li data-nocase>${fmtL(h.on)} · ${esc(h.by)} (${esc(h.role)}): ${esc(h.what)}${h.note && h.what !== "proposed" ? ` — ${esc(h.note)}` : ""}</li>`).join("")}</ul></div>`,
+      ).join("")
+    : '<p class="small muted">None yet.</p>';
+}
+function pwCaseSheet(key) {
+  const c = pwCase(key);
+  if (!c) return toast("That case is no longer open"), null;
+  window.pwLastCase = key;
+  const P = pwInit(),
+    closed = pwIsClosed(key),
+    owner = "owner" === role(),
+    F = P.flags[key] || {},
+    E = P.expl.filter((e) => e.flagKey === key),
+    act = P.acts[key],
+    ox = act && (DB.outbox || []).find((o) => o.id === act.outboxId),
+    steps = closed ? [] : c.steps.filter((s) => !("credit" === s && ox) && !("accrue" === s && !["owner", "controller", "billing"].includes(role()))),
+    waiting = E.some((e) => "proposed" === e.status),
+    trend = c.trend && c.trend.pct > 3 ? `Hypothesis: the market moved. ${c.trend.items} ${c.buy ? c.buy.cat.toLowerCase() : ""} item${1 === c.trend.items ? "" : "s"} bought in the last ${pwSet().recentDays} days ran ${c.trend.pct}% over their own earlier prices (evidence, not proof).` : "",
+    body = `<div class="pw-case">
+      <p class="small"><b data-nocase>${esc(c.what)}</b></p><p class="small" data-nocase>${esc(c.sub)}</p>
+      <div class="pw-tiles"><div><span class="small muted">Money at Stake</span><b>${money(c.amount)}</b></div><div><span class="small muted">Status</span><b>${closed ? "Closed" : waiting ? "Open, Explanation Waiting" : "Open"}</b></div>${F.verdict ? `<div><span class="small muted">Owner's Verdict</span><b>${"real" === F.verdict ? "Confirmed Real" : "Normal"}</b></div>` : ""}</div>
+      <h4>What the Records Show</h4><ul class="small">${c.facts.map((f) => `<li data-nocase>${esc(f)}</li>`).join("")}</ul>
+      <h4>History</h4>${pwHistHtml(c.hist, "pwPaidMore" === c.det ? `Per ${c.unit}` : "Amount")}
+      <h4>Innocent Explanations to Check</h4><ul class="small">${(trend ? [trend] : []).concat(c.hyps.map((h) => `Hypothesis: ${h}.`)).map((h) => `<li data-nocase>${esc(h)}</li>`).join("")}</ul>
+      <p class="small muted">These are possibilities, not findings. A flag is a question about a price, never about a person.</p>
+      <h4>Explanations</h4>${pwExplHtml(E)}
+      ${ox ? `<p class="small">Credit request to ${esc(ox.to.name)}: ${"sent" === ox.status ? "sent" : `drafted, waiting on ${esc(ox.forName || "the coordinator")} to approve`}.</p>` : ""}
+      ${closed ? `<p class="small">Closed: ${esc((P.closed[key] || {}).note || (ox ? "the credit request went out" : ""))}${P.closed[key] ? ` (${esc(P.closed[key].by)}, ${fmtL(P.closed[key].on)})` : ""}.</p>` : ""}
+      <p class="small pw-money">${esc(PW_MONEY_LINE)}</p>
+      ${steps.length || (owner && !F.verdict) ? `<h4>Next Step</h4><div class="pw-steps">${steps.map((s, i) => `<button class="btn ${0 === i ? "primary" : ""}" data-pwstep="${s}">${PW_STEP_WORDS[s]}</button>`).join("")}${owner && !F.verdict ? '<button class="btn ghost" data-pwreal>Confirm Real</button>' : ""}</div>` : ""}
+    </div>`;
+  const m = mbModal(c.label, body, { submit: null });
+  m && m.classList.add("pw-mbm");
+  m &&
+    m.querySelectorAll("[data-pwstep]").forEach(
+      (b) =>
+        (b.onclick = () => {
+          const s = b.dataset.pwstep;
+          if ("explain" === s) return void setTimeout(() => pwExplainSheet(key), 0);
+          mbCloseModal();
+          "credit" === s ? pwCreditDraft(key) : "pricebook" === s ? pwPriceBook(key) : "rfq" === s ? pwAddToRfq(key) : "accrue" === s && pwUseTaxAccrue(c.billId);
+        }),
+    );
+  const rb = m && m.querySelector("[data-pwreal]");
+  rb && (rb.onclick = () => (mbCloseModal(), pwConfirmReal(key)));
+  return m;
+}
+function pwExplainSheet(key) {
+  const c = pwCase(key);
+  if (!c) return;
+  const cat = c.buy ? c.buy.cat : "",
+    canBase = !!(c.itemKey || cat);
+  const m = mbModal(
+    "Propose Explanation",
+    `<div class="pw-case"><p class="small" data-nocase>${esc(c.label)}: ${esc(c.what)} · ${esc(c.sub)}</p><p class="small muted">The owner approves or declines it. Until then the flag stays open and counted, and the baseline does not move.</p>
+    ${mbF("What Explains It", '<textarea data-f="text" rows="3" placeholder="For example: rush delivery for the inspection, or lumber up 8% this quarter"></textarea>')}
+    ${canBase ? `${mbF("It Applies To", `<select data-f="scope"><option value="purchase">This purchase only</option><option value="baseline">A baseline change from now on</option></select>`)}<div class="pw-base">${mbF("Change in Percent", '<input type="number" step="any" data-f="pct" placeholder="8">')}${mbF("For", `<select data-f="for">${c.itemKey ? `<option value="item">${esc(pwItemLabel(c.itemKey))}</option>` : ""}${cat ? `<option value="cat">All ${esc(cat.toLowerCase())}</option>` : ""}</select>`)}${mbF("From", `<input type="date" data-f="from" value="${esc(`${today().slice(0, 4)}-${String(+today().slice(5, 7) - ((+today().slice(5, 7) - 1) % 3)).padStart(2, "0")}-01`)}">`)}</div>` : ""}</div>`,
+    {
+      submit: "Send to the Owner",
+      onSubmit: (f) => (pwPropose({ flagKey: key, text: f.text, scope: f.scope || "purchase", pct: f.pct, itemKey: "item" === f.for ? c.itemKey : "", category: "cat" === f.for ? cat : "", from: f.from }) ? void 0 : !1),
+    },
+  );
+  m && m.classList.add("pw-mbm");
+}
+function pwOpenExpl(id) {
+  const e = pwInit().expl.find((x) => x.id === id);
+  if (!e) return;
+  return "proposed" === e.status && "owner" === role() ? pwDecideSheet(id) : e.flagKey && pwCase(e.flagKey) ? pwCaseSheet(e.flagKey) : pwOpenPage();
+}
+function pwDecideSheet(id, declining) {
+  const e = pwInit().expl.find((x) => x.id === id);
+  if (!e) return null;
+  const c = e.flagKey ? pwCase(e.flagKey) : null,
+    m = mbModal(
+      "Approve the Explanation?",
+      `<div class="pw-case"><p class="small" data-nocase><b>${esc(e.what || "A baseline change")}</b>${c ? ` · ${esc(c.sub)}` : ""}</p><p class="small" data-nocase>"${esc(e.text)}" — ${esc(e.by)} (${esc(e.role)}), ${fmtL(e.on)}</p><p class="small">${"baseline" === e.scope ? `Approving moves the baseline for ${esc(e.itemKey ? pwItemLabel(e.itemKey) : e.category)} by ${e.pct > 0 ? "+" : ""}${e.pct}% from ${fmtL(e.from)}, so purchases at that level are not flagged again; the brain records the lesson.` : "Approving closes this flag as explained; the brain records the lesson."} Declining keeps the flag open.</p>${c ? `<h4>History</h4>${pwHistHtml(c.hist.slice(-6), "pwPaidMore" === c.det ? `Per ${c.unit}` : "Amount")}` : ""}<h4>History of This Explanation</h4>${pwExplHtml([e])}${mbF("Reason (Required to Decline)", '<textarea data-f="reason" rows="2"></textarea>')}</div>`,
+      {
+        submit: "Approve",
+        onSubmit: (f) => (pwDecide(id, "approve", f.reason) ? void 0 : !1),
+        alt: {
+          label: "Decline",
+          keep: !0,
+          run: () => {
+            const r = document.querySelector('#mbm [data-f="reason"]'),
+              why = r ? r.value.trim() : "";
+            if (!why) return r && r.focus(), void toast("Say why it is declined");
+            pwDecide(id, "decline", why) && mbCloseModal();
+          },
+        },
+      },
+    );
+  m && m.classList.add("pw-mbm");
+  declining && setTimeout(() => {
+    const r = document.querySelector('#mbm [data-f="reason"]');
+    r && r.focus();
+  }, 40);
+  return m;
+}
+function pwOpenPage() {
+  if (!(ROLE_VIEWS[role()] || []).includes("rfq")) return void toast("Price Watch is under Purchasing, RFQs");
+  (window.rfqTab = "pricewatch"), (window.rfqOpen = ""), (view = "rfq"), render();
+}
+// ---- moment 1: the PO draft. A Price Check with the history, before the money is committed.
+function pwCheckPO(po) {
+  const D = pwData(),
+    S = pwSet(),
+    at = po.date && po.date <= today() ? po.date : today();
+  return (po.lines || [])
+    .filter((l) => (l.item || l.desc) && +l.qty > 0 && +l.price > 0 && !PW_FEE_RE.test(l.item || l.desc || ""))
+    .map((l) => {
+      const B = pwMake({ id: `draft:${po.id}:${l.id}`, kind: "draft", date: at, vendor: po.vendor, item: l.item || l.desc, sku: l.sku, unit: l.unit, qty: +l.qty, price: +l.price, code: l.code });
+      if (!B) return null;
+      const I0 = D.items[B.key] || { key: B.key, label: B.item, cat: B.cat, unit: B.normUnit, buys: [], quotes: [] },
+        I = Object.assign({}, I0, { buys: I0.buys.filter((x) => x.poId !== po.id) }),
+        R = pwPriceCheck(B, I, S);
+      return { line: l, B: B, I: I, R: R, hist: I.buys.concat(I.quotes).sort(pwByDate).slice(-6).map((x) => pwHistRow(x, I, at)) };
+    })
+    .filter(Boolean);
+}
+function pwPOHtml(po) {
+  const C = pwCheckPO(po).filter((x) => x.R.n || x.R.reasons.length || x.I.quotes.length);
+  if (!C.length) return "";
+  const bad = C.filter((x) => x.R.reasons.length);
+  return `<div class="note ${bad.length ? "warn" : ""} pw-po" data-pwpo="${bad.length}"><b>Price Check Before You Commit</b>${C.map(
+    (x) =>
+      `<div class="pw-po-l"><div class="small" data-nocase><b>${esc(x.B.item)}</b> at ${pwU2(x.B.price)} per ${esc(x.B.normUnit)}: ${x.R.reasons.length ? esc(x.R.reasons.map((r) => r.t).join("; ")) : x.R.enough ? `within the usual range (median ${pwU2(x.R.med)} of ${x.R.n} earlier buys)` : esc(x.R.note)}</div>${x.R.reasons.length ? pwHistHtml(x.hist, `Per ${x.B.normUnit}`) : ""}</div>`,
+  ).join("")}${bad.length ? `<p class="small muted">${esc(PW_MONEY_LINE)} Ask for the usual price, or issue it and explain why on the case.</p>` : ""}</div>`;
+}
+if ("function" == typeof renderPODoc) {
+  const base = renderPODoc;
+  renderPODoc = function (po) {
+    const h = base.apply(this, arguments);
+    try {
+      if (po && ["draft", "pending"].includes(po.status)) return pwPOHtml(po) + h;
+    } catch (e) {
+      console.warn("price check", e);
+    }
+    return h;
+  };
+}
+// ---- moment 2: a bill's arrival. Its price watch flags and the use-tax flag sit with the bill's own flags.
+if ("function" == typeof billFlags) {
+  const base = billFlags;
+  billFlags = function (b) {
+    const f = base.apply(this, arguments) || [];
+    try {
+      if (b && b.id) {
+        const U = pwUseTaxOf(b);
+        U && !pwIsClosed(U.key) && f.push(`No NY tax charged by an out-of-state vendor: use tax of ${money(U.tax)} to accrue — confirm with the accountant`);
+        pwCases()
+          .filter((c) => "pwUseTax" !== c.det && (c.refs || []).includes(b.id))
+          .forEach((c) => f.push(`Price watch — ${c.label}: ${c.sub}`));
+      }
+    } catch (e) {}
+    return f;
+  };
+}
+// ---- moment 3: a bank or card line matched to its order. A flag on that order is said at once.
+if ("function" == typeof truthSetMatch) {
+  const base = truthSetMatch;
+  truthSetMatch = function (t, m0, o) {
+    const out = base.apply(this, arguments);
+    try {
+      if (out && !1 !== out.ok && t) {
+        pwFresh();
+        const ids = [t.id, t.poId, t.billId, (t.match || {}).poId, (t.match || {}).billId].filter(Boolean),
+          c = pwCases().find((x) => (x.refs || []).some((r) => ids.includes(r)));
+        t.pwChecked = { on: today(), key: c ? c.key : "" };
+        c && setTimeout(() => rcToast(`Price watch on the matched line — ${c.label}: ${c.what}`, [{ label: "Open", run: () => pwCaseSheet(c.key) }]), 0);
+      }
+    } catch (e) {}
+    return out;
+  };
+}
+// ---- the monthly figure: dollars paid above the best recent price (any vendor, any confirmed quote)
+function pwAboveBestRows() {
+  return pwMemoGet("above", () => {
+    const D = pwData(),
+      S = pwSet(),
+      out = [];
+    D.buys.forEach((B) => {
+      const I = D.items[B.key],
+        recent = iso(addDays(B.date, -S.recentDays)),
+        refs = I.buys.filter((x) => x.id !== B.id && x.date < B.date && x.date >= recent).concat(I.quotes.filter((q) => q.date && q.date <= B.date && q.date >= recent));
+      if (!refs.length) return;
+      const best = Math.min(...refs.map((x) => pwAdj(I, x.price, x.date, B.date))),
+        above = r2(Math.max(0, (B.price - best) * B.normQty));
+      above > 0 && out.push({ id: B.id, month: B.date.slice(0, 7), date: B.date, item: B.item, vendor: B.vendor, price: B.price, best: best, unit: B.normUnit, qty: B.normQty, amount: above, source: (B.sources[B.sources.length - 1] || {}).label || B.docNo || "" });
+    });
+    return out;
+  });
+}
+function pwAboveBest(ym) {
+  const m = ym || today().slice(0, 7),
+    R = pwAboveBestRows().filter((r) => r.month === m);
+  return { ym: m, total: r2(R.reduce((a, r) => a + r.amount, 0)), rows: R };
+}
+predDef("pwAboveBest", { label: "Paid Above Best Recent Price", rule: "purchases this month priced above the best price from any vendor or confirmed quote in the 90 days before them, in dollars", rows: () => pwAboveBest().rows, figure: () => pwAboveBest().total });
+// ---- erpQuery, ⌘K and Ask
+const pwJob = (pid) => {
+  const p = (DB.projects || []).find((x) => x.id === pid);
+  return p ? shortName(p) : "";
+};
+(EQ_TABLES.pricewatch = () =>
+  pwCasesAll().map((c) => {
+    const P = pwInit(),
+      cl = P.closed[c.key],
+      F = P.flags[c.key] || {};
+    return { _id: c.key, _module: "Purchasing", _label: `${c.label}: ${c.what}`, _go: { pwcase: c.key }, detector: c.label, what: c.what, detail: c.sub, amount: c.amount, vendor: c.vendor || "", project: pwJob(c.projectId), date: c.at, raisedOn: F.raisedOn || "", status: pwIsClosed(c.key) ? "closed" : P.expl.some((e) => e.flagKey === c.key && "proposed" === e.status) ? "explanation waiting" : "open", closedHow: cl ? cl.how : "", verdict: F.verdict || "", documents: (c.docNos || []).join(", ") };
+  })),
+  (EQ_TABLES.pricehistory = () => {
+    const D = pwData();
+    return Object.values(D.items).flatMap((I) => I.buys.concat(I.quotes).map((x) => ({ _id: x.id, _module: "Purchasing", _label: `${I.label} · ${x.vendor} · ${x.date}`, _go: { view: "rfq", rfqTab: "pricewatch" }, item: I.label, itemKey: I.key, category: I.cat, unit: I.unit, date: x.date, vendor: x.vendor, price: x.price, qty: x.normQty, amount: r2(x.price * x.normQty), kind: x.kind, source: (x.sources || []).map((s) => s.label).join("; "), project: pwJob(x.projectId) })));
+  }),
+  (EQ_TABLES.priceexplanations = () => pwInit().expl.map((e) => ({ _id: e.id, _module: "Purchasing", _label: `${e.what}: ${e.text}`, _go: { pwexpl: e.id }, what: e.what, text: e.text, scope: e.scope, pct: e.pct, from: e.from, status: e.status, proposedBy: e.by, proposedOn: e.on, decidedBy: e.decidedBy || "", decidedOn: e.decidedOn || "", reason: e.reason || "", amount: e.amount || 0 }))),
+  (EQ_TABLES.paidabovebest = () => pwAboveBestRows().map((r) => Object.assign({ _id: r.id, _module: "Purchasing", _label: `${r.item} · ${r.vendor} · ${r.date}`, _go: { view: "rfq", rfqTab: "pricewatch" } }, r)));
+Object.assign(EQ_ALIAS, { pricewatch: "pricewatch", priceflag: "pricewatch", priceflags: "pricewatch", pricecase: "pricewatch", pricehistory: "pricehistory", itemprices: "pricehistory", itemprice: "pricehistory", priceexplanation: "priceexplanations", paidabove: "paidabovebest", abovebest: "paidabovebest" });
+if ("function" == typeof palIndex) {
+  const base = palIndex;
+  palIndex = function () {
+    const items = base.apply(this, arguments);
+    try {
+      (ROLE_VIEWS[role()] || []).includes("rfq") && items.push({ k: "view", t: "Price Watch", s: "Paid more than before, or something looks off", go: () => pwOpenPage() });
+      pwCases().forEach((c) => items.push({ k: "Price Watch", t: `${c.label}: ${c.what}`, s: c.sub, go: () => pwCaseSheet(c.key) }));
+    } catch (e) {}
+    return items;
+  };
+}
+// the case a question means: a document number in it, the case last opened, else the biggest open one
+function pwCaseFor(P) {
+  const C = pwCasesAll(),
+    no = (P.l.match(/\b(po-\d{4}-\d{3,}|[a-z]{1,4}-?\d{2,}[\w-]*)\b/i) || [])[0];
+  return (no && C.find((c) => (c.docNos || []).some((d) => String(d).toLowerCase() === no.toLowerCase()))) || (window.pwLastCase && C.find((c) => c.key === window.pwLastCase)) || pwCases().sort((a, b) => b.amount - a.amount)[0] || null;
+}
+// the words price watch is asked in, kept from the typo fixer ("flagged" is not "logged")
+"undefined" != typeof AG_DICT && "flag flagged flags flagging overpaid overpay overpaying overpriced plywood hanger hangers baseline baselines precision".split(" ").forEach((w) => AG_DICT.add(w));
+AG_ASST.unshift(
+  {
+    id: "pwwhere",
+    first: !0,
+    kind: "money",
+    re: /\b(paid|pay|spent|spend|bought)\b.*\b(more than (usual|before|normal)|over (the )?usual|above (the )?usual|too much)\b|\boverpa(id|y|ying)\b|\bpaid above\b/,
+    run(P) {
+      const ym = P.period ? P.period.from.slice(0, 7) : today().slice(0, 7),
+        C = pwCasesAll().filter((c) => "pwPaidMore" === c.det && String(c.at).slice(0, 7) === ym),
+        open = C.filter((c) => !pwIsClosed(c.key)),
+        F = pwAboveBest(ym),
+        at = r2(open.reduce((a, c) => a + c.amount, 0));
+      return {
+        headline: `${open.length ? `${agN(open.length, "purchase")} in ${ym} ${1 === open.length ? "was" : "were"} over the usual price, ${money(at)} at stake: ${agList(open.sort((a, b) => b.amount - a.amount).slice(0, 3).map((c) => `${c.what} (${c.sub.split(":")[0]})`))}.` : `Nothing bought in ${ym} is open as over its usual price${C.length ? ` (${agN(C.length, "flag")} closed or explained)` : ""}.`} Paid above the best recent price this month: ${money(F.total)}.`,
+        work: open.map((c) => `${c.what}: ${c.sub}; ${money(c.amount)} at stake`).concat([PW_MONEY_LINE]),
+        go: agGo("rfq", { rfqTab: "pricewatch" }),
+        ran: agRan("pricewatch", ["detector is Paid More Than Before", `bought in ${ym}`, "open"], "", open.length),
+      };
+    },
+  },
+  {
+    id: "pwhist",
+    first: !0,
+    kind: "ops",
+    re: /\bprice history\b|\bhistory of (the )?prices?\b|\bwhat (have|did|do) we (paid|pay|paying) for\b|\bprices? we paid for\b/,
+    run(P) {
+      const q = P.l.replace(/^.*?\b(?:price history|history of (?:the )?prices?|paid|pay|paying)\b\s*(?:for|of|on)?\s*/, "").replace(/[?.!]+$/, "").trim();
+      const H = q && itemPriceHistory(q);
+      if (!H) return { headline: `I have no purchases on file that match "${q || "that item"}".`, ran: agRan("pricehistory", [`item like ${q}`], "", 0) };
+      return {
+        headline: `${H.label}: ${agN(H.n, "buy")} on file${H.n ? `, median ${pwU2(H.median)} per ${H.unit}` : ""}${H.last ? `; last ${pwU2(H.last.price)} from ${H.last.vendor} on ${fmtL(H.last.date)}` : ""}${H.best ? `; best recent ${pwU2(H.best.adjusted)} (${H.best.vendor})` : ""}.${H.n < pwSet().minBuys ? ` Not enough history to judge a price yet (${pwSet().minBuys} buys needed).` : ""}`,
+        work: H.rows.map((r) => `${fmtL(r.date)} · ${r.vendor} · ${pwU2(r.price)} per ${r.unit} × ${r.qty} · ${r.kind} · ${r.sources.join("; ")}`).concat(H.alsoMatched.length ? [`Also close: ${H.alsoMatched.join(", ")}`] : []),
+        go: agGo("rfq", { rfqTab: "pricewatch" }),
+        ran: agRan("pricehistory", [`item is ${H.label}`], "", H.rows.length),
+      };
+    },
+  },
+  {
+    id: "pwwhy",
+    first: !0,
+    kind: "money",
+    re: /\bwhy\b.*\b(flagged|flag|caught)\b/,
+    run(P) {
+      const c = pwCaseFor(P);
+      if (!c) return { headline: "Nothing is flagged by price watch right now." };
+      const E = pwInit().expl.filter((e) => e.flagKey === c.key);
+      window.pwLastCase = c.key;
+      return {
+        headline: `${c.label}: ${c.what}. ${c.sub}. ${money(c.amount)} at stake.${pwIsClosed(c.key) ? " It is closed." : E.some((e) => "proposed" === e.status) ? " An explanation waits on the owner; the flag stays open until the owner decides." : ""}`,
+        work: c.facts.map((f) => `Fact: ${f}`).concat(c.hyps.map((h) => `Hypothesis: ${h}`)).concat(E.map((e) => `Explanation (${e.status}): ${e.text} — ${e.by}${e.decidedBy ? `; ${e.status} by ${e.decidedBy}${e.reason ? `: ${e.reason}` : ""}` : ""}`)).concat([`Next step: ${PW_STEP_WORDS[c.steps[0]]}`, PW_MONEY_LINE]),
+        go: { pwcase: c.key },
+        ran: agRan("pricewatch", [`case is ${c.key}`], "", 1),
+      };
+    },
+  },
+);
+// ---- the day: re-read, ledger new flags, propose tuning where precision fell
+"undefined" != typeof APP_DAY_HOOKS &&
+  APP_DAY_HOOKS.push([
+    "pwDayTick",
+    () => {
+      try {
+        pwFresh(), pwCasesAll(), pwTuneSweep();
+      } catch (e) {
+        console.warn("price watch day", e);
+      }
+      return !0;
+    },
+  ]);
+// ---- the RFQ module reads the same history: what we paid now, the vendor's own last price, leveling
+function pwKeyFor(item, unit, sku, code) {
+  const B = pwMake({ item: item, unit: unit, sku: sku, code: code, qty: 1, price: 1 });
+  return B ? B.key : "";
+}
+function pwHistFor(item, unit) {
+  const k = pwKeyFor(item, unit);
+  return (k && pwData().items[k] && itemPriceHistory(k)) || null;
+}
+{
+  const base = rfqPayNow;
+  rfqPayNow = function (cat) {
+    try {
+      const H = itemPriceHistory("2x4 10' stud");
+      if (H && H.last) return { unit: H.last.price, source: `${H.last.sources[H.last.sources.length - 1] || H.last.vendor} · ${fmtL(H.last.date)} (the price history)`, date: H.last.date };
+    } catch (e) {}
+    return base.apply(this, arguments);
+  };
+}
+{
+  const base = rfqProposeVendors;
+  rfqProposeVendors = function (r) {
+    const out = base.apply(this, arguments);
+    try {
+      const l = (r.lines || [])[0],
+        H = l && pwHistFor(l.item, l.unit);
+      H &&
+        out.list.forEach((x) => {
+          const mine = H.rows.filter((h) => pwVKey(h.vendor) === pwVKey(x.v.name)).pop();
+          mine && x.because.push({ t: `last paid ${pwU2(mine.price)} per ${H.unit} for ${H.label} on ${fmtL(mine.date)} (price history)`, rule: "" });
+        });
+    } catch (e) {}
+    return out;
+  };
+}
+{
+  const base = rfqLevel;
+  rfqLevel = function (r) {
+    const L = base.apply(this, arguments);
+    try {
+      L.perLine.forEach((pl) => {
+        const l = (r.lines || []).find((x) => x.id === pl.lineId),
+          H = l && pwHistFor(l.item, l.unit);
+        pl.history = H && H.n ? { median: H.median, n: H.n, unit: H.unit, best: H.best ? H.best.adjusted : null } : null;
+      });
+    } catch (e) {}
+    return L;
+  };
+}
+// ---- the page: RFQs › Price Watch
+function pwPageHtml() {
+  const P = pwInit(),
+    S = pwSet(),
+    owner = "owner" === role(),
+    canMatch = ["coord", "owner"].includes(role()),
+    F = pwAboveBest(),
+    prev = pwAboveBest(iso(addDays(today().slice(0, 8) + "01", -1)).slice(0, 7)),
+    dets = Object.keys(PW_DET).map((d) => ({ d: d, rows: PRED[d].rows() })),
+    wait = P.expl.filter((e) => "proposed" === e.status),
+    done = P.expl.filter((e) => "proposed" !== e.status).slice(-8).reverse(),
+    M = pwMatchProps(),
+    T = Object.values(P.tune).filter((t) => "proposed" === t.status),
+    absorbed = PW_ABSORB.map((n) => CATCH.find((c) => c.name === n)).filter(Boolean);
+  return `<div class="pw-page">
+    <div class="card rfq-sec"><h3>Paid Above Best Recent Price</h3><div class="pw-tiles"><div><span class="small muted">This Month (${esc(F.ym)})</span><b data-pwabove="${F.total}">${money(F.total)}</b><span class="small">${agN(F.rows.length, "purchase")}</span></div><div><span class="small muted">Last Month (${esc(prev.ym)})</span><b>${money(prev.total)}</b></div><div><span class="small muted">Open Flags</span><b>${dets.reduce((a, x) => a + x.rows.length, 0)}</b></div></div><p class="small pw-money">${esc(PW_MONEY_LINE)}</p></div>
+    ${dets
+      .filter((x) => x.rows.length)
+      .map((x) => `<div class="card rfq-sec" data-pwdet="${x.d}" data-pwn="${x.rows.length}"><h3>${PW_DET[x.d].label} <span class="pill warn">${x.rows.length}</span></h3><p class="small muted">${esc(PW_DET[x.d].rule)}</p>${x.rows.map((c) => `<div class="pw-row"><span class="grow small"><b data-nocase>${esc(c.what)}</b><br><span data-nocase>${esc(c.sub)}</span>${P.expl.some((e) => e.flagKey === c.key && "proposed" === e.status) ? ' <span class="pill">Explanation Waiting on the Owner</span>' : ""}</span><b class="small">${money(c.amount)}</b><button class="btn sm" data-pwopen="${esc(c.key)}">Open Case</button></div>`).join("")}</div>`)
+      .join("") || '<div class="card rfq-sec"><p class="small">Nothing flagged: every recent purchase is within its usual range.</p></div>'}
+    ${absorbed.map((C) => { let R = []; try { R = C.rows() || []; } catch (e) {} return R.length ? `<div class="card rfq-sec"><h3>${esc(C.label)} <span class="pill">${R.length}</span></h3><p class="small muted">Counted on Caught for You under its own name; listed here with the price watch.</p>${R.map((r) => `<div class="small" data-nocase>${esc(r.what)} · ${esc(r.sub || "")}</div>`).join("")}</div>` : ""; }).join("")}
+    <div class="card rfq-sec"><h3>Explanations</h3>${wait.length ? `<p class="small">${agN(wait.length, "explanation")} waiting on the owner. The flags stay open and the baselines do not move until the owner decides.</p>${pwExplHtml(wait)}` : '<p class="small muted">None waiting on the owner.</p>'}${done.length ? `<details><summary class="small"><b>Decided</b></summary>${pwExplHtml(done)}</details>` : ""}${P.baselines.length ? `<p class="small"><b>Baselines moved:</b> ${P.baselines.map((b) => `${esc(b.itemKey ? pwItemLabel(b.itemKey) : b.category)} ${b.pct > 0 ? "+" : ""}${b.pct}% from ${fmtL(b.from)} (${esc(b.by)})`).join("; ")}</p>` : ""}</div>
+    ${M.length ? `<div class="card rfq-sec"><h3>Same Item?</h3><p class="small muted">Near matches in the price history. Nothing is merged until a person confirms it.</p>${M.map((x) => `<div class="pw-row"><span class="grow small" data-nocase><b>${esc(x.fromLabel)}</b> and <b>${esc(x.toLabel)}</b><br>${esc(x.why)}</span>${canMatch ? `<button class="btn sm" data-pwsame="${esc(x.id)}">Same Item</button><button class="btn sm" data-pwdiff="${esc(x.id)}">Different Items</button>` : ""}</div>`).join("")}</div>` : ""}
+    <div class="card rfq-sec"><h3>How Often the Owner Confirms a Flag</h3><div class="pw-tw"><table class="t"><thead><tr><th>Detector</th><th class="money">Raised</th><th class="money">Confirmed Real</th><th class="money">Precision</th></tr></thead><tbody>${Object.keys(PW_DET).map((d) => { const R = pwPrecision(d); return `<tr data-pwprec="${d}"><td>${PW_DET[d].label}</td><td class="money">${R.raised}</td><td class="money">${R.real}</td><td class="money">${null == R.pct ? "—" : R.pct + "%"}</td></tr>`; }).join("")}</tbody></table></div><p class="small muted">Over the last ${S.precisionDays} days. Under ${S.precisionFloor}% the owner is asked to tune the threshold.</p>${T.map((t) => `<p class="small"><b>Proposed:</b> ${esc(PW_DET[t.det].label)} ${esc(t.setting)} from ${t.from}${esc(t.unit)} to ${t.to}${esc(t.unit)} (${t.precision}% confirmed). ${owner ? `<button class="btn sm" data-pwtune="${t.det}">Change It</button> <button class="btn sm" data-pwkeep="${t.det}">Keep It</button>` : "Waits on the owner."}</p>`).join("")}</div>
+    <div class="card rfq-sec"><h3>Thresholds</h3><p class="small">Paid More Than Before flags a price more than <b>${S.overPct}%</b> over the trailing median of at least ${S.minBuys} earlier buys, or over a cheaper price from another vendor in the last ${S.recentDays} days, or over the PO or quote it was bought against.</p>${owner ? `<div class="rfq-row"><div class="f" style="max-width:180px"><label for="pw-over">Over the Median By (%)</label><input type="number" id="pw-over" min="1" step="any" value="${S.overPct}"></div><button class="btn" id="pw-over-save">Save</button></div>` : '<p class="small muted">The owner sets the thresholds.</p>'}</div>
+    ${Object.keys(P.priceBook).length || P.rfqQueue.length ? `<div class="card rfq-sec"><h3>Price Book and Next RFQ</h3>${Object.values(P.priceBook).map((b) => `<div class="small" data-nocase>${esc(b.label)}: ${pwU2(b.price)} per ${esc(b.unit)} from ${esc(b.vendor)} (${esc(b.by)}, ${fmtL(b.on)})</div>`).join("")}${P.rfqQueue.map((x) => `<div class="small" data-nocase>Next RFQ: ${esc(x.item)} (${esc(x.by)}, ${fmtL(x.on)})</div>`).join("")}</div>` : ""}
+  </div>`;
+}
+function pwWirePage(host) {
+  host.querySelectorAll("[data-pwopen]").forEach((b) => (b.onclick = () => pwCaseSheet(b.dataset.pwopen)));
+  host.querySelectorAll("[data-pwsame]").forEach((b) => (b.onclick = () => pwMatchDecide(b.dataset.pwsame, !0)));
+  host.querySelectorAll("[data-pwdiff]").forEach((b) => (b.onclick = () => pwMatchDecide(b.dataset.pwdiff, !1)));
+  host.querySelectorAll("[data-pwtune]").forEach((b) => (b.onclick = () => pwTuneDecide(b.dataset.pwtune, !0)));
+  host.querySelectorAll("[data-pwkeep]").forEach((b) => (b.onclick = () => pwTuneDecide(b.dataset.pwkeep, !1)));
+  const sv = host.querySelector("#pw-over-save");
+  sv && (sv.onclick = () => pwSetting("overPct", host.querySelector("#pw-over").value, "set on Price Watch"));
+}
+if (!document.getElementById("pw-css")) {
+  const st = document.createElement("style");
+  (st.id = "pw-css"),
+    (st.textContent = `
+.pw-tw{overflow-x:auto;max-width:100%}
+.pw-hist td,.pw-hist th{font-size:12px;vertical-align:top}
+.pw-case,.pw-page{max-width:100%;overflow-wrap:anywhere}
+.pw-case h4{margin:12px 0 4px;font-size:13px}
+.pw-case ul{margin:0 0 6px 16px;padding:0}
+.pw-tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:8px 0}
+.pw-tiles>div{display:flex;flex-direction:column;gap:2px;border:1px solid var(--rule);border-radius:var(--r,8px);padding:8px}
+.pw-steps{display:flex;flex-wrap:wrap;gap:10px}
+.pw-steps .btn{min-height:44px}
+.pw-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 0;border-top:1px solid var(--rule)}
+.pw-row .grow{flex:1;min-width:0}
+.pw-ex{margin:6px 0}
+.pw-exh{margin:2px 0 0 16px;padding:0}
+.pw-po{margin:0 0 12px}
+.pw-po-l{margin-top:6px}
+.pw-money{font-style:italic}
+@media (max-width:700px){.pw-tiles{grid-template-columns:1fr 1fr}.pw-row .btn{min-height:44px}.pw-hist th:nth-child(6),.pw-hist td:nth-child(6){min-width:120px}}
+`),
+    document.head.appendChild(st);
+}
+/* ---- end pricewatch --------------------------------------------------------------------------------------- */
 
 // ---------------------------------------------------------------------------------------------------------
 // clientfix (round 5, the client reviewer): what a client does on the portal is handled activity for the
