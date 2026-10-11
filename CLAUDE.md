@@ -2,6 +2,8 @@
 
 Read this file, then HANDOFF.md, then docs/BACKLOG.md, before touching code.
 
+**Alan's chief of staff** (`.claude/agents/chief-of-staff.md`) keeps `docs/DECISIONS.md` (every ask and decision, and what waits on him) and `docs/LANES.md` (who is building what, and the merge plan), working from `docs/ALAN.md` (how he thinks). Log every new ask there the same hour, and consult the chief of staff at each new ask, each lane report and before each merge or release.
+
 ## Who this is for
 - **Owner:** Alan Mishali, founder of SmartDesign NYC / Mercer & Bond. The firm does design-build-develop work: landmark brownstone and townhouse renovation in Manhattan and Brooklyn, with SD Plumbing and SD Electric in-house.
 - **What it is:** one ERP for every person in the firm (owner, PM, coordinator/procurement, foreman, crew, driver, designer, billing, controller) and for the firm's clients through a portal.
