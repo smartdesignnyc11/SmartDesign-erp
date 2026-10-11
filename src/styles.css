@@ -3334,3 +3334,13 @@ button.pol-chip{cursor:pointer} button.pol-chip:hover{border-color:var(--accent)
 }
 @media (max-width:760px){ .pol-which table.ctp td:empty{display:none} }
 @media (max-width:760px){ .pol-cell{gap:10px} .view.on .pol-cell .btn,.view.on .pol-cell button.pol-chip{min-height:44px !important;min-width:64px} }
+/* integrate: What My Assistant May Send for Me, a switch per message type (44px tap target, clear at 390px) */
+.std-deleg .dlg-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--rule)} .std-deleg .dlg-row:first-of-type{border-top:0}
+.std-deleg .dlg-row .grow{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px} .std-deleg .dlg-off{min-width:64px;text-align:center}
+.dlg-sw{position:relative;flex:none;width:52px;height:44px;display:inline-flex;align-items:center;cursor:pointer}
+.dlg-sw input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer}
+.dlg-knob{width:44px;height:26px;border-radius:13px;background:var(--rule);position:relative;transition:background .15s}
+.dlg-knob::after{content:'';position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:var(--paper);box-shadow:0 1px 2px rgba(0,0,0,.25);transition:left .15s}
+.dlg-sw input:checked+.dlg-knob{background:var(--ok,#1f8a4c)} .dlg-sw input:checked+.dlg-knob::after{left:21px}
+.dlg-sw input:focus-visible+.dlg-knob{outline:2px solid var(--accent);outline-offset:2px}
+.std-deleg .dlg-log{padding:4px 0;color:var(--ink-2)} .std-deleg h4{margin:14px 0 4px}
