@@ -190,12 +190,15 @@ async def sec_nyh(p, c):
     k = await pg.evaluate("() => (nyhRows().find(r => /Satish/.test(r.title)) || {}).key || ''")
     n0 = await pg.evaluate("() => +document.querySelector('.view.on .nyh-card').dataset.nyhn")
     c.ok(n0 == await pg.evaluate("() => nyhRows().length"), f"the Controller's Needs Your Hand card counts its rows: {n0}")
+    n0p = await pg.evaluate("() => nyhRows().filter(r => r.kind !== 'standard').length")
     if k:
         await pg.locator(f'.view.on [data-nyhrow="{k}"] .h4-act').click(); await pg.wait_for_timeout(300)
         await pg.evaluate("() => { const m = document.getElementById('mbm'); const b = m && [...m.querySelectorAll('.btn.primary')].find(x => x.offsetParent); b && b.click(); }")
         await pg.wait_for_timeout(200)
-        s = await pg.evaluate("k => ({ bill: (DB.bills || []).filter(b => /SE-0922/.test(b.number || '')).length, left: nyhRows().some(r => r.key === k), n: +document.querySelector('.view.on .nyh-card').dataset.nyhn })", k)
-        c.ok(s['bill'] == 1 and not s['left'] and s['n'] == n0 - 1, f'one tap applies the Satish bill once and the row leaves: {s}')
+        # Standard Watch rows (kind "standard") may change with the books: a bill paid with no PO is a three-way-match
+        # breach for the Controller. The proposals themselves go down by one.
+        s = await pg.evaluate("k => ({ bill: (DB.bills || []).filter(b => /SE-0922/.test(b.number || '')).length, left: nyhRows().some(r => r.key === k), n: nyhRows().filter(r => r.kind !== 'standard').length, card: +document.querySelector('.view.on .nyh-card').dataset.nyhn, all: nyhRows().length })", k)
+        c.ok(s['bill'] == 1 and not s['left'] and s['n'] == n0p - 1 and s['card'] == s['all'], f'one tap applies the Satish bill once and the row leaves: {s}')
     z = await pg.evaluate("() => { const r = nyhRows().find(r => r.kind === 'code'); if (!r) return null; nyhRun(r.key); const t = DB.txns.find(t => /ZELLE/i.test(t.desc) && Math.abs(Math.abs(t.amt) - 2400) < 1); return { title: r.title, cat: t && t.cat, job: t && t.projectId } }")
     c.ok(z and z['cat'] and z['cat'] != 'uncat' and z['job'] == 'p121', f"Jeanette's Zelle explanation becomes a coding proposal; Apply codes the line to the job: {z}")
     # Billing: a deposit in the bank becomes Record Payment; a payment the bank never saw gets Resolve
@@ -238,7 +241,9 @@ async def sec_nyh(p, c):
     c.ok(any('8/31' in x or 'Aug 31' in x for x in q2), f"the new run reaches the Owner's Do Now: {q2}")
     # PM: a bill at the PM's turn has Recommend on the PM's Do Now (a compliance block stops the payment, not the review)
     await sign_in(pg, 'u_alan'); await go(pg, 'home'); await pg.wait_for_timeout(300)
-    amp = await pg.evaluate("() => [...document.querySelectorAll('.view.on .td-do .td-card')].filter(c => /AMP-311/.test(c.innerText)).map(c => c.querySelector('[data-tdverb]').innerText)")
+    # Do Now ranks by the Standard's decision principles (a bill is Cost, the last of seven), so AMP-311 may sit
+    # past the five cards shown; it is still in the PM's Do Now queue, and its card's verb is Recommend
+    amp = await pg.evaluate("() => tdQueue().filter(it => it.kind === 'bill' && it.id === 'b4').map(it => tdCard(it).verb)")
     c.ok(amp == ['Recommend'], f"AMP-311 is on the PM's Do Now with Recommend: {amp}")
     await pg.evaluate("() => { const it = PRED.waitingOnMe.rows().find(x => x.id === 'b4'); apprBillYes(it); }"); await pg.wait_for_timeout(250)
     await pg.evaluate("() => { const m = document.getElementById('mbm'); if (!m) return; m.querySelectorAll('textarea, input:not([type=checkbox])').forEach(f => { if (!f.value) { f.value = 'Checked against the work on site.'; f.dispatchEvent(new Event('input', { bubbles: true })); } }); m.querySelectorAll('input[type=checkbox]').forEach(x => x.checked || x.click()); const b = m.querySelector('.btn.primary'); b && b.click(); }")
