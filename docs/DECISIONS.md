@@ -16,9 +16,9 @@ Status: **Built** (merged and tested) · **Building** (a lane is on it) · **Spe
 | Ask or decision | Where it lives | Status |
 |---|---|---|
 | A chief of staff that thinks like Alan, tracks the changes and manages the agents | `.claude/agents/chief-of-staff.md`, `docs/ALAN.md`, this file, `docs/LANES.md` | Built (docs) |
-| Invoices and receipts attach straight to the PO, the bill or both; the AI checks every figure lines up; open mismatch blocks payment | BACKLOG §1.9 item 8 | Building (lane "track") |
+| Invoices and receipts attach straight to the PO, the bill or both; the AI checks every figure lines up; open mismatch blocks payment | BACKLOG §1.9 item 8 | Built in lane; merging |
 | Version 11 should be the strongest update yet | Merge plan in `docs/LANES.md` | Building |
-| Tracking numbers, invoices, receipts, delivery dates and vendor promises filed in place; vendor follow-ups sent autonomously (within delegation) | BACKLOG §1.9 | Building (lane "track") |
+| Tracking numbers, invoices, receipts, delivery dates and vendor promises filed in place; vendor follow-ups sent autonomously (within delegation) | BACKLOG §1.9 | Built in lane; merging |
 | Think past every ask: what's missed, how to make it better, what could go wrong | `CLAUDE.md` | Built (standing rule) |
 | Check inventory before buying; only the driver or procurement manager overrides, with a reason | BACKLOG §1.8 item 12 | Building (lane "stock") |
 | Owner approves price-watch explanations and baseline changes ("lumber up 8%") | BACKLOG §1.8 item 11 | Built in lane; merging |
