@@ -3505,8 +3505,10 @@ function navWhoOpens(v) {
 }
 // No dead links: a row, tile or link in a view that points at a view this role may not open is shown
 // as information, not as a link (one pass for every generator: reminders, dashboard widgets, nav rows).
-const NAV_LINK_SEL = "[data-remgo], [data-v], [data-gl], [data-view]";
+const NAV_LINK_SEL = "[data-remgo], [data-v], [data-gl], [data-view], [data-go^='view:']";
 function navLinkTarget(el) {
+  // a row that jumps by data-go="view:<id>" (the job dashboard's watch list) is a link like the others
+  if (el.dataset.go && el.dataset.go.startsWith("view:")) return el.dataset.go.slice(5).split(/[:|]/)[0];
   if (el.dataset.remgo)
     try {
       return JSON.parse(el.dataset.remgo).view || "";
@@ -3526,7 +3528,7 @@ function navLinkPass(root) {
     (root || document).querySelectorAll(".view " + NAV_LINK_SEL.split(", ").join(", .view ")).forEach((el) => {
       const v = navLinkTarget(el);
       if (!v || !known.has(v) || V.includes(v) || ("undefined" != typeof MB_VIEWS && MB_VIEWS.includes(v) && mbAccess())) return;
-      ["remgo", "v", "gl", "view"].forEach((k) => delete el.dataset[k]),
+      ["remgo", "v", "gl", "view", "go"].forEach((k) => delete el.dataset[k]),
         (el.dataset.navoff = v),
         el.classList.add("nav-static"),
         (el.style.cursor = "default"),
@@ -3544,13 +3546,15 @@ new MutationObserver(() => {
       (navLinkQ = !1), navLinkPass(document);
     }));
 }).observe(document.documentElement, { childList: !0, subtree: !0 });
+// The role's Home: the page sign-in opens (the foreman's Today, the crew's Time, the driver's Route, the
+// client's portal), never the first view in the list, which is Ask.
 function roleHome(r) {
   const V = ROLE_VIEWS[r] || [];
   let h = "";
   try {
     h = IA_HOME[r];
   } catch (e) {}
-  return h && V.includes(h) ? h : V.includes("home") ? "home" : V.includes("dash") ? "dash" : V[0];
+  return h && V.includes(h) ? h : ["home", "ftoday", "time", "route", "client", "sday", "dash"].find((v) => V.includes(v)) || V[0];
 }
 function navBlocked(r, v) {
   const was = navRoleSeen;
@@ -3716,8 +3720,12 @@ let view = "dash",
   matFilter = "all",
   matGroup = "date",
   decFilter = "open";
+// A view this role may not open lands on the role's Home with the toast that says who opens it (navBlocked),
+// never on the first view in the list (Ask), which read as the press falling through to the assistant.
 function setView(v) {
-  ROLE_VIEWS[role()].includes(v) || (v = ROLE_VIEWS[role()][0]),
+  ROLE_VIEWS[role()].includes(v) ||
+    ("undefined" != typeof MB_VIEWS && MB_VIEWS.includes(v) && mbAccess()) ||
+    (navBlocked(role(), v), (v = view)),
     (view = v),
     document.querySelector(".rail")?.classList.remove("open"),
     $("#railscrim")?.classList.remove("on"),
@@ -3813,7 +3821,7 @@ function render() {
       ? (view = "mbdash")
       : "mb" !== DB.workspace &&
         MB_VIEWS.includes(view) &&
-        (view = ROLE_VIEWS[role()].find((v) => !MB_VIEWS.includes(v)) || "dash")),
+        (view = MB_VIEWS.includes(roleHome(role())) ? ROLE_VIEWS[role()].find((v) => !MB_VIEWS.includes(v)) || "dash" : roleHome(role()))),
     (!S ||
       (S.id && !(DB.projects || []).some((p) => p.id === S.id)) ||
       (!S.id && (DB.projects || []).length)) &&
@@ -20657,7 +20665,7 @@ function setWorkspace(ws) {
     document.body.classList.toggle("ws-mb", "mb" === ws),
     "mb" === ws
       ? MB_VIEWS.includes(view) || (view = "mbdash")
-      : MB_VIEWS.includes(view) && (view = ROLE_VIEWS[role()].find((v) => !MB_VIEWS.includes(v)) || "dash"),
+      : MB_VIEWS.includes(view) && (view = MB_VIEWS.includes(roleHome(role())) ? ROLE_VIEWS[role()].find((v) => !MB_VIEWS.includes(v)) || "dash" : roleHome(role())),
     save(),
     render();
 }
@@ -39058,10 +39066,17 @@ function h4Home(F) {
   return `<div class="home4">${("crew" === r || "driver" === r ? [h4Card("Today", todayHtml, { view: "time" }, "Clock"), h4Card("Needs me", needsHtml, { view: "req" }), h4Card("Jobs", jobsHtml, { view: "port" })] : "coord" === r ? [h4Card("Prepared for you", prepHtml, { view: "po" }), h4Card("Needs me", needsHtml, { view: "po" }), h4Card("Today on site", todayHtml, { view: "recv" }), h4Card("Jobs", jobsHtml, { view: "port" }), h4Card("Billing", billHtml, { view: "clients" }), h4Card("Accounting", moneyHtml, { view: "bank" })] : "pm" === r ? [h4Card("Jobs", jobsHtml, { view: "port" }), h4Card("Needs me", needsHtml, { view: "dash" }), h4Card("Today on site", todayHtml, { view: "sched" }), h4Card("Billing", billHtml, { view: "clients" }), h4Card("Prepared for you", prepHtml, { view: "po" }), h4Card("Accounting", moneyHtml, { view: "reports", tab: "dash" })] : [h4Card("Needs me", needsHtml, { view: "home" }, `All ${F.needs.length}`), h4Card("Accounting", moneyHtml, { view: "reports", tab: "dash" }), h4Card("Jobs", jobsHtml, { view: "port" }), h4Card("Today on site", todayHtml, { view: "sched" }), h4Card("Billing", billHtml, { view: "reports", tab: "ar" }), h4Card("Prepared for you", prepHtml, { view: "bank" })]).join("")}</div>`;
 }
 const renderHomeBase_h4 = renderHome;
+// A link to a Mercer & Bond page (a property's rent on the Dashboard or in Approvals) opens it in that workspace
+// for a person who has it; before, the SmartDesign workspace turned it away and the press landed on Ask.
+function goWsFor(v) {
+  try {
+    "undefined" != typeof MB_VIEWS && MB_VIEWS.includes(v) && "mb" !== DB.workspace && mbAccess() && setWorkspace("mb");
+  } catch (e) {}
+}
 function h4Go(go) {
   if (go) {
     if (
-      ("mb" === go.ws && setWorkspace("mb"),
+      ("mb" === go.ws ? setWorkspace("mb") : go.view && goWsFor(go.view),
       go.proj && setCurrent(go.proj),
       go.tab && (repTab = go.tab),
       go.search && (ssOpen = go.search),
@@ -84648,7 +84663,7 @@ function mGo(go) {
   // a view this role cannot open is not a destination: a field question goes to Approvals' Site Questions
   let v = go.view;
   "field" === v && "function" == typeof flowCan && !flowCan("field") && flowCan("mapprove") && ((window.mApprKind = "raise"), (v = "mapprove"));
-  (view = v), render(), window.scrollTo(0, 0);
+  goWsFor(v), (view = v), render(), window.scrollTo(0, 0);
 }
 // Every kind an approval can be sits in exactly one chip, so the chips sum to Everything.
 // A kind added later without a chip lands in Other rather than in no chip at all.
@@ -108066,7 +108081,7 @@ const csEv = (label, text, go, ref) => ({
                 ),
               ),
             go: { view: "bank" },
-            act: { label: "Open Banking", run: () => csGo({ view: "bank" }) },
+            act: { label: "Open Banking", view: "bank", run: () => csGo({ view: "bank" }) },
           },
         ];
       },
@@ -108714,7 +108729,7 @@ function csFindingHtml(f, i) {
   const [cls, lbl] = CS_SEV[f.sev] || CS_SEV[1],
     key = `${f.check}:${i}`,
     open = !!csOpen[key];
-  return `<div class="cs-f ${cls}">\n    <div class="cs-f-hd" data-csopen="${esc(key)}">\n      <span class="pill ${cls}">${lbl}</span>\n      <b class="grow">${esc(f.title)}</b>\n      <span class="cs-chain">${esc(f.chain)}</span>\n      <button class="btn sm ghost cs-tog" aria-expanded="${open}">${open ? "Less" : "Why"}</button>\n    </div>\n    <div class="cs-f-why">${esc(f.why || "")}</div>\n    <div class="cs-f-body" ${open ? "" : "hidden"}>\n      <div class="cs-rule"><span class="k">The rule it applied</span>${esc(f.rule || "")}</div>\n      <div class="cs-ev">${(f.ev || []).map((e, j) => `<div class="cs-ev-r" data-csev="${esc(key)}|${j}"><span class="k">${esc(e.label || "")}</span><span class="v">${esc(e.text)}</span></div>`).join("") || '<div class="small muted">No further records.</div>'}</div>\n    </div>\n    <div class="cs-f-act">\n      ${f.act ? `<button class="btn sm" data-csact="${esc(key)}">${esc(f.act.label)}</button>` : ""}\n      ${f.go ? `<button class="btn sm" data-csgo="${esc(key)}">Open It</button>` : ""}\n    </div>\n  </div>`;
+  return `<div class="cs-f ${cls}">\n    <div class="cs-f-hd" data-csopen="${esc(key)}">\n      <span class="pill ${cls}">${lbl}</span>\n      <b class="grow">${esc(f.title)}</b>\n      <span class="cs-chain">${esc(f.chain)}</span>\n      <button class="btn sm ghost cs-tog" aria-expanded="${open}">${open ? "Less" : "Why"}</button>\n    </div>\n    <div class="cs-f-why">${esc(f.why || "")}</div>\n    <div class="cs-f-body" ${open ? "" : "hidden"}>\n      <div class="cs-rule"><span class="k">The rule it applied</span>${esc(f.rule || "")}</div>\n      <div class="cs-ev">${(f.ev || []).map((e, j) => `<div class="cs-ev-r" data-csev="${esc(key)}|${j}"><span class="k">${esc(e.label || "")}</span><span class="v">${esc(e.text)}</span></div>`).join("") || '<div class="small muted">No further records.</div>'}</div>\n    </div>\n    <div class="cs-f-act">\n      ${f.act && (!f.act.view || flowCan(f.act.view)) ? `<button class="btn sm" data-csact="${esc(key)}">${esc(f.act.label)}</button>` : ""}\n      ${f.go ? `<button class="btn sm" data-csgo="${esc(key)}">Open It</button>` : ""}\n    </div>\n  </div>`;
 }
 function csHtml() {
   csInit();
@@ -120341,7 +120356,7 @@ if (
                   ),
                 ),
               go: { view: "bank" },
-              act: { label: "Open Banking", run: () => csGo({ view: "bank" }) },
+              act: { label: "Open Banking", view: "bank", run: () => csGo({ view: "bank" }) },
             },
           ]
         : [];
@@ -124254,21 +124269,21 @@ const flowCan = (v) => {
     },
     // the first of these views the person may open (a record's home differs by role)
     viewOf: (...vs) => () => {
-      (view = vs.find(flowCan) || ROLE_VIEWS[role()][0]), render(), flowTop();
+      (view = vs.find(flowCan) || roleHome(role())), render(), flowTop();
     },
     raise: (r) => () => {
       r && r.projectId && setCurrent(r.projectId);
       const v = ["field", "fraise", "ftoday"].find(flowCan);
-      v ? (view = v) : flowCan("mapprove") ? ((window.mApprKind = "raise"), (view = "mapprove")) : (view = ROLE_VIEWS[role()][0]),
+      v ? (view = v) : flowCan("mapprove") ? ((window.mApprKind = "raise"), (view = "mapprove")) : (view = roleHome(role())),
         render(),
         flowTop();
     },
     request: (p) => () => {
-      p && setCurrent(p.id), (view = flowCan("req") ? "req" : ROLE_VIEWS[role()][0]), render(), flowTop();
+      p && setCurrent(p.id), (view = flowCan("req") ? "req" : roleHome(role())), render(), flowTop();
     },
     time: (e) => () => {
       e && e.projectId && setCurrent(e.projectId),
-        (view = ["time", "sday", "ftoday"].find(flowCan) || ROLE_VIEWS[role()][0]),
+        (view = ["time", "sday", "ftoday"].find(flowCan) || roleHome(role())),
         render(),
         flowTop();
     },
