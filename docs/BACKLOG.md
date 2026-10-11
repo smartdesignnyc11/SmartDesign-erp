@@ -389,7 +389,8 @@ Reviewers: `.claude/agents/` role experts, each a full day with a linked workspa
 
 ---
 
-## §5 Platform: from a single-player demo to the firm's system (Alan, 2026-10-10: "to the highest level, especially all the AI features")
+## §5 Platform: from a single-player demo to the firm's system
+**Decision (Alan, 2026-10-11): Supabase (Postgres, auth, row-level security) plus Netlify (functions, scheduled functions, hosting), as the firm's earlier hosted copy. The lost server pieces are rebuilt from HANDOFF.md's specs and `legacy/hosted-app-2026-09-15.zip`. Secrets (Anthropic API key, Plaid, Google OAuth client, BANKFEED_KEY) live only in Netlify and Supabase settings, never in the repo or chat. Starts after the 2026-10-15 weekly reset, on the plan's included usage.** (Alan, 2026-10-10: "to the highest level, especially all the AI features")
 Today every person's data lives in their own browser and every guard runs in the page. Rebuild the hosted half (HANDOFF "What was lost") so ten people on ten phones share one truth.
 1. **Shared database, sign-in, sync.** Supabase (Postgres) as the system of record; Google sign-in per person; `cloud.js` rebuilt (per-user assistant shards, pending markers, keepalive push on pagehide, re-push before pull so a local edit is never overwritten); offline on site with conflict rules (money records server-wins with a visible conflict, field notes merge).
 2. **Security in the database, not the page.** Row-level security per firm, per role and per client: a client's phone never receives another client's rows; field roles never receive money; the budget, close, journal and approval rules enforced by database functions; the hash chain's head per period stored server-side, so rebuilding the chain in a browser is detected. The browser checks stay as the first line, never the only one.
