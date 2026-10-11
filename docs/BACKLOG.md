@@ -330,6 +330,22 @@ Alan: tracking numbers, invoices, receipts, delivery dates and vendor promises a
    - Duplicates are detected.
    - A document that could not be read says so.
    - Missing documents are a count that opens its rows: delivered with no packing slip, billed with no invoice copy, card line with no receipt.
+8. **Documents attach to the PO, the bill, or both, and the AI checks they line up (Alan, 2026-10-11).**
+    - **Getting documents in.** Any document can be added directly on a PO or a bill: camera on the phone, iPhone share sheet, drag and drop, or forwarded to a purchasing address. One invoice usually attaches to both its bill and its PO. A receipt attaches to its card line and, where there is one, its PO. A multi-invoice PDF is split, a blurry photo gets a request to retake, and phone captures queue offline.
+    - **The original is evidence.** It is stored unchanged and hash-stamped (the financial-truth rule: a figure with no document or bank line behind it is shown as such). Corrections never overwrite it.
+    - **The AI reads it and checks every match** against the PO, the receiving record, the bill, the bank or card line and the estimate line:
+      - vendor, job and address, and the PO number referenced;
+      - each line's quantity, unit price and extension;
+      - subtotal, tax at the right rate (or use tax due), freight and total;
+      - items not on the PO, or billed before they were delivered;
+      - price above the quote or PO (price watch);
+      - duplicate invoice numbers or amounts;
+      - payment terms against the vendor's terms;
+      - a changed remit-to address or bank details (never acted on: two people and a call-back);
+      - on card receipts: items with no job purpose, tips, or a store far from any job.
+    - **The result is plain.** "Lines up" shows as a quiet tick with what was checked. Anything off becomes a case: the field, the two values, the money at stake, and a next step (ask the vendor for a corrected invoice or credit as a draft, hold the bill, or have a person accept the difference with a reason). A bill with an open mismatch cannot be approved for payment until it is resolved or accepted. Small rounding has a tolerance the owner sets.
+    - **Confidence shows.** Every figure the AI read shows its confidence. A low-confidence read is confirmed by a person before it counts.
+
 Phase one runs in the demo and on the Demo Workspace with invented vendor mail, photos and tracking. Live mail watching, carrier tracking, document reading and autonomous sending arrive with the platform (§5.5–5.6).
 
 ## §2 Remaining round-4 findings
