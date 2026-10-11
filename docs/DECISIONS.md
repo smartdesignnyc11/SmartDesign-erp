@@ -7,6 +7,7 @@ Status: **Built** (merged and tested) · **Building** (a lane is on it) · **Spe
 ## Waiting on Alan
 | Asked | Decision needed | Default until he decides |
 |---|---|---|
+| 2026-10-11 | Three sign-ups only he can do (identity and payment): Anthropic API with a $50/month limit, Supabase, Netlify. Tokens go into the cloud environment's settings as ANTHROPIC_API_KEY, SUPABASE_ACCESS_TOKEN and NETLIFY_AUTH_TOKEN, never into chat. | Platform build waits; v11 continues. |
 | 2026-10-11 | Leftover material from a cost-plus or reimbursable job: return it to the client, credit it on their invoice, or take it into firm stock? | Flagged "client-owned surplus, ask the PM"; never moved into firm stock automatically. |
 | 2026-10-11 | Confirm with the accountant that out-of-state material purchases owe NY use tax, and at what rate. | Landed cost adds use tax at 8.875% (editable). A bill with no tax charged is flagged "use tax to accrue". |
 | 2026-10-11 | ChatGPT history export, to deepen `docs/ALAN.md`. | Profile built from the build sessions and the Standard only. |
@@ -15,6 +16,7 @@ Status: **Built** (merged and tested) · **Building** (a lane is on it) · **Spe
 ## 2026-10-11
 | Ask or decision | Where it lives | Status |
 |---|---|---|
+| Real agents on the Claude API: approved, with a spending limit; Alan wants me to do the setup | BACKLOG §5.8 | Waiting on Alan for the three sign-ups and tokens; I do everything else |
 | A chief of staff that thinks like Alan, tracks the changes and manages the agents | `.claude/agents/chief-of-staff.md`, `docs/ALAN.md`, this file, `docs/LANES.md` | Built (docs) |
 | Invoices and receipts attach straight to the PO, the bill or both; the AI checks every figure lines up; open mismatch blocks payment | BACKLOG §1.9 item 8 | Built in lane; merging |
 | Version 11 should be the strongest update yet | Merge plan in `docs/LANES.md` | Building |
