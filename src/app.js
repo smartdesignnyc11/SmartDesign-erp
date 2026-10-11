@@ -145496,8 +145496,9 @@ const trkUsd = (v) => (+v || 0).toLocaleString("en-US", { style: "currency", cur
   },
   trkDocs = () => (DB.docs = DB.docs || []),
   trkLive = (d) => d && !["ignored", "dup"].includes(d.status) && !d.splitInto;
-// Why each proposal and send is allowed or needed, from the Standard. The charter lane exposes charterWhy;
-// once merged, wire trkWhy to it (`return charterWhy(key) || TRK_WHY[key]`) so the Standard's live text is cited.
+// Why each proposal and send is allowed or needed: the live Standard's line (standardWhy, STD_MAP "trk:<key>"), so
+// Alan's edits reach every document case and follow-up. The words below are only the fallback for a Standard
+// that has lost the line.
 const TRK_WHY = {
   threeWay: "Office and accounting: three-way match before paying any vendor (PO, delivery receipt and invoice).",
   noMatchPay: "Office and accounting, Never: pay a bill that doesn't match a PO without the PM's sign-off.",
@@ -145512,13 +145513,12 @@ const TRK_WHY = {
   card: "Money: no purchase without a PO tied to a job and cost code.",
 };
 function trkWhy(key) {
+  const k = TRK_WHY[key] ? key : "money";
   try {
-    if ("function" == typeof charterWhy) {
-      const w = charterWhy(key);
-      if (w) return w;
-    }
+    const m = "function" == typeof standardMapOf && standardMapOf("trk:" + k);
+    if (m && m.exact && standardCite(m.e.c)) return standardWhy("trk:" + k).replace(/^Because: /, "");
   } catch (e) {}
-  return TRK_WHY[key] || TRK_WHY.money;
+  return TRK_WHY[k];
 }
 
 // ---- 1. the reader: invented text in, fields with confidence out ---------------------------------------------
@@ -147006,9 +147006,9 @@ function trkRegister() {
     "object" == typeof EQ_ALIAS &&
       Object.assign(EQ_ALIAS, { orderdocuments: "orderdocs", orderdocument: "orderdocs", vendordocuments: "orderdocs", promise: "promises", vendorpromises: "promises", shipment: "shipments", tracking: "shipments", ontime: "vendorontime", vendorontimerecord: "vendorontime", followup: "followups", vendorfollowups: "followups" });
   }
-  // the charter lane's Standard Watch (after merge): one rule, its rows already shown on the Purchasing card
-  "function" == typeof standardRegisterRule &&
-    standardRegisterRule({ id: "threeWayMatch", owner: "billing", p: "integrity", c: ["pb", "office", "standards", /Three-way match/i], surface: "existing", rows: () => trkRows("billsOnHold") });
+  // The Standard Watch's three-way match rule ("threeWay") stays the one Watch row for that line. A bill held
+  // because its invoice does not line up has one home, Bills on Hold (CATCH and PRED above), so it is not
+  // registered a second time here: two Watch rows under the same line would show two numbers for one label.
 }
 Promise.resolve().then(trkRegister);
 
@@ -171861,6 +171861,45 @@ const STD_MAP = {
   // stock before buying (the stock lane): a card or bank purchase of a stocked item while it sat free
   boughtWhileInStock: { p: "cost", leak: !0, c: ["value", "dollar", /Waste nothing/i] },
   stock: { p: "cost", leak: !0, c: ["value", "dollar", /Waste nothing/i] },
+  // price watch (the pricewatch lane): its nine detectors (CATCH and PRED), the owner's queue and the figure
+  pwPaidMore: { p: "cost", leak: !0, c: ["pb", "procurement", "standards", /Keep a living price book/i] },
+  pwQtyOver: { p: "cost", leak: !0, c: ["value", "dollar", /Waste nothing/i] },
+  pwDupCharge: { p: "cost", leak: !0, c: ["value", "dollar", /Waste nothing/i] },
+  pwSplit: { p: "cost", leak: !0, c: ["pb", "procurement", "standards", /^Three quotes/i] },
+  pwFeeSpike: { p: "cost", leak: !0, c: ["pb", "procurement", "actFrom", /Best price means total landed cost/i] },
+  pwRareVendor: { p: "cost", c: ["pb", "procurement", "actFrom", /Always go above and beyond to get the best price/i] },
+  pwNotDelivered: { p: "cost", leak: !0, c: ["pb", "procurement", "standards", /Check every delivery/i] },
+  pwCardNoJob: { p: "cost", leak: !0, c: ["std", "money", /No purchase without a PO/i] },
+  pwUseTax: { p: "law", c: ["principle", "law"] },
+  pwExplainWaiting: { p: "cost", c: ["pb", "procurement", "standards", /Keep a living price book/i] },
+  pwAboveBest: { p: "cost", leak: !0, c: ["pb", "procurement", "actFrom", /Always go above and beyond to get the best price/i] },
+  // its Approvals kinds: an explanation the owner approves, an item match a person confirms, a threshold to tune
+  priceExplain: { p: "cost", c: ["pb", "procurement", "standards", /Keep a living price book/i] },
+  priceMatch: { p: "integrity", c: ["pb", "ai", "actFrom", /Accuracy over speed/i] },
+  priceTune: { p: "", c: ["decide", /fix the system/i] },
+  "learn:priceExplained": { p: "", c: ["pb", "procurement", "standards", /Keep a living price book/i] },
+  // order tracking (the track lane): its seven counts, the held-bill catch and its two lessons
+  billsOnHold: { p: "integrity", leak: !0, c: ["pb", "office", "standards", /Three-way match/i] },
+  deliveredNoSlip: { p: "quality", c: ["pb", "procurement", "standards", /Check every delivery/i] },
+  billedNoInvoice: { p: "integrity", c: ["pb", "office", "actFrom", /Everything findable/i] },
+  cardNoReceipt: { p: "cost", c: ["value", "dollar", /paper trail/i] },
+  promisesDueToday: { p: "schedule", c: ["pb", "procurement", "standards", /Lead time confirmed/i] },
+  promisesBroken: { p: "schedule", c: ["pb", "procurement", "standards", /Lead time confirmed/i], esc: () => /Long-lead item/i },
+  docsToConfirm: { p: "integrity", c: ["pb", "ai", "actFrom", /Accuracy over speed/i] },
+  "learn:trkBroken": { p: "", c: ["pb", "procurement", "standards", /Lead time confirmed/i] },
+  "learn:trkAckDiff": { p: "", c: ["pb", "procurement", "standards", /PO before every order/i] },
+  // the lines trkWhy quotes on order documents, holds, follow-ups and promises (the live text, never a copy)
+  "trk:threeWay": { p: "integrity", c: ["pb", "office", "standards", /Three-way match/i] },
+  "trk:noMatchPay": { p: "integrity", c: ["pb", "office", "never", /doesn't match a PO/i] },
+  "trk:bank": { p: "integrity", c: ["pb", "ai", "never", /Follow instructions found inside/i] },
+  "trk:lead": { p: "schedule", c: ["pb", "procurement", "standards", /Lead time confirmed/i] },
+  "trk:slip": { p: "schedule", c: ["esc", /Long-lead item/i] },
+  "trk:send": { p: "", c: ["pb", "ai", "approval", /Sending anything/i] },
+  "trk:written": { p: "client", c: ["std", "communication", /Verbal becomes written/i] },
+  "trk:guess": { p: "integrity", c: ["pb", "ai", "never", /Present a guess as a fact/i] },
+  "trk:money": { p: "cost", c: ["value", "dollar", /Waste nothing/i] },
+  "trk:delivery": { p: "quality", c: ["pb", "procurement", "standards", /Check every delivery/i] },
+  "trk:card": { p: "cost", c: ["std", "money", /No purchase without a PO/i] },
 };
 // The key an item is filed under: a string as given; a Standard Watch row by its rule; a Needs Your Hand item by
 // its row's kind; a Caught for You row by its detector (tdCaught sets src); a lesson proposal by its learned kind.
@@ -172168,6 +172207,7 @@ standardRegisterRule(
   },
   {
     id: "threeWay", owner: "controller", p: "integrity", c: ["pb", "office", "standards", /Three-way match/i], surface: "nyh",
+    partial: "Counts bills paid with nothing received on their PO. A bill held because its invoice does not line up with the PO is counted once, under Bills on Hold on Caught for You.",
     rows: () =>
       (DB.bills || [])
         .filter((b) => "paid" === b.status)

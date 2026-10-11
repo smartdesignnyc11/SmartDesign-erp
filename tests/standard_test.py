@@ -81,6 +81,14 @@ async def main():
         m = await pg.evaluate("""() => { const keys = CATCH.map(x => x.name).concat(Object.keys(DELEGATION), LEARN_EVENTS.map(e => 'learn:' + e.kind), STANDARD_RULES.map(R => 'std:' + R.id));
           return keys.filter(k => !standardMapOf(k).exact || !/^Because: .+ \\(.+\\)$/.test(standardWhy(k)) || !standardCite(standardMapOf(k).e.c)); }""")
         c.ok(not m, f'keys with no line of the Standard behind them: {m}')
+        # the price watch and order tracking counts (PRED), and the lines trkWhy quotes, are mapped too
+        m2 = await pg.evaluate("""() => { const keys = Object.keys(PW_DET).concat(['pwExplainWaiting', 'pwAboveBest'], TRK_PRED.map(x => x[0]), Object.keys(TRK_WHY).map(k => 'trk:' + k));
+          const bad = keys.filter(k => !standardMapOf(k).exact || !/^Because: .+ \\(.+\\)$/.test(standardWhy(k)) || !standardCite(standardMapOf(k).e.c));
+          const why = trkWhy('send'); return { bad, why, live: why === standardWhy('trk:send').replace(/^Because: /, '') }; }""")
+        c.ok(not m2['bad'], f"PRED and trkWhy keys with no line of the Standard behind them: {m2['bad']}")
+        c.ok(m2['live'] and 'Sending anything' in m2['why'], f"trkWhy quotes the live Standard: {m2['why']}")
+        w3 = await pg.evaluate("() => STANDARD_RULES.filter(R => /Three-way match/i.test((standardCite(R.c) || {}).text || '')).map(R => R.id)")
+        c.ok(w3 == ['threeWay'], f'one Standard Watch row for the three-way match line: {w3}')
         # ---- ranking by decision principle; counts unchanged
         o = await pg.evaluate("() => ({ qn: tdQueue().length, pn: PRED.waitingOnMe.count() })")
         # Alan (2026-10-11): immediate safety and law first, then overdue / today / this week / later, then the
