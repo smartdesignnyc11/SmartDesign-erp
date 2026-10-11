@@ -23123,10 +23123,14 @@ function lineLabor(doc, line) {
     const pid = doc && doc.projectId,
       code = String((line && line.code) || "");
     if (!pid || !code) return 0;
-    const rateOf = (e) => {
-      const emp = (DB.employees || []).find((x) => x.id === e.empId);
-      return ((emp && +emp.rate) || 0) * (1 + ((emp && +emp.burden) || 0) / 100);
-    };
+    // the rate jobFin uses: the burdened rate, trued up to what the paid payroll run actually cost (payrollTrueUp), so a
+    // line's labor and the job's labor are one number
+    const tu = "function" == typeof payrollTrueUp ? payrollTrueUp() : null,
+      rateOf = (e) => {
+        const emp = (DB.employees || []).find((x) => x.id === e.empId),
+          base = ((emp && +emp.rate) || 0) * (1 + ((emp && +emp.burden) || 0) / 100);
+        return emp && tu ? base * (+tu(e, emp) || 1) : base;
+      };
     let total = 0;
     if (
       ((DB.time || [])
@@ -28094,6 +28098,13 @@ function payrollTrueUp() {
     return m ? m.f : 1;
   };
 }
+// A payroll run covers the time of every entity it pays: one across entities (r.entities, one part per entity) covers
+// each part's entity, not only its own entityId. Before, the close accrued the hours of the second entity's people as
+// wages no run covers, on top of the run that paid them (a double count of the job's labor at the close).
+function runEnts(r) {
+  return r && (r.entities || []).length ? r.entities.map((e) => e.entityId || "ent1") : [(r && r.entityId) || "ent1"];
+}
+const runCoversEnt = (r, ent) => runEnts(r).includes(ent || "ent1");
 const entOfEmpId = (id) => DB.employees.find((x) => x.id === id)?.entityId || "ent1",
   JOBFIN_NOTE =
     "One engine feeds every screen: billed = invoices ex tax, before retainage; actual = approved bills + bank items without a bill + clocked labor at burdened rates (trued up to actual payroll once a run is paid); committed = open POs net of bills; % complete = actual ÷ estimated total cost (cost-to-cost).";
@@ -36429,7 +36440,7 @@ repProfit = function () {
   const T = jobTrueProfit(p),
     kpi = (label, v, sub, cls = "") =>
       `<div class="kpi ${cls}"><b>${"number" == typeof v ? money(v) : v}</b><span>${label}${sub ? ` · ${sub}` : ""}</span></div>`,
-    block = `<h3 class="rep-h">Profit After Overhead</h3><div class="fin rep-kpis oh-job">${kpi("Earned to date", T.revenue)}${kpi("Job cost to date", T.cost)}${kpi("Gross profit", T.gross, `${T.grossPct}%`, T.gross < 0 ? "bad" : "")}${kpi("Overhead allocated", T.oh, `${money(T.basisAmt)} of ${OH_BASES[T.basis][1]}`)}${kpi("Net profit", T.net, `${T.netPct}%`, T.net < 0 ? "bad" : T.netPct < 10 ? "warn" : "good")}</div><div class="fin rep-kpis oh-job-eac">${kpi("Margin at completion", T.margin, `contract ${money(T.contract)} less estimated cost ${money(T.eac)}`)}${kpi("Overhead at completion", T.burden, `${pct1(T.burdenRate)} burden rate`)}${kpi("Net at completion", T.netAtCompletion, `${T.netAtCompletionPct}%`, T.netAtCompletion < 0 ? "bad" : "")}</div><div class="small muted oh-method" style="margin:-4px 0 10px">${esc(T.method)} The burden rate is the last three full months' pool over their ${OH_BASES[T.basis][1]}.</div>`,
+    block = `<h3 class="rep-h">Profit After Overhead</h3><div class="fin rep-kpis oh-job">${kpi("Earned to Date", T.revenue)}${kpi("Job Cost to Date", T.cost)}${kpi("Gross Profit", T.gross, `${T.grossPct}%`, T.gross < 0 ? "bad" : "")}${kpi("Overhead Allocated", T.oh, `${money(T.basisAmt)} of ${OH_BASES[T.basis][1]}`)}${kpi("Net Profit", T.net, `${T.netPct}%`, T.net < 0 ? "bad" : T.netPct < 10 ? "warn" : "good")}</div><div class="fin rep-kpis oh-job-eac">${kpi("Margin at Completion", T.margin, `contract ${money(T.contract)} less estimated cost ${money(T.eac)}`)}${kpi("Overhead at Completion", T.burden, `${pct1(T.burdenRate)} burden rate`)}${kpi("Net at Completion", T.netAtCompletion, `${T.netAtCompletionPct}%`, T.netAtCompletion < 0 ? "bad" : "")}</div><div class="small muted oh-method" style="margin:-4px 0 10px">${esc(T.method)} The burden rate is the last three full months' pool over their ${OH_BASES[T.basis][1]}.</div>`,
     j = h.indexOf('<h3 class="rep-h">', h.indexOf("Cost &amp; margin") > -1 ? h.indexOf("Cost &amp; margin") : h.indexOf("Cost & margin")),
     k = j > -1 ? h.indexOf('<h3 class="rep-h">', j + 10) : -1;
   return k > -1 ? h.slice(0, k) + block + h.slice(k) : h + block;
@@ -55229,22 +55240,24 @@ function clClassify(src, ctx) {
             : "rough"
           : "other";
 }
+// The costs behind a line, by class: the same bills and bank lines lineFin counts (a disputed difference held back,
+// a purchase billed back to the client and a bank line that paid a bill left out), so Cost by Line's actual is the
+// line's one number. Labor is added from lineFin by clRows.
 function clCosts(key, ctx) {
-  const out = DB.bills
-    .filter((b) => b.line === key && !["void", "rejected"].includes(b.status))
-    .map((b) => ({
+  const lineBills = DB.bills.filter((b) => b.line === key && !["void", "rejected"].includes(b.status)),
+    out = lineBills.map((b) => ({
       kind: "bill",
       id: b.id,
       date: b.date,
       vendor: b.vendor || "",
       ref: b.number || "",
-      amount: r2(billCost(b)),
+      amount: r2(billCost(b) - billRebillPart(b) - ("function" == typeof pay3HeldCost ? pay3HeldCost(b) : 0)),
       cls: clClassify({ cat: b.cat, poId: b.poId }, ctx),
       doc: b,
     }));
   return (
     DB.txns
-      .filter((t) => t.line === key && !t.billId)
+      .filter((t) => t.line === key && !t.billId && !txnRebilled(t) && !txnViaBill(t, lineBills))
       .forEach((t) => {
         out.push({
           kind: "txn",
@@ -55280,8 +55293,9 @@ function clRows() {
         by = Object.fromEntries(CL_KEYS.map((k) => [k, 0]));
       costs.forEach((c) => {
         by[c.cls] = r2(by[c.cls] + c.amount);
-      });
-      const actual = r2(CL_KEYS.reduce((a, k) => a + by[k], 0)),
+      }),
+        (by.labor = r2(by.labor + (+f.laborAmt || 0)));
+      const actual = r2(+f.actual || 0),
         price = f.price,
         budget = f.budget,
         committedCost = f.committed;
@@ -102566,7 +102580,7 @@ function repPhoneBar(root) {
     window.__repFoldOpen && (wrap.classList.add("on"), btn.classList.add("on")),
     frame.appendChild(btn),
     frame.insertAdjacentElement("afterend", wrap);
-  [...root.querySelectorAll("#rep-print-area .rep-kpis")].slice(1).forEach((kb) => {
+  [...root.querySelectorAll("#rep-print-area .rep-kpis:not(.oh-job):not(.oh-job-eac)")].slice(1).forEach((kb) => {
     if (kb.dataset.folded) return;
     (kb.dataset.folded = "1"), kb.classList.add("rep-kpis-more");
     const more = document.createElement("button");
@@ -127110,7 +127124,8 @@ if ("function" == typeof renderReports) {
         prints.forEach((b) => {
           b !== head && b.remove();
         });
-      const kpiRows = [...body.querySelectorAll(".rep-kpis")];
+      // a section's own numbers (the job report's Profit After Overhead) stay under its heading
+      const kpiRows = [...body.querySelectorAll(".rep-kpis:not(.oh-job):not(.oh-job-eac)")];
       if (!kpiRows.length || body.querySelector(".ov-kpifoot")) return;
       const all = kpiRows.flatMap((r) => [...r.children]);
       if (all.length <= 4) return;
@@ -129375,7 +129390,7 @@ function fin2WagePlan(ym) {
               r.to &&
               d >= r.from &&
               d <= r.to &&
-              (r.entityId || "ent1") === ent,
+              runCoversEnt(r, ent),
           ))(e.date, ent)
       )
         return;
@@ -129426,7 +129441,7 @@ function fin2ReverseAccruals() {
             FIN_RUN_POSTED.includes(r.status) &&
             r.from &&
             r.to &&
-            (r.entityId || "ent1") === j.entityId &&
+            runCoversEnt(r, j.entityId) &&
             r.from <= j.coversTo &&
             r.to >= j.coversFrom,
         );
@@ -135521,7 +135536,7 @@ function fin3PostWages(ym, plan, by) {
                       r.from &&
                       r.to &&
                       !["void", "rejected"].includes(r.status) &&
-                      (r.entityId || "ent1") === e.id &&
+                      runCoversEnt(r, e.id) &&
                       x.date >= r.from &&
                       x.date <= r.to,
                   ),
@@ -135626,7 +135641,7 @@ function fin3PostWages(ym, plan, by) {
               r.from &&
               r.to &&
               !["void", "rejected"].includes(r.status) &&
-              (r.entityId || "ent1") === ent &&
+              runCoversEnt(r, ent) &&
               d >= r.from &&
               d <= r.to,
           ))(e.date, ent)
@@ -135691,7 +135706,7 @@ function fin3PostWages(ym, plan, by) {
                   FIN_RUN_POSTED.includes(r.status) &&
                   r.from &&
                   r.to &&
-                  (r.entityId || "ent1") === j.entityId &&
+                  runCoversEnt(r, j.entityId) &&
                   (j.days
                     ? j.days.some((d) => d >= r.from && d <= r.to)
                     : r.from <= j.coversTo && r.to >= j.coversFrom),
@@ -162357,7 +162372,7 @@ function ctOrphanAccruals() {
               r.from &&
               r.to &&
               !["void", "rejected"].includes(r.status) &&
-              (r.entityId || "ent1") === ent &&
+              runCoversEnt(r, ent) &&
               d >= r.from &&
               d <= r.to,
           );
@@ -162372,7 +162387,7 @@ function ctOrphanAccruals() {
         from = j.coversFrom || j.date,
         nextPay =
           (DB.payroll || [])
-            .filter((r) => (r.entityId || "ent1") === ent && !["void", "rejected"].includes(r.status))
+            .filter((r) => runCoversEnt(r, ent) && !["void", "rejected"].includes(r.status))
             .map((r) => r.payDate)
             .filter((d) => d && d > to)
             .sort()[0] || iso(addDays(parse(to), 14)),
@@ -170897,6 +170912,17 @@ function truthSetMatch(t, m0, o) {
     const r = (DB.payroll || []).find((x) => x.id === m.payrollId);
     if (!r) return { ok: !1, why: "That payroll run is gone" };
     (t.payrollId = r.id), cat || (cat = "labor");
+    // the bank lines that carry the run (net pay and the tax debit) add up to it: the run is paid, and the bank says so.
+    // Before, a run paid in two debits stayed "approved" after both were matched, and its labor read as accrual only.
+    try {
+      const paid = r2((DB.txns || []).filter((x) => x.payrollId === r.id && +x.amt < 0).reduce((a, x) => a - +x.amt, 0)),
+        tot = +r.total || 0;
+      tot &&
+        "approved" === r.status &&
+        Math.abs(paid - tot) <= Math.max(1, 0.005 * tot) &&
+        ((r.status = "verified"), (r.paidAt = r.paidAt || t.date), r.txnId || (r.txnId = t.id),
+        audit("payroll", r.id, "paid from the bank", "approved", "verified", `${money(paid)} in ${(DB.txns || []).filter((x) => x.payrollId === r.id).length} bank lines`));
+    } catch (e) {}
   }
   est && (t.line = est), proj && (t.projectId = proj), cat && (t.cat = cat), code && (t.code = code);
   !t.code && t.line && "function" == typeof findLine && "function" == typeof codeForLine && (() => { const L = findLine(t.line); L && (t.code = codeForLine(L.line)); })();
@@ -175844,13 +175870,12 @@ function rbRows(pid) {
     }
     R.forEach((r) => {
       if (pgIsCO(r.sv) || !(r.ev.del && r.ev.del.received > 0) || !(r.pr && r.pr.stored > 0)) return;
-      // what was bought for the line and is the client's to pay as contract work: not a purchase billed back on its
-      // own (a reimbursable is billed at cost plus markup on its own invoice line), billed in dollars
-      const key = r.sv.lineRef || "",
-        rebilled = r2((DB.txns || []).filter((t) => t.line === key && +t.amt < 0 && (t.billable || t.invoiceLineId) && ("function" != typeof rbWhy || rbWhy(t) || t.invoiceLineId)).reduce((a, t) => a - +t.amt, 0)),
-        cost = r2((+r.ev.cost || 0) - rebilled),
+      // what was bought for the line and is the client's to pay as contract work, billed in dollars; a purchase billed
+      // back on its own invoice line is already out of the line's cost (lineFin, txnRebilled)
+      const cost = r2(+r.ev.cost || 0),
         sched = +r.ev.scheduled || 0,
-        billed = r2(((r.c && r.c.invoices) || []).filter((i) => "sov" === i.mode && !["void", "draft"].includes(i.status)).reduce((a, i) => a + i.lines.filter((l) => l.sovId === r.sv.id).reduce((b, l) => b + lineAmount(l, i), 0), 0)),
+        // on an application already (a draft counts, as sovBilled counts it: the draft is where the person put it)
+        billed = r2(((r.c && r.c.invoices) || []).filter((i) => "sov" === i.mode && "void" !== i.status).reduce((a, i) => a + i.lines.filter((l) => l.sovId === r.sv.id).reduce((b, l) => b + lineAmount(l, i), 0), 0)),
         per = pgLineHold(r) ? 0 : pgPeriodAmt(r),
         amt = r2(Math.min(Math.min(cost, sched) - billed - per, +r.pr.stored || 0));
       amt >= 100 &&
@@ -177795,6 +177820,33 @@ CATCH.push({
   };
 }
 
+// Profit After Overhead, one row per job for a range (Portfolio: job to date; the Pack: the month): earned, job cost,
+// gross, the job's share of the pool, net. The method line under it is ohMethodText(), the same words everywhere.
+function ohJobsTableHtml(range, label) {
+  const A = ohAlloc(range),
+    rows = (DB.projects || [])
+      .map((p) => {
+        let T = null;
+        try {
+          T = jobTrueProfit(p, range && range[0] ? range : null);
+        } catch (e) {}
+        return T && (T.revenue || T.cost || T.oh) ? { p: p, T: T } : null;
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.T.net - a.T.net);
+  if (!rows.length) return "";
+  const sum = (k) => r2(rows.reduce((a, x) => a + (+x.T[k] || 0), 0)),
+    tot = { revenue: sum("revenue"), cost: sum("cost"), gross: sum("gross"), oh: sum("oh"), net: sum("net") },
+    pc = (v, d) => (d ? `${r2((100 * v) / d)}%` : "—"),
+    nm = (p) => esc(String(p.project.name).replace(/ —.*$/, ""));
+  return `<h3 class="rep-h">Profit After Overhead · ${esc(label)}</h3><div class="tw"><table class="t oh-jobs"><thead><tr><th>Job</th><th class="money">Earned</th><th class="money">Job Cost</th><th class="money">Gross Profit</th><th class="num">Gross %</th><th class="money">Overhead</th><th class="money">Net Profit</th><th class="num">Net %</th></tr></thead><tbody>${rows
+    .map(
+      ({ p: p, T: T }) =>
+        `<tr data-ohjob="${p.id}"><td>${nm(p)}</td><td class="money">${money(T.revenue)}</td><td class="money">${money(T.cost)}</td><td class="money">${money(T.gross)}</td><td class="num">${pc(T.gross, T.revenue)}</td><td class="money">${money(T.oh)}</td><td class="money ${T.net < 0 ? "bad" : ""}">${money(T.net)}</td><td class="num">${pc(T.net, T.revenue)}</td></tr>`,
+    )
+    .join("")}</tbody><tfoot><tr><td><b>All jobs</b></td><td class="money">${money(tot.revenue)}</td><td class="money">${money(tot.cost)}</td><td class="money">${money(tot.gross)}</td><td class="num">${pc(tot.gross, tot.revenue)}</td><td class="money">${money(tot.oh)}</td><td class="money">${money(tot.net)}</td><td class="num">${pc(tot.net, tot.revenue)}</td></tr></tfoot></table></div><div class="small muted oh-method" style="margin:4px 0 12px">${esc(ohMethodText())}${A.unabsorbed ? ` ${money(A.unabsorbed)} of overhead fell in months with no job cost and sits on no job.` : ""}${A.uncoded ? ` ${money(A.uncoded)} of bank lines are not coded yet and are left out until they are.` : ""}</div>`;
+}
+
 // ---- Overhead and true profitability on the Portfolio, the Pack, the Flash and Ask (chain lane, 2026-10-11) ----
 // One model (ohMonth / ohAlloc / jobTrueProfit, next to burdenRate): every surface reads it and states the method.
 if ("function" == typeof repPortfolio) {
@@ -177855,18 +177907,28 @@ function ohAskMonth(l) {
   const y = (l.match(/\b(20\d\d)\b/) || [])[1] || today().slice(0, 4);
   return `${y}-${String(i + 1).padStart(2, "0")}`;
 }
-function ohAsk(q) {
+// baseAsk: the answer the rest of Ask gives; a job's margin keeps it (the margin at completion, cost-to-cost) and adds
+// the profit to date before and after overhead, so one question has one answer that carries both
+function ohAsk(q, baseAsk) {
   const l = String(q || "").toLowerCase();
   if ("client" === role() || ("function" == typeof eqFieldRole && eqFieldRole())) return null;
   const job = ohAskJob(l);
   if (job && /\b(margin|profit|profitab|after overhead|net)\b/.test(l)) {
     const T = jobTrueProfit(job),
-      nm = String(job.project.name).replace(/ —.*$/, "");
+      nm = String(job.project.name).replace(/ —.*$/, ""),
+      own = `To date: gross profit ${money(T.gross)} (${T.grossPct}%) on ${money(T.revenue)} earned; after ${money(T.oh)} of overhead, net profit ${money(T.net)} (${T.netPct}%). At completion: ${money(T.margin)} margin, ${money(T.netAtCompletion)} (${T.netAtCompletionPct}%) after overhead.`,
+      work = [`Earned ${money(T.revenue)}`, `Job cost ${money(T.cost)}`, `Gross profit ${money(T.gross)}`, `Overhead allocated ${money(T.oh)} (${money(T.basisAmt)} of ${OH_BASES[T.basis][1]})`, `Net profit ${money(T.net)}`, `Contract ${money(T.contract)}, estimated cost ${money(T.eac)}, overhead at completion ${money(T.burden)} at ${pct1(T.burdenRate)}`];
+    let b = null;
+    try {
+      b = /\bmargin\b/.test(l) && !/\b(after overhead|net)\b/.test(l) && baseAsk ? baseAsk() : null;
+    } catch (e) {}
+    if (b && b.headline && /margin/i.test(b.headline))
+      return Object.assign({}, b, { headline: `${b.headline} ${own}`, note: [b.note, T.method].filter(Boolean).join(" "), work: (b.work || []).concat(work) });
     return paOut({
       kind: "finance",
-      headline: `${nm}: gross margin ${money(T.gross)} (${T.grossPct}%) on ${money(T.revenue)} earned to date; after ${money(T.oh)} of overhead the job's net profit is ${money(T.net)} (${T.netPct}%). At completion: ${money(T.margin)} margin, ${money(T.netAtCompletion)} (${T.netAtCompletionPct}%) after overhead.`,
+      headline: `${nm}: ${own}`,
       note: T.method,
-      work: [`Earned ${money(T.revenue)}`, `Job cost ${money(T.cost)}`, `Gross profit ${money(T.gross)}`, `Overhead allocated ${money(T.oh)} (${money(T.basisAmt)} of ${OH_BASES[T.basis][1]})`, `Net profit ${money(T.net)}`, `Contract ${money(T.contract)}, estimated cost ${money(T.eac)}, overhead at completion ${money(T.burden)} at ${pct1(T.burdenRate)}`],
+      work: work,
       interp: `I ran: jobTrueProfit(${nm}) · job to date · overhead by ${OH_BASES[T.basis][0]}`,
     });
   }
@@ -177896,8 +177958,10 @@ function ohAsk(q) {
 if ("function" == typeof paAsk) {
   const base = paAsk;
   paAsk = function (q) {
+    const self = this,
+      args = arguments;
     try {
-      const a = ohAsk(q);
+      const a = ohAsk(q, () => base.apply(self, args));
       if (a) return a;
     } catch (e) {
       console.warn("overhead ask", e);
