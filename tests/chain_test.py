@@ -506,26 +506,173 @@ async def s3_receive(C):
         C.t(f"PM > Approvals > {num} > Recommend; Owner > Approvals > {num} > Approve{said} → {st}")
     kb = await C.js("() => DB.bills.find(b => b.number === 'KBS-5531').short")
     C.ok(kb and kb['approved'] == 7450 and kb['held'] == 240, 'KBS-5531: $7,450 approved at the PO, $240 held as disputed', kb)
-    # the controller records the payments (the bank lines that clear them arrive in step 4)
+    return True
+
+
+# ================================================================ 4. pay: bills paid, hours, payroll, the card statement
+def csv(rows):
+    return 'Date,Description,Amount,Reference\n' + '\n'.join(f'{d},{desc},{amt:.2f},{ref}' for d, desc, amt, ref in rows) + '\n'
+
+
+async def import_statement(C, acct, name, text):
+    """Banking > Import Statement: the real dialog, the file handed to its file input, then Import."""
+    await C.as_('u_controller', 'bank')
+    await C.click('#bf-import', 500)
+    sel = C.pg.locator('#mbm select').first
+    try:
+        await C.pg.select_option('#bfi-acct', acct)
+    except Exception:
+        await C.js("a => { const s = document.querySelector('#mbm select'); if (s) { s.value = a; s.dispatchEvent(new Event('change')); } }", acct)
+    await C.pg.set_input_files('#bfi-file', files=[{'name': name, 'mimeType': 'text/csv', 'buffer': text.encode()}])
+    await C.pg.wait_for_function("() => { const b = document.querySelector('#mbm-ok'); return b && !b.disabled && /Import \\d/.test(b.textContent); }", timeout=10000)
+    label = await C.js("() => document.querySelector('#mbm-ok').textContent.trim()")
+    await C.modal_ok(900)
+    m = await C.modal()
+    if m and 'Reconcile' in (m['title'] or ''):
+        await C.pg.keyboard.press('Escape'); await C.wait(300)
+    return label, await C.js("n => (DB.bankImports || []).filter(i => i.fileName === n).map(i => ({id: i.id, added: i.added, dup: i.dup, ruled: i.ruled, confirmed: i.confirmed}))", name)
+
+
+async def txn_of(C, desc, amt):
+    return await C.js("([d, a]) => { const t = DB.txns.find(t => t.desc === d && Math.abs(t.amt - a) < 0.005); return t ? t.id : null; }", [desc, amt])
+
+
+async def code_in_drawer(C, tid, cat, proj='', code='', memo='', vendor='', billable=None, line=None):
+    """Banking: click the line's description (the transaction drawer opens), choose category, job, estimate line
+    and code, write the memo, Save."""
+    await C.as_('u_controller', 'bank', "try { txnFilter = 'all'; } catch (e) {} txnAcct = '';")
+    desc = await C.js("id => DB.txns.find(t => t.id === id).desc", tid)
+    row = C.pg.locator('#v-bank tr').filter(has_text=desc).first
+    if await row.count():
+        await row.locator('td.name').first.click(timeout=5000)
+    else:
+        await C.js("id => txnDialog(id)", tid)
+    await C.pg.wait_for_selector('#e-cat', state='attached')
+    await C.wait(200)
+    await C.pg.select_option('#e-cat', cat)
+    await C.pg.dispatch_event('#e-cat', 'change')
+    if proj:
+        await C.pg.select_option('#e-proj', proj); await C.pg.dispatch_event('#e-proj', 'change'); await C.wait(150)
+    if line:
+        await C.pg.select_option('#e-line', line); await C.pg.dispatch_event('#e-line', 'change'); await C.wait(150)
+    if code:
+        await C.pg.select_option('#e-code', code)
+    if memo: await C.fill('#e-memo', memo)
+    if vendor and not (await C.pg.input_value('#e-vendor')).strip(): await C.fill('#e-vendor', vendor)
+    if billable is not None:
+        if billable != await C.pg.is_checked('#e-billable'):
+            await C.pg.click('#e-billable')
+    await C.pg.click('#d-save', timeout=5000); await C.wait(300)
+    return await C.js("id => { const t = DB.txns.find(x => x.id === id); return t && {cat: t.cat, projectId: t.projectId || '', code: t.code || '', line: t.line || '', status: t.status, billable: !!t.billable}; }", tid)
+
+
+# hours on the job (Angel demolition, Alberto framing) and the office (Jeanette: overhead)
+TIME = [('em1', d, '02', 'Demolition of the parlor kitchen') for d in ('2026-09-14', '2026-09-15', '2026-09-16')] + \
+       [('em2', d, '03', 'Framing and blocking for the new kitchen wall') for d in ('2026-09-15', '2026-09-16', '2026-09-17', '2026-09-18')] + \
+       [('em10', d, '', 'Office: purchasing and filing') for d in ('2026-09-14', '2026-09-15', '2026-09-16', '2026-09-17', '2026-09-18')]
+# the Amex activity through 9/24: overhead, one purchase for the client, one line nobody coded
+CARD = [('2026-09-08', 'STAPLES #0412 BROOKLYN NY', -186.40, 'CX-0908-1', 'office', 'Office supplies'),
+        ('2026-09-12', 'ADOBE *CREATIVE CLOUD', -89.99, 'CX-0912-1', 'design-software', 'Design software'),
+        ('2026-09-16', 'SHELL OIL 57441 BROOKLYN', -72.35, 'CX-0916-1', 'vehicle', 'Vehicle & fuel'),
+        ('2026-09-18', 'THE HOME DEPOT #1207 BROOKLYN', -412.60, 'CX-0918-1', 'materials', 'bought for the client'),
+        ('2026-09-21', 'SQ *BROOKLYN PRINT SHOP', -265.00, 'CX-0921-1', 'marketing', 'Marketing (coded by the controller)')]
+
+
+async def s4_pay(C):
+    C.step('4. Pay: bills paid, hours and payroll, the card statement coded and matched (overhead and a purchase for the client)')
+    pid = C.ids['project']['id']; L = C.ids['estimate']['lines']; est = C.ids['estimate']['id']
     PAY = [('FC-20417', '2026-09-15', 23400, 'ACH', 'ACH 0915-FC'), ('AT-7731', '2026-09-22', 3800, 'ACH', 'ACH 0922-AT'),
            ('HPH-2291', '2026-09-24', 5940, 'Check', '1187'), ('KBS-5531', '2026-09-24', 7450, 'ACH', 'ACH 0924-KB')]
-    for num, date, amt, meth, ref in PAY:
-        await C.day(date) if date != await C.js('() => today()') else None
+    for num, date, amt, meth, ref in PAY[:1]:
+        await C.day(date)
         m, st = await pay_bill(C, num, 'ac1', date, amt, meth, ref)
-        C.ok(m and m['title'] == 'Pay Bill', f'{num} > Pay… opens Pay Bill', m and m['title'])
-        C.ok(st['status'] == 'paid' or st['paid'], f'{num}: Record Payment {fmtm(amt)} {meth} {ref}', st)
-        C.t(f"Controller > Bills & Payroll > {num} > Pay… > Chase, {date}, {fmtm(amt)}, {meth} {ref} > Record Payment → {st['status']} ({await C.toast()})")
+        C.ok(m and m['title'] == 'Pay Bill' and st['status'] == 'paid', f'{num} > Pay… > Record Payment {fmtm(amt)} {meth} {ref}', st)
+        C.t(f"Controller > Bills & Payroll > {num} > Pay… > Chase, {date}, {fmtm(amt)}, {meth} {ref} > Record Payment → {st['status']}")
+    # Friday: the PM enters the week's hours (Time & Crew > New Time Entry) and approves them
+    await C.day('2026-09-18')
+    for emp, d, code, note in TIME:
+        await C.as_('u_alan', 'time', f"setCurrent('{pid}');")
+        await C.click('#btn-addtime', 400)
+        await C.pg.select_option('#e-emp', emp); await C.fill('#e-date', d); await C.fill('#e-in', '07:00'); await C.fill('#e-out', '15:30'); await C.fill('#e-break', '30')
+        await C.pg.select_option('#e-proj', pid if code else '')
+        if code: await C.pg.select_option('#e-code', code)
+        await C.fill('#e-notes', note)
+        await C.click('#d-save', 300)
+    te = await C.js("() => DB.time.filter(t => t.date >= '2026-09-14' && t.date <= '2026-09-18' && t.source === 'manual').map(t => ({id: t.id, empId: t.empId, date: t.date, projectId: t.projectId || '', code: t.code || '', status: t.status}))")
+    C.ok(len(te) == len(TIME), f'Time & Crew > New Time Entry ×{len(TIME)}: the week is on file', te)
+    C.t(f"PM > Time & Crew > New Time Entry ×{len(TIME)} (employee, date, 7:00–15:30, 30 min break, job or Overhead, cost code, notes) → "
+        f"{sum(1 for x in te if x['projectId'])} on {JOB}, {sum(1 for x in te if not x['projectId'])} office (overhead)")
+    await C.as_('u_alan', 'time', "")
+    await C.click('section.view.on [data-f=pending]', 300)
+    await C.click_text('section.view.on', r'^Approve All Shown$', 500)
+    m = await C.modal()
+    C.ok(not m, "the PM's hours (typed with job and code; office time on Overhead) approve without an override", m and (m['title'], m['text'][:300]))
+    while m:
+        C.t(f"Approve All Shown asks: {m['title']} \"{m['text'].splitlines()[1][:120] if len(m['text'].splitlines()) > 1 else ''}\" > {m['buttons'][-1]}")
+        await C.modal_ok(500); m = await C.modal()
+    st = await C.js("ids => DB.time.filter(t => ids.includes(t.id)).map(t => t.status)", [x['id'] for x in te])
+    C.ok(st and all(x == 'approved' for x in st), "PM > Time > Awaiting Approval > Approve All Shown: the week's hours are approved", st)
+    C.rec('time', 'ids', [x['id'] for x in te])
+    for num, date, amt, meth, ref in PAY[1:]:
+        await C.day(date)
+        m, stp = await pay_bill(C, num, 'ac1', date, amt, meth, ref)
+        C.ok(m and m['title'] == 'Pay Bill' and stp['status'] == 'paid', f'{num} > Pay… > Record Payment {fmtm(amt)} {meth} {ref}', stp)
+        C.t(f"Controller > Bills & Payroll > {num} > Pay… > Chase, {date}, {fmtm(amt)}, {meth} {ref} > Record Payment → {stp['status']}")
     C.rec('payments', 'bills', PAY)
+    # the card statement through 9/24: Import Statement (CSV), then code each line
+    label, imp = await import_statement(C, 'ac2', 'Amex_1009_Sep2026_to0924.csv', csv([(d, desc, amt, ref) for d, desc, amt, ref, _, _ in CARD]))
+    C.ok(imp and imp[0]['added'] == len(CARD), f'Banking > Import Statement (Amex CSV, {len(CARD)} lines) > {label}', imp)
+    C.t(f"Controller > Banking > Import Statement > Amex 1009 > Amex_1009_Sep2026_to0924.csv > {label} → {imp}")
+    ids = {}
+    for d, desc, amt, ref, cat, why in CARD:
+        tid = await txn_of(C, desc, amt)
+        C.ok(tid, f'the card line {desc} is on Banking', tid)
+        ids[desc] = tid
+        auto = await C.js("id => { const t = DB.txns.find(x => x.id === id); return {cat: t.cat, status: t.status, projectId: t.projectId || ''}; }", tid)
+        if cat == 'materials':
+            got = await code_in_drawer(C, tid, 'materials', pid, '', 'Shelf brackets and cabinet hardware the Vargas picked at the store: bill back at cost plus 10%',
+                                       'The Home Depot', billable=True, line=f"estimate:{est}:{L['Millwork – parlor kitchen cabinets']}")
+            C.ok(got['projectId'] == pid and got['billable'], f'{desc}: coded to {JOB}, the millwork line, billable to the client', got)
+            C.t(f"Banking > {desc} {fmtm(amt)} (rule said {auto['cat']}) > drawer: Materials, {JOB}, line Millwork, memo 'bill back at cost plus 10%', Billable > Save → {got}")
+        else:
+            got = await code_in_drawer(C, tid, cat, '', '', why)
+            C.ok(got['cat'] == cat and not got['projectId'], f'{desc}: coded to overhead ({cat}), no job', got)
+            C.t(f"Banking > {desc} {fmtm(amt)} (rule said {auto['cat']}{', uncoded' if auto['cat'] in ('uncat', '') else ''}) > drawer: {why} > Save → {got['cat']}, {got['status']}")
+    C.rec('txn', 'card', ids)
+    # the payroll run for 9/14 – 9/27: the controller builds it from approved time, the Owner approves it
+    await C.day('2026-09-25')
+    await C.as_('u_controller', 'time')
+    n0 = await C.js("() => DB.payroll.length")
+    await C.click('#btn-payrollfromtime', 700)
+    run = await C.js("n0 => { const r = DB.payroll.slice(n0)[0]; return r && {id: r.id, period: r.period, from: r.from, to: r.to, payDate: r.payDate, status: r.status, gross: r.gross, taxes: r.taxes, total: r.total, alloc: r.alloc, entries: DB.time.filter(t => t.payrollId === r.id).length}; }", n0)
+    C.ok(run and run['entries'] == len(TIME), f'Time & Crew > Build Payroll from Approved Time: one run holds the {len(TIME)} entries', run)
+    C.t(f"Controller > Time & Crew > Build Payroll from Approved Time → run `{run and run['id']}` {run and run['period']} {fmtm(run and run['total'])} "
+        f"(gross {fmtm(run and run['gross'])}, taxes {fmtm(run and run['taxes'])}), alloc {run and run['alloc']} ({await C.toast()})")
+    v, said = await approvals_yes(C, 'u_owner', run['period'] if run else 'Payroll', 'Hours checked against the daily logs')
+    m = await C.modal()
+    for _ in range(4):
+        if not m: break
+        C.t(f"the Owner's approval asks: {m['title']} — \"{' '.join(m['text'].splitlines()[1:3])[:160]}\" > {m['buttons'][-1]}")
+        if 'why' in m['fields']: await C.fill('#mbm [data-f=why]', 'Three crew days on demolition and four on framing; office time is overhead')
+        await C.modal_ok(500); m = await C.modal()
+    st = await C.js("id => DB.payroll.find(r => r.id === id).status", run['id'])
+    C.ok(st == 'approved', f"Owner > Approvals > Payroll {run['period']} > Approve", f'{v} {said} {st}')
+    al = await C.js("id => { const r = DB.payroll.find(r => r.id === id); return {alloc: r.alloc, cov: fin3Coverage(r), hours: r.allocHours}; }", run['id'])
+    C.ok(al['cov'] >= 99.99 and not any(a.get('unallocated') for a in al['alloc']), 'every dollar of the run is explained by approved hours: the job and office payroll (overhead), no Unallocated Labor', al)
+    C.t(f"the run's split at approval: {al['alloc']} (coverage {al['cov']}%)")
+    C.t(f"Owner > Approvals > Payroll {run['period']} > {v}{said} → {st}")
+    C.rec('payroll', 'run', run)
     return True
 
 
 # ================================================================ main
-STEPS = [s1_client, s2_buy, s3_receive]
+STEPS = [s1_client, s2_buy, s3_receive, s4_pay]
 
 
 async def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--upto', type=int, default=99)
+    ap.add_argument('--dump', default='', help='development: write the DB as JSON here after the steps run')
     a = ap.parse_args()
     async with async_playwright() as p:
         b, pg, errs = await open_app(p)
@@ -541,6 +688,9 @@ async def main():
             import traceback
             C.ok(False, f'exception in {C.step_name}: {type(e).__name__}: {str(e)[:400]}', traceback.format_exc()[-1500:])
         finally:
+            if a.dump:
+                with open(a.dump, 'w') as f: f.write(await pg.evaluate("() => JSON.stringify({DB, ids: null})"))
+                with open(a.dump + '.ids.json', 'w') as f: json.dump(C.ids, f, default=str)
             C.ok(not errs, 'no page errors', errs[:5])
             if C.findings:
                 C.lines.append('\n## Findings noted on the way\n')

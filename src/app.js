@@ -14060,6 +14060,18 @@ function distM(a, b) {
     h = Math.sin(dLat / 2) ** 2 + Math.cos(toR(a.lat)) * Math.cos(toR(b.lat)) * Math.sin(dLng / 2) ** 2;
   return Math.round(12742e3 * Math.asin(Math.sqrt(h)));
 }
+// An entry whose work is accounted for: logged lines that add up to the clock; or a supervisor's entry typed with
+// its job and cost code (the entry is its own one work line); or office staff with no job (their time is
+// overhead by design: the Overhead job). Only the rest is "No work logged" / "does not add up".
+function timeOfficeEmp(e) {
+  const emp = (DB.employees || []).find((x) => x.id === e.empId);
+  return !!emp && "office" === empDept(emp);
+}
+function timeWorkOk(e) {
+  if (!e) return !1;
+  if (e.work && e.work.length) return Math.abs(workHours(e) - hoursOf(e)) <= 0.26;
+  return ("manual" === e.source && !!e.projectId && !!e.code) || (!e.projectId && timeOfficeEmp(e));
+}
 function timeFlags(e) {
   const f = [],
     h = hoursOf(e),
@@ -14097,10 +14109,10 @@ function timeFlags(e) {
       ? e.out &&
         Math.abs(workHours(e) - hoursOf(e)) > 0.26 &&
         f.push(`Work logged ${workHours(e).toFixed(1)} h vs ${hoursOf(e).toFixed(1)} h clocked`)
-      : f.push("No work logged"),
+      : timeWorkOk(e) || f.push("No work logged"),
     e.autoOut && f.push("Auto clocked out on leaving site"),
     e.autoClosed && f.push("Forgot to clock out — auto-closed at 10 h"),
-    e.projectId || f.push("No job");
+    e.projectId || timeOfficeEmp(e) || f.push("No job");
   return (
     DB.time.find(
       (x) =>
@@ -14794,10 +14806,7 @@ function timeAction(e, a) {
   if ("approve" === a) {
     if (empName(e.empId).toLowerCase() === by.toLowerCase())
       return void toast("You cannot approve your own time");
-    if (
-      (!e.work || !e.work.length || Math.abs(workHours(e) - hoursOf(e)) > 0.26) &&
-      !appConfirm("Work details are missing or do not add up to the clocked hours. Approve anyway?")
-    )
+    if (!timeWorkOk(e) && !appConfirm("Work details are missing or do not add up to the clocked hours. Approve anyway?"))
       return;
     (e.status = "approved"),
       (e.approvedBy = by),
@@ -18854,13 +18863,7 @@ function wire() {
           .filter(
             (e) => e && "submitted" === e.status && empName(e.empId).toLowerCase() !== by.toLowerCase(),
           ),
-        odd = rows.filter(
-          (e) =>
-            !e.work ||
-            !e.work.length ||
-            Math.abs(workHours(e) - hoursOf(e)) > 0.26 ||
-            ("function" == typeof timeFlags && (timeFlags(e) || []).length),
-        ),
+        odd = rows.filter((e) => !timeWorkOk(e) || ("function" == typeof timeFlags && (timeFlags(e) || []).length)),
         run = () => {
           let n = 0;
           rows.forEach((e) => {
@@ -23197,12 +23200,12 @@ function lineFin(key) {
             pos.some((po) => po.id === b.poId) &&
             (b.line === key || !b.line),
         )
-        .reduce((a, b) => a + billTotal(b), 0),
+        .reduce((a, b) => a + billCost(b), 0),
     ),
     committed = Math.max(0, r2(poGross - poBilled)),
     draftPOs = DB.pos.filter((po) => "draft" === po.status && po.lines.some((l) => l.line === key)),
     bills = DB.bills.filter((b) => b.line === key && "void" !== b.status && "rejected" !== b.status),
-    billsAmt = r2(bills.reduce((a, b) => a + billTotal(b), 0)),
+    billsAmt = r2(bills.reduce((a, b) => a + billCost(b), 0)),
     txns = DB.txns.filter(
       (t) =>
         t.line === key &&
@@ -23935,6 +23938,19 @@ function cfoRange() {
           : ["", t];
 }
 const within = (d, [a, b]) => (!a || (d || "") >= a) && (!b || (d || "") <= b);
+// A payroll run's cost by allocation: each job, the office (overhead) and Unallocated Labor, in dollars. A run across
+// entities sums each entity's own split (r.entities[].alloc, what its GL lines post), so the management view and
+// the ledger carry the same cents; any other run is its total times each share.
+function payrollAllocAmts(p) {
+  const parts = Array.isArray(p.entities) && p.entities.length > 1 && p.entities.every((e) => Array.isArray(e.alloc) && e.alloc.length) ? p.entities : null,
+    out = {};
+  (parts ? parts.flatMap((e) => e.alloc.map((a) => [a, +e.total || 0])) : (p.alloc || [{ projectId: "", pct: 100 }]).map((a) => [a, +p.total || 0])).forEach(([a, tot]) => {
+    const k = (a.unallocated ? "~u" : "") + (a.projectId || ""),
+      o = (out[k] = out[k] || { projectId: a.projectId || "", unallocated: !a.projectId && !!a.unallocated, pct: 0, amt: 0 });
+    (o.amt = r2(o.amt + r2((tot * (+a.pct || 0)) / 100))), (o.pct = +p.total ? (o.amt / +p.total) * 100 : 0);
+  });
+  return Object.values(out);
+}
 function ledger(range) {
   const rows = [];
   DB.bills
@@ -23946,7 +23962,7 @@ function ledger(range) {
         cat: b.cat || "uncat",
         vendor: b.vendor,
         desc: `${b.vendor} · ${b.number}`,
-        amt: billTotal(b),
+        amt: billCost(b),
         projectId: b.projectId || "",
         ref: b,
       }),
@@ -23986,15 +24002,16 @@ function ledger(range) {
     DB.payroll
       .filter((p) => within(p.payDate, range))
       .forEach((p) => {
-        (p.alloc || [{ projectId: "", pct: 100 }]).forEach((a) =>
+        payrollAllocAmts(p).forEach((a) =>
           rows.push({
             date: p.payDate,
             kind: "payroll",
             cat: a.projectId ? "labor" : "payroll_oh",
             vendor: "Payroll",
             desc: `Payroll ${p.period}${a.projectId ? " · " + (DB.projects.find((x) => x.id === a.projectId)?.project.name || "") : " · overhead"}`,
-            amt: r2(((+p.total || 0) * (+a.pct || 0)) / 100),
+            amt: a.amt,
             projectId: a.projectId || "",
+            unalloc: a.unallocated,
             ref: p,
           }),
         );
@@ -24029,7 +24046,7 @@ function companyPL(range) {
         .reduce((a, p) => a + (+p.amount || 0), 0),
     ),
     accrued = r2(
-      DB.bills.filter((b) => BILL_ACCRUED.includes(b.status)).reduce((a, b) => a + billTotal(b), 0),
+      DB.bills.filter((b) => BILL_ACCRUED.includes(b.status)).reduce((a, b) => a + billCost(b), 0),
     ),
     cogs = {},
     oh = {},
@@ -26629,10 +26646,10 @@ function repFinancials() {
             ...(DB.payroll || [])
               .filter((pr) => within(pr.payDate, R) && !(repEntity && (pr.entityId || "ent1") !== repEntity))
               .flatMap((pr) =>
-                (pr.alloc || [{ projectId: "", pct: 100 }]).map((a) => ({
+                payrollAllocAmts(pr).map((a) => ({
                   kind: "payroll",
                   cat: a.projectId ? "labor" : "payroll_oh",
-                  amt: r2(((+pr.total || 0) * (+a.pct || 0)) / 100),
+                  amt: a.amt,
                   desc: `Payroll ${pr.period}`,
                   date: pr.payDate,
                 })),
@@ -27780,8 +27797,8 @@ function jobFin(p, range) {
     bills = DB.bills.filter((b) => b.projectId === p.id),
     costedBills = bills.filter((b) => BILL_COSTED.includes(b.status) && inRng(b.date)),
     accruedBills = bills.filter((b) => BILL_ACCRUED.includes(b.status)),
-    billsAmt = r2(costedBills.reduce((a, b) => a + billTotal(b), 0)),
-    accrued = r2(accruedBills.reduce((a, b) => a + billTotal(b), 0)),
+    billsAmt = r2(costedBills.reduce((a, b) => a + billCost(b), 0)),
+    accrued = r2(accruedBills.reduce((a, b) => a + billCost(b), 0)),
     // a vendor credit coded to the job (refund) reduces its cost: it is summed with its sign (BACKLOG §1.5 #4)
     txns = DB.txns.filter(
       (t) =>
@@ -27826,7 +27843,7 @@ function jobFin(p, range) {
       r2(
         bills
           .filter((b) => "void" !== b.status && "rejected" !== b.status && pos.some((po) => po.id === b.poId))
-          .reduce((a, b) => a + billTotal(b), 0),
+          .reduce((a, b) => a + billCost(b), 0),
       ),
       r2(
         DB.pos
@@ -27835,7 +27852,7 @@ function jobFin(p, range) {
             const tot = poTotal(po).total,
               billedOn = bills
                 .filter((b) => "void" !== b.status && "rejected" !== b.status && b.poId === po.id)
-                .reduce((x, b) => x + billTotal(b), 0);
+                .reduce((x, b) => x + billCost(b), 0);
             return a + Math.max(0, tot - billedOn - poPaidDirect(po));
           }, 0),
       )),
@@ -27872,7 +27889,7 @@ function jobFin(p, range) {
       bump(
         b.code || (b.line ? findLine(b.line)?.line.code || codeForLine(findLine(b.line)?.line || {}) : "99"),
         "bills",
-        billTotal(b),
+        billCost(b),
       ),
     ),
     txns.forEach((t) => bump(t.code || "99", "bank", -t.amt)),
@@ -27884,7 +27901,7 @@ function jobFin(p, range) {
           tot -
             bills
               .filter((b) => b.poId === po.id && "void" !== b.status)
-              .reduce((a, b) => a + billTotal(b), 0) -
+              .reduce((a, b) => a + billCost(b), 0) -
             poPaidDirect(po),
         );
       po.lines.forEach((l) => {
@@ -31535,6 +31552,12 @@ billTotal = function (b) {
   return pct && !b.retainageRelease ? r2(gross * (1 - pct / 100)) : gross;
 };
 const billGross = (b) => billTotalBase(b);
+// What a bill costs the job: its gross, retainage withheld included. A subcontractor's retainage is cost when the
+// work is billed (the GL posts 5200 at gross, 2050 retainage payable for the part withheld); billTotal is what is
+// payable now (net of retainage). A retainage release bill moves the liability and is no cost again. Before, the
+// management view (job cost, the P&L, the WIP) carried subs net of retainage while the GL carried them gross, and
+// the GL then posted the release to 5200 a second time.
+const billCost = (b) => (b && b.retainageRelease ? 0 : billGross(b));
 function apRetainage(vendorName, projectId) {
   const n = (vendorName || "").toLowerCase(),
     held = DB.bills
@@ -32394,7 +32417,7 @@ jobFin = function (p, range) {
     acc = DB.bills.filter(
       (b) => b.projectId === p.id && BILL_ACCRUED.includes(b.status) && within(b.date, R),
     ),
-    accrued = r2(acc.reduce((a, b) => a + billTotal(b), 0));
+    accrued = r2(acc.reduce((a, b) => a + billCost(b), 0));
   if (!accrued) return (J.actualCosted = J.actual), J;
   (J.actualCosted = J.actual),
     (J.accrued = accrued),
@@ -32416,8 +32439,8 @@ jobFin = function (p, range) {
           actual: 0,
         }),
         J.byCode.push(row)),
-        (row.bills = r2(row.bills + billTotal(b))),
-        (row.actual = r2(row.actual + billTotal(b)));
+        (row.bills = r2(row.bills + billCost(b))),
+        (row.actual = r2(row.actual + billCost(b)));
     }),
     J.byCode.sort((a, b) => a.code.localeCompare(b.code));
   return (
@@ -32446,7 +32469,7 @@ const ledgerBase3 = ledger;
           cat: b.cat || "uncat",
           vendor: b.vendor,
           desc: `${b.vendor} · ${b.number} (awaiting approval)`,
-          amt: billTotal(b),
+          amt: billCost(b),
           projectId: b.projectId || "",
           ref: b,
           unapproved: !0,
@@ -38102,7 +38125,7 @@ ledger = function (range) {
           cat: b.cat || "uncat",
           vendor: b.vendor,
           desc: `${b.vendor} · ${b.number} (paid)`,
-          amt: billTotal(b),
+          amt: billCost(b),
           projectId: b.projectId || "",
           ref: b,
         }),
@@ -38110,15 +38133,16 @@ ledger = function (range) {
     DB.payroll
       .filter((p) => within(p.payDate, range))
       .forEach((p) => {
-        (p.alloc || [{ projectId: "", pct: 100 }]).forEach((a) =>
+        payrollAllocAmts(p).forEach((a) =>
           rows.push({
             date: p.payDate,
             kind: "payroll",
             cat: a.projectId ? "labor" : "payroll_oh",
             vendor: "Payroll",
             desc: `Payroll ${p.period}`,
-            amt: r2(((+p.total || 0) * (+a.pct || 0)) / 100),
+            amt: a.amt,
             projectId: a.projectId || "",
+            unalloc: a.unallocated,
             ref: p,
           }),
         );
@@ -55031,7 +55055,7 @@ function clCosts(key, ctx) {
       date: b.date,
       vendor: b.vendor || "",
       ref: b.number || "",
-      amount: r2(billTotal(b)),
+      amount: r2(billCost(b)),
       cls: clClassify({ cat: b.cat, poId: b.poId }, ctx),
       doc: b,
     }));
@@ -68501,6 +68525,11 @@ function glBillLines(b) {
       glL("1700", net, 0, { entityId: tr, eliminate: !0, partyType: "entity", partyId: gc }),
       glL("4800", 0, net, { entityId: tr, eliminate: !0, projectId: b.projectId || "" }),
     ];
+  }
+  if (b.retainageRelease) {
+    // the release pays out what was withheld: retainage payable becomes accounts payable, no cost again
+    const amt = r2(billGross(b));
+    return [glL("2050", amt, 0, dims), glL("2000", 0, amt, dims)];
   }
   const L = [],
     acct = glBillCostAcct(b);
@@ -119996,7 +120025,7 @@ if ("function" == typeof companyPL) {
                 !(void 0 !== repEntity && repEntity && (b.entityId || "ent1") !== repEntity),
             );
     return (
-      (P.accrued = r2(pbu.reduce((a, b) => a + billTotal(b), 0))),
+      (P.accrued = r2(pbu.reduce((a, b) => a + billCost(b), 0))),
       (P.accruedCost = P.accrued),
       (P.paidUnapproved = pbu),
       (P.awaiting = r2(
@@ -120005,7 +120034,7 @@ if ("function" == typeof companyPL) {
             (b) =>
               BILL_ACCRUED.includes(b.status) && !billPaidUnapproved(b) && within(b.date, P.range || range),
           )
-          .reduce((a, b) => a + billTotal(b), 0),
+          .reduce((a, b) => a + billCost(b), 0),
       )),
       (P.payrollAwaiting = r2(
         (DB.payroll || [])
@@ -120038,7 +120067,7 @@ if ("function" == typeof jobFin) {
       );
     if (!dup.length || !J.byCode) return J;
     dup.forEach((b) => {
-      const amt = billTotal(b);
+      const amt = billCost(b);
       (J.actual = r2(J.actual - amt)),
         (J.billsAmt = r2(J.billsAmt - amt)),
         (J.accrued = r2((J.accrued || 0) - amt));
@@ -128772,7 +128801,7 @@ if ("function" == typeof jobFin) {
       );
     if (!dup.length || !J.byCode) return J;
     dup.forEach((b) => {
-      const amt = billTotal(b);
+      const amt = billCost(b);
       (J.actual = r2(J.actual - amt)), (J.billsAmt = r2(J.billsAmt - amt));
       const row = J.byCode.find((x) => x.code === (b.code || "99"));
       row && ((row.bills = r2(row.bills - amt)), (row.actual = r2(row.actual - amt)));
@@ -134676,7 +134705,7 @@ if ("function" == typeof companyPL) {
         "payroll" === r.kind &&
         !r.projectId &&
         r.ref &&
-        (r.ref.alloc || []).some((a) => a.unallocated && !a.projectId)
+        (null != r.unalloc ? r.unalloc : (r.ref.alloc || []).some((a) => a.unallocated && !a.projectId))
           ? ((fromRuns += r.amt),
             (r.cat = "labor-unalloc"),
             (r.desc = String(r.desc).replace(" · overhead", " · unallocated labor")))
@@ -134914,46 +134943,66 @@ fin2AllocFromHours = function (r) {
   const ent = r.entityId || "ent1",
     gross = r2(+r.gross || +r.total || 0);
   if (!gross) return null;
-  const by = {};
-  let W = 0,
-    unHours = 0;
-  (DB.time || [])
-    .filter((e) => "approved" === e.status && prInRun(r, e) && (r.fromTime || entOfEmpId(e.empId) === ent))
-    .forEach((e) => {
-      const emp = (DB.employees || []).find((x) => x.id === e.empId),
-        h = hoursOf(e);
-      if (!e.projectId) return void (unHours += h);
-      const w = h * (+(emp || {}).rate || 0),
-        o = (by[e.projectId] = by[e.projectId] || { projectId: e.projectId, hours: 0, wages: 0 });
-      (o.hours = r2(o.hours + h)), (o.wages = r2(o.wages + w)), (W += w);
+  // Approved hours with no job are office time: they explain that pay as overhead (7000 Office payroll). Only pay
+  // that no approved hour explains, on a job or in the office, is Unallocated Labor (7005). Before, office hours
+  // were lumped into Unallocated Labor and every run with office staff asked for a split review.
+  // A run across entities is split entity by entity (each part's own hours, at its own burden), so an entity's
+  // books carry only its own people: before, one run-wide split put the office's share into the plumbing
+  // entity, whose one man was on a job all week.
+  const entries = (DB.time || []).filter((e) => "approved" === e.status && prInRun(r, e) && (r.fromTime || entOfEmpId(e.empId) === ent)),
+    P = prParts(r),
+    multi = P.length > 1,
+    pctOf = (x) => Math.round(x * 1e6) / 1e4,
+    split = (list, g) => {
+      const by = {};
+      let W = 0;
+      list.forEach((e) => {
+        const emp = (DB.employees || []).find((x) => x.id === e.empId),
+          h = hoursOf(e),
+          k = e.projectId || "",
+          w = h * (+(emp || {}).rate || 0),
+          o = (by[k] = by[k] || { projectId: k, hours: 0, wages: 0 });
+        (o.hours = r2(o.hours + h)), (o.wages = r2(o.wages + w)), (W += w);
+      });
+      const sc = W > g ? g / W : 1,
+        out = Object.values(by)
+          .filter((o) => o.wages > 0 || o.projectId)
+          .sort((a, b) => !!b.projectId - !!a.projectId || b.wages - a.wages)
+          .map((o) => ({ projectId: o.projectId, hours: o.hours, wages: r2(o.wages * sc), pct: g ? pctOf((o.wages * sc) / g) : 0 })),
+        cov = out.reduce((a, x) => a + x.pct, 0);
+      return (
+        cov < 99.995
+          ? out.push({ projectId: "", unallocated: !0, hours: 0, wages: r2(g - out.reduce((a, x) => a + x.wages, 0)), pct: pctOf((100 - cov) / 100) })
+          : out.length && (out[0].pct = pctOf((out[0].pct + 100 - cov) / 100)),
+        out
+      );
+    };
+  if (!multi) return split(entries, gross);
+  // each entity's part, then the run: every job, office and unallocated share as its dollars over the run's total
+  const total = r2(+r.total || 0) || gross,
+    parts = {},
+    amt = {};
+  P.forEach((part) => {
+    const g = r2(+part.gross || 0),
+      rows = g ? split(entries.filter((e) => entOfEmpId(e.empId) === part.entityId), g) : [];
+    parts[part.entityId] = rows;
+    rows.forEach((x) => {
+      const k = (x.unallocated ? "~u" : "") + (x.projectId || ""),
+        o = (amt[k] = amt[k] || { projectId: x.projectId, unallocated: !!x.unallocated, hours: 0, wages: 0, cost: 0 });
+      (o.hours = r2(o.hours + (x.hours || 0))), (o.wages = r2(o.wages + (x.wages || 0))), (o.cost += ((+part.total || 0) * x.pct) / 100);
     });
-  const s = W > gross ? gross / W : 1,
-    out = Object.values(by)
-      .sort((a, b) => b.wages - a.wages)
-      .map((o) => ({
-        projectId: o.projectId,
-        hours: o.hours,
-        wages: r2(o.wages * s),
-        pct: Math.round(((o.wages * s) / gross) * 1e4) / 100,
-      })),
-    cov = r2(out.reduce((a, x) => a + x.pct, 0));
-  return (
-    cov < 99.995
-      ? out.push({
-          projectId: "",
-          unallocated: !0,
-          hours: r2(unHours),
-          wages: r2(gross - out.reduce((a, x) => a + x.wages, 0)),
-          pct: r2(100 - cov),
-        })
-      : out.length && (out[0].pct = r2(out[0].pct + 100 - cov)),
-    out
-  );
+  });
+  const out = Object.values(amt)
+    .sort((a, b) => !!a.unallocated - !!b.unallocated || !!b.projectId - !!a.projectId || b.cost - a.cost)
+    .map((o) => Object.assign({ projectId: o.projectId, hours: o.hours, wages: o.wages, pct: total ? pctOf(o.cost / total) : 0 }, o.unallocated ? { unallocated: !0 } : {}));
+  return (out.parts = parts), out;
 };
+// the share of a run's gross its approved hours explain: on jobs, and office time as overhead
 const fin3Coverage = (r) =>
-  r2(((r && r.alloc) || []).filter((a) => a.projectId).reduce((s, a) => s + (+a.pct || 0), 0));
+  r2(((r && r.alloc) || []).filter((a) => !a.unallocated).reduce((s, a) => s + (+a.pct || 0), 0));
 function fin3PayrollReview(r) {
-  const rows = (r.allocHours || [])
+  const origin = "undefined" != typeof askEl ? askEl : null,
+    rows = (r.allocHours || [])
     .map(
       (a) =>
         `<tr${a.unallocated ? ' class="warn"' : ""}><td>${
@@ -134968,13 +135017,18 @@ function fin3PayrollReview(r) {
     .join("");
   mbModal(
     `Review the Split — Payroll ${esc(r.period || "")}`,
-    `<p class="small">Approved hours in ${esc(r.period || "the pay period")}, priced at each person's pay rate, explain <b>${fin3Coverage(r)}%</b> of the ${money(+r.gross || 0)} gross. The rest posts to Unallocated Labor, not to a job. Under 80% the split is reviewed before the run is approved.</p><div class="tw"><table class="t"><thead><tr><th>Job</th><th class="money">Hours</th><th class="money">Wages</th><th class="money">Share</th></tr></thead><tbody>${rows}</tbody></table></div><div class="f" style="margin-top:10px"><label>Review Note</label><input data-f="why" placeholder="e.g. office staff are salaried; crew hours for 8/24 week still to be entered" enterkeyhint="done"></div>`,
+    `<p class="small">Approved hours in ${esc(r.period || "the pay period")}, priced at each person's pay rate, explain <b>${fin3Coverage(r)}%</b> of the ${money(+r.gross || 0)} gross (job hours to the jobs, office hours to office payroll). The rest posts to Unallocated Labor, not to a job. Under 80% the split is reviewed before the run is approved.</p><div class="tw"><table class="t"><thead><tr><th>Job</th><th class="money">Hours</th><th class="money">Wages</th><th class="money">Share</th></tr></thead><tbody>${rows}</tbody></table></div><div class="f" style="margin-top:10px"><label>Review Note</label><input data-f="why" placeholder="e.g. office staff are salaried; crew hours for 8/24 week still to be entered" enterkeyhint="done"></div>`,
     {
       submit: "Approve with This Split",
       onSubmit: (v) => {
         const why = String((v && v.why) || "").trim();
         if (!why) return toast("Say why the split is right as it stands"), !1;
-        setTimeout(() => payrollAction(r, "approve", why), 0);
+        // The approval runs once this sheet has closed, as the button that opened it: a size check the approval
+        // then asks (appConfirm) replays that button on Yes. Before, it replayed this sheet's removed button and
+        // the run stayed submitted after "Yes, Continue".
+        setTimeout(() => {
+          origin && origin.isConnected && (askEl = origin), payrollAction(r, "approve", why);
+        }, 0);
       },
     },
   );
@@ -134994,6 +135048,12 @@ if (
     const sig = (x) => JSON.stringify((x || []).map((a) => [a.projectId || "", +a.pct, !!a.unallocated])),
       was = sig(r.alloc),
       now = sig(A);
+    // a run across entities keeps each entity's own split (prParts), which its GL lines post
+    A.parts &&
+      Array.isArray(r.entities) &&
+      r.entities.forEach((e) => {
+        e.alloc = (A.parts[e.entityId] || []).map((a) => Object.assign({ projectId: a.projectId, pct: a.pct }, a.unallocated ? { unallocated: !0 } : {}));
+      });
     return (
       (r.allocFrom = "hours"),
       (r.allocHours = A.map((a) => ({
@@ -135002,7 +135062,7 @@ if (
         wages: a.wages,
         unallocated: !!a.unallocated,
       }))),
-      (r.allocCoverage = r2(A.filter((a) => a.projectId).reduce((s, a) => s + a.pct, 0))),
+      (r.allocCoverage = r2(A.filter((a) => !a.unallocated).reduce((s, a) => s + a.pct, 0))),
       was !== now &&
         ((r.alloc = A.map((a) =>
           Object.assign({ projectId: a.projectId, pct: a.pct }, a.unallocated ? { unallocated: !0 } : {}),
@@ -136049,7 +136109,7 @@ if ("function" == typeof repCompany) {
                   ((DB.gl || {}).journals || []).some((j) => "accrual" === j.kind && j.runId === r.id)),
             )
             .filter((r) => (r.alloc || []).some((x) => x.unallocated)),
-          u = `<p class="small muted fin3-unalloc">Unallocated Labor ${money(P.unallocLabor)}: payroll that no approved hour on a job explains${runs.length ? ` — ${runs.map((r) => `payroll ${esc(r.period || r.id)} ${fin3Coverage(r)}% covered by clocked hours`).join("; ")}` : ""}. It is overhead until the hours are entered and the run is re-split.</p>`,
+          u = `<p class="small muted fin3-unalloc">Unallocated Labor ${money(P.unallocLabor)}: payroll that no approved hour explains, on a job or in the office${runs.length ? ` — ${runs.map((r) => `payroll ${esc(r.period || r.id)} ${fin3Coverage(r)}% covered by clocked hours`).join("; ")}` : ""}. It is overhead until the hours are entered and the run is re-split.</p>`,
           k = h.indexOf('<h3 class="rep-h">');
         h = k > -1 ? h.slice(0, k) + u + h.slice(k) : h + u;
       }
@@ -162661,7 +162721,7 @@ function jobFinEacLines(J, p) {
     const x = b.line && byKey[b.line];
     if (!x || !(BILL_COSTED.includes(b.status) || BILL_ACCRUED.includes(b.status)) || !within(b.date, R) || dup(b))
       return;
-    let a = billTotal(b);
+    let a = billCost(b);
     "function" == typeof pay3Short &&
       pay3Short(b) &&
       !("accepted" === b.short.state && within(b.short.resolvedOn, R)) &&
@@ -162687,7 +162747,7 @@ function jobFinEacLines(J, p) {
         const tot = poTotal(po).sub,
           open = Math.max(
             0,
-            tot - bills.filter((b) => b.poId === po.id && "void" !== b.status).reduce((a, b) => a + billTotal(b), 0),
+            tot - bills.filter((b) => b.poId === po.id && "void" !== b.status).reduce((a, b) => a + billCost(b), 0),
           );
         tot &&
           open &&
@@ -175927,7 +175987,11 @@ document.addEventListener(
   glPayrollLines = function (r) {
     const P = prParts(r);
     if (P.length < 2 || !(+r.total > 0)) return base.apply(this, arguments);
-    return P.flatMap((part) => base.call(this, Object.assign({}, r, { gross: part.gross, taxes: part.taxes, total: part.total })).map((l) => Object.assign(l, { entityId: part.entityId })));
+    return P.flatMap((part) =>
+      base
+        .call(this, Object.assign({}, r, { gross: part.gross, taxes: part.taxes, total: part.total, alloc: part.alloc && part.alloc.length ? part.alloc : r.alloc }))
+        .map((l) => Object.assign(l, { entityId: part.entityId })),
+    );
   };
 }
 "undefined" != typeof APP_DAY_HOOKS &&
