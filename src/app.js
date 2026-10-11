@@ -31755,6 +31755,22 @@ function releaseRetainage(v, projectId, ok2) {
     toast(`${b.number} submitted for approval`);
 }
 const billActionBase = billAction;
+// What was checked in on this job today: an order received in full leaves the list above, and this is where
+// the person who checked it in still finds it.
+function recvTodayHtml() {
+  const td = today(),
+    rows = DB.pos
+      .filter((po) => po.projectId === S.id)
+      .flatMap((po) => (po.receipts || []).filter((r) => r.date === td).map((r) => ({ po: po, r: r })));
+  return rows.length
+    ? `<div class="card recv-today" id="recv-today"><h3>Checked In Today</h3>${rows
+        .map(
+          ({ po: po, r: r }) =>
+            `<div class="recv-row row" style="gap:8px;align-items:baseline"><b>${esc(po.number)}</b><span class="small">${esc(po.vendor)} · ${(r.lines || []).map((l) => `${l.qty} ${esc(l.unit || "")} ${esc(l.item || "")}`.replace(/\s+/g, " ").trim()).join("; ")}</span><span class="grow"></span><span class="small muted">${esc(r.by || "")}${"received" === po.status ? " · order complete" : ""}</span></div>`,
+        )
+        .join("")}</div>`
+    : "";
+}
 function renderRecv() {
   const root = $("#recv-body");
   if (!root) return;
@@ -31777,7 +31793,7 @@ function renderRecv() {
           )}\n    <div class="row" style="margin-top:8px;gap:6px"><button class="btn sm" data-rall="${po.id}">Everything arrived</button><button class="btn sm" data-rissue="${po.id}">Report a problem</button></div></div>`;
       })
       .join("") || '<div class="card muted">Nothing on order for this job.</div>'
-  }`;
+  }${recvTodayHtml()}`;
   const receive = (po, l, qty, note) => {
     l.received = r2((+l.received || 0) + qty);
     const m = l.materialId && mat(l.materialId);
@@ -50863,8 +50879,18 @@ function mbSignalsWire(root) {
   root.querySelectorAll("[data-mbsig-dismiss]").forEach(
     (b) =>
       (b.onclick = () => {
-        const s = DB.mbinc.signals.find((x) => x.id === b.dataset.mbsigDismiss);
-        (s.status = "dismissed"), (s.by = currentUser()?.name || DB.me), save(), render();
+        const s = DB.mbinc.signals.find((x) => x.id === b.dataset.mbsigDismiss),
+          was = { status: s.status, by: s.by };
+        (s.status = "dismissed"),
+          (s.by = currentUser()?.name || DB.me),
+          save(),
+          render(),
+          toast(`Dismissed: ${String(s.title || s.address || s.what || "the signal").slice(0, 60)}`, {
+            label: "Undo",
+            run: () => {
+              Object.assign(s, was), save(), render();
+            },
+          });
       }),
   ),
     root.querySelectorAll("[data-mbsig-promote]").forEach(
@@ -72012,8 +72038,12 @@ function cmWire(host) {
       }
       save(),
         render(),
+        // Open is the inbox's Applied list: what was just done, message by message
         toast(
           `Applied ${n} — bills, escalations and questions for you are left for your hand; tasks went to the PM, reassign from the task`,
+          () => {
+            (cmFilter = "applied"), (view = "comms"), render(), window.scrollTo(0, 0);
+          },
         );
     });
   const f = host.querySelector("#cm-file");
@@ -83788,7 +83818,9 @@ function renderHbSettings() {
                 ...H.pipeline.stages.filter((s) => !s.won && !s.lost).map((s) => s.id),
               ),
             save(),
-            hbToast("Pipeline saved"),
+            toast("Pipeline saved", () => {
+              (view = "hbdeals"), render(), window.scrollTo(0, 0);
+            }),
             renderHbSettings())
           : hbToast("Every pipeline needs one Won and one Lost stage");
     });
@@ -105673,7 +105705,18 @@ function t2BulkMove(when) {
     }),
     save(),
     renderTkAll(),
-    toast(`${n} moved to ${"today" === when ? "today" : "tomorrow"}`);
+    // Open is the list they moved onto (Today, or Next 7 Days for tomorrow); Undo puts the dates back
+    toast(`${n} moved to ${"today" === when ? "today" : "tomorrow"}`, [
+      {
+        label: "Open",
+        run: () => {
+          (t2View = "today" === when ? "today" : "week"), renderTkAll();
+          const list = [...document.querySelectorAll(".view.on .t2-list")].find((x) => x.getClientRects().length);
+          list && (list.scrollIntoView({ block: "start" }), list.classList.add("rec-hl"), setTimeout(() => list.classList.remove("rec-hl"), 2600));
+        },
+      },
+      { label: "Undo", run: () => window.__t2Undo && window.__t2Undo() },
+    ]);
 }
 function cmWhy(c) {
   const R = c.route || cmRoute(c),
