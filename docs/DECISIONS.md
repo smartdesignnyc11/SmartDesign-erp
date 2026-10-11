@@ -16,6 +16,7 @@ Status: **Built** (merged and tested) · **Building** (a lane is on it) · **Spe
 ## 2026-10-11
 | Ask or decision | Where it lives | Status |
 |---|---|---|
+| Messaging replaces WhatsApp and iMessage: messages become tasks, POs and files; threads hold the latest plans; the assistant helps act (the CO-from-chat example) | BACKLOG §1.21 | Spec |
 | Ranking: crew waiting today outranks older overdue items; both stay visible. Order: immediate safety and law; then anyone blocked today (crew or field waiting); then overdue, today, this week; then the decision principle | `docs/PLAN.md` v11.1 | To build after the reset |
 | Spanish is needed for the field | BACKLOG §1.20 | Spec (before go-live) |
 | Estimates and invoices auto-populate items with descriptions | BACKLOG §1.18 | Spec (right after Simplify; shaped by the Documents Workshop) |

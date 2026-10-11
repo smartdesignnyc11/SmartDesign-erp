@@ -590,6 +590,41 @@ Alan gets a gallery of the client-facing documents to judge for himself.
 - **Clients.** They never see Spanish unless their own setting asks for it.
 - **Test.** Every field screen at 390px in Spanish, with no sideways scroll; Spanish strings are longer.
 
+### 1.21 Messages: replace WhatsApp and iMessage, so nothing is lost and the AI knows what's going on (Alan, 2026-10-11, "a big feature")
+**Today.** Work talk is scattered across WhatsApp, iMessage, email and documents. The app has a per-job Chat and the Inbox. Design gate: these become one noun, "message thread", not a new store beside them.
+1. **As fast as WhatsApp, or people won't switch:**
+   - phone-first;
+   - push notifications;
+   - voice notes, transcribed and translated (Spanish ↔ English, §1.20);
+   - photos and video;
+   - replies in thread, @mentions and reactions;
+   - read receipts;
+   - sending with no signal (queued);
+   - installed on the home screen as an app.
+2. **Threads that build themselves:**
+   - one per job, made automatically with its people (PM, foreman, crew, coordinator, designer);
+   - office threads and direct messages;
+   - a client thread per job, in the portal;
+   - outside parties (subs, vendors, the architect) as guests, limited to their job thread, by a link, or replying by SMS or email through a bridge so they never need to install anything.
+   Internal and client-facing threads are marked unmistakably. The AI warns before anything internal (pricing, disagreements, other clients) is posted where a client can see it (the Standard: client playbook).
+3. **Every message can become work.** One tap, or an AI suggestion chip, turns a message into a task, material request, PO, RFQ, change order, decision, RFI, promise, or a file saved to the client or job. Each record links back to the message, and the thread shows what it became.
+4. **The thread is a source of documents.** Each job thread has its pinned Plans: the current drawing set only, with superseded sets marked VOID (the Standard). Selections, the contract, approved COs and the schedule sit beside them. Files shared in chat are filed to the job automatically, classified, and never lost in a scroll.
+5. **The assistant helps people act.** Alan's example:
+   - Someone writes to the PM: "please confirm this change with the client".
+   - The PM's assistant offers "Draft Change Order", pre-filled from the message, the item library (§1.18) and pricing.
+   - The PM edits and approves; it goes to the client through the portal.
+   - The client approves on their phone; the approval posts back in the thread, and the budget and schedule update.
+   The AI never sends to a client without the PM's approval (the Standard).
+6. **The brain reads everything, with notice.** Staff are told that work threads are company records. The brain extracts promises, decisions, changes agreed in passing, risks and the Standard's escalation triggers. It answers questions like "what did the Kleins say about the tile?" with the message linked. "Verbal becomes written": a change agreed in chat becomes a CO proposal within the day.
+7. **The Standard, measured here.** Client messages acknowledged within 2 business hours; a blocking field question answered within 1 hour; the Friday client update sent.
+8. **Bring the history over.** Existing WhatsApp group exports (text and media) are imported into each job's thread, so the brain learns the past. iMessage is harder to export and is done case by case.
+9. **Calm, not noisy.** Mute; @mentions and safety escalations always break through; a digest for the rest.
+10. **Records.** Messages are business records: retention, search and export. Nothing is deleted silently; an edit keeps the original.
+
+**When.**
+- Phase 1 on the demo: merge the job Chat and Inbox into Messages, with message-to-work actions and pinned Plans.
+- Phase 2 on the platform: real-time delivery, push, guests, the SMS and email bridge, voice and translation, and the WhatsApp import. These need the server, and the SMS bridge has a small per-message cost.
+
 ## §2 Remaining round-4 findings
 
 ### Founder
