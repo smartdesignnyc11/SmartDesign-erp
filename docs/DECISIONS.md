@@ -16,6 +16,9 @@ Status: **Built** (merged and tested) · **Building** (a lane is on it) · **Spe
 ## 2026-10-11
 | Ask or decision | Where it lives | Status |
 |---|---|---|
+| Reporting proven end to end: income, expenses, job costing, line-item income to cost, P&L by company, client and project, overhead analysis | BACKLOG §1.13 | Spec (after simplify and subs) |
+| Vendors never overpaid: every payment checked against the vendor's estimate or contract, prior payments, receipts, work done, retainage, deposits and credits | BACKLOG §1.12 | Spec (with subs and lien waivers) |
+| Order after v11: review, simplify, subs and payments, reporting, platform, full regrade | `docs/LANES.md` | Agreed |
 | Real agents on the Claude API: approved, with a spending limit; Alan wants me to do the setup | BACKLOG §5.8 | Waiting on Alan for the three sign-ups and tokens; I do everything else |
 | A chief of staff that thinks like Alan, tracks the changes and manages the agents | `.claude/agents/chief-of-staff.md`, `docs/ALAN.md`, this file, `docs/LANES.md` | Built (docs) |
 | Invoices and receipts attach straight to the PO, the bill or both; the AI checks every figure lines up; open mismatch blocks payment | BACKLOG §1.9 item 8 | Built in lane; merging |

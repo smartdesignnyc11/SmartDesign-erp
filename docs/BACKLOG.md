@@ -392,6 +392,45 @@ Version 11 adds RFQs, Prospects, Sourcing Research, Price Watch, the Standard an
 10. **First week and empty states.** Each role's first screen explains itself in one line. Empty states say what will appear and when. A person's Standard acknowledgment is part of their first day.
 11. **Measure it.** The month simulation records taps and seconds per key task per role, and words on each phone screen. The UX lens grades against those numbers, round over round.
 
+### 1.12 Vendors are never overpaid: every payment checked before it leaves (Alan, 2026-10-11)
+Every payment, whether check, ACH, wire or card, is checked before release against:
+- **The vendor's estimate or contract and approved change orders.** Paid to date plus this payment can never exceed the contract plus approved COs without the owner's sign-off.
+- **What was already paid.** Look across every payment method and every entity, so a card charge and a check for the same bill are caught.
+- **The PO and what was actually received.** The three-way match.
+- **Work actually done, for subs.** A sub's pay application claiming 60% when the foreman measured 40% is paying ahead of work. It is held, with the difference shown.
+- **Retainage.** It is held at the contract rate, and released only at the agreed milestone, with a lien waiver.
+- **Deposits and credits.** A deposit or prepayment already paid is applied to the invoice it belongs to; an open vendor credit is taken before new money goes out. These are the most often forgotten.
+- **Duplicates.** The same invoice number, the same amount and date, or the same work under two invoices.
+- **The right account.** The bank details on file, unchanged without the two-person call-back.
+
+The result is a "Payment Check" on every payment and payment batch: a quiet tick listing what was checked, or a hold with the difference, the money at stake, and a next step. Holds need a named person to release them, with a reason, and the owner above set limits.
+
+A per-vendor, per-job ledger shows contract, approved COs, billed, paid, retainage held, deposits and credits open, and balance to finish. It is queryable and in Ask ("what have we paid Tino on 121 State, and what's left?"). Monthly, vendor statements are reconciled against our records, and differences are flagged. An overpayment that slips through becomes a credit or refund request (a draft the coordinator approves), tracked until it is recovered.
+Build with §1.10 item 1 (subcontractors, pay apps and lien waivers), since they share the ledger.
+
+### 1.13 Reporting that is right, proven, and ties to the bank (Alan, 2026-10-11)
+After the v11 work, the simplify pass and the subs/payments work. Each report is computed from the records and recomputed independently in a test (the finance_xcheck pattern). Every figure drills to the transactions behind it and to the bank or card line that backs it.
+1. **Income and expenses.** Both accrual and cash basis, switchable and labelled. Income is shown as earned (percent complete), billed and collected. Expenses are by category, and manual journal entries are flagged.
+2. **Job costing.** By cost code and estimate line: budget, committed, actual, cost to complete, EAC and variance. Labor, material, subs, equipment and reimbursables are kept apart. Stock used on the job is included.
+3. **Line-item income to cost.** Each estimate line shows:
+   - contract value with approved COs;
+   - earned, billed and collected;
+   - cost and committed;
+   - margin to date and at completion.
+   An estimate-versus-actual view at close-out feeds the price book (the Standard: estimating playbook).
+4. **P&L.** Company, by entity, by client, by project, by period, and comparatives (month, quarter, year, same period last year).
+   - They tie: P&L by project sums to the company P&L, plus overhead, plus unallocated, plus other income. The tie is shown, not assumed.
+   - Multi-entity consolidation eliminates intercompany sales and transfers.
+5. **Overhead analysis.** The pool by category and its trend, overhead as a percentage of revenue, the burden rate, and absorbed against actual (over- or under-absorbed). Each job's share is shown, with gross and net margin. A break-even view gives the monthly revenue needed at the current overhead.
+6. **WIP schedule, cash and the rest.** Over- and under-billing (what a bank or surety asks for), a 13-week cash flow, AR and AP aging, backlog, and retainage receivable and payable.
+7. **Closed periods don't move.** A report for a sealed month shows the same figures forever. A later correction shows up in the current period, with a link.
+8. **Accounting choices to settle with the accountant (Alan):**
+   - **Mercer & Bond development costs** are probably capitalised to the property, not expensed. Otherwise the P&L is wrong.
+   - **Revenue recognition for tax** (percentage of completion or completed contract) against the management view.
+   - **The overhead allocation basis.**
+9. **Export and share.** PDF and Excel. A monthly owner pack that is phone-readable. Read-only access for the accountant.
+10. **Compared with QuickBooks.** While QuickBooks is still the bridge, each report shows where the ERP, QuickBooks and the bank disagree, line by line.
+
 ## §2 Remaining round-4 findings
 
 ### Founder

@@ -26,6 +26,14 @@ The chief of staff keeps this board current. A lane is one build agent in its ow
 3. **Then:** run the month simulation and the phone checks at 390px; publish the artifact as version 11; push to GitHub.
 4. **If a lane isn't ready,** ship without it as 11 and follow with 11.1. Never hold the release for one lane, and never ship a red net.
 
-## After version 11
+## After version 11 (the order Alan agreed, 2026-10-11)
+1. Focused expert review on the published version: controller, procurement, foreman on the phone, and a design expert. Fixes the same day.
+2. Simplify (BACKLOG §1.11 items 1, 2, 3, 4, 9).
+3. Subcontractors, lien waivers and the payment check (§1.10 item 1, §1.12).
+4. Reporting (§1.13).
+5. The platform and the real agents (§5), as soon as Alan's keys are in.
+6. The full ten-expert regrade after the weekly reset.
+
+## Earlier notes
 - The role-expert regrade after the 2026-10-15 weekly reset, phone-first, in field conditions.
 - Platform (BACKLOG §5) on Supabase plus Netlify. This is what turns the demo-phase AI live: inbox watching, document reading, web search, sending, and bank and card feeds.
