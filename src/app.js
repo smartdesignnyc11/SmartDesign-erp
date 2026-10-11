@@ -16198,11 +16198,14 @@ const STOCK_REASONS = [
   { id: "reserved", label: "Reserved for another job", hint: "the stock is promised elsewhere" },
   { id: "trip", label: "Not worth the trip", hint: "the pick costs more than it saves" },
 ];
-// The Standard behind every stock line; read from the live Standard when the app carries it.
+// The Standard behind every stock line: the live Standard's line (standardWhy, STD_MAP "stock") and Alan's line on
+// why money matters. The words below are only the fallback for a page with no Standard loaded.
 function stockBecause() {
-  const std = String(((DB.company || {}).standard || {}).text || (DB.company || {}).standard || "");
-  const waste = (std.match(/Waste nothing[^.\n]*\./) || [])[0] || "Waste nothing: material, labor hours or trips.";
-  return `Every dollar matters: ${waste.replace(/\.$/, "")}. Money wasted cannot go to raises and bonuses, to more staff and resources, or to extra value for the client at no additional cost.`;
+  try {
+    const w = "function" == typeof standardWhy && standard().values && standardWhy("stock");
+    if (w) return `${w}. ${STD_WASTE}`;
+  } catch (e) {}
+  return "Because: Waste nothing: material, labor hours or trips (Every dollar matters). Wasted money comes out of raises, bonuses, staff and the extra value we give clients.";
 }
 function stockDB() {
   const s = (DB.stock = DB.stock || {});
@@ -16771,6 +16774,16 @@ function stockUseAdd(kind, inv, pid, qty, note, extra) {
     u = Object.assign({ id: uid("sku"), at: appNowIso(), by: stockWho(), kind: kind, projectId: pid, invId: inv.id, invName: inv.name, qty: +qty || 0, unit: inv.unit, unitCost: +inv.cost || 0, amount: r2((+qty || 0) * (+inv.cost || 0) * ("return" === kind ? -1 : 1)), line: stockLineKey(p, inv), note: note || "" }, extra || {});
   return stockDB().use.push(u), u;
 }
+// Stock used on jobs, read by jobFin (per job, in a date range) and lineFin / Cost by Line (per line): a "use" is cost
+// at the carried cost when issued, a "return" its credit. The records are append-only; nothing edits one.
+function stockUseIn(pid, range, lineKey) {
+  const U = ((DB.stock || {}).use) || [];
+  return U.filter((u) => (!pid || u.projectId === pid) && (!lineKey || u.line === lineKey) && (!range || within(String(u.at).slice(0, 10), range)));
+}
+const stockUseCode = (u) => {
+  const ref = u.line && "function" == typeof findLine ? findLine(u.line) : null;
+  return (ref && (ref.line.code || ("function" == typeof codeForLine ? codeForLine(ref.line) : ""))) || ((DB.inventory || []).find((i) => i.id === u.invId) || {}).code || "99";
+};
 {
   const base = invMove;
   invMove = function (item, toLoc, qty, note) {
@@ -16799,8 +16812,9 @@ function stockReturnDialog(pre) {
     `<p class="small muted" style="margin:0 0 10px">Leftover material back from a job: it goes back on the count where you put it, and the job's line gets the credit.</p>
     ${mbF("From Job", `<select data-f="pid">${jobs.map((p) => `<option value="${p.id}" ${p.id === (pre.projectId || S.id) ? "selected" : ""}>${esc(stockJobName(p.id))}</option>`).join("")}</select>`)}
     ${mbF("Item", `<select data-f="inv">${items.map((i) => `<option value="${i.id}" ${i.id === pre.invId ? "selected" : ""}>${esc(i.name)} (${esc(i.unit)})</option>`).join("")}</select>`)}
-    <div class="grid2">${mbF("How Many", `<input type="number" min="0" step="any" data-f="qty" value="${pre.qty || ""}" inputmode="decimal">`)}${mbF("Put It At", `<select data-f="loc">${locs.map((l) => `<option value="${l.id}">${esc(l.n)}</option>`).join("")}</select>`)}</div>`,
-    { submit: "Return to Stock", onSubmit: (f) => (stockReturn({ projectId: f.pid, invId: f.inv, qty: f.qty, loc: f.loc }) ? void 0 : !1) },
+    <div class="grid2">${mbF("How Many", `<input type="number" min="0" step="any" data-f="qty" value="${pre.qty || ""}" inputmode="decimal">`)}${mbF("Put It At", `<select data-f="loc">${locs.map((l) => `<option value="${l.id}">${esc(l.n)}</option>`).join("")}</select>`)}</div>
+    ${mbF("Why It Came Back", `<input data-f="reason" value="${esc(pre.reason || "Leftover from the job")}" placeholder="Leftover from the job">`)}`,
+    { submit: "Return to Stock", onSubmit: (f) => (stockReturn({ projectId: f.pid, invId: f.inv, qty: f.qty, loc: f.loc, reason: f.reason }) ? void 0 : !1) },
   );
 }
 function stockReturn(o) {
@@ -16808,6 +16822,8 @@ function stockReturn(o) {
     inv = (DB.inventory || []).find((i) => i.id === o.invId),
     qty = +o.qty || 0;
   if (!p || !inv || !(qty > 0)) return toast("Say what came back and how many"), null;
+  // a return reverses part of a posted job cost, so it carries its reason (append-only: the issue is never edited)
+  const reason = String(o.reason || "").trim() || "Leftover from the job";
   const S0 = stockDB();
   if (!o.force && stockClientOwned(p)) {
     const x = { id: uid("sks"), at: appNowIso(), by: stockWho(), projectId: p.id, invId: inv.id, invName: inv.name, unit: inv.unit, qty: qty, loc: o.loc || inv.loc, cost: +inv.cost || 0, state: "open" };
@@ -16822,7 +16838,8 @@ function stockReturn(o) {
   }
   const before = +at.qty || 0;
   at.qty = r2(before + qty);
-  const u = stockUseAdd("return", at, p.id, qty, `returned to ${locName(loc)}`);
+  const issued = S0.use.filter((x) => "use" === x.kind && x.projectId === p.id && x.invId === inv.id).pop(),
+    u = stockUseAdd("return", at, p.id, qty, `returned to ${locName(loc)}`, { reason: reason, reverses: issued ? issued.id : "", line: (issued && issued.line) || stockLineKey(p, at), unitCost: issued ? issued.unitCost : +at.cost || 0, amount: -r2(qty * (issued ? +issued.unitCost || 0 : +at.cost || 0)) });
   S0.adjust.push({ id: uid("ska"), at: appNowIso(), by: stockWho(), invId: at.id, invName: at.name, unit: at.unit, from: before, to: at.qty, delta: qty, reason: `Returned from ${stockJobName(p.id)}`, useId: u.id });
   audit("inventory", at.id, `returned ${qty} ${at.unit} from ${stockJobName(p.id)} — ${at.qty} now`, null, null, "");
   save(), render();
@@ -16858,11 +16875,14 @@ function stockSweep() {
   return n && save(), n;
 }
 // ---- counting: the driver's Count This, and a recount for anything an override corrected
+// A count made after the correction clears it. "After" is the order of the append-only log, not the time stamp: the
+// pinned demo clock gives about two and a half real seconds the same second, so a Count This made right after the
+// override carried the override's own stamp and "a.at > fix.at" left the recount open.
 function stockRecounts() {
   const A = stockDB().adjust;
   return (DB.inventory || []).filter((i) => {
-    const fix = A.filter((a) => a.invId === i.id && a.recount).pop();
-    return fix && !A.some((a) => a.invId === i.id && "Cycle count" === a.reason && a.at > fix.at);
+    const k = A.map((a, j) => (a.invId === i.id && a.recount ? j : -1)).reduce((m, j) => Math.max(m, j), -1);
+    return k >= 0 && !A.some((a, j) => j > k && a.invId === i.id && "Cycle count" === a.reason);
   });
 }
 function stockCountDialog(invId) {
@@ -24339,7 +24359,9 @@ function lineFin(key) {
     ),
     txnAmt = r2(txns.reduce((a, t) => a - t.amt, 0)),
     laborAmt = lineLabor(doc, line),
-    actual = r2(billsAmt + txnAmt + laborAmt),
+    // stock issued to the job on this line at carried cost, less returns
+    stockAmt = r2(stockUseIn("", null, key).reduce((a, u) => a + (+u.amount || 0), 0)),
+    actual = r2(billsAmt + txnAmt + laborAmt + stockAmt),
     budget = +line.cost || 0,
     projCost = Math.max(budget, actual, committed),
     invoiced = live.filter((i) => sv && i.lines.some((l) => l.sovId === sv.id)).map((i) => i.number);
@@ -24363,6 +24385,7 @@ function lineFin(key) {
     bills: bills,
     billsAmt: billsAmt,
     txnAmt: txnAmt,
+    stockAmt: stockAmt,
     laborAmt: laborAmt,
     actual: actual,
     budget: budget,
@@ -28956,6 +28979,9 @@ function jobFin(p, range) {
         !txnViaBill(t, bills),
     ),
     txnAmt = r2(txns.reduce((a, t) => a - t.amt, 0)),
+    // stock issued from the shop to this job at carried cost, less what came back (DB.stock.use, append-only)
+    stockRows = stockUseIn(p.id, R),
+    stockAmt = r2(stockRows.reduce((a, u) => a + (+u.amount || 0), 0)),
     time = DB.time.filter((e) => e.projectId === p.id && "rejected" !== e.status && inRng(e.date)),
     laborByEmp = {};
   let laborCost = 0,
@@ -28980,7 +29006,7 @@ function jobFin(p, range) {
   }),
     (laborCost = r2(laborCost)),
     (hours = r2(hours));
-  const actual = r2(billsAmt + txnAmt + laborCost),
+  const actual = r2(billsAmt + txnAmt + laborCost + stockAmt),
     pos = DB.pos.filter(
       (po) => po.projectId === p.id && ["issued", "partial", "received"].includes(po.status),
     ),
@@ -29022,6 +29048,7 @@ function jobFin(p, range) {
         committed: 0,
         bills: 0,
         bank: 0,
+        stock: 0,
         labor: 0,
         actual: 0,
       })[k] += v;
@@ -29043,6 +29070,7 @@ function jobFin(p, range) {
     }),
     txns.forEach((t) => bump(txnRebilled(t) ? "RB" : t.code || "99", "bank", -t.amt)),
     Object.entries(laborByCode).forEach(([code, v]) => bump(code, "labor", v)),
+    stockRows.forEach((u) => bump(stockUseCode(u), "stock", +u.amount || 0)),
     pos.forEach((po) => {
       const tot = poTotal(po).sub,
         open = Math.max(
@@ -29061,8 +29089,8 @@ function jobFin(p, range) {
     }),
     byCode.RB && (byCode.RB.name = "Billed back to the client"),
     Object.values(byCode).forEach((b) => {
-      (b.actual = r2(b.bills + b.bank + b.labor)),
-        ["contract", "budget", "committed", "bills", "bank", "labor"].forEach((k) => (b[k] = r2(b[k])));
+      (b.actual = r2(b.bills + b.bank + b.stock + b.labor)),
+        ["contract", "budget", "committed", "bills", "bank", "stock", "labor"].forEach((k) => (b[k] = r2(b[k])));
     }),
     jobFinDerive({
       p: p,
@@ -29092,6 +29120,8 @@ function jobFin(p, range) {
       accrued: accrued,
       accruedBills: accruedBills,
       txnAmt: txnAmt,
+      stockAmt: stockAmt,
+      stockRows: stockRows,
       laborCost: laborCost,
       hours: hours,
       laborByEmp: Object.values(laborByEmp),
@@ -29109,7 +29139,7 @@ function jobFin(p, range) {
       backlog: backlog,
       backlogGP: r2(estGP * (1 - pct)),
       byCode: Object.values(byCode).sort((a, b) => a.code.localeCompare(b.code)),
-      defs: "billed = invoices ex tax before retainage · actual = approved bills + bank items without a bill + burdened labor · committed = open POs net of bills · % complete = contract cost ÷ estimated contract cost (purchases billed back to the client are earned when billed)",
+      defs: "billed = invoices ex tax before retainage · actual = approved bills + bank items without a bill + stock issued from the shop at carried cost (less returns) + burdened labor · committed = open POs net of bills · % complete = contract cost ÷ estimated contract cost (purchases billed back to the client are earned when billed)",
     }, p)
   );
 }
@@ -37213,7 +37243,7 @@ function ohMonthsIn(range) {
 let __ohMemo = { key: "", m: {} },
   __ohBusy = 0;
 function ohKey() {
-  return [today(), "undefined" != typeof trSaveSeq ? trSaveSeq : 0, ohBasis(), (DB.txns || []).length, (DB.bills || []).length, (DB.payroll || []).length, (DB.time || []).length].join("|");
+  return [today(), "undefined" != typeof trSaveSeq ? trSaveSeq : 0, ohBasis(), (DB.txns || []).length, (DB.bills || []).length, (DB.payroll || []).length, (DB.time || []).length, (((DB.stock || {}).use) || []).length].join("|");
 }
 function ohMonth(ym) {
   const k = ohKey();
@@ -56343,6 +56373,10 @@ function clCosts(key, ctx) {
           doc: t,
         });
       }),
+    // stock issued from the shop to this line (and returns), at carried cost: lineFin counts the same rows
+    stockUseIn("", null, key).forEach((u) =>
+      out.push({ kind: "stock", id: u.id, date: String(u.at).slice(0, 10), vendor: "Shop stock", ref: `${"return" === u.kind ? "Returned" : "From stock"}: ${u.qty} ${u.unit} ${u.invName}`, amount: r2(+u.amount || 0), cls: clClassify({ cat: "materials" }, ctx), doc: u }),
+    ),
     out.sort((a, b) => String(a.date).localeCompare(String(b.date)))
   );
 }
@@ -69520,6 +69554,8 @@ const GL_COA = [
     ["1100", "Accounts receivable", "asset", "ar", "ar", !1],
     ["1150", "Retainage receivable", "asset", "retainageReceivable", "none", !0],
     ["1200", "Costs in excess of billings (WIP)", "asset", "wipUnderBilled", "none", !0],
+    // shop stock at carried cost: credited when stock is issued to a job (Dr 5100 on the job's line), debited on a return
+    ["1250", "Inventory (shop stock)", "asset", "inventory", "none", !1],
     ["1300", "Vendor prepayments", "asset", "prepaid", "none", !0],
     ["1400", "Client escrow (GBL 771-a)", "asset", "cash", "none", !1],
     ["1500", "Fixed assets", "asset", "fixedAsset", "none", !1],
@@ -169514,7 +169550,7 @@ function tdRender() {
       ? shownC
           .map(
             (x, i) =>
-              `<div class="td-card td-c" data-src="${x.src}"><span class="td-ic">${ic('<path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/>')}</span><div class="td-txt"><div class="td-l1">${esc(x.what)}</div><div class="td-l2">${esc(x.sub)}</div></div><button type="button" class="btn sm td-verb" data-tdcatch="${i}">${esc(x.verb)}</button></div>`,
+              `<div class="td-card td-c" data-src="${x.src}"><span class="td-ic">${ic('<path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/>')}</span><div class="td-txt"><div class="td-l1">${esc(tdWords(x.what, 7))}</div><div class="td-l2">${esc(tdWords(x.sub, 8))}</div></div><button type="button" class="btn sm td-verb" data-tdcatch="${i}">${esc(x.verb)}</button></div>`,
           )
           .join("")
       : '<div class="td-empty">Nothing caught today.</div>'
@@ -169982,7 +170018,8 @@ const stdSentence = (raw) => {
   const t = String(raw || ""),
     m = t.match(/^\*\*(.+?)\*\*/),
     lead = m ? m[1].replace(/[:.,;]$/, "") : "";
-  return lead && !/:$/.test(m[1]) && lead.split(/\s+/).length >= 4 ? lead : stdStrip((t.match(/^.*?[.!?](?=\s|$)/) || [t])[0]).replace(/\.$/, "");
+  // the first sentence; "vs." and "e.g." do not end one ("Report savings monthly: final price vs. first quote...")
+  return lead && !/:$/.test(m[1]) && lead.split(/\s+/).length >= 4 ? lead : stdStrip((t.match(/^.*?(?<!\bvs|\be\.g|\bi\.e)[.!?](?=\s|$)/) || [t])[0]).replace(/\.$/, "");
 };
 function standardCite(ref) {
   const B = standard(),
@@ -170144,6 +170181,28 @@ const STD_MAP = {
   "learn:reopen": { p: "", c: ["pb", "office", "standards", /Books reconciled/i] },
   "learn:carried": { p: "", c: ["value", "own", /Close every loop/i] },
   "learn:promise": { p: "", c: ["value", "truth", /Give dates you can hit/i] },
+  // RFQs (the rfq lane): the Approvals kind, its Caught for You detectors, and the lines rfqWhy quotes on the RFQ page
+  rfq: { p: "cost", c: ["pb", "procurement", "actFrom", /Always go above and beyond to get the best price/i] },
+  rfqUnderQuoted: { p: "cost", leak: !0, c: ["pb", "procurement", "standards", /^Three quotes/i] },
+  rfqNoOutNyc: { p: "cost", leak: !0, c: ["pb", "procurement", "actFrom", /Look beyond Manhattan and Brooklyn/i] },
+  rfqNoReply: { p: "schedule", c: ["pb", "procurement", "standards", /Lead time confirmed/i] },
+  "rfq:quotes3": { p: "cost", c: ["pb", "procurement", "standards", /^Three quotes/i] },
+  "rfq:firstPrice": { p: "cost", c: ["value", "dollar", /Never accept the first price/i] },
+  "rfq:landed": { p: "cost", c: ["pb", "procurement", "actFrom", /Best price means total landed cost/i] },
+  "rfq:direct": { p: "cost", c: ["pb", "procurement", "actFrom", /Direct to the source/i] },
+  "rfq:beyond": { p: "cost", c: ["pb", "procurement", "actFrom", /Look beyond Manhattan and Brooklyn/i] },
+  "rfq:sameSpec": { p: "quality", c: ["pb", "procurement", "actFrom", /Same spec, better price/i] },
+  "rfq:lead": { p: "schedule", c: ["pb", "procurement", "actFrom", /Lead times are your schedule/i] },
+  "rfq:integrity": { p: "integrity", c: ["principle", "integrity"] },
+  "rfq:facts": { p: "", c: ["pb", "ai", "standards", /Label every output/i] },
+  "rfq:noGuess": { p: "", c: ["pb", "ai", "actFrom", /Accuracy over speed/i] },
+  "rfq:approve": { p: "", c: ["pb", "ai", "approval", /Sending anything/i] },
+  "rfq:escalate": { p: "", c: ["pb", "ai", "standards", /Apply the escalation table/i] },
+  "rfq:po": { p: "cost", c: ["std", "money", /No purchase without a PO/i] },
+  "rfq:savings": { p: "cost", c: ["pb", "procurement", "standards", /Report savings monthly/i] },
+  // stock before buying (the stock lane): a card or bank purchase of a stocked item while it sat free
+  boughtWhileInStock: { p: "cost", leak: !0, c: ["value", "dollar", /Waste nothing/i] },
+  stock: { p: "cost", leak: !0, c: ["value", "dollar", /Waste nothing/i] },
 };
 // The key an item is filed under: a string as given; a Standard Watch row by its rule; a Needs Your Hand item by
 // its row's kind; a Caught for You row by its detector (tdCaught sets src); a lesson proposal by its learned kind.
@@ -170398,7 +170457,19 @@ standardRegisterRule(
       return R.filter((x) => stdWorkHoursSince((x.r && (x.r.answeredAt || x.r.at)) || x.at || "") >= 0 && (Date.parse(appNowIso()) - Date.parse(((x.r && (x.r.answeredAt || x.r.at)) || x.at || appNowIso()))) / 36e5 > 48).map((x, i) => ({ key: "co48:" + ((x.r && x.r.id) || i), what: `No change order: ${String((x.r && x.r.title) || x.title || "an extra").slice(0, 60)}`, sub: stdJob((x.r && x.r.projectId) || (x.p && x.p.id)), go: () => setView("mapprove") }));
     },
   },
-  { id: "threeQuotes", owner: "coord", p: "cost", leak: !0, c: ["pb", "procurement", "standards", /Three quotes/i], measured: !1, why: "Quotes are not recorded per purchase yet, so the number of quotes behind a PO, and a first price accepted, cannot be read." },
+  {
+    // Measured on purchase orders (the RFQ lane's DB.rfqs holds the quotes behind an awarded PO). Its one home is the
+    // Watch: an RFQ still collecting quotes is Caught for You's "Under Three Quotes" (rfqUnderQuoted), a different
+    // record, so no PO or RFQ is counted under both labels.
+    id: "threeQuotes", owner: "coord", p: "cost", leak: !0, c: ["pb", "procurement", "standards", /Three quotes/i], surface: "watch",
+    partial: "Measured: issued purchase orders over $2,500, and every subcontract, with fewer than three readable quotes on record (the RFQ that awarded it). Under $2,500, the price-book check is not measured yet.",
+    rows: () =>
+      (DB.pos || [])
+        .filter((po) => !["cancelled", "void", "draft"].includes(po.status) && (poTotal(po).total > 2500 || "subcontract" === po.type))
+        .map((po) => ({ po: po, n: stdPOQuoteCount(po) }))
+        .filter((x) => x.n < 3)
+        .map((x) => ({ key: "q3:" + x.po.id, what: `${x.n ? `${x.n} quote${1 === x.n ? "" : "s"}` : "No quotes"} on record: ${x.po.number} · ${x.po.vendor}`, sub: `${money(poTotal(x.po).total)} on ${stdJob(x.po.projectId)}`, amount: poTotal(x.po).total, go: flowGo.po(x.po) })),
+  },
   {
     id: "poBeforeOrder", owner: "coord", p: "cost", c: ["std", "money", /No purchase without a PO/i], surface: "nyh",
     rows: () => (DB.bills || []).filter((b) => b.projectId && !b.poId && !["void", "rejected", "draft"].includes(b.status)).map((b) => ({ key: "nopo:" + b.id, what: `No PO behind ${b.number || "a bill"} · ${b.vendor}`, sub: `${money(billTotal(b))} on ${stdJob(b.projectId)}`, amount: billTotal(b), go: flowGo.bill(b) })),
@@ -170529,24 +170600,98 @@ const stdNyhRows = () =>
   STANDARD_RULES.filter((R) => "nyh" === R.surface).flatMap((R) =>
     standardRuleRows(R).map((x) => ({ key: "std:" + x.key, route: R.owner, kind: "standard", rule: R.id, title: x.what, why: x.sub || "", amount: x.amount || 0, verb: "Open", run: x.go || (() => setView("standard")), open: x.go || (() => setView("standard")) })),
   );
-// ---- ranking: Do Now, Caught for You and Needs Your Hand by the decision principles ---------------------------
-// The principle first; within it the existing measure of who is blocked and the money at stake (tdScore, which
-// every layer extends), then the date. The rows are the same rows: only their order changes.
-const stdDate = (it) => String((it && (it.due || it.date || (it.nyh && it.nyh.due))) || "9999");
+// ---- ranking: Do Now, Caught for You and Needs Your Hand ----------------------------------------------------
+// Alan (2026-10-11): sorting by the decision principle alone put an LLC filing due in 25 days above a bill due today.
+// The order is now:
+//   (a) immediate safety and law items, always first: an incident or unsafe condition, a stop-work, an expired or
+//       missing insurance certificate on a vendor working an active job;
+//   (b) urgency: overdue, due today, due this week (the next 7 days), later (or no date on the record);
+//   (c) within a bucket, the decision principle (standardTier);
+//   (d) then who is blocked (tdScore, which every layer extends, or the row's own blocked mark), the money at stake,
+//       and the date. The rows are the same rows: only their order changes, so every count stays as it was.
+const stdDate = (it) => stdDueOf(it) || String((it && (it.date || (it.nyh && it.nyh.due))) || "9999");
+const STD_ISO = /^\d{4}-\d{2}-\d{2}$/;
+const STD_MON = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+// The date an item is due, from the record behind it where there is one, else from the words it carries ("by 9/28",
+// "25 days left"); "" when nothing says. A meeting's date is when it was held, never when its follow-up is due.
+function stdDueOf(it) {
+  const o = stdObj(it),
+    r = o.nyh || {},
+    pick = (...v) => v.map((x) => String(x || "").slice(0, 10)).find((x) => STD_ISO.test(x)) || "";
+  let d = pick(o.due, o.dueBy, o.needBy, o.neededBy, o.exp, r.due, r.dueBy, r.needBy, r.exp, r.expires);
+  if (d) return d;
+  try {
+    if ("bill" === o.kind) d = pick(((DB.bills || []).find((b) => b.id === o.id) || {}).due);
+    else if ("raise" === o.kind) d = pick((tdRaise(o) || {}).dueBy);
+    else if ("dec" === o.kind) {
+      const D = tdDec(o);
+      d = D ? pick(D.d.due, D.d.needBy) || pick("function" == typeof decDue ? ("function" == typeof withProject ? withProject(D.p, () => decDue(D.d)) : decDue(D.d)) : "") : "";
+    } else if ("req" === o.kind) d = pick(((DB.projects || []).flatMap((p) => p.requests || []).find((q) => q.id === o.id) || {}).neededBy);
+    // a PO waiting on approval is due by the day its material is needed on site
+    else if ("po" === o.kind) d = pick(((DB.pos || []).find((x) => x.id === o.id) || {}).needBy);
+    else if ("payroll" === o.kind || "payroll" === r.kind) {
+      const id = String(r.id || o.id || "").replace(/^payroll:/, "");
+      d = pick(((DB.payroll || []).find((x) => x.id === id) || {}).payDate);
+    }
+  } catch (e) {}
+  if (d) return d;
+  const key = String(r.key || o.id || o.key || ""),
+    m0 = key.match(/:(\d{4}-\d{2}-\d{2})$/);
+  if (m0 && /^oblig:/.test(key)) return m0[1];
+  if ("meeting" === o.kind) return "";
+  const t = [o.title, o.detail, o.what, o.sub, o.n, r.title, r.why].filter(Boolean).join(" · "),
+    y = today().slice(0, 4),
+    md = (mo, dd) => `${y}-${String(mo).padStart(2, "0")}-${String(dd).padStart(2, "0")}`;
+  let m;
+  if ((m = t.match(/\bby (\d{1,2})\/(\d{1,2})\b/))) return md(m[1], m[2]);
+  if ((m = t.match(/\b(\d+) days? left\b/))) return iso(addDays(today(), +m[1]));
+  if ("mail" === r.kind && /^(hold|visit)$/.test(r.pkind || "") && (m = t.match(/\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\w*,? (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w* (\d{1,2})\b/))) return md(STD_MON[m[1].toLowerCase()], m[2]);
+  return "";
+}
+// words that say the item itself is late ("was due 9/1", "order-by 8/31 passed", "lapsed"); not "expired", which on a
+// bill describes its vendor's certificate, not the bill
+const STD_LATE_WORDS = /\b(overdue|past due|lapsed|was due|passed)\b/i;
+// 0 overdue, 1 due today, 2 due this week, 3 later or undated.
+function standardUrgency(it) {
+  const o = stdObj(it),
+    r = o.nyh || {},
+    d = stdDueOf(it),
+    td = today(),
+    words = [o.title, o.detail, o.what, o.sub, r.title, r.why].filter(Boolean).join(" ");
+  if ((d && d < td) || ("meeting" !== o.kind && STD_LATE_WORDS.test(words))) return 0;
+  if (d === td) return 1;
+  if (d && d <= iso(addDays(td, 6))) return 2;
+  return 3;
+}
+// (a) the items that come first whatever their date.
+function standardImmediate(it) {
+  const o = stdObj(it),
+    r = o.nyh || {},
+    words = [o.title, o.detail, o.what, o.sub, r.title, r.why].filter(Boolean).join(" ");
+  if (/\bstop[- ]work\b/i.test(words)) return !0;
+  if ("raise" === o.kind && "safety" === stdRaiseP(o)) return !0;
+  if (1 === standardTier(it)) return !0;
+  // a vendor whose certificate is expired or missing while they work an active job (Caught for You's Compliance)
+  if ("compliance" === o.src && /\b(expired|lapsed|not on file|missing)\b/i.test(words)) return !0;
+  return !1;
+}
+// One reading for the tests and for Ask: where an item stands and why.
+const standardRank = (it) => ({ imm: standardImmediate(it) ? 0 : 1, u: standardUrgency(it), t: standardTier(it), due: stdDueOf(it) });
+const stdRankCmp = (a, b) => a.imm - b.imm || a.u - b.u || a.t - b.t;
 let stdLastQueue = [],
   stdLastCaught = [];
 tdQueue = function () {
   const A = PRED.waitingOnMe.rows();
-  return (stdLastQueue = A.map((it, i) => ({ it: it, i: i, t: standardTier(it), s: tdScore(it), d: stdDate(it) }))
-    .sort((a, b) => a.t - b.t || b.s - a.s || a.d.localeCompare(b.d) || a.i - b.i)
+  return (stdLastQueue = A.map((it, i) => Object.assign(standardRank(it), { it: it, i: i, s: tdScore(it), d: stdDate(it) }))
+    .sort((a, b) => stdRankCmp(a, b) || b.s - a.s || a.d.localeCompare(b.d) || a.i - b.i)
     .map((x) => x.it));
 };
 {
   const base = tdCaught;
   tdCaught = function () {
     const R = base.apply(this, arguments) || [];
-    return (stdLastCaught = R.map((r, i) => ({ r: r, i: i, t: standardTier(r), b: r.blocked ? 1 : 0, a: +r.amount || 0, d: stdDate(r) }))
-      .sort((a, b) => a.t - b.t || b.b - a.b || b.a - a.a || a.d.localeCompare(b.d) || a.i - b.i)
+    return (stdLastCaught = R.map((r, i) => Object.assign(standardRank(r), { r: r, i: i, b: r.blocked ? 1 : 0, a: +r.amount || 0, d: stdDate(r) }))
+      .sort((a, b) => stdRankCmp(a, b) || b.b - a.b || b.a - a.a || a.d.localeCompare(b.d) || a.i - b.i)
       .map((x) => x.r));
   };
 }
@@ -170559,8 +170704,8 @@ tdQueue = function () {
     try {
       R = R.concat(stdNyhRows().filter((r) => o.everyone || r.route === (o.role || me)));
     } catch (e) {}
-    return R.map((r, i) => ({ r: r, i: i, t: standardTier({ nyh: r }), a: +r.amount || 0, d: stdDate(r) }))
-      .sort((a, b) => a.t - b.t || b.a - a.a || a.d.localeCompare(b.d) || a.i - b.i)
+    return R.map((r, i) => Object.assign(standardRank({ nyh: r }), { r: r, i: i, a: +r.amount || 0, d: stdDate({ nyh: r }) }))
+      .sort((a, b) => stdRankCmp(a, b) || b.a - a.a || a.d.localeCompare(b.d) || a.i - b.i)
       .map((x) => x.r);
   };
 }
@@ -171249,13 +171394,27 @@ let stdSrcPending = null;
 // A purchase the rule covers: materials and shop-built items (millwork, stone, fixtures) over $2,500; an on-site
 // labor subcontract is not.
 const stdShopOrMaterial = (po) => "materials" === po.type || !po.type || ("subcontract" === po.type && (STD_SHOP.test(String((stdVendorOf(po.vendor) || {}).trade || "")) || (po.lines || []).some((l) => STD_SHOP.test(`${l.item || ""} ${l.desc || ""}`))));
-// The regions of the quotes behind a PO: the rfq lane's DB.rfqs when it exists (an RFQ for this PO, or for one of
-// its Buy Board lines, with its quotes' vendors), else the PO's own vendor.
+// One region vocabulary: the vendor form's keys (nyc, boroughs, tristate, out) and the RFQ lane's words
+// ("NYC Manhattan/Brooklyn", "NYC other boroughs", "NY-NJ-CT", "Out of state") read as the same four.
+const stdRegionKey = (r) => {
+  const t = String(r || "").toLowerCase();
+  return !t ? "" : /^nyc$|manhattan|brooklyn/.test(t) ? "nyc" : /boroughs/.test(t) ? "boroughs" : /tristate|ny-nj-ct/.test(t) ? "tristate" : /^out/.test(t) ? "out" : t;
+};
+// The RFQs behind a PO: the one that awarded it (po.sourcing.rfqId), one naming it, or one for its Buy Board lines.
+function stdPORfqs(po) {
+  const mids = new Set((po.lines || []).map((l) => l.materialId).filter(Boolean)),
+    rid = (po.sourcing || {}).rfqId;
+  return Array.isArray(DB.rfqs) ? DB.rfqs.filter((x) => x && ((rid && x.id === rid) || x.poId === po.id || (x.materialId && mids.has(x.materialId)))) : [];
+}
+// Readable quotes on record behind a PO, one per vendor; with no RFQ, the PO's own price is the one quote.
+function stdPOQuoteCount(po) {
+  const V = new Set(stdPORfqs(po).flatMap((x) => (x.quotes || x.bids || []).filter((q) => !q.unreadable).map((q) => q.vendorId || q.vendor || q.vendorName)));
+  return V.size || 1;
+}
+// The regions of the quotes behind a PO (the RFQ lane's quotes, each by its vendor's region), and the PO's own vendor.
 function stdPOQuoteRegions(po) {
-  const regionOf = (q) => (q && (q.region || ((q.vendorId && (DB.vendors || []).find((v) => v.id === q.vendorId)) || stdVendorOf(q.vendor || q.vendorName) || {}).region)) || "",
-    mids = new Set((po.lines || []).map((l) => l.materialId).filter(Boolean)),
-    R = Array.isArray(DB.rfqs) ? DB.rfqs.filter((x) => x && (x.poId === po.id || (x.materialId && mids.has(x.materialId)))) : [],
-    Q = R.flatMap((x) => x.quotes || x.bids || []);
+  const regionOf = (q) => stdRegionKey((q && (q.region || ((q.vendorId && (DB.vendors || []).find((v) => v.id === q.vendorId)) || stdVendorOf(q.vendor || q.vendorName) || {}).region)) || ""),
+    Q = stdPORfqs(po).flatMap((x) => (x.quotes || x.bids || []).filter((q) => !q.unreadable));
   return [{ vendor: po.vendor, region: regionOf({ vendor: po.vendor, vendorId: po.vendorId }) }].concat(Q.map((q) => ({ vendor: q.vendor || q.vendorName || "", region: regionOf(q) })));
 }
 standardRegisterRule(
@@ -171267,7 +171426,7 @@ standardRegisterRule(
         .map((po) => ({ key: "src:" + po.id, what: `No sourcing choice: ${po.number || "draft PO"} · ${po.vendor}`, sub: `${money(poTotal(po).total)} on ${stdJob(po.projectId)}`, amount: poTotal(po).total, go: () => stdSourcingSheet(po) })),
   },
   {
-    id: "outsideNyc", owner: "coord", p: "cost", leak: !0, c: ["pb", "procurement", "actFrom", /five boroughs/i], surface: "nyh",
+    id: "outsideNyc", owner: "coord", p: "cost", leak: !0, c: ["pb", "procurement", "actFrom", /Look beyond Manhattan and Brooklyn/i], surface: "nyh",
     rows: () =>
       (DB.pos || [])
         .filter((po) => !["cancelled", "void"].includes(po.status) && poTotal(po).total > 2500 && stdShopOrMaterial(po))
@@ -175674,24 +175833,32 @@ document.addEventListener(
    The Standard's rules are quoted through rfqWhy(); wire it to the charter lane's registry
    (charterWhy / standard()) after the merge.
    --------------------------------------------------------------------------- */
-// ---- the Standard's rules this module acts on (local until the charter lane's registry lands)
+// ---- the Standard's rules this module acts on: each key is a line of the live Standard, quoted by standardWhy
+// (STD_MAP "rfq:<key>"), so Alan's edits reach the RFQ page. The words below are only the fallback for a page
+// with no Standard loaded.
 const RFQ_RULES = {
-  quotes3: "Money: three quotes on any purchase over $2,500",
-  firstPrice: "Every dollar matters: never accept the first price",
-  landed: "Procurement: best price means total landed cost — unit price, delivery, lead time, returns and quality risk",
-  direct: "Procurement: direct to the source, or through a middleman? Repeat items go direct; a one-off or high-ticket item can go through a middleman",
-  beyond: "Procurement: look beyond the five boroughs — at least one quote from outside Manhattan and Brooklyn for materials and shop-built items",
-  sameSpec: "Procurement: same spec, better price; never substitute without written approval from the PM and designer",
-  lead: "Procurement: lead times are your schedule",
-  integrity: "Decision principles: integrity — we never mislead a vendor",
-  facts: "AI agents: label every output — verified facts with their source, assumptions and recommendations, kept apart",
-  noGuess: "AI agents: never invent a number, price, date or quantity",
-  approve: "AI agents: sending to a vendor needs a person's approval unless that message type was delegated",
-  escalate: "Decide or escalate: what happened, the impact on cost, schedule and quality, the options, the recommendation, and when the decision is needed",
-  po: "Money: no purchase without a PO tied to a job and cost code",
-  savings: "Procurement: report savings monthly — final price vs first quote and vs budget",
+  quotes3: "Three quotes on any purchase over $2,500 and on every subcontract (Procurement playbook)",
+  firstPrice: "Never accept the first price (Every dollar matters)",
+  landed: "Best price means total landed cost (Procurement playbook)",
+  direct: "Direct to the source, or through a middleman? (Procurement playbook)",
+  beyond: "Look beyond Manhattan and Brooklyn (Procurement playbook)",
+  sameSpec: "Same spec, better price — that's the job (Procurement playbook)",
+  lead: "Lead times are your schedule (Procurement playbook)",
+  integrity: "Integrity — we never mislead a vendor (Decision principle 3)",
+  facts: "Label every output (AI playbook)",
+  noGuess: "Accuracy over speed (AI playbook)",
+  approve: "Sending anything to a vendor needs a person's approval unless that message type was delegated (AI playbook)",
+  escalate: "Apply the escalation table (AI playbook)",
+  po: "No purchase without a PO (Money standard)",
+  savings: "Report savings monthly (Procurement playbook)",
 };
+// "Look beyond Manhattan and Brooklyn (Procurement playbook)": the line and where it is, without "Because: ", since
+// the RFQ page sets it inside its own sentences.
 function rfqWhy(key) {
+  try {
+    const w = "function" == typeof standardWhy && standard().values && standardWhy("rfq:" + key);
+    if (w) return w.replace(/^Because: /, "");
+  } catch (e) {}
   return RFQ_RULES[key] || "";
 }
 const RFQ_REGIONS = ["NYC Manhattan/Brooklyn", "NYC other boroughs", "NY-NJ-CT", "Out of state"],
@@ -176166,8 +176333,44 @@ function rfqDeliver(r, v, subject, body, kind, att) {
   }
   return (r.sent = r.sent || []).push(rec), rec;
 }
+// Inventory before buying (BACKLOG §1.8 item 12): an RFQ never asks vendors to price what sits free in the firm's
+// own stock. The purchasing card shows the stock note on each blocked line with Take From Stock and, for the
+// driver or the coordinator, Override (a reason, logged); Send refuses with the reasons until each is settled.
+function rfqStockHtml(r) {
+  let g;
+  try {
+    g = stockRfqGuard(r);
+  } catch (e) {
+    return "";
+  }
+  if (!g || g.ok) return "";
+  return `<div class="rfq-stk" data-rfqstk="${g.blocked.length}">${g.blocked
+    .map((x) => `${stockLineNote(x.line, { projectId: r.projectId, rfqId: r.id })}<div class="rfq-row rfq-stk-acts"><button type="button" class="btn sm" data-rfqstktake="${esc(x.line.id)}">Take ${x.chk.fromStock} From Stock</button>${stockCanOverride() ? `<button type="button" class="btn sm" data-rfqstkov="${esc(x.line.id)}">Override</button>` : ""}</div>`)
+    .join("")}</div>`;
+}
+// Take a blocked line's stock part from stock: a pick for the driver on the RFQ's job, and the line asks vendors only
+// for the rest (the line goes when nothing is left to buy).
+function rfqStockTake(r, lineId) {
+  const x = stockRfqGuard(r).blocked.find((y) => y.line.id === lineId);
+  if (!x) return toast("That line no longer matches free stock"), null;
+  const n = x.chk.fromStock,
+    req = stockTakeForLine({ projectId: r.projectId, invId: x.chk.match.id, qty: n, unit: x.line.unit, needBy: x.line.needBy || r.needBy, note: `From stock instead of ${r.number}` });
+  if (!req) return toast("Could not reserve the stock for this job"), null;
+  const left = r2((+x.line.qty || 0) - n);
+  left > 0 ? (x.line.qty = left) : r.lines.splice(r.lines.indexOf(x.line), 1);
+  rfqHist(r, "took from stock", `${n} ${x.line.unit || x.chk.match.unit} ${x.chk.match.name} from ${x.chk.match.where}; ${left > 0 ? `${left} left to quote` : "the line is off the RFQ"}`);
+  save(), render();
+  rcToast(`${n} ${x.line.unit || x.chk.match.unit} ${x.chk.match.name} come from stock: a pick for ${stockFirst("driver")}; ${r.number} ${left > 0 ? `asks for ${left}` : "drops the line"}`, [{ label: "Open", run: () => rfqOpenFor(r.id) }]);
+  return req;
+}
 function rfqSend(r, vendorIds, due) {
   if ("purchasing" !== r.status) return toast(`${r.number} is ${RFQ_STATUS[r.status] || r.status} — it was sent already`), !1;
+  try {
+    const g = stockRfqGuard(r);
+    if (!g.ok) return render(), toast(`${r.number} is not sent: ${g.reasons.join("; ")}`), !1;
+  } catch (e) {
+    console.warn("rfq stock guard", e);
+  }
   const V = vendorIds.map(rfqVendor).filter(Boolean);
   if (!V.length) return toast("Pick at least one vendor"), !1;
   const noMail = V.filter((v) => !v.email);
@@ -176198,8 +176401,9 @@ function rfqWentOut(s) {
   }
 }
 // Chases before the due date: a draft the coordinator approves, or sent at once when they delegated RFQ chases
-// (DB.asst[uid].delegate.rfqChases, off by default; Settings on the RFQ page).
-const rfqDelegated = (u) => !!(((DB.asst || {})[u] || {}).delegate || {}).rfqChases;
+// (message type "rfqChases" in DB.asst[uid].delegated, off by default; What My Assistant May Send for Me). The send
+// itself asks the guard (standardAllows): sending alone is allowed only for a delegated type.
+const rfqDelegated = (u) => standardDelegated(u).includes("rfqChases");
 function rfqChaseSweep(r) {
   if (!["sent", "quoting"].includes(r.status) || !r.dueDate) return 0;
   const td = today();
@@ -176212,7 +176416,9 @@ function rfqChaseSweep(r) {
       body = `Hi ${String(v.contact || v.name).split(" ")[0]},\n\nA reminder that our request ${r.number} (${r.title}) is due ${fmtL(r.dueDate)}. If you can quote all or part of it, reply to this email with your unit prices, freight and lead time.\n\nThank you,\n${r.sentBy || rfqMe()}\nSmartDesign`,
       u = r.sentByUid || (rfqUserOf("coord") || {}).id;
     (r.chased = r.chased || []).push(iv.id);
-    if (rfqDelegated(u)) {
+    const may = standardAllows({ action: "send", type: "rfqChases", uid: u });
+    if (u && "alone" === may.mode) {
+      standardLog("sent", `${r.number}: chase to ${v.name} (delegated: RFQ chases)`, may.line);
       (DB.outbox = DB.outbox || []).push({ id: uid("ox"), kind: "rfq-chase", to: { name: v.contact || v.name, email: v.email || "" }, subject: subj, body: body, about: { label: `${r.number} · ${v.name}`, rfqId: r.id }, aboutKey: `rfq|${r.id}|${v.id}|chase`, forName: r.sentBy || "", status: "sent", sentAt: appNowIso(), approvedBy: "delegated: RFQ chases", at: td, by: "assistant" });
       rfqHist(r, "chased", `${v.name}: sent (RFQ chases are delegated)`);
     } else {
@@ -176825,7 +177031,7 @@ function rfqRecommend(r, L) {
     what: `${L.quotes.length} readable quote${1 === L.quotes.length ? "" : "s"} on ${r.number}. Cheapest whole basket: ${L.baskets[0] ? `${L.baskets[0].vendor} at ${money(L.baskets[0].landed)} landed` : "nobody quoted every line on the same spec"}. Best split: ${money(plan.total)} landed across ${vendors.join(", ")}.`,
     impact: `Cost: ${L.baskets[0] ? `${money(r2(L.baskets[0].landed - plan.total))} under the cheapest whole basket` : "the split is the only complete price"}${L.budgetTotal ? `; ${money(r2(L.budgetTotal - plan.total))} ${L.budgetTotal >= plan.total ? "under" : "over"} the budget on the line${L.budgets.length === 1 ? "" : "s"}` : ""}. Schedule: ${plan.by.every((x) => (L.vendors.find((v) => v.vendorId === x.vendorId) || {}).onTime) ? `every vendor in it lands by ${fmtL(r.needBy)}` : "a vendor in it lands after the need-by date"}${late ? `; the cheapest split (${money(L.split.total)}) would land late, so it is not recommended (schedule ranks above cost)` : ""}. Quality: same spec on every line${L.perLine.some((x) => x.alts.length) ? "; alternates were offered and are not counted until the PM and designer approve them" : ""}.`,
     options: [`award the split (${money(plan.total)})`].concat(L.baskets[0] ? [`award the whole basket to ${L.baskets[0].vendor} (${money(L.baskets[0].landed)})`] : []).concat(["negotiate first: ask each vendor to beat the best figure we hold"]),
-    rec: (r.neg || []).some((n) => "sent" === n.status) ? `Award the split: ${vendors.join(", ")}.` : `Negotiate once (${rfqWhy("firstPrice")}), then award the split.`,
+    rec: (r.neg || []).some((n) => "sent" === n.status) ? `Award the split: ${vendors.join(", ")}.` : `Negotiate once, then award the split. ${rfqWhy("firstPrice")}.`,
     by: (r.orderBy || r.needBy) < today() ? today() : r.orderBy || r.needBy,
     plan: plan,
     outNyc: outNyc.length,
@@ -176876,7 +177082,7 @@ function rfqNegSend(r, ids, edits) {
   for (const n of D) {
     edits && null != edits[n.id] && (n.body = edits[n.id]);
     const C = rfqNegCheck(r, n);
-    if (!C.ok) return toast(`${n.vendor}: ${C.named.length ? `the email names ${C.named.join(", ")} — never name a competitor` : `$${C.invented.join(", $")} is not a figure from a quote we hold`} (${rfqWhy("integrity")})`), !1;
+    if (!C.ok) return toast(`${n.vendor}: ${C.named.length ? `the email names ${C.named.join(", ")} — never name a competitor` : `$${C.invented.join(", $")} is not a figure from a quote we hold`}. ${rfqWhy("integrity")}`), !1;
   }
   D.forEach((n) => {
     const v = rfqVendor(n.vendorId);
@@ -177641,7 +177847,7 @@ function renderRfq() {
       sv = rfqSavings();
     body = `${R.length ? `<div class="rfq-cards">${R.map((x) => `<div class="rfq-card"><b class="rfq-h" data-nocase>${esc(x.number)} · ${esc(x.title)}</b><div class="small muted" data-nocase>${esc(rfqJobName(x))} · ${x.lines.length} lines · on site by ${fmt(x.needBy)}</div><div class="rfq-row" style="margin-top:6px">${rfqPill(x.status)}<span class="small" data-nocase>${esc(rfqNext(x) || "")}</span></div><div class="rfq-row" style="margin-top:8px"><button class="btn sm" data-rfqopen="${esc(x.id)}">Open</button></div></div>`).join("")}</div>` : '<div class="empty card" style="padding:16px"><b>No requests for quote yet.</b><p class="small muted">New RFQ starts from the estimate and change order lines you are buying for; the assistant drafts the material list from the plans when a line is a lump sum, the foreman checks it on his phone, and you pick the vendors.</p></div>'}
       <div class="card rfq-sec"><h3>Savings This Month</h3><p class="small">${sv.n ? `${money(sv.vsFirst)} saved on ${sv.n} RFQ${1 === sv.n ? "" : "s"} awarded in ${sv.ym}: final price against the first quote${sv.vsBudget ? `; ${money(sv.vsBudget)} under budget` : ""}.` : `Nothing awarded in ${sv.ym} yet.`} <span class="muted">${esc(rfqWhy("savings"))}</span></p></div>
-      ${u ? `<div class="card rfq-sec"><h3>What I May Send for You</h3><label class="rfq-pick"><input type="checkbox" id="rfq-deleg" ${rfqDelegated(u) ? "checked" : ""}><span class="grow"><b>Send RFQ Chases for Me</b><span class="small muted">Off: a reminder to a vendor who has not quoted waits in your Approvals as a draft. On: the assistant sends it the day before the due date. ${esc(rfqWhy("approve"))}</span></span></label></div>` : ""}`;
+      ${u ? `<div class="card rfq-sec"><h3>What I May Send for You</h3><label class="rfq-pick"><input type="checkbox" id="rfq-deleg" ${rfqDelegated(u) ? "checked" : ""}><span class="grow"><b>Send RFQ Chases for Me</b><span class="small muted">Off: a reminder to a vendor who has not quoted waits in your Approvals as a draft. On: the assistant sends it the day before the due date. ${esc(rfqWhy("approve"))}. Every type is listed under The SmartDesign Standard, What My Assistant May Send for Me.</span></span></label></div>` : ""}`;
   } else if ("prospects" === tab) {
     const P = rfqProspects();
     body = `<p class="small muted">Suppliers the assistant found: named in your mail and not on file, categories with fewer than three vendors or none outside NYC, and sourcing research. Add puts one on file and suggests it on the next RFQ.</p><div class="rfq-cards">${P.map((x) => `<div class="rfq-card"><b class="rfq-h" data-nocase>${esc(x.name)}${x.demo ? ' <span class="pill">Demo Data</span>' : ""}</b><div class="small muted" data-nocase>${esc({ mail: "From your mail", gap: "A thin category", research: "Sourcing research" }[x.source] || x.source)}${x.category ? ` · ${esc(x.category)}` : ""} · ${esc(x.status)}</div><p class="small" data-nocase>${esc(x.evidence || "")}</p>${x.web ? `<p class="small muted">${esc(x.web)}</p>` : ""}${"proposed" === x.status ? `<div class="rfq-row"><button class="btn sm" data-rfqpadd="${esc(x.id)}">Add</button><button class="btn sm" data-rfqpdis="${esc(x.id)}">Dismiss</button></div>` : ""}${"added" === x.status && x.vendorId && !rfqVetDone(rfqVendor(x.vendorId)) ? `<p class="small">Before its first PO: ${esc(rfqVetMissing(rfqVendor(x.vendorId)).join(", "))}.</p><div class="rfq-row"><button class="btn sm" data-rfqvet="${esc(x.vendorId)}">Vet</button></div>` : ""}</div>`).join("") || '<p class="small muted">No prospects right now.</p>'}</div>`;
@@ -177653,11 +177859,8 @@ function renderRfq() {
   const dl = host.querySelector("#rfq-deleg");
   dl &&
     (dl.onchange = () => {
-      const u = paMe().id;
-      DB.asst = DB.asst || {};
-      DB.asst[u] = DB.asst[u] || {};
-      (DB.asst[u].delegate = DB.asst[u].delegate || {}), (DB.asst[u].delegate.rfqChases = dl.checked), save();
-      rcToast(dl.checked ? "RFQ chases are delegated: I send them the day before the due date" : "RFQ chases come to you as drafts again", [{ label: "Open", run: () => setView("rfq") }]);
+      // the one delegation model (DB.asst[uid].delegated, logged): the same switch as on the Standard's page
+      stdDelegSet(paMe().id, "rfqChases", dl.checked) || (dl.checked = !dl.checked);
     });
   host.querySelectorAll("[data-rfqpadd]").forEach(
     (b) =>
@@ -177734,7 +177937,7 @@ function rfqDetailHtml(r) {
     act = `<div class="card rfq-sec"><h3>Lines</h3>${r.lines.map((l) => rfqLineCardHtml(l, !1)).join("") || '<p class="small muted">No lines yet.</p>'}<div class="rfq-add"><input id="rfq-b-item" placeholder="Item" aria-label="Item"><div class="rfq-add-row"><input id="rfq-b-qty" type="number" min="1" placeholder="How many" aria-label="How many"><input id="rfq-b-unit" value="ea" aria-label="Unit"><button class="btn" id="rfq-b-add">Add</button></div></div><div class="rfq-row" style="margin-top:10px"><button class="btn primary" id="rfq-to-fm">Send to the Foreman</button><button class="btn" id="rfq-to-buy">Skip to Purchasing</button></div></div>`;
   else if ("foreman-review" === stage) act = `<div class="note">${esc(r.foreman)} checks the quantities on his phone (his For You card on Today). Nothing goes to a vendor before he approves.</div>`;
   else if ("purchasing" === stage && vprop)
-    act = `<div class="card rfq-sec"><h3>Pick the Vendors</h3><p class="small muted">The assistant's picks are ticked. ${esc(vprop.need3 ? rfqWhy("quotes3") + ". " : "")}${esc(r.shippable ? rfqWhy("beyond") : "")}.</p>${vprop.list
+    act = `<div class="card rfq-sec"><h3>Pick the Vendors</h3>${rfqStockHtml(r)}<p class="small muted">The assistant's picks are ticked. ${esc(vprop.need3 ? rfqWhy("quotes3") + ". " : "")}${esc(r.shippable ? rfqWhy("beyond") : "")}.</p>${vprop.list
       .map(
         (x) =>
           `<label class="rfq-pick"><input type="checkbox" data-rfqv="${esc(x.v.id)}" ${vprop.pick.includes(x.v.id) ? "checked" : ""}><span class="grow"><b data-nocase>${esc(x.v.name)}</b><span class="small" data-nocase>because ${esc(x.because.map((b) => b.t).join("; "))}</span>${x.because.filter((b) => b.rule).map((b) => `<span class="small muted">${esc(rfqWhy(b.rule))}</span>`).join("")}${x.v.region ? "" : `<select class="small" data-rfqreg="${esc(x.v.id)}" aria-label="Region"><option value="">Set the region</option>${RFQ_REGIONS.map((g) => `<option>${g}</option>`).join("")}</select>`}</span></label>`,
@@ -177805,6 +178008,14 @@ function rfqWireDetail(host, r) {
       }),
   );
   on("#rfq-send", () => rfqSend(r, [...host.querySelectorAll("[data-rfqv]:checked")].map((i) => i.dataset.rfqv), $q("#rfq-due").value));
+  host.querySelectorAll("[data-rfqstktake]").forEach((b) => (b.onclick = () => rfqStockTake(r, b.dataset.rfqstktake)));
+  host.querySelectorAll("[data-rfqstkov]").forEach(
+    (b) =>
+      (b.onclick = () => {
+        const x = stockRfqGuard(r).blocked.find((y) => y.line.id === b.dataset.rfqstkov);
+        x && stockOverrideDialog({ rfqId: r.id, lineId: x.line.id, projectId: r.projectId, invId: x.chk.match.id, qty: x.chk.fromStock });
+      }),
+  );
   host.querySelectorAll("#rfq-check").forEach((b) => (b.onclick = () => (rfqIngest({ toast: !0, rfq: r.id }), render())));
   on("#rfq-level", () => ((r.status = "leveled"), rfqHist(r, "leveled", `by ${rfqMe()}, ${(r.quotes || []).filter((q) => !q.unreadable).length} readable quotes`), save(), render(), rcToast(`${r.number} leveled`, [{ label: "Open", run: () => rfqOpenFor(r.id) }])));
   host.querySelectorAll("[data-rfqenter]").forEach((b) => (b.onclick = () => rfqEnterPrices(r, r.quotes.find((q) => q.id === b.dataset.rfqenter))));
@@ -183440,3 +183651,206 @@ predDef("poLinesUnlinked", {
     dims: ["project", "vendor", "status", "link"],
     sums: ["amount"],
   });
+/* ---------------------------------------------------------------------------------------------------------
+   integrate (version 11): the charter, stock, rfq and chain lanes joined (docs/LANES.md, "Integration pass").
+     - one delegation model: DB.asst[uid].delegated holds the message types a person lets the assistant send
+       alone; the RFQ lane's DB.asst[uid].delegate.rfqChases moves onto it once at boot; every autonomous send
+       asks standardAllows; the card "What My Assistant May Send for Me" (Settings › The SmartDesign Standard)
+       switches each type, the owner can switch anyone's off, and every change is logged (who, when, for whom).
+--------------------------------------------------------------------------------------------------------- */
+// The message types the assistant can send alone once delegated. `live: false` lists a type whose sender is not
+// built yet (order follow-ups arrive with the track lane), so switching it on is recorded but sends nothing.
+const STD_SEND_TYPES = [
+  { id: "rfqChases", label: "RFQ Chases", roles: ["coord", "owner"], what: "A reminder to a vendor who has not quoted, sent the day before the RFQ is due.", live: !0 },
+  { id: "orderFollowups", label: "Order Follow-Ups", roles: ["coord", "owner", "pm"], what: "A follow-up to a vendor on an order that is late or has no confirmed date.", live: !1, later: "Order tracking sends these once it is in; until then nothing goes out." },
+];
+const stdDelegLog = () => ((DB.company = DB.company || {}), (DB.company.delegationLog = DB.company.delegationLog || []));
+const stdUserName = (uid) => ((DB.users || []).find((u) => u.id === uid) || {}).name || uid;
+const stdTypesFor = (r) => STD_SEND_TYPES.filter((t) => t.roles.includes(r));
+// Switch one type for one person. A person switches their own; the owner may switch anyone's off, never on (the
+// Standard: sending alone needs the person's own delegation). Append-only log, audit, toast with Open.
+function stdDelegSet(who, type, on, opt) {
+  const o = opt || {},
+    T = STD_SEND_TYPES.find((t) => t.id === type),
+    me = paMe(),
+    self = who === me.id;
+  if (!T) return toast("That message type is not one the assistant sends"), !1;
+  if (!o.system && !self && !(isOwner() && !on)) return toast(isOwner() ? "Only the person can hand the assistant a message to send for them; you can switch it off" : "Only the owner can change someone else's"), !1;
+  DB.asst = DB.asst || {};
+  const A = self ? paInit() : (DB.asst[who] = DB.asst[who] || {}),
+    L = (A.delegated = Array.isArray(A.delegated) ? A.delegated : []),
+    was = L.includes(type);
+  if (was === !!on && !o.system) return !0;
+  on ? was || L.push(type) : L.splice(L.indexOf(type), 1);
+  const e = { id: uid("dlg"), at: appNowIso(), by: o.system ? "System" : me.name, byUid: o.system ? "" : me.id, uid: who, name: stdUserName(who), type: type, on: !!on, why: o.why || "" };
+  stdDelegLog().push(e);
+  try {
+    audit("delegation", who, `${T.label} ${on ? "on" : "off"}`, was, !!on, e.why || (self ? "" : `switched by ${e.by}`));
+  } catch (er) {}
+  if (o.system) return !0;
+  save();
+  try {
+    "standard" === view ? renderStandard() : "rfq" === view && "function" == typeof renderRfq && renderRfq();
+  } catch (er) {}
+  rcToast(`${T.label} ${on ? "on" : "off"}${self ? "" : ` for ${e.name}`}: ${on ? "the assistant sends them for you" : "they wait in Approvals as drafts"}`, [{ label: "Open", run: () => setView("standard") }]);
+  return !0;
+}
+// Once at boot: rfq's per-person switch moves onto the one list, with a log line saying where it came from.
+function stdDelegMigrate() {
+  Object.entries(DB.asst || {}).forEach(([u, A]) => {
+    if (!A || !A.delegate || "object" != typeof A.delegate || !("rfqChases" in A.delegate)) return;
+    const on = !!A.delegate.rfqChases;
+    A.delegated = Array.isArray(A.delegated) ? A.delegated : [];
+    on && !A.delegated.includes("rfqChases") && (A.delegated.push("rfqChases"), stdDelegLog().push({ id: uid("dlg"), at: appNowIso(), by: "System", byUid: "", uid: u, name: stdUserName(u), type: "rfqChases", on: !0, why: "moved from the RFQ page's own setting" }));
+    delete A.delegate.rfqChases;
+    Object.keys(A.delegate).length || delete A.delegate;
+  });
+}
+{
+  const base = finishBoot;
+  finishBoot = function () {
+    try {
+      stdDelegMigrate();
+    } catch (e) {
+      console.warn("delegation migrate", e);
+    }
+    return base.apply(this, arguments);
+  };
+}
+const STD_SWITCH = (attrs, on, label) => `<label class="dlg-sw"><input type="checkbox" ${attrs} ${on ? "checked" : ""} aria-label="${esc(label)}"><span class="dlg-knob" aria-hidden="true"></span></label>`;
+function stdDelegHtml() {
+  const me = paMe(),
+    mine = stdTypesFor(role()),
+    on = standardDelegated(me.id),
+    staff = (DB.users || []).filter((u) => u.id !== me.id && stdTypesFor(u.role).length),
+    log = stdDelegLog().slice(-8).reverse(),
+    when = (at) => `${fmtL(String(at).slice(0, 10))}, ${String(at).slice(11, 16)}`,
+    tname = (id) => (STD_SEND_TYPES.find((t) => t.id === id) || { label: id }).label;
+  const rowsMine = mine.length
+    ? mine.map((t) => `<div class="dlg-row" data-dlgrow="${t.id}"><div class="grow"><b>${esc(t.label)}</b><span class="small muted">${esc(t.what)}${t.live ? "" : ` ${esc(t.later)}`}</span></div>${STD_SWITCH(`data-dlgme="${t.id}"`, on.includes(t.id), t.label)}</div>`).join("")
+    : '<p class="small muted">Your assistant sends nothing for you on its own: every message waits for you as a draft.</p>';
+  const everyone = isOwner()
+    ? `<h4>Everyone</h4><p class="small muted">Each person hands these over themselves. You can switch anyone's off.</p>${staff
+        .map((u) => {
+          const D = ((DB.asst || {})[u.id] || {}).delegated || [];
+          return stdTypesFor(u.role)
+            .map((t) => `<div class="dlg-row" data-dlgfor="${u.id}:${t.id}"><div class="grow"><b data-nocase>${esc(u.name)}</b><span class="small muted">${esc(t.label)} · ${D.includes(t.id) ? "on" : "off"}</span></div>${D.includes(t.id) ? `<button type="button" class="btn sm" data-dlgoff="${u.id}:${t.id}">Switch Off</button>` : '<span class="small muted dlg-off">Off</span>'}</div>`)
+            .join("");
+        })
+        .join("")}`
+    : "";
+  const changes = log.length ? `<h4>Changes</h4>${log.map((e) => `<div class="dlg-log small" data-nocase>${esc(e.name)}: ${esc(tname(e.type))} ${e.on ? "on" : "off"} · ${esc(when(e.at))} · by ${esc(e.by)}${e.why ? ` (${esc(e.why)})` : ""}</div>`).join("")}` : "";
+  return `<section class="card ch-card std-deleg" data-dlgcard><div class="hd"><h3>What My Assistant May Send for Me</h3></div><div class="bd"><p class="small muted">${esc(standardWhy("rfq:approve"))}. Off, a message waits in your Approvals as a draft; on, the assistant sends it and logs it.</p>${rowsMine}${everyone}${changes}</div></section>`;
+}
+{
+  const base = stdWatchHtml;
+  stdWatchHtml = function () {
+    const h = base.apply(this, arguments);
+    try {
+      return stdDelegHtml() + h;
+    } catch (e) {
+      console.warn("delegation card", e);
+      return h;
+    }
+  };
+}
+{
+  const base = renderStandard;
+  renderStandard = function () {
+    const r = base.apply(this, arguments);
+    try {
+      const host = document.getElementById("standard-body");
+      host &&
+        (host.querySelectorAll("[data-dlgme]").forEach((x) => (x.onchange = () => stdDelegSet(paMe().id, x.dataset.dlgme, x.checked) || (x.checked = !x.checked))),
+        host.querySelectorAll("[data-dlgoff]").forEach((b) => (b.onclick = () => {
+          const [u, t] = b.dataset.dlgoff.split(":");
+          stdDelegSet(u, t, !1);
+        })));
+    } catch (e) {
+      console.warn("delegation wire", e);
+    }
+    return r;
+  };
+}
+"object" == typeof EQ_TABLES &&
+  (EQ_TABLES.delegations = () => stdDelegLog().map((e) => ({ _id: e.id, _module: "The SmartDesign Standard", _label: `${e.name}: ${(STD_SEND_TYPES.find((t) => t.id === e.type) || { label: e.type }).label} ${e.on ? "on" : "off"}`, _go: { view: "standard" }, date: String(e.at).slice(0, 10), person: e.name, type: e.type, on: e.on, by: e.by, why: e.why })));
+// ---- stock used on a job is job cost, in the books too (BACKLOG §1.8 item 12, the open item) -------------------
+// jobFin, lineFin and Cost by Line read DB.stock.use directly (stockUseIn), so the job report, WIP, EAC, the
+// overhead basis, Portfolio, Pack and Ask carry it. The general ledger gets one system journal per record: an issue
+// is Dr 5100 Materials on the job and its estimate line, Cr 1250 Inventory, at the carried cost; a return is the
+// reverse with its reason. Records are append-only, so each journal posts once and is never re-posted.
+"object" == typeof GL_SUB_OF && (GL_SUB_OF.stock = "inventory");
+function glStockLines(u) {
+  const amt = Math.abs(r2(+u.amount || 0)),
+    dims = { projectId: u.projectId || "", lineId: u.line || "", code: stockUseCode(u), cat: "materials", partyType: "", partyId: "" };
+  return "return" === u.kind ? [glL("1250", amt, 0, dims), glL("5100", 0, amt, dims)] : [glL("5100", amt, 0, dims), glL("1250", 0, amt, dims)];
+}
+{
+  const base = glDerive;
+  glDerive = function () {
+    const out = base.apply(this, arguments);
+    try {
+      stockUseIn("", null).forEach((u) => {
+        const amt = Math.abs(r2(+u.amount || 0));
+        if (!amt || !u.projectId) return;
+        out.push({
+          key: "stk:" + u.id,
+          sourceType: "stock",
+          sourceId: u.id,
+          entityId: "function" == typeof glProjectEntity ? glProjectEntity(u.projectId) : "ent1",
+          date: String(u.at).slice(0, 10),
+          memo: `${"return" === u.kind ? `Returned to stock (${u.reason || "no reason recorded"})` : "Issued from stock"} · ${u.qty} ${u.unit} ${u.invName} · ${stockJobName(u.projectId)}`,
+          lines: glStockLines(u),
+          system: !0,
+        });
+      });
+    } catch (e) {
+      console.warn("stock ledger", e);
+    }
+    return out;
+  };
+}
+// ---- Standard Watch, from the RFQ lane's records: a first price accepted ----------------------------------------
+// An RFQ awarded with no negotiation email sent. Its one home is the Watch: before the award the same RFQ is the
+// coordinator's "Negotiate" step in Approvals (DELEGATION rfq), a different moment, so it is never counted twice.
+standardRegisterRule({
+  id: "firstPrice", owner: "coord", p: "cost", leak: !0, c: ["pb", "procurement", "standards", /Negotiate every quote at least once/i], surface: "watch",
+  rows: () =>
+    ((DB.rfqs || []).filter((r) => ["awarded", "closed"].includes(r.status) && !(r.neg || []).some((n) => "sent" === n.status))).map((r) => ({ key: "fp:" + r.id, what: `Awarded without negotiating: ${r.number}`, sub: `${rfqJobName(r)}${(r.history || []).some((h) => /without negotiating/.test(h.what)) ? " · chosen on the RFQ" : ""}`, go: () => rfqOpenFor(r.id) })),
+});
+// ---- phone: the job first, and a document opens at its top (the chain lane's 390px field notes) -----------------
+// The foreman's Update sat below the fold (y 1232 on an 844px screen): Today's Work came after Now and Arriving
+// Today. On the phone it now follows For You, so the day's tasks and their Update are on the first screen.
+{
+  const base = fRenderToday;
+  fRenderToday = function () {
+    const r = base.apply(this, arguments);
+    try {
+      const root = document.getElementById("ftoday-body");
+      if (root && isMobile()) {
+        const cards = [...root.querySelectorAll(":scope > .card")],
+          work = cards.find((c) => /^Today.s Work/i.test(((c.querySelector("h3") || {}).textContent || "").trim())),
+          after = root.querySelector(":scope > .f-you") || root.querySelector(":scope > .f-hero");
+        work && after && after.nextElementSibling !== work && (work.classList.add("f-work"), after.insertAdjacentElement("afterend", work));
+      }
+    } catch (e) {
+      console.warn("foreman work first", e);
+    }
+    return r;
+  };
+}
+// A document opened on the phone (a change order just created, an estimate from a list) starts at its top, where
+// Send to Client is; it used to keep the list's scroll and open with its actions above the screen.
+{
+  let lastDoc = null;
+  const base = render;
+  render = function () {
+    const r = base.apply(this, arguments);
+    try {
+      const k = "undefined" != typeof docOpen ? docOpen : null;
+      k && k !== lastDoc && isMobile() && window.scrollTo(0, 0);
+      lastDoc = k;
+    } catch (e) {}
+    return r;
+  };
+}

@@ -150,10 +150,11 @@ async def main():
             await pg.click('.view.on [data-tdbrief]'); await pg.wait_for_timeout(250)
             # the top verb opens the right flow
             if tag == 'owner':
-                # Do Now ranks by the Standard's decision principles (law before cost): the top card is the highest
-                # principle on the list, and WW-2026-118's verb still opens the one bill-approval gate
-                top = await pg.evaluate("() => { const Q = tdQueue(); return [standardTier(Q[0]), Math.min(...Q.map(standardTier))]; }")
-                c.ok(top[0] == top[1], f"owner phone: top card is \"{m['topText'][:60]}\" at principle {top[0]}, want the highest, {top[1]}")
+                # Do Now ranks immediate safety and law first, then overdue / today / this week / later, then the
+                # decision principle (Alan, 2026-10-11): the top card is the first by that order (the overdue payroll,
+                # not the LLC filing 25 days out), and WW-2026-118's verb still opens the one bill-approval gate
+                top = await pg.evaluate("() => { const Q = tdQueue(), k = (it) => { const r = standardRank(it); return [r.imm, r.u, r.t]; }; return [k(Q[0]), Q.map(k).sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2])[0], Q[0].title]; }")
+                c.ok(top[0] == top[1] and 'LLC' not in top[2], f"owner phone: top card is \"{m['topText'][:60]}\" at {top[0]}, want the first by immediate, urgency, principle, {top[1]}")
                 wi = await pg.evaluate("() => [...document.querySelectorAll('.view.on .td-do .td-card')].findIndex(x => x.innerText.includes('WW-2026-118'))")
                 c.ok(wi >= 0, 'owner phone: WW-2026-118 is on Do Now')
                 await pg.click(f'.view.on .td-do .td-card [data-tdverb="{max(wi, 0)}"]'); await pg.wait_for_timeout(400)
@@ -162,8 +163,11 @@ async def main():
                 st = await pg.evaluate("() => DB.bills.find(b => b.number === 'WW-2026-118').status")
                 c.ok(st == 'pm-approved', f'owner phone: opening the sheet changed WW-2026-118 to {st}')
             else:
-                c.ok(m['verbText'] == 'Answer', f"pm phone: top verb {m['verbText']!r}, want Answer")
-                await pg.click('.view.on .td-do .td-card [data-tdverb="0"]'); await pg.wait_for_timeout(400)
+                # urgency first (Alan, 2026-10-11): the PM's decisions past due since 8/26 now rank above the field's
+                # question due today; the field's question is still on Do Now's first cards, and Answer opens it
+                ai = await pg.evaluate("() => [...document.querySelectorAll('.view.on .td-do .td-card [data-tdverb]')].findIndex(x => x.innerText.trim() === 'Answer')")
+                c.ok(m['verbText'] in ('Answer', 'Choose') and ai >= 0, f"pm phone: top verb {m['verbText']!r} (an overdue decision or the field's question), an Answer on the first cards at {ai}")
+                await pg.click(f'.view.on .td-do .td-card [data-tdverb="{max(ai, 0)}"]'); await pg.wait_for_timeout(400)
                 dlg = await pg.evaluate("() => (document.getElementById('mbm') || {}).innerText || ''")
                 c.ok('send to the field' in dlg.lower() and bool(re.search(r'textarea', await pg.evaluate("() => (document.getElementById('mbm') || {}).innerHTML || ''"))),
                      f'pm phone: Answer opens "{dlg[:80]}"')

@@ -213,7 +213,7 @@ async def main():
         vp = await pg.evaluate("() => [...document.querySelectorAll('[data-rfqv]')].map(i => [i.dataset.rfqv, i.checked, i.closest('label').innerText])")
         C.ok(len(vp) >= 5 and all('because' in t for _, _, t in vp), f'every proposed vendor has a because ({len(vp)})')
         C.ok(any(c and 'outside NYC' in t for _, c, t in vp), 'at least one vendor outside NYC is ticked')
-        C.ok(any('Standard' in t or 'Procurement:' in t for _, _, t in vp), 'the because names the Standard rule')
+        C.ok(any('(Procurement playbook)' in t for _, _, t in vp), 'the because names the line of the Standard and where it is (standardWhy)')
         prim = await pg.evaluate("() => [...document.querySelectorAll('#v-rfq .btn.primary')].filter(b => b.getClientRects().length).map(b => b.innerText.trim())")
         C.ok(prim == ['Send RFQ'], f'one blue primary on the pick: Send RFQ ({prim})')
         await pg.locator('#rfq-due').fill('2026-09-04')
@@ -356,7 +356,9 @@ async def main():
             await pg.locator(f'#mbm [data-f="{k}"]').check()
         await ok_modal(pg, 400)
         vv = await pg.evaluate("() => ({ r: poValid({ number: 'PO-TEST', vendor: 'Tri-State Connector Supply', lines: [{ item: 'hanger', qty: 10, price: 2 }], needBy: '2026-09-10' }), by: DB.vendors.find(v => v.name === 'Tri-State Connector Supply').vetting.w9.by })")
-        C.ok(not vv['r'] and vv['by'] == 'Chen Biron', f'vetted, with who and when recorded; the PO may issue ({vv})')
+        # since the chain lane, poValid also refuses a line with no estimate, change-order or overhead link; this
+        # synthetic PO has none, so only that reason may remain: vetting no longer stops it
+        C.ok(not [x for x in vv['r'] if 'not linked' not in x] and vv['by'] == 'Chen Biron', f'vetted, with who and when recorded; vetting no longer stops the PO ({vv})')
 
         # ---- sourcing research
         R = await pg.evaluate("() => JSON.parse(JSON.stringify(sourcingResearch('Lumber')))")

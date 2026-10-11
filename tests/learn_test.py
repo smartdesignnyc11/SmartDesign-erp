@@ -241,7 +241,7 @@ async def sec_nyh(p, c):
     c.ok(any('8/31' in x or 'Aug 31' in x for x in q2), f"the new run reaches the Owner's Do Now: {q2}")
     # PM: a bill at the PM's turn has Recommend on the PM's Do Now (a compliance block stops the payment, not the review)
     await sign_in(pg, 'u_alan'); await go(pg, 'home'); await pg.wait_for_timeout(300)
-    # Do Now ranks by the Standard's decision principles (a bill is Cost, the last of seven), so AMP-311 may sit
+    # Do Now ranks by urgency, then the Standard's decision principles (a bill is Cost, the last of seven), so AMP-311 may sit
     # past the five cards shown; it is still in the PM's Do Now queue, and its card's verb is Recommend
     amp = await pg.evaluate("() => tdQueue().filter(it => it.kind === 'bill' && it.id === 'b4').map(it => tdCard(it).verb)")
     c.ok(amp == ['Recommend'], f"AMP-311 is on the PM's Do Now with Recommend: {amp}")
