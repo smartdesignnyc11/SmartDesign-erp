@@ -111,7 +111,6 @@ The integration pass covers:
 | 2026-10-11 | Three sign-ups: Anthropic API ($50/month cap), Supabase, Netlify. Keys go in the environment settings as ANTHROPIC_API_KEY, SUPABASE_ACCESS_TOKEN and NETLIFY_AUTH_TOKEN, then start a new session with "set up the platform" | Platform waits; everything else continues |
 | 2026-10-11 | Which email address the vendor follow-ups come from (recommend purchasing@ on the firm's domain) | Outbox only (demo) |
 | 2026-10-11 | Who the accountant is. To confirm with them: use tax; the overhead method; Mercer & Bond development costs capitalised; revenue recognition for tax; stock held as inventory | The defaults in §1.13 item 8, labelled "confirm with your accountant" |
-| 2026-10-11 | Messages: let subs, vendors and the architect join job threads as guests (link, or SMS/email bridge)? Import your WhatsApp group histories? | Recommend yes to both |
 | 2026-10-11 | Leftover material on cost-plus jobs: back to the client, a credit on their invoice, or into firm stock | "Client-owned surplus, ask the PM" |
 | 2026-10-11 | ChatGPT export, for `docs/ALAN.md` | Profile from the build sessions and the Standard |
 | 2026-10-10 | Re-authorise QuickBooks (July to date, then the history import) | Bank and card lines and the bridge snapshot |

@@ -621,6 +621,8 @@ Alan gets a gallery of the client-facing documents to judge for himself.
 9. **Calm, not noisy.** Mute; @mentions and safety escalations always break through; a digest for the rest.
 10. **Records.** Messages are business records: retention, search and export. Nothing is deleted silently; an edit keeps the original.
 
+**Decided (Alan, 2026-10-11):** guests for subs, vendors and the architect, and the WhatsApp import, yes to both.
+
 **When.**
 - Phase 1 on the demo: merge the job Chat and Inbox into Messages, with message-to-work actions and pinned Plans.
 - Phase 2 on the platform: real-time delivery, push, guests, the SMS and email bridge, voice and translation, and the WhatsApp import. These need the server, and the SMS bridge has a small per-message cost.
