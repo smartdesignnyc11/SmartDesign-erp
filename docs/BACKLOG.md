@@ -294,6 +294,13 @@ Alan: "create an RFQ and choose the vendors to send it to and the AI takes it fr
     - **The owner approves explanations (Alan, 2026-10-11).** Anyone can propose "explained" with a reason, but the note goes to the owner. The flag stays open, and nothing changes, until the owner approves it. A baseline change (for example, "lumber up 8% this quarter") takes effect only on the owner's approval, with who proposed it, who approved it and when kept on the record.
     - **It learns.** Once the owner approves an explanation, the baseline adjusts and the brain records it, so the same normal change is not flagged twice. A monthly figure shows the dollars paid above the best recent price.
 
+12. **Inventory before buying (Alan, 2026-10-11).** Before anything is bought, the ERP checks the firm's own stock (`DB.inventory`, `invAvailable`), at every door: a foreman's material request, a PO draft, an RFQ line, and after the fact on a card purchase.
+    - **Example.** The foreman requests 24 sheets of 5/8" drywall and 12 are in stock. The request splits: 12 are reserved from stock for the driver to pick, and only 12 go to purchasing. The driver and the procurement manager are both told.
+    - **Only the driver or the procurement manager can override,** to buy the full quantity instead of using stock, and only with a reason. The reasons: count was wrong (the driver marks it short, and the stock count is corrected and logged), damaged, wrong spec (for example, Type X against moisture-resistant), reserved for another job, or not worth the trip. Every override records who, when and why.
+    - **Spec matters.** Stock is matched on item and spec, not on a loose name. An uncertain match is a question to the procurement manager, not an assumption.
+    - **After the fact.** A purchase made while matching stock sat available, with no override, is flagged in price watch as abnormal.
+    - Today's "Inventory first" note on requests is advisory only. This makes it the default path, with a guarded override.
+
 Phase one runs in the demo and on the Demo Workspace (invented vendors and replies). Real sending, inbox watching, PDF and drawing reading, and web search for sourcing research arrive with the platform (§5: AI proxy with the web-search tool, watchers, document reader).
 
 ## §2 Remaining round-4 findings
