@@ -12874,6 +12874,19 @@ function canApprove(item) {
 function needsOwner(amount) {
   return +amount >= (DB.company.ap?.ceoAbove ?? 0);
 }
+// Every bill line is its own record: an id (a bank line matches to it, truthMatchOf billLineId), the PO line it
+// bills and the estimate line its cost lands on. Bills made from a PO (Bill This PO, Bill It on the receiving toast)
+// and any bill saved before this carried neither.
+function billLinesNorm(b) {
+  if (!b || !Array.isArray(b.lines)) return b;
+  const po = b.poId ? (DB.pos || []).find((x) => x.id === b.poId) : null;
+  b.lines.forEach((l) => {
+    l.id || (l.id = uid("bl"));
+    const pl = po && l.poLineId ? (po.lines || []).find((x) => x.id === l.poLineId) : null;
+    l.line || (pl && pl.line ? (l.line = pl.line) : 1 === b.lines.length && b.line && (l.line = b.line));
+  });
+  return b;
+}
 function billTotal(b) {
   return r2((b.lines || []).reduce((a, l) => a + (+l.amount || 0), 0));
 }
@@ -70824,7 +70837,8 @@ function cmRead(c) {
         (all.match(/#\s?(\d{4,})|invoice\s*(?:no\.?|number)?\s*[:#]?\s*([A-Z]{1,4}-?\d[A-Z0-9-]*|\d{3,})/i) || [])
           .slice(1)
           .find(Boolean) || "",
-      due = (all.match(/due\s+([A-Z][a-z]+ \d{1,2},? \d{4})/i) || [])[1] || "",
+      // a vendor prints the due date as "October 11, 2026", "10/11/2026" or "2026-10-11"
+      due = (all.match(/due(?:\s+date)?\s*:?\s*(?:on\s+)?([A-Z][a-z]+ \d{1,2},? \d{4}|\d{1,2}\/\d{1,2}\/\d{4}|\d{4}-\d{2}-\d{2})/i) || [])[1] || "",
       ent = (DB.entities || []).find((e) => low.includes((e.name || "").toLowerCase().replace(/ llc$/, ""))),
       // Already paid from the bank? A debit for the same amount near the invoice date is the line it belongs on.
       paidLine = amt
@@ -71279,7 +71293,7 @@ function cmApply(c, p) {
       vendor: p.vendor,
       number: p.number || "",
       date: (c.date || "").slice(0, 10) || today(),
-      due: p.due ? iso(new Date(p.due)) : "",
+      due: cmDueIso(p.due),
       entityId: p.entityId || entDefault(),
       projectId: p.projectId || R.projectId || "",
       cat: p.projectId || R.projectId ? "subs" : "office",
@@ -119409,7 +119423,8 @@ if (
               retainagePct: ("subcontract" === po.type && +po.retainagePct) || 0,
               taxStatus: po.taxStatus || "none",
             };
-            DB.bills.push(b),
+            billLinesNorm(b),
+              DB.bills.push(b),
               audit("bill", b.id, "created-from-po", "", po.number, S.project.userName || role()),
               log(`Bill ${b.number} from ${po.number} — ${money(billTotal(b))}`),
               save(),
@@ -127860,6 +127875,29 @@ function lkOverBill(po, st) {
     },
   );
 }
+// What arrived and is not billed yet, line by line: the receiving toast's Bill It on a part delivery bills the
+// delivery (80 of 140 sf), never the whole order (three-way match: order, receipt, bill).
+function lkReceivedLines(po) {
+  const byLine = {};
+  (DB.bills || [])
+    .filter((b) => b.poId === po.id && !["void", "rejected"].includes(b.status))
+    .forEach((b) => (b.lines || []).forEach((l) => l.poLineId && (byLine[l.poLineId] = (byLine[l.poLineId] || 0) + (+l.amount || 0))));
+  return (po.lines || [])
+    .map((l) => {
+      const price = +l.price || 0,
+        got = Math.min(+l.received || 0, +l.qty || 0),
+        left = r2(got * price - (byLine[l.id] || 0));
+      return left > 0.005
+        ? { desc: `${l.item}${l.desc ? " — " + l.desc : ""}`, qty: price ? r2(left / price) : got, unit: l.unit, amount: left, code: l.code || "", poLineId: l.id, line: l.line || "" }
+        : null;
+    })
+    .filter(Boolean);
+}
+function lkBillReceived(po) {
+  const part = (po.lines || []).some((l) => (+l.received || 0) < (+l.qty || 0) - 1e-9),
+    lines = part ? lkReceivedLines(po) : [];
+  return lines.length ? lkBillDialog(po, { lines: lines, st: lkPOBillState(po), received: !0 }) : lkBillPO(po);
+}
 function lkBillDialog(po, o) {
   const st = o.st || lkPOBillState(po),
     v = vendorRec(po.vendor),
@@ -127899,10 +127937,12 @@ function lkBillDialog(po, o) {
   mbModal(
     o.over
       ? `Bill Beyond the Order — ${esc(po.number)}`
-      : st.billed
+      : o.received
+        ? `Bill What Arrived — ${esc(po.number)}`
+        : st.billed
         ? `Bill Remaining — ${esc(po.number)}`
         : `Bill This PO — ${esc(po.number)}`,
-    `\n    <p class="small muted" style="margin:0 0 10px">${esc(po.vendor)} · ${money(st.tot)} ordered${st.billed ? ` · ${money(st.billed)} already billed · ${money(Math.max(0, st.remaining))} left` : ""}. The bill takes the order’s ${st.billed ? "remaining " : ""}lines, job, cost codes and entity.</p>\n    ${o.over ? `<div class="note warn" style="margin:0 0 10px">Override: ${esc(o.over.reason)}</div>` : ""}\n    <div class="grid2">${mbF("Vendor Invoice #", '<input data-f="number" placeholder="As printed on their invoice" autocomplete="off">')}${mbF("Invoice Date", `<input type="date" data-f="date" value="${td}">`)}</div>\n    <div class="grid2">${mbF("Due", `<input type="date" data-f="due" value="${iso(addDays(td, net))}">`)}${mbF("Amount", `<input value="${esc(money(total))}" readonly aria-label="Amount">`)}</div>\n    <div class="cr-lines">${lines.map((l) => `<div class="cr-line"><span class="grow">${esc(l.desc)}<span class="small muted"> · ${l.qty} ${esc(l.unit || "")}</span></span><b>${money(l.amount)}</b></div>`).join("")}</div>\n    ${mbF("Notes", '<input data-f="notes" placeholder="Optional">')}`,
+    `\n    <p class="small muted" style="margin:0 0 10px">${esc(po.vendor)} · ${money(st.tot)} ordered${st.billed ? ` · ${money(st.billed)} already billed · ${money(Math.max(0, st.remaining))} left` : ""}. ${o.received ? "The bill takes what arrived and is not billed yet" : `The bill takes the order’s ${st.billed ? "remaining " : ""}lines`}, job, cost codes and entity.</p>\n    ${o.over ? `<div class="note warn" style="margin:0 0 10px">Override: ${esc(o.over.reason)}</div>` : ""}\n    <div class="grid2">${mbF("Vendor Invoice #", '<input data-f="number" placeholder="As printed on their invoice" autocomplete="off">')}${mbF("Invoice Date", `<input type="date" data-f="date" value="${td}">`)}</div>\n    <div class="grid2">${mbF("Due", `<input type="date" data-f="due" value="${iso(addDays(td, net))}">`)}${mbF("Amount", `<input value="${esc(money(total))}" readonly aria-label="Amount">`)}</div>\n    <div class="cr-lines">${lines.map((l) => `<div class="cr-line"><span class="grow">${esc(l.desc)}<span class="small muted"> · ${l.qty} ${esc(l.unit || "")}</span></span><b>${money(l.amount)}</b></div>`).join("")}</div>\n    ${mbF("Notes", '<input data-f="notes" placeholder="Optional">')}`,
     {
       submit: "Save Bill",
       onSubmit: (f) => {
@@ -127965,6 +128005,7 @@ function lkBillDialog(po, o) {
             action: "billed beyond the order",
             note: o.over.reason,
           })),
+          billLinesNorm(b),
           DB.bills.push(b),
           audit(
             "bill",
@@ -143953,7 +143994,7 @@ function rcReceiptToast(po, text) {
     "function" == typeof lkBillPO &&
     !["foreman", "crew", "driver"].includes(role()) &&
     !lkPOBillState(po).full &&
-    L.push({ label: "Bill It", run: () => lkBillPO(po) }),
+    L.push({ label: "Bill It", run: () => lkBillReceived(po) }),
     flowCan("po") && L.push({ label: "Open PO", run: flowGo.po(po) }),
     L.length ? rcToast(text, L) : toast(text);
 }
@@ -171720,6 +171761,11 @@ function poRepairInvalid() {
     } catch (e) {
       console.warn("po repair", e);
     }
+    try {
+      (DB.bills || []).some((b) => (b.lines || []).some((l) => !l.id)) && ((DB.bills || []).forEach(billLinesNorm), save());
+    } catch (e) {
+      console.warn("bill line ids", e);
+    }
     return r;
   };
 }
@@ -171738,6 +171784,17 @@ if ("function" == typeof renderPODoc) {
 // ---- a bill the reader makes from a vendor's mail lands on its purchase order (review finding 2)
 // The PO a message names: a PO number in the subject, body or attachment text; failing that, the vendor's
 // one open order. Null when it names none and the vendor has several or no open orders.
+// A due date read from a vendor's invoice, as the app's ISO day. "2026-10-11" is that day (new Date() would read it
+// as UTC midnight, the evening before in New York); "10/11/2026" is month first; anything else goes through Date.
+function cmDueIso(d) {
+  const t = String(d || "").trim();
+  if (!t) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t;
+  const m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m) return `${m[3]}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}`;
+  const x = new Date(t);
+  return isNaN(x) ? "" : iso(x);
+}
 function cmBillPO(c, p) {
   const text = [c && c.subject, c && c.text, ...((c && c.attachments) || []).map((a) => a.text || "")].join("\n"),
     nums = [...new Set((text.match(/\bPO[-\s]?\d{4}[-\s]?\d{3,}\b/gi) || []).map((x) => x.replace(/\s+/g, "-").toUpperCase()))],
@@ -171752,8 +171809,12 @@ function cmBillPO(c, p) {
 function poLinkBill(b, po) {
   if (!b || !po) return b;
   const l = (po.lines || [])[0] || {};
+  // the bill takes the order's terms as Bill This PO does: the buying entity, a subcontract's retainage, the tax status
   (b.poId = po.id),
     (b.projectId = po.projectId || b.projectId || ""),
+    "function" == typeof poEntity && (b.entityId = poEntity(po) || b.entityId),
+    "subcontract" === po.type && +po.retainagePct && !+b.retainagePct && (b.retainagePct = +po.retainagePct),
+    po.taxStatus && !b.taxStatus && (b.taxStatus = po.taxStatus),
     (b.cat = ("function" == typeof poCat && poCat(po)) || "subs"),
     (b.code = l.code || b.code || ""),
     (b.line = l.line || b.line || ""),

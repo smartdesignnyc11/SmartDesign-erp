@@ -364,8 +364,163 @@ async def s2_buy(C):
     return True
 
 
+# ================================================================ 3. receive, bill, mail bills, approvals, payments
+def ws_thread(tid, frm, subject, text, fname, pdf, when):
+    return {'id': tid, 'messages': [{'id': tid + '-1', 'date': when, 'from': frm, 'to': ['Chen Biron <chen@smartdesign.nyc>'], 'cc': [],
+            'subject': subject, 'text': text, 'labelIds': ['INBOX', 'UNREAD'],
+            'attachments': [{'filename': fname, 'mimeType': 'application/pdf', 'text': pdf}]}]}
+
+
+async def approvals_yes(C, uid, needle, why=None, dispute=None):
+    """The person's Approvals: the card naming `needle`, its yes button; an override asks for a reason, an over-PO
+    bill opens Approve PO Amount / Dispute Difference."""
+    await C.as_(uid, 'mapprove', "window.mApprKind = 'all';")
+    verb = await C.js("""n => { const e = [...document.querySelectorAll('.m-appr')].find(x => x.getClientRects().length && x.innerText.includes(n));
+        const b = e && e.querySelector('[data-myes]'); b && b.click(); return b ? b.innerText.trim() : ''; }""", needle)
+    await C.wait(600)
+    m = await C.modal()
+    said = ''
+    if m and m['title'].startswith('Override'):
+        said = f" > Override ({'; '.join(l for l in m['text'].splitlines()[1:-3] if l)}) > reason > {m['buttons'][-1]}"
+        await C.fill('#mbm [data-f=why]', why or 'Checked against the order')
+        await C.modal_ok(600)
+    elif m and m['title'].startswith('Approve PO Amount'):
+        said = f" > {m['title']} > reason > Approve and Dispute"
+        await C.fill('#mbm [data-f=why]', dispute or 'Disputed with the vendor')
+        await C.modal_ok(600)
+    return verb, said
+
+
+async def pay_bill(C, number, acct, date, amount, method, ref):
+    """Bills & Payroll > the bill > Pay… > Record Payment (from the account, date, amount, method, reference)."""
+    await C.as_('u_controller', 'ap')
+    await C.js("n => openBill(DB.bills.find(b => b.number === n).id)", number)
+    await C.wait(400)
+    await C.pg.locator('#drawer.on button', has_text=re.compile(r'^Pay')).first.click(timeout=6000)
+    await C.wait(400)
+    m = await C.modal()
+    await C.pg.select_option('#mbm [data-f=acct]', acct)
+    await C.fill('#mbm [data-f=date]', date); await C.fill('#mbm [data-f=amount]', amount)
+    await C.pg.select_option('#mbm [data-f=method]', method); await C.fill('#mbm [data-f=ref]', ref)
+    await C.modal_ok(600)
+    try: await C.js("() => { if (document.querySelector('#drawer.on')) closeEditor(); }")
+    except Exception: pass
+    st = await C.js("""n => { const b = DB.bills.find(b => b.number === n); const P = (DB.billPayments || DB.payments || []).filter(p => p.billId === b.id);
+        return {status: b.status, paid: P.map(p => ({id: p.id, amount: p.amount, date: p.date, acct: p.acct || p.account, ref: p.ref}))}; }""", number)
+    return m, st
+
+
+async def s3_receive(C):
+    C.step('3. Receiving, bills from the toast, bills by mail on their POs, the over-PO dispute, approvals, payments')
+    pid = C.ids['project']['id']; POS = C.ids['po']
+    await C.day('2026-09-10')
+    # the millwork arrives whole
+    await C.as_('u_chen', 'recv', f"setCurrent('{pid}');")
+    await C.click(f"section.view.on [data-rall='{POS['millwork']['id']}']", 700)
+    t = await C.toast()
+    C.ok('received in full' in t and 'Bill It' in t, 'Everything Arrived: the millwork PO is received in full, the toast offers Bill It', t)
+    C.t(f"Coordinator > Receiving > {POS['millwork']['number']} > Everything Arrived → \"{t}\"")
+    await C.pg.locator('#toast .toast-open', has_text='Bill It').first.click(timeout=5000); await C.wait(600)
+    m = await C.modal()
+    C.ok(m and 'Bill This PO' in m['title'], 'Bill It opens Bill This PO', m and m['title'])
+    await C.fill('#mbm [data-f=number]', 'FC-20417')
+    await C.modal_ok(700)
+    fc = await C.js("""n => { const b = DB.bills.find(b => b.number === n); return b && {id: b.id, total: billTotal(b), poId: b.poId, line: b.line, status: b.status,
+        lines: b.lines.map(l => ({id: l.id || '', amount: l.amount, poLineId: l.poLineId || '', line: l.line || ''}))}; }""", 'FC-20417')
+    C.ok(fc and abs(fc['total'] - 23400) < 0.01 and fc['poId'] == POS['millwork']['id'], 'Save Bill: FC-20417 $23,400 on the millwork PO', fc)
+    C.ok(fc and all(l['id'] and l['poLineId'] and l['line'] for l in fc['lines']), 'every bill line carries its own id, its PO line and its estimate line', fc and fc['lines'])
+    C.t(f"Bill It > Vendor Invoice # FC-20417 > Save Bill → bill `{fc and fc['id']}` {fmtm(fc and fc['total'])} ({await C.toast()})")
+    # 80 of the 140 sf of tile arrive
+    await C.as_('u_chen', 'recv', f"setCurrent('{pid}');")
+    tl = POS['tile']['lines'][0]['id']
+    await C.fill(f"section.view.on [data-rq='{POS['tile']['id']}:{tl}']", '80')
+    await C.click(f"section.view.on [data-rin='{POS['tile']['id']}:{tl}']", 700)
+    t = await C.toast()
+    rcv = await C.js("id => { const o = DB.pos.find(x => x.id === id); return {status: o.status, received: o.lines.map(l => +l.received || 0)}; }", POS['tile']['id'])
+    C.ok(rcv['received'] == [80] and rcv['status'] in ('partial', 'issued'), 'the tile PO is received in part: 80 of 140 sf', rcv)
+    C.t(f"Receiving > {POS['tile']['number']} > 80 sf > Received → \"{t}\" ({rcv})")
+    await C.pg.locator('#toast .toast-open', has_text='Bill It').first.click(timeout=5000); await C.wait(600)
+    m = await C.modal()
+    C.ok(m and 'Bill' in m['title'], 'Bill It on the partial receipt opens the bill', m and m['title'])
+    await C.fill('#mbm [data-f=number]', 'AT-7731')
+    await C.modal_ok(700)
+    at = await C.js("n => { const b = DB.bills.find(b => b.number === n); return b && {id: b.id, total: billTotal(b), poId: b.poId}; }", 'AT-7731')
+    C.ok(at and abs(at['total'] - 3800) < 0.01, 'the bill from the partial receipt is for what arrived: 80 sf × $47.50 = $3,800', at)
+    C.t(f"Bill It > AT-7731 > Save Bill → bill `{at and at['id']}` {fmtm(at and at['total'])}")
+    await C.day('2026-09-11')
+    await C.as_('u_chen', 'recv', f"setCurrent('{pid}');")
+    await C.click(f"section.view.on [data-rall='{POS['fixtures']['id']}']", 700)
+    C.t(f"Receiving > {POS['fixtures']['number']} > Everything Arrived → \"{await C.toast()}\"")
+    # two vendor bills by mail: the coordinator's mailbox (a Loaded Workspace of invented threads), synced
+    ws = {'email': 'chen@smartdesign.nyc', 'name': 'Chen Biron', 'exportedAt': '2026-09-11T18:00:00Z',
+          'mail': {'threads': [
+              ws_thread('cx-hph', 'Halvorsen Plumbing & Heating <office@halvorsenph.example>',
+                        f"Invoice HPH-2291 - {JOB} rough plumbing ({POS['sub']['number']})",
+                        f"Hi Chen, attached is our first progress invoice for the rough plumbing at {JOB}, {POS['sub']['number']}. Thanks, Erik Halvorsen",
+                        'HPH-2291.pdf', f"HALVORSEN PLUMBING & HEATING\nInvoice HPH-2291\nDate 2026-09-11\nBill to SmartDesign Group LLC\nJob {JOB}\n{POS['sub']['number']}\nRough plumbing, progress billing 50%\nAmount due $6,600.00\nDue 2026-10-11",
+                        '2026-09-11T09:12:00'),
+              ws_thread('cx-kbs', 'Kingsland Bath Supply <counter@kingslandbath.example>',
+                        f"Invoice KBS-5531 for {POS['fixtures']['number']}, {JOB}",
+                        'Invoice attached for the primary bath fixtures. Freight added. Kingsland Bath Supply',
+                        'KBS-5531.pdf', f"KINGSLAND BATH SUPPLY\nInvoice KBS-5531\n{POS['fixtures']['number']}\n{JOB}\nPrimary bath fixtures $7,450.00\nFreight $240.00\nTotal due $7,690.00\nDue 2026-10-11",
+                        '2026-09-11T10:20:00')]},
+          'calendar': {'events': []}, 'drive': {'files': []}}
+    tmp = tempfile.mkdtemp(prefix='chain_ws_')
+    path = os.path.join(tmp, 'chen.workspace.json')
+    with open(path, 'w') as f: json.dump(ws, f)
+    await C.as_('u_chen')
+    got = await attach_workspace(C.pg, 'u_chen', path)
+    d = await C.js("async () => { const d = await gcDemoConnect(); return d && {mail: d.mail.length, errors: d.errors}; }")
+    await C.wait(600)
+    C.ok(d and not d['errors'], 'the Loaded Workspace connects and syncs', d)
+    C.t(f"Loaded Workspace for Chen (2 invented threads, tests/harness attach_workspace from {tmp}) > Connect (gcDemoConnect, the Connect button's function) → {d}")
+    for num, po in (('HPH-2291', POS['sub']), ('KBS-5531', POS['fixtures'])):
+        row = await C.js("n => { const r = nyhRows().find(r => r.title.includes(n)); return r && {key: r.key, verb: r.verb, title: r.title, route: r.route}; }", num)
+        C.ok(row and row['verb'] == 'Apply', f"Chen's Needs Your Hand: the bill {num} read from the PDF, with Apply", row)
+        if not row: continue
+        # Home > Needs Your Hand > Apply (the row's verb; nyhRun is what the row's button runs)
+        await C.as_('u_chen', 'home')
+        pressed = await C.js("""k => { const b = [...document.querySelectorAll('#v-home [data-nyh], #v-home [data-nyhrun], #v-home button')].find(x => x.getClientRects().length && ((x.dataset.nyh || x.dataset.nyhrun || '') === k));
+            if (b) { b.click(); return 'Home button'; } nyhRun(k); return 'nyhRun'; }""", row['key'])
+        await C.wait(600)
+        b = await C.js("""n => { const b = DB.bills.find(b => b.number === n); return b && {id: b.id, total: billTotal(b), poId: b.poId, status: b.status, retainagePct: +b.retainagePct || 0,
+            due: b.due || '', file: b.fileId || '', lines: b.lines.map(l => ({id: l.id || '', poLineId: l.poLineId || '', line: l.line || ''})), flags: billFlags(b)}; }""", num)
+        C.ok(b and b['poId'] == po['id'], f'{num} lands on its PO {po["number"]}', b)
+        C.rec('bill', num, b and b['id'])
+        C.t(f"Home > Needs Your Hand > \"{row['title'][:90]}\" > Apply ({pressed}) → bill `{b and b['id']}` {fmtm(b and b['total'])} on {po['number']} ({await C.toast()})")
+    hph = await C.js("n => { const b = DB.bills.find(b => b.number === n); return b && {ret: +b.retainagePct || 0, due: b.due || ''}; }", 'HPH-2291')
+    C.ok(hph and hph['ret'] == 10, 'the mailed sub bill carries its subcontract\'s 10% retainage', hph)
+    C.ok(hph and hph['due'] == '2026-10-11', 'the mailed bill keeps the due date printed on the invoice', hph)
+    C.rec('bill', 'FC-20417', fc and fc['id']); C.rec('bill', 'AT-7731', at and at['id'])
+    # the PM recommends, the Owner approves; KBS-5531 is $240 over its PO: approve the PO amount, dispute the rest
+    for num in ('FC-20417', 'AT-7731', 'HPH-2291', 'KBS-5531'):
+        v, said = await approvals_yes(C, 'u_alan', num)
+        st = await C.js("n => DB.bills.find(b => b.number === n).status", num)
+        C.ok(v == 'Recommend' and st == 'pm-approved', f'PM > Approvals > {num} > Recommend', f'{v} {st}')
+    for num, why, disp in (('FC-20417', 'Bill equals the PO and the receipt', None), ('AT-7731', 'Bill equals what arrived', None),
+                           ('HPH-2291', 'Progress bill on the subcontract; the rough-in is under way', None),
+                           ('KBS-5531', None, 'Freight was quoted as included; Kingsland is asked to credit the $240')):
+        v, said = await approvals_yes(C, 'u_owner', num, why, disp)
+        st = await C.js("n => { const b = DB.bills.find(b => b.number === n); return {status: b.status, short: b.short ? {approved: b.short.approved, held: b.short.held, state: b.short.state} : null}; }", num)
+        C.ok(v == 'Approve' and st['status'] == 'approved', f'Owner > Approvals > {num} > Approve{said}', st)
+        C.t(f"PM > Approvals > {num} > Recommend; Owner > Approvals > {num} > Approve{said} → {st}")
+    kb = await C.js("() => DB.bills.find(b => b.number === 'KBS-5531').short")
+    C.ok(kb and kb['approved'] == 7450 and kb['held'] == 240, 'KBS-5531: $7,450 approved at the PO, $240 held as disputed', kb)
+    # the controller records the payments (the bank lines that clear them arrive in step 4)
+    PAY = [('FC-20417', '2026-09-15', 23400, 'ACH', 'ACH 0915-FC'), ('AT-7731', '2026-09-22', 3800, 'ACH', 'ACH 0922-AT'),
+           ('HPH-2291', '2026-09-24', 5940, 'Check', '1187'), ('KBS-5531', '2026-09-24', 7450, 'ACH', 'ACH 0924-KB')]
+    for num, date, amt, meth, ref in PAY:
+        await C.day(date) if date != await C.js('() => today()') else None
+        m, st = await pay_bill(C, num, 'ac1', date, amt, meth, ref)
+        C.ok(m and m['title'] == 'Pay Bill', f'{num} > Pay… opens Pay Bill', m and m['title'])
+        C.ok(st['status'] == 'paid' or st['paid'], f'{num}: Record Payment {fmtm(amt)} {meth} {ref}', st)
+        C.t(f"Controller > Bills & Payroll > {num} > Pay… > Chase, {date}, {fmtm(amt)}, {meth} {ref} > Record Payment → {st['status']} ({await C.toast()})")
+    C.rec('payments', 'bills', PAY)
+    return True
+
+
 # ================================================================ main
-STEPS = [s1_client, s2_buy]
+STEPS = [s1_client, s2_buy, s3_receive]
 
 
 async def main():
