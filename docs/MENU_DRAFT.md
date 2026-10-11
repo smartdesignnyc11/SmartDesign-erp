@@ -6,6 +6,12 @@
 1. The role experts work the 3-day pilot of the agent month, and the harness records every page each person opens and where they looked first.
 2. Each expert proposes their ideal menu from that experience and critiques this draft. This is the menu workshop (`sim/workshop_menu.md`).
 3. The answers are combined into one recommended menu per role, plus the disagreements, with each trade-off stated.
+   Every expert also answers Alan's three questions (2026-10-11):
+   - What would you change?
+   - Would you combine anything?
+   - What about the menu is confusing?
+
+   Confusion that several experts share ranks first.
 4. Alan decides. Then it is built, with a test that pins each role's menu.
 
 ## Today (owner view)
