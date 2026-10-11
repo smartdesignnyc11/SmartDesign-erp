@@ -7,8 +7,9 @@ toast, and New in the header rather than floating over the content.
 Truth: each Pulse number equals the rows (or the figure) its sheet lists, read from its one predicate; Do Now's
 count equals the Approvals queue (PRED.waitingOnMe) and the Approvals page's Everything chip; Caught for You's
 count equals the rows it lists once expanded; one blue button per screen.
-Flows: the Owner's top verb (WW-2026-118, billed $3,800 over PO-2026-044) opens the short-pay sheet through the
-one bill-approval gate; the PM's top verb is Answer and opens the answer to the field.
+Flows: Do Now is ranked by the Standard's decision principles (the Owner's top card is the highest principle on
+the list); WW-2026-118's verb (billed $3,800 over PO-2026-044) opens the short-pay sheet through the one
+bill-approval gate; the PM's top verb is Answer and opens the answer to the field.
 Header (phone): the slim header carries the page title, so the page spends no line on an in-page heading; its four
 icon buttons are each 44px tall and 8px apart; "N more in Approvals" opens Approvals at the top.
 Delegation: one item sits in exactly one person's queue (DELEGATION: kind -> the role that owns it), nothing is
@@ -149,8 +150,13 @@ async def main():
             await pg.click('.view.on [data-tdbrief]'); await pg.wait_for_timeout(250)
             # the top verb opens the right flow
             if tag == 'owner':
-                c.ok('WW-2026-118' in m['topText'], f"owner phone: top card is \"{m['topText'][:60]}\", want WW-2026-118")
-                await pg.click('.view.on .td-do .td-card [data-tdverb="0"]'); await pg.wait_for_timeout(400)
+                # Do Now ranks by the Standard's decision principles (law before cost): the top card is the highest
+                # principle on the list, and WW-2026-118's verb still opens the one bill-approval gate
+                top = await pg.evaluate("() => { const Q = tdQueue(); return [standardTier(Q[0]), Math.min(...Q.map(standardTier))]; }")
+                c.ok(top[0] == top[1], f"owner phone: top card is \"{m['topText'][:60]}\" at principle {top[0]}, want the highest, {top[1]}")
+                wi = await pg.evaluate("() => [...document.querySelectorAll('.view.on .td-do .td-card')].findIndex(x => x.innerText.includes('WW-2026-118'))")
+                c.ok(wi >= 0, 'owner phone: WW-2026-118 is on Do Now')
+                await pg.click(f'.view.on .td-do .td-card [data-tdverb="{max(wi, 0)}"]'); await pg.wait_for_timeout(400)
                 dlg = await pg.evaluate("() => (document.getElementById('mbm') || document.querySelector('.drawer.on') || {}).innerText || ''")
                 c.ok('Approve PO Amount' in dlg, f'owner phone: Approve on WW-2026-118 opens "{dlg[:80]}", want the short-pay sheet')
                 st = await pg.evaluate("() => DB.bills.find(b => b.number === 'WW-2026-118').status")
