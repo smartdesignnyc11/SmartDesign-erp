@@ -2738,6 +2738,34 @@
     "portal"
    ],
    "absent": "['Angel']"
+  },
+  {
+   "id": "STK01",
+   "role": "u_chen",
+   "q": "do we have 5/8 drywall in stock",
+   "truth": "(DB.inventory || []).filter(i => i.type !== 'tool' && /5\\/8/.test(i.name) && /drywall|sheetrock|gypsum/i.test(i.name) && !/screw/i.test(i.name)).reduce((a, i) => a + invAvailable(i), 0)",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "BACKLOG 1.8 #12: the free count of every 5/8 drywall in stock (on hand less open reservations)",
+   "tags": [
+    "ops",
+    "inventory"
+   ]
+  },
+  {
+   "id": "STK02",
+   "role": "u_owner",
+   "q": "what did we buy this month that we had in stock",
+   "setup": "DB.txns.push({ id: 'tstkab', date: today(), acct: 'ac2', desc: 'HOME DEPOT #6166 BROOKLYN NY', amt: -201.6, cat: 'materials', projectId: 'p121', code: '07', vendor: 'Home Depot', memo: '5/8\" Type X drywall 4x8', status: 'categorized', actor: 'Chen', source: 'test', line: 'estimate:es1:l6', qty: 12, unit: 'sheet', extId: '' }); save();",
+   "truth": "['HOME DEPOT #6166']",
+   "check": "any",
+   "refuse_ok": false,
+   "isolate": true,
+   "notes": "BACKLOG 1.8 #12: a card purchase of stocked drywall this month while 12 sheets sat at the Warehouse, no override",
+   "tags": [
+    "finance",
+    "inventory"
+   ]
   }
  ]
 }

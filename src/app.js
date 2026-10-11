@@ -16948,12 +16948,16 @@ function stockAskRead(q) {
       go: paGo({ view: "inv" }),
     });
   }
-  const m = l.match(/^(?:do|did|have|has)?\s*(?:we|you)?\s*(?:have|got|still have|carry)?\s*(?:any|some)?\s*(.+?)\s+(?:in stock|in inventory|on hand|at the (?:yard|warehouse))\b/) || l.match(/^how (?:many|much)\s+(.+?)\s+(?:do we have|have we got|is there|are there|in stock|on hand)/);
+  const m = l.match(/^(?:(?:do|did|have|has) (?:we|you) (?:still )?(?:have|got|carry)?|is there|are there|any)\s*(?:any|some)?\s*(.+?)\s+(?:in stock|in inventory|on hand|at the (?:yard|warehouse))\b/) || l.match(/^how (?:many|much)\s+(.+?)\s+(?:do we have|have we got|is there|are there|in stock|on hand)/);
   if (!m || !/\b(in stock|in inventory|on hand|at the (yard|warehouse)|do we have|have we got)\b/.test(l)) return null;
+  // money and time are not stock: "how much cash do we have (on hand)" stays with the money answers
+  if (/\b(cash|money|balance|bank|owe|owed|revenue|budget|profit|margin|hours?|days?|time|credit|deposit|retainage)\b|\$/.test(l)) return null;
+  const strong = /\b(in stock|in inventory|at the (yard|warehouse))\b/.test(l);
   const what = m[1].replace(/^(?:do we have|have we got|we have|any|some|the)\s+/g, "").trim();
   if (!what || /^(what|anything|everything|it|items?|stuff)$/.test(what)) return null;
   const chk = stockCheck({ item: what, qty: 0 }),
     C = chk.candidates;
+  if (!C.length && !strong) return null;
   if (!C.length) return paOut({ kind: "stock", headline: `No: nothing in stock matches ${what}.`, note: "I checked every stocked item by item and spec.", work: [], rows: 0, go: paGo({ view: "inv" }) });
   const free = C.filter((c) => c.available > 0),
     exact = C.filter((c) => "high" === c.level),
