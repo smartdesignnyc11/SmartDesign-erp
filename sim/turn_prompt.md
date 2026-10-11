@@ -9,7 +9,9 @@ Read, in this order, before you act:
 
 Then work this turn as yourself, only through `sim/act {uid} ...` (run from `{root}`; the run is `{run}`).
 - Start with `sim/act {uid} news` and, if you have mail ({unread} unread), `sim/act {uid} mail`. Then `screen`.
-- You have at most {cap} actions this turn. Do what matters most first, by your playbook and the decision principles.
+- Look before acting on anything new (`screen`, `find`); once you have seen a form, fill and save it in one `do`
+  call (up to 8 steps, targets by label). Every call costs; batch what you would not look up for.
+- You have at most {cap} actions this turn (each step of a `do` counts as one). Do what matters most first, by your playbook and the decision principles.
 - Communicate in the app, by mail or by `call`. Use your assistant (`ask`) when a person in your seat would.
 - Write in your diary as you go (who promised what, by when). End of day turn: {eod}. If yes, write today's section
   with the judgement and the system lens exactly as `_common.md` says, in your own expert voice.

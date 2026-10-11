@@ -144,12 +144,15 @@ def flow():
     rc, out = act('u_angel', 'go', 'Ask')
     n = num(out, r'^Materials or a Tool')
     check(bool(n), 'foreman: the Ask tab offers Materials or a Tool')
-    rc, out = act('u_angel', 'tap', n)
-    act('u_angel', 'pick', field(out, 'select', 'What Is It For'), 'Framing')
-    act('u_angel', 'type', field(out, 'text', 'What Do You Need'), '8 sheets 3/4 plywood (selftest)')
-    rc, out = act('u_angel', 'tap', num(out, r'^Next'))
-    rc, out = act('u_angel', 'tap', num(out, r'^Send \d+ Line'))
-    check('Request sent' in out, 'foreman: the request is sent (toast)')
+    # a batch: four steps in one call, targets by label, only the lines with "Send" back
+    rc, out = act('u_angel', 'do', 'tap "Materials or a Tool"; pick "What Is It For" "Framing"; type "What Do You Need" "8 sheets 3/4 plywood (selftest)"; tap "Next — Check the List"',
+                  '--find', 'Send')
+    check(rc == 0 and out.startswith('do: 4 of 4 steps') and 'Send 1 Line' in out and len(out) < 1500,
+          f'do: a four-step batch by label in one call, one compact result ({len(out)} characters)')
+    rc, out = act('u_angel', 'do', 'tap "No Such Button"; tap "Send 1 Line"')
+    check(rc != 0 and 'do: 0 of 2 steps' in out and 'STOPPED' in out, 'do: stops at the first step whose target is not on the screen, and does not run the rest')
+    rc, out = act('u_angel', 'tap', 'Send 1 Line')
+    check('Request sent' in out, 'foreman: the request is sent (tap by label; toast)')
     ctl('end')
 
     # ---- 3. the coordinator sees it on his own page and buys it

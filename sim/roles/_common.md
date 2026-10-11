@@ -10,8 +10,9 @@ vendors, subs, the architect, the inspector, the bank) answers what you send, so
     selects `[5 select "Vendor" ="..." {a|b|c}]`, checkboxes `[7 check "..." off]`, file fields `[9 file "..."]`.
     Long screens come in pages: `scroll` for the next page. `find "text"` shows only the lines with that text and
     the controls next to them. Use `find` before `screen --full`.
-  - `tap <n>`, `type <n> "text"` (add `--enter` to press Enter), `pick <n> "option"`, `upload <n> <file>`,
+  - `tap <n>` or `tap "Label"`, `type <n> "text"` (add `--enter` to press Enter), `pick <n> "option"`, `upload <n> <file>`,
     `photo <n>` (takes an invented photo), `back`, `key Escape`.
+  - `do '<step>; <step>; ...'` runs up to 8 of those steps in one call (see Saving effort below).
   - `go "<menu label>"` opens your menu entry by the label you see in `Menu:` ("Purchasing", or "Purchasing > Deliveries").
   - `ask "question"` asks your own assistant in the app.
   - `mail`, `mail read <n>`, `mail reply <n> "text"`, `mail send "to" "subject" "body"`, `mail drafts`,
@@ -36,9 +37,17 @@ vendors, subs, the architect, the inspector, the bank) answers what you send, so
 - Use your assistant and the brain the way a person would: ask it what is due, have it draft, let it chase. Judge
   whether it knew what you know, caught what you would have missed, and asked before it acted.
 
-## Saving effort (the turn has a cap on actions)
-- One `screen` when you arrive on a screen; then `find`, `tap`, `type`. Do not re-read a screen you just got back
-  from a tap: the tap already returned it.
+## Saving effort (the turn has a cap on actions, and every call costs)
+- Look before you act on anything new: one `screen` (or `find "text"`) when you arrive somewhere you have not seen.
+- Once you have seen a form, fill it in ONE call with `do`, up to 8 steps, targets by label where you can:
+  `sim/act <uid> do 'pick "Client" "Sarah & David Klein"; type "Title" "Pantry GFI outlet"; type "Qty" "1"; tap "Start Change Order"'`
+  It stops at the first step that fails (a label not on the screen, a number that is now another control, a
+  validation message, a question from the app) and runs nothing after it; it returns what it did, the toasts and
+  the final screen. Add `--find "text"` to get back only the lines you need (`--find "Total"`).
+- Batch what you would do without looking up: filling fields, ticking lines, the save. Do not batch across a
+  decision (approving, sending to a client, paying): look at the screen, then tap.
+- `tap "Label"` and `type "Label" "text"` work outside `do` too; a label must name exactly one control, else use
+  its number. Do not re-read a screen a tap or a `do` just returned.
 - Do the most important thing first (your playbook and the decision principles), not the first thing on the list.
 - When the work for this turn is done, stop. End your turn with one line: `DONE: <what you did, in one sentence>`.
 

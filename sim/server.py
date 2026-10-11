@@ -47,7 +47,7 @@ PEOPLE = {
 STAFF_MAIL = ['u_owner', 'u_alan', 'u_chen', 'u_angel', 'u_sarah', 'u_billing', 'u_controller', 'u_alberto', 'u_alex']
 DEFAULT_PROJECT = {'u_angel': 'p121', 'u_alberto': 'p121', 'u_alex': 'p121'}   # the seed's field crew is on 121 State
 SLOTS = {'morning': '07:30', 'work1': '10:00', 'work': '10:30', 'work2': '13:30', 'eod': '16:30'}   # 'work' is the lean plan's one work slot
-VERBS = {'screen', 'find', 'tap', 'type', 'pick', 'upload', 'photo', 'back', 'scroll', 'go', 'ask', 'mail', 'call', 'news', 'help', 'key'}
+VERBS = {'do', 'screen', 'find', 'tap', 'type', 'pick', 'upload', 'photo', 'back', 'scroll', 'go', 'ask', 'mail', 'call', 'news', 'help', 'key'}
 PAGE_CHARS = 3600
 MUTATING = {'tap', 'type', 'pick', 'upload', 'photo', 'back', 'go', 'ask', 'key'}
 
@@ -323,57 +323,109 @@ class Sim:
                 return {'ok': False, 'text': f"it is {PEOPLE.get(t['uid'], ('', '', t['uid']))[2]}'s turn, not yours ({uid})"}
             if t and t['used'] >= t['cap']:
                 return {'ok': False, 'text': f"your turn is over: {t['used']} actions used of {t['cap']}. Write your diary and stop."}
-            if t: t['used'] += 1
-            self.state['actions'] += 1
-            if cmd in MUTATING: self.state['slot_n'] = self.state.get('slot_n', 0) + 1
-            await self.set_clock()
-            if cmd in ('news', 'call'):
-                out = await getattr(self, 'v_' + cmd)(uid, None, args, opts)
-                self.save_state(); return out
-            t_act = time.time()
-            pg, reloaded = await self.fresh(uid)
-            self.last_dialog = ''
-            n_toast = await pg.evaluate("__SIM.toasts.length"); n_err = len(self.errs[uid])
-            before = await pg.evaluate("__SIM.keys()") if cmd in MUTATING else None
-            title0 = await pg.evaluate("__SIM.title()")
-            form = await pg.evaluate("__SIM.formStats()") if cmd == 'tap' else None
-            try:
-                if reloaded and cmd in ('tap', 'type', 'pick', 'upload', 'photo'):
-                    out = await self.render_screen(uid, pg)
-                    out['ok'] = False
-                    out['text'] = 'Your screen refreshed since you last looked (the company moved on). Nothing was tapped; here it is now:\n' + out['text']
-                else:
-                    out = await getattr(self, 'v_' + cmd)(uid, pg, args, opts)
-            except Exception as e:
-                out = {'ok': False, 'text': f'that did not work: {str(e).splitlines()[0][:200]}'}
-            toasts = (await pg.evaluate("__SIM.toasts"))[n_toast:]
-            errs = self.errs[uid][n_err:]
-            creates = []
-            if before is not None:
-                await pg.wait_for_timeout(150)
-                after = await pg.evaluate("__SIM.keys()")
-                new = [k for k in after if k not in before][:12]
-                for k in new:
-                    nm = await pg.evaluate("k => __SIM.recordName(k)", k)
-                    if not nm['name']: continue   # a record with no name a person could look for (a line, a log row)
-                    seen = await pg.evaluate("n => __SIM.onScreen(n)", nm['name'])
-                    creates.append({'key': k, 'name': nm['name'], 'on_screen': seen['on'], 'in_toast': seen['toast']})
-                    if not seen['on']:
-                        self.state['fia_pending'].setdefault(uid, []).append({'key': k, 'name': nm['name'], 'day': self.state['day']})
-            changed = await self.commit(uid)
-            await pg.evaluate("window.__simActive = true")   # still this person's page until someone else acts
-            if self.last_dialog: out['text'] = self.last_dialog + '\n' + out.get('text', '')
-            if toasts and cmd not in ('screen', 'scroll'): out['text'] = 'Toast: ' + ' / '.join(toasts[-2:]) + '\n' + out.get('text', '')
-            if errs: out['text'] += '\n(the app reported an error: ' + errs[-1][:160] + ')'
-            self.log({'uid': uid, 'cmd': cmd, 'args': args, 'screen': title0, 'after': await pg.evaluate("__SIM.title()"), 'control': out.get('control'),
-                      'kind': out.get('kind'), 'ok': out.get('ok'), 'result': (out.get('text') or '')[:300] if cmd not in ('screen', 'scroll') else out.get('summary', ''),
-                      'toasts': toasts, 'errors': errs, 'creates': creates, 'changed': changed, 'reloaded': reloaded, 'clock': self.clock_str(), 'ms': int((time.time() - t_act) * 1000),
-                      'device': 'phone' if self.device.get(uid) else 'desktop', 'form': form if creates else None,
-                      'turn_used': (t or {}).get('used')})
-            for c in creates:
-                if not c['on_screen']: out['text'] += f"\n(find it again: you just created \"{c['name'][:60]}\"; it is {'only in the toast' if c['in_toast'] else 'not on your screen'})"
-            self.save_state()
-            return out
+            if cmd == 'do': return await self.do_batch(uid, args, opts, t)
+            return await self._one(uid, cmd, args, opts, t)
+
+    async def _one(self, uid, cmd, args, opts, t):
+        '''one action, start to finish: fresh page, act, find-it-again, save, log (the lock is held by the caller)'''
+        if t: t['used'] += 1
+        self.state['actions'] += 1
+        if cmd in MUTATING: self.state['slot_n'] = self.state.get('slot_n', 0) + 1
+        await self.set_clock()
+        if cmd in ('news', 'call'):
+            out = await getattr(self, 'v_' + cmd)(uid, None, args, opts)
+            self.save_state(); return out
+        t_act = time.time()
+        pg, reloaded = await self.fresh(uid)
+        self.last_dialog = ''
+        n_toast = await pg.evaluate("__SIM.toasts.length"); n_err = len(self.errs[uid])
+        before = await pg.evaluate("__SIM.keys()") if cmd in MUTATING else None
+        title0 = await pg.evaluate("__SIM.title()")
+        form = await pg.evaluate("__SIM.formStats()") if cmd == 'tap' else None
+        try:
+            if reloaded and cmd in ('tap', 'type', 'pick', 'upload', 'photo'):
+                out = await self.render_screen(uid, pg)
+                out['ok'] = False
+                out['text'] = 'Your screen refreshed since you last looked (the company moved on). Nothing was tapped; here it is now:\n' + out['text']
+            else:
+                out = await getattr(self, 'v_' + cmd)(uid, pg, args, opts)
+        except Exception as e:
+            out = {'ok': False, 'text': f'that did not work: {str(e).splitlines()[0][:200]}'}
+        toasts = (await pg.evaluate("__SIM.toasts"))[n_toast:]
+        errs = self.errs[uid][n_err:]
+        creates = []
+        if before is not None:
+            await pg.wait_for_timeout(150)
+            after = await pg.evaluate("__SIM.keys()")
+            new = [k for k in after if k not in before][:12]
+            for k in new:
+                nm = await pg.evaluate("k => __SIM.recordName(k)", k)
+                if not nm['name']: continue   # a record with no name a person could look for (a line, a log row)
+                seen = await pg.evaluate("n => __SIM.onScreen(n)", nm['name'])
+                creates.append({'key': k, 'name': nm['name'], 'on_screen': seen['on'], 'in_toast': seen['toast']})
+                if not seen['on']:
+                    self.state['fia_pending'].setdefault(uid, []).append({'key': k, 'name': nm['name'], 'day': self.state['day']})
+        changed = await self.commit(uid)
+        await pg.evaluate("window.__simActive = true")   # still this person's page until someone else acts
+        if self.last_dialog: out['text'] = self.last_dialog + '\n' + out.get('text', '')
+        if toasts and cmd not in ('screen', 'scroll'): out['text'] = 'Toast: ' + ' / '.join(toasts[-2:]) + '\n' + out.get('text', '')
+        if errs: out['text'] += '\n(the app reported an error: ' + errs[-1][:160] + ')'
+        self.log({'uid': uid, 'cmd': cmd, 'args': args, 'screen': title0, 'after': await pg.evaluate("__SIM.title()"), 'control': out.get('control'),
+                  'kind': out.get('kind'), 'ok': out.get('ok'), 'result': (out.get('text') or '')[:300] if cmd not in ('screen', 'scroll') else out.get('summary', ''),
+                  'toasts': toasts, 'errors': errs, 'creates': creates, 'changed': changed, 'reloaded': reloaded, 'clock': self.clock_str(), 'ms': int((time.time() - t_act) * 1000),
+                  'device': 'phone' if self.device.get(uid) else 'desktop', 'form': form if creates else None,
+                  'turn_used': (t or {}).get('used')})
+        for c in creates:
+            if not c['on_screen']: out['text'] += f"\n(find it again: you just created \"{c['name'][:60]}\"; it is {'only in the toast' if c['in_toast'] else 'not on your screen'})"
+        self.save_state()
+        return out
+
+    BATCHABLE = ('tap', 'type', 'pick', 'key', 'go', 'find', 'scroll', 'back', 'upload', 'photo')
+    VALID = re.compile(r"\b(required|missing|cannot|can't|must|invalid|enter a|choose a|pick a|not allowed|refused|before you)\b", re.I)
+
+    async def do_batch(self, uid, args, opts, t):
+        '''`do "step; step; ..."`: up to 8 steps in one call. Each step is a real action (logged, saved, counted against
+        the turn's cap). It stops at the first error, validation stop or dialog, or a numbered target that is no longer
+        the control it was. A `find` step is a check: the batch stops if the text is not on the screen. One result.'''
+        import shlex
+        raw = ' '.join(args)
+        steps = [x.strip() for x in re.split(r';(?=(?:[^"]*"[^"]*")*[^"]*$)', raw) if x.strip()]
+        if not steps: return {'ok': False, 'text': 'do what? e.g. do \'type 3 "8"; pick "Unit" "sheet"; tap "Save"\''}
+        if len(steps) > 8: return {'ok': False, 'text': f'{len(steps)} steps: at most 8 in one do'}
+        lines, toasts, stop, done = [], [], '', 0
+        for i, st in enumerate(steps, 1):
+            try: parts = shlex.split(st)
+            except ValueError as e: stop = f'step {i} "{st}": {e}'; break
+            verb, sargs = parts[0].lower(), parts[1:]
+            sopts = {'quiet': True}
+            if '--enter' in sargs: sargs.remove('--enter'); sopts['enter'] = True
+            if verb not in self.BATCHABLE: stop = f'step {i}: "{verb}" cannot be batched (only {", ".join(self.BATCHABLE)})'; break
+            if t and t['used'] >= t['cap']: stop = f"step {i}: your turn is over ({t['used']} of {t['cap']} actions)"; break
+            if verb == 'find':
+                pg, _ = await self.fresh(uid)
+                txt = (await pg.evaluate("__SIM.visibleText()")).lower()
+                if sargs and sargs[0].lower() not in txt: stop = f'step {i}: "{sargs[0]}" is not on the screen'; break
+                lines.append(f'{i}. find "{sargs[0] if sargs else ""}": on the screen'); done += 1; continue
+            if verb == 'scroll': lines.append(f'{i}. scroll: (the final screen shows the page)'); done += 1; continue
+            n_dialog = len(self.errs.get('dialogs', []))
+            out = await self._one(uid, verb, sargs, sopts, t)
+            first = (out.get('text') or '').split('\n')
+            tl = [x[7:] for x in first if x.startswith('Toast: ')]
+            toasts += tl
+            msg = next((x for x in first if x and not x.startswith('Toast: ')), '') or verb
+            lines.append(f'{i}. {msg[:140]}')
+            if out.get('ok') is False: stop = f'step {i} stopped: {msg[:200]}'; break
+            done += 1
+            if any(self.VALID.search(x) for x in tl): stop = f'step {i}: the app said "{tl[-1][:160]}"'; break
+            if len(self.errs.get('dialogs', [])) > n_dialog: stop = f'step {i}: the app asked a question ({self.errs["dialogs"][-1][:160]})'; break
+            if '(the app reported an error' in (out.get('text') or ''): stop = f'step {i}: the app reported an error'; break
+        pg, _ = await self.fresh(uid)
+        fin = await self.v_find(uid, pg, [opts['find']], {}) if opts.get('find') else await self.render_screen(uid, pg, shot=opts.get('shot'))
+        head = f"do: {done} of {len(steps)} steps" + (f" · STOPPED: {stop}" if stop else ' · all done')
+        txt = '\n'.join([head] + lines + ([f"Toasts: {' / '.join(dict.fromkeys(toasts))}"] if toasts else []) + ['', fin['text']])
+        self.log({'uid': uid, 'cmd': 'do', 'args': steps, 'ok': not stop, 'result': head[:300]})
+        self.save_state()
+        return {'ok': not stop, 'text': txt}
 
     def has_box(self, uid): return uid in STAFF_MAIL
 
@@ -444,36 +496,49 @@ class Sim:
         await pg.evaluate("window.scrollBy(0, innerHeight * 0.9)")
         return {'ok': True, 'text': self.page_text(uid), 'summary': f"page {sc['i'] + 1}"}
 
-    async def _resolve(self, pg, n):
-        try: n = int(n)
-        except Exception: return None, {'ok': False, 'text': f'"{n}" is not a control number from your screen'}
-        r = await pg.evaluate("n => __SIM.resolve(n)", n)
-        if not r['ok']: return None, {'ok': False, 'text': r['why']}
-        return r['sig'], None
+    async def _resolve(self, pg, n, want='action'):
+        """A control by its number on the last screen, or by the label the person reads ("Save Change Order"); the
+        number must still be the same control, the label must name exactly one. Returns (sig, error, selector, key)."""
+        if str(n).strip().isdigit():
+            n = int(n)
+            r = await pg.evaluate("n => __SIM.resolve(n)", n)
+            if not r['ok']: return None, {'ok': False, 'text': r['why']}, None, None
+            return r['sig'], None, f'[data-simn="{n}"]', n
+        r = await pg.evaluate("([l, w]) => __SIM.markByLabel(l, w)", [str(n), want])
+        if not r['ok'] and want == 'action' and r['why'].startswith('no '):   # a checkbox or a tick is tapped too
+            r2 = await pg.evaluate("([l, w]) => __SIM.markByLabel(l, w)", [str(n), 'field'])
+            if r2['ok'] and r2['sig']['k'] == 'check': r = r2
+        if not r['ok']: return None, {'ok': False, 'text': r['why']}, None, None
+        return r['sig'], None, '[data-simlab="1"]', '[data-simlab="1"]'
+
+    async def _after(self, uid, pg, opts):
+        """the screen after an action, unless it is a step inside a batch (the batch shows the screen once, at the end)"""
+        if opts.get('quiet'): return {'ok': True, 'text': ''}
+        return await self.render_screen(uid, pg, shot=opts.get('shot'))
 
     async def v_tap(self, uid, pg, args, opts):
         if not args: return {'ok': False, 'text': 'tap which number?'}
-        sig, err = await self._resolve(pg, args[0])
+        sig, err, sel, key = await self._resolve(pg, args[0])
         if err: return err
-        loc = pg.locator(f'[data-simn="{int(args[0])}"]').first
+        loc = pg.locator(sel).first
         forced = ''
         try: await loc.click(timeout=4000)
         except Exception:
             await loc.evaluate("e => e.click()"); forced = ' (it was covered; tapped through)'
         await self.settle(pg, 400)
-        out = await self.render_screen(uid, pg, shot=opts.get('shot'))
+        out = await self._after(uid, pg, opts)
         out['control'] = sig['label']; out['kind'] = sig['k']
         out['text'] = f"tapped {args[0]} \"{sig['label'][:60]}\"{forced}\n" + out['text']
         return out
 
     async def v_type(self, uid, pg, args, opts):
         if len(args) < 2: return {'ok': False, 'text': 'usage: type <n> "text"'}
-        sig, err = await self._resolve(pg, args[0])
+        sig, err, sel, key = await self._resolve(pg, args[0], 'field')
         if err: return err
         text = args[1]
         if re.match(r'\s*javascript:', text, re.I): return {'ok': False, 'text': 'refused: that is code, not something a person types'}
-        loc = pg.locator(f'[data-simn="{int(args[0])}"]').first
-        info = await pg.evaluate("n => __SIM.fieldInfo(n)", int(args[0]))
+        loc = pg.locator(sel).first
+        info = await pg.evaluate("n => __SIM.fieldInfo(n)", key)
         if info and info['kind'] in ('select', 'check', 'file'): return {'ok': False, 'text': f"{args[0]} is a {info['kind']}: use {'pick' if info['kind'] == 'select' else 'tap' if info['kind'] == 'check' else 'upload'}"}
         try: await loc.fill(text, timeout=4000)
         except Exception:
@@ -482,7 +547,7 @@ class Sim:
         except Exception: pass
         if opts.get('enter'):
             await loc.press('Enter'); await self.settle(pg, 400)
-            out = await self.render_screen(uid, pg)
+            out = await self._after(uid, pg, opts)
             out['text'] = f"typed into {args[0]} \"{sig['label'][:50]}\" and pressed Enter\n" + out['text']
             out['control'] = sig['label']; out['kind'] = 'input'
             return out
@@ -493,22 +558,22 @@ class Sim:
         k = (args or ['Enter'])[0]
         if k not in ('Enter', 'Escape', 'Tab'): return {'ok': False, 'text': 'key: Enter, Escape or Tab'}
         await pg.keyboard.press(k); await self.settle(pg, 400)
-        out = await self.render_screen(uid, pg); out['text'] = f'pressed {k}\n' + out['text']; out['control'] = k
+        out = await self._after(uid, pg, opts); out['text'] = f'pressed {k}\n' + out['text']; out['control'] = k
         return out
 
     async def v_pick(self, uid, pg, args, opts):
         if len(args) < 2: return {'ok': False, 'text': 'usage: pick <n> "option"'}
-        sig, err = await self._resolve(pg, args[0])
+        sig, err, sel, key = await self._resolve(pg, args[0], 'field')
         if err: return err
-        r = await pg.evaluate("([n, o]) => __SIM.pick(n, o)", [int(args[0]), args[1]])
+        r = await pg.evaluate("([n, o]) => __SIM.pick(n, o)", [key, args[1]])
         if not r['ok']: return {'ok': False, 'text': r['why']}
-        await pg.locator(f'[data-simn="{int(args[0])}"]').first.select_option(r['value'], timeout=4000)
+        await pg.locator(sel).first.select_option(r['value'], timeout=4000)
         await self.settle(pg, 250)
         return {'ok': True, 'text': f"picked \"{r['text']}\" in {args[0]} \"{sig['label'][:50]}\"", 'control': sig['label'], 'kind': 'select'}
 
-    async def _upload(self, uid, pg, n, path, sig, opts):
+    async def _upload(self, uid, pg, n, path, sig, opts, sel=None):
         if not os.path.isfile(path): return {'ok': False, 'text': f'no such file: {path}'}
-        loc = pg.locator(f'[data-simn="{int(n)}"]').first
+        loc = pg.locator(sel or f'[data-simn="{int(n)}"]').first
         how = ''
         if sig['k'] == 'file':
             await loc.set_input_files(path); how = 'set on the file field'
@@ -518,28 +583,29 @@ class Sim:
                     await loc.click(timeout=3000)
                 ch = await fc.value; await ch.set_files(path); how = 'chosen in the file picker'
             except Exception:
-                if await pg.evaluate("n => __SIM.fileInputNear(n)", int(n)):
+                if await pg.evaluate("n => __SIM.fileInputNear(n)", n if isinstance(n, str) and not n.isdigit() else int(n)):
                     await pg.locator('[data-simfile="1"]').first.set_input_files(path); how = 'put in the file field next to it'
                 else: return {'ok': False, 'text': f'{n} does not open a file picker'}
         await self.settle(pg, 700)
-        out = await self.render_screen(uid, pg, shot=opts.get('shot'))
+        out = await self._after(uid, pg, opts)
         out['text'] = f"uploaded {os.path.basename(path)} ({how})\n" + out['text']; out['control'] = sig['label']; out['kind'] = 'upload'
         return out
 
     async def v_upload(self, uid, pg, args, opts):
         if len(args) < 2: return {'ok': False, 'text': 'usage: upload <n> <file>'}
-        sig, err = await self._resolve(pg, args[0])
+        sig, err, sel, key = await self._resolve(pg, args[0], 'field' if not str(args[0]).isdigit() else 'action')
+        if err and not str(args[0]).isdigit(): sig, err, sel, key = await self._resolve(pg, args[0])
         if err: return err
-        return await self._upload(uid, pg, args[0], os.path.abspath(args[1]), sig, opts)
+        return await self._upload(uid, pg, key if isinstance(key, str) else args[0], os.path.abspath(args[1]), sig, opts, sel)
 
     async def v_photo(self, uid, pg, args, opts):
         if not args: return {'ok': False, 'text': 'usage: photo <n>'}
-        sig, err = await self._resolve(pg, args[0])
+        sig, err, sel, key = await self._resolve(pg, args[0])
         if err: return err
         d = os.path.join(self.dir, 'files', uid); os.makedirs(d, exist_ok=True)
         p = os.path.join(d, f"IMG_{self.state['day'].replace('-', '')}_{self.clock_str().replace(':', '')}_{self.state['actions']}.png")
         open(p, 'wb').write(png_bytes(f"{self.state['seed']}:{uid}:{self.state['actions']}"))
-        return await self._upload(uid, pg, args[0], p, sig, opts)
+        return await self._upload(uid, pg, key if isinstance(key, str) else args[0], p, sig, opts, sel)
 
     async def v_back(self, uid, pg, args, opts):
         r = await pg.evaluate("__SIM.closeTop()")
@@ -551,7 +617,7 @@ class Sim:
                 r = 'back to the previous screen'
             else: r = 'nothing to go back to'
         await self.settle(pg, 300)
-        out = await self.render_screen(uid, pg); out['text'] = r + '\n' + out['text']; out['control'] = 'back'
+        out = await self._after(uid, pg, opts); out['text'] = r + '\n' + out['text']; out['control'] = 'back'
         return out
 
     async def v_go(self, uid, pg, args, opts):
@@ -567,8 +633,9 @@ class Sim:
             if hit is None: hit = next((i for i, s in enumerate(S['sig']) if s['k'] in ('tab', 'button', 'link') and s['label'].lower().startswith(want)), None)
             if hit is None: break
             await pg.locator(f'[data-simn="{hit + 1}"]').first.click(timeout=4000); await self.settle(pg, 400)
-        out = await self.render_screen(uid, pg, shot=opts.get('shot'))
-        v = out['text']
+        S2 = await pg.evaluate("({ view: typeof view !== 'undefined' ? view : '' })")
+        self.state['people'].setdefault(uid, {})['view'] = S2['view']
+        out = await self._after(uid, pg, opts)
         h = self.state['people'].setdefault(uid, {}).setdefault('hist', [])
         cur = self.state['people'][uid].get('view')
         if cur and (not h or h[-1] != cur): h.append(cur); del h[:-12]
@@ -965,9 +1032,12 @@ class Sim:
 
 HELP = """sim/act <uid> <verb> ...   (you act only through your own screens)
   screen [--full] [--shot]     what is on your screen, controls numbered [n ...]
+  do "step; step; ..." [--find "text"]   up to 8 steps in one call (tap, type, pick, key, go, find, scroll, back,
+                               upload, photo); stops at the first error; one result and the final screen
+                               (or only the lines with the text). Steps target a number or a label: tap "Save" .
   scroll                       the next page of the same screen
   find "text"                  only the lines of your screen with that text, and the controls next to them
-  tap <n>                      tap control n
+  tap <n> | tap "Label"        tap control n, or the one control with that label
   type <n> "text" [--enter]    type into field n
   pick <n> "option"            choose an option in select n
   upload <n> <file>            attach a file through control n (a file field or a button that opens the picker)

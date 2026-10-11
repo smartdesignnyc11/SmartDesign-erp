@@ -157,7 +157,8 @@ S.visibleText = () => { const parts = [S.viewRoot(), ...S.overlays(), document.g
 S.resolve = n => {
   const i = n - 1, el = S.ctl[i], sg = S.sig[i];
   if (!sg) return { ok: false, why: `there is no control ${n} on your last screen` };
-  if (el && el.isConnected && (vis(el) || sg.k === 'file')) { el.setAttribute('data-simn', String(n)); return { ok: true, sig: sg }; }
+  const now = el && ((sg.k === 'button' || sg.k === 'link' || sg.k === 'tab') ? ctlLabel(el) : fieldLabel(el)).slice(0, 80);
+  if (el && el.isConnected && (vis(el) || sg.k === 'file') && now === sg.label) { el.setAttribute('data-simn', String(n)); return { ok: true, sig: sg }; }
   const same = sg.k === 'file' ? [...(S.overlays()[0] || S.viewRoot()).querySelectorAll('input[type=file]')]
     : [...document.querySelectorAll(sg.tag)].filter(x => vis(x) && ((sg.k === 'button' || sg.k === 'link' || sg.k === 'tab') ? ctlLabel(x) : fieldLabel(x)).slice(0, 80) === sg.label);
   if (same.length === 1) { S.ctl[i] = same[0]; same[0].setAttribute('data-simn', String(n)); return { ok: true, sig: sg, relocated: true }; }
@@ -165,19 +166,33 @@ S.resolve = n => {
 };
 // the form on screen when a person saves: how many fields, how many with a value (typed or defaulted)
 S.formStats = () => { const F = S.sig.filter(x => x.filled !== null && x.filled !== undefined); return { fields: F.length, filled: F.filter(x => x.filled).length }; };
-S.fieldInfo = n => { const el = S.ctl[n - 1]; if (!el) return null; return { kind: kindOf(el), tag: el.tagName, label: S.sig[n - 1].label,
+S.el = n => typeof n === 'number' ? S.ctl[n - 1] : document.querySelector(n);
+S.fieldInfo = n => { const el = S.el(n); if (!el) return null; return { kind: kindOf(el), tag: el.tagName, label: typeof n === 'number' ? S.sig[n - 1].label : fieldLabel(el),
   options: el.tagName === 'SELECT' ? [...el.options].map(o => ({ v: o.value, t: norm(o.text) })) : null }; };
-S.pick = (n, opt) => { const el = S.ctl[n - 1]; if (!el || el.tagName !== 'SELECT') return { ok: false, why: 'not a select' };
+S.pick = (n, opt) => { const el = S.el(n); if (!el || el.tagName !== 'SELECT') return { ok: false, why: 'not a select' };
   const want = norm(opt).toLowerCase(), O = [...el.options];
   const o = O.find(x => norm(x.text).toLowerCase() === want) || O.find(x => norm(x.text).toLowerCase().startsWith(want)) || O.find(x => norm(x.text).toLowerCase().includes(want)) || O.find(x => String(x.value).toLowerCase() === want);
   if (!o) return { ok: false, why: `no option "${opt}"; the options are: ${O.map(x => norm(x.text)).filter(Boolean).slice(0, 30).join(' | ')}` };
   return { ok: true, value: o.value, text: norm(o.text) }; };
-S.fileInputNear = n => { const el = S.ctl[n - 1]; if (!el) return false;
+S.fileInputNear = n => { const el = S.el(n); if (!el) return false;
   if (el.tagName === 'INPUT' && el.type === 'file') { el.setAttribute('data-simfile', '1'); return true; }
   document.querySelectorAll('[data-simfile]').forEach(x => x.removeAttribute('data-simfile'));
   const scope = el.closest('#mbm, .mbm, #drawer, section.view, form, .card') || document.body;
   const f = el.querySelector('input[type=file]') || (el.htmlFor && document.getElementById(el.htmlFor)) || scope.querySelector('input[type=file]');
   if (!f) return false; f.setAttribute('data-simfile', '1'); return true; };
+S.markByLabel = (label, want) => {
+  document.querySelectorAll('[data-simlab]').forEach(e => e.removeAttribute('data-simlab'));
+  const ov = S.overlays(); const roots = ov.length ? ov : [document.querySelector('#subnav'), document.querySelector('#mtabs'), S.viewRoot(), document.getElementById('toast')].filter(Boolean);
+  const W = norm(label).toLowerCase().replace(/\s+\d+$/, ''), C = [];
+  roots.forEach(r => r.querySelectorAll('*').forEach(el => { if (!isCtl(el)) return; const k = kindOf(el);
+    const act = k === 'button' || k === 'link' || k === 'tab'; if ((want === 'field') === act) return;
+    if (!(vis(el) || k === 'file')) return;
+    const l = (act ? ctlLabel(el) : fieldLabel(el)).toLowerCase().replace(/\s+\d+$/, ''); C.push({ el, k, l }); }));
+  let hit = C.filter(c => c.l === W); if (!hit.length) hit = C.filter(c => c.l.startsWith(W)); if (!hit.length) hit = C.filter(c => c.l.includes(W));
+  if (!hit.length) return { ok: false, why: `no ${want === 'field' ? 'field' : 'control'} labelled "${label}" on the screen` };
+  if (hit.length > 1 && hit.filter(c => c.l === hit[0].l).length > 1) return { ok: false, why: `${hit.length} controls are labelled "${label}": use its number from screen or find` };
+  hit[0].el.setAttribute('data-simlab', '1');
+  return { ok: true, sig: { k: hit[0].k, label: (want === 'field' ? fieldLabel(hit[0].el) : ctlLabel(hit[0].el)).slice(0, 80), tag: hit[0].el.tagName } }; };
 // navigation by the label a person sees in their menu (the rail on a desktop, the tab bar and More on a phone)
 S.navCandidates = () => [...document.querySelectorAll(MENU_SEL + ', #subnav button, #mtabs button, .m-sheet-list button, .m-sheet-list a, .more-sheet button')]
   .filter(el => !el.closest('section.view'));
