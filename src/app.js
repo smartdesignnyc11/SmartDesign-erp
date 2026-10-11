@@ -16198,11 +16198,14 @@ const STOCK_REASONS = [
   { id: "reserved", label: "Reserved for another job", hint: "the stock is promised elsewhere" },
   { id: "trip", label: "Not worth the trip", hint: "the pick costs more than it saves" },
 ];
-// The Standard behind every stock line; read from the live Standard when the app carries it.
+// The Standard behind every stock line: the live Standard's line (standardWhy, STD_MAP "stock") and Alan's line on
+// why money matters. The words below are only the fallback for a page with no Standard loaded.
 function stockBecause() {
-  const std = String(((DB.company || {}).standard || {}).text || (DB.company || {}).standard || "");
-  const waste = (std.match(/Waste nothing[^.\n]*\./) || [])[0] || "Waste nothing: material, labor hours or trips.";
-  return `Every dollar matters: ${waste.replace(/\.$/, "")}. Money wasted cannot go to raises and bonuses, to more staff and resources, or to extra value for the client at no additional cost.`;
+  try {
+    const w = "function" == typeof standardWhy && standard().values && standardWhy("stock");
+    if (w) return `${w}. ${STD_WASTE}`;
+  } catch (e) {}
+  return "Because: Waste nothing: material, labor hours or trips (Every dollar matters). Wasted money comes out of raises, bonuses, staff and the extra value we give clients.";
 }
 function stockDB() {
   const s = (DB.stock = DB.stock || {});
@@ -16858,11 +16861,14 @@ function stockSweep() {
   return n && save(), n;
 }
 // ---- counting: the driver's Count This, and a recount for anything an override corrected
+// A count made after the correction clears it. "After" is the order of the append-only log, not the time stamp: the
+// pinned demo clock gives about two and a half real seconds the same second, so a Count This made right after the
+// override carried the override's own stamp and "a.at > fix.at" left the recount open.
 function stockRecounts() {
   const A = stockDB().adjust;
   return (DB.inventory || []).filter((i) => {
-    const fix = A.filter((a) => a.invId === i.id && a.recount).pop();
-    return fix && !A.some((a) => a.invId === i.id && "Cycle count" === a.reason && a.at > fix.at);
+    const k = A.map((a, j) => (a.invId === i.id && a.recount ? j : -1)).reduce((m, j) => Math.max(m, j), -1);
+    return k >= 0 && !A.some((a, j) => j > k && a.invId === i.id && "Cycle count" === a.reason);
   });
 }
 function stockCountDialog(invId) {
@@ -169982,7 +169988,8 @@ const stdSentence = (raw) => {
   const t = String(raw || ""),
     m = t.match(/^\*\*(.+?)\*\*/),
     lead = m ? m[1].replace(/[:.,;]$/, "") : "";
-  return lead && !/:$/.test(m[1]) && lead.split(/\s+/).length >= 4 ? lead : stdStrip((t.match(/^.*?[.!?](?=\s|$)/) || [t])[0]).replace(/\.$/, "");
+  // the first sentence; "vs." and "e.g." do not end one ("Report savings monthly: final price vs. first quote...")
+  return lead && !/:$/.test(m[1]) && lead.split(/\s+/).length >= 4 ? lead : stdStrip((t.match(/^.*?(?<!\bvs|\be\.g|\bi\.e)[.!?](?=\s|$)/) || [t])[0]).replace(/\.$/, "");
 };
 function standardCite(ref) {
   const B = standard(),
@@ -170144,6 +170151,28 @@ const STD_MAP = {
   "learn:reopen": { p: "", c: ["pb", "office", "standards", /Books reconciled/i] },
   "learn:carried": { p: "", c: ["value", "own", /Close every loop/i] },
   "learn:promise": { p: "", c: ["value", "truth", /Give dates you can hit/i] },
+  // RFQs (the rfq lane): the Approvals kind, its Caught for You detectors, and the lines rfqWhy quotes on the RFQ page
+  rfq: { p: "cost", c: ["pb", "procurement", "actFrom", /Always go above and beyond to get the best price/i] },
+  rfqUnderQuoted: { p: "cost", leak: !0, c: ["pb", "procurement", "standards", /^Three quotes/i] },
+  rfqNoOutNyc: { p: "cost", leak: !0, c: ["pb", "procurement", "actFrom", /Look beyond Manhattan and Brooklyn/i] },
+  rfqNoReply: { p: "schedule", c: ["pb", "procurement", "standards", /Lead time confirmed/i] },
+  "rfq:quotes3": { p: "cost", c: ["pb", "procurement", "standards", /^Three quotes/i] },
+  "rfq:firstPrice": { p: "cost", c: ["value", "dollar", /Never accept the first price/i] },
+  "rfq:landed": { p: "cost", c: ["pb", "procurement", "actFrom", /Best price means total landed cost/i] },
+  "rfq:direct": { p: "cost", c: ["pb", "procurement", "actFrom", /Direct to the source/i] },
+  "rfq:beyond": { p: "cost", c: ["pb", "procurement", "actFrom", /Look beyond Manhattan and Brooklyn/i] },
+  "rfq:sameSpec": { p: "quality", c: ["pb", "procurement", "actFrom", /Same spec, better price/i] },
+  "rfq:lead": { p: "schedule", c: ["pb", "procurement", "actFrom", /Lead times are your schedule/i] },
+  "rfq:integrity": { p: "integrity", c: ["principle", "integrity"] },
+  "rfq:facts": { p: "", c: ["pb", "ai", "standards", /Label every output/i] },
+  "rfq:noGuess": { p: "", c: ["pb", "ai", "actFrom", /Accuracy over speed/i] },
+  "rfq:approve": { p: "", c: ["pb", "ai", "approval", /Sending anything/i] },
+  "rfq:escalate": { p: "", c: ["pb", "ai", "standards", /Apply the escalation table/i] },
+  "rfq:po": { p: "cost", c: ["std", "money", /No purchase without a PO/i] },
+  "rfq:savings": { p: "cost", c: ["pb", "procurement", "standards", /Report savings monthly/i] },
+  // stock before buying (the stock lane): a card or bank purchase of a stocked item while it sat free
+  boughtWhileInStock: { p: "cost", leak: !0, c: ["value", "dollar", /Waste nothing/i] },
+  stock: { p: "cost", leak: !0, c: ["value", "dollar", /Waste nothing/i] },
 };
 // The key an item is filed under: a string as given; a Standard Watch row by its rule; a Needs Your Hand item by
 // its row's kind; a Caught for You row by its detector (tdCaught sets src); a lesson proposal by its learned kind.
@@ -171267,7 +171296,7 @@ standardRegisterRule(
         .map((po) => ({ key: "src:" + po.id, what: `No sourcing choice: ${po.number || "draft PO"} · ${po.vendor}`, sub: `${money(poTotal(po).total)} on ${stdJob(po.projectId)}`, amount: poTotal(po).total, go: () => stdSourcingSheet(po) })),
   },
   {
-    id: "outsideNyc", owner: "coord", p: "cost", leak: !0, c: ["pb", "procurement", "actFrom", /five boroughs/i], surface: "nyh",
+    id: "outsideNyc", owner: "coord", p: "cost", leak: !0, c: ["pb", "procurement", "actFrom", /Look beyond Manhattan and Brooklyn/i], surface: "nyh",
     rows: () =>
       (DB.pos || [])
         .filter((po) => !["cancelled", "void"].includes(po.status) && poTotal(po).total > 2500 && stdShopOrMaterial(po))
@@ -175674,24 +175703,32 @@ document.addEventListener(
    The Standard's rules are quoted through rfqWhy(); wire it to the charter lane's registry
    (charterWhy / standard()) after the merge.
    --------------------------------------------------------------------------- */
-// ---- the Standard's rules this module acts on (local until the charter lane's registry lands)
+// ---- the Standard's rules this module acts on: each key is a line of the live Standard, quoted by standardWhy
+// (STD_MAP "rfq:<key>"), so Alan's edits reach the RFQ page. The words below are only the fallback for a page
+// with no Standard loaded.
 const RFQ_RULES = {
-  quotes3: "Money: three quotes on any purchase over $2,500",
-  firstPrice: "Every dollar matters: never accept the first price",
-  landed: "Procurement: best price means total landed cost — unit price, delivery, lead time, returns and quality risk",
-  direct: "Procurement: direct to the source, or through a middleman? Repeat items go direct; a one-off or high-ticket item can go through a middleman",
-  beyond: "Procurement: look beyond the five boroughs — at least one quote from outside Manhattan and Brooklyn for materials and shop-built items",
-  sameSpec: "Procurement: same spec, better price; never substitute without written approval from the PM and designer",
-  lead: "Procurement: lead times are your schedule",
-  integrity: "Decision principles: integrity — we never mislead a vendor",
-  facts: "AI agents: label every output — verified facts with their source, assumptions and recommendations, kept apart",
-  noGuess: "AI agents: never invent a number, price, date or quantity",
-  approve: "AI agents: sending to a vendor needs a person's approval unless that message type was delegated",
-  escalate: "Decide or escalate: what happened, the impact on cost, schedule and quality, the options, the recommendation, and when the decision is needed",
-  po: "Money: no purchase without a PO tied to a job and cost code",
-  savings: "Procurement: report savings monthly — final price vs first quote and vs budget",
+  quotes3: "Three quotes on any purchase over $2,500 and on every subcontract (Procurement playbook)",
+  firstPrice: "Never accept the first price (Every dollar matters)",
+  landed: "Best price means total landed cost (Procurement playbook)",
+  direct: "Direct to the source, or through a middleman? (Procurement playbook)",
+  beyond: "Look beyond Manhattan and Brooklyn (Procurement playbook)",
+  sameSpec: "Same spec, better price — that's the job (Procurement playbook)",
+  lead: "Lead times are your schedule (Procurement playbook)",
+  integrity: "Integrity — we never mislead a vendor (Decision principle 3)",
+  facts: "Label every output (AI playbook)",
+  noGuess: "Accuracy over speed (AI playbook)",
+  approve: "Sending anything to a vendor needs a person's approval unless that message type was delegated (AI playbook)",
+  escalate: "Apply the escalation table (AI playbook)",
+  po: "No purchase without a PO (Money standard)",
+  savings: "Report savings monthly (Procurement playbook)",
 };
+// "Look beyond Manhattan and Brooklyn (Procurement playbook)": the line and where it is, without "Because: ", since
+// the RFQ page sets it inside its own sentences.
 function rfqWhy(key) {
+  try {
+    const w = "function" == typeof standardWhy && standard().values && standardWhy("rfq:" + key);
+    if (w) return w.replace(/^Because: /, "");
+  } catch (e) {}
   return RFQ_RULES[key] || "";
 }
 const RFQ_REGIONS = ["NYC Manhattan/Brooklyn", "NYC other boroughs", "NY-NJ-CT", "Out of state"],
@@ -176825,7 +176862,7 @@ function rfqRecommend(r, L) {
     what: `${L.quotes.length} readable quote${1 === L.quotes.length ? "" : "s"} on ${r.number}. Cheapest whole basket: ${L.baskets[0] ? `${L.baskets[0].vendor} at ${money(L.baskets[0].landed)} landed` : "nobody quoted every line on the same spec"}. Best split: ${money(plan.total)} landed across ${vendors.join(", ")}.`,
     impact: `Cost: ${L.baskets[0] ? `${money(r2(L.baskets[0].landed - plan.total))} under the cheapest whole basket` : "the split is the only complete price"}${L.budgetTotal ? `; ${money(r2(L.budgetTotal - plan.total))} ${L.budgetTotal >= plan.total ? "under" : "over"} the budget on the line${L.budgets.length === 1 ? "" : "s"}` : ""}. Schedule: ${plan.by.every((x) => (L.vendors.find((v) => v.vendorId === x.vendorId) || {}).onTime) ? `every vendor in it lands by ${fmtL(r.needBy)}` : "a vendor in it lands after the need-by date"}${late ? `; the cheapest split (${money(L.split.total)}) would land late, so it is not recommended (schedule ranks above cost)` : ""}. Quality: same spec on every line${L.perLine.some((x) => x.alts.length) ? "; alternates were offered and are not counted until the PM and designer approve them" : ""}.`,
     options: [`award the split (${money(plan.total)})`].concat(L.baskets[0] ? [`award the whole basket to ${L.baskets[0].vendor} (${money(L.baskets[0].landed)})`] : []).concat(["negotiate first: ask each vendor to beat the best figure we hold"]),
-    rec: (r.neg || []).some((n) => "sent" === n.status) ? `Award the split: ${vendors.join(", ")}.` : `Negotiate once (${rfqWhy("firstPrice")}), then award the split.`,
+    rec: (r.neg || []).some((n) => "sent" === n.status) ? `Award the split: ${vendors.join(", ")}.` : `Negotiate once, then award the split. ${rfqWhy("firstPrice")}.`,
     by: (r.orderBy || r.needBy) < today() ? today() : r.orderBy || r.needBy,
     plan: plan,
     outNyc: outNyc.length,
@@ -176876,7 +176913,7 @@ function rfqNegSend(r, ids, edits) {
   for (const n of D) {
     edits && null != edits[n.id] && (n.body = edits[n.id]);
     const C = rfqNegCheck(r, n);
-    if (!C.ok) return toast(`${n.vendor}: ${C.named.length ? `the email names ${C.named.join(", ")} — never name a competitor` : `$${C.invented.join(", $")} is not a figure from a quote we hold`} (${rfqWhy("integrity")})`), !1;
+    if (!C.ok) return toast(`${n.vendor}: ${C.named.length ? `the email names ${C.named.join(", ")} — never name a competitor` : `$${C.invented.join(", $")} is not a figure from a quote we hold`}. ${rfqWhy("integrity")}`), !1;
   }
   D.forEach((n) => {
     const v = rfqVendor(n.vendorId);
