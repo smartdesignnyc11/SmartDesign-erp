@@ -14,6 +14,7 @@ This folder is the harness; the main session runs the agents (`day_plan.md`). Th
 | `referee.py` | The scorer: ledger.json / ledger.md after each day. |
 | `roles/` | `_common.md` plus one briefing per person. |
 | `turn_prompt.md`, `day_plan.md`, `day_plan.json` | The per-turn prompt template and the day's turn order. |
+| `workshop_nav.md`, `workshop.py` | The Navigation and Pages Workshop at the end of the pilot: usage (pages, time, taps, trails, back-tracks, top jobs, where each person looked first), the expert prompt (27 short questions, each finding tagged page, frequency, severity), and the scorer that groups findings across roles for the synthesis. `sim/simctl menus` captures each role's menu. |
 | `selftest.py` | A scripted mini-day through `act` with no LLM; proves the harness. |
 | `runs/<run>/` | Everything a run writes (git-ignored): `world.json` (server state), `db.json` (the database snapshot, after every change), `db_<day>.json`, `actions.jsonl`, `diary/<uid>.md`, `files/<uid>/` (attachments and photos), `shots/`, `world/pending` and `world/answers`, `ledger.*`. |
 

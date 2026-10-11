@@ -1,20 +1,97 @@
 {
   "about": "The agent month's day, machine-readable (sim/day_plan.md explains it). A Workflow script or the main session reads it.",
-  "caps": {"morning": 12, "work1": 20, "work2": 20, "eod": 12},
-  "models": {"routine": "mid-tier (e.g. a Sonnet model)", "eod": "strongest (e.g. an Opus model): the expert judgement", "referee_review": "strongest"},
+  "caps": {
+    "morning": 12,
+    "work1": 20,
+    "work2": 20,
+    "eod": 12
+  },
+  "models": {
+    "routine": "mid-tier (e.g. a Sonnet model)",
+    "eod": "strongest (e.g. an Opus model): the expert judgement",
+    "referee_review": "strongest"
+  },
   "slots": [
-    {"slot": "morning", "world": "sim/simctl world morning --watchers",
-     "turns": ["u_angel", "u_alberto", "u_alex", "u_owner", "u_alan", "u_chen", "u_sarah", "u_billing", "u_controller", "u_klein"]},
-    {"slot": "work1", "world": "sim/simctl world work1 --no-watchers",
-     "turns": ["u_angel", "u_alan", "u_chen", "u_controller", "u_billing", "u_sarah", "u_owner", "u_alberto", "u_alex"],
-     "optional": ["u_klein"], "optional_if": "brief shows news > 0 or unread > 0"},
-    {"slot": "work2", "world": "sim/simctl world work2 --watchers",
-     "turns": ["u_angel", "u_alan", "u_chen", "u_controller", "u_billing"],
-     "optional": ["u_sarah", "u_owner", "u_alberto", "u_alex", "u_klein"], "optional_if": "brief shows news > 0 or unread > 0"},
-    {"slot": "eod", "world": "sim/simctl world eod --no-watchers",
-     "turns": ["u_angel", "u_alberto", "u_alex", "u_alan", "u_chen", "u_sarah", "u_billing", "u_controller", "u_owner", "u_klein"]}
+    {
+      "slot": "morning",
+      "world": "sim/simctl world morning --watchers",
+      "turns": [
+        "u_angel",
+        "u_alberto",
+        "u_alex",
+        "u_owner",
+        "u_alan",
+        "u_chen",
+        "u_sarah",
+        "u_billing",
+        "u_controller",
+        "u_klein"
+      ]
+    },
+    {
+      "slot": "work1",
+      "world": "sim/simctl world work1 --no-watchers",
+      "turns": [
+        "u_angel",
+        "u_alan",
+        "u_chen",
+        "u_controller",
+        "u_billing",
+        "u_sarah",
+        "u_owner",
+        "u_alberto",
+        "u_alex"
+      ],
+      "optional": [
+        "u_klein"
+      ],
+      "optional_if": "brief shows news > 0 or unread > 0"
+    },
+    {
+      "slot": "work2",
+      "world": "sim/simctl world work2 --watchers",
+      "turns": [
+        "u_angel",
+        "u_alan",
+        "u_chen",
+        "u_controller",
+        "u_billing"
+      ],
+      "optional": [
+        "u_sarah",
+        "u_owner",
+        "u_alberto",
+        "u_alex",
+        "u_klein"
+      ],
+      "optional_if": "brief shows news > 0 or unread > 0"
+    },
+    {
+      "slot": "eod",
+      "world": "sim/simctl world eod --no-watchers",
+      "turns": [
+        "u_angel",
+        "u_alberto",
+        "u_alex",
+        "u_alan",
+        "u_chen",
+        "u_sarah",
+        "u_billing",
+        "u_controller",
+        "u_owner",
+        "u_klein"
+      ]
+    }
   ],
   "after_day": "sim/simctl advance",
   "every_5_days": "sim/simctl referee",
-  "end": ["sim/simctl referee --final", "sim/simctl persist"]
+  "end": [
+    "sim/simctl menus",
+    "python3 sim/workshop.py usage",
+    "for each uid: python3 sim/workshop.py prompt <uid> -> one expert subagent (strongest)",
+    "python3 sim/workshop.py score -> one synthesis subagent (strongest)",
+    "sim/simctl referee --final",
+    "sim/simctl persist",
+    "sim/simctl stop"
+  ]
 }

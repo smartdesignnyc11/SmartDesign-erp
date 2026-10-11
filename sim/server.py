@@ -309,6 +309,7 @@ class Sim:
             if cmd in ('news', 'call'):
                 out = await getattr(self, 'v_' + cmd)(uid, None, args, opts)
                 self.save_state(); return out
+            t_act = time.time()
             pg, reloaded = await self.fresh(uid)
             self.last_dialog = ''
             n_toast = await pg.evaluate("__SIM.toasts.length"); n_err = len(self.errs[uid])
@@ -344,7 +345,7 @@ class Sim:
             if errs: out['text'] += '\n(the app reported an error: ' + errs[-1][:160] + ')'
             self.log({'uid': uid, 'cmd': cmd, 'args': args, 'screen': title0, 'after': await pg.evaluate("__SIM.title()"), 'control': out.get('control'),
                       'kind': out.get('kind'), 'ok': out.get('ok'), 'result': (out.get('text') or '')[:300] if cmd not in ('screen', 'scroll') else out.get('summary', ''),
-                      'toasts': toasts, 'errors': errs, 'creates': creates, 'changed': changed, 'reloaded': reloaded, 'clock': self.clock_str(),
+                      'toasts': toasts, 'errors': errs, 'creates': creates, 'changed': changed, 'reloaded': reloaded, 'clock': self.clock_str(), 'ms': int((time.time() - t_act) * 1000),
                       'turn_used': (t or {}).get('used')})
             for c in creates:
                 if not c['on_screen']: out['text'] += f"\n(find it again: you just created \"{c['name'][:60]}\"; it is {'only in the toast' if c['in_toast'] else 'not on your screen'})"
@@ -761,6 +762,22 @@ class Sim:
             if cmd == 'debug_eval' and self.debug:   # developer use only (server started with --debug); never in a real run
                 pg = await self.page(a.get('uid') or '__world')
                 return {'result': await pg.evaluate(a['js'])}
+            if cmd == 'menu_capture':   # the menu each person sees (SmartDesign workspace only), with each entry's tabs
+                out = {}
+                for uid in PEOPLE:
+                    pg, _ = await self.fresh(uid)
+                    top = await pg.evaluate("__SIM.menu()")
+                    tree = []
+                    for lab in top:
+                        r = await pg.evaluate("l => __SIM.go(l)", lab)
+                        await self.settle(pg, 300)
+                        subs = await pg.evaluate("""() => [...document.querySelectorAll('#subnav button, #mtabs button')].filter(e => e.getClientRects().length && !e.closest('section.view'))
+                            .map(e => e.innerText.replace(/\\s+/g, ' ').trim()).filter(Boolean)""")
+                        tree.append({'label': lab, 'tabs': subs if r.get('ok') else []})
+                    await self.commit(uid)
+                    out[uid] = {'role': PEOPLE[uid][0], 'phone': PEOPLE[uid][1], 'menu': tree}
+                json.dump(out, open(os.path.join(self.dir, 'menus.json'), 'w'), indent=1)
+                return {'menus': os.path.join(self.dir, 'menus.json'), 'people': len(out)}
             if cmd == 'party':   # adjust an outside party's rules (the selftest makes its supplier answer at once)
                 k = self.world.resolve_party(a['party'])
                 if not k: return {'error': 'no such party'}

@@ -36,6 +36,11 @@ For each slot in order (morning, work1, work2, eod):
 4. After eod: `sim/simctl advance` (the referee scores the day into `ledger.md` / `ledger.json`, a copy of the
    database is kept as `db_<day>.json`, the app day moves on and the day's hooks run).
 
+At the end of the pilot's last day, before stopping the server: the Navigation and Pages Workshop
+(`sim/workshop_nav.md`: `sim/simctl menus`, `python3 sim/workshop.py usage`, one expert subagent per person from
+`python3 sim/workshop.py prompt <uid>`, then `python3 sim/workshop.py score` and its synthesis subagent; output
+`runs/<run>/nav_workshop.md`).
+
 Every five days: `sim/simctl referee` and read `ledger.md` (the strongest model) for what to raise. At the end:
 `sim/simctl referee --final`, `sim/simctl persist`, `sim/simctl stop`; then collect each person's diary verdicts.
 

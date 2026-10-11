@@ -13,6 +13,7 @@
     sim/simctl check '<json list of month_runtime checks>'
     sim/simctl party "<name>" '<json patch>'      change an outside party's rules, e.g. '{"reply_p": 1, "delay": [0, 0]}'
     sim/simctl world-agent on|off               write each scheduled outside reply to world/pending/ for an LLM to voice
+    sim/simctl menus                            capture each person's menu and tabs to runs/<run>/menus.json (menu workshop)
     sim/simctl stop                             save everything and stop the server
 """
 import json, os, sys, urllib.request
@@ -69,6 +70,7 @@ def main(a):
     elif c == 'persist': r = admin('persist_check')
     elif c == 'check': r = admin('check', checks=json.loads(a[1]))
     elif c == 'debug-eval': r = admin('debug_eval', uid=a[1], js=a[2])
+    elif c == 'menus': r = admin('menu_capture')
     elif c == 'party': r = admin('party', party=a[1], patch=json.loads(a[2]))
     elif c == 'world-agent': r = admin('world_agent', on=a[1] == 'on')
     elif c == 'stop': r = admin('shutdown')
