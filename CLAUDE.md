@@ -65,6 +65,11 @@ The target is **9/10 or higher in every lens**: a seasoned professional would pi
 - **AI assists, people commit.** The assistant may read, extract, match, flag and propose. Writes become proposals with a button. People approve, pay, send, close and certify.
 - **House voice:** plain, specific, no exclamation marks.
 - **Communication with Alan.** He is terse and decisive and wants concrete recommendations, not option lists. Warn him before anything that will use a lot of usage.
+- **Think past the ask (Alan, 2026-10-11).** Every time Alan adds a task, before building it, ask and answer three questions, and put the answers into the spec and into the reply:
+  - What is he not thinking about?
+  - How can this be made better?
+  - What could go wrong if this isn't thought through: for data, money, tax, fraud, people, the field, the phone and the books?
+  Fold the good answers into the build; bring the ones that need his call to him as a recommendation.
 
 ## Architecture
 - **Build.** One self-contained HTML file. `python3 build.py` assembles `src/head.html` + `src/styles.css` + `src/body.html` + `src/app.js` into `dist/smartdesigns_projects.html`, and runs `node --check` first.
