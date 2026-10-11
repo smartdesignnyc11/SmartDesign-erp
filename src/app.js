@@ -171845,6 +171845,7 @@ const STD_MAP = {
   docsToConfirm: { p: "integrity", c: ["pb", "ai", "actFrom", /Accuracy over speed/i] },
   "learn:trkBroken": { p: "", c: ["pb", "procurement", "standards", /Lead time confirmed/i] },
   "learn:trkAckDiff": { p: "", c: ["pb", "procurement", "standards", /PO before every order/i] },
+  "nyh:enterbill": { p: "integrity", c: ["pb", "office", "standards", /Three-way match/i] },
   // the lines trkWhy quotes on order documents, holds, follow-ups and promises (the live text, never a copy)
   "trk:threeWay": { p: "integrity", c: ["pb", "office", "standards", /Three-way match/i] },
   "trk:noMatchPay": { p: "integrity", c: ["pb", "office", "never", /doesn't match a PO/i] },
@@ -187107,3 +187108,87 @@ stdReplaceRule({
       })
       .map((p) => ({ key: "vw:" + p.id, what: `${p.vendor}: ${p.what}`, sub: `by phone ${fmtL(String(p.at).slice(0, 10))}${p.who ? ` (${p.who})` : ""}, not confirmed in writing`, go: () => trkOpenPanel("promises") })),
 });
+
+// ---- Enter the Bill: a vendor invoice filed on a PO that has no bill (BACKLOG §1.9 item 2, "vendor invoice -> bill")
+// The invoice is read and filed on its order, but no bill exists, so nothing is owed in the books and the money can
+// be missed. Billing gets a Needs Your Hand row; Enter the Bill drafts the bill from what was read (vendor, number,
+// date, lines matched to the PO's lines, tax, freight), links the invoice to it, and leaves every figure read with
+// low confidence unconfirmed: the bill is on hold (Bills on Hold) until a person confirms them on the invoice.
+function trkInvoicesToBill() {
+  return trkDocs().filter((d) => {
+    if (!trkLive(d) || "invoice" !== d.kind || !d.links.poId || (d.links.billId && trkBill(d.links.billId))) return !1;
+    const po = trkPO(d.links.poId);
+    return !!po && !(DB.bills || []).some((b) => b.poId === po.id && !["void", "rejected"].includes(b.status));
+  });
+}
+function trkBillFromDoc(id) {
+  const d = trkDocs().find((x) => x.id === id),
+    po = d && trkPO(d.links.poId);
+  if (!d || !po) return toast("That invoice is not filed on an order"), null;
+  const had = d.links.billId && trkBill(d.links.billId);
+  if (had) return flowGo.bill(had)(), had;
+  const F = d.fields || {},
+    low = new Set(trkUnconfirmed(d)),
+    v = "function" == typeof vendorRec ? vendorRec(po.vendor) : null,
+    net = /net ?(\d+)/i.test(F.terms || (v && v.terms) || "") ? +String(F.terms || v.terms).match(/net ?(\d+)/i)[1] : 30,
+    date = F.date || today(),
+    code0 = ((po.lines || [])[0] || {}).code || "",
+    lines = (F.lines || []).map((l, i) => {
+      const pl = (po.lines || []).find((x) => trkItemHit(l.item, x.item)) || null;
+      return { desc: l.item, qty: +l.qty || 1, unit: l.unit || "", amount: r2(null != l.ext ? +l.ext : (+l.qty || 0) * (+l.price || 0)), code: (pl && pl.code) || code0, poLineId: pl ? pl.id : "", unconfirmed: ["qty", "price", "ext"].filter((k) => low.has(`lines.${i}.${k}`)) };
+    });
+  null != F.tax && +F.tax && lines.push({ desc: "Sales tax", qty: 1, unit: "ls", amount: r2(+F.tax), code: code0, unconfirmed: low.has("tax") ? ["amount"] : [] });
+  null != F.freight && +F.freight && lines.push({ desc: "Freight", qty: 1, unit: "ls", amount: r2(+F.freight), code: code0, unconfirmed: low.has("freight") ? ["amount"] : [] });
+  lines.length || lines.push({ desc: `${TRK_KINDS.invoice} ${F.number || ""}`.trim(), qty: 1, unit: "ls", amount: r2(+F.total || 0), code: code0, unconfirmed: low.has("total") ? ["amount"] : [] });
+  const b = {
+    id: uid("b"),
+    vendor: po.vendor,
+    number: F.number || "",
+    date: date,
+    due: iso(addDays(date, net)),
+    entityId: "function" == typeof poEntity ? poEntity(po) : "ent1",
+    projectId: po.projectId || "",
+    poId: po.id,
+    cat: "function" == typeof poCat ? poCat(po) : "materials",
+    code: code0,
+    line: (1 === (po.lines || []).length && po.lines[0].line) || "",
+    lines: lines,
+    payMethod: "ACH",
+    fileId: "",
+    notes: `Entered from invoice ${F.number || ""} filed on ${po.number}${low.size ? `; ${low.size} figure${1 === low.size ? "" : "s"} read with low confidence wait${1 === low.size ? "s" : ""} for a person to confirm on the invoice` : ""}`,
+    status: "submitted",
+    approvals: [],
+    createdBy: trkWho(),
+    fromDocId: d.id,
+    unconfirmed: [...low],
+    readTotal: null != F.total ? +F.total : null,
+  };
+  DB.bills.push(b), (d.links.billId = b.id);
+  try {
+    audit("bill", b.id, "entered-from-invoice", "", `${F.number || ""} on ${po.number}`, trkWho());
+  } catch (e) {}
+  save();
+  (ROLE_VIEWS[role()] || []).includes("ap") && (view = "ap");
+  render(), setTimeout(() => openBill(b.id), 60);
+  toast(`Bill ${b.number || ""} entered from the invoice on ${po.number}: ${money(billTotal(b))}${low.size ? `, on hold until ${low.size} figure${1 === low.size ? " is" : "s are"} confirmed` : ""}`, [{ label: "Open", run: () => flowGo.bill(b)() }]);
+  return b;
+}
+{
+  const base = nyhRowsAll;
+  nyhRowsAll = function () {
+    const out = base.apply(this, arguments);
+    try {
+      const have = new Set(out.map((r) => r.key));
+      trkInvoicesToBill().forEach((d) => {
+        const po = trkPO(d.links.poId),
+          low = trkUnconfirmed(d).length,
+          key = "tk:enterbill:" + d.id;
+        have.has(key) ||
+          out.push({ key: key, route: "billing", kind: "enterbill", title: `Enter the bill: ${d.fields.vendor || po.vendor} ${d.fields.number || ""} on ${po.number}`.replace(/\s+on/, " on"), why: `${d.fields.total != null ? money(+d.fields.total) + " read from the invoice" : "the invoice is filed"}, and ${po.number} has no bill${low ? `; ${low} figure${1 === low ? "" : "s"} read with low confidence stay${1 === low ? "s" : ""} unconfirmed` : ""} · ${trkWhy("threeWay")}`, amount: +d.fields.total || 0, verb: "Enter the Bill", no: "", run: () => trkBillFromDoc(d.id), open: () => trkOpenDoc(d.id) });
+      });
+    } catch (e) {
+      console.warn("enter the bill", e);
+    }
+    return out;
+  };
+}

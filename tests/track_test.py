@@ -241,6 +241,18 @@ async def main():
         c.ok(wr['c'] and not wr['d'], f'a promise taken by phone is counted until it is confirmed in writing: {wr}')
         c.ok(wr['m'] == [True, True, True], f'the three rules are measured, not "not measured yet": {wr["m"]}')
 
+        # ---- an invoice filed on a PO with no bill: billing's Needs Your Hand row, Enter the Bill -----------
+        txt = inv('NT-9555', [('Carrara mosaic 2x2', 48, 'sf', 18.0, None), ('White subway tile 3x6', 192, 'sf', 8.0, None)], po='PO-2026-982').replace('@ $8.00', '@ $8.0?')
+        eb = await pg.evaluate("""async (t) => { DB.pos.push({ id: 'epo1', number: 'PO-2026-982', projectId: 'p121', vendor: 'Nemo Tile', vendorId: 'v1', date: '2026-08-25', expected: '2026-09-02', status: 'received', lines: [{ id: 'el1', item: 'Carrara mosaic 2x2', qty: 48, unit: 'sf', price: 18, received: 48 }, { id: 'el2', item: 'White subway tile 3x6', qty: 192, unit: 'sf', price: 8, received: 192 }], receipts: [{ date: '2026-09-02', by: 'Angel', lines: [] }], tax: 8.875, shipping: 100 });
+            const d = (trkIngest(t, { source: { type: 'upload', fileName: 'nt9555.txt' }, links: { poId: 'epo1' } }).doc);
+            const row = nyhRowsAll().find(r => r.key === 'tk:enterbill:' + d.id);
+            const b = row && row.run(); const again = nyhRowsAll().some(r => r.key === 'tk:enterbill:' + d.id);
+            await new Promise(r => setTimeout(r, 150)); try { closeDrawer(); } catch (e) {}
+            return { route: row && row.route, verb: row && row.verb, low: trkUnconfirmed(d), bill: b && [b.vendor, b.number, b.poId, b.lines.filter(l => l.poLineId).length, d.links.billId === b.id], unconf: b && b.unconfirmed, held: b && !!trkBillHold(b), onHold: trkRows('billsOnHold').some(r => r.key === 'hold:' + (b && b.id)), again }; }""", txt)
+        c.ok(eb['route'] == 'billing' and eb['verb'] == 'Enter the Bill', f'a filed invoice on a PO with no bill is a Needs Your Hand row for billing: {eb}')
+        c.ok(eb['bill'] and eb['bill'][:3] == ['Nemo Tile', 'NT-9555', 'epo1'] and eb['bill'][3] == 2 and eb['bill'][4], f'Enter the Bill drafts the bill from the read invoice, lines matched to the PO and linked: {eb}')
+        c.ok(eb['low'] and eb['unconf'] == eb['low'] and eb['held'] and eb['onHold'] and not eb['again'], f'figures read with low confidence stay unconfirmed and hold the bill: {eb}')
+
         # ---- 8. the promise ledger: kept and broken; the vendor's record; the brain's lesson --------------
         await pg.evaluate("""() => { trkPromiseAdd({ vendor: 'Nemo Tile', poId: 'tpo3', kind: 'ship', due: '2026-09-05', what: 'ship the glass mosaic by Sep 5', loggedBy: 'Chen', source: { kind: 'text' } }); trkPromiseAdd({ vendor: 'Nemo Tile', poId: 'tpo1', kind: 'deliver', due: '2026-09-05', what: 'deliver the tile by Sep 5', loggedBy: 'Chen', source: { kind: 'call' } }); save(); }""")
         d = await pg.evaluate("() => { const r = appSetDay('2026-09-09'); return r.ran.includes('trkDay') }")
