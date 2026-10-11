@@ -3230,6 +3230,38 @@ body.crewmode .view.on .dl-sign > span{display:block;flex:1 1 auto;min-width:0}
   body.m-on #fab.m-fab{position:static;width:40px;height:40px;border-radius:var(--r);background:var(--paper);border-color:var(--rule);color:var(--ink);box-shadow:none;flex:none;z-index:auto}
   body.m-on #fab.m-fab svg{width:18px;height:18px;stroke-width:2}
 }
+/* ---------- standard: Settings › The SmartDesign Standard, Standard Watch, and the "because" line on every proposal ---------- */
+.ch-why{font-size:12.5px;color:var(--ink-3);margin-top:2px;line-height:1.35;overflow-wrap:anywhere}
+.h4r .ch-why{display:block}
+.m-appr .ch-why{margin:2px 0 4px}
+.ch-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:start;max-width:1180px}
+.ch-card .bd p{margin:0 0 8px;line-height:1.5} .ch-card h4{font-size:13px;font-weight:600;margin:10px 0 4px;color:var(--ink-2)}
+.ch-card h4:first-child{margin-top:0}
+.ch-list{margin:0;padding-left:20px} .ch-list li{padding:3px 0;line-height:1.45}
+.ch-ver{padding:8px 0;border-bottom:1px solid var(--rule-2)} .ch-ver:first-child{padding-top:0}
+.ch-ver-t{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.ch-hash{font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.ch-verify{margin-top:10px}
+.ch-acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.ch-ph-acts{flex:none}
+.ch-form{max-width:860px} .ch-form textarea,.ch-form input{width:100%;box-sizing:border-box}
+.ch-form textarea{font:inherit;line-height:1.45;resize:vertical}
+.ch-note{margin-top:12px}
+.std-waste{font-style:italic}
+.std-val{padding:8px 0;border-bottom:1px solid var(--rule-2)} .std-val:last-child{border-bottom:0} .std-val h4{margin-top:0}
+.std-esc-row{display:flex;flex-direction:column;gap:2px;padding:6px 0;border-bottom:1px solid var(--rule-2)}
+.sw-row,.sw-sh-row{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid var(--rule-2)}
+.sw-row .grow,.sw-sh-row .grow{display:flex;flex-direction:column;min-width:0;flex:1;overflow-wrap:anywhere}
+.sw-n{flex:none;min-width:24px;text-align:right;font-weight:600;font-variant-numeric:tabular-nums} .sw-n.bad{color:var(--bad)}
+.sw-none{flex:none}
+.std-src{margin:4px 0 8px} .std-src-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.4fr);gap:8px}
+.std-src-row select,.std-src-row input{width:100%;box-sizing:border-box}
+@media (max-width:760px){
+  .ch-grid{grid-template-columns:1fr;gap:12px}
+  .std-src-row{grid-template-columns:1fr}
+  /* the phone Home keeps its 180-word budget: the reason shows on Approvals and on the desktop Home */
+  .td-home .ch-why{display:none}
+}
 /* truth (BACKLOG §1.6): flags on postings not from a document, the History strip, coverage bars, the tie-out */
 .tr-flag{display:inline-block;margin-left:6px;padding:0 7px;border-radius:9px;background:var(--warn-2);color:var(--warn);font-size:11px;font-weight:600;white-space:nowrap;vertical-align:middle;line-height:1.7;max-width:100%}
 .tr-flag svg{width:11px;height:11px;vertical-align:-1px;margin-right:4px} .tr-flag.small{font-weight:500} .tr-flag[data-trdrill]{cursor:pointer}
