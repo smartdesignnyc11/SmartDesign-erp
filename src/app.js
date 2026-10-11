@@ -169520,7 +169520,7 @@ function tdRender() {
       ? shownC
           .map(
             (x, i) =>
-              `<div class="td-card td-c" data-src="${x.src}"><span class="td-ic">${ic('<path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/>')}</span><div class="td-txt"><div class="td-l1">${esc(x.what)}</div><div class="td-l2">${esc(x.sub)}</div></div><button type="button" class="btn sm td-verb" data-tdcatch="${i}">${esc(x.verb)}</button></div>`,
+              `<div class="td-card td-c" data-src="${x.src}"><span class="td-ic">${ic('<path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/>')}</span><div class="td-txt"><div class="td-l1">${esc(tdWords(x.what, 7))}</div><div class="td-l2">${esc(tdWords(x.sub, 8))}</div></div><button type="button" class="btn sm td-verb" data-tdcatch="${i}">${esc(x.verb)}</button></div>`,
           )
           .join("")
       : '<div class="td-empty">Nothing caught today.</div>'
@@ -170558,24 +170558,96 @@ const stdNyhRows = () =>
   STANDARD_RULES.filter((R) => "nyh" === R.surface).flatMap((R) =>
     standardRuleRows(R).map((x) => ({ key: "std:" + x.key, route: R.owner, kind: "standard", rule: R.id, title: x.what, why: x.sub || "", amount: x.amount || 0, verb: "Open", run: x.go || (() => setView("standard")), open: x.go || (() => setView("standard")) })),
   );
-// ---- ranking: Do Now, Caught for You and Needs Your Hand by the decision principles ---------------------------
-// The principle first; within it the existing measure of who is blocked and the money at stake (tdScore, which
-// every layer extends), then the date. The rows are the same rows: only their order changes.
-const stdDate = (it) => String((it && (it.due || it.date || (it.nyh && it.nyh.due))) || "9999");
+// ---- ranking: Do Now, Caught for You and Needs Your Hand ----------------------------------------------------
+// Alan (2026-10-11): sorting by the decision principle alone put an LLC filing due in 25 days above a bill due today.
+// The order is now:
+//   (a) immediate safety and law items, always first: an incident or unsafe condition, a stop-work, an expired or
+//       missing insurance certificate on a vendor working an active job;
+//   (b) urgency: overdue, due today, due this week (the next 7 days), later (or no date on the record);
+//   (c) within a bucket, the decision principle (standardTier);
+//   (d) then who is blocked (tdScore, which every layer extends, or the row's own blocked mark), the money at stake,
+//       and the date. The rows are the same rows: only their order changes, so every count stays as it was.
+const stdDate = (it) => stdDueOf(it) || String((it && (it.date || (it.nyh && it.nyh.due))) || "9999");
+const STD_ISO = /^\d{4}-\d{2}-\d{2}$/;
+const STD_MON = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+// The date an item is due, from the record behind it where there is one, else from the words it carries ("by 9/28",
+// "25 days left"); "" when nothing says. A meeting's date is when it was held, never when its follow-up is due.
+function stdDueOf(it) {
+  const o = stdObj(it),
+    r = o.nyh || {},
+    pick = (...v) => v.map((x) => String(x || "").slice(0, 10)).find((x) => STD_ISO.test(x)) || "";
+  let d = pick(o.due, o.dueBy, o.needBy, o.neededBy, o.exp, r.due, r.dueBy, r.needBy, r.exp, r.expires);
+  if (d) return d;
+  try {
+    if ("bill" === o.kind) d = pick(((DB.bills || []).find((b) => b.id === o.id) || {}).due);
+    else if ("raise" === o.kind) d = pick((tdRaise(o) || {}).dueBy);
+    else if ("dec" === o.kind) {
+      const D = tdDec(o);
+      d = D ? pick(D.d.due, D.d.needBy) || pick("function" == typeof decDue ? ("function" == typeof withProject ? withProject(D.p, () => decDue(D.d)) : decDue(D.d)) : "") : "";
+    } else if ("req" === o.kind) d = pick(((DB.projects || []).flatMap((p) => p.requests || []).find((q) => q.id === o.id) || {}).neededBy);
+    else if ("payroll" === o.kind || "payroll" === r.kind) {
+      const id = String(r.id || o.id || "").replace(/^payroll:/, "");
+      d = pick(((DB.payroll || []).find((x) => x.id === id) || {}).payDate);
+    }
+  } catch (e) {}
+  if (d) return d;
+  const key = String(r.key || o.id || o.key || ""),
+    m0 = key.match(/:(\d{4}-\d{2}-\d{2})$/);
+  if (m0 && /^oblig:/.test(key)) return m0[1];
+  if ("meeting" === o.kind) return "";
+  const t = [o.title, o.detail, o.what, o.sub, o.n, r.title, r.why].filter(Boolean).join(" · "),
+    y = today().slice(0, 4),
+    md = (mo, dd) => `${y}-${String(mo).padStart(2, "0")}-${String(dd).padStart(2, "0")}`;
+  let m;
+  if ((m = t.match(/\bby (\d{1,2})\/(\d{1,2})\b/))) return md(m[1], m[2]);
+  if ((m = t.match(/\b(\d+) days? left\b/))) return iso(addDays(today(), +m[1]));
+  if ("mail" === r.kind && /^(hold|visit)$/.test(r.pkind || "") && (m = t.match(/\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\w*,? (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w* (\d{1,2})\b/))) return md(STD_MON[m[1].toLowerCase()], m[2]);
+  return "";
+}
+// words that say the item itself is late ("was due 9/1", "order-by 8/31 passed", "lapsed"); not "expired", which on a
+// bill describes its vendor's certificate, not the bill
+const STD_LATE_WORDS = /\b(overdue|past due|lapsed|was due|passed)\b/i;
+// 0 overdue, 1 due today, 2 due this week, 3 later or undated.
+function standardUrgency(it) {
+  const o = stdObj(it),
+    r = o.nyh || {},
+    d = stdDueOf(it),
+    td = today(),
+    words = [o.title, o.detail, o.what, o.sub, r.title, r.why].filter(Boolean).join(" ");
+  if ((d && d < td) || ("meeting" !== o.kind && STD_LATE_WORDS.test(words))) return 0;
+  if (d === td) return 1;
+  if (d && d <= iso(addDays(td, 6))) return 2;
+  return 3;
+}
+// (a) the items that come first whatever their date.
+function standardImmediate(it) {
+  const o = stdObj(it),
+    r = o.nyh || {},
+    words = [o.title, o.detail, o.what, o.sub, r.title, r.why].filter(Boolean).join(" ");
+  if (/\bstop[- ]work\b/i.test(words)) return !0;
+  if ("raise" === o.kind && "safety" === stdRaiseP(o)) return !0;
+  if (1 === standardTier(it)) return !0;
+  // a vendor whose certificate is expired or missing while they work an active job (Caught for You's Compliance)
+  if ("compliance" === o.src && /\b(expired|lapsed|not on file|missing)\b/i.test(words)) return !0;
+  return !1;
+}
+// One reading for the tests and for Ask: where an item stands and why.
+const standardRank = (it) => ({ imm: standardImmediate(it) ? 0 : 1, u: standardUrgency(it), t: standardTier(it), due: stdDueOf(it) });
+const stdRankCmp = (a, b) => a.imm - b.imm || a.u - b.u || a.t - b.t;
 let stdLastQueue = [],
   stdLastCaught = [];
 tdQueue = function () {
   const A = PRED.waitingOnMe.rows();
-  return (stdLastQueue = A.map((it, i) => ({ it: it, i: i, t: standardTier(it), s: tdScore(it), d: stdDate(it) }))
-    .sort((a, b) => a.t - b.t || b.s - a.s || a.d.localeCompare(b.d) || a.i - b.i)
+  return (stdLastQueue = A.map((it, i) => Object.assign(standardRank(it), { it: it, i: i, s: tdScore(it), d: stdDate(it) }))
+    .sort((a, b) => stdRankCmp(a, b) || b.s - a.s || a.d.localeCompare(b.d) || a.i - b.i)
     .map((x) => x.it));
 };
 {
   const base = tdCaught;
   tdCaught = function () {
     const R = base.apply(this, arguments) || [];
-    return (stdLastCaught = R.map((r, i) => ({ r: r, i: i, t: standardTier(r), b: r.blocked ? 1 : 0, a: +r.amount || 0, d: stdDate(r) }))
-      .sort((a, b) => a.t - b.t || b.b - a.b || b.a - a.a || a.d.localeCompare(b.d) || a.i - b.i)
+    return (stdLastCaught = R.map((r, i) => Object.assign(standardRank(r), { r: r, i: i, b: r.blocked ? 1 : 0, a: +r.amount || 0, d: stdDate(r) }))
+      .sort((a, b) => stdRankCmp(a, b) || b.b - a.b || b.a - a.a || a.d.localeCompare(b.d) || a.i - b.i)
       .map((x) => x.r));
   };
 }
@@ -170588,8 +170660,8 @@ tdQueue = function () {
     try {
       R = R.concat(stdNyhRows().filter((r) => o.everyone || r.route === (o.role || me)));
     } catch (e) {}
-    return R.map((r, i) => ({ r: r, i: i, t: standardTier({ nyh: r }), a: +r.amount || 0, d: stdDate(r) }))
-      .sort((a, b) => a.t - b.t || b.a - a.a || a.d.localeCompare(b.d) || a.i - b.i)
+    return R.map((r, i) => Object.assign(standardRank({ nyh: r }), { r: r, i: i, a: +r.amount || 0, d: stdDate({ nyh: r }) }))
+      .sort((a, b) => stdRankCmp(a, b) || b.a - a.a || a.d.localeCompare(b.d) || a.i - b.i)
       .map((x) => x.r);
   };
 }
