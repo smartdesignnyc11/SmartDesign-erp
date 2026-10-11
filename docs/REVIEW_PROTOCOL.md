@@ -68,6 +68,7 @@ A 9 means a seasoned professional in that lens would choose this over the leader
   - the PM takes a submittal through to Release Order;
   - the foreman files a phone daily log with a % update and photos;
   - the client sees progress and shared photos.
+- **Phone in the field (from round 5):** every expert tests the phone in field conditions, not at a desk: one hand and gloves (44px targets in thumb reach), glare (16px text, AA contrast, 130% text size), slow 3G and offline (actions queue and land; nothing typed is lost), interruptions (come back to where you were), the on-screen keyboard, voice input, seconds per field job (under 30 s, under 5 taps), camera, landscape, a 4x-slower CPU. `.claude/agents/_PROTOCOL.md` has the checklist.
 - **Phone sweep:** 16 key screens plus every document type: no overflow, active sub-tab in view, inputs not covering labels.
 
 ## Finance lens (a construction CFO/controller vs NetSuite / QuickBooks Enterprise)

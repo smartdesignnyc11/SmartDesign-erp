@@ -15,6 +15,20 @@ SmartDesigns Projects, the ERP at /home/user/smartdesigns/smartdesigns-erp (buil
 - Test the brain (The Brain view: lessons, builds, obligations, plugins, workload; the lessons the system proposes from meetings and mail; what it changed in a process). Judge: would this stop my last three real mistakes from recurring?
 - Save screenshots and your Playwright scripts under `review/r5_<role>/` (git-ignored). Never edit src/, tests/ or docs; you review, you do not fix.
 
+## On the phone: test it on the go, the way it is really used (Alan, 2026-10-11)
+Every phone pass is done in field conditions, not at a desk. Drive these with Playwright and report each:
+- **One hand, a thumb, maybe gloves.** Every control you need is at least 44px and in the thumb's reach (lower two thirds of the screen); nothing important sits only at the top corners. Count mis-tap risks (targets under 44px or under 8px apart).
+- **Glare and a small screen.** Text at least 16px, contrast at least AA (4.5:1), numbers readable at arm's length. Repeat the key screens with the text size raised to 130% (page zoom) and say what breaks.
+- **Bad or no signal.** Emulate slow 3G and then offline (context.set_offline): does the screen still open, does an action you take offline queue and land when the signal returns, does anything say it is waiting? Nothing typed may be lost.
+- **Interruptions.** Mid-task, leave the app (navigate away, reload, or switch user and back): does it bring you back to where you were with what you typed kept (a half-filled daily log, a CO being priced, a request)?
+- **The keyboard covers half the screen.** With a field focused (viewport shrunk to ~390x500 to stand in for the on-screen keyboard), is the field and its Next/Send button still visible?
+- **Hands busy, noise around.** Is there a voice path (Say It) for the long fields, and does it fill the right field?
+- **Seconds, not minutes.** Time each field job end to end (clock in, request material, report a problem, answer a question, approve a bill, choose an option, take and file a photo). A field job should take under 30 seconds and under 5 taps; say which do not.
+- **Camera and photos.** Taking a photo, tagging it to the job and task, and sending it, on the phone, with no desk step.
+- **Landscape.** Rotate (844x390) on the screens a foreman would hold sideways (photos, drawings, schedule): nothing breaks.
+- **Slow phone.** CPU throttled 4x (CDP Emulation.setCPUThrottlingRate): first screen under 3 s, every tap answers under 300 ms; report the slow ones.
+Report these under a "Phone, in the field" heading with numbers, before the desktop findings.
+
 ## Your report (strict, under 160 lines, plain language, house voice, no exclamation marks)
 1. **Verdict.** Three sentences. Then grades out of 10, each with one reason: (a) my screens and workflows, (b) the assistant, (c) the brain, (d) overall "would I choose this over the tools I know". A 9 means you would pick it for this firm with no severity-1 or severity-2 finding left.
 2. **My day, as it went.** Each job: steps, clicks + fields, where it broke or made me hunt, and whether the hand-off arrived.
