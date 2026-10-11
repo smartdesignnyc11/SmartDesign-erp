@@ -178015,7 +178015,8 @@ const polWords = (t) =>
   String(t || "")
     .toLowerCase()
     .split(/[^a-z0-9]+/)
-    .filter((w) => w.length >= 4 && !/^(line|work|with|from|each|install|supply|labor|materials?)$/.test(w));
+    .filter((w) => w.length >= 4 && !/^(line|work|with|from|each|install|supply|labor|materials?)$/.test(w))
+    .map((w) => (w.length > 4 ? w.replace(/s$/, "") : w));
 // the link an unlinked line most likely has, from the order itself; null when it is not clear
 function polGuess(po, l) {
   const p = (DB.projects || []).find((x) => x.id === po.projectId);
@@ -178024,8 +178025,16 @@ function polGuess(po, l) {
   if (m && m.line && findLine(m.line)) return m.line;
   const opts = lineOptions(p.id);
   if (!opts.length) return null;
+  // the cost code says which line: the PO line's own, then the code of the task the material is for (trim for
+  // "Base molding, casing & doors"), then the item's words; the first code that names exactly one line wins
+  const task = m && (m.taskId || m.task) && (p.tasks || []).find((t) => t.id === (m.taskId || m.task)),
+    cf = (t) => ("function" == typeof codeForLine ? String(codeForLine({ item: t }) || "") : ""),
+    codes = [l.code ? String(l.code) : "", task ? cf(task.name) : "", cf(l.item || "")].filter((c, i, A) => c && "99" !== c && A.indexOf(c) === i);
+  for (const code of codes) {
+    const one = opts.filter((o) => String(lineCode(o.line, o.doc)) === code);
+    if (1 === one.length) return one[0].key;
+  }
   const same = l.code ? opts.filter((o) => String(lineCode(o.line, o.doc)) === String(l.code)) : [];
-  if (1 === same.length) return same[0].key;
   const W = polWords(`${l.item || ""} ${l.desc || ""}`),
     pool = same.length ? same : opts,
     sc = pool.map((o) => {
