@@ -3,7 +3,8 @@ The app's day is pinned to 2026-09-03 (today()); seeded demo data loads on first
 import os, asyncio, json
 from playwright.async_api import async_playwright
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-URL = 'file://' + os.path.join(ROOT, 'dist', 'smartdesigns_projects.html')
+# SD_DIST names another build to open (a copy built while a long suite holds dist/); the default is dist/.
+URL = 'file://' + (os.environ.get('SD_DIST') or os.path.join(ROOT, 'dist', 'smartdesigns_projects.html'))
 USERS = ['u_owner', 'u_alan', 'u_chen', 'u_angel', 'u_alberto', 'u_alex', 'u_klein', 'u_sarah', 'u_billing', 'u_controller']
 DESKTOP = {'width': 1440, 'height': 900}
 PHONE = {'width': 390, 'height': 844}

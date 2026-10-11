@@ -16,9 +16,11 @@ const DAY = 864e5,
   dayDiff = (a, b) => Math.round((parse(b) - parse(a)) / DAY),
   // the app's year is understood; any other year is said ("8/15/2027", "Aug 15, 2027"), so a COI that
   // expires next year never reads like one that expired last month
+  // the app day's year: read off appDay(), not appNow(), since a date is formatted thousands of times a render
+  // and the clock's time of day plays no part in the year
   fmtYear = () => {
     try {
-      return "function" == typeof appNow ? appNow().getFullYear() : new Date().getFullYear();
+      return "function" == typeof appDay ? +appDay().slice(0, 4) : new Date().getFullYear();
     } catch (e) {
       return new Date().getFullYear();
     }
@@ -43,18 +45,33 @@ const DAY = 864e5,
       return "America/New_York";
     }
   };
+// One formatter per time zone and shape: building an Intl.DateTimeFormat costs far more than formatting with it.
+const TZ_FMT = new Map();
+function tzFmt(kind, tz) {
+  const k = kind + "|" + tz;
+  let f = TZ_FMT.get(k);
+  return (
+    f ||
+      ((f =
+        "clock" === kind
+          ? new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" })
+          : new Intl.DateTimeFormat("en-CA", {
+              timeZone: tz,
+              year: "numeric",
+              month: "2-digit",
+              day: "2-digit",
+              hour: "2-digit",
+              minute: "2-digit",
+              hour12: !1,
+            })),
+      TZ_FMT.set(k, f)),
+    f
+  );
+}
 function tzParts(d) {
   const x = d ? new Date(d) : new Date();
   try {
-    const f = new Intl.DateTimeFormat("en-CA", {
-        timeZone: APP_TZ(),
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: !1,
-      }),
+    const f = tzFmt("parts", APP_TZ()),
       p = {};
     if (
       (f.formatToParts(x).forEach((o) => {
@@ -115,13 +132,7 @@ function appClock() {
     m = x.getMinutes(),
     sec = x.getSeconds();
   try {
-    const f = new Intl.DateTimeFormat("en-GB", {
-        timeZone: APP_TZ(),
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-        hourCycle: "h23",
-      }),
+    const f = tzFmt("clock", APP_TZ()),
       p = {};
     f.formatToParts(x).forEach((o) => {
       "literal" !== o.type && (p[o.type] = o.value);
@@ -177,7 +188,23 @@ function prevWork(dateStr, weekendOk = !1) {
   for (; !isWork(s, weekendOk); ) s = iso(addDays(s, -1));
   return s;
 }
+// Working-day arithmetic walks day by day; a render asks the same questions hundreds of times, so answers are
+// kept for as long as the holiday calendar is the same Set (applyHolidaysFrom keeps it while the text is unchanged).
+const workMemos = new WeakMap();
+function workMemo() {
+  let m = workMemos.get(holidaySet);
+  return m || ((m = new Map()), workMemos.set(holidaySet, m)), m;
+}
 function addWork(dateStr, n, weekendOk = !1) {
+  if ("string" == typeof dateStr) {
+    const M = workMemo(),
+      k = "a" + dateStr + "|" + n + (weekendOk ? "|w" : "");
+    let v = M.get(k);
+    return void 0 === v && ((v = addWorkWalk(dateStr, n, weekendOk)), M.set(k, v)), v;
+  }
+  return addWorkWalk(dateStr, n, weekendOk);
+}
+function addWorkWalk(dateStr, n, weekendOk = !1) {
   let s = dateStr,
     step = n > 0 ? 1 : -1,
     left = Math.abs(n);
@@ -186,6 +213,15 @@ function addWork(dateStr, n, weekendOk = !1) {
 }
 function workdays(a, b, weekendOk = !1) {
   if (!a || !b) return 0;
+  if ("string" == typeof a && "string" == typeof b) {
+    const M = workMemo(),
+      k = "d" + a + "|" + b + (weekendOk ? "|w" : "");
+    let v = M.get(k);
+    return void 0 === v && ((v = workdaysWalk(a, b, weekendOk)), M.set(k, v)), v;
+  }
+  return workdaysWalk(a, b, weekendOk);
+}
+function workdaysWalk(a, b, weekendOk = !1) {
   if (parse(a) > parse(b)) return -workdays(b, a, weekendOk);
   let n = 0,
     s = a;
@@ -2634,13 +2670,21 @@ async function getLarge(key) {
   if (head.len && out.length !== head.len) throw new Error("chunk length mismatch");
   return out;
 }
+// one Set per holiday text, so each job's calendar keeps its working-day answers across renders
+const holidaySets = new Map();
 function applyHolidaysFrom(str) {
-  holidaySet = new Set(
-    (str || "")
-      .split("\n")
-      .map((l) => l.trim().split(/\s+/)[0])
-      .filter((x) => /^\d{4}-\d{2}-\d{2}$/.test(x)),
-  );
+  const t = str || "";
+  let h = holidaySets.get(t);
+  h ||
+    ((h = new Set(
+      t
+        .split("\n")
+        .map((l) => l.trim().split(/\s+/)[0])
+        .filter((x) => /^\d{4}-\d{2}-\d{2}$/.test(x)),
+    )),
+    holidaySets.size > 50 && holidaySets.clear(),
+    holidaySets.set(t, h)),
+    (holidaySet = h);
 }
 function applyHolidays() {
   applyHolidaysFrom(S.project.holidays);
@@ -3463,6 +3507,8 @@ function applyRole() {
       "#btn-addiss",
       "#btn-addinsp",
       "#btn-addpermit",
+      // the brief is written by the assistant panel, which opens only for a role that edits the project
+      "#btn-brief",
     ].forEach((sel) => {
       const el = $(sel);
       el && (el.style.display = canEdit() ? "" : "none");
@@ -3496,8 +3542,10 @@ function navWhoOpens(v) {
 }
 // No dead links: a row, tile or link in a view that points at a view this role may not open is shown
 // as information, not as a link (one pass for every generator: reminders, dashboard widgets, nav rows).
-const NAV_LINK_SEL = "[data-remgo], [data-v], [data-gl], [data-view]";
+const NAV_LINK_SEL = "[data-remgo], [data-v], [data-gl], [data-view], [data-go^='view:']";
 function navLinkTarget(el) {
+  // a row that jumps by data-go="view:<id>" (the job dashboard's watch list) is a link like the others
+  if (el.dataset.go && el.dataset.go.startsWith("view:")) return el.dataset.go.slice(5).split(/[:|]/)[0];
   if (el.dataset.remgo)
     try {
       return JSON.parse(el.dataset.remgo).view || "";
@@ -3517,7 +3565,7 @@ function navLinkPass(root) {
     (root || document).querySelectorAll(".view " + NAV_LINK_SEL.split(", ").join(", .view ")).forEach((el) => {
       const v = navLinkTarget(el);
       if (!v || !known.has(v) || V.includes(v) || ("undefined" != typeof MB_VIEWS && MB_VIEWS.includes(v) && mbAccess())) return;
-      ["remgo", "v", "gl", "view"].forEach((k) => delete el.dataset[k]),
+      ["remgo", "v", "gl", "view", "go"].forEach((k) => delete el.dataset[k]),
         (el.dataset.navoff = v),
         el.classList.add("nav-static"),
         (el.style.cursor = "default"),
@@ -3535,13 +3583,15 @@ new MutationObserver(() => {
       (navLinkQ = !1), navLinkPass(document);
     }));
 }).observe(document.documentElement, { childList: !0, subtree: !0 });
+// The role's Home: the page sign-in opens (the foreman's Today, the crew's Time, the driver's Route, the
+// client's portal), never the first view in the list, which is Ask.
 function roleHome(r) {
   const V = ROLE_VIEWS[r] || [];
   let h = "";
   try {
     h = IA_HOME[r];
   } catch (e) {}
-  return h && V.includes(h) ? h : V.includes("home") ? "home" : V.includes("dash") ? "dash" : V[0];
+  return h && V.includes(h) ? h : ["home", "ftoday", "time", "route", "client", "sday", "dash"].find((v) => V.includes(v)) || V[0];
 }
 function navBlocked(r, v) {
   const was = navRoleSeen;
@@ -3707,8 +3757,12 @@ let view = "dash",
   matFilter = "all",
   matGroup = "date",
   decFilter = "open";
+// A view this role may not open lands on the role's Home with the toast that says who opens it (navBlocked),
+// never on the first view in the list (Ask), which read as the press falling through to the assistant.
 function setView(v) {
-  ROLE_VIEWS[role()].includes(v) || (v = ROLE_VIEWS[role()][0]),
+  ROLE_VIEWS[role()].includes(v) ||
+    ("undefined" != typeof MB_VIEWS && MB_VIEWS.includes(v) && mbAccess()) ||
+    (navBlocked(role(), v), (v = view)),
     (view = v),
     document.querySelector(".rail")?.classList.remove("open"),
     $("#railscrim")?.classList.remove("on"),
@@ -3804,7 +3858,7 @@ function render() {
       ? (view = "mbdash")
       : "mb" !== DB.workspace &&
         MB_VIEWS.includes(view) &&
-        (view = ROLE_VIEWS[role()].find((v) => !MB_VIEWS.includes(v)) || "dash")),
+        (view = MB_VIEWS.includes(roleHome(role())) ? ROLE_VIEWS[role()].find((v) => !MB_VIEWS.includes(v)) || "dash" : roleHome(role()))),
     (!S ||
       (S.id && !(DB.projects || []).some((p) => p.id === S.id)) ||
       (!S.id && (DB.projects || []).length)) &&
@@ -4485,6 +4539,9 @@ function renderGantt(cpm) {
         left: Math.max(0, X(td) - (mob ? 1.5 * px : chart.clientWidth / 3)),
         behavior: "smooth",
       });
+      // the press shows where today is even when the chart already sits there: the line pulses once
+      const tl = chart.querySelector(".todayline");
+      tl && (tl.classList.remove("today-pulse"), void tl.getBBox(), tl.classList.add("today-pulse"), setTimeout(() => tl.classList.remove("today-pulse"), 1600));
     });
   const startDrag = (el, e) => {
     const t = task(el.dataset.id);
@@ -5080,11 +5137,115 @@ function taskSummary(t) {
   const c = computeCPM().cpm[t.id];
   return `${t.name}: ${fmt(t.start)}–${fmt(t.end)} · ${t.owner}${c.critical ? " · critical path" : ""}${t.notes ? " · " + t.notes.slice(0, 80) : ""}`;
 }
+// The read-only line for a field item, for someone who cannot edit it.
+function issueSummary(i) {
+  const due = i.due ? ` · due ${fmt(i.due)}` : "";
+  return `${i.title || "Field item"}: ${"open" === i.status ? "open" : "closed"}${i.owner ? ` · ${i.owner}` : ""}${due}`;
+}
+// The read-only line for a time entry, for someone who cannot edit it.
+function timeSummary(e) {
+  const st = "approved" === e.status ? "approved" : "rejected" === e.status ? "sent back" : "waiting for approval";
+  return `${fmt(e.date)}: ${workHours(e).toFixed(1)} hours, ${st}${e.notes ? ` · ${e.notes.slice(0, 80)}` : ""}`;
+}
+// A project item read-only, for someone who cannot edit it: what it is, where it stands, who has it.
+function readSheet(title, facts, notes) {
+  const m = mbModal(
+    esc(title),
+    `<p>${esc(facts.filter(Boolean).join(" · "))}</p>${notes ? `<p class="small muted">${esc(notes)}</p>` : ""}`,
+    { submit: null },
+  );
+  const c = m && m.querySelector("#mbm-cancel");
+  c && (c.textContent = "Close");
+}
+function openReadOnly(kind, id) {
+  if (!id) return;
+  const find = (list) => (list || []).find((x) => x.id === id),
+    st = (x) => String(x || "").replace(/-/g, " ");
+  if ("time" === kind) {
+    const e = find(DB.time);
+    return void (e && toast(timeSummary(e)));
+  }
+  if ("task" === kind) {
+    const t = task(id);
+    return void (
+      t &&
+      ("sched" !== view && "function" == typeof flowCan && flowCan("sched")
+        ? goRow("sched", t.name)()
+        : toast(taskSummary(t)))
+    );
+  }
+  if ("iss" === kind) {
+    const i = find(S.issues);
+    return void (i && readSheet(i.title || "Field item", [issueSummary(i).split(": ").slice(1).join(": ")], i.notes));
+  }
+  if ("dec" === kind) {
+    const d = find(S.decisions);
+    return void (
+      d &&
+      readSheet(
+        `Decision: ${d.name || d.title || ""}`,
+        [st(d.status), d.owner && `with ${d.owner}`, d.due && `due ${fmt(d.due)}`, d.choice && `chosen: ${d.choice}`],
+        d.notes,
+      )
+    );
+  }
+  if ("mat" === kind) {
+    const m = find(S.materials);
+    return void (m && readSheet(m.name, [st(m.status), m.vendor, m.eta && `expected ${fmt(m.eta)}`], m.notes));
+  }
+  if ("insp" === kind) {
+    const i = find(S.inspections);
+    return void (i && readSheet(i.name, [i.agency, st(i.status), i.date && fmt(i.date)], i.notes));
+  }
+  if ("po" === kind) {
+    // a PO for a role without the PO page: what was ordered and where it stands (amounts only for the office)
+    const po = find(DB.pos);
+    if (!po) return;
+    if ("function" == typeof flowCan && flowCan("recv") && ["issued", "partial"].includes(po.status)) return void goRow("recv", po.number)();
+    const field = ["foreman", "crew", "driver"].includes(role()),
+      amt = poTotal(po).total;
+    return void readSheet(
+      `${po.number} · ${po.vendor || ""}`,
+      [
+        st(po.status),
+        po.expected && `expected ${fmt(po.expected)}`,
+        `${(po.lines || []).length} line${1 === (po.lines || []).length ? "" : "s"}`,
+        !field && amt ? money(amt) : "",
+      ],
+      (po.lines || []).map((l) => l.item || l.desc || "").filter(Boolean).join("; "),
+    );
+  }
+  if ("permit" === kind) {
+    const pm = find(S.permits);
+    return void (pm && readSheet(pm.name, [pm.agency, st(pm.status), pm.expires && `expires ${fmt(pm.expires)}`], pm.notes));
+  }
+}
+// The page each office record lives on.
+const OPEN_ON = {
+  po: "po",
+  bill: "ap",
+  vendor: "vendors",
+  inv: "billing",
+  payroll: "payroll",
+  vtxn: "verify",
+  txn: "bank",
+  file: "files",
+};
 let editing = null;
 function openEditor(kind, id) {
   if ("view" === kind) return void setView(id);
-  if (!(canEdit() || ("mat" === kind && ["crew", "foreman"].includes(role()))))
-    return void ("task" === kind && id && toast(taskSummary(task(id))));
+  // Office records open for whoever has their page (the controller opens a PO from the PO list); the
+  // project's own items stay with the roles that edit the project.
+  const officeView = OPEN_ON[kind];
+  if (
+    !(
+      canEdit() ||
+      ("mat" === kind && ["crew", "foreman"].includes(role())) ||
+      (officeView && "function" == typeof flowCan && flowCan(officeView))
+    )
+  )
+    // Someone who cannot edit an item still gets somewhere: a task's row on the schedule, the item read-only.
+    return void openReadOnly(kind, id);
   if ("iss" === kind) return void openIssueEditor(id);
   if ("permit" === kind) return void openPermitEditor(id);
   if ("action" === kind) return void openActionEditor(id);
@@ -9969,8 +10130,9 @@ async function categorizeAI() {
     "uncat" === t.cat && applyRules(t) && ruled++;
   });
   const rest = open.filter((t) => txnState(t).sev >= 2);
-  if (!rest.length) return save(), render(), void toast(`${ruled} categorized by rules`);
-  toast(`${ruled} by rules · asking the assistant about ${rest.length}…`);
+  const bankOpen = txnListOpen("bank", () => ((txnFilter = "all"), (txnAcct = "")));
+  if (!rest.length) return save(), render(), void toast(`${ruled} categorized by rules`, bankOpen);
+  toast(`${ruled} by rules · asking the assistant about ${rest.length}…`, bankOpen);
   const ctx = {
       categories: CATEGORIES.map((c) => ({ id: c.id, name: c.n, type: c.type })),
       costCodes: COST_CODES.map((c) => ({ code: c[0], name: c[1] })),
@@ -10526,6 +10688,7 @@ function budgetFromEstimate() {
       est.lines.some((l) => +l.cost)
         ? "Budget loaded from line costs"
         : "Budget loaded from prices — add budget costs to the estimate lines for a real margin view",
+      () => editBudgetDialog(),
     );
 }
 function editBudgetDialog() {
@@ -11436,6 +11599,8 @@ function matchAllPOs() {
     render(),
     toast(
       `${n} match${1 === n ? "" : "es"} proposed — confirm in Banking or on the PO · ${DB.txns.filter((t) => t.projectId === S.id && t.noPO).length} without a PO`,
+      // the proposals wait in Banking's review list
+      txnListOpen("bank", () => ((txnFilter = "open"), (txnAcct = ""))),
     );
 }
 function newPODialog() {
@@ -13706,7 +13871,10 @@ function verifyAll() {
   }
   (DB.lastVerify = appNowIso()), save(), render();
   const open = DB.txns.filter((t) => t.verification && !t.verified && "reconciled" !== t.status).length;
-  toast(`${n} verified · ${open} exception${1 === open ? "" : "s"} for the Owner`);
+  toast(
+    `${n} verified · ${open} exception${1 === open ? "" : "s"} for the Owner`,
+    txnListOpen("verify", () => (vfFilter = "open")),
+  );
 }
 function openExceptions() {
   return DB.txns.filter((t) => t.verification && !t.verified && "reconciled" !== t.status && !t.ownerCleared);
@@ -14526,8 +14694,9 @@ function renderTime() {
         ? "No time entries waiting for approval. Switch to This Week to see what has been clocked."
         : "No entries in this view. Switch the filter above, or add one with Add Time Entry.",
   })),
-    ($("#time-approve-all").style.display =
-      rows.some((t) => "submitted" === t.status) && (canApproveSchedule() || isOwner()) ? "" : "none"),
+    $("#time-approve-all") &&
+      ($("#time-approve-all").style.display =
+        rows.some((t) => "submitted" === t.status) && (canApproveSchedule() || isOwner()) ? "" : "none"),
     $("#clock-in")?.addEventListener("click", () => clockEvent("in")),
     $("#clock-out")?.addEventListener("click", () => clockEvent("out")),
     $("#geo-auto")?.addEventListener("change", (e) => {
@@ -14760,7 +14929,8 @@ async function clockEvent(kind) {
     render(),
     toast(
       "in" === kind ? `Clocked in at ${S.project.name}` : "Clocked out — now log what you worked on",
-      flowGo.time(te),
+      // the entry itself: the person is already on the time page, so Open opens the punch they just made
+      () => (te ? openTime(te.id) : flowGo.time(te)()),
     );
 }
 function openTime(id) {
@@ -14805,7 +14975,23 @@ function openTime(id) {
     }),
     document
       .querySelectorAll("[data-tact]")
-      .forEach((b) => b.addEventListener("click", () => timeAction(e, b.dataset.tact)));
+      .forEach((b) =>
+        b.addEventListener("click", () => ("reject" === b.dataset.tact ? timeRejectAsk(e) : timeAction(e, b.dataset.tact))),
+      );
+}
+// Rejecting a person's hours asks why, as rejecting a bill or a PO does: the reason goes on the entry and the
+// audit trail, and the person sees it. A reject is never one unexplained tap.
+function timeRejectAsk(e, done, act) {
+  e &&
+    billAskWhy(
+      `Reject — ${esc(empName(e.empId))} · ${fmt(e.date)}`,
+      "",
+      "Reject Hours",
+      "e.g. wrong job, hours do not match the log",
+      (why) => {
+        (e.rejectWhy = why), act ? act("reject") : timeAction(e, "reject"), done && done();
+      },
+    );
 }
 function saveTime() {
   const o = editing.collect(),
@@ -18262,13 +18448,19 @@ function signIn(userId) {
     // on a phone the header already says who and where; the toast only covered the bottom of the first screen
     window.innerWidth <= 760 || toast(`Signed in as ${u.name}`);
 }
+// The device picker after a client signs out lists the firm's people and that client's own household, never
+// another client: a client's phone is not where the firm's client list is read.
+let signInFrom = "";
 function signOut() {
-  (DB.deviceUser = ""), save(), showSignIn();
+  (signInFrom = DB.deviceUser || ""), (DB.deviceUser = ""), save(), showSignIn();
 }
 function showSignIn() {
-  const box = $("#signin-list");
+  const box = $("#signin-list"),
+    from = (DB.users || []).find((x) => x.id === signInFrom),
+    cid = from && from.clientId;
   (box.innerHTML =
     DB.users
+      .filter((u) => !cid || !u.clientId || u.clientId === cid)
       .map(
         (u) =>
           `<button class="ubtn" data-signin="${u.id}"><span>${esc(u.name)}</span><span class="r">${ROLE_NAMES[u.role] || u.role}</span></button>`,
@@ -19605,7 +19797,17 @@ function wire() {
       }
       const nx = e.target.closest("[data-nudgex]");
       if (nx)
-        return (DB.dismissed = DB.dismissed || []).push("nudge:" + nx.dataset.nudgex), save(), void render();
+        return (
+          (DB.dismissed = DB.dismissed || []).push("nudge:" + nx.dataset.nudgex),
+          save(),
+          render(),
+          void toast(`Dismissed: the ${task(nx.dataset.nudgex)?.name || "kit"} reminder`, {
+            label: "Undo",
+            run: () => {
+              (DB.dismissed = (DB.dismissed || []).filter((k) => k !== "nudge:" + nx.dataset.nudgex)), save(), render();
+            },
+          })
+        );
       const mr = e.target.closest("[data-myreq]");
       if (mr) {
         const r = S.requests.find((x) => x.id === mr.dataset.myreq);
@@ -19741,7 +19943,7 @@ function wire() {
           log(`${m.name} on site`),
           save(),
           render(),
-          void toast(`${m.name} marked on site`)
+          void toast(`${m.name} marked on site`, () => openEditor("mat", m.id))
         );
       }
       const ps = e.target.closest("[data-passed]");
@@ -19753,7 +19955,7 @@ function wire() {
           log(`${i.agency} ${i.name} passed ${fmt(i.date)}`),
           save(),
           render(),
-          void toast(`${i.name} passed`)
+          void toast(`${i.name} passed`, () => openEditor("insp", i.id))
         );
       }
       const dd = e.target.closest("[data-decided]");
@@ -21775,7 +21977,7 @@ function setWorkspace(ws) {
     document.body.classList.toggle("ws-mb", "mb" === ws),
     "mb" === ws
       ? MB_VIEWS.includes(view) || (view = "mbdash")
-      : MB_VIEWS.includes(view) && (view = ROLE_VIEWS[role()].find((v) => !MB_VIEWS.includes(v)) || "dash"),
+      : MB_VIEWS.includes(view) && (view = MB_VIEWS.includes(roleHome(role())) ? ROLE_VIEWS[role()].find((v) => !MB_VIEWS.includes(v)) || "dash" : roleHome(role())),
     save(),
     render();
 }
@@ -22169,7 +22371,10 @@ function renderMB() {
     "mbprop" === view && renderMBProp(),
     document.querySelectorAll("[data-mbopen]").forEach((el) =>
       el.addEventListener("click", (e) => {
-        e.target.closest("button,a,select,input") || mbOpen(el.dataset.mbopen, el.dataset.mbtab || void 0);
+        // a control inside the row keeps its own click; a button that is itself the link opens (Open D-0001
+        // on the property page was a <button data-mbopen> and the guard swallowed its own click)
+        const inner = e.target.closest("button,a,select,input");
+        (inner && inner !== el) || mbOpen(el.dataset.mbopen, el.dataset.mbtab || void 0);
       }),
     );
   const nb = $("#mb-new");
@@ -22569,7 +22774,12 @@ function mbFlags(d, p) {
       : ""
   );
 }
+// The deal page and the property page draw the same blocks with the same ids (#mb-back, the government tab's
+// buttons), and their wiring looks ids up in the whole document: with both drawn, the page shown got none of
+// its handlers (← Properties, Add Fact, Record Change did nothing). Each empties the other as it draws.
 function renderMBDeal() {
+  const other = document.getElementById("mb-prop");
+  other && (other.innerHTML = "");
   const d = DB.deals.find((x) => x.id === mbDealId) || DB.deals[0];
   if (!d) return void ($("#mb-deal").innerHTML = '<div class="card muted">No deal selected.</div>');
   mbDealId = d.id;
@@ -23109,6 +23319,8 @@ function mbOpenProp(id) {
   (mbPropId = id), (view = "mbprop"), render(), mbTop();
 }
 function renderMBProp() {
+  const other = document.getElementById("mb-deal");
+  other && (other.innerHTML = "");
   const p = DB.properties.find((x) => x.id === mbPropId) || DB.properties[0];
   if (!p) return void ($("#mb-prop").innerHTML = '<div class="card muted">No property selected.</div>');
   mbPropId = p.id;
@@ -30449,7 +30661,7 @@ function designMilestoneInvoice(c, d) {
     total = docNet(d),
     m = mbModal(
       `Bill a milestone — ${esc(d.number)}`,
-      `<p class="small muted">Each milestone bills its percentage of every phase. Retainer on account ${money(retainerBalance(c, d.id))} is applied automatically.</p><div class="ms-list">${ms.map((x, i) => `<label class="ms-row ${done.includes(i) ? "dim" : ""}"><input type="radio" name="dms" value="${i}" ${done.includes(i) ? "disabled" : (!done.length && 0 === i) || done.length === i ? "checked" : ""}><span class="ms-pct">${x.pct}%</span><span class="ms-lbl">${esc(x.label)}${done.includes(i) ? ' <span class="pill ok">Billed</span>' : ""}</span><span class="ms-amt">${money((total * x.pct) / 100)}</span></label>`).join("")}</div><div class="small muted" style="margin-top:8px">Billed so far ${done.reduce((a, i) => a + (ms[i]?.pct || 0), 0)}% of ${money(total)}. <a href="#" id="dms-edit">Edit Milestones</a></div>`,
+      `<p class="small muted">Each milestone bills its percentage of every phase. Retainer on account ${money(retainerBalance(c, d.id))} is applied automatically. The invoice is drafted for you to review; nothing goes to the client until you send it.</p><div class="ms-list">${ms.map((x, i) => `<label class="ms-row ${done.includes(i) ? "dim" : ""}"><input type="radio" name="dms" value="${i}" ${done.includes(i) ? "disabled" : (!done.length && 0 === i) || done.length === i ? "checked" : ""}><span class="ms-pct">${x.pct}%</span><span class="ms-lbl">${esc(x.label)}${done.includes(i) ? ' <span class="pill ok">Billed</span>' : ""}</span><span class="ms-amt">${money((total * x.pct) / 100)}</span></label>`).join("")}</div><div class="small muted" style="margin-top:8px">Billed so far ${done.reduce((a, i) => a + (ms[i]?.pct || 0), 0)}% of ${money(total)}. <a href="#" id="dms-edit">Edit Milestones</a></div>`,
       {
         submit: "Create invoice",
         onSubmit: () => {
@@ -32811,6 +33023,22 @@ function releaseRetainage(v, projectId, ok2) {
     toast(`${b.number} submitted for approval`);
 }
 const billActionBase = billAction;
+// What was checked in on this job today: an order received in full leaves the list above, and this is where
+// the person who checked it in still finds it.
+function recvTodayHtml() {
+  const td = today(),
+    rows = DB.pos
+      .filter((po) => po.projectId === S.id)
+      .flatMap((po) => (po.receipts || []).filter((r) => r.date === td).map((r) => ({ po: po, r: r })));
+  return rows.length
+    ? `<div class="card recv-today" id="recv-today"><h3>Checked In Today</h3>${rows
+        .map(
+          ({ po: po, r: r }) =>
+            `<div class="recv-row row" style="gap:8px;align-items:baseline"><b>${esc(po.number)}</b><span class="small">${esc(po.vendor)} · ${(r.lines || []).map((l) => `${l.qty} ${esc(l.unit || "")} ${esc(l.item || "")}`.replace(/\s+/g, " ").trim()).join("; ")}</span><span class="grow"></span><span class="small muted">${esc(r.by || "")}${"received" === po.status ? " · order complete" : ""}</span></div>`,
+        )
+        .join("")}</div>`
+    : "";
+}
 function renderRecv() {
   const root = $("#recv-body");
   if (!root) return;
@@ -32833,7 +33061,7 @@ function renderRecv() {
           )}\n    <div class="row" style="margin-top:8px;gap:6px"><button class="btn sm" data-rall="${po.id}">Everything arrived</button><button class="btn sm" data-rissue="${po.id}">Report a problem</button></div></div>`;
       })
       .join("") || '<div class="card muted">Nothing on order for this job.</div>'
-  }`;
+  }${recvTodayHtml()}`;
   const receive = (po, l, qty, note) => {
     l.received = r2((+l.received || 0) + qty);
     const m = l.materialId && mat(l.materialId);
@@ -33110,6 +33338,19 @@ const clientUserOf = () => {
   const u = currentUser();
   return u && u.clientId ? DB.clients.find((c) => c.id === u.clientId) : clientOf();
 };
+// The site's view of a proposal or change order: what the work is, line by line, and where it stands. No
+// amount, total, rate or payment term: the foreman, crew and driver never see money (BACKLOG 1.3).
+function docScopeSheet(d) {
+  const lines = (d.lines || []).filter((l) => !l.parent && (l.item || l.desc)),
+    st = { draft: "Draft", sent: "Sent to the client", approved: "Approved", signed: "Signed", declined: "Declined", void: "Void" }[d.status] || d.status || "";
+  mbModal(
+    `${"co" === d.type ? "Change Order" : "Proposal"} ${esc(d.number || "")}`,
+    `<div class="small muted">${esc(d.title || "")}${d.date ? " · " + fmt(d.date) : ""}${st ? " · " + esc(st) : ""}</div><ol class="doc-scope">${lines
+      .map((l) => `<li><b>${esc(l.item || "")}</b>${l.desc ? `<div class="small muted" style="white-space:pre-wrap">${esc(String(l.desc).replace(/\$[\d,.]+/g, ""))}</div>` : ""}</li>`)
+      .join("")}</ol>${d.scheduleImpact || d.days ? `<p class="small">Schedule: ${esc(String(d.scheduleImpact || d.days + " days"))}</p>` : ""}`,
+    { submit: null },
+  );
+}
 function docSummaryHtml(c, d) {
   const t = docTotal(d);
   "construction" === d.template && "sov" !== d.mode && ctNumber(d);
@@ -36776,17 +37017,57 @@ function proposalsHtml(list, title) {
         .join("")}</div>`
     : "";
 }
+// The record a bank line's toast opens: the bill or PO it is matched to, else the line itself (its Verify
+// sheet: the line, what it is coded to and the approved item behind it).
+function txnOpen(t) {
+  return () => {
+    const b = t && t.billId && (DB.bills || []).find((x) => x.id === t.billId),
+      po = t && t.poId && (DB.pos || []).find((x) => x.id === t.poId);
+    b && "object" == typeof flowGo ? flowGo.bill(b)() : po && "object" == typeof flowGo ? flowGo.po(po)() : t && openVerifyTxn(t.id);
+  };
+}
+// The Open link for a record that lives as a row on its page (a drawing sheet, a filing, a selection): the
+// page opens at the row that carries the record's name or number, and the row is marked for a moment.
+function goRow(v, text, setup) {
+  return () => {
+    try {
+      setup && setup();
+    } catch (e) {}
+    (view = v), render(), window.scrollTo(0, 0);
+    const want = String(text || "").trim();
+    if (!want) return;
+    const rows = [...document.querySelectorAll(".view.on tr, .view.on li, .view.on .card, .view.on [class*='card'], .view.on [class*='row']")].filter(
+        (r) => r.getClientRects().length && (r.textContent || "").includes(want),
+      ),
+      row = rows.sort((a, b) => (a.textContent || "").length - (b.textContent || "").length)[0];
+    row && (row.scrollIntoView({ block: "center" }), row.classList.add("rec-hl"), setTimeout(() => row.classList.remove("rec-hl"), 2600));
+  };
+}
+// A batch over bank lines (rules, matching, verification) opens the list it worked on.
+function txnListOpen(v, set) {
+  return () => {
+    try {
+      set && set();
+    } catch (e) {}
+    (view = v), render(), window.scrollTo(0, 0);
+    // the list itself, brought into view and marked: the person may already be on this page
+    const list = [...document.querySelectorAll(".view.on .dg, .view.on table")].find((x) => x.getClientRects().length);
+    list && (list.scrollIntoView({ block: "start" }), list.classList.add("rec-hl"), setTimeout(() => list.classList.remove("rec-hl"), 2600));
+  };
+}
 function wireProposals(root) {
   (root || document).querySelectorAll("[data-mconfirm]").forEach(
     (b) =>
       (b.onclick = () => {
-        confirmMatch(DB.txns.find((x) => x.id === b.dataset.mconfirm)), render(), toast("Match confirmed");
+        const t = DB.txns.find((x) => x.id === b.dataset.mconfirm);
+        confirmMatch(t), render(), toast("Match confirmed", txnOpen(t));
       }),
   ),
     (root || document).querySelectorAll("[data-mreject]").forEach(
       (b) =>
         (b.onclick = () => {
-          rejectMatch(DB.txns.find((x) => x.id === b.dataset.mreject)), render(), toast("Kept unmatched");
+          const t = DB.txns.find((x) => x.id === b.dataset.mreject);
+          rejectMatch(t), render(), toast("Kept unmatched", txnOpen(t));
         }),
     );
 }
@@ -40361,10 +40642,21 @@ function h4Home(F) {
   return `<div class="home4">${("crew" === r || "driver" === r ? [h4Card("Today", todayHtml, { view: "time" }, "Clock"), h4Card("Needs me", needsHtml, { view: "req" }), h4Card("Jobs", jobsHtml, { view: "port" })] : "coord" === r ? [h4Card("Prepared for you", prepHtml, { view: "po" }), h4Card("Needs me", needsHtml, { view: "po" }), h4Card("Today on site", todayHtml, { view: "recv" }), h4Card("Jobs", jobsHtml, { view: "port" }), h4Card("Billing", billHtml, { view: "clients" }), h4Card("Accounting", moneyHtml, { view: "bank" })] : "pm" === r ? [h4Card("Jobs", jobsHtml, { view: "port" }), h4Card("Needs me", needsHtml, { view: "dash" }), h4Card("Today on site", todayHtml, { view: "sched" }), h4Card("Billing", billHtml, { view: "clients" }), h4Card("Prepared for you", prepHtml, { view: "po" }), h4Card("Accounting", moneyHtml, { view: "reports", tab: "dash" })] : [h4Card("Needs me", needsHtml, { view: "home" }, `All ${F.needs.length}`), h4Card("Accounting", moneyHtml, { view: "reports", tab: "dash" }), h4Card("Jobs", jobsHtml, { view: "port" }), h4Card("Today on site", todayHtml, { view: "sched" }), h4Card("Billing", billHtml, { view: "reports", tab: "ar" }), h4Card("Prepared for you", prepHtml, { view: "bank" })]).join("")}</div>`;
 }
 const renderHomeBase_h4 = renderHome;
+// A link to a Mercer & Bond page (a property's rent on the Dashboard or in Approvals) opens it in that workspace
+// for a person who has it; before, the SmartDesign workspace turned it away and the press landed on Ask.
+function goWsFor(v) {
+  try {
+    "undefined" != typeof MB_VIEWS &&
+      (MB_VIEWS.includes(v)
+        ? "mb" !== DB.workspace && mbAccess() && setWorkspace("mb")
+        : // a page outside the acquisitions workspace (Settings from its rail) is opened in the firm's
+          v && "mb" === DB.workspace && setWorkspace("sd"));
+  } catch (e) {}
+}
 function h4Go(go) {
   if (go) {
     if (
-      ("mb" === go.ws && setWorkspace("mb"),
+      ("mb" === go.ws ? setWorkspace("mb") : go.view && goWsFor(go.view),
       go.proj && setCurrent(go.proj),
       go.tab && (repTab = go.tab),
       go.search && (ssOpen = go.search),
@@ -40380,12 +40672,23 @@ function h4Go(go) {
     (view = v), render(), window.scrollTo(0, 0);
   }
 }
+// Read reads the brief aloud and becomes Stop while it speaks, so the press always shows it took.
 function jvSpeak() {
-  const text = [...document.querySelectorAll("#jv .jv-body p")].map((p) => p.textContent).join(" ");
+  const text = [...document.querySelectorAll("#jv .jv-body p")].map((p) => p.textContent).join(" "),
+    b = document.getElementById("jv-speak");
   if (!("speechSynthesis" in window)) return void toast("This browser cannot read aloud");
+  if (b && "Stop" === b.textContent) return speechSynthesis.cancel(), void (b.textContent = "Read");
   speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
-  (u.rate = 1.02), speechSynthesis.speak(u);
+  (u.rate = 1.02),
+    (u.onend = () => {
+      b && b.isConnected && (b.textContent = "Read");
+    }),
+    (u.onerror = () => {
+      b && b.isConnected && (b.textContent = "Read"), toast("This browser could not read it aloud — it has no voice to read with");
+    }),
+    b && (b.textContent = "Stop"),
+    speechSynthesis.speak(u);
 }
 renderHome = function () {
   if ("classic" === (DB.company.homeMode || "brief")) {
@@ -40434,7 +40737,7 @@ renderHome = function () {
         }),
     ),
     ($("#jv-refresh").onclick = () => {
-      delete (DB.company.briefCache || {})[key], render();
+      delete (DB.company.briefCache || {})[key], render(), toast("The brief is recomposed from the live records");
     }),
     ($("#jv-speak").onclick = () => jvSpeak()),
     ($("#jv-go").onclick = () => jvAsk(F)),
@@ -42135,7 +42438,7 @@ function renderSDraw() {
             touch("sheet", n.id, `${n.number} rev ${n.rev}`, p.id, 30),
             save(),
             renderSDraw(),
-            toast(`${n.number} rev ${n.rev} is current — rev ${s.rev} superseded`);
+            toast(`${n.number} rev ${n.rev} is current — rev ${s.rev} superseded`, goRow("sdraw", n.number));
         }),
     ),
     root.querySelectorAll("[data-aff]").forEach(
@@ -42376,9 +42679,13 @@ function wireFilings(root, p) {
             "round" === a &&
               (f.rounds++,
               (f.status = "objections"),
-              f.rounds > 2 &&
-                toast(`Round ${f.rounds} — beyond the two included; bill additional services hourly`)),
-            "resubmit" === a && (f.status = "submitted"),
+              toast(
+                f.rounds > 2
+                  ? `${f.name}: round ${f.rounds} of objections — beyond the two included; bill additional services hourly`
+                  : `${f.name}: objections received, round ${f.rounds} of 2`,
+                goRow("sfile", f.name),
+              )),
+            "resubmit" === a && ((f.status = "submitted"), toast(`${f.name}: resubmitted`, goRow("sfile", f.name))),
             "approve" === a &&
               ((f.status = "approved"),
               (f.approvedOn = today()),
@@ -42388,7 +42695,7 @@ function wireFilings(root, p) {
             log(`${f.name}: ${FILING_STATUS[f.status][0]}`),
             save(),
             render(),
-            inv && toast(`${inv.number} drafted — ${money(docTotal(inv).total)} · Clients & billing`);
+            inv && toast(`${inv.number} drafted — ${money(docTotal(inv).total)} · Clients & billing`, flowGo.doc(DB.clients.find((c) => (c.invoices || []).includes(inv)) || {}, "invoice", inv));
         }),
     );
 }
@@ -47441,12 +47748,22 @@ function fRenderToday() {
     root.querySelectorAll("[data-fstart]").forEach(
       (b) =>
         (b.onclick = () => {
-          const t = task(b.dataset.fstart);
+          const t = task(b.dataset.fstart),
+            was = { status: t.status, actualStart: t.actualStart };
           (t.status = "in-progress"),
             (t.actualStart = t.actualStart || td),
             log(`${t.name} started (foreman)`, "field", fWho()),
             save(),
-            render();
+            render(),
+            toast(`${t.name} — started; the schedule and the PM see it`, [
+              { label: "Open", run: () => (flowCan("sched") && canEdit() ? openEditor("task", t.id) : goRow(view, t.name)()) },
+              {
+                label: "Undo",
+                run: () => {
+                  Object.assign(t, was), log(`${t.name}: start undone (foreman)`, "field", fWho()), save(), render();
+                },
+              },
+            ]);
         }),
     ),
     root.querySelectorAll("[data-fdone]").forEach(
@@ -47543,7 +47860,16 @@ function fSubStatus(id, st) {
         subId: s.id,
         note: s.phone ? `Lead: ${s.lead} ${s.phone}` : "",
       }),
-    render();
+    render(),
+    // the foreman's tap says what it recorded, with the way back to the sub's row on Site
+    toast(
+      `${s.vendor} — ${"onsite" === st ? "on site" : "confirmed" === st ? "confirmed for " + fmt(s.date) : "noshow" === st ? "no-show, the PM is told" : "not confirmed"}`,
+      goRow(fRouteFor("fsite"), s.vendor),
+    );
+}
+// The field page a record lives on for this person (the foreman's Site, else the office's Field).
+function fRouteFor(v) {
+  return "function" == typeof flowCan && !flowCan(v) ? (flowCan("field") ? "field" : roleHome(role())) : v;
 }
 function fRenderRaise() {
   const root = $("#fraise-body");
@@ -47775,7 +48101,11 @@ function fRenderSite() {
         (b.onclick = () => {
           const [id, st] = b.dataset.fpunch.split(":"),
             x = DB.field.punch.find((y) => y.id === id);
-          (x.status = st), (x[st + "At"] = fNow()), save(), fRenderSite();
+          (x.status = st),
+            (x[st + "At"] = fNow()),
+            save(),
+            fRenderSite(),
+            toast(`Punch: ${x.item || "item"} — ${"open" === st ? "reopened" : st}`, goRow(fRouteFor("fsite"), x.item || ""));
         }),
     ),
     ($("#fsub-add").onclick = () => {
@@ -47975,7 +48305,17 @@ function fRenderCrew() {
   root.querySelectorAll("[data-fappr]").forEach(
     (b) =>
       (b.onclick = () => {
-        appr(DB.time.find((x) => x.id === b.dataset.fappr)), save(), render();
+        const t = DB.time.find((x) => x.id === b.dataset.fappr),
+          was = t.status;
+        appr(t),
+          save(),
+          render(),
+          toast(`${empName(t.empId)} · ${fmt(t.date)} — ${hoursOf(t).toFixed(1)} h approved`, {
+            label: "Undo",
+            run: () => {
+              (t.status = was), (t.approvedBy = ""), delete t.approvedAt, audit("time", t.id, "approval undone", null, { by: fWho() }), save(), render();
+            },
+          });
       }),
   ),
     root.querySelectorAll("[data-ffix]").forEach(
@@ -48007,7 +48347,7 @@ function fRenderCrew() {
   const all = $("#fappr-all");
   all &&
     (all.onclick = () => {
-      clean.forEach(appr), save(), render(), toast(`${clean.length} approved`);
+      clean.forEach(appr), save(), render(), toast(`${clean.length} approved`, flowGo.viewOf("time", "fcrew"));
     }),
     ($("#ftalk").onclick = () =>
       mbModal(
@@ -48302,7 +48642,7 @@ function fWireOffice(root) {
             (r.status = "sent"),
             save(),
             render(),
-            toast(`Handed to ${fPerson(r.to)?.name || r.to}`);
+            toast(`Handed to ${fPerson(r.to)?.name || r.to}`, flowGo.raise(r));
         }),
     ));
 }
@@ -49213,6 +49553,23 @@ function fWireForYou(root) {
           DB.field.notes.find((x) => x.id === id).ack = fNow();
         } else (DB.field.acks = DB.field.acks || []), DB.field.acks.push(k + ":" + id);
         save(), render();
+        // what was acknowledged, and where it now sits (the field's record of it)
+        const r = "answer" === k ? DB.field.raises.find((x) => x.id === id) : null,
+          d = "dec" === k ? S.decisions.find((x) => x.id === id) : null,
+          undo = {
+            label: "Undo",
+            run: () => {
+              "note" === k
+                ? ((DB.field.notes.find((x) => x.id === id) || {}).ack = "")
+                : (DB.field.acks = (DB.field.acks || []).filter((x) => x !== k + ":" + id)),
+                save(),
+                render();
+            },
+          };
+        toast(
+          r ? `Closed: ${r.title}` : d ? `Noted: ${d.name}` : "Noted — the office sees you have it",
+          r ? flowGo.raise(r) : d ? [{ label: "Open", run: flowGo.decision(S, d) }, undo] : undo,
+        );
       }),
   );
 }
@@ -51897,8 +52254,18 @@ function mbSignalsWire(root) {
   root.querySelectorAll("[data-mbsig-dismiss]").forEach(
     (b) =>
       (b.onclick = () => {
-        const s = DB.mbinc.signals.find((x) => x.id === b.dataset.mbsigDismiss);
-        (s.status = "dismissed"), (s.by = currentUser()?.name || DB.me), save(), render();
+        const s = DB.mbinc.signals.find((x) => x.id === b.dataset.mbsigDismiss),
+          was = { status: s.status, by: s.by };
+        (s.status = "dismissed"),
+          (s.by = currentUser()?.name || DB.me),
+          save(),
+          render(),
+          toast(`Dismissed: ${String(s.title || s.address || s.what || "the signal").slice(0, 60)}`, {
+            label: "Undo",
+            run: () => {
+              Object.assign(s, was), save(), render();
+            },
+          });
       }),
   ),
     root.querySelectorAll("[data-mbsig-promote]").forEach(
@@ -53522,6 +53889,8 @@ function wireSel(root) {
           n
             ? `${n} thing${1 === n ? "" : "s"} to look at`
             : "Everything on the board agrees with what was clipped",
+          // the items with something to check, under the To Check tile
+          n ? () => tlLand("sel", "chk") || render() : null,
         );
     }),
     root.querySelectorAll("[data-open]").forEach((b) => (b.onclick = () => selOpenItem(b.dataset.open))),
@@ -53824,11 +54193,11 @@ function selOverride(it) {
 async function selVerifyItem(id) {
   const it = selItem(id);
   if (!it) return;
-  toast("Comparing the record against the page…");
+  toast("Comparing the record against the page…", () => selOpenItem(it.id));
   await selVerifyLive(it);
   save(), renderSel(), "proc" === view && renderProc();
   const n = selOpenChecks(it).length;
-  toast(n ? `${n} thing${1 === n ? "" : "s"} to look at on ${it.name}` : `${it.name} agrees with the page`);
+  toast(n ? `${n} thing${1 === n ? "" : "s"} to look at on ${it.name}` : `${it.name} agrees with the page`, () => selOpenItem(it.id));
 }
 async function selConfirmDoc(it, doc) {
   if (!doc?.url || !it.sku) return null;
@@ -55435,17 +55804,18 @@ renderPickupBase_ret &&
     if (!card) return;
     const out = retList().filter((r) => ["authorised", "toship"].includes(r.status));
     if (!out.length) return;
-    const val = out.reduce((a, r) => a + retValue(r), 0);
+    const val = out.reduce((a, r) => a + retValue(r), 0),
+      noMoney = ["foreman", "crew", "driver"].includes(role());
     card.insertAdjacentHTML(
       "beforeend",
-      `\n      <div class="pick-stop pick-out">\n        <div class="pick-hd"><b>Going back</b><span class="small muted">${out.length} box${1 === out.length ? "" : "es"} · ${money(val)} of ours until they are gone</span></div>\n        ${out
+      `\n      <div class="pick-stop pick-out">\n        <div class="pick-hd"><b>Going back</b><span class="small muted">${out.length} box${1 === out.length ? "" : "es"}${noMoney ? " to hand back to the vendor" : ` · ${money(val)} of ours until they are gone`}</span></div>\n        ${out
         .map((r) => {
           const risk = retRisk(r);
-          return `<label class="pick-row ${risk.lvl >= 3 ? "late" : ""}">\n          <input type="checkbox" data-shipped="${r.id}">\n          <span class="pick-tag">${esc((r.location || "").split("·").pop().trim() || "—")}</span>\n          <span class="pick-what"><b>${esc(r.name)}</b><span class="small muted">back to ${esc(r.vendor)}${r.rma ? ` · ${esc(r.rma)}` : " · no RMA yet"} · ${money(retValue(r))}</span></span>\n          <span class="pick-when ${risk.cls}">${esc(risk.label || "")}</span></label>`;
+          return `<label class="pick-row ${risk.lvl >= 3 ? "late" : ""}">\n          <input type="checkbox" data-shipped="${r.id}">\n          <span class="pick-tag">${esc((r.location || "").split("·").pop().trim() || "—")}</span>\n          <span class="pick-what"><b>${esc(r.name)}</b><span class="small muted">back to ${esc(r.vendor)}${r.rma ? ` · ${esc(r.rma)}` : " · no RMA yet"}${noMoney ? "" : ` · ${money(retValue(r))}`}</span></span>\n          <span class="pick-when ${risk.cls}">${esc(risk.label || "")}</span></label>`;
         })
         .join(
           "",
-        )}\n        <p class="small muted" style="margin:6px 0 0">Ticking one marks it shipped back. It is still our money until the credit lands.</p>\n      </div>`,
+        )}\n        <p class="small muted" style="margin:6px 0 0">Ticking one marks it shipped back.${noMoney ? "" : " It is still our money until the credit lands."}</p>\n      </div>`,
     ),
       card.querySelectorAll("[data-shipped]").forEach(
         (cb) =>
@@ -55460,7 +55830,7 @@ renderPickupBase_ret &&
               retSet(r, "shipped", { note: "Handed over on the run." }),
                 renderPickup(),
                 "proc" === view && renderProc(),
-                toast(`${r.name} on its way back — ${money(retExpected(r))} to chase`);
+                toast(noMoney ? `${r.name} on its way back to ${r.vendor}` : `${r.name} on its way back — ${money(retExpected(r))} to chase`);
             }
           }),
       );
@@ -58727,13 +59097,9 @@ function wireSpend(root) {
     root.querySelectorAll("[data-spok]").forEach(
       (b) =>
         (b.onclick = (e) => {
-          e.stopPropagation(),
-            spApprove(
-              spAll().find((s) => s.id === b.dataset.spok),
-              !0,
-            ),
-            go(),
-            toast("Approved");
+          e.stopPropagation();
+          const sp = spAll().find((s) => s.id === b.dataset.spok);
+          spApprove(sp, !0), go(), toast("Approved", () => sp && spCaptureModal({ spend: sp }));
         }),
     ),
     root.querySelectorAll("[data-spno]").forEach(
@@ -58763,7 +59129,7 @@ function wireSpend(root) {
             t &&
             (spSettle(s, t),
             go(),
-            toast(`${money(spTotal(s))} settled — the line, the code and the receipt went with it`));
+            toast(`${money(spTotal(s))} settled — the line, the code and the receipt went with it`, () => spCaptureModal({ spend: s })));
         }),
     ),
     root.querySelectorAll("[data-spclaim]").forEach(
@@ -64158,7 +64524,7 @@ function fRenderAsk() {
             audit("raise", r.id, "chased", null, { to: r.to }),
             save(),
             render(),
-            toast(`${p ? p.name.split(" ")[0] : "They"} chased again`);
+            toast(`${p ? p.name.split(" ")[0] : "They"} chased again — ${String(r.title || "").slice(0, 50)}`, goRow(fRouteFor("fraise"), String(r.title || "").slice(0, 40)));
         }),
     ),
     root.querySelectorAll("[data-f3go]").forEach(
@@ -69468,11 +69834,26 @@ const h4HomeBase_ea = h4Home;
           requestAction(d.ack.pid, d.ack.rid, "ack"),
           save(),
           render(),
-          void toast("Acknowledged — the foreman can see it, the driver can buy it")
+          void toast(
+            "Acknowledged — the foreman can see it, the driver can buy it",
+            flowGo.request(DB.projects.find((x) => x.id === d.ack.pid)),
+          )
         );
       if (d.note) {
         const n = eaNotes().find((x) => x.id === d.note);
-        return void (n && ((n.done = !0), (n.doneAt = today()), save(), render()));
+        return void (
+          n &&
+          ((n.done = !0),
+          (n.doneAt = today()),
+          save(),
+          render(),
+          toast(`Done: ${String(n.text || n.title || "the note").slice(0, 60)}`, {
+            label: "Undo",
+            run: () => {
+              (n.done = !1), delete n.doneAt, save(), render();
+            },
+          }))
+        );
       }
       if (d.chase) {
         if ("coi" === d.chase && d.vendor) {
@@ -73066,8 +73447,12 @@ function cmWire(host) {
       }
       save(),
         render(),
+        // Open is the inbox's Applied list: what was just done, message by message
         toast(
           `Applied ${n} — bills, escalations and questions for you are left for your hand; tasks went to the PM, reassign from the task`,
+          () => {
+            (cmFilter = "applied"), (view = "comms"), render(), window.scrollTo(0, 0);
+          },
         );
     });
   const f = host.querySelector("#cm-file");
@@ -81556,7 +81941,7 @@ function hbIndexHtml(obj) {
     bulk = hbSel.size
       ? `<div class="hb-bulk"><b>${hbSel.size} selected</b><button class="hb-btn sm" data-hbbulk="assign">Assign</button><button class="hb-btn sm" data-hbbulk="edit">Edit</button>${"contact" === obj ? '<button class="hb-btn sm" data-hbbulk="sequence">Enroll in sequence</button>' : ""}<button class="hb-btn sm" data-hbbulk="tasks">Create tasks</button><button class="hb-btn sm" data-hbbulk="export">Export</button><button class="hb-btn sm danger" data-hbbulk="delete">Delete</button><a href="#" data-hbbulk="all" class="small">Select all ${total} records</a></div>`
       : "",
-    filterbar = `<div class="hb-filterbar">${"deal" === obj ? `<div class="hb-modes"><button class="${"table" === hbMode.deal ? "on" : ""}" data-hbmode="table" title="Table">☰</button><button class="${"board" === hbMode.deal ? "on" : ""}" data-hbmode="board" title="Board">▥</button></div><div class="hb-pill"><label>Pipeline</label><select><option>${esc(H.pipeline.label)}</option></select></div>` : ""}${quick}<button class="hb-btn link sm" id="hb-more">More Filters</button><button class="hb-btn link sm" id="hb-advanced">Advanced filters${adv ? ` (${adv})` : ""}</button>${filtered ? '<button class="hb-btn link sm" id="hb-clear">Clear all</button>' : ""}<span class="grow"></span><input class="hb-search" id="hb-q" placeholder="Search ${"deal" === obj ? "name, property, email" : "contact" === obj ? "name, phone, email" : "name, domain"}…" value="${esc(hbQ[obj] || "")}">${"table" === hbMode[obj] || "deal" !== obj ? '<button class="hb-btn sm" id="hb-editcols">Edit columns</button>' : '<button class="hb-btn sm" id="hb-boardopts">Board options</button>'}<button class="hb-btn sm" id="hb-export">Export</button></div>`,
+    filterbar = `<div class="hb-filterbar">${"deal" === obj ? `<div class="hb-modes"><button class="${"table" === hbMode.deal ? "on" : ""}" data-hbmode="table" title="Table">☰</button><button class="${"board" === hbMode.deal ? "on" : ""}" data-hbmode="board" title="Board">▥</button></div><div class="hb-pill"><label>Pipeline</label><select><option>${esc(H.pipeline.label)}</option></select></div>` : ""}${quick}${hbMoreProps(obj).length ? '<button class="hb-btn link sm" id="hb-more">More Filters</button>' : ""}<button class="hb-btn link sm" id="hb-advanced">Advanced filters${adv ? ` (${adv})` : ""}</button>${filtered ? '<button class="hb-btn link sm" id="hb-clear">Clear all</button>' : ""}<span class="grow"></span><input class="hb-search" id="hb-q" placeholder="Search ${"deal" === obj ? "name, property, email" : "contact" === obj ? "name, phone, email" : "name, domain"}…" value="${esc(hbQ[obj] || "")}">${"table" === hbMode[obj] || "deal" !== obj ? '<button class="hb-btn sm" id="hb-editcols">Edit columns</button>' : '<button class="hb-btn sm" id="hb-boardopts">Board options</button>'}<button class="hb-btn sm" id="hb-export">Export</button></div>`,
     table = `<div class="hb-tablewrap"><table class="hb-table"><thead><tr><th class="hb-chk"><input type="checkbox" id="hb-selall" ${page.length && page.every((r) => hbSel.has(r.id)) ? "checked" : ""}></th>${cols
       .map((n) => {
         const p = hbProp(obj, n) || { label: n };
@@ -81672,6 +82057,14 @@ function hbEditColumnsModal(obj) {
         });
     });
   wire();
+}
+// The filters that can still join the bar; More Filters shows only while there is one to add.
+function hbMoreProps(obj) {
+  try {
+    return hbProps(obj).filter((p) => !HB_QUICK[obj].includes(p.name) && ["select", "user", "date", "stage"].includes(p.type));
+  } catch (e) {
+    return [];
+  }
 }
 function hbAdvancedPanel(obj) {
   const F = (hbAdv[obj] || []).slice(),
@@ -81858,9 +82251,7 @@ function hbWireIndex(host, obj) {
   const more = host.querySelector("#hb-more");
   more &&
     (more.onclick = async () => {
-      const props = hbProps(obj).filter(
-          (p) => !HB_QUICK[obj].includes(p.name) && ["select", "user", "date", "stage"].includes(p.type),
-        ),
+      const props = hbMoreProps(obj),
         k = await hbDropdown(
           more,
           props.map((p) => [p.name, p.label]),
@@ -84836,7 +85227,9 @@ function renderHbSettings() {
                 ...H.pipeline.stages.filter((s) => !s.won && !s.lost).map((s) => s.id),
               ),
             save(),
-            hbToast("Pipeline saved"),
+            toast("Pipeline saved", () => {
+              (view = "hbdeals"), render(), window.scrollTo(0, 0);
+            }),
             renderHbSettings())
           : hbToast("Every pipeline needs one Won and one Lost stage");
     });
@@ -85196,8 +85589,10 @@ if (
 }
 if (
   (document.addEventListener("click", (e) => {
+    // a floating menu (hbDropdown) closes itself on the next click outside it; closing it here shut it on the
+    // very click that opened it, so More Filters and every other floating menu opened to nothing
     e.target.closest(".hb-dd") ||
-      document.querySelectorAll(".hb-menu.open").forEach((m) => m.classList.remove("open"));
+      document.querySelectorAll(".hb-menu.open:not(.float)").forEach((m) => m.classList.remove("open"));
   }),
   "function" == typeof slTouchDialog)
 ) {
@@ -85989,7 +86384,7 @@ function mGo(go) {
   // a view this role cannot open is not a destination: a field question goes to Approvals' Site Questions
   let v = go.view;
   "field" === v && "function" == typeof flowCan && !flowCan("field") && flowCan("mapprove") && ((window.mApprKind = "raise"), (v = "mapprove"));
-  (view = v), render(), window.scrollTo(0, 0);
+  goWsFor(v), (view = v), render(), window.scrollTo(0, 0);
 }
 // Every kind an approval can be sits in exactly one chip, so the chips sum to Everything.
 // A kind added later without a chip lands in Other rather than in no chip at all.
@@ -86308,7 +86703,7 @@ function renderMApprove() {
             }
             (S = keep), render();
           };
-        yes && (yes.onclick = () => run("approve")), no && (no.onclick = () => run("reject"));
+        yes && (yes.onclick = () => run("approve")), no && (no.onclick = () => timeRejectAsk(t, null, run));
       }
     }),
     v.querySelectorAll("[data-remgo]").forEach(
@@ -86362,7 +86757,8 @@ function mRenderTabs() {
               document.querySelector(".rail")?.classList.add("open"),
               void document.getElementById("railscrim")?.classList.add("on")
             );
-          ("dash" !== v || void 0 === dashAll || S) && ((view = v), render(), window.scrollTo(0, 0));
+          // a firm tab pressed in the acquisitions workspace opens in the firm's (render would send it back)
+          ("dash" !== v || void 0 === dashAll || S) && (goWsFor(v), (view = v), render(), window.scrollTo(0, 0));
         }),
     );
 }
@@ -87264,6 +87660,34 @@ function fmCrewClock() {
         i.checked = all.checked;
       }));
 }
+// What is missing for today's work, item by item, with the way to raise it: the sheet the foreman's Today line
+// opens on the phone and on a desktop alike (before, only field mode wired it, so the line did nothing on a desktop).
+function fMissingSheet() {
+  const items = fmActive(today())
+    .map((t) =>
+      ("function" == typeof fTaskNeeds ? fTaskNeeds(t) : [])
+        .filter((n) => "pred" !== n.k)
+        .map((n) => ({ t: t, n: n })),
+    )
+    .flat();
+  mbModal(
+    "Missing for today",
+    items.length
+      ? items
+          .map(
+            (x) =>
+              `<div class="fm-row"><div class="grow"><b>${esc(x.n.t)}</b><span class="small muted">${esc(x.t.name)}</span></div></div>`,
+          )
+          .join("")
+      : '<div class="small muted">Nothing missing.</div>',
+    {
+      submit: "Raise it",
+      onSubmit: () => {
+        (view = "fraise"), render();
+      },
+    },
+  );
+}
 function fmForeman() {
   if ("fcrew" === view) {
     const hd = document.querySelector("#fcrew-body .f-card .hd");
@@ -87282,32 +87706,7 @@ function fmForeman() {
         el.dataset.fmWired ||
         !/missing for today/.test(el.textContent) ||
         ((el.dataset.fmWired = "1"),
-        (el.onclick = () => {
-          const items = fmActive(today())
-            .map((t) =>
-              ("function" == typeof fTaskNeeds ? fTaskNeeds(t) : [])
-                .filter((n) => "pred" !== n.k)
-                .map((n) => ({ t: t, n: n })),
-            )
-            .flat();
-          mbModal(
-            "Missing for today",
-            items.length
-              ? items
-                  .map(
-                    (x) =>
-                      `<div class="fm-row"><div class="grow"><b>${esc(x.n.t)}</b><span class="small muted">${esc(x.t.name)}</span></div></div>`,
-                  )
-                  .join("")
-              : '<div class="small muted">Nothing missing.</div>',
-            {
-              submit: "Raise it",
-              onSubmit: () => {
-                (view = "fraise"), render();
-              },
-            },
-          );
-        }));
+        (el.onclick = fMissingSheet));
     });
 }
 if ("function" == typeof fParse) {
@@ -87418,7 +87817,9 @@ if (
 }
 const GLN_CHEV = '<svg class="gl-chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>';
 function glnTile(o) {
-  return `<button type="button" class="gl ${o.tone || ""}" data-gl="${o.go}" ${o.project ? `data-glp="${o.project}"` : ""}><span class="gl-k">${esc(o.k)}</span><b class="gl-v">${o.v}</b><span class="gl-s">${o.s || ""}</span>${GLN_CHEV}</button>`;
+  // a reading whose page this role does not have is shown, not linked
+  if (!o.go) return `<div class="gl static ${o.tone || ""}"><span class="gl-k">${esc(o.k)}</span><b class="gl-v">${o.v}</b><span class="gl-s">${o.s || ""}</span></div>`;
+  return `<button type="button" class="gl ${o.tone || ""}" data-gl="${o.go}" ${o.project ? `data-glp="${o.project}"` : ""}${o.land ? ` data-glland="${o.land}"` : ""}${o.at ? ` data-glat="${esc(o.at)}"` : ""}><span class="gl-k">${esc(o.k)}</span><b class="gl-v">${o.v}</b><span class="gl-s">${o.s || ""}</span>${GLN_CHEV}</button>`;
 }
 function glnWire(root) {
   root.querySelectorAll("[data-gl]").forEach(
@@ -87444,9 +87845,16 @@ function glnWire(root) {
           }
           view = go;
         }
+        // a tile can land on the destination's own tile (focused, under this tile's name) or at a section
+        if (b.dataset.glland) {
+          const [lv, lk] = b.dataset.glland.split(":");
+          lv === go && (ROLE_VIEWS[role()] || []).includes(lv) && tlLand(lv, lk, { k: (b.querySelector(".gl-k") || {}).textContent || "" });
+        }
         "function" != typeof setView || (ROLE_VIEWS[role()] || []).includes(view) || (view = "dash"),
           render(),
           window.scrollTo(0, 0);
+        const at = b.dataset.glat && document.querySelector(b.dataset.glat);
+        at && at.getClientRects().length && at.scrollIntoView({ block: "start" });
       }),
   );
 }
@@ -87458,8 +87866,9 @@ function glnProject(cpm, projEnd) {
     delta = S.project.target ? signedWork(S.project.target, sc) : 0,
     late = delta > 0,
     crit = S.tasks.filter((t) => cpm[t.id] && cpm[t.id].critical && "done" !== t.status).length,
+    // each tile is named for the page it opens (the finish is read on the Schedule, the margin on Costs)
     finish = {
-      k: "Finish",
+      k: "Schedule",
       go: "sched",
       tone: S.tasks.length && late ? "bad" : "",
       v: S.tasks.length
@@ -87471,14 +87880,14 @@ function glnProject(cpm, projEnd) {
         : "—",
       s: `${late || delta < 0 ? `${fmtL(sc)} against a ${fmtL(S.project.target)} target` : fmtL(sc)} · ${crit} on the critical path`,
     };
-  let money_ = { k: "Accounting", go: "costs", v: "—", s: "no contract yet" };
+  let money_ = { k: "Costs", go: "costs", v: "—", s: "no contract yet" };
   try {
     const J = jobFin(S);
     if (J.contract) {
       const drift = J.plannedGPPct - J.estGPPct,
         aheadPct = (J.over / J.contract) * 100;
       money_ = {
-        k: "Accounting",
+        k: "Costs",
         go: "costs",
         tone: drift > 3 || aheadPct > 10 ? "bad" : aheadPct > 5 ? "warn" : "",
         v: aheadPct > 5 ? `+${money(J.over)} billed ahead` : `${Math.round(J.estGPPct)}% margin`,
@@ -87579,8 +87988,10 @@ function glnAll(td) {
         : "every finish date holds",
     },
     {
-      k: "Accounting",
+      // the firm's margin, read on Reports' profit and loss (the page opens at it)
+      k: "Profitability",
       go: "reports",
+      at: "#v-reports .rep-h",
       tone: planned && gp < 0.95 * planned ? "warn" : "",
       v: contract ? `${Math.round((gp / contract) * 100)}% margin` : "—",
       s: contract
@@ -87594,7 +88005,8 @@ function glnAll(td) {
       } catch (e) {}
       const n = null !== mine ? mine : needs;
       return {
-        k: "Needs you",
+        // one noun, one label: where it opens Approvals and counts its items, it is called Approvals
+        k: null !== mine ? "Approvals" : "Needs you",
         go: null !== mine ? "mapprove" : "home",
         tone: n ? "warn" : "",
         v: n ? `${n} now` : "Nothing",
@@ -87602,8 +88014,10 @@ function glnAll(td) {
       };
     })(),
     {
+      // the materials at risk across jobs are the Buy Board's late lines
       k: "Materials",
-      go: "port",
+      go: "proc",
+      land: "proc:lateMaterial",
       tone: matsRisk ? "bad" : "",
       v: matsRisk ? `${matsRisk} at risk` : `${matsOpen} to land`,
       s: `${matsOpen} not yet on site across ${jobs} projects`,
@@ -87612,7 +88026,8 @@ function glnAll(td) {
   (k.className = "glance"),
     (k.innerHTML = tiles
       .map((t) =>
-        glnTile(Object.assign(t, { go: (ROLE_VIEWS[role()] || []).includes(t.go) ? t.go : "port" })),
+        // a tile whose page the role lacks reads in place rather than opening a page about something else
+        glnTile(Object.assign(t, { go: (ROLE_VIEWS[role()] || []).includes(t.go) ? t.go : null })),
       )
       .join("")),
     glnWire(k);
@@ -87835,6 +88250,7 @@ new MutationObserver((muts) => {
       tcLabels(document);
     } catch (e) {}
 }).observe(document.body, { childList: !0, subtree: !1 });
+let arTileCols = [];
 const TL_CHEV = '<svg class="gl-chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>',
   tlFocus = {},
   tlDays = (a, b) => Math.round((parse(b) - parse(a)) / 864e5),
@@ -87849,8 +88265,32 @@ const TL_CHEV = '<svg class="gl-chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"
       : Math.abs(n) >= 1e3
         ? "$" + Math.round(n / 1e3) + "K"
         : money(n);
+// A tile that opens another page lands on that page's matching tile, focused (the list filtered to the rows
+// counted), and named for the tile that was pressed: "Showing 3 of 9 · Committed".
+let tlCameFor = null;
+function tlLand(v, key, from) {
+  view = v;
+  try {
+    const t = (TL_SETS[v] ? TL_SETS[v]() : []).find((x) => x.key === key);
+    if (!t) return;
+    t.go && !t.list && !t.pred && ((tlCameFor = { view: v, key }), t.go());
+    const label = (from && from.k) || t.k,
+      rule = (from && from.rule) || t.rule || "";
+    t.list
+      ? (tlFocus[v] = { key: t.key, grid: "tlf-" + v, label, rule, list: t.list, of: t.of, cols: t.cols, open: t.open })
+      : t.pred && (tlFocus[v] = { key: t.key, grid: t.grid, pred: t.pred, payroll: !!t.payroll, label, rule, scope: t.scope }),
+      t.set && t.set();
+  } catch (e) {
+    console.warn("tile landing", v, e);
+  }
+}
+// A tile reads as pressed when its list is focused, when it says so itself (t.on: the tab it opens is the one
+// showing), or when another page's tile landed here on it.
 function tlTile(view, t, i) {
-  const on = tlFocus[view] && tlFocus[view].key === t.key;
+  let on = tlFocus[view] && tlFocus[view].key === t.key;
+  try {
+    on = on || !!(t.on && t.on()) || !!(tlCameFor && tlCameFor.view === view && tlCameFor.key === t.key);
+  } catch (e) {}
   const live = t.go || t.pred || t.list;
   return `<button type="button" class="gl ${t.tone || ""} ${on ? "on" : ""} ${live ? "" : "static"}" data-tl="${t.key || i}"${t.rule ? ` title="${esc(t.rule)}"` : ""}><span class="gl-k">${esc(t.k)}</span><b class="gl-v">${t.v}</b><span class="gl-s">${t.s || ""}</span>${live ? TL_CHEV : ""}</button>`;
 }
@@ -88481,9 +88921,12 @@ const TL_SETS = {},
         s: drift
           ? "postings that no longer match their document"
           : "every posting re-derives from its document",
-        go: () => {
-          glTab = "overview";
-        },
+        // no drift is a reading, not a place to go
+        go: drift
+          ? () => {
+              glTab = "overview";
+            }
+          : null,
       },
       {
         key: "unc",
@@ -88600,6 +89043,14 @@ const TL_SETS = {},
       },
     ];
   }),
+  (arTileCols = [
+    { key: "num", label: "Invoice", cls: "name", w: "130px", get: (r) => r.i.number || "" },
+    { key: "client", label: "Client", get: (r) => r.c.name },
+    { key: "job", label: "Job", get: (r) => (r.p ? shortName(r.p) : "") },
+    { key: "due", label: "Due", type: "date", w: "90px", get: (r) => r.i.due || "" },
+    { key: "bal", label: "Balance", type: "money", w: "100px", get: (r) => r.bal },
+    { key: "age", label: "Days Late", type: "num", w: "80px", get: (r) => (r.age > 0 ? r.age : "") },
+  ]),
   (TL_SETS.clients = () => {
     const rows = "function" == typeof arRows ? arRows() : [],
       past = rows.filter((r) => r.age > 0),
@@ -88617,12 +89068,13 @@ const TL_SETS = {},
         s: past.length
           ? `${tlN(past.length, "invoice")} · oldest ${Math.max(...past.map((r) => r.age))} days`
           : "nothing past due",
-        // a tile only links where the person may go (coordinators and designers do not open Billing)
-        go: flowCan("billing")
-          ? () => {
-              (view = "billing"), (billTab = "invoices");
-            }
-          : null,
+        // the tile lists the invoices it counts, here; each opens its invoice (a summary for a person
+        // who does not open Billing). Before, it opened Billing's whole invoice list.
+        rule: "invoices sent and not paid, past their due date",
+        list: () => past,
+        of: () => rows.length,
+        cols: arTileCols,
+        open: (r) => flowGo.doc(r.c, "invoice", r.i)(),
       },
       {
         key: "owed",
@@ -88631,12 +89083,11 @@ const TL_SETS = {},
         s: rows.length
           ? `${tlN(rows.length, "open invoice")} across ${new Set(rows.map((r) => r.c.id)).size} clients`
           : "no open invoices",
-        // a tile only links where the person may go (coordinators and designers do not open Billing)
-        go: flowCan("billing")
-          ? () => {
-              (view = "billing"), (billTab = "invoices");
-            }
-          : null,
+        rule: "every invoice sent and not paid",
+        list: () => rows,
+        of: () => rows.length,
+        cols: arTileCols,
+        open: (r) => flowGo.doc(r.c, "invoice", r.i)(),
       },
       {
         key: "sign",
@@ -88785,6 +89236,7 @@ const TL_SETS = {},
         go: () => {
           spTab = "match";
         },
+        on: () => "match" === spTab,
       },
       {
         key: "unc",
@@ -88795,6 +89247,7 @@ const TL_SETS = {},
         go: () => {
           spTab = "unbilled";
         },
+        on: () => "unbilled" === spTab,
       },
       {
         key: "appr",
@@ -88805,6 +89258,7 @@ const TL_SETS = {},
         go: () => {
           spTab = "approve";
         },
+        on: () => "approve" === spTab,
       },
       (() => {
         const orph = "function" == typeof spOrphans ? spOrphans() : [],
@@ -88820,6 +89274,7 @@ const TL_SETS = {},
           go: () => {
             spTab = "match";
           },
+          on: () => "match" === spTab,
         };
       })(),
     ];
@@ -89348,6 +89803,7 @@ const TL_SETS = {},
         go: () => {
           selLens = "red" === selLens ? "" : "red";
         },
+        on: () => "red" === selLens,
       },
       {
         key: "chk",
@@ -89422,9 +89878,8 @@ const TL_SETS = {},
         k: "Committed",
         v: tlK(J.committed || 0),
         s: J.committed ? "on open purchase orders, not yet billed" : "no open purchase orders",
-        go: () => {
-          view = "po";
-        },
+        // lands on Purchase Orders filtered to the open ones it adds up, under this tile's name
+        go: () => tlLand("po", "open", { k: "Committed", rule: "open purchase orders on this job, not yet billed" }),
       },
       {
         key: "accrued",
@@ -89650,9 +90105,16 @@ const TL_SETS = {},
         s: propOut.length
           ? "sent over 14 days ago and never presented in person"
           : "every proposal out was presented",
-        go: () => {
-          view = "hbquotes";
-        },
+        // the deals it counts, listed here; each opens its deal (Quotes holds every quote, not these)
+        rule: "proposals sent over 14 days ago and never presented in person",
+        list: () => propOut,
+        of: () => open.filter((l) => l.proposal && l.proposal.sentAt).length,
+        cols: [
+          { key: "name", label: "Lead", cls: "name", get: (l) => l.name || "" },
+          { key: "sent", label: "Proposal Sent", type: "date", w: "110px", get: (l) => (l.proposal || {}).sentAt || "" },
+          { key: "age", label: "Days Out", type: "num", w: "80px", get: (l) => tlAge((l.proposal || {}).sentAt) },
+        ],
+        open: (l) => flowGo.lead(l)(),
       },
       {
         key: "won",
@@ -90421,7 +90883,8 @@ if (
           (tlFocus.mbraise = {
             key: "signed",
             pred: (r) => (r.pipeline || []).some((p) => "subscribed" === p.stage),
-            label: "Signed, Not Funded",
+            label: "Wires Outstanding",
+            rule: "subscribed, not yet funded",
           }),
             (cpRaiseId = ""),
             (view = "mbraise");
@@ -90438,6 +90901,7 @@ if (
             : `all ${tlN(N.k1N, "closed raise")} delivered before March 15`
           : "no closed raise owes a K-1 yet",
         go: tab("raise"),
+        on: () => "raise" === cpNumTab,
       },
       {
         key: "wire",
@@ -90449,6 +90913,7 @@ if (
             ? "median, first conversation to funded — plan the next raise on it"
             : "no completed journey yet",
         go: tab("raise"),
+        on: () => "raise" === cpNumTab,
       },
       {
         key: "cost",
@@ -90460,6 +90925,7 @@ if (
             ? `${cpK(N.spend)} spent on ${cpK(N.raised || 0)} raised · ${tlN(N.nPartners || 0, "partner")}`
             : "no spend recorded against the raises",
         go: tab("spend"),
+        on: () => "spend" === cpNumTab,
       },
     ];
   }),
@@ -90808,8 +91274,9 @@ if (
         s: worst
           ? `phase${1 === over.length ? "" : "s"} past the proposal's hours · ${shortName(worst.p)}, ${worst.x.line.item.replace(/ and .*| \/ .*/, "").toLowerCase()} ${Math.round(worst.x.used - worst.x.est)} hrs over`
           : "every phase inside its hours",
+        // lands on the job's Project Board at its own Phases Over Hours tile
         go: () => {
-          worst && setCurrent(worst.p.id), (view = "sboard");
+          worst && setCurrent(worst.p.id), tlLand("sboard", "over", { k: "Over Budget Now" });
         },
       },
     ];
@@ -94408,7 +94875,7 @@ function lsSummaryModal(m, kind) {
       submit: "Copy",
       onSubmit: (v) => {
         try {
-          navigator.clipboard && navigator.clipboard.writeText(v.text);
+          clipCopy(v.text);
         } catch (e) {}
         (m.summaries = m.summaries || {}),
           (m.summaries[kind] = {
@@ -96684,7 +97151,7 @@ function bnWire(host) {
     host.querySelectorAll("[data-lnno]").forEach(
       (b) =>
         (b.onclick = () => {
-          lnDecline(b.dataset.lnno) && (toast("Declined — it will not be proposed again"), render());
+          lnDecline(b.dataset.lnno) && render();
         }),
     ),
     host.querySelectorAll("[data-bnok]").forEach(
@@ -96821,9 +97288,7 @@ function renderCalendar() {
   ics &&
     (ics.onclick = () => {
       const t = bnIcs();
-      try {
-        navigator.clipboard && navigator.clipboard.writeText(t);
-      } catch (e) {}
+      clipCopy(t);
       mbModal(
         "The Calendar as ICS",
         `<div class="small muted" style="margin-bottom:6px">Copied to the clipboard where the browser allows it. Save the text as <b>smartdesign.ics</b> and import it into Google Calendar, Outlook or Apple Calendar; the hosted app syncs instead.</div><textarea rows="14" style="width:100%;font-family:monospace;font-size:11px">${esc(t)}</textarea>`,
@@ -97467,7 +97932,7 @@ async function bnSendBuild(c) {
   ) {
     let copied = !1;
     try {
-      navigator.clipboard && (await navigator.clipboard.writeText(brief), (copied = !0));
+      copied = await clipCopy(brief);
     } catch (e) {
       copied = !1;
     }
@@ -98605,7 +99070,7 @@ if ("function" == typeof lsScopeWire) {
                   ok.onclick = () => {
                     try {
                       const ta = document.querySelector("#mbm textarea");
-                      ta && navigator.clipboard && navigator.clipboard.writeText(ta.value);
+                      ta && clipCopy(ta.value);
                     } catch (e) {}
                     prev && prev();
                   };
@@ -102829,9 +103294,10 @@ const BH = {
       lead: () => "Property record — the lot, the building, the owner and every fact we have found.",
     },
     mbownp: { lead: () => "A property we own — rent roll, debt, and what needs attention." },
+    // the heading is the rail entry's name; what the page does is in the lead
     mbscreen: {
-      h2: "Screen a Property",
-      lead: "Put in an address or a BBL and see whether it is worth a second look.",
+      h2: "Screen",
+      lead: "Screen a property: put in an address or a BBL and see whether it is worth a second look.",
     },
     mbwatch: { lead: "Signals worth a call: filings, liens, transfers and owners going quiet." },
     verify: { lead: "The checks that run over the books, and anything they could not square." },
@@ -103008,16 +103474,33 @@ function bhTiles(root) {
         : t.classList.add("kpi-flat");
     });
 }
+// A report tile opens the report that explains it, and only when that report exists for this person: the tab
+// whose first word the tile names, or the place its figure is worked out. A tile with nowhere to go is drawn
+// flat (no pointer, no button role), so it never reads as a control that does nothing.
+const BH_REP_GO = [
+  [/receivable|cash in bank|collected/, { grp: "Cash & Receivables" }],
+  [/payable/, { view: "ap" }],
+  [/backlog|job cost|cogs/, { grp: "Projects" }],
+  [/payroll/, { view: "payroll" }],
+];
 function bhTileTarget(v, label) {
-  const l = String(label).toLowerCase();
-  return "reports" === v
-    ? () => {
-        const t = [
-          ...document.querySelectorAll("#v-reports .rep-sub button, #v-reports .rep-groups button"),
-        ].find((b) => l.includes(b.textContent.trim().toLowerCase().split(" ")[0]));
-        t && t.click();
-      }
-    : null;
+  // the caption only ("Payables"), never the figure's sub-line ("1 bill to review" named the Review tab)
+  const l = String(label).split(" · ")[0].replace(/^[\s$−\-\d,.%]+/, "").toLowerCase();
+  if ("reports" !== v) return null;
+  const tabs = () => [...document.querySelectorAll("#v-reports .rep-sub button, #v-reports .rep-groups button")].filter((b) => !b.classList.contains("on"));
+  const byWord = () => tabs().find((b) => l.includes(b.textContent.trim().toLowerCase().split(" ")[0]));
+  if (byWord()) return () => { const t = byWord(); t && t.click(); };
+  const hit = BH_REP_GO.find(([re]) => re.test(l)),
+    go = hit && hit[1];
+  if (go && go.grp) {
+    const find = () => tabs().find((b) => b.textContent.trim().toLowerCase() === go.grp.toLowerCase());
+    return find() ? () => { const t = find(); t && t.click(); } : null;
+  }
+  if (go && go.view && (ROLE_VIEWS[role()] || []).includes(go.view))
+    return () => {
+      (view = go.view), render();
+    };
+  return null;
 }
 {
   const base = render;
@@ -104126,9 +104609,14 @@ function clChat() {
         clScrub(document.querySelector(".view.on"));
       const sub = document.getElementById("subnav");
       sub && (sub.hidden = window.innerWidth < 820),
+        // Each tile lands on its own list in Account, not the top of the page.
         document.querySelectorAll('#cl-kpis [data-tl="inv"], #cl-kpis [data-tl="sign"]').forEach((b) => {
           b.onclick = () => {
-            (view = "clacct"), render();
+            (view = "clacct"), render(), window.scrollTo(0, 0);
+            const sec = document.getElementById("inv" === b.dataset.tl ? "cl3-inv" : "cl3-co");
+            sec &&
+              sec.getClientRects().length &&
+              (sec.scrollIntoView({ block: "start" }), sec.classList.add("rec-hl"), setTimeout(() => sec.classList.remove("rec-hl"), 2600));
           };
         });
     } catch (e) {
@@ -104905,6 +105393,20 @@ function renderRpBox() {
         : toast("Nothing handled yet");
     });
 }
+// Copies text without leaving a rejected promise behind: a page opened from a file, or a browser that asks
+// for permission, refuses the clipboard. Resolves true when the text reached the clipboard.
+function clipCopy(text) {
+  try {
+    return navigator.clipboard && navigator.clipboard.writeText
+      ? navigator.clipboard.writeText(String(text)).then(
+          () => !0,
+          () => !1,
+        )
+      : Promise.resolve(!1);
+  } catch (e) {
+    return Promise.resolve(!1);
+  }
+}
 function rpCopy(text, what) {
   try {
     navigator.clipboard.writeText(text).then(
@@ -105541,7 +106043,7 @@ function rdHtml() {
             "",
           )}</tbody></table></div>${rdRows.length > 12 ? `<div class="small muted" style="margin-top:4px">and ${rdRows.length - 12} more rows</div>` : ""}`
       : ""
-  }\n  </div>\n\n  <div class="card"><h3>Move This Device's Data</h3>\n    <p class="small muted">Everything lives in this browser, on this device. A backup is one file with all of it — send it to someone else and they see exactly what you see, which is the only way to chase a problem that only happens on one person's phone.</p>\n    <div class="row" style="gap:8px"><button class="btn" id="rd-backup2">Save a Backup</button><label class="btn">Load a Backup<input type="file" accept="application/json,.json" id="rd-restore" hidden></label></div>\n  </div>\n\n  <div class="card"><h3>Take the Demo Out</h3>\n    <p class="small muted">The demo jobs make every screen look busy. Once your own work is in, clear them so what you see is your own work.</p>\n    <div class="row" style="gap:8px"><button class="btn danger" id="rd-wipe-jobs">Clear the Jobs and Clients</button><button class="btn danger" id="rd-wipe-all">Clear Everything</button><button class="btn" id="rd-restore">Start Again from the Sample Company</button></div>\n    <div class="small muted" style="margin-top:6px">Clearing the jobs keeps your entities, bank accounts, vendors, people and settings. Clearing everything keeps only the settings.</div>\n  </div>`;
+  }\n  </div>\n\n  <div class="card"><h3>Move This Device's Data</h3>\n    <p class="small muted">Everything lives in this browser, on this device. A backup is one file with all of it — send it to someone else and they see exactly what you see, which is the only way to chase a problem that only happens on one person's phone.</p>\n    <div class="row" style="gap:8px"><button class="btn" id="rd-backup2">Save a Backup</button><label class="btn">Load a Backup<input type="file" accept="application/json,.json" id="rd-restore" hidden></label></div>\n  </div>\n\n  <div class="card"><h3>Take the Demo Out</h3>\n    <p class="small muted">The demo jobs make every screen look busy. Once your own work is in, clear them so what you see is your own work.</p>\n    <div class="row" style="gap:8px"><button class="btn danger" id="rd-wipe-jobs">Clear the Jobs and Clients</button><button class="btn danger" id="rd-wipe-all">Clear Everything</button><button class="btn" id="rd-sample">Start Again from the Sample Company</button></div>\n    <div class="small muted" style="margin-top:6px">Clearing the jobs keeps your entities, bank accounts, vendors, people and settings. Clearing everything keeps only the settings.</div>\n  </div>`;
 }
 function renderRealData() {
   const host = document.getElementById("rdata-body");
@@ -105601,8 +106103,10 @@ function renderRealData() {
           },
         ),
       ),
+    // its own id: it shared "rd-restore" with the backup file input, so the listener went to the hidden input
+    // and Start Again did nothing
     host
-      .querySelector("#rd-restore")
+      .querySelector("#rd-sample")
       ?.addEventListener("click", () =>
         mbModal(
           "Start Again from the Sample Company",
@@ -105730,7 +106234,7 @@ renderTimeBase_h4 &&
     first ? first.after(div.firstChild) : v.prepend(div.firstChild);
     const key = today() + "|" + role();
     ($("#jv-refresh").onclick = () => {
-      delete (DB.company.briefCache || {})[key], render();
+      delete (DB.company.briefCache || {})[key], render(), toast("The brief is recomposed from the live records");
     }),
       ($("#jv-speak").onclick = () => jvSpeak()),
       ($("#jv-go").onclick = () => jvAsk(F)),
@@ -106614,7 +107118,18 @@ function t2BulkMove(when) {
     }),
     save(),
     renderTkAll(),
-    toast(`${n} moved to ${"today" === when ? "today" : "tomorrow"}`);
+    // Open is the list they moved onto (Today, or Next 7 Days for tomorrow); Undo puts the dates back
+    toast(`${n} moved to ${"today" === when ? "today" : "tomorrow"}`, [
+      {
+        label: "Open",
+        run: () => {
+          (t2View = "today" === when ? "today" : "week"), renderTkAll();
+          const list = [...document.querySelectorAll(".view.on .t2-list")].find((x) => x.getClientRects().length);
+          list && (list.scrollIntoView({ block: "start" }), list.classList.add("rec-hl"), setTimeout(() => list.classList.remove("rec-hl"), 2600));
+        },
+      },
+      { label: "Undo", run: () => window.__t2Undo && window.__t2Undo() },
+    ]);
 }
 function cmWhy(c) {
   const R = c.route || cmRoute(c),
@@ -109407,7 +109922,7 @@ const csEv = (label, text, go, ref) => ({
                 ),
               ),
             go: { view: "bank" },
-            act: { label: "Open Banking", run: () => csGo({ view: "bank" }) },
+            act: { label: "Open Banking", view: "bank", run: () => csGo({ view: "bank" }) },
           },
         ];
       },
@@ -110055,7 +110570,7 @@ function csFindingHtml(f, i) {
   const [cls, lbl] = CS_SEV[f.sev] || CS_SEV[1],
     key = `${f.check}:${i}`,
     open = !!csOpen[key];
-  return `<div class="cs-f ${cls}">\n    <div class="cs-f-hd" data-csopen="${esc(key)}">\n      <span class="pill ${cls}">${lbl}</span>\n      <b class="grow">${esc(f.title)}</b>\n      <span class="cs-chain">${esc(f.chain)}</span>\n      <button class="btn sm ghost cs-tog" aria-expanded="${open}">${open ? "Less" : "Why"}</button>\n    </div>\n    <div class="cs-f-why">${esc(f.why || "")}</div>\n    <div class="cs-f-body" ${open ? "" : "hidden"}>\n      <div class="cs-rule"><span class="k">The rule it applied</span>${esc(f.rule || "")}</div>\n      <div class="cs-ev">${(f.ev || []).map((e, j) => `<div class="cs-ev-r" data-csev="${esc(key)}|${j}"><span class="k">${esc(e.label || "")}</span><span class="v">${esc(e.text)}</span></div>`).join("") || '<div class="small muted">No further records.</div>'}</div>\n    </div>\n    <div class="cs-f-act">\n      ${f.act ? `<button class="btn sm" data-csact="${esc(key)}">${esc(f.act.label)}</button>` : ""}\n      ${f.go ? `<button class="btn sm" data-csgo="${esc(key)}">Open It</button>` : ""}\n    </div>\n  </div>`;
+  return `<div class="cs-f ${cls}">\n    <div class="cs-f-hd" data-csopen="${esc(key)}">\n      <span class="pill ${cls}">${lbl}</span>\n      <b class="grow">${esc(f.title)}</b>\n      <span class="cs-chain">${esc(f.chain)}</span>\n      <button class="btn sm ghost cs-tog" aria-expanded="${open}">${open ? "Less" : "Why"}</button>\n    </div>\n    <div class="cs-f-why">${esc(f.why || "")}</div>\n    <div class="cs-f-body" ${open ? "" : "hidden"}>\n      <div class="cs-rule"><span class="k">The rule it applied</span>${esc(f.rule || "")}</div>\n      <div class="cs-ev">${(f.ev || []).map((e, j) => `<div class="cs-ev-r" data-csev="${esc(key)}|${j}"><span class="k">${esc(e.label || "")}</span><span class="v">${esc(e.text)}</span></div>`).join("") || '<div class="small muted">No further records.</div>'}</div>\n    </div>\n    <div class="cs-f-act">\n      ${f.act && (!f.act.view || flowCan(f.act.view)) ? `<button class="btn sm" data-csact="${esc(key)}">${esc(f.act.label)}</button>` : ""}\n      ${f.go ? `<button class="btn sm" data-csgo="${esc(key)}">Open It</button>` : ""}\n    </div>\n  </div>`;
 }
 function csHtml() {
   csInit();
@@ -112260,7 +112775,8 @@ function paWire(host) {
     (f.onsubmit = (e) => {
       e.preventDefault();
       const v = inp.value;
-      (inp.value = ""), paSend(v);
+      if (!v.trim()) return;
+      (inp.value = ""), sendGates(), paSend(v);
     }),
     host.querySelectorAll("[data-pachip]").forEach((b) => (b.onclick = () => paSend(b.dataset.pachip))),
     host.querySelectorAll("[data-pago]").forEach(
@@ -118267,7 +118783,8 @@ function renderFdSetup() {
   if (!host) return;
   const rv = ROLE_VIEWS[role()] || [],
     places = [
-      {
+      // Company Settings live on the project settings page: offered only to a role that has that page
+      rv.includes("proj") && {
         v: "proj",
         k: "Company Settings",
         s: "users, entities, approval rules, the company block, appearance",
@@ -118382,7 +118899,7 @@ if ("function" == typeof renderNav) {
         });
         const sb = document.getElementById("rail-settings");
         sb &&
-          ((sb.onclick = () => setView("setup")),
+          ((sb.onclick = () => (goWsFor("setup"), setView("setup"))),
           sb.classList.toggle("on", !!NAV_GROUPS.find((g) => "setup" === g.id && g.views.includes(view))));
         const sub = document.getElementById("subnav");
         if (sub) {
@@ -121683,7 +122200,7 @@ if (
                   ),
                 ),
               go: { view: "bank" },
-              act: { label: "Open Banking", run: () => csGo({ view: "bank" }) },
+              act: { label: "Open Banking", view: "bank", run: () => csGo({ view: "bank" }) },
             },
           ]
         : [];
@@ -125399,7 +125916,17 @@ Object.assign(FILE_CATS, {
   openFile = async function (id) {
     const f = fileWriteOk() ? (S.files || []).find((x) => x.id === id) : null;
     if (f && f.autoKey && f.link) {
-      if (((f.seen = !0), "po" === f.link.kind)) return void openEditor("po", f.link.id);
+      f.seen = !0;
+      // the record behind a generated document opens for whoever may open its page; anyone else (the foreman
+      // reading a change order on site) gets the document's summary, never a jump to a page they cannot open
+      const docs = !flowCan("billing") && !flowCan("clients"),
+        field = ["foreman", "crew", "driver"].includes(role());
+      if ("po" === f.link.kind) return void (flowCan("po") ? openEditor("po", f.link.id) : base.apply(this, arguments));
+      if (docs && ("co" === f.link.kind || "estimate" === f.link.kind)) {
+        const c = clientOf(),
+          d = c && [...(c.changeOrders || []), ...(c.estimates || [])].find((x) => x.id === f.link.id);
+        return void (d ? (field ? docScopeSheet(d) : flowGo.doc(c, "co" === f.link.kind ? "co" : "estimate", d)()) : base.apply(this, arguments));
+      }
       if ("co" === f.link.kind) return void opsGo({ kind: "co", id: f.link.id });
       if ("estimate" === f.link.kind) {
         const c = clientOf();
@@ -125596,21 +126123,21 @@ const flowCan = (v) => {
     },
     // the first of these views the person may open (a record's home differs by role)
     viewOf: (...vs) => () => {
-      (view = vs.find(flowCan) || ROLE_VIEWS[role()][0]), render(), flowTop();
+      (view = vs.find(flowCan) || roleHome(role())), render(), flowTop();
     },
     raise: (r) => () => {
       r && r.projectId && setCurrent(r.projectId);
       const v = ["field", "fraise", "ftoday"].find(flowCan);
-      v ? (view = v) : flowCan("mapprove") ? ((window.mApprKind = "raise"), (view = "mapprove")) : (view = ROLE_VIEWS[role()][0]),
+      v ? (view = v) : flowCan("mapprove") ? ((window.mApprKind = "raise"), (view = "mapprove")) : (view = roleHome(role())),
         render(),
         flowTop();
     },
     request: (p) => () => {
-      p && setCurrent(p.id), (view = flowCan("req") ? "req" : ROLE_VIEWS[role()][0]), render(), flowTop();
+      p && setCurrent(p.id), (view = flowCan("req") ? "req" : roleHome(role())), render(), flowTop();
     },
     time: (e) => () => {
       e && e.projectId && setCurrent(e.projectId),
-        (view = ["time", "sday", "ftoday"].find(flowCan) || ROLE_VIEWS[role()][0]),
+        (view = ["time", "sday", "ftoday"].find(flowCan) || roleHome(role())),
         render(),
         flowTop();
     },
@@ -125667,8 +126194,8 @@ if ("function" == typeof poAction) {
           po.lines.reduce((s, l, i) => s + Math.max(0, (+l.received || 0) - before[i]) * (+l.price || 0), 0),
         );
         toastDone(
-          `${po.number} · ${po.vendor} — ${got.length === po.lines.length && "received" === po.status ? "received in full" : `${got.length} line${1 === got.length ? "" : "s"} received`}${amt ? `, ${money(amt)}` : ""}${"received" === po.status ? " · ready to bill" : ""}`,
-          flowCan("po") ? flowGo.po(po) : null,
+          `${po.number} · ${po.vendor} — ${got.length === po.lines.length && "received" === po.status ? "received in full" : `${got.length} line${1 === got.length ? "" : "s"} received`}${amt && !["foreman", "crew", "driver"].includes(role()) ? `, ${money(amt)}` : ""}${"received" === po.status ? " · ready to bill" : ""}`,
+          flowCan("po") ? flowGo.po(po) : flowCan("recv") ? goRow("recv", po.number) : null,
         );
       }
     }
@@ -127815,7 +128342,13 @@ function ovOverviewHtml(gid) {
 function ovOpen(gid, id) {
   const r = ovRows(gid).find((x) => String(x.id) === String(id));
   if (r) {
-    if ("jobs" === gid) return setCurrent(r.p.id), save(), void setView("dash");
+    // A job opens on its page; someone without that page gets the first job page they have.
+    if ("jobs" === gid)
+      return (
+        setCurrent(r.p.id),
+        save(),
+        void setView(["dash", "sboard", "sched", "ftoday"].find((v) => "function" != typeof flowCan || flowCan(v)) || "dash")
+      );
     if ("buy" !== gid)
       return "sales" === gid
         ? ("function" == typeof hbOpen ? hbOpen("deal", r.l.id) : (view = "hbdeals"),
@@ -128261,8 +128794,13 @@ if ("function" == typeof renderReports) {
                 .replace(/\s+/g, " ")
                 .trim();
             (d.innerHTML = `<b>${b ? b.innerHTML : ""}</b><span>${esc(full)}</span>`),
-              (k.classList.contains("click") || k.classList.contains("kpi-go")) &&
-                (d.onclick = () => k.click()),
+              // the figure keeps its drill-down: the tile's own handler, else the report that explains it
+              // (resolved here: the tile is removed before the tiles pass wires its target)
+              (() => {
+                // (its drill-down is a delegated handler, which a removed tile no longer reaches: call it)
+                const go = k.dataset.drill && "function" == typeof fsDrill ? () => fsDrill(k.dataset.drill) : bhTileTarget("reports", full);
+                go && ((d.onclick = go), d.classList.add("go"), d.setAttribute("role", "button"));
+              })(),
               foot.appendChild(d),
               k.remove();
           }),
@@ -128489,7 +129027,8 @@ if ("function" == typeof renderPa) {
       const host = document.getElementById("pa-body");
       if (!host || host.querySelector("[data-ovskills]")) return;
       const fab = document.getElementById("fab");
-      if (!fab || "Skills" !== fab.textContent.trim()) return;
+      // Skills opens the skills drawer, which only a role that edits may open (openAI): no button otherwise
+      if (!fab || "Skills" !== fab.textContent.trim() || !canEdit()) return;
       const ph = host.querySelector(".ph");
       if (!ph) return;
       let acts = ph.querySelector(".acts");
@@ -133538,7 +134077,8 @@ function thDecPass() {
       (box.innerHTML = ""),
       host && (host.style.display = ""),
       flt && (flt.style.display = ""),
-      void (add && (add.style.display = ""))
+      // back from one decision, the add button shows again only for someone who can add
+      void (add && (add.style.display = canEdit() ? "" : "none"))
     );
   host && (host.style.display = "none"),
     flt && (flt.style.display = "none"),
@@ -139286,6 +139826,39 @@ function ocDecDue(d) {
 }
 // A job's Needs You, from the registry (PRED.jobNeeds): its Today tile, its Today tab badge and the
 // Projects overview's Jobs Needing You all read this one function.
+// A job's Needs You, item by item: the sheet the Today tile opens. Each kind says how many and opens the page
+// that settles it; a decision or a site question opens its own record.
+function jobNeedsSheet(p) {
+  p = p || S;
+  const N = jobNeeds(p),
+    nm = (x) => esc(String((x && (x.name || x.title || x.text || x.what || x.item)) || "").slice(0, 90)),
+    sec = (title, items, go, open) =>
+      items.length
+        ? `<div class="jn-sec"><div class="row" style="align-items:center;margin:10px 0 4px"><b>${title} · ${items.length}</b><span class="grow"></span>${flowCan(go) ? `<button class="btn sm" data-jngo="${go}">Open ${title}</button>` : ""}</div><ul class="jn-list">${items
+            .map((x, i) => `<li>${open ? `<a href="#" data-jnopen="${go}:${i}">${nm(x)}</a>` : nm(x)}</li>`)
+            .join("")}</ul></div>`
+        : "",
+    m = mbModal(
+      `Needs You — ${esc(shortName(p))}`,
+      `<p class="small muted" style="margin:0">${esc(PRED.jobNeeds.rule || "")}</p>${sec("Materials", N.mat, "mat")}${sec("Decisions", N.decs, "dec", !0)}${sec("Submittals", N.subm, "subm")}${sec("Inspections", N.insp, "insp")}${sec("Site Questions", N.field, "field", !0)}`,
+      { submit: null },
+    );
+  m.querySelectorAll("[data-jngo]").forEach(
+    (b) =>
+      (b.onclick = () => {
+        mbCloseModal(), setCurrent(p.id), (view = b.dataset.jngo), render(), window.scrollTo(0, 0);
+      }),
+  ),
+    m.querySelectorAll("[data-jnopen]").forEach(
+      (a) =>
+        (a.onclick = (e) => {
+          e.preventDefault(), mbCloseModal();
+          const [k, i] = a.dataset.jnopen.split(":"),
+            x = ("dec" === k ? N.decs : N.field)[+i];
+          x && ("dec" === k ? flowGo.decision(p, x)() : flowGo.raise(x)());
+        }),
+    );
+}
 function jobNeeds(p) {
   return (
     ((p = p || S) &&
@@ -140049,7 +140622,9 @@ if (
                 : N.field.length
                   ? "field"
                   : "dec"),
-        (b.dataset.ocbadge = "dash");
+        (b.dataset.ocbadge = "dash"),
+        // the tile counts every kind of late item, so it opens all of them, not the first kind's page
+        N.total && (b.onclick = () => jobNeedsSheet(S));
     } catch (e) {
       console.warn("onecount today", e);
     }
@@ -144183,7 +144758,11 @@ function blOpenRow(row) {
       try {
         window.scrollTo(0, 0);
       } catch (e) {}
+      return;
     }
+    // a line ready to bill with no document of its own (stored materials, a purchase to bill back) opens the
+    // job's progress billing, where the line is: before, pressing the row did nothing
+    row.job && blOpenProgress(row.job.id);
   }
 }
 function blRowAct(row) {
@@ -145387,7 +145966,12 @@ function rcReceiptToast(po, text) {
     !["foreman", "crew", "driver"].includes(role()) &&
     !lkPOBillState(po).full &&
     L.push({ label: "Bill It", run: () => lkBillReceived(po) }),
-    flowCan("po") && L.push({ label: "Open PO", run: flowGo.po(po) }),
+    flowCan("po") && L.push({ label: "Open PO", run: flowGo.po(po) });
+  // the crew and the driver check deliveries in on Receiving: their Open is the order's row there, and their
+  // toast carries no money (the amount the office toast names)
+  const field = ["foreman", "crew", "driver"].includes(role());
+  field && (text = String(text).replace(/,?\s*\$[\d,.]+/g, ""));
+  !L.length && flowCan("recv") && L.push({ label: "Open", run: goRow("recv", po.number) }),
     L.length ? rcToast(text, L) : toast(text);
 }
 if ("function" == typeof poAction) {
@@ -147142,8 +147726,10 @@ if ("function" == typeof navGroupOf) {
   };
 }
 function rcRecvPass(on) {
+  // the PO number is a link only for whoever may open the PO (the crew's press landed on their Clock)
   on &&
     "recv" === view &&
+    flowCan("po") &&
     on.querySelectorAll(".recv-po").forEach((card) => {
       if (card.dataset.rcLinked) return;
       card.dataset.rcLinked = "1";
@@ -149772,7 +150358,7 @@ function t2BoardHtml(list) {
                 tkToggle(kind, id, pid),
                   "ob" !== kind &&
                     "lead" !== kind &&
-                    (save(), renderTkAll(), toast(x ? `Done: ${x.title}` : "Done"));
+                    (save(), renderTkAll(), toast(x ? `Done: ${x.title}` : "Done", x ? () => openEditor("tk", `${x.kind}|${x.projectId}|${x.id}`) : null));
               }),
           );
         const meet = host.querySelector("#t2-meeting");
@@ -149849,7 +150435,7 @@ function t2BoardHtml(list) {
                     tkToggle(kind, id, pid),
                       "ob" !== kind &&
                         "lead" !== kind &&
-                        (save(), renderTkAll(), toast(x ? `Done: ${x.title}` : "Done"));
+                        (save(), renderTkAll(), toast(x ? `Done: ${x.title}` : "Done", x ? () => openEditor("tk", `${x.kind}|${x.projectId}|${x.id}`) : null));
                   }),
               ),
               wrap.querySelectorAll(".t2-bcard").forEach(
@@ -171310,7 +171896,8 @@ function tdChrome() {
       const s = document.getElementById("btn-search");
       s ? s.after(a) : bar.appendChild(a);
     }
-    a && (a.hidden = !show);
+    // on Ask, the header's Ask reads as the page you are on (pressing it again has nothing to do)
+    a && ((a.hidden = !show), a.classList.toggle("on", "pa" === view), a.toggleAttribute("aria-current", "pa" === view));
   }
   const tabs = [...document.querySelectorAll("#mtabs [data-mv]")].map((b) => b.dataset.mv),
     sub = document.getElementById("subnav");
@@ -182022,7 +182609,7 @@ if ("function" == typeof paHtml) {
           const m = document.getElementById("tb-msg");
           m ? m.before(a) : bar.appendChild(a);
         }
-        (a.hidden = !1), (a.style.display = ""), a.classList.toggle("on", "pa" === view);
+        (a.hidden = !1), (a.style.display = ""), a.classList.toggle("on", "pa" === view), a.toggleAttribute("aria-current", "pa" === view);
         a.onclick = () => {
           (view = "pa"), render(), window.scrollTo(0, 0);
         };
@@ -183027,10 +183614,16 @@ function lnApprove(kind, why) {
   lnLoop("approve");
   return save(), l;
 }
+// Declining says so, wherever it is pressed (The Brain, Approvals, Do Now), with the way back to the lesson.
 function lnDecline(kind, why) {
   const P = lnInit().props[kind];
   if (!P || "proposed" !== P.status) return null;
-  return Object.assign(P, { status: "declined", by: ((currentUser() || {}).name) || role(), decidedAt: today(), note: why || "" }), save(), P;
+  return (
+    Object.assign(P, { status: "declined", by: ((currentUser() || {}).name) || role(), decidedAt: today(), note: why || "" }),
+    save(),
+    rcToast(`Declined: ${P.title || "the lesson"} — it will not be proposed again`, [{ label: "Open", run: () => ((view = "brain"), (bnTab = "lessons"), render()) }]),
+    P
+  );
 }
 const lnChangeWords = { rule: "a rule", reminder: "a reminder", checklist: "a checklist item", process: "a process step" };
 // ---- Needs Your Hand ----------------------------------------------------------------------------------------
@@ -183112,7 +183705,7 @@ function nyhRowsAll() {
         run: () => ("lpc" === pr.kind ? nyhLpcTask(c, pr, key) : nyhApplyMail(c, pr)),
         skip: () => nyhSkipMail(c, pr),
         open: () => {
-          (window.cmFilter = "all"), (view = "comms"), render();
+          (cmFilter = "all"), (view = "comms"), render();
         },
         commId: c.id,
       });
@@ -183328,14 +183921,14 @@ function nyhApplyMail(c, pr) {
   pr.applied || (pr.applied = did || "applied"), (pr.appliedAt = pr.appliedAt || appNowIso()), (pr.by = pr.by || ((currentUser() || {}).name) || role());
   nyhMarkCopies(c, pr, did);
   save(), render();
-  rcToast(did || `Applied: ${String(pr.summary || "").slice(0, 60)}`, [{ label: "Open", run: () => ((window.cmFilter = "all"), (view = "comms"), render()) }]);
+  rcToast(did || `Applied: ${String(pr.summary || "").slice(0, 60)}`, [{ label: "Open", run: () => ((cmOpen = c.id), (cmFilter = "all"), (view = "comms"), render()) }]);
 }
 function nyhSkipMail(c, pr) {
   const by = ((currentUser() || {}).name) || role();
   lnSameProps(c, pr).forEach((y) => {
     (y.pr.on = !1), (y.pr.applied = "set aside"), (y.pr.by = by), y.c.proposals.every((z) => z.applied) && (y.c.status = "applied");
   });
-  save(), render(), toast(`Set aside: ${String(pr.summary || "").slice(0, 60)}`);
+  save(), render(), toast(`Set aside: ${String(pr.summary || "").slice(0, 60)}`, () => ((cmOpen = c.id), (cmFilter = "all"), (view = "comms"), render()));
 }
 // LPC or an examiner wrote back: the comment goes on the application (the reader's apply) and the designer
 // gets a dated task to revise and resubmit
@@ -183390,7 +183983,7 @@ function nyhMaster(u, m, yes) {
     if (yes) {
       const r = paMasterApply(m.key);
       r && rcToast(`Created ${r.made} — ${r.routed} message${1 === r.routed ? "" : "s"} routed`, r.go && "function" == typeof gcOpen ? [{ label: "Open", run: gcOpen(r.go) }] : null);
-    } else paMasterIgnore(m.key), toast(`Set aside: ${m.name || m.addr}`);
+    } else paMasterIgnore(m.key), toast(`Set aside: ${m.name || m.addr}`, () => ((cmFilter = "all"), (view = "comms"), render()));
   } finally {
     DB.deviceUser = keep;
   }
@@ -184884,7 +185477,7 @@ function lkDisputeFor(c, low, amt) {
               verb: "Approve",
               no: "",
               run: () => nyhApplyMail(memo.c, memo.pr),
-              open: () => ((window.cmFilter = "all"), (view = "comms"), render()),
+              open: () => ((cmFilter = "all"), (view = "comms"), render()),
             });
           if (!(near || dayDiff(b.short.on, td) >= 14)) return;
           out.push({
@@ -185782,7 +186375,7 @@ function flReplyApply(c, p) {
   const lead = (DB.leads || []).find((l) => l.id === p.leadId) || null;
   flReplyDraft(c, p, lead);
   const did = `a reply to ${(lead && lead.name) || (c.from && c.from.name) || "them"} is in your Drafts — answer each question, then send`;
-  return flMark(c, p, did), save(), render(), rcToast(did, [{ label: "Open", run: () => ((window.cmFilter = "all"), (view = "comms"), render()) }]), did;
+  return flMark(c, p, did), save(), render(), rcToast(did, [{ label: "Open", run: () => ((cmFilter = "all"), (view = "comms"), render()) }]), did;
 }
 {
   const base = cmApply;
@@ -186047,7 +186640,7 @@ function flObRows() {
           run: () => F.run(c, pr),
           skip: () => nyhSkipMail(c, pr),
           open: () => {
-            (window.cmFilter = "all"), (view = "comms"), render();
+            (cmFilter = "all"), (view = "comms"), render();
           },
           commId: c.id,
           pri: F.pri(c, pr),
@@ -187010,6 +187603,130 @@ standardRegisterRule({
       const k = "undefined" != typeof docOpen ? docOpen : null;
       k && k !== lastDoc && isMobile() && window.scrollTo(0, 0);
       lastDoc = k;
+    } catch (e) {}
+    return r;
+  };
+}
+
+
+// ---- crawl: the static filter strips show the filter their list is drawn with ----------------------------
+// The strips in the shell markup (#ap-filter, #vf-filter, #inv-filter ...) were lit only by the click on
+// them, so a tile or a link that set the same filter (the Verify tiles set vfFilter = "all") left the old
+// button lit over a different list. Every render now lights the button that matches the state.
+const SEG_STATE = {
+  "txn-filter": ["f", () => txnFilter],
+  "inv-filter": ["f", () => invFilter],
+  "time-filter": ["f", () => timeFilter],
+  "ap-filter": ["f", () => apFilter],
+  "vf-filter": ["f", () => vfFilter],
+  "file-filter": ["f", () => fileFilter],
+  "file-view": ["fv", () => fileView],
+  "act-filter": ["f", () => actFilter],
+  "act-view": ["av", () => actView],
+  "jl-filter": ["f", () => jlFilter],
+  "mat-filter": ["f", () => matFilter],
+  "mat-group": ["g", () => matGroup],
+  "dec-filter": ["f", () => decFilter],
+  "iss-filter": ["f", () => issFilter],
+};
+function segSync() {
+  "undefined" != typeof tlCameFor && tlCameFor && tlCameFor.view !== view && (tlCameFor = null);
+  for (const [id, [k, get]] of Object.entries(SEG_STATE)) {
+    const s = document.getElementById(id);
+    if (!s) continue;
+    let v;
+    try {
+      v = String(get());
+    } catch (e) {
+      continue;
+    }
+    const bs = [...s.querySelectorAll("button")].filter((b) => void 0 !== b.dataset[k]);
+    bs.some((b) => b.dataset[k] === v) && bs.forEach((b) => b.classList.toggle("on", b.dataset[k] === v));
+  }
+}
+{
+  const base = render;
+  render = function () {
+    const r = base.apply(this, arguments);
+    try {
+      segSync();
+    } catch (e) {}
+    return r;
+  };
+}
+
+// ---- crawl: a Send with nothing to send looks it ---------------------------------------------------------
+// Each composer's button stays disabled while its text field is empty (the Ask box, the job's Chat, the
+// field request box), so it never reads as an action that then does nothing. A button the app disabled for
+// its own reason (a read in progress) is left alone: only what this gate disabled is enabled again.
+const SEND_GATES = [
+  ['#pa-ask button[type="submit"]', "#pa-in"],
+  ["#chat-send", "#chat-text"],
+  ["#cp-read", "#cp-text"],
+  ["#jv-go", "#jv-q"],
+  ["#ft-add", "#ft-raw"],
+  ["#ge-add", "#ge-text"],
+  ["#mbs-go", "#mbs-q"],
+];
+function sendGates() {
+  for (const [bs, is] of SEND_GATES)
+    document.querySelectorAll(bs).forEach((b) => {
+      const box = b.closest("form, .card, .chat-compose, .view") || document,
+        inp = box.querySelector(is) || document.querySelector(is);
+      if (!inp) return;
+      const empty = !String(inp.value || "").trim();
+      empty && !b.disabled ? ((b.disabled = !0), (b.dataset.sendGated = "1")) : !empty && b.dataset.sendGated && ((b.disabled = !1), delete b.dataset.sendGated);
+    });
+}
+document.addEventListener(
+  "input",
+  (e) => {
+    const t = e.target;
+    t && t.matches && SEND_GATES.some(([, is]) => t.matches(is)) && sendGates();
+  },
+  !0,
+);
+{
+  const base = render;
+  render = function () {
+    const r = base.apply(this, arguments);
+    try {
+      sendGates();
+    } catch (e) {}
+    return r;
+  };
+}
+// the Ask thread and the request box draw themselves outside render(): gate after them too
+if ("function" == typeof renderPa) {
+  const base = renderPa;
+  renderPa = function () {
+    const r = base.apply(this, arguments);
+    try {
+      sendGates();
+    } catch (e) {}
+    return r;
+  };
+}
+if ("function" == typeof renderRequestsPage) {
+  const base = renderRequestsPage;
+  renderRequestsPage = function () {
+    const r = base.apply(this, arguments);
+    try {
+      sendGates();
+    } catch (e) {}
+    return r;
+  };
+}
+// the foreman's "N things missing for today's work" line opens the sheet on every screen size
+{
+  const base = render;
+  render = function () {
+    const r = base.apply(this, arguments);
+    try {
+      "ftoday" === view &&
+        document.querySelectorAll("#ftoday-body .f-now").forEach((el) => {
+          el.dataset.fview || el.dataset.fmWired || !/missing for today/.test(el.textContent) || ((el.dataset.fmWired = "1"), (el.onclick = fMissingSheet));
+        });
     } catch (e) {}
     return r;
   };

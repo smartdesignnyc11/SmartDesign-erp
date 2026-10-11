@@ -122,5 +122,8 @@ A 9 means a seasoned professional in that lens would choose this over the leader
 ## A month of the company (optional, about 30 minutes)
 `tests/month_sim.py` runs 9/3 to 10/2 (21 working days) on one page with `tests/month_book.json` (293 invented events) and scripted people who act only on their own screens. It writes `review/month/ledger.md` and `ledger.json` (every event on time, late or missed; the day it reached the right screen; money left behind; schedule days lost; the function responsible) and the line `MONTH caught X/Y on time · Z late · W missed · $M left behind · D schedule days lost`. The integrator runs it on the merged build (`tests/run_all.sh month_sim`); a fix lane starts from the function the ledger names.
 
+## The click crawler (optional, three to five hours)
+`tests/crawl.py` presses every visible control on every screen of every role, desktop and phone, each from a fresh state (the DB, the app's UI state and the browser's storage put back in memory before each press), and judges what happened: ERROR, NOOP, DEADEND, MISMATCH, SILENT (a mutation with no toast or no Open link), LEAK, DESTRUCTIVE. Each flag is pressed again from a freshly booted page; what does not come back was the crawl's own sequence and is noted, not flagged. `review/crawl/report.md`, `review/crawl/flags.json`; last line `CRAWL N flags (clicked X controls over Y screens)`. Filter with `--user`, `--view`, `--phone`/`--desktop`, `--rule` while fixing (`tests/run_all.sh crawl` for the whole run).
+
 ## Automated guard rails that must stay at zero
 `lint.py` (desktop and phone), `counts_lint.py`, `smoke_test.py`, `baseline_test.py`, the Ask bank (held-out score reported), `daywalk.py` and `finance_xcheck.py`. BACKLOG.md §0 has the specs.

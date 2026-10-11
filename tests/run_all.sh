@@ -4,6 +4,10 @@
 # Optional, not in the default list (about 30 minutes): month_sim, a month of the company with a crack ledger
 # in review/month/ (tests/run_all.sh month_sim). It exits 1 while anything falls through the cracks.
 # chain_test (about 40 minutes) runs one new job end to end and reads every report against its records.
+# Optional, not in the default list (a full run takes three to five hours on this build: about 11,000 presses over every
+# screen of every role, desktop and phone, each pressed from a fresh state, then each flag pressed again from a
+# fresh boot): crawl, the click crawler (tests/run_all.sh crawl). Report in review/crawl/report.md; filter with
+# python3 tests/crawl.py --user/--view/--phone/--desktop/--rule while fixing.
 cd "$(dirname "$0")/.." || exit 1
 python3 build.py || exit 1
 mkdir -p review/run_all
