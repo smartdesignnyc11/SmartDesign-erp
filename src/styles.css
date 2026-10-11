@@ -3305,3 +3305,12 @@ body.crewmode .view.on .dl-sign > span{display:block;flex:1 1 auto;min-width:0}
 @media (max-width:760px){ .cl-mode{display:flex;width:100%} .cl-mode button{flex:1;min-height:44px} }
 .cl-act .cl-act-a{margin-top:4px;padding:6px 8px;background:var(--paper-2);border-radius:var(--r)}
 body.cl-portal #tb-ask{display:inline-flex}
+/* inventory before buying: the foreman's split, the driver's picks, the stock warnings */
+.stk-receipt{margin:10px 0;padding:10px 12px;border:1px solid var(--rule);border-left:3px solid var(--accent);border-radius:var(--r)}
+.stk-receipt .stk-line+.stk-line{margin-top:8px}
+.stk-receipt b{display:block;font-size:15px}
+.stk-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--rule)}
+.stk-row:first-of-type{border-top:0}
+.stk-row .grow{min-width:0;overflow-wrap:anywhere}
+.stk-acts{flex-wrap:wrap}
+.stk-warn .row{flex-wrap:wrap}
