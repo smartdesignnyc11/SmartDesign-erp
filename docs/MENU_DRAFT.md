@@ -1,10 +1,10 @@
-# Side menu: draft for discussion (SmartDesign workspace only)
+# Navigation and pages: draft for discussion (SmartDesign workspace only)
 
 **Status:** a draft for discussion, not agreed. Nothing gets built until Alan agrees. The Mercer & Bond workspace is out of scope.
 
 **Process (Alan, 2026-10-11): "think about this more and consult with the agents that are working the site."**
 1. The role experts work the 3-day pilot of the agent month, and the harness records every page each person opens and where they looked first.
-2. Each expert proposes their ideal menu from that experience and critiques this draft. This is the menu workshop (`sim/workshop_menu.md`).
+2. Each expert proposes their ideal menu from that experience and critiques this draft. This is the Navigation and Pages Workshop (`sim/workshop_nav.md`). It covers the menu, the navigation and every page they used.
 3. The answers are combined into one recommended menu per role, plus the disagreements, with each trade-off stated.
    Every expert also answers Alan's three questions (2026-10-11):
    - What would you change?
@@ -12,6 +12,18 @@
    - What about the menu is confusing?
 
    Confusion that several experts share ranks first.
+   The full question set (Alan's six, plus 18 more) runs in five groups:
+   - **Alan's questions:** what would you change; would you combine anything; what is confusing; what information is missing; what is scattered across several places; are there too many pages.
+   - **Per page:** could you finish what you came for without leaving; where did you go to decide; what you never use; is the first thing you look at on top; was the blue button your next step; did any number disagree with another page; did you trust it.
+   - **Navigation:** where you lost your place; taps and seconds for your top five jobs; the five pages you'd keep.
+   - **Phone and field:** what made you scroll, zoom or use two hands; what was hard in a hurry, outdoors or in gloves. **Words:** wrong or jargon labels.
+   - **Work and the AI:** what you did by hand that should be automatic; what your assistant should have done unasked; what made you afraid of a mistake you couldn't undo; what you had to text or call because the app couldn't carry it; what you'd need on day one to stop using paper, Excel, texts or QuickBooks.
+
+   Each finding is tagged with page, frequency and severity. The outputs are:
+   - a menu per role;
+   - a page-merge and page-cut list;
+   - a map of one place for each kind of information;
+   - the disagreements, for Alan.
 4. Alan decides. Then it is built, with a test that pins each role's menu.
 
 ## Today (owner view)
