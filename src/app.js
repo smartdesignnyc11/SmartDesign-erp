@@ -10989,25 +10989,12 @@ function quickAddAction(text) {
     }
     title = title.replace(dm[0], "");
   }
-  (title = title.replace(/\s{2,}/g, " ").trim()),
-    title &&
-      (S.actions.push({
-        id: uid("a"),
-        title: title,
-        assignee: assignee,
-        due: due,
-        priority: pri,
-        status: "todo",
-        link: null,
-        notes: "",
-        source: null,
-        createdAt: today(),
-        completedAt: "",
-      }),
-      log(`Task added: ${title}${assignee ? ` (${assignee})` : ""}`),
-      save(),
-      render(),
-      toast(`Added${assignee ? ` for ${assignee}` : ""}${due ? ` · due ${fmt(due)}` : ""}`));
+  title = title.replace(/\s{2,}/g, " ").trim();
+  if (!title || !S) return;
+  // one way to make a task: the same record, the same landing on the list, highlighted, and a toast with Open
+  const made = crCreateTask({ title: title, for: "p:" + S.id, assignee: assignee || tkMe(), due: due, priority: pri });
+  if (!made) return;
+  save(), tkLand(made), crToast(`Added for ${made.assignee || "nobody yet"}${due ? ` · due ${fmt(due)}` : ""} — it is on ${made.where}`, { label: "Open", run: () => crOpenTask(made) });
 }
 let poOpen = null;
 function nextPO() {
@@ -72544,9 +72531,11 @@ function cmTask(name, projectId, owner, due) {
       end: due && due >= today() ? due : today(),
       fromComm: !0,
     };
-    return p.tasks.push(t), t;
+    return p.tasks.push(t), (cmTask.last = { kind: "sched", id: t.id, projectId: p.id, assignee: t.owner, due: t.end, rec: t }), t;
   }
-  return "function" == typeof eaAddNote ? eaAddNote(name, due || today()) : null;
+  // no job: the firm's task list, where the person it is for sees it (an assistant note was saved but not found)
+  const made = crCreateTask({ title: name, for: "firm", assignee: owner || "", due: due || today(), notes: "From a message" });
+  return made ? ((cmTask.last = made), made.rec) : null;
 }
 function cmNoteAnywhere(c, p) {
   if ("function" != typeof eaAddNote) return null;
@@ -73012,11 +73001,11 @@ function cmWire(host) {
             c = DB.comms.find((x) => x.id === cid),
             p = c && c.proposals.find((x) => x.id === pid);
           if (!p) return;
-          const did = cmApply(c, p);
-          c.proposals.every((x) => x.applied || !1 === x.on) && (c.status = "applied"),
-            save(),
-            render(),
-            toast(did);
+          cmTask.last = null;
+          const did = cmApply(c, p),
+            made = cmTask.last;
+          c.proposals.every((x) => x.applied || !1 === x.on) && (c.status = "applied"), save();
+          made ? (tkLand(made), crToast(did || "Task made", { label: "Open", run: () => crOpenTask(made) })) : (render(), toast(did));
         }),
     ),
     host.querySelectorAll("[data-cmskip]").forEach(
@@ -111644,26 +111633,17 @@ function paDraftNote(to, subject, body, why, key) {
   };
   return DB.outbox.push(o), o;
 }
+// A task the assistant puts on its person's list: on them, with no project (it used to land on the first job the
+// person manages, where it was saved but not found). The toast's Open lands on it.
 function paTask(title, due, note) {
   const me = paMe(),
-    p =
-      (DB.projects || []).find(
-        (x) => String((x.project || {}).pm || "").toLowerCase() === String(me.name).toLowerCase(),
-      ) || (DB.projects || [])[0];
-  if (!p) return null;
-  const a = {
-    id: uid("a"),
-    title: String(title),
-    assignee: me.name,
-    due: due || "",
-    priority: "med",
-    status: "todo",
-    area: "office",
-    createdAt: appNowIso(),
-    notes: note || "",
-    source: { assistant: me.id },
-  };
-  return (p.actions = p.actions || []).push(a), save(), { a: a, p: p };
+    made = crCreateTask({ title: String(title), for: "me", assignee: me.name, due: due || "", notes: note || "", area: "office", source: { assistant: me.id } });
+  if (!made) return null;
+  save();
+  try {
+    crToast(`On your list${made.due ? ` for ${fmtL(made.due)}` : ""}: ${made.rec.title}`, { label: "Open", run: () => crOpenTask(made) });
+  } catch (e) {}
+  return { a: made.rec, p: null, made: made };
 }
 function paOffers(kind, M, q) {
   const out = [];
@@ -111917,8 +111897,8 @@ function paAsk(q) {
               : `You asked for ${fmtL(due)}; your own rules rule that day out, so I took the next day that is open. `
             : "") +
           "It is a dated item on you in the task list, not a note in a corner, so it shows up where the rest of your work does.",
-        work: t ? [`${t.p.project.name.replace(/ —.*$/, "")} — ${body} — due ${fmtL(slot.date)}`] : [],
-        go: paGo({ view: "tasks" }),
+        work: t ? [`Your list — ${body} — due ${fmtL(slot.date)}`] : [],
+        go: paGo({ view: "tkall" }),
         kind: "remind",
       })
     );
@@ -113745,13 +113725,12 @@ function paRefOffers(ref) {
           detail: "A dated item on you, on the job it belongs to, so it is not held only by your inbox.",
           run: () => {
             const slot = paNextOpen(iso(addDays(today(), 1)));
-            paTask(
+            const t = paTask(
               `${c.subject || "Follow up"} — ${(c.from || {}).name || ""}`.trim(),
               slot.date,
               `From ${(c.from || {}).email || ""} on ${fmtL(String(c.date).slice(0, 10))}.`,
-            ),
-              toast(`On your list for ${fmtL(slot.date)}`),
-              render();
+            );
+            t ? tkLand(t.made) : render();
           },
         }),
       ),
@@ -116425,7 +116404,8 @@ async function mindTool(name, a) {
             created: !0,
             title: a.title,
             due: slot.date,
-            job: String(t.p.project.name).replace(/ —.*$/, ""),
+            job: "",
+            list: "your task list",
             moved: slot.date !== (a.due || ""),
           }
         : { error: "No job to put it on." };
@@ -119703,7 +119683,14 @@ function crForOptions(sel) {
       rows.length
         ? `<optgroup label="${esc(label)}">${rows.map(([v, n]) => `<option value="${v}" ${v === sel ? "selected" : ""}>${esc(n)}</option>`).join("")}</optgroup>`
         : "";
-  return `<select data-f="for"><option value="firm" ${"firm" === sel ? "selected" : ""}>The Firm — No Project</option><option value="sales" ${"sales" === sel ? "selected" : ""}>Sales — No Opportunity</option>${g("Projects", projects)}${g("Leads", leads)}${g("Clients", clients)}</select>`;
+  return `<select data-f="for"><option value="me" ${"me" === sel ? "selected" : ""}>Me — No Project</option><option value="firm" ${"firm" === sel ? "selected" : ""}>The Firm — No Project</option><option value="sales" ${"sales" === sel ? "selected" : ""}>Sales — No Opportunity</option>${g("Projects", projects)}${g("Leads", leads)}${g("Clients", clients)}</select>`;
+}
+// The views that are a project's own page (the project band shows): only there does a new task default to the
+// current project. From Home, Tasks, Office and everywhere else it defaults to "Me — No Project", so a task is
+// never filed on whichever job happened to be current (BACKLOG §1.16, "saved is not enough: findable").
+const CR_PROJECT_VIEWS = ["sched", "tasks", "dec", "insp", "field", "mat", "files", "costs", "inbox", "chat", "proj", "dash", "sboard", "sdraw", "sfile"];
+function crInProject() {
+  return CR_PROJECT_VIEWS.includes(view) && !!(S && S.id && (DB.projects || []).some((p) => p.id === S.id));
 }
 function crDefaultFor(P) {
   return P.leadId
@@ -119712,13 +119699,11 @@ function crDefaultFor(P) {
       ? "p:" + P.projectId
       : P.clientId
         ? "c:" + P.clientId
-        : P.sales || /^(hb|sc)/.test(view) || (void 0 !== tkProject && "__sales" === tkProject)
+        : P.sales || /^hb/.test(view) || /^sc(?!hed)/.test(view) || (void 0 !== tkProject && "__sales" === tkProject && "hbtasks" === view)
           ? "sales"
-          : void 0 !== tkProject && tkProject
-            ? "p:" + tkProject
-            : void 0 !== S && S && S.id && (DB.projects || []).some((p) => p.id === S.id)
-              ? "p:" + S.id
-              : "firm";
+          : crInProject()
+            ? "p:" + S.id
+            : "me";
 }
 function crCreateTask(f) {
   const [kind, id] = String(f.for || "firm").split(":"),
@@ -119840,7 +119825,7 @@ function crCreateTask(f) {
         blockedBy: [],
         blocking: [],
         modifiedAt: td,
-      }),
+      }, "me" === kind && !base.assignee ? { assignee: crCanonName(by) || by || "" } : {}),
     ),
     {
       kind: "firm",
@@ -119848,49 +119833,47 @@ function crCreateTask(f) {
       projectId: "",
       assignee: base.assignee,
       due: base.due,
-      where: "the firm’s list",
+      where: "me" === kind ? "your list" : "the firm’s list",
       rec: base,
     }
   );
 }
-let crFlash = "";
-function crShowNewTask(m) {
+let crFlash = "",
+  crFlashUntil = 0;
+// Saved is not enough: findable (BACKLOG §1.16). After any task is made, its creator lands on a list that shows
+// it, highlighted: the project's own Tasks when it is on that project and they are on it, Sales Tasks for a sales
+// task made there, otherwise All Tasks (or, for a role without it, the project's Tasks). The filters open on the
+// bucket that holds it (Today, Next 7 Days, No Date or All), on Mine when it is theirs, Everyone when it is not.
+const tkBucket = (due) => {
+  const td = today();
+  return !due ? "nodate" : due <= td ? "today" : due <= iso(addDays(parse(td), 7)) ? "week" : "all";
+};
+function tkLand(m) {
+  if (!m) return;
   try {
-    if ("tkall" !== view) return;
-    "me" !== tkWho || tkOwnerMatch(m.assignee, tkMe()) || (tkWho = "all"),
-      "none" === tkWho && m.assignee && (tkWho = "all"),
-      tkWho &&
-        "me" !== tkWho &&
-        "all" !== tkWho &&
-        "none" !== tkWho &&
-        !tkOwnerMatch(m.assignee, tkWho) &&
-        (tkWho = "all"),
-      void 0 !== tkPerson && tkPerson && !tkOwnerMatch(m.assignee, tkPerson) && (tkPerson = "");
-    const scope = m.projectId || ("hub" === m.kind ? "__sales" : "");
-    if (
-      (tkProject && tkProject !== scope && (tkProject = ""),
-      (tkArea = ""),
-      (tkPri = ""),
-      "sched" === tkKind && (tkKind = ""),
-      void 0 !== t2Q && (t2Q = ""),
-      void 0 !== t2View)
-    ) {
-      const td = today();
-      t2View = m.due
-        ? m.due <= td
-          ? "today"
-          : m.due <= iso(addDays(parse(td), 7))
-            ? "week"
-            : "all"
-        : "nodate";
-    }
-    crFlash = m.id;
-  } catch (e) {}
+    const may = (v) => (ROLE_VIEWS[role()] || []).includes(v),
+      ctx = T2_SCOPED[view],
+      stay = ("job" === ctx && m.projectId && S && m.projectId === S.id) || ("sales" === ctx && "hub" === m.kind);
+    if (!stay)
+      if (may("tkall")) view = "tkall";
+      else if (m.projectId && may("tasks")) "function" == typeof setCurrent && setCurrent(m.projectId), (view = "tasks");
+      else return void render();
+    // the list's own saved filters first (Home's Tasks and a project's Tasks keep separate ones), then open them up
+    t2Enter();
+    (tkWho = tkOwnerMatch(m.assignee, tkMe()) ? "me" : "all"), (tkPerson = ""), (tkArea = ""), (tkPri = ""), (t2Q = ""), (tkQueue = ""), (t2OverdueOpen = !1);
+    "sched" === tkKind && (tkKind = "");
+    stay || (tkProject = "");
+    t2Fix();
+    "table" === tkMode && (tkMode = "cards");
+    (t2View = tkBucket(m.due)), (crFlash = m.id), (crFlashUntil = Date.now() + 4e3);
+    render();
+  } catch (e) {
+    console.warn("land on the new task", e);
+  }
 }
 function crOpenTask(m) {
   "hub" !== m.kind
-    ? ("tkall" !== view && ((view = "tkall"), crShowNewTask(m), render()),
-      "function" == typeof openEditor && openEditor("tk", `${m.kind}|${m.projectId || ""}|${m.id}`))
+    ? (tkLand(m), "function" == typeof openEditor && openEditor("tk", `${m.kind}|${m.projectId || ""}|${m.id}`))
     : "function" == typeof hbTaskPanel && hbTaskPanel({ task: m.rec }, () => render());
 }
 function newTaskDialog(preset, opts) {
@@ -119931,9 +119914,8 @@ function newTaskDialog(preset, opts) {
       });
       if (!made) return !1;
       if (
-        (crShowNewTask(made),
-        save(),
-        render(),
+        (save(),
+        tkLand(made),
         crToast(
           `Task for ${made.assignee || "nobody yet"}${made.due ? ", due " + fmtL(made.due) : ""} — it is on ${made.where}`,
           { label: "Open", run: () => crOpenTask(made) },
@@ -119959,6 +119941,7 @@ function newTaskDialog(preset, opts) {
           }),
       ),
       vfGate(root, root.querySelector("#mbm-ok"), REQ),
+      ((fo, as) => fo && as && fo.addEventListener("change", () => "me" === fo.value && [...as.options].some((o) => o.value === me) && (as.value = me)))(root.querySelector('[data-f="for"]'), root.querySelector('[data-f="assignee"]')),
       setTimeout(() => {
         const t = root.querySelector('[data-f="title"]');
         t && t.focus();
@@ -119977,13 +119960,13 @@ if (
     renderTkAllBase_cr.apply(this, arguments);
     try {
       if (!crFlash) return;
+      if (Date.now() > crFlashUntil) return void (crFlash = "");
       const host = document.getElementById("tkall-body"),
         row = host && host.querySelector(`[data-edit$="|${crFlash}"], [data-tkopen$="|${crFlash}"]`);
-      (crFlash = ""),
-        row &&
-          (row.classList.add("tk-flash"),
-          row.scrollIntoView({ block: "center" }),
-          setTimeout(() => row.classList.remove("tk-flash"), 2500));
+      row &&
+        (row.classList.add("tk-flash"),
+        row.scrollIntoView({ block: "center" }),
+        setTimeout(() => row.classList.remove("tk-flash"), 2500));
     } catch (e) {}
   };
 }
@@ -120095,7 +120078,7 @@ if ("function" == typeof mQuick) {
     const sheet = mSheet;
     mSheet = async (title, items) => {
       const k = await sheet(title, items);
-      return "task" === k ? (newTaskDialog({ projectId: S && S.id }), null) : k;
+      return "task" === k ? (newTaskDialog(crInProject() ? { projectId: S.id } : {}), null) : k;
     };
     try {
       return await mQuickBase_cr.apply(this, arguments);
@@ -120228,7 +120211,7 @@ const CR_NEW = [
       [
         "task",
         "Task",
-        () => newTaskDialog({ projectId: S && S.id }),
+        () => newTaskDialog(crInProject() ? { projectId: S.id } : {}),
         (p) => (p ? "on " + p : "for someone, with a due date"),
       ],
       ["decision", "Decision", () => crQuick("decision"), (p) => (p ? "needed on " + p : "what blocks what")],
@@ -149649,7 +149632,7 @@ t2Html = function () {
       "job" === ctx && "done" !== t2View
         ? '<div class="t2-quick no-print"><input id="t2-quickadd" class="t2-quickin" aria-label="Quick add a task" placeholder="Add a task on this job — Call Nemo about tile ETA @Chen !high due fri"></div>'
         : "";
-  return `<div class="ph"><div><h2>Tasks</h2><div class="lead">${esc(t2Lead(ctx, R, C))}</div></div><div class="acts">${t2ActsHtml(ctx)}</div></div>\n  <div class="t2-bar-top no-print"><div class="ctabs t2-views">${T2_VIEWS2.map(([k, n]) => `<button class="${t2View === k ? "on" : ""}" data-t2view="${k}">${n}${C[k] ? `<span class="n">${C[k]}</span>` : ""}</button>`).join("")}</div></div>\n  ${t2ToolsHtml(ctx)}\n  ${window.__t2Undo ? '<div class="t2-undo no-print"><span class="grow">Moved. Not what you meant?</span><button class="btn sm" id="t2-undo">Put It Back</button></div>' : ""}\n  <div class="t2-list">${odHtml + restHtml || `<div class="empty">${empty}</div>`}${quick}</div>`;
+  return `<div class="ph"><div><h2>Tasks</h2><div class="lead">${esc(t2Lead(ctx, R, C))}</div></div><div class="acts">${t2ActsHtml(ctx)}</div></div>\n  <div class="t2-bar-top no-print"><div class="ctabs t2-views">${T2_VIEWS2.map(([k, n]) => `<button class="${t2View === k ? "on" : ""}" data-t2view="${k}">${n}${C[k] ? `<span class="n">${C[k]}</span>` : ""}</button>`).join("")}</div></div>${["today", "week", "overdue"].includes(t2View) && C.nodate ? `<p class="small muted t2-nodate no-print" data-t2nodate="${C.nodate}">${C.nodate} task${1 === C.nodate ? " has" : "s have"} no date, so ${1 === C.nodate ? "it is" : "they are"} not in ${esc((T2_VIEWS2.find(([k]) => k === t2View) || [, ""])[1])}. <button type="button" class="btn sm" data-t2view="nodate">Show No Date</button></p>` : ""}\n  ${t2ToolsHtml(ctx)}\n  ${window.__t2Undo ? '<div class="t2-undo no-print"><span class="grow">Moved. Not what you meant?</span><button class="btn sm" id="t2-undo">Put It Back</button></div>' : ""}\n  <div class="t2-list">${odHtml + restHtml || `<div class="empty">${empty}</div>`}${quick}</div>`;
 };
 {
   const base = t2RowHtml;
@@ -149667,36 +149650,10 @@ t2Html = function () {
     );
   };
 }
-if (
-  ((tkNewDialog = function () {
-    const c = t2Ctx();
-    newTaskDialog("job" === c && S ? { projectId: S.id } : "sales" === c ? { sales: !0 } : {});
-  }),
-  "function" == typeof crShowNewTask)
-) {
-  const base = crShowNewTask;
-  crShowNewTask = function (m) {
-    if (!T2_SCOPED[view]) return base.apply(this, arguments);
-    const v = view,
-      keepP = tkProject;
-    view = "tkall";
-    try {
-      base.apply(this, arguments);
-    } finally {
-      (view = v), (tkProject = keepP);
-    }
-  };
-}
-if ("function" == typeof crOpenTask) {
-  const base = crOpenTask;
-  crOpenTask = function (m) {
-    return T2_SCOPED[view] && m && "hub" !== m.kind
-      ? (crShowNewTask(m),
-        render(),
-        void ("function" == typeof openEditor && openEditor("tk", `${m.kind}|${m.projectId || ""}|${m.id}`)))
-      : base.apply(this, arguments);
-  };
-}
+tkNewDialog = function () {
+  const c = t2Ctx();
+  newTaskDialog("job" === c && S ? { projectId: S.id } : "sales" === c ? { sales: !0 } : {});
+};
 function t2BoardHtml(list) {
   const done = t2DonePool().slice(0, 20),
     cols = [
