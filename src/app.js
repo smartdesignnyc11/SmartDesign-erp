@@ -4951,14 +4951,14 @@ function renderProj() {
     ($("#u-add").onclick = () => {
       const n = $("#u-name").value.trim();
       if (!n) return;
-      const em = DB.employees.find((e) => e.name.toLowerCase() === n.toLowerCase());
-      DB.users.push({
-        id: uid("u"),
-        name: n,
-        role: $("#u-role").value,
-        contact: $("#u-contact").value.trim(),
-        employeeId: em?.id || "",
-      }),
+      const em = DB.employees.find((e) => e.name.toLowerCase() === n.toLowerCase()),
+        nu = { id: uid("u"), name: n, role: $("#u-role").value, contact: $("#u-contact").value.trim(), employeeId: em?.id || "" };
+      if ("client" === nu.role) {
+        const cid = userClientOf(nu);
+        if (!cid) return void toast("A portal user is one of a client's people: put the client's email in Phone or Email (it must match a contact on the client)");
+        (nu.clientId = cid), (nu.employeeId = "");
+      }
+      DB.users.push(nu),
         !em &&
           ["crew", "driver", "foreman"].includes($("#u-role").value) &&
           (DB.employees.push({
@@ -4975,7 +4975,8 @@ function renderProj() {
         ($("#u-name").value = ""),
         ($("#u-contact").value = ""),
         save(),
-        renderUsers();
+        renderUsers(),
+        toast(`${n} added as ${ROLE_NAMES[nu.role] || nu.role}${nu.clientId ? ` for ${(DB.clients.find((c) => c.id === nu.clientId) || {}).name || "the client"}` : ""}`);
     }),
     ($("#backlog").innerHTML =
       `<div class="backlog">${BACKLOG.map(([t, d]) => `<div><b>${esc(t)}</b>${esc(d)}</div>`).join("")}</div>`),
@@ -17051,9 +17052,26 @@ function seedUsers() {
   ];
 }
 const currentUser = () => DB.users.find((u) => u.id === DB.deviceUser) || null;
+// A portal user is one of a client's people: the client whose contact (or the client record) carries the user's
+// email. A client user with no client could otherwise open whatever job was last open on the device.
+function userClientOf(u) {
+  if (!u || "client" !== u.role) return "";
+  if (u.clientId && (DB.clients || []).some((c) => c.id === u.clientId)) return u.clientId;
+  const em = String(u.contact || "").trim().toLowerCase();
+  if (!em || !/@/.test(em)) return "";
+  const c = (DB.clients || []).find(
+    (c) => String(c.email || "").toLowerCase() === em || (c.contacts || []).some((x) => String(x.email || "").toLowerCase() === em),
+  );
+  return c ? c.id : "";
+}
 function signIn(userId) {
   const u = DB.users.find((x) => x.id === userId);
   if (!u) return;
+  if ("client" === u.role) {
+    const cid = userClientOf(u);
+    if (!cid) return void toast(`${u.name} is not linked to a client yet: add their email to the client's people, then sign in`);
+    u.clientId = cid;
+  }
   if (
     ((DB.deviceUser = u.id),
     (DB.me = u.name),
