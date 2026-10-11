@@ -39299,7 +39299,11 @@ const renderHomeBase_h4 = renderHome;
 // for a person who has it; before, the SmartDesign workspace turned it away and the press landed on Ask.
 function goWsFor(v) {
   try {
-    "undefined" != typeof MB_VIEWS && MB_VIEWS.includes(v) && "mb" !== DB.workspace && mbAccess() && setWorkspace("mb");
+    "undefined" != typeof MB_VIEWS &&
+      (MB_VIEWS.includes(v)
+        ? "mb" !== DB.workspace && mbAccess() && setWorkspace("mb")
+        : // a page outside the acquisitions workspace (Settings from its rail) is opened in the firm's
+          v && "mb" === DB.workspace && setWorkspace("sd"));
   } catch (e) {}
 }
 function h4Go(go) {
@@ -117509,7 +117513,7 @@ if ("function" == typeof renderNav) {
         });
         const sb = document.getElementById("rail-settings");
         sb &&
-          ((sb.onclick = () => setView("setup")),
+          ((sb.onclick = () => (goWsFor("setup"), setView("setup"))),
           sb.classList.toggle("on", !!NAV_GROUPS.find((g) => "setup" === g.id && g.views.includes(view))));
         const sub = document.getElementById("subnav");
         if (sub) {
