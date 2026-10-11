@@ -93314,7 +93314,7 @@ function lsSummaryModal(m, kind) {
       submit: "Copy",
       onSubmit: (v) => {
         try {
-          navigator.clipboard && navigator.clipboard.writeText(v.text);
+          clipCopy(v.text);
         } catch (e) {}
         (m.summaries = m.summaries || {}),
           (m.summaries[kind] = {
@@ -95727,9 +95727,7 @@ function renderCalendar() {
   ics &&
     (ics.onclick = () => {
       const t = bnIcs();
-      try {
-        navigator.clipboard && navigator.clipboard.writeText(t);
-      } catch (e) {}
+      clipCopy(t);
       mbModal(
         "The Calendar as ICS",
         `<div class="small muted" style="margin-bottom:6px">Copied to the clipboard where the browser allows it. Save the text as <b>smartdesign.ics</b> and import it into Google Calendar, Outlook or Apple Calendar; the hosted app syncs instead.</div><textarea rows="14" style="width:100%;font-family:monospace;font-size:11px">${esc(t)}</textarea>`,
@@ -96373,7 +96371,7 @@ async function bnSendBuild(c) {
   ) {
     let copied = !1;
     try {
-      navigator.clipboard && (await navigator.clipboard.writeText(brief), (copied = !0));
+      copied = await clipCopy(brief);
     } catch (e) {
       copied = !1;
     }
@@ -97511,7 +97509,7 @@ if ("function" == typeof lsScopeWire) {
                   ok.onclick = () => {
                     try {
                       const ta = document.querySelector("#mbm textarea");
-                      ta && navigator.clipboard && navigator.clipboard.writeText(ta.value);
+                      ta && clipCopy(ta.value);
                     } catch (e) {}
                     prev && prev();
                   };
@@ -103826,6 +103824,20 @@ function renderRpBox() {
           )
         : toast("Nothing handled yet");
     });
+}
+// Copies text without leaving a rejected promise behind: a page opened from a file, or a browser that asks
+// for permission, refuses the clipboard. Resolves true when the text reached the clipboard.
+function clipCopy(text) {
+  try {
+    return navigator.clipboard && navigator.clipboard.writeText
+      ? navigator.clipboard.writeText(String(text)).then(
+          () => !0,
+          () => !1,
+        )
+      : Promise.resolve(!1);
+  } catch (e) {
+    return Promise.resolve(!1);
+  }
 }
 function rpCopy(text, what) {
   try {
