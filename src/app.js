@@ -174286,7 +174286,7 @@ AG_ASST.unshift(
     id: "rfqsave",
     first: !0,
     kind: "money",
-    re: /\bsav(e|ed|ing|ings)\b.*\b(rfqs?|quotes?|negotiat|purchas|buying)|\b(rfqs?|negotiat)\b.*\bsav(e|ed|ings)\b/,
+    re: /\bsav(e|ed|ing|ings)\b.*\b(rfqs?|negotiat\w*)\b|\b(rfqs?|negotiat\w*)\b.*\bsav(e|ed|ings?)\b/,
     run(P) {
       const ym = P.period ? P.period.from.slice(0, 7) : today().slice(0, 7),
         V = rfqSavings(ym);
@@ -174322,9 +174322,12 @@ AG_ASST.unshift(
     kind: "ops",
     re: /\bwhere\b.*\b(lumber|framing)\b.*\bcheap|\bwhy is\b.*\bcheaper\b/,
     run(P) {
-      const R = ((DB.sourcing || {}).research || {}).Lumber || sourcingResearch("Lumber"),
-        named = R.prospects.find((x) => P.l.includes(String(x.name).toLowerCase().split(" ")[0])) || null,
-        best = named || R.prospects.filter((x) => "dismissed" !== x.status).sort((a, b) => a.landed.perUnit - b.landed.perUnit)[0];
+      const why = /\bwhy is\b/.test(P.l),
+        R = ((DB.sourcing || {}).research || {}).Lumber;
+      if (!R) return why ? null : { headline: "I have no sourcing research on lumber yet: run it under RFQs, Sourcing Research.", go: agGo("rfq", { rfqTab: "research" }) };
+      const named = R.prospects.find((x) => P.l.includes(String(x.name).toLowerCase().split(" ")[0])) || null;
+      if (why && !named) return null;
+      const best = named || R.prospects.filter((x) => "dismissed" !== x.status).sort((a, b) => a.landed.perUnit - b.landed.perUnit)[0];
       if (!best) return { headline: `I have no research on lumber yet${R.stub ? ": web search arrives with the platform" : ""}.` };
       const H = R.hypotheses.filter((h) => best.hypIds.includes(h.id));
       return {
