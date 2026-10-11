@@ -26,8 +26,14 @@ async def main():
         # (EAC $384,087.50 -> $388,887.50). Income 144292 -> 142759, net -3797 -> -5330.
         c.ok(r['income'] == 142759, f"YTD income {r['income']} (was 144292 before truthpct)")
         c.ok(r['net'] == -5330, f"YTD net {r['net']} (was -3797 before truthpct)")
-        c.ok(r['rtb'] == 20980 and r['rtbN'] == 2 and r['held'] == 1, f"ready to bill {r['rtb']} / {r['rtbN']} rows / {r['held']} held")
-        c.ok(r['badges'] == {'jobs': 2, 'sales': 4, 'buy': 10, 'money': 6, 'billing': 2}, f"rail badges {r['badges']}")
+        # leaks (BACKLOG 1.5 #2): a job is held per line, never whole. 121 State's measured framing and electrical
+        # ($12,651.25) were held because the job is billed ahead on the WIP schedule; they now propose an application:
+        # ready to bill 20980 / 2 rows / 1 held -> 33631.25 / 3 rows / 0 held, and Billing's badge 2 -> 3.
+        # leaks (BACKLOG 1.5 #1): the windows line floats $13,968.74 of materials bought and delivered beyond what
+        # the Kleins have been billed for it; it is a row to bill as stored materials: 33631.25 / 3 -> 47599.99 / 4,
+        # and Billing's badge 3 -> 4.
+        c.ok(r['rtb'] == 47599.99 and r['rtbN'] == 4 and r['held'] == 0, f"ready to bill {r['rtb']} / {r['rtbN']} rows / {r['held']} held")
+        c.ok(r['badges'] == {'jobs': 2, 'sales': 4, 'buy': 10, 'money': 6, 'billing': 4}, f"rail badges {r['badges']}")
         c.ok('$0' in r['owe'], f"AP owed: {r['owe']}")
         c.ok('Tino' in r['po'] and '8,010' in r['po'], f"PO lookup: {r['po']}")
         c.ok(not r['users'], f"missing demo users {r['users']}")

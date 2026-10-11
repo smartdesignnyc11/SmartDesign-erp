@@ -191,6 +191,7 @@ This lane was finished and verified at 53 checks. Target figures follow.
 
 ### 1.5 leaks: money leaks and slipped work are caught automatically (north star; from tests/leak_test.py, 2026-10-08)
 Baseline: 2 MISSED, 4 PARTIAL. Every item is proven by its leak_test scenario turning CAUGHT.
+**Lane leaks (2026-10-10):** #1 (reimbursables, floated client purchases, Billable Expenses pull, spUnbilled one number), #2 (hold per line, CO lines from 0, Send on a draft) and the client credit of #4 delivered; leak_test 1 and 2 CAUGHT; tests/leaks2_test.py proves eight of the month's cracks (docs/ARCHITECTURE.md, leaks2). #3, the deposit-applied line of #2, #5's byCode source ids, document attachments and labor from the run, and #6 remain.
 1. **Unbilled reimbursables (MISSED, S1).**
    - What happens: card purchases coded to a job land in job cost, but no field records whether they were billed back.
    - Fix (NetSuite Billable Expenses; QuickBooks Unbilled Charges):

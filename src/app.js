@@ -9643,7 +9643,8 @@ function renderBank() {
         get: (t) => ({
           text: t.desc,
           // a vendor credit says what it is against, with Confirm (txnCreditLine, purchasing section)
-          html: `${esc(t.desc)}${t.vendor ? `<span class="sub">${esc(t.vendor)}</span>` : ""}${"function" == typeof txnCreditLine ? txnCreditLine(t) : ""}`,
+          // and what else the line is waiting on: billed back to the client, a duplicate, no bank line (txnFlagsHtml, leaks2)
+          html: `${esc(t.desc)}${t.vendor ? `<span class="sub">${esc(t.vendor)}</span>` : ""}${"function" == typeof txnCreditLine ? txnCreditLine(t) : ""}${"function" == typeof txnFlagsHtml ? txnFlagsHtml(t) : ""}`,
         }),
       },
       {
@@ -14797,108 +14798,152 @@ function timeAction(e, a) {
 }
 // The pay period a day falls in: two weeks, Monday to Sunday, anchored on the firm's first period (the seed's
 // 8/17 – 8/28 run); payday is the second Friday.
+// A run's entries: a run built from time holds its own (payrollId); a run typed by hand covers its dates for its entity.
+function prInRun(r, e) {
+  return r && e ? (r.fromTime ? e.payrollId === r.id : e.date >= r.from && e.date <= r.to && entOfEmpId(e.empId) === (r.entityId || "ent1")) : !1;
+}
+// each entity's share of a run: a run across entities carries r.entities; any other run is one entity's
+function prParts(r) {
+  return r && Array.isArray(r.entities) && r.entities.length ? r.entities : [{ entityId: (r && r.entityId) || "ent1", gross: +(r && r.gross) || 0, taxes: +(r && r.taxes) || 0, total: +(r && r.total) || 0 }];
+}
 function payPeriodOf(day) {
   const anchor = (DB.company && DB.company.payAnchor) || "2026-08-17",
     k = Math.floor(dayDiff(anchor, day) / 14),
     from = iso(addDays(anchor, 14 * k));
   return { from: from, to: iso(addDays(from, 13)), payDate: iso(addDays(from, 11)) };
 }
-function payrollFromTime() {
-  // A run is built for one pay period: the one today is in (or the last one that ended, if today's has no hours
-  // yet). Approved hours from earlier periods are not swept into it; they were paid by an earlier run or need one
-  // of their own, and the toast says how many there are.
-  const all = DB.time.filter((t) => "approved" === t.status && !t.payrollId);
-  if (!all.length) return void toast("No approved hours waiting for a payroll run");
+// One run per pay period, across the firm's entities (the payroll service pays everyone in one run; each
+// entity's share is kept inside the run, r.entities, and posts to its own books). The run holds every approved
+// hour of its period not yet in a run, and hours of an earlier period approved after that period's run was built
+// from time (paid on this run, named as late). An open run (not yet approved) for the
+// period is rebuilt, never doubled, so it always holds what was approved by the time it is approved
+// (payrollRebuildOpen, a day hook). Whoever builds a run does not approve it (payrollAction).
+function payrollFromTime(opts) {
+  const o = opts || {};
   let P = payPeriodOf(today());
-  all.some((t) => t.date >= P.from && t.date <= P.to) || (P = payPeriodOf(iso(addDays(P.from, -1))));
-  const entries = all.filter((t) => t.date >= P.from && t.date <= P.to),
-    older = all.filter((t) => t.date < P.from);
-  if (!entries.length) return void toast(`No approved hours in the ${fmt(P.from)} – ${fmt(P.to)} pay period${older.length ? `; ${older.length} older approved entr${1 === older.length ? "y is" : "ies are"} in no run` : ""}`);
-  const dates = [P.from, P.payDate],
+  const all = DB.time.filter((t) => "approved" === t.status && !t.payrollId);
+  all.some((t) => t.date >= P.from && t.date <= P.to) ||
+    DB.payroll.some((r) => r.fromTime && r.from === P.from && ["draft", "submitted"].includes(r.status)) ||
+    (P = payPeriodOf(iso(addDays(P.from, -1))));
+  const open = DB.payroll.find((r) => r.fromTime && r.from === P.from && ["draft", "submitted"].includes(r.status)),
+    // late hours: dated in an earlier period whose run was built from time, approved after that run went out
+    built = DB.payroll.filter((r) => r.fromTime && r.from < P.from && !["rejected", "void"].includes(r.status)),
+    lateOk = (t) => built.some((r) => t.date >= r.from && t.date <= payPeriodOf(r.from).to),
+    entries = all.filter((t) => (t.date >= P.from && t.date <= P.to) || (t.date < P.from && lateOk(t))).concat(open ? DB.time.filter((t) => t.payrollId === open.id) : []);
+  if (!entries.length) {
+    o.quiet || toast(`No approved hours waiting for a payroll run in the ${fmt(P.from)} – ${fmt(P.to)} pay period`);
+    return null;
+  }
+  const late = entries.filter((t) => t.date < P.from),
+    perEmp = {},
     byEnt = {};
   entries.forEach((t) => {
     const e = DB.employees.find((x) => x.id === t.empId),
-      ent = e?.entityId || DB.entities[0].id;
-    (byEnt[ent] = byEnt[ent] || []).push(t);
+      h = hoursOf(t),
+      p = (perEmp[t.empId] = perEmp[t.empId] || { id: t.empId, name: e?.name, entityId: e?.entityId || DB.entities[0].id, rate: e?.rate || 0, burden: e?.burden || 0, hours: 0, byProj: {} });
+    (p.hours += h),
+      t.work && t.work.length && Math.abs(workHours(t) - h) <= 0.26
+        ? t.work.forEach((w) => {
+            p.byProj[w.projectId || ""] = (p.byProj[w.projectId || ""] || 0) + (+w.hours || 0);
+          })
+        : (p.byProj[t.projectId || ""] = (p.byProj[t.projectId || ""] || 0) + h);
   });
-  const created = [];
-  for (const [entityId, list] of Object.entries(byEnt)) {
-    const perEmp = {};
-    list.forEach((t) => {
-      const e = DB.employees.find((x) => x.id === t.empId),
-        h = hoursOf(t),
-        p = (perEmp[t.empId] = perEmp[t.empId] || {
-          name: e?.name,
-          rate: e?.rate || 0,
-          burden: e?.burden || 0,
-          hours: 0,
-          byProj: {},
-        });
-      (p.hours += h),
-        t.work && t.work.length && Math.abs(workHours(t) - h) <= 0.26
-          ? t.work.forEach((w) => {
-              p.byProj[w.projectId || ""] = (p.byProj[w.projectId || ""] || 0) + (+w.hours || 0);
-            })
-          : (p.byProj[t.projectId || ""] = (p.byProj[t.projectId || ""] || 0) + h);
+  let gross = 0,
+    taxes = 0;
+  const projAmt = {},
+    detail = [];
+  Object.values(perEmp).forEach((p) => {
+    const reg = Math.min(p.hours, 40),
+      ot = Math.max(0, p.hours - 40),
+      g = r2(reg * p.rate + ot * p.rate * 1.5),
+      tx = r2((g * p.burden) / 100),
+      E = (byEnt[p.entityId] = byEnt[p.entityId] || { entityId: p.entityId, employees: 0, hours: 0, gross: 0, taxes: 0, total: 0 });
+    (gross += g), (taxes += tx), E.employees++, (E.hours = r2(E.hours + p.hours)), (E.gross = r2(E.gross + g)), (E.taxes = r2(E.taxes + tx)), (E.total = r2(E.gross + E.taxes));
+    Object.entries(p.byProj).forEach(([pid, h]) => {
+      projAmt[pid] = (projAmt[pid] || 0) + g * (1 + p.burden / 100) * (h / (p.hours || 1));
     });
-    let gross = 0,
-      taxes = 0;
-    const projAmt = {};
-    Object.values(perEmp).forEach((p) => {
-      const reg = Math.min(p.hours, 40),
-        ot = Math.max(0, p.hours - 40),
-        g = r2(reg * p.rate + ot * p.rate * 1.5);
-      (gross += g),
-        (taxes += r2((g * p.burden) / 100)),
-        Object.entries(p.byProj).forEach(([pid, h]) => {
-          projAmt[pid] = (projAmt[pid] || 0) + g * (1 + p.burden / 100) * (h / p.hours);
-        });
-    });
-    const total = r2(gross + taxes),
-      alloc = Object.entries(projAmt).map(([pid, amt]) => ({ projectId: pid, pct: r2((amt / total) * 100) })),
-      run = {
+    detail.push({ name: p.name, hours: r2(p.hours), rate: p.rate, gross: g, entityId: p.entityId });
+  });
+  const total = r2(gross + taxes),
+    ents = Object.values(byEnt).sort((a, b) => b.total - a.total),
+    alloc = Object.entries(projAmt).map(([pid, amt]) => ({ projectId: pid, pct: total ? r2((amt / total) * 100) : 0 })),
+    by = S.project.userName || role(),
+    fields = {
+      period: `${fmt(P.from)} – ${fmt(P.payDate)}`,
+      from: P.from,
+      to: P.payDate,
+      entityId: ents[0].entityId,
+      entities: ents.length > 1 ? ents : null,
+      employees: Object.keys(perEmp).length,
+      gross: r2(gross),
+      taxes: r2(taxes),
+      total: total,
+      alloc: alloc,
+      notes: `From ${entries.length} approved time entries: ${Object.values(perEmp)
+        .map((p) => `${p.name} ${p.hours.toFixed(1)}h`)
+        .join(", ")}. Overtime over 40 h at 1.5×.${ents.length > 1 ? ` Across ${ents.length} entities: ${ents.map((x) => `${entName(x.entityId)} ${money(x.total)}`).join(", ")}.` : ""}${late.length ? ` ${late.length} entr${1 === late.length ? "y" : "ies"} from earlier periods, approved after their run, paid on this one.` : ""}`,
+      fromTime: !0,
+      detail: detail,
+      late: late.length,
+    };
+  let run = open;
+  if (run) {
+    const was = run.total;
+    Object.assign(run, fields),
+      Math.abs(was - total) > 0.005 &&
+        (run.approvals.push({ t: nowStamp(), ts: appNowIso(), by: by, role: role(), action: `rebuilt from approved time: ${money(was)} → ${money(total)}` }), delete run.allocReview),
+      audit("payroll", run.id, "rebuilt-from-time", { total: was }, { entries: entries.length, total: total });
+  } else
+    (run = Object.assign(
+      {
         id: uid("pr"),
-        period: `${fmt(dates[0])} – ${fmt(dates[dates.length - 1])}`,
-        from: P.from,
-        to: P.payDate,
         payDate: P.payDate < today() ? addWork(today(), 3) : P.payDate,
-        entityId: entityId,
-        employees: Object.keys(perEmp).length,
-        gross: r2(gross),
-        taxes: r2(taxes),
-        total: total,
-        alloc: alloc,
         status: "submitted",
-        approvals: [
-          {
-            t: nowStamp(),
-            ts: appNowIso(),
-            by: S.project.userName || role(),
-            role: role(),
-            action: "built from approved time",
-          },
-        ],
+        approvals: [{ t: nowStamp(), ts: appNowIso(), by: by, role: role(), action: "built from approved time" }],
         createdBy: S.project.userName || "",
-        notes: `From ${list.length} approved time entries: ${Object.values(perEmp)
-          .map((p) => `${p.name} ${p.hours.toFixed(1)}h`)
-          .join(", ")}. Overtime over 40 h at 1.5×.`,
-        fromTime: !0,
-        detail: Object.values(perEmp).map((p) => ({
-          name: p.name,
-          hours: r2(p.hours),
-          rate: p.rate,
-          gross: r2(Math.min(p.hours, 40) * p.rate + Math.max(0, p.hours - 40) * p.rate * 1.5),
-        })),
-      };
-    DB.payroll.push(run),
-      list.forEach((t) => (t.payrollId = run.id)),
-      audit("payroll", run.id, "built-from-time", null, { entries: list.length, total: total }),
-      created.push(run);
-  }
-  save(),
-    render(),
-    toast(`${created.length} payroll run${created.length > 1 ? "s" : ""} built for ${fmt(P.from)} – ${fmt(P.payDate)} — awaiting Owner approval${older.length ? `; ${older.length} older approved entr${1 === older.length ? "y is" : "ies are"} in no run` : ""}`),
+      },
+      fields,
+    )),
+      DB.payroll.push(run),
+      audit("payroll", run.id, "built-from-time", null, { entries: entries.length, total: total });
+  entries.forEach((t) => (t.payrollId = run.id));
+  save();
+  if (!o.quiet) {
+    render();
+    toast(`Payroll ${run.period}: ${money(run.total)} from ${entries.length} approved entr${1 === entries.length ? "y" : "ies"}${ents.length > 1 ? ` across ${ents.length} entities` : ""}${open ? " (the open run, rebuilt)" : ""} — the Owner approves it`);
     setView("ap");
+  }
+  return run;
+}
+// each morning an open run takes in the hours approved since it was built (dated through its period)
+function payrollRebuildOpen() {
+  let n = 0;
+  (DB.payroll || [])
+    .filter((r) => r.fromTime && ["draft", "submitted"].includes(r.status))
+    .forEach((r) => {
+      const P = payPeriodOf(r.from),
+        more = DB.time.some((t) => "approved" === t.status && !t.payrollId && t.date >= P.from && t.date <= P.to);
+      if (!more) return;
+      const keep = S.project.userName;
+      try {
+        S.project.userName = r.createdBy || keep;
+        payrollFromTimeFor(r, P), n++;
+      } finally {
+        S.project.userName = keep;
+      }
+    });
+  return n;
+}
+function payrollFromTimeFor(r, P) {
+  // rebuild a run whose period is not today's: the same reading, pinned to its own period
+  if (!S || !S.project) return null;
+  const keep = S.project.today;
+  try {
+    S.project.today = P.to;
+    return payrollFromTime({ quiet: !0 });
+  } finally {
+    S.project.today = keep;
+  }
 }
 function employeesDialog() {
   (editing = { kind: "employees" }),
@@ -35469,8 +35514,9 @@ function proposalsHtml(list, title) {
           const P = t.proposal,
             target =
               "po" === P.kind ? DB.pos.find((x) => x.id === P.poId) : DB.bills.find((x) => x.id === P.billId),
-            label =
-              "po" === P.kind
+            label = !["po", "bill"].includes(P.kind) && P.label
+              ? esc(P.label)
+              : "po" === P.kind
                 ? `${target?.number || "PO"} · ${esc(target?.vendor || "")} · ordered ${money(target ? poTotal(target).total : 0)}`
                 : `Bill ${target?.number || ""} · ${esc(target?.vendor || "")} · ${money(target ? billTotal(target) : 0)} · ${target?.status || ""}`;
           return `<div class="prop-row"><div class="prop-main"><b>${fmt(t.date)} · ${esc(t.desc)}</b> <span class="small muted">${money(-t.amt)} · ${esc(DB.accounts.find((a) => a.id === t.acct)?.name || "")}</span><div class="small">→ ${label}</div><div class="small muted">${P.why}</div></div><div class="prop-acts"><button class="btn sm primary" data-mconfirm="${t.id}">Confirm</button><button class="btn sm" data-mreject="${t.id}">Not this</button></div></div>`;
@@ -57242,15 +57288,17 @@ function spUnbilledHtml(rows) {
   if (!rows.length)
     return '<div class="empty">Every cost on every line has been billed. That is rarer than it sounds.</div>';
   const K = {
+    reimbursable: ["warn", "Bought for the client and not billed back"],
+    floated: ["warn", "Materials bought and delivered on a contract line, beyond what the client has been billed for it"],
     unbilled: ["warn", "Cost above what has been billed"],
     "over-contract": ["bad", "Cost above the contract value of the line"],
     "no-line": ["bad", "Job cost on no line at all"],
   };
-  return `<p class="small muted" style="margin:0 0 8px">The list Jeanette builds by reading. A cost has landed on a line and the client has not been asked for it — the $2,200 washer and dryer billed at $1,648.98, the hamper pull-out nobody billed, the second trash pull-out. Sorted by what is at stake.</p>\n  <div class="proc-wrap"><table class="t an"><thead><tr><th>Job</th><th>Line</th><th></th><th class="money">Cost</th><th class="money">Billed</th><th class="money">Not billed</th><th class="money">Contract</th></tr></thead>\n  <tbody>${rows
+  return `<p class="small muted" style="margin:0 0 8px">What the client has not been asked for yet: purchases bought for them and materials bought and delivered on a line beyond what they have been billed. The same rows as Ready to Bill in the Billing Queue, sorted by what is at stake.</p>\n  <div class="proc-wrap"><table class="t an"><thead><tr><th>Job</th><th>Line</th><th></th><th class="money">Cost</th><th class="money">Billed</th><th class="money">Not billed</th><th class="money">Contract</th></tr></thead>\n  <tbody>${rows
     .slice(0, 60)
     .map(
       (r) =>
-        `<tr>\n    <td class="sub">${esc(r.project.project.name)}</td>\n    <td><b>${esc((r.line && (r.line.item || r.line.desc)) || r.label)}</b>${r.doc ? `<div class="sub">${esc(r.doc.number)}</div>` : ""}</td>\n    <td><span class="pill ${K[r.kind][0]}" title="${esc(K[r.kind][1])}">${"no-line" === r.kind ? "no line" : "over-contract" === r.kind ? "over contract" : "not billed"}</span></td>\n    <td class="money">${money(r.cost)}</td><td class="money">${money(r.billed)}</td>\n    <td class="money an-over">${money(r.gap)}</td>\n    <td class="money">${r.price ? money(r.price) : '<span class="muted">—</span>'}</td></tr>`,
+        `<tr>\n    <td class="sub">${esc(r.project.project.name)}</td>\n    <td><b>${esc((r.line && (r.line.item || r.line.desc)) || r.label)}</b>${r.doc ? `<div class="sub">${esc(r.doc.number)}</div>` : ""}</td>\n    <td><span class="pill ${(K[r.kind] || K.unbilled)[0]}" title="${esc((K[r.kind] || K.unbilled)[1])}">${"no-line" === r.kind ? "no line" : "over-contract" === r.kind ? "over contract" : "reimbursable" === r.kind ? "bill back" : "floated" === r.kind ? "stored, not billed" : "not billed"}</span></td>\n    <td class="money">${money(r.cost)}</td><td class="money">${money(r.billed)}</td>\n    <td class="money an-over">${money(r.gap)}</td>\n    <td class="money">${r.price ? money(r.price) : '<span class="muted">—</span>'}</td></tr>`,
     )
     .join(
       "",
@@ -60959,10 +61007,21 @@ function pgRows(projectId) {
   });
   return (rows.lump = lump), rows;
 }
+// A change order's line is billed from 0 on its own evidence (G703: each line stands alone).
+const pgIsCO = (sv) => !!sv && !!sv.source && "Contract" !== sv.source;
+// Hold per line, never per job (BACKLOG 1.5 #2): a line is held only when its own evidence cannot carry the
+// bill. Today that is a line whose only measure is cost (nothing measured on site, no delivery): cost is not
+// progress. A change order line is never held. The reason is shown on the line, with a Bill button.
+function pgLineHold(r) {
+  if (!r || !r.pr || !(r.pr.period > 0) || pgIsCO(r.sv)) return "";
+  return "cost" === r.pr.basis ? `no field measure: ${r.pr.extra || "cost has landed and nothing is measured"}; cost is not progress` : "";
+}
+const pgPeriodAmt = (r) => (r.pr.period ? (r.ev.scheduled * r.pr.period) / 100 : 0);
 const pgTotals = (rows) => ({
   scheduled: r2(rows.reduce((a, r) => a + r.ev.scheduled, 0)),
   billed: r2(rows.reduce((a, r) => a + (r.ev.scheduled * r.ev.billedPct) / 100, 0)),
-  propose: r2(rows.reduce((a, r) => a + (r.pr.period ? (r.ev.scheduled * r.pr.period) / 100 : 0), 0)),
+  propose: r2(rows.reduce((a, r) => a + (pgLineHold(r) ? 0 : pgPeriodAmt(r)), 0)),
+  held: r2(rows.reduce((a, r) => a + (pgLineHold(r) ? pgPeriodAmt(r) : 0), 0)),
   cost: r2(rows.reduce((a, r) => a + r.ev.cost, 0)),
   unbilled: r2(
     rows.reduce((a, r) => a + Math.max(0, r.ev.cost - (r.ev.scheduled * r.ev.billedPct) / 100), 0),
@@ -60983,7 +61042,33 @@ function pgDraft(projectId) {
     if (!d || "function" != typeof ctProgressInvoice) return null;
     (inv = ctProgressInvoice(c, d)), (inv.projectId = p.id);
   }
+  pgAddCOLines(c, p, inv);
   return { c: c, p: p, inv: inv };
+}
+// The job's application carries every approved change order's line beside the contract's (AIA G703), so a
+// change order bills on the same application from 0 instead of waiting for a separate invoice.
+function pgAddCOLines(c, p, inv) {
+  if (!c || !inv || "draft" !== inv.status) return 0;
+  let n = 0;
+  (c.sov || [])
+    .filter((v) => pgIsCO(v) && (null == v.projectId || v.projectId === p.id))
+    .forEach((v) => {
+      const co = (c.changeOrders || []).find((x) => x.number === v.source || x.id === v.coId);
+      if (co && co.projectId && co.projectId !== p.id) return;
+      if ((inv.lines || []).some((l) => l.sovId === v.id)) return;
+      (inv.lines = inv.lines || []).push({
+        id: uid("l"),
+        sovId: v.id,
+        item: `${v.source} ${v.desc}`,
+        desc: "",
+        scheduled: +v.scheduled || 0,
+        prevPct: r2(sovBilled(c, v.id, inv.id)),
+        pct: 0,
+        taxable: !!v.taxable,
+      }),
+        n++;
+    });
+  return n;
 }
 function pgApply(projectId, only) {
   const d = pgDraft(projectId);
@@ -60995,6 +61080,8 @@ function pgApply(projectId, only) {
     rows.forEach((r) => {
       if (only && !only.includes(r.sv.id)) return;
       if (null == r.pr.period || r.pr.period <= 0) return;
+      // a held line goes on only when the person names it (the Bill button on the held line)
+      if (!only && pgLineHold(r)) return;
       const l = (d.inv.lines || []).find((x) => x.sovId === r.sv.id);
       if (!l) return;
       const room = r2(100 - (+l.prevPct || 0));
@@ -71247,6 +71334,10 @@ function cmApply(c, p) {
     v && ((v.noShows = (v.noShows || 0) + 1), (v.notes = (v.notes ? v.notes + "\n" : "") + `${fmt(today())}: ${p.summary}`)),
       p.task && cmTask(p.task, R.projectId || p.projectId, "PM"),
       (did = v ? "on the vendor's record and the PM's list" : "task for the PM");
+  } else if ("statement" === p.kind && p.acctId && "function" == typeof lkStmtImport) {
+    // our own card's or bank's statement: one tap opens Import Statement with the statement's lines, then the
+    // reconcile (lkStmtImport); never a task to do it later
+    did = lkStmtImport(p.acctId, cmStmtText(c), String(((c.attachments || []).find((a) => /statement|\.pdf/i.test(a.name || "") && a.text) || {}).name || c.subject || "statement").replace(/\.pdf$/i, ""));
   } else if ("statement" === p.kind) {
     p.task && cmTask(p.task, "", p.owner || "Controller");
     const b = p.billId && (DB.bills || []).find((x) => x.id === p.billId);
@@ -116966,8 +117057,10 @@ function fdHomeSections() {
           t: it.title,
           s: [it.n, (it.detail || "").split(/\s+·\s+/)[0]].filter(Boolean).join(" · "),
           sev: it.sev,
+          // a one-tap proposal (Needs Your Hand) offers its own verb here, as it does in its own list
+          verb: it.nyh && it.yes ? it.yes : "",
           open: () => {
-            "function" == typeof mGo && mGo(it.open);
+            it.nyh && it.yes && "function" == typeof nyhRun ? nyhRun(it.nyh.key) : "function" == typeof mGo && mGo(it.open);
           },
         })),
       }),
@@ -117061,7 +117154,7 @@ function fdHomeSections() {
 function fdHomeHtml() {
   const S_ = fdHomeSections();
   return S_.length
-    ? `<div class="fd-home">${S_.map((s) => `<div class="card fd-sec" data-fdsec="${s.key}"><div class="hd"><h3>${esc(s.title)}</h3><span class="small muted">${s.n ? `${s.n} · ${esc(s.what)}` : esc(s.what)}</span><span class="grow"></span><button class="btn sm" data-fdsecgo="${s.key}">${s.n > s.rows.length ? `All ${s.n}` : "Open"}</button></div>\n    ${s.rows.length ? s.rows.map((x, i) => `<div class="fd-row ${x.sev || ""}" data-fdrow="${s.key}|${i}"><span class="grow"><b>${esc(x.t)}</b>${x.s ? `<span class="small muted"> · ${esc(x.s)}</span>` : ""}</span><button class="btn sm ghost" data-fdrow="${s.key}|${i}">Open</button></div>`).join("") : '<div class="small muted fd-clear">Nothing waiting.</div>'}\n  </div>`).join("")}</div>`
+    ? `<div class="fd-home">${S_.map((s) => `<div class="card fd-sec" data-fdsec="${s.key}"><div class="hd"><h3>${esc(s.title)}</h3><span class="small muted">${s.n ? `${s.n} · ${esc(s.what)}` : esc(s.what)}</span><span class="grow"></span><button class="btn sm" data-fdsecgo="${s.key}">${s.n > s.rows.length ? `All ${s.n}` : "Open"}</button></div>\n    ${s.rows.length ? s.rows.map((x, i) => `<div class="fd-row ${x.sev || ""}" data-fdrow="${s.key}|${i}"><span class="grow"><b>${esc(x.t)}</b>${x.s ? `<span class="small muted"> · ${esc(x.s)}</span>` : ""}</span><button class="btn sm ghost" data-fdrow="${s.key}|${i}">${esc(x.verb || "Open")}</button></div>`).join("") : '<div class="small muted fd-clear">Nothing waiting.</div>'}\n  </div>`).join("")}</div>`
     : "";
 }
 if ("function" == typeof renderHome) {
@@ -134708,9 +134801,7 @@ fin2AllocFromHours = function (r) {
   let W = 0,
     unHours = 0;
   (DB.time || [])
-    .filter(
-      (e) => "approved" === e.status && e.date >= r.from && e.date <= r.to && entOfEmpId(e.empId) === ent,
-    )
+    .filter((e) => "approved" === e.status && prInRun(r, e) && (r.fromTime || entOfEmpId(e.empId) === ent))
     .forEach((e) => {
       const emp = (DB.employees || []).find((x) => x.id === e.empId),
         h = hoursOf(e);
@@ -134854,30 +134945,26 @@ if (
             (FIN_RUN_POSTED.includes(r.status) || accrued.has(r.id)) &&
             !["void", "rejected"].includes(r.status),
         )
-        .map((r) => {
-          const ent = r.entityId || "ent1";
-          let W = 0;
-          return (
-            (DB.time || [])
-              .filter(
-                (e) =>
-                  "approved" === e.status &&
-                  e.projectId &&
-                  e.date >= r.from &&
-                  e.date <= r.to &&
-                  entOfEmpId(e.empId) === ent,
-              )
-              .forEach((e) => {
-                const emp = (DB.employees || []).find((x) => x.id === e.empId);
-                W += hoursOf(e) * (+(emp || {}).rate || 0);
-              }),
-            { r: r, ent: ent, k: (+r.total / +r.gross) * (W > +r.gross ? +r.gross / W : 1) }
-          );
-        });
+        // one entry per entity inside the run (a run across entities keeps each entity's share, prParts)
+        .flatMap((r) =>
+          prParts(r).map((part) => {
+            const ent = part.entityId;
+            let W = 0;
+            return (
+              (DB.time || [])
+                .filter((e) => "approved" === e.status && e.projectId && prInRun(r, e) && entOfEmpId(e.empId) === ent)
+                .forEach((e) => {
+                  const emp = (DB.employees || []).find((x) => x.id === e.empId);
+                  W += hoursOf(e) * (+(emp || {}).rate || 0);
+                }),
+              { r: r, ent: ent, k: +part.gross ? (+part.total / +part.gross) * (W > +part.gross ? +part.gross / W : 1) : 1 }
+            );
+          }),
+        );
     return (e, emp) => {
       if (!e || "approved" !== e.status || !e.projectId) return 1;
       const ent = (emp && emp.entityId) || "ent1",
-        m = runs.find((x) => x.ent === ent && e.date >= x.r.from && e.date <= x.r.to);
+        m = runs.find((x) => x.ent === ent && prInRun(x.r, e));
       if (!m) return 1;
       const lr = laborRate(emp);
       return lr ? ((+emp.rate || 0) * m.k) / lr : 1;
@@ -136192,6 +136279,8 @@ function pay3Resolve(b, how, note) {
     );
   const st = fin2Stamp();
   (s.state = "credit" === how ? "credited" : "accepted"),
+    (s.resolved = !0),
+    "credit" === how && ((s.credited = !0), (s.creditMemo = note)),
     (s.resolvedOn = today()),
     (s.resolvedBy = st.by),
     (s.resolveNote = note),
@@ -138574,31 +138663,25 @@ function readyToBill() {
           } catch (e) {
             return;
           }
-          if (!(T && T.propose > 0)) return;
+          if (!T) return;
           if (rows.some((r) => r.p && r.p.id === p.id && "progress" === r.kind)) return;
-          let w = null;
-          try {
-            w = wipRow(p);
-          } catch (e) {
-            w = null;
-          }
           const c = DB.clients.find((x) => x.id === p.clientId);
-          w && w.over > 0
-            ? held.push({
-                p: p,
-                c: c,
-                amount: r2(T.propose),
-                over: w.over,
-                why: `the job is billed ${money(w.over)} ahead of earned work`,
-              })
-            : rows.push({
-                kind: "application",
-                c: c,
-                p: p,
-                amount: r2(T.propose),
-                title: `${p.project.name}: line-by-line application ready (${money(T.propose)})`,
-                act: "application",
-              });
+          // held per line, never per job: each held line keeps its own reason and amount
+          R.forEach((r) => {
+            const why = pgLineHold(r);
+            why &&
+              held.push({ p: p, c: c, sv: r.sv, line: r.sv.desc, amount: r2(pgPeriodAmt(r)), why: `${r.sv.desc}: ${why}` });
+          });
+          if (!(T.propose > 0)) return;
+          const co = R.filter((r) => pgIsCO(r.sv) && r.pr.period > 0);
+          rows.push({
+            kind: "application",
+            c: c,
+            p: p,
+            amount: r2(T.propose),
+            title: `${p.project.name}: line-by-line application ready (${money(T.propose)})${co.length ? ` · with ${co.map((r) => r.sv.source).join(", ")}` : ""}`,
+            act: "application",
+          });
         }),
         rows.sort((a, b) => b.amount - a.amount),
         { rows: rows, held: held, amount: r2(rows.reduce((a, r) => a + r.amount, 0)), n: rows.length }
@@ -138614,9 +138697,9 @@ if (
       (t.v = tlK(R.amount)),
         (t.tone = R.amount > 5e4 ? "warn" : ""),
         (t.s = R.n
-          ? `${tlN(R.n, "item")} earned or at a milestone, not yet invoiced${R.held.length ? ` · ${R.held.length} held, billed ahead` : ""}`
+          ? `${tlN(R.n, "item")} earned or at a milestone, not yet invoiced${R.held.length ? ` · ${tlN(R.held.length, "line")} held` : ""}`
           : R.held.length
-            ? `nothing ready · ${R.held.length} job${1 === R.held.length ? "" : "s"} held, billed ahead of earned work`
+            ? `nothing ready · ${tlN(R.held.length, "line")} held, waiting on a field measure`
             : "nothing earned is waiting on an invoice");
     }
     return T;
@@ -138630,9 +138713,9 @@ if (
       const pid = void 0 !== spProj && "all" !== spProj ? spProj : S && S.id,
         R = readyToBill(),
         mine = R.rows.filter((r) => r.p && r.p.id === pid),
-        hold = R.held.find((x) => x.p.id === pid),
+        hold = R.held.filter((x) => x.p.id === pid),
         amt = r2(mine.reduce((a, r) => a + r.amount, 0)),
-        line = `<div class="oc-rtb small" data-ocrtb="${esc(pid || "")}"><b>Ready to Bill on this job: ${money(amt)}</b> · ${hold ? `held — ${esc(hold.why)}; the lines below would bill ${money(hold.amount)} on their own evidence` : mine.length ? esc(mine.map((r) => r.title).join(" · ")) : "nothing earned is waiting on an invoice"} · ${money(R.amount)} across the firm</div>`;
+        line = `<div class="oc-rtb small" data-ocrtb="${esc(pid || "")}"><b>Ready to Bill on this job: ${money(amt)}</b> · ${mine.length ? esc(mine.map((r) => r.title).join(" · ")) : "nothing earned is waiting on an invoice"}${hold.length ? ` · ${tlN(hold.length, "line")} held (${money(r2(hold.reduce((a, x) => a + x.amount, 0)))}), each with its reason below` : ""} · ${money(R.amount)} across the firm</div>`;
       h = h.replace(/(<h3 style="margin:0">[^<]*— ready to bill<\/h3>)/, "$1");
       const i = h.indexOf('<div class="sel-stats">');
       h = i > -1 ? h.slice(0, i) + line + h.slice(i) : line + h;
@@ -142384,7 +142467,7 @@ if ("function" == typeof docActions) {
   };
 }
 const blRtbKey = (r) =>
-  "application" === r.kind ? "app:" + (r.p && r.p.id) : `${r.kind}:${(r.d && r.d.id) || ""}`;
+  "application" === r.kind ? "app:" + (r.p && r.p.id) : r.key || `${r.kind}:${(r.d && r.d.id) || ""}`;
 function blRowName(r) {
   const j = r.job || r.p,
     c = r.client || r.c;
@@ -142417,16 +142500,16 @@ function billingRows() {
       }),
         R.held.forEach((h) =>
           rows.push({
-            id: "held:" + h.p.id,
+            id: "held:" + h.p.id + (h.sv ? ":" + h.sv.id : ""),
             kind: "held",
             held: h,
-            key: "app:" + h.p.id,
+            key: h.sv ? `line:${h.p.id}:${h.sv.id}` : "app:" + h.p.id,
             client: h.c || null,
             job: h.p,
             amount: r2(h.amount),
             date: "",
-            what: `Line-by-line application — ${money(h.amount)} on the lines' own evidence`,
-            why: `held — ${h.why}, so no application is proposed`,
+            what: h.sv ? `Held line — ${h.sv.desc}: ${money(h.amount)}` : `Line-by-line application — ${money(h.amount)} on the lines' own evidence`,
+            why: `held — ${h.why}`,
             needs: !1,
           }),
         ),
@@ -142527,6 +142610,7 @@ function rtbGo(key) {
   } catch (e) {}
 }
 function rtbAct(key) {
+  if (/^line:/.test(String(key || ""))) return blBillHeldLine(key);
   const r = blFind(key);
   if (!r) {
     const held = readyToBill().held.find((h) => "app:" + h.p.id === key);
@@ -142534,7 +142618,7 @@ function rtbAct(key) {
       ? void blOpenProgress(held.p.id)
       : (toast("That item has been billed already"), void render());
   }
-  if ("application" === r.kind) return void blOpenProgress(r.p.id, !0);
+  if ("application" === r.kind) return void blDraftApplication(r.p.id);
   const c = r.c,
     d = r.d;
   c && d
@@ -142546,6 +142630,20 @@ function rtbAct(key) {
         save(), render();
       }))
     : rtbGo(key);
+}
+// Draft on a ready application: the job's draft is filled (or refreshed) from every line's own evidence and
+// opens, with Send to Client next. A draft already open for the job takes the new lines; nothing is sent.
+function blDraftApplication(pid) {
+  const bad = (pgRows(pid) || []).filter((x) => x.findings.some((f) => "bad" === f.sev)),
+    out = pgApply(pid);
+  if (!out) return;
+  save();
+  const c = out.client;
+  (view = "billing"), (billTab = "billable"), (clientOpen = c.id), (blClientFlag = c.id), (docOpen = { kind: "invoice", id: out.inv.id }), render();
+  try {
+    window.scrollTo(0, 0);
+  } catch (e) {}
+  rcToast(`${out.n} line${1 === out.n ? "" : "s"} on ${out.inv.number} — ${money(docTotal(out.inv).total)} after retainage${bad.length ? `; ${tlN(bad.length, "line")} to look at first on Progress Billing` : ""}. Review it, then Send to Client`, [{ label: "Open", run: () => blOpenProgress(pid) }]);
 }
 function blOpenProgress(pid, apply) {
   (view = "billing"), (billTab = "progress"), (docOpen = null), pid && (blProgJob = pid), render();
@@ -142580,7 +142678,30 @@ function blOpenRow(row) {
   }
 }
 function blRowAct(row) {
-  if (row) return "credit" === row.kind ? blCreditAct(row) : "ready" === row.kind ? rtbAct(row.key) : blOpenRow(row);
+  if (row)
+    return "credit" === row.kind
+      ? blCreditAct(row)
+      : "ready" === row.kind || ("held" === row.kind && /^line:/.test(row.key || ""))
+        ? rtbAct(row.key)
+        : "draft" === row.kind && row.inv && row.client
+          ? blSendSheet(row.client, row.inv)
+          : blOpenRow(row);
+}
+// A held line billed on purpose: the person names the line, it goes on the job's draft application, and the
+// draft opens for review. Nothing is sent from here.
+function blBillHeldLine(key) {
+  const [, pid, svId] = String(key).split(":"),
+    out = pgApply(pid, [svId]);
+  if (!out) return;
+  save();
+  const c = out.client;
+  (view = "billing"), (billTab = "billable"), (clientOpen = c.id), (blClientFlag = c.id), (docOpen = { kind: "invoice", id: out.inv.id }), render();
+  rcToast(`${out.n ? "The held line is" : "Nothing new"} on ${out.inv.number} (${money(docTotal(out.inv).total)}) — review it, then Send to Client`, [{ label: "Open", run: () => ((view = "billing"), (clientOpen = c.id), (docOpen = { kind: "invoice", id: out.inv.id }), render()) }]);
+}
+// "Send" on a drafted invoice in the Billing Queue: the one Send to Client sheet (crSendToClient: to whom, the
+// subject and message, then Send), so a draft never waits behind a second screen.
+function blSendSheet(c, inv) {
+  c && inv && ("function" == typeof crSendToClient ? crSendToClient(c, inv) : docAction(c, inv, "sendclient"));
 }
 function blTiles() {
   const rows = billingRows(),
@@ -142596,9 +142717,9 @@ function blTiles() {
       v: tlK(R.amount),
       tone: R.amount > 5e4 ? "warn" : "",
       s: R.n
-        ? `${tlN(R.n, "item")} earned or at a milestone, not yet invoiced${R.held.length ? ` · ${R.held.length} held, billed ahead` : ""}`
+        ? `${tlN(R.n, "item")} earned or at a milestone, not yet invoiced${R.held.length ? ` · ${tlN(R.held.length, "line")} held` : ""}`
         : R.held.length
-          ? `nothing ready · ${tlN(R.held.length, "job")} held, billed ahead of earned work`
+          ? `nothing ready · ${tlN(R.held.length, "line")} held, waiting on a field measure`
           : "nothing earned is waiting on an invoice",
       grid: "billing",
       pred: (r) => "ready" === r.kind,
@@ -142683,15 +142804,15 @@ const blStage = (r) =>
             : ovStatus("sent", "neutral", 4),
   blActLabel = (r) =>
     "credit" === r.kind
-      ? r.approved
-        ? "Open"
-        : "Approve Credit"
+      ? "Draft"
       : "ready" === r.kind
       ? "Draft"
       : "held" === r.kind
-        ? "Open WIP"
+        ? /^line:/.test(r.key || "")
+          ? "Bill"
+          : "Open WIP"
         : "draft" === r.kind
-          ? "Review and Send"
+          ? "Send"
           : "Open";
 function blListHtml() {
   return grid({
@@ -142930,22 +143051,15 @@ function blPgJob() {
 }
 if ("function" == typeof pgPaneHtml) {
   const pgPaneHtmlBase_bl = pgPaneHtml;
+  // Held per line (BACKLOG 1.5 #2): the job-level WIP position is shown above the lines (fin2 head), but it
+  // never holds the application. Each held line is listed with its reason and its own Bill button.
   pgPaneHtml = function () {
     let h = pgPaneHtmlBase_bl.apply(this, arguments);
     try {
-      const p = blPgJob();
-      let w = null;
-      try {
-        w = wipRow(p);
-      } catch (e) {
-        w = null;
-      }
-      if (!(w && w.over > 0)) return h;
-      const m = h.match(/<button class="btn sm primary" id="pg-apply"[^>]*>[^<]*<\/button>/);
-      if (!m) return h;
-      const amt = (h.match(/id="pg-apply"[^>]*>Draft (\$[\d,.]+)/) || [])[1] || "";
-      h = h.replace(m[0], "");
-      const held = `<div class="note warn bl-held"><b>No application is proposed.</b> <span class="small">${esc(String(p.project.name).replace(/ —.*$/, ""))} is billed ${money(w.over)} ahead of earned work on the WIP schedule${amt ? `; the lines below would bill ${amt} on their own evidence, which would put the invoice further ahead of the work` : ""}. Bill again when earned work catches up, or when a change order adds to the contract.</span><div class="bl-held-acts"><button class="btn sm" id="pg-apply" data-blheld="1">Fill the Draft Anyway</button></div></div>`,
+      const p = blPgJob(),
+        H = pgRows(p.id).filter((r) => pgLineHold(r));
+      if (!H.length) return h;
+      const held = `<div class="note warn bl-held"><b>${tlN(H.length, "line")} held</b> <span class="small">— not on the proposal until someone measures ${1 === H.length ? "it" : "them"} or bills ${1 === H.length ? "it" : "them"} on purpose. Every other line bills on its own evidence.</span>${H.map((r) => `<div class="bl-held-line small"><b>${esc(r.sv.desc)}</b> · ${money(r2(pgPeriodAmt(r)))} · ${esc(pgLineHold(r))} <button type="button" class="btn sm" data-pgbill="${esc(r.sv.id)}">Bill</button></div>`).join("")}</div>`,
         i = h.indexOf('<p class="small muted fin2-wipsrc">');
       if (i > -1) {
         const j = h.indexOf("</p>", i) + 4;
@@ -142965,44 +143079,11 @@ if ("function" == typeof pgWire) {
   pgWire = function (root) {
     const r = pgWireBase_bl.apply(this, arguments);
     try {
-      const b = root && root.querySelector("#pg-apply[data-blheld]");
-      if (!b) return r;
-      const p = blPgJob(),
-        pid = p && p.id,
-        fresh = b.cloneNode(!0);
-      b.replaceWith(fresh),
-        fresh.addEventListener("click", () => {
-          let w = null;
-          try {
-            w = wipRow(p);
-          } catch (e) {}
-          const bad = pgRows(pid).filter((x) => x.findings.some((f) => "bad" === f.sev));
-          mbModal(
-            "Bill Ahead of Earned Work?",
-            `<p class="small"><b>${esc(p.project.name)} is billed ${money(w ? w.over : 0)} ahead of earned work.</b> A draft from these lines adds to that: the client pays for work not yet done, and the firm owes it back if the job stalls.</p>${
-              bad.length
-                ? `<p class="small">${tlN(bad.length, "line")} where what we spent and what we have done do not agree:</p><ul class="small">${bad
-                    .slice(0, 6)
-                    .map(
-                      (x) =>
-                        `<li>${esc(x.sv.desc)} — ${esc(
-                          x.findings
-                            .filter((f) => "bad" === f.sev)
-                            .map((f) => f.msg)
-                            .join("; "),
-                        )}</li>`,
-                    )
-                    .join("")}</ul>`
-                : ""
-            }<p class="small muted" style="margin:0">Nothing is sent. It fills a draft you still have to review.</p>`,
-            {
-              submit: "Fill the Draft Anyway",
-              wide: !0,
-              onSubmit: () => {
-                "function" == typeof pgFlowApply && pgFlowApply(pid);
-              },
-            },
-          );
+      const p = blPgJob();
+      root &&
+        p &&
+        root.querySelectorAll("[data-pgbill]").forEach((b) => {
+          b.onclick = () => blBillHeldLine(`line:${p.id}:${b.dataset.pgbill}`);
         });
     } catch (e) {
       console.warn("billing held wire", e);
@@ -143017,7 +143098,7 @@ if ("function" == typeof b2Facts) {
     try {
       X.ready = readyToBill().rows.map((r) =>
         Object.assign({}, r, {
-          d: r.d || { id: "app:" + (r.p && r.p.id) },
+          d: r.d || { id: r.key || "app:" + (r.p && r.p.id) },
           act: r.act || "application",
           rtbKey: blRtbKey(r),
         }),
@@ -143029,7 +143110,7 @@ if ("function" == typeof b2Facts) {
 const blRtbOfData = (s) => {
   if (!s) return "";
   const r = readyToBill().rows.find(
-    (x) => (x.d && x.d.id === s.docId && x.act === s.act) || "app:" + (x.p && x.p.id) === s.docId,
+    (x) => (x.d && x.d.id === s.docId && x.act === s.act) || (x.key && x.key === s.docId) || ("application" === x.kind && "app:" + (x.p && x.p.id) === s.docId),
   );
   return r ? blRtbKey(r) : "";
 };
@@ -164571,9 +164652,9 @@ const AG_FIN = [
         H = (R.held || []).filter((h) => agOnJob(P, h.p && h.p.id));
       return {
         headline: H.length
-          ? H.map((h) => `${agShort(h.p)} is held from billing: ${h.why || `it is billed ${money(h.over)} ahead of earned work`}`).join("; ") + "."
-          : `${P.jobs.length ? agShort(P.jobs[0]) + " is" : "Nothing is"} not held from billing.`,
-        work: H.map((h) => `${agShort(h.p)} — over-billed ${money(h.over)}; it bills again when earned work passes what is billed`),
+          ? `${agN(H.length, "line")} held from billing (each line on its own evidence; a job is never held whole): ` + H.map((h) => `${agShort(h.p)} · ${h.why}`).join("; ") + "."
+          : `0 lines held from billing${P.jobs.length ? " on " + agShort(P.jobs[0]) : ""}: every line bills on its own evidence, and a job is never held whole.`,
+        work: H.map((h) => `${agShort(h.p)} — ${h.line || "line"} ${money(h.amount)} held: measure it on site, or Bill it on the Billing Queue`),
         go: agGo("billing"),
         ran: agRan("ready to bill", agWhereJob(P).concat(["held"]), "", H.length),
       };
@@ -167717,12 +167798,12 @@ const CATCH = [
         }))
         .concat(
           R.held.map((h) => ({
-            key: "held:" + h.p.id,
-            what: `Held: ${tdJob(h.p)}`,
-            sub: `${money(h.amount)} earned, held because ${h.why}`,
+            key: "held:" + h.p.id + (h.sv ? ":" + h.sv.id : ""),
+            what: `Held: ${tdJob(h.p)}${h.line ? " · " + h.line : ""}`,
+            sub: `${money(h.amount)} held because ${h.why}`,
             amount: h.amount,
             verb: "Review",
-            run: () => rtbAct("app:" + h.p.id),
+            run: () => blOpenProgress(h.p.id),
           })),
         );
     },
@@ -170462,21 +170543,63 @@ function truthCandidates(t) {
       (DB.pos || []).forEach((po) => {
         if (["draft", "cancelled", "void", "closed"].includes(po.status) || (t.rejectedPOs || []).includes(po.id)) return;
         const vh = truthVendorHit(t, po.vendor),
-          tot = poTotal(po).total;
+          tot = poTotal(po).total,
+          // a card charge lands any time in the order's life: a deposit at order, the balance at delivery or after
+          life = !!t.date && t.date >= iso(addDays(po.date || t.date, -3)) && t.date <= iso(addDays(po.expected || po.date || t.date, 45));
         (po.lines || []).forEach((l) => {
           const la = r2((+l.qty || 0) * (+l.price || 0)),
             why = [];
           let s = 0;
-          (Math.abs(tot - amt) < 1 || Math.abs(la - amt) < 1 || Math.abs(tot / 2 - amt) < 1) && ((s += 3), why.push(Math.abs(tot / 2 - amt) < 1 && Math.abs(tot - amt) >= 1 ? "amount is half the order (deposit)" : "amount equals the order")), vh && ((s += 2), why.push("vendor agrees")), (near(po.date) || near(po.expected)) && ((s += 1), why.push("within 7 days"));
+          (Math.abs(tot - amt) < 1 || Math.abs(la - amt) < 1 || Math.abs(tot / 2 - amt) < 1) && ((s += 3), why.push(Math.abs(tot / 2 - amt) < 1 && Math.abs(tot - amt) >= 1 ? "amount is half the order (deposit)" : "amount equals the order")), vh && ((s += 2), why.push("vendor agrees")), (near(po.date) || near(po.expected) || life) && ((s += 1), why.push(near(po.date) || near(po.expected) ? "within 7 days" : "inside the order's dates"));
           push("po", `${po.number} · ${po.vendor} · ${l.item || l.desc || ""} ${money(la)}`.replace(/\s+/g, " "), { poId: po.id, poLineId: l.id, estimateLineId: l.line || "" }, s, why);
         });
-      }),
-      (DB.payroll || []).forEach((r) => {
-        const why = [];
-        let s = 0;
-        Math.abs((+r.total || 0) - amt) < 1 && ((s += 3), why.push("amount equals the run")), /payroll|gusto|adp|paychex|wages/i.test(t.desc || "") && ((s += 2), why.push("looks like payroll")), near(r.payDate) && ((s += 1), why.push("within 7 days of the pay date"));
-        push("payroll", `Payroll ${r.period || r.id} · ${money(+r.total || 0)}`, { payrollId: r.id }, s, why);
       });
+    // payroll: the service debits net pay and taxes separately, on or near the pay date. A debit from the payroll
+    // service inside a run's pay window is that run's, when it is the only run paid in the window; the amount
+    // agrees when it is the run, its taxes, or the day's payroll debits together.
+    const pay = /payroll|gusto|adp|paychex|wages|net pay/i.test(`${t.desc || ""} ${t.vendor || ""}`),
+      winOf = (r) => !!t.date && t.date >= iso(addDays(r.from || r.payDate || t.date, 0)) && t.date <= iso(addDays(r.payDate || r.to || t.date, 5)),
+      runs = (DB.payroll || []).filter((r) => !["rejected", "void"].includes(r.status)),
+      inWin = runs.filter(winOf),
+      day = (DB.txns || []).filter((x) => x.acct === t.acct && x.date === t.date && +x.amt < 0 && /payroll|net pay|payroll tax/i.test(x.desc || "")),
+      dayAmt = r2(day.reduce((a, x) => a - +x.amt, 0));
+    runs.forEach((r) => {
+      const why = [],
+        tot = +r.total || 0;
+      let s = 0;
+      Math.abs(tot - amt) < 1
+        ? ((s += 3), why.push("amount equals the run"))
+        : Math.abs((+r.taxes || 0) - amt) < 1 && +r.taxes
+          ? ((s += 3), why.push("amount equals the run's taxes"))
+          : day.length > 1 && Math.abs(tot - dayAmt) < 1 && ((s += 3), why.push(`the day's payroll debits (${money(dayAmt)}) equal the run`));
+      pay && ((s += 2), why.push("paid to the payroll service"));
+      winOf(r) ? ((s += 1), why.push("inside the run's pay window")) : near(r.payDate) && ((s += 1), why.push("within 7 days of the pay date"));
+      pay && winOf(r) && 1 === inWin.length && s < 6 && ((s = 6), why.push(`the only run paid in this window; the bank paid ${money(dayAmt || amt)} against a run of ${money(tot)}`));
+      push("payroll", `Payroll ${r.period || r.id} · ${money(tot)}`, { payrollId: r.id }, s, why);
+    });
+    // a payment to a vendor with no bill on file (a check, a Zelle): propose entering the bill from it
+    const acctT = ((DB.accounts || []).find((a) => a.id === t.acct) || {}).type || "",
+      isPay = "card" !== acctT && /\b(CHECK\s*#?\s*\d|ZELLE TO|ACH (TO|DEBIT|PMT)|BILL ?PAY)/i.test(t.desc || "");
+    if (isPay && !out.some((c) => c.score >= 5) && "function" == typeof truthPayeeVendor) {
+      const v = truthPayeeVendor(t);
+      if (v && !/payroll/i.test(t.desc || "")) {
+        const st = "function" == typeof vendorState ? vendorState(v).filter((f) => /insurance/i.test(f.m)) : [],
+          ck = (String(t.desc || "").match(/\bCHECK\s*#?\s*(\d{3,})/i) || [])[1] || "",
+          job = (DB.projects || []).find((p) => p.id === t.projectId);
+        push("newbill", `Enter the bill: ${v.name} ${money(amt)}${job ? " on " + String(job.project.name).replace(/ —.*$/, "") : ""} — no bill on file${st.length ? ` · ${st.map((f) => f.m).join(", ")}` : ""}`, { newBill: { vendor: v.name, vendorId: v.id, amount: amt, number: ck ? `CHK-${ck}` : "", projectId: t.projectId || "", cat: t.cat && "uncat" !== t.cat ? t.cat : "subs", code: t.code || "", line: t.line || "" } }, 6, [`paid to ${v.name}`, "no bill or order on file", st.length ? `${st.map((f) => f.m).join(", ")}: chase the certificate before the next payment` : "the bill is entered from the payment and flagged paid before approval"]);
+      }
+    }
+    // a job cost with no bill or order behind it: its estimate line, from the line's own job and cost code
+    if (t.projectId && t.code && !t.line && "function" == typeof lineOptions && !("function" == typeof rbWhy && rbWhy(t)) && !out.some((c) => c.score >= 5)) {
+      const L = lineOptions(t.projectId).filter((o) => {
+        try {
+          return (o.line && o.line.code === t.code) || ("function" == typeof codeForLine && codeForLine(o.line) === t.code);
+        } catch (e) {
+          return !1;
+        }
+      });
+      1 === L.length && push("line", `Estimate line ${L[0].label} (the line's job and cost code ${t.code})`, { estimateLineId: L[0].key }, 6, ["job agrees", `cost code ${t.code} agrees`, "the only estimate line with that code on the job"]);
+    }
   } else if (+t.amt > 0) {
     (DB.clients || []).forEach((c) =>
       (c.invoices || []).forEach((inv) => {
@@ -172186,14 +172309,18 @@ function blCreditRows() {
     seen = new Set();
   (DB.clientCredits || []).forEach((cc) => {
     if ("void" === cc.status) return;
+    // a credit on a live invoice line is credited: it leaves the queue (the invoice carries it)
+    if (cc.invoiceLineId && "function" == typeof rbInvLine && rbInvLine(cc.invoiceLineId)) return void (cc.txnId && seen.add(cc.txnId));
     const p = (DB.projects || []).find((x) => x.id === cc.projectId),
       c = (DB.clients || []).find((x) => x.id === cc.clientId);
     cc.txnId && seen.add(cc.txnId),
       p &&
-        out.push({ id: "credit:" + cc.id, kind: "credit", cc: cc, key: "credit:" + cc.id, client: c || null, job: p, amount: -Math.abs(+cc.amount || 0), date: cc.at || "", approved: "approved" === cc.status, what: `Credit the client ${money(cc.amount)}`, why: cc.why, needs: "proposed" === cc.status });
+        out.push({ id: "credit:" + cc.id, kind: "credit", cc: cc, key: "credit:" + cc.id, client: c || null, job: p, amount: -Math.abs(+cc.amount || 0), date: cc.at || "", approved: "approved" === cc.status, what: `Credit the client ${money(cc.amount)}`, why: cc.why, needs: !0 });
   });
   txnClientCredits().forEach((x) => {
-    if (seen.has(x.t.id)) return;
+    // the vendor's credit memo came by mail before the bank line: one credit, not two
+    const memo = (DB.clientCredits || []).find((cc) => "void" !== cc.status && !cc.txnId && cc.projectId === x.projectId && Math.abs(+cc.amount - x.amount) < 0.01);
+    if (seen.has(x.t.id) || memo) return;
     const p = (DB.projects || []).find((y) => y.id === x.projectId),
       c = p && (DB.clients || []).find((y) => y.id === p.clientId);
     p &&
@@ -172225,32 +172352,39 @@ function blCreditRows() {
     }
   };
 }
+// Draft on a credit the client is owed: billing's draft is the approval. The credit goes on the job's open
+// billable-expenses draft, or on a new credit invoice, as a negative line stamped on the credit (cc.invoiceLineId);
+// the draft opens with Send to Client. Nothing reaches the client until it is sent.
 function blCreditAct(row) {
   if (!row) return;
-  if (row.approved) return blOpenRow(row);
   const amt = Math.abs(row.amount),
-    who = row.client ? row.client.name : "the client";
-  mbModal(
-    `Approve Credit — <span data-nocase>${esc(who)}</span>`,
-    `<p class="small" style="margin:0 0 8px">${esc(row.why)}.</p><p class="small muted" style="margin:0">Approving records that ${esc(who)} is owed ${money(amt)} on ${esc(String(row.job.project.name).replace(/ —.*$/, ""))}; it goes on their next invoice as a credit line. Nothing is sent to the client from here.</p>`,
-    {
-      submit: "Approve Credit",
-      onSubmit: () => {
-        const by = (currentUser() || {}).name || role();
-        let cc = row.cc;
-        cc ||
-          ((DB.clientCredits = DB.clientCredits || []),
-          (cc = { id: uid("cc"), projectId: row.job.id, clientId: row.client ? row.client.id : "", amount: amt, txnId: row.txn ? row.txn.id : "", why: row.why, status: "proposed", at: today(), by: by }),
-          DB.clientCredits.push(cc));
-        (cc.status = "approved"), (cc.approvedBy = by), (cc.approvedAt = today()), row.txn && (row.txn.clientCreditDone = cc.id);
-        try {
-          audit("client-credit", cc.id, "approved", "proposed", money(amt), row.why);
-        } catch (e) {}
-        save(), render();
-        rcToast(`Credit of ${money(amt)} to ${who} approved — it goes on the next invoice`, [{ label: "Open", run: () => ((view = "billing"), (billTab = "billable"), render()) }]);
-      },
-    },
-  );
+    c = row.client,
+    p = row.job,
+    by = (currentUser() || {}).name || role();
+  if (!c || !p) return toast("That credit has no client or job to credit");
+  let cc = row.cc;
+  cc ||
+    ((DB.clientCredits = DB.clientCredits || []),
+    (cc = { id: uid("cc"), projectId: p.id, clientId: c.id, amount: amt, txnId: row.txn ? row.txn.id : "", why: row.why, status: "proposed", at: today(), by: by }),
+    DB.clientCredits.push(cc));
+  const was = cc.invoiceLineId && "function" == typeof rbInvLine ? rbInvLine(cc.invoiceLineId) : null;
+  if (was) return (clientOpen = was.c.id), (docOpen = { kind: "invoice", id: was.inv.id }), void render();
+  "approved" !== cc.status && ((cc.status = "approved"), (cc.approvedBy = by), (cc.approvedAt = today()));
+  row.txn && (row.txn.clientCreditDone = cc.id);
+  let inv = (c.invoices || []).find((i) => "draft" === i.status && i.projectId === p.id && "sov" !== i.mode && (i.rebill || i.creditFor));
+  inv ||
+    ((inv = newDoc(c, "invoice", { mode: "items", fields: { projectId: p.id, title: `Credit — ${String(p.project.name).replace(/ —.*$/, "")}`, lines: [], retainagePct: 0 } })),
+    (inv.creditFor = !0),
+    (inv.projectId = p.id),
+    (inv.lines = (inv.lines || []).filter((l) => l.item || +l.rate)));
+  const l = { id: uid("l"), item: `Credit — ${String(row.why || "vendor credit").replace(/\s*\(.*$/, "").slice(0, 70)}`, desc: String(row.why || ""), qty: 1, unit: "ls", rate: -amt, taxable: !1, fromCredit: cc.id, cat: "credit" };
+  inv.lines.push(l), (cc.invoiceLineId = l.id), (cc.invoiceId = inv.id);
+  try {
+    audit("client-credit", cc.id, "drafted", "proposed", `${money(amt)} on ${inv.number}`, row.why);
+  } catch (e) {}
+  save();
+  (view = "billing"), (billTab = "billable"), (clientOpen = c.id), (blClientFlag = c.id), (docOpen = { kind: "invoice", id: inv.id }), render();
+  rcToast(`A credit of ${money(amt)} to ${c.name} is on ${inv.number} — review it, then Send to Client`, [{ label: "Open", run: () => ((view = "billing"), (clientOpen = c.id), (docOpen = { kind: "invoice", id: inv.id }), render()) }]);
 }
 // The bank list names a vendor credit and what it relieves, on the row, with Confirm.
 function txnCreditLine(t) {
@@ -174741,7 +174875,13 @@ function nyhItem(r) {
         ? 44
         : "undeposited" === r.kind
           ? 36
-          : "mail" === r.kind
+          : // money held in dispute ranks with a bill, by the money at stake; in the month's last days (the close
+            // waits on it) or two weeks open it goes to the top of Do Now
+            ("mail" === r.kind && "dispute-credit" === r.pkind) || "dispute" === r.kind
+            ? (lkDisputeUrgent() ? 85 : 50) + Math.min(10, (+r.amount || 0) / 1e3)
+              : "dup" === r.kind || "clientcredit" === r.kind || "rebill" === r.kind
+              ? 40 + Math.min(10, (+r.amount || 0) / 2e3)
+              : "mail" === r.kind
             ? 32 + Math.min(10, (+r.amount || 0) / 2e3)
             : "code" === r.kind
               ? 30
@@ -175056,5 +175196,1020 @@ if ("function" == typeof fin2ClosePageHtml) {
       }).join("")}</div>`;
     } catch (e) {}
     return h;
+  };
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// leaks2 (BACKLOG 1.5 and 8, the month's most expensive cracks; tests/leaks2_test.py). Work done and money
+// spent for a client reach the Billing Queue and Needs Your Hand line by line; bank lines are proposed against
+// the payroll run, PO or bill they paid; a duplicate charge, a vendor's credit memo and a statement in mail each
+// become one proposal a person confirms. AI proposes, people approve.
+// ---------------------------------------------------------------------------------------------------------
+
+// ---- 1. earned, not billed: one reading of a job's lines for the job page and Ask
+function lkUnbilledWork(pid) {
+  const out = [];
+  try {
+    pgRows(pid).forEach((r) => {
+      if (!(r.pr && r.pr.period > 0)) return;
+      out.push({ sv: r.sv, desc: r.sv.desc, co: pgIsCO(r.sv) ? r.sv.source : "", measured: r.pr.pct, billed: r.ev.billedPct, amount: r2(pgPeriodAmt(r)), held: pgLineHold(r) });
+    });
+  } catch (e) {}
+  return out;
+}
+if ("function" == typeof render) {
+  const base = render;
+  render = function () {
+    const r = base.apply(this, arguments);
+    try {
+      if ("dash" === view && S && S.id && ["owner", "pm", "billing", "controller"].includes(role())) {
+        const host = document.getElementById("v-dash");
+        host && host.querySelectorAll(".lk-rtb").forEach((x) => x.remove());
+        if (host) {
+          const W = lkUnbilledWork(S.id),
+            ready = W.filter((w) => !w.held),
+            amt = r2(ready.reduce((a, w) => a + w.amount, 0));
+          if (ready.length) {
+            const d = document.createElement("div");
+            (d.className = "note lk-rtb"),
+              (d.innerHTML = `<b>Ready to bill on this job: ${money(amt)}</b> <span class="small">— done and not billed yet: ${ready.map((w) => `${esc(w.co ? w.co + " " + w.desc : w.desc)} ${money(w.amount)} (measured ${Math.round(w.measured)}%, billed ${Math.round(w.billed)}%)`).join(" · ")}${W.length > ready.length ? ` · ${W.length - ready.length} held` : ""}.</span> <button type="button" class="btn sm" data-lkrtb="1">Draft the Application</button>`),
+              (host.querySelector(".kpis, #kpis") || host.firstElementChild || host).after(d),
+              (d.querySelector("[data-lkrtb]").onclick = () => blOpenProgress(S.id, !0));
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("job ready to bill", e);
+    }
+    return r;
+  };
+}
+// a document asked about by number goes to the older chain's lookup; whether a change order is billed is a
+// question about the invoices, so this reader runs first (AG_ASST, first)
+AG_ASST.unshift({
+    id: "cobilled",
+    first: !0,
+    re: /\bco-\d{4}-\d{3}\b.*\b(bill|billed|invoiced?|on an invoice)\b|\b(bill|billed|invoiced?)\b.*\bco-\d{4}-\d{3}\b/,
+    kind: "money",
+    run(P) {
+      const num = (P.l.match(/\bco-\d{4}-\d{3}(?:-r\d+)?\b/) || [""])[0].toUpperCase();
+      let hit = null;
+      (DB.clients || []).forEach((c) => (c.changeOrders || []).forEach((d) => d.number === num && (hit = { c: c, d: d })));
+      if (!hit) return null;
+      const { c: c, d: d } = hit,
+        sv = (c.sov || []).find((v) => v.source === d.number || v.coId === d.id),
+        on = sv ? (c.invoices || []).filter((i) => "void" !== i.status && (i.lines || []).some((l) => l.sovId === sv.id && +l.pct > 0)) : [],
+        sent = on.filter((i) => "draft" !== i.status),
+        pct = sv ? r2(sovBilled(c, sv.id)) : 0,
+        W = sv && d.projectId ? lkUnbilledWork(d.projectId).find((w) => w.sv.id === sv.id) : null;
+      return {
+        headline: !["approved", "billed"].includes(d.status)
+          ? `${d.number} is ${d.status}: it is billed once the client approves it.`
+          : sent.length
+            ? `${d.number} is billed ${pct}% on ${sent.map((i) => i.number).join(", ")}${W ? `; ${money(W.amount)} more is done and not billed yet` : ""}.`
+            : on.length
+              ? `${d.number} is on draft ${on.map((i) => i.number).join(", ")}, not sent: it is not billed until the draft goes to ${c.name}.`
+              : `${d.number} (${money(docTotal(d).total)}) is approved and not billed yet${W ? `: ${money(W.amount)} of it is done (measured ${Math.round(W.measured)}%) and ready to bill on the next application` : ""}.`,
+        work: on.map((i) => `${i.number} · ${i.status} · ${money(docTotal(i).total)}`),
+        go: agGo("billing"),
+        ran: agRan("change orders and invoice lines", [`change order is ${d.number}`], "", on.length + 1),
+      };
+    },
+  });
+AG_FIN.unshift(
+  {
+    id: "unbilledwork",
+    re: /\b(done|finished|complete[d]?|earned|measured|installed)\b.*\bnot (yet )?(billed|invoiced)\b|\bwork\b.*\b(unbilled|not (yet )?billed)\b|\bunbilled work\b/,
+    kind: "money",
+    run(P) {
+      const jobs = (P.jobs.length ? P.jobs : DB.projects || []).filter((p) => {
+          try {
+            return pgRows(p.id).length;
+          } catch (e) {
+            return !1;
+          }
+        }),
+        rows = jobs.flatMap((p) => lkUnbilledWork(p.id).map((w) => Object.assign({ p: p }, w))),
+        ready = rows.filter((w) => !w.held),
+        amt = r2(ready.reduce((a, w) => a + w.amount, 0));
+      return {
+        headline: ready.length
+          ? `${money(amt)} of work is done and not billed yet${P.jobs.length ? ` on ${agShort(P.jobs[0])}` : ""}: ${agList(ready.map((w) => `${w.co ? w.co + " " : ""}${w.desc} ${money(w.amount)}`))}.`
+          : `Nothing measured is ahead of billing${P.jobs.length ? ` on ${agShort(P.jobs[0])}` : ""}.`,
+        note: "Each line on its own evidence (the schedule, deliveries, the foreman's measure); a change order line bills from 0. A line measured only by cost is held until someone measures it." + (rows.length > ready.length ? ` ${agN(rows.length - ready.length, "line")} held.` : ""),
+        work: rows.map((w) => `${agShort(w.p)} · ${w.co ? w.co + " " : ""}${w.desc} — measured ${Math.round(w.measured)}%, billed ${Math.round(w.billed)}%: ${money(w.amount)} not billed${w.held ? ` (held: ${w.held})` : ""}`),
+        go: agGo("billing"),
+        ran: agRan("schedule of values lines", agWhereJob(P).concat(["measured is more than billed"]), "", rows.length),
+      };
+    },
+  },
+);
+
+// ---- 2. purchases bought for a client: reimbursable rows (BACKLOG 1.5 #1; NetSuite's Billable Expenses)
+// One reading, rbRows(pid), feeds Ready to Bill, the Billing Queue, Needs Your Hand, the invoice's Billable
+// Expenses pull, Ask and spUnbilled (the Spend tab's "Cost not billed"): one number.
+// Two kinds:
+//  - reimbursable: a card or bank purchase on a job bought for the client (the person said so on the line, the
+//    memo says so, or it was bought at a showroom where client selections are bought), on no invoice yet; billed
+//    at cost plus the job's markup (rbMarkup), stamped with the invoice line that bills it (t.invoiceLineId).
+//  - floated: materials bought and delivered on a contract line beyond what the client has been billed for it
+//    (the windows: $33,500 bought, $19,530 billed); billed as stored materials on the line, once a person says so.
+const RB_SHOWROOM = /\b(waterworks|restoration hardware|design within reach|lumens|circa lighting|visual comfort|ann sacks|kohler store|rejuvenation|schoolhouse electric|room (and|&) board|holly hunt|urban electric|apparatus studio|allied maker|cb2|west elm|crate (and|&) barrel|lightology|ylighting|the shade store)\b/i;
+const RB_WORDS = /\b(re-?bill(able|ed)?|bill (it |this |them )?back|billable|reimburs\w*|client purchase|bought for the client|for the client|client'?s? (purchase|selection|item)|cost plus|cost \+ ?\d+)/i;
+const RB_NOT_CATS = ["transfer", "cc-payment", "owner", "loan", "income", "labor", "payroll-oh", "payroll_oh", "refund", "uncat"];
+function rbMarkup(p) {
+  const c = p && (DB.clients || []).find((x) => x.id === p.clientId),
+    v = p && p.project && null != p.project.rebillMarkup ? p.project.rebillMarkup : c && null != c.rebillMarkup ? c.rebillMarkup : null != DB.company.fmMarkup ? DB.company.fmMarkup : 10;
+  return +v || 0;
+}
+// Why a line is a purchase for the client, or "" when it is not one.
+function rbWhy(t) {
+  if (!t || !(+t.amt < 0) || !t.projectId || !1 === t.billable) return "";
+  if (t.billId || t.poId || t.payrollId || (t.cat && RB_NOT_CATS.includes(t.cat)) || t.dispute) return "";
+  const p = (DB.projects || []).find((x) => x.id === t.projectId),
+    c = p && (DB.clients || []).find((x) => x.id === p.clientId);
+  if (!p || !c) return "";
+  if (!0 === t.billable) return `marked billable${t.billableBy ? " by " + t.billableBy : ""}`;
+  const words = `${t.memo || ""} ${t.note || ""}`,
+    last = String(c.name || "").replace(/&.*$/, "").trim().split(/\s+/).pop() || "",
+    sur = String(c.name || "").split(/\s+/).pop().replace(/s$/i, "");
+  if (RB_WORDS.test(words)) return `the line says so: "${String(words).trim().slice(0, 60)}"`;
+  if (sur.length >= 4 && new RegExp(`\\bfor (the )?${sur}s?\\b`, "i").test(words)) return `bought for the ${sur}s, the memo says`;
+  const sel = ((DB.sel && DB.sel.items) || []).find((it) => {
+    const pj = it.projectId || "";
+    if (pj && pj !== p.id) return !1;
+    return [it.manufacturer, it.vendor].some((w) => w && String(w).length >= 4 && !/^(ferguson|home depot|amazon)$/i.test(w) && new RegExp(`\\b${String(w).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(t.desc || ""));
+  });
+  if (sel) return `a client selection's maker (${sel.manufacturer || sel.vendor}): ${sel.name}`;
+  if (RB_SHOWROOM.test(`${t.desc || ""} ${t.vendor || ""}`)) return `bought at ${String((`${t.desc || ""}`.match(RB_SHOWROOM) || [t.vendor])[0] || "a showroom")}, where client selections are bought`;
+  return "";
+}
+// The stamp is the link: a line billed on an invoice line that is gone (removed from a draft, voided) is unbilled again.
+function rbInvLine(id) {
+  for (const c of DB.clients || [])
+    for (const i of c.invoices || []) {
+      if ("void" === i.status) continue;
+      const l = (i.lines || []).find((x) => x.id === id);
+      if (l) return { c: c, inv: i, l: l };
+    }
+  return null;
+}
+function rbSync() {
+  (DB.txns || []).forEach((t) => {
+    t.invoiceLineId &&
+      !rbInvLine(t.invoiceLineId) &&
+      ((t.match = Object.assign({}, t.match || {}, { invoiceId: "", invoiceLineId: "" })), delete t.invoiceLineId, delete t.invoiceRebillId);
+  });
+}
+function rbRows(pid) {
+  const out = [];
+  try {
+    rbSync();
+  } catch (e) {}
+  (DB.txns || []).forEach((t) => {
+    if (t.invoiceLineId || (pid && t.projectId !== pid)) return;
+    const why = rbWhy(t);
+    if (!why) return;
+    const p = (DB.projects || []).find((x) => x.id === t.projectId),
+      c = (DB.clients || []).find((x) => x.id === p.clientId),
+      mk = null != t.markupPct ? +t.markupPct : rbMarkup(p),
+      cost = r2(-t.amt);
+    out.push({ kind: "reimbursable", key: "rb:" + t.id, t: t, p: p, c: c, cost: cost, markupPct: mk, amount: r2(cost * (1 + mk / 100)), date: t.date, label: `${t.desc}${t.vendor ? "" : ""}`, why: why });
+  });
+  (DB.projects || []).forEach((p) => {
+    if (pid && p.id !== pid) return;
+    let R = [];
+    try {
+      R = pgRows(p.id) || [];
+    } catch (e) {
+      R = [];
+    }
+    R.forEach((r) => {
+      if (pgIsCO(r.sv) || !(r.ev.del && r.ev.del.received > 0) || !(r.pr && r.pr.stored > 0)) return;
+      const sched = +r.ev.scheduled || 0,
+        billed = r2((sched * (+r.ev.billedPct || 0)) / 100),
+        per = pgLineHold(r) ? 0 : pgPeriodAmt(r),
+        amt = r2(Math.min(Math.min(+r.ev.cost || 0, sched) - billed - per, +r.pr.stored || 0));
+      amt >= 100 &&
+        out.push({ kind: "floated", key: `fl:${p.id}:${r.sv.id}`, sv: r.sv, p: p, c: r.c, cost: r2(+r.ev.cost || 0), billed: billed, price: sched, line: r.ev.line, doc: r.ev.line ? (findLine(r.sv.lineRef) || {}).doc : null, amount: amt, markupPct: 0, date: "", label: r.sv.desc, why: `${money(r.ev.cost)} bought and ${money(r.ev.del.received)} delivered on this line, ${money(billed)} billed: ${money(amt)} of materials on site the client has not been billed for` });
+    });
+  });
+  return out;
+}
+// Ready to Bill's rows: one row per job for its reimbursables, one per floated line.
+function rbReady() {
+  const by = {},
+    out = [];
+  rbRows().forEach((x) => {
+    if ("floated" === x.kind)
+      return void out.push({ kind: "floated", key: x.key, c: x.c, p: x.p, sv: x.sv, amount: x.amount, act: "floated", title: `${x.p.project.name}: ${x.label} — ${money(x.amount)} of materials bought and delivered, not yet billed (stored materials)`, why: x.why, run: () => rbDraftFloated(x.p.id, x.sv.id) });
+    (by[x.p.id] = by[x.p.id] || []).push(x);
+  });
+  Object.values(by).forEach((L) => {
+    const p = L[0].p,
+      amt = r2(L.reduce((a, x) => a + x.amount, 0)),
+      mk = L[0].markupPct;
+    out.push({ kind: "reimbursable", key: "rb:" + p.id, c: L[0].c, p: p, items: L, amount: amt, act: "reimbursable", title: `${p.project.name}: ${L.length} purchase${1 === L.length ? "" : "s"} bought for ${L[0].c ? L[0].c.name : "the client"}, not billed back — ${L.slice(0, 4).map((x) => `${x.t.desc} ${money2(x.cost)}`).join(", ")}${L.length > 4 ? ` and ${L.length - 4} more` : ""}: ${money2(amt)}${mk ? ` at cost plus ${mk}%` : " at cost"}`, why: L.map((x) => `${x.t.desc} ${money(x.cost)} (${x.why})`).join(" · "), run: () => rbDraft(p.id) });
+  });
+  return out;
+}
+// Draft (or add to) the job's billable-expenses invoice: one line per purchase, each stamped on its bank line.
+function rbPullInto(inv, rows) {
+  let n = 0;
+  (rows || []).forEach((x) => {
+    if ("reimbursable" !== x.kind || x.t.invoiceLineId) return;
+    const t = x.t,
+      l = { id: uid("l"), item: `Reimbursable — ${String(t.vendor || t.desc || "purchase").slice(0, 60)}`, desc: `Bought ${fmt(t.date)} for you: ${t.desc} · cost ${money(x.cost)}${x.markupPct ? ` plus ${x.markupPct}%` : ""}`, qty: 1, unit: "ls", rate: x.amount, taxable: !1, cost: x.cost, markupPct: x.markupPct, fromTxn: t.id, cat: "reimbursable" };
+    (inv.lines = inv.lines || []).push(l), (t.invoiceLineId = l.id), (t.invoiceRebillId = inv.id), (t.match = Object.assign({}, t.match || {}, { invoiceId: inv.id, invoiceLineId: l.id })), n++;
+    try {
+      audit("txn", t.id, "rebilled", "", `${inv.number} line ${l.item}`, `${money(x.amount)} on ${inv.number}`);
+    } catch (e) {}
+  });
+  return n;
+}
+function rbDraft(pid, o) {
+  const p = (DB.projects || []).find((x) => x.id === pid),
+    c = p && (DB.clients || []).find((x) => x.id === p.clientId);
+  if (!p || !c) return toast("That job has no client to bill"), null;
+  const rows = rbRows(pid).filter((x) => "reimbursable" === x.kind);
+  if (!rows.length) return toast("Nothing bought for the client is waiting to be billed on this job"), null;
+  let inv = (c.invoices || []).find((i) => "draft" === i.status && i.projectId === pid && i.rebill);
+  inv || ((inv = newDoc(c, "invoice", { mode: "items", fields: { projectId: pid, title: `Billable expenses — ${String(p.project.name).replace(/ —.*$/, "")}`, lines: [], retainagePct: 0 } })), (inv.rebill = !0), (inv.projectId = pid), (inv.lines = (inv.lines || []).filter((l) => l.item || +l.rate)));
+  const n = rbPullInto(inv, rows);
+  save();
+  if (!(o && o.quiet)) {
+    (view = "billing"), (billTab = "billable"), (clientOpen = c.id), (blClientFlag = c.id), (docOpen = { kind: "invoice", id: inv.id }), render();
+    rcToast(`${n} purchase${1 === n ? "" : "s"} bought for ${c.name} on ${inv.number} (${money(docTotal(inv).total)}) — review it, then Send to Client`, [{ label: "Open", run: () => ((view = "billing"), (clientOpen = c.id), (docOpen = { kind: "invoice", id: inv.id }), render()) }]);
+  }
+  return { inv: inv, c: c, n: n };
+}
+// A floated line billed on purpose: the person's say-so is kept on the line (sv.storedBill) and the job's
+// application carries it as stored materials until an invoice with it is sent.
+function rbDraftFloated(pid, svId) {
+  const x = rbRows(pid).find((r) => "floated" === r.kind && r.sv.id === svId);
+  if (!x) return toast("Nothing floated on that line"), null;
+  x.sv.storedBill = { amt: x.amount, by: (currentUser() || {}).name || role(), at: today(), invId: "" };
+  try {
+    audit("client", x.c.id, "stored-billed", "", `${x.sv.desc} ${money(x.amount)}`, x.why);
+  } catch (e) {}
+  const out = pgApply(pid);
+  if (!out) return null;
+  save();
+  (view = "billing"), (billTab = "billable"), (clientOpen = out.client.id), (blClientFlag = out.client.id), (docOpen = { kind: "invoice", id: out.inv.id }), render();
+  rcToast(`${x.sv.desc}: ${money(x.amount)} of stored materials on ${out.inv.number} — review it, then Send to Client`, [{ label: "Open", run: () => ((view = "billing"), (clientOpen = out.client.id), (docOpen = { kind: "invoice", id: out.inv.id }), render()) }]);
+  return out;
+}
+// the application adds each line's stored materials a person asked to bill (pgApply zeroes and refills its lines)
+{
+  const base = pgApply;
+  pgApply = function (projectId, only) {
+    const out = base.apply(this, arguments);
+    try {
+      if (out && out.inv) {
+        const c = out.client;
+        (c.sov || []).forEach((sv) => {
+          const s = sv.storedBill;
+          if (!s || !(+sv.scheduled > 0) || (only && !only.includes(sv.id))) return;
+          if (s.invId && s.invId !== out.inv.id) {
+            const was = (c.invoices || []).find((i) => i.id === s.invId);
+            if (was && "void" !== was.status) return;
+          }
+          const l = (out.inv.lines || []).find((y) => y.sovId === sv.id);
+          if (!l) return;
+          const room = r2(100 - (+l.prevPct || 0) - (+l.pct || 0)),
+            add = r2(Math.min(room, (100 * s.amt) / +sv.scheduled));
+          if (!(add > 0)) return;
+          (l.pct = r2((+l.pct || 0) + add)), (l.stored = r2(s.amt)), (l.desc = `${l.desc ? l.desc + " · " : ""}materials bought and delivered, not yet installed: ${money(s.amt)} (stored)`), (s.invId = out.inv.id), (out.amt = r2((out.amt || 0) + (+sv.scheduled * add) / 100)), out.n++;
+        });
+      }
+    } catch (e) {
+      console.warn("stored materials", e);
+    }
+    return out;
+  };
+}
+// Ready to Bill carries the reimbursable and floated rows; the Billing Queue drafts them.
+{
+  const base = readyToBill;
+  readyToBill = function () {
+    const R = base.apply(this, arguments);
+    try {
+      const X = ocMemo("rbReady", () => rbReady()) || [];
+      if (X.length) {
+        const rows = R.rows.concat(X).sort((a, b) => b.amount - a.amount);
+        return Object.assign({}, R, { rows: rows, amount: r2(rows.reduce((a, r) => a + r.amount, 0)), n: rows.length });
+      }
+    } catch (e) {
+      console.warn("reimbursables", e);
+    }
+    return R;
+  };
+}
+{
+  const base = rtbAct;
+  rtbAct = function (key) {
+    const r = /^(rb|fl):/.test(String(key || "")) ? readyToBill().rows.find((x) => x.key === key) : null;
+    return r && r.run ? r.run() : base.apply(this, arguments);
+  };
+}
+// spUnbilled (the Spend tab's Cost not billed, Caught for You) reads the same rows: one number.
+spUnbilled = function (pid) {
+  return rbRows(pid)
+    .map((x) => ({ kind: x.kind, project: x.p, key: x.key, doc: x.doc || null, line: x.line || null, txn: x.t || null, label: "floated" === x.kind ? x.label : `${x.t.desc} · ${fmt(x.t.date)}`, cost: x.cost, billed: x.billed || 0, price: x.price || 0, gap: x.amount, room: x.amount, why: x.why }))
+    .sort((a, b) => b.gap - a.gap);
+};
+// The bank list says what a line is still waiting on, on the row, with the one action that settles it.
+function txnFlagsHtml(t) {
+  if (!t || ["client", "crew", "driver", "foreman"].includes(role())) return "";
+  const out = [];
+  try {
+    const why = !t.invoiceLineId && rbWhy(t);
+    why && out.push(`<span class="sub warn-t lk-flag">Bought for the client, not billed back yet (${esc(why)}) <button type="button" class="btn sm" data-lkrbbill="${esc(t.projectId)}">Bill It</button></span>`);
+    t.invoiceLineId && out.push(`<span class="sub lk-flag">Billed back on ${esc(((rbInvLine(t.invoiceLineId) || {}).inv || {}).number || "an invoice")}</span>`);
+    "function" == typeof lkTxnMoreFlags && out.push(lkTxnMoreFlags(t));
+  } catch (e) {}
+  return out.join("");
+}
+document.addEventListener(
+  "click",
+  (e) => {
+    const b = e.target.closest && e.target.closest("[data-lkrbbill], [data-lkrbpull]");
+    if (!b) return;
+    e.preventDefault(), e.stopPropagation();
+    if (b.dataset.lkrbbill) return void rbDraft(b.dataset.lkrbbill);
+    let hit = null;
+    (DB.clients || []).forEach((c) => (c.invoices || []).forEach((i) => i.id === b.dataset.lkrbpull && (hit = { c: c, inv: i })));
+    if (!hit || "draft" !== hit.inv.status) return;
+    const n = rbPullInto(hit.inv, rbRows(hit.inv.projectId).filter((x) => "reimbursable" === x.kind));
+    save(), render();
+    rcToast(n ? `${n} billable expense${1 === n ? "" : "s"} added to ${hit.inv.number} at cost plus markup — each bank line now points at its invoice line` : "No billable expenses left on this job", [{ label: "Open", run: () => ((clientOpen = hit.c.id), (docOpen = { kind: "invoice", id: hit.inv.id }), render()) }]);
+  },
+  !0,
+);
+// The invoice editor's Billable Expenses pull: an items invoice on a job with purchases bought for the client
+{
+  const base = render;
+  render = function () {
+    const r = base.apply(this, arguments);
+    try {
+      if (docOpen && "invoice" === docOpen.kind && !["client", "crew", "driver", "foreman"].includes(role())) {
+        let inv = null;
+        (DB.clients || []).forEach((c) => (c.invoices || []).forEach((i) => i.id === docOpen.id && (inv = i)));
+        const add = inv && "draft" === inv.status && "sov" !== inv.mode && inv.projectId && document.querySelector("section.view.on [data-addline]");
+        if (add && !add.parentElement.querySelector("[data-lkrbpull]")) {
+          const R = rbRows(inv.projectId).filter((x) => "reimbursable" === x.kind),
+            b = document.createElement("button");
+          (b.className = "btn sm"), (b.dataset.lkrbpull = inv.id), (b.disabled = !R.length);
+          b.textContent = R.length ? `Billable Expenses (${R.length} · ${money(r2(R.reduce((a, x) => a + x.amount, 0)))})` : "Billable Expenses (none waiting)";
+          b.title = "Purchases bought for the client on this job and not billed back, at cost plus the job's markup";
+          add.after(b);
+        }
+      }
+    } catch (e) {}
+    return r;
+  };
+}
+// The transaction drawer: "bought for the client" is a field on the line, with the job's markup.
+{
+  const base = txnDialog;
+  txnDialog = function (id) {
+    const r = base.apply(this, arguments);
+    try {
+      const t = id ? (DB.txns || []).find((x) => x.id === id) : null,
+        memo = document.getElementById("e-memo"),
+        host = memo && (memo.closest(".f") || memo.parentElement),
+        sv = document.getElementById("d-save");
+      if (!host || !sv || document.getElementById("e-billable")) return r;
+      const p = t && (DB.projects || []).find((x) => x.id === t.projectId),
+        auto = t ? rbWhy(Object.assign({}, t, { billable: void 0 })) : "",
+        on = t ? (null != t.billable ? !!t.billable : !!auto) : !1,
+        mk = t && null != t.markupPct ? +t.markupPct : rbMarkup(p || S),
+        d = document.createElement("div");
+      (d.className = "f lk-billable"),
+        (d.innerHTML = `<label class="chk"><input type="checkbox" id="e-billable" ${on ? "checked" : ""}> Bought for the client: bill it back at cost plus <input type="number" step="0.1" id="e-markup" value="${mk}" style="width:64px">%</label>${t && t.invoiceLineId ? `<span class="hint">Billed on ${esc(((rbInvLine(t.invoiceLineId) || {}).inv || {}).number || "an invoice")}.</span>` : auto && null == t.billable ? `<span class="hint">Proposed: ${esc(auto)}. Untick it if the job carries it.</span>` : ""}`),
+        host.after(d);
+      // only a box the person touched decides; an untouched box leaves the line to the proposal
+      let touched = !1;
+      d.querySelector("#e-billable").addEventListener("change", () => (touched = !0));
+      const prev = sv.onclick;
+      sv.onclick = function (ev) {
+        const want = !!document.getElementById("e-billable").checked,
+          m = +document.getElementById("e-markup").value,
+          n0 = (DB.txns || []).length,
+          res = prev ? prev.call(this, ev) : void 0;
+        try {
+          const tt = id ? (DB.txns || []).find((x) => x.id === id) : (DB.txns || []).length > n0 ? DB.txns[DB.txns.length - 1] : null;
+          if (tt && !tt.invoiceLineId) {
+            const a = rbWhy(Object.assign({}, tt, { billable: void 0 })),
+              who = (currentUser() || {}).name || role();
+            touched && ((tt.billable = want), (tt.billableBy = who));
+            const pj = (DB.projects || []).find((x) => x.id === tt.projectId);
+            isFinite(m) && m !== rbMarkup(pj) ? (tt.markupPct = m) : delete tt.markupPct;
+            save();
+          }
+        } catch (e) {}
+        return res;
+      };
+    } catch (e) {
+      console.warn("billable field", e);
+    }
+    return r;
+  };
+}
+// Needs Your Hand: billing drafts what was bought for a client and what was floated on a line
+{
+  const base = nyhRowsAll;
+  nyhRowsAll = function () {
+    const out = base.apply(this, arguments),
+      push = (r) => {
+        r && r.route && !lnHandDone(r.key) && !out.some((x) => x.key === r.key) && out.push(r);
+      };
+    try {
+      rbReady().forEach((x) =>
+        push({
+          key: "lk:" + x.key,
+          route: "billing",
+          kind: "rebill",
+          title: "floated" === x.kind ? `Bill the stored materials: ${String(x.p.project.name).replace(/ —.*$/, "")} · ${x.sv.desc} ${lnMoney(x.amount)}` : `Bill back what was bought for ${x.c ? x.c.name : "the client"}: ${x.items.slice(0, 3).map((y) => `${y.t.desc} ${money2(y.cost)}`).join(", ")}${x.items.length > 3 ? ` and ${x.items.length - 3} more` : ""} (${money2(x.amount)} with markup)`,
+          why: String(x.why || "").slice(0, 220),
+          amount: x.amount,
+          verb: "Draft",
+          no: "reimbursable" === x.kind ? "Not Billable" : "",
+          run: () => x.run(),
+          skip:
+            "reimbursable" === x.kind
+              ? () => {
+                  const who = (currentUser() || {}).name || role();
+                  x.items.forEach((y) => {
+                    (y.t.billable = !1), (y.t.billableBy = who);
+                    try {
+                      audit("txn", y.t.id, "not-billable", "", y.t.desc, `${who}: the job carries it`);
+                    } catch (e) {}
+                  }),
+                    save(),
+                    render(),
+                    toast(`Kept on the job: ${x.items.map((y) => y.t.desc).join(", ")}`);
+                }
+              : null,
+          open: () => rtbGo(x.key),
+        }),
+      );
+      // a credit the client is owed (a refund on a purchase billed to them): billing drafts it onto an invoice
+      ("function" == typeof blCreditRows ? blCreditRows() : []).forEach((x) =>
+        push({
+          key: "lk:" + x.key,
+          route: "billing",
+          kind: "clientcredit",
+          title: `Credit ${x.client ? x.client.name : "the client"} ${money2(Math.abs(x.amount))}: ${String(x.why || "").slice(0, 90)}`,
+          why: `${String(x.job.project.name).replace(/ —.*$/, "")} · the purchase was billed to them, so the refund is theirs`,
+          amount: Math.abs(x.amount),
+          verb: "Draft",
+          no: "",
+          run: () => blCreditAct(x),
+          open: () => ((view = "billing"), (billTab = "billable"), render()),
+        }),
+      );
+    } catch (e) {
+      console.warn("nyh rebill", e);
+    }
+    return out;
+  };
+}
+AG_FIN.unshift({
+  id: "rebill",
+  re: /\b(bought|purchased?|purchases|spent|paid)\b.*\b(for (the )?clients?|for (the )?\w+s\b|haven'?t billed|not (yet )?billed|unbilled)\b|\bbill(ed)? (it |them )?back\b|\breimbursables?\b|\bbillable expenses?\b|\bnot billed back\b/,
+  not: /\bpayroll\b|\bvendors? (we|owe)\b/,
+  kind: "money",
+  run(P) {
+    const words = (P.l.match(/\b(home depot|lowes|waterworks|restoration hardware|ferguson|amazon)\b/) || [])[0] || "",
+      R = rbRows().filter((x) => agOnJob(P, x.p.id) && (!words || new RegExp(words, "i").test(`${x.label} ${(x.t && x.t.vendor) || ""}`))),
+      amt = r2(R.reduce((a, x) => a + x.amount, 0));
+    return {
+      headline: R.length
+        ? `${money(amt)} bought for clients and not billed back yet${P.jobs.length ? ` on ${agShort(P.jobs[0])}` : ""}: ${agList(R.map((x) => ("floated" === x.kind ? `${x.label} ${money(x.amount)} (stored materials)` : `${x.t.desc} ${money(x.cost)}${x.markupPct ? ` + ${x.markupPct}%` : ""}`)))}.`
+        : `Nothing bought for a client is waiting to be billed back${P.jobs.length ? ` on ${agShort(P.jobs[0])}` : ""}${words ? ` at ${words.replace(/\b\w/g, (m) => m.toUpperCase())}` : ""}.`,
+      note: "Card and bank purchases marked or proposed as bought for the client, billed at cost plus the job's markup, and materials bought and delivered on a line beyond what the client has been billed. The same rows as Ready to Bill and the Spend tab's Cost not billed.",
+      work: R.map((x) => `${agShort(x.p)} · ${"floated" === x.kind ? x.label : `${fmt(x.t.date)} ${x.t.desc}`} — ${money(x.amount)} not billed back · ${x.why}`),
+      go: agGo("billing"),
+      ran: agRan("bank and card lines and contract lines", agWhereJob(P).concat(["bought for the client", "on no invoice"]), "", R.length),
+    };
+  },
+});
+
+// ---- 4. every bank line matched to a line: the payee of a payment, a bill entered from a payment
+// Who a payment went to: a vendor on file the line names, else the name after CHECK nnnn / ZELLE TO / ACH TO.
+function truthPayeeVendor(t) {
+  if (!t || !(+t.amt < 0)) return null;
+  const V = (DB.vendors || []).filter((v) => v.name && truthVendorHit(t, v.name)).sort((a, b) => b.name.length - a.name.length);
+  if (V.length) return V[0];
+  const m = String(t.desc || "").match(/\b(?:CHECK\s*#?\s*\d{3,}|ZELLE TO|ACH (?:TO|PMT TO)|BILL ?PAY(?:MENT)? TO)\s+(.{3,40}?)\s*$/i);
+  if (!m) return null;
+  const name = m[1].toLowerCase().replace(/\b\w/g, (x) => x.toUpperCase()).replace(/\b(Llc|Inc)\b/g, (x) => x.toUpperCase());
+  return { id: "", name: name, notOnFile: !0 };
+}
+// Enter the bill a payment paid: the vendor, the amount, the job and code the line carries; it waits for its
+// approvals like any bill, flagged as paid before approval (truthSetMatch), with the payment as its evidence.
+function lkBillFromTxn(t, nb) {
+  const who = (currentUser() || {}).name || role(),
+    b = {
+      id: uid("b"),
+      vendor: nb.vendor,
+      number: nb.number || `PAY-${String(t.date || today()).replace(/-/g, "").slice(2)}`,
+      date: t.date || today(),
+      due: t.date || today(),
+      entityId: ((DB.accounts || []).find((a) => a.id === t.acct) || {}).entityId || "ent1",
+      projectId: nb.projectId || t.projectId || "",
+      poId: "",
+      cat: nb.cat || "subs",
+      code: nb.code || t.code || "",
+      line: nb.line || t.line || "",
+      lines: [{ id: uid("bl"), desc: `${t.desc} — entered from the payment; the vendor's invoice is still to come`, amount: r2(Math.abs(+t.amt)) }],
+      payMethod: /CHECK/i.test(t.desc || "") ? "Check" : /ZELLE/i.test(t.desc || "") ? "Zelle" : "ACH",
+      fileId: "",
+      notes: `Entered by ${who} from ${t.desc} (${fmtL(t.date)}), paid before a bill was on file.`,
+      status: "submitted",
+      approvals: [{ t: nowStamp(), ts: appNowIso(), by: who, role: role(), action: "entered from the payment" }],
+      createdBy: who,
+      fromTxn: t.id,
+    };
+  (DB.bills = DB.bills || []).push(b);
+  try {
+    audit("bill", b.id, "created", "", `${b.vendor} ${money(billTotal(b))}`, `entered from the bank line ${t.desc}`);
+  } catch (e) {}
+  return b;
+}
+{
+  const base = truthSetMatch;
+  truthSetMatch = function (t, m0, o) {
+    if (t && m0 && m0.newBill) {
+      if (["client", "crew", "driver", "foreman"].includes(role())) return { ok: !1, why: "Your account does not match money records" };
+      const b = lkBillFromTxn(t, m0.newBill);
+      return base.call(this, t, { billId: b.id }, Object.assign({}, o || {}, { why: (o && o.why) || "the bill entered from the payment" }));
+    }
+    return base.apply(this, arguments);
+  };
+}
+// the lines still open at the end of each day get their best proposal (people confirm on Banking)
+"undefined" != typeof APP_DAY_HOOKS &&
+  APP_DAY_HOOKS.push([
+    "truthProposeAll",
+    () => {
+      try {
+        return truthProposeAll(), !0;
+      } catch (e) {
+        return !1;
+      }
+    },
+  ]);
+// On the bank row: a line typed by hand has no bank line behind it; say so, with the match.
+function lkTxnMoreFlags(t) {
+  const out = [];
+  if ("manual" === t.source && !bfBacked(t) && !t.exception)
+    out.push(`<span class="sub warn-t lk-flag">No bank line behind it: typed by hand${t.actor ? " by " + esc(t.actor) : ""}, never seen at ${esc(truthAcctWords(t))} <button type="button" class="btn sm" data-lknobank="${esc(t.id)}">Match to a Line…</button></span>`);
+  return out.join("");
+}
+document.addEventListener(
+  "click",
+  (e) => {
+    const b = e.target.closest && e.target.closest("[data-lknobank]");
+    if (!b) return;
+    e.preventDefault(), e.stopPropagation();
+    const t = (DB.txns || []).find((x) => x.id === b.dataset.lknobank);
+    t && truthMatchSheet(t);
+  },
+  !0,
+);
+
+// ---- 7. payroll: one run per pay period across entities; each entity's share posts to its own books
+{
+  const base = glPayrollLines;
+  glPayrollLines = function (r) {
+    const P = prParts(r);
+    if (P.length < 2 || !(+r.total > 0)) return base.apply(this, arguments);
+    return P.flatMap((part) => base.call(this, Object.assign({}, r, { gross: part.gross, taxes: part.taxes, total: part.total })).map((l) => Object.assign(l, { entityId: part.entityId })));
+  };
+}
+"undefined" != typeof APP_DAY_HOOKS &&
+  APP_DAY_HOOKS.push([
+    "payrollRebuildOpen",
+    () => {
+      try {
+        return payrollRebuildOpen(), !0;
+      } catch (e) {
+        return !1;
+      }
+    },
+  ]);
+
+// ---- 5. a charge twice: same account, payee and amount within three days, flagged at import
+const lkPayeeKey = (t) =>
+  String(t.desc || "")
+    .toUpperCase()
+    .replace(/\b(BKLYN|BROOKLYN|NY|NYC|INC|LLC)\b/g, "")
+    .replace(/[^A-Z]/g, "")
+    .slice(0, 14);
+function lkDupOf(t) {
+  if (!t || !(+t.amt < 0) || t.dupState === "notdup") return null;
+  const k = lkPayeeKey(t);
+  return (
+    (DB.txns || [])
+      .filter(
+        (x) =>
+          x.id !== t.id &&
+          x.acct === t.acct &&
+          Math.abs(+x.amt - +t.amt) < 0.005 &&
+          lkPayeeKey(x) === k &&
+          Math.abs(dayDiff(x.date, t.date)) <= 3 &&
+          (x.date < t.date || (x.date === t.date && String(x.id) < String(t.id))) &&
+          "notdup" !== x.dupState,
+      )
+      .sort((a, b) => String(b.date).localeCompare(a.date))[0] || null
+  );
+}
+// mark the later copy of each pair: a proposal for the controller (never voided or disputed on its own)
+function lkDupScan(ids) {
+  let n = 0;
+  (ids ? (DB.txns || []).filter((t) => ids.includes(t.id)) : DB.txns || []).forEach((t) => {
+    if (t.dupState) return;
+    const tw = lkDupOf(t);
+    tw && ((t.dupOf = tw.id), (t.dupState = "proposed"), n++);
+  });
+  return n;
+}
+if ("function" == typeof bfIngest) {
+  const base = bfIngest;
+  bfIngest = function (src, added, removed) {
+    const out = base.apply(this, arguments);
+    try {
+      out && !(src && src.dry) && out.newIds && out.newIds.length && (out.dupProposed = lkDupScan(out.newIds));
+    } catch (e) {
+      console.warn("duplicate check", e);
+    }
+    return out;
+  };
+}
+"undefined" != typeof APP_DAY_HOOKS && APP_DAY_HOOKS.push(["lkDupScan", () => (lkDupScan(), !0)]);
+// The controller confirms it: a line the bank holds is disputed with the issuer (it closes with that reason);
+// a typed copy the statement never had is voided with the reason.
+function lkDupSheet(t) {
+  const tw = t && (DB.txns || []).find((x) => x.id === t.dupOf);
+  if (!t) return;
+  const bank = bfBacked(t) && !truthDemo(t),
+    issuer = ((DB.accounts || []).find((a) => a.id === t.acct) || {}).name || "the bank";
+  mbModal(
+    bank ? "Dispute the Duplicate Charge" : "Void the Duplicate",
+    `<p class="small">${esc(t.desc)} · ${money(t.amt)} on ${fmtL(t.date)}${tw ? ` — the same payee and amount as ${fmtL(tw.date)}` : ""}, ${esc(issuer)}.</p><p class="small muted">${bank ? `${esc(issuer)} holds both lines, so neither is deleted here: the second is disputed with the issuer and closes with this reason; the credit, when it comes, is matched to it.` : "This copy was typed by hand and the statement does not hold it twice: it moves to the voided register with the reason, and the ledger reverses it."}</p>${mbF("Reason", mbIn("why", `Charged twice: same payee and amount as the ${tw ? fmt(tw.date) : "earlier"} charge`, ""))}`,
+    {
+      submit: bank ? "Dispute the Charge" : "Void the Line",
+      onSubmit: (f) => {
+        const why = String((f && f.why) || "").trim();
+        if (!why) return toast("Say why"), !1;
+        if (!bank) {
+          const r = truthVoidTxn(t, why);
+          return r.ok ? (render(), void rcToast(`${t.desc} ${money(t.amt)} voided — ${why}`, [{ label: "Open", run: () => ((view = "bank"), render()) }])) : (toast(r.why), !1);
+        }
+        const who = (currentUser() || {}).name || role();
+        (t.dispute = { why: why, by: who, at: appNowIso(), with: issuer, dupOf: t.dupOf || "", amt: +t.amt }), (t.dupState = "disputed"), (t.memo = [t.memo, `Disputed with ${issuer}: duplicate of the ${tw ? fmt(tw.date) : "earlier"} charge`].filter(Boolean).join(" · "));
+        "function" == typeof truthException && ["owner", "controller"].includes(role()) && truthException(t, `Disputed with ${issuer} as a duplicate charge: ${why}`);
+        try {
+          audit("txn", t.id, "disputed", "", `duplicate of ${t.dupOf || ""}`, `${who}: ${why}`);
+        } catch (e) {}
+        save(), render(), rcToast(`${t.desc} ${money(t.amt)} disputed with ${issuer} — ${why}`, [{ label: "Open", run: () => ((view = "bank"), render()) }]);
+      },
+    },
+  );
+}
+function lkDupRows() {
+  return (DB.txns || []).filter((t) => "proposed" === t.dupState && t.dupOf && (DB.txns || []).some((x) => x.id === t.dupOf));
+}
+{
+  const base = lkTxnMoreFlags;
+  lkTxnMoreFlags = function (t) {
+    let h = base.apply(this, arguments);
+    if ("proposed" === t.dupState && t.dupOf) {
+      const tw = (DB.txns || []).find((x) => x.id === t.dupOf);
+      tw && (h += `<span class="sub warn-t lk-flag">Charged twice? the same as ${esc(fmt(tw.date))} <button type="button" class="btn sm" data-lkdup="${esc(t.id)}">${bfBacked(t) && !truthDemo(t) ? "Dispute…" : "Void…"}</button></span>`);
+    }
+    "disputed" === t.dupState && (h += `<span class="sub lk-flag">Disputed with the issuer: ${esc((t.dispute || {}).why || "a duplicate")}</span>`);
+    return h;
+  };
+}
+document.addEventListener(
+  "click",
+  (e) => {
+    const b = e.target.closest && e.target.closest("[data-lkdup]");
+    if (!b) return;
+    e.preventDefault(), e.stopPropagation(), lkDupSheet((DB.txns || []).find((x) => x.id === b.dataset.lkdup));
+  },
+  !0,
+);
+// the drawer's Void… on a proposed duplicate opens the same sheet (a line the bank holds is disputed, not voided)
+{
+  const base = txnDialog;
+  txnDialog = function (id) {
+    const r = base.apply(this, arguments);
+    try {
+      const t = id && (DB.txns || []).find((x) => x.id === id),
+        del = document.getElementById("d-delete");
+      t && del && "proposed" === t.dupState && ((del.textContent = bfBacked(t) && !truthDemo(t) ? "Dispute…" : "Void…"), (del.onclick = () => (closeEditor(), lkDupSheet(t))));
+    } catch (e) {}
+    return r;
+  };
+}
+{
+  const base = nyhRowsAll;
+  nyhRowsAll = function () {
+    const out = base.apply(this, arguments);
+    try {
+      lkDupRows().forEach((t) => {
+        const tw = (DB.txns || []).find((x) => x.id === t.dupOf),
+          key = "lk:dup:" + t.id;
+        lnHandDone(key) ||
+          out.some((x) => x.key === key) ||
+          out.push({
+            key: key,
+            route: "controller",
+            kind: "dup",
+            title: `Charged twice: ${t.desc} ${money2(Math.abs(+t.amt))} on ${fmtL(tw.date)} and ${fmtL(t.date)}`,
+            why: `${truthAcctWords(t)} · same payee and amount ${Math.abs(dayDiff(tw.date, t.date))} day${1 === Math.abs(dayDiff(tw.date, t.date)) ? "" : "s"} apart: ${bfBacked(t) && !truthDemo(t) ? "dispute the second with the issuer" : "void the typed copy"}`,
+            amount: Math.abs(+t.amt),
+            verb: "Confirm",
+            no: "Not a Duplicate",
+            run: () => lkDupSheet(t),
+            skip: () => {
+              (t.dupState = "notdup"), save(), render(), toast(`Kept: ${t.desc} on ${fmtL(t.date)} is a charge of its own`);
+            },
+            open: () => "function" == typeof txnDialog && txnDialog(t.id),
+          });
+      });
+    } catch (e) {
+      console.warn("nyh duplicates", e);
+    }
+    return out;
+  };
+}
+
+// ---- 8. a vendor's credit memo closes the difference held in dispute (1300), with one approval
+// the month's last three days, or a dispute open two weeks: the Owner settles it before the close
+function lkDisputeUrgent() {
+  const td = today();
+  return dayDiff(td, fin2End(td.slice(0, 7))) <= 3 || (DB.bills || []).some((b) => b.short && "open" === b.short.state && dayDiff(b.short.on, td) >= 14);
+}
+// A credit memo naming a bill whose difference is held in dispute (or its vendor's one open dispute, for that
+// amount) is a "dispute-credit" proposal for the Owner, not a return; applying it records the credit (pay3Resolve).
+function lkDisputeFor(c, low, amt) {
+  const D = (DB.bills || []).filter((b) => b.short && "open" === b.short.state);
+  if (!D.length) return null;
+  const named = D.find((b) => b.number && low.includes(String(b.number).toLowerCase()));
+  if (named) return named;
+  const R = c.route || {},
+    byV = D.filter((b) => (R.vendorId && (DB.vendors || []).some((v) => v.id === R.vendorId && v.name === b.vendor)) || (c.from && c.from.name && String(b.vendor).toLowerCase() === String(c.from.name).toLowerCase()));
+  return 1 === byV.length && (!amt || Math.abs(+byV[0].short.held - amt) < 1) ? byV[0] : null;
+}
+{
+  const base = cmRead;
+  cmRead = function (c) {
+    const P = base.apply(this, arguments);
+    try {
+      if (Array.isArray(P) && "out" !== c.direction) {
+        const all = [c.subject, c.text, ...(c.attachments || []).map((a) => a.text || "")].join("\n"),
+          low = all.toLowerCase();
+        if (/credit memo|credit note|credited/.test(low)) {
+          const amt = +((all.match(/\$\s?([\d,]+(?:\.\d{2})?)/) || [])[1] || "").replace(/,/g, "") || 0,
+            b = lkDisputeFor(c, low, amt);
+          if (b) {
+            const memo = (all.match(/\b(?:credit memo|cm)[\s#:-]*([A-Z0-9][A-Z0-9-]{2,})/i) || [])[1] || "",
+              keep = P.filter((x) => "credit" !== x.kind && !("statement" === x.kind && x.billId === b.id) && !("bill" === x.kind && x.amount && Math.abs(+x.amount - amt) < 1));
+            P.length = 0;
+            P.push(...keep, { id: uid("cp"), kind: "dispute-credit", on: !0, billId: b.id, amount: amt || +b.short.held, memo: memo || c.subject || "credit memo", vendorName: b.vendor, projectId: b.projectId || "", summary: `${b.vendor} credits ${money(amt || b.short.held)} against ${b.number}${memo ? ` (credit memo ${memo})` : ""}: the ${money(b.short.held)} held in dispute closes` });
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("dispute credit", e);
+    }
+    return P;
+  };
+}
+{
+  const base = cmApply;
+  cmApply = function (c, p) {
+    if (p && "dispute-credit" === p.kind) {
+      const b = (DB.bills || []).find((x) => x.id === p.billId);
+      if (!b || !b.short || "open" !== b.short.state) return (p.applied = "the dispute is already settled"), save(), p.applied;
+      if (!["owner", "controller"].includes(role())) return toast("The Owner or the controller records a vendor credit"), "";
+      const amt = +p.amount || 0;
+      if (Math.abs(amt - +b.short.held) >= 1) return toast(`The memo credits ${money(amt)}; ${money(b.short.held)} is held in dispute — record it on the bill`), "";
+      const ok = pay3Resolve(b, "credit", p.memo || "credit memo");
+      return ok ? ((p.applied = `${b.number}: ${money(b.short.held)} credited (${p.memo})`), (p.appliedAt = appNowIso()), (p.by = (currentUser() || {}).name || role()), save(), p.applied) : "";
+    }
+    return base.apply(this, arguments);
+  };
+}
+"undefined" != typeof NYH_MAIL && ((NYH_MAIL["dispute-credit"] = () => "owner"), (NYH_VERB["dispute-credit"] = "Approve"));
+// a dispute still open near the month's end, or two weeks old: the Owner settles it (accept the difference with
+// a reason) or keeps waiting for the credit memo
+{
+  const base = nyhRowsAll;
+  nyhRowsAll = function () {
+    const out = base.apply(this, arguments);
+    try {
+      const td = today(),
+        end = fin2End(td.slice(0, 7)),
+        near = dayDiff(td, end) <= 3;
+      (DB.bills || [])
+        .filter((b) => b.short && "open" === b.short.state)
+        .forEach((b) => {
+          const key = "lk:disp:" + b.id;
+          if (lnHandDone(key) || out.some((x) => x.key === key)) return;
+          // the vendor's credit memo is in: the dispute's own row records it (one approval)
+          let memo = null;
+          (DB.comms || []).forEach((c) => (c.proposals || []).forEach((pr) => !memo && "dispute-credit" === pr.kind && pr.billId === b.id && !pr.applied && !1 !== pr.on && (memo = { c: c, pr: pr })));
+          // (one row: the reader's own row for the memo when Needs Your Hand already holds it)
+          if (memo && out.some((x) => "mail" === x.kind && "dispute-credit" === x.pkind)) return;
+          if (memo)
+            return void out.push({
+              key: key,
+              route: "owner",
+              kind: "dispute",
+              pkind: "dispute-credit",
+              title: memo.pr.summary,
+              why: `${(memo.c.from || {}).name || "the vendor"} · ${fmtL(String(memo.c.date || "").slice(0, 10) || today())} · the held ${money(b.short.held)} ${b.short.paid ? "comes off what the vendor owes back (1300)" : "closes"}`,
+              amount: +b.short.held,
+              verb: "Approve",
+              no: "",
+              run: () => nyhApplyMail(memo.c, memo.pr),
+              open: () => ((window.cmFilter = "all"), (view = "comms"), render()),
+            });
+          if (!(near || dayDiff(b.short.on, td) >= 14)) return;
+          out.push({
+            key: key,
+            route: "owner",
+            kind: "dispute",
+            title: `${b.vendor} ${b.number}: ${money2(b.short.held)} still in dispute since ${fmtL(b.short.on)}`,
+            why: `${b.short.paid ? "held as money the vendor owes back (1300)" : "held back from payment"} · ${near ? "the month closes " + fmtL(end) : dayDiff(b.short.on, td) + " days open"} · accept it as cost with a reason, or wait for the credit memo`,
+            amount: +b.short.held,
+            verb: "Accept the Difference",
+            no: "",
+            run: () => pay3Resolve(b, "accept"),
+            open: () => ("function" == typeof flowGo && flowGo.bill ? flowGo.bill(b)() : ((view = "ap"), render())),
+          });
+        });
+    } catch (e) {
+      console.warn("nyh disputes", e);
+    }
+    return out;
+  };
+}
+
+// ---- 6. a statement in mail or Drive: one tap opens Import Statement with its lines, then the reconcile
+const cmStmtText = (c) => [...((c && c.attachments) || []).map((a) => a.text || ""), (c && c.text) || ""].find((x) => /\d{2}\/\d{2}\s+\S.*\$\s?[\d,]+\.\d{2}/.test(x)) || [...((c && c.attachments) || []).map((a) => a.text || "")].join("\n") || (c && c.text) || "";
+// The statement's own words: its lines (MM/DD DESCRIPTION $AMOUNT, a card's charges positive), its closing date and balance.
+function lkStmtParse(text, acctId) {
+  const T = String(text || ""),
+    a = (DB.accounts || []).find((x) => x.id === acctId),
+    card = a && "function" == typeof bfIsCard ? bfIsCard(a) : /card|amex/i.test((a && a.name) || ""),
+    cl = T.match(/(?:closing date|statement closing date|closing)[^0-9]{0,12}(\d{2})\/(\d{2})\/(\d{4})/i) || T.match(/(\d{2})\/(\d{2})\/(\d{4})\s*$/m),
+    to = cl ? `${cl[3]}-${cl[1]}-${cl[2]}` : "",
+    yr = cl ? +cl[3] : +today().slice(0, 4),
+    bal = (T.match(/(?:new|closing|ending|statement) balance[^$\n]{0,20}\$\s?([\d,]+(?:\.\d{2})?)/i) || [])[1],
+    lines = [];
+  T.split(/\n/).forEach((ln) => {
+    const m = ln.match(/^\s*(\d{2})\/(\d{2})\s+(.+?)\s+(-?)\$\s?([\d,]+\.\d{2})\s*$/);
+    if (!m) return;
+    const v = +m[5].replace(/,/g, "") * ("-" === m[4] ? -1 : 1);
+    lines.push({ date: `${yr}-${m[1]}-${m[2]}`, desc: m[3].trim(), amt: r2(card ? -v : v) });
+  });
+  const dates = lines.map((l) => l.date).sort();
+  return { lines: lines, from: dates[0] || "", to: to && dates.length && dates[dates.length - 1] > to ? dates[dates.length - 1] : to || dates[dates.length - 1] || "", ending: bal ? +bal.replace(/,/g, "") : null, card: card };
+}
+let lkStmtPending = null;
+function lkStmtImport(acctId, text, name) {
+  const P = lkStmtParse(text, acctId),
+    a = (DB.accounts || []).find((x) => x.id === acctId);
+  if (!a) return "no account for that statement";
+  bfImportDialog(acctId);
+  const csvText = "Date,Description,Amount\n" + P.lines.map((l) => `${l.date},"${l.desc.replace(/"/g, "'")}",${l.amt.toFixed(2)}`).join("\n") + "\n";
+  lkStmtPending = { acctId: acctId, name: name };
+  if (!P.lines.length) {
+    toast(`${name}: the statement's lines could not be read from the file — choose the bank's QFX or CSV for ${a.name}`);
+    return `Import Statement open for ${a.name}`;
+  }
+  Promise.resolve(bfImportRead(`${String(name).replace(/[^\w .-]+/g, "").slice(0, 40) || "statement"}.csv`, csvText)).then(() => {
+    const S0 = bfImportState;
+    if (!S0) return;
+    (S0.from = P.from || S0.from), (S0.to = P.to || S0.to), null != P.ending && (S0.ending = String(P.ending)), S0.draw && S0.draw();
+  });
+  return `${P.lines.length} statement line${1 === P.lines.length ? "" : "s"} open in Import Statement for ${a.name}${null != P.ending ? `, ending balance ${money(P.ending)}` : ""} — then the reconcile`;
+}
+// after a statement from mail is imported, the reconcile follows: a sheet when it ties, the reconcile page when not
+{
+  const base = bfImportRun;
+  bfImportRun = function () {
+    const S0 = bfImportState,
+      pend = lkStmtPending && S0 && S0.acctId === lkStmtPending.acctId ? lkStmtPending : null,
+      r = base.apply(this, arguments);
+    try {
+      if (r && pend) {
+        lkStmtPending = null;
+        const imp = (DB.bankImports || []).filter((i) => i.acctId === pend.acctId).slice(-1)[0];
+        imp &&
+          null != imp.ending &&
+          setTimeout(() => {
+            bfReconOpen(pend.acctId, imp.period[1], imp.ending, imp.id);
+            const C = bfRec ? bfReconCalc(bfRec) : null;
+            C &&
+              mbModal(
+                `Reconcile ${esc(C.a.name)} Through ${fmt(imp.period[1])}`,
+                `<p class="small">Statement ending balance ${money(C.ending)} · cleared in the register ${money(C.cleared)} · ${C.ticked.length} line${1 === C.ticked.length ? "" : "s"} ticked.</p><p class="small ${C.ok ? "" : "bad"}">${C.ok ? "It ties to $0.00." : `It is off by ${money(C.diff)}: the lines the statement holds and the register do not agree yet. The reconcile stays open on Bank with every line to tick or void.`}</p>`,
+                C.ok
+                  ? {
+                      submit: "Finish the Reconcile",
+                      onSubmit: () => {
+                        const f = bfReconFinish();
+                        f && f.ok === !1 && toast(f.why);
+                        render();
+                      },
+                    }
+                  : { submit: "Open the Reconcile", onSubmit: () => render() },
+              );
+          }, 0);
+      }
+    } catch (e) {
+      console.warn("statement reconcile", e);
+    }
+    return r;
+  };
+}
+// a statement in Drive that is the firm's: the Controller's Needs Your Hand, Import (one tap)
+{
+  const base = nyhRowsAll;
+  nyhRowsAll = function () {
+    const out = base.apply(this, arguments);
+    try {
+      (DB.gdrive || [])
+        .filter((f) => f.route && "statement" === f.route.kind && f.route.ours && !f.lkImported)
+        .forEach((f) => {
+          const txt = `${f.name || ""}\n${f.text || ""}`,
+            acct = (DB.accounts || []).find((a) => a.last4 && new RegExp(`(?:^|[^0-9])${a.last4}(?:[^0-9]|$)`).test(txt));
+          if (!acct) return;
+          const key = "lk:stmt:" + f.id;
+          lnHandDone(key) ||
+            out.some((x) => x.key === key) ||
+            out.push({
+              key: key,
+              route: "controller",
+              kind: "statement",
+              title: `Import the ${acct.name} ····${acct.last4} statement: ${f.name}`,
+              why: "in Drive · import it on Bank, then reconcile it",
+              verb: "Apply",
+              no: "",
+              run: () => {
+                (f.lkImported = today()), save();
+                const did = lkStmtImport(acct.id, f.text || "", f.name);
+                toast(did);
+              },
+              open: () => ((view = "bank"), render()),
+            });
+        });
+    } catch (e) {
+      console.warn("nyh statements", e);
+    }
+    return out;
+  };
+}
+
+// ---- 3. Ask: refunds and vendor credits not matched to their charge, or owed to the client and not yet credited
+AG_FIN.unshift({
+  id: "credits",
+  re: /\b(refunds?|vendor credits?|credits?|returns?)\b.*\b(not|never|haven'?t been|unmatched|un-?credited)\b.*\b(matched|credited|client)\b|\bcredits? (owed|due) to (the )?clients?\b/,
+  kind: "money",
+  run(P) {
+    const C = (DB.txns || []).filter((t) => +t.amt > 0 && (t.creditOf || t.creditBillId || /\b(CREDIT|REFUND|RETURN|RTN)\b/i.test(t.desc || "")) && agOnJob(P, t.projectId || "") && !(P.jobs.length && !t.projectId)),
+      unm = C.filter((t) => "confirmed" !== t.creditState && !t.retId && !(t.match && Object.values(t.match).some(Boolean)) && !t.exception),
+      owe = ("function" == typeof blCreditRows ? blCreditRows() : []).filter((x) => agOnJob(P, x.job && x.job.id));
+    return {
+      headline: unm.length || owe.length
+        ? `${unm.length ? `${agN(unm.length, "credit")} not confirmed against the charge it relieves: ${agList(unm.map((t) => `${t.desc} ${money(t.amt)}`))}` : "Every credit is matched to its charge"}; ${owe.length ? `${agN(owe.length, "credit")} owed to the client and not on an invoice yet: ${agList(owe.map((x) => `${x.client ? x.client.name : "the client"} ${money(Math.abs(x.amount))}`))}` : "no credit is owed to a client"}.`
+        : "Every refund and vendor credit is matched, and no credit is owed to a client.",
+      work: unm.map((t) => `${fmtL(t.date)} · ${t.desc} — ${money(t.amt)}${"function" == typeof txnCreditWhy && txnCreditWhy(t) ? " · " + txnCreditWhy(t) : ""}`).concat(owe.map((x) => `Credit ${x.client ? x.client.name : "the client"} ${money(Math.abs(x.amount))} — ${x.why}`)),
+      go: agGo("billing") || agGo("bank"),
+      ran: agRan("bank credits and client credits", agWhereJob(P).concat(["not matched or not credited"]), "", unm.length + owe.length),
+    };
+  },
+});
+
+// ---- a sync that brings new mail, events or files redraws the list the person is looking at (Home, Approvals,
+// Billing, Banking, the Inbox), so a proposal from the watcher reaches the screen without a click; a sheet or
+// drawer being edited is never redrawn under the person
+if ("function" == typeof gsRun) {
+  const base = gsRun;
+  gsRun = async function () {
+    const r = await base.apply(this, arguments);
+    try {
+      const n = r ? (r.mail || []).length + (r.events || []).length + (r.files || []).length : 0;
+      n && ["home", "mapprove", "billing", "bank", "comms"].includes(view) && !document.querySelector("#mbm") && !document.querySelector("#drawer.on") && render();
+    } catch (e) {}
+    return r;
   };
 }

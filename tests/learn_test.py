@@ -229,7 +229,9 @@ async def sec_nyh(p, c):
     await sign_in(pg, 'u_controller')
     mk = await pg.evaluate("""() => { appSetDay('2026-09-09'); DB.time.filter(t => t.status === 'submitted').forEach(t => t.status = 'approved'); const n0 = DB.payroll.length; payrollFromTime(); const R = DB.payroll.slice(n0);
         const r = R[0]; if (r) payrollAction(r, 'approve'); return R.map(x => ({ from: x.from, to: x.to, pay: x.payDate, status: x.status, by: x.createdBy, period: x.period })) }""")
-    c.ok(mk and all(r['from'] == '2026-08-31' and r['to'] in ('2026-09-11', '2026-09-13') for r in mk), f'payrollFromTime builds the pay period it is in (8/31 – 9/11, one run per entity), not 8/4 – 9/4: {mk}')
+    # leaks (month crack: runs approved at $329 and $2,653 against $18,100 and $18,680): one run per pay period
+    # across entities, each entity's share inside it (r.entities)
+    c.ok(mk and len(mk) == 1 and all(r['from'] == '2026-08-31' and r['to'] in ('2026-09-11', '2026-09-13') for r in mk), f'payrollFromTime builds one run for the pay period it is in (8/31 – 9/11, across entities), not 8/4 – 9/4: {mk}')
     c.ok(mk and all(r['status'] == 'submitted' for r in mk), f'the Controller who built it cannot approve it (separation of duties): {mk}')
     await sign_in(pg, 'u_owner')
     q2 = await pg.evaluate("() => PRED.waitingOnMe.rows().filter(x => x.kind === 'payroll').map(x => x.title)")
