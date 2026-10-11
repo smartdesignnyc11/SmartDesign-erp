@@ -90,8 +90,95 @@
     "python3 sim/workshop.py usage",
     "for each uid: python3 sim/workshop.py prompt <uid> -> one expert subagent (strongest)",
     "python3 sim/workshop.py score -> one synthesis subagent (strongest)",
+    "sim/simctl referee; sim/simctl client-docs; python3 sim/docs.py usage",
+    "python3 sim/docs.py prompt creator <uid> for u_alan u_chen u_angel u_billing u_controller; prompt client; prompt brand u_owner; prompt brand u_sarah -> one subagent each",
+    "python3 sim/docs.py score -> one synthesis subagent; python3 sim/docs.py gallery",
     "sim/simctl referee --final",
     "sim/simctl persist",
     "sim/simctl stop"
+  ],
+  "doc_tasks_about": "The Documents Workshop's documents, made as real work (sim/workshop_docs.md). simctl begin puts the person on a 390px phone when phone is true and raises the turn's cap to the task's cap; simctl prompt adds the task.",
+  "doc_tasks": [
+    {
+      "day": 1,
+      "slot": "work1",
+      "uid": "u_alan",
+      "doc": "change order",
+      "phone": true,
+      "cap": 24,
+      "task": "The Kleins asked (Angel passed it on) for a GFI outlet in the pantry wall. You are standing in their kitchen: write the change order on your phone, priced, with the days it adds, and send it to them for approval."
+    },
+    {
+      "day": 1,
+      "slot": "work1",
+      "uid": "u_chen",
+      "doc": "PO",
+      "phone": true,
+      "cap": 24,
+      "task": "You are at 121 State: order the GWB boards (~25) and cement board from the estimate line, on your phone, and send the PO to the vendor."
+    },
+    {
+      "day": 1,
+      "slot": "work1",
+      "uid": "u_angel",
+      "doc": "material request",
+      "phone": true,
+      "cap": 12,
+      "task": "The floor crew needs 4 rolls of blue tape and rosin paper by Monday: request it on your phone."
+    },
+    {
+      "day": 1,
+      "slot": "work2",
+      "uid": "u_controller",
+      "doc": "bill",
+      "phone": false,
+      "cap": 16,
+      "task": "Carlos Millwork's invoice CM-0102 is in your mail: enter it as a bill against its PO, with the job and cost code right."
+    },
+    {
+      "day": 2,
+      "slot": "work1",
+      "uid": "u_alan",
+      "doc": "estimate",
+      "phone": true,
+      "cap": 36,
+      "task": "The Kleins want a price to refinish the parlor floors (not in the contract). At their place: write the estimate on your phone, with the scope, inclusions and exclusions, and send it to them."
+    },
+    {
+      "day": 2,
+      "slot": "work1",
+      "uid": "u_chen",
+      "doc": "RFQ",
+      "phone": false,
+      "cap": 24,
+      "task": "Get three quotes for the 3rd-floor interior doors: an RFQ from the estimate line to three vendors."
+    },
+    {
+      "day": 2,
+      "slot": "work2",
+      "uid": "u_billing",
+      "doc": "invoice",
+      "phone": false,
+      "cap": 18,
+      "task": "Invoice the Kleins for the approved change orders not yet billed, and send it."
+    },
+    {
+      "day": 3,
+      "slot": "work2",
+      "uid": "u_billing",
+      "doc": "pay application",
+      "phone": false,
+      "cap": 24,
+      "task": "Bill 121 State for this period: the progress billing (pay application) from the measured % with retainage; check it against the schedule of values and send it."
+    },
+    {
+      "day": 3,
+      "slot": "work1",
+      "uid": "u_alan",
+      "doc": "change order",
+      "phone": false,
+      "cap": 20,
+      "task": "At your desk: the stair landing guard goes to 42 inches (code, Angel's question). Write that change order, priced, and send it to the Kleins."
+    }
   ]
 }

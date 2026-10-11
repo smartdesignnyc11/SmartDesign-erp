@@ -132,7 +132,9 @@ S.screen = () => {
   document.querySelectorAll('[data-simn]').forEach(e => e.removeAttribute('data-simn'));
   reg = (el, k) => { const n = S.ctl.length + 1; S.ctl.push(el); el.setAttribute('data-simn', String(n));
     const lab = k === 'button' || k === 'link' || k === 'tab' ? ctlLabel(el) : fieldLabel(el);
-    S.sig.push({ k, label: lab.slice(0, 80), tag: el.tagName }); return n; };
+    const filled = k === 'select' ? el.selectedIndex > 0 || (el.selectedIndex === 0 && !/^(—|-|choose|select|pick)/i.test(norm((el.options[0] || {}).text))) :
+      k === 'check' ? !!el.checked : (k === 'input' || k === 'text' || k === 'date') ? !!String(el.value || (el.isContentEditable ? el.innerText : '')).trim() : null;
+    S.sig.push({ k, label: lab.slice(0, 80), tag: el.tagName, filled }); return n; };
   const ov = S.overlays(), out = [];
   const t = document.getElementById('toast');
   const toastOn = t && t.classList.contains('on') && vis(t);
@@ -161,6 +163,8 @@ S.resolve = n => {
   if (same.length === 1) { S.ctl[i] = same[0]; same[0].setAttribute('data-simn', String(n)); return { ok: true, sig: sg, relocated: true }; }
   return { ok: false, why: `control ${n} ("${sg.label}") is no longer on the screen; run screen again`, sig: sg };
 };
+// the form on screen when a person saves: how many fields, how many with a value (typed or defaulted)
+S.formStats = () => { const F = S.sig.filter(x => x.filled !== null && x.filled !== undefined); return { fields: F.length, filled: F.filter(x => x.filled).length }; };
 S.fieldInfo = n => { const el = S.ctl[n - 1]; if (!el) return null; return { kind: kindOf(el), tag: el.tagName, label: S.sig[n - 1].label,
   options: el.tagName === 'SELECT' ? [...el.options].map(o => ({ v: o.value, t: norm(o.text) })) : null }; };
 S.pick = (n, opt) => { const el = S.ctl[n - 1]; if (!el || el.tagName !== 'SELECT') return { ok: false, why: 'not a select' };

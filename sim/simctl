@@ -3,7 +3,9 @@
 
     sim/simctl status
     sim/simctl world <morning|work1|work2|eod> [--no-watchers|--watchers]   the outside world's events for the slot
-    sim/simctl begin <uid> <slot> [--cap N]     open a person's turn (only they may act until `end`)
+    sim/simctl plan sim/day_plan_lean.json       which day plan this run follows (default sim/day_plan.json)
+    sim/simctl begin <uid> <slot> [--cap N] [--phone]   open a person's turn (only they may act until `end`); the
+                                                plan's cap for the slot, raised and put on the phone by a doc task
     sim/simctl end                              close the turn: save, deliver the mail they sent
     sim/simctl prompt <uid>                     print the filled per-turn prompt (sim/turn_prompt.md) for that person
     sim/simctl brief <uid>                      their news and unread mail counts (to decide optional turns)
@@ -12,15 +14,30 @@
     sim/simctl persist                          the PERSIST reload check (end of the run)
     sim/simctl check '<json list of month_runtime checks>'
     sim/simctl party "<name>" '<json patch>'      change an outside party's rules, e.g. '{"reply_p": 1, "delay": [0, 0]}'
+    sim/simctl world-client on|off              the client's portal side (approve, ask, pay) played by world rules (lean plan)
     sim/simctl world-agent on|off               write each scheduled outside reply to world/pending/ for an LLM to voice
     sim/simctl menus                            capture each person's menu and tabs to runs/<run>/menus.json (menu workshop)
+    sim/simctl client-docs                      render every client-facing document created (print, PDF, portal) to runs/<run>/client_docs/
     sim/simctl stop                             save everything and stop the server
 """
 import json, os, sys, urllib.request
 from datetime import date
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SLOT_LABEL = {'morning': 'morning (brief, huddle, plan)', 'work1': 'the work day, first turn', 'work2': 'the work day, second turn',
+def plan():
+    run, d = run_dir()
+    f = os.environ.get('SIM_PLAN') or (open(os.path.join(d, 'plan.txt')).read().strip() if os.path.exists(os.path.join(d, 'plan.txt')) else os.path.join(HERE, 'day_plan.json'))
+    return json.load(open(f if os.path.isabs(f) else os.path.join(os.path.dirname(HERE), f)))
+
+
+def my_tasks(uid, slot):
+    """the Documents Workshop's work that came in for this person, this day and slot (day_plan doc_tasks)"""
+    st = admin('status')
+    day = len(st.get('days_done') or []) + 1
+    return [t for t in plan().get('doc_tasks', []) if t['uid'] == uid and t['day'] == day and t['slot'] == slot]
+
+
+SLOT_LABEL = {'work': 'the work day', 'morning': 'morning (brief, huddle, plan)', 'work1': 'the work day, first turn', 'work2': 'the work day, second turn',
               'eod': 'end of day (log, confirm tomorrow, diary, judgement)'}
 
 
@@ -42,10 +59,15 @@ def prompt(uid):
     b = admin('brief', uid=uid)
     run, d = run_dir()
     tpl = open(os.path.join(HERE, 'turn_prompt.md')).read()
-    cap = os.environ.get('SIM_CAP', '25')
+    cap = str(plan().get('caps', {}).get(b['slot']) or os.environ.get('SIM_CAP', '25'))
     vals = {**{k: str(v) for k, v in b.items()}, 'weekday': date.fromisoformat(b['day']).strftime('%A %B %-d'), 'slot_label': SLOT_LABEL.get(b['slot'], b['slot']),
             'cap': cap, 'root': os.path.dirname(HERE), 'briefing': os.path.join(HERE, 'roles', uid + '.md'), 'diary': os.path.join(d, 'diary', uid + '.md'),
             'device': 'phone' if b['phone'] else 'desktop', 'eod': 'yes' if b['slot'] == 'eod' else 'no'}
+    T = my_tasks(uid, b['slot'])
+    vals['tasks'] = ('Work that came in for you today (do it as part of your turn, on your ' + ('phone' if any(t['phone'] for t in T) else vals['device']) + '):\n'
+                     + '\n'.join('- ' + t['task'] for t in T)) if T else 'No special work came in for this turn; run your day.'
+    if T: vals['cap'] = str(max(int(vals['cap']), max(t.get('cap', 0) for t in T)))
+    if any(t['phone'] for t in T): vals['device'] = 'phone (390px, for this turn)'
     for k, v in vals.items(): tpl = tpl.replace('{' + k + '}', v)
     return tpl
 
@@ -61,8 +83,15 @@ def main(a):
         if '--watchers' in a: kw['watchers'] = True
         r = admin('world', **kw)
     elif c == 'begin':
-        cap = int(a[a.index('--cap') + 1]) if '--cap' in a else int(os.environ.get('SIM_CAP', '25'))
-        r = admin('begin_turn', uid=a[1], slot=a[2] if len(a) > 2 and not a[2].startswith('--') else None, cap=cap)
+        slot = a[2] if len(a) > 2 and not a[2].startswith('--') else admin('status')['slot']
+        cap = int(a[a.index('--cap') + 1]) if '--cap' in a else int(plan().get('caps', {}).get(slot) or os.environ.get('SIM_CAP', '25'))
+        admin('slot', slot=slot)
+        T = my_tasks(a[1], slot)
+        if T: cap = max(cap, max(t.get('cap', 0) for t in T))
+        r = admin('begin_turn', uid=a[1], slot=slot, cap=cap, phone=('--phone' in a) or any(t['phone'] for t in T))
+        if T: r['tasks'] = [t['doc'] + (' on the phone' if t['phone'] else '') for t in T]
+    elif c == 'plan':
+        run, d = run_dir(); open(os.path.join(d, 'plan.txt'), 'w').write(a[1]); r = {'plan': a[1]}
     elif c == 'end': r = admin('end_turn')
     elif c == 'brief': r = admin('brief', uid=a[1])
     elif c == 'referee': r = admin('referee', final='--final' in a)
@@ -71,7 +100,9 @@ def main(a):
     elif c == 'check': r = admin('check', checks=json.loads(a[1]))
     elif c == 'debug-eval': r = admin('debug_eval', uid=a[1], js=a[2])
     elif c == 'menus': r = admin('menu_capture')
+    elif c == 'client-docs': r = admin('client_docs')
     elif c == 'party': r = admin('party', party=a[1], patch=json.loads(a[2]))
+    elif c == 'world-client': r = admin('world_client', on=a[1] == 'on')
     elif c == 'world-agent': r = admin('world_agent', on=a[1] == 'on')
     elif c == 'stop': r = admin('shutdown')
     else: print('unknown command; see --help'); return 2

@@ -5,6 +5,8 @@ Read, in this order, before you act:
 2. `{briefing}` (who you are and your day).
 3. Your diary `{diary}` (the first turn of the day: all of it; later turns: today's section only).
 
+{tasks}
+
 Then work this turn as yourself, only through `sim/act {uid} ...` (run from `{root}`; the run is `{run}`).
 - Start with `sim/act {uid} news` and, if you have mail ({unread} unread), `sim/act {uid} mail`. Then `screen`.
 - You have at most {cap} actions this turn. Do what matters most first, by your playbook and the decision principles.

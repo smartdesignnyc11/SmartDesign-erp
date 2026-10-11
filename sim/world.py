@@ -28,6 +28,7 @@ from datetime import date, timedelta
 HERE = os.path.dirname(os.path.abspath(__file__))
 BOOK = os.path.join(HERE, 'world_book.json')
 SLOT_ORDER = ['morning', 'work1', 'work2', 'eod']
+SI = lambda s: SLOT_ORDER.index('work2' if s == 'work' else s)   # the lean plan's one 'work' slot covers both work slots
 STAFF = {
     'u_owner': ('Alan Mishali', 'alan@smartdesign.nyc'), 'u_alan': ('Alan', 'alan.pm@smartdesign.nyc'),
     'u_chen': ('Chen Biron', 'chen@smartdesign.nyc'), 'u_angel': ('Angel', 'angel@smartdesign.nyc'),
@@ -84,6 +85,7 @@ class World:
         return x.isoformat()
 
     def wd_add(self, d, n):
+        if d in self.days and self.days.index(d) + n < len(self.days): return self.days[max(0, self.days.index(d) + n)]   # the book's calendar (holidays out)
         x = date.fromisoformat(d)
         while n > 0:
             x += timedelta(days=1)
@@ -133,8 +135,8 @@ class World:
             facts = await pg.evaluate(FACTS_JS)
             self.st['heldout'][day] = self.heldout(day, facts)
         todays = [e for e in self.all_events() if e['day'] == day and e['id'] not in self.st['fired']]
-        now = SLOT_ORDER.index(slot)   # anything of today up to this slot that has not gone out yet (a late-booked delivery too)
-        due = [e for e in todays if SLOT_ORDER.index(slot_of(e.get('time', '07:00'))) <= now or e['kind'] == 'bank']
+        now = SI(slot)   # anything of today up to this slot that has not gone out yet (a late-booked delivery too)
+        due = [e for e in todays if SI(slot_of(e.get('time', '07:00'))) <= now or e['kind'] == 'bank']
         bank = {}
         for e in due:
             k, p = e['kind'], e.get('payload') or {}
@@ -172,8 +174,11 @@ class World:
         for acct, L in bank.items():
             out['events'].append([f'statement {acct}', 'bank', await self.mail_statement(pg, acct, day, L)])
         out['replies'] = await self.deliver_replies(pg, day, slot)
+        if slot in ('work1', 'work', 'work2') and self.st.get('client_rules'):
+            out['portal'] = await self.client_portal(day, slot)
+            pg, _ = await sim.fresh('__world')
         out['mail'] = await sim.post_office(pg)
-        if watchers is None: watchers = slot in ('morning', 'work2')
+        if watchers is None: watchers = slot in ('morning', 'work', 'work2')
         if watchers:
             for u in STAFF:
                 try: out['watchers'][u] = await pg.evaluate("async u => { __MS.as(u); const r = await __MS.sync(u); return r ? `${r.mail} mail ${r.events} events ${r.files} files` : 'not connected'; }", u)
@@ -335,7 +340,7 @@ class World:
             self.st['replied'][m['id'] + addr] = f'{k}: never answers'; return
         dmin, dmax = p.get('delay', [0, 2])
         due_day = self.wd_add(self.sim.state['day'], r.randint(dmin, dmax))
-        due_slot = r.choice(SLOT_ORDER[1:]) if due_day != self.sim.state['day'] else SLOT_ORDER[min(3, SLOT_ORDER.index(self.sim.state['slot']) + 1)]
+        due_slot = r.choice(SLOT_ORDER[1:]) if due_day != self.sim.state['day'] else SLOT_ORDER[min(3, SI(self.sim.state['slot']) + 1)]
         subj = m['subject'] if m['subject'].lower().startswith('re:') else 'Re: ' + m['subject']
         po = (re.findall(r'PO-\d{4}-\d+', m['subject'] + ' ' + m['body']) or [''])[0]
         amt = money(m['body'])
@@ -406,9 +411,9 @@ class World:
 
     async def deliver_replies(self, pg, day, slot):
         out, keep = [], []
-        now = (day, SLOT_ORDER.index(slot))
+        now = (day, SI(slot))
         for rp in self.st['pending']:
-            if (rp['day'], SLOT_ORDER.index(rp['slot'])) > now: keep.append(rp); continue
+            if (rp['day'], SI(rp['slot'])) > now: keep.append(rp); continue
             ans = os.path.join(self.sim.dir, 'world', 'answers', rp['id'] + '.txt')
             text = open(ans).read().strip() if os.path.exists(ans) else rp['text']
             p = self.parties[rp['party']]
@@ -440,6 +445,62 @@ class World:
               {'who': 'u_billing', 'what': f"Record the payment {b['desc']} ${b['amt']:,.2f}", 'by': 2, 'see': [b['desc'][:18]],
                'check': {'t': 'txn', 'desc': b['desc'][:18], 'resolved': True}})
         self.st['extra'].append({'id': eid, 'day': on, 'time': '07:40', 'kind': 'bank', 'payload': b, 'expect': ex, 'tags': ['world', 'card' if matched else 'payment']})
+
+    async def client_portal(self, day, slot):
+        """The Kleins, played by rules when no client agent takes turns (the lean plan): they approve or question what
+        the firm sends to the portal after a day or so, and pay invoices by bank transfer. Done on their own phone page,
+        through the portal's buttons. A question is template text, or the world-agent hook's answer if one is written."""
+        sim, out = self.sim, []
+        P = self.st.setdefault('portal', {})
+        pg, _ = await sim.fresh('u_klein')
+        await sim.set_clock()
+        items = await pg.evaluate("""() => { const c = DB.clients.find(x => x.id === userClientOf(DB.users.find(u => u.id === 'u_klein'))); if (!c) return [];
+            const t = d => { try { return docTotal(d).total; } catch (e) { return 0; } }, paid = d => (c.payments || []).filter(p => p.invoiceId === d.id).reduce((a, p) => a + (+p.amount || 0), 0);
+            return [].concat((c.estimates || []).filter(d => d.status === 'sent').map(d => ({ key: 'estimate:' + d.id, kind: 'approve', number: d.number, title: d.title })),
+              (c.changeOrders || []).filter(d => d.status === 'sent').map(d => ({ key: 'co:' + d.id, kind: 'approve', number: d.number, title: d.title })),
+              (c.invoices || []).filter(d => ['sent', 'overdue', 'partial'].includes(d.status)).map(d => ({ key: 'inv:' + d.id, kind: 'pay', number: d.number, title: d.title, due: d.due || '', owed: Math.round((t(d) - paid(d)) * 100) / 100 }))); }""")
+        for it in items:
+            st = P.get(it['key'])
+            r = self.rng('portal', it['key'], (st or {}).get('round', 0))
+            if not st:
+                st = P[it['key']] = {'seen': day, 'round': 0, 'number': it['number'],
+                                     'on': self.wd_add(day, r.choice([0, 1, 1, 2])), 'do': 'approve' if (it['kind'] == 'pay' or r.random() < 0.8) else 'ask'}
+                if it['kind'] == 'pay':
+                    if r.random() < 0.85 and it['owed'] > 0:
+                        when = max(it['due'] or day, self.wd_add(day, 1))
+                        self.st.setdefault('scheduled_bank', []).append({'acct': 'ac1', 'date': when, 'desc': 'ONLINE TRANSFER FROM KLEIN S', 'amt': it['owed'],
+                                                                         'ref': f"AC1-{when.replace('-', '')}-{it['number']}"})
+                        st['did'] = f"will pay ${it['owed']:,.2f} by transfer on {when}"
+                    else: st['did'] = 'not paying yet'
+                    out.append([it['number'], st['did']]); continue
+            if it['kind'] == 'pay' or st.get('done') or st['on'] > day: continue
+            if st['do'] == 'ask':
+                q = f"Before we sign {it['number']} ({it['title']}): how many days does it add, and what exactly is included?"
+                rid = f"Q{it['key'].replace(':', '_')}"
+                if self.st.get('agent'):
+                    d = os.path.join(sim.dir, 'world', 'pending'); os.makedirs(d, exist_ok=True)
+                    json.dump({'id': rid, 'party': 'the Kleins (client)', 'persona': self.parties.get('sarah_klein', {}).get('voice', ''), 'their_message': f"{it['number']} {it['title']} sent for approval",
+                               'template_reply': q, 'answer_file': os.path.join(sim.dir, 'world', 'answers', rid + '.txt')}, open(os.path.join(d, rid + '.json'), 'w'), indent=1)
+                af = os.path.join(sim.dir, 'world', 'answers', rid + '.txt')
+                if os.path.exists(af): q = open(af).read().strip()
+                ok = await pg.evaluate("""async (q) => { view = 'chat'; render(); await new Promise(r => setTimeout(r, 200)); const ta = document.querySelector('#chat-text'), b = document.querySelector('#chat-send');
+                    if (!ta || !b) return false; ta.value = q; ta.dispatchEvent(new Event('input', { bubbles: true })); b.click(); return true; }""", q)
+                st.update({'round': st['round'] + 1, 'do': 'approve', 'on': self.wd_add(day, 1), 'asked': q if ok else 'no chat box on the portal'})
+                out.append([it['number'], 'asked in the portal chat' if ok else 'could not ask: no chat box'])
+                continue
+            await pg.evaluate("() => { view = 'client'; render(); }"); await sim.settle(pg, 300)
+            btn = pg.locator(f"section.view.on [data-papprove='{it['key']}']")
+            if not await btn.count():
+                st.update({'done': True, 'did': 'no Approve button on the portal'}); out.append([it['number'], st['did']]); continue
+            await btn.first.click(timeout=4000); await sim.settle(pg, 400)
+            if await pg.locator('#pa-name').count() and not await pg.locator('#pa-name').input_value(): await pg.fill('#pa-name', 'Sarah Klein')
+            if await pg.locator('#pa-agree').count() and not await pg.locator('#pa-agree').is_checked(): await pg.locator('#pa-agree').click()
+            if await pg.locator('#mbm #mbm-ok').count(): await pg.locator('#mbm #mbm-ok').click(timeout=4000); await sim.settle(pg, 500)
+            toast = (await pg.evaluate("__SIM.toasts"))[-1:] or ['']
+            st.update({'done': True, 'did': 'approved on the portal: ' + toast[0][:80]}); out.append([it['number'], st['did']])
+        await sim.commit('u_klein')
+        sim.log({'uid': '__world', 'cmd': 'client_portal', 'result': out})
+        return out
 
     def on_call(self, uid, party, said):
         p = self.parties.get(party, {'name': party, 'kind': 'other'})

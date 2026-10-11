@@ -3,7 +3,7 @@
 The harness is in `sim/` (README.md). The main session is the conductor: it runs the world, gives each person
 their turn as a subagent, then lets the referee score and the day advance. Turns are strictly one at a time
 (the server refuses anyone acting out of turn), so subagents run sequentially, never in parallel.
-The same plan, machine-readable, is `sim/day_plan.json`.
+The same plan, machine-readable, is `sim/day_plan.json`; the lean pilot Alan chose is `sim/day_plan_lean.json` (`sim/simctl plan sim/day_plan_lean.json` once, after starting the run).
 
 ## Before day one
 1. `python3 build.py` (the build the month runs on; note its commit in the run notes).
@@ -53,13 +53,37 @@ Every five days: `sim/simctl referee` and read `ledger.md` (the strongest model)
 - **End of day:** the field closes out first (log, clock out), then the office, the owner, the client.
 
 ## Token rules
-- `screen` pages are capped at about 3,600 characters (about 900-1,100 tokens); `find "text"` returns a few lines.
-  Agents are told to prefer `find` and never to re-read a screen a tap just returned.
-- Caps per turn (12 / 20 / 20 / 12 actions) stop wandering; the server refuses action 13 of a 12-action turn.
-- A turn prompt plus `_common.md`, the role briefing and today's diary is about 3,000-4,000 tokens to read.
-- Estimate per routine turn: 4-8k tokens of input context growth (about 8-15 tool calls, half of them screens at
-  roughly 1k tokens and half short results) plus the reading above: about 10-20k tokens per turn, 30-40 turns a
-  day. See README.md for the arithmetic.
+- `screen` pages are capped at about 3,600 characters (about 1,000 tokens); `find "text"` returns 100-300 tokens;
+  `type` and `pick` return one line. Agents are told to prefer `find` and never to re-read a screen a tap returned.
+- Caps per turn stop wandering; the server refuses the action after the cap. A Documents Workshop task raises its
+  turn's cap to the task's (CO 24, estimate 36, PO 24, RFQ 24, invoice 18, pay application 24, bill 16, request 12).
+
+## Token estimate
+Terms: **new context** is what a turn adds (its reading plus every tool result plus what it writes); **processed
+input** is what the model reads across all its calls in the turn, mostly cache reads, counting about 10k tokens of
+fixed subagent overhead (system prompt and tools) per call. That overhead is an assumption; it dominates.
+| Turn | Calls | New context | Processed input | Output |
+|---|---|---|---|---|
+| morning, about 6 actions | 10 | 8k | 160k | 1k |
+| routine work, about 11 actions | 15 | 13k | 270k | 3k |
+| document task, about 28 actions | 32 | 22k | 740k | 4k |
+| small document task (request, bill), about 12 actions | 16 | 14k | 350k | 3k |
+| end of day, about 5 actions and the diary and judgement | 9 | 9k | 150k | 2.5k |
+
+**Lean pilot (`day_plan_lean.json`): 3 days, 7 daily roles, 3 slots, crew and driver on day 3, client by rules.**
+- A day: 7 morning turns (1.1M), about 6 work turns of which 2 are big document tasks, 1 small, 3 routine
+  (1.5M + 0.35M + 0.8M), 7 end-of-day turns (1.05M): about **4.8M processed, 0.22M new context, 45k output**.
+- Day 3 adds the crew's and the driver's one work turn and short end of day (about 0.6M).
+- Workshops at the end of day 3: Navigation and Pages for 9 staff (about 25k processed each: 0.23M), Documents
+  for 5 creators, the one client read (it reads 4-8 rendered documents, text plus one look at each image, about
+  40k), 2 brand reads and 2 syntheses (about 0.35M together).
+- **Total: about 15M processed input (about 90% cache reads), 0.7M new context, 0.17M output.** Wall time: about
+  180 toolkit actions a day at 2-8 s, plus page reloads (6-10 s per turn) and the world steps: about 20-25 minutes of
+  harness time a day, plus the agents' own thinking.
+
+**The full plan (`day_plan.json`), for comparison, in the same terms:** 10 roles, 4 slots, about 35 turns a day:
+about 8-9M processed a day, so about 26M for 3 days and about 170M for 20 days. (My first estimate, 3-5M a day,
+left out the fixed per-call overhead.)
 
 ## A Workflow-ready description
 Inputs: run name, number of days, `day_plan.json`. State lives in the server (`sim/simctl status`), so the

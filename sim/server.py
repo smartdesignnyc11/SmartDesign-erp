@@ -46,7 +46,7 @@ PEOPLE = {
 }
 STAFF_MAIL = ['u_owner', 'u_alan', 'u_chen', 'u_angel', 'u_sarah', 'u_billing', 'u_controller', 'u_alberto', 'u_alex']
 DEFAULT_PROJECT = {'u_angel': 'p121', 'u_alberto': 'p121', 'u_alex': 'p121'}   # the seed's field crew is on 121 State
-SLOTS = {'morning': '07:30', 'work1': '10:00', 'work2': '13:30', 'eod': '16:30'}
+SLOTS = {'morning': '07:30', 'work1': '10:00', 'work': '10:30', 'work2': '13:30', 'eod': '16:30'}   # 'work' is the lean plan's one work slot
 VERBS = {'screen', 'find', 'tap', 'type', 'pick', 'upload', 'photo', 'back', 'scroll', 'go', 'ask', 'mail', 'call', 'news', 'help', 'key'}
 PAGE_CHARS = 3600
 MUTATING = {'tap', 'type', 'pick', 'upload', 'photo', 'back', 'go', 'ask', 'key'}
@@ -115,7 +115,7 @@ class Sim:
         self.run, self.port, self.debug = run, port, debug
         self.dir = os.path.join(RUNS, run)
         self.lock = asyncio.Lock()
-        self.pages, self.page_ver, self.errs = {}, {}, {}
+        self.pages, self.page_ver, self.errs, self.cdp, self.device = {}, {}, {}, {}, {}
         self.last_active = None
         self.screens = {}   # uid -> {'pages': [...], 'i': n, 'header': str}
         self.mail_map = {}  # uid -> [message ids] from the last `mail` list
@@ -187,14 +187,34 @@ class Sim:
         self.errs[uid] = []
         pg.on('pageerror', lambda e, u=uid: self.errs[u].append(str(e)[:240]))
         pg.on('dialog', lambda d, u=uid: asyncio.ensure_future(self._dialog(u, d)))
-        if uid in PEOPLE and PEOPLE[uid][1]:
-            cdp = await self.ctx.new_cdp_session(pg)
-            await cdp.send('Emulation.setDeviceMetricsOverride', {'width': PHONE['width'], 'height': PHONE['height'], 'deviceScaleFactor': 2, 'mobile': True})
-            await cdp.send('Emulation.setTouchEmulationEnabled', {'enabled': True, 'maxTouchPoints': 5})
+        self.cdp[uid] = await self.ctx.new_cdp_session(pg)
+        self.device[uid] = None
+        await self.set_device(uid, uid in PEOPLE and PEOPLE[uid][1])
         self.pages[uid] = pg
         self.page_ver[uid] = -1
         await self.boot(uid)
         return pg
+
+    async def set_device(self, uid, phone, force=False):
+        """A 390px phone with touch (field roles and the client always; an office person when a task says so)."""
+        if self.device.get(uid) == bool(phone) and not force: return
+        c = self.cdp[uid]
+        if phone:
+            await c.send('Emulation.setDeviceMetricsOverride', {'width': PHONE['width'], 'height': PHONE['height'], 'deviceScaleFactor': 2, 'mobile': True})
+            await c.send('Emulation.setTouchEmulationEnabled', {'enabled': True, 'maxTouchPoints': 5})
+        else:
+            await c.send('Emulation.clearDeviceMetricsOverride')
+            await c.send('Emulation.setTouchEmulationEnabled', {'enabled': False})
+        self.device[uid] = bool(phone)
+
+    async def shot(self, uid, path):
+        """A screenshot that keeps a phone a phone: Playwright's own screenshot puts the context's desktop viewport back,
+        so phone pages are captured through CDP as they are laid out."""
+        if self.device.get(uid):
+            r = await self.cdp[uid].send('Page.captureScreenshot', {'format': 'png'})
+            open(path, 'wb').write(base64.b64decode(r['data']))
+        else:
+            await self.pages[uid].screenshot(path=path, full_page=False)
 
     async def _dialog(self, uid, d):
         self.errs.setdefault('dialogs', []).append(f'{uid}: {d.type}: {d.message[:160]}')
@@ -234,6 +254,7 @@ class Sim:
             await self.boot(uid); reloaded = True
             if uid in self.state['fia_pending']: await self.fia_after_reload(uid)
         self.last_active = uid
+        if self.device.get(uid) and await pg.evaluate("innerWidth") != PHONE['width']: await self.set_device(uid, True, force=True)
         await pg.evaluate("window.__simActive = true")
         return pg, reloaded
 
@@ -315,6 +336,7 @@ class Sim:
             n_toast = await pg.evaluate("__SIM.toasts.length"); n_err = len(self.errs[uid])
             before = await pg.evaluate("__SIM.keys()") if cmd in MUTATING else None
             title0 = await pg.evaluate("__SIM.title()")
+            form = await pg.evaluate("__SIM.formStats()") if cmd == 'tap' else None
             try:
                 if reloaded and cmd in ('tap', 'type', 'pick', 'upload', 'photo'):
                     out = await self.render_screen(uid, pg)
@@ -346,6 +368,7 @@ class Sim:
             self.log({'uid': uid, 'cmd': cmd, 'args': args, 'screen': title0, 'after': await pg.evaluate("__SIM.title()"), 'control': out.get('control'),
                       'kind': out.get('kind'), 'ok': out.get('ok'), 'result': (out.get('text') or '')[:300] if cmd not in ('screen', 'scroll') else out.get('summary', ''),
                       'toasts': toasts, 'errors': errs, 'creates': creates, 'changed': changed, 'reloaded': reloaded, 'clock': self.clock_str(), 'ms': int((time.time() - t_act) * 1000),
+                      'device': 'phone' if self.device.get(uid) else 'desktop', 'form': form if creates else None,
                       'turn_used': (t or {}).get('used')})
             for c in creates:
                 if not c['on_screen']: out['text'] += f"\n(find it again: you just created \"{c['name'][:60]}\"; it is {'only in the toast' if c['in_toast'] else 'not on your screen'})"
@@ -358,7 +381,7 @@ class Sim:
         S = await pg.evaluate("__SIM.screen()")
         role, phone, name = PEOPLE[uid]
         wd = datetime.fromisoformat(self.state['day']).strftime('%a %b %-d')
-        head = f"{wd} {self.clock_str()} · {name} ({role}{', phone' if phone else ''}) · {S['title']}"
+        head = f"{wd} {self.clock_str()} · {name} ({role}{', phone' if self.device.get(uid) else ''}) · {S['title']}"
         menu = 'Menu: ' + ' · '.join(S['menu']) if S['menu'] else ''
         pages, cur = [], []
         size = 0
@@ -374,7 +397,7 @@ class Sim:
         txt = self.page_text(uid, full)
         if shot:
             p = os.path.join(self.dir, 'shots', f"{self.state['day']}_{self.clock_str().replace(':', '')}_{uid}_{self.state['actions']}.png")
-            await pg.screenshot(path=p, full_page=False)
+            await self.shot(uid, p)
             txt += f'\nscreenshot: {p}'
         return {'ok': True, 'text': txt, 'summary': f"{S['title']} · {S['n']} controls · {len(pages)} pages"}
 
@@ -733,11 +756,14 @@ class Sim:
                 uid = a['uid']
                 if uid not in PEOPLE: return {'error': 'unknown person'}
                 if a.get('slot'): self.state['slot'] = a['slot']; self.state['slot_n'] = 0
-                self.state['turn'] = {'uid': uid, 'cap': int(a.get('cap') or 25), 'used': 0, 'slot': self.state['slot'], 'started': now_iso()}
+                phone = bool(a.get('phone')) or PEOPLE[uid][1]
+                self.state['turn'] = {'uid': uid, 'cap': int(a.get('cap') or 25), 'used': 0, 'slot': self.state['slot'], 'started': now_iso(), 'phone': phone}
+                await self.page(uid); await self.set_device(uid, phone)
                 self.save_state(); return {'turn': self.state['turn'], 'clock': self.clock_str()}
             if cmd == 'end_turn':
                 t = self.state['turn']
-                if t and t['uid'] in self.pages: await self.commit(t['uid'])
+                if t and t['uid'] in self.pages:
+                    await self.commit(t['uid']); await self.set_device(t['uid'], PEOPLE[t['uid']][1])
                 pg, _ = await self.fresh('__world')
                 await self.set_clock()
                 notes = await self.post_office(pg)
@@ -778,11 +804,15 @@ class Sim:
                     out[uid] = {'role': PEOPLE[uid][0], 'phone': PEOPLE[uid][1], 'menu': tree}
                 json.dump(out, open(os.path.join(self.dir, 'menus.json'), 'w'), indent=1)
                 return {'menus': os.path.join(self.dir, 'menus.json'), 'people': len(out)}
+            if cmd == 'client_docs':
+                return await self.client_docs()
             if cmd == 'party':   # adjust an outside party's rules (the selftest makes its supplier answer at once)
                 k = self.world.resolve_party(a['party'])
                 if not k: return {'error': 'no such party'}
                 self.world.parties[k].update(a.get('patch') or {}); self.state['world'].setdefault('party_patch', {})[k] = self.world.parties[k]
                 self.save_state(); return {'party': k, 'rules': self.world.parties[k]}
+            if cmd == 'world_client':   # the client's side played by world rules on the portal (no client agent turns)
+                self.state['world']['client_rules'] = bool(a.get('on')); self.save_state(); return {'client_rules': self.state['world']['client_rules']}
             if cmd == 'world_agent':
                 self.state['world']['agent'] = bool(a.get('on')); self.save_state(); return {'world_agent': self.state['world']['agent']}
             if cmd == 'shutdown':
@@ -809,6 +839,56 @@ class Sim:
         self.log({'uid': '__world', 'cmd': 'advance', 'result': r})
         self.save_state()
         return {'scored': sc.get('line'), 'day': nxt, 'hooks': r}
+
+    async def client_docs(self):
+        """Every client-facing document a person created, as the client receives it: the print / PDF the firm sends,
+        and the portal on the client's phone. Screenshots, PDFs and text go to runs/<run>/client_docs/."""
+        cd = os.path.join(self.dir, 'client_docs'); os.makedirs(cd, exist_ok=True)
+        keys = []
+        for l in open(os.path.join(self.dir, 'actions.jsonl')):
+            a = json.loads(l)
+            for c in a.get('creates') or []:
+                if c['key'].split(':')[0] in ('c.estimates', 'c.changeOrders', 'c.invoices') and c['key'] not in keys: keys.append(c['key'])
+        pg, _ = await self.fresh('__world')
+        docs = await pg.evaluate("""(keys) => keys.map(k => { const [coll, id] = [k.split(':')[0].slice(2), k.split(':').slice(1).join(':')];
+            for (const c of DB.clients) { const d = (c[coll] || []).find(x => x.id === id); if (!d) continue; let t = 0; try { t = docTotal(d).total; } catch (e) {}
+              let h = ''; try { h = docPrintHtml(c, d); } catch (e) { h = ''; }
+              return { key: k, client: c.name, clientId: c.id, number: d.number || d.id, title: d.title || '', status: d.status || '', total: t,
+                type: d.type === 'co' ? 'change order' : d.mode === 'sov' ? 'pay application' : d.type, html: h }; } return null; }).filter(Boolean)""", keys)
+        klein = await pg.evaluate("() => { try { return userClientOf(DB.users.find(u => u.id === 'u_klein')); } catch (e) { return ''; } }")
+        view = await self.ctx.new_page()
+        out = []
+        for d in docs:
+            base = os.path.join(cd, re.sub(r'[^\w.-]', '_', d['number']))
+            rec = {k: v for k, v in d.items() if k != 'html'}
+            if d['html']:
+                await view.set_content(d['html'], wait_until='load')
+                await view.screenshot(path=base + '_print.png', full_page=True)
+                try: await view.pdf(path=base + '.pdf', format='Letter', print_background=True); rec['pdf'] = base + '.pdf'
+                except Exception: pass
+                open(base + '.txt', 'w').write(await view.evaluate("document.body.innerText"))
+                rec.update({'print_png': base + '_print.png', 'txt': base + '.txt'})
+            if d['clientId'] == klein and d['status'] not in ('draft', ''):
+                cp, _ = await self.fresh('u_klein')
+                await cp.evaluate("() => { try { view = 'client'; render(); } catch (e) {} }")
+                await self.settle(cp, 400)
+                hit = await cp.evaluate("""(n) => { const el = [...document.querySelectorAll('section.view.on *')].filter(e => e.children.length < 4 && (e.innerText || '').includes(n)).pop();
+                    if (!el) return false; el.scrollIntoView({ block: 'center' });
+                    let row = el; while (row && row.parentElement && !row.querySelector('button')) row = row.parentElement;
+                    const v = row && [...row.querySelectorAll('button, a')].find(b => /^(View|Open|Review)$/i.test((b.innerText || '').trim()));
+                    if (v) v.setAttribute('data-simdoc', '1'); return true; }""", d['number'])
+                if hit:
+                    await self.shot('u_klein', base + '_portal_row.png'); rec['portal_row_png'] = base + '_portal_row.png'
+                    if await cp.locator('[data-simdoc="1"]').count():
+                        try: await cp.locator('[data-simdoc="1"]').first.click(timeout=3000); await self.settle(cp, 700)
+                        except Exception: pass
+                    await self.shot('u_klein', base + '_portal.png'); rec['portal_png'] = base + '_portal.png'
+                    await cp.evaluate("() => { document.querySelectorAll('[data-simdoc]').forEach(e => e.removeAttribute('data-simdoc')); try { __SIM.closeTop(); } catch (e) {} }")
+                await self.commit('u_klein')
+            out.append(rec)
+        await view.close()
+        json.dump(out, open(os.path.join(cd, 'docs.json'), 'w'), indent=1)
+        return {'docs': len(out), 'dir': cd, 'portal': sum(1 for x in out if x.get('portal_png'))}
 
     async def turn_brief(self, uid):
         role, phone, name = PEOPLE[uid]

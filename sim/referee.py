@@ -117,9 +117,13 @@ class Referee:
         places = self.places(A)
         tie = await pg.evaluate(TIE_JS, W.st['bank'] + [b for b in W.st.get('scheduled_bank', []) if False])
         standard = self.standard(A)
+        from docs import AUDIT_JS, doc_type
+        dkeys = list(dict.fromkeys(c['key'] for a in A for c in (a.get('creates') or []) if a.get('uid', '').startswith('u_') and doc_type(c['key'])))
+        docs = await pg.evaluate(AUDIT_JS, dkeys) if dkeys else []
         line = (f"AGENT MONTH ({sim.run}, through {day}) caught {on}/{len(scored)} on time · {la} late · {mi} missed · ${money:,.0f} left behind · "
-                f"{dl} schedule days lost · {len(fia['failures'])} find-it-again failures · {places['findings']} places-to-look findings")
-        out = {'line': line, 'day': day, 'events': rows, 'fia': fia, 'places': places, 'tie': tie, 'standard': standard,
+                f"{dl} schedule days lost · {len(fia['failures'])} find-it-again failures · {places['findings']} places-to-look findings · "
+                f"{sum(len(d['findings']) for d in docs)} back-end gaps on {len(docs)} documents")
+        out = {'line': line, 'day': day, 'events': rows, 'fia': fia, 'places': places, 'tie': tie, 'standard': standard, 'docs': docs,
                'actions': {'total': sum(1 for a in A if a.get('uid') in sim.state['people'] or a.get('uid', '').startswith('u_')),
                            'by_person': Counter(a['uid'] for a in A if a.get('uid', '').startswith('u_') and a.get('cmd') not in ('end_turn',))},
                'persist': st.get('persist')}
@@ -224,6 +228,9 @@ class Referee:
                  f"{len(t.get('paymentsNoDeposit') or [])} · bills paid with no debit: {len(t.get('billsPaidNoDebit') or [])}")
         for k in ('paymentsNoDeposit', 'billsPaidNoDebit', 'typed'):
             for x in (t.get(k) or [])[:8]: L.append(f"  - {k}: {x}")
+        L.append(f"\n## Documents: back end of every document a person created ({len(out.get('docs') or [])})\n")
+        for d in out.get('docs') or []:
+            L.append(f"- {d['type']} {d.get('number', '')} ({d.get('status', '')}, {d.get('project', '')}): " + ('; '.join(d['findings']) or 'complete') + (f" · {'; '.join(d.get('notes') or [])}" if d.get('notes') else ''))
         s = out['standard']
         L.append('\n## Outside the Standard (to look at)\n')
         L.append(f"- mail that left the firm with no person's own send: {len(s['sent_by_system'])}")
