@@ -351,6 +351,28 @@ Alan: tracking numbers, invoices, receipts, delivery dates and vendor promises a
 
 Phase one runs in the demo and on the Demo Workspace with invented vendor mail, photos and tracking. Live mail watching, carrier tracking, document reading and autonomous sending arrive with the platform (§5.5–5.6).
 
+### 1.10 What we were not thinking about (review of Alan's asks, 2026-10-11)
+These are proposed. The ones marked **Alan** need his call. The rest follow from his Standard and get built.
+1. **Subcontractors, not just materials.** Purchasing so far has been about materials. Subs are the bigger money, and they need:
+   - bid leveling by scope (inclusions and exclusions), not just price;
+   - COI and licence before mobilisation;
+   - sub pay applications with retainage payable;
+   - **lien waivers collected with every payment**;
+   - backcharges.
+2. **History before go-live.** Price watch, vendor on-time records and lead times need 12–24 months of past purchases to work on day one. Import past bills, POs and card lines from QuickBooks and the bank once it is re-authorised. Without that, every check says "not enough history" for months.
+3. **Watch the watchers.** "Nothing slips" has to cover the agents too. Each agent reports a heartbeat. A watcher that stops, a mailbox that disconnects, or a bank feed that goes quiet becomes an alert to the owner the same day. The owner gets an AI activity log and one switch to pause any agent.
+4. **Cost-plus honesty.** On a cost-plus or reimbursable job, an overpayment or an uncredited vendor credit is the client's money. Price watch and credits must flow through to the client's invoice, not just to our margin (the Standard: integrity; the client comes first). The same goes for leftover material (**Alan**: the surplus policy).
+5. **Who can create a vendor.** Fake-vendor fraud is the classic inside job. Creating or changing a vendor, and above all its bank details, needs a second person. Whoever creates a vendor cannot approve its bills or release its payments.
+6. **Which entity buys.** SmartDesign, SD Plumbing, SD Electric and Mercer & Bond each buy. Every RFQ, PO, inventory item and bill needs the right entity, and stock moved between entities is an intercompany transfer. (The chain lane found sub POs defaulting to SD Plumbing.)
+7. **The sending identity.** Autonomous vendor mail goes from a shared purchasing address on the firm's domain, with SPF and DKIM set, so it reaches inboxes and replies come back to the firm, not to one person's Gmail. (**Alan**: which address.)
+8. **The people.** A rollout plan per role:
+   - each person reads and acknowledges the Standard in the app;
+   - a short first-week guide on the phone;
+   - field screens and the assistant in Spanish for crew who prefer it (**Alan**: is Spanish needed?).
+9. **Prove the AI pays for itself.** The scorecard shows money caught (leaks, price watch, credits, stock used instead of bought) against AI spend each month.
+10. **Records and continuity.** Seven-year retention for tax documents, nightly backups, a full export the firm owns, and what the field does when the server or signal is down.
+11. **The accountant.** A read-only accountant role. Their sign-off on the chart of accounts, the overhead method, use tax and the cost-plus treatment before go-live (**Alan**: who the accountant is).
+
 ## §2 Remaining round-4 findings
 
 ### Founder
