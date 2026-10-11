@@ -461,12 +461,21 @@ PAGE_JS = r"""
     }
   };
   C.snapState = () => { C.scanWindow(); for (const st of C.state || []) { const v = st.get(); st.s = ser(v); try { st.v = structuredClone(v); } catch (e) { st.v = undefined; st.s = null; } } };
+  // a value that now holds DOM nodes is the app's bookkeeping of the live page (the one-strip toolbar's list
+  // of what it moved, osMoved): rewinding it while the page stays as it is strands those nodes
+  const holdsNode = (v, d = 0) => {
+    if (!v || typeof v !== 'object' || d > 3) return false;
+    if (v instanceof Node) return true;
+    for (const k in v) { try { if (holdsNode(v[k], d + 1)) return true; } catch (e) {} }
+    return false;
+  };
   C.restoreState = () => {
     let n = 0;
     for (const st of C.state || []) {
       if (st.s == null) continue;
       const cur = st.get();
       if (ser(cur) === st.s) continue;
+      if (holdsNode(cur)) continue;
       const v = structuredClone(st.v); n++;
       if (!st.isConst) { try { st.set(v); } catch (e) {} continue; }
       try {
