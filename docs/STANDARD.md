@@ -243,7 +243,6 @@ Every escalation uses the same format: what happened, impact on cost, schedule a
 - **Three quotes** on any purchase over $2,500 and on every subcontract, documented in the project record. Under $2,500, check at least one alternative against the price book.
 - **Negotiate every quote at least once:** price, delivery, terms or bundling.
 - **PO before every order,** tied to the job and cost code, matching the approved spec.
-- **Start from the line item.** *(Alan, 2026-10-11)* At least 75% of purchases and quote requests begin from one or more line items on an estimate or invoice, so every dollar bought is tied to a dollar sold.
 - **Lead time confirmed in writing** for every order and tracked against the PM's three-week look-ahead. Deliveries reconfirmed 48 hours ahead.
 - **Check every delivery against the PO the same day:** quantity, spec and damage. Claims filed within 48 hours.
 - **Keep a living price book** for repeat items and benchmark it every quarter.

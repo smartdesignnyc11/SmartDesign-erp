@@ -21,6 +21,9 @@ SmartDesigns Projects is a living, breathing, evolving ERP that constantly wants
 - **Why money matters (Alan, 2026-10-11): remember this.** Money wasted is money that cannot go to employees' raises and bonuses, to more staff and resources, or to extra value for the client at no additional cost. Every leak the ERP catches says so in plain words.
 - New AI features must do all of the above.
 
+## How purchasing starts (Alan, 2026-10-11)
+Most purchases and requests for quote begin from one or more line items on an estimate or invoice. This is a fact about how the firm works, not a target to measure. Build for it: the obvious way to buy or ask for quotes is from the line (single or multi-select, on the phone too), the record carries the link to its line from the start, and blank starts stay available but secondary.
+
 ## The north star (Alan, 2026-10-08): weigh every change against this
 A custom, tailored ERP for SmartDesign, built for the future. It uses AI to raise each employee's output and to make sure nothing is forgotten:
 - **Nothing slips.** No forgotten task, follow-up, reminder or promise. Agents in the ERP originate, chase and remind; people approve.
