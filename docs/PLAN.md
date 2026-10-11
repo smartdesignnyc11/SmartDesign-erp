@@ -4,6 +4,12 @@ This is the one list. The chief of staff keeps it current on every ask, lane rep
 
 Last updated 2026-10-11.
 
+## 0. Usage (2026-10-11): the weekly limit is at 96%
+- All agent work is stopped. The lanes commit and stop.
+- Version 11 is finished only through cheap steps: merge integrate2, run the test net as machine runs, run the scripted month, publish.
+- The pilot, the remaining harness findings (as v11.1) and every new lane wait for Thursday's reset (8pm New York).
+- After the reset, the first step is to read this file, `docs/LANES.md` and `docs/DECISIONS.md`.
+
 ## 1. Running now
 | What | Where | Status |
 |---|---|---|
