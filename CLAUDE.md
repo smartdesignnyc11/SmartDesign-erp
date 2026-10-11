@@ -95,7 +95,8 @@ docs/ARCHITECTURE.md has the module map and the line numbers of the key function
    - the day walk;
    - the finance cross-check.
 4. **Work in loops.** Fix a backlog slice, re-run the four lenses' walks (docs/REVIEW_PROTOCOL.md), score honestly, repeat. Use subagents for independent slices and for independent reviewers. Reviewers never review their own work.
-5. **Commit small and often,** with messages that say what was wrong and why the change fixes it.
+5. **Design gate (2026-10-11).** Before building, name the noun, list and queue registry entries the change extends (BACKLOG §1.16). A new store, list, queue or menu item for something that already exists needs a reason in the spec, or it gets folded in. The structure lint enforces this.
+6. **Commit small and often,** with messages that say what was wrong and why the change fixes it.
 
 ## Privacy
 - Real mailbox, meeting-transcript and bank content never goes into seeds, tests, docs or commits. Demo data is invented.

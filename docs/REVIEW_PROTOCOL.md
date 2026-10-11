@@ -114,6 +114,11 @@ A 9 means a seasoned professional in that lens would choose this over the leader
 - **Elsewhere:** 45 Cranberry (mark Design Development done, reload after 0.4 s, check the Studio phase); the 140 Prospect portal; Project Messages (one list, one clock, outbound included); the designer's day.
 - **Field:** % complete into the pay app; the Daily Log from time punches, with delays into move reasons; the photo stream; the submittal register with the PO gate.
 
+## System lens (every reviewer, every round; 2026-10-11)
+- List every place you looked today for what you owe, what waits on your approval, and what is off in the money. More than one place for the same kind of thing is a **severity-2** finding.
+- Name any thing that seems to live in two places: tasks, documents, alerts, follow-ups, approvals.
+- One reviewer per round looks only across modules: duplicated nouns, inconsistent patterns (case sheets, proposals, approvals, document cards), and menus that have drifted from each role's declared map.
+
 ## A month of the company (optional, about 30 minutes)
 `tests/month_sim.py` runs 9/3 to 10/2 (21 working days) on one page with `tests/month_book.json` (293 invented events) and scripted people who act only on their own screens. It writes `review/month/ledger.md` and `ledger.json` (every event on time, late or missed; the day it reached the right screen; money left behind; schedule days lost; the function responsible) and the line `MONTH caught X/Y on time · Z late · W missed · $M left behind · D schedule days lost`. The integrator runs it on the merged build (`tests/run_all.sh month_sim`); a fix lane starts from the function the ledger names.
 
