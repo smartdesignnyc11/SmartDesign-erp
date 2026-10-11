@@ -1,0 +1,177 @@
+{
+  "about": "The lean pilot (Alan, 2026-10-11): three days, seven daily roles, three slots a day. The crew and the driver work day 3 only (one short work turn each). The client's side (approving the estimate and COs on the portal, asking a question, paying) is played by world rules (`sim/simctl world-client on`), with free text through the world-agent hook; the client agent only reads the rendered documents at the end. Both workshops run at the end of day 3.",
+  "days": 3,
+  "setup": [
+    "python3 build.py",
+    "python3 sim/server.py --run <name> &",
+    "sim/simctl world-client on",
+    "optional: sim/simctl world-agent on"
+  ],
+  "caps": {
+    "morning": 8,
+    "work": 14,
+    "eod": 8
+  },
+  "models": {
+    "routine": "mid-tier (e.g. a Sonnet model)",
+    "eod": "strongest (e.g. an Opus model): the expert judgement",
+    "workshops": "strongest"
+  },
+  "slots": [
+    {
+      "slot": "morning",
+      "world": "sim/simctl world morning --watchers",
+      "turns": [
+        "u_angel",
+        "u_owner",
+        "u_alan",
+        "u_chen",
+        "u_sarah",
+        "u_billing",
+        "u_controller"
+      ]
+    },
+    {
+      "slot": "work",
+      "world": "sim/simctl world work --watchers",
+      "turns": [
+        "u_angel",
+        "u_alan",
+        "u_chen",
+        "u_billing",
+        "u_controller"
+      ],
+      "optional": [
+        "u_owner",
+        "u_sarah"
+      ],
+      "optional_if": "brief shows news > 0 or unread > 0, or they have a doc task",
+      "day3_only": [
+        {
+          "uid": "u_alberto",
+          "cap": 8
+        },
+        {
+          "uid": "u_alex",
+          "cap": 8
+        }
+      ]
+    },
+    {
+      "slot": "eod",
+      "world": "sim/simctl world eod --no-watchers",
+      "turns": [
+        "u_angel",
+        "u_owner",
+        "u_alan",
+        "u_chen",
+        "u_sarah",
+        "u_billing",
+        "u_controller"
+      ],
+      "day3_only": [
+        {
+          "uid": "u_alberto",
+          "cap": 8
+        },
+        {
+          "uid": "u_alex",
+          "cap": 8
+        }
+      ],
+      "day3_note": "on day 3 the crew and driver write a short eod diary too (cap 8), so the workshops have their one day"
+    }
+  ],
+  "doc_tasks": [
+    {
+      "day": 1,
+      "slot": "work",
+      "uid": "u_alan",
+      "doc": "change order",
+      "phone": true,
+      "cap": 24,
+      "task": "The Kleins asked (Angel passed it on) for a GFI outlet in the pantry wall. You are standing in their kitchen: write the change order on your phone, priced, with the days it adds, and send it to them for approval."
+    },
+    {
+      "day": 1,
+      "slot": "work",
+      "uid": "u_chen",
+      "doc": "PO",
+      "phone": true,
+      "cap": 24,
+      "task": "You are at 121 State: order the GWB boards (~25) and cement board from the estimate line, on your phone, and send the PO to the vendor."
+    },
+    {
+      "day": 1,
+      "slot": "work",
+      "uid": "u_angel",
+      "doc": "material request",
+      "phone": true,
+      "cap": 12,
+      "task": "The floor crew needs 4 rolls of blue tape and rosin paper by Monday: request it on your phone."
+    },
+    {
+      "day": 1,
+      "slot": "work",
+      "uid": "u_controller",
+      "doc": "bill",
+      "phone": false,
+      "cap": 16,
+      "task": "Carlos Millwork's invoice CM-0102 is in your mail: enter it as a bill against its PO, with the job and cost code right."
+    },
+    {
+      "day": 2,
+      "slot": "work",
+      "uid": "u_alan",
+      "doc": "estimate",
+      "phone": true,
+      "cap": 36,
+      "task": "The Kleins want a price to refinish the parlor floors (not in the contract). At their place: write the estimate on your phone, with the scope, inclusions and exclusions, and send it to them."
+    },
+    {
+      "day": 2,
+      "slot": "work",
+      "uid": "u_chen",
+      "doc": "RFQ",
+      "phone": false,
+      "cap": 24,
+      "task": "Get three quotes for the 3rd-floor interior doors: an RFQ from the estimate line to three vendors."
+    },
+    {
+      "day": 2,
+      "slot": "work",
+      "uid": "u_billing",
+      "doc": "invoice",
+      "phone": false,
+      "cap": 18,
+      "task": "Invoice the Kleins for the approved change orders not yet billed, and send it."
+    },
+    {
+      "day": 3,
+      "slot": "work",
+      "uid": "u_billing",
+      "doc": "pay application",
+      "phone": false,
+      "cap": 24,
+      "task": "Bill 121 State for this period: the progress billing (pay application) from the measured % with retainage; check it against the schedule of values and send it."
+    },
+    {
+      "day": 3,
+      "slot": "work",
+      "uid": "u_alan",
+      "doc": "change order",
+      "phone": false,
+      "cap": 20,
+      "task": "At your desk: the stair landing guard goes to 42 inches (code, Angel's question). Write that change order, priced, and send it to the Kleins."
+    }
+  ],
+  "after_day": "sim/simctl advance",
+  "end_of_day_3": [
+    "Navigation and Pages Workshop (sim/workshop_nav.md) for the nine staff roles (not the client): sim/simctl menus; python3 sim/workshop.py usage; python3 sim/workshop.py prompt <uid> -> one subagent each (strongest); python3 sim/workshop.py score -> one synthesis subagent",
+    "Documents Workshop (sim/workshop_docs.md): sim/simctl referee; sim/simctl client-docs; python3 sim/docs.py usage; python3 sim/docs.py prompt creator <uid> for u_alan u_chen u_angel u_billing u_controller; python3 sim/docs.py prompt client (the one client read: client-view questions only); python3 sim/docs.py prompt brand u_owner and u_sarah -> one subagent each; python3 sim/docs.py score -> one synthesis subagent; python3 sim/docs.py gallery",
+    "sim/simctl referee --final",
+    "sim/simctl persist",
+    "sim/simctl stop"
+  ],
+  "tokens": "see sim/day_plan.md, \"Token estimate\""
+}
