@@ -427,3 +427,13 @@ The cracks, each owned by a lane:
 
 **Flow lane (2026-10-10, tests/flow_test.py):** cracks 6, 8, 9 (deliveries, visits, dated asks, mailed choices) and 10 (sample approval) fixed at the path a person takes: Order on every late or due line (a quote's Apply opens it), mail proposals for field asks, choices, dated asks, deliveries and visits, meeting holds and CO disputes routed on Needs Your Hand, the field answer writes the priced CO, every Chase drafts to the person, escalation on site hours. Month at db8d418: 206/291 on time · 80 missed · $137,278 · 13 schedule days; after: `MONTH caught 239/291 on time · 6 late · 46 missed · $109,613 left behind · 3 schedule days lost`. Still open in this class: the joist CO has no price on the record (E039, and the dispute that follows), the lighting submittal waits on the architect nobody in the month plays (E042/E043), Tomas Restoration is not a vendor on file (E138).
 
+### The month, build by build (2026-10-10 to 10-11)
+| Build | On time | Late | Missed | Left behind | Schedule days lost |
+|---|---|---|---|---|---|
+| Start of round 5 fixes | 153/290 | 3 | 134 | $519,735 | 29 |
+| + ops, clientfix, purchasing | 160/290 | 4 | 126 | $483,362 | 23 |
+| + brain | 172/290 | 5 | 113 | $453,462 | 23 |
+| + learn, assistant, seams (v8) | 206/291 | 5 | 80 | $137,278 | 13 |
+| + leaks and flow (master 265579f) | **257/292** | 6 | **29** | **$1,937** | **3** |
+Still open after leaks and flow: the lighting submittal never released (no architect event in the book), the joist CO unpriced (no price on record), Tomas Restoration not a vendor on file, the countertop slab and radiant mats ordered 2 and 1 days late, payroll runs ($7,920 and $10,932) below what the bank paid ($18,100 and $18,680) with the gap not yet shown as hours paid but not approved, and leak_test's three PARTIALs (overspend at landing, per-figure source ids, nothing-slips edge cases).
+
