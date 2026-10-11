@@ -48,7 +48,7 @@ worst 30 with screenshots in review/crawl/shots/) and the last line
   python3 crawl.py [--user u_owner,u_alan] [--view home,inv] [--phone|--desktop] [--rule NOOP,SILENT]
                    [--max-per-view 60] [--per-family 3] [--json path] [--quiet] [--no-confirm]
 
-A full run takes about three hours on this build, so it is an optional suite in tests/run_all.sh
+A full run takes three to five hours on this build (about 11,000 presses over 646 screens), so it is an optional suite in tests/run_all.sh
 (tests/run_all.sh crawl), like month_sim; filter by --user / --view / --phone / --desktop while fixing.
 """
 import asyncio, json, os, re, sys, time, argparse
@@ -410,7 +410,8 @@ PAGE_JS = r"""
       keys, rawKeys, changes: real.slice(0, 16), noise: changes.length - real.length, overlays: ovInfo, stillOv, heading, tabL, grpL, top, hl, activeTabs,
       sigChanged: sig.full !== C.preSig.full, viewSigChanged: sig.view !== C.preSig.view, scrolled: Math.abs(sig.sy - C.preSig.sy) > 4 || C.scrollAt > C.pressAt, sy: sig.sy,
       toasts: C.toasts.slice(0, 6), opens: R.opens.slice(), prints: R.prints, ext: R.ext.slice(), stacks: R.stacks.slice(0, 3),
-      blank: !ovs.length && (!v || norm(v.innerText).length < 25),
+      // blank: next to no text and nothing to press (a hub whose one tile is the way on is not blank)
+      blank: !ovs.length && (!v || (norm(v.innerText).length < 25 && ![...v.querySelectorAll('button, a[href], input, select, textarea, [role=button]')].some(e => e.getClientRects().length))),
       viewLen: viewText.length,
     };
     if (opts && opts.text) out.viewText = viewText;
