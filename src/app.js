@@ -1247,6 +1247,8 @@ const COST_CODES = [
   codeForTrade = (tr) => (COST_CODES.find((c) => c[2].includes(tr)) || COST_CODES[COST_CODES.length - 1])[0],
   CATEGORIES = [
     { id: "materials", n: "Materials", type: "cogs" },
+    // bought for the shop's shelves: an asset (1250 Inventory) until it is used on a job, outside the P&L
+    { id: "stock", n: "Shop stock (inventory)", type: "non" },
     { id: "subs", n: "Subcontractors", type: "cogs" },
     { id: "labor", n: "Labor (crew payroll)", type: "cogs" },
     { id: "equipment", n: "Equipment & rentals", type: "cogs" },
@@ -25087,7 +25089,7 @@ function ledger(range) {
       rows.push({
         date: b.date,
         kind: "bill",
-        cat: b.cat || "uncat",
+        cat: glIsStockBill(b) ? "stock" : b.cat || "uncat",
         vendor: b.vendor,
         desc: `${b.vendor} · ${b.number}`,
         amt: billCost(b),
@@ -25144,6 +25146,14 @@ function ledger(range) {
           }),
         );
       }),
+    // stock issued from the shop to a job is the job's material cost the day it is used (a return takes it back);
+    // the purchase that filled the shelf was capitalised (1250 Inventory), so the P&L counts the material once
+    stockUseIn("", range).forEach((u) => {
+      const amt = r2(+u.amount || 0);
+      amt &&
+        u.projectId &&
+        rows.push({ date: String(u.at).slice(0, 10), kind: "stock", cat: "materials", vendor: "Shop stock", desc: `${"return" === u.kind ? "Returned to stock" : "Issued from stock"} · ${u.qty} ${u.unit} ${u.invName || ""}`.trim(), amt: amt, projectId: u.projectId, ref: u });
+    }),
     rows
   );
 }
@@ -69600,6 +69610,7 @@ const GL_COA = [
   },
   GL_CAT_ACCT = {
     materials: "5100",
+    stock: "1250",
     subs: "5200",
     labor: "5000",
     equipment: "5300",
@@ -69799,8 +69810,18 @@ function glPaymentLines(c, p) {
     dims = { projectId: inv ? inv.projectId : "", partyType: "client", partyId: c.id };
   return [glL("1050", +p.amount || 0, 0, dims), glL("1100", 0, +p.amount || 0, dims)];
 }
+// A purchase for the shop's stock: coded "Shop stock", or a no-job order whose every line is for shop stock. It is
+// capitalised (Dr 1250 Inventory), and its cost reaches a job and the P&L only when stock is issued to the job.
+function glIsStockBill(b) {
+  if (!b) return !1;
+  if ("stock" === b.cat) return !0;
+  if (b.projectId || b.cat) return !1;
+  const po = b.poId && (DB.pos || []).find((x) => x.id === b.poId);
+  return !!(po && !po.projectId && (po.lines || []).length && po.lines.every((l) => "stock" === l.ohCat));
+}
 function glBillCostAcct(b) {
   if (b.ic) return "5200";
+  if (glIsStockBill(b)) return "1250";
   const cat =
     b.cat ||
     ((DB.vendors || []).find((v) => v.name === b.vendor && isSub(v))
@@ -69894,6 +69915,8 @@ function glTxnLines(t) {
     (other =
       "labor" === cat || "payroll-oh" === cat || "payroll_oh" === cat
         ? "2200"
+        : "stock" === cat && "new" !== t.status && t.status
+          ? "1250"
         : "transfer" === cat || "cc-payment" === cat
           ? "1095"
           : "loan" === cat
@@ -186304,7 +186327,7 @@ if ("function" == typeof paAsk) {
 // Defaults come from the order itself (poLinkDefaults): a material's line, the one job line with the PO line's cost
 // code, or the one line whose words it shares. New PO opens on "Which lines?" (the estimate, CO and invoice lines
 // of the job); Start Blank is the secondary way in.
-const POL_OH = () => CATEGORIES.filter((c) => "oh" === c.type && !/^payroll/.test(c.id));
+const POL_OH = () => CATEGORIES.filter((c) => ("oh" === c.type && !/^payroll/.test(c.id)) || "stock" === c.id);
 function polKind(l) {
   if (!l) return "";
   if (l.billable) return "rebill";
@@ -186927,6 +186950,93 @@ standardRegisterRule({
       k && k !== lastDoc && isMobile() && window.scrollTo(0, 0);
       lastDoc = k;
     } catch (e) {}
+    return r;
+  };
+}
+
+/* ---------------------------------------------------------------------------------------------------------
+   integrate2 (version 11): shop stock is held as inventory until it is used on a job (BACKLOG §1.8 item 12, the
+   open decision; the default until the accountant confirms it).
+     - A purchase for the shop's stock (category "Shop stock", or a no-job order whose lines are all for shop stock)
+       posts Dr 1250 Inventory, not to expense, and sits outside the P&L (glIsStockBill, the ledger, the GL).
+     - The opening count is posted once at carried cost: Dr 1250 Inventory, Cr 3900 Opening balance equity
+       (DB.stock.opening, append-only; the count as it stood before the first recorded issue or return).
+     - An issue or a return only moves cost between the asset and the job (glStockLines), and the company P&L
+       counts the material once, on the day it is used (ledger rows of kind "stock").
+--------------------------------------------------------------------------------------------------------- */
+function stockOpening() {
+  const S0 = stockDB();
+  if (S0.opening) return S0.opening;
+  const use = S0.use || [],
+    first = use.map((u) => String(u.at).slice(0, 10)).sort()[0] || today(),
+    lines = (DB.inventory || [])
+      .filter((i) => "tool" !== i.type && +i.cost > 0)
+      .map((i) => {
+        // back out what was issued (and add back what returned) since, so it is the count before the first move
+        const moved = use.filter((u) => u.invId === i.id).reduce((a, u) => a + ("return" === u.kind ? -1 : 1) * Math.abs(+u.qty || 0), 0),
+          qty = Math.max(0, (+i.qty || 0) + moved);
+        return { invId: i.id, name: i.name, qty: qty, unit: i.unit, cost: +i.cost, amount: r2(qty * +i.cost) };
+      })
+      .filter((l) => l.qty > 0);
+  S0.opening = { at: first, by: "System", lines: lines, value: r2(lines.reduce((a, l) => a + l.amount, 0)), why: "opening count at carried cost: stock is held as inventory until used on a job (confirm with your accountant)" };
+  return S0.opening;
+}
+{
+  const base = finishBoot;
+  finishBoot = function () {
+    const r = base.apply(this, arguments);
+    try {
+      DB.stock && DB.stock.opening ? 0 : (stockOpening(), save());
+    } catch (e) {
+      console.warn("stock opening count", e);
+    }
+    return r;
+  };
+}
+{
+  const base = glDerive;
+  glDerive = function () {
+    const out = base.apply(this, arguments);
+    try {
+      const O = DB.stock && DB.stock.opening;
+      O &&
+        O.value > 0 &&
+        out.push({
+          key: "stkopen",
+          sourceType: "stock",
+          sourceId: "opening",
+          entityId: "ent1",
+          date: O.at,
+          memo: `Opening stock count at carried cost · ${O.lines.length} item${1 === O.lines.length ? "" : "s"}`,
+          lines: [glL("1250", O.value, 0, { cat: "stock" }), glL("3900", 0, O.value, { cat: "stock" })],
+          system: !0,
+        });
+    } catch (e) {
+      console.warn("stock opening ledger", e);
+    }
+    return out;
+  };
+}
+// Settings › Accounting: the policy in plain words, with the figure behind it
+const STOCK_POLICY = "Stock is held as inventory until used on a job (confirm with your accountant)";
+{
+  const base = renderProj;
+  renderProj = function () {
+    const r = base.apply(this, arguments);
+    try {
+      const ps = document.getElementById("po-settings");
+      if (ps && !document.getElementById("acct-settings") && ["owner", "controller"].includes(role())) {
+        const O = stockOpening(),
+          onHand = r2((DB.inventory || []).filter((i) => "tool" !== i.type).reduce((a, i) => a + (+i.qty || 0) * (+i.cost || 0), 0)),
+          div = document.createElement("div");
+        (div.className = "card"),
+          (div.id = "acct-settings"),
+          (div.innerHTML = `<h3>Accounting</h3><p data-stockpolicy>${esc(STOCK_POLICY)}.</p><p class="small muted">A purchase for the shop's stock (coded Shop stock, or a no-job order for shop stock) posts to 1250 Inventory, not to expense. The opening count was posted at carried cost on ${fmtL(O.at)} (${money(O.value)}). Stock issued to a job moves its cost from the asset to the job's materials, and a return moves it back, so the P&L counts the material once, when it is used. On the shelf today at carried cost: ${money(onHand)}.</p>`),
+          ps.after(div);
+      }
+    } catch (e) {
+      console.warn("accounting settings", e);
+    }
     return r;
   };
 }
