@@ -187051,3 +187051,59 @@ const STOCK_POLICY = "Stock is held as inventory until used on a job (confirm wi
     return r;
   };
 }
+// ---- Standard Watch: three rules measured from order tracking's records (they were "not measured yet") -----------
+// Each replaces its unmeasured entry in place, so the Watch keeps one row per line of the Standard.
+const trkSent = (f) => !!f && ("sent" === f.status || (DB.outbox || []).some((o) => o.id === f.outboxId && "sent" === o.status));
+// The delivery date an order is held to: the open "deliver" promise on it, else the date the order carries.
+const trkDeliverOn = (po) => ((trkPromises().filter((p) => p.poId === po.id && "deliver" === p.kind && "open" === p.status).sort((a, b) => (a.due < b.due ? -1 : 1))[0] || {}).due) || po.expected || "";
+const trkHoursSince = (at) => (new Date(appNowIso()) - new Date(String(at).length <= 10 ? at + "T09:00:00" : at)) / 36e5;
+function stdReplaceRule(R) {
+  const i = STANDARD_RULES.findIndex((x) => x.id === R.id);
+  i >= 0 ? (STANDARD_RULES[i] = R) : STANDARD_RULES.push(R);
+}
+stdReplaceRule({
+  id: "reconfirm48", owner: "coord", p: "schedule", c: ["pb", "procurement", "standards", /Lead time confirmed/i], surface: "watch",
+  partial: "Measured from the follow-ups log: an open order due on site in the next two days with no reconfirmation sent to the vendor (sent by the assistant when order follow-ups are delegated, or a draft a person approved and sent).",
+  rows: () => {
+    const td = today(),
+      lim = iso(addDays(td, 2));
+    return (DB.pos || [])
+      .filter((po) => ["issued", "partial", "approved"].includes(po.status))
+      .map((po) => ({ po: po, d: trkDeliverOn(po) }))
+      .filter((x) => x.d && x.d >= td && x.d <= lim && !(x.po.followups || []).some((f) => "reconfirm" === f.type && trkSent(f)))
+      .map(({ po, d }) => ({ key: "rc48:" + po.id, what: `${po.number} · ${po.vendor}: due ${fmtL(d)}, not reconfirmed`, sub: `${trkJob(po.projectId) || "no job"} · ${(po.followups || []).some((f) => "reconfirm" === f.type) ? "a reconfirmation waits as a draft" : "no reconfirmation drafted"}`, due: d, go: () => flowGo.po(po)() }));
+  },
+});
+stdReplaceRule({
+  id: "deliveryCheck", owner: "coord", p: "quality", c: ["pb", "procurement", "standards", /Check every delivery/i], surface: "watch",
+  partial: "Measured from receiving and the packing slips: a delivery whose slip was read against the PO after the day it was received, and a short, wrong or damaged line on a slip still open 48 hours later with no claim. A delivery with no slip at all is counted once, on Delivered, No Packing Slip.",
+  rows: () => {
+    const from = iso(addDays(today(), -30)),
+      D = trkDocs().filter((d) => trkLive(d) && "slip" === d.kind && d.links.poId),
+      late = (DB.pos || []).flatMap((po) =>
+        (po.receipts || [])
+          .filter((r) => r.date && r.date >= from)
+          .map((r) => ({ po: po, r: r, slips: D.filter((d) => d.links.poId === po.id) }))
+          .filter((x) => x.slips.length && !x.slips.some((d) => String(d.at).slice(0, 10) <= x.r.date))
+          .map(({ po, r, slips }) => ({ key: `dc:${po.id}:${r.date}`, what: `${po.number} · ${po.vendor}: received ${fmtL(r.date)}, checked ${fmtL(String(slips[0].at).slice(0, 10))}`, sub: "the packing slip was read against the PO after the day it came", go: () => flowGo.po(po)() })),
+      ),
+      claims = D.filter((d) => ((d.check || {}).cases || []).some(trkCaseOpen) && trkHoursSince(d.at) > 48).map((d) => {
+        const po = trkPO(d.links.poId) || {};
+        return { key: "claim:" + d.id, what: `${po.number || "An order"} · ${d.fields.vendor || po.vendor || ""}: ${((d.check || {}).cases || []).filter(trkCaseOpen).map((c) => String(c.label || "").replace(/,.*$/, "")).join(", ")}`, sub: `on the slip filed ${fmtL(String(d.at).slice(0, 10))}, no claim in 48 hours`, go: () => trkOpenDoc(d.id) };
+      });
+    return late.concat(claims);
+  },
+});
+stdReplaceRule({
+  id: "verbalWritten", owner: "coord", p: "client", c: ["std", "communication", /Verbal becomes written/i], surface: "watch",
+  partial: "Measured on vendor promises taken by phone (Log a Promise): one still not confirmed in writing 24 hours later (no message to or from the vendor on that order since). Agreements with clients are not recorded as such yet.",
+  rows: () =>
+    trkPromises()
+      .filter((p) => p.source && "call" === p.source.kind && trkHoursSince(p.at) > 24)
+      .filter((p) => {
+        const po = p.poId && trkPO(p.poId),
+          wrote = (po && (po.followups || []).some((f) => trkSent(f) && f.at > p.at)) || trkDocs().some((d) => d.source && "mail" === d.source.type && trkSameVendor(d.fields.vendor || d.source.from, p.vendor) && d.at > p.at);
+        return !wrote;
+      })
+      .map((p) => ({ key: "vw:" + p.id, what: `${p.vendor}: ${p.what}`, sub: `by phone ${fmtL(String(p.at).slice(0, 10))}${p.who ? ` (${p.who})` : ""}, not confirmed in writing`, go: () => trkOpenPanel("promises") })),
+});
