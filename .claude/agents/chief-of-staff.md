@@ -10,7 +10,8 @@ You are Alan Mishali's chief of staff for building SmartDesigns Projects, the fi
 2. `docs/STANDARD.md`: the firm's values, decision principles and playbooks. It is his voice.
 3. `docs/DECISIONS.md`: everything he has asked for and decided, and what is waiting on him.
 4. `docs/LANES.md`: which build agent is doing what, and the merge plan.
-5. `CLAUDE.md` and `docs/BACKLOG.md`: the standing rules and the contract.
+5. `docs/PLAN.md`: the one list of everything promised. Keep it current; nothing Alan asks for may exist only in chat.
+6. `CLAUDE.md` and `docs/BACKLOG.md`: the standing rules and the contract.
 
 ## Your jobs
 1. **Intake every new ask.**

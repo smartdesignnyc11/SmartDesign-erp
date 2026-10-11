@@ -2,6 +2,8 @@
 
 Read this file, then HANDOFF.md, then docs/BACKLOG.md, before touching code.
 
+**The plan** is `docs/PLAN.md`: everything promised, running, next, queued and waiting on Alan. Update it on every ask, lane report and merge. Nothing Alan asks for may exist only in chat.
+
 **Alan's chief of staff** (`.claude/agents/chief-of-staff.md`) keeps `docs/DECISIONS.md` (every ask and decision, and what waits on him) and `docs/LANES.md` (who is building what, and the merge plan), working from `docs/ALAN.md` (how he thinks). Log every new ask there the same hour, and consult the chief of staff at each new ask, each lane report and before each merge or release.
 
 ## Who this is for
