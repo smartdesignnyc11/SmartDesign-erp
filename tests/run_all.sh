@@ -3,6 +3,10 @@
 # Full logs land in review/run_all/. Usage: tests/run_all.sh [suite ...]   (default: all)
 # Optional, not in the default list (about 30 minutes): month_sim, a month of the company with a crack ledger
 # in review/month/ (tests/run_all.sh month_sim). It exits 1 while anything falls through the cracks.
+# Optional, not in the default list (a full run takes about three hours on this build: every control on every
+# screen of every role, desktop and phone, each pressed from a fresh state, then each flag pressed again from a
+# fresh boot): crawl, the click crawler (tests/run_all.sh crawl). Report in review/crawl/report.md; filter with
+# python3 tests/crawl.py --user/--view/--phone/--desktop/--rule while fixing.
 cd "$(dirname "$0")/.." || exit 1
 python3 build.py || exit 1
 mkdir -p review/run_all
