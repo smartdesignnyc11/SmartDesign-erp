@@ -1256,6 +1256,8 @@ const COST_CODES = [
     { id: "insurance", n: "Insurance", type: "oh" },
     { id: "vehicle", n: "Vehicle & fuel", type: "oh" },
     { id: "office", n: "Office & software", type: "oh" },
+    // the office lease: the biggest overhead line had no account and was coded to Office & software
+    { id: "rent", n: "Rent & occupancy", type: "oh" },
     { id: "marketing", n: "Marketing", type: "oh" },
     { id: "payroll-oh", n: "Payroll (office)", type: "oh" },
     { id: "meals", n: "Meals & travel", type: "oh" },
@@ -68328,6 +68330,7 @@ const GL_COA = [
     ["7100", "Insurance", "expense", "ga", "none", !1],
     ["7200", "Vehicle & fuel", "expense", "ga", "none", !1],
     ["7300", "Office & software", "expense", "ga", "none", !1],
+    ["7350", "Rent & occupancy", "expense", "ga", "none", !1],
     ["7400", "Marketing", "expense", "ga", "none", !1],
     ["7500", "Meals & travel", "expense", "ga", "none", !1],
     ["7600", "Taxes & licenses", "expense", "ga", "none", !1],
@@ -68354,6 +68357,7 @@ const GL_COA = [
     insurance: "7100",
     vehicle: "7200",
     office: "7300",
+    rent: "7350",
     marketing: "7400",
     "payroll-oh": "7000",
     meals: "7500",
@@ -170711,6 +170715,9 @@ function truthSetMatch(t, m0, o) {
     if (!b) return { ok: !1, why: "That bill is gone" };
     const bl = (b.lines || []).find((l) => l.id === m.billLineId) || (1 === (b.lines || []).length ? b.lines[0] : null);
     (m.billLineId = bl ? bl.id : ""), (b.txnId = t.id), (t.billId = b.id), b.paidAt || (b.paidAt = t.date);
+    // the recorded payment this bank line clears says so (Payments: "cleared")
+    const pay = (DB.payments || []).find((x) => x.id === m.paymentId) || (DB.payments || []).find((x) => x.billId === b.id && !x.void && !x.txnId && Math.abs((+x.amount || 0) - truthAbs(t.amt)) < 0.01);
+    pay && ((pay.txnId = t.id), (pay.acctId = t.acct), pay.date || (pay.date = t.date), (m.paymentId = pay.id));
     "approved" === b.status ? (b.status = "paid") : "paid" === b.status ? (b.status = "verified") : ["verified", "void", "rejected"].includes(b.status) || (b.paidBeforeApproval = !0);
     est || (est = (bl && bl.line) || b.line || ""), proj || (proj = b.projectId || ""), cat || (cat = b.cat || ""), code || (code = b.code || ""), m.poId || (m.poId = b.poId || "");
   }
@@ -170725,9 +170732,19 @@ function truthSetMatch(t, m0, o) {
     }
     if (!hit) return { ok: !1, why: "That invoice is gone" };
     const il = (hit.inv.lines || []).find((l) => l.id === m.invoiceLineId) || (1 === (hit.inv.lines || []).length ? hit.inv.lines[0] : null);
-    (m.invoiceLineId = il ? il.id : ""), (t.invoiceId = hit.inv.id), cat || (cat = "income"), proj || (proj = hit.inv.projectId || "");
+    // a deposit matched to an invoice is income, whatever a rule guessed first ("ONLINE TRANSFER" read as a transfer
+    // between our own accounts kept a client's payment out of the P&L)
+    (m.invoiceLineId = il ? il.id : ""), (t.invoiceId = hit.inv.id), (cat = "income"), proj || (proj = hit.inv.projectId || "");
     let p = (hit.c.payments || []).find((x) => x.id === m.paymentId) || (hit.c.payments || []).find((x) => x.invoiceId === hit.inv.id && !x.txnId && Math.abs((+x.amount || 0) - t.amt) < 0.005);
     p ? (p.txnId = t.id) : ((p = { id: uid("py"), date: t.date, amount: r2(+t.amt || 0), method: "Bank", invoiceId: hit.inv.id, note: `matched from ${truthAcctWords(t)} by ${who}`, txnId: t.id }), hit.c.payments.push(p)), (m.paymentId = p.id);
+    {
+      // the invoice reads what the bank says: paid when its payments reach its total; a payment that pays the
+      // whole invoice is matched to every line it pays
+      const tot = docTotal(hit.inv).total,
+        paid = "function" == typeof invoicePaid ? invoicePaid(hit.c, hit.inv) : 0;
+      ["sent", "partial", "overdue"].includes(hit.inv.status) && (hit.inv.status = paid >= tot - 0.005 ? "paid" : "partial");
+      !m.invoiceLineId && Math.abs(truthAbs(t.amt) - tot) < 0.01 && (m.invoiceLines = (hit.inv.lines || []).filter((l) => lineAmount(l, hit.inv)).map((l) => l.id));
+    }
   }
   if (m.payrollId) {
     const r = (DB.payroll || []).find((x) => x.id === m.payrollId);
@@ -170736,7 +170753,7 @@ function truthSetMatch(t, m0, o) {
   }
   est && (t.line = est), proj && (t.projectId = proj), cat && (t.cat = cat), code && (t.code = code);
   !t.code && t.line && "function" == typeof findLine && "function" == typeof codeForLine && (() => { const L = findLine(t.line); L && (t.code = codeForLine(L.line)); })();
-  (t.match = { billId: m.billId || "", billLineId: m.billLineId || "", poId: m.poId || "", poLineId: m.poLineId || "", estimateLineId: t.line || "", invoiceId: m.invoiceId || "", invoiceLineId: m.invoiceLineId || "", payrollId: m.payrollId || "", paymentId: m.paymentId || "" }),
+  (t.match = Object.assign({ billId: m.billId || "", billLineId: m.billLineId || "", poId: m.poId || "", poLineId: m.poLineId || "", estimateLineId: t.line || "", invoiceId: m.invoiceId || "", invoiceLineId: m.invoiceLineId || "", payrollId: m.payrollId || "", paymentId: m.paymentId || "" }, m.invoiceLines && m.invoiceLines.length ? { invoiceLines: m.invoiceLines } : {})),
     t.cat && "uncat" !== t.cat && "reconciled" !== t.status && (t.status = "categorized"),
     t.actor || (t.actor = who),
     (t.matchedBy = who),
@@ -170773,15 +170790,22 @@ function truthCandidates(t) {
       if (["void", "rejected"].includes(b.status) || (b.txnId && b.txnId !== t.id) || b.ic) return;
       if ((t.rejectedBills || []).includes(b.id)) return;
       const vh = truthVendorHit(t, b.vendor),
-        tot = billTotal(b);
+        tot = billTotal(b),
+        // the payment the controller recorded on the bill (Pay… > Record Payment) is what the bank line clears: its
+        // amount (net of retainage, at the approved amount of a disputed bill), its check or reference, its date
+        digits = String(t.desc || "").match(/\d{3,}/g) || [],
+        pay = (DB.payments || []).find((p) => p.billId === b.id && !p.void && (!p.txnId || p.txnId === t.id) && Math.abs((+p.amount || 0) - amt) < 0.01),
+        refHit = !!pay && !!pay.ref && digits.includes(String(pay.ref).replace(/\D/g, ""));
       (b.lines && b.lines.length ? b.lines : [{ id: "", amount: tot, desc: "" }]).forEach((l) => {
         const la = r2(+l.amount || 0),
           whole = Math.abs(tot - amt) < 0.01,
           lineHit = Math.abs(la - amt) < 0.01,
           why = [];
         let s = 0;
-        (whole || lineHit) && ((s += 3), why.push(whole ? "amount equals the bill" : "amount equals the line")), vh && ((s += 2), why.push("vendor agrees")), (near(b.date) || near(b.due) || near(b.paidAt)) && ((s += 1), why.push("within 7 days"));
-        push("bill", `Bill ${b.number || b.id} · ${b.vendor} · ${l.desc || ""} ${money(la)}`.replace(/\s+/g, " "), { billId: b.id, billLineId: l.id || "", estimateLineId: l.line || b.line || "", poId: b.poId || "" }, s, why);
+        (whole || lineHit || pay) && ((s += 3), why.push(pay && !whole && !lineHit ? `amount equals the payment recorded ${fmtL(pay.date)}` : whole ? "amount equals the bill" : "amount equals the line")),
+          vh ? ((s += 2), why.push("vendor agrees")) : refHit && ((s += 2), why.push(`check ${pay.ref} is the payment recorded on the bill`)),
+          (near(b.date) || near(b.due) || near(b.paidAt) || (pay && near(pay.date))) && ((s += 1), why.push("within 7 days"));
+        push("bill", `Bill ${b.number || b.id} · ${b.vendor} · ${l.desc || ""} ${money(la)}`.replace(/\s+/g, " "), { billId: b.id, billLineId: l.id || "", estimateLineId: l.line || b.line || "", poId: b.poId || "", paymentId: pay ? pay.id : "" }, s + (pay ? 0.5 : 0), why);
       });
     }),
       (DB.pos || []).forEach((po) => {
@@ -170891,7 +170915,14 @@ if ("function" == typeof bfIngest) {
     const out = base.apply(this, arguments);
     try {
       if (out && !(src && src.dry) && (out.added || out.confirmed)) {
-        const n = truthProposeAll([].concat(out.newIds || [], out.confirmedIds || []));
+        const ids = [].concat(out.newIds || [], out.confirmedIds || []);
+        // an older guess with no line behind it (a PO with no label) gives way to the one link model's sure proposal
+        (DB.txns || []).forEach((t) => {
+          if (!ids.includes(t.id) || !t.proposal || t.proposal.m || t.exception) return;
+          const best = truthCandidates(t)[0];
+          best && best.auto && delete t.proposal;
+        });
+        const n = truthProposeAll(ids);
         n && (out.proposed = (out.proposed || 0) + n);
       }
     } catch (e) {

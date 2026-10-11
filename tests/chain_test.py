@@ -965,8 +965,135 @@ async def s5_bill(C):
     return True
 
 
+# ================================================================ 6. the bank statement, every line matched; the close
+async def confirm_on_banking(C, tid):
+    """Banking: the line's proposal with Confirm (the controller's press)."""
+    await C.as_('u_controller', 'bank', "try { txnFilter = 'all'; } catch (e) {} txnAcct = '';")
+    b = C.pg.locator(f"#v-bank [data-mconfirm='{tid}']").first
+    if await b.count():
+        await b.click(timeout=5000); await C.wait(400)
+        return 'Confirm'
+    return ''
+
+
+async def s6_bank(C):
+    C.step('6. The bank statement: vendor payments, payroll, overhead, the client\'s payments, every line matched')
+    pid = C.ids['project']['id']; cid = C.ids['client']['id']
+    run = C.ids['payroll']['run']
+    net = r2(run['gross'] * 0.8); tax = r2(run['total'] - net)
+    app = C.ids['invoice']['appSent']; rb = C.ids['invoice']['rebillSent']
+    BANK = [('2026-09-01', 'COURT STREET PROPERTIES RENT', -8200.00, 'CH-0901-1', 'rent', 'Office rent, September'),
+            ('2026-09-05', 'HUDSON MUTUAL INS PREMIUM', -1450.00, 'CH-0905-1', 'insurance', 'General liability, monthly'),
+            ('2026-09-16', 'ACH DEBIT FENWICK CABINETRY', -23400.00, 'CH-0916-1', 'bill', 'FC-20417'),
+            ('2026-09-22', 'ACH DEBIT ARCADIA TILE SUPPLY', -3800.00, 'CH-0922-1', 'bill', 'AT-7731'),
+            ('2026-09-24', 'CHECK 1187', -5940.00, 'CH-0924-1', 'bill', 'HPH-2291'),
+            ('2026-09-24', 'ACH DEBIT KINGSLAND BATH SUPPLY', -7450.00, 'CH-0924-2', 'bill', 'KBS-5531'),
+            ('2026-09-25', 'PAYROLL SERVICE NET PAY', -net, 'CH-0925-1', 'payroll', run['period']),
+            ('2026-09-25', 'PAYROLL SERVICE TAX', -tax, 'CH-0925-2', 'payroll', run['period']),
+            ('2026-09-29', 'ONLINE TRANSFER FROM VARGA I', app['total'], 'CH-0929-1', 'invoice', app['number']),
+            ('2026-09-29', 'ONLINE TRANSFER FROM VARGA I', rb['total'], 'CH-0929-2', 'invoice', rb['number'])]
+    await C.day('2026-09-30')
+    label, imp = await import_statement(C, 'ac1', 'Chase_4471_Sep2026.csv', csv([(d, x, a, r) for d, x, a, r, _, _ in BANK]))
+    C.ok(imp and imp[0]['added'] == len(BANK), f'Banking > Import Statement (Chase CSV, {len(BANK)} lines) > {label}', imp)
+    C.t(f"Controller > Banking > Import Statement > Chase 4471 > Chase_4471_Sep2026.csv > {label} → {imp}")
+    ids = {}
+    for d, desc, amt, ref, kind, what in BANK:
+        tid = await C.js("([d, a, dt]) => { const t = DB.txns.find(t => t.desc === d && Math.abs(t.amt - a) < 0.005 && t.date === dt && !t.__seen); if (t) t.__seen = 1; return t ? t.id : null; }", [desc, amt, d])
+        ids[ref] = tid
+        C.ok(tid, f'{desc} {fmtm(amt)} is on Banking', tid)
+        if not tid: continue
+        pr = await C.js("id => { const t = DB.txns.find(x => x.id === id); return t.proposal ? {kind: t.proposal.kind, label: t.proposal.label || '', why: t.proposal.why || ''} : null; }", tid)
+        if kind in ('rent', 'insurance'):
+            got = await code_in_drawer(C, tid, kind, '', '', what)
+            C.ok(got['cat'] == kind and not got['projectId'], f'{desc}: coded to overhead ({kind}), no job', got)
+            C.t(f"Banking > {desc} {fmtm(amt)} > drawer: {kind} — {what} > Save → {got['cat']}")
+            continue
+        want = {'bill': 'bill', 'payroll': 'payroll', 'invoice': 'invoice'}[kind]
+        C.ok(pr and pr['kind'] == want and what in (pr['label'] or ''), f'{desc}: the import proposes {what} ({want})', pr)
+        how = await confirm_on_banking(C, tid)
+        m = await C.js("id => { const t = DB.txns.find(x => x.id === id); const m = truthMatchOf(t); return {m, cat: t.cat, projectId: t.projectId || '', line: t.line || ''}; }", tid)
+        C.t(f"Banking > {desc} {fmtm(amt)}: proposed \"{pr and pr['label']}\" ({pr and pr['why']}) > {how or 'no Confirm'} → {json.dumps({k: v for k, v in m['m'].items() if v})}, {m['cat']}")
+        if kind == 'bill':
+            C.ok(m['m']['billId'] and m['m']['billLineId'] and m['m']['estimateLineId'] and m['m']['paymentId'], f'{desc}: matched to its bill line, the recorded payment and the estimate line', m)
+        elif kind == 'payroll':
+            C.ok(m['m']['payrollId'] == run['id'], f'{desc}: matched to the payroll run', m)
+        else:
+            C.ok(m['m']['invoiceId'] and m['m']['paymentId'] and m['cat'] == 'income' and (m['m'].get('invoiceLineId') or m['m'].get('invoiceLines')), f'{desc}: matched to {what} and the invoice lines it pays, recorded as the client\'s payment, income', m)
+    C.rec('txn', 'bank', ids)
+    pays = await C.js("() => (DB.payments || []).filter(p => ['FC-20417', 'AT-7731', 'HPH-2291', 'KBS-5531'].includes((DB.bills.find(b => b.id === p.billId) || {}).number)).map(p => [(DB.bills.find(b => b.id === p.billId) || {}).number, p.amount, !!p.txnId])")
+    C.ok(len(pays) == 4 and all(p[2] for p in pays), 'every recorded vendor payment is cleared by its bank line', pays)
+    inv = await C.js("id => DB.clients.find(c => c.id === id).invoices.filter(i => i.status !== 'void').map(i => [i.number, i.status, docTotal(i).total, invoicePaid(DB.clients.find(c => c.id === id), i)])", cid)
+    C.ok(all(i[1] == 'paid' for i in inv), "the client's invoices read paid", inv)
+    # every line of the chain is matched (or coded to its overhead account); nothing waits unmatched
+    um = await C.js("""ids => { const U = (PRED.unmatchedTxns && PRED.unmatchedTxns.rows) ? PRED.unmatchedTxns.rows() : bankUnmatched(['2026-09-01', '2026-09-30']).rows; const set = new Set(U.map(t => t.id));
+        return ids.map(id => { const t = DB.txns.find(x => x.id === id); return [t.desc, t.cat, set.has(id), !!t.exception]; }); }""", list(ids.values()) + list(C.ids['txn']['card'].values()))
+    C.ok(all(not x[2] or x[3] for x in um), 'every chain line on the bank and the card is matched or carries a signed exception', [x for x in um if x[2]])
+    C.t(f"Unmatched check over the chain's {len(um)} bank and card lines: {sum(1 for x in um if x[2])} unmatched")
+    return True
+
+
+# ================================================================ 7. the close: August (the seed's) then September (the chain's)
+# The seed's own loose ends in August and September are not the chain's: they are cleared the way the controller's
+# month-end clears them, through the functions their buttons call (Accept All Suggestions = pay3AcceptAll, Approve as
+# Billed = fin2ApproveAsBilled, Confirm = confirmMatch, the drawer's coding, Sign Exception = truthException). This is
+# the narrow allowlist of the run: seed records only (ids from the seed, never the chain's), each with its reason.
+SEED_MONTH_END = r"""async ([ym, chainIds]) => {
+  const R = [ym + '-01', ym + '-31'], keep = new Set(chainIds), out = {accepted: 0, approved: [], coded: [], confirmed: 0, exceptions: []};
+  const approve = () => { signIn('u_owner'); DB.bills.filter(b => typeof billPaidUnapproved === 'function' && billPaidUnapproved(b))
+    .forEach(b => { try { const r = fin2ApproveAsBilled(b, 'Seed month-end: approved as billed by the Owner'); try { mbCloseModal(); } catch (e) {} out.approved.push(b.number + (r ? '' : ' (refused)')); } catch (e) { out.approved.push(b.number + ' ' + e.message); } }); };
+  approve();
+  signIn('u_controller');
+  try { out.accepted = pay3AcceptAll() || 0; } catch (e) {}
+  const guess = {TINO: ['materials', 'p121', '09'], 'HOME DEPOT': ['materials', 'p121', '03'], WATERWORKS: ['materials', 'p121', '13'], SATISH: ['subs', 'p121', '06'], AMAZON: ['materials', 'p121', '13'],
+    'J ROSARIO': ['subs', 'p121', '02'], LUMBER: ['materials', 'p121', '03'], 'QUALITY BLDG': ['materials', 'p121', '03'], CHIPOTLE: ['meals', '', ''], 'ALBERTO': ['subs', 'p121', '05']};
+  DB.txns.filter(t => t.date >= R[0] && t.date <= R[1] && !keep.has(t.id)).forEach(t => {
+    if (t.proposal) { try { confirmMatch(t); out.confirmed++; } catch (e) {} }
+    if (!t.cat || t.cat === 'uncat' || t.status === 'new') {
+      const k = Object.keys(guess).find(k => (t.desc || '').toUpperCase().includes(k));
+      if (k && +t.amt < 0) { const [cat, pid, code] = guess[k]; Object.assign(t, {cat, projectId: pid, code, status: 'categorized', actor: 'Controller'}); out.coded.push(t.desc); }
+      else if (+t.amt > 0 && (!t.cat || t.cat === 'uncat')) { Object.assign(t, {status: 'categorized', actor: 'Controller'}); }
+      else if (t.status === 'new') { t.status = 'categorized'; t.actor = 'Controller'; }
+    }
+  });
+  save();
+  bankUnmatched(R).rows.filter(t => !t.exception && !keep.has(t.id)).forEach(t => { const r = truthException(t, 'Seed line outside the chain: reviewed at the month-end, the document follows'); r && r.ok && out.exceptions.push(t.desc); });
+  approve();
+  save(); return out;
+}"""
+
+
+async def close_month(C, ym, why):
+    """The Owner's Close page: Run the Close with the reason for what is still open (fin2RunClose is the button)."""
+    await C.as_('u_owner', 'gl')
+    r = await C.js("([ym, why]) => { const r = fin2RunClose(ym, why); return {ok: !!(r && r.ok), why: r && r.why, chain: r && r.chain, tie: r && r.tie, entries: r && r.posted ? r.posted.length : 0}; }", [ym, why])
+    return r
+
+
+async def s7_close(C):
+    C.step('7. The close: August (the seed month, first) and September (the chain month): tie-out and seal, nothing reopened')
+    pid = C.ids['project']['id']
+    chain_ids = list(C.ids['txn']['bank'].values()) + list(C.ids['txn']['card'].values())
+    await C.day('2026-10-02')
+    for ym in ('2026-08', '2026-09'):
+        prep = await C.js(SEED_MONTH_END, [ym, chain_ids])
+        C.t(f"{ym} month-end for the seed's own lines (allowlisted, see the comment): accepted {prep['accepted']}, approved as billed {prep['approved']}, "
+            f"coded {len(prep['coded'])}, confirmed {prep['confirmed']}, exceptions signed {len(prep['exceptions'])}")
+        blk = await C.js("ym => fin2CloseBlockers(ym).map(b => b.why)", ym)
+        C.ok(not blk, f'{ym}: nothing blocks the close', blk)
+        r = await close_month(C, ym, "Open checklist items are the seed's: reconciliations and CTC reviews follow next week")
+        C.ok(r['ok'], f'{ym}: the Owner runs the close; the WIP ties to 2500/1200 and the month is sealed', r)
+        C.t(f"Owner > Accounting > Close > {ym} > Run the Close (reason typed) → {'closed, ' + str(r['entries']) + ' close entries, chain ' + str(r['chain']) if r['ok'] else 'REFUSED: ' + str(r['why'])}")
+        if not r['ok']: return False
+    st = await C.js("() => ({locked: (DB.periods || {}).lockedThrough, sealed: Object.keys((DB.periods || {}).chains || {}), reopened: (DB.periods.history || []).filter(h => /reopen/.test(h.act || '')).map(h => h.month), verify: truthVerifyAll().filter(v => v.ok === false).length, tie: ctWipTieRows('2026-09').filter(r => r.job && /318 Clinton/.test(r.job)).map(r => [r.job, r.schedule, r.ledger, r.diff])})")
+    C.ok(st['locked'] == '2026-09' and '2026-09' in st['sealed'] and not st['reopened'] and st['verify'] == 0, 'September is closed and sealed, the books verify, nothing was reopened', st)
+    C.ok(st['tie'] and all(abs(x[3]) < 0.005 for x in st['tie']), f"the {JOB} WIP schedule ties to the ledger at the close", st['tie'])
+    C.rec('close', 'state', st)
+    C.t(f"after the close: locked through {st['locked']}, sealed {st['sealed']}, reopened {st['reopened'] or 'none'}, {JOB} WIP tie {st['tie']}")
+    return True
+
+
 # ================================================================ main
-STEPS = [s1_client, s2_buy, s3_receive, s4_pay, s5_bill]
+STEPS = [s1_client, s2_buy, s3_receive, s4_pay, s5_bill, s6_bank, s7_close]
 
 
 async def main():
