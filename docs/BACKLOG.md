@@ -483,18 +483,19 @@ There are views for All Tasks (`tkall`, under Home), a project's Tasks, Sales Ta
 
 The bugs that slip are structural. They are not in any one feature; they are in how the features fit together.
 
-**The method: five layers, each enforced by a test or a gate, not by memory.**
+**The method: six layers, each enforced by a test or a gate, not by memory.**
 1. **The noun registry.** Each thing the firm deals with is declared once in one registry, with its one store, its one list, who owns it, and the views that are filters of it:
    - task, document, vendor, approval, alert, message, promise, payment, PO line, and the rest.
    A **structure lint** fails the build when code adds a second store, a second list view, a new queue, or a menu item for a noun that is already declared. It also fails on any collection or view named like a declared noun (task, todo, follow-up, reminder, chase, alert…) outside its registry entry. The same lint pins each role's menu (§1.15).
 2. **Completeness tests per role.** A generator creates every kind of obligation from every source: email, meeting, PO, RFQ, bill, filing, agent, client, foreman. It asserts that each one lands, once, in the right person's one list, with an owner and a due date. Then it closes each one from that list. One test per noun: "everything I owe", "everything waiting on my approval", "everything that's off in the money".
-3. **A simulation that can't be memorised.** Besides the scripted month, each run adds a generated week of random events from every source, the way the Ask bank has held-out questions. The ledger records three things for every event:
+3. **Saved is not enough: findable.** On 2026-10-11, tasks were saved and survived a reload, but they were not findable. A new task went to a project picked by default and sat in a "No Date" bucket the list didn't open on, so to the person it vanished. The month simulation's PERSIST check passed, because it checked the database, not the person's screen. From now on, every create action in the simulation and the tests is followed by a "find it again" step: the creator must see the record on their own screen right after saving, the toast's Open must land on it, and after a reload it must be in that person's list.
+4. **A simulation that can't be memorised.** Besides the scripted month, each run adds a generated week of random events from every source, the way the Ask bank has held-out questions. The ledger records three things for every event:
    - whether the owner saw it;
    - how many places they had to look (more than one counts as a finding);
    - whether it closed.
    The simulation also counts places-to-look and taps per task as tracked numbers, so a rise is visible.
-4. **A system lens in every review.** Each role expert must list every place they looked today for what they owe, approve or need to know. More than one place for the same kind of thing is a severity-2 finding. Each round also adds one reviewer who looks only across modules for duplicated nouns, inconsistent patterns and drifted menus.
-5. **A design gate before building.** No lane starts until its spec names the registry entries it extends: which noun, which list, which queue. A lane that wants a new noun or list must say why an existing one can't hold it. At merge, the chief of staff's review asks one question: did this add a store, list, queue or menu item? If it did, the lane justifies it or folds it in.
+5. **A system lens in every review.** Each role expert must list every place they looked today for what they owe, approve or need to know. More than one place for the same kind of thing is a severity-2 finding. Each round also adds one reviewer who looks only across modules for duplicated nouns, inconsistent patterns and drifted menus.
+6. **A design gate before building.** No lane starts until its spec names the registry entries it extends: which noun, which list, which queue. A lane that wants a new noun or list must say why an existing one can't hold it. At merge, the chief of staff's review asks one question: did this add a store, list, queue or menu item? If it did, the lane justifies it or folds it in.
 
 No method is literally foolproof. This one makes the class of problem fail loudly in a test, instead of waiting for someone to notice. The structure lint and the completeness tests are built in Simplify, together with the task and menu fixes, because they would fail today. That is the point.
 
