@@ -17173,13 +17173,19 @@ function signIn(userId) {
     // on a phone the header already says who and where; the toast only covered the bottom of the first screen
     window.innerWidth <= 760 || toast(`Signed in as ${u.name}`);
 }
+// The device picker after a client signs out lists the firm's people and that client's own household, never
+// another client: a client's phone is not where the firm's client list is read.
+let signInFrom = "";
 function signOut() {
-  (DB.deviceUser = ""), save(), showSignIn();
+  (signInFrom = DB.deviceUser || ""), (DB.deviceUser = ""), save(), showSignIn();
 }
 function showSignIn() {
-  const box = $("#signin-list");
+  const box = $("#signin-list"),
+    from = (DB.users || []).find((x) => x.id === signInFrom),
+    cid = from && from.clientId;
   (box.innerHTML =
     DB.users
+      .filter((u) => !cid || !u.clientId || u.clientId === cid)
       .map(
         (u) =>
           `<button class="ubtn" data-signin="${u.id}"><span>${esc(u.name)}</span><span class="r">${ROLE_NAMES[u.role] || u.role}</span></button>`,
@@ -31950,6 +31956,19 @@ const clientUserOf = () => {
   const u = currentUser();
   return u && u.clientId ? DB.clients.find((c) => c.id === u.clientId) : clientOf();
 };
+// The site's view of a proposal or change order: what the work is, line by line, and where it stands. No
+// amount, total, rate or payment term: the foreman, crew and driver never see money (BACKLOG 1.3).
+function docScopeSheet(d) {
+  const lines = (d.lines || []).filter((l) => !l.parent && (l.item || l.desc)),
+    st = { draft: "Draft", sent: "Sent to the client", approved: "Approved", signed: "Signed", declined: "Declined", void: "Void" }[d.status] || d.status || "";
+  mbModal(
+    `${"co" === d.type ? "Change Order" : "Proposal"} ${esc(d.number || "")}`,
+    `<div class="small muted">${esc(d.title || "")}${d.date ? " · " + fmt(d.date) : ""}${st ? " · " + esc(st) : ""}</div><ol class="doc-scope">${lines
+      .map((l) => `<li><b>${esc(l.item || "")}</b>${l.desc ? `<div class="small muted" style="white-space:pre-wrap">${esc(String(l.desc).replace(/\$[\d,.]+/g, ""))}</div>` : ""}</li>`)
+      .join("")}</ol>${d.scheduleImpact || d.days ? `<p class="small">Schedule: ${esc(String(d.scheduleImpact || d.days + " days"))}</p>` : ""}`,
+    { submit: null },
+  );
+}
 function docSummaryHtml(c, d) {
   const t = docTotal(d);
   "construction" === d.template && "sov" !== d.mode && ctNumber(d);
@@ -124304,7 +124323,17 @@ Object.assign(FILE_CATS, {
   openFile = async function (id) {
     const f = fileWriteOk() ? (S.files || []).find((x) => x.id === id) : null;
     if (f && f.autoKey && f.link) {
-      if (((f.seen = !0), "po" === f.link.kind)) return void openEditor("po", f.link.id);
+      f.seen = !0;
+      // the record behind a generated document opens for whoever may open its page; anyone else (the foreman
+      // reading a change order on site) gets the document's summary, never a jump to a page they cannot open
+      const docs = !flowCan("billing") && !flowCan("clients"),
+        field = ["foreman", "crew", "driver"].includes(role());
+      if ("po" === f.link.kind) return void (flowCan("po") ? openEditor("po", f.link.id) : base.apply(this, arguments));
+      if (docs && ("co" === f.link.kind || "estimate" === f.link.kind)) {
+        const c = clientOf(),
+          d = c && [...(c.changeOrders || []), ...(c.estimates || [])].find((x) => x.id === f.link.id);
+        return void (d ? (field ? docScopeSheet(d) : flowGo.doc(c, "co" === f.link.kind ? "co" : "estimate", d)()) : base.apply(this, arguments));
+      }
       if ("co" === f.link.kind) return void opsGo({ kind: "co", id: f.link.id });
       if ("estimate" === f.link.kind) {
         const c = clientOf();
