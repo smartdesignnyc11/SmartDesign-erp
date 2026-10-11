@@ -14,6 +14,10 @@ supply houses and their invented replies in the Demo Workspace:
   level     leveling numbers against an independent Python computation; phone stacked cards, desktop grid
   negotiate drafts name no competitor and cite only figures from received quotes; approve; round two read
   award     POs through poAction, linked to the RFQ and the estimate line (po.origin rfq); savings correct
+  matbudget savings against budget use the line's MATERIAL portion (merge review): no split shows "No material
+            budget on this line" and no figure; a split counts only the material; an old award is re-read
+  invoice   invoice lines (T&M, reimbursable) are RFQ sources: Which Lines?, invoiceLineId on every RFQ and PO
+            line, the material budget of the line, and the invoice line's drill-down shows its RFQs
   prospect  a supplier named in a reply is a prospect; Add puts it on file and the next RFQ suggests it
   research  sourcing research: facts with sources apart from hypotheses, landed cost against Python, a species or
             grade change flagged as a substitution, Add to Next RFQ
@@ -107,6 +111,28 @@ NOSIDE = "() => document.documentElement.scrollWidth <= innerWidth + 1"
 SMALL_TAPS = """sel => [...document.querySelectorAll(sel)].filter(b => b.getClientRects().length).map(b => { const r = b.getBoundingClientRect(); return [b.getAttribute('aria-label') || b.innerText.trim(), Math.round(r.width), Math.round(r.height)]; }).filter(x => x[1] < 44 || x[2] < 44)"""
 PRED_EQ = """() => ['rfqForeman','rfqPurchasing','rfqNoReply','rfqLeveledNoNeg','rfqUnderQuoted','rfqNoOutNyc'].map(k => [k, PRED[k].count(), PRED[k].rows().length, PRED[k].label])"""
 
+# The PM splits l4, then l2, into material and labour; the walk then puts the seed back.
+MATSPLIT = """id => { signIn('u_alan'); const a = rfqSetMatBudget('estimate:es1:l4', 21000); const L1 = rfqLevel(DB.rfqs.find(r => r.id === id));
+  const one = [L1.budgets.map(b => [b.key, b.budget]), L1.budgetComplete, L1.budgetTotal];
+  rfqSetMatBudget('estimate:es1:l2', 14000); const L2 = rfqLevel(DB.rfqs.find(r => r.id === id));
+  const E = DB.clients.flatMap(c => c.estimates).find(e => e.id === 'es1'), l4 = E.lines.find(l => l.id === 'l4');
+  const two = [L2.budgets.map(b => [b.key, b.budget]), L2.budgetComplete, L2.budgetTotal, l4.costMaterial, l4.costLabor];
+  const t = (document.getElementById('toast') || {}).innerText || '';
+  E.lines.forEach(l => { delete l.costMaterial; delete l.costLabor; }); save();
+  signIn('u_chen'); return { one, two, t, a: !!a }; }"""
+# An invented T&M invoice on 121 State: a T&M line split into material and labour, and a reimbursable line.
+TM_INVOICE = """() => { const c = DB.clients.find(c => c.invoices.some(i => i.projectId === 'p121'));
+  c.invoices.push({ id: 'inTM1', type: 'invoice', number: 'INV-2026-T01', title: 'T&M repairs', date: '2026-09-02', due: '2026-09-09', status: 'sent', projectId: 'p121',
+    lines: [{ id: 'tm1', item: 'T&M — rear stair stringer repair', desc: 'materials and labour', qty: 1, unit: 'ls', rate: 2400, cost: 1800, costMaterial: 950, taxable: false },
+            { id: 'tm2', item: 'Reimbursable — LVL beam', qty: 1, unit: 'ls', rate: 704, cost: 640, cat: 'reimbursable', taxable: false }],
+    discount: { type: 'pct', value: 0 }, taxRate: 0, retainagePct: 0, terms: '', memo: '', internal: '' }); save(); }"""
+
+# An award stamped the old way (against the whole line) is re-read by rfqSavings; the award is put back after.
+OLD_AWARD = """id => { const r = DB.rfqs.find(x => x.id === id), keep = JSON.parse(JSON.stringify(r.award));
+  r.award.budget = 32000; r.award.savingsVsBudget = Math.round((32000 - r.award.final) * 100) / 100; delete r.award.budgetBasis; delete r.award.budgetNote;
+  const s = rfqSavings('2026-09'), out = { vs: r.award.savingsVsBudget, sb: s.vsBudget, nb: s.noBudget, basis: r.award.budgetBasis, was: r.award.budgetWas };
+  r.award = keep; return out; }"""
+
 async def ok_modal(pg, wait=500):
     await pg.locator('#mbm #mbm-ok').click(timeout=4000); await pg.wait_for_timeout(wait)
 
@@ -133,7 +159,7 @@ async def main():
         await go(pg, 'rfq')
         C.ok(await pg.evaluate(NOSIDE), 'phone: the RFQ page does not scroll sideways (empty)')
         await pg.locator('#rfq-new').click(); await pg.wait_for_timeout(400)
-        m = await pg.evaluate("() => ({ t: (document.querySelector('#mbm h3') || {}).innerText, rows: [...document.querySelectorAll('[data-rfqpk]')].map(i => i.dataset.rfqpk), prim: [...document.querySelectorAll('#mbm .btn.primary')].map(b => b.innerText), plans: !!document.querySelector('#rfq-plans:not(.primary)'), blank: !!document.querySelector('#rfq-blank:not(.primary)') })")
+        m = await pg.evaluate("() => ({ txt: (document.querySelector('#mbm') || {}).innerText || '', t: (document.querySelector('#mbm h3') || {}).innerText, rows: [...document.querySelectorAll('[data-rfqpk]')].map(i => i.dataset.rfqpk), prim: [...document.querySelectorAll('#mbm .btn.primary')].map(b => b.innerText), plans: !!document.querySelector('#rfq-plans:not(.primary)'), blank: !!document.querySelector('#rfq-blank:not(.primary)') })")
         C.ok(m['t'] == 'Which Lines?' and m['prim'] == ['Create RFQ'] and m['plans'] and m['blank'], f'New RFQ opens on Which Lines? with one blue Create RFQ; From Plans and Start Blank are secondary ({m})')
         C.ok('estimate:es1:l3' in m['rows'] and 'estimate:es1:l2' in m['rows'], f'the sheet lists the job\'s estimate lines ({m["rows"][:6]})')
         C.ok(await pg.evaluate(NOSIDE), 'phone: Which Lines? does not scroll sideways')
@@ -141,7 +167,8 @@ async def main():
         one = await pg.evaluate("() => { const r = DB.rfqs.slice(-1)[0]; return JSON.parse(JSON.stringify(r)); }")
         est = await pg.evaluate("() => { const e = DB.clients.flatMap(c => c.estimates).find(e => e.id === 'es1'); return Object.fromEntries(e.lines.map(l => [l.id, +l.cost || 0])); }")
         l1 = one['lines'][0] if one['lines'] else {}
-        C.ok(len(one['lines']) == 1 and l1.get('estimateLineId') == 'l3' and l1.get('line') == 'estimate:es1:l3' and l1.get('budget') == est['l3'], f'one estimate line: the RFQ line keeps estimateLineId l3 and its budget {est["l3"]} ({l1})')
+        C.ok(len(one['lines']) == 1 and l1.get('estimateLineId') == 'l3' and l1.get('line') == 'estimate:es1:l3' and l1.get('budget') is None, f'one estimate line: the RFQ line keeps estimateLineId l3; supply-and-install with no split has no material budget ({l1})')
+        C.ok('No material budget on this line' in m['txt'] and 'budget $29,700' not in m['txt'], 'the sheet says when a line has no material budget, never the whole line as a budget')
         C.ok(one['status'] == 'foreman-review', f'an estimate line is field material: it goes to the foreman ({one["status"]})')
         await pg.evaluate("() => rfqLinesSheet('p121')"); await pg.wait_for_timeout(300)
         for k in ('estimate:es1:l2', 'estimate:es1:l4'):
@@ -154,8 +181,34 @@ async def main():
         multi = await pg.evaluate("() => JSON.parse(JSON.stringify(DB.rfqs.slice(-1)[0]))")
         fr = [l for l in multi['lines'] if l.get('estimateLineId') == 'l2']
         C.ok(len(fr) >= 8 and all(l.get('line') == 'estimate:es1:l2' for l in fr) and any(l.get('estimateLineId') == 'l4' for l in multi['lines']), f'multi-select: the breakdown lines keep l2, the other line keeps l4 ({len(fr)} framing lines)')
-        lv = await pg.evaluate("id => rfqLevel(DB.rfqs.find(r => r.id === id)).budgets.map(b => [b.key, b.budget])", multi['id'])
-        C.ok(sorted(lv) == sorted([['estimate:es1:l2', est['l2']], ['estimate:es1:l4', est['l4']]]), f'the leveling budget equals the estimate line amounts ({lv})')
+        lv = await pg.evaluate("id => { const L = rfqLevel(DB.rfqs.find(r => r.id === id)); return [L.budgets.map(b => [b.key, b.budget]), L.budgetComplete, L.budgetTotal]; }", multi['id'])
+        C.ok(sorted(lv[0]) == sorted([['estimate:es1:l2', None], ['estimate:es1:l4', None]]) and lv[1] is False and lv[2] == 0, f'no split on the lines: no material budget and no total to measure against ({lv})')
+        # ---- matbudget: a split counts only the material; a line with none is never measured
+        mb = await pg.evaluate(MATSPLIT, multi['id'])
+        C.ok(mb['a'] and sorted(mb['one'][0]) == sorted([['estimate:es1:l2', None], ['estimate:es1:l4', 21000]]) and mb['one'][1] is False and mb['one'][2] == 0, f'one line split: its material counts, the other still has none, so no total is claimed ({mb["one"]})')
+        C.ok(mb['two'][1] is True and mb['two'][2] == 35000 and mb['two'][3] == 21000 and mb['two'][4] == est['l4'] - 21000, f'both split: the budget is the material portions only, 35,000, not the lines\' {est["l2"] + est["l4"]} ({mb["two"]})')
+        C.ok('material budget' in mb['t'], f'setting the split toasts ({mb["t"][:80]})')
+        nopm = await pg.evaluate("() => { signIn('u_chen'); return rfqSetMatBudget('estimate:es1:l4', 100); }")
+        C.ok(nopm is None, 'the coordinator cannot set a line\'s budget split (owner or PM)')
+
+        # ---- invoice: T&M and reimbursable invoice lines are RFQ sources (Alan: purchases start from estimate or invoice lines)
+        await pg.evaluate(TM_INVOICE)
+        await pg.evaluate("() => rfqLinesSheet('p121')"); await pg.wait_for_timeout(300)
+        iv = await pg.evaluate("() => ({ keys: [...document.querySelectorAll('[data-rfqpk]')].map(i => i.dataset.rfqpk), txt: (document.querySelector('#mbm') || {}).innerText || '' })")
+        C.ok('invoice:inTM1:tm1' in iv['keys'] and 'invoice:inTM1:tm2' in iv['keys'] and 'invoice' in iv['txt'].lower(), f'Which Lines? lists the invoice lines ({[k for k in iv["keys"] if k.startswith("invoice")]})')
+        C.ok('No material budget on this line' in iv['txt'] and 'material budget $950' in iv['txt'] and 'material budget $640' in iv['txt'], 'each row shows its material budget, or says there is none')
+        C.ok(await pg.evaluate(NOSIDE), 'phone: Which Lines? with invoice lines does not scroll sideways')
+        for k in ('invoice:inTM1:tm1', 'invoice:inTM1:tm2'):
+            await pg.locator(f'[data-rfqpk="{k}"]').check()
+        await ok_modal(pg, 600)
+        inv = await pg.evaluate("() => JSON.parse(JSON.stringify(DB.rfqs.slice(-1)[0]))")
+        got = sorted((l.get('invoiceLineId'), l.get('invoiceId'), l.get('line'), l.get('budget')) for l in inv['lines'])
+        C.ok(got == [('tm1', 'inTM1', 'invoice:inTM1:tm1', 950), ('tm2', 'inTM1', 'invoice:inTM1:tm2', 640)], f'each RFQ line keeps invoiceLineId and the material budget ({got})')
+        ilv = await pg.evaluate("id => { const L = rfqLevel(DB.rfqs.find(r => r.id === id)); return [L.budgetComplete, L.budgetTotal]; }", inv['id'])
+        C.ok(ilv == [True, 1590], f'the invoice lines\' material budgets add up: 950 + 640 ({ilv})')
+        dr = await pg.evaluate("() => { finLineModal('invoice:inTM1:tm1'); const t = (document.querySelector('#mbm .rfq-onl') || {}).innerText || ''; mbCloseModal(); return t; }")
+        C.ok(inv['number'] in dr and 'Create RFQ' in dr, f'the invoice line drill-down shows its RFQs and Create RFQ ({dr[:120]})')
+        await pg.evaluate("id => { DB.rfqs.find(r => r.id === id).status = 'closed'; save(); }", inv['id'])
         dr = await pg.evaluate("() => { finLineModal('estimate:es1:l2'); const t = (document.querySelector('#mbm .rfq-onl') || {}).innerText || ''; mbCloseModal(); return t; }")
         C.ok(multi['number'] in dr and 'Create RFQ' in dr, f'the line drill-down shows its open RFQs and Create RFQ ({dr[:120]})')
         # the two line-first RFQs stand aside; the walk continues on the plans draft
@@ -259,7 +312,9 @@ async def main():
         C.ok([list(x) for x in P['baskets']] == L['b'], f'whole baskets match Python ({L["b"]} vs {P["baskets"]})')
         C.ok(P['split'] == L['split'] and P['assign'] == L['assign'], f'best split after freight and minimums matches Python ({L["split"]} vs {P["split"]})')
         C.ok({k: (list(v) if v else None) for k, v in P['perline'].items()} == L['per'], 'cheapest per line matches Python')
-        C.ok(L['budget'] == 32000, f'the budget is the estimate line ({L["budget"]})')
+        C.ok(L['budget'] == 0, f'from plans: the $32,000 framing line is labour and material with no split, so no budget figure ({L["budget"]})')
+        lt = await pg.evaluate("() => document.querySelector('#v-rfq').innerText")
+        C.ok('No material budget on this line' in lt and 'under the material budget' not in lt, 'leveling says "No material budget on this line" and shows no saving against budget')
         C.ok(RATE == 8.875 and 'use tax' in (await pg.evaluate("() => document.querySelector('#v-rfq').innerText")) and 'confirm with the accountant' in (await pg.evaluate("() => document.querySelector('#v-rfq').innerText")), 'landed cost counts NY sales or use tax, labelled confirm with the accountant')
         C.ok('Relationship:' in (await pg.evaluate("() => document.querySelector('#v-rfq').innerText")) and 'Delivery:' in (await pg.evaluate("() => document.querySelector('#v-rfq').innerText")), 'leveling shows relationship and delivery facts next to price')
         page = await pg.evaluate("() => document.querySelector('#v-rfq').innerText")
@@ -333,7 +388,11 @@ async def main():
         P1 = level_py(dict(R8, quotes=[q for q in R8['quotes'] if q['round'] == 1]), VV, RATE)
         C.ok(abs(A['final'] - final) < 0.005 and abs(A['final'] - P2['split']) < 0.005, f'final equals the POs and the recommended split ({A["final"]}, {final}, {P2["split"]})')
         C.ok(abs(A['firstQuote'] - P1['baskets'][0][1]) < 0.005 and abs(A['savingsVsFirst'] - r2(P1['baskets'][0][1] - final)) < 0.005 and A['savingsVsFirst'] > 0, f'savings against the first quote ({A["savingsVsFirst"]})')
-        C.ok(abs(A['savingsVsBudget'] - r2(32000 - final)) < 0.005, 'savings against the estimate line budget')
+        C.ok(A['savingsVsBudget'] is None and A['budget'] is None and 'No material budget' in A.get('budgetNote', ''), f'no saving against budget is claimed on a line with no material budget (it was 32,000 minus the award) ({A.get("savingsVsBudget")}, {A.get("budgetNote")})')
+        aw = await pg.evaluate("() => document.querySelector('#v-rfq').innerText")
+        C.ok('No material budget on this line' in aw and 'under the material budget' not in aw, 'the award says so and shows no budget figure')
+        old = await pg.evaluate(OLD_AWARD, rid)
+        C.ok(old['vs'] is None and old['sb'] == 0 and old['nb'] >= 1 and old['basis'] == 'material' and old['was'] == 32000, f'an award stamped before the rule is re-read: the whole-line figure is dropped ({old})')
         C.ok(abs(A['poTotal'] - r2(sum(p['tot'] for p in pos))) < 0.005, 'the award records the PO totals beside the landed figure')
         sv = await pg.evaluate("() => ({ s: rfqSavings('2026-09').vsFirst, q: erpQuery ? (EQ_TABLES.rfqs().filter(r => r.awardedOn.startsWith('2026-09')).reduce((a, r) => a + r.savings, 0)) : null })")
         C.ok(abs(sv['s'] - A['savingsVsFirst']) < 0.005 and abs(sv['q'] - A['savingsVsFirst']) < 0.005, f'the month\'s savings are queryable ({sv})')
@@ -393,7 +452,7 @@ async def main():
         asks = {
             f'status of {R9["number"]}': 'Awarded',
             'who\'s cheapest on the framing RFQ': 'cheapest',
-            'what did we save on RFQs this month': 'saved',
+            'what did we save on RFQs this month': 'no material budget',
             'who sells lumber outside NYC': 'outside NYC',
             'where is lumber cheapest': 'Demo data',
             'why is Tri-County cheaper': 'Hypothesis',

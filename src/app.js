@@ -172664,8 +172664,60 @@ function rfqEstLine(p) {
   const o = O.find((x) => /fram|rough carpentry/i.test(`${x.line.item || ""} ${x.line.desc || ""}`));
   if (!o) return null;
   const committed = r2((DB.pos || []).filter((po) => "cancelled" !== po.status).flatMap((po) => po.lines || []).filter((l) => l.line === o.key).reduce((a, l) => a + (+l.qty || 0) * (+l.price || 0), 0)),
-    budget = +o.line.cost || 0;
-  return { key: o.key, label: o.label, budget: budget, committed: committed, left: r2(budget - committed) };
+    budget = +o.line.cost || 0,
+    M = rfqMatBudget(o.key, o.line, o.doc);
+  return { key: o.key, label: o.label, budget: budget, committed: committed, left: r2(budget - committed), material: M.budget, matLeft: null == M.budget ? null : r2(M.budget - committed), matNote: M.note };
+}
+// The budget a purchase is measured against is the line's MATERIAL budget (merge review, 2026-10-11: a from-plans
+// RFQ on 121 State was measured against the whole $32,000 framing line, labour included, and showed about $29k
+// "under budget"). An estimate, change-order or invoice line's cost is labour and material together unless the
+// line carries its split (costMaterial, with costLabor beside it); a finish-material, selection or reimbursable
+// line is all material. With no split the budget is null and the words say so: never the whole line as if it
+// were material, never a misleading savings figure.
+const RFQ_NO_MAT = "No material budget on this line";
+function rfqMatBudget(key, line, doc) {
+  let L = line,
+    D = doc;
+  if (!L && key && !String(key).startsWith("sel:")) {
+    try {
+      const ref = findLine(key);
+      ref && ((L = ref.line), (D = ref.doc));
+    } catch (e) {}
+  }
+  if (!L) return { budget: null, whole: null, split: !1, note: RFQ_NO_MAT };
+  let whole = +L.cost || 0;
+  try {
+    "function" == typeof lineBudget && (whole = lineBudget(L, D).budget);
+  } catch (e) {}
+  if (null != L.costMaterial && "" !== L.costMaterial && isFinite(+L.costMaterial)) {
+    const m = r2(+L.costMaterial),
+      lab = null != L.costLabor && "" !== L.costLabor ? r2(+L.costLabor) : r2(whole - m);
+    return { budget: m, whole: whole, labor: lab, split: !0, note: `the material portion: ${money(m)} of the line's ${money(whole)} (labour ${money(lab)})` };
+  }
+  let allMat = "reimbursable" === L.cat;
+  try {
+    allMat = allMat || ("function" == typeof fmIsFinishLine && fmIsFinishLine(L, D)) || ("function" == typeof lineCat && "materials" === lineCat(L, D));
+  } catch (e) {}
+  return allMat ? { budget: r2(whole), whole: whole, split: !1, allMaterial: !0, note: "a material line: the whole budget is material" } : { budget: null, whole: whole, split: !1, note: RFQ_NO_MAT };
+}
+// The owner or PM puts the split on a line that has none (the estimate editor does not ask for it yet). Budget
+// fields only: the price, the client's document and the posted books do not move.
+function rfqSetMatBudget(key, material) {
+  if (!["owner", "pm"].includes(role())) return toast("The owner or the PM sets a line's material budget"), null;
+  const ref = "function" == typeof findLine ? findLine(key) : null,
+    m = r2(+material);
+  if (!ref || !isFinite(m) || m < 0) return toast("Enter the material portion in dollars"), null;
+  const M0 = rfqMatBudget(key, ref.line, ref.doc),
+    whole = M0.whole || +ref.line.cost || 0;
+  if (whole && m > whole + 0.005) return toast(`The material portion cannot exceed the line's budget of ${money(whole)}`), null;
+  const before = M0.split ? M0.budget : null;
+  (ref.line.costMaterial = m), (ref.line.costLabor = r2(whole - m));
+  try {
+    audit("line", key, "material-budget", null == before ? "" : String(before), String(m), `${rfqMe()} split ${ref.doc.number} · ${ref.line.item || ref.line.desc}: material ${money(m)}, labour ${money(r2(whole - m))}`);
+  } catch (e) {}
+  save(), render();
+  rcToast(`${ref.doc.number} · ${ref.line.item || ref.line.desc}: material budget ${money(m)} of ${money(whole)}`, [{ label: "Open", run: () => ("function" == typeof finLineModal ? finLineModal(key) : null) }]);
+  return rfqMatBudget(key, ref.line, ref.doc);
 }
 const RFQ_LEAD_ASSUMED = 2;
 function rfqDraftFromPlans(pid, by) {
@@ -172690,7 +172742,7 @@ function rfqDraftFromPlans(pid, by) {
     taskId: tk ? tk.id : "",
     estLine: E,
     drawingsNote: `${drawings.length ? `The drawings on file (${drawings.map((f) => f.name).slice(0, 3).join(", ")})` : `The drawings the takeoff was read from (${src})`} cannot be read in the demo, so the quantities come from the room-by-room takeoff. Drawing reading arrives with the platform.`,
-    facts: [`${T.facts}, ${Rm.scope}`, `source: ${src}`, tk ? `${tk.name} starts ${fmtL(tk.start)} (the schedule)` : "no framing task on the schedule"].concat(E ? [`estimate line ${E.label}: budget ${money(E.budget)}, ${money(E.committed)} committed, ${money(E.left)} left`] : []),
+    facts: [`${T.facts}, ${Rm.scope}`, `source: ${src}`, tk ? `${tk.name} starts ${fmtL(tk.start)} (the schedule)` : "no framing task on the schedule"].concat(E ? [`estimate line ${E.label}: ${money(E.budget)} for labour and material, ${money(E.committed)} committed; ${null == E.material ? `${RFQ_NO_MAT.toLowerCase()} (no material/labour split), so savings are not measured against it` : `material budget ${money(E.material)}, ${money(E.matLeft)} left`}`] : []),
     assumptions: [`lumber yard lead time ${RFQ_LEAD_ASSUMED} working days, so order by ${fmtL(orderBy)} for delivery the morning ${tk ? "the task starts" : "it is needed"}`, `waste ${T.assumptions.waste}%`],
     takeoff: { assumptions: T.assumptions, totals: T.totals, scope: Rm.scope, source: src },
     lines: T.lines.map((l) => Object.assign(l, { needBy: needBy, costCode: "03", line: E ? E.key : "", estimateLineId: E && E.key.startsWith("estimate:") ? E.key.split(":")[2] : "", estimateId: E && E.key.startsWith("estimate:") ? E.key.split(":")[1] : "", coLineId: E && E.key.startsWith("co:") ? E.key.split(":")[2] : "" })),
@@ -172964,7 +173016,7 @@ function rfqProposeVendors(r) {
 function rfqBasketGuess(r) {
   const L = r.quotes && r.quotes.length ? rfqLevel(r) : null;
   if (L && L.baskets.length) return L.baskets[0].landed;
-  return r.estLine ? Math.min(r.estLine.left || 0, 1e9) : 0;
+  return r.estLine ? Math.min((null != r.estLine.matLeft ? r.estLine.matLeft : r.estLine.left) || 0, 1e9) : 0;
 }
 
 // ---- 4. out to vendors: one email per vendor, the line sheet in the body and as a CSV
@@ -173340,25 +173392,27 @@ function rfqEnterPrices(r, q) {
   );
 }
 
-// ---- line-first: an RFQ starts from the estimate, CO and selection lines it buys for (Standard: 75% of
-// purchases and RFQs start from line items). Each RFQ line keeps the link (estimateLineId / coLineId, the field
-// names the chain lane's PO-line picker uses, plus `line`, the key every PO line already carries) and the line's
-// budget, so leveling shows budget per line and the award's PO lines inherit the link.
+// ---- line-first: an RFQ starts from the estimate, CO, invoice and selection lines it buys for (Alan: most
+// purchases and RFQs start from estimate or invoice lines). Each RFQ line keeps the link (estimateLineId /
+// coLineId / invoiceLineId, the field names the chain lane's PO-line picker uses, plus `line`, the key every PO
+// line already carries) and the line's material budget (rfqMatBudget), so leveling shows budget per line and the
+// award's PO lines inherit the link. Invoice lines are the PO picker's (poLineOptions): a sent or paid invoice
+// that is not a progress billing, a T&M or a reimbursable line.
 function rfqLineSources(pid) {
   const p = (DB.projects || []).find((x) => x.id === pid);
   if (!p) return [];
   let O = [];
   try {
-    O = lineOptions(pid) || [];
+    O = ("function" == typeof poLineOptions ? poLineOptions(pid) : lineOptions(pid)) || [];
   } catch (e) {}
   const out = O.map((o) => {
     const l = o.line,
-      co = String(o.key).startsWith("co:"),
+      k0 = String(o.key).split(":")[0],
       code = l.code || ("function" == typeof codeForLine ? codeForLine(l) : "") || "",
-      budget = +l.cost || 0;
+      M = rfqMatBudget(o.key, l, o.doc);
     return {
       key: o.key,
-      kind: co ? "co" : "estimate",
+      kind: "co" === k0 ? "co" : "invoice" === k0 ? "invoice" : "estimate",
       docId: o.doc.id,
       docNo: o.doc.number,
       lineId: l.id,
@@ -173367,7 +173421,9 @@ function rfqLineSources(pid) {
       qty: +l.qty || 1,
       unit: l.unit || "ls",
       code: code,
-      budget: budget,
+      budget: M.budget,
+      budgetWhole: M.whole,
+      budgetNote: M.note,
       coarse: (!l.unit || /^(ls|lot|lump)/i.test(l.unit)) && (+l.qty || 1) <= 1,
       framing: "03" === code || /fram|rough carpentry/i.test(l.item || ""),
     };
@@ -173405,9 +173461,9 @@ function rfqFromLines(pid, keys, opts) {
     taskId = "";
   pick.forEach((s) => {
     const N = rfqLineNeed(p, s),
-      link = { line: "selection" === s.kind ? s.line || "" : s.key, estimateLineId: "estimate" === s.kind ? s.lineId : "", estimateId: "estimate" === s.kind ? s.docId : "", coLineId: "co" === s.kind ? s.lineId : "", coId: "co" === s.kind ? s.docId : "", selId: s.selId || "" };
+      link = { line: "selection" === s.kind ? s.line || "" : s.key, estimateLineId: "estimate" === s.kind ? s.lineId : "", estimateId: "estimate" === s.kind ? s.docId : "", coLineId: "co" === s.kind ? s.lineId : "", coId: "co" === s.kind ? s.docId : "", invoiceLineId: "invoice" === s.kind ? s.lineId : "", invoiceId: "invoice" === s.kind ? s.docId : "", selId: s.selId || "" };
     (!need || N.needBy < need) && ((need = N.needBy), (taskId = N.tk ? N.tk.id : taskId));
-    budgets[s.key] = { key: s.key, label: `${s.docNo || "Selection"} · ${s.item}`, budget: s.budget };
+    budgets[s.key] = { key: s.key, label: `${s.docNo || "Selection"} · ${s.item}`, budget: s.budget, whole: null == s.budgetWhole ? null : s.budgetWhole, note: s.budgetNote || "" };
     "selection" !== s.kind && (fieldMat = !0);
     if (s.coarse && s.framing && o.breakdown && o.breakdown[s.key]) {
       // the person approved the assistant's material list for a lump-sum line: one RFQ line per material,
@@ -173427,7 +173483,7 @@ function rfqFromLines(pid, keys, opts) {
     taskId: taskId,
     estLine: null,
     budgets: budgets,
-    facts: pick.map((s) => `${s.docNo || "Selection"} · ${s.item}: ${s.qty} ${s.unit}, budget ${money(s.budget)}`).concat(notes),
+    facts: pick.map((s) => `${s.docNo || "Selection"} · ${s.item}: ${s.qty} ${s.unit}, ${null == s.budget ? RFQ_NO_MAT.toLowerCase() : `material budget ${money(s.budget)}`}`).concat(notes),
     assumptions: [`lead time ${RFQ_LEAD_ASSUMED} working days before the task the line's cost code works on`],
     lines: lines,
     status: fieldMat ? "foreman-review" : "purchasing",
@@ -173442,10 +173498,10 @@ function rfqLinesSheet(pid, pre) {
   if (!p) return;
   const S0 = rfqLineSources(p.id),
     sel = new Set(pre || []),
-    row = (s) => `<label class="rfq-pick"><input type="checkbox" data-rfqpk="${esc(s.key)}" ${sel.has(s.key) ? "checked" : ""}><span class="grow"><b data-nocase>${esc(s.item)}</b><span class="small muted" data-nocase>${esc(s.docNo || "Selection")} · ${s.qty} ${esc(s.unit)} · budget ${money(s.budget)}${s.coarse && s.framing ? " · lump sum: I will propose a material list" : ""}${(rfqOpenOnLine(s.key) || []).length ? ` · ${rfqOpenOnLine(s.key).map((r) => r.number).join(", ")} open` : ""}</span></span></label>`;
+    row = (s) => `<label class="rfq-pick"><input type="checkbox" data-rfqpk="${esc(s.key)}" ${sel.has(s.key) ? "checked" : ""}><span class="grow"><b data-nocase>${esc(s.item)}</b><span class="small muted" data-nocase>${esc(s.docNo || "Selection")} · ${s.qty} ${esc(s.unit)} · ${null == s.budget ? RFQ_NO_MAT : `material budget ${money(s.budget)}`}${s.coarse && s.framing ? " · lump sum: I will propose a material list" : ""}${(rfqOpenOnLine(s.key) || []).length ? ` · ${rfqOpenOnLine(s.key).map((r) => r.number).join(", ")} open` : ""}</span></span></label>`;
   const m = mbModal(
     "Which Lines?",
-    `<div class="rfq-sheet">${mbF("Job", `<select data-f="job" id="rfq-ls-job">${P.map((x) => `<option value="${x.id}" ${x.id === p.id ? "selected" : ""}>${esc(shortName(x))}</option>`).join("")}</select>`)}<p class="small muted" style="margin:4px 0 8px">Pick the estimate, change order and selection lines this request buys for. Each RFQ line keeps its link and budget.</p><div id="rfq-ls-rows">${S0.map(row).join("") || '<p class="small muted">This job has no approved estimate or change order lines.</p>'}</div></div>`,
+    `<div class="rfq-sheet">${mbF("Job", `<select data-f="job" id="rfq-ls-job">${P.map((x) => `<option value="${x.id}" ${x.id === p.id ? "selected" : ""}>${esc(shortName(x))}</option>`).join("")}</select>`)}<p class="small muted" style="margin:4px 0 8px">Pick the estimate, change order, invoice and selection lines this request buys for. Each RFQ line keeps its link and its material budget.</p><div id="rfq-ls-rows">${S0.map(row).join("") || '<p class="small muted">This job has no approved estimate, change order or invoice lines.</p>'}</div></div>`,
     {
       submit: "Create RFQ",
       onSubmit: () => {
@@ -173463,7 +173519,7 @@ function rfqLinesSheet(pid, pre) {
   const jobSel = m.querySelector("#rfq-ls-job");
   jobSel &&
     (jobSel.onchange = () => {
-      sel.clear(), (m.querySelector("#rfq-ls-rows").innerHTML = rfqLineSources(jobSel.value).map(row).join("") || '<p class="small muted">This job has no approved estimate or change order lines.</p>');
+      sel.clear(), (m.querySelector("#rfq-ls-rows").innerHTML = rfqLineSources(jobSel.value).map(row).join("") || '<p class="small muted">This job has no approved estimate, change order or invoice lines.</p>');
     });
   return m;
 }
@@ -173565,6 +173621,26 @@ const RFQ_HANDLING = 120,
     const rec = rfqVendorRecord(v);
     return [v.terms ? `terms ${v.terms}` : "", v.since ? `used since ${v.since}` : "", v.emergencies ? `${v.emergencies} emergency deliver${1 === v.emergencies ? "y" : "ies"}` : "", rec.pos ? `${rec.pos} POs` : ""].filter(Boolean).join(" · ") || "no history with us";
   };
+// The budgets leveling measures against, read live from the lines (a split set after the RFQ was drafted counts):
+// line-first RFQs keep one per source line; a from-plans RFQ has its estimate line, less what other orders already
+// committed on it (this RFQ's own POs never count against it).
+function rfqBudgetsNow(r) {
+  const B = Object.values(r.budgets || {});
+  if (B.length)
+    return B.map((b) => {
+      if (String(b.key).startsWith("sel:")) return Object.assign({ note: "a selection: the whole budget is material" }, b);
+      const M = rfqMatBudget(b.key);
+      return Object.assign({}, b, { budget: M.budget, whole: M.whole, split: M.split, note: M.note });
+    });
+  if (!r.estLine) return [];
+  const M = rfqMatBudget(r.estLine.key),
+    committed = r2((DB.pos || []).filter((po) => "cancelled" !== po.status && po.rfqId !== r.id).flatMap((po) => po.lines || []).filter((l) => l.line === r.estLine.key).reduce((a, l) => a + (+l.qty || 0) * (+l.price || 0), 0));
+  return [{ key: r.estLine.key, label: r.estLine.label, budget: null == M.budget ? null : r2(M.budget - committed), material: M.budget, committed: committed, whole: M.whole, split: M.split, note: M.note }];
+}
+function rfqLineBudgetNow(l) {
+  if (l.fromLine && "line" === l.key && !String(l.fromLine).startsWith("sel:")) return rfqMatBudget(l.fromLine).budget;
+  return null == l.budget ? null : +l.budget;
+}
 function rfqLevel(r, opts) {
   const o = opts || {},
     td = today(),
@@ -173614,7 +173690,7 @@ function rfqLevel(r, opts) {
     perLine = r.lines.map((l) => {
       const P = Q.map((q) => ({ vendorId: q.vendorId, vendor: q.vendor, unit: unitOf(q, l.id) })).filter((x) => null != x.unit).sort((a, b) => a.unit - b.unit || String(a.vendor).localeCompare(b.vendor)),
         alts = Q.map((q) => ({ q: q, x: q.lines.find((y) => y.lineId === l.id) })).filter((y) => y.x && y.x.sub && !ok.has(`${y.q.vendorId}:${l.id}`)).map((y) => ({ vendorId: y.q.vendorId, vendor: y.q.vendor, unit: y.x.unit, text: y.x.subText }));
-      return { lineId: l.id, item: l.item, qty: l.qty, unit: l.unit, budget: null == l.budget ? null : +l.budget, best: P[0] || null, prices: P, alts: alts };
+      return { lineId: l.id, item: l.item, qty: l.qty, unit: l.unit, budget: rfqLineBudgetNow(l), best: P[0] || null, prices: P, alts: alts };
     });
   // the best split: every subset of vendors, each line to the cheapest vendor in the subset, freight and minimums
   // counted for each vendor used; the cheapest feasible plan wins (fewer vendors on a tie)
@@ -173643,9 +173719,12 @@ function rfqLevel(r, opts) {
   const bestSplit = split(Q),
     onTimeQ = Q.filter((q) => vinfo(q).onTime),
     onTimeSplit = onTimeQ.length ? split(onTimeQ) : null,
-    budgets = Object.values(r.budgets || {}).length ? Object.values(r.budgets) : r.estLine ? [{ key: r.estLine.key, label: `${r.estLine.label} (the whole line, labor and material)`, budget: r.estLine.left, whole: r.estLine.budget }] : [],
-    budgetTotal = r2(budgets.reduce((a, b) => a + (+b.budget || 0), 0));
-  return { taxRate: rate, unconfirmed: Q.filter((q) => !q.confirmed).map((q) => q.vendor), quotes: Q, vendors: Q.map(vinfo), baskets: baskets, partial: partial, perLine: perLine, split: bestSplit, onTimeSplit: onTimeSplit, budgets: budgets, budgetTotal: budgetTotal, needBy: r.needBy };
+    budgets = rfqBudgetsNow(r),
+    known = budgets.filter((b) => null != b.budget),
+    budgetComplete = !!budgets.length && known.length === budgets.length,
+    // one figure or none: a basket measured against a budget that is missing for some of its lines is misleading
+    budgetTotal = budgetComplete ? r2(known.reduce((a, b) => a + (+b.budget || 0), 0)) : 0;
+  return { taxRate: rate, unconfirmed: Q.filter((q) => !q.confirmed).map((q) => q.vendor), quotes: Q, vendors: Q.map(vinfo), baskets: baskets, partial: partial, perLine: perLine, split: bestSplit, onTimeSplit: onTimeSplit, budgets: budgets, budgetTotal: budgetTotal, budgetComplete: budgetComplete, budgetMissing: budgets.filter((b) => null == b.budget).map((b) => b.label), needBy: r.needBy };
 }
 // The recommendation, in the Standard's escalation format. Schedule outranks cost (decision principles), so a
 // split that lands after the need-by date is never recommended over one that lands in time.
@@ -173659,7 +173738,7 @@ function rfqRecommend(r, L) {
   const vendors = plan.by.map((x) => `${vn(x.vendorId)} (${x.lines.length} line${1 === x.lines.length ? "" : "s"}, ${money(x.landed)} landed)`);
   return {
     what: `${L.quotes.length} readable quote${1 === L.quotes.length ? "" : "s"} on ${r.number}. Cheapest whole basket: ${L.baskets[0] ? `${L.baskets[0].vendor} at ${money(L.baskets[0].landed)} landed` : "nobody quoted every line on the same spec"}. Best split: ${money(plan.total)} landed across ${vendors.join(", ")}.`,
-    impact: `Cost: ${L.baskets[0] ? `${money(r2(L.baskets[0].landed - plan.total))} under the cheapest whole basket` : "the split is the only complete price"}${L.budgetTotal ? `; ${money(r2(L.budgetTotal - plan.total))} ${L.budgetTotal >= plan.total ? "under" : "over"} the budget on the line${L.budgets.length === 1 ? "" : "s"}` : ""}. Schedule: ${plan.by.every((x) => (L.vendors.find((v) => v.vendorId === x.vendorId) || {}).onTime) ? `every vendor in it lands by ${fmtL(r.needBy)}` : "a vendor in it lands after the need-by date"}${late ? `; the cheapest split (${money(L.split.total)}) would land late, so it is not recommended (schedule ranks above cost)` : ""}. Quality: same spec on every line${L.perLine.some((x) => x.alts.length) ? "; alternates were offered and are not counted until the PM and designer approve them" : ""}.`,
+    impact: `Cost: ${L.baskets[0] ? `${money(r2(L.baskets[0].landed - plan.total))} under the cheapest whole basket` : "the split is the only complete price"}${L.budgetComplete ? `; ${money(r2(L.budgetTotal - plan.total))} ${L.budgetTotal >= plan.total ? "under" : "over"} the material budget on the line${L.budgets.length === 1 ? "" : "s"}` : L.budgets.length ? `; no comparison with budget: ${RFQ_NO_MAT.toLowerCase()}${L.budgets.length > 1 ? ` (${L.budgetMissing.join(", ")})` : ""}` : ""}. Schedule: ${plan.by.every((x) => (L.vendors.find((v) => v.vendorId === x.vendorId) || {}).onTime) ? `every vendor in it lands by ${fmtL(r.needBy)}` : "a vendor in it lands after the need-by date"}${late ? `; the cheapest split (${money(L.split.total)}) would land late, so it is not recommended (schedule ranks above cost)` : ""}. Quality: same spec on every line${L.perLine.some((x) => x.alts.length) ? "; alternates were offered and are not counted until the PM and designer approve them" : ""}.`,
     options: [`award the split (${money(plan.total)})`].concat(L.baskets[0] ? [`award the whole basket to ${L.baskets[0].vendor} (${money(L.baskets[0].landed)})`] : []).concat(["negotiate first: ask each vendor to beat the best figure we hold"]),
     rec: (r.neg || []).some((n) => "sent" === n.status) ? `Award the split: ${vendors.join(", ")}.` : `Negotiate once (${rfqWhy("firstPrice")}), then award the split.`,
     by: (r.orderBy || r.needBy) < today() ? today() : r.orderBy || r.needBy,
@@ -173774,7 +173853,7 @@ function rfqAward(r, assign) {
         landed: r2(goods + (+q.freight || 0) + shortfall + tax + handling),
         lines: lines.map((l) => {
           const key = l.line || (r.estLine || {}).key || "";
-          return { id: uid("pl"), item: l.item, desc: l.spec || "", qty: +l.qty, unit: l.unit, price: unit(l.id), materialId: "", line: key, estimateLineId: l.estimateLineId || (key.startsWith("estimate:") ? key.split(":")[2] : ""), coLineId: l.coLineId || (key.startsWith("co:") ? key.split(":")[2] : ""), code: l.costCode || "03", rfqId: r.id, rfqLineId: l.id, received: 0 };
+          return { id: uid("pl"), item: l.item, desc: l.spec || "", qty: +l.qty, unit: l.unit, price: unit(l.id), materialId: "", line: key, estimateLineId: l.estimateLineId || (key.startsWith("estimate:") ? key.split(":")[2] : ""), coLineId: l.coLineId || (key.startsWith("co:") ? key.split(":")[2] : ""), invoiceLineId: l.invoiceLineId || (key.startsWith("invoice:") ? key.split(":")[2] : ""), code: l.costCode || "03", rfqId: r.id, rfqLineId: l.id, received: 0 };
         }),
         tax: taxed ? rate : 0,
         shipping: r2((+q.freight || 0) + shortfall),
@@ -173802,8 +173881,8 @@ function rfqAward(r, assign) {
   });
   const final = r2(made.reduce((a, po) => a + po.landed, 0)),
     firstQuote = first.baskets[0] ? first.baskets[0].landed : first.split ? first.split.total : final,
-    budget = L.budgetTotal;
-  r.award = { on: today(), at: appNowIso(), by: rfqMe(), assign: A, pos: made.map((x) => x.id), numbers: made.map((x) => x.number), final: final, poTotal: r2(made.reduce((a, po) => a + poTotal(po).total, 0)), useTax: r2(made.reduce((a, po) => a + ((po.useTax || {}).amount || 0), 0)), firstQuote: firstQuote, firstBasis: first.baskets[0] ? `the cheapest whole first-round basket (${first.baskets[0].vendor})` : "the best first-round split", savingsVsFirst: r2(firstQuote - final), budget: budget, savingsVsBudget: budget ? r2(budget - final) : null };
+    budget = L.budgetComplete ? L.budgetTotal : null;
+  r.award = { on: today(), at: appNowIso(), by: rfqMe(), assign: A, pos: made.map((x) => x.id), numbers: made.map((x) => x.number), final: final, poTotal: r2(made.reduce((a, po) => a + poTotal(po).total, 0)), useTax: r2(made.reduce((a, po) => a + ((po.useTax || {}).amount || 0), 0)), firstQuote: firstQuote, firstBasis: first.baskets[0] ? `the cheapest whole first-round basket (${first.baskets[0].vendor})` : "the best first-round split", savingsVsFirst: r2(firstQuote - final), budget: budget, savingsVsBudget: null != budget ? r2(budget - final) : null, budgetBasis: "material", budgetNote: null == budget && L.budgets.length ? `${RFQ_NO_MAT}${L.budgets.length > 1 ? `: ${L.budgetMissing.join(", ")}` : ""}` : "" };
   (r.status = "awarded"), rfqHist(r, "awarded", `${made.map((x) => `${x.number} ${x.vendor} ${money(poTotal(x).total)} (${x.status})`).join("; ")}; saved ${money(r.award.savingsVsFirst)} against the first quote`);
   save(), render();
   rcToast(`${r.number} awarded — ${made.map((x) => x.number).join(", ")}; ${money(r.award.savingsVsFirst)} under the first quote`, made.slice(0, 2).map((po) => ({ label: `Open ${po.number}`, run: "function" == typeof flowGo ? flowGo.po(po) : () => setView("po") })).concat([{ label: "Open", run: () => rfqOpenFor(r.id) }]));
@@ -173811,10 +173890,26 @@ function rfqAward(r, assign) {
 }
 // The month's savings: final price against the first quote, for every RFQ awarded in the month (Standard:
 // report savings monthly).
+// Against budget only where the line has a material budget; the others are counted apart, never as savings.
 function rfqSavings(ym) {
   const m = ym || today().slice(0, 7),
     A = rfqInit().filter((r) => r.award && String(r.award.on).slice(0, 7) === m);
-  return { ym: m, rfqs: A, n: A.length, vsFirst: r2(A.reduce((a, r) => a + (+r.award.savingsVsFirst || 0), 0)), vsBudget: r2(A.reduce((a, r) => a + (+r.award.savingsVsBudget || 0), 0)), final: r2(A.reduce((a, r) => a + (+r.award.final || 0), 0)) };
+  A.forEach(rfqAwardBudgetFix);
+  const B = A.filter((r) => null != r.award.savingsVsBudget);
+  return { ym: m, rfqs: A, n: A.length, vsFirst: r2(A.reduce((a, r) => a + (+r.award.savingsVsFirst || 0), 0)), vsBudget: r2(B.reduce((a, r) => a + (+r.award.savingsVsBudget || 0), 0)), nBudget: B.length, noBudget: A.length - B.length, final: r2(A.reduce((a, r) => a + (+r.award.final || 0), 0)) };
+}
+// An award stamped before the material rule measured against the whole line, labour included: re-read it once
+// from the lines as they are (the material budget, or none), so no screen or answer repeats the old figure.
+function rfqAwardBudgetFix(r) {
+  const A = r && r.award;
+  if (!A || "material" === A.budgetBasis) return A;
+  try {
+    const B = rfqBudgetsNow(r),
+      ok = B.length && B.every((b) => null != b.budget),
+      budget = ok ? r2(B.reduce((a, b) => a + (+b.budget || 0), 0)) : null;
+    Object.assign(A, { budget: budget, savingsVsBudget: null != budget ? r2(budget - (+A.final || 0)) : null, budgetBasis: "material", budgetNote: null == budget && B.length ? RFQ_NO_MAT : "", budgetWas: A.budget });
+  } catch (e) {}
+  return A;
 }
 
 // ---- 9. vendor discovery, always on: Prospects. Each is a proposal the coordinator adds (it becomes a vendor on
@@ -174210,7 +174305,8 @@ function rfqEqRows() {
       awardedOn: r.award ? r.award.on : "",
       amount: r.award ? r.award.final : 0,
       savings: r.award ? r.award.savingsVsFirst : 0,
-      savingsVsBudget: r.award ? r.award.savingsVsBudget || 0 : 0,
+      savingsVsBudget: r.award && null != rfqAwardBudgetFix(r).savingsVsBudget ? r.award.savingsVsBudget : null,
+      budgetNote: r.award ? r.award.budgetNote || "" : "",
       createdAt: String(r.createdAt || "").slice(0, 10),
     };
   });
@@ -174291,8 +174387,8 @@ AG_ASST.unshift(
       const ym = P.period ? P.period.from.slice(0, 7) : today().slice(0, 7),
         V = rfqSavings(ym);
       return {
-        headline: `${V.n ? `We saved ${money(V.vsFirst)} on ${agN(V.n, "RFQ")} awarded in ${ym}: final price against the first quote${V.vsBudget ? `, and ${money(V.vsBudget)} under budget` : ""}.` : `No RFQ was awarded in ${ym}, so there is no saving to report yet.`}`,
-        work: V.rfqs.map((r) => `${r.number} · ${r.title}: first quote ${money(r.award.firstQuote)}, final ${money(r.award.final)}, saved ${money(r.award.savingsVsFirst)}${null != r.award.savingsVsBudget ? `; budget ${money(r.award.budget)}` : ""}`),
+        headline: `${V.n ? `We saved ${money(V.vsFirst)} on ${agN(V.n, "RFQ")} awarded in ${ym}: final price against the first quote${V.nBudget ? `, and ${money(V.vsBudget)} ${V.vsBudget >= 0 ? "under" : "over"} the material budget on ${agN(V.nBudget, "RFQ")}` : ""}${V.noBudget ? `. ${agN(V.noBudget, "RFQ")} had no material budget on the line, so nothing is claimed against budget there` : ""}.` : `No RFQ was awarded in ${ym}, so there is no saving to report yet.`}`,
+        work: V.rfqs.map((r) => `${r.number} · ${r.title}: first quote ${money(r.award.firstQuote)}, final ${money(r.award.final)}, saved ${money(r.award.savingsVsFirst)}${null != r.award.savingsVsBudget ? `; material budget ${money(r.award.budget)}, ${money(Math.abs(r.award.savingsVsBudget))} ${r.award.savingsVsBudget >= 0 ? "under" : "over"}` : `; ${RFQ_NO_MAT.toLowerCase()}`}`),
         go: agGo("rfq"),
         ran: agRan("rfqs", [`awarded in ${ym}`], "", V.n),
       };
@@ -174476,7 +174572,7 @@ function renderRfq() {
     const u = (paMe() || {}).id,
       sv = rfqSavings();
     body = `${R.length ? `<div class="rfq-cards">${R.map((x) => `<div class="rfq-card"><b class="rfq-h" data-nocase>${esc(x.number)} · ${esc(x.title)}</b><div class="small muted" data-nocase>${esc(rfqJobName(x))} · ${x.lines.length} lines · on site by ${fmt(x.needBy)}</div><div class="rfq-row" style="margin-top:6px">${rfqPill(x.status)}<span class="small" data-nocase>${esc(rfqNext(x) || "")}</span></div><div class="rfq-row" style="margin-top:8px"><button class="btn sm" data-rfqopen="${esc(x.id)}">Open</button></div></div>`).join("")}</div>` : '<div class="empty card" style="padding:16px"><b>No requests for quote yet.</b><p class="small muted">New RFQ starts from the estimate and change order lines you are buying for; the assistant drafts the material list from the plans when a line is a lump sum, the foreman checks it on his phone, and you pick the vendors.</p></div>'}
-      <div class="card rfq-sec"><h3>Savings This Month</h3><p class="small">${sv.n ? `${money(sv.vsFirst)} saved on ${sv.n} RFQ${1 === sv.n ? "" : "s"} awarded in ${sv.ym}: final price against the first quote${sv.vsBudget ? `; ${money(sv.vsBudget)} under budget` : ""}.` : `Nothing awarded in ${sv.ym} yet.`} <span class="muted">${esc(rfqWhy("savings"))}</span></p></div>
+      <div class="card rfq-sec"><h3>Savings This Month</h3><p class="small">${sv.n ? `${money(sv.vsFirst)} saved on ${sv.n} RFQ${1 === sv.n ? "" : "s"} awarded in ${sv.ym}: final price against the first quote${sv.nBudget ? `; ${money(Math.abs(sv.vsBudget))} ${sv.vsBudget >= 0 ? "under" : "over"} the material budget` : ""}${sv.noBudget ? `; ${sv.noBudget} with no material budget on the line, so no figure against budget` : ""}.` : `Nothing awarded in ${sv.ym} yet.`} <span class="muted">${esc(rfqWhy("savings"))}</span></p></div>
       ${u ? `<div class="card rfq-sec"><h3>What I May Send for You</h3><label class="rfq-pick"><input type="checkbox" id="rfq-deleg" ${rfqDelegated(u) ? "checked" : ""}><span class="grow"><b>Send RFQ Chases for Me</b><span class="small muted">Off: a reminder to a vendor who has not quoted waits in your Approvals as a draft. On: the assistant sends it the day before the due date. ${esc(rfqWhy("approve"))}</span></span></label></div>` : ""}`;
   } else if ("prospects" === tab) {
     const P = rfqProspects();
@@ -174540,7 +174636,7 @@ function rfqLevelHtml(r, L) {
     V = L.vendors,
     vn = (id) => (V.find((v) => v.vendorId === id) || {}).vendor || id,
     taxNote = `<p class="small muted">Landed cost counts NY sales tax where the vendor charges it and NY use tax (${L.taxRate}%) where it does not — confirm with the accountant; it is not tax advice.${L.unconfirmed.length ? ` Not confirmed yet: ${esc(L.unconfirmed.join(", "))} — the figures are read by AI.` : ""}</p>`,
-    tiles = `<div class="rfq-tiles"><div class="rfq-tile"><span class="small muted">Cheapest Whole Basket</span><b>${L.baskets[0] ? money(L.baskets[0].landed) : "None Complete"}</b><span class="small" data-nocase>${L.baskets[0] ? esc(L.baskets[0].vendor) : "nobody priced every line on the same spec"}</span></div><div class="rfq-tile"><span class="small muted">Best Split</span><b>${L.split ? money(L.split.total) : "Not Possible"}</b><span class="small" data-nocase>${L.split ? esc(L.split.by.map((x) => vn(x.vendorId)).join(" + ")) : ""}</span></div><div class="rfq-tile"><span class="small muted">Best Split on Time</span><b>${L.onTimeSplit ? money(L.onTimeSplit.total) : "None"}</b><span class="small">lands by ${fmt(r.needBy)}</span></div><div class="rfq-tile"><span class="small muted">Budget</span><b>${L.budgetTotal ? money(L.budgetTotal) : "Not Linked"}</b><span class="small" data-nocase>${esc(L.budgets.map((b) => b.label).join("; ").slice(0, 80))}</span></div></div>`,
+    tiles = `<div class="rfq-tiles"><div class="rfq-tile"><span class="small muted">Cheapest Whole Basket</span><b>${L.baskets[0] ? money(L.baskets[0].landed) : "None Complete"}</b><span class="small" data-nocase>${L.baskets[0] ? esc(L.baskets[0].vendor) : "nobody priced every line on the same spec"}</span></div><div class="rfq-tile"><span class="small muted">Best Split</span><b>${L.split ? money(L.split.total) : "Not Possible"}</b><span class="small" data-nocase>${L.split ? esc(L.split.by.map((x) => vn(x.vendorId)).join(" + ")) : ""}</span></div><div class="rfq-tile"><span class="small muted">Best Split on Time</span><b>${L.onTimeSplit ? money(L.onTimeSplit.total) : "None"}</b><span class="small">lands by ${fmt(r.needBy)}</span></div><div class="rfq-tile"><span class="small muted">Material Budget</span><b>${L.budgetComplete ? money(L.budgetTotal) : L.budgets.length ? "None on the Line" : "Not Linked"}</b><span class="small" data-nocase>${esc(L.budgetComplete ? L.budgets.map((b) => b.label).join("; ").slice(0, 80) : L.budgets.length ? RFQ_NO_MAT : "")}</span></div></div>`,
     vcards = `<div class="rfq-cards">${V.map((v) => {
       const b = L.baskets.find((x) => x.vendorId === v.vendorId),
         p = L.partial.find((x) => x.vendorId === v.vendorId),
@@ -174556,7 +174652,7 @@ function rfqLevelHtml(r, L) {
       ? `<div class="rfq-cards">${L.perLine.map((pl) => `<div class="rfq-card"><b class="rfq-h" data-nocase>${esc(pl.lineId)} · ${esc(pl.item)}</b><div class="small">${pl.qty} ${esc(pl.unit)}${null != pl.budget ? ` · budget ${money(pl.budget)}` : ""}</div>${V.map((v) => `<div class="small" data-nocase>${esc(v.vendor)}: ${lineCell(pl, v)}</div>`).join("")}<div class="small">Best: <b data-nocase>${pl.best ? `${esc(pl.best.vendor)} ${rfqU(pl.best.unit)}` : "no same-spec price"}</b></div></div>`).join("")}</div>`
       : `<div class="rfq-tw"><table class="t rfq-grid"><thead><tr><th>Line</th><th>Item</th><th class="money">Qty</th><th class="money">Budget</th>${V.map((v) => `<th class="money" data-nocase>${esc(v.vendor)}</th>`).join("")}<th>Best</th></tr></thead><tbody>${L.perLine.map((pl) => `<tr><td>${esc(pl.lineId)}</td><td data-nocase>${esc(pl.item)}</td><td class="money">${pl.qty} ${esc(pl.unit)}</td><td class="money">${null != pl.budget ? money(pl.budget) : "—"}</td>${V.map((v) => `<td class="money">${lineCell(pl, v)}</td>`).join("")}<td data-nocase>${pl.best ? esc(pl.best.vendor) : "—"}</td></tr>`).join("")}</tbody></table></div>`,
     rec = `<dl class="rfq-rec small"><dt>What Happened</dt><dd data-nocase>${esc(R.what)}</dd><dt>Impact on Cost, Schedule and Quality</dt><dd data-nocase>${esc(R.impact)}</dd><dt>Options</dt><dd data-nocase>${esc(R.options.join("; "))}</dd><dt>Recommendation</dt><dd data-nocase><b>${esc(R.rec)}</b></dd><dt>Decide By</dt><dd>${fmtL(R.by)} (the order-by date)</dd></dl><p class="small muted">${esc(rfqWhy("landed"))}. ${esc(rfqWhy("escalate"))}.</p>`;
-  return `${tiles}${taxNote}<div class="rfq-sec"><h3>Vendors</h3>${vcards}</div><div class="rfq-sec"><h3>By Line</h3>${perLine}</div>${L.budgets.length ? `<div class="rfq-sec"><h3>Budget by Line</h3><div class="rfq-cards">${L.budgets.map((b) => `<div class="rfq-card small" data-rfqbud="${esc(b.key)}"><b data-nocase>${esc(b.label)}</b><div>${money(b.budget)}${b.whole ? ` left of ${money(b.whole)}` : ""}</div></div>`).join("")}</div></div>` : ""}<div class="card rfq-sec"><h3>Recommendation</h3>${rec}</div>`;
+  return `${tiles}${taxNote}<div class="rfq-sec"><h3>Vendors</h3>${vcards}</div><div class="rfq-sec"><h3>By Line</h3>${perLine}</div>${L.budgets.length ? `<div class="rfq-sec"><h3>Material Budget by Line</h3><div class="rfq-cards">${L.budgets.map((b) => `<div class="rfq-card small" data-rfqbud="${esc(b.key)}"><b data-nocase>${esc(b.label)}</b>${null != b.budget ? `<div>${money(b.budget)}${null != b.material && b.material !== b.budget ? ` left of ${money(b.material)}` : ""}</div><div class="muted" data-nocase>${esc(b.note || "")}</div>` : `<div class="rfq-nomat">${RFQ_NO_MAT}</div><div class="muted" data-nocase>The line's ${money(b.whole || 0)} is labour and material together, so no saving is measured against it.</div>${["owner", "pm"].includes(role()) && !String(b.key).startsWith("sel:") ? `<button class="btn sm" data-rfqsetmat="${esc(b.key)}" style="margin-top:6px">Set Material Budget</button>` : ""}`}</div>`).join("")}</div></div>` : ""}<div class="card rfq-sec"><h3>Recommendation</h3>${rec}</div>`;
 }
 function rfqDetailHtml(r) {
   const p = rfqJob(r),
@@ -174600,11 +174696,11 @@ function rfqDetailHtml(r) {
       .join("")}<div class="rfq-row"><button class="btn primary" id="rfq-award">Award and Create POs</button><button class="btn" id="rfq-check">Check Replies</button></div></div>`;
   }
   if ("awarded" === stage && r.award) {
-    const A = r.award;
+    const A = rfqAwardBudgetFix(r);
     act += `<div class="card rfq-sec"><h3>Awarded</h3><p class="small">${fmtL(A.on)} by ${esc(A.by)}: ${A.pos.map((id) => {
       const po = (DB.pos || []).find((x) => x.id === id);
       return po ? `<a href="#" data-rfqpo="${esc(po.id)}">${esc(po.number)}</a> ${esc(po.vendor)} ${money(poTotal(po).total)} (${esc(po.status)})` : "";
-    }).join("; ")}.</p><p class="small">Final ${money(A.final)} against the first quote ${money(A.firstQuote)} (${esc(A.firstBasis)}): <b>${money(A.savingsVsFirst)} saved</b>${null != A.savingsVsBudget ? `; ${money(A.savingsVsBudget)} ${A.savingsVsBudget >= 0 ? "under" : "over"} the budget of ${money(A.budget)}` : ""}.</p></div>`;
+    }).join("; ")}.</p><p class="small">Final ${money(A.final)} against the first quote ${money(A.firstQuote)} (${esc(A.firstBasis)}): <b>${money(A.savingsVsFirst)} saved</b>${null != A.savingsVsBudget ? `; ${money(Math.abs(A.savingsVsBudget))} ${A.savingsVsBudget >= 0 ? "under" : "over"} the material budget of ${money(A.budget)}` : A.budgetNote ? `. Against budget: ${esc(A.budgetNote)}` : ""}.</p></div>`;
   }
   const facts = `<div class="card rfq-sec"><h3>What the Draft Rests On</h3><p class="small"><b>Facts:</b></p><ul class="small" style="margin:0 0 6px 16px;padding:0">${(r.facts || []).map((f) => `<li data-nocase>${esc(f)}</li>`).join("")}</ul>${(r.assumptions || []).length ? `<p class="small"><b>Assumptions:</b></p><ul class="small" style="margin:0 0 6px 16px;padding:0">${r.assumptions.map((f) => `<li data-nocase>${esc(f)}</li>`).join("")}${r.takeoff ? `<li data-nocase>${esc(Object.entries(r.takeoff.assumptions || {}).map(([k, v]) => `${k} ${v}`).join(", "))}</li>` : ""}</ul>` : ""}${r.drawingsNote ? `<p class="small muted" data-nocase>${esc(r.drawingsNote)}</p>` : ""}<p class="small muted">${esc(rfqWhy("facts"))}.</p></div>`,
     lines = "draft" === stage ? "" : `<details class="card rfq-sec"><summary><b>Lines (${r.lines.length})</b></summary>${r.lines.map((l) => rfqLineCardHtml(l, !1)).join("")}</details>`,
@@ -174618,6 +174714,17 @@ function rfqWireDetail(host, r) {
       el && (el.onclick = fn);
     };
   on("#rfq-back", () => ((window.rfqOpen = ""), renderRfq(), window.scrollTo(0, 0)));
+  host.querySelectorAll("[data-rfqsetmat]").forEach(
+    (b) =>
+      (b.onclick = () => {
+        const key = b.dataset.rfqsetmat,
+          M = rfqMatBudget(key);
+        mbModal("Set the Material Budget", `<p class="small">The line's budget is ${money(M.whole || 0)} for labour and material together. Enter the material portion; the rest is labour. The price and the client's document do not change.</p>${mbF("Material Portion", '<input type="number" step="any" min="0" data-f="mat">')}`, {
+          submit: "Save",
+          onSubmit: (f) => (rfqSetMatBudget(key, f.mat) ? void 0 : !1),
+        });
+      }),
+  );
   on("#rfq-b-add", () => {
     const item = $q("#rfq-b-item").value.trim(),
       qty = +$q("#rfq-b-qty").value || 0;
