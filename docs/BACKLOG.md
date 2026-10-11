@@ -580,6 +580,14 @@ Alan gets a gallery of the client-facing documents to judge for himself.
 4. **Close the loop.** The person who reported it is told what changed. The brain checks a month later whether the problem stopped, and if not, reopens it.
 5. **Measured.** Problems found against fixed, time to fix, repeat problems (the Standard: "When something goes wrong twice, fix the system"), and the scorecard against the leaders.
 
+### 1.20 Spanish for the field (Alan, 2026-10-11: "We do need Spanish for the field")
+- **Language setting.** Each person has a language setting. The foreman, crew and driver screens, buttons, toasts, notifications and their assistant work fully in Spanish, including voice input in Spanish.
+- **Their playbooks in Spanish.** The field's parts of the Standard (Foreman, Field crew and trades, the jobsite and safety rules, the escalation table) get a Spanish version. Alan's English text stays the source.
+- **Trade words as the crew says them.** Use NYC trade Spanish, keeping common English terms such as "sheetrock" where that is what the crew says. A native speaker on Alan's team reviews the wording before go-live.
+- **What the field writes.** Daily logs, requests and notes are kept as written, and the office sees an automatic English version next to the original. Office replies show in Spanish for the field person.
+- **Clients.** They never see Spanish unless their own setting asks for it.
+- **Test.** Every field screen at 390px in Spanish, with no sideways scroll; Spanish strings are longer.
+
 ## §2 Remaining round-4 findings
 
 ### Founder

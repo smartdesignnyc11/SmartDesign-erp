@@ -16,6 +16,7 @@ Status: **Built** (merged and tested) · **Building** (a lane is on it) · **Spe
 ## 2026-10-11
 | Ask or decision | Where it lives | Status |
 |---|---|---|
+| Spanish is needed for the field | BACKLOG §1.20 | Spec (before go-live) |
 | Estimates and invoices auto-populate items with descriptions | BACKLOG §1.18 | Spec (right after Simplify; shaped by the Documents Workshop) |
 | Pilot runs leaner to save usage (Alan: "both"). Fewer daily roles: owner, PM, coordinator, foreman (phone), billing, controller and designer work every day (Alan swapped the client for the designer). Crew and driver join only on day 3. The client's approvals and payments are played by the world rules, and one short client read of the rendered documents keeps the client-view check, for one short work turn and the workshops. Shorter days: three slots (morning, work, end of day) with action caps 8, 14 and 8 | `docs/PLAN.md` | Agreed |
 | Check document creation (estimates, invoices, progress billing, POs and the rest): easy on the go, quick, right in the back end, and how it looks to the client | BACKLOG §1.17 Documents Workshop | In the pilot |
