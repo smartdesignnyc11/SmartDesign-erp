@@ -126885,7 +126885,13 @@ function ovOverviewHtml(gid) {
 function ovOpen(gid, id) {
   const r = ovRows(gid).find((x) => String(x.id) === String(id));
   if (r) {
-    if ("jobs" === gid) return setCurrent(r.p.id), save(), void setView("dash");
+    // A job opens on its page; someone without that page gets the first job page they have.
+    if ("jobs" === gid)
+      return (
+        setCurrent(r.p.id),
+        save(),
+        void setView(["dash", "sboard", "sched", "ftoday"].find((v) => "function" != typeof flowCan || flowCan(v)) || "dash")
+      );
     if ("buy" !== gid)
       return "sales" === gid
         ? ("function" == typeof hbOpen ? hbOpen("deal", r.l.id) : (view = "hbdeals"),
