@@ -15968,6 +15968,8 @@ function seedInventory() {
       id: "iv9",
       name: "1-gang new-work boxes",
       type: "consumable",
+      cost: 1.2,
+      code: "06",
       qty: 42,
       unit: "ea",
       loc: "wh",
@@ -15978,6 +15980,8 @@ function seedInventory() {
       id: "iv10",
       name: "12/2 NM-B",
       type: "consumable",
+      cost: 98,
+      code: "06",
       qty: 3,
       unit: "roll",
       loc: "wh",
@@ -15988,6 +15992,8 @@ function seedInventory() {
       id: "iv11",
       name: '1/2" PEX-A red',
       type: "consumable",
+      cost: 64,
+      code: "05",
       qty: 2,
       unit: "roll",
       loc: "wh",
@@ -15998,6 +16004,8 @@ function seedInventory() {
       id: "iv12",
       name: "PEX fittings assorted",
       type: "consumable",
+      cost: 45,
+      code: "05",
       qty: 1,
       unit: "bag",
       loc: "truck",
@@ -16008,6 +16016,8 @@ function seedInventory() {
       id: "iv13",
       name: 'Blue tape 1.5"',
       type: "consumable",
+      cost: 6.5,
+      code: "11",
       qty: 18,
       unit: "roll",
       loc: "wh",
@@ -16018,6 +16028,8 @@ function seedInventory() {
       id: "iv14",
       name: "Contractor bags 3 mil",
       type: "consumable",
+      cost: 32,
+      code: "02",
       qty: 4,
       unit: "box",
       loc: "wh",
@@ -16028,12 +16040,15 @@ function seedInventory() {
       id: "iv15",
       name: 'Drywall screws 1-5/8"',
       type: "consumable",
+      cost: 11,
+      code: "07",
       qty: 6,
       unit: "box",
       loc: "wh",
       reorder: 2,
       tags: ["gwb"],
     },
+    ...STOCK_SEED_ADD(),
   ];
 }
 function invFind(q) {
@@ -16044,15 +16059,22 @@ function invFind(q) {
         .replace(/\s+/g, " ")
         .trim(),
     n = norm(q);
+  if (!n) return null;
+  const exact = DB.inventory.find((i) => norm(i.name) === n);
+  if (exact) return exact;
+  // a stocked material is matched on item and spec (stockCompare), never on a loose name: "5/8 drywall sheets"
+  // used to land on 'Drywall screws 1-5/8"' because both start with "drywall"
+  const rq = stockSpec(q),
+    mat = DB.inventory.filter((i) => "tool" !== i.type && "high" === stockCompare(rq, stockSpecOf(i)).level);
+  if (1 === mat.length) return mat[0];
+  // a material that may be stocked (spec left open) is a question, never a tool that shares its first word
+  if (rq.fam || DB.inventory.some((i) => "tool" !== i.type && "none" !== stockCompare(rq, stockSpecOf(i)).level)) return null;
   return (
-    (n &&
-      (DB.inventory.find((i) => norm(i.name) === n) ||
-        DB.inventory.find(
-          (i) =>
-            norm(i.name).includes(n) ||
-            (n.includes(norm(i.name).split(" ")[0]) && norm(i.name).split(" ")[0].length > 3),
-        ))) ||
-    null
+    DB.inventory.find(
+      (i) =>
+        "tool" === i.type &&
+        (norm(i.name).includes(n) || (n.includes(norm(i.name).split(" ")[0]) && norm(i.name).split(" ")[0].length > 3)),
+    ) || null
   );
 }
 function invAvailable(i) {
@@ -16085,6 +16107,1051 @@ function invState(i) {
       f.push({ lvl: "warn", m: "Located at a project that no longer exists" }),
     f
   );
+}
+/* ---------------------------------------------------------------------------
+   Inventory before buying (BACKLOG §1.8 item 12; Alan, 2026-10-11): "the foreman orders 24 boards of 5/8
+   Sheetrock but we have 12 in inventory ... only [the driver or procurement manager] can override purchasing an
+   additional 12, with a reason". Before anything is bought, the firm's own stock is checked at every door:
+     - stockCheck(o)        one reading of the stock for a line: spec-aware match (item, thickness, type, size,
+                            unit and pack), what is free, what comes from stock and what is left to buy;
+     - a material request   splits itself (addRequest, below): the stock part is reserved for the driver's pick
+                            with its location, only the remainder goes to purchasing; the coordinator gets a
+                            Needs Your Hand row, the driver the pick on his route; an uncertain match is a
+                            question to the coordinator, never an assumption;
+     - stockOverride        only the driver or the coordinator, with a reason from STOCK_REASONS; append-only
+                            (DB.stock.overrides); "Count was wrong" corrects the count with a logged adjustment;
+     - a PO or RFQ line     stockGuardOk(lines, ctx): poValid refuses to issue while a line buys what sits in
+                            stock; the PO page and the Order sheet say so inline; stockRfqGuard is the RFQ hook;
+     - after the fact       boughtWhileInStock (CATCH, PRED): a card or bank purchase of a stocked item while it
+                            sat available, with no override.
+   Also (coordinator's review, 2026-10-11): stock issued to a job is a cost to that job at the item's carried cost
+   (DB.stock.use, kind "use"); Return to Stock credits the line (a client's cost-plus job flags its surplus for the
+   PM instead); reservations expire after DB.stock.holdDays (default 5); the driver counts items (Count This) and
+   items corrected by an override come back for a recount; the owner sees override patterns by person and reason.
+   Registries defined further down the file (CATCH, PRED, EQ_TABLES, DELEGATION, Ask, Needs Your Hand, the PO
+   validator) are joined once at boot (stockRegister), so this section sits with the inventory code.
+   --------------------------------------------------------------------------- */
+const STOCK_REASONS = [
+  { id: "count", label: "Count was wrong", hint: "fewer are really there; the count is corrected and logged" },
+  { id: "damaged", label: "Damaged", hint: "the stock is not fit to install" },
+  { id: "spec", label: "Wrong spec", hint: "the stock is not what the work needs (for example moisture-resistant against Type X)" },
+  { id: "reserved", label: "Reserved for another job", hint: "the stock is promised elsewhere" },
+  { id: "trip", label: "Not worth the trip", hint: "the pick costs more than it saves" },
+];
+// The Standard behind every stock line; read from the live Standard when the app carries it.
+function stockBecause() {
+  const std = String(((DB.company || {}).standard || {}).text || (DB.company || {}).standard || "");
+  const waste = (std.match(/Waste nothing[^.\n]*\./) || [])[0] || "Waste nothing: material, labor hours or trips.";
+  return `Every dollar matters: ${waste.replace(/\.$/, "")}. Money wasted cannot go to raises and bonuses, to more staff and resources, or to extra value for the client at no additional cost.`;
+}
+function stockDB() {
+  const s = (DB.stock = DB.stock || {});
+  ["splits", "overrides", "adjust", "questions", "use", "events", "surplus", "seen"].forEach((k) => (s[k] = s[k] || ("seen" === k ? {} : [])));
+  null == s.holdDays && (s.holdDays = 5);
+  return s;
+}
+const stockCanOverride = () => ["driver", "coord"].includes(role());
+const stockWho = () => (("function" == typeof currentUser && currentUser()) || {}).name || DB.me || role();
+const stockFirst = (r) => String(((DB.users || []).find((u) => u.role === r) || {}).name || (r === "coord" ? "procurement" : "the driver")).split(" ")[0];
+const stockJob = (pid) => (DB.projects || []).find((p) => p.id === pid) || null;
+const stockJobName = (pid) => String((stockJob(pid) || { project: { name: "the job" } }).project.name).replace(/ —.*$/, "");
+const stockU = (n, u) => `${n} ${u}${1 !== +n && /^(sheet|roll|bag|bundle|tube|bucket|set|case)$/.test(u) ? "s" : 1 !== +n && "box" === u ? "es" : ""}`;
+const stockToast = (msg, go) => toast(msg, go ? [{ label: "Open", run: go }] : null);
+// The demo's stocked drywall: Type X for the fire-rated walls, moisture-resistant for the baths (invented).
+const STOCK_SEED_ADD = () => [
+  { id: "iv16", name: '5/8" Type X drywall 4x8', type: "consumable", qty: 12, unit: "sheet", loc: "wh", reorder: 4, cost: 16.8, code: "07", size: "4x8", tags: ["gwb"] },
+  { id: "iv17", name: '5/8" moisture-resistant drywall 4x8', type: "consumable", qty: 8, unit: "sheet", loc: "wh", reorder: 2, cost: 15.4, code: "07", size: "4x8", tags: ["gwb"] },
+];
+// ---- spec-aware matching
+const STOCK_UNIT = { sheet: "sheet", sheets: "sheet", sht: "sheet", shts: "sheet", board: "sheet", boards: "sheet", bd: "sheet", bds: "sheet", ea: "ea", each: "ea", pc: "ea", pcs: "ea", piece: "ea", pieces: "ea", box: "box", boxes: "box", bx: "box", roll: "roll", rolls: "roll", bag: "bag", bags: "bag", bundle: "bundle", bundles: "bundle", bdl: "bundle", case: "case", cases: "case", gal: "gal", gallon: "gal", gallons: "gal", lf: "lf", ft: "lf", sf: "sf", set: "set", sets: "set", tube: "tube", tubes: "tube", bucket: "bucket", buckets: "bucket", pail: "bucket" };
+const stockUnit = (u) => {
+  const k = String(u || "").toLowerCase().replace(/[^a-z]/g, "");
+  return STOCK_UNIT[k] || k || "ea";
+};
+const STOCK_TYPE = { x: 'Type X (fire-rated)', mr: "moisture-resistant", xmr: "Type X moisture-resistant", c: "Type C", ar: "abuse-resistant", reg: "regular" };
+const STOCK_STOP = new Set("a an the of for and with in inch inches to on at from new".split(" "));
+function stockSpec(text) {
+  const t = " " + String(text || "").toLowerCase().replace(/[”“″]/g, '"').replace(/[’‘′]/g, "'") + " ",
+    accessory = /\b(screws?|tape|compound|mud|corner ?bead|beads?|lift|knife|knives|anchors?|adhesive|primer|sander|blades?|clips?)\b/.test(t),
+    gwb = !accessory && /\b(drywall|sheet ?rock|gypsum|gyp ?(bd|board)|gwb|wall ?board|plaster ?board|green ?board|type[\s-]*x|fire ?code|densarmor)\b/.test(t),
+    o = { fam: gwb ? "drywall" : "", thk: "", type: "", size: "", nums: [], words: [], text: String(text || "") };
+  const size = t.match(/\b(4|54)\s*(?:'|ft)?\s*[x×]\s*(8|9|10|12)\b/);
+  size && (o.size = `${size[1]}x${size[2]}`);
+  const rest = size ? t.replace(size[0], " ") : t;
+  if (gwb) {
+    const th = rest.match(/(?:^|[^\d/-])(1\/4|3\/8|1\/2|5\/8)(?![\d/])/);
+    th && (o.thk = th[1]);
+    const X = /\btype[\s-]*x\b|\bfire[\s-]*(rated|code|resistant|guard)\b|\bfirecode\b/.test(t),
+      MR = /\bmoisture[\s-]*(resistant|res)?\b|\bm\/?r\b|\bgreen ?board\b|\bmold[\s-]*(resistant|tough)\b|\bpurple\b/.test(t);
+    o.type = X && MR ? "xmr" : X ? "x" : MR ? "mr" : /\btype[\s-]*c\b/.test(t) ? "c" : /\babuse[\s-]*resistant\b/.test(t) ? "ar" : /\b(regular|standard|plain)\b/.test(t) ? "reg" : "";
+    return o;
+  }
+  o.nums = (rest.match(/\d+(?:-\d+)?\/\d+|\d+(?:\.\d+)?/g) || []).map((n) => n.replace(/^0+(?=\d)/, ""));
+  o.words = rest
+    .replace(/\d+(?:-\d+)?\/\d+|\d+(?:\.\d+)?/g, " ")
+    .replace(/[^a-z ]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length > 1 && !STOCK_STOP.has(w) && !STOCK_UNIT[w] && "mil" !== w)
+    .map((w) => (w.length > 3 && /s$/.test(w) && !/ss$/.test(w) ? w.slice(0, -1) : w));
+  return o;
+}
+const stockSpecOf = (i) => Object.assign(stockSpec(i.name + " " + (i.spec || "")), i.size ? { size: i.size } : {});
+const stockLabel = (i) => `${i.name}`;
+// {level: high | uncertain | near | none, why}
+function stockCompare(rq, iv) {
+  if (rq.fam || iv.fam) {
+    if (rq.fam !== iv.fam) return { level: "none" };
+    if (rq.thk && iv.thk && rq.thk !== iv.thk) return { level: "none" };
+    if (rq.size && iv.size && rq.size !== iv.size) return { level: "none" };
+    if (rq.type && iv.type && rq.type !== iv.type)
+      return { level: "near", why: `the request says ${STOCK_TYPE[rq.type] || rq.type}; the stock is ${STOCK_TYPE[iv.type] || iv.type}` };
+    const miss = [];
+    iv.thk && !rq.thk && miss.push("thickness");
+    iv.type && !rq.type && miss.push("type");
+    // a sheet is 4x8 unless someone says otherwise; any other size has to be named
+    iv.size && !rq.size && "4x8" !== iv.size && miss.push("size");
+    if (miss.length) return { level: "uncertain", why: `the request does not say the ${miss.join(" or ")}` };
+    return { level: "high" };
+  }
+  const common = iv.words.filter((w) => rq.words.includes(w));
+  if (!common.length) return { level: "none" };
+  const ivOnly = iv.nums.filter((n) => !rq.nums.includes(n)),
+    rqOnly = rq.nums.filter((n) => !iv.nums.includes(n));
+  if (ivOnly.length && rqOnly.length) return { level: "none" };
+  if (iv.words.every((w) => rq.words.includes(w)) && !ivOnly.length) return rqOnly.length ? { level: "uncertain", why: `the request adds ${rqOnly.join(", ")}` } : { level: "high" };
+  if (common.length / iv.words.length >= 0.5) return { level: "uncertain", why: ivOnly.length ? `the request does not say ${ivOnly.join(", ")}` : "it is named differently from the stock record" };
+  return { level: "none" };
+}
+// How many request units one stock unit holds: 1, a pack factor, or 0 when the units do not convert.
+function stockFactor(unit, i) {
+  const u = stockUnit(unit),
+    iu = stockUnit(i.unit);
+  if (u === iu) return 1;
+  if ("sheet" === iu && "ea" === u) return 1;
+  if (i.pack && stockUnit(i.pack.unit) === u && +i.pack.n > 0) return 1 / +i.pack.n;
+  return 0;
+}
+function stockReservedBy(r, invId) {
+  return r ? reqItems(r).filter((it) => it.invId === invId && !it.done).reduce((a, it) => a + (+it.qty || 0), 0) : 0;
+}
+// stockCheck({item, spec, unit, qty, jobId}) → {match, matchConfidence, available, fromStock, toBuy, reason, candidates}
+// match is the stock record ({id, name, unit, loc, where}) or null; matchConfidence is high (the split is made),
+// uncertain or near (a question for the coordinator; nothing is reserved) or none. available is in the stock's unit.
+function stockCheck(o) {
+  o = o || {};
+  const qty = Math.max(0, +o.qty || 0),
+    rq = stockSpec([o.item, o.spec].filter(Boolean).join(" ")),
+    held = o.held || {},
+    req = o.request || null,
+    C = (DB.inventory || [])
+      .filter((i) => "tool" !== i.type)
+      .map((i) => ({ i: i, c: stockCompare(rq, stockSpecOf(i)) }))
+      .filter((x) => "none" !== x.c.level),
+    avail = (i) => Math.max(0, invAvailable(i) + stockReservedBy(req, i.id) - (+held[i.id] || 0)),
+    high = C.filter((x) => "high" === x.c.level),
+    cands = C.map((x) => ({ id: x.i.id, name: x.i.name, level: x.c.level, why: x.c.why || "", available: avail(x.i), unit: x.i.unit, where: locName(x.i.loc) }));
+  let pick = null,
+    conf = "none",
+    reason = "";
+  if (1 === high.length) (pick = high[0].i), (conf = "high");
+  else if (high.length > 1) (conf = "uncertain"), (reason = `more than one stock item fits: ${high.map((x) => x.i.name).join(", ")}`);
+  else if (C.some((x) => "uncertain" === x.c.level)) {
+    const u = C.filter((x) => "uncertain" === x.c.level);
+    (conf = "uncertain"), (reason = `${u.map((x) => x.i.name).join(", ")} may be it, but ${u[0].c.why}`), 1 === u.length && (pick = u[0].i);
+  } else if (C.some((x) => "near" === x.c.level)) {
+    const n = C.filter((x) => "near" === x.c.level);
+    (conf = "near"), (reason = `${n[0].i.name} is in stock, but ${n[0].c.why}`), (pick = n[0].i);
+  }
+  let factor = pick ? stockFactor(o.unit || pick.unit, pick) : 0;
+  pick && "high" === conf && !factor && ((conf = "uncertain"), (reason = `the stock is counted in ${pick.unit}, the request in ${o.unit}`));
+  const available = pick ? avail(pick) : 0,
+    fromStock = "high" === conf && factor ? Math.min(qty, Math.floor(available * factor + 1e-9)) : 0;
+  "high" === conf &&
+    (reason = fromStock
+      ? `${fromStock} of ${qty} from stock at ${locName(pick.loc)}${qty > fromStock ? `, ${qty - fromStock} to buy` : ""}`
+      : `${pick.name} is a match, but none is free (${pick.qty} ${pick.unit} on hand, all reserved)`);
+  return {
+    match: pick ? { id: pick.id, name: pick.name, unit: pick.unit, loc: pick.loc, where: locName(pick.loc), cost: +pick.cost || 0 } : null,
+    matchConfidence: conf,
+    available: available,
+    fromStock: fromStock,
+    toBuy: r2(qty - fromStock),
+    reason: reason,
+    candidates: cands,
+  };
+}
+// ---- the request splits itself
+// Lines a sender pre-split by a loose name are put back together and split once, by spec.
+function stockSplitRequest(r, p) {
+  if (!r || "garbage" === r.kind || !(r.items && r.items.length) || r.items.some((it) => it.garbage)) return null;
+  const S0 = stockDB(),
+    groups = [],
+    keep = [];
+  let loose = !1;
+  r.items.forEach((it, n) => {
+    const inv = it.invId ? (DB.inventory || []).find((x) => x.id === it.invId) : null;
+    if (inv && "tool" === inv.type) return void keep.push({ n: n, it: it });
+    inv && "high" !== stockCompare(stockSpec(it.what), stockSpecOf(inv)).level && (loose = !0);
+    let what = String(it.what || "").trim(),
+      unit = it.unit || "ea";
+    const m = what.match(/^(boards?|sheets?|pieces?|pcs)\s+of\s+(.+)$/i);
+    m && ((unit = stockUnit(m[1])), (what = m[2]));
+    const key = what.toLowerCase().replace(/[^a-z0-9/]+/g, " ").trim() + "|" + stockUnit(unit),
+      g = groups.find((x) => x.key === key);
+    g ? (g.qty = r2(g.qty + (+it.qty || 0))) : groups.push({ key: key, n: n, what: what, unit: unit, qty: +it.qty || 0, check: it.check || "" });
+  });
+  const held = {},
+    out = keep.slice(),
+    made = [];
+  groups.forEach((g) => {
+    const chk = stockCheck({ item: g.what, unit: g.unit, qty: g.qty, jobId: p.id, request: r, held: held }),
+      base = { what: g.what, unit: g.unit, bought: !1, garbage: "", check: g.check, pickupFrom: "" };
+    if ("high" === chk.matchConfidence && chk.fromStock > 0) {
+      const inv = DB.inventory.find((x) => x.id === chk.match.id),
+        f = stockFactor(g.unit, inv) || 1;
+      held[inv.id] = (held[inv.id] || 0) + chk.fromStock / f;
+      const sp = { id: uid("sk"), at: appNowIso(), by: r.by, projectId: p.id, requestId: r.id, what: g.what, invId: inv.id, invName: inv.name, unit: g.unit, asked: g.qty, fromStock: chk.fromStock, toBuy: chk.toBuy, loc: inv.loc, state: "held" };
+      S0.splits.push(sp), made.push(sp);
+      out.push({ n: g.n, it: Object.assign({}, base, { qty: chk.fromStock, invId: inv.id, pickupFrom: inv.loc, stock: sp.id }) });
+      chk.toBuy > 0 && out.push({ n: g.n + 0.5, it: Object.assign({}, base, { qty: chk.toBuy, invId: "", stockOf: sp.id }) });
+    } else {
+      const it = Object.assign({}, base, { qty: g.qty, invId: "" });
+      if (["uncertain", "near"].includes(chk.matchConfidence) && chk.candidates.length) {
+        const q = { id: uid("skq"), at: appNowIso(), by: r.by, projectId: p.id, requestId: r.id, what: g.what, unit: g.unit, qty: g.qty, invId: chk.match ? chk.match.id : chk.candidates[0].id, level: chk.matchConfidence, why: chk.reason, candidates: chk.candidates.map((c) => c.id), state: "open" };
+        S0.questions.push(q), (it.stockQ = q.id), made.push(q);
+      }
+      out.push({ n: g.n, it: it });
+    }
+  });
+  if (!made.length && !loose) return null;
+  (r.items = out.sort((a, b) => a.n - b.n).map((x) => x.it)),
+    (r.what = 1 === r.items.length ? r.items[0].what : `${r.items.length} items`),
+    (r.qty = 1 === r.items.length ? r.items[0].qty : r.items.length),
+    (r.unit = 1 === r.items.length ? r.items[0].unit : "items");
+  const sps = made.filter((x) => null != x.fromStock),
+    qs = made.filter((x) => null == x.fromStock);
+  sps.length && r.log.push({ t: nowStamp(), by: "System", text: `Stock first: ${sps.map(stockSplitWords).join("; ")}` });
+  qs.length && r.log.push({ t: nowStamp(), by: "System", text: `Asked ${stockFirst("coord")} whether the stock fits: ${qs.map((q) => q.what).join(", ")}` });
+  audit("request", r.id, "stock-split", null, { splits: sps.map((x) => x.id), questions: qs.map((x) => x.id) });
+  return { splits: sps, questions: qs };
+}
+const stockAt = (loc) => ("wh" === loc || "truck" === loc ? "the " : "") + locName(loc);
+const stockSplitWords = (sp) => `${sp.fromStock} from stock at ${stockAt(sp.loc)}${sp.toBuy > 0 ? `, ${sp.toBuy} to buy` : ", nothing to buy"}`;
+let stockLast = null;
+{
+  const base = addRequest;
+  addRequest = function (o, by) {
+    const r = base.apply(this, arguments);
+    stockLast = null;
+    try {
+      if (r) {
+        const p = (DB.projects || []).find((x) => (x.requests || []).includes(r)) || S,
+          res = stockSplitRequest(r, p);
+        if (res) {
+          stockLast = { r: r, p: p, res: res };
+          const sp = res.splits[0],
+            words = sp ? stockSplitWords(sp) : `${stockFirst("coord")} is checking whether the stock fits ${res.questions[0].what}`;
+          sp && notify("From stock", `${sp.fromStock} ${sp.unit} ${sp.invName} for ${stockJobName(p.id)} — pick at ${locName(sp.loc)}`);
+          setTimeout(() => stockToast(words.charAt(0).toUpperCase() + words.slice(1), "undefined" != typeof flowGo ? flowGo.request(p) : null), 140);
+        }
+      }
+    } catch (e) {
+      console.warn("stock split", e);
+    }
+    return r;
+  };
+}
+// The foreman's receipt says it in plain words: "12 from stock at the Warehouse, 12 to buy".
+function stockReceiptHtml(r) {
+  const S0 = stockDB(),
+    sps = S0.splits.filter((x) => x.requestId === r.id),
+    qs = S0.questions.filter((x) => x.requestId === r.id && "open" === x.state);
+  if (!sps.length && !qs.length) return "";
+  return `<div class="stk-receipt">${sps
+    .map((sp) => `<div class="stk-line"><b>${esc(stockSplitWords(sp))}</b><div class="small muted">${esc(sp.invName)} · ${esc(stockFirst("driver"))} picks ${sp.fromStock} up at ${esc(locName(sp.loc))}${sp.toBuy > 0 ? `; ${esc(stockFirst("coord"))} buys the other ${sp.toBuy}` : ""}. The split is set; only ${esc(stockFirst("driver"))} or ${esc(stockFirst("coord"))} can change it.</div></div>`)
+    .join("")}${qs.map((q) => `<div class="stk-line"><b>Checking the stock for ${esc(q.what)}</b><div class="small muted">${esc(stockFirst("coord"))} confirms whether ${esc(((DB.inventory || []).find((i) => i.id === q.invId) || {}).name || "the stock")} is the same item; until then it is bought as asked.</div></div>`).join("")}</div>`;
+}
+{
+  const base = frqReceipt;
+  frqReceipt = function (r) {
+    const out = base.apply(this, arguments);
+    try {
+      const h = r && stockReceiptHtml(r),
+        bd = h && document.querySelector("#mbm .mbm-bd"),
+        top = bd && bd.querySelector(".frq-receipt");
+      if (bd) {
+        top ? top.insertAdjacentHTML("afterend", h) : bd.insertAdjacentHTML("afterbegin", h);
+        const sp = stockDB().splits.find((x) => x.requestId === r.id);
+        sp && stockToast(stockSplitWords(sp).replace(/^./, (c) => c.toUpperCase()), "undefined" != typeof flowGo ? flowGo.request(stockJob(sp.projectId)) : null);
+      }
+    } catch (e) {
+      console.warn("stock receipt", e);
+    }
+    return out;
+  };
+}
+// ---- who sees what: the coordinator's rows (Needs Your Hand), the driver's picks (route), the questions
+function stockReqOf(x) {
+  const p = stockJob(x.projectId),
+    r = p && (p.requests || []).find((y) => y.id === x.requestId);
+  return r ? { p: p, r: r } : null;
+}
+function stockHeld() {
+  return stockDB().splits.filter((sp) => {
+    if ("held" !== sp.state) return !1;
+    const R = stockReqOf(sp);
+    return !!R && !["delivered", "closed", "declined"].includes(R.r.status) && reqItems(R.r).some((it) => it.stock === sp.id && !it.done && it.invId);
+  });
+}
+function stockOpenQs() {
+  return stockDB().questions.filter((q) => "open" === q.state && stockReqOf(q) && !["delivered", "closed", "declined"].includes(stockReqOf(q).r.status));
+}
+function stockNyhRows() {
+  const S0 = stockDB(),
+    out = [];
+  stockHeld()
+    .filter((sp) => !S0.seen["coord:" + sp.id])
+    .forEach((sp) =>
+      out.push({
+        key: "stk:split:" + sp.id,
+        route: "coord",
+        kind: "stock",
+        title: `From stock: ${sp.fromStock} ${sp.unit} ${sp.invName} for ${stockJobName(sp.projectId)}`,
+        why: `${sp.toBuy > 0 ? `buy only ${sp.toBuy}` : "nothing to buy"} · ${stockFirst("driver")} picks ${sp.fromStock} at ${locName(sp.loc)} · ${sp.by} asked ${sp.asked} · Every dollar matters: waste nothing`,
+        amount: 0,
+        verb: "Got It",
+        no: "Override",
+        run: () => stockSeen(sp),
+        skip: () => stockOverrideDialog({ split: sp.id }),
+        open: () => stockOpen(sp),
+      }),
+    );
+  stockOpenQs().forEach((q) => {
+    const inv = (DB.inventory || []).find((i) => i.id === q.invId) || {};
+    out.push({
+      key: "stk:q:" + q.id,
+      route: "coord",
+      kind: "stock",
+      title: `Same item? ${q.qty} ${q.unit} ${q.what} against ${inv.name || "stock"} in stock`,
+      why: `${q.why} · ${q.by} on ${stockJobName(q.projectId)} · confirm before anything is reserved or bought · Every dollar matters: waste nothing`,
+      amount: 0,
+      verb: "Same Item",
+      no: "Not the Same",
+      run: () => stockAnswer(q.id, !0),
+      skip: () => stockAnswer(q.id, !1),
+      open: () => stockOpen(q),
+    });
+  });
+  S0.events
+    .filter((e) => "expired" === e.kind && !S0.seen["coord:" + e.id])
+    .forEach((e) =>
+      out.push({
+        key: "stk:exp:" + e.id,
+        route: "coord",
+        kind: "stock",
+        title: `Stock released: ${e.qty} ${e.unit} ${e.invName} for ${stockJobName(e.projectId)}`,
+        why: `not picked in ${e.days} days, so the reservation lapsed and the line buys again; check the stock before you order`,
+        amount: 0,
+        verb: "Got It",
+        run: () => stockSeen(e),
+        open: () => stockOpen(e),
+      }),
+    );
+  S0.surplus
+    .filter((x) => "open" === x.state)
+    .forEach((x) =>
+      out.push({
+        key: "stk:surplus:" + x.id,
+        route: "pm",
+        kind: "stock",
+        title: `Client-owned surplus: ${x.qty} ${x.unit} ${x.invName} from ${stockJobName(x.projectId)}`,
+        why: `${x.by} brought it back from a cost-plus job; it may belong to the client, so it was not returned to stock · ask the PM`,
+        amount: r2(x.qty * (x.cost || 0)),
+        verb: "Return to Stock",
+        no: "Keep for the Client",
+        run: () => stockSurplusDecide(x.id, "stock"),
+        skip: () => stockSurplusDecide(x.id, "client"),
+        open: () => stockOpen(x),
+      }),
+    );
+  return out;
+}
+function stockOpen(x) {
+  const p = stockJob(x && x.projectId);
+  if ("undefined" != typeof flowGo) return flowGo.request(p)();
+  p && setCurrent(p.id), (view = "req"), render();
+}
+function stockSeen(x) {
+  (stockDB().seen["coord:" + x.id] = { by: stockWho(), at: appNowIso() }), save(), render();
+  stockToast(`Noted: ${x.invName || x.what}`, () => stockOpen(x));
+}
+// The coordinator's answer to a question: the same item splits now (what is still free); not the same buys as asked.
+function stockAnswer(qid, same, invId) {
+  const S0 = stockDB(),
+    q = S0.questions.find((x) => x.id === qid);
+  if (!q || "open" !== q.state) return toast("That has been answered already");
+  if ("coord" !== role()) return toast(`${stockFirst("coord")} answers this one`);
+  if (same && !invId && (q.candidates || []).length > 1) {
+    const C = q.candidates.map((id) => (DB.inventory || []).find((i) => i.id === id)).filter(Boolean);
+    return void mbModal(
+      "Which Stock Is It",
+      `<p class="small muted" style="margin:0 0 10px">${esc(q.by)} asked for ${q.qty} ${esc(q.unit)} ${esc(q.what)}. ${esc(q.why)}.</p>${mbF("Stock", `<select data-f="inv">${C.map((i) => `<option value="${i.id}">${esc(i.name)} · ${invAvailable(i)} ${esc(i.unit)} free at ${esc(locName(i.loc))}</option>`).join("")}</select>`)}`,
+      { submit: "Use This Stock", onSubmit: (f) => void setTimeout(() => stockAnswer(qid, !0, f.inv), 0) },
+    );
+  }
+  invId && (q.invId = invId);
+  const R = stockReqOf(q);
+  (q.state = same ? "same" : "different"), (q.answeredBy = stockWho()), (q.answeredAt = appNowIso());
+  let words = `Not the same: ${q.what} is bought as asked`;
+  if (same && R) {
+    const inv = DB.inventory.find((i) => i.id === q.invId),
+      it = reqItems(R.r).find((y) => y.stockQ === q.id && !y.invId && !y.done && !y.bought),
+      free = inv ? Math.floor(invAvailable(inv) * (stockFactor(q.unit, inv) || 1)) : 0,
+      n = it ? Math.min(+it.qty || 0, free) : 0;
+    if (it && n > 0) {
+      const sp = { id: uid("sk"), at: appNowIso(), by: R.r.by, projectId: R.p.id, requestId: R.r.id, what: q.what, invId: inv.id, invName: inv.name, unit: q.unit, asked: +it.qty, fromStock: n, toBuy: r2(it.qty - n), loc: inv.loc, state: "held", fromQ: q.id, confirmedBy: q.answeredBy };
+      S0.splits.push(sp);
+      const idx = R.r.items.indexOf(it),
+        add = Object.assign({}, it, { qty: n, invId: inv.id, pickupFrom: inv.loc, stock: sp.id });
+      delete add.stockQ;
+      sp.toBuy > 0 ? ((it.qty = sp.toBuy), (it.stockOf = sp.id), R.r.items.splice(idx, 0, add)) : R.r.items.splice(idx, 1, add);
+      R.r.log.push({ t: nowStamp(), by: q.answeredBy, text: `Confirmed the stock fits: ${stockSplitWords(sp)}` });
+      words = `Same item: ${stockSplitWords(sp)}`;
+    } else words = `Same item, but none of ${inv ? inv.name : "it"} is free; it is bought as asked`;
+  }
+  audit("stock", q.id, same ? "same-item" : "not-same", null, { by: q.answeredBy });
+  save(), render(), stockToast(words, () => stockOpen(q));
+}
+// ---- the override: the driver or the coordinator only, with a reason; append-only
+// target: {split} (a request's stock part), {poId, lineId} (a PO line), {projectId, invId, qty, item} (a line not
+// yet on a PO: the Order sheet), {rfqId, lineId}, {txnId} (after the fact, on a card or bank line).
+function stockOverrideDialog(t) {
+  if (!stockCanOverride()) return toast(`The split is set. Only ${stockFirst("driver")} or ${stockFirst("coord")} can override it.`), null;
+  const S0 = stockDB(),
+    sp = t.split ? S0.splits.find((x) => x.id === t.split) : null,
+    inv = (DB.inventory || []).find((i) => i.id === (sp ? sp.invId : t.invId)),
+    pid = sp ? sp.projectId : t.projectId,
+    p = stockJob(pid);
+  if (!inv) return toast("That stock item is gone"), null;
+  const qty = sp ? sp.fromStock : +t.qty || 0,
+    WH = DB.company.warehouseGeo || null,
+    site = p && p.project.geo,
+    from = String(inv.loc || "").startsWith("p:") ? (stockJob(inv.loc.slice(2)) || { project: {} }).project.geo : WH,
+    d = "function" == typeof distM ? distM(from, site) : null,
+    trip = d ? `${(d / 1609.34).toFixed(1)} mi from ${locName(inv.loc)} to ${stockJobName(pid)}; no trip cost is on file (the driver-day plan carries distance only)` : "no distance on file";
+  return mbModal(
+    "Override the Stock",
+    `<p class="small" style="margin:0 0 10px">${qty} ${esc(inv.unit)} of ${esc(inv.name)} at ${esc(locName(inv.loc))} ${sp ? `are reserved for ${esc(stockJobName(pid))}` : "match this line"}. Overriding buys them instead. ${esc(stockBecause())}</p>
+    ${mbF("Reason", `<select data-f="reason">${STOCK_REASONS.map((x) => `<option value="${x.id}">${esc(x.label)}</option>`).join("")}</select>`)}
+    <div class="small muted" id="stk-hint" style="margin:-4px 0 8px">${esc(STOCK_REASONS[0].hint)}</div>
+    <div id="stk-count">${mbF("How many are really there", `<input type="number" min="0" step="any" data-f="count" value="0" inputmode="decimal">`)}</div>
+    <div class="small muted" id="stk-trip" style="display:none;margin:0 0 8px">${esc(trip)}</div>
+    ${mbF("Note", `<input data-f="note" placeholder="What you saw — optional">`)}`,
+    {
+      submit: "Override",
+      onSubmit: (f) => {
+        const res = stockOverride(Object.assign({}, t, { reason: f.reason, note: f.note, count: f.count }));
+        return res ? void 0 : !1;
+      },
+    },
+  ) && stockReasonWire();
+}
+function stockReasonWire() {
+  const sel = document.querySelector('#mbm [data-f="reason"]');
+  if (!sel) return !0;
+  const upd = () => {
+    const R = STOCK_REASONS.find((x) => x.id === sel.value) || {};
+    (document.getElementById("stk-hint").textContent = R.hint || ""),
+      (document.getElementById("stk-count").style.display = "count" === sel.value ? "" : "none"),
+      (document.getElementById("stk-trip").style.display = "trip" === sel.value ? "" : "none");
+  };
+  return (sel.onchange = upd), upd(), !0;
+}
+function stockOverride(o) {
+  if (!stockCanOverride()) return toast(`Only ${stockFirst("driver")} or ${stockFirst("coord")} can override the stock`), null;
+  const R0 = STOCK_REASONS.find((x) => x.id === o.reason);
+  if (!R0) return toast("Choose a reason"), null;
+  const S0 = stockDB(),
+    sp = o.split ? S0.splits.find((x) => x.id === o.split) : null,
+    inv = (DB.inventory || []).find((i) => i.id === (sp ? sp.invId : o.invId));
+  if (!inv) return toast("That stock item is gone"), null;
+  const by = stockWho(),
+    ov = { id: uid("sko"), at: appNowIso(), by: by, role: role(), kind: sp ? "request" : o.poId ? "po" : o.rfqId ? "rfq" : o.txnId ? "card" : "line", splitId: sp ? sp.id : "", requestId: sp ? sp.requestId : "", poId: o.poId || "", rfqId: o.rfqId || "", lineId: o.lineId || "", txnId: o.txnId || "", projectId: sp ? sp.projectId : o.projectId || "", invId: inv.id, invName: inv.name, unit: inv.unit, qty: sp ? sp.fromStock : +o.qty || 0, reason: R0.id, reasonLabel: R0.label, note: String(o.note || "").trim() };
+  if ("count" === R0.id) {
+    const counted = Math.max(0, +o.count || 0),
+      before = +inv.qty || 0;
+    if (counted >= before) return toast(`The count says ${before} ${inv.unit}; enter what is really there (fewer)`), null;
+    (ov.counted = counted), (inv.qty = counted);
+    S0.adjust.push({ id: uid("ska"), at: appNowIso(), by: by, invId: inv.id, invName: inv.name, unit: inv.unit, from: before, to: counted, delta: r2(counted - before), reason: "Count was wrong", overrideId: ov.id, recount: !0 });
+    audit("inventory", inv.id, `count ${before} → ${counted} (count was wrong)`, null, null, ov.note);
+  }
+  S0.overrides.push(ov);
+  let words = `${ov.reasonLabel}: ${ov.qty} ${inv.unit} ${inv.name} bought instead of taken from stock`;
+  if (sp) {
+    const R = stockReqOf(sp),
+      it = R && reqItems(R.r).find((y) => y.stock === sp.id && !y.done);
+    if (R && it) {
+      let keepN = 0;
+      if ("count" === R0.id) {
+        const others = (DB.projects || [])
+          .flatMap((p) => (p.requests || []).filter((y) => !["delivered", "closed", "declined"].includes(y.status)).flatMap((y) => reqItems(y)))
+          .filter((y) => y !== it && y.invId === inv.id && !y.done)
+          .reduce((a, y) => a + (+y.qty || 0), 0);
+        keepN = Math.max(0, Math.min(+it.qty || 0, Math.floor((+inv.qty || 0) - others)));
+      }
+      const moved = r2((+it.qty || 0) - keepN);
+      ov.qty = moved;
+      let buy = R.r.items.find((y) => y.stockOf === sp.id && !y.bought && !y.done);
+      buy ? (buy.qty = r2(+buy.qty + moved)) : moved > 0 && R.r.items.splice(R.r.items.indexOf(it) + 1, 0, { what: it.what, qty: moved, unit: it.unit, bought: !1, invId: "", pickupFrom: "", garbage: "", check: it.check || "", stockOf: sp.id });
+      keepN > 0 ? (it.qty = keepN) : R.r.items.splice(R.r.items.indexOf(it), 1);
+      (sp.state = keepN > 0 ? "held" : "overridden"), (sp.fromStock = keepN), (sp.toBuy = r2(sp.asked - keepN)), (sp.overrideId = ov.id);
+      R.r.log.push({ t: nowStamp(), by: by, text: `Override (${ov.reasonLabel}): ${moved} bought instead of taken from stock${keepN ? `; ${keepN} still from stock` : ""}${ov.note ? ` — ${ov.note}` : ""}` });
+      words = `${ov.reasonLabel}: ${moved} ${it.unit} ${inv.name} move to buying${keepN ? `, ${keepN} still from stock` : ""}${"count" === R0.id ? ` · count corrected to ${ov.counted}` : ""}`;
+    }
+  }
+  audit("stock", ov.id, "override", null, ov, ov.note);
+  log(`Stock override by ${by} (${ov.reasonLabel}): ${ov.qty} ${inv.unit} ${inv.name}${ov.projectId ? ` · ${stockJobName(ov.projectId)}` : ""}`);
+  save(), render();
+  const po = ov.poId && (DB.pos || []).find((x) => x.id === ov.poId);
+  stockToast(words, po && "undefined" != typeof flowGo ? flowGo.po(po) : ov.projectId ? () => stockOpen(ov) : () => ((view = "inv"), render()));
+  return ov;
+}
+// ---- the same check at the other doors: PO lines, RFQ lines
+// stockGuardOk(lines, ctx) → {ok, blocked: [{line, chk}], reasons: [...]}. ctx: {projectId, poId | rfqId}.
+// A line is blocked when it buys a stocked item (high match) while some of it is free, with no override for it.
+function stockOverrideFor(ctx, l, chk) {
+  const td = today();
+  return stockDB().overrides.find(
+    (o) =>
+      o.invId === chk.match.id &&
+      ((ctx.poId && o.poId === ctx.poId && (!o.lineId || o.lineId === l.id)) ||
+        (ctx.rfqId && o.rfqId === ctx.rfqId && (!o.lineId || o.lineId === l.id)) ||
+        (!o.poId && !o.rfqId && "line" === o.kind && o.projectId === ctx.projectId && String(o.at).slice(0, 10) === td)),
+  );
+}
+function stockGuardOk(lines, ctx) {
+  ctx = ctx || {};
+  const blocked = [];
+  (lines || []).forEach((l) => {
+    const text = l.item || l.what || l.desc || "";
+    if (!text || !(+l.qty > 0)) return;
+    const chk = stockCheck({ item: text, spec: l.item && l.desc ? l.desc : "", unit: l.unit, qty: +l.qty, jobId: ctx.projectId });
+    "high" === chk.matchConfidence && chk.fromStock > 0 && !stockOverrideFor(ctx, l, chk) && blocked.push({ line: l, chk: chk });
+  });
+  return {
+    ok: !blocked.length,
+    blocked: blocked,
+    reasons: blocked.map((b) => `${b.chk.fromStock} ${b.line.unit || b.chk.match.unit} of ${b.chk.match.name} are in stock at ${b.chk.match.where} — take them from stock or have ${stockFirst("driver")} or ${stockFirst("coord")} override with a reason`),
+  };
+}
+// RFQ hook (for the RFQ lane, after merge): call stockRfqGuard(rfq) before Send. When ok is false, show
+// stockLineNote(line, {projectId, rfqId}) on each blocked line and refuse the send with reasons.join("; ").
+// An override from the RFQ is stockOverrideDialog({rfqId, lineId, projectId, invId, qty}).
+function stockRfqGuard(rfq) {
+  return stockGuardOk((rfq && rfq.lines) || [], { projectId: rfq && rfq.projectId, rfqId: rfq && rfq.id });
+}
+function stockLineNote(l, ctx) {
+  const g = stockGuardOk([l], ctx || {});
+  if (g.ok) return "";
+  const b = g.blocked[0],
+    c = b.chk;
+  return `<div class="qcheck stk-warn" data-stkline="${esc(l.id || "")}"><b>In Stock</b>${c.fromStock} ${esc(l.unit || c.match.unit)} of ${esc(c.match.name)} are at ${esc(c.match.where)}. Take them from stock and buy ${c.toBuy}${stockCanOverride() ? ", or override with a reason" : `; only ${esc(stockFirst("driver"))} or ${esc(stockFirst("coord"))} can override`}. <span class="muted">${esc(stockBecause())}</span></div>`;
+}
+// Take a PO line's stock part from stock: a pick for the driver on the PO's job, and the line keeps only the rest.
+function stockTakeForLine(o) {
+  const p = stockJob(o.projectId),
+    inv = (DB.inventory || []).find((i) => i.id === o.invId);
+  if (!p || !inv || !(+o.qty > 0)) return null;
+  const r = withProject(p, () =>
+    addRequest({ items: [{ what: inv.name, qty: +o.qty, unit: o.unit || inv.unit, invId: inv.id }], note: o.note || "From stock instead of buying", urgency: "normal", neededBy: o.needBy || addWork(today(), 1) }, stockWho()),
+  );
+  r && ((r.status = "ack"), (r.ackBy = stockWho()), (r.ackAt = appNowIso()));
+  return r;
+}
+// ---- after the fact: a card or bank purchase of a stocked item while it sat available, with no override
+function stockOnHandAt(inv, date) {
+  const S0 = stockDB(),
+    after = (x) => String(x.at).slice(0, 10) > date;
+  let q = +inv.qty || 0;
+  S0.adjust.filter((a) => a.invId === inv.id && !a.useId && after(a)).forEach((a) => (q -= +a.delta || 0));
+  S0.use.filter((u) => u.invId === inv.id && after(u)).forEach((u) => (q += "return" === u.kind ? -(+u.qty || 0) : +u.qty || 0));
+  return Math.max(0, q);
+}
+function boughtWhileInStock(range) {
+  const out = [],
+    S0 = stockDB(),
+    R = range || ["", today()];
+  (DB.txns || []).forEach((t) => {
+    if (!(+t.amt < 0) || ["transfer", "cc-payment", "refund", "income", "payroll", "labor"].includes(t.cat) || t.date < R[0] || t.date > R[1]) return;
+    const text = t.item || t.memo || "";
+    if (!text || !(+t.qty > 0)) return;
+    const chk = stockCheck({ item: text, unit: t.unit, qty: +t.qty, jobId: t.projectId });
+    if ("high" !== chk.matchConfidence) return;
+    const inv = DB.inventory.find((i) => i.id === chk.match.id),
+      had = stockOnHandAt(inv, t.date);
+    if (!(had > 0)) return;
+    const ov = S0.overrides.find((o) => o.invId === inv.id && (o.txnId === t.id || (o.projectId && o.projectId === t.projectId && !o.txnId && dayDiff(String(o.at).slice(0, 10), t.date) >= 0 && dayDiff(String(o.at).slice(0, 10), t.date) <= 7)));
+    if (ov) return;
+    const n = Math.min(+t.qty, Math.floor(had * (stockFactor(t.unit, inv) || 1))),
+      unitPrice = r2(-t.amt / +t.qty);
+    out.push({ t: t, inv: inv, had: had, qty: +t.qty, n: n, unit: t.unit || inv.unit, amount: r2(n * unitPrice), projectId: t.projectId || "" });
+  });
+  return out;
+}
+// ---- stock used on a job is that job's cost; leftovers come back with a credit
+function stockLineKey(p, inv) {
+  const c = p && (DB.clients || []).find((x) => x.id === p.clientId),
+    est = c && (c.estimates || []).find((e) => ["converted", "approved"].includes(e.status) && e.projectId === p.id),
+    code = inv.code || "",
+    l = est && code && (est.lines || []).find((x) => ("function" == typeof codeForLine ? codeForLine(x) : x.code) === code);
+  return l ? `estimate:${est.id}:${l.id}` : "";
+}
+function stockUseAdd(kind, inv, pid, qty, note, extra) {
+  const p = stockJob(pid),
+    u = Object.assign({ id: uid("sku"), at: appNowIso(), by: stockWho(), kind: kind, projectId: pid, invId: inv.id, invName: inv.name, qty: +qty || 0, unit: inv.unit, unitCost: +inv.cost || 0, amount: r2((+qty || 0) * (+inv.cost || 0) * ("return" === kind ? -1 : 1)), line: stockLineKey(p, inv), note: note || "" }, extra || {});
+  return stockDB().use.push(u), u;
+}
+{
+  const base = invMove;
+  invMove = function (item, toLoc, qty, note) {
+    const r = base.apply(this, arguments);
+    try {
+      item && "tool" !== item.type && /^p:/.test(toLoc || "") && +qty > 0 && stockUseAdd("use", item, toLoc.slice(2), qty, note);
+    } catch (e) {
+      console.warn("stock use", e);
+    }
+    return r;
+  };
+}
+// A cost-plus or reimbursable job's leftovers may be the client's: flagged for the PM, never put back on their own.
+function stockClientOwned(p) {
+  const c = p && (DB.clients || []).find((x) => x.id === p.clientId),
+    k = (c && c.contracts && !Array.isArray(c.contracts) && c.contracts[p.id]) || {};
+  return /cost[\s-]*plus|reimburs|t&m|time and materials/i.test([p && p.project.contractType, k.type, k.kind, p && p.project.billing].filter(Boolean).join(" "));
+}
+function stockReturnDialog(pre) {
+  pre = pre || {};
+  const jobs = (DB.projects || []).filter((p) => p.project && !/design$/i.test(p.project.name)),
+    items = (DB.inventory || []).filter((i) => "tool" !== i.type),
+    locs = INV_LOCS().filter((l) => !/^p:/.test(l.id));
+  mbModal(
+    "Return to Stock",
+    `<p class="small muted" style="margin:0 0 10px">Leftover material back from a job: it goes back on the count where you put it, and the job's line gets the credit.</p>
+    ${mbF("From Job", `<select data-f="pid">${jobs.map((p) => `<option value="${p.id}" ${p.id === (pre.projectId || S.id) ? "selected" : ""}>${esc(stockJobName(p.id))}</option>`).join("")}</select>`)}
+    ${mbF("Item", `<select data-f="inv">${items.map((i) => `<option value="${i.id}" ${i.id === pre.invId ? "selected" : ""}>${esc(i.name)} (${esc(i.unit)})</option>`).join("")}</select>`)}
+    <div class="grid2">${mbF("How Many", `<input type="number" min="0" step="any" data-f="qty" value="${pre.qty || ""}" inputmode="decimal">`)}${mbF("Put It At", `<select data-f="loc">${locs.map((l) => `<option value="${l.id}">${esc(l.n)}</option>`).join("")}</select>`)}</div>`,
+    { submit: "Return to Stock", onSubmit: (f) => (stockReturn({ projectId: f.pid, invId: f.inv, qty: f.qty, loc: f.loc }) ? void 0 : !1) },
+  );
+}
+function stockReturn(o) {
+  const p = stockJob(o.projectId),
+    inv = (DB.inventory || []).find((i) => i.id === o.invId),
+    qty = +o.qty || 0;
+  if (!p || !inv || !(qty > 0)) return toast("Say what came back and how many"), null;
+  const S0 = stockDB();
+  if (!o.force && stockClientOwned(p)) {
+    const x = { id: uid("sks"), at: appNowIso(), by: stockWho(), projectId: p.id, invId: inv.id, invName: inv.name, unit: inv.unit, qty: qty, loc: o.loc || inv.loc, cost: +inv.cost || 0, state: "open" };
+    S0.surplus.push(x), audit("stock", x.id, "client-surplus", null, x), save(), render();
+    return stockToast(`Client-owned surplus: ${qty} ${inv.unit} ${inv.name} from a cost-plus job — the PM decides`, () => stockOpen(x)), x;
+  }
+  let at = inv;
+  const loc = o.loc || inv.loc;
+  if (loc !== inv.loc) {
+    at = DB.inventory.find((i) => i.name === inv.name && i.loc === loc) || null;
+    at || ((at = Object.assign({}, inv, { id: uid("iv"), qty: 0, loc: loc })), DB.inventory.push(at));
+  }
+  const before = +at.qty || 0;
+  at.qty = r2(before + qty);
+  const u = stockUseAdd("return", at, p.id, qty, `returned to ${locName(loc)}`);
+  S0.adjust.push({ id: uid("ska"), at: appNowIso(), by: stockWho(), invId: at.id, invName: at.name, unit: at.unit, from: before, to: at.qty, delta: qty, reason: `Returned from ${stockJobName(p.id)}`, useId: u.id });
+  audit("inventory", at.id, `returned ${qty} ${at.unit} from ${stockJobName(p.id)} — ${at.qty} now`, null, null, "");
+  save(), render();
+  stockToast(`${qty} ${at.unit} ${at.name} back at ${locName(loc)} · ${stockJobName(p.id)} credited ${money(Math.abs(u.amount))}`, () => ((view = "inv"), render()));
+  return u;
+}
+function stockSurplusDecide(id, how) {
+  const x = stockDB().surplus.find((y) => y.id === id);
+  if (!x || "open" !== x.state) return toast("That has been decided already");
+  if (!["pm", "owner"].includes(role())) return toast("The PM decides client-owned surplus");
+  (x.state = "stock" === how ? "returned" : "client"), (x.decidedBy = stockWho()), (x.decidedAt = appNowIso());
+  "stock" === how ? stockReturn({ projectId: x.projectId, invId: x.invId, qty: x.qty, loc: x.loc, force: !0 }) : (save(), render(), stockToast(`Kept for the client: ${x.qty} ${x.unit} ${x.invName}`, () => stockOpen(x)));
+}
+// ---- reservations expire: a pick not made within DB.stock.holdDays releases the stock for everyone else
+function stockSweep() {
+  const S0 = stockDB(),
+    days = +S0.holdDays || 5,
+    td = today();
+  let n = 0;
+  stockHeld().forEach((sp) => {
+    if (dayDiff(String(sp.at).slice(0, 10), td) < days) return;
+    const R = stockReqOf(sp),
+      it = reqItems(R.r).find((y) => y.stock === sp.id && !y.done);
+    if (!it) return;
+    const buy = R.r.items.find((y) => y.stockOf === sp.id && !y.bought && !y.done);
+    buy ? ((buy.qty = r2(+buy.qty + +it.qty)), R.r.items.splice(R.r.items.indexOf(it), 1)) : (delete it.stock, (it.invId = ""), (it.pickupFrom = ""), (it.stockOf = sp.id));
+    (sp.state = "expired"), n++;
+    const e = { id: uid("ske"), kind: "expired", at: appNowIso(), splitId: sp.id, projectId: sp.projectId, invId: sp.invId, invName: sp.invName, qty: sp.fromStock, unit: sp.unit, days: days };
+    S0.events.push(e);
+    R.r.log.push({ t: nowStamp(), by: "System", text: `Stock reservation released after ${days} days: ${sp.fromStock} ${sp.unit} ${sp.invName} buy again` });
+    notify("Stock released", `${sp.fromStock} ${sp.unit} ${sp.invName} for ${stockJobName(sp.projectId)} — not picked in ${days} days`);
+  });
+  return n && save(), n;
+}
+// ---- counting: the driver's Count This, and a recount for anything an override corrected
+function stockRecounts() {
+  const A = stockDB().adjust;
+  return (DB.inventory || []).filter((i) => {
+    const fix = A.filter((a) => a.invId === i.id && a.recount).pop();
+    return fix && !A.some((a) => a.invId === i.id && "Cycle count" === a.reason && a.at > fix.at);
+  });
+}
+function stockCountDialog(invId) {
+  const items = (DB.inventory || []).filter((i) => "tool" !== i.type),
+    i0 = items.find((i) => i.id === invId) || items[0];
+  if (!i0) return;
+  mbModal(
+    "Count This",
+    `${mbF("Item", `<select data-f="inv">${items.map((i) => `<option value="${i.id}" ${i.id === i0.id ? "selected" : ""}>${esc(i.name)} · ${esc(locName(i.loc))}</option>`).join("")}</select>`)}
+    ${mbF("How many are there", `<input type="number" min="0" step="any" data-f="count" value="${+i0.qty || 0}" inputmode="decimal">`)}
+    <p class="small muted" style="margin:0">The count on file is ${+i0.qty || 0} ${esc(i0.unit)}. A difference is logged with your name and the time.</p>`,
+    { submit: "Save Count", onSubmit: (f) => (stockCount(f.inv, f.count) ? void 0 : !1) },
+  );
+}
+function stockCount(invId, count) {
+  const inv = (DB.inventory || []).find((i) => i.id === invId),
+    n = +count;
+  if (!inv || !(n >= 0) || "" === String(count)) return toast("Enter the count"), null;
+  const before = +inv.qty || 0,
+    a = { id: uid("ska"), at: appNowIso(), by: stockWho(), invId: inv.id, invName: inv.name, unit: inv.unit, from: before, to: n, delta: r2(n - before), reason: "Cycle count" };
+  inv.qty = n;
+  stockDB().adjust.push(a), audit("inventory", inv.id, `count ${before} → ${n} (cycle count)`, null, null, ""), save(), render();
+  stockToast(`${inv.name}: counted ${n} ${inv.unit}${n === before ? ", as on file" : ` (was ${before})`}`, () => ((view = "inv"), render()));
+  return a;
+}
+// ---- the driver's route: picks from stock, recounts, Count This and Return to Stock
+function stockRouteCard() {
+  const v = document.getElementById("v-route");
+  if (!v) return;
+  document.getElementById("stk-route")?.remove();
+  const held = stockHeld(),
+    rc = stockRecounts(),
+    can = stockCanOverride(),
+    S0 = stockDB(),
+    rel = S0.events.filter((e) => "expired" === e.kind && !S0.seen["driver:" + e.id]);
+  const ph = v.querySelector(".ph");
+  (ph || v).insertAdjacentHTML(
+    ph ? "afterend" : "afterbegin",
+    `<div class="card stk-card" id="stk-route"><div class="hd"><h3>Picks From Stock</h3><span class="small muted" data-stkn="${held.length}">${held.length}</span></div>
+    ${held.length ? held.map((sp) => `<div class="stk-row"><div class="grow"><b>${sp.fromStock} ${esc(sp.unit)} ${esc(sp.invName)}</b><div class="small muted">at ${esc(locName(sp.loc))} to ${esc(stockJobName(sp.projectId))} · ${esc(sp.by)}${sp.toBuy > 0 ? ` · ${sp.toBuy} being bought` : ""}</div></div>${can ? `<button class="btn sm" data-stkov="${sp.id}">Override</button>` : ""}</div>`).join("") : '<div class="small muted">Nothing reserved from stock right now.</div>'}
+    ${rel.map((e) => `<div class="stk-row"><div class="grow"><b>Released: ${e.qty} ${esc(e.unit)} ${esc(e.invName)}</b><div class="small muted">not picked in ${e.days} days for ${esc(stockJobName(e.projectId))}; back on the shelf</div></div><button class="btn sm" data-stkseen="${e.id}">Got It</button></div>`).join("")}
+    ${rc.length ? `<div class="small" style="margin-top:8px"><b>Recount at the yard</b></div>${rc.map((i) => `<div class="stk-row"><div class="grow">${esc(i.name)}<div class="small muted">count corrected by an override; ${+i.qty} ${esc(i.unit)} on file</div></div><button class="btn sm" data-stkcount="${i.id}">Count This</button></div>`).join("")}` : ""}
+    <div class="row stk-acts" style="margin-top:8px;gap:8px"><button class="btn sm" data-stkcount="">Count This</button><button class="btn sm" data-stkreturn="1">Return to Stock</button></div></div>`,
+  );
+}
+document.addEventListener("click", (e) => {
+  const b = e.target && e.target.closest ? e.target.closest("[data-stkov],[data-stkcount],[data-stkreturn],[data-stkseen],[data-stktake],[data-stkovline],[data-stkcard],[data-stkwin]") : null;
+  if (!b) return;
+  e.preventDefault();
+  const d = b.dataset;
+  if (null != d.stkov) return void stockOverrideDialog({ split: d.stkov });
+  if (null != d.stkcount) return void stockCountDialog(d.stkcount);
+  if (null != d.stkreturn) return void stockReturnDialog();
+  if (null != d.stkseen) return (stockDB().seen["driver:" + d.stkseen] = { by: stockWho(), at: appNowIso() }), save(), void render();
+  if (null != d.stkwin) return (stockWin = +d.stkwin || 30), void render();
+  if (null != d.stkcard) {
+    const t = (DB.txns || []).find((x) => x.id === d.stkcard),
+      x = t && boughtWhileInStock(["", "9999"]).find((y) => y.t.id === t.id);
+    return void (x && stockOverrideDialog({ txnId: t.id, projectId: t.projectId, invId: x.inv.id, qty: x.n }));
+  }
+  const [poId, lineId] = String(d.stktake || d.stkovline || "").split(":"),
+    po = (DB.pos || []).find((x) => x.id === poId),
+    l = po && (po.lines || []).find((x) => x.id === lineId);
+  if (!po || !l) return;
+  const g = stockGuardOk([l], { projectId: po.projectId, poId: po.id });
+  if (g.ok) return void render();
+  const c = g.blocked[0].chk;
+  if (null != d.stkovline) return void stockOverrideDialog({ poId: po.id, lineId: l.id, projectId: po.projectId, invId: c.match.id, qty: c.fromStock });
+  const r = stockTakeForLine({ projectId: po.projectId, invId: c.match.id, qty: c.fromStock, unit: l.unit, note: `From stock for ${po.number}: ${c.fromStock} not bought`, needBy: po.needBy });
+  if (!r) return;
+  (l.qty = r2(+l.qty - c.fromStock)), audit("po", po.id, "line-from-stock", null, { line: l.id, qty: c.fromStock, request: r.id });
+  save(), render(), stockToast(`${c.fromStock} ${l.unit || c.match.unit} ${c.match.name} from stock for ${po.number}; the line buys ${l.qty}`, "undefined" != typeof flowGo ? flowGo.po(po) : null);
+});
+// ---- the owner's view of override patterns, and the stock log, on Inventory
+let stockWin = 30;
+function stockPatterns(days) {
+  const from = addDays ? iso(addDays(parse(today()), -(days || 30))) : "",
+    O = stockDB().overrides.filter((o) => String(o.at).slice(0, 10) >= from),
+    byP = {};
+  O.forEach((o) => {
+    const k = o.by || "—";
+    (byP[k] = byP[k] || { who: k, n: 0, reasons: {} }).n++, (byP[k].reasons[o.reasonLabel] = (byP[k].reasons[o.reasonLabel] || 0) + 1);
+  });
+  const P = Object.values(byP).sort((a, b) => b.n - a.n);
+  P.forEach((x) => {
+    const others = P.filter((y) => y !== x).map((y) => y.n).sort((a, b) => a - b),
+      med = others.length ? others[Math.floor((others.length - 1) / 2)] : 0;
+    x.flag = x.n >= 3 && x.n >= 2 * Math.max(1, med);
+  });
+  return { rows: O, people: P };
+}
+function stockInvCards() {
+  const host = document.getElementById("inv-table");
+  if (!host) return;
+  document.getElementById("stk-inv")?.remove();
+  const S0 = stockDB(),
+    log = S0.overrides.map((o) => ({ at: o.at, t: `Override · ${o.reasonLabel}`, w: `${o.qty} ${o.unit} ${o.invName}${o.projectId ? ` · ${stockJobName(o.projectId)}` : ""} · ${o.by}${o.note ? ` — ${o.note}` : ""}` }))
+      .concat(S0.adjust.map((a) => ({ at: a.at, t: `Count · ${a.reason}`, w: `${a.invName}: ${a.from} → ${a.to} ${a.unit} · ${a.by}` })))
+      .concat(S0.use.map((u) => ({ at: u.at, t: "return" === u.kind ? "Returned · credit" : "Used on job · from stock", w: `${u.qty} ${u.unit} ${u.invName} · ${stockJobName(u.projectId)} · ${money(Math.abs(u.amount))}${u.line ? "" : " · no estimate line"}` })))
+      .sort((a, b) => String(b.at).localeCompare(String(a.at))),
+    canEdit = ["owner", "coord"].includes(role());
+  let h = `<div id="stk-inv"><div class="card" style="margin-top:12px"><div class="hd"><h3>Stock Log</h3><span class="small muted">${log.length}</span><span class="grow"></span>${canEdit ? `<label class="small muted">Hold picks <input type="number" min="1" step="1" id="stk-hold" value="${S0.holdDays}" style="width:52px"> days</label>` : ""}</div>${log.length ? log.slice(0, 40).map((x) => `<div class="stk-row"><div class="grow"><b>${esc(x.t)}</b><div class="small muted">${esc(x.w)}</div></div><span class="small muted">${esc(String(x.at).slice(0, 10))}</span></div>`).join("") : '<div class="small muted">No overrides, counts or stock used on jobs yet.</div>'}<div class="small muted" style="margin-top:6px">${esc(stockBecause())}</div></div>`;
+  if ("owner" === role()) {
+    const P = stockPatterns(stockWin);
+    h += `<div class="card" style="margin-top:12px" id="stk-patterns"><div class="hd"><h3>Override Patterns</h3><span class="small muted" data-stkpat="${P.rows.length}">${P.rows.length}</span><span class="grow"></span><div class="seg sm"><button class="${30 === stockWin ? "on" : ""}" data-stkwin="30">30 Days</button><button class="${90 === stockWin ? "on" : ""}" data-stkwin="90">90 Days</button></div></div>
+    ${P.people.length ? P.people.map((x) => `<div class="stk-row"><div class="grow"><b>${esc(x.who)}</b> · ${x.n} override${1 === x.n ? "" : "s"}<div class="small muted">${Object.entries(x.reasons).map(([k, n]) => `${esc(k)} ${n}`).join(" · ")}</div>${x.flag ? '<div class="small" style="color:var(--warn)">Far above the others. A pattern to look at, not an accusation.</div>' : ""}</div></div>`).join("") : '<div class="small muted">No overrides in this window.</div>'}
+    ${P.rows.map((o) => `<div class="stk-row stk-ovrow"><div class="grow small">${esc(String(o.at).slice(0, 10))} · ${esc(o.by)} · ${esc(o.reasonLabel)} · ${o.qty} ${esc(o.unit)} ${esc(o.invName)}</div></div>`).join("")}</div>`;
+  }
+  host.insertAdjacentHTML("afterend", h + "</div>");
+  const hold = document.getElementById("stk-hold");
+  hold &&
+    (hold.onchange = () => {
+      const n = Math.max(1, Math.round(+hold.value || 5));
+      (S0.holdDays = n), audit("stock", "holdDays", `hold picks ${n} days`, null, null, ""), save(), stockToast(`Stock picks are held ${n} days`, () => ((view = "inv"), render()));
+    });
+}
+{
+  const base = renderInventory;
+  renderInventory = function () {
+    const r = base.apply(this, arguments);
+    try {
+      stockInvCards();
+    } catch (e) {
+      console.warn("stock inventory", e);
+    }
+    return r;
+  };
+}
+// ---- Ask: "do we have 5/8 drywall in stock", "what did we buy this month that we had in stock"
+function stockAskRead(q) {
+  const l = String(q || "").toLowerCase();
+  if (/\b(bought|buy|purchased|paid for|ordered)\b/.test(l) && /\b(had|have|was|were|already)\b[^?]*\b(in stock|in inventory|on hand|in the (yard|warehouse))\b/.test(l)) {
+    const td = today(),
+      R = /\blast month\b/.test(l) ? [iso(addDays(parse(td.slice(0, 7) + "-01"), -1)).slice(0, 7) + "-01", iso(addDays(parse(td.slice(0, 7) + "-01"), -1))] : /\bthis year\b|\bytd\b/.test(l) ? [td.slice(0, 4) + "-01-01", td] : [td.slice(0, 7) + "-01", td],
+      B = boughtWhileInStock(R),
+      amt = r2(B.reduce((a, x) => a + x.amount, 0));
+    return paOut({
+      kind: "stock",
+      headline: B.length ? `${B.length} purchase${1 === B.length ? "" : "s"} from ${fmt(R[0])} to ${fmt(R[1])} bought what we had in stock: ${money(amt)}.` : `Nothing: no purchase from ${fmt(R[0])} to ${fmt(R[1])} bought a stocked item while it sat free in stock.`,
+      note: `A card or bank purchase of a stocked item, matched by spec, while the stock was on hand and no driver or coordinator override covered it (Bought While in Stock). ${stockBecause()}`,
+      work: B.map((x) => `${fmt(x.t.date)} · ${x.t.desc} · ${x.qty} ${x.unit} ${x.inv.name} · ${x.had} ${x.inv.unit} were at ${locName(x.inv.loc)} · ${money(x.amount)}`),
+      rows: B.length,
+      go: paGo({ view: "inv" }),
+    });
+  }
+  const m = l.match(/^(?:do|did|have|has)?\s*(?:we|you)?\s*(?:have|got|still have|carry)?\s*(?:any|some)?\s*(.+?)\s+(?:in stock|in inventory|on hand|at the (?:yard|warehouse))\b/) || l.match(/^how (?:many|much)\s+(.+?)\s+(?:do we have|have we got|is there|are there|in stock|on hand)/);
+  if (!m || !/\b(in stock|in inventory|on hand|at the (yard|warehouse)|do we have|have we got)\b/.test(l)) return null;
+  const what = m[1].replace(/^(?:do we have|have we got|we have|any|some|the)\s+/g, "").trim();
+  if (!what || /^(what|anything|everything|it|items?|stuff)$/.test(what)) return null;
+  const chk = stockCheck({ item: what, qty: 0 }),
+    C = chk.candidates;
+  if (!C.length) return paOut({ kind: "stock", headline: `No: nothing in stock matches ${what}.`, note: "I checked every stocked item by item and spec.", work: [], rows: 0, go: paGo({ view: "inv" }) });
+  const free = C.filter((c) => c.available > 0),
+    exact = C.filter((c) => "high" === c.level),
+    units = [...new Set(C.map((c) => c.unit))],
+    tot = free.reduce((a, c) => a + c.available, 0);
+  return paOut({
+    kind: "stock",
+    headline: free.length
+      ? `Yes: ${1 === units.length ? `${stockU(tot, units[0])} free` : `${free.length} items free`} — ${free.map((c) => `${stockU(c.available, c.unit)} of ${c.name} at ${c.where}`).join("; ")}.`
+      : `None free: ${C.map((c) => `${c.name} is all reserved`).join("; ")}.`,
+    note: exact.length ? "Matched by item and spec; the free count is what is on hand less what open requests have reserved." : `Matched by item and spec; ${C[0].why || "the question leaves part of the spec open"}, so these are the stocked items that could be it.`,
+    work: C.map((c) => `${c.name} · ${c.available} ${c.unit} free · ${c.where}${c.why ? ` · ${c.why}` : ""}`),
+    rows: C.length,
+    go: paGo({ view: "inv" }),
+  });
+}
+// ---- queryable: the stock tables for erpQuery, ⌘K and the Report Builder
+function eqStockOverrides() {
+  return stockDB().overrides.map((o) => ({ _id: o.id, _module: "Inventory", _label: `Override: ${o.qty} ${o.unit} ${o.invName} (${o.reasonLabel})`, _go: eqGo("inv"), date: String(o.at).slice(0, 10), at: o.at, by: o.by, role: o.role, reason: o.reasonLabel, item: o.invName, qty: o.qty, unit: o.unit, door: o.kind, job: o.projectId ? stockJobName(o.projectId) : "", po: o.poId ? ((DB.pos || []).find((x) => x.id === o.poId) || {}).number || "" : "", counted: null != o.counted ? o.counted : "", note: o.note || "" }));
+}
+function eqStockAdjust() {
+  return stockDB().adjust.map((a) => ({ _id: a.id, _module: "Inventory", _label: `Count ${a.invName}: ${a.from} → ${a.to}`, _go: eqGo("inv"), date: String(a.at).slice(0, 10), at: a.at, by: a.by, item: a.invName, from: a.from, to: a.to, change: a.delta, unit: a.unit, reason: a.reason }));
+}
+function eqStockSplits() {
+  return stockDB().splits.map((s) => ({ _id: s.id, _module: "Inventory", _label: `${s.fromStock} ${s.unit} ${s.invName} from stock for ${stockJobName(s.projectId)}`, _go: eqGo("req"), date: String(s.at).slice(0, 10), by: s.by, job: stockJobName(s.projectId), item: s.invName, asked: s.asked, fromStock: s.fromStock, toBuy: s.toBuy, location: locName(s.loc), state: s.state }));
+}
+function eqStockUse() {
+  return stockDB().use.map((u) => ({ _id: u.id, _module: "Inventory", _label: `${"return" === u.kind ? "Returned" : "From stock"}: ${u.qty} ${u.unit} ${u.invName} · ${stockJobName(u.projectId)}`, _go: eqGo("inv"), date: String(u.at).slice(0, 10), kind: "return" === u.kind ? "return" : "from stock", job: stockJobName(u.projectId), item: u.invName, qty: u.qty, unit: u.unit, unitCost: u.unitCost, amount: u.amount, line: u.line, by: u.by }));
+}
+// ---- joining the registries defined further down the file, once, at boot
+let stockRegistered = !1;
+function stockRegister() {
+  if (stockRegistered) return;
+  stockRegistered = !0;
+  try {
+    // old saved databases get the two drywall lines the demo stock carries
+    DB.inventory && (stockDB(), DB.__invSeeded && !DB.stock.seeded && !DB.inventory.some((i) => "iv16" === i.id) && DB.inventory.push(...STOCK_SEED_ADD()), (DB.stock.seeded = !0));
+  } catch (e) {
+    console.warn("stock seed", e);
+  }
+  // the PO validator: nothing issues while a line buys what sits in stock
+  {
+    const base = poValid;
+    poValid = function (po) {
+      const R = base.apply(this, arguments);
+      try {
+        po && ["draft", "pending"].includes(po.status || "draft") && R.push(...stockGuardOk(po.lines, { projectId: po.projectId, poId: po.id }).reasons);
+      } catch (e) {
+        console.warn("stock guard", e);
+      }
+      return R;
+    };
+  }
+  // the PO page: the line warning inline, with Take From Stock and (driver, coordinator) Override
+  if ("function" == typeof renderPODoc) {
+    const base = renderPODoc;
+    renderPODoc = function (po) {
+      let h = base.apply(this, arguments);
+      try {
+        if (po && ["draft", "pending"].includes(po.status) && "string" == typeof h) {
+          const g = stockGuardOk(po.lines, { projectId: po.projectId, poId: po.id });
+          if (!g.ok) {
+            const w = g.blocked
+              .map((b) => `<div class="qcheck stk-warn"><b>In Stock</b>${b.chk.fromStock} ${esc(b.line.unit || b.chk.match.unit)} of ${esc(b.chk.match.name)} are at ${esc(b.chk.match.where)}; this line buys ${+b.line.qty}. ${esc(stockBecause())}<div class="row" style="gap:6px;margin-top:6px"><button class="btn sm" data-stktake="${po.id}:${b.line.id}">Take ${b.chk.fromStock} from Stock</button>${stockCanOverride() ? `<button class="btn sm" data-stkovline="${po.id}:${b.line.id}">Override</button>` : `<span class="small muted">Only ${esc(stockFirst("driver"))} or ${esc(stockFirst("coord"))} can override.</span>`}</div></div>`)
+              .join("");
+            h = h.replace(/(<div class="docwrap"[^>]*>)/, `$1${w}`);
+          }
+        }
+      } catch (e) {
+        console.warn("stock po page", e);
+      }
+      return h;
+    };
+  }
+  // the Order sheet from a Buy Board line says it before anyone presses Issue PO
+  if ("function" == typeof buyOrderDialog) {
+    const base = buyOrderDialog;
+    buyOrderDialog = function (o) {
+      const m = base.apply(this, arguments);
+      try {
+        const bd = m && m.querySelector && m.querySelector(".mbm-bd"),
+          item = bd && bd.querySelector('[data-f="item"]'),
+          qty = bd && bd.querySelector('[data-f="qty"]'),
+          unit = bd && bd.querySelector('[data-f="unit"]');
+        if (item && qty) {
+          const pid = o && o.pid,
+            chk = stockCheck({ item: item.value, unit: unit ? unit.value : "", qty: +qty.value || 0, jobId: pid });
+          if ("high" === chk.matchConfidence && chk.fromStock > 0 && !stockOverrideFor({ projectId: pid }, {}, chk)) {
+            bd.insertAdjacentHTML("afterbegin", `<div class="qcheck stk-warn" id="stk-order"><b>In Stock</b>${chk.fromStock} of ${esc(chk.match.name)} are at ${esc(chk.match.where)}. Take them from stock and order ${chk.toBuy}${stockCanOverride() ? ", or override with a reason" : ""}; Issue PO is refused until then.<div class="row" style="gap:6px;margin-top:6px"><button type="button" class="btn sm" id="stk-order-take">Take ${chk.fromStock} from Stock</button>${stockCanOverride() ? '<button type="button" class="btn sm" id="stk-order-ov">Override</button>' : ""}</div></div>`);
+            bd.querySelector("#stk-order-take").onclick = () => {
+              const r = stockTakeForLine({ projectId: pid, invId: chk.match.id, qty: chk.fromStock, unit: unit ? unit.value : "", note: `From stock for the order of ${item.value}` });
+              r && ((qty.value = chk.toBuy), bd.querySelector("#stk-order").remove(), save(), stockToast(`${chk.fromStock} ${chk.match.name} from stock; order ${chk.toBuy}`, "undefined" != typeof flowGo ? flowGo.request(stockJob(pid)) : null));
+            };
+            const ov = bd.querySelector("#stk-order-ov");
+            // the override sheet replaces this one; the order sheet opens again from the line once it is recorded
+            ov && (ov.onclick = () => stockOverrideDialog({ projectId: pid, invId: chk.match.id, qty: chk.fromStock }));
+          }
+        }
+      } catch (e) {
+        console.warn("stock order sheet", e);
+      }
+      return m;
+    };
+  }
+  // Needs Your Hand: the coordinator's splits and questions, the PM's client-owned surplus
+  if ("function" == typeof nyhRowsAll) {
+    const base = nyhRowsAll;
+    nyhRowsAll = function () {
+      const out = base.apply(this, arguments);
+      try {
+        stockNyhRows().forEach((r) => lnHandDone(r.key) || out.some((x) => x.key === r.key) || out.push(r));
+      } catch (e) {
+        console.warn("nyh stock", e);
+      }
+      return out;
+    };
+  }
+  // Caught for You: bought while in stock (abnormal; the price-watch lane absorbs it)
+  "undefined" != typeof CATCH &&
+    CATCH.push({
+      name: "boughtWhileInStock",
+      label: "Bought While in Stock",
+      abnormal: !0,
+      rows: () =>
+        boughtWhileInStock().map((x) => ({
+          key: "stk:card:" + x.t.id,
+          what: `Bought while in stock: ${tdWords(x.inv.name, 6)}`,
+          sub: `${money(x.amount)} · ${x.qty} ${x.unit} on ${fmt(x.t.date)}; ${x.had} ${x.inv.unit} sat at ${locName(x.inv.loc)} · waste nothing`,
+          amount: x.amount,
+          verb: stockCanOverride() ? "Explain" : "Review",
+          run: () => {
+            if (stockCanOverride()) return void stockOverrideDialog({ txnId: x.t.id, projectId: x.t.projectId, invId: x.inv.id, qty: x.n });
+            "function" == typeof txnDialog ? txnDialog(x.t.id) : ((view = "inv"), render());
+          },
+        })),
+    });
+  // one count per label
+  if ("function" == typeof predDef) {
+    predDef("boughtWhileInStock", { label: "Bought While in Stock", rule: "a card or bank purchase of a stocked item, matched by spec, while it sat available and no driver or coordinator override covered it", rows: () => boughtWhileInStock() });
+    predDef("stockPicks", { label: "Picks From Stock", rule: "material reserved from stock for a request, waiting for the driver's pick", rows: () => stockHeld() });
+    predDef("stockQuestions", { label: "Stock Questions", rule: "a request whose match to stock is uncertain, waiting on the coordinator", rows: () => stockOpenQs() });
+  }
+  // erpQuery, ⌘K, the Report Builder
+  if ("undefined" != typeof EQ_TABLES) {
+    (EQ_TABLES.stockoverrides = () => eqStockOverrides()), (EQ_TABLES.stockadjustments = () => eqStockAdjust()), (EQ_TABLES.stocksplits = () => eqStockSplits()), (EQ_TABLES.stockuse = () => eqStockUse());
+    const inv0 = EQ_TABLES.inventory;
+    EQ_TABLES.inventory = () =>
+      inv0().map((r) => {
+        const i = (DB.inventory || []).find((x) => x.id === r._id);
+        return i && "tool" !== i.type ? Object.assign(r, { available: invAvailable(i), cost: +i.cost || 0 }) : r;
+      });
+    "undefined" != typeof EQ_ALIAS && Object.assign(EQ_ALIAS, { overrides: "stockoverrides", stockoverride: "stockoverrides", adjustments: "stockadjustments", stockcounts: "stockadjustments", counts: "stockadjustments", splits: "stocksplits", picks: "stocksplits", stockpicks: "stocksplits", fromstock: "stockuse", stockused: "stockuse" });
+  }
+  // Ask, outermost for these two questions
+  if ("function" == typeof paAsk) {
+    const base = paAsk;
+    paAsk = function (q) {
+      try {
+        if ("client" !== role()) {
+          const a = stockAskRead(q);
+          if (a) return a;
+        }
+      } catch (e) {
+        console.warn("stock ask", e);
+      }
+      return base.apply(this, arguments);
+    };
+  }
+  // the driver's route carries the picks; a new day lets stale reservations go
+  if ("function" == typeof render) {
+    const base = render;
+    render = function () {
+      const r = base.apply(this, arguments);
+      try {
+        "route" === view && stockRouteCard();
+      } catch (e) {
+        console.warn("stock route", e);
+      }
+      return r;
+    };
+  }
+  "undefined" != typeof APP_DAY_HOOKS && APP_DAY_HOOKS.push(["stockSweep", () => (stockSweep(), !0)]);
+  try {
+    stockSweep();
+  } catch (e) {
+    console.warn("stock sweep", e);
+  }
+}
+{
+  const base = finishBoot;
+  finishBoot = function () {
+    try {
+      stockRegister();
+    } catch (e) {
+      console.error("stock register", e);
+    }
+    return base.apply(this, arguments);
+  };
 }
 let invFilter = "all";
 function renderInventory() {
@@ -172470,7 +173537,7 @@ document.addEventListener(
       audit("txn", t.id, "credit-confirmed", "proposed", txnCreditWhy(t), "");
     } catch (err) {}
     save(), render();
-    rcToast(`${t.desc} confirmed as a vendor credit — ${txnCreditWhy(t)}`, "function" == typeof flowGo && flowCan("bank") ? [{ label: "Open", run: flowGo.view("bank") }] : null);
+    rcToast(`${t.desc} confirmed as a vendor credit — ${txnCreditWhy(t)}`, "undefined" != typeof flowGo && flowCan("bank") ? [{ label: "Open", run: flowGo.view("bank") }] : null);
   },
   !0,
 );
@@ -176114,7 +177181,7 @@ function lkDisputeFor(c, low, amt) {
             verb: "Accept the Difference",
             no: "",
             run: () => pay3Resolve(b, "accept"),
-            open: () => ("function" == typeof flowGo && flowGo.bill ? flowGo.bill(b)() : ((view = "ap"), render())),
+            open: () => ("undefined" != typeof flowGo && flowGo.bill ? flowGo.bill(b)() : ((view = "ap"), render())),
           });
         });
     } catch (e) {
