@@ -13,6 +13,9 @@ SmartDesigns Projects is a living, breathing, evolving ERP that constantly wants
 - **The personal assistant, one per person.** Think of a frontier chat assistant fully customised to SmartDesign and to that person's role. It uses all the information in the company to help its user succeed at a very high level: it makes sure they never miss an opportunity or a deadline, helps them do their work, manages their day to day, and acts on their behalf (drafts, chases, schedules, files, proposes) with the ability to get things done. People approve what moves money, commits the firm or reaches a client.
 - The experts who test every round are role experts from a design-build firm with in-house trades (construction, plumbing, electric, design, architecture, permitting and LPC, coordination with engineers and consultants), 20 years in their field and fluent in today's AI. Their definitions live in `.claude/agents/`. They judge the assistant and the brain as hard as they judge the screens.
 
+## The charter (Alan, 2026-10-11): every agent acts by it
+`docs/CHARTER.md` holds SmartDesign's values, principles, standards, the AI's limits (what it does alone, what it proposes, what it never does), what to act on first, and when to stop and ask. The live, versioned copy is in the app (Settings › Charter, `DB.company.charter`), and Alan edits it. Every assistant, background agent, chase, CATCH detector and brain lesson reads it, ranks its work by it, and names the value behind each proposal ("because …"). New AI features must do the same.
+
 ## The north star (Alan, 2026-10-08): weigh every change against this
 A custom, tailored ERP for SmartDesign, built for the future. It uses AI to raise each employee's output and to make sure nothing is forgotten:
 - **Nothing slips.** No forgotten task, follow-up, reminder or promise. Agents in the ERP originate, chase and remind; people approve.
