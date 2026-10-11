@@ -461,7 +461,9 @@ async def part_close(p, c):
     c.ok(r['reopen'] and not r['status']['closed'], f"reopen August {r['reopen']} {r['status']}")
     c.ok(r['reclose'] is True and r['tie'], f"re-close {r['reclose']} tie {r['tie']}")
     c.ok(r['latePostOn'] == '2026-09-01', f"#2 reopening August dropped the late line's posting period: {r['latePostOn']}")
-    c.ok(abs(r['aug'][0] - 103305.11) < 0.005 and abs(r['aug'][1] - 103305.11) < 0.005, f"#2 August cost after reopen and re-close: management {r['aug'][0]} / ledger {r['aug'][1]} (want 103,305.11 both)")
+    # 103,305.29 (was 103,305.11): the payroll run's split is taken from its hours to four decimals of a percent, not two;
+    # at two, $0.18 of the August run sat in the wrong place (chain lane, "Labor and sub cost carry one number")
+    c.ok(abs(r['aug'][0] - 103305.29) < 0.005 and abs(r['aug'][1] - 103305.29) < 0.005, f"#2 August cost after reopen and re-close: management {r['aug'][0]} / ledger {r['aug'][1]} (want 103,305.29 both)")
     c.ok(abs(r['sep'][0] - r['sep'][1]) < 0.01, f"#2 September cost: management {r['sep'][0]} / ledger {r['sep'][1]}")
     c.ok(abs(r['lateInSepM'] - 1000) < 0.01 and abs(r['lateInSepL'] - 1000) < 0.01, f"#2 September carries the late $1,000: management {r['lateInSepM']} / ledger {r['lateInSepL']}")
     c.ok(r['hist'] == ['closed', 'reopened', 'closed again'], f"Ask ctCloseHistory after re-close {r['hist']}")

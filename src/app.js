@@ -1089,12 +1089,7 @@ function migrateClientDocs(c) {
             order: c.sov.length,
           }),
         )),
-    c.changeOrders.forEach((x) => {
-      x.amount = docTotal(x).total;
-    }),
-    c.invoices.forEach((x) => {
-      x.amount = docTotal(x).total;
-    }),
+    // a document's cached amount is written when it is saved (docAmountsSync, in persist), never on load
     [...c.estimates, ...c.changeOrders, ...c.invoices].forEach((x) => {
       void 0 === x._base && docMark(x);
     });
@@ -1129,9 +1124,16 @@ const clientOf = (p) => DB.clients.find((c) => c.id === (p || S).clientId),
   },
   r2 = (n) => Math.round(100 * (+n || 0)) / 100;
 function lineAmount(l, doc) {
-  return doc && "sov" === doc.mode
-    ? r2((+l.scheduled || 0) * ((+l.pct || 0) / 100))
-    : r2((+l.qty || 0) * (+l.rate || 0));
+  if (doc && "sov" === doc.mode) {
+    // stored materials bill their dollars (G703 column F), not a percentage rounded to two places: $23,400 stored
+    // on a $32,000 line was 73.13% = $23,401.60. The rest of the line's % is work in place.
+    const st = +l.stored || 0,
+      stPct = st && +l.scheduled ? (100 * st) / +l.scheduled : 0;
+    return st && (+l.pct || 0) >= r2(stPct) - 1e-9
+      ? r2((+l.scheduled || 0) * Math.max(0, (+l.pct || 0) - r2(stPct)) / 100 + st)
+      : r2((+l.scheduled || 0) * ((+l.pct || 0) / 100));
+  }
+  return r2((+l.qty || 0) * (+l.rate || 0));
 }
 function docTotal(d) {
   const lines = d.lines || [],
@@ -1254,6 +1256,8 @@ const COST_CODES = [
     { id: "insurance", n: "Insurance", type: "oh" },
     { id: "vehicle", n: "Vehicle & fuel", type: "oh" },
     { id: "office", n: "Office & software", type: "oh" },
+    // the office lease: the biggest overhead line had no account and was coded to Office & software
+    { id: "rent", n: "Rent & occupancy", type: "oh" },
     { id: "marketing", n: "Marketing", type: "oh" },
     { id: "payroll-oh", n: "Payroll (office)", type: "oh" },
     { id: "meals", n: "Meals & travel", type: "oh" },
@@ -2493,7 +2497,38 @@ async function probeStorage() {
     );
   }
 }
+// One rounding rule for a change order's and an invoice's cached amount: docTotal(d).total, the figure the ledger
+// posts (an invoice's 1100). It is written when the database is saved, never when it is loaded: the boot used to
+// rewrite every one on every load (85 documents on the seed; INV-2026-035 72,750.15 -> 72,750.16), changing stored
+// documents with no record. Documents saved before carry theirs from the one-time migration (docAmountMigrate).
+function docAmountsSync() {
+  (DB && DB.clients ? DB.clients : []).forEach((c) =>
+    [...(c.changeOrders || []), ...(c.invoices || [])].forEach((d) => {
+      try {
+        const a = docTotal(d).total;
+        d.amount !== a && (d.amount = a);
+      } catch (e) {}
+    }),
+  );
+}
+function docAmountMigrate() {
+  if (!DB || ((DB.migrations = DB.migrations || {}), DB.migrations.docAmount)) return 0;
+  let n = 0;
+  (DB.clients || []).forEach((c) =>
+    [...(c.changeOrders || []), ...(c.invoices || [])].forEach((d) => {
+      let a;
+      try {
+        a = docTotal(d).total;
+      } catch (e) {
+        return;
+      }
+      d.amount !== a && (audit("document", d.id, "amount cached from lines", null == d.amount ? "" : String(d.amount), String(a), d.number || ""), (d.amount = a), n++);
+    }),
+  );
+  return (DB.migrations.docAmount = { on: today(), at: appNowIso(), changed: n }), save(), n;
+}
 async function persist(attempt) {
+  docAmountsSync();
   const str = JSON.stringify(DB);
   if (str === lastSaved) return;
   let idbOK = !1;
@@ -4951,14 +4986,14 @@ function renderProj() {
     ($("#u-add").onclick = () => {
       const n = $("#u-name").value.trim();
       if (!n) return;
-      const em = DB.employees.find((e) => e.name.toLowerCase() === n.toLowerCase());
-      DB.users.push({
-        id: uid("u"),
-        name: n,
-        role: $("#u-role").value,
-        contact: $("#u-contact").value.trim(),
-        employeeId: em?.id || "",
-      }),
+      const em = DB.employees.find((e) => e.name.toLowerCase() === n.toLowerCase()),
+        nu = { id: uid("u"), name: n, role: $("#u-role").value, contact: $("#u-contact").value.trim(), employeeId: em?.id || "" };
+      if ("client" === nu.role) {
+        const cid = userClientOf(nu);
+        if (!cid) return void toast("A portal user is one of a client's people: put the client's email in Phone or Email (it must match a contact on the client)");
+        (nu.clientId = cid), (nu.employeeId = "");
+      }
+      DB.users.push(nu),
         !em &&
           ["crew", "driver", "foreman"].includes($("#u-role").value) &&
           (DB.employees.push({
@@ -4975,7 +5010,8 @@ function renderProj() {
         ($("#u-name").value = ""),
         ($("#u-contact").value = ""),
         save(),
-        renderUsers();
+        renderUsers(),
+        toast(`${n} added as ${ROLE_NAMES[nu.role] || nu.role}${nu.clientId ? ` for ${(DB.clients.find((c) => c.id === nu.clientId) || {}).name || "the client"}` : ""}`);
     }),
     ($("#backlog").innerHTML =
       `<div class="backlog">${BACKLOG.map(([t, d]) => `<div><b>${esc(t)}</b>${esc(d)}</div>`).join("")}</div>`),
@@ -8883,7 +8919,9 @@ function wireDocEditor(c) {
           if ("taxable" === f) l.taxable = e.target.checked;
           else if (["qty", "rate", "pct", "cost"].includes(f)) {
             let v = +e.target.value || 0;
-            "pct" === f && (v = Math.min(v, 100 - (+l.prevPct || 0))), (l[f] = v);
+            "pct" === f && ((v = Math.min(v, 100 - (+l.prevPct || 0))), (l.pctByHand = !0)),
+              "cost" === f && ((l.costSet = "" !== String(e.target.value).trim()), l.costSet || (v = "")),
+              (l[f] = v);
           } else l[f] = e.target.value;
           save(), ("function" == typeof rxLineSync && rxLineSync(c, d)) || rerender();
         }),
@@ -12873,6 +12911,19 @@ function canApprove(item) {
 function needsOwner(amount) {
   return +amount >= (DB.company.ap?.ceoAbove ?? 0);
 }
+// Every bill line is its own record: an id (a bank line matches to it, truthMatchOf billLineId), the PO line it
+// bills and the estimate line its cost lands on. Bills made from a PO (Bill This PO, Bill It on the receiving toast)
+// and any bill saved before this carried neither.
+function billLinesNorm(b) {
+  if (!b || !Array.isArray(b.lines)) return b;
+  const po = b.poId ? (DB.pos || []).find((x) => x.id === b.poId) : null;
+  b.lines.forEach((l) => {
+    l.id || (l.id = uid("bl"));
+    const pl = po && l.poLineId ? (po.lines || []).find((x) => x.id === l.poLineId) : null;
+    l.line || (pl && pl.line ? (l.line = pl.line) : 1 === b.lines.length && b.line && (l.line = b.line));
+  });
+  return b;
+}
 function billTotal(b) {
   return r2((b.lines || []).reduce((a, l) => a + (+l.amount || 0), 0));
 }
@@ -14046,6 +14097,18 @@ function distM(a, b) {
     h = Math.sin(dLat / 2) ** 2 + Math.cos(toR(a.lat)) * Math.cos(toR(b.lat)) * Math.sin(dLng / 2) ** 2;
   return Math.round(12742e3 * Math.asin(Math.sqrt(h)));
 }
+// An entry whose work is accounted for: logged lines that add up to the clock; or a supervisor's entry typed with
+// its job and cost code (the entry is its own one work line); or office staff with no job (their time is
+// overhead by design: the Overhead job). Only the rest is "No work logged" / "does not add up".
+function timeOfficeEmp(e) {
+  const emp = (DB.employees || []).find((x) => x.id === e.empId);
+  return !!emp && "office" === empDept(emp);
+}
+function timeWorkOk(e) {
+  if (!e) return !1;
+  if (e.work && e.work.length) return Math.abs(workHours(e) - hoursOf(e)) <= 0.26;
+  return ("manual" === e.source && !!e.projectId && !!e.code) || (!e.projectId && timeOfficeEmp(e));
+}
 function timeFlags(e) {
   const f = [],
     h = hoursOf(e),
@@ -14083,10 +14146,10 @@ function timeFlags(e) {
       ? e.out &&
         Math.abs(workHours(e) - hoursOf(e)) > 0.26 &&
         f.push(`Work logged ${workHours(e).toFixed(1)} h vs ${hoursOf(e).toFixed(1)} h clocked`)
-      : f.push("No work logged"),
+      : timeWorkOk(e) || f.push("No work logged"),
     e.autoOut && f.push("Auto clocked out on leaving site"),
     e.autoClosed && f.push("Forgot to clock out — auto-closed at 10 h"),
-    e.projectId || f.push("No job");
+    e.projectId || timeOfficeEmp(e) || f.push("No job");
   return (
     DB.time.find(
       (x) =>
@@ -14780,10 +14843,7 @@ function timeAction(e, a) {
   if ("approve" === a) {
     if (empName(e.empId).toLowerCase() === by.toLowerCase())
       return void toast("You cannot approve your own time");
-    if (
-      (!e.work || !e.work.length || Math.abs(workHours(e) - hoursOf(e)) > 0.26) &&
-      !appConfirm("Work details are missing or do not add up to the clocked hours. Approve anyway?")
-    )
+    if (!timeWorkOk(e) && !appConfirm("Work details are missing or do not add up to the clocked hours. Approve anyway?"))
       return;
     (e.status = "approved"),
       (e.approvedBy = by),
@@ -18122,9 +18182,26 @@ function seedUsers() {
   ];
 }
 const currentUser = () => DB.users.find((u) => u.id === DB.deviceUser) || null;
+// A portal user is one of a client's people: the client whose contact (or the client record) carries the user's
+// email. A client user with no client could otherwise open whatever job was last open on the device.
+function userClientOf(u) {
+  if (!u || "client" !== u.role) return "";
+  if (u.clientId && (DB.clients || []).some((c) => c.id === u.clientId)) return u.clientId;
+  const em = String(u.contact || "").trim().toLowerCase();
+  if (!em || !/@/.test(em)) return "";
+  const c = (DB.clients || []).find(
+    (c) => String(c.email || "").toLowerCase() === em || (c.contacts || []).some((x) => String(x.email || "").toLowerCase() === em),
+  );
+  return c ? c.id : "";
+}
 function signIn(userId) {
   const u = DB.users.find((x) => x.id === userId);
   if (!u) return;
+  if ("client" === u.role) {
+    const cid = userClientOf(u);
+    if (!cid) return void toast(`${u.name} is not linked to a client yet: add their email to the client's people, then sign in`);
+    u.clientId = cid;
+  }
   if (
     ((DB.deviceUser = u.id),
     (DB.me = u.name),
@@ -19894,13 +19971,7 @@ function wire() {
           .filter(
             (e) => e && "submitted" === e.status && empName(e.empId).toLowerCase() !== by.toLowerCase(),
           ),
-        odd = rows.filter(
-          (e) =>
-            !e.work ||
-            !e.work.length ||
-            Math.abs(workHours(e) - hoursOf(e)) > 0.26 ||
-            ("function" == typeof timeFlags && (timeFlags(e) || []).length),
-        ),
+        odd = rows.filter((e) => !timeWorkOk(e) || ("function" == typeof timeFlags && (timeFlags(e) || []).length)),
         run = () => {
           let n = 0;
           rows.forEach((e) => {
@@ -24123,10 +24194,14 @@ function lineLabor(doc, line) {
     const pid = doc && doc.projectId,
       code = String((line && line.code) || "");
     if (!pid || !code) return 0;
-    const rateOf = (e) => {
-      const emp = (DB.employees || []).find((x) => x.id === e.empId);
-      return ((emp && +emp.rate) || 0) * (1 + ((emp && +emp.burden) || 0) / 100);
-    };
+    // the rate jobFin uses: the burdened rate, trued up to what the paid payroll run actually cost (payrollTrueUp), so a
+    // line's labor and the job's labor are one number
+    const tu = "function" == typeof payrollTrueUp ? payrollTrueUp() : null,
+      rateOf = (e) => {
+        const emp = (DB.employees || []).find((x) => x.id === e.empId),
+          base = ((emp && +emp.rate) || 0) * (1 + ((emp && +emp.burden) || 0) / 100);
+        return emp && tu ? base * (+tu(e, emp) || 1) : base;
+      };
     let total = 0;
     if (
       ((DB.time || [])
@@ -24202,7 +24277,11 @@ function lineFin(key) {
           .filter((l) => l.sovId === sv.id)
           .reduce((a, l) => a + (+l.pct || 0), 0)
       : 0,
-    billed = r2((price * billedPct) / 100);
+    // billed in dollars, line by line: a line with stored materials bills their exact dollars (lineAmount), which a
+    // percentage of the price rounds away
+    billed = sv
+      ? r2(live.reduce((a, i) => a + i.lines.filter((l) => l.sovId === sv.id).reduce((b, l) => b + lineAmount(l, i) * share, 0), 0))
+      : 0;
   let collected = 0,
     retained = 0;
   sv &&
@@ -24237,15 +24316,17 @@ function lineFin(key) {
             pos.some((po) => po.id === b.poId) &&
             (b.line === key || !b.line),
         )
-        .reduce((a, b) => a + billTotal(b), 0),
+        .reduce((a, b) => a + billCost(b), 0),
     ),
     committed = Math.max(0, r2(poGross - poBilled)),
     draftPOs = DB.pos.filter((po) => "draft" === po.status && po.lines.some((l) => l.line === key)),
     bills = DB.bills.filter((b) => b.line === key && "void" !== b.status && "rejected" !== b.status),
-    billsAmt = r2(bills.reduce((a, b) => a + billTotal(b), 0)),
+    // a difference disputed with the vendor is not cost until it is settled (as job cost reads it, by code)
+    billsAmt = r2(bills.reduce((a, b) => a + billCost(b) - billRebillPart(b) - ("function" == typeof pay3HeldCost ? pay3HeldCost(b) : 0), 0)),
     txns = DB.txns.filter(
       (t) =>
         t.line === key &&
+        !txnRebilled(t) &&
         !((t) =>
           !!t.billId ||
           bills.some(
@@ -24975,6 +25056,19 @@ function cfoRange() {
           : ["", t];
 }
 const within = (d, [a, b]) => (!a || (d || "") >= a) && (!b || (d || "") <= b);
+// A payroll run's cost by allocation: each job, the office (overhead) and Unallocated Labor, in dollars. A run across
+// entities sums each entity's own split (r.entities[].alloc, what its GL lines post), so the management view and
+// the ledger carry the same cents; any other run is its total times each share.
+function payrollAllocAmts(p) {
+  const parts = Array.isArray(p.entities) && p.entities.length > 1 && p.entities.every((e) => Array.isArray(e.alloc) && e.alloc.length) ? p.entities : null,
+    out = {};
+  (parts ? parts.flatMap((e) => e.alloc.map((a) => [a, +e.total || 0])) : (p.alloc || [{ projectId: "", pct: 100 }]).map((a) => [a, +p.total || 0])).forEach(([a, tot]) => {
+    const k = (a.unallocated ? "~u" : "") + (a.projectId || ""),
+      o = (out[k] = out[k] || { projectId: a.projectId || "", unallocated: !a.projectId && !!a.unallocated, pct: 0, amt: 0 });
+    (o.amt = r2(o.amt + r2((tot * (+a.pct || 0)) / 100))), (o.pct = +p.total ? (o.amt / +p.total) * 100 : 0);
+  });
+  return Object.values(out);
+}
 function ledger(range) {
   const rows = [];
   DB.bills
@@ -24986,7 +25080,7 @@ function ledger(range) {
         cat: b.cat || "uncat",
         vendor: b.vendor,
         desc: `${b.vendor} · ${b.number}`,
-        amt: billTotal(b),
+        amt: billCost(b),
         projectId: b.projectId || "",
         ref: b,
       }),
@@ -25026,15 +25120,16 @@ function ledger(range) {
     DB.payroll
       .filter((p) => within(p.payDate, range))
       .forEach((p) => {
-        (p.alloc || [{ projectId: "", pct: 100 }]).forEach((a) =>
+        payrollAllocAmts(p).forEach((a) =>
           rows.push({
             date: p.payDate,
             kind: "payroll",
             cat: a.projectId ? "labor" : "payroll_oh",
             vendor: "Payroll",
             desc: `Payroll ${p.period}${a.projectId ? " · " + (DB.projects.find((x) => x.id === a.projectId)?.project.name || "") : " · overhead"}`,
-            amt: r2(((+p.total || 0) * (+a.pct || 0)) / 100),
+            amt: a.amt,
             projectId: a.projectId || "",
+            unalloc: a.unallocated,
             ref: p,
           }),
         );
@@ -25069,7 +25164,7 @@ function companyPL(range) {
         .reduce((a, p) => a + (+p.amount || 0), 0),
     ),
     accrued = r2(
-      DB.bills.filter((b) => BILL_ACCRUED.includes(b.status)).reduce((a, b) => a + billTotal(b), 0),
+      DB.bills.filter((b) => BILL_ACCRUED.includes(b.status)).reduce((a, b) => a + billCost(b), 0),
     ),
     cogs = {},
     oh = {},
@@ -27669,10 +27764,10 @@ function repFinancials() {
             ...(DB.payroll || [])
               .filter((pr) => within(pr.payDate, R) && !(repEntity && (pr.entityId || "ent1") !== repEntity))
               .flatMap((pr) =>
-                (pr.alloc || [{ projectId: "", pct: 100 }]).map((a) => ({
+                payrollAllocAmts(pr).map((a) => ({
                   kind: "payroll",
                   cat: a.projectId ? "labor" : "payroll_oh",
-                  amt: r2(((+pr.total || 0) * (+a.pct || 0)) / 100),
+                  amt: a.amt,
                   desc: `Payroll ${pr.period}`,
                   date: pr.payDate,
                 })),
@@ -28773,6 +28868,34 @@ function txnViaBill(t, bills) {
     )
   );
 }
+// A purchase made on the client's behalf and billed back (a reimbursable: t.billable, or already on an invoice
+// line) is not contract cost. It sits on its own cost row, never on the estimate line it was coded near, and its
+// invoice is its revenue, earned when billed. Without this a $412 card purchase for the client raised the
+// millwork line's cost, its % complete and the job's earned revenue, and the reimbursable invoice counted twice.
+function txnRebilled(t) {
+  return !!(t && (t.billable || t.invoiceLineId));
+}
+function jobRebill(p, range) {
+  const R = range || ["", today()],
+    c = DB.clients.find((x) => x.id === p.clientId),
+    bills = (DB.bills || []).filter((b) => b.projectId === p.id),
+    cost = r2(
+      (DB.txns || [])
+        .filter((t) => t.projectId === p.id && +t.amt < 0 && txnRebilled(t) && within(t.date, R) && !txnViaBill(t, bills))
+        .reduce((a, t) => a - +t.amt, 0) +
+        bills
+          .filter((b) => (BILL_COSTED.includes(b.status) || BILL_ACCRUED.includes(b.status)) && within(b.date, R) && !("function" == typeof fin2Dup && fin2Dup(b)))
+          .reduce((a, b) => a + billRebillPart(b), 0),
+    ),
+    billed = c
+      ? r2(
+          (c.invoices || [])
+            .filter((i) => i.rebill && i.projectId === p.id && !["void", "draft"].includes(i.status) && within(i.date, R))
+            .reduce((a, i) => a + docNet(i), 0),
+        )
+      : 0;
+  return { cost: cost, billed: billed };
+}
 function jobFin(p, range) {
   const c = DB.clients.find((x) => x.id === p.clientId),
     R = range || ["", today()],
@@ -28820,8 +28943,8 @@ function jobFin(p, range) {
     bills = DB.bills.filter((b) => b.projectId === p.id),
     costedBills = bills.filter((b) => BILL_COSTED.includes(b.status) && inRng(b.date)),
     accruedBills = bills.filter((b) => BILL_ACCRUED.includes(b.status)),
-    billsAmt = r2(costedBills.reduce((a, b) => a + billTotal(b), 0)),
-    accrued = r2(accruedBills.reduce((a, b) => a + billTotal(b), 0)),
+    billsAmt = r2(costedBills.reduce((a, b) => a + billCost(b), 0)),
+    accrued = r2(accruedBills.reduce((a, b) => a + billCost(b), 0)),
     // a vendor credit coded to the job (refund) reduces its cost: it is summed with its sign (BACKLOG §1.5 #4)
     txns = DB.txns.filter(
       (t) =>
@@ -28866,7 +28989,7 @@ function jobFin(p, range) {
       r2(
         bills
           .filter((b) => "void" !== b.status && "rejected" !== b.status && pos.some((po) => po.id === b.poId))
-          .reduce((a, b) => a + billTotal(b), 0),
+          .reduce((a, b) => a + billCost(b), 0),
       ),
       r2(
         DB.pos
@@ -28875,7 +28998,7 @@ function jobFin(p, range) {
             const tot = poTotal(po).total,
               billedOn = bills
                 .filter((b) => "void" !== b.status && "rejected" !== b.status && b.poId === po.id)
-                .reduce((x, b) => x + billTotal(b), 0);
+                .reduce((x, b) => x + billCost(b), 0);
             return a + Math.max(0, tot - billedOn - poPaidDirect(po));
           }, 0),
       )),
@@ -28908,14 +29031,17 @@ function jobFin(p, range) {
       const code = lineCode(l, doc);
       bump(code, "budget", lineBudget(l, doc).budget), bump(code, "contract", lineAmount(l, doc));
     }),
-    costedBills.forEach((b) =>
+    costedBills.forEach((b) => {
+      // what the bill charges for PO lines billed back to the client is on its own row, as a reimbursable bank line is
+      const rbp = billRebillPart(b);
       bump(
         b.code || (b.line ? findLine(b.line)?.line.code || codeForLine(findLine(b.line)?.line || {}) : "99"),
         "bills",
-        billTotal(b),
+        billCost(b) - rbp,
       ),
-    ),
-    txns.forEach((t) => bump(t.code || "99", "bank", -t.amt)),
+        rbp && bump("RB", "bills", rbp);
+    }),
+    txns.forEach((t) => bump(txnRebilled(t) ? "RB" : t.code || "99", "bank", -t.amt)),
     Object.entries(laborByCode).forEach(([code, v]) => bump(code, "labor", v)),
     pos.forEach((po) => {
       const tot = poTotal(po).sub,
@@ -28924,22 +29050,24 @@ function jobFin(p, range) {
           tot -
             bills
               .filter((b) => b.poId === po.id && "void" !== b.status)
-              .reduce((a, b) => a + billTotal(b), 0) -
+              .reduce((a, b) => a + billCost(b), 0) -
             poPaidDirect(po),
         );
       po.lines.forEach((l) => {
         const ref = l.line ? findLine(l.line) : null,
           code = l.code || (ref ? ref.line.code || codeForLine(ref.line) : "99");
-        bump(code, "committed", tot ? (open * ((+l.qty || 0) * (+l.price || 0))) / tot : 0);
+        bump(l.billable ? "RB" : code, "committed", tot ? (open * ((+l.qty || 0) * (+l.price || 0))) / tot : 0);
       });
     }),
+    byCode.RB && (byCode.RB.name = "Billed back to the client"),
     Object.values(byCode).forEach((b) => {
       (b.actual = r2(b.bills + b.bank + b.labor)),
         ["contract", "budget", "committed", "bills", "bank", "labor"].forEach((k) => (b[k] = r2(b[k])));
     }),
-    {
+    jobFinDerive({
       p: p,
       c: c,
+      range: R,
       est: est,
       invs: invs,
       billedInvs: billedInvs,
@@ -28981,8 +29109,8 @@ function jobFin(p, range) {
       backlog: backlog,
       backlogGP: r2(estGP * (1 - pct)),
       byCode: Object.values(byCode).sort((a, b) => a.code.localeCompare(b.code)),
-      defs: "billed = invoices ex tax before retainage · actual = approved bills + bank items without a bill + burdened labor · committed = open POs net of bills · % complete = actual ÷ estimated total cost",
-    }
+      defs: "billed = invoices ex tax before retainage · actual = approved bills + bank items without a bill + burdened labor · committed = open POs net of bills · % complete = contract cost ÷ estimated contract cost (purchases billed back to the client are earned when billed)",
+    }, p)
   );
 }
 // Everything jobFin derives from actual, committed, budget, contract and billed, in one place. Each later
@@ -28990,24 +29118,31 @@ function jobFin(p, range) {
 // disputed bank lines) calls this instead of repeating the arithmetic. eac, when given, is the estimate
 // at completion the caller already worked out (the per-line roll-up, jobFinEac); otherwise a PM-reviewed
 // cost to complete wins, else the greater of budget and actual + committed.
+// Purchases billed back to the client (jobRebill) are cost and revenue of their own: they are in actual and the
+// estimate at completion, out of the cost-to-cost % complete, and their invoices are earned as billed.
 function jobFinDerive(J, p, eac) {
-  const ctc = +(p.ctc || 0);
+  const ctc = +(p.ctc || 0),
+    RB = jobRebill(p, J.range),
+    rc = RB.cost;
+  (J.rebillCost = rc), (J.rebillBilled = RB.billed);
+  (J.eac = r2(
+    null != eac
+      ? eac
+      : p.ctcReviewed
+        ? Math.max(J.actual + J.committed, J.actual + ctc)
+        : Math.max(J.budget + rc, J.actual + J.committed),
+  )),
+    (J.pct = J.eac - rc > 0 ? Math.min(1, Math.max(0, J.actual - rc) / (J.eac - rc)) : 0),
+    (J.earnedContract = r2(J.contract * J.pct)),
+    (J.earned = r2(J.earnedContract + RB.billed));
+  const revenue = r2(J.contract + RB.billed);
   return (
-    (J.eac = r2(
-      null != eac
-        ? eac
-        : p.ctcReviewed
-          ? Math.max(J.actual + J.committed, J.actual + ctc)
-          : Math.max(J.budget, J.actual + J.committed),
-    )),
-    (J.pct = J.eac ? Math.min(1, J.actual / J.eac) : 0),
-    (J.earned = r2(J.contract * J.pct)),
     (J.overUnder = r2(J.billed - J.earned)),
     (J.over = Math.max(0, J.overUnder)),
     (J.under = Math.max(0, -J.overUnder)),
-    (J.backlog = r2(Math.max(0, J.contract - J.earned))),
-    (J.estGP = r2(J.contract - J.eac)),
-    (J.estGPPct = J.contract ? r2((J.estGP / J.contract) * 100) : 0),
+    (J.backlog = r2(Math.max(0, J.contract - J.earnedContract))),
+    (J.estGP = r2(revenue - J.eac)),
+    (J.estGPPct = revenue ? r2((J.estGP / revenue) * 100) : 0),
     (J.backlogGP = r2(J.estGP * (1 - J.pct))),
     J
   );
@@ -29034,6 +29169,13 @@ function payrollTrueUp() {
     return m ? m.f : 1;
   };
 }
+// A payroll run covers the time of every entity it pays: one across entities (r.entities, one part per entity) covers
+// each part's entity, not only its own entityId. Before, the close accrued the hours of the second entity's people as
+// wages no run covers, on top of the run that paid them (a double count of the job's labor at the close).
+function runEnts(r) {
+  return r && (r.entities || []).length ? r.entities.map((e) => e.entityId || "ent1") : [(r && r.entityId) || "ent1"];
+}
+const runCoversEnt = (r, ent) => runEnts(r).includes(ent || "ent1");
 const entOfEmpId = (id) => DB.employees.find((x) => x.id === id)?.entityId || "ent1",
   JOBFIN_NOTE =
     "One engine feeds every screen: billed = invoices ex tax, before retainage; actual = approved bills + bank items without a bill + clocked labor at burdened rates (trued up to actual payroll once a run is paid); committed = open POs net of bills; % complete = actual ÷ estimated total cost (cost-to-cost).";
@@ -32575,6 +32717,12 @@ billTotal = function (b) {
   return pct && !b.retainageRelease ? r2(gross * (1 - pct / 100)) : gross;
 };
 const billGross = (b) => billTotalBase(b);
+// What a bill costs the job: its gross, retainage withheld included. A subcontractor's retainage is cost when the
+// work is billed (the GL posts 5200 at gross, 2050 retainage payable for the part withheld); billTotal is what is
+// payable now (net of retainage). A retainage release bill moves the liability and is no cost again. Before, the
+// management view (job cost, the P&L, the WIP) carried subs net of retainage while the GL carried them gross, and
+// the GL then posted the release to 5200 a second time.
+const billCost = (b) => (b && b.retainageRelease ? 0 : billGross(b));
 function apRetainage(vendorName, projectId) {
   const n = (vendorName || "").toLowerCase(),
     held = DB.bills
@@ -33434,14 +33582,15 @@ jobFin = function (p, range) {
     acc = DB.bills.filter(
       (b) => b.projectId === p.id && BILL_ACCRUED.includes(b.status) && within(b.date, R),
     ),
-    accrued = r2(acc.reduce((a, b) => a + billTotal(b), 0));
+    accrued = r2(acc.reduce((a, b) => a + billCost(b), 0));
   if (!accrued) return (J.actualCosted = J.actual), J;
   (J.actualCosted = J.actual),
     (J.accrued = accrued),
     (J.actual = r2(J.actual + accrued)),
     (J.billsAmt = r2(J.billsAmt + accrued)),
     acc.forEach((b) => {
-      const code = b.code || "99";
+      const rbp = billRebillPart(b),
+        code = rbp >= billCost(b) - 0.005 ? "RB" : b.code || "99";
       let row = J.byCode.find((x) => x.code === code);
       row ||
         ((row = {
@@ -33456,8 +33605,8 @@ jobFin = function (p, range) {
           actual: 0,
         }),
         J.byCode.push(row)),
-        (row.bills = r2(row.bills + billTotal(b))),
-        (row.actual = r2(row.actual + billTotal(b)));
+        (row.bills = r2(row.bills + billCost(b))),
+        (row.actual = r2(row.actual + billCost(b)));
     }),
     J.byCode.sort((a, b) => a.code.localeCompare(b.code));
   return (
@@ -33486,7 +33635,7 @@ const ledgerBase3 = ledger;
           cat: b.cat || "uncat",
           vendor: b.vendor,
           desc: `${b.vendor} · ${b.number} (awaiting approval)`,
-          amt: billTotal(b),
+          amt: billCost(b),
           projectId: b.projectId || "",
           ref: b,
           unapproved: !0,
@@ -36774,6 +36923,9 @@ function targetMarginFor(cat) {
 function lineBudget(l, d) {
   const cost = +l.cost || 0;
   if (cost) return { budget: cost, defaulted: !1 };
+  // a line whose budget a person typed as 0 (a builder's fee, a markup) has no cost: never a default budget, which
+  // put a phantom 75% of the fee into the estimate at completion and kept the job's cost basis low
+  if (l.costSet && "" !== l.cost && null != l.cost) return { budget: 0, defaulted: !1 };
   const price = d ? lineAmount(l, d) : 0;
   return { budget: r2(price * (1 - targetMarginFor(lineCat(l, d)) / 100)), defaulted: !0 };
 }
@@ -37010,124 +37162,224 @@ function monthsBack(n, end) {
   return out;
 }
 const monthRange = (m) => [m + "-01", m + "-31"];
-function ohPool(range, base) {
-  const items = [],
-    by = { design: 0, construction: 0, shared: 0 };
-  ledger(range)
-    .filter((r) => !r.income && "oh" === catType(r.cat))
-    .forEach((r) => {
-      const dept = ohDeptOfCat(r.cat);
-      (by[dept] += r.amt), items.push({ date: r.date, desc: r.desc, cat: r.cat, dept: dept, amt: r.amt });
-    }),
-    DB.time
-      .filter((t) => !t.projectId && "rejected" !== t.status && within(t.date, range))
-      .forEach((t) => {
-        const e = DB.employees.find((x) => x.id === t.empId),
-          h = hoursOf(t);
-        if (!h) return;
-        const amt = r2(h * laborRate(e)),
-          d0 = empDept(e),
-          dept = "office" === d0 ? "shared" : d0;
-        (by[dept] += amt),
-          items.push({
-            date: t.date,
-            desc: `${e?.name || t.empId} · ${h} h not on a job`,
-            cat: "unlogged",
-            dept: dept,
-            amt: amt,
-          });
-      });
-  const hrs = { design: 0, construction: 0 };
-  DB.time
-    .filter((t) => t.projectId && "rejected" !== t.status && within(t.date, range))
-    .forEach((t) => {
-      const d0 = empDept(DB.employees.find((x) => x.id === t.empId));
-      "office" !== d0 && (hrs[d0] += hoursOf(t));
+// ---- Overhead: one model (the chain lane, 2026-10-11; docs/ARCHITECTURE.md "Overhead") ----
+// The pool for a month is what the P&L calls overhead that month: every operating-expense line (office payroll and
+// Unallocated Labor included), less the bank lines nobody has coded yet ("Needs Category" is not overhead until it
+// is coded). It is shared among the jobs by one basis chosen in Settings (total direct cost by default; direct
+// labor dollars, direct labor hours or revenue earned), month by month, so a job's overhead to date is the sum of
+// its months and the jobs' shares add up to the pool to the cent. Gross profit is earned revenue less job cost;
+// net profit is gross less the job's overhead. The burden rate (the last three full months' pool over their base)
+// prices a line's overhead at completion; this month's pool less that rate times this month's base is the under-
+// (or over-) absorbed overhead. Before, a department pool left office payroll and Unallocated Labor out, added
+// unlogged hours at standard rate, and was shown only as a rate on projected cost.
+const OH_BASES = {
+  cost: ["total direct cost", "direct cost"],
+  labor: ["direct labor dollars", "direct labor"],
+  hours: ["direct labor hours", "direct labor hours"],
+  revenue: ["revenue earned", "revenue"],
+};
+function ohBasis() {
+  const b = (DB && DB.company && DB.company.ohBasis) || "cost";
+  return OH_BASES[b] ? b : "cost";
+}
+function ohMethodText() {
+  return `Overhead is each month's operating expenses on the P&L (office payroll and Unallocated Labor included, lines not yet coded left out), shared among the jobs by ${OH_BASES[ohBasis()][0]} that month; a job's overhead is the sum of its months.`;
+}
+const ohYm = (d) => String(d || "").slice(0, 7),
+  ohMonthEnd = (ym) => iso(new Date(+ym.slice(0, 4), +ym.slice(5, 7), 0));
+function ohFirstYm() {
+  const ds = [
+    ...(DB.txns || []).map((t) => t.date),
+    ...(DB.bills || []).map((b) => b.date),
+    ...(DB.payroll || []).map((r) => r.payDate),
+    ...(DB.time || []).map((t) => t.date),
+  ].filter(Boolean);
+  return ds.length ? ohYm(ds.reduce((a, d) => (d < a ? d : a))) : ohYm(today()).slice(0, 4) + "-01";
+}
+function ohMonthsIn(range) {
+  const R = range || ["", today()],
+    a = R[0] ? ohYm(R[0]) : ohFirstYm(),
+    b = ohYm(R[1] && R[1] < today() ? R[1] : today()),
+    out = [];
+  let y = +a.slice(0, 4),
+    m = +a.slice(5, 7);
+  for (let i = 0; i < 240; i++) {
+    const k = `${y}-${String(m).padStart(2, "0")}`;
+    if (k > b) break;
+    out.push(k), 12 === m ? ((m = 1), y++) : m++;
+  }
+  return out;
+}
+let __ohMemo = { key: "", m: {} },
+  __ohBusy = 0;
+function ohKey() {
+  return [today(), "undefined" != typeof trSaveSeq ? trSaveSeq : 0, ohBasis(), (DB.txns || []).length, (DB.bills || []).length, (DB.payroll || []).length, (DB.time || []).length].join("|");
+}
+function ohMonth(ym) {
+  const k = ohKey();
+  __ohMemo.key !== k && (__ohMemo = { key: k, m: {} });
+  if (__ohMemo.m[ym]) return __ohMemo.m[ym];
+  const end0 = ohMonthEnd(ym),
+    R = [ym + "-01", end0 > today() ? today() : end0],
+    basis = ohBasis(),
+    base = {},
+    alloc = {};
+  let P = { oh: {}, ohT: 0 };
+  __ohBusy++;
+  try {
+    P = companyPL(R);
+    (DB.projects || []).forEach((p) => {
+      let J;
+      try {
+        J = jobFin(p, R);
+      } catch (e) {
+        return;
+      }
+      const v = "labor" === basis ? +J.laborCost || 0 : "hours" === basis ? +J.hours || 0 : "revenue" === basis ? +J.earned || 0 : +J.actual || 0;
+      v > 0.005 && (base[p.id] = r2(v));
     });
-  const hT = hrs.design + hrs.construction,
-    B = base || ohBase(range),
-    bT = B.design + B.construction,
-    dShare = hrs.design && hrs.construction ? hrs.design / hT : bT ? B.design / bT : 0.3,
-    splitBy = hrs.design && hrs.construction ? "project hours" : bT ? "direct cost" : "default",
-    shared = r2(by.shared);
+  } finally {
+    __ohBusy--;
+  }
+  const lines = Object.assign({}, P.oh || {}),
+    uncoded = r2(lines["Needs Category"] || 0);
+  delete lines["Needs Category"];
+  const pool = r2(Object.values(lines).reduce((a, v) => a + v, 0)),
+    T = r2(Object.values(base).reduce((a, v) => a + v, 0)),
+    ids = Object.keys(base);
+  let left = pool;
+  T &&
+    ids.forEach((id, i) => {
+      const x = i === ids.length - 1 ? r2(left) : r2((pool * base[id]) / T);
+      (alloc[id] = x), (left = r2(left - x));
+    });
+  return (__ohMemo.m[ym] = {
+    ym: ym,
+    range: R,
+    basis: basis,
+    pool: pool,
+    lines: lines,
+    uncoded: uncoded,
+    opex: r2(+P.ohT || 0),
+    unalloc: r2(lines["Unallocated Labor"] || 0),
+    base: base,
+    baseTotal: T,
+    rate: T ? pool / T : 0,
+    alloc: alloc,
+    unabsorbed: T ? 0 : pool,
+  });
+}
+// a range is the sum of its months: the jobs' shares, the pool, the base
+function ohAlloc(range) {
+  const M = ohMonthsIn(range).map(ohMonth),
+    jobs = {},
+    base = {},
+    t = { pool: 0, baseTotal: 0, unabsorbed: 0, uncoded: 0, opex: 0, unalloc: 0 };
+  M.forEach((m) => {
+    Object.keys(t).forEach((k) => (t[k] = r2(t[k] + (+m[k] || 0)))),
+      Object.entries(m.alloc).forEach(([k, v]) => (jobs[k] = r2((jobs[k] || 0) + v))),
+      Object.entries(m.base).forEach(([k, v]) => (base[k] = r2((base[k] || 0) + v)));
+  });
+  return Object.assign(t, { months: M, jobs: jobs, base: base, basis: ohBasis(), rate: t.baseTotal ? r2(t.pool - t.unabsorbed) / t.baseTotal : 0 });
+}
+// the burden rate: the last three full months' pool over their base
+function ohTrailing() {
+  const t = today(),
+    d = new Date(+t.slice(0, 4), +t.slice(5, 7) - 1, 1),
+    from = new Date(d.getFullYear(), d.getMonth() - 3, 1),
+    A = ohAlloc([iso(from), iso(new Date(d.getFullYear(), d.getMonth(), 0))]);
+  return Object.assign(A, { label: `${ohYm(iso(from))} to ${ohYm(iso(new Date(d.getFullYear(), d.getMonth(), 0)))}` });
+}
+function ohNow() {
+  const t = today();
+  return { month: ohMonth(ohYm(t)), ytd: ohAlloc([t.slice(0, 4) + "-01-01", t]), trailing: ohTrailing() };
+}
+// what the burden rate absorbed in a range, and what it left: positive is under-absorbed (the pool ran ahead)
+function ohAbsorption(range) {
+  const A = ohAlloc(range),
+    rate = ohTrailing().rate,
+    applied = r2(rate * A.baseTotal);
+  return { pool: A.pool, base: A.baseTotal, rate: rate, applied: applied, under: r2(A.pool - applied) };
+}
+// one job's profitability: to date (or over a range) actual, and at completion at the burden rate
+function jobTrueProfit(p, range) {
+  if (!p) return null;
+  const R = range || ["", today()],
+    J = range ? jobFin(p, R) : jobFin(p),
+    A = ohAlloc(R),
+    oh = r2(A.jobs[p.id] || 0),
+    revenue = r2(+J.earned || 0),
+    cost = r2(+J.actual || 0),
+    gross = r2(revenue - cost),
+    net = r2(gross - oh),
+    Jt = jobFin(p),
+    contract = r2(+Jt.contract || 0),
+    eac = r2(+Jt.eac || 0),
+    b = ohBasis(),
+    rate = ohTrailing().rate,
+    atBase = "revenue" === b ? contract : "labor" === b ? (Jt.actual ? (+Jt.laborCost || 0) * (eac / Jt.actual) : 0) : "hours" === b ? (Jt.actual ? (+Jt.hours || 0) * (eac / Jt.actual) : 0) : eac,
+    burden = r2(rate * atBase),
+    // the job's estimated gross profit at completion as jobFin states it (contract plus what is billed back, less the
+    // estimate at completion): the same figure Ask's margin and the WIP schedule give
+    margin = r2(null != Jt.estGP ? +Jt.estGP : contract - eac);
   return {
-    items: items,
-    design: { own: r2(by.design), shared: r2(shared * dShare), total: r2(by.design + shared * dShare) },
-    construction: {
-      own: r2(by.construction),
-      shared: r2(shared * (1 - dShare)),
-      total: r2(by.construction + shared * (1 - dShare)),
-    },
-    shared: shared,
-    sharedSplit: {
-      design: Math.round(100 * dShare),
-      construction: Math.round(100 * (1 - dShare)),
-      by: splitBy,
-    },
-    hours: hrs,
-    total: r2(by.design + by.construction + shared),
+    p: p,
+    range: R,
+    revenue: revenue,
+    cost: cost,
+    gross: gross,
+    grossPct: revenue ? r2((100 * gross) / revenue) : 0,
+    oh: oh,
+    net: net,
+    netPct: revenue ? r2((100 * net) / revenue) : 0,
+    basis: b,
+    basisAmt: r2(A.base[p.id] || 0),
+    rate: A.rate,
+    method: ohMethodText(),
+    contract: contract,
+    eac: eac,
+    margin: margin,
+    burdenRate: rate,
+    burden: burden,
+    netAtCompletion: r2(margin - burden),
+    netAtCompletionPct: contract ? r2((100 * (margin - burden)) / contract) : 0,
   };
 }
-function ohBase(range) {
-  const base = { design: 0, construction: 0 };
-  return (
-    DB.projects.forEach((p) => {
-      (jobFin(p, range).byCode || []).forEach((r) => {
-        base[deptOfCode(r.code)] += r.actual || 0;
-      });
-    }),
-    (base.design = r2(base.design)),
-    (base.construction = r2(base.construction)),
-    base
-  );
-}
+// the department rates before the one model: kept as a shape for the screens that read it, one rate in both
 function ohRates(range) {
-  const B = ohBase(range),
-    P = ohPool(range, B),
-    rate = (d) => (B[d] ? P[d].total / B[d] : 0);
-  return {
-    range: range,
-    pool: P,
-    base: B,
-    design: { pool: P.design.total, base: B.design, rate: rate("design") },
-    construction: { pool: P.construction.total, base: B.construction, rate: rate("construction") },
-  };
+  const A = ohAlloc(range),
+    one = { pool: A.pool, base: A.baseTotal, rate: A.rate };
+  return { range: range, pool: A, base: { design: 0, construction: A.baseTotal }, design: one, construction: one };
 }
-let __ohCache = null;
 function ohCurrent() {
-  const key =
-    today() +
-    "|" +
-    JSON.stringify(DB.company.ohDept || {}) +
-    "|" +
-    DB.bills.length +
-    "|" +
-    DB.txns.length +
-    "|" +
-    DB.time.length;
-  if (__ohCache && __ohCache.key === key) return __ohCache.v;
-  const months = monthsBack(3);
-  let R = ohRates([months[0] + "-01", months[months.length - 1] + "-31"]);
-  (R.basis = `trailing 3 months (${months[0]} → ${months[months.length - 1]})`),
-    R.base.design ||
-      R.base.construction ||
-      ((R = ohRates(["", today()])), (R.basis = "all time (no closed months yet)"));
-  const m = today().slice(0, 7);
-  return (
-    (R.mtd = ohRates(monthRange(m))),
-    (R.months = monthsBack(6).map((mm) => {
-      const x = ohRates(monthRange(mm));
-      return { m: mm, design: x.design.rate, construction: x.construction.rate, pool: x.pool.total };
-    })),
-    (__ohCache = { key: key, v: R }),
-    R
-  );
+  const N = ohNow(),
+    T = N.trailing,
+    one = { pool: T.pool, base: T.baseTotal, rate: T.rate };
+  return {
+    basis: `burden rate from ${T.label}, by ${OH_BASES[ohBasis()][0]}`,
+    design: one,
+    construction: one,
+    rate: T.rate,
+    pool: { total: T.pool },
+    mtd: { pool: { total: N.month.pool }, design: { rate: N.month.rate }, construction: { rate: N.month.rate } },
+    months: ohMonthsIn([iso(addDays(today(), -170)), today()]).map((m) => {
+      const x = ohMonth(m);
+      return { m: m, design: x.rate, construction: x.rate, pool: x.pool };
+    }),
+    now: N,
+  };
 }
 function burdenRate(code) {
-  return ohCurrent()[deptOfCode(code)].rate;
+  return __ohBusy ? 0 : ohTrailing().rate;
 }
 function burdenOf(cost, code) {
   return r2((+cost || 0) * burdenRate(code));
+}
+// a line's overhead at completion at the burden rate, on the basis the firm allocates by
+function ohLineBurden(projCost, price, labor, hours, code) {
+  const b = ohBasis(),
+    amt = "revenue" === b ? +price || 0 : "labor" === b ? +labor || 0 : "hours" === b ? +hours || 0 : +projCost || 0;
+  return r2(amt * burdenRate(code));
 }
 const pct1 = (x) => Math.round(1e3 * x) / 10 + "%",
   burdened = () => "burdened" === (DB.company.burdenView || "gross");
@@ -37145,7 +37397,7 @@ lineFin = function (key) {
   const code = f.code || lineCode(f.line, f.doc);
   return (
     (f.burdenRate = burdenRate(code)),
-    (f.burden = burdenOf(f.projCost, code)),
+    (f.burden = ohLineBurden(f.projCost, f.price, f.laborAmt, f.hours, code)),
     (f.trueMargin = r2(f.margin - f.burden)),
     (f.trueMarginPct = f.price ? Math.round((f.trueMargin / f.price) * 100) : 0),
     f
@@ -37158,7 +37410,7 @@ lineProfit = function (p) {
       projCost = Math.max(r.budget, r.actual + r.committed);
     return (
       (r.burdenRate = burdenRate(code)),
-      (r.burden = burdenOf(projCost, code)),
+      (r.burden = ohLineBurden(projCost, r.price, r.labor, r.hours, code)),
       (r.trueMargin = r2(r.margin - r.burden)),
       (r.trueMarginPct = r.price ? (r.trueMargin / r.price) * 100 : 0),
       burdened() &&
@@ -37174,17 +37426,21 @@ lineProfit = function (p) {
 };
 const projectProfitBase_oh = projectProfit;
 projectProfit = function (p) {
-  const r = projectProfitBase_oh(p),
-    J = r.J;
-  let burden = 0;
+  const r = projectProfitBase_oh(p);
+  if (__ohBusy) return r;
+  const T = jobTrueProfit(p);
   return (
-    (J.byCode || []).forEach((c) => {
-      const proj = Math.max(c.budget || 0, (c.actual || 0) + (c.committed || 0));
-      burden += burdenOf(proj, c.code);
-    }),
-    (r.burden = r2(burden)),
-    (r.trueMargin = r2(r.margin - r.burden)),
-    (r.trueMarginPct = r.contract ? Math.round((r.trueMargin / r.contract) * 100) : 0),
+    T &&
+      ((r.burden = T.burden),
+      (r.trueMargin = r2(r.margin - r.burden)),
+      (r.trueMarginPct = r.contract ? Math.round((r.trueMargin / r.contract) * 100) : 0),
+      (r.ohToDate = T.oh),
+      (r.grossToDate = T.gross),
+      (r.netToDate = T.net),
+      (r.netToDatePct = T.netPct),
+      (r.earnedToDate = T.revenue),
+      (r.costToDate = T.cost),
+      (r.ohMethod = T.method)),
     (r.rates = ohCurrent()),
     r
   );
@@ -37237,57 +37493,42 @@ renderLineProfit = function () {
 };
 const repProfitBase_oh = repProfit;
 function ohCardHtml() {
-  const R = ohCurrent(),
-    P = R.pool,
-    trend = R.months
-      .map(
-        (m) =>
-          `<tr><td class="dim">${m.m}</td><td class="money">${money(m.pool)}</td><td class="money">${pct1(m.design)}</td><td class="money">${pct1(m.construction)}</td></tr>`,
-      )
+  const N = ohNow(),
+    M = N.month,
+    Y = N.ytd,
+    T = N.trailing,
+    ab = ohAbsorption([today().slice(0, 7) + "-01", today()]),
+    trend = ohMonthsIn([iso(addDays(today(), -170)), today()])
+      .map((m) => {
+        const x = ohMonth(m);
+        return `<tr><td class="dim">${m}</td><td class="money">${money(x.pool)}</td><td class="money">${money(x.baseTotal)}</td><td class="money">${pct1(x.rate)}</td></tr>`;
+      })
       .join("");
-  return `<div class="card oh-card"><div class="row" style="align-items:baseline"><h3 style="margin:0">Overhead rates</h3><span class="small muted" style="margin-left:8px">${R.basis}</span><span class="grow"></span><a href="#" class="small" data-ohsetup>Departments &amp; tags…</a></div>\n    <div class="cash-grid" style="grid-template-columns:repeat(4,1fr)"><div><span>Design rate</span><b>${pct1(R.design.rate)}</b><i>${money(R.design.pool)} ÷ ${money(R.design.base)} direct</i></div><div><span>Construction rate</span><b>${pct1(R.construction.rate)}</b><i>${money(R.construction.pool)} ÷ ${money(R.construction.base)} direct</i></div><div><span>Overhead pool</span><b>${money(P.total)}</b><i>design ${money(P.design.own)} · construction ${money(P.construction.own)} · shared ${money(P.shared)}</i></div><div><span>Shared split</span><b>${P.sharedSplit.design}% / ${P.sharedSplit.construction}%</b><i>by ${P.sharedSplit.by} · ${r2(P.hours.design)} h design · ${r2(P.hours.construction)} h construction</i></div></div>\n    <div class="small muted" style="margin:6px 0">${R.mtd.pool.total ? `Month to date: design ${pct1(R.mtd.design.rate)} · construction ${pct1(R.mtd.construction.rate)} · pool ${money(R.mtd.pool.total)}.` : "Nothing posted to overhead yet this month."} Rates apply to every line's projected cost when margins are shown after overhead.</div>\n    <details><summary class="small">Six-month trend</summary><table class="t" style="margin-top:6px"><thead><tr><th>Month</th><th class="money">Pool</th><th class="money">Design</th><th class="money">Construction</th></tr></thead><tbody>${trend}</tbody></table></details></div>`;
+  return `<div class="card oh-card"><div class="row" style="align-items:baseline"><h3 style="margin:0">Overhead</h3><span class="small muted" style="margin-left:8px">by ${OH_BASES[ohBasis()][0]}</span><span class="grow"></span><a href="#" class="small" data-ohsetup>Allocation Basis…</a></div>\n    <div class="cash-grid" style="grid-template-columns:repeat(4,1fr)"><div><span>Overhead Rate · This Month</span><b>${pct1(M.rate)}</b><i>${money(M.pool)} ÷ ${money(M.baseTotal)} ${OH_BASES[ohBasis()][1]}</i></div><div><span>Overhead Rate · YTD</span><b>${pct1(Y.rate)}</b><i>${money(Y.pool)} ÷ ${money(Y.baseTotal)}</i></div><div><span>Burden Rate</span><b>${pct1(T.rate)}</b><i>${T.label}</i></div><div><span>${ab.under >= 0 ? "Under-Absorbed" : "Over-Absorbed"} · This Month</span><b>${money(Math.abs(ab.under))}</b><i>pool ${money(ab.pool)} less ${money(ab.applied)} absorbed at the burden rate</i></div></div>\n    <div class="small muted oh-method" style="margin:6px 0">${esc(ohMethodText())}${M.uncoded ? ` This month ${money(M.uncoded)} is not yet coded and is left out until it is.` : ""}</div>\n    <details><summary class="small">Six-month trend</summary><table class="t" style="margin-top:6px"><thead><tr><th>Month</th><th class="money">Pool</th><th class="money">Base</th><th class="money">Rate</th></tr></thead><tbody>${trend}</tbody></table></details></div>`;
 }
 repProfit = function () {
   let h = repProfitBase_oh();
   const p = DB.projects.find((x) => x.id === repProj);
   if (!p) return h;
-  const r = projectProfit(p),
-    R = r.rates,
+  const T = jobTrueProfit(p),
     kpi = (label, v, sub, cls = "") =>
       `<div class="kpi ${cls}"><b>${"number" == typeof v ? money(v) : v}</b><span>${label}${sub ? ` · ${sub}` : ""}</span></div>`,
-    block = `<h3 class="rep-h">After overhead</h3><div class="fin rep-kpis">${kpi("Overhead burden", r.burden, `design ${pct1(R.design.rate)} · construction ${pct1(R.construction.rate)} of projected cost`)}${kpi("Margin after overhead", `${money(r.trueMargin)} · ${r.trueMarginPct}%`, `gross ${r.marginPct}%`, r.trueMargin < 0 ? "bad" : r.trueMarginPct < 10 ? "warn" : "good")}</div><div class="small muted" style="margin:-4px 0 10px">Rates are ${R.basis}; month to date: design ${pct1(R.mtd.design.rate)} · construction ${pct1(R.mtd.construction.rate)}.</div>`,
-    j =
-      (h.indexOf('<h3 class="rep-h">'),
-      h.indexOf(
-        '<h3 class="rep-h">',
-        h.indexOf("Cost &amp; margin") > -1 ? h.indexOf("Cost &amp; margin") : h.indexOf("Cost & margin"),
-      )),
+    block = `<h3 class="rep-h">Profit After Overhead</h3><div class="fin rep-kpis oh-job">${kpi("Earned to Date", T.revenue)}${kpi("Job Cost to Date", T.cost)}${kpi("Gross Profit", T.gross, `${T.grossPct}%`, T.gross < 0 ? "bad" : "")}${kpi("Overhead Allocated", T.oh, `${money(T.basisAmt)} of ${OH_BASES[T.basis][1]}`)}${kpi("Net Profit", T.net, `${T.netPct}%`, T.net < 0 ? "bad" : T.netPct < 10 ? "warn" : "good")}</div><div class="fin rep-kpis oh-job-eac">${kpi("Margin at Completion", T.margin, `revenue ${money(r2(T.margin + T.eac))} (contract ${money(T.contract)}${r2(T.margin + T.eac - T.contract) ? ` and ${money(r2(T.margin + T.eac - T.contract))} billed back` : ""}) less estimated cost ${money(T.eac)}`)}${kpi("Overhead at Completion", T.burden, `${pct1(T.burdenRate)} burden rate`)}${kpi("Net at Completion", T.netAtCompletion, `${T.netAtCompletionPct}%`, T.netAtCompletion < 0 ? "bad" : "")}</div><div class="small muted oh-method" style="margin:-4px 0 10px">${esc(T.method)} The burden rate is the last three full months' pool over their ${OH_BASES[T.basis][1]}.</div>`,
+    j = h.indexOf('<h3 class="rep-h">', h.indexOf("Cost &amp; margin") > -1 ? h.indexOf("Cost &amp; margin") : h.indexOf("Cost & margin")),
     k = j > -1 ? h.indexOf('<h3 class="rep-h">', j + 10) : -1;
   return k > -1 ? h.slice(0, k) + block + h.slice(k) : h + block;
 };
 const repFinancialsBase_oh = repFinancials;
 function ohSetupDialog() {
-  const ohCats = CATEGORIES.filter((c) => "oh" === c.type),
-    emps = DB.employees.filter((e) => !1 !== e.active),
-    sel = (v, opts, attr) =>
-      `<select ${attr}>${opts.map((o) => `<option value="${o}" ${o === v ? "selected" : ""}>${o[0].toUpperCase() + o.slice(1)}</option>`).join("")}</select>`;
+  const cur = ohBasis();
   mbModal(
-    "Overhead — departments",
-    `<p class="small muted">Tag each overhead category and each person. Shared is split by project hours every month. Office staff time never lands on a job; their unlogged hours are shared overhead.</p><h4>Overhead categories</h4>${ohCats.map((c) => `<div class="row" style="padding:4px 0;border-top:1px solid var(--rule)"><span class="grow">${esc(c.n)}</span>${sel(ohDeptOfCat(c.id), ["design", "construction", "shared"], `data-ohcat="${c.id}"`)}</div>`).join("")}<h4 style="margin-top:12px">People</h4>${emps.map((e) => `<div class="row" style="padding:4px 0;border-top:1px solid var(--rule)"><span class="grow">${esc(e.name)} <span class="small muted">${esc(e.role || "")}</span></span>${sel(empDept(e), ["design", "construction", "office"], `data-ohemp="${e.id}"`)}</div>`).join("")}`,
+    "Overhead Allocation",
+    `<p class="small muted">${esc(ohMethodText())}</p><div class="f"><label>Share the Pool by</label><select data-f="basis">${Object.entries(OH_BASES).map(([k, v]) => `<option value="${k}" ${k === cur ? "selected" : ""}>${v[0][0].toUpperCase() + v[0].slice(1)}</option>`).join("")}</select></div>`,
     {
       submit: "Save",
-      onSubmit: () => {
-        (DB.company.ohDept = DB.company.ohDept || {}),
-          document
-            .querySelectorAll("[data-ohcat]")
-            .forEach((s) => (DB.company.ohDept[s.dataset.ohcat] = s.value)),
-          document.querySelectorAll("[data-ohemp]").forEach((s) => {
-            const e = DB.employees.find((x) => x.id === s.dataset.ohemp);
-            e && (e.dept = s.value);
-          }),
-          (__ohCache = null),
-          save(),
-          render();
+      onSubmit: (f) => {
+        const was = cur;
+        (DB.company.ohBasis = OH_BASES[f.basis] ? f.basis : "cost"), audit("company", "ohBasis", "overhead-basis", was, DB.company.ohBasis), save(), render(), toast(`Overhead is shared by ${OH_BASES[DB.company.ohBasis][0]}`);
       },
     },
   );
@@ -37398,7 +37639,11 @@ const PO_TYPES = {
     ["progress", "Progress billing (subcontract)", { dep: 0, bal: "net", days: 15 }],
     ["custom", "Custom…", null],
   ],
-  poCat = (po) => PO_TYPE_CAT[po.type || "materials"] || "materials",
+  // an order for the office (no job) whose lines are linked to an overhead category posts to that category's account
+  poCat = (po) => {
+    const oh = po && !po.projectId && (po.lines || []).find((l) => l.ohCat);
+    return oh ? oh.ohCat : PO_TYPE_CAT[(po && po.type) || "materials"] || "materials";
+  },
   poEntity = (po) => po.entityId || entityOfProject(DB.projects.find((p) => p.id === po.projectId) || {});
 function poNeedsApproval(po) {
   const lim = +DB.company.poApprovalOver;
@@ -38104,7 +38349,7 @@ renderProj = function () {
     div = document.createElement("div");
   (div.className = "card"),
     (div.id = "po-settings"),
-    (div.innerHTML = `<h3>Purchasing, budgets &amp; overhead</h3><div class="f2"><div class="f"><label>POs above this need Owner approval</label><input type="number" id="ps-appr" value="${DB.company.poApprovalOver || 0}"></div><div class="f"><label>Sales tax rate %</label><input type="number" step="0.001" id="ps-tax" value="${DB.company.taxRate || 8.875}"></div></div><div class="f2"><div class="f"><label>Budget tolerance % before a line flags</label><input type="number" id="ps-btol" value="${DB.company.budgetTol ?? 5}"></div><div class="f"><label>Bank/PO match tolerance %</label><input type="number" id="ps-mtol" value="${DB.company.matchTol ?? 2}"></div></div><label class="small muted">Target margin by category — the default budget when the estimator leaves cost blank</label><div class="f2" style="grid-template-columns:1fr 1fr 1fr"><div class="f"><label>Design %</label><input type="number" id="ps-tmd" value="${tm.design}"></div><div class="f"><label>Construction %</label><input type="number" id="ps-tmc" value="${tm.construction}"></div><div class="f"><label>Finish materials %</label><input type="number" id="ps-tmm" value="${tm.materials}"></div></div><div class="row"><button class="btn sm primary" id="ps-save">Save</button><a href="#" class="small" data-ohsetup style="margin-left:10px">Overhead departments &amp; tags…</a></div>`),
+    (div.innerHTML = `<h3>Purchasing, budgets &amp; overhead</h3><div class="f2"><div class="f"><label>POs above this need Owner approval</label><input type="number" id="ps-appr" value="${DB.company.poApprovalOver || 0}"></div><div class="f"><label>Sales tax rate %</label><input type="number" step="0.001" id="ps-tax" value="${DB.company.taxRate || 8.875}"></div></div><div class="f2"><div class="f"><label>Budget tolerance % before a line flags</label><input type="number" id="ps-btol" value="${DB.company.budgetTol ?? 5}"></div><div class="f"><label>Bank/PO match tolerance %</label><input type="number" id="ps-mtol" value="${DB.company.matchTol ?? 2}"></div></div><label class="small muted">Target margin by category — the default budget when the estimator leaves cost blank</label><div class="f2" style="grid-template-columns:1fr 1fr 1fr"><div class="f"><label>Design %</label><input type="number" id="ps-tmd" value="${tm.design}"></div><div class="f"><label>Construction %</label><input type="number" id="ps-tmc" value="${tm.construction}"></div><div class="f"><label>Finish materials %</label><input type="number" id="ps-tmm" value="${tm.materials}"></div></div><div class="row"><button class="btn sm primary" id="ps-save">Save</button><a href="#" class="small" data-ohsetup style="margin-left:10px">Overhead Allocation…</a></div>`),
     card.after(div),
     ($("#ps-save").onclick = () => {
       (DB.company.poApprovalOver = +$("#ps-appr").value || 0),
@@ -39142,7 +39387,7 @@ ledger = function (range) {
           cat: b.cat || "uncat",
           vendor: b.vendor,
           desc: `${b.vendor} · ${b.number} (paid)`,
-          amt: billTotal(b),
+          amt: billCost(b),
           projectId: b.projectId || "",
           ref: b,
         }),
@@ -39150,15 +39395,16 @@ ledger = function (range) {
     DB.payroll
       .filter((p) => within(p.payDate, range))
       .forEach((p) => {
-        (p.alloc || [{ projectId: "", pct: 100 }]).forEach((a) =>
+        payrollAllocAmts(p).forEach((a) =>
           rows.push({
             date: p.payDate,
             kind: "payroll",
             cat: a.projectId ? "labor" : "payroll_oh",
             vendor: "Payroll",
             desc: `Payroll ${p.period}`,
-            amt: r2(((+p.total || 0) * (+a.pct || 0)) / 100),
+            amt: a.amt,
             projectId: a.projectId || "",
+            unalloc: a.unallocated,
             ref: p,
           }),
         );
@@ -45150,13 +45396,14 @@ function ptCashGap() {
   return `<div class="dx-tiles">${tile(money(A.net), "Accrual Net · Trailing 3 mo")}${tile(money(C.net), "Cash Net · Trailing 3 mo")}${tile((gap >= 0 ? "+" : "") + money(gap), "Gap · Accrual − Cash", pct > 10 ? "warn" : "")}</div><div class="small muted">Accrual is what you earned; cash is what actually moved. A gap over 10% of revenue means one of them is lying to you — usually deposits.</div>`;
 }
 function ptOverhead() {
-  const R = ohCurrent(),
-    m = R.months || [];
-  return `<div class="dx-tiles">${tile(`${Math.round(100 * (R.design?.rate || 0))}%`, "Design Overhead Rate · Trailing 3 mo")}${tile(`${Math.round(100 * (R.construction?.rate || 0))}%`, "Construction Overhead Rate")}${tile(money(R.mtd?.pool?.total || 0), "Overhead Month to Date")}</div>${spark(
+  const N = ohNow(),
+    ab = ohAbsorption([today().slice(0, 7) + "-01", today()]),
+    m = ohMonthsIn([iso(addDays(today(), -170)), today()]).map(ohMonth);
+  return `<div class="dx-tiles">${tile(pct1(N.month.rate), "Overhead Rate · This Month")}${tile(pct1(N.ytd.rate), "Overhead Rate · YTD")}${tile(money(Math.abs(ab.under)), ab.under >= 0 ? "Under-Absorbed · This Month" : "Over-Absorbed · This Month", ab.under > 0 ? "warn" : "")}</div>${spark(
     m.map((x) => x.pool || 0),
     300,
     30,
-  )}<div class="small muted">${esc(R.basis || "")}. The rate is what every job hour must carry; a rising pool with flat hours is the slow bleed.</div>`;
+  )}<div class="small muted">${esc(ohMethodText())} A rising pool with a flat base is the slow bleed.</div>`;
 }
 function ptIntercompany() {
   const rows = icUnbilled(),
@@ -49374,7 +49621,10 @@ function ctWire(c, d, root, editable) {
         const f = inp.dataset.ctf;
         "taxable" === f
           ? (l.taxable = inp.checked)
-          : ["qty", "rate", "cost"].includes(f)
+          : "cost" === f
+            ? // a budget typed as 0 (a fee line) is a budget of 0; a blank one is left to the target margin
+              ((l.cost = "" === String(inp.value).trim() ? "" : +inp.value || 0), (l.costSet = "" !== String(inp.value).trim()))
+            : ["qty", "rate"].includes(f)
             ? (l[f] = +inp.value || 0)
             : "depositPct" === f
               ? (l.depositPct = "" === inp.value ? "" : Math.max(0, Math.min(100, +inp.value || 0)))
@@ -49694,7 +49944,7 @@ function ctPOPicker(projectId, preferId, preKey) {
     ),
   ];
   if (!docs.length) return void toast("No estimates, change orders or invoices with lines for this project");
-  let docId = docs.some((x) => x.id === preferId) ? preferId : docs[0].id;
+  let docId = "*" === preferId && docs.length > 1 ? "*" : docs.some((x) => x.id === preferId) ? preferId : docs[0].id;
   const vendors = [
       ...new Set(
         [
@@ -50167,6 +50417,7 @@ load = async function (opts = {}) {
 const persistBase_cl = persist;
 persist = async function (attempt) {
   if (!cloudOn() || !Cloud.user()) return persistBase_cl(attempt);
+  docAmountsSync();
   const str = JSON.stringify(DB);
   if (str === lastSaved) return;
   try {
@@ -56062,22 +56313,24 @@ function clClassify(src, ctx) {
             : "rough"
           : "other";
 }
+// The costs behind a line, by class: the same bills and bank lines lineFin counts (a disputed difference held back,
+// a purchase billed back to the client and a bank line that paid a bill left out), so Cost by Line's actual is the
+// line's one number. Labor is added from lineFin by clRows.
 function clCosts(key, ctx) {
-  const out = DB.bills
-    .filter((b) => b.line === key && !["void", "rejected"].includes(b.status))
-    .map((b) => ({
+  const lineBills = DB.bills.filter((b) => b.line === key && !["void", "rejected"].includes(b.status)),
+    out = lineBills.map((b) => ({
       kind: "bill",
       id: b.id,
       date: b.date,
       vendor: b.vendor || "",
       ref: b.number || "",
-      amount: r2(billTotal(b)),
+      amount: r2(billCost(b) - billRebillPart(b) - ("function" == typeof pay3HeldCost ? pay3HeldCost(b) : 0)),
       cls: clClassify({ cat: b.cat, poId: b.poId }, ctx),
       doc: b,
     }));
   return (
     DB.txns
-      .filter((t) => t.line === key && !t.billId)
+      .filter((t) => t.line === key && !t.billId && !txnRebilled(t) && !txnViaBill(t, lineBills))
       .forEach((t) => {
         out.push({
           kind: "txn",
@@ -56113,8 +56366,9 @@ function clRows() {
         by = Object.fromEntries(CL_KEYS.map((k) => [k, 0]));
       costs.forEach((c) => {
         by[c.cls] = r2(by[c.cls] + c.amount);
-      });
-      const actual = r2(CL_KEYS.reduce((a, k) => a + by[k], 0)),
+      }),
+        (by.labor = r2(by.labor + (+f.laborAmt || 0)));
+      const actual = r2(+f.actual || 0),
         price = f.price,
         budget = f.budget,
         committedCost = f.committed;
@@ -61955,6 +62209,10 @@ function pgProposal(ev) {
     extra = "",
     stale = !1;
   (stale = !!(ev.sched && ev.sched.n && 0 === ev.sched.pct && ev.cost > 0)),
+    // Materials delivered to a line whose work has not started: nothing is installed (the tasks say 0%) and what
+    // arrived is stored on site (G703 column F), billed as stored materials once a person says so. Before, the line
+    // fell back to cost-to-cost (cabinets on site read as 99% complete) and was held as "cost is not progress".
+    stale && ev.del && ev.del.received > 0 && (stale = !1),
     ev.sched && ev.sched.n && !stale
       ? ((pct = ev.sched.pct),
         (basis = "schedule"),
@@ -62187,7 +62445,7 @@ function pgApply(projectId, only) {
       // a held line goes on only when the person names it (the Bill button on the held line)
       if (!only && pgLineHold(r)) return;
       const l = (d.inv.lines || []).find((x) => x.sovId === r.sv.id);
-      if (!l) return;
+      if (!l || l.pctByHand) return;
       const room = r2(100 - (+l.prevPct || 0));
       (l.pct = r2(Math.min(r.pr.period, room))),
         (l.desc = l.desc || r.pr.extra),
@@ -65147,6 +65405,12 @@ if (
     return mbModalBase_p2b(title, body, opts);
   };
 }
+document.addEventListener("click", (e) => {
+  const b = e.target.closest && e.target.closest("[data-f3recv]");
+  if (!b) return;
+  const po = (DB.pos || []).find((x) => x.id === b.dataset.f3recv);
+  po && "function" == typeof rcReceiveSome && rcReceiveSome(po);
+});
 function f3ArrivingHtml() {
   const td = today(),
     subs = ((DB.field && DB.field.subs) || []).filter((s) => s.projectId === S.id && s.date === td),
@@ -65155,6 +65419,8 @@ function f3ArrivingHtml() {
       (po) =>
         po.projectId === S.id &&
         ["issued", "partial"].includes(po.status) &&
+        // a subcontract or a service is a sub's work, not a delivery to check in
+        !["subcontract", "service"].includes(po.type || "") &&
         (po.expected || po.needBy) &&
         (po.expected || po.needBy) <= td,
     ),
@@ -65166,7 +65432,10 @@ function f3ArrivingHtml() {
       ...pos.map((po) => {
         const d = po.expected || po.needBy,
           late = d < td;
-        return `<div class="f3-row ${late ? "late" : ""}"><div><span class="k">Delivery</span><b>${esc(po.vendor || "Vendor")}</b><div class="small ${late ? "bad-t" : "muted"}">${esc(po.number)} · ${(po.lines || []).length} line${1 === (po.lines || []).length ? "" : "s"}${late ? ` · was due ${fmt(d)} and has not landed` : ""}</div></div></div>`;
+        // the foreman checks a delivery in from here (Receive Some: what arrived, line by line); a part delivery says what is in
+        const part = "partial" === po.status || (po.lines || []).some((l) => +l.received > 0),
+          got = part ? (po.lines || []).map((l) => `${r2(+l.received || 0)} of ${r2(+l.qty || 0)} ${esc(l.unit || "")}`.trim()).join(", ") : "";
+        return `<div class="f3-row ${late ? "late" : ""}"><div class="grow"><span class="k">Delivery</span><b>${esc(po.vendor || "Vendor")}</b><div class="small ${late ? "bad-t" : "muted"}">${esc(po.number)} · ${(po.lines || []).length} line${1 === (po.lines || []).length ? "" : "s"}${part ? ` · ${got} in` : late ? ` · was due ${fmt(d)} and has not landed` : ""}</div></div><button class="btn sm" data-f3recv="${esc(po.id)}">Check In</button></div>`;
       }),
       // deliveries and visits on the job's calendar (a vendor's or a sub's date read from mail and applied):
       // the ones a PO or the sub calendar already lists are not repeated
@@ -65353,7 +65622,8 @@ if (
         d.inv &&
         Array.isArray(d.inv.lines) &&
         d.inv.lines.forEach((l) => {
-          (only && !only.includes(l.sovId)) || (l.pct = 0);
+          // a % a person typed on the draft stays; refreshing the application never wipes it
+          (only && !only.includes(l.sovId)) || l.pctByHand || (l.pct = 0);
         }),
       pgApplyBase_p3b(projectId, only)
     );
@@ -69289,6 +69559,7 @@ const GL_COA = [
     ["7100", "Insurance", "expense", "ga", "none", !1],
     ["7200", "Vehicle & fuel", "expense", "ga", "none", !1],
     ["7300", "Office & software", "expense", "ga", "none", !1],
+    ["7350", "Rent & occupancy", "expense", "ga", "none", !1],
     ["7400", "Marketing", "expense", "ga", "none", !1],
     ["7500", "Meals & travel", "expense", "ga", "none", !1],
     ["7600", "Taxes & licenses", "expense", "ga", "none", !1],
@@ -69315,6 +69586,7 @@ const GL_COA = [
     insurance: "7100",
     vehicle: "7200",
     office: "7300",
+    rent: "7350",
     marketing: "7400",
     "payroll-oh": "7000",
     meals: "7500",
@@ -69541,6 +69813,11 @@ function glBillLines(b) {
       glL("1700", net, 0, { entityId: tr, eliminate: !0, partyType: "entity", partyId: gc }),
       glL("4800", 0, net, { entityId: tr, eliminate: !0, projectId: b.projectId || "" }),
     ];
+  }
+  if (b.retainageRelease) {
+    // the release pays out what was withheld: retainage payable becomes accounts payable, no cost again
+    const amt = r2(billGross(b));
+    return [glL("2050", amt, 0, dims), glL("2000", 0, amt, dims)];
   }
   const L = [],
     acct = glBillCostAcct(b);
@@ -71877,7 +72154,8 @@ function cmRead(c) {
         (all.match(/#\s?(\d{4,})|invoice\s*(?:no\.?|number)?\s*[:#]?\s*([A-Z]{1,4}-?\d[A-Z0-9-]*|\d{3,})/i) || [])
           .slice(1)
           .find(Boolean) || "",
-      due = (all.match(/due\s+([A-Z][a-z]+ \d{1,2},? \d{4})/i) || [])[1] || "",
+      // a vendor prints the due date as "October 11, 2026", "10/11/2026" or "2026-10-11"
+      due = (all.match(/due(?:\s+date)?\s*:?\s*(?:on\s+)?([A-Z][a-z]+ \d{1,2},? \d{4}|\d{1,2}\/\d{1,2}\/\d{4}|\d{4}-\d{2}-\d{2})/i) || [])[1] || "",
       ent = (DB.entities || []).find((e) => low.includes((e.name || "").toLowerCase().replace(/ llc$/, ""))),
       // Already paid from the bank? A debit for the same amount near the invoice date is the line it belongs on.
       paidLine = amt
@@ -72332,7 +72610,7 @@ function cmApply(c, p) {
       vendor: p.vendor,
       number: p.number || "",
       date: (c.date || "").slice(0, 10) || today(),
-      due: p.due ? iso(new Date(p.due)) : "",
+      due: cmDueIso(p.due),
       entityId: p.entityId || entDefault(),
       projectId: p.projectId || R.projectId || "",
       cat: p.projectId || R.projectId ? "subs" : "office",
@@ -103375,7 +103653,7 @@ function repPhoneBar(root) {
     window.__repFoldOpen && (wrap.classList.add("on"), btn.classList.add("on")),
     frame.appendChild(btn),
     frame.insertAdjacentElement("afterend", wrap);
-  [...root.querySelectorAll("#rep-print-area .rep-kpis")].slice(1).forEach((kb) => {
+  [...root.querySelectorAll("#rep-print-area .rep-kpis:not(.oh-job):not(.oh-job-eac)")].slice(1).forEach((kb) => {
     if (kb.dataset.folded) return;
     (kb.dataset.folded = "1"), kb.classList.add("rep-kpis-more");
     const more = document.createElement("button");
@@ -120462,7 +120740,8 @@ if (
               retainagePct: ("subcontract" === po.type && +po.retainagePct) || 0,
               taxStatus: po.taxStatus || "none",
             };
-            DB.bills.push(b),
+            billLinesNorm(b),
+              DB.bills.push(b),
               audit("bill", b.id, "created-from-po", "", po.number, S.project.userName || role()),
               log(`Bill ${b.number} from ${po.number} — ${money(billTotal(b))}`),
               save(),
@@ -121034,7 +121313,7 @@ if ("function" == typeof companyPL) {
                 !(void 0 !== repEntity && repEntity && (b.entityId || "ent1") !== repEntity),
             );
     return (
-      (P.accrued = r2(pbu.reduce((a, b) => a + billTotal(b), 0))),
+      (P.accrued = r2(pbu.reduce((a, b) => a + billCost(b), 0))),
       (P.accruedCost = P.accrued),
       (P.paidUnapproved = pbu),
       (P.awaiting = r2(
@@ -121043,7 +121322,7 @@ if ("function" == typeof companyPL) {
             (b) =>
               BILL_ACCRUED.includes(b.status) && !billPaidUnapproved(b) && within(b.date, P.range || range),
           )
-          .reduce((a, b) => a + billTotal(b), 0),
+          .reduce((a, b) => a + billCost(b), 0),
       )),
       (P.payrollAwaiting = r2(
         (DB.payroll || [])
@@ -121076,7 +121355,7 @@ if ("function" == typeof jobFin) {
       );
     if (!dup.length || !J.byCode) return J;
     dup.forEach((b) => {
-      const amt = billTotal(b);
+      const amt = billCost(b);
       (J.actual = r2(J.actual - amt)),
         (J.billsAmt = r2(J.billsAmt - amt)),
         (J.accrued = r2((J.accrued || 0) - amt));
@@ -127918,7 +128197,8 @@ if ("function" == typeof renderReports) {
         prints.forEach((b) => {
           b !== head && b.remove();
         });
-      const kpiRows = [...body.querySelectorAll(".rep-kpis")];
+      // a section's own numbers (the job report's Profit After Overhead) stay under its heading
+      const kpiRows = [...body.querySelectorAll(".rep-kpis:not(.oh-job):not(.oh-job-eac)")];
       if (!kpiRows.length || body.querySelector(".ov-kpifoot")) return;
       const all = kpiRows.flatMap((r) => [...r.children]);
       if (all.length <= 4) return;
@@ -128793,7 +129073,7 @@ if ("function" == typeof poAction) {
       "bill" !== a || !po)
     )
       return poActionBase_lk.apply(this, arguments);
-    lkBillPO(po);
+    lkBillReceived(po);
   };
 }
 function lkPOBillState(po) {
@@ -128913,6 +129193,29 @@ function lkOverBill(po, st) {
     },
   );
 }
+// What arrived and is not billed yet, line by line: the receiving toast's Bill It on a part delivery bills the
+// delivery (80 of 140 sf), never the whole order (three-way match: order, receipt, bill).
+function lkReceivedLines(po) {
+  const byLine = {};
+  (DB.bills || [])
+    .filter((b) => b.poId === po.id && !["void", "rejected"].includes(b.status))
+    .forEach((b) => (b.lines || []).forEach((l) => l.poLineId && (byLine[l.poLineId] = (byLine[l.poLineId] || 0) + (+l.amount || 0))));
+  return (po.lines || [])
+    .map((l) => {
+      const price = +l.price || 0,
+        got = Math.min(+l.received || 0, +l.qty || 0),
+        left = r2(got * price - (byLine[l.id] || 0));
+      return left > 0.005
+        ? { desc: `${l.item}${l.desc ? " — " + l.desc : ""}`, qty: price ? r2(left / price) : got, unit: l.unit, amount: left, code: l.code || "", poLineId: l.id, line: l.line || "" }
+        : null;
+    })
+    .filter(Boolean);
+}
+function lkBillReceived(po) {
+  const part = (po.lines || []).some((l) => (+l.received || 0) < (+l.qty || 0) - 1e-9),
+    lines = part ? lkReceivedLines(po) : [];
+  return lines.length ? lkBillDialog(po, { lines: lines, st: lkPOBillState(po), received: !0 }) : lkBillPO(po);
+}
 function lkBillDialog(po, o) {
   const st = o.st || lkPOBillState(po),
     v = vendorRec(po.vendor),
@@ -128952,10 +129255,12 @@ function lkBillDialog(po, o) {
   mbModal(
     o.over
       ? `Bill Beyond the Order — ${esc(po.number)}`
-      : st.billed
+      : o.received
+        ? `Bill What Arrived — ${esc(po.number)}`
+        : st.billed
         ? `Bill Remaining — ${esc(po.number)}`
         : `Bill This PO — ${esc(po.number)}`,
-    `\n    <p class="small muted" style="margin:0 0 10px">${esc(po.vendor)} · ${money(st.tot)} ordered${st.billed ? ` · ${money(st.billed)} already billed · ${money(Math.max(0, st.remaining))} left` : ""}. The bill takes the order’s ${st.billed ? "remaining " : ""}lines, job, cost codes and entity.</p>\n    ${o.over ? `<div class="note warn" style="margin:0 0 10px">Override: ${esc(o.over.reason)}</div>` : ""}\n    <div class="grid2">${mbF("Vendor Invoice #", '<input data-f="number" placeholder="As printed on their invoice" autocomplete="off">')}${mbF("Invoice Date", `<input type="date" data-f="date" value="${td}">`)}</div>\n    <div class="grid2">${mbF("Due", `<input type="date" data-f="due" value="${iso(addDays(td, net))}">`)}${mbF("Amount", `<input value="${esc(money(total))}" readonly aria-label="Amount">`)}</div>\n    <div class="cr-lines">${lines.map((l) => `<div class="cr-line"><span class="grow">${esc(l.desc)}<span class="small muted"> · ${l.qty} ${esc(l.unit || "")}</span></span><b>${money(l.amount)}</b></div>`).join("")}</div>\n    ${mbF("Notes", '<input data-f="notes" placeholder="Optional">')}`,
+    `\n    <p class="small muted" style="margin:0 0 10px">${esc(po.vendor)} · ${money(st.tot)} ordered${st.billed ? ` · ${money(st.billed)} already billed · ${money(Math.max(0, st.remaining))} left` : ""}. ${o.received ? "The bill takes what arrived and is not billed yet" : `The bill takes the order’s ${st.billed ? "remaining " : ""}lines`}, job, cost codes and entity.</p>\n    ${o.over ? `<div class="note warn" style="margin:0 0 10px">Override: ${esc(o.over.reason)}</div>` : ""}\n    <div class="grid2">${mbF("Vendor Invoice #", '<input data-f="number" placeholder="As printed on their invoice" autocomplete="off">')}${mbF("Invoice Date", `<input type="date" data-f="date" value="${td}">`)}</div>\n    <div class="grid2">${mbF("Due", `<input type="date" data-f="due" value="${iso(addDays(td, net))}">`)}${mbF("Amount", `<input value="${esc(money(total))}" readonly aria-label="Amount">`)}</div>\n    <div class="cr-lines">${lines.map((l) => `<div class="cr-line"><span class="grow">${esc(l.desc)}<span class="small muted"> · ${l.qty} ${esc(l.unit || "")}</span></span><b>${money(l.amount)}</b></div>`).join("")}</div>\n    ${mbF("Notes", '<input data-f="notes" placeholder="Optional">')}`,
     {
       submit: "Save Bill",
       onSubmit: (f) => {
@@ -129018,6 +129323,7 @@ function lkBillDialog(po, o) {
             action: "billed beyond the order",
             note: o.over.reason,
           })),
+          billLinesNorm(b),
           DB.bills.push(b),
           audit(
             "bill",
@@ -129078,7 +129384,7 @@ function lkPOButtons(on) {
 if (
   ("function" == typeof billFromPO &&
     (billFromPO = function (po) {
-      lkBillPO(po);
+      lkBillReceived(po);
     }),
   "object" == typeof flowGo && flowGo.bill)
 ) {
@@ -129784,7 +130090,7 @@ if ("function" == typeof jobFin) {
       );
     if (!dup.length || !J.byCode) return J;
     dup.forEach((b) => {
-      const amt = billTotal(b);
+      const amt = billCost(b);
       (J.actual = r2(J.actual - amt)), (J.billsAmt = r2(J.billsAmt - amt));
       const row = J.byCode.find((x) => x.code === (b.code || "99"));
       row && ((row.bills = r2(row.bills - amt)), (row.actual = r2(row.actual - amt)));
@@ -130157,7 +130463,7 @@ function fin2WagePlan(ym) {
               r.to &&
               d >= r.from &&
               d <= r.to &&
-              (r.entityId || "ent1") === ent,
+              runCoversEnt(r, ent),
           ))(e.date, ent)
       )
         return;
@@ -130208,7 +130514,7 @@ function fin2ReverseAccruals() {
             FIN_RUN_POSTED.includes(r.status) &&
             r.from &&
             r.to &&
-            (r.entityId || "ent1") === j.entityId &&
+            runCoversEnt(r, j.entityId) &&
             r.from <= j.coversTo &&
             r.to >= j.coversFrom,
         );
@@ -135688,7 +135994,7 @@ if ("function" == typeof companyPL) {
         "payroll" === r.kind &&
         !r.projectId &&
         r.ref &&
-        (r.ref.alloc || []).some((a) => a.unallocated && !a.projectId)
+        (null != r.unalloc ? r.unalloc : (r.ref.alloc || []).some((a) => a.unallocated && !a.projectId))
           ? ((fromRuns += r.amt),
             (r.cat = "labor-unalloc"),
             (r.desc = String(r.desc).replace(" · overhead", " · unallocated labor")))
@@ -135926,46 +136232,66 @@ fin2AllocFromHours = function (r) {
   const ent = r.entityId || "ent1",
     gross = r2(+r.gross || +r.total || 0);
   if (!gross) return null;
-  const by = {};
-  let W = 0,
-    unHours = 0;
-  (DB.time || [])
-    .filter((e) => "approved" === e.status && prInRun(r, e) && (r.fromTime || entOfEmpId(e.empId) === ent))
-    .forEach((e) => {
-      const emp = (DB.employees || []).find((x) => x.id === e.empId),
-        h = hoursOf(e);
-      if (!e.projectId) return void (unHours += h);
-      const w = h * (+(emp || {}).rate || 0),
-        o = (by[e.projectId] = by[e.projectId] || { projectId: e.projectId, hours: 0, wages: 0 });
-      (o.hours = r2(o.hours + h)), (o.wages = r2(o.wages + w)), (W += w);
+  // Approved hours with no job are office time: they explain that pay as overhead (7000 Office payroll). Only pay
+  // that no approved hour explains, on a job or in the office, is Unallocated Labor (7005). Before, office hours
+  // were lumped into Unallocated Labor and every run with office staff asked for a split review.
+  // A run across entities is split entity by entity (each part's own hours, at its own burden), so an entity's
+  // books carry only its own people: before, one run-wide split put the office's share into the plumbing
+  // entity, whose one man was on a job all week.
+  const entries = (DB.time || []).filter((e) => "approved" === e.status && prInRun(r, e) && (r.fromTime || entOfEmpId(e.empId) === ent)),
+    P = prParts(r),
+    multi = P.length > 1,
+    pctOf = (x) => Math.round(x * 1e6) / 1e4,
+    split = (list, g) => {
+      const by = {};
+      let W = 0;
+      list.forEach((e) => {
+        const emp = (DB.employees || []).find((x) => x.id === e.empId),
+          h = hoursOf(e),
+          k = e.projectId || "",
+          w = h * (+(emp || {}).rate || 0),
+          o = (by[k] = by[k] || { projectId: k, hours: 0, wages: 0 });
+        (o.hours = r2(o.hours + h)), (o.wages = r2(o.wages + w)), (W += w);
+      });
+      const sc = W > g ? g / W : 1,
+        out = Object.values(by)
+          .filter((o) => o.wages > 0 || o.projectId)
+          .sort((a, b) => !!b.projectId - !!a.projectId || b.wages - a.wages)
+          .map((o) => ({ projectId: o.projectId, hours: o.hours, wages: r2(o.wages * sc), pct: g ? pctOf((o.wages * sc) / g) : 0 })),
+        cov = out.reduce((a, x) => a + x.pct, 0);
+      return (
+        cov < 99.995
+          ? out.push({ projectId: "", unallocated: !0, hours: 0, wages: r2(g - out.reduce((a, x) => a + x.wages, 0)), pct: pctOf((100 - cov) / 100) })
+          : out.length && (out[0].pct = pctOf((out[0].pct + 100 - cov) / 100)),
+        out
+      );
+    };
+  if (!multi) return split(entries, gross);
+  // each entity's part, then the run: every job, office and unallocated share as its dollars over the run's total
+  const total = r2(+r.total || 0) || gross,
+    parts = {},
+    amt = {};
+  P.forEach((part) => {
+    const g = r2(+part.gross || 0),
+      rows = g ? split(entries.filter((e) => entOfEmpId(e.empId) === part.entityId), g) : [];
+    parts[part.entityId] = rows;
+    rows.forEach((x) => {
+      const k = (x.unallocated ? "~u" : "") + (x.projectId || ""),
+        o = (amt[k] = amt[k] || { projectId: x.projectId, unallocated: !!x.unallocated, hours: 0, wages: 0, cost: 0 });
+      (o.hours = r2(o.hours + (x.hours || 0))), (o.wages = r2(o.wages + (x.wages || 0))), (o.cost += ((+part.total || 0) * x.pct) / 100);
     });
-  const s = W > gross ? gross / W : 1,
-    out = Object.values(by)
-      .sort((a, b) => b.wages - a.wages)
-      .map((o) => ({
-        projectId: o.projectId,
-        hours: o.hours,
-        wages: r2(o.wages * s),
-        pct: Math.round(((o.wages * s) / gross) * 1e4) / 100,
-      })),
-    cov = r2(out.reduce((a, x) => a + x.pct, 0));
-  return (
-    cov < 99.995
-      ? out.push({
-          projectId: "",
-          unallocated: !0,
-          hours: r2(unHours),
-          wages: r2(gross - out.reduce((a, x) => a + x.wages, 0)),
-          pct: r2(100 - cov),
-        })
-      : out.length && (out[0].pct = r2(out[0].pct + 100 - cov)),
-    out
-  );
+  });
+  const out = Object.values(amt)
+    .sort((a, b) => !!a.unallocated - !!b.unallocated || !!b.projectId - !!a.projectId || b.cost - a.cost)
+    .map((o) => Object.assign({ projectId: o.projectId, hours: o.hours, wages: o.wages, pct: total ? pctOf(o.cost / total) : 0 }, o.unallocated ? { unallocated: !0 } : {}));
+  return (out.parts = parts), out;
 };
+// the share of a run's gross its approved hours explain: on jobs, and office time as overhead
 const fin3Coverage = (r) =>
-  r2(((r && r.alloc) || []).filter((a) => a.projectId).reduce((s, a) => s + (+a.pct || 0), 0));
+  r2(((r && r.alloc) || []).filter((a) => !a.unallocated).reduce((s, a) => s + (+a.pct || 0), 0));
 function fin3PayrollReview(r) {
-  const rows = (r.allocHours || [])
+  const origin = "undefined" != typeof askEl ? askEl : null,
+    rows = (r.allocHours || [])
     .map(
       (a) =>
         `<tr${a.unallocated ? ' class="warn"' : ""}><td>${
@@ -135980,13 +136306,18 @@ function fin3PayrollReview(r) {
     .join("");
   mbModal(
     `Review the Split — Payroll ${esc(r.period || "")}`,
-    `<p class="small">Approved hours in ${esc(r.period || "the pay period")}, priced at each person's pay rate, explain <b>${fin3Coverage(r)}%</b> of the ${money(+r.gross || 0)} gross. The rest posts to Unallocated Labor, not to a job. Under 80% the split is reviewed before the run is approved.</p><div class="tw"><table class="t"><thead><tr><th>Job</th><th class="money">Hours</th><th class="money">Wages</th><th class="money">Share</th></tr></thead><tbody>${rows}</tbody></table></div><div class="f" style="margin-top:10px"><label>Review Note</label><input data-f="why" placeholder="e.g. office staff are salaried; crew hours for 8/24 week still to be entered" enterkeyhint="done"></div>`,
+    `<p class="small">Approved hours in ${esc(r.period || "the pay period")}, priced at each person's pay rate, explain <b>${fin3Coverage(r)}%</b> of the ${money(+r.gross || 0)} gross (job hours to the jobs, office hours to office payroll). The rest posts to Unallocated Labor, not to a job. Under 80% the split is reviewed before the run is approved.</p><div class="tw"><table class="t"><thead><tr><th>Job</th><th class="money">Hours</th><th class="money">Wages</th><th class="money">Share</th></tr></thead><tbody>${rows}</tbody></table></div><div class="f" style="margin-top:10px"><label>Review Note</label><input data-f="why" placeholder="e.g. office staff are salaried; crew hours for 8/24 week still to be entered" enterkeyhint="done"></div>`,
     {
       submit: "Approve with This Split",
       onSubmit: (v) => {
         const why = String((v && v.why) || "").trim();
         if (!why) return toast("Say why the split is right as it stands"), !1;
-        setTimeout(() => payrollAction(r, "approve", why), 0);
+        // The approval runs once this sheet has closed, as the button that opened it: a size check the approval
+        // then asks (appConfirm) replays that button on Yes. Before, it replayed this sheet's removed button and
+        // the run stayed submitted after "Yes, Continue".
+        setTimeout(() => {
+          origin && origin.isConnected && (askEl = origin), payrollAction(r, "approve", why);
+        }, 0);
       },
     },
   );
@@ -136006,6 +136337,12 @@ if (
     const sig = (x) => JSON.stringify((x || []).map((a) => [a.projectId || "", +a.pct, !!a.unallocated])),
       was = sig(r.alloc),
       now = sig(A);
+    // a run across entities keeps each entity's own split (prParts), which its GL lines post
+    A.parts &&
+      Array.isArray(r.entities) &&
+      r.entities.forEach((e) => {
+        e.alloc = (A.parts[e.entityId] || []).map((a) => Object.assign({ projectId: a.projectId, pct: a.pct }, a.unallocated ? { unallocated: !0 } : {}));
+      });
     return (
       (r.allocFrom = "hours"),
       (r.allocHours = A.map((a) => ({
@@ -136014,7 +136351,7 @@ if (
         wages: a.wages,
         unallocated: !!a.unallocated,
       }))),
-      (r.allocCoverage = r2(A.filter((a) => a.projectId).reduce((s, a) => s + a.pct, 0))),
+      (r.allocCoverage = r2(A.filter((a) => !a.unallocated).reduce((s, a) => s + a.pct, 0))),
       was !== now &&
         ((r.alloc = A.map((a) =>
           Object.assign({ projectId: a.projectId, pct: a.pct }, a.unallocated ? { unallocated: !0 } : {}),
@@ -136272,7 +136609,7 @@ function fin3PostWages(ym, plan, by) {
                       r.from &&
                       r.to &&
                       !["void", "rejected"].includes(r.status) &&
-                      (r.entityId || "ent1") === e.id &&
+                      runCoversEnt(r, e.id) &&
                       x.date >= r.from &&
                       x.date <= r.to,
                   ),
@@ -136377,7 +136714,7 @@ function fin3PostWages(ym, plan, by) {
               r.from &&
               r.to &&
               !["void", "rejected"].includes(r.status) &&
-              (r.entityId || "ent1") === ent &&
+              runCoversEnt(r, ent) &&
               d >= r.from &&
               d <= r.to,
           ))(e.date, ent)
@@ -136442,7 +136779,7 @@ function fin3PostWages(ym, plan, by) {
                   FIN_RUN_POSTED.includes(r.status) &&
                   r.from &&
                   r.to &&
-                  (r.entityId || "ent1") === j.entityId &&
+                  runCoversEnt(r, j.entityId) &&
                   (j.days
                     ? j.days.some((d) => d >= r.from && d <= r.to)
                     : r.from <= j.coversTo && r.to >= j.coversFrom),
@@ -137061,7 +137398,7 @@ if ("function" == typeof repCompany) {
                   ((DB.gl || {}).journals || []).some((j) => "accrual" === j.kind && j.runId === r.id)),
             )
             .filter((r) => (r.alloc || []).some((x) => x.unallocated)),
-          u = `<p class="small muted fin3-unalloc">Unallocated Labor ${money(P.unallocLabor)}: payroll that no approved hour on a job explains${runs.length ? ` — ${runs.map((r) => `payroll ${esc(r.period || r.id)} ${fin3Coverage(r)}% covered by clocked hours`).join("; ")}` : ""}. It is overhead until the hours are entered and the run is re-split.</p>`,
+          u = `<p class="small muted fin3-unalloc">Unallocated Labor ${money(P.unallocLabor)}: payroll that no approved hour explains, on a job or in the office${runs.length ? ` — ${runs.map((r) => `payroll ${esc(r.period || r.id)} ${fin3Coverage(r)}% covered by clocked hours`).join("; ")}` : ""}. It is overhead until the hours are entered and the run is re-split.</p>`,
           k = h.indexOf('<h3 class="rep-h">');
         h = k > -1 ? h.slice(0, k) + u + h.slice(k) : h + u;
       }
@@ -138419,7 +138756,11 @@ function pay3Suggest(t) {
       !u.cat ||
       "uncat" === u.cat ||
       ["transfer", "cc-payment", "income"].includes(u.cat) ||
-      !(+u.amt < 0)
+      !(+u.amt < 0) ||
+      // a purchase made for one client (billed back) is not how the store is coded: it once put another job's
+      // screws on that client's millwork line
+      u.billable ||
+      u.invoiceLineId
     )
       return;
     const nm = u.vendor || pay3PayeeName(u);
@@ -139793,7 +140134,10 @@ function readyToBill() {
             return;
           }
           if (!T) return;
-          if (rows.some((r) => r.p && r.p.id === p.id && "progress" === r.kind)) return;
+          // A job with a schedule of values bills line by line (held per line on its own evidence), never by the
+          // job-level "N% complete, M% billed" suggestion: that one drafted every line at its cost-to-cost %, held
+          // lines included (a $28,120 row opened a $72,605 application).
+          rows = rows.filter((r) => !(r.p && r.p.id === p.id && "progress" === r.kind));
           const c = DB.clients.find((x) => x.id === p.clientId);
           // held per line, never per job: each held line keeps its own reason and amount
           R.forEach((r) => {
@@ -144897,7 +145241,7 @@ function rcPORead(po) {
     twBox = tw && (tw.closest(".tw") || tw),
     lines = (poTotal(po), document.createElement("div"));
   (lines.className = "rc-linesbox"),
-    (lines.innerHTML = `<table class="t rx-lines rc-polines"><thead><tr><th>Item</th><th class="num">Qty</th><th>Unit</th><th class="money">Unit Price</th><th class="money">Amount</th><th>Cost Code</th><th class="num">Received</th></tr></thead><tbody>${
+    (lines.innerHTML = `<table class="t rx-lines rc-polines"><thead><tr><th>Item</th><th class="num">Qty</th><th>Unit</th><th class="money">Unit Price</th><th class="money">Amount</th><th>Cost Code</th><th>Line</th><th class="num">Received</th></tr></thead><tbody>${
       (po.lines || [])
         .map(
           (l) =>
@@ -144906,13 +145250,13 @@ function rcPORead(po) {
                 const c = (void 0 !== COST_CODES ? COST_CODES : []).find((x) => x[0] === l.code);
                 return c ? `${c[0]} ${c[1]}` : l.code || "";
               })(l),
-            )}</td><td class="num">${((l) => {
+            )}</td><td class="rc-pol">${"function" == typeof polCellHtml ? polCellHtml(po, l) : ""}</td><td class="num">${((l) => {
               const r = +l.received || 0,
                 q = +l.qty || 0;
               return `${r2(r)} / ${r2(q)}${r >= q - 0.001 && q ? ' <span class="pill ok">in</span>' : ""}`;
             })(l)}</td></tr>`,
         )
-        .join("") || '<tr><td colspan="7" class="muted">No lines.</td></tr>'
+        .join("") || '<tr><td colspan="8" class="muted">No lines.</td></tr>'
     }</tbody></table>`),
     twBox && ((twBox.hidden = !0), twBox.classList.add("rc-hid")),
     sum.after(lines);
@@ -145006,7 +145350,7 @@ function rcReceiptToast(po, text) {
     "function" == typeof lkBillPO &&
     !["foreman", "crew", "driver"].includes(role()) &&
     !lkPOBillState(po).full &&
-    L.push({ label: "Bill It", run: () => lkBillPO(po) }),
+    L.push({ label: "Bill It", run: () => lkBillReceived(po) }),
     flowCan("po") && L.push({ label: "Open PO", run: flowGo.po(po) }),
     L.length ? rcToast(text, L) : toast(text);
 }
@@ -145051,7 +145395,12 @@ function rcPOButtons(on) {
   let primary = null;
   ["partial", "received", "closed"].includes(po.status) || anyIn
     ? bill && !st.full
-      ? ((bill.textContent = st.billed ? `Bill Remaining ${money(st.remaining)}` : "Bill This PO"),
+      ? ((bill.textContent = ((rl) =>
+          (po.lines || []).some((l) => (+l.received || 0) < (+l.qty || 0) - 1e-9) && rl.length
+            ? `Bill What Arrived ${money(rl.reduce((a, l) => a + l.amount, 0))}`
+            : st.billed
+              ? `Bill Remaining ${money(st.remaining)}`
+              : "Bill This PO")(lkReceivedLines(po))),
         (primary = bill))
       : close && "received" === po.status && (primary = close)
     : ["issued"].includes(po.status) && recv && (primary = recv),
@@ -163096,7 +163445,7 @@ function ctOrphanAccruals() {
               r.from &&
               r.to &&
               !["void", "rejected"].includes(r.status) &&
-              (r.entityId || "ent1") === ent &&
+              runCoversEnt(r, ent) &&
               d >= r.from &&
               d <= r.to,
           );
@@ -163111,7 +163460,7 @@ function ctOrphanAccruals() {
         from = j.coversFrom || j.date,
         nextPay =
           (DB.payroll || [])
-            .filter((r) => (r.entityId || "ent1") === ent && !["void", "rejected"].includes(r.status))
+            .filter((r) => runCoversEnt(r, ent) && !["void", "rejected"].includes(r.status))
             .map((r) => r.payDate)
             .filter((d) => d && d > to)
             .sort()[0] || iso(addDays(parse(to), 14)),
@@ -163673,7 +164022,7 @@ function jobFinEacLines(J, p) {
     const x = b.line && byKey[b.line];
     if (!x || !(BILL_COSTED.includes(b.status) || BILL_ACCRUED.includes(b.status)) || !within(b.date, R) || dup(b))
       return;
-    let a = billTotal(b);
+    let a = billCost(b) - billRebillPart(b);
     "function" == typeof pay3Short &&
       pay3Short(b) &&
       !("accepted" === b.short.state && within(b.short.resolvedOn, R)) &&
@@ -163690,6 +164039,7 @@ function jobFinEacLines(J, p) {
         "labor" === t.cat ||
         !within(t.date, R) ||
         txnViaBill(t, bills) ||
+        txnRebilled(t) ||
         ("function" == typeof pay3Disputed && pay3Disputed(t)) ||
         (x.tagA += -t.amt);
     }),
@@ -163699,7 +164049,7 @@ function jobFinEacLines(J, p) {
         const tot = poTotal(po).sub,
           open = Math.max(
             0,
-            tot - bills.filter((b) => b.poId === po.id && "void" !== b.status).reduce((a, b) => a + billTotal(b), 0),
+            tot - bills.filter((b) => b.poId === po.id && "void" !== b.status).reduce((a, b) => a + billCost(b), 0),
           );
         tot &&
           open &&
@@ -163748,7 +164098,7 @@ function jobFinEac(J, p) {
   try {
     const L = jobFinEacLines(J, p);
     if (!L.length) return null;
-    const lines = r2(L.reduce((a, x) => a + x.eac, 0));
+    const lines = r2(L.reduce((a, x) => a + x.eac, 0) + (+J.rebillCost || 0));
     return { eac: r2(Math.max(lines, J.actual + J.committed)), lines: L };
   } finally {
     jobFinEacBusy = !1;
@@ -173269,6 +173619,9 @@ function truthSetMatch(t, m0, o) {
     if (!b) return { ok: !1, why: "That bill is gone" };
     const bl = (b.lines || []).find((l) => l.id === m.billLineId) || (1 === (b.lines || []).length ? b.lines[0] : null);
     (m.billLineId = bl ? bl.id : ""), (b.txnId = t.id), (t.billId = b.id), b.paidAt || (b.paidAt = t.date);
+    // the recorded payment this bank line clears says so (Payments: "cleared")
+    const pay = (DB.payments || []).find((x) => x.id === m.paymentId) || (DB.payments || []).find((x) => x.billId === b.id && !x.void && !x.txnId && Math.abs((+x.amount || 0) - truthAbs(t.amt)) < 0.01);
+    pay && ((pay.txnId = t.id), (pay.acctId = t.acct), pay.date || (pay.date = t.date), (m.paymentId = pay.id));
     "approved" === b.status ? (b.status = "paid") : "paid" === b.status ? (b.status = "verified") : ["verified", "void", "rejected"].includes(b.status) || (b.paidBeforeApproval = !0);
     est || (est = (bl && bl.line) || b.line || ""), proj || (proj = b.projectId || ""), cat || (cat = b.cat || ""), code || (code = b.code || ""), m.poId || (m.poId = b.poId || "");
   }
@@ -173283,18 +173636,39 @@ function truthSetMatch(t, m0, o) {
     }
     if (!hit) return { ok: !1, why: "That invoice is gone" };
     const il = (hit.inv.lines || []).find((l) => l.id === m.invoiceLineId) || (1 === (hit.inv.lines || []).length ? hit.inv.lines[0] : null);
-    (m.invoiceLineId = il ? il.id : ""), (t.invoiceId = hit.inv.id), cat || (cat = "income"), proj || (proj = hit.inv.projectId || "");
+    // a deposit matched to an invoice is income, whatever a rule guessed first ("ONLINE TRANSFER" read as a transfer
+    // between our own accounts kept a client's payment out of the P&L)
+    (m.invoiceLineId = il ? il.id : ""), (t.invoiceId = hit.inv.id), (cat = "income"), proj || (proj = hit.inv.projectId || "");
     let p = (hit.c.payments || []).find((x) => x.id === m.paymentId) || (hit.c.payments || []).find((x) => x.invoiceId === hit.inv.id && !x.txnId && Math.abs((+x.amount || 0) - t.amt) < 0.005);
     p ? (p.txnId = t.id) : ((p = { id: uid("py"), date: t.date, amount: r2(+t.amt || 0), method: "Bank", invoiceId: hit.inv.id, note: `matched from ${truthAcctWords(t)} by ${who}`, txnId: t.id }), hit.c.payments.push(p)), (m.paymentId = p.id);
+    {
+      // the invoice reads what the bank says: paid when its payments reach its total; a payment that pays the
+      // whole invoice is matched to every line it pays
+      const tot = docTotal(hit.inv).total,
+        paid = "function" == typeof invoicePaid ? invoicePaid(hit.c, hit.inv) : 0;
+      ["sent", "partial", "overdue"].includes(hit.inv.status) && (hit.inv.status = paid >= tot - 0.005 ? "paid" : "partial");
+      !m.invoiceLineId && Math.abs(truthAbs(t.amt) - tot) < 0.01 && (m.invoiceLines = (hit.inv.lines || []).filter((l) => lineAmount(l, hit.inv)).map((l) => l.id));
+    }
   }
   if (m.payrollId) {
     const r = (DB.payroll || []).find((x) => x.id === m.payrollId);
     if (!r) return { ok: !1, why: "That payroll run is gone" };
     (t.payrollId = r.id), cat || (cat = "labor");
+    // the bank lines that carry the run (net pay and the tax debit) add up to it: the run is paid, and the bank says so.
+    // Before, a run paid in two debits stayed "approved" after both were matched, and its labor read as accrual only.
+    try {
+      const paid = r2((DB.txns || []).filter((x) => x.payrollId === r.id && +x.amt < 0).reduce((a, x) => a - +x.amt, 0)),
+        tot = +r.total || 0;
+      tot &&
+        "approved" === r.status &&
+        Math.abs(paid - tot) <= Math.max(1, 0.005 * tot) &&
+        ((r.status = "verified"), (r.paidAt = r.paidAt || t.date), r.txnId || (r.txnId = t.id),
+        audit("payroll", r.id, "paid from the bank", "approved", "verified", `${money(paid)} in ${(DB.txns || []).filter((x) => x.payrollId === r.id).length} bank lines`));
+    } catch (e) {}
   }
   est && (t.line = est), proj && (t.projectId = proj), cat && (t.cat = cat), code && (t.code = code);
   !t.code && t.line && "function" == typeof findLine && "function" == typeof codeForLine && (() => { const L = findLine(t.line); L && (t.code = codeForLine(L.line)); })();
-  (t.match = { billId: m.billId || "", billLineId: m.billLineId || "", poId: m.poId || "", poLineId: m.poLineId || "", estimateLineId: t.line || "", invoiceId: m.invoiceId || "", invoiceLineId: m.invoiceLineId || "", payrollId: m.payrollId || "", paymentId: m.paymentId || "" }),
+  (t.match = Object.assign({ billId: m.billId || "", billLineId: m.billLineId || "", poId: m.poId || "", poLineId: m.poLineId || "", estimateLineId: t.line || "", invoiceId: m.invoiceId || "", invoiceLineId: m.invoiceLineId || "", payrollId: m.payrollId || "", paymentId: m.paymentId || "" }, m.invoiceLines && m.invoiceLines.length ? { invoiceLines: m.invoiceLines } : {})),
     t.cat && "uncat" !== t.cat && "reconciled" !== t.status && (t.status = "categorized"),
     t.actor || (t.actor = who),
     (t.matchedBy = who),
@@ -173331,15 +173705,22 @@ function truthCandidates(t) {
       if (["void", "rejected"].includes(b.status) || (b.txnId && b.txnId !== t.id) || b.ic) return;
       if ((t.rejectedBills || []).includes(b.id)) return;
       const vh = truthVendorHit(t, b.vendor),
-        tot = billTotal(b);
+        tot = billTotal(b),
+        // the payment the controller recorded on the bill (Pay… > Record Payment) is what the bank line clears: its
+        // amount (net of retainage, at the approved amount of a disputed bill), its check or reference, its date
+        digits = String(t.desc || "").match(/\d{3,}/g) || [],
+        pay = (DB.payments || []).find((p) => p.billId === b.id && !p.void && (!p.txnId || p.txnId === t.id) && Math.abs((+p.amount || 0) - amt) < 0.01),
+        refHit = !!pay && !!pay.ref && digits.includes(String(pay.ref).replace(/\D/g, ""));
       (b.lines && b.lines.length ? b.lines : [{ id: "", amount: tot, desc: "" }]).forEach((l) => {
         const la = r2(+l.amount || 0),
           whole = Math.abs(tot - amt) < 0.01,
           lineHit = Math.abs(la - amt) < 0.01,
           why = [];
         let s = 0;
-        (whole || lineHit) && ((s += 3), why.push(whole ? "amount equals the bill" : "amount equals the line")), vh && ((s += 2), why.push("vendor agrees")), (near(b.date) || near(b.due) || near(b.paidAt)) && ((s += 1), why.push("within 7 days"));
-        push("bill", `Bill ${b.number || b.id} · ${b.vendor} · ${l.desc || ""} ${money(la)}`.replace(/\s+/g, " "), { billId: b.id, billLineId: l.id || "", estimateLineId: l.line || b.line || "", poId: b.poId || "" }, s, why);
+        (whole || lineHit || pay) && ((s += 3), why.push(pay && !whole && !lineHit ? `amount equals the payment recorded ${fmtL(pay.date)}` : whole ? "amount equals the bill" : "amount equals the line")),
+          vh ? ((s += 2), why.push("vendor agrees")) : refHit && ((s += 2), why.push(`check ${pay.ref} is the payment recorded on the bill`)),
+          (near(b.date) || near(b.due) || near(b.paidAt) || (pay && near(pay.date))) && ((s += 1), why.push("within 7 days"));
+        push("bill", `Bill ${b.number || b.id} · ${b.vendor} · ${l.desc || ""} ${money(la)}`.replace(/\s+/g, " "), { billId: b.id, billLineId: l.id || "", estimateLineId: l.line || b.line || "", poId: b.poId || "", paymentId: pay ? pay.id : "" }, s + (pay ? 0.5 : 0), why);
       });
     }),
       (DB.pos || []).forEach((po) => {
@@ -173449,7 +173830,14 @@ if ("function" == typeof bfIngest) {
     const out = base.apply(this, arguments);
     try {
       if (out && !(src && src.dry) && (out.added || out.confirmed)) {
-        const n = truthProposeAll([].concat(out.newIds || [], out.confirmedIds || []));
+        const ids = [].concat(out.newIds || [], out.confirmedIds || []);
+        // an older guess with no line behind it (a PO with no label) gives way to the one link model's sure proposal
+        (DB.txns || []).forEach((t) => {
+          if (!ids.includes(t.id) || !t.proposal || t.proposal.m || t.exception) return;
+          const best = truthCandidates(t)[0];
+          best && best.auto && delete t.proposal;
+        });
+        const n = truthProposeAll(ids);
         n && (out.proposed = (out.proposed || 0) + n);
       }
     } catch (e) {
@@ -174442,6 +174830,27 @@ function poRepairInvalid() {
     } catch (e) {
       console.warn("po repair", e);
     }
+    try {
+      // the load normaliser once more at the end of the first boot, so what a later load would add to the seed
+      // (an SOV line's job) is in place before anything is saved, and a reload changes nothing
+      DB.clients.forEach(migrateClientDocs), docAmountMigrate();
+    } catch (e) {
+      console.warn("document amounts", e);
+    }
+    try {
+      // one-time: bills saved before each line had its id and estimate line (billLinesNorm), with an audit line
+      if (!(DB.migrations = DB.migrations || {}).billLineIds) {
+        let n = 0;
+        (DB.bills || []).forEach((b) => {
+          const was = JSON.stringify(b.lines || []);
+          billLinesNorm(b), JSON.stringify(b.lines || []) !== was && (audit("bill", b.id, "line ids and estimate lines set", "", "", b.number || ""), n++);
+        }),
+          (DB.migrations.billLineIds = { on: today(), at: appNowIso(), changed: n }),
+          save();
+      }
+    } catch (e) {
+      console.warn("bill line ids", e);
+    }
     return r;
   };
 }
@@ -174460,6 +174869,17 @@ if ("function" == typeof renderPODoc) {
 // ---- a bill the reader makes from a vendor's mail lands on its purchase order (review finding 2)
 // The PO a message names: a PO number in the subject, body or attachment text; failing that, the vendor's
 // one open order. Null when it names none and the vendor has several or no open orders.
+// A due date read from a vendor's invoice, as the app's ISO day. "2026-10-11" is that day (new Date() would read it
+// as UTC midnight, the evening before in New York); "10/11/2026" is month first; anything else goes through Date.
+function cmDueIso(d) {
+  const t = String(d || "").trim();
+  if (!t) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t;
+  const m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m) return `${m[3]}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}`;
+  const x = new Date(t);
+  return isNaN(x) ? "" : iso(x);
+}
 function cmBillPO(c, p) {
   const text = [c && c.subject, c && c.text, ...((c && c.attachments) || []).map((a) => a.text || "")].join("\n"),
     nums = [...new Set((text.match(/\bPO[-\s]?\d{4}[-\s]?\d{3,}\b/gi) || []).map((x) => x.replace(/\s+/g, "-").toUpperCase()))],
@@ -174474,8 +174894,12 @@ function cmBillPO(c, p) {
 function poLinkBill(b, po) {
   if (!b || !po) return b;
   const l = (po.lines || [])[0] || {};
+  // the bill takes the order's terms as Bill This PO does: the buying entity, a subcontract's retainage, the tax status
   (b.poId = po.id),
     (b.projectId = po.projectId || b.projectId || ""),
+    "function" == typeof poEntity && (b.entityId = poEntity(po) || b.entityId),
+    "subcontract" === po.type && +po.retainagePct && !+b.retainagePct && (b.retainagePct = +po.retainagePct),
+    po.taxStatus && !b.taxStatus && (b.taxStatus = po.taxStatus),
     (b.cat = ("function" == typeof poCat && poCat(po)) || "subs"),
     (b.code = l.code || b.code || ""),
     (b.line = l.line || b.line || ""),
@@ -180428,12 +180852,16 @@ function rbRows(pid) {
     }
     R.forEach((r) => {
       if (pgIsCO(r.sv) || !(r.ev.del && r.ev.del.received > 0) || !(r.pr && r.pr.stored > 0)) return;
-      const sched = +r.ev.scheduled || 0,
-        billed = r2((sched * (+r.ev.billedPct || 0)) / 100),
+      // what was bought for the line and is the client's to pay as contract work, billed in dollars; a purchase billed
+      // back on its own invoice line is already out of the line's cost (lineFin, txnRebilled)
+      const cost = r2(+r.ev.cost || 0),
+        sched = +r.ev.scheduled || 0,
+        // on an application already (a draft counts, as sovBilled counts it: the draft is where the person put it)
+        billed = r2(((r.c && r.c.invoices) || []).filter((i) => "sov" === i.mode && "void" !== i.status).reduce((a, i) => a + i.lines.filter((l) => l.sovId === r.sv.id).reduce((b, l) => b + lineAmount(l, i), 0), 0)),
         per = pgLineHold(r) ? 0 : pgPeriodAmt(r),
-        amt = r2(Math.min(Math.min(+r.ev.cost || 0, sched) - billed - per, +r.pr.stored || 0));
+        amt = r2(Math.min(Math.min(cost, sched) - billed - per, +r.pr.stored || 0));
       amt >= 100 &&
-        out.push({ kind: "floated", key: `fl:${p.id}:${r.sv.id}`, sv: r.sv, p: p, c: r.c, cost: r2(+r.ev.cost || 0), billed: billed, price: sched, line: r.ev.line, doc: r.ev.line ? (findLine(r.sv.lineRef) || {}).doc : null, amount: amt, markupPct: 0, date: "", label: r.sv.desc, why: `${money(r.ev.cost)} bought and ${money(r.ev.del.received)} delivered on this line, ${money(billed)} billed: ${money(amt)} of materials on site the client has not been billed for` });
+        out.push({ kind: "floated", key: `fl:${p.id}:${r.sv.id}`, sv: r.sv, p: p, c: r.c, cost: r2(+r.ev.cost || 0), billed: billed, price: sched, line: r.ev.line, doc: r.ev.line ? (findLine(r.sv.lineRef) || {}).doc : null, amount: amt, markupPct: 0, date: "", label: r.sv.desc, why: `${money(cost)} bought and ${money(r.ev.del.received)} delivered on this line, ${money(billed)} billed: ${money(amt)} of materials on site the client has not been billed for` });
     });
   });
   return out;
@@ -180828,7 +181256,11 @@ document.addEventListener(
   glPayrollLines = function (r) {
     const P = prParts(r);
     if (P.length < 2 || !(+r.total > 0)) return base.apply(this, arguments);
-    return P.flatMap((part) => base.call(this, Object.assign({}, r, { gross: part.gross, taxes: part.taxes, total: part.total })).map((l) => Object.assign(l, { entityId: part.entityId })));
+    return P.flatMap((part) =>
+      base
+        .call(this, Object.assign({}, r, { gross: part.gross, taxes: part.taxes, total: part.total, alloc: part.alloc && part.alloc.length ? part.alloc : r.alloc }))
+        .map((l) => Object.assign(l, { entityId: part.entityId })),
+    );
   };
 }
 "undefined" != typeof APP_DAY_HOOKS &&
@@ -182369,3 +182801,642 @@ CATCH.push({
     }
   };
 }
+
+// Profit After Overhead, one row per job for a range (Portfolio: job to date; the Pack: the month): earned, job cost,
+// gross, the job's share of the pool, net. The method line under it is ohMethodText(), the same words everywhere.
+function ohJobsTableHtml(range, label) {
+  const A = ohAlloc(range),
+    rows = (DB.projects || [])
+      .map((p) => {
+        let T = null;
+        try {
+          T = jobTrueProfit(p, range && range[0] ? range : null);
+        } catch (e) {}
+        return T && (T.revenue || T.cost || T.oh) ? { p: p, T: T } : null;
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.T.net - a.T.net);
+  if (!rows.length) return "";
+  const sum = (k) => r2(rows.reduce((a, x) => a + (+x.T[k] || 0), 0)),
+    tot = { revenue: sum("revenue"), cost: sum("cost"), gross: sum("gross"), oh: sum("oh"), net: sum("net") },
+    pc = (v, d) => (d ? `${r2((100 * v) / d)}%` : "—"),
+    nm = (p) => esc(String(p.project.name).replace(/ —.*$/, ""));
+  return `<h3 class="rep-h">Profit After Overhead · ${esc(label)}</h3><div class="tw"><table class="t oh-jobs"><thead><tr><th>Job</th><th class="money">Earned</th><th class="money">Job Cost</th><th class="money">Gross Profit</th><th class="num">Gross %</th><th class="money">Overhead</th><th class="money">Net Profit</th><th class="num">Net %</th></tr></thead><tbody>${rows
+    .map(
+      ({ p: p, T: T }) =>
+        `<tr data-ohjob="${p.id}"><td>${nm(p)}</td><td class="money">${money(T.revenue)}</td><td class="money">${money(T.cost)}</td><td class="money">${money(T.gross)}</td><td class="num">${pc(T.gross, T.revenue)}</td><td class="money">${money(T.oh)}</td><td class="money ${T.net < 0 ? "bad" : ""}">${money(T.net)}</td><td class="num">${pc(T.net, T.revenue)}</td></tr>`,
+    )
+    .join("")}</tbody><tfoot><tr><td><b>All jobs</b></td><td class="money">${money(tot.revenue)}</td><td class="money">${money(tot.cost)}</td><td class="money">${money(tot.gross)}</td><td class="num">${pc(tot.gross, tot.revenue)}</td><td class="money">${money(tot.oh)}</td><td class="money">${money(tot.net)}</td><td class="num">${pc(tot.net, tot.revenue)}</td></tr></tfoot></table></div><div class="small muted oh-method" style="margin:4px 0 12px">${esc(ohMethodText())}${A.unabsorbed ? ` ${money(A.unabsorbed)} of overhead fell in months with no job cost and sits on no job.` : ""}${A.uncoded ? ` ${money(A.uncoded)} of bank lines are not coded yet and are left out until they are.` : ""}</div>`;
+}
+
+// ---- Overhead and true profitability on the Portfolio, the Pack, the Flash and Ask (chain lane, 2026-10-11) ----
+// One model (ohMonth / ohAlloc / jobTrueProfit, next to burdenRate): every surface reads it and states the method.
+if ("function" == typeof repPortfolio) {
+  const base = repPortfolio;
+  repPortfolio = function () {
+    const h = base.apply(this, arguments);
+    try {
+      return h + ohJobsTableHtml(["", today()], "job to date");
+    } catch (e) {
+      return console.warn("portfolio overhead", e), h;
+    }
+  };
+}
+if ("function" == typeof repPack) {
+  const base = repPack;
+  repPack = function () {
+    const h = base.apply(this, arguments);
+    try {
+      const R = "function" == typeof repRangeOf ? repRangeOf().range : [today().slice(0, 7) + "-01", today()],
+        ym = String(R[1] || today()).slice(0, 7),
+        M = ohMonth(ym),
+        ab = ohAbsorption([ym + "-01", ohMonthEnd(ym)]);
+      return (
+        h +
+        ohJobsTableHtml([ym + "-01", ohMonthEnd(ym)], ym) +
+        `<p class="small oh-pack">Overhead rate ${ym}: ${pct1(M.rate)} of ${OH_BASES[ohBasis()][1]} (pool ${money(M.pool)} over ${money(M.baseTotal)}) · year to date ${pct1(ohAlloc([ym.slice(0, 4) + "-01-01", ohMonthEnd(ym)]).rate)} · ${ab.under >= 0 ? "under" : "over"}-absorbed ${money(Math.abs(ab.under))} at the ${pct1(ab.rate)} burden rate.</p>`
+      );
+    } catch (e) {
+      return console.warn("pack overhead", e), h;
+    }
+  };
+}
+if ("function" == typeof repFlash) {
+  const base = repFlash;
+  repFlash = function () {
+    const h = base.apply(this, arguments);
+    try {
+      const M = ohNow().month;
+      return h + `<p class="small oh-flash">Overhead this month: ${money(M.pool)} at ${pct1(M.rate)} of ${OH_BASES[ohBasis()][1]}${M.uncoded ? `; ${money(M.uncoded)} not yet coded` : ""}.</p>`;
+    } catch (e) {
+      return h;
+    }
+  };
+}
+// Ask: a job's margin and profit after overhead, the overhead spent in a month, the overhead rate
+const OH_MONTHS = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
+function ohAskJob(l) {
+  const P = (DB.projects || []).filter((p) => {
+    const nm = String(p.project.name || "").toLowerCase(),
+      short = nm.replace(/ —.*$/, "").replace(/\s+(street|st|place|pl|avenue|ave)\.?$/, "");
+    return l.includes(nm.replace(/ —.*$/, "")) || (short.length > 4 && l.includes(short));
+  });
+  return P.length ? P.sort((a, b) => b.project.name.length - a.project.name.length)[0] : null;
+}
+function ohAskMonth(l) {
+  const i = OH_MONTHS.findIndex((m) => l.includes(m) || new RegExp(`\\b${m.slice(0, 3)}\\b`).test(l));
+  if (i < 0) return /this month/.test(l) ? today().slice(0, 7) : "";
+  const y = (l.match(/\b(20\d\d)\b/) || [])[1] || today().slice(0, 4);
+  return `${y}-${String(i + 1).padStart(2, "0")}`;
+}
+// baseAsk: the answer the rest of Ask gives; a job's margin keeps it (the margin at completion, cost-to-cost) and adds
+// the profit to date before and after overhead, so one question has one answer that carries both
+function ohAsk(q, baseAsk) {
+  const l = String(q || "").toLowerCase();
+  if ("client" === role() || ("function" == typeof eqFieldRole && eqFieldRole())) return null;
+  const job = ohAskJob(l);
+  if (job && /\b(margin|profit|profitab|after overhead|net)\b/.test(l)) {
+    const T = jobTrueProfit(job),
+      nm = String(job.project.name).replace(/ —.*$/, ""),
+      own = `To date: gross profit ${money(T.gross)} (${T.grossPct}%) on ${money(T.revenue)} earned; after ${money(T.oh)} of overhead, net profit ${money(T.net)} (${T.netPct}%). At completion: ${money(T.margin)} margin, ${money(T.netAtCompletion)} (${T.netAtCompletionPct}%) after overhead.`,
+      work = [`Earned ${money(T.revenue)}`, `Job cost ${money(T.cost)}`, `Gross profit ${money(T.gross)}`, `Overhead allocated ${money(T.oh)} (${money(T.basisAmt)} of ${OH_BASES[T.basis][1]})`, `Net profit ${money(T.net)}`, `Contract ${money(T.contract)}, estimated cost ${money(T.eac)}, overhead at completion ${money(T.burden)} at ${pct1(T.burdenRate)}`];
+    let b = null;
+    try {
+      b = /\bmargin\b/.test(l) && !/\b(after overhead|net)\b/.test(l) && baseAsk ? baseAsk() : null;
+    } catch (e) {}
+    if (b && b.headline && /margin/i.test(b.headline))
+      return Object.assign({}, b, { headline: `${b.headline} ${own}`, note: [b.note, T.method].filter(Boolean).join(" "), work: (b.work || []).concat(work) });
+    return paOut({
+      kind: "finance",
+      headline: `${nm}: ${own}`,
+      note: T.method,
+      work: work,
+      interp: `I ran: jobTrueProfit(${nm}) · job to date · overhead by ${OH_BASES[T.basis][0]}`,
+    });
+  }
+  if (/\boverhead\b/.test(l) && !/\bbudget\b/.test(l)) {
+    const ym = ohAskMonth(l);
+    if (/\brate\b/.test(l) && !ym) {
+      const N = ohNow();
+      return paOut({ kind: "finance", headline: `The overhead rate is ${pct1(N.month.rate)} this month and ${pct1(N.ytd.rate)} year to date, of ${OH_BASES[ohBasis()][1]}; the burden rate (${N.trailing.label}) is ${pct1(N.trailing.rate)}.`, note: ohMethodText(), interp: "I ran: ohNow" });
+    }
+    if (ym) {
+      const M = ohMonth(ym),
+        lbl = `${OH_MONTHS[+ym.slice(5, 7) - 1].replace(/^./, (c) => c.toUpperCase())} ${ym.slice(0, 4)}`;
+      return paOut({
+        kind: "finance",
+        headline: `${money(M.pool)} of overhead in ${lbl}${M.uncoded ? `, plus ${money(M.uncoded)} of bank lines not yet coded (the P&L shows ${money(M.opex)} of operating expenses)` : ""}: ${pct1(M.rate)} of the month's ${OH_BASES[M.basis][1]} (${money(M.baseTotal)}).`,
+        note: ohMethodText(),
+        work: Object.entries(M.lines)
+          .sort((a, b) => b[1] - a[1])
+          .map(([k, v]) => `${k} ${money(v)}`)
+          .concat(Object.entries(M.alloc).map(([pid, v]) => `${String(((DB.projects || []).find((p) => p.id === pid) || { project: { name: pid } }).project.name).replace(/ —.*$/, "")} carries ${money(v)}`)),
+        interp: `I ran: ohMonth(${ym}) · the P&L's operating expenses less lines not yet coded`,
+      });
+    }
+  }
+  return null;
+}
+if ("function" == typeof paAsk) {
+  const base = paAsk;
+  paAsk = function (q) {
+    const self = this,
+      args = arguments;
+    try {
+      const a = ohAsk(q, () => base.apply(self, args));
+      if (a) return a;
+    } catch (e) {
+      console.warn("overhead ask", e);
+    }
+    return base.apply(this, arguments);
+  };
+}
+
+// ---- PO line links (Alan, 2026-10-11: "The PO should also be able to link directly into an invoice or estimate
+// line item"; CLAUDE.md "How purchasing starts") ----
+// Every PO line says where its cost lands, from the start: an estimate or change-order line (l.line, the key
+// lineOptions makes), an overhead category (l.ohCat, for an order with no job line: shop stock, office), or "billed
+// back to the client" (l.billable: a reimbursable, on no contract line). A billable line also carries the invoice
+// line that bills it (l.invoiceId, l.invoiceLineId), stamped by the Billable Expenses pull or picked by hand. A line
+// with none of these shows "Not linked" and the order cannot be issued, submitted or approved (poValid).
+// Defaults come from the order itself (poLinkDefaults): a material's line, the one job line with the PO line's cost
+// code, or the one line whose words it shares. New PO opens on "Which lines?" (the estimate, CO and invoice lines
+// of the job); Start Blank is the secondary way in.
+const POL_OH = () => CATEGORIES.filter((c) => "oh" === c.type && !/^payroll/.test(c.id));
+function polKind(l) {
+  if (!l) return "";
+  if (l.billable) return "rebill";
+  if (l.ohCat && CATEGORIES.some((c) => c.id === l.ohCat)) return "oh";
+  const k = String(l.line || "").split(":")[0];
+  return ["estimate", "co", "invoice"].includes(k) && findLine(l.line) ? k : "";
+}
+const polLinked = (l) => !!polKind(l);
+function polLabel(l) {
+  const k = polKind(l);
+  if (!k) return "";
+  if ("oh" === k) return `Overhead · ${catName(l.ohCat)}`;
+  if ("rebill" === k) return "Billed back to the client";
+  const f = findLine(l.line);
+  return `${f.doc.number} · ${f.line.num ? f.line.num + ". " : ""}${f.line.item || f.line.desc || ""}`;
+}
+function polFind(lineId) {
+  for (const po of DB.pos || []) {
+    const l = (po.lines || []).find((x) => x.id === lineId);
+    if (l) return { po: po, l: l };
+  }
+  return null;
+}
+// what a bill charges for PO lines billed back to the client: their cost is the reimbursable's, not a contract line's
+function billRebillPart(b) {
+  if (!b || b.retainageRelease || !b.poId) return 0;
+  const po = (DB.pos || []).find((x) => x.id === b.poId),
+    ids = new Set(((po && po.lines) || []).filter((l) => l.billable).map((l) => l.id));
+  return ids.size ? r2((b.lines || []).filter((x) => ids.has(x.poLineId)).reduce((a, x) => a + (+x.amount || 0), 0)) : 0;
+}
+const polWords = (t) =>
+  String(t || "")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length >= 4 && !/^(line|work|with|from|each|install|supply|labor|materials?)$/.test(w))
+    .map((w) => (w.length > 4 ? w.replace(/s$/, "") : w));
+// the link an unlinked line most likely has, from the order itself; null when it is not clear
+function polGuess(po, l) {
+  const p = (DB.projects || []).find((x) => x.id === po.projectId);
+  if (!p) return null;
+  const m = l.materialId && (p.materials || []).find((x) => x.id === l.materialId);
+  if (m && m.line && findLine(m.line)) return m.line;
+  const opts = lineOptions(p.id);
+  if (!opts.length) return null;
+  // the cost code says which line: the PO line's own, then the code of the task the material is for (trim for
+  // "Base molding, casing & doors"), then the item's words; the first code that names exactly one line wins
+  const task = m && (m.taskId || m.task) && (p.tasks || []).find((t) => t.id === (m.taskId || m.task)),
+    cf = (t) => ("function" == typeof codeForLine ? String(codeForLine({ item: t }) || "") : ""),
+    codes = [l.code ? String(l.code) : "", task ? cf(task.name) : "", cf(l.item || "")].filter((c, i, A) => c && "99" !== c && A.indexOf(c) === i);
+  for (const code of codes) {
+    const one = opts.filter((o) => String(lineCode(o.line, o.doc)) === code);
+    if (1 === one.length) return one[0].key;
+  }
+  const same = l.code ? opts.filter((o) => String(lineCode(o.line, o.doc)) === String(l.code)) : [];
+  const W = polWords(`${l.item || ""} ${l.desc || ""}`),
+    pool = same.length ? same : opts,
+    sc = pool.map((o) => {
+      const ow = new Set(polWords(`${o.line.item || ""} ${o.line.desc || ""}`));
+      return { o: o, n: W.filter((w) => ow.has(w)).length };
+    }).sort((a, b) => b.n - a.n);
+  return sc[0] && sc[0].n > 0 && (!sc[1] || sc[1].n < sc[0].n) ? sc[0].o.key : null;
+}
+function poLinkDefaults(po) {
+  if (!po || !["draft", "pending"].includes(po.status)) return 0;
+  let n = 0;
+  (po.lines || []).forEach((l) => {
+    if (polLinked(l) || !(l.item || l.desc || +l.price)) return;
+    const k = polGuess(po, l);
+    if (!k) return;
+    l.line = k;
+    const f = findLine(k);
+    f && !l.code && (l.code = lineCode(f.line, f.doc)), (l.linkBy = "default"), n++;
+  });
+  return n;
+}
+function poLinkDefaultsAll() {
+  (DB && DB.pos ? DB.pos : []).forEach((po) => {
+    try {
+      poLinkDefaults(po);
+    } catch (e) {}
+  });
+}
+{
+  const base = persist;
+  persist = function () {
+    try {
+      poLinkDefaultsAll();
+    } catch (e) {}
+    return base.apply(this, arguments);
+  };
+}
+// the validator: a line with no link cannot be issued, submitted or approved
+{
+  const base = poValid;
+  poValid = function (po) {
+    const R = base.apply(this, arguments);
+    try {
+      po && poLinkDefaults(po);
+      (po && po.lines ? po.lines : [])
+        .filter((l) => (l.item || l.desc || +l.price || +l.qty) && !polLinked(l))
+        .forEach((l) => R.push(`${l.item || l.desc || "a line"} is not linked to an estimate line, a change-order line or overhead`));
+    } catch (e) {}
+    return R;
+  };
+}
+// ---- where a link opens: the estimate line's drill-down, or the invoice line's
+function polOpen(po, l) {
+  const k = polKind(l);
+  if ("estimate" === k || "co" === k) return void finLineModal(l.line);
+  if ("invoice" === k) {
+    const [, iid, lid] = String(l.line).split(":");
+    return void invLineModal(iid, lid);
+  }
+  if ("rebill" === k && l.invoiceLineId) return void invLineModal(l.invoiceId, l.invoiceLineId);
+}
+// the PO lines, bills and bank or card lines behind one line of an invoice
+function invLineModal(invId, lineId) {
+  const hit = "function" == typeof rbInvLine ? rbInvLine(lineId) : null;
+  if (!hit) return void toast("That invoice line is gone (removed from a draft or voided)");
+  const { c: c, inv: inv, l: il } = hit,
+    key = `invoice:${inv.id}:${il.id}`,
+    pls = [];
+  (DB.pos || []).forEach((po) => (po.lines || []).forEach((l) => (l.invoiceLineId === il.id || l.line === key) && pls.push({ po: po, l: l })));
+  const plIds = new Set(pls.map((x) => x.l.id)),
+    bills = (DB.bills || []).filter((b) => "void" !== b.status && (b.lines || []).some((x) => plIds.has(x.poLineId))),
+    txns = (DB.txns || []).filter(
+      (t) => t.invoiceLineId === il.id || bills.some((b) => t.billId === b.id || (t.match && t.match.billId === b.id)) || (t.fromTxn && t.id === il.fromTxn) || t.id === il.fromTxn,
+    ),
+    row = (cells, attr) => `<tr ${attr || ""}>${cells.map((x, i) => `<td${i === cells.length - 1 ? ' class="money"' : ""}>${x}</td>`).join("")}</tr>`,
+    list = (title, items) =>
+      `<div style="margin-bottom:10px"><b>${title}</b>${items.length ? `<table class="t" style="margin-top:4px"><tbody>${items.join("")}</tbody></table>` : '<div class="small muted">None</div>'}</div>`;
+  mbModal(
+    `${esc(inv.number)} · ${esc(il.item || il.desc || "Line")}`,
+    `<div class="row" style="gap:12px;flex-wrap:wrap;font-size:12.5px;margin-bottom:10px"><span>Billed <b>${money(lineAmount(il, inv))}</b></span>${il.cost ? `<span>Cost <b>${money(il.cost)}</b></span>` : ""}<span>${esc(c.name)} · ${esc(inv.status)}</span></div>
+    ${list("Purchase Order Lines", pls.map((x) => row([`${esc(x.po.number)} · ${esc(x.po.vendor)}`, esc(x.l.item || ""), money((+x.l.qty || 0) * (+x.l.price || 0))], `class="click" data-ilpo="${x.po.id}"`)))}
+    ${list("Vendor Bills", bills.map((b) => row([`${esc(b.vendor)} · ${esc(b.number || "")}`, fmtL(b.date), esc(b.status), money(billTotal(b))])))}
+    ${list("Bank and Card Lines", txns.map((t) => row([esc(t.desc || ""), fmtL(t.date), money(-t.amt)])))}`,
+    { submit: null },
+  );
+  document.querySelectorAll("#mbm [data-ilpo]").forEach(
+    (tr) =>
+      (tr.onclick = () => {
+        mbCloseModal();
+        const po = (DB.pos || []).find((x) => x.id === tr.dataset.ilpo);
+        po && flowGo.po(po)();
+      }),
+  );
+}
+// the estimate line's drill-down names the PO lines (with their links) and the bank or card lines that paid its bills
+{
+  const base = finLineModal;
+  finLineModal = function (key) {
+    const r = base.apply(this, arguments);
+    try {
+      const m = document.getElementById("mbm"),
+        f = lineFin(key);
+      if (!m || !f) return r;
+      const pls = [];
+      (DB.pos || []).forEach((po) => "cancelled" !== po.status && (po.lines || []).forEach((l) => l.line === key && pls.push({ po: po, l: l })));
+      const paid = (DB.txns || []).filter((t) => (f.bills || []).some((b) => t.billId === b.id || (t.match && t.match.billId === b.id))),
+        bd = m.querySelector(".mbm-bd"),
+        d = document.createElement("div");
+      d.className = "pol-drill";
+      d.innerHTML = `<div class="small muted" style="margin:-4px 0 10px">Left on the budget after what is spent and committed: <b>${money(r2(f.budget - f.actual - f.committed))}</b></div><div style="margin-bottom:10px"><b>Purchase Order Lines</b>${pls.length ? `<table class="t" style="margin-top:4px"><tbody>${pls.map((x) => `<tr class="click" data-finpo="${x.po.id}" data-polrow="${x.l.id}"><td>${esc(x.po.number)} · ${esc(x.po.vendor)}</td><td>${esc(x.l.item || "")}</td><td>${esc(x.po.status)}</td><td class="money">${money((+x.l.qty || 0) * (+x.l.price || 0))}</td></tr>`).join("")}</tbody></table>` : '<div class="small muted">None</div>'}</div><div style="margin-bottom:10px"><b>Bank and Card Lines Paying These Bills</b>${paid.length ? `<table class="t" style="margin-top:4px"><tbody>${paid.map((t) => `<tr><td>${esc(t.desc || "")}</td><td class="dim">${fmtL(t.date)}</td><td class="money">${money(-t.amt)}</td></tr>`).join("")}</tbody></table>` : '<div class="small muted">None</div>'}</div>`;
+      // the PO lines replace the list of whole orders: each row is the order line that buys for this line
+      const old = bd && [...bd.children].find((x) => /^Purchase orders/.test((x.querySelector("b") || {}).textContent || ""));
+      old ? old.replaceWith(d) : bd && bd.insertBefore(d, bd.firstChild.nextSibling);
+      d.querySelectorAll("[data-finpo]").forEach(
+        (tr) =>
+          (tr.onclick = () => {
+            mbCloseModal();
+            const po = (DB.pos || []).find((x) => x.id === tr.dataset.finpo);
+            po && flowGo.po(po)();
+          }),
+      );
+    } catch (e) {
+      console.warn("line drill-down", e);
+    }
+    return r;
+  };
+}
+// ---- the picker: search the job's estimate and change-order lines, billed back, or an overhead category
+function polPickerHtml(po, l) {
+  const opts = po.projectId ? lineOptions(po.projectId) : [],
+    cur = l.billable ? "rebill" : l.ohCat ? "oh:" + l.ohCat : l.line || "",
+    opt = (k, title, sub, q) =>
+      `<button type="button" class="pol-opt${cur === k ? " on" : ""}" data-polk="${esc(k)}" data-q="${esc(String(q || title).toLowerCase())}"><b>${title}</b>${sub ? `<span class="small muted">${sub}</span>` : ""}</button>`;
+  return `<div class="f"><input id="pol-q" type="search" placeholder="Search lines and categories" autocomplete="off" aria-label="Search lines and categories"></div><div class="pol-list">${
+    opts.length
+      ? `<div class="pol-grp">Estimate and Change-Order Lines</div>${opts
+          .map((o) =>
+            opt(
+              o.key,
+              `${esc(o.doc.number)} · ${o.line.num ? esc(o.line.num) + ". " : ""}${esc(o.line.item || o.line.desc || "")}`,
+              `${money(lineAmount(o.line, o.doc))} · budget ${money(lineBudget(o.line, o.doc).budget)} · code ${esc(lineCode(o.line, o.doc))}`,
+              `${o.doc.number} ${o.line.item || ""} ${o.line.desc || ""} ${lineCode(o.line, o.doc)}`,
+            ),
+          )
+          .join("")}`
+      : ""
+  }${po.projectId ? `<div class="pol-grp">Billed Back to the Client</div>${opt("rebill", "Reimbursable", "bought for the client, billed back at cost plus markup on its own invoice line", "reimbursable billed back client")}` : ""}<div class="pol-grp">Overhead</div>${POL_OH()
+    .map((c) => opt("oh:" + c.id, esc(c.n), "", `overhead ${c.n}`))
+    .join("")}</div>`;
+}
+function polSet(po, l, k) {
+  const was = polLabel(l) || "not linked";
+  "rebill" === k
+    ? ((l.billable = !0), (l.line = ""), delete l.ohCat)
+    : k.startsWith("oh:")
+      ? ((l.ohCat = k.slice(3)), (l.line = ""), (l.billable = !1))
+      : ((l.line = k), delete l.ohCat, (l.billable = !1));
+  const f = l.line && findLine(l.line);
+  f && (l.code = lineCode(f.line, f.doc)), l.billable || (delete l.invoiceId, delete l.invoiceLineId), delete l.linkBy;
+  const by = ("function" == typeof currentUser && (currentUser() || {}).name) || role();
+  audit("po", po.id, "line linked", was, polLabel(l), `${po.number} · ${l.item || ""} · ${by}`), save(), render();
+  rcToast(`${po.number}: ${l.item || "the line"} is linked to ${polLabel(l)}`, [{ label: "Open", run: flowGo.po(po) }]);
+}
+function polPicker(po, l) {
+  const m = mbModal(`Link ${esc(l.item || "the Line")}`, polPickerHtml(po, l), { submit: null });
+  m.classList.add("pol-sheet");
+  const q = m.querySelector("#pol-q");
+  q &&
+    q.addEventListener("input", () => {
+      const W = q.value.toLowerCase().split(/\s+/).filter(Boolean);
+      m.querySelectorAll(".pol-opt").forEach((b) => (b.style.display = W.every((w) => b.dataset.q.includes(w)) ? "" : "none"));
+      m.querySelectorAll(".pol-grp").forEach((g) => {
+        let n = g.nextElementSibling,
+          any = !1;
+        for (; n && !n.classList.contains("pol-grp"); n = n.nextElementSibling) "none" !== n.style.display && (any = !0);
+        g.style.display = any ? "" : "none";
+      });
+    });
+  m.querySelectorAll("[data-polk]").forEach((b) => (b.onclick = () => (mbCloseModal(), polSet(po, l, b.dataset.polk))));
+}
+// a billable line's invoice line, picked by hand: the job's items invoices that are not void
+function polInvPicker(po, l) {
+  const p = (DB.projects || []).find((x) => x.id === po.projectId),
+    c = p && (DB.clients || []).find((x) => x.id === p.clientId),
+    L = [];
+  c &&
+    (c.invoices || [])
+      .filter((i) => "sov" !== i.mode && "void" !== i.status && i.projectId === p.id)
+      .forEach((i) => (i.lines || []).forEach((x) => L.push({ i: i, x: x })));
+  if (!L.length) return void toast("No invoice on this job has lines yet — Ready to Bill drafts one when the line is billed back");
+  const m = mbModal(
+    "Bill It On",
+    `<div class="f"><input id="pol-q" type="search" placeholder="Search invoice lines" autocomplete="off" aria-label="Search invoice lines"></div><div class="pol-list">${L.map(
+      (y) =>
+        `<button type="button" class="pol-opt${l.invoiceLineId === y.x.id ? " on" : ""}" data-polil="${y.i.id}:${y.x.id}" data-q="${esc(`${y.i.number} ${y.x.item || ""} ${y.x.desc || ""}`.toLowerCase())}"><b>${esc(y.i.number)} · ${esc(y.x.item || y.x.desc || "")}</b><span class="small muted">${money(lineAmount(y.x, y.i))} · ${esc(y.i.status)}</span></button>`,
+    ).join("")}</div>`,
+    { submit: null },
+  );
+  m.classList.add("pol-sheet");
+  const q = m.querySelector("#pol-q");
+  q && q.addEventListener("input", () => m.querySelectorAll(".pol-opt").forEach((b) => (b.style.display = b.dataset.q.includes(q.value.toLowerCase().trim()) ? "" : "none")));
+  m.querySelectorAll("[data-polil]").forEach(
+    (b) =>
+      (b.onclick = () => {
+        mbCloseModal();
+        const [iid, lid] = b.dataset.polil.split(":"),
+          hit = rbInvLine(lid);
+        (l.invoiceId = iid), (l.invoiceLineId = lid);
+        audit("po", po.id, "line billed on", "", `${hit ? hit.inv.number : iid} · ${hit ? hit.l.item : lid}`, `${po.number} · ${l.item || ""}`), save(), render();
+        rcToast(`${po.number}: ${l.item || "the line"} is billed on ${hit ? hit.inv.number : "the invoice"}`, [{ label: "Open", run: () => invLineModal(iid, lid) }]);
+      }),
+  );
+}
+// ---- on the PO: each line's link is a chip that opens it, with Link or Change beside it
+function polCellHtml(po, l) {
+  const k = polKind(l),
+    ed = !["closed", "cancelled"].includes(po.status) && !["client", "crew", "driver"].includes(role()),
+    inv = l.billable && l.invoiceLineId && "function" == typeof rbInvLine ? rbInvLine(l.invoiceLineId) : null,
+    main = k
+      ? "oh" === k || "rebill" === k
+        ? `<span class="pol-chip">${esc(polLabel(l))}</span>`
+        : `<button type="button" class="pol-chip" data-polopen="${l.id}" title="Open the line">${esc(polLabel(l))}</button>`
+      : '<span class="pol-chip warn">Not linked</span>',
+    bill = l.billable
+      ? inv
+        ? `<button type="button" class="pol-chip" data-polinv="${l.id}" title="Open the invoice line">Billed on ${esc(inv.inv.number)}</button>`
+        : `<span class="pol-chip muted">Not billed yet</span>${ed ? `<button type="button" class="btn sm" data-polinvpick="${l.id}">Bill On…</button>` : ""}`
+      : "";
+  return `<div class="pol-cell">${main}${bill}${ed ? `<button type="button" class="btn sm" data-polpick="${l.id}">${k ? "Change" : "Link"}</button>` : ""}</div>`;
+}
+{
+  const base = renderPODoc;
+  renderPODoc = function (po) {
+    try {
+      po && poLinkDefaults(po);
+    } catch (e) {}
+    let h = base.apply(this, arguments);
+    try {
+      if (!po) return h;
+      h = h.replace('<th style="width:170px">From line</th>', '<th style="width:220px">Line</th>');
+      (po.lines || []).forEach((l) => {
+        const a = h.indexOf(`<tr data-line="${l.id}"`);
+        if (a < 0) return;
+        const b = h.indexOf("</tr>", a);
+        const row = h.slice(a, b).replace(/<select data-f="line"[\s\S]*?<\/select>/, polCellHtml(po, l));
+        h = h.slice(0, a) + row + h.slice(b);
+      });
+      const n = (po.lines || []).filter((l) => (l.item || l.desc || +l.price) && !polLinked(l)).length;
+      n &&
+        (h = h.replace(
+          '<table class="lines"',
+          `<div class="note warn pol-note">${n} line${1 === n ? " is" : "s are"} not linked to an estimate line, a change-order line or overhead — link ${1 === n ? "it" : "them"} before the order can be approved.</div><table class="lines"`,
+        ));
+    } catch (e) {
+      console.warn("PO line links", e);
+    }
+    return h;
+  };
+}
+// one listener for the chips and buttons, wherever the PO's lines are drawn (the editable table, the read-only
+// lines a PO shows once it leaves draft, the phone's cards)
+document.addEventListener("click", (e) => {
+  const b = e.target.closest && e.target.closest("[data-polpick], [data-polopen], [data-polinv], [data-polinvpick]");
+  if (!b) return;
+  const id = b.dataset.polpick || b.dataset.polopen || b.dataset.polinv || b.dataset.polinvpick,
+    hit = polFind(id);
+  if (!hit) return;
+  e.preventDefault(), e.stopPropagation();
+  b.dataset.polpick ? polPicker(hit.po, hit.l) : b.dataset.polinvpick ? polInvPicker(hit.po, hit.l) : polOpen(hit.po, hit.l);
+});
+// ---- billed back: a billable PO line is a reimbursable once billed by its vendor; the Billable Expenses pull stamps
+// its invoice line. The bank line that paid the bill is not a second reimbursable (rbWhy skips lines with a bill).
+function polRbRows(pid) {
+  const out = [];
+  (DB.pos || []).forEach((po) => {
+    if ((pid && po.projectId !== pid) || !po.projectId || ["draft", "pending", "cancelled"].includes(po.status)) return;
+    const p = (DB.projects || []).find((x) => x.id === po.projectId),
+      c = p && (DB.clients || []).find((x) => x.id === p.clientId);
+    if (!p || !c) return;
+    (po.lines || []).forEach((l) => {
+      if (!l.billable) return;
+      if (l.invoiceLineId && rbInvLine(l.invoiceLineId)) return;
+      l.invoiceLineId && (delete l.invoiceLineId, delete l.invoiceId);
+      const cost = r2(
+        (DB.bills || [])
+          .filter((b) => b.poId === po.id && !["void", "rejected", "draft"].includes(b.status) && !b.retainageRelease)
+          .reduce((a, b) => a + (b.lines || []).filter((x) => x.poLineId === l.id).reduce((s, x) => s + (+x.amount || 0), 0), 0),
+      );
+      if (!(cost > 0)) return;
+      const mk = null != l.markupPct ? +l.markupPct : rbMarkup(p);
+      out.push({
+        kind: "reimbursable",
+        key: "rbpl:" + l.id,
+        po: po,
+        pl: l,
+        t: { id: "pol:" + l.id, desc: `${po.number} ${l.item || ""}`.trim(), vendor: po.vendor, date: po.date, amt: -cost, projectId: p.id },
+        p: p,
+        c: c,
+        cost: cost,
+        markupPct: mk,
+        amount: r2(cost * (1 + mk / 100)),
+        date: po.date,
+        label: `${po.number} ${l.item || ""}`.trim(),
+        why: `${po.number} line marked billed back to the client`,
+      });
+    });
+  });
+  return out;
+}
+{
+  const base = rbRows;
+  rbRows = function (pid) {
+    const R = base.apply(this, arguments);
+    try {
+      const P = polRbRows(pid);
+      return P.length ? R.concat(P) : R;
+    } catch (e) {
+      return console.warn("billed-back PO lines", e), R;
+    }
+  };
+}
+{
+  const base = rbPullInto;
+  rbPullInto = function (inv, rows) {
+    const mine = (rows || []).filter((x) => x && x.pl),
+      rest = (rows || []).filter((x) => !(x && x.pl));
+    let n = base.call(this, inv, rest);
+    mine.forEach((x) => {
+      if (x.pl.invoiceLineId) return;
+      const l = { id: uid("l"), item: `Reimbursable — ${String(x.po.vendor || x.label).slice(0, 60)}`, desc: `Bought for you on ${x.po.number}: ${x.pl.item || ""} · cost ${money(x.cost)}${x.markupPct ? ` plus ${x.markupPct}%` : ""}`, qty: 1, unit: "ls", rate: x.amount, taxable: !1, cost: x.cost, markupPct: x.markupPct, fromPOLine: x.pl.id, cat: "reimbursable" };
+      (inv.lines = inv.lines || []).push(l), (x.pl.invoiceId = inv.id), (x.pl.invoiceLineId = l.id), n++;
+      try {
+        audit("po", x.po.id, "line billed on", "", `${inv.number} line ${l.item}`, `${money(x.amount)} on ${inv.number}`);
+      } catch (e) {}
+    });
+    return n;
+  };
+}
+// ---- New PO opens on the job's lines: "Which lines?", with Start Blank as the secondary way in
+{
+  const base = newPODialog;
+  newPODialog = function (opts) {
+    const blank = opts && opts.blank;
+    let p = null;
+    try {
+      p = S && S.id ? (DB.projects || []).find((x) => x.id === S.id) : null;
+    } catch (e) {}
+    const c = p && (DB.clients || []).find((x) => x.id === p.clientId),
+      has =
+        c &&
+        [...(c.estimates || []).filter((e) => !["rejected", "expired"].includes(e.status) && (!e.projectId || e.projectId === p.id)), ...(c.changeOrders || []).filter((x) => ["approved", "billed"].includes(x.status) && (!x.projectId || x.projectId === p.id)), ...(c.invoices || []).filter((x) => "sov" !== x.mode && "void" !== x.status && (!x.projectId || x.projectId === p.id))].some((d) => (d.lines || []).length);
+    if (blank || !has) return base.apply(this, arguments);
+    ctPOPicker(p.id, "*");
+    const m = document.getElementById("mbm");
+    if (!m) return base.apply(this, arguments);
+    m.classList.add("pol-which");
+    const h = m.querySelector(".mbm-hd h3");
+    h && (h.textContent = "Which Lines?");
+    const ok = m.querySelector("#mbm-ok"),
+      b = document.createElement("button");
+    (b.type = "button"), (b.className = "btn"), (b.id = "mbm-blank"), (b.textContent = "Start Blank");
+    b.onclick = () => (mbCloseModal(), base.call(this, { blank: !0 }));
+    ok ? ok.before(b) : m.querySelector(".mbm-ft").append(b);
+  };
+}
+// ---- one question, one number: PO lines not linked, in the registry, the query engine and the Report Builder
+function polRows() {
+  const out = [];
+  (DB.pos || []).forEach((po) => {
+    const p = (DB.projects || []).find((x) => x.id === po.projectId);
+    (po.lines || []).forEach((l) => {
+      if (!(l.item || l.desc || +l.price || +l.qty)) return;
+      const k = polKind(l),
+        parts = "estimate" === k || "co" === k || "invoice" === k ? String(l.line).split(":") : [];
+      out.push({
+        _id: l.id,
+        _module: "Purchasing",
+        _label: `${po.number} ${l.item || ""}`,
+        _go: "function" == typeof eqGo ? eqGo("po", { po: po.id }) : null,
+        poId: po.id,
+        poNumber: po.number || "",
+        poStatus: po.status || "",
+        vendor: po.vendor || "",
+        project: p ? String(p.project.name).replace(/ —.*$/, "") : "",
+        projectId: po.projectId || "",
+        item: l.item || "",
+        qty: +l.qty || 0,
+        unit: l.unit || "",
+        price: +l.price || 0,
+        amount: r2((+l.qty || 0) * (+l.price || 0)),
+        code: l.code || "",
+        link: k || "none",
+        linked: !!k,
+        linkLabel: polLabel(l),
+        estimateId: "estimate" === k ? parts[1] : "",
+        estimateLineId: "estimate" === k ? parts[2] : "",
+        coId: "co" === k ? parts[1] : "",
+        coLineId: "co" === k ? parts[2] : "",
+        overheadCategory: "oh" === k ? l.ohCat : "",
+        billable: !!l.billable,
+        invoiceId: "invoice" === k ? parts[1] : l.invoiceId || "",
+        invoiceLineId: "invoice" === k ? parts[2] : l.invoiceLineId || "",
+      });
+    });
+  });
+  return out;
+}
+predDef("poLinesUnlinked", {
+  label: "PO Lines Not Linked",
+  rule: "a purchase order line (not cancelled) with no estimate line, change-order line, overhead category or billed-back mark: it cannot be approved until it is linked",
+  rows(scope) {
+    return polRows().filter((r) => !r.linked && "cancelled" !== r.poStatus && (!scope || r.projectId === scope));
+  },
+});
+"object" == typeof EQ_TABLES && (EQ_TABLES.polines = () => polRows());
+"object" == typeof EQ_ALIAS && Object.assign(EQ_ALIAS, { poline: "polines", polines: "polines", "po lines": "polines", "purchase order lines": "polines" });
+"object" == typeof REP_DS &&
+  (REP_DS.polines = {
+    n: "Purchase order lines",
+    rows: () => polRows().map((r) => ({ project: r.project, vendor: r.vendor, po: r.poNumber, status: r.poStatus, item: r.item, link: r.link, line: r.linkLabel || "Not linked", amount: r.amount })),
+    dims: ["project", "vendor", "status", "link"],
+    sums: ["amount"],
+  });

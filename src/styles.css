@@ -1509,7 +1509,7 @@ body.hb-on .mbm .btn.primary{background:var(--hb-orange);border-color:var(--hb-o
   .row{row-gap:8px}
   /* modals are bottom sheets; the buttons sit above the keyboard and the home bar */
   .mbm{align-items:flex-end;padding:0} .mbm .mbm-box{max-width:none;border-radius:16px 16px 0 0;max-height:92dvh;display:flex;flex-direction:column;box-shadow:0 -10px 40px rgba(0,0,0,.25)}
-  .mbm .mbm-bd{overflow:auto;flex:1;-webkit-overflow-scrolling:touch} .mbm .mbm-ft{position:sticky;bottom:0;background:var(--paper);border-top:1px solid var(--rule);padding:10px 16px calc(12px + env(safe-area-inset-bottom))} .mbm .mbm-ft .btn{flex:1;justify-content:center;min-height:46px} .mbm .mbm-hd{padding:12px 16px 6px} .mbm .mbm-hd::before{content:'';position:absolute;left:50%;top:6px;width:36px;height:4px;border-radius:2px;background:var(--rule);transform:translateX(-50%)} .mbm .mbm-box{position:relative}
+  .mbm .mbm-bd{overflow:auto;flex:1;-webkit-overflow-scrolling:touch} .mbm .mbm-ft{position:sticky;bottom:0;background:var(--paper);border-top:1px solid var(--rule);padding:10px 16px calc(12px + env(safe-area-inset-bottom))} .mbm .mbm-ft{flex-wrap:wrap;gap:10px} .mbm .mbm-ft .btn{flex:1 1 auto;justify-content:center;min-height:46px;white-space:normal} .mbm .mbm-hd{padding:12px 16px 6px} .mbm .mbm-hd::before{content:'';position:absolute;left:50%;top:6px;width:36px;height:4px;border-radius:2px;background:var(--rule);transform:translateX(-50%)} .mbm .mbm-box{position:relative}
   .mbm-bd input,.mbm-bd select,.mbm-bd textarea{height:44px} .mbm-bd textarea{height:auto} .mbm-bd .grid2{grid-template-columns:1fr}
   .m-sheet .mbm-box{max-height:80dvh} .m-sheet-list{display:flex;flex-direction:column;padding:4px 8px calc(12px + env(safe-area-inset-bottom))} .m-sheet-list button{display:flex;align-items:center;gap:14px;border:0;background:none;text-align:left;padding:12px 10px;min-height:56px;border-bottom:1px solid var(--rule-2);font-size:15px} .m-sheet-list button:last-child{border-bottom:0} .m-sheet-list button svg{width:26px;height:26px;stroke:var(--accent);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none} .m-sheet-list button span{display:flex;flex-direction:column} .m-sheet-list button small{color:var(--ink-3);font-size:12.5px}
   .drawer .ft .btn{min-height:44px;flex:1;justify-content:center} .drawer .ft{padding-bottom:calc(10px + env(safe-area-inset-bottom))}
@@ -3314,3 +3314,23 @@ body.cl-portal #tb-ask{display:inline-flex}
 .stk-row .grow{min-width:0;overflow-wrap:anywhere}
 .stk-acts{flex-wrap:wrap}
 .stk-warn .row{flex-wrap:wrap}
+/* PO line links: the chip that opens a line, the picker (a sheet with search on the phone), Which Lines? at 390px */
+.pol-cell{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.pol-chip{display:inline-flex;align-items:center;max-width:100%;border:1px solid var(--rule);border-radius:999px;padding:2px 9px;font-size:12px;background:var(--paper-2);color:var(--ink);line-height:1.5;text-align:left;white-space:normal}
+button.pol-chip{cursor:pointer} button.pol-chip:hover{border-color:var(--accent)}
+.pol-chip.warn{border-color:var(--warn);color:var(--warn);background:var(--warn-2)} .pol-chip.muted{color:var(--ink-3)}
+.pol-list{display:flex;flex-direction:column;max-height:52vh;overflow:auto}
+.pol-grp{font-size:11.5px;letter-spacing:.04em;color:var(--ink-3);padding:10px 4px 4px;font-weight:600}
+.pol-opt{display:flex;flex-direction:column;align-items:flex-start;gap:2px;border:0;border-bottom:1px solid var(--rule-2);background:none;text-align:left;padding:10px 6px;min-height:44px;font-size:13.5px;cursor:pointer;width:100%;color:var(--ink)}
+.pol-opt.on,.pol-opt:hover{background:var(--paper-2)}
+@media (max-width:760px){
+  .pol-opt{min-height:52px;font-size:15px} .pol-list{max-height:none} .pol-chip{font-size:13px;padding:6px 11px}
+  .pol-which .tw{max-height:none !important;overflow:visible !important}
+  .pol-which table.ctp thead{display:none} .pol-which table.ctp,.pol-which table.ctp tbody{display:block;width:100%}
+  .pol-which table.ctp tr{display:grid;grid-template-columns:36px 1fr 1fr;gap:6px 8px;padding:10px 2px;border-bottom:1px solid var(--rule-2)}
+  .pol-which table.ctp td{display:block;padding:0;border:0;min-width:0} .pol-which table.ctp td:nth-child(2),.pol-which table.ctp td:nth-child(6),.pol-which table.ctp td:nth-child(7){grid-column:2 / 4}
+  .pol-which table.ctp td:nth-child(3){grid-column:2} .pol-which table.ctp td:nth-child(4){grid-column:3} .pol-which table.ctp td:nth-child(5){grid-column:2 / 4}
+  .pol-which table.ctp tr.ctp-doc td{grid-column:1 / 4} .pol-which table.ctp td input{height:44px;font-size:15px}
+}
+@media (max-width:760px){ .pol-which table.ctp td:empty{display:none} }
+@media (max-width:760px){ .pol-cell{gap:10px} .view.on .pol-cell .btn,.view.on .pol-cell button.pol-chip{min-height:44px !important;min-width:64px} }
