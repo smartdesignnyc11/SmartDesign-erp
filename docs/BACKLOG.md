@@ -303,6 +303,35 @@ Alan: "create an RFQ and choose the vendors to send it to and the AI takes it fr
 
 Phase one runs in the demo and on the Demo Workspace (invented vendors and replies). Real sending, inbox watching, PDF and drawing reading, and web search for sourcing research arrive with the platform (§5: AI proxy with the web-search tool, watchers, document reader).
 
+### 1.9 track: every order document filed, every vendor promise tracked, follow-ups sent on their own (Alan, 2026-10-11, "very important")
+Alan: tracking numbers, invoices, receipts, delivery dates and vendor promises all land in their right place automatically, for easy access and automated tracking; the assistant and the brain learn from them, keep things on track, and follow up with vendors, autonomously.
+1. **Capture from everywhere.** Sources: mail (each person's connected Gmail, and a shared purchasing address), attachments, the driver's and foreman's phone photos (packing slips, paper receipts, delivery tickets), card and bank lines, and a quick "log a promise" for calls and texts (the Standard: verbal becomes written within 24 hours). Today the brain only notices a delivery mention and proposes it (`cm` "delivery" kind, around line 71091).
+2. **File it where it belongs, linked.** Each document is read, classified and attached to its record with the source kept:
+   - order acknowledgment → PO (compared line by line with the PO: quantity, price, date, spec; differences flagged);
+   - tracking number → PO and shipment (carrier detected: UPS, FedEx, USPS, freight PRO);
+   - vendor invoice → bill, linked to the PO;
+   - receipt → card or bank line, job and PO line;
+   - packing slip or delivery ticket → receiving record (partial deliveries and backorders);
+   - delivery date or promise → the promise ledger on the PO line.
+   Anything uncertain is proposed for a person to confirm, never filed silently in the wrong job. Everything is searchable (⌘K) and queryable.
+3. **The promise ledger.** Every vendor promise (ship date, delivery date, price, "will call back Tuesday") is a record with who promised, when, the source message, and its due date. When it comes due, it is checked against tracking or receiving. Kept promises and broken ones build each vendor's on-time record.
+4. **Tracking runs on its own.** Shipment status and ETA (carrier tracking on the platform) are compared with the need-by date from the schedule. A slip that threatens the schedule goes to the procurement manager and the PM the same day, per the escalation table ("long-lead item late or at risk"), with the impact on the three-week look-ahead and a recommendation.
+5. **Vendor follow-ups, sent autonomously within the Standard.** The Standard lets the AI send to a vendor only for a message type a person has delegated. So the procurement manager delegates "order follow-ups" once (on by default for new installs, owner can switch it off), and from then on the AI sends them on its own, on a cadence:
+   - confirm the order and date after the PO;
+   - ask for tracking before the ship date;
+   - check two days before delivery (the Standard: reconfirm 48 hours ahead);
+   - chase a missing invoice, receipt or packing slip;
+   - chase a broken promise.
+   These follow-ups can only ask, confirm and request documents. They never accept a new date that moves the schedule, change an order, discuss money or payment, or dispute anything; those come to a person as a proposal. Every message sent is logged on the PO with its reply.
+6. **Learning.** Per vendor and category: real lead time versus quoted, on-time rate, how often an acknowledgment differs from the PO, and documents missing. These pad future need-by dates ("assume nothing arrives on time unless someone confirmed it"), rank vendors in RFQs, and become lessons the brain proposes.
+7. **Guards.**
+   - Payment or bank-detail instructions found in a vendor email are never acted on (§5.4, two people and a call-back).
+   - Marketing mail and personal mail are ignored. Only purchasing traffic is filed.
+   - Duplicates are detected.
+   - A document that could not be read says so.
+   - Missing documents are a count that opens its rows: delivered with no packing slip, billed with no invoice copy, card line with no receipt.
+Phase one runs in the demo and on the Demo Workspace with invented vendor mail, photos and tracking. Live mail watching, carrier tracking, document reading and autonomous sending arrive with the platform (§5.5–5.6).
+
 ## §2 Remaining round-4 findings
 
 ### Founder
