@@ -7,7 +7,6 @@ Last updated 2026-10-11.
 ## 1. Running now
 | What | Where | Status |
 |---|---|---|
-| Click crawler: every button, every role, phone and desktop; fixes by class | lane crawl | Running (20+ fixes in) |
 | Second integration pass | lane integrate2 | Running |
 | Agent-month harness: the shared world, the screen-only toolkit, the outside world, the referee, role briefings | lane agentsim, BACKLOG §1.17 | Running |
 
@@ -19,7 +18,7 @@ The integration pass covers:
 - stock held as inventory.
 
 ## 2. Version 11 release (next)
-1. Merge crawl and integrate2.
+1. Merge integrate2 (crawl merged; smoke 2,436 pass on the merged build).
 2. Run the full test set, one suite at a time.
 3. Run the scripted month simulation.
 4. Run the phone check at 390px.
@@ -111,3 +110,4 @@ Full detail is in `docs/DECISIONS.md`.
 - The first integration pass.
 - The chief of staff.
 - The prevention method (§1.16).
+- Click crawler: 11,098 controls pressed, 544 flags fixed by class to 0.
