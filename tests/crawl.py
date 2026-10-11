@@ -273,6 +273,8 @@ PAGE_JS = r"""
       if (e.closest('#toast, script, style, select, option, #signin:not(.on)')) continue;
       if (e.matches('input, select, textarea, option, label') && !e.matches('[role=button], [role=tab]')) continue;
       if (e.tagName === 'LABEL' || e.querySelector(':scope > input[type=checkbox], :scope > input[type=radio]')) continue;
+      // a panel that carries data-v to name itself (the property screen's sections) is not a control
+      if (e.matches('section, article, form') && cs(e).cursor !== 'pointer') continue;
       if (e.tagName === 'svg' && e.closest('button, a, [role=button]')) continue;
       if (!vis(e)) continue;
       // a figure drawn as a tile with no pointer (.gl.static) is a reading, not a control
