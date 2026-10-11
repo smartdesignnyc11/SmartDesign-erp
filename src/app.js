@@ -14613,8 +14613,9 @@ function renderTime() {
         ? "No time entries waiting for approval. Switch to This Week to see what has been clocked."
         : "No entries in this view. Switch the filter above, or add one with Add Time Entry.",
   })),
-    ($("#time-approve-all").style.display =
-      rows.some((t) => "submitted" === t.status) && (canApproveSchedule() || isOwner()) ? "" : "none"),
+    $("#time-approve-all") &&
+      ($("#time-approve-all").style.display =
+        rows.some((t) => "submitted" === t.status) && (canApproveSchedule() || isOwner()) ? "" : "none"),
     $("#clock-in")?.addEventListener("click", () => clockEvent("in")),
     $("#clock-out")?.addEventListener("click", () => clockEvent("out")),
     $("#geo-auto")?.addEventListener("change", (e) => {
