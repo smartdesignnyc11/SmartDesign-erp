@@ -285,6 +285,14 @@ Alan: "create an RFQ and choose the vendors to send it to and the AI takes it fr
     - **Proposes, never commits.** The procurement manager gets a short case per prospect: why it may be cheaper (facts with sources, kept apart from hypotheses), the estimated saving, the quality check, and the next step (add to the next RFQ, ask for a price list, or order a sample first). Nothing is presented as fact without a source.
     - **Runs continuously.** Categories are re-researched on a cadence and when prices rise. What the AI learns (which regions and outfits actually came in cheaper) feeds the brain, so the next search starts smarter.
 
+11. **Price watch: paid more than before, or something looks off (Alan, 2026-10-11).** The AI reviews every purchase (PO lines, bill lines, card and bank lines matched to items) against what the firm has paid before:
+    - **Item price history.** Unit price per item, normalised by unit and pack size, by vendor and date, built from POs, bills, receipts and quotes. Uncertain item matches are proposed for a person to confirm, not assumed.
+    - **Paid more than before.** Unit price above the recent typical price for that item (default: more than 10% over the trailing median, editable), or above a cheaper recent price from another vendor, or above the quote or PO price it was bought against.
+    - **Abnormal.** Quantity far beyond the estimate line or takeoff; a duplicate or near-duplicate charge; purchases split to stay under the $2,500 three-quote threshold or an approval limit; a fee or freight spike; a vendor the firm rarely uses for that category; an item not delivered to a job; a card purchase with no job, PO or receipt.
+    - **Each flag is a case, not an accusation (the Standard: one team, integrity):** the history behind it with sources, the money at stake, likely innocent explanations labeled as such (market move, small quantity, rush delivery), and a recommended next step (ask the vendor for a credit as a draft the manager approves, update the price book, add the item to the next RFQ, or mark it explained).
+    - **Checked at three moments:** when a PO is drafted (a warning with the history, before money is committed), when a bill arrives (bill against PO against history), and when a bank or card line is matched.
+    - **It learns.** "Explained" with a reason (for example, lumber up 8% this quarter) adjusts the baseline and feeds the brain, so the same normal change is not flagged twice. A monthly figure shows the dollars paid above the best recent price.
+
 Phase one runs in the demo and on the Demo Workspace (invented vendors and replies). Real sending, inbox watching, PDF and drawing reading, and web search for sourcing research arrive with the platform (§5: AI proxy with the web-search tool, watchers, document reader).
 
 ## §2 Remaining round-4 findings
