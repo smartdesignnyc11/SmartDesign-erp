@@ -176305,8 +176305,44 @@ function rfqDeliver(r, v, subject, body, kind, att) {
   }
   return (r.sent = r.sent || []).push(rec), rec;
 }
+// Inventory before buying (BACKLOG §1.8 item 12): an RFQ never asks vendors to price what sits free in the firm's
+// own stock. The purchasing card shows the stock note on each blocked line with Take From Stock and, for the
+// driver or the coordinator, Override (a reason, logged); Send refuses with the reasons until each is settled.
+function rfqStockHtml(r) {
+  let g;
+  try {
+    g = stockRfqGuard(r);
+  } catch (e) {
+    return "";
+  }
+  if (!g || g.ok) return "";
+  return `<div class="rfq-stk" data-rfqstk="${g.blocked.length}">${g.blocked
+    .map((x) => `${stockLineNote(x.line, { projectId: r.projectId, rfqId: r.id })}<div class="rfq-row rfq-stk-acts"><button type="button" class="btn sm" data-rfqstktake="${esc(x.line.id)}">Take ${x.chk.fromStock} From Stock</button>${stockCanOverride() ? `<button type="button" class="btn sm" data-rfqstkov="${esc(x.line.id)}">Override</button>` : ""}</div>`)
+    .join("")}</div>`;
+}
+// Take a blocked line's stock part from stock: a pick for the driver on the RFQ's job, and the line asks vendors only
+// for the rest (the line goes when nothing is left to buy).
+function rfqStockTake(r, lineId) {
+  const x = stockRfqGuard(r).blocked.find((y) => y.line.id === lineId);
+  if (!x) return toast("That line no longer matches free stock"), null;
+  const n = x.chk.fromStock,
+    req = stockTakeForLine({ projectId: r.projectId, invId: x.chk.match.id, qty: n, unit: x.line.unit, needBy: x.line.needBy || r.needBy, note: `From stock instead of ${r.number}` });
+  if (!req) return toast("Could not reserve the stock for this job"), null;
+  const left = r2((+x.line.qty || 0) - n);
+  left > 0 ? (x.line.qty = left) : r.lines.splice(r.lines.indexOf(x.line), 1);
+  rfqHist(r, "took from stock", `${n} ${x.line.unit || x.chk.match.unit} ${x.chk.match.name} from ${x.chk.match.where}; ${left > 0 ? `${left} left to quote` : "the line is off the RFQ"}`);
+  save(), render();
+  rcToast(`${n} ${x.line.unit || x.chk.match.unit} ${x.chk.match.name} come from stock: a pick for ${stockFirst("driver")}; ${r.number} ${left > 0 ? `asks for ${left}` : "drops the line"}`, [{ label: "Open", run: () => rfqOpenFor(r.id) }]);
+  return req;
+}
 function rfqSend(r, vendorIds, due) {
   if ("purchasing" !== r.status) return toast(`${r.number} is ${RFQ_STATUS[r.status] || r.status} — it was sent already`), !1;
+  try {
+    const g = stockRfqGuard(r);
+    if (!g.ok) return render(), toast(`${r.number} is not sent: ${g.reasons.join("; ")}`), !1;
+  } catch (e) {
+    console.warn("rfq stock guard", e);
+  }
   const V = vendorIds.map(rfqVendor).filter(Boolean);
   if (!V.length) return toast("Pick at least one vendor"), !1;
   const noMail = V.filter((v) => !v.email);
@@ -177873,7 +177909,7 @@ function rfqDetailHtml(r) {
     act = `<div class="card rfq-sec"><h3>Lines</h3>${r.lines.map((l) => rfqLineCardHtml(l, !1)).join("") || '<p class="small muted">No lines yet.</p>'}<div class="rfq-add"><input id="rfq-b-item" placeholder="Item" aria-label="Item"><div class="rfq-add-row"><input id="rfq-b-qty" type="number" min="1" placeholder="How many" aria-label="How many"><input id="rfq-b-unit" value="ea" aria-label="Unit"><button class="btn" id="rfq-b-add">Add</button></div></div><div class="rfq-row" style="margin-top:10px"><button class="btn primary" id="rfq-to-fm">Send to the Foreman</button><button class="btn" id="rfq-to-buy">Skip to Purchasing</button></div></div>`;
   else if ("foreman-review" === stage) act = `<div class="note">${esc(r.foreman)} checks the quantities on his phone (his For You card on Today). Nothing goes to a vendor before he approves.</div>`;
   else if ("purchasing" === stage && vprop)
-    act = `<div class="card rfq-sec"><h3>Pick the Vendors</h3><p class="small muted">The assistant's picks are ticked. ${esc(vprop.need3 ? rfqWhy("quotes3") + ". " : "")}${esc(r.shippable ? rfqWhy("beyond") : "")}.</p>${vprop.list
+    act = `<div class="card rfq-sec"><h3>Pick the Vendors</h3>${rfqStockHtml(r)}<p class="small muted">The assistant's picks are ticked. ${esc(vprop.need3 ? rfqWhy("quotes3") + ". " : "")}${esc(r.shippable ? rfqWhy("beyond") : "")}.</p>${vprop.list
       .map(
         (x) =>
           `<label class="rfq-pick"><input type="checkbox" data-rfqv="${esc(x.v.id)}" ${vprop.pick.includes(x.v.id) ? "checked" : ""}><span class="grow"><b data-nocase>${esc(x.v.name)}</b><span class="small" data-nocase>because ${esc(x.because.map((b) => b.t).join("; "))}</span>${x.because.filter((b) => b.rule).map((b) => `<span class="small muted">${esc(rfqWhy(b.rule))}</span>`).join("")}${x.v.region ? "" : `<select class="small" data-rfqreg="${esc(x.v.id)}" aria-label="Region"><option value="">Set the region</option>${RFQ_REGIONS.map((g) => `<option>${g}</option>`).join("")}</select>`}</span></label>`,
@@ -177944,6 +177980,14 @@ function rfqWireDetail(host, r) {
       }),
   );
   on("#rfq-send", () => rfqSend(r, [...host.querySelectorAll("[data-rfqv]:checked")].map((i) => i.dataset.rfqv), $q("#rfq-due").value));
+  host.querySelectorAll("[data-rfqstktake]").forEach((b) => (b.onclick = () => rfqStockTake(r, b.dataset.rfqstktake)));
+  host.querySelectorAll("[data-rfqstkov]").forEach(
+    (b) =>
+      (b.onclick = () => {
+        const x = stockRfqGuard(r).blocked.find((y) => y.line.id === b.dataset.rfqstkov);
+        x && stockOverrideDialog({ rfqId: r.id, lineId: x.line.id, projectId: r.projectId, invId: x.chk.match.id, qty: x.chk.fromStock });
+      }),
+  );
   host.querySelectorAll("#rfq-check").forEach((b) => (b.onclick = () => (rfqIngest({ toast: !0, rfq: r.id }), render())));
   on("#rfq-level", () => ((r.status = "leveled"), rfqHist(r, "leveled", `by ${rfqMe()}, ${(r.quotes || []).filter((q) => !q.unreadable).length} readable quotes`), save(), render(), rcToast(`${r.number} leveled`, [{ label: "Open", run: () => rfqOpenFor(r.id) }])));
   host.querySelectorAll("[data-rfqenter]").forEach((b) => (b.onclick = () => rfqEnterPrices(r, r.quotes.find((q) => q.id === b.dataset.rfqenter))));
