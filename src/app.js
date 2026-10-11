@@ -183816,3 +183816,39 @@ standardRegisterRule({
   rows: () =>
     ((DB.rfqs || []).filter((r) => ["awarded", "closed"].includes(r.status) && !(r.neg || []).some((n) => "sent" === n.status))).map((r) => ({ key: "fp:" + r.id, what: `Awarded without negotiating: ${r.number}`, sub: `${rfqJobName(r)}${(r.history || []).some((h) => /without negotiating/.test(h.what)) ? " · chosen on the RFQ" : ""}`, go: () => rfqOpenFor(r.id) })),
 });
+// ---- phone: the job first, and a document opens at its top (the chain lane's 390px field notes) -----------------
+// The foreman's Update sat below the fold (y 1232 on an 844px screen): Today's Work came after Now and Arriving
+// Today. On the phone it now follows For You, so the day's tasks and their Update are on the first screen.
+{
+  const base = fRenderToday;
+  fRenderToday = function () {
+    const r = base.apply(this, arguments);
+    try {
+      const root = document.getElementById("ftoday-body");
+      if (root && isMobile()) {
+        const cards = [...root.querySelectorAll(":scope > .card")],
+          work = cards.find((c) => /^Today.s Work/i.test(((c.querySelector("h3") || {}).textContent || "").trim())),
+          after = root.querySelector(":scope > .f-you") || root.querySelector(":scope > .f-hero");
+        work && after && after.nextElementSibling !== work && (work.classList.add("f-work"), after.insertAdjacentElement("afterend", work));
+      }
+    } catch (e) {
+      console.warn("foreman work first", e);
+    }
+    return r;
+  };
+}
+// A document opened on the phone (a change order just created, an estimate from a list) starts at its top, where
+// Send to Client is; it used to keep the list's scroll and open with its actions above the screen.
+{
+  let lastDoc = null;
+  const base = render;
+  render = function () {
+    const r = base.apply(this, arguments);
+    try {
+      const k = "undefined" != typeof docOpen ? docOpen : null;
+      k && k !== lastDoc && isMobile() && window.scrollTo(0, 0);
+      lastDoc = k;
+    } catch (e) {}
+    return r;
+  };
+}
