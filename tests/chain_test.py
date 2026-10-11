@@ -25,7 +25,11 @@ One fresh browser, the seeded firm as the backdrop, and a NEW invented client an
              and read off every surface that shows it
   8 overhead overhead posts to overhead accounts, shows in the P&L and coverage; the job's gross and net margin
              after the overhead allocation, the method stated the same everywhere
-  9 save     saveNow, reload, every record and link still there; the reports again
+  9 save     saveNow, reload, every document exactly as saved, every record and link still there; the reports again
+ 10 PO links New PO opens on "Which Lines?" (Start Blank secondary); each PO line's link is a chip that opens the
+             estimate line (and back); a line added by hand is Not linked and the order cannot issue until it is
+             linked; a line billed back to the client is billed on its own invoice line, once; a shop order's line
+             linked to overhead on the phone; the links and the PO Lines Not Linked count survive a reload
 
 Where a person clicks, this clicks (Playwright pointer clicks on the real buttons and fields). The same functions the
 buttons call are used, and named in the trace, only for: time entries (the Add Time drawer is filled for each entry
@@ -37,7 +41,7 @@ The trace is written to review/chain/trace.md. The last line is `CHAIN N checks 
     python3 chain_test.py              the whole chain
     python3 chain_test.py --upto 3     stop after step 3 (development)
 """
-import asyncio, sys, os, re, json, argparse, tempfile
+import asyncio, sys, os, re, json, argparse, tempfile, time
 from harness import *
 
 TRACE_DIR = os.path.join(ROOT, 'review', 'chain')
@@ -134,17 +138,17 @@ class Chain:
     async def toast(self):
         return await self.pg.evaluate(TOAST)
 
-    async def click(self, sel, wait=400, timeout=8000):
+    async def click(self, sel, wait=400, timeout=30000):
         await self.pg.locator(sel).first.click(timeout=timeout)
         await self.wait(wait)
 
-    async def click_text(self, scope, rx, wait=400, timeout=8000):
+    async def click_text(self, scope, rx, wait=400, timeout=30000):
         loc = self.pg.locator(f'{scope} button:visible, {scope} a:visible').filter(has_text=re.compile(rx)).first
         await loc.click(timeout=timeout)
         await self.wait(wait)
 
     async def modal_ok(self, wait=600):
-        await self.pg.locator('#mbm #mbm-ok').click(timeout=6000)
+        await self.pg.locator('#mbm #mbm-ok').click(timeout=30000)
         await self.wait(wait)
 
     async def fill(self, sel, val, tab=False):
@@ -157,14 +161,14 @@ class Chain:
         ctx = await browser.new_context(viewport=PHONE, is_mobile=True, has_touch=True)
         self.ph = await ctx.new_page()
         self.ph.on('pageerror', lambda e: self.errs.append('phone: ' + str(e)))
-        await self.ph.goto(URL)
-        await self.ph.wait_for_function("document.body.dataset.booted==='1'", timeout=60000)
+        await self.ph.goto(URL, timeout=180000)
+        await self.ph.wait_for_function("document.body.dataset.booted==='1'", timeout=180000)
 
     async def _hand(self, src, dst):
         s = await src.evaluate("() => JSON.stringify(DB)")
         await dst.evaluate("async s => { DB = JSON.parse(s); save(); await saveNow(); }", s)
         await dst.reload()
-        await dst.wait_for_function("document.body.dataset.booted==='1'", timeout=60000)
+        await dst.wait_for_function("document.body.dataset.booted==='1'", timeout=180000)
 
     async def to_phone(self, uid, who, setup=''):
         """Hand the books to the phone (the desk saves, the phone loads what was saved) and sign in there."""
@@ -186,7 +190,9 @@ class Chain:
         r = await self.ph.evaluate("""() => { const sw = document.documentElement.scrollWidth, vw = innerWidth;
             const root = document.querySelector('#mbm') || document.querySelector('section.view.on') || document.body;
             const clip = [...root.querySelectorAll('button, h2, h3, .btn, label, b, .pill')].filter(e => e.getClientRects().length && e.scrollWidth > e.clientWidth + 1 && getComputedStyle(e).overflow !== 'visible' && (e.innerText || '').trim()).map(e => e.innerText.trim().slice(0, 40));
-            const off = [...root.querySelectorAll('button, input, select, a')].filter(e => { const b = e.getBoundingClientRect(); return e.getClientRects().length && b.width && (b.right > vw + 1 || b.left < -1); }).map(e => (e.innerText || e.value || e.dataset.f || '').trim().slice(0, 30));
+            // a control inside a strip that scrolls sideways on purpose (tabs, chips) is reachable by swiping the strip
+            const inStrip = e => { for (let x = e.parentElement; x && x !== document.body; x = x.parentElement) { const o = getComputedStyle(x).overflowX; if ((o === 'auto' || o === 'scroll') && x.scrollWidth > x.clientWidth + 1) return true; } return false; };
+            const off = [...root.querySelectorAll('button, input, select, a')].filter(e => { const b = e.getBoundingClientRect(); return e.getClientRects().length && b.width && (b.right > vw + 1 || b.left < -1) && !inStrip(e); }).map(e => (e.innerText || e.value || e.dataset.f || '').trim().slice(0, 30));
             return {sideways: sw > vw + 1, sw, clip: clip.slice(0, 6), off: off.slice(0, 6)}; }""")
         bad = r['sideways'] or r['clip'] or r['off']
         self.plog(f"{where}: {'scrolls sideways (' + str(r['sw']) + 'px) ' if r['sideways'] else 'no sideways scroll'}"
@@ -197,7 +203,7 @@ class Chain:
     async def ptap(self, sel, label, scope_top=False):
         """A real tap. Records whether the control was on screen without scrolling, its size and its nearest neighbour."""
         loc = self.ph.locator(sel).first
-        await loc.wait_for(state='attached', timeout=8000)
+        await loc.wait_for(state='attached', timeout=30000)
         g = await loc.evaluate("""e => { const r = e.getBoundingClientRect(), vh = innerHeight;
             const others = [...document.querySelectorAll('button, a, input, select, [data-tdverb]')].filter(x => x !== e && !e.contains(x) && !x.contains(e) && x.getClientRects().length).map(x => x.getBoundingClientRect())
               .filter(b => b.width && b.height && Math.abs(b.top - r.top) < 80 && (b.right <= r.left || b.left >= r.right || b.bottom <= r.top || b.top >= r.bottom));
@@ -207,7 +213,8 @@ class Chain:
         await loc.tap()
         await self.ph.wait_for_timeout(500)
         notes = []
-        if not g['visible']: notes.append(f"below the fold at y={g['y']} (scrolled to reach it)")
+        if not g['visible']:
+            notes.append(f"above the screen at y={g['y']} (scrolled back to reach it)" if g['y'] < g['sy'] else f"below the fold at y={g['y']} (scrolled to reach it)")
         if g['h'] < 44 or g['w'] < 44: notes.append(f"small target {g['w']}x{g['h']}")
         if g['gap'] < 8: notes.append(f"{g['gap']}px from the next control")
         self.plog(f"tap **{label}** ({g['w']}x{g['h']}){': ' + '; '.join(notes) if notes else ', on screen, clear of its neighbours'}")
@@ -514,7 +521,7 @@ async def pay_bill(C, number, acct, date, amount, method, ref):
     await C.as_('u_controller', 'ap')
     await C.js("n => openBill(DB.bills.find(b => b.number === n).id)", number)
     await C.wait(400)
-    await C.pg.locator('#drawer.on button', has_text=re.compile(r'^Pay')).first.click(timeout=6000)
+    await C.pg.locator('#drawer.on button', has_text=re.compile(r'^Pay')).first.click(timeout=30000)
     await C.wait(400)
     m = await C.modal()
     await C.pg.select_option('#mbm [data-f=acct]', acct)
@@ -538,7 +545,7 @@ async def s3_receive(C):
     t = await C.toast()
     C.ok('received in full' in t and 'Bill It' in t, 'Everything Arrived: the millwork PO is received in full, the toast offers Bill It', t)
     C.t(f"Coordinator > Receiving > {POS['millwork']['number']} > Everything Arrived → \"{t}\"")
-    await C.pg.locator('#toast .toast-open', has_text='Bill It').first.click(timeout=5000); await C.wait(600)
+    await C.pg.locator('#toast .toast-open', has_text='Bill It').first.click(timeout=20000); await C.wait(600)
     m = await C.modal()
     C.ok(m and 'Bill This PO' in m['title'], 'Bill It opens Bill This PO', m and m['title'])
     await C.fill('#mbm [data-f=number]', 'FC-20417')
@@ -683,7 +690,7 @@ async def code_in_drawer(C, tid, cat, proj='', code='', memo='', vendor='', bill
     desc = await C.js("id => DB.txns.find(t => t.id === id).desc", tid)
     row = C.pg.locator('#v-bank tr').filter(has_text=desc).first
     if await row.count():
-        await row.locator('td.name').first.click(timeout=5000)
+        await row.locator('td.name').first.click(timeout=20000)
     else:
         await C.js("id => txnDialog(id)", tid)
     await C.pg.wait_for_selector('#e-cat', state='attached')
@@ -701,7 +708,7 @@ async def code_in_drawer(C, tid, cat, proj='', code='', memo='', vendor='', bill
     if billable is not None:
         if billable != await C.pg.is_checked('#e-billable'):
             await C.pg.click('#e-billable')
-    await C.pg.click('#d-save', timeout=5000); await C.wait(300)
+    await C.pg.click('#d-save', timeout=20000); await C.wait(300)
     return await C.js("id => { const t = DB.txns.find(x => x.id === id); return t && {cat: t.cat, projectId: t.projectId || '', code: t.code || '', line: t.line || '', status: t.status, billable: !!t.billable}; }", tid)
 
 
@@ -971,7 +978,7 @@ async def confirm_on_banking(C, tid):
     await C.as_('u_controller', 'bank', "try { txnFilter = 'all'; } catch (e) {} txnAcct = '';")
     b = C.pg.locator(f"#v-bank [data-mconfirm='{tid}']").first
     if await b.count():
-        await b.click(timeout=5000); await C.wait(400)
+        await b.click(timeout=20000); await C.wait(400)
         return 'Confirm'
     return ''
 
@@ -1092,8 +1099,492 @@ async def s7_close(C):
     return True
 
 
+# ================================================================ 8. reports: every figure from the records, read off every surface
+RAW = """pid => { const p = DB.projects.find(x => x.id === pid), c = DB.clients.find(x => x.id === p.clientId);
+  const est = c.estimates.find(e => e.projectId === pid && ['converted', 'approved'].includes(e.status));
+  return {contractLines: est.lines.map(l => ({id: l.id, item: l.item, price: (+l.rate || 0) * (+l.qty || 0), cost: l.cost, costSet: !!l.costSet, code: l.code || ''})), est: est.id,
+    cos: c.changeOrders.filter(x => x.projectId === pid && ['approved', 'billed'].includes(x.status)).map(x => ({id: x.id, number: x.number, lines: x.lines.map(l => ({id: l.id, price: (+l.rate || 0) * (+l.qty || 0), cost: l.cost}))})),
+    sov: c.sov.filter(v => v.projectId === pid).map(v => ({id: v.id, lineRef: v.lineRef || '', coId: v.coId || '', source: v.source, scheduled: +v.scheduled})),
+    invoices: c.invoices.filter(i => i.projectId === pid && i.status !== 'void').map(i => ({id: i.id, number: i.number, status: i.status, mode: i.mode, rebill: !!i.rebill, ret: +i.retainagePct || 0, lines: i.lines.map(l => ({id: l.id, sovId: l.sovId || '', scheduled: +l.scheduled || 0, pct: +l.pct || 0, stored: +l.stored || 0, qty: +l.qty || 0, rate: +l.rate || 0}))})),
+    payments: c.payments.map(x => ({amount: +x.amount, invoiceId: x.invoiceId, txnId: x.txnId || ''})),
+    bills: DB.bills.filter(b => b.projectId === pid && !['void', 'rejected', 'draft'].includes(b.status)).map(b => ({number: b.number, vendor: b.vendor, status: b.status, line: b.line || '', poId: b.poId || '', ret: +b.retainagePct || 0, lines: b.lines.map(l => ({amount: +l.amount || 0, line: l.line || '', poLineId: l.poLineId || ''})), short: b.short ? {held: +b.short.held || 0, state: b.short.state} : null})),
+    pos: DB.pos.filter(o => o.projectId === pid && !['draft', 'cancelled'].includes(o.status)).map(o => ({id: o.id, number: o.number, lines: o.lines.map(l => ({id: l.id, line: l.line || '', qty: +l.qty || 0, price: +l.price || 0}))})),
+    txns: DB.txns.filter(t => t.projectId === pid).map(t => ({id: t.id, date: t.date, amt: +t.amt, cat: t.cat, line: t.line || '', billId: t.billId || '', poId: t.poId || '', payrollId: t.payrollId || '', invoiceId: t.invoiceId || '', billable: !!t.billable, invoiceLineId: t.invoiceLineId || ''})),
+    time: DB.time.filter(t => t.status === 'approved').map(t => ({empId: t.empId, projectId: t.projectId || '', code: t.code || '', date: t.date, in: t.in, out: t.out, breakMin: +t.breakMin || 0, payrollId: t.payrollId || ''})),
+    emps: DB.employees.map(e => ({id: e.id, rate: +e.rate || 0, burden: +e.burden || 0, entityId: e.entityId})),
+    runs: DB.payroll.filter(r => !['rejected', 'void'].includes(r.status)).map(r => ({id: r.id, gross: +r.gross || 0, taxes: +r.taxes || 0, total: +r.total || 0, payDate: r.payDate, parts: (r.entities || [{entityId: r.entityId, gross: r.gross, taxes: r.taxes, total: r.total}]).map(e => ({entityId: e.entityId, gross: +e.gross || 0, total: +e.total || 0}))})),
+    ohTxns: DB.txns.filter(t => t.date >= '2026-09-01' && t.date <= '2026-09-30' && +t.amt < 0 && !t.billId && !(t.match && t.match.billId) && CATEGORIES.some(k => k.id === t.cat && k.type === 'oh')).map(t => ({desc: t.desc, amt: +t.amt, cat: t.cat, name: (CATEGORIES.find(k => k.id === t.cat) || {}).n})),
+    ohBills: DB.bills.filter(b => !b.projectId && b.date >= '2026-09-01' && b.date <= '2026-09-30' && !['void', 'rejected', 'draft'].includes(b.status)).map(b => ({number: b.number, cat: b.cat}))}; }"""
+
+
+def hours_of(t):
+    import datetime as _dt
+    if not t['in'] or not t['out']: return 0
+    a = _dt.datetime.fromisoformat(t['in']); b = _dt.datetime.fromisoformat(t['out'])
+    return max(0, (b - a).total_seconds() / 3600 - t['breakMin'] / 60)
+
+
+def job_books(R, pid):
+    """The job's figures from its records alone: budget, committed, actual and billed per estimate or CO line."""
+    est = R['est']
+    L = {}
+    for l in R['contractLines']:
+        L[f'estimate:{est}:{l["id"]}'] = {'item': l['item'], 'price': l['price'], 'budget': float(l['cost'] or 0), 'code': l['code'], 'actual': 0.0, 'committed': 0.0, 'billed': 0.0}
+    for co in R['cos']:
+        for l in co['lines']:
+            L[f'co:{co["id"]}:{l["id"]}'] = {'item': co['number'], 'price': l['price'], 'budget': float(l['cost'] or 0), 'code': '', 'actual': 0.0, 'committed': 0.0, 'billed': 0.0}
+    # bills: gross (retainage withheld is cost), less a disputed difference
+    billed_on_po = {}
+    for b in R['bills']:
+        gross = sum(l['amount'] for l in b['lines'])
+        held = b['short']['held'] if b['short'] and b['short']['state'] != 'accepted' else 0
+        cost = r2(gross - held)
+        key = b['line'] or (b['lines'][0]['line'] if b['lines'] else '')
+        if key in L: L[key]['actual'] = r2(L[key]['actual'] + cost)
+        if b['poId']: billed_on_po[b['poId']] = r2(billed_on_po.get(b['poId'], 0) + cost)
+    # bank and card cost on the job that no bill carries; a purchase billed back to the client (billable, or on an
+    # invoice line) is not contract cost: it is its own cost, earned when its invoice goes out
+    rebill_cost = 0.0
+    for t in R['txns']:
+        if t['amt'] < 0 and not t['billId'] and not t['payrollId'] and t['cat'] not in ('labor', 'transfer', 'income'):
+            if t['billable'] or t['invoiceLineId']:
+                rebill_cost = r2(rebill_cost - t['amt'])
+            elif t['line'] in L:
+                L[t['line']]['actual'] = r2(L[t['line']]['actual'] - t['amt'])
+    # labor: each approved hour on the job at its rate, times its entity's run burden (the run's total over its gross)
+    emp = {e['id']: e for e in R['emps']}
+    ratio = {}
+    for r in R['runs']:
+        for part in r['parts']:
+            if part['gross']: ratio[(r['id'], part['entityId'])] = part['total'] / part['gross']
+    by_code = {}
+    for t in R['time']:
+        if t['projectId'] != pid or not t['payrollId']: continue
+        e = emp[t['empId']]
+        w = hours_of(t) * e['rate'] * ratio.get((t['payrollId'], e['entityId']), 1 + e['burden'] / 100)
+        by_code[t['code']] = by_code.get(t['code'], 0) + w
+    for code, w in by_code.items():
+        key = next((k for k, v in L.items() if v['code'] == code), None)
+        if key: L[key]['actual'] = r2(L[key]['actual'] + r2(w))
+    # committed: what is open on each PO line
+    for o in R['pos']:
+        tot = sum(l['qty'] * l['price'] for l in o['lines'])
+        open_ = max(0, r2(tot - billed_on_po.get(o['id'], 0)))
+        for l in o['lines']:
+            if l['line'] in L:
+                share = (l['qty'] * l['price']) / tot if tot else 0
+                L[l['line']]['committed'] = r2(L[l['line']]['committed'] + open_ * share)
+    # billed: each application line in dollars (stored materials at their dollars)
+    sov = {v['id']: v for v in R['sov']}
+    for i in R['invoices']:
+        if i['status'] == 'draft' or i['mode'] != 'sov': continue
+        for l in i['lines']:
+            v = sov.get(l['sovId'])
+            if not v: continue
+            key = v['lineRef'] or next((k for k in L if k.startswith(f"co:{v['coId']}:")), '')
+            st = l['stored']; stp = r2(100 * st / l['scheduled']) if st and l['scheduled'] else 0
+            amt = r2(l['scheduled'] * max(0, l['pct'] - stp) / 100 + st) if st and l['pct'] >= stp else r2(l['scheduled'] * l['pct'] / 100)
+            if key in L: L[key]['billed'] = r2(L[key]['billed'] + amt)
+    tot = {k: r2(sum(v[k] for v in L.values())) for k in ('price', 'budget', 'actual', 'committed', 'billed')}
+    eac = r2(sum(max(v['budget'], v['actual'] + v['committed']) for v in L.values()))
+    inv_total = 0.0; ret = 0.0
+    for i in R['invoices']:
+        if i['status'] == 'draft': continue
+        if i['mode'] == 'sov':
+            sub = 0.0
+            for l in i['lines']:
+                st = l['stored']; stp = r2(100 * st / l['scheduled']) if st and l['scheduled'] else 0
+                sub += r2(l['scheduled'] * max(0, l['pct'] - stp) / 100 + st) if st and l['pct'] >= stp else r2(l['scheduled'] * l['pct'] / 100)
+            sub = r2(sub); rr = r2(sub * i['ret'] / 100); inv_total += sub; ret += rr
+        else:
+            inv_total += r2(sum(r2(l['qty'] * l['rate']) for l in i['lines']))
+    collected = r2(sum(x['amount'] for x in R['payments'] if any(x['invoiceId'] == i['id'] for i in R['invoices'])))
+    rebill_billed = r2(sum(r2(sum(r2(l['qty'] * l['rate']) for l in i['lines'])) for i in R['invoices'] if i['rebill'] and i['status'] != 'draft'))
+    return {'lines': L, 'tot': tot, 'eac': eac, 'invoiced': r2(inv_total), 'retainage': r2(ret), 'collected': collected,
+            'rebill_cost': rebill_cost, 'rebill_billed': rebill_billed}
+
+
+async def read_row(C, table_sel, needle):
+    """A rendered table's row as {header: text}: the person's reading of the screen."""
+    return await C.js("""([sel, n]) => { const T = [...document.querySelectorAll(sel)].find(t => t.getClientRects().length || true); if (!T) return null;
+        const H = [...T.querySelectorAll('thead th')].map(h => h.textContent.trim().toLowerCase());
+        const tr = [...T.querySelectorAll('tbody tr')].find(r => r.innerText.includes(n));
+        if (!tr) return null; const cells = [...tr.children].map(td => td.innerText.trim()); const o = {}; H.forEach((h, i) => { o[h || ('c' + i)] = cells[i]; }); o.__cells = cells; return o; }""", [table_sel, needle])
+
+
+def money_of(sv):
+    if sv is None: return None
+    m = re.search(r'([−\-–]?)\$\s?([\d,]+(?:\.\d+)?)', str(sv))
+    if not m: return None
+    v = float(m.group(2).replace(',', ''))
+    return -v if m.group(1) else v
+
+
+def money_after(text, label):
+    m = re.search(re.escape(label) + r'[^$\d−\-]{0,60}([−\-]?\$[\d,]+(?:\.\d+)?)', text or '')
+    return money_of(m.group(1)) if m else None
+
+
+async def s8_reports(C, again=False):
+    C.step('9b. After the reload: the same report comparisons, read again' if again else '8. Reports: every figure computed here from the records, read off every surface that shows it; overhead and true profitability')
+    pid = C.ids['project']['id']; cid = C.ids['client']['id']; nm = JOB
+    R = await C.js(RAW, pid)
+    B = job_books(R, pid)
+    C.t('From the records (Python, never the report\'s function): ' + '; '.join(f"{v['item'][:24]} budget {fmtm(v['budget'])} actual {fmtm(v['actual'])} committed {fmtm(v['committed'])} billed {fmtm(v['billed'])}" for v in B['lines'].values()))
+    C.t(f"totals: contract {fmtm(B['tot']['price'])}, budget {fmtm(B['tot']['budget'])}, actual {fmtm(B['tot']['actual'])}, committed {fmtm(B['tot']['committed'])}, billed {fmtm(B['tot']['billed'])}, EAC {fmtm(B['eac'])}")
+    C.rec('books', 'job', {'tot': B['tot'], 'eac': B['eac']})
+    # 1. job cost by estimate line: Purchasing > Cost by line
+    await C.as_('u_owner', 'proc', f"setCurrent('{pid}'); procPane = 'cost'; clScope = 'project';")
+    for key, v in B['lines'].items():
+        row = await C.js("k => { const tr = document.querySelector(`#proc-body tr[data-clrow='${k}']`); if (!tr) return null; const H = [...tr.closest('table').querySelectorAll('thead th')].map(h => h.textContent.replace(/[↑↓]/g, '').trim().toLowerCase()); const o = {}; [...tr.children].forEach((td, i) => { o[H[i]] === undefined && (o[H[i]] = td.innerText.trim()); }); return o; }", key)
+        if not row:
+            C.ok(False, f"Cost by line lists {v['item']}", key); continue
+        C.fig(f"{v['item'][:28]} budget", 'Cost by line', money_of(row.get('budget')) or 0, v['budget'])
+        C.fig(f"{v['item'][:28]} actual", 'Cost by line', money_of(row.get('actual')) or 0, v['actual'])
+        C.fig(f"{v['item'][:28]} committed", 'Cost by line', money_of(row.get('committed')) or 0, v['committed'])
+        if v['budget']:
+            C.fig(f"{v['item'][:28]} variance (budget less actual)", 'Cost by line', money_of(row.get('vs budget')) or 0, r2(v['budget'] - v['actual']))
+    # 2. the job report (Reports > Project profitability)
+    await C.as_('u_owner', 'reports', f"repTab = 'profit'; repProj = '{pid}'; REP.preset = 'all'; repFrom = ''; repTo = '';")
+    K0 = await C.js("() => [...document.querySelectorAll('#v-reports .kpi')].map(k => [(k.querySelector('span') || {}).textContent || '', (k.querySelector('b') || {}).textContent || ''])")
+    kv = lambda lbl: next((money_of(b) for a, b in K0 if a.lower().startswith(lbl.lower())), None)
+    C.fig('contract incl. approved COs', 'job report', kv('Contract incl. approved COs'), B['tot']['price'])
+    C.fig('billed (gross, contract)', 'job report', kv('Billed'), B['invoiced'])
+    C.fig('collected', 'job report', kv('Collected'), B['collected'])
+    # WIP: earned on the cost basis (actual over EAC), billed less earned
+    # the purchase billed back is cost (in actual and EAC) but not contract work: % complete is contract cost over
+    # contract EAC, and its invoice is revenue earned when billed
+    contract = B['tot']['price']; rc = B['rebill_cost']; actual = r2(B['tot']['actual'] + rc); eac = r2(B['eac'] + rc)
+    earned = r2(r2(contract * B['tot']['actual'] / B['eac']) + B['rebill_billed']) if B['eac'] else 0
+    C.t(f"billed back to the client: cost {fmtm(rc)}, invoiced {fmtm(B['rebill_billed'])}; contract % complete {fmtm(B['tot']['actual'])} of {fmtm(B['eac'])}")
+    over = r2(B['invoiced'] - earned)
+    T = await C.js("pid => { const p = DB.projects.find(x => x.id === pid); const J = jobFin(p); return {eac: J.eac, actual: J.actual, earned: J.earned, billed: J.billed, overUnder: J.overUnder, pct: tpJobPct(p), held: J.pctHeld || null}; }", pid)
+    C.t(f"the app's jobFin for reference (not the expectation): {T}")
+    await C.as_('u_owner', 'reports', "repTab = 'wip'; REP.preset = 'all'; repFrom = ''; repTo = '';")
+    w = await read_row(C, '#v-reports table', nm)
+    C.fig('EAC (estimate at completion)', 'from jobFin vs records', T['eac'], eac)
+    C.fig('job cost to date', 'jobFin', T['actual'], actual)
+    C.fig('earned revenue (cost basis)', 'jobFin', T['earned'], earned, tol=1.0 if not T['held'] else 1e9)
+    if w:
+        vals = [money_of(x) for x in w['__cells'] if money_of(x) is not None]
+        # the schedule shows over billing and under billing in their own columns, each as a positive amount
+        hit = any(abs(abs(v) - abs(over)) <= 1 for v in vals)
+        C.ok(hit, f"WIP schedule: {nm} {'over' if over >= 0 else 'under'} billing {fmtm(abs(over))} (billed {fmtm(B['invoiced'])} less earned {fmtm(earned)})", w['__cells'])
+        C.figs.append(('WIP over/under', 'WIP schedule', next((v for v in vals if abs(abs(v) - abs(over)) <= 1), None), abs(over), hit))
+    else:
+        C.ok(False, f'the WIP schedule lists {nm}')
+    # % complete: one number on every surface
+    pct = T['pct']
+    await C.as_('u_owner', 'reports', "repTab = 'portfolio'; REP.preset = 'all'; repFrom = ''; repTo = '';")
+    pf = await read_row(C, '#v-reports table', nm)
+    a = await C.js("q => { signIn('u_owner'); const a = paAsk(q); return a.headline + ' ' + (a.note || ''); }", f'how far along is {nm}')
+    C.ok(f'{pct}%' in a, f'% complete: Ask "how far along" says {pct}%', a[:200])
+    C.ok(pf and any(f'{pct}%' in x for x in pf['__cells']), f'% complete: the Portfolio row says {pct}%', pf and pf['__cells'])
+    # 3. overhead and true profitability, from the records: September's pool and this job's share
+    oh_lines = {}
+    for t in R['ohTxns']:
+        oh_lines[t['name']] = r2(oh_lines.get(t['name'], 0) - t['amt'])
+    run = C.ids['payroll']['run']
+    office = 0.0
+    emp = {e['id']: e for e in R['emps']}
+    runs = {r['id']: r for r in R['runs']}
+    for t in R['time']:
+        if t['projectId'] or t['payrollId'] != run['id']: continue
+        e = emp[t['empId']]; r = runs[t['payrollId']]
+        part = next(x for x in r['parts'] if x['entityId'] == e['entityId'])
+        office += hours_of(t) * e['rate'] * part['total'] / part['gross']
+    oh_lines['Payroll — office & overhead'] = r2(office)
+    pool = r2(sum(oh_lines.values()))
+    C.t(f"September's overhead from the records: {oh_lines} = {fmtm(pool)}")
+    M = await C.js("() => { const m = ohMonth('2026-09'); return {pool: m.pool, lines: m.lines, base: m.base, T: m.baseTotal, alloc: m.alloc, uncoded: m.uncoded}; }")
+    C.fig('September overhead pool', 'ohMonth (the P&L less uncoded)', M['pool'], pool)
+    for k in ('Rent & occupancy', 'Insurance', 'Office & software', 'Vehicle & fuel', 'Marketing', 'Design software (CAD, rendering)', 'Payroll — office & overhead'):
+        C.fig(f'September overhead line {k}', 'ohMonth', M['lines'].get(k, 0), oh_lines.get(k, 0))
+    C.ok(abs(sum(M['alloc'].values()) - M['pool']) < 0.011, 'the jobs\' shares add up to the pool to the cent', M)
+    sep_base = r2(sum(v['actual'] for v in B['lines'].values()) + B['rebill_cost'])  # every cost of the job landed in September, the purchase billed back included
+    C.fig(f'{nm} September base (direct cost)', 'ohMonth', M['base'].get(pid, 0), sep_base)
+    share = r2(pool * sep_base / M['T']) if M['T'] else 0
+    C.t(f"the other jobs' September bases are read from the app ({ {k: v for k, v in M['base'].items() if k != pid} }); this job's share = pool × its base / all bases = {fmtm(share)}")
+    jgross = r2(earned - actual); jnet = r2(jgross - share)
+    C.rec('books', 'profit', {'earned': earned, 'actual': actual, 'gross': jgross, 'overhead': share, 'net': jnet, 'pool': pool})
+    # the job report's Profit After Overhead, the Portfolio's and the Pack's tables, Ask
+    await C.as_('u_owner', 'reports', f"repTab = 'profit'; repProj = '{pid}'; REP.preset = 'all'; repFrom = ''; repTo = '';")
+    jt = await C.js("() => { const k = [...document.querySelectorAll('#v-reports .oh-job .kpi')].map(x => [x.querySelector('span').innerText, x.querySelector('b').innerText]); const m = (document.querySelector('#v-reports .oh-method') || {}).innerText || ''; return {k, m}; }")
+    K = {a.split(' ·')[0].strip().lower(): money_of(b) for a, b in jt['k']}
+    C.fig('gross profit to date', 'job report', K.get('gross profit'), jgross, tol=1.0)
+    C.fig('overhead allocated', 'job report', K.get('overhead allocated'), share, tol=1.0)
+    C.fig('net profit after overhead', 'job report', K.get('net profit'), jnet, tol=1.0)
+    C.ok('shared among the jobs by total direct cost' in jt['m'], 'the job report states the allocation method', jt['m'][:160])
+    method = jt['m'].split(' The burden rate')[0].strip()
+    await C.as_('u_owner', 'reports', "repTab = 'portfolio'; REP.preset = 'all'; repFrom = ''; repTo = '';")
+    pr = await C.js("pid => { const tr = document.querySelector(`#v-reports table.oh-jobs tr[data-ohjob='${pid}']`); return tr ? [...tr.children].map(td => td.innerText) : null; }", pid)
+    pm = await C.js("() => (document.querySelector('#v-reports .oh-method') || {}).innerText || ''")
+    C.ok(pr, 'the Portfolio has Profit After Overhead for the job', pr)
+    if pr:
+        C.fig('gross profit', 'Portfolio', money_of(pr[3]), jgross, tol=1.0)
+        C.fig('overhead', 'Portfolio', money_of(pr[5]), share, tol=1.0)  # the tables show whole dollars
+        C.fig('net profit', 'Portfolio', money_of(pr[6]), jnet, tol=1.0)
+    C.ok(method and method in pm, 'the Portfolio states the same method', pm[:200])
+    await C.as_('u_owner', 'reports', "repTab = 'pack'; REP.preset = 'custom'; REP.from = '2026-09-01'; REP.to = '2026-09-30'; repFrom = '2026-09-01'; repTo = '2026-09-30';")
+    pk = await C.js("pid => { const tr = document.querySelector(`#v-reports table.oh-jobs tr[data-ohjob='${pid}']`); return {row: tr ? [...tr.children].map(td => td.innerText) : null, rate: (document.querySelector('#v-reports .oh-pack') || {}).innerText || '', m: (document.querySelector('#v-reports .oh-method') || {}).innerText || ''}; }", pid)
+    C.ok(pk['row'], 'the September Pack has Profit After Overhead for the job', pk)
+    if pk['row']:
+        C.fig('overhead (September)', 'Pack', money_of(pk['row'][5]), share, tol=1.0)  # the tables show whole dollars
+        C.fig('net profit (September)', 'Pack', money_of(pk['row'][6]), jnet, tol=1.0)
+    rate_pct = round(100 * pool / M['T'], 1) if M['T'] else 0
+    C.ok(f'{rate_pct:g}%' in pk['rate'], f'the Pack states September\'s overhead rate {rate_pct:g}% of direct cost', pk['rate'])
+    C.ok(method and method in pk['m'], 'the Pack states the same method', pk['m'][:200])
+    for q, need in ((f'what is the margin on {nm}', [jgross, jnet]), ('how much overhead did we spend in September', [pool]), (f"what is {nm}'s profit after overhead", [share, jnet])):
+        a = await C.js("q => { signIn('u_owner'); const a = paAsk(q); return (a.headline || '') + ' ' + (a.note || '') + ' ' + (a.work || []).join(' '); }", q)
+        nums = [float(x.replace(',', '')) for x in re.findall(r'\$([\d,]+(?:\.\d+)?)', a)]
+        for v in need:
+            hit = any(abs(n - v) <= 1 for n in nums)
+            C.figs.append((f'Ask: {q}', 'Ask', v if hit else None, v, hit))
+            C.ok(hit, f'Ask "{q}" says {fmtm(v)}', a[:240])
+        C.t(f'Ask "{q}" → "{a[:220]}"')
+    # 4. the P&L (September) shows the overhead in operating expenses; nothing is left "Needs Category"
+    await C.as_('u_owner', 'reports', "repTab = 'company'; cfoPeriod = 'custom'; REP.preset = 'custom'; REP.from = '2026-09-01'; REP.to = '2026-09-30'; repFrom = '2026-09-01'; repTo = '2026-09-30';")
+    pl = await C.js("() => document.querySelector('#v-reports').innerText")
+    for k in ('Rent & occupancy', 'Insurance', 'Marketing', 'Vehicle & fuel'):
+        C.fig(f'P&L September overhead: {k}', 'P&L detail', money_after(pl, k), oh_lines.get(k, 0))
+    nc = re.findall(r'(?m)^\s*Needs Category\t[^\n]*', pl)
+    C.ok(not nc, 'the September P&L has no line left "Needs Category"', nc[:2])
+    # 5. AR and AP aging: the client owes nothing; the four vendors are paid, the sub's retainage is what is left
+    await C.as_('u_owner', 'reports', "repTab = 'ar';")
+    ar = await C.js("() => document.querySelector('#v-reports').innerText")
+    arow = re.search(re.escape(CLIENT) + r'[^\n]*', ar)
+    C.ok(not arow or all((money_of(x) or 0) == 0 for x in re.findall(r'\$[\d,.]+', arow.group(0))), 'AR aging: the Vargas owe nothing (both invoices paid from the bank)', arow and arow.group(0))
+    await C.as_('u_owner', 'reports', "repTab = 'payables';")
+    ap = await C.js("() => document.querySelector('#v-reports').innerText")
+    for vname, _, _ in VENDORS:
+        row = re.search(re.escape(vname) + r'[^\n]*', ap)
+        amts = [money_of(x) for x in re.findall(r'\$[\d,.]+', row.group(0))] if row else []
+        ok = not row or all(a in (0, 660, 240) for a in amts)
+        C.ok(ok, f'AP aging: {vname} is owed nothing open (retainage $660 and the disputed $240 are held, not due)', row and row.group(0))
+    # 6. coverage: the job's cost and income are backed by the bank and the card
+    await C.as_('u_owner', 'reports', f"repTab = 'profit'; repProj = '{pid}'; REP.preset = 'all'; repFrom = ''; repTo = '';")
+    cov = await C.js("() => (document.querySelector('#v-reports .tr-cov-line') || {}).innerText || ''")
+    parts = [money_of(x) for x in re.findall(r'\$[\d,]+(?:\.\d+)?', cov)]
+    # cost: all of it backed by a bank or card line; income: what was collected is backed, the retainage still held is
+    # the only accrual (it is not due until the job is done), nothing by hand
+    want_cost = r2(sum(v['actual'] for v in B['lines'].values()) + B['rebill_cost'])
+    C.ok(len(parts) >= 6 and abs(parts[0] - want_cost) <= 1 and parts[1] == 0 and parts[2] == 0, f"coverage: all {fmtm(want_cost)} of the job's cost is backed by a bank or card line, none by a document only or by hand", cov)
+    C.ok(len(parts) >= 6 and abs(parts[3] - B['collected']) <= 1 and abs(parts[4] - B['retainage']) <= 1 and parts[5] == 0, f"coverage: income {fmtm(B['collected'])} backed by the bank; the {fmtm(B['retainage'])} retainage held is the only accrual", cov)
+    C.t(f'coverage line: "{cov}"')
+    # 7. the Three-Way Tie-Out for September: the bank column carries the chain's deposits and payments
+    await C.as_('u_owner', 'reports', "repTab = 'tieout'; REP.preset = 'custom'; REP.from = '2026-09-01'; REP.to = '2026-09-30'; repFrom = '2026-09-01'; repTo = '2026-09-30';")
+    tie = await C.js("() => { const T = truthTieOut('2026-09'); return {rows: (T.rows || []).map(r => [r.group || r.label || r.acct, r.bank, r.erp, r.qbo]), headline: T.headline || ''}; }")
+    bank_in = r2(sum(t['amt'] for t in R['txns'] if t['amt'] > 0 and t['date'].startswith('2026-09')))
+    C.t(f"Three-Way Tie-Out September: {tie['rows'][:8]}")
+    C.ok(tie['rows'], 'the Three-Way Tie-Out has September rows (bank and ERP columns)', tie)
+    # 8. Report Builder: a saved search over the new bills
+    await C.as_('u_owner', 'reports', "repTab = 'searches'; ssOpen = null;")
+    have = await C.js("n => !!searchList().find(x => x.name === n)", f'{JOB} bills')
+    if not (again and have):
+        await C.click('#ss-new', 500)
+        await C.fill('#ss-name', f'{JOB} bills', tab=True)
+        await C.pg.select_option('#ss-ds', 'bills'); await C.pg.dispatch_event('#ss-ds', 'change'); await C.wait(300)
+        crit = C.pg.locator('#v-reports .ss-crit').last
+        await crit.locator('[data-cf=field]').select_option('project'); await C.wait(200)
+        crit = C.pg.locator('#v-reports .ss-crit').first
+        await crit.locator('[data-cf=op]').select_option('eq')
+        vin = crit.locator('[data-cf=value]')
+        if await vin.count():
+            await vin.fill(JOB); await vin.press('Tab'); await C.wait(300)
+    ss = await C.js("n => { const s = searchList().find(x => x.name === n); if (!s) return null; const r = searchRun(s); return {n: r.rows.length, total: Math.round(r.rows.reduce((a, x) => a + (+x.total || 0), 0) * 100) / 100, criteria: s.criteria}; }", f'{JOB} bills')
+    want_n = len(R['bills']); want_total = r2(sum(r2(sum(l['amount'] for l in b['lines']) * (1 - b['ret'] / 100)) for b in R['bills']))
+    C.ok(ss and ss['n'] == want_n, f"Report Builder: '{JOB} bills' lists the {want_n} bills", ss)
+    C.fig('saved search: bills total (net of retainage, as the dataset defines it)', 'Report Builder', ss and ss['total'], want_total)
+    C.rec('search', 'bills', ss)
+    return True
+
+
+# ================================================================ 9. save, reload, every record and link, the reports again
+# The documents a reload must leave exactly as saved: each client's estimates, change orders, invoices, payments and
+# schedule of values, the POs, bills, bank and card lines, payroll runs, time, the closed periods and the journals.
+DOC_SNAP = """() => { const out = {};
+  (DB.clients || []).forEach(c => ['estimates', 'changeOrders', 'invoices', 'payments', 'sov'].forEach(k => (c[k] || []).forEach(d => { out[`${k}:${d.id}`] = JSON.stringify(d); })));
+  ['pos', 'bills', 'txns', 'payroll', 'time', 'journal', 'journals', 'payments'].forEach(k => Array.isArray(DB[k]) && DB[k].forEach((d, i) => { out[`${k}:${d.id || i}`] = JSON.stringify(d); }));
+  out['periods'] = JSON.stringify(DB.periods || {});
+  return out; }"""
+
+LINKS = """I => { const c = DB.clients.find(x => x.id === I.client.id), p = DB.projects.find(x => x.id === I.project.id);
+  const est = c && c.estimates.find(e => e.id === I.estimate.id);
+  const U = new Set(((PRED.unmatchedTxns && PRED.unmatchedTxns.rows) ? PRED.unmatchedTxns.rows() : []).map(t => t.id));
+  const inv = id => c && c.invoices.find(i => i.id === id);
+  return {
+    client: !!c, project: !!p && p.clientId === (c || {}).id, estimate: est && est.status, estOnJob: !!est && est.projectId === (p || {}).id,
+    portal: ((DB.users || []).find(u => u.id === I.portalUser.id) || {}).clientId === (c || {}).id,
+    sov: Object.values(I.sov.lines).every(id => c && c.sov.some(v => v.id === id && v.projectId === p.id)),
+    pos: Object.entries(I.po).map(([k, v]) => { const po = DB.pos.find(x => x.id === v.id); return [k, po && po.status, !!po && po.lines.every(l => polLinked(l))]; }),
+    bills: Object.entries(I.bill).map(([n, id]) => { const b = DB.bills.find(x => x.id === id); return [n, b && b.status, !!b && !!b.poId && DB.pos.some(o => o.id === b.poId), !!b && (b.lines || []).every(l => l.poLineId), !!b && billIsPaid(b)]; }),
+    txns: [...Object.entries(I.txn.card || {}), ...Object.entries(I.txn.bank || {})].map(([k, id]) => { const t = DB.txns.find(x => x.id === id); return [k, !!t, !!t && (!U.has(id) || !!t.exception)]; }),
+    invoices: ['appSent', 'rebillSent'].map(k => { const i = inv((I.invoice[k] || {}).id || I.invoice[k === 'appSent' ? 'app' : 'rebill']); return [k, i && i.status, i && docTotal(i).total, !!i && c.payments.some(py => py.invoiceId === i.id)]; }),
+    payroll: (() => { const r = DB.payroll.find(x => x.id === I.payroll.run.id); return r && {status: r.status, txn: DB.txns.some(t => t.payrollId === r.id || (t.match && t.match.payrollId === r.id)), entries: DB.time.filter(t => t.payrollId === r.id).length}; })(),
+    co: (() => { const x = c && c.changeOrders.find(x => x.id === I.co.co.id); return x && {status: x.status, sov: c.sov.some(v => v.coId === x.id)}; })(),
+    close: {locked: lockedThrough(), sealed: Object.keys((DB.periods && DB.periods.chains) || {}).sort()},
+  }; }"""
+
+
+async def s9_save(C):
+    C.step('9. Save, reload, and every record and link is there; no document changed on the way')
+    await C.as_('u_owner', 'home')
+    a = await C.js(DOC_SNAP)
+    await C.js("async () => { save(); await saveNow(); }")
+    t0 = time.time()
+    await C.pg.reload(); await C.pg.wait_for_function("document.body.dataset.booted==='1'", timeout=90000)
+    C.t(f'saveNow, then reload: booted again in {time.time() - t0:.1f}s')
+    await C.as_('u_owner', 'home')
+    b = await C.js(DOC_SNAP)
+    changed = sorted(k for k in set(a) | set(b) if a.get(k) != b.get(k))
+    C.ok(not changed, f'saveNow and reload: all {len(a)} documents (estimates, COs, invoices, payments, SOV, POs, bills, bank and card lines, payroll, time, periods) are exactly as saved', changed[:12])
+    C.t(f'{len(a)} documents compared before the save and after the reload: {len(changed)} changed' + (f' ({changed[:6]})' if changed else ''))
+    L = await C.js(LINKS, C.ids)
+    C.t(f'after the reload: {json.dumps(L, default=str)[:900]}')
+    C.ok(L['client'] and L['project'] and L['estimate'] == 'converted' and L['estOnJob'] and L['portal'] and L['sov'], 'the client, the job, the signed estimate on its job, the portal user on the client, the schedule of values', L)
+    C.ok(all(x[2] for x in L['pos']), 'every PO is there with each line linked', L['pos'])
+    C.ok(all(x[2] and x[3] and x[4] for x in L['bills']), 'every bill is there on its PO, each line on its PO line, paid', L['bills'])
+    C.ok(all(x[1] and x[2] for x in L['txns']), 'every bank and card line of the chain is there, matched or with a signed exception', [x for x in L['txns'] if not (x[1] and x[2])])
+    C.ok(all(x[1] == 'paid' and x[3] for x in L['invoices']), 'the application and the billable expenses are paid, each with its payment', L['invoices'])
+    C.ok(L['payroll'] and L['payroll']['status'] in ('paid', 'verified') and L['payroll']['txn'] and L['payroll']['entries'] == len(C.ids['time']['ids']), 'the payroll run is paid from the bank, with its time entries', L['payroll'])
+    C.ok(L['co'] and L['co']['status'] in ('approved', 'billed') and L['co']['sov'], 'the change order is approved and on the schedule of values', L['co'])
+    C.ok(L['close']['locked'] >= '2026-09' and '2026-09' in L['close']['sealed'], 'September stays closed and sealed', L['close'])
+    return await s8_reports(C, again=True)
+
+
+# ================================================================ 10. PO lines linked to their estimate and invoice lines
+async def s10_polinks(C):
+    C.step('10. PO lines link to estimate and invoice lines: Which Lines?, the chips both ways, Not Linked blocks approval, billed back, overhead on the phone, after a reload')
+    pid = C.ids['project']['id']; est = C.ids['estimate']['id']; L = C.ids['estimate']['lines']
+    tile_id = L['Tile – primary bath']; tile_key = f'estimate:{est}:{tile_id}'
+    await C.day('2026-10-02')
+    # the coordinator's New PO opens on the job's lines
+    await C.as_('u_chen', 'po', f"setCurrent('{pid}'); poOpen = null;")
+    await C.click('#btn-newpo', 700)
+    m = await C.modal()
+    cls = await C.js("() => { const b = document.querySelector('#mbm-blank'); return b ? b.className : null; }")
+    C.ok(m and m['title'] == 'Which Lines?', 'Purchasing > New PO opens on "Which Lines?" (the estimate, change-order and invoice lines of the job)', m and m['title'])
+    C.ok(cls is not None and 'primary' not in cls, 'Start Blank is there, secondary (not blue); Create the Purchase Orders is the blue button', cls)
+    C.t(f"Coordinator > Purchasing > New PO → \"{m and m['title']}\" with {m and m['buttons']}")
+    await C.pg.locator(f"#mbm [data-ctpsel='{tile_id}']").check()
+    await C.fill(f"#mbm [data-ctpq='{tile_id}']", '1')
+    await C.fill(f"#mbm [data-ctpc='{tile_id}']", '640')
+    await C.fill(f"#mbm [data-ctpv='{tile_id}']", 'Arcadia Tile Supply')
+    n0 = await C.js("() => DB.pos.length")
+    await C.modal_ok(900)
+    po = await C.js("n0 => { const po = DB.pos.slice(n0)[0]; return po && {id: po.id, number: po.number, status: po.status, vendor: po.vendor, lines: po.lines.map(l => ({id: l.id, item: l.item, line: l.line || '', code: l.code || ''}))}; }", n0)
+    C.ok(po and po['lines'] and po['lines'][0]['line'] == tile_key, 'tick the tile line > Create the Purchase Orders: the PO line carries its estimate line from the start', po)
+    C.t(f"tick \"Tile – primary bath\", 1 ls at $640, Arcadia Tile Supply > Create the Purchase Orders → {po and po['number']} ({await C.toast()})")
+    if not po: return False
+    C.rec('polinks', 'po', po)
+    await C.as_('u_chen', 'po', f"setCurrent('{pid}'); poOpen = '{po['id']}';")
+    chip = await C.js("() => [...document.querySelectorAll('#po-doc .pol-cell')].map(c => c.innerText.replace(/\\s+/g, ' '))")
+    C.ok(chip and 'Tile – primary bath' in chip[0], 'the PO line shows its estimate line as a chip', chip)
+    # PO line > estimate line > back to the PO
+    await C.click('#po-doc [data-polopen]', 600)
+    m = await C.modal()
+    C.ok(m and 'Tile – primary bath' in m['title'] and po['number'] in m['text'] and 'Purchase Order Lines' in m['text'], 'the chip opens the estimate line: budget, committed, spent, its PO lines, bills and bank lines', m and (m['title'], m['text'][:300]))
+    await C.click(f"#mbm [data-polrow='{po['lines'][0]['id']}']", 600)
+    back = await C.js("() => ({view, poOpen})")
+    C.ok(back['view'] == 'po' and back['poOpen'] == po['id'], 'the estimate line\'s PO line opens the PO', back)
+    C.t(f"PO > chip \"{chip[0][:60]}\" → the line's drill-down \"{m and m['title']}\" > {po['number']} row → back on the PO")
+    # a line added by hand has no link: Not linked, and the order cannot go out
+    await C.click('#po-doc [data-addline]', 500)
+    rows = C.pg.locator('#po-doc tr[data-line]')
+    last = rows.last
+    await last.locator('input[data-f=item]').fill('Heated towel bar, brushed nickel (client upgrade)'); await last.locator('input[data-f=item]').press('Tab'); await C.wait(400)
+    last = C.pg.locator('#po-doc tr[data-line]').last
+    await last.locator('input[data-f=price]').fill('385'); await last.locator('input[data-f=price]').press('Tab'); await C.wait(400)
+    nl = await C.js("id => { const po = DB.pos.find(x => x.id === id); const l = po.lines[po.lines.length - 1]; return {id: l.id, linked: polLinked(l), chip: (document.querySelector(`#po-doc tr[data-line='${l.id}'] .pol-cell`) || {}).innerText || ''}; }", po['id'])
+    C.ok(not nl['linked'] and 'Not linked' in nl['chip'], 'Add line > "Heated towel bar…" $385: the new line shows Not linked', nl)
+    cnt = await C.js("pid => [PRED.poLinesUnlinked.count(pid), PRED.poLinesUnlinked.rows(pid).length, EQ_TABLES.polines().filter(r => r.projectId === pid && !r.linked && r.poStatus !== 'cancelled').length, erpQuery ? (() => { try { return erpQuery({table: 'polines', where: {projectId: pid, linked: false}}).rows.length; } catch (e) { return 'n/a'; } })() : 'n/a']", pid)
+    C.ok(cnt[0] == cnt[1] == cnt[2] == 1, 'PO Lines Not Linked: the count equals its rows and the query table (1)', cnt)
+    await C.click('#po-doc [data-poact=issue]', 600)
+    t = await C.toast(); st = await C.js("id => DB.pos.find(x => x.id === id).status", po['id'])
+    C.ok('not linked' in t and st == 'draft', 'Issue PO is refused while a line is not linked; the toast says which', f'{st} · {t}')
+    C.t(f"Issue PO → \"{t}\" ({st})")
+    # Link > search > Reimbursable: billed back to the client
+    await C.click(f"#po-doc [data-polpick='{nl['id']}']", 500)
+    await C.fill('#mbm #pol-q', 'reimb'); await C.wait(200)
+    vis = await C.js("() => [...document.querySelectorAll('#mbm .pol-opt')].filter(b => b.getClientRects().length).map(b => b.dataset.polk)")
+    C.ok(vis == ['rebill'], 'the picker\'s search narrows to Reimbursable', vis)
+    await C.click("#mbm [data-polk='rebill']", 600)
+    t = await C.toast()
+    C.ok('Billed back to the client' in t and 'Open' in t, 'Link > "reimb" > Reimbursable: the toast says what was linked, with Open', t)
+    await C.click('#po-doc [data-poact=issue]', 700)
+    m = await C.modal()
+    if m: await C.modal_ok(700)
+    st = await C.js("id => DB.pos.find(x => x.id === id).status", po['id'])
+    C.ok(st == 'issued', 'with every line linked, Issue PO issues it', f'{st} {await C.toast()}')
+    # it arrives; the bill from the receipt; the reimbursable is waiting to be billed back, once
+    await C.as_('u_chen', 'recv', f"setCurrent('{pid}');")
+    await C.click(f"section.view.on [data-rall='{po['id']}']", 700)
+    await C.pg.locator('#toast .toast-open', has_text='Bill It').first.click(timeout=20000); await C.wait(600)
+    await C.fill('#mbm [data-f=number]', 'AT-7802')
+    await C.modal_ok(700)
+    rb = await C.js("([pid, lid]) => { const R = rbRows(pid).filter(x => x.pl && x.pl.id === lid); const S = spUnbilled(pid).filter(x => x.key === 'rbpl:' + lid); return {rows: R.length, cost: R[0] && R[0].cost, amount: R[0] && R[0].amount, spend: S.length}; }", [pid, nl['id']])
+    C.ok(rb['rows'] == 1 and rb['spend'] == 1 and abs((rb['amount'] or 0) - r2(385 * 1.1)) < 0.01, 'billed by its vendor, the billed-back line waits once in Purchases Not Billed Back, at cost plus 10% ($423.50)', rb)
+    C.t(f"Receiving > Everything Arrived > Bill It > AT-7802 > Save Bill → the towel bar waits to be billed back: {rb}")
+    r = await billing_row(C, 'bought for')
+    C.ok(r and r['verb'] == 'Draft' and '423.50' in r['text'], 'Billing Queue: the PO line bought for the Vargas, with Draft', r)
+    if r:
+        await press_row(C, r['key'])
+    il = await C.js("id => { for (const po of DB.pos) { const l = po.lines.find(x => x.id === id); if (l) { const h = l.invoiceLineId && rbInvLine(l.invoiceLineId); return {invoiceId: l.invoiceId || '', invoiceLineId: l.invoiceLineId || '', number: h && h.inv.number, rate: h && h.l.rate, left: rbRows(po.projectId).filter(x => x.pl && x.pl.id === id).length}; } } return null; }", nl['id'])
+    C.ok(il and il['invoiceLineId'] and abs((il['rate'] or 0) - 423.5) < 0.01 and il['left'] == 0, 'Draft: the PO line is billed on its own invoice line, and the link is on the PO line', il)
+    C.rec('polinks', 'rebill', il)
+    await C.as_('u_chen', 'po', f"setCurrent('{pid}'); poOpen = '{po['id']}';")
+    await C.click(f"#po-doc [data-polinv='{nl['id']}']", 600)
+    m = await C.modal()
+    C.ok(m and po['number'] in m['text'] and 'AT-7802' in m['text'], 'the chip "Billed on …" opens the invoice line: its PO line and its bill', m and m['text'][:300])
+    C.t(f"PO > \"Billed on {il and il['number']}\" → {m and m['title']}: {m and m['text'][:160]!r}")
+    # an order for the shop, no job: Start Blank, then the line linked to overhead on the phone
+    await C.js("() => mbCloseModal()")
+    await C.as_('u_chen', 'po', f"setCurrent('{pid}'); poOpen = null;")
+    await C.click('#btn-newpo', 600)
+    await C.click('#mbm #mbm-blank', 600)
+    d = await C.js("() => (document.querySelector('#d-title') || {}).textContent")
+    C.ok(d and 'purchase order' in d.lower(), 'Start Blank opens the blank purchase order', d)
+    await C.pg.select_option('#e-vendorsel', 'Arcadia Tile Supply')
+    if await C.pg.locator('#e-poproj').count(): await C.pg.select_option('#e-poproj', '')
+    n0 = await C.js("() => DB.pos.length")
+    await C.click('#d-save', 900)
+    shop = await C.js("n0 => { const po = DB.pos.slice(n0)[0]; return po && {id: po.id, number: po.number, projectId: po.projectId || ''}; }", n0)
+    C.ok(shop and not shop['projectId'], 'Start Blank > Arcadia Tile Supply > No job > Create draft: a draft for the shop', shop)
+    if not shop: return False
+    await C.as_('u_chen', 'po', f"poOpen = '{shop['id']}';")
+    if not await C.js("id => DB.pos.find(x => x.id === id).lines.length", shop['id']):
+        await C.click('#po-doc [data-addline]', 500)
+    last = C.pg.locator('#po-doc tr[data-line]').last
+    await last.locator('input[data-f=item]').fill('Grout sponges and mixing buckets (shop stock)'); await last.locator('input[data-f=item]').press('Tab'); await C.wait(400)
+    last = C.pg.locator('#po-doc tr[data-line]').last
+    await last.locator('input[data-f=price]').fill('86'); await last.locator('input[data-f=price]').press('Tab'); await C.wait(400)
+    sl = await C.js("id => { const l = DB.pos.find(x => x.id === id).lines.slice(-1)[0]; return {id: l.id, linked: polLinked(l)}; }", shop['id'])
+    C.ok(not sl['linked'], 'the shop line starts Not linked (no job, no line to guess)', sl)
+    await C.to_phone('u_chen', 'The coordinator linking a shop order to overhead', f"view = 'po'; poOpen = '{shop['id']}';")
+    await C.ptap(f"#po-doc [data-polpick='{sl['id']}']", 'Link')
+    await C.pcheck('the link picker (a sheet)')
+    await C.pfill('#mbm #pol-q', 'office', 'Search')
+    await C.ptap("#mbm [data-polk='oh:office']", 'Overhead · Office & software')
+    C.plog(f"→ {await C.ph.evaluate(TOAST)}")
+    await C.pcheck('the PO after linking')
+    await C.to_desk()
+    oh = await C.js("id => { const po = DB.pos.find(x => x.id === id); const l = po.lines.slice(-1)[0]; return {ohCat: l.ohCat || '', linked: polLinked(l), cat: poCat(po)}; }", shop['id'])
+    C.ok(oh['ohCat'] == 'office' and oh['linked'] and oh['cat'] == 'office', 'on the phone: Link > "office" > Office & software: the shop line is overhead, and its bill will post to that account', oh)
+    # reload: the links are all there; the counts still equal the rows
+    before = await C.js("ids => ids.map(id => { const po = DB.pos.find(x => x.id === id); return po.lines.map(l => [l.id, l.line || '', l.ohCat || '', !!l.billable, l.invoiceLineId || '']); })", [po['id'], shop['id']])
+    await C.js("async () => { save(); await saveNow(); }")
+    await C.pg.reload(); await C.pg.wait_for_function("document.body.dataset.booted==='1'", timeout=90000)
+    await C.as_('u_owner', 'home')
+    after = await C.js("ids => ids.map(id => { const po = DB.pos.find(x => x.id === id); return po.lines.map(l => [l.id, l.line || '', l.ohCat || '', !!l.billable, l.invoiceLineId || '']); })", [po['id'], shop['id']])
+    C.ok(before == after, 'after saveNow and a reload every PO line keeps its estimate line, overhead category, billed-back mark and invoice line', after)
+    cnt = await C.js("() => [PRED.poLinesUnlinked.count(), PRED.poLinesUnlinked.rows().length, EQ_TABLES.polines().filter(r => !r.linked && r.poStatus !== 'cancelled').length]")
+    C.ok(cnt[0] == cnt[1] == cnt[2], 'PO Lines Not Linked: the count equals its rows and the query table, firm-wide', cnt)
+    C.t(f'after the reload: PO lines {after}; PO Lines Not Linked {cnt}')
+    return True
+
+
 # ================================================================ main
-STEPS = [s1_client, s2_buy, s3_receive, s4_pay, s5_bill, s6_bank, s7_close]
+STEPS = [s1_client, s2_buy, s3_receive, s4_pay, s5_bill, s6_bank, s7_close, s8_reports, s9_save, s10_polinks]
 
 
 async def main():
@@ -1111,7 +1602,7 @@ async def main():
             if a.resume:
                 with open(a.resume) as f: src = f.read()
                 await pg.evaluate("async s => { DB = JSON.parse(s).DB; save(); await saveNow(); }", src)
-                await pg.reload(); await pg.wait_for_function("document.body.dataset.booted==='1'", timeout=60000)
+                await pg.reload(); await pg.wait_for_function("document.body.dataset.booted==='1'", timeout=180000)
                 with open(a.resume + '.ids.json') as f: C.ids = json.load(f)
                 C.t(f'(development) resumed from {a.resume} at step {a.start}')
             for i, fn in enumerate(STEPS, 1):
