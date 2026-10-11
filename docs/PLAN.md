@@ -10,6 +10,23 @@ Last updated 2026-10-11.
 - The pilot, the remaining harness findings (as v11.1) and every new lane wait for Thursday's reset (8pm New York).
 - After the reset, the first step is to read this file, `docs/LANES.md` and `docs/DECISIONS.md`.
 
+## v11.1 (first thing after the reset)
+- **Fix the v11 net regressions** (2026-10-11 run):
+  - client questions are missing from the PM's Home (likely the own-sent-mail filter);
+  - emailed asks and calls no longer become proposals;
+  - the short-pay path on Do Now;
+  - purchasing, client and flow tests that predate the vendor-on-file rule;
+  - track_test crashes on a click timeout;
+  - pricewatch "why is this flagged".
+- **Ranking (Alan):** anyone blocked today, such as crew waiting, ranks above older overdue items, and both stay visible.
+- **Harness findings 6–8:**
+  - a new CO defaults to the wrong client;
+  - the PM's phone menu is hidden under More;
+  - the client portal's View doesn't open.
+- **Review:** integrate's three held commits.
+
+Then the full net, the scripted month and the final crawl; then publish v11.
+
 ## 1. Running now
 | What | Where | Status |
 |---|---|---|
