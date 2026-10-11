@@ -3273,3 +3273,23 @@ body.crewmode .view.on .dl-sign > span{display:block;flex:1 1 auto;min-width:0}
 @media (max-width:760px){ .cl-mode{display:flex;width:100%} .cl-mode button{flex:1;min-height:44px} }
 .cl-act .cl-act-a{margin-top:4px;padding:6px 8px;background:var(--paper-2);border-radius:var(--r)}
 body.cl-portal #tb-ask{display:inline-flex}
+/* PO line links: the chip that opens a line, the picker (a sheet with search on the phone), Which Lines? at 390px */
+.pol-cell{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.pol-chip{display:inline-flex;align-items:center;max-width:100%;border:1px solid var(--rule);border-radius:999px;padding:2px 9px;font-size:12px;background:var(--paper-2);color:var(--ink);line-height:1.5;text-align:left;white-space:normal}
+button.pol-chip{cursor:pointer} button.pol-chip:hover{border-color:var(--accent)}
+.pol-chip.warn{border-color:var(--warn);color:var(--warn);background:var(--warn-2)} .pol-chip.muted{color:var(--ink-3)}
+.pol-list{display:flex;flex-direction:column;max-height:52vh;overflow:auto}
+.pol-grp{font-size:11.5px;letter-spacing:.04em;color:var(--ink-3);padding:10px 4px 4px;font-weight:600}
+.pol-opt{display:flex;flex-direction:column;align-items:flex-start;gap:2px;border:0;border-bottom:1px solid var(--rule-2);background:none;text-align:left;padding:10px 6px;min-height:44px;font-size:13.5px;cursor:pointer;width:100%;color:var(--ink)}
+.pol-opt.on,.pol-opt:hover{background:var(--paper-2)}
+@media (max-width:760px){
+  .pol-opt{min-height:52px;font-size:15px} .pol-list{max-height:none} .pol-chip{font-size:13px;padding:6px 11px}
+  .pol-which .tw{max-height:none !important;overflow:visible !important}
+  .pol-which table.ctp thead{display:none} .pol-which table.ctp,.pol-which table.ctp tbody{display:block;width:100%}
+  .pol-which table.ctp tr{display:grid;grid-template-columns:36px 1fr 1fr;gap:6px 8px;padding:10px 2px;border-bottom:1px solid var(--rule-2)}
+  .pol-which table.ctp td{display:block;padding:0;border:0;min-width:0} .pol-which table.ctp td:nth-child(2),.pol-which table.ctp td:nth-child(6),.pol-which table.ctp td:nth-child(7){grid-column:2 / 4}
+  .pol-which table.ctp td:nth-child(3){grid-column:2} .pol-which table.ctp td:nth-child(4){grid-column:3} .pol-which table.ctp td:nth-child(5){grid-column:2 / 4}
+  .pol-which table.ctp tr.ctp-doc td{grid-column:1 / 4} .pol-which table.ctp td input{height:44px;font-size:15px}
+}
+@media (max-width:760px){ .pol-which table.ctp td:empty{display:none} }
+@media (max-width:760px){ .pol-cell{gap:10px} .pol-cell .btn,.pol-cell button.pol-chip{min-height:44px;min-width:64px} }

@@ -23247,7 +23247,7 @@ function lineFin(key) {
     draftPOs = DB.pos.filter((po) => "draft" === po.status && po.lines.some((l) => l.line === key)),
     bills = DB.bills.filter((b) => b.line === key && "void" !== b.status && "rejected" !== b.status),
     // a difference disputed with the vendor is not cost until it is settled (as job cost reads it, by code)
-    billsAmt = r2(bills.reduce((a, b) => a + billCost(b) - ("function" == typeof pay3HeldCost ? pay3HeldCost(b) : 0), 0)),
+    billsAmt = r2(bills.reduce((a, b) => a + billCost(b) - billRebillPart(b) - ("function" == typeof pay3HeldCost ? pay3HeldCost(b) : 0), 0)),
     txns = DB.txns.filter(
       (t) =>
         t.line === key &&
@@ -27807,7 +27807,10 @@ function jobRebill(p, range) {
     cost = r2(
       (DB.txns || [])
         .filter((t) => t.projectId === p.id && +t.amt < 0 && txnRebilled(t) && within(t.date, R) && !txnViaBill(t, bills))
-        .reduce((a, t) => a - +t.amt, 0),
+        .reduce((a, t) => a - +t.amt, 0) +
+        bills
+          .filter((b) => (BILL_COSTED.includes(b.status) || BILL_ACCRUED.includes(b.status)) && within(b.date, R) && !("function" == typeof fin2Dup && fin2Dup(b)))
+          .reduce((a, b) => a + billRebillPart(b), 0),
     ),
     billed = c
       ? r2(
@@ -27953,15 +27956,17 @@ function jobFin(p, range) {
       const code = lineCode(l, doc);
       bump(code, "budget", lineBudget(l, doc).budget), bump(code, "contract", lineAmount(l, doc));
     }),
-    costedBills.forEach((b) =>
+    costedBills.forEach((b) => {
+      // what the bill charges for PO lines billed back to the client is on its own row, as a reimbursable bank line is
+      const rbp = billRebillPart(b);
       bump(
         b.code || (b.line ? findLine(b.line)?.line.code || codeForLine(findLine(b.line)?.line || {}) : "99"),
         "bills",
-        billCost(b),
+        billCost(b) - rbp,
       ),
-    ),
+        rbp && bump("RB", "bills", rbp);
+    }),
     txns.forEach((t) => bump(txnRebilled(t) ? "RB" : t.code || "99", "bank", -t.amt)),
-    byCode.RB && (byCode.RB.name = "Billed back to the client"),
     Object.entries(laborByCode).forEach(([code, v]) => bump(code, "labor", v)),
     pos.forEach((po) => {
       const tot = poTotal(po).sub,
@@ -27976,9 +27981,10 @@ function jobFin(p, range) {
       po.lines.forEach((l) => {
         const ref = l.line ? findLine(l.line) : null,
           code = l.code || (ref ? ref.line.code || codeForLine(ref.line) : "99");
-        bump(code, "committed", tot ? (open * ((+l.qty || 0) * (+l.price || 0))) / tot : 0);
+        bump(l.billable ? "RB" : code, "committed", tot ? (open * ((+l.qty || 0) * (+l.price || 0))) / tot : 0);
       });
     }),
+    byCode.RB && (byCode.RB.name = "Billed back to the client"),
     Object.values(byCode).forEach((b) => {
       (b.actual = r2(b.bills + b.bank + b.labor)),
         ["contract", "budget", "committed", "bills", "bank", "labor"].forEach((k) => (b[k] = r2(b[k])));
@@ -32501,7 +32507,8 @@ jobFin = function (p, range) {
     (J.actual = r2(J.actual + accrued)),
     (J.billsAmt = r2(J.billsAmt + accrued)),
     acc.forEach((b) => {
-      const code = b.code || "99";
+      const rbp = billRebillPart(b),
+        code = rbp >= billCost(b) - 0.005 ? "RB" : b.code || "99";
       let row = J.byCode.find((x) => x.code === code);
       row ||
         ((row = {
@@ -36548,7 +36555,11 @@ const PO_TYPES = {
     ["progress", "Progress billing (subcontract)", { dep: 0, bal: "net", days: 15 }],
     ["custom", "Custom…", null],
   ],
-  poCat = (po) => PO_TYPE_CAT[po.type || "materials"] || "materials",
+  // an order for the office (no job) whose lines are linked to an overhead category posts to that category's account
+  poCat = (po) => {
+    const oh = po && !po.projectId && (po.lines || []).find((l) => l.ohCat);
+    return oh ? oh.ohCat : PO_TYPE_CAT[(po && po.type) || "materials"] || "materials";
+  },
   poEntity = (po) => po.entityId || entityOfProject(DB.projects.find((p) => p.id === po.projectId) || {});
 function poNeedsApproval(po) {
   const lim = +DB.company.poApprovalOver;
@@ -48849,7 +48860,7 @@ function ctPOPicker(projectId, preferId, preKey) {
     ),
   ];
   if (!docs.length) return void toast("No estimates, change orders or invoices with lines for this project");
-  let docId = docs.some((x) => x.id === preferId) ? preferId : docs[0].id;
+  let docId = "*" === preferId && docs.length > 1 ? "*" : docs.some((x) => x.id === preferId) ? preferId : docs[0].id;
   const vendors = [
       ...new Set(
         [
@@ -144142,7 +144153,7 @@ function rcPORead(po) {
     twBox = tw && (tw.closest(".tw") || tw),
     lines = (poTotal(po), document.createElement("div"));
   (lines.className = "rc-linesbox"),
-    (lines.innerHTML = `<table class="t rx-lines rc-polines"><thead><tr><th>Item</th><th class="num">Qty</th><th>Unit</th><th class="money">Unit Price</th><th class="money">Amount</th><th>Cost Code</th><th class="num">Received</th></tr></thead><tbody>${
+    (lines.innerHTML = `<table class="t rx-lines rc-polines"><thead><tr><th>Item</th><th class="num">Qty</th><th>Unit</th><th class="money">Unit Price</th><th class="money">Amount</th><th>Cost Code</th><th>Line</th><th class="num">Received</th></tr></thead><tbody>${
       (po.lines || [])
         .map(
           (l) =>
@@ -144151,13 +144162,13 @@ function rcPORead(po) {
                 const c = (void 0 !== COST_CODES ? COST_CODES : []).find((x) => x[0] === l.code);
                 return c ? `${c[0]} ${c[1]}` : l.code || "";
               })(l),
-            )}</td><td class="num">${((l) => {
+            )}</td><td class="rc-pol">${"function" == typeof polCellHtml ? polCellHtml(po, l) : ""}</td><td class="num">${((l) => {
               const r = +l.received || 0,
                 q = +l.qty || 0;
               return `${r2(r)} / ${r2(q)}${r >= q - 0.001 && q ? ' <span class="pill ok">in</span>' : ""}`;
             })(l)}</td></tr>`,
         )
-        .join("") || '<tr><td colspan="7" class="muted">No lines.</td></tr>'
+        .join("") || '<tr><td colspan="8" class="muted">No lines.</td></tr>'
     }</tbody></table>`),
     twBox && ((twBox.hidden = !0), twBox.classList.add("rc-hid")),
     sum.after(lines);
@@ -162923,7 +162934,7 @@ function jobFinEacLines(J, p) {
     const x = b.line && byKey[b.line];
     if (!x || !(BILL_COSTED.includes(b.status) || BILL_ACCRUED.includes(b.status)) || !within(b.date, R) || dup(b))
       return;
-    let a = billCost(b);
+    let a = billCost(b) - billRebillPart(b);
     "function" == typeof pay3Short &&
       pay3Short(b) &&
       !("accepted" === b.short.state && within(b.short.resolvedOn, R)) &&
@@ -177894,3 +177905,483 @@ if ("function" == typeof paAsk) {
     return base.apply(this, arguments);
   };
 }
+
+// ---- PO line links (Alan, 2026-10-11: "The PO should also be able to link directly into an invoice or estimate
+// line item"; CLAUDE.md "How purchasing starts") ----
+// Every PO line says where its cost lands, from the start: an estimate or change-order line (l.line, the key
+// lineOptions makes), an overhead category (l.ohCat, for an order with no job line: shop stock, office), or "billed
+// back to the client" (l.billable: a reimbursable, on no contract line). A billable line also carries the invoice
+// line that bills it (l.invoiceId, l.invoiceLineId), stamped by the Billable Expenses pull or picked by hand. A line
+// with none of these shows "Not linked" and the order cannot be issued, submitted or approved (poValid).
+// Defaults come from the order itself (poLinkDefaults): a material's line, the one job line with the PO line's cost
+// code, or the one line whose words it shares. New PO opens on "Which lines?" (the estimate, CO and invoice lines
+// of the job); Start Blank is the secondary way in.
+const POL_OH = () => CATEGORIES.filter((c) => "oh" === c.type && !/^payroll/.test(c.id));
+function polKind(l) {
+  if (!l) return "";
+  if (l.billable) return "rebill";
+  if (l.ohCat && CATEGORIES.some((c) => c.id === l.ohCat)) return "oh";
+  const k = String(l.line || "").split(":")[0];
+  return ["estimate", "co", "invoice"].includes(k) && findLine(l.line) ? k : "";
+}
+const polLinked = (l) => !!polKind(l);
+function polLabel(l) {
+  const k = polKind(l);
+  if (!k) return "";
+  if ("oh" === k) return `Overhead · ${catName(l.ohCat)}`;
+  if ("rebill" === k) return "Billed back to the client";
+  const f = findLine(l.line);
+  return `${f.doc.number} · ${f.line.num ? f.line.num + ". " : ""}${f.line.item || f.line.desc || ""}`;
+}
+function polFind(lineId) {
+  for (const po of DB.pos || []) {
+    const l = (po.lines || []).find((x) => x.id === lineId);
+    if (l) return { po: po, l: l };
+  }
+  return null;
+}
+// what a bill charges for PO lines billed back to the client: their cost is the reimbursable's, not a contract line's
+function billRebillPart(b) {
+  if (!b || b.retainageRelease || !b.poId) return 0;
+  const po = (DB.pos || []).find((x) => x.id === b.poId),
+    ids = new Set(((po && po.lines) || []).filter((l) => l.billable).map((l) => l.id));
+  return ids.size ? r2((b.lines || []).filter((x) => ids.has(x.poLineId)).reduce((a, x) => a + (+x.amount || 0), 0)) : 0;
+}
+const polWords = (t) =>
+  String(t || "")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length >= 4 && !/^(line|work|with|from|each|install|supply|labor|materials?)$/.test(w));
+// the link an unlinked line most likely has, from the order itself; null when it is not clear
+function polGuess(po, l) {
+  const p = (DB.projects || []).find((x) => x.id === po.projectId);
+  if (!p) return null;
+  const m = l.materialId && (p.materials || []).find((x) => x.id === l.materialId);
+  if (m && m.line && findLine(m.line)) return m.line;
+  const opts = lineOptions(p.id);
+  if (!opts.length) return null;
+  const same = l.code ? opts.filter((o) => String(lineCode(o.line, o.doc)) === String(l.code)) : [];
+  if (1 === same.length) return same[0].key;
+  const W = polWords(`${l.item || ""} ${l.desc || ""}`),
+    pool = same.length ? same : opts,
+    sc = pool.map((o) => {
+      const ow = new Set(polWords(`${o.line.item || ""} ${o.line.desc || ""}`));
+      return { o: o, n: W.filter((w) => ow.has(w)).length };
+    }).sort((a, b) => b.n - a.n);
+  return sc[0] && sc[0].n > 0 && (!sc[1] || sc[1].n < sc[0].n) ? sc[0].o.key : null;
+}
+function poLinkDefaults(po) {
+  if (!po || !["draft", "pending"].includes(po.status)) return 0;
+  let n = 0;
+  (po.lines || []).forEach((l) => {
+    if (polLinked(l) || !(l.item || l.desc || +l.price)) return;
+    const k = polGuess(po, l);
+    if (!k) return;
+    l.line = k;
+    const f = findLine(k);
+    f && !l.code && (l.code = lineCode(f.line, f.doc)), (l.linkBy = "default"), n++;
+  });
+  return n;
+}
+function poLinkDefaultsAll() {
+  (DB && DB.pos ? DB.pos : []).forEach((po) => {
+    try {
+      poLinkDefaults(po);
+    } catch (e) {}
+  });
+}
+{
+  const base = persist;
+  persist = function () {
+    try {
+      poLinkDefaultsAll();
+    } catch (e) {}
+    return base.apply(this, arguments);
+  };
+}
+// the validator: a line with no link cannot be issued, submitted or approved
+{
+  const base = poValid;
+  poValid = function (po) {
+    const R = base.apply(this, arguments);
+    try {
+      po && poLinkDefaults(po);
+      (po && po.lines ? po.lines : [])
+        .filter((l) => (l.item || l.desc || +l.price || +l.qty) && !polLinked(l))
+        .forEach((l) => R.push(`${l.item || l.desc || "a line"} is not linked to an estimate line, a change-order line or overhead`));
+    } catch (e) {}
+    return R;
+  };
+}
+// ---- where a link opens: the estimate line's drill-down, or the invoice line's
+function polOpen(po, l) {
+  const k = polKind(l);
+  if ("estimate" === k || "co" === k) return void finLineModal(l.line);
+  if ("invoice" === k) {
+    const [, iid, lid] = String(l.line).split(":");
+    return void invLineModal(iid, lid);
+  }
+  if ("rebill" === k && l.invoiceLineId) return void invLineModal(l.invoiceId, l.invoiceLineId);
+}
+// the PO lines, bills and bank or card lines behind one line of an invoice
+function invLineModal(invId, lineId) {
+  const hit = "function" == typeof rbInvLine ? rbInvLine(lineId) : null;
+  if (!hit) return void toast("That invoice line is gone (removed from a draft or voided)");
+  const { c: c, inv: inv, l: il } = hit,
+    key = `invoice:${inv.id}:${il.id}`,
+    pls = [];
+  (DB.pos || []).forEach((po) => (po.lines || []).forEach((l) => (l.invoiceLineId === il.id || l.line === key) && pls.push({ po: po, l: l })));
+  const plIds = new Set(pls.map((x) => x.l.id)),
+    bills = (DB.bills || []).filter((b) => "void" !== b.status && (b.lines || []).some((x) => plIds.has(x.poLineId))),
+    txns = (DB.txns || []).filter(
+      (t) => t.invoiceLineId === il.id || bills.some((b) => t.billId === b.id || (t.match && t.match.billId === b.id)) || (t.fromTxn && t.id === il.fromTxn) || t.id === il.fromTxn,
+    ),
+    row = (cells, attr) => `<tr ${attr || ""}>${cells.map((x, i) => `<td${i === cells.length - 1 ? ' class="money"' : ""}>${x}</td>`).join("")}</tr>`,
+    list = (title, items) =>
+      `<div style="margin-bottom:10px"><b>${title}</b>${items.length ? `<table class="t" style="margin-top:4px"><tbody>${items.join("")}</tbody></table>` : '<div class="small muted">None</div>'}</div>`;
+  mbModal(
+    `${esc(inv.number)} · ${esc(il.item || il.desc || "Line")}`,
+    `<div class="row" style="gap:12px;flex-wrap:wrap;font-size:12.5px;margin-bottom:10px"><span>Billed <b>${money(lineAmount(il, inv))}</b></span>${il.cost ? `<span>Cost <b>${money(il.cost)}</b></span>` : ""}<span>${esc(c.name)} · ${esc(inv.status)}</span></div>
+    ${list("Purchase Order Lines", pls.map((x) => row([`${esc(x.po.number)} · ${esc(x.po.vendor)}`, esc(x.l.item || ""), money((+x.l.qty || 0) * (+x.l.price || 0))], `class="click" data-ilpo="${x.po.id}"`)))}
+    ${list("Vendor Bills", bills.map((b) => row([`${esc(b.vendor)} · ${esc(b.number || "")}`, fmtL(b.date), esc(b.status), money(billTotal(b))])))}
+    ${list("Bank and Card Lines", txns.map((t) => row([esc(t.desc || ""), fmtL(t.date), money(-t.amt)])))}`,
+    { submit: null },
+  );
+  document.querySelectorAll("#mbm [data-ilpo]").forEach(
+    (tr) =>
+      (tr.onclick = () => {
+        mbCloseModal();
+        const po = (DB.pos || []).find((x) => x.id === tr.dataset.ilpo);
+        po && flowGo.po(po)();
+      }),
+  );
+}
+// the estimate line's drill-down names the PO lines (with their links) and the bank or card lines that paid its bills
+{
+  const base = finLineModal;
+  finLineModal = function (key) {
+    const r = base.apply(this, arguments);
+    try {
+      const m = document.getElementById("mbm"),
+        f = lineFin(key);
+      if (!m || !f) return r;
+      const pls = [];
+      (DB.pos || []).forEach((po) => "cancelled" !== po.status && (po.lines || []).forEach((l) => l.line === key && pls.push({ po: po, l: l })));
+      const paid = (DB.txns || []).filter((t) => (f.bills || []).some((b) => t.billId === b.id || (t.match && t.match.billId === b.id))),
+        bd = m.querySelector(".mbm-bd"),
+        d = document.createElement("div");
+      d.className = "pol-drill";
+      d.innerHTML = `<div class="small muted" style="margin:-4px 0 10px">Left on the budget after what is spent and committed: <b>${money(r2(f.budget - f.actual - f.committed))}</b></div><div style="margin-bottom:10px"><b>Purchase Order Lines</b>${pls.length ? `<table class="t" style="margin-top:4px"><tbody>${pls.map((x) => `<tr class="click" data-finpo="${x.po.id}" data-polrow="${x.l.id}"><td>${esc(x.po.number)} · ${esc(x.po.vendor)}</td><td>${esc(x.l.item || "")}</td><td>${esc(x.po.status)}</td><td class="money">${money((+x.l.qty || 0) * (+x.l.price || 0))}</td></tr>`).join("")}</tbody></table>` : '<div class="small muted">None</div>'}</div><div style="margin-bottom:10px"><b>Bank and Card Lines Paying These Bills</b>${paid.length ? `<table class="t" style="margin-top:4px"><tbody>${paid.map((t) => `<tr><td>${esc(t.desc || "")}</td><td class="dim">${fmtL(t.date)}</td><td class="money">${money(-t.amt)}</td></tr>`).join("")}</tbody></table>` : '<div class="small muted">None</div>'}</div>`;
+      // the PO lines replace the list of whole orders: each row is the order line that buys for this line
+      const old = bd && [...bd.children].find((x) => /^Purchase orders/.test((x.querySelector("b") || {}).textContent || ""));
+      old ? old.replaceWith(d) : bd && bd.insertBefore(d, bd.firstChild.nextSibling);
+      d.querySelectorAll("[data-finpo]").forEach(
+        (tr) =>
+          (tr.onclick = () => {
+            mbCloseModal();
+            const po = (DB.pos || []).find((x) => x.id === tr.dataset.finpo);
+            po && flowGo.po(po)();
+          }),
+      );
+    } catch (e) {
+      console.warn("line drill-down", e);
+    }
+    return r;
+  };
+}
+// ---- the picker: search the job's estimate and change-order lines, billed back, or an overhead category
+function polPickerHtml(po, l) {
+  const opts = po.projectId ? lineOptions(po.projectId) : [],
+    cur = l.billable ? "rebill" : l.ohCat ? "oh:" + l.ohCat : l.line || "",
+    opt = (k, title, sub, q) =>
+      `<button type="button" class="pol-opt${cur === k ? " on" : ""}" data-polk="${esc(k)}" data-q="${esc(String(q || title).toLowerCase())}"><b>${title}</b>${sub ? `<span class="small muted">${sub}</span>` : ""}</button>`;
+  return `<div class="f"><input id="pol-q" type="search" placeholder="Search lines and categories" autocomplete="off" aria-label="Search lines and categories"></div><div class="pol-list">${
+    opts.length
+      ? `<div class="pol-grp">Estimate and Change-Order Lines</div>${opts
+          .map((o) =>
+            opt(
+              o.key,
+              `${esc(o.doc.number)} · ${o.line.num ? esc(o.line.num) + ". " : ""}${esc(o.line.item || o.line.desc || "")}`,
+              `${money(lineAmount(o.line, o.doc))} · budget ${money(lineBudget(o.line, o.doc).budget)} · code ${esc(lineCode(o.line, o.doc))}`,
+              `${o.doc.number} ${o.line.item || ""} ${o.line.desc || ""} ${lineCode(o.line, o.doc)}`,
+            ),
+          )
+          .join("")}`
+      : ""
+  }${po.projectId ? `<div class="pol-grp">Billed Back to the Client</div>${opt("rebill", "Reimbursable", "bought for the client, billed back at cost plus markup on its own invoice line", "reimbursable billed back client")}` : ""}<div class="pol-grp">Overhead</div>${POL_OH()
+    .map((c) => opt("oh:" + c.id, esc(c.n), "", `overhead ${c.n}`))
+    .join("")}</div>`;
+}
+function polSet(po, l, k) {
+  const was = polLabel(l) || "not linked";
+  "rebill" === k
+    ? ((l.billable = !0), (l.line = ""), delete l.ohCat)
+    : k.startsWith("oh:")
+      ? ((l.ohCat = k.slice(3)), (l.line = ""), (l.billable = !1))
+      : ((l.line = k), delete l.ohCat, (l.billable = !1));
+  const f = l.line && findLine(l.line);
+  f && (l.code = lineCode(f.line, f.doc)), l.billable || (delete l.invoiceId, delete l.invoiceLineId), delete l.linkBy;
+  const by = ("function" == typeof currentUser && (currentUser() || {}).name) || role();
+  audit("po", po.id, "line linked", was, polLabel(l), `${po.number} · ${l.item || ""} · ${by}`), save(), render();
+  rcToast(`${po.number}: ${l.item || "the line"} is linked to ${polLabel(l)}`, [{ label: "Open", run: flowGo.po(po) }]);
+}
+function polPicker(po, l) {
+  const m = mbModal(`Link ${esc(l.item || "the Line")}`, polPickerHtml(po, l), { submit: null });
+  m.classList.add("pol-sheet");
+  const q = m.querySelector("#pol-q");
+  q &&
+    q.addEventListener("input", () => {
+      const W = q.value.toLowerCase().split(/\s+/).filter(Boolean);
+      m.querySelectorAll(".pol-opt").forEach((b) => (b.style.display = W.every((w) => b.dataset.q.includes(w)) ? "" : "none"));
+      m.querySelectorAll(".pol-grp").forEach((g) => {
+        let n = g.nextElementSibling,
+          any = !1;
+        for (; n && !n.classList.contains("pol-grp"); n = n.nextElementSibling) "none" !== n.style.display && (any = !0);
+        g.style.display = any ? "" : "none";
+      });
+    });
+  m.querySelectorAll("[data-polk]").forEach((b) => (b.onclick = () => (mbCloseModal(), polSet(po, l, b.dataset.polk))));
+}
+// a billable line's invoice line, picked by hand: the job's items invoices that are not void
+function polInvPicker(po, l) {
+  const p = (DB.projects || []).find((x) => x.id === po.projectId),
+    c = p && (DB.clients || []).find((x) => x.id === p.clientId),
+    L = [];
+  c &&
+    (c.invoices || [])
+      .filter((i) => "sov" !== i.mode && "void" !== i.status && i.projectId === p.id)
+      .forEach((i) => (i.lines || []).forEach((x) => L.push({ i: i, x: x })));
+  if (!L.length) return void toast("No invoice on this job has lines yet — Ready to Bill drafts one when the line is billed back");
+  const m = mbModal(
+    "Bill It On",
+    `<div class="f"><input id="pol-q" type="search" placeholder="Search invoice lines" autocomplete="off" aria-label="Search invoice lines"></div><div class="pol-list">${L.map(
+      (y) =>
+        `<button type="button" class="pol-opt${l.invoiceLineId === y.x.id ? " on" : ""}" data-polil="${y.i.id}:${y.x.id}" data-q="${esc(`${y.i.number} ${y.x.item || ""} ${y.x.desc || ""}`.toLowerCase())}"><b>${esc(y.i.number)} · ${esc(y.x.item || y.x.desc || "")}</b><span class="small muted">${money(lineAmount(y.x, y.i))} · ${esc(y.i.status)}</span></button>`,
+    ).join("")}</div>`,
+    { submit: null },
+  );
+  m.classList.add("pol-sheet");
+  const q = m.querySelector("#pol-q");
+  q && q.addEventListener("input", () => m.querySelectorAll(".pol-opt").forEach((b) => (b.style.display = b.dataset.q.includes(q.value.toLowerCase().trim()) ? "" : "none")));
+  m.querySelectorAll("[data-polil]").forEach(
+    (b) =>
+      (b.onclick = () => {
+        mbCloseModal();
+        const [iid, lid] = b.dataset.polil.split(":"),
+          hit = rbInvLine(lid);
+        (l.invoiceId = iid), (l.invoiceLineId = lid);
+        audit("po", po.id, "line billed on", "", `${hit ? hit.inv.number : iid} · ${hit ? hit.l.item : lid}`, `${po.number} · ${l.item || ""}`), save(), render();
+        rcToast(`${po.number}: ${l.item || "the line"} is billed on ${hit ? hit.inv.number : "the invoice"}`, [{ label: "Open", run: () => invLineModal(iid, lid) }]);
+      }),
+  );
+}
+// ---- on the PO: each line's link is a chip that opens it, with Link or Change beside it
+function polCellHtml(po, l) {
+  const k = polKind(l),
+    ed = !["closed", "cancelled"].includes(po.status) && !["client", "crew", "driver"].includes(role()),
+    inv = l.billable && l.invoiceLineId && "function" == typeof rbInvLine ? rbInvLine(l.invoiceLineId) : null,
+    main = k
+      ? "oh" === k || "rebill" === k
+        ? `<span class="pol-chip">${esc(polLabel(l))}</span>`
+        : `<button type="button" class="pol-chip" data-polopen="${l.id}" title="Open the line">${esc(polLabel(l))}</button>`
+      : '<span class="pol-chip warn">Not linked</span>',
+    bill = l.billable
+      ? inv
+        ? `<button type="button" class="pol-chip" data-polinv="${l.id}" title="Open the invoice line">Billed on ${esc(inv.inv.number)}</button>`
+        : `<span class="pol-chip muted">Not billed yet</span>${ed ? `<button type="button" class="btn sm" data-polinvpick="${l.id}">Bill On…</button>` : ""}`
+      : "";
+  return `<div class="pol-cell">${main}${bill}${ed ? `<button type="button" class="btn sm" data-polpick="${l.id}">${k ? "Change" : "Link"}</button>` : ""}</div>`;
+}
+{
+  const base = renderPODoc;
+  renderPODoc = function (po) {
+    try {
+      po && poLinkDefaults(po);
+    } catch (e) {}
+    let h = base.apply(this, arguments);
+    try {
+      if (!po) return h;
+      h = h.replace('<th style="width:170px">From line</th>', '<th style="width:220px">Line</th>');
+      (po.lines || []).forEach((l) => {
+        const a = h.indexOf(`<tr data-line="${l.id}"`);
+        if (a < 0) return;
+        const b = h.indexOf("</tr>", a);
+        const row = h.slice(a, b).replace(/<select data-f="line"[\s\S]*?<\/select>/, polCellHtml(po, l));
+        h = h.slice(0, a) + row + h.slice(b);
+      });
+      const n = (po.lines || []).filter((l) => (l.item || l.desc || +l.price) && !polLinked(l)).length;
+      n &&
+        (h = h.replace(
+          '<table class="lines"',
+          `<div class="note warn pol-note">${n} line${1 === n ? " is" : "s are"} not linked to an estimate line, a change-order line or overhead — link ${1 === n ? "it" : "them"} before the order can be approved.</div><table class="lines"`,
+        ));
+    } catch (e) {
+      console.warn("PO line links", e);
+    }
+    return h;
+  };
+}
+// one listener for the chips and buttons, wherever the PO's lines are drawn (the editable table, the read-only
+// lines a PO shows once it leaves draft, the phone's cards)
+document.addEventListener("click", (e) => {
+  const b = e.target.closest && e.target.closest("[data-polpick], [data-polopen], [data-polinv], [data-polinvpick]");
+  if (!b) return;
+  const id = b.dataset.polpick || b.dataset.polopen || b.dataset.polinv || b.dataset.polinvpick,
+    hit = polFind(id);
+  if (!hit) return;
+  e.preventDefault(), e.stopPropagation();
+  b.dataset.polpick ? polPicker(hit.po, hit.l) : b.dataset.polinvpick ? polInvPicker(hit.po, hit.l) : polOpen(hit.po, hit.l);
+});
+// ---- billed back: a billable PO line is a reimbursable once billed by its vendor; the Billable Expenses pull stamps
+// its invoice line. The bank line that paid the bill is not a second reimbursable (rbWhy skips lines with a bill).
+function polRbRows(pid) {
+  const out = [];
+  (DB.pos || []).forEach((po) => {
+    if ((pid && po.projectId !== pid) || !po.projectId || ["draft", "pending", "cancelled"].includes(po.status)) return;
+    const p = (DB.projects || []).find((x) => x.id === po.projectId),
+      c = p && (DB.clients || []).find((x) => x.id === p.clientId);
+    if (!p || !c) return;
+    (po.lines || []).forEach((l) => {
+      if (!l.billable) return;
+      if (l.invoiceLineId && rbInvLine(l.invoiceLineId)) return;
+      l.invoiceLineId && (delete l.invoiceLineId, delete l.invoiceId);
+      const cost = r2(
+        (DB.bills || [])
+          .filter((b) => b.poId === po.id && !["void", "rejected", "draft"].includes(b.status) && !b.retainageRelease)
+          .reduce((a, b) => a + (b.lines || []).filter((x) => x.poLineId === l.id).reduce((s, x) => s + (+x.amount || 0), 0), 0),
+      );
+      if (!(cost > 0)) return;
+      const mk = null != l.markupPct ? +l.markupPct : rbMarkup(p);
+      out.push({
+        kind: "reimbursable",
+        key: "rbpl:" + l.id,
+        po: po,
+        pl: l,
+        t: { id: "pol:" + l.id, desc: `${po.number} ${l.item || ""}`.trim(), vendor: po.vendor, date: po.date, amt: -cost, projectId: p.id },
+        p: p,
+        c: c,
+        cost: cost,
+        markupPct: mk,
+        amount: r2(cost * (1 + mk / 100)),
+        date: po.date,
+        label: `${po.number} ${l.item || ""}`.trim(),
+        why: `${po.number} line marked billed back to the client`,
+      });
+    });
+  });
+  return out;
+}
+{
+  const base = rbRows;
+  rbRows = function (pid) {
+    const R = base.apply(this, arguments);
+    try {
+      const P = polRbRows(pid);
+      return P.length ? R.concat(P) : R;
+    } catch (e) {
+      return console.warn("billed-back PO lines", e), R;
+    }
+  };
+}
+{
+  const base = rbPullInto;
+  rbPullInto = function (inv, rows) {
+    const mine = (rows || []).filter((x) => x && x.pl),
+      rest = (rows || []).filter((x) => !(x && x.pl));
+    let n = base.call(this, inv, rest);
+    mine.forEach((x) => {
+      if (x.pl.invoiceLineId) return;
+      const l = { id: uid("l"), item: `Reimbursable — ${String(x.po.vendor || x.label).slice(0, 60)}`, desc: `Bought for you on ${x.po.number}: ${x.pl.item || ""} · cost ${money(x.cost)}${x.markupPct ? ` plus ${x.markupPct}%` : ""}`, qty: 1, unit: "ls", rate: x.amount, taxable: !1, cost: x.cost, markupPct: x.markupPct, fromPOLine: x.pl.id, cat: "reimbursable" };
+      (inv.lines = inv.lines || []).push(l), (x.pl.invoiceId = inv.id), (x.pl.invoiceLineId = l.id), n++;
+      try {
+        audit("po", x.po.id, "line billed on", "", `${inv.number} line ${l.item}`, `${money(x.amount)} on ${inv.number}`);
+      } catch (e) {}
+    });
+    return n;
+  };
+}
+// ---- New PO opens on the job's lines: "Which lines?", with Start Blank as the secondary way in
+{
+  const base = newPODialog;
+  newPODialog = function (opts) {
+    const blank = opts && opts.blank;
+    let p = null;
+    try {
+      p = S && S.id ? (DB.projects || []).find((x) => x.id === S.id) : null;
+    } catch (e) {}
+    const c = p && (DB.clients || []).find((x) => x.id === p.clientId),
+      has =
+        c &&
+        [...(c.estimates || []).filter((e) => !["rejected", "expired"].includes(e.status) && (!e.projectId || e.projectId === p.id)), ...(c.changeOrders || []).filter((x) => ["approved", "billed"].includes(x.status) && (!x.projectId || x.projectId === p.id)), ...(c.invoices || []).filter((x) => "sov" !== x.mode && "void" !== x.status && (!x.projectId || x.projectId === p.id))].some((d) => (d.lines || []).length);
+    if (blank || !has) return base.apply(this, arguments);
+    ctPOPicker(p.id, "*");
+    const m = document.getElementById("mbm");
+    if (!m) return base.apply(this, arguments);
+    m.classList.add("pol-which");
+    const h = m.querySelector(".mbm-hd h3");
+    h && (h.textContent = "Which Lines?");
+    const ok = m.querySelector("#mbm-ok"),
+      b = document.createElement("button");
+    (b.type = "button"), (b.className = "btn"), (b.id = "mbm-blank"), (b.textContent = "Start Blank");
+    b.onclick = () => (mbCloseModal(), base.call(this, { blank: !0 }));
+    ok ? ok.before(b) : m.querySelector(".mbm-ft").append(b);
+  };
+}
+// ---- one question, one number: PO lines not linked, in the registry, the query engine and the Report Builder
+function polRows() {
+  const out = [];
+  (DB.pos || []).forEach((po) => {
+    const p = (DB.projects || []).find((x) => x.id === po.projectId);
+    (po.lines || []).forEach((l) => {
+      if (!(l.item || l.desc || +l.price || +l.qty)) return;
+      const k = polKind(l),
+        parts = "estimate" === k || "co" === k || "invoice" === k ? String(l.line).split(":") : [];
+      out.push({
+        _id: l.id,
+        _module: "Purchasing",
+        _label: `${po.number} ${l.item || ""}`,
+        _go: "function" == typeof eqGo ? eqGo("po", { po: po.id }) : null,
+        poId: po.id,
+        poNumber: po.number || "",
+        poStatus: po.status || "",
+        vendor: po.vendor || "",
+        project: p ? String(p.project.name).replace(/ —.*$/, "") : "",
+        projectId: po.projectId || "",
+        item: l.item || "",
+        qty: +l.qty || 0,
+        unit: l.unit || "",
+        price: +l.price || 0,
+        amount: r2((+l.qty || 0) * (+l.price || 0)),
+        code: l.code || "",
+        link: k || "none",
+        linked: !!k,
+        linkLabel: polLabel(l),
+        estimateId: "estimate" === k ? parts[1] : "",
+        estimateLineId: "estimate" === k ? parts[2] : "",
+        coId: "co" === k ? parts[1] : "",
+        coLineId: "co" === k ? parts[2] : "",
+        overheadCategory: "oh" === k ? l.ohCat : "",
+        billable: !!l.billable,
+        invoiceId: "invoice" === k ? parts[1] : l.invoiceId || "",
+        invoiceLineId: "invoice" === k ? parts[2] : l.invoiceLineId || "",
+      });
+    });
+  });
+  return out;
+}
+predDef("poLinesUnlinked", {
+  label: "PO Lines Not Linked",
+  rule: "a purchase order line (not cancelled) with no estimate line, change-order line, overhead category or billed-back mark: it cannot be approved until it is linked",
+  rows(scope) {
+    return polRows().filter((r) => !r.linked && "cancelled" !== r.poStatus && (!scope || r.projectId === scope));
+  },
+});
+"object" == typeof EQ_TABLES && (EQ_TABLES.polines = () => polRows());
+"object" == typeof EQ_ALIAS && Object.assign(EQ_ALIAS, { poline: "polines", polines: "polines", "po lines": "polines", "purchase order lines": "polines" });
+"object" == typeof REP_DS &&
+  (REP_DS.polines = {
+    n: "Purchase order lines",
+    rows: () => polRows().map((r) => ({ project: r.project, vendor: r.vendor, po: r.poNumber, status: r.poStatus, item: r.item, link: r.link, line: r.linkLabel || "Not linked", amount: r.amount })),
+    dims: ["project", "vendor", "status", "link"],
+    sums: ["amount"],
+  });
