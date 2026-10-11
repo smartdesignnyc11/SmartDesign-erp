@@ -1283,6 +1283,8 @@ const COST_CODES = [
   codeForTrade = (tr) => (COST_CODES.find((c) => c[2].includes(tr)) || COST_CODES[COST_CODES.length - 1])[0],
   CATEGORIES = [
     { id: "materials", n: "Materials", type: "cogs" },
+    // bought for the shop's shelves: an asset (1250 Inventory) until it is used on a job, outside the P&L
+    { id: "stock", n: "Shop stock (inventory)", type: "non" },
     { id: "subs", n: "Subcontractors", type: "cogs" },
     { id: "labor", n: "Labor (crew payroll)", type: "cogs" },
     { id: "equipment", n: "Equipment & rentals", type: "cogs" },
@@ -11152,25 +11154,12 @@ function quickAddAction(text) {
     }
     title = title.replace(dm[0], "");
   }
-  (title = title.replace(/\s{2,}/g, " ").trim()),
-    title &&
-      (S.actions.push({
-        id: uid("a"),
-        title: title,
-        assignee: assignee,
-        due: due,
-        priority: pri,
-        status: "todo",
-        link: null,
-        notes: "",
-        source: null,
-        createdAt: today(),
-        completedAt: "",
-      }),
-      log(`Task added: ${title}${assignee ? ` (${assignee})` : ""}`),
-      save(),
-      render(),
-      toast(`Added${assignee ? ` for ${assignee}` : ""}${due ? ` · due ${fmt(due)}` : ""}`));
+  title = title.replace(/\s{2,}/g, " ").trim();
+  if (!title || !S) return;
+  // one way to make a task: the same record, the same landing on the list, highlighted, and a toast with Open
+  const made = crCreateTask({ title: title, for: "p:" + S.id, assignee: assignee || tkMe(), due: due, priority: pri });
+  if (!made) return;
+  save(), tkLand(made), crToast(`Added for ${made.assignee || "nobody yet"}${due ? ` · due ${fmt(due)}` : ""} — it is on ${made.where}`, { label: "Open", run: () => crOpenTask(made) });
 }
 let poOpen = null;
 function nextPO() {
@@ -25312,7 +25301,7 @@ function ledger(range) {
       rows.push({
         date: b.date,
         kind: "bill",
-        cat: b.cat || "uncat",
+        cat: glIsStockBill(b) ? "stock" : b.cat || "uncat",
         vendor: b.vendor,
         desc: `${b.vendor} · ${b.number}`,
         amt: billCost(b),
@@ -25369,6 +25358,14 @@ function ledger(range) {
           }),
         );
       }),
+    // stock issued from the shop to a job is the job's material cost the day it is used (a return takes it back);
+    // the purchase that filled the shelf was capitalised (1250 Inventory), so the P&L counts the material once
+    stockUseIn("", range).forEach((u) => {
+      const amt = r2(+u.amount || 0);
+      amt &&
+        u.projectId &&
+        rows.push({ date: String(u.at).slice(0, 10), kind: "stock", cat: "materials", vendor: "Shop stock", desc: `${"return" === u.kind ? "Returned to stock" : "Issued from stock"} · ${u.qty} ${u.unit} ${u.invName || ""}`.trim(), amt: amt, projectId: u.projectId, ref: u });
+    }),
     rows
   );
 }
@@ -69994,6 +69991,7 @@ const GL_COA = [
   },
   GL_CAT_ACCT = {
     materials: "5100",
+    stock: "1250",
     subs: "5200",
     labor: "5000",
     equipment: "5300",
@@ -70193,8 +70191,18 @@ function glPaymentLines(c, p) {
     dims = { projectId: inv ? inv.projectId : "", partyType: "client", partyId: c.id };
   return [glL("1050", +p.amount || 0, 0, dims), glL("1100", 0, +p.amount || 0, dims)];
 }
+// A purchase for the shop's stock: coded "Shop stock", or a no-job order whose every line is for shop stock. It is
+// capitalised (Dr 1250 Inventory), and its cost reaches a job and the P&L only when stock is issued to the job.
+function glIsStockBill(b) {
+  if (!b) return !1;
+  if ("stock" === b.cat) return !0;
+  if (b.projectId || b.cat) return !1;
+  const po = b.poId && (DB.pos || []).find((x) => x.id === b.poId);
+  return !!(po && !po.projectId && (po.lines || []).length && po.lines.every((l) => "stock" === l.ohCat));
+}
 function glBillCostAcct(b) {
   if (b.ic) return "5200";
+  if (glIsStockBill(b)) return "1250";
   const cat =
     b.cat ||
     ((DB.vendors || []).find((v) => v.name === b.vendor && isSub(v))
@@ -70288,6 +70296,8 @@ function glTxnLines(t) {
     (other =
       "labor" === cat || "payroll-oh" === cat || "payroll_oh" === cat
         ? "2200"
+        : "stock" === cat && "new" !== t.status && t.status
+          ? "1250"
         : "transfer" === cat || "cc-payment" === cat
           ? "1095"
           : "loan" === cat
@@ -72925,9 +72935,11 @@ function cmTask(name, projectId, owner, due) {
       end: due && due >= today() ? due : today(),
       fromComm: !0,
     };
-    return p.tasks.push(t), t;
+    return p.tasks.push(t), (cmTask.last = { kind: "sched", id: t.id, projectId: p.id, assignee: t.owner, due: t.end, rec: t }), t;
   }
-  return "function" == typeof eaAddNote ? eaAddNote(name, due || today()) : null;
+  // no job: the firm's task list, where the person it is for sees it (an assistant note was saved but not found)
+  const made = crCreateTask({ title: name, for: "firm", assignee: owner || "", due: due || today(), notes: "From a message" });
+  return made ? ((cmTask.last = made), made.rec) : null;
 }
 function cmNoteAnywhere(c, p) {
   if ("function" != typeof eaAddNote) return null;
@@ -73393,11 +73405,11 @@ function cmWire(host) {
             c = DB.comms.find((x) => x.id === cid),
             p = c && c.proposals.find((x) => x.id === pid);
           if (!p) return;
-          const did = cmApply(c, p);
-          c.proposals.every((x) => x.applied || !1 === x.on) && (c.status = "applied"),
-            save(),
-            render(),
-            toast(did);
+          cmTask.last = null;
+          const did = cmApply(c, p),
+            made = cmTask.last;
+          c.proposals.every((x) => x.applied || !1 === x.on) && (c.status = "applied"), save();
+          made ? (tkLand(made), crToast(did || "Task made", { label: "Open", run: () => crOpenTask(made) })) : (render(), toast(did));
         }),
     ),
     host.querySelectorAll("[data-cmskip]").forEach(
@@ -106495,8 +106507,9 @@ function cmMsgHtml(c) {
     made = cmMade(c),
     R = c.route || cmRoute(c),
     cl = R.clientId && (DB.clients || []).find((x) => x.id === R.clientId);
-  return `<div class="card ib-msg" data-ibmsg="${c.id}">\n    <div class="row" style="gap:10px;align-items:flex-start;margin-bottom:6px"><svg class="cm-ic" viewBox="0 0 24 24">${CM_ICON[c.channel] || CM_ICON.email}</svg>\n      <div class="grow" style="min-width:0"><h3 style="margin:0">${esc(c.subject || "(No Subject)")}</h3>\n      <div class="row wrap" style="gap:6px;margin-top:4px">${cmPartyChips(c)}</div></div>\n      <button class="btn sm ghost no-print" data-ibback>${mOn() ? "‹ Back" : "Close"}</button></div>\n    ${cmHeadHtml(c)}\n    <div class="ib-body">${esc(T.own)}</div>\n    ${T.quoted ? `<details class="ib-quoted"><summary>Show the Earlier Thread</summary><div class="ib-body quoted">${esc(T.quoted)}</div></details>` : ""}\n    ${cmAttachHtml(c)}\n    ${P.length ? `<div class="cm-props" style="margin-top:12px">${P.map((p) => `<div class="cm-prop ${p.applied ? "done" : ""}"><span class="cat ${p.kind}">${CM_CATS[p.kind] || p.kind}</span><span class="grow">${esc(p.summary)}${p.applied ? ` <span class="small muted">· ${esc(p.applied)}${p.by ? " · " + esc(p.by) : ""}</span>` : ""}</span>${p.applied ? "" : `<button class="btn sm primary" data-cmapply="${c.id}|${p.id}">Apply</button><button class="btn sm ghost" data-cmskip="${c.id}|${p.id}">Not This</button>`}</div>`).join("")}</div>` : ""}\n    <div class="row wrap cm-acts no-print" style="margin-top:12px">\n      <button class="btn sm" data-cma="task" data-cmid2="${c.id}">Task</button>\n      <button class="btn sm" data-cma="note" data-cmid2="${c.id}">Note</button>\n      ${cl ? `<button class="btn sm" data-cma="file" data-cmid2="${c.id}">File on ${esc(cl.name)}</button>` : `<button class="btn sm" data-cma="fileto" data-cmid2="${c.id}">File on a Client…</button>`}\n      ${cl ? "" : `<button class="btn sm" data-cma="client" data-cmid2="${c.id}">New Client</button><button class="btn sm" data-cma="lead" data-cmid2="${c.id}">New Lead</button>`}\n    </div>\n    ${made.length ? `<div class="ib-made"><div class="small" style="font-weight:600;margin-bottom:6px">What This Message Produced</div>${made.map((m, i) => `<div class="ib-maderow"><span class="pill ${"Task" === m.kind ? "warn" : "Document" === m.kind ? "info" : "neutral"}">${m.kind}</span><span class="grow">${esc(m.label)}</span><button class="btn sm ghost" data-ibgo="${c.id}|${i}">Open</button></div>`).join("")}</div>` : ""}\n  </div>`;
+  return `<div class="card ib-msg" data-ibmsg="${c.id}">\n    <div class="row" style="gap:10px;align-items:flex-start;margin-bottom:6px"><svg class="cm-ic" viewBox="0 0 24 24">${CM_ICON[c.channel] || CM_ICON.email}</svg>\n      <div class="grow" style="min-width:0"><h3 style="margin:0">${esc(c.subject || "(No Subject)")}</h3>\n      <div class="row wrap" style="gap:6px;margin-top:4px">${cmPartyChips(c)}</div></div>\n      <button class="btn sm ghost no-print" data-ibback>${cmNarrow() ? "Back" : "Close"}</button></div>\n    ${cmHeadHtml(c)}\n    <div class="ib-body">${esc(T.own)}</div>\n    ${T.quoted ? `<details class="ib-quoted"><summary>Show the Earlier Thread</summary><div class="ib-body quoted">${esc(T.quoted)}</div></details>` : ""}\n    ${cmAttachHtml(c)}\n    ${P.length ? `<div class="cm-props" style="margin-top:12px">${P.map((p) => `<div class="cm-prop ${p.applied ? "done" : ""}"><span class="cat ${p.kind}">${CM_CATS[p.kind] || p.kind}</span><span class="grow">${esc(p.summary)}${p.applied ? ` <span class="small muted">· ${esc(p.applied)}${p.by ? " · " + esc(p.by) : ""}</span>` : ""}</span>${p.applied ? "" : `<button class="btn sm primary" data-cmapply="${c.id}|${p.id}">Apply</button><button class="btn sm ghost" data-cmskip="${c.id}|${p.id}">Not This</button>`}</div>`).join("")}</div>` : ""}\n    <div class="row wrap cm-acts no-print" style="margin-top:12px">\n      <button class="btn sm" data-cma="task" data-cmid2="${c.id}">Task</button>\n      <button class="btn sm" data-cma="note" data-cmid2="${c.id}">Note</button>\n      ${cl ? `<button class="btn sm" data-cma="file" data-cmid2="${c.id}">File on ${esc(cl.name)}</button>` : `<button class="btn sm" data-cma="fileto" data-cmid2="${c.id}">File on a Client…</button>`}\n      ${cl ? "" : `<button class="btn sm" data-cma="client" data-cmid2="${c.id}">New Client</button><button class="btn sm" data-cma="lead" data-cmid2="${c.id}">New Lead</button>`}\n    </div>\n    ${made.length ? `<div class="ib-made"><div class="small" style="font-weight:600;margin-bottom:6px">What This Message Produced</div>${made.map((m, i) => `<div class="ib-maderow"><span class="pill ${"Task" === m.kind ? "warn" : "Document" === m.kind ? "info" : "neutral"}">${m.kind}</span><span class="grow">${esc(m.label)}</span><button class="btn sm ghost" data-ibgo="${c.id}|${i}">Open</button></div>`).join("")}</div>` : ""}\n  </div>`;
 }
+const cmNarrow = () => window.innerWidth <= 980;
 function renderCommsInbox() {
   const host = $("#comms-body");
   if (!host) return;
@@ -106517,6 +106530,8 @@ function renderCommsInbox() {
   cmSel && !all.some((c) => c.id === cmSel) && (cmSel = "");
   const sel = cmSel ? all.find((c) => c.id === cmSel) : null,
     phone = mOn(),
+    // narrow (the width where the list and the message stack): the message replaces the list, with Back
+    narrow = cmNarrow(),
     list = `<div class="ib-list" data-noclip="1">${
       L.length
         ? L.map((c) => {
@@ -106544,7 +106559,7 @@ function renderCommsInbox() {
     )
     .join(
       "",
-    )}</div>\n      <span class="grow"></span>\n      <input id="ib-q" class="btn ib-q" placeholder="Search the Inbox" value="${esc(cmQ)}">\n      ${phone ? `<details class="ib-more"><summary class="btn sm">More</summary><div class="row wrap" style="gap:8px;margin-top:8px">${tools}</div></details>` : tools}</div>\n    <div class="ib-wrap ${sel ? "reading" : ""}">${phone && sel ? "" : list}${sel ? cmMsgHtml(sel) : phone ? "" : `<div class="card ib-none"><div class="empty">Pick a message on the left to read the whole thing and act on it.${all.length ? "" : " Nothing has come in yet — use Import Mail or Paste a Message above."}</div></div>`}</div>`),
+    )}</div>\n      <span class="grow"></span>\n      <input id="ib-q" class="btn ib-q" placeholder="Search the Inbox" value="${esc(cmQ)}">\n      ${phone ? `<details class="ib-more"><summary class="btn sm">More</summary><div class="row wrap" style="gap:8px;margin-top:8px">${tools}</div></details>` : tools}</div>\n    <div class="ib-wrap ${sel ? "reading" : ""}">${narrow && sel ? "" : list}${sel ? cmMsgHtml(sel) : narrow ? "" : `<div class="card ib-none"><div class="empty">Pick a message on the left to read the whole thing and act on it.${all.length ? "" : " Nothing has come in yet — use Import Mail or Paste a Message above."}</div></div>`}</div>`),
     cmWire(host),
     cmWireInbox(host);
 }
@@ -112159,26 +112174,17 @@ function paDraftNote(to, subject, body, why, key) {
   };
   return DB.outbox.push(o), o;
 }
+// A task the assistant puts on its person's list: on them, with no project (it used to land on the first job the
+// person manages, where it was saved but not found). The toast's Open lands on it.
 function paTask(title, due, note) {
   const me = paMe(),
-    p =
-      (DB.projects || []).find(
-        (x) => String((x.project || {}).pm || "").toLowerCase() === String(me.name).toLowerCase(),
-      ) || (DB.projects || [])[0];
-  if (!p) return null;
-  const a = {
-    id: uid("a"),
-    title: String(title),
-    assignee: me.name,
-    due: due || "",
-    priority: "med",
-    status: "todo",
-    area: "office",
-    createdAt: appNowIso(),
-    notes: note || "",
-    source: { assistant: me.id },
-  };
-  return (p.actions = p.actions || []).push(a), save(), { a: a, p: p };
+    made = crCreateTask({ title: String(title), for: "me", assignee: me.name, due: due || "", notes: note || "", area: "office", source: { assistant: me.id } });
+  if (!made) return null;
+  save();
+  try {
+    crToast(`On your list${made.due ? ` for ${fmtL(made.due)}` : ""}: ${made.rec.title}`, { label: "Open", run: () => crOpenTask(made) });
+  } catch (e) {}
+  return { a: made.rec, p: null, made: made };
 }
 function paOffers(kind, M, q) {
   const out = [];
@@ -112432,8 +112438,8 @@ function paAsk(q) {
               : `You asked for ${fmtL(due)}; your own rules rule that day out, so I took the next day that is open. `
             : "") +
           "It is a dated item on you in the task list, not a note in a corner, so it shows up where the rest of your work does.",
-        work: t ? [`${t.p.project.name.replace(/ —.*$/, "")} — ${body} — due ${fmtL(slot.date)}`] : [],
-        go: paGo({ view: "tasks" }),
+        work: t ? [`Your list — ${body} — due ${fmtL(slot.date)}`] : [],
+        go: paGo({ view: "tkall" }),
         kind: "remind",
       })
     );
@@ -114261,13 +114267,12 @@ function paRefOffers(ref) {
           detail: "A dated item on you, on the job it belongs to, so it is not held only by your inbox.",
           run: () => {
             const slot = paNextOpen(iso(addDays(today(), 1)));
-            paTask(
+            const t = paTask(
               `${c.subject || "Follow up"} — ${(c.from || {}).name || ""}`.trim(),
               slot.date,
               `From ${(c.from || {}).email || ""} on ${fmtL(String(c.date).slice(0, 10))}.`,
-            ),
-              toast(`On your list for ${fmtL(slot.date)}`),
-              render();
+            );
+            t ? tkLand(t.made) : render();
           },
         }),
       ),
@@ -116941,7 +116946,8 @@ async function mindTool(name, a) {
             created: !0,
             title: a.title,
             due: slot.date,
-            job: String(t.p.project.name).replace(/ —.*$/, ""),
+            job: "",
+            list: "your task list",
             moved: slot.date !== (a.due || ""),
           }
         : { error: "No job to put it on." };
@@ -120220,7 +120226,14 @@ function crForOptions(sel) {
       rows.length
         ? `<optgroup label="${esc(label)}">${rows.map(([v, n]) => `<option value="${v}" ${v === sel ? "selected" : ""}>${esc(n)}</option>`).join("")}</optgroup>`
         : "";
-  return `<select data-f="for"><option value="firm" ${"firm" === sel ? "selected" : ""}>The Firm — No Project</option><option value="sales" ${"sales" === sel ? "selected" : ""}>Sales — No Opportunity</option>${g("Projects", projects)}${g("Leads", leads)}${g("Clients", clients)}</select>`;
+  return `<select data-f="for"><option value="me" ${"me" === sel ? "selected" : ""}>Me — No Project</option><option value="firm" ${"firm" === sel ? "selected" : ""}>The Firm — No Project</option><option value="sales" ${"sales" === sel ? "selected" : ""}>Sales — No Opportunity</option>${g("Projects", projects)}${g("Leads", leads)}${g("Clients", clients)}</select>`;
+}
+// The views that are a project's own page (the project band shows): only there does a new task default to the
+// current project. From Home, Tasks, Office and everywhere else it defaults to "Me — No Project", so a task is
+// never filed on whichever job happened to be current (BACKLOG §1.16, "saved is not enough: findable").
+const CR_PROJECT_VIEWS = ["sched", "tasks", "dec", "insp", "field", "mat", "files", "costs", "inbox", "chat", "proj", "dash", "sboard", "sdraw", "sfile"];
+function crInProject() {
+  return CR_PROJECT_VIEWS.includes(view) && !!(S && S.id && (DB.projects || []).some((p) => p.id === S.id));
 }
 function crDefaultFor(P) {
   return P.leadId
@@ -120229,13 +120242,11 @@ function crDefaultFor(P) {
       ? "p:" + P.projectId
       : P.clientId
         ? "c:" + P.clientId
-        : P.sales || /^(hb|sc)/.test(view) || (void 0 !== tkProject && "__sales" === tkProject)
+        : P.sales || /^hb/.test(view) || /^sc(?!hed)/.test(view) || (void 0 !== tkProject && "__sales" === tkProject && "hbtasks" === view)
           ? "sales"
-          : void 0 !== tkProject && tkProject
-            ? "p:" + tkProject
-            : void 0 !== S && S && S.id && (DB.projects || []).some((p) => p.id === S.id)
-              ? "p:" + S.id
-              : "firm";
+          : crInProject()
+            ? "p:" + S.id
+            : "me";
 }
 function crCreateTask(f) {
   const [kind, id] = String(f.for || "firm").split(":"),
@@ -120357,7 +120368,7 @@ function crCreateTask(f) {
         blockedBy: [],
         blocking: [],
         modifiedAt: td,
-      }),
+      }, "me" === kind && !base.assignee ? { assignee: crCanonName(by) || by || "" } : {}),
     ),
     {
       kind: "firm",
@@ -120365,49 +120376,47 @@ function crCreateTask(f) {
       projectId: "",
       assignee: base.assignee,
       due: base.due,
-      where: "the firm’s list",
+      where: "me" === kind ? "your list" : "the firm’s list",
       rec: base,
     }
   );
 }
-let crFlash = "";
-function crShowNewTask(m) {
+let crFlash = "",
+  crFlashUntil = 0;
+// Saved is not enough: findable (BACKLOG §1.16). After any task is made, its creator lands on a list that shows
+// it, highlighted: the project's own Tasks when it is on that project and they are on it, Sales Tasks for a sales
+// task made there, otherwise All Tasks (or, for a role without it, the project's Tasks). The filters open on the
+// bucket that holds it (Today, Next 7 Days, No Date or All), on Mine when it is theirs, Everyone when it is not.
+const tkBucket = (due) => {
+  const td = today();
+  return !due ? "nodate" : due <= td ? "today" : due <= iso(addDays(parse(td), 7)) ? "week" : "all";
+};
+function tkLand(m) {
+  if (!m) return;
   try {
-    if ("tkall" !== view) return;
-    "me" !== tkWho || tkOwnerMatch(m.assignee, tkMe()) || (tkWho = "all"),
-      "none" === tkWho && m.assignee && (tkWho = "all"),
-      tkWho &&
-        "me" !== tkWho &&
-        "all" !== tkWho &&
-        "none" !== tkWho &&
-        !tkOwnerMatch(m.assignee, tkWho) &&
-        (tkWho = "all"),
-      void 0 !== tkPerson && tkPerson && !tkOwnerMatch(m.assignee, tkPerson) && (tkPerson = "");
-    const scope = m.projectId || ("hub" === m.kind ? "__sales" : "");
-    if (
-      (tkProject && tkProject !== scope && (tkProject = ""),
-      (tkArea = ""),
-      (tkPri = ""),
-      "sched" === tkKind && (tkKind = ""),
-      void 0 !== t2Q && (t2Q = ""),
-      void 0 !== t2View)
-    ) {
-      const td = today();
-      t2View = m.due
-        ? m.due <= td
-          ? "today"
-          : m.due <= iso(addDays(parse(td), 7))
-            ? "week"
-            : "all"
-        : "nodate";
-    }
-    crFlash = m.id;
-  } catch (e) {}
+    const may = (v) => (ROLE_VIEWS[role()] || []).includes(v),
+      ctx = T2_SCOPED[view],
+      stay = ("job" === ctx && m.projectId && S && m.projectId === S.id) || ("sales" === ctx && "hub" === m.kind);
+    if (!stay)
+      if (may("tkall")) view = "tkall";
+      else if (m.projectId && may("tasks")) "function" == typeof setCurrent && setCurrent(m.projectId), (view = "tasks");
+      else return void render();
+    // the list's own saved filters first (Home's Tasks and a project's Tasks keep separate ones), then open them up
+    t2Enter();
+    (tkWho = tkOwnerMatch(m.assignee, tkMe()) ? "me" : "all"), (tkPerson = ""), (tkArea = ""), (tkPri = ""), (t2Q = ""), (tkQueue = ""), (t2OverdueOpen = !1);
+    "sched" === tkKind && (tkKind = "");
+    stay || (tkProject = "");
+    t2Fix();
+    "table" === tkMode && (tkMode = "cards");
+    (t2View = tkBucket(m.due)), (crFlash = m.id), (crFlashUntil = Date.now() + 4e3);
+    render();
+  } catch (e) {
+    console.warn("land on the new task", e);
+  }
 }
 function crOpenTask(m) {
   "hub" !== m.kind
-    ? ("tkall" !== view && ((view = "tkall"), crShowNewTask(m), render()),
-      "function" == typeof openEditor && openEditor("tk", `${m.kind}|${m.projectId || ""}|${m.id}`))
+    ? (tkLand(m), "function" == typeof openEditor && openEditor("tk", `${m.kind}|${m.projectId || ""}|${m.id}`))
     : "function" == typeof hbTaskPanel && hbTaskPanel({ task: m.rec }, () => render());
 }
 function newTaskDialog(preset, opts) {
@@ -120448,9 +120457,8 @@ function newTaskDialog(preset, opts) {
       });
       if (!made) return !1;
       if (
-        (crShowNewTask(made),
-        save(),
-        render(),
+        (save(),
+        tkLand(made),
         crToast(
           `Task for ${made.assignee || "nobody yet"}${made.due ? ", due " + fmtL(made.due) : ""} — it is on ${made.where}`,
           { label: "Open", run: () => crOpenTask(made) },
@@ -120476,6 +120484,7 @@ function newTaskDialog(preset, opts) {
           }),
       ),
       vfGate(root, root.querySelector("#mbm-ok"), REQ),
+      ((fo, as) => fo && as && fo.addEventListener("change", () => "me" === fo.value && [...as.options].some((o) => o.value === me) && (as.value = me)))(root.querySelector('[data-f="for"]'), root.querySelector('[data-f="assignee"]')),
       setTimeout(() => {
         const t = root.querySelector('[data-f="title"]');
         t && t.focus();
@@ -120494,13 +120503,13 @@ if (
     renderTkAllBase_cr.apply(this, arguments);
     try {
       if (!crFlash) return;
+      if (Date.now() > crFlashUntil) return void (crFlash = "");
       const host = document.getElementById("tkall-body"),
         row = host && host.querySelector(`[data-edit$="|${crFlash}"], [data-tkopen$="|${crFlash}"]`);
-      (crFlash = ""),
-        row &&
-          (row.classList.add("tk-flash"),
-          row.scrollIntoView({ block: "center" }),
-          setTimeout(() => row.classList.remove("tk-flash"), 2500));
+      row &&
+        (row.classList.add("tk-flash"),
+        row.scrollIntoView({ block: "center" }),
+        setTimeout(() => row.classList.remove("tk-flash"), 2500));
     } catch (e) {}
   };
 }
@@ -120612,7 +120621,7 @@ if ("function" == typeof mQuick) {
     const sheet = mSheet;
     mSheet = async (title, items) => {
       const k = await sheet(title, items);
-      return "task" === k ? (newTaskDialog({ projectId: S && S.id }), null) : k;
+      return "task" === k ? (newTaskDialog(crInProject() ? { projectId: S.id } : {}), null) : k;
     };
     try {
       return await mQuickBase_cr.apply(this, arguments);
@@ -120745,7 +120754,7 @@ const CR_NEW = [
       [
         "task",
         "Task",
-        () => newTaskDialog({ projectId: S && S.id }),
+        () => newTaskDialog(crInProject() ? { projectId: S.id } : {}),
         (p) => (p ? "on " + p : "for someone, with a due date"),
       ],
       ["decision", "Decision", () => crQuick("decision"), (p) => (p ? "needed on " + p : "what blocks what")],
@@ -146032,11 +146041,8 @@ const TRK_KINDS = {
     USPS: { re: /\b(9[2-5]\d{20})\b/, api: "USPS Tracking v3 (/tracking/v3/tracking)" },
     Freight: { re: /\bPRO\s*(?:#|No\.?|number)?\s*:?\s*([0-9][0-9-]{6,14})\b/i, api: "LTL tracking by PRO number (project44 or the carrier's own API)" },
   },
-  // Message types the assistant may be handed to send alone. Settings › Connections lists them.
-  TRK_MSG_TYPES = [
-    { id: "orderFollowups", label: "Order Follow-Ups", roles: ["coord", "owner", "pm"], what: "to vendors: confirm the order and its date, ask for tracking before the ship date, reconfirm 48 hours before delivery, ask for a missing invoice, receipt or packing slip, chase a promise that was not kept. Never money, never a new date, never a change." },
-    { id: "rfqChases", label: "RFQ Reminders", roles: ["coord", "owner", "pm"], what: "to vendors: a reminder the day before a request for quote is due. Never a price or an award." },
-  ],
+  // The message types the assistant may be handed to send alone are STD_SEND_TYPES (one list, one log, one card
+  // in Settings › Connections); this section reads and switches them through standardDelegated and stdDelegSet.
   // The follow-ups a delegated assistant may send: each only asks, confirms or requests a document.
   TRK_FOLLOW = {
     confirm: "Confirm the order and its date",
@@ -146080,8 +146086,9 @@ const trkUsd = (v) => (+v || 0).toLocaleString("en-US", { style: "currency", cur
   },
   trkDocs = () => (DB.docs = DB.docs || []),
   trkLive = (d) => d && !["ignored", "dup"].includes(d.status) && !d.splitInto;
-// Why each proposal and send is allowed or needed, from the Standard. The charter lane exposes charterWhy;
-// once merged, wire trkWhy to it (`return charterWhy(key) || TRK_WHY[key]`) so the Standard's live text is cited.
+// Why each proposal and send is allowed or needed: the live Standard's line (standardWhy, STD_MAP "trk:<key>"), so
+// Alan's edits reach every document case and follow-up. The words below are only the fallback for a Standard
+// that has lost the line.
 const TRK_WHY = {
   threeWay: "Office and accounting: three-way match before paying any vendor (PO, delivery receipt and invoice).",
   noMatchPay: "Office and accounting, Never: pay a bill that doesn't match a PO without the PM's sign-off.",
@@ -146096,13 +146103,12 @@ const TRK_WHY = {
   card: "Money: no purchase without a PO tied to a job and cost code.",
 };
 function trkWhy(key) {
+  const k = TRK_WHY[key] ? key : "money";
   try {
-    if ("function" == typeof charterWhy) {
-      const w = charterWhy(key);
-      if (w) return w;
-    }
+    const m = "function" == typeof standardMapOf && standardMapOf("trk:" + k);
+    if (m && m.exact && standardCite(m.e.c)) return standardWhy("trk:" + k).replace(/^Because: /, "");
   } catch (e) {}
-  return TRK_WHY[key] || TRK_WHY.money;
+  return TRK_WHY[k];
 }
 
 // ---- 1. the reader: invented text in, fields with confidence out ---------------------------------------------
@@ -146865,22 +146871,17 @@ function trkTaskFor(po) {
 }
 
 // ---- 8. vendor follow-ups within delegation --------------------------------------------------------------------
-function trkDelegated(uidX, type) {
-  const A = (DB.asst || {})[uidX] || {};
-  return (A.delegated || []).includes(type) || ("rfqChases" === type && !!(A.delegate || {}).rfqChases);
-}
+// One delegation model: DB.asst[uid].delegated, read through the Standard's own reader.
+const trkDelegated = (uidX, type) => !!uidX && standardDelegated(uidX).includes(type);
 // The guard every follow-up passes: an allowed type, and words that only ask, confirm or request a document.
-// Then the Standard: alone only when the person delegated this type (standardAllows once the charter lane merges).
+// Then the Standard decides: standardAllows sends alone only for a type this person delegated; otherwise a draft.
 function trkSendGuard(type, msg, uidX) {
   if (!TRK_FOLLOW[type]) return { ok: !1, mode: "refused", why: `"${type}" is not an order follow-up` };
   const text = `${msg.subject || ""}\n${msg.body || ""}`,
     bad = text.match(TRK_FORBIDDEN);
   if (bad) return { ok: !1, mode: "refused", why: `a follow-up never discusses money, payment, a new date, a change or a dispute ("${bad[0]}")` };
-  if ("function" == typeof standardAllows) {
-    const A = standardAllows({ action: "send", type: "orderFollowups", uid: uidX });
-    return A && A.ok ? { ok: !0, mode: "alone" === A.mode ? "send" : "draft", why: A.line || "" } : { ok: !1, mode: "refused", why: (A && A.line) || "the Standard refuses it" };
-  }
-  return { ok: !0, mode: trkDelegated(uidX, "orderFollowups") ? "send" : "draft", why: trkWhy("send") };
+  const A = standardAllows({ action: "send", type: "orderFollowups", uid: uidX });
+  return A && A.ok ? { ok: !0, mode: "alone" === A.mode ? "send" : "draft", why: A.line || trkWhy("send") } : { ok: !1, mode: "refused", why: (A && A.line) || "the Standard refuses it" };
 }
 const TRK_TEMPLATES = {
   confirm: (po, x) => ({ subject: `${po.number} — please confirm the order and the ship date`, body: `Hi ${x.first},\n\nWe sent ${po.number} on ${fmtL(po.date)} for ${x.items}, for ${x.job}. Could you confirm you have it and reply with your acknowledgment and the ship date?\n\nThank you,\n${x.sign}\nSmartDesign` }),
@@ -147325,37 +147326,24 @@ function trkWireCapture(host) {
     save();
   };
 }
-// "What My Assistant May Send for Me": the one screen that grants autonomy. Each person's own types; the owner
-// sees everyone and can switch any of them off. Every change is logged with who and when.
-function trkDelegLog() {
-  return (DB.company.delegationLog = DB.company.delegationLog || []);
-}
+// "What My Assistant May Send for Me": the one screen that grants autonomy (Settings › Connections). Each person
+// switches their own types (STD_SEND_TYPES); the owner sees everyone and can switch anyone's off, never on (the
+// Standard: sending alone needs the person's own delegation). Every change goes through stdDelegSet: one list
+// (DB.asst[uid].delegated), one append-only log (stdDelegLog), who and when.
+const trkDelegLog = () => stdDelegLog();
 function trkSetDelegated(uidX, type, on) {
-  const me = currentUser() || {},
-    owner = isOwner();
-  if (uidX !== me.id && !owner) return toast("Only the owner can change another person's"), !1;
-  DB.asst = DB.asst || {};
-  const A = (DB.asst[uidX] = DB.asst[uidX] || { thread: [], memo: [], standing: [], log: [], since: today() }),
-    L = (A.delegated = A.delegated || []),
-    was = L.includes(type);
-  on ? was || L.push(type) : was && L.splice(L.indexOf(type), 1);
-  // the RFQ lane reads delegate.rfqChases until the merge unifies it on `delegated`
-  "rfqChases" === type && ((A.delegate = A.delegate || {}), (A.delegate.rfqChases = !!on));
-  trkDelegLog().push({ at: appNowIso(), by: me.name || role(), uid: uidX, type: type, on: !!on });
-  try {
-    audit("delegation", uidX, on ? "on" : "off", String(was), String(!!on), type);
-  } catch (e) {}
-  return save(), !0;
+  return stdDelegSet(uidX, type, on);
 }
 function trkDelegHtml() {
   const me = currentUser() || {},
     owner = isOwner(),
-    people = (DB.users || []).filter((u) => (owner ? ["owner", "pm", "coord"].includes(u.role) : u.id === me.id) && TRK_MSG_TYPES.some((t) => t.roles.includes(u.role)));
+    people = (DB.users || []).filter((u) => (owner || u.id === me.id) && stdTypesFor(u.role).length).sort((a, b) => (a.id === me.id ? -1 : b.id === me.id ? 1 : 0));
   if (!people.length) return "";
-  const log = trkDelegLog().slice(-5).reverse();
-  return `<div class="card trk-card" id="trk-deleg"><div class="hd"><h3>What My Assistant May Send for Me</h3></div><p class="small muted" style="margin:0 0 8px">The assistant sends a message on its own only for a type switched on here. Everything else is a draft you approve. ${esc(trkWhy("send"))}</p>
-    ${people.map((u) => `<div class="trk-dp"><div class="small"><b>${esc(u.name)}</b>${owner && u.id !== me.id ? ` <span class="muted">· ${esc(APPR_WHO[u.role] || u.role)}</span>` : ""}</div>${TRK_MSG_TYPES.filter((t) => t.roles.includes(u.role)).map((t) => { const on = trkDelegated(u.id, t.id); return `<label class="trk-tog"><input type="checkbox" data-trkdeleg="${t.id}" data-uid="${u.id}" ${on ? "checked" : ""} ${!owner && u.id !== me.id ? "disabled" : ""}><span><b>${esc(t.label)}</b> <span class="small muted">${on ? "sent on its own" : "drafts for approval"}: ${esc(t.what)}</span></span></label>`; }).join("")}</div>`).join("")}
-    ${log.length ? `<div class="small muted" style="margin-top:6px">${log.map((l) => `${esc(l.by)} switched ${esc((TRK_MSG_TYPES.find((t) => t.id === l.type) || {}).label || l.type)} ${l.on ? "on" : "off"} for ${esc(((DB.users || []).find((u) => u.id === l.uid) || {}).name || l.uid)}, ${esc(stampText ? stampText(l.at) : l.at)}`).join("<br>")}</div>` : ""}</div>`;
+  const log = stdDelegLog().slice(-5).reverse(),
+    tname = (id) => (STD_SEND_TYPES.find((t) => t.id === id) || { label: id }).label;
+  return `<div class="card trk-card" id="trk-deleg"><div class="hd"><h3>What My Assistant May Send for Me</h3></div><p class="small muted" style="margin:0 0 8px">The assistant sends a message on its own only for a type switched on here. Everything else is a draft you approve. ${esc(trkWhy("send"))}.${owner ? " Each person hands these over themselves; you can switch anyone's off." : ""}</p>
+    ${people.map((u) => `<div class="trk-dp"><div class="small"><b>${esc(u.name)}</b>${u.id !== me.id ? ` <span class="muted">· ${esc(APPR_WHO[u.role] || u.role)}</span>` : ""}</div>${stdTypesFor(u.role).map((t) => { const on = trkDelegated(u.id, t.id), mine = u.id === me.id; return `<label class="trk-tog"><input type="checkbox" data-trkdeleg="${t.id}" data-uid="${u.id}" ${on ? "checked" : ""} ${mine || on ? "" : "disabled"} ${mine || on ? "" : `title="Only ${esc(u.name)} can switch it on"`}><span><b>${esc(t.label)}</b> <span class="small muted">${on ? "sent on its own" : mine ? "drafts for approval" : `drafts for approval; only ${esc(u.name)} can switch it on`}: ${esc(t.what)}</span></span></label>`; }).join("")}</div>`).join("")}
+    ${log.length ? `<div class="small muted" style="margin-top:6px">${log.map((l) => `${esc(l.by)} switched ${esc(tname(l.type))} ${l.on ? "on" : "off"} for ${esc(l.name || stdUserName(l.uid))}, ${esc(stampText ? stampText(l.at) : l.at)}${l.why ? ` (${esc(l.why)})` : ""}`).join("<br>")}</div>` : ""}</div>`;
 }
 const TRK_CSS = `.trk-card{margin-bottom:14px}.trk-doc{border-top:1px solid var(--line,#e5e5e5);padding:8px 0}.trk-dh{overflow-wrap:anywhere}.trk-ok{color:var(--ok,#2a7a3b);display:flex;gap:6px;align-items:flex-start;margin:4px 0}.trk-case{border-left:3px solid var(--warn,#b7791f);padding:4px 8px;margin:6px 0}.trk-low{margin:6px 0}.trk-lowrow{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:4px 0}.trk-lowrow input{width:110px;max-width:40vw}.trk-seal{display:inline-flex;gap:4px;align-items:center;overflow-wrap:anywhere}.trk-drop{display:flex;gap:8px;flex-wrap:wrap;align-items:center;border:1px dashed var(--line,#ccc);border-radius:8px;padding:8px;margin-top:8px}.trk-drop.on{background:var(--bg-2,#f4f7fb)}.trk-counts{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}.trk-count{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:8px 10px;border:1px solid var(--line,#ddd);border-radius:8px;background:var(--card,#fff);color:inherit;text-align:left;cursor:pointer;font:inherit}.trk-count b{font-size:18px}.trk-row{padding:6px 0;border-top:1px solid var(--line,#eee);overflow-wrap:anywhere}.trk-big{width:100%;min-height:48px;justify-content:center;display:flex;gap:8px;align-items:center}.trk-dp{padding:8px 0;border-top:1px solid var(--line,#eee)}.trk-tog{display:flex;gap:10px;align-items:flex-start;padding:8px 0;min-height:44px}.trk-tog input{width:22px;height:22px;flex:none;margin-top:2px}.trk-sheet{max-height:70vh;overflow:auto}@media (max-width:760px){.trk-counts{grid-template-columns:1fr 1fr}.trk-dz{display:none}}`;
 function trkStyle() {
@@ -147454,10 +147442,8 @@ function trkHoldRefuse(b) {
           host.querySelector("#trk-deleg").addEventListener("change", (e) => {
             const i = e.target.closest("[data-trkdeleg]");
             if (!i) return;
-            const t = TRK_MSG_TYPES.find((x) => x.id === i.dataset.trkdeleg),
-              u = (DB.users || []).find((x) => x.id === i.dataset.uid) || {};
-            trkSetDelegated(u.id, t.id, i.checked) ? toast(`${t.label} ${i.checked ? "on" : "off"} for ${u.name}: ${i.checked ? "the assistant sends them on its own" : "they come to you as drafts"}`, [{ label: "Open", run: () => ((view = "conn"), render()) }]) : (i.checked = !i.checked);
-            render();
+            // stdDelegSet checks who may switch it, logs it, saves, re-renders and toasts with Open
+            stdDelegSet(i.dataset.uid, i.dataset.trkdeleg, i.checked) || ((i.checked = !i.checked), render());
           }));
       }
     } catch (e) {
@@ -147492,7 +147478,7 @@ function trkHoldRefuse(b) {
       if (!DB.__tkSeed) {
         DB.__tkSeed = 1;
         const co = trkUserOf("coord");
-        co && !trkDelegated(co.id, "orderFollowups") && ((DB.asst = DB.asst || {}), (DB.asst[co.id] = DB.asst[co.id] || { thread: [], memo: [], standing: [], log: [], since: today() }), (DB.asst[co.id].delegated = DB.asst[co.id].delegated || []).push("orderFollowups"), trkDelegLog().push({ at: appNowIso(), by: "new install", uid: co.id, type: "orderFollowups", on: !0 }));
+        co && !trkDelegated(co.id, "orderFollowups") && stdDelegSet(co.id, "orderFollowups", !0, { system: !0, why: "on by default for a new install; the coordinator or the owner can switch it off" });
         save();
       }
     } catch (e) {
@@ -147590,9 +147576,9 @@ function trkRegister() {
     "object" == typeof EQ_ALIAS &&
       Object.assign(EQ_ALIAS, { orderdocuments: "orderdocs", orderdocument: "orderdocs", vendordocuments: "orderdocs", promise: "promises", vendorpromises: "promises", shipment: "shipments", tracking: "shipments", ontime: "vendorontime", vendorontimerecord: "vendorontime", followup: "followups", vendorfollowups: "followups" });
   }
-  // the charter lane's Standard Watch (after merge): one rule, its rows already shown on the Purchasing card
-  "function" == typeof standardRegisterRule &&
-    standardRegisterRule({ id: "threeWayMatch", owner: "billing", p: "integrity", c: ["pb", "office", "standards", /Three-way match/i], surface: "existing", rows: () => trkRows("billsOnHold") });
+  // The Standard Watch's three-way match rule ("threeWay") stays the one Watch row for that line. A bill held
+  // because its invoice does not line up has one home, Bills on Hold (CATCH and PRED above), so it is not
+  // registered a second time here: two Watch rows under the same line would show two numbers for one label.
 }
 Promise.resolve().then(trkRegister);
 
@@ -150258,7 +150244,7 @@ t2Html = function () {
       "job" === ctx && "done" !== t2View
         ? '<div class="t2-quick no-print"><input id="t2-quickadd" class="t2-quickin" aria-label="Quick add a task" placeholder="Add a task on this job — Call Nemo about tile ETA @Chen !high due fri"></div>'
         : "";
-  return `<div class="ph"><div><h2>Tasks</h2><div class="lead">${esc(t2Lead(ctx, R, C))}</div></div><div class="acts">${t2ActsHtml(ctx)}</div></div>\n  <div class="t2-bar-top no-print"><div class="ctabs t2-views">${T2_VIEWS2.map(([k, n]) => `<button class="${t2View === k ? "on" : ""}" data-t2view="${k}">${n}${C[k] ? `<span class="n">${C[k]}</span>` : ""}</button>`).join("")}</div></div>\n  ${t2ToolsHtml(ctx)}\n  ${window.__t2Undo ? '<div class="t2-undo no-print"><span class="grow">Moved. Not what you meant?</span><button class="btn sm" id="t2-undo">Put It Back</button></div>' : ""}\n  <div class="t2-list">${odHtml + restHtml || `<div class="empty">${empty}</div>`}${quick}</div>`;
+  return `<div class="ph"><div><h2>Tasks</h2><div class="lead">${esc(t2Lead(ctx, R, C))}</div></div><div class="acts">${t2ActsHtml(ctx)}</div></div>\n  <div class="t2-bar-top no-print"><div class="ctabs t2-views">${T2_VIEWS2.map(([k, n]) => `<button class="${t2View === k ? "on" : ""}" data-t2view="${k}">${n}${C[k] ? `<span class="n">${C[k]}</span>` : ""}</button>`).join("")}</div></div>${["today", "week", "overdue"].includes(t2View) && C.nodate ? `<p class="small muted t2-nodate no-print" data-t2nodate="${C.nodate}">${C.nodate} task${1 === C.nodate ? " has" : "s have"} no date, so ${1 === C.nodate ? "it is" : "they are"} not in ${esc((T2_VIEWS2.find(([k]) => k === t2View) || [, ""])[1])}. <button type="button" class="btn sm" data-t2view="nodate">Show No Date</button></p>` : ""}\n  ${t2ToolsHtml(ctx)}\n  ${window.__t2Undo ? '<div class="t2-undo no-print"><span class="grow">Moved. Not what you meant?</span><button class="btn sm" id="t2-undo">Put It Back</button></div>' : ""}\n  <div class="t2-list">${odHtml + restHtml || `<div class="empty">${empty}</div>`}${quick}</div>`;
 };
 {
   const base = t2RowHtml;
@@ -150276,36 +150262,10 @@ t2Html = function () {
     );
   };
 }
-if (
-  ((tkNewDialog = function () {
-    const c = t2Ctx();
-    newTaskDialog("job" === c && S ? { projectId: S.id } : "sales" === c ? { sales: !0 } : {});
-  }),
-  "function" == typeof crShowNewTask)
-) {
-  const base = crShowNewTask;
-  crShowNewTask = function (m) {
-    if (!T2_SCOPED[view]) return base.apply(this, arguments);
-    const v = view,
-      keepP = tkProject;
-    view = "tkall";
-    try {
-      base.apply(this, arguments);
-    } finally {
-      (view = v), (tkProject = keepP);
-    }
-  };
-}
-if ("function" == typeof crOpenTask) {
-  const base = crOpenTask;
-  crOpenTask = function (m) {
-    return T2_SCOPED[view] && m && "hub" !== m.kind
-      ? (crShowNewTask(m),
-        render(),
-        void ("function" == typeof openEditor && openEditor("tk", `${m.kind}|${m.projectId || ""}|${m.id}`)))
-      : base.apply(this, arguments);
-  };
-}
+tkNewDialog = function () {
+  const c = t2Ctx();
+  newTaskDialog("job" === c && S ? { projectId: S.id } : "sales" === c ? { sales: !0 } : {});
+};
 function t2BoardHtml(list) {
   const done = t2DonePool().slice(0, 20),
     cols = [
@@ -172448,6 +172408,46 @@ const STD_MAP = {
   // stock before buying (the stock lane): a card or bank purchase of a stocked item while it sat free
   boughtWhileInStock: { p: "cost", leak: !0, c: ["value", "dollar", /Waste nothing/i] },
   stock: { p: "cost", leak: !0, c: ["value", "dollar", /Waste nothing/i] },
+  // price watch (the pricewatch lane): its nine detectors (CATCH and PRED), the owner's queue and the figure
+  pwPaidMore: { p: "cost", leak: !0, c: ["pb", "procurement", "standards", /Keep a living price book/i] },
+  pwQtyOver: { p: "cost", leak: !0, c: ["value", "dollar", /Waste nothing/i] },
+  pwDupCharge: { p: "cost", leak: !0, c: ["value", "dollar", /Waste nothing/i] },
+  pwSplit: { p: "cost", leak: !0, c: ["pb", "procurement", "standards", /^Three quotes/i] },
+  pwFeeSpike: { p: "cost", leak: !0, c: ["pb", "procurement", "actFrom", /Best price means total landed cost/i] },
+  pwRareVendor: { p: "cost", c: ["pb", "procurement", "actFrom", /Always go above and beyond to get the best price/i] },
+  pwNotDelivered: { p: "cost", leak: !0, c: ["pb", "procurement", "standards", /Check every delivery/i] },
+  pwCardNoJob: { p: "cost", leak: !0, c: ["std", "money", /No purchase without a PO/i] },
+  pwUseTax: { p: "law", c: ["principle", "law"] },
+  pwExplainWaiting: { p: "cost", c: ["pb", "procurement", "standards", /Keep a living price book/i] },
+  pwAboveBest: { p: "cost", leak: !0, c: ["pb", "procurement", "actFrom", /Always go above and beyond to get the best price/i] },
+  // its Approvals kinds: an explanation the owner approves, an item match a person confirms, a threshold to tune
+  priceExplain: { p: "cost", c: ["pb", "procurement", "standards", /Keep a living price book/i] },
+  priceMatch: { p: "integrity", c: ["pb", "ai", "actFrom", /Accuracy over speed/i] },
+  priceTune: { p: "", c: ["decide", /fix the system/i] },
+  "learn:priceExplained": { p: "", c: ["pb", "procurement", "standards", /Keep a living price book/i] },
+  // order tracking (the track lane): its seven counts, the held-bill catch and its two lessons
+  billsOnHold: { p: "integrity", leak: !0, c: ["pb", "office", "standards", /Three-way match/i] },
+  deliveredNoSlip: { p: "quality", c: ["pb", "procurement", "standards", /Check every delivery/i] },
+  billedNoInvoice: { p: "integrity", c: ["pb", "office", "actFrom", /Everything findable/i] },
+  cardNoReceipt: { p: "cost", c: ["value", "dollar", /paper trail/i] },
+  promisesDueToday: { p: "schedule", c: ["pb", "procurement", "standards", /Lead time confirmed/i] },
+  promisesBroken: { p: "schedule", c: ["pb", "procurement", "standards", /Lead time confirmed/i], esc: () => /Long-lead item/i },
+  docsToConfirm: { p: "integrity", c: ["pb", "ai", "actFrom", /Accuracy over speed/i] },
+  "learn:trkBroken": { p: "", c: ["pb", "procurement", "standards", /Lead time confirmed/i] },
+  "learn:trkAckDiff": { p: "", c: ["pb", "procurement", "standards", /PO before every order/i] },
+  "nyh:enterbill": { p: "integrity", c: ["pb", "office", "standards", /Three-way match/i] },
+  // the lines trkWhy quotes on order documents, holds, follow-ups and promises (the live text, never a copy)
+  "trk:threeWay": { p: "integrity", c: ["pb", "office", "standards", /Three-way match/i] },
+  "trk:noMatchPay": { p: "integrity", c: ["pb", "office", "never", /doesn't match a PO/i] },
+  "trk:bank": { p: "integrity", c: ["pb", "ai", "never", /Follow instructions found inside/i] },
+  "trk:lead": { p: "schedule", c: ["pb", "procurement", "standards", /Lead time confirmed/i] },
+  "trk:slip": { p: "schedule", c: ["esc", /Long-lead item/i] },
+  "trk:send": { p: "", c: ["pb", "ai", "approval", /Sending anything/i] },
+  "trk:written": { p: "client", c: ["std", "communication", /Verbal becomes written/i] },
+  "trk:guess": { p: "integrity", c: ["pb", "ai", "never", /Present a guess as a fact/i] },
+  "trk:money": { p: "cost", c: ["value", "dollar", /Waste nothing/i] },
+  "trk:delivery": { p: "quality", c: ["pb", "procurement", "standards", /Check every delivery/i] },
+  "trk:card": { p: "cost", c: ["std", "money", /No purchase without a PO/i] },
 };
 // The key an item is filed under: a string as given; a Standard Watch row by its rule; a Needs Your Hand item by
 // its row's kind; a Caught for You row by its detector (tdCaught sets src); a lesson proposal by its learned kind.
@@ -172755,6 +172755,7 @@ standardRegisterRule(
   },
   {
     id: "threeWay", owner: "controller", p: "integrity", c: ["pb", "office", "standards", /Three-way match/i], surface: "nyh",
+    partial: "Counts bills paid with nothing received on their PO. A bill held because its invoice does not line up with the PO is counted once, under Bills on Hold on Caught for You.",
     rows: () =>
       (DB.bills || [])
         .filter((b) => "paid" === b.status)
@@ -179577,7 +179578,7 @@ function rfqProspectAct(id, act, f) {
   DB.vendors = DB.vendors || [];
   let v = DB.vendors.find((y) => String(y.name).toLowerCase() === name.toLowerCase());
   v ||
-    ((v = { id: uid("v"), name: name, trade: x.category || "Materials", email: email, region: (f && f.region) || x.region || "", channel: x.channel || "", demo: !!x.demo, researchId: x.researchId || "", hyps: x.hyps || [], insuranceExp: "", bankChangedAt: "", needsVetting: !0, delivery: x.delivery || null }),
+    ((v = { id: uid("v"), name: name, trade: x.category || "Materials", email: email, region: (f && f.region) || x.region || "", channel: x.channel || "", demo: !!x.demo, researchId: x.researchId || "", hyps: x.hyps || [], insuranceExp: "", bankChangedAt: "", needsVetting: !0, draft: !0, createdBy: rfqMe(), createdAt: appNowIso(), delivery: x.delivery || null }),
     DB.vendors.push(v));
   (v.rfqSuggest = `${"research" === x.source ? "sourcing research" : "gap" === x.source ? "a thin category" : "your mail"} (${fmtL(today())})`), (x.status = "added"), (x.vendorId = v.id), (x.by = rfqMe());
   try {
@@ -179592,7 +179593,7 @@ function rfqProspectAct(id, act, f) {
 // works on site, and a business check (registration, address, reviews), each recorded with who and when. Until
 // then poValid refuses its PO on every path. A bank-detail change still goes through the two-person verification
 // (vendor.bankPending, the Owner's call-back) like every vendor's.
-const RFQ_VET = [["w9", "W-9 Received"], ["coi", "COI Received (It Delivers or Works on Site)"], ["registration", "Business Registration Checked"], ["address", "Address Checked"], ["reviews", "Reviews and References Checked"]],
+const RFQ_VET = [["w9", "W-9 Received"], ["coi", "COI Received (It Delivers or Works on Site)"], ["registration", "Business Registration Checked"], ["address", "Address Checked"], ["reviews", "Reviews and References Checked"], ["approval", "Approved by a Second Person (Not Who Added It)"]],
   rfqVetDone = (v) => !v || !v.needsVetting || RFQ_VET.every(([k]) => !!((v.vetting || {})[k])),
   rfqVetMissing = (v) => RFQ_VET.filter(([k]) => !((v.vetting || {})[k])).map(([k, l]) => l.replace(/ \(.*\)/, "").replace(/ (Received|Checked)$/, "").toLowerCase());
 function rfqVetSheet(vid) {
@@ -179606,7 +179607,10 @@ function rfqVetSheet(vid) {
       submit: "Record the Checks",
       onSubmit: (f) => {
         v.vetting = v.vetting || {};
+        // the second person's approval is never the person who added the vendor (fraud control: two people)
+        if (f.approval && !v.vetting.approval && v.createdBy && v.createdBy === rfqMe()) return toast(`A second person approves ${v.name}: not ${v.createdBy}, who added it`), !1;
         RFQ_VET.forEach(([k]) => (f[k] ? v.vetting[k] || (v.vetting[k] = { by: rfqMe(), on: today(), at: appNowIso() }) : delete v.vetting[k]));
+        rfqVetDone(v) && v.draft && (v.draft = !1);
         f.notes && (v.vetting.notes = (v.vetting.notes ? v.vetting.notes + " · " : "") + f.notes);
         try {
           audit("vendor", v.id, "vetting", "", RFQ_VET.filter(([k]) => v.vetting[k]).map(([k]) => k).join(","), f.notes || "");
@@ -180188,7 +180192,7 @@ function renderRfq() {
       sv = rfqSavings();
     body = `${R.length ? `<div class="rfq-cards">${R.map((x) => `<div class="rfq-card"><b class="rfq-h" data-nocase>${esc(x.number)} · ${esc(x.title)}</b><div class="small muted" data-nocase>${esc(rfqJobName(x))} · ${x.lines.length} lines · on site by ${fmt(x.needBy)}</div><div class="rfq-row" style="margin-top:6px">${rfqPill(x.status)}<span class="small" data-nocase>${esc(rfqNext(x) || "")}</span></div><div class="rfq-row" style="margin-top:8px"><button class="btn sm" data-rfqopen="${esc(x.id)}">Open</button></div></div>`).join("")}</div>` : '<div class="empty card" style="padding:16px"><b>No requests for quote yet.</b><p class="small muted">New RFQ starts from the estimate and change order lines you are buying for; the assistant drafts the material list from the plans when a line is a lump sum, the foreman checks it on his phone, and you pick the vendors.</p></div>'}
       <div class="card rfq-sec"><h3>Savings This Month</h3><p class="small">${sv.n ? `${money(sv.vsFirst)} saved on ${sv.n} RFQ${1 === sv.n ? "" : "s"} awarded in ${sv.ym}: final price against the first quote${sv.nBudget ? `; ${money(Math.abs(sv.vsBudget))} ${sv.vsBudget >= 0 ? "under" : "over"} the material budget` : ""}${sv.noBudget ? `; ${sv.noBudget} with no material budget on the line, so no figure against budget` : ""}.` : `Nothing awarded in ${sv.ym} yet.`} <span class="muted">${esc(rfqWhy("savings"))}</span></p></div>
-      ${u ? `<div class="card rfq-sec"><h3>What I May Send for You</h3><label class="rfq-pick"><input type="checkbox" id="rfq-deleg" ${rfqDelegated(u) ? "checked" : ""}><span class="grow"><b>Send RFQ Chases for Me</b><span class="small muted">Off: a reminder to a vendor who has not quoted waits in your Approvals as a draft. On: the assistant sends it the day before the due date. ${esc(rfqWhy("approve"))}. Every type is listed under The SmartDesign Standard, What My Assistant May Send for Me.</span></span></label></div>` : ""}`;
+      ${u && stdTypesFor(role()).some((t) => "rfqChases" === t.id) ? `<p class="small muted rfq-deleg-note">RFQ chases: ${rfqDelegated(u) ? "the assistant sends them for you the day before the due date" : "a reminder to a vendor who has not quoted waits in your Approvals as a draft"}. <a href="#" data-rfqdeleg="1">Change it in Settings, Connections</a>.</p>` : ""}`;
   } else if ("prospects" === tab) {
     const P = rfqProspects();
     body = `<p class="small muted">Suppliers the assistant found: named in your mail and not on file, categories with fewer than three vendors or none outside NYC, and sourcing research. Add puts one on file and suggests it on the next RFQ.</p><div class="rfq-cards">${P.map((x) => `<div class="rfq-card"><b class="rfq-h" data-nocase>${esc(x.name)}${x.demo ? ' <span class="pill">Demo Data</span>' : ""}</b><div class="small muted" data-nocase>${esc({ mail: "From your mail", gap: "A thin category", research: "Sourcing research" }[x.source] || x.source)}${x.category ? ` · ${esc(x.category)}` : ""} · ${esc(x.status)}</div><p class="small" data-nocase>${esc(x.evidence || "")}</p>${x.web ? `<p class="small muted">${esc(x.web)}</p>` : ""}${"proposed" === x.status ? `<div class="rfq-row"><button class="btn sm" data-rfqpadd="${esc(x.id)}">Add</button><button class="btn sm" data-rfqpdis="${esc(x.id)}">Dismiss</button></div>` : ""}${"added" === x.status && x.vendorId && !rfqVetDone(rfqVendor(x.vendorId)) ? `<p class="small">Before its first PO: ${esc(rfqVetMissing(rfqVendor(x.vendorId)).join(", "))}.</p><div class="rfq-row"><button class="btn sm" data-rfqvet="${esc(x.vendorId)}">Vet</button></div>` : ""}</div>`).join("") || '<p class="small muted">No prospects right now.</p>'}</div>`;
@@ -180198,12 +180202,9 @@ function renderRfq() {
   host.querySelectorAll("[data-rfqtab]").forEach((b) => (b.onclick = () => ((window.rfqTab = b.dataset.rfqtab), renderRfq())));
   host.querySelector("#rfq-new").onclick = () => rfqNewSheet();
   host.querySelectorAll("[data-rfqopen]").forEach((b) => (b.onclick = () => ((window.rfqOpen = b.dataset.rfqopen), renderRfq(), window.scrollTo(0, 0))));
-  const dl = host.querySelector("#rfq-deleg");
-  dl &&
-    (dl.onchange = () => {
-      // the one delegation model (DB.asst[uid].delegated, logged): the same switch as on the Standard's page
-      stdDelegSet(paMe().id, "rfqChases", dl.checked) || (dl.checked = !dl.checked);
-    });
+  const dl = host.querySelector("[data-rfqdeleg]");
+  // one switch for what the assistant may send, in Settings › Connections
+  dl && (dl.onclick = (e) => (e.preventDefault(), setView("conn")));
   host.querySelectorAll("[data-rfqpadd]").forEach(
     (b) =>
       (b.onclick = () => {
@@ -180718,11 +180719,21 @@ function pwBuild() {
   return { buys: buys.sort(pwByDate), quotes: quotes, fees: fees.sort(pwByDate), items: items, byId: byId };
 }
 // An approved baseline change ("lumber up 8% this quarter") scales every earlier price from its date on; it
-// applies to one item or to a whole category. Nothing else moves a baseline.
+// applies to one item or to a whole category. Nothing else moves a baseline. It is a period explanation: it ends at
+// the close of the quarter it starts in (b.until), and a purchase after that is checked again against the plain
+// history, so a rise that has become normal is proposed again rather than silenced for good. An explanation for
+// a single purchase closes that one flag and never expires.
+const pwQuarterEnd = (d) => {
+  const y = +String(d).slice(0, 4),
+    m = +String(d).slice(5, 7),
+    qm = m - ((m - 1) % 3) + 2;
+  return iso(new Date(y, qm, 0));
+};
+const pwUntil = (b) => b.until || (b.from ? pwQuarterEnd(b.from) : "");
 function pwAdj(I, price, priceDate, atDate) {
   let f = 1;
   pwInit().baselines.forEach((b) => {
-    (b.itemKey ? b.itemKey === I.key : b.category && b.category === I.cat) && b.from <= atDate && String(priceDate) < b.from && (f *= 1 + (+b.pct || 0) / 100);
+    (b.itemKey ? b.itemKey === I.key : b.category && b.category === I.cat) && b.from <= atDate && (!pwUntil(b) || atDate <= pwUntil(b)) && String(priceDate) < b.from && (f *= 1 + (+b.pct || 0) / 100);
   });
   return pwR4(price * f);
 }
@@ -181113,6 +181124,7 @@ function pwPropose(o) {
       category: base && !o.itemKey ? o.category || "" : "",
       pct: base ? +o.pct : null,
       from: from,
+      until: base ? pwQuarterEnd(from) : "",
       text: text,
       status: "proposed",
       by: pwMe(),
@@ -181146,7 +181158,7 @@ function pwDecide(id, verdict, reason) {
     audit("pricewatch", e.id, "explanation-" + e.status, "proposed", e.status, `${e.decidedBy}: ${why || e.text}`);
   } catch (err) {}
   if ("approved" === e.status) {
-    if ("baseline" === e.scope) P.baselines.push({ id: uid("pwb"), itemKey: e.itemKey, category: e.category, pct: e.pct, from: e.from, explId: e.id, by: e.decidedBy, at: e.decidedAt, text: e.text });
+    if ("baseline" === e.scope) P.baselines.push({ id: uid("pwb"), itemKey: e.itemKey, category: e.category, pct: e.pct, from: e.from, until: e.until || pwQuarterEnd(e.from), explId: e.id, by: e.decidedBy, at: e.decidedAt, text: e.text });
     else e.flagKey && pwClose(e.flagKey, "explained", e.text);
     e.flagKey && P.flags[e.flagKey] && !P.flags[e.flagKey].verdict && Object.assign(P.flags[e.flagKey], { verdict: "normal", verdictBy: e.decidedBy, verdictOn: today() });
     pwFresh();
@@ -181335,7 +181347,7 @@ function pwQueueItems() {
   P.expl
     .filter((e) => "proposed" === e.status)
     .forEach((e) =>
-      out.push({ kind: "priceExplain", id: e.id, title: `Explanation: ${e.what || "a baseline change"}`, detail: `${"baseline" === e.scope ? `a baseline change of ${e.pct > 0 ? "+" : ""}${e.pct}% for ${e.itemKey ? pwItemLabel(e.itemKey) : e.category} from ${fmtL(e.from)}` : "this purchase only"} · "${e.text}" · proposed by ${e.by} on ${fmtL(e.on)} · the flag stays open until you decide`, n: e.amount ? money(e.amount) : "", yes: "Approve", no: "Decline", act: "pwexpl", open: { pwexpl: e.id }, sev: "" }),
+      out.push({ kind: "priceExplain", id: e.id, title: `Explanation: ${e.what || "a baseline change"}`, detail: `${"baseline" === e.scope ? `a baseline change of ${e.pct > 0 ? "+" : ""}${e.pct}% for ${e.itemKey ? pwItemLabel(e.itemKey) : e.category} from ${fmtL(e.from)} to ${fmtL(e.until || pwQuarterEnd(e.from))}, then checked again` : "this purchase only"} · "${e.text}" · proposed by ${e.by} on ${fmtL(e.on)} · the flag stays open until you decide`, n: e.amount ? money(e.amount) : "", yes: "Approve", no: "Decline", act: "pwexpl", open: { pwexpl: e.id }, sev: "" }),
     );
   pwMatchProps().forEach((M) => out.push({ kind: "priceMatch", id: "pwm:" + M.id, mid: M.id, title: `Same item? ${M.fromLabel} and ${M.toLabel}`, detail: `${M.why} · confirm before the two price histories are read as one`, yes: "Same Item", no: "Different Items", act: "pwmatch", open: { view: "rfq", rfqTab: "pricewatch" }, sev: "" }));
   Object.values(P.tune)
@@ -181478,7 +181490,7 @@ function pwExplainSheet(key) {
     "Propose Explanation",
     `<div class="pw-case"><p class="small" data-nocase>${esc(c.label)}: ${esc(c.what)} · ${esc(c.sub)}</p><p class="small muted">The owner approves or declines it. Until then the flag stays open and counted, and the baseline does not move.</p>
     ${mbF("What Explains It", '<textarea data-f="text" rows="3" placeholder="For example: rush delivery for the inspection, or lumber up 8% this quarter"></textarea>')}
-    ${canBase ? `${mbF("It Applies to", `<select data-f="scope"><option value="purchase">This purchase only</option><option value="baseline">A baseline change from now on</option></select>`)}<div class="pw-base">${mbF("Change in Percent", '<input type="number" step="any" data-f="pct" placeholder="8">')}${mbF("For", `<select data-f="for">${c.itemKey ? `<option value="item">${esc(pwItemLabel(c.itemKey))}</option>` : ""}${cat ? `<option value="cat">All ${esc(cat.toLowerCase())}</option>` : ""}</select>`)}${mbF("From", `<input type="date" data-f="from" value="${esc(`${today().slice(0, 4)}-${String(+today().slice(5, 7) - ((+today().slice(5, 7) - 1) % 3)).padStart(2, "0")}-01`)}">`)}</div>` : ""}</div>`,
+    ${canBase ? `${mbF("It Applies to", `<select data-f="scope"><option value="purchase">This purchase only</option><option value="baseline">A change for this quarter (ends ${esc(fmtL(pwQuarterEnd(today())))}, then checked again)</option></select>`)}<div class="pw-base">${mbF("Change in Percent", '<input type="number" step="any" data-f="pct" placeholder="8">')}${mbF("For", `<select data-f="for">${c.itemKey ? `<option value="item">${esc(pwItemLabel(c.itemKey))}</option>` : ""}${cat ? `<option value="cat">All ${esc(cat.toLowerCase())}</option>` : ""}</select>`)}${mbF("From", `<input type="date" data-f="from" value="${esc(`${today().slice(0, 4)}-${String(+today().slice(5, 7) - ((+today().slice(5, 7) - 1) % 3)).padStart(2, "0")}-01`)}">`)}</div>` : ""}</div>`,
     {
       submit: "Send to the Owner",
       onSubmit: (f) => (pwPropose({ flagKey: key, text: f.text, scope: f.scope || "purchase", pct: f.pct, itemKey: "item" === f.for ? c.itemKey : "", category: "cat" === f.for ? cat : "", from: f.from }) ? void 0 : !1),
@@ -181797,7 +181809,7 @@ function pwPageHtml() {
       .map((x) => `<div class="card rfq-sec" data-pwdet="${x.d}" data-pwn="${x.rows.length}"><h3>${PW_DET[x.d].label} <span class="pill warn">${x.rows.length}</span></h3><p class="small muted">${esc(PW_DET[x.d].rule)}</p>${x.rows.map((c) => `<div class="pw-row"><span class="grow small"><b data-nocase>${esc(c.what)}</b><br><span data-nocase>${esc(c.sub)}</span>${P.expl.some((e) => e.flagKey === c.key && "proposed" === e.status) ? ' <span class="pill">Explanation Waiting on the Owner</span>' : ""}</span><b class="small">${money(c.amount)}</b><button class="btn sm" data-pwopen="${esc(c.key)}">Open Case</button></div>`).join("")}</div>`)
       .join("") || '<div class="card rfq-sec"><p class="small">Nothing flagged: every recent purchase is within its usual range.</p></div>'}
     ${absorbed.map((C) => { let R = []; try { R = C.rows() || []; } catch (e) {} return R.length ? `<div class="card rfq-sec"><h3>${esc(C.label)} <span class="pill">${R.length}</span></h3><p class="small muted">Counted on Caught for You under its own name; listed here with the price watch.</p>${R.map((r) => `<div class="small" data-nocase>${esc(r.what)} · ${esc(r.sub || "")}</div>`).join("")}</div>` : ""; }).join("")}
-    <div class="card rfq-sec"><h3>Explanations</h3>${wait.length ? `<p class="small">${agN(wait.length, "explanation")} waiting on the owner. The flags stay open and the baselines do not move until the owner decides.</p>${pwExplHtml(wait)}` : '<p class="small muted">None waiting on the owner.</p>'}${done.length ? `<details><summary class="small"><b>Decided</b></summary>${pwExplHtml(done)}</details>` : ""}${P.baselines.length ? `<p class="small"><b>Baselines moved:</b> ${P.baselines.map((b) => `${esc(b.itemKey ? pwItemLabel(b.itemKey) : b.category)} ${b.pct > 0 ? "+" : ""}${b.pct}% from ${fmtL(b.from)} (${esc(b.by)})`).join("; ")}</p>` : ""}</div>
+    <div class="card rfq-sec"><h3>Explanations</h3>${wait.length ? `<p class="small">${agN(wait.length, "explanation")} waiting on the owner. The flags stay open and the baselines do not move until the owner decides.</p>${pwExplHtml(wait)}` : '<p class="small muted">None waiting on the owner.</p>'}${done.length ? `<details><summary class="small"><b>Decided</b></summary>${pwExplHtml(done)}</details>` : ""}${P.baselines.length ? `<p class="small"><b>Baselines moved:</b> ${P.baselines.map((b) => `<span data-pwbase="${esc(b.id)}" data-pwended="${pwUntil(b) && pwUntil(b) < today() ? 1 : 0}">${esc(b.itemKey ? pwItemLabel(b.itemKey) : b.category)} ${b.pct > 0 ? "+" : ""}${b.pct}% from ${fmtL(b.from)} to ${fmtL(pwUntil(b))} (${esc(b.by)})${pwUntil(b) && pwUntil(b) < today() ? ", ended: purchases after it are checked again" : ""}</span>`).join("; ")}</p>` : ""}</div>
     ${M.length ? `<div class="card rfq-sec"><h3>Same Item?</h3><p class="small muted">Near matches in the price history. Nothing is merged until a person confirms it.</p>${M.map((x) => `<div class="pw-row"><span class="grow small" data-nocase><b>${esc(x.fromLabel)}</b> and <b>${esc(x.toLabel)}</b><br>${esc(x.why)}</span>${canMatch ? `<button class="btn sm" data-pwsame="${esc(x.id)}">Same Item</button><button class="btn sm" data-pwdiff="${esc(x.id)}">Different Items</button>` : ""}</div>`).join("")}</div>` : ""}
     <div class="card rfq-sec"><h3>How Often the Owner Confirms a Flag</h3><div class="pw-tw"><table class="t"><thead><tr><th>Detector</th><th class="money">Raised</th><th class="money">Confirmed Real</th><th class="money">Precision</th></tr></thead><tbody>${Object.keys(PW_DET).map((d) => { const R = pwPrecision(d); return `<tr data-pwprec="${d}"><td>${PW_DET[d].label}</td><td class="money">${R.raised}</td><td class="money">${R.real}</td><td class="money">${null == R.pct ? "—" : R.pct + "%"}</td></tr>`; }).join("")}</tbody></table></div><p class="small muted">Over the last ${S.precisionDays} days. Under ${S.precisionFloor}% the owner is asked to tune the threshold.</p>${T.map((t) => `<p class="small"><b>Proposed:</b> ${esc(PW_DET[t.det].label)} ${esc(t.setting)} from ${t.from}${esc(t.unit)} to ${t.to}${esc(t.unit)} (${t.precision}% confirmed). ${owner ? `<button class="btn sm" data-pwtune="${t.det}">Change It</button> <button class="btn sm" data-pwkeep="${t.det}">Keep It</button>` : "Waits on the owner."}</p>`).join("")}</div>
     <div class="card rfq-sec"><h3>Thresholds</h3><p class="small">Paid More Than Before flags a price more than <b>${S.overPct}%</b> over the trailing median of at least ${S.minBuys} earlier buys, or over a cheaper price from another vendor in the last ${S.recentDays} days, or over the PO or quote it was bought against.</p>${owner ? `<div class="rfq-row"><div class="f" style="max-width:180px"><label for="pw-over">Over the Median by (%)</label><input type="number" id="pw-over" min="1" step="any" value="${S.overPct}"></div><button class="btn" id="pw-over-save">Save</button></div>` : '<p class="small muted">The owner sets the thresholds.</p>'}</div>
@@ -186926,7 +186938,7 @@ if ("function" == typeof paAsk) {
 // Defaults come from the order itself (poLinkDefaults): a material's line, the one job line with the PO line's cost
 // code, or the one line whose words it shares. New PO opens on "Which lines?" (the estimate, CO and invoice lines
 // of the job); Start Blank is the secondary way in.
-const POL_OH = () => CATEGORIES.filter((c) => "oh" === c.type && !/^payroll/.test(c.id));
+const POL_OH = () => CATEGORIES.filter((c) => ("oh" === c.type && !/^payroll/.test(c.id)) || "stock" === c.id);
 function polKind(l) {
   if (!l) return "";
   if (l.billable) return "rebill";
@@ -187408,14 +187420,14 @@ predDef("poLinesUnlinked", {
    integrate (version 11): the charter, stock, rfq and chain lanes joined (docs/LANES.md, "Integration pass").
      - one delegation model: DB.asst[uid].delegated holds the message types a person lets the assistant send
        alone; the RFQ lane's DB.asst[uid].delegate.rfqChases moves onto it once at boot; every autonomous send
-       asks standardAllows; the card "What My Assistant May Send for Me" (Settings › The SmartDesign Standard)
-       switches each type, the owner can switch anyone's off, and every change is logged (who, when, for whom).
+       asks standardAllows; the card "What My Assistant May Send for Me" (Settings › Connections) switches each
+       type, the owner can switch anyone's off, and every change is logged (who, when, for whom).
 --------------------------------------------------------------------------------------------------------- */
-// The message types the assistant can send alone once delegated. `live: false` lists a type whose sender is not
-// built yet (order follow-ups arrive with the track lane), so switching it on is recorded but sends nothing.
+// The message types the assistant can send alone once delegated: the one list. The card that switches them is
+// track's "What My Assistant May Send for Me" in Settings › Connections (trkDelegHtml); there is no second card.
 const STD_SEND_TYPES = [
-  { id: "rfqChases", label: "RFQ Chases", roles: ["coord", "owner"], what: "A reminder to a vendor who has not quoted, sent the day before the RFQ is due.", live: !0 },
-  { id: "orderFollowups", label: "Order Follow-Ups", roles: ["coord", "owner", "pm"], what: "A follow-up to a vendor on an order that is late or has no confirmed date.", live: !1, later: "Order tracking sends these once it is in; until then nothing goes out." },
+  { id: "orderFollowups", label: "Order Follow-Ups", roles: ["coord", "owner", "pm"], what: "to vendors: confirm the order and its date, ask for tracking before the ship date, reconfirm 48 hours before delivery, ask for a missing invoice, receipt or packing slip, chase a promise that was not kept. Never money, never a new date, never a change.", live: !0 },
+  { id: "rfqChases", label: "RFQ Chases", roles: ["coord", "owner"], what: "to vendors: a reminder the day before a request for quote is due. Never a price or an award.", live: !0 },
 ];
 const stdDelegLog = () => ((DB.company = DB.company || {}), (DB.company.delegationLog = DB.company.delegationLog || []));
 const stdUserName = (uid) => ((DB.users || []).find((u) => u.id === uid) || {}).name || uid;
@@ -187443,9 +187455,9 @@ function stdDelegSet(who, type, on, opt) {
   if (o.system) return !0;
   save();
   try {
-    "standard" === view ? renderStandard() : "rfq" === view && "function" == typeof renderRfq && renderRfq();
+    render();
   } catch (er) {}
-  rcToast(`${T.label} ${on ? "on" : "off"}${self ? "" : ` for ${e.name}`}: ${on ? "the assistant sends them for you" : "they wait in Approvals as drafts"}`, [{ label: "Open", run: () => setView("standard") }]);
+  rcToast(`${T.label} ${on ? "on" : "off"}${self ? "" : ` for ${e.name}`}: ${on ? "the assistant sends them for you" : "they wait in Approvals as drafts"}`, [{ label: "Open", run: () => setView("conn") }]);
   return !0;
 }
 // Once at boot: rfq's per-person switch moves onto the one list, with a log line saying where it came from.
@@ -187470,63 +187482,8 @@ function stdDelegMigrate() {
     return base.apply(this, arguments);
   };
 }
-const STD_SWITCH = (attrs, on, label) => `<label class="dlg-sw"><input type="checkbox" ${attrs} ${on ? "checked" : ""} aria-label="${esc(label)}"><span class="dlg-knob" aria-hidden="true"></span></label>`;
-function stdDelegHtml() {
-  const me = paMe(),
-    mine = stdTypesFor(role()),
-    on = standardDelegated(me.id),
-    staff = (DB.users || []).filter((u) => u.id !== me.id && stdTypesFor(u.role).length),
-    log = stdDelegLog().slice(-8).reverse(),
-    when = (at) => `${fmtL(String(at).slice(0, 10))}, ${String(at).slice(11, 16)}`,
-    tname = (id) => (STD_SEND_TYPES.find((t) => t.id === id) || { label: id }).label;
-  const rowsMine = mine.length
-    ? mine.map((t) => `<div class="dlg-row" data-dlgrow="${t.id}"><div class="grow"><b>${esc(t.label)}</b><span class="small muted">${esc(t.what)}${t.live ? "" : ` ${esc(t.later)}`}</span></div>${STD_SWITCH(`data-dlgme="${t.id}"`, on.includes(t.id), t.label)}</div>`).join("")
-    : '<p class="small muted">Your assistant sends nothing for you on its own: every message waits for you as a draft.</p>';
-  const everyone = isOwner()
-    ? `<h4>Everyone</h4><p class="small muted">Each person hands these over themselves. You can switch anyone's off.</p>${staff
-        .map((u) => {
-          const D = ((DB.asst || {})[u.id] || {}).delegated || [];
-          return stdTypesFor(u.role)
-            .map((t) => `<div class="dlg-row" data-dlgfor="${u.id}:${t.id}"><div class="grow"><b data-nocase>${esc(u.name)}</b><span class="small muted">${esc(t.label)} · ${D.includes(t.id) ? "on" : "off"}</span></div>${D.includes(t.id) ? `<button type="button" class="btn sm" data-dlgoff="${u.id}:${t.id}">Switch Off</button>` : '<span class="small muted dlg-off">Off</span>'}</div>`)
-            .join("");
-        })
-        .join("")}`
-    : "";
-  const changes = log.length ? `<h4>Changes</h4>${log.map((e) => `<div class="dlg-log small" data-nocase>${esc(e.name)}: ${esc(tname(e.type))} ${e.on ? "on" : "off"} · ${esc(when(e.at))} · by ${esc(e.by)}${e.why ? ` (${esc(e.why)})` : ""}</div>`).join("")}` : "";
-  return `<section class="card ch-card std-deleg" data-dlgcard><div class="hd"><h3>What My Assistant May Send for Me</h3></div><div class="bd"><p class="small muted">${esc(standardWhy("rfq:approve"))}. Off, a message waits in your Approvals as a draft; on, the assistant sends it and logs it.</p>${rowsMine}${everyone}${changes}</div></section>`;
-}
-{
-  const base = stdWatchHtml;
-  stdWatchHtml = function () {
-    const h = base.apply(this, arguments);
-    try {
-      return stdDelegHtml() + h;
-    } catch (e) {
-      console.warn("delegation card", e);
-      return h;
-    }
-  };
-}
-{
-  const base = renderStandard;
-  renderStandard = function () {
-    const r = base.apply(this, arguments);
-    try {
-      const host = document.getElementById("standard-body");
-      host &&
-        (host.querySelectorAll("[data-dlgme]").forEach((x) => (x.onchange = () => stdDelegSet(paMe().id, x.dataset.dlgme, x.checked) || (x.checked = !x.checked))),
-        host.querySelectorAll("[data-dlgoff]").forEach((b) => (b.onclick = () => {
-          const [u, t] = b.dataset.dlgoff.split(":");
-          stdDelegSet(u, t, !1);
-        })));
-    } catch (e) {
-      console.warn("delegation wire", e);
-    }
-    return r;
-  };
-}
 "object" == typeof EQ_TABLES &&
-  (EQ_TABLES.delegations = () => stdDelegLog().map((e) => ({ _id: e.id, _module: "The SmartDesign Standard", _label: `${e.name}: ${(STD_SEND_TYPES.find((t) => t.id === e.type) || { label: e.type }).label} ${e.on ? "on" : "off"}`, _go: { view: "standard" }, date: String(e.at).slice(0, 10), person: e.name, type: e.type, on: e.on, by: e.by, why: e.why })));
+  (EQ_TABLES.delegations = () => stdDelegLog().map((e) => ({ _id: e.id, _module: "The SmartDesign Standard", _label: `${e.name}: ${(STD_SEND_TYPES.find((t) => t.id === e.type) || { label: e.type }).label} ${e.on ? "on" : "off"}`, _go: { view: "conn" }, date: String(e.at).slice(0, 10), person: e.name, type: e.type, on: e.on, by: e.by, why: e.why })));
 // ---- stock used on a job is job cost, in the books too (BACKLOG §1.8 item 12, the open item) -------------------
 // jobFin, lineFin and Cost by Line read DB.stock.use directly (stockUseIn), so the job report, WIP, EAC, the
 // overhead basis, Portfolio, Pack and Ask carry it. The general ledger gets one system journal per record: an issue
@@ -187731,3 +187688,485 @@ if ("function" == typeof renderRequestsPage) {
     return r;
   };
 }
+
+
+/* ---------------------------------------------------------------------------------------------------------
+   integrate2 (version 11): shop stock is held as inventory until it is used on a job (BACKLOG §1.8 item 12, the
+   open decision; the default until the accountant confirms it).
+     - A purchase for the shop's stock (category "Shop stock", or a no-job order whose lines are all for shop stock)
+       posts Dr 1250 Inventory, not to expense, and sits outside the P&L (glIsStockBill, the ledger, the GL).
+     - The opening count is posted once at carried cost: Dr 1250 Inventory, Cr 3900 Opening balance equity
+       (DB.stock.opening, append-only; the count as it stood before the first recorded issue or return).
+     - An issue or a return only moves cost between the asset and the job (glStockLines), and the company P&L
+       counts the material once, on the day it is used (ledger rows of kind "stock").
+--------------------------------------------------------------------------------------------------------- */
+function stockOpening() {
+  const S0 = stockDB();
+  if (S0.opening) return S0.opening;
+  const use = S0.use || [],
+    first = use.map((u) => String(u.at).slice(0, 10)).sort()[0] || today(),
+    lines = (DB.inventory || [])
+      .filter((i) => "tool" !== i.type && +i.cost > 0)
+      .map((i) => {
+        // back out what was issued (and add back what returned) since, so it is the count before the first move
+        const moved = use.filter((u) => u.invId === i.id).reduce((a, u) => a + ("return" === u.kind ? -1 : 1) * Math.abs(+u.qty || 0), 0),
+          qty = Math.max(0, (+i.qty || 0) + moved);
+        return { invId: i.id, name: i.name, qty: qty, unit: i.unit, cost: +i.cost, amount: r2(qty * +i.cost) };
+      })
+      .filter((l) => l.qty > 0);
+  S0.opening = { at: first, by: "System", lines: lines, value: r2(lines.reduce((a, l) => a + l.amount, 0)), why: "opening count at carried cost: stock is held as inventory until used on a job (confirm with your accountant)" };
+  return S0.opening;
+}
+{
+  const base = finishBoot;
+  finishBoot = function () {
+    const r = base.apply(this, arguments);
+    try {
+      DB.stock && DB.stock.opening ? 0 : (stockOpening(), save());
+    } catch (e) {
+      console.warn("stock opening count", e);
+    }
+    return r;
+  };
+}
+{
+  const base = glDerive;
+  glDerive = function () {
+    const out = base.apply(this, arguments);
+    try {
+      const O = DB.stock && DB.stock.opening;
+      O &&
+        O.value > 0 &&
+        out.push({
+          key: "stkopen",
+          sourceType: "stock",
+          sourceId: "opening",
+          entityId: "ent1",
+          date: O.at,
+          memo: `Opening stock count at carried cost · ${O.lines.length} item${1 === O.lines.length ? "" : "s"}`,
+          lines: [glL("1250", O.value, 0, { cat: "stock" }), glL("3900", 0, O.value, { cat: "stock" })],
+          system: !0,
+        });
+    } catch (e) {
+      console.warn("stock opening ledger", e);
+    }
+    return out;
+  };
+}
+// Settings › Accounting: the policy in plain words, with the figure behind it
+const STOCK_POLICY = "Stock is held as inventory until used on a job (confirm with your accountant)";
+{
+  const base = renderProj;
+  renderProj = function () {
+    const r = base.apply(this, arguments);
+    try {
+      const ps = document.getElementById("po-settings");
+      if (ps && !document.getElementById("acct-settings") && ["owner", "controller"].includes(role())) {
+        const O = stockOpening(),
+          onHand = r2((DB.inventory || []).filter((i) => "tool" !== i.type).reduce((a, i) => a + (+i.qty || 0) * (+i.cost || 0), 0)),
+          div = document.createElement("div");
+        (div.className = "card"),
+          (div.id = "acct-settings"),
+          (div.innerHTML = `<h3>Accounting</h3><p data-stockpolicy>${esc(STOCK_POLICY)}.</p><p class="small muted">A purchase for the shop's stock (coded Shop stock, or a no-job order for shop stock) posts to 1250 Inventory, not to expense. The opening count was posted at carried cost on ${fmtL(O.at)} (${money(O.value)}). Stock issued to a job moves its cost from the asset to the job's materials, and a return moves it back, so the P&L counts the material once, when it is used. On the shelf today at carried cost: ${money(onHand)}.</p>`),
+          ps.after(div);
+      }
+    } catch (e) {
+      console.warn("accounting settings", e);
+    }
+    return r;
+  };
+}
+// ---- Standard Watch: three rules measured from order tracking's records (they were "not measured yet") -----------
+// Each replaces its unmeasured entry in place, so the Watch keeps one row per line of the Standard.
+const trkSent = (f) => !!f && ("sent" === f.status || (DB.outbox || []).some((o) => o.id === f.outboxId && "sent" === o.status));
+// The delivery date an order is held to: the open "deliver" promise on it, else the date the order carries.
+const trkDeliverOn = (po) => ((trkPromises().filter((p) => p.poId === po.id && "deliver" === p.kind && "open" === p.status).sort((a, b) => (a.due < b.due ? -1 : 1))[0] || {}).due) || po.expected || "";
+const trkHoursSince = (at) => (new Date(appNowIso()) - new Date(String(at).length <= 10 ? at + "T09:00:00" : at)) / 36e5;
+function stdReplaceRule(R) {
+  const i = STANDARD_RULES.findIndex((x) => x.id === R.id);
+  i >= 0 ? (STANDARD_RULES[i] = R) : STANDARD_RULES.push(R);
+}
+stdReplaceRule({
+  id: "reconfirm48", owner: "coord", p: "schedule", c: ["pb", "procurement", "standards", /Lead time confirmed/i], surface: "watch",
+  partial: "Measured from the follow-ups log: an open order due on site in the next two days with no reconfirmation sent to the vendor (sent by the assistant when order follow-ups are delegated, or a draft a person approved and sent).",
+  rows: () => {
+    const td = today(),
+      lim = iso(addDays(td, 2));
+    return (DB.pos || [])
+      .filter((po) => ["issued", "partial", "approved"].includes(po.status))
+      .map((po) => ({ po: po, d: trkDeliverOn(po) }))
+      .filter((x) => x.d && x.d >= td && x.d <= lim && !(x.po.followups || []).some((f) => "reconfirm" === f.type && trkSent(f)))
+      .map(({ po, d }) => ({ key: "rc48:" + po.id, what: `${po.number} · ${po.vendor}: due ${fmtL(d)}, not reconfirmed`, sub: `${trkJob(po.projectId) || "no job"} · ${(po.followups || []).some((f) => "reconfirm" === f.type) ? "a reconfirmation waits as a draft" : "no reconfirmation drafted"}`, due: d, go: () => flowGo.po(po)() }));
+  },
+});
+stdReplaceRule({
+  id: "deliveryCheck", owner: "coord", p: "quality", c: ["pb", "procurement", "standards", /Check every delivery/i], surface: "watch",
+  partial: "Measured from receiving and the packing slips: a delivery whose slip was read against the PO after the day it was received, and a short, wrong or damaged line on a slip still open 48 hours later with no claim. A delivery with no slip at all is counted once, on Delivered, No Packing Slip.",
+  rows: () => {
+    const from = iso(addDays(today(), -30)),
+      D = trkDocs().filter((d) => trkLive(d) && "slip" === d.kind && d.links.poId),
+      late = (DB.pos || []).flatMap((po) =>
+        (po.receipts || [])
+          .filter((r) => r.date && r.date >= from)
+          .map((r) => ({ po: po, r: r, slips: D.filter((d) => d.links.poId === po.id) }))
+          .filter((x) => x.slips.length && !x.slips.some((d) => String(d.at).slice(0, 10) <= x.r.date))
+          .map(({ po, r, slips }) => ({ key: `dc:${po.id}:${r.date}`, what: `${po.number} · ${po.vendor}: received ${fmtL(r.date)}, checked ${fmtL(String(slips[0].at).slice(0, 10))}`, sub: "the packing slip was read against the PO after the day it came", go: () => flowGo.po(po)() })),
+      ),
+      claims = D.filter((d) => ((d.check || {}).cases || []).some(trkCaseOpen) && trkHoursSince(d.at) > 48).map((d) => {
+        const po = trkPO(d.links.poId) || {};
+        return { key: "claim:" + d.id, what: `${po.number || "An order"} · ${d.fields.vendor || po.vendor || ""}: ${((d.check || {}).cases || []).filter(trkCaseOpen).map((c) => String(c.label || "").replace(/,.*$/, "")).join(", ")}`, sub: `on the slip filed ${fmtL(String(d.at).slice(0, 10))}, no claim in 48 hours`, go: () => trkOpenDoc(d.id) };
+      });
+    return late.concat(claims);
+  },
+});
+stdReplaceRule({
+  id: "verbalWritten", owner: "coord", p: "client", c: ["std", "communication", /Verbal becomes written/i], surface: "watch",
+  partial: "Measured on vendor promises taken by phone (Log a Promise): one still not confirmed in writing 24 hours later (no message to or from the vendor on that order since). Agreements with clients are not recorded as such yet.",
+  rows: () =>
+    trkPromises()
+      .filter((p) => p.source && "call" === p.source.kind && trkHoursSince(p.at) > 24)
+      .filter((p) => {
+        const po = p.poId && trkPO(p.poId),
+          wrote = (po && (po.followups || []).some((f) => trkSent(f) && f.at > p.at)) || trkDocs().some((d) => d.source && "mail" === d.source.type && trkSameVendor(d.fields.vendor || d.source.from, p.vendor) && d.at > p.at);
+        return !wrote;
+      })
+      .map((p) => ({ key: "vw:" + p.id, what: `${p.vendor}: ${p.what}`, sub: `by phone ${fmtL(String(p.at).slice(0, 10))}${p.who ? ` (${p.who})` : ""}, not confirmed in writing`, go: () => trkOpenPanel("promises") })),
+});
+
+// ---- Enter the Bill: a vendor invoice filed on a PO that has no bill (BACKLOG §1.9 item 2, "vendor invoice -> bill")
+// The invoice is read and filed on its order, but no bill exists, so nothing is owed in the books and the money can
+// be missed. Billing gets a Needs Your Hand row; Enter the Bill drafts the bill from what was read (vendor, number,
+// date, lines matched to the PO's lines, tax, freight), links the invoice to it, and leaves every figure read with
+// low confidence unconfirmed: the bill is on hold (Bills on Hold) until a person confirms them on the invoice.
+function trkInvoicesToBill() {
+  return trkDocs().filter((d) => {
+    if (!trkLive(d) || "invoice" !== d.kind || !d.links.poId || (d.links.billId && trkBill(d.links.billId))) return !1;
+    const po = trkPO(d.links.poId);
+    return !!po && !(DB.bills || []).some((b) => b.poId === po.id && !["void", "rejected"].includes(b.status));
+  });
+}
+function trkBillFromDoc(id) {
+  const d = trkDocs().find((x) => x.id === id),
+    po = d && trkPO(d.links.poId);
+  if (!d || !po) return toast("That invoice is not filed on an order"), null;
+  const had = d.links.billId && trkBill(d.links.billId);
+  if (had) return flowGo.bill(had)(), had;
+  const F = d.fields || {},
+    low = new Set(trkUnconfirmed(d)),
+    v = "function" == typeof vendorRec ? vendorRec(po.vendor) : null,
+    net = /net ?(\d+)/i.test(F.terms || (v && v.terms) || "") ? +String(F.terms || v.terms).match(/net ?(\d+)/i)[1] : 30,
+    date = F.date || today(),
+    code0 = ((po.lines || [])[0] || {}).code || "",
+    lines = (F.lines || []).map((l, i) => {
+      const pl = (po.lines || []).find((x) => trkItemHit(l.item, x.item)) || null;
+      return { desc: l.item, qty: +l.qty || 1, unit: l.unit || "", amount: r2(null != l.ext ? +l.ext : (+l.qty || 0) * (+l.price || 0)), code: (pl && pl.code) || code0, poLineId: pl ? pl.id : "", unconfirmed: ["qty", "price", "ext"].filter((k) => low.has(`lines.${i}.${k}`)) };
+    });
+  null != F.tax && +F.tax && lines.push({ desc: "Sales tax", qty: 1, unit: "ls", amount: r2(+F.tax), code: code0, unconfirmed: low.has("tax") ? ["amount"] : [] });
+  null != F.freight && +F.freight && lines.push({ desc: "Freight", qty: 1, unit: "ls", amount: r2(+F.freight), code: code0, unconfirmed: low.has("freight") ? ["amount"] : [] });
+  lines.length || lines.push({ desc: `${TRK_KINDS.invoice} ${F.number || ""}`.trim(), qty: 1, unit: "ls", amount: r2(+F.total || 0), code: code0, unconfirmed: low.has("total") ? ["amount"] : [] });
+  const b = {
+    id: uid("b"),
+    vendor: po.vendor,
+    number: F.number || "",
+    date: date,
+    due: iso(addDays(date, net)),
+    entityId: "function" == typeof poEntity ? poEntity(po) : "ent1",
+    projectId: po.projectId || "",
+    poId: po.id,
+    cat: "function" == typeof poCat ? poCat(po) : "materials",
+    code: code0,
+    line: (1 === (po.lines || []).length && po.lines[0].line) || "",
+    lines: lines,
+    payMethod: "ACH",
+    fileId: "",
+    notes: `Entered from invoice ${F.number || ""} filed on ${po.number}${low.size ? `; ${low.size} figure${1 === low.size ? "" : "s"} read with low confidence wait${1 === low.size ? "s" : ""} for a person to confirm on the invoice` : ""}`,
+    status: "submitted",
+    approvals: [],
+    createdBy: trkWho(),
+    fromDocId: d.id,
+    unconfirmed: [...low],
+    readTotal: null != F.total ? +F.total : null,
+  };
+  DB.bills.push(b), (d.links.billId = b.id);
+  try {
+    audit("bill", b.id, "entered-from-invoice", "", `${F.number || ""} on ${po.number}`, trkWho());
+  } catch (e) {}
+  save();
+  (ROLE_VIEWS[role()] || []).includes("ap") && (view = "ap");
+  render(), setTimeout(() => openBill(b.id), 60);
+  toast(`Bill ${b.number || ""} entered from the invoice on ${po.number}: ${money(billTotal(b))}${low.size ? `, on hold until ${low.size} figure${1 === low.size ? " is" : "s are"} confirmed` : ""}`, [{ label: "Open", run: () => flowGo.bill(b)() }]);
+  return b;
+}
+{
+  const base = nyhRowsAll;
+  nyhRowsAll = function () {
+    const out = base.apply(this, arguments);
+    try {
+      const have = new Set(out.map((r) => r.key));
+      trkInvoicesToBill().forEach((d) => {
+        const po = trkPO(d.links.poId),
+          low = trkUnconfirmed(d).length,
+          key = "tk:enterbill:" + d.id;
+        have.has(key) ||
+          out.push({ key: key, route: "billing", kind: "enterbill", title: `Enter the bill: ${d.fields.vendor || po.vendor} ${d.fields.number || ""} on ${po.number}`.replace(/\s+on/, " on"), why: `${d.fields.total != null ? money(+d.fields.total) + " read from the invoice" : "the invoice is filed"}, and ${po.number} has no bill${low ? `; ${low} figure${1 === low ? "" : "s"} read with low confidence stay${1 === low ? "s" : ""} unconfirmed` : ""} · ${trkWhy("threeWay")}`, amount: +d.fields.total || 0, verb: "Enter the Bill", no: "", run: () => trkBillFromDoc(d.id), open: () => trkOpenDoc(d.id) });
+      });
+    } catch (e) {
+      console.warn("enter the bill", e);
+    }
+    return out;
+  };
+}
+
+// ---- No vendor is created silently (fraud control; the agent-month selftest, 2026-10-11) ----------------------
+// Typing an unknown name on New PO used to create a vendor record without a word (ensureVendor). Now:
+//   - a name that is not on file stops New PO with "Name is not a vendor on file" and an explicit New Vendor…;
+//   - every vendor made after boot from a PO path is a draft that needs vetting (the RFQ lane's RFQ_VET: W-9, COI
+//     when it delivers or works on site, the business checks, and a second person's approval), so poValid
+//     refuses its PO on every path until it is vetted (rfqVetSheet, the one vetting sheet).
+const poVendorKnown = (name) => {
+  const n = String(name || "").trim().toLowerCase();
+  return !n || "vendor tbd" === n || (DB.vendors || []).some((v) => String(v.name).trim().toLowerCase() === n);
+};
+{
+  const base = ensureVendor;
+  ensureVendor = function (name, extra) {
+    const booted = "1" === (document.body && document.body.dataset.booted),
+      had = vendorRec(name),
+      v = base.apply(this, arguments);
+    if (v && !had && booted && !/^vendor tbd$/i.test(String(name).trim())) {
+      Object.assign(v, { needsVetting: !0, draft: !0, createdBy: v.createdBy || ((currentUser() || {}).name) || role(), createdAt: v.createdAt || appNowIso() });
+      try {
+        audit("vendor", v.id, "created-draft", "", v.name, "a draft until vetted: W-9, COI, checks, a second person's approval");
+      } catch (e) {}
+    }
+    return v;
+  };
+}
+// New Vendor…: the explicit way to add one, as a draft; Open lands on its vetting sheet.
+function poNewVendorSheet(name, after) {
+  mbModal(
+    "New Vendor",
+    `<p class="small muted">${esc(name || "This vendor")} is not on file. It is added as a draft: it can receive a purchase order only once it is vetted (W-9, a COI when it delivers or works on site, the business checks) and a second person approves it.</p>${mbF("Name", `<input data-f="name" value="${esc(name || "")}">`)}<div class="grid2">${mbF("Trade", '<input data-f="trade" placeholder="Tile, Lumber, Plumbing">')}${mbF("Email", '<input data-f="email" type="email">')}</div>`,
+    {
+      submit: "Add as a Draft",
+      onSubmit: (f) => {
+        const n = String(f.name || "").trim();
+        if (!n) return toast("Name the vendor"), !1;
+        const v = vendorRec(n) || ensureVendor(n, { trade: f.trade || "", email: f.email || "", createdFrom: "po" });
+        Object.assign(v, { needsVetting: !0, draft: !0, createdBy: v.createdBy || ((currentUser() || {}).name) || role() });
+        save();
+        rcToast(`${v.name} added as a draft vendor: vet it before its first purchase order`, [{ label: "Open", run: () => rfqVetSheet(v.id) }]);
+        after && after(v);
+      },
+    },
+  );
+}
+{
+  const base = ctPOPicker;
+  ctPOPicker = function () {
+    const r = base.apply(this, arguments);
+    try {
+      const m = document.getElementById("mbm"),
+        ok = m && m.querySelector("#mbm-ok");
+      ok &&
+        ok.addEventListener(
+          "click",
+          (ev) => {
+            const names = [...new Set([...m.querySelectorAll("[data-ctpsel]:checked")].map((c) => ((m.querySelector(`[data-ctpv="${c.dataset.ctpsel}"]`) || {}).value || "").trim()).filter((n) => !poVendorKnown(n)))];
+            if (!names.length) return;
+            ev.stopImmediatePropagation(), ev.preventDefault();
+            let note = m.querySelector("#po-unknown-vendor");
+            note || ((note = document.createElement("div")), (note.id = "po-unknown-vendor"), (note.className = "note bad"), (m.querySelector(".mbm-bd") || m).prepend(note));
+            // inline, so the lines ticked in this sheet are kept: New Vendor… opens a small form right here
+            note.innerHTML = names.map((n) => `<div class="row po-nv" style="gap:8px;align-items:center;flex-wrap:wrap"><span class="grow small"><b data-nocase>${esc(n)}</b> is not a vendor on file. Pick one from the list, or add it as a draft vendor that must be vetted before it gets a PO.</span><button type="button" class="btn sm" data-ponewv="${esc(n)}">New Vendor…</button></div>`).join("");
+            note.querySelectorAll("[data-ponewv]").forEach(
+              (b) =>
+                (b.onclick = () => {
+                  const row = b.closest(".po-nv"),
+                    n = b.dataset.ponewv;
+                  row.innerHTML = `<span class="small grow">New vendor <b data-nocase>${esc(n)}</b>, added as a draft: W-9, a COI when it delivers or works on site, the business checks and a second person's approval before its first PO.</span><input data-ponvtrade placeholder="Trade" style="max-width:140px"><button type="button" class="btn sm" data-ponvadd>Add as a Draft</button>`;
+                  row.querySelector("[data-ponvadd]").onclick = () => {
+                    const v = ensureVendor(n, { trade: row.querySelector("[data-ponvtrade]").value.trim(), createdFrom: "po" });
+                    Object.assign(v, { needsVetting: !0, draft: !0, createdBy: v.createdBy || ((currentUser() || {}).name) || role() });
+                    save(), row.remove(), note.children.length || note.remove();
+                    const dl = document.getElementById("ct-vendors");
+                    dl && dl.insertAdjacentHTML("beforeend", `<option value="${esc(v.name)}">`);
+                    rcToast(`${v.name} added as a draft vendor: vet it before its first purchase order`, [{ label: "Open", run: () => rfqVetSheet(v.id) }]);
+                  };
+                }),
+            );
+          },
+          !0,
+        );
+    } catch (e) {
+      console.warn("unknown vendor gate", e);
+    }
+    return r;
+  };
+}
+// ---- Our own outgoing mail is a record, never a proposal for us (the agent-month selftest, 2026-10-11) ---------
+// The coordinator sent a PO from his mailbox; the sync read it back and proposed it to him as money to decide. A
+// message we sent (direction "out", Gmail's SENT label, or from one of the firm's own addresses) is filed and kept
+// on its thread, but the reader proposes nothing from it, on import, on a re-read and at boot for old ones.
+const cmOwnMail = (c) => !!c && ("out" === c.direction || (c.labels || []).includes("SENT") || cmIsStaff(cmEmail(((c.from || {}).email) || "")));
+{
+  const base = cmRead;
+  cmRead = function (c) {
+    if (cmOwnMail(c)) return (c.direction = "out"), [];
+    return base.apply(this, arguments);
+  };
+}
+{
+  const base = finishBoot;
+  finishBoot = function () {
+    const r = base.apply(this, arguments);
+    try {
+      (DB.comms || []).forEach((c) => {
+        if (!cmOwnMail(c) || !(c.proposals || []).some((p) => !p.applied)) return;
+        (c.proposals = c.proposals.filter((p) => p.applied)), "proposed" === c.status && (c.status = c.proposals.length ? "applied" : "read");
+      });
+    } catch (e) {
+      console.warn("own mail", e);
+    }
+    return r;
+  };
+}
+// ---- The coordinator's Requests: open requests to order from (the agent-month selftest, 2026-10-11) -----------
+// The coordinator's Requests page was the foreman's form, with no way to buy from a request; ordering happened only
+// from Purchase Orders › New PO. Now the coordinator (and the owner) see every open request across the jobs first,
+// with the stock split already applied (what comes from stock is shown; only the rest is bought), and each has
+// Order (a draft PO from the request's lines to buy, linked both ways: requestAction "po") and RFQ (a request for
+// quote from the same lines, linked). The foreman's form stays below for a request made on the field's behalf.
+function reqOpenAll() {
+  return (DB.projects || []).flatMap((p) => (p.requests || []).filter((r) => !["delivered", "closed", "declined"].includes(r.status)).map((r) => ({ p: p, r: r })));
+}
+function reqBuyItems(r) {
+  return reqItems(r).filter((it) => !it.invId && !it.done && !it.garbage);
+}
+function reqRfq(pid, rid) {
+  const p = (DB.projects || []).find((x) => x.id === pid),
+    r = p && (p.requests || []).find((x) => x.id === rid);
+  if (!r) return toast("That request is gone");
+  if (r.rfqId && rfqById(r.rfqId)) return rfqOpenFor(r.rfqId);
+  const L = reqBuyItems(r);
+  if (!L.length) return toast("Everything on this request comes from stock: nothing to quote");
+  const q = rfqCreate({ projectId: p.id, title: `${reqLabel(r)} (request from ${r.by})`, category: (typeof pwCatOf === "function" && pwCatOf(L[0].what)) || "Materials", lines: L.map((it) => ({ item: it.what, qty: +it.qty || 1, unit: it.unit || "ea", requestId: r.id })), needBy: r.neededBy || "" });
+  (q.requestId = r.id), (r.rfqId = q.id), (r.status = "new" === r.status ? "ack" : r.status), (r.ackBy = r.ackBy || ((currentUser() || {}).name) || role()), (r.ackAt = r.ackAt || appNowIso());
+  (r.log = r.log || []).push({ t: nowStamp(), by: ((currentUser() || {}).name) || role(), text: `Request for quote ${q.number} started` });
+  save(), (window.rfqOpen = q.id), setView("rfq");
+  rcToast(`${q.number} started from the request: pick the vendors and send`, [{ label: "Open", run: () => rfqOpenFor(q.id) }]);
+  return q;
+}
+function reqCoordHtml() {
+  const R = reqOpenAll(),
+    stock = (r) => reqItems(r).filter((it) => it.invId),
+    row = ({ p, r }) => {
+      const buy = reqBuyItems(r),
+        st = stock(r),
+        po = r.poId && (DB.pos || []).find((x) => x.id === r.poId),
+        q = r.rfqId && typeof rfqById === "function" && rfqById(r.rfqId);
+      return `<div class="req-co-row" data-reqco="${esc(r.id)}"><div class="grow"><b data-nocase>${esc(reqLabel(r))}</b><span class="small muted">${esc(shortName(p))} · ${esc(r.by || "")} · ${(REQ_STATUS[r.status] || [, r.status])[1]}${r.neededBy ? ` · needed ${fmtL(r.neededBy)}` : ""}</span>${st.length ? `<span class="small">From stock: ${st.map((it) => `${esc(String(it.qty))} ${esc(it.unit || "")} ${esc(it.what)}`).join(", ")} (picked by the driver)</span>` : ""}<span class="small">${buy.length ? `To buy: ${buy.map((it) => `${esc(String(it.qty))} ${esc(it.unit || "")} ${esc(it.what)}`).join(", ")}` : "Nothing to buy: all from stock"}</span></div><div class="req-co-acts">${po ? `<button class="btn sm" data-reqpo="${esc(po.id)}">${esc(po.number)}</button>` : buy.length ? `<button class="btn sm" data-reqorder="${p.id}|${r.id}">Order</button>` : ""}${q ? `<button class="btn sm" data-reqrfqopen="${esc(q.id)}">${esc(q.number)}</button>` : buy.length && !po ? `<button class="btn sm" data-reqrfq="${p.id}|${r.id}">RFQ</button>` : ""}</div></div>`;
+    };
+  return `<div class="card req-co" id="req-co"><div class="hd"><h3>Open Requests</h3><span class="small muted">${R.length} across the jobs</span></div>${R.map(row).join("") || '<p class="small muted">No open request from the field.</p>'}</div>`;
+}
+{
+  const base = renderRequestsPage;
+  renderRequestsPage = function () {
+    const r = base.apply(this, arguments);
+    try {
+      if (["coord", "owner"].includes(role())) {
+        const v = document.getElementById("v-req"),
+          old = v && v.querySelector("#req-co");
+        old && old.remove();
+        if (v) {
+          const ph = v.querySelector(".ph");
+          ph ? ph.insertAdjacentHTML("afterend", reqCoordHtml()) : v.insertAdjacentHTML("afterbegin", reqCoordHtml());
+          const host = v.querySelector("#req-co");
+          host.querySelectorAll("[data-reqorder]").forEach((b) => (b.onclick = () => { const [pid, rid] = b.dataset.reqorder.split("|"); requestAction(pid, rid, "po"); }));
+          host.querySelectorAll("[data-reqrfq]").forEach((b) => (b.onclick = () => { const [pid, rid] = b.dataset.reqrfq.split("|"); reqRfq(pid, rid); }));
+          host.querySelectorAll("[data-reqpo]").forEach((b) => (b.onclick = () => flowGo.po((DB.pos || []).find((x) => x.id === b.dataset.reqpo))()));
+          host.querySelectorAll("[data-reqrfqopen]").forEach((b) => (b.onclick = () => rfqOpenFor(b.dataset.reqrfqopen)));
+        }
+      }
+    } catch (e) {
+      console.warn("coordinator requests", e);
+    }
+    return r;
+  };
+}
+if (!document.getElementById("req-co-css")) {
+  const st = document.createElement("style");
+  (st.id = "req-co-css"), (st.textContent = ".req-co{margin-bottom:14px}.req-co-row{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--rule,#eee);overflow-wrap:anywhere}.req-co-row .grow{display:flex;flex-direction:column;gap:2px;min-width:0}.req-co-acts{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}.req-co-acts .btn{min-height:36px}@media (max-width:760px){.req-co-row{flex-direction:column}.req-co-acts{justify-content:flex-start}.req-co-acts .btn{min-height:44px}}"), document.head.appendChild(st);
+}
+// ---- Statement imports are findable on Banking (the agent-month selftest, 2026-10-11) -------------------------
+// An imported statement was named only in its toast. Banking now lists every import (file, account, period, lines,
+// matched to a record, still unmatched), newest first; right after an import the new row is highlighted and the
+// toast's Open lands on it (the reconcile stays one tap away on the row).
+let bfImpFlash = "",
+  bfImpFlashUntil = 0;
+function bfImpStats(imp) {
+  const T = (DB.txns || []).filter((t) => t.importId === imp.id && !t.voided),
+    un = new Set(((("function" == typeof bankUnmatched && bankUnmatched()) || {}).rows || []).map((t) => t.id)),
+    unmatched = T.filter((t) => un.has(t.id) || ((!t.cat || "uncat" === t.cat) && !t.billId && !t.poId)).length;
+  return { lines: imp.lines || T.length, here: T.length, matched: T.length - unmatched, unmatched: unmatched };
+}
+function bfImportsHtml() {
+  const L = (DB.bankImports || []).slice().sort((a, b) => String(b.at || "").localeCompare(String(a.at || ""))).slice(0, 12);
+  if (!L.length) return "";
+  return `<div class="card bf-imps" id="bf-imports"><div class="hd"><h3>Statement Imports</h3><span class="small muted">${(DB.bankImports || []).length} imported</span></div>${L.map((imp) => {
+    const a = (DB.accounts || []).find((x) => x.id === imp.acctId) || {},
+      st = bfImpStats(imp);
+    return `<div class="bf-imp ${bfImpFlash === imp.id && Date.now() < bfImpFlashUntil ? "tk-flash" : ""}" data-bfimp="${esc(imp.id)}"><div class="grow"><b data-nocase>${esc(imp.fileName || "statement")}</b><span class="small muted" data-nocase>${esc(a.name || imp.institution || "")}${imp.mask ? ` ····${esc(imp.mask)}` : ""} · ${imp.period && imp.period[0] ? `${fmtL(imp.period[0])} to ${fmtL(imp.period[1])}` : ""} · imported by ${esc(imp.by || "")} ${imp.at ? fmtL(String(imp.at).slice(0, 10)) : ""}</span></div><span class="small">${st.lines} line${1 === st.lines ? "" : "s"} · ${st.matched} matched · <span class="${st.unmatched ? "bad" : ""}">${st.unmatched} unmatched</span></span>${null != imp.ending ? `<button class="btn sm" data-bfimprec="${esc(imp.id)}">Reconcile</button>` : ""}</div>`;
+  }).join("")}</div>`;
+}
+{
+  const base = renderBank;
+  renderBank = function () {
+    const r = base.apply(this, arguments);
+    try {
+      const v = document.getElementById("v-bank");
+      if (v) {
+        const old = v.querySelector("#bf-imports");
+        old && old.remove();
+        const h = bfImportsHtml();
+        if (h) {
+          const at = v.querySelector("#feeds-card") || v.querySelector("#bank-accts");
+          at ? at.insertAdjacentHTML("afterend", h) : v.insertAdjacentHTML("beforeend", h);
+          const host = v.querySelector("#bf-imports");
+          host.querySelectorAll("[data-bfimprec]").forEach((b) => (b.onclick = () => { const imp = DB.bankImports.find((x) => x.id === b.dataset.bfimprec); imp && bfReconOpen(imp.acctId, imp.period[1], imp.ending, imp.id); }));
+          const f = bfImpFlash && Date.now() < bfImpFlashUntil && host.querySelector(`[data-bfimp="${bfImpFlash}"]`);
+          f && setTimeout(() => f.scrollIntoView({ block: "center" }), 30);
+        }
+      }
+    } catch (e) {
+      console.warn("statement imports", e);
+    }
+    return r;
+  };
+}
+function bfImpLand(id) {
+  (bfImpFlash = id), (bfImpFlashUntil = Date.now() + 4e3), (view = "bank"), render();
+}
+{
+  const base = bfImportRun;
+  bfImportRun = function () {
+    const n0 = (DB.bankImports || []).length,
+      r = base.apply(this, arguments);
+    try {
+      const imp = (DB.bankImports || []).length > n0 ? DB.bankImports[DB.bankImports.length - 1] : null;
+      if (imp) {
+        bfImpLand(imp.id);
+        const st = bfImpStats(imp);
+        toast(`${imp.fileName || "Statement"} imported: ${st.lines} line${1 === st.lines ? "" : "s"}, ${st.matched} matched, ${st.unmatched} unmatched`, [{ label: "Open", run: () => bfImpLand(imp.id) }]);
+      }
+    } catch (e) {
+      console.warn("import land", e);
+    }
+    return r;
+  };
+}
+if (!document.getElementById("bf-imps-css")) {
+  const st = document.createElement("style");
+  (st.id = "bf-imps-css"), (st.textContent = ".bf-imps{margin:12px 0}.bf-imp{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 6px;border-top:1px solid var(--rule,#eee);overflow-wrap:anywhere}.bf-imp .grow{display:flex;flex-direction:column;min-width:0;flex:1 1 220px}.bf-imp.tk-flash{background:var(--accent-2);box-shadow:inset 3px 0 0 var(--accent)}"), document.head.appendChild(st);
+}
+

@@ -2628,7 +2628,7 @@
     "dates"
    ],
    "isolate": true,
-   "post": "DB.projects.some(p => (p.actions || []).some(a => /call tomas about next week/i.test(a.title) && a.due === (() => { let d = parse(today()); do { d = addDays(d, 1); } while (d.getDay() !== 5); return iso(d); })() && /morning/i.test(a.title + ' ' + (a.time || '') + ' ' + (a.notes || ''))))"
+   "post": "DB.projects.flatMap(p => p.actions || []).concat(DB.tasks || []).some((a) => /call tomas about next week/i.test(a.title) && a.due === (() => { let d = parse(today()); do { d = addDays(d, 1); } while (d.getDay() !== 5); return iso(d); })() && /morning/i.test(a.title + ' ' + (a.time || '') + ' ' + (a.notes || '')))"
   },
   {
    "id": "R586",

@@ -1333,7 +1333,7 @@ table.dg-t th{white-space:normal;line-height:14px;overflow:visible;text-overflow
 #v-comms .ib-list{border:1px solid var(--rule);border-radius:var(--r);background:var(--paper);overflow:hidden;max-height:calc(100vh - 210px);overflow-y:auto}
 #v-comms .ib-wrap > .ib-list{grid-column:1;grid-row:1}
 #v-comms .ib-wrap > .ib-msg,#v-comms .ib-wrap > .ib-none{grid-column:2;grid-row:1}
-@media (max-width:980px){ #v-comms .ib-wrap > .ib-list,#v-comms .ib-wrap > .ib-msg,#v-comms .ib-wrap > .ib-none{grid-column:1} }
+@media (max-width:980px){ #v-comms .ib-wrap > .ib-list,#v-comms .ib-wrap > .ib-msg,#v-comms .ib-wrap > .ib-none{grid-column:1;grid-row:auto} }
 #v-comms .ib-item{padding:10px 12px;border-bottom:1px solid var(--rule-2);cursor:pointer}
 #v-comms .ib-item:last-child{border-bottom:0}
 #v-comms .ib-item:hover{background:var(--paper-2)}
@@ -1772,6 +1772,8 @@ body.hb-on .mbm .btn.primary{background:var(--accent);border-color:var(--accent)
 .tk-mcard .row{flex-wrap:nowrap} .tk-mcard .row b{min-width:0;flex:1} .tk-mcard .small.bad{color:var(--bad)} .tk-mgrp{margin:10px 0 6px;font-weight:600} .tk-mq{width:100%;margin-bottom:8px;height:36px;border:1px solid var(--rule);border-radius:var(--r);padding:0 10px}
 .tk-areas button.dim{color:var(--ink-4)} .tk-filters .chk{display:inline-flex;align-items:center;gap:6px} #tk-person:disabled{opacity:.5}
 tr.tk-flash td,.tk-mcard.tk-flash{background:var(--accent-2) !important;transition:background 1.2s}
+.t2-row.tk-flash,.t2-bcard.tk-flash{background:var(--accent-2) !important;box-shadow:inset 3px 0 0 var(--accent);transition:background 1.2s}
+.t2-nodate{margin:6px 0 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 /* ---------- beta pass 1 2026-09-14 (v95): systemic fixes from the Gate 1+2 audits ---------- */
 .seg{height:auto;min-height:32px} .seg button{min-height:30px;padding:0 12px} .seg.sm{min-height:28px} .seg.sm button{min-height:26px;padding:0 10px;font-size:12px}
 .pill-btn{height:28px;padding:0 10px;font-size:12px;border-radius:14px;cursor:pointer;display:inline-flex;align-items:center;text-transform:none}

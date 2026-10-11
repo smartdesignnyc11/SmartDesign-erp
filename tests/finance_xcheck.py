@@ -497,44 +497,70 @@ async def check_role(pg, R, uid):
                 else: R.money(key, s(q), head, pat)
             if R.verbose: print('   Ask:', q, '->', head[:140])
 
-# ---- stock used on a job is job cost (BACKLOG §1.8 item 12; integration pass): issue 12 sheets from the shop to
-# 121 State Street, then return 2. The expected movement is computed here from the raw inventory record (quantity x
-# carried cost), never from the app's own totals, and every surface that reads the job's one number must move by it.
+# ---- shop stock is held as inventory until used on a job (BACKLOG §1.8 item 12; the accountant to confirm):
+# buy 10 sheets for the shop's stock, issue 12 to 121 State Street, return 2. Each step's expected movement is
+# computed here from the raw inventory record (quantity x carried cost), never from the app's own totals: the
+# purchase moves only the asset (1250 Inventory, outside the P&L), an issue moves cost from the asset to the job,
+# a return moves it back, and the company P&L counts the material once, when it is used. The opening count is
+# checked against the raw inventory rows too.
 STOCK_SURFACES = ('jobFin actual', 'jobFin cost by code (stock)', 'lineFin actual (the estimate line)', 'Cost by Line',
-                  'Overhead basis (direct cost)', 'GL 5100 Materials on the job', 'GL 1250 Inventory')
+                  'Overhead basis (direct cost)', 'GL 5100 Materials on the job', 'GL 1250 Inventory',
+                  'GL 5100 Materials (company)', 'Company P&L cost of work', 'Company P&L outside the P&L')
 STOCK_JS = """(key) => { const p = DB.projects.find(x => x.id === 'p121'), J = jobFin(p), f = lineFin(key);
   const row = (typeof clRows === 'function' ? (clScope = 'all', clRows()) : []).find(r => r.key === key || (r.f && r.f.key === key)) || {};
   try { glSync(); } catch (e) {}
-  const gl = (acct) => (DB.gl.journals || []).filter(j => j.status === 'posted').flatMap(j => j.lines).filter(l => l.acct === acct && (acct === '1250' || l.projectId === 'p121')).reduce((a, l) => a + (+l.dr || 0) - (+l.cr || 0), 0);
+  const gl = (acct, job) => (DB.gl.journals || []).filter(j => j.status === 'posted').flatMap(j => j.lines).filter(l => l.acct === acct && (!job || l.projectId === 'p121')).reduce((a, l) => a + (+l.dr || 0) - (+l.cr || 0), 0);
   DB.company.ohBasis = 'cost'; const ym = today().slice(0, 7); __ohMemo = { key: '', m: {} };
-  const oh = (ohMonth(ym).base || {})['p121'] || 0;
+  const oh = (ohMonth(ym).base || {})['p121'] || 0, P = companyPL([ym + '-01', today()]);
   return { 'jobFin actual': J.actual, 'jobFin cost by code (stock)': (J.byCode || []).reduce((a, b) => a + (+b.stock || 0), 0), 'lineFin actual (the estimate line)': f ? f.actual : null,
-    'Cost by Line': row.actual != null ? row.actual : null, 'Overhead basis (direct cost)': oh, 'GL 5100 Materials on the job': gl('5100'), 'GL 1250 Inventory': gl('1250'),
-    eac: J.eac, journals: (DB.gl.journals || []).filter(j => j.key && j.key.startsWith('stk:')).map(j => [j.key, j.memo, j.status]) }; }"""
+    'Cost by Line': row.actual != null ? row.actual : null, 'Overhead basis (direct cost)': oh, 'GL 5100 Materials on the job': gl('5100', true), 'GL 1250 Inventory': gl('1250'),
+    'GL 5100 Materials (company)': gl('5100'), 'Company P&L cost of work': P.cogsT, 'Company P&L outside the P&L': P.nonT,
+    eac: J.eac, journals: (DB.gl.journals || []).filter(j => j.key && j.key.startsWith('stk:')).map(j => [j.key, j.memo, j.status]),
+    opening: (DB.gl.journals || []).filter(j => j.key === 'stkopen' && j.status === 'posted').map(j => j.lines.map(l => [l.acct, +l.dr || 0, +l.cr || 0])) }; }"""
 
 async def check_stock(p, R):
     if not R.want('stock'): return
     b, pg, errs = await open_app(p)
     await sign_in(pg, 'u_owner')
-    raw = await pg.evaluate("() => { const iv = DB.inventory.find(i => i.id === 'iv16'), p = DB.projects.find(x => x.id === 'p121'); return { cost: iv.cost, qty: iv.qty, unit: iv.unit, key: stockLineKey(p, iv), owned: stockClientOwned(p) }; }")
+    raw = await pg.evaluate("() => { const iv = DB.inventory.find(i => i.id === 'iv16'), p = DB.projects.find(x => x.id === 'p121'); return { cost: iv.cost, qty: iv.qty, unit: iv.unit, key: stockLineKey(p, iv), owned: stockClientOwned(p), inv: DB.inventory.map(i => [i.id, i.type, +i.qty || 0, +i.cost || 0]), use: (DB.stock.use || []).map(u => [u.invId, u.kind, Math.abs(+u.qty || 0)]) }; }")
     cost, key = float(raw['cost']), raw['key']
     if not key:
         R.flag('stock', 'the estimate line', 'none', 'the drywall line on 121 State Street'); await b.close(); return
+    # the opening count at carried cost, from the raw rows: on hand plus what has moved out since (less returns)
+    moved = {}
+    for inv_id, kind, q in raw['use']: moved[inv_id] = moved.get(inv_id, 0) + (-q if kind == 'return' else q)
+    opening = round(sum((q + moved.get(i, 0)) * c for i, t, q, c in raw['inv'] if t != 'tool' and c > 0 and q + moved.get(i, 0) > 0), 2)
     before = await pg.evaluate(STOCK_JS, key)
+    O = before['opening']
+    ok = len(O) == 1 and sorted(O[0]) == sorted([['1250', opening, 0], ['3900', 0, opening]])
+    R.readings.append({'figure': 'stock', 'surface': 'opening count (Dr 1250, Cr 3900)', 'raw': str(O), 'value': O and O[0][0][1], 'expected': opening, 'ok': ok})
+    if not ok: R.flag('stock', 'opening count posted at carried cost', str(O), f'Dr 1250 / Cr 3900 {opening:,.2f}')
+    # 1. buy 10 sheets for the shop's stock: a bill coded Shop stock, no job
+    await pg.evaluate("""(c) => { DB.bills.push({ id: 'bxstk1', vendor: 'Mercer Lumber', number: 'XS-STOCK-1', date: today(), due: today(), entityId: 'ent1', projectId: '', cat: 'stock', code: '', line: '',
+        lines: [{ id: 'xsl1', desc: '5/8" Type X drywall 4x8 for the shop: 10 sheets', amount: Math.round(10 * c * 100) / 100 }], status: 'approved', approvals: [], createdBy: 'finance_xcheck' });
+        DB.inventory.find(i => i.id === 'iv16').qty += 10; }""", cost)
+    bought = await pg.evaluate(STOCK_JS, key)
     await pg.evaluate("() => { invMove(DB.inventory.find(i => i.id === 'iv16'), 'p:p121', 12, 'finance_xcheck: issue to the job'); }")
     issued = await pg.evaluate(STOCK_JS, key)
     await pg.evaluate("() => stockReturn({ projectId: 'p121', invId: 'iv16', qty: 2, loc: 'wh', reason: 'finance_xcheck: two sheets left over', force: true })")
     back = await pg.evaluate(STOCK_JS, key)
-    up, down = round(12 * cost, 2), round(-2 * cost, 2)   # computed here, from the inventory record
-    want = {k: (up, down) for k in STOCK_SURFACES}
-    want['GL 1250 Inventory'] = (-up, -down)   # the asset is credited on the issue, debited on the return
+    buy, up, down = round(10 * cost, 2), round(12 * cost, 2), round(-2 * cost, 2)   # computed here, from the inventory record
+    want = {k: (0, up, down) for k in STOCK_SURFACES}
+    want['GL 1250 Inventory'] = (buy, -up, -down)        # the purchase is the asset; an issue credits it, a return debits it
+    want['Company P&L outside the P&L'] = (buy, 0, 0)    # the purchase sits outside the P&L, never as cost
     for k in STOCK_SURFACES:
-        for (a0, a1, w, step) in ((before, issued, want[k][0], 'issue 12'), (issued, back, want[k][1], 'return 2')):
+        for (a0, a1, w, step) in ((before, bought, want[k][0], 'buy 10 for stock'), (bought, issued, want[k][1], 'issue 12'), (issued, back, want[k][2], 'return 2')):
             seen = None if a0[k] is None or a1[k] is None else round(a1[k] - a0[k], 2)
             ok = seen is not None and abs(seen - w) <= 0.01
             R.readings.append({'figure': 'stock', 'surface': f'{k} ({step})', 'raw': str(seen), 'value': seen, 'expected': w, 'ok': ok})
             if not ok: R.flag('stock', f'{k} ({step})', str(seen), f'{w:+,.2f}')
             elif R.verbose: print('  ok STOCK |', k, step, seen)
+    # counted once: over the three steps the company's cost of work moved by what the job used, not by purchase plus use
+    pl = round(back['Company P&L cost of work'] - before['Company P&L cost of work'], 2)
+    job = round(back['jobFin actual'] - before['jobFin actual'], 2)
+    ok = abs(pl - (up + down)) <= 0.01 and abs(pl - job) <= 0.01
+    R.readings.append({'figure': 'stock', 'surface': 'P&L counts the material once (buy, issue, return)', 'raw': str(pl), 'value': pl, 'expected': up + down, 'ok': ok})
+    if not ok: R.flag('stock', 'P&L counts the material once', f'P&L {pl:+,.2f}, job {job:+,.2f}', f'{up + down:+,.2f} (not {buy + up + down:+,.2f})')
     J = back['journals']
     if len(J) != 2 or not any('finance_xcheck: two sheets left over' in m for _, m, _ in J):
         R.flag('stock', 'GL journals (append-only, the return carries its reason)', str(J), 'one issue and one return journal, the return naming its reason')
