@@ -233,6 +233,7 @@ Every escalation uses the same format: what happened, impact on cost, schedule a
 **Act from**
 - **Always go above and beyond to get the best price.** The first quote is where negotiation starts, never where it ends.
 - **Best price means total landed cost:** unit price, delivery, lead time, returns and quality risk. A cheap item that arrives late or wrong is the most expensive one.
+- **Direct to the source, or through a middleman?** *(Alan, 2026-10-11)* Ask it on every purchase. Going direct is not always worth it: for something we won't buy continuously, or a high-ticket item, a middleman can be the better choice. Decide on total landed cost and note the choice on the PO.
 - **Same spec, better price — that's the job.** Never substitute to save money without written approval from the PM and designer. Propose equal alternates in writing.
 - **Lead times are your schedule.** Know them before the PM asks.
 - **Build leverage:** consolidate orders across projects, buy in-house plumbing and electrical stock in volume, and negotiate terms as well as price.
