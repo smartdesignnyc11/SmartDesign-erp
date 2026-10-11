@@ -301,6 +301,33 @@ async def main():
           try { out.unmatched = PRED.unmatchedTxns.rows().length; } catch (e) {}
           return out; }""")
         final_shot_day = run_days[-1]
+        # Persistence: a month of actions must survive a reload (same browser, same IndexedDB). Every record is
+        # keyed by collection and id; after saveNow() and a reload, a record that is gone is a lost save, and a
+        # record whose content changed is reported (boot migrations may legitimately touch some).
+        SNAP = """() => { const out = {}; const add = (k, arr) => { if (!Array.isArray(arr)) return;
+            arr.forEach((r, i) => { if (r && typeof r === 'object') out[k + ':' + (r.id || r.number || i)] = JSON.stringify(r); }); };
+          for (const [k, v] of Object.entries(DB)) {
+            if (Array.isArray(v)) add(k, v);
+            if (k === 'projects') v.forEach(p => { for (const [pk, pv] of Object.entries(p)) if (Array.isArray(pv)) add('p.' + p.id + '.' + pk, pv); });
+            if (k === 'clients') v.forEach(c => { for (const ck of ['estimates', 'invoices', 'changeOrders', 'payments']) add('c.' + c.id + '.' + ck, c[ck]); });
+          }
+          return { recs: out, day: today() }; }"""
+        before = await pg.evaluate(SNAP)
+        await pg.evaluate("async () => { try { await saveNow(); } catch (e) {} }")
+        await pg.wait_for_timeout(1500)
+        await pg.reload()
+        await pg.wait_for_function("document.body.dataset.booted==='1'", timeout=120000)
+        await pg.wait_for_timeout(1500)
+        after = await pg.evaluate(SNAP)
+        b_r, a_r = before['recs'], after['recs']
+        lost = sorted(k for k in b_r if k not in a_r)
+        changed = sorted(k for k in b_r if k in a_r and b_r[k] != a_r[k])
+        persist = {'records': len(b_r), 'lost': lost, 'changed': changed, 'added': len([k for k in a_r if k not in b_r]),
+                   'dayBefore': before['day'], 'dayAfter': after['day']}
+        log(f"PERSIST {len(b_r)} records · {len(lost)} lost after reload · {len(changed)} changed by boot · "
+            f"{persist['added']} added by boot · day {before['day']} -> {after['day']}")
+        if lost: log('  lost: ' + ', '.join(lost[:40]))
+        if changed: log('  changed: ' + ', '.join(changed[:40]))
         await b.close()
     # ---------------------------------------------------------------- the ledger
     last = run_days[-1]
