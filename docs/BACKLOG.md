@@ -465,6 +465,7 @@ There are views for All Tasks (`tkall`, under Home), a project's Tasks, Sales Ta
 11. **Reports.** On-time completion by person and by type, overdue trends, and what the agents created versus what people did. All of it queryable and in Ask ("what does Angel owe this week?").
 
 ### 1.15 The side menu, organised (Alan, 2026-10-11)
+**Scope (Alan, 2026-10-11): the SmartDesign workspace only. Mercer & Bond's menu is not touched. Nothing is built until Alan agrees the plan.**
 **Today.** The top level is reasonable (10–16 items per role), but three groups are crowded: Projects has 17 pages, Sales 16 and Purchasing 10. Tasks appear under Home, Projects and Sales. About 40 places in the code add items to the menu, which is why it has drifted.
 
 **The fix (part of Simplify):**
