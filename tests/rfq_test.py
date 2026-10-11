@@ -52,8 +52,14 @@ def takeoff_py(rooms, A=None):
            'adhesive': math.ceil(sub / 4)}
     return {k: v for k, v in out.items() if v > 0}
 
-def level_py(rfq):
-    """Independent leveling: latest readable round per vendor, same spec only, whole basket, per line, best split."""
+def level_py(rfq, V, rate):
+    """Independent leveling: latest readable round per vendor, same spec only, whole basket, per line, best split.
+    Landed = goods + freight + minimum shortfall + NY tax (sales or use, the same rate) + a hand-unload allowance
+    when the vendor has neither a lift gate nor carry-in."""
+    def extra(vid, g):
+        v = V.get(vid, {}); d = v.get('delivery') or {}
+        hand = 120 if d and not d.get('liftGate') and not d.get('carryIn') else 0
+        return r2(g * rate / 100) + hand
     latest = {}
     for q in rfq['quotes']:
         if q.get('unreadable'): continue
@@ -69,7 +75,7 @@ def level_py(rfq):
             g = 0
             for l in lines: g = r2(g + r2(unit(q, l['id']) * l['qty']))
             sf = r2(max(0, (q.get('min') or 0) - g))
-            baskets.append((q['vendor'], r2(g + (q.get('freight') or 0) + sf)))
+            baskets.append((q['vendor'], r2(g + (q.get('freight') or 0) + sf + r2(g * rate / 100) + (extra(q['vendorId'], g) - r2(g * rate / 100)))))
     baskets.sort(key=lambda b: b[1])
     best = None
     for mask in range(1, 1 << len(Q)):
@@ -88,7 +94,7 @@ def level_py(rfq):
         tot = 0
         for vid, g in by.items():
             q = latest[vid]
-            tot = r2(tot + r2(g + (q.get('freight') or 0) + r2(max(0, (q.get('min') or 0) - g))))
+            tot = r2(tot + r2(g + (q.get('freight') or 0) + r2(max(0, (q.get('min') or 0) - g)) + r2(g * rate / 100) + (extra(vid, g) - r2(g * rate / 100))))
         if best is None or tot < best[0] - 0.004 or (abs(tot - best[0]) < 0.005 and len(by) < best[2]): best = (tot, assign, len(by))
     perline = {}
     for l in lines:
@@ -246,12 +252,16 @@ async def main():
         await pg.locator('#rfq-level').click(); await pg.wait_for_timeout(400)
         R5 = await pg.evaluate(RFQ, rid)
         L = await pg.evaluate("id => { const L = rfqLevel(DB.rfqs.find(r => r.id === id)); return { b: L.baskets.map(x => [x.vendor, x.landed]), split: L.split && L.split.total, assign: L.split && L.split.assign, per: Object.fromEntries(L.perLine.map(x => [x.lineId, x.best ? [x.best.unit, x.best.vendor] : null])), budget: L.budgetTotal }; }", rid)
-        P = level_py(R5)
+        VV = await pg.evaluate("() => Object.fromEntries(DB.vendors.map(v => [v.id, { delivery: v.delivery || null, chargesTax: v.chargesTax }]))")
+        RATE = await pg.evaluate("() => rfqTaxRate()")
+        P = level_py(R5, VV, RATE)
         C.ok(R5['status'] == 'leveled', 'Level Now: leveled')
         C.ok([list(x) for x in P['baskets']] == L['b'], f'whole baskets match Python ({L["b"]} vs {P["baskets"]})')
         C.ok(P['split'] == L['split'] and P['assign'] == L['assign'], f'best split after freight and minimums matches Python ({L["split"]} vs {P["split"]})')
         C.ok({k: (list(v) if v else None) for k, v in P['perline'].items()} == L['per'], 'cheapest per line matches Python')
         C.ok(L['budget'] == 32000, f'the budget is the estimate line ({L["budget"]})')
+        C.ok(RATE == 8.875 and 'use tax' in (await pg.evaluate("() => document.querySelector('#v-rfq').innerText")) and 'confirm with the accountant' in (await pg.evaluate("() => document.querySelector('#v-rfq').innerText")), 'landed cost counts NY sales or use tax, labelled confirm with the accountant')
+        C.ok('Relationship:' in (await pg.evaluate("() => document.querySelector('#v-rfq').innerText")) and 'Delivery:' in (await pg.evaluate("() => document.querySelector('#v-rfq').innerText")), 'leveling shows relationship and delivery facts next to price')
         page = await pg.evaluate("() => document.querySelector('#v-rfq').innerText")
         C.ok(all(w in page for w in ('What Happened', 'Impact on Cost, Schedule and Quality', 'Options', 'Recommendation', 'Decide By')), 'the recommendation is in the Standard\'s format')
         C.ok(await pg.evaluate("() => !!document.querySelector('#v-rfq table.rfq-grid')"), 'desktop: the per-line grid')
@@ -285,6 +295,16 @@ async def main():
         await pg.locator('#rfq-negsend').click(); await pg.wait_for_timeout(400)
         C.ok((await pg.evaluate(RFQ, rid))['status'] == 'leveled', 'an email naming a competitor is refused')
         await pg.locator(f'[data-rfqnb="{kent["id"]}"]').fill(kent['body'])
+        await pg.locator('#rfq-negsend').click(); await pg.wait_for_timeout(400)
+        C.ok((await pg.evaluate(RFQ, rid))['status'] == 'leveled', 'figures read by AI and not confirmed are refused for negotiation')
+        nconf = 0
+        while await pg.locator('[data-rfqconf]').count():
+            await pg.locator('[data-rfqconf]').first.click(); await pg.wait_for_timeout(250)
+            C.ok('Confirm the Prices' in (await pg.evaluate("() => (document.querySelector('#mbm h3') || {}).innerText || ''")), 'Confirm shows each line\'s arithmetic against the reply')
+            await ok_modal(pg, 300); nconf += 1
+            if nconf > 6: break
+        C.ok(nconf == 3, f'one tap per readable quote ({nconf})')
+        await pg.locator(f'[data-rfqnb="{kent["id"]}"]').fill(kent['body'])
         await pg.locator('#rfq-negsend').click(); await pg.wait_for_timeout(500)
         R7 = await pg.evaluate(RFQ, rid)
         C.ok(R7['status'] == 'negotiating' and all(n['status'] == 'sent' and n['approvedBy'] == 'Chen Biron' for n in R7['neg']), 'approved and sent by Chen')
@@ -295,19 +315,26 @@ async def main():
         r2q = [q for q in R8['quotes'] if q['round'] == 2]
         C.ok(len(r2q) == 3 and R8.get('round2In'), f'round two read as round 2 ({len(r2q)})')
         await pg.evaluate("id => { rfqOpen = id; view = 'rfq'; render(); }", rid); await pg.wait_for_timeout(300)
-        P2 = level_py(R8)
+        P2 = level_py(R8, VV, RATE)
+        await pg.locator('#rfq-award').click(); await pg.wait_for_timeout(500)
+        C.ok((await pg.evaluate(RFQ, rid))['status'] == 'negotiating', 'the award waits until round-two figures are confirmed')
+        while await pg.locator('[data-rfqconf]').count():
+            await pg.locator('[data-rfqconf]').first.click(); await pg.wait_for_timeout(250); await ok_modal(pg, 300)
         await pg.locator('#rfq-award').click(); await pg.wait_for_timeout(800)
         R9 = await pg.evaluate(RFQ, rid)
         A = R9.get('award') or {}
-        pos = await pg.evaluate("ids => DB.pos.filter(p => ids.includes(p.id)).map(p => ({ n: p.number, st: p.status, o: p.origin, rfq: p.rfqId, src: p.sourcing, tot: poTotal(p).total, ln: p.lines.map(l => [l.line, l.estimateLineId, l.rfqId, l.rfqLineId]) }))", A.get('pos', []))
+        pos = await pg.evaluate("ids => DB.pos.filter(p => ids.includes(p.id)).map(p => ({ n: p.number, v: p.vendor, st: p.status, o: p.origin, rfq: p.rfqId, src: p.sourcing, tot: poTotal(p).total, landed: p.landed, tax: p.tax, use: p.useTax, notes: p.notes, ln: p.lines.map(l => [l.line, l.estimateLineId, l.rfqId, l.rfqLineId]) }))", A.get('pos', []))
         C.ok(R9['status'] == 'awarded' and pos and all(p['o'] == 'rfq' and p['rfq'] == rid and p['src']['rfqNumber'] == R9['number'] and p['src']['choice'] in ('direct', 'middleman') for p in pos), f'POs from the award carry the RFQ and the sourcing choice ({[(p["n"], p["st"]) for p in pos]})')
         C.ok(all(all(l[0] == 'estimate:es1:l2' and l[1] == 'l2' and l[2] == rid and l[3] for l in p['ln']) for p in pos), 'every PO line keeps the estimate line link and its RFQ line')
         C.ok(all(p['st'] in ('issued', 'pending') for p in pos), 'the POs went through poAction (issued, or pending the owner over the threshold)')
-        final = r2(sum(p['tot'] for p in pos))
-        P1 = level_py(dict(R8, quotes=[q for q in R8['quotes'] if q['round'] == 1]))
+        final = r2(sum(p['landed'] for p in pos))
+        C.ok(all((p['use'] is None and p['tax'] == RATE) or (p['use'] and p['tax'] == 0 and 'confirm with the accountant' in p['use']['note']) for p in pos), f'a vendor that charges no NY tax gets use tax to accrue on the PO ({[(p["v"], p["tax"], p["use"]) for p in pos]})')
+        C.ok(all('never by prepaid wire' in p['notes'] for p in pos), 'a first order says card or terms, never a prepaid wire')
+        P1 = level_py(dict(R8, quotes=[q for q in R8['quotes'] if q['round'] == 1]), VV, RATE)
         C.ok(abs(A['final'] - final) < 0.005 and abs(A['final'] - P2['split']) < 0.005, f'final equals the POs and the recommended split ({A["final"]}, {final}, {P2["split"]})')
         C.ok(abs(A['firstQuote'] - P1['baskets'][0][1]) < 0.005 and abs(A['savingsVsFirst'] - r2(P1['baskets'][0][1] - final)) < 0.005 and A['savingsVsFirst'] > 0, f'savings against the first quote ({A["savingsVsFirst"]})')
         C.ok(abs(A['savingsVsBudget'] - r2(32000 - final)) < 0.005, 'savings against the estimate line budget')
+        C.ok(abs(A['poTotal'] - r2(sum(p['tot'] for p in pos))) < 0.005, 'the award records the PO totals beside the landed figure')
         sv = await pg.evaluate("() => ({ s: rfqSavings('2026-09').vsFirst, q: erpQuery ? (EQ_TABLES.rfqs().filter(r => r.awardedOn.startsWith('2026-09')).reduce((a, r) => a + r.savings, 0)) : null })")
         C.ok(abs(sv['s'] - A['savingsVsFirst']) < 0.005 and abs(sv['q'] - A['savingsVsFirst']) < 0.005, f'the month\'s savings are queryable ({sv})')
         t = await pg.evaluate("() => ({ text: (document.getElementById('toast') || {}).innerText || '', open: (document.getElementById('toast') || document.body).querySelectorAll('.toast-open').length })")
@@ -321,6 +348,15 @@ async def main():
         C.ok(v and v.get('rfqSuggest'), f'Add puts the prospect on file ({v and v.get("rfqSuggest")})')
         sug = await pg.evaluate("() => { const r = rfqCreate({ projectId: 'p121', title: 'hangers', category: 'Lumber', lines: [{ item: 'joist hanger', qty: 10, unit: 'ea' }] }); r.status = 'purchasing'; const V = rfqProposeVendors(r); const x = V.list.find(y => y.v.name === 'Tri-State Connector Supply'); r.status = 'closed'; save(); return x ? x.because.map(b => b.t) : null; }")
         C.ok(sug and any('added from' in s for s in sug), f'the next RFQ suggests the added prospect ({sug})')
+        vv = await pg.evaluate("() => { const po = { number: 'PO-TEST', vendor: 'Tri-State Connector Supply', lines: [{ item: 'hanger', qty: 10, price: 2 }], needBy: '2026-09-10' }; return poValid(po); }")
+        C.ok(any('not yet vetted' in x for x in vv), f'a new vendor gets no PO until it is vetted ({vv})')
+        await pg.evaluate("() => { rfqOpen = ''; rfqTab = 'prospects'; view = 'rfq'; render(); }"); await pg.wait_for_timeout(300)
+        await pg.locator('[data-rfqvet]').first.click(); await pg.wait_for_timeout(300)
+        for k in ('w9', 'coi', 'registration', 'address', 'reviews'):
+            await pg.locator(f'#mbm [data-f="{k}"]').check()
+        await ok_modal(pg, 400)
+        vv = await pg.evaluate("() => ({ r: poValid({ number: 'PO-TEST', vendor: 'Tri-State Connector Supply', lines: [{ item: 'hanger', qty: 10, price: 2 }], needBy: '2026-09-10' }), by: DB.vendors.find(v => v.name === 'Tri-State Connector Supply').vetting.w9.by })")
+        C.ok(not vv['r'] and vv['by'] == 'Chen Biron', f'vetted, with who and when recorded; the PO may issue ({vv})')
 
         # ---- sourcing research
         R = await pg.evaluate("() => JSON.parse(JSON.stringify(sourcingResearch('Lumber')))")
@@ -332,7 +368,8 @@ async def main():
         for x in R['prospects']:
             qn = R['qty']; mode = 'truckload' if qn >= fr_t['truckloadPieces'] else 'ltl'
             fr_c = r2(max(fr_t[mode]['min'], x['miles'] * fr_t[mode]['perMile']))
-            goods = r2(x['price'] * qn); sf = r2(max(0, x['minimum'] - goods)); tot = r2(goods + fr_c + sf)
+            goods = r2(x['price'] * qn); sf = r2(max(0, x['minimum'] - goods)); tx = r2(goods * RATE / 100); hd = 0 if x['liftGate'] else 120
+            tot = r2(goods + fr_c + sf + tx + hd)
             okland &= abs(x['landed']['total'] - tot) < 0.005 and abs(x['landed']['perUnit'] - r2(tot / qn)) < 0.005
             if R['now']: okland &= abs(x['saving'] - r2((R['now']['unit'] - r2(tot / qn)) * qn)) < 0.005
         C.ok(okland, 'landed cost arithmetic matches Python')

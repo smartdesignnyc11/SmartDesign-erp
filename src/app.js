@@ -172896,18 +172896,18 @@ function rfqOpenFor(id) {
 // lumber RFQ is drafted in the demo, never at boot, so nothing else in the firm counts them before then.
 // vendor.region uses the field and values the vendor lane adds; it is set here only where absent.
 const RFQ_DEMO_SUPPLIERS = [
-  { key: "kent", name: "Kent Avenue Lumber", email: "quotes@kentavelumber.example", contact: "Dana Ruiz", region: "NYC Manhattan/Brooklyn", channel: "middleman", city: "Brooklyn, NY", miles: 3 },
-  { key: "queens", name: "Queens Builders Supply", email: "rfq@queensbuilders.example", contact: "Marco Bianchi", region: "NYC other boroughs", channel: "middleman", city: "Long Island City, NY", miles: 8 },
-  { key: "gsl", name: "Garden State Lumber", email: "sales@gardenstatelumber.example", contact: "Pat Okafor", region: "NY-NJ-CT", channel: "middleman", city: "Linden, NJ", miles: 22 },
-  { key: "lancaster", name: "Lancaster Timber Direct", email: "orders@lancastertimber.example", contact: "Ruth Zook", region: "Out of state", channel: "direct", city: "Lancaster, PA", miles: 160 },
-  { key: "harlem", name: "Harlem River Building Supply", email: "desk@harlemriverbuilding.example", contact: "Lou Grant", region: "NYC other boroughs", channel: "middleman", city: "Bronx, NY", miles: 12 },
+  { key: "kent", name: "Kent Avenue Lumber", email: "quotes@kentavelumber.example", contact: "Dana Ruiz", region: "NYC Manhattan/Brooklyn", channel: "middleman", city: "Brooklyn, NY", miles: 3, chargesTax: !0, delivery: { liftGate: !1, smallTruck: !0, carryIn: !0, window: "7 to 9 am" }, terms: "net 30", since: 2019, emergencies: 3 },
+  { key: "queens", name: "Queens Builders Supply", email: "rfq@queensbuilders.example", contact: "Marco Bianchi", region: "NYC other boroughs", channel: "middleman", city: "Long Island City, NY", miles: 8, chargesTax: !0, delivery: { liftGate: !0, smallTruck: !0, carryIn: !1, window: "8 to 12" }, terms: "net 30", since: 2022, emergencies: 1 },
+  { key: "gsl", name: "Garden State Lumber", email: "sales@gardenstatelumber.example", contact: "Pat Okafor", region: "NY-NJ-CT", channel: "middleman", city: "Linden, NJ", miles: 22, chargesTax: !1, delivery: { liftGate: !0, smallTruck: !1, carryIn: !1, window: "a 4-hour window" }, terms: "card or prepay", since: 0, emergencies: 0 },
+  { key: "lancaster", name: "Lancaster Timber Direct", email: "orders@lancastertimber.example", contact: "Ruth Zook", region: "Out of state", channel: "direct", city: "Lancaster, PA", miles: 160, chargesTax: !1, delivery: { liftGate: !1, smallTruck: !1, carryIn: !1, window: "a day window, tractor-trailer" }, terms: "card", since: 0, emergencies: 0 },
+  { key: "harlem", name: "Harlem River Building Supply", email: "desk@harlemriverbuilding.example", contact: "Lou Grant", region: "NYC other boroughs", channel: "middleman", city: "Bronx, NY", miles: 12, chargesTax: !0, delivery: { liftGate: !0, smallTruck: !0, carryIn: !0, window: "7 to 11 am" }, terms: "net 15", since: 2021, emergencies: 2 },
 ];
 function rfqDemoSuppliers() {
   DB.vendors = DB.vendors || [];
   RFQ_DEMO_SUPPLIERS.forEach((s) => {
     let v = DB.vendors.find((x) => String(x.name).toLowerCase() === s.name.toLowerCase());
     v ||
-      ((v = { id: "vrfq_" + s.key, name: s.name, trade: "Lumber", email: s.email, contact: s.contact, city: s.city, channel: s.channel, demo: !0, insuranceExp: "2027-06-30", w9: !0, bankChangedAt: "", cats: ["Lumber", "Framing hardware"] }),
+      ((v = { id: "vrfq_" + s.key, name: s.name, trade: "Lumber", email: s.email, contact: s.contact, city: s.city, channel: s.channel, demo: !0, insuranceExp: "2027-06-30", w9: !0, bankChangedAt: "", cats: ["Lumber", "Framing hardware"], chargesTax: s.chargesTax, delivery: s.delivery, terms: s.terms, since: s.since, emergencies: s.emergencies }),
       DB.vendors.push(v));
     v.region || (v.region = s.region);
   });
@@ -173253,7 +173253,7 @@ function rfqIngest(opts) {
         text = [c.text].concat(c.att.map((a) => a.text || "")).join("\n"),
         P = rfqParseQuote(r, text),
         read = P.lines.filter((x) => !x.missing).length,
-        q = { id: rfqIdOf("q"), vendorId: v.id, vendor: v.name, round: round, sourceId: c.id, commId: c.commId || "", file: pdf ? pdf.filename : "", from: c.from, date: c.date || today(), readAt: appNowIso(), unreadable: !1, lines: [], freight: 0, lead: null, validUntil: "", min: 0, flags: [] };
+        q = { id: rfqIdOf("q"), vendorId: v.id, vendor: v.name, round: round, sourceId: c.id, commId: c.commId || "", file: pdf ? pdf.filename : "", from: c.from, date: c.date || today(), readAt: appNowIso(), unreadable: !1, confirmed: null, lines: [], freight: 0, lead: null, validUntil: "", min: 0, flags: [] };
       if (2 === round && prev) {
         // round two restates only what moved: the rest carries over from round one, said as such
         q.lines = prev.lines.map((pl) => {
@@ -173299,6 +173299,25 @@ function rfqIngest(opts) {
   });
   return n && save(), o.toast && rcToast(n ? `${n} repl${1 === n ? "y" : "ies"} read into quotes` : "No new replies yet", n && o.rfq ? [{ label: "Open", run: () => rfqOpenFor(o.rfq) }] : null), n;
 }
+// Numbers the assistant read are "read by AI, not confirmed" until the coordinator confirms them: one tap a quote,
+// with each line's arithmetic shown and anything that does not add up highlighted. Negotiation and award use
+// confirmed figures only (misreads are the biggest risk in this flow).
+function rfqConfirmSheet(r, q) {
+  const rows = r.lines.map((l) => {
+    const x = q.lines.find((y) => y.lineId === l.id) || { missing: !0 };
+    return `<div class="rfq-lc ${x.check || x.sub ? "warn" : ""}" style="${x.check || x.sub ? "border-color:var(--warn,#b26b00)" : ""}"><b data-nocase>${esc(l.id)} · ${esc(l.item)}</b><div class="small" data-nocase>${x.missing ? `not quoted${x.note ? `: ${esc(x.note)}` : ""}` : `${rfqU(x.unit)} × ${l.qty} ${esc(l.unit)} = ${money(r2(x.unit * l.qty))}${x.ext != null ? ` · the reply says ${money(x.ext)}` : ""}${x.check ? " · <b>does not add up</b>" : ""}${x.sub ? ` · <b>alternate</b>: ${esc(x.subText)}` : ""}${2 === q.round && x.changed ? " · revised in round two" : ""}`}</div></div>`;
+  });
+  mbModal(
+    `${esc(q.vendor)} · Confirm the Prices`,
+    `<div class="rfq-sheet"><p class="small">Read by AI from ${esc(q.file || "the email")} (round ${q.round}). Freight ${money(q.freight || 0)}${q.min ? ` · minimum ${money(q.min)}` : ""} · lead ${null == q.lead ? "not stated" : q.lead + " days"}. Check each figure against the reply; anything highlighted needs a look.</p>${rows.join("")}</div>`,
+    { submit: "Confirm These Prices", onSubmit: () => void rfqConfirmQuote(r, q) },
+  ).classList.add("rfq-mbm");
+}
+function rfqConfirmQuote(r, q) {
+  (q.confirmed = { by: rfqMe(), at: appNowIso(), how: "checked against the reply" }), rfqHist(r, "quote confirmed", `${q.vendor}, round ${q.round}`), save(), render();
+  rcToast(`${q.vendor}'s round ${q.round} prices confirmed`, [{ label: "Open", run: () => rfqOpenFor(r.id) }]);
+}
+const rfqUnconfirmed = (r, vids) => rfqLevel(r).quotes.filter((q) => !q.confirmed && (!vids || vids.includes(q.vendorId)));
 // A person enters the prices of a reply the assistant could not read (a scan); it becomes a readable quote.
 function rfqEnterPrices(r, q) {
   mbModal(
@@ -173312,6 +173331,7 @@ function rfqEnterPrices(r, q) {
           (q.lead = "" === f._lead ? null : +f._lead),
           (q.unreadable = !1),
           (q.enteredBy = rfqMe()),
+          (q.confirmed = { by: rfqMe(), at: appNowIso(), how: "entered by hand" }),
           (q.flags = [`prices entered by ${rfqMe()} from ${q.file || "the reply"}`]);
         rfqHist(r, "prices entered by hand", q.vendor), save(), render();
         rcToast(`${q.vendor}'s quote entered`, [{ label: "Open", run: () => rfqOpenFor(r.id) }]);
@@ -173528,9 +173548,27 @@ const rfqDemoReady = () => (rfqDemoSuppliers(), !0);
 // ---- 6. leveling: the whole basket, per line, the best split after freight and minimums, landed cost, lead time
 // against need-by, region. Same spec only: an alternate is never counted as the same item until the PM and the
 // designer approve the substitution (r.subsOk). Mirrored independently in tests/rfq_test.py.
+// Tax and handling in landed cost. NY sales tax charged by the vendor, or NY use tax we owe on what an
+// out-of-state vendor ships untaxed (the job's rate: Purchasing settings, 8.875% NYC by default) — both are a cost,
+// so an untaxed quote is never flattered; "confirm with the accountant", not tax advice. A brownstone has no
+// loading dock: a vendor with no lift gate and no carry-in means our crew unloads by hand (an assumed allowance).
+const RFQ_HANDLING = 120,
+  rfqTaxRate = () => +(((DB.company || {}).taxRate) || 8.875),
+  rfqChargesTax = (v) => (v && null != v.chargesTax ? !!v.chargesTax : /^NYC/.test((v && v.region) || "")),
+  rfqHandling = (v) => (v && v.delivery && !v.delivery.liftGate && !v.delivery.carryIn ? RFQ_HANDLING : 0),
+  rfqRisk = (v) => {
+    const d = (v && v.delivery) || null;
+    return d ? [d.liftGate ? "lift gate" : "", d.carryIn ? "carry-in" : "", d.smallTruck ? "small truck" : "", d.window ? `window ${d.window}` : ""].filter(Boolean).join(", ") + (d.liftGate || d.carryIn ? "" : `; no lift gate or carry-in: hand unload by our crew, ${money(RFQ_HANDLING)} assumed`) + (/tractor/i.test(d.window || "") ? "; a tractor-trailer may need a street permit" : "") : "delivery capability not on file";
+  },
+  rfqRelation = (v) => {
+    if (!v) return "";
+    const rec = rfqVendorRecord(v);
+    return [v.terms ? `terms ${v.terms}` : "", v.since ? `used since ${v.since}` : "", v.emergencies ? `${v.emergencies} emergency deliver${1 === v.emergencies ? "y" : "ies"}` : "", rec.pos ? `${rec.pos} POs` : ""].filter(Boolean).join(" · ") || "no history with us";
+  };
 function rfqLevel(r, opts) {
   const o = opts || {},
     td = today(),
+    rate = rfqTaxRate(),
     ok = new Set(r.subsOk || []),
     latest = {};
   (r.quotes || [])
@@ -173544,7 +173582,7 @@ function rfqLevel(r, opts) {
     vinfo = (q) => {
       const v = rfqVendor(q.vendorId) || {},
         arrive = null == q.lead ? "" : iso(addDays(td, q.lead));
-      return { vendorId: q.vendorId, vendor: q.vendor, region: v.region || "", channel: v.channel || "", freight: +q.freight || 0, min: +q.min || 0, lead: q.lead, arrive: arrive, onTime: !!arrive && (!r.needBy || arrive <= r.needBy), round: q.round, validUntil: q.validUntil || "" };
+      return { vendorId: q.vendorId, vendor: q.vendor, region: v.region || "", channel: v.channel || "", freight: +q.freight || 0, min: +q.min || 0, lead: q.lead, arrive: arrive, onTime: !!arrive && (!r.needBy || arrive <= r.needBy), round: q.round, validUntil: q.validUntil || "", confirmed: !!q.confirmed, taxCharged: rfqChargesTax(v), handling: rfqHandling(v), risk: rfqRisk(v), relation: rfqRelation(v) };
     },
     cost = (assign) => {
       const by = {};
@@ -173556,7 +173594,8 @@ function rfqLevel(r, opts) {
       let total = 0;
       Object.values(by).forEach((x) => {
         const q = latest[x.vendorId];
-        (x.freight = +q.freight || 0), (x.shortfall = r2(Math.max(0, (+q.min || 0) - x.goods))), (x.landed = r2(x.goods + x.freight + x.shortfall)), (total = r2(total + x.landed));
+        const v = rfqVendor(x.vendorId);
+        (x.freight = +q.freight || 0), (x.shortfall = r2(Math.max(0, (+q.min || 0) - x.goods))), (x.tax = r2((x.goods * rate) / 100)), (x.taxCharged = rfqChargesTax(v)), (x.handling = rfqHandling(v)), (x.landed = r2(x.goods + x.freight + x.shortfall + x.tax + x.handling)), (total = r2(total + x.landed));
       });
       return { by: by, total: total };
     };
@@ -173565,8 +173604,9 @@ function rfqLevel(r, opts) {
       if (priced.length < r.lines.length) return null;
       const goods = r2(r.lines.reduce((a, l) => r2(a + r2(unitOf(q, l.id) * l.qty)), 0)),
         I = vinfo(q),
-        shortfall = r2(Math.max(0, I.min - goods));
-      return Object.assign(I, { goods: goods, shortfall: shortfall, landed: r2(goods + I.freight + shortfall) });
+        shortfall = r2(Math.max(0, I.min - goods)),
+        tax = r2((goods * rate) / 100);
+      return Object.assign(I, { goods: goods, shortfall: shortfall, tax: tax, landed: r2(goods + I.freight + shortfall + tax + I.handling) });
     })
       .filter(Boolean)
       .sort((a, b) => a.landed - b.landed),
@@ -173605,7 +173645,7 @@ function rfqLevel(r, opts) {
     onTimeSplit = onTimeQ.length ? split(onTimeQ) : null,
     budgets = Object.values(r.budgets || {}).length ? Object.values(r.budgets) : r.estLine ? [{ key: r.estLine.key, label: `${r.estLine.label} (the whole line, labor and material)`, budget: r.estLine.left, whole: r.estLine.budget }] : [],
     budgetTotal = r2(budgets.reduce((a, b) => a + (+b.budget || 0), 0));
-  return { quotes: Q, vendors: Q.map(vinfo), baskets: baskets, partial: partial, perLine: perLine, split: bestSplit, onTimeSplit: onTimeSplit, budgets: budgets, budgetTotal: budgetTotal, needBy: r.needBy };
+  return { taxRate: rate, unconfirmed: Q.filter((q) => !q.confirmed).map((q) => q.vendor), quotes: Q, vendors: Q.map(vinfo), baskets: baskets, partial: partial, perLine: perLine, split: bestSplit, onTimeSplit: onTimeSplit, budgets: budgets, budgetTotal: budgetTotal, needBy: r.needBy };
 }
 // The recommendation, in the Standard's escalation format. Schedule outranks cost (decision principles), so a
 // split that lands after the need-by date is never recommended over one that lands in time.
@@ -173667,6 +173707,8 @@ function rfqNegCheck(r, n) {
 function rfqNegSend(r, ids, edits) {
   const D = (r.neg || []).filter((n) => "draft" === n.status && (!ids || ids.includes(n.id)));
   if (!D.length) return toast("No negotiation email to send"), !1;
+  const U = (r.quotes || []).filter((q) => 1 === q.round && !q.unreadable && !q.confirmed);
+  if (U.length) return toast(`Confirm the prices first: ${U.map((q) => q.vendor).join(", ")} ${1 === U.length ? "is" : "are"} read by AI, not confirmed`), !1;
   for (const n of D) {
     edits && null != edits[n.id] && (n.body = edits[n.id]);
     const C = rfqNegCheck(r, n);
@@ -173690,6 +173732,8 @@ function rfqAward(r, assign) {
     first = rfqLevel(r, { round: 1 }),
     A = assign || (rfqRecommend(r, L).plan || {}).assign;
   if (!A || r.lines.some((l) => !A[l.id])) return toast("Every line needs a vendor before the award"), null;
+  const U = rfqUnconfirmed(r, [...new Set(Object.values(A))]);
+  if (U.length) return toast(`Confirm the prices first: ${U.map((q) => q.vendor).join(", ")} ${1 === U.length ? "is" : "are"} read by AI, not confirmed`), null;
   const p = rfqJob(r),
     by = {};
   r.lines.forEach((l) => (by[A[l.id]] = by[A[l.id]] || []).push(l));
@@ -173702,6 +173746,11 @@ function rfqAward(r, assign) {
       goods = r2(lines.reduce((a, l) => r2(a + r2(unit(l.id) * l.qty)), 0)),
       shortfall = r2(Math.max(0, (+q.min || 0) - goods)),
       repeat = /lumber|framing|stud|plywood/i.test(r.category + " " + r.title),
+      rate = rfqTaxRate(),
+      taxed = rfqChargesTax(v),
+      tax = r2((goods * rate) / 100),
+      handling = rfqHandling(v),
+      firstOrder = !rfqVendorRecord(v).pos,
       choice = "direct" === v.channel ? "direct" : "middleman",
       why = "direct" === choice ? `direct from the mill: ${repeat ? "a repeat item" : "the best landed cost"}` : `through a yard: ${repeat && goods < 5e3 ? "one delivery for this job, landed cost best" : "landed cost best"}`,
       po = {
@@ -173720,12 +173769,14 @@ function rfqAward(r, assign) {
         rfqId: r.id,
         rfqNumber: r.number,
         sourcing: { rfqId: r.id, rfqNumber: r.number, choice: choice, why: why, region: v.region || "", round: q.round },
-        notes: `From ${r.number} (${r.title}): awarded ${lines.length} of ${r.lines.length} lines, round ${q.round} prices. Sourcing: ${why}.${shortfall ? ` Includes ${money(shortfall)} to meet the ${money(q.min)} minimum.` : ""}`,
+        notes: `From ${r.number} (${r.title}): awarded ${lines.length} of ${r.lines.length} lines, round ${q.round} prices. Sourcing: ${why}.${shortfall ? ` Includes ${money(shortfall)} to meet the ${money(q.min)} minimum.` : ""}${taxed ? "" : ` No NY sales tax charged: use tax of ${money(tax)} (${rate}%) to accrue — confirm with the accountant.`}${firstOrder ? ` First order with ${v.name}: pay by card or on terms, never by prepaid wire.` : ""}${handling ? ` No lift gate or carry-in: plan a hand unload.` : ""}`,
+        useTax: taxed ? null : { rate: rate, amount: tax, note: "use tax to accrue — confirm with the accountant" },
+        landed: r2(goods + (+q.freight || 0) + shortfall + tax + handling),
         lines: lines.map((l) => {
           const key = l.line || (r.estLine || {}).key || "";
           return { id: uid("pl"), item: l.item, desc: l.spec || "", qty: +l.qty, unit: l.unit, price: unit(l.id), materialId: "", line: key, estimateLineId: l.estimateLineId || (key.startsWith("estimate:") ? key.split(":")[2] : ""), coLineId: l.coLineId || (key.startsWith("co:") ? key.split(":")[2] : ""), code: l.costCode || "03", rfqId: r.id, rfqLineId: l.id, received: 0 };
         }),
-        tax: 0,
+        tax: taxed ? rate : 0,
         shipping: r2((+q.freight || 0) + shortfall),
         matchedTxns: [],
         createdBy: rfqMe(),
@@ -173749,10 +173800,10 @@ function rfqAward(r, assign) {
     S = keep;
     made.push(po);
   });
-  const final = r2(made.reduce((a, po) => a + poTotal(po).total, 0)),
+  const final = r2(made.reduce((a, po) => a + po.landed, 0)),
     firstQuote = first.baskets[0] ? first.baskets[0].landed : first.split ? first.split.total : final,
     budget = L.budgetTotal;
-  r.award = { on: today(), at: appNowIso(), by: rfqMe(), assign: A, pos: made.map((x) => x.id), numbers: made.map((x) => x.number), final: final, firstQuote: firstQuote, firstBasis: first.baskets[0] ? `the cheapest whole first-round basket (${first.baskets[0].vendor})` : "the best first-round split", savingsVsFirst: r2(firstQuote - final), budget: budget, savingsVsBudget: budget ? r2(budget - final) : null };
+  r.award = { on: today(), at: appNowIso(), by: rfqMe(), assign: A, pos: made.map((x) => x.id), numbers: made.map((x) => x.number), final: final, poTotal: r2(made.reduce((a, po) => a + poTotal(po).total, 0)), useTax: r2(made.reduce((a, po) => a + ((po.useTax || {}).amount || 0), 0)), firstQuote: firstQuote, firstBasis: first.baskets[0] ? `the cheapest whole first-round basket (${first.baskets[0].vendor})` : "the best first-round split", savingsVsFirst: r2(firstQuote - final), budget: budget, savingsVsBudget: budget ? r2(budget - final) : null };
   (r.status = "awarded"), rfqHist(r, "awarded", `${made.map((x) => `${x.number} ${x.vendor} ${money(poTotal(x).total)} (${x.status})`).join("; ")}; saved ${money(r.award.savingsVsFirst)} against the first quote`);
   save(), render();
   rcToast(`${r.number} awarded — ${made.map((x) => x.number).join(", ")}; ${money(r.award.savingsVsFirst)} under the first quote`, made.slice(0, 2).map((po) => ({ label: `Open ${po.number}`, run: "function" == typeof flowGo ? flowGo.po(po) : () => setView("po") })).concat([{ label: "Open", run: () => rfqOpenFor(r.id) }]));
@@ -173816,7 +173867,7 @@ function rfqProspectAct(id, act, f) {
   DB.vendors = DB.vendors || [];
   let v = DB.vendors.find((y) => String(y.name).toLowerCase() === name.toLowerCase());
   v ||
-    ((v = { id: uid("v"), name: name, trade: x.category || "Materials", email: email, region: (f && f.region) || x.region || "", channel: x.channel || "", demo: !!x.demo, researchId: x.researchId || "", hyps: x.hyps || [], insuranceExp: "", bankChangedAt: "" }),
+    ((v = { id: uid("v"), name: name, trade: x.category || "Materials", email: email, region: (f && f.region) || x.region || "", channel: x.channel || "", demo: !!x.demo, researchId: x.researchId || "", hyps: x.hyps || [], insuranceExp: "", bankChangedAt: "", needsVetting: !0, delivery: x.delivery || null }),
     DB.vendors.push(v));
   (v.rfqSuggest = `${"research" === x.source ? "sourcing research" : "gap" === x.source ? "a thin category" : "your mail"} (${fmtL(today())})`), (x.status = "added"), (x.vendorId = v.id), (x.by = rfqMe());
   try {
@@ -173827,6 +173878,46 @@ function rfqProspectAct(id, act, f) {
   return v;
 }
 
+// Vet a new vendor before its first PO (the fraud risk in "find new suppliers"): a W-9, a COI when it delivers or
+// works on site, and a business check (registration, address, reviews), each recorded with who and when. Until
+// then poValid refuses its PO on every path. A bank-detail change still goes through the two-person verification
+// (vendor.bankPending, the Owner's call-back) like every vendor's.
+const RFQ_VET = [["w9", "W-9 Received"], ["coi", "COI Received (It Delivers or Works on Site)"], ["registration", "Business Registration Checked"], ["address", "Address Checked"], ["reviews", "Reviews and References Checked"]],
+  rfqVetDone = (v) => !v || !v.needsVetting || RFQ_VET.every(([k]) => !!((v.vetting || {})[k])),
+  rfqVetMissing = (v) => RFQ_VET.filter(([k]) => !((v.vetting || {})[k])).map(([k, l]) => l.replace(/ \(.*\)/, "").replace(/ (Received|Checked)$/, "").toLowerCase());
+function rfqVetSheet(vid) {
+  const v = rfqVendor(vid);
+  if (!v) return;
+  const V = v.vetting || {};
+  mbModal(
+    `Vet ${esc(v.name)}`,
+    `<div class="rfq-sheet"><p class="small muted">A new vendor gets no purchase order until each is done. The first order is paid by card or on terms, never by prepaid wire.</p>${RFQ_VET.map(([k, l]) => `<label class="rfq-pick"><input type="checkbox" data-f="${k}" ${V[k] ? "checked" : ""}><span class="grow"><b>${l}</b>${V[k] ? `<span class="small muted">${esc(V[k].by)} · ${fmtL(V[k].on)}</span>` : ""}</span></label>`).join("")}${mbF("Notes", '<input data-f="notes" placeholder="e.g. NJ registration 0400123 checked on the state site">')}</div>`,
+    {
+      submit: "Record the Checks",
+      onSubmit: (f) => {
+        v.vetting = v.vetting || {};
+        RFQ_VET.forEach(([k]) => (f[k] ? v.vetting[k] || (v.vetting[k] = { by: rfqMe(), on: today(), at: appNowIso() }) : delete v.vetting[k]));
+        f.notes && (v.vetting.notes = (v.vetting.notes ? v.vetting.notes + " · " : "") + f.notes);
+        try {
+          audit("vendor", v.id, "vetting", "", RFQ_VET.filter(([k]) => v.vetting[k]).map(([k]) => k).join(","), f.notes || "");
+        } catch (e) {}
+        save(), render();
+        rcToast(rfqVetDone(v) ? `${v.name} is vetted: it can receive a purchase order` : `${v.name}: still to do — ${rfqVetMissing(v).join(", ")}`, [{ label: "Open", run: () => ((window.rfqTab = "prospects"), setView("rfq")) }]);
+      },
+    },
+  ).classList.add("rfq-mbm");
+}
+{
+  const base = poValid;
+  poValid = function (po) {
+    const R = base.apply(this, arguments) || [];
+    try {
+      const v = po && poVendorReal(po.vendor);
+      v && !rfqVetDone(v) && R.push(`${v.name} is a new vendor not yet vetted (${rfqVetMissing(v).join(", ")})`);
+    } catch (e) {}
+    return R;
+  };
+}
 // ---- 10. sourcing research (BACKLOG §1.8 item 10): reason where it is cheaper, search, land the cost, check the
 // quality, make the case. The search is a pluggable provider: in the demo it returns an INVENTED, labelled set
 // ("demo data", example.com sources); the real provider is the platform's server-side web search (§5.3), a stub
@@ -173846,10 +173937,10 @@ const SOURCING_PROVIDERS = {
       if ("Lumber" !== cat) return [];
       const S = (slug, path) => ({ label: `${slug}.example.com${path}`, url: `https://${slug}.example.com${path}`, demo: !0 });
       return [
-        { key: "tricounty", name: "Tri-County Lumber Wholesale", kind: "wholesaler", location: "Paterson, NJ", region: "NY-NJ-CT", miles: 24, size: "regional wholesaler, 3 yards", products: "SPF and Doug Fir dimension lumber, plywood, engineered lumber", species: "SPF", grade: "#2 & Btr", kd: !0, gradeStamp: "a grading agency stamp shown on the price sheet", certs: "FSC chain of custody (claimed on the site)", delivery: "own trucks within 75 miles", minimum: 1200, returns: "restocking 15% on stock items", lead: 3, price: 5.55, hyps: ["scale", "region"], sources: [S("tricountylumber", "/price-list"), S("tricountylumber", "/delivery")] },
-        { key: "lehigh", name: "Lehigh Valley Builders Yard", kind: "regional yard", location: "Allentown, PA", region: "Out of state", miles: 90, size: "one yard, 40 staff", products: "framing lumber, sheathing, hardware", species: "SPF", grade: "#2 & Btr", kd: !0, gradeStamp: "a grading agency stamp shown in the yard photos", certs: "none stated", delivery: "LTL carrier to NYC", minimum: 1500, returns: "no returns on cut lumber", lead: 5, price: 5.7, hyps: ["region"], sources: [S("lehighbuildersyard", "/lumber"), S("lehighbuildersyard", "/about")] },
-        { key: "susquehanna", name: "Susquehanna Valley Sawmill", kind: "mill", location: "central Pennsylvania", region: "Out of state", miles: 190, size: "family mill, 12 staff", products: "rough and surfaced Eastern hemlock and white pine", species: "Eastern Hemlock", grade: "#2", kd: !0, gradeStamp: "mill-graded; agency stamp not shown", certs: "none stated", delivery: "truckload only, freight extra", minimum: 3000, returns: "none", lead: 10, price: 4.6, hyps: ["raw", "small"], sources: [S("susquehannasawmill", "/products"), S("susquehannasawmill", "/contact")] },
-        { key: "catskill", name: "Catskill Family Mill", kind: "mill", location: "Delaware County, NY", region: "NY-NJ-CT", miles: 140, size: "family mill, 6 staff", products: "green white pine framing", species: "Eastern White Pine", grade: "#2", kd: !1, gradeStamp: "not stated", certs: "none stated", delivery: "pickup or LTL", minimum: 800, returns: "none", lead: 7, price: 4.25, hyps: ["raw", "small"], sources: [S("catskillfamilymill", "/")] },
+        { key: "tricounty", name: "Tri-County Lumber Wholesale", kind: "wholesaler", location: "Paterson, NJ", region: "NY-NJ-CT", miles: 24, size: "regional wholesaler, 3 yards", products: "SPF and Doug Fir dimension lumber, plywood, engineered lumber", species: "SPF", grade: "#2 & Btr", kd: !0, gradeStamp: "a grading agency stamp shown on the price sheet", certs: "FSC chain of custody (claimed on the site)", delivery: "own trucks within 75 miles, lift gate", liftGate: !0, minimum: 1200, returns: "restocking 15% on stock items", lead: 3, price: 5.55, hyps: ["scale", "region"], sources: [S("tricountylumber", "/price-list"), S("tricountylumber", "/delivery")] },
+        { key: "lehigh", name: "Lehigh Valley Builders Yard", kind: "regional yard", location: "Allentown, PA", region: "Out of state", miles: 90, size: "one yard, 40 staff", products: "framing lumber, sheathing, hardware", species: "SPF", grade: "#2 & Btr", kd: !0, gradeStamp: "a grading agency stamp shown in the yard photos", certs: "none stated", delivery: "LTL carrier to NYC, no lift gate", liftGate: !1, minimum: 1500, returns: "no returns on cut lumber", lead: 5, price: 5.7, hyps: ["region"], sources: [S("lehighbuildersyard", "/lumber"), S("lehighbuildersyard", "/about")] },
+        { key: "susquehanna", name: "Susquehanna Valley Sawmill", kind: "mill", location: "central Pennsylvania", region: "Out of state", miles: 190, size: "family mill, 12 staff", products: "rough and surfaced Eastern hemlock and white pine", species: "Eastern Hemlock", grade: "#2", kd: !0, gradeStamp: "mill-graded; agency stamp not shown", certs: "none stated", delivery: "truckload only, freight extra, no lift gate", liftGate: !1, minimum: 3000, returns: "none", lead: 10, price: 4.6, hyps: ["raw", "small"], sources: [S("susquehannasawmill", "/products"), S("susquehannasawmill", "/contact")] },
+        { key: "catskill", name: "Catskill Family Mill", kind: "mill", location: "Delaware County, NY", region: "NY-NJ-CT", miles: 140, size: "family mill, 6 staff", products: "green white pine framing", species: "Eastern White Pine", grade: "#2", kd: !1, gradeStamp: "not stated", certs: "none stated", delivery: "pickup or LTL, no lift gate", liftGate: !1, minimum: 800, returns: "none", lead: 7, price: 4.25, hyps: ["raw", "small"], sources: [S("catskillfamilymill", "/")] },
       ];
     },
   },
@@ -173910,7 +174001,9 @@ function sourcingResearch(cat, opts) {
       const fr = rfqFreightFor(x.miles, qty),
         goods = r2(x.price * qty),
         shortfall = r2(Math.max(0, x.minimum - goods)),
-        landed = r2(goods + fr.cost + shortfall),
+        tax = r2((goods * rfqTaxRate()) / 100),
+        handling = x.liftGate ? 0 : RFQ_HANDLING,
+        landed = r2(goods + fr.cost + shortfall + tax + handling),
         perUnit = r2(landed / qty),
         sameSpec = x.species === spec.species && x.grade === spec.grade,
         q = {
@@ -173938,7 +174031,7 @@ function sourcingResearch(cat, opts) {
           { t: `minimum order ${money(x.minimum)}; ${x.delivery}; returns: ${x.returns}; lead time ${x.lead} days`, source: x.sources[x.sources.length - 1] },
         ],
         hypIds: x.hyps,
-        landed: { qty: qty, price: x.price, goods: goods, freight: fr, shortfall: shortfall, total: landed, perUnit: perUnit, words: `${qty} × $${rfqMoney2(x.price)} = ${money(goods)}; freight ${fr.words}; ${shortfall ? `minimum shortfall ${money(shortfall)}; ` : ""}landed ${money(landed)} = $${rfqMoney2(perUnit)} a stud` },
+        landed: { qty: qty, price: x.price, goods: goods, freight: fr, shortfall: shortfall, tax: tax, handling: handling, total: landed, perUnit: perUnit, words: `${qty} × $${rfqMoney2(x.price)} = ${money(goods)}; freight ${fr.words}; ${shortfall ? `minimum shortfall ${money(shortfall)}; ` : ""}NY ${"Out of state" === x.region || "NY-NJ-CT" === x.region ? "use" : "sales"} tax ${rfqTaxRate()}% ${money(tax)} (confirm with the accountant); ${handling ? `no lift gate: hand unload ${money(handling)} assumed; ` : ""}landed ${money(landed)} = $${rfqMoney2(perUnit)} a stud` },
         now: now,
         saving: saving,
         quality: q,
@@ -174027,6 +174120,8 @@ function rfqQueueItems() {
       job = rfqJobName(r);
     if ("purchasing" === r.status) out.push(Object.assign({}, base, { id: `rfq:${r.id}:send`, stage: "purchasing", title: `Pick vendors and send ${r.number}`, detail: `${r.lines.length} lines for ${job} · approved by ${(r.foremanOk || {}).by || r.foreman} · on site by ${fmt(r.needBy)}`, yes: "Pick Vendors" }));
     (r.quotes || []).filter((q) => q.unreadable).forEach((q) => RFQ_OPEN.includes(r.status) && out.push(Object.assign({}, base, { id: `rfq:${r.id}:read:${q.vendorId}`, stage: "read", sev: "warn", title: `Read ${q.vendor}'s reply to ${r.number} by hand`, detail: q.flags[0] || "the reply could not be read", yes: "Enter Prices" })));
+    const unc = RFQ_OPEN.includes(r.status) ? (r.quotes || []).filter((q) => !q.unreadable && !q.confirmed) : [];
+    unc.length && ["leveled", "negotiating"].includes(r.status) && out.push(Object.assign({}, base, { id: `rfq:${r.id}:confirm`, stage: "confirm", sev: "warn", title: `Confirm ${unc.length} quote${1 === unc.length ? "" : "s"} on ${r.number}`, detail: `read by AI, not confirmed: ${unc.map((q) => q.vendor).join(", ")}`, yes: "Confirm" }));
     "leveled" === r.status && !(r.neg || []).some((n) => "sent" === n.status) && out.push(Object.assign({}, base, { id: `rfq:${r.id}:neg`, stage: "negotiate", title: (r.neg || []).some((n) => "draft" === n.status) ? `Approve the negotiation emails on ${r.number}` : `Negotiate ${r.number}`, detail: `${(r.quotes || []).filter((q) => !q.unreadable).length} quotes leveled · ${rfqWhy("firstPrice")}`, yes: (r.neg || []).some((n) => "draft" === n.status) ? "Review Emails" : "Draft Negotiation" }));
     "negotiating" === r.status && r.round2In && out.push(Object.assign({}, base, { id: `rfq:${r.id}:award`, stage: "award", title: `Award ${r.number}`, detail: `round two is in · ${job}`, yes: "Award" }));
   });
@@ -174382,7 +174477,7 @@ function renderRfq() {
       ${u ? `<div class="card rfq-sec"><h3>What I May Send for You</h3><label class="rfq-pick"><input type="checkbox" id="rfq-deleg" ${rfqDelegated(u) ? "checked" : ""}><span class="grow"><b>Send RFQ Chases for Me</b><span class="small muted">Off: a reminder to a vendor who has not quoted waits in your Approvals as a draft. On: the assistant sends it the day before the due date. ${esc(rfqWhy("approve"))}</span></span></label></div>` : ""}`;
   } else if ("prospects" === tab) {
     const P = rfqProspects();
-    body = `<p class="small muted">Suppliers the assistant found: named in your mail and not on file, categories with fewer than three vendors or none outside NYC, and sourcing research. Add puts one on file and suggests it on the next RFQ.</p><div class="rfq-cards">${P.map((x) => `<div class="rfq-card"><b class="rfq-h" data-nocase>${esc(x.name)}${x.demo ? ' <span class="pill">Demo Data</span>' : ""}</b><div class="small muted" data-nocase>${esc({ mail: "From your mail", gap: "A thin category", research: "Sourcing research" }[x.source] || x.source)}${x.category ? ` · ${esc(x.category)}` : ""} · ${esc(x.status)}</div><p class="small" data-nocase>${esc(x.evidence || "")}</p>${x.web ? `<p class="small muted">${esc(x.web)}</p>` : ""}${"proposed" === x.status ? `<div class="rfq-row"><button class="btn sm" data-rfqpadd="${esc(x.id)}">Add</button><button class="btn sm" data-rfqpdis="${esc(x.id)}">Dismiss</button></div>` : ""}</div>`).join("") || '<p class="small muted">No prospects right now.</p>'}</div>`;
+    body = `<p class="small muted">Suppliers the assistant found: named in your mail and not on file, categories with fewer than three vendors or none outside NYC, and sourcing research. Add puts one on file and suggests it on the next RFQ.</p><div class="rfq-cards">${P.map((x) => `<div class="rfq-card"><b class="rfq-h" data-nocase>${esc(x.name)}${x.demo ? ' <span class="pill">Demo Data</span>' : ""}</b><div class="small muted" data-nocase>${esc({ mail: "From your mail", gap: "A thin category", research: "Sourcing research" }[x.source] || x.source)}${x.category ? ` · ${esc(x.category)}` : ""} · ${esc(x.status)}</div><p class="small" data-nocase>${esc(x.evidence || "")}</p>${x.web ? `<p class="small muted">${esc(x.web)}</p>` : ""}${"proposed" === x.status ? `<div class="rfq-row"><button class="btn sm" data-rfqpadd="${esc(x.id)}">Add</button><button class="btn sm" data-rfqpdis="${esc(x.id)}">Dismiss</button></div>` : ""}${"added" === x.status && x.vendorId && !rfqVetDone(rfqVendor(x.vendorId)) ? `<p class="small">Before its first PO: ${esc(rfqVetMissing(rfqVendor(x.vendorId)).join(", "))}.</p><div class="rfq-row"><button class="btn sm" data-rfqvet="${esc(x.vendorId)}">Vet</button></div>` : ""}</div>`).join("") || '<p class="small muted">No prospects right now.</p>'}</div>`;
   } else body = rfqResearchHtml();
   host.innerHTML = `<div class="ph"><div><h2>RFQs</h2><div class="lead">${open} open${mine ? ` · ${mine} waiting on you` : ""}</div></div><div class="acts"><button class="btn ${"research" === tab ? "" : "primary"}" id="rfq-new">New RFQ</button></div></div>${seg}<div style="margin-top:12px">${body}</div>`;
   host.querySelectorAll("[data-rfqtab]").forEach((b) => (b.onclick = () => ((window.rfqTab = b.dataset.rfqtab), renderRfq())));
@@ -174407,6 +174502,7 @@ function renderRfq() {
       }),
   );
   host.querySelectorAll("[data-rfqpdis]").forEach((b) => (b.onclick = () => rfqProspectAct(b.dataset.rfqpdis, "dismiss")));
+  host.querySelectorAll("[data-rfqvet]").forEach((b) => (b.onclick = () => rfqVetSheet(b.dataset.rfqvet)));
   rfqWireResearch(host);
 }
 function rfqNewSheet() {
@@ -174440,12 +174536,13 @@ function rfqLevelHtml(r, L) {
     R = rfqRecommend(r, L),
     V = L.vendors,
     vn = (id) => (V.find((v) => v.vendorId === id) || {}).vendor || id,
+    taxNote = `<p class="small muted">Landed cost counts NY sales tax where the vendor charges it and NY use tax (${L.taxRate}%) where it does not — confirm with the accountant; it is not tax advice.${L.unconfirmed.length ? ` Not confirmed yet: ${esc(L.unconfirmed.join(", "))} — the figures are read by AI.` : ""}</p>`,
     tiles = `<div class="rfq-tiles"><div class="rfq-tile"><span class="small muted">Cheapest Whole Basket</span><b>${L.baskets[0] ? money(L.baskets[0].landed) : "None Complete"}</b><span class="small" data-nocase>${L.baskets[0] ? esc(L.baskets[0].vendor) : "nobody priced every line on the same spec"}</span></div><div class="rfq-tile"><span class="small muted">Best Split</span><b>${L.split ? money(L.split.total) : "Not Possible"}</b><span class="small" data-nocase>${L.split ? esc(L.split.by.map((x) => vn(x.vendorId)).join(" + ")) : ""}</span></div><div class="rfq-tile"><span class="small muted">Best Split on Time</span><b>${L.onTimeSplit ? money(L.onTimeSplit.total) : "None"}</b><span class="small">lands by ${fmt(r.needBy)}</span></div><div class="rfq-tile"><span class="small muted">Budget</span><b>${L.budgetTotal ? money(L.budgetTotal) : "Not Linked"}</b><span class="small" data-nocase>${esc(L.budgets.map((b) => b.label).join("; ").slice(0, 80))}</span></div></div>`,
     vcards = `<div class="rfq-cards">${V.map((v) => {
       const b = L.baskets.find((x) => x.vendorId === v.vendorId),
         p = L.partial.find((x) => x.vendorId === v.vendorId),
         q = L.quotes.find((x) => x.vendorId === v.vendorId);
-      return `<div class="rfq-card"><b class="rfq-h" data-nocase>${esc(v.vendor)}</b><div class="small" data-nocase>${esc(v.region || "region not on file")}${v.channel ? ` · ${esc(v.channel)}` : ""} · round ${v.round}</div><div class="small">Landed: <b>${b ? money(b.landed) : `${p ? p.priced : 0} of ${r.lines.length} lines priced`}</b></div><div class="small">Freight ${money(v.freight)}${v.min ? ` · minimum ${money(v.min)}` : ""} · lead ${null == v.lead ? "not stated" : `${v.lead} day${1 === v.lead ? "" : "s"}`} · ${v.onTime ? `lands ${fmt(v.arrive)}, in time` : `<b class="bad">${v.arrive ? `lands ${fmt(v.arrive)}, after ${fmt(r.needBy)}` : "no lead time"}</b>`}${v.validUntil ? ` · price holds to ${fmt(v.validUntil)}` : ""}</div>${(q.flags || []).length ? `<ul class="small" style="margin:6px 0 0 16px;padding:0">${q.flags.map((f) => `<li data-nocase>${esc(f)}</li>`).join("")}</ul>` : ""}</div>`;
+      return `<div class="rfq-card"><b class="rfq-h" data-nocase>${esc(v.vendor)}</b><div class="small" data-nocase>${esc(v.region || "region not on file")}${v.channel ? ` · ${esc(v.channel)}` : ""} · round ${v.round}</div><div class="small">Landed: <b>${b ? money(b.landed) : `${p ? p.priced : 0} of ${r.lines.length} lines priced`}</b>${b ? ` (goods ${money(b.goods)}, freight ${money(b.freight)}${b.shortfall ? `, minimum ${money(b.shortfall)}` : ""}, ${v.taxCharged ? "NY sales tax" : "NY use tax due"} ${money(b.tax)}${b.handling ? `, hand unload ${money(b.handling)}` : ""})` : ""}</div><div class="small">${v.confirmed ? '<span class="pill ok">Confirmed</span>' : `<span class="pill warn">Read by AI, Not Confirmed</span> <button class="btn sm" data-rfqconf="${esc(q.id)}">Confirm</button>`}</div><div class="small muted" data-nocase>Delivery: ${esc(v.risk)}</div><div class="small muted" data-nocase>Relationship: ${esc(v.relation)}</div><div class="small">Freight ${money(v.freight)}${v.min ? ` · minimum ${money(v.min)}` : ""} · lead ${null == v.lead ? "not stated" : `${v.lead} day${1 === v.lead ? "" : "s"}`} · ${v.onTime ? `lands ${fmt(v.arrive)}, in time` : `<b class="bad">${v.arrive ? `lands ${fmt(v.arrive)}, after ${fmt(r.needBy)}` : "no lead time"}</b>`}${v.validUntil ? ` · price holds to ${fmt(v.validUntil)}` : ""}</div>${(q.flags || []).length ? `<ul class="small" style="margin:6px 0 0 16px;padding:0">${q.flags.map((f) => `<li data-nocase>${esc(f)}</li>`).join("")}</ul>` : ""}</div>`;
     }).join("")}</div>`,
     lineCell = (pl, v) => {
       const x = pl.prices.find((y) => y.vendorId === v.vendorId),
@@ -174456,7 +174553,7 @@ function rfqLevelHtml(r, L) {
       ? `<div class="rfq-cards">${L.perLine.map((pl) => `<div class="rfq-card"><b class="rfq-h" data-nocase>${esc(pl.lineId)} · ${esc(pl.item)}</b><div class="small">${pl.qty} ${esc(pl.unit)}${null != pl.budget ? ` · budget ${money(pl.budget)}` : ""}</div>${V.map((v) => `<div class="small" data-nocase>${esc(v.vendor)}: ${lineCell(pl, v)}</div>`).join("")}<div class="small">Best: <b data-nocase>${pl.best ? `${esc(pl.best.vendor)} ${rfqU(pl.best.unit)}` : "no same-spec price"}</b></div></div>`).join("")}</div>`
       : `<div class="rfq-tw"><table class="t rfq-grid"><thead><tr><th>Line</th><th>Item</th><th class="money">Qty</th><th class="money">Budget</th>${V.map((v) => `<th class="money" data-nocase>${esc(v.vendor)}</th>`).join("")}<th>Best</th></tr></thead><tbody>${L.perLine.map((pl) => `<tr><td>${esc(pl.lineId)}</td><td data-nocase>${esc(pl.item)}</td><td class="money">${pl.qty} ${esc(pl.unit)}</td><td class="money">${null != pl.budget ? money(pl.budget) : "—"}</td>${V.map((v) => `<td class="money">${lineCell(pl, v)}</td>`).join("")}<td data-nocase>${pl.best ? esc(pl.best.vendor) : "—"}</td></tr>`).join("")}</tbody></table></div>`,
     rec = `<dl class="rfq-rec small"><dt>What Happened</dt><dd data-nocase>${esc(R.what)}</dd><dt>Impact on Cost, Schedule and Quality</dt><dd data-nocase>${esc(R.impact)}</dd><dt>Options</dt><dd data-nocase>${esc(R.options.join("; "))}</dd><dt>Recommendation</dt><dd data-nocase><b>${esc(R.rec)}</b></dd><dt>Decide By</dt><dd>${fmtL(R.by)} (the order-by date)</dd></dl><p class="small muted">${esc(rfqWhy("landed"))}. ${esc(rfqWhy("escalate"))}.</p>`;
-  return `${tiles}<div class="rfq-sec"><h3>Vendors</h3>${vcards}</div><div class="rfq-sec"><h3>By Line</h3>${perLine}</div>${L.budgets.length ? `<div class="rfq-sec"><h3>Budget by Line</h3><div class="rfq-cards">${L.budgets.map((b) => `<div class="rfq-card small" data-rfqbud="${esc(b.key)}"><b data-nocase>${esc(b.label)}</b><div>${money(b.budget)}${b.whole ? ` left of ${money(b.whole)}` : ""}</div></div>`).join("")}</div></div>` : ""}<div class="card rfq-sec"><h3>Recommendation</h3>${rec}</div>`;
+  return `${tiles}${taxNote}<div class="rfq-sec"><h3>Vendors</h3>${vcards}</div><div class="rfq-sec"><h3>By Line</h3>${perLine}</div>${L.budgets.length ? `<div class="rfq-sec"><h3>Budget by Line</h3><div class="rfq-cards">${L.budgets.map((b) => `<div class="rfq-card small" data-rfqbud="${esc(b.key)}"><b data-nocase>${esc(b.label)}</b><div>${money(b.budget)}${b.whole ? ` left of ${money(b.whole)}` : ""}</div></div>`).join("")}</div></div>` : ""}<div class="card rfq-sec"><h3>Recommendation</h3>${rec}</div>`;
 }
 function rfqDetailHtml(r) {
   const p = rfqJob(r),
@@ -174544,6 +174641,7 @@ function rfqWireDetail(host, r) {
   host.querySelectorAll("#rfq-check").forEach((b) => (b.onclick = () => (rfqIngest({ toast: !0, rfq: r.id }), render())));
   on("#rfq-level", () => ((r.status = "leveled"), rfqHist(r, "leveled", `by ${rfqMe()}, ${(r.quotes || []).filter((q) => !q.unreadable).length} readable quotes`), save(), render(), rcToast(`${r.number} leveled`, [{ label: "Open", run: () => rfqOpenFor(r.id) }])));
   host.querySelectorAll("[data-rfqenter]").forEach((b) => (b.onclick = () => rfqEnterPrices(r, r.quotes.find((q) => q.id === b.dataset.rfqenter))));
+  host.querySelectorAll("[data-rfqconf]").forEach((b) => (b.onclick = () => rfqConfirmSheet(r, r.quotes.find((q) => q.id === b.dataset.rfqconf))));
   on("#rfq-negdraft", () => (rfqNegDrafts(r), render(), rcToast(`${(r.neg || []).filter((n) => "draft" === n.status).length} negotiation emails drafted on ${r.number} — read them and approve`, [{ label: "Open", run: () => rfqOpenFor(r.id) }])));
   on("#rfq-skipneg", () => ((r.status = "negotiating"), (r.round2In = today()), rfqHist(r, "award without negotiating", `${rfqMe()} chose not to negotiate`), save(), render()));
   on("#rfq-negsend", () => {
