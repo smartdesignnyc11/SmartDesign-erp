@@ -5161,6 +5161,24 @@ function openReadOnly(kind, id) {
     const i = find(S.inspections);
     return void (i && readSheet(i.name, [i.agency, st(i.status), i.date && fmt(i.date)], i.notes));
   }
+  if ("po" === kind) {
+    // a PO for a role without the PO page: what was ordered and where it stands (amounts only for the office)
+    const po = find(DB.pos);
+    if (!po) return;
+    if ("function" == typeof flowCan && flowCan("recv") && ["issued", "partial"].includes(po.status)) return void goRow("recv", po.number)();
+    const field = ["foreman", "crew", "driver"].includes(role()),
+      amt = poTotal(po).total;
+    return void readSheet(
+      `${po.number} · ${po.vendor || ""}`,
+      [
+        st(po.status),
+        po.expected && `expected ${fmt(po.expected)}`,
+        `${(po.lines || []).length} line${1 === (po.lines || []).length ? "" : "s"}`,
+        !field && amt ? money(amt) : "",
+      ],
+      (po.lines || []).map((l) => l.item || l.desc || "").filter(Boolean).join("; "),
+    );
+  }
   if ("permit" === kind) {
     const pm = find(S.permits);
     return void (pm && readSheet(pm.name, [pm.agency, st(pm.status), pm.expires && `expires ${fmt(pm.expires)}`], pm.notes));
