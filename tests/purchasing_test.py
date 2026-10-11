@@ -588,8 +588,43 @@ async def s_polish(p, c):
     finally:
         await b.close()
 
+async def s_selftest(p, c):
+    """The agent-month harness's selftest findings (2026-10-11): our own sent mail never comes back as a proposal;
+    the coordinator's Requests list open requests with Order and RFQ; a narrow inbox shows the message in place."""
+    b, pg, errs = await fresh(p)
+    try:
+        await sign_in(pg, 'u_chen')
+        own = await pg.evaluate("""() => { cmImport([{ msgId: 'own-po-1', from: { name: 'Chen Biron', email: 'chen@smartdesign.nyc' }, to: ['sales@nemotile.example'], subject: 'PO-2026-048 purchase order', text: 'Attached is PO-2026-048 for $4,250.00, due on delivery. Total $4,250.00.', date: today() + 'T10:00:00Z', labels: ['SENT'] }]);
+            const x = DB.comms.find(y => y.msgId === 'own-po-1'); return [x.direction, x.proposals.length, cmListFor('decide').some(y => y.id === x.id)]; }""")
+        c.ok(own == ['out', 0, False], f'selftest: our own sent PO email is filed, never proposed back to us ({own})')
+        await go(pg, 'req'); await pg.wait_for_timeout(400)
+        rq = await pg.evaluate("() => [...document.querySelectorAll('#req-co [data-reqco]')].map(r => [r.dataset.reqco, !!r.querySelector('[data-reqorder]'), !!r.querySelector('[data-reqrfq]')])")
+        c.ok(len(rq) >= 2 and all(x[1] and x[2] for x in rq), f'selftest: the coordinator\'s Requests list open requests, each with Order and RFQ ({rq})')
+        await pg.locator('#req-co [data-reqco="rq1"] [data-reqorder]').click(); await pg.wait_for_timeout(500)
+        o = await pg.evaluate("() => { const r = DB.projects.find(p => p.id === 'p121').requests.find(x => x.id === 'rq1'), po = DB.pos.find(x => x.id === r.poId); return { view, po: !!po, linked: po ? po.lines.every(l => l.requestId === 'rq1') : false, item: po ? po.lines[0].item : '' }; }")
+        c.ok(o['view'] == 'po' and o['po'] and o['linked'] and 'studs' in o['item'], f'selftest: Order drafts a PO from the request, linked ({o})')
+        await go(pg, 'req'); await pg.wait_for_timeout(400)
+        await pg.locator('#req-co [data-reqco="rq2"] [data-reqrfq]').click(); await pg.wait_for_timeout(500)
+        q = await pg.evaluate("() => { const r = DB.projects.find(p => p.id === 'p121').requests.find(x => x.id === 'rq2'), x = r.rfqId && rfqById(r.rfqId); return { view, rfq: !!x, req: x && x.requestId, lines: x ? x.lines.length : 0 }; }")
+        c.ok(q['view'] == 'rfq' and q['rfq'] and q['req'] == 'rq2' and q['lines'] >= 1, f'selftest: RFQ starts a request for quote from the request, linked ({q})')
+        c.ok(not errs, f'selftest: page errors {errs[:2]}')
+    finally:
+        await b.close()
+    for w in (390, 800):
+        b = await p.chromium.launch(); ctx = await b.new_context(viewport={'width': w, 'height': 844}, is_mobile=w < 500, has_touch=w < 500); pg = await ctx.new_page()
+        try:
+            await pg.goto(URL); await pg.wait_for_function("document.body.dataset.booted==='1'", timeout=60000)
+            await sign_in(pg, 'u_chen'); await go(pg, 'comms'); await pg.wait_for_timeout(400)
+            await pg.locator('[data-ibopen]').first.click(); await pg.wait_for_timeout(400)
+            r = await pg.evaluate("() => { const m = document.querySelector('.ib-msg'), l = document.querySelector('.ib-list'); return [!!m && m.getBoundingClientRect().top < innerHeight, !!(l && l.getClientRects().length), (document.querySelector('[data-ibback]') || {}).innerText] }")
+            c.ok(r[0] and not r[1] and r[2] == 'Back', f'selftest: at {w}px an opened message replaces the list, with Back ({r})')
+            await pg.locator('[data-ibback]').click(); await pg.wait_for_timeout(300)
+            c.ok(await pg.evaluate("() => !!document.querySelector('.ib-list') && !document.querySelector('.ib-msg')"), f'selftest: at {w}px Back returns to the list')
+        finally:
+            await b.close()
+
 SECTIONS = [('release', s_release), ('bill', s_bill), ('behalf', s_behalf), ('approve', s_approve), ('budget', s_budget),
-            ('reader', s_reader), ('chase', s_chase), ('dates', s_dates), ('polish', s_polish)]
+            ('reader', s_reader), ('chase', s_chase), ('dates', s_dates), ('polish', s_polish), ('selftest', s_selftest)]
 
 async def main():
     ap = argparse.ArgumentParser(); ap.add_argument('--section', default='')

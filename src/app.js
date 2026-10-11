@@ -106003,8 +106003,9 @@ function cmMsgHtml(c) {
     made = cmMade(c),
     R = c.route || cmRoute(c),
     cl = R.clientId && (DB.clients || []).find((x) => x.id === R.clientId);
-  return `<div class="card ib-msg" data-ibmsg="${c.id}">\n    <div class="row" style="gap:10px;align-items:flex-start;margin-bottom:6px"><svg class="cm-ic" viewBox="0 0 24 24">${CM_ICON[c.channel] || CM_ICON.email}</svg>\n      <div class="grow" style="min-width:0"><h3 style="margin:0">${esc(c.subject || "(No Subject)")}</h3>\n      <div class="row wrap" style="gap:6px;margin-top:4px">${cmPartyChips(c)}</div></div>\n      <button class="btn sm ghost no-print" data-ibback>${mOn() ? "‹ Back" : "Close"}</button></div>\n    ${cmHeadHtml(c)}\n    <div class="ib-body">${esc(T.own)}</div>\n    ${T.quoted ? `<details class="ib-quoted"><summary>Show the Earlier Thread</summary><div class="ib-body quoted">${esc(T.quoted)}</div></details>` : ""}\n    ${cmAttachHtml(c)}\n    ${P.length ? `<div class="cm-props" style="margin-top:12px">${P.map((p) => `<div class="cm-prop ${p.applied ? "done" : ""}"><span class="cat ${p.kind}">${CM_CATS[p.kind] || p.kind}</span><span class="grow">${esc(p.summary)}${p.applied ? ` <span class="small muted">· ${esc(p.applied)}${p.by ? " · " + esc(p.by) : ""}</span>` : ""}</span>${p.applied ? "" : `<button class="btn sm primary" data-cmapply="${c.id}|${p.id}">Apply</button><button class="btn sm ghost" data-cmskip="${c.id}|${p.id}">Not This</button>`}</div>`).join("")}</div>` : ""}\n    <div class="row wrap cm-acts no-print" style="margin-top:12px">\n      <button class="btn sm" data-cma="task" data-cmid2="${c.id}">Task</button>\n      <button class="btn sm" data-cma="note" data-cmid2="${c.id}">Note</button>\n      ${cl ? `<button class="btn sm" data-cma="file" data-cmid2="${c.id}">File on ${esc(cl.name)}</button>` : `<button class="btn sm" data-cma="fileto" data-cmid2="${c.id}">File on a Client…</button>`}\n      ${cl ? "" : `<button class="btn sm" data-cma="client" data-cmid2="${c.id}">New Client</button><button class="btn sm" data-cma="lead" data-cmid2="${c.id}">New Lead</button>`}\n    </div>\n    ${made.length ? `<div class="ib-made"><div class="small" style="font-weight:600;margin-bottom:6px">What This Message Produced</div>${made.map((m, i) => `<div class="ib-maderow"><span class="pill ${"Task" === m.kind ? "warn" : "Document" === m.kind ? "info" : "neutral"}">${m.kind}</span><span class="grow">${esc(m.label)}</span><button class="btn sm ghost" data-ibgo="${c.id}|${i}">Open</button></div>`).join("")}</div>` : ""}\n  </div>`;
+  return `<div class="card ib-msg" data-ibmsg="${c.id}">\n    <div class="row" style="gap:10px;align-items:flex-start;margin-bottom:6px"><svg class="cm-ic" viewBox="0 0 24 24">${CM_ICON[c.channel] || CM_ICON.email}</svg>\n      <div class="grow" style="min-width:0"><h3 style="margin:0">${esc(c.subject || "(No Subject)")}</h3>\n      <div class="row wrap" style="gap:6px;margin-top:4px">${cmPartyChips(c)}</div></div>\n      <button class="btn sm ghost no-print" data-ibback>${cmNarrow() ? "Back" : "Close"}</button></div>\n    ${cmHeadHtml(c)}\n    <div class="ib-body">${esc(T.own)}</div>\n    ${T.quoted ? `<details class="ib-quoted"><summary>Show the Earlier Thread</summary><div class="ib-body quoted">${esc(T.quoted)}</div></details>` : ""}\n    ${cmAttachHtml(c)}\n    ${P.length ? `<div class="cm-props" style="margin-top:12px">${P.map((p) => `<div class="cm-prop ${p.applied ? "done" : ""}"><span class="cat ${p.kind}">${CM_CATS[p.kind] || p.kind}</span><span class="grow">${esc(p.summary)}${p.applied ? ` <span class="small muted">· ${esc(p.applied)}${p.by ? " · " + esc(p.by) : ""}</span>` : ""}</span>${p.applied ? "" : `<button class="btn sm primary" data-cmapply="${c.id}|${p.id}">Apply</button><button class="btn sm ghost" data-cmskip="${c.id}|${p.id}">Not This</button>`}</div>`).join("")}</div>` : ""}\n    <div class="row wrap cm-acts no-print" style="margin-top:12px">\n      <button class="btn sm" data-cma="task" data-cmid2="${c.id}">Task</button>\n      <button class="btn sm" data-cma="note" data-cmid2="${c.id}">Note</button>\n      ${cl ? `<button class="btn sm" data-cma="file" data-cmid2="${c.id}">File on ${esc(cl.name)}</button>` : `<button class="btn sm" data-cma="fileto" data-cmid2="${c.id}">File on a Client…</button>`}\n      ${cl ? "" : `<button class="btn sm" data-cma="client" data-cmid2="${c.id}">New Client</button><button class="btn sm" data-cma="lead" data-cmid2="${c.id}">New Lead</button>`}\n    </div>\n    ${made.length ? `<div class="ib-made"><div class="small" style="font-weight:600;margin-bottom:6px">What This Message Produced</div>${made.map((m, i) => `<div class="ib-maderow"><span class="pill ${"Task" === m.kind ? "warn" : "Document" === m.kind ? "info" : "neutral"}">${m.kind}</span><span class="grow">${esc(m.label)}</span><button class="btn sm ghost" data-ibgo="${c.id}|${i}">Open</button></div>`).join("")}</div>` : ""}\n  </div>`;
 }
+const cmNarrow = () => window.innerWidth <= 980;
 function renderCommsInbox() {
   const host = $("#comms-body");
   if (!host) return;
@@ -106025,6 +106026,8 @@ function renderCommsInbox() {
   cmSel && !all.some((c) => c.id === cmSel) && (cmSel = "");
   const sel = cmSel ? all.find((c) => c.id === cmSel) : null,
     phone = mOn(),
+    // narrow (the width where the list and the message stack): the message replaces the list, with Back
+    narrow = cmNarrow(),
     list = `<div class="ib-list" data-noclip="1">${
       L.length
         ? L.map((c) => {
@@ -106052,7 +106055,7 @@ function renderCommsInbox() {
     )
     .join(
       "",
-    )}</div>\n      <span class="grow"></span>\n      <input id="ib-q" class="btn ib-q" placeholder="Search the Inbox" value="${esc(cmQ)}">\n      ${phone ? `<details class="ib-more"><summary class="btn sm">More</summary><div class="row wrap" style="gap:8px;margin-top:8px">${tools}</div></details>` : tools}</div>\n    <div class="ib-wrap ${sel ? "reading" : ""}">${phone && sel ? "" : list}${sel ? cmMsgHtml(sel) : phone ? "" : `<div class="card ib-none"><div class="empty">Pick a message on the left to read the whole thing and act on it.${all.length ? "" : " Nothing has come in yet — use Import Mail or Paste a Message above."}</div></div>`}</div>`),
+    )}</div>\n      <span class="grow"></span>\n      <input id="ib-q" class="btn ib-q" placeholder="Search the Inbox" value="${esc(cmQ)}">\n      ${phone ? `<details class="ib-more"><summary class="btn sm">More</summary><div class="row wrap" style="gap:8px;margin-top:8px">${tools}</div></details>` : tools}</div>\n    <div class="ib-wrap ${sel ? "reading" : ""}">${narrow && sel ? "" : list}${sel ? cmMsgHtml(sel) : narrow ? "" : `<div class="card ib-none"><div class="empty">Pick a message on the left to read the whole thing and act on it.${all.length ? "" : " Nothing has come in yet — use Import Mail or Paste a Message above."}</div></div>`}</div>`),
     cmWire(host),
     cmWireInbox(host);
 }
@@ -187282,4 +187285,98 @@ function poNewVendorSheet(name, after) {
     }
     return r;
   };
+}
+// ---- Our own outgoing mail is a record, never a proposal for us (the agent-month selftest, 2026-10-11) ---------
+// The coordinator sent a PO from his mailbox; the sync read it back and proposed it to him as money to decide. A
+// message we sent (direction "out", Gmail's SENT label, or from one of the firm's own addresses) is filed and kept
+// on its thread, but the reader proposes nothing from it, on import, on a re-read and at boot for old ones.
+const cmOwnMail = (c) => !!c && ("out" === c.direction || (c.labels || []).includes("SENT") || cmIsStaff(cmEmail(((c.from || {}).email) || "")));
+{
+  const base = cmRead;
+  cmRead = function (c) {
+    if (cmOwnMail(c)) return (c.direction = "out"), [];
+    return base.apply(this, arguments);
+  };
+}
+{
+  const base = finishBoot;
+  finishBoot = function () {
+    const r = base.apply(this, arguments);
+    try {
+      (DB.comms || []).forEach((c) => {
+        if (!cmOwnMail(c) || !(c.proposals || []).some((p) => !p.applied)) return;
+        (c.proposals = c.proposals.filter((p) => p.applied)), "proposed" === c.status && (c.status = c.proposals.length ? "applied" : "read");
+      });
+    } catch (e) {
+      console.warn("own mail", e);
+    }
+    return r;
+  };
+}
+// ---- The coordinator's Requests: open requests to order from (the agent-month selftest, 2026-10-11) -----------
+// The coordinator's Requests page was the foreman's form, with no way to buy from a request; ordering happened only
+// from Purchase Orders › New PO. Now the coordinator (and the owner) see every open request across the jobs first,
+// with the stock split already applied (what comes from stock is shown; only the rest is bought), and each has
+// Order (a draft PO from the request's lines to buy, linked both ways: requestAction "po") and RFQ (a request for
+// quote from the same lines, linked). The foreman's form stays below for a request made on the field's behalf.
+function reqOpenAll() {
+  return (DB.projects || []).flatMap((p) => (p.requests || []).filter((r) => !["delivered", "closed", "declined"].includes(r.status)).map((r) => ({ p: p, r: r })));
+}
+function reqBuyItems(r) {
+  return reqItems(r).filter((it) => !it.invId && !it.done && !it.garbage);
+}
+function reqRfq(pid, rid) {
+  const p = (DB.projects || []).find((x) => x.id === pid),
+    r = p && (p.requests || []).find((x) => x.id === rid);
+  if (!r) return toast("That request is gone");
+  if (r.rfqId && rfqById(r.rfqId)) return rfqOpenFor(r.rfqId);
+  const L = reqBuyItems(r);
+  if (!L.length) return toast("Everything on this request comes from stock: nothing to quote");
+  const q = rfqCreate({ projectId: p.id, title: `${reqLabel(r)} (request from ${r.by})`, category: (typeof pwCatOf === "function" && pwCatOf(L[0].what)) || "Materials", lines: L.map((it) => ({ item: it.what, qty: +it.qty || 1, unit: it.unit || "ea", requestId: r.id })), needBy: r.neededBy || "" });
+  (q.requestId = r.id), (r.rfqId = q.id), (r.status = "new" === r.status ? "ack" : r.status), (r.ackBy = r.ackBy || ((currentUser() || {}).name) || role()), (r.ackAt = r.ackAt || appNowIso());
+  (r.log = r.log || []).push({ t: nowStamp(), by: ((currentUser() || {}).name) || role(), text: `Request for quote ${q.number} started` });
+  save(), (window.rfqOpen = q.id), setView("rfq");
+  rcToast(`${q.number} started from the request: pick the vendors and send`, [{ label: "Open", run: () => rfqOpenFor(q.id) }]);
+  return q;
+}
+function reqCoordHtml() {
+  const R = reqOpenAll(),
+    stock = (r) => reqItems(r).filter((it) => it.invId),
+    row = ({ p, r }) => {
+      const buy = reqBuyItems(r),
+        st = stock(r),
+        po = r.poId && (DB.pos || []).find((x) => x.id === r.poId),
+        q = r.rfqId && typeof rfqById === "function" && rfqById(r.rfqId);
+      return `<div class="req-co-row" data-reqco="${esc(r.id)}"><div class="grow"><b data-nocase>${esc(reqLabel(r))}</b><span class="small muted">${esc(shortName(p))} · ${esc(r.by || "")} · ${(REQ_STATUS[r.status] || [, r.status])[1]}${r.neededBy ? ` · needed ${fmtL(r.neededBy)}` : ""}</span>${st.length ? `<span class="small">From stock: ${st.map((it) => `${esc(String(it.qty))} ${esc(it.unit || "")} ${esc(it.what)}`).join(", ")} (picked by the driver)</span>` : ""}<span class="small">${buy.length ? `To buy: ${buy.map((it) => `${esc(String(it.qty))} ${esc(it.unit || "")} ${esc(it.what)}`).join(", ")}` : "Nothing to buy: all from stock"}</span></div><div class="req-co-acts">${po ? `<button class="btn sm" data-reqpo="${esc(po.id)}">${esc(po.number)}</button>` : buy.length ? `<button class="btn sm" data-reqorder="${p.id}|${r.id}">Order</button>` : ""}${q ? `<button class="btn sm" data-reqrfqopen="${esc(q.id)}">${esc(q.number)}</button>` : buy.length && !po ? `<button class="btn sm" data-reqrfq="${p.id}|${r.id}">RFQ</button>` : ""}</div></div>`;
+    };
+  return `<div class="card req-co" id="req-co"><div class="hd"><h3>Open Requests</h3><span class="small muted">${R.length} across the jobs</span></div>${R.map(row).join("") || '<p class="small muted">No open request from the field.</p>'}</div>`;
+}
+{
+  const base = renderRequestsPage;
+  renderRequestsPage = function () {
+    const r = base.apply(this, arguments);
+    try {
+      if (["coord", "owner"].includes(role())) {
+        const v = document.getElementById("v-req"),
+          old = v && v.querySelector("#req-co");
+        old && old.remove();
+        if (v) {
+          const ph = v.querySelector(".ph");
+          ph ? ph.insertAdjacentHTML("afterend", reqCoordHtml()) : v.insertAdjacentHTML("afterbegin", reqCoordHtml());
+          const host = v.querySelector("#req-co");
+          host.querySelectorAll("[data-reqorder]").forEach((b) => (b.onclick = () => { const [pid, rid] = b.dataset.reqorder.split("|"); requestAction(pid, rid, "po"); }));
+          host.querySelectorAll("[data-reqrfq]").forEach((b) => (b.onclick = () => { const [pid, rid] = b.dataset.reqrfq.split("|"); reqRfq(pid, rid); }));
+          host.querySelectorAll("[data-reqpo]").forEach((b) => (b.onclick = () => flowGo.po((DB.pos || []).find((x) => x.id === b.dataset.reqpo))()));
+          host.querySelectorAll("[data-reqrfqopen]").forEach((b) => (b.onclick = () => rfqOpenFor(b.dataset.reqrfqopen)));
+        }
+      }
+    } catch (e) {
+      console.warn("coordinator requests", e);
+    }
+    return r;
+  };
+}
+if (!document.getElementById("req-co-css")) {
+  const st = document.createElement("style");
+  (st.id = "req-co-css"), (st.textContent = ".req-co{margin-bottom:14px}.req-co-row{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--rule,#eee);overflow-wrap:anywhere}.req-co-row .grow{display:flex;flex-direction:column;gap:2px;min-width:0}.req-co-acts{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}.req-co-acts .btn{min-height:36px}@media (max-width:760px){.req-co-row{flex-direction:column}.req-co-acts{justify-content:flex-start}.req-co-acts .btn{min-height:44px}}"), document.head.appendChild(st);
 }
