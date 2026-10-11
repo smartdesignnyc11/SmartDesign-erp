@@ -3279,3 +3279,5 @@ div.gl{cursor:default} div.gl:hover{border-color:var(--rule);background:var(--pa
 .rec-hl{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px;background:var(--accent-2)}
 /* crawl: Today on the schedule marks the day line, even when the chart already shows it */
 .todayline.today-pulse{stroke-width:4;stroke:var(--accent)}
+/* crawl: the property page's flag pills are readings (the deal page's are buttons) */
+.mb-flags span.pill{cursor:default}

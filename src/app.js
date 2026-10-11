@@ -3472,6 +3472,8 @@ function applyRole() {
       "#btn-addiss",
       "#btn-addinsp",
       "#btn-addpermit",
+      // the brief is written by the assistant panel, which opens only for a role that edits the project
+      "#btn-brief",
     ].forEach((sel) => {
       const el = $(sel);
       el && (el.style.display = canEdit() ? "" : "none");
@@ -5099,11 +5101,97 @@ function taskSummary(t) {
   const c = computeCPM().cpm[t.id];
   return `${t.name}: ${fmt(t.start)}–${fmt(t.end)} · ${t.owner}${c.critical ? " · critical path" : ""}${t.notes ? " · " + t.notes.slice(0, 80) : ""}`;
 }
+// The read-only line for a field item, for someone who cannot edit it.
+function issueSummary(i) {
+  const due = i.due ? ` · due ${fmt(i.due)}` : "";
+  return `${i.title || "Field item"}: ${"open" === i.status ? "open" : "closed"}${i.owner ? ` · ${i.owner}` : ""}${due}`;
+}
+// The read-only line for a time entry, for someone who cannot edit it.
+function timeSummary(e) {
+  const st = "approved" === e.status ? "approved" : "rejected" === e.status ? "sent back" : "waiting for approval";
+  return `${fmt(e.date)}: ${workHours(e).toFixed(1)} hours, ${st}${e.notes ? ` · ${e.notes.slice(0, 80)}` : ""}`;
+}
+// A project item read-only, for someone who cannot edit it: what it is, where it stands, who has it.
+function readSheet(title, facts, notes) {
+  const m = mbModal(
+    esc(title),
+    `<p>${esc(facts.filter(Boolean).join(" · "))}</p>${notes ? `<p class="small muted">${esc(notes)}</p>` : ""}`,
+    { submit: null },
+  );
+  const c = m && m.querySelector("#mbm-cancel");
+  c && (c.textContent = "Close");
+}
+function openReadOnly(kind, id) {
+  if (!id) return;
+  const find = (list) => (list || []).find((x) => x.id === id),
+    st = (x) => String(x || "").replace(/-/g, " ");
+  if ("time" === kind) {
+    const e = find(DB.time);
+    return void (e && toast(timeSummary(e)));
+  }
+  if ("task" === kind) {
+    const t = task(id);
+    return void (
+      t &&
+      ("sched" !== view && "function" == typeof flowCan && flowCan("sched")
+        ? goRow("sched", t.name)()
+        : toast(taskSummary(t)))
+    );
+  }
+  if ("iss" === kind) {
+    const i = find(S.issues);
+    return void (i && readSheet(i.title || "Field item", [issueSummary(i).split(": ").slice(1).join(": ")], i.notes));
+  }
+  if ("dec" === kind) {
+    const d = find(S.decisions);
+    return void (
+      d &&
+      readSheet(
+        `Decision: ${d.name || d.title || ""}`,
+        [st(d.status), d.owner && `with ${d.owner}`, d.due && `due ${fmt(d.due)}`, d.choice && `chosen: ${d.choice}`],
+        d.notes,
+      )
+    );
+  }
+  if ("mat" === kind) {
+    const m = find(S.materials);
+    return void (m && readSheet(m.name, [st(m.status), m.vendor, m.eta && `expected ${fmt(m.eta)}`], m.notes));
+  }
+  if ("insp" === kind) {
+    const i = find(S.inspections);
+    return void (i && readSheet(i.name, [i.agency, st(i.status), i.date && fmt(i.date)], i.notes));
+  }
+  if ("permit" === kind) {
+    const pm = find(S.permits);
+    return void (pm && readSheet(pm.name, [pm.agency, st(pm.status), pm.expires && `expires ${fmt(pm.expires)}`], pm.notes));
+  }
+}
+// The page each office record lives on.
+const OPEN_ON = {
+  po: "po",
+  bill: "ap",
+  vendor: "vendors",
+  inv: "billing",
+  payroll: "payroll",
+  vtxn: "verify",
+  txn: "bank",
+  file: "files",
+};
 let editing = null;
 function openEditor(kind, id) {
   if ("view" === kind) return void setView(id);
-  if (!(canEdit() || ("mat" === kind && ["crew", "foreman"].includes(role()))))
-    return void ("task" === kind && id && toast(taskSummary(task(id))));
+  // Office records open for whoever has their page (the controller opens a PO from the PO list); the
+  // project's own items stay with the roles that edit the project.
+  const officeView = OPEN_ON[kind];
+  if (
+    !(
+      canEdit() ||
+      ("mat" === kind && ["crew", "foreman"].includes(role())) ||
+      (officeView && "function" == typeof flowCan && flowCan(officeView))
+    )
+  )
+    // Someone who cannot edit an item still gets somewhere: a task's row on the schedule, the item read-only.
+    return void openReadOnly(kind, id);
   if ("iss" === kind) return void openIssueEditor(id);
   if ("permit" === kind) return void openPermitEditor(id);
   if ("action" === kind) return void openActionEditor(id);
@@ -21102,7 +21190,10 @@ function renderMB() {
     "mbprop" === view && renderMBProp(),
     document.querySelectorAll("[data-mbopen]").forEach((el) =>
       el.addEventListener("click", (e) => {
-        e.target.closest("button,a,select,input") || mbOpen(el.dataset.mbopen, el.dataset.mbtab || void 0);
+        // a control inside the row keeps its own click; a button that is itself the link opens (Open D-0001
+        // on the property page was a <button data-mbopen> and the guard swallowed its own click)
+        const inner = e.target.closest("button,a,select,input");
+        (inner && inner !== el) || mbOpen(el.dataset.mbopen, el.dataset.mbtab || void 0);
       }),
     );
   const nb = $("#mb-new");
@@ -87367,9 +87458,12 @@ const TL_SETS = {},
         s: drift
           ? "postings that no longer match their document"
           : "every posting re-derives from its document",
-        go: () => {
-          glTab = "overview";
-        },
+        // no drift is a reading, not a place to go
+        go: drift
+          ? () => {
+              glTab = "overview";
+            }
+          : null,
       },
       {
         key: "unc",
@@ -127438,7 +127532,8 @@ if ("function" == typeof renderPa) {
       const host = document.getElementById("pa-body");
       if (!host || host.querySelector("[data-ovskills]")) return;
       const fab = document.getElementById("fab");
-      if (!fab || "Skills" !== fab.textContent.trim()) return;
+      // Skills opens the skills drawer, which only a role that edits may open (openAI): no button otherwise
+      if (!fab || "Skills" !== fab.textContent.trim() || !canEdit()) return;
       const ph = host.querySelector(".ph");
       if (!ph) return;
       let acts = ph.querySelector(".acts");
@@ -132461,7 +132556,8 @@ function thDecPass() {
       (box.innerHTML = ""),
       host && (host.style.display = ""),
       flt && (flt.style.display = ""),
-      void (add && (add.style.display = ""))
+      // back from one decision, the add button shows again only for someone who can add
+      void (add && (add.style.display = canEdit() ? "" : "none"))
     );
   host && (host.style.display = "none"),
     flt && (flt.style.display = "none"),
@@ -177827,6 +177923,9 @@ const SEND_GATES = [
   ["#chat-send", "#chat-text"],
   ["#cp-read", "#cp-text"],
   ["#jv-go", "#jv-q"],
+  ["#ft-add", "#ft-raw"],
+  ["#ge-add", "#ge-text"],
+  ["#mbs-go", "#mbs-q"],
 ];
 function sendGates() {
   for (const [bs, is] of SEND_GATES)
