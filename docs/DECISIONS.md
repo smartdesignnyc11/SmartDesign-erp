@@ -16,6 +16,8 @@ Status: **Built** (merged and tested) · **Building** (a lane is on it) · **Spe
 ## 2026-10-11
 | Ask or decision | Where it lives | Status |
 |---|---|---|
+| Check document creation (estimates, invoices, progress billing, POs and the rest): easy on the go, quick, right in the back end, and how it looks to the client | BACKLOG §1.17 Documents Workshop | In the pilot |
+| Pilot starts once the second wiring pass merges (v11's feature set), with release testing alongside | `docs/PLAN.md` | Agreed |
 | Menu: think more and consult the role agents working the site before building; SmartDesign workspace only | `docs/MENU_DRAFT.md`, pilot menu workshop | Draft; decided after the workshop |
 | The month simulation is the role experts themselves working 20 days in one shared company, together | BACKLOG §1.17 | Harness building; pilot after v11; full run after the reset |
 | Organise the side menu | BACKLOG §1.15 | Spec (Simplify, right after v11) |

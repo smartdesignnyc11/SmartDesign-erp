@@ -535,6 +535,14 @@ No method is literally foolproof. This one makes the class of problem fail loudl
    Each expert also writes, in its own voice, what worked, what didn't, what slowed them down, and what they'd change.
 8. **Output.** A day-by-day ledger, each role's diary and verdict, every finding ranked by the Standard with the screen it happened on, and the month's numbers set against the scripted month.
 
+**The Documents Workshop (Alan, 2026-10-11).** It is part of the pilot. Estimates, change orders, invoices, progress billing, POs, RFQs and bills are created as real work, several of them on the phone. Each one is checked four ways:
+- on the go: taps, seconds, one hand, outdoors;
+- quick to create: what had to be typed that should have been filled in;
+- the back end: every accounting field right, and the document flowing into job cost, WIP, AR/AP and the P&L by project with the right numbers (the referee checks this independently);
+- the client's view: the portal and PDF exactly as the client receives them, read by the client agent and judged by the owner and designer against the brand.
+
+Alan gets a gallery of the client-facing documents to judge for himself.
+
 **Cost and plan.** This is the heaviest run we have: about ten agents × 20 days × several turns, each reading screens.
 - Routine turns run on a mid-tier model; the experts' end-of-day judgements and the referee use the strongest.
 - Build the harness first (one lane).
