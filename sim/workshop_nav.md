@@ -11,6 +11,7 @@ SmartDesign workspace only; Mercer & Bond is out of scope. Builder and scorer: `
    the toast that said it was done; back-tracks (returning to a page already in the trail, or Back); the top jobs
    with taps and seconds; and per kind of thing (owed, approve, money, a job's documents, a vendor, a client) the
    page they first acted from each day).
+1b. **Visual review shots (Alan, 2026-10-11).** For each person, take screenshots of their four most-used pages from `nav_usage.json`, as they saw them: `act <uid> go "<page>"` then `act <uid> screen --shot`. Phone for field roles; for office roles, desktop and phone both. Save them under `runs/<run>/workshop/shots/<uid>/` and list the paths in the prompt as `{shots}`. The expert opens them with Read and reviews them with their own eyes. They cost about 1.5k tokens each.
 2. For each person: `python3 sim/workshop.py prompt <uid>`, one subagent (strongest model, Read and Write only,
    no `act`). It writes `runs/<run>/workshop/<uid>.md`. About 4-6k tokens in, 1.5k out each.
 3. `python3 sim/workshop.py score` groups every finding across roles into `runs/<run>/nav_workshop.md`
@@ -51,6 +52,16 @@ Q19 wrong or jargon labels for a design-build firm (current -> your word)
 Q20 done by hand that the system or assistant should do · Q21 assistant: did well / should do unasked
 Q22 hesitated for fear of a mistake you could not undo · Q23 told someone outside the app, and why the app could not
 Q24 what you need on day one to drop paper, Excel, texts or QuickBooks for this
+Visual review (Alan, 2026-10-11). Look at your screenshots in `{shots}` with your own eyes before answering. One line per page per question at most:
+Q28 easy on the eyes? (contrast, text size, density, glare outdoors on a phone)
+Q29 the five-second test: what is the one thing this page tells you, and is it the most important thing?
+Q30 what stands out first, and should it? What important thing doesn't stand out?
+Q31 sections and layout: is the order right, and what is buried, crowded or split up?
+Q32 KPIs and metrics: which numbers matter to you; does each say its unit, period and comparison (against budget, last month, target) and its trend; which number couldn't you interpret?
+Q33 reports and tables: can you read the answer without hunting? Are totals where you expect them? Are there too many columns on the phone?
+Q34 colour: does red, amber or green mean the same thing everywhere? Is anything coloured that shouldn't be?
+Q35 charts: is it the right chart for the question, and is it readable on the phone?
+Q36 what would you remove to make room for what matters?
 Also (from the menu part): Q25 what I could never find and where I expected it · Q26 what I need from another role's menu
 · Q27 what in the draft is wrong for my seat.
 <!-- /EXPERT -->

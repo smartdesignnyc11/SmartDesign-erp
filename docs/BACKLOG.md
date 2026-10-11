@@ -543,6 +543,8 @@ No method is literally foolproof. This one makes the class of problem fail loudl
 
 Alan gets a gallery of the client-facing documents to judge for himself.
 
+**Visual review (Alan, 2026-10-11).** Every expert reviews screenshots of their most-used pages (phone and desktop) with their own eyes: whether it is easy on the eyes; whether the important information stands out (the five-second test); sections and layout; KPIs and metrics (unit, period, comparison, trend); reports; colour meaning; charts; and what to remove. To be added to the harness after the pilot: automatic measures per screen (words, competing emphases, KPIs above the fold, smallest text, contrast failures) tracked round over round.
+
 **Cost and plan.** This is the heaviest run we have: about ten agents × 20 days × several turns, each reading screens.
 - Routine turns run on a mid-tier model; the experts' end-of-day judgements and the referee use the strongest.
 - Build the harness first (one lane).

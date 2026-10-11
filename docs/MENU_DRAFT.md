@@ -19,6 +19,15 @@
    - **Phone and field:** what made you scroll, zoom or use two hands; what was hard in a hurry, outdoors or in gloves. **Words:** wrong or jargon labels.
    - **Work and the AI:** what you did by hand that should be automatic; what your assistant should have done unasked; what made you afraid of a mistake you couldn't undo; what you had to text or call because the app couldn't carry it; what you'd need on day one to stop using paper, Excel, texts or QuickBooks.
 
+   - **Visual review (Alan):** each expert looks at screenshots of their own most-used pages:
+     - is it easy on the eyes;
+     - the five-second test (does the most important thing stand out);
+     - sections and layout;
+     - KPIs and metrics (unit, period, comparison, trend);
+     - reports and tables;
+     - colour meaning;
+     - charts;
+     - what to remove to make room for what matters.
    Each finding is tagged with page, frequency and severity. The outputs are:
    - a menu per role;
    - a page-merge and page-cut list;
