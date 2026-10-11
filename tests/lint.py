@@ -18,6 +18,7 @@ For every user in USERS x every view in ROLE_VIEWS[role()] x desktop (1440x900) 
   SVG_SIZE             an svg rendered larger than 64px that is not a chart/illustration
   ONE_CLOCK            "as of" + a wall-clock time, or the machine's real date on screen, or a "today/now/live"
                        claim next to a date that is not the app day (2026-09-03)
+                       (a verbatim quotation of a dated document, marked [data-verbatim], keeps its own dates)
   PAGE_ERROR / CONSOLE_ERROR
 Horizontal scrollers on phone are not flags; their count is printed as INFO lines.
 
@@ -394,7 +395,11 @@ COLLECT = r"""
   let m;
   const asOf = /\bas of\s+(\d{1,2}:\d{2}\s*(?:[ap]\.?m\.?)?)/gi;
   while ((m = asOf.exec(txt))) flag('ONE_CLOCK', view, `"${txt.slice(Math.max(0, m.index - 20), m.index + m[0].length + 10).replace(/\s+/g, ' ')}" (wall-clock time)`);
-  for (const w of WALL) { const i = txt.indexOf(w); if (i >= 0) flag('ONE_CLOCK', view, `real-clock date "${w}" on screen: "${txt.slice(Math.max(0, i - 30), i + w.length + 10).replace(/\s+/g, ' ')}"`); }
+  // A verbatim quotation of a dated document ([data-verbatim], e.g. the Standard, "Alan, 2026-10-11") is the
+  // document's own date, not a clock stamp: its occurrences do not count, any other one does.
+  const vtxt = [...view.querySelectorAll('[data-verbatim]')].map(e => e.innerText || '').join('\n');
+  const occ = (s, w) => s.split(w).length - 1;
+  for (const w of WALL) { const i = txt.indexOf(w); if (i >= 0 && occ(txt, w) > occ(vtxt, w)) flag('ONE_CLOCK', view, `real-clock date "${w}" on screen: "${txt.slice(Math.max(0, i - 30), i + w.length + 10).replace(/\s+/g, ' ')}"`); }
   const MON = 'Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec';
   const claim = new RegExp(`\\b(today|now|live|as of)\\b[^\\n.]{0,12}?\\b((?:${MON})[a-z]*\\.? \\d{1,2}(?:, \\d{4})?|\\d{4}-\\d{2}-\\d{2}|\\d{1,2}/\\d{1,2}/\\d{2,4})`, 'gi');
   while ((m = claim.exec(txt))) {
