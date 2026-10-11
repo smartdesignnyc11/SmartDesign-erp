@@ -36033,124 +36033,222 @@ function monthsBack(n, end) {
   return out;
 }
 const monthRange = (m) => [m + "-01", m + "-31"];
-function ohPool(range, base) {
-  const items = [],
-    by = { design: 0, construction: 0, shared: 0 };
-  ledger(range)
-    .filter((r) => !r.income && "oh" === catType(r.cat))
-    .forEach((r) => {
-      const dept = ohDeptOfCat(r.cat);
-      (by[dept] += r.amt), items.push({ date: r.date, desc: r.desc, cat: r.cat, dept: dept, amt: r.amt });
-    }),
-    DB.time
-      .filter((t) => !t.projectId && "rejected" !== t.status && within(t.date, range))
-      .forEach((t) => {
-        const e = DB.employees.find((x) => x.id === t.empId),
-          h = hoursOf(t);
-        if (!h) return;
-        const amt = r2(h * laborRate(e)),
-          d0 = empDept(e),
-          dept = "office" === d0 ? "shared" : d0;
-        (by[dept] += amt),
-          items.push({
-            date: t.date,
-            desc: `${e?.name || t.empId} · ${h} h not on a job`,
-            cat: "unlogged",
-            dept: dept,
-            amt: amt,
-          });
-      });
-  const hrs = { design: 0, construction: 0 };
-  DB.time
-    .filter((t) => t.projectId && "rejected" !== t.status && within(t.date, range))
-    .forEach((t) => {
-      const d0 = empDept(DB.employees.find((x) => x.id === t.empId));
-      "office" !== d0 && (hrs[d0] += hoursOf(t));
+// ---- Overhead: one model (the chain lane, 2026-10-11; docs/ARCHITECTURE.md "Overhead") ----
+// The pool for a month is what the P&L calls overhead that month: every operating-expense line (office payroll and
+// Unallocated Labor included), less the bank lines nobody has coded yet ("Needs Category" is not overhead until it
+// is coded). It is shared among the jobs by one basis chosen in Settings (total direct cost by default; direct
+// labor dollars, direct labor hours or revenue earned), month by month, so a job's overhead to date is the sum of
+// its months and the jobs' shares add up to the pool to the cent. Gross profit is earned revenue less job cost;
+// net profit is gross less the job's overhead. The burden rate (the last three full months' pool over their base)
+// prices a line's overhead at completion; this month's pool less that rate times this month's base is the under-
+// (or over-) absorbed overhead. Before, a department pool left office payroll and Unallocated Labor out, added
+// unlogged hours at standard rate, and was shown only as a rate on projected cost.
+const OH_BASES = {
+  cost: ["total direct cost", "direct cost"],
+  labor: ["direct labor dollars", "direct labor"],
+  hours: ["direct labor hours", "direct labor hours"],
+  revenue: ["revenue earned", "revenue"],
+};
+function ohBasis() {
+  const b = (DB && DB.company && DB.company.ohBasis) || "cost";
+  return OH_BASES[b] ? b : "cost";
+}
+function ohMethodText() {
+  return `Overhead is each month's operating expenses on the P&L (office payroll and Unallocated Labor included, lines not yet coded left out), shared among the jobs by ${OH_BASES[ohBasis()][0]} that month; a job's overhead is the sum of its months.`;
+}
+const ohYm = (d) => String(d || "").slice(0, 7),
+  ohMonthEnd = (ym) => iso(new Date(+ym.slice(0, 4), +ym.slice(5, 7), 0));
+function ohFirstYm() {
+  const ds = [
+    ...(DB.txns || []).map((t) => t.date),
+    ...(DB.bills || []).map((b) => b.date),
+    ...(DB.payroll || []).map((r) => r.payDate),
+    ...(DB.time || []).map((t) => t.date),
+  ].filter(Boolean);
+  return ds.length ? ohYm(ds.reduce((a, d) => (d < a ? d : a))) : ohYm(today()).slice(0, 4) + "-01";
+}
+function ohMonthsIn(range) {
+  const R = range || ["", today()],
+    a = R[0] ? ohYm(R[0]) : ohFirstYm(),
+    b = ohYm(R[1] && R[1] < today() ? R[1] : today()),
+    out = [];
+  let y = +a.slice(0, 4),
+    m = +a.slice(5, 7);
+  for (let i = 0; i < 240; i++) {
+    const k = `${y}-${String(m).padStart(2, "0")}`;
+    if (k > b) break;
+    out.push(k), 12 === m ? ((m = 1), y++) : m++;
+  }
+  return out;
+}
+let __ohMemo = { key: "", m: {} },
+  __ohBusy = 0;
+function ohKey() {
+  return [today(), "undefined" != typeof trSaveSeq ? trSaveSeq : 0, ohBasis(), (DB.txns || []).length, (DB.bills || []).length, (DB.payroll || []).length, (DB.time || []).length].join("|");
+}
+function ohMonth(ym) {
+  const k = ohKey();
+  __ohMemo.key !== k && (__ohMemo = { key: k, m: {} });
+  if (__ohMemo.m[ym]) return __ohMemo.m[ym];
+  const end0 = ohMonthEnd(ym),
+    R = [ym + "-01", end0 > today() ? today() : end0],
+    basis = ohBasis(),
+    base = {},
+    alloc = {};
+  let P = { oh: {}, ohT: 0 };
+  __ohBusy++;
+  try {
+    P = companyPL(R);
+    (DB.projects || []).forEach((p) => {
+      let J;
+      try {
+        J = jobFin(p, R);
+      } catch (e) {
+        return;
+      }
+      const v = "labor" === basis ? +J.laborCost || 0 : "hours" === basis ? +J.hours || 0 : "revenue" === basis ? +J.earned || 0 : +J.actual || 0;
+      v > 0.005 && (base[p.id] = r2(v));
     });
-  const hT = hrs.design + hrs.construction,
-    B = base || ohBase(range),
-    bT = B.design + B.construction,
-    dShare = hrs.design && hrs.construction ? hrs.design / hT : bT ? B.design / bT : 0.3,
-    splitBy = hrs.design && hrs.construction ? "project hours" : bT ? "direct cost" : "default",
-    shared = r2(by.shared);
+  } finally {
+    __ohBusy--;
+  }
+  const lines = Object.assign({}, P.oh || {}),
+    uncoded = r2(lines["Needs Category"] || 0);
+  delete lines["Needs Category"];
+  const pool = r2(Object.values(lines).reduce((a, v) => a + v, 0)),
+    T = r2(Object.values(base).reduce((a, v) => a + v, 0)),
+    ids = Object.keys(base);
+  let left = pool;
+  T &&
+    ids.forEach((id, i) => {
+      const x = i === ids.length - 1 ? r2(left) : r2((pool * base[id]) / T);
+      (alloc[id] = x), (left = r2(left - x));
+    });
+  return (__ohMemo.m[ym] = {
+    ym: ym,
+    range: R,
+    basis: basis,
+    pool: pool,
+    lines: lines,
+    uncoded: uncoded,
+    opex: r2(+P.ohT || 0),
+    unalloc: r2(lines["Unallocated Labor"] || 0),
+    base: base,
+    baseTotal: T,
+    rate: T ? pool / T : 0,
+    alloc: alloc,
+    unabsorbed: T ? 0 : pool,
+  });
+}
+// a range is the sum of its months: the jobs' shares, the pool, the base
+function ohAlloc(range) {
+  const M = ohMonthsIn(range).map(ohMonth),
+    jobs = {},
+    base = {},
+    t = { pool: 0, baseTotal: 0, unabsorbed: 0, uncoded: 0, opex: 0, unalloc: 0 };
+  M.forEach((m) => {
+    Object.keys(t).forEach((k) => (t[k] = r2(t[k] + (+m[k] || 0)))),
+      Object.entries(m.alloc).forEach(([k, v]) => (jobs[k] = r2((jobs[k] || 0) + v))),
+      Object.entries(m.base).forEach(([k, v]) => (base[k] = r2((base[k] || 0) + v)));
+  });
+  return Object.assign(t, { months: M, jobs: jobs, base: base, basis: ohBasis(), rate: t.baseTotal ? r2(t.pool - t.unabsorbed) / t.baseTotal : 0 });
+}
+// the burden rate: the last three full months' pool over their base
+function ohTrailing() {
+  const t = today(),
+    d = new Date(+t.slice(0, 4), +t.slice(5, 7) - 1, 1),
+    from = new Date(d.getFullYear(), d.getMonth() - 3, 1),
+    A = ohAlloc([iso(from), iso(new Date(d.getFullYear(), d.getMonth(), 0))]);
+  return Object.assign(A, { label: `${ohYm(iso(from))} to ${ohYm(iso(new Date(d.getFullYear(), d.getMonth(), 0)))}` });
+}
+function ohNow() {
+  const t = today();
+  return { month: ohMonth(ohYm(t)), ytd: ohAlloc([t.slice(0, 4) + "-01-01", t]), trailing: ohTrailing() };
+}
+// what the burden rate absorbed in a range, and what it left: positive is under-absorbed (the pool ran ahead)
+function ohAbsorption(range) {
+  const A = ohAlloc(range),
+    rate = ohTrailing().rate,
+    applied = r2(rate * A.baseTotal);
+  return { pool: A.pool, base: A.baseTotal, rate: rate, applied: applied, under: r2(A.pool - applied) };
+}
+// one job's profitability: to date (or over a range) actual, and at completion at the burden rate
+function jobTrueProfit(p, range) {
+  if (!p) return null;
+  const R = range || ["", today()],
+    J = range ? jobFin(p, R) : jobFin(p),
+    A = ohAlloc(R),
+    oh = r2(A.jobs[p.id] || 0),
+    revenue = r2(+J.earned || 0),
+    cost = r2(+J.actual || 0),
+    gross = r2(revenue - cost),
+    net = r2(gross - oh),
+    Jt = jobFin(p),
+    contract = r2(+Jt.contract || 0),
+    eac = r2(+Jt.eac || 0),
+    b = ohBasis(),
+    rate = ohTrailing().rate,
+    atBase = "revenue" === b ? contract : "labor" === b ? (Jt.actual ? (+Jt.laborCost || 0) * (eac / Jt.actual) : 0) : "hours" === b ? (Jt.actual ? (+Jt.hours || 0) * (eac / Jt.actual) : 0) : eac,
+    burden = r2(rate * atBase),
+    margin = r2(contract - eac);
   return {
-    items: items,
-    design: { own: r2(by.design), shared: r2(shared * dShare), total: r2(by.design + shared * dShare) },
-    construction: {
-      own: r2(by.construction),
-      shared: r2(shared * (1 - dShare)),
-      total: r2(by.construction + shared * (1 - dShare)),
-    },
-    shared: shared,
-    sharedSplit: {
-      design: Math.round(100 * dShare),
-      construction: Math.round(100 * (1 - dShare)),
-      by: splitBy,
-    },
-    hours: hrs,
-    total: r2(by.design + by.construction + shared),
+    p: p,
+    range: R,
+    revenue: revenue,
+    cost: cost,
+    gross: gross,
+    grossPct: revenue ? r2((100 * gross) / revenue) : 0,
+    oh: oh,
+    net: net,
+    netPct: revenue ? r2((100 * net) / revenue) : 0,
+    basis: b,
+    basisAmt: r2(A.base[p.id] || 0),
+    rate: A.rate,
+    method: ohMethodText(),
+    contract: contract,
+    eac: eac,
+    margin: margin,
+    burdenRate: rate,
+    burden: burden,
+    netAtCompletion: r2(margin - burden),
+    netAtCompletionPct: contract ? r2((100 * (margin - burden)) / contract) : 0,
   };
 }
-function ohBase(range) {
-  const base = { design: 0, construction: 0 };
-  return (
-    DB.projects.forEach((p) => {
-      (jobFin(p, range).byCode || []).forEach((r) => {
-        base[deptOfCode(r.code)] += r.actual || 0;
-      });
-    }),
-    (base.design = r2(base.design)),
-    (base.construction = r2(base.construction)),
-    base
-  );
-}
+// the department rates before the one model: kept as a shape for the screens that read it, one rate in both
 function ohRates(range) {
-  const B = ohBase(range),
-    P = ohPool(range, B),
-    rate = (d) => (B[d] ? P[d].total / B[d] : 0);
-  return {
-    range: range,
-    pool: P,
-    base: B,
-    design: { pool: P.design.total, base: B.design, rate: rate("design") },
-    construction: { pool: P.construction.total, base: B.construction, rate: rate("construction") },
-  };
+  const A = ohAlloc(range),
+    one = { pool: A.pool, base: A.baseTotal, rate: A.rate };
+  return { range: range, pool: A, base: { design: 0, construction: A.baseTotal }, design: one, construction: one };
 }
-let __ohCache = null;
 function ohCurrent() {
-  const key =
-    today() +
-    "|" +
-    JSON.stringify(DB.company.ohDept || {}) +
-    "|" +
-    DB.bills.length +
-    "|" +
-    DB.txns.length +
-    "|" +
-    DB.time.length;
-  if (__ohCache && __ohCache.key === key) return __ohCache.v;
-  const months = monthsBack(3);
-  let R = ohRates([months[0] + "-01", months[months.length - 1] + "-31"]);
-  (R.basis = `trailing 3 months (${months[0]} → ${months[months.length - 1]})`),
-    R.base.design ||
-      R.base.construction ||
-      ((R = ohRates(["", today()])), (R.basis = "all time (no closed months yet)"));
-  const m = today().slice(0, 7);
-  return (
-    (R.mtd = ohRates(monthRange(m))),
-    (R.months = monthsBack(6).map((mm) => {
-      const x = ohRates(monthRange(mm));
-      return { m: mm, design: x.design.rate, construction: x.construction.rate, pool: x.pool.total };
-    })),
-    (__ohCache = { key: key, v: R }),
-    R
-  );
+  const N = ohNow(),
+    T = N.trailing,
+    one = { pool: T.pool, base: T.baseTotal, rate: T.rate };
+  return {
+    basis: `burden rate from ${T.label}, by ${OH_BASES[ohBasis()][0]}`,
+    design: one,
+    construction: one,
+    rate: T.rate,
+    pool: { total: T.pool },
+    mtd: { pool: { total: N.month.pool }, design: { rate: N.month.rate }, construction: { rate: N.month.rate } },
+    months: ohMonthsIn([iso(addDays(today(), -170)), today()]).map((m) => {
+      const x = ohMonth(m);
+      return { m: m, design: x.rate, construction: x.rate, pool: x.pool };
+    }),
+    now: N,
+  };
 }
 function burdenRate(code) {
-  return ohCurrent()[deptOfCode(code)].rate;
+  return __ohBusy ? 0 : ohTrailing().rate;
 }
 function burdenOf(cost, code) {
   return r2((+cost || 0) * burdenRate(code));
+}
+// a line's overhead at completion at the burden rate, on the basis the firm allocates by
+function ohLineBurden(projCost, price, labor, hours, code) {
+  const b = ohBasis(),
+    amt = "revenue" === b ? +price || 0 : "labor" === b ? +labor || 0 : "hours" === b ? +hours || 0 : +projCost || 0;
+  return r2(amt * burdenRate(code));
 }
 const pct1 = (x) => Math.round(1e3 * x) / 10 + "%",
   burdened = () => "burdened" === (DB.company.burdenView || "gross");
@@ -36168,7 +36266,7 @@ lineFin = function (key) {
   const code = f.code || lineCode(f.line, f.doc);
   return (
     (f.burdenRate = burdenRate(code)),
-    (f.burden = burdenOf(f.projCost, code)),
+    (f.burden = ohLineBurden(f.projCost, f.price, f.laborAmt, f.hours, code)),
     (f.trueMargin = r2(f.margin - f.burden)),
     (f.trueMarginPct = f.price ? Math.round((f.trueMargin / f.price) * 100) : 0),
     f
@@ -36181,7 +36279,7 @@ lineProfit = function (p) {
       projCost = Math.max(r.budget, r.actual + r.committed);
     return (
       (r.burdenRate = burdenRate(code)),
-      (r.burden = burdenOf(projCost, code)),
+      (r.burden = ohLineBurden(projCost, r.price, r.labor, r.hours, code)),
       (r.trueMargin = r2(r.margin - r.burden)),
       (r.trueMarginPct = r.price ? (r.trueMargin / r.price) * 100 : 0),
       burdened() &&
@@ -36197,17 +36295,21 @@ lineProfit = function (p) {
 };
 const projectProfitBase_oh = projectProfit;
 projectProfit = function (p) {
-  const r = projectProfitBase_oh(p),
-    J = r.J;
-  let burden = 0;
+  const r = projectProfitBase_oh(p);
+  if (__ohBusy) return r;
+  const T = jobTrueProfit(p);
   return (
-    (J.byCode || []).forEach((c) => {
-      const proj = Math.max(c.budget || 0, (c.actual || 0) + (c.committed || 0));
-      burden += burdenOf(proj, c.code);
-    }),
-    (r.burden = r2(burden)),
-    (r.trueMargin = r2(r.margin - r.burden)),
-    (r.trueMarginPct = r.contract ? Math.round((r.trueMargin / r.contract) * 100) : 0),
+    T &&
+      ((r.burden = T.burden),
+      (r.trueMargin = r2(r.margin - r.burden)),
+      (r.trueMarginPct = r.contract ? Math.round((r.trueMargin / r.contract) * 100) : 0),
+      (r.ohToDate = T.oh),
+      (r.grossToDate = T.gross),
+      (r.netToDate = T.net),
+      (r.netToDatePct = T.netPct),
+      (r.earnedToDate = T.revenue),
+      (r.costToDate = T.cost),
+      (r.ohMethod = T.method)),
     (r.rates = ohCurrent()),
     r
   );
@@ -36260,57 +36362,42 @@ renderLineProfit = function () {
 };
 const repProfitBase_oh = repProfit;
 function ohCardHtml() {
-  const R = ohCurrent(),
-    P = R.pool,
-    trend = R.months
-      .map(
-        (m) =>
-          `<tr><td class="dim">${m.m}</td><td class="money">${money(m.pool)}</td><td class="money">${pct1(m.design)}</td><td class="money">${pct1(m.construction)}</td></tr>`,
-      )
+  const N = ohNow(),
+    M = N.month,
+    Y = N.ytd,
+    T = N.trailing,
+    ab = ohAbsorption([today().slice(0, 7) + "-01", today()]),
+    trend = ohMonthsIn([iso(addDays(today(), -170)), today()])
+      .map((m) => {
+        const x = ohMonth(m);
+        return `<tr><td class="dim">${m}</td><td class="money">${money(x.pool)}</td><td class="money">${money(x.baseTotal)}</td><td class="money">${pct1(x.rate)}</td></tr>`;
+      })
       .join("");
-  return `<div class="card oh-card"><div class="row" style="align-items:baseline"><h3 style="margin:0">Overhead rates</h3><span class="small muted" style="margin-left:8px">${R.basis}</span><span class="grow"></span><a href="#" class="small" data-ohsetup>Departments &amp; tags…</a></div>\n    <div class="cash-grid" style="grid-template-columns:repeat(4,1fr)"><div><span>Design rate</span><b>${pct1(R.design.rate)}</b><i>${money(R.design.pool)} ÷ ${money(R.design.base)} direct</i></div><div><span>Construction rate</span><b>${pct1(R.construction.rate)}</b><i>${money(R.construction.pool)} ÷ ${money(R.construction.base)} direct</i></div><div><span>Overhead pool</span><b>${money(P.total)}</b><i>design ${money(P.design.own)} · construction ${money(P.construction.own)} · shared ${money(P.shared)}</i></div><div><span>Shared split</span><b>${P.sharedSplit.design}% / ${P.sharedSplit.construction}%</b><i>by ${P.sharedSplit.by} · ${r2(P.hours.design)} h design · ${r2(P.hours.construction)} h construction</i></div></div>\n    <div class="small muted" style="margin:6px 0">${R.mtd.pool.total ? `Month to date: design ${pct1(R.mtd.design.rate)} · construction ${pct1(R.mtd.construction.rate)} · pool ${money(R.mtd.pool.total)}.` : "Nothing posted to overhead yet this month."} Rates apply to every line's projected cost when margins are shown after overhead.</div>\n    <details><summary class="small">Six-month trend</summary><table class="t" style="margin-top:6px"><thead><tr><th>Month</th><th class="money">Pool</th><th class="money">Design</th><th class="money">Construction</th></tr></thead><tbody>${trend}</tbody></table></details></div>`;
+  return `<div class="card oh-card"><div class="row" style="align-items:baseline"><h3 style="margin:0">Overhead</h3><span class="small muted" style="margin-left:8px">by ${OH_BASES[ohBasis()][0]}</span><span class="grow"></span><a href="#" class="small" data-ohsetup>Allocation Basis…</a></div>\n    <div class="cash-grid" style="grid-template-columns:repeat(4,1fr)"><div><span>Overhead Rate · This Month</span><b>${pct1(M.rate)}</b><i>${money(M.pool)} ÷ ${money(M.baseTotal)} ${OH_BASES[ohBasis()][1]}</i></div><div><span>Overhead Rate · YTD</span><b>${pct1(Y.rate)}</b><i>${money(Y.pool)} ÷ ${money(Y.baseTotal)}</i></div><div><span>Burden Rate</span><b>${pct1(T.rate)}</b><i>${T.label}</i></div><div><span>${ab.under >= 0 ? "Under-Absorbed" : "Over-Absorbed"} · This Month</span><b>${money(Math.abs(ab.under))}</b><i>pool ${money(ab.pool)} less ${money(ab.applied)} absorbed at the burden rate</i></div></div>\n    <div class="small muted oh-method" style="margin:6px 0">${esc(ohMethodText())}${M.uncoded ? ` This month ${money(M.uncoded)} is not yet coded and is left out until it is.` : ""}</div>\n    <details><summary class="small">Six-month trend</summary><table class="t" style="margin-top:6px"><thead><tr><th>Month</th><th class="money">Pool</th><th class="money">Base</th><th class="money">Rate</th></tr></thead><tbody>${trend}</tbody></table></details></div>`;
 }
 repProfit = function () {
   let h = repProfitBase_oh();
   const p = DB.projects.find((x) => x.id === repProj);
   if (!p) return h;
-  const r = projectProfit(p),
-    R = r.rates,
+  const T = jobTrueProfit(p),
     kpi = (label, v, sub, cls = "") =>
       `<div class="kpi ${cls}"><b>${"number" == typeof v ? money(v) : v}</b><span>${label}${sub ? ` · ${sub}` : ""}</span></div>`,
-    block = `<h3 class="rep-h">After overhead</h3><div class="fin rep-kpis">${kpi("Overhead burden", r.burden, `design ${pct1(R.design.rate)} · construction ${pct1(R.construction.rate)} of projected cost`)}${kpi("Margin after overhead", `${money(r.trueMargin)} · ${r.trueMarginPct}%`, `gross ${r.marginPct}%`, r.trueMargin < 0 ? "bad" : r.trueMarginPct < 10 ? "warn" : "good")}</div><div class="small muted" style="margin:-4px 0 10px">Rates are ${R.basis}; month to date: design ${pct1(R.mtd.design.rate)} · construction ${pct1(R.mtd.construction.rate)}.</div>`,
-    j =
-      (h.indexOf('<h3 class="rep-h">'),
-      h.indexOf(
-        '<h3 class="rep-h">',
-        h.indexOf("Cost &amp; margin") > -1 ? h.indexOf("Cost &amp; margin") : h.indexOf("Cost & margin"),
-      )),
+    block = `<h3 class="rep-h">Profit After Overhead</h3><div class="fin rep-kpis oh-job">${kpi("Earned to date", T.revenue)}${kpi("Job cost to date", T.cost)}${kpi("Gross profit", T.gross, `${T.grossPct}%`, T.gross < 0 ? "bad" : "")}${kpi("Overhead allocated", T.oh, `${money(T.basisAmt)} of ${OH_BASES[T.basis][1]}`)}${kpi("Net profit", T.net, `${T.netPct}%`, T.net < 0 ? "bad" : T.netPct < 10 ? "warn" : "good")}</div><div class="fin rep-kpis oh-job-eac">${kpi("Margin at completion", T.margin, `contract ${money(T.contract)} less estimated cost ${money(T.eac)}`)}${kpi("Overhead at completion", T.burden, `${pct1(T.burdenRate)} burden rate`)}${kpi("Net at completion", T.netAtCompletion, `${T.netAtCompletionPct}%`, T.netAtCompletion < 0 ? "bad" : "")}</div><div class="small muted oh-method" style="margin:-4px 0 10px">${esc(T.method)} The burden rate is the last three full months' pool over their ${OH_BASES[T.basis][1]}.</div>`,
+    j = h.indexOf('<h3 class="rep-h">', h.indexOf("Cost &amp; margin") > -1 ? h.indexOf("Cost &amp; margin") : h.indexOf("Cost & margin")),
     k = j > -1 ? h.indexOf('<h3 class="rep-h">', j + 10) : -1;
   return k > -1 ? h.slice(0, k) + block + h.slice(k) : h + block;
 };
 const repFinancialsBase_oh = repFinancials;
 function ohSetupDialog() {
-  const ohCats = CATEGORIES.filter((c) => "oh" === c.type),
-    emps = DB.employees.filter((e) => !1 !== e.active),
-    sel = (v, opts, attr) =>
-      `<select ${attr}>${opts.map((o) => `<option value="${o}" ${o === v ? "selected" : ""}>${o[0].toUpperCase() + o.slice(1)}</option>`).join("")}</select>`;
+  const cur = ohBasis();
   mbModal(
-    "Overhead — departments",
-    `<p class="small muted">Tag each overhead category and each person. Shared is split by project hours every month. Office staff time never lands on a job; their unlogged hours are shared overhead.</p><h4>Overhead categories</h4>${ohCats.map((c) => `<div class="row" style="padding:4px 0;border-top:1px solid var(--rule)"><span class="grow">${esc(c.n)}</span>${sel(ohDeptOfCat(c.id), ["design", "construction", "shared"], `data-ohcat="${c.id}"`)}</div>`).join("")}<h4 style="margin-top:12px">People</h4>${emps.map((e) => `<div class="row" style="padding:4px 0;border-top:1px solid var(--rule)"><span class="grow">${esc(e.name)} <span class="small muted">${esc(e.role || "")}</span></span>${sel(empDept(e), ["design", "construction", "office"], `data-ohemp="${e.id}"`)}</div>`).join("")}`,
+    "Overhead Allocation",
+    `<p class="small muted">${esc(ohMethodText())}</p><div class="f"><label>Share the Pool by</label><select data-f="basis">${Object.entries(OH_BASES).map(([k, v]) => `<option value="${k}" ${k === cur ? "selected" : ""}>${v[0][0].toUpperCase() + v[0].slice(1)}</option>`).join("")}</select></div>`,
     {
       submit: "Save",
-      onSubmit: () => {
-        (DB.company.ohDept = DB.company.ohDept || {}),
-          document
-            .querySelectorAll("[data-ohcat]")
-            .forEach((s) => (DB.company.ohDept[s.dataset.ohcat] = s.value)),
-          document.querySelectorAll("[data-ohemp]").forEach((s) => {
-            const e = DB.employees.find((x) => x.id === s.dataset.ohemp);
-            e && (e.dept = s.value);
-          }),
-          (__ohCache = null),
-          save(),
-          render();
+      onSubmit: (f) => {
+        const was = cur;
+        (DB.company.ohBasis = OH_BASES[f.basis] ? f.basis : "cost"), audit("company", "ohBasis", "overhead-basis", was, DB.company.ohBasis), save(), render(), toast(`Overhead is shared by ${OH_BASES[DB.company.ohBasis][0]}`);
       },
     },
   );
@@ -37127,7 +37214,7 @@ renderProj = function () {
     div = document.createElement("div");
   (div.className = "card"),
     (div.id = "po-settings"),
-    (div.innerHTML = `<h3>Purchasing, budgets &amp; overhead</h3><div class="f2"><div class="f"><label>POs above this need Owner approval</label><input type="number" id="ps-appr" value="${DB.company.poApprovalOver || 0}"></div><div class="f"><label>Sales tax rate %</label><input type="number" step="0.001" id="ps-tax" value="${DB.company.taxRate || 8.875}"></div></div><div class="f2"><div class="f"><label>Budget tolerance % before a line flags</label><input type="number" id="ps-btol" value="${DB.company.budgetTol ?? 5}"></div><div class="f"><label>Bank/PO match tolerance %</label><input type="number" id="ps-mtol" value="${DB.company.matchTol ?? 2}"></div></div><label class="small muted">Target margin by category — the default budget when the estimator leaves cost blank</label><div class="f2" style="grid-template-columns:1fr 1fr 1fr"><div class="f"><label>Design %</label><input type="number" id="ps-tmd" value="${tm.design}"></div><div class="f"><label>Construction %</label><input type="number" id="ps-tmc" value="${tm.construction}"></div><div class="f"><label>Finish materials %</label><input type="number" id="ps-tmm" value="${tm.materials}"></div></div><div class="row"><button class="btn sm primary" id="ps-save">Save</button><a href="#" class="small" data-ohsetup style="margin-left:10px">Overhead departments &amp; tags…</a></div>`),
+    (div.innerHTML = `<h3>Purchasing, budgets &amp; overhead</h3><div class="f2"><div class="f"><label>POs above this need Owner approval</label><input type="number" id="ps-appr" value="${DB.company.poApprovalOver || 0}"></div><div class="f"><label>Sales tax rate %</label><input type="number" step="0.001" id="ps-tax" value="${DB.company.taxRate || 8.875}"></div></div><div class="f2"><div class="f"><label>Budget tolerance % before a line flags</label><input type="number" id="ps-btol" value="${DB.company.budgetTol ?? 5}"></div><div class="f"><label>Bank/PO match tolerance %</label><input type="number" id="ps-mtol" value="${DB.company.matchTol ?? 2}"></div></div><label class="small muted">Target margin by category — the default budget when the estimator leaves cost blank</label><div class="f2" style="grid-template-columns:1fr 1fr 1fr"><div class="f"><label>Design %</label><input type="number" id="ps-tmd" value="${tm.design}"></div><div class="f"><label>Construction %</label><input type="number" id="ps-tmc" value="${tm.construction}"></div><div class="f"><label>Finish materials %</label><input type="number" id="ps-tmm" value="${tm.materials}"></div></div><div class="row"><button class="btn sm primary" id="ps-save">Save</button><a href="#" class="small" data-ohsetup style="margin-left:10px">Overhead Allocation…</a></div>`),
     card.after(div),
     ($("#ps-save").onclick = () => {
       (DB.company.poApprovalOver = +$("#ps-appr").value || 0),
@@ -44174,13 +44261,14 @@ function ptCashGap() {
   return `<div class="dx-tiles">${tile(money(A.net), "Accrual Net · Trailing 3 mo")}${tile(money(C.net), "Cash Net · Trailing 3 mo")}${tile((gap >= 0 ? "+" : "") + money(gap), "Gap · Accrual − Cash", pct > 10 ? "warn" : "")}</div><div class="small muted">Accrual is what you earned; cash is what actually moved. A gap over 10% of revenue means one of them is lying to you — usually deposits.</div>`;
 }
 function ptOverhead() {
-  const R = ohCurrent(),
-    m = R.months || [];
-  return `<div class="dx-tiles">${tile(`${Math.round(100 * (R.design?.rate || 0))}%`, "Design Overhead Rate · Trailing 3 mo")}${tile(`${Math.round(100 * (R.construction?.rate || 0))}%`, "Construction Overhead Rate")}${tile(money(R.mtd?.pool?.total || 0), "Overhead Month to Date")}</div>${spark(
+  const N = ohNow(),
+    ab = ohAbsorption([today().slice(0, 7) + "-01", today()]),
+    m = ohMonthsIn([iso(addDays(today(), -170)), today()]).map(ohMonth);
+  return `<div class="dx-tiles">${tile(pct1(N.month.rate), "Overhead Rate · This Month")}${tile(pct1(N.ytd.rate), "Overhead Rate · YTD")}${tile(money(Math.abs(ab.under)), ab.under >= 0 ? "Under-Absorbed · This Month" : "Over-Absorbed · This Month", ab.under > 0 ? "warn" : "")}</div>${spark(
     m.map((x) => x.pool || 0),
     300,
     30,
-  )}<div class="small muted">${esc(R.basis || "")}. The rate is what every job hour must carry; a rising pool with flat hours is the slow bleed.</div>`;
+  )}<div class="small muted">${esc(ohMethodText())} A rising pool with a flat base is the slow bleed.</div>`;
 }
 function ptIntercompany() {
   const rows = icUnbilled(),
@@ -177645,5 +177733,116 @@ CATCH.push({
     } catch (e) {
       return out;
     }
+  };
+}
+
+// ---- Overhead and true profitability on the Portfolio, the Pack, the Flash and Ask (chain lane, 2026-10-11) ----
+// One model (ohMonth / ohAlloc / jobTrueProfit, next to burdenRate): every surface reads it and states the method.
+if ("function" == typeof repPortfolio) {
+  const base = repPortfolio;
+  repPortfolio = function () {
+    const h = base.apply(this, arguments);
+    try {
+      return h + ohJobsTableHtml(["", today()], "job to date");
+    } catch (e) {
+      return console.warn("portfolio overhead", e), h;
+    }
+  };
+}
+if ("function" == typeof repPack) {
+  const base = repPack;
+  repPack = function () {
+    const h = base.apply(this, arguments);
+    try {
+      const R = "function" == typeof repRangeOf ? repRangeOf().range : [today().slice(0, 7) + "-01", today()],
+        ym = String(R[1] || today()).slice(0, 7),
+        M = ohMonth(ym),
+        ab = ohAbsorption([ym + "-01", ohMonthEnd(ym)]);
+      return (
+        h +
+        ohJobsTableHtml([ym + "-01", ohMonthEnd(ym)], ym) +
+        `<p class="small oh-pack">Overhead rate ${ym}: ${pct1(M.rate)} of ${OH_BASES[ohBasis()][1]} (pool ${money(M.pool)} over ${money(M.baseTotal)}) · year to date ${pct1(ohAlloc([ym.slice(0, 4) + "-01-01", ohMonthEnd(ym)]).rate)} · ${ab.under >= 0 ? "under" : "over"}-absorbed ${money(Math.abs(ab.under))} at the ${pct1(ab.rate)} burden rate.</p>`
+      );
+    } catch (e) {
+      return console.warn("pack overhead", e), h;
+    }
+  };
+}
+if ("function" == typeof repFlash) {
+  const base = repFlash;
+  repFlash = function () {
+    const h = base.apply(this, arguments);
+    try {
+      const M = ohNow().month;
+      return h + `<p class="small oh-flash">Overhead this month: ${money(M.pool)} at ${pct1(M.rate)} of ${OH_BASES[ohBasis()][1]}${M.uncoded ? `; ${money(M.uncoded)} not yet coded` : ""}.</p>`;
+    } catch (e) {
+      return h;
+    }
+  };
+}
+// Ask: a job's margin and profit after overhead, the overhead spent in a month, the overhead rate
+const OH_MONTHS = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
+function ohAskJob(l) {
+  const P = (DB.projects || []).filter((p) => {
+    const nm = String(p.project.name || "").toLowerCase(),
+      short = nm.replace(/ —.*$/, "").replace(/\s+(street|st|place|pl|avenue|ave)\.?$/, "");
+    return l.includes(nm.replace(/ —.*$/, "")) || (short.length > 4 && l.includes(short));
+  });
+  return P.length ? P.sort((a, b) => b.project.name.length - a.project.name.length)[0] : null;
+}
+function ohAskMonth(l) {
+  const i = OH_MONTHS.findIndex((m) => l.includes(m) || new RegExp(`\\b${m.slice(0, 3)}\\b`).test(l));
+  if (i < 0) return /this month/.test(l) ? today().slice(0, 7) : "";
+  const y = (l.match(/\b(20\d\d)\b/) || [])[1] || today().slice(0, 4);
+  return `${y}-${String(i + 1).padStart(2, "0")}`;
+}
+function ohAsk(q) {
+  const l = String(q || "").toLowerCase();
+  if ("client" === role() || ("function" == typeof eqFieldRole && eqFieldRole())) return null;
+  const job = ohAskJob(l);
+  if (job && /\b(margin|profit|profitab|after overhead|net)\b/.test(l)) {
+    const T = jobTrueProfit(job),
+      nm = String(job.project.name).replace(/ —.*$/, "");
+    return paOut({
+      kind: "finance",
+      headline: `${nm}: gross margin ${money(T.gross)} (${T.grossPct}%) on ${money(T.revenue)} earned to date; after ${money(T.oh)} of overhead the job's net profit is ${money(T.net)} (${T.netPct}%). At completion: ${money(T.margin)} margin, ${money(T.netAtCompletion)} (${T.netAtCompletionPct}%) after overhead.`,
+      note: T.method,
+      work: [`Earned ${money(T.revenue)}`, `Job cost ${money(T.cost)}`, `Gross profit ${money(T.gross)}`, `Overhead allocated ${money(T.oh)} (${money(T.basisAmt)} of ${OH_BASES[T.basis][1]})`, `Net profit ${money(T.net)}`, `Contract ${money(T.contract)}, estimated cost ${money(T.eac)}, overhead at completion ${money(T.burden)} at ${pct1(T.burdenRate)}`],
+      interp: `I ran: jobTrueProfit(${nm}) · job to date · overhead by ${OH_BASES[T.basis][0]}`,
+    });
+  }
+  if (/\boverhead\b/.test(l) && !/\bbudget\b/.test(l)) {
+    const ym = ohAskMonth(l);
+    if (/\brate\b/.test(l) && !ym) {
+      const N = ohNow();
+      return paOut({ kind: "finance", headline: `The overhead rate is ${pct1(N.month.rate)} this month and ${pct1(N.ytd.rate)} year to date, of ${OH_BASES[ohBasis()][1]}; the burden rate (${N.trailing.label}) is ${pct1(N.trailing.rate)}.`, note: ohMethodText(), interp: "I ran: ohNow" });
+    }
+    if (ym) {
+      const M = ohMonth(ym),
+        lbl = `${OH_MONTHS[+ym.slice(5, 7) - 1].replace(/^./, (c) => c.toUpperCase())} ${ym.slice(0, 4)}`;
+      return paOut({
+        kind: "finance",
+        headline: `${money(M.pool)} of overhead in ${lbl}${M.uncoded ? `, plus ${money(M.uncoded)} of bank lines not yet coded (the P&L shows ${money(M.opex)} of operating expenses)` : ""}: ${pct1(M.rate)} of the month's ${OH_BASES[M.basis][1]} (${money(M.baseTotal)}).`,
+        note: ohMethodText(),
+        work: Object.entries(M.lines)
+          .sort((a, b) => b[1] - a[1])
+          .map(([k, v]) => `${k} ${money(v)}`)
+          .concat(Object.entries(M.alloc).map(([pid, v]) => `${String(((DB.projects || []).find((p) => p.id === pid) || { project: { name: pid } }).project.name).replace(/ —.*$/, "")} carries ${money(v)}`)),
+        interp: `I ran: ohMonth(${ym}) · the P&L's operating expenses less lines not yet coded`,
+      });
+    }
+  }
+  return null;
+}
+if ("function" == typeof paAsk) {
+  const base = paAsk;
+  paAsk = function (q) {
+    try {
+      const a = ohAsk(q);
+      if (a) return a;
+    } catch (e) {
+      console.warn("overhead ask", e);
+    }
+    return base.apply(this, arguments);
   };
 }
