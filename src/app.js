@@ -8919,7 +8919,9 @@ function wireDocEditor(c) {
           if ("taxable" === f) l.taxable = e.target.checked;
           else if (["qty", "rate", "pct", "cost"].includes(f)) {
             let v = +e.target.value || 0;
-            "pct" === f && ((v = Math.min(v, 100 - (+l.prevPct || 0))), (l.pctByHand = !0)), (l[f] = v);
+            "pct" === f && ((v = Math.min(v, 100 - (+l.prevPct || 0))), (l.pctByHand = !0)),
+              "cost" === f && ((l.costSet = "" !== String(e.target.value).trim()), l.costSet || (v = "")),
+              (l[f] = v);
           } else l[f] = e.target.value;
           save(), ("function" == typeof rxLineSync && rxLineSync(c, d)) || rerender();
         }),
@@ -23249,6 +23251,7 @@ function lineFin(key) {
     txns = DB.txns.filter(
       (t) =>
         t.line === key &&
+        !txnRebilled(t) &&
         !((t) =>
           !!t.billId ||
           bills.some(
@@ -27790,6 +27793,31 @@ function txnViaBill(t, bills) {
     )
   );
 }
+// A purchase made on the client's behalf and billed back (a reimbursable: t.billable, or already on an invoice
+// line) is not contract cost. It sits on its own cost row, never on the estimate line it was coded near, and its
+// invoice is its revenue, earned when billed. Without this a $412 card purchase for the client raised the
+// millwork line's cost, its % complete and the job's earned revenue, and the reimbursable invoice counted twice.
+function txnRebilled(t) {
+  return !!(t && (t.billable || t.invoiceLineId));
+}
+function jobRebill(p, range) {
+  const R = range || ["", today()],
+    c = DB.clients.find((x) => x.id === p.clientId),
+    bills = (DB.bills || []).filter((b) => b.projectId === p.id),
+    cost = r2(
+      (DB.txns || [])
+        .filter((t) => t.projectId === p.id && +t.amt < 0 && txnRebilled(t) && within(t.date, R) && !txnViaBill(t, bills))
+        .reduce((a, t) => a - +t.amt, 0),
+    ),
+    billed = c
+      ? r2(
+          (c.invoices || [])
+            .filter((i) => i.rebill && i.projectId === p.id && !["void", "draft"].includes(i.status) && within(i.date, R))
+            .reduce((a, i) => a + docNet(i), 0),
+        )
+      : 0;
+  return { cost: cost, billed: billed };
+}
 function jobFin(p, range) {
   const c = DB.clients.find((x) => x.id === p.clientId),
     R = range || ["", today()],
@@ -27932,7 +27960,8 @@ function jobFin(p, range) {
         billCost(b),
       ),
     ),
-    txns.forEach((t) => bump(t.code || "99", "bank", -t.amt)),
+    txns.forEach((t) => bump(txnRebilled(t) ? "RB" : t.code || "99", "bank", -t.amt)),
+    byCode.RB && (byCode.RB.name = "Billed back to the client"),
     Object.entries(laborByCode).forEach(([code, v]) => bump(code, "labor", v)),
     pos.forEach((po) => {
       const tot = poTotal(po).sub,
@@ -27954,9 +27983,10 @@ function jobFin(p, range) {
       (b.actual = r2(b.bills + b.bank + b.labor)),
         ["contract", "budget", "committed", "bills", "bank", "labor"].forEach((k) => (b[k] = r2(b[k])));
     }),
-    {
+    jobFinDerive({
       p: p,
       c: c,
+      range: R,
       est: est,
       invs: invs,
       billedInvs: billedInvs,
@@ -27998,8 +28028,8 @@ function jobFin(p, range) {
       backlog: backlog,
       backlogGP: r2(estGP * (1 - pct)),
       byCode: Object.values(byCode).sort((a, b) => a.code.localeCompare(b.code)),
-      defs: "billed = invoices ex tax before retainage · actual = approved bills + bank items without a bill + burdened labor · committed = open POs net of bills · % complete = actual ÷ estimated total cost",
-    }
+      defs: "billed = invoices ex tax before retainage · actual = approved bills + bank items without a bill + burdened labor · committed = open POs net of bills · % complete = contract cost ÷ estimated contract cost (purchases billed back to the client are earned when billed)",
+    }, p)
   );
 }
 // Everything jobFin derives from actual, committed, budget, contract and billed, in one place. Each later
@@ -28007,24 +28037,31 @@ function jobFin(p, range) {
 // disputed bank lines) calls this instead of repeating the arithmetic. eac, when given, is the estimate
 // at completion the caller already worked out (the per-line roll-up, jobFinEac); otherwise a PM-reviewed
 // cost to complete wins, else the greater of budget and actual + committed.
+// Purchases billed back to the client (jobRebill) are cost and revenue of their own: they are in actual and the
+// estimate at completion, out of the cost-to-cost % complete, and their invoices are earned as billed.
 function jobFinDerive(J, p, eac) {
-  const ctc = +(p.ctc || 0);
+  const ctc = +(p.ctc || 0),
+    RB = jobRebill(p, J.range),
+    rc = RB.cost;
+  (J.rebillCost = rc), (J.rebillBilled = RB.billed);
+  (J.eac = r2(
+    null != eac
+      ? eac
+      : p.ctcReviewed
+        ? Math.max(J.actual + J.committed, J.actual + ctc)
+        : Math.max(J.budget + rc, J.actual + J.committed),
+  )),
+    (J.pct = J.eac - rc > 0 ? Math.min(1, Math.max(0, J.actual - rc) / (J.eac - rc)) : 0),
+    (J.earnedContract = r2(J.contract * J.pct)),
+    (J.earned = r2(J.earnedContract + RB.billed));
+  const revenue = r2(J.contract + RB.billed);
   return (
-    (J.eac = r2(
-      null != eac
-        ? eac
-        : p.ctcReviewed
-          ? Math.max(J.actual + J.committed, J.actual + ctc)
-          : Math.max(J.budget, J.actual + J.committed),
-    )),
-    (J.pct = J.eac ? Math.min(1, J.actual / J.eac) : 0),
-    (J.earned = r2(J.contract * J.pct)),
     (J.overUnder = r2(J.billed - J.earned)),
     (J.over = Math.max(0, J.overUnder)),
     (J.under = Math.max(0, -J.overUnder)),
-    (J.backlog = r2(Math.max(0, J.contract - J.earned))),
-    (J.estGP = r2(J.contract - J.eac)),
-    (J.estGPPct = J.contract ? r2((J.estGP / J.contract) * 100) : 0),
+    (J.backlog = r2(Math.max(0, J.contract - J.earnedContract))),
+    (J.estGP = r2(revenue - J.eac)),
+    (J.estGPPct = revenue ? r2((J.estGP / revenue) * 100) : 0),
     (J.backlogGP = r2(J.estGP * (1 - J.pct))),
     J
   );
@@ -35797,6 +35834,9 @@ function targetMarginFor(cat) {
 function lineBudget(l, d) {
   const cost = +l.cost || 0;
   if (cost) return { budget: cost, defaulted: !1 };
+  // a line whose budget a person typed as 0 (a builder's fee, a markup) has no cost: never a default budget, which
+  // put a phantom 75% of the fee into the estimate at completion and kept the job's cost basis low
+  if (l.costSet && "" !== l.cost && null != l.cost) return { budget: 0, defaulted: !1 };
   const price = d ? lineAmount(l, d) : 0;
   return { budget: r2(price * (1 - targetMarginFor(lineCat(l, d)) / 100)), defaulted: !0 };
 }
@@ -48486,7 +48526,10 @@ function ctWire(c, d, root, editable) {
         const f = inp.dataset.ctf;
         "taxable" === f
           ? (l.taxable = inp.checked)
-          : ["qty", "rate", "cost"].includes(f)
+          : "cost" === f
+            ? // a budget typed as 0 (a fee line) is a budget of 0; a blank one is left to the target margin
+              ((l.cost = "" === String(inp.value).trim() ? "" : +inp.value || 0), (l.costSet = "" !== String(inp.value).trim()))
+            : ["qty", "rate"].includes(f)
             ? (l[f] = +inp.value || 0)
             : "depositPct" === f
               ? (l.depositPct = "" === inp.value ? "" : Math.max(0, Math.min(100, +inp.value || 0)))
@@ -137614,7 +137657,11 @@ function pay3Suggest(t) {
       !u.cat ||
       "uncat" === u.cat ||
       ["transfer", "cc-payment", "income"].includes(u.cat) ||
-      !(+u.amt < 0)
+      !(+u.amt < 0) ||
+      // a purchase made for one client (billed back) is not how the store is coded: it once put another job's
+      // screws on that client's millwork line
+      u.billable ||
+      u.invoiceLineId
     )
       return;
     const nm = u.vendor || pay3PayeeName(u);
@@ -162893,6 +162940,7 @@ function jobFinEacLines(J, p) {
         "labor" === t.cat ||
         !within(t.date, R) ||
         txnViaBill(t, bills) ||
+        txnRebilled(t) ||
         ("function" == typeof pay3Disputed && pay3Disputed(t)) ||
         (x.tagA += -t.amt);
     }),
@@ -162951,7 +162999,7 @@ function jobFinEac(J, p) {
   try {
     const L = jobFinEacLines(J, p);
     if (!L.length) return null;
-    const lines = r2(L.reduce((a, x) => a + x.eac, 0));
+    const lines = r2(L.reduce((a, x) => a + x.eac, 0) + (+J.rebillCost || 0));
     return { eac: r2(Math.max(lines, J.actual + J.committed)), lines: L };
   } finally {
     jobFinEacBusy = !1;
