@@ -86157,8 +86157,9 @@ function glnProject(cpm, projEnd) {
     delta = S.project.target ? signedWork(S.project.target, sc) : 0,
     late = delta > 0,
     crit = S.tasks.filter((t) => cpm[t.id] && cpm[t.id].critical && "done" !== t.status).length,
+    // each tile is named for the page it opens (the finish is read on the Schedule, the margin on Costs)
     finish = {
-      k: "Finish",
+      k: "Schedule",
       go: "sched",
       tone: S.tasks.length && late ? "bad" : "",
       v: S.tasks.length
@@ -86170,14 +86171,14 @@ function glnProject(cpm, projEnd) {
         : "—",
       s: `${late || delta < 0 ? `${fmtL(sc)} against a ${fmtL(S.project.target)} target` : fmtL(sc)} · ${crit} on the critical path`,
     };
-  let money_ = { k: "Accounting", go: "costs", v: "—", s: "no contract yet" };
+  let money_ = { k: "Costs", go: "costs", v: "—", s: "no contract yet" };
   try {
     const J = jobFin(S);
     if (J.contract) {
       const drift = J.plannedGPPct - J.estGPPct,
         aheadPct = (J.over / J.contract) * 100;
       money_ = {
-        k: "Accounting",
+        k: "Costs",
         go: "costs",
         tone: drift > 3 || aheadPct > 10 ? "bad" : aheadPct > 5 ? "warn" : "",
         v: aheadPct > 5 ? `+${money(J.over)} billed ahead` : `${Math.round(J.estGPPct)}% margin`,
@@ -86278,7 +86279,8 @@ function glnAll(td) {
         : "every finish date holds",
     },
     {
-      k: "Accounting",
+      // the firm's margin, read on Reports' profit and loss
+      k: "Profitability",
       go: "reports",
       tone: planned && gp < 0.95 * planned ? "warn" : "",
       v: contract ? `${Math.round((gp / contract) * 100)}% margin` : "—",
@@ -86534,6 +86536,7 @@ new MutationObserver((muts) => {
       tcLabels(document);
     } catch (e) {}
 }).observe(document.body, { childList: !0, subtree: !1 });
+let arTileCols = [];
 const TL_CHEV = '<svg class="gl-chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>',
   tlFocus = {},
   tlDays = (a, b) => Math.round((parse(b) - parse(a)) / 864e5),
@@ -86548,8 +86551,32 @@ const TL_CHEV = '<svg class="gl-chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"
       : Math.abs(n) >= 1e3
         ? "$" + Math.round(n / 1e3) + "K"
         : money(n);
+// A tile that opens another page lands on that page's matching tile, focused (the list filtered to the rows
+// counted), and named for the tile that was pressed: "Showing 3 of 9 · Committed".
+let tlCameFor = null;
+function tlLand(v, key, from) {
+  view = v;
+  try {
+    const t = (TL_SETS[v] ? TL_SETS[v]() : []).find((x) => x.key === key);
+    if (!t) return;
+    t.go && !t.list && !t.pred && ((tlCameFor = { view: v, key }), t.go());
+    const label = (from && from.k) || t.k,
+      rule = (from && from.rule) || t.rule || "";
+    t.list
+      ? (tlFocus[v] = { key: t.key, grid: "tlf-" + v, label, rule, list: t.list, of: t.of, cols: t.cols, open: t.open })
+      : t.pred && (tlFocus[v] = { key: t.key, grid: t.grid, pred: t.pred, payroll: !!t.payroll, label, rule, scope: t.scope }),
+      t.set && t.set();
+  } catch (e) {
+    console.warn("tile landing", v, e);
+  }
+}
+// A tile reads as pressed when its list is focused, when it says so itself (t.on: the tab it opens is the one
+// showing), or when another page's tile landed here on it.
 function tlTile(view, t, i) {
-  const on = tlFocus[view] && tlFocus[view].key === t.key;
+  let on = tlFocus[view] && tlFocus[view].key === t.key;
+  try {
+    on = on || !!(t.on && t.on()) || !!(tlCameFor && tlCameFor.view === view && tlCameFor.key === t.key);
+  } catch (e) {}
   const live = t.go || t.pred || t.list;
   return `<button type="button" class="gl ${t.tone || ""} ${on ? "on" : ""} ${live ? "" : "static"}" data-tl="${t.key || i}"${t.rule ? ` title="${esc(t.rule)}"` : ""}><span class="gl-k">${esc(t.k)}</span><b class="gl-v">${t.v}</b><span class="gl-s">${t.s || ""}</span>${live ? TL_CHEV : ""}</button>`;
 }
@@ -87299,6 +87326,14 @@ const TL_SETS = {},
       },
     ];
   }),
+  (arTileCols = [
+    { key: "num", label: "Invoice", cls: "name", w: "130px", get: (r) => r.i.number || "" },
+    { key: "client", label: "Client", get: (r) => r.c.name },
+    { key: "job", label: "Job", get: (r) => (r.p ? shortName(r.p) : "") },
+    { key: "due", label: "Due", type: "date", w: "90px", get: (r) => r.i.due || "" },
+    { key: "bal", label: "Balance", type: "money", w: "100px", get: (r) => r.bal },
+    { key: "age", label: "Days Late", type: "num", w: "80px", get: (r) => (r.age > 0 ? r.age : "") },
+  ]),
   (TL_SETS.clients = () => {
     const rows = "function" == typeof arRows ? arRows() : [],
       past = rows.filter((r) => r.age > 0),
@@ -87316,12 +87351,13 @@ const TL_SETS = {},
         s: past.length
           ? `${tlN(past.length, "invoice")} · oldest ${Math.max(...past.map((r) => r.age))} days`
           : "nothing past due",
-        // a tile only links where the person may go (coordinators and designers do not open Billing)
-        go: flowCan("billing")
-          ? () => {
-              (view = "billing"), (billTab = "invoices");
-            }
-          : null,
+        // the tile lists the invoices it counts, here; each opens its invoice (a summary for a person
+        // who does not open Billing). Before, it opened Billing's whole invoice list.
+        rule: "invoices sent and not paid, past their due date",
+        list: () => past,
+        of: () => rows.length,
+        cols: arTileCols,
+        open: (r) => flowGo.doc(r.c, "invoice", r.i)(),
       },
       {
         key: "owed",
@@ -87330,12 +87366,11 @@ const TL_SETS = {},
         s: rows.length
           ? `${tlN(rows.length, "open invoice")} across ${new Set(rows.map((r) => r.c.id)).size} clients`
           : "no open invoices",
-        // a tile only links where the person may go (coordinators and designers do not open Billing)
-        go: flowCan("billing")
-          ? () => {
-              (view = "billing"), (billTab = "invoices");
-            }
-          : null,
+        rule: "every invoice sent and not paid",
+        list: () => rows,
+        of: () => rows.length,
+        cols: arTileCols,
+        open: (r) => flowGo.doc(r.c, "invoice", r.i)(),
       },
       {
         key: "sign",
@@ -87484,6 +87519,7 @@ const TL_SETS = {},
         go: () => {
           spTab = "match";
         },
+        on: () => "match" === spTab,
       },
       {
         key: "unc",
@@ -87494,6 +87530,7 @@ const TL_SETS = {},
         go: () => {
           spTab = "unbilled";
         },
+        on: () => "unbilled" === spTab,
       },
       {
         key: "appr",
@@ -87504,6 +87541,7 @@ const TL_SETS = {},
         go: () => {
           spTab = "approve";
         },
+        on: () => "approve" === spTab,
       },
       (() => {
         const orph = "function" == typeof spOrphans ? spOrphans() : [],
@@ -87519,6 +87557,7 @@ const TL_SETS = {},
           go: () => {
             spTab = "match";
           },
+          on: () => "match" === spTab,
         };
       })(),
     ];
@@ -88047,6 +88086,7 @@ const TL_SETS = {},
         go: () => {
           selLens = "red" === selLens ? "" : "red";
         },
+        on: () => "red" === selLens,
       },
       {
         key: "chk",
@@ -88121,9 +88161,8 @@ const TL_SETS = {},
         k: "Committed",
         v: tlK(J.committed || 0),
         s: J.committed ? "on open purchase orders, not yet billed" : "no open purchase orders",
-        go: () => {
-          view = "po";
-        },
+        // lands on Purchase Orders filtered to the open ones it adds up, under this tile's name
+        go: () => tlLand("po", "open", { k: "Committed", rule: "open purchase orders on this job, not yet billed" }),
       },
       {
         key: "accrued",
@@ -88349,9 +88388,16 @@ const TL_SETS = {},
         s: propOut.length
           ? "sent over 14 days ago and never presented in person"
           : "every proposal out was presented",
-        go: () => {
-          view = "hbquotes";
-        },
+        // the deals it counts, listed here; each opens its deal (Quotes holds every quote, not these)
+        rule: "proposals sent over 14 days ago and never presented in person",
+        list: () => propOut,
+        of: () => open.filter((l) => l.proposal && l.proposal.sentAt).length,
+        cols: [
+          { key: "name", label: "Lead", cls: "name", get: (l) => l.name || "" },
+          { key: "sent", label: "Proposal Sent", type: "date", w: "110px", get: (l) => (l.proposal || {}).sentAt || "" },
+          { key: "age", label: "Days Out", type: "num", w: "80px", get: (l) => tlAge((l.proposal || {}).sentAt) },
+        ],
+        open: (l) => flowGo.lead(l)(),
       },
       {
         key: "won",
@@ -89507,8 +89553,9 @@ if (
         s: worst
           ? `phase${1 === over.length ? "" : "s"} past the proposal's hours · ${shortName(worst.p)}, ${worst.x.line.item.replace(/ and .*| \/ .*/, "").toLowerCase()} ${Math.round(worst.x.used - worst.x.est)} hrs over`
           : "every phase inside its hours",
+        // lands on the job's Project Board at its own Phases Over Hours tile
         go: () => {
-          worst && setCurrent(worst.p.id), (view = "sboard");
+          worst && setCurrent(worst.p.id), tlLand("sboard", "over", { k: "Over Budget Now" });
         },
       },
     ];
@@ -137945,6 +137992,39 @@ function ocDecDue(d) {
 }
 // A job's Needs You, from the registry (PRED.jobNeeds): its Today tile, its Today tab badge and the
 // Projects overview's Jobs Needing You all read this one function.
+// A job's Needs You, item by item: the sheet the Today tile opens. Each kind says how many and opens the page
+// that settles it; a decision or a site question opens its own record.
+function jobNeedsSheet(p) {
+  p = p || S;
+  const N = jobNeeds(p),
+    nm = (x) => esc(String((x && (x.name || x.title || x.text || x.what || x.item)) || "").slice(0, 90)),
+    sec = (title, items, go, open) =>
+      items.length
+        ? `<div class="jn-sec"><div class="row" style="align-items:center;margin:10px 0 4px"><b>${title} · ${items.length}</b><span class="grow"></span>${flowCan(go) ? `<button class="btn sm" data-jngo="${go}">Open ${title}</button>` : ""}</div><ul class="jn-list">${items
+            .map((x, i) => `<li>${open ? `<a href="#" data-jnopen="${go}:${i}">${nm(x)}</a>` : nm(x)}</li>`)
+            .join("")}</ul></div>`
+        : "",
+    m = mbModal(
+      `Needs You — ${esc(shortName(p))}`,
+      `<p class="small muted" style="margin:0">${esc(PRED.jobNeeds.rule || "")}</p>${sec("Materials", N.mat, "mat")}${sec("Decisions", N.decs, "dec", !0)}${sec("Submittals", N.subm, "subm")}${sec("Inspections", N.insp, "insp")}${sec("Site Questions", N.field, "field", !0)}`,
+      { submit: null },
+    );
+  m.querySelectorAll("[data-jngo]").forEach(
+    (b) =>
+      (b.onclick = () => {
+        mbCloseModal(), setCurrent(p.id), (view = b.dataset.jngo), render(), window.scrollTo(0, 0);
+      }),
+  ),
+    m.querySelectorAll("[data-jnopen]").forEach(
+      (a) =>
+        (a.onclick = (e) => {
+          e.preventDefault(), mbCloseModal();
+          const [k, i] = a.dataset.jnopen.split(":"),
+            x = ("dec" === k ? N.decs : N.field)[+i];
+          x && ("dec" === k ? flowGo.decision(p, x)() : flowGo.raise(x)());
+        }),
+    );
+}
 function jobNeeds(p) {
   return (
     ((p = p || S) &&
@@ -138708,7 +138788,9 @@ if (
                 : N.field.length
                   ? "field"
                   : "dec"),
-        (b.dataset.ocbadge = "dash");
+        (b.dataset.ocbadge = "dash"),
+        // the tile counts every kind of late item, so it opens all of them, not the first kind's page
+        N.total && (b.onclick = () => jobNeedsSheet(S));
     } catch (e) {
       console.warn("onecount today", e);
     }
