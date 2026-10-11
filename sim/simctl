@@ -6,6 +6,7 @@
     sim/simctl begin <uid> <slot> [--cap N]     open a person's turn (only they may act until `end`)
     sim/simctl end                              close the turn: save, deliver the mail they sent
     sim/simctl prompt <uid>                     print the filled per-turn prompt (sim/turn_prompt.md) for that person
+    sim/simctl brief <uid>                      their news and unread mail counts (to decide optional turns)
     sim/simctl referee [--final]                score the world now (writes ledger.json and ledger.md)
     sim/simctl advance                          score the day, keep a copy of the snapshot, move to the next working day
     sim/simctl persist                          the PERSIST reload check (end of the run)
@@ -62,6 +63,7 @@ def main(a):
         cap = int(a[a.index('--cap') + 1]) if '--cap' in a else int(os.environ.get('SIM_CAP', '25'))
         r = admin('begin_turn', uid=a[1], slot=a[2] if len(a) > 2 and not a[2].startswith('--') else None, cap=cap)
     elif c == 'end': r = admin('end_turn')
+    elif c == 'brief': r = admin('brief', uid=a[1])
     elif c == 'referee': r = admin('referee', final='--final' in a)
     elif c == 'advance': r = admin('advance')
     elif c == 'persist': r = admin('persist_check')

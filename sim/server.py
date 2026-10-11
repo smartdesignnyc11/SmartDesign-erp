@@ -47,7 +47,7 @@ PEOPLE = {
 STAFF_MAIL = ['u_owner', 'u_alan', 'u_chen', 'u_angel', 'u_sarah', 'u_billing', 'u_controller', 'u_alberto', 'u_alex']
 DEFAULT_PROJECT = {'u_angel': 'p121', 'u_alberto': 'p121', 'u_alex': 'p121'}   # the seed's field crew is on 121 State
 SLOTS = {'morning': '07:30', 'work1': '10:00', 'work2': '13:30', 'eod': '16:30'}
-VERBS = {'screen', 'tap', 'type', 'pick', 'upload', 'photo', 'back', 'scroll', 'go', 'ask', 'mail', 'call', 'news', 'help', 'key'}
+VERBS = {'screen', 'find', 'tap', 'type', 'pick', 'upload', 'photo', 'back', 'scroll', 'go', 'ask', 'mail', 'call', 'news', 'help', 'key'}
 PAGE_CHARS = 3600
 MUTATING = {'tap', 'type', 'pick', 'upload', 'photo', 'back', 'go', 'ask', 'key'}
 
@@ -247,6 +247,9 @@ class Sim:
     async def commit(self, uid):
         """Save the page's state to the shared database; a change bumps the version and writes the snapshot."""
         pg = self.pages[uid]
+        if self.page_ver.get(uid, -1) < self.state['version']:
+            # a stale page must never write: someone else saved since it loaded (its own changes were saved when it acted)
+            return False
         await pg.evaluate("window.__simActive = true")
         try: n, h, dropped = await pg.evaluate(HASH_JS)
         except Exception as e: return False
@@ -394,6 +397,20 @@ class Sim:
 
     async def v_screen(self, uid, pg, args, opts):
         return await self.render_screen(uid, pg, full=opts.get('full'), shot=opts.get('shot'))
+
+    async def v_find(self, uid, pg, args, opts):
+        """Scan the whole screen for a word, the way a person's eye does: the matching lines with the controls near them."""
+        if not args: return {'ok': False, 'text': 'find what?'}
+        await self.render_screen(uid, pg)
+        sc = self.screens[uid]; lines = [l for p in sc['pages'] for l in p]
+        want = args[0].lower(); hits = [i for i, l in enumerate(lines) if want in l.lower()]
+        if not hits: return {'ok': True, 'text': f'{sc["head"]}\n"{args[0]}" is not on this screen.'}
+        keep = sorted({j for i in hits[:8] for j in range(max(0, i - 2), min(len(lines), i + 5))})
+        out, prev = [], -2
+        for j in keep:
+            if j != prev + 1: out.append('…')
+            out.append(lines[j]); prev = j
+        return {'ok': True, 'text': sc['head'] + '\n' + '\n'.join(out), 'summary': f'find {args[0]}: {len(hits)} lines'}
 
     async def v_scroll(self, uid, pg, args, opts):
         sc = self.screens.get(uid)
@@ -752,8 +769,8 @@ class Sim:
             if cmd == 'world_agent':
                 self.state['world']['agent'] = bool(a.get('on')); self.save_state(); return {'world_agent': self.state['world']['agent']}
             if cmd == 'shutdown':
-                for u in list(self.pages):
-                    try: await self.commit(u)
+                if self.last_active in self.pages:
+                    try: await self.commit(self.last_active)
                     except Exception: pass
                 self.save_state(); self.stop.set(); return {'bye': True}
             return {'error': 'unknown admin command ' + cmd}
@@ -852,6 +869,7 @@ class Sim:
 HELP = """sim/act <uid> <verb> ...   (you act only through your own screens)
   screen [--full] [--shot]     what is on your screen, controls numbered [n ...]
   scroll                       the next page of the same screen
+  find "text"                  only the lines of your screen with that text, and the controls next to them
   tap <n>                      tap control n
   type <n> "text" [--enter]    type into field n
   pick <n> "option"            choose an option in select n

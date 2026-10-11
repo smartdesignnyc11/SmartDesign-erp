@@ -155,7 +155,7 @@ class World:
                          'owners': [{'displayName': STAFF.get(p['uid'], ('', ''))[0], 'emailAddress': STAFF.get(p['uid'], ('', ''))[1]}],
                          'webViewLink': '', 'parents': ['dwroot_' + p['uid']], 'text': p.get('text', ''), 'trashed': False}
                     sim.state['drive'].append({'uid': p['uid'], 'file': f}); await pg.evaluate("f => __SIM.driveSync(f)", [{'uid': p['uid'], 'file': f}])
-                    sim.state['version'] += 1   # every page must reload to see the new file in Drive
+                    sim.state['version'] += 1; sim.page_ver['__world'] = sim.state['version']   # every other page reloads to see the new file
                     r = 'in Drive'
                 elif k == 'bank':
                     bank.setdefault(p['acct'], []).append(p); self.st['bank'].append(p); r = 'on the statement'
@@ -372,7 +372,8 @@ class World:
     def order_flow(self, k, p, m, po, amt, ship, r):
         """An order the world accepted: the truck comes on the ship day (the foreman meets it), the invoice follows,
         and a vendor paid on delivery shows up on the card the next morning."""
-        items = '; '.join(x.strip('- ').strip() for x in m['body'].splitlines() if x.strip().startswith('-'))[:160] or 'the order'
+        L = [x.strip('- ').strip() for x in m['body'].splitlines() if x.strip().startswith('-')]
+        items = '; '.join([x for x in L if re.search(r'@|\$|\d+ (ea|sheet|box|roll|lf|sf|ls|pc)', x)][:3] or L[:1])[:160] or 'the order'
         sid = f'D{self.st["n"] + 1:04d}'
         self.st['extra'].append({'id': sid, 'day': ship, 'time': '09:20', 'kind': 'situation', 'payload': {'uid': 'u_angel',
             'text': f"{p['name']} delivered {po} to the site this morning: {items}. You have the packing slip in your hand."},

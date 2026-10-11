@@ -2,7 +2,7 @@
 """sim/act: a person's toolkit in the agent month. You act only as yourself, only through your own screens.
 
     sim/act <uid> help                     every verb
-    sim/act <uid> screen [--full] [--shot]
+    sim/act <uid> screen [--full] [--shot] | find "text"
     sim/act <uid> tap <n> | type <n> "text" [--enter] | pick <n> "option" | upload <n> <file> | photo <n>
     sim/act <uid> back | scroll | key Enter | go "<menu label>" | ask "question" | news
     sim/act <uid> mail [sent] | mail read <n> | mail reply <n> "text" | mail send "to" "subject" "body"
@@ -14,7 +14,7 @@ anything that is not a person's action: there is no way to run JavaScript or to 
 import json, os, sys, urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-VERBS = {'screen', 'tap', 'type', 'pick', 'upload', 'photo', 'back', 'scroll', 'go', 'ask', 'mail', 'call', 'news', 'help', 'key'}
+VERBS = {'screen', 'find', 'tap', 'type', 'pick', 'upload', 'photo', 'back', 'scroll', 'go', 'ask', 'mail', 'call', 'news', 'help', 'key'}
 FORBIDDEN = {'eval', 'evaluate', 'js', 'javascript', 'db', 'sql', 'query', 'exec', 'run', 'script', 'console', 'devtools', 'storage', 'indexeddb',
              'localstorage', 'dump', 'export', 'state', 'set', 'get', 'admin', 'debug'}
 
