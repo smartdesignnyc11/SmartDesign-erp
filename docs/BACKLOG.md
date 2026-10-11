@@ -549,6 +549,24 @@ Alan gets a gallery of the client-facing documents to judge for himself.
 - Pilot 3 working days with every role, right after v11 is live.
 - The full 20 days, split in two halves of 10, after the weekly reset.
 
+### 1.18 Items and descriptions that fill themselves in (Alan, 2026-10-11: "an important feature")
+**Today.** There is no item library. Estimate and invoice lines are typed by hand. Only cost codes and vendor names offer a pick list.
+
+**The fix: one Item library, the noun "item" in the registry (§1.16), used by estimates, change orders, invoices, POs and RFQs.**
+1. **What an item holds:**
+   - a name and a client-facing description in plain language, with inclusions and exclusions (the Standard: estimating playbook);
+   - an internal note, and a vendor-facing description for POs and RFQs;
+   - the cost code, unit, unit cost (from the price book and price history, dated), markup, and material/labour split;
+   - whether it is taxable, and the income and expense accounts;
+   - the preferred vendor and lead time.
+2. **Typing fills the line.** Start typing on an estimate, CO or invoice line, and matching items appear: the firm's most used first, then by job type. Picking one fills the description, unit, price, cost code, split and accounts. Each filled field shows where it came from, and every field can still be changed on that document.
+3. **Assemblies.** One pick adds a set of lines with quantities linked to a measurement: "Bathroom gut and rebuild", "Brownstone parlour floor refinish", "Rough plumbing per fixture". General conditions (protection, permits, filing and expediting, dumpsters, cleaning, supervision, insurance) are included by default, as the Standard requires.
+4. **The assistant drafts.** It writes from site notes, photos, a voice memo or the plans' takeoff: it proposes lines from the library with descriptions, marks anything new as new, and labels its assumptions. A person approves before the client sees it.
+5. **It learns.** Descriptions from signed estimates, and prices from awarded POs and price history, feed back into the library as proposals. A library change is reviewed by the owner or estimator. Changing the library never rewrites a sent document.
+6. **One description through the chain.** An invoice line from an estimate line carries its description. A T&M or reimbursable invoice picks items the same way. A PO from an estimate line uses the item's vendor-facing description.
+7. **On the phone:** search, voice and recent items first. A line added in a client's kitchen takes seconds.
+8. **Measured in the Documents Workshop:** how much of each document was typed against filled in, and whether descriptions read well to the client.
+
 ## §2 Remaining round-4 findings
 
 ### Founder
