@@ -583,7 +583,7 @@ Alan gets a gallery of the client-facing documents to judge for himself.
 ### 1.20 Spanish for the field (Alan, 2026-10-11: "We do need Spanish for the field")
 - **Language setting.** Each person has a language setting. The foreman, crew and driver screens, buttons, toasts, notifications and their assistant work fully in Spanish, including voice input in Spanish.
 - **Their playbooks in Spanish.** The field's parts of the Standard (Foreman, Field crew and trades, the jobsite and safety rules, the escalation table) get a Spanish version. Alan's English text stays the source.
-- **Trade words as the crew says them.** Use NYC trade Spanish, keeping common English terms such as "sheetrock" where that is what the crew says. A native speaker on Alan's team reviews the wording before go-live.
+- **Trade words as the crew says them.** Use NYC trade Spanish, keeping common English terms such as "sheetrock" where that is what the crew says. Jeanette reviews the Spanish wording before go-live (Alan, 2026-10-11).
 - **What the field writes.** Daily logs, requests and notes are kept as written, and the office sees an automatic English version next to the original. Office replies show in Spanish for the field person.
 - **Clients.** They never see Spanish unless their own setting asks for it.
 - **Test.** Every field screen at 390px in Spanish, with no sideways scroll; Spanish strings are longer.
