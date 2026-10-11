@@ -356,7 +356,9 @@ async def main():
             await pg.locator(f'#mbm [data-f="{k}"]').check()
         await ok_modal(pg, 400)
         vv = await pg.evaluate("() => ({ r: poValid({ number: 'PO-TEST', vendor: 'Tri-State Connector Supply', lines: [{ item: 'hanger', qty: 10, price: 2 }], needBy: '2026-09-10' }), by: DB.vendors.find(v => v.name === 'Tri-State Connector Supply').vetting.w9.by })")
-        C.ok(not vv['r'] and vv['by'] == 'Chen Biron', f'vetted, with who and when recorded; the PO may issue ({vv})')
+        # since the chain lane, poValid also refuses a line with no estimate, change-order or overhead link; this
+        # synthetic PO has none, so only that reason may remain: vetting no longer stops it
+        C.ok(not [x for x in vv['r'] if 'not linked' not in x] and vv['by'] == 'Chen Biron', f'vetted, with who and when recorded; vetting no longer stops the PO ({vv})')
 
         # ---- sourcing research
         R = await pg.evaluate("() => JSON.parse(JSON.stringify(sourcingResearch('Lumber')))")
