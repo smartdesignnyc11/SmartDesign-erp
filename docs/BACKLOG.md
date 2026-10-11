@@ -485,6 +485,22 @@ Today every person's data lives in their own browser and every guard runs in the
 6. **Watchers that run while phones are in pockets.** The per-user Gmail, Calendar and Drive watcher (the lost `assistant-watch`), Plaid bank and card feeds with webhooks (link, exchange, cursor sync, sealed tokens), and the daily sweep (chases, reminders, lesson triggers, obligations) on a schedule.
 7. **iPhone and speed.** Safari (WebKit) checks on a real iPhone or a WebKit runner, storage persistence (Safari can clear site data after a week unused; the server copy is the cure), and boot under 2 s and view switch under 100 ms with a mid-range phone's CPU (§3.4).
 
+8. **The real agents (Alan, 2026-10-11: "creating the real AI agents").** These are the ERP's own agents, running on the Claude API through the server, not in the page. Each one has a job, a schedule, tools (erpQuery, the PRED and CATCH registries, mail, calendar, drive, document reading, and web search where named), a budget, and the Standard as its operating instructions (`standardPrompt`, the AI section in full, plus the playbook of the role it serves). Every write it makes is a proposal unless the person has delegated that message type (`standardAllows`). Every run is logged with its evidence, its reason and its cost.
+   | Agent | Serves | Runs | Does on its own | Proposes |
+   |---|---|---|---|---|
+   | Personal assistant (one per person) | that person | on demand, plus a morning brief | reads, answers, drafts, reminds | anything that writes, sends or commits |
+   | The brain | owner | nightly | reads every record, mail, transcript and outcome; finds patterns and repeat mistakes | rules, process changes and lessons (the owner approves) |
+   | Procurement | procurement manager | hourly in business hours | RFQ ingest, quote reading, leveling, sourcing research (web search), price watch, delegated follow-ups | awards, negotiation emails, new vendors |
+   | Documents | billing, coordinator | as mail and photos arrive | reads invoices, receipts, slips, acknowledgments and COIs; files them; checks they line up | low-confidence reads and mismatches for a person |
+   | Schedule and look-ahead | PM, foreman | daily, plus Friday | three-week look-ahead, need-by dates against lead times, slips | resequencing, client updates (the PM sends) |
+   | Billing and collections | billing | daily | ready to bill, the collections cadence (due, 7, 15, 30) | invoices and reminders (billing sends) |
+   | Compliance | coordinator, owner | daily | COIs, licences, permits and LPC dates, 30 days ahead | chases (sent if delegated) |
+   | Books | controller | daily, plus close | bank and card matching, unmatched lines, close checks by the 10th | journal entries (always flagged), close |
+   - **Models.** The highest-capability Claude model for the brain and hard reasoning; a mid-tier model for assistants and procurement; the smallest model for classifying and filing. Each is pinned in server settings, never in the page.
+   - **Cost control.** Each agent has a monthly budget and the firm has a hard ceiling. The Standard and the role playbooks are prompt-cached. The owner sees spend per agent per month. An agent that hits its budget stops and says so.
+   - **Evaluation before go-live.** The Ask bank (tune, held-out, held-out-2) runs against the live model; prompt-injection tests run with hostile mail; and each agent shadows for a week (proposals only, compared with what people did) before any delegated autonomy is switched on.
+   - **What Alan sets up.** An Anthropic API account with billing and a spending limit (separate from his Claude plan), Supabase, Netlify, and a Google OAuth client. Keys go only into Netlify and Supabase settings.
+
 ## §6 Go-live and the 10x scorecard
 1. **Real data in.** Clients, jobs, vendors, people, open estimates, invoices, bills and POs imported (the existing paste-from-Excel import, the QuickBooks snapshot load, and the master-data proposals from real mail), demo data removed, opening balances from QuickBooks.
 2. **A parallel month.** The ERP runs beside QuickBooks for one month; the Three-Way Tie-Out must agree every week before QuickBooks is retired; a cutover checklist with an owner and a date.
