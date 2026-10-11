@@ -85372,7 +85372,8 @@ function mRenderTabs() {
               document.querySelector(".rail")?.classList.add("open"),
               void document.getElementById("railscrim")?.classList.add("on")
             );
-          ("dash" !== v || void 0 === dashAll || S) && ((view = v), render(), window.scrollTo(0, 0));
+          // a firm tab pressed in the acquisitions workspace opens in the firm's (render would send it back)
+          ("dash" !== v || void 0 === dashAll || S) && (goWsFor(v), (view = v), render(), window.scrollTo(0, 0));
         }),
     );
 }
