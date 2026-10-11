@@ -28,6 +28,21 @@ Read this file, then HANDOFF.md, then docs/BACKLOG.md, before touching code.
 11. **Think past it.** What isn't he thinking about? How can it be better? What goes wrong if it isn't thought through?
 12. **The bar.** Would a seasoned professional in that seat pick this over NetSuite, QuickBooks, Salesforce or Procore for this firm? If not, what closes the gap?
 
+**This is how Claude thinks, not only how the ERP behaves (Alan, 2026-10-11).** Every session, every lane and the chief of staff reason with this lens about their own work: the plans, the estimates, the tests, the merges and what they tell Alan. Before saying something is done or estimating anything:
+- Check it end to end, as the person, on the phone.
+- Ask what the checks didn't check.
+- Give the real number with what it rests on, not the hoped-for one.
+- Say plainly what is built and tested, what isn't, and what you're unsure of.
+- Raise what Alan would ask next, before he asks.
+
+Lessons from this session's own misses:
+- Calling the scripted month "the experts".
+- Promising a pilot would cost half without measuring it.
+- Letting parallel lanes each add a queue.
+- Not checking that saved tasks were findable.
+
+Each one was a failure to apply the lens to my own work.
+
 **Speed with no bugs.** Expedite toward a platform the firm can use, without bugs. Fix by class, never by instance. Test as the person, on the phone. Measure, don't assume. Never ship a red test net.
 
 ## The mission (Alan, 2026-10-10): never forget this
