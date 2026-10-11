@@ -180125,11 +180125,21 @@ function pwBuild() {
   return { buys: buys.sort(pwByDate), quotes: quotes, fees: fees.sort(pwByDate), items: items, byId: byId };
 }
 // An approved baseline change ("lumber up 8% this quarter") scales every earlier price from its date on; it
-// applies to one item or to a whole category. Nothing else moves a baseline.
+// applies to one item or to a whole category. Nothing else moves a baseline. It is a period explanation: it ends at
+// the close of the quarter it starts in (b.until), and a purchase after that is checked again against the plain
+// history, so a rise that has become normal is proposed again rather than silenced for good. An explanation for
+// a single purchase closes that one flag and never expires.
+const pwQuarterEnd = (d) => {
+  const y = +String(d).slice(0, 4),
+    m = +String(d).slice(5, 7),
+    qm = m - ((m - 1) % 3) + 2;
+  return iso(new Date(y, qm, 0));
+};
+const pwUntil = (b) => b.until || (b.from ? pwQuarterEnd(b.from) : "");
 function pwAdj(I, price, priceDate, atDate) {
   let f = 1;
   pwInit().baselines.forEach((b) => {
-    (b.itemKey ? b.itemKey === I.key : b.category && b.category === I.cat) && b.from <= atDate && String(priceDate) < b.from && (f *= 1 + (+b.pct || 0) / 100);
+    (b.itemKey ? b.itemKey === I.key : b.category && b.category === I.cat) && b.from <= atDate && (!pwUntil(b) || atDate <= pwUntil(b)) && String(priceDate) < b.from && (f *= 1 + (+b.pct || 0) / 100);
   });
   return pwR4(price * f);
 }
@@ -180520,6 +180530,7 @@ function pwPropose(o) {
       category: base && !o.itemKey ? o.category || "" : "",
       pct: base ? +o.pct : null,
       from: from,
+      until: base ? pwQuarterEnd(from) : "",
       text: text,
       status: "proposed",
       by: pwMe(),
@@ -180553,7 +180564,7 @@ function pwDecide(id, verdict, reason) {
     audit("pricewatch", e.id, "explanation-" + e.status, "proposed", e.status, `${e.decidedBy}: ${why || e.text}`);
   } catch (err) {}
   if ("approved" === e.status) {
-    if ("baseline" === e.scope) P.baselines.push({ id: uid("pwb"), itemKey: e.itemKey, category: e.category, pct: e.pct, from: e.from, explId: e.id, by: e.decidedBy, at: e.decidedAt, text: e.text });
+    if ("baseline" === e.scope) P.baselines.push({ id: uid("pwb"), itemKey: e.itemKey, category: e.category, pct: e.pct, from: e.from, until: e.until || pwQuarterEnd(e.from), explId: e.id, by: e.decidedBy, at: e.decidedAt, text: e.text });
     else e.flagKey && pwClose(e.flagKey, "explained", e.text);
     e.flagKey && P.flags[e.flagKey] && !P.flags[e.flagKey].verdict && Object.assign(P.flags[e.flagKey], { verdict: "normal", verdictBy: e.decidedBy, verdictOn: today() });
     pwFresh();
@@ -180742,7 +180753,7 @@ function pwQueueItems() {
   P.expl
     .filter((e) => "proposed" === e.status)
     .forEach((e) =>
-      out.push({ kind: "priceExplain", id: e.id, title: `Explanation: ${e.what || "a baseline change"}`, detail: `${"baseline" === e.scope ? `a baseline change of ${e.pct > 0 ? "+" : ""}${e.pct}% for ${e.itemKey ? pwItemLabel(e.itemKey) : e.category} from ${fmtL(e.from)}` : "this purchase only"} · "${e.text}" · proposed by ${e.by} on ${fmtL(e.on)} · the flag stays open until you decide`, n: e.amount ? money(e.amount) : "", yes: "Approve", no: "Decline", act: "pwexpl", open: { pwexpl: e.id }, sev: "" }),
+      out.push({ kind: "priceExplain", id: e.id, title: `Explanation: ${e.what || "a baseline change"}`, detail: `${"baseline" === e.scope ? `a baseline change of ${e.pct > 0 ? "+" : ""}${e.pct}% for ${e.itemKey ? pwItemLabel(e.itemKey) : e.category} from ${fmtL(e.from)} to ${fmtL(e.until || pwQuarterEnd(e.from))}, then checked again` : "this purchase only"} · "${e.text}" · proposed by ${e.by} on ${fmtL(e.on)} · the flag stays open until you decide`, n: e.amount ? money(e.amount) : "", yes: "Approve", no: "Decline", act: "pwexpl", open: { pwexpl: e.id }, sev: "" }),
     );
   pwMatchProps().forEach((M) => out.push({ kind: "priceMatch", id: "pwm:" + M.id, mid: M.id, title: `Same item? ${M.fromLabel} and ${M.toLabel}`, detail: `${M.why} · confirm before the two price histories are read as one`, yes: "Same Item", no: "Different Items", act: "pwmatch", open: { view: "rfq", rfqTab: "pricewatch" }, sev: "" }));
   Object.values(P.tune)
@@ -180885,7 +180896,7 @@ function pwExplainSheet(key) {
     "Propose Explanation",
     `<div class="pw-case"><p class="small" data-nocase>${esc(c.label)}: ${esc(c.what)} · ${esc(c.sub)}</p><p class="small muted">The owner approves or declines it. Until then the flag stays open and counted, and the baseline does not move.</p>
     ${mbF("What Explains It", '<textarea data-f="text" rows="3" placeholder="For example: rush delivery for the inspection, or lumber up 8% this quarter"></textarea>')}
-    ${canBase ? `${mbF("It Applies to", `<select data-f="scope"><option value="purchase">This purchase only</option><option value="baseline">A baseline change from now on</option></select>`)}<div class="pw-base">${mbF("Change in Percent", '<input type="number" step="any" data-f="pct" placeholder="8">')}${mbF("For", `<select data-f="for">${c.itemKey ? `<option value="item">${esc(pwItemLabel(c.itemKey))}</option>` : ""}${cat ? `<option value="cat">All ${esc(cat.toLowerCase())}</option>` : ""}</select>`)}${mbF("From", `<input type="date" data-f="from" value="${esc(`${today().slice(0, 4)}-${String(+today().slice(5, 7) - ((+today().slice(5, 7) - 1) % 3)).padStart(2, "0")}-01`)}">`)}</div>` : ""}</div>`,
+    ${canBase ? `${mbF("It Applies to", `<select data-f="scope"><option value="purchase">This purchase only</option><option value="baseline">A change for this quarter (ends ${esc(fmtL(pwQuarterEnd(today())))}, then checked again)</option></select>`)}<div class="pw-base">${mbF("Change in Percent", '<input type="number" step="any" data-f="pct" placeholder="8">')}${mbF("For", `<select data-f="for">${c.itemKey ? `<option value="item">${esc(pwItemLabel(c.itemKey))}</option>` : ""}${cat ? `<option value="cat">All ${esc(cat.toLowerCase())}</option>` : ""}</select>`)}${mbF("From", `<input type="date" data-f="from" value="${esc(`${today().slice(0, 4)}-${String(+today().slice(5, 7) - ((+today().slice(5, 7) - 1) % 3)).padStart(2, "0")}-01`)}">`)}</div>` : ""}</div>`,
     {
       submit: "Send to the Owner",
       onSubmit: (f) => (pwPropose({ flagKey: key, text: f.text, scope: f.scope || "purchase", pct: f.pct, itemKey: "item" === f.for ? c.itemKey : "", category: "cat" === f.for ? cat : "", from: f.from }) ? void 0 : !1),
@@ -181204,7 +181215,7 @@ function pwPageHtml() {
       .map((x) => `<div class="card rfq-sec" data-pwdet="${x.d}" data-pwn="${x.rows.length}"><h3>${PW_DET[x.d].label} <span class="pill warn">${x.rows.length}</span></h3><p class="small muted">${esc(PW_DET[x.d].rule)}</p>${x.rows.map((c) => `<div class="pw-row"><span class="grow small"><b data-nocase>${esc(c.what)}</b><br><span data-nocase>${esc(c.sub)}</span>${P.expl.some((e) => e.flagKey === c.key && "proposed" === e.status) ? ' <span class="pill">Explanation Waiting on the Owner</span>' : ""}</span><b class="small">${money(c.amount)}</b><button class="btn sm" data-pwopen="${esc(c.key)}">Open Case</button></div>`).join("")}</div>`)
       .join("") || '<div class="card rfq-sec"><p class="small">Nothing flagged: every recent purchase is within its usual range.</p></div>'}
     ${absorbed.map((C) => { let R = []; try { R = C.rows() || []; } catch (e) {} return R.length ? `<div class="card rfq-sec"><h3>${esc(C.label)} <span class="pill">${R.length}</span></h3><p class="small muted">Counted on Caught for You under its own name; listed here with the price watch.</p>${R.map((r) => `<div class="small" data-nocase>${esc(r.what)} · ${esc(r.sub || "")}</div>`).join("")}</div>` : ""; }).join("")}
-    <div class="card rfq-sec"><h3>Explanations</h3>${wait.length ? `<p class="small">${agN(wait.length, "explanation")} waiting on the owner. The flags stay open and the baselines do not move until the owner decides.</p>${pwExplHtml(wait)}` : '<p class="small muted">None waiting on the owner.</p>'}${done.length ? `<details><summary class="small"><b>Decided</b></summary>${pwExplHtml(done)}</details>` : ""}${P.baselines.length ? `<p class="small"><b>Baselines moved:</b> ${P.baselines.map((b) => `${esc(b.itemKey ? pwItemLabel(b.itemKey) : b.category)} ${b.pct > 0 ? "+" : ""}${b.pct}% from ${fmtL(b.from)} (${esc(b.by)})`).join("; ")}</p>` : ""}</div>
+    <div class="card rfq-sec"><h3>Explanations</h3>${wait.length ? `<p class="small">${agN(wait.length, "explanation")} waiting on the owner. The flags stay open and the baselines do not move until the owner decides.</p>${pwExplHtml(wait)}` : '<p class="small muted">None waiting on the owner.</p>'}${done.length ? `<details><summary class="small"><b>Decided</b></summary>${pwExplHtml(done)}</details>` : ""}${P.baselines.length ? `<p class="small"><b>Baselines moved:</b> ${P.baselines.map((b) => `<span data-pwbase="${esc(b.id)}" data-pwended="${pwUntil(b) && pwUntil(b) < today() ? 1 : 0}">${esc(b.itemKey ? pwItemLabel(b.itemKey) : b.category)} ${b.pct > 0 ? "+" : ""}${b.pct}% from ${fmtL(b.from)} to ${fmtL(pwUntil(b))} (${esc(b.by)})${pwUntil(b) && pwUntil(b) < today() ? ", ended: purchases after it are checked again" : ""}</span>`).join("; ")}</p>` : ""}</div>
     ${M.length ? `<div class="card rfq-sec"><h3>Same Item?</h3><p class="small muted">Near matches in the price history. Nothing is merged until a person confirms it.</p>${M.map((x) => `<div class="pw-row"><span class="grow small" data-nocase><b>${esc(x.fromLabel)}</b> and <b>${esc(x.toLabel)}</b><br>${esc(x.why)}</span>${canMatch ? `<button class="btn sm" data-pwsame="${esc(x.id)}">Same Item</button><button class="btn sm" data-pwdiff="${esc(x.id)}">Different Items</button>` : ""}</div>`).join("")}</div>` : ""}
     <div class="card rfq-sec"><h3>How Often the Owner Confirms a Flag</h3><div class="pw-tw"><table class="t"><thead><tr><th>Detector</th><th class="money">Raised</th><th class="money">Confirmed Real</th><th class="money">Precision</th></tr></thead><tbody>${Object.keys(PW_DET).map((d) => { const R = pwPrecision(d); return `<tr data-pwprec="${d}"><td>${PW_DET[d].label}</td><td class="money">${R.raised}</td><td class="money">${R.real}</td><td class="money">${null == R.pct ? "—" : R.pct + "%"}</td></tr>`; }).join("")}</tbody></table></div><p class="small muted">Over the last ${S.precisionDays} days. Under ${S.precisionFloor}% the owner is asked to tune the threshold.</p>${T.map((t) => `<p class="small"><b>Proposed:</b> ${esc(PW_DET[t.det].label)} ${esc(t.setting)} from ${t.from}${esc(t.unit)} to ${t.to}${esc(t.unit)} (${t.precision}% confirmed). ${owner ? `<button class="btn sm" data-pwtune="${t.det}">Change It</button> <button class="btn sm" data-pwkeep="${t.det}">Keep It</button>` : "Waits on the owner."}</p>`).join("")}</div>
     <div class="card rfq-sec"><h3>Thresholds</h3><p class="small">Paid More Than Before flags a price more than <b>${S.overPct}%</b> over the trailing median of at least ${S.minBuys} earlier buys, or over a cheaper price from another vendor in the last ${S.recentDays} days, or over the PO or quote it was bought against.</p>${owner ? `<div class="rfq-row"><div class="f" style="max-width:180px"><label for="pw-over">Over the Median by (%)</label><input type="number" id="pw-over" min="1" step="any" value="${S.overPct}"></div><button class="btn" id="pw-over-save">Save</button></div>` : '<p class="small muted">The owner sets the thresholds.</p>'}</div>

@@ -271,6 +271,14 @@ async def main():
         C.ok(st4['ev'] == 1 and st4['lesson'] and st4['prop'] == 'approved', f'the brain records the lesson only now ({st4})')
         oth = await pg.evaluate("() => ['pw:paid:po:pwt_p4:pwt_p4l0', 'pw:paid:po:pwt_rq:pwt_rql0'].map(k => PRED.pwPaidMore.rows().some(c => c.key === k))")
         C.ok(oth == [True, True], 'a price over its PO or quote is not moved by a market baseline')
+        # a "this quarter" explanation ends at the quarter's end and is then checked again; one purchase never expires
+        qe = await pg.evaluate("""() => { const b = DB.priceWatch.baselines.slice(-1)[0], I = Object.values(pwData().items).find(i => i.cat === b.category) || { key: '', cat: b.category };
+            const inQ = pwAdj(I, 100, '2026-06-15', '2026-09-20'), after = pwAdj(I, 100, '2026-06-15', '2026-10-05');
+            const one = DB.priceWatch.expl.filter(e => e.scope === 'purchase' && e.status === 'approved').map(e => e.until || '');
+            return { until: b.until, ex: DB.priceWatch.expl.find(e => e.id === b.explId).until, inQ, after, one }; }""")
+        C.ok(qe['until'] == '2026-09-30' and qe['ex'] == '2026-09-30', f'the quarter\'s baseline ends on its last day ({qe})')
+        C.ok(abs(qe['inQ'] - 108) < 0.001 and abs(qe['after'] - 100) < 0.001, f'inside the quarter the baseline applies; after it the purchase is checked against the plain history ({qe})')
+        C.ok(all(u == '' for u in qe['one']), f'an explanation for one purchase never expires ({qe["one"]})')
         # a purchase explanation, approved: the fee spike closes
         await sign_in(pg, 'u_chen')
         e3 = await pg.evaluate("() => pwPropose({ flagKey: 'pw:fee:po:pwt_s7', text: 'Saturday delivery for the framing inspection', scope: 'purchase' }).id")
