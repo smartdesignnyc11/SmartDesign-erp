@@ -503,6 +503,43 @@ The bugs that slip are structural. They are not in any one feature; they are in 
 
 No method is literally foolproof. This one makes the class of problem fail loudly in a test, instead of waiting for someone to notice. The structure lint and the completeness tests are built in Simplify, together with the task and menu fixes, because they would fail today. That is the point.
 
+### 1.17 The agent month: twenty working days run by the role experts themselves (Alan, 2026-10-11)
+**What exists today, stated plainly.** `tests/month_sim.py` is a scripted month. Deterministic code plays each role, acting only on what that role's screens show, and a book of about 300 events drives it. It is cheap and repeatable, and it stays as the regression check on every build. But it is not the role experts, and it can only find what its script knows how to look for.
+
+**What Alan asked for.** The role experts (`.claude/agents/`) work 20 working days in ONE shared company, the way the firm actually works a month. They communicate and work together from the first estimate to the month's reports:
+- estimates, invoices and billing;
+- POs, RFQs and receiving;
+- job costing;
+- tasks;
+- hours, payroll and reconciling;
+- reporting and approving;
+- follow-ups and meeting transcripts;
+- working with their assistants and the brain.
+
+**Design.**
+1. **One world.** A simulation server holds the single company: the built app, its database and the app's clock. Every agent acts in that same world. Turns are taken in order, and each agent's page reloads the shared state before its turn and saves after, so nothing diverges.
+2. **Through the screens only.** Each agent gets a small toolkit — see my screen, tap, type, upload, take a photo, ask my assistant, open mail — signed in as its own person, at phone size for field roles. There is no reading or writing the database directly; the toolkit refuses it. What the agent can't find on its screen doesn't exist for it.
+3. **They talk the way the firm talks.** Through the app: tasks, approvals, chat, comments, @-mentions, the portal. Through the Demo Workspace mail and calendar. Through "calls", which are logged as promises. An agent that needs something from another has to ask for it, and the other has to see it.
+4. **The outside world is played too.** A world agent plays clients, vendors, subs, the architect, the inspector and the bank. It sends quote replies, late deliveries, client changes, a failed inspection, the bank feed and transcripts of meetings that happened. It mixes scripted events with random ones, so the month can't be memorised.
+5. **A day has a rhythm.** Morning (brief, huddle, plan), the work day (two turns), and end of day (log, confirm tomorrow, diary). The app day then advances. The app's own sweeps and watchers run between turns, as they would on the platform. Each agent keeps a work diary file it reads each morning, like a real notebook, plus the app's own memory.
+6. **The assistants and the brain are used as people would use them.** Until the platform is live they run on the app's built-in logic. Once the API key is in, the same agents talk to the real Claude-backed assistants. That run is the real test of the brain.
+7. **Scored by a referee, not by the players.** An independent scorer reads the world after each day and computes:
+   - what was due and whether it got done on time;
+   - money left behind;
+   - schedule days lost;
+   - the find-it-again check (could the creator see it after saving?);
+   - places-to-look per person;
+   - whether every report ties to the bank;
+   - whether anything acted outside the Standard.
+   Each expert also writes, in its own voice, what worked, what didn't, what slowed them down, and what they'd change.
+8. **Output.** A day-by-day ledger, each role's diary and verdict, every finding ranked by the Standard with the screen it happened on, and the month's numbers set against the scripted month.
+
+**Cost and plan.** This is the heaviest run we have: about ten agents × 20 days × several turns, each reading screens.
+- Routine turns run on a mid-tier model; the experts' end-of-day judgements and the referee use the strongest.
+- Build the harness first (one lane).
+- Pilot 3 working days with every role, right after v11 is live.
+- The full 20 days, split in two halves of 10, after the weekly reset.
+
 ## §2 Remaining round-4 findings
 
 ### Founder

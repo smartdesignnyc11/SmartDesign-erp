@@ -16,6 +16,7 @@ Status: **Built** (merged and tested) · **Building** (a lane is on it) · **Spe
 ## 2026-10-11
 | Ask or decision | Where it lives | Status |
 |---|---|---|
+| The month simulation is the role experts themselves working 20 days in one shared company, together | BACKLOG §1.17 | Harness building; pilot after v11; full run after the reset |
 | Organise the side menu | BACKLOG §1.15 | Spec (Simplify, right after v11) |
 | Tasks are a very important feature: one task system | BACKLOG §1.14 | Spec (Simplify, right after v11) |
 | Reporting proven end to end: income, expenses, job costing, line-item income to cost, P&L by company, client and project, overhead analysis | BACKLOG §1.13 | Spec (after simplify and subs) |
