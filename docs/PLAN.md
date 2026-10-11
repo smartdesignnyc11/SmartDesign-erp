@@ -28,7 +28,7 @@ The integration pass covers:
 | # | What | Where |
 |---|---|---|
 | 1 | Focused expert review (controller, procurement manager, foreman on the phone, design expert); fixes the same day | REVIEW_PROTOCOL plus the system lens |
-| 2 | Agent-month pilot: 3 working days, every role | §1.17 |
+| 2 | Agent-month pilot: 3 working days, every role, ending with the menu workshop (each expert proposes their menu from what they actually used; `docs/MENU_DRAFT.md`) | §1.17 |
 | 3 | **Simplify:** organised side menu (SmartDesign only, after Alan agrees the plan); one task system; one queue per person; an alert budget; role navigation; one timeline per request; one way to do each thing; the structure lint and completeness tests that stop the next tasks-type problem | §1.15, §1.14, §1.11 (items 1–4, 9), §1.16 |
 | 4 | Subcontractors: bid leveling by scope, COI before start, pay applications, retainage, **lien waivers with every payment**, backcharges; **payment check** so vendors are never overpaid | §1.10 item 1, §1.12 |
 | 5 | **Reporting proven**: income and expenses (accrual and cash), job costing, line-item income to cost, P&L by company, entity, client and project, overhead analysis, WIP, cash flow, aging, closed periods frozen, QuickBooks comparison | §1.13 |
