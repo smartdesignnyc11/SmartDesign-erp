@@ -16,6 +16,8 @@ Status: **Built** (merged and tested) · **Building** (a lane is on it) · **Spe
 ## 2026-10-11
 | Ask or decision | Where it lives | Status |
 |---|---|---|
+| Organise the side menu | BACKLOG §1.15 | Spec (Simplify, right after v11) |
+| Tasks are a very important feature: one task system | BACKLOG §1.14 | Spec (Simplify, right after v11) |
 | Reporting proven end to end: income, expenses, job costing, line-item income to cost, P&L by company, client and project, overhead analysis | BACKLOG §1.13 | Spec (after simplify and subs) |
 | Vendors never overpaid: every payment checked against the vendor's estimate or contract, prior payments, receipts, work done, retainage, deposits and credits | BACKLOG §1.12 | Spec (with subs and lien waivers) |
 | Order after v11: review, simplify, subs and payments, reporting, platform, full regrade | `docs/LANES.md` | Agreed |

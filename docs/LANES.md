@@ -28,7 +28,7 @@ The chief of staff keeps this board current. A lane is one build agent in its ow
 
 ## After version 11 (the order Alan agreed, 2026-10-11)
 1. Focused expert review on the published version: controller, procurement, foreman on the phone, and a design expert. Fixes the same day.
-2. Simplify (BACKLOG §1.11 items 1, 2, 3, 4, 9).
+2. Simplify: the side menu (§1.15), one task system (§1.14), and §1.11 items 1, 2, 3, 4, 9.
 3. Subcontractors, lien waivers and the payment check (§1.10 item 1, §1.12).
 4. Reporting (§1.13).
 5. The platform and the real agents (§5), as soon as Alan's keys are in.

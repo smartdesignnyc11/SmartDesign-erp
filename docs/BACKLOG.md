@@ -431,6 +431,48 @@ After the v11 work, the simplify pass and the subs/payments work. Each report is
 9. **Export and share.** PDF and Excel. A monthly owner pack that is phone-readable. Read-only access for the accountant.
 10. **Compared with QuickBooks.** While QuickBooks is still the bridge, each report shows where the ERP, QuickBooks and the bank disagree, line by line.
 
+### 1.14 Tasks: one system, not five (Alan, 2026-10-11: "a very important feature")
+**Today.** Tasks live in at least five places with different shapes:
+- schedule tasks inside each project (`p.tasks`, 55 in the demo, also used for the brain's `cmTask` follow-ups);
+- office to-dos (`DB.tasks`);
+- sales tasks (the HubSpot-style `hbtasks`);
+- obligations (`DB.obligations`);
+- the assistant's reminders, chases and the new RFQ and order follow-ups.
+
+There are views for All Tasks (`tkall`, under Home), a project's Tasks, Sales Tasks, Obligations, and the crew's Tasks. A person can't see everything they owe in one place, and a task made in one place may not appear in another. That breaks "Own it: close every loop" and "nothing slips".
+
+**The fix: one task record and one way to work with it.**
+1. **One shape.** Every task carries: title, owner (a person, never "Office"), due date, priority (the Standard's ranking), status, and the record it came from (job, client, PO, bill, RFQ, email, meeting, obligation). It also has an optional checklist, attachments and photos, comments, recurrence, watchers and visibility. Schedule tasks keep their extra fields (trade, dates, dependencies, % complete) on the same record. Existing stores migrate into it once, and every old view becomes a filter of the one list.
+2. **One "My Tasks" per person,** inside their one queue (§1.11 item 1), ranked by urgency then the decision principle. A manager adds "Team" (who owes what, and what is overdue). A project's Tasks tab, Sales Tasks and Obligations are filters of the same list.
+3. **Create from anything.** One tap from an email, a meeting transcript, a photo, a Ask answer, a document case, or by voice on the phone. The task links back to where it came from.
+4. **Hand-offs that stick.** Assigning a task to someone is a hand-off: they accept, or decline with a reason, and until they accept, the assigner still owns it (the Standard: "If you see it, you own it until a named person accepts the hand-off"). Every task ends in done, a firm date, or a clear no.
+5. **The Standard's recurring duties become recurring tasks,** created on their own with the right owner:
+   - the Friday client update;
+   - the weekly site walk and budget-versus-actual;
+   - the morning huddle;
+   - deliveries reconfirmed 48 hours ahead;
+   - books reconciled by the 10th;
+   - insurance renewals 30 days ahead.
+6. **Done means done.** Where the Standard requires proof, completing a task asks for it: photos before a wall closes, an inspection passed, a signed CO before extra work.
+7. **Agents create tasks too,** as proposals with a "because". A person accepts them, and they then sit in the same list. No agent task is invisible.
+8. **Overdue and blocked.** An overdue task escalates by the escalation table. A task blocked on another person shows on both their lists. A task with no owner can't exist.
+9. **Calendar.** A task with time needed can be blocked on the owner's calendar (the assistant proposes the slot).
+10. **Templates.** Per job phase and per role (the pre-close checklist, the close-out list, new-client onboarding), so a new job starts with its standard tasks.
+11. **Reports.** On-time completion by person and by type, overdue trends, and what the agents created versus what people did. All of it queryable and in Ask ("what does Angel owe this week?").
+
+### 1.15 The side menu, organised (Alan, 2026-10-11)
+**Today.** The top level is reasonable (10–16 items per role), but three groups are crowded: Projects has 17 pages, Sales 16 and Purchasing 10. Tasks appear under Home, Projects and Sales. About 40 places in the code add items to the menu, which is why it has drifted.
+
+**The fix (part of Simplify):**
+1. **One declared menu per role.** The menu becomes one declared map, role by role, built from what each role actually opens in the month simulation. The 40 add-ons fold into it.
+2. **Groups follow how people think.**
+   - Projects becomes four sections: Plan (schedule, tasks, decisions, submittals, inspections), Field (daily log, photos, receiving), Money (costs) and Files and Messages.
+   - Sales goes to about six: Pipeline, Contacts, Quotes, Forecast, Playbooks, Settings. Sales Tasks moves into the one task list.
+   - Purchasing groups as Buy (requests, RFQs, POs), Receive (receiving, route), and Vendors and Stock.
+3. **Settings and reference stay out of the way.** Settings, Connections and the Standard sit at the bottom, out of the daily path.
+4. **On the phone,** the menu shows the role's 4–5 daily pages first, with the rest one tap away.
+5. **Badges.** Each badge is the same number as its page's list (the counts rule).
+6. **A test pins it.** It pins each role's menu so it can't drift again.
 ## §2 Remaining round-4 findings
 
 ### Founder
