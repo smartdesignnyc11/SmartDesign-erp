@@ -16,9 +16,11 @@ const DAY = 864e5,
   dayDiff = (a, b) => Math.round((parse(b) - parse(a)) / DAY),
   // the app's year is understood; any other year is said ("8/15/2027", "Aug 15, 2027"), so a COI that
   // expires next year never reads like one that expired last month
+  // the app day's year: read off appDay(), not appNow(), since a date is formatted thousands of times a render
+  // and the clock's time of day plays no part in the year
   fmtYear = () => {
     try {
-      return "function" == typeof appNow ? appNow().getFullYear() : new Date().getFullYear();
+      return "function" == typeof appDay ? +appDay().slice(0, 4) : new Date().getFullYear();
     } catch (e) {
       return new Date().getFullYear();
     }
@@ -43,18 +45,33 @@ const DAY = 864e5,
       return "America/New_York";
     }
   };
+// One formatter per time zone and shape: building an Intl.DateTimeFormat costs far more than formatting with it.
+const TZ_FMT = new Map();
+function tzFmt(kind, tz) {
+  const k = kind + "|" + tz;
+  let f = TZ_FMT.get(k);
+  return (
+    f ||
+      ((f =
+        "clock" === kind
+          ? new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" })
+          : new Intl.DateTimeFormat("en-CA", {
+              timeZone: tz,
+              year: "numeric",
+              month: "2-digit",
+              day: "2-digit",
+              hour: "2-digit",
+              minute: "2-digit",
+              hour12: !1,
+            })),
+      TZ_FMT.set(k, f)),
+    f
+  );
+}
 function tzParts(d) {
   const x = d ? new Date(d) : new Date();
   try {
-    const f = new Intl.DateTimeFormat("en-CA", {
-        timeZone: APP_TZ(),
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: !1,
-      }),
+    const f = tzFmt("parts", APP_TZ()),
       p = {};
     if (
       (f.formatToParts(x).forEach((o) => {
@@ -115,13 +132,7 @@ function appClock() {
     m = x.getMinutes(),
     sec = x.getSeconds();
   try {
-    const f = new Intl.DateTimeFormat("en-GB", {
-        timeZone: APP_TZ(),
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-        hourCycle: "h23",
-      }),
+    const f = tzFmt("clock", APP_TZ()),
       p = {};
     f.formatToParts(x).forEach((o) => {
       "literal" !== o.type && (p[o.type] = o.value);
@@ -177,7 +188,23 @@ function prevWork(dateStr, weekendOk = !1) {
   for (; !isWork(s, weekendOk); ) s = iso(addDays(s, -1));
   return s;
 }
+// Working-day arithmetic walks day by day; a render asks the same questions hundreds of times, so answers are
+// kept for as long as the holiday calendar is the same Set (applyHolidaysFrom keeps it while the text is unchanged).
+const workMemos = new WeakMap();
+function workMemo() {
+  let m = workMemos.get(holidaySet);
+  return m || ((m = new Map()), workMemos.set(holidaySet, m)), m;
+}
 function addWork(dateStr, n, weekendOk = !1) {
+  if ("string" == typeof dateStr) {
+    const M = workMemo(),
+      k = "a" + dateStr + "|" + n + (weekendOk ? "|w" : "");
+    let v = M.get(k);
+    return void 0 === v && ((v = addWorkWalk(dateStr, n, weekendOk)), M.set(k, v)), v;
+  }
+  return addWorkWalk(dateStr, n, weekendOk);
+}
+function addWorkWalk(dateStr, n, weekendOk = !1) {
   let s = dateStr,
     step = n > 0 ? 1 : -1,
     left = Math.abs(n);
@@ -186,6 +213,15 @@ function addWork(dateStr, n, weekendOk = !1) {
 }
 function workdays(a, b, weekendOk = !1) {
   if (!a || !b) return 0;
+  if ("string" == typeof a && "string" == typeof b) {
+    const M = workMemo(),
+      k = "d" + a + "|" + b + (weekendOk ? "|w" : "");
+    let v = M.get(k);
+    return void 0 === v && ((v = workdaysWalk(a, b, weekendOk)), M.set(k, v)), v;
+  }
+  return workdaysWalk(a, b, weekendOk);
+}
+function workdaysWalk(a, b, weekendOk = !1) {
   if (parse(a) > parse(b)) return -workdays(b, a, weekendOk);
   let n = 0,
     s = a;
@@ -2599,13 +2635,21 @@ async function getLarge(key) {
   if (head.len && out.length !== head.len) throw new Error("chunk length mismatch");
   return out;
 }
+// one Set per holiday text, so each job's calendar keeps its working-day answers across renders
+const holidaySets = new Map();
 function applyHolidaysFrom(str) {
-  holidaySet = new Set(
-    (str || "")
-      .split("\n")
-      .map((l) => l.trim().split(/\s+/)[0])
-      .filter((x) => /^\d{4}-\d{2}-\d{2}$/.test(x)),
-  );
+  const t = str || "";
+  let h = holidaySets.get(t);
+  h ||
+    ((h = new Set(
+      t
+        .split("\n")
+        .map((l) => l.trim().split(/\s+/)[0])
+        .filter((x) => /^\d{4}-\d{2}-\d{2}$/.test(x)),
+    )),
+    holidaySets.size > 50 && holidaySets.clear(),
+    holidaySets.set(t, h)),
+    (holidaySet = h);
 }
 function applyHolidays() {
   applyHolidaysFrom(S.project.holidays);
