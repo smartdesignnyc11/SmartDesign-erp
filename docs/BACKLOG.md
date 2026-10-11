@@ -373,6 +373,25 @@ These are proposed. The ones marked **Alan** need his call. The rest follow from
 10. **Records and continuity.** Seven-year retention for tax documents, nightly backups, a full export the firm owns, and what the field does when the server or signal is down.
 11. **The accountant.** A read-only accountant role. Their sign-off on the chart of accounts, the overhead method, use tax and the cost-plus treatment before go-live (**Alan**: who the accountant is).
 
+### 1.11 Functionality and UX after version 11: keep it simple as it grows (2026-10-11)
+Version 11 adds RFQs, Prospects, Sourcing Research, Price Watch, the Standard and its Watch, documents, promises, shipments, stock splits and new settings. Alan's first complaint was that the app felt messy and overwhelming on his iPhone. Each lane was built well on its own; together they risk bringing that back. Before the full regrade:
+1. **One queue per person.** Do Now, Needs Your Hand, Approvals, Caught for You and the Standard Watch rows become one ranked list per person, with filters, not five places. The same item never appears in two.
+2. **Alert budget.** Nine price detectors, the stock, RFQ and track counts and the Watch rules can flood a person. Each person gets a daily budget. Small items roll into one digest line ("6 small price differences, $212 in all"). An alert nobody acts on for two weeks is proposed for retirement or tuning. Precision is tracked for every detector, not only price watch.
+3. **Navigation by role.** Purchasing now has many tabs. Each role sees only the views its day needs, grouped the way that person thinks, and nothing they don't use. Audit `IA_GROUPS` and `ROLE_VIEWS` against what each role actually opens in the month simulation.
+4. **One timeline per request.** The foreman asks for material once and sees one timeline: split, picked, ordered, shipped, delivered. The client sees the same for a decision or change order. No hunting across pages.
+5. **Speed is UX.** Pages take 1–4 seconds to draw on the test machine, and the page is now about 8.7 MB. Target: boot under 2 s and switching views under 100 ms on a mid-range phone. Profile the slowest renders, cache derived numbers, and on the platform load modules when they are needed, not all at boot.
+6. **Push, not pull.** On the platform, phone push notifications for what is urgent, plus one morning and one end-of-day digest. Otherwise people won't open the app, and the agents' work goes unseen.
+7. **Field input.** Voice to log a request, a promise or a daily note, for hands that are busy or gloved. The camera is the first button on the field screens.
+8. **Desktop power for the office.** Bulk actions for billing and the controller: approve, match, code and confirm many at once. Keyboard shortcuts, and dense tables that stay readable.
+9. **One way to do a thing.** The same patterns everywhere:
+   - one case sheet (what's off, money at stake, the "because", one next step);
+   - one proposal card;
+   - one approval control;
+   - one document card.
+   A component audit folds duplicates and wording drift.
+10. **First week and empty states.** Each role's first screen explains itself in one line. Empty states say what will appear and when. A person's Standard acknowledgment is part of their first day.
+11. **Measure it.** The month simulation records taps and seconds per key task per role, and words on each phone screen. The UX lens grades against those numbers, round over round.
+
 ## §2 Remaining round-4 findings
 
 ### Founder
