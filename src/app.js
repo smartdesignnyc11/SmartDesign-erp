@@ -170457,7 +170457,19 @@ standardRegisterRule(
       return R.filter((x) => stdWorkHoursSince((x.r && (x.r.answeredAt || x.r.at)) || x.at || "") >= 0 && (Date.parse(appNowIso()) - Date.parse(((x.r && (x.r.answeredAt || x.r.at)) || x.at || appNowIso()))) / 36e5 > 48).map((x, i) => ({ key: "co48:" + ((x.r && x.r.id) || i), what: `No change order: ${String((x.r && x.r.title) || x.title || "an extra").slice(0, 60)}`, sub: stdJob((x.r && x.r.projectId) || (x.p && x.p.id)), go: () => setView("mapprove") }));
     },
   },
-  { id: "threeQuotes", owner: "coord", p: "cost", leak: !0, c: ["pb", "procurement", "standards", /Three quotes/i], measured: !1, why: "Quotes are not recorded per purchase yet, so the number of quotes behind a PO, and a first price accepted, cannot be read." },
+  {
+    // Measured on purchase orders (the RFQ lane's DB.rfqs holds the quotes behind an awarded PO). Its one home is the
+    // Watch: an RFQ still collecting quotes is Caught for You's "Under Three Quotes" (rfqUnderQuoted), a different
+    // record, so no PO or RFQ is counted under both labels.
+    id: "threeQuotes", owner: "coord", p: "cost", leak: !0, c: ["pb", "procurement", "standards", /Three quotes/i], surface: "watch",
+    partial: "Measured: issued purchase orders over $2,500, and every subcontract, with fewer than three readable quotes on record (the RFQ that awarded it). Under $2,500, the price-book check is not measured yet.",
+    rows: () =>
+      (DB.pos || [])
+        .filter((po) => !["cancelled", "void", "draft"].includes(po.status) && (poTotal(po).total > 2500 || "subcontract" === po.type))
+        .map((po) => ({ po: po, n: stdPOQuoteCount(po) }))
+        .filter((x) => x.n < 3)
+        .map((x) => ({ key: "q3:" + x.po.id, what: `${x.n ? `${x.n} quote${1 === x.n ? "" : "s"}` : "No quotes"} on record: ${x.po.number} · ${x.po.vendor}`, sub: `${money(poTotal(x.po).total)} on ${stdJob(x.po.projectId)}`, amount: poTotal(x.po).total, go: flowGo.po(x.po) })),
+  },
   {
     id: "poBeforeOrder", owner: "coord", p: "cost", c: ["std", "money", /No purchase without a PO/i], surface: "nyh",
     rows: () => (DB.bills || []).filter((b) => b.projectId && !b.poId && !["void", "rejected", "draft"].includes(b.status)).map((b) => ({ key: "nopo:" + b.id, what: `No PO behind ${b.number || "a bill"} · ${b.vendor}`, sub: `${money(billTotal(b))} on ${stdJob(b.projectId)}`, amount: billTotal(b), go: flowGo.bill(b) })),
@@ -171380,13 +171392,27 @@ let stdSrcPending = null;
 // A purchase the rule covers: materials and shop-built items (millwork, stone, fixtures) over $2,500; an on-site
 // labor subcontract is not.
 const stdShopOrMaterial = (po) => "materials" === po.type || !po.type || ("subcontract" === po.type && (STD_SHOP.test(String((stdVendorOf(po.vendor) || {}).trade || "")) || (po.lines || []).some((l) => STD_SHOP.test(`${l.item || ""} ${l.desc || ""}`))));
-// The regions of the quotes behind a PO: the rfq lane's DB.rfqs when it exists (an RFQ for this PO, or for one of
-// its Buy Board lines, with its quotes' vendors), else the PO's own vendor.
+// One region vocabulary: the vendor form's keys (nyc, boroughs, tristate, out) and the RFQ lane's words
+// ("NYC Manhattan/Brooklyn", "NYC other boroughs", "NY-NJ-CT", "Out of state") read as the same four.
+const stdRegionKey = (r) => {
+  const t = String(r || "").toLowerCase();
+  return !t ? "" : /^nyc$|manhattan|brooklyn/.test(t) ? "nyc" : /boroughs/.test(t) ? "boroughs" : /tristate|ny-nj-ct/.test(t) ? "tristate" : /^out/.test(t) ? "out" : t;
+};
+// The RFQs behind a PO: the one that awarded it (po.sourcing.rfqId), one naming it, or one for its Buy Board lines.
+function stdPORfqs(po) {
+  const mids = new Set((po.lines || []).map((l) => l.materialId).filter(Boolean)),
+    rid = (po.sourcing || {}).rfqId;
+  return Array.isArray(DB.rfqs) ? DB.rfqs.filter((x) => x && ((rid && x.id === rid) || x.poId === po.id || (x.materialId && mids.has(x.materialId)))) : [];
+}
+// Readable quotes on record behind a PO, one per vendor; with no RFQ, the PO's own price is the one quote.
+function stdPOQuoteCount(po) {
+  const V = new Set(stdPORfqs(po).flatMap((x) => (x.quotes || x.bids || []).filter((q) => !q.unreadable).map((q) => q.vendorId || q.vendor || q.vendorName)));
+  return V.size || 1;
+}
+// The regions of the quotes behind a PO (the RFQ lane's quotes, each by its vendor's region), and the PO's own vendor.
 function stdPOQuoteRegions(po) {
-  const regionOf = (q) => (q && (q.region || ((q.vendorId && (DB.vendors || []).find((v) => v.id === q.vendorId)) || stdVendorOf(q.vendor || q.vendorName) || {}).region)) || "",
-    mids = new Set((po.lines || []).map((l) => l.materialId).filter(Boolean)),
-    R = Array.isArray(DB.rfqs) ? DB.rfqs.filter((x) => x && (x.poId === po.id || (x.materialId && mids.has(x.materialId)))) : [],
-    Q = R.flatMap((x) => x.quotes || x.bids || []);
+  const regionOf = (q) => stdRegionKey((q && (q.region || ((q.vendorId && (DB.vendors || []).find((v) => v.id === q.vendorId)) || stdVendorOf(q.vendor || q.vendorName) || {}).region)) || ""),
+    Q = stdPORfqs(po).flatMap((x) => (x.quotes || x.bids || []).filter((q) => !q.unreadable));
   return [{ vendor: po.vendor, region: regionOf({ vendor: po.vendor, vendorId: po.vendorId }) }].concat(Q.map((q) => ({ vendor: q.vendor || q.vendorName || "", region: regionOf(q) })));
 }
 standardRegisterRule(
@@ -183782,3 +183808,11 @@ function glStockLines(u) {
     return out;
   };
 }
+// ---- Standard Watch, from the RFQ lane's records: a first price accepted ----------------------------------------
+// An RFQ awarded with no negotiation email sent. Its one home is the Watch: before the award the same RFQ is the
+// coordinator's "Negotiate" step in Approvals (DELEGATION rfq), a different moment, so it is never counted twice.
+standardRegisterRule({
+  id: "firstPrice", owner: "coord", p: "cost", leak: !0, c: ["pb", "procurement", "standards", /Negotiate every quote at least once/i], surface: "watch",
+  rows: () =>
+    ((DB.rfqs || []).filter((r) => ["awarded", "closed"].includes(r.status) && !(r.neg || []).some((n) => "sent" === n.status))).map((r) => ({ key: "fp:" + r.id, what: `Awarded without negotiating: ${r.number}`, sub: `${rfqJobName(r)}${(r.history || []).some((h) => /without negotiating/.test(h.what)) ? " · chosen on the RFQ" : ""}`, go: () => rfqOpenFor(r.id) })),
+});
