@@ -144033,6 +144033,7 @@ const trkUsd = (v) => (+v || 0).toLocaleString("en-US", { style: "currency", cur
     const x = trkNorm(a), y = trkNorm(b);
     if (!x || !y) return !0;
     const w = (s) => s.split(" ").filter((t) => t.length > 2);
+    if (x.length < 3 || y.length < 3) return x === y;
     return x === y || x.includes(y) || y.includes(x) || w(x).some((t) => w(y).includes(t));
   },
   trkPO = (id) => (DB.pos || []).find((x) => x.id === id) || null,
@@ -145565,7 +145566,7 @@ const TRK_ASK = {
   id: "track",
   first: !0,
   kind: "ops",
-  re: /\bwhere('?s| is| are)\b.*\b(order|delivery|shipment|tile|flooring|lumber|millwork|windows?)\b|\bwhat did .+ promise\b|\bpromises? (from|by|of)\b|\bbills?\b.*\b(on hold|held)\b|\b(held|on hold)\b.*\bbills?\b|\b(show|open|find|see)\b.*\b(invoice|packing slip|receipt|acknowledg\w*)\b.*\bpo-\d{4}-\d{3}\b|\breceipts? (missing|we are missing)|\bmissing receipts?\b/,
+  re: /\bwhere('?s| is| are)\b.*\b(order|delivery|shipment|tracking)\b|\bwhat did .+ promise\b|\bpromises? (from|by|of)\b|\bbills?\b.*\b(on hold|held)\b|\b(held|on hold)\b.*\bbills?\b|\b(show|open|find|see)\b.*\b(invoice|packing slip|receipt|acknowledg\w*)\b.*\bpo-\d{4}-\d{3}\b|\breceipts? (missing|we are missing)|\bmissing receipts?\b/,
   run(P) {
     const l = P.l,
       raw = P.raw || l,
@@ -145595,7 +145596,8 @@ const TRK_ASK = {
       const name = (raw.match(/what did (.+?) promise/i) || raw.match(/promises? (?:from|by|of) (.+?)\??$/i) || [])[1] || "",
         V = trkVendor(name),
         L = trkPromises().filter((p) => trkSameVendor(p.vendor, (V && V.name) || name) && trkNorm(name));
-      if (!name) return null;
+      // "what did I promise" is about the asker, not a vendor: leave it to the readers that know
+      if (!name || /^(i|we|you|they|he|she|it|me|us)$/i.test(name.trim()) || (!V && !L.length)) return null;
       const st = trkVendorStat((V && V.name) || name);
       return { headline: L.length ? `${(V && V.name) || name} promised ${L.map((p) => `${p.what.replace(/\.$/, "")} (due ${fmtL(p.due)}, ${p.status})`).join("; ")}.${st.onTimePct != null ? ` On-time record: ${st.onTimePct}% (${st.kept} kept, ${st.broken} broken).` : ""}` : `Nothing from ${(V && V.name) || name} is on the promise ledger.`, work: L.map((p) => `${p.what} · due ${fmtL(p.due)} · ${p.status} · from ${p.source.kind}${p.who ? " (" + p.who + ")" : ""}`), go: go("po"), ran: ran("the promise ledger", [`vendor is ${(V && V.name) || name}`], L.length) };
     }
