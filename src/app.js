@@ -21593,7 +21593,12 @@ function mbFlags(d, p) {
       : ""
   );
 }
+// The deal page and the property page draw the same blocks with the same ids (#mb-back, the government tab's
+// buttons), and their wiring looks ids up in the whole document: with both drawn, the page shown got none of
+// its handlers (← Properties, Add Fact, Record Change did nothing). Each empties the other as it draws.
 function renderMBDeal() {
+  const other = document.getElementById("mb-prop");
+  other && (other.innerHTML = "");
   const d = DB.deals.find((x) => x.id === mbDealId) || DB.deals[0];
   if (!d) return void ($("#mb-deal").innerHTML = '<div class="card muted">No deal selected.</div>');
   mbDealId = d.id;
@@ -22133,6 +22138,8 @@ function mbOpenProp(id) {
   (mbPropId = id), (view = "mbprop"), render(), mbTop();
 }
 function renderMBProp() {
+  const other = document.getElementById("mb-deal");
+  other && (other.innerHTML = "");
   const p = DB.properties.find((x) => x.id === mbPropId) || DB.properties[0];
   if (!p) return void ($("#mb-prop").innerHTML = '<div class="card muted">No property selected.</div>');
   mbPropId = p.id;
@@ -29392,7 +29399,7 @@ function designMilestoneInvoice(c, d) {
     total = docNet(d),
     m = mbModal(
       `Bill a milestone — ${esc(d.number)}`,
-      `<p class="small muted">Each milestone bills its percentage of every phase. Retainer on account ${money(retainerBalance(c, d.id))} is applied automatically.</p><div class="ms-list">${ms.map((x, i) => `<label class="ms-row ${done.includes(i) ? "dim" : ""}"><input type="radio" name="dms" value="${i}" ${done.includes(i) ? "disabled" : (!done.length && 0 === i) || done.length === i ? "checked" : ""}><span class="ms-pct">${x.pct}%</span><span class="ms-lbl">${esc(x.label)}${done.includes(i) ? ' <span class="pill ok">Billed</span>' : ""}</span><span class="ms-amt">${money((total * x.pct) / 100)}</span></label>`).join("")}</div><div class="small muted" style="margin-top:8px">Billed so far ${done.reduce((a, i) => a + (ms[i]?.pct || 0), 0)}% of ${money(total)}. <a href="#" id="dms-edit">Edit Milestones</a></div>`,
+      `<p class="small muted">Each milestone bills its percentage of every phase. Retainer on account ${money(retainerBalance(c, d.id))} is applied automatically. The invoice is drafted for you to review; nothing goes to the client until you send it.</p><div class="ms-list">${ms.map((x, i) => `<label class="ms-row ${done.includes(i) ? "dim" : ""}"><input type="radio" name="dms" value="${i}" ${done.includes(i) ? "disabled" : (!done.length && 0 === i) || done.length === i ? "checked" : ""}><span class="ms-pct">${x.pct}%</span><span class="ms-lbl">${esc(x.label)}${done.includes(i) ? ' <span class="pill ok">Billed</span>' : ""}</span><span class="ms-amt">${money((total * x.pct) / 100)}</span></label>`).join("")}</div><div class="small muted" style="margin-top:8px">Billed so far ${done.reduce((a, i) => a + (ms[i]?.pct || 0), 0)}% of ${money(total)}. <a href="#" id="dms-edit">Edit Milestones</a></div>`,
       {
         submit: "Create invoice",
         onSubmit: () => {
@@ -86368,7 +86375,7 @@ if (
 }
 const GLN_CHEV = '<svg class="gl-chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>';
 function glnTile(o) {
-  return `<button type="button" class="gl ${o.tone || ""}" data-gl="${o.go}" ${o.project ? `data-glp="${o.project}"` : ""}><span class="gl-k">${esc(o.k)}</span><b class="gl-v">${o.v}</b><span class="gl-s">${o.s || ""}</span>${GLN_CHEV}</button>`;
+  return `<button type="button" class="gl ${o.tone || ""}" data-gl="${o.go}" ${o.project ? `data-glp="${o.project}"` : ""}${o.land ? ` data-glland="${o.land}"` : ""}${o.at ? ` data-glat="${esc(o.at)}"` : ""}><span class="gl-k">${esc(o.k)}</span><b class="gl-v">${o.v}</b><span class="gl-s">${o.s || ""}</span>${GLN_CHEV}</button>`;
 }
 function glnWire(root) {
   root.querySelectorAll("[data-gl]").forEach(
@@ -86394,9 +86401,16 @@ function glnWire(root) {
           }
           view = go;
         }
+        // a tile can land on the destination's own tile (focused, under this tile's name) or at a section
+        if (b.dataset.glland) {
+          const [lv, lk] = b.dataset.glland.split(":");
+          lv === go && (ROLE_VIEWS[role()] || []).includes(lv) && tlLand(lv, lk, { k: (b.querySelector(".gl-k") || {}).textContent || "" });
+        }
         "function" != typeof setView || (ROLE_VIEWS[role()] || []).includes(view) || (view = "dash"),
           render(),
           window.scrollTo(0, 0);
+        const at = b.dataset.glat && document.querySelector(b.dataset.glat);
+        at && at.getClientRects().length && at.scrollIntoView({ block: "start" });
       }),
   );
 }
@@ -86530,9 +86544,10 @@ function glnAll(td) {
         : "every finish date holds",
     },
     {
-      // the firm's margin, read on Reports' profit and loss
+      // the firm's margin, read on Reports' profit and loss (the page opens at it)
       k: "Profitability",
       go: "reports",
+      at: "#v-reports .rep-h",
       tone: planned && gp < 0.95 * planned ? "warn" : "",
       v: contract ? `${Math.round((gp / contract) * 100)}% margin` : "—",
       s: contract
@@ -86546,7 +86561,8 @@ function glnAll(td) {
       } catch (e) {}
       const n = null !== mine ? mine : needs;
       return {
-        k: "Needs you",
+        // one noun, one label: where it opens Approvals and counts its items, it is called Approvals
+        k: null !== mine ? "Approvals" : "Needs you",
         go: null !== mine ? "mapprove" : "home",
         tone: n ? "warn" : "",
         v: n ? `${n} now` : "Nothing",
@@ -86554,8 +86570,10 @@ function glnAll(td) {
       };
     })(),
     {
+      // the materials at risk across jobs are the Buy Board's late lines
       k: "Materials",
-      go: "port",
+      go: "proc",
+      land: "proc:lateMaterial",
       tone: matsRisk ? "bad" : "",
       v: matsRisk ? `${matsRisk} at risk` : `${matsOpen} to land`,
       s: `${matsOpen} not yet on site across ${jobs} projects`,
@@ -89420,7 +89438,8 @@ if (
           (tlFocus.mbraise = {
             key: "signed",
             pred: (r) => (r.pipeline || []).some((p) => "subscribed" === p.stage),
-            label: "Signed, Not Funded",
+            label: "Wires Outstanding",
+            rule: "subscribed, not yet funded",
           }),
             (cpRaiseId = ""),
             (view = "mbraise");
@@ -89437,6 +89456,7 @@ if (
             : `all ${tlN(N.k1N, "closed raise")} delivered before March 15`
           : "no closed raise owes a K-1 yet",
         go: tab("raise"),
+        on: () => "raise" === cpNumTab,
       },
       {
         key: "wire",
@@ -89448,6 +89468,7 @@ if (
             ? "median, first conversation to funded — plan the next raise on it"
             : "no completed journey yet",
         go: tab("raise"),
+        on: () => "raise" === cpNumTab,
       },
       {
         key: "cost",
@@ -89459,6 +89480,7 @@ if (
             ? `${cpK(N.spend)} spent on ${cpK(N.raised || 0)} raised · ${tlN(N.nPartners || 0, "partner")}`
             : "no spend recorded against the raises",
         go: tab("spend"),
+        on: () => "spend" === cpNumTab,
       },
     ];
   }),
@@ -101827,9 +101849,10 @@ const BH = {
       lead: () => "Property record — the lot, the building, the owner and every fact we have found.",
     },
     mbownp: { lead: () => "A property we own — rent roll, debt, and what needs attention." },
+    // the heading is the rail entry's name; what the page does is in the lead
     mbscreen: {
-      h2: "Screen a Property",
-      lead: "Put in an address or a BBL and see whether it is worth a second look.",
+      h2: "Screen",
+      lead: "Screen a property: put in an address or a BBL and see whether it is worth a second look.",
     },
     mbwatch: { lead: "Signals worth a call: filings, liens, transfers and owners going quiet." },
     verify: { lead: "The checks that run over the books, and anything they could not square." },
@@ -102016,7 +102039,8 @@ const BH_REP_GO = [
   [/payroll/, { view: "payroll" }],
 ];
 function bhTileTarget(v, label) {
-  const l = String(label).toLowerCase();
+  // the caption only ("Payables"), never the figure's sub-line ("1 bill to review" named the Review tab)
+  const l = String(label).split(" · ")[0].replace(/^[\s$−\-\d,.%]+/, "").toLowerCase();
   if ("reports" !== v) return null;
   const tabs = () => [...document.querySelectorAll("#v-reports .rep-sub button, #v-reports .rep-groups button")].filter((b) => !b.classList.contains("on"));
   const byWord = () => tabs().find((b) => l.includes(b.textContent.trim().toLowerCase().split(" ")[0]));
@@ -103140,9 +103164,14 @@ function clChat() {
         clScrub(document.querySelector(".view.on"));
       const sub = document.getElementById("subnav");
       sub && (sub.hidden = window.innerWidth < 820),
+        // Each tile lands on its own list in Account, not the top of the page.
         document.querySelectorAll('#cl-kpis [data-tl="inv"], #cl-kpis [data-tl="sign"]').forEach((b) => {
           b.onclick = () => {
-            (view = "clacct"), render();
+            (view = "clacct"), render(), window.scrollTo(0, 0);
+            const sec = document.getElementById("inv" === b.dataset.tl ? "cl3-inv" : "cl3-co");
+            sec &&
+              sec.getClientRects().length &&
+              (sec.scrollIntoView({ block: "start" }), sec.classList.add("rec-hl"), setTimeout(() => sec.classList.remove("rec-hl"), 2600));
           };
         });
     } catch (e) {
@@ -117298,7 +117327,8 @@ function renderFdSetup() {
   if (!host) return;
   const rv = ROLE_VIEWS[role()] || [],
     places = [
-      {
+      // Company Settings live on the project settings page: offered only to a role that has that page
+      rv.includes("proj") && {
         v: "proj",
         k: "Company Settings",
         s: "users, entities, approval rules, the company block, appearance",
@@ -127303,7 +127333,8 @@ if ("function" == typeof renderReports) {
               // the figure keeps its drill-down: the tile's own handler, else the report that explains it
               // (resolved here: the tile is removed before the tiles pass wires its target)
               (() => {
-                const go = k.classList.contains("click") ? () => k.click() : bhTileTarget("reports", full);
+                // (its drill-down is a delegated handler, which a removed tile no longer reaches: call it)
+                const go = k.dataset.drill && "function" == typeof fsDrill ? () => fsDrill(k.dataset.drill) : bhTileTarget("reports", full);
                 go && ((d.onclick = go), d.classList.add("go"), d.setAttribute("role", "button"));
               })(),
               foot.appendChild(d),
@@ -144499,8 +144530,10 @@ if ("function" == typeof navGroupOf) {
   };
 }
 function rcRecvPass(on) {
+  // the PO number is a link only for whoever may open the PO (the crew's press landed on their Clock)
   on &&
     "recv" === view &&
+    flowCan("po") &&
     on.querySelectorAll(".recv-po").forEach((card) => {
       if (card.dataset.rcLinked) return;
       card.dataset.rcLinked = "1";
