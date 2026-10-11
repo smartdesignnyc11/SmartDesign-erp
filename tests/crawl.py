@@ -79,8 +79,9 @@ UI_PATHS = [
     r'\._base$',
     # the sales pipeline the Numbers page is showing
     r'^hub\.pipeline(Id)?\b',
-    # a daily log draft as the foreman fills it in, step by step (Submit is the mutation, and it toasts)
-    r'^field\.dlDraft\b',
+    # a daily log draft as the foreman fills it in, step by step (Submit is the mutation, and it toasts), and
+    # a request's text prefilled into the composer by Need Something (Send is the mutation)
+    r'^field\.(dlDraft|draft)\b',
 ]
 
 # ---------------------------------------------------------------------------------------------- page side
@@ -383,7 +384,7 @@ PAGE_JS = r"""
     const stillOv = ovs.filter(o => C.preOv.has(o)).map(o => ({title: titleOf(o), text: norm(o.innerText).slice(0, 3000)}));
     // the heading and the active nav entry, as lint reads them
     const tabOn = document.querySelector('#subnav .sub-tabs button.on, #subnav .sub-tabs .on');
-    const grpOn = document.querySelector('#nav-groups button.on');
+    const grpOn = document.querySelector('#nav-groups button.on') || [...document.querySelectorAll('#nav-mb button.on')].find(vis);
     const grpEls = [grpOn, ...document.querySelectorAll('#mtabs .on, #tabbar .on, .mtabs .on')].filter(Boolean);
     const tabL = tabOn && vis(tabOn) ? norm(tabOn.innerText) : '';
     const g = grpEls.find(vis);
@@ -753,7 +754,9 @@ class Crawler:
         self.pg = pg = await self.ctx.new_page()
         self.ctx.on('page', lambda np: np != pg and (self.popups.append(np.url) or asyncio.ensure_future(np.close())))
         pg.on('pageerror', lambda e: self.errs.append(str(e)))
-        pg.on('console', lambda m: m.type == 'error' and 'fonts.g' not in m.text and 'ERR_' not in m.text and self.errs.append('console: ' + m.text))
+        # a resource the network refused (a font, a public records API through the proxy) is the network's, not
+        # the page's: noted by the browser with no script behind it
+        pg.on('console', lambda m: m.type == 'error' and 'fonts.g' not in m.text and 'ERR_' not in m.text and 'Failed to load resource' not in m.text and self.errs.append('console: ' + m.text))
         pg.on('dialog', lambda d: self.dialogs.append(f'{d.type}: {d.message[:100]}') or asyncio.ensure_future(d.dismiss()))
         pg.on('download', lambda d: self.downloads.append(d.suggested_filename) or asyncio.ensure_future(d.cancel()))
         pg.on('filechooser', lambda fc: self.choosers.append(1))
@@ -798,6 +801,10 @@ class Crawler:
           if (mb && typeof mbAccess === 'function' && mbAccess()) DB.workspace = 'mb'; else if (!mb && DB.workspace === 'mb') DB.workspace = 'sd';
           view = v; render(); window.scrollTo(0, 0); }""", v)
         await self.settle(200, 2500)
+        # the snapshot is taken after a second render: some pages finish drawing on the render after the one
+        # that opened them (a tile host added late), and every restore draws the page again
+        await self.pg.evaluate("() => { render(); window.scrollTo(0, 0); }")
+        await self.settle(150, 2000)
         await self.pg.evaluate("() => { const t = document.getElementById('toast'); t && t.classList.remove('on', 'act', 'toast-up'); window.scrollTo(0, 0); }")
         await self.pg.evaluate('() => window.__cr.snap()')
         self.view_db = await self.pg.evaluate('() => window.__cr.snapDb')
@@ -956,16 +963,17 @@ class Crawler:
         groups = defaultdict(list)
         for f in self.flags:
             if f['viewport'] == vp and f['rule'] != 'LEAK' and not f.get('confirmed'): groups[(f['user'], f['view'])].append(f)
+        # one boot per flag: two flags confirmed in one page would make the second ride on the first's
+        # leftovers, the very thing this pass is here to rule out
         for (u, v), fl in groups.items():
-            await self.load()
-            info = await self.start_user(u)
-            role, views = info['role'], info['may']
-            self.leaky = False
-            await self.open_view(v)
-            ctx = {'user': u, 'role': role, 'views': views, 'view': v, 'leakWords': [], 'vp': vp}
-            rw_cache = {}
             for f in fl:
-                await self.fresh('full', u)
+                await self.load()
+                info = await self.start_user(u)
+                role, views = info['role'], info['may']
+                self.leaky = False
+                await self.open_view(v)
+                ctx = {'user': u, 'role': role, 'views': views, 'view': v, 'leakWords': [], 'vp': vp}
+                rw_cache = {}
                 lst = await self.pg.evaluate('() => window.__cr.list()')
                 c = next((x for x in lst['cands'] if x['key'] == f['key'] and x['n'] == f['n']), None)
                 if not c:
@@ -1045,6 +1053,9 @@ class Crawler:
                                 else: self.add_flag('INFO', vp, u, v, c, 'covered by ' + r['covered'])
                                 dirty = None; continue
                             self.pressed[(vp, u)] += 1; n_user += 1
+                            if os.environ.get('CRAWL_DEBUG'):
+                                pr = await self.pg.evaluate(os.environ['CRAWL_PROBE']) if os.environ.get('CRAWL_PROBE') else ''
+                                print('PRESS', v, '|', c['label'][:60], '->', r.get('view'), 'dirty', dirty, 'err', bool(r.get('errors')), pr, flush=True)
                             t1 = time.time(); found = await self.assess(c, r, ctx, rw_cache); self.tm['assess'] += time.time() - t1
                             for rule, det in found:
                                 shot = None
@@ -1054,6 +1065,7 @@ class Crawler:
                             # where the toast's Open goes
                             if any(t['links'] for t in r['toasts']) and not r.get('reloaded'):
                                 tl = await self.follow_toast(r, ctx)
+                                if os.environ.get('CRAWL_PROBE'): print('  FOLLOW', tl and tl.get('view'), await self.pg.evaluate(os.environ['CRAWL_PROBE']), flush=True)
                                 if tl:
                                     r2 = dict(r, toastLink=tl, errors=[])
                                     for rule, det in judge(c, r2, ctx):
