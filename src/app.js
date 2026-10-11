@@ -1089,12 +1089,7 @@ function migrateClientDocs(c) {
             order: c.sov.length,
           }),
         )),
-    c.changeOrders.forEach((x) => {
-      x.amount = docTotal(x).total;
-    }),
-    c.invoices.forEach((x) => {
-      x.amount = docTotal(x).total;
-    }),
+    // a document's cached amount is written when it is saved (docAmountsSync, in persist), never on load
     [...c.estimates, ...c.changeOrders, ...c.invoices].forEach((x) => {
       void 0 === x._base && docMark(x);
     });
@@ -2493,7 +2488,38 @@ async function probeStorage() {
     );
   }
 }
+// One rounding rule for a change order's and an invoice's cached amount: docTotal(d).total, the figure the ledger
+// posts (an invoice's 1100). It is written when the database is saved, never when it is loaded: the boot used to
+// rewrite every one on every load (85 documents on the seed; INV-2026-035 72,750.15 -> 72,750.16), changing stored
+// documents with no record. Documents saved before carry theirs from the one-time migration (docAmountMigrate).
+function docAmountsSync() {
+  (DB && DB.clients ? DB.clients : []).forEach((c) =>
+    [...(c.changeOrders || []), ...(c.invoices || [])].forEach((d) => {
+      try {
+        const a = docTotal(d).total;
+        d.amount !== a && (d.amount = a);
+      } catch (e) {}
+    }),
+  );
+}
+function docAmountMigrate() {
+  if (!DB || ((DB.migrations = DB.migrations || {}), DB.migrations.docAmount)) return 0;
+  let n = 0;
+  (DB.clients || []).forEach((c) =>
+    [...(c.changeOrders || []), ...(c.invoices || [])].forEach((d) => {
+      let a;
+      try {
+        a = docTotal(d).total;
+      } catch (e) {
+        return;
+      }
+      d.amount !== a && (audit("document", d.id, "amount cached from lines", null == d.amount ? "" : String(d.amount), String(a), d.number || ""), (d.amount = a), n++);
+    }),
+  );
+  return (DB.migrations.docAmount = { on: today(), at: appNowIso(), changed: n }), save(), n;
+}
 async function persist(attempt) {
+  docAmountsSync();
   const str = JSON.stringify(DB);
   if (str === lastSaved) return;
   let idbOK = !1;
@@ -49151,6 +49177,7 @@ load = async function (opts = {}) {
 const persistBase_cl = persist;
 persist = async function (attempt) {
   if (!cloudOn() || !Cloud.user()) return persistBase_cl(attempt);
+  docAmountsSync();
   const str = JSON.stringify(DB);
   if (str === lastSaved) return;
   try {
@@ -127784,7 +127811,7 @@ if ("function" == typeof poAction) {
       "bill" !== a || !po)
     )
       return poActionBase_lk.apply(this, arguments);
-    lkBillPO(po);
+    lkBillReceived(po);
   };
 }
 function lkPOBillState(po) {
@@ -128095,7 +128122,7 @@ function lkPOButtons(on) {
 if (
   ("function" == typeof billFromPO &&
     (billFromPO = function (po) {
-      lkBillPO(po);
+      lkBillReceived(po);
     }),
   "object" == typeof flowGo && flowGo.bill)
 ) {
@@ -144099,7 +144126,12 @@ function rcPOButtons(on) {
   let primary = null;
   ["partial", "received", "closed"].includes(po.status) || anyIn
     ? bill && !st.full
-      ? ((bill.textContent = st.billed ? `Bill Remaining ${money(st.remaining)}` : "Bill This PO"),
+      ? ((bill.textContent = ((rl) =>
+          (po.lines || []).some((l) => (+l.received || 0) < (+l.qty || 0) - 1e-9) && rl.length
+            ? `Bill What Arrived ${money(rl.reduce((a, l) => a + l.amount, 0))}`
+            : st.billed
+              ? `Bill Remaining ${money(st.remaining)}`
+              : "Bill This PO")(lkReceivedLines(po))),
         (primary = bill))
       : close && "received" === po.status && (primary = close)
     : ["issued"].includes(po.status) && recv && (primary = recv),
@@ -171822,7 +171854,23 @@ function poRepairInvalid() {
       console.warn("po repair", e);
     }
     try {
-      (DB.bills || []).some((b) => (b.lines || []).some((l) => !l.id)) && ((DB.bills || []).forEach(billLinesNorm), save());
+      // the load normaliser once more at the end of the first boot, so what a later load would add to the seed
+      // (an SOV line's job) is in place before anything is saved, and a reload changes nothing
+      DB.clients.forEach(migrateClientDocs), docAmountMigrate();
+    } catch (e) {
+      console.warn("document amounts", e);
+    }
+    try {
+      // one-time: bills saved before each line had its id and estimate line (billLinesNorm), with an audit line
+      if (!(DB.migrations = DB.migrations || {}).billLineIds) {
+        let n = 0;
+        (DB.bills || []).forEach((b) => {
+          const was = JSON.stringify(b.lines || []);
+          billLinesNorm(b), JSON.stringify(b.lines || []) !== was && (audit("bill", b.id, "line ids and estimate lines set", "", "", b.number || ""), n++);
+        }),
+          (DB.migrations.billLineIds = { on: today(), at: appNowIso(), changed: n }),
+          save();
+      }
     } catch (e) {
       console.warn("bill line ids", e);
     }
