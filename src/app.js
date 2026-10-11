@@ -168691,6 +168691,11 @@ const STD_MAP = {
   "nyh:mail:lpc": { p: "law", c: ["principle", "law"], esc: () => /Stop-work/i },
   "nyh:mail:hold": { p: "schedule", c: ["value", "client", /their time like it is expensive/i] },
   "nyh:mail:dispute-credit": { p: "cost", leak: !0, c: ["value", "dollar", /Waste nothing/i] },
+  // what a client or the field asked for by mail (the flow lane's kinds)
+  "nyh:mail:decision": { p: "client", c: ["pb", "pm", "actFrom", /needed by/i] },
+  "nyh:mail:request": { p: "client", c: ["pb", "client", "standards", /Log every client request/i] },
+  "nyh:mail:codispute": { p: "client", c: ["std", "communication", /No surprises/i], esc: () => /Client unhappy/i },
+  "nyh:mail:visit": { p: "schedule", c: ["value", "ahead", /End every day/i] },
   // chases (agChaseDraft kinds)
   chase: { p: "client", c: ["value", "own", /Close every loop/i] },
   "chase:coi": { p: "law", c: ["pb", "office", "standards", /Insurance certificates/i] },
