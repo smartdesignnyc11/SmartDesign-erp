@@ -170627,6 +170627,8 @@ function stdDueOf(it) {
       const D = tdDec(o);
       d = D ? pick(D.d.due, D.d.needBy) || pick("function" == typeof decDue ? ("function" == typeof withProject ? withProject(D.p, () => decDue(D.d)) : decDue(D.d)) : "") : "";
     } else if ("req" === o.kind) d = pick(((DB.projects || []).flatMap((p) => p.requests || []).find((q) => q.id === o.id) || {}).neededBy);
+    // a PO waiting on approval is due by the day its material is needed on site
+    else if ("po" === o.kind) d = pick(((DB.pos || []).find((x) => x.id === o.id) || {}).needBy);
     else if ("payroll" === o.kind || "payroll" === r.kind) {
       const id = String(r.id || o.id || "").replace(/^payroll:/, "");
       d = pick(((DB.payroll || []).find((x) => x.id === id) || {}).payDate);
