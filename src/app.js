@@ -168929,7 +168929,8 @@ const stdRaiseOpen = (r) => r && !["answered", "closed", "done", "resolved"].inc
 //             "cost" ("" for none); it ranks the rule's rows
 //   c         the line of the Standard it checks, as a standardCite ref, e.g. ["pb", "procurement", "actFrom", /five boroughs/i]
 //   surface   where its breaches already show: "do" (Do Now / Approvals), "catch" (fed to Caught for You from here),
-//             "nyh" (fed to the owner's Needs Your Hand from here), "catch-existing" (an existing CATCH row shows it)
+//             "nyh" (fed to the owner's Needs Your Hand from here), "catch-existing" (an existing CATCH row shows it),
+//             "existing" (another list already shows the same item; counted on the Watch only)
 //   rows()    today's breaches: [{key, what, sub, amount?, due?, go?}]; the Watch count is rows().length
 //   leak      true for a money leak (the card carries Alan's line on why money matters)
 //   esc       optional, a function of the row returning a regex for its escalation-table row
@@ -169000,7 +169001,8 @@ standardRegisterRule(
     },
   },
   {
-    id: "collections", owner: "billing", p: "cost", c: ["pb", "office", "standards", /Collections cadence/i], surface: "nyh",
+    // billing's Home already lists each past-due invoice with Chase, so the breach is counted here, not fed again
+    id: "collections", owner: "billing", p: "cost", c: ["pb", "office", "standards", /Collections cadence/i], surface: "existing",
     partial: "Measured: an overdue invoice with no reminder recorded. The 7-day call, the PM at 15 days and leadership at 30 are not logged as steps yet.",
     rows: () =>
       (DB.clients || []).flatMap((c) =>
