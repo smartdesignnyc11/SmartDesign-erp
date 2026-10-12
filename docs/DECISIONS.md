@@ -16,6 +16,7 @@ Status: **Built** (merged and tested) · **Building** (a lane is on it) · **Spe
 ## 2026-10-11
 | Ask or decision | Where it lives | Status |
 |---|---|---|
+| Each role's assistant reads that person's chats, to help with tasks, follow-ups and reminders | BACKLOG §1.24 item 4b | Spec (platform) |
 | Ask must feel like this chat and work like Claude, across the ERP, Gmail, Drive, Calendar and internal chat | BACKLOG §1.24 | Spec (platform; needs the API key) |
 | AI reviews every set (design, LPC, DOB, construction documents) for inconsistencies and flags them | BACKLOG §1.23 | Spec (with plans control) |
 | Messages: subs, vendors and the architect join their job thread as guests (link or SMS/email bridge); import the WhatsApp group histories per job | BACKLOG §1.21 | Decided: yes to both |

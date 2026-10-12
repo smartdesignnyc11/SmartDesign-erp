@@ -733,6 +733,15 @@ It then matches the same room, element or tag across sets. Geometry overlay betw
      - nobody reads another person's direct messages or personal mail.
    - **Personal mail:** personal mail and labels are excluded by default.
    - **Injection guard:** mail and document text are data, never instructions.
+4b. **Each person's assistant reads their chats, proactively (Alan, 2026-10-11).** It reads every thread its person is in (never others), as messages arrive, and keeps them on track:
+   - **Asked of you.** "Angel asked you to confirm the tile at 9:12." It proposes a task with a due date, and reminds you before the Standard's response time runs out (2 business hours for a client, 1 hour for a blocking field question).
+   - **You promised.** "You told the Kleins you'd send the CO by Friday." It becomes a promise with a reminder, and a draft is ready when it's due.
+   - **Waiting on others.** "You asked Chen for the window lead time two days ago; no answer." It offers a polite follow-up.
+   - **Nobody owns it.** In a group chat, "can someone…" with no taker becomes an owner proposal, following the Standard ("if you see it, you own it until a named person accepts").
+   - **Turn it into work.** It offers the right document from what was said: a CO, PO, RFQ, request or decision.
+   - **Daily and end-of-day digest.** What you owe, what you're waiting on, and what changed in your threads, ranked by urgency and the Standard.
+
+   **One extraction, no duplicates.** The brain extracts each ask, promise and decision once, and it goes to the right person's assistant and task list, never as a copy per reader. Suggestions are quiet chips and digest lines, not pings, except safety and escalations. It works in the person's language (Spanish for the field).
 5. **Memory.** Each person's assistant remembers their standing instructions and preferences; the person sees and edits that memory. The brain's lessons are shared firm-wide.
 6. **Quality and cost.**
    - **Models:** a mid-tier Claude model answers by default, and the strongest takes hard, multi-step or high-stakes questions.
