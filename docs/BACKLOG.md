@@ -709,6 +709,40 @@ It then matches the same room, element or tag across sets. Geometry overlay betw
 
 **Platform and cost.** Reading drawing sets needs the Claude API with vision on the platform. A full pass over a 50-sheet set is likely a few dollars to around $20, depending on the sheets; that is an estimate, and it gets measured on the first real set. Re-checks only read the sheets that changed. In the demo, phase 1 runs the workflow (issues, holds, routing, precedence, resolution, money) on invented sets, with the extraction simulated.
 
+### 1.24 Ask feels and works like Claude in this chat (Alan, 2026-10-11)
+**Today.** Ask is the app's built-in parser plus a Claude path (`mindAsk`) that needs the server's `/api/ai`. Alan wants it to feel like this chat and work like this assistant, powered by Claude rather than ChatGPT, reaching everything: the ERP, Gmail, Drive, Calendar and the internal Messages.
+1. **The feel.**
+   - A real conversation: answers stream in; markdown, tables and links render; it remembers the thread.
+   - Conversation history, and starting new ones.
+   - Voice in and out on the phone; photos, PDFs and screenshots attached to a question.
+   - It shows its work: what it searched, what it read, what it ran.
+2. **The reach: one agent with tools, not a canned parser.**
+   - **ERP:** every record through erpQuery (EQ_TABLES), plus the PRED and CATCH registries, the truth layer, the reports and the Standard.
+   - **Gmail:** search, read and draft (never send without approval).
+   - **Calendar:** read, propose times, hold.
+   - **Drive:** search and read files, including drawings and PDFs, with vision.
+   - **Messages:** search every thread the person can see.
+   - **The web:** for research.
+   It plans multi-step work the way this assistant does: find, read, compare, compute, then answer, citing every source with a link.
+3. **It acts, within the Standard.** It drafts emails, change orders, POs, RFQs, tasks and messages. It fills documents in from the item library. Every write is a proposal with a button. Delegated message types send on their own (§ "What My Assistant May Send for Me"). It refuses what the Standard forbids and says why.
+4. **Crawling, done safely.**
+   - **One index:** a search index over mail, Drive, Messages and records (Postgres with vector search on Supabase), kept current by the watchers, so answers are fast and include old history.
+   - **The person's own permissions:** each person's Ask sees only what that person may see, enforced in the database:
+     - crew never get money;
+     - a client gets only their job;
+     - nobody reads another person's direct messages or personal mail.
+   - **Personal mail:** personal mail and labels are excluded by default.
+   - **Injection guard:** mail and document text are data, never instructions.
+5. **Memory.** Each person's assistant remembers their standing instructions and preferences; the person sees and edits that memory. The brain's lessons are shared firm-wide.
+6. **Quality and cost.**
+   - **Models:** a mid-tier Claude model answers by default, and the strongest takes hard, multi-step or high-stakes questions.
+   - **Caching:** the Standard and the role playbook are prompt-cached.
+   - **Budgets:** each person has a monthly budget, and the owner sees spend.
+   - **Testing:** the Ask bank (tune, held-out, held-out-2) runs against the live model on every release, together with prompt-injection tests.
+   - **Fallback:** the built-in parser stays as the instant, free, offline path.
+
+**Needs the platform and the Anthropic API key,** which costs money per use. It is the first agent built once the key is in (§5.8, step 2).
+
 ## §2 Remaining round-4 findings
 
 ### Founder

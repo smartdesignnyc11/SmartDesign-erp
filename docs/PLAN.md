@@ -61,6 +61,7 @@ The integration pass covers:
 | 4 | Subcontractors: bid leveling by scope, COI before start, pay applications, retainage, **lien waivers with every payment**, backcharges; **payment check** so vendors are never overpaid | §1.10 item 1, §1.12 |
 | 5 | **Reporting proven**: income and expenses (accrual and cash), job costing, line-item income to cost, P&L by company, entity, client and project, overhead analysis, WIP, cash flow, aging, closed periods frozen, QuickBooks comparison | §1.13 |
 | 6 | **Platform and the real agents** (Supabase plus Netlify): sign-in, shared database, row-level security, AI proxy with cost caps, live assistants, documents, procurement, the brain, schedule, billing, compliance and books agents, each with a shadow week first | §5, §5.8 |
+| 6a | **Ask that feels and works like Claude**: streaming chat, history, voice and attachments; one agent with tools over the ERP, Gmail, Drive, Calendar, Messages and the web; drafts and acts within the Standard; a permission-aware search index; memory; budgets. First agent once the API key is in | §1.24 |
 | 6b | The improvement loop in production: signals, brain triage, owner approval, an agent builds and tests, close the loop | §1.19 |
 | 7 | Full agent month: 20 working days in two halves, after the weekly reset | §1.17 |
 | 8 | Full ten-expert regrade (target 9+ in every lens, no severity-1 or severity-2 findings) | REVIEW_PROTOCOL |
