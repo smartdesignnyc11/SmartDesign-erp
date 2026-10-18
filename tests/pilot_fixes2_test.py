@@ -390,7 +390,39 @@ async def t_driver(c, p):
     c.ok(not errs, f'driver: no page errors ({errs[:2]})')
     await b.close()
 
-EXTRA = [('mail', t_mail), ('money', t_money), ('agency', t_agency), ('driver', t_driver)]
+
+# ------------------------------------------------------------------------------------------------ 6: card account
+async def t_card(c, p):
+    b, pg, errs = await fresh(p, 'u_controller')
+    r = await js(pg, """
+      cmImport([{ msgId: 'pf2sq', threadId: 'pf2sq', channel: 'email', from: { name: 'Statements', email: 'statements@cardco.example' }, to: ['controller@smartdesign.nyc'], cc: [],
+        date: appNowIso(), subject: 'Lantern card: new activity', text: 'New activity on your Lantern card ending 4417 (account 5500 0000 1234 4417). The lines are attached as a CSV for import.', attachments: [], source: 'demo', owner: 'u_controller', labels: ['INBOX'] }]);
+      const cm = DB.comms.find(x => x.msgId === 'pf2sq'), pr = (cm.proposals || []).find(x => x.kind === 'newacct');
+      const r = pr ? cmApply(cm, pr) : null; await sleep(300);
+      const a = DB.accounts.find(x => /Lantern/.test(x.name));
+      const sel = [...document.querySelectorAll('#bfi-acct option')].map(o => o.textContent);
+      document.querySelectorAll('#mbm').forEach(m => m.remove());
+      return { pr: pr && { summary: pr.summary, last4: pr.last4 }, a, sel, raw: JSON.stringify(DB.accounts).includes('12344417') || JSON.stringify(DB.accounts).includes('5500') };""")
+    c.ok(r['pr'] and r['pr']['last4'] == '4417', f"card: a statement for a card not on file proposes New Card Account ({r['pr']})")
+    c.ok(r['a'] and r['a']['type'] == 'card' and r['a']['last4'] == '4417' and not r['raw'], f"card: the account is a card with the last 4 only ({r['a']})")
+    c.ok(any('Lantern' in o for o in r['sel']), f"card: Import Statement opens with it to import into ({r['sel']})")
+    # from Import Statement itself: New Card Account, last 4 only
+    r = await js(pg, """
+      view = 'bank'; render(); bfImportDialog('__new'); await sleep(150);
+      document.getElementById('bfi-nname').value = 'Corner card'; document.getElementById('bfi-nl4').value = '12';
+      document.getElementById('bfi-nadd').click(); await sleep(100);
+      const refused = !DB.accounts.some(a => a.name === 'Corner card');
+      document.getElementById('bfi-nname').value = 'Corner card'; document.getElementById('bfi-nl4').value = '4111 1111 1111 9876';
+      document.getElementById('bfi-nadd').click(); await sleep(150);
+      const a = DB.accounts.find(x => x.name === 'Corner card'), cur = (document.getElementById('bfi-acct') || {}).value;
+      document.querySelectorAll('#mbm').forEach(m => m.remove());
+      return { refused, a, cur };""")
+    c.ok(r['refused'], 'card: fewer than 4 digits is refused')
+    c.ok(r['a'] and r['a']['last4'] == '9876' and r['cur'] == r['a']['id'], f"card: a full number keeps only its last 4, and the import selects it ({r['a']})")
+    c.ok(not errs, f'card: no page errors ({errs[:2]})')
+    await b.close()
+
+EXTRA = [('mail', t_mail), ('money', t_money), ('agency', t_agency), ('driver', t_driver), ('card', t_card)]
 
 if __name__ == '__main__':
     sys.exit(asyncio.run(main()))

@@ -72928,6 +72928,13 @@ function cmRead(c) {
       task: `Import the ${ourCard.name} ····${ourCard.last4} statement and reconcile the card`,
       owner: "Controller",
     });
+  } else if (!onFile && !R.clientId && /\b(statement|new activity|card activity|account activity)\b/i.test(all) && /\bcard\b/i.test(all) && /import|attached|\bcsv\b|\bofx\b|statement/i.test(all)) {
+    // a card's statement for a card the firm has no account for: offer the account, last 4 only
+    const nm = ((all.match(/\b([A-Z][\w&.'-]*(?:\s+[A-Z][\w&.'-]*){0,2})\s+card\b/) || [])[1] || "").trim(),
+      l4 = (all.match(/(?:ending(?:\s+in)?|····|\.{4}|x{2,}|\*{2,}|last\s*(?:4|four)(?:\s*digits)?[:\s]*)\s*#?\s*(\d{4})\b/i) || [])[1] || "";
+    nm &&
+      !(DB.accounts || []).some((a) => (l4 && a.last4 === l4) || String(a.name || "").toLowerCase().startsWith(nm.toLowerCase())) &&
+      push("newacct", `${nm} card is not one of the firm's accounts${l4 ? ` (····${l4})` : ""}: New Card Account from This Statement, then import its lines into it`, { name: `${nm} card`, last4: l4, owner: "Controller" });
   } else if (onFile) {
     push("statement", `${who} is chasing ${amt ? money(amt) + " " : ""}on ${onFile.number} — already on file (${onFile.status}${onFile.short ? ", short-paid" : ""})${where ? " · " + where : ""}; no second bill`, {
       billId: onFile.id,
@@ -73402,6 +73409,16 @@ function cmApply(c, p) {
       i = pr && (pr.inspections || []).find((x) => x.id === p.inspId);
     const moved = i && "function" == typeof inspBook ? (inspBook(pr, i, { date: p.date, from: p.from, to: p.to, docket: p.docket, via: "DOB NOW" }), "function" == typeof agInspApply ? agInspApply(pr, p) : []) : [];
     did = i ? `inspection booked${moved.length ? "; " + moved.join("; ") : ""}` : "no matching inspection";
+  } else if ("newacct" === p.kind) {
+    // the account needs its last 4; with them in the mail it is added, otherwise Import Statement asks for them
+    const r = p.last4 && "function" == typeof acctNewCard ? acctNewCard(p.name, p.last4, "statement mail", c.id) : null;
+    (bfNewHint = { name: p.name, last4: p.last4 || "" }),
+      setTimeout(() => {
+        try {
+          (view = "bank"), render(), bfImportDialog(r && r.ok ? r.a.id : "__new");
+        } catch (e) {}
+      }, 60),
+      (did = r && r.ok ? `${r.a.name} ····${r.a.last4} added; import its statement` : "Import Statement opened with New Card Account; add its last 4 digits");
   } else if ("bill" === p.kind && (p.amountUnread || !(+p.amount > 0) || !(p.vendorId || R.vendorId))) {
     // A bill whose amount the reader never saw (an unread PDF), or whose sender is not a vendor on file, writes
     // no money: the person opens the document and enters it (owner review r5, findings 1 and 2).
@@ -156449,6 +156466,25 @@ function bfPlan(acctId, lines, kind) {
   return o;
 }
 let bfImportState = null;
+// ---- A card account from its statement (pilot day 3: the Square card's statement mail said to import it, and
+// Banking had no Square account to import into). Last 4 digits only: a longer number is cut to its last 4, never kept.
+function acctNewCard(name, last4, via, commId) {
+  if (!["owner", "controller", "billing"].includes(role())) return { ok: !1, why: "The Controller or the Owner adds an account" };
+  const nm = String(name || "").trim(),
+    digits = String(last4 || "").replace(/\D/g, ""),
+    l4 = digits.slice(-4);
+  if (nm.length < 3) return { ok: !1, why: "Name the card, e.g. Square card" };
+  if (4 !== l4.length) return { ok: !1, why: "The last 4 digits of the card" };
+  const have = (DB.accounts || []).find((a) => a.last4 === l4 && "card" === a.type);
+  if (have) return { ok: !0, a: have, existed: !0 };
+  const a = { id: uid("ac"), name: nm, type: "card", last4: l4, balance: 0, asOf: today(), entityId: "function" == typeof entDefault ? entDefault() : "", createdFrom: { via: via || "", commId: commId || "", by: (currentUser() || {}).name || role(), at: appNowIso() } };
+  (DB.accounts = DB.accounts || []).push(a);
+  try {
+    audit("account", a.id, "created", "", `${nm} ····${l4}`, `card account added from ${via || "a statement"}`);
+  } catch (e) {}
+  return save(), { ok: !0, a: a };
+}
+let bfNewHint = null;
 function bfImportDialog(acctId) {
   bfInit();
   const accts = DB.accounts || [];
@@ -156467,6 +156503,8 @@ function bfImportDialog(acctId) {
       to: "",
       ending: "",
       remembered: !1,
+      newName: (bfNewHint && bfNewHint.name) || "",
+      newL4: (bfNewHint && bfNewHint.last4) || "",
     }),
     draw = () => {
       const a = bfAcct(S0.acctId);
@@ -156475,8 +156513,10 @@ function bfImportDialog(acctId) {
         '<p class="small muted" style="margin:0 0 10px">A statement file is the bank\'s own record of the month. OFX and QFX come with the bank\'s id on every line and the ending balance; a CSV needs its columns named once, and this account remembers them.</p>'),
         (body += mbF(
           "Account",
-          `<select id="bfi-acct">${accts.map((x) => `<option value="${x.id}" ${x.id === S0.acctId ? "selected" : ""}>${esc(bfAcctName(x))}</option>`).join("")}</select>`,
+          `<select id="bfi-acct">${accts.map((x) => `<option value="${x.id}" ${x.id === S0.acctId ? "selected" : ""}>${esc(bfAcctName(x))}</option>`).join("")}<option value="__new" ${"__new" === S0.acctId ? "selected" : ""}>New Card Account…</option></select>`,
         )),
+        "__new" === S0.acctId &&
+          (body += `<div class="grid2">${mbF("Card Name", `<input id="bfi-nname" value="${esc(S0.newName || "")}" placeholder="e.g. Square card">`)}${mbF("Last 4 Digits", `<input id="bfi-nl4" inputmode="numeric" maxlength="4" value="${esc(S0.newL4 || "")}" placeholder="1234">`)}</div><div class="row" style="margin-bottom:8px"><button type="button" class="btn sm" id="bfi-nadd">Add the Card Account</button><span class="small muted">Only the last 4 digits are kept.</span></div>`),
         (body += `<div class="f"><label>Statement File</label><label class="btn bf-file">Choose File<input type="file" id="bfi-file" accept=".ofx,.qfx,.csv,.txt" hidden></label> <span class="small muted" id="bfi-name">${S0.file ? esc(S0.file) : "OFX, QFX or CSV"}</span></div>`),
         "csv" === S0.kind &&
           S0.headers &&
@@ -156508,11 +156548,17 @@ function bfImportDialog(acctId) {
           onSubmit: () => bfImportRun(),
         }),
         ok = m.querySelector("#mbm-ok");
-      ok && !lines && (ok.disabled = !0),
+      ok && (!lines || "__new" === S0.acctId) && (ok.disabled = !0),
         m.classList.add("bf-wide"),
         (m.querySelector("#bfi-acct").onchange = (e) => {
-          (S0.acctId = e.target.value), bfCsvRemember(), draw();
+          (S0.acctId = e.target.value), "__new" !== S0.acctId && bfCsvRemember(), draw();
         }),
+        m.querySelector("#bfi-nadd") &&
+          (m.querySelector("#bfi-nadd").onclick = () => {
+            const r = acctNewCard((m.querySelector("#bfi-nname") || {}).value, (m.querySelector("#bfi-nl4") || {}).value, "Import Statement");
+            if (!r.ok) return toast(r.why);
+            (S0.acctId = r.a.id), draw(), toast(`${r.a.name} ····${r.a.last4} added; import its statement here`);
+          }),
         (m.querySelector("#bfi-file").onchange = async (e) => {
           const f = e.target.files[0];
           f && (await bfImportRead(f.name, await f.text()), draw());
@@ -178715,7 +178761,7 @@ if ("function" == typeof tdScore) {
 // (cmRead) and applied here: a delivery date on an open order (eta), a paid order ready at the yard (pickup),
 // a credit memo against a statement credit and the original purchase (credit). A quote's Apply prices the line
 // and links the PDF; a receipt's Apply codes the card line to the job and category it names.
-"object" == typeof CM_CATS && Object.assign(CM_CATS, { eta: "Delivery date", pickup: "Pickup", credit: "Credit memo", bankline: "Bank notice", money: "Money, unclassified", request: "Asks for something", address: "New address" });
+"object" == typeof CM_CATS && Object.assign(CM_CATS, { eta: "Delivery date", pickup: "Pickup", credit: "Credit memo", bankline: "Bank notice", money: "Money, unclassified", request: "Asks for something", address: "New address", newacct: "New card account" });
 const CM_MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
 // A date in a vendor's words ("Friday September 18", "9/18", "by Friday"), as ISO on the app clock.
 function cmDateIn(text) {
@@ -185052,8 +185098,10 @@ const NYH_MAIL = {
   credit: () => "coord",
   deposit: () => "billing",
   lpc: () => "designer",
+  newacct: () => "controller",
+  inspection: () => "pm",
 };
-const NYH_VERB = { bill: "Apply", statement: "Apply", quote: "Apply", receipt: "Apply", coi: "Apply", w9: "Apply", eta: "Apply", pickup: "Apply", credit: "Apply", deposit: "Apply", lpc: "Make It a Task" };
+const NYH_VERB = { bill: "Apply", statement: "Apply", newacct: "New Card Account", quote: "Apply", receipt: "Apply", coi: "Apply", w9: "Apply", eta: "Apply", pickup: "Apply", credit: "Apply", deposit: "Apply", lpc: "Make It a Task" };
 const lnHandDone = (key) => !!(lnInit().hand[key] && lnInit().hand[key].done);
 const lnUid = () => ((currentUser() || {}).id) || "";
 // a row: {key, route (role), kind (mail|deposit|undeposited|payroll|master|rule|promise|learn), title, why, amount, verb, run, open}
