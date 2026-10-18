@@ -193145,7 +193145,7 @@ function coSanity(d) {
           const txt = `${x.title || ""} ${x.detail || ""}`.toLowerCase();
           if (!keys.some((k) => txt.includes(k))) return;
           gone.add(x);
-          (it.also = it.also || []).push({ kind: x.kind, title: x.title, open: x.open });
+          (it.also = it.also || []).push({ kind: x.kind, title: x.title, open: x.open, key: (x.nyh && x.nyh.key) || "" });
           it.detail = `${it.detail || ""}${it.detail ? " · " : ""}also on this bill: ${"learn" === x.kind ? `the lesson “${String(x.title || "").replace(/^Lesson:\s*/, "")}” (approve it in The Brain, not here)` : String(x.title || "").slice(0, 90)}`;
         });
       });
@@ -193153,6 +193153,38 @@ function coSanity(d) {
     } catch (e) {
       console.warn("one bill one card", e);
       return out;
+    }
+  };
+}
+// The same fold on Home's Needs Your Hand: a row folded into a bill's card in the person's queue is that card's "also
+// on this bill", not a row of its own. The owner's Home listed the over-PO lesson on WW-2026-118 as a Needs Your Hand
+// row while Do Now and Approvals had folded it into the bill (20 rows against 19: one question, two numbers). The
+// lesson stays approvable in The Brain, and Everyone views keep every row. Read once per Needs Your Hand cache.
+let nyhFoldBusy = 0,
+  nyhFoldMemo = null;
+{
+  const base = nyhRows;
+  nyhRows = function (opts) {
+    const R = base.apply(this, arguments),
+      o = opts || {};
+    if (o.everyone || (o.role && o.role !== role()) || nyhFoldBusy || !Array.isArray(R) || !R.length) return R;
+    try {
+      const k = `${role()}|${lnUid()}`;
+      (nyhFoldMemo && nyhFoldMemo.src === nyhCache) || (nyhFoldMemo = { src: nyhCache, by: {} });
+      let gone = nyhFoldMemo.by[k];
+      if (!gone) {
+        nyhFoldBusy++;
+        try {
+          gone = new Set((mApprovals() || []).filter((x) => "bill" === x.kind).flatMap((x) => (x.also || []).map((a) => a.key)).filter(Boolean));
+        } finally {
+          nyhFoldBusy--;
+        }
+        nyhFoldMemo.by[k] = gone;
+      }
+      return gone.size ? R.filter((r) => !gone.has(r.key)) : R;
+    } catch (e) {
+      console.warn("needs your hand fold", e);
+      return R;
     }
   };
 }
