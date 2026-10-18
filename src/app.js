@@ -86532,12 +86532,14 @@ const DELEGATION = {
   },
   raise: {
     role: "pm",
-    rule: "a question from the site waits on the person it was sent to (or the first person copied who can answer here); an escalation or an incident waits on the owner",
+    // an escalation tells the owner; the answer is still owed by the person it was sent to (pilot day 2: the PM's
+    // Home read 0 Site Questions while Field said 1 to him, because the escalation had moved it to the owner)
+    rule: "a question from the site waits on the person it was sent to (or the first person copied who can answer here), escalated or not; an incident waits on the owner",
     who: (it) => {
       const r = (((DB.field || {}).raises) || []).find((x) => x.id === it.id);
       if (!r) return "";
-      if (r.escalated || "incident" === r.type) return "owner";
-      return [r.to].concat(r.cc || []).find(apprCanOpen) || "";
+      if ("incident" === r.type) return "owner";
+      return [r.to].concat(r.cc || []).find(apprCanOpen) || (r.escalated ? "owner" : "");
     },
   },
   dec: {
@@ -141053,7 +141055,8 @@ if ("function" == typeof fOfficeMount) {
         if (!card) return;
         const n = ocFieldWaiting(S).length,
           k = fRoleKey(),
-          mine = ocFieldWaiting(S).filter((r) => r.to === k).length,
+          // "to you" is the delegation's own answer, the rows Home's Site Questions counts
+          mine = ocFieldWaiting(S).filter((r) => "undefined" != typeof DELEGATION && DELEGATION.raise ? DELEGATION.raise.who({ id: r.id }) === role() : r.to === k).length,
           lab = card.querySelector(".hd .small.muted");
         lab &&
           ((lab.textContent = n
@@ -163221,11 +163224,42 @@ function dlClockGaps(dr, p) {
   });
   return out;
 }
+// Everything that stops a log from being signed, each with its reason (pilot day 2: Sign and Send dropped back to
+// Weather with no word, and the log was never filed): today's weather, yesterday's delay unanswered, a sub booked
+// today that nobody said came or not, the clock, and the tick.
+function dlSignBlockers(dr, p) {
+  const B = [];
+  dr.weather || B.push({ k: "wx", msg: "Today's weather is not picked: one tap below." });
+  (dr.delays || []).forEach((x, i) => x.carried && null == x.still && B.push({ k: "delay", i: i, msg: `Yesterday's delay (${dlCauseLabel(x.cause)}${x.note ? ": " + clipWords(x.note, 40) : ""}): still holding the work, or cleared?` }));
+  (dr.subsOn || []).forEach((s, i) => s.subId && !s.checkedIn && !s.touched && B.push({ k: "sub", i: i, msg: `${s.vendor} was booked today: did they come?` }));
+  dlClockGaps(dr, p).forEach((g) => B.push(Object.assign({ k: "clock" }, g)));
+  return B;
+}
 function dlGapsHtml(dr, p) {
-  const G = dlClockGaps(dr, p);
+  const G = dlSignBlockers(dr, p);
   if (!G.length) return "";
-  const self = G.some((g) => g.self);
-  return `<div class="note warn dl-gaps" role="alert"><b>Not ready to sign: the log and the clock disagree</b>${G.map((g) => `<div class="small">${esc(g.msg)}</div>`).join("")}<div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap"><button type="button" class="btn sm" data-dlgo="1">Fix the Crew Hours</button>${self ? '<button type="button" class="btn sm" data-dlclockout>Clock Out</button>' : ""}</div></div>`;
+  const self = G.some((g) => g.self),
+    clock = G.some((g) => "clock" === g.k);
+  return `<div class="note warn dl-gaps" role="alert"><b>Not ready to sign</b>${G.map(
+    (g) =>
+      `<div class="small dl-gap">${esc(g.msg)}${
+        "sub" === g.k
+          ? ` <button type="button" class="btn sm" data-dlsubq="${g.i}:1">Came</button><button type="button" class="btn sm" data-dlsubq="${g.i}:0">Not Here</button>`
+          : "delay" === g.k
+            ? ` <button type="button" class="btn sm" data-dlstill="${g.i}:1">Still Delaying</button><button type="button" class="btn sm" data-dlstill="${g.i}:0">Cleared</button>`
+            : ""
+      }</div>`,
+  ).join("")}${G.some((g) => "wx" === g.k) ? `<div class="dl-wx" role="group" aria-label="Weather">${DL_WX.map(([w, ic]) => `<button type="button" class="dl-wxb" data-dlwx="${w}">${FX_ICON[ic]}<span>${w}</span></button>`).join("")}</div>` : ""}${clock || self ? `<div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap">${clock ? '<button type="button" class="btn sm" data-dlgo="1">Fix the Crew Hours</button>' : ""}${self ? '<button type="button" class="btn sm" data-dlclockout>Clock Out</button>' : ""}</div>` : ""}</div>`;
+}
+function dlSignTry(root, dr, p) {
+  const B = dlSignBlockers(dr, p);
+  if (B.length) {
+    "flog" === view && dr.step !== DL_STEPS.length - 1 && ((dr.step = DL_STEPS.length - 1), save(), dlRenderFlow(root));
+    toast(`Not signed yet: ${B[0].msg}${B.length > 1 ? ` (and ${fxN(B.length - 1, "more thing")})` : ""}`);
+    return void dlSay(root.querySelector(".dl-gaps") || root.querySelector(".dl-sign"), B[0].msg);
+  }
+  if (!dr.signed) return toast("Not signed yet: tick that it is a true record"), void dlSay(root.querySelector(".dl-sign"), "The log goes out signed: tick to confirm it is a true record");
+  dlSubmit(dr, p);
 }
 // Hours waiting on the foreman's approval on this job (flagged ones first): the same rows as Crew › Hours to Approve.
 function dlHoursToApprove(p) {
@@ -163574,9 +163608,26 @@ function dlSay(el, msg) {
       f.focus({ preventScroll: !0 });
     } catch (e) {}
 }
+// A late log: an earlier working day with no log is filed with a reason (pilot day 2: "No log filed" and no way to
+// file it). The flow runs on that day; the record carries the reason and the day it was filed.
+let dlLateDay = "",
+  dlLateWhy = "";
+function dlFileLate(date) {
+  mbModal(
+    `File a Late Log — ${fmtL(date)}`,
+    `<div class="small muted" style="margin-bottom:6px">The log for ${fmtL(date)} was not filed. It is filed now with the clock's hours for that day and the reason it is late.</div>${mbF("Why It Is Late", mbIn("why", "", "e.g. the app sent me back to Weather and it never saved"))}`,
+    {
+      submit: "Start the Late Log",
+      onSubmit: (f) => {
+        if (!f.why) return toast("Say why it is late"), !1;
+        (dlLateDay = date), (dlLateWhy = f.why), render(), window.scrollTo(0, 0);
+      },
+    },
+  );
+}
 function dlRenderFlow(root) {
   const p = S,
-    td = today(),
+    td = dlLateDay || today(),
     sent = dlLogOn(p.id, td),
     key = `${p.id}|${td}`,
     past = dlLogs(p.id)
@@ -163584,13 +163635,13 @@ function dlRenderFlow(root) {
       .sort((a, b) => b.date.localeCompare(a.date))
       .slice(0, 10),
     miss = dlMissing(p.id).filter((m) => !m.today),
-    pastHtml = `<div class="card f-card"><div class="hd"><h3>Earlier</h3><span class="small muted">${miss.length ? `<span class="bad-t">${fxN(miss.length, "day")} without a log</span> · ` : ""}<a href="#" data-dlphotos>Job Photos</a></span></div>\n    ${miss.map((m) => `<div class="dl-past miss"><div class="grow"><b>${fmtL(m.date)}</b><span class="small bad-t">No log filed</span></div></div>`).join("")}\n    ${past.map((l) => `<button type="button" class="dl-past" data-dlopen="${esc(l.id)}"><span class="grow"><b>${fmtL(l.date)}</b><span class="small muted">${esc(l.weather || "")}${l.temp ? ` ${esc(l.temp)}°` : ""} · ${fxN((l.crew || []).length, "person", "people")}${(l.delays || []).length ? ` · ${fxN(l.delays.length, "delay")}` : ""}${(l.photoIds || []).length ? ` · ${fxN(l.photoIds.length, "photo")}` : ""}</span></span></button>`).join("") || (miss.length ? "" : '<div class="small muted">No earlier logs on this job.</div>')}</div>`;
+    pastHtml = `<div class="card f-card"><div class="hd"><h3>Earlier</h3><span class="small muted">${miss.length ? `<span class="bad-t">${fxN(miss.length, "day")} without a log</span> · ` : ""}<a href="#" data-dlphotos>Job Photos</a></span></div>\n    ${miss.map((m) => `<div class="dl-past miss"><div class="grow"><b>${fmtL(m.date)}</b><span class="small bad-t">No log filed</span></div><button type="button" class="btn sm" data-dllate="${m.date}">File Late Log</button></div>`).join("")}\n    ${past.map((l) => `<button type="button" class="dl-past" data-dlopen="${esc(l.id)}"><span class="grow"><b>${fmtL(l.date)}</b><span class="small muted">${esc(l.weather || "")}${l.temp ? ` ${esc(l.temp)}°` : ""} · ${fxN((l.crew || []).length, "person", "people")}${(l.delays || []).length ? ` · ${fxN(l.delays.length, "delay")}` : ""}${(l.photoIds || []).length ? ` · ${fxN(l.photoIds.length, "photo")}` : ""}</span></span></button>`).join("") || (miss.length ? "" : '<div class="small muted">No earlier logs on this job.</div>')}</div>`;
   if (sent && !dlEditing[key])
     root.innerHTML = `<div class="card f-card dl-card"><div class="hd"><h3>Today — ${fmtL(td)}</h3><span class="pill ok">Sent</span></div>${dlRecordHtml(sent, p)}<div class="row dl-nav"><button type="button" class="btn" data-dledit>Edit Today's Log</button></div></div>${pastHtml}`;
   else {
     const dr = dlDraft(p, td),
       last = (DL_STEPS[dr.step][0], dr.step === DL_STEPS.length - 1);
-    (root.innerHTML = `<div class="card f-card dl-card"><div class="hd"><h3>${dr.editing ? "Editing" : "Today"} — ${fmtL(td)}</h3><span class="small muted">Step ${dr.step + 1} of ${DL_STEPS.length} · crew from today's clock</span></div>\n      <div class="dl-steps" role="tablist" aria-label="Steps">${DL_STEPS.map(([s, n], i) => `<button type="button" role="tab" class="dl-st ${i === dr.step ? "on" : ""} ${i < dr.step ? "done" : ""}" data-dlgo="${i}" aria-selected="${i === dr.step}">${n}</button>`).join("")}</div>\n      <h3 class="dl-title">${DL_STEPS[dr.step][1]}</h3>\n      <div class="dl-body">${dlStepHtml(dr, p)}</div>\n      <div class="row dl-nav">${dr.step > 0 ? '<button type="button" class="btn" data-dlback>Back</button>' : ""}${!last && dr.step > 0 ? '<button type="button" class="btn" data-dlgo="6">Review and Sign</button>' : ""}<span class="grow"></span><button type="button" class="btn primary" id="dl-next">${last ? (dr.editing ? "Sign and Update" : "Sign and Send") : "Next"}</button></div></div>${pastHtml}`),
+    (root.innerHTML = `<div class="card f-card dl-card"><div class="hd"><h3>${dr.editing ? "Editing" : dlLateDay ? "Late Log" : "Today"} — ${fmtL(td)}</h3>${dlLateDay ? ` <button type="button" class="btn sm ghost" data-dllatex>Back to Today</button>` : ""}<span class="small muted">Step ${dr.step + 1} of ${DL_STEPS.length} · crew from ${dlLateDay ? "that day's" : "today's"} clock</span></div>\n      <div class="dl-steps" role="tablist" aria-label="Steps">${DL_STEPS.map(([s, n], i) => `<button type="button" role="tab" class="dl-st ${i === dr.step ? "on" : ""} ${i < dr.step ? "done" : ""}" data-dlgo="${i}" aria-selected="${i === dr.step}">${n}</button>`).join("")}</div>\n      <h3 class="dl-title">${DL_STEPS[dr.step][1]}</h3>\n      <div class="dl-body">${dlStepHtml(dr, p)}</div>\n      <div class="row dl-nav">${dr.step > 0 ? '<button type="button" class="btn" data-dlback>Back</button>' : ""}${!last && dr.step > 0 ? '<button type="button" class="btn" data-dlgo="6">Review and Sign</button>' : ""}<span class="grow"></span><button type="button" class="btn primary" id="dl-next">${last ? (dr.editing ? "Sign and Update" : "Sign and Send") : "Next"}</button></div></div>${pastHtml}`),
       dlWire(root, dr, p);
     // Sign Off: the attestation sits in the docked step nav, beside the button it unlocks
     const sg = last && root.querySelector(".dl-body .dl-sign"),
@@ -163613,6 +163664,8 @@ function dlRenderFlow(root) {
       nx.classList.add("primary"));
   }
   root.querySelectorAll("[data-dlopen]").forEach((b) => (b.onclick = () => dlOpen(b.dataset.dlopen)));
+  root.querySelectorAll("[data-dllate]").forEach((b) => (b.onclick = () => dlFileLate(b.dataset.dllate)));
+  root.querySelectorAll("[data-dllatex]").forEach((b) => (b.onclick = () => ((dlLateDay = ""), (dlLateWhy = ""), render())));
   const ph = root.querySelector("[data-dlphotos]");
   ph &&
     (ph.onclick = (e) => {
@@ -163783,6 +163836,14 @@ function dlWire(root, dr, p) {
           (dr.step = +b.dataset.dlgo), keep(), dlRenderFlow(root), navScrollTop();
         }),
     );
+  root.querySelectorAll("[data-dlsubq]").forEach(
+    (b) =>
+      (b.onclick = () => {
+        const [i, v] = b.dataset.dlsubq.split(":"),
+          s = dr.subsOn[+i];
+        s && ((s.on = "1" === v), (s.touched = !0)), keep(), dlRenderFlow(root);
+      }),
+  ),
   root.querySelectorAll("[data-dlclock]").forEach(
     (b) =>
       (b.onclick = () => {
@@ -163820,23 +163881,16 @@ function dlWire(root, dr, p) {
             ? dr.weather
               ? (dr.step++, keep(), dlRenderFlow(root), void navScrollTop())
               : noWx()
-            : dr.weather
-              ? void (dlClockGaps(dr, p).length
-                  ? dlSay(root.querySelector(".dl-gaps") || root.querySelector(".dl-sign"), dlClockGaps(dr, p)[0].msg)
-                  : dr.signed
-                  ? dlSubmit(dr, p)
-                  : dlSay(
-                      root.querySelector(".dl-sign"),
-                      "The log goes out signed: tick to confirm it is a true record",
-                    ))
-              : noWx()
-        : noWx();
+            : void dlSignTry(root, dr, p)
+        : dr.step === DL_STEPS.length - 1
+          ? void dlSignTry(root, dr, p)
+          : noWx();
     });
 }
 function dlSubmit(dr, p) {
   // a sworn record never carries hours the clock does not: refused with the reason, whoever calls it
   dlSyncSite(dr, p);
-  const gaps = dlClockGaps(dr, p);
+  const gaps = dlSignBlockers(dr, p);
   if (gaps.length) return void toast(`Not signed: ${gaps[0].msg}`), null;
   const td = dr.date,
     ex = dlLogs(p.id).find((l) => l.date === td),
@@ -163848,7 +163902,9 @@ function dlSubmit(dr, p) {
       signedBy: FX_ME(),
       signedAt: appNowIso(),
       secs: Math.round((Date.now() - (dr.startedMs || Date.now())) / 1e3),
-    });
+    },
+    td !== today() && dlLateDay === td ? { late: { why: dlLateWhy, filedOn: today(), by: FX_ME() } } : {});
+  td === dlLateDay && ((dlLateDay = ""), (dlLateWhy = ""));
   ex || DB.field.logs.push(rec),
     (rec.photoIds || []).forEach((id) => {
       const x = pstRec(id);
@@ -190728,6 +190784,61 @@ function docSelBar(root) {
         });
       }
     } catch (e) {}
+    return r;
+  };
+}
+// ---- Daily logs on the PM's Home and the foreman's Today (pilot day 2: two days with no log and nobody told) -----
+// A working day with no log flags on the PM's (and owner's) Home and on the foreman's Today, with File Late Log;
+// a log filed and not yet read by the office lands on the PM's Home to read (Acknowledge on the log).
+function dlMissingMine() {
+  const jobs = new Set(("function" == typeof tdMyJobs ? tdMyJobs() : DB.projects || []).map((p) => p.id));
+  return dlMissing().filter((m) => !m.today && jobs.has(m.p.id));
+}
+CATCH.push({
+  name: "dailyLogs",
+  label: "Daily Logs",
+  rows() {
+    if (!["pm", "owner"].includes(role())) return [];
+    const jobs = new Set(("function" == typeof tdMyJobs ? tdMyJobs() : DB.projects || []).map((p) => p.id)),
+      miss = dlMissingMine().map((m) => ({
+        key: `dlmiss:${m.p.id}:${m.date}`,
+        what: `No daily log: ${fxJob(m.p)}, ${fmtL(m.date)}`,
+        sub: "a working day on site with no signed record",
+        amount: 0,
+        verb: "Open",
+        run: () => {
+          setCurrent(m.p.id), "undefined" != typeof opsFieldTab && (opsFieldTab = "log"), (view = "field"), render();
+        },
+      })),
+      unread = "pm" === role() ? dlLogs().filter((l) => "submitted" === l.status && !(l.ack && l.ack.by) && jobs.has(l.projectId) && l.date >= iso(addDays(today(), -3))) : [];
+    return miss.concat(
+      unread.map((l) => ({
+        key: `dlread:${l.id}`,
+        what: `Daily log to read: ${fxJob(fxProj(l.projectId))}, ${fmtL(l.date)}`,
+        sub: `signed by ${l.signedBy || l.by}${(l.delays || []).length ? ` · ${fxN(l.delays.length, "delay")}` : ""}${l.late ? " · filed late" : ""}`,
+        amount: 0,
+        verb: "Read",
+        run: () => dlOpen(l.id),
+      })),
+    );
+  },
+});
+{
+  const base = fRenderToday;
+  fRenderToday = function () {
+    const r = base.apply(this, arguments);
+    try {
+      const root = document.getElementById("ftoday-body"),
+        M = S ? dlMissing(S.id).filter((m) => !m.today) : [];
+      if (root && M.length && !root.querySelector(".dl-missnote")) {
+        const at = root.querySelector(":scope > .f-you") || root.querySelector(":scope > .f-hero");
+        const h = `<div class="note warn small dl-missnote"><b>No daily log for ${M.map((m) => fmtL(m.date)).join(", ")}</b><div style="margin-top:4px">${M.map((m) => `<button type="button" class="btn sm" data-dllatego="${m.date}">File Late Log · ${fmt(m.date)}</button>`).join(" ")}</div></div>`;
+        at ? at.insertAdjacentHTML("afterend", h) : root.insertAdjacentHTML("afterbegin", h);
+        root.querySelectorAll("[data-dllatego]").forEach((b) => (b.onclick = () => ((view = "flog"), render(), dlFileLate(b.dataset.dllatego))));
+      }
+    } catch (e) {
+      console.warn("today missing log", e);
+    }
     return r;
   };
 }

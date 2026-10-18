@@ -51,6 +51,7 @@ async def t_daily_log(c, p):
       const dr = DB.field.dlDraft['p121|' + today()]; dr.weather = 'Clear'; dr.step = 1; render(); await sleep(200);
       const i = document.querySelector('[data-dl="crew.hours"][data-i="0"]'); i.value = '14'; i.dispatchEvent(new Event('input'));
       dr.step = 6; dr.signed = true; render(); await sleep(200);
+      for (let k = 0; k < 4; k++) { const st = document.querySelector('.dl-gaps [data-dlstill$=":0"]'); if (!st) break; st.click(); await sleep(120); }
       const nav = [...document.querySelectorAll('.dl-nav button')].map(b => b.innerText.trim());
       document.querySelector('#dl-next').click(); await sleep(250);
       return { gaps: (document.querySelector('.dl-gaps') || {}).innerText || '', msg: (document.querySelector('.dl-msg') || {}).innerText || '',
@@ -330,7 +331,61 @@ async def t_documents(c, p):
     c.ok(not errs, f'pm: no page errors {errs[:2]}')
     await b.close()
 
-TESTS = [t_daily_log, t_documents, t_controller_pos, t_payment_check, t_own_mail_client, t_bought_from_mail, t_request_quirks]
+async def t_daily_log_day2(c, p):
+    b, pg, errs = await fresh(p, 'u_angel', phone=True)
+    r = await js(pg, """
+      const fs = DB.field.subs.find(x => x.id === 'fs1'); fs.status = 'confirmed';
+      setCurrent('p121'); view = 'flog'; render(); await sleep(250);
+      const dr = DB.field.dlDraft['p121|' + today()]; dr.step = 6; dr.signed = true; render(); await sleep(200);
+      document.querySelector('#dl-next').click(); await sleep(250);
+      const t1 = (document.getElementById('toast') || {}).innerText || '', step1 = dr.step;
+      const gaps = (document.querySelector('.dl-gaps') || {}).innerText || '';
+      const wx = document.querySelector('.dl-gaps [data-dlwx="Clear"]'); wx && wx.click(); await sleep(150);
+      const came = document.querySelector('.dl-gaps [data-dlsubq="0:1"]'); came && came.click(); await sleep(150);
+      for (let k = 0; k < 4; k++) { const st = document.querySelector('.dl-gaps [data-dlstill$=":0"]'); if (!st) break; st.click(); await sleep(120); }
+      const sg = document.querySelector('[data-dlsign]'); sg && !sg.checked && sg.click();
+      DB.field.dlDraft['p121|' + today()].signed = true;
+      document.querySelector('#dl-next').click(); await sleep(400);
+      const l = dlLogs('p121').find(x => x.date === today());
+      const card = (document.querySelector('.dl-card') || {}).innerText || '';
+      return { t1, step1, gaps, filed: !!l, subs: l && l.subsOn.map(x => x.vendor), weather: l && l.weather, toast: (document.getElementById('toast') || {}).innerText || '', sent: /Sent/.test(card) };""")
+    c.ok(r['step1'] == 6 and 'Not signed yet' in r['t1'] and 'weather' in r['t1'], f"log day 2: Sign and Send without weather stays on Sign Off and says why ({r['t1']!r}, step {r['step1']})")
+    c.ok('Carlos Millwork was booked today' in r['gaps'], f"log day 2: a booked sub nobody ticked is asked about ({r['gaps'][:160]!r})")
+    c.ok(r['filed'] and r['subs'] == ['Carlos Millwork'] and r['weather'] == 'Clear', f"log day 2: once answered it signs, with the sub and the weather ({r})")
+    c.ok('Open' in r['toast'] and r['sent'], f"log day 2: the toast has Open and the log shows Sent ({r['toast']!r})")
+    r = await js(pg, """
+      view = 'ftoday'; render(); await sleep(250);
+      const n = (document.querySelector('#ftoday-body .dl-missnote') || {}).innerText || '';
+      view = 'flog'; render(); await sleep(200);
+      const late = document.querySelector('[data-dllate]'); const date = late && late.dataset.dllate; late && late.click(); await sleep(150);
+      const w = document.querySelector('#mbm [data-f="why"]'); w && (w.value = 'the app sent me back to Weather');
+      document.querySelector('#mbm-ok') && document.querySelector('#mbm-ok').click(); await sleep(250);
+      const head = (document.querySelector('.dl-card .hd') || {}).innerText || '';
+      const dr = DB.field.dlDraft['p121|' + date]; if (dr) { dr.weather = 'Cloudy'; dr.step = 6; dr.signed = true; (dr.delays || []).forEach(x => x.carried && (x.still = false)); (dr.subsOn || []).forEach(x => x.touched = true); render(); await sleep(150);
+        document.querySelector('#dl-next').click(); await sleep(400); }
+      const l = dlLogs('p121').find(x => x.date === date);
+      return { n, date, head, late: l && l.late, gaps: (document.querySelector('.dl-gaps') || {}).innerText || '' };""")
+    c.ok('No daily log for' in r['n'], f"today: a working day with no log flags on the foreman's Today ({r['n'][:80]!r})")
+    c.ok(r['head'].startswith('Late Log'), f"log: File Late Log opens that day's log ({r['head'][:60]!r})")
+    c.ok(r['late'] and r['late'].get('why'), f"log: the late log is filed with its reason ({r['late']}, {r['gaps'][:120]!r})")
+    await b.close()
+    b, pg, errs2 = await fresh(p, 'u_alan', phone=True)
+    r = await js(pg, """
+      const rows = CATCH.find(x => x.name === 'dailyLogs').rows();
+      view = 'home'; render(); await sleep(300);
+      const sq = document.querySelector('.view.on [data-tdpulse="site"]');
+      return { rows: rows.map(x => x.what), site: sq ? +sq.dataset.n : null, mine: PRED.siteQuestionsMine.rows().length,
+               field: (DB.field.raises || []).filter(x => ['sent', 'seen'].includes(x.status) && DELEGATION.raise.who({ id: x.id }) === 'pm').length };""")
+    c.ok(any('No daily log' in x for x in r['rows']), f"pm: a missing log flags on the PM's Home ({r['rows']})")
+    c.ok(r['site'] == r['field'] and r['mine'] == r['field'], f"pm: Home's Site Questions counts the Field questions waiting on him ({r})")
+    r = await js(pg, """
+      const x = DB.field.raises.find(r => r.id === 'fr4'); x.escalated = true;
+      return { who: DELEGATION.raise.who({ id: 'fr4' }), n: PRED.siteQuestionsMine.rows().length };""")
+    c.ok(r['who'] == 'pm' and r['n'] >= 1, f"pm: an escalated question still waits on the PM it was sent to ({r})")
+    c.ok(not errs and not errs2, f'log day 2: no page errors {(errs + errs2)[:2]}')
+    await b.close()
+
+TESTS = [t_daily_log, t_daily_log_day2, t_documents, t_controller_pos, t_payment_check, t_own_mail_client, t_bought_from_mail, t_request_quirks]
 
 async def main():
     c = Checks()
