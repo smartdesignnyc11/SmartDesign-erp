@@ -411,8 +411,15 @@ async def t_statements_tasks_billing(c, p):
       const rows = nyhRows().filter(x => x.pkind === 'statement' || x.kind === 'statement').map(x => x.title);
       const props = DB.comms.filter(x => x.owner === 'u_controller').flatMap(x => (x.proposals || []).filter(p => p.kind === 'statement' && p.acctId).map(p => p.summary));
       return { rows, props };""")
-    c.ok(not any(('Amex' in x or 'Chase' in x) and 'statement' in x for x in r['rows']), f"controller: the imported Amex and Chase August statements are not offered again ({r['rows']})")
-    c.ok(r['props'] and all('already here' in x for x in r['props']), f"controller: the mail reads already here ({r['props']})")
+    # A statement is already here when every line it holds is on the books from the bank, not when its month is
+    # (cmStmtImport, lane netfix). Chase's August is fully backed: already here, not offered. Amex's August month is
+    # imported, but four of its lines (9/1-9/2, $12,430) are on the books only as typed by hand, so it is still offered,
+    # saying why, so it does not read as a duplicate: importing it backs them.
+    c.ok(not any('Chase' in x and 'statement' in x for x in r['rows']), f"controller: the imported, fully backed Chase August statement is not offered again ({r['rows']})")
+    c.ok(any('Chase' in x and 'already here' in x for x in r['props']), f"controller: the Chase mail reads already here ({r['props']})")
+    amex = [x for x in r['props'] if 'Amex' in x]
+    c.ok(amex and all('has the month, but 4 of its lines' in x and 'no bank line on the books' in x for x in amex) and any('Amex' in x and 'statement' in x for x in r['rows']),
+         f"controller: the Amex statement is offered with the lines the books hold only by hand, not as a duplicate ({amex}, {r['rows']})")
     await b.close()
     b, pg, errs2 = await fresh(p, 'u_sarah')
     r = await js(pg, """
