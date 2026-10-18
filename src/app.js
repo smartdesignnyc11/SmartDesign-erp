@@ -190122,7 +190122,7 @@ const PL_SET_LABEL = {
     superseded: ["Superseded", "neutral"],
     void: ["Void", "bad"],
   },
-  PL_KIND = { sheet: "Sheet", shop: "Shop Drawing", rfi: "RFI Sketch", spec: "Specification", schedule: "Finish Schedule" },
+  PL_KIND = { sheet: "Sheet", shop: "Shop Drawing", rfi: "RFI Sketch", spec: "Specification", schedule: "Finish Schedule", calc: "Calculation" },
   PL_SHOP = { approved: "Approved", noted: "Approved as Noted", resubmit: "Revise and Resubmit" },
   PL_ISSUERS = ["designer", "design_mgr", "pm", "owner"],
   PL_BUILD_SETS = ["cd", "shop", "ffe", "spec", "struct", "mep"],
@@ -190308,15 +190308,17 @@ function plTaskReasons(p, t) {
 function plMarkInRevision(o) {
   const p = plJob(o.projectId);
   if (!p || !(o.roomIds || []).length) return [];
-  if (!plCanIssue()) return toast("Only the designer, the PM or the owner marks an area in revision"), [];
+  // o.auto: the cross-set check (BACKLOG §1.23) holds what is at risk on its own; a person marks it otherwise
+  if (!o.auto && !plCanIssue()) return toast("Only the designer, the PM or the owner marks an area in revision"), [];
   const made = [],
     // the construction sets covering the rooms go In Revision (a filed or presentation sheet keeps its status)
     sheets = plSheets(p.id, { current: !0 })
-      .filter((s) => (o.sheetIds || []).includes(s.id) || (PL_BUILD_SETS.includes(s.set) && s.rooms.some((id) => o.roomIds.includes(id))))
+      .filter((s) => (o.sheetIds || []).includes(s.id) || (!o.only && PL_BUILD_SETS.includes(s.set) && s.rooms.some((id) => o.roomIds.includes(id))))
       .sort((a, b) => PL_BUILD_SETS.indexOf(a.set) - PL_BUILD_SETS.indexOf(b.set));
   o.roomIds.forEach((rid) => {
     if (plHolds(p.id).some((h) => h.roomId === rid && !h.liftOn)) return;
-    const h = { id: uid("ph"), projectId: p.id, roomId: rid, sheetIds: sheets.filter((s) => s.rooms.includes(rid)).map((s) => s.id), why: o.why || "", by: plMe(), byUid: plUid(), at: appNowIso(), liftOn: "" };
+    const h = { id: uid("ph"), projectId: p.id, roomId: rid, sheetIds: sheets.filter((s) => s.rooms.includes(rid)).map((s) => s.id), why: o.why || "", by: o.auto ? o.by || "The set check" : plMe(), byUid: o.auto ? "" : plUid(), at: appNowIso(), liftOn: "" };
+    o.auto && ((h.auto = !0), o.findingId && (h.xsFinding = o.findingId));
     plDB().holds.push(h), made.push(h);
   });
   sheets.forEach((s) => {
@@ -190328,7 +190330,7 @@ function plMarkInRevision(o) {
       audit("plans", p.id, "in-revision", "", names, o.why || "");
     } catch (e) {}
     log(`${names} in revision (${plMe()}): ${o.why || "design is reworking it"}`, "plans", plMe());
-    (p.chat = p.chat || []).push({ id: uid("ch"), by: plMe(), text: `${names} ${1 === made.length ? "is" : "are"} in revision${o.why ? ": " + o.why : ""}. Work there is on hold and nothing is ordered for it until the new revision is issued and acknowledged.`, t: nowStamp(), files: [], plHold: made.map((h) => h.id) });
+    (p.chat = p.chat || []).push({ id: uid("ch"), by: o.auto ? o.by || "The set check" : plMe(), text: `${names} ${1 === made.length ? "is" : "are"} in revision${o.why ? ": " + o.why : ""}. Work there is on hold and nothing is ordered for it until the new revision is issued and acknowledged.`, t: nowStamp(), files: [], plHold: made.map((h) => h.id) });
   }
   return made;
 }
