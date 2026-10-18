@@ -186841,14 +186841,27 @@ function buyOrderDialog(o) {
     price = m ? (cost ? r2(cost / (qty || 1)) : 0) : r2((+r.price || 0) / (qty || 1)),
     quote = m && m.quoteCommId ? (DB.comms || []).find((c) => c.id === m.quoteCommId) : null,
     late = D.orderBy && D.orderBy < today(),
-    src = quote ? `the quote from ${esc((quote.from && quote.from.name) || (v && v.name) || "the vendor")} (${esc(quote.subject || "")})` : m && cost ? "the price on the line" : l ? "the budget left on the estimate line — replace it with the vendor's price" : "";
+    src = quote ? `the quote from ${esc((quote.from && quote.from.name) || (v && v.name) || "the vendor")} (${esc(quote.subject || "")})` : m && cost ? "the price on the line" : l ? "the budget left on the estimate line — replace it with the vendor's price" : "",
+    // The measurement gate (poFabGate) is asked here, in the sheet, not after it: a fabricated item for a room on the
+    // drawing register (plans control put 121 State's rooms there) issued as a silent draft whose only way on was a
+    // checkbox on the PO page. Missing room dimensions still stop the order; the fabricator's own field
+    // measurements are confirmed with one tick that goes on the PO.
+    fab = (() => {
+      try {
+        return "function" == typeof poFabGate ? poFabGate({ projectId: p.id, vendor: v ? v.name : "", type: "materials", lines: [{ item: m ? m.name : (l && l.item) || r.name, roomId: (m && m.roomId) || "" }] }) : "";
+      } catch (e) {
+        return "";
+      }
+    })(),
+    fabTick = /^Second measurement/.test(fab);
   return mbModal(
     `Order — <span data-nocase>${esc(r.name)}</span>`,
     `<p class="small muted" style="margin:0 0 10px">${esc(shortName(p))}${tk ? ` · for ${esc(tk.name)}, starts ${fmt(tk.start)}` : ""}${D.needBy ? ` · on site by ${fmt(D.needBy)}` : ""}${D.orderBy ? ` · ${late ? `<b class="bad">order-by ${fmt(D.orderBy)} passed</b>` : `order by ${fmt(D.orderBy)}`}` : ""}. ${src ? `Price from ${src}. ` : ""}Issue PO sends it through the house checks; over ${money(DB.company.poApprovalOver || 0)} it goes to the owner first.</p>
     ${mbF("Supplier", `<select data-f="vendor">${flVendorOpts(r, v)}</select>`)}
     <div class="grid2">${mbF("Item", `<input data-f="item" value="${esc(m ? m.name : (l && l.item) || r.name)}">`)}${mbF("Quantity", `<input type="number" step="any" min="0" data-f="qty" value="${qty}">`)}</div>
     <div class="grid2">${mbF("Unit", `<input data-f="unit" value="${esc(unit)}">`)}${mbF("Unit Price", `<input type="number" step="0.01" min="0" data-f="price" value="${price || ""}" placeholder="no price yet — the vendor's quote">`)}</div>
-    <div class="grid2">${mbF("Needed on Site", `<input type="date" data-f="needBy" value="${D.needBy || ""}">`)}${mbF("Task", `<input data-f="task" value="${esc(tk ? tk.name : "")}" readonly>`)}</div>`,
+    <div class="grid2">${mbF("Needed on Site", `<input type="date" data-f="needBy" value="${D.needBy || ""}">`)}${mbF("Task", `<input data-f="task" value="${esc(tk ? tk.name : "")}" readonly>`)}</div>
+    ${fab ? `<div class="note warn small fl-fabgate" role="alert"><b>Measurement gate.</b> ${esc(fab)}${fabTick ? `<label style="display:block;margin-top:6px"><input type="checkbox" data-f="tradeOk"> Fabricator's field measurements received and entered</label>` : ""}</div>` : ""}`,
     {
       submit: "Issue PO",
       onSubmit: (f) => {
@@ -186857,6 +186870,8 @@ function buyOrderDialog(o) {
         if (!(+f.qty > 0)) return toast("Say how many"), !1;
         if (!(+f.price > 0)) return toast("Price the line — the vendor's quote or the price you agreed"), !1;
         if (!f.needBy) return toast("Say when the site needs it"), !1;
+        if (fab && !fabTick) return toast(fab), !1;
+        if (fabTick && !f.tradeOk) return toast("Tick that the fabricator's field measurements are in — the order goes out with them"), !1;
         return void setTimeout(() => flIssueOrder(r, vv, f, tk), 0);
       },
     },
@@ -186902,6 +186917,8 @@ function flIssueOrder(r, v, f, tk) {
       srcDocs: [],
       __v2: 1,
     };
+  // confirmed on the Order sheet's measurement gate, by the person who ordered
+  f.tradeOk && ((po.tradeVerified = !0), (po.tradeVerifiedBy = { by: (currentUser() || {}).name || role(), at: appNowIso() }));
   // the submittal gate stands in front: an item waiting on approval is not ordered from here
   const H = "function" == typeof smHolding ? smHolding(po) : [];
   if (H.length)
@@ -191805,7 +191822,11 @@ const CM_GOODS_SYN = [
   [/\b(kd|kiln[- ]dried)\b/g, " "],
   [/\bstuds?\b/g, " stud "],
 ];
-const CM_GOODS_STOP = new Set(["boards", "board", "sheets", "sheet", "each", "pcs", "and", "the", "for", "with", "per", "box", "boxes", "bag", "bags", "roll", "rolls", "case", "cases", "lot", "new", "order", "item", "items"]);
+// Where the goods go is not what they are: the room and floor words are stopped too ("Parlor kitchen countertop slab"
+// read as the same goods as PO-2026-048's "Parlor kitchen + laundry millwork", and the slab's PO warned of a double
+// order it was not).
+const CM_GOODS_STOP = new Set(["boards", "board", "sheets", "sheet", "each", "pcs", "and", "the", "for", "with", "per", "box", "boxes", "bag", "bags", "roll", "rolls", "case", "cases", "lot", "new", "order", "item", "items",
+  "parlor", "garden", "kitchen", "kitchens", "bath", "baths", "bathroom", "powder", "primary", "master", "guest", "laundry", "stair", "stairs", "bedroom", "living", "dining", "office", "facade", "front", "rear", "floor", "cellar", "basement", "room", "rooms", "upper", "lower", "level"]);
 function cmGoodsWords(s) {
   let t = " " + String(s || "").toLowerCase() + " ";
   CM_GOODS_SYN.forEach(([re, to]) => (t = t.replace(re, to)));
