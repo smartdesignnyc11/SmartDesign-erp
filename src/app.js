@@ -189713,6 +189713,12 @@ function sdSeedBillDocs() {
         });
       } catch (e) {}
       audit("bill", b.id, "document-attached", "", id, `${b.number} · ${b.status} · ${rec.name}`);
+      // the audit line is dated when the invoice was attached (with the bill), not at this boot: a sync later in the
+      // session must not read it as the record's latest change and blame a re-derivation on it
+      const a = (DB.audit || [])[DB.audit.length - 1];
+      a &&
+        a.refId === b.id &&
+        Object.assign(a, { ts: rec.uploadedAt, t: `${+rec.date.slice(5, 7)}/${+rec.date.slice(8, 10)} 9:00 AM`, by: b.createdBy || a.by, role: "coord" });
     });
 }
 // The open pay period (8/31 – 9/13, paid 9/11) has no run yet on the app day, as it would not live: its hours
