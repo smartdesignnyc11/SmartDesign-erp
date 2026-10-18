@@ -177,9 +177,26 @@ async def s_order(p, c):
         m = await modal(pg)
         c.ok(m and m['fields'].get('vendor') == 'Gowanus Stone Yard' and float(m['fields'].get('price') or 0) == 7450, f"order: the slab's Order picks the yard from its quote at $7,450 ({m and m['fields']})")
         if m:
+            # Plans control put 121 State's rooms on the drawing register, so the slab for the Parlor kitchen meets the
+            # measurement gate (poFabGate: the fabricator's own field measurements before a fabricated item is
+            # ordered). The gate is asked on this sheet: Issue PO without the tick keeps the sheet open and orders
+            # nothing; with it the PO issues. Before, the sheet left a silent draft whose only way on was the PO page.
+            gate = await pg.evaluate("() => (document.querySelector('#mbm .fl-fabgate') || {}).innerText || ''")
+            c.ok('Second measurement' in gate and await pg.locator('#mbm [data-f="tradeOk"]').count() == 1, f'order: the slab sheet asks the measurement gate itself ({gate!r})')
+            n0 = await pg.evaluate("() => DB.pos.length")
+            await ok(pg, 500)
+            c.ok(await modal(pg) and await pg.evaluate("() => DB.pos.length") == n0, 'order: without the tick nothing is ordered and the sheet stays open')
+            await pg.locator('#mbm [data-f="tradeOk"]').check()
             await ok(pg, 900)
-            po = await pg.evaluate("() => { const o = DB.pos.find(x => x.lines.some(l => l.materialId === 'm19')); return o && [o.status, o.vendor, poTotal(o).total]; }")
-            c.ok(po and po[0] == 'issued' and po[2] == 7450, f'order: the slab PO is issued ({po})')
+            po = await pg.evaluate("() => { const o = DB.pos.find(x => x.lines.some(l => l.materialId === 'm19')); return o && [o.status, o.vendor, poTotal(o).total, !!o.tradeVerified, poDoubleOrder(o)]; }")
+            c.ok(po and po[0] == 'issued' and po[2] == 7450 and po[3], f'order: the slab PO is issued, the measurements confirmed on it ({po})')
+            # a room in the name is where the goods go, not what they are: the millwork PO for the same kitchen is not a double order
+            c.ok(po and not po[4], f'order: no double-order warning against the kitchen millwork PO ({po and po[4]})')
+            # an order a guard holds says which guard and opens the PO (it said only "it was not issued")
+            held = await pg.evaluate("""() => { const r = flBuyRow({ pid: 'p121', mid: 'm19' }), v = DB.vendors.find(x => x.name === 'Gowanus Stone Yard');
+                const o = flIssueOrder(r, v, { item: 'Parlor kitchen countertop slab', qty: 1, unit: 'lot', price: 7450, needBy: '2026-09-11' }, null);
+                const t = document.getElementById('toast').innerText; o && (DB.pos = DB.pos.filter(x => x !== o)); return { st: o && o.status, t }; }""")
+            c.ok(held['st'] == 'draft' and 'Second measurement' in held['t'] and 'Open' in held['t'], f'order: a PO the measurement gate holds toasts why, with Open ({held})')
         c.ok(not errs, f'order: page errors {errs[:2]}')
     finally:
         await b.close()

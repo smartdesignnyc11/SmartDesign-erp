@@ -43084,7 +43084,7 @@ if ("function" == typeof poAction) {
   poAction = function (po, a) {
     if (["issue", "approve", "submit"].includes(a)) {
       const g = poFabGate(po);
-      if (g) return void toast(g);
+      if (g) return void (po && po.number && "function" == typeof rcToast && "undefined" != typeof flowGo ? rcToast(g, [{ label: `Open ${po.number}`, run: flowGo.po(po) }]) : toast(g));
       if (po.stale)
         return void toast(
           `${po.number} carries a changed dimension — check the lines against the re-issued drawings first`,
@@ -185401,12 +185401,12 @@ const lnChangeWords = { rule: "a rule", reminder: "a reminder", checklist: "a ch
 // ---- Needs Your Hand ----------------------------------------------------------------------------------------
 // The reader's proposal kinds, and whose hand each needs (DELEGATION.hand reads `route` off the row).
 const NYH_MAIL = {
-  // a vendor invoice the controller's (or billing's) mailbox received is theirs to enter, PO or not (pilot day 1:
-  // CM-0102 against PO-2026-048 sat in the coordinator's queue and the controller entered it by hand)
-  bill: (c, pr) => {
-    const own = (DB.comms || []).filter((x) => x.subject === c.subject).map((x) => ((DB.users || []).find((u) => u.id === x.owner) || {}).role);
-    return own.includes("controller") ? "controller" : own.includes("billing") ? "billing" : pr.poId || /\bPO[-\s]?\d{4}/i.test(lnAll(c)) || lnOpenPO(pr.vendor || pr.vendorName) ? "coord" : "controller";
-  },
+  // A vendor invoice is entered by accounts payable: the Controller, PO or not, whichever mailbox it landed in. The
+  // Standard puts the three-way match with the office (STD_ROLE_PLAYBOOKS controller: office; Bills & Payroll is the
+  // Controller's); the coordinator's part of the match is the PO and the receipt, the PM's is the review. One owner
+  // per proposal: pilot day 1 routed CM-0102 by whose mailbox held it, so the same kind of bill went to the
+  // controller, billing or the coordinator depending on who was copied (and the chain's mailed bills to Chen).
+  bill: () => "controller",
   statement: (c, pr) => (pr.billId || /already on file|chasing/i.test(pr.summary || "") ? "" : "controller"),
   quote: (c, pr) => (pr.out ? "" : "coord"),
   receipt: () => "coord",
@@ -186009,7 +186009,7 @@ if ("function" == typeof poAction) {
 Object.assign(DELEGATION, {
   hand: {
     role: "controller",
-    rule: "a proposal the reader made from mail, a deposit to record or a lesson's firing waits on the person whose work it is: the Controller imports statements and codes bills with no PO; the coordinator files quotes, receipts, certificates and vendor records and enters bills against a PO; Billing records payments and resolves what the bank never saw; the Owner creates master data",
+    rule: "a proposal the reader made from mail, a deposit to record or a lesson's firing waits on the person whose work it is: the Controller imports statements and enters every vendor bill from mail, PO or not (accounts payable); the coordinator files quotes, receipts, certificates and vendor records; Billing records payments and resolves what the bank never saw; the Owner creates master data",
     who: (it) => it.route || "",
   },
   payroll: {
@@ -187665,14 +187665,27 @@ function buyOrderDialog(o) {
     price = m ? (cost ? r2(cost / (qty || 1)) : 0) : r2((+r.price || 0) / (qty || 1)),
     quote = m && m.quoteCommId ? (DB.comms || []).find((c) => c.id === m.quoteCommId) : null,
     late = D.orderBy && D.orderBy < today(),
-    src = quote ? `the quote from ${esc((quote.from && quote.from.name) || (v && v.name) || "the vendor")} (${esc(quote.subject || "")})` : m && cost ? "the price on the line" : l ? "the budget left on the estimate line — replace it with the vendor's price" : "";
+    src = quote ? `the quote from ${esc((quote.from && quote.from.name) || (v && v.name) || "the vendor")} (${esc(quote.subject || "")})` : m && cost ? "the price on the line" : l ? "the budget left on the estimate line — replace it with the vendor's price" : "",
+    // The measurement gate (poFabGate) is asked here, in the sheet, not after it: a fabricated item for a room on the
+    // drawing register (plans control put 121 State's rooms there) issued as a silent draft whose only way on was a
+    // checkbox on the PO page. Missing room dimensions still stop the order; the fabricator's own field
+    // measurements are confirmed with one tick that goes on the PO.
+    fab = (() => {
+      try {
+        return "function" == typeof poFabGate ? poFabGate({ projectId: p.id, vendor: v ? v.name : "", type: "materials", lines: [{ item: m ? m.name : (l && l.item) || r.name, roomId: (m && m.roomId) || "" }] }) : "";
+      } catch (e) {
+        return "";
+      }
+    })(),
+    fabTick = /^Second measurement/.test(fab);
   return mbModal(
     `Order — <span data-nocase>${esc(r.name)}</span>`,
     `<p class="small muted" style="margin:0 0 10px">${esc(shortName(p))}${tk ? ` · for ${esc(tk.name)}, starts ${fmt(tk.start)}` : ""}${D.needBy ? ` · on site by ${fmt(D.needBy)}` : ""}${D.orderBy ? ` · ${late ? `<b class="bad">order-by ${fmt(D.orderBy)} passed</b>` : `order by ${fmt(D.orderBy)}`}` : ""}. ${src ? `Price from ${src}. ` : ""}Issue PO sends it through the house checks; over ${money(DB.company.poApprovalOver || 0)} it goes to the owner first.</p>
     ${mbF("Supplier", `<select data-f="vendor">${flVendorOpts(r, v)}</select>`)}
     <div class="grid2">${mbF("Item", `<input data-f="item" value="${esc(m ? m.name : (l && l.item) || r.name)}">`)}${mbF("Quantity", `<input type="number" step="any" min="0" data-f="qty" value="${qty}">`)}</div>
     <div class="grid2">${mbF("Unit", `<input data-f="unit" value="${esc(unit)}">`)}${mbF("Unit Price", `<input type="number" step="0.01" min="0" data-f="price" value="${price || ""}" placeholder="no price yet — the vendor's quote">`)}</div>
-    <div class="grid2">${mbF("Needed on Site", `<input type="date" data-f="needBy" value="${D.needBy || ""}">`)}${mbF("Task", `<input data-f="task" value="${esc(tk ? tk.name : "")}" readonly>`)}</div>`,
+    <div class="grid2">${mbF("Needed on Site", `<input type="date" data-f="needBy" value="${D.needBy || ""}">`)}${mbF("Task", `<input data-f="task" value="${esc(tk ? tk.name : "")}" readonly>`)}</div>
+    ${fab ? `<div class="note warn small fl-fabgate" role="alert"><b>Measurement gate.</b> ${esc(fab)}${fabTick ? `<label style="display:block;margin-top:6px"><input type="checkbox" data-f="tradeOk"> Fabricator's field measurements received and entered</label>` : ""}</div>` : ""}`,
     {
       submit: "Issue PO",
       onSubmit: (f) => {
@@ -187681,6 +187694,8 @@ function buyOrderDialog(o) {
         if (!(+f.qty > 0)) return toast("Say how many"), !1;
         if (!(+f.price > 0)) return toast("Price the line — the vendor's quote or the price you agreed"), !1;
         if (!f.needBy) return toast("Say when the site needs it"), !1;
+        if (fab && !fabTick) return toast(fab), !1;
+        if (fabTick && !f.tradeOk) return toast("Tick that the fabricator's field measurements are in — the order goes out with them"), !1;
         return void setTimeout(() => flIssueOrder(r, vv, f, tk), 0);
       },
     },
@@ -187726,6 +187741,8 @@ function flIssueOrder(r, v, f, tk) {
       srcDocs: [],
       __v2: 1,
     };
+  // confirmed on the Order sheet's measurement gate, by the person who ordered
+  f.tradeOk && ((po.tradeVerified = !0), (po.tradeVerifiedBy = { by: (currentUser() || {}).name || role(), at: appNowIso() }));
   // the submittal gate stands in front: an item waiting on approval is not ordered from here
   const H = "function" == typeof smHolding ? smHolding(po) : [];
   if (H.length)
@@ -187748,8 +187765,29 @@ function flIssueOrder(r, v, f, tk) {
   const st = po.status;
   "issued" === st || "partial" === st
     ? rcToast(`${po.number} issued to ${v.name} — ${money(poTotal(po).total)}, on site by ${fmt(f.needBy)}`, [{ label: `Open ${po.number}`, run: flowGo.po(po) }])
-    : "pending" === st || rcToast(`${po.number} is a draft — ${(poValid(po) || []).join("; ") || "it was not issued"}`, [{ label: `Open ${po.number}`, run: flowGo.po(po) }]);
+    : "pending" === st || rcToast(`${po.number} is a draft, not issued: ${poHeldWhy(po)}`, [{ label: `Open ${po.number}`, run: flowGo.po(po) }]);
   return po;
+}
+// Why a PO that was asked to issue is still a draft, in the person's words: the house checks (poValid), the
+// measurement gate, a changed dimension, the submittal gate, goods already bought. The guards toast on their own, but
+// the order's own toast came after them and said only "it was not issued" (pilot fixes 2: the slab PO).
+function poHeldWhy(po) {
+  const W = [];
+  try {
+    W.push(...(poValid(po) || []));
+  } catch (e) {}
+  try {
+    const g = "function" == typeof poFabGate ? poFabGate(po) : "";
+    g && W.push(g);
+  } catch (e) {}
+  po && po.stale && W.push("a dimension on it changed: check the lines against the re-issued drawings");
+  try {
+    ("function" == typeof smHolding ? smHolding(po) : []).forEach((x) => W.push(`waits on ${x.s.number} ${x.s.title}`));
+  } catch (e) {}
+  try {
+    po && po.dupWarned && W.push(...poDoubleOrder(po).filter((x) => /was bought/.test(x)).map((x) => `already bought: ${x} (issue again only if this is a second order)`));
+  } catch (e) {}
+  return W.length ? W.join("; ") : "a house check held it; open it to see which";
 }
 // Home: the coordinator's late and due lines say Order and open the sheet (they went to the FF&E board).
 document.addEventListener(
@@ -189754,7 +189792,8 @@ stdReplaceRule({
 
 // ---- Enter the Bill: a vendor invoice filed on a PO that has no bill (BACKLOG §1.9 item 2, "vendor invoice -> bill")
 // The invoice is read and filed on its order, but no bill exists, so nothing is owed in the books and the money can
-// be missed. Billing gets a Needs Your Hand row; Enter the Bill drafts the bill from what was read (vendor, number,
+// be missed. The Controller (accounts payable, the one owner of every vendor bill to enter: NYH_MAIL.bill) gets a
+// Needs Your Hand row; Enter the Bill drafts the bill from what was read (vendor, number,
 // date, lines matched to the PO's lines, tax, freight), links the invoice to it, and leaves every figure read with
 // low confidence unconfirmed: the bill is on hold (Bills on Hold) until a person confirms them on the invoice.
 function trkInvoicesToBill() {
@@ -189827,7 +189866,7 @@ function trkBillFromDoc(id) {
           low = trkUnconfirmed(d).length,
           key = "tk:enterbill:" + d.id;
         have.has(key) ||
-          out.push({ key: key, route: "billing", kind: "enterbill", title: `Enter the bill: ${d.fields.vendor || po.vendor} ${d.fields.number || ""} on ${po.number}`.replace(/\s+on/, " on"), why: `${d.fields.total != null ? money(+d.fields.total) + " read from the invoice" : "the invoice is filed"}, and ${po.number} has no bill${low ? `; ${low} figure${1 === low ? "" : "s"} read with low confidence stay${1 === low ? "s" : ""} unconfirmed` : ""} · ${trkWhy("threeWay")}`, amount: +d.fields.total || 0, verb: "Enter the Bill", no: "", run: () => trkBillFromDoc(d.id), open: () => trkOpenDoc(d.id) });
+          out.push({ key: key, route: "controller", kind: "enterbill", title: `Enter the bill: ${d.fields.vendor || po.vendor} ${d.fields.number || ""} on ${po.number}`.replace(/\s+on/, " on"), why: `${d.fields.total != null ? money(+d.fields.total) + " read from the invoice" : "the invoice is filed"}, and ${po.number} has no bill${low ? `; ${low} figure${1 === low ? "" : "s"} read with low confidence stay${1 === low ? "s" : ""} unconfirmed` : ""} · ${trkWhy("threeWay")}`, amount: +d.fields.total || 0, verb: "Enter the Bill", no: "", run: () => trkBillFromDoc(d.id), open: () => trkOpenDoc(d.id) });
       });
     } catch (e) {
       console.warn("enter the bill", e);
@@ -193735,7 +193774,11 @@ const CM_GOODS_SYN = [
   [/\b(kd|kiln[- ]dried)\b/g, " "],
   [/\bstuds?\b/g, " stud "],
 ];
-const CM_GOODS_STOP = new Set(["boards", "board", "sheets", "sheet", "each", "pcs", "and", "the", "for", "with", "per", "box", "boxes", "bag", "bags", "roll", "rolls", "case", "cases", "lot", "new", "order", "item", "items"]);
+// Where the goods go is not what they are: the room and floor words are stopped too ("Parlor kitchen countertop slab"
+// read as the same goods as PO-2026-048's "Parlor kitchen + laundry millwork", and the slab's PO warned of a double
+// order it was not).
+const CM_GOODS_STOP = new Set(["boards", "board", "sheets", "sheet", "each", "pcs", "and", "the", "for", "with", "per", "box", "boxes", "bag", "bags", "roll", "rolls", "case", "cases", "lot", "new", "order", "item", "items",
+  "parlor", "garden", "kitchen", "kitchens", "bath", "baths", "bathroom", "powder", "primary", "master", "guest", "laundry", "stair", "stairs", "bedroom", "living", "dining", "office", "facade", "front", "rear", "floor", "cellar", "basement", "room", "rooms", "upper", "lower", "level"]);
 function cmGoodsWords(s) {
   let t = " " + String(s || "").toLowerCase() + " ";
   CM_GOODS_SYN.forEach(([re, to]) => (t = t.replace(re, to)));
@@ -194038,11 +194081,12 @@ window.addEventListener(
 // approval was at the PO amount, $29,700, with $3,800 disputed; Confirm would have passed the overpayment.
 // The approved amount: an approval of part (the short pay) is that part; an approved bill is its total; one not
 // approved yet is never more than its order's open amount (over the PO is approved only on purpose).
+let payCheckAsBilled = "";
 function payCheckApproved(b) {
   if (!b) return 0;
   const tot = billTotal(b);
   if (b.short) return +b.short.approved || 0;
-  if (["approved", "verified", "paid"].includes(b.status)) return tot;
+  if (["approved", "verified", "paid"].includes(b.status) || b.id === payCheckAsBilled) return tot;
   const P = "function" == typeof pay3PO ? pay3PO(b) : null;
   return P && P.left >= 0 ? Math.min(tot, P.left) : tot;
 }
@@ -194093,6 +194137,23 @@ let payCheckBypass = 0;
       });
   } catch (e) {}
 });
+// Banking's and the bill's Approve as Billed (fin2ApproveAsBilled; billAction "approve" runs it on a bill the bank
+// already paid) confirms the match before it signs the bill, so the check read the bill as not approved yet, capped it
+// at its PO and refused: on Window Works' over-PO WW-2026-118 it said "approve it on the bill first" from the bill, a
+// dead end. While it signs, the approved amount is the bill's total, what Approve as Billed approves; a payment above
+// the bill is still refused. It stays Owner-only, keeps separation of duties and asks a reason for every open control.
+{
+  const base = fin2ApproveAsBilled;
+  fin2ApproveAsBilled = function (b) {
+    const was = payCheckAsBilled;
+    payCheckAsBilled = (b && b.id) || "";
+    try {
+      return base.apply(this, arguments);
+    } finally {
+      payCheckAsBilled = was;
+    }
+  };
+}
 window.addEventListener(
   "click",
   (e) => {
@@ -194409,7 +194470,8 @@ CATCH.push({
 }
 // ---- A statement already imported is not offered again (pilot day 1: the controller's Approvals offered the Amex
 // and Chase August statements after their lines were in) ----------------------------------------------------------
-function cmStmtImport(c, pr) {
+// The import that already holds a statement's month for its account, or null.
+function cmStmtMonth(c, pr) {
   if (!pr || "statement" !== pr.kind || !pr.acctId) return null;
   const all = `${c.subject || ""} ${c.text || ""} ${(c.attachments || []).map((a) => `${a.name || ""} ${a.text || ""}`).join(" ")}`,
     M = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"],
@@ -194426,6 +194488,36 @@ function cmStmtImport(c, pr) {
     start = `${y}-${String(mo + 1).padStart(2, "0")}-01`;
   return (DB.bankImports || []).find((i) => i.acctId === pr.acctId && i.period && i.period[0] <= start && i.period[1] >= end) || null;
 }
+// The month on file is not enough: a statement is already here only when every line it holds is on the books from
+// the bank. One that carries a charge posted after the activity file was pulled, or lines the books hold only as typed
+// by hand, is offered: importing it adds the one and backs the others (a figure with no bank line behind it is not
+// truth). The seed's August Amex statement holds four 9/1-9/2 lines typed by hand, so it is still the Controller's.
+// A statement whose lines cannot be read falls back to the month.
+function cmStmtUnbacked(c, pr) {
+  try {
+    const P = lkStmtParse(cmStmtText(c), pr.acctId);
+    return P.lines.length ? cmStmtNotOnBooks(P.lines, pr.acctId) : [];
+  } catch (e) {
+    return [];
+  }
+}
+function cmStmtImport(c, pr) {
+  const imp = cmStmtMonth(c, pr);
+  return imp && !cmStmtUnbacked(c, pr).length ? imp : null;
+}
+// The statement lines with no bank or card line behind them on the books: same account, the same amount to the cent,
+// within three days (posting and transaction dates differ), backed by the bank (bfBacked: a statement or feed, not a
+// line typed by hand); each book line answers one statement line.
+function cmStmtNotOnBooks(lines, acctId) {
+  const used = new Set(),
+    backed = (t) => ("function" == typeof bfBacked ? bfBacked(t) : !0),
+    T = (DB.txns || []).filter((t) => t.acct === acctId && "void" !== t.status && backed(t)),
+    near = (a, b) => Math.abs((parse(a) - parse(b)) / 864e5) <= 3;
+  return (lines || []).filter((l) => {
+    const t = T.find((x) => !used.has(x.id) && Math.abs(+x.amt - l.amt) < 0.005 && near(x.date, l.date));
+    return t ? (used.add(t.id), !1) : !0;
+  });
+}
 {
   const base = NYH_MAIL.statement;
   NYH_MAIL.statement = (c, pr) => (cmStmtImport(c, pr) ? "" : base(c, pr));
@@ -194436,11 +194528,17 @@ function cmStmtImport(c, pr) {
     const P = base.apply(this, arguments);
     try {
       (P || []).forEach((pr) => {
-        const imp = cmStmtImport(c, pr);
+        const imp = cmStmtImport(c, pr),
+          mon = !imp && cmStmtMonth(c, pr),
+          U = mon ? cmStmtUnbacked(c, pr) : [];
         imp &&
           ((pr.summary = `${String(pr.summary || "").replace(/ · import it on Bank.*$/, "")} · already here: ${imp.fileName || "imported"} on ${fmtL(String(imp.at || "").slice(0, 10))}${imp.by ? " by " + imp.by : ""}`),
           (pr.alreadyHere = imp.id),
           (pr.applied = pr.applied || "already here"));
+        // the month is on file but not every line: say so, so it does not read as a duplicate
+        mon &&
+          U.length &&
+          (pr.summary = `${String(pr.summary || "")} · ${mon.fileName || "an import"} has the month, but ${U.length} of its line${1 === U.length ? "" : "s"} (${money(U.reduce((a, l) => a + Math.abs(l.amt), 0))}) ${1 === U.length ? "has" : "have"} no bank line on the books: import it to back ${1 === U.length ? "it" : "them"}`);
       });
     } catch (e) {
       console.warn("statement already here", e);
@@ -195039,7 +195137,7 @@ function coSanity(d) {
           const txt = `${x.title || ""} ${x.detail || ""}`.toLowerCase();
           if (!keys.some((k) => txt.includes(k))) return;
           gone.add(x);
-          (it.also = it.also || []).push({ kind: x.kind, title: x.title, open: x.open });
+          (it.also = it.also || []).push({ kind: x.kind, title: x.title, open: x.open, key: (x.nyh && x.nyh.key) || "" });
           it.detail = `${it.detail || ""}${it.detail ? " · " : ""}also on this bill: ${"learn" === x.kind ? `the lesson “${String(x.title || "").replace(/^Lesson:\s*/, "")}” (approve it in The Brain, not here)` : String(x.title || "").slice(0, 90)}`;
         });
       });
@@ -195047,6 +195145,38 @@ function coSanity(d) {
     } catch (e) {
       console.warn("one bill one card", e);
       return out;
+    }
+  };
+}
+// The same fold on Home's Needs Your Hand: a row folded into a bill's card in the person's queue is that card's "also
+// on this bill", not a row of its own. The owner's Home listed the over-PO lesson on WW-2026-118 as a Needs Your Hand
+// row while Do Now and Approvals had folded it into the bill (20 rows against 19: one question, two numbers). The
+// lesson stays approvable in The Brain, and Everyone views keep every row. Read once per Needs Your Hand cache.
+let nyhFoldBusy = 0,
+  nyhFoldMemo = null;
+{
+  const base = nyhRows;
+  nyhRows = function (opts) {
+    const R = base.apply(this, arguments),
+      o = opts || {};
+    if (o.everyone || (o.role && o.role !== role()) || nyhFoldBusy || !Array.isArray(R) || !R.length) return R;
+    try {
+      const k = `${role()}|${lnUid()}`;
+      (nyhFoldMemo && nyhFoldMemo.src === nyhCache) || (nyhFoldMemo = { src: nyhCache, by: {} });
+      let gone = nyhFoldMemo.by[k];
+      if (!gone) {
+        nyhFoldBusy++;
+        try {
+          gone = new Set((mApprovals() || []).filter((x) => "bill" === x.kind).flatMap((x) => (x.also || []).map((a) => a.key)).filter(Boolean));
+        } finally {
+          nyhFoldBusy--;
+        }
+        nyhFoldMemo.by[k] = gone;
+      }
+      return gone.size ? R.filter((r) => !gone.has(r.key)) : R;
+    } catch (e) {
+      console.warn("needs your hand fold", e);
+      return R;
     }
   };
 }

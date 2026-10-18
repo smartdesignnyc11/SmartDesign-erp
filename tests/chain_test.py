@@ -582,12 +582,17 @@ async def s3_receive(C):
     await C.wait(600)
     C.ok(d and not d['errors'], 'the Loaded Workspace connects and syncs', d)
     C.t(f"Loaded Workspace for Chen (2 invented threads, tests/harness attach_workspace from {tmp}) > Connect (gcDemoConnect, the Connect button's function) → {d}")
+    # The bills landed in Chen's mailbox, but entering a vendor bill is accounts payable's: the Controller's Needs Your
+    # Hand, whichever mailbox it reached (NYH_MAIL.bill; the Standard's office playbook holds the three-way match), with
+    # the verb that says what it does, Enter the Bill (pilot day 1: "Apply" on a mailed invoice was not found as the
+    # way to enter it). Chen's part of the match is the PO and the receipt above.
+    await C.as_('u_controller')
     for num, po in (('HPH-2291', POS['sub']), ('KBS-5531', POS['fixtures'])):
         row = await C.js("n => { const r = nyhRows().find(r => r.title.includes(n)); return r && {key: r.key, verb: r.verb, title: r.title, route: r.route}; }", num)
-        C.ok(row and row['verb'] == 'Apply', f"Chen's Needs Your Hand: the bill {num} read from the PDF, with Apply", row)
+        C.ok(row and row['verb'] == 'Enter the Bill' and row['route'] == 'controller', f"the Controller's Needs Your Hand: the bill {num} read from the PDF in Chen's mail, with Enter the Bill", row)
         if not row: continue
-        # Home > Needs Your Hand > Apply (the row's verb; nyhRun is what the row's button runs)
-        await C.as_('u_chen', 'home')
+        # Home > Needs Your Hand > Enter the Bill (the row's verb; nyhRun is what the row's button runs)
+        await C.as_('u_controller', 'home')
         pressed = await C.js("""k => { const b = [...document.querySelectorAll('#v-home [data-nyh], #v-home [data-nyhrun], #v-home button')].find(x => x.getClientRects().length && ((x.dataset.nyh || x.dataset.nyhrun || '') === k));
             if (b) { b.click(); return 'Home button'; } nyhRun(k); return 'nyhRun'; }""", row['key'])
         await C.wait(600)
@@ -595,7 +600,7 @@ async def s3_receive(C):
             due: b.due || '', file: b.fileId || '', lines: b.lines.map(l => ({id: l.id || '', poLineId: l.poLineId || '', line: l.line || ''})), flags: billFlags(b)}; }""", num)
         C.ok(b and b['poId'] == po['id'], f'{num} lands on its PO {po["number"]}', b)
         C.rec('bill', num, b and b['id'])
-        C.t(f"Home > Needs Your Hand > \"{row['title'][:90]}\" > Apply ({pressed}) → bill `{b and b['id']}` {fmtm(b and b['total'])} on {po['number']} ({await C.toast()})")
+        C.t(f"Controller > Home > Needs Your Hand > \"{row['title'][:90]}\" > Enter the Bill ({pressed}) → bill `{b and b['id']}` {fmtm(b and b['total'])} on {po['number']} ({await C.toast()})")
     hph = await C.js("n => { const b = DB.bills.find(b => b.number === n); return b && {ret: +b.retainagePct || 0, due: b.due || ''}; }", 'HPH-2291')
     C.ok(hph and hph['ret'] == 10, 'the mailed sub bill carries its subcontract\'s 10% retainage', hph)
     C.ok(hph and hph['due'] == '2026-10-11', 'the mailed bill keeps the due date printed on the invoice', hph)
@@ -1081,6 +1086,26 @@ async def s7_close(C):
     pid = C.ids['project']['id']
     chain_ids = list(C.ids['txn']['bank'].values()) + list(C.ids['txn']['card'].values())
     await C.day('2026-10-02')
+    # The seed's Window Works WW-2026-118 ($33,500, paid from the Amex on 8/25 before approval, $3,800 over PO-2026-044,
+    # the PM's note "Extra window was field-added; CO needed") blocks the August close until someone decides it, and
+    # that is right: the close never seals a payment nobody approved. The month-end allowlist below approves the seed's
+    # other paid-before-approval bills as billed; this one is decided the way the pilot's owner and controller did,
+    # through the real sheet: Owner > Approvals > WW-2026-118 > Approve > Approve PO Amount, Dispute Difference.
+    await C.as_('u_owner', 'mapprove', "window.mApprKind = 'all';")
+    yes = await C.js("""() => { const e = [...document.querySelectorAll('.m-appr')].find(x => x.getClientRects().length && x.innerText.includes('WW-2026-118'));
+        const b = e && e.querySelector('[data-myes]'); b && b.setAttribute('data-chainww', '1'); return b ? b.innerText.trim() : ''; }""")
+    C.ok(yes == 'Approve', 'Owner > Approvals lists WW-2026-118 with Approve', yes)
+    if yes:
+        await C.click('[data-chainww]', 500)
+        m = await C.modal()
+        C.ok(m and m['title'].startswith('Approve PO Amount, Dispute Difference') and float(m['fields'].get('amount') or 0) == 29700,
+             'the sheet offers the PO amount ($29,700) with the difference disputed', m and {k: m[k] for k in ('title', 'fields', 'buttons')})
+        if m:
+            await C.fill('#mbm [data-f=why]', 'Approved at PO-2026-044; the field-added window is disputed until the change order or a credit settles it')
+            await C.modal_ok(700)
+    ww = await C.js("() => { const b = DB.bills.find(x => x.number === 'WW-2026-118'); return {status: b.status, short: b.short && {approved: b.short.approved, held: b.short.held, state: b.short.state}, pbu: billPaidUnapproved(b)}; }")
+    C.ok(ww['short'] and ww['short']['approved'] == 29700 and ww['short']['held'] == 3800 and not ww['pbu'], 'WW-2026-118: $29,700 approved at the PO, $3,800 held as disputed; no longer paid before approval', ww)
+    C.t(f"Owner > Approvals > WW-2026-118 > Approve > Approve PO Amount, Dispute Difference > reason > Approve and Dispute → {ww['status']}, {ww['short']} ({await C.toast()})")
     for ym in ('2026-08', '2026-09'):
         prep = await C.js(SEED_MONTH_END, [ym, chain_ids])
         C.t(f"{ym} month-end for the seed's own lines (allowlisted, see the comment): accepted {prep['accepted']}, approved as billed {prep['approved']}, "
