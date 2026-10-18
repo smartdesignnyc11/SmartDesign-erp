@@ -2,6 +2,18 @@
 
 The chief of staff keeps this board current. A lane is one build agent in its own git worktree (`.claude/worktrees/<name>`, branch `lane-<name>`). Lanes never push or merge. The main session merges them one at a time and runs the full net after each.
 
+## Version 11.2: in flight (2026-10-18)
+| Lane | Scope | Status |
+|---|---|---|
+| plans | Plans control phase 1 (BACKLOG §1.22) | Merged (29effe9) |
+| pilotfix1 | Pilot fixes batch 1, 19 items and follow-ups | Merged (8961d73) |
+| xset | Cross-set consistency, demo phase (BACKLOG §1.23) | Merged (3683251); xset_test 66/66, plans_test 152/152 |
+| findable2 | Find-it-again after every save, pay app %, the outbox address | Building |
+| pilotfix2 | Pilot fixes batch 2: clock, mail cards, money matching, Reverse Payment, the driver's route, agency mail | Building |
+| netfix | learn, flow, leaks2, chain reconciled with the pilot fixes | Building |
+
+Merge order: findable2, pilotfix2, then netfix last (it reconciles the suites the others change). Full net after each, then the scripted month and v11.2.
+
 ## Version 11.1: in flight (2026-10-18, overnight run Alan approved; weekly usage 4% at start)
 | Lane | Scope | Status |
 |---|---|---|
