@@ -34,8 +34,9 @@ async def main():
         # and Billing's badge 3 -> 4.
         # chain (2026-10-11): what a line has billed is read in dollars, line by line, not as the sum of its percentages
         # rounded to two places (51.67% of $37,800 overstated the windows line's billing by $1.25): the floated windows
-        # row is $13,969.99, not $13,968.74, so 47599.99 -> 47601.24.
-        c.ok(r['rtb'] == 47601.24 and r['rtbN'] == 4 and r['held'] == 0, f"ready to bill {r['rtb']} / {r['rtbN']} rows / {r['held']} held")
+        # row is $13,969.99, not $13,968.74, so 47599.99 -> 47601.24. Less the seed's 6.5 designer hours dated 9/4
+        # (a day not yet worked, read as ready to bill), removed by pilotfix2: 46301.24.
+        c.ok(r['rtb'] == 46301.24 and r['rtbN'] == 4 and r['held'] == 0, f"ready to bill {r['rtb']} / {r['rtbN']} rows / {r['held']} held")
         c.ok(r['badges'] == {'jobs': 2, 'sales': 4, 'buy': 10, 'money': 6, 'billing': 4}, f"rail badges {r['badges']}")
         c.ok('$0' in r['owe'], f"AP owed: {r['owe']}")
         c.ok('Tino' in r['po'] and '8,010' in r['po'], f"PO lookup: {r['po']}")

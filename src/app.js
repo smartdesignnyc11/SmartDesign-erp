@@ -8546,7 +8546,7 @@ function openClientEditor(kind, id) {
       ? c.payments.find((q) => q.id === id)
       : { date: today(), amount: "", method: "", invoiceId: clientFin(c).open[0]?.x.id || "", note: "" };
     ($("#d-title").textContent = id ? "Edit payment" : "Record payment"),
-      (b.innerHTML = `<div class="f2"><div class="f"><label>Date</label><input type="date" id="e-date" value="${x.date}"></div><div class="f"><label>Amount ($)</label><input type="number" id="e-amount" value="${x.amount}"></div></div><div class="f2"><div class="f"><label>Method</label><input id="e-method" value="${esc(x.method)}" placeholder="Wire, check #, card"></div><div class="f"><label>Applied to</label><select id="e-inv"><option value="">— unapplied —</option>${c.invoices
+      (b.innerHTML = `<div class="f2"><div class="f"><label>Date</label><input type="date" id="e-date" value="${x.date}"></div><div class="f"><label>Amount ($)</label><input type="number" id="e-amount" value="${x.amount}"></div></div><div class="f2"><div class="f"><label>Method</label>${payMethodSel("e-method", x.method)}</div><div class="f"><label>Check or Reference</label><input id="e-ref" value="${esc(x.ref || "")}" placeholder="check #, wire ref"></div><div class="f"><label>Deposited To</label>${payAcctSel("e-pacct", x.acctId || "")}</div><div class="f"><label>Applied to</label><select id="e-inv"><option value="">— unapplied —</option>${c.invoices
         .filter((i) => "draft" !== i.status && "void" !== i.status)
         .map(
           (i) =>
@@ -8560,6 +8560,10 @@ function openClientEditor(kind, id) {
         date: $("#e-date").value,
         amount: +$("#e-amount").value || 0,
         method: $("#e-method").value,
+        ref: ($("#e-ref") || {}).value || "",
+        acctId: ($("#e-pacct") || {}).value || "",
+        recordedBy: x.recordedBy || payWho(),
+        recordedAt: x.recordedAt || appNowIso(),
         invoiceId: $("#e-inv").value,
         note: $("#e-note").value,
       }));
@@ -8609,7 +8613,10 @@ function saveClientEditor() {
   const kind = editing.kind.slice(7),
     o = editing.collect(),
     id = editing.id,
-    upsert = (arr) => {
+    // a client payment says how it came, its check number, and where it was deposited
+    payNo = "payment" === kind && "function" == typeof payTraceWhy && !id ? payTraceWhy({ method: o.method, ref: o.ref, acct: o.acctId }) : "";
+  if (payNo) return void toast(payNo);
+  const upsert = (arr) => {
       const i = arr.findIndex((x) => x.id === o.id);
       i >= 0 ? (arr[i] = Object.assign(arr[i], o)) : arr.push(o);
     };
@@ -14339,6 +14346,7 @@ function timeFlags(e) {
       : timeWorkOk(e) || f.push("No work logged"),
     e.autoOut && f.push("Auto clocked out on leaving site"),
     e.autoClosed && f.push("Forgot to clock out — auto-closed at 10 h"),
+    e.clockFix && f.push("Clock-out read before the clock-in — confirm when they left"),
     e.projectId || timeOfficeEmp(e) || f.push("No job");
   return (
     DB.time.find(
@@ -14543,7 +14551,7 @@ function renderTime() {
   const tt = $("#time-title");
   tt && (tt.textContent = ["crew", "driver", "foreman"].includes(role()) ? "Clock" : "Time & Crew"),
     ($("#clock-card").innerHTML =
-      `<div class="clock"><div><div class="big">${open ? `Clocked in · ${new Date(open.in).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : emp ? `Hi ${esc(emp.name.split(" ")[0])}` : currentUser() ? `Hi ${esc(currentUser().name.split(" ")[0])}` : "Who are you?"}</div><div class="s">${emp ? `${esc(S.project.name)} · site hours ${siteHours().start}–${siteHours().end}${open ? ` · ${hoursOf({ in: open.in, out: appNowIso(), breakMin: 0 }).toFixed(1)} h so far` : ""} ` : currentUser() ? "Your user isn't linked to an employee record yet — ask the office (Settings → Users) so you can clock in." : "Pick your name once; this phone remembers it."}</div>${
+      `<div class="clock"><div><div class="big">${open ? `Clocked in · ${stampTime(open.in)}` : emp ? `Hi ${esc(emp.name.split(" ")[0])}` : currentUser() ? `Hi ${esc(currentUser().name.split(" ")[0])}` : "Who are you?"}</div><div class="s">${emp ? `${esc(S.project.name)} · site hours ${siteHours().start}–${siteHours().end}${open ? ` · ${Math.max(0, hoursOf({ in: open.in, out: appNowIso(), breakMin: 0 })).toFixed(1)} h so far` : ""} ` : currentUser() ? "Your user isn't linked to an employee record yet — ask the office (Settings → Users) so you can clock in." : "Pick your name once; this phone remembers it."}</div>${
         emp || currentUser()
           ? ""
           : `<div class="row" style="margin-top:8px"><select id="clock-me" class="btn" style="height:40px;font-size:15px;flex:1"><option value="">Select your name…</option>${DB.employees
@@ -35706,7 +35714,7 @@ function paymentAllocate(c, presetInvoiceId) {
     total = r2(open.reduce((a, o) => a + o.bal, 0)),
     m = mbModal(
       `Record payment — ${esc(c.name)}`,
-      `<div class="f2"><label class="f"><span>Amount received</span><input type="number" step="0.01" id="py-amt" value="${(presetInvoiceId && open.find((o) => o.x.id === presetInvoiceId)?.bal) || total}"></label><label class="f"><span>Date</span><input type="date" id="py-date" value="${today()}"></label></div><div class="f2"><label class="f"><span>Method</span><select id="py-method"><option>ACH</option><option>Check</option><option>Wire</option><option>Card</option><option>Credit on account</option></select></label><label class="f"><span>Reference</span><input id="py-ref" placeholder="check #, wire ref"></label></div>\n    <table class="t"><thead><tr><th>Invoice</th><th class="money">Balance</th><th class="money" style="width:130px">Apply</th></tr></thead><tbody>${open.map((o) => `<tr><td>${esc(o.x.number)} <span class="small muted">${esc(o.x.title || "")} · due ${o.x.due ? fmt(o.x.due) : "—"}</span></td><td class="money">${money(o.bal)}</td><td class="money"><input type="number" step="0.01" min="0" max="${o.bal}" data-pyalloc="${o.x.id}" value="0" style="width:120px;text-align:right"></td></tr>`).join("")}</tbody><tfoot><tr><td>Applied</td><td></td><td class="money" id="py-applied">$0</td></tr><tr><td>Left on account (credit)</td><td></td><td class="money" id="py-left">$0</td></tr></tfoot></table><div class="row" style="margin-top:6px;gap:6px"><button class="btn sm" id="py-auto">Apply oldest first</button></div>`,
+      `<div class="f2"><label class="f"><span>Amount received</span><input type="number" step="0.01" id="py-amt" value="${(presetInvoiceId && open.find((o) => o.x.id === presetInvoiceId)?.bal) || total}"></label><label class="f"><span>Date</span><input type="date" id="py-date" value="${today()}"></label></div><div class="f2"><label class="f"><span>Method</span>${payMethodSel("py-method", "")}</label><label class="f"><span>Check or Reference</span><input id="py-ref" placeholder="check #, wire ref"></label></div><div class="f2"><label class="f"><span>Deposited To</span>${payAcctSel("py-acct", payBankAccts().length === 1 ? payBankAccts()[0].id : "")}</label><span></span></div>\n    <table class="t"><thead><tr><th>Invoice</th><th class="money">Balance</th><th class="money" style="width:130px">Apply</th></tr></thead><tbody>${open.map((o) => `<tr><td>${esc(o.x.number)} <span class="small muted">${esc(o.x.title || "")} · due ${o.x.due ? fmt(o.x.due) : "—"}</span></td><td class="money">${money(o.bal)}</td><td class="money"><input type="number" step="0.01" min="0" max="${o.bal}" data-pyalloc="${o.x.id}" value="0" style="width:120px;text-align:right"></td></tr>`).join("")}</tbody><tfoot><tr><td>Applied</td><td></td><td class="money" id="py-applied">$0</td></tr><tr><td>Left on account (credit)</td><td></td><td class="money" id="py-left">$0</td></tr></tfoot></table><div class="row" style="margin-top:6px;gap:6px"><button class="btn sm" id="py-auto">Apply oldest first</button></div>`,
       {
         submit: "Record",
         onSubmit: () => {
@@ -35714,20 +35722,21 @@ function paymentAllocate(c, presetInvoiceId) {
           if (amt <= 0) return toast("Enter the amount"), !1;
           const date = $("#py-date").value || today(),
             method = $("#py-method").value,
-            ref = $("#py-ref").value;
+            ref = $("#py-ref").value,
+            tr = { method: method, ref: ref, acct: ($("#py-acct") || {}).value || "" },
+            no = payTraceWhy(tr);
+          if (no) return toast(no), !1;
           let applied = 0;
           m.querySelectorAll("[data-pyalloc]").forEach((inp) => {
             const v = r2(+inp.value || 0);
             if (v <= 0) return;
             (applied += v),
-              c.payments.push({
+              c.payments.push(payStamp({
                 id: uid("py"),
                 invoiceId: inp.dataset.pyalloc,
                 date: date,
                 amount: v,
-                method: method,
-                ref: ref,
-              });
+              }, tr));
             const inv = findDoc(c, "invoice", inp.dataset.pyalloc);
             inv &&
               !["void", "draft"].includes(inv.status) &&
@@ -35737,16 +35746,14 @@ function paymentAllocate(c, presetInvoiceId) {
           const left = r2(amt - applied);
           if (left < -0.005) return toast("Applied more than received"), !1;
           left > 0.005 &&
-            c.payments.push({
+            c.payments.push(payStamp({
               id: uid("py"),
               invoiceId: "",
               date: date,
               amount: left,
-              method: method,
-              ref: ref,
               unapplied: !0,
               voidedInvoice: "payment on account",
-            }),
+            }, tr)),
             c.activity.push({
               t: nowStamp(),
               by: S.project.userName || "",
@@ -37071,7 +37078,7 @@ matchPO = function (po) {
     n
   );
 };
-const proposals = () => DB.txns.filter((t) => t.proposal);
+const proposals = () => DB.txns.filter((t) => t.proposal && "line" !== t.proposal.kind);
 function proposalsHtml(list, title) {
   return list.length
     ? `<div class="card prop-card"><div class="row" style="align-items:baseline"><h3 style="margin:0">${title || "Matches waiting for your confirmation"}</h3><span class="small muted" style="margin-left:8px">${list.length} — nothing is linked until you say so</span></div>${list
@@ -41471,9 +41478,10 @@ function studioSeed() {
       phase: 1,
     });
     DB.time.push(
+      // a seed never writes hours for a day to come (pilot day 2: the designer's Day Sheet read "6.5 hrs logged
+      // today" on 9/4, hours dated after the demo day that she never entered), so the 9/4 entry is gone
       mk("teS1", "em8", "2026-09-02", 6, "Existing plans from listing; kitchen studies"),
       mk("teS2", "em8", "2026-09-03", 7, "Kitchen, 3rd floor plans; references"),
-      mk("teS3", "em8", "2026-09-04", 6.5, "Renderings; deck assembly"),
     ),
       St.meetings.push({
         id: "mt140a",
@@ -42137,6 +42145,13 @@ function logHours(projectId, hours, phaseIdx, note, date) {
 }
 let sboardTab = "rooms",
   sdrawSet = "all";
+// The Day Sheet's job list: every active job, the person's design projects first (pilot day 2: 121 State, a build
+// job she worked on, was not in the list, so its hours could not be logged).
+function stLogJobs(first) {
+  const F = (first || []).filter(Boolean),
+    rest = (DB.projects || []).filter((p) => !p.archived && !F.includes(p) && !/closed|archived|lost|cancel/i.test((p.project || {}).status || ""));
+  return [...F, ...rest];
+}
 function studioProjects() {
   return DB.projects.filter((p) => roomsOf(p.id).length || designEst(p));
 }
@@ -42853,7 +42868,7 @@ function renderSDay() {
     )
     .join(
       "",
-    )}\n          ${mtgs.length || T.length ? "" : '<div class="muted small">Open a room, a drawing or a meeting and it lands here. Or add hours directly.</div>'}\n          <div class="row" style="margin-top:8px;gap:6px;flex-wrap:wrap"><select id="st-addp">${projs.map((p) => `<option value="${p.id}">${esc(p.project.name)}</option>`).join("")}</select><input id="st-addh" type="number" step="0.25" placeholder="hrs" style="width:70px"><input id="st-addn" placeholder="what" style="flex:1;min-width:120px"><button class="btn sm" id="st-addgo">Log</button></div>\n          <div class="small muted" style="margin-top:8px">Hours left this phase are on each project's board. Entries go to your manager for approval.</div></div>\n        <div class="card" style="margin-top:10px"><h3>Projects</h3>${projs
+    )}\n          ${mtgs.length || T.length ? "" : '<div class="muted small">Open a room, a drawing or a meeting and it lands here. Or add hours directly.</div>'}\n          <div class="row" style="margin-top:8px;gap:6px;flex-wrap:wrap"><select id="st-addp">${stLogJobs(projs).map((p) => `<option value="${p.id}">${esc(p.project.name)}</option>`).join("")}</select><input id="st-addh" type="number" step="0.25" placeholder="hrs" style="width:70px"><input id="st-addn" placeholder="what" style="flex:1;min-width:120px"><button class="btn sm" id="st-addgo">Log</button></div>\n          <div class="small muted" style="margin-top:8px">Hours left this phase are on each project's board. Entries go to your manager for approval.</div></div>\n        <div class="card" style="margin-top:10px"><h3>Projects</h3>${projs
     .map((p) => {
       const ph = phaseHours(p),
         R = retainerLeft(p),
@@ -42895,7 +42910,7 @@ function renderSDay() {
     ),
     root.querySelector("#st-addgo")?.addEventListener("click", () => {
       const h = +$("#st-addh").value;
-      h && (doLog($("#st-addp").value, h, $("#st-addn").value || "Design"), renderSDay());
+      h && (doLog($("#st-addp").value, h, $("#st-addn").value || "Design", { date: ($("#st-addd") || {}).value || td }), renderSDay());
     }),
     root.querySelector("[data-stoptimer]")?.addEventListener("click", () => {
       timerToggle(tm.id, tm.label, tm.projectId), renderSDay();
@@ -64019,14 +64034,18 @@ if ("function" == typeof renderSDay) {
                 : 0,
             noteEl = root.querySelector("#st-addn"),
             // the day sheet's day: today, or the unlogged day Hours Not Logged opened it on
-            e = logHours(pid, h, idx, (noteEl && noteEl.value) || "Design", (root.querySelector("#st-addd") || {}).value || today(), !1, phaseLine);
+            dayEl = root.querySelector("#st-addd"),
+            day = (dayEl && dayEl.value) || today();
+          if (day > today()) return void toast("Hours are for today or a day already worked");
+          const e = logHours(pid, h, idx, (noteEl && noteEl.value) || "Design", day, !1, phaseLine);
+          e && day < today() && ((e.lateEntry = { on: today(), at: appNowIso(), by: (currentUser() || {}).name || "" }), save());
           if (e) {
             const g = dsGuard(pid, 0, phaseLine);
             g && g.unscoped
               ? dpUnscopedModal(p, h, e)
               : g && g.phase
                 ? toast(g.note, flowGo.time(e))
-                : toast(`${h} h logged${p ? ` on ${p.project.name}` : ""}`, flowGo.time(e)),
+                : toast(`${h} h logged${p ? ` on ${p.project.name}` : ""}${day !== today() ? ` for ${fmtL(day)}` : ""}`, flowGo.time(e)),
               (hrs.value = ""),
               noteEl && (noteEl.value = ""),
               "undefined" != typeof stLogDay && (stLogDay = ""),
@@ -64769,6 +64788,31 @@ if ("function" == typeof clockEvent) {
     fresh && fresh.out && setTimeout(() => f3DaySheet(fresh), 80);
   };
 }
+// Which of today's tasks the split sheet ticks for a person: only work they were on. A task assigned to them, or to
+// the in-house crew once it has started, or one they logged progress on today; a sub's task only for the foreman and
+// only when that sub checked in today. A trade that did not show is never ticked (pilot 9/8: the sheet ticked
+// Restoration and Rough electrical, and neither crew came).
+function f3WorkedOn(t, e, p) {
+  try {
+    const emp = (DB.employees || []).find((x) => x.id === e.empId) || {},
+      nm = String(emp.name || "").toLowerCase(),
+      first = nm.split(" ")[0],
+      own = String(t.owner || t.assignee || "").trim().toLowerCase(),
+      day = e.date,
+      subs = (((DB.field || {}).subs || []).filter((s) => s.projectId === p.id && s.date === day && s.taskId === t.id)),
+      showed = subs.some((s) => "onsite" === s.status || s.checkedIn || s.checkInAt),
+      noShow = subs.length && !showed;
+    if (noShow) return !1;
+    if (own && (own === nm || own === first || own.split(/[\s,&/]+/).includes(first))) return !0;
+    if ((t.pctLog || []).some((l) => l.on === day && String(l.by || "").toLowerCase().split(" ")[0] === first)) return !0;
+    const inHouse = ["crew", "sd crew", "in-house", "foreman", ""].includes(own);
+    if (inHouse && ["in-progress", "done"].includes(t.status)) return !0;
+    const u = (DB.users || []).find((x) => x.employeeId === emp.id);
+    return !!(showed && ((u && "foreman" === u.role) || /foreman|site lead/i.test(emp.role || "")));
+  } catch (x) {
+    return !1;
+  }
+}
 function f3DaySheet(e) {
   const p = (DB.projects || []).find((x) => x.id === e.projectId) || S,
     cur = S.id;
@@ -64778,8 +64822,7 @@ function f3DaySheet(e) {
     act = ("function" == typeof fActive ? fActive(td) : []).filter(
       (t) => "done" !== t.status || t.actualEnd === td,
     ),
-    started = act.filter((t) => ["in-progress", "done"].includes(t.status)),
-    pick = started.length ? started : act;
+    pick = act.filter((t) => f3WorkedOn(t, e, p));
   if ((p.id !== cur && "function" == typeof setCurrent && setCurrent(cur), !act.length))
     return void toast(
       `Clocked out — ${total} h. Nothing is scheduled today, so the office will assign the hours.`,
@@ -64967,7 +65010,8 @@ if ("function" == typeof clockEvent) {
       e = emp ? (DB.time || []).find((t) => t.empId === emp.id && !t.out) : null;
     if (!e || !e.in) return clockLongBase_f3(kind);
     const hrs = (appNowMs() - new Date(e.in).getTime()) / 36e5;
-    if (hrs <= 16) return clockLongBase_f3(kind);
+    // a clock-out that would read before its own clock-in (two phones' clocks apart) asks too: never a negative day
+    if (hrs >= 0 && hrs <= 16) return clockLongBase_f3(kind);
     const when = await f3AskWhenLeft(e, hrs);
     if (!when) return;
     (e.out = when),
@@ -64985,12 +65029,16 @@ function f3AskWhenLeft(e, hrs) {
   return new Promise((res) => {
     mbModal(
       "When did you actually leave?",
-      `\n      <p class="small">You clocked in on <b>${esc(fmt(day))}</b> and have not clocked out since — that is\n      ${Math.round(hrs)} hours. Nobody worked that, so it is not going on a timesheet.</p>\n      <div class="grid2">\n        <div class="f"><label>Day you left</label><input type="date" data-f="d" value="${esc(day)}"></div>\n        <div class="f"><label>Time</label><input type="time" data-f="t" value="15:30"></div>\n      </div>\n      <p class="small muted" style="margin:8px 0 0">The clock-in time stays as it was recorded. Only the end is being corrected, and the correction is on the record.</p>`,
+      (hrs < 0
+        ? `\n      <p class="small">You clocked in at <b>${esc(stampTime(e.in))}</b>, and this phone reads ${esc(stampTime(appNowIso()))}, before that. Say when you left so the day carries the right hours.</p>`
+        : `\n      <p class="small">You clocked in on <b>${esc(fmt(day))}</b> and have not clocked out since — that is\n      ${Math.round(hrs)} hours. Nobody worked that, so it is not going on a timesheet.</p>`) +
+        `\n      <div class="grid2">\n        <div class="f"><label>Day you left</label><input type="date" data-f="d" value="${esc(day)}"></div>\n        <div class="f"><label>Time</label><input type="time" data-f="t" value="${hrs < 0 ? "" : "15:30"}"></div>\n      </div>\n      <p class="small muted" style="margin:8px 0 0">The clock-in time stays as it was recorded. Only the end is being corrected, and the correction is on the record.</p>`,
       {
         submit: "That is when I left",
         cancel: "Leave it running",
         onSubmit: (f) => {
           if (!f.d || !f.t) return toast("Pick a day and a time"), !1;
+          if (`${f.d}T${f.t}:00` <= String(e.in)) return toast(`That is before you clocked in (${stampTime(e.in)})`), !1;
           res(`${f.d}T${f.t}:00`);
         },
         onCancel: () => res(null),
@@ -64999,6 +65047,120 @@ function f3AskWhenLeft(e, hrs) {
     const m = document.getElementById("mbm");
     m?.querySelector("#mbm-cancel")?.addEventListener("click", () => res(null));
   });
+}
+// ---- Missing hours for a past day (pilot 9/8: the crew could only clock today; a day he worked and never punched had
+// no way in). The working days of the last two weeks with no time for the person, oldest first, and one sheet that
+// enters a day's hours with the reason they are late. The entry goes to the foreman and office for approval like any
+// other, and carries the reason, who entered it and when, so payroll sees a late entry for what it is.
+function tmMissingDays(emp, n) {
+  const td = today(),
+    out = [];
+  if (!emp) return out;
+  const first = (DB.time || []).filter((t) => t.empId === emp.id).map((t) => t.date).sort()[0] || "";
+  for (let i = 1; i <= 14 && out.length < (n || 5); i++) {
+    const d = iso(addDays(td, -i));
+    if (first && d < first) break;
+    isWork(d) && !(DB.time || []).some((t) => t.empId === emp.id && t.date === d) && out.push(d);
+  }
+  return out.sort();
+}
+function tmLateSheet(emp, date) {
+  emp = emp || ("function" == typeof myEmp ? myEmp() : null);
+  if (!emp) return void toast("Your user is not linked to an employee record");
+  const td = today(),
+    yday = iso(addDays(td, -1)),
+    day = date || tmMissingDays(emp)[0] || prevWork(yday),
+    jobs = (DB.projects || []).filter((p) => !p.archived),
+    cur = (void 0 !== S && S && S.id) || "",
+    sh = "function" == typeof siteHours ? siteHours() : { start: "07:00", end: "15:30" };
+  mbModal(
+    "Enter Missing Hours",
+    `<div class="small muted" style="margin-bottom:6px">For a day you worked and did not clock. It goes to the foreman and the office for approval, with your reason.</div>
+    <div class="grid2">${mbF("Day", `<input data-f="d" type="date" value="${esc(day)}" max="${esc(yday)}">`)}${mbF("Job", `<select data-f="pid">${jobs.map((p) => `<option value="${p.id}" ${p.id === cur ? "selected" : ""}>${esc(p.project.name)}</option>`).join("")}</select>`)}</div>
+    <div class="grid2">${mbF("Started", `<input data-f="a" type="time" value="${esc(sh.start || "07:00")}">`)}${mbF("Finished", `<input data-f="b" type="time" value="${esc(sh.end || "15:30")}">`)}</div>
+    <div class="grid2">${mbF("Break (min)", mbIn("brk", "30", "30", "number"))}${mbF("What You Worked On", mbIn("n", "", "e.g. framing garden bedroom"))}</div>
+    ${mbF("Why It Is Late", mbIn("why", "", "e.g. phone died; forgot to clock in"))}`,
+    {
+      submit: "Send for Approval",
+      onSubmit: (f) => {
+        if (!f.d || f.d >= td) return toast("Pick a day before today; today's hours come from the clock"), !1;
+        if (!f.a || !f.b || f.b <= f.a) return toast("The finish time comes after the start"), !1;
+        const why = String(f.why || "").trim();
+        if (why.length < 3) return toast("Say why the hours are late; it goes on the record"), !1;
+        const ins = `${f.d}T${f.a}:00`,
+          outs = `${f.d}T${f.b}:00`,
+          clash = (DB.time || []).find((t) => t.empId === emp.id && t.date === f.d && t.in && String(t.in) < outs && ins < String(t.out || t.in));
+        if (clash) return toast(`You already have time on ${fmtL(f.d)} from ${stampTime(clash.in)}; open it instead`), !1;
+        const by = (currentUser() || {}).name || emp.name,
+          e = {
+            id: uid("te"),
+            empId: emp.id,
+            date: f.d,
+            in: ins,
+            out: outs,
+            breakMin: Math.max(0, +f.brk || 0),
+            projectId: f.pid,
+            code: "",
+            notes: f.n || "",
+            status: "submitted",
+            approvedBy: "",
+            geoIn: null,
+            geoOut: null,
+            source: "late",
+            lateEntry: { on: td, at: appNowIso(), by: by, reason: why },
+            work: [{ projectId: f.pid, code: "", hours: 0, note: f.n || "" }],
+          };
+        (e.work[0].hours = r2(hoursOf(e))), DB.time.push(e);
+        try {
+          audit("time", e.id, "logged-late", null, { date: f.d, hours: hoursOf(e), reason: why, by: by });
+        } catch (x) {}
+        save(), render();
+        const go = () => ("function" == typeof openTime ? openTime(e.id) : null);
+        "function" == typeof rcToast
+          ? rcToast(`${r2(hoursOf(e))} h for ${fmtL(f.d)} sent for approval`, [{ label: "Open", run: go }])
+          : toast(`${r2(hoursOf(e))} h for ${fmtL(f.d)} sent for approval`, go);
+      },
+    },
+  );
+}
+// A late entry says so wherever hours are approved
+if ("function" == typeof timeFlags) {
+  const timeFlagsBase_late = timeFlags;
+  timeFlags = function (e) {
+    const f = timeFlagsBase_late.apply(this, arguments);
+    try {
+      e && e.lateEntry && e.lateEntry.reason && Array.isArray(f) && f.push(`Entered late on ${fmt(e.lateEntry.on)} by ${e.lateEntry.by || "?"}: ${e.lateEntry.reason}`);
+    } catch (x) {}
+    return f;
+  };
+}
+// The Clock screen carries the missing days and the way to enter them, for every person with an employee record
+if ("function" == typeof renderTime) {
+  const renderTimeBase_late = renderTime;
+  renderTime = function () {
+    const r = renderTimeBase_late.apply(this, arguments);
+    try {
+      const emp = "function" == typeof myEmp ? myEmp() : null,
+        at = document.getElementById("clock-card"),
+        old = document.getElementById("tm-missing");
+      old && old.remove();
+      if (emp && at) {
+        const M = tmMissingDays(emp),
+          d = document.createElement("div");
+        (d.className = `card${M.length ? " warn" : ""}`),
+          (d.id = "tm-missing"),
+          (d.style.marginBottom = "12px"),
+          (d.innerHTML = M.length
+            ? `<div class="hd"><h3>Missing Hours</h3><span class="small muted">${M.length} working day${1 === M.length ? "" : "s"}</span></div><div class="small muted" style="margin-bottom:6px">No time for ${M.map((x) => fmtL(x)).join(", ")}.</div><div class="row" style="gap:6px;flex-wrap:wrap">${M.map((x) => `<button type="button" class="btn sm" data-tmlate="${x}">Enter ${esc(fmt(x))}</button>`).join("")}</div>`
+            : `<div class="row" style="align-items:center;gap:8px"><span class="small muted grow">Worked a day you did not clock?</span><button type="button" class="btn sm" data-tmlate="">Enter Missing Hours</button></div>`),
+          at.after(d),
+          d.querySelectorAll("[data-tmlate]").forEach((b) => (b.onclick = () => tmLateSheet(emp, b.dataset.tmlate)));
+      }
+    } catch (x) {
+      console.warn("missing hours", x);
+    }
+    return r;
+  };
 }
 const fmShipOn = (l) => r2((+l.shipping || 0) * (1 + (+l.shipMarkupPct || 0) / 100)),
   lineAmountBase_fmfix = lineAmount;
@@ -65344,37 +65506,202 @@ function iaSovHtml() {
         .join("")
     : '<div class="empty">No schedule of values yet. Convert an approved construction estimate to create one.</div>';
 }
+// ---- A client payment carries its trace (pilot day 2: a payment held only date, amount and invoice, so one that
+// was not in the bank could not be traced): how it came (method), the check number or wire reference, the account it
+// was deposited to, who recorded it and when. A field nobody set reads "not recorded", never a guessed default (the
+// Payments list showed "ACH" for payments recorded with no method, because the form's first option was ACH).
+const PAY_METHODS = ["Check", "Wire", "ACH", "Zelle", "Card", "Cash", "Credit on account"];
+const payNR = (v) => (v && String(v).trim() ? String(v) : "not recorded");
+function payBankAccts() {
+  return (DB.accounts || []).filter((a) => "bank" === a.type || !a.type);
+}
+function payAcctName(id) {
+  const a = (DB.accounts || []).find((x) => x.id === id);
+  return a ? `${a.name}${a.last4 ? " ····" + a.last4 : ""}` : "";
+}
+function payMethodSel(id, v) {
+  return `<select id="${id}" data-f="method"><option value="">Choose…</option>${PAY_METHODS.map((m) => `<option ${m === v ? "selected" : ""}>${m}</option>`).join("")}</select>`;
+}
+function payAcctSel(id, v) {
+  return `<select id="${id}" data-f="acct"><option value="">Choose…</option>${payBankAccts().map((a) => `<option value="${a.id}" ${a.id === v ? "selected" : ""}>${esc(payAcctName(a.id))}</option>`).join("")}</select>`;
+}
+const payWho = () => ((currentUser() || {}).name || (S && S.project && S.project.userName) || role() || "");
+// what a bank line says about how the money came: its method and reference (check number, wire or ACH trace)
+function payFromBank(t) {
+  const d = String((t && t.desc) || ""),
+    method = /\bwire\b/i.test(d) ? "Wire" : /\bzelle\b/i.test(d) ? "Zelle" : /\b(check|chk|deposit item)\b/i.test(d) ? "Check" : /\bach\b|online transfer|transfer from/i.test(d) ? "ACH" : /\bcard|stripe|square\b/i.test(d) ? "Card" : "",
+    ref = (d.match(/\b(?:check|chk)\s*#?\s*(\d{3,})/i) || d.match(/\b(?:ref|trn|trace|conf)\s*[:#]?\s*([A-Z0-9-]{4,})/i) || [])[1] || "";
+  return { method: method, ref: ref };
+}
+// the payment form's checks: a method is chosen, a check names its number, the deposit account is named
+function payTraceWhy(f) {
+  if (!f.method) return "Say how it was paid (check, wire, ACH...)";
+  if ("Check" === f.method && !String(f.ref || "").trim()) return "A check payment needs the check number";
+  if ("Credit on account" !== f.method && !f.acct) return "Say which account it was deposited to";
+  return "";
+}
+function payStamp(p, f) {
+  return Object.assign(p, { method: f.method || "", ref: String(f.ref || "").trim(), acctId: f.acct || p.acctId || "", recordedBy: p.recordedBy || payWho(), recordedAt: p.recordedAt || appNowIso() });
+}
+// ---- Reverse Payment (pilot day 3): an append-only linked reversal. The payment stays as it was; a reversal record
+// of the opposite amount points at it with the reason, who and when; the invoice re-opens. Billing and the Controller.
+const payCanReverse = () => ["billing", "controller"].includes(role());
+function payReverse(c, py, why) {
+  if (!payCanReverse()) return { ok: !1, why: "Billing or the Controller reverses a payment" };
+  const w = String(why || "").trim();
+  if (!w) return { ok: !1, why: "Say why the payment is reversed" };
+  if (py.reversalId || py.reverses) return { ok: !1, why: py.reverses ? "This is a reversal; reverse the payment itself" : "This payment is already reversed" };
+  const by = payWho(),
+    rv = { id: uid("py"), date: today(), amount: -r2(+py.amount || 0), method: py.method || "", ref: py.ref || "", acctId: py.acctId || "", invoiceId: py.invoiceId || "", unapplied: !!py.unapplied, reverses: py.id, why: w, recordedBy: by, recordedAt: appNowIso(), note: `reverses the ${fmtL(py.date)} payment of ${money(+py.amount || 0)}: ${w}` };
+  (c.payments = c.payments || []).push(rv), (py.reversalId = rv.id), (py.reversedAt = rv.recordedAt), (py.reversedBy = by);
+  const inv = py.invoiceId && (c.invoices || []).find((i) => i.id === py.invoiceId);
+  if (inv && !["void", "draft"].includes(inv.status)) {
+    const paid = invoicePaid(c, inv),
+      tot = docTotal(inv).total;
+    inv.status = paid >= tot - 0.005 ? "paid" : paid > 0.005 ? "partial" : inv.due && inv.due < today() ? "overdue" : "sent";
+  }
+  try {
+    audit("payment", py.id, "reversed", String(py.amount), rv.id, `${c.name} ${money(+py.amount || 0)} recorded ${fmtL(py.date)} — reversed by ${by}: ${w}`);
+  } catch (e) {}
+  (c.activity = c.activity || []).push({ t: nowStamp(), by: by, text: `Payment ${money(+py.amount || 0)} of ${fmtL(py.date)} reversed — ${w}` });
+  return save(), { ok: !0, rv: rv, inv: inv };
+}
+function paySheet(c, py) {
+  if (!c || !py) return;
+  const inv = py.invoiceId && (c.invoices || []).find((i) => i.id === py.invoiceId),
+    t = payBankLine(py),
+    rv = py.reversalId && (c.payments || []).find((x) => x.id === py.reversalId),
+    of = py.reverses && (c.payments || []).find((x) => x.id === py.reverses),
+    kv = (k, v) => `<div class="row small" style="padding:4px 0;border-top:1px solid var(--rule)"><span class="muted" style="width:120px">${k}</span><span class="grow">${v}</span></div>`,
+    can = payCanReverse() && !py.reversalId && !py.reverses && +py.amount > 0,
+    m = mbModal(
+      `Payment · ${esc(c.name)} · ${money(+py.amount || 0)}`,
+      `${kv("Date", esc(fmtL(py.date)))}${kv("Applied To", inv ? esc(inv.number) : py.unapplied ? "on account" : "not recorded")}${kv("Method", esc(payNR(py.method)))}${kv("Check or Reference", esc(payNR(py.ref)))}${kv("Deposited To", esc(payNR(payAcctName(py.acctId))))}${kv("Recorded By", esc(payNR(py.recordedBy || py.by)) + (py.recordedAt ? ` · ${esc(stampText(py.recordedAt))}` : ""))}${kv("In the Bank", t ? `cleared by ${esc(t.desc)} on ${esc(fmtL(t.date))}` : "not in the bank")}${rv ? kv("Reversed", `${esc(fmtL(rv.date))} by ${esc(rv.recordedBy || "")}: ${esc(rv.why || "")}`) : ""}${of ? kv("Reverses", `the ${esc(fmtL(of.date))} payment of ${money(+of.amount || 0)}: ${esc(py.why || "")}`) : ""}
+      ${can ? `<div class="f" style="margin-top:10px"><label>Why It Is Reversed</label><input data-f="why" placeholder="e.g. the check bounced; recorded against the wrong invoice"></div><div class="small muted">The payment stays on the record; a linked reversal is added and the invoice re-opens.</div>` : ""}`,
+      can
+        ? {
+            submit: "Reverse Payment",
+            onSubmit: (f) => {
+              const r = payReverse(c, py, f.why);
+              if (!r.ok) return toast(r.why), !1;
+              render();
+              const go = () => ((clientOpen = c.id), r.inv ? (docOpen = { kind: "invoice", id: r.inv.id }) : (docOpen = null), (view = (ROLE_VIEWS[role()] || []).includes("billing") ? "billing" : "clients"), render());
+              "function" == typeof rcToast ? rcToast(`${c.name}'s ${fmtL(py.date)} payment reversed${r.inv ? `; ${r.inv.number} is open again` : ""}`, [{ label: "Open", run: go }]) : toast(`${c.name}'s payment reversed`, go);
+            },
+          }
+        : { submit: null },
+    );
+  return m;
+}
+// ---- In the Bank, Not Applied (pilot day 3): money that reached a bank account and is on no invoice. Each deposit
+// from an import or a feed with the invoice the matcher proposes for it (payer name and amount); Record It applies it.
+// the bank line behind a recorded payment: the one it is linked to, else the one undepositedReceipts reads as its
+// deposit (same amount within $1, within 10 days), so this list and "Recorded, Not Yet in the Bank" never disagree
+function payBankLine(py) {
+  if (!py || !(+py.amount > 0)) return null;
+  return (py.txnId && (DB.txns || []).find((t) => t.id === py.txnId)) || (DB.txns || []).find((t) => t.amt > 0 && Math.abs(t.amt - py.amount) <= 1 && Math.abs(dayDiff(py.date, t.date)) <= 10) || null;
+}
+function payInBankRows() {
+  const banks = new Set(payBankAccts().map((a) => a.id)),
+    paid = new Set();
+  (DB.clients || []).forEach((c) =>
+    (c.payments || []).forEach((p) => {
+      p.txnId && paid.add(p.txnId);
+      const t = !p.unapplied && payBankLine(p);
+      t && paid.add(t.id);
+    }),
+  );
+  return (DB.txns || [])
+    .filter((t) => banks.has(t.acct) && +t.amt > 0 && !t.invoiceId && !paid.has(t.id) && !t.exception && !t.transferId && !/transfer|interest|refund|reversal/i.test(t.cat || "") && !(t.match && (t.match.invoiceId || t.match.paymentId)) && !!(t.prov || t.origin || t.source))
+    .map((t) => {
+      let best = null;
+      try {
+        best = truthCandidates(t).filter((x) => "invoice" === x.kind)[0] || null;
+      } catch (e) {}
+      return { t: t, best: best };
+    })
+    .sort((a, b) => String(b.t.date).localeCompare(String(a.t.date)));
+}
+function payInBankHtml() {
+  const R = payInBankRows();
+  if (!R.length) return "";
+  return `<div class="card" id="pay-inbank" style="margin-bottom:12px"><div class="hd"><h3>In the Bank, Not Applied</h3><span class="small muted">${R.length} deposit${1 === R.length ? "" : "s"} · ${money(R.reduce((a, x) => a + +x.t.amt, 0))} on no invoice</span></div>${R.map(
+    (x, i) =>
+      `<div class="row" style="padding:6px 0;border-top:1px solid var(--rule);gap:8px;flex-wrap:wrap;align-items:center"><span class="small" style="width:70px">${esc(fmt(x.t.date))}</span><b class="grow">${esc(x.t.desc)} · ${money(+x.t.amt)}</b><span class="small muted">${esc(payAcctName(x.t.acct))}</span><span class="small" style="flex-basis:100%">${x.best ? `Proposed: ${esc(x.best.label)} <span class="muted">(${esc(x.best.why)})</span>` : '<span class="muted">No open invoice matches the payer or the amount; open the line to apply it or say what it is.</span>'}</span>${x.best ? `<button type="button" class="btn sm" data-pibrec="${i}">Record It</button>` : ""}<button type="button" class="btn sm" data-pibopen="${i}">Open Line</button></div>`,
+  ).join("")}</div>`;
+}
+function payInBankWire(root) {
+  const R = payInBankRows();
+  root.querySelectorAll("[data-pibrec]").forEach(
+    (b) =>
+      (b.onclick = () => {
+        const x = R[+b.dataset.pibrec];
+        if (!x || !x.best) return;
+        const r = truthSetMatch(x.t, x.best.m, { why: x.best.why });
+        if (r && !1 === r.ok) return toast(r.why || "Not recorded");
+        const c = (DB.clients || []).find((c) => (c.invoices || []).some((i) => i.id === x.best.m.invoiceId)),
+          inv = c && c.invoices.find((i) => i.id === x.best.m.invoiceId);
+        save(), render();
+        "function" == typeof rcToast ? rcToast(`${money(+x.t.amt)} recorded against ${inv ? inv.number : "the invoice"}`, [{ label: "Open", run: () => (c && ((clientOpen = c.id), (docOpen = inv ? { kind: "invoice", id: inv.id } : null)), render()) }]) : toast(`${money(+x.t.amt)} recorded`);
+      }),
+  ),
+    root.querySelectorAll("[data-pibopen]").forEach(
+      (b) =>
+        (b.onclick = () => {
+          const x = R[+b.dataset.pibopen];
+          x && "function" == typeof openVerifyTxn ? openVerifyTxn(x.t.id) : x && ((view = "bank"), render());
+        }),
+    );
+}
 function iaPaymentsHtml() {
   const rows = [];
   DB.clients.forEach((c) => {
     (billClient && c.id !== billClient) ||
-      c.payments.forEach((p) => rows.push({ c: c, p: p, inv: c.invoices.find((i) => i.id === p.invoiceId) }));
+      c.payments.forEach((p) => rows.push({ c: c, p: p, inv: c.invoices.find((i) => i.id === p.invoiceId), t: payBankLine(p) }));
   });
-  return grid({
-    id: "bill-payments",
-    cols: [
-      { key: "date", label: "Date", type: "date", w: "96px", get: (r) => r.p.date },
-      { key: "client", label: "Client", cls: "name", get: (r) => r.c.name },
-      {
-        key: "invoice",
-        label: "Invoice",
-        w: "130px",
-        get: (r) => (r.inv ? r.inv.number : r.p.unapplied ? "Unapplied" : "—"),
-      },
-      { key: "method", label: "Method", w: "110px", get: (r) => r.p.method || "" },
-      { key: "ref", label: "Reference", get: (r) => r.p.ref || r.p.memo || "" },
-      { key: "amt", label: "Amount", type: "money", w: "110px", get: (r) => +r.p.amount || +r.p.amt || 0 },
-    ],
-    rows: rows.map((r) => ({
-      id: r.p.id,
-      data: r,
-      edit: r.inv ? `billdoc:${r.c.id}:invoice:${r.inv.id}` : "",
-    })),
-    defaultSort: "date",
-    dir: "desc",
-    empty: "No payments recorded yet.",
-  });
+  return (
+    payInBankHtml() +
+    grid({
+      id: "bill-payments",
+      cols: [
+        { key: "date", label: "Date", type: "date", w: "96px", get: (r) => r.p.date },
+        { key: "client", label: "Client", cls: "name", get: (r) => r.c.name },
+        {
+          key: "invoice",
+          label: "Invoice",
+          w: "130px",
+          get: (r) => (r.inv ? r.inv.number : r.p.unapplied ? "Unapplied" : "—"),
+        },
+        { key: "method", label: "Method", w: "110px", get: (r) => payNR(r.p.method) },
+        { key: "ref", label: "Reference", get: (r) => payNR(r.p.ref || r.p.memo) },
+        { key: "acct", label: "Deposited To", get: (r) => payNR(payAcctName(r.p.acctId || (r.t && r.t.acct))) },
+        { key: "by", label: "Recorded By", get: (r) => payNR(r.p.recordedBy || r.p.by) },
+        { key: "bank", label: "In the Bank", get: (r) => (r.p.reverses ? "reversal" : r.p.reversalId ? "reversed" : r.t ? `cleared ${fmt(r.t.date)}` : "not in the bank") },
+        { key: "amt", label: "Amount", type: "money", w: "110px", get: (r) => +r.p.amount || +r.p.amt || 0 },
+      ],
+      rows: rows.map((r) => ({
+        id: r.p.id,
+        data: r,
+        edit: `billpay:${r.c.id}:${r.p.id}`,
+      })),
+      defaultSort: "date",
+      dir: "desc",
+      empty: "No payments recorded yet.",
+    })
+  );
 }
+document.addEventListener(
+  "click",
+  (e) => {
+    const tr = e.target && e.target.closest ? e.target.closest('tr[data-edit^="billpay:"]') : null;
+    if (!tr || e.target.closest("button,a")) return;
+    e.stopPropagation(), e.preventDefault();
+    const [, cid, pid] = tr.dataset.edit.split(":"),
+      c = (DB.clients || []).find((x) => x.id === cid);
+    c && paySheet(c, (c.payments || []).find((p) => p.id === pid));
+  },
+  !0,
+);
 function renderBilling() {
   const root = document.getElementById("billing-body");
   if (!root) return;
@@ -65434,7 +65761,8 @@ function renderBilling() {
         }),
     ),
     "billable" === billTab &&
-      ("function" == typeof pgWire && pgWire(root), "function" == typeof dsWire && dsWire(root));
+      ("function" == typeof pgWire && pgWire(root), "function" == typeof dsWire && dsWire(root)),
+    "payments" === billTab && payInBankWire(root);
 }
 if (
   ((function () {
@@ -72620,8 +72948,11 @@ function cmRead(c) {
   }
   // A DOB NOW inspection notice proposes the booking with its window (cmDobNow, kept apart; see Book Inspection).
   {
-    const bk = "function" == typeof cmDobNow ? cmDobNow(all, R) : null;
-    bk && push("inspection", `${where || "Inspection"}: book ${bk.name} for ${fmtL(bk.date)}${bk.from ? ` ${bk.from}–${bk.to}` : ""} — from the DOB NOW notice`, bk);
+    let bk = "function" == typeof cmDobNow ? cmDobNow(all, R) : null;
+    const via = bk ? "DOB NOW" : "agency";
+    !bk && "function" == typeof agInspFromMail && (bk = agInspFromMail(all, R));
+    bk && "function" == typeof agInspEffect && (bk = agInspEffect(bk, c));
+    bk && push("inspection", `${where || "Inspection"}: book ${bk.name} for ${fmtL(bk.date)}${bk.from ? ` ${bk.from}–${bk.to}` : ""} — from the ${via} notice${bk.effect ? "; " + bk.effect : ""}`, bk);
   }
   // Our own card's or bank's statement is not a vendor bill: its lines are the feed. It is imported.
   const ourCard =
@@ -72645,6 +72976,13 @@ function cmRead(c) {
       task: `Import the ${ourCard.name} ····${ourCard.last4} statement and reconcile the card`,
       owner: "Controller",
     });
+  } else if (!onFile && !R.clientId && /\b(statement|new activity|card activity|account activity)\b/i.test(all) && /\bcard\b/i.test(all) && /import|attached|\bcsv\b|\bofx\b|statement/i.test(all)) {
+    // a card's statement for a card the firm has no account for: offer the account, last 4 only
+    const nm = ((all.match(/\b([A-Z][\w&.'-]*(?:\s+[A-Z][\w&.'-]*){0,2})\s+card\b/) || [])[1] || "").trim(),
+      l4 = (all.match(/(?:ending(?:\s+in)?|····|\.{4}|x{2,}|\*{2,}|last\s*(?:4|four)(?:\s*digits)?[:\s]*)\s*#?\s*(\d{4})\b/i) || [])[1] || "";
+    nm &&
+      !(DB.accounts || []).some((a) => (l4 && a.last4 === l4) || String(a.name || "").toLowerCase().startsWith(nm.toLowerCase())) &&
+      push("newacct", `${nm} card is not one of the firm's accounts${l4 ? ` (····${l4})` : ""}: New Card Account from This Statement, then import its lines into it`, { name: `${nm} card`, last4: l4, owner: "Controller" });
   } else if (onFile) {
     push("statement", `${who} is chasing ${amt ? money(amt) + " " : ""}on ${onFile.number} — already on file (${onFile.status}${onFile.short ? ", short-paid" : ""})${where ? " · " + where : ""}; no second bill`, {
       billId: onFile.id,
@@ -72675,11 +73013,16 @@ function cmRead(c) {
             (t) => +t.amt < 0 && Math.abs(Math.abs(+t.amt) - amt) < 0.01 && !t.billId && t.date >= iso(addDays(said, -14)) && t.date <= iso(addDays(said, 14)),
           )
         : null,
-      rent = /\brent\b|lease/i.test(all);
+      // A vendor invoice naming a PO, or from a vendor with one open PO, is a bill against that PO. Rent needs lease
+      // or rent words as words (pilot day 2: "Please find invoice TIN-7194 for PO-2026-047" read as rent because
+      // "please" holds "lease", so a flooring bill on 121 State would have skipped the three-way match).
+      poOf = "function" == typeof cmBillPO ? cmBillPO(c, { vendor: who }) : null,
+      poJob = poOf && (DB.projects || []).find((x) => x.id === poOf.projectId),
+      rent = !poOf && /\b(rent|rents|rental|lease|leased|sublease)\b/i.test(all) && !/\b(equipment|scaffold|lift|dumpster|tool|machine)\s+(rent|rental)/i.test(all);
     push(
       "bill",
       amt
-        ? `${who} says ${money(amt)} is owed${ent ? " by " + ent.name : ""}${num ? " · #" + num : ""}${due ? " · due " + due : ""}${/past due/i.test(all) ? " · past due" : ""}${rent ? " · rent, a firm expense" : ""}${where ? " · " + where : ""}${attText ? " · read from the attached PDF" : ""}`
+        ? `${who} says ${money(amt)} is owed${ent ? " by " + ent.name : ""}${num ? " · #" + num : ""}${due ? " · due " + due : ""}${/past due/i.test(all) ? " · past due" : ""}${poOf ? ` · against ${poOf.number}${poJob ? " on " + String(poJob.project.name).replace(/ —.*$/, "") : ""}, matched to what was received` : ""}${rent ? " · rent, a firm expense" : ""}${where && !poJob ? " · " + where : ""}${attText ? " · read from the attached PDF" : ""}`
         : `${who} sent an invoice${num ? " #" + num : ""}${where ? " · " + where : ""} — the amount is not in the text and the PDF was not read; open it before anything is written`,
       {
         vendor: who,
@@ -72689,7 +73032,9 @@ function cmRead(c) {
         number: num,
         due: due,
         entityId: ent ? ent.id : "",
-        projectId: R.projectId || "",
+        projectId: (poOf && poOf.projectId) || R.projectId || "",
+        poId: poOf ? poOf.id : "",
+        poNumber: poOf ? poOf.number : "",
         rent: rent,
         fromAttachment: !!attText && !cmMoney(own),
         txnId: paidLine ? paidLine.id : "",
@@ -73114,8 +73459,18 @@ function cmApply(c, p) {
   } else if ("inspection" === p.kind) {
     const pr = p.projectId && DB.projects.find((x) => x.id === p.projectId),
       i = pr && (pr.inspections || []).find((x) => x.id === p.inspId);
-    i && "function" == typeof inspBook && inspBook(pr, i, { date: p.date, from: p.from, to: p.to, docket: p.docket, via: "DOB NOW" }),
-      (did = i ? "inspection booked" : "no matching inspection");
+    const moved = i && "function" == typeof inspBook ? (inspBook(pr, i, { date: p.date, from: p.from, to: p.to, docket: p.docket, via: "DOB NOW" }), "function" == typeof agInspApply ? agInspApply(pr, p) : []) : [];
+    did = i ? `inspection booked${moved.length ? "; " + moved.join("; ") : ""}` : "no matching inspection";
+  } else if ("newacct" === p.kind) {
+    // the account needs its last 4; with them in the mail it is added, otherwise Import Statement asks for them
+    const r = p.last4 && "function" == typeof acctNewCard ? acctNewCard(p.name, p.last4, "statement mail", c.id) : null;
+    (bfNewHint = { name: p.name, last4: p.last4 || "" }),
+      setTimeout(() => {
+        try {
+          (view = "bank"), render(), bfImportDialog(r && r.ok ? r.a.id : "__new");
+        } catch (e) {}
+      }, 60),
+      (did = r && r.ok ? `${r.a.name} ····${r.a.last4} added; import its statement` : "Import Statement opened with New Card Account; add its last 4 digits");
   } else if ("bill" === p.kind && (p.amountUnread || !(+p.amount > 0) || !(p.vendorId || R.vendorId))) {
     // A bill whose amount the reader never saw (an unread PDF), or whose sender is not a vendor on file, writes
     // no money: the person opens the document and enters it (owner review r5, findings 1 and 2).
@@ -114352,6 +114707,119 @@ function paWatch(delta) {
   const real = made.filter(Boolean);
   return real.length && save(), paBadge(), real;
 }
+// ---- New mail becomes cards on every sync (pilot 9/8: the assistant's "In your mail" cards were all from 9/3 though
+// every mailbox synced each morning). Four causes, one class: (1) a job's mail names it the way people write it
+// ("121 State"), not its record name ("121 State Street"), so the job term never matched; (2) a field person's jobs
+// were only the ones they manage, so the foreman's DOB mail scored as nobody's; (3) a message the inbox had already
+// turned into a proposal (a bill, an inspection date, a payment) still needed the score, so an invoice on the job
+// raised no card; (4) a card stayed New after the thread was answered, and the seen cards of earlier days stayed in
+// the way of today's. The sim's watcher runs gsRun, the hosted watcher's path, so all four are fixed there.
+const PA_STREET_RX = /\s+(street|st|avenue|ave|place|pl|road|rd|boulevard|blvd|lane|ln|court|ct|terrace|ter)\.?$/i;
+function paJobAliases(p) {
+  const out = new Set(),
+    nm = String(((p || {}).project || {}).name || "").replace(/ —.*$/, "").trim(),
+    ad = String(((p || {}).project || {}).address || "").split(",")[0].trim();
+  [nm, ad].forEach((s) => {
+    if (!s) return;
+    const short = s.replace(PA_STREET_RX, "").trim();
+    short !== s && /^\d+[a-z]?\s+\S{3,}/i.test(short) && out.add(short);
+  });
+  return [...out];
+}
+if ("function" == typeof paTerms) {
+  const paTermsBase_mail = paTerms;
+  paTerms = function () {
+    const T = paTermsBase_mail.apply(this, arguments);
+    try {
+      const have = new Set(T.map((x) => x.t));
+      paMine().projects.forEach((p) =>
+        paJobAliases(p).forEach((a) => {
+          const t = a.toLowerCase();
+          have.has(t) || (have.add(t), T.push({ t: t, raw: a, w: 5, why: "a job you run" }));
+        }),
+      );
+    } catch (e) {}
+    return T;
+  };
+}
+// a field person's jobs: the ones they clocked on in the last two weeks, or hold a task on
+if ("function" == typeof paMine) {
+  const paMineBase_mail = paMine;
+  paMine = function () {
+    const M = paMineBase_mail.apply(this, arguments);
+    try {
+      if (M && !M.projects.length && ["foreman", "crew", "driver"].includes(String((M.me || {}).role || "")) && (M.me || {}).employeeId) {
+        const me = M.me || paMe(),
+          from = iso(addDays(today(), -14)),
+          ids = new Set((DB.time || []).filter((t) => t.empId === me.employeeId && t.date >= from).map((t) => t.projectId));
+        M.projects = (DB.projects || []).filter((p) => !p.archived && (ids.has(p.id) || (p.tasks || []).some((t) => "done" !== t.status && paIsMine(t.owner || t.assignee, me))));
+      }
+    } catch (e) {}
+    return M;
+  };
+}
+// a thread is answered once I wrote on it after the message; a card for it is no longer New
+function paMineMail(c) {
+  const myMail = String((("function" == typeof gcMine && gcMine()) || {}).email || "").toLowerCase();
+  return (c.labels || []).includes("SENT") || (c.labels || []).includes("DRAFT") || "out" === c.direction || (myMail && cmEmail((c.from || {}).email) === myMail);
+}
+function paSweepAnswered() {
+  let n = 0;
+  try {
+    const A = paInit(),
+      me = paMe().id;
+    A.thread.forEach((m) => {
+      if (!m.nudge || !m.ref || "mail" !== m.ref.kind || m.answered) return;
+      const c = (DB.comms || []).find((x) => x.msgId === m.ref.id || (m.ref.commId && x.id === m.ref.commId));
+      if (!c) return;
+      const k = c.threadId || c.id,
+        replied = (DB.comms || []).some((x) => (x.threadId || x.id) === k && x !== c && (!x.owner || x.owner === me) && paMineMail(x) && String(x.date || "") > String(c.date || "")),
+        settled = "ignored" === c.status || ((c.proposals || []).length && (c.proposals || []).filter((p) => "note" !== p.kind).length && (c.proposals || []).filter((p) => "note" !== p.kind).every((p) => p.applied));
+      (replied || settled) && ((m.answered = replied ? "replied" : "settled"), (m.unread = !1), n++);
+    });
+  } catch (e) {}
+  return n;
+}
+if ("function" == typeof paWatch) {
+  const paWatchBase_mail = paWatch;
+  paWatch = function (delta) {
+    const made = paWatchBase_mail.apply(this, arguments) || [];
+    try {
+      const A = paInit();
+      // a first look at an account is summed up by the first-sync line, never one card per message
+      (delta && delta.mail && !delta.first ? delta.mail : []).forEach((m) => {
+        if (paMineMail(m) || A.thread.some((x) => x.ref && "mail" === x.ref.kind && x.ref.id === m.msgId)) return;
+        const c = (DB.comms || []).find((x) => x.msgId === m.msgId);
+        // the stored message says whose it is too: our own mail is read as outgoing even when its labels say nothing
+        if (!c || "ignored" === c.status || cmBankSender(c) || paMineMail(c)) return;
+        const P = (c.proposals || []).filter((p) => !p.applied && !1 !== p.on && "note" !== p.kind);
+        if (!P.length) return;
+        const who = (m.from || {}).name || (m.from || {}).email || "somebody",
+          what = P.map((p) => String(p.title || p.label || p.kind || "").replace(/\s+/g, " ").slice(0, 90)).filter(Boolean)[0] || "";
+        const n = paNudge(`${who} wrote about ${m.subject || "something"}.`, `I brought this to you because the inbox read something to do from it${what ? `: ${what}` : ""}. It waits on your yes in the inbox.`, { kind: "mail", id: m.msgId, commId: c.id }, "something to do from your mail");
+        n && made.push(n);
+      });
+      paSweepAnswered() && save(), paBadge();
+    } catch (e) {
+      console.warn("mail cards", e);
+    }
+    return made;
+  };
+}
+// the morning brief is recomposed when a sync brings new mail, not held from the first view of the day
+if ("function" == typeof gsRun) {
+  const gsRunBase_mail = gsRun;
+  gsRun = async function () {
+    const d = await gsRunBase_mail.apply(this, arguments);
+    try {
+      if (d && (d.mail || []).length && DB.company && DB.company.briefCache) {
+        const td = today();
+        Object.keys(DB.company.briefCache).forEach((k) => k.startsWith(td + "|") && delete DB.company.briefCache[k]);
+      }
+    } catch (e) {}
+    return d;
+  };
+}
 function paRefOffers(ref) {
   if (!ref) return [];
   const out = [];
@@ -143584,6 +144052,37 @@ if ("function" == typeof paMsgHtml) {
     return h;
   };
 }
+// Seen cards of earlier days, and answered ones, fold into one line so today's mail is what the assistant shows
+let paShowEarlier = !1;
+const paIsEarlier = (m) => !!(m && m.nudge && (m.answered || (String(m.day || "") < today() && !m.unread)));
+if ("function" == typeof paMsgHtml) {
+  const paMsgHtmlBase_mail = paMsgHtml;
+  paMsgHtml = function (m) {
+    return !paShowEarlier && paIsEarlier(m) ? "" : paMsgHtmlBase_mail.apply(this, arguments);
+  };
+}
+if ("function" == typeof paHtml) {
+  const paHtmlBase_mail = paHtml;
+  paHtml = function () {
+    try {
+      paSweepAnswered();
+    } catch (e) {}
+    let h = paHtmlBase_mail.apply(this, arguments);
+    try {
+      const E = paInit().thread.slice(-40).filter(paIsEarlier),
+        fresh = paInit().thread.filter((m) => m.nudge && String(m.day || "") === today()).length;
+      if (E.length && h.includes('<div class="pa-thread"')) {
+        const line = `<div class="pa-earlier small muted" style="margin:6px 0">${fresh ? `${fresh} new today. ` : "Nothing new from your mail today. "}${E.length} earlier item${1 === E.length ? "" : "s"}, already seen or answered${paShowEarlier ? "" : ", folded"}. <button type="button" class="btn sm" data-paearlier>${paShowEarlier ? "Fold Them" : "Show Them"}</button></div>`;
+        h = h.replace('<div class="pa-thread"', line + '<div class="pa-thread"');
+      }
+    } catch (e) {}
+    return h;
+  };
+  document.addEventListener("click", (e) => {
+    const b = e.target && e.target.closest ? e.target.closest("[data-paearlier]") : null;
+    b && ((paShowEarlier = !paShowEarlier), "function" == typeof renderPa ? renderPa() : render());
+  });
+}
 const A4_PAL_RANK = {
   vendor: 9,
   client: 9,
@@ -156032,6 +156531,25 @@ function bfPlan(acctId, lines, kind) {
   return o;
 }
 let bfImportState = null;
+// ---- A card account from its statement (pilot day 3: the Square card's statement mail said to import it, and
+// Banking had no Square account to import into). Last 4 digits only: a longer number is cut to its last 4, never kept.
+function acctNewCard(name, last4, via, commId) {
+  if (!["owner", "controller", "billing"].includes(role())) return { ok: !1, why: "The Controller or the Owner adds an account" };
+  const nm = String(name || "").trim(),
+    digits = String(last4 || "").replace(/\D/g, ""),
+    l4 = digits.slice(-4);
+  if (nm.length < 3) return { ok: !1, why: "Name the card, e.g. Square card" };
+  if (4 !== l4.length) return { ok: !1, why: "The last 4 digits of the card" };
+  const have = (DB.accounts || []).find((a) => a.last4 === l4 && "card" === a.type);
+  if (have) return { ok: !0, a: have, existed: !0 };
+  const a = { id: uid("ac"), name: nm, type: "card", last4: l4, balance: 0, asOf: today(), entityId: "function" == typeof entDefault ? entDefault() : "", createdFrom: { via: via || "", commId: commId || "", by: (currentUser() || {}).name || role(), at: appNowIso() } };
+  (DB.accounts = DB.accounts || []).push(a);
+  try {
+    audit("account", a.id, "created", "", `${nm} ····${l4}`, `card account added from ${via || "a statement"}`);
+  } catch (e) {}
+  return save(), { ok: !0, a: a };
+}
+let bfNewHint = null;
 function bfImportDialog(acctId) {
   bfInit();
   const accts = DB.accounts || [];
@@ -156050,6 +156568,8 @@ function bfImportDialog(acctId) {
       to: "",
       ending: "",
       remembered: !1,
+      newName: (bfNewHint && bfNewHint.name) || "",
+      newL4: (bfNewHint && bfNewHint.last4) || "",
     }),
     draw = () => {
       const a = bfAcct(S0.acctId);
@@ -156058,8 +156578,10 @@ function bfImportDialog(acctId) {
         '<p class="small muted" style="margin:0 0 10px">A statement file is the bank\'s own record of the month. OFX and QFX come with the bank\'s id on every line and the ending balance; a CSV needs its columns named once, and this account remembers them.</p>'),
         (body += mbF(
           "Account",
-          `<select id="bfi-acct">${accts.map((x) => `<option value="${x.id}" ${x.id === S0.acctId ? "selected" : ""}>${esc(bfAcctName(x))}</option>`).join("")}</select>`,
+          `<select id="bfi-acct">${accts.map((x) => `<option value="${x.id}" ${x.id === S0.acctId ? "selected" : ""}>${esc(bfAcctName(x))}</option>`).join("")}<option value="__new" ${"__new" === S0.acctId ? "selected" : ""}>New Card Account…</option></select>`,
         )),
+        "__new" === S0.acctId &&
+          (body += `<div class="grid2">${mbF("Card Name", `<input id="bfi-nname" value="${esc(S0.newName || "")}" placeholder="e.g. Square card">`)}${mbF("Last 4 Digits", `<input id="bfi-nl4" inputmode="numeric" maxlength="4" value="${esc(S0.newL4 || "")}" placeholder="1234">`)}</div><div class="row" style="margin-bottom:8px"><button type="button" class="btn sm" id="bfi-nadd">Add the Card Account</button><span class="small muted">Only the last 4 digits are kept.</span></div>`),
         (body += `<div class="f"><label>Statement File</label><label class="btn bf-file">Choose File<input type="file" id="bfi-file" accept=".ofx,.qfx,.csv,.txt" hidden></label> <span class="small muted" id="bfi-name">${S0.file ? esc(S0.file) : "OFX, QFX or CSV"}</span></div>`),
         "csv" === S0.kind &&
           S0.headers &&
@@ -156091,11 +156613,17 @@ function bfImportDialog(acctId) {
           onSubmit: () => bfImportRun(),
         }),
         ok = m.querySelector("#mbm-ok");
-      ok && !lines && (ok.disabled = !0),
+      ok && (!lines || "__new" === S0.acctId) && (ok.disabled = !0),
         m.classList.add("bf-wide"),
         (m.querySelector("#bfi-acct").onchange = (e) => {
-          (S0.acctId = e.target.value), bfCsvRemember(), draw();
+          (S0.acctId = e.target.value), "__new" !== S0.acctId && bfCsvRemember(), draw();
         }),
+        m.querySelector("#bfi-nadd") &&
+          (m.querySelector("#bfi-nadd").onclick = () => {
+            const r = acctNewCard((m.querySelector("#bfi-nname") || {}).value, (m.querySelector("#bfi-nl4") || {}).value, "Import Statement");
+            if (!r.ok) return toast(r.why);
+            (S0.acctId = r.a.id), draw(), toast(`${r.a.name} ····${r.a.last4} added; import its statement here`);
+          }),
         (m.querySelector("#bfi-file").onchange = async (e) => {
           const f = e.target.files[0];
           f && (await bfImportRead(f.name, await f.text()), draw());
@@ -165937,23 +166465,12 @@ const igNavNow = () => {
     return (igNavKey = k), base.apply(this, arguments);
   };
 }
-{
-  const base = appClock;
-  appClock = function () {
-    const c = base.apply(this, arguments);
-    try {
-      if (void 0 === DB || !DB || !Array.isArray(DB.time)) return c;
-      const day = appDay();
-      if (
-        DB.time.some(
-          (t) => !t.out && t.in && String(t.in).slice(0, 10) === day && String(t.in).slice(11, 19) > c,
-        )
-      )
-        return "23:59:59";
-    } catch (e) {}
-    return c;
-  };
-}
+// The app clock is never bent by the time clock. It used to jump to 23:59:59 whenever anyone's open punch read later
+// than now (pilot 9/8: two phones a few minutes apart, so the crew clocked in at "11:59 PM", every stamp after it read
+// 11:59 PM, the boot sweep then saw the foreman's 7:34 punch as 16 h old and auto-closed it, and his split sheet
+// carried 12.93 h for a 9 h day). A clock-out that would read before its own clock-in is handled where it is
+// stamped (teOutStamp asks when they left); a stored punch that ends before it starts is held at no hours and
+// flagged for the person to confirm, never stretched to midnight.
 function igClampPunches() {
   let n = 0;
   return (
@@ -165963,9 +166480,11 @@ function igClampPunches() {
         String(t.out) < String(t.in) &&
         String(t.out).slice(0, 10) === String(t.in).slice(0, 10) &&
         ((t.outWall = t.out),
-        (t.out = String(t.in).slice(0, 10) + "T23:59:59"),
+        (t.out = t.in),
+        (t.clockFix = !0),
+        (t.status = "open"),
         (t.notes =
-          (t.notes ? t.notes + " · " : "") + "clocked out after midnight — closed at the end of the day"),
+          (t.notes ? t.notes + " · " : "") + "clock-out read before the clock-in — confirm when you left"),
         n++);
     }),
     n
@@ -167474,6 +167993,113 @@ function inspBookDialog(id) {
       },
     },
   );
+}
+// ---- Agency mail moves the inspection and says what it moves (pilot 9/8: DOB NOW moved the rough plumbing
+// inspection on B01528834-I1 from 9/8 to 9/22; Site still showed the plumber confirmed for 9/8, so the foreman would
+// have waited for an inspector who was not coming). A DOB NOW, LPC or inspection notice proposes the inspection's new
+// date, the date it moves from (its booking, or the earlier notice on the same docket), the task it gates that can no
+// longer start in time, and the site bookings made for the old date. Applying it books the date, moves the gated task
+// (with its history and dependents) and moves the bookings, unconfirmed, so the trade confirms the new day.
+const AG_KIND = [
+  [/plumb/i, /plumb/i],
+  [/elec/i, /elec/i],
+  [/energy|insul/i, /energy|insul/i],
+  [/final|letter of completion/i, /final|completion/i],
+  [/\blpc\b|landmark/i, /\blpc\b|landmark/i],
+];
+function agKindRx(text) {
+  const k = AG_KIND.find(([a]) => a.test(text || ""));
+  return k ? k[1] : null;
+}
+// an LPC or inspection notice that is not a DOB NOW mail: an agency, a reschedule word and a date
+function agInspFromMail(all, R) {
+  const p = R && R.projectId && (DB.projects || []).find((x) => x.id === R.projectId);
+  if (!p || /dob\s*now/i.test(all)) return null;
+  if (!/\b(lpc|landmarks preservation|inspection|inspector)\b/i.test(all) || !/\b(reschedul\w*|moved|postponed|new date|now (?:on|set for)|window|scheduled for)\b/i.test(all)) return null;
+  const yr = String(today()).slice(0, 4),
+    m1 = all.match(/\b(\d{1,2})\/(\d{1,2})\/(\d{4})\b/),
+    m2 = all.match(/\b(?:mon|tues|wednes|thurs|fri|satur|sun)day,?\s+(\d{1,2})\/(\d{1,2})\b/i),
+    date = m1 ? `${m1[3]}-${m1[1].padStart(2, "0")}-${m1[2].padStart(2, "0")}` : m2 ? `${yr}-${m2[1].padStart(2, "0")}-${m2[2].padStart(2, "0")}` : "";
+  if (!date || date < today()) return null;
+  const lpc = /\blpc\b|landmark/i.test(all),
+    kind = agKindRx(all),
+    i = (p.inspections || []).find((x) => "passed" !== x.status && (lpc ? "LPC" === x.agency || /lpc|landmark/i.test(x.name || "") : !kind || kind.test(x.name || "")) && !/permit issued|\(existing\)/i.test(x.name || ""));
+  return i ? { inspId: i.id, name: i.name, date: date, from: "", to: "", docket: (all.match(/\b(?:[BME]\d{8}(?:-I\d(?:-EL)?)?|LPC-\d{2}-\d{4,})\b/) || [])[0] || "", projectId: p.id } : null;
+}
+// what the new date moves: the date it moves from, the gated task, the site bookings for the old date
+function agInspEffect(bk, c) {
+  const p = bk && (DB.projects || []).find((x) => x.id === bk.projectId),
+    i = p && (p.inspections || []).find((x) => x.id === bk.inspId);
+  if (!i) return bk;
+  let from = "scheduled" === i.status && i.date && i.date !== bk.date ? i.date : "";
+  if (!from && bk.docket) {
+    // the earlier notice on the same docket said another day
+    const prev = (DB.comms || [])
+      .filter((x) => x !== c && x.id !== (c || {}).id && String(x.date || "") < String((c || {}).date || "9999") && `${x.subject || ""} ${x.text || ""}`.includes(bk.docket))
+      .map((x) => {
+        try {
+          return cmDobNow(`${x.subject || ""}\n${x.text || ""}`, { projectId: p.id });
+        } catch (e) {
+          return null;
+        }
+      })
+      .filter((x) => x && x.inspId === i.id && x.date !== bk.date)
+      .pop();
+    prev && (from = prev.date);
+  }
+  const kind = agKindRx(i.name),
+    subs = from ? (((DB.field || {}).subs || []).filter((s) => s.projectId === p.id && s.date === from && "noshow" !== s.status && (!kind || kind.test(`${s.vendor || ""} ${s.trade || ""}`) || (s.inspId && s.inspId === i.id)))) : [],
+    g = i.gates && (p.tasks || []).find((t) => t.id === i.gates),
+    gate = g && "planned" === g.status && g.start <= bk.date ? withProject(p, () => { const s = nextWork(addWork(bk.date, 1, g.weekendOk), g.weekendOk); return { taskId: g.id, name: g.name, from: g.start, to: s, days: workdays(g.start, s) }; }) : null,
+    bits = [];
+  from && bits.push(`moves it from ${fmtL(from)}`),
+    subs.length && bits.push(`${subs.map((s) => s.vendor).join(", ")} ${1 === subs.length ? "is" : "are"} booked on site ${fmtL(from)} for it: move ${1 === subs.length ? "the booking" : "them"} to ${fmtL(bk.date)}`),
+    gate && bits.push(`${gate.name} cannot start ${fmtL(gate.from)} before it passes: it moves to ${fmtL(gate.to)}`);
+  return Object.assign(bk, { moveFrom: from, subMoves: subs.map((s) => ({ id: s.id, vendor: s.vendor, from: s.date })), gate: gate, effect: bits.join("; ") });
+}
+// apply: the gated task and the bookings move with the inspection
+function agInspApply(p, prop) {
+  const out = [];
+  if (!p || !prop) return out;
+  (prop.subMoves || []).forEach((m) => {
+    const s = ((DB.field || {}).subs || []).find((x) => x.id === m.id);
+    s && s.date === m.from && ((s.movedFrom = s.date), (s.date = prop.date), (s.status = "unconfirmed"), (s.note = `${s.note ? s.note + " · " : ""}moved with the inspection from ${fmtL(m.from)}; confirm the new day`), out.push(`${s.vendor} moved to ${fmtL(prop.date)}, to confirm`));
+  });
+  const G = prop.gate;
+  G &&
+    withProject(p, () => {
+      const t = (p.tasks || []).find((x) => x.id === G.taskId);
+      if (!t || "planned" !== t.status || t.start > prop.date) return;
+      const was = { start: t.start, end: t.end },
+        d = dur(t),
+        moved = [];
+      (t.start = G.to), (t.end = endFromStart(t.start, d, t.weekendOk)), recordMove(t, was, "inspection", `${prop.name || "the inspection"} moved to ${fmtL(prop.date)} by agency notice`), pushDependents(t.id, moved), out.push(`${t.name} to ${fmtL(t.start)}${moved.length ? ` (and ${moved.length} after it)` : ""}`);
+    });
+  return out;
+}
+// Site carries an agency change before anyone applies it: the foreman sees the inspection is moving
+if ("function" == typeof fRenderSite) {
+  const fRenderSiteBase_ag = fRenderSite;
+  fRenderSite = function () {
+    const r = fRenderSiteBase_ag.apply(this, arguments);
+    try {
+      const root = document.getElementById("fsite-body");
+      if (root && !root.querySelector(".ag-move")) {
+        const P = [];
+        (DB.comms || []).forEach((c) =>
+          (c.proposals || []).forEach((x) => {
+            "inspection" === x.kind && !x.applied && x.projectId === S.id && x.date >= today() && !P.some((y) => y.inspId === x.inspId && y.date === x.date) && P.push(x);
+          }),
+        );
+        P.length &&
+          root.insertAdjacentHTML(
+            "afterbegin",
+            `<div class="card f-card warn ag-move"><div class="hd"><h3>Agency Notice</h3></div>${P.map((x) => `<div class="f-row col"><b>${esc(x.name)}: ${esc(fmtL(x.date))}${x.from ? ` ${esc(x.from)}–${esc(x.to)}` : ""}</b><span class="small">${esc(x.effect || "from the agency's notice")}. Waiting on the office to book it.</span></div>`).join("")}</div>`,
+          );
+      }
+    } catch (e) {}
+    return r;
+  };
 }
 function inspBook(p, i, o) {
   const td = today(),
@@ -176969,7 +177595,7 @@ function truthSetMatch(t, m0, o) {
     // between our own accounts kept a client's payment out of the P&L)
     (m.invoiceLineId = il ? il.id : ""), (t.invoiceId = hit.inv.id), (cat = "income"), proj || (proj = hit.inv.projectId || "");
     let p = (hit.c.payments || []).find((x) => x.id === m.paymentId) || (hit.c.payments || []).find((x) => x.invoiceId === hit.inv.id && !x.txnId && Math.abs((+x.amount || 0) - t.amt) < 0.005);
-    p ? (p.txnId = t.id) : ((p = { id: uid("py"), date: t.date, amount: r2(+t.amt || 0), method: "Bank", invoiceId: hit.inv.id, note: `matched from ${truthAcctWords(t)} by ${who}`, txnId: t.id }), hit.c.payments.push(p)), (m.paymentId = p.id);
+    p ? (p.txnId = t.id) : ((p = Object.assign({ id: uid("py"), date: t.date, amount: r2(+t.amt || 0), invoiceId: hit.inv.id, note: `matched from ${truthAcctWords(t)} by ${who}`, txnId: t.id, acctId: t.acct, recordedBy: who, recordedAt: appNowIso() }, "function" == typeof payFromBank ? payFromBank(t) : { method: "" })), hit.c.payments.push(p)), (m.paymentId = p.id);
     {
       // the invoice reads what the bank says: paid when its payments reach its total; a payment that pays the
       // whole invoice is matched to every line it pays
@@ -177123,16 +177749,43 @@ function truthCandidates(t) {
         push("invoice", `Invoice ${inv.number} · ${c.name} · balance ${money(bal)}`, { invoiceId: inv.id, invoiceLineId: 1 === (inv.lines || []).length ? inv.lines[0].id : "" }, s, why);
       }),
     );
+    // A deposit from a client on file that pays part of an open invoice: by the payer's name and the amount it can
+    // hold (pilot 9/8: "WIRE IN JESSOP J $12,000" against the Jessops' $24,000 retainer was never proposed, because
+    // only an amount equal to a balance counted). The one open invoice that can hold it, or the one the client's
+    // mail said the money was for, is proposed; a person confirms.
+    if (!out.some((x) => x.score >= 6))
+      (DB.clients || []).forEach((c) => {
+        const named = truthVendorHit(t, c.name) || (c.contacts || []).some((x) => x && x.name && truthVendorHit(t, String(x.name).split(" ").slice(-1)[0]));
+        if (!named) return;
+        const open = (c.invoices || [])
+            .filter((inv) => ["sent", "partial", "overdue"].includes(inv.status))
+            .map((inv) => ({ inv: inv, bal: r2(docTotal(inv).total - invoicePaid(c, inv)) }))
+            .filter((x) => x.bal > 0.005 && x.bal - amt > 0.01)
+            .sort((a, b) => String(a.inv.due || a.inv.date || "").localeCompare(String(b.inv.due || b.inv.date || ""))),
+          said = (DB.expected || []).find((e) => e.clientId === c.id && Math.abs((+e.amount || 0) - amt) < 0.01 && !e.txnId);
+        if (!open.length) return;
+        const pick = open[0],
+          why = ["payer name agrees", `${money(amt)} is part of the ${money(pick.bal)} balance`];
+        let sc = 2 + 2;
+        (near(pick.inv.date) || near(pick.inv.due) || (said && near(said.said))) && ((sc += 1), why.push("within 7 days"));
+        1 === open.length ? ((sc += 1), why.push("the only open invoice it fits")) : said && ((sc += 1), why.push(`the client said ${money(amt)} was sent`));
+        push("invoice", `Invoice ${pick.inv.number} · ${c.name} · part payment ${money(amt)} of ${money(pick.bal)}`, { invoiceId: pick.inv.id, invoiceLineId: "" }, sc, why);
+      });
   }
   return out.sort((a, b) => b.score - a.score);
 }
+const TRUTH_MATCH_KINDS = ["bill", "po", "invoice", "payroll", "newbill"];
 function truthProposeAll(ids) {
   let n = 0;
   const T = ids ? (DB.txns || []).filter((t) => ids.includes(t.id)) : bankUnmatched().rows;
   return (
     T.forEach((t) => {
+      // an estimate line is coding, not a match: Matches Waiting proposes only a bill, a PO, an invoice or a payroll
+      // run (or entering the bill a payment proves). Pilot day 2: a $1,650 dumpster charge waited "matched" to an
+      // estimate line, which is no record of what was bought or who was paid.
+      t.proposal && "line" === t.proposal.kind && !t.proposal.confirmed && ((t.lineHint = t.proposal.m || null), (t.proposal = null));
       if (t.proposal || t.exception || ("function" == typeof txnMatch && txnMatch(t)) || t.billId || t.poId || t.invoiceId || t.payrollId) return;
-      const best = truthCandidates(t)[0];
+      const best = truthCandidates(t).filter((x) => TRUTH_MATCH_KINDS.includes(x.kind))[0];
       best && best.auto && ((t.proposal = Object.assign({ t: nowStamp(), by: "auto", kind: best.kind, why: best.why, m: best.m, label: best.label }, best.m.billId ? { billId: best.m.billId } : {}, best.m.poId && !best.m.billId ? { poId: best.m.poId } : {}, best.m.invoiceId ? { invoiceId: best.m.invoiceId } : {}, best.m.payrollId ? { payrollId: best.m.payrollId } : {})), n++);
     }),
     n
@@ -178393,7 +179046,7 @@ if ("function" == typeof tdScore) {
 // (cmRead) and applied here: a delivery date on an open order (eta), a paid order ready at the yard (pickup),
 // a credit memo against a statement credit and the original purchase (credit). A quote's Apply prices the line
 // and links the PDF; a receipt's Apply codes the card line to the job and category it names.
-"object" == typeof CM_CATS && Object.assign(CM_CATS, { eta: "Delivery date", pickup: "Pickup", credit: "Credit memo", bankline: "Bank notice", money: "Money, unclassified", request: "Asks for something", address: "New address" });
+"object" == typeof CM_CATS && Object.assign(CM_CATS, { eta: "Delivery date", pickup: "Pickup", credit: "Credit memo", bankline: "Bank notice", money: "Money, unclassified", request: "Asks for something", address: "New address", newacct: "New card account" });
 const CM_MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
 // A date in a vendor's words ("Friday September 18", "9/18", "by Friday"), as ISO on the app clock.
 function cmDateIn(text) {
@@ -178597,6 +179250,63 @@ function cmApplyPickup(c, p, by) {
     (r.items || []).forEach((i) => (i.pickupFrom = "v:" + vn)),
     r.log.push({ t: nowStamp(), by: by, text: `Pickup stop added for the driver — ${vn}` });
   return `a pickup stop at ${vn} on the driver's route for ${String(pr.project.name).replace(/ —.*$/, "")}${p.by ? `, by ${fmtL(p.by)}` : ""}`;
+}
+// ---- A ready pickup reaches the driver's Route with its order number (pilot 9/8: Brooklyn Lumber's order 88412, paid
+// and ready at the yard since 9/1, never reached the Route, which said "Nothing at the office wanted" and sent the
+// driver to Home Depot to buy the same boards). Two sources: the vendor's ready mail (its pickup proposal, before
+// anyone applies it, said so on the stop), and a "we pick up" PO marked ready or due. A request already open for the
+// same goods on that job is covered by the pickup, so the boards are not bought twice.
+const DRV_WORD = (s) => String(s || "").toLowerCase().match(/[a-z][a-z0-9/]{2,}/g) || [];
+const DRV_STOP = new Set(["ea", "and", "the", "for", "pcs", "boards", "board", "sheet", "sheets", "box", "boxes", "bag", "bags", "roll", "rolls", "needed", "with", "x4x8"]);
+function drvReadyPickups() {
+  const out = [],
+    seen = new Set(),
+    applied = new Set();
+  (DB.projects || []).forEach((p) => (p.requests || []).forEach((r) => r.orderRef && applied.add(`${String(r.pickupVendor || "").toLowerCase()}|${r.orderRef}`)));
+  (DB.comms || []).forEach((c) => {
+    if (["ignored", "spam"].includes(c.status)) return;
+    (c.proposals || []).forEach((x) => {
+      if ("pickup" !== x.kind || x.applied || !1 === x.on || !x.projectId || !(x.items || []).length) return;
+      const vn = x.vendorName || (c.from && (c.from.name || c.from.email)) || "the vendor",
+        k = `${vn.toLowerCase()}|${x.orderRef || c.threadId || c.id}`;
+      if (seen.has(k) || applied.has(k)) return;
+      seen.add(k), out.push({ key: k, vendor: vn, projectId: x.projectId, items: x.items, orderRef: x.orderRef || "", by: x.by || "", paid: +x.amount || 0, from: "mail", commId: c.id });
+    });
+  });
+  (DB.pos || []).forEach((po) => {
+    if (!["issued", "partial"].includes(po.status) || !po.projectId) return;
+    const ready = po.readyForPickup || ("pickup" === po.shipVia && po.expected && po.expected <= today());
+    if (!ready) return;
+    const k = `${String(po.vendor || "").toLowerCase()}|${po.number}`;
+    seen.has(k) ||
+      (seen.add(k),
+      out.push({ key: k, vendor: po.vendor, projectId: po.projectId, items: (po.lines || []).filter((l) => (+l.qty || 0) > (+l.received || 0)).map((l) => ({ what: l.item || l.desc || "", qty: r2((+l.qty || 0) - (+l.received || 0)), unit: l.unit || "ea" })), orderRef: po.number, by: po.expected || "", paid: 0, from: "po", poId: po.id }));
+  });
+  return out.filter((x) => x.items.length);
+}
+if ("function" == typeof runItems) {
+  const runItemsBase_drv = runItems;
+  runItems = function () {
+    const out = runItemsBase_drv.apply(this, arguments);
+    try {
+      drvReadyPickups().forEach((x) => {
+        const p = (DB.projects || []).find((q) => q.id === x.projectId);
+        if (!p) return;
+        const words = new Set(x.items.flatMap((i) => DRV_WORD(i.what)).filter((w) => !DRV_STOP.has(w)));
+        // the open request for the same goods is covered by the pickup
+        for (let k = out.length - 1; k >= 0; k--) {
+          const o = out[k];
+          o.p.id === p.id && !o.it.invId && !o.it.garbage && !/^v:/.test(o.it.pickupFrom || "") && DRV_WORD(o.it.what).some((w) => words.has(w)) && ((x.covers = (x.covers || []).concat(o.r.id)), out.splice(k, 1));
+        }
+        const cov = (p.requests || []).find((q) => (x.covers || []).includes(q.id)),
+          r = { id: `rp:${x.key}`, status: "ack", by: (cov && cov.by) || "the site", neededBy: x.by || today(), orderRef: x.orderRef, pickupVendor: x.vendor, note: x.from === "mail" ? `from ${x.vendor}'s ready mail${x.paid ? `, paid ${money(x.paid)}` : ""}; the office has not confirmed it yet` : `${x.orderRef}, ready for pickup`, synthetic: !0, items: [] };
+        x.items.forEach((it, i) => out.push({ p: p, r: r, it: { what: it.what, qty: it.qty, unit: it.unit, bought: !1, pickupFrom: "v:" + x.vendor, garbage: "" }, i: i, key: `${r.id}:${i}` }));
+      });
+    } catch (e) {
+      console.warn("ready pickups", e);
+    }
+    return out;
+  };
 }
 function cmApplyCredit(c, p, by) {
   const v = (DB.vendors || []).find((x) => x.id === p.vendorId),
@@ -182957,6 +183667,88 @@ if ("function" == typeof sendChat) {
     return cl ? clChatSend(attach) : base.apply(this, arguments);
   };
 }
+// ---- Field roles see crew and site messages only (pilot 9/8: the driver's job chat showed the client's question
+// about a change order and the client's invoice and CO notices, client money on a driver's phone). A message from a
+// client, a client's question, or a notice about an invoice, change order, estimate or payment stays with the office.
+const CHAT_FIELD = () => ["foreman", "crew", "driver"].includes(role());
+const CHAT_MONEY_RX = /\b(INV|CO|EST)-\d{4}-\d+|\binvoice\b|change order|\bestimate\b|\bpayment\b|\bdeposit\b|\bretainer\b|\$\s?\d/i;
+function chatFieldSees(m, p) {
+  if (!m) return !1;
+  if (m.clq || m.client || "client" === m.role) return !1;
+  const by = String(m.by || "").trim().toLowerCase(),
+    cl = (DB.clients || []).find((c) => c.id === (p || S).clientId),
+    clientNames = cl ? [cl.name, ...(cl.contacts || []).map((x) => x.name)].filter(Boolean).map((x) => String(x).toLowerCase()) : [],
+    clientUsers = (DB.users || []).filter((u) => "client" === u.role).map((u) => String(u.name || "").toLowerCase());
+  if (by && (clientNames.includes(by) || clientUsers.includes(by) || clientNames.some((n) => n.split(/\s*&\s*|\s+and\s+/).some((x) => x && x === by)))) return !1;
+  if (m.to && m.to !== ((currentUser() || {}).id || "") && m.fromUid !== ((currentUser() || {}).id || "") && m.dm) return !1;
+  return !CHAT_MONEY_RX.test(String(m.text || ""));
+}
+if ("function" == typeof renderChat) {
+  const renderChatBase_field = renderChat;
+  renderChat = function () {
+    if (!CHAT_FIELD() || !S || !Array.isArray(S.chat)) return renderChatBase_field.apply(this, arguments);
+    const keep = S.chat;
+    S.chat = keep.filter((m) => chatFieldSees(m, S));
+    try {
+      return renderChatBase_field.apply(this, arguments);
+    } finally {
+      S.chat = keep;
+      try {
+        chatDmBar();
+      } catch (e) {}
+    }
+  };
+}
+// ---- Message someone by name from the field: the coordinator, the PM, the foreman. The message lands on the job's
+// chat addressed to them and on their task list, so it is answered, not lost in the job's stream.
+function chatPeople() {
+  const me = (currentUser() || {}).id;
+  return (DB.users || []).filter((u) => u.id !== me && ["coord", "pm", "owner", "foreman"].includes(u.role) && u.name);
+}
+function chatDmBar() {
+  const v = document.getElementById("v-chat"),
+    comp = v && v.querySelector(".chat-compose");
+  if (!comp || !CHAT_FIELD() || v.querySelector("#chat-dm")) return;
+  const P = chatPeople().sort((a, b) => ("coord" === b.role) - ("coord" === a.role));
+  if (!P.length) return;
+  comp.insertAdjacentHTML(
+    "beforebegin",
+    `<div class="row" id="chat-dm" style="gap:6px;margin:8px 0;flex-wrap:wrap;align-items:center"><span class="small muted">To</span><select id="chat-to" aria-label="To" style="flex:1;min-width:150px"><option value="">Everyone on the job</option>${P.map((u) => `<option value="${u.id}">${esc(u.name)} · ${esc((void 0 !== ROLE_NAMES && ROLE_NAMES[u.role]) || u.role)}</option>`).join("")}</select></div>`,
+  );
+}
+function chatSendTo(uidTo, text) {
+  const u = (DB.users || []).find((x) => x.id === uidTo),
+    me = currentUser() || {},
+    t = String(text || "").trim();
+  if (!u || !t) return null;
+  const msg = { id: uid("ch"), by: me.name || role(), fromUid: me.id || "", to: u.id, dm: !0, text: `To ${u.name}: ${t}`, t: nowStamp(), files: [] };
+  (S.chat = S.chat || []).push(msg);
+  (S.actions = S.actions || []).push({ id: uid("a"), title: `Answer ${me.name || "the field"}: ${t.slice(0, 90)}`, assignee: u.name, due: today(), priority: "high", status: "todo", area: "field", createdAt: appNowIso(), chatId: msg.id });
+  try {
+    audit("chat", msg.id, "message-to", "", u.name, t.slice(0, 120));
+  } catch (e) {}
+  return save(), msg;
+}
+if ("function" == typeof sendChat) {
+  const sendChatBase_dm = sendChat;
+  sendChat = function (attach) {
+    try {
+      const to = document.getElementById("chat-to"),
+        tx = document.getElementById("chat-text");
+      if (CHAT_FIELD() && to && to.value && tx && tx.value.trim() && !/^\/?need\s/i.test(tx.value.trim())) {
+        const u = (DB.users || []).find((x) => x.id === to.value),
+          m = chatSendTo(to.value, tx.value);
+        if (m) {
+          (tx.value = ""), render();
+          return void ("function" == typeof rcToast ? rcToast(`Sent to ${u.name}; it is on their list`, [{ label: "Open", run: () => ((view = "chat"), render()) }]) : toast(`Sent to ${u.name}`));
+        }
+      }
+    } catch (e) {
+      console.warn("message to", e);
+    }
+    return sendChatBase_dm.apply(this, arguments);
+  };
+}
 // Do Now / Approvals: the verb opens the reply sheet
 if ("function" == typeof mGo) {
   const base = mGo;
@@ -184596,10 +185388,13 @@ const NYH_MAIL = {
   credit: () => "coord",
   deposit: () => "billing",
   lpc: () => "designer",
+  newacct: () => "controller",
+  inspection: () => "pm",
 };
 const NYH_VERB = { bill: "Enter the Bill", statement: "Apply", quote: "Apply", receipt: "Apply", coi: "Apply", w9: "Apply", eta: "Apply", pickup: "Apply", credit: "Apply", deposit: "Apply", lpc: "Make It a Task" };
 const lnHandDone = (key) => !!(lnInit().hand[key] && lnInit().hand[key].done);
 const lnUid = () => ((currentUser() || {}).id) || "";
+NYH_VERB.newacct = "New Card Account";
 // a row: {key, route (role), kind (mail|deposit|undeposited|payroll|master|rule|promise|learn), title, why, amount, verb, run, open}
 // One read per moment: Home, Approvals, the badges and Ask ask for the same rows several times in one render, so
 // the whole list is kept until the current task ends or anything is saved (every tap saves).
@@ -185006,7 +185801,7 @@ function nyhRecordDeposit(d) {
       (!o || o.bal <= 0.005) && (d.inv.status = "paid");
     } catch (e) {}
   } else {
-    (d.c.payments = d.c.payments || []).push({ id: uid("py"), date: t.date, amount: r2(+t.amt), method: "Bank", unapplied: !0, txnId: t.id, note: `deposit on account from ${t.desc}; bill against it` });
+    (d.c.payments = d.c.payments || []).push(Object.assign({ id: uid("py"), date: t.date, amount: r2(+t.amt), unapplied: !0, txnId: t.id, acctId: t.acct, recordedBy: payWho(), recordedAt: appNowIso(), note: `deposit on account from ${t.desc}; bill against it` }, payFromBank(t)));
     (t.cat && "uncat" !== t.cat) || (t.cat = "income"), "reconciled" !== t.status && (t.status = "categorized"), (t.match = Object.assign({}, t.match || {}, { clientId: d.c.id }));
   }
   try {
