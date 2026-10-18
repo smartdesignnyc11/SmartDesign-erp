@@ -188482,3 +188482,27 @@ if (!document.getElementById("bf-imps-css")) {
   (st.id = "bf-imps-css"), (st.textContent = ".bf-imps{margin:12px 0}.bf-imp{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 6px;border-top:1px solid var(--rule,#eee);overflow-wrap:anywhere}.bf-imp .grow{display:flex;flex-direction:column;min-width:0;flex:1 1 220px}.bf-imp.tk-flash{background:var(--accent-2);box-shadow:inset 3px 0 0 var(--accent)}"), document.head.appendChild(st);
 }
 
+// ---- one verb, one action: a field question or a Needs Your Hand item answered from Approvals does what its Do Now
+// card does (from integrate's held 62c0712, taken for v11.1). With urgency first, more of them sit past Home's five
+// cards, in Approvals, where Answer opened the plain answer drawer instead of the card's sheet: an extra answered
+// there had no change-order offer, a dated ask no task.
+{
+  const base = renderMApprove;
+  renderMApprove = function () {
+    const r = base.apply(this, arguments);
+    try {
+      const v = document.getElementById("v-mapprove"),
+        items = v ? mApprovals() : [];
+      v &&
+        v.querySelectorAll('.m-appr[data-mk="raise"], .m-appr[data-mk="hand"]').forEach((el) => {
+          const it = items.find((x) => x.kind === el.dataset.mk && String(x.id) === el.dataset.mid),
+            card = it && tdCard(it),
+            y = card && [...el.querySelectorAll("button")].find((x) => x.innerText.trim() === String(card.verb || "").trim());
+          card && card.run && y && (y.onclick = (e) => (e.stopPropagation(), e.preventDefault(), card.run()));
+        });
+    } catch (e) {
+      console.warn("approvals verb", e);
+    }
+    return r;
+  };
+}
