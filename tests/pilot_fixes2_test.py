@@ -371,6 +371,29 @@ async def t_driver(c, p):
     c.ok('order 88412' in r['v'] and 'Brooklyn Lumber' in r['v'], "driver: the Route has the Brooklyn Lumber stop with its order number")
     c.ok(r['po'] in r['v'], f"driver: a PO marked ready for pickup is on the Route ({r['po']})")
     c.ok('Buy 25 boards GWB' not in r['v'], 'driver: the boards already paid at the yard are not bought again at the store')
+    # the stop closes where the driver stands (month: Alex was sent to the yard for 88412 and nothing on his phone could
+    # say it was done; the request read "Ordered" all month). An unconfirmed ready mail is the office's to apply first:
+    # no Delivered on it. Once the office applies it, its drop line at 121 State carries Delivered, and pressing it
+    # delivers the request, says where it was picked up, and toasts with Open.
+    r = await js(pg, """
+      const before = [...document.querySelectorAll('#v-route .stop li')].filter(li => /GWB/.test(li.innerText) && li.querySelector('[data-drvdrop]')).map(li => li.innerText);
+      const others = [...document.querySelectorAll('#v-route [data-drvdrop]')].length;
+      signIn('u_chen'); render();
+      const cm = DB.comms.find(x => /88412/.test(x.subject) && (x.proposals || []).some(p => p.kind === 'pickup' && !p.applied));
+      const pr = cm.proposals.find(p => p.kind === 'pickup'); cmApply(cm, pr); try { mbCloseModal(); } catch (e) {} save(); await sleep(100);
+      const p = DB.projects.find(x => x.id === 'p121'), rq = (p.requests || []).find(x => x.orderRef === '88412');
+      signIn('u_alex'); setCurrent('p121'); view = 'route'; render(); await sleep(300);
+      const btn = [...document.querySelectorAll('#v-route [data-drvdrop]')].find(b => b.dataset.drvdrop === 'p121:' + (rq && rq.id));
+      const li = btn ? (btn.closest('li') || {}).innerText || '' : '';
+      btn && btn.click(); await sleep(250);
+      const t = (document.getElementById('toast') || {}).innerText || '';
+      const after = [...document.querySelectorAll('#v-route [data-drvdrop]')].map(b => b.dataset.drvdrop);
+      return { before, others, rq: rq && [rq.id, rq.status, (rq.log || []).slice(-1)[0].text, rq.deliveredBy || ''], li, t, after, sameRq: rq && after.includes('p121:' + rq.id) };""")
+    c.ok(not r['before'] and r['others'] >= 1, f"driver: an unconfirmed ready mail carries no Delivered (the office applies it first), a confirmed request's drop does ({r['before']}, {r['others']})")
+    c.ok(r['rq'] and r['li'] and 'Drop' in r['li'], f"driver: once applied, the drop line at 121 State carries Delivered ({r['li']!r})")
+    c.ok(r['rq'] and r['rq'][1] == 'delivered' and 'Brooklyn Lumber' in r['rq'][2] and '88412' in r['rq'][2] and r['rq'][3],
+         f"driver: Delivered on the Route delivers the request, saying where it was picked up and by whom ({r['rq']})")
+    c.ok('delivered' in r['t'] and 'Open' in r['t'] and not r['sameRq'], f"driver: it toasts with Open and the stop is gone ({r['t']!r}, {r['after']})")
     # the job chat: crew and site only, no client money; a message to the coordinator by name
     r = await js(pg, """
       const p = DB.projects.find(x => x.id === 'p121'), cl = DB.clients.find(x => x.id === p.clientId);

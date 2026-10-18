@@ -518,10 +518,20 @@ M.doneMine = async (uid, cap, did) => { let n = 0; const me = (currentUser() || 
   return n; };
 M.extras.foreman = async () => 0;
 M.extras.owner = async (uid, cap, did) => { let n = await M.inbox(uid, 'owner', Math.min(3, cap), did); return n + await M.doneMine(uid, cap - n, did); };
-M.extras.driver = async (uid, cap, did) => { let n = 0; const route = M.open('route').toLowerCase();
-  for (const p of DB.projects) for (const r of (p.requests || []).filter(r => r.status === 'ack' && route.includes(String(r.what).slice(0, 14).toLowerCase()))) {
-    if (n >= cap) break; setCurrent(p.id); try { requestAction(p.id, r.id, 'delivered'); } catch (e) {}
-    save(); n++; did('Route', `${r.qty} ${r.unit} ${r.what}`, 'fn:Bought and Dropped', { steps: [r.status] }); }
+// The driver works his Route stop by stop: each drop line of a confirmed request carries Delivered, and he presses it
+// once it is on site. (Before, the Route had no way to close a stop, and this actor called requestAction itself for
+// "ack" requests whose name it found on the page; a paid order ready at a vendor's yard is "ordered", and it never
+// closed. Now he presses the button his phone shows.)
+M.extras.driver = async (uid, cap, did) => { let n = 0; const day = today();
+  for (let k = 0; k < 30 && n < cap; k++) {
+    M.open('route', true);
+    const b = [...M.root().querySelectorAll('[data-drvdrop]')].filter(vis).find(x => !M.tried.has(day + '|drv|' + x.dataset.drvdrop));
+    if (!b) break; M.tried.add(day + '|drv|' + b.dataset.drvdrop);
+    const item = norm((b.closest('li') || b.parentElement || {}).innerText).replace(/\s*Delivered$/, ''), [pid, rid] = b.dataset.drvdrop.split(':');
+    const t0 = M.toasts.length; b.click(); await sleep(30);
+    const r = ((projOf(pid) || {}).requests || []).find(x => x.id === rid);
+    n++; did('Route', item, 'Delivered', { steps: [r ? r.status : 'no request'], toast: M.toasts.slice(t0).join(' | ') });
+  }
   return n; };
 M.clockIn = async uid => { const p = projOf('p121'); setCurrent(p.id); const emp = myEmp(); if (!emp) return 'no employee';
   if ((DB.time || []).some(t => t.empId === emp.id && !t.out)) return 'already in'; await clockEvent('in'); return 'in'; };

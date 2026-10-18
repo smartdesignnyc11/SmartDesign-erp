@@ -16170,6 +16170,11 @@ function planDriverDay(driverName) {
         lines,
         s.geo ? "" : "No site location set — set it under Time & crew.",
       ),
+      // each drop line carries its request, so the stop closes where the driver stands (dropRefs: one per line)
+      (stops[stops.length - 1].dropRefs = lines.map((_, k) => {
+        const x = s.drop[k];
+        return x && !x.r.synthetic && "new" !== x.r.status && s.drop.findIndex((y) => y.r === x.r) === k ? { pid: s.p.id, rid: x.r.id } : null;
+      })),
       (cur = s.geo || cur);
   }
   if (garbageOnBoard > 0) {
@@ -16187,7 +16192,7 @@ function planDriverDay(driverName) {
 function renderDriverPlan(emp) {
   const plan = planDriverDay(emp?.name);
   return plan.items
-    ? `<div class="card" style="margin-top:10px"><div class="hd"><h3>Suggested day plan</h3><span class="small muted">${plan.stops.length} stops · ~${plan.totalKm} km · ${plan.items} items</span></div>\n    ${plan.warnings.map((w) => `<div class="qcheck">${esc(w)}</div>`).join("")}\n    ${plan.stops.map((s, i) => `<div class="stop ${s.kind}"><div class="n">${i + 1}</div><div><b>${("store" === s.kind || "dump" === s.kind || s.kind, "")}${esc(s.name)}</b>${s.dist ? ` <span class="s">· ${(s.dist / 1609.34).toFixed(1)} mi</span>` : ""}${s.note ? `<div class="s">${esc(s.note)}</div>` : ""}<ul>${s.lines.map((l) => `<li>${esc(l)}</li>`).join("")}</ul></div><div class="s" style="text-align:right">van after stop<div class="cap ${s.load > 1 ? "over" : ""}"><i style="width:${Math.min(100, Math.round(100 * s.load))}%"></i></div>${Math.round(100 * s.load)}%${s.garbage ? ` · debris ${Math.round(100 * s.garbage)}%` : ""}</div></div>`).join("")}\n    <div class="small muted" style="margin-top:8px">Deliveries before debris; a dump run when the van fills.</div></div>`
+    ? `<div class="card" style="margin-top:10px"><div class="hd"><h3>Suggested day plan</h3><span class="small muted">${plan.stops.length} stops · ~${plan.totalKm} km · ${plan.items} items</span></div>\n    ${plan.warnings.map((w) => `<div class="qcheck">${esc(w)}</div>`).join("")}\n    ${plan.stops.map((s, i) => `<div class="stop ${s.kind}"><div class="n">${i + 1}</div><div><b>${("store" === s.kind || "dump" === s.kind || s.kind, "")}${esc(s.name)}</b>${s.dist ? ` <span class="s">· ${(s.dist / 1609.34).toFixed(1)} mi</span>` : ""}${s.note ? `<div class="s">${esc(s.note)}</div>` : ""}<ul>${s.lines.map((l, k) => `<li>${esc(l)}${(s.dropRefs || [])[k] ? ` <button type="button" class="btn sm" style="margin:4px 0 4px 8px" data-drvdrop="${esc(s.dropRefs[k].pid)}:${esc(s.dropRefs[k].rid)}">Delivered</button>` : ""}</li>`).join("")}</ul></div><div class="s" style="text-align:right">van after stop<div class="cap ${s.load > 1 ? "over" : ""}"><i style="width:${Math.min(100, Math.round(100 * s.load))}%"></i></div>${Math.round(100 * s.load)}%${s.garbage ? ` · debris ${Math.round(100 * s.garbage)}%` : ""}</div></div>`).join("")}\n    <div class="small muted" style="margin-top:8px">Deliveries before debris; a dump run when the van fills.</div></div>`
     : "";
 }
 const INV_LOCS = () => [
@@ -179337,6 +179342,35 @@ if ("function" == typeof runItems) {
     return out;
   };
 }
+// ---- The stop closes on the Route (month: the route sent Alex to Brooklyn Lumber for order 88412 and to 121 State to
+// drop it, and nothing on his phone could say it was done; Angel's request sat at "Ordered · arriving 9/11" all month).
+// Each drop line of a confirmed request (acknowledged or ordered; a vendor's ready mail the office has not confirmed
+// is a stop to plan, closed once the office applies it) carries Delivered: the same step as the office's Delivered on
+// the request board, said with where it was picked up.
+function drvDelivered(pid, rid) {
+  const p = (DB.projects || []).find((x) => x.id === pid),
+    r = p && (p.requests || []).find((x) => x.id === rid);
+  if (!r || ["delivered", "closed", "declined"].includes(r.status)) return null;
+  const me = (currentUser() || {}).name || role(),
+    from = r.pickupVendor ? ` — picked up at ${r.pickupVendor}${r.orderRef ? ` (order ${r.orderRef})` : ""}` : "";
+  requestAction(pid, rid, "delivered");
+  if ("delivered" !== r.status) return null;
+  (r.deliveredBy = me), (reqItems(r) || []).forEach((it) => r.items && (it.done = !0));
+  const last = (r.log || [])[(r.log || []).length - 1];
+  last && "Delivered" === last.text && ((last.text = `Delivered${from}`), (last.by = me));
+  save(), render();
+  toastDone(`${reqLabel(r)} delivered to ${shortName(p)}${from} — on site for ${r.by || "the crew"}`, () => {
+    setCurrent(pid), (view = "req"), render();
+  });
+  return r;
+}
+document.addEventListener("click", (e) => {
+  const b = e.target && e.target.closest ? e.target.closest("[data-drvdrop]") : null;
+  if (!b) return;
+  e.preventDefault();
+  const [pid, rid] = b.dataset.drvdrop.split(":");
+  drvDelivered(pid, rid);
+});
 function cmApplyCredit(c, p, by) {
   const v = (DB.vendors || []).find((x) => x.id === p.vendorId),
     vn = v ? v.name : (c.from && c.from.name) || "the vendor",
