@@ -109,6 +109,7 @@ What remains, in order. Usage is a share of one week's allowance.
   - material and labour split per estimate line, so savings and price checks have a material budget;
   - a trip-cost model for the "not worth the trip" stock override.
 - **Gaps the build lanes found:**
+  - a toast's Open link sits above the editor's scrim and can navigate away with the editor still open (closing on navigation would drop unsaved edits; needs an "unsaved changes" prompt instead);
   - client portal: pay online, or "we paid";
   - the foreman can only measure today's tasks;
   - sub POs default to SD Plumbing;
