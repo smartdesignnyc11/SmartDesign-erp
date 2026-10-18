@@ -189996,9 +189996,6 @@ function plMarkInRevision(o) {
     } catch (e) {}
     log(`${names} in revision (${plMe()}): ${o.why || "design is reworking it"}`, "plans", plMe());
     (p.chat = p.chat || []).push({ id: uid("ch"), by: plMe(), text: `${names} ${1 === made.length ? "is" : "are"} in revision${o.why ? ": " + o.why : ""}. Work there is on hold and nothing is ordered for it until the new revision is issued and acknowledged.`, t: nowStamp(), files: [], plHold: made.map((h) => h.id) });
-    try {
-      notify("In revision", `${plJobName(p.id)} — ${names}`);
-    } catch (e) {}
   }
   return made;
 }
@@ -190205,9 +190202,6 @@ function plIssue(o) {
     audit("sheet", row.id, "issued", prev ? `Rev ${prev.rev}` : "", `Rev ${row.rev}`, row.changed);
   } catch (e) {}
   log(`${plRev(row)} issued by ${row.issuer}${prev ? `; Rev ${prev.rev} VOID` : ""}${row.amend ? `; ${row.amend.agency} amendment needed` : ""}`, "plans", plMe());
-  try {
-    notify("New revision", `${plJobName(p.id)} — ${plRev(row)}: ${row.changed}`);
-  } catch (e) {}
   try {
     "function" == typeof touch && "designer" === role() && touch("sheet", row.id, plRev(row), p.id, 30);
   } catch (e) {}
@@ -190551,7 +190545,7 @@ function plRender() {
   const index = list.length
     ? phone
       ? `<div class="pl-cards">${list.map((s) => `<div class="pl-card ${plIsCurrent(s) ? "" : "pl-void"} ${plFocus === s.id ? "tk-flash" : ""}" data-plrow="${s.id}"><div class="pl-card-hd"><b>${esc(s.number)}</b><span>Rev ${esc(s.rev)}</span>${plStatusPill(s)}</div><div class="pl-card-t">${esc(s.title)}</div><div class="small muted">${esc(PL_SET_LABEL[s.set] || s.set)} · ${s.issuedOn ? fmt(s.issuedOn) : "—"} · ${esc(s.issuer || "—")}</div>${s.changed ? `<div class="small">${esc(s.changed)}</div>` : ""}<div class="small">${fieldCell(s)}</div><div class="pl-acts">${acts(s)}</div></div>`).join("")}</div>`
-      : `<div class="tw"><table class="t pl-index"><thead><tr><th>Sheet</th><th>Title</th><th>Set</th><th>Rev</th><th>Status</th><th>Date</th><th>Issued By</th><th>What Changed</th><th>Field</th><th></th></tr></thead><tbody>${list.map((s) => `<tr class="${plIsCurrent(s) ? "" : "pl-void"} ${plFocus === s.id ? "tk-flash" : ""}" data-plrow="${s.id}"><td><b>${esc(s.number)}</b><div class="small muted">${esc(PL_KIND[plKind(s)])}</div></td><td>${esc(s.title)}</td><td class="small">${esc(PL_SET_LABEL[s.set] || s.set)}</td><td>${esc(s.rev)}</td><td>${plStatusPill(s)}</td><td class="small nowrap">${s.issuedOn ? fmt(s.issuedOn) : "—"}</td><td class="small">${esc(s.issuer || "—")}</td><td class="small">${esc(s.changed || "")}</td><td>${fieldCell(s)}</td><td class="nowrap pl-acts">${acts(s)}</td></tr>`).join("")}</tbody></table></div>`
+      : `<div class="tw"><table class="t pl-index"><thead><tr><th>Sheet</th><th>Title</th><th>Set</th><th>Rev</th><th>Status</th><th>Date</th><th>Issued By</th><th>What Changed</th><th>Field</th><th></th></tr></thead><tbody>${list.map((s) => `<tr class="${plIsCurrent(s) ? "" : "pl-void"} ${plFocus === s.id ? "tk-flash" : ""}" data-plrow="${s.id}"><td><b>${esc(s.number)}</b><div class="small muted">${esc(PL_KIND[plKind(s)])}</div></td><td>${esc(s.title)}</td><td class="small">${esc(PL_SET_LABEL[s.set] || s.set)}</td><td>${esc(s.rev)}</td><td>${plStatusPill(s)}</td><td class="small nowrap">${s.issuedOn ? fmt(s.issuedOn) : "—"}</td><td class="small">${esc(s.issuer || "—")}</td><td class="small">${esc(s.changed || "")}</td><td>${fieldCell(s)}</td><td><div class="pl-acts pl-acts-t">${acts(s)}</div></td></tr>`).join("")}</tbody></table></div>`
     : `<div class="empty">${all.length ? "No sheet matches these filters." : "No sheets in this job's register yet."}</div>`;
   const notes = [
     ...props.map((x) => `<div class="note pl-prop" data-plpropkey="${esc(x.key)}"><b>New revision of ${esc(x.pr.number)}?</b> Rev ${esc(x.pr.rev)} from ${esc(x.from)}${x.date ? " · " + fmt(x.date) : ""}: ${esc(x.pr.changed)}<div class="pl-acts"><button type="button" class="btn sm" data-plrev="${esc(x.key)}">Confirm Rev ${esc(x.pr.rev)}</button><button type="button" class="btn sm" data-plnot="${esc(x.key)}">Not This</button></div></div>`),
@@ -190563,7 +190557,7 @@ function plRender() {
     ...amends.map((s) => `<div class="note bad pl-amend" data-plamend="${s.id}"><b>${esc(s.amend.agency)} Amendment Needed: ${esc(plRev(s))}</b> — ${esc(plRoomsOf(s).map((r) => r.name).join(", ") || "the work")} ${"filed" === s.amend.status ? "is filed and" : ""} is held until the filing is approved (law and landmarks first).${can ? `<div class="pl-acts">${"filed" !== s.amend.status ? `<button type="button" class="btn sm" data-plamendset="${s.id}|filed">Amendment Filed</button>` : ""}<button type="button" class="btn sm" data-plamendset="${s.id}|approved">Amendment Approved</button></div>` : ""}</div>`),
     ...pend.map((x) => `<div class="note pl-pend" data-plpend="${x.s.id}"><b>Waiting for Acknowledgment: ${esc(plRev(x.s))}</b> — ${esc(x.st.pending.map((n) => n.name).join(", "))}. Work in ${esc(plRoomsOf(x.s).map((r) => r.name).join(", ") || "the area")} waits for it.${x.st.pending.some((n) => n.uid === me) ? `<div class="pl-acts"><button type="button" class="btn sm" data-plopen="${x.s.id}">Open</button><button type="button" class="btn sm" data-plack="${x.s.id}">Acknowledge</button></div>` : plStaff() && x.st.pending.some((n) => "trade" === n.role) ? `<div class="pl-acts">${x.st.pending.filter((n) => "trade" === n.role).map((n) => `<button type="button" class="btn sm" data-placktrade="${x.s.id}|${esc(n.vendor)}">Record for ${esc(n.vendor)}</button>`).join("")}</div>` : ""}</div>`),
   ];
-  root.innerHTML = `<div class="ph"><div><h2>Plans — ${esc(plJobName(p.id))}</h2><p class="lead">The job's drawing register: current sheets only unless you ask for the history. A superseded revision is VOID and opens stamped VOID.</p></div><div class="acts">${can ? '<button class="btn" data-plholdnew>Mark In Revision</button>' : ""}${can && "function" == typeof issueDialog && sets.length ? '<button class="btn" data-plissueset>Issue a Set</button>' : ""}${primary}</div></div>
+  root.innerHTML = `<div class="ph"><div><h2>Plans — ${esc(plJobName(p.id))}</h2><p class="lead">The job's drawing register: current sheets only unless you ask for the history. A superseded revision is VOID and opens stamped VOID.</p></div><div class="acts">${can ? '<button class="btn" data-plholdnew>Mark in Revision</button>' : ""}${can && "function" == typeof issueDialog && sets.length ? '<button class="btn" data-plissueset>Issue a Set</button>' : ""}${primary}</div></div>
     ${notes.length ? `<div class="pl-notes">${notes.join("")}</div>` : ""}
     <div class="row pl-filters"><label class="small">Set <select id="pl-set"><option value="">All Sets</option>${sets.map((k) => `<option value="${k}" ${plSetF === k ? "selected" : ""}>${PL_SET_LABEL[k]}</option>`).join("")}</select></label><label class="small">Status <select id="pl-status"><option value="current" ${"current" === plStatusF ? "selected" : ""}>Current Sheets</option><option value="all" ${"all" === plStatusF ? "selected" : ""}>All Revisions</option>${Object.entries(PL_STATUS).map(([k, v]) => `<option value="${k}" ${plStatusF === k ? "selected" : ""}>${v[0]}</option>`).join("")}</select></label><span class="grow"></span><span class="small muted" data-plcount="${list.length}">${list.length} of ${all.length}</span></div>
     ${index}
@@ -190620,7 +190614,7 @@ function plIssueDialog(o) {
           fileId = file ? plFileFrom(p, file) : "",
           row = plIssue({ projectId: p.id, number: f.number, rev: f.rev, title: f.title, set: f.set, stage: f.stage, issuer: f.issuer, changed: f.changed, rooms: rs.length ? rs : void 0, fileId: fileId, origin: { kind: file ? "upload" : "manual", label: file ? `upload ${file.name}` : "the Plans page" } });
         if (!row) return !1;
-        save(), render(), plFocus = row.id, plIssueToast(row);
+        (plFocus = row.id), (plStatusF = "current"), save(), render(), plIssueToast(row);
         setTimeout(() => {
           const el = document.querySelector(`[data-plrow="${row.id}"]`);
           el && el.scrollIntoView({ block: "center" });
@@ -190668,10 +190662,10 @@ function plHoldDialog(pid) {
   const rooms = plDB().rooms.filter((r) => r.projectId === p.id);
   if (!rooms.length) return toast("This job has no rooms in the register yet");
   mbModal(
-    "Mark In Revision",
+    "Mark in Revision",
     `<p class="small" style="margin:0 0 8px">Design is reworking these rooms. Field tasks there go on hold, the schedule shows it, and purchase orders, RFQs and requests for them are flagged before ordering. The hold lifts when the new revision is issued and acknowledged.</p><div class="f"><label>Rooms</label><div class="st-pick pl-rooms">${rooms.map((r) => `<label><input type="checkbox" data-plrm="${r.id}"> ${esc(r.name)}</label>`).join("")}</div></div><div class="f"><label>Why</label><textarea data-f="why" rows="2" placeholder="e.g. the Kleins want the island back; layout being redrawn"></textarea></div>`,
     {
-      submit: "Mark In Revision",
+      submit: "Mark in Revision",
       onSubmit: (f) => {
         const ids = [...document.querySelectorAll("#mbm [data-plrm]:checked")].map((x) => x.dataset.plrm);
         if (!ids.length) return toast("Pick the rooms design is reworking"), !1;
@@ -191262,9 +191256,9 @@ if ("function" == typeof finishBoot) {
       "plans" === view && plRender();
       if (S && plSheets(S.id).length) {
         if ("chat" === view) {
-          const host = document.querySelector("#v-chat .grid3 > .card:not(.chatbox)") || document.querySelector("#v-chat .grid3");
           document.getElementById("pl-pinned")?.remove();
-          host && host.insertAdjacentHTML("beforebegin", plPinnedHtml(S));
+          const host = document.querySelector("#v-chat .grid3 > .card:not(.chatbox)");
+          host ? host.insertAdjacentHTML("beforebegin", plPinnedHtml(S)) : document.querySelector("#v-chat .grid3")?.insertAdjacentHTML("beforeend", plPinnedHtml(S));
           const list = document.getElementById("chat-list");
           list &&
             S.chat.length &&
@@ -191278,8 +191272,8 @@ if ("function" == typeof finishBoot) {
             });
         }
         if ("dash" === view) {
-          const col = document.querySelector("#v-dash .grid3 > div:nth-child(2)");
           document.getElementById("pl-pinned")?.remove();
+          const col = document.querySelector("#v-dash .grid3 > div:nth-child(2)");
           col && col.insertAdjacentHTML("afterbegin", plPinnedHtml(S, 5));
         }
         if ("sched" === view) {

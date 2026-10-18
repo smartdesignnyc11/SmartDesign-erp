@@ -3368,7 +3368,7 @@ div.gl{cursor:default} div.gl:hover{border-color:var(--rule);background:var(--pa
 /* Plans control (BACKLOG §1.22): the register, VOID, holds, the compare */
 .pl-notes{display:flex;flex-direction:column;gap:8px;margin-bottom:12px}
 .pl-acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
-td.pl-acts{margin:0}
+.pl-acts-t{margin:0;flex-wrap:nowrap}
 .pl-filters{gap:12px;margin:0 0 10px;flex-wrap:wrap;align-items:center}
 .pl-filters select{margin-left:6px}
 table.pl-index tr.pl-void td{color:var(--ink-3,#888);text-decoration:line-through;text-decoration-color:rgba(160,40,40,.5)}
