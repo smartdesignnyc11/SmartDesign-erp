@@ -277,7 +277,9 @@ async def persona(p, uid, C):
         C.ok(not any(o.replace(' ', '').lower() in ('albertomplumbing', 'metroexpediting') for o in offers), f"{uid}: no offer to create a vendor already on file, and no local-part names ({offers})")
         files = [n for n in S['nudges'] if 'landed in Drive' in n['text'] and not re.search(r'COI|W-9|statement', n['text'])]
         C.ok(len(files) == 1 and re.match(r'\d+ files landed in Drive', files[0]['text']), f"{uid}: the job's Drive files are one card, not one per file; a COI or a statement keeps its own ({len(files)}: {[n['text'][:50] for n in files]})")
-        own = await pg.evaluate("() => { const A = paInit(); return A.thread.filter(m => m.nudge && m.ref && m.ref.kind === 'mail').map(m => DB.comms.find(c => c.id === m.ref.commId || c.msgId === m.ref.id)).filter(c => c && ((c.labels || []).includes('SENT') || c.direction === 'out')).map(c => c.subject); }")
+        # my own sent mail is what I sent (SENT, or from my mailbox); a colleague's mail to me (stored as the firm's
+        # "out" direction) is news like any other, and names my job the way people write it ("121 State")
+        own = await pg.evaluate("() => { const A = paInit(); return A.thread.filter(m => m.nudge && m.ref && m.ref.kind === 'mail').map(m => DB.comms.find(c => c.id === m.ref.commId || c.msgId === m.ref.id)).filter(c => c && ((c.labels || []).includes('SENT') || cmEmail((c.from || {}).email) === String((gcMine() || {}).email || '').toLowerCase())).map(c => c.subject); }")
         C.ok(not own, f"{uid}: no nudge for my own sent mail ({own})")
         lpc = one(by_kind(S, 'lpc'), lambda p: p.get('projectId') == 'p121')
         C.ok(bool(lpc) and lpc.get('owner') == 'Sarah Davis' and lpc.get('due') and lpc.get('resubmit'), f"{uid}: LPC's revise and resubmit is a dated task for the designer ({lpc and (lpc.get('owner'), lpc.get('due'), lpc.get('task'))})")

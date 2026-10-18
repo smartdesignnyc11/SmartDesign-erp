@@ -20,15 +20,16 @@ Last updated 2026-10-18 (overnight).
 - **Pilot:** 3 days, 9 role experts, both workshops. Reports are in `docs/pilot/pilot1/`, and the menu result is in `docs/MENU_DRAFT.md`.
 - **Merged on master since v11:**
   - plans control phase 1;
+  - cross-set consistency, demo phase (xset_test 66/66);
   - pilot fixes batch 1 (19 items and follow-ups);
   - the calendar date fix.
 - **Still building:**
   - find-it-again after save, the pay-app % and the outbox address (lane findable2);
   - pilot fixes batch 2: hours and clock, mail cards on every sync, money matching, Reverse Payment, the driver's route, agency mail (lane pilotfix2);
-  - cross-set consistency (lane xset).
+  - the four red suites after the pilot fixes: learn, flow, leaks2, chain (lane netfix).
 - **v11.2, next:**
   - reconcile the suites that the pilot fixes changed underneath: chain_test (the held Window Works bill now blocks the August close; mailed bills now offer "Enter the Bill"), learn_test, ops_test, flow_test and leaks2_test;
-  - merge the three lanes;
+  - merge findable2, pilotfix2 and netfix;
   - full net, scripted month, publish v11.2.
 - **Batch 3, queued from the Documents Workshop:**
   - a send gate on every client document: strip internal notes, require cost codes, bill-to and true titles, print how to pay, one letterhead;
