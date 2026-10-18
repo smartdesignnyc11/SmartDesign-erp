@@ -64018,7 +64018,8 @@ if ("function" == typeof renderSDay) {
                   )
                 : 0,
             noteEl = root.querySelector("#st-addn"),
-            e = logHours(pid, h, idx, (noteEl && noteEl.value) || "Design", today(), !1, phaseLine);
+            // the day sheet's day: today, or the unlogged day Hours Not Logged opened it on
+            e = logHours(pid, h, idx, (noteEl && noteEl.value) || "Design", (root.querySelector("#st-addd") || {}).value || today(), !1, phaseLine);
           if (e) {
             const g = dsGuard(pid, 0, phaseLine);
             g && g.unscoped
@@ -64028,6 +64029,7 @@ if ("function" == typeof renderSDay) {
                 : toast(`${h} h logged${p ? ` on ${p.project.name}` : ""}`, flowGo.time(e)),
               (hrs.value = ""),
               noteEl && (noteEl.value = ""),
+              "undefined" != typeof stLogDay && (stLogDay = ""),
               renderSDay();
           }
         });
@@ -163221,7 +163223,7 @@ function dlClockGaps(dr, p) {
         !why &&
         out.push({ i: i, name: c.name, msg: `${c.name}: the log says ${h} h, the clock says ${+c.clockH || 0} h. Use the clock's hours, or say why the clock is wrong.` })
       : h > 0 && !why && out.push({ i: i, name: c.name, msg: `${c.name} is not on today's clock. Say why (worked without punching in), or remove the line.` });
-    me && c.empId === me.id && c.open && out.push({ i: i, name: c.name, self: !0, msg: `You are still clocked in (${+c.clockH || 0} h so far). Clock out, then sign: the log carries the hours the clock has.` });
+    me && c.empId === me.id && c.open && !dr.signOpenWhy && out.push({ i: i, name: c.name, self: !0, msg: `You are still clocked in (${+c.clockH || 0} h so far). Clock out, then sign: the log carries the hours the clock has.` });
   });
   return out;
 }
@@ -163252,15 +163254,39 @@ function dlGapsHtml(dr, p) {
       }</div>`,
   ).join("")}${G.some((g) => "wx" === g.k) ? `<div class="dl-wx" role="group" aria-label="Weather">${DL_WX.map(([w, ic]) => `<button type="button" class="dl-wxb" data-dlwx="${w}">${FX_ICON[ic]}<span>${w}</span></button>`).join("")}</div>` : ""}${clock || self ? `<div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap">${clock ? '<button type="button" class="btn sm" data-dlgo="1">Fix the Crew Hours</button>' : ""}${self ? '<button type="button" class="btn sm" data-dlclockout>Clock Out</button>' : ""}</div>` : ""}</div>`;
 }
-function dlSignTry(root, dr, p) {
-  const B = dlSignBlockers(dr, p);
+async function dlSignTry(root, dr, p) {
+  const openLog = [{ label: "Open", run: () => ((view = "flog"), render()) }];
+  let B = dlSignBlockers(dr, p);
+  // Clock Out and Sign: the signer's own open day is the one blocker it settles, in the same tap
+  const nx = root.querySelector("#dl-next");
+  if (nx && nx.dataset.clockout && dr.signed && B.length && B.every((g) => g.self)) {
+    await clockEvent("out"), dlSyncSite(dr, p), save();
+    B = dlSignBlockers(dr, p);
+  }
   if (B.length) {
     "flog" === view && dr.step !== DL_STEPS.length - 1 && ((dr.step = DL_STEPS.length - 1), save(), dlRenderFlow(root));
-    toast(`Not signed yet: ${B[0].msg}${B.length > 1 ? ` (and ${fxN(B.length - 1, "more thing")})` : ""}`);
+    rcToast(`Not signed yet: ${B[0].msg}${B.length > 1 ? ` (and ${fxN(B.length - 1, "more thing")})` : ""}`, openLog);
     return void dlSay(root.querySelector(".dl-gaps") || root.querySelector(".dl-sign"), B[0].msg);
   }
-  if (!dr.signed) return toast("Not signed yet: tick that it is a true record"), void dlSay(root.querySelector(".dl-sign"), "The log goes out signed: tick to confirm it is a true record");
+  if (!dr.signed) return rcToast("Not signed yet: tick that it is a true record", openLog), void dlSay(root.querySelector(".dl-sign"), "The log goes out signed: tick to confirm it is a true record");
   dlSubmit(dr, p);
+}
+// Staying on site after the log: sign with the hours the clock has so far, and say why (it goes on the record)
+function dlSignSoFar(root, dr, p) {
+  const me = myEmp(),
+    line = me && dr.crew.find((c) => c.empId === me.id);
+  mbModal(
+    "Sign With Hours So Far",
+    `<div class="small muted" style="margin-bottom:6px">You stay clocked in. The log carries ${line ? `${+line.clockH || 0} h` : "the hours"} for you, as of now, and says why.</div>${mbF("Why You Are Still On Site", mbIn("why", "", "e.g. waiting for the inspector's walk"))}`,
+    {
+      submit: "Sign and Send",
+      onSubmit: (f) => {
+        if (!f.why) return toast("Say why you are still on site"), !1;
+        (dr.signOpenWhy = f.why), line && (line.why = line.why || `still on site at signing: ${f.why}`), (dr.signed = !0), save();
+        setTimeout(() => dlSignTry(root, dr, p), 0);
+      },
+    },
+  );
 }
 // Hours waiting on the foreman's approval on this job (flagged ones first): the same rows as Crew › Hours to Approve.
 function dlHoursToApprove(p) {
@@ -163651,10 +163677,16 @@ function dlRenderFlow(root) {
     if (last && nv) {
       const me = myEmp(),
         mine = me && dr.crew.find((c) => c.empId === me.id && c.open);
+      // a sworn log closes the day: one tap clocks out and signs; staying later, sign the hours so far with a reason
+      const nx0 = root.querySelector("#dl-next");
       mine &&
-        !nv.querySelector("[data-dlclockout]") &&
-        (root.querySelector("#dl-next").insertAdjacentHTML("beforebegin", '<button type="button" class="btn" data-dlclockout>Clock Out</button>'),
-        dlWireClockOut(root, dr, p, nv.querySelector("[data-dlclockout]")));
+        !dr.signOpenWhy &&
+        nx0 &&
+        !nv.querySelector("[data-dlsofar]") &&
+        ((nx0.textContent = dr.editing ? "Clock Out and Update" : "Clock Out and Sign"),
+        (nx0.dataset.clockout = "1"),
+        nx0.insertAdjacentHTML("beforebegin", '<button type="button" class="btn" data-dlsofar>Sign With Hours So Far</button>'),
+        (nv.querySelector("[data-dlsofar]").onclick = () => dlSignSoFar(root, dr, p)));
     }
     document.body.classList.toggle("dl-signstep", !!(sg && nv));
     const nx = root.querySelector("#dl-next");
@@ -163892,7 +163924,7 @@ function dlSubmit(dr, p) {
   // a sworn record never carries hours the clock does not: refused with the reason, whoever calls it
   dlSyncSite(dr, p);
   const gaps = dlSignBlockers(dr, p);
-  if (gaps.length) return void toast(`Not signed: ${gaps[0].msg}`), null;
+  if (gaps.length) return void rcToast(`Not signed: ${gaps[0].msg}`, [{ label: "Open", run: () => ((view = "flog"), render()) }]), null;
   const td = dr.date,
     ex = dlLogs(p.id).find((l) => l.date === td),
     rec = Object.assign(ex || { id: uid("fl") }, dlFromDraft(dr, p), {
@@ -163904,7 +163936,8 @@ function dlSubmit(dr, p) {
       signedAt: appNowIso(),
       secs: Math.round((Date.now() - (dr.startedMs || Date.now())) / 1e3),
     },
-    td !== today() && dlLateDay === td ? { late: { why: dlLateWhy, filedOn: today(), by: FX_ME() } } : {});
+    td !== today() && dlLateDay === td ? { late: { why: dlLateWhy, filedOn: today(), by: FX_ME() } } : {},
+    dr.signOpenWhy ? { signedOpen: { why: dr.signOpenWhy, at: appNowIso() } } : {});
   td === dlLateDay && ((dlLateDay = ""), (dlLateWhy = ""));
   ex || DB.field.logs.push(rec),
     (rec.photoIds || []).forEach((id) => {
@@ -192815,16 +192848,51 @@ function stOldestUnlogged() {
   }
   return days.filter((d) => !(DB.time || []).some((t) => t.empId === emp.id && t.date === d)).sort()[0] || "";
 }
+// The tile opens My Day's own day sheet on that day (a sheet over the page blocked the form the designer uses):
+// the day picker reads the unlogged day, the form is in view and its hours box focused.
+let stLogDay = "";
 window.addEventListener(
   "click",
   (e) => {
     const t = e.target && e.target.closest ? e.target.closest('button.gl[data-tl="hrs"]') : null;
     if (!t || "designer" !== role()) return;
     const d = stOldestUnlogged();
-    d && (e.preventDefault(), e.stopPropagation(), stDaySheet(d));
+    if (!d) return;
+    e.preventDefault(), e.stopPropagation(), (stLogDay = d), (view = "sday"), render();
+    setTimeout(() => {
+      const h = document.querySelector("#st-addh");
+      h && (h.scrollIntoView({ block: "center" }), h.focus({ preventScroll: !0 }));
+    }, 60);
   },
   !0,
 );
+{
+  const base = renderSDay;
+  renderSDay = function () {
+    const r = base.apply(this, arguments);
+    try {
+      const root = document.querySelector("#sday-body") || document.body,
+        hrs = root.querySelector("#st-addh");
+      if (hrs && !root.querySelector("#st-addd")) {
+        const emp = myEmp(),
+          td = today(),
+          days = [td];
+        for (let i = 1; i <= 7 && days.length < 6; i++) {
+          const d = iso(addDays(td, -i));
+          [0, 6].includes(parse(d).getDay()) || days.push(d);
+        }
+        const none = (d) => !!emp && !(DB.time || []).some((t) => t.empId === emp.id && t.date === d),
+          want = stLogDay && days.includes(stLogDay) ? stLogDay : td;
+        hrs.insertAdjacentHTML(
+          "beforebegin",
+          `<select id="st-addd" aria-label="Day">${days.map((d) => `<option value="${d}" ${d === want ? "selected" : ""}>${d === td ? "Today" : fmtL(d)}${d !== td && none(d) ? " · no hours" : ""}</option>`).join("")}</select>`,
+        );
+        want !== td && hrs.closest(".row") && hrs.closest(".row").insertAdjacentHTML("beforebegin", `<div class="note warn small st-dayhint">No hours logged for ${fmtL(want)}: log them here, on that day.</div>`);
+      }
+    } catch (e) {}
+    return r;
+  };
+}
 // ---- The bill sheet: Hold and Send Back, each with a reason and a task for the person named; the vendor's papers
 // (W-9 and COI expiry) side by side in its Controls (pilot day 2) -------------------------------------------------
 const BILL_PEOPLE = () => (DB.users || []).filter((u) => !["client", "crew", "driver"].includes(u.role) && u.name);
