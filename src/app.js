@@ -86862,6 +86862,9 @@ function mCardTables(root) {
               dates = 0;
             const keep = cells.map((td, i) => {
               if (0 === i || td.classList.contains("sel") || td.classList.contains("m-title")) return !0;
+              // the column that names the record stays on the card: a GL entry's memo was folded under "+ 3 more",
+              // so on the phone the journal a person had just posted could not be found by its name (findable2)
+              if (/^(memo|name|title|description|item|subject|file)$/i.test((td.dataset.l || "").trim())) return !0;
               if ("health" === (td.dataset.l || "").toLowerCase()) return !1;
               const isMoney = td.classList.contains("money") || /^\s*[-−]?\$/.test(td.textContent);
               if (td.querySelector("button, .btn, select, input, a")) return !0;
