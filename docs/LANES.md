@@ -2,6 +2,16 @@
 
 The chief of staff keeps this board current. A lane is one build agent in its own git worktree (`.claude/worktrees/<name>`, branch `lane-<name>`). Lanes never push or merge. The main session merges them one at a time and runs the full net after each.
 
+## Version 11.1: in flight (2026-10-18, overnight run Alan approved; weekly usage 4% at start)
+| Lane | Scope | Status |
+|---|---|---|
+| v111-inbox | Emailed asks, calls and client questions become proposals again (demo_ws, client, flow) | Building |
+| v111-buy | Purchasing tests vs the vendor-on-file rule; over-budget confirmation; short-pay from Do Now (daywalk); the track drawer click; pricewatch "why is this flagged" | Building |
+| v111-ask | Ask held-out 35/40 by class (negation, relative dates, pronouns, ops, finance); leak_test overspend at landing, source ids, nothing-slips | Building |
+| v111-feat | Ranking: safety/law, then anyone blocked today, then overdue/today/week, then the principle; harness findings 6–8; integrate's three held commits | Building |
+
+Merge order: inbox, buy, ask, feat (feat last because ranking touches every Home). Full net after each merge, one suite at a time; then the scripted month, the phone check, and publishing v11.
+
 ## Version 11: in flight (2026-10-11)
 | Lane | Scope | Spec | Status | Hooks other lanes must call |
 |---|---|---|---|---|
