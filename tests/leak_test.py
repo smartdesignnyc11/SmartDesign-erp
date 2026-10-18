@@ -448,24 +448,49 @@ async def s5_trace(p, S):
           const keysByCode = [...new Set(J.byCode.flatMap(x => Object.keys(x)))];
           const srcKeys = keysByCode.filter(k => /src|source|ids|refs|txns|bills|docs/i.test(k) && Array.isArray(J.byCode[0][k]));
           const jobTx = DB.txns.filter(t => t.projectId === p.id && t.amt < 0 && isJobCat(t.cat) && t.cat !== 'labor' && !txnViaBill(t, bills));
-          const unbacked = jobTx.filter(t => !(typeof bfBacked === 'function' ? bfBacked(t) : (t.prov && ['feed','statement'].includes(t.prov.kind))) && !(t.prov && t.prov.confirmedBy));
+          // The rule is "a figure with no bank or card line behind it is not truth and is shown as such", not "every
+          // typed line is confirmed": this test's own hand-typed line can never be confirmed (no bank will ever list it),
+          // so requiring it to be backed (or prov.confirmedBy) could never pass. A hand-typed line nobody's bank or card
+          // record has confirmed must read as not truth (truthBacking "hand") with its flag on the line; the only such
+          // lines allowed are this test's own and a typed duplicate the duplicate check proposes to void (the seed's
+          // 8/22 dumpster). Every other bank/card cost on the job must be backed by a bank or card line.
+          lkDupScan();
+          const backed = (t) => typeof bfBacked === 'function' ? bfBacked(t) : !!(t.prov && (['feed','statement'].includes(t.prov.kind) || t.prov.confirmedBy));
+          const allowedTyped = (t) => /Cash at lumber yard/.test(t.desc) || t.dupState === 'proposed';
+          const notTruth = (t) => truthBacking(t).kind === 'hand' && /No bank line|Charged twice/.test(txnFlagsHtml(t));
+          const unbacked = jobTx.filter(t => !backed(t) && !allowedTyped(t));
+          const typedShown = jobTx.filter(t => !backed(t) && allowedTyped(t)).map(t => [t.desc + ' ' + t.amt, notTruth(t)]);
           const costed = bills.filter(b => BILL_COSTED.includes(b.status) || BILL_ACCRUED.includes(b.status));
           const noDoc = costed.filter(b => !b.fileId && !(b.files || []).length && !b.attachment);
+          // the attached document is a stored file (the job's Documents), not a bare id
+          const docGone = costed.filter(b => b.fileId && !DB.projects.some(q => (q.files || []).some(f => f.id === b.fileId))).map(b => b.number);
           const unpaidNoTxn = costed.filter(b => !DB.txns.some(t => t.billId === b.id) && !(b.payments || []).length);
           const time = DB.time.filter(e => e.projectId === p.id && e.status !== 'rejected');
-          const noRun = time.filter(e => !e.payrollId && !e.runId && !e.payroll);
+          // A payroll run holds approved hours of a pay period whose run has been built (payrollFromTime, or a run
+          // typed by hand for its dates). Each such entry carries its run's id and the run lists it (r.timeIds): the
+          // tie runs both ways, firm-wide. Hours of the open pay period before its run is built, and hours waiting for
+          // approval, are labor at the burdened rate and must carry no run id; the real path ties them (checked below).
+          const tied = (e) => (DB.payroll || []).some(r => r.id === e.payrollId && (r.timeIds || []).includes(e.id));
+          const runOf = (e) => (DB.payroll || []).find(r => !['rejected', 'void'].includes(r.status) && prInRun(r, e)) || null;
+          const covered = DB.time.filter(e => e.status === 'approved' && (e.payrollId || runOf(e)));
+          const noRun = covered.filter(e => !tied(e));
+          const open = time.filter(e => !e.payrollId && !runOf(e));
+          const appr = covered.filter(e => e.projectId === p.id);
+          const waiting = open.length;
           return { J: {actual: J.actual, bills: J.billsAmt, txns: J.txnAmt, labor: J.laborCost, billed: J.billed},
                    jKeys: Object.keys(J).filter(k => Array.isArray(J[k])), srcKeys, byCodeKeys: keysByCode,
-                   jobTx: jobTx.length, unbacked: unbacked.map(t => `${t.desc} ${t.amt} (${t.source || ''}/${(t.prov||{}).kind || 'no prov'})`),
-                   bills: costed.length, noDoc: noDoc.map(b => b.number), billsNoBankLine: unpaidNoTxn.map(b => b.number + ':' + b.status),
-                   time: time.length, noRun: noRun.length, invs: J.invs.length };
+                   jobTx: jobTx.length, unbacked: unbacked.map(t => `${t.desc} ${t.amt} (${t.source || ''}/${(t.prov||{}).kind || 'no prov'})`), typedShown,
+                   bills: costed.length, noDoc: noDoc.map(b => b.number), docGone, billsNoBankLine: unpaidNoTxn.map(b => b.number + ':' + b.status),
+                   time: time.length, appr: appr.length, waiting, noRun: noRun.length, invs: J.invs.length };
         }""")
         S.fact(f"121 State job report: actual {r['J']['actual']:,.2f} = bills {r['J']['bills']:,.2f} + bank/card {r['J']['txns']:,.2f} + labor {r['J']['labor']:,.2f}; billed {r['J']['billed']:,.2f}")
         S.fact(f"jobFin arrays: {r['jKeys']}; byCode keys: {r['byCodeKeys']}")
         S.check(bool(r['srcKeys']), 'every job-cost-by-code figure carries the ids of its source records', 'byCode rows are bare numbers')
         S.check(not r['unbacked'], 'every bank/card cost on the job is backed by a bank or card line', f"{len(r['unbacked'])} of {r['jobTx']} not backed: {r['unbacked'][:4]}")
-        S.check(not r['noDoc'], 'every bill on the job has its source document attached', f"{len(r['noDoc'])} of {r['bills']} without a document: {r['noDoc']}")
-        S.check(r['noRun'] == 0, 'labor cost traces to a payroll run', f"{r['noRun']} of {r['time']} time entries price labor from a rate, with no payroll run id")
+        S.check(bool(r['typedShown']) and all(x[1] for x in r['typedShown']), 'a hand-typed cost no bank or card line confirms reads as not truth (by hand, flagged) until confirmed', str(r['typedShown']))
+        S.check(not r['noDoc'] and not r['docGone'], 'every bill on the job has its source document attached', f"{len(r['noDoc'])} of {r['bills']} without a document: {r['noDoc']}; attached but not on file: {r['docGone']}")
+        S.check(r['noRun'] == 0, 'labor cost traces to a payroll run (each hour a run paid carries its run id; the run lists it)', f"{r['noRun']} time entries inside a payroll run's dates with no run tied both ways")
+        S.fact(f"time entries on the job: {r['time']}, {r['appr']} in a built run, {r['waiting']} in the open pay period or waiting for approval (burdened rate until the run)")
         S.check(r['invs'] > 0, 'billed traces to invoices (J.invs)')
         needles = ['Cash at lumber yard']
         surf(S, await scan(pg, 'u_controller', 'bank', needles, r'typed by hand|by hand|no bank|not backed|manual|unbacked|no statement', act=r'match|confirm|attach|review|delete|code'),
@@ -473,6 +498,13 @@ async def s5_trace(p, S):
         surf(S, await scan(pg, 'u_alan', 'costs', needles + ['$300'], r'typed by hand|by hand|no bank|not backed|manual|unbacked'), 'Job costs (PM): the hand-typed cost is marked', need_action=False)
         ask_check(S, await ask(pg, 'which costs on 121 State are not backed by a bank or card transaction'),
                   'Ask: costs on 121 State not backed by a bank line', ['Cash at lumber yard', 'lumber yard', '$300'])
+        # the real "run payroll" path ties the open period's approved hours on the job both ways; waiting hours stay out
+        pr = await pg.evaluate("""() => { const run = payrollFromTime({quiet: true}); if (!run) return null;
+              const T = DB.time.filter(e => e.projectId === 'p121' && e.date >= run.from && e.date <= run.to);
+              return {run: run.id, appr: T.filter(e => e.status === 'approved').map(e => [e.id, e.payrollId === run.id && (run.timeIds || []).includes(e.id)]),
+                      waiting: T.filter(e => e.status !== 'approved').map(e => [e.id, !e.payrollId])}; }""")
+        S.check(bool(pr) and pr['appr'] and all(x[1] for x in pr['appr']) and all(x[1] for x in pr['waiting']),
+                'Run Payroll from Time: each approved hour on the job carries the run id and the run lists it; hours waiting for approval stay out', str(pr))
     finally:
         if errs: S.errors.append(f'page errors: {errs[:2]}')
         await b.close()

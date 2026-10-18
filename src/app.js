@@ -13634,7 +13634,8 @@ function payrollAction(r, a) {
     if (Math.abs(sum - 100) > 0.5) return void toast(`Allocations total ${sum}% — must be 100%`);
     (r.status = "submitted"),
       r.approvals.push({ ...stamp, action: "submitted" }),
-      audit("payroll", r.id, "submitted");
+      audit("payroll", r.id, "submitted"),
+      r.fromTime || prLinkTime(r);
   }
   if ("approve" === a) {
     r.createdBy && (r.createdBy.toLowerCase(), by.toLowerCase());
@@ -13660,6 +13661,7 @@ function payrollAction(r, a) {
         action: `approved by ${isOwner() ? "the Owner" : ROLE_NAMES[role()] || role()}`,
       }),
       audit("payroll", r.id, "approved"),
+      r.fromTime || prLinkTime(r),
       log(`Payroll approved: ${r.period} ${money(r.total)}`);
   }
   if ("reject" === a) {
@@ -13668,6 +13670,8 @@ function payrollAction(r, a) {
     (r.status = "rejected"),
       r.approvals.push({ ...stamp, action: "rejected", note: why }),
       audit("payroll", r.id, "rejected", null, { note: why });
+    // a rejected run pays nothing: its hours are free for the run that replaces it
+    (DB.time || []).forEach((e) => e.payrollId === r.id && delete e.payrollId), (r.timeIds = []);
   }
   "paid" === a &&
     ((r.status = "paid"),
@@ -15044,6 +15048,14 @@ function timeAction(e, a) {
 function prInRun(r, e) {
   return r && e ? (r.fromTime ? e.payrollId === r.id : e.date >= r.from && e.date <= r.to && entOfEmpId(e.empId) === (r.entityId || "ent1")) : !1;
 }
+// A run typed by hand (not built from time) covers its dates for its entity: once it is approved, or when the
+// seed records it, its approved entries carry its id and it lists them (r.timeIds), the same two-way tie a run
+// built from time has, so those hours are never paid on a second run.
+function prLinkTime(r) {
+  if (!r || r.fromTime || !r.from || !r.to) return [];
+  const E = (DB.time || []).filter((e) => "approved" === e.status && !e.payrollId && prInRun(r, e));
+  return E.forEach((e) => (e.payrollId = r.id)), (r.timeIds = [...new Set([...(r.timeIds || []), ...E.map((e) => e.id)])]), E;
+}
 // each entity's share of a run: a run across entities carries r.entities; any other run is one entity's
 function prParts(r) {
   return r && Array.isArray(r.entities) && r.entities.length ? r.entities : [{ entityId: (r && r.entityId) || "ent1", gross: +(r && r.gross) || 0, taxes: +(r && r.taxes) || 0, total: +(r && r.total) || 0 }];
@@ -15063,7 +15075,8 @@ function payPeriodOf(day) {
 function payrollFromTime(opts) {
   const o = opts || {};
   let P = payPeriodOf(today());
-  const all = DB.time.filter((t) => "approved" === t.status && !t.payrollId);
+  // hours dated after today are not worked yet: never in a run
+  const all = DB.time.filter((t) => "approved" === t.status && !t.payrollId && t.date <= today());
   all.some((t) => t.date >= P.from && t.date <= P.to) ||
     DB.payroll.some((r) => r.fromTime && r.from === P.from && ["draft", "submitted"].includes(r.status)) ||
     (P = payPeriodOf(iso(addDays(P.from, -1))));
@@ -15127,6 +15140,8 @@ function payrollFromTime(opts) {
       fromTime: !0,
       detail: detail,
       late: late.length,
+      // the run lists its time entries, and each entry carries the run's id (below): labor ties both ways
+      timeIds: entries.map((t) => t.id),
     };
   let run = open;
   if (run) {
@@ -61909,7 +61924,14 @@ function rxSeed() {
       return d.setMonth(d.getMonth() - p), `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
     },
     mk = (period, extra) => {
-      const o = rxOurs(card.id, period),
+      // the statement is the bank's record: a line the seed typed twice is on it once (bfSeedTypedOnly)
+      const o0 = rxOurs(card.id, period),
+        tw = o0.txns.filter((t) => "function" == typeof bfSeedTypedOnly && bfSeedTypedOnly(t)),
+        o = {
+          charges: r2(o0.charges - tw.filter((t) => t.amt < 0).reduce((a, t) => a - t.amt, 0)),
+          credits: r2(o0.credits - tw.filter((t) => t.amt > 0).reduce((a, t) => a + t.amt, 0)),
+          count: o0.count - tw.length,
+        },
         s = {
           id: uid("st"),
           acctId: card.id,
@@ -155417,6 +155439,55 @@ function bfSeed() {
         how: "typed from the receipt",
       });
   });
+  bfSeedCardStatements(cur);
+}
+// The seed's card lines for a closed card month were typed from receipts during the month; the issuer's
+// activity download for that month (invented, like all demo data) then confirms them through the same
+// matching a person's Import Statement uses (bfIngest → bfFind → prov.confirmedBy with its signature), so a
+// seeded card cost is backed by a card line the way a live one is, never by a flag. The bank's record holds
+// each charge once: a line the seed typed twice (bfSeedTypedOnly) is not on it and stays "by hand", for
+// the duplicate check to catch. The current month's cycle has not closed, so its lines stay typed.
+function bfSeedTypedOnly(t) {
+  // 8/22 ROLL OFF DUMPSTER SVC: the 8/21 charge typed a second time (leaks2 s5 voids it)
+  return !!t && "ta7" === t.id;
+}
+function bfSeedCardStatements(cur) {
+  (DB.accounts || [])
+    .filter((a) => "card" === a.type)
+    .forEach((a) => {
+      const all = (DB.txns || []).filter((t) => t.acct === a.id),
+        months = [...new Set(all.map((t) => String(t.date).slice(0, 7)))].filter((m) => m < cur).sort();
+      months.forEach((ym) => {
+        const end = fin2End(ym);
+        if ((DB.bankImports || []).some((i) => i.acctId === a.id && i.period && i.period[0] <= ym + "-01" && i.period[1] >= end)) return;
+        const L = all
+          .filter((t) => String(t.date).slice(0, 7) === ym && !bfSeedTypedOnly(t) && "manual" === bfProv(t).kind && !bfProv(t).confirmedBy)
+          .sort((x, y) => String(x.date).localeCompare(String(y.date)) || String(x.id).localeCompare(String(y.id)));
+        if (!L.length) return;
+        const mask = String(a.last4 || "").slice(-4),
+          amex = /amex|american express/i.test(a.name),
+          institution = amex ? "American Express" : a.name,
+          imp = {
+            id: "imp_" + a.id + "_" + ym.replace("-", ""),
+            acctId: a.id,
+            fileName: amex ? `Amex_Activity_${bfMon3(ym)}${ym.slice(0, 4)}.csv` : `${a.name.replace(/\s+/g, "")}_${mask}_${bfMon3(ym)}${ym.slice(0, 4)}.csv`,
+            format: "csv",
+            institution: institution,
+            mask: mask,
+            period: [ym + "-01", end],
+            ending: null,
+            endingAsOf: end,
+            lines: L.length,
+            by: "Jeanette",
+            at: `${fin2Next(ym)}-01T08:40:00`,
+            seed: !0,
+          },
+          lines = L.map((t, i) => ({ ref: `${end.replace(/-/g, "")}${String(i + 1).padStart(4, "0")}`, date: t.date, amt: t.amt, desc: t.desc })),
+          o = bfIngest({ kind: "statement", acctId: a.id, imp: imp, institution: institution, dry: !0 }, lines, []);
+        Object.assign(imp, { added: o.added, confirmed: o.confirmed, dup: o.dup, ruled: o.ruled }), DB.bankImports.push(imp);
+        audit("account", a.id, "statement-imported", "", imp.fileName, `${imp.fileName}: ${fmt(imp.period[0])}–${fmt(imp.period[1])}, ${bfOutWords(o)}`);
+      });
+    });
 }
 const BF_STOP = new Set(
   "ach debit credit pos purchase payment pmt online transfer from the inc llc corp card recurring zelle wire des ppd web ccd ref check chk dbt crd visa mastercard amex www com and for authorized auth nyc brooklyn manhattan new york".split(
@@ -155458,14 +155529,27 @@ function bfFind(x, acctId, claimed) {
     const t = L.find((t) => bfRefs(t).includes(x.ref));
     if (t) return { t: t, how: "id" };
   }
+  // A line another statement file already holds is not a candidate (two equal charges on one statement stay
+  // two) — unless that file's period covers this line's date and this is a different file: the same month
+  // arriving twice (the activity download, then the PDF from the mail) is the same bank record seen again,
+  // never a second charge.
+  const stmtRecs = (p) =>
+      ["statement" === p.kind ? p : null, p.stmtSeen || null, p.confirmedBy && "statement" === p.confirmedBy.kind ? p.confirmedBy : null].filter(Boolean),
+    seenAgain = (p) => {
+      const R = stmtRecs(p);
+      return (
+        !!R.length &&
+        !!x.importId &&
+        R.every((s) => s.importId && s.importId !== x.importId && s.period && s.period[0] <= x.date && s.period[1] >= x.date)
+      );
+    };
   const c = L.filter((t) => Math.abs((+t.amt || 0) - x.amt) < 0.005 && Math.abs(dayDiff(t.date, x.date)) <= 3)
     .filter((t) => {
       const p = bfProv(t);
       return (
         ("feed" !== x.kind ||
           !("feed" === p.kind || p.feedSeen || (p.confirmedBy && "feed" === p.confirmedBy.kind))) &&
-        ("statement" !== x.kind ||
-          !("statement" === p.kind || p.stmtSeen || (p.confirmedBy && "statement" === p.confirmedBy.kind)))
+        ("statement" !== x.kind || !stmtRecs(p).length || seenAgain(p))
       );
     })
     .map((t) => ({
@@ -155543,7 +155627,7 @@ function bfIngest(src, added, removed) {
         i >= 0 && (DB.bankPending.splice(i, 1), out.posted++);
       }
       const rec = bfRecOf(src, x),
-        hit = bfFind(Object.assign({ kind: src.kind }, x), src.acctId, claimed);
+        hit = bfFind(Object.assign({ kind: src.kind, importId: src.imp ? src.imp.id : "" }, x), src.acctId, claimed);
       if (hit) {
         const t = hit.t;
         claimed.add(t.id);
@@ -189539,3 +189623,122 @@ AG_ASST.unshift(
     },
   },
 );
+
+// ---- the demo seed tells the truth the way the live firm will (leak_test [5]) --------------------------------
+// Every seeded bill carries its source document, stored the way an uploaded bill's invoice is: a PDF in the
+// job's Documents (blob through putBlob, the record in p.files) attached to the bill by b.fileId, with the
+// "document-attached" audit line the Attach Document sheet writes. The PDF is invented from the bill itself
+// (vendor, number, dates, lines, PO, job), so the document and the bill agree. Seeded payroll ties to time:
+// the run typed by hand for 8/17 – 8/28 lists the hours it paid and they carry its id (prLinkTime); a run built
+// from time does the same through payrollFromTime.
+function sdTextPdf(lines) {
+  const pdfEsc = (s) =>
+      String(s)
+        .replace(/[—–]/g, "-")
+        .replace(/[’‘]/g, "'")
+        .replace(/[×]/g, "x")
+        .replace(/[^\x20-\x7e]/g, "?")
+        .replace(/[\\()]/g, (m) => "\\" + m),
+    content = "BT /F1 11 Tf 56 750 Td 15 TL\n" + lines.map((l) => `(${pdfEsc(l)}) Tj T*`).join("\n") + "\nET",
+    objs = [
+      "<< /Type /Catalog /Pages 2 0 R >>",
+      "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+      "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+      `<< /Length ${content.length} >>\nstream\n${content}\nendstream`,
+      "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ];
+  let out = "%PDF-1.4\n";
+  const offs = [];
+  objs.forEach((o, i) => {
+    offs.push(out.length), (out += `${i + 1} 0 obj\n${o}\nendobj\n`);
+  });
+  const x = out.length;
+  return (
+    (out +=
+      `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n` +
+      offs.map((n) => String(n).padStart(10, "0") + " 00000 n \n").join("") +
+      `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${x}\n%%EOF\n`),
+    "data:application/pdf;base64," + btoa(out)
+  );
+}
+function sdBillPdfLines(b) {
+  const p = (DB.projects || []).find((x) => x.id === b.projectId),
+    po = b.poId && (DB.pos || []).find((x) => x.id === b.poId),
+    ent = (DB.entities || []).find((e) => e.id === b.entityId) || (DB.entities || [])[0] || { name: "SmartDesign Group LLC" },
+    usd = (n) => "$" + (+n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+    md = (d) => (d ? `${d.slice(5, 7)}/${d.slice(8, 10)}/${d.slice(0, 4)}` : "");
+  return [
+    String(b.vendor || "").toUpperCase(),
+    "INVOICE",
+    `Invoice no. ${b.number}`,
+    `Invoice date ${md(b.date)}${b.due ? `    Due ${md(b.due)}` : ""}`,
+    `Bill to: ${ent.name}`,
+    p ? `Job: ${p.project.name}` : "",
+    po ? `PO: ${po.number}` : "",
+    "",
+    ...(b.lines || []).map((l) => `${l.desc}    ${usd(l.amount)}`),
+    "",
+    `Total due ${usd(billTotal(b))}`,
+    b.terms ? `Terms: ${b.terms}` : "",
+  ].filter((l, i, A) => l !== "" || (A[i - 1] !== "" && i > 0));
+}
+function sdSeedBillDocs() {
+  (DB.bills || [])
+    .filter((b) => !b.fileId && b.number && b.vendor && b.projectId && !["draft", "void", "rejected"].includes(b.status))
+    .forEach((b) => {
+      const p = (DB.projects || []).find((x) => x.id === b.projectId);
+      if (!p) return;
+      const id = uid("f"),
+        dataUrl = sdTextPdf(sdBillPdfLines(b)),
+        rec = {
+          id: id,
+          name: `${b.vendor} — invoice ${b.number}.pdf`,
+          type: "application/pdf",
+          size: Math.round(0.75 * (dataUrl.length - dataUrl.indexOf(",") - 1)),
+          cat: "receipt",
+          date: b.date || today(),
+          by: b.createdBy || "",
+          link: null,
+          notes: `Vendor invoice ${b.number}, attached to the bill`,
+          shareClient: !1,
+          ai: null,
+          seen: !0,
+          persisted: !1,
+          uploadedAt: `${b.date || today()}T09:00:00`,
+        };
+      (p.files = p.files || []).push(rec), (b.fileId = id);
+      try {
+        Promise.resolve(putBlob(id, dataUrl)).then((ok) => {
+          ok && ((rec.persisted = !0), save());
+        });
+      } catch (e) {}
+      audit("bill", b.id, "document-attached", "", id, `${b.number} · ${b.status} · ${rec.name}`);
+      // the audit line is dated when the invoice was attached (with the bill), not at this boot: a sync later in the
+      // session must not read it as the record's latest change and blame a re-derivation on it
+      const a = (DB.audit || [])[DB.audit.length - 1];
+      a &&
+        a.refId === b.id &&
+        Object.assign(a, { ts: rec.uploadedAt, t: `${+rec.date.slice(5, 7)}/${+rec.date.slice(8, 10)} 9:00 AM`, by: b.createdBy || a.by, role: "coord" });
+    });
+}
+// The open pay period (8/31 – 9/13, paid 9/11) has no run yet on the app day, as it would not live: its hours
+// are labor at the burdened rate until payrollFromTime builds the run and stamps them. Seeding a run mid-period
+// would invent a payable (it moves Safe to Spend and the AP aging by the period's wages so far).
+function sdSeedPayrollLinks() {
+  (DB.payroll || []).forEach((r) => r.fromTime || ["draft", "rejected", "void"].includes(r.status) || prLinkTime(r));
+}
+if ("function" == typeof finishBoot) {
+  const finishBootBase_sdTruth = finishBoot;
+  finishBoot = function () {
+    const r = finishBootBase_sdTruth.apply(this, arguments);
+    try {
+      if (DB && !DB.__sdTruthSeeded && !("function" == typeof sdSeedsOff && sdSeedsOff())) {
+        DB.__sdTruthSeeded = 1;
+        sdSeedBillDocs(), sdSeedPayrollLinks(), save();
+      }
+    } catch (e) {
+      console.warn("truth seed", e);
+    }
+    return r;
+  };
+}

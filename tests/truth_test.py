@@ -140,11 +140,18 @@ async def sec_cov(p, c):
     inc = C0['C']['income']
     c.ok(abs(inc['bank'] + inc['document'] + inc['hand'] + (inc.get('adjust') or 0) - inc['total']) < 0.01 and inc['document'] >= 0,
          f"August income coverage adds up, the documents never negative: bank {inc['bank']} + document {inc['document']} + hand {inc['hand']} + adjustment {inc.get('adjust')} = {inc['total']}")
-    # import a real statement: it confirms the typed Window Works card line and brings one new line
+    # import a statement: the Window Works card line the seed's August activity download already confirmed is
+    # "already here" (the same bank record seen in a second file, never a second charge), the typed 9/2 Waterworks
+    # line is confirmed by it, and one new line arrives. (Before the seed carried its August card statement, this file
+    # confirmed the Window Works line itself and moved bill WW-2026-118's $33,500 from document to bank; the seed's
+    # statement now does that, so August's document-backed cost starts at what the bills alone back.)
     out = await import_statement(pg, 'ac2', 'Amex_1009_Aug2026_truth.csv', csv([
         ('2026-08-25', 'SQ *WINDOW WORKS BKLYN', -33500.00, 'AMX-260825-01'),
-        ('2026-08-26', 'ACME SCAFFOLD RENTAL', -1200.00, 'AMX-260826-02')]))
-    c.ok(out and out[0]['confirmed'] == 1 and out[0]['added'] == 1, f'statement import: {out}')
+        ('2026-08-26', 'ACME SCAFFOLD RENTAL', -1200.00, 'AMX-260826-02'),
+        ('2026-09-02', 'WATERWORKS SHOWROOM SOHO', -1900.00, 'AMX-260902-03')]))
+    c.ok(out and out[0]['confirmed'] == 1 and out[0]['added'] == 1 and out[0]['dup'] == 1, f'statement import: {out}')
+    ww = await pg.evaluate("() => DB.txns.filter(t => t.desc === 'SQ *WINDOW WORKS BKLYN').map(t => [t.id, bfBacked(t)])")
+    c.ok(len(ww) == 1 and ww[0][1], f'the Window Works charge is one line, bank-backed, after a second file lists it: {ww}')
     tid = await pg.evaluate("() => (DB.txns.find(t => t.desc === 'ACME SCAFFOLD RENTAL') || {}).id || null")
     c.ok(bool(tid), 'the new line is on the register')
     if tid:
@@ -152,10 +159,10 @@ async def sec_cov(p, c):
         bk = await pg.evaluate("id => truthBacking(DB.txns.find(x => x.id === id))", tid)
         c.ok(bk['kind'] == 'bank', f'an imported, coded line is bank-backed: {bk}')
     C1 = await pg.evaluate(f"() => truthCoverage({AUG})")
-    # the coded ACME line is new bank-backed cost; the Window Works card line pays bill WW-2026-118 ($33,500) through its PO,
-    # so the bill's evidence moves from the document (accrual) to the bank; the typed-by-hand figure does not move
-    c.ok(abs(C1['cost']['bank'] - cost['bank'] - 34700) < 0.01, f"bank-backed August cost rose by $1,200 + $33,500: {cost['bank']} -> {C1['cost']['bank']}")
-    c.ok(abs(cost['document'] - C1['cost']['document'] - 33500) < 0.01, f"document-backed August cost fell by the bill now paid at the bank: {cost['document']} -> {C1['cost']['document']}")
+    # the coded ACME line is new bank-backed August cost; the Window Works line was already bank-backed (it pays bill
+    # WW-2026-118 through its PO), so the document-backed figure does not move, and neither does the typed-by-hand one
+    c.ok(abs(C1['cost']['bank'] - cost['bank'] - 1200) < 0.01, f"bank-backed August cost rose by $1,200: {cost['bank']} -> {C1['cost']['bank']}")
+    c.ok(abs(cost['document'] - C1['cost']['document']) < 0.01, f"document-backed August cost unchanged: {cost['document']} -> {C1['cost']['document']}")
     c.ok(abs(C1['cost']['hand'] - cost['hand']) < 0.01, f"by-hand August cost unchanged {cost['hand']} -> {C1['cost']['hand']}")
     rows = C1['cost']['rows']
     c.ok(all(r.get('why') for r in rows), 'every coverage row says why it is backed the way it is')
@@ -293,14 +300,17 @@ async def sec_tamper(p, c):
     still = await pg.evaluate("() => !!DB.txns.find(t => t.id === 't1')")
     c.ok(still, 'a reconciled bank line cannot be deleted')
     await pg.evaluate("() => { if (typeof closeEditor === 'function' && document.querySelector('#drawer.on')) closeEditor(); try { mbCloseModal(); } catch (e) {} }")
-    # a typed, coded line: Void is a reversal with a reason
-    v0 = await pg.evaluate("() => truthVoidTxn(DB.txns.find(t => t.id === 't12'), '')")
+    # a typed, coded line no bank holds (the seed's 8/22 dumpster, the 8/21 charge typed a second time; the August
+    # card statement confirms every other August card line, t12 among them): Void is a reversal with a reason
+    v0 = await pg.evaluate("() => truthVoidTxn(DB.txns.find(t => t.id === 'ta7'), '')")
     c.ok(v0 and v0.get('ok') is False, f'void without a reason is refused: {v0}')
     vb = await pg.evaluate("() => truthVoidTxn(DB.txns.find(t => t.id === 't11'), 'trying on a statement-confirmed line')")
     c.ok(vb and vb.get('ok') is False and re.search(r'has this line', vb.get('why', '')), f'a line the bank holds is never voided: {vb}')
-    v1 = await pg.evaluate("() => truthVoidTxn(DB.txns.find(t => t.id === 't12'), 'Typed twice; the bank shows one premium')")
-    gone = await pg.evaluate("() => ({ onReg: !!DB.txns.find(t => t.id === 't12'), voided: (DB.voided || []).some(v => v.id === 't12'),"
-                             " rev: DB.gl.journals.filter(j => j.key === 'txn:t12' && j.kind === 'reversal').map(j => j.memo) })")
+    vc = await pg.evaluate("() => truthVoidTxn(DB.txns.find(t => t.id === 't12'), 'trying on a line the card statement confirmed')")
+    c.ok(vc and vc.get('ok') is False, f'a typed line the card statement has since confirmed is never voided: {vc}')
+    v1 = await pg.evaluate("() => truthVoidTxn(DB.txns.find(t => t.id === 'ta7'), 'Typed twice; the bank shows one charge')")
+    gone = await pg.evaluate("() => ({ onReg: !!DB.txns.find(t => t.id === 'ta7'), voided: (DB.voided || []).some(v => v.id === 'ta7'),"
+                             " rev: DB.gl.journals.filter(j => j.key === 'txn:ta7' && j.kind === 'reversal').map(j => j.memo) })")
     c.ok(v1 and v1.get('ok') and not gone['onReg'] and gone['voided'], f'void moves the line to the voided register: {gone}')
     c.ok(gone['rev'] and 'Typed twice' in gone['rev'][-1], f"the ledger reversal carries the reason: {gone['rev']}")
     # the hash chain: sealed per period, re-verified, names a changed or missing posting

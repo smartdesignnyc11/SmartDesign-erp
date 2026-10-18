@@ -126,8 +126,12 @@ money_re = lambda v: re.escape('$' + f'{v:,.0f}')
 async def part_feed(p, c):
     """#5 Honest Demo Feed: a fixed bank file, not an echo of the register; Demo Feed lines are not bank evidence."""
     b, pg, errs = await page(p)
+    # The seed carries the August card statements (Amex, Home Depot Pro Xtra), which confirm every typed August card
+    # line but the 8/22 dumpster typed twice: 30 of 31 lines backed, 96% (54% before the seed's card statement). The
+    # Demo Feed's two lines are not bank evidence, so they lower it to 30 of 33, 90%; the old failure was the feed
+    # echoing the register and confirming typed lines, which would read 33 of 33.
     r0 = await pg.evaluate("() => { const C = bfCoverage('2026-08'); return [C.pct, C.backed, C.n] }")
-    c.ok(r0[0] == 54, f"#5 August coverage before the Demo Feed {r0} (want 54%)")
+    c.ok(r0[0] == 96 and r0[1] == 30 and r0[2] == 31, f"#5 August coverage before the Demo Feed {r0} (want 96%, 30 of 31)")
     r = await pg.evaluate("""async () => {
       const ids0 = new Set(DB.txns.map(t => t.id));
       const f = await CT.connectDemo('amex');
@@ -146,7 +150,7 @@ async def part_feed(p, c):
               sub: bfCoverSub(C)};
     }""")
     c.ok(r['feed'], '#5 Demo Feed did not connect through the Connect a Bank dialog')
-    c.ok(r['pct'] == 51 and r['n'] == 33, f"#5 August coverage after the Demo Feed {r['pct']}% ({r['backed']} of {r['n']}), want 51% (17 of 33), never 96%")
+    c.ok(r['pct'] == 90 and r['backed'] == 30 and r['n'] == 33, f"#5 August coverage after the Demo Feed {r['pct']}% ({r['backed']} of {r['n']}), want 90% (30 of 33): the feed's lines never count")
     c.ok(r['demoConfirmed'] == 0, f"#5 the Demo Feed confirmed {r['demoConfirmed']} typed lines: it echoed the register instead of serving its fixed file")
     c.ok(not [a for a in r['added'] if abs(a[1] + 1650) < 0.01], f"#5 the Demo Feed added a duplicate dumpster charge {r['added']}")
     c.ok(sorted(a[3] for a in r['added']) == sorted(r['fixed']), f"#5 the Demo Feed added {r['added']}, want exactly its fixed file {r['fixed']}")
@@ -155,7 +159,7 @@ async def part_feed(p, c):
     c.ok('Demo Feed' in r['sub'], f"#5 coverage line does not name the Demo Feed lines: {r['sub']}")
     r9 = await pg.evaluate("() => { const C = bfCoverage('2026-09'); return {demo: C.demo, backed: C.backed, n: C.n, bad: DB.txns.filter(t => t.date >= '2026-09-01' && bfIsDemoOnly(t) && bfBacked(t)).length, line: bfCoverLine(C)} }")
     c.ok(r9['demo'] >= 1 and r9['bad'] == 0, f"finding 10: September Banking coverage counts Demo Feed lines as backed: {r9}")
-    c.ok('51%' in r['close'], f"#5 close checklist coverage line: {r['close']}")
+    c.ok('90%' in r['close'], f"#5 close checklist coverage line: {r['close']}")
     t = await view_text(pg, 'bank')
     c.ok('Demo Feed' in t and '96%' not in t, '#5 Banking does not show the Demo Feed lines as such, or shows 96%')
     c.ok(not errs, f'#5 errors {errs[:3]}')
