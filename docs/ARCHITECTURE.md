@@ -220,7 +220,7 @@ A change order's or invoice's cached `amount` is `docTotal(d).total`, written in
   - `plSheetChip(r)`: a field question naming a sheet opens that job's current sheet, on `fOfficeCard`, so My Day, Approvals and the phone all get it.
 
 **Where it is joined** (wrappers in the section):
-- **The field and the schedule:** `fTaskNeeds` (need kind `plan`), `fForYouHtml`, a capture listener on Started (warn, Open the Sheet, Start Anyway on the record), and `t2RowHtml`. In `render`: the schedule's `#pl-sched` note and `.pl-held` bars, Today's rows, the Documents VOID pill, Chat's pinned card and proposal chips, and the job page's card.
+- **The field and the schedule:** `fTaskNeeds` (need kind `plan`), `fForYouHtml`, `fForYou` (the older "Sheet X rev Y issued · Got It" line, `DB.field.acks`, gives way to the register's acknowledgment: one acknowledgment per revision), a capture listener on Started (warn, Open the Sheet, Start Anyway on the record), and `t2RowHtml`. In `render`: the schedule's `#pl-sched` note and `.pl-held` bars, Today's rows, the Documents VOID pill, Chat's pinned card and proposal chips, and the job page's card.
 - **Purchasing:** `poValid` and `renderPODoc` (the order flag and Order Anyway), `rfqSend` and `addRequest` (`r.plFlag`, and a procurement Needs Your Hand row `plreq:`).
 - **Proposals:** `cmRead` and `cmApply` (mail), `mtIngest` (meetings), `sendChat` (messages), and `nyhRowsAll` (`plrev:` rows, route `pm`, verb "Confirm Rev X").
 - **Ask and search:** `paAsk` (a sheet number, or "on hold" questions) and `palIndex` (⌘K: current sheets only).
