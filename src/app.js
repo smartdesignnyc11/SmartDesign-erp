@@ -189880,7 +189880,8 @@ if ("function" == typeof renderSDay) {
             (b) =>
               (b.onclick = () => {
                 const x = L[+b.dataset.nsopen];
-                x && ("step" === x.kind ? ((mtOpen = x.m.id), (view = "meetings"), render()) : (setCurrent(x.pid), openEditor("action", x.ref.id)));
+                // a step is completable where it shows: the meeting when this role can open it, else confirmed here
+                x && ("step" === x.kind ? ((ROLE_VIEWS[role()] || []).includes("meetings") ? ((mtOpen = x.m.id), (view = "meetings"), render()) : nsStepSheet(x)) : (setCurrent(x.pid), openEditor("action", x.ref.id)));
               }),
           );
         }
@@ -191145,5 +191146,163 @@ const AG_INSTRUCTION = /^(please\s+)?(do not|don'?t|dont|never|stop|hold off|sen
         }
       };
     return out && "function" == typeof out.then ? out.then(fix) : fix(out);
+  };
+}
+// ---- A step on a role's My Day is completable by that role (pilot day 2: the designer's "Send Revised Drawings"
+// opened Meetings, which she may not open). A meeting's proposed step is confirmed here, as her task, or marked done.
+function nsStepSheet(x) {
+  const m = x.m,
+    pr = x.ref,
+    A = (pr && pr.apply) || {};
+  mbModal(
+    esc(x.title),
+    `<div class="small muted" style="margin-bottom:6px">${esc(x.from)}${m ? ` · ${esc(m.title || "")}, ${fmtL(m.date)}` : ""}</div>${A.notes ? `<p class="small">${esc(A.notes)}</p>` : ""}<div class="small">${x.due ? `Due ${fmtL(x.due)}` : "No date"}${A.assignee ? ` · ${esc(A.assignee)}` : ""}</div>`,
+    {
+      submit: "Confirm as My Task",
+      alt: { label: "Done Already", run: () => nsStepDone(x, !0) },
+      onSubmit: () => nsStepDone(x, !1),
+    },
+  );
+}
+function nsStepDone(x, done) {
+  const m = x.m,
+    pr = x.ref;
+  if (!m || !pr) return;
+  try {
+    mtApply(m, pr);
+  } catch (e) {
+    console.warn("step apply", e);
+  }
+  pr.status = "applied";
+  pr.appliedAt = pr.appliedAt || today();
+  pr.by = (currentUser() || {}).name || role();
+  const p = (DB.projects || []).find((q) => q.id === x.pid),
+    a = p && (p.actions || []).filter((t) => t.title === ((pr.apply || {}).title || pr.title)).pop();
+  done && a && ((a.status = "done"), (a.completedAt = today()));
+  save(), render(), rcToast(`${done ? "Done" : "On your list"}: ${x.title}${x.due && !done ? ` — due ${fmtL(x.due)}` : ""}`, [{ label: "Open", run: () => (p && setCurrent(p.id), (view = (ROLE_VIEWS[role()] || []).includes("tasks") ? "tasks" : "sday"), render()) }]);
+}
+// ---- Hours Not Logged opens the day sheet for the oldest day with no hours (pilot day 2: the tile did nothing:
+// it sent the designer to the page she was already on, which logs today only)
+function stDaySheet(date) {
+  const emp = "function" == typeof myEmp ? myEmp() : null;
+  if (!emp) return toast("Your user is not linked to an employee record");
+  const projs = (DB.projects || []).filter((p) => !p.archived),
+    cur = S && S.id;
+  mbModal(
+    `Hours for ${fmtL(date)}`,
+    `<div class="small muted" style="margin-bottom:6px">No time is logged for ${fmtL(date)}. What you worked on that day goes to your manager for approval.</div><div class="grid2">${mbF("Project", `<select data-f="pid">${projs.map((p) => `<option value="${p.id}" ${p.id === cur ? "selected" : ""}>${esc(p.project.name)}</option>`).join("")}</select>`)}${mbF("Hours", mbIn("h", "", "e.g. 6", "number"))}</div>${mbF("What", mbIn("n", "", "e.g. A-301 stair section revisions"))}`,
+    {
+      submit: "Log the Hours",
+      onSubmit: (f) => {
+        const h = +f.h;
+        if (!(h > 0 && h <= 16)) return toast("How many hours, between 0 and 16?"), !1;
+        const start = `${date}T09:00:00`,
+          end = appIso(new Date(new Date(start).getTime() + h * 36e5)),
+          e = { id: uid("te"), empId: emp.id, date: date, in: start, out: end, breakMin: 0, projectId: f.pid, code: "", notes: f.n || "Design", status: "submitted", approvedBy: "", source: "day sheet", lateEntry: { on: today() }, work: [{ projectId: f.pid, code: "", hours: h, note: f.n || "Design" }] };
+        DB.time.push(e);
+        try {
+          audit("time", e.id, "logged-late", null, { date: date, hours: h });
+        } catch (x) {}
+        save(), render(), rcToast(`${h} h logged for ${fmtL(date)}`, [{ label: "Open", run: () => ((view = "sday"), render()) }]);
+      },
+    },
+  );
+}
+function stOldestUnlogged() {
+  const emp = "function" == typeof myEmp ? myEmp() : null,
+    td = today(),
+    days = [];
+  if (!emp) return "";
+  for (let i = 1; i <= 7 && days.length < 5; i++) {
+    const d = iso(addDays(td, -i));
+    [0, 6].includes(parse(d).getDay()) || days.push(d);
+  }
+  return days.filter((d) => !(DB.time || []).some((t) => t.empId === emp.id && t.date === d)).sort()[0] || "";
+}
+window.addEventListener(
+  "click",
+  (e) => {
+    const t = e.target && e.target.closest ? e.target.closest('button.gl[data-tl="hrs"]') : null;
+    if (!t || "designer" !== role()) return;
+    const d = stOldestUnlogged();
+    d && (e.preventDefault(), e.stopPropagation(), stDaySheet(d));
+  },
+  !0,
+);
+// ---- The bill sheet: Hold and Send Back, each with a reason and a task for the person named; the vendor's papers
+// (W-9 and COI expiry) side by side in its Controls (pilot day 2) -------------------------------------------------
+const BILL_PEOPLE = () => (DB.users || []).filter((u) => !["client", "crew", "driver"].includes(u.role) && u.name);
+function billHoldSheet(b, kind) {
+  const send = "back" === kind,
+    def = send ? b.createdBy || "" : "",
+    people = BILL_PEOPLE();
+  mbModal(
+    `${send ? "Send Back" : "Hold"} — ${esc(b.vendor)} ${esc(b.number || "")}`,
+    `<div class="small muted" style="margin-bottom:6px">${send ? "The bill goes back to draft for the person who fixes it, with your reason." : "Nothing is approved or paid while it is held. The person you name gets a task with your reason."}</div>${mbF("Reason", mbIn("why", "", send ? "e.g. invoice is for 10 windows, the PO is 9; re-enter at the PO" : "e.g. waiting on the signed delivery ticket"))}${mbF("Task For", `<select data-f="who">${people.map((u) => `<option value="${esc(u.name)}" ${u.name === def ? "selected" : ""}>${esc(u.name)} · ${esc(u.role)}</option>`).join("")}</select>`)}`,
+    {
+      submit: send ? "Send Back" : "Hold the Bill",
+      onSubmit: (f) => {
+        if (!f.why) return toast("Say why"), !1;
+        const by = (currentUser() || {}).name || role(),
+          was = b.status,
+          p = (DB.projects || []).find((x) => x.id === b.projectId) || (DB.projects || [])[0];
+        send ? ((b.status = "draft"), (b.sentBack = { why: f.why, by: by, at: appNowIso(), to: f.who })) : (b.onHold = { why: f.why, by: by, at: appNowIso(), for: f.who, state: "open" });
+        (b.approvals = b.approvals || []).push({ t: nowStamp(), ts: appNowIso(), by: by, role: role(), action: send ? "sent back" : "held", note: f.why });
+        const a = lnAddTask(p, `${send ? "Fix and resubmit" : "Clear the hold on"} ${b.vendor} ${b.number || ""}: ${f.why}`.trim(), f.who, addWork(today(), 2), `${send ? "Sent back" : "Held"} by ${by}: ${f.why}`, { kind: "bill", id: b.id, label: `Bill · ${b.vendor} ${b.number || ""}` });
+        a && (a.billId = b.id);
+        try {
+          audit("bill", b.id, send ? "sent-back" : "held", was, b.status, `${f.why} · task for ${f.who}`);
+        } catch (e) {}
+        save(), "function" == typeof closeEditor && closeEditor(), render();
+        rcToast(`${b.vendor} ${b.number || ""} ${send ? "sent back to draft" : "held"} — a task for ${f.who}: ${f.why}`, [{ label: "Open", run: () => flowGo.bill(b)() }]);
+      },
+    },
+  );
+}
+function billPapersHtml(b) {
+  const v = "function" == typeof vendorRec ? vendorRec(b.vendor) : (DB.vendors || []).find((x) => x.name === b.vendor);
+  if (!v) return "";
+  const exp = v.insuranceExp || v.coiExp || "",
+    days = exp ? dayDiff(today(), exp) : null,
+    coi = !exp ? '<span class="bad-t">no COI on file</span>' : days < 0 ? `<span class="bad-t">COI expired ${fmtL(exp)}</span>` : days <= 30 ? `<span class="warn-t">COI expires ${fmtL(exp)}, in ${fxN(days, "day")}</span>` : `COI on file to ${fmtL(exp)}`,
+    w9 = v.w9 ? "W-9 on file" : '<span class="bad-t">no W-9 on file</span>';
+  return `<div class="small bill-papers">Vendor papers: ${w9} · ${coi}</div>`;
+}
+{
+  const base = openBill;
+  openBill = function (id) {
+    const r = base.apply(this, arguments);
+    try {
+      const b = id && (DB.bills || []).find((x) => x.id === id),
+        body = document.getElementById("d-body");
+      if (b && body && !body.querySelector(".bill-papers")) {
+        const ctl = [...body.querySelectorAll(".note.warn")].find((n) => /Controls|Blocks approval/i.test(n.textContent));
+        const h = billPapersHtml(b) + (b.onHold && "open" === b.onHold.state ? `<div class="note warn small">Held by ${esc(b.onHold.by)}: ${esc(b.onHold.why)} · task for ${esc(b.onHold.for)}</div>` : "") + (b.sentBack && "draft" === b.status ? `<div class="note warn small">Sent back by ${esc(b.sentBack.by)}: ${esc(b.sentBack.why)}</div>` : "");
+        ctl ? ctl.insertAdjacentHTML("beforeend", h) : body.insertAdjacentHTML("afterbegin", h ? `<div class="note small" style="margin-bottom:10px">${h}</div>` : "");
+        if (["submitted", "pm-approved"].includes(b.status) && !["client", "crew", "driver", "foreman"].includes(role())) {
+          const acts = document.querySelector("#drawer .d-foot, #drawer .foot, #d-save") ? (document.getElementById("d-save") || {}).parentElement : null,
+            row = `<div class="row bill-holdrow" style="gap:6px;margin:10px 0;flex-wrap:wrap">${b.onHold && "open" === b.onHold.state ? '<button type="button" class="btn sm" data-billhold="release">Release the Hold</button>' : '<button type="button" class="btn sm" data-billhold="hold">Hold</button>'}<button type="button" class="btn sm" data-billhold="back">Send Back</button></div>`;
+          body.insertAdjacentHTML("afterbegin", row);
+          body.querySelectorAll("[data-billhold]").forEach(
+            (x) =>
+              (x.onclick = () => {
+                const k = x.dataset.billhold;
+                if ("release" === k) return (b.onHold.state = "released"), (b.onHold.releasedBy = (currentUser() || {}).name || role()), save(), closeEditor(), render(), void rcToast(`Hold released on ${b.vendor} ${b.number || ""}`, [{ label: "Open", run: () => flowGo.bill(b)() }]);
+                billHoldSheet(b, k);
+              }),
+          );
+        }
+      }
+    } catch (e) {
+      console.warn("bill hold", e);
+    }
+    return r;
+  };
+}
+{
+  const base = billAction;
+  billAction = function (b, a) {
+    if (b && b.onHold && "open" === b.onHold.state && ["approve", "paid", "pm-approve"].includes(a)) return void toast(`${b.vendor} ${b.number || ""} is held: ${b.onHold.why}. Release the hold first.`);
+    return base.apply(this, arguments);
   };
 }

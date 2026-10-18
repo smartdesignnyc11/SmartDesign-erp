@@ -441,7 +441,50 @@ async def t_ask_typos(c, p):
     c.ok(not errs, f'ask: no page errors {errs[:2]}')
     await b.close()
 
-TESTS = [t_daily_log, t_daily_log_day2, t_documents, t_controller_pos, t_payment_check, t_own_mail_client, t_bought_from_mail, t_request_quirks, t_statements_tasks_billing, t_ask_typos]
+# ------------------------------------------------------------------------------------------------ 12, 13, 14
+async def t_designer_and_bill(c, p):
+    b, pg, errs = await fresh(p, 'u_sarah', phone=True)
+    r = await js(pg, """
+      await gcDemoConnect(); await sleep(400);
+      view = 'sday'; render(); await sleep(350);
+      const btn = [...document.querySelectorAll('[data-nsopen]')].find(x => /Send Revised Drawings/.test(x.closest('[data-nsowed]').innerText));
+      btn && btn.click(); await sleep(250);
+      const title = (document.querySelector('#mbm h3') || {}).innerText || '', v1 = view;
+      document.querySelector('#mbm-ok') && document.querySelector('#mbm-ok').click(); await sleep(250);
+      const toast1 = (document.getElementById('toast') || {}).innerText || '';
+      const t = document.querySelector('button.gl[data-tl="hrs"]'), oldest = stOldestUnlogged();
+      t && t.click(); await sleep(250);
+      const sheet = (document.querySelector('#mbm h3') || {}).innerText || '';
+      const h = document.querySelector('#mbm [data-f="h"]'); h && (h.value = '5'); document.querySelector('#mbm-ok') && document.querySelector('#mbm-ok').click(); await sleep(250);
+      return { btn: !!btn, title, v1, toast1, oldest, sheet, logged: DB.time.some(x => x.date === oldest && x.source === 'day sheet') };""")
+    c.ok(r['btn'] and r['v1'] == 'sday' and r['title'] == 'Send Revised Drawings', f"designer: her My Day step opens where she can finish it, not Meetings ({r['v1']}, {r['title']!r})")
+    c.ok('On your list' in r['toast1'], f"designer: confirming it puts it on her list ({r['toast1']!r})")
+    c.ok(r['oldest'] and r['oldest'][5:].replace('-', '/').lstrip('0') in '' or ('Hours for' in r['sheet']), f"designer: Hours Not Logged opens the day sheet for the oldest unlogged day ({r['sheet']!r}, {r['oldest']})")
+    c.ok(r['logged'], f"designer: the day sheet logs the hours on that day ({r['oldest']})")
+    await b.close()
+    b, pg, errs2 = await fresh(p, 'u_controller')
+    r = await js(pg, """
+      const b = DB.bills.find(x => x.status === 'submitted');
+      openBill(b.id); await sleep(300);
+      const d = document.getElementById('drawer'), ctl = (d.querySelector('.note.warn') || {}).innerText || '';
+      d.querySelector('[data-billhold="hold"]').click(); await sleep(200);
+      document.querySelector('#mbm [data-f="why"]').value = 'waiting on the signed delivery ticket'; document.querySelector('#mbm-ok').click(); await sleep(300);
+      const toast1 = (document.getElementById('toast') || {}).innerText || '', p = DB.projects.find(x => x.id === b.projectId), t1 = (p.actions || []).slice(-1)[0];
+      billAction(b, 'approve'); const st = b.status;
+      const b2 = DB.bills.filter(x => x.status === 'submitted' || x.status === 'pm-approved').find(x => x.id !== b.id);
+      openBill(b2.id); await sleep(300);
+      document.querySelector('#drawer [data-billhold="back"]').click(); await sleep(200);
+      document.querySelector('#mbm [data-f="why"]').value = 'invoice for 10 units, the PO is 9'; document.querySelector('#mbm-ok').click(); await sleep(300);
+      const toast2 = (document.getElementById('toast') || {}).innerText || '';
+      return { ctl, toast1, task: t1 && [t1.title, t1.assignee], st, b2: b2.status, toast2 };""")
+    c.ok('W-9' in r['ctl'] and 'COI' in r['ctl'], f"bill: the COI expiry sits in Controls next to the W-9 ({r['ctl'][-120:]!r})")
+    c.ok('held' in r['toast1'] and r['task'] and 'waiting on the signed delivery ticket' in r['task'][0], f"bill: Hold takes a reason, makes a task for the person named and toasts ({r['task']}, {r['toast1'][:80]!r})")
+    c.ok(r['st'] == 'submitted', f"bill: a held bill is not approved ({r['st']})")
+    c.ok(r['b2'] == 'draft' and 'sent back' in r['toast2'], f"bill: Send Back returns it to draft with the reason and a task ({r['b2']}, {r['toast2'][:80]!r})")
+    c.ok(not errs and not errs2, f'12-14: no page errors {(errs + errs2)[:2]}')
+    await b.close()
+
+TESTS = [t_daily_log, t_daily_log_day2, t_documents, t_controller_pos, t_payment_check, t_own_mail_client, t_bought_from_mail, t_request_quirks, t_statements_tasks_billing, t_ask_typos, t_designer_and_bill]
 
 async def main():
     c = Checks()
