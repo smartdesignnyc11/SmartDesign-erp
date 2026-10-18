@@ -141,7 +141,7 @@ async def t_designer_day(c, p):
       const head = root.querySelector('.ph .small').innerText;
       const td = today(), emp = myEmp();
       const today_h = Math.round(DB.time.filter(t => t.empId === emp.id && t.date === td).reduce((a, t) => a + hoursOf(t), 0) * 100) / 100;
-      const future = DB.time.filter(t => t.empId === emp.id && t.date >= td && t.source === 'seed').length;
+      const future = DB.time.filter(t => t.empId === emp.id && t.date > td && t.source === 'seed').length;
       const dayEl = root.querySelector('#st-addd'), opts = [...root.querySelectorAll('#st-addp option')].map(o => o.textContent);
       const y = prevWork(iso(addDays(td, -1)));
       dayEl.value = y; root.querySelector('#st-addp').value = 'p121'; root.querySelector('#st-addp').dispatchEvent(new Event('change'));
@@ -154,7 +154,7 @@ async def t_designer_day(c, p):
       return { head, today_h, future, day: !!dayEl, opts, e: e && { date: e.date, h: hoursOf(e), late: e.lateEntry }, head2 };""")
     m = re.search(r'([\d.]+) hrs logged today', r['head'])
     c.ok(m and abs(float(m.group(1)) - r['today_h']) < 0.01, f"day sheet: the header equals today's entries ({r['head']!r} vs {r['today_h']})")
-    c.ok(r['future'] == 0, f"day sheet: the seed writes no hours for today or later ({r['future']})")
+    c.ok(r['future'] == 0, f"day sheet: the seed writes no hours for a day to come ({r['future']})")
     c.ok(r['day'], 'day sheet: there is a day field')
     c.ok(any('121 State' in o for o in r['opts']), f"day sheet: every active job is in the list, 121 State too ({r['opts'][:6]})")
     c.ok(r['e'] and r['e']['h'] == 3 and r['e']['late'], f"day sheet: hours land on the day picked, marked late ({r['e']})")

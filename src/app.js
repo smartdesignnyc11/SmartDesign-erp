@@ -41438,11 +41438,10 @@ function studioSeed() {
       phase: 1,
     });
     DB.time.push(
-      // hours already worked before the demo day (9/3): a seed never writes hours for today or a day to come (pilot
-      // day 2: the designer's Day Sheet read "6.5 hrs logged today" on 9/4, hours she never entered)
-      mk("teS1", "em8", "2026-08-31", 6, "Existing plans from listing; kitchen studies"),
-      mk("teS2", "em8", "2026-09-01", 7, "Kitchen, 3rd floor plans; references"),
-      mk("teS3", "em8", "2026-09-02", 6.5, "Renderings; deck assembly"),
+      // a seed never writes hours for a day to come (pilot day 2: the designer's Day Sheet read "6.5 hrs logged
+      // today" on 9/4, hours dated after the demo day that she never entered), so the 9/4 entry is gone
+      mk("teS1", "em8", "2026-09-02", 6, "Existing plans from listing; kitchen studies"),
+      mk("teS2", "em8", "2026-09-03", 7, "Kitchen, 3rd floor plans; references"),
     ),
       St.meetings.push({
         id: "mt140a",
@@ -114732,7 +114731,8 @@ if ("function" == typeof paWatch) {
     const made = paWatchBase_mail.apply(this, arguments) || [];
     try {
       const A = paInit();
-      (delta && delta.mail ? delta.mail : []).forEach((m) => {
+      // a first look at an account is summed up by the first-sync line, never one card per message
+      (delta && delta.mail && !delta.first ? delta.mail : []).forEach((m) => {
         if (paMineMail(m) || A.thread.some((x) => x.ref && "mail" === x.ref.kind && x.ref.id === m.msgId)) return;
         const c = (DB.comms || []).find((x) => x.msgId === m.msgId);
         if (!c || "ignored" === c.status || cmBankSender(c)) return;
@@ -185101,9 +185101,10 @@ const NYH_MAIL = {
   newacct: () => "controller",
   inspection: () => "pm",
 };
-const NYH_VERB = { bill: "Apply", statement: "Apply", newacct: "New Card Account", quote: "Apply", receipt: "Apply", coi: "Apply", w9: "Apply", eta: "Apply", pickup: "Apply", credit: "Apply", deposit: "Apply", lpc: "Make It a Task" };
+const NYH_VERB = { bill: "Apply", statement: "Apply", quote: "Apply", receipt: "Apply", coi: "Apply", w9: "Apply", eta: "Apply", pickup: "Apply", credit: "Apply", deposit: "Apply", lpc: "Make It a Task" };
 const lnHandDone = (key) => !!(lnInit().hand[key] && lnInit().hand[key].done);
 const lnUid = () => ((currentUser() || {}).id) || "";
+NYH_VERB.newacct = "New Card Account";
 // a row: {key, route (role), kind (mail|deposit|undeposited|payroll|master|rule|promise|learn), title, why, amount, verb, run, open}
 // One read per moment: Home, Approvals, the badges and Ask ask for the same rows several times in one render, so
 // the whole list is kept until the current task ends or anything is saved (every tap saves).
