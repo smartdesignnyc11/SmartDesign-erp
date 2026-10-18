@@ -15122,7 +15122,7 @@ function payrollFromTime(opts) {
   const total = r2(gross + taxes),
     ents = Object.values(byEnt).sort((a, b) => b.total - a.total),
     alloc = Object.entries(projAmt).map(([pid, amt]) => ({ projectId: pid, pct: total ? r2((amt / total) * 100) : 0 })),
-    by = o.by || S.project.userName || role(),
+    by = S.project.userName || role(),
     fields = {
       period: `${fmt(P.from)} – ${fmt(P.payDate)}`,
       from: P.from,
@@ -15155,9 +15155,9 @@ function payrollFromTime(opts) {
       {
         id: uid("pr"),
         payDate: P.payDate < today() ? addWork(today(), 3) : P.payDate,
-        status: o.status || "submitted",
+        status: "submitted",
         approvals: [{ t: nowStamp(), ts: appNowIso(), by: by, role: role(), action: "built from approved time" }],
-        createdBy: o.by || S.project.userName || "",
+        createdBy: S.project.userName || "",
       },
       fields,
     )),
@@ -189629,9 +189629,8 @@ AG_ASST.unshift(
 // job's Documents (blob through putBlob, the record in p.files) attached to the bill by b.fileId, with the
 // "document-attached" audit line the Attach Document sheet writes. The PDF is invented from the bill itself
 // (vendor, number, dates, lines, PO, job), so the document and the bill agree. Seeded payroll ties to time:
-// the run typed by hand for 8/17 – 8/28 lists the hours it paid (prLinkTime), and the open pay period's
-// approved hours are collected on its draft run by the real path (payrollFromTime), so every approved entry
-// carries its run's id and every run lists its entries. Submitted hours wait for approval, as they do live.
+// the run typed by hand for 8/17 – 8/28 lists the hours it paid and they carry its id (prLinkTime); a run built
+// from time does the same through payrollFromTime.
 function sdTextPdf(lines) {
   const pdfEsc = (s) =>
       String(s)
@@ -189716,14 +189715,11 @@ function sdSeedBillDocs() {
       audit("bill", b.id, "document-attached", "", id, `${b.number} · ${b.status} · ${rec.name}`);
     });
 }
+// The open pay period (8/31 – 9/13, paid 9/11) has no run yet on the app day, as it would not live: its hours
+// are labor at the burdened rate until payrollFromTime builds the run and stamps them. Seeding a run mid-period
+// would invent a payable (it moves Safe to Spend and the AP aging by the period's wages so far).
 function sdSeedPayrollLinks() {
   (DB.payroll || []).forEach((r) => r.fromTime || ["draft", "rejected", "void"].includes(r.status) || prLinkTime(r));
-  const keep = S.project.userName;
-  try {
-    payrollFromTime({ quiet: !0, status: "draft", by: "Chen" });
-  } finally {
-    S.project.userName = keep;
-  }
 }
 if ("function" == typeof finishBoot) {
   const finishBootBase_sdTruth = finishBoot;
