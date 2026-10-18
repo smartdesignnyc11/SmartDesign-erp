@@ -902,6 +902,7 @@ Measured against an independent full extraction, it caught about a third of what
    - **Disputes with a deadline.** These get an ultimatum date and the chargeback window.
    - **Overhead.** It is allocated design against construction with each person's split, excluding taxes and pass-throughs, measured against direct cost and revenue (§1.13).
 4. Tests:
+   - the private case bank: real meetings with an independent gold extraction, an assistant case and the scores from every run. It lives in Alan's Drive folder "SmartDesign ERP – Private Test Cases", never in the repo, and is loaded from outside the repo each round. The first case is the 2026-10-15 team meeting: the brain scored 2/10, then 4/10 after the notes-reader fixes;
    - recall and precision against a gold extraction of invented team meetings, with a target of 90% recall on actions, money and decisions, and no false bills;
    - a planted-error bank for Gemini's own mistakes;
    - the privacy test for people items.
