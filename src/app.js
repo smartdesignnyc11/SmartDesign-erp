@@ -184602,6 +184602,149 @@ function nyhItem(r) {
     return out;
   };
 }
+/* ---------------------------------------------------------------------------------------------------------
+   v11.1 ranking (Alan, 2026-10-11; docs/DECISIONS.md): every person's queue in one order.
+     immediate safety and law (a missing insurance certificate counts) > anyone blocked today (crew or field
+     waiting) > overdue > today > this week > later, then the decision principle, then who is blocked and the money.
+   standardOrder (the ranking section, after Today) is the one sort. This layer puts the lists that did not use it
+   onto it, outermost so no older layer re-sorts after it:
+     - mApprovals: the Approvals page, the coordinator's Home, Ask's "waiting on me" and PRED.waitingOnMe;
+     - eaToday: the brief's "First thing" and "Today, in the order I'd do it" lead with the top of Do Now;
+     - myQueue(): the one queue per person (Do Now, or the foreman's Now), which Ask's "what should I do first" reads.
+   Only the order changes: every count, badge and tile keeps its rows.
+--------------------------------------------------------------------------------------------------------- */
+{
+  const base = mApprovals;
+  mApprovals = function (opts) {
+    const out = base.apply(this, arguments) || [];
+    try {
+      return standardOrder(out, stdQueueTie);
+    } catch (e) {
+      console.warn("rank approvals", e);
+      return out;
+    }
+  };
+}
+// The person's own queue, ranked: Do Now for whoever has Approvals, the foreman's Now on the field side.
+function myQueue() {
+  try {
+    if (PRED.waitingOnMe.can()) return tdQueue();
+    if ((ROLE_VIEWS[role()] || []).includes("ftoday")) return fNowItems();
+  } catch (e) {
+    console.warn("my queue", e);
+  }
+  return [];
+}
+// One line for an item of the queue: what it is, and the words under it.
+function myQueueSay(it) {
+  if (!it) return { t: "", sub: "" };
+  if ("fnow" === it.kind) return { t: it.title, sub: "" };
+  let c = {};
+  try {
+    c = tdCard(it) || {};
+  } catch (e) {}
+  return { t: tdPlain(c.line1 || it.title || ""), sub: tdPlain(c.why || it.detail || ""), verb: c.verb || "" };
+}
+{
+  const base = eaToday;
+  eaToday = function (r) {
+    const out = base.apply(this, arguments) || [];
+    try {
+      // the brief's own rows, in the one order (a row naming a field question or a bill is ranked as that record)
+      const raises = (DB.field || {}).raises || [],
+        shape = (x) => {
+          const t = tdPlain(x.t),
+            d = x.data || {},
+            R = raises.find((y) => y.title && t.startsWith(String(y.title).slice(0, 30)));
+          return d.billId ? { kind: "bill", id: d.billId } : R ? { kind: "raise", id: R.id } : { title: t, detail: tdPlain(x.sub) };
+        },
+        ranked = standardOrder(
+          out.map((x) => Object.assign(shape(x), { __ea: x })),
+          () => [],
+        ).map((y) => y.__ea);
+      // and the first thing is the first card of Do Now, so the brief and Home never disagree
+      const Q = PRED.waitingOnMe.can() && ["owner", "pm", "coord", "billing", "controller"].includes(r) ? tdQueue() : [];
+      if (!Q.length) return ranked;
+      const top = Q[0],
+        say = myQueueSay(top),
+        key = say.t.toLowerCase().slice(0, 24),
+        why = standardRankWhy(top),
+        lead = {
+          n: top.n || "",
+          t: esc(say.t),
+          sub: `${esc(say.sub)}${say.sub && why ? "; " : ""}${why ? `first because ${why}` : ""}`,
+          act: say.verb || "Open",
+          data: { tdq: { kind: top.kind, id: String(top.id) } },
+          tdq: top,
+        };
+      return [lead].concat(ranked.filter((x) => !key || !tdPlain(x.t).toLowerCase().startsWith(key)));
+    } catch (e) {
+      console.warn("rank brief", e);
+      return out;
+    }
+  };
+  document.addEventListener(
+    "click",
+    (e) => {
+      const el = e.target && e.target.closest ? e.target.closest("#v-home [data-ea]") : null;
+      if (!el) return;
+      let d;
+      try {
+        d = JSON.parse(el.dataset.ea);
+      } catch (x) {
+        return;
+      }
+      if (!d || !d.tdq) return;
+      e.stopPropagation(), e.preventDefault();
+      const it = tdQueue().find((x) => x.kind === d.tdq.kind && String(x.id) === d.tdq.id);
+      if (!it) return void render();
+      try {
+        const c = tdCard(it);
+        c && c.run ? c.run() : mGo(it.open);
+      } catch (x) {
+        console.warn("brief first thing", x);
+      }
+    },
+    !0,
+  );
+}
+// Ask: "what should I do first", "what's on my plate", "what are my priorities": the person's queue, in the order
+// above, with why the first one is first. The same list as Do Now (or the foreman's Now), never a second ranking.
+"undefined" != typeof AG_DICT && "plate priority priorities prioritize tackle urgent urgently first".split(" ").forEach((w) => AG_DICT.add(w));
+AG_ASST.unshift({
+  id: "myfirst",
+  first: !0,
+  kind: "self",
+  re: /\b(what|which)( (thing|one|item))? (should|do|must|can) i (do|tackle|handle|start( with)?|look at|work on|deal with)( first| next| now| today)?\b|\bwhere (do|should) i start\b|\bwhat('?s| is) (first|next|most important|most urgent|my top priority)\b|\b(on my plate|my priorities|my top priorit\w*|prioriti[sz]e my)\b|\bwhat needs (me|my attention)\b|\bwhat comes first\b/,
+  not: /\b(order|buy|pay|bill|invoice|deliver\w*|arriv\w*|cash|owe|reconcil\w*|draft|chase)\b/,
+  run(P) {
+    if ("client" === role()) return null;
+    const Q = myQueue();
+    if (!Q.length)
+      return {
+        headline: "Nothing is waiting on you right now.",
+        note: "Your queue is empty: no safety item, nobody blocked, nothing overdue or due today.",
+        work: [],
+        go: agGo("home"),
+        ran: agRan("your queue", ["ranked: safety and law, blocked today, overdue, today, this week, then the decision principle"], "", 0),
+      };
+    const top = Q[0],
+      s = myQueueSay(top),
+      why = standardRankWhy(top),
+      P1 = standardPrincipleOf(top),
+      label = (it) => {
+        const r = standardRank(it);
+        return !r.imm ? "Safety and law" : !r.blk ? "Blocked today" : ["Overdue", "Today", "This week", "Later"][r.u];
+      };
+    return {
+      headline: `Start with ${s.t}${why ? `: ${why}` : ""}.`,
+      note: `${s.sub ? s.sub + ". " : ""}${P1 ? `It rests on ${P1.name.toLowerCase()} (decision principle ${standardTier(top)}). ` : ""}The order: safety and law first, then anyone blocked today, then overdue, today and this week, then the decision principles. ${agN(Q.length, "item")} in all; nothing is dropped.`,
+      work: Q.slice(0, 8).map((it, i) => `${i + 1}. ${label(it)} — ${myQueueSay(it).t}`),
+      go: agGo(PRED.waitingOnMe.can() ? "home" : "ftoday"),
+      ran: agRan("your queue (" + (PRED.waitingOnMe.can() ? "Do Now, PRED.waitingOnMe" : "the foreman's Now") + ")", ["ranked: safety and law, blocked today, overdue, today, this week, then the decision principle"], "", Q.length),
+    };
+  },
+});
 {
   const base = mGo;
   mGo = function (go) {
@@ -188485,147 +188628,3 @@ if (!document.getElementById("bf-imps-css")) {
   (st.id = "bf-imps-css"), (st.textContent = ".bf-imps{margin:12px 0}.bf-imp{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 6px;border-top:1px solid var(--rule,#eee);overflow-wrap:anywhere}.bf-imp .grow{display:flex;flex-direction:column;min-width:0;flex:1 1 220px}.bf-imp.tk-flash{background:var(--accent-2);box-shadow:inset 3px 0 0 var(--accent)}"), document.head.appendChild(st);
 }
 
-
-/* ---------------------------------------------------------------------------------------------------------
-   v11.1 ranking (Alan, 2026-10-11; docs/DECISIONS.md): every person's queue in one order.
-     immediate safety and law (a missing insurance certificate counts) > anyone blocked today (crew or field
-     waiting) > overdue > today > this week > later, then the decision principle, then who is blocked and the money.
-   standardOrder (the ranking section, after Today) is the one sort. This layer puts the lists that did not use it
-   onto it, outermost so no older layer re-sorts after it:
-     - mApprovals: the Approvals page, the coordinator's Home, Ask's "waiting on me" and PRED.waitingOnMe;
-     - eaToday: the brief's "First thing" and "Today, in the order I'd do it" lead with the top of Do Now;
-     - myQueue(): the one queue per person (Do Now, or the foreman's Now), which Ask's "what should I do first" reads.
-   Only the order changes: every count, badge and tile keeps its rows.
---------------------------------------------------------------------------------------------------------- */
-{
-  const base = mApprovals;
-  mApprovals = function (opts) {
-    const out = base.apply(this, arguments) || [];
-    try {
-      return standardOrder(out, stdQueueTie);
-    } catch (e) {
-      console.warn("rank approvals", e);
-      return out;
-    }
-  };
-}
-// The person's own queue, ranked: Do Now for whoever has Approvals, the foreman's Now on the field side.
-function myQueue() {
-  try {
-    if (PRED.waitingOnMe.can()) return tdQueue();
-    if ((ROLE_VIEWS[role()] || []).includes("ftoday")) return fNowItems();
-  } catch (e) {
-    console.warn("my queue", e);
-  }
-  return [];
-}
-// One line for an item of the queue: what it is, and the words under it.
-function myQueueSay(it) {
-  if (!it) return { t: "", sub: "" };
-  if ("fnow" === it.kind) return { t: it.title, sub: "" };
-  let c = {};
-  try {
-    c = tdCard(it) || {};
-  } catch (e) {}
-  return { t: tdPlain(c.line1 || it.title || ""), sub: tdPlain(c.why || it.detail || ""), verb: c.verb || "" };
-}
-{
-  const base = eaToday;
-  eaToday = function (r) {
-    const out = base.apply(this, arguments) || [];
-    try {
-      // the brief's own rows, in the one order (a row naming a field question or a bill is ranked as that record)
-      const raises = (DB.field || {}).raises || [],
-        shape = (x) => {
-          const t = tdPlain(x.t),
-            d = x.data || {},
-            R = raises.find((y) => y.title && t.startsWith(String(y.title).slice(0, 30)));
-          return d.billId ? { kind: "bill", id: d.billId } : R ? { kind: "raise", id: R.id } : { title: t, detail: tdPlain(x.sub) };
-        },
-        ranked = standardOrder(
-          out.map((x) => Object.assign(shape(x), { __ea: x })),
-          () => [],
-        ).map((y) => y.__ea);
-      // and the first thing is the first card of Do Now, so the brief and Home never disagree
-      const Q = PRED.waitingOnMe.can() && ["owner", "pm", "coord", "billing", "controller"].includes(r) ? tdQueue() : [];
-      if (!Q.length) return ranked;
-      const top = Q[0],
-        say = myQueueSay(top),
-        key = say.t.toLowerCase().slice(0, 24),
-        why = standardRankWhy(top),
-        lead = {
-          n: top.n || "",
-          t: esc(say.t),
-          sub: `${esc(say.sub)}${say.sub && why ? "; " : ""}${why ? `first because ${why}` : ""}`,
-          act: say.verb || "Open",
-          data: { tdq: { kind: top.kind, id: String(top.id) } },
-          tdq: top,
-        };
-      return [lead].concat(ranked.filter((x) => !key || !tdPlain(x.t).toLowerCase().startsWith(key)));
-    } catch (e) {
-      console.warn("rank brief", e);
-      return out;
-    }
-  };
-  document.addEventListener(
-    "click",
-    (e) => {
-      const el = e.target && e.target.closest ? e.target.closest("#v-home [data-ea]") : null;
-      if (!el) return;
-      let d;
-      try {
-        d = JSON.parse(el.dataset.ea);
-      } catch (x) {
-        return;
-      }
-      if (!d || !d.tdq) return;
-      e.stopPropagation(), e.preventDefault();
-      const it = tdQueue().find((x) => x.kind === d.tdq.kind && String(x.id) === d.tdq.id);
-      if (!it) return void render();
-      try {
-        const c = tdCard(it);
-        c && c.run ? c.run() : mGo(it.open);
-      } catch (x) {
-        console.warn("brief first thing", x);
-      }
-    },
-    !0,
-  );
-}
-// Ask: "what should I do first", "what's on my plate", "what are my priorities": the person's queue, in the order
-// above, with why the first one is first. The same list as Do Now (or the foreman's Now), never a second ranking.
-"undefined" != typeof AG_DICT && "plate priority priorities prioritize tackle urgent urgently first".split(" ").forEach((w) => AG_DICT.add(w));
-AG_ASST.unshift({
-  id: "myfirst",
-  first: !0,
-  kind: "self",
-  re: /\b(what|which)( (thing|one|item))? (should|do|must|can) i (do|tackle|handle|start( with)?|look at|work on|deal with)( first| next| now| today)?\b|\bwhere (do|should) i start\b|\bwhat('?s| is) (first|next|most important|most urgent|my top priority)\b|\b(on my plate|my priorities|my top priorit\w*|prioriti[sz]e my)\b|\bwhat needs (me|my attention)\b|\bwhat comes first\b/,
-  not: /\b(order|buy|pay|bill|invoice|deliver\w*|arriv\w*|cash|owe|reconcil\w*|draft|chase)\b/,
-  run(P) {
-    if ("client" === role()) return null;
-    const Q = myQueue();
-    if (!Q.length)
-      return {
-        headline: "Nothing is waiting on you right now.",
-        note: "Your queue is empty: no safety item, nobody blocked, nothing overdue or due today.",
-        work: [],
-        go: agGo("home"),
-        ran: agRan("your queue", ["ranked: safety and law, blocked today, overdue, today, this week, then the decision principle"], "", 0),
-      };
-    const top = Q[0],
-      s = myQueueSay(top),
-      why = standardRankWhy(top),
-      P1 = standardPrincipleOf(top),
-      label = (it) => {
-        const r = standardRank(it);
-        return !r.imm ? "Safety and law" : !r.blk ? "Blocked today" : ["Overdue", "Today", "This week", "Later"][r.u];
-      };
-    return {
-      headline: `Start with ${s.t}${why ? `: ${why}` : ""}.`,
-      note: `${s.sub ? s.sub + ". " : ""}${P1 ? `It rests on ${P1.name.toLowerCase()} (decision principle ${standardTier(top)}). ` : ""}The order: safety and law first, then anyone blocked today, then overdue, today and this week, then the decision principles. ${agN(Q.length, "item")} in all; nothing is dropped.`,
-      work: Q.slice(0, 8).map((it, i) => `${i + 1}. ${label(it)} — ${myQueueSay(it).t}`),
-      go: agGo(PRED.waitingOnMe.can() ? "home" : "ftoday"),
-      ran: agRan("your queue (" + (PRED.waitingOnMe.can() ? "Do Now, PRED.waitingOnMe" : "the foreman's Now") + ")", ["ranked: safety and law, blocked today, overdue, today, this week, then the decision principle"], "", Q.length),
-    };
-  },
-});
