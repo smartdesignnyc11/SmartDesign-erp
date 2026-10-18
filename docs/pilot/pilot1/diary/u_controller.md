@@ -1,0 +1,155 @@
+# Controller: work diary (controller)
+
+Kept by Controller. Read it each morning; write it at the end of each day.
+
+
+## Thu Sep 3, morning turn
+- Imported Amex 1009 new activity (ac2_2026-09-03.csv, 1 line: Shell $68.20, overhead fuel) via Banking > Import Statement. August Chase/Amex/HD statements were already imported by Jeanette; the Amex/Chase statement items on Approvals look duplicate of those (did not Apply).
+- Did NOT confirm the Window Works $33,500 match to WW-2026-118: PO-2026-044 is $29,700 (+13%), banking changed 8/20, no W-9, bank paid before approval. Bills over PO stop at the PO. Need to Review it (Approvals "Also on Your List") and take it to Alan (PM) / owner: approve as billed, dispute $3,800, or hold. Window Works statement shows $3,800 balance.
+- Open for next turn: Window Works decision; Alberto AMP-311 $9,800 match (submitted bill, paid 8/15 by check) confirm after PO check; Carlos CM-0091 $38,000 paid with nothing received on PO-2026-048; Satish SE-0922 $7,400 and AMP-318 $4,600 bills need PO match before Apply; possible duplicate Roll Off Dumpster $1,650; Chase Jul 31 reconcile overdue (due 8/10); 17 unmatched ($75,340), August cannot close; Tino $8,000 card charge vs PO-2026-047 $8,010 awaiting confirm (insurance not on file).
+- Ran out of actions (12) before writing to anyone; nobody promised anything yet.
+
+## Thu Sep 3, work turn (10:30)
+- Task: enter Carlos Millwork CM-0102 ($19,000.00, dated 9/1, net 15, due 9/16, 121 State parlor kitchen/laundry millwork, progress billing against PO-2026-048; invoice says lumber and veneer purchased, carcasses cut, nothing delivered to site) as a bill with the right job and cost code (121 State Street, 10 Millwork & countertops, Materials/Subcontractors to decide).
+- NOT SAVED. Opened Accounting > Bills & Payroll > New Vendor Bill, typed Vendor "Carlos Millwork", Invoice # CM-0102, Project 121 State Street. The Purchase Order select offers only "-- none --" (Purchasing > Purchase Orders says "No purchase orders yet", 0 of 0), so I cannot link PO-2026-048 from this form. Ran out of the 16 actions before I could do anything else; the draft form is left open and unsaved.
+- Reasoning for next turn: CM-0091 $38,000 was already paid 8/20 by ACH with nothing received on PO-2026-048 (flagged on Approvals). CM-0102 is another $19,000 on the same PO. Bills over the PO stop at the PO, and I do not know the PO total from my screens. Do not approve or pay CM-0102 until the PO total, the receipt and the CM-0091 question are settled with Chen / Alan. Enter it as a bill that is not approved (Submitted), with a note: "Against PO-2026-048, no delivery receipt, CM-0091 paid without match".
+- Waiting on / to do next turn: (1) finish CM-0102 entry, fill Cost Code 10, amount 19,000, due 9/16, attach the PDF (files/u_controller/Carlos-Millwork-Invoice-CM-0102.pdf), note on the PO gap; (2) ask Chen (bills) and Alan (PM) what PO-2026-048 is for and whether anything is received; (3) reply to Billing mail of 9/3 10:40: Rivera $5,000 (7/30) and $16,350 (8/14) not in bank feed, match or reverse; Jessop wire $12,000 (claimed 9/1) not in the bank feed, tell Billing when it lands. I promised nobody anything; no mail sent this turn.
+- Unread and not handled: Jeanette Zelle J Rosario $2,400; Field card limit; Jessop retainer; Alan WW short pay (8/30). Window Works $33,500 vs PO $29,700 decision still open.
+- Seen: Bills & Payroll shows 2 paid before approval ($43K): Window Works WW-2026-118 and Alberto AMP-311; Payments list shows CM-0091 $38,000 on 8/20 cleared.
+
+## Thu Sep 3, end of day (16:30)
+- Read Alan's 8/30 mail: he approved WW-2026-118 at the PO, $29,700, and disputed $3,800 pending LPC on the brick mold profile. That settles the decision I left open this morning: hold the $3,800.
+- Billing 16:34: Jessop $12,000 wire (claimed 9/1, against INV-2026-D140-R) and Lenox Coffee $6,800 Sept rent (claimed ACH 9/1) are not in the bank; Rivera $5,000 (7/30) and $16,350 (8/14) are still "Recorded, Not Yet in the Bank"; INV-2026-040 kept in Drafts over the Windows line vs the $13,970 stored materials.
+- Replied to Billing: do not record Jessop/Lenox, do not reverse Rivera yet; I promised her by noon Fri 9/4 (a) which September deposits landed and (b) match or reverse on Rivera. Asked her to keep the disputed WW $3,800 out of the client windows billing.
+- Mailed Alan: I am holding WW $3,800; flagged $33,500 paid before approval vs WW statement $3,800 open, bank details changed 8/20, no W-9: possible changed-bank fraud. Nobody pays WW; I promised to call Window Works Fri AM on the number from the original PO. Asked him by Fri noon 9/4: PO-2026-048 total, agreed progress schedule, whether he has seen Carlos's material. Told him CM-0102 goes in as Submitted only.
+- Mailed Jeanette (jeanette@smartdesign.nyc; "Jeanette Hernandez" is not in my contacts by name): September Chase 4471 activity export by 9am Fri 9/4. Told her I still owe her J Rosario Zelle $2,400 and field card limit answers tomorrow.
+- Banking (16:32): Not Matched to a Line 17, $75,340 (August 7 lines $52,406; September 10 lines $22,934). September: 1 of 15 lines bank-backed, 14 typed by hand. Why unmatched: no September bank file; the paid-before-approval bills (WW, Alberto AMP-311) and CM-0091 paid with no receipt can't be matched honestly; Satish SE-0922 and AMP-318 have no PO to match to because Purchasing shows no POs.
+
+**Done today**
+- Imported Amex 1009 9/3 activity (Shell $68.20). Decided WW-2026-118: approved $29,700 by Alan, $3,800 held. Answered Billing, asked Alan and Jeanette for what I need, with dates.
+- Not done: CM-0102 bill still not entered (draft form left open from 10:30, likely lost); no line matched; Chase Jul 31 reconcile still overdue; August cannot close.
+
+**Open for tomorrow (Fri 9/4)**
+- 9:00 Jeanette: September Chase export. Import it, then tell Billing by noon about Jessop $12,000 / Lenox $6,800.
+- Morning: call Window Works on the original-PO number about the 8/20 bank change and where the $33,500 went. If not legit, owner + bank today.
+- Noon, Alan: PO-2026-048 total, schedule, material seen. Then enter CM-0102 $19,000 Submitted (cost code 10, 121 State, PDF attached).
+- Noon, me to Billing: Rivera $5,000 / $16,350 match or reverse (go through Jul/Aug Chase lines).
+- Jeanette: J Rosario Zelle $2,400, field card limit. Unread: Jessop retainer, Klein "invoice 2", Satish SE-0922, 9/1 site walk notes.
+- Chase Jul 31 reconcile (due 8/10). Possible duplicate Roll Off Dumpster $1,650. Tino $8,000 card vs PO-2026-047 $8,010, no insurance on file.
+
+**My judgement**
+This turn was mail and decisions, not the books, and with 8 actions that was right: the one thing that could actually lose money is Window Works. It was paid $33,500 before approval, right after its bank details changed, there's no W-9, and the vendor's own statement says $3,800 is still open. That is the classic pattern for a changed-bank fraud, and the app never put those facts together for me. I put them together myself from three places: the Approvals flag, the Window Works statement in mail, and Alan's mail. Alan's approval at $29,700 was in my mailbox, not on the bill. If he approved and disputed in the app, I couldn't see it from Banking, and I shouldn't have to go to mail to learn a bill's approved amount.
+Banking > Statement Imports says "0 matched · 0 unmatched" on every import while the header says 17 not matched. Those two can't both be true, and it makes the import list useless for seeing what is outstanding by statement. The 96%/6% figures plus "14 typed by hand" did show me that September is mostly not bank-backed, and that's useful: it is exactly why Billing can't confirm deposits. But there is no bank feed. Every month waits on someone downloading a file, and I depend on Jeanette for that.
+The biggest structural problem is still Purchasing: "No purchase orders yet," while bills, Approvals flags and vendor invoices all quote PO-2026-044/047/048. A three-way match can't work without the PO. So "bills over their PO stop at the PO" has to be enforced by me reading emails, not by the app. The mail send needing an exact contact name ("Jeanette Hernandez" failed although she mails me under that name) cost me one action.
+What I'd change: put the PM's approve/dispute decision and the approved amount on the bill. Flag a payment made within N days of a vendor bank change, and block it without a W-9. Make the per-import matched/unmatched counts real. And load the POs that already exist into Purchasing.
+
+**System lens (REVIEW_PROTOCOL)**
+- (a) What I owe: mail (Billing's two requests, Jeanette's two questions, Alan's instruction), my diary, and the Banking "Not Matched to a Line" banner. No single to-do list in the app gathered these. Billing's requests to me live only in mail. That's a finding: the requests between Billing and me should be tasks.
+- (b) What waits on my approval: Approvals "Also on Your List" (from morning), Bills & Payroll "paid before approval" (WW, AMP-311), Banking "Review 17". That's three places for the same kind of item, which is a finding. The Window Works approval decision was in Alan's mail, a fourth place.
+- (c) What is off in the money: Banking header (17 / $75,340), Statement Imports (per-file counts that contradict the header), Bills & Payroll (paid before approval $43K), Billing's Payments list ("Recorded, Not Yet in the Bank" Rivera $21,350), and the vendor statement in mail (WW $3,800). Two of these seem to describe the same thing differently: Rivera is "recorded" on Payments but not in Banking, and the WW amount is paid in Banking but open per the vendor.
+
+**The assistant and the brain**
+I didn't use `ask` this turn; I had too few actions to spend one on it. Nothing in the app proactively surfaced the WW bank-change plus paid-before-approval combination, or linked Alan's approval to the bill. From what I saw it stayed inside the Standard: it did not match, apply or pay anything on its own. But it caught nothing I didn't already know.
+
+## Fri Sep 4, morning turn (07:30)
+- Imported Amex 1009 9/4 activity (Home Depot #6177 $487.36). Banking now To Review 18, Not Matched 18, $75,827 (Aug 7 / $52,406; Sep 11 / $23,421). Chase Sep export not arrived.
+- Mailed Billing (7:40): Jessop/Lenox stay unrecorded until the Chase Sep file is imported; Rivera $5,000 / $16,350 match-or-reverse promised by noon 9/4; keep WW $3,800 out of windows billing; INV-2026-040 stays in Drafts.
+- Call to "Jeanette Hernandez" failed (no number under that name); mail to her ran out of actions, NOT sent. Still owe her: Chase Sep export by 9am, J Rosario W-9 (enter $2,400 flagged), field card limit is Alan's call.
+- Not done: call Window Works on original-PO number (bank change 8/20, $33,500); Alan's PO-2026-048 answer; CM-0102 entry; Chase Jul 31 reconcile; Matches Waiting 7 (did not confirm any: Alberto, WW, Tino, Satish, Rosario, Rodriguez $6,800 have no bill/PO).
+- call 2026-09-04 10:30, you called window_works: "Controller at SmartDesign. Calling on the number from our original PO, not the one from the 8/20 change. We paid 3,500 on WW-2026-118 and your statement shows ,800 open. Did you send us new banking details on 8/20? Where did the 3,500 land, and please send a W-9."
+  they said: "Window Works: understood. (A call is not a record: log it in the app if it is a promise.)"
+
+## Fri Sep 4, work turn (10:30)
+- Called Window Works ("Window Works", original-PO number): only got "understood", no answer on the 8/20 bank change, where the $33,500 went, or a W-9. Treat as unconfirmed; nobody pays WW. If not confirmed by Mon, owner + bank.
+- Mailed Jeanette (jeanette@smartdesign.nyc, her address works; name "Jeanette Hernandez" did not): Chase Sep 4471 export still owed; J Rosario W-9 before it is entered; field card limit is Alan's.
+- Mailed Alan 10:35: PO-2026-048 total/schedule/material seen by noon; CM-0102 only as Submitted; field card limit.
+- Mailed Billing: Rivera $5,000 (7/30) and $16,350 (8/14) not in the imported Jul/Aug Chase files; deposit proof today or I reverse both Mon 9/7 noon. Jessop/Lenox wait for the Sep Chase file.
+- Banking Review 18 / Not Matched 18, $75,827. Matches Waiting 7: none confirmed. WW $33,500 shows "pm-approved" at $33,500 though Alan approved $29,700.
+- Not done: CM-0102 entry, Chase Jul 31 reconcile, dumpster $1,650 dup check, Tino insurance. Promised: Billing by Mon 9/7; Alan answers due noon.
+
+## Fri Sep 4, end of day (16:30)
+- Billing 16:38: Rivera payments are recorded with date, amount and invoice only (no method, check number, deposit account or who recorded them). She mailed Elena Rivera 16:40 for check numbers / ACH or wire traces. Replied: Mon 9/7 is Labor Day, so proof and my deadline move to Tue 9/8 noon; no proof, she reverses both and reopens INV-2026-D45-R / D45-1. INV-040 went out with Windows at 0%. Jessop $12,000 / Lenox $6,800 stay unrecorded.
+- No answer from Alan by noon on PO-2026-048. Mailed alan.pm@smartdesign.nyc (16:45): PO-2026-048 total/schedule/material by Tue 9/8 noon; fix WW-2026-118 approval in the app ($29,700, not the $33,500 "pm-approved" Banking shows); WW charge was "SQ *WINDOW WORKS BKLYN" on the Amex 8/25 (a Square card charge), so the $3,800 over the PO can be disputed with Amex; WW gave no answer on the 8/20 bank change or W-9; owner + bank Tue if still nothing.
+- Jeanette: no Sep Chase 4471 export (asked for 9am today). Mailed her: CSV by Tue 9/8 9am; who are J Rosario $2,400 (9/2) and M Rodriguez $6,800 (8/29), what job, W-9s.
+- Banking 16:32: To Review 18, $76K; Not Matched 18, $75,827 (Aug 7 / $52,406; Sep 11 / $23,421). Oldest unmatched 20 days (8/15). September 2 of 16 lines bank-backed. Matches Waiting 7, none confirmed.
+- Seen, unread: Harbor Insurance Brokers 8/29 "Certificate of insurance - Window Works LLC" [att]. Read it Tue: it may say who WW really is and whether the bank change is theirs.
+
+**Done today**
+- Imported Amex 1009 9/4 (Home Depot $487.36). Called Window Works on the original-PO number (no substance back). Set Rivera match-or-reverse with Billing (now Tue 9/8 noon). Chased Alan twice and Jeanette twice, in writing, with dates. Confirmed no match I could not defend.
+- Not done: CM-0102 still not entered; no line matched; Chase Jul 31 reconcile (due 8/10) still open; August still cannot close; dumpster $1,650 and Tino insurance not checked.
+
+**Open for Tue 9/8 (Mon 9/7 Labor Day)**
+- 9:00 Jeanette: Sep Chase 4471 CSV. I import it, then tell Billing about Jessop $12,000 / Lenox $6,800 the same morning.
+- 9:00 Jeanette: J Rosario $2,400 and M Rodriguez $6,800, job and W-9. Until then do not Confirm [29]/[33].
+- Noon Alan: PO-2026-048 total, schedule, material seen; WW approval corrected to $29,700 in the app. Then enter CM-0102 $19,000 Submitted (121 State, code 10, PDF).
+- Noon Billing: Rivera proof or reversal of $5,000 + $16,350.
+- Me: read the WW insurance certificate; if WW still has not confirmed the 8/20 bank change, owner + Amex dispute on the $3,800 (card dispute windows run, do not let it slide past mid-September).
+- Me: Alberto AMP-311 $9,800 [21] once Chen confirms the PO; Tino $8,000 vs PO-2026-047 $8,010 [25] after the COI; Roll Off Dumpster $1,650 is matched to an estimate line EST-2026-014 [31]: that is not a bill, Not This, then look for the bill/duplicate.
+
+**My judgement**
+I spent today's actions on the right things, but the books didn't move: zero lines matched, 18 unmatched, $75,827, the oldest 20 days old. August can't close. That isn't for lack of trying. Every line that's left waits on a person: Alan for the PO and the approved amount, Jeanette for a file and two payee names, Billing's client for deposit proof. The app gives me no way to put those waits anywhere but my mailbox. I chased by mail with dates because nothing in Banking lets me say "waiting on Jeanette for the Sep file" against the line.
+Two things on Banking > Matches Waiting for Your Confirmation worry me as a controller. First, [23 Confirm] would link the WW $33,500 to a bill marked "pm-approved" at $33,500, but the PM approved $29,700 in writing. Either the approval on the bill is wrong or the label is. One tap would bless the overpayment. Second, [31] matches a $1,650 dumpster charge to an estimate line. An estimate is a price to the client, not evidence of a cost, and a three-way match can't land on it. The suggestion engine treats "job and cost code agree" as a match, but that's coding, not matching. The Satish/Rosario/Rodriguez "Confirm" buttons would enter a bill from the payment and flag it paid before approval. That puts the control failure on the record, which is honest, but it shouldn't sit one tap away under the same green word as a real match.
+Billing's note exposed a hole I didn't know about. A client payment can be recorded with no method, check number, deposit account or author. That's why Rivera $21,350 is "recorded" and nobody can prove it.
+I noticed the WW charge is a Square card charge on the Amex, not an ACH to new bank details. That changes the fraud theory, and it opens an Amex dispute path. The app showed it only in the raw descriptor.
+The calendar did not tell me Monday is Labor Day; I caught it myself and moved three deadlines.
+What I'd change: on a match, show the approved amount and who approved it, not just a status word. Never offer an estimate line as a match target. Separate "Enter bill from payment (paid before approval)" from "Confirm" visually and require a reason. Make method, reference and deposit account required on a recorded client payment. Let me attach a "waiting on <person>, by <date>" to a bank line.
+
+**System lens (REVIEW_PROTOCOL)**
+- (a) What I owe: my mail (Billing's Rivera thread, Jeanette's two old questions), my diary, the Banking "Not Matched to a Line" banner, the "Oldest Unmatched 20 days" tile. Still no task list in the app holding what I owe Billing or Jeanette. Finding (repeat): requests between staff live only in mail.
+- (b) What waits on my approval: Banking "Matches Waiting" (7), "Review 18", "Needs Category 13 / Accept All 8 Suggestions", Bills & Payroll "paid before approval" (yesterday). Four places, overlapping. The Tino $8,000 line appears in both Matches Waiting [25] and Needs Category [36]: same line, two queues, two different buttons. Finding.
+- (c) What is off in the money: Banking tiles (To Review $76K, Not Matched $75,827, Cash $184K with $16K past due), Billing's "Recorded, Not Yet in the Bank" (Rivera), the WW vendor statement in mail ($3,800 open) vs Banking (WW $33,500 "pm-approved") vs Alan's mail ($29,700). The WW amount lives in three places with three different numbers. Finding.
+
+**The assistant and the brain**
+I didn't use `ask` today (8 actions; mail and decisions came first). The "brain" here is the match engine on Banking. It proposed 7 matches. Two of them (WW at an approved amount nobody approved, dumpster to an estimate line) would have been wrong if I'd taken them blind. It did ask before it acted ("nothing is linked until you say so"), and that is the right posture and inside the Standard. But it doesn't know what I know from mail: the PM's partial approval, the missing W-9, the 8/20 bank change, the Labor Day shift. It didn't flag the paid-before-approval and bank-change combination on WW, and it didn't suggest that a card charge can be disputed.
+
+## Tue Sep 8, morning turn (07:30)
+- Imported Chase 4471 Sep 8 activity (ac1_2026-09-08.csv, 1 line: WIRE IN JESSOP J $12,000.00). It lands as a new unmatched line (Banking 19, Not Matched $87,827). First September bank-backed Jessop money: tell Billing it is in the bank (NOT yet told; she asked 07:34 for the Chase Sep import today).
+- NOT imported (out of actions at 12): Amex 1009 ac2_2026-09-08.csv (Restoration Hardware 0412 $1,268.40) and Square card ac3_2026-09-08.csv (Home Depot #6166 $342.18). Square card is not in the Import Statement account list (only Chase 4471, Amex 1009, Home Depot Pro Xtra 7720): need a Square account added or another route.
+- Owe Billing by noon today: Rivera decision (no proof from Elena Rivera; she reverses $5,000 + $16,350 at my noon unless I say otherwise) and Jessop wire now in the bank (9/8). Lenox $6,800 still not in the bank.
+- Still owed: Alan PO-2026-048 (due noon), CM-0102 entry, WW insurance certificate (Harbor, 8/29) unread, Jeanette J Rosario / M Rodriguez, J Rosario Zelle mail 9/7 unread.
+- The turn cap was 12, not the 8 the prompt said. Mail reads and failed do calls seemed to count.
+
+## Tue Sep 8, work turn (10:30)
+- Billing 10:40: Elena Rivera gave no proof for $5,000 (7/30) / $16,350 (8/14), says she pays 9/9. Replied: no objection, reverse both and reopen D45-R / D45-1 at noon; record 9/9 payment only when it shows in Chase. Jessop: told Billing the Chase 9/8 import holds WIRE IN JESSOP J $12,000 (in the bank), she may apply to D140-R; her "9/11" mail conflicts, ask her. Lenox $6,800 not in bank, leave unrecorded.
+- Imported Amex 1009 9/8 (Restoration Hardware $1,268.40). Banking Review 20. Square card 9/8 (Home Depot #6166 $342.18) NOT imported: no Square account in Import Statement. Asked Jeanette.
+- Jeanette (reply 9/8): J Rosario $2,400 is the demo helper at 121 State, no W-9. Told her W-9 plus Alan's written engagement by Fri 9/11; M Rodriguez $6,800 job/W-9 still owed; rest of Sep Chase CSV by Wed 9/9 9am.
+- Harbor COI (9/2): Window Works LLC, 88 Kent Ave, GL and WC 8/15/26-8/15/27, holder SmartDesign. The vendor is real and insured; does not answer the 8/20 bank change or W-9. Still: nobody pays WW; owner + Amex dispute on $3,800 if nothing by Fri 9/11.
+- Not done (14 cap): Alan's PO-2026-048 answer (no reply seen), CM-0102 entry, Tino/COI check, Alberto AMP-311, Chase Jul 31 reconcile.
+
+## Tue Sep 8, end of day (16:30)
+- Billing 16:36: Rivera NOT reversed. On Billing > Payments the 8/14 $16,350 row opens INV-2026-D45-1 "Paid · read only" with no Reverse Payment control. Same for 7/30 $5,000. She asks me to reverse both today with reason "not in Chase 4471 Jul/Aug files", or name the screen and she does it Wed 9/9 AM. After the reversal Elena owes D45-R $5,000 + D45-1 $16,350 + INV-2026-039 $17,080 (due 9/18) = $38,430. Jessop $12,000 is applied to D140-R against the 9/8 Chase line Wed AM ($12,000 still open, due 9/15); she is asking Jaleena whether "9/11" is a second payment. Lenox $6,800 stays unrecorded.
+- I checked from my seat. Billing > Payments shows the two Rivera rows as "Recorded, Not Yet in the Bank, 2 payments · $21,350" and now lists Method "ACH" with Reference = the invoice number. Billing told me on 9/4 there was no method recorded, so either it was filled in since or the screen defaults it. Opening the 8/14 row takes me to the invoice. It says "a change is a reversal and a re-post, linked, with who, when and why", but the only controls are Purchase Orders from Lines, Print / PDF and Duplicate. There is no Reverse and no Void. The controller cannot reverse a client payment either.
+- Asked my assistant where to reverse them and what waits on me tonight. It answered "Which Elena do you mean: Elena Rivera or Billing?", offering "Billing" as a payee. It never answered either question. Ask's mail watcher says "checked 14 hours ago" and shows Thu 9/3 items, with "a job you run" on each.
+- Out of actions (8) before replying to Billing. NOT told: no reverse control exists for either of us.
+
+**Done today**
+- Morning: imported Chase 4471 9/8 (WIRE IN JESSOP J $12,000), the first bank-backed September client money. Work turn: imported Amex 1009 9/8 (Restoration Hardware $1,268.40). Told Billing Jessop is in the bank and agreed with her that Rivera $21,350 gets reversed. Read the Harbor COI: Window Works LLC is real and insured, GL/WC 8/15/26 to 8/15/27. Jeanette identified J Rosario $2,400 as the demo helper at 121 State, with no W-9.
+- End of day: confirmed the Rivera reversal is blocked by the app, not by Billing.
+- Not done: Rivera reversal; Square card 9/8 (Home Depot #6166 $342.18; no Square account in Import Statement); CM-0102 entry (third day); Alan's PO-2026-048 answer (due noon today, nothing came); Chase Jul 31 reconcile (due 8/10); Alberto AMP-311; Tino COI; dumpster $1,650 vs estimate line. Banking unmatched about 20 lines, roughly $89K. August is still not closed, and books by the 10th (Thu) will be missed.
+
+**Open for Wed 9/9**
+- 8:00 me to Billing: neither of us has a Reverse control on a recorded payment. Workaround: ask the owner whether a reversing entry (manual journal, flagged, reason "not in Chase 4471 Jul/Aug files") is acceptable. Otherwise the $21,350 stays as "Recorded, Not Yet in the Bank" and Billing mails Elena the $38,430 balance with that caveat. Owner decision by Wed noon.
+- 9:00 Jeanette: rest of the Sep Chase 4471 CSV; M Rodriguez $6,800 job and W-9; how to import the Square card (or add the account).
+- Alan: PO-2026-048 total, schedule and material seen (overdue since Fri). Today I escalate to the owner, since Carlos already has $38,000 paid and $19,000 more billed against a PO nobody can show me. Fix WW-2026-118 approval to $29,700.
+- Fri 9/11: WW 8/20 bank change and W-9. If nothing, owner + Amex dispute on the $3,800 (SQ *WINDOW WORKS BKLYN, 8/25). J Rosario W-9 + Alan's written engagement.
+- Jessop: Billing asks Jaleena whether the 9/11 payment is a second one.
+
+**My judgement**
+The day ended where the pilot did: I know exactly what is wrong with the books and the app won't let me fix it. Billing and I agreed this morning to reverse $21,350 of Rivera payments that never reached Chase. The client has no proof, and the decision is right. Then neither of us could do it. The invoice even carries the right sentence ("a change is a reversal and a re-post, linked, with who, when and why"), but there is no control under it. On the payment row on Billing > Payments I get Purchase Orders from Lines, Print / PDF and Duplicate. "Purchase Orders from Lines" on a paid client invoice is noise. So the receivable is overstated by $21,350, and the reason the books are wrong is that the app won't post the correction. In NetSuite or QuickBooks I would void the payment or post a reversing deposit in two clicks, with a memo.
+Billing > Payments did one thing well: "Recorded, Not Yet in the Bank · 2 payments · $21,350" with "match it on Banking" is the right control, and it caught this. But the Method column now reads "ACH", and Billing told me last week there was no method. If the screen fills in a default, it is making up evidence. A controller needs to know that a method was typed by a person, by whom and when.
+Three days, the same pattern every day. I spent my actions chasing people by mail (Alan for a PO, Jeanette for a bank file, Billing's client for proof), because the app holds neither the PO, nor a live bank feed, nor a place to log "waiting on X by date" against a line. I matched zero bank lines in three days. That isn't caution. Every candidate match was either wrong (WW at an approved amount nobody approved, the dumpster against an estimate line) or had nothing behind it to match to (POs missing from Purchasing).
+What I'd change first, in order: (1) Reverse / Void on a recorded payment and on a bill, with a required reason, posting a linked reversal. (2) Load the POs: Purchasing still says no purchase orders while every vendor quotes one. Without them there is no three-way match. (3) A bank feed, or at least every card account in Import Statement (Square is missing). (4) Show the approved amount and the approver on the bill and on the match.
+
+**System lens (REVIEW_PROTOCOL)**
+- (a) What I owe: mail (Billing's 16:36 ask, Jeanette's open items), my diary, and Ask's "In your mail" cards, which are stale (Thu 9/3, "checked 14 hours ago") and offer "Put It on My List" per mail. Ask has a list I have never seen as a list. Home 14, Ask 25, Purchasing 15 and Accounting 6 are four badges, and none of them says "what I owe Billing". Finding (third day): requests between staff live in mail.
+- (b) What waits on my approval: Banking Matches Waiting / Review, Bills & Payroll paid-before-approval, Ask cards (Carlos CM-0102 "names PO-2026-048, an open order of yours", though Purchasing shows no POs). The PO exists for the assistant but not for Purchasing. Finding: the same noun lives in two places with two answers.
+- (c) What is off in the money: Billing > Payments "Recorded, Not Yet in the Bank" $21,350, Banking Not Matched (about 20 lines / $89K), WW in three numbers (vendor $3,800 open, Banking $33,500 "pm-approved", Alan $29,700). The Rivera $21,350 lives on Billing > Payments as recorded and on Banking as unmatched, and neither screen can correct it. Finding.
+
+**The assistant and the brain**
+Today I asked the assistant one plain controller question: where do I reverse two named payments, and what is waiting on me. It answered with a disambiguation, "Elena Rivera or Billing?", and listed Billing as a payee. It picked a name out of my sentence and treated it as a person to chase. It didn't know that a recorded payment can't be reversed. It didn't know that the reversal had been agreed in my own mail at 10:40. It didn't list what waits on me. Its mail watcher was 14 hours stale, its cards are dated Thu 9/3, and it tells the controller that 121 State is "a job you run". It stayed inside the Standard: it proposed drafts and list items and sent nothing. But staying inside the Standard by doing nothing useful is not a pass. The brain (the match engine) asked before it linked anything, which is right. Over three days it proposed 7 matches, and the two I could judge were wrong. It never combined paid before approval + bank change + no W-9 on WW. It never noticed the Square card account missing from Import Statement, Labor Day moving my deadlines, or Alan being three days late on a PO that holds $57,000 of Carlos.
+
+**Three-day verdict (pilot end)**
+- My screens: 5/10. Banking's tiles, "Recorded, Not Yet in the Bank", "paid before approval" and the bank-backed % are real controller instruments, better than QuickBooks. But there are no POs in Purchasing, no reversal or void, per-import counts that contradict the header, and a missing card account. I could not complete a single match or correction in three days.
+- The assistant: 3/10. Private, polite and approval-gated. But stale, role-blind ("a job you run"), and it answered my one real question with a wrong disambiguation. I never got a draft, a chase or a catch out of it that I didn't already have.
+- The brain: 4/10. It asks before acting, and the Approvals and Banking flags (paid before approval, bank change) are the right raw signals. It never joined them, matched against an estimate line, and blessed a $33,500 approval that was really $29,700.
+- Would I choose this over NetSuite / QuickBooks Enterprise today: 3/10. I cannot reverse a payment, cannot three-way match without POs, and have no bank feed, so I could not close August. The controls are well aimed; the basic ledger operations underneath them are missing.

@@ -18,6 +18,11 @@ Status: **Built** (merged and tested) · **Building** (a lane is on it) · **Spe
 |---|---|---|
 | Overnight run: continue v11.1 and beyond without approvals until 10am (weekly usage 4%) | `docs/LANES.md`, `docs/PLAN.md` | Running |
 | Version 11 published (v11.1 folded in): 32 of 32 suites green; scripted month 258/292 on time, $9,537 left behind | `docs/PLAN.md` | Built |
+| Lean expert pilot (3 days, 9 roles) and both workshops run on v11 | `docs/pilot/pilot1/` | Done. Agent ledger 24/55 on time, $80,036 left behind; expert grades mostly 4–6; menu result in `docs/MENU_DRAFT.md` waiting on Alan |
+| Plans control phase 1 (register, VOID, acknowledgments, holds, order flag, filed-sheet amendment) | BACKLOG §1.22 | Built (29effe9) |
+| Pilot fixes batch 1 (19 items: daily log, controller POs, money matches, CO/estimate entry, Ask words…) | `tests/pilot_fixes_test.py` | Built (2ff680c) |
+| Call Alan can change: an escalated site question still waits on whoever it was addressed to, and the owner is informed (it used to move to the owner) | pilotfix1 item 19 | Built; Alan can change |
+| Call Alan can change: vendor order follow-ups stay on by default for the coordinator (as decided 10-11), with a first-day notice and an activity log to come in the one-assistant work | BACKLOG §1.27 | Spec |
 | Calls made overnight that Alan can change: (1) the PM's phone bar is Home, Approvals, Projects, Tasks, Field, More; (2) New Change Order, Invoice or Estimate started off a job's screen asks for the client instead of using the last job's; (3) a task saved with no owner goes to the job's PM, recorded who, when and why, and switchable; (4) the owner's "Waiting on the Others" list follows the one ranking order (32 rows; grouping by person is proposed for the one-queue-per-person work) | `docs/PLAN.md` §6 | Built; Alan can change |
 | Make sure the brain gets everything from the Oct 15 team meeting transcript and takes the right learning action, judged to the highest AI standard | BACKLOG §1.33, `tests/meeting_brain_test.py` | Notes reader built and tested (27 checks); the transcript reader is Spec (platform, Claude). The real meeting was run privately; its content stays out of the repo |
 

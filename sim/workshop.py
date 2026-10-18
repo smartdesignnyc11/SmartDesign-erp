@@ -49,7 +49,7 @@ def usage():
     menus = json.load(open(os.path.join(d, 'menus.json'))) if os.path.exists(os.path.join(d, 'menus.json')) else {}
     by = defaultdict(list)
     for a in A:
-        if a.get('uid', '').startswith('u_') and a.get('cmd') in NAV: by[a['uid']].append(a)
+        if (a.get('uid') or '').startswith('u_') and a.get('cmd') in NAV: by[a['uid']].append(a)
     res = {}
     for uid, L in by.items():
         pages = defaultdict(lambda: {'visits': 0, 'taps': 0, 'seconds': 0.0, 'act_s': 0.0, 'controls': Counter()})

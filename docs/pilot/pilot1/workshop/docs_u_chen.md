@@ -1,0 +1,26 @@
+D1 | material request | slows | 6 taps and 30s is fine for one request, but the time went on a detour through Home > Vendors, and Apply on Home only put it on the Buy Board, so the request still read "not acknowledged" and I had to come back on Purchasing > Requests.
+D1 | PO | slows | PO-2026-049 at 1 tap and 9s was only fast because Order makes an empty $0 draft. PO-2026-050 took 51s over 5 screens (Purchase Orders > Vendors > Ask > Requests) looking for a lumber vendor that is not in the list.
+D1 | PO | annoys | PO-2026-051 (33s, 3 screens) was me acknowledging the rosin paper request. The speed means nothing, because three POs still sat as $0 drafts with no vendor days later.
+D1 | RFQ | slows | 28s and 4 taps to create RFQ-2026-001 is right. The time that matters came after: it went to Angel's phone for a quantity check and nothing goes to vendors until he answers.
+D2 | material request | annoys | I typed nothing. What it should have known: Brooklyn Lumber's 9/1 mail says order 88412 (25 GWB 1/2 4x8 + 6 cement board) was filled and paid on the Square card for $2,140.50, and the request still showed "not ordered".
+D2 | PO | blocks | 0 characters typed, because there was nothing to put in. Vendor, $2,140.50, card and receipt for PO-2026-049 should have come from the vendor mail and the card line. Instead the PO stayed at $0 and that money never reached job cost.
+D2 | RFQ | slows | I typed nothing. The quantity was not on the line to fill (EST-2026-014 says 1 ls, no door count), so I had to mail Angel for count, sizes, swing, prehung and hardware.
+D3 | PO | blocks | On the phone I could not record "bought on card at a yard that is not our vendor". There is no add-vendor step from the PO and no card-purchase option, so PO-2026-049 stayed a vendorless draft.
+D3 | PO | slows | For PO-2026-050 (studs) I went back and forth across 5 screens, including Ask, on a small screen looking for a lumber vendor, then left it with no vendor and no price.
+D4 | material request | blocks | Missing: that the field had already bought it. The card purchase and the vendor mail never reached the request, so I spent the day tracing an order that was already paid for.
+D4 | PO | blocks | No Brooklyn Lumber vendor record (no W-9, no COI), so there was nothing to put on PO-2026-049. The PO also had no field for the vendor's promised date, and I got five dates (9/4, 9/10, 9/8, 9/9, Thu 9/10 7am) with none of them on the PO.
+D4 | PO | slows | Draft POs do not show on Purchasing > Deliveries, so boards, rosin/tape and studs were on no screen. "Late to Site 0" was false while Alberto's studs were a day late.
+D4 | RFQ | blocks | No door count, size or budget on the estimate line, and only one door/millwork vendor in the list (Carlos Millwork), so I could not name three vendors.
+D5 | material request | annoys | No money on it. The $2,140.50 that was really spent lived only in a vendor mail.
+D5 | PO | blocks | No. PO-2026-049 shows $0 against a $2,140.50 card charge, PO-2026-050 has unit price 0, and the Promise Ledger said 0 broken while Brooklyn Lumber had broken five dates. The totals only hold what I type in.
+D5 | RFQ | slows | No budget on the line, so when quotes come in there is nothing to compare them to. It is over $2,500 and needs three quotes, but I have one vendor.
+D6 | material request | blocks | 1) One step on the request: "bought on card, vendor X, receipt", without needing a vendor record, so a field purchase is acknowledged and closed the moment I hear about it.
+D6 | PO | blocks | 1) Order on a request asks "ordered from whom, by when" in the same step, not just an empty draft. 2) A draft PO still shows on Deliveries as "expected, not confirmed", and a $0 draft with no vendor counts as a problem.
+D6 | PO | annoys | 3) Offer "Log a Promise" on the PO right after every call or vendor mail that names a date. 4) Let me create a vendor from the PO and request the W-9/COI there.
+D6 | RFQ | slows | 1) Carry quantity and units from the estimate line, or ask for them when the line is a lump sum. 2) Suggest door/millwork vendors and let me add one from the RFQ.
+D8 | material request | annoys | Description came from Angel's request. The real order detail (25 GWB 1/2 4x8 + 6 cement board, order 88412) I copied from Brooklyn Lumber's 9/1 mail into my diary and mail, not into the app.
+D8 | PO | annoys | The PO-2026-049 link came from the estimate line (Insulation/drywall, code 07). The quantities and prices I kept in my diary and in mail to Alan and Angel, from the vendor mail and my calls.
+D8 | RFQ | slows | The line came from EST-2026-014 "Trim, doors, paint & hardware". The door details will have to come from Angel's mail and the plans.
+D9 | material request | slows | GWB 1/2 4x8 (sheet), cement board (sheet), rosin paper (roll), blue painter's tape (roll), each with unit, last price and cost code 07, should have filled in from a library.
+D9 | PO | blocks | 2x4x8 KD stud (ea) with its last price should have priced PO-2026-050. Instead it sat at 0 and the studs went late. Brooklyn Lumber's $2,140.50 for 25+6 boards should be in price history.
+D9 | RFQ | slows | Interior prehung door (ea) and door hardware set (ea) should replace the 1 ls line, with sizes and swing as fields, so the RFQ asks vendors for priced units.
