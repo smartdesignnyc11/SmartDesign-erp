@@ -191601,3 +191601,9 @@ CATCH.push({
     return r;
   };
 }
+// the Standard lines behind the pilotfix1 detectors (standard_test: every proposal source cites one)
+Object.assign(STD_MAP, {
+  dailyLogs: { p: "integrity", c: ["std", "documentation", /Daily log on every active site/i] },
+  clientDrafts: { p: "client", c: ["std", "communication", /Client messages/i] },
+  coNeeded: { p: "cost", leak: !0, c: ["std", "money", /No extra work without a signed change order/i] },
+});
