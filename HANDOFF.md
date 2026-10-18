@@ -91,3 +91,14 @@ If a change moves one of these, say exactly why.
 ## Live artifact
 - **Published copy:** https://claude.ai/artifact/BcFBruG3KKGRH2fYd9eLjp (Alan's).
 - **Deploying from Claude Code:** produce `dist/smartdesigns_projects.html` and give it to Alan to publish, or deploy through the hosted copy.
+
+## Start here: state on 2026-10-18 (for the next session)
+- **Published:** v11.2 at https://claude.ai/artifact/2c28fUyespjyJFyRFbnXAp (Version 3, build 379182f). Full net 37/37 green; scripted month 258/292 on time, $9,537 left behind, identical to v11. The older link above is round 4.
+- **Plan and decisions:** `docs/PLAN.md` (what is next, queued and waiting on Alan), `docs/DECISIONS.md`, `docs/LANES.md`. Read them before starting.
+- **Platform keys (all verified 2026-10-18):**
+  - `ANTHROPIC_API_KEY` lives only in Netlify, as a team environment variable (secret, Functions scope). The session never sees it.
+  - Netlify and Supabase tokens are network secrets on this cloud environment (header `Authorization: Bearer`, hosts `api.netlify.com` and `api.supabase.com`). Call the APIs with no token; the proxy adds it.
+  - Supabase: organization "SmartDesign ERP". Free plan; move to Pro before real money data goes in (backups).
+  - Netlify: 12 old sites (all last updated 2026-09-10). Alan's call: leave them alone and create a new, clearly named site.
+- **Platform:** started 2026-10-18 in its own session; see "The hosted copy" above and `platform/README.md`. Supabase now has the project; the Anthropic key's live check was still open at the first slice.
+- **Private case bank:** Alan's Drive folder "SmartDesign ERP – Private Test Cases" (id 1VCJnCZ0VJayTPLUkM3XFJAKtNJYx2zDv). Real meeting cases live there and never in the repo. The assistant test runs after the one-assistant work (§1.27).
