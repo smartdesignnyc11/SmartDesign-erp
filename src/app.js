@@ -120262,6 +120262,18 @@ const CR_PROJECT_VIEWS = ["sched", "tasks", "dec", "insp", "field", "mat", "file
 function crInProject() {
   return CR_PROJECT_VIEWS.includes(view) && !!(S && S.id && (DB.projects || []).some((p) => p.id === S.id));
 }
+// Whose document a New Change Order, Invoice or Estimate is (harness finding 6, v11.1): the client of the screen the
+// person is on. A job's own screens give the job's client and the job; a client's page (or Billing with a client
+// picked) gives that client; anywhere else gives nothing, and the sheet asks. Never the last job opened elsewhere:
+// S stays set after leaving a job, so a document started from Home went to whoever was looked at last.
+function crDocContext() {
+  const has = (id) => !!id && (DB.clients || []).some((c) => c.id === id);
+  if (crInProject() && has(S.clientId)) return { clientId: S.clientId, projectId: S.id };
+  if ("clients" === view && "undefined" != typeof clientOpen && has(clientOpen))
+    return { clientId: clientOpen, projectId: ("undefined" != typeof finProj && finProj) || "" };
+  if ("billing" === view && "undefined" != typeof billClient && has(billClient)) return { clientId: billClient, projectId: "" };
+  return {};
+}
 function crDefaultFor(P) {
   return P.leadId
     ? "l:" + P.leadId
@@ -120826,7 +120838,7 @@ const CR_NEW = [
       [
         "co",
         "Change Order",
-        () => newChangeOrderDialog({ clientId: S && S.clientId, projectId: S && S.id }),
+        () => newChangeOrderDialog(crDocContext()),
         (p, c) => (c ? "for " + c : "from an estimate or from scratch"),
       ],
       [
@@ -120851,7 +120863,7 @@ function crQuick(k) {
   }
 }
 function crPickClient(title, cb) {
-  const cur = S && S.clientId,
+  const cur = crDocContext().clientId,
     c0 = cur && DB.clients.find((x) => x.id === cur);
   if (!c0)
     return DB.clients.length
@@ -120859,13 +120871,13 @@ function crPickClient(title, cb) {
           title,
           mbF(
             "Client",
-            `<select data-f="clientId">${DB.clients.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select>`,
+            `<select data-f="clientId"><option value="" selected>Choose the client</option>${DB.clients.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select>`,
           ),
           {
             submit: "Next",
             onSubmit: (f) => {
               const c = DB.clients.find((x) => x.id === f.clientId);
-              if (!c) return !1;
+              if (!c) return (vfRequire(document.getElementById("mbm"), [['[data-f="clientId"]', "Choose the client this is for"]]), !1);
               setTimeout(() => cb(c), 30);
             },
           },
@@ -120961,33 +120973,32 @@ function newChangeOrderDialog(preset) {
   const P = preset || {},
     clients = DB.clients.slice();
   if (!clients.length) return toast("Add a client first"), void newClientDialog();
-  let cid =
-    P.clientId && clients.some((c) => c.id === P.clientId)
-      ? P.clientId
-      : S && S.clientId && clients.some((c) => c.id === S.clientId)
-        ? S.clientId
-        : clients[0].id;
+  let cid = P.clientId && clients.some((c) => c.id === P.clientId) ? P.clientId : crDocContext().clientId || "";
   const dyn = (pid, eid) => {
       const c = clients.find((x) => x.id === cid),
         projs = (DB.projects || []).filter((p) => p.clientId === cid),
-        ests = crEstimatesOf(c),
+        ests = c ? crEstimatesOf(c) : [],
         est = ests.find((e) => e.id === eid) || null;
-      return `<div class="grid2">${mbF("Project", `<select data-f="projectId">${projs.length ? "" : '<option value="">— no project yet —</option>'}${projs.map((p) => `<option value="${p.id}" ${p.id === pid ? "selected" : ""}>${esc(crProjName(p))}</option>`).join("")}</select>`)}${mbF("From Estimate", `<select data-f="estimateId"><option value="">— none —</option>${ests.map((e) => `<option value="${e.id}" ${e.id === (est && est.id) ? "selected" : ""}>${esc(e.number)} · ${esc(e.title || "")} · ${esc(e.status)}</option>`).join("")}</select>`)}</div>\n      <div id="co-lines" ${est ? "" : "hidden"}><div class="f"><label>Lines From Estimate</label><span class="hint">Tick the lines the change is against. They are copied onto the change order for you to re-price. Nothing ticked starts the order with one blank line.</span>${est ? crLineHtml(est) : ""}</div></div>`;
+      return `<div class="grid2">${mbF("Project", `<select data-f="projectId">${projs.length ? "" : c ? '<option value="">— no project yet —</option>' : '<option value="">— choose the client first —</option>'}${projs.map((p) => `<option value="${p.id}" ${p.id === pid ? "selected" : ""}>${esc(crProjName(p))}</option>`).join("")}</select>`)}${mbF("From Estimate", `<select data-f="estimateId"><option value="">— none —</option>${ests.map((e) => `<option value="${e.id}" ${e.id === (est && est.id) ? "selected" : ""}>${esc(e.number)} · ${esc(e.title || "")} · ${esc(e.status)}</option>`).join("")}</select>`)}</div>\n      <div id="co-lines" ${est ? "" : "hidden"}><div class="f"><label>Lines From Estimate</label><span class="hint">Tick the lines the change is against. They are copied onto the change order for you to re-price. Nothing ticked starts the order with one blank line.</span>${est ? crLineHtml(est) : ""}</div></div>`;
     },
     pid0 =
       P.projectId && (DB.projects || []).some((p) => p.id === P.projectId && p.clientId === cid)
         ? P.projectId
         : ((DB.projects || []).find((p) => p.clientId === cid) || {}).id || "",
     c0 = clients.find((x) => x.id === cid),
-    eid0 =
-      P.estimateId && crEstimatesOf(c0).some((e) => e.id === P.estimateId)
+    eid0 = !c0
+      ? ""
+      : P.estimateId && crEstimatesOf(c0).some((e) => e.id === P.estimateId)
         ? P.estimateId
         : (crEstimatesOf(c0).find((e) => "converted" === e.status && (!pid0 || e.projectId === pid0)) || {})
             .id || "",
-    REQ = [['[data-f="title"]', "Say what changed, in a line"]];
+    REQ = [
+      ['[data-f="clientId"]', "Choose the client this change is for"],
+      ['[data-f="title"]', "Say what changed, in a line"],
+    ];
   mbModal(
     "New Change Order",
-    `\n    ${mbF("Client", `<select data-f="clientId">${clients.map((c) => `<option value="${c.id}" ${c.id === cid ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select>`)}\n    ${mbF("Title", '<input data-f="title" placeholder="What changed, in a line — e.g. Radiant floor heat in the primary bath" autocomplete="off">')}\n    <div id="co-dyn">${dyn(pid0, eid0)}</div>\n    <div class="grid2">${mbF("Schedule Impact (Working Days)", '<input type="number" data-f="scheduleDays" value="0" min="0" step="1">')}${mbF("Reason (Printed)", '<input data-f="memo" placeholder="Why the scope changed">')}</div>`,
+    `\n    ${mbF("Client", `<select data-f="clientId">${cid ? "" : '<option value="" selected>Choose the client</option>'}${clients.map((c) => `<option value="${c.id}" ${c.id === cid ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select>`)}\n    ${mbF("Title", '<input data-f="title" placeholder="What changed, in a line — e.g. Radiant floor heat in the primary bath" autocomplete="off">')}\n    <div id="co-dyn">${dyn(pid0, eid0)}</div>\n    <div class="grid2">${mbF("Schedule Impact (Working Days)", '<input type="number" data-f="scheduleDays" value="0" min="0" step="1">')}${mbF("Reason (Printed)", '<input data-f="memo" placeholder="Why the scope changed">')}</div>`,
     {
       submit: "Start Change Order",
       onSubmit: (f) => {
@@ -121056,9 +121067,8 @@ function newChangeOrderDialog(preset) {
     cs &&
       (cs.onchange = () => {
         cid = cs.value;
-        const e0 =
-          (crEstimatesOf(clients.find((x) => x.id === cid)).find((e) => "converted" === e.status) || {}).id ||
-          "";
+        const c1 = clients.find((x) => x.id === cid),
+          e0 = (c1 && (crEstimatesOf(c1).find((e) => "converted" === e.status) || {}).id) || "";
         (root.querySelector("#co-dyn").innerHTML = dyn(
           ((DB.projects || []).find((p) => p.clientId === cid) || {}).id || "",
           e0,
@@ -121109,10 +121119,7 @@ if ("function" == typeof renderBilling) {
           '<div class="row cr-tabacts"><span class="grow"></span><button class="btn primary" id="bill-newco">New Change Order</button></div>',
         ),
           (root.querySelector("#bill-newco").onclick = () =>
-            newChangeOrderDialog({
-              clientId: billClient || (S && S.clientId) || "",
-              projectId: billClient ? "" : (S && S.id) || "",
-            }));
+            newChangeOrderDialog(crDocContext()));
       }
     } catch (e) {
       console.warn("billing new co", e);
