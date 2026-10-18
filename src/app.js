@@ -10631,10 +10631,17 @@ function renderCosts() {
     ? recent
         .map(
           (t) =>
-            `<div class="chg"><span>${fmt(t.date)}</span>${esc(t.vendor || t.desc.slice(0, 28))} <span class="muted">· ${esc(catName(t.cat))}${t.code ? " · " + t.code : ""}</span><span class="right" style="float:right;${t.amt > 0 ? "color:var(--ok)" : ""}">${t.amt > 0 ? "+" : ""}${money(t.amt)}</span></div>`,
+            `<div class="chg"><span>${fmt(t.date)}</span><a href="#" data-jctx="${esc(t.id)}">${esc(t.vendor || t.desc.slice(0, 28))}</a> <span class="muted">· ${esc(catName(t.cat))}${t.code ? " · " + t.code : ""}</span>${"manual" === t.source && "function" == typeof bfBacked && !bfBacked(t) && !t.exception ? ' <span class="warn-t">· typed by hand, no bank line behind it</span>' : ""}<span class="right" style="float:right;${t.amt > 0 ? "color:var(--ok)" : ""}">${t.amt > 0 ? "+" : ""}${money(t.amt)}</span></div>`,
         )
         .join("")
     : '<div class="muted">No transactions assigned to this job yet.</div>';
+  // each line opens its record (the bank line, with where it came from)
+  $("#jc-recent").querySelectorAll("[data-jctx]").forEach(
+    (a) =>
+      (a.onclick = (e) => {
+        e.preventDefault(), txnDialog(a.dataset.jctx);
+      }),
+  );
 }
 function budgetFromEstimate() {
   const cl = clientOf(),
@@ -183540,38 +183547,53 @@ function lnMyEmail(uid) {
   } catch (e) {}
   return "";
 }
+// The promise in one sent message: what, by when, to whom (null when it holds none).
+function lnPromiseOf(c) {
+  const m = String((c && c.text) || "").replace(/\s+/g, " ").match(LN_PROMISE);
+  if (!m) return null;
+  const sent = lnDay(c.date) || today();
+  let due = "";
+  try {
+    due = "function" == typeof cmDateIn ? cmDateIn(m[3]) : "";
+  } catch (e) {}
+  if (!due || due < sent) {
+    // a weekday is the next one after the day it was written
+    const dw = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"].indexOf(m[3].toLowerCase());
+    if (dw >= 0) {
+      const d0 = parse(sent);
+      let n = (dw - d0.getDay() + 7) % 7;
+      0 === n && (n = 7), (due = iso(addDays(sent, n)));
+    } else /tomorrow/i.test(m[3]) ? (due = iso(addDays(sent, 1))) : /today/i.test(m[3]) ? (due = sent) : /next week/i.test(m[3]) && (due = iso(addDays(sent, 7)));
+  }
+  const to = ((c.to || [])[0] || {}).name || ((c.to || [])[0] || {}).email || (typeof (c.to || [])[0] === "string" ? c.to[0] : "") || "";
+  return { what: `${m[1]} ${m[2]}`.replace(/\s+/g, " ").trim(), due: due, to: String(to).replace(/<.*$/, "").trim(), sent: sent };
+}
+// Whose sent mail this is: the mailbox it was synced from, else the staff member who sent it (a message imported
+// without a mailbox, or from a shared one, is still the sender's promise).
+function lnMailUser(c) {
+  if (c.owner) return (DB.users || []).find((x) => x.id === c.owner) || null;
+  if ("out" !== c.direction) return null;
+  const em = String((c.from || {}).email || "").toLowerCase(),
+    nm = String((c.from || {}).name || (c.route || {}).employee || "").toLowerCase();
+  return (DB.users || []).find((u) => (em && String(u.email || "").toLowerCase() === em) || (nm && String(u.name || "").toLowerCase() === nm)) || null;
+}
 function lnPromises() {
   const out = [],
     seen = new Set();
   (DB.comms || []).forEach((c) => {
-    if (!c.owner || ["ignored", "spam"].includes(c.status)) return;
-    const me = lnMyEmail(c.owner),
+    if (["ignored", "spam"].includes(c.status)) return;
+    const u = lnMailUser(c);
+    if (!u) return;
+    const me = lnMyEmail(u.id),
       from = String((c.from || {}).email || "").toLowerCase(),
       mine = "out" === c.direction || (me && from === me) || (c.labels || []).includes("SENT");
     if (!mine) return;
-    const m = String(c.text || "").replace(/\s+/g, " ").match(LN_PROMISE);
-    if (!m) return;
+    const pr = lnPromiseOf(c);
+    if (!pr) return;
     const k = lnMailKey(c);
     if (seen.has(k)) return;
     seen.add(k);
-    const u = (DB.users || []).find((x) => x.id === c.owner) || {},
-      sent = lnDay(c.date) || today();
-    let due = "";
-    try {
-      due = "function" == typeof cmDateIn ? cmDateIn(m[3]) : "";
-    } catch (e) {}
-    if (!due || due < sent) {
-      // a weekday is the next one after the day it was written
-      const dw = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"].indexOf(m[3].toLowerCase());
-      if (dw >= 0) {
-        const d0 = parse(sent);
-        let n = (dw - d0.getDay() + 7) % 7;
-        0 === n && (n = 7), (due = iso(addDays(sent, n)));
-      } else /tomorrow/i.test(m[3]) ? (due = iso(addDays(sent, 1))) : /today/i.test(m[3]) ? (due = sent) : /next week/i.test(m[3]) && (due = iso(addDays(sent, 7)));
-    }
-    const to = ((c.to || [])[0] || {}).name || ((c.to || [])[0] || {}).email || (typeof (c.to || [])[0] === "string" ? c.to[0] : "") || "",
-      what = `${m[1]} ${m[2]}`.replace(/\s+/g, " ").trim();
-    out.push({ key: "promise:mail:" + k, c: c, uid: c.owner, role: u.role || "", name: u.name || "", what: what, due: due, to: String(to).replace(/<.*$/, "").trim(), projectId: ((c.route || {}).projectId) || ((("function" == typeof cmJobNamed && cmJobNamed(lnAll(c))) || {}).id) || "" });
+    out.push({ key: "promise:mail:" + k, c: c, uid: u.id, role: u.role || "", name: u.name || "", what: pr.what, due: pr.due, to: pr.to, projectId: ((c.route || {}).projectId) || ((("function" == typeof cmJobNamed && cmJobNamed(lnAll(c))) || {}).id) || "" });
   });
   return out;
 }
@@ -188885,3 +188907,280 @@ if ("function" == typeof render) {
     },
   });
 }
+
+/* ---------------------------------------------------------------------------------------------------------
+   nothing slips (v11.1; the north star: "no forgotten task, follow-up, reminder or promise").
+     nsRouteUnowned()  a job task saved with no owner goes to the job's lead (its PM; the design director on a
+                       design job) the moment it is saved, with who, when and why on the task (a.autoOwner) and a
+                       toast. It is a default, not a judgment: the person changes the owner in the task, and a task
+                       whose owner was cleared after routing is never routed again. DB.company.routeUnowned = false
+                       turns it off.
+     lateTasks         (the existing CATCH entry) marks a task routed today, so Home shows it whatever the four-card
+                       limit, and gives the owner Reassign on it.
+     promise ledger    a promise in a staff member's sent mail ("I'll send the revised drawings Friday") goes on the
+                       ledger the Studio already keeps (DB.studio.promises: we owe, owner, due, job, source), the
+                       moment the mail is read; Done closes it. lnPromises reads the sender when the message came in
+                       without a mailbox.
+     the person's Home the designer's Promised card also lists the meeting next steps proposed for them and their own
+                       open tasks due in the next seven days.
+     Ask               "which follow-ups have no owner", "what did we promise the Kleins", "what does Sarah owe".
+   Design gate: no new list. Routing writes the task's own owner; the catch is lateTasks; promises are the
+   Studio's ledger; Home's cards are the existing ones.
+--------------------------------------------------------------------------------------------------------- */
+const NS_ROUTE_WHY = "no owner was named, so it went to the job's lead: if you see it, you own it until it is handed off";
+function nsJobLead(p) {
+  const pr = (p && p.project) || {},
+    U = DB.users || [];
+  // project.userName is whoever last worked the schedule, not its lead
+  if (pr.pm) return pr.pm;
+  const design = /\bdesign\b/i.test(pr.name || "") && !/\bbuild\b/i.test(pr.name || ""),
+    u = (design && U.find((x) => "design_mgr" === x.role)) || U.find((x) => "pm" === x.role) || U.find((x) => "owner" === x.role);
+  return u ? u.name : "";
+}
+let nsRouted = [];
+function nsRouteUnowned() {
+  if (!1 === (DB.company || {}).routeUnowned) return 0;
+  let n = 0;
+  (DB.projects || []).forEach((p) =>
+    (p.actions || []).forEach((a) => {
+      if (a.assignee || "done" === a.status || a.autoOwner) return;
+      const to = nsJobLead(p);
+      if (!to) return;
+      (a.assignee = to), (a.autoOwner = { to: to, at: appNowIso(), why: NS_ROUTE_WHY, by: "assistant" }), nsRouted.push({ p: p, a: a }), n++;
+      try {
+        audit("task", a.id, "route", "", to, NS_ROUTE_WHY);
+      } catch (e) {}
+    }),
+  );
+  return n;
+}
+{
+  const base = save;
+  save = function () {
+    try {
+      if (nsRouteUnowned() && document.body.dataset.booted) {
+        const R = nsRouted.splice(0),
+          x = R[0];
+        setTimeout(
+          () =>
+            toast(
+              1 === R.length ? `No owner was named on "${tdWords(x.a.title, 8)}": it went to ${x.a.assignee}, who leads ${shortName(x.p)}` : `${R.length} tasks had no owner: each went to its job's lead`,
+              [{ label: "Open", run: () => (setCurrent(x.p.id), openEditor("action", x.a.id)) }],
+            ),
+          0,
+        );
+      } else nsRouted = [];
+    } catch (e) {
+      console.warn("route unowned", e);
+    }
+    return base.apply(this, arguments);
+  };
+}
+const nsAction = (id) => {
+  for (const p of DB.projects || []) {
+    const a = (p.actions || []).find((x) => x.id === id);
+    if (a) return { p: p, a: a };
+  }
+  return null;
+};
+const nsRoutedToday = (a) => !!(a && a.autoOwner && String(a.autoOwner.at).slice(0, 10) === today());
+{
+  const C = CATCH.find((c) => "lateTasks" === c.name);
+  if (C) {
+    const base = C.rows;
+    C.rows = function () {
+      const R = (base.apply(this, arguments) || []).slice(),
+        reassign = (x) => () => (setCurrent(x.p.id), openEditor("action", x.a.id));
+      R.forEach((r) => {
+        const x = nsAction(String(r.key || "").replace(/^task:/, ""));
+        if (!x || !x.a.autoOwner) return;
+        (r.fresh = nsRoutedToday(x.a)), (r.sub = `${r.sub} · no owner was named, so it went to ${x.a.assignee}`), isOwner() && ((r.verb = "Reassign"), (r.run = reassign(x)));
+      });
+      // the owner also sees a late task routed today to someone else, and one nobody owns at all (routing off)
+      isOwner() &&
+        (DB.projects || []).forEach((p) =>
+          (p.actions || []).forEach((a) => {
+            const due = a.due || "";
+            if ("done" === a.status || !due || due >= today() || R.some((r) => r.key === "task:" + a.id)) return;
+            if (a.assignee && !nsRoutedToday(a)) return;
+            R.push({
+              key: "task:" + a.id,
+              what: `Late${a.assignee ? "" : ", no owner"}: ${tdWords(a.title, 7)}`,
+              sub: `was due ${fmt(due)} · ${shortName(p)}${a.assignee ? ` · no owner was named, so it went to ${a.assignee}` : " · nobody owns it"}`,
+              amount: 0,
+              due: due,
+              fresh: nsRoutedToday(a) || !a.assignee,
+              verb: a.assignee ? "Reassign" : "Assign",
+              run: reassign({ p: p, a: a }),
+            });
+          }),
+        );
+      return R;
+    };
+  }
+}
+// ---- promises in sent mail go on the Studio's promise ledger the moment the mail is read
+function nsLedgerFromMail() {
+  const L = ((DB.studio = DB.studio || {}).promises = DB.studio.promises || []);
+  let n = 0;
+  (DB.comms || []).forEach((c) => {
+    if ("out" !== c.direction || ["ignored", "spam"].includes(c.status) || L.some((x) => x.source && x.source.id === c.id)) return;
+    const u = lnMailUser(c),
+      pr = u && lnPromiseOf(c);
+    if (!pr) return;
+    L.push({
+      id: uid("pr"),
+      projectId: (c.route || {}).projectId || "",
+      dir: "us",
+      owner: u.name,
+      to: pr.to,
+      text: `${agCap(pr.what)}${pr.to ? ` (to ${pr.to})` : ""}`,
+      due: pr.due,
+      status: "open",
+      source: { kind: "mail", id: c.id, at: c.date },
+      createdAt: today(),
+    }),
+      n++;
+  });
+  return n;
+}
+{
+  const base = cmImport;
+  cmImport = function () {
+    const r = base.apply(this, arguments);
+    try {
+      nsLedgerFromMail() && save();
+    } catch (e) {
+      console.warn("promise ledger", e);
+    }
+    return r;
+  };
+}
+// ---- what a person owes: the ledger, the meeting next steps proposed for them, their open tasks
+const nsIsMe = (owner, name) => {
+  const o = String(owner || "").toLowerCase(),
+    n = String(name || "").toLowerCase();
+  return !!o && !!n && (o === n || o.split(/\s+/)[0] === n.split(/\s+/)[0]);
+};
+function nsOwed(opts) {
+  const o = opts || {},
+    out = [],
+    inJob = (pid) => !o.pids || o.pids.includes(pid),
+    inPer = (d) => !o.to || (!!d && d <= o.to),
+    who = (n) => !o.who || nsIsMe(n, o.who);
+  ((DB.studio || {}).promises || [])
+    .filter((x) => "open" === x.status && "us" === x.dir && inJob(x.projectId) && who(x.owner) && inPer(x.due))
+    .forEach((x) => out.push({ kind: "promise", title: x.text, owner: x.owner, due: x.due, pid: x.projectId, from: x.source && "mail" === x.source.kind ? "promised in mail" : "on the promise ledger", ref: x }));
+  (DB.meetings || []).forEach((m) =>
+    (m.proposals || [])
+      .filter((pr) => "task" === pr.kind && "proposed" === pr.status && pr.apply && inJob(pr.apply.projectId) && who(pr.apply.assignee) && inPer(pr.apply.due))
+      .forEach((pr) => out.push({ kind: "step", title: pr.apply.title || pr.title, owner: pr.apply.assignee, due: pr.apply.due, pid: pr.apply.projectId, from: `next step from ${m.title || "a meeting"}, not confirmed yet`, ref: pr, m: m })),
+  );
+  (DB.projects || [])
+    .filter((p) => inJob(p.id))
+    .forEach((p) =>
+      (p.actions || [])
+        .filter((a) => "done" !== a.status && who(a.assignee) && (o.who ? !!a.due && inPer(a.due) : !!(a.source && (a.source.meetingId || a.source.commId || /mail|meeting/.test(a.source.kind || "")))))
+        .forEach((a) => out.push({ kind: "task", title: a.title, owner: a.assignee, due: a.due, pid: p.id, from: a.due && a.due < today() ? "a task, overdue" : "a task", ref: a, p: p })),
+    );
+  return out.sort((a, b) => String(a.due || "9").localeCompare(String(b.due || "9")));
+}
+const nsText = (x) => [x.title, x.ref && (x.ref.notes || (x.ref.apply && x.ref.apply.notes) || x.ref.text), x.ref && x.ref.to].filter(Boolean).join(" ");
+// the designer's Promised card: the meeting steps proposed for them and their own tasks due this week, beside the ledger
+if ("function" == typeof renderSDay) {
+  const base = renderSDay;
+  renderSDay = function () {
+    const r = base.apply(this, arguments);
+    try {
+      const root = document.getElementById("sday-body"),
+        u = currentUser() || {},
+        card = root && [...root.querySelectorAll(".card")].find((c) => /^Promised$/.test(((c.querySelector("h3") || {}).textContent || "").trim()));
+      if (card && u.name && !card.querySelector("[data-nsowed]")) {
+        const L = nsOwed({ who: u.name, to: iso(addDays(today(), 7)) }).filter((x) => "promise" !== x.kind);
+        if (L.length) {
+          const td = today();
+          card.querySelectorAll(".small.muted").forEach((x) => /Nothing promised and open/.test(x.textContent) && x.remove());
+          card.insertAdjacentHTML(
+            "beforeend",
+            L.map(
+              (x, i) =>
+                `<div class="st-item ${x.due && x.due < td ? "late" : ""}" data-nsowed="${i}"><span class="k">${x.due ? `${x.due < td ? "Overdue" : "Due"} ${fmt(x.due)}` : "No date"} · ${esc(shortName((DB.projects || []).find((p) => p.id === x.pid)) || "")} · ${esc(x.from)}</span><div class="row" style="gap:8px"><b class="grow" style="font-weight:500">${esc(x.title)}</b><button class="btn sm" data-nsopen="${i}">Open</button></div></div>`,
+            ).join(""),
+          );
+          card.querySelectorAll("[data-nsopen]").forEach(
+            (b) =>
+              (b.onclick = () => {
+                const x = L[+b.dataset.nsopen];
+                x && ("step" === x.kind ? ((mtOpen = x.m.id), (view = "meetings"), render()) : (setCurrent(x.pid), openEditor("action", x.ref.id)));
+              }),
+          );
+        }
+      }
+    } catch (e) {
+      console.warn("owed on my day", e);
+    }
+    return r;
+  };
+}
+// ---- Ask
+AG_ASST.unshift(
+  {
+    id: "unowned",
+    first: !0,
+    kind: "ops",
+    re: /\b(no owner|unowned|unassigned|nobody owns|no one owns|without (an )?owner|ha(s|ve) no owner|not assigned( to anyone)?|nobody('s| is) assigned)\b/,
+    run(P) {
+      if ("client" === role()) return null;
+      const late = /\b(overdue|late|past due|behind)\b/.test(P.l),
+        td = today(),
+        rows = (DB.projects || [])
+          .filter((p) => agOnJob(P, p.id))
+          .flatMap((p) => (p.actions || []).filter((a) => "done" !== a.status && (!a.assignee || a.autoOwner) && (!late || (a.due && a.due < td))).map((a) => ({ p: p, a: a }))),
+        none = rows.filter((x) => !x.a.assignee),
+        routed = rows.filter((x) => x.a.assignee),
+        noun = late ? "overdue follow-up" : "open task";
+      return {
+        headline: rows.length
+          ? `${agN(rows.length, noun)} had no owner: ${agList(rows.map((x) => `${x.a.title} (${agShort(x.p)}${x.a.due ? `, due ${fmtL(x.a.due)}` : ""})`))}.${routed.length ? ` ${routed.length === rows.length ? (1 === rows.length ? "It" : "Each") : agN(routed.length, "of them", "of them")} went to the job's lead when it was saved: ${agList([...new Set(routed.map((x) => x.a.assignee))])}.` : ""}${none.length ? ` ${agN(none.length, "is", "are")} still unowned.`.replace(/^ (\d+) is/, " $1 is") : ""}`
+          : `Every ${late ? "overdue " : "open "}task has an owner: none is unowned.`,
+        note: routed.length ? "A task saved with no owner goes to its job's PM (the design director on a design job); change the owner in the task." : "",
+        work: rows.map((x) => `${agShort(x.p)} — ${x.a.title}${x.a.due ? ` — due ${fmtL(x.a.due)}` : ""} — ${x.a.assignee ? `now ${x.a.assignee}'s (routed ${fmtL(String(x.a.autoOwner.at).slice(0, 10))})` : "nobody"}`),
+        go: agGo("tkall") || agGo("tasks"),
+        ran: agRan("tasks", ["open", "no owner named (or routed because none was)"].concat(late ? ["past due"] : [], agWhereJob(P)), "", rows.length),
+      };
+    },
+  },
+  {
+    // what we promised a client, what a person owes: the ledger, meeting next steps, tasks from mail and meetings
+    id: "owed",
+    first: !0,
+    kind: "ops",
+    re: /\b(promise[ds]?|promised|committed to|owe[ds]?|owing)\b/,
+    not: /\bhow much\b|\bowes? us\b|\bdo they owe\b|\b(invoices?|bills?|balance|money|\$)\b/,
+    run(P) {
+      if ("client" === role() || P.vendors.length) return null;
+      const who = P.people[0] || null;
+      if (!who && !P.clients.length) return null;
+      if (!who && !/\b(promise[ds]?|promised|committed)\b/.test(P.l)) return null;
+      const pids = P.clients.length ? (DB.projects || []).filter((p) => P.clients.some((c) => c.id === p.clientId)).map((p) => p.id) : P.jobs.length ? P.jobs.map((p) => p.id) : null,
+        // what is owed "this week" is due by its Sunday, not by today (the period Ask reads for spend runs to today)
+        to = P.period ? ("this week" === P.period.key && "function" == typeof appWeek ? appWeek().sun || P.period.to : P.period.to) : "",
+        // promised TO a client: the ledger, and steps or tasks whose words name the client (an internal next step is not a promise to them)
+        names = P.clients.flatMap((c) => [c.name].concat((c.contacts || []).map((k) => k.name))).flatMap((n) => String(n || "").toLowerCase().split(/[^a-z]+/)).filter((w) => w.length >= 4 && !/^(family|llc|inc)$/.test(w)),
+        toClient = (x) => "promise" === x.kind || /\bclients?\b/i.test(nsText(x)) || names.some((w) => new RegExp(`\\b${w}(s|'s)?\\b`, "i").test(nsText(x))),
+        L = nsOwed({ who: who ? who.name : "", pids: pids, to: to }).filter((x) => who || toClient(x)),
+        subj = who ? `${who.name} owes` : `promised to ${P.clients.map((c) => c.name).join(" and ")} and still open`;
+      return {
+        headline: L.length
+          ? `${agN(L.length, "thing")} ${subj}${who && P.period ? ` ${P.period.say}` : ""}: ${agList(L.map((x) => `${x.title} — ${who ? "" : x.owner + ", "}${x.due ? `due ${fmtL(x.due)}` : "no date"} (${x.from})`), 5)}.`
+          : who
+            ? `${who.name} owes nothing${P.period ? ` ${P.period.say}` : ""}: no open promise, proposed next step or task due.`
+            : `Nothing promised to ${P.clients.map((c) => c.name).join(" and ")} is open: none.`,
+        note: "Read from the promise ledger (promises in sent mail go on it when the mail is read), the meeting next steps proposed for a person, and open tasks that came from a meeting or mail.",
+        work: L.map((x) => `${x.title} — ${x.owner || "nobody"} — ${x.due ? fmtL(x.due) : "no date"} — ${x.from}`),
+        go: agGo("tkall") || agGo("tasks"),
+        ran: agRan("the promise ledger, meeting next steps and tasks", [who ? `owner is ${who.name}` : `client is ${P.clients.map((c) => c.name).join(" or ")}`, "open"].concat(P.period ? [`due by ${fmtL(to)}`] : []), "", L.length),
+      };
+    },
+  },
+);
