@@ -191022,3 +191022,128 @@ window.addEventListener(
     return base.apply(this, arguments);
   };
 }
+// ---- Ask: the typo fixer changes only a token nobody would type on purpose (pilot day 1 and 2) -----------------
+// It turned "don't" into "done", "sheet" into "sheen", "rebooked" into "booked", "app" into "apr" and "Kleins'"
+// into "klein", then answered a different question. Now a contraction is expanded before anything is read, a word
+// with an apostrophe is never "fixed", a real English word or a word anywhere in the firm's own records is kept
+// (re-, pre-, mis-, over-, under- on a known word too), and a question Ask cannot match says what it did not
+// understand instead of answering another one.
+const AG_CONTRACT = [
+  [/\bcan'?t\b/g, "cannot"],
+  [/\bwon'?t\b/g, "will not"],
+  [/\bshan'?t\b/g, "shall not"],
+  [/\b([a-z]+)n't\b/g, "$1 not"],
+  [/\b(i|you|we|they|who|what|there|that)'re\b/g, "$1 are"],
+  [/\b(i|you|we|they|who|could|would|should|might|must)'ve\b/g, "$1 have"],
+  [/\b(i|you|we|they|he|she|it|who|that|there)'ll\b/g, "$1 will"],
+  [/\bi'm\b/g, "i am"],
+  [/\b(it|that|there|here|what|who|where|how|let)'s\b/g, (m, a) => ("let" === a ? "let us" : a + " is")],
+  [/\b([a-z]{3,}s)'(?=\s|$)/g, "$1"],
+];
+function agExpand(s) {
+  let t = String(s || "").replace(/[‘’]/g, "'");
+  AG_CONTRACT.forEach(([re, to]) => (t = t.replace(re, to)));
+  return t;
+}
+// everyday words people use with Ask that the trade dictionary lacks
+const AG_COMMON = new Set(
+  "app apps sheet sheets rebook rebooked rebooking reschedule rescheduled schedule scheduled send sending sent yet hold holding wait waiting tell told remind ask asked pdf photo photos picture text texted email emailed call called phone sample samples color colors colour colours swatch swatches mockup mock drawing revised revision revise resubmit picket pickets spacing slab slabs veneer grout shower tub vanity hood range fridge dishwasher sink toilet trim casing paint paints coat coats finish finishes floor floors wall walls ceiling stair stairs window windows door doors tile tiles stone marble quartz cabinet cabinets drawer drawers hinge hinges handle handles knob knobs light lights fixture fixtures outlet outlets switch switches please thanks okay ok cancel confirm confirmed reply replied answer answered owe owes owed due yet still already"
+    .split(" "),
+);
+let agRecWordsMemo = null;
+function agRecWords() {
+  const key = [(DB.comms || []).length, (DB.projects || []).length, (DB.field && DB.field.raises || []).length, (DB.field && DB.field.subs || []).length].join(":");
+  if (agRecWordsMemo && agRecWordsMemo.key === key) return agRecWordsMemo.set;
+  const set = new Set(),
+    add = (s) =>
+      String(s || "")
+        .toLowerCase()
+        .split(/[^a-z]+/)
+        .forEach((w) => w.length >= 3 && set.add(w));
+  try {
+    (DB.comms || []).forEach((c) => (add(c.subject), add(String(c.text || "").slice(0, 2000)))),
+      (DB.projects || []).forEach((p) => {
+        (p.tasks || []).forEach((t) => (add(t.name), add(t.notes))), (p.materials || []).forEach((m) => (add(m.name), add(m.notes))), (p.decisions || []).forEach((d) => (add(d.name), add(d.notes))), (p.requests || []).forEach((r) => (add(r.what), add(r.note))), (p.actions || []).forEach((a) => add(a.title));
+      }),
+      ((DB.field || {}).raises || []).forEach((r) => (add(r.title), add(r.note))),
+      ((DB.field || {}).subs || []).forEach((s) => add(s.note)),
+      (DB.clients || []).forEach((c) => [...(c.estimates || []), ...(c.invoices || []), ...(c.changeOrders || [])].forEach((d) => (add(d.title), (d.lines || []).forEach((l) => (add(l.item), add(l.desc)))))),
+      ("function" == typeof itemLib ? itemLib() : []).forEach((i) => (add(i.name), add(i.desc)));
+  } catch (e) {}
+  return (agRecWordsMemo = { key: key, set: set }), set;
+}
+{
+  const base = agKnownWord;
+  agKnownWord = function (t) {
+    if (base.apply(this, arguments)) return !0;
+    const w = String(t || "").toLowerCase();
+    if (/'/.test(w)) return !0;
+    const x = w.replace(/[^a-z-]/g, ""),
+      R = agRecWords();
+    if (AG_COMMON.has(x) || R.has(x) || R.has(x.replace(/s$/, ""))) return !0;
+    const m = x.match(/^(re|pre|mis|over|under|out|co)-?([a-z]{4,})$/);
+    return !!m && base.call(this, m[2]) | AG_COMMON.has(m[2]) | R.has(m[2]) ? !0 : !1;
+  };
+}
+{
+  const base = agFix;
+  agFix = function (l, keep) {
+    // a contraction is expanded first; a token with an apostrophe or a known word is never rewritten
+    const F = base.call(this, agExpand(l), keep);
+    try {
+      F.fixes = (F.fixes || []).filter(([from]) => {
+        if (/'/.test(from) || agKnownWord(from)) return (F.text = F.text), !1;
+        return !0;
+      });
+      // rebuild the text from the kept fixes only
+      const kept = new Map(F.fixes);
+      F.text = agExpand(l)
+        .split(" ")
+        .map((t) => (kept.has(t) ? kept.get(t) : "undefined" != typeof AG_SMALL && AG_SMALL[t] ? AG_SMALL[t] : t))
+        .join(" ");
+    } catch (e) {}
+    return F;
+  };
+}
+// the words of a question Ask has no reading for: not a known word, not a name, not fixed
+function agUnknown(q) {
+  try {
+    const V = agVocab(),
+      P = agParse(q),
+      fixed = new Set((P.fixes || []).map((f) => f[1]));
+    return P.l.split(" ").filter((t) => t.length >= 3 && /^[a-z]+$/.test(t) && !fixed.has(t) && !V.base.has(t) && !V.names.has(t) && !agKnownWord(t));
+  } catch (e) {
+    return [];
+  }
+}
+const AG_INSTRUCTION = /^(please\s+)?(do not|don'?t|dont|never|stop|hold off|send|pay|order|book|approve|cancel|email|text|call|remind|tell)\b/i;
+{
+  const base = paAsk;
+  paAsk = function (q) {
+    // the possessive plural is the name ("the Kleins' invoice" is the Kleins')
+    "string" == typeof q && (q = q.replace(/[‘’]/g, "'").replace(/\b([A-Za-z]{3,}s)'(?=\s|$|[?.!,])/g, "$1"));
+    const out = base.call(this, q, ...[].slice.call(arguments, 1)),
+      fix = (a) => {
+        try {
+          if (!a || "object" != typeof a || "records" !== a.kind || !q) return a;
+          const unk = agUnknown(q),
+            instr = AG_INSTRUCTION.test(String(q).trim()),
+            asked = /^(has|have|had|did|does|do|is|are|was|were|will|can|could|should|what|which|who|whom|whose|when|where|why|how)\b/i.test(String(q).trim());
+          // a question that matched no question Ask answers: say so, and keep the records it found below
+          if (!unk.length && !instr && asked)
+            return Object.assign({}, a, { kind: "notUnderstood", headline: `I did not understand this as a question I can answer: I read it as "${agParse(q).l}". The records that mention its words are below; nothing here answers it.`, note: a.note });
+          if (!unk.length && !instr) return a;
+          return Object.assign({}, a, {
+            kind: "notUnderstood",
+            headline: `I did not understand ${unk.length ? `"${unk.join('", "')}"` : "this as a question"}${instr ? `: it reads as an instruction (${String(q).trim().split(/\s+/).slice(0, 4).join(" ")}…), and Ask answers questions from the records` : ""}. Nothing was done.`,
+            note: "Ask it as a question (what, who, how much, when), or tell me what the word means. I would rather say so than answer a different question.",
+            rows: [],
+            work: [`I read: "${agParse(q).l}"`],
+          });
+        } catch (e) {
+          return a;
+        }
+      };
+    return out && "function" == typeof out.then ? out.then(fix) : fix(out);
+  };
+}

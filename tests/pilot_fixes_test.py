@@ -420,7 +420,28 @@ async def t_statements_tasks_billing(c, p):
     c.ok(not errs and not errs2 and not errs3, f'8-10: no page errors {(errs + errs2 + errs3)[:2]}')
     await b.close()
 
-TESTS = [t_daily_log, t_daily_log_day2, t_documents, t_controller_pos, t_payment_check, t_own_mail_client, t_bought_from_mail, t_request_quirks, t_statements_tasks_billing]
+# ------------------------------------------------------------------------------------------------ 11: Ask
+async def t_ask_typos(c, p):
+    b, pg, errs = await fresh(p, 'u_alan', phone=True)
+    r = await js(pg, """
+      const out = {};
+      for (const q of ["Please don't send the paint sheet to the Kleins yet", 'has Tomas rebooked in the app', "what do the Kleins' owe", 'zorbify the qwerty frobs']) {
+        const P = agParse(q), a = await paAsk(q);
+        out[q] = { l: P.l, fixes: P.fixes.map(f => f.join('>')), head: a && a.headline, kind: a && a.kind };
+      }
+      return out;""")
+    a = r["Please don't send the paint sheet to the Kleins yet"]
+    c.ok('do not' in a['l'] and 'sheet' in a['l'] and not a['fixes'], f"ask: \"don't\" and \"sheet\" are kept, never \"done\" and \"sheen\" ({a['l']!r}, {a['fixes']})")
+    c.ok(a['kind'] == 'notUnderstood' and 'instruction' in a['head'] and 'Nothing was done' in a['head'], f"ask: a request not to act is said back, not answered as another question ({a['head']!r})")
+    b2 = r['has Tomas rebooked in the app']
+    c.ok('rebooked' in b2['l'] and ' app' in b2['l'] and not b2['fixes'], f"ask: \"rebooked\" and \"app\" are kept ({b2['l']!r}, {b2['fixes']})")
+    c.ok('kleins' in r["what do the Kleins' owe"]['l'], f"ask: \"Kleins'\" stays the Kleins ({r["what do the Kleins' owe"]['l']!r})")
+    z = r['zorbify the qwerty frobs']
+    c.ok('did not understand' in (z['head'] or '') and 'zorbify' in z['head'], f"ask: words it does not know are named ({z['head']!r})")
+    c.ok(not errs, f'ask: no page errors {errs[:2]}')
+    await b.close()
+
+TESTS = [t_daily_log, t_daily_log_day2, t_documents, t_controller_pos, t_payment_check, t_own_mail_client, t_bought_from_mail, t_request_quirks, t_statements_tasks_billing, t_ask_typos]
 
 async def main():
     c = Checks()
