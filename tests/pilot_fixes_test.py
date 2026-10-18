@@ -268,7 +268,69 @@ async def t_payment_check(c, p):
     c.ok('approved at $29,700' in r['word'] and '$3,800 disputed' in r['word'], f"owner: the bill reads approved at $29,700 with $3,800 disputed ({r['word']!r})")
     await b.close()
 
-TESTS = [t_daily_log, t_controller_pos, t_payment_check, t_own_mail_client, t_bought_from_mail, t_request_quirks]
+# ------------------------------------------------------------------------------------------------ 5: documents
+async def t_documents(c, p):
+    b, pg, errs = await fresh(p, 'u_alan', phone=True)
+    r = await js(pg, """
+      setCurrent('p121'); view = 'dash'; render(); await sleep(300);
+      const btns = [...document.querySelectorAll('#v-dash .doc-jobacts button')].map(b => b.innerText.trim());
+      document.querySelector('#v-dash [data-jobnew="co"]').click(); await sleep(250);
+      const co = { title: (document.querySelector('#mbm h3') || {}).innerText || '', client: (document.querySelector('#mbm [data-f="clientId"]') || {}).value, proj: (document.querySelector('#mbm [data-f="projectId"]') || {}).value };
+      mbCloseModal();
+      document.querySelector('#v-dash [data-jobnew="est"]').click(); await sleep(250);
+      const pick = document.querySelector('#mbm input[name="ne-t"][value=""]'); pick && (pick.checked = true); document.querySelector('#mbm-ok').click(); await sleep(400);
+      const cl = DB.clients.find(x => x.id === S.clientId), d = cl.estimates[cl.estimates.length - 1];
+      return { btns, co, est: { lines: d.lines.length, pid: d.projectId, status: d.status, total: docTotal(d).total }, scope: ['scope', 'inclusions', 'exclusions'].every(k => !!document.querySelector('[data-d="' + k + '"]')) };""")
+    c.ok(r['btns'] == ['New Change Order', 'New Estimate'], f"pm: the job's page offers New Change Order and New Estimate ({r['btns']})")
+    c.ok(r['co']['title'] == 'New Change Order' and r['co']['client'] == 'cl121' and r['co']['proj'] == 'p121', f"pm: New Change Order from the job starts for its client and job ({r['co']})")
+    c.ok(r['est']['pid'] == 'p121' and r['est']['lines'] <= 1 and r['est']['total'] == 0, f"pm: New Estimate starts blank on the job, not a copy of the contract ({r['est']})")
+    c.ok(r['scope'], 'pm: the new estimate has Scope, Inclusions and Exclusions')
+    r = await js(pg, """
+      const cl = DB.clients.find(x => x.id === 'cl121'), d = cl.estimates[cl.estimates.length - 1];
+      const known = (cl.estimates.find(e => e.status === 'converted') || cl.estimates[0]).lines.find(l => l.item && +l.rate > 0);
+      d.lines = [{ id: 'lx1', item: known.item, qty: 1, unit: 'ls', rate: 0 }, { id: 'lx2', item: 'Zzqx parlor widget', qty: 1, unit: 'ls', rate: 0 }, { id: 'lx3', item: 'Stair runner', qty: 1, unit: 'ls', rate: 500 }];
+      render(); await sleep(300);
+      const priced = d.lines.find(l => l.id === 'lx1'), note = (document.querySelector('.doc-noprice') || {}).innerText || '';
+      const keep = document.querySelector('tr[data-line="lx3"] input');
+      document.querySelector('[data-rmline="lx2"]').click(); await sleep(150);
+      const stable = keep === document.querySelector('tr[data-line="lx3"] input') && document.body.contains(keep);
+      return { known: known.item, rate: priced.rate, from: priced.priceFrom || '', note, stable, ids: d.lines.map(l => l.id), sel: document.querySelectorAll('[data-lsel]').length };""")
+    c.ok(r['rate'] > 0 and r['from'], f"pm: a line named like past work is priced from it ({r['known']!r} at {r['rate']} from {r['from']!r})")
+    c.ok('Zzqx parlor widget' in r['note'] and 'No price found' in r['note'], f"pm: a line nothing matches says so, not a silent $0 ({r['note'][:120]!r})")
+    c.ok(r['stable'] and r['ids'] == ['lx1', 'lx3'], f"pm: removing a line keeps the other lines' controls ({r})")
+    c.ok(r['sel'] >= 2, f"pm: lines can be selected to remove several at once ({r['sel']})")
+    r = await js(pg, """
+      const cl = DB.clients.find(x => x.id === 'cl121'), sig = cl.estimates.find(e => e.status === 'converted') || cl.estimates[0];
+      const n0 = cl.estimates.length; await docAction(cl, sig, 'dup'); await sleep(200);
+      const m = document.getElementById('mbm'), title = m ? m.querySelector('h3').innerText : '';
+      const boxes = m ? [...m.querySelectorAll('[data-dupl]')] : []; boxes[0] && (boxes[0].checked = true);
+      m && m.querySelector('#mbm-ok').click(); await sleep(300);
+      const n = cl.estimates[cl.estimates.length - 1];
+      return { title, made: cl.estimates.length - n0, lines: n.lines.length, of: sig.lines.length };""")
+    c.ok(r['title'].startswith('Copy Lines') and r['made'] == 1 and r['lines'] == 1, f"pm: Duplicate copies the lines picked, not the whole contract ({r})")
+    r = await js(pg, """
+      docOpen = null; view = 'home'; render(); await sleep(200);
+      view = 'billing'; billTab = 'co'; render(); await sleep(250);
+      const cl = DB.clients.find(x => x.id === 'cl121'), co = cl.changeOrders[0];
+      docOpen = { kind: 'co', id: co.id }; render(); await sleep(250);
+      const went = appBack(); await sleep(400);
+      return { went, view, doc: docOpen, tab: billTab };""")
+    c.ok(r['went'] and r['view'] == 'billing' and not r['doc'] and r['tab'] == 'co', f"pm: back from a change order returns to Billing › Change Orders, not Today ({r})")
+    r = await js(pg, """
+      docOpen = null; view = 'billing'; billTab = 'est'; render(); await sleep(250);
+      const a = !!document.getElementById('bill-newest');
+      view = 'clients'; clientOpen = 'cl121'; render(); await sleep(250);
+      const cp = [...document.querySelectorAll('#v-clients .doc-jobacts button')].map(b => b.innerText.trim());
+      const raise = (DB.field.raises || [])[0]; let fb = false;
+      if (raise) { fAnswerRaise(raise); await sleep(200); fb = !!document.querySelector('#mbm [data-jobnew="co"]'); mbCloseModal(); }
+      return { a, fb, raise: !!raise, cp };""")
+    c.ok(r['a'], 'pm: Billing › Estimates has New Estimate')
+    c.ok('New Estimate' in r['cp'], f"pm: the client's page has New Estimate ({r['cp']})")
+    c.ok(r['fb'] or not r['raise'], f"pm: the field answer sheet offers New Change Order ({r})")
+    c.ok(not errs, f'pm: no page errors {errs[:2]}')
+    await b.close()
+
+TESTS = [t_daily_log, t_documents, t_controller_pos, t_payment_check, t_own_mail_client, t_bought_from_mail, t_request_quirks]
 
 async def main():
     c = Checks()

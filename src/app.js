@@ -120035,10 +120035,18 @@ function rxPushHistory() {
       key = JSON.stringify(st);
     if (key === rxLastKey) return;
     (rxLastKey = key),
+      // the depth rides on each entry, so Back knows there is a screen of ours to go back to
       !rxPopping && history.state && history.state.rx
-        ? history.pushState({ rx: st }, "")
-        : history.replaceState({ rx: st }, "");
+        ? history.pushState({ rx: st, d: (history.state.d || 0) + 1 }, "")
+        : history.replaceState({ rx: st, d: (history.state && history.state.d) || 0 }, "");
   } catch (e) {}
+}
+// Back to the previous screen of this app (a document, a tab, a job), or false when there is none
+function appBack() {
+  try {
+    if (history.state && history.state.rx && (history.state.d || 0) > 0) return history.back(), !0;
+  } catch (e) {}
+  return !1;
 }
 window.addEventListener("popstate", (e) => {
   const st = e.state && e.state.rx;
@@ -190477,3 +190485,249 @@ window.addEventListener(
   },
   !0,
 );
+// ---- A document starts where the person is (pilot day 1 and 2, the PM on the phone) ---------------------------
+// New Change Order was reachable only from Billing › Change Orders › New, and New Estimate from nowhere he looked:
+// the only way to an estimate for extra work was Duplicate on the signed $485,000 contract. Now the job's page, the
+// client's page and Billing › Estimates each start them for that client and job; a field answer starts the CO.
+// A new estimate is blank, with Scope, Inclusions and Exclusions; Duplicate copies the lines you pick; removing a
+// line leaves the others where they are; a line with no price says where it looked.
+function docNewEstimate(clientId, projectId) {
+  const c = (DB.clients || []).find((x) => x.id === clientId);
+  if (!c) return "function" == typeof crPickClient ? crPickClient("New Estimate", (x) => newEstimatePicker(x)) : void 0;
+  "undefined" != typeof finProj && (finProj = projectId || "");
+  newEstimatePicker(c);
+}
+function docJobActs(clientId, projectId) {
+  return `<div class="row doc-jobacts" style="gap:8px;flex-wrap:wrap;margin:0 0 10px"><button type="button" class="btn sm" data-jobnew="co" data-cid="${esc(clientId || "")}" data-pid="${esc(projectId || "")}">New Change Order</button><button type="button" class="btn sm" data-jobnew="est" data-cid="${esc(clientId || "")}" data-pid="${esc(projectId || "")}">New Estimate</button></div>`;
+}
+window.addEventListener(
+  "click",
+  (e) => {
+    const b = e.target && e.target.closest ? e.target.closest("[data-jobnew]") : null;
+    if (!b) return;
+    e.preventDefault(), e.stopPropagation();
+    const cid = b.dataset.cid,
+      pid = b.dataset.pid;
+    "co" === b.dataset.jobnew ? newChangeOrderDialog({ clientId: cid, projectId: pid, title: b.dataset.title || "" }) : docNewEstimate(cid, pid);
+  },
+  !0,
+);
+{
+  const base = render;
+  render = function () {
+    const r = base.apply(this, arguments);
+    try {
+      const can = ["pm", "owner", "billing", "designer"].includes(role());
+      // the job's page
+      const dv = document.getElementById("v-dash");
+      can && "dash" === view && dv && S && S.clientId && !dv.querySelector(".doc-jobacts") && dv.insertAdjacentHTML("afterbegin", docJobActs(S.clientId, S.id));
+      // Billing › Estimates
+      const bb = document.getElementById("billing-body");
+      if (can && "billing" === view && bb && !("undefined" != typeof docOpen && docOpen) && "est" === ("undefined" != typeof billTab ? billTab : "") && !bb.querySelector("#bill-newest")) {
+        const tabs = bb.querySelector(".ctabs");
+        tabs &&
+          (tabs.insertAdjacentHTML("afterend", '<div class="row cr-tabacts"><span class="grow"></span><button class="btn primary" id="bill-newest">New Estimate</button></div>'),
+          (bb.querySelector("#bill-newest").onclick = () => {
+            const k = crDocContext();
+            docNewEstimate(k.clientId, k.projectId);
+          }));
+      }
+      // the client's page
+      const cv = document.getElementById("v-clients");
+      if (can && "clients" === view && cv && "undefined" != typeof clientOpen && clientOpen && !("undefined" != typeof docOpen && docOpen) && !cv.querySelector(".doc-jobacts")) {
+        const pid = ("undefined" != typeof finProj && finProj) || ((DB.projects || []).find((p) => p.clientId === clientOpen) || {}).id || "",
+          at = cv.querySelector(".ctabs") || cv.querySelector(".ph");
+        at && at.insertAdjacentHTML("afterend", docJobActs(clientOpen, pid));
+      }
+    } catch (e) {
+      console.warn("document entry points", e);
+    }
+    return r;
+  };
+}
+// the field answer: New Change Order for an ask that is an extra, whatever the question's type
+{
+  const base = fAnswerRaise;
+  fAnswerRaise = function (r, dec) {
+    const out = base.apply(this, arguments);
+    try {
+      const m = document.getElementById("mbm"),
+        p = r && (DB.projects || []).find((x) => x.id === r.projectId);
+      if (m && p && !m.querySelector("[data-jobnew]")) {
+        const bd = m.querySelector(".mbm-bd");
+        bd &&
+          bd.insertAdjacentHTML(
+            "beforeend",
+            `<div class="row" style="margin-top:8px"><button type="button" class="btn sm" data-jobnew="co" data-cid="${esc(p.clientId || "")}" data-pid="${esc(p.id)}" data-title="${esc(clipWords(r.title || "", 60))}">New Change Order</button><span class="small muted" style="margin-left:6px">for an extra the client asked for</span></div>`,
+          );
+      }
+    } catch (e) {}
+    return out;
+  };
+}
+{
+  const base = newChangeOrderDialog;
+  newChangeOrderDialog = function (preset) {
+    const out = base.apply(this, arguments);
+    try {
+      const t = preset && preset.title && document.querySelector('#mbm [data-f="title"]');
+      t && !t.value && (t.value = preset.title);
+    } catch (e) {}
+    return out;
+  };
+}
+// Estimate: Scope, Inclusions and Exclusions (the client reads them; they print)
+{
+  const base = renderDocEditor;
+  renderDocEditor = function (c, d) {
+    try {
+      d && ["co", "estimate"].includes(d.type) && "draft" === d.status && docPriceLines(d);
+    } catch (e) {
+      console.warn("line prices", e);
+    }
+    let h = base.apply(this, arguments);
+    try {
+      if (d && "estimate" === d.type && "string" == typeof h && !h.includes('data-d="scope"')) {
+        const ro = "draft" !== d.status ? "readonly" : "",
+          box = `<div class="card est-scope" style="margin:10px 0"><div class="grid2"><div class="f"><label>Scope</label><textarea data-d="scope" rows="3" ${ro} placeholder="What the work is, in the client's words">${esc(d.scope || "")}</textarea></div><div class="f"><label>Inclusions</label><textarea data-d="inclusions" rows="3" ${ro} placeholder="What the price includes">${esc(d.inclusions || "")}</textarea></div><div class="f"><label>Exclusions</label><textarea data-d="exclusions" rows="3" ${ro} placeholder="What it does not include">${esc(d.exclusions || "")}</textarea></div></div></div>`,
+          at = h.indexOf('<div class="totals">');
+        h = at > 0 ? h.slice(0, at) + box + h.slice(at) : h + box;
+      }
+      const np = d && (d.lines || []).filter((l) => l.noPrice);
+      if (np && np.length && "string" == typeof h) {
+        const note = `<div class="note warn small doc-noprice">No price found for ${np.map((l) => `“${esc(l.item)}”`).join(", ")} in the item library, past change orders or estimate lines: price ${np.length > 1 ? "them" : "it"} before it goes to the client.</div>`,
+          at = h.indexOf('<div class="totals">');
+        h = at > 0 ? h.slice(0, at) + note + h.slice(at) : h + note;
+      }
+    } catch (e) {}
+    return h;
+  };
+}
+// A line's price from what the firm has priced before: the item library, then past change orders, then estimate
+// lines with the same description. Nothing found is said, never a silent $0.
+function docPriceOf(item, selfDoc) {
+  const k = "function" == typeof normItem ? normItem(item) : String(item || "").toLowerCase().trim();
+  if (!k || k.length < 3) return null;
+  const it = "function" == typeof libFind ? libFind(item) : null;
+  if (it && +it.rate) return { rate: +it.rate, cost: +it.cost || 0, unit: it.unit || "", from: "the item library", lib: it };
+  const same = (l) => l && l.item && normItem(l.item) === k && +l.rate > 0;
+  for (const c of DB.clients || []) {
+    const co = (c.changeOrders || []).filter((x) => x !== selfDoc && "void" !== x.status).sort((a, b) => String(b.date || "").localeCompare(a.date || "")).find((x) => (x.lines || []).some(same));
+    if (co) {
+      const l = co.lines.find(same);
+      return { rate: +l.rate, cost: +l.cost || 0, unit: l.unit || "", from: co.number };
+    }
+  }
+  for (const c of DB.clients || []) {
+    const es = (c.estimates || []).filter((x) => x !== selfDoc).find((x) => (x.lines || []).some(same));
+    if (es) {
+      const l = es.lines.find(same);
+      return { rate: +l.rate, cost: +l.cost || 0, unit: l.unit || "", from: es.number };
+    }
+  }
+  return null;
+}
+function docPriceLines(d) {
+  (d.lines || []).forEach((l) => {
+    if (!l.item || +l.rate || l.sovId) return void (l.noPrice && +l.rate && delete l.noPrice);
+    if (l.priceTried === l.item) return;
+    l.priceTried = l.item;
+    const P = docPriceOf(l.item, d);
+    if (!P) return void (l.noPrice = !0);
+    delete l.noPrice;
+    P.lib && "function" == typeof libFillLine ? libFillLine(l, P.lib, d) : ((l.rate = P.rate), P.cost && !+l.cost && (l.cost = r2(P.cost)), P.unit && (!l.unit || "ls" === l.unit) && (l.unit = P.unit));
+    l.priceFrom = P.from;
+  });
+}
+// Duplicate: copy the lines you pick (a whole signed contract copied for one extra was 13 lines to delete)
+{
+  const base = docAction;
+  docAction = async function (c, d, a) {
+    if ("dup" === a && d && (d.lines || []).length > 1 && "sov" !== d.mode && !docAction.__dupAll) {
+      const k = d.type;
+      mbModal(
+        `Copy Lines — ${esc(d.number)}`,
+        `<div class="small muted" style="margin-bottom:6px">Pick the lines the new ${"co" === k ? "change order" : k} starts with.</div><label class="chk"><input type="checkbox" data-dupall> <b>All ${d.lines.length} lines</b></label>${d.lines.map((l) => `<label class="chk"><input type="checkbox" data-dupl="${esc(l.id)}"> ${esc(l.item || l.desc || "Line")} <span class="small muted">${money(lineAmount(l, d))}</span></label>`).join("")}`,
+        {
+          submit: "Copy Selected Lines",
+          onSubmit: () => {
+            const m = document.getElementById("mbm"),
+              ids = [...m.querySelectorAll("[data-dupl]:checked")].map((i) => i.dataset.dupl);
+            if (!ids.length) return toast("Pick at least one line, or All"), !1;
+            const n = newDoc(c, k, { mode: d.mode, fields: { title: d.title, projectId: d.projectId, terms: d.terms, taxRate: d.taxRate, discount: { ...d.discount }, lines: d.lines.filter((l) => ids.includes(l.id)).map((l) => ({ ...l, id: uid("l") })) } });
+            (docOpen = { kind: k, id: n.id }), save(), render(), window.scrollTo(0, 0), toastDone(`${n.number} created with ${fxN(ids.length, "line")} from ${d.number}`, () => ((docOpen = { kind: k, id: n.id }), render()));
+          },
+        },
+      );
+      const m = document.getElementById("mbm"),
+        all = m && m.querySelector("[data-dupall]");
+      all && (all.onchange = () => m.querySelectorAll("[data-dupl]").forEach((i) => (i.checked = all.checked)));
+      return;
+    }
+    return base.apply(this, arguments);
+  };
+}
+// Remove a line without re-rendering the document: the row goes, the totals update, every other control stays
+// where the thumb is. Select lines to remove several at once.
+window.addEventListener(
+  "click",
+  (e) => {
+    const b = e.target && e.target.closest ? e.target.closest("[data-rmline], [data-rmsel]") : null;
+    if (!b || !("undefined" != typeof docOpen && docOpen)) return;
+    const root = b.closest('[id^="doc-"]');
+    if (!root) return;
+    let c = null,
+      d = null;
+    for (const x of DB.clients || []) {
+      const f = "function" == typeof findDoc ? findDoc(x, docOpen.kind, docOpen.id) : null;
+      if (f) {
+        (c = x), (d = f);
+        break;
+      }
+    }
+    if (!d || "doc-" + d.id !== root.id) return;
+    e.preventDefault(), e.stopPropagation();
+    const ids = b.dataset.rmsel ? [...root.querySelectorAll("[data-lsel]:checked")].map((i) => i.dataset.lsel) : [b.dataset.rmline];
+    if (!ids.length) return toast("Tick the lines to remove first");
+    (d.lines = d.lines.filter((x) => !ids.includes(x.id))), save();
+    ids.forEach((id) => root.querySelectorAll(`tr[data-line="${id}"], tr[data-fmline="${id}"], tr[data-linex="${id}"]`).forEach((tr) => tr.remove()));
+    try {
+      const tmp = document.createElement("div");
+      tmp.innerHTML = renderDocEditor(c, d);
+      const nt = tmp.querySelector(".totals .tt"),
+        ot = root.querySelector(".totals .tt");
+      nt && ot && (ot.innerHTML = nt.innerHTML);
+    } catch (err) {}
+    docSelBar(root);
+    toast(`${fxN(ids.length, "line")} removed from ${d.number}`);
+  },
+  !0,
+);
+function docSelBar(root) {
+  const n = root.querySelectorAll("[data-lsel]:checked").length,
+    bar = root.querySelector(".doc-selbar");
+  bar && ((bar.hidden = !n), (bar.querySelector("[data-rmsel]").textContent = `Remove ${fxN(n, "Line")}`));
+}
+{
+  const base = render;
+  render = function () {
+    const r = base.apply(this, arguments);
+    try {
+      if ("undefined" != typeof docOpen && docOpen) {
+        document.querySelectorAll('[id^="doc-"]').forEach((root) => {
+          const rows = root.querySelectorAll("tr[data-line]");
+          if (rows.length < 2 || root.querySelector("[data-lsel]") || !root.querySelector("[data-rmline]")) return;
+          rows.forEach((tr) => {
+            const td = tr.querySelector("td");
+            td && td.insertAdjacentHTML("afterbegin", `<input type="checkbox" data-lsel="${esc(tr.dataset.line)}" aria-label="Select the line" class="doc-lsel">`);
+          });
+          const tbl = rows[0].closest("table");
+          tbl &&
+            tbl.insertAdjacentHTML("afterend", '<div class="row doc-selbar" hidden style="gap:8px;margin:6px 0"><button type="button" class="btn sm" data-rmsel="1">Remove Lines</button></div>');
+          root.addEventListener("change", (ev) => ev.target.matches && ev.target.matches("[data-lsel]") && docSelBar(root));
+        });
+      }
+    } catch (e) {}
+    return r;
+  };
+}

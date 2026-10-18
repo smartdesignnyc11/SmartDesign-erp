@@ -610,6 +610,10 @@ class Sim:
     async def v_back(self, uid, pg, args, opts):
         r = await pg.evaluate("__SIM.closeTop()")
         if not r:
+            # the app's own Back first: the previous screen inside a page (a document, a tab), as a person's back does
+            if await pg.evaluate("() => typeof appBack === 'function' && appBack()"):
+                await self.settle(pg, 400); r = 'back to the previous screen'
+        if not r:
             hist = self.state['people'].get(uid, {}).get('hist', [])
             if len(hist) >= 2:
                 hist.pop(); prev = hist[-1]
