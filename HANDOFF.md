@@ -100,5 +100,5 @@ If a change moves one of these, say exactly why.
   - Netlify and Supabase tokens are network secrets on this cloud environment (header `Authorization: Bearer`, hosts `api.netlify.com` and `api.supabase.com`). Call the APIs with no token; the proxy adds it.
   - Supabase: organization "SmartDesign ERP". Free plan; move to Pro before real money data goes in (backups).
   - Netlify: 12 old sites (all last updated 2026-09-10). Alan's call: leave them alone and create a new, clearly named site.
-- **Platform:** started 2026-10-18 in its own session; see "The hosted copy" above and `platform/README.md`. Supabase now has the project; the Anthropic key's live check was still open at the first slice.
+- **Platform:** started 2026-10-18 in its own session; see "The hosted copy" above and `platform/README.md`. Live at https://smartdesigns-erp.netlify.app; all live checks green once the Anthropic workspace ID went in (ANTHROPIC_WORKSPACE_ID on the site; the key is not scoped to a workspace).
 - **Private case bank:** Alan's Drive folder "SmartDesign ERP – Private Test Cases" (id 1VCJnCZ0VJayTPLUkM3XFJAKtNJYx2zDv). Real meeting cases live there and never in the repo. The assistant test runs after the one-assistant work (§1.27).
