@@ -193550,7 +193550,7 @@ let fndFreshUntil = 0;
 function fndPaint(scroll) {
   const root = fndRoot();
   document.querySelectorAll("#fnd-made").forEach((e) => e.remove());
-  if (!root || !fndUid()) return;
+  if (!root || !fndUid() || "client" === role()) return;
   const V = fndLoad()
       .filter((x) => x.view === view && !fndOwnList(x.key))
       .map((x) => Object.assign({}, x, { rec: fndFind(x.key) }))
@@ -193569,7 +193569,7 @@ function fndPaint(scroll) {
     ((anchor) => {
       // a row the list has just highlighted stays where the person sees it when the card goes in above it
       const top = anchor ? anchor.getBoundingClientRect().top : null,
-        f = fresh && fndFocus && ((fndFocus.sel && root.querySelector(fndFocus.sel)) || fndFlash(fndFocus.name, "", !0)),
+        f = fresh && fndFocusEl(root),
         at = f && f.closest(".card");
       at && root.contains(at) ? at.before(card) : root.prepend(card);
       if (anchor && top >= 0 && top < innerHeight) {
@@ -193595,7 +193595,8 @@ function fndArm(soft) {
   // tap has in the last moment, so it never swallows the tap's own records
   if (soft && Date.now() - fndArmAt < 1500) return;
   try {
-    if (!DB || !fndUid()) return;
+    // staff only: the client's portal shows what a client does on it, and these lists are not theirs to open
+    if (!DB || !fndUid() || "client" === role()) return void (fndBase = null);
     const now = fndKeys(),
       t = Date.now();
     // what the last tap made before its toast (a sheet's second tap comes first) is carried, not dropped
@@ -193605,6 +193606,9 @@ function fndArm(soft) {
 }
 // what the last tap made, once its toast is up: shown where the person is, or highlighted if the screen shows it
 let fndFocus = null;
+const FND_APPFLASH = ".tk-flash:not(.fnd-row):not(.fnd-hit)";
+const fndFocusEl = (root) =>
+  fndFocus && root ? (fndFocus.app ? root.querySelector(FND_APPFLASH) : (fndFocus.sel && root.querySelector(fndFocus.sel)) || fndFlash(fndFocus.name, "", !0)) : null;
 function fndSettle() {
   if (!fndBase || !DB) return;
   const now = fndKeys(),
@@ -193652,6 +193656,9 @@ function fndSettle() {
       return r.width > 0 && r.top >= 56 && r.bottom <= innerHeight;
     },
     hits = root ? [...root.querySelectorAll(".fnd-hit.tk-flash")] : [];
+  // a row the screen itself just highlighted (the page moved to where the record lives, as Plans does with a new
+  // revision) is the focus too: the tap's other records are listed just above it, never pulling the page away
+  !fndFocus && root && root.querySelector(FND_APPFLASH) && (fndFocus = { app: !0 });
   // on its own list the record's row is the focus, and what else the tap made is listed right above it
   fndFocus ? mine.forEach((y) => fndOwnList(y.key) || (y.pinned = !0)) : mine.length > 1 && hits.length > 1 && !hits.every(inView) && mine.forEach((y) => (y.pinned = !0));
   add && (fndStore(L), (fndFreshUntil = at + 4e3), fndPaint(!0));
@@ -193663,7 +193670,7 @@ function fndKeepInView() {
   if (!r0 || Date.now() > fndFreshUntil + 1e3) return;
   // the record's own row when the person is on its list; the receipt when it holds this tap's records; else the
   // row the screen highlighted
-  const own = fndFocus && ((fndFocus.sel && r0.querySelector(fndFocus.sel)) || fndFlash(fndFocus.name, fndFocus.sel, !0)),
+  const own = fndFocusEl(r0),
     el = (own && (own.closest(".tk-flash, .fnd-hit, tr, .bf-imp") || own)) || (r0.querySelector("#fnd-made .fnd-row.tk-flash") && r0.querySelector("#fnd-made")) || r0.querySelector(".fnd-hit.tk-flash");
   if (!el) return;
   const r = el.getBoundingClientRect();
