@@ -1,3 +1,16 @@
+// Find it again (findable2): the first listener any tap reaches, ahead of the app's own window-level listeners that
+// stop a tap (Needs Your Hand rows, Approvals). fndOnTap, near the end of this file, snapshots what people make.
+["pointerdown", "click", "keydown", "change"].forEach((t) =>
+  window.addEventListener(
+    t,
+    (e) => {
+      try {
+        "function" == typeof fndOnTap && fndOnTap(t, e);
+      } catch (x) {}
+    },
+    !0,
+  ),
+);
 const DAY = 864e5,
   iso = (d) => {
     const x = new Date(d);
@@ -87259,6 +87272,9 @@ function mCardTables(root) {
               dates = 0;
             const keep = cells.map((td, i) => {
               if (0 === i || td.classList.contains("sel") || td.classList.contains("m-title")) return !0;
+              // the column that names the record stays on the card: a GL entry's memo was folded under "+ 3 more",
+              // so on the phone the journal a person had just posted could not be found by its name (findable2)
+              if (/^(memo|name|title|description|item|subject|file)$/i.test((td.dataset.l || "").trim())) return !0;
               if ("health" === (td.dataset.l || "").toLowerCase()) return !1;
               const isMoney = td.classList.contains("money") || /^\s*[-−]?\$/.test(td.textContent);
               if (td.querySelector("button, .btn, select, input, a")) return !0;
@@ -104373,8 +104389,10 @@ function b3Dates(root) {
     December: 12,
   };
   hits.forEach((t) => {
+    // a date that is part of a name (ac2_2026-09-03.csv, COI-2026-27) stays as written: the person looks for the
+    // name they saved, and the statement import was listed as "ac2_9/3.csv" (findable2)
     let v = t.nodeValue
-      .replace(/(\d{4})-(\d{2})-(\d{2})/g, (m, y, mo, d) => {
+      .replace(/(?<![\w.\/-])(\d{4})-(\d{2})-(\d{2})(?![\w\/-]|\.\w)/g, (m, y, mo, d) => {
         try {
           return fmt(m);
         } catch (e) {
@@ -121721,9 +121739,20 @@ if ("function" == typeof renderBilling) {
     }
   };
 }
+// who a document's mail goes to: the client's billing contact when one is named, else the primary contact
+function crBillTo(c) {
+  const L = (c && c.contacts) || [];
+  return (
+    L.find((x) => x.id && x.id === c.billingContactId) ||
+    L.find((x) => x.billing || /\b(billing|accounts?( payable)?|a\/p|bookkeep\w*|finance)\b/i.test(x.role || "")) ||
+    L.find((x) => x.primary) ||
+    L[0] ||
+    {}
+  );
+}
 function crDocEmail(c, d) {
   const t = docTotal(d),
-    pc = c.contacts.find((x) => x.primary) || c.contacts[0] || {},
+    pc = crBillTo(c),
     kind = "co" === d.type ? "change order" : d.type,
     subject = `${d.number} — ${d.title || ("co" === d.type ? "Change order" : "Invoice")}`,
     body = `Hi ${pc.name ? pc.name.split(" ")[0] : ""},\n\nAttached is ${kind} ${d.number} for ${money(t.total)}${"invoice" === d.type && d.due ? `, due ${fmtL(d.due)}` : ""}${
@@ -195299,3 +195328,617 @@ Object.assign(STD_MAP, {
   clientDrafts: { p: "client", c: ["std", "communication", /Client messages/i] },
   coNeeded: { p: "cost", leak: !0, c: ["std", "money", /No extra work without a signed change order/i] },
 });
+
+// ---- Find it again: what a person makes is on their screen, and in its own list (findable2, 2026-10-18) -----------
+// The agent month's referee (pilot1, day 1) counted 15 records their creator could not see right after saving or
+// after a reload: a payroll journal approved from Approvals, tasks made from My Day, the PM's no-show text and its
+// two drafts from Home, a COI filed from Home, a statement import, a sent invoice's chat line and mail, two calendar
+// holds from Approvals. Every one of those paths toasted, so every one "worked"; the record lived on another screen
+// and nothing on this one said so. The class is a save whose record's home is elsewhere, so the fix sits in the one
+// helper every mutation already calls, toast(). A tap takes a snapshot of the records people make (FND_HOME, one
+// entry per noun with the list it lives in); when the toast fires, any record the tap made that is not already on
+// the screen is listed at the top of it under Made Today, highlighted, each with Open to its own list, where it is
+// highlighted again. The receipt is kept per person for the app day in sessionStorage (a viewer convenience that
+// points at records, never a store of them), so a reload shows it again on the screen it was made from.
+const fndMe = () => (("function" == typeof currentUser && currentUser()) || {}).name || "";
+const fndUid = () => (("function" == typeof currentUser && currentUser()) || {}).id || "";
+const fndMay = (v) => {
+  try {
+    return (ROLE_VIEWS[role()] || []).includes(v);
+  } catch (e) {
+    return !1;
+  }
+};
+const fndJob = (p) => (p ? ("function" == typeof shortName ? shortName(p) : String((p.project || {}).name || "")) : "");
+const fndPoss = (who) => (!who || ("function" == typeof tkOwnerSafe ? tkOwnerSafe(who, fndMe()) : who === fndMe()) ? "your" : `${who}'s`);
+const fndNorm = (s) => String(s || "").replace(/\s+/g, " ").trim();
+// the name a person would look for: the same fields, in the same order, the referee reads
+const fndNameOf = (r) => fndNorm(r.number || r.title || r.name || r.what || r.subject || r.fileName || r.filename || r.desc || r.item || r.label || r.text || r.memo || "").slice(0, 160);
+function fndTaskOpen(r, p, kind) {
+  "function" == typeof tkLand && tkLand({ id: r.id, projectId: p ? p.id : "", assignee: r.assignee || r.owner || "", due: r.due || r.end || "", kind: kind });
+}
+function fndDocOf(r) {
+  const a = (r && r.about) || {},
+    c = a.clientId && (DB.clients || []).find((x) => x.id === a.clientId),
+    d = c && a.docId && "function" == typeof findDoc ? findDoc(c, a.docKind || "invoice", a.docId) : null;
+  return d ? { c: c, d: d } : null;
+}
+function fndJournalDoc(j) {
+  if (!j || !j.sourceId) return null;
+  for (const c of DB.clients || []) {
+    const d = [...(c.invoices || []), ...(c.changeOrders || [])].find((x) => x.id === j.sourceId);
+    if (d) return { c: c, d: d };
+  }
+  return null;
+}
+// Each noun a person makes from a screen other than its own, and the one list it lives in.
+const FND_HOME = {
+  "p.actions": {
+    noun: "Task",
+    where: (r, p) => `on ${fndPoss(r.assignee)} list${r.due ? `, due ${fmtL(r.due)}` : ""}${p ? ` · ${fndJob(p)}` : ""}`,
+    open: (r, p) => fndTaskOpen(r, p, "job"),
+  },
+  "p.tasks": {
+    noun: "Task",
+    where: (r, p) => `on ${fndPoss(r.owner)} list${r.end ? `, due ${fmtL(r.end)}` : ""}${p ? ` · ${fndJob(p)}` : ""}`,
+    open: (r, p) => fndTaskOpen(r, p, "sched"),
+  },
+  tasks: { noun: "Task", where: (r) => `on ${fndPoss(r.assignee)} list${r.due ? `, due ${fmtL(r.due)}` : ""}`, open: (r) => fndTaskOpen(r, null, "office") },
+  outbox: {
+    noun: (r) => ("sent" === r.status || "delivered" === r.status ? "Mail Sent" : "Draft"),
+    where: (r) => {
+      const to = r.to && "object" == typeof r.to ? r.to.name || r.to.email || r.to.phone || "" : String(r.to || ""),
+        D = fndDocOf(r);
+      return "sent" === r.status || "delivered" === r.status
+        ? `to ${to || "the recipient"}${r.sentBy ? `, sent by ${r.sentBy}` : ""}${r.via ? ` (${r.via})` : ""}${D ? ` · on ${D.d.number}` : ""}`
+        : `${"sms" === r.via ? "a text " : ""}to ${to || "the recipient"}, waiting for your Send in the Outbox${r.sendOn ? ` · for ${fmtL(r.sendOn)}` : ""}`;
+    },
+    open: (r) => {
+      const D = fndDocOf(r);
+      if (D && (fndMay("billing") || fndMay("clients")) && "undefined" != typeof flowGo) return flowGo.doc(D.c, D.d.type, D.d)();
+      if (fndMay("brain")) return (bnTab = "hands"), (view = "brain"), render();
+      fndMay("comms") && ((view = "comms"), render());
+    },
+  },
+  "p.files": {
+    noun: "File",
+    where: (r, p) => `in ${p ? fndJob(p) + "'s" : "the job's"} Files${r.by ? ` · filed by ${r.by}` : ""}`,
+    open: (r, p) => {
+      p && "function" == typeof setCurrent && setCurrent(p.id), void 0 !== fileFilter && (fileFilter = "all"), (view = "files"), render();
+    },
+  },
+  "p.chat": {
+    noun: "Chat Line",
+    where: (r, p) => `in ${p ? fndJob(p) + "'s" : "the job's"} chat${r.system ? ", posted for the client" : ""}`,
+    open: (r, p) => {
+      p && "function" == typeof setCurrent && setCurrent(p.id), (view = "chat"), render();
+    },
+  },
+  "p.materials": {
+    noun: "Material",
+    where: (r, p) => `on ${p ? fndJob(p) + "'s" : "the job's"} Materials${r.status ? ` · ${r.status}` : ""}`,
+    open: (r, p) => {
+      p && "function" == typeof setCurrent && setCurrent(p.id), (view = "mat"), render();
+    },
+  },
+  bankImports: {
+    noun: "Statement Import",
+    where: (r) => `on Banking, Statement Imports${r.lines ? ` · ${r.lines} line${1 === r.lines ? "" : "s"}` : ""}`,
+    open: (r) => ("function" == typeof bfImpLand ? bfImpLand(r.id) : ((view = "bank"), render())),
+  },
+  "calendar.external": {
+    noun: "Calendar Hold",
+    where: (r) => `on your calendar, ${fmtL(String(r.start || "").slice(0, 10))} ${String(r.start || "").slice(11, 16)}`,
+    open: (r) => {
+      void 0 !== bnCalMonth && (bnCalMonth = String(r.start || today()).slice(0, 7)), void 0 !== bnCalKind && (bnCalKind = ""), (view = "calendar"), render();
+    },
+  },
+  "gl.journals": {
+    noun: "Journal Entry",
+    where: (r) => {
+      const D = fndJournalDoc(r);
+      return fndMay("gl") || !D ? `in the General Ledger, Journal${r.date ? ` · dated ${fmtL(r.date)}` : ""}` : `posted from ${D.d.number}`;
+    },
+    // the ledger for those who keep it; for everyone else the document it posted from
+    open: (r) => {
+      const D = fndJournalDoc(r);
+      if (!fndMay("gl") && D && "undefined" != typeof flowGo) return flowGo.doc(D.c, D.d.type, D.d)();
+      (glTab = "journal"), (glJFilter = ""), (glAcctFilter = "");
+      const [from, to] = glRange();
+      r.date && r.date < from && (glFrom = r.date), r.date && r.date > to && (glTo = r.date), (view = "gl"), render();
+    },
+    sel: (r) => (fndMay("gl") ? `[data-glopen="${r.id}"]` : ""),
+    may: () => fndMay("gl") || fndMay("billing") || fndMay("clients"),
+  },
+};
+// the pages that are a noun's own list: there the list shows it, filtered as the person set it, and no receipt is added
+const FND_LIST = {
+  "p.actions": ["tkall", "tasks", "hbtasks"],
+  "p.tasks": ["tkall", "tasks", "sched"],
+  tasks: ["tkall", "tasks"],
+  outbox: ["brain"],
+  "p.files": ["files"],
+  "p.chat": ["chat"],
+  "p.materials": ["mat"],
+  bankImports: ["bank"],
+  "calendar.external": ["calendar"],
+  "gl.journals": ["gl"],
+};
+const fndOwnList = (key) => (FND_LIST[String(key).slice(0, String(key).lastIndexOf(":"))] || []).includes(view);
+function fndEach(fn) {
+  (DB.projects || []).forEach((p) =>
+    ["actions", "tasks", "files", "chat", "materials"].forEach((k) => (Array.isArray(p[k]) ? p[k] : []).forEach((r) => r && "object" == typeof r && fn("p." + k, r, p))),
+  );
+  (Array.isArray(DB.tasks) ? DB.tasks : []).forEach((r) => r && fn("tasks", r, null));
+  (DB.outbox || []).forEach((r) => r && fn("outbox", r, null));
+  (DB.bankImports || []).forEach((r) => r && fn("bankImports", r, null));
+  ((DB.calendar || {}).external || []).forEach((r) => r && fn("calendar.external", r, null));
+  ((DB.gl || {}).journals || []).forEach((r) => r && fn("gl.journals", r, null));
+}
+const fndKey = (coll, r) => coll + ":" + (r.id || r.number || "");
+function fndKeys() {
+  const K = new Set();
+  try {
+    fndEach((c, r) => (r.id || r.number) && K.add(fndKey(c, r)));
+  } catch (e) {}
+  return K;
+}
+function fndFind(key) {
+  let hit = null;
+  try {
+    fndEach((c, r, p) => {
+      hit || fndKey(c, r) !== key || (hit = { coll: c, r: r, p: p });
+    });
+  } catch (e) {}
+  return hit;
+}
+// the receipt, per person and app day, in this tab
+const fndStoreKey = () => "sd-made:" + fndUid();
+function fndLoad() {
+  try {
+    const L = JSON.parse(sessionStorage.getItem(fndStoreKey()) || "[]");
+    return Array.isArray(L) ? L.filter((x) => x && x.day === today()) : [];
+  } catch (e) {
+    return [];
+  }
+}
+function fndStore(L) {
+  try {
+    sessionStorage.setItem(fndStoreKey(), JSON.stringify(L.slice(-40)));
+  } catch (e) {}
+}
+const fndRoot = () => document.querySelector("section.view.on");
+// is this name already on the screen (outside the receipt)? the same 40-character test the referee uses
+function fndVisible(name, root) {
+  const n = fndNorm(name).toLowerCase().slice(0, 40);
+  if (!n || !root) return !1;
+  const own = root.querySelector("#fnd-made"),
+    t = fndNorm(root.innerText).toLowerCase(),
+    o = own ? fndNorm(own.innerText).toLowerCase() : "";
+  return o ? t.replace(o, "").includes(n) : t.includes(n);
+}
+// highlight the row that shows a record: the selector its list gives, or the smallest element holding its name
+function fndFlash(name, sel, quiet) {
+  const root = fndRoot();
+  if (!root) return null;
+  let el = sel ? root.querySelector(sel) : null;
+  if (!el) {
+    const n = fndNorm(name).toLowerCase().slice(0, 40);
+    if (!n) return null;
+    let best = null,
+      len = 1 / 0;
+    root.querySelectorAll("*").forEach((e) => {
+      if (e.closest("#fnd-made") || /^(SCRIPT|STYLE|OPTION|SELECT)$/.test(e.tagName)) return;
+      const t = fndNorm(e.textContent).toLowerCase();
+      t.length < len && t.includes(n) && ((best = e), (len = t.length));
+    });
+    el = best;
+  }
+  if (!el) return null;
+  const row = el.closest("tr, li, .t2-row, .t2-bcard, .fcard, .bf-imp, .h4r, .doc, .cl-row, .fnd-row") || el;
+  row.classList.add("tk-flash", "fnd-hit");
+  if (!quiet) {
+    try {
+      const r = row.getBoundingClientRect();
+      (r.top < 64 || r.bottom > innerHeight) && row.scrollIntoView({ block: "center" });
+    } catch (e) {}
+    fndHot.some((h) => h.name === name) || fndHot.push({ name: name, sel: sel || "", view: view, until: Date.now() + 4e3 });
+  }
+  setTimeout(() => row.classList.remove("tk-flash"), 4e3);
+  return row;
+}
+// a highlight outlives the render that follows a save (the next tap's render used to wipe it)
+let fndHot = [];
+function fndRehot() {
+  const t = Date.now();
+  (fndHot = fndHot.filter((h) => h.until > t)),
+    fndHot.forEach((h) => {
+      const root = fndRoot();
+      root && h.view === view && !root.querySelector(".fnd-hit.tk-flash") && fndFlash(h.name, h.sel, !0);
+    });
+}
+function fndFlashSoon(name, sel) {
+  // the list may render late (a slow phone, a page that opens at its top): checked again until it has settled
+  const pass = () => {
+    const r0 = fndRoot(),
+      el = r0 && r0.querySelector(".fnd-hit.tk-flash");
+    if (!el) return void (r0 && fndFlash(name, sel));
+    const r = el.getBoundingClientRect();
+    (r.top < 56 || r.bottom > innerHeight) && el.scrollIntoView({ block: "center" });
+  };
+  setTimeout(() => fndFlash(name, sel), 60), setTimeout(pass, 450), setTimeout(pass, 1100), setTimeout(pass, 2e3);
+}
+function fndOpen(key) {
+  const x = fndFind(key),
+    H = x && FND_HOME[x.coll];
+  if (!H) return toast("That record is no longer on file");
+  try {
+    H.open(x.r, x.p);
+  } catch (e) {
+    console.warn("open what was made", e);
+  }
+  fndFlashSoon(fndNameOf(x.r), H.sel ? H.sel(x.r) : "");
+}
+let fndFreshUntil = 0;
+function fndPaint(scroll) {
+  const root = fndRoot();
+  document.querySelectorAll("#fnd-made").forEach((e) => e.remove());
+  if (!root || !fndUid() || "client" === role()) return;
+  const V = fndLoad()
+      .filter((x) => x.view === view && !fndOwnList(x.key))
+      .map((x) => Object.assign({}, x, { rec: fndFind(x.key) }))
+      .filter((x) => x.rec),
+    hidden = new Set(V.filter((x) => x.pinned || !fndVisible(x.name, root)).map((x) => x.at)),
+    L = V.filter((x) => hidden.has(x.at)).slice(-6).reverse();
+  if (!L.length) return;
+  const fresh = Date.now() < fndFreshUntil,
+    card = document.createElement("div");
+  (card.id = "fnd-made"),
+    (card.className = "card fnd-made"),
+    (card.innerHTML = `<div class="hd"><h3>Made Today</h3><span class="small muted">from this screen · each one lives in its own list</span><span class="grow"></span><button class="btn sm" data-fndclear>Clear</button></div>${L.map(
+      (x) =>
+        `<div class="fnd-row ${fresh && x.at >= fndFreshUntil - 4e3 ? "tk-flash" : ""}" data-fndrow="${esc(x.key)}"><div class="grow"><span class="pill info">${esc(x.noun)}</span> <b data-nocase>${esc(x.name)}</b><span class="small muted" data-nocase>${esc(x.where)}</span></div>${x.open ? `<button class="btn sm" data-fndopen="${esc(x.key)}">Open</button>` : ""}</div>`,
+    ).join("")}`),
+    ((anchor) => {
+      // a row the list has just highlighted stays where the person sees it when the card goes in above it
+      const top = anchor ? anchor.getBoundingClientRect().top : null,
+        f = fresh && fndFocusEl(root),
+        at = f && f.closest(".card");
+      at && root.contains(at) ? at.before(card) : root.prepend(card);
+      if (anchor && top >= 0 && top < innerHeight) {
+        const now = anchor.getBoundingClientRect();
+        (now.top < 0 || now.bottom > innerHeight) && anchor.scrollIntoView({ block: "center" });
+      }
+    })(root.querySelector(".tk-flash")),
+    card.querySelectorAll("[data-fndopen]").forEach((b) => (b.onclick = () => fndOpen(b.dataset.fndopen))),
+    (card.querySelector("[data-fndclear]").onclick = () => {
+      fndStore(fndLoad().filter((x) => x.view !== view)), card.remove();
+    });
+  if (scroll && card.querySelector(".fnd-row.tk-flash"))
+    try {
+      const r = card.getBoundingClientRect();
+      (r.top < 64 || r.top > innerHeight - 80) && card.scrollIntoView({ block: "center" });
+    } catch (e) {}
+}
+let fndBase = null,
+  fndArmAt = 0;
+const fndPending = new Map();
+function fndArm(soft) {
+  // a change event also fires when a sheet closes and its focused field blurs, after the save: it arms only when no
+  // tap has in the last moment, so it never swallows the tap's own records
+  if (soft && Date.now() - fndArmAt < 1500) return;
+  try {
+    // staff only: the client's portal shows what a client does on it, and these lists are not theirs to open
+    if (!DB || !fndUid() || "client" === role()) return void (fndBase = null);
+    const now = fndKeys(),
+      t = Date.now();
+    // what the last tap made before its toast (a sheet's second tap comes first) is carried, not dropped
+    fndBase && now.forEach((k) => fndBase.has(k) || fndPending.set(k, t));
+    (fndBase = now), (fndArmAt = t);
+  } catch (e) {}
+}
+// what the last tap made, once its toast is up: shown where the person is, or highlighted if the screen shows it
+let fndFocus = null;
+const FND_APPFLASH = ".tk-flash:not(.fnd-row):not(.fnd-hit)";
+const fndFocusEl = (root) =>
+  fndFocus && root ? (fndFocus.app ? root.querySelector(FND_APPFLASH) : (fndFocus.sel && root.querySelector(fndFocus.sel)) || fndFlash(fndFocus.name, "", !0)) : null;
+function fndSettle() {
+  if (!fndBase || !DB) return;
+  const now = fndKeys(),
+    t0 = Date.now(),
+    fresh = [...new Set([...now].filter((k) => !fndBase.has(k)).concat([...fndPending].filter(([k, t]) => t0 - t < 1e4 && now.has(k)).map(([k]) => k)))];
+  fndPending.clear();
+  if (!fresh.length) return;
+  fndFocus = null;
+  fresh.forEach((k) => fndBase.add(k));
+  const root = fndRoot(),
+    L = fndLoad(),
+    at = Date.now();
+  let add = 0;
+  fresh.forEach((k) => {
+    const x = fndFind(k),
+      H = x && FND_HOME[x.coll];
+    if (!H) return;
+    const name = fndNameOf(x.r);
+    if (!name) return;
+    // on the record's own list its row is what the person looks at: it is the one kept in view
+    fndVisible(name, root) && fndFlash(name, H.sel ? H.sel(x.r) : "") && fndOwnList(k) && (fndFocus = { name: name, sel: H.sel ? H.sel(x.r) : "" });
+    L.some((y) => y.key === k) ||
+      (L.push({
+        key: k,
+        name: name,
+        noun: "function" == typeof H.noun ? H.noun(x.r) : H.noun,
+        where: (() => {
+          try {
+            return H.where(x.r, x.p);
+          } catch (e) {
+            return "";
+          }
+        })(),
+        open: !H.may || H.may(),
+        view: view,
+        day: today(),
+        at: at,
+      }),
+      add++);
+  });
+  // two or more rows the screen shows, too far apart to see together: the receipt lists the tap's records in one place
+  const mine = L.filter((y) => y.at === at),
+    inView = (el) => {
+      const r = el.getBoundingClientRect();
+      return r.width > 0 && r.top >= 56 && r.bottom <= innerHeight;
+    },
+    hits = root ? [...root.querySelectorAll(".fnd-hit.tk-flash")] : [];
+  // a row the screen itself just highlighted (the page moved to where the record lives, as Plans does with a new
+  // revision) is the focus too: the tap's other records are listed just above it, never pulling the page away
+  !fndFocus && root && root.querySelector(FND_APPFLASH) && (fndFocus = { app: !0 });
+  // on its own list the record's row is the focus, and what else the tap made is listed right above it
+  fndFocus ? mine.forEach((y) => fndOwnList(y.key) || (y.pinned = !0)) : mine.length > 1 && hits.length > 1 && !hits.every(inView) && mine.forEach((y) => (y.pinned = !0));
+  add && (fndStore(L), (fndFreshUntil = at + 4e3), fndPaint(!0));
+  // kept in view once the sheet has closed and focus has moved: the receipt if there is one, else the highlighted row
+  setTimeout(fndKeepInView, 450), setTimeout(fndKeepInView, 1100);
+}
+function fndKeepInView() {
+  const r0 = fndRoot();
+  if (!r0 || Date.now() > fndFreshUntil + 1e3) return;
+  // the record's own row when the person is on its list; the receipt when it holds this tap's records; else the
+  // row the screen highlighted
+  const own = fndFocusEl(r0),
+    el = (own && (own.closest(".tk-flash, .fnd-hit, tr, .bf-imp") || own)) || (r0.querySelector("#fnd-made .fnd-row.tk-flash") && r0.querySelector("#fnd-made")) || r0.querySelector(".fnd-hit.tk-flash");
+  if (!el) return;
+  const r = el.getBoundingClientRect();
+  (r.top < 56 || r.top > innerHeight - 60) && el.scrollIntoView({ block: el.id ? "start" : "center" }), el.id && el.getBoundingClientRect().top < 56 && scrollBy(0, -64);
+}
+// every tap, from the first listener at the top of this file
+function fndOnTap(t, e) {
+  ("keydown" === t && "Enter" !== e.key && " " !== e.key) || (e.target && e.target.closest && e.target.closest("#fnd-made")) || fndArm("change" === t);
+}
+{
+  const base = toast;
+  toast = function () {
+    const r = base.apply(this, arguments);
+    try {
+      clearTimeout(toast._fnd), (toast._fnd = setTimeout(fndSettle, 80)), setTimeout(fndSettle, 700);
+    } catch (e) {}
+    return r;
+  };
+}
+{
+  const base = render;
+  render = function () {
+    const r = base.apply(this, arguments);
+    try {
+      fndPaint(!1), fndRehot();
+    } catch (e) {
+      console.warn("made today", e);
+    }
+    return r;
+  };
+}
+if (!document.getElementById("fnd-css")) {
+  const st = document.createElement("style");
+  (st.id = "fnd-css"),
+    (st.textContent =
+      ".fnd-made{margin:0 0 12px}.fnd-row{display:flex;gap:10px;align-items:center;padding:8px 6px;border-top:1px solid var(--rule,#eee);overflow-wrap:anywhere}.fnd-row .grow{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1 1 220px}.fnd-row .pill{align-self:flex-start}.fnd-row.tk-flash,.fnd-hit.tk-flash{background:var(--accent-2) !important;box-shadow:inset 3px 0 0 var(--accent);transition:background 1.2s}@media (max-width:760px){.fnd-row{flex-wrap:wrap}.fnd-row .btn{min-height:44px}}");
+  document.head.appendChild(st);
+}
+
+// ---- Findable, and the right hands (findable2, 2026-10-18) -----------------------------------------------------------
+// 1. The no-show answer filed its text, call and two drafts on whichever job the PM had open (fNoShowAct reads S),
+//    so from 45 Cranberry they landed on 45 Cranberry and the 121 State list never showed them. It runs on the
+//    raise's own job now.
+{
+  const base = fNoShowAct;
+  fNoShowAct = function (r) {
+    const keep = S,
+      p = r && (DB.projects || []).find((x) => x.id === r.projectId);
+    p && (S = p);
+    try {
+      return base.apply(this, arguments);
+    } finally {
+      S = keep;
+    }
+  };
+}
+// 2. One LPC letter, one task. Make It a Task applied the reader's proposal (which files a schedule line owned by
+//    "PM", or by the designer) and then put the designer's dated task on the list: two tasks for one letter, and the
+//    first was on nobody's list the designer looks at. The comment still goes on the application; the task is the
+//    designer's one.
+{
+  const base = nyhLpcTask;
+  nyhLpcTask = function (c, pr) {
+    const t = pr && !pr.applied ? pr.task : "";
+    t && (pr.task = "");
+    try {
+      return base.apply(this, arguments);
+    } finally {
+      t && (pr.task = t);
+    }
+  };
+}
+// 3. A person's Send is their own send. The outbox kept only "by" (a display name, or "The assistant" for a draft
+//    it wrote), so a mail Billing sent read as sent by the system. Whoever presses Send is recorded on the mail.
+{
+  const base = bnSend;
+  bnSend = async function (o) {
+    const me = (("function" == typeof currentUser && currentUser()) || {}),
+      person = !!(o && !o.auto && me.id),
+      r = await base.apply(this, arguments);
+    try {
+      o &&
+        /^(sent|delivered)$/.test(String(o.status || "")) &&
+        (person
+          ? ((o.sentBy = me.name || ""), (o.sentByUid = me.id), o.byUid || (String(o.by || "") !== me.name && o.forName !== me.name) || (o.byUid = me.id))
+          : (o.sentBy = o.sentBy || "The assistant"),
+        save());
+    } catch (e) {}
+    return r;
+  };
+}
+// 4. A sent document carries its mail: who it went to, who sent it, when and how, on the document itself (the place
+//    Billing looks for it); before, the mail was only in an outbox Billing has no page for.
+function crDocMailHtml(d) {
+  const L = (DB.outbox || []).filter((o) => o.aboutKey === `doc|${d.id}` || ((o.about || {}).docId === d.id && "doc" === o.kind));
+  if (!L.length) return "";
+  const who = (o) => {
+    const t = o.to && "object" == typeof o.to ? o.to : { name: String(o.to || "") };
+    return `${t.name || ""}${t.email ? ` <${t.email}>` : ""}`.trim() || "the recipient";
+  };
+  return `<div class="note doc-mail no-doc-print" style="margin:0 0 10px">${L.map(
+    (o) =>
+      `<div data-nocase><b>${esc(o.subject || "Mail")}</b> <span class="small">to ${esc(who(o))} · ${"sent" === o.status || "delivered" === o.status ? `sent by ${esc(o.sentBy || o.by || "")}${o.sentAt ? ` ${fmtL(o.sentAt)}` : ""}${o.via ? ` (${esc(o.via)})` : ""}` : `${esc(o.status || "draft")}, not sent yet`}</span></div>`,
+  ).join("")}</div>`;
+}
+{
+  const base = renderDocEditor;
+  renderDocEditor = function (c, d) {
+    let h = base.apply(this, arguments);
+    try {
+      const m = d && "string" == typeof h ? crDocMailHtml(d) : "";
+      if (m) {
+        const i = h.indexOf('<div class="docmeta');
+        h = i > -1 ? h.slice(0, i) + m + h.slice(i) : h + m;
+      }
+    } catch (e) {}
+    return h;
+  };
+}
+// 5. A pay application never lowers a line's cumulative % (the referee's S1 on INV-2026-040, 121 State, pilot1).
+//    On a schedule-of-values invoice `pct` is this period's percent and `prevPct` the cumulative already billed, so
+//    complete to date is prevPct + pct. The draft from the billing queue proposed each line from its evidence and
+//    clamped a negative to 0 without a word: on 121 State the earlier applications billed every line at one flat
+//    51.67%, and on nine lines the evidence now measures less (Demolition 7.67%, Windows 20%, Plumbing 43.42%). The
+//    draft now carries each line's complete-to-date (toDatePct), starts every line at its previous cumulative, and
+//    says on the line where the evidence is below what was billed. A this-period % typed below zero is held at the
+//    previous cumulative, and Send refuses a line that would go below it: a correction is a credit with a reason,
+//    approved, never a lower percentage.
+function paLowered(c, d) {
+  if (!d || "invoice" !== d.type || "sov" !== d.mode) return [];
+  return (d.lines || [])
+    .filter((l) => l.sovId)
+    .map((l) => {
+      const prev = r2("draft" === d.status ? sovBilled(c, l.sovId, d.id) : +l.prevPct || 0);
+      return { l: l, prev: prev, toDate: r2(prev + (+l.pct || 0)) };
+    })
+    .filter((x) => x.toDate < x.prev - 0.001 || x.toDate > 100.001);
+}
+function paMarkLines(c, inv) {
+  if (!inv || "sov" !== inv.mode) return;
+  let rows = [];
+  try {
+    rows = pgRows(inv.projectId) || [];
+  } catch (e) {}
+  const below = [];
+  (inv.lines || []).forEach((l) => {
+    if (!l.sovId) return;
+    const prev = r2(+l.prevPct || 0),
+      r = rows.find((x) => x.sv && x.sv.id === l.sovId),
+      ev = r && r.pr && null != r.pr.pct ? r2(r.pr.pct) : null;
+    (+l.pct || 0) < 0 && (l.pct = 0);
+    l.toDatePct = r2(prev + (+l.pct || 0));
+    ev != null && ev < prev - 0.01
+      ? ((l.evidenceBelow = `${ev}% complete by ${r.pr.label ? String(r.pr.label).toLowerCase() : r.pr.basis} is below the ${prev}% already billed: held at ${prev}% to date, nothing this period`), below.push(`${l.item} ${ev}% against ${prev}%`))
+      : delete l.evidenceBelow;
+  });
+  if (below.length) {
+    const note = `${below.length} line${1 === below.length ? " measures" : "s measure"} below what was already billed (${below.slice(0, 4).join("; ")}${below.length > 4 ? "; …" : ""}): each stays at its billed % and bills nothing this period. A correction is a credit with a reason, approved.`;
+    inv.memo = (inv.memo || "").split("\n").filter((x) => !/measures? below what was already billed/.test(x)).concat([note]).join("\n");
+  }
+}
+{
+  const base = progressPrefill;
+  progressPrefill = function (c, inv) {
+    const r = base.apply(this, arguments);
+    try {
+      paMarkLines(c, inv);
+    } catch (e) {
+      console.warn("pay application lines", e);
+    }
+    return r;
+  };
+}
+{
+  const base = pgApply;
+  pgApply = function () {
+    const out = base.apply(this, arguments);
+    try {
+      out && out.inv && paMarkLines(out.client, out.inv);
+    } catch (e) {}
+    return out;
+  };
+}
+// a this-period % typed below zero would take the line under what is already billed: held at 0, and said why
+document.addEventListener(
+  "change",
+  (e) => {
+    const t = e.target;
+    if (!t || !t.matches || !t.matches('table.lines.sov [data-f="pct"]') || !((+t.value || 0) < 0)) return;
+    const tr = t.closest("tr[data-line]"),
+      c = (DB.clients || []).find((x) => x.id === clientOpen),
+      d = c && docOpen ? findDoc(c, "invoice", docOpen.id) : null,
+      l = d && tr ? (d.lines || []).find((x) => x.id === tr.dataset.line) : null;
+    t.value = 0;
+    toast(`${l ? l.item + ": " : ""}${l ? r2(+l.prevPct || 0) + "% is" : "that much is"} already billed — this period can only add to it. A correction is a credit with a reason.`);
+  },
+  !0,
+);
+{
+  const base = docAction;
+  docAction = async function (c, d, a) {
+    if (["send", "sent", "approve", "sendclient"].includes(a)) {
+      const bad = paLowered(c, d);
+      if (bad.length)
+        return void toast(
+          `${d.number} is not sent: ${bad
+            .slice(0, 3)
+            .map((x) => `${x.l.item} would be ${x.toDate}% to date, ${x.toDate < x.prev ? "below" : "over"} the ${x.toDate < x.prev ? x.prev + "% already billed" : "100% of the line"}`)
+            .join("; ")}. A correction is a credit with a reason, approved.`,
+          null,
+          9e3,
+        );
+      try {
+        d && "sov" === d.mode && (d.lines || []).forEach((l) => l.sovId && (l.toDatePct = r2((+l.prevPct || 0) + (+l.pct || 0))));
+      } catch (e) {}
+    }
+    return base.apply(this, arguments);
+  };
+}
+{
+  const base = renderDocEditor;
+  renderDocEditor = function (c, d) {
+    let h = base.apply(this, arguments);
+    try {
+      d &&
+        "sov" === d.mode &&
+        "draft" === d.status &&
+        (d.lines || []).forEach((l) => {
+          if (!l.evidenceBelow) return;
+          const a = h.indexOf(`<tr data-line="${l.id}">`);
+          if (a < 0) return;
+          const b = h.indexOf("</tr>", a);
+          b > -1 && (h = h.slice(0, b + 5) + `<tr class="pa-below no-doc-print"><td></td><td colspan="9"><span class="small warn" data-nocase>${esc(l.item)}: ${esc(l.evidenceBelow)}</span></td></tr>` + h.slice(b + 5));
+        });
+    } catch (e) {}
+    return h;
+  };
+}
