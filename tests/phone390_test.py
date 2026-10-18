@@ -45,7 +45,9 @@ async def main():
         await check(pg, c, '.view.on .td-catch .td-verb', 'Owner Home: a Caught for You verb')
         # the PM's change order: New Change Order, Create in the sheet, then Send to Client on the new document
         await sign_in(pg, 'u_alan')
-        await pg.evaluate("() => { const c = DB.clients.find(x => x.id === DB.projects.find(p => p.id === 'p121').clientId); view = 'clients'; clientOpen = c.id; clientTab = 'fin'; finTab = 'co'; docOpen = null; render(); window.scrollTo(0, 600); }")
+        await pg.evaluate("() => { const c = DB.clients.find(x => x.id === DB.projects.find(p => p.id === 'p121').clientId); view = 'clients'; clientOpen = c.id; clientTab = 'fin'; finTab = 'co'; docOpen = null; render(); const b = [...document.querySelectorAll('section.view.on [data-newdoc^=co]')].find(x => x.getClientRects().length); b ? b.scrollIntoView({ block: 'center' }) : window.scrollTo(0, 600); }")
+        # measured where a finger meets it, in view above the bottom tabs (at a fixed scroll it sat half behind the
+        # tab bar, so the gap was read to a tab in front of it)
         await check(pg, c, "section.view.on [data-newdoc^='co']", 'PM: New Change Order')
         await pg.locator("section.view.on [data-newdoc^='co']").first.click()
         await check(pg, c, '#mbm #mbm-ok', 'PM: the sheet\'s Create')
