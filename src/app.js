@@ -48445,7 +48445,7 @@ function fOfficeCard(opts = {}) {
         p = DB.projects.find((x) => x.id === r.projectId),
         late = r.dueBy < today(),
         mine = r.to === k;
-      return `<div class="f-row col ${r.escalated || late ? "bad" : "answered" === r.status ? "ok" : ""}"><div class="row" style="gap:6px;align-items:flex-start"><div class="grow"><span class="small muted">${esc(t.n)} · ${esc(shortName ? shortName(p) : p?.project.name || "")} · ${esc(r.by)} · ${fAgo(r.at)} ago · ${r.needBy ? `needs it by <b>${fmt(r.needBy)}</b> · answer by ${fmt(r.dueBy)}` : `needs an answer by <b>${fmt(r.dueBy)}</b>`}${r.taskId ? ` · holds ${esc(p?.tasks.find((x) => x.id === r.taskId)?.name || "")}` : ""}${mine ? "" : ` · to ${esc(fPerson(r.to)?.name || r.to)}`}</span><b>${esc(r.title)}</b>${r.sheet ? `<span class="small">Sheet ${esc(r.sheet)}</span>` : ""}${r.guess ? `<span class="small">Foreman's take: ${esc(r.guess)}</span>` : ""}${r.note ? `<span class="small">${esc(r.note)}</span>` : ""}${r.photos?.length ? `<div class="f-thumbs">${r.photos.map((s) => `<img src="${s}">`).join("")}</div>` : ""}${r.answer ? `<div class="f-answer">${esc(r.answer)} <span class="small muted">— ${esc(r.answeredBy)}</span></div>` : ""}</div><span class="pill ${"answered" === r.status ? "ok" : r.escalated || late ? "bad" : "warn"}">${"answered" === r.status ? "answered" : r.escalated ? `no answer in ${t.hrs} h` : late ? "past due" : r.status}</span></div>\n      ${
+      return `<div class="f-row col ${r.escalated || late ? "bad" : "answered" === r.status ? "ok" : ""}"><div class="row" style="gap:6px;align-items:flex-start"><div class="grow"><span class="small muted">${esc(t.n)} · ${esc(shortName ? shortName(p) : p?.project.name || "")} · ${esc(r.by)} · ${fAgo(r.at)} ago · ${r.needBy ? `needs it by <b>${fmt(r.needBy)}</b> · answer by ${fmt(r.dueBy)}` : `needs an answer by <b>${fmt(r.dueBy)}</b>`}${r.taskId ? ` · holds ${esc(p?.tasks.find((x) => x.id === r.taskId)?.name || "")}` : ""}${mine ? "" : ` · to ${esc(fPerson(r.to)?.name || r.to)}`}</span><b>${esc(r.title)}</b>${"function" == typeof plSheetChip ? plSheetChip(r) : r.sheet ? `<span class="small">Sheet ${esc(r.sheet)}</span>` : ""}${r.guess ? `<span class="small">Foreman's take: ${esc(r.guess)}</span>` : ""}${r.note ? `<span class="small">${esc(r.note)}</span>` : ""}${r.photos?.length ? `<div class="f-thumbs">${r.photos.map((s) => `<img src="${s}">`).join("")}</div>` : ""}${r.answer ? `<div class="f-answer">${esc(r.answer)} <span class="small muted">— ${esc(r.answeredBy)}</span></div>` : ""}</div><span class="pill ${"answered" === r.status ? "ok" : r.escalated || late ? "bad" : "warn"}">${"answered" === r.status ? "answered" : r.escalated ? `no answer in ${t.hrs} h` : late ? "past due" : r.status}</span></div>\n      ${
         "answered" !== r.status
           ? `<div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap">${"extra" === r.type ? `<button class="btn sm primary" data-fans="${r.id}" data-dec="extra">Proceed as extra</button><button class="btn sm" data-fans="${r.id}" data-dec="nocharge">Do it, no charge</button><button class="btn sm" data-fans="${r.id}" data-dec="hold">Hold</button>` : `<button class="btn sm primary" data-fans="${r.id}">Answer</button>`}${"rfi" === r.type && "designer" !== k ? `<button class="btn sm" data-fhand="${r.id}" data-to="designer">Hand to designer</button>` : ""}${"blocker" === r.type && "coord" !== k ? `<button class="btn sm" data-fhand="${r.id}" data-to="coord">Hand to coordinator</button>` : ""}${(() => {
               const u = DB.users.find((x) => x.name === r.by);
@@ -189742,3 +189742,1580 @@ if ("function" == typeof finishBoot) {
     return r;
   };
 }
+/*<<plans.js>>*/
+/* ---------------------------------------------------------------------------
+   Plans control (BACKLOG §1.22 phase 1, on the demo): nobody builds from an outdated drawing.
+
+   Design gate (§1.16). The noun is the drawing sheet. Its one store is the Studio's register, DB.studio.sheets:
+   one row per revision of a sheet (drawings, shop drawings, RFI sketches, specs and finish schedules), keyed by
+   job and sheet number. The rooms a sheet covers are DB.studio.rooms (the one rooms list; 121 State's are seeded
+   here). Beside them, three append-only logs: DB.studio.acks (who viewed or acknowledged which revision, when),
+   DB.studio.holds ("In Revision" on a room) and DB.studio.overrides (an order placed anyway, with its reason).
+   The one list is the job's Plans page (view "plans"); the Studio's Drawings page (sdraw) opens it. A proposed
+   revision rides on the record it came from (a mail's proposals, a meeting's plRev, a chat message's plRev) and
+   reaches the one queue, Needs Your Hand. Holds reach the field through fTaskNeeds (Today, the look-ahead, the
+   Started warning), the schedule, the task list, and purchasing through poValid, rfqSend and addRequest.
+   No new queue, list or store for a noun that already existed.
+
+   The register's functions (docs/ARCHITECTURE.md, "Plans control"; §1.23 builds its cross-set checks on these):
+     plSheets(pid, {current, set, status})  rows;            plCurrent(pid, number)   the current revision
+     plHistory(pid, number)                 every revision;   plStatus(row)            one of PL_STATUS
+     plIssue(o)                             a new revision: the old one VOID, field told, amendment flag, impact
+     plOpen(rowId)                          the viewer (a superseded row opens stamped VOID, linked to current)
+     plAck(rowId, o) / plAckState(row)      acknowledgments;  plMarkInRevision(o) / plLift(holdId)  holds
+     plAreaBlocks(pid) / plTaskReasons(p,t) what holds an area or a task
+     plOrderGuard(lines, ctx)               the order flag (overridable by procurement or the owner, with a reason)
+     plImpact(row, prev)                    what changed and what it touches (simulated compare)
+     plDetect(text, files, ctx)             a revision named in mail, a meeting or a message -> a proposal
+     plProposals(pid)                       the open proposals from every source
+   --------------------------------------------------------------------------- */
+const PL_SET_LABEL = {
+    deck: "Design Presentation",
+    sd: "Schematic",
+    lpc: "LPC",
+    dob: "DOB",
+    cd: "Construction Documents",
+    struct: "Structural Consultant",
+    mep: "MEP Consultant",
+    shop: "Shop Drawings",
+    ffe: "Finish Schedules",
+    spec: "Specs",
+  },
+  PL_STATUS = {
+    pricing: ["For Pricing", "info"],
+    permit: ["For Permit", "info"],
+    ifc: ["Issued for Construction", "ok"],
+    revision: ["In Revision", "warn"],
+    superseded: ["Superseded", "neutral"],
+    void: ["Void", "bad"],
+  },
+  PL_KIND = { sheet: "Sheet", shop: "Shop Drawing", rfi: "RFI Sketch", spec: "Specification", schedule: "Finish Schedule" },
+  PL_SHOP = { approved: "Approved", noted: "Approved as Noted", resubmit: "Revise and Resubmit" },
+  PL_ISSUERS = ["designer", "design_mgr", "pm", "owner"],
+  PL_BUILD_SETS = ["cd", "shop", "ffe", "spec", "struct", "mep"],
+  PL_ICON = '<path d="M4 4h12l4 4v12H4z"/><path d="M16 4v4h4"/><path d="M8 12h8M8 16h5"/>';
+"undefined" != typeof SETS && Object.assign(SETS, { shop: SETS.shop || "Shop drawings", spec: SETS.spec || "Specs" });
+let plSetF = "",
+  plStatusF = "current",
+  plFocus = "";
+function plDB() {
+  const St = (DB.studio = DB.studio || {});
+  ["rooms", "sheets", "changes", "transmittals", "filings", "meetings", "acks", "holds", "overrides"].forEach((k) => (St[k] = St[k] || []));
+  return St;
+}
+const plJob = (pid) => (DB.projects || []).find((p) => p.id === pid) || null,
+  plJobName = (pid) => {
+    const p = plJob(pid);
+    return p ? String(p.project.name).replace(/ —.*$/, "") : "the job";
+  },
+  plMe = () => (("function" == typeof currentUser && currentUser()) || {}).name || DB.me || role(),
+  plUid = () => (("function" == typeof currentUser && currentUser()) || {}).id || "",
+  plFirst = (n) => String(n || "").split(" ")[0],
+  plCanIssue = () => PL_ISSUERS.includes(role()),
+  plCanOverride = () => ["coord", "owner"].includes(role()),
+  plStaff = () => !["client", "mb_user", "mb_analyst"].includes(role()),
+  plReEsc = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+  plKind = (s) => (s && s.kind) || ("shop" === (s && s.set) ? "shop" : "ffe" === (s && s.set) ? "schedule" : "spec" === (s && s.set) ? "spec" : "sheet"),
+  plIsCurrent = (s) => !!s && !["superseded", "void"].includes(s.status),
+  plRoom = (id) => plDB().rooms.find((r) => r.id === id) || null,
+  plRev = (s) => `${s.number} Rev ${s.rev}`;
+function plStatus(s) {
+  if (!s) return "";
+  if ("void" === s.status) return "void";
+  if ("superseded" === s.status) return "superseded";
+  return s.stage || (["dob", "lpc"].includes(s.set) ? "permit" : ["deck", "sd", "ffe", "spec"].includes(s.set) && !s.kind ? "pricing" : "ifc");
+}
+const plStatusPill = (s) => {
+  const k = plStatus(s),
+    L = PL_STATUS[k] || [k, "neutral"];
+  return `<span class="pill ${L[1]} pl-st" data-plst="${k}">${L[0]}</span>${s.stale && plIsCurrent(s) ? ' <span class="pill bad">Stale</span>' : ""}${"shop" === plKind(s) && s.approval ? ` <span class="pill ${"resubmit" === s.approval ? "bad" : "ok"}">${PL_SHOP[s.approval] || s.approval}</span>` : ""}`;
+};
+function plRevRank(r) {
+  const s = String(r || "");
+  if (/^\d+$/.test(s)) return +s;
+  if (/^[A-Z]$/i.test(s)) return s.toUpperCase().charCodeAt(0) - 64;
+  return parseInt(s, 10) || 0;
+}
+const plByNewest = (a, b) => String(b.issuedOn || "").localeCompare(String(a.issuedOn || "")) || plRevRank(b.rev) - plRevRank(a.rev);
+function plSheets(pid, o) {
+  o = o || {};
+  return plDB().sheets.filter((s) => s.projectId === pid && (!o.current || plIsCurrent(s)) && (!o.set || s.set === o.set) && (!o.status || plStatus(s) === o.status));
+}
+function plHistory(pid, number) {
+  const n = String(number || "").toUpperCase();
+  return plDB()
+    .sheets.filter((s) => s.projectId === pid && String(s.number).toUpperCase() === n)
+    .sort(plByNewest);
+}
+function plCurrent(pid, number) {
+  return plHistory(pid, number).find(plIsCurrent) || null;
+}
+const plRow = (id) => plDB().sheets.find((s) => s.id === id) || null;
+// The filing a sheet number already carries: a revision issued in the DOB or LPC set, or one marked filed.
+function plFiled(pid, number) {
+  const H = plHistory(pid, number),
+    f = H.find((s) => s.filed) || H.find((s) => ["dob", "lpc"].includes(s.set));
+  if (!f) return null;
+  return Object.assign({ agency: "lpc" === f.set ? "LPC" : "DOB", sheetId: f.id, rev: f.rev }, f.filed || {});
+}
+// ---- rooms: the words a room is named by, the tasks in it
+function plWords(r) {
+  return ((r && r.words && r.words.length ? r.words : [r && r.name]) || []).filter(Boolean).map((w) => String(w).toLowerCase());
+}
+function plHit(r, text) {
+  const t = String(text || "").toLowerCase();
+  return !!t && plWords(r).some((w) => new RegExp(`(^|[^a-z])${plReEsc(w)}`).test(t));
+}
+function plRoomTasks(p, r) {
+  return ((p && p.tasks) || []).filter((t) => "done" !== t.status && (t.roomId === r.id || (r.taskIds || []).includes(t.id) || plHit(r, t.name)));
+}
+const plRoomsOf = (s) => ((s && s.rooms) || []).map(plRoom).filter(Boolean);
+// ---- acknowledgments: the foreman and the trades whose work or orders sit in the sheet's rooms
+function plAckNeeded(row) {
+  const p = plJob(row.projectId),
+    rooms = plRoomsOf(row),
+    out = [];
+  (DB.users || []).filter((u) => "foreman" === u.role).forEach((u) => out.push({ key: "u:" + u.id, uid: u.id, name: u.name, role: "foreman" }));
+  if (!p || !rooms.length) return out;
+  const tids = new Set(rooms.flatMap((r) => plRoomTasks(p, r)).map((t) => t.id)),
+    add = (name, trade) => name && !out.some((x) => x.vendor === name) && out.push({ key: "v:" + name, vendor: name, name: name, role: "trade", trade: trade || "" });
+  (DB.pos || [])
+    .filter((po) => po.projectId === p.id && ["issued", "partial", "pending"].includes(po.status))
+    .forEach((po) => {
+      const txt = [po.needTask || "", ...(po.lines || []).map((l) => `${l.item || ""} ${l.desc || ""}`)];
+      rooms.some((r) => txt.some((x) => plHit(r, x))) && add(po.vendor, po.type || "");
+    });
+  (((DB.field || {}).subs) || []).filter((s) => s.projectId === p.id && tids.has(s.taskId) && s.date >= today()).forEach((s) => add(s.vendor, s.trade));
+  return out;
+}
+function plAckRec(row, need) {
+  return plDB().acks.find((a) => "ack" === a.kind && a.sheetId === row.id && (need.uid ? a.uid === need.uid : a.vendor === need.vendor)) || null;
+}
+function plAckState(row) {
+  const need = (row && row.ackNeed) || [],
+    done = [],
+    pending = [];
+  need.forEach((n) => {
+    const a = plAckRec(row, n);
+    a ? done.push({ need: n, a: a }) : pending.push(n);
+  });
+  return { need: need, done: done, pending: pending };
+}
+// Every revision still waiting on someone in the field, firm-wide or for one job; mine only with {uid}.
+function plPendingAcks(pid, o) {
+  o = o || {};
+  return plDB()
+    .sheets.filter((s) => plIsCurrent(s) && (!pid || s.projectId === pid))
+    .map((s) => ({ s: s, st: plAckState(s) }))
+    .filter((x) => x.st.pending.length && (!o.uid || x.st.pending.some((n) => n.uid === o.uid)));
+}
+function plAck(rowId, o) {
+  o = o || {};
+  const row = plRow(rowId);
+  if (!row) return null;
+  const u = ("function" == typeof currentUser && currentUser()) || {},
+    vendor = o.vendor || "",
+    have = plAckRec(row, vendor ? { vendor: vendor } : { uid: u.id });
+  if (have) return have;
+  const rec = { id: uid("pa"), kind: "ack", projectId: row.projectId, sheetId: row.id, number: row.number, rev: row.rev, uid: vendor ? "" : u.id || "", name: vendor || u.name || plMe(), role: vendor ? "trade" : role(), vendor: vendor, how: o.how || (vendor ? "recorded" : "in the app"), by: plMe(), at: appNowIso() };
+  plDB().acks.push(rec);
+  try {
+    audit("sheet", row.id, "acknowledged", "", `${rec.name} · ${plRev(row)}`, rec.how);
+  } catch (e) {}
+  log(`${rec.name} acknowledged ${plRev(row)}${vendor ? ` (${rec.how}, recorded by ${plMe()})` : ""}`, "plans", plMe());
+  // the hold on the area lifts once the new revision is issued and everyone it needed has acknowledged it
+  plAckState(row).pending.length ||
+    plDB()
+      .holds.filter((h) => !h.liftedAt && h.liftOn === row.id)
+      .forEach((h) => Object.assign(h, { liftedAt: appNowIso(), liftedBy: plMe(), liftWhy: `${plRev(row)} issued and acknowledged` }));
+  return rec;
+}
+function plView(row) {
+  if (!row) return;
+  const u = ("function" == typeof currentUser && currentUser()) || {},
+    at = appNowIso(),
+    last = plDB().acks.filter((a) => "view" === a.kind && a.sheetId === row.id && a.uid === u.id).pop();
+  if (last && String(last.at).slice(0, 16) === at.slice(0, 16)) return;
+  plDB().acks.push({ id: uid("pv"), kind: "view", projectId: row.projectId, sheetId: row.id, number: row.number, rev: row.rev, uid: u.id || "", name: u.name || plMe(), role: role(), current: plIsCurrent(row), at: at });
+}
+// ---- holds: "In Revision" on a room, and a revision of a filed sheet that waits for its amendment
+const plHoldActive = (h) => !h.liftedAt;
+function plHolds(pid) {
+  return plDB().holds.filter((h) => (!pid || h.projectId === pid) && plHoldActive(h));
+}
+function plAmends(pid) {
+  return plDB().sheets.filter((s) => (!pid || s.projectId === pid) && plIsCurrent(s) && s.amend && "approved" !== s.amend.status);
+}
+// What holds an area now: {room, kind: "hold"|"amend", why, sheet, hold}
+function plAreaBlocks(pid) {
+  const out = [];
+  plHolds(pid).forEach((h) => {
+    const r = plRoom(h.roomId),
+      s = (h.sheetIds || []).map(plRow).filter(Boolean)[0] || null,
+      next = h.liftOn ? plRow(h.liftOn) : null;
+    r && out.push({ room: r, kind: "hold", hold: h, sheet: next || s, why: next ? `${r.name}: ${plRev(next)} is issued and waits for the field's acknowledgment` : `${r.name} is in revision${s ? ` (${s.number})` : ""}${h.why ? `: ${h.why}` : ""}` });
+  });
+  plAmends(pid).forEach((s) =>
+    plRoomsOf(s).forEach((r) => out.push({ room: r, kind: "amend", sheet: s, why: `${plRev(s)} changes a sheet filed with ${s.amend.agency}: amendment or ${s.amend.agency} approval needed before this work` })),
+  );
+  return out;
+}
+// The reasons a schedule task waits: the area's hold, a filing's amendment, a revision the field has not acknowledged.
+function plTaskReasons(p, t) {
+  if (!p || !t) return [];
+  const out = [],
+    seen = new Set(),
+    push = (x) => seen.has(x.text) || (seen.add(x.text), out.push(x));
+  plAreaBlocks(p.id).forEach((b) => plRoomTasks(p, b.room).some((x) => x.id === t.id) && push({ kind: b.kind, roomId: b.room.id, sheetId: b.sheet ? b.sheet.id : "", text: "amend" === b.kind ? `Held for the ${b.sheet.amend.agency} amendment: ${plRev(b.sheet)} (${b.room.name})` : b.hold.liftOn ? `Waiting for acknowledgment: ${plRev(b.sheet)} (${b.room.name})` : `On hold: ${b.why}` }));
+  plPendingAcks(p.id).forEach((x) =>
+    plRoomsOf(x.s).forEach((r) => plRoomTasks(p, r).some((y) => y.id === t.id) && push({ kind: "ack", roomId: r.id, sheetId: x.s.id, text: `Waiting for acknowledgment: ${plRev(x.s)} (${x.st.pending.map((n) => plFirst(n.name)).join(", ")})` })),
+  );
+  return out;
+}
+function plMarkInRevision(o) {
+  const p = plJob(o.projectId);
+  if (!p || !(o.roomIds || []).length) return [];
+  if (!plCanIssue()) return toast("Only the designer, the PM or the owner marks an area in revision"), [];
+  const made = [],
+    // the construction sets covering the rooms go In Revision (a filed or presentation sheet keeps its status)
+    sheets = plSheets(p.id, { current: !0 })
+      .filter((s) => (o.sheetIds || []).includes(s.id) || (PL_BUILD_SETS.includes(s.set) && s.rooms.some((id) => o.roomIds.includes(id))))
+      .sort((a, b) => PL_BUILD_SETS.indexOf(a.set) - PL_BUILD_SETS.indexOf(b.set));
+  o.roomIds.forEach((rid) => {
+    if (plHolds(p.id).some((h) => h.roomId === rid && !h.liftOn)) return;
+    const h = { id: uid("ph"), projectId: p.id, roomId: rid, sheetIds: sheets.filter((s) => s.rooms.includes(rid)).map((s) => s.id), why: o.why || "", by: plMe(), byUid: plUid(), at: appNowIso(), liftOn: "" };
+    plDB().holds.push(h), made.push(h);
+  });
+  sheets.forEach((s) => {
+    "revision" !== plStatus(s) && ((s.prevStage = plStatus(s)), (s.stage = "revision"));
+  });
+  if (made.length) {
+    const names = made.map((h) => plRoom(h.roomId).name).join(", ");
+    try {
+      audit("plans", p.id, "in-revision", "", names, o.why || "");
+    } catch (e) {}
+    log(`${names} in revision (${plMe()}): ${o.why || "design is reworking it"}`, "plans", plMe());
+    (p.chat = p.chat || []).push({ id: uid("ch"), by: plMe(), text: `${names} ${1 === made.length ? "is" : "are"} in revision${o.why ? ": " + o.why : ""}. Work there is on hold and nothing is ordered for it until the new revision is issued and acknowledged.`, t: nowStamp(), files: [], plHold: made.map((h) => h.id) });
+    try {
+      notify("In revision", `${plJobName(p.id)} — ${names}`);
+    } catch (e) {}
+  }
+  return made;
+}
+function plLift(holdId, why) {
+  const h = plDB().holds.find((x) => x.id === holdId);
+  if (!h || h.liftedAt) return null;
+  if (!plCanIssue()) return toast("Only the designer, the PM or the owner lifts a hold"), null;
+  Object.assign(h, { liftedAt: appNowIso(), liftedBy: plMe(), liftWhy: why || "lifted by hand" });
+  (h.sheetIds || []).map(plRow).filter(Boolean).forEach((s) => {
+    "revision" === s.stage && !plHolds(s.projectId).some((x) => (x.sheetIds || []).includes(s.id)) && ((s.stage = s.prevStage || ""), delete s.prevStage);
+  });
+  try {
+    audit("plans", h.projectId, "hold-lifted", "", (plRoom(h.roomId) || {}).name || h.roomId, h.liftWhy);
+  } catch (e) {}
+  return h;
+}
+// ---- the order flag: a PO, RFQ or request for an area in revision (or held for an amendment)
+function plOverrideFor(kind, id, roomId) {
+  return plDB().overrides.find((o) => o.kind === kind && o.refId === id && o.roomId === roomId) || null;
+}
+function plOrderGuard(lines, ctx) {
+  ctx = ctx || {};
+  const p = plJob(ctx.projectId);
+  if (!p) return { ok: !0, blocked: [], reasons: [] };
+  const L = lines || [],
+    texts = [ctx.text || "", ctx.needTask || "", ...L.map((l) => `${l.item || ""} ${l.desc || ""} ${l.what || ""}`), ...L.filter((l) => l.taskId).map((l) => ((p.tasks || []).find((t) => t.id === l.taskId) || {}).name || "")],
+    blocked = [],
+    seen = new Set();
+  plAreaBlocks(p.id).forEach((b) => {
+    if (seen.has(b.room.id)) return;
+    if (!(L.some((l) => l.roomId === b.room.id) || texts.some((t) => plHit(b.room, t)))) return;
+    if (ctx.id && plOverrideFor(ctx.kind, ctx.id, b.room.id)) return;
+    seen.add(b.room.id), blocked.push(b);
+  });
+  const who = `${plFirst((((DB.users || []).find((u) => "coord" === u.role) || {}).name) || "Procurement")} or the owner`;
+  return {
+    ok: !blocked.length,
+    blocked: blocked,
+    reasons: blocked.map((b) => `${"amend" === b.kind ? `${b.room.name} is held for the ${b.sheet.amend.agency} amendment on ${b.sheet.number}` : b.hold.liftOn ? `${b.room.name} waits for the field to acknowledge ${plRev(b.sheet)}` : `${b.room.name} is in revision${b.sheet ? ` (${b.sheet.number})` : ""}`} — ${who} can order anyway with a reason`),
+  };
+}
+function plOverride(o) {
+  if (!plCanOverride()) return toast("Only procurement or the owner can order for an area in revision"), null;
+  if (!String(o.why || "").trim()) return toast("Say why it is safe to order now"), null;
+  const rec = { id: uid("po"), kind: o.kind, refId: o.id, projectId: o.projectId, roomId: o.roomId, why: String(o.why).trim(), by: plMe(), role: role(), at: appNowIso() };
+  plDB().overrides.push(rec);
+  try {
+    audit("plans", o.id, "order-override", "", (plRoom(o.roomId) || {}).name || o.roomId, rec.why);
+  } catch (e) {}
+  log(`Ordered anyway for ${(plRoom(o.roomId) || {}).name || "an area in revision"} (${plMe()}): ${rec.why}`, "plans", plMe());
+  return rec;
+}
+function plOverrideDialog(o) {
+  const r = plRoom(o.roomId);
+  mbModal(
+    "Order Anyway",
+    `<p class="small" style="margin:0 0 8px">${esc((r && r.name) || "This area")} is on hold in the drawing register. Ordering now risks buying to a drawing that is about to change. Record why it is safe; the reason is kept with the order.</p><div class="f"><label>Reason</label><textarea data-f="why" rows="3" placeholder="e.g. the cabinet boxes do not change in the revision; only the doors do"></textarea></div><div class="small muted">${esc(plWhy("plansOrderedInRevision"))}</div>`,
+    {
+      submit: "Record and Continue",
+      onSubmit: (f) => {
+        const rec = plOverride(Object.assign({}, o, { why: f.why }));
+        if (!rec) return !1;
+        save(), render();
+        const po = "po" === o.kind && (DB.pos || []).find((x) => x.id === o.id);
+        rcToast(`Recorded: ${(r && r.name) || "the area"} may be ordered on ${po ? po.number : "this order"} — ${rec.why}`, po && "undefined" != typeof flowGo ? [{ label: "Open", run: flowGo.po(po) }] : [{ label: "Open", run: () => plGoJob(o.projectId) }]);
+      },
+    },
+  );
+}
+// ---- what changed and what it touches (simulated: the compare reads the narrative and the register's links)
+function plImpact(row, prev) {
+  const p = plJob(row.projectId),
+    rooms = plRoomsOf(row),
+    hit = (t) => rooms.some((r) => plHit(r, t)),
+    td = today();
+  if (!p) return { changes: [], tasks: [], pos: [], rfqs: [], mats: [], decisions: [], lines: [], follow: [] };
+  const tasks = [...new Map(rooms.flatMap((r) => plRoomTasks(p, r)).map((t) => [t.id, t])).values()],
+    pos = (DB.pos || []).filter((po) => po.projectId === p.id && !["void", "closed", "cancelled", "rejected"].includes(po.status) && (hit(po.needTask) || (po.lines || []).some((l) => rooms.some((r) => l.roomId === r.id) || hit(`${l.item || ""} ${l.desc || ""}`)))),
+    rfqs = (DB.rfqs || []).filter((q) => q.projectId === p.id && !["awarded", "closed"].includes(q.status) && (hit(q.title) || (q.lines || []).some((l) => hit(`${l.item || ""} ${l.what || ""} ${l.desc || ""}`)))),
+    mats = (p.materials || []).filter((m) => "on-site" !== m.status && hit(m.name)),
+    decisions = (p.decisions || []).filter((d) => "open" === d.status && hit(d.name)),
+    c = (DB.clients || []).find((x) => x.id === p.clientId),
+    lines = [];
+  c &&
+    [...(c.estimates || []), ...(c.changeOrders || [])]
+      .filter((d) => !["void", "rejected", "superseded", "draft"].includes(d.status) && (d.projectId === p.id || !d.projectId))
+      .forEach((d) => (d.lines || []).forEach((l) => hit(`${l.item || ""} ${l.desc || ""}`) && lines.push({ doc: d.number, item: l.item, docId: d.id })));
+  const changes = String(row.changed || "")
+      .split(/;\s*|\.\s+(?=[A-Z])/)
+      .map((s) => s.replace(/\.$/, "").trim())
+      .filter(Boolean),
+    follow = [],
+    soon = iso(addDays(td, 14));
+  row.amend && follow.push({ kind: "amend", label: `File the ${row.amend.agency} amendment before this work` });
+  pos.forEach((po) => follow.push({ kind: "po", poId: po.id, label: ["draft", "pending"].includes(po.status) ? `Update ${po.number} (${po.vendor}) before it issues` : `PO change or return: ${po.number} with ${po.vendor} (${po.status})` }));
+  rfqs.forEach((q) => follow.push({ kind: "rfq", rfqId: q.id, label: `Revise ${q.number} before the quotes are leveled` }));
+  tasks.filter((t) => "in-progress" === t.status || (t.start && t.start <= soon)).forEach((t) => follow.push({ kind: "seq", taskId: t.id, label: `Resequence or confirm: ${t.name} (${"in-progress" === t.status ? "under way" : "starts " + fmt(t.start)})` }));
+  lines.length && /\b(add|added|new|larger|longer|shorter|shortened|upgrade|more|extra|moved|widen|widened|change|changed|relocat|remove)/i.test(row.changed || "") && follow.push({ kind: "co", label: `Price a change order if scope or cost moved: ${lines[0].doc} · ${lines[0].item}` });
+  return {
+    changes: changes,
+    prevRev: prev ? prev.rev : "",
+    tasks: tasks.map((t) => ({ id: t.id, name: t.name, start: t.start, status: t.status })),
+    pos: pos.map((po) => ({ id: po.id, number: po.number, vendor: po.vendor, status: po.status })),
+    rfqs: rfqs.map((q) => ({ id: q.id, number: q.number, title: q.title })),
+    mats: mats.map((m) => ({ id: m.id, name: m.name, status: m.status })),
+    decisions: decisions.map((d) => ({ id: d.id, name: d.name })),
+    lines: lines,
+    follow: follow,
+  };
+}
+function plImpactHtml(I) {
+  if (!I) return "";
+  const li = (a) => a.map((x) => `<li>${esc(x)}</li>`).join("");
+  const parts = [
+    I.changes.length ? `<div><b>What Changed</b><ul>${li(I.changes)}</ul></div>` : "",
+    I.tasks.length ? `<div><b>Tasks and Schedule</b><ul>${li(I.tasks.map((t) => `${t.name} · ${"in-progress" === t.status ? "under way" : t.start ? "starts " + fmt(t.start) : t.status}`))}</ul></div>` : "",
+    I.pos.length || I.rfqs.length || I.mats.length ? `<div><b>Orders and Materials</b><ul>${li([...I.pos.map((x) => `${x.number} · ${x.vendor} · ${x.status}`), ...I.rfqs.map((x) => `${x.number} · ${x.title}`), ...I.mats.map((x) => `${x.name} · ${String(x.status).replace("-", " ")}`)])}</ul></div>` : "",
+    I.decisions.length ? `<div><b>Selections</b><ul>${li(I.decisions.map((d) => d.name))}</ul></div>` : "",
+    I.lines.length ? `<div><b>Estimate Lines</b><ul>${li(I.lines.map((l) => `${l.doc} · ${l.item}`))}</ul></div>` : "",
+    I.follow.length ? `<div><b>Proposed Follow-Ups</b><ul>${I.follow.map((f) => `<li>${esc(f.label)}${f.poId ? ` <button type="button" class="btn sm" data-plgopo="${esc(f.poId)}">Open</button>` : ""}</li>`).join("")}</ul></div>` : "",
+  ].filter(Boolean);
+  return parts.length ? `<div class="pl-impact">${parts.join("")}</div>` : '<div class="small muted">Nothing on the schedule, in purchasing or on the estimate sits in these rooms.</div>';
+}
+// ---- issuing a revision: the one write. The old revision is VOID; the field and the trades are told.
+function plFileFrom(p, o) {
+  if (!o || !o.dataUrl) return "";
+  const id = uid("f"),
+    rec = { id: id, name: o.name || "drawing.pdf", type: o.type || (/^data:([^;]+)/.exec(o.dataUrl) || [])[1] || "application/pdf", size: Math.round(0.75 * (o.dataUrl.length - o.dataUrl.indexOf(",") - 1)), cat: "drawing", date: today(), by: plMe(), link: null, notes: o.notes || "", shareClient: !1, ai: null, seen: !0, persisted: !1, uploadedAt: appNowIso() };
+  (p.files = p.files || []).push(rec);
+  try {
+    Promise.resolve(putBlob(id, o.dataUrl)).then((ok) => {
+      ok && ((rec.persisted = !0), save());
+    });
+  } catch (e) {}
+  return id;
+}
+function plIssue(o) {
+  const p = plJob(o.projectId);
+  if (!p) return null;
+  const number = String(o.number || "").trim().toUpperCase();
+  if (!number) return toast("Name the sheet (for example A-201)"), null;
+  if (!String(o.changed || "").trim()) return toast("Say what changed: the field reads it before building"), null;
+  const prev = plCurrent(p.id, number),
+    set = o.set || (prev && prev.set) || "cd",
+    rooms = o.rooms || (prev ? prev.rooms.slice() : []);
+  // a construction set waits for field measurements (the Studio's gate, kept from the Drawings page)
+  if ("function" == typeof roomGate && ["lpc", "dob", "cd", "ffe"].includes(set)) {
+    const g = rooms.map(plRoom).filter(Boolean).map((r) => roomGate(r, "Issuing")).filter(Boolean);
+    if (g.length) return toast(g[0]), null;
+  }
+  const rev = String(o.rev || (prev ? nextRev(prev.rev) : "A")).trim().toUpperCase();
+  if (prev && plRevRank(rev) <= plRevRank(prev.rev)) return toast(`${number} is already at Rev ${prev.rev}; the new revision must come after it`), null;
+  const filed = plFiled(p.id, number),
+    row = {
+      id: uid("sh"),
+      projectId: p.id,
+      set: set,
+      kind: o.kind || (prev && prev.kind) || "",
+      number: number,
+      title: o.title || (prev && prev.title) || number,
+      rev: rev,
+      rooms: rooms,
+      status: "current",
+      stage: o.stage && "revision" !== o.stage ? o.stage : prev ? ("revision" === prev.stage ? prev.prevStage || "" : prev.stage || "") : "",
+      issuedOn: today(),
+      issuedAt: appNowIso(),
+      issuer: o.issuer || plMe(),
+      issuedBy: plMe(),
+      changed: String(o.changed).trim(),
+      source: (prev && prev.source) || o.source || "inhouse",
+      origin: o.origin || { kind: "manual", label: "the Plans page" },
+      fileId: o.fileId || "",
+      link: "",
+      stale: !1,
+      supersedes: prev ? prev.id : "",
+      approval: o.approval || "",
+    };
+  !row.stage && delete row.stage;
+  if (prev) {
+    Object.assign(prev, { status: "superseded", supersededBy: row.id, voidAt: appNowIso(), voidBy: plMe(), stale: !1 });
+    const f = prev.fileId && (p.files || []).find((x) => x.id === prev.fileId);
+    f && !/^VOID · /.test(f.name) && ((f.origName = f.name), (f.name = "VOID · " + f.name));
+    // the Studio's change records: this sheet is re-issued
+    (plDB().changes || []).filter((c) => c.projectId === p.id).forEach((c) => (c.affected || []).forEach((a) => "sheet" === a.kind && a.id === prev.id && (a.done = !0)));
+  }
+  filed && (row.amend = { agency: filed.agency, status: "needed", ref: filed.ref || "", at: appNowIso(), by: plMe() });
+  row.ackNeed = plAckNeeded(row);
+  row.impact = plImpact(row, prev);
+  plDB().sheets.push(row);
+  // the hold on these rooms lifts once this revision is acknowledged
+  plHolds(p.id)
+    .filter((h) => !h.liftOn && (rooms.includes(h.roomId) || (prev && (h.sheetIds || []).includes(prev.id))))
+    .forEach((h) => (h.liftOn = row.id));
+  row.ackNeed.length || plHolds(p.id).filter((h) => h.liftOn === row.id).forEach((h) => Object.assign(h, { liftedAt: appNowIso(), liftedBy: plMe(), liftWhy: `${plRev(row)} issued` }));
+  // the field is told in the job's thread; the trades get a note drafted for the person to send
+  const fm = row.ackNeed.filter((n) => "foreman" === n.role).map((n) => plFirst(n.name)),
+    trades = row.ackNeed.filter((n) => "trade" === n.role);
+  (p.chat = p.chat || []).push({ id: uid("ch"), by: plMe(), text: `${plRev(row)} issued (${PL_SET_LABEL[set] || set}): ${row.changed}${prev ? ` Rev ${prev.rev} is VOID.` : ""}${fm.length ? ` ${fm.join(" and ")}, please acknowledge it on Plans before working in ${plRoomsOf(row).map((r) => r.name).join(", ") || "the area"}.` : ""}${row.amend ? ` ${row.amend.agency} amendment needed before this work.` : ""}`, t: nowStamp(), files: row.fileId ? [row.fileId] : [], plSheet: row.id });
+  trades.forEach((n) => {
+    const v = (DB.vendors || []).find((x) => x.name === n.vendor) || {};
+    (DB.outbox = DB.outbox || []).push({ id: uid("ox"), kind: "plans", to: { name: n.vendor, email: v.email || "" }, subject: `${plJobName(p.id)} — ${plRev(row)} issued`, body: `${plRev(row)} ${row.title} was issued ${fmtL(today())}${prev ? `; Rev ${prev.rev} is void` : ""}.\n\nWhat changed: ${row.changed}\n\nPlease confirm you have it before you build or fabricate from this sheet.`, about: { projectId: p.id, sheetId: row.id, label: plRev(row) }, aboutKey: `plans|${row.id}|${n.vendor}`, status: "draft", at: today(), by: plMe() });
+  });
+  try {
+    audit("sheet", row.id, "issued", prev ? `Rev ${prev.rev}` : "", `Rev ${row.rev}`, row.changed);
+  } catch (e) {}
+  log(`${plRev(row)} issued by ${row.issuer}${prev ? `; Rev ${prev.rev} VOID` : ""}${row.amend ? `; ${row.amend.agency} amendment needed` : ""}`, "plans", plMe());
+  try {
+    notify("New revision", `${plJobName(p.id)} — ${plRev(row)}: ${row.changed}`);
+  } catch (e) {}
+  try {
+    "function" == typeof touch && "designer" === role() && touch("sheet", row.id, plRev(row), p.id, 30);
+  } catch (e) {}
+  return row;
+}
+function plIssueToast(row) {
+  if (!row) return;
+  const prev = row.supersedes && plRow(row.supersedes);
+  rcToast(`${plRev(row)} issued${prev ? ` — Rev ${prev.rev} is VOID` : ""}${row.amend ? `; ${row.amend.agency} amendment needed before this work` : ""}${row.ackNeed.length ? `; ${row.ackNeed.map((n) => plFirst(n.name)).join(", ")} to acknowledge` : ""}`, [{ label: "Open", run: () => plGo(row.id) }]);
+}
+// ---- amendments (Standard principle 2): recorded by the person who filed it, approval by whoever saw it approved
+function plAmendSet(rowId, status, ref) {
+  const s = plRow(rowId);
+  if (!s || !s.amend) return null;
+  if (!plCanIssue()) return toast("Only the designer, the PM or the owner records a filing"), null;
+  Object.assign(s.amend, { status: status, ref: ref || s.amend.ref || "", [status + "At"]: appNowIso(), [status + "By"]: plMe() });
+  try {
+    audit("sheet", s.id, "amendment-" + status, "", s.amend.agency, ref || "");
+  } catch (e) {}
+  log(`${s.amend.agency} amendment for ${plRev(s)} ${status}${ref ? " (" + ref + ")" : ""}`, "plans", plMe());
+  return s;
+}
+// ---- navigation
+function plGoJob(pid) {
+  pid && setCurrent(pid), (view = "plans"), render();
+}
+function plGo(rowId) {
+  const s = plRow(rowId);
+  if (!s) return;
+  setCurrent(s.projectId), (plFocus = s.id), plIsCurrent(s) || (plStatusF = "all"), plSetF && plSetF !== s.set && (plSetF = ""), (view = "plans"), render();
+  setTimeout(() => {
+    const el = document.querySelector(`[data-plrow="${s.id}"]`);
+    el && el.scrollIntoView({ block: "center" });
+  }, 30);
+}
+// ---- the viewer: a superseded revision opens stamped VOID, with the way to the current one
+async function plOpen(rowId) {
+  const s = plRow(rowId);
+  if (!s) return;
+  const p = plJob(s.projectId),
+    cur = plIsCurrent(s) ? s : plCurrent(s.projectId, s.number),
+    f = s.fileId && p && (p.files || []).find((x) => x.id === s.fileId),
+    st = plAckState(s),
+    me = plUid(),
+    mine = st.pending.some((n) => n.uid === me),
+    H = plHistory(s.projectId, s.number);
+  plView(s), save();
+  const V = document.getElementById("viewer");
+  if (!V) return;
+  V.classList.add("on"), (V.dataset.plrow = s.id);
+  $("#v-name").textContent = `${plRev(s)} — ${s.title}${plIsCurrent(s) ? "" : " — VOID"}`;
+  $("#v-meta").textContent = `${plJobName(s.projectId)} · ${PL_SET_LABEL[s.set] || s.set} · ${(PL_STATUS[plStatus(s)] || [""])[0]} · ${s.issuedOn ? fmt(s.issuedOn) : "not issued"}`;
+  $("#v-main").innerHTML = '<div class="muted">Loading…</div>';
+  const url = f ? await getBlob(f.id) : null,
+    voidHtml = plIsCurrent(s) ? "" : `<div class="pl-void-stamp" aria-hidden="true"><span>VOID</span></div>`;
+  $("#v-dl").href = url || "#";
+  $("#v-dl").download = f ? f.name : "";
+  $("#v-main").innerHTML = `<div class="pl-vwrap ${plIsCurrent(s) ? "" : "is-void"}">${plIsCurrent(s) ? "" : `<div class="pl-voidbar" role="alert"><b>VOID — do not build from this sheet.</b> ${cur ? `The current revision is ${plRev(cur)}, issued ${fmt(cur.issuedOn)}.` : "No revision of this sheet is current."} ${cur ? `<button type="button" class="btn sm" data-plopen="${cur.id}">Open ${esc(plRev(cur))}</button>` : ""}</div>`}${url ? (/image/.test(f.type) ? `<img src="${url}" alt="${esc(plRev(s))}">` : `<iframe src="${url}" title="${esc(plRev(s))}"></iframe>`) : `<div class="pl-nofile">No file is stored for ${esc(plRev(s))} on this device.</div>`}${voidHtml}</div>`;
+  $("#v-side").innerHTML = `<div class="pl-side">
+    <div>${plStatusPill(s)}</div>
+    <div class="small" style="margin-top:6px"><b>${esc(s.title)}</b></div>
+    <div class="small muted">${esc(PL_KIND[plKind(s)])} · issued by ${esc(s.issuer || "—")}${s.issuedOn ? " · " + fmt(s.issuedOn) : ""}</div>
+    ${s.changed ? `<div class="small" style="margin-top:6px"><b>What changed:</b> ${esc(s.changed)}</div>` : ""}
+    ${s.amend && "approved" !== s.amend.status ? `<div class="note bad small" style="margin-top:6px"><b>${esc(s.amend.agency)} amendment ${"filed" === s.amend.status ? "filed, not approved" : "needed"}</b> — the work this sheet covers is held until it is approved.</div>` : ""}
+    ${mine && plIsCurrent(s) ? `<button type="button" class="btn primary" data-plack="${s.id}" style="margin-top:10px;width:100%">Acknowledge ${esc(plRev(s))}</button>` : ""}
+    <h4 style="margin:12px 0 4px">Revisions</h4>${H.map((x) => `<div class="pl-side-rev ${x.id === s.id ? "on" : ""}"><span>Rev ${esc(x.rev)} · ${x.issuedOn ? fmt(x.issuedOn) : "—"}</span>${plStatusPill(x)}${x.id !== s.id ? `<button type="button" class="btn sm" data-plopen="${x.id}">Open</button>` : ""}</div>`).join("")}
+    ${H.length > 1 ? `<button type="button" class="btn sm" data-plcompare="${s.id}" style="margin-top:6px">Compare Revisions</button>` : ""}
+    <h4 style="margin:12px 0 4px">Field</h4>${st.need.length ? st.need.map((n) => { const d = st.done.find((x) => x.need.key === n.key); return `<div class="small">${esc(n.name)}: ${d ? `acknowledged ${esc(stampText(d.a.at))}` : "<b>not yet</b>"}</div>`; }).join("") : '<div class="small muted">Nobody was asked to acknowledge this revision.</div>'}
+  </div>`;
+}
+// Side by side: two revisions of the same sheet, as stored (image or PDF); the older one carries its VOID stamp.
+function plCompare(rowId, otherId) {
+  const s = plRow(rowId);
+  if (!s) return;
+  const H = plHistory(s.projectId, s.number);
+  if (H.length < 2) return toast(`${s.number} has one revision; nothing to compare`);
+  let a = otherId ? plRow(otherId) : H.find((x) => x.id !== s.id && plRevRank(x.rev) < plRevRank(s.rev)) || H.find((x) => x.id !== s.id),
+    b = s;
+  plRevRank(a.rev) > plRevRank(b.rev) && ([a, b] = [b, a]);
+  const opt = (sel) => H.map((x) => `<option value="${x.id}" ${x.id === sel.id ? "selected" : ""}>Rev ${esc(x.rev)} · ${x.issuedOn ? fmt(x.issuedOn) : "—"}</option>`).join(""),
+    m = mbModal(
+      `Compare ${esc(s.number)}`,
+      `<div class="pl-cmp"><div class="pl-cmp-pane"><label class="small">Older <select id="pl-cmp-a">${opt(a)}</select></label><div class="pl-cmp-img" id="pl-cmp-ia"></div></div><div class="pl-cmp-pane"><label class="small">Newer <select id="pl-cmp-b">${opt(b)}</select></label><div class="pl-cmp-img" id="pl-cmp-ib"></div></div></div><div id="pl-cmp-what" class="small" style="margin-top:10px"></div>`,
+      { submit: null },
+    );
+  m.querySelector(".mbm-box").classList.add("pl-wide");
+  const fill = async () => {
+    const A = plRow(m.querySelector("#pl-cmp-a").value),
+      B = plRow(m.querySelector("#pl-cmp-b").value),
+      p = plJob(s.projectId),
+      pane = async (x, el) => {
+        const f = x.fileId && (p.files || []).find((y) => y.id === x.fileId),
+          url = f ? await getBlob(f.id) : null;
+        el.innerHTML = `<div class="pl-cmp-hd"><b>Rev ${esc(x.rev)}</b> ${plStatusPill(x)}</div><div class="pl-vwrap ${plIsCurrent(x) ? "" : "is-void"}">${url ? (/image/.test(f.type) ? `<img src="${url}" alt="Rev ${esc(x.rev)}">` : `<iframe src="${url}" title="Rev ${esc(x.rev)}"></iframe>`) : '<div class="pl-nofile">No file stored</div>'}${plIsCurrent(x) ? "" : '<div class="pl-void-stamp" aria-hidden="true"><span>VOID</span></div>'}</div>`;
+      };
+    await Promise.all([pane(A, m.querySelector("#pl-cmp-ia")), pane(B, m.querySelector("#pl-cmp-ib"))]);
+    const newer = plRevRank(A.rev) > plRevRank(B.rev) ? A : B;
+    m.querySelector("#pl-cmp-what").innerHTML = `<b>Rev ${esc(newer.rev)}:</b> ${esc(newer.changed || "no narrative recorded")}${newer.impact ? plImpactHtml(newer.impact) : ""}`;
+  };
+  m.querySelector("#pl-cmp-a").onchange = fill;
+  m.querySelector("#pl-cmp-b").onchange = fill;
+  fill();
+}
+// ---- detection: "updated plans", "rev C", a drawing PDF from the architect -> a proposal (never a write)
+const PL_NUM_RE = /\b([A-Z]{1,2}-\d{3}[A-Z]?|SK-\d{1,3}|SD-\d{1,2})\b/g;
+function plDetect(text, files, ctx) {
+  ctx = ctx || {};
+  const p = plJob(ctx.projectId);
+  if (!p) return null;
+  const names = (files || []).map((f) => String((f && (f.filename || f.name)) || "")),
+    all = `${text || ""}\n${names.join("\n")}\n${(files || []).map((f) => (f && f.text) || "").join("\n")}`,
+    nums = [...new Set((all.toUpperCase().match(PL_NUM_RE) || []).filter((n) => !/^(PO|CO|SD)-\d{4}/.test(n)))];
+  if (!nums.length) return null;
+  const pdf = names.some((n) => /\.(pdf|png|jpe?g|svg|dwg)$/i.test(n)),
+    says = /\b(updated|revised|new|reissued|re-issued)\s+(plans?|drawings?|sheets?|set|revision|rev)\b|\brevision\s+[A-Z0-9]\b|\brev\.?\s*[A-Z0-9]{1,2}\b/i.test(all);
+  if (!says && !pdf) return null;
+  // the sheet on file this names; a new number only with a drawing attached
+  const num = nums.find((n) => plCurrent(p.id, n)) || (pdf ? nums[0] : "");
+  if (!num) return null;
+  const cur = plCurrent(p.id, num),
+    near = all.slice(Math.max(0, all.toUpperCase().indexOf(num)), all.toUpperCase().indexOf(num) + 140),
+    rm = near.match(/\brev(?:ision)?\.?\s*([A-Z]|\d{1,2})\b/i) || all.match(/\brev(?:ision)?\.?\s*([A-Z]|\d{1,2})\b/i),
+    rev = rm ? rm[1].toUpperCase() : cur ? nextRev(cur.rev) : "A";
+  if (cur && plRevRank(rev) <= plRevRank(cur.rev)) return null;
+  const sentences = String(text || "").replace(/\s+/g, " ").split(/(?<=[.!?])\s+/),
+    changed = (sentences.filter((s) => /\b(moved|widened|shortened|changed|now|revised|added|removed|relocat|dropped|raised|lowered|increased|reduced|per)\b/i.test(s) && !/^(hi|hello|thanks)/i.test(s)).slice(0, 2).join(" ") || "").trim();
+  return { projectId: p.id, number: num, rev: rev, title: cur ? cur.title : (names.find((n) => n.toUpperCase().includes(num)) || num).replace(/\.[a-z]+$/i, ""), set: cur ? cur.set : "cd", changed: changed || `See the attached ${num}; the sender did not say what changed`, file: (files || []).find((f) => /\.(pdf|png|jpe?g|svg)$/i.test(String((f && (f.filename || f.name)) || ""))) || null, current: cur ? cur.rev : "" };
+}
+const plOpenProp = (pr) => !!pr && !pr.applied && !1 !== pr.on && !["applied", "skipped", "dismissed", "declined"].includes(pr.status || "");
+function plPropOf(d, origin) {
+  return Object.assign({ id: uid("cp"), kind: "revision", summary: `New revision of ${d.number}? Rev ${d.rev}${d.current ? ` replaces Rev ${d.current}` : " (a new sheet)"} on ${plJobName(d.projectId)} — confirm it into the register`, on: !0, origin: origin }, d, { file: d.file ? { filename: d.file.filename || d.file.name || "", mimeType: d.file.mimeType || d.file.type || "", text: d.file.text || "", fileId: d.file.id || d.file.fileId || "" } : null });
+}
+// Every open proposal, from mail, meetings and messages; one per sheet and revision.
+function plProposals(pid) {
+  const out = [],
+    seen = new Set(),
+    add = (x) => {
+      const pr = x.pr,
+        k = `${pr.projectId}|${pr.number}|${pr.rev}`,
+        cur = plCurrent(pr.projectId, pr.number);
+      if (seen.has(k) || (cur && plRevRank(pr.rev) <= plRevRank(cur.rev))) return;
+      seen.add(k), out.push(x);
+    };
+  (DB.comms || []).forEach((c) => !["ignored", "spam"].includes(c.status) && (c.proposals || []).forEach((pr) => "revision" === pr.kind && plOpenProp(pr) && add({ src: "mail", c: c, pr: pr, key: `mail:${c.id}:${pr.id}`, from: (c.from && (c.from.name || c.from.email)) || "mail", date: String(c.date || "").slice(0, 10) })));
+  (DB.meetings || []).forEach((m) => (m.plRev || []).forEach((pr) => plOpenProp(pr) && add({ src: "meeting", m: m, pr: pr, key: `mt:${m.id}:${pr.id}`, from: m.title || "a meeting", date: m.date || "" })));
+  (DB.projects || []).forEach((p) => (p.chat || []).forEach((m) => (m.plRev || []).forEach((pr) => plOpenProp(pr) && add({ src: "message", p: p, m: m, pr: pr, key: `ch:${p.id}:${m.id}:${pr.id}`, from: m.by || "a message", date: today() }))));
+  return pid ? out.filter((x) => x.pr.projectId === pid) : out;
+}
+const plPropByKey = (k) => plProposals().find((x) => x.key === k) || null;
+// One tap: the proposal becomes the revision, its attachment the stored file.
+function plConfirmProp(x) {
+  if (!x) return null;
+  if (!plCanIssue()) return toast("The designer or the PM confirms a revision into the register"), null;
+  const pr = x.pr,
+    p = plJob(pr.projectId);
+  let fileId = (pr.file && pr.file.fileId) || "";
+  if (!fileId && pr.file && (pr.file.text || pr.file.filename)) {
+    const lines = String(pr.file.text || `${pr.number} Rev ${pr.rev}`).split(/\n/).slice(0, 40);
+    let dataUrl = "";
+    try {
+      dataUrl = "function" == typeof sdTextPdf ? sdTextPdf(lines) : "";
+    } catch (e) {}
+    dataUrl && (fileId = plFileFrom(p, { dataUrl: dataUrl, name: pr.file.filename || `${pr.number} Rev ${pr.rev}.pdf`, type: "application/pdf", notes: `From ${x.from}` }));
+  }
+  const row = plIssue({ projectId: pr.projectId, number: pr.number, rev: pr.rev, set: pr.set, title: pr.title, changed: pr.changed, issuer: x.src === "mail" ? x.from : pr.issuer || x.from, fileId: fileId, origin: { kind: x.src, id: (x.c || x.m || {}).id || "", label: `${x.src === "mail" ? "mail from" : x.src === "meeting" ? "the meeting" : "a message from"} ${x.from}` } });
+  if (!row) return null;
+  (pr.applied = `${plRev(row)} issued`), (pr.status = "applied"), (pr.sheetId = row.id), (pr.appliedBy = plMe()), (pr.appliedAt = appNowIso());
+  x.c && (x.c.proposals || []).every((y) => !plOpenProp(y) || "note" === y.kind) && (x.c.status = "applied");
+  save(), render(), plIssueToast(row);
+  return row;
+}
+function plDecline(x) {
+  if (!x) return;
+  (x.pr.status = "declined"), (x.pr.declinedBy = plMe()), save(), render();
+  rcToast(`Not a revision: ${x.pr.number} Rev ${x.pr.rev} stays out of the register`, [{ label: "Open", run: () => plGoJob(x.pr.projectId) }]);
+}
+// ---- the field question names a sheet: one tap opens that job's current sheet
+function plSheetOf(r) {
+  if (!r) return "";
+  if (r.sheet) return String(r.sheet).toUpperCase();
+  return ((`${r.title || ""} ${r.note || ""}`.toUpperCase().match(PL_NUM_RE) || [])[0] || "").toUpperCase();
+}
+function plSheetChip(r) {
+  const n = plSheetOf(r);
+  if (!n) return "";
+  const s = plCurrent(r.projectId, n);
+  return `<span class="small pl-qsheet">Sheet ${esc(n)}${s ? ` · Rev ${esc(s.rev)} is current` : " · not in the register yet"} <button type="button" class="btn sm" data-plsheet="${esc(r.projectId)}|${esc(n)}">${s ? `Open ${esc(plRev(s))}` : "Open Plans"}</button></span>`;
+}
+function plOpenNumber(pid, number) {
+  const s = plCurrent(pid, number);
+  setCurrent(pid);
+  if (!s) return (plStatusF = "current"), plGoJob(pid), toast(`${number} is not in ${plJobName(pid)}'s register yet`);
+  return plOpen(s.id);
+}
+// ---- the Standard behind each catch, read live (STD_MAP)
+function plWhy(k) {
+  try {
+    return standardWhy(k);
+  } catch (e) {
+    return "Because: Current drawings only: superseded sets are marked VOID and removed from site (Documentation standard)";
+  }
+}
+"undefined" != typeof STD_MAP &&
+  Object.assign(STD_MAP, {
+    plansNotAcked: { p: "quality", c: ["std", "documentation", /Current drawings only/i] },
+    plansOrderedInRevision: { p: "cost", c: ["value", "dollar", /Waste nothing/i] },
+    plansAmendment: { p: "law", c: ["principle", "law"] },
+    "nyh:plans": { p: "quality", c: ["pb", "designer", "standards", /Drawings issued with revision/i] },
+    "nyh:plansreq": { p: "cost", c: ["value", "dollar", /Waste nothing/i] },
+    "nyh:plansack": { p: "quality", c: ["std", "documentation", /Current drawings only/i] },
+  });
+// ---- the seed: 121 State's register (invented), with superseded revisions and the field's acknowledgments
+function plSvg(o) {
+  const a = (s) => String(s || "").replace(/[^\x20-\x7E]/g, "-").replace(/&/g, "and").replace(/</g, "(").replace(/>/g, ")"),
+    rooms = (o.rooms || []).slice(0, 6),
+    cols = rooms.length > 3 ? 2 : 1,
+    rowsN = Math.max(1, Math.ceil(rooms.length / cols)),
+    bw = (660 - (cols - 1) * 20) / cols,
+    bh = Math.min(170, (480 - (rowsN - 1) * 20) / rowsN);
+  let g = "";
+  rooms.forEach((r, i) => {
+    const x = 60 + (i % cols) * (bw + 20),
+      y = 80 + Math.floor(i / cols) * (bh + 20);
+    g += `<rect x="${x}" y="${y}" width="${bw}" height="${bh}" fill="none" stroke="#222" stroke-width="4"/><text x="${x + bw / 2}" y="${y + bh / 2}" font-size="20" text-anchor="middle" font-family="Helvetica">${a(r).toUpperCase()}</text>`;
+  });
+  const cloud = o.cloud
+    ? (() => {
+        let d = "M 70 70",
+          x = 70;
+        for (; x < 330; x += 26) d += ` q 13 -16 26 0`;
+        d += " q 16 13 0 26 q 16 13 0 26 q 16 13 0 26";
+        for (; x > 70; x -= 26) d += ` q -13 16 -26 0`;
+        d += " q -16 -13 0 -26 q -16 -13 0 -26 q -16 -13 0 -26";
+        return `<path d="${d}" fill="none" stroke="#c22" stroke-width="3"/><path d="M 340 40 l 18 32 l -36 0 z" fill="none" stroke="#c22" stroke-width="3"/><text x="340" y="66" font-size="16" text-anchor="middle" fill="#c22" font-family="Helvetica">${a(o.rev)}</text>`;
+      })()
+    : "";
+  const notes = String(o.note || "")
+    .split(/;\s*/)
+    .slice(0, 5)
+    .map((n, i) => `<text x="770" y="${110 + i * 26}" font-size="14" font-family="Helvetica">${a(n).slice(0, 40)}</text>`)
+    .join("");
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 760" width="1100" height="760"><rect width="1100" height="760" fill="#fff"/><rect x="20" y="20" width="1060" height="720" fill="none" stroke="#222" stroke-width="3"/><line x1="740" y1="20" x2="740" y2="740" stroke="#222" stroke-width="2"/>${g}${cloud}<text x="770" y="70" font-size="16" font-weight="bold" font-family="Helvetica">NOTES</text>${notes}<rect x="740" y="560" width="340" height="180" fill="none" stroke="#222" stroke-width="2"/><text x="760" y="595" font-size="15" font-family="Helvetica">SMARTDESIGN - ${a(o.job).toUpperCase()}</text><text x="760" y="640" font-size="34" font-weight="bold" font-family="Helvetica">${a(o.number)}</text><text x="760" y="672" font-size="15" font-family="Helvetica">${a(o.title).slice(0, 36)}</text><text x="760" y="705" font-size="15" font-family="Helvetica">REV ${a(o.rev)}  -  ${a(o.date)}</text></svg>`;
+  return "data:image/svg+xml;base64," + btoa(svg);
+}
+function plSeed() {
+  const St = plDB(),
+    p = plJob("p121");
+  if (!p || DB.__plSeed || ("function" == typeof sdSeedsOff && sdSeedsOff())) return;
+  DB.__plSeed = 1;
+  const R = (id, name, floor, words) => ({ id: id, projectId: p.id, name: name, floor: floor, phase: "cd", dims: [], fixtures: [], notes: "", words: words });
+  St.rooms.some((r) => r.projectId === p.id) ||
+    St.rooms.push(
+      R("r121pk", "Parlor kitchen", "Parlor", ["parlor kitchen"]),
+      R("r121gk", "Garden kitchen", "Garden", ["garden kitchen"]),
+      R("r121pb", "Primary bath", "3rd", ["primary bath"]),
+      R("r121gb", "Garden bath", "Garden", ["garden bath"]),
+      R("r121st", "Stair", "Garden to parlor", ["stair", "treads", "landing"]),
+      R("r121gbr", "Garden bedroom", "Garden", ["garden bedroom"]),
+      R("r121ld", "Living and dining", "Parlor", ["living / dining", "living room", "dining"]),
+      R("r121lau", "Laundry", "Parlor", ["laundry", "washer"]),
+      R("r121of", "Office", "3rd", ["office"]),
+      R("r121ext", "Facade and windows", "Exterior", ["exterior", "facade", "window", "brick mold"]),
+    );
+  const fm = (DB.users || []).find((u) => "foreman" === u.role),
+    job = "121 State Street",
+    rows = [];
+  const SH = (id, set, number, title, rev, rooms, status, on, x) => {
+    const s = Object.assign({ id: id, projectId: p.id, set: set, number: number, title: title, rev: rev, rooms: rooms, status: status, issuedOn: on, issuedAt: `${on}T09:00:00`, issuer: "Sarah Davis", issuedBy: "Sarah Davis", changed: "", source: "inhouse", origin: { kind: "seed", label: "the register" }, link: "", stale: !1 }, x || {});
+    s.ackNeed = fm ? [{ key: "u:" + fm.id, uid: fm.id, name: fm.name, role: "foreman" }] : [];
+    rows.push(s);
+    return s;
+  };
+  const gk = "r121gk", pk = "r121pk", pb = "r121pb", gb = "r121gb", st = "r121st", gbr = "r121gbr", ld = "r121ld", lau = "r121lau", of = "r121of", ext = "r121ext";
+  SH("sh121deck", "deck", "DECK-01", "Design presentation — kitchens, baths and stair", "A", [pk, gk, pb, gb, st], "current", "2026-05-28", { stage: "pricing", changed: "First presentation to the Kleins" });
+  SH("sh121l201", "lpc", "L-201", "Rear facade — windows and brick mold", "A", [ext], "current", "2025-11-20", { filed: { agency: "LPC", status: "approved", ref: "LPC-26-0412", on: "2025-12-15" }, changed: "Filed with LPC" });
+  SH("sh121a100a", "dob", "A-100", "Garden floor plan", "A", [gk, gb, gbr, st], "superseded", "2025-08-28", { changed: "Filed with DOB" });
+  SH("sh121a100b", "dob", "A-100", "Garden floor plan", "B", [gk, gb, gbr, st], "current", "2025-09-22", { filed: { agency: "DOB", status: "approved", ref: "B00912345-I1", on: "2025-10-01" }, changed: "Garden bath door swing reversed per the plan examiner", supersedes: "sh121a100a" });
+  SH("sh121a110", "dob", "A-110", "Parlor and third floor plans", "A", [pk, ld, lau, of, pb], "current", "2025-09-22", { filed: { agency: "DOB", status: "approved", ref: "B00912345-I1", on: "2025-10-01" }, changed: "Filed with DOB" });
+  SH("sh121a201a", "cd", "A-201", "Garden kitchen plan and elevations", "A", [gk], "superseded", "2026-07-15", { changed: "Issued for construction" });
+  SH("sh121a201b", "cd", "A-201", "Garden kitchen plan and elevations", "B", [gk], "current", "2026-08-20", { stage: "ifc", changed: "Base cabinet run shortened 6 in at the window; sink centered on the window", supersedes: "sh121a201a" });
+  SH("sh121a202a", "cd", "A-202", "Parlor kitchen and laundry elevations", "A", [pk, lau], "superseded", "2026-06-30", { changed: "Issued for pricing" });
+  SH("sh121a202b", "cd", "A-202", "Parlor kitchen and laundry elevations", "B", [pk, lau], "superseded", "2026-07-28", { changed: "Pantry moved to the left of the range", supersedes: "sh121a202a" });
+  SH("sh121a202c", "cd", "A-202", "Parlor kitchen and laundry elevations", "C", [pk, lau], "current", "2026-08-12", { stage: "ifc", changed: "Laundry counter dropped to 34 in for the new washer and dryer sizes", supersedes: "sh121a202b" });
+  SH("sh121a301a", "cd", "A-301", "Stair section", "1", [st, gbr], "superseded", "2026-08-20", { changed: "Issued for construction" });
+  SH("sh121a301b", "cd", "A-301", "Stair section", "2", [st, gbr], "current", "2026-09-02", { stage: "ifc", changed: "Landing widened to 42 in per the site walk 9/1; flitch header at the opening per S-101; exposed-beam ceiling drop 2 in at the garden bedroom", supersedes: "sh121a301a" });
+  SH("sh121a401", "cd", "A-401", "Primary bath plan and tile layout", "A", [pb], "current", "2026-08-05", { stage: "ifc", changed: "Issued for construction" });
+  SH("sh121s101", "struct", "S-101", "Stair opening — flitch header", "1", [st], "current", "2026-08-28", { stage: "ifc", source: "structural", issuer: "Maya Natarajan, PE (structural consultant)", changed: "Flitch header at the widened stair opening" });
+  SH("sh121sd1", "shop", "SD-1", "Carlos Millwork — kitchen and laundry shop drawings", "1", [pk, lau], "current", "2026-08-25", { kind: "shop", approval: "noted", issuer: "Carlos Millwork", source: "trade", fileId: (p.files || []).some((f) => "f_sb121mill_0" === f.id) ? "f_sb121mill_0" : "", changed: "Approved as noted: confirm the 34 in laundry counter against A-202 Rev C" });
+  SH("sh121ww", "shop", "WW-1187", "Window Works — window shop drawings", "1", [ext], "current", "2026-07-10", { kind: "shop", approval: "approved", issuer: "Window Works", source: "trade", fileId: (p.files || []).some((f) => "f_sb121win_0" === f.id) ? "f_sb121win_0" : "", changed: "Approved: ogee lugs and putty glazing per LPC" });
+  SH("sh121fs1a", "ffe", "FS-01", "Finish schedule — baths and kitchens", "A", [pb, gb, pk, gk], "superseded", "2026-07-20", { kind: "schedule", changed: "Issued for pricing" });
+  SH("sh121fs1b", "ffe", "FS-01", "Finish schedule — baths and kitchens", "B", [pb, gb, pk, gk], "current", "2026-08-18", { kind: "schedule", stage: "ifc", changed: "Honed Calacatta at the garden kitchen backsplash; third-floor tile reselected", supersedes: "sh121fs1a" });
+  SH("sh121sp1", "spec", "SP-01", "Specifications — millwork and finishes", "A", [pk, gk, lau, of], "current", "2026-08-12", { kind: "spec", stage: "ifc", changed: "Issued for construction" });
+  SH("sh121sk3", "cd", "SK-3", "RFI 3 sketch — garden bath joist sistering", "A", [gb], "current", "2026-09-03", { kind: "rfi", stage: "ifc", changes: "A-100", changed: "Sister the two notched joists with LVL; no change to the filed plan" });
+  rows.forEach((s) => {
+    const next = rows.find((x) => x.supersedes === s.id);
+    next && (s.supersededBy = next.id);
+    if (!s.fileId) {
+      const id = "fpl_" + s.id,
+        dataUrl = plSvg({ job: job, number: s.number, title: s.title, rev: s.rev, date: s.issuedOn, rooms: s.rooms.map((r) => (St.rooms.find((x) => x.id === r) || {}).name || r), note: s.changed, cloud: !!s.supersedes }),
+        rec = { id: id, name: `${s.number} ${s.title} — Rev ${s.rev}.svg`.replace(/ — /g, " - "), type: "image/svg+xml", size: Math.round(0.75 * dataUrl.length), cat: "drawing", date: s.issuedOn, by: s.issuer, link: null, notes: `${s.number} Rev ${s.rev} (the drawing register)`, shareClient: !1, ai: null, seen: !0, persisted: !1, uploadedAt: s.issuedAt };
+      "superseded" === s.status && ((rec.origName = rec.name), (rec.name = "VOID · " + rec.name));
+      (p.files = p.files || []).push(rec), (s.fileId = id);
+      try {
+        Promise.resolve(putBlob(id, dataUrl)).then((ok) => ok && ((rec.persisted = !0), save()));
+      } catch (e) {}
+    }
+    fm && St.acks.push({ id: "pa_" + s.id, kind: "ack", projectId: p.id, sheetId: s.id, number: s.number, rev: s.rev, uid: fm.id, name: fm.name, role: "foreman", vendor: "", how: "in the app", by: fm.name, at: `${s.issuedOn}T${"2026-09-03" === s.issuedOn ? "07:40" : "09:14"}:00` });
+  });
+  St.sheets.push(...rows.filter((s) => !St.sheets.some((x) => x.id === s.id)));
+}
+// ---- the page: Plans (one per job)
+function plRender() {
+  const root = document.getElementById("plans-body");
+  if (!root) return;
+  plSeed();
+  const p = S && plJob(S.id);
+  if (!p) return void (root.innerHTML = '<div class="ph"><div><h2>Plans</h2></div></div><div class="empty">Pick a job.</div>');
+  const all = plSheets(p.id),
+    phone = innerWidth <= 760,
+    can = plCanIssue(),
+    me = plUid(),
+    myPend = plPendingAcks(p.id, { uid: me }),
+    sets = Object.keys(PL_SET_LABEL).filter((k) => all.some((s) => s.set === k)),
+    list = all
+      .filter((s) => (!plSetF || s.set === plSetF) && ("all" === plStatusF ? !0 : "current" === plStatusF ? plIsCurrent(s) : plStatus(s) === plStatusF))
+      .sort((a, b) => String(a.number).localeCompare(String(b.number), void 0, { numeric: !0 }) || plRevRank(b.rev) - plRevRank(a.rev)),
+    holds = plHolds(p.id),
+    amends = plAmends(p.id),
+    pend = plPendingAcks(p.id),
+    props = can ? plProposals(p.id) : [],
+    acks = plDB().acks.filter((a) => a.projectId === p.id).slice().sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 10),
+    ch = plDB().changes.filter((c) => c.projectId === p.id),
+    tr = plDB().transmittals.filter((t) => t.projectId === p.id);
+  const primary = can ? '<button class="btn primary" data-plnew="">New Revision</button>' : myPend.length ? `<button class="btn primary" data-plack="${myPend[0].s.id}">Acknowledge ${esc(plRev(myPend[0].s))}</button>` : "";
+  const fieldCell = (s) => {
+    if (!plIsCurrent(s)) return `<span class="small muted">VOID${s.voidAt ? " " + fmt(String(s.voidAt).slice(0, 10)) : ""}</span>`;
+    const x = plAckState(s);
+    return x.pending.length ? `<span class="pill warn">Waiting: ${esc(x.pending.map((n) => plFirst(n.name)).join(", "))}</span>` : x.done.length ? `<span class="small">${esc(x.done.map((d) => `${plFirst(d.need.name)} ${stampText(d.a.at)}`).join("; "))}</span>` : '<span class="small muted">—</span>';
+  };
+  const acts = (s) => `<button type="button" class="btn sm" data-plopen="${s.id}">Open</button>${plHistory(p.id, s.number).length > 1 ? `<button type="button" class="btn sm" data-plcompare="${s.id}">Compare</button>` : ""}${can && plIsCurrent(s) ? `<button type="button" class="btn sm" data-plnew="${esc(s.number)}">New Rev ${esc(nextRev(s.rev))}</button>` : ""}`;
+  const index = list.length
+    ? phone
+      ? `<div class="pl-cards">${list.map((s) => `<div class="pl-card ${plIsCurrent(s) ? "" : "pl-void"} ${plFocus === s.id ? "tk-flash" : ""}" data-plrow="${s.id}"><div class="pl-card-hd"><b>${esc(s.number)}</b><span>Rev ${esc(s.rev)}</span>${plStatusPill(s)}</div><div class="pl-card-t">${esc(s.title)}</div><div class="small muted">${esc(PL_SET_LABEL[s.set] || s.set)} · ${s.issuedOn ? fmt(s.issuedOn) : "—"} · ${esc(s.issuer || "—")}</div>${s.changed ? `<div class="small">${esc(s.changed)}</div>` : ""}<div class="small">${fieldCell(s)}</div><div class="pl-acts">${acts(s)}</div></div>`).join("")}</div>`
+      : `<div class="tw"><table class="t pl-index"><thead><tr><th>Sheet</th><th>Title</th><th>Set</th><th>Rev</th><th>Status</th><th>Date</th><th>Issued By</th><th>What Changed</th><th>Field</th><th></th></tr></thead><tbody>${list.map((s) => `<tr class="${plIsCurrent(s) ? "" : "pl-void"} ${plFocus === s.id ? "tk-flash" : ""}" data-plrow="${s.id}"><td><b>${esc(s.number)}</b><div class="small muted">${esc(PL_KIND[plKind(s)])}</div></td><td>${esc(s.title)}</td><td class="small">${esc(PL_SET_LABEL[s.set] || s.set)}</td><td>${esc(s.rev)}</td><td>${plStatusPill(s)}</td><td class="small nowrap">${s.issuedOn ? fmt(s.issuedOn) : "—"}</td><td class="small">${esc(s.issuer || "—")}</td><td class="small">${esc(s.changed || "")}</td><td>${fieldCell(s)}</td><td class="nowrap pl-acts">${acts(s)}</td></tr>`).join("")}</tbody></table></div>`
+    : `<div class="empty">${all.length ? "No sheet matches these filters." : "No sheets in this job's register yet."}</div>`;
+  const notes = [
+    ...props.map((x) => `<div class="note pl-prop" data-plpropkey="${esc(x.key)}"><b>New revision of ${esc(x.pr.number)}?</b> Rev ${esc(x.pr.rev)} from ${esc(x.from)}${x.date ? " · " + fmt(x.date) : ""}: ${esc(x.pr.changed)}<div class="pl-acts"><button type="button" class="btn sm" data-plrev="${esc(x.key)}">Confirm Rev ${esc(x.pr.rev)}</button><button type="button" class="btn sm" data-plnot="${esc(x.key)}">Not This</button></div></div>`),
+    ...holds.map((h) => {
+      const r = plRoom(h.roomId) || { name: h.roomId },
+        nx = h.liftOn && plRow(h.liftOn);
+      return `<div class="note warn pl-hold" data-plhold="${h.id}"><b>In Revision: ${esc(r.name)}</b> since ${fmt(String(h.at).slice(0, 10))} (${esc(h.by)})${h.why ? ` — ${esc(h.why)}` : ""}. ${nx ? `${esc(plRev(nx))} is issued; the hold lifts when the field acknowledges it.` : "Field tasks there are on hold and orders for it are flagged."}${can && !nx ? `<div class="pl-acts"><button type="button" class="btn sm" data-pllift="${h.id}">Lift Hold</button></div>` : ""}</div>`;
+    }),
+    ...amends.map((s) => `<div class="note bad pl-amend" data-plamend="${s.id}"><b>${esc(s.amend.agency)} Amendment Needed: ${esc(plRev(s))}</b> — ${esc(plRoomsOf(s).map((r) => r.name).join(", ") || "the work")} ${"filed" === s.amend.status ? "is filed and" : ""} is held until the filing is approved (law and landmarks first).${can ? `<div class="pl-acts">${"filed" !== s.amend.status ? `<button type="button" class="btn sm" data-plamendset="${s.id}|filed">Amendment Filed</button>` : ""}<button type="button" class="btn sm" data-plamendset="${s.id}|approved">Amendment Approved</button></div>` : ""}</div>`),
+    ...pend.map((x) => `<div class="note pl-pend" data-plpend="${x.s.id}"><b>Waiting for Acknowledgment: ${esc(plRev(x.s))}</b> — ${esc(x.st.pending.map((n) => n.name).join(", "))}. Work in ${esc(plRoomsOf(x.s).map((r) => r.name).join(", ") || "the area")} waits for it.${x.st.pending.some((n) => n.uid === me) ? `<div class="pl-acts"><button type="button" class="btn sm" data-plopen="${x.s.id}">Open</button><button type="button" class="btn sm" data-plack="${x.s.id}">Acknowledge</button></div>` : plStaff() && x.st.pending.some((n) => "trade" === n.role) ? `<div class="pl-acts">${x.st.pending.filter((n) => "trade" === n.role).map((n) => `<button type="button" class="btn sm" data-placktrade="${x.s.id}|${esc(n.vendor)}">Record for ${esc(n.vendor)}</button>`).join("")}</div>` : ""}</div>`),
+  ];
+  root.innerHTML = `<div class="ph"><div><h2>Plans — ${esc(plJobName(p.id))}</h2><p class="lead">The job's drawing register: current sheets only unless you ask for the history. A superseded revision is VOID and opens stamped VOID.</p></div><div class="acts">${can ? '<button class="btn" data-plholdnew>Mark In Revision</button>' : ""}${can && "function" == typeof issueDialog && sets.length ? '<button class="btn" data-plissueset>Issue a Set</button>' : ""}${primary}</div></div>
+    ${notes.length ? `<div class="pl-notes">${notes.join("")}</div>` : ""}
+    <div class="row pl-filters"><label class="small">Set <select id="pl-set"><option value="">All Sets</option>${sets.map((k) => `<option value="${k}" ${plSetF === k ? "selected" : ""}>${PL_SET_LABEL[k]}</option>`).join("")}</select></label><label class="small">Status <select id="pl-status"><option value="current" ${"current" === plStatusF ? "selected" : ""}>Current Sheets</option><option value="all" ${"all" === plStatusF ? "selected" : ""}>All Revisions</option>${Object.entries(PL_STATUS).map(([k, v]) => `<option value="${k}" ${plStatusF === k ? "selected" : ""}>${v[0]}</option>`).join("")}</select></label><span class="grow"></span><span class="small muted" data-plcount="${list.length}">${list.length} of ${all.length}</span></div>
+    ${index}
+    <div class="grid2 pl-lower"><div class="card"><h3>Field Acknowledgments</h3>${acks.length ? acks.map((a) => `<div class="pl-ackrow small"><b>${esc(a.name)}</b> ${"ack" === a.kind ? "acknowledged" : "viewed"} ${esc(a.number)} Rev ${esc(a.rev)}${"view" === a.kind && !a.current ? " (VOID)" : ""} · ${esc(stampText(a.at))}${a.vendor ? ` · ${esc(a.how)}, recorded by ${esc(a.by)}` : ""}</div>`).join("") : '<div class="small muted">Nobody has opened a sheet yet.</div>'}</div>
+    ${ch.length || tr.length ? `<div class="card"><h3>Change Records</h3>${ch.map((r) => `<div class="st-change"><div class="row"><b>${esc(r.label)}</b><span class="mono">${fi(r.from)} to ${fi(r.to)}</span><span class="grow"></span><span class="small muted">${fmt(r.at)} · ${esc(r.by)}</span></div><div class="small muted">${esc(r.why || "")}${r.filing ? ' · <b class="bad">a filed sheet is affected: amendment needed</b>' : ""}</div><div class="st-aff">${r.affected.map((a, i) => `<label class="${a.done ? "done" : ""}"><input type="checkbox" data-plaff="${r.id}|${i}" ${a.done ? "checked" : ""}> ${esc(a.label)}</label>`).join("") || '<span class="small muted">Nothing else carried this value.</span>'}</div></div>`).join("") || '<div class="small muted">No dimension changes recorded.</div>'}<h3 style="margin-top:12px">Transmittals</h3>${tr.map((t) => `<div class="row small" style="padding:4px 0">${fmt(t.date)} · ${esc(t.purpose)} to ${esc(t.to)} · ${t.sheets.length} sheets</div>`).join("") || '<div class="small muted">Nothing issued on a transmittal yet.</div>'}</div>` : ""}</div>`;
+  const ss = root.querySelector("#pl-set"),
+    sst = root.querySelector("#pl-status");
+  ss && (ss.onchange = () => ((plSetF = ss.value), (plFocus = ""), plRender()));
+  sst && (sst.onchange = () => ((plStatusF = sst.value), (plFocus = ""), plRender()));
+  root.querySelectorAll("[data-plaff]").forEach(
+    (i) =>
+      (i.onchange = () => {
+        const [cid, idx] = i.dataset.plaff.split("|"),
+          r = ch.find((x) => x.id === cid),
+          a = r && r.affected[+idx];
+        if (!a) return;
+        a.done = i.checked;
+        if ("po" === a.kind) {
+          const po = (DB.pos || []).find((x) => x.id === a.id);
+          po && (po.stale = !i.checked);
+        }
+        if ("mat" === a.kind) {
+          const mt = (p.materials || []).find((x) => x.id === a.id);
+          mt && (mt.stale = !i.checked);
+        }
+        save(), plRender();
+      }),
+  );
+}
+// New Revision: from an uploaded file, or with no file (the narrative is required either way)
+function plIssueDialog(o) {
+  o = o || {};
+  const p = plJob(o.projectId || (S && S.id));
+  if (!p) return;
+  if (!plCanIssue()) return toast("The designer or the PM issues revisions");
+  const cur = o.number ? plCurrent(p.id, o.number) : null,
+    nums = [...new Set(plSheets(p.id, { current: !0 }).map((s) => s.number))].sort(),
+    rooms = plDB().rooms.filter((r) => r.projectId === p.id);
+  let file = null;
+  const m = mbModal(
+    "New Revision",
+    `<div class="f2"><div class="f"><label>Sheet</label><input data-f="number" list="pl-nums" value="${esc((cur && cur.number) || o.number || "")}" placeholder="A-201"><datalist id="pl-nums">${nums.map((n) => `<option value="${esc(n)}">`).join("")}</datalist></div><div class="f"><label>Revision</label><input data-f="rev" value="${esc(cur ? nextRev(cur.rev) : "A")}"></div></div>
+    <div class="f"><label>Title</label><input data-f="title" value="${esc((cur && cur.title) || "")}"></div>
+    <div class="f2"><div class="f"><label>Set</label><select data-f="set">${Object.entries(PL_SET_LABEL).map(([k, v]) => `<option value="${k}" ${(cur ? cur.set : "cd") === k ? "selected" : ""}>${v}</option>`).join("")}</select></div><div class="f"><label>Status</label><select data-f="stage">${["pricing", "permit", "ifc"].map((k) => `<option value="${k}" ${(cur && ("revision" === plStatus(cur) ? cur.prevStage : plStatus(cur))) === k || (!cur && "ifc" === k) ? "selected" : ""}>${PL_STATUS[k][0]}</option>`).join("")}</select></div></div>
+    <div class="f"><label>Issued By</label><input data-f="issuer" value="${esc(plMe())}"></div>
+    <div class="f"><label>What Changed</label><textarea data-f="changed" rows="3" placeholder="e.g. Base cabinet run shortened 6 in; sink centered on the window">${esc(o.changed || "")}</textarea></div>
+    <div class="f"><label>Rooms</label><div class="st-pick pl-rooms">${rooms.map((r) => `<label><input type="checkbox" data-plrm="${r.id}" ${cur && cur.rooms.includes(r.id) ? "checked" : ""}> ${esc(r.name)}</label>`).join("") || '<span class="small muted">No rooms on this job yet.</span>'}</div></div>
+    <div class="f"><label>Drawing File</label><input type="file" id="pl-file" accept="image/*,application/pdf"><span class="hint" id="pl-file-hint">PDF or image, as the architect sent it.</span></div>
+    <div id="pl-preview" class="small"></div>`,
+    {
+      submit: "Issue Revision",
+      onSubmit: (f) => {
+        const rs = [...document.querySelectorAll("#mbm [data-plrm]:checked")].map((x) => x.dataset.plrm),
+          fileId = file ? plFileFrom(p, file) : "",
+          row = plIssue({ projectId: p.id, number: f.number, rev: f.rev, title: f.title, set: f.set, stage: f.stage, issuer: f.issuer, changed: f.changed, rooms: rs.length ? rs : void 0, fileId: fileId, origin: { kind: file ? "upload" : "manual", label: file ? `upload ${file.name}` : "the Plans page" } });
+        if (!row) return !1;
+        save(), render(), plFocus = row.id, plIssueToast(row);
+        setTimeout(() => {
+          const el = document.querySelector(`[data-plrow="${row.id}"]`);
+          el && el.scrollIntoView({ block: "center" });
+        }, 40);
+      },
+    },
+  );
+  const preview = () => {
+    const n = String(m.querySelector('[data-f="number"]').value || "").toUpperCase().trim(),
+      c = plCurrent(p.id, n),
+      filed = n && plFiled(p.id, n),
+      rs = [...m.querySelectorAll("[data-plrm]:checked")].map((x) => x.dataset.plrm),
+      fake = { projectId: p.id, rooms: rs.length ? rs : c ? c.rooms : [], changed: m.querySelector('[data-f="changed"]').value, amend: filed ? { agency: filed.agency } : null };
+    m.querySelector("#pl-preview").innerHTML = `${c ? `<div><b>Rev ${esc(c.rev)} becomes VOID</b> when this is issued.</div>` : n ? `<div>${esc(n)} is a new sheet in the register.</div>` : ""}${filed ? `<div class="note bad small"><b>${esc(filed.agency)} filed sheet.</b> This revision needs an amendment or ${esc(filed.agency)} approval before the work; the work is held until it is approved.</div>` : ""}${n ? plImpactHtml(plImpact(fake, c)) : ""}`;
+  };
+  m.querySelector('[data-f="number"]').addEventListener("change", () => {
+    const n = String(m.querySelector('[data-f="number"]').value || "").toUpperCase().trim(),
+      c = plCurrent(p.id, n);
+    c && ((m.querySelector('[data-f="rev"]').value = nextRev(c.rev)), m.querySelector('[data-f="title"]').value || (m.querySelector('[data-f="title"]').value = c.title), m.querySelectorAll("[data-plrm]").forEach((x) => (x.checked = c.rooms.includes(x.dataset.plrm))));
+    preview();
+  });
+  m.querySelectorAll("[data-plrm], [data-f=changed]").forEach((x) => x.addEventListener("change", preview));
+  const fi0 = m.querySelector("#pl-file");
+  fi0.onchange = () => {
+    const F = fi0.files && fi0.files[0];
+    if (!F) return void (file = null);
+    const rd = new FileReader();
+    (rd.onload = () => {
+      file = { dataUrl: String(rd.result), name: F.name, type: F.type };
+      m.querySelector("#pl-file-hint").textContent = `${F.name} will be stored with the revision`;
+      const g = String(F.name).toUpperCase().match(PL_NUM_RE),
+        r0 = String(F.name).match(/\brev\.?\s*([A-Z]|\d{1,2})\b/i),
+        ni = m.querySelector('[data-f="number"]');
+      g && !ni.value && ((ni.value = g[0]), ni.dispatchEvent(new Event("change")));
+      r0 && (m.querySelector('[data-f="rev"]').value = r0[1].toUpperCase());
+    }),
+      rd.readAsDataURL(F);
+  };
+  preview();
+  return m;
+}
+function plHoldDialog(pid) {
+  const p = plJob(pid || (S && S.id));
+  if (!p) return;
+  const rooms = plDB().rooms.filter((r) => r.projectId === p.id);
+  if (!rooms.length) return toast("This job has no rooms in the register yet");
+  mbModal(
+    "Mark In Revision",
+    `<p class="small" style="margin:0 0 8px">Design is reworking these rooms. Field tasks there go on hold, the schedule shows it, and purchase orders, RFQs and requests for them are flagged before ordering. The hold lifts when the new revision is issued and acknowledged.</p><div class="f"><label>Rooms</label><div class="st-pick pl-rooms">${rooms.map((r) => `<label><input type="checkbox" data-plrm="${r.id}"> ${esc(r.name)}</label>`).join("")}</div></div><div class="f"><label>Why</label><textarea data-f="why" rows="2" placeholder="e.g. the Kleins want the island back; layout being redrawn"></textarea></div>`,
+    {
+      submit: "Mark In Revision",
+      onSubmit: (f) => {
+        const ids = [...document.querySelectorAll("#mbm [data-plrm]:checked")].map((x) => x.dataset.plrm);
+        if (!ids.length) return toast("Pick the rooms design is reworking"), !1;
+        const made = plMarkInRevision({ projectId: p.id, roomIds: ids, why: f.why });
+        if (!made.length) return toast("Those rooms are already in revision"), !1;
+        save(), render();
+        rcToast(`${made.map((h) => plRoom(h.roomId).name).join(", ")} in revision: field tasks on hold, orders flagged`, [{ label: "Open", run: () => plGoJob(p.id) }]);
+      },
+    },
+  );
+}
+function plAckTradeDialog(rowId, vendor) {
+  const s = plRow(rowId);
+  if (!s) return;
+  mbModal(
+    `Record for ${esc(vendor)}`,
+    `<p class="small" style="margin:0 0 8px">${esc(vendor)} confirmed they have ${esc(plRev(s))}. How did they say so?</p><div class="f"><label>How</label><select data-f="how"><option>By text</option><option>By email</option><option>By phone</option><option>In person</option></select></div>`,
+    {
+      submit: "Record",
+      onSubmit: (f) => {
+        plAck(s.id, { vendor: vendor, how: String(f.how || "").toLowerCase() });
+        save(), render(), rcToast(`${vendor} acknowledged ${plRev(s)} (${String(f.how || "").toLowerCase()})`, [{ label: "Open", run: () => plGo(s.id) }]);
+      },
+    },
+  );
+}
+function plAckNow(rowId) {
+  const s = plRow(rowId);
+  if (!s) return;
+  const a = plAck(s.id);
+  if (!a) return;
+  save(), render();
+  try {
+    $("#viewer") && $("#viewer").classList.contains("on") && $("#viewer").dataset.plrow === s.id && plOpen(s.id);
+  } catch (e) {}
+  rcToast(`${a.name} acknowledged ${plRev(s)} at ${stampText(a.at)}`, [{ label: "Open", run: () => plGo(s.id) }]);
+}
+// ---- one click handler for every Plans control, wherever it is drawn
+document.addEventListener("click", (e) => {
+  const b = e.target.closest && e.target.closest("[data-plopen],[data-plack],[data-plnew],[data-plcompare],[data-plsheet],[data-plrev],[data-plnot],[data-pllift],[data-plholdnew],[data-plissueset],[data-plamendset],[data-placktrade],[data-ploverride],[data-plgo],[data-plgopo]");
+  if (!b) return;
+  e.preventDefault();
+  const d = b.dataset;
+  if (null != d.plopen) return void plOpen(d.plopen);
+  if (null != d.plack) return void plAckNow(d.plack);
+  if (null != d.plnew) return void plIssueDialog({ projectId: S && S.id, number: d.plnew });
+  if (null != d.plcompare) return void plCompare(d.plcompare);
+  if (null != d.plsheet) {
+    const [pid, n] = d.plsheet.split("|");
+    return void plOpenNumber(pid, n);
+  }
+  if (null != d.plrev) return void plConfirmProp(plPropByKey(d.plrev));
+  if (null != d.plnot) return void plDecline(plPropByKey(d.plnot));
+  if (null != d.pllift) {
+    const h = plLift(d.pllift, "lifted on the Plans page");
+    return void (h && (save(), render(), rcToast(`Hold lifted: ${(plRoom(h.roomId) || {}).name || "the area"}`, [{ label: "Open", run: () => plGoJob(h.projectId) }])));
+  }
+  if (null != d.plholdnew) return void plHoldDialog(S && S.id);
+  if (null != d.plissueset) return void issueDialog(S);
+  if (null != d.plamendset) {
+    const [id, st] = d.plamendset.split("|"),
+      s = plRow(id);
+    if (!s) return;
+    if ("approved" === st)
+      return void mbModal(`${esc(s.amend.agency)} Amendment Approved`, `<p class="small" style="margin:0 0 8px">Record the approval of the amendment for ${esc(plRev(s))}. The work it held is released.</p><div class="f"><label>Approval Reference</label><input data-f="ref" value="${esc(s.amend.ref || "")}" placeholder="job or docket number"></div>`, {
+        submit: "Record Approval",
+        onSubmit: (f) => {
+          plAmendSet(id, "approved", f.ref) && (save(), render(), rcToast(`${s.amend.agency} amendment approved for ${plRev(s)}: the work is released`, [{ label: "Open", run: () => plGo(s.id) }]));
+        },
+      });
+    return void (plAmendSet(id, st) && (save(), render(), rcToast(`${s.amend.agency} amendment filed for ${plRev(s)}; the work stays held until it is approved`, [{ label: "Open", run: () => plGo(s.id) }])));
+  }
+  if (null != d.placktrade) {
+    const [id, v] = d.placktrade.split("|");
+    return void plAckTradeDialog(id, v);
+  }
+  if (null != d.ploverride) {
+    const [kind, id, roomId] = d.ploverride.split("|"),
+      po = (DB.pos || []).find((x) => x.id === id);
+    return void plOverrideDialog({ kind: kind, id: id, roomId: roomId, projectId: po ? po.projectId : S && S.id });
+  }
+  if (null != d.plgo) return void plGoJob(d.plgo || (S && S.id));
+  if (null != d.plgopo) {
+    const po = (DB.pos || []).find((x) => x.id === d.plgopo);
+    return void (po && (mbCloseModal(), flowGo.po(po)()));
+  }
+});
+// ---- the view, the menus, the roles (the photos lane's pattern: once, idempotent, from render)
+function plViews() {
+  [void 0 !== IA_GROUPS ? IA_GROUPS : null, void 0 !== NAV_GROUPS ? NAV_GROUPS : null].forEach((G) => {
+    if (!G) return;
+    const g = G.find((x) => "jobs" === x.id);
+    if (g && !g.views.includes("plans")) {
+      const i = g.views.indexOf("files");
+      g.views.splice(i < 0 ? g.views.length : i + 1, 0, "plans");
+    }
+    // one list for the noun: the Studio's Drawings entry is the job's Plans page now
+    const st = G.find((x) => "studio" === x.id);
+    st && st.views.includes("sdraw") && st.views.splice(st.views.indexOf("sdraw"), 1);
+  });
+  void 0 !== NAV_LABELS && (NAV_LABELS.plans = "Plans");
+  void 0 !== IA_LABELS && (IA_LABELS.plans = "Plans");
+  void 0 !== NAV_ICON && (NAV_ICON.plans = PL_ICON);
+  ["owner", "pm", "coord", "foreman", "crew", "designer", "design_mgr"].forEach((r) => {
+    const V = ROLE_VIEWS[r];
+    if (!V || V.includes("plans")) return;
+    const i = V.indexOf("files");
+    V.splice(i < 0 ? V.length : i + 1, 0, "plans");
+  });
+  if ("undefined" != typeof M_TABS)
+    ["designer", "design_mgr"].forEach((r) =>
+      (M_TABS[r] || []).forEach((t) => {
+        "sdraw" === t[0] && ((t[0] = "plans"), (t[1] = "Plans"));
+      }),
+    );
+  if ("undefined" != typeof FD_FIELD_MORE && !FD_FIELD_MORE.some((x) => "plans" === x[0])) {
+    const i = FD_FIELD_MORE.findIndex((x) => "files" === x[0]);
+    FD_FIELD_MORE.splice(i < 0 ? FD_FIELD_MORE.length : i + 1, 0, ["plans", "Plans", "list"]);
+  }
+  "undefined" != typeof TB_PROJECT_VIEWS && !TB_PROJECT_VIEWS.includes("plans") && TB_PROJECT_VIEWS.push("plans");
+  "undefined" != typeof CR_PROJECT_VIEWS && !CR_PROJECT_VIEWS.includes("plans") && CR_PROJECT_VIEWS.push("plans");
+  "undefined" != typeof BH && !BH.plans && (BH.plans = { primary: null });
+  if (!document.getElementById("v-plans")) {
+    const a = document.getElementById("v-files") || document.querySelector(".view"),
+      sec = document.createElement("section");
+    (sec.className = "view"), (sec.id = "v-plans"), (sec.innerHTML = '<div id="plans-body"></div>');
+    a && a.parentNode && a.parentNode.insertBefore(sec, a.nextSibling);
+  }
+}
+// ---- the job's thread and the job's page: pinned Plans show current sheets only
+function plPinnedHtml(p, max) {
+  const cur = plSheets(p.id, { current: !0 }).sort((a, b) => String(a.number).localeCompare(String(b.number), void 0, { numeric: !0 })),
+    n = max || 8,
+    pend = plPendingAcks(p.id),
+    holds = plHolds(p.id);
+  return `<div class="card pl-pinned" id="pl-pinned"><div class="hd"><h3>Pinned Plans</h3><span class="small muted">${cur.length} current</span></div>${holds.length ? `<div class="small" style="color:var(--warn)"><b>In revision:</b> ${esc(holds.map((h) => (plRoom(h.roomId) || {}).name).filter(Boolean).join(", "))}</div>` : ""}${pend.length ? `<div class="small" style="color:var(--warn)"><b>Waiting for acknowledgment:</b> ${esc(pend.map((x) => plRev(x.s)).join(", "))}</div>` : ""}${cur.slice(0, n).map((s) => `<div class="pl-pin"><button type="button" class="btn sm" data-plopen="${s.id}">${esc(plRev(s))}</button><span class="small">${esc(s.title)}</span></div>`).join("")}${cur.length > n ? `<div class="small muted">${cur.length - n} more on the Plans page</div>` : ""}<div style="margin-top:8px"><button type="button" class="btn sm" data-plgo="${p.id}">All Plans</button></div></div>`;
+}
+// ---- the field: Today's For You, the Started warning, the look-ahead
+function plForYouHtml() {
+  if (!S || !["foreman", "crew"].includes(role())) return "";
+  const mine = plPendingAcks(S.id, { uid: plUid() });
+  if (!mine.length) return "";
+  return `<div class="card f-card pl-fyou"><div class="hd"><h3>New Drawings</h3><span class="small muted">${mine.length}</span></div>${mine.map((x) => `<div class="f-row col"><div class="grow"><b>${esc(plRev(x.s))} · ${esc(x.s.title)}</b><span class="small">What changed: ${esc(x.s.changed)}</span><span class="small muted">Issued by ${esc(x.s.issuer)} ${fmt(x.s.issuedOn)}${x.s.supersedes ? ` · Rev ${esc((plRow(x.s.supersedes) || {}).rev || "")} is VOID` : ""} · ${esc(plRoomsOf(x.s).map((r) => r.name).join(", "))}</span></div><div class="row pl-acts"><button type="button" class="btn sm" data-plopen="${x.s.id}">Open</button><button type="button" class="btn sm" data-plack="${x.s.id}">Acknowledge</button></div></div>`).join("")}</div>`;
+}
+let plStartOk = "";
+document.addEventListener(
+  "click",
+  (e) => {
+    const b = e.target.closest && e.target.closest("[data-fstart],[data-fm-start],[data-fneed^='plan:']");
+    if (!b || !S) return;
+    if (b.dataset.fneed) {
+      e.preventDefault(), e.stopPropagation();
+      const id = b.dataset.fneed.split(":")[1];
+      return void (plRow(id) ? plOpen(id) : plGoJob(S.id));
+    }
+    const tid = b.dataset.fstart || b.dataset.fmStart,
+      t = (S.tasks || []).find((x) => x.id === tid),
+      R = t ? plTaskReasons(S, t) : [];
+    if (!R.length || plStartOk === tid) return void (plStartOk = "");
+    e.preventDefault(), e.stopPropagation();
+    const sid = (R.find((x) => x.sheetId) || {}).sheetId;
+    mbModal(
+      "On Hold",
+      `<p style="margin:0 0 8px"><b>${esc(t.name)}</b> is held by the drawings:</p><ul class="small">${R.map((x) => `<li>${esc(x.text)}</li>`).join("")}</ul><p class="small muted">${esc(plWhy("plansNotAcked"))}. Ask ${esc(plFirst((fPerson && fPerson("pm") && fPerson("pm").name) || "the PM"))} before starting.</p>`,
+      {
+        submit: sid ? "Open the Sheet" : "Open Plans",
+        onSubmit: () => {
+          setTimeout(() => (sid ? plOpen(sid) : plGoJob(S.id)), 0);
+        },
+        alt: {
+          label: "Start Anyway",
+          run: () => {
+            log(`${t.name}: started on hold, warned (${R.map((x) => x.text).join("; ")})`, "field", plMe());
+            try {
+              audit("task", t.id, "started-on-hold", "", R.map((x) => x.text).join("; "), "");
+            } catch (e2) {}
+            (plStartOk = tid), b.click();
+          },
+        },
+      },
+    );
+  },
+  !0,
+);
+// ---- the register's numbers: Caught for You, the predicates, the query engine, ⌘K, Needs Your Hand
+const plSoonTask = (p, s) => plRoomsOf(s).flatMap((r) => plRoomTasks(p, r)).find((t) => "in-progress" === t.status || (t.start && t.start <= addWork(today(), 5))) || null;
+function plCatchNotAcked() {
+  return plPendingAcks()
+    .map((x) => ({ x: x, p: plJob(x.s.projectId) }))
+    .map((y) => Object.assign(y, { t: y.p && plSoonTask(y.p, y.x.s) }))
+    .filter((y) => y.t);
+}
+function plOrderedInRevision() {
+  const out = [];
+  (DB.pos || [])
+    .filter((po) => ["issued", "partial", "pending"].includes(po.status))
+    .forEach((po) => {
+      const g = plOrderGuard(po.lines, { projectId: po.projectId, kind: "po", id: po.id, needTask: po.needTask });
+      g.blocked.forEach((b) => out.push({ po: po, b: b, amount: +po.total || (po.lines || []).reduce((a, l) => a + (+l.qty || 0) * (+l.price || 0), 0) }));
+    });
+  return out;
+}
+"undefined" != typeof CATCH &&
+  CATCH.push(
+    {
+      name: "plansNotAcked",
+      label: "Drawings Not Acknowledged",
+      rows: () =>
+        plCatchNotAcked().map((y) => ({
+          key: "pl:ack:" + y.x.s.id,
+          what: `Not acknowledged: ${plRev(y.x.s)}`,
+          sub: `${plJobName(y.x.s.projectId)} · ${y.t.name} ${"in-progress" === y.t.status ? "is under way" : "starts " + fmt(y.t.start)} · ${y.x.st.pending.map((n) => plFirst(n.name)).join(", ")} not yet`,
+          amount: 0,
+          verb: "Open",
+          run: () => plGo(y.x.s.id),
+        })),
+    },
+    {
+      name: "plansOrderedInRevision",
+      label: "Ordered While in Revision",
+      rows: () =>
+        plOrderedInRevision().map((y) => ({
+          key: `pl:po:${y.po.id}:${y.b.room.id}`,
+          what: `Ordered while in revision: ${y.po.number}`,
+          sub: `${y.po.vendor} · ${y.b.room.name} on ${plJobName(y.po.projectId)} · change or hold the order before it ships`,
+          amount: r2(y.amount),
+          verb: "Open",
+          run: () => flowGo.po(y.po)(),
+        })),
+    },
+    {
+      name: "plansAmendment",
+      label: "Amendment Needed",
+      rows: () =>
+        plAmends().map((s) => ({
+          key: "pl:amend:" + s.id,
+          what: `${s.amend.agency} amendment needed: ${plRev(s)}`,
+          sub: `${plJobName(s.projectId)} · ${plRoomsOf(s).map((r) => r.name).join(", ")} held until it is approved`,
+          amount: 0,
+          verb: "Open",
+          run: () => plGo(s.id),
+        })),
+    },
+  );
+if ("function" == typeof predDef) {
+  predDef("plansToAck", { label: "Revisions to Acknowledge", rule: "a current revision the foreman or a trade has not acknowledged", rows: (scope) => plPendingAcks(scope || "") });
+  predDef("plansOnHold", { label: "Areas in Revision", rule: "a room design is reworking: field tasks there on hold, orders for it flagged", rows: (scope) => plHolds(scope || "") });
+  predDef("plansAmendments", { label: "Amendments Needed", rule: "a revision of a sheet filed with DOB or LPC, its amendment not yet approved", rows: (scope) => plAmends(scope || "") });
+}
+if ("undefined" != typeof EQ_TABLES) {
+  EQ_TABLES.sheets = () =>
+    plDB().sheets.map((s) => ({ _id: s.id, _module: "Plans", _label: `${plRev(s)} ${s.title}`, _go: eqGo("plans", { project: s.projectId }), job: plJobName(s.projectId), sheet: s.number, title: s.title, set: PL_SET_LABEL[s.set] || s.set, kind: PL_KIND[plKind(s)], rev: s.rev, status: (PL_STATUS[plStatus(s)] || [plStatus(s)])[0], current: plIsCurrent(s) ? "yes" : "no", date: s.issuedOn || "", issuedBy: s.issuer || "", changed: s.changed || "", rooms: plRoomsOf(s).map((r) => r.name).join(", "), filed: (plFiled(s.projectId, s.number) || {}).agency || "", amendment: s.amend ? s.amend.status : "", acknowledged: `${plAckState(s).done.length} of ${plAckState(s).need.length}` }));
+  EQ_TABLES.sheetacks = () =>
+    plDB().acks.map((a) => ({ _id: a.id, _module: "Plans", _label: `${a.name} ${"ack" === a.kind ? "acknowledged" : "viewed"} ${a.number} Rev ${a.rev}`, _go: eqGo("plans", { project: a.projectId }), date: String(a.at).slice(0, 10), at: a.at, job: plJobName(a.projectId), sheet: a.number, rev: a.rev, who: a.name, role: a.role, action: "ack" === a.kind ? "acknowledged" : "viewed", how: a.how || "", recordedBy: a.by || "" }));
+  EQ_TABLES.planholds = () =>
+    plDB().holds.map((h) => ({ _id: h.id, _module: "Plans", _label: `In revision: ${(plRoom(h.roomId) || {}).name || h.roomId}`, _go: eqGo("plans", { project: h.projectId }), date: String(h.at).slice(0, 10), job: plJobName(h.projectId), room: (plRoom(h.roomId) || {}).name || "", why: h.why, by: h.by, active: plHoldActive(h) ? "yes" : "no", lifted: h.liftedAt ? String(h.liftedAt).slice(0, 10) : "", liftedWhy: h.liftWhy || "" }));
+  EQ_TABLES.planoverrides = () =>
+    plDB().overrides.map((o) => ({ _id: o.id, _module: "Plans", _label: `Ordered anyway: ${(plRoom(o.roomId) || {}).name || ""}`, _go: eqGo("plans", { project: o.projectId }), date: String(o.at).slice(0, 10), job: plJobName(o.projectId), room: (plRoom(o.roomId) || {}).name || "", door: o.kind, ref: "po" === o.kind ? ((DB.pos || []).find((x) => x.id === o.refId) || {}).number || o.refId : o.refId, why: o.why, by: o.by, role: o.role }));
+  "undefined" != typeof EQ_ALIAS && Object.assign(EQ_ALIAS, { plans: "sheets", drawings: "sheets", drawing: "sheets", sheet: "sheets", revisions: "sheets", register: "sheets", acknowledgments: "sheetacks", acknowledgements: "sheetacks", holds: "planholds", inrevision: "planholds" });
+}
+if ("function" == typeof palIndex) {
+  const base = palIndex;
+  palIndex = function () {
+    const items = base.apply(this, arguments) || [];
+    try {
+      if ((ROLE_VIEWS[role()] || []).includes("plans")) {
+        items.push({ k: "view", t: "Plans", s: "the job's drawing register", go: () => setView("plans") });
+        plDB().sheets.filter(plIsCurrent).forEach((s) => items.push({ k: "Plans", t: `${plRev(s)} ${s.title}`, s: `${plJobName(s.projectId)} · ${(PL_STATUS[plStatus(s)] || [""])[0]}`, go: () => (setCurrent(s.projectId), plOpen(s.id)) }));
+      }
+    } catch (e) {}
+    return items;
+  };
+}
+if ("function" == typeof nyhRowsAll) {
+  const base = nyhRowsAll;
+  nyhRowsAll = function () {
+    const out = base.apply(this, arguments);
+    try {
+      const add = (r) => r && r.route && !lnHandDone(r.key) && !out.some((x) => x.key === r.key) && out.push(r);
+      plProposals().forEach((x) =>
+        add({
+          key: "plrev:" + x.key,
+          route: "pm",
+          kind: "plans",
+          title: `New revision of ${x.pr.number}? Rev ${x.pr.rev} from ${x.from}`,
+          why: `${plJobName(x.pr.projectId)} · ${x.src}${x.date ? " · " + fmt(x.date) : ""} · ${String(x.pr.changed).slice(0, 80)}`,
+          amount: 0,
+          verb: `Confirm Rev ${x.pr.rev}`,
+          no: "Not This",
+          run: () => plConfirmProp(x),
+          skip: () => plDecline(x),
+          open: () => plGoJob(x.pr.projectId),
+          pri: 1,
+          score: 46,
+        }),
+      );
+      (DB.projects || []).forEach((p) =>
+        (p.requests || [])
+          .filter((r) => r.plFlag && ["new", "ack"].includes(r.status) && !r.poId)
+          .forEach((r) =>
+            add({
+              key: "plreq:" + r.id,
+              route: "coord",
+              kind: "plansreq",
+              title: `Hold before ordering: ${r.what || (r.items || []).map((i) => i.what).join(", ")}`,
+              why: `${plJobName(p.id)} · ${r.plFlag.why}`,
+              amount: 0,
+              verb: "Review",
+              no: "",
+              run: () => plGoJob(p.id),
+              open: () => (setCurrent(p.id), (view = "req"), render()),
+              pri: 2,
+              score: 40,
+            }),
+          ),
+      );
+    } catch (e) {
+      console.warn("plans nyh", e);
+    }
+    return out;
+  };
+}
+// ---- Ask: "what's the current A-301", "is the garden kitchen on hold", "who acknowledged A-201"
+function plAskRead(q) {
+  const l = String(q || ""),
+    nums = (l.toUpperCase().match(PL_NUM_RE) || []).filter((n) => !/^(PO|CO)-/.test(n)),
+    lo = l.toLowerCase();
+  const jobIn = () => (DB.projects || []).find((p) => lo.includes(String(p.project.name).toLowerCase().replace(/ —.*$/, "")) || lo.includes(String(p.project.name).toLowerCase().split(" ").slice(0, 2).join(" "))) || null;
+  if (nums.length) {
+    const n = nums[0],
+      j = jobIn(),
+      pid = (j && plCurrent(j.id, n) && j.id) || (S && plCurrent(S.id, n) && S.id) || ((DB.projects || []).find((p) => plCurrent(p.id, n)) || {}).id;
+    if (!pid) return null;
+    const s = plCurrent(pid, n),
+      H = plHistory(pid, n),
+      st = plAckState(s);
+    return paOut({
+      kind: "plans",
+      headline: `${plRev(s)} ${s.title} is the current revision on ${plJobName(pid)}: ${(PL_STATUS[plStatus(s)] || [""])[0]}, issued ${fmtL(s.issuedOn)} by ${s.issuer}.`,
+      note: `${s.changed ? "What changed: " + s.changed + ". " : ""}${H.length > 1 ? `Older revisions (${H.filter((x) => x.id !== s.id).map((x) => "Rev " + x.rev).join(", ")}) are VOID. ` : ""}${st.pending.length ? `Waiting for acknowledgment: ${st.pending.map((x) => x.name).join(", ")}.` : st.done.length ? `Acknowledged by ${st.done.map((d) => `${d.need.name} ${stampText(d.a.at)}`).join(", ")}.` : ""}${s.amend && "approved" !== s.amend.status ? ` ${s.amend.agency} amendment needed before this work.` : ""}`,
+      work: H.map((x) => `Rev ${x.rev} · ${x.issuedOn ? fmt(x.issuedOn) : "—"} · ${(PL_STATUS[plStatus(x)] || [""])[0]} · ${x.changed || ""}`),
+      rows: H.length,
+      go: paGo({ view: "plans", project: pid }),
+      offers: [{ label: `Open ${plRev(s)}`, run: () => (setCurrent(pid), plOpen(s.id)) }],
+    });
+  }
+  if (/\b(in revision|on hold|held)\b/.test(lo) && /\b(plans?|drawings?|sheets?|area|room|kitchen|bath|stair|order)\b/.test(lo)) {
+    const j = jobIn(),
+      H = plHolds(j ? j.id : ""),
+      A = plAmends(j ? j.id : "");
+    return paOut({
+      kind: "plans",
+      headline: H.length || A.length ? `${H.length ? `${H.length} area${1 === H.length ? "" : "s"} in revision: ${H.map((h) => `${(plRoom(h.roomId) || {}).name} on ${plJobName(h.projectId)}`).join("; ")}` : "No area is in revision"}${A.length ? `; ${A.length} held for an amendment: ${A.map(plRev).join(", ")}` : ""}.` : `Nothing is on hold in the drawing register${j ? " on " + plJobName(j.id) : ""}.`,
+      note: "Field tasks in a held area wait, and orders for it are flagged until the new revision is issued and acknowledged.",
+      work: H.map((h) => `${(plRoom(h.roomId) || {}).name} · since ${fmt(String(h.at).slice(0, 10))} · ${h.by}${h.why ? " · " + h.why : ""}`),
+      rows: H.length + A.length,
+      go: paGo({ view: "plans", project: j ? j.id : S && S.id }),
+    });
+  }
+  return null;
+}
+if ("function" == typeof paAsk) {
+  const base = paAsk;
+  paAsk = function (q) {
+    try {
+      if (plStaff() && (ROLE_VIEWS[role()] || []).includes("plans")) {
+        const a = plAskRead(q);
+        if (a) return a;
+      }
+    } catch (e) {
+      console.warn("plans ask", e);
+    }
+    return base.apply(this, arguments);
+  };
+}
+// ---- the doors to the field and to purchasing
+if ("function" == typeof fTaskNeeds) {
+  const base = fTaskNeeds;
+  fTaskNeeds = function (t) {
+    const need = base.apply(this, arguments);
+    try {
+      S && plTaskReasons(S, t).forEach((x) => need.push({ k: "plan", id: x.sheetId || x.roomId, t: x.text, to: "designer" }));
+    } catch (e) {
+      console.warn("plans needs", e);
+    }
+    return need;
+  };
+}
+if ("function" == typeof fForYouHtml) {
+  const base = fForYouHtml;
+  fForYouHtml = function () {
+    let h = "";
+    try {
+      h = plForYouHtml();
+    } catch (e) {
+      console.warn("plans for you", e);
+    }
+    return h + base.apply(this, arguments);
+  };
+}
+if ("function" == typeof t2RowHtml) {
+  const base = t2RowHtml;
+  t2RowHtml = function (x) {
+    let h = base.apply(this, arguments);
+    try {
+      if (x && "sched" === x.kind && x.projectId) {
+        const p = plJob(x.projectId),
+          t = p && (p.tasks || []).find((y) => y.id === x.id),
+          R = t ? plTaskReasons(p, t) : [];
+        R.length && (h = h.replace('<div class="t2-sub">', `<div class="t2-sub"><span class="t2-wait pl-t2">${esc(R[0].text)}</span>`));
+      }
+    } catch (e) {}
+    return h;
+  };
+}
+if ("function" == typeof poValid) {
+  const base = poValid;
+  poValid = function (po) {
+    const R = base.apply(this, arguments);
+    try {
+      po && ["draft", "pending"].includes(po.status || "draft") && R.push(...plOrderGuard(po.lines, { projectId: po.projectId, kind: "po", id: po.id, needTask: po.needTask }).reasons);
+    } catch (e) {
+      console.warn("plans guard", e);
+    }
+    return R;
+  };
+}
+if ("function" == typeof renderPODoc) {
+  const base = renderPODoc;
+  renderPODoc = function (po) {
+    let h = base.apply(this, arguments);
+    try {
+      if (po && "string" == typeof h) {
+        const g = plOrderGuard(po.lines, { projectId: po.projectId, kind: "po", id: po.id, needTask: po.needTask }),
+          live = ["draft", "pending"].includes(po.status);
+        if (!g.ok) {
+          const w = g.blocked.map((b) => `<div class="qcheck pl-warn" data-plpowarn="${b.room.id}"><b>${live ? "Drawings on Hold" : "Ordered While in Revision"}</b>${esc(b.why)}. ${live ? "Issue is refused until the new revision is issued and acknowledged" : "Change or hold this order before it ships"}${plCanOverride() && live ? ", or order anyway with a reason" : live ? `; only ${esc(plFirst((((DB.users || []).find((u) => "coord" === u.role) || {}).name) || "procurement"))} or the owner can override` : ""}. <span class="muted">${esc(plWhy("plansOrderedInRevision"))}</span>${plCanOverride() && live ? `<div class="row" style="gap:6px;margin-top:6px"><button type="button" class="btn sm" data-ploverride="po|${po.id}|${b.room.id}">Order Anyway</button></div>` : ""}</div>`).join("");
+          h = h.replace(/(<div class="docwrap"[^>]*>)/, `$1${w}`);
+        }
+      }
+    } catch (e) {
+      console.warn("plans po page", e);
+    }
+    return h;
+  };
+}
+if ("function" == typeof rfqSend) {
+  const base = rfqSend;
+  rfqSend = function (r) {
+    try {
+      const g = r && plOrderGuard(r.lines || [], { projectId: r.projectId, kind: "rfq", id: r.id, text: r.title });
+      if (g && !g.ok && !["foreman-review"].includes(r.status)) return render(), toast(`${r.number} is not sent: ${g.reasons.join("; ")}`), !1;
+    } catch (e) {
+      console.warn("plans rfq guard", e);
+    }
+    return base.apply(this, arguments);
+  };
+}
+if ("function" == typeof addRequest) {
+  const base = addRequest;
+  addRequest = function (o) {
+    const r = base.apply(this, arguments);
+    try {
+      if (r) {
+        const p = (DB.projects || []).find((x) => (x.requests || []).includes(r)) || S,
+          g = p && plOrderGuard(r.items && r.items.length ? r.items : [r], { projectId: p.id, kind: "req", id: r.id, text: `${r.note || ""}`, needTask: r.taskId ? ((p.tasks || []).find((t) => t.id === r.taskId) || {}).name || "" : "" });
+        if (g && !g.ok) {
+          r.plFlag = { rooms: g.blocked.map((b) => b.room.name), why: g.blocked.map((b) => b.why).join("; "), at: appNowIso() };
+          setTimeout(() => toast(`Flagged for procurement: ${r.plFlag.rooms.join(", ")} ${1 === r.plFlag.rooms.length ? "is" : "are"} on hold in the drawings, so nothing is ordered until the new revision is issued`, [{ label: "Open", run: () => plGoJob(p.id) }]), 220);
+        }
+      }
+    } catch (e) {
+      console.warn("plans request", e);
+    }
+    return r;
+  };
+}
+// ---- proposals from mail, meetings and messages
+if ("function" == typeof cmRead) {
+  const base = cmRead;
+  cmRead = function (c) {
+    const P = base.apply(this, arguments);
+    try {
+      if (Array.isArray(P) && c && "out" !== c.direction) {
+        const R = c.route || {},
+          pid = R.projectId || (P.find((x) => x.projectId) || {}).projectId,
+          d = pid && plDetect(`${c.subject || ""}\n${c.text || ""}`, c.attachments || [], { projectId: pid });
+        d && !P.some((x) => "revision" === x.kind) && P.push(plPropOf(Object.assign(d, { issuer: (c.from && (c.from.name || c.from.email)) || "" }), { kind: "mail" }));
+      }
+    } catch (e) {
+      console.warn("plans read", e);
+    }
+    return P;
+  };
+}
+if ("function" == typeof cmApply) {
+  const base = cmApply;
+  cmApply = function (c, p) {
+    if (p && "revision" === p.kind) {
+      const x = plProposals().find((y) => y.pr === p) || { src: "mail", c: c, pr: p, key: `mail:${c.id}:${p.id}`, from: (c.from && (c.from.name || c.from.email)) || "mail" };
+      return plConfirmProp(x);
+    }
+    return base.apply(this, arguments);
+  };
+}
+if ("function" == typeof mtIngest) {
+  const base = mtIngest;
+  mtIngest = function (c) {
+    const m = base.apply(this, arguments);
+    try {
+      if (m && m.projectId) {
+        const d = plDetect(`${c.subject || ""}\n${c.text || ""}`, c.attachments || [], { projectId: m.projectId });
+        d && ((m.plRev = m.plRev || []), m.plRev.some((x) => x.number === d.number && x.rev === d.rev) || m.plRev.push(plPropOf(d, { kind: "meeting" })));
+      }
+    } catch (e) {
+      console.warn("plans meeting", e);
+    }
+    return m;
+  };
+}
+if ("function" == typeof sendChat) {
+  const base = sendChat;
+  sendChat = function (attach) {
+    const p = S,
+      n0 = p && p.chat ? p.chat.length : 0,
+      r = base.apply(this, arguments);
+    const after = () => {
+      try {
+        if (!p || !p.chat) return;
+        p.chat.slice(n0).forEach((m) => {
+          if (m.plRev || m.plSheet) return;
+          const files = (m.files || []).map((id) => (p.files || []).find((f) => f.id === id)).filter(Boolean),
+            d = plDetect(m.text, files, { projectId: p.id });
+          d && ((m.plRev = [plPropOf(Object.assign(d, { issuer: m.by, file: files.find((f) => /pdf|image/.test(f.type || "")) || null }), { kind: "message" })]), save(), render());
+        });
+      } catch (e) {
+        console.warn("plans chat", e);
+      }
+    };
+    return r && "function" == typeof r.then ? r.then((x) => (after(), x)) : (after(), r);
+  };
+}
+if ("function" == typeof openFile) {
+  const base = openFile;
+  openFile = function (id) {
+    try {
+      const s = plDB().sheets.find((x) => x.fileId === id && (!S || x.projectId === S.id));
+      if (s && plStaff()) return plOpen(s.id);
+    } catch (e) {}
+    return base.apply(this, arguments);
+  };
+}
+if ("function" == typeof f3Nav) {
+  const base = f3Nav;
+  f3Nav = function () {
+    const r = base.apply(this, arguments);
+    try {
+      const V = ROLE_VIEWS.foreman;
+      V && !V.includes("plans") && V.splice(V.indexOf("files") < 0 ? V.length : V.indexOf("files") + 1, 0, "plans");
+    } catch (e) {}
+    return r;
+  };
+}
+if ("function" == typeof finishBoot) {
+  const base = finishBoot;
+  finishBoot = function () {
+    const r = base.apply(this, arguments);
+    try {
+      plSeed(), DB.__plSeed && save();
+    } catch (e) {
+      console.warn("plans seed", e);
+    }
+    return r;
+  };
+}
+// ---- render: the view, the thread's pinned plans, the job page's card, the schedule's holds, the field
+{
+  const base = render;
+  render = function () {
+    try {
+      plViews(), DB && DB.projects && plSeed();
+      "sdraw" === view && (view = "plans");
+    } catch (e) {
+      console.warn("plans views", e);
+    }
+    const r = base.apply(this, arguments);
+    try {
+      "plans" === view && plRender();
+      if (S && plSheets(S.id).length) {
+        if ("chat" === view) {
+          const host = document.querySelector("#v-chat .grid3 > .card:not(.chatbox)") || document.querySelector("#v-chat .grid3");
+          document.getElementById("pl-pinned")?.remove();
+          host && host.insertAdjacentHTML("beforebegin", plPinnedHtml(S));
+          const list = document.getElementById("chat-list");
+          list &&
+            S.chat.length &&
+            [...list.children].forEach((el, i) => {
+              const m = S.chat[i];
+              if (!m) return;
+              const open = (m.plRev || []).filter(plOpenProp)[0];
+              open && plCanIssue() && el.insertAdjacentHTML("beforeend", `<div class="pl-chip small">New revision of ${esc(open.number)}? Rev ${esc(open.rev)} <button type="button" class="btn sm" data-plrev="${esc(`ch:${S.id}:${m.id}:${open.id}`)}">Confirm Rev ${esc(open.rev)}</button></div>`);
+              const s = m.plSheet && plRow(m.plSheet);
+              s && el.insertAdjacentHTML("beforeend", `<div class="pl-chip small"><button type="button" class="btn sm" data-plopen="${s.id}">Open ${esc(plRev(s))}</button>${plIsCurrent(s) ? "" : " <b>VOID</b>"}</div>`);
+            });
+        }
+        if ("dash" === view) {
+          const col = document.querySelector("#v-dash .grid3 > div:nth-child(2)");
+          document.getElementById("pl-pinned")?.remove();
+          col && col.insertAdjacentHTML("afterbegin", plPinnedHtml(S, 5));
+        }
+        if ("sched" === view) {
+          const v = document.getElementById("v-sched"),
+            held = (S.tasks || []).map((t) => ({ t: t, R: plTaskReasons(S, t) })).filter((x) => x.R.length);
+          document.getElementById("pl-sched")?.remove();
+          if (v && held.length) {
+            const at = v.querySelector("#track-cards") || v.querySelector(".ph");
+            at && at.insertAdjacentHTML("beforebegin", `<div class="note warn pl-sched" id="pl-sched"><b>Held by the Drawings</b> ${held.length} task${1 === held.length ? "" : "s"}: ${held.map((x) => `${esc(x.t.name)} (${esc(x.R[0].text)})`).join("; ")}. <button type="button" class="btn sm" data-plgo="${S.id}">Open Plans</button></div>`);
+            held.forEach((x) => v.querySelectorAll(`[data-id="${x.t.id}"]`).forEach((el) => el.classList.add("pl-held")));
+          }
+        }
+        if ("ftoday" === view) {
+          const root = document.getElementById("ftoday-body");
+          root &&
+            (S.tasks || []).forEach((t) => {
+              const R = plTaskReasons(S, t);
+              if (!R.length) return;
+              root.querySelectorAll(`[data-prgopen="${t.id}|${S.id}"], [data-fstart="${t.id}"], [data-fdone="${t.id}"]`).forEach((b) => {
+                const row = b.closest(".f-row");
+                row && !row.querySelector(".pl-hold") && (row.classList.add("warn"), row.querySelector(".grow")?.insertAdjacentHTML("beforeend", `<span class="small pl-hold">${esc(R[0].text)}</span>`));
+              });
+              root.querySelectorAll(".f-la-t").forEach((el) => el.textContent === t.name && (el.classList.remove("ok", "warn"), el.classList.add("bad")));
+            });
+        }
+      }
+      if ("files" === view && S) {
+        plDB().sheets.filter((s) => s.projectId === S.id && !plIsCurrent(s) && s.fileId).forEach((s) => {
+          const card = document.querySelector(`#file-list [data-file="${s.fileId}"]`);
+          card && !card.querySelector(".pl-voidpill") && card.querySelector(".b, td")?.insertAdjacentHTML("afterbegin", '<span class="pill bad pl-voidpill">VOID</span> ');
+        });
+      }
+    } catch (e) {
+      console.warn("plans render", e);
+    }
+    return r;
+  };
+}
+/*<</plans.js>>*/
