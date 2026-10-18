@@ -190679,10 +190679,12 @@ function docPriceOf(item, selfDoc) {
       return { rate: +l.rate, cost: +l.cost || 0, unit: l.unit || "", from: co.number };
     }
   }
+  // an estimate line gives a unit rate only when it is priced by the unit: a lump ("ls") is the whole scope's price
+  const unitSame = (l) => same(l) && !/^(ls|lot|lump)$/i.test(String(l.unit || "ls")) && (+l.qty || 0) > 1;
   for (const c of DB.clients || []) {
-    const es = (c.estimates || []).filter((x) => x !== selfDoc).find((x) => (x.lines || []).some(same));
+    const es = (c.estimates || []).filter((x) => x !== selfDoc).find((x) => (x.lines || []).some(unitSame));
     if (es) {
-      const l = es.lines.find(same);
+      const l = es.lines.find(unitSame);
       return { rate: +l.rate, cost: +l.cost || 0, unit: l.unit || "", from: es.number };
     }
   }
@@ -191304,5 +191306,120 @@ function billPapersHtml(b) {
   billAction = function (b, a) {
     if (b && b.onHold && "open" === b.onHold.state && ["approve", "paid", "pm-approve"].includes(a)) return void toast(`${b.vendor} ${b.number || ""} is held: ${b.onHold.why}. Release the hold first.`);
     return base.apply(this, arguments);
+  };
+}
+// ---- A change order line from a contract line never carries the contract line's price (pilot day 3, S1 money) --
+// A ticked estimate line arrived at quantity 0 with the rate at the full contract line ($41,000 for framing):
+// set the quantity to 1 and the change order was $41,000. Now a lump line starts at no price (quantity 1, $0,
+// said so), a line priced by the unit keeps that unit rate at quantity 0, and a rate from the item library or a
+// past change order fills it when one exists; the contract line's amount stays on the line as the reference.
+{
+  const base = newDoc;
+  newDoc = function (c, kind, opts) {
+    const d0 = base.apply(this, arguments);
+    try {
+      const f = opts && opts.fields,
+        est = f && f.estimateOf && (c.estimates || []).find((e) => e.id === f.estimateOf);
+      if ("co" === kind && est && d0 && Array.isArray(d0.lines))
+        d0.lines = d0.lines.map((l) => {
+          const src = (est.lines || []).find((x) => x.item === l.item) || {},
+            lump = /^(ls|lot|lump)$/i.test(String(src.unit || l.unit || "ls")) || (+src.qty || 1) <= 1,
+            ref = "number" == typeof l.refAmount ? l.refAmount : r2((+src.qty || 1) * (+src.rate || 0));
+          let rate = lump ? 0 : +src.rate || 0,
+            from = lump ? "" : `${est.number}'s unit rate`;
+          if (lump) {
+            const it = "function" == typeof libFind ? libFind(l.item) : null;
+            it && +it.rate && !/^(ls|lot)$/i.test(it.unit || "") ? ((rate = +it.rate), (from = "the item library")) : 0;
+          }
+          return Object.assign({}, l, { id: l.id, qty: lump ? 1 : 0, unit: lump ? "ls" : src.unit || l.unit, rate: rate, cost: "", refAmount: r2((+src.qty || 1) * (+src.rate || 0)) || ref, fromEstLine: src.id || "", priceFrom: from, priceTried: l.item, noPrice: !rate });
+        });
+    } catch (e) {
+      console.warn("co lines from the contract", e);
+    }
+    return d0;
+  };
+}
+// a CO's Extends Task is never a finished task by default: an open task, or none
+{
+  const base = thCoTaskId;
+  thCoTaskId = function (co, p) {
+    const id = base.apply(this, arguments);
+    try {
+      if (!id || (co && co.taskIdByHand)) return id;
+      const P = p || DB.projects.find((x) => x.id === co.projectId) || S,
+        t = P && (P.tasks || []).find((x) => x.id === id);
+      if (t && ("done" === t.status || t.actualEnd || (t.end && t.end < today() && "in-progress" !== t.status))) return "";
+    } catch (e) {}
+    return id;
+  };
+}
+document.addEventListener(
+  "change",
+  (e) => {
+    const s = e.target && e.target.matches && e.target.matches("[data-thcotask], [data-th='cotask']") ? e.target : null;
+    if (!s || !("undefined" != typeof docOpen && docOpen)) return;
+    for (const c of DB.clients || []) {
+      const d = (c.changeOrders || []).find((x) => x.id === (s.dataset.thcotask || docOpen.id));
+      d && (d.taskIdByHand = !0);
+    }
+  },
+  !0,
+);
+// a change order goes to every signer on the contract: the client's owners, not only the primary contact
+{
+  const base = crDocEmail;
+  crDocEmail = function (c, d) {
+    const E = base.apply(this, arguments);
+    try {
+      if (d && ["co", "estimate"].includes(d.type)) {
+        const K = (c.contacts || []).filter((k) => k.email && (k.signer || /owner|client|principal|signer/i.test(k.role || "") || k.primary));
+        if (K.length > 1) {
+          const first = (n) => String(n || "").split(" ")[0];
+          (E.to = { name: K.map((k) => k.name).join(" and "), email: K.map((k) => k.email).join(", "), all: K }),
+            (E.body = String(E.body || "").replace(/^Hi [^,\n]*,/, `Hi ${K.map((k) => first(k.name)).join(" and ")},`));
+        }
+      }
+    } catch (e) {}
+    return E;
+  };
+}
+// before a change order is sent: a total far past the line it changes, or a large one-line CO, asks once
+function coSanity(d) {
+  if (!d || "co" !== d.type) return "";
+  const t = docTotal(d).total,
+    L = (d.lines || []).filter((l) => lineAmount(l, d)),
+    big = L.find((l) => l.refAmount && lineAmount(l, d) > 0.25 * l.refAmount);
+  if (big) return `${big.item} is ${money(lineAmount(big, d))}, ${Math.round((100 * lineAmount(big, d)) / big.refAmount)}% of the contract line it changes (${money(big.refAmount)})`;
+  if (1 === L.length && t > 1e4) return `a one-line change order at ${money(t)}`;
+  return "";
+}
+{
+  const base = docAction;
+  docAction = async function (c, d, a) {
+    try {
+      if (d && "co" === d.type && /^send/.test(String(a || ""))) {
+        const why = coSanity(d);
+        if (why && d.sanityOk !== why) return (d.sanityOk = why), save(), void rcToast(`Check before it goes: ${why}. Send again if that is the price.`, [{ label: "Open", run: () => ((docOpen = { kind: "co", id: d.id }), render()) }]);
+      }
+    } catch (e) {}
+    return base.apply(this, arguments);
+  };
+}
+// every question from the site in Field offers Write the Change Order (pilot day 3: none on Field's list)
+{
+  const base = render;
+  render = function () {
+    const r = base.apply(this, arguments);
+    try {
+      if (!["pm", "owner"].includes(role())) return r;
+      document.querySelectorAll(".view.on #f-office [data-fans]").forEach((b) => {
+        const row = b.closest(".row") || b.parentElement;
+        if (!row || row.querySelector("[data-jobnew]")) return;
+        const x = ((DB.field || {}).raises || []).find((q) => q.id === b.dataset.fans),
+          p = x && (DB.projects || []).find((q) => q.id === x.projectId);
+        p && row.insertAdjacentHTML("beforeend", `<button type="button" class="btn sm" data-jobnew="co" data-cid="${esc(p.clientId || "")}" data-pid="${esc(p.id)}" data-title="${esc(clipWords(x.title || "", 60))}">Write the Change Order</button>`);
+      });
+    } catch (e) {}
+    return r;
   };
 }

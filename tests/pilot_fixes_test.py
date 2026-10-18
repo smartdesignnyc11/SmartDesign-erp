@@ -288,7 +288,8 @@ async def t_documents(c, p):
     c.ok(r['scope'], 'pm: the new estimate has Scope, Inclusions and Exclusions')
     r = await js(pg, """
       const cl = DB.clients.find(x => x.id === 'cl121'), d = cl.estimates[cl.estimates.length - 1];
-      const known = (cl.estimates.find(e => e.status === 'converted') || cl.estimates[0]).lines.find(l => l.item && +l.rate > 0);
+      // the item library prices by the unit; a contract line's lump total never does
+      const lib = itemLib().find(x => x.active !== false && +x.rate > 0), known = { item: lib.name };
       d.lines = [{ id: 'lx1', item: known.item, qty: 1, unit: 'ls', rate: 0 }, { id: 'lx2', item: 'Zzqx parlor widget', qty: 1, unit: 'ls', rate: 0 }, { id: 'lx3', item: 'Stair runner', qty: 1, unit: 'ls', rate: 500 }];
       render(); await sleep(300);
       const priced = d.lines.find(l => l.id === 'lx1'), note = (document.querySelector('.doc-noprice') || {}).innerText || '';
@@ -484,7 +485,31 @@ async def t_designer_and_bill(c, p):
     c.ok(not errs and not errs2, f'12-14: no page errors {(errs + errs2)[:2]}')
     await b.close()
 
-TESTS = [t_daily_log, t_daily_log_day2, t_documents, t_controller_pos, t_payment_check, t_own_mail_client, t_bought_from_mail, t_request_quirks, t_statements_tasks_billing, t_ask_typos, t_designer_and_bill]
+async def t_co_from_contract(c, p):
+    b, pg, errs = await fresh(p, 'u_alan', phone=True)
+    r = await js(pg, """
+      setCurrent('p121'); view = 'dash'; render(); await sleep(250);
+      newChangeOrderDialog({ clientId: 'cl121', projectId: 'p121' }); await sleep(250);
+      const m = document.getElementById('mbm'); m.querySelector('[data-f="title"]').value = 'Sister the notched joist';
+      const cb = [...m.querySelectorAll('[data-coline]')].find(i => /Framing/.test(i.closest('label').innerText)); cb && (cb.checked = true);
+      m.querySelector('#mbm-ok').click(); await sleep(400);
+      const cl = DB.clients.find(x => x.id === 'cl121'), d = cl.changeOrders[cl.changeOrders.length - 1], l = d.lines[0];
+      const pr = DB.projects.find(x => x.id === 'p121'), done = pr.tasks.find(t => t.status === 'done');
+      const co2 = { projectId: 'p121', scope: done ? { kind: 'task', id: done.id } : null };
+      l.rate = 41000; await docAction(cl, d, 'send'); await sleep(150);
+      const toast1 = (document.getElementById('toast') || {}).innerText || '', st = d.status;
+      return { line: [l.item, l.qty, l.refAmount, l.noPrice], total0: 0, toast1, st, to: crDocEmail(cl, d).to.email,
+               doneTask: done ? thCoTaskId(co2, pr) : 'n/a' };""")
+    c.ok(r['line'][1] == 1 and r['line'][3] and r['line'][2] == 41000, f"pm: a contract line arrives at no price with its $41,000 kept as the reference, not the rate ({r['line']})")
+    c.ok('Check before it goes' in r['toast1'] and r['st'] == 'draft', f"pm: a CO at 100% of the line it changes asks before Send ({r['toast1'][:120]!r}, {r['st']})")
+    c.ok('sarah.klein' in r['to'] and 'david.klein' in r['to'], f"pm: the CO goes to every signer, Sarah and David ({r['to']})")
+    c.ok(r['doneTask'] in ('', 'n/a'), f"pm: Extends Task is never a finished task by default ({r['doneTask']!r})")
+    r = await js(pg, """view = 'field'; render(); await sleep(300); return document.querySelectorAll('#f-office [data-jobnew="co"]').length;""")
+    c.ok(r > 0, f"pm: each question from the site in Field offers Write the Change Order ({r})")
+    c.ok(not errs, f'co: no page errors {errs[:2]}')
+    await b.close()
+
+TESTS = [t_daily_log, t_daily_log_day2, t_documents, t_controller_pos, t_payment_check, t_own_mail_client, t_bought_from_mail, t_request_quirks, t_statements_tasks_billing, t_ask_typos, t_designer_and_bill, t_co_from_contract]
 
 async def main():
     c = Checks()
