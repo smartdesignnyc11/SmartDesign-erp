@@ -192129,11 +192129,12 @@ window.addEventListener(
 // approval was at the PO amount, $29,700, with $3,800 disputed; Confirm would have passed the overpayment.
 // The approved amount: an approval of part (the short pay) is that part; an approved bill is its total; one not
 // approved yet is never more than its order's open amount (over the PO is approved only on purpose).
+let payCheckAsBilled = "";
 function payCheckApproved(b) {
   if (!b) return 0;
   const tot = billTotal(b);
   if (b.short) return +b.short.approved || 0;
-  if (["approved", "verified", "paid"].includes(b.status)) return tot;
+  if (["approved", "verified", "paid"].includes(b.status) || b.id === payCheckAsBilled) return tot;
   const P = "function" == typeof pay3PO ? pay3PO(b) : null;
   return P && P.left >= 0 ? Math.min(tot, P.left) : tot;
 }
@@ -192184,6 +192185,23 @@ let payCheckBypass = 0;
       });
   } catch (e) {}
 });
+// Banking's and the bill's Approve as Billed (fin2ApproveAsBilled; billAction "approve" runs it on a bill the bank
+// already paid) confirms the match before it signs the bill, so the check read the bill as not approved yet, capped it
+// at its PO and refused: on Window Works' over-PO WW-2026-118 it said "approve it on the bill first" from the bill, a
+// dead end. While it signs, the approved amount is the bill's total, what Approve as Billed approves; a payment above
+// the bill is still refused. It stays Owner-only, keeps separation of duties and asks a reason for every open control.
+{
+  const base = fin2ApproveAsBilled;
+  fin2ApproveAsBilled = function (b) {
+    const was = payCheckAsBilled;
+    payCheckAsBilled = (b && b.id) || "";
+    try {
+      return base.apply(this, arguments);
+    } finally {
+      payCheckAsBilled = was;
+    }
+  };
+}
 window.addEventListener(
   "click",
   (e) => {

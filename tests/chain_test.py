@@ -1086,6 +1086,26 @@ async def s7_close(C):
     pid = C.ids['project']['id']
     chain_ids = list(C.ids['txn']['bank'].values()) + list(C.ids['txn']['card'].values())
     await C.day('2026-10-02')
+    # The seed's Window Works WW-2026-118 ($33,500, paid from the Amex on 8/25 before approval, $3,800 over PO-2026-044,
+    # the PM's note "Extra window was field-added; CO needed") blocks the August close until someone decides it, and
+    # that is right: the close never seals a payment nobody approved. The month-end allowlist below approves the seed's
+    # other paid-before-approval bills as billed; this one is decided the way the pilot's owner and controller did,
+    # through the real sheet: Owner > Approvals > WW-2026-118 > Approve > Approve PO Amount, Dispute Difference.
+    await C.as_('u_owner', 'mapprove', "window.mApprKind = 'all';")
+    yes = await C.js("""() => { const e = [...document.querySelectorAll('.m-appr')].find(x => x.getClientRects().length && x.innerText.includes('WW-2026-118'));
+        const b = e && e.querySelector('[data-myes]'); b && b.setAttribute('data-chainww', '1'); return b ? b.innerText.trim() : ''; }""")
+    C.ok(yes == 'Approve', 'Owner > Approvals lists WW-2026-118 with Approve', yes)
+    if yes:
+        await C.click('[data-chainww]', 500)
+        m = await C.modal()
+        C.ok(m and m['title'].startswith('Approve PO Amount, Dispute Difference') and float(m['fields'].get('amount') or 0) == 29700,
+             'the sheet offers the PO amount ($29,700) with the difference disputed', m and {k: m[k] for k in ('title', 'fields', 'buttons')})
+        if m:
+            await C.fill('#mbm [data-f=why]', 'Approved at PO-2026-044; the field-added window is disputed until the change order or a credit settles it')
+            await C.modal_ok(700)
+    ww = await C.js("() => { const b = DB.bills.find(x => x.number === 'WW-2026-118'); return {status: b.status, short: b.short && {approved: b.short.approved, held: b.short.held, state: b.short.state}, pbu: billPaidUnapproved(b)}; }")
+    C.ok(ww['short'] and ww['short']['approved'] == 29700 and ww['short']['held'] == 3800 and not ww['pbu'], 'WW-2026-118: $29,700 approved at the PO, $3,800 held as disputed; no longer paid before approval', ww)
+    C.t(f"Owner > Approvals > WW-2026-118 > Approve > Approve PO Amount, Dispute Difference > reason > Approve and Dispute → {ww['status']}, {ww['short']} ({await C.toast()})")
     for ym in ('2026-08', '2026-09'):
         prep = await C.js(SEED_MONTH_END, [ym, chain_ids])
         C.t(f"{ym} month-end for the seed's own lines (allowlisted, see the comment): accepted {prep['accepted']}, approved as billed {prep['approved']}, "
