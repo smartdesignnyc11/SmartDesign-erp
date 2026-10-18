@@ -67,9 +67,13 @@ AUDIT_JS = r"""(keys) => { try { __MS.as('u_owner'); } catch (e) {}
       if (type === 'pay application') { miss(d.retainagePct != null && d.retainagePct !== '', 'retainage % (pay application)');
         miss(L.length && L.every(l => has(l.sovId)), 'schedule-of-values link on every line');
         let rows = []; try { rows = pgRows(p.id); } catch (e) {}
-        L.forEach(l => { if (+l.pct < +l.prevPct) F.push(`line ${l.item}: this period's % below the previous`); if (+l.pct > 100) F.push(`line ${l.item}: over 100%`);
+        // on a schedule-of-values line `pct` is this period's percent and `prevPct` the cumulative already billed:
+        // complete to date is prevPct + pct (the app's lineAmount). The rule compared this period's % with the
+        // previous cumulative, so every line that billed less this period than before read as lowered (pilot1, d1).
+        L.forEach(l => { const toDate = +l.prevPct + (+l.pct || 0);
+          if (toDate < +l.prevPct - 0.001) F.push(`line ${l.item}: complete to date ${toDate}% below the ${+l.prevPct}% already billed`); if (toDate > 100.001) F.push(`line ${l.item}: over 100%`);
           const r = rows.find(x => x.sv && x.sv.id === l.sovId); const meas = r && r.pr ? +r.pr.pct || 0 : null;
-          if (meas != null && +l.pct > meas + 5) F.push(`line ${l.item}: billed ${l.pct}% vs measured ${Math.round(meas)}%`); }); }
+          if (meas != null && +l.pct > 0 && toDate > meas + 5) F.push(`line ${l.item}: billed ${Math.round(toDate * 100) / 100}% to date vs measured ${Math.round(meas)}%`); }); }
       if (['sent', 'partial', 'paid', 'overdue'].includes(d.status)) { const R = eq('invoices', d.number) || [];
         if (!R.length) F.push('not in the AR report (erpQuery invoices)'); else if (Math.abs((+R[0].amount || 0) - T) > 1) F.push(`AR shows $${R[0].amount}, the invoice says $${T}`);
         if (J && !(J.invs || []).some(x => x.id === d.id)) F.push('not in the job\'s billed (jobFin)'); }

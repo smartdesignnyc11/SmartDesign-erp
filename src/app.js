@@ -190227,3 +190227,122 @@ function crDocMailHtml(d) {
     return h;
   };
 }
+// 5. A pay application never lowers a line's cumulative % (the referee's S1 on INV-2026-040, 121 State, pilot1).
+//    On a schedule-of-values invoice `pct` is this period's percent and `prevPct` the cumulative already billed, so
+//    complete to date is prevPct + pct. The draft from the billing queue proposed each line from its evidence and
+//    clamped a negative to 0 without a word: on 121 State the earlier applications billed every line at one flat
+//    51.67%, and on nine lines the evidence now measures less (Demolition 7.67%, Windows 20%, Plumbing 43.42%). The
+//    draft now carries each line's complete-to-date (toDatePct), starts every line at its previous cumulative, and
+//    says on the line where the evidence is below what was billed. A this-period % typed below zero is held at the
+//    previous cumulative, and Send refuses a line that would go below it: a correction is a credit with a reason,
+//    approved, never a lower percentage.
+function paLowered(c, d) {
+  if (!d || "invoice" !== d.type || "sov" !== d.mode) return [];
+  return (d.lines || [])
+    .filter((l) => l.sovId)
+    .map((l) => {
+      const prev = r2("draft" === d.status ? sovBilled(c, l.sovId, d.id) : +l.prevPct || 0);
+      return { l: l, prev: prev, toDate: r2(prev + (+l.pct || 0)) };
+    })
+    .filter((x) => x.toDate < x.prev - 0.001 || x.toDate > 100.001);
+}
+function paMarkLines(c, inv) {
+  if (!inv || "sov" !== inv.mode) return;
+  let rows = [];
+  try {
+    rows = pgRows(inv.projectId) || [];
+  } catch (e) {}
+  const below = [];
+  (inv.lines || []).forEach((l) => {
+    if (!l.sovId) return;
+    const prev = r2(+l.prevPct || 0),
+      r = rows.find((x) => x.sv && x.sv.id === l.sovId),
+      ev = r && r.pr && null != r.pr.pct ? r2(r.pr.pct) : null;
+    (+l.pct || 0) < 0 && (l.pct = 0);
+    l.toDatePct = r2(prev + (+l.pct || 0));
+    ev != null && ev < prev - 0.01
+      ? ((l.evidenceBelow = `${ev}% complete by ${r.pr.label ? String(r.pr.label).toLowerCase() : r.pr.basis} is below the ${prev}% already billed: held at ${prev}% to date, nothing this period`), below.push(`${l.item} ${ev}% against ${prev}%`))
+      : delete l.evidenceBelow;
+  });
+  if (below.length) {
+    const note = `${below.length} line${1 === below.length ? " measures" : "s measure"} below what was already billed (${below.slice(0, 4).join("; ")}${below.length > 4 ? "; …" : ""}): each stays at its billed % and bills nothing this period. A correction is a credit with a reason, approved.`;
+    inv.memo = (inv.memo || "").split("\n").filter((x) => !/measures? below what was already billed/.test(x)).concat([note]).join("\n");
+  }
+}
+{
+  const base = progressPrefill;
+  progressPrefill = function (c, inv) {
+    const r = base.apply(this, arguments);
+    try {
+      paMarkLines(c, inv);
+    } catch (e) {
+      console.warn("pay application lines", e);
+    }
+    return r;
+  };
+}
+{
+  const base = pgApply;
+  pgApply = function () {
+    const out = base.apply(this, arguments);
+    try {
+      out && out.inv && paMarkLines(out.client, out.inv);
+    } catch (e) {}
+    return out;
+  };
+}
+// a this-period % typed below zero would take the line under what is already billed: held at 0, and said why
+document.addEventListener(
+  "change",
+  (e) => {
+    const t = e.target;
+    if (!t || !t.matches || !t.matches('table.lines.sov [data-f="pct"]') || !((+t.value || 0) < 0)) return;
+    const tr = t.closest("tr[data-line]"),
+      c = (DB.clients || []).find((x) => x.id === clientOpen),
+      d = c && docOpen ? findDoc(c, "invoice", docOpen.id) : null,
+      l = d && tr ? (d.lines || []).find((x) => x.id === tr.dataset.line) : null;
+    t.value = 0;
+    toast(`${l ? l.item + ": " : ""}${l ? r2(+l.prevPct || 0) + "% is" : "that much is"} already billed — this period can only add to it. A correction is a credit with a reason.`);
+  },
+  !0,
+);
+{
+  const base = docAction;
+  docAction = async function (c, d, a) {
+    if (["send", "sent", "approve", "sendclient"].includes(a)) {
+      const bad = paLowered(c, d);
+      if (bad.length)
+        return void toast(
+          `${d.number} is not sent: ${bad
+            .slice(0, 3)
+            .map((x) => `${x.l.item} would be ${x.toDate}% to date, ${x.toDate < x.prev ? "below" : "over"} the ${x.toDate < x.prev ? x.prev + "% already billed" : "100% of the line"}`)
+            .join("; ")}. A correction is a credit with a reason, approved.`,
+          null,
+          9e3,
+        );
+      try {
+        d && "sov" === d.mode && (d.lines || []).forEach((l) => l.sovId && (l.toDatePct = r2((+l.prevPct || 0) + (+l.pct || 0))));
+      } catch (e) {}
+    }
+    return base.apply(this, arguments);
+  };
+}
+{
+  const base = renderDocEditor;
+  renderDocEditor = function (c, d) {
+    let h = base.apply(this, arguments);
+    try {
+      d &&
+        "sov" === d.mode &&
+        "draft" === d.status &&
+        (d.lines || []).forEach((l) => {
+          if (!l.evidenceBelow) return;
+          const a = h.indexOf(`<tr data-line="${l.id}">`);
+          if (a < 0) return;
+          const b = h.indexOf("</tr>", a);
+          b > -1 && (h = h.slice(0, b + 5) + `<tr class="pa-below no-doc-print"><td></td><td colspan="9"><span class="small warn" data-nocase>${esc(l.item)}: ${esc(l.evidenceBelow)}</span></td></tr>` + h.slice(b + 5));
+        });
+    } catch (e) {}
+    return h;
+  };
+}
