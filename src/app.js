@@ -103976,8 +103976,10 @@ function b3Dates(root) {
     December: 12,
   };
   hits.forEach((t) => {
+    // a date that is part of a name (ac2_2026-09-03.csv, COI-2026-27) stays as written: the person looks for the
+    // name they saved, and the statement import was listed as "ac2_9/3.csv" (findable2)
     let v = t.nodeValue
-      .replace(/(\d{4})-(\d{2})-(\d{2})/g, (m, y, mo, d) => {
+      .replace(/(?<![\w.\/-])(\d{4})-(\d{2})-(\d{2})(?![\w\/-]|\.\w)/g, (m, y, mo, d) => {
         try {
           return fmt(m);
         } catch (e) {
