@@ -15,7 +15,7 @@ seeded DB, app day 2026-09-03) and drives the real buttons; the phone sections l
                 the reviewer gets a Messages notice and a task to confirm; the register and the PO show it.
   approve   S1  A PO submitted for owner approval toasts with Open, lands in the owner's Approvals and Do Now
                 with Approve / Reject / Open (DELEGATION po -> owner), and never on the foreman's Arriving Today.
-  budget    S2  The over-budget confirmation is awaited: "Yes, Continue" creates the PO and the message
+  budget    S2  A vendor not on file stops New PO first; then the over-budget confirmation is awaited: "Yes, Continue" creates the PO and the message
                 states the amount over ("$2,500 over the $32,500 line").
   reader    S2  Apply finishes the job: a quote prices the Buy Board line and links the PDF; a receipt codes
                 the card line to the job; a delivery date proposes the PO's ETA; "ready for pickup" proposes a
@@ -85,6 +85,9 @@ async def proposal(pg, subject_part, kind):
 async def apply_real(pg, cid, pid):
     """The Apply button's function, through its wrappers (no __cmBulk shortcut)."""
     return await pg.evaluate("([cid, pid]) => { const c = DB.comms.find(x => x.id === cid), p = c.proposals.find(x => x.id === pid); const did = cmApply(c, p); save(); return did; }", [cid, pid])
+# New PO refuses a name that is not a vendor on file (faabf8f: no vendor is created silently), so the priced-PO
+# path buys from a vetted seeded vendor; the unknown-name stop itself is checked in s_budget.
+VENDOR_ON_FILE = 'Carlos Millwork'
 async def picker_po(pg, cost, vendor):
     """The reviewer's priced-PO path: Purchase Orders > Client Funds row 'Trim, doors, paint' > New PO > tick line 10 > cost > vendor > Create."""
     await pg.evaluate("() => { setCurrent('p121'); poOpen = null; view = 'po'; render(); }"); await pg.wait_for_timeout(400)
@@ -314,7 +317,7 @@ async def s_approve(p, c):
     try:
         await sign_in(pg, 'u_chen')
         n0 = await pg.evaluate("() => DB.pos.length")
-        await picker_po(pg, 30000, 'Brooklyn Lumber')
+        await picker_po(pg, 30000, VENDOR_ON_FILE)
         po = await pg.evaluate("() => { const o = DB.pos[DB.pos.length - 1]; return { id: o.id, number: o.number, status: o.status, vendor: o.vendor, expected: o.expected || '', needBy: o.needBy || '', total: poTotal(o).total }; }")
         c.ok(await pg.evaluate("() => DB.pos.length") == n0 + 1 and po['total'] == 30000, f'approve: the picker drafted {po}')
         if await pg.evaluate("() => view") != 'po' or await pg.evaluate("() => poOpen") != po['id']:
@@ -361,7 +364,14 @@ async def s_budget(p, c):
     try:
         await sign_in(pg, 'u_chen')
         n0 = await pg.evaluate("() => DB.pos.length")
+        # a name not on file stops first (no PO, no vendor made silently), and the over-budget guard still runs after it
         await picker_po(pg, 35000, 'Brooklyn Lumber')
+        m = await modal(pg)
+        c.ok(bool(m) and 'Brooklyn Lumber is not a vendor on file' in m['text'] and await pg.evaluate("() => DB.pos.length") == n0
+             and not await pg.evaluate("() => (DB.vendors || []).some(v => v.name === 'Brooklyn Lumber')"), f'budget: an unknown vendor stops New PO first, nothing made ({m and m["text"][:120]!r})')
+        v = pg.locator('#mbm table tr').filter(has_text='10. Trim, doors').first.locator('input[placeholder="vendor / sub"]').first
+        await v.fill(VENDOR_ON_FILE); await v.press('Tab'); await pg.wait_for_timeout(300)
+        await modal_ok(pg, 900)
         m = await modal(pg)
         c.ok(bool(m) and re.search(r'over', m['text'], re.I), f'budget: the over-budget confirmation shows ({m and m["text"][:160]!r})')
         if m:
@@ -371,7 +381,7 @@ async def s_budget(p, c):
         n1 = await pg.evaluate("() => DB.pos.length"); t = await toast(pg)
         c.ok(n1 == n0 + 1, f'budget: Yes, Continue creates the PO ({n0} -> {n1})')
         po = await pg.evaluate("() => { const o = DB.pos[DB.pos.length - 1]; return { vendor: o.vendor, total: poTotal(o).total, status: o.status }; }")
-        c.ok(po['total'] == 35000 and po['vendor'] == 'Brooklyn Lumber' and po['status'] == 'draft', f'budget: the PO is the one asked for ({po})')
+        c.ok(po['total'] == 35000 and po['vendor'] == VENDOR_ON_FILE and po['status'] == 'draft', f'budget: the PO is the one asked for ({po})')
         c.ok(t['on'] and t['text'], f'budget: the result is toasted ({t["text"]!r})')
         c.ok(not errs, f'budget: page errors {errs[:2]}')
     finally:
