@@ -19,6 +19,7 @@
              held until the PM records the approval.
   impact     what changed and what it touches: tasks, open POs, selections, estimate lines, the follow-ups.
   thread     the job's thread and the job's page pin current sheets only.
+  switch     switching job on Plans (and the Studio's Drawings) shows that job's sheets, desktop and phone.
   question   the field question naming A-301 opens the current A-301 in one tap from the designer's My Day, on
              desktop and phone; the designer reaches every job's Plans page.
   findable   erpQuery, ⌘K, Ask; every new CATCH id mapped to a line of the Standard; one blue button; no sideways
@@ -71,6 +72,21 @@ async def register(c, pg, label):
     c.ok(await pg.evaluate(PRIMARY) == 1, f"{label}: one blue button on Plans")
     if label == 'phone':
         c.ok(await pg.evaluate(SW) <= 390, f"{label}: Plans does not scroll sideways ({await pg.evaluate(SW)})")
+
+
+async def switch_job(c, pg, label):
+    # the pilot (2026-10-18): Drawings' job switch said 121 State but kept 45 Cranberry's sheets
+    await sign_in(pg, 'u_sarah')
+    await pg.evaluate("() => { setCurrent('p45'); plStatusF = 'current'; plSetF = ''; view = 'sdraw'; render(); }"); await pg.wait_for_timeout(300)
+    b0 = await pg.evaluate("() => ({ view, h2: (document.querySelector('.view.on h2') || {}).innerText || '', jobs: [...new Set([...document.querySelectorAll('.view.on [data-plrow]')].map(e => plRow(e.dataset.plrow).projectId))] })")
+    c.ok(b0['view'] == 'plans' and b0['jobs'] == ['p45'], f"{label}: the Studio's Drawings opens the job's Plans page ({b0})")
+    await pg.select_option('#pswitch', 'p121'); await pg.wait_for_timeout(500)
+    b1 = await pg.evaluate("() => ({ view, cur: S.id, h2: (document.querySelector('.view.on h2') || {}).innerText || '', jobs: [...new Set([...document.querySelectorAll('.view.on [data-plrow]')].map(e => plRow(e.dataset.plrow).projectId))], s101: !!document.querySelector('.view.on [data-plopen=\"sh121s101\"]') })")
+    c.ok(b1['cur'] == 'p121' and b1['h2'] == 'Plans — 121 State Street' and b1['jobs'] == ['p121'] and b1['s101'], f"{label}: switching job shows that job's sheets ({b1})")
+    await click(pg, '.view.on [data-plopen="sh121s101"]', 500)
+    v = await pg.evaluate("() => document.getElementById('v-name').textContent")
+    c.ok('S-101' in v, f"{label}: the designer opens 121 State's S-101 ({v})")
+    await pg.evaluate(CLOSE)
 
 
 async def void_check(c, pg, label):
@@ -342,6 +358,7 @@ async def run(c, p, phone):
     fd, tmp = tempfile.mkstemp(suffix='-A-201 Rev C.svg'); os.write(fd, SVG.encode()); os.close(fd)
     try:
         await register(c, pg, label)
+        await switch_job(c, pg, label)
         await void_check(c, pg, label)
         rid = await designer_issue(c, pg, label, tmp)
         await order_flag(c, pg, label)

@@ -191054,6 +191054,15 @@ if ("function" == typeof fTaskNeeds) {
     return need;
   };
 }
+// one acknowledgment: the older "Sheet X rev Y issued · Got It" line (DB.field.acks, no who or when) gives way to
+// the register's own (New Drawings, DB.studio.acks: who, which revision, when)
+if ("function" == typeof fForYou) {
+  const base = fForYou;
+  fForYou = function () {
+    const items = base.apply(this, arguments);
+    return Array.isArray(items) ? items.filter((i) => "sheet" !== i.k) : items;
+  };
+}
 if ("function" == typeof fForYouHtml) {
   const base = fForYouHtml;
   fForYouHtml = function () {
