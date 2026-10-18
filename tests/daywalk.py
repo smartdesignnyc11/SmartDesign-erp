@@ -516,10 +516,13 @@ async def walk_billing(w):
     await w.click('Send to Client')
     await w.click('Send', wait=900)
     await w.mutated(f'{inv} sent', "n => DB.clients.some(c => (c.invoices || []).some(d => d.number === n && ['sent', 'paid', 'partial'].includes(d.status)))", inv)
-    w.step('Record Payment > Enter')
+    # v11.2: the dialog asks how the money came (pilot day 2: a guessed "ACH" default hid payments nobody traced);
+    # with one bank account it is already the deposit account, so the person picks the method and presses Enter
+    w.step('Record Payment > Method > Enter')
     pay0 = await pg.evaluate("() => JSON.stringify(DB.payments || []).length")
     await w.toast_mark()
     await w.click('Record Payment', wait=600)
+    await w.fill('ACH', css='#py-method')
     await w.key('Enter')
     if await w.find('Record Payment', css='.modal button, [role=dialog] button, #mbm button'):
         w.note('Enter did not submit the payment dialog')
