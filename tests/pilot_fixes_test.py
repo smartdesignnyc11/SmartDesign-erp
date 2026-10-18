@@ -58,21 +58,22 @@ async def t_daily_log(c, p):
                nav, filed: dlLogs('p121').some(l => l.date === today()) };""")
     c.ok('the log says 14 h, the clock says' in r['gaps'], f"log: the mismatch shows both numbers ({r['gaps'][:160]!r})")
     c.ok(not r['filed'] and 'clock' in r['msg'], f"log: Sign and Send refuses with the reason ({r['msg']!r})")
-    c.ok('Clock Out' in r['nav'] and 'Sign and Send' in r['nav'], f"log: Clock Out sits beside Sign and Send while he is clocked in ({r['nav']})")
+    c.ok('Clock Out and Sign' in r['nav'] and 'Sign With Hours So Far' in r['nav'], f"log: still clocked in, Sign Off offers Clock Out and Sign and Sign With Hours So Far ({r['nav']})")
     # Use the Clock, clock out: signs
     r = await js(pg, """
       const dr = DB.field.dlDraft['p121|' + today()]; dr.step = 1; render(); await sleep(150);
       const u = document.querySelector('[data-dlclock="0"]'); u && u.click(); await sleep(150);
       const fixed = dr.crew[0].hours === dr.crew[0].clockH;
       dr.step = 6; render(); await sleep(150);
-      const co = [...document.querySelectorAll('.dl-nav [data-dlclockout]')][0]; co && co.click(); await sleep(900);
-      const open = DB.time.some(t => t.empId === 'em1' && !t.out);
+      // one tap: Clock Out and Sign
       const dr2 = DB.field.dlDraft['p121|' + today()]; dr2.signed = true; render(); await sleep(150);
-      document.querySelector('#dl-next') && document.querySelector('#dl-next').click(); await sleep(400);
+      const lab = (document.querySelector('#dl-next') || {}).innerText;
+      document.querySelector('#dl-next') && document.querySelector('#dl-next').click(); await sleep(1200);
+      const open = DB.time.some(t => t.empId === 'em1' && !t.out);
       const l = dlLogs('p121').find(x => x.date === today());
       return { fixed, open, filed: !!l, hours: l && l.crew.find(x => x.empId === 'em1'), clock: dlClockFor(DB.projects.find(x => x.id === 'p121'), today()).find(x => x.empId === 'em1').hours };""")
     c.ok(r['fixed'], 'log: Use the Clock puts the clock\'s hours back')
-    c.ok(not r['open'], 'log: Clock Out beside Sign and Send clocks the foreman out')
+    c.ok(not r['open'], 'log: Clock Out and Sign clocks the foreman out and signs in one tap')
     c.ok(r['filed'] and r['hours'] and abs(r['hours']['hours'] - r['clock']) < 0.01, f"log: once it agrees with the clock it signs, carrying the clock's hours ({r['hours']}, clock {r['clock']})")
     # a reason is the other way out: kept on the record
     r = await js(pg, """
@@ -385,6 +386,22 @@ async def t_daily_log_day2(c, p):
     c.ok(r['who'] == 'pm' and r['n'] >= 1, f"pm: an escalated question still waits on the PM it was sent to ({r})")
     c.ok(not errs and not errs2, f'log day 2: no page errors {(errs + errs2)[:2]}')
     await b.close()
+    # staying later: Sign With Hours So Far, with a reason; a refusal toast carries Open
+    b, pg, errs3 = await fresh(p, 'u_angel', phone=True)
+    r = await js(pg, """
+      DB.time.push({ id: 'tpx5', empId: 'em1', date: today(), in: today() + 'T06:00:00', out: '', breakMin: 0, projectId: 'p121', code: '12', status: 'open', source: 'phone', work: [] });
+      setCurrent('p121'); view = 'flog'; render(); await sleep(250);
+      const dr = DB.field.dlDraft['p121|' + today()]; dr.weather = 'Clear'; (dr.delays || []).forEach(x => x.carried && (x.still = false)); dr.step = 6; render(); await sleep(200);
+      document.querySelector('#dl-next').click(); await sleep(300);
+      const t1 = (document.getElementById('toast') || {}).innerText || '';
+      document.querySelector('[data-dlsofar]').click(); await sleep(200);
+      document.querySelector('#mbm [data-f="why"]').value = 'waiting for the inspector walk'; document.querySelector('#mbm-ok').click(); await sleep(600);
+      const l = dlLogs('p121').find(x => x.date === today());
+      return { t1, filed: !!l, open: DB.time.some(t => t.id === 'tpx5' && !t.out), why: l && l.signedOpen && l.signedOpen.why };""")
+    c.ok('Not signed yet' in r['t1'] and 'Open' in r['t1'], f"log: the refusal toast has Open ({r['t1']!r})")
+    c.ok(r['filed'] and r['open'] and r['why'], f"log: Sign With Hours So Far files the log, keeps him clocked in and records why ({r})")
+    c.ok(not errs3, f'log late stay: no page errors {errs3[:2]}')
+    await b.close()
 
 # ------------------------------------------------------------------------------------------------ 8, 9, 10
 async def t_statements_tasks_billing(c, p):
@@ -454,13 +471,15 @@ async def t_designer_and_bill(c, p):
       document.querySelector('#mbm-ok') && document.querySelector('#mbm-ok').click(); await sleep(250);
       const toast1 = (document.getElementById('toast') || {}).innerText || '';
       const t = document.querySelector('button.gl[data-tl="hrs"]'), oldest = stOldestUnlogged();
-      t && t.click(); await sleep(250);
-      const sheet = (document.querySelector('#mbm h3') || {}).innerText || '';
-      const h = document.querySelector('#mbm [data-f="h"]'); h && (h.value = '5'); document.querySelector('#mbm-ok') && document.querySelector('#mbm-ok').click(); await sleep(250);
-      return { btn: !!btn, title, v1, toast1, oldest, sheet, logged: DB.time.some(x => x.date === oldest && x.source === 'day sheet') };""")
+      t && t.click(); await sleep(300);
+      const dsel = document.querySelector('#st-addd'), sheet = dsel ? dsel.value : '', blocked = !!document.getElementById('mbm');
+      const h = document.querySelector('#st-addh'); h && (h.value = '5');
+      const n = document.querySelector('#st-addn'); n && (n.value = 'A-301 revisions');
+      document.querySelector('#st-addgo') && document.querySelector('#st-addgo').click(); await sleep(300);
+      return { btn: !!btn, title, v1, toast1, oldest, sheet, blocked, logged: DB.time.some(x => x.date === oldest && /A-301 revisions/.test(JSON.stringify(x))) };""")
     c.ok(r['btn'] and r['v1'] == 'sday' and r['title'] == 'Send Revised Drawings', f"designer: her My Day step opens where she can finish it, not Meetings ({r['v1']}, {r['title']!r})")
     c.ok('On your list' in r['toast1'], f"designer: confirming it puts it on her list ({r['toast1']!r})")
-    c.ok(r['oldest'] and r['oldest'][5:].replace('-', '/').lstrip('0') in '' or ('Hours for' in r['sheet']), f"designer: Hours Not Logged opens the day sheet for the oldest unlogged day ({r['sheet']!r}, {r['oldest']})")
+    c.ok(r['oldest'] and r['sheet'] == r['oldest'] and not r['blocked'], f"designer: Hours Not Logged opens My Day's day sheet on the oldest unlogged day, no sheet over it ({r['sheet']!r}, {r['oldest']})")
     c.ok(r['logged'], f"designer: the day sheet logs the hours on that day ({r['oldest']})")
     await b.close()
     b, pg, errs2 = await fresh(p, 'u_controller')
