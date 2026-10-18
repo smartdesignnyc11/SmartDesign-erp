@@ -4,11 +4,10 @@ This is the one list. The chief of staff keeps it current on every ask, lane rep
 
 Last updated 2026-10-11.
 
-## 0. Usage (2026-10-11): the weekly limit is at 96%
-- All agent work is stopped. The lanes commit and stop.
-- Version 11 is finished only through cheap steps: merge integrate2, run the test net as machine runs, run the scripted month, publish.
-- The pilot, the remaining harness findings (as v11.1) and every new lane wait for Thursday's reset (8pm New York).
-- After the reset, the first step is to read this file, `docs/LANES.md` and `docs/DECISIONS.md`.
+## 0. Usage rule (Alan)
+- Warn before any heavy step.
+- Don't start a big round when weekly usage is above about 60%.
+- One build lane is roughly 6–10% of a week's allowance. The lean pilot is about 2–5%.
 
 ## v11.1 (first thing after the reset)
 - **Fix the v11 net regressions** (2026-10-11 run):
@@ -47,24 +46,42 @@ The integration pass covers:
 4. Run the phone check at 390px.
 5. Publish, push, and send Alan the link.
 
-## 3. After version 11, in the agreed order
-| # | What | Where |
-|---|---|---|
-| 1 | Focused expert review (controller, procurement manager, foreman on the phone, design expert); fixes the same day | REVIEW_PROTOCOL plus the system lens |
-| 2 | Agent-month pilot, lean (Alan, 2026-10-11): 3 working days. Seven roles work daily (owner, PM, coordinator, foreman, billing, controller, designer); crew and driver join on day 3; the client's side is played by the world, plus one short client-view read at the end. Three slots a day with smaller action caps, with the Documents Workshop (estimates, COs, invoices, progress billing, POs, RFQs and bills: on the go, speed, back end, client view) and ending with the Navigation and Pages Workshop (each expert proposes their menu from what they actually used; `docs/MENU_DRAFT.md`) | §1.17 |
-| 2b | **Plans control** (Alan: "very, very important"): a drawing register, VOID on supersede, the field acknowledges every revision, "In Revision" holds that also stop orders, impact and CO proposals, DOB/LPC amendment flags, a QR code on printed sheets, offline sets | §1.22 |
-| 2c | **Cross-set consistency**: the AI checks design, LPC, DOB, construction and shop drawings against each other, then holds at-risk work and orders, routes an RFI with a deadline, states which set governs, resolves through the register, follows the money, and learns | §1.23 |
-| 3 | **Simplify:** organised side menu (SmartDesign only, after Alan agrees the plan); one task system; one queue per person; an alert budget; role navigation; one timeline per request; one way to do each thing; the structure lint and completeness tests that stop the next tasks-type problem | §1.15, §1.14, §1.11 (items 1–4, 9), §1.16 |
-| 3b | **Items and descriptions that fill themselves in** on estimates, COs, invoices, POs and RFQs: item library, assemblies, the assistant drafting from notes, photos or voice, learning from signed estimates; shaped by the Documents Workshop | §1.18 |
-| 3c | **Spanish for the field:** foreman, crew and driver screens, assistant, voice and playbooks; office sees English beside the original | §1.20 |
-| 3d | **Messages** that replace WhatsApp and iMessage: job, client and office threads; every message can become work; pinned current plans; the assistant drafts the CO from the chat; the brain reads it all. Phase 1 on the demo, phase 2 on the platform | §1.21 |
-| 4 | Subcontractors: bid leveling by scope, COI before start, pay applications, retainage, **lien waivers with every payment**, backcharges; **payment check** so vendors are never overpaid | §1.10 item 1, §1.12 |
-| 5 | **Reporting proven**: income and expenses (accrual and cash), job costing, line-item income to cost, P&L by company, entity, client and project, overhead analysis, WIP, cash flow, aging, closed periods frozen, QuickBooks comparison | §1.13 |
-| 6 | **Platform and the real agents** (Supabase plus Netlify): sign-in, shared database, row-level security, AI proxy with cost caps, live assistants, documents, procurement, the brain, schedule, billing, compliance and books agents, each with a shadow week first | §5, §5.8 |
-| 6a | **Ask that feels and works like Claude**: streaming chat, history, voice and attachments; one agent with tools over the ERP, Gmail, Drive, Calendar, Messages and the web; drafts and acts within the Standard; a permission-aware search index; memory; budgets. First agent once the API key is in | §1.24 |
-| 6b | The improvement loop in production: signals, brain triage, owner approval, an agent builds and tests, close the loop | §1.19 |
-| 7 | Full agent month: 20 working days in two halves, after the weekly reset | §1.17 |
-| 8 | Full ten-expert regrade (target 9+ in every lens, no severity-1 or severity-2 findings) | REVIEW_PROTOCOL |
+## 3. The order of work (updated 2026-10-18, folding in the Oct 17 Cowork session)
+The Cowork plan's first steps are already done in this repo:
+- the code is on GitHub;
+- the test net was rebuilt (screen lint, counts lint, the Ask bank with held-out sets, the day walk, the finance cross-check);
+- round 5 was redone (closetie, truthpct, askgen, clientpo).
+
+What remains, in order. Usage is a share of one week's allowance.
+
+| # | Work | Spec | Lanes | Usage |
+|---|---|---|---|---|
+| **Week 1** | | | | |
+| 1 | v11.1: fix the merge regressions, crew-waiting-first ranking, harness findings 6–8; full net; publish v11 | PLAN v11.1 | 1–2 | 10–15% |
+| 2 | Lean expert pilot (3 days) + the Navigation, Pages and Documents workshops, with the visual review | §1.17 | runs | 3–6% |
+| 3 | Plans control + the cross-set consistency workflow (demo phase) | §1.22, §1.23 | 2 | 15% |
+| 4 | Simplify: the menu (from the workshop), one task system, one queue per person, the alert budget, the structure lint and completeness tests | §1.14–1.16, §1.11 | 3 | 25% |
+| | Integration and merges | | | 10% |
+| **Week 2** | | | | |
+| 5 | Live-job capabilities on invented equivalents: two payers per contract, range estimates with allowances and a paid exploratory phase, the HTC calculator and hard/soft/contingency estimate, the contractor-to-employee user | §1.25, §1.26 | 2 | 15% |
+| 6 | One assistant per person (four screens into one), approval rules, activity log | §1.27 | 1–2 | 12% |
+| 7 | Role specialists on the demo + planted-problem banks; cost intelligence (cash-negative jobs, benchmarks, receipt price book, driver store list phase 1); savings ledger | §1.28–1.31 | 3 | 25% |
+| 8 | Item library, Messages phase 1 (with record cards and @assistant), Spanish for the field | §1.18, §1.21, §1.20 | 3 | 25% |
+| | Integration and merges | | | 10% |
+| **Week 3** | | | | |
+| 9 | Subcontractors, lien waivers and the payment check | §1.10 item 1, §1.12 | 2 | 15% |
+| 10 | Reporting proven end to end | §1.13 | 2 | 15% |
+| 11 | Platform foundation once the keys are in: database, sign-in, permissions, sync, AI connection with caps, watchers, document reader, push | §5 | 3–4 | 35% |
+| | Integration and merges | | | 10% |
+| **Week 4** | | | | |
+| 12 | The live AI on Claude:<br>- Ask like Claude;<br>- the always-on assistant per person;<br>- role specialists and Brain timers;<br>- the documents and drawing reader;<br>- driver routes phase 2 (Maps);<br>- live jobs loaded into the private platform;<br>- the improvement loop | §1.24, §1.27–1.29, §1.19, §5.8 | 4 | 40% |
+| 13 | Real-data pilot with the team; the full ten-expert regrade to 9+; go-live checklist | §6 | runs | 20% |
+
+**Totals.** About four weekly allowances on the current plan, so roughly four weeks of calendar time. Each week fits under the 60% rule only if a week's round is split into two halves.
+
+**Bought as extra usage at API prices,** the same work is about $1,500–3,000.
+
+**Running costs once live:** about $150–700 a month, mostly AI, under a cap Alan sets.
 
 ## 4. Queued (built after the above, or folded in where they fit)
 - **Speed:** boot under 2 s, view switch under 100 ms on a phone (§1.11 item 5).
