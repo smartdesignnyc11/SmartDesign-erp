@@ -1,3 +1,16 @@
+// Find it again (findable2): the first listener any tap reaches, ahead of the app's own window-level listeners that
+// stop a tap (Needs Your Hand rows, Approvals). fndOnTap, near the end of this file, snapshots what people make.
+["pointerdown", "click", "keydown", "change"].forEach((t) =>
+  window.addEventListener(
+    t,
+    (e) => {
+      try {
+        "function" == typeof fndOnTap && fndOnTap(t, e);
+      } catch (x) {}
+    },
+    !0,
+  ),
+);
 const DAY = 864e5,
   iso = (d) => {
     const x = new Date(d);
@@ -189741,4 +189754,379 @@ if ("function" == typeof finishBoot) {
     }
     return r;
   };
+}
+
+// ---- Find it again: what a person makes is on their screen, and in its own list (findable2, 2026-10-18) -----------
+// The agent month's referee (pilot1, day 1) counted 15 records their creator could not see right after saving or
+// after a reload: a payroll journal approved from Approvals, tasks made from My Day, the PM's no-show text and its
+// two drafts from Home, a COI filed from Home, a statement import, a sent invoice's chat line and mail, two calendar
+// holds from Approvals. Every one of those paths toasted, so every one "worked"; the record lived on another screen
+// and nothing on this one said so. The class is a save whose record's home is elsewhere, so the fix sits in the one
+// helper every mutation already calls, toast(). A tap takes a snapshot of the records people make (FND_HOME, one
+// entry per noun with the list it lives in); when the toast fires, any record the tap made that is not already on
+// the screen is listed at the top of it under Made Today, highlighted, each with Open to its own list, where it is
+// highlighted again. The receipt is kept per person for the app day in sessionStorage (a viewer convenience that
+// points at records, never a store of them), so a reload shows it again on the screen it was made from.
+const fndMe = () => (("function" == typeof currentUser && currentUser()) || {}).name || "";
+const fndUid = () => (("function" == typeof currentUser && currentUser()) || {}).id || "";
+const fndMay = (v) => {
+  try {
+    return (ROLE_VIEWS[role()] || []).includes(v);
+  } catch (e) {
+    return !1;
+  }
+};
+const fndJob = (p) => (p ? ("function" == typeof shortName ? shortName(p) : String((p.project || {}).name || "")) : "");
+const fndPoss = (who) => (!who || ("function" == typeof tkOwnerSafe ? tkOwnerSafe(who, fndMe()) : who === fndMe()) ? "your" : `${who}'s`);
+const fndNorm = (s) => String(s || "").replace(/\s+/g, " ").trim();
+// the name a person would look for: the same fields, in the same order, the referee reads
+const fndNameOf = (r) => fndNorm(r.number || r.title || r.name || r.what || r.subject || r.fileName || r.filename || r.desc || r.item || r.label || r.text || r.memo || "").slice(0, 160);
+function fndTaskOpen(r, p, kind) {
+  "function" == typeof tkLand && tkLand({ id: r.id, projectId: p ? p.id : "", assignee: r.assignee || r.owner || "", due: r.due || r.end || "", kind: kind });
+}
+function fndDocOf(r) {
+  const a = (r && r.about) || {},
+    c = a.clientId && (DB.clients || []).find((x) => x.id === a.clientId),
+    d = c && a.docId && "function" == typeof findDoc ? findDoc(c, a.docKind || "invoice", a.docId) : null;
+  return d ? { c: c, d: d } : null;
+}
+function fndJournalDoc(j) {
+  if (!j || !j.sourceId) return null;
+  for (const c of DB.clients || []) {
+    const d = [...(c.invoices || []), ...(c.changeOrders || [])].find((x) => x.id === j.sourceId);
+    if (d) return { c: c, d: d };
+  }
+  return null;
+}
+// Each noun a person makes from a screen other than its own, and the one list it lives in.
+const FND_HOME = {
+  "p.actions": {
+    noun: "Task",
+    where: (r, p) => `on ${fndPoss(r.assignee)} list${r.due ? `, due ${fmtL(r.due)}` : ""}${p ? ` · ${fndJob(p)}` : ""}`,
+    open: (r, p) => fndTaskOpen(r, p, "job"),
+  },
+  "p.tasks": {
+    noun: "Task",
+    where: (r, p) => `on ${fndPoss(r.owner)} list${r.end ? `, due ${fmtL(r.end)}` : ""}${p ? ` · ${fndJob(p)}` : ""}`,
+    open: (r, p) => fndTaskOpen(r, p, "sched"),
+  },
+  tasks: { noun: "Task", where: (r) => `on ${fndPoss(r.assignee)} list${r.due ? `, due ${fmtL(r.due)}` : ""}`, open: (r) => fndTaskOpen(r, null, "office") },
+  outbox: {
+    noun: (r) => ("sent" === r.status || "delivered" === r.status ? "Mail Sent" : "Draft"),
+    where: (r) => {
+      const to = r.to && "object" == typeof r.to ? r.to.name || r.to.email || r.to.phone || "" : String(r.to || ""),
+        D = fndDocOf(r);
+      return "sent" === r.status || "delivered" === r.status
+        ? `to ${to || "the recipient"}${r.sentBy ? `, sent by ${r.sentBy}` : ""}${r.via ? ` (${r.via})` : ""}${D ? ` · on ${D.d.number}` : ""}`
+        : `${"sms" === r.via ? "a text " : ""}to ${to || "the recipient"}, waiting for your Send in the Outbox${r.sendOn ? ` · for ${fmtL(r.sendOn)}` : ""}`;
+    },
+    open: (r) => {
+      const D = fndDocOf(r);
+      if (D && (fndMay("billing") || fndMay("clients")) && "undefined" != typeof flowGo) return flowGo.doc(D.c, D.d.type, D.d)();
+      if (fndMay("brain")) return (bnTab = "hands"), (view = "brain"), render();
+      fndMay("comms") && ((view = "comms"), render());
+    },
+  },
+  "p.files": {
+    noun: "File",
+    where: (r, p) => `in ${p ? fndJob(p) + "'s" : "the job's"} Files${r.by ? ` · filed by ${r.by}` : ""}`,
+    open: (r, p) => {
+      p && "function" == typeof setCurrent && setCurrent(p.id), void 0 !== fileFilter && (fileFilter = "all"), (view = "files"), render();
+    },
+  },
+  "p.chat": {
+    noun: "Chat Line",
+    where: (r, p) => `in ${p ? fndJob(p) + "'s" : "the job's"} chat${r.system ? ", posted for the client" : ""}`,
+    open: (r, p) => {
+      p && "function" == typeof setCurrent && setCurrent(p.id), (view = "chat"), render();
+    },
+  },
+  "p.materials": {
+    noun: "Material",
+    where: (r, p) => `on ${p ? fndJob(p) + "'s" : "the job's"} Materials${r.status ? ` · ${r.status}` : ""}`,
+    open: (r, p) => {
+      p && "function" == typeof setCurrent && setCurrent(p.id), (view = "mat"), render();
+    },
+  },
+  bankImports: {
+    noun: "Statement Import",
+    where: (r) => `on Banking, Statement Imports${r.lines ? ` · ${r.lines} line${1 === r.lines ? "" : "s"}` : ""}`,
+    open: (r) => ("function" == typeof bfImpLand ? bfImpLand(r.id) : ((view = "bank"), render())),
+  },
+  "calendar.external": {
+    noun: "Calendar Hold",
+    where: (r) => `on your calendar, ${fmtL(String(r.start || "").slice(0, 10))} ${String(r.start || "").slice(11, 16)}`,
+    open: (r) => {
+      void 0 !== bnCalMonth && (bnCalMonth = String(r.start || today()).slice(0, 7)), void 0 !== bnCalKind && (bnCalKind = ""), (view = "calendar"), render();
+    },
+  },
+  "gl.journals": {
+    noun: "Journal Entry",
+    where: (r) => {
+      const D = fndJournalDoc(r);
+      return fndMay("gl") || !D ? `in the General Ledger, Journal${r.date ? ` · dated ${fmtL(r.date)}` : ""}` : `posted from ${D.d.number}`;
+    },
+    // the ledger for those who keep it; for everyone else the document it posted from
+    open: (r) => {
+      const D = fndJournalDoc(r);
+      if (!fndMay("gl") && D && "undefined" != typeof flowGo) return flowGo.doc(D.c, D.d.type, D.d)();
+      (glTab = "journal"), (glJFilter = ""), (glAcctFilter = "");
+      const [from, to] = glRange();
+      r.date && r.date < from && (glFrom = r.date), r.date && r.date > to && (glTo = r.date), (view = "gl"), render();
+    },
+    sel: (r) => (fndMay("gl") ? `[data-glopen="${r.id}"]` : ""),
+    may: () => fndMay("gl") || fndMay("billing") || fndMay("clients"),
+  },
+};
+function fndEach(fn) {
+  (DB.projects || []).forEach((p) =>
+    ["actions", "tasks", "files", "chat", "materials"].forEach((k) => (Array.isArray(p[k]) ? p[k] : []).forEach((r) => r && "object" == typeof r && fn("p." + k, r, p))),
+  );
+  (Array.isArray(DB.tasks) ? DB.tasks : []).forEach((r) => r && fn("tasks", r, null));
+  (DB.outbox || []).forEach((r) => r && fn("outbox", r, null));
+  (DB.bankImports || []).forEach((r) => r && fn("bankImports", r, null));
+  ((DB.calendar || {}).external || []).forEach((r) => r && fn("calendar.external", r, null));
+  ((DB.gl || {}).journals || []).forEach((r) => r && fn("gl.journals", r, null));
+}
+const fndKey = (coll, r) => coll + ":" + (r.id || r.number || "");
+function fndKeys() {
+  const K = new Set();
+  try {
+    fndEach((c, r) => (r.id || r.number) && K.add(fndKey(c, r)));
+  } catch (e) {}
+  return K;
+}
+function fndFind(key) {
+  let hit = null;
+  try {
+    fndEach((c, r, p) => {
+      hit || fndKey(c, r) !== key || (hit = { coll: c, r: r, p: p });
+    });
+  } catch (e) {}
+  return hit;
+}
+// the receipt, per person and app day, in this tab
+const fndStoreKey = () => "sd-made:" + fndUid();
+function fndLoad() {
+  try {
+    const L = JSON.parse(sessionStorage.getItem(fndStoreKey()) || "[]");
+    return Array.isArray(L) ? L.filter((x) => x && x.day === today()) : [];
+  } catch (e) {
+    return [];
+  }
+}
+function fndStore(L) {
+  try {
+    sessionStorage.setItem(fndStoreKey(), JSON.stringify(L.slice(-40)));
+  } catch (e) {}
+}
+const fndRoot = () => document.querySelector("section.view.on");
+// is this name already on the screen (outside the receipt)? the same 40-character test the referee uses
+function fndVisible(name, root) {
+  const n = fndNorm(name).toLowerCase().slice(0, 40);
+  if (!n || !root) return !1;
+  const own = root.querySelector("#fnd-made"),
+    t = fndNorm(root.innerText).toLowerCase(),
+    o = own ? fndNorm(own.innerText).toLowerCase() : "";
+  return o ? t.replace(o, "").includes(n) : t.includes(n);
+}
+// highlight the row that shows a record: the selector its list gives, or the smallest element holding its name
+function fndFlash(name, sel, quiet) {
+  const root = fndRoot();
+  if (!root) return null;
+  let el = sel ? root.querySelector(sel) : null;
+  if (!el) {
+    const n = fndNorm(name).toLowerCase().slice(0, 40);
+    if (!n) return null;
+    let best = null,
+      len = 1 / 0;
+    root.querySelectorAll("*").forEach((e) => {
+      if (e.closest("#fnd-made") || /^(SCRIPT|STYLE|OPTION|SELECT)$/.test(e.tagName)) return;
+      const t = fndNorm(e.textContent).toLowerCase();
+      t.length < len && t.includes(n) && ((best = e), (len = t.length));
+    });
+    el = best;
+  }
+  if (!el) return null;
+  const row = el.closest("tr, li, .t2-row, .t2-bcard, .fcard, .bf-imp, .h4r, .doc, .cl-row, .fnd-row") || el;
+  row.classList.add("tk-flash", "fnd-hit");
+  if (!quiet) {
+    try {
+      const r = row.getBoundingClientRect();
+      (r.top < 64 || r.bottom > innerHeight) && row.scrollIntoView({ block: "center" });
+    } catch (e) {}
+    fndHot.some((h) => h.name === name) || fndHot.push({ name: name, sel: sel || "", view: view, until: Date.now() + 4e3 });
+  }
+  setTimeout(() => row.classList.remove("tk-flash"), 4e3);
+  return row;
+}
+// a highlight outlives the render that follows a save (the next tap's render used to wipe it)
+let fndHot = [];
+function fndRehot() {
+  const t = Date.now();
+  (fndHot = fndHot.filter((h) => h.until > t)),
+    fndHot.forEach((h) => {
+      const root = fndRoot();
+      root && h.view === view && !root.querySelector(".fnd-hit.tk-flash") && fndFlash(h.name, h.sel, !0);
+    });
+}
+function fndFlashSoon(name, sel) {
+  setTimeout(() => fndFlash(name, sel), 60),
+    setTimeout(() => {
+      const r0 = fndRoot(),
+        el = r0 && r0.querySelector(".fnd-hit");
+      if (!el) return void (r0 && fndFlash(name, sel));
+      const r = el.getBoundingClientRect();
+      (r.top < 56 || r.bottom > innerHeight) && el.scrollIntoView({ block: "center" });
+    }, 450);
+}
+function fndOpen(key) {
+  const x = fndFind(key),
+    H = x && FND_HOME[x.coll];
+  if (!H) return toast("That record is no longer on file");
+  try {
+    H.open(x.r, x.p);
+  } catch (e) {
+    console.warn("open what was made", e);
+  }
+  fndFlashSoon(fndNameOf(x.r), H.sel ? H.sel(x.r) : "");
+}
+let fndFreshUntil = 0;
+function fndPaint(scroll) {
+  const root = fndRoot();
+  document.querySelectorAll("#fnd-made").forEach((e) => e.remove());
+  if (!root || !fndUid()) return;
+  const V = fndLoad()
+      .filter((x) => x.view === view)
+      .map((x) => Object.assign({}, x, { rec: fndFind(x.key) }))
+      .filter((x) => x.rec),
+    hidden = new Set(V.filter((x) => x.pinned || !fndVisible(x.name, root)).map((x) => x.at)),
+    L = V.filter((x) => hidden.has(x.at)).slice(-6).reverse();
+  if (!L.length) return;
+  const fresh = Date.now() < fndFreshUntil,
+    card = document.createElement("div");
+  (card.id = "fnd-made"),
+    (card.className = "card fnd-made"),
+    (card.innerHTML = `<div class="hd"><h3>Made Today</h3><span class="small muted">from this screen · each one lives in its own list</span><span class="grow"></span><button class="btn sm" data-fndclear>Clear</button></div>${L.map(
+      (x) =>
+        `<div class="fnd-row ${fresh && x.at >= fndFreshUntil - 4e3 ? "tk-flash" : ""}" data-fndrow="${esc(x.key)}"><div class="grow"><span class="pill info">${esc(x.noun)}</span> <b data-nocase>${esc(x.name)}</b><span class="small muted" data-nocase>${esc(x.where)}</span></div>${x.open ? `<button class="btn sm" data-fndopen="${esc(x.key)}">Open</button>` : ""}</div>`,
+    ).join("")}`),
+    root.prepend(card),
+    card.querySelectorAll("[data-fndopen]").forEach((b) => (b.onclick = () => fndOpen(b.dataset.fndopen))),
+    (card.querySelector("[data-fndclear]").onclick = () => {
+      fndStore(fndLoad().filter((x) => x.view !== view)), card.remove();
+    });
+  if (scroll)
+    try {
+      const r = card.getBoundingClientRect();
+      (r.top < 64 || r.top > innerHeight - 80) && card.scrollIntoView({ block: "center" });
+    } catch (e) {}
+}
+let fndBase = null,
+  fndArmAt = 0;
+const fndPending = new Map();
+function fndArm(soft) {
+  // a change event also fires when a sheet closes and its focused field blurs, after the save: it arms only when no
+  // tap has in the last moment, so it never swallows the tap's own records
+  if (soft && Date.now() - fndArmAt < 1500) return;
+  try {
+    if (!DB || !fndUid()) return;
+    const now = fndKeys(),
+      t = Date.now();
+    // what the last tap made before its toast (a sheet's second tap comes first) is carried, not dropped
+    fndBase && now.forEach((k) => fndBase.has(k) || fndPending.set(k, t));
+    (fndBase = now), (fndArmAt = t);
+  } catch (e) {}
+}
+// what the last tap made, once its toast is up: shown where the person is, or highlighted if the screen shows it
+function fndSettle() {
+  if (!fndBase || !DB) return;
+  const now = fndKeys(),
+    t0 = Date.now(),
+    fresh = [...new Set([...now].filter((k) => !fndBase.has(k)).concat([...fndPending].filter(([k, t]) => t0 - t < 1e4 && now.has(k)).map(([k]) => k)))];
+  fndPending.clear();
+  if (!fresh.length) return;
+  fresh.forEach((k) => fndBase.add(k));
+  const root = fndRoot(),
+    L = fndLoad(),
+    at = Date.now();
+  let add = 0;
+  fresh.forEach((k) => {
+    const x = fndFind(k),
+      H = x && FND_HOME[x.coll];
+    if (!H) return;
+    const name = fndNameOf(x.r);
+    if (!name) return;
+    fndVisible(name, root) && fndFlash(name, H.sel ? H.sel(x.r) : "");
+    L.some((y) => y.key === k) ||
+      (L.push({
+        key: k,
+        name: name,
+        noun: "function" == typeof H.noun ? H.noun(x.r) : H.noun,
+        where: (() => {
+          try {
+            return H.where(x.r, x.p);
+          } catch (e) {
+            return "";
+          }
+        })(),
+        open: !H.may || H.may(),
+        view: view,
+        day: today(),
+        at: at,
+      }),
+      add++);
+  });
+  // two or more rows the screen shows, too far apart to see together: the receipt lists the tap's records in one place
+  const mine = L.filter((y) => y.at === at),
+    inView = (el) => {
+      const r = el.getBoundingClientRect();
+      return r.width > 0 && r.top >= 56 && r.bottom <= innerHeight;
+    },
+    hits = root ? [...root.querySelectorAll(".fnd-hit.tk-flash")] : [];
+  mine.length > 1 && hits.length > 1 && !hits.every(inView) && mine.forEach((y) => (y.pinned = !0));
+  add && (fndStore(L), (fndFreshUntil = at + 4e3), fndPaint(!0));
+  // kept in view once the sheet has closed and focus has moved: the receipt if there is one, else the highlighted row
+  setTimeout(fndKeepInView, 450), setTimeout(fndKeepInView, 1100);
+}
+function fndKeepInView() {
+  const r0 = fndRoot();
+  if (!r0 || Date.now() > fndFreshUntil + 1e3) return;
+  const el = r0.querySelector("#fnd-made") || r0.querySelector(".fnd-hit.tk-flash");
+  if (!el) return;
+  const r = el.getBoundingClientRect();
+  (r.top < 56 || r.top > innerHeight - 60) && el.scrollIntoView({ block: el.id ? "start" : "center" }), el.id && el.getBoundingClientRect().top < 56 && scrollBy(0, -64);
+}
+// every tap, from the first listener at the top of this file
+function fndOnTap(t, e) {
+  ("keydown" === t && "Enter" !== e.key && " " !== e.key) || (e.target && e.target.closest && e.target.closest("#fnd-made")) || fndArm("change" === t);
+}
+{
+  const base = toast;
+  toast = function () {
+    const r = base.apply(this, arguments);
+    try {
+      clearTimeout(toast._fnd), (toast._fnd = setTimeout(fndSettle, 80)), setTimeout(fndSettle, 700);
+    } catch (e) {}
+    return r;
+  };
+}
+{
+  const base = render;
+  render = function () {
+    const r = base.apply(this, arguments);
+    try {
+      fndPaint(!1), fndRehot();
+    } catch (e) {
+      console.warn("made today", e);
+    }
+    return r;
+  };
+}
+if (!document.getElementById("fnd-css")) {
+  const st = document.createElement("style");
+  (st.id = "fnd-css"),
+    (st.textContent =
+      ".fnd-made{margin:0 0 12px}.fnd-row{display:flex;gap:10px;align-items:center;padding:8px 6px;border-top:1px solid var(--rule,#eee);overflow-wrap:anywhere}.fnd-row .grow{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1 1 220px}.fnd-row .pill{align-self:flex-start}.fnd-row.tk-flash,.fnd-hit.tk-flash{background:var(--accent-2) !important;box-shadow:inset 3px 0 0 var(--accent);transition:background 1.2s}@media (max-width:760px){.fnd-row{flex-wrap:wrap}.fnd-row .btn{min-height:44px}}");
+  document.head.appendChild(st);
 }
