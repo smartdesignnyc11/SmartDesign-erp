@@ -61909,7 +61909,14 @@ function rxSeed() {
       return d.setMonth(d.getMonth() - p), `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
     },
     mk = (period, extra) => {
-      const o = rxOurs(card.id, period),
+      // the statement is the bank's record: a line the seed typed twice is on it once (bfSeedTypedOnly)
+      const o0 = rxOurs(card.id, period),
+        tw = o0.txns.filter((t) => "function" == typeof bfSeedTypedOnly && bfSeedTypedOnly(t)),
+        o = {
+          charges: r2(o0.charges - tw.filter((t) => t.amt < 0).reduce((a, t) => a - t.amt, 0)),
+          credits: r2(o0.credits - tw.filter((t) => t.amt > 0).reduce((a, t) => a + t.amt, 0)),
+          count: o0.count - tw.length,
+        },
         s = {
           id: uid("st"),
           acctId: card.id,
@@ -155417,6 +155424,55 @@ function bfSeed() {
         how: "typed from the receipt",
       });
   });
+  bfSeedCardStatements(cur);
+}
+// The seed's card lines for a closed card month were typed from receipts during the month; the issuer's
+// activity download for that month (invented, like all demo data) then confirms them through the same
+// matching a person's Import Statement uses (bfIngest → bfFind → prov.confirmedBy with its signature), so a
+// seeded card cost is backed by a card line the way a live one is, never by a flag. The bank's record holds
+// each charge once: a line the seed typed twice (bfSeedTypedOnly) is not on it and stays "by hand", for
+// the duplicate check to catch. The current month's cycle has not closed, so its lines stay typed.
+function bfSeedTypedOnly(t) {
+  // 8/22 ROLL OFF DUMPSTER SVC: the 8/21 charge typed a second time (leaks2 s5 voids it)
+  return !!t && "ta7" === t.id;
+}
+function bfSeedCardStatements(cur) {
+  (DB.accounts || [])
+    .filter((a) => "card" === a.type)
+    .forEach((a) => {
+      const all = (DB.txns || []).filter((t) => t.acct === a.id),
+        months = [...new Set(all.map((t) => String(t.date).slice(0, 7)))].filter((m) => m < cur).sort();
+      months.forEach((ym) => {
+        const end = fin2End(ym);
+        if ((DB.bankImports || []).some((i) => i.acctId === a.id && i.period && i.period[0] <= ym + "-01" && i.period[1] >= end)) return;
+        const L = all
+          .filter((t) => String(t.date).slice(0, 7) === ym && !bfSeedTypedOnly(t) && "manual" === bfProv(t).kind && !bfProv(t).confirmedBy)
+          .sort((x, y) => String(x.date).localeCompare(String(y.date)) || String(x.id).localeCompare(String(y.id)));
+        if (!L.length) return;
+        const mask = String(a.last4 || "").slice(-4),
+          amex = /amex|american express/i.test(a.name),
+          institution = amex ? "American Express" : a.name,
+          imp = {
+            id: "imp_" + a.id + "_" + ym.replace("-", ""),
+            acctId: a.id,
+            fileName: amex ? `Amex_Activity_${bfMon3(ym)}${ym.slice(0, 4)}.csv` : `${a.name.replace(/\s+/g, "")}_${mask}_${bfMon3(ym)}${ym.slice(0, 4)}.csv`,
+            format: "csv",
+            institution: institution,
+            mask: mask,
+            period: [ym + "-01", end],
+            ending: null,
+            endingAsOf: end,
+            lines: L.length,
+            by: "Jeanette",
+            at: `${fin2Next(ym)}-01T08:40:00`,
+            seed: !0,
+          },
+          lines = L.map((t, i) => ({ ref: `${end.replace(/-/g, "")}${String(i + 1).padStart(4, "0")}`, date: t.date, amt: t.amt, desc: t.desc })),
+          o = bfIngest({ kind: "statement", acctId: a.id, imp: imp, institution: institution, dry: !0 }, lines, []);
+        Object.assign(imp, { added: o.added, confirmed: o.confirmed, dup: o.dup, ruled: o.ruled }), DB.bankImports.push(imp);
+        audit("account", a.id, "statement-imported", "", imp.fileName, `${imp.fileName}: ${fmt(imp.period[0])}–${fmt(imp.period[1])}, ${bfOutWords(o)}`);
+      });
+    });
 }
 const BF_STOP = new Set(
   "ach debit credit pos purchase payment pmt online transfer from the inc llc corp card recurring zelle wire des ppd web ccd ref check chk dbt crd visa mastercard amex www com and for authorized auth nyc brooklyn manhattan new york".split(
@@ -155458,14 +155514,27 @@ function bfFind(x, acctId, claimed) {
     const t = L.find((t) => bfRefs(t).includes(x.ref));
     if (t) return { t: t, how: "id" };
   }
+  // A line another statement file already holds is not a candidate (two equal charges on one statement stay
+  // two) — unless that file's period covers this line's date and this is a different file: the same month
+  // arriving twice (the activity download, then the PDF from the mail) is the same bank record seen again,
+  // never a second charge.
+  const stmtRecs = (p) =>
+      ["statement" === p.kind ? p : null, p.stmtSeen || null, p.confirmedBy && "statement" === p.confirmedBy.kind ? p.confirmedBy : null].filter(Boolean),
+    seenAgain = (p) => {
+      const R = stmtRecs(p);
+      return (
+        !!R.length &&
+        !!x.importId &&
+        R.every((s) => s.importId && s.importId !== x.importId && s.period && s.period[0] <= x.date && s.period[1] >= x.date)
+      );
+    };
   const c = L.filter((t) => Math.abs((+t.amt || 0) - x.amt) < 0.005 && Math.abs(dayDiff(t.date, x.date)) <= 3)
     .filter((t) => {
       const p = bfProv(t);
       return (
         ("feed" !== x.kind ||
           !("feed" === p.kind || p.feedSeen || (p.confirmedBy && "feed" === p.confirmedBy.kind))) &&
-        ("statement" !== x.kind ||
-          !("statement" === p.kind || p.stmtSeen || (p.confirmedBy && "statement" === p.confirmedBy.kind)))
+        ("statement" !== x.kind || !stmtRecs(p).length || seenAgain(p))
       );
     })
     .map((t) => ({
@@ -155543,7 +155612,7 @@ function bfIngest(src, added, removed) {
         i >= 0 && (DB.bankPending.splice(i, 1), out.posted++);
       }
       const rec = bfRecOf(src, x),
-        hit = bfFind(Object.assign({ kind: src.kind }, x), src.acctId, claimed);
+        hit = bfFind(Object.assign({ kind: src.kind, importId: src.imp ? src.imp.id : "" }, x), src.acctId, claimed);
       if (hit) {
         const t = hit.t;
         claimed.add(t.id);
