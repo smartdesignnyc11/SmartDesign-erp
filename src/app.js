@@ -190043,8 +190043,10 @@ function fndPaint(scroll) {
     ).join("")}`),
     ((anchor) => {
       // a row the list has just highlighted stays where the person sees it when the card goes in above it
-      const top = anchor ? anchor.getBoundingClientRect().top : null;
-      root.prepend(card);
+      const top = anchor ? anchor.getBoundingClientRect().top : null,
+        f = fresh && fndFocus && ((fndFocus.sel && root.querySelector(fndFocus.sel)) || fndFlash(fndFocus.name, "", !0)),
+        at = f && f.closest(".card");
+      at && root.contains(at) ? at.before(card) : root.prepend(card);
       if (anchor && top >= 0 && top < innerHeight) {
         const now = anchor.getBoundingClientRect();
         (now.top < 0 || now.bottom > innerHeight) && anchor.scrollIntoView({ block: "center" });
@@ -190077,6 +190079,7 @@ function fndArm(soft) {
   } catch (e) {}
 }
 // what the last tap made, once its toast is up: shown where the person is, or highlighted if the screen shows it
+let fndFocus = null;
 function fndSettle() {
   if (!fndBase || !DB) return;
   const now = fndKeys(),
@@ -190084,6 +190087,7 @@ function fndSettle() {
     fresh = [...new Set([...now].filter((k) => !fndBase.has(k)).concat([...fndPending].filter(([k, t]) => t0 - t < 1e4 && now.has(k)).map(([k]) => k)))];
   fndPending.clear();
   if (!fresh.length) return;
+  fndFocus = null;
   fresh.forEach((k) => fndBase.add(k));
   const root = fndRoot(),
     L = fndLoad(),
@@ -190095,7 +190099,8 @@ function fndSettle() {
     if (!H) return;
     const name = fndNameOf(x.r);
     if (!name) return;
-    fndVisible(name, root) && fndFlash(name, H.sel ? H.sel(x.r) : "");
+    // on the record's own list its row is what the person looks at: it is the one kept in view
+    fndVisible(name, root) && fndFlash(name, H.sel ? H.sel(x.r) : "") && fndOwnList(k) && (fndFocus = { name: name, sel: H.sel ? H.sel(x.r) : "" });
     L.some((y) => y.key === k) ||
       (L.push({
         key: k,
@@ -190122,7 +190127,8 @@ function fndSettle() {
       return r.width > 0 && r.top >= 56 && r.bottom <= innerHeight;
     },
     hits = root ? [...root.querySelectorAll(".fnd-hit.tk-flash")] : [];
-  mine.length > 1 && hits.length > 1 && !hits.every(inView) && mine.forEach((y) => (y.pinned = !0));
+  // on its own list the record's row is the focus, and what else the tap made is listed right above it
+  fndFocus ? mine.forEach((y) => fndOwnList(y.key) || (y.pinned = !0)) : mine.length > 1 && hits.length > 1 && !hits.every(inView) && mine.forEach((y) => (y.pinned = !0));
   add && (fndStore(L), (fndFreshUntil = at + 4e3), fndPaint(!0));
   // kept in view once the sheet has closed and focus has moved: the receipt if there is one, else the highlighted row
   setTimeout(fndKeepInView, 450), setTimeout(fndKeepInView, 1100);
@@ -190130,8 +190136,10 @@ function fndSettle() {
 function fndKeepInView() {
   const r0 = fndRoot();
   if (!r0 || Date.now() > fndFreshUntil + 1e3) return;
-  // the receipt only when it holds this tap's records; otherwise the row the list itself highlighted
-  const el = (r0.querySelector("#fnd-made .fnd-row.tk-flash") && r0.querySelector("#fnd-made")) || r0.querySelector(".fnd-hit.tk-flash");
+  // the record's own row when the person is on its list; the receipt when it holds this tap's records; else the
+  // row the screen highlighted
+  const own = fndFocus && ((fndFocus.sel && r0.querySelector(fndFocus.sel)) || fndFlash(fndFocus.name, fndFocus.sel, !0)),
+    el = (own && (own.closest(".tk-flash, .fnd-hit, tr, .bf-imp") || own)) || (r0.querySelector("#fnd-made .fnd-row.tk-flash") && r0.querySelector("#fnd-made")) || r0.querySelector(".fnd-hit.tk-flash");
   if (!el) return;
   const r = el.getBoundingClientRect();
   (r.top < 56 || r.top > innerHeight - 60) && el.scrollIntoView({ block: el.id ? "start" : "center" }), el.id && el.getBoundingClientRect().top < 56 && scrollBy(0, -64);

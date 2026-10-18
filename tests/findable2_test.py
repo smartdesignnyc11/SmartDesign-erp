@@ -70,9 +70,12 @@ DIFF = """(before) => { const after = __SIM.keys(); return Object.keys(after).fi
 
 # is the name on screen, in the viewport, and inside a highlighted row?
 HL = """(name, listOnly) => { const n = name.replace(/\\s+/g, ' ').trim().toLowerCase().slice(0, 40); const root = document.querySelector('section.view.on'); if (!root) return { vis: false, flash: false, sw: 0 };
-  let best = null, len = 1e9; root.querySelectorAll('*').forEach(e => { if (listOnly && e.closest('#fnd-made')) return; const t = (e.textContent || '').replace(/\\s+/g, ' ').toLowerCase(); if (t.length < len && t.includes(n)) { best = e; len = t.length; } });
-  const r = best ? best.getBoundingClientRect() : null;
-  return { vis: !!(r && r.width > 0 && r.bottom > 0 && r.top < innerHeight), flash: !!(best && best.closest('.tk-flash, .fnd-hit')), view, sw: document.documentElement.scrollWidth }; }"""
+  // every element that holds the name and no smaller one inside it does: is one in view, and one in view highlighted?
+  const inV = (e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.bottom > 0 && r.top < innerHeight; };
+  const M = [...root.querySelectorAll('*')].filter(e => !(listOnly && e.closest('#fnd-made')) && (e.textContent || '').replace(/\\s+/g, ' ').toLowerCase().includes(n))
+    .filter((e, i, A) => !A.some(x => x !== e && e.contains(x)));
+  const V = M.filter(inV);
+  return { vis: V.length > 0, flash: V.some(e => e.closest('.tk-flash, .fnd-hit')), view, sw: document.documentElement.scrollWidth }; }"""
 
 # the person's natural list for each kind of record, opened directly (never through the receipt)
 NATURAL = """async ([coll, key, name]) => { const id = key.slice(key.lastIndexOf(':') + 1), me = (currentUser() || {}).name || '';
