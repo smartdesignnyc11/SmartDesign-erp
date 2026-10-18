@@ -4008,8 +4008,7 @@ function render() {
     ($("#n-tasks").textContent =
       S.actions.filter((a) => "done" !== a.status && actionDue(a) && parse(actionDue(a)) < parse(td))
         .length || ""),
-    ($("#n-po").textContent =
-      DB.pos.filter((po) => po.projectId === S.id && poState(po).sev >= 2).length || ""),
+    ($("#n-po").textContent = poScopeList().filter((po) => poState(po).sev >= 2).length || ""),
     "costs" === view && renderCosts(),
     "reports" === view && renderReports(),
     "home" === view && renderHome(),
@@ -11169,6 +11168,17 @@ function quickAddAction(text) {
   save(), tkLand(made), crToast(`Added for ${made.assignee || "nobody yet"}${due ? ` · due ${fmt(due)}` : ""} — it is on ${made.where}`, { label: "Open", run: () => crOpenTask(made) });
 }
 let poOpen = null;
+// Purchase Orders lists every job's orders unless a job is picked (pilot day 1: the controller's list followed the
+// last job he had opened and read "No purchase orders yet" with PO-2026-048 on file). One scope for the list, its
+// tiles and its badge.
+let poScope = "";
+function poScopeList() {
+  const pid = poScope && (DB.projects || []).some((p) => p.id === poScope) ? poScope : "";
+  return (DB.pos || []).filter((po) => !pid || po.projectId === pid);
+}
+const poScopeCommitted = () =>
+  poScope ? poCommitted((DB.projects || []).find((p) => p.id === poScope) || { id: poScope }) : (DB.projects || []).reduce((a, p) => a + poCommitted(p), 0);
+const poJobName = (po) => String((((DB.projects || []).find((p) => p.id === po.projectId) || {}).project || {}).name || "Overhead").replace(/ —.*$/, "");
 function nextPO() {
   return (
     (DB.company.seq.po = (DB.company.seq.po || 0) + 1),
@@ -11203,11 +11213,11 @@ function renderPOFunds() {
 }
 function renderPOs() {
   renderPOFunds();
-  const pos = DB.pos.filter((po) => po.projectId === S.id),
+  const pos = poScopeList(),
     open = pos.filter((po) => ["issued", "partial"].includes(po.status)),
-    committed = poCommitted(S),
+    committed = poScopeCommitted(),
     flagged = pos.filter((po) => poState(po).sev >= 2).length,
-    noPO = DB.txns.filter((t) => t.projectId === S.id && t.noPO).length;
+    noPO = DB.txns.filter((t) => (!poScope || t.projectId === poScope) && t.noPO).length;
   if (
     (($("#po-kpis").innerHTML =
       `<div class="kpi"><b>${pos.length}</b><span>purchase orders · ${open.length} open</span></div><div class="kpi blue"><b>${money(committed)}</b><span>committed, not yet paid</span></div><div class="kpi ${flagged ? "warn" : ""}"><b>${flagged}</b><span>flagged on price, quantity or delivery</span></div><div class="kpi ${noPO ? "warn" : ""}"><b>${noPO}</b><span>payments to PO vendors with no PO</span></div>`),
@@ -11231,6 +11241,7 @@ function renderPOs() {
   const cols = [
     { key: "number", label: "PO", cls: "name", w: "120px", get: (po) => po.number },
     { key: "vendor", label: "Vendor", w: "16%", get: (po) => po.vendor },
+    { key: "job", label: "Job", w: "14%", get: (po) => poJobName(po) },
     { key: "items", label: "Items", get: (po) => po.lines.map((l) => l.item).join(", ") },
     { key: "date", label: "Issued", type: "date", w: "78px" },
     { key: "expected", label: "Expected", type: "date", w: "84px" },
@@ -11273,9 +11284,20 @@ function renderPOs() {
     })),
     defaultSort: "status",
     dir: "desc",
-    empty:
-      "No purchase orders yet. Create one from a material, an estimate line, or a vendor quote in the Inbox.",
+    empty: poScope && DB.pos.length
+      ? `No purchase orders on ${esc(String((((DB.projects || []).find((p) => p.id === poScope) || {}).project || {}).name || "this job").replace(/ —.*$/, ""))}. ${DB.pos.length} on other jobs: pick All Jobs above.`
+      : "No purchase orders yet. Create one from a material, an estimate line, or a vendor quote in the Inbox.",
   });
+  const jobs = (DB.projects || []).filter((p) => !p.archived && DB.pos.some((po) => po.projectId === p.id));
+  $("#po-table").insertAdjacentHTML(
+    "afterbegin",
+    `<div class="row po-scope" style="gap:8px;margin-bottom:8px;align-items:center"><label class="small muted" for="po-scope">Jobs</label><select id="po-scope" class="btn sm"><option value="">All Jobs · ${DB.pos.length}</option>${jobs.map((p) => `<option value="${esc(p.id)}" ${poScope === p.id ? "selected" : ""}>${esc(String(p.project.name).replace(/ —.*$/, ""))} · ${DB.pos.filter((po) => po.projectId === p.id).length}</option>`).join("")}</select></div>`,
+  );
+  const sc = $("#po-scope");
+  sc &&
+    (sc.onchange = () => {
+      (poScope = sc.value), render();
+    });
 }
 function renderPODoc(po) {
   const t = poTotal(po),
@@ -18640,7 +18662,22 @@ const normUnit = (u) =>
     buckets: "bucket",
     loads: "load",
   })[(u = (u || "").toLowerCase())] || u;
+const compLineKey = (l) => `${String((l && l.what) || "").trim().toLowerCase()}`;
+// Dates are not items: "needed by Mon 9/7 for the floor crew" is the need-by date (and a note), never a line
+// (pilot day 1: it became a third item the foreman had to delete).
+const REQ_DATE_RX = /(?:^|[\s,;(])((?:needed|need it|need them|due|deliver(?:ed)?|on site)?\s*\b(?:by|before|for|on|until|no later than)\s+(?:(?:this|next)\s+)?(?:(?:mon|tues?|wed(?:nes)?|thur?s?|fri|sat(?:ur)?|sun)(?:day)?\.?(?:\s+\d{1,2}\/\d{1,2})?|\d{1,2}\/\d{1,2}(?:\/\d{2,4})?|today|tomorrow|tonight|next week|end of (?:the )?(?:day|week))\b[^,;\n]*|(?:needed|need it|due)\s+(?:(?:mon|tues?|wed(?:nes)?|thur?s?|fri|sat(?:ur)?|sun)(?:day)?|today|tomorrow|\d{1,2}\/\d{1,2})\b[^,;\n]*)/gi;
+function reqDateSplit(text) {
+  const said = [];
+  const rest = String(text || "").replace(REQ_DATE_RX, (m, g) => (said.push(g.trim()), m.slice(0, m.length - g.length)));
+  return { rest: rest, said: said, date: said.length && "function" == typeof fParseDate ? fParseDate(said[0]) : "" };
+}
 function parseLocal(text) {
+  const D = reqDateSplit(text);
+  if (D.said.length && "undefined" != typeof comp && comp) {
+    D.date && (!comp.when || "pick" === comp.when) && (comp.when = D.date);
+    comp.dateNote = D.said.join("; ");
+  }
+  text = D.rest;
   return text
     .split(/,|\band\b|\n|;|\+/i)
     .map((x) => x.trim())
@@ -18873,7 +18910,9 @@ function renderComposer() {
     ),
     box.querySelectorAll("[data-cx]").forEach((el) =>
       el.addEventListener("click", () => {
-        comp.lines.splice(+el.dataset.cx, 1), rr();
+        // a line the foreman removed stays removed, even when a slower read of the same text lands after
+        const gone = comp.lines[+el.dataset.cx];
+        gone && (comp.removed = comp.removed || []).push(compLineKey(gone)), comp.lines.splice(+el.dataset.cx, 1), rr();
       }),
     ),
     box.querySelectorAll("[data-csug]").forEach((b) =>
@@ -64418,7 +64457,7 @@ if ("function" == typeof compRead && "function" == typeof parseLocal) {
     if (!text) return compReadBase_frq();
     const local = parseLocal(text).map((l) => Object.assign({}, l, { fromLocal: !0 }));
     if (!local.length) return compReadBase_frq();
-    const before = comp.lines.length;
+    const pre = comp.lines.slice();
     (comp.text = text), (comp.lines = [...comp.lines, ...local]);
     try {
       comp.sug = (
@@ -64428,12 +64467,18 @@ if ("function" == typeof compRead && "function" == typeof parseLocal) {
     renderComposer();
     const box = document.querySelector("#cp-text");
     box && (box.value = text);
+    // The slower read (the assistant, or the same local parse when it is away) lands on whatever the foreman has
+    // done since: his edits and removals stand. Its lines replace the quick ones only when they read differently,
+    // and never bring back a line he removed (pilot day 1: the removed line came back and another went).
     try {
       await compReadBase_frq();
-      const got = comp.lines.slice(before + local.length);
-      got.length && (comp.lines = [...comp.lines.slice(0, before), ...got]);
+      const gone = new Set(comp.removed || []),
+        kept = comp.lines.filter((l) => l.fromLocal || pre.includes(l)),
+        got = comp.lines.filter((l) => !l.fromLocal && !pre.includes(l)),
+        same = got.length === local.length && got.every((l, i) => compLineKey(l) === compLineKey(local[i]));
+      comp.lines = !got.length || same ? kept : [...pre.filter((l) => comp.lines.includes(l)), ...got.filter((l) => !gone.has(compLineKey(l)))];
     } catch (e) {
-      comp.lines = [...comp.lines.slice(0, before), ...local];
+      comp.lines = comp.lines.filter((l) => l.fromLocal || pre.includes(l));
     }
     (comp.busy = !1), (comp.text = ""), renderComposer();
     const b2 = document.querySelector("#cp-text");
@@ -72684,6 +72729,10 @@ function cmRead(c) {
       /invoice|progress billing|deposit request|please send the .*deposit|retainer/i.test(all) &&
       !threadMoney.has("bill") &&
       !P.some((p) => "money" === p.kind) &&
+      // a colleague's note naming a client on file, or the client's invoice by its ordinal ("invoice 2"), is about
+      // a record we hold, not money billed to a stranger (pilot day 1: the Kleins' check 2214 on invoice 2)
+      !cmNamesRecordOnFile(c) &&
+      !CM_PAID_NOTE.test(all) &&
       push(
         "money",
         `We billed ${R.counterpart || "someone"} ${money(amt)}${where ? " on " + where : ""}, but they are not a client on file — no receivable is written until they are.`,
@@ -73420,7 +73469,7 @@ function renderComms() {
     (c) => {
       const P = c.proposals || [],
         isOpen = (P.filter((p) => !p.applied), cmOpen === c.id);
-      return `<div class="card cm-row ${c.status}" data-cmid="${c.id}"><div class="row" style="gap:10px;align-items:flex-start"><svg class="cm-ic" viewBox="0 0 24 24">${CM_ICON[c.channel] || CM_ICON.email}</svg><div class="grow" style="min-width:0"><div class="row wrap" style="gap:6px;align-items:baseline"><b>${esc(c.from.name || c.from.email || "")}</b><span class="small muted">${"out" === c.direction ? "→ " + esc((c.to || []).map(cmName).join(", ")) : ""}</span><span class="small muted">${(c.date || "").slice(0, 10)}</span>${(c.attachments || []).length ? `<span class="small muted">· ${c.attachments.length} attachment${c.attachments.length > 1 ? "s" : ""}</span>` : ""}</div><div class="cm-subj">${esc(c.subject || "(no subject)")}</div><div class="row wrap" style="gap:4px;margin-top:4px">${cmPartyChips(c)}</div>\n        ${P.length ? `<div class="cm-props">${P.map((p) => `<div class="cm-prop ${p.applied ? "done" : ""}"><span class="cat ${p.kind}">${CM_CATS[p.kind] || p.kind}</span><span class="grow">${esc(p.summary)}${p.applied ? ` <span class="small muted">· ${esc(p.applied)}${p.by ? " · " + esc(p.by) : ""}</span>` : ""}</span>${p.applied ? "" : `<button class="btn sm primary" data-cmapply="${c.id}|${p.id}">Apply</button><button class="btn sm ghost" data-cmskip="${c.id}|${p.id}">Not this</button>`}</div>`).join("")}</div>` : ""}\n        <div class="cm-text ${isOpen ? "" : "clip"}" data-cmtoggle="${c.id}">${esc(cmOwnText(c.text) || c.text || "")}</div></div></div></div>`;
+      return `<div class="card cm-row ${c.status}" data-cmid="${c.id}"><div class="row" style="gap:10px;align-items:flex-start"><svg class="cm-ic" viewBox="0 0 24 24">${CM_ICON[c.channel] || CM_ICON.email}</svg><div class="grow" style="min-width:0"><div class="row wrap" style="gap:6px;align-items:baseline"><b>${esc(c.from.name || c.from.email || "")}</b><span class="small muted">${"out" === c.direction ? "→ " + esc((c.to || []).map(cmName).join(", ")) : ""}</span><span class="small muted">${(c.date || "").slice(0, 10)}</span>${(c.attachments || []).length ? `<span class="small muted">· ${c.attachments.length} attachment${c.attachments.length > 1 ? "s" : ""}</span>` : ""}</div><div class="cm-subj">${esc(c.subject || "(no subject)")}</div><div class="row wrap" style="gap:4px;margin-top:4px">${cmPartyChips(c)}</div>\n        ${P.length ? `<div class="cm-props">${P.map((p) => `<div class="cm-prop ${p.applied ? "done" : ""}"><span class="cat ${p.kind}">${CM_CATS[p.kind] || p.kind}</span><span class="grow">${esc(p.summary)}${p.applied ? ` <span class="small muted">· ${esc(p.applied)}${p.by ? " · " + esc(p.by) : ""}</span>` : ""}</span>${p.applied ? "" : `<button class="btn sm primary" data-cmapply="${c.id}|${p.id}">${cmVerb(p)}</button><button class="btn sm ghost" data-cmskip="${c.id}|${p.id}">Not this</button>`}</div>`).join("")}</div>` : ""}\n        <div class="cm-text ${isOpen ? "" : "clip"}" data-cmtoggle="${c.id}">${esc(cmOwnText(c.text) || c.text || "")}</div></div></div></div>`;
     },
   ).join("")}`),
     cmWire(host);
@@ -88614,13 +88663,13 @@ const TL_SETS = {},
     ];
   }),
   (TL_SETS.po = () => {
-    const pos = (DB.pos || []).filter((po) => S && po.projectId === S.id),
+    const pos = poScopeList(),
       draft = (today(), pos.filter((po) => "draft" === po.status)),
       open = pos.filter((po) => ["issued", "partial"].includes(po.status)),
       late = open.filter((po) => po.expected && tlPast(po.expected)),
       flagged = pos.filter((po) => poState(po).sev >= 2 && !(po.expected && tlPast(po.expected))),
-      committed = "function" == typeof poCommitted ? poCommitted(S) : 0,
-      noPO = (DB.txns || []).filter((t) => S && t.projectId === S.id && t.noPO);
+      committed = poScopeCommitted(),
+      noPO = (DB.txns || []).filter((t) => (!poScope || t.projectId === poScope) && t.noPO);
     return [
       {
         key: "late",
@@ -106595,7 +106644,7 @@ function cmMsgHtml(c) {
     made = cmMade(c),
     R = c.route || cmRoute(c),
     cl = R.clientId && (DB.clients || []).find((x) => x.id === R.clientId);
-  return `<div class="card ib-msg" data-ibmsg="${c.id}">\n    <div class="row" style="gap:10px;align-items:flex-start;margin-bottom:6px"><svg class="cm-ic" viewBox="0 0 24 24">${CM_ICON[c.channel] || CM_ICON.email}</svg>\n      <div class="grow" style="min-width:0"><h3 style="margin:0">${esc(c.subject || "(No Subject)")}</h3>\n      <div class="row wrap" style="gap:6px;margin-top:4px">${cmPartyChips(c)}</div></div>\n      <button class="btn sm ghost no-print" data-ibback>${cmNarrow() ? "Back" : "Close"}</button></div>\n    ${cmHeadHtml(c)}\n    <div class="ib-body">${esc(T.own)}</div>\n    ${T.quoted ? `<details class="ib-quoted"><summary>Show the Earlier Thread</summary><div class="ib-body quoted">${esc(T.quoted)}</div></details>` : ""}\n    ${cmAttachHtml(c)}\n    ${P.length ? `<div class="cm-props" style="margin-top:12px">${P.map((p) => `<div class="cm-prop ${p.applied ? "done" : ""}"><span class="cat ${p.kind}">${CM_CATS[p.kind] || p.kind}</span><span class="grow">${esc(p.summary)}${p.applied ? ` <span class="small muted">· ${esc(p.applied)}${p.by ? " · " + esc(p.by) : ""}</span>` : ""}</span>${p.applied ? "" : `<button class="btn sm primary" data-cmapply="${c.id}|${p.id}">Apply</button><button class="btn sm ghost" data-cmskip="${c.id}|${p.id}">Not This</button>`}</div>`).join("")}</div>` : ""}\n    <div class="row wrap cm-acts no-print" style="margin-top:12px">\n      <button class="btn sm" data-cma="task" data-cmid2="${c.id}">Task</button>\n      <button class="btn sm" data-cma="note" data-cmid2="${c.id}">Note</button>\n      ${cl ? `<button class="btn sm" data-cma="file" data-cmid2="${c.id}">File on ${esc(cl.name)}</button>` : `<button class="btn sm" data-cma="fileto" data-cmid2="${c.id}">File on a Client…</button>`}\n      ${cl ? "" : `<button class="btn sm" data-cma="client" data-cmid2="${c.id}">New Client</button><button class="btn sm" data-cma="lead" data-cmid2="${c.id}">New Lead</button>`}\n    </div>\n    ${made.length ? `<div class="ib-made"><div class="small" style="font-weight:600;margin-bottom:6px">What This Message Produced</div>${made.map((m, i) => `<div class="ib-maderow"><span class="pill ${"Task" === m.kind ? "warn" : "Document" === m.kind ? "info" : "neutral"}">${m.kind}</span><span class="grow">${esc(m.label)}</span><button class="btn sm ghost" data-ibgo="${c.id}|${i}">Open</button></div>`).join("")}</div>` : ""}\n  </div>`;
+  return `<div class="card ib-msg" data-ibmsg="${c.id}">\n    <div class="row" style="gap:10px;align-items:flex-start;margin-bottom:6px"><svg class="cm-ic" viewBox="0 0 24 24">${CM_ICON[c.channel] || CM_ICON.email}</svg>\n      <div class="grow" style="min-width:0"><h3 style="margin:0">${esc(c.subject || "(No Subject)")}</h3>\n      <div class="row wrap" style="gap:6px;margin-top:4px">${cmPartyChips(c)}</div></div>\n      <button class="btn sm ghost no-print" data-ibback>${cmNarrow() ? "Back" : "Close"}</button></div>\n    ${cmHeadHtml(c)}\n    <div class="ib-body">${esc(T.own)}</div>\n    ${T.quoted ? `<details class="ib-quoted"><summary>Show the Earlier Thread</summary><div class="ib-body quoted">${esc(T.quoted)}</div></details>` : ""}\n    ${cmAttachHtml(c)}\n    ${P.length ? `<div class="cm-props" style="margin-top:12px">${P.map((p) => `<div class="cm-prop ${p.applied ? "done" : ""}"><span class="cat ${p.kind}">${CM_CATS[p.kind] || p.kind}</span><span class="grow">${esc(p.summary)}${p.applied ? ` <span class="small muted">· ${esc(p.applied)}${p.by ? " · " + esc(p.by) : ""}</span>` : ""}</span>${p.applied ? "" : `<button class="btn sm primary" data-cmapply="${c.id}|${p.id}">${cmVerb(p)}</button><button class="btn sm ghost" data-cmskip="${c.id}|${p.id}">Not This</button>`}</div>`).join("")}</div>` : ""}\n    <div class="row wrap cm-acts no-print" style="margin-top:12px">\n      <button class="btn sm" data-cma="task" data-cmid2="${c.id}">Task</button>\n      <button class="btn sm" data-cma="note" data-cmid2="${c.id}">Note</button>\n      ${cl ? `<button class="btn sm" data-cma="file" data-cmid2="${c.id}">File on ${esc(cl.name)}</button>` : `<button class="btn sm" data-cma="fileto" data-cmid2="${c.id}">File on a Client…</button>`}\n      ${cl ? "" : `<button class="btn sm" data-cma="client" data-cmid2="${c.id}">New Client</button><button class="btn sm" data-cma="lead" data-cmid2="${c.id}">New Lead</button>`}\n    </div>\n    ${made.length ? `<div class="ib-made"><div class="small" style="font-weight:600;margin-bottom:6px">What This Message Produced</div>${made.map((m, i) => `<div class="ib-maderow"><span class="pill ${"Task" === m.kind ? "warn" : "Document" === m.kind ? "info" : "neutral"}">${m.kind}</span><span class="grow">${esc(m.label)}</span><button class="btn sm ghost" data-ibgo="${c.id}|${i}">Open</button></div>`).join("")}</div>` : ""}\n  </div>`;
 }
 const cmNarrow = () => window.innerWidth <= 980;
 function renderCommsInbox() {
@@ -140754,7 +140803,7 @@ void (
     ),
   ),
   ocWrapTiles("po", (T) => {
-    const fl = (DB.pos || []).filter((po) => S && po.projectId === S.id).filter((po) => poState(po).sev >= 2),
+    const fl = poScopeList().filter((po) => poState(po).sev >= 2),
       t = T.find((x) => "flag" === x.key);
     return (
       t &&
@@ -184430,7 +184479,12 @@ const lnChangeWords = { rule: "a rule", reminder: "a reminder", checklist: "a ch
 // ---- Needs Your Hand ----------------------------------------------------------------------------------------
 // The reader's proposal kinds, and whose hand each needs (DELEGATION.hand reads `route` off the row).
 const NYH_MAIL = {
-  bill: (c, pr) => (pr.poId || /\bPO[-\s]?\d{4}/i.test(lnAll(c)) || lnOpenPO(pr.vendor || pr.vendorName) ? "coord" : "controller"),
+  // a vendor invoice the controller's (or billing's) mailbox received is theirs to enter, PO or not (pilot day 1:
+  // CM-0102 against PO-2026-048 sat in the coordinator's queue and the controller entered it by hand)
+  bill: (c, pr) => {
+    const own = (DB.comms || []).filter((x) => x.subject === c.subject).map((x) => ((DB.users || []).find((u) => u.id === x.owner) || {}).role);
+    return own.includes("controller") ? "controller" : own.includes("billing") ? "billing" : pr.poId || /\bPO[-\s]?\d{4}/i.test(lnAll(c)) || lnOpenPO(pr.vendor || pr.vendorName) ? "coord" : "controller";
+  },
   statement: (c, pr) => (pr.billId || /already on file|chasing/i.test(pr.summary || "") ? "" : "controller"),
   quote: (c, pr) => (pr.out ? "" : "coord"),
   receipt: () => "coord",
@@ -184442,7 +184496,7 @@ const NYH_MAIL = {
   deposit: () => "billing",
   lpc: () => "designer",
 };
-const NYH_VERB = { bill: "Apply", statement: "Apply", quote: "Apply", receipt: "Apply", coi: "Apply", w9: "Apply", eta: "Apply", pickup: "Apply", credit: "Apply", deposit: "Apply", lpc: "Make It a Task" };
+const NYH_VERB = { bill: "Enter the Bill", statement: "Apply", quote: "Apply", receipt: "Apply", coi: "Apply", w9: "Apply", eta: "Apply", pickup: "Apply", credit: "Apply", deposit: "Apply", lpc: "Make It a Task" };
 const lnHandDone = (key) => !!(lnInit().hand[key] && lnInit().hand[key].done);
 const lnUid = () => ((currentUser() || {}).id) || "";
 // a row: {key, route (role), kind (mail|deposit|undeposited|payroll|master|rule|promise|learn), title, why, amount, verb, run, open}
@@ -188953,6 +189007,10 @@ function poNewVendorSheet(name, after) {
 // sender on it. One exception keeps the owner review r5 catch (2026-10-10): an invoice or deposit request we sent
 // that the ERP does not hold (no document number on file) still says the money it records — a receivable for a
 // client on file, unclassified money for anyone else — so a bill sent outside the ERP never goes unsaid.
+// The verb on a mail's proposal names what it does: a vendor invoice is entered as a bill.
+function cmVerb(p) {
+  return (p && "undefined" != typeof NYH_VERB && "bill" === p.kind && NYH_VERB.bill) || "Apply";
+}
 function cmMailboxOf(c) {
   const R = "function" == typeof cmReaderOf ? cmReaderOf(c) : { uid: (c && c.owner) || "" },
     g = ((DB.conn || {})[R.uid] || {}).google || {},
@@ -188967,12 +189025,48 @@ const cmOwnMail = (c) => {
   if (!from) return "out" === c.direction;
   return cmMailboxOf(c).includes(from);
 };
-// A document number the ERP already holds (invoice, PO, estimate, bill, change order) named in the message.
+// A record the ERP already holds named in the message: a document number (invoice, PO, estimate, bill, change
+// order), a client on file by name or surname ("the Kleins'"), or a client's invoice by its ordinal ("invoice 2"
+// is that client's second invoice).
 function cmNamesRecordOnFile(c) {
-  const words = new Set(`${c.subject || ""} ${c.text || ""}`.toUpperCase().split(/[^A-Z0-9-]+/).map((w) => w.replace(/^-+|-+$/g, "")));
-  return [DB.invoices, DB.pos, DB.estimates, DB.bills, (DB.clients || []).flatMap((x) => x.changeOrders || [])]
-    .flatMap((L) => (L || []).map((d) => String((d && d.number) || "").trim().toUpperCase()))
-    .some((n) => n.length >= 4 && /\d/.test(n) && words.has(n));
+  const text = `${c.subject || ""} ${c.text || ""}`,
+    words = new Set(text.toUpperCase().split(/[^A-Z0-9-]+/).map((w) => w.replace(/^-+|-+$/g, "")));
+  return (
+    [DB.invoices, DB.pos, DB.estimates, DB.bills, (DB.clients || []).flatMap((x) => x.changeOrders || [])]
+      .flatMap((L) => (L || []).map((d) => String((d && d.number) || "").trim().toUpperCase()))
+      .some((n) => n.length >= 4 && /\d/.test(n) && words.has(n)) ||
+    !!cmClientNamed(text) ||
+    (() => {
+      const pid = (c.route || {}).projectId,
+        pr = pid && (DB.projects || []).find((x) => x.id === pid),
+        cl = pr && (DB.clients || []).find((x) => x.id === pr.clientId);
+      return !!cmInvoiceByOrdinal(text, cl);
+    })()
+  );
+}
+// a payment we record or a check that posted is not a bill we sent
+const CM_PAID_NOTE = /\bcheck\s*#?\s*\d{3,}|\b(posted|recorded against|has cleared|cleared the bank)\b/i;
+// The client on file a text names: the full name, or the surname as people write it ("Klein", "the Kleins'").
+function cmClientNamed(text) {
+  const t = String(text || "");
+  return (
+    (DB.clients || []).find((cl) => {
+      const n = String(cl.name || "").trim();
+      if (n.length >= 4 && t.toLowerCase().includes(n.toLowerCase())) return !0;
+      const sur = (n.match(/([A-Z][A-Za-z'-]{2,})\s*$/) || [])[1];
+      return !!sur && new RegExp(`\\b${sur.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:s|'s|s')?(?![A-Za-z])`).test(t);
+    }) || null
+  );
+}
+// "invoice 2", "invoice #2", "the second invoice": that client's nth invoice by date
+function cmInvoiceByOrdinal(text, cl) {
+  if (!cl) return null;
+  const W = { first: 1, second: 2, third: 3, fourth: 4, fifth: 5, sixth: 6 },
+    m = String(text || "").match(/\binvoice\s*(?:no\.?|#)?\s*(\d{1,2})\b(?!\s*[,.]?\d)/i) || String(text || "").match(/\b(first|second|third|fourth|fifth|sixth)\s+invoice\b/i);
+  if (!m) return null;
+  const n = /^\d+$/.test(m[1]) ? +m[1] : W[m[1].toLowerCase()],
+    L = (cl.invoices || []).filter((i) => "void" !== i.status && "invoice" === (i.type || "invoice")).sort((a, b) => String(a.date || "").localeCompare(b.date || ""));
+  return L[n - 1] || null;
 }
 // What our own mail may still propose: the money we billed that the ERP does not hold.
 const cmOwnMailKeeps = (c, p) => ("ar" === p.kind || ("money" === p.kind && "client" === p.as)) && !cmNamesRecordOnFile(c);
@@ -189916,3 +190010,364 @@ document.addEventListener(
     return r;
   };
 }
+// New Vendor Bill › Purchase Order: the vendor's open orders on every job (pilot day 1: it offered only "— none —"
+// for Carlos Millwork's CM-0102 because it listed the orders of the job the controller last opened). Picking an
+// order sets the bill's job; one open order for the vendor is picked for you, and a total that matches the bill wins.
+const PO_BILLABLE = ["issued", "partial", "received"];
+function billPoChoices(vendor, keepId) {
+  const vn = String(vendor || "").trim().toLowerCase();
+  return (DB.pos || []).filter(
+    (po) => po.id === keepId || (PO_BILLABLE.includes(po.status) && (!vn || String(po.vendor || "").trim().toLowerCase() === vn)),
+  );
+}
+function billPoPick(vendor, amount) {
+  const L = billPoChoices(vendor).filter(() => String(vendor || "").trim());
+  if (!L.length) return null;
+  const open = (po) => Math.max(0, poTotal(po).total - (poPaid(po) || 0));
+  return (amount && L.find((po) => Math.abs(open(po) - amount) < 0.01 || Math.abs(poTotal(po).total - amount) < 0.01)) || (1 === L.length ? L[0] : null);
+}
+function billPoWire(b) {
+  const sel = document.getElementById("e-po"),
+    ven = document.getElementById("e-vendor"),
+    proj = document.getElementById("e-proj");
+  if (!sel || sel.disabled || !ven) return;
+  const fill = (auto) => {
+    const keep = sel.value || (b && b.poId) || "",
+      L = billPoChoices(ven.value, keep),
+      amt = "function" == typeof billTotal && b ? +billTotal(b) || 0 : 0,
+      pick = !keep && auto ? billPoPick(ven.value, amt) : null,
+      want = keep || (pick ? pick.id : "");
+    sel.innerHTML =
+      `<option value="">${L.length ? "— none —" : String(ven.value || "").trim() ? "No open order for this vendor" : "— none —"}</option>` +
+      L.map((po) => `<option value="${esc(po.id)}" ${po.id === want ? "selected" : ""}>${esc(po.number)} · ${esc(poJobName(po))} · ${money(poTotal(po).total)}${poPaid(po) ? ` · ${money(poPaid(po))} paid` : ""}</option>`).join("");
+    if (pick && proj) {
+      proj.value = pick.projectId || "";
+      sel.dataset.auto = pick.id;
+    }
+  };
+  fill(!0);
+  ven.addEventListener("change", () => fill(!0));
+  ven.addEventListener("input", () => (billPoChoices(ven.value).length || !ven.value) && fill(!0));
+  sel.addEventListener("change", () => {
+    const po = (DB.pos || []).find((x) => x.id === sel.value);
+    po && proj && (proj.value = po.projectId || "");
+  });
+}
+{
+  const base = openBill;
+  openBill = function (id) {
+    const r = base.apply(this, arguments);
+    try {
+      editing && "bill" === editing.kind && billPoWire(id ? (DB.bills || []).find((x) => x.id === id) : null);
+    } catch (e) {
+      console.warn("bill PO choices", e);
+    }
+    return r;
+  };
+}
+// ---- A vendor's paid order in mail meets the open request for the same goods (pilot day 1, Brooklyn Lumber 88412) --
+// "Order 88412 ... 25 GWB, 6 cement board. Paid on the Square card $2,140.50. Pickup by Friday" was read as a new
+// pickup request beside Angel's open GWB request, which still read "not ordered yet", and nothing said the goods were
+// bought. Now the order is matched by its goods (and quantity and vendor) to the open requests, the Buy Board lines
+// and the open orders; the proposal says Bought and what it connects to; applying it marks the request ordered with
+// its pickup (still a stop on the driver's route), puts the vendor, cost and order on the Buy Board line, and codes
+// the card line when it is on file. A new PO for the same goods warns of the double order (poDoubleOrder).
+const CM_GOODS_SYN = [
+  [/\b(gwb|drywall|sheet ?rock|gypsum(?: wall)?(?: board)?|wallboard)\b/g, " gwb "],
+  [/\b(cement|backer|durock|hardie ?backer)\s*boards?\b/g, " cementboard "],
+  [/\b(kd|kiln[- ]dried)\b/g, " "],
+  [/\bstuds?\b/g, " stud "],
+];
+const CM_GOODS_STOP = new Set(["boards", "board", "sheets", "sheet", "each", "pcs", "and", "the", "for", "with", "per", "box", "boxes", "bag", "bags", "roll", "rolls", "case", "cases", "lot", "new", "order", "item", "items"]);
+function cmGoodsWords(s) {
+  let t = " " + String(s || "").toLowerCase() + " ";
+  CM_GOODS_SYN.forEach(([re, to]) => (t = t.replace(re, to)));
+  return new Set(
+    t
+      .replace(/\d+(?:[./x-]\d+)*\s*(?:"|in|ft|mil)?/g, " ")
+      .split(/[^a-z]+/)
+      .filter((w) => w.length >= 3 && !CM_GOODS_STOP.has(w)),
+  );
+}
+const cmGoodsHit = (a, b) => {
+  const A = cmGoodsWords(a),
+    B = cmGoodsWords(b);
+  return [...A].some((w) => B.has(w));
+};
+// What on file is for the same goods: open requests (and the items they cover), Buy Board lines, open orders.
+function cmGoodsMatch(items, pid, vendor) {
+  const I = (items || []).filter((i) => i && i.what),
+    jobs = (DB.projects || []).filter((p) => !pid || p.id === pid),
+    vn = String(vendor || "").toLowerCase(),
+    out = { requests: [], materials: [], pos: [] };
+  if (!I.length) return out;
+  jobs.forEach((p) => {
+    (p.requests || [])
+      .filter((r) => ["new", "ack"].includes(r.status) && !r.fromComm)
+      .forEach((r) => {
+        const hit = reqItems(r).filter((it) => !it.garbage && I.some((i) => cmGoodsHit(i.what, it.what)));
+        hit.length && out.requests.push({ p: p, r: r, items: hit });
+      });
+    (p.materials || [])
+      .filter((m) => ["not-ordered", "quoted", "needs-decision"].includes(m.status) && I.some((i) => cmGoodsHit(i.what, m.name)))
+      .forEach((m) => out.materials.push({ p: p, m: m }));
+  });
+  (DB.pos || [])
+    .filter((po) => (!pid || po.projectId === pid) && ["draft", "pending", "issued", "partial"].includes(po.status))
+    .forEach((po) => {
+      const hit = (po.lines || []).filter((l) => I.some((i) => cmGoodsHit(i.what, l.item)));
+      hit.length && out.pos.push({ po: po, lines: hit, sameVendor: !!vn && String(po.vendor || "").toLowerCase() === vn });
+    });
+  return out;
+}
+function cmBoughtWords(pr) {
+  const M = cmGoodsMatch(pr.items, pr.projectId, pr.vendorName),
+    bits = [];
+  M.requests.forEach((x) => bits.push(`${x.r.by || "the field"}'s request (${reqLabel(x.r)})`));
+  M.materials.forEach((x) => bits.push(`the Buy Board line ${x.m.name}`));
+  M.pos.forEach((x) => bits.push(`${x.po.number} (${x.po.status}) for the same goods`));
+  return { M: M, text: bits.length ? ` · matches ${bits.join(" and ")}: mark the request ordered and record the card purchase` : "" };
+}
+// the proposal reads what it connects to, whenever it is read (a request applied after the mail still meets it)
+function cmBoughtRefresh(pr) {
+  if (!pr || "pickup" !== pr.kind || pr.applied) return pr;
+  const w = cmBoughtWords(pr),
+    paid = pr.amount ? `paid ${money(pr.amount)}${pr.card ? " on the " + pr.card : ""}` : "",
+    by = pr.by ? `pick up by ${fmtL(pr.by)}` : "",
+    goods = (pr.items || []).map((i) => `${i.qty} ${i.unit} ${i.what}`).join(", ");
+  pr.base = pr.base || pr.summary;
+  const what = w.M.requests.length ? `for ${w.M.requests[0].r.by || "the field"}'s request on ${shortName(w.M.requests[0].p)}` : w.M.materials.length ? `for the Buy Board line ${w.M.materials[0].m.name}` : "";
+  pr.summary = `Bought${what ? " " + what : ""}: ${pr.vendorName || "the vendor"}${pr.orderRef ? " order " + pr.orderRef : ""}${paid ? ", " + paid : ""}${by ? ", " + by : ""} · ${goods}${w.text || " · no open request for these goods; a stop on the driver's route"}`;
+  pr.matchReq = w.M.requests.map((x) => x.p.id + "|" + x.r.id);
+  pr.matchMat = w.M.materials.map((x) => x.p.id + "|" + x.m.id);
+  return pr;
+}
+{
+  const base = cmRead;
+  cmRead = function (c) {
+    const P = base.apply(this, arguments);
+    try {
+      (P || []).forEach((pr) => {
+        if ("pickup" !== pr.kind) return;
+        const all = [c.subject, c.text, ...(c.attachments || []).map((a) => a.text || "")].join("\n");
+        pr.card = (all.match(/\b(square|amex|visa|mastercard|home depot)\s+card\b/i) || [])[0] || (/\bcard\b/i.test(all) && /paid/i.test(all) ? "card" : "");
+        pr.card && (pr.card = pr.card.replace(/^\w/, (x) => x.toUpperCase()));
+        cmBoughtRefresh(pr);
+      });
+    } catch (e) {
+      console.warn("bought from mail", e);
+    }
+    return P;
+  };
+}
+{
+  const base = nyhRowsAll;
+  nyhRowsAll = function () {
+    try {
+      (DB.comms || []).forEach((c) => (c.proposals || []).forEach((pr) => "pickup" === pr.kind && !pr.applied && cmBoughtRefresh(pr)));
+    } catch (e) {}
+    return base.apply(this, arguments);
+  };
+}
+// Apply: the matched request is the one bought (no second request); with none, the pickup stop as before.
+{
+  const base = cmApplyPickup;
+  cmApplyPickup = function (c, p, by) {
+    cmBoughtRefresh(p);
+    const M = cmGoodsMatch(p.items, p.projectId, p.vendorName);
+    if (!M.requests.length && !M.materials.length) return base.apply(this, arguments);
+    const v = (DB.vendors || []).find((x) => x.id === p.vendorId),
+      vn = v ? v.name : p.vendorName || (c.from && c.from.name) || "the vendor",
+      did = [];
+    M.requests.forEach(({ p: pr, r: r }) => {
+      (r.items && r.items.length) || (r.items = reqItems(r).map((x) => Object.assign({}, x)));
+      const items = r.items.filter((it) => !it.garbage && (p.items || []).some((i) => cmGoodsHit(i.what, it.what)));
+      Object.assign(r, { status: "ordered", buyOnRun: !0, ackBy: r.ackBy || by, ackAt: r.ackAt || appNowIso(), pickupVendor: vn, orderRef: p.orderRef || "", paid: p.amount || 0, paidCard: p.card || "", eta: p.by || r.eta || "", fromComm: c.id }),
+        items.forEach((it) => (it.pickupFrom = "v:" + vn)),
+        (r.log = r.log || []).push({ t: nowStamp(), by: by, text: `Bought at ${vn}${p.orderRef ? ` (order ${p.orderRef})` : ""}${p.amount ? `, paid ${money(p.amount)}${p.card ? " on the " + p.card : ""}` : ""}${p.by ? `; pickup by ${fmtL(p.by)}` : ""}` }),
+        did.push(`${r.by || "the field"}'s request on ${shortName(pr)} ordered`);
+    });
+    const t =
+      p.amount &&
+      (DB.txns || []).find((x) => +x.amt < 0 && Math.abs(Math.abs(+x.amt) - p.amount) < 0.01 && String(x.desc || "").toLowerCase().includes(cmVendorWord(vn) || "\u0000"));
+    M.materials.forEach(({ p: pr, m: m }) => {
+      Object.assign(m, { status: "ordered", vendor: m.vendor || vn, cost: m.cost || String(p.amount || ""), po: m.po || (p.orderRef ? `order ${p.orderRef}${p.card ? " · " + p.card : ""}` : ""), eta: p.by || m.eta || "", boughtFrom: { commId: c.id, orderRef: p.orderRef || "", amount: p.amount || 0, card: p.card || "", txnId: t ? t.id : "" } }),
+        did.push(`${m.name} ordered on the Buy Board`);
+      t && !t.projectId && (t.projectId = pr.id), t && (!t.cat || "uncat" === t.cat) && ((t.cat = "materials"), (t.status = "categorized"), (t.actor = by));
+    });
+    try {
+      M.requests.concat(M.materials).forEach((x) => withProject(x.p, () => log(`Bought at ${vn}${p.orderRef ? " — order " + p.orderRef : ""}${p.amount ? ", " + money(p.amount) : ""} (from ${vn}'s mail)`)));
+    } catch (e) {}
+    return `${did.join("; ")}${p.amount ? ` · the card purchase ${money(p.amount)} ${t ? `matched to the ${fmtL(t.date)} card line` : "is recorded; the card line matches when it arrives"}` : ""}${p.by ? ` · pickup by ${fmtL(p.by)} on the driver's route` : ""}`;
+  };
+}
+// The double-order guard: goods already bought or on an open order are named before a new PO for them.
+function poDoubleOrder(po) {
+  if (!po) return [];
+  const I = (po.lines || []).map((l) => ({ what: l.item }));
+  if (!I.length) return [];
+  const out = [];
+  (DB.pos || [])
+    .filter((x) => x.id !== po.id && (!po.projectId || x.projectId === po.projectId) && ["pending", "issued", "partial", "received"].includes(x.status))
+    .forEach((x) => (x.lines || []).some((l) => I.some((i) => cmGoodsHit(i.what, l.item))) && out.push(`${x.number} (${x.vendor}, ${x.status}) already orders ${(x.lines || []).filter((l) => I.some((i) => cmGoodsHit(i.what, l.item))).map((l) => l.item).join(", ")}`));
+  (DB.projects || [])
+    .filter((p) => !po.projectId || p.id === po.projectId)
+    .forEach((p) => {
+      (p.requests || [])
+        .filter((r) => ["ordered", "bought"].includes(r.status) && r.orderRef && reqItems(r).some((it) => I.some((i) => cmGoodsHit(i.what, it.what))))
+        .forEach((r) => out.push(`${reqLabel(r)} was bought at ${r.pickupVendor || "a vendor"} (order ${r.orderRef}${r.paid ? `, ${money(r.paid)} paid` : ""})`));
+      (p.materials || [])
+        .filter((m) => m.boughtFrom && I.some((i) => cmGoodsHit(i.what, m.name)))
+        .forEach((m) => out.some((x) => x.includes(m.boughtFrom.orderRef)) || out.push(`${m.name} was bought (order ${m.boughtFrom.orderRef || "on file"})`));
+    });
+  return out;
+}
+{
+  const base = poAction;
+  poAction = function (po, a) {
+    try {
+      if (po && "issue" === a) {
+        const D = poDoubleOrder(po).filter((x) => /was bought/.test(x)),
+          key = D.join("|");
+        if (D.length && po.dupWarned !== key)
+          return (
+            (po.dupWarned = key),
+            save(),
+            void rcToast(`Already bought: ${D.join("; ")}. Issue again only if this is a second order.`, [{ label: "Open", run: () => ((poOpen = po.id), (view = "po"), render()) }])
+          );
+      }
+    } catch (e) {
+      console.warn("double order", e);
+    }
+    return base.apply(this, arguments);
+  };
+}
+{
+  const base = renderPODoc;
+  renderPODoc = function (po) {
+    const h = base.apply(this, arguments);
+    try {
+      const D = po && ["draft", "pending"].includes(po.status) ? poDoubleOrder(po) : [];
+      if (D.length) return `<div class="note warn po-dup" role="alert"><b>Same goods already ordered or bought</b>${D.map((x) => `<div class="small">${esc(x)}</div>`).join("")}</div>` + h;
+    } catch (e) {}
+    return h;
+  };
+}
+// ---- A need-by date on a day nobody works (pilot day 1: Mon 9/7 was Labor Day and nothing said so) -------------
+// The job's holidays (Project Settings) and weekends; the working day before is offered in one tap.
+function reqDayOff(d, p) {
+  if (!d || !/^\d{4}-\d{2}-\d{2}$/.test(d)) return "";
+  const pr = p || S,
+    line = String(((pr || {}).project || {}).holidays || "")
+      .split("\n")
+      .map((x) => x.trim())
+      .find((x) => x.startsWith(d));
+  if (line) return line.slice(10).trim() || "a holiday";
+  const dow = parse(d).getDay();
+  return 0 === dow ? "a Sunday" : 6 === dow ? "a Saturday" : "";
+}
+function reqDayBefore(d, p) {
+  let x = iso(addDays(d, -1));
+  for (let i = 0; i < 10 && reqDayOff(x, p); i++) x = iso(addDays(x, -1));
+  return x;
+}
+{
+  const base = renderComposer;
+  renderComposer = function () {
+    const r = base.apply(this, arguments);
+    try {
+      const box = document.getElementById("composer"),
+        d = comp && comp.when && "pick" !== comp.when ? comp.when : "",
+        off = d && reqDayOff(d, S);
+      if (box && off && !box.querySelector(".req-dayoff")) {
+        const b4 = reqDayBefore(d, S),
+          at = box.querySelector(".frq-when-row") || box.querySelector(".sendbar") || box.lastElementChild;
+        at &&
+          at.insertAdjacentHTML(
+            "beforebegin",
+            `<div class="note warn small req-dayoff" role="alert">Needed ${fmtL(d)} is ${esc(off)}: nobody delivers. <button type="button" class="btn sm" data-reqb4="${b4}">Make It ${fmtL(b4)}</button></div>`,
+          );
+        const bt = box.querySelector("[data-reqb4]");
+        bt &&
+          (bt.onclick = () => {
+            (comp.when = bt.dataset.reqb4), renderComposer();
+          });
+      }
+    } catch (e) {
+      console.warn("need-by day off", e);
+    }
+    return r;
+  };
+}
+{
+  const base = reqState;
+  reqState = function (r) {
+    const st = base.apply(this, arguments);
+    try {
+      const p = (DB.projects || []).find((x) => (x.requests || []).includes(r)),
+        off = r && r.neededBy && ["new", "ack"].includes(r.status) && reqDayOff(r.neededBy, p);
+      off && (st.flags.push({ lvl: "warn", m: `Needed ${fmtL(r.neededBy)}, ${off}: deliver by ${fmtL(reqDayBefore(r.neededBy, p))}` }), (st.sev = Math.max(st.sev, 2)));
+    } catch (e) {}
+    return st;
+  };
+}
+{
+  const base = compSend;
+  compSend = function () {
+    const note = (comp && comp.dateNote) || "",
+      n0 = ((S && S.requests) || []).length;
+    const r = base.apply(this, arguments);
+    try {
+      const L = (S && S.requests) || [];
+      note && L.length > n0 && (L[L.length - 1].note = [L[L.length - 1].note, note].filter(Boolean).join(" · "));
+      comp && (delete comp.dateNote, delete comp.removed);
+      note && save();
+    } catch (e) {}
+    return r;
+  };
+}
+// ---- A request card on the coordinator's Home opens the request (pilot day 1: tapping it did nothing he could see;
+// acknowledging meant finding Purchasing › Requests). The card's own button still acknowledges in one tap.
+function reqSheet(pid, rid) {
+  const p = (DB.projects || []).find((x) => x.id === pid),
+    r = p && (p.requests || []).find((x) => x.id === rid);
+  if (!r) return toast("That request is gone");
+  const st = reqState(r),
+    items = reqItems(r);
+  mbModal(
+    `Request — ${esc(shortName(p))}`,
+    `<div class="req-sheet"><div class="small muted">${esc(r.by || "")} · ${esc(stampText(r.at))} · ${esc((REQ_STATUS[r.status] || [, r.status])[1])}${r.neededBy ? ` · needed ${fmtL(r.neededBy)}` : ""}</div>
+      <ul class="req-sheet-items">${items.map((it) => `<li>${esc(String(it.qty))} ${esc(it.unit || "")} ${esc(it.what)}${it.invId ? " <span class=\"small muted\">from stock</span>" : ""}</li>`).join("")}</ul>
+      ${r.note ? `<div class="small">${esc(r.note)}</div>` : ""}${st.flags.length ? `<div class="note warn small">${st.flags.map((f) => esc(f.m)).join("<br>")}</div>` : ""}
+      <div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap">${"new" === r.status ? `<button type="button" class="btn primary" data-rqs="ack">Acknowledge</button>` : ""}${["new", "ack"].includes(r.status) && reqBuyItems(r).length ? `<button type="button" class="btn${"new" === r.status ? "" : " primary"}" data-rqs="po">Order</button>` : ""}<button type="button" class="btn ghost" data-rqs="list">All Requests</button></div></div>`,
+    { submit: null },
+  );
+  const m = document.getElementById("mbm");
+  m &&
+    m.querySelectorAll("[data-rqs]").forEach(
+      (b) =>
+        (b.onclick = () => {
+          const a = b.dataset.rqs;
+          mbCloseModal();
+          if ("ack" === a) return requestAction(pid, rid, "ack"), save(), render(), void toast("Acknowledged — the foreman can see it, the driver can buy it", flowGo.request(p));
+          if ("po" === a) return void requestAction(pid, rid, "po");
+          (view = (ROLE_VIEWS[role()] || []).includes("req") ? "req" : "po"), render();
+        }),
+    );
+}
+// (on window, in capture: the Home card handler on document acknowledged on any tap of the card)
+window.addEventListener(
+  "click",
+  (e) => {
+    const el = e.target && e.target.closest ? e.target.closest("#v-home [data-ea]") : null;
+    if (!el || e.target.closest(".h4-act")) return;
+    let d;
+    try {
+      d = JSON.parse(el.dataset.ea);
+    } catch (err) {
+      return;
+    }
+    d && d.ack && (e.stopPropagation(), e.preventDefault(), reqSheet(d.ack.pid, d.ack.rid));
+  },
+  !0,
+);

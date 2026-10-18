@@ -106,7 +106,126 @@ async def t_daily_log(c, p):
     c.ok(not errs, f'log: no page errors {errs[:2]}')
     await b.close()
 
-TESTS = [t_daily_log]
+# ------------------------------------------------------------------------------------------------ 2: POs and bills
+async def t_controller_pos(c, p):
+    b, pg, errs = await fresh(p, 'u_controller')
+    r = await js(pg, """
+      setCurrent('p45'); view = 'po'; render(); await sleep(250);
+      const t = document.querySelector('#po-table').innerText;
+      const tile = [...document.querySelectorAll('.view.on [data-tlk], .view.on .tl')].map(x => x.innerText).join(' | ');
+      openBill(null); await sleep(200);
+      const v = document.getElementById('e-vendor'); v.value = 'Carlos Millwork'; v.dispatchEvent(new Event('input')); v.dispatchEvent(new Event('change')); await sleep(100);
+      const sel = document.getElementById('e-po');
+      const opts = [...sel.options].map(o => o.text), picked = sel.selectedOptions[0] ? sel.selectedOptions[0].text : '', proj = document.getElementById('e-proj').value;
+      closeEditor && closeEditor();
+      return { t, opts, picked, proj };""")
+    c.ok('PO-2026-048' in r['t'] and 'No purchase orders yet' not in r['t'], f"controller: Purchase Orders lists PO-2026-048 though the last job opened was 45 Cranberry ({r['t'][:120]!r})")
+    c.ok(any('PO-2026-048' in o for o in r['opts']), f"controller: the New Vendor Bill offers Carlos Millwork's open PO ({r['opts']})")
+    c.ok('PO-2026-048' in r['picked'] and r['proj'] == 'p121', f"controller: the one open PO is pre-selected and sets the job ({r['picked']!r}, {r['proj']})")
+    r = await js(pg, """
+      await gcDemoConnect(); await sleep(400);
+      const rows = nyhRows().filter(x => /CM-0102/.test(x.title));
+      const cm = DB.comms.find(x => /CM-0102/.test(x.subject) && x.owner === 'u_controller');
+      const box = document.createElement('div'); box.innerHTML = cmMsgHtml(cm);
+      const btn = [...box.querySelectorAll('[data-cmapply]')].map(b => b.innerText.trim());
+      return { rows: rows.map(x => [x.verb, x.route]), btn };""")
+    c.ok(any(v == 'Enter the Bill' and rt == 'controller' for v, rt in r['rows']), f"controller: the mailed CM-0102 reaches his Home's queue as Enter the Bill ({r['rows']})")
+    c.ok('Enter the Bill' in r['btn'], f"controller: the Inbox offers Enter the Bill on the mail itself ({sorted(set(r['btn']))})")
+    # the tile counts follow the same scope as the rows
+    r = await js(pg, """poScope = ''; view = 'po'; render(); await sleep(200);
+      const all = poScopeList().length; poScope = 'p45'; render(); await sleep(200);
+      const t = document.querySelector('#po-table').innerText; poScope = ''; return { all, t };""")
+    c.ok(r['all'] == 4 and 'pick All Jobs' in r['t'], f"controller: a job with no orders says so and points to All Jobs ({r})")
+    c.ok(not errs, f'controller: no page errors {errs[:2]}')
+    await b.close()
+
+# ------------------------------------------------------------------------------------------------ 3: false catch
+async def t_own_mail_client(c, p):
+    b, pg, errs = await fresh(p, 'u_billing')
+    r = await js(pg, """
+      await gcDemoConnect(); await sleep(400);
+      const cm = DB.comms.find(x => /check 2214/i.test(x.subject) && x.owner === 'u_billing');
+      const props = cm ? (cm.proposals || []).map(p => [p.kind, p.summary]) : null;
+      // the same note with a client and an invoice ordinal, invented, read fresh
+      const mk = (text) => cmRead({ id: 'tx' + Math.random(), owner: 'u_billing', channel: 'email', from: { name: 'Controller', email: 'controller@smartdesign.nyc' }, to: ['billing@smartdesign.nyc'], subject: 'Check note', text, date: today() + 'T09:00:00', labels: [] }).map(p => p.kind + ': ' + p.summary);
+      const kl = DB.clients.find(x => /Klein/.test(x.name));
+      return { props, named: mk('The Kleins’ check 2001 for $5,000.00 posted and is recorded against invoice 2.'),
+               ordinal: kl ? (cmInvoiceByOrdinal('invoice 2', kl) || {}).number : null,
+               stranger: mk('Please send the invoice for $4,000.00 to the Ortegas at 12 Main.') };""")
+    c.ok(r['props'] is not None and not any('not a client on file' in s for k, s in r['props']), f"billing: the controller's note on the Kleins' check is not \"billed someone not a client on file\" ({r['props']})")
+    c.ok(not any('not a client on file' in s for s in r['named']), f"billing: a client named in a colleague's note counts as on file ({r['named']})")
+    c.ok(r['ordinal'] == 'INV-2026-035', f"billing: \"invoice 2\" is the Kleins' second invoice ({r['ordinal']})")
+    c.ok(any('not a client on file' in s for s in r['stranger']), f"billing: a bill to somebody not on file is still said ({r['stranger']})")
+    c.ok(not errs, f'billing: no page errors {errs[:2]}')
+    await b.close()
+
+# ------------------------------------------------------------------------------------------------ 4: bought in mail
+async def t_bought_from_mail(c, p):
+    b, pg, errs = await fresh(p, 'u_chen', phone=True)
+    r = await js(pg, """
+      await gcDemoConnect(); await sleep(400);
+      const ask = DB.comms.find(x => /need 25 boards GWB/.test(x.subject) && x.owner === 'u_chen');
+      cmApply(ask, ask.proposals.find(p => p.kind === 'request'));
+      const pr = DB.projects.find(x => x.id === 'p121'), rq = pr.requests[pr.requests.length - 1];
+      const bl = DB.comms.find(x => /88412/.test(x.subject) && x.owner === 'u_chen'), pk = bl.proposals.find(x => x.kind === 'pickup');
+      const row = nyhRows({ everyone: true }).find(x => x.commId === bl.id && x.pkind === 'pickup');
+      const n0 = pr.requests.length, did = String(cmApply(bl, pk));
+      const m5 = pr.materials.find(m => m.id === 'm5');
+      const po = { id: 'pdx', number: 'PO-T', vendor: 'Home Depot', projectId: 'p121', status: 'draft', lines: [{ id: 'l1', item: '5/8 GWB 4x8', qty: 25, unit: 'sheets', price: 15 }] };
+      return { title: row ? row.title : '', did, n: pr.requests.length - n0, st: rq.status, ref: rq.orderRef, eta: rq.eta, pick: (rq.items || []).map(i => i.pickupFrom),
+               m5: [m5.status, m5.vendor, m5.cost], dup: poDoubleOrder(po) };""")
+    c.ok(r['title'].startswith('Bought') and 'request' in r['title'], f"coord: the paid order reads Bought and names the open request ({r['title'][:160]!r})")
+    c.ok(r['n'] == 0 and r['st'] == 'ordered' and r['ref'] == '88412' and r['eta'] == '2026-09-04', f"coord: applying marks Angel's request ordered with the order and pickup, no second request ({r})")
+    c.ok(any(x and x.startswith('v:Brooklyn') for x in r['pick']), f"coord: the pickup stays on the driver's route ({r['pick']})")
+    c.ok(r['m5'][0] == 'ordered' and r['m5'][1] == 'Brooklyn Lumber' and r['m5'][2], f"coord: the Buy Board line has vendor, cost and ordered ({r['m5']})")
+    c.ok(r['dup'] and '88412' in r['dup'][0], f"coord: a new PO for the same goods names the purchase ({r['dup']})")
+    c.ok('card' in r['did'], f"coord: the card purchase is recorded or matched ({r['did']!r})")
+    c.ok(not errs, f'coord: no page errors {errs[:2]}')
+    await b.close()
+
+# ------------------------------------------------------------------------------------------------ 7: request quirks
+async def t_request_quirks(c, p):
+    b, pg, errs = await fresh(p, 'u_angel', phone=True)
+    r = await js(pg, """
+      comp.lines = []; comp.when = '';
+      const L = parseLocal('4 rolls blue tape and 4 rolls rosin paper, needed by Mon 9/7 for the floor crew');
+      return { items: L.map(l => l.what), when: comp.when, note: comp.dateNote || '' };""")
+    c.ok(r['items'] == ['blue tape', 'rosin paper'], f"field: \"needed by Mon 9/7\" is not an item ({r['items']})")
+    c.ok(r['when'] == '2026-09-07', f"field: it is the need-by date ({r['when']})")
+    r = await js(pg, """
+      view = 'req'; render(); await sleep(250);
+      comp.when = '2026-09-07'; renderComposer(); await sleep(100);
+      const w = document.querySelector('#composer .req-dayoff'); const t = w ? w.innerText : '';
+      const bt = w && w.querySelector('[data-reqb4]'); bt && bt.click(); await sleep(100);
+      return { t, when: comp.when };""")
+    c.ok('Labor Day' in r['t'], f"field: a need-by on Labor Day warns ({r['t']!r})")
+    c.ok(r['when'] == '2026-09-04', f"field: one tap makes it the working day before, Fri 9/4 ({r['when']})")
+    # a line removed while the slower read is still out stays removed
+    r = await js(pg, """
+      comp.lines = []; comp.removed = [];
+      const box = document.querySelector('#cp-text'); box.value = '4 rolls blue tape, 4 rolls rosin paper, 2 tubes caulk';
+      const run = compRead(); await sleep(30);
+      const x = [...document.querySelectorAll('#composer [data-cx]')].find(e => (comp.lines[+e.dataset.cx] || {}).what === 'caulk');
+      x && x.click(); await run; await sleep(100);
+      return comp.lines.map(l => l.what);""")
+    c.ok('caulk' not in r and 'blue tape' in r and 'rosin paper' in r, f"field: the removed line does not come back, the others stay ({r})")
+    await b.close()
+    b, pg, errs2 = await fresh(p, 'u_chen', phone=True)
+    r = await js(pg, """
+      view = 'home'; render(); await sleep(350);
+      const card = [...document.querySelectorAll('#v-home [data-ea]')].find(e => { try { return JSON.parse(e.dataset.ea).ack; } catch (x) { return false; } });
+      if (!card) return { card: false };
+      const body = card.querySelector('.grow') || card; body.click(); await sleep(200);
+      const m = document.getElementById('mbm'), btns = m ? [...m.querySelectorAll('button')].map(b => b.innerText.trim()) : [];
+      const ack = m && m.querySelector('[data-rqs="ack"]'); ack && ack.click(); await sleep(200);
+      return { card: true, title: m ? m.querySelector('h3').innerText : '', btns, st: DB.projects.find(x => x.id === 'p121').requests.find(x => x.id === 'rq1').status };""")
+    c.ok(r['card'] and r['title'].startswith('Request'), f"coord: tapping a request card on Home opens the request ({r.get('title')!r})")
+    c.ok('Acknowledge' in r.get('btns', []) and 'Order' in r.get('btns', []), f"coord: the request offers Acknowledge and Order ({r.get('btns')})")
+    c.ok(r.get('st') == 'ack', f"coord: Acknowledge from the sheet acknowledges ({r.get('st')})")
+    c.ok(not errs and not errs2, f'field/coord: no page errors {(errs + errs2)[:2]}')
+    await b.close()
+
+TESTS = [t_daily_log, t_controller_pos, t_own_mail_client, t_bought_from_mail, t_request_quirks]
 
 async def main():
     c = Checks()
