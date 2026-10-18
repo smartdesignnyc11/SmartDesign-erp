@@ -448,24 +448,44 @@ async def s5_trace(p, S):
           const keysByCode = [...new Set(J.byCode.flatMap(x => Object.keys(x)))];
           const srcKeys = keysByCode.filter(k => /src|source|ids|refs|txns|bills|docs/i.test(k) && Array.isArray(J.byCode[0][k]));
           const jobTx = DB.txns.filter(t => t.projectId === p.id && t.amt < 0 && isJobCat(t.cat) && t.cat !== 'labor' && !txnViaBill(t, bills));
-          const unbacked = jobTx.filter(t => !(typeof bfBacked === 'function' ? bfBacked(t) : (t.prov && ['feed','statement'].includes(t.prov.kind))) && !(t.prov && t.prov.confirmedBy));
+          // The rule is "a figure with no bank or card line behind it is not truth and is shown as such", not "every
+          // typed line is confirmed": this test's own hand-typed line can never be confirmed (no bank will ever list it),
+          // so requiring it to be backed (or prov.confirmedBy) could never pass. A hand-typed line nobody's bank or card
+          // record has confirmed must read as not truth (truthBacking "hand") with its flag on the line; the only such
+          // lines allowed are this test's own and a typed duplicate the duplicate check proposes to void (the seed's
+          // 8/22 dumpster). Every other bank/card cost on the job must be backed by a bank or card line.
+          lkDupScan();
+          const backed = (t) => typeof bfBacked === 'function' ? bfBacked(t) : !!(t.prov && (['feed','statement'].includes(t.prov.kind) || t.prov.confirmedBy));
+          const allowedTyped = (t) => /Cash at lumber yard/.test(t.desc) || t.dupState === 'proposed';
+          const notTruth = (t) => truthBacking(t).kind === 'hand' && /No bank line|Charged twice/.test(txnFlagsHtml(t));
+          const unbacked = jobTx.filter(t => !backed(t) && !allowedTyped(t));
+          const typedShown = jobTx.filter(t => !backed(t) && allowedTyped(t)).map(t => [t.desc + ' ' + t.amt, notTruth(t)]);
           const costed = bills.filter(b => BILL_COSTED.includes(b.status) || BILL_ACCRUED.includes(b.status));
           const noDoc = costed.filter(b => !b.fileId && !(b.files || []).length && !b.attachment);
+          // the attached document is a stored file (the job's Documents), not a bare id
+          const docGone = costed.filter(b => b.fileId && !DB.projects.some(q => (q.files || []).some(f => f.id === b.fileId))).map(b => b.number);
           const unpaidNoTxn = costed.filter(b => !DB.txns.some(t => t.billId === b.id) && !(b.payments || []).length);
           const time = DB.time.filter(e => e.projectId === p.id && e.status !== 'rejected');
-          const noRun = time.filter(e => !e.payrollId && !e.runId && !e.payroll);
+          // A payroll run holds approved hours only (payrollFromTime); hours still waiting for approval cannot be in a
+          // run yet and are costed at the burdened rate until they are. Every approved entry carries its run's id, and
+          // that run lists the entry (r.timeIds): the tie runs both ways.
+          const appr = time.filter(e => e.status === 'approved');
+          const noRun = appr.filter(e => !e.payrollId || !(DB.payroll || []).some(r => r.id === e.payrollId && (r.timeIds || []).includes(e.id)));
+          const waiting = time.filter(e => e.status !== 'approved' && !e.payrollId).length;
           return { J: {actual: J.actual, bills: J.billsAmt, txns: J.txnAmt, labor: J.laborCost, billed: J.billed},
                    jKeys: Object.keys(J).filter(k => Array.isArray(J[k])), srcKeys, byCodeKeys: keysByCode,
-                   jobTx: jobTx.length, unbacked: unbacked.map(t => `${t.desc} ${t.amt} (${t.source || ''}/${(t.prov||{}).kind || 'no prov'})`),
-                   bills: costed.length, noDoc: noDoc.map(b => b.number), billsNoBankLine: unpaidNoTxn.map(b => b.number + ':' + b.status),
-                   time: time.length, noRun: noRun.length, invs: J.invs.length };
+                   jobTx: jobTx.length, unbacked: unbacked.map(t => `${t.desc} ${t.amt} (${t.source || ''}/${(t.prov||{}).kind || 'no prov'})`), typedShown,
+                   bills: costed.length, noDoc: noDoc.map(b => b.number), docGone, billsNoBankLine: unpaidNoTxn.map(b => b.number + ':' + b.status),
+                   time: time.length, appr: appr.length, waiting, noRun: noRun.length, invs: J.invs.length };
         }""")
         S.fact(f"121 State job report: actual {r['J']['actual']:,.2f} = bills {r['J']['bills']:,.2f} + bank/card {r['J']['txns']:,.2f} + labor {r['J']['labor']:,.2f}; billed {r['J']['billed']:,.2f}")
         S.fact(f"jobFin arrays: {r['jKeys']}; byCode keys: {r['byCodeKeys']}")
         S.check(bool(r['srcKeys']), 'every job-cost-by-code figure carries the ids of its source records', 'byCode rows are bare numbers')
         S.check(not r['unbacked'], 'every bank/card cost on the job is backed by a bank or card line', f"{len(r['unbacked'])} of {r['jobTx']} not backed: {r['unbacked'][:4]}")
-        S.check(not r['noDoc'], 'every bill on the job has its source document attached', f"{len(r['noDoc'])} of {r['bills']} without a document: {r['noDoc']}")
-        S.check(r['noRun'] == 0, 'labor cost traces to a payroll run', f"{r['noRun']} of {r['time']} time entries price labor from a rate, with no payroll run id")
+        S.check(bool(r['typedShown']) and all(x[1] for x in r['typedShown']), 'a hand-typed cost no bank or card line confirms reads as not truth (by hand, flagged) until confirmed', str(r['typedShown']))
+        S.check(not r['noDoc'] and not r['docGone'], 'every bill on the job has its source document attached', f"{len(r['noDoc'])} of {r['bills']} without a document: {r['noDoc']}; attached but not on file: {r['docGone']}")
+        S.check(r['appr'] > 0 and r['noRun'] == 0, 'labor cost traces to a payroll run (each approved entry carries its run id; the run lists it)', f"{r['noRun']} of {r['appr']} approved time entries price labor from a rate, with no payroll run tied both ways")
+        S.fact(f"time entries on the job: {r['time']}, {r['appr']} approved (in a run), {r['waiting']} waiting for approval (in no run until approved)")
         S.check(r['invs'] > 0, 'billed traces to invoices (J.invs)')
         needles = ['Cash at lumber yard']
         surf(S, await scan(pg, 'u_controller', 'bank', needles, r'typed by hand|by hand|no bank|not backed|manual|unbacked|no statement', act=r'match|confirm|attach|review|delete|code'),
