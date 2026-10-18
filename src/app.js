@@ -73288,6 +73288,10 @@ function cmImport(list) {
         proposals: [],
         links: m.links || [],
       };
+      // whose mailbox it is and Gmail's labels are known before the read: "ours" (SENT, the reader's own address)
+      // decides what the reader proposes, so they cannot wait for the sync to stamp them afterwards
+      m.owner && (c.owner = m.owner);
+      (m.labels || m.labelIds) && (c.labels = (m.labels || m.labelIds).slice());
       (c.route = cmRoute(c)), (c.proposals = cmRead(c));
       const R = c.route || {},
         from = String((c.from || {}).email || "").toLowerCase(),
@@ -173106,9 +173110,36 @@ const stdNyhRows = () =>
 const stdDate = (it) => stdDueOf(it) || String((it && (it.date || (it.nyh && it.nyh.due))) || "9999");
 const STD_ISO = /^\d{4}-\d{2}-\d{2}$/;
 const STD_MON = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+// The date an item is due: the record's or its words' date (stdDueOfRecord), or the client-message clock when that
+// comes first.
+function stdDueOf(it) {
+  const d = stdDueOfRecord(it),
+    k = stdClientClock(stdObj(it));
+  return k && (!d || k < d) ? k : d;
+}
+// The Standard's client-message clock: a client's message is answered the business day it arrived (Client messages:
+// acknowledged within 2 business hours, answered the same business day; clientAck measures the same day). It covers a
+// portal or chat question (clientq) and a client's email waiting in Needs Your Hand. Undated, both sank under every
+// dated item into "later" and fell off the PM's Home: the Kleins' question and their mailed choice (v11.1).
+function stdClientClock(o) {
+  try {
+    const r = o.nyh || {},
+      day = (x) => (STD_ISO.test(String(x || "").slice(0, 10)) ? poWorkday(String(x).slice(0, 10)) : "");
+    if ("clientq" === o.kind) {
+      const F = "function" == typeof clqFind ? clqFind(o.id) : null;
+      return F ? day(F.q.at) : "";
+    }
+    if ("mail" !== r.kind || !r.commId) return "";
+    const c = (DB.comms || []).find((x) => x.id === r.commId),
+      R = (c && c.route) || {};
+    return c && R.clientId && !R.employee && "out" !== c.direction ? day(c.date) : "";
+  } catch (e) {
+    return "";
+  }
+}
 // The date an item is due, from the record behind it where there is one, else from the words it carries ("by 9/28",
 // "25 days left"); "" when nothing says. A meeting's date is when it was held, never when its follow-up is due.
-function stdDueOf(it) {
+function stdDueOfRecord(it) {
   const o = stdObj(it),
     r = o.nyh || {},
     pick = (...v) => v.map((x) => String(x || "").slice(0, 10)).find((x) => STD_ISO.test(x)) || "";
@@ -188254,14 +188285,46 @@ function poNewVendorSheet(name, after) {
 }
 // ---- Our own outgoing mail is a record, never a proposal for us (the agent-month selftest, 2026-10-11) ---------
 // The coordinator sent a PO from his mailbox; the sync read it back and proposed it to him as money to decide. A
-// message we sent (direction "out", Gmail's SENT label, or from one of the firm's own addresses) is filed and kept
-// on its thread, but the reader proposes nothing from it, on import, on a re-read and at boot for old ones.
-const cmOwnMail = (c) => !!c && ("out" === c.direction || (c.labels || []).includes("SENT") || cmIsStaff(cmEmail(((c.from || {}).email) || "")));
+// message the reader sent is filed and kept on its thread, but the reader proposes nothing from it, on import, on
+// a re-read and at boot for old ones.
+// v11.1: "ours" is the reader's own mail, not every firm address. The first cut treated any firm sender as ours, so
+// a colleague's mail to the reader (the foreman's emailed ask, the bookkeeper's question to the owner) was dropped
+// unread, and with it Needs an Answer's count of colleagues' questions. A colleague's message is inbound internal
+// mail and the reader's employee rules read it (cmRead, R.employee). Ours is: Gmail's SENT or DRAFT label, the
+// reader's own mailbox address (or their contact on file), or a record the app made of something sent with no
+// sender on it. One exception keeps the owner review r5 catch (2026-10-10): an invoice or deposit request we sent
+// that the ERP does not hold (no document number on file) still says the money it records — a receivable for a
+// client on file, unclassified money for anyone else — so a bill sent outside the ERP never goes unsaid.
+function cmMailboxOf(c) {
+  const R = "function" == typeof cmReaderOf ? cmReaderOf(c) : { uid: (c && c.owner) || "" },
+    g = ((DB.conn || {})[R.uid] || {}).google || {},
+    u = (DB.users || []).find((x) => x.id === R.uid) || {};
+  return [g.email, u.contact].map((e) => cmEmail(String(e || ""))).filter((e) => e.includes("@"));
+}
+const cmOwnMail = (c) => {
+  if (!c) return !1;
+  const L = c.labels || [];
+  if (L.includes("SENT") || L.includes("DRAFT")) return !0;
+  const from = cmEmail(((c.from || {}).email) || "");
+  if (!from) return "out" === c.direction;
+  return cmMailboxOf(c).includes(from);
+};
+// A document number the ERP already holds (invoice, PO, estimate, bill, change order) named in the message.
+function cmNamesRecordOnFile(c) {
+  const words = new Set(`${c.subject || ""} ${c.text || ""}`.toUpperCase().split(/[^A-Z0-9-]+/).map((w) => w.replace(/^-+|-+$/g, "")));
+  return [DB.invoices, DB.pos, DB.estimates, DB.bills, (DB.clients || []).flatMap((x) => x.changeOrders || [])]
+    .flatMap((L) => (L || []).map((d) => String((d && d.number) || "").trim().toUpperCase()))
+    .some((n) => n.length >= 4 && /\d/.test(n) && words.has(n));
+}
+// What our own mail may still propose: the money we billed that the ERP does not hold.
+const cmOwnMailKeeps = (c, p) => ("ar" === p.kind || ("money" === p.kind && "client" === p.as)) && !cmNamesRecordOnFile(c);
 {
   const base = cmRead;
   cmRead = function (c) {
-    if (cmOwnMail(c)) return (c.direction = "out"), [];
-    return base.apply(this, arguments);
+    if (!cmOwnMail(c)) return base.apply(this, arguments);
+    c.direction = "out";
+    const P = base.apply(this, arguments);
+    return Array.isArray(P) ? P.filter((p) => cmOwnMailKeeps(c, p)) : [];
   };
 }
 {
@@ -188270,8 +188333,9 @@ const cmOwnMail = (c) => !!c && ("out" === c.direction || (c.labels || []).inclu
     const r = base.apply(this, arguments);
     try {
       (DB.comms || []).forEach((c) => {
-        if (!cmOwnMail(c) || !(c.proposals || []).some((p) => !p.applied)) return;
-        (c.proposals = c.proposals.filter((p) => p.applied)), "proposed" === c.status && (c.status = c.proposals.length ? "applied" : "read");
+        if (!cmOwnMail(c) || !(c.proposals || []).some((p) => !p.applied && !cmOwnMailKeeps(c, p))) return;
+        (c.proposals = c.proposals.filter((p) => p.applied || cmOwnMailKeeps(c, p))),
+          "proposed" === c.status && !c.proposals.some((p) => !p.applied) && (c.status = c.proposals.length ? "applied" : "read");
       });
     } catch (e) {
       console.warn("own mail", e);
@@ -188418,3 +188482,27 @@ if (!document.getElementById("bf-imps-css")) {
   (st.id = "bf-imps-css"), (st.textContent = ".bf-imps{margin:12px 0}.bf-imp{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 6px;border-top:1px solid var(--rule,#eee);overflow-wrap:anywhere}.bf-imp .grow{display:flex;flex-direction:column;min-width:0;flex:1 1 220px}.bf-imp.tk-flash{background:var(--accent-2);box-shadow:inset 3px 0 0 var(--accent)}"), document.head.appendChild(st);
 }
 
+// ---- one verb, one action: a field question or a Needs Your Hand item answered from Approvals does what its Do Now
+// card does (from integrate's held 62c0712, taken for v11.1). With urgency first, more of them sit past Home's five
+// cards, in Approvals, where Answer opened the plain answer drawer instead of the card's sheet: an extra answered
+// there had no change-order offer, a dated ask no task.
+{
+  const base = renderMApprove;
+  renderMApprove = function () {
+    const r = base.apply(this, arguments);
+    try {
+      const v = document.getElementById("v-mapprove"),
+        items = v ? mApprovals() : [];
+      v &&
+        v.querySelectorAll('.m-appr[data-mk="raise"], .m-appr[data-mk="hand"]').forEach((el) => {
+          const it = items.find((x) => x.kind === el.dataset.mk && String(x.id) === el.dataset.mid),
+            card = it && tdCard(it),
+            y = card && [...el.querySelectorAll("button")].find((x) => x.innerText.trim() === String(card.verb || "").trim());
+          card && card.run && y && (y.onclick = (e) => (e.stopPropagation(), e.preventDefault(), card.run()));
+        });
+    } catch (e) {
+      console.warn("approvals verb", e);
+    }
+    return r;
+  };
+}
