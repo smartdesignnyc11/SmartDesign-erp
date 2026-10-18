@@ -34,7 +34,7 @@ TOAST_OPEN = """() => { const t = document.getElementById('toast'); if (!t) retu
   const a = [...t.querySelectorAll('a, button')].find(x => /^Open$/.test((x.innerText || '').trim())); if (!a) return false; a.click(); return true; }"""
 
 CLOSE = """() => { try { document.getElementById('mbm') && document.querySelector('#mbm [data-mbclose], #mbm .mbm-x') ? document.querySelector('#mbm [data-mbclose], #mbm .mbm-x').click() : 0; } catch (e) {}
-  try { typeof closeDrawer === 'function' && closeDrawer(); } catch (e) {} document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); }"""
+  try { editing && closeEditor(); } catch (e) {} document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); }"""
 
 
 async def dialog_save(pg, title):
