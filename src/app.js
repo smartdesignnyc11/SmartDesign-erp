@@ -114454,6 +114454,117 @@ function paWatch(delta) {
   const real = made.filter(Boolean);
   return real.length && save(), paBadge(), real;
 }
+// ---- New mail becomes cards on every sync (pilot 9/8: the assistant's "In your mail" cards were all from 9/3 though
+// every mailbox synced each morning). Four causes, one class: (1) a job's mail names it the way people write it
+// ("121 State"), not its record name ("121 State Street"), so the job term never matched; (2) a field person's jobs
+// were only the ones they manage, so the foreman's DOB mail scored as nobody's; (3) a message the inbox had already
+// turned into a proposal (a bill, an inspection date, a payment) still needed the score, so an invoice on the job
+// raised no card; (4) a card stayed New after the thread was answered, and the seen cards of earlier days stayed in
+// the way of today's. The sim's watcher runs gsRun, the hosted watcher's path, so all four are fixed there.
+const PA_STREET_RX = /\s+(street|st|avenue|ave|place|pl|road|rd|boulevard|blvd|lane|ln|court|ct|terrace|ter)\.?$/i;
+function paJobAliases(p) {
+  const out = new Set(),
+    nm = String(((p || {}).project || {}).name || "").replace(/ —.*$/, "").trim(),
+    ad = String(((p || {}).project || {}).address || "").split(",")[0].trim();
+  [nm, ad].forEach((s) => {
+    if (!s) return;
+    const short = s.replace(PA_STREET_RX, "").trim();
+    short !== s && /^\d+[a-z]?\s+\S{3,}/i.test(short) && out.add(short);
+  });
+  return [...out];
+}
+if ("function" == typeof paTerms) {
+  const paTermsBase_mail = paTerms;
+  paTerms = function () {
+    const T = paTermsBase_mail.apply(this, arguments);
+    try {
+      const have = new Set(T.map((x) => x.t));
+      paMine().projects.forEach((p) =>
+        paJobAliases(p).forEach((a) => {
+          const t = a.toLowerCase();
+          have.has(t) || (have.add(t), T.push({ t: t, raw: a, w: 5, why: "a job you run" }));
+        }),
+      );
+    } catch (e) {}
+    return T;
+  };
+}
+// a field person's jobs: the ones they clocked on in the last two weeks, or hold a task on
+if ("function" == typeof paMine) {
+  const paMineBase_mail = paMine;
+  paMine = function () {
+    const M = paMineBase_mail.apply(this, arguments);
+    try {
+      if (M && !M.projects.length && !PA_OFFICE_ROLES.includes(String((M.me || {}).role || ""))) {
+        const me = M.me || paMe(),
+          from = iso(addDays(today(), -14)),
+          ids = new Set((DB.time || []).filter((t) => t.empId === me.employeeId && t.date >= from).map((t) => t.projectId));
+        M.projects = (DB.projects || []).filter((p) => !p.archived && (ids.has(p.id) || (p.tasks || []).some((t) => "done" !== t.status && paIsMine(t.owner || t.assignee, me))));
+      }
+    } catch (e) {}
+    return M;
+  };
+}
+// a thread is answered once I wrote on it after the message; a card for it is no longer New
+function paMineMail(c) {
+  const myMail = String((("function" == typeof gcMine && gcMine()) || {}).email || "").toLowerCase();
+  return (c.labels || []).includes("SENT") || (c.labels || []).includes("DRAFT") || "out" === c.direction || (myMail && cmEmail((c.from || {}).email) === myMail);
+}
+function paSweepAnswered() {
+  let n = 0;
+  try {
+    const A = paInit(),
+      me = paMe().id;
+    A.thread.forEach((m) => {
+      if (!m.nudge || !m.ref || "mail" !== m.ref.kind || m.answered) return;
+      const c = (DB.comms || []).find((x) => x.msgId === m.ref.id || (m.ref.commId && x.id === m.ref.commId));
+      if (!c) return;
+      const k = c.threadId || c.id,
+        replied = (DB.comms || []).some((x) => (x.threadId || x.id) === k && x !== c && (!x.owner || x.owner === me) && paMineMail(x) && String(x.date || "") > String(c.date || "")),
+        settled = "ignored" === c.status || ((c.proposals || []).length && (c.proposals || []).filter((p) => "note" !== p.kind).length && (c.proposals || []).filter((p) => "note" !== p.kind).every((p) => p.applied));
+      (replied || settled) && ((m.answered = replied ? "replied" : "settled"), (m.unread = !1), n++);
+    });
+  } catch (e) {}
+  return n;
+}
+if ("function" == typeof paWatch) {
+  const paWatchBase_mail = paWatch;
+  paWatch = function (delta) {
+    const made = paWatchBase_mail.apply(this, arguments) || [];
+    try {
+      const A = paInit();
+      (delta && delta.mail ? delta.mail : []).forEach((m) => {
+        if (paMineMail(m) || A.thread.some((x) => x.ref && "mail" === x.ref.kind && x.ref.id === m.msgId)) return;
+        const c = (DB.comms || []).find((x) => x.msgId === m.msgId);
+        if (!c || "ignored" === c.status || cmBankSender(c)) return;
+        const P = (c.proposals || []).filter((p) => !p.applied && !1 !== p.on && "note" !== p.kind);
+        if (!P.length) return;
+        const who = (m.from || {}).name || (m.from || {}).email || "somebody",
+          what = P.map((p) => String(p.title || p.label || p.kind || "").replace(/\s+/g, " ").slice(0, 90)).filter(Boolean)[0] || "";
+        const n = paNudge(`${who} wrote about ${m.subject || "something"}.`, `I brought this to you because the inbox read something to do from it${what ? `: ${what}` : ""}. It waits on your yes in the inbox.`, { kind: "mail", id: m.msgId, commId: c.id }, "something to do from your mail");
+        n && made.push(n);
+      });
+      paSweepAnswered() && save(), paBadge();
+    } catch (e) {
+      console.warn("mail cards", e);
+    }
+    return made;
+  };
+}
+// the morning brief is recomposed when a sync brings new mail, not held from the first view of the day
+if ("function" == typeof gsRun) {
+  const gsRunBase_mail = gsRun;
+  gsRun = async function () {
+    const d = await gsRunBase_mail.apply(this, arguments);
+    try {
+      if (d && (d.mail || []).length && DB.company && DB.company.briefCache) {
+        const td = today();
+        Object.keys(DB.company.briefCache).forEach((k) => k.startsWith(td + "|") && delete DB.company.briefCache[k]);
+      }
+    } catch (e) {}
+    return d;
+  };
+}
 function paRefOffers(ref) {
   if (!ref) return [];
   const out = [];
@@ -143676,6 +143787,37 @@ if ("function" == typeof paMsgHtml) {
     } catch (e) {}
     return h;
   };
+}
+// Seen cards of earlier days, and answered ones, fold into one line so today's mail is what the assistant shows
+let paShowEarlier = !1;
+const paIsEarlier = (m) => !!(m && m.nudge && (m.answered || (String(m.day || "") < today() && !m.unread)));
+if ("function" == typeof paMsgHtml) {
+  const paMsgHtmlBase_mail = paMsgHtml;
+  paMsgHtml = function (m) {
+    return !paShowEarlier && paIsEarlier(m) ? "" : paMsgHtmlBase_mail.apply(this, arguments);
+  };
+}
+if ("function" == typeof paHtml) {
+  const paHtmlBase_mail = paHtml;
+  paHtml = function () {
+    try {
+      paSweepAnswered();
+    } catch (e) {}
+    let h = paHtmlBase_mail.apply(this, arguments);
+    try {
+      const E = paInit().thread.slice(-40).filter(paIsEarlier),
+        fresh = paInit().thread.filter((m) => m.nudge && String(m.day || "") === today()).length;
+      if (E.length && h.includes('<div class="pa-thread"')) {
+        const line = `<div class="pa-earlier small muted" style="margin:6px 0">${fresh ? `${fresh} new today. ` : "Nothing new from your mail today. "}${E.length} earlier item${1 === E.length ? "" : "s"}, already seen or answered${paShowEarlier ? "" : ", folded"}. <button type="button" class="btn sm" data-paearlier>${paShowEarlier ? "Fold Them" : "Show Them"}</button></div>`;
+        h = h.replace('<div class="pa-thread"', line + '<div class="pa-thread"');
+      }
+    } catch (e) {}
+    return h;
+  };
+  document.addEventListener("click", (e) => {
+    const b = e.target && e.target.closest ? e.target.closest("[data-paearlier]") : null;
+    b && ((paShowEarlier = !paShowEarlier), "function" == typeof renderPa ? renderPa() : render());
+  });
 }
 const A4_PAL_RANK = {
   vendor: 9,

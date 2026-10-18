@@ -174,7 +174,49 @@ async def main():
                 c.ok(False, f'{name}: crashed {str(e)[:300]}')
     return c.done()
 
-EXTRA = []
+
+# ------------------------------------------------------------------------------------------------ 2: mail
+MAIL_JS = """
+  const W = demoWsFor(arg.uid), at = appNowMs() + (arg.dt || 60000);
+  W.messages.push({ id: arg.id, threadId: arg.thread, labelIds: arg.sent ? ['SENT'] : ['INBOX', 'UNREAD'], internalDate: at, historyId: ++W.historyId,
+    headers: { From: arg.from, To: arg.to, Cc: '', Subject: arg.subject, Date: new Date(at).toUTCString() }, body: arg.text, attachments: [] });
+  W.now = at + 60000;
+  const d = await gsRun({ quiet: true });
+  return { mail: d ? d.mail.length : -1 };"""
+
+
+async def t_mail(c, p):
+    b, pg, errs = await fresh(p, 'u_chen')
+    await js(pg, "await gcDemoConnect(); try { clearInterval(gsTimerId); } catch (e) {} return 1;")
+    me = await js(pg, "return gcMine().email;")
+    r = await js(pg, MAIL_JS, {'uid': 'u_chen', 'id': 'pf2m1', 'thread': 'pf2t1', 'from': 'Gowanus Plaster Works <office@gowanusplaster.example>', 'to': me,
+                               'subject': 'Invoice GPW-118 - 121 State garden level skim coat', 'text': 'Attached our invoice GPW-118 for the skim coat at 121 State, $3,240. Thank you.'})
+    r = await js(pg, """
+      const A = paInit(), n = A.thread.find(m => m.nudge && m.ref && m.ref.kind === 'mail' && (DB.comms.find(c => c.msgId === m.ref.id) || {}).subject === 'Invoice GPW-118 - 121 State garden level skim coat');
+      return { n: n && { text: n.text, unread: n.unread, day: n.day } };""")
+    c.ok(r['n'] and r['n']['unread'], f"mail: a vendor invoice naming the job the way people write it ('121 State') becomes a New card on the sync ({r['n']})")
+    # the foreman's agency mail is his: his jobs are the ones he works on
+    b2, pg2, errs2 = await fresh(p, 'u_angel', phone=True)
+    r2 = await js(pg2, "return { jobs: paMine().projects.map(p => p.id), s: paScoreItem('DOB NOW: inspection window 09/22/2026 - 121 STATE STREET', 'noreply@dob.example').score };")
+    c.ok('p121' in r2['jobs'] and r2['s'] >= 6, f"mail: the foreman's jobs include the one he works on, so its agency mail is his ({r2})")
+    await b2.close()
+    # Chen replies on the thread: the card leaves New
+    await js(pg, MAIL_JS, {'uid': 'u_chen', 'id': 'pf2m2', 'thread': 'pf2t1', 'sent': True, 'from': 'Chen Biron <' + me + '>', 'to': 'office@gowanusplaster.example',
+                           'subject': 'Re: Invoice GPW-118 - 121 State garden level skim coat', 'text': 'Received, we will match it to the work.', 'dt': 120000})
+    r = await js(pg, """
+      const A = paInit(), n = A.thread.find(m => m.nudge && m.ref && m.ref.kind === 'mail' && (DB.comms.find(c => c.msgId === m.ref.id) || {}).subject === 'Invoice GPW-118 - 121 State garden level skim coat');
+      // yesterday's seen cards fold away so today's are what the assistant shows
+      A.thread.filter(m => m.nudge && m !== n).forEach(m => { m.day = iso(addDays(today(), -3)); m.unread = false; });
+      view = 'pa'; render(); await sleep(300);
+      const v = document.querySelector('#v-pa') || document.querySelector('.view.on') || document.body;
+      return { unread: n && n.unread, answered: n && n.answered, fold: (v.querySelector('.pa-earlier') || {}).innerText || '',
+               old: v.innerText.includes('landed in Drive') };""")
+    c.ok(r['unread'] is False and r['answered'] == 'replied', f"mail: a replied thread leaves New ({r})")
+    c.ok('earlier item' in r['fold'] and not r['old'], f"mail: seen cards of earlier days fold into one line ({r['fold']!r})")
+    c.ok(not errs, f'mail: no page errors ({errs[:2]})')
+    await b.close()
+
+EXTRA = [('mail', t_mail)]
 
 if __name__ == '__main__':
     sys.exit(asyncio.run(main()))
