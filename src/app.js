@@ -168023,6 +168023,8 @@ function agNouns() {
 function agKnownWord(t) {
   const w = String(t || "").toLowerCase().replace(/[^a-z0-9'-]/g, "").replace(/'s$/, "");
   if (!w) return !0;
+  // a negating prefix on a word we hold is a word we hold: "undecided", "unreceived", "unanswered" are never typos
+  if (/^(un|non-?)[a-z]{4,}$/.test(w) && agKnownWord(w.replace(/^(un|non-?)/, ""))) return !0;
   const N = agNouns(),
     forms = [w, w.replace(/s$/, ""), w.replace(/es$/, ""), w.replace(/ed$/, ""), w.replace(/ed$/, "e"), w.replace(/d$/, ""), w.replace(/ing$/, ""), w.replace(/ing$/, "e"), w.replace(/([a-z])\1(ed|ing)$/, "$1"), w.replace(/ied$/, "y"), w.replace(/ies$/, "y"), w.replace(/ly$/, ""), w.replace(/ily$/, "y"), w.replace(/er$/, ""), w.replace(/est$/, "")];
   return forms.some((f) => f.length >= 2 && (AG_DICT.has(f) || N.has(f)));
@@ -168368,8 +168370,11 @@ function agParse(raw) {
     (P.vendors = agVendors(l)),
     (P.people = agPeople(l)),
     (P.contacts = agContactsIn(l)),
-    (P.self = /\b(i|me|my|mine|myself)\b/.test(l)),
+    // "my crew", "our guys", "my team": the people the asker runs, not the asker; on a field role, the job they are on
+    (P.myCrew = /\b(my|our) (crew|team|guys|men|workers|people on site)\b/.test(l)),
+    (P.self = /\b(i|me|my|mine|myself)\b/.test(P.myCrew ? l.replace(/\b(my|our) (crew|team|guys|men|workers|people on site)\b/g, " ") : l)),
     P.self && me && !P.people.includes(me) && (P.meEmp = me),
+    P.myCrew && !P.jobs.length && (P.jobs = agHomeJobs()),
     (P.payees = agPayeeIn(P.raw, l).filter((n) => !P.vendors.some((v) => v.name.toLowerCase() === n.toLowerCase()) || /\b(spend|spent|pay|paid|cost|bought|buy)\b/.test(l))),
     (P.neg = /\b(not|no|never|without|has not|have not|did not|does not|un(approved|signed|paid|billed|ordered|submitted|matched))\b/.test(l)),
     (P.measure = /^(when|what date|what day|by when)\b|\bwhen (is|are|was|will|does|do|did)\b|\b(expire|expires|expiring|expiration)\b/.test(l)
@@ -168390,7 +168395,21 @@ function agParse(raw) {
       return m ? { three: 3, five: 5, ten: 10, two: 2 }[m[1]] || +m[1] : 0;
     })()),
     (P.entity = (AG_ENTITY.find((e) => e[1].test(l)) || [""])[0]);
+  // the subject of "which X ..." is X: a later noun only qualifies it ("which materials still need a decision")
+  const head = agHeadEntity(l);
+  head && head !== P.entity && ((P.entityAlso = P.entity), (P.entity = head));
   return P;
+}
+// The record a "which / what / how many / list X" question asks for, when X names a record list. People, jobs,
+// clients, vendors and time stay with the order above: "which jobs have open decisions" is about the decisions.
+const AG_HEAD_OK = new Set(["purchaseorders", "materials", "invoices", "bills", "submittals", "changeorders", "estimates", "decisions", "tasks", "photos", "dailylogs", "obligations", "opportunities"]);
+function agHeadEntity(l) {
+  const m = String(l || "").match(
+    /^(?:which|what|how many|list|show(?: me)?|are there any|are any|any)\s+(?:of (?:the|our|my) )?(?:(?:open|unpaid|late|overdue|new|active|pending|outstanding|our|the|my|still|current)\s+)*([a-z0-9-]+(?:\s+[a-z0-9-]+)?)/,
+  );
+  if (!m) return "";
+  const e = AG_ENTITY.find((x) => x[1].test(m[1]));
+  return e && AG_HEAD_OK.has(e[0]) ? e[0] : "";
 }
 const agWhereJob = (P) => (P.jobs.length ? [`job is ${P.jobs.map(agShort).join(" or ")}`] : []),
   agWherePer = (P) => (P.period ? [`date in ${P.period.label}${P.period.from !== P.period.to ? ` (${fmtL(P.period.from)} to ${fmtL(P.period.to)})` : ` (${fmtL(P.period.from)})`}`] : []),
@@ -168471,7 +168490,55 @@ function agFinAnswer(P, text) {
   if (!f || "finance" !== f.kind) return null;
   return Object.assign(f, { ran: agRan("projects", agWhereJob(P).concat(["job cost from jobFin"]), P.jobs.length ? "" : "job", (f.work || []).length || P.jobs.length) });
 }
+// The bank and card accounts a question names: by a distinct word of the account's name ("Amex", "Chase"),
+// by a card on it ("the field card"), or by its last four digits.
+const AG_ACCT_GENERIC = /^(business|account|accounts|card|cards|checking|savings|credit|debit|store|the|and|pro|plus|owner)$/;
+function agAccounts(l) {
+  const A = DB.accounts || [],
+    tok = (s) => String(s || "").toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length >= 4 && !AG_ACCT_GENERIC.test(t) && !/^\d+$/.test(t)),
+    hit = new Set();
+  A.forEach((a) => {
+    if ((a.last4 && new RegExp(`\\b${a.last4}\\b`).test(l)) || tok(a.name).some((t) => agWordRe(t).test(l))) hit.add(a);
+  });
+  (DB.cards || []).forEach((c) => {
+    const lab = String(c.label || "").toLowerCase().replace(/\s+[—-].*$/, "");
+    if (!(lab && lab.length >= 4 && l.includes(lab)) && !(c.last4 && new RegExp(`\\b${c.last4}\\b`).test(l))) return;
+    const a = A.find((x) => x.last4 && x.last4 === c.last4) || A.find((x) => tok(x.name).some((t) => tok(c.network).includes(t) || tok(c.label).includes(t)));
+    a && hit.add(a);
+  });
+  return [...hit];
+}
+const agAcctOwed = (a) => "card" === (a.kind || a.type) || (+a.balance || 0) < 0;
 const AG_FIN = [
+  {
+    // a named bank or card account's balance: "what is the Amex balance", "how much is in Chase", "what do we owe on the Home Depot card"
+    id: "acctbal",
+    // the words of a balance question, and an account the books hold named in it (or every card / bank account)
+    re: {
+      test: (l) =>
+        /\bbalances?\b|\b(owe|owed|owing|outstanding|due) on (the |our )?\w|\bhow much (is |do we have |have we got )?(in|on|left on|left in)\b|\bwhat('s| is) on (the |our )?\w/.test(l) &&
+        (agAccounts(l).length > 0 || /\b(card|credit card|bank|checking) balances?\b|\bbalances? (on|of) (the |our |all )?(cards|credit cards|bank accounts|accounts)\b/.test(l)),
+    },
+    not: /\b(clients?|customers?|invoices?|vendors?|bills?|suppliers?|subs?|ar|ap|receivables?|payables?|trial balance|balance sheet|retainage|budget|contract)\b/,
+    kind: "money",
+    run(P) {
+      let A = agAccounts(P.l);
+      const allCards = !A.length && /\bcards?\b|\bcredit\b/.test(P.l),
+        allBank = !A.length && /\b(checking|bank accounts?|accounts)\b/.test(P.l);
+      allCards && (A = (DB.accounts || []).filter(agAcctOwed));
+      allBank && (A = (DB.accounts || []).filter((a) => !agAcctOwed(a)));
+      if (!A.length) return null;
+      const say = (a) => `${a.name}${a.last4 ? ` (····${a.last4})` : ""}: ${agAcctOwed(a) ? `${money(Math.abs(+a.balance || 0))} owed` : `${money(+a.balance || 0)} in the account`}`,
+        cards = (a) => (DB.cards || []).filter((c) => c.last4 === a.last4 || String(c.network || "").toLowerCase().split(/\s+/).some((t) => t.length >= 4 && String(a.name).toLowerCase().includes(t))).map((c) => `${c.label} ····${c.last4}`);
+      return {
+        headline: `${A.map(say).join("; ")}, as of ${fmtL(today())}.`,
+        note: A.length === 1 && agAcctOwed(A[0]) && cards(A[0]).length > 1 ? `The cards on this account: ${agList(cards(A[0]))}.` : "",
+        work: A.map((a) => `${a.name} — ${a.kind || a.type || "account"} — balance ${money(+a.balance || 0)}`),
+        go: agGo("bank"),
+        ran: agRan("bank and card accounts", A.length === 1 ? [`account is ${A[0].name}`] : [allCards ? "kind is card" : allBank ? "kind is bank" : `account is ${A.map((a) => a.name).join(" or ")}`], "", A.length),
+      };
+    },
+  },
   {
     id: "dispute",
     re: /\b(dispute[sd]?|disputing|short[- ]?pa(y|id|ys)|held back from (a )?vendor)\b/,
@@ -168907,6 +168974,31 @@ const AG_OPS = [
     },
   },
   {
+    // the questions and issues the field raised: open RFIs, plan updates, site problems
+    id: "fieldissues",
+    re: /\b(field|site|job ?site) (issues?|questions?|problems?|rfis?)\b|\b(issues?|questions?|problems?) (from|on|in|at|raised (on|at|from)) (the )?(field|site|job ?site)\b|\brfis?\b|\bopen issues\b|\bissues? (are |is )?(still )?open\b/,
+    not: /\b(draft|write|send|email)\b/,
+    kind: "ops",
+    run(P) {
+      if ("client" === role()) return null;
+      const A = [].concat(...(DB.projects || []).filter((p) => agOnJob(P, p.id)).map((p) => (p.issues || []).filter((i) => !["answered", "closed", "resolved", "done"].includes(i.status)).map((i) => ({ p: p, i: i, st: issueState(i) })))),
+        hot = A.filter((x) => x.st.sev >= 2),
+        rest = A.filter((x) => x.st.sev < 2),
+        say = (x) => `${x.i.title}${x.i.owner ? `, waiting on ${x.i.owner}` : ""}${x.i.due ? `, needed ${fmtL(x.i.due)}` : ""}`;
+      return {
+        headline: hot.length
+          ? `${agN(hot.length, "question")} from the field ${1 === hot.length ? "is" : "are"} open and need${1 === hot.length ? "s" : ""} an answer now: ${agList(hot.map(say))}${rest.length ? `. ${agN(rest.length, "more issue")} ${1 === rest.length ? "is" : "are"} open and not yet urgent` : ""}.`
+          : A.length
+            ? `No question from the field needs an answer now; ${agN(A.length, "issue")} ${1 === A.length ? "is" : "are"} open and not yet urgent: ${agList(A.map(say))}.`
+            : "No question or issue from the field is open: none.",
+        note: "Needs an answer now is the brief's From the Field list: open, and due soon or holding up a task.",
+        work: A.map((x) => `${agShort(x.p)} — ${x.i.title} (${x.i.type || "issue"})${x.st.msg ? ` — ${x.st.msg}` : ""}`),
+        go: agGo("field"),
+        ran: agRan("site questions and issues", ["open"].concat(agWhereJob(P)), "", A.length),
+      };
+    },
+  },
+  {
     id: "blocking",
     re: /\b(blocking|blocks|holding up|held up|stuck)\b.*\b(field|site|crew|work)\b|\bwhat('s| is) blocking\b/,
     not: /\bsubmittals?\b|\border\b/,
@@ -169102,6 +169194,13 @@ function agOutRows(P) {
   return eqRows("transactions").filter((r) => "out" === r.direction && !["cc-payment", "transfer"].includes(r.category) && agInPer(P, r.date) && agOnJob(P, r.projectId));
 }
 const agTxnHay = (r) => `${r.description || ""} ${r.vendor || ""} ${r.memo || ""}`;
+// A material's status in the words people use: the selection still open, a price in hand.
+const AG_MAT_STATUS = [
+  [/\b(still )?(needs?|needing|waiting (on|for)|awaiting|pending|without) (a |the |an? )?(client )?(decision|selection|choice|pick)s?\b|\bundecided\b|\bnot (yet )?(decided|selected|chosen|picked)\b|\bto be (decided|selected|chosen)\b/, "needs-decision", "needs a decision"],
+  [/\b(quoted|priced|have a quote|with a quote)\b/, "quoted", "quoted"],
+];
+// Records that are received as goods, not as money.
+const AG_GOODS = new Set(["purchaseorders", "materials", "submittals", "bills"]);
 const AG_ENT = [
   {
     // money out: "how much did we spend at Home Depot in August", "what did we pay M Rodriguez", "spend by vendor"
@@ -169110,7 +169209,8 @@ const AG_ENT = [
     test: (P) =>
       "client" !== role() &&
       !/\bsafe to spend\b/.test(P.l) &&
-      (/\b(spend|spent|spending|expenses?|cost us|bought|buy|purchases?)\b/.test(P.l) ||
+      // "purchase orders" are POs, not spend
+      (/\b(spend|spent|spending|expenses?|cost us|bought|buy|purchases?(?! orders?\b))\b/.test(P.l) ||
         (/\b(pay|paid)\b/.test(P.l) && (P.payees.length || P.vendors.length || /\b(we|did we|have we) (pay|paid)\b/.test(P.l)) && !/\b(invoices?|bills?)\b/.test(P.l))) &&
       !/\b(paid us|pay us|collect|came in|client pa|payments? (came|in)|payroll)\b/.test(P.l) &&
       !(P.clients.length && /\b(pay|paid)\b/.test(P.l) && !/\bwe\b/.test(P.l)) &&
@@ -169194,7 +169294,9 @@ const AG_ENT = [
     kind: "money",
     client: !0,
     test: (P) =>
-      /\b(collect(ed|ions?)?|came in|payments?|paid us|pay us|received|deposits?)\b/.test(P.l) ||
+      /\b(collect(ed|ions?)?|came in|payments?|paid us|pay us|deposits?)\b/.test(P.l) ||
+      // "received" is money only when the question is not about goods: a PO, a material or a delivery is received on site
+      (/\breceived\b/.test(P.l) && !AG_GOODS.has(P.entity)) ||
       (P.clients.length && /\b(pay|paid)\b/.test(P.l)) ||
       ("client" === role() && /\b(pay|paid|payments?)\b/.test(P.l)),
     run(P) {
@@ -169249,7 +169351,11 @@ const AG_ENT = [
     // what the crew did on a day at a job: the daily log, then the hours
     id: "crewlog",
     kind: "ops",
-    test: (P) => /\b(crew|guys|team)\b.*\b(do|did|done|work on|up to)\b|\bdaily logs?\b|\bsite log\b/.test(P.l) || (/^who\b/.test(P.l) && /\bon site\b|\bat the site\b|\bon the job\b/.test(P.l) && (P.jobs.length || P.period)),
+    test: (P) =>
+      /\bdaily logs?\b|\bsite log\b/.test(P.l) ||
+      (/\b(crew|guys|team)\b.*\b(do|did|done|work on|up to|log|logged|logs)\b/.test(P.l) && !/\b(hours?|hrs|timesheets?|clocked)\b/.test(P.l)) ||
+      (/^who\b/.test(P.l) && /\bon site\b|\bat the site\b|\bon the job\b/.test(P.l) && (P.jobs.length || P.period)) ||
+      (P.myCrew && P.period && /^who\b|\bwho (was|were|is|came|showed)\b/.test(P.l) && !/\b(hours?|hrs|timesheets?|clocked)\b/.test(P.l)),
     run(P) {
       if ("client" === role()) return null;
       const jobs = P.jobs.length ? P.jobs : DB.projects || [],
@@ -169515,6 +169621,37 @@ const AG_ENT = [
     },
   },
   {
+    // goods receipt on purchase orders: "which POs have not been received", "has the Tino order come in"
+    id: "poreceipt",
+    kind: "ops",
+    test: (P) =>
+      "purchaseorders" === P.entity &&
+      /\b(received|receive|receiving|delivered|arrived|came in|come in|showed up|in yet|here yet|on site yet|outstanding|unreceived|undelivered)\b/.test(P.l) &&
+      "when" !== P.measure &&
+      !/\b(when|expected|arriving|coming|due)\b/.test(P.l),
+    run(P) {
+      if ("client" === role()) return null;
+      const names = P.vendors.length ? P.vendors.map((v) => v.name) : P.payees;
+      let R = eqRows("purchaseorders").filter((r) => !/cancel|draft|void/i.test(r.status || "") && agOnJob(P, r.projectId) && (!names.length || names.some((n) => agNameHit(n, r.vendor))));
+      // "has every PO come in" is answered by the ones that have not
+      const every = /\b(every|all|each)\b/.test(P.l),
+        not = P.neg || every || /\b(outstanding|unreceived|undelivered|still (open|waiting|on order))\b/.test(P.l),
+        where = [not ? "not received" : "received", "not cancelled or draft"].concat(names.length ? [`vendor is ${names.join(" or ")}`] : [], agWhereJob(P));
+      R = R.filter((r) => (not ? !r.received : !!r.received));
+      const one = (r) => `${r.number} from ${r.vendor}${r.project ? ` for ${r.project}` : ""}${not && r.expected ? `, expected ${fmtL(r.expected)}${r.expected < today() ? " (late)" : ""}` : ""}`;
+      return {
+        headline: R.length
+          ? `${every ? "No: " : ""}${agN(R.length, "purchase order")} ${not ? `${1 === R.length ? "has" : "have"} not been received yet` : `${1 === R.length ? "has" : "have"} been received`}: ${agList(R.map(one))}.`
+          : not
+            ? `${every ? "Yes: e" : "E"}very purchase order${names.length ? ` from ${names[0]}` : ""}${P.jobs.length ? ` on ${agShort(P.jobs[0])}` : ""} has been received: none is still out.`
+            : `No purchase order${names.length ? ` from ${names[0]}` : ""} has been received yet: none.`,
+        work: R.map((r) => `${r.number} · ${r.vendor} · ${r.project || ""} — ${r.status}${r.items ? ` — ${r.items}` : ""}`),
+        go: agGo("po"),
+        ran: agRan("purchase orders", where, "", R.length),
+      };
+    },
+  },
+  {
     id: "orders",
     kind: "ops",
     test: (P) => (P.vendors.length || P.payees.length) && /\b(order|orders|ordered|on order|po|pos|expected|arriv|deliver)/.test(P.l),
@@ -169581,7 +169718,8 @@ const AG_ENT = [
         jobs = P.jobs.length ? P.jobs : DB.projects || [];
       let R = [].concat(...jobs.map((p) => (p.materials || []).map((m) => ({ p: p, m: m }))));
       const where = agWhereJob(P),
-        words = P.l.split(" ").filter((w) => w.length >= 4 && !AG_STOPW.has(w) && !/^(materials?|here|site|ordered|order|arrived|delivered|many|much|have|state|street|lenox|cranberry|prospect)$/.test(w)),
+        st = AG_MAT_STATUS.find((x) => x[0].test(P.l)),
+        words = (st ? P.l.replace(st[0], " ") : P.l).split(" ").filter((w) => w.length >= 4 && !AG_STOPW.has(w) && !/^(materials?|here|site|ordered|order|arrived|delivered|many|much|have|state|street|lenox|cranberry|prospect|need|needs|waiting|decision|decided|selection|quoted|quote|priced)$/.test(w)),
         named = R.filter((x) => words.some((w) => new RegExp(`\\b${w.replace(/s$/, "")}`).test(String(x.m.name).toLowerCase())));
       if (named.length && !/\bhow many\b/.test(P.l)) {
         const own = named.filter((x) => !mine.length || mine.includes(x.p)),
@@ -169592,11 +169730,14 @@ const AG_ENT = [
           ran: agRan("materials", [`name matches "${words.join(" ")}"`].concat(where), "", L.length),
         };
       }
-      if (P.neg && /\bordered\b/.test(P.l)) (R = R.filter((x) => "not-ordered" === x.m.status)), where.push("status is not ordered");
+      if (st) (R = R.filter((x) => st[1] === x.m.status)), where.push(`status is ${st[2]}`);
+      else if (P.neg && /\bordered\b/.test(P.l)) (R = R.filter((x) => "not-ordered" === x.m.status)), where.push("status is not ordered");
       else if (/\bon order\b|\bordered\b/.test(P.l)) (R = R.filter((x) => "ordered" === x.m.status)), where.push("status is ordered");
       else if (/\bon site\b|\bdelivered\b|\barrived\b/.test(P.l)) (R = R.filter((x) => "on-site" === x.m.status)), where.push("status is on site");
       return {
-        headline: `${agN(R.length, "material")}${where.length > agWhereJob(P).length ? " " + where[where.length - 1].replace(/^status is /, "") : ""}${P.jobs.length ? ` on ${agShort(P.jobs[0])}` : ""}.`,
+        headline: st
+          ? `${agN(R.length, "material")}${P.jobs.length ? ` on ${agShort(P.jobs[0])}` : ""} ${"needs-decision" === st[1] ? (1 === R.length ? "needs a decision" : "need a decision") : `${1 === R.length ? "is" : "are"} ${st[2]}`}${R.length ? `: ${agList(R.map((x) => x.m.name))}` : ": none"}.`
+          : `${agN(R.length, "material")}${where.length > agWhereJob(P).length ? " " + where[where.length - 1].replace(/^status is /, "") : ""}${P.jobs.length ? ` on ${agShort(P.jobs[0])}` : ""}.`,
         work: R.slice(0, 15).map((x) => `${agShort(x.p)} — ${x.m.name} (${x.m.status})`),
         go: agGo("mat") || agGo("proc"),
         ran: agRan("materials", where, "", R.length),
