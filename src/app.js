@@ -10631,10 +10631,17 @@ function renderCosts() {
     ? recent
         .map(
           (t) =>
-            `<div class="chg"><span>${fmt(t.date)}</span>${esc(t.vendor || t.desc.slice(0, 28))} <span class="muted">· ${esc(catName(t.cat))}${t.code ? " · " + t.code : ""}</span><span class="right" style="float:right;${t.amt > 0 ? "color:var(--ok)" : ""}">${t.amt > 0 ? "+" : ""}${money(t.amt)}</span></div>`,
+            `<div class="chg"><span>${fmt(t.date)}</span><a href="#" data-jctx="${esc(t.id)}">${esc(t.vendor || t.desc.slice(0, 28))}</a> <span class="muted">· ${esc(catName(t.cat))}${t.code ? " · " + t.code : ""}</span>${"manual" === t.source && "function" == typeof bfBacked && !bfBacked(t) && !t.exception ? ' <span class="warn-t">· typed by hand, no bank line behind it</span>' : ""}<span class="right" style="float:right;${t.amt > 0 ? "color:var(--ok)" : ""}">${t.amt > 0 ? "+" : ""}${money(t.amt)}</span></div>`,
         )
         .join("")
     : '<div class="muted">No transactions assigned to this job yet.</div>';
+  // each line opens its record (the bank line, with where it came from)
+  $("#jc-recent").querySelectorAll("[data-jctx]").forEach(
+    (a) =>
+      (a.onclick = (e) => {
+        e.preventDefault(), txnDialog(a.dataset.jctx);
+      }),
+  );
 }
 function budgetFromEstimate() {
   const cl = clientOf(),
@@ -29196,6 +29203,7 @@ function jobFin(p, range) {
   let laborCost = 0,
     hours = 0;
   const laborByCode = {},
+    laborSrc = {},
     trueUp = payrollTrueUp();
   time.forEach((e) => {
     const emp = DB.employees.find((x) => x.id === e.empId),
@@ -29211,7 +29219,7 @@ function jobFin(p, range) {
     }).hours += h),
       (laborByEmp[k].cost += cost);
     const code = e.code || "99";
-    laborByCode[code] = (laborByCode[code] || 0) + cost;
+    (laborByCode[code] = (laborByCode[code] || 0) + cost), (laborSrc[code] = laborSrc[code] || []).push("time:" + e.id);
   }),
     (laborCost = r2(laborCost)),
     (hours = r2(hours));
@@ -29248,8 +29256,10 @@ function jobFin(p, range) {
     estGP = r2(contract - eac),
     plannedGP = r2(contract - budget),
     byCode = {},
-    bump = (code, k, v) => {
-      (byCode[code] = byCode[code] || {
+    // every figure on a cost code carries the ids of the records behind it (src: "bill:b1", "txn:t9", "time:…",
+    // "stock:…", "po:…", "estimate:<doc>:<line>", "co:<doc>:<line>"), so a drill-down and a leak name the source
+    bump = (code, k, v, id) => {
+      const row = (byCode[code] = byCode[code] || {
         code: code,
         name: (COST_CODES.find((x) => x[0] === code) || [code, "Other"])[1],
         contract: 0,
@@ -29260,12 +29270,15 @@ function jobFin(p, range) {
         stock: 0,
         labor: 0,
         actual: 0,
-      })[k] += v;
+        src: [],
+      });
+      (row[k] += v), id && !row.src.includes(id) && row.src.push(id);
     };
   return (
     budgetLines.forEach(({ l: l, doc: doc }) => {
-      const code = lineCode(l, doc);
-      bump(code, "budget", lineBudget(l, doc).budget), bump(code, "contract", lineAmount(l, doc));
+      const code = lineCode(l, doc),
+        id = `${doc === est ? "estimate" : "co"}:${doc.id}:${l.id}`;
+      bump(code, "budget", lineBudget(l, doc).budget, id), bump(code, "contract", lineAmount(l, doc), id);
     }),
     costedBills.forEach((b) => {
       // what the bill charges for PO lines billed back to the client is on its own row, as a reimbursable bank line is
@@ -29274,12 +29287,13 @@ function jobFin(p, range) {
         b.code || (b.line ? findLine(b.line)?.line.code || codeForLine(findLine(b.line)?.line || {}) : "99"),
         "bills",
         billCost(b) - rbp,
+        "bill:" + b.id,
       ),
-        rbp && bump("RB", "bills", rbp);
+        rbp && bump("RB", "bills", rbp, "bill:" + b.id);
     }),
-    txns.forEach((t) => bump(txnRebilled(t) ? "RB" : t.code || "99", "bank", -t.amt)),
-    Object.entries(laborByCode).forEach(([code, v]) => bump(code, "labor", v)),
-    stockRows.forEach((u) => bump(stockUseCode(u), "stock", +u.amount || 0)),
+    txns.forEach((t) => bump(txnRebilled(t) ? "RB" : t.code || "99", "bank", -t.amt, "txn:" + t.id)),
+    Object.entries(laborByCode).forEach(([code, v]) => (bump(code, "labor", v), (laborSrc[code] || []).forEach((id) => byCode[code].src.includes(id) || byCode[code].src.push(id)))),
+    stockRows.forEach((u) => bump(stockUseCode(u), "stock", +u.amount || 0, "stock:" + (u.id || u.at))),
     pos.forEach((po) => {
       const tot = poTotal(po).sub,
         open = Math.max(
@@ -29293,7 +29307,7 @@ function jobFin(p, range) {
       po.lines.forEach((l) => {
         const ref = l.line ? findLine(l.line) : null,
           code = l.code || (ref ? ref.line.code || codeForLine(ref.line) : "99");
-        bump(l.billable ? "RB" : code, "committed", tot ? (open * ((+l.qty || 0) * (+l.price || 0))) / tot : 0);
+        bump(l.billable ? "RB" : code, "committed", tot ? (open * ((+l.qty || 0) * (+l.price || 0))) / tot : 0, "po:" + po.id);
       });
     }),
     byCode.RB && (byCode.RB.name = "Billed back to the client"),
@@ -29461,7 +29475,7 @@ function ptNeedsMe() {
   const rows = needsMe(),
     show = needsAll ? rows : rows.slice(0, 8),
     urgent = rows.filter((r) => "bad" === r.sev).length;
-  return `<div class="nm-sum small muted">${rows.length ? `${rows.length} item${rows.length > 1 ? "s" : ""} · ${urgent} need${1 === urgent ? "s" : ""} action now` : "Nothing waiting on you."}</div><div class="rem nm">${show.map((r) => `<div class="rem-row ${r.sev}" data-remgo='${esc(JSON.stringify(r.go))}'><b>${esc(String(r.n || "·"))}</b><span><b>${esc(r.title)}</b>${r.detail ? `<br><span class="small muted">${r.detail}</span>` : ""}</span><em class="nm-act">${r.action}</em></div>`).join("")}</div>${rows.length > 8 ? `<button class="btn sm" data-nmall>${needsAll ? "Show fewer" : `Show all ${rows.length}`}</button>` : ""}`;
+  return `<div class="nm-sum small muted">${rows.length ? `${rows.length} item${rows.length > 1 ? "s" : ""} · ${urgent} need${1 === urgent ? "s" : ""} action now` : "Nothing waiting on you."}</div><div class="rem nm">${show.map((r) => `<div class="rem-row ${r.sev}" data-remgo='${esc(JSON.stringify(r.go))}'><b>${esc(String(r.n || "·"))}</b><span><b>${esc(r.title)}</b>${r.detail ? `<br><span class="small muted">${r.detail}</span>` : ""}</span><button type="button" class="nm-act">${esc(r.action || "Open")}</button></div>`).join("")}</div>${rows.length > 8 ? `<button class="btn sm" data-nmall>${needsAll ? "Show fewer" : `Show all ${rows.length}`}</button>` : ""}`;
 }
 function ptCash() {
   const B = companyBalance(),
@@ -33876,10 +33890,12 @@ jobFin = function (p, range) {
           bank: 0,
           labor: 0,
           actual: 0,
+          src: [],
         }),
         J.byCode.push(row)),
         (row.bills = r2(row.bills + billCost(b))),
-        (row.actual = r2(row.actual + billCost(b)));
+        (row.actual = r2(row.actual + billCost(b))),
+        (row.src = row.src || []).includes("bill:" + b.id) || row.src.push("bill:" + b.id);
     }),
     J.byCode.sort((a, b) => a.code.localeCompare(b.code));
   return (
@@ -35044,7 +35060,7 @@ ptNeedsMe = function () {
       return (
         (shown += vis.length),
         vis.length
-          ? `<div class="nm-band"><h4>${l} <span class="muted">${list.length}</span></h4><div class="rem nm">${vis.map((r) => `<div class="rem-row ${r.sev}" data-remgo='${esc(JSON.stringify(r.go))}'><b>${esc(String(r.n || "·"))}</b><span><b>${esc(r.title)}</b>${r.detail ? `<br><span class="small muted">${r.detail}</span>` : ""}</span><em class="nm-act">${r.action}</em></div>`).join("")}</div></div>`
+          ? `<div class="nm-band"><h4>${l} <span class="muted">${list.length}</span></h4><div class="rem nm">${vis.map((r) => `<div class="rem-row ${r.sev}" data-remgo='${esc(JSON.stringify(r.go))}'><b>${esc(String(r.n || "·"))}</b><span><b>${esc(r.title)}</b>${r.detail ? `<br><span class="small muted">${r.detail}</span>` : ""}</span><button type="button" class="nm-act">${esc(r.action || "Open")}</button></div>`).join("")}</div></div>`
           : `<div class="nm-band"><h4>${l} <span class="muted">${list.length}</span></h4></div>`
       );
     })
@@ -86659,7 +86675,7 @@ function renderMApprove() {
             .slice(0, 12)
             .map(
               (x) =>
-                `<div class="rem-row ${x.sev}" data-remgo='${esc(JSON.stringify(x.go || { view: "home" }))}'><b>${esc(String(x.n || "·"))}</b><span><b>${esc(x.title)}</b>${x.detail ? `<br><span class="small muted">${x.detail}</span>` : ""}</span><em class="nm-act">${x.action || "Open"}</em></div>`,
+                `<div class="rem-row ${x.sev}" data-remgo='${esc(JSON.stringify(x.go || { view: "home" }))}'><b>${esc(String(x.n || "·"))}</b><span><b>${esc(x.title)}</b>${x.detail ? `<br><span class="small muted">${x.detail}</span>` : ""}</span><button type="button" class="nm-act">${esc(x.action || "Open")}</button></div>`,
             )
             .join("")}</div>`
         : ""
@@ -121982,7 +121998,7 @@ if ("function" == typeof jobFin) {
         (J.billsAmt = r2(J.billsAmt - amt)),
         (J.accrued = r2((J.accrued || 0) - amt));
       const row = J.byCode.find((x) => x.code === (b.code || "99"));
-      row && ((row.bills = r2(row.bills - amt)), (row.actual = r2(row.actual - amt)));
+      row && ((row.bills = r2(row.bills - amt)), (row.actual = r2(row.actual - amt)), row.src && (row.src = row.src.filter((x) => x !== "bill:" + b.id)));
     });
     return jobFinDerive(J, p);
   };
@@ -130737,7 +130753,7 @@ if ("function" == typeof jobFin) {
       const amt = billCost(b);
       (J.actual = r2(J.actual - amt)), (J.billsAmt = r2(J.billsAmt - amt));
       const row = J.byCode.find((x) => x.code === (b.code || "99"));
-      row && ((row.bills = r2(row.bills - amt)), (row.actual = r2(row.actual - amt)));
+      row && ((row.bills = r2(row.bills - amt)), (row.actual = r2(row.actual - amt)), row.src && (row.src = row.src.filter((x) => x !== "bill:" + b.id)));
     });
     return jobFinDerive(J, p);
   };
@@ -168049,6 +168065,8 @@ function agNouns() {
 function agKnownWord(t) {
   const w = String(t || "").toLowerCase().replace(/[^a-z0-9'-]/g, "").replace(/'s$/, "");
   if (!w) return !0;
+  // a negating prefix on a word we hold is a word we hold: "undecided", "unreceived", "unanswered" are never typos
+  if (/^(un|non-?)[a-z]{4,}$/.test(w) && agKnownWord(w.replace(/^(un|non-?)/, ""))) return !0;
   const N = agNouns(),
     forms = [w, w.replace(/s$/, ""), w.replace(/es$/, ""), w.replace(/ed$/, ""), w.replace(/ed$/, "e"), w.replace(/d$/, ""), w.replace(/ing$/, ""), w.replace(/ing$/, "e"), w.replace(/([a-z])\1(ed|ing)$/, "$1"), w.replace(/ied$/, "y"), w.replace(/ies$/, "y"), w.replace(/ly$/, ""), w.replace(/ily$/, "y"), w.replace(/er$/, ""), w.replace(/est$/, "")];
   return forms.some((f) => f.length >= 2 && (AG_DICT.has(f) || N.has(f)));
@@ -168394,8 +168412,11 @@ function agParse(raw) {
     (P.vendors = agVendors(l)),
     (P.people = agPeople(l)),
     (P.contacts = agContactsIn(l)),
-    (P.self = /\b(i|me|my|mine|myself)\b/.test(l)),
+    // "my crew", "our guys", "my team": the people the asker runs, not the asker; on a field role, the job they are on
+    (P.myCrew = /\b(my|our) (crew|team|guys|men|workers|people on site)\b/.test(l)),
+    (P.self = /\b(i|me|my|mine|myself)\b/.test(P.myCrew ? l.replace(/\b(my|our) (crew|team|guys|men|workers|people on site)\b/g, " ") : l)),
     P.self && me && !P.people.includes(me) && (P.meEmp = me),
+    P.myCrew && !P.jobs.length && (P.jobs = agHomeJobs()),
     (P.payees = agPayeeIn(P.raw, l).filter((n) => !P.vendors.some((v) => v.name.toLowerCase() === n.toLowerCase()) || /\b(spend|spent|pay|paid|cost|bought|buy)\b/.test(l))),
     (P.neg = /\b(not|no|never|without|has not|have not|did not|does not|un(approved|signed|paid|billed|ordered|submitted|matched))\b/.test(l)),
     (P.measure = /^(when|what date|what day|by when)\b|\bwhen (is|are|was|will|does|do|did)\b|\b(expire|expires|expiring|expiration)\b/.test(l)
@@ -168416,7 +168437,21 @@ function agParse(raw) {
       return m ? { three: 3, five: 5, ten: 10, two: 2 }[m[1]] || +m[1] : 0;
     })()),
     (P.entity = (AG_ENTITY.find((e) => e[1].test(l)) || [""])[0]);
+  // the subject of "which X ..." is X: a later noun only qualifies it ("which materials still need a decision")
+  const head = agHeadEntity(l);
+  head && head !== P.entity && ((P.entityAlso = P.entity), (P.entity = head));
   return P;
+}
+// The record a "which / what / how many / list X" question asks for, when X names a record list. People, jobs,
+// clients, vendors and time stay with the order above: "which jobs have open decisions" is about the decisions.
+const AG_HEAD_OK = new Set(["purchaseorders", "materials", "invoices", "bills", "submittals", "changeorders", "estimates", "decisions", "tasks", "photos", "dailylogs", "obligations", "opportunities"]);
+function agHeadEntity(l) {
+  const m = String(l || "").match(
+    /^(?:which|what|how many|list|show(?: me)?|are there any|are any|any)\s+(?:of (?:the|our|my) )?(?:(?:open|unpaid|late|overdue|new|active|pending|outstanding|our|the|my|still|current)\s+)*([a-z0-9-]+(?:\s+[a-z0-9-]+)?)/,
+  );
+  if (!m) return "";
+  const e = AG_ENTITY.find((x) => x[1].test(m[1]));
+  return e && AG_HEAD_OK.has(e[0]) ? e[0] : "";
 }
 const agWhereJob = (P) => (P.jobs.length ? [`job is ${P.jobs.map(agShort).join(" or ")}`] : []),
   agWherePer = (P) => (P.period ? [`date in ${P.period.label}${P.period.from !== P.period.to ? ` (${fmtL(P.period.from)} to ${fmtL(P.period.to)})` : ` (${fmtL(P.period.from)})`}`] : []),
@@ -168497,7 +168532,55 @@ function agFinAnswer(P, text) {
   if (!f || "finance" !== f.kind) return null;
   return Object.assign(f, { ran: agRan("projects", agWhereJob(P).concat(["job cost from jobFin"]), P.jobs.length ? "" : "job", (f.work || []).length || P.jobs.length) });
 }
+// The bank and card accounts a question names: by a distinct word of the account's name ("Amex", "Chase"),
+// by a card on it ("the field card"), or by its last four digits.
+const AG_ACCT_GENERIC = /^(business|account|accounts|card|cards|checking|savings|credit|debit|store|the|and|pro|plus|owner)$/;
+function agAccounts(l) {
+  const A = DB.accounts || [],
+    tok = (s) => String(s || "").toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length >= 4 && !AG_ACCT_GENERIC.test(t) && !/^\d+$/.test(t)),
+    hit = new Set();
+  A.forEach((a) => {
+    if ((a.last4 && new RegExp(`\\b${a.last4}\\b`).test(l)) || tok(a.name).some((t) => agWordRe(t).test(l))) hit.add(a);
+  });
+  (DB.cards || []).forEach((c) => {
+    const lab = String(c.label || "").toLowerCase().replace(/\s+[—-].*$/, "");
+    if (!(lab && lab.length >= 4 && l.includes(lab)) && !(c.last4 && new RegExp(`\\b${c.last4}\\b`).test(l))) return;
+    const a = A.find((x) => x.last4 && x.last4 === c.last4) || A.find((x) => tok(x.name).some((t) => tok(c.network).includes(t) || tok(c.label).includes(t)));
+    a && hit.add(a);
+  });
+  return [...hit];
+}
+const agAcctOwed = (a) => "card" === (a.kind || a.type) || (+a.balance || 0) < 0;
 const AG_FIN = [
+  {
+    // a named bank or card account's balance: "what is the Amex balance", "how much is in Chase", "what do we owe on the Home Depot card"
+    id: "acctbal",
+    // the words of a balance question, and an account the books hold named in it (or every card / bank account)
+    re: {
+      test: (l) =>
+        /\bbalances?\b|\b(owe|owed|owing|outstanding|due) on (the |our )?\w|\bhow much (is |do we have |have we got )?(in|on|left on|left in)\b|\bwhat('s| is) on (the |our )?\w/.test(l) &&
+        (agAccounts(l).length > 0 || /\b(card|credit card|bank|checking) balances?\b|\bbalances? (on|of) (the |our |all )?(cards|credit cards|bank accounts|accounts)\b/.test(l)),
+    },
+    not: /\b(clients?|customers?|invoices?|vendors?|bills?|suppliers?|subs?|ar|ap|receivables?|payables?|trial balance|balance sheet|retainage|budget|contract)\b/,
+    kind: "money",
+    run(P) {
+      let A = agAccounts(P.l);
+      const allCards = !A.length && /\bcards?\b|\bcredit\b/.test(P.l),
+        allBank = !A.length && /\b(checking|bank accounts?|accounts)\b/.test(P.l);
+      allCards && (A = (DB.accounts || []).filter(agAcctOwed));
+      allBank && (A = (DB.accounts || []).filter((a) => !agAcctOwed(a)));
+      if (!A.length) return null;
+      const say = (a) => `${a.name}${a.last4 ? ` (····${a.last4})` : ""}: ${agAcctOwed(a) ? `${money(Math.abs(+a.balance || 0))} owed` : `${money(+a.balance || 0)} in the account`}`,
+        cards = (a) => (DB.cards || []).filter((c) => c.last4 === a.last4 || String(c.network || "").toLowerCase().split(/\s+/).some((t) => t.length >= 4 && String(a.name).toLowerCase().includes(t))).map((c) => `${c.label} ····${c.last4}`);
+      return {
+        headline: `${A.map(say).join("; ")}, as of ${fmtL(today())}.`,
+        note: A.length === 1 && agAcctOwed(A[0]) && cards(A[0]).length > 1 ? `The cards on this account: ${agList(cards(A[0]))}.` : "",
+        work: A.map((a) => `${a.name} — ${a.kind || a.type || "account"} — balance ${money(+a.balance || 0)}`),
+        go: agGo("bank"),
+        ran: agRan("bank and card accounts", A.length === 1 ? [`account is ${A[0].name}`] : [allCards ? "kind is card" : allBank ? "kind is bank" : `account is ${A.map((a) => a.name).join(" or ")}`], "", A.length),
+      };
+    },
+  },
   {
     id: "dispute",
     re: /\b(dispute[sd]?|disputing|short[- ]?pa(y|id|ys)|held back from (a )?vendor)\b/,
@@ -168933,6 +169016,31 @@ const AG_OPS = [
     },
   },
   {
+    // the questions and issues the field raised: open RFIs, plan updates, site problems
+    id: "fieldissues",
+    re: /\b(field|site|job ?site) (issues?|questions?|problems?|rfis?)\b|\b(issues?|questions?|problems?) (from|on|in|at|raised (on|at|from)) (the )?(field|site|job ?site)\b|\brfis?\b|\bopen issues\b|\bissues? (are |is )?(still )?open\b/,
+    not: /\b(draft|write|send|email)\b/,
+    kind: "ops",
+    run(P) {
+      if ("client" === role()) return null;
+      const A = [].concat(...(DB.projects || []).filter((p) => agOnJob(P, p.id)).map((p) => (p.issues || []).filter((i) => !["answered", "closed", "resolved", "done"].includes(i.status)).map((i) => ({ p: p, i: i, st: issueState(i) })))),
+        hot = A.filter((x) => x.st.sev >= 2),
+        rest = A.filter((x) => x.st.sev < 2),
+        say = (x) => `${x.i.title}${x.i.owner ? `, waiting on ${x.i.owner}` : ""}${x.i.due ? `, needed ${fmtL(x.i.due)}` : ""}`;
+      return {
+        headline: hot.length
+          ? `${agN(hot.length, "question")} from the field ${1 === hot.length ? "is" : "are"} open and need${1 === hot.length ? "s" : ""} an answer now: ${agList(hot.map(say))}${rest.length ? `. ${agN(rest.length, "more issue")} ${1 === rest.length ? "is" : "are"} open and not yet urgent` : ""}.`
+          : A.length
+            ? `No question from the field needs an answer now; ${agN(A.length, "issue")} ${1 === A.length ? "is" : "are"} open and not yet urgent: ${agList(A.map(say))}.`
+            : "No question or issue from the field is open: none.",
+        note: "Needs an answer now is the brief's From the Field list: open, and due soon or holding up a task.",
+        work: A.map((x) => `${agShort(x.p)} — ${x.i.title} (${x.i.type || "issue"})${x.st.msg ? ` — ${x.st.msg}` : ""}`),
+        go: agGo("field"),
+        ran: agRan("site questions and issues", ["open"].concat(agWhereJob(P)), "", A.length),
+      };
+    },
+  },
+  {
     id: "blocking",
     re: /\b(blocking|blocks|holding up|held up|stuck)\b.*\b(field|site|crew|work)\b|\bwhat('s| is) blocking\b/,
     not: /\bsubmittals?\b|\border\b/,
@@ -169128,6 +169236,13 @@ function agOutRows(P) {
   return eqRows("transactions").filter((r) => "out" === r.direction && !["cc-payment", "transfer"].includes(r.category) && agInPer(P, r.date) && agOnJob(P, r.projectId));
 }
 const agTxnHay = (r) => `${r.description || ""} ${r.vendor || ""} ${r.memo || ""}`;
+// A material's status in the words people use: the selection still open, a price in hand.
+const AG_MAT_STATUS = [
+  [/\b(still )?(needs?|needing|waiting (on|for)|awaiting|pending|without) (a |the |an? )?(client )?(decision|selection|choice|pick)s?\b|\bundecided\b|\bnot (yet )?(decided|selected|chosen|picked)\b|\bto be (decided|selected|chosen)\b/, "needs-decision", "needs a decision"],
+  [/\b(quoted|priced|have a quote|with a quote)\b/, "quoted", "quoted"],
+];
+// Records that are received as goods, not as money.
+const AG_GOODS = new Set(["purchaseorders", "materials", "submittals", "bills"]);
 const AG_ENT = [
   {
     // money out: "how much did we spend at Home Depot in August", "what did we pay M Rodriguez", "spend by vendor"
@@ -169136,7 +169251,8 @@ const AG_ENT = [
     test: (P) =>
       "client" !== role() &&
       !/\bsafe to spend\b/.test(P.l) &&
-      (/\b(spend|spent|spending|expenses?|cost us|bought|buy|purchases?)\b/.test(P.l) ||
+      // "purchase orders" are POs, not spend
+      (/\b(spend|spent|spending|expenses?|cost us|bought|buy|purchases?(?! orders?\b))\b/.test(P.l) ||
         (/\b(pay|paid)\b/.test(P.l) && (P.payees.length || P.vendors.length || /\b(we|did we|have we) (pay|paid)\b/.test(P.l)) && !/\b(invoices?|bills?)\b/.test(P.l))) &&
       !/\b(paid us|pay us|collect|came in|client pa|payments? (came|in)|payroll)\b/.test(P.l) &&
       !(P.clients.length && /\b(pay|paid)\b/.test(P.l) && !/\bwe\b/.test(P.l)) &&
@@ -169220,7 +169336,9 @@ const AG_ENT = [
     kind: "money",
     client: !0,
     test: (P) =>
-      /\b(collect(ed|ions?)?|came in|payments?|paid us|pay us|received|deposits?)\b/.test(P.l) ||
+      /\b(collect(ed|ions?)?|came in|payments?|paid us|pay us|deposits?)\b/.test(P.l) ||
+      // "received" is money only when the question is not about goods: a PO, a material or a delivery is received on site
+      (/\breceived\b/.test(P.l) && !AG_GOODS.has(P.entity)) ||
       (P.clients.length && /\b(pay|paid)\b/.test(P.l)) ||
       ("client" === role() && /\b(pay|paid|payments?)\b/.test(P.l)),
     run(P) {
@@ -169275,7 +169393,11 @@ const AG_ENT = [
     // what the crew did on a day at a job: the daily log, then the hours
     id: "crewlog",
     kind: "ops",
-    test: (P) => /\b(crew|guys|team)\b.*\b(do|did|done|work on|up to)\b|\bdaily logs?\b|\bsite log\b/.test(P.l) || (/^who\b/.test(P.l) && /\bon site\b|\bat the site\b|\bon the job\b/.test(P.l) && (P.jobs.length || P.period)),
+    test: (P) =>
+      /\bdaily logs?\b|\bsite log\b/.test(P.l) ||
+      (/\b(crew|guys|team)\b.*\b(do|did|done|work on|up to|log|logged|logs)\b/.test(P.l) && !/\b(hours?|hrs|timesheets?|clocked)\b/.test(P.l)) ||
+      (/^who\b/.test(P.l) && /\bon site\b|\bat the site\b|\bon the job\b/.test(P.l) && (P.jobs.length || P.period)) ||
+      (P.myCrew && P.period && /^who\b|\bwho (was|were|is|came|showed)\b/.test(P.l) && !/\b(hours?|hrs|timesheets?|clocked)\b/.test(P.l)),
     run(P) {
       if ("client" === role()) return null;
       const jobs = P.jobs.length ? P.jobs : DB.projects || [],
@@ -169541,6 +169663,37 @@ const AG_ENT = [
     },
   },
   {
+    // goods receipt on purchase orders: "which POs have not been received", "has the Tino order come in"
+    id: "poreceipt",
+    kind: "ops",
+    test: (P) =>
+      "purchaseorders" === P.entity &&
+      /\b(received|receive|receiving|delivered|arrived|came in|come in|showed up|in yet|here yet|on site yet|outstanding|unreceived|undelivered)\b/.test(P.l) &&
+      "when" !== P.measure &&
+      !/\b(when|expected|arriving|coming|due)\b/.test(P.l),
+    run(P) {
+      if ("client" === role()) return null;
+      const names = P.vendors.length ? P.vendors.map((v) => v.name) : P.payees;
+      let R = eqRows("purchaseorders").filter((r) => !/cancel|draft|void/i.test(r.status || "") && agOnJob(P, r.projectId) && (!names.length || names.some((n) => agNameHit(n, r.vendor))));
+      // "has every PO come in" is answered by the ones that have not
+      const every = /\b(every|all|each)\b/.test(P.l),
+        not = P.neg || every || /\b(outstanding|unreceived|undelivered|still (open|waiting|on order))\b/.test(P.l),
+        where = [not ? "not received" : "received", "not cancelled or draft"].concat(names.length ? [`vendor is ${names.join(" or ")}`] : [], agWhereJob(P));
+      R = R.filter((r) => (not ? !r.received : !!r.received));
+      const one = (r) => `${r.number} from ${r.vendor}${r.project ? ` for ${r.project}` : ""}${not && r.expected ? `, expected ${fmtL(r.expected)}${r.expected < today() ? " (late)" : ""}` : ""}`;
+      return {
+        headline: R.length
+          ? `${every ? "No: " : ""}${agN(R.length, "purchase order")} ${not ? `${1 === R.length ? "has" : "have"} not been received yet` : `${1 === R.length ? "has" : "have"} been received`}: ${agList(R.map(one))}.`
+          : not
+            ? `${every ? "Yes: e" : "E"}very purchase order${names.length ? ` from ${names[0]}` : ""}${P.jobs.length ? ` on ${agShort(P.jobs[0])}` : ""} has been received: none is still out.`
+            : `No purchase order${names.length ? ` from ${names[0]}` : ""} has been received yet: none.`,
+        work: R.map((r) => `${r.number} · ${r.vendor} · ${r.project || ""} — ${r.status}${r.items ? ` — ${r.items}` : ""}`),
+        go: agGo("po"),
+        ran: agRan("purchase orders", where, "", R.length),
+      };
+    },
+  },
+  {
     id: "orders",
     kind: "ops",
     test: (P) => (P.vendors.length || P.payees.length) && /\b(order|orders|ordered|on order|po|pos|expected|arriv|deliver)/.test(P.l),
@@ -169607,7 +169760,8 @@ const AG_ENT = [
         jobs = P.jobs.length ? P.jobs : DB.projects || [];
       let R = [].concat(...jobs.map((p) => (p.materials || []).map((m) => ({ p: p, m: m }))));
       const where = agWhereJob(P),
-        words = P.l.split(" ").filter((w) => w.length >= 4 && !AG_STOPW.has(w) && !/^(materials?|here|site|ordered|order|arrived|delivered|many|much|have|state|street|lenox|cranberry|prospect)$/.test(w)),
+        st = AG_MAT_STATUS.find((x) => x[0].test(P.l)),
+        words = (st ? P.l.replace(st[0], " ") : P.l).split(" ").filter((w) => w.length >= 4 && !AG_STOPW.has(w) && !/^(materials?|here|site|ordered|order|arrived|delivered|many|much|have|state|street|lenox|cranberry|prospect|need|needs|waiting|decision|decided|selection|quoted|quote|priced)$/.test(w)),
         named = R.filter((x) => words.some((w) => new RegExp(`\\b${w.replace(/s$/, "")}`).test(String(x.m.name).toLowerCase())));
       if (named.length && !/\bhow many\b/.test(P.l)) {
         const own = named.filter((x) => !mine.length || mine.includes(x.p)),
@@ -169618,11 +169772,14 @@ const AG_ENT = [
           ran: agRan("materials", [`name matches "${words.join(" ")}"`].concat(where), "", L.length),
         };
       }
-      if (P.neg && /\bordered\b/.test(P.l)) (R = R.filter((x) => "not-ordered" === x.m.status)), where.push("status is not ordered");
+      if (st) (R = R.filter((x) => st[1] === x.m.status)), where.push(`status is ${st[2]}`);
+      else if (P.neg && /\bordered\b/.test(P.l)) (R = R.filter((x) => "not-ordered" === x.m.status)), where.push("status is not ordered");
       else if (/\bon order\b|\bordered\b/.test(P.l)) (R = R.filter((x) => "ordered" === x.m.status)), where.push("status is ordered");
       else if (/\bon site\b|\bdelivered\b|\barrived\b/.test(P.l)) (R = R.filter((x) => "on-site" === x.m.status)), where.push("status is on site");
       return {
-        headline: `${agN(R.length, "material")}${where.length > agWhereJob(P).length ? " " + where[where.length - 1].replace(/^status is /, "") : ""}${P.jobs.length ? ` on ${agShort(P.jobs[0])}` : ""}.`,
+        headline: st
+          ? `${agN(R.length, "material")}${P.jobs.length ? ` on ${agShort(P.jobs[0])}` : ""} ${"needs-decision" === st[1] ? (1 === R.length ? "needs a decision" : "need a decision") : `${1 === R.length ? "is" : "are"} ${st[2]}`}${R.length ? `: ${agList(R.map((x) => x.m.name))}` : ": none"}.`
+          : `${agN(R.length, "material")}${where.length > agWhereJob(P).length ? " " + where[where.length - 1].replace(/^status is /, "") : ""}${P.jobs.length ? ` on ${agShort(P.jobs[0])}` : ""}.`,
         work: R.slice(0, 15).map((x) => `${agShort(x.p)} — ${x.m.name} (${x.m.status})`),
         go: agGo("mat") || agGo("proc"),
         ran: agRan("materials", where, "", R.length),
@@ -171354,6 +171511,7 @@ function eqSchema() {
 const TD_ROLES = ["owner", "pm"];
 let tdBriefFull = !1,
   tdCatchAll = !1,
+  tdShownC = [],
   tdCtx = null;
 const tdOn = () =>
   "home" === view &&
@@ -172001,7 +172159,8 @@ function tdRender() {
     Q = tdQueue(),
     top = Q.slice(0, 5).map((it) => Object.assign({ it: it }, tdCard(it))),
     caught = tdCaught(Q),
-    shownC = tdCatchAll ? caught : caught.slice(0, 4),
+    // four, plus every catch that landed today: an escalation is raised the same day (the Standard), never held under the fold
+    shownC = (tdShownC = tdCatchAll ? caught : caught.filter((x, i) => i < 4 || x.fresh)),
     brief = tdBriefLines(),
     ic = (d) =>
       `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
@@ -172032,7 +172191,7 @@ function tdRender() {
           )
           .join("")
       : '<div class="td-empty">Nothing caught today.</div>'
-  }${caught.length > 4 ? `<a href="#" class="td-more" data-tdcatchall>${tdCatchAll ? "Show Fewer" : `${caught.length - 4} more`}</a>` : ""}</section>
+  }${(tdCatchAll ? caught.length > 4 : caught.length > shownC.length) ? `<a href="#" class="td-more" data-tdcatchall>${tdCatchAll ? "Show Fewer" : `${caught.length - shownC.length} more`}</a>` : ""}</section>
   <section class="td-sec td-brief" aria-label="Morning Brief"><div class="td-hd"><h3>Morning Brief</h3></div>${
     tdBriefFull
       ? `<div id="jv" class="td-jv"><div class="jv-body">${tdBriefText()
@@ -172209,7 +172368,8 @@ const STD_VALUE_IDS = ["own", "client", "craft", "ahead", "dollar", "truth", "te
   // whose playbook an assistant supports (the owner is leadership: the company sections apply in full)
   STD_ROLE_PLAYBOOKS = { owner: [], pm: ["pm", "client"], coord: ["procurement"], foreman: ["foreman", "client"], crew: ["crew"], driver: ["crew"], designer: ["designer", "client"], design_mgr: ["designer", "client"], billing: ["office"], controller: ["office"], client: ["client"] },
   // Alan's line on why money matters, in plain words, for every money leak the ERP catches (Value 5 holds it in full)
-  STD_WASTE = "Wasted money comes out of raises, bonuses, staff and the extra value we give clients.";
+  // charity added by Alan, 2026-10-17
+  STD_WASTE = "Wasted money comes out of raises, bonuses, staff, charity and the extra value we give clients.";
 const STANDARD_MD = () => {
   const el = document.getElementById("sd-standard-md");
   return el ? el.textContent.replace(/^\n/, "") : "";
@@ -173348,7 +173508,7 @@ const stdWhyHtml = (it) => {
     try {
       const root = homeRoot(),
         put = (el, it) => it && !el.querySelector(".ch-why") && el.querySelector(".td-txt") && el.querySelector(".td-txt").insertAdjacentHTML("beforeend", stdWhyHtml(it));
-      root && (root.querySelectorAll(".td-do .td-card").forEach((el, i) => put(el, stdLastQueue[i])), root.querySelectorAll(".td-catch .td-card").forEach((el, i) => put(el, stdLastCaught[i])));
+      root && (root.querySelectorAll(".td-do .td-card").forEach((el, i) => put(el, stdLastQueue[i])), root.querySelectorAll(".td-catch .td-card").forEach((el, i) => put(el, (tdShownC.length ? tdShownC : stdLastCaught)[i])));
     } catch (e) {
       console.warn("standard home", e);
     }
@@ -183531,38 +183691,53 @@ function lnMyEmail(uid) {
   } catch (e) {}
   return "";
 }
+// The promise in one sent message: what, by when, to whom (null when it holds none).
+function lnPromiseOf(c) {
+  const m = String((c && c.text) || "").replace(/\s+/g, " ").match(LN_PROMISE);
+  if (!m) return null;
+  const sent = lnDay(c.date) || today();
+  let due = "";
+  try {
+    due = "function" == typeof cmDateIn ? cmDateIn(m[3]) : "";
+  } catch (e) {}
+  if (!due || due < sent) {
+    // a weekday is the next one after the day it was written
+    const dw = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"].indexOf(m[3].toLowerCase());
+    if (dw >= 0) {
+      const d0 = parse(sent);
+      let n = (dw - d0.getDay() + 7) % 7;
+      0 === n && (n = 7), (due = iso(addDays(sent, n)));
+    } else /tomorrow/i.test(m[3]) ? (due = iso(addDays(sent, 1))) : /today/i.test(m[3]) ? (due = sent) : /next week/i.test(m[3]) && (due = iso(addDays(sent, 7)));
+  }
+  const to = ((c.to || [])[0] || {}).name || ((c.to || [])[0] || {}).email || (typeof (c.to || [])[0] === "string" ? c.to[0] : "") || "";
+  return { what: `${m[1]} ${m[2]}`.replace(/\s+/g, " ").trim(), due: due, to: String(to).replace(/<.*$/, "").trim(), sent: sent };
+}
+// Whose sent mail this is: the mailbox it was synced from, else the staff member who sent it (a message imported
+// without a mailbox, or from a shared one, is still the sender's promise).
+function lnMailUser(c) {
+  if (c.owner) return (DB.users || []).find((x) => x.id === c.owner) || null;
+  if ("out" !== c.direction) return null;
+  const em = String((c.from || {}).email || "").toLowerCase(),
+    nm = String((c.from || {}).name || (c.route || {}).employee || "").toLowerCase();
+  return (DB.users || []).find((u) => (em && String(u.email || "").toLowerCase() === em) || (nm && String(u.name || "").toLowerCase() === nm)) || null;
+}
 function lnPromises() {
   const out = [],
     seen = new Set();
   (DB.comms || []).forEach((c) => {
-    if (!c.owner || ["ignored", "spam"].includes(c.status)) return;
-    const me = lnMyEmail(c.owner),
+    if (["ignored", "spam"].includes(c.status)) return;
+    const u = lnMailUser(c);
+    if (!u) return;
+    const me = lnMyEmail(u.id),
       from = String((c.from || {}).email || "").toLowerCase(),
       mine = "out" === c.direction || (me && from === me) || (c.labels || []).includes("SENT");
     if (!mine) return;
-    const m = String(c.text || "").replace(/\s+/g, " ").match(LN_PROMISE);
-    if (!m) return;
+    const pr = lnPromiseOf(c);
+    if (!pr) return;
     const k = lnMailKey(c);
     if (seen.has(k)) return;
     seen.add(k);
-    const u = (DB.users || []).find((x) => x.id === c.owner) || {},
-      sent = lnDay(c.date) || today();
-    let due = "";
-    try {
-      due = "function" == typeof cmDateIn ? cmDateIn(m[3]) : "";
-    } catch (e) {}
-    if (!due || due < sent) {
-      // a weekday is the next one after the day it was written
-      const dw = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"].indexOf(m[3].toLowerCase());
-      if (dw >= 0) {
-        const d0 = parse(sent);
-        let n = (dw - d0.getDay() + 7) % 7;
-        0 === n && (n = 7), (due = iso(addDays(sent, n)));
-      } else /tomorrow/i.test(m[3]) ? (due = iso(addDays(sent, 1))) : /today/i.test(m[3]) ? (due = sent) : /next week/i.test(m[3]) && (due = iso(addDays(sent, 7)));
-    }
-    const to = ((c.to || [])[0] || {}).name || ((c.to || [])[0] || {}).email || (typeof (c.to || [])[0] === "string" ? c.to[0] : "") || "",
-      what = `${m[1]} ${m[2]}`.replace(/\s+/g, " ").trim();
-    out.push({ key: "promise:mail:" + k, c: c, uid: c.owner, role: u.role || "", name: u.name || "", what: what, due: due, to: String(to).replace(/<.*$/, "").trim(), projectId: ((c.route || {}).projectId) || ((("function" == typeof cmJobNamed && cmJobNamed(lnAll(c))) || {}).id) || "" });
+    out.push({ key: "promise:mail:" + k, c: c, uid: u.id, role: u.role || "", name: u.name || "", what: pr.what, due: pr.due, to: pr.to, projectId: ((c.route || {}).projectId) || ((("function" == typeof cmJobNamed && cmJobNamed(lnAll(c))) || {}).id) || "" });
   });
   return out;
 }
@@ -188767,3 +188942,598 @@ if (!document.getElementById("bf-imps-css")) {
     return r;
   };
 }
+
+/* ---------------------------------------------------------------------------------------------------------
+   overspend at landing (v11.1; the north star's first money leak: "overspending against budget, PO or estimate
+   line", caught the moment a bill or a card line lands, not at month end in the Analyst's list).
+     ovsAll()          every live job's cost codes whose actual (jobFin byCode, every adjustment applied) is over
+                       budget, and the estimate lines over budget (jobFinEacLines) where a landed record is traced to
+                       the line. The overrun is laid on the records behind the figure (byCode src ids), newest landing
+                       first, until they cover it: those are the records that took it over.
+     ovsOf(kind, rec)  the overrun a bill or a bank line is part of; for a bill not yet counted (a draft in the
+                       drawer), the overrun it would make.
+     billFlags         says it with the bill's other control flags, so the PM's approval card and the drawer show it.
+     txnState          the card or bank line asks for review (sev 2) until someone reviews the overrun.
+     CATCH budgetOverrun  the existing detector, now read from here (it read the Analyst's 10% list): one row per
+                       overrun, naming the record that took it over and dated the day it landed. The Standard: "cost
+                       impact over $1,000 not in the approved budget" is raised to the PM the same day, so a catch
+                       that landed today is always shown on Home, whatever the four-card limit.
+     ovsSheet(key)     the escalation: what happened, impact, options, the money line; Open the record, Mark Reviewed
+                       (who, when, why; the overrun comes back if it grows past what was reviewed).
+   Design gate: no new list or queue. The flag rides billFlags and txnState, the queue is the existing CATCH entry,
+   Approvals shows it on the bill's card and under Also on Your List, Ask reads ovsAll.
+--------------------------------------------------------------------------------------------------------- */
+const OVS_MONEY_LINE = "Money over budget is money that cannot go to raises, bonuses, more staff, charity or extra value for the client.";
+let ovsMemo = null,
+  ovsBusy = !1;
+const ovsAcct = (t) => {
+  const a = (DB.accounts || []).find((x) => x.id === t.acct);
+  return a ? `${String(a.name).split(/\s+/)[0]} ····${a.last4 || ""}` : "bank line";
+};
+// One record behind a cost-code figure, by its source id ("bill:b1", "txn:t9").
+function ovsRecOf(id) {
+  const s = String(id || ""),
+    i = s.indexOf(":"),
+    k = s.slice(0, i),
+    rid = s.slice(i + 1);
+  if ("bill" === k) {
+    const b = (DB.bills || []).find((x) => x.id === rid);
+    return b
+      ? { kind: "bill", id: rid, rec: b, amt: r2(billCost(b) - ("function" == typeof billRebillPart ? billRebillPart(b) : 0)), at: String(b.createdAt || b.date || ""), date: b.date || "", label: `${b.number || "Bill"} · ${b.vendor || ""}`, line: b.line || "" }
+      : null;
+  }
+  if ("txn" === k) {
+    const t = (DB.txns || []).find((x) => x.id === rid);
+    return t
+      ? { kind: "txn", id: rid, rec: t, amt: r2(-(+t.amt || 0)), at: String((t.origin && t.origin.at) || (t.prov && t.prov.at) || t.date || ""), date: t.date || "", label: `${t.vendor || tdWords(t.desc, 4)} · ${ovsAcct(t)}`, line: t.line || "" }
+      : null;
+  }
+  return null;
+}
+// What the overruns depend on, cheaply: a change to any bill, bank line, time entry, estimate or the clock re-reads.
+function ovsSig() {
+  let h = today() + "|" + ("function" == typeof lockedThrough ? lockedThrough() || "" : "");
+  (DB.bills || []).forEach((b) => (h += `|${b.id}${b.status}${b.code}${b.projectId}${b.line}${b.poId}${(b.lines || []).reduce((a, l) => a + (+l.amount || 0), 0)}${b.ovsOk ? "r" + b.ovsOk.over : ""}`));
+  (DB.txns || []).forEach((t) => t.projectId && (h += `|${t.id}${t.cat}${t.code}${t.projectId}${t.amt}${t.line}${t.billId || ""}${t.ovsOk ? "r" + t.ovsOk.over : ""}`));
+  h += `|${(DB.time || []).length}|${(DB.projects || []).length}`;
+  (DB.clients || []).forEach((c) => (h += `|${(c.estimates || []).map((e) => e.status + (e.lines || []).length).join()}${(c.changeOrders || []).map((e) => e.status).join()}`));
+  return h;
+}
+// The signature is read once per turn of the event loop and again after any save(): a Banking render asks for
+// every line's state, and each would otherwise rebuild it.
+let ovsSigNow = "";
+function ovsAll() {
+  if (ovsBusy) return [];
+  const sig = ovsSigNow || ((ovsSigNow = ovsSig()), queueMicrotask(() => (ovsSigNow = "")), ovsSigNow);
+  if (ovsMemo && ovsMemo.sig === sig) return ovsMemo.rows;
+  ovsBusy = !0;
+  const rows = [],
+    J0 = {};
+  try {
+    (DB.projects || [])
+      .filter((p) => !p.archived && "closed" !== (p.project || {}).status)
+      .forEach((p) => {
+        let J = null;
+        try {
+          J = jobFin(p);
+        } catch (e) {
+          return;
+        }
+        J0[p.id] = J;
+        const lay = (src, over) => {
+          const recs = src.map(ovsRecOf).filter((x) => x && x.amt > 0).sort((a, b) => b.at.localeCompare(a.at) || String(b.date).localeCompare(String(a.date))),
+            by = [];
+          let acc = 0;
+          for (const x of recs) {
+            if (acc >= over - 0.005) break;
+            by.push(x), (acc += x.amt);
+          }
+          return by;
+        };
+        const overCodes = new Set();
+        (J.byCode || []).forEach((row) => {
+          if ("RB" === row.code || !(+row.budget > 0) || +row.actual - +row.budget < 1) return;
+          const over = r2(row.actual - row.budget);
+          overCodes.add(row.code),
+            rows.push({ key: `bud:${p.id}:${row.code}`, p: p, code: row.code, name: row.name, budget: row.budget, actual: row.actual, over: over, by: lay((row.src || []).filter((x) => /^(bill|txn):/.test(x)), over), line: null });
+        });
+        // an estimate line over its budget on a code that is not over as a whole: the record traced to the line
+        (J.eacLines || []).forEach((x) => {
+          if (overCodes.has(x.code) || !(+x.budget > 0) || +x.actual - +x.budget < 1) return;
+          // the records jobFin counts: entered bills, and bank lines that are not a bill's payment
+          const PB = (DB.bills || []).filter((b) => b.projectId === p.id),
+            src = []
+              .concat(PB.filter((b) => b.line === x.key && (BILL_COSTED.includes(b.status) || BILL_ACCRUED.includes(b.status))).map((b) => "bill:" + b.id))
+              .concat((DB.txns || []).filter((t) => t.projectId === p.id && t.line === x.key && +t.amt < 0 && isJobCat(t.cat) && !txnViaBill(t, PB)).map((t) => "txn:" + t.id));
+          if (!src.length) return;
+          const over = r2(x.actual - x.budget);
+          rows.push({ key: `bud:${p.id}:${x.key}`, p: p, code: x.code, name: x.name, budget: x.budget, actual: x.actual, over: over, by: lay(src, over), line: x });
+        });
+      });
+  } finally {
+    ovsBusy = !1;
+  }
+  return (ovsMemo = { sig: sig, rows: rows, J: J0 }), rows;
+}
+const ovsWhat = (o) => (o.line ? `the estimate line ${o.name} (${o.code})` : `${o.code} ${o.name}`);
+const ovsSay = (o) => `${o.would ? "Would take" : "Takes"} ${ovsWhat(o)} over budget on ${shortName(o.p)}: ${money(o.actual)} against ${money(o.budget)} budgeted (+${money(o.over)})`;
+// reviewed: someone looked at this record's overrun and said why; it comes back if the overrun grows past that
+const ovsReviewedBy = (o) => {
+  const R = (o.by || []).map((x) => x.rec.ovsOk).filter(Boolean);
+  return R.length && R.every((r) => +r.over >= o.over - 0.5) ? R[R.length - 1] : null;
+};
+function ovsOf(kind, rec) {
+  if (!rec || !rec.projectId) return null;
+  const A = ovsAll(),
+    hit = A.find((o) => o.p.id === rec.projectId && o.by.some((x) => x.kind === kind && x.id === rec.id));
+  if (hit) return hit;
+  // a bill not counted yet (a draft, or one being entered): the overrun it would make on its code
+  if ("bill" !== kind || !ovsMemo || !ovsMemo.J[rec.projectId] || (rec.status && !["draft", "new", ""].includes(rec.status))) return null;
+  const J = ovsMemo.J[rec.projectId],
+    row = (J.byCode || []).find((r) => r.code === (rec.code || "99")),
+    amt = r2(billCost(rec));
+  if (!row || !(+row.budget > 0) || (row.src || []).includes("bill:" + rec.id) || row.actual + amt - row.budget < 1) return null;
+  const p = (DB.projects || []).find((x) => x.id === rec.projectId);
+  return { key: `bud:${p.id}:${row.code}`, p: p, code: row.code, name: row.name, budget: row.budget, actual: r2(row.actual + amt), over: r2(row.actual + amt - row.budget), by: [], line: null, would: !0 };
+}
+const ovsGo = (x) =>
+  !x
+    ? null
+    : "bill" === x.kind
+      ? flowGo.bill(x.rec)
+      : () => {
+          x.rec.projectId && setCurrent(x.rec.projectId), (view = "bank"), render();
+          try {
+            txnDialog(x.rec.id);
+          } catch (e) {}
+        };
+function ovsReview(key) {
+  const o = ovsAll().find((x) => x.key === key);
+  if (!o) return;
+  mbModal(
+    "Mark Reviewed",
+    `<p class="small">${esc(ovsSay(o))}.</p><div class="f"><label>Why it is all right</label><input data-f="why" placeholder="e.g. covered by CO-2026-004, or the budget is re-forecast" enterkeyhint="done"></div>`,
+    {
+      submit: "Mark Reviewed",
+      onSubmit: (f) => {
+        if (!f.why) return toast("Say why the overrun is all right, so the next person knows."), !1;
+        const u = currentUser() || {},
+          stamp = { by: u.name || "Owner", at: appNowIso(), why: f.why, over: o.over, code: o.code };
+        o.by.forEach((x) => (x.rec.ovsOk = stamp)), save();
+        toastDone(`Overrun reviewed — ${ovsWhat(o)} on ${shortName(o.p)}`, ovsGo(o.by[0]));
+        render();
+      },
+    },
+  );
+}
+function ovsSheet(key) {
+  const o = ovsAll().find((x) => x.key === key);
+  if (!o) return toast("That overrun is no longer open.");
+  const x = o.by[0],
+    it = { src: "budgetOverrun", what: `Over budget: ${ovsWhat(o)}`, sub: shortName(o.p), amount: o.over, due: x ? x.at.slice(0, 10) : "" },
+    T = (() => {
+      try {
+        return standardEscalationText(it);
+      } catch (e) {
+        return [];
+      }
+    })();
+  mbModal(
+    "Over Budget",
+    `<p><b>${esc(ovsSay(o))}.</b></p>${o.by.length ? `<p class="small">Taken over by ${esc(agList(o.by.map((r) => `${r.label} (${money(r.amt)}, landed ${fmt(r.at.slice(0, 10))})`)))}.</p>` : ""}<ul class="small">${T.map((t) => `<li>${esc(t)}</li>`).join("")}</ul><p class="small muted">Options: a change order to the client if it is extra scope; dispute the difference with the vendor if it is over the PO or the quote; or re-forecast the budget with the reason. ${esc(OVS_MONEY_LINE)}</p>`,
+    { submit: x ? ("bill" === x.kind ? "Open the Bill" : "Open the Line") : null, onSubmit: () => (setTimeout(ovsGo(x), 0), !0), alt: { label: "Mark Reviewed", run: () => setTimeout(() => ovsReview(key), 0) } },
+  );
+}
+if ("function" == typeof billFlags) {
+  const base = billFlags;
+  billFlags = function (b) {
+    const f = base.apply(this, arguments) || [];
+    try {
+      const o = b && ovsOf("bill", b);
+      if (o) {
+        const r = ovsReviewedBy(o);
+        f.unshift(`${ovsSay(o)}${r ? ` — reviewed by ${r.by}: ${r.why}` : ""}`);
+      }
+    } catch (e) {
+      console.warn("overspend flag", e);
+    }
+    return f;
+  };
+}
+if ("function" == typeof txnState) {
+  const base = txnState;
+  txnState = function (t) {
+    const st = base.apply(this, arguments);
+    try {
+      if (t && +t.amt < 0 && t.projectId && "reconciled" !== t.status && !ovsBusy) {
+        const o = ovsOf("txn", t);
+        if (o && !ovsReviewedBy(o)) return Object.assign({}, st, { sev: Math.max(2, st.sev || 0), msg: `${ovsSay(o)}${st.msg ? ` · ${st.msg}` : ""}` });
+      }
+    } catch (e) {
+      console.warn("overspend state", e);
+    }
+    return st;
+  };
+}
+{
+  const C = CATCH.find((c) => "budgetOverrun" === c.name);
+  // a bill's overrun that is all over its PO already shows once, as Billed Over the PO (the same dollars)
+  const poOver = (b) => ("function" == typeof pay3Default && pay3Can(b) && pay3Default(b) > 0 ? r2(billTotal(b) - pay3Default(b)) : 0);
+  C &&
+    (C.rows = () =>
+      ovsAll()
+        .filter((o) => !ovsReviewedBy(o) && !(o.by.length && o.by.every((x) => "bill" === x.kind && poOver(x.rec) >= o.over - 0.5)))
+        .map((o) => {
+          const x = o.by[0],
+            due = x ? x.at.slice(0, 10) : "";
+          return {
+            key: o.key,
+            what: x ? `Over budget: ${x.label}` : `Over budget: ${o.code} ${o.name}`,
+            sub: `${money(o.over)} over ${o.line ? "its estimate line" : `${o.code} ${o.name}`} · ${shortName(o.p)}`,
+            amount: o.over,
+            due: due,
+            fresh: !!due && due === today(),
+            verb: "Review",
+            run: () => ovsSheet(o.key),
+          };
+        }));
+}
+// The job page says it beside Ready to Bill: each overrun on the job, the record that took it over, and Review.
+if ("function" == typeof render) {
+  const base = render;
+  render = function () {
+    const r = base.apply(this, arguments);
+    try {
+      if ("dash" === view && S && S.id && ["owner", "pm", "controller"].includes(role())) {
+        const host = document.getElementById("v-dash");
+        host && host.querySelectorAll(".ovs-job").forEach((x) => x.remove());
+        const A = host ? ovsAll().filter((o) => o.p.id === S.id && !ovsReviewedBy(o)) : [];
+        if (A.length) {
+          const d = document.createElement("div");
+          (d.className = "note warn ovs-job"),
+            (d.innerHTML = `<b>Over budget on this job: ${money(A.reduce((a, o) => a + o.over, 0))}</b> <span class="small">— ${A.map((o) => `<a href="#" data-ovs="${esc(o.key)}">${esc(ovsWhat(o))}</a> +${money(o.over)}${o.by.length ? ` (${esc(o.by.map((x) => x.label).join(", "))})` : ""}`).join(" · ")}. ${esc(OVS_MONEY_LINE)}</span> <button type="button" class="btn sm" data-ovsrev="${esc(A[0].key)}">Review</button>`),
+            (host.querySelector(".lk-rtb") || host.querySelector(".kpis, #kpis") || host.firstElementChild || host).after(d),
+            d.querySelectorAll("[data-ovs]").forEach((a) => (a.onclick = (e) => (e.preventDefault(), ovsSheet(a.dataset.ovs)))),
+            (d.querySelector("[data-ovsrev]").onclick = () => ovsSheet(A[0].key));
+        }
+      }
+    } catch (e) {
+      console.warn("job overspend", e);
+    }
+    return r;
+  };
+}
+// Ask: "which cost codes are over budget on 121 State", "is any PO overbilled"
+{
+  const at = (id) => {
+    const i = AG_FIN.findIndex((r) => r.id === id);
+    return i < 0 ? AG_FIN.length : i;
+  };
+  AG_FIN.splice(at("budget"), 0, {
+    id: "codeover",
+    re: /\bover( its| the| their)? budgets?\b|\bover-budget\b|\bbudget overruns?\b|\bover-?runs?\b|\bover (the |its )?estimate( line)?s?\b/,
+    not: /\b(pos?|purchase orders?|revenue|income|overhead|sales)\b|\bunder budget\b/,
+    kind: "money",
+    run(P) {
+      const A = ovsAll().filter((o) => agOnJob(P, o.p.id)),
+        tot = r2(A.reduce((a, o) => a + o.over, 0)),
+        lines = A.filter((o) => o.line).length,
+        noun = lines && lines === A.length ? "estimate line" : lines ? "cost code or estimate line" : "cost code",
+        nouns = lines && lines === A.length ? "estimate lines" : lines ? "cost codes and estimate lines" : "cost codes",
+        on = P.jobs.length ? ` on ${agShort(P.jobs[0])}` : "";
+      return {
+        headline: A.length
+          ? `${agN(A.length, noun, nouns)} over budget${on}, ${money(tot)} in all: ${agList(A.map((o) => `${ovsWhat(o)} ${money(o.over)} over${P.jobs.length ? "" : ` (${agShort(o.p)})`}`))}.`
+          : `No cost code is over its budget${on}: none.`,
+        note: A.length ? `${A.filter((o) => o.by.length).map((o) => `${agCap(ovsWhat(o))} was taken over by ${agList(o.by.map((x) => x.label))}`).join("; ")}. ${OVS_MONEY_LINE}` : "",
+        work: A.map((o) => `${agShort(o.p)} · ${ovsWhat(o)} — ${money(o.actual)} against ${money(o.budget)} budgeted, ${money(o.over)} over${ovsReviewedBy(o) ? ` — reviewed by ${ovsReviewedBy(o).by}` : ""}`),
+        go: agGo("dash", P.jobs.length ? { project: P.jobs[0].id } : {}) || agGo("reports", { tab: "budget" }),
+        ran: agRan("cost codes", ["actual above budget (jobFin byCode, and estimate lines with a record traced to them)"].concat(agWhereJob(P)), P.jobs.length ? "" : "job", A.length),
+      };
+    },
+  });
+  AG_FIN.splice(at("overbilled"), 0, {
+    id: "poover",
+    re: /\b(pos?|purchase orders?)\b.*\bover[- ]?bill(ed|ing)?\b|\bover[- ]?bill(ed|ing)?\b.*\b(pos?|purchase orders?|vendors?|suppliers?|subs?)\b|\bbilled (us |for )?(more than|over|above) (the |its |their )?(po|pos|purchase orders?)\b|\b(vendors?|subs?|suppliers?)\b.*\bbilled (us )?(more than|over|above)\b/,
+    kind: "money",
+    run(P) {
+      const R = (DB.pos || [])
+        .filter((po) => !/cancel|void|draft/i.test(po.status || "") && agOnJob(P, po.projectId) && (!P.vendors.length || P.vendors.some((v) => agNameHit(v.name, po.vendor))))
+        .map((po) => {
+          const B = (DB.bills || []).filter((b) => b.poId === po.id && !["void", "rejected"].includes(b.status)),
+            billed = r2(B.reduce((a, b) => a + billCost(b), 0)),
+            tot = r2(poTotal(po).total);
+          return { po: po, B: B, billed: billed, tot: tot, over: r2(billed - tot) };
+        })
+        .filter((x) => x.over > 0.5)
+        .sort((a, b) => b.over - a.over);
+      return {
+        headline: R.length
+          ? `${agN(R.length, "purchase order")} ${1 === R.length ? "is" : "are"} billed over ${1 === R.length ? "its" : "their"} amount: ${agList(R.map((x) => `${x.po.number} ${x.po.vendor} ${money(x.over)} over (${money(x.billed)} billed on a ${money(x.tot)} PO)`))}.`
+          : "No purchase order is billed over its amount: none.",
+        note: R.length ? `Decide on each before it is paid: approve as billed with a change, dispute the difference with the vendor, or hold payment. ${OVS_MONEY_LINE}` : "",
+        work: R.map((x) => `${x.po.number} · ${x.po.vendor} — bills ${agList(x.B.map((b) => `${b.number} ${money(billCost(b))} (${b.status})`))}`),
+        go: agGo("ap") || agGo("po"),
+        ran: agRan("purchase orders", ["bills against the PO total more than the PO"].concat(agWhereJob(P)), "", R.length),
+      };
+    },
+  });
+}
+
+/* ---------------------------------------------------------------------------------------------------------
+   nothing slips (v11.1; the north star: "no forgotten task, follow-up, reminder or promise").
+     nsRouteUnowned()  a job task saved with no owner goes to the job's lead (its PM; the design director on a
+                       design job) the moment it is saved, with who, when and why on the task (a.autoOwner) and a
+                       toast. It is a default, not a judgment: the person changes the owner in the task, and a task
+                       whose owner was cleared after routing is never routed again. DB.company.routeUnowned = false
+                       turns it off.
+     lateTasks         (the existing CATCH entry) marks a task routed today, so Home shows it whatever the four-card
+                       limit, and gives the owner Reassign on it.
+     promise ledger    a promise in a staff member's sent mail ("I'll send the revised drawings Friday") goes on the
+                       ledger the Studio already keeps (DB.studio.promises: we owe, owner, due, job, source), the
+                       moment the mail is read; Done closes it. lnPromises reads the sender when the message came in
+                       without a mailbox.
+     the person's Home the designer's Promised card also lists the meeting next steps proposed for them and their own
+                       open tasks due in the next seven days.
+     Ask               "which follow-ups have no owner", "what did we promise the Kleins", "what does Sarah owe".
+   Design gate: no new list. Routing writes the task's own owner; the catch is lateTasks; promises are the
+   Studio's ledger; Home's cards are the existing ones.
+--------------------------------------------------------------------------------------------------------- */
+const NS_ROUTE_WHY = "no owner was named, so it went to the job's lead: if you see it, you own it until it is handed off";
+function nsJobLead(p) {
+  const pr = (p && p.project) || {},
+    U = DB.users || [];
+  // project.userName is whoever last worked the schedule, not its lead
+  if (pr.pm) return pr.pm;
+  const design = /\bdesign\b/i.test(pr.name || "") && !/\bbuild\b/i.test(pr.name || ""),
+    u = (design && U.find((x) => "design_mgr" === x.role)) || U.find((x) => "pm" === x.role) || U.find((x) => "owner" === x.role);
+  return u ? u.name : "";
+}
+let nsRouted = [];
+function nsRouteUnowned() {
+  if (!1 === (DB.company || {}).routeUnowned) return 0;
+  let n = 0;
+  (DB.projects || []).forEach((p) =>
+    (p.actions || []).forEach((a) => {
+      if (a.assignee || "done" === a.status || a.autoOwner) return;
+      const to = nsJobLead(p);
+      if (!to) return;
+      (a.assignee = to), (a.autoOwner = { to: to, at: appNowIso(), why: NS_ROUTE_WHY, by: "assistant" }), nsRouted.push({ p: p, a: a }), n++;
+      try {
+        audit("task", a.id, "route", "", to, NS_ROUTE_WHY);
+      } catch (e) {}
+    }),
+  );
+  return n;
+}
+{
+  const base = save;
+  save = function () {
+    "undefined" != typeof ovsSigNow && (ovsSigNow = "");
+    try {
+      if (nsRouteUnowned() && document.body.dataset.booted) {
+        const R = nsRouted.splice(0),
+          x = R[0];
+        setTimeout(
+          () =>
+            toast(
+              1 === R.length ? `No owner was named on "${tdWords(x.a.title, 8)}": it went to ${x.a.assignee}, who leads ${shortName(x.p)}` : `${R.length} tasks had no owner: each went to its job's lead`,
+              [{ label: "Open", run: () => (setCurrent(x.p.id), openEditor("action", x.a.id)) }],
+            ),
+          0,
+        );
+      } else nsRouted = [];
+    } catch (e) {
+      console.warn("route unowned", e);
+    }
+    return base.apply(this, arguments);
+  };
+}
+const nsAction = (id) => {
+  for (const p of DB.projects || []) {
+    const a = (p.actions || []).find((x) => x.id === id);
+    if (a) return { p: p, a: a };
+  }
+  return null;
+};
+const nsRoutedToday = (a) => !!(a && a.autoOwner && String(a.autoOwner.at).slice(0, 10) === today());
+{
+  const C = CATCH.find((c) => "lateTasks" === c.name);
+  if (C) {
+    const base = C.rows;
+    C.rows = function () {
+      const R = (base.apply(this, arguments) || []).slice(),
+        reassign = (x) => () => (setCurrent(x.p.id), openEditor("action", x.a.id));
+      R.forEach((r) => {
+        const x = nsAction(String(r.key || "").replace(/^task:/, ""));
+        if (!x || !x.a.autoOwner) return;
+        (r.fresh = nsRoutedToday(x.a)), (r.sub = `${r.sub} · no owner was named, so it went to ${x.a.assignee}`), isOwner() && ((r.verb = "Reassign"), (r.run = reassign(x)));
+      });
+      // the owner also sees a late task routed today to someone else, and one nobody owns at all (routing off)
+      isOwner() &&
+        (DB.projects || []).forEach((p) =>
+          (p.actions || []).forEach((a) => {
+            const due = a.due || "";
+            if ("done" === a.status || !due || due >= today() || R.some((r) => r.key === "task:" + a.id)) return;
+            if (a.assignee && !nsRoutedToday(a)) return;
+            R.push({
+              key: "task:" + a.id,
+              what: `Late${a.assignee ? "" : ", no owner"}: ${tdWords(a.title, 7)}`,
+              sub: `was due ${fmt(due)} · ${shortName(p)}${a.assignee ? ` · no owner was named, so it went to ${a.assignee}` : " · nobody owns it"}`,
+              amount: 0,
+              due: due,
+              fresh: nsRoutedToday(a) || !a.assignee,
+              verb: a.assignee ? "Reassign" : "Assign",
+              run: reassign({ p: p, a: a }),
+            });
+          }),
+        );
+      return R;
+    };
+  }
+}
+// ---- promises in sent mail go on the Studio's promise ledger the moment the mail is read
+function nsLedgerFromMail() {
+  const L = ((DB.studio = DB.studio || {}).promises = DB.studio.promises || []);
+  let n = 0;
+  (DB.comms || []).forEach((c) => {
+    if ("out" !== c.direction || ["ignored", "spam"].includes(c.status) || L.some((x) => x.source && x.source.id === c.id)) return;
+    const u = lnMailUser(c),
+      pr = u && lnPromiseOf(c);
+    if (!pr) return;
+    L.push({
+      id: uid("pr"),
+      projectId: (c.route || {}).projectId || "",
+      dir: "us",
+      owner: u.name,
+      to: pr.to,
+      text: `${agCap(pr.what)}${pr.to ? ` (to ${pr.to})` : ""}`,
+      due: pr.due,
+      status: "open",
+      source: { kind: "mail", id: c.id, at: c.date },
+      createdAt: today(),
+    }),
+      n++;
+  });
+  return n;
+}
+{
+  const base = cmImport;
+  cmImport = function () {
+    const r = base.apply(this, arguments);
+    try {
+      nsLedgerFromMail() && save();
+    } catch (e) {
+      console.warn("promise ledger", e);
+    }
+    return r;
+  };
+}
+// ---- what a person owes: the ledger, the meeting next steps proposed for them, their open tasks
+const nsIsMe = (owner, name) => {
+  const o = String(owner || "").toLowerCase(),
+    n = String(name || "").toLowerCase();
+  return !!o && !!n && (o === n || o.split(/\s+/)[0] === n.split(/\s+/)[0]);
+};
+function nsOwed(opts) {
+  const o = opts || {},
+    out = [],
+    inJob = (pid) => !o.pids || o.pids.includes(pid),
+    inPer = (d) => !o.to || (!!d && d <= o.to),
+    who = (n) => !o.who || nsIsMe(n, o.who);
+  ((DB.studio || {}).promises || [])
+    .filter((x) => "open" === x.status && "us" === x.dir && inJob(x.projectId) && who(x.owner) && inPer(x.due))
+    .forEach((x) => out.push({ kind: "promise", title: x.text, owner: x.owner, due: x.due, pid: x.projectId, from: x.source && "mail" === x.source.kind ? "promised in mail" : "on the promise ledger", ref: x }));
+  (DB.meetings || []).forEach((m) =>
+    (m.proposals || [])
+      .filter((pr) => "task" === pr.kind && "proposed" === pr.status && pr.apply && inJob(pr.apply.projectId) && who(pr.apply.assignee) && inPer(pr.apply.due))
+      .forEach((pr) => out.push({ kind: "step", title: pr.apply.title || pr.title, owner: pr.apply.assignee, due: pr.apply.due, pid: pr.apply.projectId, from: `next step from ${m.title || "a meeting"}, not confirmed yet`, ref: pr, m: m })),
+  );
+  (DB.projects || [])
+    .filter((p) => inJob(p.id))
+    .forEach((p) =>
+      (p.actions || [])
+        .filter((a) => "done" !== a.status && who(a.assignee) && (o.who ? !!a.due && inPer(a.due) : !!(a.source && (a.source.meetingId || a.source.commId || /mail|meeting/.test(a.source.kind || "")))))
+        .forEach((a) => out.push({ kind: "task", title: a.title, owner: a.assignee, due: a.due, pid: p.id, from: a.due && a.due < today() ? "a task, overdue" : "a task", ref: a, p: p })),
+    );
+  return out.sort((a, b) => String(a.due || "9").localeCompare(String(b.due || "9")));
+}
+const nsText = (x) => [x.title, x.ref && (x.ref.notes || (x.ref.apply && x.ref.apply.notes) || x.ref.text), x.ref && x.ref.to].filter(Boolean).join(" ");
+// the designer's Promised card: the meeting steps proposed for them and their own tasks due this week, beside the ledger
+if ("function" == typeof renderSDay) {
+  const base = renderSDay;
+  renderSDay = function () {
+    const r = base.apply(this, arguments);
+    try {
+      const root = document.getElementById("sday-body"),
+        u = currentUser() || {},
+        card = root && [...root.querySelectorAll(".card")].find((c) => /^Promised$/.test(((c.querySelector("h3") || {}).textContent || "").trim()));
+      if (card && u.name && !card.querySelector("[data-nsowed]")) {
+        const L = nsOwed({ who: u.name, to: iso(addDays(today(), 7)) }).filter((x) => "promise" !== x.kind);
+        if (L.length) {
+          const td = today();
+          card.querySelectorAll(".small.muted").forEach((x) => /Nothing promised and open/.test(x.textContent) && x.remove());
+          card.insertAdjacentHTML(
+            "beforeend",
+            L.map(
+              (x, i) =>
+                `<div class="st-item ${x.due && x.due < td ? "late" : ""}" data-nsowed="${i}"><span class="k">${x.due ? `${x.due < td ? "Overdue" : "Due"} ${fmt(x.due)}` : "No date"} · ${esc(shortName((DB.projects || []).find((p) => p.id === x.pid)) || "")} · ${esc(x.from)}</span><div class="row" style="gap:8px"><b class="grow" style="font-weight:500">${esc(x.title)}</b><button class="btn sm" data-nsopen="${i}">Open</button></div></div>`,
+            ).join(""),
+          );
+          card.querySelectorAll("[data-nsopen]").forEach(
+            (b) =>
+              (b.onclick = () => {
+                const x = L[+b.dataset.nsopen];
+                x && ("step" === x.kind ? ((mtOpen = x.m.id), (view = "meetings"), render()) : (setCurrent(x.pid), openEditor("action", x.ref.id)));
+              }),
+          );
+        }
+      }
+    } catch (e) {
+      console.warn("owed on my day", e);
+    }
+    return r;
+  };
+}
+// ---- Ask
+AG_ASST.unshift(
+  {
+    id: "unowned",
+    first: !0,
+    kind: "ops",
+    re: /\b(no owner|unowned|unassigned|nobody owns|no one owns|without (an )?owner|ha(s|ve) no owner|not assigned( to anyone)?|nobody('s| is) assigned)\b/,
+    run(P) {
+      if ("client" === role()) return null;
+      const late = /\b(overdue|late|past due|behind)\b/.test(P.l),
+        td = today(),
+        rows = (DB.projects || [])
+          .filter((p) => agOnJob(P, p.id))
+          .flatMap((p) => (p.actions || []).filter((a) => "done" !== a.status && (!a.assignee || a.autoOwner) && (!late || (a.due && a.due < td))).map((a) => ({ p: p, a: a }))),
+        none = rows.filter((x) => !x.a.assignee),
+        routed = rows.filter((x) => x.a.assignee),
+        noun = late ? "overdue follow-up" : "open task";
+      return {
+        headline: rows.length
+          ? `${agN(rows.length, noun)} had no owner: ${agList(rows.map((x) => `${x.a.title} (${agShort(x.p)}${x.a.due ? `, due ${fmtL(x.a.due)}` : ""})`))}.${routed.length ? ` ${routed.length === rows.length ? (1 === rows.length ? "It" : "Each") : agN(routed.length, "of them", "of them")} went to the job's lead when it was saved: ${agList([...new Set(routed.map((x) => x.a.assignee))])}.` : ""}${none.length ? ` ${agN(none.length, "is", "are")} still unowned.`.replace(/^ (\d+) is/, " $1 is") : ""}`
+          : `Every ${late ? "overdue " : "open "}task has an owner: none is unowned.`,
+        note: routed.length ? "A task saved with no owner goes to its job's PM (the design director on a design job); change the owner in the task." : "",
+        work: rows.map((x) => `${agShort(x.p)} — ${x.a.title}${x.a.due ? ` — due ${fmtL(x.a.due)}` : ""} — ${x.a.assignee ? `now ${x.a.assignee}'s (routed ${fmtL(String(x.a.autoOwner.at).slice(0, 10))})` : "nobody"}`),
+        go: agGo("tkall") || agGo("tasks"),
+        ran: agRan("tasks", ["open", "no owner named (or routed because none was)"].concat(late ? ["past due"] : [], agWhereJob(P)), "", rows.length),
+      };
+    },
+  },
+  {
+    // what we promised a client, what a person owes: the ledger, meeting next steps, tasks from mail and meetings
+    id: "owed",
+    first: !0,
+    kind: "ops",
+    re: /\b(promise[ds]?|promised|committed to|owe[ds]?|owing)\b/,
+    not: /\bhow much\b|\bowes? us\b|\bdo they owe\b|\b(invoices?|bills?|balance|money|\$)\b/,
+    run(P) {
+      if ("client" === role() || P.vendors.length) return null;
+      const who = P.people[0] || null;
+      if (!who && !P.clients.length) return null;
+      if (!who && !/\b(promise[ds]?|promised|committed)\b/.test(P.l)) return null;
+      const pids = P.clients.length ? (DB.projects || []).filter((p) => P.clients.some((c) => c.id === p.clientId)).map((p) => p.id) : P.jobs.length ? P.jobs.map((p) => p.id) : null,
+        // what is owed "this week" is due by its Sunday, not by today (the period Ask reads for spend runs to today)
+        to = P.period ? ("this week" === P.period.key && "function" == typeof appWeek ? appWeek().sun || P.period.to : P.period.to) : "",
+        // promised TO a client: the ledger, and steps or tasks whose words name the client (an internal next step is not a promise to them)
+        names = P.clients.flatMap((c) => [c.name].concat((c.contacts || []).map((k) => k.name))).flatMap((n) => String(n || "").toLowerCase().split(/[^a-z]+/)).filter((w) => w.length >= 4 && !/^(family|llc|inc)$/.test(w)),
+        toClient = (x) => "promise" === x.kind || /\bclients?\b/i.test(nsText(x)) || names.some((w) => new RegExp(`\\b${w}(s|'s)?\\b`, "i").test(nsText(x))),
+        L = nsOwed({ who: who ? who.name : "", pids: pids, to: to }).filter((x) => who || toClient(x)),
+        subj = who ? `${who.name} owes` : `promised to ${P.clients.map((c) => c.name).join(" and ")} and still open`;
+      return {
+        headline: L.length
+          ? `${agN(L.length, "thing")} ${subj}${who && P.period ? ` ${P.period.say}` : ""}: ${agList(L.map((x) => `${x.title} — ${who ? "" : x.owner + ", "}${x.due ? `due ${fmtL(x.due)}` : "no date"} (${x.from})`), 5)}.`
+          : who
+            ? `${who.name} owes nothing${P.period ? ` ${P.period.say}` : ""}: no open promise, proposed next step or task due.`
+            : `Nothing promised to ${P.clients.map((c) => c.name).join(" and ")} is open: none.`,
+        note: "Read from the promise ledger (promises in sent mail go on it when the mail is read), the meeting next steps proposed for a person, and open tasks that came from a meeting or mail.",
+        work: L.map((x) => `${x.title} — ${x.owner || "nobody"} — ${x.due ? fmtL(x.due) : "no date"} — ${x.from}`),
+        go: agGo("tkall") || agGo("tasks"),
+        ran: agRan("the promise ledger, meeting next steps and tasks", [who ? `owner is ${who.name}` : `client is ${P.clients.map((c) => c.name).join(" or ")}`, "open"].concat(P.period ? [`due by ${fmtL(to)}`] : []), "", L.length),
+      };
+    },
+  },
+);
