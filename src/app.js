@@ -190095,7 +190095,7 @@ document.addEventListener(
       if (root && S && !root.querySelector(".dl-appr") && (ROLE_VIEWS[role()] || []).includes("fcrew")) {
         const h = dlApproveHtml(S);
         if (h) {
-          const at = root.querySelector(":scope > .f-you") || root.querySelector(":scope > .f-hero");
+          const at = root.querySelector(":scope > .f-work") || root.querySelector(":scope > .f-you") || root.querySelector(":scope > .f-hero");
           at ? at.insertAdjacentHTML("afterend", h) : root.insertAdjacentHTML("afterbegin", h);
           root.querySelectorAll("[data-dlappr]").forEach(
             (a) =>
@@ -190280,6 +190280,8 @@ function cmBoughtRefresh(pr) {
     const v = (DB.vendors || []).find((x) => x.id === p.vendorId),
       vn = v ? v.name : p.vendorName || (c.from && c.from.name) || "the vendor",
       did = [];
+    // no open request for the goods: the pickup is still a stop on the driver's route (base), and the line is bought
+    M.requests.length || did.push(base.apply(this, arguments));
     M.requests.forEach(({ p: pr, r: r }) => {
       (r.items && r.items.length) || (r.items = reqItems(r).map((x) => Object.assign({}, x)));
       const items = r.items.filter((it) => !it.garbage && (p.items || []).some((i) => cmGoodsHit(i.what, it.what)));
@@ -190838,7 +190840,7 @@ CATCH.push({
       const root = document.getElementById("ftoday-body"),
         M = S ? dlMissing(S.id).filter((m) => !m.today) : [];
       if (root && M.length && !root.querySelector(".dl-missnote")) {
-        const at = root.querySelector(":scope > .f-you") || root.querySelector(":scope > .f-hero");
+        const at = root.querySelector(":scope > .f-work") || root.querySelector(":scope > .f-you") || root.querySelector(":scope > .f-hero");
         const h = `<div class="note warn small dl-missnote"><b>No daily log for ${M.map((m) => fmtL(m.date)).join(", ")}</b><div style="margin-top:4px">${M.map((m) => `<button type="button" class="btn sm" data-dllatego="${m.date}">File Late Log · ${fmt(m.date)}</button>`).join(" ")}</div></div>`;
         at ? at.insertAdjacentHTML("afterend", h) : root.insertAdjacentHTML("afterbegin", h);
         root.querySelectorAll("[data-dllatego]").forEach((b) => (b.onclick = () => ((view = "flog"), render(), dlFileLate(b.dataset.dllatego))));
@@ -191419,6 +191421,182 @@ function coSanity(d) {
           p = x && (DB.projects || []).find((q) => q.id === x.projectId);
         p && row.insertAdjacentHTML("beforeend", `<button type="button" class="btn sm" data-jobnew="co" data-cid="${esc(p.clientId || "")}" data-pid="${esc(p.id)}" data-title="${esc(clipWords(x.title || "", 60))}">Write the Change Order</button>`);
       });
+    } catch (e) {}
+    return r;
+  };
+}
+// ---- One noun, one place: a bill shows once in Approvals (pilot day 2: the owner saw WW-2026-118 as the bill card,
+// the over-PO item and a brain "rule for the Owner" card whose Approve read as approving the bill). Anything else in
+// the same person's queue that names the bill (its number or its PO's) folds into the bill's card, said there; a
+// lesson stays approvable in The Brain, named on the card.
+{
+  const base = mApprovals;
+  mApprovals = function (opts) {
+    const out = base.apply(this, arguments);
+    try {
+      if (!Array.isArray(out)) return out;
+      const bills = out.filter((x) => "bill" === x.kind);
+      if (!bills.length) return out;
+      const gone = new Set();
+      bills.forEach((it) => {
+        const b = (DB.bills || []).find((x) => x.id === it.id);
+        if (!b || !b.number) return;
+        const po = b.poId && (DB.pos || []).find((x) => x.id === b.poId),
+          keys = [b.number, po && po.number].filter(Boolean).map((k) => String(k).toLowerCase());
+        out.forEach((x) => {
+          if (x === it || "bill" === x.kind || gone.has(x) || (x.who && it.who && x.who !== it.who)) return;
+          const txt = `${x.title || ""} ${x.detail || ""}`.toLowerCase();
+          if (!keys.some((k) => txt.includes(k))) return;
+          gone.add(x);
+          (it.also = it.also || []).push({ kind: x.kind, title: x.title, open: x.open });
+          it.detail = `${it.detail || ""}${it.detail ? " · " : ""}also on this bill: ${"learn" === x.kind ? `the lesson “${String(x.title || "").replace(/^Lesson:\s*/, "")}” (approve it in The Brain, not here)` : String(x.title || "").slice(0, 90)}`;
+        });
+      });
+      return gone.size ? out.filter((x) => !gone.has(x)) : out;
+    } catch (e) {
+      console.warn("one bill one card", e);
+      return out;
+    }
+  };
+}
+{
+  const base = render;
+  render = function () {
+    const r = base.apply(this, arguments);
+    try {
+      const v = "mapprove" === view && document.getElementById("v-mapprove");
+      if (v) {
+        const cards = [...v.querySelectorAll(".m-appr")].filter((c) => !c.closest(".m-appr-others"));
+        (DB.bills || []).forEach((b) => {
+          if (!b.number) return;
+          const card = cards.find((c) => (c.innerText || "").includes(b.number));
+          if (!card) return;
+          const po = b.poId && (DB.pos || []).find((x) => x.id === b.poId),
+            keys = [b.number, po && po.number].filter(Boolean);
+          if (!card.dataset.foldDone) {
+            card.dataset.foldDone = "1";
+            const it = (mApprovals() || []).find((x) => "bill" === x.kind && x.id === b.id),
+              N = "function" == typeof billCoNeed ? billCoNeed(b) : null,
+              d0 = card.querySelector(".m-appr-d") || card;
+            ((it && it.also) || []).forEach((x) =>
+              d0.insertAdjacentHTML("beforeend", `<div class="small muted m-appr-also">Also on this bill: ${"learn" === x.kind ? `the lesson “${esc(String(x.title || "").replace(/^Lesson:\s*/, ""))}” — approve it in The Brain; Approve here is the bill` : esc(clipWords(x.title || "", 120))}</div>`),
+            );
+            N &&
+              d0.insertAdjacentHTML(
+                "beforeend",
+                `<div class="small warn-t m-appr-also">${N.co ? `${esc(N.co.number)} bills the ${money(N.over)} extra to the client` : `The PM's note: “${esc(clipWords(N.note, 60))}” — the ${money(N.over)} over the PO goes on a change order to the client, not only a vendor dispute`}</div>`,
+              );
+          }
+          v.querySelectorAll(".rem-row").forEach((row) => {
+            const t = (row.innerText || "").replace(/\s+/g, " ").trim();
+            if (!keys.some((k) => t.includes(k)) || row.dataset.folded) return;
+            row.dataset.folded = "1";
+            row.style.display = "none";
+            const d = card.querySelector(".m-appr-d") || card;
+            d.insertAdjacentHTML("beforeend", `<div class="small muted m-appr-also">Also on this bill: ${esc(clipWords(t, 140))}</div>`);
+          });
+        });
+      }
+    } catch (e) {}
+    return r;
+  };
+}
+// ---- A reply to a client left in Drafts past the 2-hour standard is owed, on the person's Home (pilot day 2) -----
+function clientDraftsOwed(uid) {
+  const me = uid || (currentUser() || {}).id || "",
+    mails = new Set((DB.clients || []).flatMap((c) => (c.contacts || []).map((k) => String(k.email || "").toLowerCase()).filter(Boolean))),
+    now = appNowMs();
+  return (DB.comms || []).filter((c) => {
+    if (c.owner !== me || !(c.labels || []).includes("DRAFT")) return !1;
+    const to = (c.to || []).map((x) => String(("string" == typeof x ? x : x && x.email) || "").toLowerCase().replace(/^.*<|>.*$/g, ""));
+    if (!to.some((e) => mails.has(e)) && !(c.route && c.route.clientId)) return !1;
+    const at = new Date(c.date || 0).getTime();
+    if (!(at > 0) || now - at < 2 * 36e5) return !1;
+    // a later sent message on the same thread answers it
+    return !(DB.comms || []).some((x) => x !== c && x.owner === me && x.threadId && x.threadId === c.threadId && (x.labels || []).includes("SENT") && String(x.date || "") > String(c.date || ""));
+  });
+}
+CATCH.push({
+  name: "clientDrafts",
+  label: "Client Replies in Drafts",
+  rows: () =>
+    clientDraftsOwed().map((c) => ({
+      key: "cdraft:" + c.id,
+      what: `Unsent reply to ${(c.to || []).map((x) => ("string" == typeof x ? x : (x && (x.name || x.email)) || "")).join(", ").replace(/<[^>]*>/g, "").trim() || "the client"}: ${clipWords(c.subject || "", 50)}`,
+      sub: `in Drafts since ${stampText(c.date)} · the Standard answers a client within 2 hours`,
+      amount: 0,
+      verb: "Open",
+      run: () => {
+        (cmFilter = "all"), (view = "comms"), render();
+      },
+    })),
+});
+// ---- "Extra window was field-added; CO needed" is a change order to write, and the bill over its PO for the same
+// item points to it (pilot day 2: the note sat on the bill; the only path offered was a vendor dispute) ----------
+const CO_NEEDED_RX = /\b(co|change order)\s+(is\s+)?(needed|required|to write|owed)\b|\bfield[- ]added\b|\bextra\b.*\b(co|change order)\b/i;
+function billCoNeed(b) {
+  if (!b || ["void", "rejected"].includes(b.status)) return null;
+  const n = (b.approvals || []).map((a) => a.note || "").concat([b.notes || ""]).find((t) => CO_NEEDED_RX.test(t));
+  if (!n) return null;
+  const P = "function" == typeof pay3PO ? pay3PO(b) : null,
+    over = P ? r2(billTotal(b) - P.left) : 0,
+    pr = (DB.projects || []).find((x) => x.id === b.projectId),
+    cl = pr && (DB.clients || []).find((x) => x.id === pr.clientId),
+    co = b.coId && cl && (cl.changeOrders || []).find((x) => x.id === b.coId && "void" !== x.status);
+  return { note: n, over: over > 0 ? over : 0, po: P ? P.po : null, p: pr, c: cl, co: co || null };
+}
+function billWriteCo(b) {
+  const N = billCoNeed(b);
+  if (!N || !N.c) return toast("No client on this bill's job");
+  if (N.co) return (docOpen = { kind: "co", id: N.co.id }), (view = (ROLE_VIEWS[role()] || []).includes("billing") ? "billing" : "clients"), (billTab = "co"), render();
+  const item = clipWords(N.note.replace(/;?\s*\b(co|change order)\b.*$/i, "").trim() || `Extra on ${b.number}`, 60),
+    d = newDoc(N.c, "co", { fields: { title: item, projectId: N.p.id, lines: [{ id: uid("l"), item: item, desc: `${b.vendor} billed ${money(N.over || billTotal(b))} over ${N.po ? N.po.number : "the order"} on ${b.number}; ${N.note}`, qty: 1, unit: "ls", rate: N.over || 0, cost: N.over || "", taxable: !1 }] } });
+  (d.fromBill = b.id), (b.coId = d.id);
+  try {
+    audit("bill", b.id, "co-from-note", "", d.number, N.note);
+  } catch (e) {}
+  (docOpen = { kind: "co", id: d.id }), (view = (ROLE_VIEWS[role()] || []).includes("billing") ? "billing" : "clients"), (billTab = "co"), (clientOpen = N.c.id), save(), render();
+  rcToast(`${d.number} drafted from the note on ${b.number}: ${item}, ${money(N.over)} at cost — add the markup, then Send to Client`, [{ label: "Open", run: () => ((docOpen = { kind: "co", id: d.id }), render()) }]);
+  return d;
+}
+CATCH.push({
+  name: "coNeeded",
+  label: "Change Orders to Write",
+  rows: () =>
+    ["pm", "owner"].includes(role())
+      ? (DB.bills || [])
+          .map((b) => ({ b: b, N: billCoNeed(b) }))
+          .filter((x) => x.N && !x.N.co)
+          .map(({ b: b, N: N }) => ({ key: "coneed:" + b.id, what: `Change order to write: ${clipWords(N.note, 60)}`, sub: `${b.vendor} ${b.number}${N.over ? ` is ${money(N.over)} over ${N.po ? N.po.number : "its PO"}` : ""} · bill it to the client, not only a vendor dispute`, amount: N.over, verb: "Write the CO", run: () => billWriteCo(b) }))
+      : [],
+});
+// the bill's card and its short-pay sheet name the change order
+{
+  const base = mApprovals;
+  mApprovals = function (opts) {
+    const out = base.apply(this, arguments);
+    try {
+      (out || []).forEach((it) => {
+        if ("bill" !== it.kind) return;
+        const b = (DB.bills || []).find((x) => x.id === it.id),
+          N = billCoNeed(b);
+        N && (it.detail = `${it.detail || ""}${it.detail ? " · " : ""}${N.co ? `${N.co.number} bills the ${money(N.over)} extra to the client` : `the PM says it is an extra (“${clipWords(N.note, 50)}”): write the change order for the ${money(N.over)}, not only a dispute`}`);
+      });
+    } catch (e) {}
+    return out;
+  };
+}
+{
+  const base = pay3ShortPay;
+  window.pay3ShortPay = pay3ShortPay = function (b, amt, why) {
+    const r = base.apply(this, arguments);
+    try {
+      const N = null == amt && billCoNeed(b),
+        m = N && document.getElementById("mbm");
+      m &&
+        !m.querySelector(".pay3-co") &&
+        (m.querySelector(".mbm-bd").insertAdjacentHTML("afterbegin", `<div class="note warn small pay3-co">${N.co ? `${esc(N.co.number)} bills the ${money(N.over)} to the client.` : `The PM's note says this is an extra: “${esc(N.note)}”. The ${money(N.over)} is billed to the client on a change order. <button type="button" class="btn sm" data-pay3co>Write the CO</button>`}</div>`),
+        (m.querySelector("[data-pay3co]") || {}).onclick = () => (mbCloseModal(), billWriteCo(b)));
     } catch (e) {}
     return r;
   };

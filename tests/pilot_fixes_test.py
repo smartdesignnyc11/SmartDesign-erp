@@ -509,7 +509,37 @@ async def t_co_from_contract(c, p):
     c.ok(not errs, f'co: no page errors {errs[:2]}')
     await b.close()
 
-TESTS = [t_daily_log, t_daily_log_day2, t_documents, t_controller_pos, t_payment_check, t_own_mail_client, t_bought_from_mail, t_request_quirks, t_statements_tasks_billing, t_ask_typos, t_designer_and_bill, t_co_from_contract]
+# ------------------------------------------------------------------------------------------------ 15, 16, 17
+async def t_one_card_drafts_co(c, p):
+    b, pg, errs = await fresh(p, 'u_owner')
+    r = await js(pg, """
+      view = 'mapprove'; render(); await sleep(400);
+      const vis = el => el.getClientRects().length > 0;
+      const shown = [...document.querySelectorAll('.view.on .m-appr, .view.on .rem-row')].filter(vis).filter(e => !e.closest('.m-appr-others') && /WW-2026-118|PO-2026-044/.test(e.innerText)).length;
+      const card = [...document.querySelectorAll('.view.on .m-appr')].find(e => /WW-2026-118/.test(e.innerText));
+      return { shown, card: card ? card.innerText.replace(/\\s+/g, ' ') : '' };""")
+    c.ok(r['shown'] == 1, f"owner: WW-2026-118 shows once on Approvals, not three times ({r['shown']})")
+    c.ok('also on this bill' in r['card'].lower() and 'The Brain' in r['card'], f"owner: the over-PO item and the lesson are folded into the bill's card ({r['card'][-220:]!r})")
+    c.ok('change order' in r['card'], f"owner: the bill points to the change order the PM's note asks for ({r['card'][-160:]!r})")
+    await b.close()
+    b, pg, errs2 = await fresh(p, 'u_alan')
+    r = await js(pg, """
+      const at = appIso(new Date(appNowMs() - 3 * 36e5));
+      DB.comms.push({ id: 'cmdx1', owner: 'u_alan', channel: 'email', labels: ['DRAFT'], direction: 'out', from: { name: 'Alan', email: 'alan.pm@smartdesign.nyc' }, to: ['Sarah Klein <sarah.klein@example.com>'], subject: 'Re: backsplash slab', text: 'Sarah, the honed slab is', date: at, threadId: 'tdx1' });
+      const rows = CATCH.find(x => x.name === 'clientDrafts').rows().map(x => x.what);
+      const co = CATCH.find(x => x.name === 'coNeeded').rows();
+      const row = co.find(x => /field-added/i.test(x.what));
+      const d = row && row.run(); await sleep(250);
+      const b = DB.bills.find(x => x.number === 'WW-2026-118');
+      return { rows, co: co.map(x => x.what), made: d && [d.number, d.lines[0].rate, d.fromBill], linked: b.coId === (d && d.id), after: CATCH.find(x => x.name === 'coNeeded').rows().length };""")
+    c.ok(any('Unsent reply' in x for x in r['rows']), f"pm: a client reply in Drafts past 2 hours is owed on Home ({r['rows']})")
+    c.ok(r['co'], f"pm: \"Extra window was field-added; CO needed\" is a change order to write ({r['co']})")
+    c.ok(r['made'] and r['made'][1] == 3800 and r['linked'], f"pm: Write the CO drafts it at the $3,800 over the PO, linked to the bill ({r['made']})")
+    c.ok(r['after'] == 0, f"pm: once written it leaves the list ({r['after']})")
+    c.ok(not errs and not errs2, f'15-17: no page errors {(errs + errs2)[:2]}')
+    await b.close()
+
+TESTS = [t_daily_log, t_daily_log_day2, t_documents, t_controller_pos, t_payment_check, t_own_mail_client, t_bought_from_mail, t_request_quirks, t_statements_tasks_billing, t_ask_typos, t_designer_and_bill, t_co_from_contract, t_one_card_drafts_co]
 
 async def main():
     c = Checks()
