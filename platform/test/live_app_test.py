@@ -85,7 +85,7 @@ async def main():
 
         # the AI door from the page itself carries the session
         r = await F.evaluate("fetch('/api/ai', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({tier:'small', max_tokens: 20, messages:[{role:'user', content:'Reply with the word ready.'}]})}).then(r => r.status)")
-        ok(r in (200, 400), f'the page reaches /api/ai signed in (status {r}; 400 means the Anthropic workspace header is still missing)')
+        ok(r == 200, f'the page reaches /api/ai signed in and is answered (status {r})')
 
         ok(not ea, f'owner: no page errors {ea[:3]}')
         ok(not ef, f'foreman: no page errors {ef[:3]}')
