@@ -190135,3 +190135,37 @@ if (!document.getElementById("fnd-css")) {
       ".fnd-made{margin:0 0 12px}.fnd-row{display:flex;gap:10px;align-items:center;padding:8px 6px;border-top:1px solid var(--rule,#eee);overflow-wrap:anywhere}.fnd-row .grow{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1 1 220px}.fnd-row .pill{align-self:flex-start}.fnd-row.tk-flash,.fnd-hit.tk-flash{background:var(--accent-2) !important;box-shadow:inset 3px 0 0 var(--accent);transition:background 1.2s}@media (max-width:760px){.fnd-row{flex-wrap:wrap}.fnd-row .btn{min-height:44px}}");
   document.head.appendChild(st);
 }
+
+// ---- Findable, and the right hands (findable2, 2026-10-18) -----------------------------------------------------------
+// 1. The no-show answer filed its text, call and two drafts on whichever job the PM had open (fNoShowAct reads S),
+//    so from 45 Cranberry they landed on 45 Cranberry and the 121 State list never showed them. It runs on the
+//    raise's own job now.
+{
+  const base = fNoShowAct;
+  fNoShowAct = function (r) {
+    const keep = S,
+      p = r && (DB.projects || []).find((x) => x.id === r.projectId);
+    p && (S = p);
+    try {
+      return base.apply(this, arguments);
+    } finally {
+      S = keep;
+    }
+  };
+}
+// 2. One LPC letter, one task. Make It a Task applied the reader's proposal (which files a schedule line owned by
+//    "PM", or by the designer) and then put the designer's dated task on the list: two tasks for one letter, and the
+//    first was on nobody's list the designer looks at. The comment still goes on the application; the task is the
+//    designer's one.
+{
+  const base = nyhLpcTask;
+  nyhLpcTask = function (c, pr) {
+    const t = pr && !pr.applied ? pr.task : "";
+    t && (pr.task = "");
+    try {
+      return base.apply(this, arguments);
+    } finally {
+      t && (pr.task = t);
+    }
+  };
+}
