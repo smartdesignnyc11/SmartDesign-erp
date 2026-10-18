@@ -173110,9 +173110,36 @@ const stdNyhRows = () =>
 const stdDate = (it) => stdDueOf(it) || String((it && (it.date || (it.nyh && it.nyh.due))) || "9999");
 const STD_ISO = /^\d{4}-\d{2}-\d{2}$/;
 const STD_MON = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+// The date an item is due: the record's or its words' date (stdDueOfRecord), or the client-message clock when that
+// comes first.
+function stdDueOf(it) {
+  const d = stdDueOfRecord(it),
+    k = stdClientClock(stdObj(it));
+  return k && (!d || k < d) ? k : d;
+}
+// The Standard's client-message clock: a client's message is answered the business day it arrived (Client messages:
+// acknowledged within 2 business hours, answered the same business day; clientAck measures the same day). It covers a
+// portal or chat question (clientq) and a client's email waiting in Needs Your Hand. Undated, both sank under every
+// dated item into "later" and fell off the PM's Home: the Kleins' question and their mailed choice (v11.1).
+function stdClientClock(o) {
+  try {
+    const r = o.nyh || {},
+      day = (x) => (STD_ISO.test(String(x || "").slice(0, 10)) ? poWorkday(String(x).slice(0, 10)) : "");
+    if ("clientq" === o.kind) {
+      const F = "function" == typeof clqFind ? clqFind(o.id) : null;
+      return F ? day(F.q.at) : "";
+    }
+    if ("mail" !== r.kind || !r.commId) return "";
+    const c = (DB.comms || []).find((x) => x.id === r.commId),
+      R = (c && c.route) || {};
+    return c && R.clientId && !R.employee && "out" !== c.direction ? day(c.date) : "";
+  } catch (e) {
+    return "";
+  }
+}
 // The date an item is due, from the record behind it where there is one, else from the words it carries ("by 9/28",
 // "25 days left"); "" when nothing says. A meeting's date is when it was held, never when its follow-up is due.
-function stdDueOf(it) {
+function stdDueOfRecord(it) {
   const o = stdObj(it),
     r = o.nyh || {},
     pick = (...v) => v.map((x) => String(x || "").slice(0, 10)).find((x) => STD_ISO.test(x)) || "";
