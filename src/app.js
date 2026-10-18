@@ -33478,6 +33478,38 @@ function portalStatement(c) {
       {},
     );
 }
+// The client opens a document from the portal (harness finding 8, v11.1): one View for every place the portal lists
+// one (Waiting on You, the invoices due, Account's invoices and change orders).
+function portalView(c, k, d) {
+  if (!c || !d) return;
+  const title = `${{ estimate: "Proposal", co: "Change Order", invoice: "Invoice" }[k]} ${esc(d.number)}`;
+  if ("invoice" !== k) return void mbModal(title, docSummaryHtml(c, d), { submit: null });
+  const o = (clientFin(c).open || []).find((x) => x.x.id === d.id),
+    bal = o ? o.bal : r2(docTotal(d).total - invoicePaid(c, d)),
+    co = DB.company || {},
+    how = [
+      co.payTo && `Make it out to <b>${esc(co.payTo)}</b>`,
+      co.addr && `Mail to ${esc(co.addr)}`,
+      co.email && `Questions: ${esc(co.email)}`,
+      co.phone && `Or call ${esc(co.phone)}`,
+    ].filter(Boolean);
+  mbModal(
+    title,
+    `${docSummaryHtml(c, d)}${bal > 0.005 ? `<div class="card" style="margin-top:10px"><h3 style="margin:0 0 6px">How to Pay</h3><div class="small">${how.length ? how.join("<br>") : `Pay ${esc(co.name || "us")} by cheque or bank transfer — your project manager can send the details.`}</div><div class="small muted" style="margin-top:6px">Balance on this invoice: <b>${money(bal)}</b>${d.due ? ` · due ${fmt(d.due)}` : ""}</div></div>` : '<div class="note ok" style="margin-top:10px">Paid in full — thank you.</div>'}`,
+    {
+      submit: null,
+      alt:
+        bal > 0.005
+          ? {
+              label: "Ask About This Invoice",
+              run: () => {
+                mbCloseModal(), setTimeout(() => portalQuestion(c, d), 60);
+              },
+            }
+          : null,
+    },
+  );
+}
 function renderPortalApprovals() {
   const c = clientUserOf(),
     host = $("#cl-approvals");
@@ -33506,34 +33538,7 @@ function renderPortalApprovals() {
     (b) =>
       (b.onclick = () => {
         const [k, d] = find(b.dataset.pview);
-        if (!d) return;
-        const title = `${{ estimate: "Proposal", co: "Change Order", invoice: "Invoice" }[k]} ${esc(d.number)}`;
-        if ("invoice" !== k) return void mbModal(title, docSummaryHtml(c, d), { submit: null });
-        const o = (clientFin(c).open || []).find((x) => x.x.id === d.id),
-          bal = o ? o.bal : r2(docTotal(d).total - invoicePaid(c, d)),
-          co = DB.company || {},
-          how = [
-            co.payTo && `Make it out to <b>${esc(co.payTo)}</b>`,
-            co.addr && `Mail to ${esc(co.addr)}`,
-            co.email && `Questions: ${esc(co.email)}`,
-            co.phone && `Or call ${esc(co.phone)}`,
-          ].filter(Boolean);
-        mbModal(
-          title,
-          `${docSummaryHtml(c, d)}${bal > 0.005 ? `<div class="card" style="margin-top:10px"><h3 style="margin:0 0 6px">How to Pay</h3><div class="small">${how.length ? how.join("<br>") : `Pay ${esc(co.name || "us")} by cheque or bank transfer — your project manager can send the details.`}</div><div class="small muted" style="margin-top:6px">Balance on this invoice: <b>${money(bal)}</b>${d.due ? ` · due ${fmt(d.due)}` : ""}</div></div>` : '<div class="note ok" style="margin-top:10px">Paid in full — thank you.</div>'}`,
-          {
-            submit: null,
-            alt:
-              bal > 0.005
-                ? {
-                    label: "Ask About This Invoice",
-                    run: () => {
-                      mbCloseModal(), setTimeout(() => portalQuestion(c, d), 60);
-                    },
-                  }
-                : null,
-          },
-        );
+        portalView(c, k, d);
       }),
   ),
     host.querySelectorAll("[data-pask]").forEach(
@@ -49734,13 +49739,13 @@ function fLogQuick() {
     render(),
     toast("Log sent");
 }
-fRenderToday = function () {
-  fRenderTodayBase_v();
-  const root = $("#ftoday-body");
-  if (!root) return;
+// The foreman's Now: each line is one item, in the one order every queue uses (standardOrder): safety first, then
+// whoever is blocked today (the crew not clocked in, a sub who did not show, material missing for today's work, a
+// question past due, an inspection today), then what is due today, then the rest. Ask's "what should I do first"
+// reads the same list for the foreman.
+function fNowItems() {
+  if (!S || !S.id) return [];
   const td = today(),
-    emp = myEmp(),
-    open = emp ? DB.time.find((t) => t.empId === emp.id && !t.out) : null,
     notIn = DB.employees
       .filter((e) => !1 !== e.active && !/coordinator|office|owner|design|architect/i.test(e.role || ""))
       .filter((e) => !DB.time.some((t) => t.empId === e.id && t.date === td)),
@@ -49755,58 +49760,51 @@ fRenderToday = function () {
         (po) => po.projectId === S.id && ["issued", "partial"].includes(po.status) && po.expected === td,
       ).length + S.materials.filter((m) => m.eta === td && "on-site" !== m.status).length,
     waiting = fRaises().filter((r) => fOpen(r) && "answered" !== r.status),
-    late = waiting.filter((r) => r.escalated || r.dueBy < td),
+    unsafe = waiting.filter((r) => "safety" === stdRaiseP({ r: r })),
+    late = waiting.filter((r) => !unsafe.includes(r) && (r.escalated || r.dueBy < td)),
+    rest = waiting.filter((r) => !unsafe.includes(r) && !late.includes(r)),
+    insp = (S.inspections || []).filter((i) => i.date === td && !["passed", "failed", "cancelled"].includes(i.status)),
     logSent = DB.field.logs.some((l) => l.projectId === S.id && l.date === td && "submitted" === l.status),
     hr = appNow().getHours() + appNow().getMinutes() / 60,
     sh = siteHours(),
-    line = (cls, t, go) => `<div class="f-now ${cls}" ${go ? `data-fview="${go}"` : ""}>${t}</div>`,
-    now = [];
+    first = (L) => L.map((r) => r.dueBy).filter(Boolean).sort()[0] || "",
+    out = [],
+    add = (cls, html, go, m) => out.push(Object.assign({ kind: "fnow", cls: cls, html: html, go: go, title: String(html).replace(/<button[\s\S]*?<\/button>/g, "").replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim(), due: td, tier: 6 }, m));
+  unsafe.length && add("bad", `<b>${esc(tdWords(unsafe[0].title, 10))}</b>${unsafe.length > 1 ? ` and ${unsafe.length - 1} more` : ""} — safety, waiting on the office`, "fraise", { immediate: !0, tier: 1, due: first(unsafe) || td });
   notIn.length &&
     hr >= hmToMin(sh.start) / 60 + 0.25 &&
-    now.push(line("bad", `<b>${esc(notIn.map((e) => e.name).join(", "))}</b> not clocked in`, "fcrew")),
-    subBad.length &&
-      now.push(
-        line("bad", `<b>${esc(subBad.map((s) => s.vendor).join(", "))}</b> no-show — office knows`, "fsite"),
-      ),
-    subUn.length &&
-      now.push(
-        line(
-          "warn",
-          `<b>${esc(subUn.map((s) => s.vendor).join(", "))}</b> due today, not confirmed`,
-          "fsite",
-        ),
-      ),
-    missing.length &&
-      now.push(
-        line(
-          "warn",
-          `<b>${missing.length}</b> thing${missing.length > 1 ? "s" : ""} missing for today's work — ${esc(
-            missing
-              .slice(0, 2)
-              .map((n) => n.t.split(" — ")[0])
-              .join("; "),
-          )}${missing.length > 2 ? "…" : ""}`,
-        ),
-      ),
-    dels && now.push(line("", `<b>${dels}</b> deliver${dels > 1 ? "ies" : "y"} expected today`, "fsite")),
-    late.length
-      ? now.push(
-          line(
-            "bad",
-            `<b>${late.length}</b> question${late.length > 1 ? "s" : ""} past due with no answer — call`,
-            "fraise",
-          ),
-        )
-      : waiting.length && now.push(line("", `<b>${waiting.length}</b> waiting on the office`, "fraise")),
-    !logSent &&
-      hr >= 15.5 &&
-      now.push(
-        line(
-          "warn",
-          '<b>Today\'s log</b> not sent yet <button class="btn sm primary" id="flog-quick">Send as is</button>',
-        ),
-      ),
-    now.length || now.push(line("ok", "Nothing is on fire. Crew in, subs confirmed, nothing missing."));
+    add("bad", `<b>${esc(notIn.map((e) => e.name).join(", "))}</b> not clocked in`, "fcrew", { blockedToday: !0 });
+  subBad.length && add("bad", `<b>${esc(subBad.map((s) => s.vendor).join(", "))}</b> no-show — office knows`, "fsite", { blockedToday: !0 });
+  late.length && add("bad", `<b>${late.length}</b> question${late.length > 1 ? "s" : ""} past due with no answer — call`, "fraise", { blockedToday: !0, due: first(late) || td });
+  insp.length && add("warn", `<b>Inspection today</b> — ${esc(insp.map((i) => i.name).join("; "))}`, "fsite", { blockedToday: !0, tier: 2 });
+  missing.length &&
+    add(
+      "warn",
+      `<b>${missing.length}</b> thing${missing.length > 1 ? "s" : ""} missing for today's work — ${esc(
+        missing
+          .slice(0, 2)
+          .map((n) => n.t.split(" — ")[0])
+          .join("; "),
+      )}${missing.length > 2 ? "…" : ""}`,
+      "",
+      { blockedToday: !0 },
+    );
+  subUn.length && add("warn", `<b>${esc(subUn.map((s) => s.vendor).join(", "))}</b> due today, not confirmed`, "fsite", { blockedToday: !1 });
+  dels && add("", `<b>${dels}</b> deliver${dels > 1 ? "ies" : "y"} expected today`, "fsite", { blockedToday: !1 });
+  !logSent && hr >= 15.5 && add("warn", '<b>Today\'s log</b> not sent yet <button class="btn sm primary" id="flog-quick">Send as is</button>', "", { blockedToday: !1, tier: 4 });
+  rest.length && add("", `<b>${rest.length}</b> waiting on the office`, "fraise", { blockedToday: !1, due: first(rest) });
+  return standardOrder(out, (x) => ["bad" === x.cls ? 0 : "warn" === x.cls ? 1 : 2]);
+}
+fRenderToday = function () {
+  fRenderTodayBase_v();
+  const root = $("#ftoday-body");
+  if (!root) return;
+  const td = today(),
+    emp = myEmp(),
+    open = emp ? DB.time.find((t) => t.empId === emp.id && !t.out) : null,
+    line = (x) => `<div class="f-now ${x.cls}" ${x.go ? `data-fview="${x.go}"` : ""}>${x.html}</div>`,
+    items = fNowItems(),
+    now = items.length ? items.map(line) : [line({ cls: "ok", html: "Nothing is on fire. Crew in, subs confirmed, nothing missing." })];
   const nowCard = `<div class="card f-card f-nowcard"><div class="hd"><h3>Now</h3><span class="small muted">${fmtL(td)}${open ? ` · in since ${stampTime(open.in)}` : ""}</span></div>${now.join("")}<div class="row" style="gap:6px;margin-top:8px;flex-wrap:wrap"><button class="btn sm" id="froom-btn">Ask about a room</button><button class="btn sm" data-fview="fsite">Subs &amp; deliveries</button>${fCall(fPerson("pm"))}</div></div>`,
     cards = [...root.querySelectorAll(":scope > .card")],
     hero = root.querySelector(".f-hero"),
@@ -86763,7 +86761,9 @@ function mRenderTabs() {
           `<button data-mv="${v}" class="${((v) => v === cur || ("hbworkspace" === v && /^hb/.test(cur)) || ("dash" === v && ["sched", "tasks"].includes(cur)))(v) ? "on" : ""}">${M_ICON[i]}<span>${l}</span>${"mapprove" === v && nAppr ? `<i class="n">${nAppr}</i>` : ""}</button>`,
       )
       .join("") +
-    (tabs.length >= 5 ? "" : `<button data-mv="__more">${M_ICON.more}<span>More</span></button>`)),
+    // More stays whenever the role has pages beyond the bar (the client's portal has none); six cells fit 390px
+    (tabs.length >= 6 || "client" === mRole() ? "" : `<button data-mv="__more">${M_ICON.more}<span>More</span></button>`)),
+    tb.style.setProperty("--mtabs-n", String(tb.querySelectorAll("button").length || 5)),
     tb.querySelectorAll("button").forEach(
       (b) =>
         (b.onclick = () => {
@@ -104382,8 +104382,10 @@ function clAcctHtml() {
       .sort()[0],
     unsigned = co.filter((d) => "sent" === d.status),
     photos = clPhotos(),
-    row = (l, r, sub) =>
-      `<div class="cl-row"><div><b>${l}</b>${sub ? `<div class="small muted">${sub}</div>` : ""}</div><div class="cl-amt">${r}</div></div>`;
+    // every invoice and change order listed here opens on View, as on Waiting on You (harness finding 8, v11.1)
+    view = (k, id) => `<button type="button" class="btn sm cl-view" data-pview="${k}:${esc(id)}">View</button>`,
+    row = (l, r, sub, act) =>
+      `<div class="cl-row"><div><b>${l}</b>${sub ? `<div class="small muted">${sub}</div>` : ""}</div><div class="cl-amt">${r}</div>${act ? `<div class="cl-act">${act}</div>` : ""}</div>`;
   return `<div class="ph"><div><h2>Your Account</h2><div class="lead">${bal > 0.5 ? `${clMoney(bal)} is open${next ? `, next due ${fmtL(next)}` : ""}. Every invoice, change order and photo of the job is here.` : "Nothing is open — thank you. Every invoice, change order and photo of the job is here."}</div></div></div>\n  <div class="glance tl">\n    <div class="gl static ${bal > 0.5 ? "warn" : ""}"><span class="gl-k">Open Balance</span><b class="gl-v">${clMoney(bal)}</b><span class="gl-s">${open.length ? `${open.length} invoice${open.length > 1 ? "s" : ""}${next ? ` · next due ${fmtL(next)}` : ""}` : "nothing open"}</span></div>\n    <div class="gl static ${unsigned.length ? "warn" : ""}"><span class="gl-k">Waiting on Your Signature</span><b class="gl-v">${unsigned.length}</b><span class="gl-s">${unsigned.length ? `${clMoney(unsigned.reduce((a, d) => a + docTotal(d).total, 0))} in change orders` : "nothing to sign"}</span></div>\n    <div class="gl static"><span class="gl-k">Paid to Date</span><b class="gl-v">${clMoney((c.payments || []).filter((x) => !x.unapplied).reduce((a, x) => a + (+x.amount || 0), 0))}</b><span class="gl-s">across ${(c.payments || []).length} payment${1 === (c.payments || []).length ? "" : "s"}</span></div>\n    <div class="gl static"><span class="gl-k">Photos of the Job</span><b class="gl-v">${photos.length}</b><span class="gl-s">${photos.length ? "newest first, below" : "none posted yet"}</span></div>\n  </div>\n  <div class="card" id="cl3-inv"><h3>Invoices</h3>${
     inv.length
       ? inv
@@ -104395,6 +104397,7 @@ function clAcctHtml() {
               `${esc(d.number)}`,
               `${clMoney(docTotal(d).total)}${b > 0.5 ? `<div class="small warn">${clMoney(b)} open</div>` : '<div class="small muted">paid</div>'}`,
               `${d.date ? fmtL(d.date) : ""}${d.due ? ` · due ${fmtL(d.due)}` : ""}`,
+              view("invoice", d.id),
             );
           })
           .join("")
@@ -104415,6 +104418,7 @@ function clAcctHtml() {
                     .slice(0, 2)
                     .join(" · "),
               ),
+              view("co", d.id),
             ),
           )
           .join("")
@@ -104443,7 +104447,15 @@ function pmName() {
 }
 function renderClAcct() {
   const h = document.getElementById("clacct-body");
-  h && (h.innerHTML = clAcctHtml());
+  if (!h) return;
+  h.innerHTML = clAcctHtml();
+  const { c: c } = clDocs();
+  h.querySelectorAll("[data-pview]").forEach((b) => {
+    b.onclick = () => {
+      const [k, id] = b.dataset.pview.split(":");
+      portalView(c, k, c && findDoc(c, k, id));
+    };
+  });
 }
 function clSchedHtml() {
   const p = clProj();
@@ -119267,10 +119279,13 @@ if (
       ["ovjobs", "Projects", "field"],
       ["ovsales", "Sales", "sales"],
     ]),
+    // the PM's main pages on the bar, not under More (harness finding 7, v11.1): Home, Approvals, his jobs, his
+    // tasks (MENU_DRAFT's second item for the PM; tasks made anywhere land there) and the field; More keeps the rest
     (M_TABS.pm = [
       ["home", "Home", "brief"],
       ["mapprove", "Approvals", "approve"],
       ["ovjobs", "Projects", "field"],
+      ["tkall", "Tasks", "task"],
       ["field", "Field", "req"],
     ]),
     (M_TABS.coord = [
@@ -120273,6 +120288,18 @@ const CR_PROJECT_VIEWS = ["sched", "tasks", "dec", "insp", "field", "mat", "file
 function crInProject() {
   return CR_PROJECT_VIEWS.includes(view) && !!(S && S.id && (DB.projects || []).some((p) => p.id === S.id));
 }
+// Whose document a New Change Order, Invoice or Estimate is (harness finding 6, v11.1): the client of the screen the
+// person is on. A job's own screens give the job's client and the job; a client's page (or Billing with a client
+// picked) gives that client; anywhere else gives nothing, and the sheet asks. Never the last job opened elsewhere:
+// S stays set after leaving a job, so a document started from Home went to whoever was looked at last.
+function crDocContext() {
+  const has = (id) => !!id && (DB.clients || []).some((c) => c.id === id);
+  if (crInProject() && has(S.clientId)) return { clientId: S.clientId, projectId: S.id };
+  if ("clients" === view && "undefined" != typeof clientOpen && has(clientOpen))
+    return { clientId: clientOpen, projectId: ("undefined" != typeof finProj && finProj) || "" };
+  if ("billing" === view && "undefined" != typeof billClient && has(billClient)) return { clientId: billClient, projectId: "" };
+  return {};
+}
 function crDefaultFor(P) {
   return P.leadId
     ? "l:" + P.leadId
@@ -120837,7 +120864,7 @@ const CR_NEW = [
       [
         "co",
         "Change Order",
-        () => newChangeOrderDialog({ clientId: S && S.clientId, projectId: S && S.id }),
+        () => newChangeOrderDialog(crDocContext()),
         (p, c) => (c ? "for " + c : "from an estimate or from scratch"),
       ],
       [
@@ -120862,7 +120889,7 @@ function crQuick(k) {
   }
 }
 function crPickClient(title, cb) {
-  const cur = S && S.clientId,
+  const cur = crDocContext().clientId,
     c0 = cur && DB.clients.find((x) => x.id === cur);
   if (!c0)
     return DB.clients.length
@@ -120870,13 +120897,13 @@ function crPickClient(title, cb) {
           title,
           mbF(
             "Client",
-            `<select data-f="clientId">${DB.clients.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select>`,
+            `<select data-f="clientId"><option value="" selected>Choose the client</option>${DB.clients.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select>`,
           ),
           {
             submit: "Next",
             onSubmit: (f) => {
               const c = DB.clients.find((x) => x.id === f.clientId);
-              if (!c) return !1;
+              if (!c) return (vfRequire(document.getElementById("mbm"), [['[data-f="clientId"]', "Choose the client this is for"]]), !1);
               setTimeout(() => cb(c), 30);
             },
           },
@@ -120972,33 +120999,32 @@ function newChangeOrderDialog(preset) {
   const P = preset || {},
     clients = DB.clients.slice();
   if (!clients.length) return toast("Add a client first"), void newClientDialog();
-  let cid =
-    P.clientId && clients.some((c) => c.id === P.clientId)
-      ? P.clientId
-      : S && S.clientId && clients.some((c) => c.id === S.clientId)
-        ? S.clientId
-        : clients[0].id;
+  let cid = P.clientId && clients.some((c) => c.id === P.clientId) ? P.clientId : crDocContext().clientId || "";
   const dyn = (pid, eid) => {
       const c = clients.find((x) => x.id === cid),
         projs = (DB.projects || []).filter((p) => p.clientId === cid),
-        ests = crEstimatesOf(c),
+        ests = c ? crEstimatesOf(c) : [],
         est = ests.find((e) => e.id === eid) || null;
-      return `<div class="grid2">${mbF("Project", `<select data-f="projectId">${projs.length ? "" : '<option value="">— no project yet —</option>'}${projs.map((p) => `<option value="${p.id}" ${p.id === pid ? "selected" : ""}>${esc(crProjName(p))}</option>`).join("")}</select>`)}${mbF("From Estimate", `<select data-f="estimateId"><option value="">— none —</option>${ests.map((e) => `<option value="${e.id}" ${e.id === (est && est.id) ? "selected" : ""}>${esc(e.number)} · ${esc(e.title || "")} · ${esc(e.status)}</option>`).join("")}</select>`)}</div>\n      <div id="co-lines" ${est ? "" : "hidden"}><div class="f"><label>Lines From Estimate</label><span class="hint">Tick the lines the change is against. They are copied onto the change order for you to re-price. Nothing ticked starts the order with one blank line.</span>${est ? crLineHtml(est) : ""}</div></div>`;
+      return `<div class="grid2">${mbF("Project", `<select data-f="projectId">${projs.length ? "" : c ? '<option value="">— no project yet —</option>' : '<option value="">— choose the client first —</option>'}${projs.map((p) => `<option value="${p.id}" ${p.id === pid ? "selected" : ""}>${esc(crProjName(p))}</option>`).join("")}</select>`)}${mbF("From Estimate", `<select data-f="estimateId"><option value="">— none —</option>${ests.map((e) => `<option value="${e.id}" ${e.id === (est && est.id) ? "selected" : ""}>${esc(e.number)} · ${esc(e.title || "")} · ${esc(e.status)}</option>`).join("")}</select>`)}</div>\n      <div id="co-lines" ${est ? "" : "hidden"}><div class="f"><label>Lines From Estimate</label><span class="hint">Tick the lines the change is against. They are copied onto the change order for you to re-price. Nothing ticked starts the order with one blank line.</span>${est ? crLineHtml(est) : ""}</div></div>`;
     },
     pid0 =
       P.projectId && (DB.projects || []).some((p) => p.id === P.projectId && p.clientId === cid)
         ? P.projectId
         : ((DB.projects || []).find((p) => p.clientId === cid) || {}).id || "",
     c0 = clients.find((x) => x.id === cid),
-    eid0 =
-      P.estimateId && crEstimatesOf(c0).some((e) => e.id === P.estimateId)
+    eid0 = !c0
+      ? ""
+      : P.estimateId && crEstimatesOf(c0).some((e) => e.id === P.estimateId)
         ? P.estimateId
         : (crEstimatesOf(c0).find((e) => "converted" === e.status && (!pid0 || e.projectId === pid0)) || {})
             .id || "",
-    REQ = [['[data-f="title"]', "Say what changed, in a line"]];
+    REQ = [
+      ['[data-f="clientId"]', "Choose the client this change is for"],
+      ['[data-f="title"]', "Say what changed, in a line"],
+    ];
   mbModal(
     "New Change Order",
-    `\n    ${mbF("Client", `<select data-f="clientId">${clients.map((c) => `<option value="${c.id}" ${c.id === cid ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select>`)}\n    ${mbF("Title", '<input data-f="title" placeholder="What changed, in a line — e.g. Radiant floor heat in the primary bath" autocomplete="off">')}\n    <div id="co-dyn">${dyn(pid0, eid0)}</div>\n    <div class="grid2">${mbF("Schedule Impact (Working Days)", '<input type="number" data-f="scheduleDays" value="0" min="0" step="1">')}${mbF("Reason (Printed)", '<input data-f="memo" placeholder="Why the scope changed">')}</div>`,
+    `\n    ${mbF("Client", `<select data-f="clientId">${cid ? "" : '<option value="" selected>Choose the client</option>'}${clients.map((c) => `<option value="${c.id}" ${c.id === cid ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select>`)}\n    ${mbF("Title", '<input data-f="title" placeholder="What changed, in a line — e.g. Radiant floor heat in the primary bath" autocomplete="off">')}\n    <div id="co-dyn">${dyn(pid0, eid0)}</div>\n    <div class="grid2">${mbF("Schedule Impact (Working Days)", '<input type="number" data-f="scheduleDays" value="0" min="0" step="1">')}${mbF("Reason (Printed)", '<input data-f="memo" placeholder="Why the scope changed">')}</div>`,
     {
       submit: "Start Change Order",
       onSubmit: (f) => {
@@ -121067,9 +121093,8 @@ function newChangeOrderDialog(preset) {
     cs &&
       (cs.onchange = () => {
         cid = cs.value;
-        const e0 =
-          (crEstimatesOf(clients.find((x) => x.id === cid)).find((e) => "converted" === e.status) || {}).id ||
-          "";
+        const c1 = clients.find((x) => x.id === cid),
+          e0 = (c1 && (crEstimatesOf(c1).find((e) => "converted" === e.status) || {}).id) || "";
         (root.querySelector("#co-dyn").innerHTML = dyn(
           ((DB.projects || []).find((p) => p.clientId === cid) || {}).id || "",
           e0,
@@ -121120,10 +121145,7 @@ if ("function" == typeof renderBilling) {
           '<div class="row cr-tabacts"><span class="grow"></span><button class="btn primary" id="bill-newco">New Change Order</button></div>',
         ),
           (root.querySelector("#bill-newco").onclick = () =>
-            newChangeOrderDialog({
-              clientId: billClient || (S && S.clientId) || "",
-              projectId: billClient ? "" : (S && S.id) || "",
-            }));
+            newChangeOrderDialog(crDocContext()));
       }
     } catch (e) {
       console.warn("billing new co", e);
@@ -173098,15 +173120,20 @@ const stdNyhRows = () =>
   STANDARD_RULES.filter((R) => "nyh" === R.surface).flatMap((R) =>
     standardRuleRows(R).map((x) => ({ key: "std:" + x.key, route: R.owner, kind: "standard", rule: R.id, title: x.what, why: x.sub || "", amount: x.amount || 0, verb: "Open", run: x.go || (() => setView("standard")), open: x.go || (() => setView("standard")) })),
   );
-// ---- ranking: Do Now, Caught for You and Needs Your Hand ----------------------------------------------------
-// Alan (2026-10-11): sorting by the decision principle alone put an LLC filing due in 25 days above a bill due today.
-// The order is now:
+// ---- ranking: every person's queue (Home's Do Now, Caught for You, Needs Your Hand, Approvals, the coordinator's
+// Home, the foreman's Now, the brief's "First thing" and Ask's "what should I do first") ----------------------------
+// Alan (2026-10-11): sorting by the decision principle alone put an LLC filing due in 25 days above a bill due today;
+// then (v11.1) a crew standing idle today sat under decisions that went overdue last week. The order is now:
 //   (a) immediate safety and law items, always first: an incident or unsafe condition, a stop-work, an expired or
-//       missing insurance certificate on a vendor working an active job;
-//   (b) urgency: overdue, due today, due this week (the next 7 days), later (or no date on the record);
-//   (c) within a bucket, the decision principle (standardTier);
-//   (d) then who is blocked (tdScore, which every layer extends, or the row's own blocked mark), the money at stake,
-//       and the date. The rows are the same rows: only their order changes, so every count stays as it was.
+//       missing insurance certificate (a vendor working an active job, or any item that says the COI is missing);
+//   (b) anyone blocked today: the crew or the field waiting now (a field question or request due today or past, a
+//       sub who did not show, material needed on site today, an inspection today) (standardBlocked);
+//   (c) urgency: overdue, due today, due this week (the next 7 days), later (or no date on the record);
+//   (d) within a bucket, the decision principle (standardTier);
+//   (e) then who is blocked (tdScore, which every layer extends, or the row's own blocked mark), the money at stake,
+//       and the date. The rows are the same rows: only their order changes, so every count stays as it was and
+//       nothing is hidden: an overdue item under a crew waiting today is still on the list, one place lower.
+// standardOrder(items, tieOf) is the one sort; every list above calls it.
 const stdDate = (it) => stdDueOf(it) || String((it && (it.date || (it.nyh && it.nyh.due))) || "9999");
 const STD_ISO = /^\d{4}-\d{2}-\d{2}$/;
 const STD_MON = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
@@ -173198,26 +173225,97 @@ function standardImmediate(it) {
   if (1 === standardTier(it)) return !0;
   // a vendor whose certificate is expired or missing while they work an active job (Caught for You's Compliance)
   if ("compliance" === o.src && /\b(expired|lapsed|not on file|missing)\b/i.test(words)) return !0;
+  // any other item that says a certificate of insurance is missing or expired (a chase, a mail proposal, a foreman's
+  // line); a bill's words describe its vendor's certificate, and a lesson or rule is about the habit, not the gap
+  if (!/^(bill|learn|lesson|change|meeting)$/.test(o.kind || "") && /\b(coi|insurance|certificate of insurance)\b/i.test(words) && /\b(expired|lapsed|not on file|missing)\b/i.test(words)) return !0;
   return !1;
 }
-// One reading for the tests and for Ask: where an item stands and why.
-const standardRank = (it) => ({ imm: standardImmediate(it) ? 0 : 1, u: standardUrgency(it), t: standardTier(it), due: stdDueOf(it) });
-const stdRankCmp = (a, b) => a.imm - b.imm || a.u - b.u || a.t - b.t;
+// (b) someone in the field is waiting on this today. A caller that knows says so on the item (blockedToday).
+function standardBlocked(it) {
+  const o = stdObj(it),
+    r = o.nyh || {},
+    td = today();
+  if ("boolean" == typeof o.blockedToday) return o.blockedToday;
+  // a client's message (portal question or mail) is due by the client-message clock (stdDueOf), not the field's
+  // bucket, even when its words mention the crew
+  if ("clientq" === o.kind || "mail" === r.kind) return !1;
+  const d = stdDueOf(it),
+    now = !!d && d <= td,
+    words = [o.title, o.detail, o.what, o.sub, r.title, r.why].filter(Boolean).join(" ");
+  try {
+    // a field question: the crew asked and waits; due today or past, escalated, a no-show, or needed on site today
+    if ("raise" === o.kind) {
+      const R = tdRaise(o) || {};
+      return !!(R.escalated || now || (R.needBy && R.needBy <= td) || "noshow" === R.type);
+    }
+    // a field request for material or tools needed on site today or before
+    if ("req" === o.kind) return now;
+    // material needed on site today: a PO or material whose need-by is today or past
+    if (/^(po|mat|material|delivery)$/.test(o.kind || "")) return now;
+  } catch (e) {}
+  // an inspection today (the inspector is coming; whatever it needs is needed now)
+  if (/\binspection\b/i.test(words) && d === td) return !0;
+  // a row that marks itself blocked, or says the crew or the field is waiting, when it is due today or past
+  if ((o.blocked || r.blocked) && now) return !0;
+  if (now && /\b(crew|foreman|field|site|sub)\b[^.]{0,40}\b(waiting|idle|standing|blocked|no[- ]show)\b/i.test(words)) return !0;
+  return !1;
+}
+// One reading for the tests and for Ask: where an item stands and why. Explicit marks on the item win (the
+// foreman's Now lines carry their own).
+const standardRank = (it) => {
+  const o = stdObj(it);
+  return {
+    imm: ("boolean" == typeof o.immediate ? o.immediate : standardImmediate(it)) ? 0 : 1,
+    blk: standardBlocked(it) ? 0 : 1,
+    u: standardUrgency(it),
+    t: "number" == typeof o.tier ? o.tier : standardTier(it),
+    due: stdDueOf(it),
+  };
+};
+const stdRankCmp = (a, b) => a.imm - b.imm || a.blk - b.blk || a.u - b.u || a.t - b.t;
+// The rank as one sortable key, for the tests and for anything that compares two items.
+const standardRankKey = (it) => {
+  const r = standardRank(it);
+  return [r.imm, r.blk, r.u, r.t];
+};
+// The bucket in plain words: why an item sits where it does.
+function standardRankWhy(it) {
+  const r = standardRank(it);
+  if (!r.imm) return "safety and the law come first";
+  if (!r.blk) return "someone in the field is waiting on it today";
+  return ["it is overdue", "it is due today", "it is due this week", ""][r.u] || "";
+}
+// THE sort. tieOf(item) gives what breaks a tie inside a bucket and principle, as an array compared in order
+// (numbers ascending, strings by locale); the original position is the last tie-break, so the sort is stable.
+function standardOrder(items, tieOf) {
+  const tie = tieOf || ((it) => [-(+(it && it.amount) || 0), stdDate(it)]),
+    cmp = (x, y) => {
+      for (let i = 0; i < Math.max(x.length, y.length); i++) {
+        const a = x[i],
+          b = y[i];
+        if (a === b) continue;
+        if ("number" == typeof a && "number" == typeof b) return a - b;
+        return String(a == null ? "" : a).localeCompare(String(b == null ? "" : b));
+      }
+      return 0;
+    };
+  return (items || [])
+    .map((it, i) => ({ it: it, i: i, k: standardRank(it), tb: tie(it) || [] }))
+    .sort((a, b) => stdRankCmp(a.k, b.k) || cmp(a.tb, b.tb) || a.i - b.i)
+    .map((x) => x.it);
+}
+// Do Now's tie-break: who is blocked and what is at stake (tdScore), then the date.
+const stdQueueTie = (it) => [-tdScore(it), stdDate(it)];
 let stdLastQueue = [],
   stdLastCaught = [];
 tdQueue = function () {
-  const A = PRED.waitingOnMe.rows();
-  return (stdLastQueue = A.map((it, i) => Object.assign(standardRank(it), { it: it, i: i, s: tdScore(it), d: stdDate(it) }))
-    .sort((a, b) => stdRankCmp(a, b) || b.s - a.s || a.d.localeCompare(b.d) || a.i - b.i)
-    .map((x) => x.it));
+  return (stdLastQueue = standardOrder(PRED.waitingOnMe.rows(), stdQueueTie));
 };
 {
   const base = tdCaught;
   tdCaught = function () {
     const R = base.apply(this, arguments) || [];
-    return (stdLastCaught = R.map((r, i) => Object.assign(standardRank(r), { r: r, i: i, b: r.blocked ? 1 : 0, a: +r.amount || 0, d: stdDate(r) }))
-      .sort((a, b) => stdRankCmp(a, b) || b.b - a.b || b.a - a.a || a.d.localeCompare(b.d) || a.i - b.i)
-      .map((x) => x.r));
+    return (stdLastCaught = standardOrder(R, (r) => [r.blocked ? 0 : 1, -(+r.amount || 0), stdDate(r)]));
   };
 }
 {
@@ -173229,9 +173327,10 @@ tdQueue = function () {
     try {
       R = R.concat(stdNyhRows().filter((r) => o.everyone || r.route === (o.role || me)));
     } catch (e) {}
-    return R.map((r, i) => Object.assign(standardRank({ nyh: r }), { r: r, i: i, a: +r.amount || 0, d: stdDate({ nyh: r }) }))
-      .sort((a, b) => stdRankCmp(a, b) || b.a - a.a || a.d.localeCompare(b.d) || a.i - b.i)
-      .map((x) => x.r);
+    return standardOrder(
+      R.map((r) => ({ nyh: r })),
+      (x) => [-(+x.nyh.amount || 0), stdDate(x)],
+    ).map((x) => x.nyh);
   };
 }
 // ---- "because" on every proposal: Home's cards, Approvals rows, the classic Home's Needs Your Hand, the brain
@@ -173530,7 +173629,7 @@ function stdAskWhy(raw) {
   return paOut({
     kind: "standard",
     headline: `${standardWhy(it)}.`,
-    note: P ? `It ranks under decision principle ${standardTier(it)}, ${P.name}.${standardIsLeak(it) ? ` ${STD_WASTE}` : ""}` : `No decision principle is at stake; it ranks after them.${standardIsLeak(it) ? ` ${STD_WASTE}` : ""}`,
+    note: `${standardRankWhy(it) ? `It sits where it does because ${standardRankWhy(it)}. ` : ""}${P ? `It ranks under decision principle ${standardTier(it)}, ${P.name}.` : "No decision principle is at stake; it ranks after them."}${standardIsLeak(it) ? ` ${STD_WASTE}` : ""}`,
     work: standardEscalationText(it),
     go: paGo({ view: "standard" }),
   });
@@ -184580,6 +184679,154 @@ function nyhItem(r) {
     return out;
   };
 }
+/* ---------------------------------------------------------------------------------------------------------
+   v11.1 ranking (Alan, 2026-10-11; docs/DECISIONS.md): every person's queue in one order.
+     immediate safety and law (a missing insurance certificate counts) > anyone blocked today (crew or field
+     waiting) > overdue > today > this week > later, then the decision principle, then who is blocked and the money.
+   standardOrder (the ranking section, after Today) is the one sort. This layer puts the lists that did not use it
+   onto it, outermost so no older layer re-sorts after it:
+     - mApprovals: the Approvals page, the coordinator's Home, Ask's "waiting on me" and PRED.waitingOnMe;
+     - eaToday: the brief's "First thing" and "Today, in the order I'd do it" lead with the top of Do Now;
+     - myQueue(): the one queue per person (Do Now, or the foreman's Now), which Ask's "what should I do first" reads.
+   Only the order changes: every count, badge and tile keeps its rows.
+--------------------------------------------------------------------------------------------------------- */
+{
+  const base = mApprovals;
+  mApprovals = function (opts) {
+    const out = base.apply(this, arguments) || [];
+    try {
+      return standardOrder(out, stdQueueTie);
+    } catch (e) {
+      console.warn("rank approvals", e);
+      return out;
+    }
+  };
+}
+// The person's own queue, ranked: Do Now for whoever has Approvals, the foreman's Now on the field side.
+function myQueue() {
+  try {
+    if (PRED.waitingOnMe.can()) return tdQueue();
+    if ((ROLE_VIEWS[role()] || []).includes("ftoday")) return fNowItems();
+  } catch (e) {
+    console.warn("my queue", e);
+  }
+  return [];
+}
+// One line for an item of the queue: what it is, and the words under it.
+function myQueueSay(it) {
+  if (!it) return { t: "", sub: "" };
+  if ("fnow" === it.kind) return { t: it.title, sub: "" };
+  let c = {};
+  try {
+    c = tdCard(it) || {};
+  } catch (e) {}
+  return { t: tdPlain(c.line1 || it.title || ""), sub: tdPlain(c.why || it.detail || ""), verb: c.verb || "" };
+}
+{
+  const base = eaToday;
+  eaToday = function (r) {
+    const out = base.apply(this, arguments) || [];
+    try {
+      // the brief's own rows, in the one order (a row naming a field question or a bill is ranked as that record)
+      const raises = (DB.field || {}).raises || [],
+        shape = (x) => {
+          const t = tdPlain(x.t),
+            d = x.data || {},
+            R = raises.find((y) => y.title && t.startsWith(String(y.title).slice(0, 30)));
+          return d.billId ? { kind: "bill", id: d.billId } : R ? { kind: "raise", id: R.id } : { title: t, detail: tdPlain(x.sub) };
+        },
+        ranked = standardOrder(
+          out.map((x) => Object.assign(shape(x), { __ea: x })),
+          () => [],
+        ).map((y) => y.__ea);
+      // and Do Now's first card joins them: it leads unless one of the brief's own rows ranks above it (a missing
+      // certificate of insurance, say), and on a tie it wins, so the brief and Home agree on what comes first
+      const Q = PRED.waitingOnMe.can() && ["owner", "pm", "coord", "billing", "controller"].includes(r) ? tdQueue() : [];
+      if (!Q.length) return ranked;
+      const top = Q[0],
+        say = myQueueSay(top),
+        key = say.t.toLowerCase().slice(0, 24),
+        why = standardRankWhy(top),
+        lead = {
+          n: top.n || "",
+          t: esc(say.t),
+          sub: `${esc(say.sub)}${say.sub && why ? "; " : ""}${why ? `first because ${why}` : ""}`,
+          act: say.verb || "Open",
+          data: { tdq: { kind: top.kind, id: String(top.id) } },
+        },
+        rest = ranked.filter((x) => !key || !tdPlain(x.t).toLowerCase().startsWith(key));
+      return standardOrder(
+        [Object.assign({}, top, { __ea: lead, __lead: 1 })].concat(rest.map((x) => Object.assign(shape(x), { __ea: x }))),
+        (y) => [y.__lead ? 0 : 1],
+      ).map((y) => y.__ea);
+    } catch (e) {
+      console.warn("rank brief", e);
+      return out;
+    }
+  };
+  document.addEventListener(
+    "click",
+    (e) => {
+      const el = e.target && e.target.closest ? e.target.closest("#v-home [data-ea]") : null;
+      if (!el) return;
+      let d;
+      try {
+        d = JSON.parse(el.dataset.ea);
+      } catch (x) {
+        return;
+      }
+      if (!d || !d.tdq) return;
+      e.stopPropagation(), e.preventDefault();
+      const it = tdQueue().find((x) => x.kind === d.tdq.kind && String(x.id) === d.tdq.id);
+      if (!it) return void render();
+      try {
+        const c = tdCard(it);
+        c && c.run ? c.run() : mGo(it.open);
+      } catch (x) {
+        console.warn("brief first thing", x);
+      }
+    },
+    !0,
+  );
+}
+// Ask: "what should I do first", "what's on my plate", "what are my priorities": the person's queue, in the order
+// above, with why the first one is first. The same list as Do Now (or the foreman's Now), never a second ranking.
+"undefined" != typeof AG_DICT && "plate priority priorities prioritize tackle urgent urgently first".split(" ").forEach((w) => AG_DICT.add(w));
+AG_ASST.unshift({
+  id: "myfirst",
+  first: !0,
+  kind: "self",
+  re: /\b(what|which)( (thing|one|item))? (should|do|must|can) i (do|tackle|handle|start( with)?|look at|work on|deal with)( first| next| now)?(?! today)\b|\bwhere (do|should) i start\b|\bwhat('?s| is) (first|next|most important|most urgent|my top priority)\b|\b(on my plate|my priorities|my top priorit\w*|prioriti[sz]e my)\b|\bwhat needs (me|my attention)\b|\bwhat comes first\b/,
+  not: /\b(order|buy|pay|bill|invoice|deliver\w*|arriv\w*|cash|owe|reconcil\w*|draft|chase)\b/,
+  run(P) {
+    // a person with a queue: Approvals (Do Now) in the office, the foreman's Now on site; anyone else falls through
+    if ("client" === role() || !(PRED.waitingOnMe.can() || (ROLE_VIEWS[role()] || []).includes("ftoday"))) return null;
+    const Q = myQueue();
+    if (!Q.length)
+      return {
+        headline: "Nothing is waiting on you right now.",
+        note: "Your queue is empty: no safety item, nobody blocked, nothing overdue or due today.",
+        work: [],
+        go: agGo("home"),
+        ran: agRan("your queue", ["ranked: safety and law, blocked today, overdue, today, this week, then the decision principle"], "", 0),
+      };
+    const top = Q[0],
+      s = myQueueSay(top),
+      why = standardRankWhy(top),
+      P1 = standardPrincipleOf(top),
+      label = (it) => {
+        const r = standardRank(it);
+        return !r.imm ? "Safety and law" : !r.blk ? "Blocked today" : ["Overdue", "Today", "This week", "Later"][r.u];
+      };
+    return {
+      headline: `Start with ${s.t}${why ? `: ${why}` : ""}.`,
+      note: `${s.sub ? s.sub + ". " : ""}${P1 ? `It rests on ${P1.name.toLowerCase()} (decision principle ${standardTier(top)}). ` : ""}The order: safety and law first, then anyone blocked today, then overdue, today and this week, then the decision principles. ${agN(Q.length, "item")} in all; nothing is dropped.`,
+      work: Q.slice(0, 8).map((it, i) => `${i + 1}. ${label(it)} — ${myQueueSay(it).t}`),
+      go: agGo(PRED.waitingOnMe.can() ? "home" : "ftoday"),
+      ran: agRan("your queue (" + (PRED.waitingOnMe.can() ? "Do Now, PRED.waitingOnMe" : "the foreman's Now") + ")", ["ranked: safety and law, blocked today, overdue, today, this week, then the decision principle"], "", Q.length),
+    };
+  },
+});
 {
   const base = mGo;
   mGo = function (go) {
