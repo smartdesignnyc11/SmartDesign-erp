@@ -48301,7 +48301,7 @@ function fRenderCrew() {
       .map((e) => ({ e: e, es: DB.time.filter((t) => t.empId === e.id && t.date === td) }))
       .filter((x) => x.es.length && x.es.every((t) => t.out)),
     notIn = crew.filter((e) => !DB.time.some((t) => t.empId === e.id && t.date === td));
-  (root.innerHTML = `<div class="card f-card ${onNow.length ? "" : "warn"}"><div class="hd"><h3>On Site Now</h3><span class="small muted">${fmtL(td)}</span></div>\n      ${onNow.length ? onNow.map(({ e: e, t: t }) => `<div class="f-row"><div class="grow"><b>${esc(e.name)}</b><span class="small muted">${esc(e.role || "")} · ${hoursOf(t).toFixed(1)} h so far</span></div><span class="pill ok">In Since ${fTime(t.in)}</span></div>`).join("") : '<div class="small muted">Nobody is clocked in right now.</div>'}\n      ${cameGone.length ? `<div class="small muted" style="margin-top:6px">${cameGone.map((x) => esc(x.e.name.split(" ")[0])).join(", ")} clocked in earlier and clocked out.</div>` : ""}\n      ${notIn.length ? `<div class="small ${onNow.length ? "muted" : "bad-t"}" style="margin-top:4px">Not in today: ${notIn.map((e) => esc(e.name.split(" ")[0])).join(", ")}.</div>` : ""}</div>\n    <div class="card f-card"><div class="hd"><h3>This week</h3><span class="small muted">from ${fmt(mon)}</span></div>\n      ${crew
+  (root.innerHTML = `<div class="card f-card ${onNow.length ? "" : "warn"}"><div class="hd"><h3>On Site Now</h3><span class="small muted">${fmtL(td)}</span></div>\n      ${onNow.length ? onNow.map(({ e: e, t: t }) => `<div class="f-row"><div class="grow"><b>${esc(e.name)}</b><span class="small muted">${esc(e.role || "")} · ${hoursOf({ in: t.in, out: String(appNowIso()) > String(t.in) ? appNowIso() : t.in, breakMin: 0 }).toFixed(1)} h so far</span></div><span class="pill ok">In Since ${fTime(t.in)}</span>${(myEmp() || {}).id === e.id ? '<button class="btn sm" data-fclock="out">Clock Out</button>' : ""}</div>`).join("") : '<div class="small muted">Nobody is clocked in right now.</div>'}\n      ${cameGone.length ? `<div class="small muted" style="margin-top:6px">${cameGone.map((x) => esc(x.e.name.split(" ")[0])).join(", ")} clocked in earlier and clocked out.</div>` : ""}\n      ${notIn.length ? `<div class="small ${onNow.length ? "muted" : "bad-t"}" style="margin-top:4px">Not in today: ${notIn.map((e) => esc(e.name.split(" ")[0])).join(", ")}.</div>` : ""}</div>\n    <div class="card f-card"><div class="hd"><h3>This week</h3><span class="small muted">from ${fmt(mon)}</span></div>\n      ${crew
     .map((e) => {
       const wk = DB.time.filter((t) => t.empId === e.id && t.date >= mon && t.date <= td),
         h = wk.reduce((a, t) => a + hoursOf(t), 0),
@@ -163080,27 +163080,110 @@ function dlMissing(pid) {
     );
 }
 const dlTrade = (e) => (e && (e.trade || e.role)) || "Crew";
+// The time clock's hours for each person on one job and day: the one source a daily log's crew hours come from
+// (pilot day 1: the log carried 14 h for the foreman while the clock had him in since 10:32). Entries that overlap
+// (a second clock-in over an entry still running) count once; an entry still open runs to now; a log reads in
+// quarter hours (6.97 h from the clock is 7 h on the log).
+function dlClockFor(p, d) {
+  const by = {},
+    nowIso = appNowIso(),
+    ms = (x) => new Date(x).getTime(),
+    hm = (x) => String(x || "").slice(11, 16);
+  (DB.time || [])
+    .filter((t) => t.projectId === p.id && t.date === d && t.in)
+    .forEach((t) => {
+      const e = (DB.employees || []).find((x) => x.id === t.empId);
+      if (!e) return;
+      const x = (by[e.id] = by[e.id] || { name: e.name, empId: e.id, trade: dlTrade(e), spans: [], open: !1 });
+      let end = t.out || (d === today() ? nowIso : t.in);
+      String(end) < String(t.in) && (end = t.in), t.out || (x.open = !0);
+      x.spans.push({ a: ms(t.in), b: ms(end), brk: +t.breakMin || 0, txt: `${hm(t.in)}–${t.out ? hm(t.out) : "now"}`, id: t.id });
+    });
+  return Object.values(by).map((x) => {
+    const G = [];
+    x.spans
+      .sort((a, b) => a.a - b.a)
+      .forEach((s) => {
+        const g = G[G.length - 1];
+        g && s.a < g.b ? ((g.b = Math.max(g.b, s.b)), (g.brk = Math.max(g.brk, s.brk)), g.n++) : G.push({ a: s.a, b: s.b, brk: s.brk, n: 1 });
+      });
+    const h = G.reduce((a, g) => a + Math.max(0, (g.b - g.a) / 36e5 - g.brk / 60), 0);
+    return { name: x.name, empId: x.empId, trade: x.trade, hours: Math.round(4 * h) / 4, open: x.open, overlap: G.some((g) => g.n > 1), spans: x.spans.map((s) => s.txt), entryIds: x.spans.map((s) => s.id) };
+  });
+}
 function dlCrewFor(p, d) {
-  const by = {};
-  return (
-    (DB.time || [])
-      .filter((t) => t.projectId === p.id && t.date === d)
-      .forEach((t) => {
-        const e = (DB.employees || []).find((x) => x.id === t.empId);
-        if (!e) return;
-        const k = e.id;
-        (by[k] = by[k] || { name: e.name, empId: e.id, trade: dlTrade(e), hours: 0, open: !1 }),
-          (by[k].hours = r2(
-            by[k].hours +
-              (t.out
-                ? hoursOf(t)
-                : Math.max(0, (appNow() - new Date(t.in)) / 36e5 - (+t.breakMin || 0) / 60)),
-          )),
-          t.out || (by[k].open = !0);
+  return dlClockFor(p, d).map((c) => ({ name: c.name, empId: c.empId, trade: c.trade, hours: c.hours, clockH: c.hours, open: c.open, overlap: c.overlap, spans: c.spans }));
+}
+// A draft's crew and subs follow today's clock and site every time it opens: a line the foreman did not touch
+// takes the clock's hours; a line he changed keeps his number and is held against the clock; anyone on the clock
+// missing from the log comes back. Notes and open delays are what carry from the day before, never hours.
+function dlSyncSite(dr, p) {
+  if (!dr || !p || !Array.isArray(dr.crew)) return dr;
+  try {
+    const clock = dlClockFor(p, dr.date);
+    dr.crew.forEach((c) => {
+      if (!c.empId) return void (c.clockH = 0);
+      const k = clock.find((x) => x.empId === c.empId);
+      (c.clockH = k ? k.hours : 0), (c.open = !!(k && k.open)), (c.overlap = !!(k && k.overlap)), (c.spans = k ? k.spans : []);
+      c.edited || ((c.hours = c.clockH), (c.why = ""));
+    });
+    clock.forEach((k) => {
+      dr.crew.some((c) => c.empId === k.empId) ||
+        dr.crew.push({ name: k.name, empId: k.empId, trade: k.trade, hours: k.hours, clockH: k.hours, open: k.open, overlap: k.overlap, spans: k.spans });
+    });
+    const booked = ((DB.field || {}).subs || []).filter((s) => s.projectId === p.id && s.date === dr.date && "noshow" !== s.status);
+    (dr.subsOn = dr.subsOn || []),
+      booked.forEach((s) => {
+        const have = dr.subsOn.find((x) => x.subId === s.id);
+        have
+          ? ((have.checkedIn = "onsite" === s.status), have.touched || (have.on = "onsite" === s.status))
+          : dr.subsOn.push({ vendor: s.vendor, trade: s.trade || "", lead: s.lead || "", workers: 2, hours: 8, on: "onsite" === s.status, checkedIn: "onsite" === s.status, taskId: s.taskId || "", subId: s.id });
       }),
-    // a log reads in quarter hours (6.97 h from the clock is 7 h on the log)
-    Object.values(by).map((x) => Object.assign(x, { hours: Math.round(4 * x.hours) / 4 }))
-  );
+      (dr.subsOn = dr.subsOn.filter((x) => !x.subId || booked.some((s) => s.id === x.subId))),
+      (dr.clockAt = appNowIso());
+  } catch (e) {
+    console.warn("daily log clock", e);
+  }
+  return dr;
+}
+// Where the log disagrees with the clock, and why it cannot be signed yet. Each gap names the person, both numbers
+// and the way out: use the clock's hours, or say why the clock is wrong (the reason goes on the record).
+function dlClockGaps(dr, p) {
+  const out = [],
+    me = (typeof myEmp == "function" && myEmp()) || null;
+  (dr.crew || []).forEach((c, i) => {
+    const h = +c.hours || 0,
+      why = String(c.why || "").trim();
+    c.empId
+      ? Math.abs(h - (+c.clockH || 0)) >= 0.25 &&
+        !why &&
+        out.push({ i: i, name: c.name, msg: `${c.name}: the log says ${h} h, the clock says ${+c.clockH || 0} h. Use the clock's hours, or say why the clock is wrong.` })
+      : h > 0 && !why && out.push({ i: i, name: c.name, msg: `${c.name} is not on today's clock. Say why (worked without punching in), or remove the line.` });
+    me && c.empId === me.id && c.open && out.push({ i: i, name: c.name, self: !0, msg: `You are still clocked in (${+c.clockH || 0} h so far). Clock out, then sign: the log carries the hours the clock has.` });
+  });
+  return out;
+}
+function dlGapsHtml(dr, p) {
+  const G = dlClockGaps(dr, p);
+  if (!G.length) return "";
+  const self = G.some((g) => g.self);
+  return `<div class="note warn dl-gaps" role="alert"><b>Not ready to sign: the log and the clock disagree</b>${G.map((g) => `<div class="small">${esc(g.msg)}</div>`).join("")}<div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap"><button type="button" class="btn sm" data-dlgo="1">Fix the Crew Hours</button>${self ? '<button type="button" class="btn sm" data-dlclockout>Clock Out</button>' : ""}</div></div>`;
+}
+// Hours waiting on the foreman's approval on this job (flagged ones first): the same rows as Crew › Hours to Approve.
+function dlHoursToApprove(p) {
+  return (DB.time || [])
+    .filter((t) => p && t.projectId === p.id && "submitted" === t.status)
+    .map((t) => ({ t: t, flags: "function" == typeof timeFlags ? timeFlags(t) : [] }))
+    .sort((a, b) => b.flags.length - a.flags.length || String(a.t.date).localeCompare(b.t.date));
+}
+function dlApproveHtml(p) {
+  const A = dlHoursToApprove(p);
+  if (!A.length) return "";
+  const fl = A.filter((x) => x.flags.length);
+  return `<div class="note ${fl.length ? "warn" : ""} small dl-appr"><b>${fxN(A.length, "entry", "entries")} waiting on your approval${fl.length ? ` · ${fl.length} flagged` : ""}</b>${fl
+    .slice(0, 3)
+    .map((x) => `<div>${esc(empName(x.t.empId))} · ${fmt(x.t.date)} · ${hoursOf(x.t).toFixed(1)} h — ${esc(x.flags.join("; "))}</div>`)
+    .join("")}<div style="margin-top:4px"><a href="#" data-fview="fcrew" data-dlappr>Approve on Crew</a></div></div>`;
 }
 function dlDeliveriesFor(p, d) {
   const out = [],
@@ -163136,17 +163219,18 @@ function dlDeliveriesFor(p, d) {
 function dlDraft(p, d) {
   DB.field.dlDraft = DB.field.dlDraft || {};
   const key = `${p.id}|${d}`;
-  if (DB.field.dlDraft[key]) return DB.field.dlDraft[key];
+  if (DB.field.dlDraft[key]) return dlSyncSite(DB.field.dlDraft[key], p);
   const ex = dlLogs(p.id).find((l) => l.date === d);
   if (ex && 2 === ex.v) {
     const c = JSON.parse(JSON.stringify(ex));
-    return (
+    // a signed log's hours are what was sworn: each line is held against the clock as it stands now
+    (c.crew || []).forEach((x) => (x.edited = !0)),
+      (c.subsOn || []).forEach((x) => (x.touched = !0)),
       (c.step = 0),
       (c.editing = "submitted" === ex.status),
       (c.startedMs = Date.now()),
-      (DB.field.dlDraft[key] = c),
-      c
-    );
+      (DB.field.dlDraft[key] = c);
+    return dlSyncSite(c, p);
   }
   const prev =
       dlLogs(p.id)
@@ -163210,6 +163294,7 @@ function dlDraft(p, d) {
         workers: 2,
         hours: 8,
         on: "onsite" === s.status,
+        checkedIn: "onsite" === s.status,
         taskId: s.taskId || "",
         subId: s.id,
       })),
@@ -163233,7 +163318,7 @@ function dlDraft(p, d) {
       };
     dr.work = dr.work.map((w, i) => [rank(w), i, w]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map((x) => x[2]);
   } catch (e) {}
-  if (((DB.field.dlDraft[key] = dr), "function" == typeof DL_WEATHER_HOOK))
+  if ((dlSyncSite(dr, p), (DB.field.dlDraft[key] = dr), "function" == typeof DL_WEATHER_HOOK))
     try {
       Promise.resolve(DL_WEATHER_HOOK(p, d))
         .then((w) => {
@@ -163260,15 +163345,20 @@ function dlStepHtml(dr, p) {
       dr.crew.forEach((c) => {
         T[c.trade] = r2((T[c.trade] || 0) + (+c.hours || 0));
       }),
-      `<p class="small muted dl-hint">From the time clock. Fix an hour if the clock is wrong; add anyone who worked without punching in.</p>\n      <div class="dl-sum">${
+      `<p class="small muted dl-hint">From today's time clock${dr.clockAt ? `, as of ${esc(stampTime(dr.clockAt))}` : ""}. Change an hour only if the clock is wrong, and say why; add anyone who worked without punching in.</p>${dlApproveHtml(p)}\n      <div class="dl-sum">${
         Object.entries(T)
           .map(([t, h]) => `<span class="pill neutral">${esc(t)} · ${h} h</span>`)
           .join("") || '<span class="small muted">Nobody clocked in on this job today.</span>'
-      }</div>\n      ${dr.crew.map((c, i) => `<div class="dl-row"><div class="grow"><b>${esc(c.name)}</b><span class="small muted">${esc(c.trade)}${c.open ? " · still clocked in" : ""}</span></div><div class="dl-num">${num("crew.hours", c.hours, i)}<span class="small muted">h</span></div><button type="button" class="btn sm dl-x" data-dldel="crew:${i}" aria-label="Remove">${FX_ICON.close}</button></div>`).join("")}\n      <div class="dl-add" data-dladdbox="crew"><input data-dladd="name" placeholder="Name" aria-label="Name"><input data-dladd="trade" placeholder="Trade" aria-label="Trade"><input data-dladd="hours" type="number" inputmode="decimal" placeholder="Hours" aria-label="Hours"><button type="button" class="btn sm" data-dladdgo="crew">Add Someone</button></div>`
+      }</div>\n      ${dr.crew
+        .map((c, i) => {
+          const off = c.empId ? Math.abs((+c.hours || 0) - (+c.clockH || 0)) >= 0.25 : (+c.hours || 0) > 0;
+          return `<div class="dl-row${off ? " dl-off" : ""}" data-dlcrew="${i}"><div class="grow"><b>${esc(c.name)}</b><span class="small muted">${esc(c.trade)}${c.empId ? ` · clock ${+c.clockH || 0} h${(c.spans || []).length ? ` (${esc(c.spans.join(", "))})` : ""}` : " · not on the clock"}${c.open ? " · still clocked in" : ""}${c.overlap ? " · two entries overlap, counted once" : ""}</span>${off ? `<span class="small bad-t">${c.empId ? `The log says ${+c.hours || 0} h, the clock ${+c.clockH || 0} h` : "No clock entry today"}</span><input data-dl="crew.why" data-i="${i}" value="${esc(c.why || "")}" placeholder="${c.empId ? "Why the clock is wrong" : "Why not on the clock"}" aria-label="Reason">${c.empId ? `<button type="button" class="btn sm" data-dlclock="${i}">Use the Clock: ${+c.clockH || 0} h</button>` : ""}` : ""}</div><div class="dl-num">${num("crew.hours", c.hours, i)}<span class="small muted">h</span></div><button type="button" class="btn sm dl-x" data-dldel="crew:${i}" aria-label="Remove">${FX_ICON.close}</button></div>`;
+        })
+        .join("")}\n      <div class="dl-add" data-dladdbox="crew"><input data-dladd="name" placeholder="Name" aria-label="Name"><input data-dladd="trade" placeholder="Trade" aria-label="Trade"><input data-dladd="hours" type="number" inputmode="decimal" placeholder="Hours" aria-label="Hours"><button type="button" class="btn sm" data-dladdgo="crew">Add Someone</button></div>`
     );
   }
   if ("site" === k)
-    return `<p class="small muted dl-hint">Subs from the sub calendar, deliveries from receiving, inspections from Permits. Tick who actually came.</p>\n    <h4 class="dl-h">Subs on Site</h4>${dr.subsOn.map((s, i) => `<div class="dl-row"><label class="dl-chk"><input type="checkbox" data-dlchk="subsOn.on" data-i="${i}" ${s.on ? "checked" : ""}><span><b>${esc(s.vendor)}</b><span class="small muted">${esc(s.trade)}${s.lead ? ` · ${esc(s.lead)}` : ""}</span></span></label><div class="dl-num">${num("subsOn.workers", s.workers, i, 1)}<span class="small muted">men</span></div></div>`).join("") || '<div class="small muted">No sub booked today.</div>'}\n    <div class="dl-add" data-dladdbox="subsOn"><input data-dladd="vendor" placeholder="Company" aria-label="Company"><input data-dladd="trade" placeholder="Trade" aria-label="Trade"><input data-dladd="workers" type="number" inputmode="numeric" placeholder="Men" aria-label="Men"><button type="button" class="btn sm" data-dladdgo="subsOn">Add Sub</button></div>\n    <h4 class="dl-h">Deliveries Received</h4>${dr.deliveriesOn.map((x, i) => `<div class="dl-row"><div class="grow">${esc(x.label)}</div><button type="button" class="btn sm dl-x" data-dldel="deliveriesOn:${i}" aria-label="Remove">${FX_ICON.close}</button></div>`).join("") || '<div class="small muted">Nothing checked in today.</div>'}\n    <div class="dl-add" data-dladdbox="deliveriesOn"><input data-dladd="label" placeholder="What came, from whom" aria-label="Delivery"><button type="button" class="btn sm" data-dladdgo="deliveriesOn">Add Delivery</button></div>\n    <h4 class="dl-h">Inspections</h4>${dr.inspections.map((x, i) => `<div class="dl-row"><div class="grow"><b>${esc(x.name)}</b>${x.agency ? `<span class="small muted">${esc(x.agency)}</span>` : ""}</div><select data-dl="inspections.result" data-i="${i}" aria-label="Result">${DL_INSP.map((r) => `<option ${x.result === r ? "selected" : ""}>${r}</option>`).join("")}</select></div>`).join("") || '<div class="small muted">No inspection today.</div>'}\n    <div class="dl-add" data-dladdbox="inspections"><input data-dladd="name" placeholder="Inspection" aria-label="Inspection"><select data-dladd="result" aria-label="Result">${DL_INSP.map((r) => `<option>${r}</option>`).join("")}</select><button type="button" class="btn sm" data-dladdgo="inspections">Add Inspection</button></div>\n    <h4 class="dl-h">Visitors</h4>${dr.visitors.map((x, i) => `<div class="dl-row"><div class="grow"><b>${esc(x.name)}</b><span class="small muted">${esc([x.org, x.purpose].filter(Boolean).join(" · "))}</span></div><button type="button" class="btn sm dl-x" data-dldel="visitors:${i}" aria-label="Remove">${FX_ICON.close}</button></div>`).join("") || '<div class="small muted">No visitors.</div>'}\n    <div class="dl-add" data-dladdbox="visitors"><input data-dladd="name" placeholder="Name" aria-label="Visitor"><input data-dladd="org" placeholder="Company or role" aria-label="Company"><input data-dladd="purpose" placeholder="Why they came" aria-label="Purpose"><button type="button" class="btn sm" data-dladdgo="visitors">Add Visitor</button></div>`;
+    return `<p class="small muted dl-hint">Today's subs from the sub calendar and their check-ins, deliveries from receiving, inspections from Permits. Tick who actually came.</p>\n    <h4 class="dl-h">Subs on Site</h4>${dr.subsOn.map((s, i) => `<div class="dl-row"><label class="dl-chk"><input type="checkbox" data-dlchk="subsOn.on" data-i="${i}" ${s.on ? "checked" : ""}><span><b>${esc(s.vendor)}</b><span class="small muted">${esc(s.trade)}${s.lead ? ` · ${esc(s.lead)}` : ""}${s.subId ? (s.checkedIn ? " · checked in today" : " · booked today, not checked in") : ""}</span></span></label><div class="dl-num">${num("subsOn.workers", s.workers, i, 1)}<span class="small muted">men</span></div></div>`).join("") || '<div class="small muted">No sub booked today.</div>'}\n    <div class="dl-add" data-dladdbox="subsOn"><input data-dladd="vendor" placeholder="Company" aria-label="Company"><input data-dladd="trade" placeholder="Trade" aria-label="Trade"><input data-dladd="workers" type="number" inputmode="numeric" placeholder="Men" aria-label="Men"><button type="button" class="btn sm" data-dladdgo="subsOn">Add Sub</button></div>\n    <h4 class="dl-h">Deliveries Received</h4>${dr.deliveriesOn.map((x, i) => `<div class="dl-row"><div class="grow">${esc(x.label)}</div><button type="button" class="btn sm dl-x" data-dldel="deliveriesOn:${i}" aria-label="Remove">${FX_ICON.close}</button></div>`).join("") || '<div class="small muted">Nothing checked in today.</div>'}\n    <div class="dl-add" data-dladdbox="deliveriesOn"><input data-dladd="label" placeholder="What came, from whom" aria-label="Delivery"><button type="button" class="btn sm" data-dladdgo="deliveriesOn">Add Delivery</button></div>\n    <h4 class="dl-h">Inspections</h4>${dr.inspections.map((x, i) => `<div class="dl-row"><div class="grow"><b>${esc(x.name)}</b>${x.agency ? `<span class="small muted">${esc(x.agency)}</span>` : ""}</div><select data-dl="inspections.result" data-i="${i}" aria-label="Result">${DL_INSP.map((r) => `<option ${x.result === r ? "selected" : ""}>${r}</option>`).join("")}</select></div>`).join("") || '<div class="small muted">No inspection today.</div>'}\n    <div class="dl-add" data-dladdbox="inspections"><input data-dladd="name" placeholder="Inspection" aria-label="Inspection"><select data-dladd="result" aria-label="Result">${DL_INSP.map((r) => `<option>${r}</option>`).join("")}</select><button type="button" class="btn sm" data-dladdgo="inspections">Add Inspection</button></div>\n    <h4 class="dl-h">Visitors</h4>${dr.visitors.map((x, i) => `<div class="dl-row"><div class="grow"><b>${esc(x.name)}</b><span class="small muted">${esc([x.org, x.purpose].filter(Boolean).join(" · "))}</span></div><button type="button" class="btn sm dl-x" data-dldel="visitors:${i}" aria-label="Remove">${FX_ICON.close}</button></div>`).join("") || '<div class="small muted">No visitors.</div>'}\n    <div class="dl-add" data-dladdbox="visitors"><input data-dladd="name" placeholder="Name" aria-label="Visitor"><input data-dladd="org" placeholder="Company or role" aria-label="Company"><input data-dladd="purpose" placeholder="Why they came" aria-label="Purpose"><button type="button" class="btn sm" data-dladdgo="visitors">Add Visitor</button></div>`;
   if ("work" === k)
     return `<p class="small muted dl-hint">Today's tasks off the schedule. Tap the % to update it — it goes on the task with today's date — and say what got done.</p>\n    ${
       dr.work
@@ -163302,7 +163392,7 @@ function dlStepHtml(dr, p) {
         "",
       )}</div>${dr.photoIds.length ? `<div class="small muted">${fxN(dr.photoIds.length, "photo")} on this log</div>` : ""}`;
   }
-  return `<p class="small muted dl-hint">Read it once. It goes to the PM and the owner, and it is the record if there is ever a dispute.</p>\n    ${dlRecordHtml(dlFromDraft(dr, p), p, !0)}\n    <div class="f"><label>Notes for the Office</label><div class="row" style="gap:6px;align-items:flex-start"><textarea data-dlf="notes" rows="3" class="grow" placeholder="Anything the PM should know that is not above">${esc(dr.notes)}</textarea>${"function" == typeof fVoiceBtn ? fVoiceBtn("notes").replace('data-fvoice="notes"', 'data-fvoice="notes" data-dlvoice') : ""}</div></div>\n    <label class="dl-chk dl-sign"><input type="checkbox" data-dlsign ${dr.signed ? "checked" : ""}><span>I was on site today and this is a true record — <b>${esc(FX_ME())}</b></span></label>`;
+  return `<p class="small muted dl-hint">Read it once. It goes to the PM and the owner, and it is the record if there is ever a dispute.</p>${dlGapsHtml(dr, p)}\n    ${dlRecordHtml(dlFromDraft(dr, p), p, !0)}\n    <div class="f"><label>Notes for the Office</label><div class="row" style="gap:6px;align-items:flex-start"><textarea data-dlf="notes" rows="3" class="grow" placeholder="Anything the PM should know that is not above">${esc(dr.notes)}</textarea>${"function" == typeof fVoiceBtn ? fVoiceBtn("notes").replace('data-fvoice="notes"', 'data-fvoice="notes" data-dlvoice') : ""}</div></div>\n    <label class="dl-chk dl-sign"><input type="checkbox" data-dlsign ${dr.signed ? "checked" : ""}><span>I was on site today and this is a true record — <b>${esc(FX_ME())}</b></span></label>`;
 }
 function dlFromDraft(dr, p) {
   const work = dr.work.map((w) => {
@@ -163323,7 +163413,10 @@ function dlFromDraft(dr, p) {
       empId: c.empId || "",
       trade: c.trade || "",
       hours: r2(+c.hours || 0),
+      clockH: r2(+c.clockH || 0),
+      why: String(c.why || "").trim(),
     })),
+    clockAt: dr.clockAt || "",
     subs: subs.map((s) => `${s.vendor}${s.lead ? ` (${s.lead})` : ""}`),
     subsOn: subs.map((s) => ({
       vendor: s.vendor,
@@ -163439,12 +163532,20 @@ function dlRenderFlow(root) {
   else {
     const dr = dlDraft(p, td),
       last = (DL_STEPS[dr.step][0], dr.step === DL_STEPS.length - 1);
-    (root.innerHTML = `<div class="card f-card dl-card"><div class="hd"><h3>${dr.editing ? "Editing" : "Today"} — ${fmtL(td)}</h3><span class="small muted">Step ${dr.step + 1} of ${DL_STEPS.length}${dr.prevDate ? ` · carried from ${fmt(dr.prevDate)}` : ""}</span></div>\n      <div class="dl-steps" role="tablist" aria-label="Steps">${DL_STEPS.map(([s, n], i) => `<button type="button" role="tab" class="dl-st ${i === dr.step ? "on" : ""} ${i < dr.step ? "done" : ""}" data-dlgo="${i}" aria-selected="${i === dr.step}">${n}</button>`).join("")}</div>\n      <h3 class="dl-title">${DL_STEPS[dr.step][1]}</h3>\n      <div class="dl-body">${dlStepHtml(dr, p)}</div>\n      <div class="row dl-nav">${dr.step > 0 ? '<button type="button" class="btn" data-dlback>Back</button>' : ""}${!last && dr.step > 0 ? '<button type="button" class="btn" data-dlgo="6">Review and Sign</button>' : ""}<span class="grow"></span><button type="button" class="btn primary" id="dl-next">${last ? (dr.editing ? "Sign and Update" : "Sign and Send") : "Next"}</button></div></div>${pastHtml}`),
+    (root.innerHTML = `<div class="card f-card dl-card"><div class="hd"><h3>${dr.editing ? "Editing" : "Today"} — ${fmtL(td)}</h3><span class="small muted">Step ${dr.step + 1} of ${DL_STEPS.length} · crew from today's clock</span></div>\n      <div class="dl-steps" role="tablist" aria-label="Steps">${DL_STEPS.map(([s, n], i) => `<button type="button" role="tab" class="dl-st ${i === dr.step ? "on" : ""} ${i < dr.step ? "done" : ""}" data-dlgo="${i}" aria-selected="${i === dr.step}">${n}</button>`).join("")}</div>\n      <h3 class="dl-title">${DL_STEPS[dr.step][1]}</h3>\n      <div class="dl-body">${dlStepHtml(dr, p)}</div>\n      <div class="row dl-nav">${dr.step > 0 ? '<button type="button" class="btn" data-dlback>Back</button>' : ""}${!last && dr.step > 0 ? '<button type="button" class="btn" data-dlgo="6">Review and Sign</button>' : ""}<span class="grow"></span><button type="button" class="btn primary" id="dl-next">${last ? (dr.editing ? "Sign and Update" : "Sign and Send") : "Next"}</button></div></div>${pastHtml}`),
       dlWire(root, dr, p);
     // Sign Off: the attestation sits in the docked step nav, beside the button it unlocks
     const sg = last && root.querySelector(".dl-body .dl-sign"),
       nv = root.querySelector(".dl-card .dl-nav");
     sg && nv && (nv.prepend(sg), nv.classList.add("dl-nav-sign"));
+    if (last && nv) {
+      const me = myEmp(),
+        mine = me && dr.crew.find((c) => c.empId === me.id && c.open);
+      mine &&
+        !nv.querySelector("[data-dlclockout]") &&
+        (root.querySelector("#dl-next").insertAdjacentHTML("beforebegin", '<button type="button" class="btn" data-dlclockout>Clock Out</button>'),
+        dlWireClockOut(root, dr, p, nv.querySelector("[data-dlclockout]")));
+    }
     document.body.classList.toggle("dl-signstep", !!(sg && nv));
     const nx = root.querySelector("#dl-next");
     nx &&
@@ -163468,6 +163569,13 @@ function dlRenderFlow(root) {
       (dlEditing[key] = !0), DB.field.dlDraft && delete DB.field.dlDraft[key], render();
     }),
     pstFill(root);
+}
+// The foreman clocks himself out from the log (pilot day 1: only "Clock the Crew" on Crew); the log then re-reads the clock.
+function dlWireClockOut(root, dr, p, b) {
+  b &&
+    (b.onclick = async () => {
+      await clockEvent("out"), dlSyncSite(dr, p), save(), "flog" === view && dlRenderFlow(root);
+    });
 }
 function dlWire(root, dr, p) {
   const keep = () => {
@@ -163495,7 +163603,9 @@ function dlWire(root, dr, p) {
       i.addEventListener("SELECT" === i.tagName ? "change" : "input", () => {
         const [a, f] = i.dataset.dl.split("."),
           row = dr[a][+i.dataset.i];
-        row && (row[f] = "number" === i.type ? ("" === i.value ? "" : +i.value) : i.value), keep();
+        row && (row[f] = "number" === i.type ? ("" === i.value ? "" : +i.value) : i.value),
+          row && "crew" === a && "hours" === f && (row.edited = !0),
+          keep();
       }),
     ),
     root.querySelectorAll("[data-dlchk]").forEach(
@@ -163503,14 +163613,20 @@ function dlWire(root, dr, p) {
         (i.onchange = () => {
           const [a, f] = i.dataset.dlchk.split("."),
             row = dr[a][+i.dataset.i];
-          row && (row[f] = i.checked), keep();
+          row && ((row[f] = i.checked), (row.touched = !0)), keep();
         }),
     ),
     root.querySelectorAll("[data-dldel]").forEach(
       (b) =>
         (b.onclick = () => {
-          const [a, i] = b.dataset.dldel.split(":");
-          dr[a].splice(+i, 1), keep(), dlRenderFlow(root);
+          const [a, i] = b.dataset.dldel.split(":"),
+            row = dr[a][+i];
+          // someone the clock has on this job stays on the log: removing them is 0 h against the clock, with a reason
+          "crew" === a && row && row.empId && (+row.clockH || 0) > 0
+            ? ((row.hours = 0), (row.edited = !0))
+            : dr[a].splice(+i, 1),
+            keep(),
+            dlRenderFlow(root);
         }),
     ),
     root.querySelectorAll("[data-dlstill]").forEach(
@@ -163609,6 +163725,20 @@ function dlWire(root, dr, p) {
           (dr.step = +b.dataset.dlgo), keep(), dlRenderFlow(root), navScrollTop();
         }),
     );
+  root.querySelectorAll("[data-dlclock]").forEach(
+    (b) =>
+      (b.onclick = () => {
+        const c = dr.crew[+b.dataset.dlclock];
+        c && ((c.hours = +c.clockH || 0), (c.edited = !1), (c.why = "")), keep(), dlRenderFlow(root);
+      }),
+  ),
+    root.querySelectorAll("[data-dlclockout]").forEach((b) => dlWireClockOut(root, dr, p, b)),
+    root.querySelectorAll("[data-dlappr]").forEach(
+      (a) =>
+        (a.onclick = (e) => {
+          e.preventDefault(), (view = (ROLE_VIEWS[role()] || []).includes("fcrew") ? "fcrew" : "time"), render();
+        }),
+    );
   const bk = root.querySelector("[data-dlback]");
   bk &&
     (bk.onclick = () => {
@@ -163633,7 +163763,9 @@ function dlWire(root, dr, p) {
               ? (dr.step++, keep(), dlRenderFlow(root), void navScrollTop())
               : noWx()
             : dr.weather
-              ? void (dr.signed
+              ? void (dlClockGaps(dr, p).length
+                  ? dlSay(root.querySelector(".dl-gaps") || root.querySelector(".dl-sign"), dlClockGaps(dr, p)[0].msg)
+                  : dr.signed
                   ? dlSubmit(dr, p)
                   : dlSay(
                       root.querySelector(".dl-sign"),
@@ -163644,6 +163776,10 @@ function dlWire(root, dr, p) {
     });
 }
 function dlSubmit(dr, p) {
+  // a sworn record never carries hours the clock does not: refused with the reason, whoever calls it
+  dlSyncSite(dr, p);
+  const gaps = dlClockGaps(dr, p);
+  if (gaps.length) return void toast(`Not signed: ${gaps[0].msg}`), null;
   const td = dr.date,
     ex = dlLogs(p.id).find((l) => l.date === td),
     rec = Object.assign(ex || { id: uid("fl") }, dlFromDraft(dr, p), {
@@ -189738,6 +189874,44 @@ if ("function" == typeof finishBoot) {
       }
     } catch (e) {
       console.warn("truth seed", e);
+    }
+    return r;
+  };
+}
+// ==== pilotfix1: the three-day pilot's day-1 findings, fixed by class (lane-pilotfix1, 2026-10-18) ==============
+// Crew › On Site Now: the foreman clocks himself out where he sees himself clocked in (pilot day 1: only "Clock the
+// Crew" was there, so he stayed clocked in).
+document.addEventListener(
+  "click",
+  (e) => {
+    const b = e.target && e.target.closest ? e.target.closest("#fcrew-body [data-fclock]") : null;
+    b && (e.preventDefault(), e.stopPropagation(), clockEvent(b.dataset.fclock));
+  },
+  !0,
+);
+// Today: hours waiting on the foreman's approval, flagged ones named (they showed only under Crew › This Week).
+// The same rows as Crew › Hours to Approve and the Daily Log's crew step (dlHoursToApprove).
+{
+  const base = fRenderToday;
+  fRenderToday = function () {
+    const r = base.apply(this, arguments);
+    try {
+      const root = document.getElementById("ftoday-body");
+      if (root && S && !root.querySelector(".dl-appr") && (ROLE_VIEWS[role()] || []).includes("fcrew")) {
+        const h = dlApproveHtml(S);
+        if (h) {
+          const at = root.querySelector(":scope > .f-you") || root.querySelector(":scope > .f-hero");
+          at ? at.insertAdjacentHTML("afterend", h) : root.insertAdjacentHTML("afterbegin", h);
+          root.querySelectorAll("[data-dlappr]").forEach(
+            (a) =>
+              (a.onclick = (e) => {
+                e.preventDefault(), (view = "fcrew"), render();
+              }),
+          );
+        }
+      }
+    } catch (e) {
+      console.warn("today hours to approve", e);
     }
     return r;
   };
