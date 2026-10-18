@@ -145601,7 +145601,9 @@ if ("function" == typeof flowBriefPass) {
                 ((a.dataset.brkind = "billing"), (flowBriefGos[+a.dataset.brgo] = () => rtbGo(blRtbKey(x))));
             });
           }),
-          hits.length && /^\s*First thing:/.test(txt) && !p.querySelector("[data-brrtb]"))
+          // one Draft It, on the first paragraph that names something ready to bill: the First thing, or the Then
+          // line when the person's queue puts something else first (v11.1 ranking), so drafting stays one tap
+          hits.length && /^\s*(First thing|Then):/.test(txt) && !body.querySelector("[data-brrtb]"))
         ) {
           const acts =
               p.querySelector(".br-acts") ||
