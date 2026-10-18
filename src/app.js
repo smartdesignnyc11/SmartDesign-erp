@@ -188650,9 +188650,12 @@ function ovsSig() {
   (DB.clients || []).forEach((c) => (h += `|${(c.estimates || []).map((e) => e.status + (e.lines || []).length).join()}${(c.changeOrders || []).map((e) => e.status).join()}`));
   return h;
 }
+// The signature is read once per turn of the event loop and again after any save(): a Banking render asks for
+// every line's state, and each would otherwise rebuild it.
+let ovsSigNow = "";
 function ovsAll() {
   if (ovsBusy) return [];
-  const sig = ovsSig();
+  const sig = ovsSigNow || ((ovsSigNow = ovsSig()), queueMicrotask(() => (ovsSigNow = "")), ovsSigNow);
   if (ovsMemo && ovsMemo.sig === sig) return ovsMemo.rows;
   ovsBusy = !0;
   const rows = [],
@@ -188882,7 +188885,7 @@ if ("function" == typeof render) {
   });
   AG_FIN.splice(at("overbilled"), 0, {
     id: "poover",
-    re: /\b(pos?|purchase orders?)\b.*\bover[- ]?bill(ed|ing)?\b|\bover[- ]?bill(ed|ing)?\b.*\b(pos?|purchase orders?|vendors?|suppliers?|subs?)\b|\bbilled (more than|over|above) (the |its |their )?(po|pos|purchase orders?)\b|\b(vendors?|subs?|suppliers?)\b.*\bbilled (us )?(more than|over|above)\b/,
+    re: /\b(pos?|purchase orders?)\b.*\bover[- ]?bill(ed|ing)?\b|\bover[- ]?bill(ed|ing)?\b.*\b(pos?|purchase orders?|vendors?|suppliers?|subs?)\b|\bbilled (us |for )?(more than|over|above) (the |its |their )?(po|pos|purchase orders?)\b|\b(vendors?|subs?|suppliers?)\b.*\bbilled (us )?(more than|over|above)\b/,
     kind: "money",
     run(P) {
       const R = (DB.pos || [])
@@ -188957,6 +188960,7 @@ function nsRouteUnowned() {
 {
   const base = save;
   save = function () {
+    "undefined" != typeof ovsSigNow && (ovsSigNow = "");
     try {
       if (nsRouteUnowned() && document.body.dataset.booted) {
         const R = nsRouted.splice(0),

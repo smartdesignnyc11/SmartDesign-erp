@@ -2921,6 +2921,44 @@
     "relative-date",
     "pronoun"
    ]
+  },
+  {
+   "id": "V111_13",
+   "role": "u_owner",
+   "q": "which estimate lines are over budget",
+   "truth": "DB.projects.flatMap(p => (jobFin(p).eacLines || []).filter(x => x.budget > 0 && x.actual - x.budget >= 1).map(x => x.name))",
+   "check": "names",
+   "refuse_ok": false,
+   "notes": "v11.1 leak readers: overspend against the estimate line and the PO at landing, tasks with no owner",
+   "tags": [
+    "finance"
+   ]
+  },
+  {
+   "id": "V111_14",
+   "role": "u_controller",
+   "q": "which purchase orders were billed for more than the PO",
+   "truth": "DB.pos.filter(po => DB.bills.filter(b => b.poId === po.id && !['void', 'rejected'].includes(b.status)).reduce((a, b) => a + billCost(b), 0) > poTotal(po).total + 0.5).map(po => po.number)",
+   "check": "names",
+   "refuse_ok": false,
+   "notes": "v11.1 leak readers: overspend against the estimate line and the PO at landing, tasks with no owner",
+   "tags": [
+    "finance",
+    "ops"
+   ]
+  },
+  {
+   "id": "V111_15",
+   "role": "u_alan",
+   "q": "any tasks without an owner",
+   "truth": "DB.projects.flatMap(p => (p.actions || []).filter(a => a.status !== 'done' && !a.assignee)).length",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "v11.1 leak readers: overspend against the estimate line and the PO at landing, tasks with no owner",
+   "tags": [
+    "ops",
+    "negation"
+   ]
   }
  ]
 }
