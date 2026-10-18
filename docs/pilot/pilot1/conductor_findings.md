@@ -1,0 +1,171 @@
+# Pilot findings (conductor log)
+- d1 am Angel: 12 unread mails, one action per mail read; the foreman never reached the app in 8 actions. The app (Home/brief) must carry what the mail says. (cap raised to 12 for later turns)
+- d1 am owner: payroll approval warns approved hours cover 12.27% of gross; 87.7% to Unallocated Labor (seed: pr1 has no hours behind it).
+- d1 am owner: ran out of actions before booking client meetings; morning cap tight for the owner (32 unread).
+- d1 am Chen: applying Angel's field request on Home only put it on the Buy Board; tapping the request card did nothing (dead control?); acknowledging needs Purchasing > Requests. Request not acknowledged within the turn.
+- d1 am Chen: WW-2026-118 shows "Paid — Unapproved" (paid before approval) — owner also flagged it.
+- d1 am Sarah: field question names A-301 on 121 State; 121 State isn't in her Studio list and there is no drawing to open; assistant had nothing on it; 4 of 12 actions lost; question unanswered (sent to the plans lane).
+- d1 am billing (S2, false catch): the Inbox proposed "we billed someone $72,750, not a client on file" on the controller's note about the Kleins' check 2214 recorded against "invoice 2". The Kleins are on file. Likely the inbox lane's own-mail money exception (cmOwnMailKeeps) not matching a client named in the text or "invoice 2" as INV-2026-035.
+- d1 am billing: Rivera payments ($16,350, $5,000) recorded but not in the bank; billing can't fix it, needs controller.
+- d1 am controller: Approvals offers the Amex and Chase August statement items again although they are already imported (seed lane's note); reads as duplicates; costs the controller attention.
+- d1 am controller: 17 unmatched bank lines ($75,340) block the August close; Chase Jul 31 reconcile overdue.
+- d1 work Angel (phone request): the request parser read "by Monday" date words as a third item; he had to delete a line. Need-by Mon 9/7 is Labor Day and the app didn't flag it.
+- d1 work Angel: studs request 19h without acknowledgement; GWB request still "waiting for procurement" (same Chen gap as the morning).
+- d1 work PM (S2, Documents): writing a CO on the phone from the client's ask: the CO isn't reachable from the project's tabs, only Billing > Change Orders > New; ~10 of 24 actions lost looking; "back" jumped past Billing to Today. CO left at $0 (no price suggestion from past work / item library), not sent; the 48h CO clock running.
+- d1 work Chen (S1-money/S2): Brooklyn Lumber mailed 9/1 "order 88412 filled and paid on the Square card $2,140.50, ready for pickup by 9/4" — the app never connected it to Angel's GWB request (still "not ordered yet"); the assistant couldn't say if it was on the books. Double-order risk; the coordinator found it only by reading raw mail. The brain must match vendor order confirmations and card receipts to open requests/estimate lines.
+- d1 work Chen: Brooklyn Lumber (an everyday supplier) isn't a vendor on file, so the PO couldn't take it; no quick path seen on the phone to add a draft vendor. PO left blank $0.
+- d1 work billing (money): the 121 State application's Windows line and a separate $13,970 stored-materials bill for the same windows could double-bill; the app didn't warn, billing caught it. Windows line margin -72% (cost $33,500 vs $37,800 scheduled) shown but not explained.
+- d1 work controller (S1): entering Carlos CM-0102 ($19,000) against PO-2026-048: the bill form's Purchase Order select offers only "— none —", and Purchasing > Purchase Orders says "No purchase orders yet" for the controller, though PO-2026-048 exists. Three-way match impossible from the controller's seat. 16 actions spent, bill unsaved. (Also: the mail's "Enter the Bill" path wasn't found; went to New Vendor Bill by hand.)
+- d1 work Sarah: "Make It a Task" on an LPC item gave a default due 9/10 though the LPC hearing is 9/8 (the record knows the hearing date). Defaults must come from context.
+- d1 work Sarah: a client approval that moves money (backsplash slab) had to be relayed to Alan by mail; the app could route it.
+- d1 eod Angel (S1 money/integrity): the Daily Log is "carried from 9/2": it copies yesterday's crew hours (Angel 14 h) and subs (Carlos Millwork) into today's sworn record, while the Crew clock shows him in since 10:32 with 0.0 h; Sign and Send would pay hours not worked. It must fill from today's clock-ins and today's subs, and refuse to sign where it disagrees with the clock.
+- d1 eod Angel (S2): no Clock Out for the foreman himself on the Crew screen (only "Clock the Crew"); he stays clocked in.
+- d1 eod Angel: hours waiting on his approval (Satish 6.0 h flagged: left early, clocked in 4.2 km away) show only under Crew > This Week, not on Today or the log.
+- d1 eod Angel: Deliveries on the log showed "—" though the boards were due 7am and didn't come; the rosin-paper card still shows the parser's junk line he removed ("2 items").
+- d1 eod owner: the bill sheet is strong (paid before approval, over PO, bank change, round dollars, over estimate line) but has no Hold / Send Back control; saving a note gave no toast and made no task for anyone.
+- d1 eod owner (money, S2): the PM's 8/25 note "Extra window was field-added; CO needed" never became a CO in 9 days; nothing connected it to the $3,800 over-PO on WW-2026-118; the sheet nudges the owner to dispute the vendor instead of billing the client.
+- d1 eod owner: COI expiry (8/15) missing from the bill's Controls list (W-9 is there).
+- d1 eod owner: the same bill shows 3 times on Approvals (bill card, over-PO item, a brain "rule for the Owner" card whose Approve can be mistaken for approving the bill). One noun, one place.
+- d1 eod owner: an unsent client reply in Drafts (6 h, past the 2-hour standard) shows nowhere the owner looks for what he owes.
+- harness: `mail send "Chen"` / `call "Chen"` don't resolve staff by first name (toolkit gap, not the app).
+- d1 eod PM (S2 Ask): asking about Tomas and the board PO, the typo fixer changed "rebooked"→"booked", "app"→"apr", and the assistant answered about payroll ($16,040) — a wrong answer with no "I don't know".
+- d1 eod PM: what Alan owes showed in five places (Home, Angel's call, Billing, Sarah's mail, raw inbox); the shoring safety ask (Priya, 45 Cranberry) sat on Sarah's Needs Your Hand, not his.
+- d1 eod PM: DOB NOW mail says the inspection is 9/8; the project notes say 9/14; nothing flagged the conflict or that the rough must finish before Labor Day.
+- d1 eod PM: promises made on calls (Chen by 7am, Alberto by 7am, Angel photos by 9am) aren't logged anywhere; the brain should take them from calls as from mail.
+- d1 eod PM: the client-approved Calacatta slab (moves money) and the plumber's invoice aren't in any approval queue he saw.
+- d1 eod Chen: no place on a PO (or request) to log what a vendor promised on the phone; the vendor gave three different ship dates in one day and nothing in the app holds or compares them.
+- d1 eod Chen: a Request can't be closed as "bought on a card" (field purchase from a yard not on file).
+- d1 eod Chen: the assistant raised nothing on its own: clashing vendor dates, Labor Day, the request unacknowledged past the morning.
+- d1 eod Sarah (S1 Ask): the typo fixer changed "don't" to "done" and "sheet" to "sheen" in a request NOT to act, then answered a different question. Twice today (PM: "rebooked"→"booked", "app"→"apr"). The fixer must never change a real word or a contraction, and the assistant must say what it didn't understand instead of answering something else.
+- d1 eod Sarah (S2): My Day > Promised shows "Send Revised Drawings" as hers to confirm; Open is refused ("Meetings is opened by the Owner, the PM..."). A step shown to a role must be completable by that role, or not shown as hers.
+- d1 eod Sarah (S2): the Hours Not Logged tile (10) does nothing when tapped; no path from My Day to the day sheet; 4 days of hours unlogged on an over-budget phase.
+- d1 eod Sarah: My Day doesn't show unread mail, including two from the clients she meets Friday.
+- d1 eod billing: no rent receivable for 206 Lenox (tenant says $6,800 sent by ACH 9/1); whose job rent is isn't clear (M&B/LLC side).
+- d1 eod billing: month-end statements only, no daily bank feed in the demo, so no one can confirm a September deposit (platform: Plaid).
+- d1 eod billing: the queue shows "Draft $13,970 stored materials" and "Send INV-040" side by side for the same windows without saying they overlap; the assistant also told her to bill the stored materials.
+- d1 eod billing (one number): Billing says "Overdue $0" while Banking's Cash in Bank tile says "$16K past due" with no direction.
+- d1 eod billing: Banking "Matches Waiting for Your Confirmation (3)" names no owner.
+- d1 eod controller (one number): Banking > Statement Imports shows "0 matched · 0 unmatched" on every import while the header says 17 not matched ($75,340).
+- d1 eod controller (S1, repeat): Purchasing "No purchase orders yet" though bills cite PO-2026-044/047/048: three-way match impossible from the controller's seat.
+- d1 eod controller (fraud): nothing in Banking flags a payment made right after a vendor's bank-detail change or with no W-9 (the owner's bill sheet does; the controller's screens don't).
+- d1 eod controller: the PM's approval and approved amount live only in mail, not on the bill; approvals waiting in three places (Approvals, Bills & Payroll "paid before approval", Banking Review).
+- d1 referee: 15 find-it-again failures (created, not on the creator's screen after save or after reload): a payroll journal from Approvals; tasks made from My Day ("Make It a Task" on LPC items); PM's "Text Tomas" action and two outbox drafts from Home; a COI file applied from Home; a bank import (only in the toast); a sent invoice's chat line and outbox mail; two calendar holds made from Approvals (only in the toast).
+- d1 referee (S1 billing): draft pay application INV-2026-040: this period's % is BELOW the previous on Demolition, Framing, Windows, Plumbing (a pay app must never lower cumulative % without a reason).
+- d1 referee (bug): sending INV-2026-039 put mail in the outbox addressed to "[object Object]" and it counts as mail that left with no person's own send.
+- d2 am Angel: the session reopened on Crew with a stale 9/3 view; Clock In belongs on the first screen (Today).
+- d2 am Angel: Today > For You shows three buttons all labelled "Got It"; each costs a tap and the list reshuffles; batch acknowledge.
+- d2 am Angel (one noun): Site > Deliveries shows the same 25 GWB twice ("GWB and cement board" needed 8/26 and "GWB boards (~25) & cement board" needed 9/16), both "Not Ordered", though bought; Today says "Tomorrow — Tue, Sep 8" on Friday 9/4 (Sat/Sun/Labor Day skipped but the label says Tomorrow).
+- d2 am Angel: his own 9/3 time entry says "Overlaps another entry" (clocked in twice?), found only by looking.
+- d2 am owner: the Morning Brief says "call before anything else" with no number or call control.
+- d2 am owner (S2): opening an Inbox message gives no Answer/Reply control on its first page; its Escalation flag has no action.
+- d2 am owner (one number, S2): Do Now, Caught for You and Inbox > To Decide list overlapping items with different counts (Approvals 29; Inbox 15 / 30 / 49); each Inbox row says "2 to decide" without saying what.
+- d2 am owner: Safe to Spend fell to -$20,233 with two paid-before-approval bills still open; the owner can't Hold a bill (repeat).
+- d2 am PM: Ask's chief-of-staff view ran 3 pages but didn't carry colleagues' answers given by call/mail (Chen on Tomas and the boards, Alberto), so he couldn't answer Angel from the app.
+- d2 am PM (ranking): Do Now (19) leads with 5 overdue client decisions; overdue long-lead orders (order-by passed) sit under Caught for You with 39 more behind a link. Check the bucket for "order-by passed" (schedule risk) vs a client's decision.
+- d2 am PM: Billing > Change Orders shows the $0 CO-2026-003 as "sent 9/3" while its status is Draft (misleading date label).
+- d2 am PM: the CO form's Category/Subcategory says "pick a line item" but doesn't block sending (cost code missing on a CO line).
+- d2 am PM: Home shows the 140 Prospect meeting on Sat 9/5 while his diary (from mail) says Friday 2 PM (calendar/data disagreement to check).
+- d2 am Chen (S2): Purchasing > Requests "Order" acknowledges a request only by drafting an empty $0 vendorless PO (PO-2026-051); Acknowledge and Order must be two controls.
+- d2 am Chen: PO "Vendor Promised" is prefilled with the PO date (a date no vendor gave); nowhere to log changing verbal ship dates (9/4, 9/10, 9/8, 9/10); the Promise Ledger shows 0; a call is "not a record".
+- d2 am Chen: Purchase Orders "Flagged Orders" shows Window Works paid $33,500 vs PO $29,700 while "Bills on Hold" is 0 (the owner's hold lives only in a note and a mail).
+- harness: `mail send` takes one recipient; canned phone replies from outside parties never give yes/no (world rules).
+- d2 am Sarah (S1 calendar): Labor Day on Tue 9/8, Friday's meeting on Sat 9/5, LPC hearing Wed 9/9 — the Demo Workspace was re-dated from today on each reload. FIXED on master (dwAnchor).
+- d2 am billing (S2 money): the Billing queue offers "Draft $13,970 stored materials" for windows already billed 51.67% against 20% complete (job $130K over-billed) and the contract's "allows billing stored materials" unchecked. The queue must not propose billing the contract doesn't allow, and must say over-billed.
+- d2 am billing: INV-040's memo "4 lines fell back to cost — check them" was noise (all 4 at 0% this period).
+- d2 am billing (nav): `go "Billing > Payments"` landed on the Billing hub; Payments lives on the hub page, not its own screen.
+- d2 am controller: Banking > Matches Waiting suggests "Enter the bill" from a payment already made, which would turn paid-before-approval money into ordinary bills (the controller held 5 such).
+- d2 am controller (repeat S1): Purchasing still "No purchase orders yet" while bank suggestions and invoices cite PO-044/047/048.
+- harness: Jeanette Hernandez (bookkeeper) isn't a reachable contact (no number, mail failed).
+- d2 work Angel (S2 dead control): Site > "Text Tomas" tapped and showed nothing — no draft, no sent sign; the past-due Today task stayed; he used call instead.
+- d2 work Angel: the boards now show as "Not Ordered" on THREE Deliveries lines (8/26, 8/26, 9/16); the rosin/tape request has no line, only an unexplained "Field request — 2 items" card.
+- d2 work Angel: Today's "Tomorrow — Tue, Sep 8" header on Friday: the next working day is Tuesday (weekend + Labor Day) but the label says Tomorrow; say "Next working day — Tue, Sep 8".
+- d2 work PM (S2 Documents): on the phone, writing an estimate for extra work: Billing > Estimates has no New Estimate (Change Orders has one); no entry from the client or job page; Duplicate on the signed estimate made a draft copy of the whole $485K contract (13 lines); Remove line re-renders every control; ~30 actions spent finding, none typing; nothing prefilled the scope. Sent to pilotfix1 (item 5).
+- d2 work PM: Ask answered an estimate question with his overdue queue and turned "Kleins'" into "klein".
+- d2 work Chen (RFQ, Documents): 6 taps, no typing, job and estimate link prefilled (good). But: the only line is a lump sum "Trim, doors, paint & hardware" (no door count, no floor, no material budget); the New RFQ sheet's buttons sit at the bottom of page 2 of 28 lines; no floor/trade filter; the foreman's quantity gate blocks vendors with no "when will Angel see it"; only one door vendor on file; 7/12 vendors no COI, 11/12 no W-9.
+- d2 work billing (Documents, good): CO invoice in ~9 actions, 1 typed value; title, dates, terms, retainage, 8.875% tax, email, bill-to and previously-billed % filled themselves.
+- d2 work billing (S2 money): Billing home "Ready to Bill $14K" counts the windows only and ignores approved, unbilled COs (CO-002 $1,850, half of CO-001 $3,100). The CO page's status trail doesn't show "partly billed" (CO-001 50%); no "bill all unbilled COs"; "New Progress Invoice" creates a $0 draft at once with no confirmation (INV-042 left behind), and Drafts didn't count it.
+- d2 work controller (S1 money): Banking > Matches Waiting labels the WW $33,500 payment "pm-approved" at $33,500 while Alan approved $29,700 — confirming would pass the overpayment. (sent to pilotfix1 item 18)
+- d2 work controller: tapping a Statement Imports row doesn't open its lines; the Rivera warning doesn't say which bank line to match.
+- d2 work Sarah (S2): Drawings "Switch project" says 121 State but the screen stays on 45 Cranberry's sheets (sent to the plans lane). Blocked her answer to Angel again.
+- d2 work Sarah: My Day lists "1 meeting to review (43 proposals)" that design can't confirm; "Maya" not a contact.
+- d2 work owner: Inbox Needs an Answer controls renumber after Close (a tap fails "no longer on screen").
+- d2 work owner (money): the Jordan Pike card offers Apply on "Money, unclassified" ($150k wire claimed) with no way to check the bank first; no screen confirms a wire.
+- d2 work owner: a DOB "owner's attestation" request routes to the firm's owner, not the property's owner (the client); the card offers only Task/Note, no "assign to Chen".
+- d2 eod Angel: the Daily Log now took crew hours from the clock (Angel 9 h, 7:34–16:34) — but Subs was blank though Carlos Millwork was Confirmed on Site, and Weather blank.
+- d2 eod Angel (S2): Sign and Send dropped back to Step 1 Weather with no message — he can't tell whether the log went (no toast, no "Sent" state).
+- d2 eod Angel: "Earlier": Thu 9/3 and Fri 8/28 "No log filed" with no control to file a late log.
+- d2 eod Angel: Alberto M Plumbing (the sub the 9/8 DOB inspection depends on) isn't on the Site sub board; three plumbing inspection cards each 0/4 ready, no way to tell which is the garden bath.
+- d2 eod owner (Ask, S2): asked about Aliya Chen's permit B00127499 at 374 Washington Ave → got "3 things Chen Biron owes today" (matched the surname; ignored the permit number and the address; never said it had nothing).
+- d2 eod owner (good): Ask's "In your mail" cards (why it matters, Draft the Reply, Put It on My List, nothing sends without him) — the best screen; but last checked 6 h ago and still showed a replied thread as New.
+- d2 eod owner: no permits screen (open DOB permit, what it needs to sign off, who owns each step).
+- d2 eod owner (one number): what he owes = Home 32, Ask 31, inbox 33 unread; his promise in sent mail (to Aliya, by Tue noon) didn't reach the promise ledger.
+- harness: client and bookkeeper names don't resolve for mail (only addresses).
+- d2 eod PM (S1): no daily log for 9/3 or 9/4 reached the PM though Angel signed and sent 9/4 — Sign and Send lost the log (sent to pilotfix1 item 1). No screen flagged the missing log.
+- d2 eod PM (one number, S2): Home "0 Site Questions" vs Projects > Field "2 waiting · 1 to you"; Tomas no-show question waited ~6h past its deadline (pilotfix1 item 19).
+- d2 eod PM (S2 money): Billing says all clean ($0 overdue) while Projects says 121 State billed $268,185 of $493,050 at 14% complete, "Billed Ahead +$191K" — Billing never mentions over-billing (WIP/overbilling belongs on Billing and the controller's close).
+- d2 eod PM: the controller's dated asks (WW hold, PO-048 answers by noon) sat only in mail, in no queue; he missed the deadline.
+- d2 eod PM: "Caught for You" led again with long-lead items and old client decisions; caught none of today's three urgent items (no-show question, missing logs, the inspection depending on an unconfirmed plumber).
+- d2 eod Chen (S1 money): the app reads Tino invoices TIN-7194 ($8,491) and TIN-3277 ($8,651) as "rent, a firm expense" — they are flooring bills against PO-2026-047 (0 of 900 sf received). Approved as rent they skip the three-way match. [BATCH 2]
+- d2 eod Chen: Deliveries shows only issued POs; the site's next needs (boards, rosin/tape, studs) never appear because acknowledged requests become empty Draft POs that don't reach Deliveries.
+- d2 eod Chen: the $2,140.50 card purchase (Brooklyn Lumber 88412) still isn't in job cost (PO-049 $0).
+- d2 eod Chen (Ask): "what is due Tue 9/8 and what is off in the money" → the full 31-row Approvals list with no priority; gave the pickup as "Fri, Sep 1" (Sep 1 was a Tuesday); caught the Tino date conflict and a matching card receipt (good).
+- d2 eod Chen: the insulation answer due 9/4 missed; studs needed Tue 9/8 still not ordered.
+- d2 eod Sarah (S2 hours): My Day > Day Sheet has no date field and no 121 State in its project list, so past unlogged days can't be logged; header says "6.5 hrs logged today" she never entered; hours show in three places that disagree. [BATCH 2]
+- d2 eod Sarah: shop drawings arriving by mail (Carlos 121 State) aren't an app item to review/approve (submittals from mail). Elena's 9/1 request before the 9/8 hearing sat unread 4 days; My Day doesn't carry mail asks.
+- d2 eod Sarah (good): Drawings > Change Records lists every sheet a change touches; but doesn't tie a stale filed sheet (L-101) to the next hearing that uses it (plans lane).
+- d2 eod billing (S2 money/back end): a payment record holds only date, amount and invoice — no method, check number, deposit account or "recorded by" — so a payment not in the bank can't be traced. [BATCH 2]
+- d2 eod billing: the assistant answered one part of a five-part question and dropped the rest silently; Ask shows 3 identical "Open the Records" buttons, the one tapped opened Billing home.
+- d2 eod billing: deadlines that fall on a bank holiday (Mon 9/7) aren't flagged.
+- d2 eod controller (S2 money): Banking > Matches Waiting matches the $1,650 dumpster charge to an estimate line (not a bill, PO or invoice) — not a real match. [BATCH 2]
+- d2 eod controller (S2): "Confirm" on Satish, Rosario, Rodriguez enters a bill from a payment made before approval — same word as a real match. (pilotfix1 item 18)
+- d2 eod controller: the Tino $8,000 line sits in both Matches Waiting and Needs Category; the WW amount shows three different numbers in three places.
+- d2 eod controller: Labor Day not flagged on deadlines (repeat).
+- d3 am Angel (S1 confirmed): Daily Log > Earlier shows Fri 9/4 "No log filed" — Friday's Sign and Send did not save and no screen said so.
+- d3 am Angel: the foreman has no assistant (no Ask in his menu per the toolkit, though Today shows "Ask" in the Menu) — mismatch to check; the foreman needs the assistant most.
+- d3 am Angel: a field RFI (A-201 laundry 30" vs field 28") arrived in news; no control on his screens to raise it as a question to the designer; went by call only.
+- d3 am Angel: the inspection due today on Site is a different job's card (John's 2nd fl bathroom) vs the garden bath; all checklists 0/4.
+- d3 am owner: Safe to Spend now -$37,802 (from -$4,150 on Thu) with no alarm or plan offered; Ask doesn't track replies (answered thread still New).
+- d3 am PM: Home/Field carried nothing about the DOB inspection moving to 9/22 or Alberto's reschedule to Thu (only raw mail); Field still shows Friday's no-show and the insulation request unanswered.
+- d3 am PM (Documents): Field > New Item (an RFI) is a 6-field form with an "Affects Task" select; 5 steps before Save; the RFI was typed and never saved when the turn ended — no draft kept.
+- harness: a world mail arrived timestamped 09:20 during the 07:30 slot (future-dated).
+- d3 am Chen (S2, class): the assistant's "In your mail" / Home cards still show 9/3 items on 9/8 though the mailboxes synced each morning (owner saw "last checked 6 hours ago"). New mail never becomes cards, so nothing in the app says what is due today; everyone falls back to raw mail. The mail digest must refresh on every sync. [BATCH 2, top]
+- d3 am Chen: the field-answer sheet is free text only — no supplier or date fields, so a commitment can't be data.
+- d3 am Chen (repeat): acknowledged requests still "not ordered yet"; empty $0 draft POs never reach Deliveries.
+- d3 am Sarah: the calendar glitch compounds: Labor Day now also on Sat 9/12 and a second LPC hearing on Sun 9/13 (each re-dated rebuild adds events) — covered by the dwAnchor fix; add a dedupe check when events re-sync with a new start.
+- d3 am Sarah (one noun): her own promise to Angel shows twice on My Day (a Needs Your Hand suggestion card and the Promised block).
+- d3 am billing: Billing home 'Drafts 1 · $0' shows a Send button on the empty INV-042 (invites a $0 invoice); the stored-materials Draft row still contradicts Progress Billing (repeat).
+- d3 am controller: Import Statement's Account select has no Square card account though its statement mail says to import it there (a card the firm uses has no account in Banking).
+- d3 am controller: "Import Statement" appears twice on Banking (toolbar and Bank Feeds block); tap numbers change after each import; Statement Imports counts still 0/0 right after an import.
+- d3 work Angel (S2): DOB NOW mail moved the plumbing inspection to 9/22, yet Site shows "John (plumber) Confirmed" for a 9/8 inspection — agency mail doesn't update the inspection or the schedule (month_sim's class). A foreman following Site waits for an inspector who isn't coming. [BATCH 2]
+- d3 work Angel: the past-due "Text Tomas" task is still on him after he called and marked the no-show (a chase done another way doesn't close it).
+- harness: no way for the foreman to attach a photo through the toolkit in this flow (photo-needing tasks can't be done).
+- d3 work PM (S1 money, Documents): New Change Order: a ticked estimate line arrives with Qty 0 and Rate prefilled at the full contract line price ($41,000); setting Qty 1 prices the CO at $41K. Also "Extends Task" silently set to a finished task; Send addressed Sarah only (not David); no "make CO" from Field > Open Items. (sent to pilotfix1)
+- d3 work PM (good): CO at the desk: 2 do-steps; client→project, line→item/category/tax prefilled; Send sheet filled To/Subject/Message.
+- d3 work Chen: Purchasing > Buy Board shows only fixtures (faucets, sink, knobs) — not the boards or studs the site needs; the 9/4 no-show still shows as waiting on him in Requests > From the Field.
+- d3 work billing (Documents): pay app from measured % comes to $0 — the job reads $143,593 over-billed (54% billed vs 14% measured on site). Measured % on many lines runs on cost or stale field measures (demo, plumbing, drywall, permits); the brain should ask the foreman to measure before the billing date rather than leave billing stuck.
+- d3 work billing: the Schedule of Values screen shows no line names (Source and numbers only); Progress Billing is 4 pages and repeats the same over-billing warning per line.
+- d3 work controller (S2 money): the imported Chase 9/8 line 'WIRE IN JESSOP J $12,000' wasn't proposed against the Jessop retainer invoice (deposit→payment match); billing still shows it unrecorded. Banking didn't carry billing's dated asks.
+- d3 work crew Alberto (S1 time): after clock-in at 10:32 the Clock banner reads "Clocked in · 11:59 PM" (wrong time on a pay record's screen). [BATCH 2, top]
+- d3 work crew: no past-day hours entry or "missing hours" flag for the crew (only today); his studs request shows "Acknowledged · needed 9/8" with no ETA on the day framing starts.
+- d3 work driver Alex (S2): Route says "Nothing at the office wanted" with stops only at Home Depot — the paid, ready Brooklyn Lumber pickup (88412, needed since 9/3) never reached the driver's route; Requests show all 4 as "not ordered yet"; none flagged overdue.
+- d3 work driver: Route item named from the request text ("Buy 1 ea needed by Mon 9/7 for the floor crew") vs Requests' "2 items — rosin paper".
+- d3 work driver (S2 privacy/role): the job chat on the driver's phone shows a client's question and client invoice/CO notices (client money on a driver's screen); no crew messages; no way to message Chen directly ("Message the office…").
+- d3 work driver (S1 time, confirmed): Clock shows "Clocked in · 11:59 PM".
+- d3 work owner: creating the 374 Washington Ave job from a client's mail thread left it with "No client linked" (the sender is right there); linking needs Settings.
+- d3 work owner: Permits > Look Up hit NYC Open Data and failed (offline in the sim — expected; but the error should offer to enter the permit by hand).
+- d3 work owner: Home still shows Approve beside the held WW bill; Do Now 31 and Caught for You 46 — too many to scan.
+- d3 eod Angel (S1 hours): after Clock Out the split sheet showed 12.93 h for a 9.0 h day (7:36–16:34): the 7:36 clock-in was lost (cf. "Clocked in · 11:59 PM"); it pre-ticked Restoration and Rough electrical though neither trade showed. [BATCH 2, top]
+- d3 eod Angel (S1): no daily log filed on any of the 3 days; "Today's log not sent yet" isn't a link; its only control is "Send as Is" (sends with no read-back).
+- d3 eod Angel grades: screens 6, assistant 2 (unreachable for the foreman), brain 5, overall 5.
+- d3 eod owner grades: screens 6, assistant 4, brain 6, overall vs email+QuickBooks+phone 5. Top: (1) deadlines he gives staff by mail and his own promises in sent mail become nothing in the app (three passed with no alert); (2) "CO needed" 14 days ago, billing says nothing new to bill; (3) contacts by name and Ask unreliable; a 21:15 mail arrived in the 16:30 turn (harness clock).
+- d3 eod PM grades: screens 5, assistant 2 ("closet"→"close"), brain 3 (missed no-shows, 3 days of missing logs, the PE's safety ask, the controller's deadline, the DOB date change), vs Procore/Buildertrend 3. Top: safety and client asks only in raw mail (Priya's shoring cc waiting since 9/3); the foreman's records wrong; facts in several places that disagree.
+- d3 eod Chen grades: screens 5, assistant 3, brain 5, overall 4. Top: approvals and deadlines sent by mail aren't records (both 3 PM deadlines missed silently); PO counters wrong (Late to Site 0 while studs a day late; Promise Ledger 0 after five vendor dates; Bills on Hold 0 with three held; WW COI 8/15/2027 in the app vs "expired 8/15").
+- d3 eod Chen (S1 Standard — VERIFY): the label "follow-ups sent by the assistant (delegated)" claims vendor mail sent in his name that he never set up and can't review. If the assistant sends vendor follow-ups by default without the person's delegation, it breaks "AI assists, people commit". Check DB.asst[uid].delegated defaults and the outbox. [VERIFIED: default-on delegation (track lane, per Alan 10-11 "sent autonomously within delegation"); the gap is visibility — no first-day notice, no Activity log. Goes to §1.27.]
+- d3 eod Sarah grades: screens 5, assistant 2 ("calc"→"call"; offered Do It after "don't act"), brain 4, overall 4.
+- d3 eod Sarah (S1 safety, cross-set §1.23): the engineer's beam calc (9/1) puts the steel post at the rear wall; the wall moved 14'-6"→13'-6" on 9/2; the app had both facts and never connected them. The cross-set check must cover consultant calcs against design changes. [cross-set lane]
+- d3 eod billing grades: screens 6, assistant 4, brain 3, vs QuickBooks 5. Top: no Reverse Payment control (the approved Rivera $21,350 reversal impossible); Payments never lists money in the bank but not applied (Jessop wire); the controller's decisions live only in mail. (sent to pilotfix2)
+- d3 eod controller grades: screens 5, assistant 3 (mail check 14 h old; "Which Elena: Elena Rivera or Billing?"), brain 4 (both checkable proposals wrong), vs NetSuite/QBE 3. Top: no Reverse Payment; Purchasing "No purchase orders yet" (no three-way match); staff requests live only in mail. The Payments Method column shows "ACH" where none was recorded (a default filled in — truth issue). [pilotfix2]
+- d3 eod crew grades: phone 4, overall 5. Clock shows 0.00 h clocked vs 6.00 h logged after clocking in at 10:32 (the clock-in stamp lost again); '+ Add a line' adds a blank row instead of saving. [pilotfix2 item 1]
+- d3 eod driver grades: phone 5, overall 4 (crew, van and a paid pickup blocked by an ordering step that never came); Clock 'In since 11:59 PM'.
+- docs workshop (S2 client-facing): INV-2026-040 printed internal measurement notes on its lines ("measured by foreman update 9/2 — ... 1 running task still on elapsed time"); a send gate must strip internal notes and block "check before sending" text. [BATCH 3 docs]
+- docs workshop (S1 money): invoices carry no cost code on lines; CO-004 has no link to its estimate line; no invoice prints how to pay; INV-041 prints "Architect" for a designer; pay app: one per period, stop when billed > measured, no $0 apps, previous apps in issue order, true retainage label. [BATCH 3 docs]
