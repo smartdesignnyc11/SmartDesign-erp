@@ -247,7 +247,7 @@ async def open_lands(c, pg, label, uid, name, made, where):
         if not btn:
             # already on the screen: that row is the record, nothing to open (the referee's test: on the screen)
             s = await pg.evaluate("n => __SIM.onScreen(n)", m['name']); c.ok(s['on'], f'{label} {uid} {name}: "{m["name"][:40]}" is shown where it was made ({where["view"]})'); continue
-        await pg.wait_for_timeout(700)
+        await pg.wait_for_timeout(1200)
         h = await pg.evaluate("([n]) => (" + HL + ")(n, true)", [m['name']])
         c.ok(h['vis'] and h['flash'], f'{label} {uid} {name}: Open on "{m["name"][:40]}" lands on it in its list, highlighted ({h})')
 

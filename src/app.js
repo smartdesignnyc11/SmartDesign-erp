@@ -193526,14 +193526,15 @@ function fndRehot() {
     });
 }
 function fndFlashSoon(name, sel) {
-  setTimeout(() => fndFlash(name, sel), 60),
-    setTimeout(() => {
-      const r0 = fndRoot(),
-        el = r0 && r0.querySelector(".fnd-hit");
-      if (!el) return void (r0 && fndFlash(name, sel));
-      const r = el.getBoundingClientRect();
-      (r.top < 56 || r.bottom > innerHeight) && el.scrollIntoView({ block: "center" });
-    }, 450);
+  // the list may render late (a slow phone, a page that opens at its top): checked again until it has settled
+  const pass = () => {
+    const r0 = fndRoot(),
+      el = r0 && r0.querySelector(".fnd-hit.tk-flash");
+    if (!el) return void (r0 && fndFlash(name, sel));
+    const r = el.getBoundingClientRect();
+    (r.top < 56 || r.bottom > innerHeight) && el.scrollIntoView({ block: "center" });
+  };
+  setTimeout(() => fndFlash(name, sel), 60), setTimeout(pass, 450), setTimeout(pass, 1100), setTimeout(pass, 2e3);
 }
 function fndOpen(key) {
   const x = fndFind(key),
