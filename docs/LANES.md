@@ -12,7 +12,7 @@ The chief of staff keeps this board current. A lane is one build agent in its ow
 | pilotfix2 | Pilot fixes batch 2: clock, mail cards, money matching, Reverse Payment, the driver's route, agency mail, card accounts | Merged (8a2f952); pilot_fixes2_test 72/72; leaks2 [6] and flow (slab PO held by the plans guard) handed to netfix |
 | netfix | learn, flow, leaks2, chain reconciled with the pilot fixes | Merged; chain 367/0, learn 121, flow 78, leaks2 0 flags in lane |
 
-| monthfix | The scripted month regressed after the merges (251/291 vs v11's 258/292; $10,387 vs $9,537): daily logs not filed (5 events), the late slab PO, the Brooklyn Lumber pickup, the Klein tile credit ($850) | Building |
+| monthfix | The scripted month regressed after the merges (251/291 vs v11's 258/292; $10,387 vs $9,537): daily logs not filed (5 events), the late slab PO, the Brooklyn Lumber pickup, the Klein tile credit ($850) | Merged (379182f); month 258/292, $9,537, 1 day: identical to v11 event by event; full net green on the same build |
 
 Merge order: findable2, pilotfix2, then netfix last (it reconciles the suites the others change). Full net after each, then the scripted month and v11.2.
 

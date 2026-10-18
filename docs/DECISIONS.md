@@ -28,6 +28,7 @@ Status: **Built** (merged and tested) · **Building** (a lane is on it) · **Spe
 | Pilot fixes batch 2 (hours, mail digest, money matching and Reverse Payment, agency mail, driver, card accounts) | `tests/pilot_fixes2_test.py` | Built (8a2f952). Call Alan can change: Reverse Payment is limited to Billing and the Controller |
 | Find it again after every save; truthful pay app %; outbox recipients | `tests/findable2_test.py` | Built. Call Alan can change: a pay app line never bills below what was already billed; where the evidence measures less, the line says so and the PM decides |
 | Call Alan can change: every mailed vendor bill goes to the Controller, PO or not, whatever mailbox it landed in (three-way match is the office playbook; Bills & Payroll is the Controller's). Track's Enter the Bill moved from Billing to the Controller too | lane netfix, `tests/learn_test.py` | Built; Alan can change |
+| Version 11.2 published: lanes xset, pilotfix2, findable2, netfix, monthfix; full net 37/37; month identical to v11 | `docs/PLAN.md` | Built (379182f) |
 | Make sure the brain gets everything from the Oct 15 team meeting transcript and takes the right learning action, judged to the highest AI standard | BACKLOG §1.33, `tests/meeting_brain_test.py` | Notes reader built and tested (27 checks); the transcript reader is Spec (platform, Claude). The real meeting was run privately; its content stays out of the repo |
 
 ## 2026-10-17 (from the Cowork session, folded in on 2026-10-18)
