@@ -33478,6 +33478,38 @@ function portalStatement(c) {
       {},
     );
 }
+// The client opens a document from the portal (harness finding 8, v11.1): one View for every place the portal lists
+// one (Waiting on You, the invoices due, Account's invoices and change orders).
+function portalView(c, k, d) {
+  if (!c || !d) return;
+  const title = `${{ estimate: "Proposal", co: "Change Order", invoice: "Invoice" }[k]} ${esc(d.number)}`;
+  if ("invoice" !== k) return void mbModal(title, docSummaryHtml(c, d), { submit: null });
+  const o = (clientFin(c).open || []).find((x) => x.x.id === d.id),
+    bal = o ? o.bal : r2(docTotal(d).total - invoicePaid(c, d)),
+    co = DB.company || {},
+    how = [
+      co.payTo && `Make it out to <b>${esc(co.payTo)}</b>`,
+      co.addr && `Mail to ${esc(co.addr)}`,
+      co.email && `Questions: ${esc(co.email)}`,
+      co.phone && `Or call ${esc(co.phone)}`,
+    ].filter(Boolean);
+  mbModal(
+    title,
+    `${docSummaryHtml(c, d)}${bal > 0.005 ? `<div class="card" style="margin-top:10px"><h3 style="margin:0 0 6px">How to Pay</h3><div class="small">${how.length ? how.join("<br>") : `Pay ${esc(co.name || "us")} by cheque or bank transfer — your project manager can send the details.`}</div><div class="small muted" style="margin-top:6px">Balance on this invoice: <b>${money(bal)}</b>${d.due ? ` · due ${fmt(d.due)}` : ""}</div></div>` : '<div class="note ok" style="margin-top:10px">Paid in full — thank you.</div>'}`,
+    {
+      submit: null,
+      alt:
+        bal > 0.005
+          ? {
+              label: "Ask About This Invoice",
+              run: () => {
+                mbCloseModal(), setTimeout(() => portalQuestion(c, d), 60);
+              },
+            }
+          : null,
+    },
+  );
+}
 function renderPortalApprovals() {
   const c = clientUserOf(),
     host = $("#cl-approvals");
@@ -33506,34 +33538,7 @@ function renderPortalApprovals() {
     (b) =>
       (b.onclick = () => {
         const [k, d] = find(b.dataset.pview);
-        if (!d) return;
-        const title = `${{ estimate: "Proposal", co: "Change Order", invoice: "Invoice" }[k]} ${esc(d.number)}`;
-        if ("invoice" !== k) return void mbModal(title, docSummaryHtml(c, d), { submit: null });
-        const o = (clientFin(c).open || []).find((x) => x.x.id === d.id),
-          bal = o ? o.bal : r2(docTotal(d).total - invoicePaid(c, d)),
-          co = DB.company || {},
-          how = [
-            co.payTo && `Make it out to <b>${esc(co.payTo)}</b>`,
-            co.addr && `Mail to ${esc(co.addr)}`,
-            co.email && `Questions: ${esc(co.email)}`,
-            co.phone && `Or call ${esc(co.phone)}`,
-          ].filter(Boolean);
-        mbModal(
-          title,
-          `${docSummaryHtml(c, d)}${bal > 0.005 ? `<div class="card" style="margin-top:10px"><h3 style="margin:0 0 6px">How to Pay</h3><div class="small">${how.length ? how.join("<br>") : `Pay ${esc(co.name || "us")} by cheque or bank transfer — your project manager can send the details.`}</div><div class="small muted" style="margin-top:6px">Balance on this invoice: <b>${money(bal)}</b>${d.due ? ` · due ${fmt(d.due)}` : ""}</div></div>` : '<div class="note ok" style="margin-top:10px">Paid in full — thank you.</div>'}`,
-          {
-            submit: null,
-            alt:
-              bal > 0.005
-                ? {
-                    label: "Ask About This Invoice",
-                    run: () => {
-                      mbCloseModal(), setTimeout(() => portalQuestion(c, d), 60);
-                    },
-                  }
-                : null,
-          },
-        );
+        portalView(c, k, d);
       }),
   ),
     host.querySelectorAll("[data-pask]").forEach(
@@ -104373,8 +104378,10 @@ function clAcctHtml() {
       .sort()[0],
     unsigned = co.filter((d) => "sent" === d.status),
     photos = clPhotos(),
-    row = (l, r, sub) =>
-      `<div class="cl-row"><div><b>${l}</b>${sub ? `<div class="small muted">${sub}</div>` : ""}</div><div class="cl-amt">${r}</div></div>`;
+    // every invoice and change order listed here opens on View, as on Waiting on You (harness finding 8, v11.1)
+    view = (k, id) => `<button type="button" class="btn sm cl-view" data-pview="${k}:${esc(id)}">View</button>`,
+    row = (l, r, sub, act) =>
+      `<div class="cl-row"><div><b>${l}</b>${sub ? `<div class="small muted">${sub}</div>` : ""}</div><div class="cl-amt">${r}</div>${act ? `<div class="cl-act">${act}</div>` : ""}</div>`;
   return `<div class="ph"><div><h2>Your Account</h2><div class="lead">${bal > 0.5 ? `${clMoney(bal)} is open${next ? `, next due ${fmtL(next)}` : ""}. Every invoice, change order and photo of the job is here.` : "Nothing is open — thank you. Every invoice, change order and photo of the job is here."}</div></div></div>\n  <div class="glance tl">\n    <div class="gl static ${bal > 0.5 ? "warn" : ""}"><span class="gl-k">Open Balance</span><b class="gl-v">${clMoney(bal)}</b><span class="gl-s">${open.length ? `${open.length} invoice${open.length > 1 ? "s" : ""}${next ? ` · next due ${fmtL(next)}` : ""}` : "nothing open"}</span></div>\n    <div class="gl static ${unsigned.length ? "warn" : ""}"><span class="gl-k">Waiting on Your Signature</span><b class="gl-v">${unsigned.length}</b><span class="gl-s">${unsigned.length ? `${clMoney(unsigned.reduce((a, d) => a + docTotal(d).total, 0))} in change orders` : "nothing to sign"}</span></div>\n    <div class="gl static"><span class="gl-k">Paid to Date</span><b class="gl-v">${clMoney((c.payments || []).filter((x) => !x.unapplied).reduce((a, x) => a + (+x.amount || 0), 0))}</b><span class="gl-s">across ${(c.payments || []).length} payment${1 === (c.payments || []).length ? "" : "s"}</span></div>\n    <div class="gl static"><span class="gl-k">Photos of the Job</span><b class="gl-v">${photos.length}</b><span class="gl-s">${photos.length ? "newest first, below" : "none posted yet"}</span></div>\n  </div>\n  <div class="card" id="cl3-inv"><h3>Invoices</h3>${
     inv.length
       ? inv
@@ -104386,6 +104393,7 @@ function clAcctHtml() {
               `${esc(d.number)}`,
               `${clMoney(docTotal(d).total)}${b > 0.5 ? `<div class="small warn">${clMoney(b)} open</div>` : '<div class="small muted">paid</div>'}`,
               `${d.date ? fmtL(d.date) : ""}${d.due ? ` · due ${fmtL(d.due)}` : ""}`,
+              view("invoice", d.id),
             );
           })
           .join("")
@@ -104406,6 +104414,7 @@ function clAcctHtml() {
                     .slice(0, 2)
                     .join(" · "),
               ),
+              view("co", d.id),
             ),
           )
           .join("")
@@ -104434,7 +104443,15 @@ function pmName() {
 }
 function renderClAcct() {
   const h = document.getElementById("clacct-body");
-  h && (h.innerHTML = clAcctHtml());
+  if (!h) return;
+  h.innerHTML = clAcctHtml();
+  const { c: c } = clDocs();
+  h.querySelectorAll("[data-pview]").forEach((b) => {
+    b.onclick = () => {
+      const [k, id] = b.dataset.pview.split(":");
+      portalView(c, k, c && findDoc(c, k, id));
+    };
+  });
 }
 function clSchedHtml() {
   const p = clProj();
