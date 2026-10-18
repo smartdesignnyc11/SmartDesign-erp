@@ -25,7 +25,7 @@ SHOTS = os.path.join(ROOT, 'review', 'daywalk')
 # Round-4 costs from docs/REVIEW_PROTOCOL.md (the eight jobs), as clicks + typed fields where it gives them.
 ROUND4 = {
     'owner': 'Brief 0; 2 clicks each for WW-2026-118 and AMP-311 (since delegation AMP-311 is the PM\'s turn: reached through "wait on the others"); 1 click to open a decision',
-    'pm': 'CO: 3 clicks + 1 field + 1 tick, then 3 (Start, price, Send to Client, Send); Task: New Task > title > assignee > Friday > Enter (no cost given)',
+    'pm': 'CO: 3 clicks + 1 field + 1 tick (v11.1: + the client, picked on Billing), then 3 (Start, price, Send to Client, Send); Task: New Task > title > assignee > Friday > Enter (no cost given)',
     'coord': '4 clicks + 1 field',
     'billing': '6 clicks, 0 typed',
     'controller': 'no round-4 cost (reconcile one account; open Close)',
@@ -384,7 +384,18 @@ async def walk_owner(w):
     # every row's button reads "Open", so pick the row by its text
     nth = await pg.evaluate("() => [...document.querySelectorAll('#mbm .m-appr-o')].findIndex(r => r.innerText.includes('AMP-311'))")
     if nth < 0: await w.flag('dead end', 'AMP-311 is not in Waiting on the Others'); raise DeadEnd('AMP-311')
-    await w.click('Open', css='#mbm .m-appr-o button', nth=nth)
+    # v11.1: the sheet is in the one queue order (safety and law, anyone blocked today, overdue, today, this week,
+    # then the principle), so a bill due 9/12 sits under the crew no-show and the PM's overdue decisions instead of
+    # first (bills used to come first only because the list was built kind by kind). The person scrolls the sheet to
+    # it: no extra tap. Noted, with its place, so a regrouping of this sheet shows up here.
+    if nth > 0:
+        n_all = await pg.evaluate("() => document.querySelectorAll('#mbm .m-appr-o').length")
+        w.note(f'AMP-311 is row {nth + 1} of {n_all} in Waiting on the Others (the one queue order): one scroll in the sheet, taps unchanged')
+        await pg.evaluate("i => document.querySelectorAll('#mbm .m-appr-o')[i].scrollIntoView({ block: 'center' })", nth)
+        await pg.wait_for_timeout(150)
+    # every row's button reads "Open": the one on AMP-311's own row (within picks the nearest, not an index into
+    # whatever is visible after the scroll)
+    await w.click('Open', css='#mbm .m-appr-o button', within='AMP-311')
     # the bill drawer: AMP-311 was paid from the bank before approval, so its one yes is Approve as Billed, which
     # opens the sheet listing the open controls (no PO, round dollars, no W-9) and asks for the reason
     await w.see('Approve as Billed')
@@ -411,7 +422,10 @@ async def walk_pm(w):
     await w.click('Billing', prefix=True, scope='nav, aside, .rail, #rail')
     await w.click('Change Orders', prefix=True)
     await w.click('New Change Order')
-    w.step('Title + tick a line + Start')
+    w.step('Client + title + tick a line + Start')
+    # Billing with no client picked is not a job's screen, so the sheet asks whose change it is (harness finding 6,
+    # v11.1): it used to default to whichever job was opened last. One pick fills the job and its estimate's lines.
+    await w.fill('Klein', label='Client')
     await w.fill('Extra blocking for the garden wall cabinets', label='Title')
     await w.tick_row('Framing, blocking & rough carpentry')
     n0 = await pg.evaluate("() => DB.clients.flatMap(c => c.changeOrders || []).length")
