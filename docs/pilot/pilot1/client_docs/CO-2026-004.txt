@@ -1,0 +1,26 @@
+SmartDesigns
+CHANGE ORDER
+CO-2026-004
+Date Tue, Sep 8
+Prepared for
+Sarah & David Klein
+121 State Street, Brooklyn, NY 11201
+Sarah Klein · sarah.klein@example.com
+Project
+121 State Street
+121 State Street, Brooklyn, NY 11201
+Stair landing guard raised to 42 inches
+Item	Qty	Rate	Amount
+Framing, blocking & rough carpentry
+Raise stair landing guard to 42 inches finished height per code: additional guard height, balusters/posts, fasteners, finish match, install
+	1 ls	$780	$780
+Subtotal
+$780
+Total
+$780
+Notes
+Building code requires a 42 inch guard at the stair landing; the planned guard height is raised to 42 inches.
+Terms: Net 15
+Accepted by (client) · date
+SmartDesigns · date
+Progress invoices are due within 15 days. Retainage is released with the final invoice after punch list completion. Change orders must be approved in writing before work proceeds.

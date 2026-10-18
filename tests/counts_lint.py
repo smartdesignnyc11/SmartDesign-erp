@@ -296,6 +296,9 @@ async def run_role(pg, lint, tag, uid, phone):
             if not (tiles or tabs or alls or has_chips): continue
             here = f"{v}{'@' + names.get(pid, pid) if v in proj_views else ''}"
             async def back():
+                # a tile clicked on another page may have opened another job (Over Budget Now opens 45 Cranberry's
+                # board): come back to this job too, or the next click is read against the wrong job's list
+                await set_job(pg, pid)
                 await pg.evaluate("v => { try { delete tlFocus[v]; } catch (e) {} view = v; render(); }", v); await settle(pg)
             await back()
             if await cur_view(pg) != v: continue

@@ -2959,6 +2959,69 @@
     "ops",
     "negation"
    ]
+  },
+  {
+   "id": "PF11_1",
+   "role": "u_alan",
+   "q": "don't send the tile sheet to the Kleins until Sarah signs off",
+   "truth": "['did not understand']",
+   "check": "any",
+   "refuse_ok": true,
+   "notes": "pilot day 1: \"don't\" read as \"done\", \"sheet\" as \"sheen\", then another question answered; an instruction not to act is said back, nothing done",
+   "tags": [
+    "typo-overreach",
+    "pilotfix1"
+   ],
+   "noread": [
+    "don't",
+    "sheet"
+   ]
+  },
+  {
+   "id": "PF11_2",
+   "role": "u_alan",
+   "q": "how much do the Kleins' owe",
+   "truth": "(() => H.sum(H.invs().filter(x => /Klein/.test(x.c.name) && x.open), x => x.bal))()",
+   "check": "number",
+   "refuse_ok": false,
+   "notes": "pilot day 2: \"Kleins'\" became \"klein\"; the possessive is the client",
+   "tags": [
+    "typo-overreach",
+    "pilotfix1"
+   ],
+   "noread": [
+    "kleins'"
+   ]
+  },
+  {
+   "id": "PF11_3",
+   "role": "u_alan",
+   "q": "has the plumber rebooked in the app",
+   "truth": "['rebook', 'Alberto', 'did not understand', 'plumb']",
+   "check": "any",
+   "refuse_ok": true,
+   "notes": "pilot day 1: \"rebooked\" read as \"booked\", \"app\" as \"apr\"",
+   "tags": [
+    "typo-overreach",
+    "pilotfix1"
+   ],
+   "noread": [
+    "rebooked",
+    "app"
+   ]
+  },
+  {
+   "id": "PF11_4",
+   "role": "u_alan",
+   "q": "florbish the wizzle report",
+   "truth": "['did not understand']",
+   "check": "any",
+   "refuse_ok": true,
+   "notes": "words Ask does not know are named, not swapped for nearby words and answered",
+   "tags": [
+    "typo-overreach",
+    "pilotfix1"
+   ]
   }
  ]
 }

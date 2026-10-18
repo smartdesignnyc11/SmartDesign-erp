@@ -1,6 +1,6 @@
 # Navigation and pages: draft for discussion (SmartDesign workspace only)
 
-**Status:** a draft for discussion, not agreed. Nothing gets built until Alan agrees. The Mercer & Bond workspace is out of scope.
+**Status:** the workshop has answered (2026-10-18, below). Waiting on Alan's decisions on the eight disagreements. Nothing gets built until Alan agrees. The Mercer & Bond workspace is out of scope.
 
 **Process (Alan, 2026-10-11): "think about this more and consult with the agents that are working the site."**
 1. The role experts work the 3-day pilot of the agent month, and the harness records every page each person opens and where they looked first.
@@ -34,6 +34,39 @@
    - a map of one place for each kind of information;
    - the disagreements, for Alan.
 4. Alan decides. Then it is built, with a test that pins each role's menu.
+
+## Workshop result: the 3-day pilot, 2026-10-18
+Nine role experts worked three days in the app and then answered the workshop. The full synthesis, with the merge/cut list and one place per kind of information, is in `docs/pilot/pilot1/nav_workshop.md`. The client did not take part.
+
+**Recommended menus:**
+| Role | Menu |
+|---|---|
+| Owner | Today, Projects, Accounting, Sales, Clients, Purchasing, Design, Company, Reports |
+| PM | Today, Projects (change orders and extra estimates in each job's Money tab), Clients, Purchasing (his jobs), Reports, Company |
+| Coordinator | Today, Purchasing (Requests with the Buy Board folded in, Purchase Orders, Deliveries, RFQs), Vendors, Projects (view), Accounting (view), Company |
+| Foreman (phone bar) | Today, Site, Daily Log, Requests, Crew |
+| Crew (phone bar) | Clock, Requests, Schedule, Photos, Chat |
+| Driver (phone bar) | Route (Requests folded in), Chat, Clock, Receipts |
+| Designer | Today (what My Day holds now), Drawings, Projects, Design, Clients |
+| Billing | Billing (Payments tab with Reverse and a bank strip), Today, Clients, Projects (view), Banking (view), Reports |
+| Controller | Banking, Bills & Payroll, Today, Ledger, Purchasing (view), Billing (view), Reports |
+
+**Shared findings (every role):**
+1. What each person owes sits in 5 to 8 places, and the counts never agree. One Today page per person.
+2. "Acknowledged" reads as "ordered".
+3. Change orders hide under Billing.
+4. Numbers disagree between pages.
+5. The assistant isn't trusted yet. Ask becomes a Say It button on every screen, not a menu item.
+
+**Disagreements for Alan (recommendation in brackets):**
+1. Change orders in the job's Money tab or under Billing? [Money tab; Billing shows "approved, not billed" from the same list]
+2. One Today page, or keep Approvals, Inbox and Tasks as pages? [One Today; Tasks is a filter; the bill sheet stays as the detail]
+3. Do billing and the controller start on Today? [No; they start on Billing and Banking]
+4. Field phone bars: the draft's or the experts'? [The experts']
+5. A separate Deposits page for billing? [No; the Payments tab shows the bank lines]
+6. Drawings? [One register per job; a top item for the designer; a view under Site for the foreman]
+7. Permits? [One list per job; Design shows them across jobs]
+8. Names? [Design, Purchasing, Company; Today for every office role; Clock stays Clock]
 
 ## Today (owner view)
 | Group | Pages |

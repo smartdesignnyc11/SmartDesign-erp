@@ -1,0 +1,35 @@
+SmartDesigns
+INVOICE
+INV-2026-039
+Date Thu, Sep 3
+Due Fri, Sep 18
+Bill to
+Rivera family
+
+Elena Rivera · elena.rivera@example.com
+Project
+45 Cranberry St — design
+45 Cranberry St, Brooklyn Heights
+At filing / submission — 40% of design fee
+Item	Qty	Rate	Amount
+Schematic design
+40% of phase
+	1 ls	$2,800	$2,800
+Design development
+40% of phase
+	1 ls	$4,200	$4,200
+Construction documents
+40% of phase
+	1 ls	$5,600	$5,600
+Filing & permits
+40% of phase
+	1 ls	$1,680	$1,680
+Construction administration
+40% of phase
+	1 ls	$2,800	$2,800
+Subtotal
+$17,080
+Total this invoice
+$17,080
+Terms: Net 15
+Progress invoices are due within 15 days. Retainage is released with the final invoice after punch list completion. Change orders must be approved in writing before work proceeds.
