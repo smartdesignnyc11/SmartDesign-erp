@@ -225,7 +225,50 @@ async def t_request_quirks(c, p):
     c.ok(not errs and not errs2, f'field/coord: no page errors {(errs + errs2)[:2]}')
     await b.close()
 
-TESTS = [t_daily_log, t_controller_pos, t_own_mail_client, t_bought_from_mail, t_request_quirks]
+# ------------------------------------------------------------------------------------------------ 18: payment check
+async def t_payment_check(c, p):
+    b, pg, errs = await fresh(p, 'u_controller')
+    r = await js(pg, """
+      const b = DB.bills.find(x => x.number === 'WW-2026-118'), t = DB.txns.find(x => x.id === 't9');
+      t.proposal = { t: nowStamp(), by: 'auto', kind: 'bill', billId: b.id, why: 'amount and vendor agree' };
+      view = 'bank'; render(); await sleep(350);
+      const row = [...document.querySelectorAll('.prop-row')].find(r => /WW-2026-118/.test(r.innerText));
+      const txt = row ? row.innerText : '', btns = row ? [...row.querySelectorAll('button')].map(x => x.innerText.trim()) : [];
+      confirmMatch(t); await sleep(100);
+      return { txt, btns, linked: t.billId === b.id, toast: (document.getElementById('toast') || {}).innerText || '' };""")
+    c.ok('approved $29,700' in r['txt'] and '$3,800 over' in r['txt'], f"controller: the match shows the approved amount beside the paid one and the $3,800 over ({r['txt'][:220]!r})")
+    c.ok('Confirm' not in r['btns'] and any('Review' in x for x in r['btns']), f"controller: it cannot be confirmed above what was approved ({r['btns']})")
+    c.ok(not r['linked'] and 'Not confirmed' in r['toast'], f"controller: confirmMatch refuses the overpayment, with the numbers ({r['toast'][:140]!r})")
+    r = await js(pg, """
+      view = 'bank'; render(); await sleep(350);
+      const head = bankUnmatched().n;
+      const rows = [...document.querySelectorAll('#bf-imports [data-bfimp]')];
+      const un = rows.map(x => +((x.innerText.match(/(\\d+) unmatched/) || [])[1] || 0));
+      const sum = un.reduce((a, x) => a + x, 0), any = rows.map(x => x.innerText).join(' | ');
+      rows[0] && rows[0].querySelector('.grow').click(); await sleep(200);
+      const m = document.getElementById('mbm');
+      return { head, sum, rows: rows.length, any: any.slice(0, 200), sheet: m ? m.querySelectorAll('[data-bfimpline]').length : 0 };""")
+    c.ok(r['sum'] > 0 and r['sum'] <= r['head'], f"controller: Statement Imports count unmatched lines by the header's own predicate ({r['sum']} on the rows, {r['head']} in the header)")
+    c.ok(r['sheet'] > 0, f"controller: tapping an import row opens its lines ({r['sheet']} lines)")
+    r = await js(pg, """
+      const t = { id: 'tpx9', date: '2026-09-02', acct: 'ac1', desc: 'ZELLE TO NEMO TILE', amt: -640, cat: 'uncat' };
+      DB.txns.push(t); const C = truthCandidates(t).filter(x => x.kind === 'newbill').map(x => x.label);
+      return C;""")
+    c.ok(not any('Enter the bill' in x for x in r) and (not r or 'Paid before approval' in r[0]), f"controller: a payment with no bill goes to the paid-before-approval review, not Enter the bill ({r})")
+    c.ok(not errs, f'controller: no page errors {errs[:2]}')
+    await b.close()
+    # the owner's approval of part confirms the payment at the amount approved
+    b, pg, errs = await fresh(p, 'u_owner')
+    r = await js(pg, """
+      const b = DB.bills.find(x => x.number === 'WW-2026-118');
+      const ok = pay3ShortPay(b, 29700, 'billed 10 windows, the PO is 9; credit requested');
+      const t = DB.txns.find(x => x.id === 't9');
+      return { ok, st: b.status, short: b.short && b.short.approved, linked: t.billId === b.id, word: payCheckWord(b) };""")
+    c.ok(r['ok'] and r['short'] == 29700 and r['linked'], f"owner: approving the PO amount and disputing the rest still confirms the payment ({r})")
+    c.ok('approved at $29,700' in r['word'] and '$3,800 disputed' in r['word'], f"owner: the bill reads approved at $29,700 with $3,800 disputed ({r['word']!r})")
+    await b.close()
+
+TESTS = [t_daily_log, t_controller_pos, t_payment_check, t_own_mail_client, t_bought_from_mail, t_request_quirks]
 
 async def main():
     c = Checks()

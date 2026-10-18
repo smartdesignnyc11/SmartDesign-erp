@@ -37083,8 +37083,9 @@ function proposalsHtml(list, title) {
               ? esc(P.label)
               : "po" === P.kind
                 ? `${target?.number || "PO"} · ${esc(target?.vendor || "")} · ordered ${money(target ? poTotal(target).total : 0)}`
-                : `Bill ${target?.number || ""} · ${esc(target?.vendor || "")} · ${money(target ? billTotal(target) : 0)} · ${target?.status || ""}`;
-          return `<div class="prop-row"><div class="prop-main"><b>${fmt(t.date)} · ${esc(t.desc)}</b> <span class="small muted">${money(-t.amt)} · ${esc(DB.accounts.find((a) => a.id === t.acct)?.name || "")}</span><div class="small">→ ${label}</div><div class="small muted">${P.why}</div></div><div class="prop-acts"><button class="btn sm primary" data-mconfirm="${t.id}">Confirm</button><button class="btn sm" data-mreject="${t.id}">Not this</button></div></div>`;
+                : `Bill ${target?.number || ""} · ${esc(target?.vendor || "")} · billed ${money(target ? billTotal(target) : 0)} · ${esc(payCheckWord(target))}`,
+            chk = "bill" === P.kind && target ? payCheck(t, target) : null;
+          return `<div class="prop-row${chk && chk.over > 0.005 ? " pay-over" : ""}"><div class="prop-main"><b>${fmt(t.date)} · ${esc(t.desc)}</b> <span class="small muted">${money(-t.amt)} · ${esc(DB.accounts.find((a) => a.id === t.acct)?.name || "")}</span><div class="small">→ ${label}</div>${chk ? `<div class="small ${chk.over > 0.005 ? "bad-t" : "muted"}">Paid ${money(chk.paid)} · approved ${money(chk.approved)}${chk.prior ? ` · ${money(chk.prior)} paid before` : ""}${chk.over > 0.005 ? ` · ${money(chk.over)} over what was approved` : ""}</div>` : ""}<div class="small muted">${P.why}</div></div><div class="prop-acts">${chk && chk.over > 0.005 ? `<button class="btn sm primary" data-mreview="${target.id}">Review the ${money(chk.over)} Over</button>` : `<button class="btn sm primary" data-mconfirm="${t.id}">Confirm</button>`}<button class="btn sm" data-mreject="${t.id}">Not this</button></div></div>`;
         })
         .join("")}</div>`
     : "";
@@ -176997,7 +176998,7 @@ function truthCandidates(t) {
         const st = "function" == typeof vendorState ? vendorState(v).filter((f) => /insurance/i.test(f.m)) : [],
           ck = (String(t.desc || "").match(/\bCHECK\s*#?\s*(\d{3,})/i) || [])[1] || "",
           job = (DB.projects || []).find((p) => p.id === t.projectId);
-        push("newbill", `Enter the bill: ${v.name} ${money(amt)}${job ? " on " + String(job.project.name).replace(/ —.*$/, "") : ""} — no bill on file${st.length ? ` · ${st.map((f) => f.m).join(", ")}` : ""}`, { newBill: { vendor: v.name, vendorId: v.id, amount: amt, number: ck ? `CHK-${ck}` : "", projectId: t.projectId || "", cat: t.cat && "uncat" !== t.cat ? t.cat : "subs", code: t.code || "", line: t.line || "" } }, 6, [`paid to ${v.name}`, "no bill or order on file", st.length ? `${st.map((f) => f.m).join(", ")}: chase the certificate before the next payment` : "the bill is entered from the payment and flagged paid before approval"]);
+        push("newbill", `Paid before approval: ${v.name} ${money(amt)}${job ? " on " + String(job.project.name).replace(/ —.*$/, "") : ""}, no bill on file — review it${st.length ? ` · ${st.map((f) => f.m).join(", ")}` : ""}`, { newBill: { vendor: v.name, vendorId: v.id, amount: amt, number: ck ? `CHK-${ck}` : "", projectId: t.projectId || "", cat: t.cat && "uncat" !== t.cat ? t.cat : "subs", code: t.code || "", line: t.line || "" } }, 6, [`paid to ${v.name}`, "no bill or order on file", st.length ? `${st.map((f) => f.m).join(", ")}: chase the certificate before the next payment` : "it goes to the paid-before-approval review with the payment as its evidence, never as an ordinary bill"]);
       }
     }
     // a job cost with no bill or order behind it: its estimate line, from the line's own job and cost code
@@ -186168,6 +186169,8 @@ function lkBillFromTxn(t, nb) {
       approvals: [{ t: nowStamp(), ts: appNowIso(), by: who, role: role(), action: "entered from the payment" }],
       createdBy: who,
       fromTxn: t.id,
+      txnId: t.id,
+      paidBeforeApproval: !0,
     };
   (DB.bills = DB.bills || []).push(b);
   try {
@@ -189168,11 +189171,42 @@ if (!document.getElementById("req-co-css")) {
 // toast's Open lands on it (the reconcile stays one tap away on the row).
 let bfImpFlash = "",
   bfImpFlashUntil = 0;
+function bfImpLines(imp) {
+  const by = (DB.txns || []).filter((t) => t.importId === imp.id && !t.voided);
+  if (by.length) return by;
+  const [a, b] = imp.period || [];
+  return a && b ? (DB.txns || []).filter((t) => t.acct === imp.acctId && !t.voided && !t.importId && t.date >= a && t.date <= b) : [];
+}
+// An import row opens the lines it brought, each one tappable to its line
+function bfImpSheet(id) {
+  const imp = (DB.bankImports || []).find((x) => x.id === id);
+  if (!imp) return;
+  const st = bfImpStats(imp);
+  mbModal(
+    esc(imp.fileName || "Statement"),
+    `<div class="small muted">${st.here} line${1 === st.here ? "" : "s"} · ${st.matched} matched · ${st.unmatched} unmatched</div><div class="bf-imp-lines">${st.rows
+      .slice()
+      .sort((x, y) => String(x.date).localeCompare(y.date))
+      .map((t) => `<button type="button" class="bf-imp-line" data-bfimpline="${esc(t.id)}"><span>${fmt(t.date)}</span><span class="grow" data-nocase>${esc(t.desc)}</span><span class="money">${money2(+t.amt)}</span><span class="pill ${st.un.has(t.id) ? "warn" : "ok"}">${st.un.has(t.id) ? "unmatched" : "matched"}</span></button>`)
+      .join("")}</div>`,
+    { submit: null },
+  );
+  const m = document.getElementById("mbm");
+  m &&
+    m.querySelectorAll("[data-bfimpline]").forEach(
+      (b) =>
+        (b.onclick = () => {
+          mbCloseModal(), "function" == typeof txnDialog ? txnDialog(b.dataset.bfimpline) : openVerifyTxn(b.dataset.bfimpline);
+        }),
+    );
+}
 function bfImpStats(imp) {
-  const T = (DB.txns || []).filter((t) => t.importId === imp.id && !t.voided),
+  // the lines this file brought: by import id, or (a seeded or older import) the account's lines in its period;
+  // unmatched is the header's own predicate (bankUnmatched), so the rows add up to the one number on the page
+  const T = bfImpLines(imp),
     un = new Set(((("function" == typeof bankUnmatched && bankUnmatched()) || {}).rows || []).map((t) => t.id)),
-    unmatched = T.filter((t) => un.has(t.id) || ((!t.cat || "uncat" === t.cat) && !t.billId && !t.poId)).length;
-  return { lines: imp.lines || T.length, here: T.length, matched: T.length - unmatched, unmatched: unmatched };
+    unmatched = T.filter((t) => un.has(t.id)).length;
+  return { lines: imp.lines || T.length, here: T.length, matched: T.length - unmatched, unmatched: unmatched, rows: T, un: un };
 }
 function bfImportsHtml() {
   const L = (DB.bankImports || []).slice().sort((a, b) => String(b.at || "").localeCompare(String(a.at || ""))).slice(0, 12);
@@ -189197,6 +189231,7 @@ function bfImportsHtml() {
           const at = v.querySelector("#feeds-card") || v.querySelector("#bank-accts");
           at ? at.insertAdjacentHTML("afterend", h) : v.insertAdjacentHTML("beforeend", h);
           const host = v.querySelector("#bf-imports");
+          host.querySelectorAll("[data-bfimp]").forEach((row) => (row.onclick = (e) => { e.target.closest("button") || bfImpSheet(row.dataset.bfimp); }));
           host.querySelectorAll("[data-bfimprec]").forEach((b) => (b.onclick = () => { const imp = DB.bankImports.find((x) => x.id === b.dataset.bfimprec); imp && bfReconOpen(imp.acctId, imp.period[1], imp.ending, imp.id); }));
           const f = bfImpFlash && Date.now() < bfImpFlashUntil && host.querySelector(`[data-bfimp="${bfImpFlash}"]`);
           f && setTimeout(() => f.scrollIntoView({ block: "center" }), 30);
@@ -189231,7 +189266,7 @@ function bfImpLand(id) {
 }
 if (!document.getElementById("bf-imps-css")) {
   const st = document.createElement("style");
-  (st.id = "bf-imps-css"), (st.textContent = ".bf-imps{margin:12px 0}.bf-imp{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 6px;border-top:1px solid var(--rule,#eee);overflow-wrap:anywhere}.bf-imp .grow{display:flex;flex-direction:column;min-width:0;flex:1 1 220px}.bf-imp.tk-flash{background:var(--accent-2);box-shadow:inset 3px 0 0 var(--accent)}"), document.head.appendChild(st);
+  (st.id = "bf-imps-css"), (st.textContent = ".bf-imps{margin:12px 0}.bf-imp{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 6px;border-top:1px solid var(--rule,#eee);overflow-wrap:anywhere}.bf-imp .grow{display:flex;flex-direction:column;min-width:0;flex:1 1 220px}.bf-imp.tk-flash{background:var(--accent-2);box-shadow:inset 3px 0 0 var(--accent)}.bf-imp{cursor:pointer}.bf-imp-line{display:flex;gap:8px;align-items:center;width:100%;text-align:left;background:none;border:0;border-top:1px solid var(--rule,#eee);padding:8px 2px;font:inherit;color:inherit;min-height:44px}.bf-imp-line .grow{flex:1;min-width:0;overflow-wrap:anywhere}"), document.head.appendChild(st);
 }
 
 // ---- one verb, one action: a field question or a Needs Your Hand item answered from Approvals does what its Do Now
@@ -190368,6 +190403,77 @@ window.addEventListener(
       return;
     }
     d && d.ack && (e.stopPropagation(), e.preventDefault(), reqSheet(d.ack.pid, d.ack.rid));
+  },
+  !0,
+);
+// ---- The payment check (BACKLOG §1.12; pilot day 2): never pay or accept more than the vendor's approved amount
+// minus what was paid before. Window Works' $33,500 sat in Matches Waiting as "pm-approved" at $33,500 while the
+// approval was at the PO amount, $29,700, with $3,800 disputed; Confirm would have passed the overpayment.
+// The approved amount: an approval of part (the short pay) is that part; an approved bill is its total; one not
+// approved yet is never more than its order's open amount (over the PO is approved only on purpose).
+function payCheckApproved(b) {
+  if (!b) return 0;
+  const tot = billTotal(b);
+  if (b.short) return +b.short.approved || 0;
+  if (["approved", "verified", "paid"].includes(b.status)) return tot;
+  const P = "function" == typeof pay3PO ? pay3PO(b) : null;
+  return P && P.left >= 0 ? Math.min(tot, P.left) : tot;
+}
+function payCheckWord(b) {
+  if (!b) return "";
+  if (b.short) return `approved at ${money(b.short.approved)}${b.short.poNumber ? " (" + b.short.poNumber + ")" : ""}, ${money(b.short.held)} disputed`;
+  if (["approved", "verified", "paid"].includes(b.status)) return b.status;
+  const P = "function" == typeof pay3PO ? pay3PO(b) : null,
+    cap = payCheckApproved(b);
+  return `${"pm-approved" === b.status ? "PM recommended" : "not approved yet"}${P && cap < billTotal(b) - 0.005 ? `; ${P.po.number} covers ${money(cap)}` : ""}`;
+}
+function payCheck(t, b) {
+  const paid = r2(Math.abs(+t.amt || 0)),
+    prior = r2((DB.txns || []).filter((x) => x.billId === b.id && x.id !== t.id && +x.amt < 0).reduce((a, x) => a - +x.amt, 0)),
+    approved = r2(payCheckApproved(b));
+  return { paid: paid, approved: approved, prior: prior, over: r2(paid - Math.max(0, approved - prior)) };
+}
+let payCheckBypass = 0;
+{
+  const base = confirmMatch;
+  confirmMatch = function (t) {
+    try {
+      const P = t && t.proposal,
+        b = !payCheckBypass && P && "bill" === P.kind && (DB.bills || []).find((x) => x.id === P.billId);
+      if (b) {
+        const k = payCheck(t, b);
+        if (k.over > 0.005)
+          return void rcToast(`Not confirmed: ${b.vendor} was paid ${money(k.paid)}; ${money(k.approved)} is approved${k.prior ? ` and ${money(k.prior)} was paid before` : ""}, ${money(k.over)} over. Dispute the difference or approve it on the bill first.`, [{ label: "Open", run: () => flowGo.bill(b)() }]);
+      }
+    } catch (e) {
+      console.warn("payment check", e);
+    }
+    return base.apply(this, arguments);
+  };
+}
+// the short pay and Approve as Billed confirm the payment themselves, at the amount they approve
+["pay3ShortPay", "pay3ApproveAsBilled"].forEach((n) => {
+  try {
+    const f = window[n];
+    "function" == typeof f &&
+      (window[n] = function () {
+        payCheckBypass++;
+        try {
+          return f.apply(this, arguments);
+        } finally {
+          payCheckBypass--;
+        }
+      });
+  } catch (e) {}
+});
+window.addEventListener(
+  "click",
+  (e) => {
+    const b = e.target && e.target.closest ? e.target.closest("[data-mreview]") : null;
+    if (!b) return;
+    e.preventDefault(), e.stopPropagation();
+    const bill = (DB.bills || []).find((x) => x.id === b.dataset.mreview);
+    bill && ("function" == typeof isOwner && isOwner() && "function" == typeof pay3Can && pay3Can(bill) ? pay3ShortPay(bill) : flowGo.bill(bill)());
   },
   !0,
 );
