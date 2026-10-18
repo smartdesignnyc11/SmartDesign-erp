@@ -73288,6 +73288,10 @@ function cmImport(list) {
         proposals: [],
         links: m.links || [],
       };
+      // whose mailbox it is and Gmail's labels are known before the read: "ours" (SENT, the reader's own address)
+      // decides what the reader proposes, so they cannot wait for the sync to stamp them afterwards
+      m.owner && (c.owner = m.owner);
+      (m.labels || m.labelIds) && (c.labels = (m.labels || m.labelIds).slice());
       (c.route = cmRoute(c)), (c.proposals = cmRead(c));
       const R = c.route || {},
         from = String((c.from || {}).email || "").toLowerCase(),
@@ -188254,14 +188258,46 @@ function poNewVendorSheet(name, after) {
 }
 // ---- Our own outgoing mail is a record, never a proposal for us (the agent-month selftest, 2026-10-11) ---------
 // The coordinator sent a PO from his mailbox; the sync read it back and proposed it to him as money to decide. A
-// message we sent (direction "out", Gmail's SENT label, or from one of the firm's own addresses) is filed and kept
-// on its thread, but the reader proposes nothing from it, on import, on a re-read and at boot for old ones.
-const cmOwnMail = (c) => !!c && ("out" === c.direction || (c.labels || []).includes("SENT") || cmIsStaff(cmEmail(((c.from || {}).email) || "")));
+// message the reader sent is filed and kept on its thread, but the reader proposes nothing from it, on import, on
+// a re-read and at boot for old ones.
+// v11.1: "ours" is the reader's own mail, not every firm address. The first cut treated any firm sender as ours, so
+// a colleague's mail to the reader (the foreman's emailed ask, the bookkeeper's question to the owner) was dropped
+// unread, and with it Needs an Answer's count of colleagues' questions. A colleague's message is inbound internal
+// mail and the reader's employee rules read it (cmRead, R.employee). Ours is: Gmail's SENT or DRAFT label, the
+// reader's own mailbox address (or their contact on file), or a record the app made of something sent with no
+// sender on it. One exception keeps the owner review r5 catch (2026-10-10): an invoice or deposit request we sent
+// that the ERP does not hold (no document number on file) still says the money it records — a receivable for a
+// client on file, unclassified money for anyone else — so a bill sent outside the ERP never goes unsaid.
+function cmMailboxOf(c) {
+  const R = "function" == typeof cmReaderOf ? cmReaderOf(c) : { uid: (c && c.owner) || "" },
+    g = ((DB.conn || {})[R.uid] || {}).google || {},
+    u = (DB.users || []).find((x) => x.id === R.uid) || {};
+  return [g.email, u.contact].map((e) => cmEmail(String(e || ""))).filter((e) => e.includes("@"));
+}
+const cmOwnMail = (c) => {
+  if (!c) return !1;
+  const L = c.labels || [];
+  if (L.includes("SENT") || L.includes("DRAFT")) return !0;
+  const from = cmEmail(((c.from || {}).email) || "");
+  if (!from) return "out" === c.direction;
+  return cmMailboxOf(c).includes(from);
+};
+// A document number the ERP already holds (invoice, PO, estimate, bill, change order) named in the message.
+function cmNamesRecordOnFile(c) {
+  const words = new Set(`${c.subject || ""} ${c.text || ""}`.toUpperCase().split(/[^A-Z0-9-]+/).map((w) => w.replace(/^-+|-+$/g, "")));
+  return [DB.invoices, DB.pos, DB.estimates, DB.bills, (DB.clients || []).flatMap((x) => x.changeOrders || [])]
+    .flatMap((L) => (L || []).map((d) => String((d && d.number) || "").trim().toUpperCase()))
+    .some((n) => n.length >= 4 && /\d/.test(n) && words.has(n));
+}
+// What our own mail may still propose: the money we billed that the ERP does not hold.
+const cmOwnMailKeeps = (c, p) => ("ar" === p.kind || ("money" === p.kind && "client" === p.as)) && !cmNamesRecordOnFile(c);
 {
   const base = cmRead;
   cmRead = function (c) {
-    if (cmOwnMail(c)) return (c.direction = "out"), [];
-    return base.apply(this, arguments);
+    if (!cmOwnMail(c)) return base.apply(this, arguments);
+    c.direction = "out";
+    const P = base.apply(this, arguments);
+    return Array.isArray(P) ? P.filter((p) => cmOwnMailKeeps(c, p)) : [];
   };
 }
 {
@@ -188270,8 +188306,9 @@ const cmOwnMail = (c) => !!c && ("out" === c.direction || (c.labels || []).inclu
     const r = base.apply(this, arguments);
     try {
       (DB.comms || []).forEach((c) => {
-        if (!cmOwnMail(c) || !(c.proposals || []).some((p) => !p.applied)) return;
-        (c.proposals = c.proposals.filter((p) => p.applied)), "proposed" === c.status && (c.status = c.proposals.length ? "applied" : "read");
+        if (!cmOwnMail(c) || !(c.proposals || []).some((p) => !p.applied && !cmOwnMailKeeps(c, p))) return;
+        (c.proposals = c.proposals.filter((p) => p.applied || cmOwnMailKeeps(c, p))),
+          "proposed" === c.status && !c.proposals.some((p) => !p.applied) && (c.status = c.proposals.length ? "applied" : "read");
       });
     } catch (e) {
       console.warn("own mail", e);
