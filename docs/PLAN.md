@@ -9,6 +9,12 @@ Last updated 2026-10-18.
 - Don't start a big round when weekly usage is above about 60%.
 - One build lane is roughly 6–10% of a week's allowance. The lean pilot is about 2–5%.
 
+## Version 11: published 2026-10-18 (build 84687e4)
+- https://claude.ai/artifact/2c28fUyespjyJFyRFbnXAp
+- Full net: 32 of 32 suites green.
+- Scripted month: 258 of 292 on time, 29 missed, $9,537 left behind, 1 schedule day lost. The previous best was 239/291, 46 missed, $109,613.
+- The 29 misses remaining are queued below ("From the scripted month").
+
 ## v11.1 (first thing after the reset)
 - **Fix the v11 net regressions** (2026-10-11 run):
   - client questions are missing from the PM's Home (likely the own-sent-mail filter);
@@ -115,6 +121,16 @@ What remains, in order. Usage is a share of one week's allowance.
   - sub POs default to SD Plumbing;
   - a mailed bill's PDF is not attached to the bill.
 - **From the scripted month:**
+  - (2026-10-18 run) a vendor credit memo has no path to close a held dispute ($3,800);
+  - an approved overage never becomes a priced CO (the joist, $1,450);
+  - client purchases on a card have no reimbursable row ($487);
+  - a statement in mail or Drive becomes a task, not an import and reconcile;
+  - agency mail (DOB, LPC, inspections) closes no schedule task;
+  - a quote's Apply opens a task instead of pricing the line;
+  - a vendor date in mail never becomes the PO's expected date;
+  - Chase writes a note instead of a draft to the party;
+  - a COI for a sub not on file is only noted;
+  - the designer's and PM's Home miss some items;
   - the lighting submittal never released;
   - the joist CO unpriced;
   - Tomas Restoration not on file;
