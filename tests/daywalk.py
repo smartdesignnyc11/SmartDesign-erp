@@ -605,13 +605,15 @@ async def walk_foreman(w):
     await w.toast_mark()
     # Next through Delays, Photos to Sign Off. Delays refuses Next until yesterday's carried delay is
     # answered ("Is yesterday's delay still holding the work, or cleared?"): answer Cleared when asked.
+    # Sign Off: still clocked in, the foreman's one tap is "Clock Out and Sign" (a sworn log closes the day)
     for _ in range(6):
-        if await w.find('Sign and Send', prefix=True): break
+        if await w.find('Sign and Send', prefix=True) or await w.find('Clock Out and Sign', prefix=True): break
         if await w.see("Is yesterday's delay still holding", timeout=300):
             await w.click('Cleared')
         if not await w.click('Next', optional=True): break
     await w.tick_row('true record')
-    await w.click('Sign and Send', wait=900)
+    if await w.find('Clock Out and Sign', prefix=True): await w.click('Clock Out and Sign', wait=1500)
+    else: await w.click('Sign and Send', wait=900)
     await w.mutated('daily log for 9/3 filed', LOG_JS)
 
 
@@ -659,12 +661,14 @@ async def walk_designer(w):
         await w.click('My Day')
     w.step('Log hours from the day sheet (project > hrs > phase > what > Log)')
     t0 = await pg.evaluate("() => JSON.stringify(DB.time || []).length")
+    # the tile opens the day sheet on the oldest day with no hours; the hours land on the day it shows
+    day = await pg.evaluate("() => (document.querySelector('#st-addd') || {}).value || today()")
     await w.toast_mark()
     await w.fill('140 Prospect', css='.view.on select')
     await w.fill('2', label='hrs')
     await w.fill('Kitchen elevations for the rear wall change', label='what')
     await w.click('Log', css='.view.on button', wait=700)
-    await w.mutated('2 h logged for Sarah on 9/3', "() => (DB.time || []).some(t => t.date === '2026-09-03' && /rear wall change/.test(JSON.stringify(t)))")
+    await w.mutated(f'2 h logged for Sarah on {day}', "() => (DB.time || []).some(t => t.date === '" + day + "' && /rear wall change/.test(JSON.stringify(t)))")
 
 
 async def go_start(pg, view):
