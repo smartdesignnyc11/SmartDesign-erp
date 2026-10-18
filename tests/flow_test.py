@@ -192,6 +192,11 @@ async def s_order(p, c):
             c.ok(po and po[0] == 'issued' and po[2] == 7450 and po[3], f'order: the slab PO is issued, the measurements confirmed on it ({po})')
             # a room in the name is where the goods go, not what they are: the millwork PO for the same kitchen is not a double order
             c.ok(po and not po[4], f'order: no double-order warning against the kitchen millwork PO ({po and po[4]})')
+            # an order a guard holds says which guard and opens the PO (it said only "it was not issued")
+            held = await pg.evaluate("""() => { const r = flBuyRow({ pid: 'p121', mid: 'm19' }), v = DB.vendors.find(x => x.name === 'Gowanus Stone Yard');
+                const o = flIssueOrder(r, v, { item: 'Parlor kitchen countertop slab', qty: 1, unit: 'lot', price: 7450, needBy: '2026-09-11' }, null);
+                const t = document.getElementById('toast').innerText; o && (DB.pos = DB.pos.filter(x => x !== o)); return { st: o && o.status, t }; }""")
+            c.ok(held['st'] == 'draft' and 'Second measurement' in held['t'] and 'Open' in held['t'], f'order: a PO the measurement gate holds toasts why, with Open ({held})')
         c.ok(not errs, f'order: page errors {errs[:2]}')
     finally:
         await b.close()

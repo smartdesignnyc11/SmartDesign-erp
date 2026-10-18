@@ -43056,7 +43056,7 @@ if ("function" == typeof poAction) {
   poAction = function (po, a) {
     if (["issue", "approve", "submit"].includes(a)) {
       const g = poFabGate(po);
-      if (g) return void toast(g);
+      if (g) return void (po && po.number && "function" == typeof rcToast && "undefined" != typeof flowGo ? rcToast(g, [{ label: `Open ${po.number}`, run: flowGo.po(po) }]) : toast(g));
       if (po.stale)
         return void toast(
           `${po.number} carries a changed dimension — check the lines against the re-issued drawings first`,
@@ -186941,8 +186941,29 @@ function flIssueOrder(r, v, f, tk) {
   const st = po.status;
   "issued" === st || "partial" === st
     ? rcToast(`${po.number} issued to ${v.name} — ${money(poTotal(po).total)}, on site by ${fmt(f.needBy)}`, [{ label: `Open ${po.number}`, run: flowGo.po(po) }])
-    : "pending" === st || rcToast(`${po.number} is a draft — ${(poValid(po) || []).join("; ") || "it was not issued"}`, [{ label: `Open ${po.number}`, run: flowGo.po(po) }]);
+    : "pending" === st || rcToast(`${po.number} is a draft, not issued: ${poHeldWhy(po)}`, [{ label: `Open ${po.number}`, run: flowGo.po(po) }]);
   return po;
+}
+// Why a PO that was asked to issue is still a draft, in the person's words: the house checks (poValid), the
+// measurement gate, a changed dimension, the submittal gate, goods already bought. The guards toast on their own, but
+// the order's own toast came after them and said only "it was not issued" (pilot fixes 2: the slab PO).
+function poHeldWhy(po) {
+  const W = [];
+  try {
+    W.push(...(poValid(po) || []));
+  } catch (e) {}
+  try {
+    const g = "function" == typeof poFabGate ? poFabGate(po) : "";
+    g && W.push(g);
+  } catch (e) {}
+  po && po.stale && W.push("a dimension on it changed: check the lines against the re-issued drawings");
+  try {
+    ("function" == typeof smHolding ? smHolding(po) : []).forEach((x) => W.push(`waits on ${x.s.number} ${x.s.title}`));
+  } catch (e) {}
+  try {
+    po && po.dupWarned && W.push(...poDoubleOrder(po).filter((x) => /was bought/.test(x)).map((x) => `already bought: ${x} (issue again only if this is a second order)`));
+  } catch (e) {}
+  return W.length ? W.join("; ") : "a house check held it; open it to see which";
 }
 // Home: the coordinator's late and due lines say Order and open the sheet (they went to the FF&E board).
 document.addEventListener(
