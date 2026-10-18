@@ -2,7 +2,7 @@
 
 This is the one list. The chief of staff keeps it current on every ask, lane report and merge. Details live in the BACKLOG sections named. Status words: **Running** · **Next** · **Queued** · **Waiting on Alan** · **Later** (deferred by Alan) · **Done**.
 
-Last updated 2026-10-11.
+Last updated 2026-10-18.
 
 ## 0. Usage rule (Alan)
 - Warn before any heavy step.
@@ -84,6 +84,7 @@ What remains, in order. Usage is a share of one week's allowance.
 **Running costs once live:** about $150–700 a month, mostly AI, under a cap Alan sets.
 
 ## 4. Queued (built after the above, or folded in where they fit)
+- **The transcript reader** (§1.33): Claude reads the whole meeting, corrects Gemini's notes, and turns lessons into process changes for approval. It joins week 4's live AI (row 12). The notes reader is built (2026-10-18).
 - **Speed:** boot under 2 s, view switch under 100 ms on a phone (§1.11 item 5).
 - **Notifications:** push notifications and morning and evening digests, on the platform (§1.11 item 6).
 - **Office and field input:**

@@ -13,6 +13,11 @@ Status: **Built** (merged and tested) · **Building** (a lane is on it) · **Spe
 | 2026-10-11 | ChatGPT history export, to deepen `docs/ALAN.md`. | Profile built from the build sessions and the Standard only. |
 | 2026-10-10 | Re-authorise QuickBooks for the July-to-date pull. | Truth layer runs on bank and card lines and the QBO bridge snapshot. |
 
+## 2026-10-18
+| Ask or decision | Where it lives | Status |
+|---|---|---|
+| Make sure the brain gets everything from the Oct 15 team meeting transcript and takes the right learning action, judged to the highest AI standard | BACKLOG §1.33, `tests/meeting_brain_test.py` | Notes reader built and tested (27 checks); the transcript reader is Spec (platform, Claude). The real meeting was run privately; its content stays out of the repo |
+
 ## 2026-10-17 (from the Cowork session, folded in on 2026-10-18)
 | Ask or decision | Where it lives | Status |
 |---|---|---|

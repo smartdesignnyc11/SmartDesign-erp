@@ -840,6 +840,72 @@ Every saving gets a row: price differences, waste avoided, discounts taken, dupl
 
 Tests: a bank of "should it have nudged here" scenarios, recall and precision reported, and the privacy test that no person ever sees another person's mail.
 
+### 1.33 The brain reads a whole team meeting (Alan, 2026-10-18: "make sure the brain gets everything it needs from that transcript and takes the appropriate action")
+A real 90-minute, multi-job team meeting was run through the brain privately (content stays out of the repo).
+
+**Before the fix.** It used only Gemini's next-step list:
+- none of the Details paragraphs, the Quick notes topics or the transcript were read;
+- every decision was dropped;
+- office errands were titled with the wrong job;
+- a held item was proposed as a bill.
+
+Measured against an independent full extraction, it caught about a third of what mattered and learned nothing.
+
+**Built (2026-10-18, `tests/meeting_brain_test.py`, invented meeting):**
+1. Reads Gemini's current Doc layout:
+   - Details paragraphs;
+   - the Quick notes topics;
+   - footer lines are not tasks.
+2. Files each item to the right job:
+   - spelling-tolerant street match ("Lennox" finds Lenox);
+   - an address said outright beats a shared keyword;
+   - office errands carry no job.
+3. Every decision is accounted for: a policy goes to the firm's playbook for approval, and a goal becomes a dated task.
+4. Money the meeting talked about:
+   - "don't bill without approval" becomes a hold, never a bill;
+   - a vendor's mistake becomes a recovery task with the amount and the money line;
+   - a balance is never the amount of a bill.
+5. New work: a bid or referral with a value becomes a lead with a follow-up date. A lead already in the pipeline is updated, never duplicated.
+6. Dates:
+   - a meeting or visit in a Details clause becomes an event on its day and time;
+   - a date before the meeting (a transcription slip) is asked about, never scheduled a year out;
+   - "end of the year" resolves to Dec 31.
+
+**To build (the transcript reader, on Claude when the platform key is in; §1.24, §5.8).** The demo brain reads Gemini's notes; most of the value is in the transcript, and Gemini's notes contain errors and omissions. The reader:
+1. Reads the whole transcript in parts, not only the notes, and checks Gemini's notes against it:
+   - wrong dates;
+   - misheard names;
+   - owners wrongly assigned;
+   - items missed.
+   Each correction is shown with the quote.
+2. Extracts by category, each item with a quote and timestamp:
+   - actions with owner and due date;
+   - decisions and standing policies;
+   - money:
+     - costs, prices and balances;
+     - the cash and card position, checked against the bank feed and flagged where they differ;
+     - taxes and owner-personal items excluded from overhead;
+     - reimbursements;
+     - vendor claims;
+   - billing instructions line by line (percent-complete changes become a draft progress billing for the biller, never sent);
+   - pipeline;
+   - lessons;
+   - risks;
+   - people items. People items are private to the owner and never shown to anyone else.
+3. Lessons become process changes for approval (§1.19, §1.32 item 1). The classes this meeting showed:
+   - **Final bills left too large.** Unbilled earned work beyond a threshold near the end of a job raises a billing alert.
+   - **A vendor's mistake costs the firm.** The ledger of vendor recoveries is checked before the vendor's next payment (§1.12).
+   - **A fixture missed from scope.** This goes on a scope checklist per room type.
+   - **Long-lead or overseas items on a tight schedule.** A lead-time guard warns at selection.
+   - **Diagnosis handed between assessors.** The same assessor follows up, or there is a recorded hand-off.
+   - **A sub who left work unfinished.** This goes on the vendor's rating and is shown at the next RFQ.
+   - **Disputes with a deadline.** These get an ultimatum date and the chargeback window.
+   - **Overhead.** It is allocated design against construction with each person's split, excluding taxes and pass-throughs, measured against direct cost and revenue (§1.13).
+4. Tests:
+   - recall and precision against a gold extraction of invented team meetings, with a target of 90% recall on actions, money and decisions, and no false bills;
+   - a planted-error bank for Gemini's own mistakes;
+   - the privacy test for people items.
+
 ## §2 Remaining round-4 findings
 
 ### Founder

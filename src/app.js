@@ -91962,7 +91962,8 @@ function mtInit() {
     DB.meetings
   );
 }
-const MT_STEP = /^\s*\[([^\]]+)\]\s*([^:]{2,80}):\s*(.+)$/,
+const MT_FOOTER = /^(tip|want to see more|view the full notes|you should review|how is the quality)\b/i,
+  MT_STEP = /^\s*\[([^\]]+)\]\s*([^:]{2,80}):\s*(.+)$/,
   mtNorm = (s) =>
     String(s || "")
       .toLowerCase()
@@ -92156,6 +92157,23 @@ function mtParseDoc(md, m) {
         m.sections.some((x) => mtNorm(x.h) === mtNorm(s.h)) || m.sections.push(s);
       });
   }
+  const qi = s.search(/#\s*\**[^\n]*Quick notes/i);
+  if (qi > -1) {
+    const q = s.slice(qi, s.search(/#\s*\**[^\n]*Full notes/i) > qi ? s.search(/#\s*\**[^\n]*Full notes/i) : void 0);
+    (m.sections = m.sections || []),
+      [...q.matchAll(/^#{2,3}\s*\**([^*\n]+?)\**\s*\n((?:\s*\n|\s*[-•][^\n]*\n?)+)/gm)].forEach((x) => {
+        const h = x[1].trim(),
+          text = x[2]
+            .split("\n")
+            .map((l) => strip(l.trim().replace(/^[-•]\s*/, "")))
+            .filter(Boolean)
+            .join(" ");
+        !text ||
+          /^(next steps|suggested next steps|summary|decisions|details)$/i.test(h) ||
+          m.sections.some((y) => mtNorm(y.h) === mtNorm(h)) ||
+          m.sections.push({ h: h, text: text });
+      });
+  }
   const dec = sec("Decisions", !0);
   if (dec) {
     m.decisions = [];
@@ -92197,7 +92215,7 @@ function mtParseDoc(md, m) {
       .forEach((l) => {
         const x = l.match(MT_STEP);
         if (x) steps.push({ owner: x[1].trim(), title: x[2].trim(), detail: x[3].trim() });
-        else {
+        else if (!MT_FOOTER.test(l)) {
           const u = l.match(/^([A-Z][^:]{2,80}):\s*(.+)$/);
           u && steps.push({ owner: "", title: u[1].trim(), detail: u[2].trim() });
         }
@@ -92214,7 +92232,7 @@ function mtParseDoc(md, m) {
     det
       .split("\n")
       .map((l) => l.trim())
-      .filter((l) => /^[-•]\s*\*\*/.test(l) || /^[-•]\s*[A-Z]/.test(l))
+      .filter((l) => /^[-•]\s*\*\*/.test(l) || /^[-•]\s*[A-Z]/.test(l) || /^\*\*[^*]{3,90}\*\*:\s*\S/.test(l))
       .forEach((l) => {
         const ts = (l.match(/(\d{2}:\d{2}:\d{2})/) || [])[1] || "",
           h = (l.match(/\*\*([^*]+)\*\*/) || [])[1] || "",
@@ -92371,6 +92389,8 @@ function mtDateWhy(text, base) {
   if ((x = t.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})\b/))) {
     const mi = MT_MON.findIndex((m) => m.startsWith(x[1].slice(0, 3))),
       d = new Date(b.getFullYear(), mi, +x[2]);
+    if (d < b && (b - d) / 864e5 > 31 && (b - d) / 864e5 < 300)
+      return { date: "", why: x[0], suspect: `the notes say “${x[0]}”, which is before the meeting` };
     return d < b && d.setFullYear(d.getFullYear() + 1), out(d, x[0]);
   }
   if ((x = t.match(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/))) {
@@ -92385,6 +92405,7 @@ function mtDateWhy(text, base) {
     let d = new Date(b.getFullYear(), b.getMonth(), +x[1]);
     return d < b && (d = new Date(b.getFullYear(), b.getMonth() + 1, +x[1])), out(d, x[0]);
   }
+  if ((x = t.match(/\b(end of (?:the |this )?year|year[- ]end)\b/))) return out(new Date(b.getFullYear(), 11, 31), x[0]);
   if ((x = t.match(/\b(end of (?:the )?month|month[- ]end)\b/)))
     return out(lastOf(b.getFullYear(), b.getMonth()), x[0]);
   if ((x = t.match(/\bnext month\b/))) return out(new Date(b.getFullYear(), b.getMonth() + 1, 1), x[0]);
@@ -92629,7 +92650,7 @@ function mtPropose(m) {
     p &&
       (m.details || []).forEach((d) => {
         const when = mtDateWhy(d.text, td);
-        if (!when) return;
+        if (!when || !when.date) return;
         const mat = p.materials.find(
           (x) => "on-site" !== x.status && mtSim(x.name, d.h + " " + d.text) >= 0.5,
         );
@@ -92654,7 +92675,7 @@ function mtPropose(m) {
           )
             return;
           const when = mtDateWhy(line, td);
-          if (!when) return;
+          if (!when || !when.date) return;
           if (
             P.some(
               (x) => ("event" === x.kind || "task" === x.kind) && mtSim(x.apply.title || "", line) >= 0.6,
@@ -92684,7 +92705,7 @@ function mtPropose(m) {
     [...(m.sections || []).map((x) => x.text), ...(m.details || []).map((x) => x.text)].forEach((text) => {
       [
         ...String(text).matchAll(
-          /([^.]*\b(?:require|must|protocol|rule|going forward|from now on|always|before (?:any|conducting|starting))\b[^.]*\.)/gi,
+          /([^.]*\b(?:require|must|protocol|rule|going forward|from now on|always|standard practice|policy|in the future|before (?:any|conducting|starting))\b[^.]*\.)/gi,
         ),
       ].forEach((r) => {
         const rule = r[1].trim();
@@ -99174,8 +99195,23 @@ function b4MatchText(text) {
     DB.projects.find((q) => {
       const nm = q.project.name.match(/^(\d+)\s+([a-z]+)/i);
       return nm && new RegExp(`\\b${nm[1]}\\s+${mtNorm(nm[2])}\\b`).test(hay);
-    }) || null
+    }) ||
+    b4Fuzzy(text)
   );
+}
+// Transcribed notes misspell street names ("Lennox" for Lenox). Compare with doubled letters folded; a street
+// word alone counts only when it is distinctive and names exactly one job.
+const B4_COMMON = new Set("state south north east west main park place street avenue union church court bay hill garden prospect market water front center central broad river lake high bridge".split(" "));
+function b4Fuzzy(text) {
+  const fold = (x) => mtNorm(x).replace(/([a-z])\1+/g, "$1"),
+    hay = " " + fold(text) + " ",
+    hits = (DB.projects || []).filter((q) => {
+      const nm = (q.project.name.replace(/ \u2014.*$/, "") + " " + (q.project.addr || "")).match(/(\d{1,4})\s+([A-Za-z]{4,})/);
+      if (!nm) return !1;
+      const w = fold(nm[2]);
+      return hay.includes(` ${nm[1]} ${w} `) || (!B4_COMMON.has(w) && w.length >= 5 && hay.includes(` ${w} `));
+    });
+  return 1 === hits.length ? hits[0] : null;
 }
 function b4Split(m) {
   const secs = m.sections || [],
@@ -99201,7 +99237,7 @@ function b4Split(m) {
               const n = [...mtWords(x.h + " " + x.text)].filter((y) => w.has(y)).length;
               n > bn && ((bn = n), (best = j));
             }),
-            null === best || bn < 2)
+            null === best || bn < 3)
           )
             return null;
           const owner = Object.values(by).find((b) => b.sections.includes(best));
@@ -99237,7 +99273,7 @@ function b4Sub(m, part) {
     details: dets,
     decisions: (m.decisions || []).filter((d) => {
       const q = b4MatchText(`${d.name || ""} ${d.text}`);
-      return q ? q.id === part.id : part === (m.split || {}).primary;
+      return !!q && q.id === part.id;
     }),
   });
 }
@@ -99295,12 +99331,10 @@ if ("function" == typeof mtPropose) {
         }),
         m.split.unmatched.steps.length)
       ) {
-        const sub = b4Sub(m, {
-          id: m.split.primary.id,
-          sections: [],
-          steps: m.split.unmatched.steps,
-          details: [],
-        });
+        const sub = Object.assign(
+          b4Sub(m, { id: m.split.primary.id, sections: [], steps: m.split.unmatched.steps, details: [] }),
+          { projectId: "", clientId: "", oneJob: !1, decisions: [] },
+        );
         (sub.summary = ""),
           mtProposeBase_b4.call(this, sub).forEach((pr) => {
             ["log", "note", "rule", "decision", "eta"].includes(pr.kind) ||
@@ -134657,6 +134691,220 @@ if ("function" == typeof mtApply) {
     try {
       if (pr && "note" === pr.kind && thMtInternal(m)) return void (pr.status = "skipped");
     } catch (e) {}
+    return base.apply(this, arguments);
+  };
+}
+// Meeting-wide learning (2026-10-18). A team meeting covers many jobs and the firm itself: vendor money to
+// recover, billing to hold, new leads, firm decisions and dates the notes got wrong belong to no single job, so
+// the per-job proposals above miss them. Each becomes a proposal here; people approve.
+const MW_RECOVER = /\b(compensat\w*|charge ?back|money back|credit for a new|should (?:all )?pay us|recover the cost)\b/i,
+  MW_HOLD = /\b(without (?:immediate |explicit )?(?:billing|approval)|not (?:to )?bill|don['’]?t bill|do not bill|hold (?:off )?(?:on )?billing)\b/i,
+  MW_LEAD = /\b(bid|proposal|referral|referred)\b/i,
+  MW_AMT = /\$\s?\d[\d,]*(?:\.\d+)?(?:\s?(?:k|m|million)\b)?(?:\s*(?:to|and|-|–)\s*\$\s?\d[\d,]*(?:\.\d+)?(?:\s?(?:k|m|million)\b)?)?/i,
+  MW_MONEY_LINE = "Money lost to a vendor's mistake cannot go to raises, bonuses, staff, charity or extra value for the client.";
+MT_KIND.lead = "Lead";
+function mwSentences(m) {
+  return [
+    ...(m.details || []).map((d) => ({ h: d.h, t: d.text })),
+    ...(m.sections || []).map((x) => ({ h: x.h, t: x.text })),
+  ].flatMap(({ h: h, t: t }) =>
+    String(t || "")
+      .split(/(?<=[.!?])\s+(?=[A-Z])/)
+      .map((x) => ({ h: h, t: x.trim(), para: t }))
+      .filter((x) => x.t.length > 20),
+  );
+}
+// The names a sentence is about: capitalised words that are not the firm's people, months or days.
+function mwNames(t) {
+  const staff = new Set((DB.users || []).flatMap((u) => String(u.name || "").toLowerCase().split(/\s+/)));
+  return [...String(t || "").matchAll(/(?<=\s)([A-Z][a-z]{3,})\b/g)]
+    .map((x) => x[1].toLowerCase())
+    .filter((w) => !staff.has(w) && !MT_MON.some((mo) => w.startsWith(mo.slice(0, 3)) && w.length <= 9) && !MT_DOW.includes(w) && !/^(mishali|hernandez|biron|team|they|this|that|their|with)$/.test(w));
+}
+function mwRole(r) {
+  return ((DB.users || []).find((u) => u.role === r) || {}).name || "";
+}
+function mwPropose(m, P) {
+  const td = m.date || today(),
+    host = ("function" == typeof lsHost ? lsHost(m) : "") || (m.attendees || [])[0] || "",
+    biller = mwRole("billing") || mwRole("controller"),
+    S_ = mwSentences(m),
+    near = (a, b, n) => mtSim(a, b) >= n,
+    add = (o) => P.push(Object.assign({ id: uid("mp"), status: "proposed", mw: !0 }, o));
+  // Billing the meeting said to hold is never proposed as a bill.
+  const holds = S_.filter((x) => MW_HOLD.test(x.t));
+  for (let i = P.length - 1; i >= 0; i--) {
+    const x = P[i];
+    "billing" === x.kind &&
+      holds.some((h) => near((x.apply || {}).notes || x.detail || "", h.t, 0.5)) &&
+      P.splice(i, 1);
+  }
+  const same = (k, x, n) => P.some((y) => y[k] && (near(y.apply.notes, x.t, 0.6) || (y.apply.projectId === b4Job(x) && near(y.apply.notes, x.t, n))));
+  // A balance or remaining amount is not an amount to bill.
+  P.forEach((x) => {
+    if ("billing" !== x.kind) return;
+    const t = (x.apply || {}).notes || x.detail || "",
+      a = (t.match(MW_AMT) || [])[0];
+    a &&
+      /\b(balance|remaining|left|outstanding)\b/i.test(t) &&
+      ((x.title = x.title.replace(" · " + a, "").replace(a, "the amount")),
+      (x.apply.amount = 0),
+      (x.detail = `${x.detail} · ${a.trim()} is the balance the meeting discussed, not an amount to bill; set the amount from the progress billing.`));
+  });
+  holds.forEach((h) => {
+    same("mwHold", h, 0.25) ||
+      add({
+        kind: "task",
+        mwHold: !0,
+        title: `Hold, don't bill yet: ${h.h} → ${biller || "Billing"}`,
+        detail: `${h.t} · Keep it in work in progress until the owner approves.`,
+        apply: { projectId: b4Job(h), title: `Hold in WIP, don't bill without approval: ${h.h}`, notes: h.t, assignee: biller, due: "" },
+      });
+  });
+  // Vendor mistakes that cost us money: a recovery task with the amount, never a silent cost.
+  S_.filter((x) => MW_RECOVER.test(x.t)).forEach((x) => {
+    if (same("mwRecover", x, 0.25)) return;
+    const amt = ((x.t.match(MW_AMT) || String(x.para || "").match(MW_AMT) || [])[0] || "").trim(),
+      what = x.t.length > 90 ? x.t.slice(0, 88).replace(/\s+\S*$/, "") + "…" : x.t;
+    add({
+      kind: "task",
+      mwRecover: !0,
+      title: `Recover from the vendor: ${what}${amt && !what.includes(amt) ? " · " + amt : ""} → ${biller || "Billing"}`,
+      detail: `${x.t} · ${MW_MONEY_LINE}`,
+      apply: { projectId: b4Job(x), title: `Recover from the vendor: ${x.h}`, notes: `${x.t}\n${MW_MONEY_LINE}`, assignee: biller, due: iso(addWork(td, 5, !1)) },
+    });
+  });
+  // New work: a bid, proposal or referral with a value and no job yet is a lead with a follow-up date.
+  const seenLead = new Set();
+  S_.filter((x) => MW_LEAD.test(x.t) && MW_AMT.test(x.t) && !b4Job(x)).forEach((x) => {
+    const k = mtNorm(x.h);
+    if (seenLead.has(k) || P.some((y) => "lead" === y.kind && (near(y.apply.notes, x.t, 0.6) || mwNames(y.apply.notes).some((n) => mwNames(x.t).includes(n))))) return;
+    seenLead.add(k);
+    const amt = x.t.match(MW_AMT)[0].trim(),
+      due = iso(addWork(td, 5, !1)),
+      known = (DB.leads || []).find((l) => !["won", "lost"].includes(l.stage) && near(`${l.name} ${l.notes || ""}`, x.h + " " + x.t, 0.5));
+    // A lead already in the pipeline is updated, never duplicated.
+    known
+      ? add({
+          kind: "lead",
+          title: `Update the lead: ${known.name} · ${amt}`,
+          detail: `${x.t} · Follow up ${fmtL(due)}.`,
+          apply: { leadId: known.id, name: known.name, value: amt, notes: x.t, owner: host, next: "Follow up on the proposal", nextDue: due, sent: /\b(sent|sending|gave|giving|submitted)\b/i.test(x.t) },
+        })
+      : add({
+        kind: "lead",
+        title: `New lead: ${x.h} · ${amt}`,
+        detail: `${x.t} · Follow up ${fmtL(iso(addWork(td, 5, !1)))}.`,
+        apply: { name: x.h, value: amt, notes: x.t, owner: host, next: "Follow up on the proposal", nextDue: iso(addWork(td, 5, !1)) },
+      });
+  });
+  // Decisions that name no job are the firm's: they go to the playbook, not onto whichever job ranked first.
+  (m.split || !m.projectId) &&
+    (m.decisions || []).forEach((d) => {
+      if ("function" == typeof b4MatchText && b4MatchText(`${d.name || ""} ${d.text}`)) return;
+      const rule = `${d.name ? d.name + ": " : ""}${d.text}`;
+      if (!/\b(standard|policy|practice|always|never|going forward|from now on|in the future|future renovations|every)\b/i.test(rule)) {
+        // A firm decision that is a goal or a piece of work, not a rule: a task for its owner unless a step has it.
+        P.some((x) => "task" === x.kind && near(`${x.apply.title} ${x.apply.notes || ""}`, rule, 0.3)) ||
+          add({
+            kind: "task",
+            title: `${d.name || "Decision"} → ${host || "the host"}`,
+            detail: `Decided at the meeting: ${d.text}`,
+            apply: { projectId: "", title: d.name || d.text.slice(0, 80), notes: d.text, assignee: host, due: (mtDateWhy(d.text, td) || {}).date || "" },
+          });
+        return;
+      }
+      P.filter((x) => "rule" === x.kind && !x.mw && near(x.apply.rule, rule, 0.25)).forEach((x) => P.splice(P.indexOf(x), 1));
+      P.some((x) => "rule" === x.kind && near(x.apply.rule, rule, 0.5)) ||
+        add({ kind: "rule", title: "A decision for the firm's playbook", detail: rule, apply: { rule: rule } });
+    });
+  // Meetings, visits and deliveries with a date that only the Details paragraphs carry.
+  (m.details || []).forEach((d) =>
+    String(d.text || "")
+      .split(/(?<=[.!?])\s+(?=[A-Z])|,\s+(?=(?:with|and|but|while)\s)|;\s+/)
+      .forEach((t) => {
+        if (!/\b(meeting|inspection|appraisal|walk-?through|closing|delivery|site visit)\b/i.test(t)) return;
+        const w = mtDateWhy(t, td);
+        if (!w || !w.date || w.date < td) return;
+        const x = { h: d.h, t: d.text };
+        P.some(
+          (y) =>
+            ("event" === y.kind && (y.apply.due === w.date || near(y.apply.notes || y.apply.title || "", t, 0.45))) ||
+            ("task" === y.kind && y.apply.due === w.date && near(y.apply.notes || y.apply.title || "", t, 0.45)),
+        ) ||
+          add({
+            kind: "event",
+            title: `${d.h} — ${fmtL(w.date)}${mtTime(t) ? " " + mtTime(t) : ""}`,
+            detail: `${t} (“${w.why}”)`,
+            apply: { projectId: b4Job(x), title: d.h, notes: t, due: w.date, time: mtTime(t), owner: host, assignee: host, why: w.why },
+          });
+      }),
+  );
+  // A date the notes got wrong is asked about, never scheduled.
+  S_.forEach((x) => {
+    const w = mtDateWhy(x.t, td);
+    w &&
+      w.suspect &&
+      !P.some((y) => y.mwDate && y.apply.notes === x.t) &&
+      add({
+        kind: "task",
+        mwDate: !0,
+        title: `Check a date in the notes: ${x.h} → ${host || "the host"}`,
+        detail: `${w.suspect}. Confirm the real date before anything is scheduled from it. · ${x.t}`,
+        apply: { projectId: b4Job(x), title: `Check the date: ${x.h}`, notes: x.t, assignee: host, due: iso(addWork(td, 1, !1)) },
+      });
+  });
+  return P;
+}
+function b4Job(x) {
+  // An address said outright ("140 Prospect Place") beats a keyword ("garden unit") that several jobs share.
+  const hay = mtNorm(`${x.h} ${x.t}`),
+    named = (DB.projects || []).filter((q) => {
+      const nm = (q.project.name.replace(/ \u2014.*$/, "") + " " + (q.project.addr || "")).match(/(\d{1,4})\s+([A-Za-z]+)/);
+      return nm && new RegExp(`\\b${nm[1]}\\s+${mtNorm(nm[2])}\\b`).test(hay);
+    });
+  if (1 === named.length) return named[0].id;
+  const p = "function" == typeof b4MatchText ? b4MatchText(`${x.h} ${x.t}`) : null;
+  return p ? p.id : "";
+}
+if ("function" == typeof mtPropose) {
+  const base = mtPropose;
+  mtPropose = function (m) {
+    const P = base.apply(this, arguments);
+    try {
+      return mwPropose(m, P);
+    } catch (e) {
+      return console.error("meeting-wide", e), P;
+    }
+  };
+}
+if ("function" == typeof mtApply) {
+  const base = mtApply;
+  mtApply = function (m, pr) {
+    if (pr && "lead" === pr.kind) {
+      const A = pr.apply || {},
+        L = A.leadId && (DB.leads || []).find((l) => l.id === A.leadId);
+      if (L) {
+        const top = String(A.value || "").match(/\d[\d,]*/g);
+        return (
+          top && (L.value = +top[top.length - 1].replace(/,/g, "")),
+          (L.notes = [L.notes, `${A.notes} (from ${m.title} · ${fmtL(m.date)})`].filter(Boolean).join("\n")),
+          (L.next = A.next),
+          (L.nextDue = A.nextDue),
+          A.sent && ["inquiry", "qualified", "site-visit"].includes(L.stage) && ((L.stage = "proposal"), (L.history = L.history || []).push({ stage: "proposal", at: today() })),
+          (pr.status = "applied"),
+          (pr.appliedAt = today()),
+          void (pr.by = (("function" == typeof currentUser && currentUser()) || {}).name || "")
+        );
+      }
+      return (
+        (DB.leads = DB.leads || []),
+        DB.leads.push({ id: uid("ld"), created: today(), name: A.name, phone: "", email: "", addr: "", buildingType: "", scope: "Design-build", stage: "inquiry", source: "Meeting", value: A.value, owner: A.owner, next: A.next, nextDue: A.nextDue, notes: `${A.notes}\nFrom ${m.title} · ${fmtL(m.date)}`, meetingId: m.id }),
+        (pr.status = "applied"),
+        (pr.appliedAt = today()),
+        void (pr.by = (("function" == typeof currentUser && currentUser()) || {}).name || "")
+      );
+    }
     return base.apply(this, arguments);
   };
 }
