@@ -19,8 +19,8 @@ today     "what did you learn today" and The Brain's Today tab answer from the l
 meet      Meeting tasks are proposals by default (company.meetAuto.task false); The Brain says what applies on
           its own; a synced meeting leaves its tasks proposed.
 nyh       Needs Your Hand: every proposal the reader made from mail reaches the right person's Do Now (Approvals)
-          as one card with one tap, routed by DELEGATION (Controller: statements and bills with no PO;
-          coordinator: bills against a PO, quotes, receipts, certificates; Billing: payment claims, deposits,
+          as one card with one tap, routed by DELEGATION (Controller: statements and every vendor bill, PO or
+          not; coordinator: quotes, receipts, certificates; Billing: payment claims, deposits,
           payments the bank never saw; Owner: master data and payroll); Ask "what needs my hand" lists the same
           rows (one count); a tap applies it once (the copies in other mailboxes are done too); a deposit in the
           bank becomes "Record payment" for Billing; a payment the bank never saw gets Resolve; a Zelle someone
@@ -165,7 +165,10 @@ async def sec_meet(p, c):
 async def sec_nyh(p, c):
     b, pg, errs = await fresh(p)
     await connect(pg, ['u_controller', 'u_chen', 'u_billing', 'u_owner', 'u_sarah', 'u_alan'])
-    want = {'u_controller': [r'Satish', r'Amex|American Express|statement'], 'u_chen': [r'Carlos Millwork', r'Nemo Tile.*quote|quote', r'Home Depot'],
+    # CM-0102 is the Controller's (accounts payable enters every vendor bill, PO or not), not the coordinator's.
+    # The August Amex statement stays the Controller's although Jeanette imported August on 9/1: four of its lines
+    # are on the books only as typed by hand, so it is not "already here" (cmStmtImport; leaks2_test scenario 6).
+    want = {'u_controller': [r'Satish', r'Amex|American Express|statement', r'CM-0102'], 'u_chen': [r'Carlos Millwork', r'Nemo Tile.*quote|quote', r'Home Depot'],
             'u_billing': [r'Jessop', r'Rivera'], 'u_owner': [r'Payroll'], 'u_sarah': [r'LPC']}
     for u in ROLES_STAFF:
         await sign_in(pg, u)
@@ -183,8 +186,14 @@ async def sec_nyh(p, c):
             .filter(el => { let r = el; for (let i = 0; i < 4 && r; i++, r = r.parentElement) if (r.querySelector('button')) return false; return true; }).map(el => el.textContent.slice(0, 80))""")
         c.ok(not bare, f'{u}: no Home line says "X wrote about Y" without a button: {bare}')
     # one key across all routes: a proposal in three mailboxes is one row
-    allr = await pg.evaluate("() => { const R = nyhRows({ everyone: true }); return { n: R.length, keys: new Set(R.map(r => r.key)).size, carlos: R.filter(r => /CM-0102/.test(r.title) || /CM-0102/.test(r.key)).map(r => r.route) } }")
-    c.ok(allr['n'] == allr['keys'] and allr['carlos'] == ['coord'], f'one proposal, one row, one person (CM-0102 names PO-2026-048: the coordinator): {allr}')
+    allr = await pg.evaluate("""() => { const R = nyhRows({ everyone: true }); const c = DB.comms.filter(x => /Amex|American Express/i.test(x.from && x.from.name || '') && (x.proposals || []).some(p => p.kind === 'statement'));
+        return { n: R.length, keys: new Set(R.map(r => r.key)).size, carlos: R.filter(r => /CM-0102/.test(r.title) || /CM-0102/.test(r.key)).map(r => r.route),
+          bills: [...new Set(R.filter(r => r.pkind === 'bill').map(r => r.route))], amex: c.map(x => x.proposals.filter(p => p.kind === 'statement').map(p => !!p.alreadyHere)).flat(),
+          amexRow: R.some(r => r.pkind === 'statement' && c.some(x => x.id === r.commId)) } }""")
+    # one owner per proposal: the vendor bill is accounts payable's (the Standard's office playbook holds the three-way
+    # match; the Controller holds Bills & Payroll), whichever mailboxes it landed in (CM-0102 sits in three)
+    c.ok(allr['n'] == allr['keys'] and allr['carlos'] == ['controller'] and allr['bills'] == ['controller'], f'one proposal, one row, one person (CM-0102, and every mailed bill: the Controller): {allr}')
+    c.ok(allr['amex'] and not any(allr['amex']) and allr['amexRow'], f'the seed\'s August Amex statement is offered (its 9/1-9/2 lines are typed by hand), not already here: {allr}')
     # Controller: one tap on Home applies the Satish bill; the row leaves
     await sign_in(pg, 'u_controller'); await go(pg, 'home'); await pg.wait_for_timeout(250)
     k = await pg.evaluate("() => (nyhRows().find(r => /Satish/.test(r.title)) || {}).key || ''")

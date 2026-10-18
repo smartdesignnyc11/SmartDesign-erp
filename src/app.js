@@ -184580,12 +184580,12 @@ const lnChangeWords = { rule: "a rule", reminder: "a reminder", checklist: "a ch
 // ---- Needs Your Hand ----------------------------------------------------------------------------------------
 // The reader's proposal kinds, and whose hand each needs (DELEGATION.hand reads `route` off the row).
 const NYH_MAIL = {
-  // a vendor invoice the controller's (or billing's) mailbox received is theirs to enter, PO or not (pilot day 1:
-  // CM-0102 against PO-2026-048 sat in the coordinator's queue and the controller entered it by hand)
-  bill: (c, pr) => {
-    const own = (DB.comms || []).filter((x) => x.subject === c.subject).map((x) => ((DB.users || []).find((u) => u.id === x.owner) || {}).role);
-    return own.includes("controller") ? "controller" : own.includes("billing") ? "billing" : pr.poId || /\bPO[-\s]?\d{4}/i.test(lnAll(c)) || lnOpenPO(pr.vendor || pr.vendorName) ? "coord" : "controller";
-  },
+  // A vendor invoice is entered by accounts payable: the Controller, PO or not, whichever mailbox it landed in. The
+  // Standard puts the three-way match with the office (STD_ROLE_PLAYBOOKS controller: office; Bills & Payroll is the
+  // Controller's); the coordinator's part of the match is the PO and the receipt, the PM's is the review. One owner
+  // per proposal: pilot day 1 routed CM-0102 by whose mailbox held it, so the same kind of bill went to the
+  // controller, billing or the coordinator depending on who was copied (and the chain's mailed bills to Chen).
+  bill: () => "controller",
   statement: (c, pr) => (pr.billId || /already on file|chasing/i.test(pr.summary || "") ? "" : "controller"),
   quote: (c, pr) => (pr.out ? "" : "coord"),
   receipt: () => "coord",
@@ -185185,7 +185185,7 @@ if ("function" == typeof poAction) {
 Object.assign(DELEGATION, {
   hand: {
     role: "controller",
-    rule: "a proposal the reader made from mail, a deposit to record or a lesson's firing waits on the person whose work it is: the Controller imports statements and codes bills with no PO; the coordinator files quotes, receipts, certificates and vendor records and enters bills against a PO; Billing records payments and resolves what the bank never saw; the Owner creates master data",
+    rule: "a proposal the reader made from mail, a deposit to record or a lesson's firing waits on the person whose work it is: the Controller imports statements and enters every vendor bill from mail, PO or not (accounts payable); the coordinator files quotes, receipts, certificates and vendor records; Billing records payments and resolves what the bank never saw; the Owner creates master data",
     who: (it) => it.route || "",
   },
   payroll: {
@@ -188930,7 +188930,8 @@ stdReplaceRule({
 
 // ---- Enter the Bill: a vendor invoice filed on a PO that has no bill (BACKLOG §1.9 item 2, "vendor invoice -> bill")
 // The invoice is read and filed on its order, but no bill exists, so nothing is owed in the books and the money can
-// be missed. Billing gets a Needs Your Hand row; Enter the Bill drafts the bill from what was read (vendor, number,
+// be missed. The Controller (accounts payable, the one owner of every vendor bill to enter: NYH_MAIL.bill) gets a
+// Needs Your Hand row; Enter the Bill drafts the bill from what was read (vendor, number,
 // date, lines matched to the PO's lines, tax, freight), links the invoice to it, and leaves every figure read with
 // low confidence unconfirmed: the bill is on hold (Bills on Hold) until a person confirms them on the invoice.
 function trkInvoicesToBill() {
@@ -189003,7 +189004,7 @@ function trkBillFromDoc(id) {
           low = trkUnconfirmed(d).length,
           key = "tk:enterbill:" + d.id;
         have.has(key) ||
-          out.push({ key: key, route: "billing", kind: "enterbill", title: `Enter the bill: ${d.fields.vendor || po.vendor} ${d.fields.number || ""} on ${po.number}`.replace(/\s+on/, " on"), why: `${d.fields.total != null ? money(+d.fields.total) + " read from the invoice" : "the invoice is filed"}, and ${po.number} has no bill${low ? `; ${low} figure${1 === low ? "" : "s"} read with low confidence stay${1 === low ? "s" : ""} unconfirmed` : ""} · ${trkWhy("threeWay")}`, amount: +d.fields.total || 0, verb: "Enter the Bill", no: "", run: () => trkBillFromDoc(d.id), open: () => trkOpenDoc(d.id) });
+          out.push({ key: key, route: "controller", kind: "enterbill", title: `Enter the bill: ${d.fields.vendor || po.vendor} ${d.fields.number || ""} on ${po.number}`.replace(/\s+on/, " on"), why: `${d.fields.total != null ? money(+d.fields.total) + " read from the invoice" : "the invoice is filed"}, and ${po.number} has no bill${low ? `; ${low} figure${1 === low ? "" : "s"} read with low confidence stay${1 === low ? "s" : ""} unconfirmed` : ""} · ${trkWhy("threeWay")}`, amount: +d.fields.total || 0, verb: "Enter the Bill", no: "", run: () => trkBillFromDoc(d.id), open: () => trkOpenDoc(d.id) });
       });
     } catch (e) {
       console.warn("enter the bill", e);
