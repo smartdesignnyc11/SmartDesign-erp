@@ -83,6 +83,8 @@ async def run(phone):
         cards = await pg.evaluate("() => [...document.querySelectorAll('.view.on .td-do .td-card')].map(e => e.innerText.replace(/\\s+/g, ' '))")
         c.ok(cards and 'tile saw' in cards[0], f'owner {w}: Do Now opens on the incident: {cards[:1]}')
         c.ok(len(cards) > 2 and 'PO-2026-990' in cards[1] and any('Payroll 8/17' in x for x in cards[2:]), f'owner {w}: the PO needed today is second and the overdue payroll stays on Do Now under it: {[x[:40] for x in cards]}')
+        first = await pg.evaluate("() => { const L = briefSentences(tdFacts().F, role()); return (L.find(s => /^First thing:/.test(s)) || ''); }")
+        c.ok('tile saw' in first, f'owner {w}: the brief\'s first thing is the incident, Do Now\'s first card: {first[:90]}')
         catch = await pg.evaluate(f"() => {{ const C = tdCaught(tdQueue()), k = {KEY}; return C.slice(0, 3).map(r => [r.src, r.what, k(r)]); }}")
         c.ok(catch and catch[0][0] == 'compliance' and catch[0][2][0] == 0, f'owner {w}: Caught for You opens on the missing insurance certificate, immediate: {catch[:1]}')
         # ---------------------------------------------------------------- PM

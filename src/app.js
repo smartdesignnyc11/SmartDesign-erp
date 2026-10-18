@@ -173205,6 +173205,9 @@ function standardBlocked(it) {
     r = o.nyh || {},
     td = today();
   if ("boolean" == typeof o.blockedToday) return o.blockedToday;
+  // a client's message (portal question or mail) is due by the client-message clock (stdDueOf), not the field's
+  // bucket, even when its words mention the crew
+  if ("clientq" === o.kind || "mail" === r.kind) return !1;
   const d = stdDueOf(it),
     now = !!d && d <= td,
     words = [o.title, o.detail, o.what, o.sub, r.title, r.why].filter(Boolean).join(" ");
@@ -184691,7 +184694,8 @@ function myQueueSay(it) {
           out.map((x) => Object.assign(shape(x), { __ea: x })),
           () => [],
         ).map((y) => y.__ea);
-      // and the first thing is the first card of Do Now, so the brief and Home never disagree
+      // and Do Now's first card joins them: it leads unless one of the brief's own rows ranks above it (a missing
+      // certificate of insurance, say), and on a tie it wins, so the brief and Home agree on what comes first
       const Q = PRED.waitingOnMe.can() && ["owner", "pm", "coord", "billing", "controller"].includes(r) ? tdQueue() : [];
       if (!Q.length) return ranked;
       const top = Q[0],
@@ -184704,9 +184708,12 @@ function myQueueSay(it) {
           sub: `${esc(say.sub)}${say.sub && why ? "; " : ""}${why ? `first because ${why}` : ""}`,
           act: say.verb || "Open",
           data: { tdq: { kind: top.kind, id: String(top.id) } },
-          tdq: top,
-        };
-      return [lead].concat(ranked.filter((x) => !key || !tdPlain(x.t).toLowerCase().startsWith(key)));
+        },
+        rest = ranked.filter((x) => !key || !tdPlain(x.t).toLowerCase().startsWith(key));
+      return standardOrder(
+        [Object.assign({}, top, { __ea: lead, __lead: 1 })].concat(rest.map((x) => Object.assign(shape(x), { __ea: x }))),
+        (y) => [y.__lead ? 0 : 1],
+      ).map((y) => y.__ea);
     } catch (e) {
       console.warn("rank brief", e);
       return out;
@@ -184744,10 +184751,11 @@ AG_ASST.unshift({
   id: "myfirst",
   first: !0,
   kind: "self",
-  re: /\b(what|which)( (thing|one|item))? (should|do|must|can) i (do|tackle|handle|start( with)?|look at|work on|deal with)( first| next| now| today)?\b|\bwhere (do|should) i start\b|\bwhat('?s| is) (first|next|most important|most urgent|my top priority)\b|\b(on my plate|my priorities|my top priorit\w*|prioriti[sz]e my)\b|\bwhat needs (me|my attention)\b|\bwhat comes first\b/,
+  re: /\b(what|which)( (thing|one|item))? (should|do|must|can) i (do|tackle|handle|start( with)?|look at|work on|deal with)( first| next| now)?(?! today)\b|\bwhere (do|should) i start\b|\bwhat('?s| is) (first|next|most important|most urgent|my top priority)\b|\b(on my plate|my priorities|my top priorit\w*|prioriti[sz]e my)\b|\bwhat needs (me|my attention)\b|\bwhat comes first\b/,
   not: /\b(order|buy|pay|bill|invoice|deliver\w*|arriv\w*|cash|owe|reconcil\w*|draft|chase)\b/,
   run(P) {
-    if ("client" === role()) return null;
+    // a person with a queue: Approvals (Do Now) in the office, the foreman's Now on site; anyone else falls through
+    if ("client" === role() || !(PRED.waitingOnMe.can() || (ROLE_VIEWS[role()] || []).includes("ftoday"))) return null;
     const Q = myQueue();
     if (!Q.length)
       return {
