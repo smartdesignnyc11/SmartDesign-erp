@@ -9,7 +9,7 @@ The chief of staff keeps this board current. A lane is one build agent in its ow
 | pilotfix1 | Pilot fixes batch 1, 19 items and follow-ups | Merged (8961d73) |
 | xset | Cross-set consistency, demo phase (BACKLOG §1.23) | Merged (3683251); xset_test 66/66, plans_test 152/152 |
 | findable2 | Find-it-again after every save, pay app %, the outbox address | Building |
-| pilotfix2 | Pilot fixes batch 2: clock, mail cards, money matching, Reverse Payment, the driver's route, agency mail | Building |
+| pilotfix2 | Pilot fixes batch 2: clock, mail cards, money matching, Reverse Payment, the driver's route, agency mail, card accounts | Merged (8a2f952); pilot_fixes2_test 72/72; leaks2 [6] and flow (slab PO held by the plans guard) handed to netfix |
 | netfix | learn, flow, leaks2, chain reconciled with the pilot fixes | Building |
 
 Merge order: findable2, pilotfix2, then netfix last (it reconciles the suites the others change). Full net after each, then the scripted month and v11.2.
