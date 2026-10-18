@@ -29196,6 +29196,7 @@ function jobFin(p, range) {
   let laborCost = 0,
     hours = 0;
   const laborByCode = {},
+    laborSrc = {},
     trueUp = payrollTrueUp();
   time.forEach((e) => {
     const emp = DB.employees.find((x) => x.id === e.empId),
@@ -29211,7 +29212,7 @@ function jobFin(p, range) {
     }).hours += h),
       (laborByEmp[k].cost += cost);
     const code = e.code || "99";
-    laborByCode[code] = (laborByCode[code] || 0) + cost;
+    (laborByCode[code] = (laborByCode[code] || 0) + cost), (laborSrc[code] = laborSrc[code] || []).push("time:" + e.id);
   }),
     (laborCost = r2(laborCost)),
     (hours = r2(hours));
@@ -29248,8 +29249,10 @@ function jobFin(p, range) {
     estGP = r2(contract - eac),
     plannedGP = r2(contract - budget),
     byCode = {},
-    bump = (code, k, v) => {
-      (byCode[code] = byCode[code] || {
+    // every figure on a cost code carries the ids of the records behind it (src: "bill:b1", "txn:t9", "time:…",
+    // "stock:…", "po:…", "estimate:<doc>:<line>", "co:<doc>:<line>"), so a drill-down and a leak name the source
+    bump = (code, k, v, id) => {
+      const row = (byCode[code] = byCode[code] || {
         code: code,
         name: (COST_CODES.find((x) => x[0] === code) || [code, "Other"])[1],
         contract: 0,
@@ -29260,12 +29263,15 @@ function jobFin(p, range) {
         stock: 0,
         labor: 0,
         actual: 0,
-      })[k] += v;
+        src: [],
+      });
+      (row[k] += v), id && !row.src.includes(id) && row.src.push(id);
     };
   return (
     budgetLines.forEach(({ l: l, doc: doc }) => {
-      const code = lineCode(l, doc);
-      bump(code, "budget", lineBudget(l, doc).budget), bump(code, "contract", lineAmount(l, doc));
+      const code = lineCode(l, doc),
+        id = `${doc === est ? "estimate" : "co"}:${doc.id}:${l.id}`;
+      bump(code, "budget", lineBudget(l, doc).budget, id), bump(code, "contract", lineAmount(l, doc), id);
     }),
     costedBills.forEach((b) => {
       // what the bill charges for PO lines billed back to the client is on its own row, as a reimbursable bank line is
@@ -29274,12 +29280,13 @@ function jobFin(p, range) {
         b.code || (b.line ? findLine(b.line)?.line.code || codeForLine(findLine(b.line)?.line || {}) : "99"),
         "bills",
         billCost(b) - rbp,
+        "bill:" + b.id,
       ),
-        rbp && bump("RB", "bills", rbp);
+        rbp && bump("RB", "bills", rbp, "bill:" + b.id);
     }),
-    txns.forEach((t) => bump(txnRebilled(t) ? "RB" : t.code || "99", "bank", -t.amt)),
-    Object.entries(laborByCode).forEach(([code, v]) => bump(code, "labor", v)),
-    stockRows.forEach((u) => bump(stockUseCode(u), "stock", +u.amount || 0)),
+    txns.forEach((t) => bump(txnRebilled(t) ? "RB" : t.code || "99", "bank", -t.amt, "txn:" + t.id)),
+    Object.entries(laborByCode).forEach(([code, v]) => (bump(code, "labor", v), (laborSrc[code] || []).forEach((id) => byCode[code].src.includes(id) || byCode[code].src.push(id)))),
+    stockRows.forEach((u) => bump(stockUseCode(u), "stock", +u.amount || 0, "stock:" + (u.id || u.at))),
     pos.forEach((po) => {
       const tot = poTotal(po).sub,
         open = Math.max(
@@ -29293,7 +29300,7 @@ function jobFin(p, range) {
       po.lines.forEach((l) => {
         const ref = l.line ? findLine(l.line) : null,
           code = l.code || (ref ? ref.line.code || codeForLine(ref.line) : "99");
-        bump(l.billable ? "RB" : code, "committed", tot ? (open * ((+l.qty || 0) * (+l.price || 0))) / tot : 0);
+        bump(l.billable ? "RB" : code, "committed", tot ? (open * ((+l.qty || 0) * (+l.price || 0))) / tot : 0, "po:" + po.id);
       });
     }),
     byCode.RB && (byCode.RB.name = "Billed back to the client"),
@@ -29461,7 +29468,7 @@ function ptNeedsMe() {
   const rows = needsMe(),
     show = needsAll ? rows : rows.slice(0, 8),
     urgent = rows.filter((r) => "bad" === r.sev).length;
-  return `<div class="nm-sum small muted">${rows.length ? `${rows.length} item${rows.length > 1 ? "s" : ""} · ${urgent} need${1 === urgent ? "s" : ""} action now` : "Nothing waiting on you."}</div><div class="rem nm">${show.map((r) => `<div class="rem-row ${r.sev}" data-remgo='${esc(JSON.stringify(r.go))}'><b>${esc(String(r.n || "·"))}</b><span><b>${esc(r.title)}</b>${r.detail ? `<br><span class="small muted">${r.detail}</span>` : ""}</span><em class="nm-act">${r.action}</em></div>`).join("")}</div>${rows.length > 8 ? `<button class="btn sm" data-nmall>${needsAll ? "Show fewer" : `Show all ${rows.length}`}</button>` : ""}`;
+  return `<div class="nm-sum small muted">${rows.length ? `${rows.length} item${rows.length > 1 ? "s" : ""} · ${urgent} need${1 === urgent ? "s" : ""} action now` : "Nothing waiting on you."}</div><div class="rem nm">${show.map((r) => `<div class="rem-row ${r.sev}" data-remgo='${esc(JSON.stringify(r.go))}'><b>${esc(String(r.n || "·"))}</b><span><b>${esc(r.title)}</b>${r.detail ? `<br><span class="small muted">${r.detail}</span>` : ""}</span><button type="button" class="nm-act">${esc(r.action || "Open")}</button></div>`).join("")}</div>${rows.length > 8 ? `<button class="btn sm" data-nmall>${needsAll ? "Show fewer" : `Show all ${rows.length}`}</button>` : ""}`;
 }
 function ptCash() {
   const B = companyBalance(),
@@ -33871,10 +33878,12 @@ jobFin = function (p, range) {
           bank: 0,
           labor: 0,
           actual: 0,
+          src: [],
         }),
         J.byCode.push(row)),
         (row.bills = r2(row.bills + billCost(b))),
-        (row.actual = r2(row.actual + billCost(b)));
+        (row.actual = r2(row.actual + billCost(b))),
+        (row.src = row.src || []).includes("bill:" + b.id) || row.src.push("bill:" + b.id);
     }),
     J.byCode.sort((a, b) => a.code.localeCompare(b.code));
   return (
@@ -35039,7 +35048,7 @@ ptNeedsMe = function () {
       return (
         (shown += vis.length),
         vis.length
-          ? `<div class="nm-band"><h4>${l} <span class="muted">${list.length}</span></h4><div class="rem nm">${vis.map((r) => `<div class="rem-row ${r.sev}" data-remgo='${esc(JSON.stringify(r.go))}'><b>${esc(String(r.n || "·"))}</b><span><b>${esc(r.title)}</b>${r.detail ? `<br><span class="small muted">${r.detail}</span>` : ""}</span><em class="nm-act">${r.action}</em></div>`).join("")}</div></div>`
+          ? `<div class="nm-band"><h4>${l} <span class="muted">${list.length}</span></h4><div class="rem nm">${vis.map((r) => `<div class="rem-row ${r.sev}" data-remgo='${esc(JSON.stringify(r.go))}'><b>${esc(String(r.n || "·"))}</b><span><b>${esc(r.title)}</b>${r.detail ? `<br><span class="small muted">${r.detail}</span>` : ""}</span><button type="button" class="nm-act">${esc(r.action || "Open")}</button></div>`).join("")}</div></div>`
           : `<div class="nm-band"><h4>${l} <span class="muted">${list.length}</span></h4></div>`
       );
     })
@@ -86657,7 +86666,7 @@ function renderMApprove() {
             .slice(0, 12)
             .map(
               (x) =>
-                `<div class="rem-row ${x.sev}" data-remgo='${esc(JSON.stringify(x.go || { view: "home" }))}'><b>${esc(String(x.n || "·"))}</b><span><b>${esc(x.title)}</b>${x.detail ? `<br><span class="small muted">${x.detail}</span>` : ""}</span><em class="nm-act">${x.action || "Open"}</em></div>`,
+                `<div class="rem-row ${x.sev}" data-remgo='${esc(JSON.stringify(x.go || { view: "home" }))}'><b>${esc(String(x.n || "·"))}</b><span><b>${esc(x.title)}</b>${x.detail ? `<br><span class="small muted">${x.detail}</span>` : ""}</span><button type="button" class="nm-act">${esc(x.action || "Open")}</button></div>`,
             )
             .join("")}</div>`
         : ""
@@ -121956,7 +121965,7 @@ if ("function" == typeof jobFin) {
         (J.billsAmt = r2(J.billsAmt - amt)),
         (J.accrued = r2((J.accrued || 0) - amt));
       const row = J.byCode.find((x) => x.code === (b.code || "99"));
-      row && ((row.bills = r2(row.bills - amt)), (row.actual = r2(row.actual - amt)));
+      row && ((row.bills = r2(row.bills - amt)), (row.actual = r2(row.actual - amt)), row.src && (row.src = row.src.filter((x) => x !== "bill:" + b.id)));
     });
     return jobFinDerive(J, p);
   };
@@ -130711,7 +130720,7 @@ if ("function" == typeof jobFin) {
       const amt = billCost(b);
       (J.actual = r2(J.actual - amt)), (J.billsAmt = r2(J.billsAmt - amt));
       const row = J.byCode.find((x) => x.code === (b.code || "99"));
-      row && ((row.bills = r2(row.bills - amt)), (row.actual = r2(row.actual - amt)));
+      row && ((row.bills = r2(row.bills - amt)), (row.actual = r2(row.actual - amt)), row.src && (row.src = row.src.filter((x) => x !== "bill:" + b.id)));
     });
     return jobFinDerive(J, p);
   };
@@ -171469,6 +171478,7 @@ function eqSchema() {
 const TD_ROLES = ["owner", "pm"];
 let tdBriefFull = !1,
   tdCatchAll = !1,
+  tdShownC = [],
   tdCtx = null;
 const tdOn = () =>
   "home" === view &&
@@ -172116,7 +172126,8 @@ function tdRender() {
     Q = tdQueue(),
     top = Q.slice(0, 5).map((it) => Object.assign({ it: it }, tdCard(it))),
     caught = tdCaught(Q),
-    shownC = tdCatchAll ? caught : caught.slice(0, 4),
+    // four, plus every catch that landed today: an escalation is raised the same day (the Standard), never held under the fold
+    shownC = (tdShownC = tdCatchAll ? caught : caught.filter((x, i) => i < 4 || x.fresh)),
     brief = tdBriefLines(),
     ic = (d) =>
       `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
@@ -172147,7 +172158,7 @@ function tdRender() {
           )
           .join("")
       : '<div class="td-empty">Nothing caught today.</div>'
-  }${caught.length > 4 ? `<a href="#" class="td-more" data-tdcatchall>${tdCatchAll ? "Show Fewer" : `${caught.length - 4} more`}</a>` : ""}</section>
+  }${(tdCatchAll ? caught.length > 4 : caught.length > shownC.length) ? `<a href="#" class="td-more" data-tdcatchall>${tdCatchAll ? "Show Fewer" : `${caught.length - shownC.length} more`}</a>` : ""}</section>
   <section class="td-sec td-brief" aria-label="Morning Brief"><div class="td-hd"><h3>Morning Brief</h3></div>${
     tdBriefFull
       ? `<div id="jv" class="td-jv"><div class="jv-body">${tdBriefText()
@@ -172324,7 +172335,8 @@ const STD_VALUE_IDS = ["own", "client", "craft", "ahead", "dollar", "truth", "te
   // whose playbook an assistant supports (the owner is leadership: the company sections apply in full)
   STD_ROLE_PLAYBOOKS = { owner: [], pm: ["pm", "client"], coord: ["procurement"], foreman: ["foreman", "client"], crew: ["crew"], driver: ["crew"], designer: ["designer", "client"], design_mgr: ["designer", "client"], billing: ["office"], controller: ["office"], client: ["client"] },
   // Alan's line on why money matters, in plain words, for every money leak the ERP catches (Value 5 holds it in full)
-  STD_WASTE = "Wasted money comes out of raises, bonuses, staff and the extra value we give clients.";
+  // charity added by Alan, 2026-10-17
+  STD_WASTE = "Wasted money comes out of raises, bonuses, staff, charity and the extra value we give clients.";
 const STANDARD_MD = () => {
   const el = document.getElementById("sd-standard-md");
   return el ? el.textContent.replace(/^\n/, "") : "";
@@ -173359,7 +173371,7 @@ const stdWhyHtml = (it) => {
     try {
       const root = homeRoot(),
         put = (el, it) => it && !el.querySelector(".ch-why") && el.querySelector(".td-txt") && el.querySelector(".td-txt").insertAdjacentHTML("beforeend", stdWhyHtml(it));
-      root && (root.querySelectorAll(".td-do .td-card").forEach((el, i) => put(el, stdLastQueue[i])), root.querySelectorAll(".td-catch .td-card").forEach((el, i) => put(el, stdLastCaught[i])));
+      root && (root.querySelectorAll(".td-do .td-card").forEach((el, i) => put(el, stdLastQueue[i])), root.querySelectorAll(".td-catch .td-card").forEach((el, i) => put(el, (tdShownC.length ? tdShownC : stdLastCaught)[i])));
     } catch (e) {
       console.warn("standard home", e);
     }
@@ -188559,3 +188571,317 @@ if (!document.getElementById("bf-imps-css")) {
   (st.id = "bf-imps-css"), (st.textContent = ".bf-imps{margin:12px 0}.bf-imp{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 6px;border-top:1px solid var(--rule,#eee);overflow-wrap:anywhere}.bf-imp .grow{display:flex;flex-direction:column;min-width:0;flex:1 1 220px}.bf-imp.tk-flash{background:var(--accent-2);box-shadow:inset 3px 0 0 var(--accent)}"), document.head.appendChild(st);
 }
 
+
+/* ---------------------------------------------------------------------------------------------------------
+   overspend at landing (v11.1; the north star's first money leak: "overspending against budget, PO or estimate
+   line", caught the moment a bill or a card line lands, not at month end in the Analyst's list).
+     ovsAll()          every live job's cost codes whose actual (jobFin byCode, every adjustment applied) is over
+                       budget, and the estimate lines over budget (jobFinEacLines) where a landed record is traced to
+                       the line. The overrun is laid on the records behind the figure (byCode src ids), newest landing
+                       first, until they cover it: those are the records that took it over.
+     ovsOf(kind, rec)  the overrun a bill or a bank line is part of; for a bill not yet counted (a draft in the
+                       drawer), the overrun it would make.
+     billFlags         says it with the bill's other control flags, so the PM's approval card and the drawer show it.
+     txnState          the card or bank line asks for review (sev 2) until someone reviews the overrun.
+     CATCH budgetOverrun  the existing detector, now read from here (it read the Analyst's 10% list): one row per
+                       overrun, naming the record that took it over and dated the day it landed. The Standard: "cost
+                       impact over $1,000 not in the approved budget" is raised to the PM the same day, so a catch
+                       that landed today is always shown on Home, whatever the four-card limit.
+     ovsSheet(key)     the escalation: what happened, impact, options, the money line; Open the record, Mark Reviewed
+                       (who, when, why; the overrun comes back if it grows past what was reviewed).
+   Design gate: no new list or queue. The flag rides billFlags and txnState, the queue is the existing CATCH entry,
+   Approvals shows it on the bill's card and under Also on Your List, Ask reads ovsAll.
+--------------------------------------------------------------------------------------------------------- */
+const OVS_MONEY_LINE = "Money over budget is money that cannot go to raises, bonuses, more staff, charity or extra value for the client.";
+let ovsMemo = null,
+  ovsBusy = !1;
+const ovsAcct = (t) => {
+  const a = (DB.accounts || []).find((x) => x.id === t.acct);
+  return a ? `${String(a.name).split(/\s+/)[0]} ····${a.last4 || ""}` : "bank line";
+};
+// One record behind a cost-code figure, by its source id ("bill:b1", "txn:t9").
+function ovsRecOf(id) {
+  const s = String(id || ""),
+    i = s.indexOf(":"),
+    k = s.slice(0, i),
+    rid = s.slice(i + 1);
+  if ("bill" === k) {
+    const b = (DB.bills || []).find((x) => x.id === rid);
+    return b
+      ? { kind: "bill", id: rid, rec: b, amt: r2(billCost(b) - ("function" == typeof billRebillPart ? billRebillPart(b) : 0)), at: String(b.createdAt || b.date || ""), date: b.date || "", label: `${b.number || "Bill"} · ${b.vendor || ""}`, line: b.line || "" }
+      : null;
+  }
+  if ("txn" === k) {
+    const t = (DB.txns || []).find((x) => x.id === rid);
+    return t
+      ? { kind: "txn", id: rid, rec: t, amt: r2(-(+t.amt || 0)), at: String((t.origin && t.origin.at) || (t.prov && t.prov.at) || t.date || ""), date: t.date || "", label: `${t.vendor || tdWords(t.desc, 4)} · ${ovsAcct(t)}`, line: t.line || "" }
+      : null;
+  }
+  return null;
+}
+// What the overruns depend on, cheaply: a change to any bill, bank line, time entry, estimate or the clock re-reads.
+function ovsSig() {
+  let h = today() + "|" + ("function" == typeof lockedThrough ? lockedThrough() || "" : "");
+  (DB.bills || []).forEach((b) => (h += `|${b.id}${b.status}${b.code}${b.projectId}${b.line}${b.poId}${(b.lines || []).reduce((a, l) => a + (+l.amount || 0), 0)}${b.ovsOk ? "r" + b.ovsOk.over : ""}`));
+  (DB.txns || []).forEach((t) => t.projectId && (h += `|${t.id}${t.cat}${t.code}${t.projectId}${t.amt}${t.line}${t.billId || ""}${t.ovsOk ? "r" + t.ovsOk.over : ""}`));
+  h += `|${(DB.time || []).length}|${(DB.projects || []).length}`;
+  (DB.clients || []).forEach((c) => (h += `|${(c.estimates || []).map((e) => e.status + (e.lines || []).length).join()}${(c.changeOrders || []).map((e) => e.status).join()}`));
+  return h;
+}
+function ovsAll() {
+  if (ovsBusy) return [];
+  const sig = ovsSig();
+  if (ovsMemo && ovsMemo.sig === sig) return ovsMemo.rows;
+  ovsBusy = !0;
+  const rows = [],
+    J0 = {};
+  try {
+    (DB.projects || [])
+      .filter((p) => !p.archived && "closed" !== (p.project || {}).status)
+      .forEach((p) => {
+        let J = null;
+        try {
+          J = jobFin(p);
+        } catch (e) {
+          return;
+        }
+        J0[p.id] = J;
+        const lay = (src, over) => {
+          const recs = src.map(ovsRecOf).filter((x) => x && x.amt > 0).sort((a, b) => b.at.localeCompare(a.at) || String(b.date).localeCompare(String(a.date))),
+            by = [];
+          let acc = 0;
+          for (const x of recs) {
+            if (acc >= over - 0.005) break;
+            by.push(x), (acc += x.amt);
+          }
+          return by;
+        };
+        const overCodes = new Set();
+        (J.byCode || []).forEach((row) => {
+          if ("RB" === row.code || !(+row.budget > 0) || +row.actual - +row.budget < 1) return;
+          const over = r2(row.actual - row.budget);
+          overCodes.add(row.code),
+            rows.push({ key: `bud:${p.id}:${row.code}`, p: p, code: row.code, name: row.name, budget: row.budget, actual: row.actual, over: over, by: lay((row.src || []).filter((x) => /^(bill|txn):/.test(x)), over), line: null });
+        });
+        // an estimate line over its budget on a code that is not over as a whole: the record traced to the line
+        (J.eacLines || []).forEach((x) => {
+          if (overCodes.has(x.code) || !(+x.budget > 0) || +x.actual - +x.budget < 1) return;
+          // the records jobFin counts: entered bills, and bank lines that are not a bill's payment
+          const PB = (DB.bills || []).filter((b) => b.projectId === p.id),
+            src = []
+              .concat(PB.filter((b) => b.line === x.key && (BILL_COSTED.includes(b.status) || BILL_ACCRUED.includes(b.status))).map((b) => "bill:" + b.id))
+              .concat((DB.txns || []).filter((t) => t.projectId === p.id && t.line === x.key && +t.amt < 0 && isJobCat(t.cat) && !txnViaBill(t, PB)).map((t) => "txn:" + t.id));
+          if (!src.length) return;
+          const over = r2(x.actual - x.budget);
+          rows.push({ key: `bud:${p.id}:${x.key}`, p: p, code: x.code, name: x.name, budget: x.budget, actual: x.actual, over: over, by: lay(src, over), line: x });
+        });
+      });
+  } finally {
+    ovsBusy = !1;
+  }
+  return (ovsMemo = { sig: sig, rows: rows, J: J0 }), rows;
+}
+const ovsWhat = (o) => (o.line ? `the estimate line ${o.name} (${o.code})` : `${o.code} ${o.name}`);
+const ovsSay = (o) => `${o.would ? "Would take" : "Takes"} ${ovsWhat(o)} over budget on ${shortName(o.p)}: ${money(o.actual)} against ${money(o.budget)} budgeted (+${money(o.over)})`;
+// reviewed: someone looked at this record's overrun and said why; it comes back if the overrun grows past that
+const ovsReviewedBy = (o) => {
+  const R = (o.by || []).map((x) => x.rec.ovsOk).filter(Boolean);
+  return R.length && R.every((r) => +r.over >= o.over - 0.5) ? R[R.length - 1] : null;
+};
+function ovsOf(kind, rec) {
+  if (!rec || !rec.projectId) return null;
+  const A = ovsAll(),
+    hit = A.find((o) => o.p.id === rec.projectId && o.by.some((x) => x.kind === kind && x.id === rec.id));
+  if (hit) return hit;
+  // a bill not counted yet (a draft, or one being entered): the overrun it would make on its code
+  if ("bill" !== kind || !ovsMemo || !ovsMemo.J[rec.projectId] || (rec.status && !["draft", "new", ""].includes(rec.status))) return null;
+  const J = ovsMemo.J[rec.projectId],
+    row = (J.byCode || []).find((r) => r.code === (rec.code || "99")),
+    amt = r2(billCost(rec));
+  if (!row || !(+row.budget > 0) || (row.src || []).includes("bill:" + rec.id) || row.actual + amt - row.budget < 1) return null;
+  const p = (DB.projects || []).find((x) => x.id === rec.projectId);
+  return { key: `bud:${p.id}:${row.code}`, p: p, code: row.code, name: row.name, budget: row.budget, actual: r2(row.actual + amt), over: r2(row.actual + amt - row.budget), by: [], line: null, would: !0 };
+}
+const ovsGo = (x) =>
+  !x
+    ? null
+    : "bill" === x.kind
+      ? flowGo.bill(x.rec)
+      : () => {
+          x.rec.projectId && setCurrent(x.rec.projectId), (view = "bank"), render();
+          try {
+            txnDialog(x.rec.id);
+          } catch (e) {}
+        };
+function ovsReview(key) {
+  const o = ovsAll().find((x) => x.key === key);
+  if (!o) return;
+  mbModal(
+    "Mark Reviewed",
+    `<p class="small">${esc(ovsSay(o))}.</p><div class="f"><label>Why it is all right</label><input data-f="why" placeholder="e.g. covered by CO-2026-004, or the budget is re-forecast" enterkeyhint="done"></div>`,
+    {
+      submit: "Mark Reviewed",
+      onSubmit: (f) => {
+        if (!f.why) return toast("Say why the overrun is all right, so the next person knows."), !1;
+        const u = currentUser() || {},
+          stamp = { by: u.name || "Owner", at: appNowIso(), why: f.why, over: o.over, code: o.code };
+        o.by.forEach((x) => (x.rec.ovsOk = stamp)), save();
+        toastDone(`Overrun reviewed — ${ovsWhat(o)} on ${shortName(o.p)}`, ovsGo(o.by[0]));
+        render();
+      },
+    },
+  );
+}
+function ovsSheet(key) {
+  const o = ovsAll().find((x) => x.key === key);
+  if (!o) return toast("That overrun is no longer open.");
+  const x = o.by[0],
+    it = { src: "budgetOverrun", what: `Over budget: ${ovsWhat(o)}`, sub: shortName(o.p), amount: o.over, due: x ? x.at.slice(0, 10) : "" },
+    T = (() => {
+      try {
+        return standardEscalationText(it);
+      } catch (e) {
+        return [];
+      }
+    })();
+  mbModal(
+    "Over Budget",
+    `<p><b>${esc(ovsSay(o))}.</b></p>${o.by.length ? `<p class="small">Taken over by ${esc(agList(o.by.map((r) => `${r.label} (${money(r.amt)}, landed ${fmt(r.at.slice(0, 10))})`)))}.</p>` : ""}<ul class="small">${T.map((t) => `<li>${esc(t)}</li>`).join("")}</ul><p class="small muted">Options: a change order to the client if it is extra scope; dispute the difference with the vendor if it is over the PO or the quote; or re-forecast the budget with the reason. ${esc(OVS_MONEY_LINE)}</p>`,
+    { submit: x ? ("bill" === x.kind ? "Open the Bill" : "Open the Line") : null, onSubmit: () => (setTimeout(ovsGo(x), 0), !0), alt: { label: "Mark Reviewed", run: () => setTimeout(() => ovsReview(key), 0) } },
+  );
+}
+if ("function" == typeof billFlags) {
+  const base = billFlags;
+  billFlags = function (b) {
+    const f = base.apply(this, arguments) || [];
+    try {
+      const o = b && ovsOf("bill", b);
+      if (o) {
+        const r = ovsReviewedBy(o);
+        f.unshift(`${ovsSay(o)}${r ? ` — reviewed by ${r.by}: ${r.why}` : ""}`);
+      }
+    } catch (e) {
+      console.warn("overspend flag", e);
+    }
+    return f;
+  };
+}
+if ("function" == typeof txnState) {
+  const base = txnState;
+  txnState = function (t) {
+    const st = base.apply(this, arguments);
+    try {
+      if (t && +t.amt < 0 && t.projectId && "reconciled" !== t.status && !ovsBusy) {
+        const o = ovsOf("txn", t);
+        if (o && !ovsReviewedBy(o)) return Object.assign({}, st, { sev: Math.max(2, st.sev || 0), msg: `${ovsSay(o)}${st.msg ? ` · ${st.msg}` : ""}` });
+      }
+    } catch (e) {
+      console.warn("overspend state", e);
+    }
+    return st;
+  };
+}
+{
+  const C = CATCH.find((c) => "budgetOverrun" === c.name);
+  // a bill's overrun that is all over its PO already shows once, as Billed Over the PO (the same dollars)
+  const poOver = (b) => ("function" == typeof pay3Default && pay3Can(b) && pay3Default(b) > 0 ? r2(billTotal(b) - pay3Default(b)) : 0);
+  C &&
+    (C.rows = () =>
+      ovsAll()
+        .filter((o) => !ovsReviewedBy(o) && !(o.by.length && o.by.every((x) => "bill" === x.kind && poOver(x.rec) >= o.over - 0.5)))
+        .map((o) => {
+          const x = o.by[0],
+            due = x ? x.at.slice(0, 10) : "";
+          return {
+            key: o.key,
+            what: x ? `Over budget: ${x.label}` : `Over budget: ${o.code} ${o.name}`,
+            sub: `${money(o.over)} over ${o.line ? "its estimate line" : `${o.code} ${o.name}`} · ${shortName(o.p)}`,
+            amount: o.over,
+            due: due,
+            fresh: !!due && due === today(),
+            verb: "Review",
+            run: () => ovsSheet(o.key),
+          };
+        }));
+}
+// The job page says it beside Ready to Bill: each overrun on the job, the record that took it over, and Review.
+if ("function" == typeof render) {
+  const base = render;
+  render = function () {
+    const r = base.apply(this, arguments);
+    try {
+      if ("dash" === view && S && S.id && ["owner", "pm", "controller"].includes(role())) {
+        const host = document.getElementById("v-dash");
+        host && host.querySelectorAll(".ovs-job").forEach((x) => x.remove());
+        const A = host ? ovsAll().filter((o) => o.p.id === S.id && !ovsReviewedBy(o)) : [];
+        if (A.length) {
+          const d = document.createElement("div");
+          (d.className = "note warn ovs-job"),
+            (d.innerHTML = `<b>Over budget on this job: ${money(A.reduce((a, o) => a + o.over, 0))}</b> <span class="small">— ${A.map((o) => `<a href="#" data-ovs="${esc(o.key)}">${esc(ovsWhat(o))}</a> +${money(o.over)}${o.by.length ? ` (${esc(o.by.map((x) => x.label).join(", "))})` : ""}`).join(" · ")}. ${esc(OVS_MONEY_LINE)}</span> <button type="button" class="btn sm" data-ovsrev="${esc(A[0].key)}">Review</button>`),
+            (host.querySelector(".lk-rtb") || host.querySelector(".kpis, #kpis") || host.firstElementChild || host).after(d),
+            d.querySelectorAll("[data-ovs]").forEach((a) => (a.onclick = (e) => (e.preventDefault(), ovsSheet(a.dataset.ovs)))),
+            (d.querySelector("[data-ovsrev]").onclick = () => ovsSheet(A[0].key));
+        }
+      }
+    } catch (e) {
+      console.warn("job overspend", e);
+    }
+    return r;
+  };
+}
+// Ask: "which cost codes are over budget on 121 State", "is any PO overbilled"
+{
+  const at = (id) => {
+    const i = AG_FIN.findIndex((r) => r.id === id);
+    return i < 0 ? AG_FIN.length : i;
+  };
+  AG_FIN.splice(at("budget"), 0, {
+    id: "codeover",
+    re: /\bover( its| the| their)? budgets?\b|\bover-budget\b|\bbudget overruns?\b|\bover-?runs?\b|\bover (the |its )?estimate( line)?s?\b/,
+    not: /\b(pos?|purchase orders?|revenue|income|overhead|sales)\b|\bunder budget\b/,
+    kind: "money",
+    run(P) {
+      const A = ovsAll().filter((o) => agOnJob(P, o.p.id)),
+        tot = r2(A.reduce((a, o) => a + o.over, 0)),
+        lines = A.filter((o) => o.line).length,
+        noun = lines && lines === A.length ? "estimate line" : lines ? "cost code or estimate line" : "cost code",
+        nouns = lines && lines === A.length ? "estimate lines" : lines ? "cost codes and estimate lines" : "cost codes",
+        on = P.jobs.length ? ` on ${agShort(P.jobs[0])}` : "";
+      return {
+        headline: A.length
+          ? `${agN(A.length, noun, nouns)} over budget${on}, ${money(tot)} in all: ${agList(A.map((o) => `${ovsWhat(o)} ${money(o.over)} over${P.jobs.length ? "" : ` (${agShort(o.p)})`}`))}.`
+          : `No cost code is over its budget${on}: none.`,
+        note: A.length ? `${A.filter((o) => o.by.length).map((o) => `${agCap(ovsWhat(o))} was taken over by ${agList(o.by.map((x) => x.label))}`).join("; ")}. ${OVS_MONEY_LINE}` : "",
+        work: A.map((o) => `${agShort(o.p)} · ${ovsWhat(o)} — ${money(o.actual)} against ${money(o.budget)} budgeted, ${money(o.over)} over${ovsReviewedBy(o) ? ` — reviewed by ${ovsReviewedBy(o).by}` : ""}`),
+        go: agGo("dash", P.jobs.length ? { project: P.jobs[0].id } : {}) || agGo("reports", { tab: "budget" }),
+        ran: agRan("cost codes", ["actual above budget (jobFin byCode, and estimate lines with a record traced to them)"].concat(agWhereJob(P)), P.jobs.length ? "" : "job", A.length),
+      };
+    },
+  });
+  AG_FIN.splice(at("overbilled"), 0, {
+    id: "poover",
+    re: /\b(pos?|purchase orders?)\b.*\bover[- ]?bill(ed|ing)?\b|\bover[- ]?bill(ed|ing)?\b.*\b(pos?|purchase orders?|vendors?|suppliers?|subs?)\b|\bbilled (more than|over|above) (the |its |their )?(po|pos|purchase orders?)\b|\b(vendors?|subs?|suppliers?)\b.*\bbilled (us )?(more than|over|above)\b/,
+    kind: "money",
+    run(P) {
+      const R = (DB.pos || [])
+        .filter((po) => !/cancel|void|draft/i.test(po.status || "") && agOnJob(P, po.projectId) && (!P.vendors.length || P.vendors.some((v) => agNameHit(v.name, po.vendor))))
+        .map((po) => {
+          const B = (DB.bills || []).filter((b) => b.poId === po.id && !["void", "rejected"].includes(b.status)),
+            billed = r2(B.reduce((a, b) => a + billCost(b), 0)),
+            tot = r2(poTotal(po).total);
+          return { po: po, B: B, billed: billed, tot: tot, over: r2(billed - tot) };
+        })
+        .filter((x) => x.over > 0.5)
+        .sort((a, b) => b.over - a.over);
+      return {
+        headline: R.length
+          ? `${agN(R.length, "purchase order")} ${1 === R.length ? "is" : "are"} billed over ${1 === R.length ? "its" : "their"} amount: ${agList(R.map((x) => `${x.po.number} ${x.po.vendor} ${money(x.over)} over (${money(x.billed)} billed on a ${money(x.tot)} PO)`))}.`
+          : "No purchase order is billed over its amount: none.",
+        note: R.length ? `Decide on each before it is paid: approve as billed with a change, dispute the difference with the vendor, or hold payment. ${OVS_MONEY_LINE}` : "",
+        work: R.map((x) => `${x.po.number} · ${x.po.vendor} — bills ${agList(x.B.map((b) => `${b.number} ${money(billCost(b))} (${b.status})`))}`),
+        go: agGo("ap") || agGo("po"),
+        ran: agRan("purchase orders", ["bills against the PO total more than the PO"].concat(agWhereJob(P)), "", R.length),
+      };
+    },
+  });
+}
