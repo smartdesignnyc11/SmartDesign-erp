@@ -192389,8 +192389,9 @@ function xsSeed() {
       // a set-check hold lifts only when its own finding is resolved, never because another sheet in the room moved
       plDB().holds.forEach((h) => {
         const b = before.get(h.id);
-        if (!b || !(h.xsFindings || []).length || o.xsResolves) return;
-        if (!h.xsFindings.some((id) => xsIsOpen(xsRow(id)))) return;
+        if (!b || !(h.xsFindings || []).length) return;
+        // the revision resolving one finding releases its hold only when no other open finding holds the room
+        if (!h.xsFindings.some((id) => id !== o.xsResolves && xsIsOpen(xsRow(id)))) return;
         b.liftOn !== h.liftOn && (h.liftOn = b.liftOn || "");
         !b.liftedAt && h.liftedAt && (delete h.liftedAt, delete h.liftedBy, delete h.liftWhy);
       });
@@ -192545,6 +192546,8 @@ function xsOpenRfi(fid) {
   const f = xsRow(fid),
     p = f && plJob(f.projectId);
   if (!p || !f.issueId) return;
+  // the job's field list, for the roles that keep it; the others read the RFI on the finding itself
+  if (!(ROLE_VIEWS[role()] || []).includes("field")) return void xsGo(f.id);
   setCurrent(p.id), (view = "field"), render();
   try {
     openEditor("iss", f.issueId);
@@ -192589,7 +192592,7 @@ function xsFindHtml(f, can) {
     <div class="small"><b>Asked:</b> ${esc(f.owner.name)} (${esc(f.owner.label)})${f.rfi ? ` · ${esc(f.rfi)}` : ""} · due ${f.due ? fmt(f.due) : "—"}${f.needBy ? ` — ${esc(f.needBy.what)}` : ""}${f.draftId ? ` · ${(DB.outbox || []).some((o) => o.id === f.draftId && "draft" === o.status) ? "email drafted in the Outbox" : "email sent"}` : ""}</div>
     ${"resolved" === f.status && f.resolution ? `<div class="small"><b>Resolved:</b> ${esc(f.resolution.number)} Rev ${esc(f.resolution.rev)} (${esc(f.resolution.value)})${f.resolution.prev ? `, Rev ${esc(f.resolution.prev)} VOID` : ""}, ${esc(f.resolvedBy || "")} ${esc(stampText(f.resolvedAt))}${null != f.days ? ` · ${f.days} days` : ""}${f.money ? ` · ${esc(XS_PAYER[f.money.payer] || f.money.payer)}${f.money.amount ? ` ${money(f.money.amount).replace(/\.00$/, "")}` : ""}${f.money.coNumber ? ` · ${esc(f.money.coNumber)} drafted` : ""}${(f.money.ripple || []).length ? ` · to correct: ${esc(f.money.ripple.join("; "))}` : ""}` : ""}</div>` : ""}
     ${"dismissed" === f.status ? `<div class="small"><b>Not a conflict:</b> ${esc(f.dismissWhy || "")} (${esc(f.dismissedBy || "")})</div>` : ""}
-    <div class="pl-acts">${open && can ? `<button type="button" class="btn sm" data-xsresolve="${f.id}">Resolve</button><button type="button" class="btn sm" data-xsdismiss="${f.id}">Not a Conflict</button>` : ""}${f.issueId ? `<button type="button" class="btn sm" data-xsrfi="${f.id}">Open ${esc(f.rfi || "RFI")}</button>` : ""}</div>
+    <div class="pl-acts">${open && can ? `<button type="button" class="btn sm" data-xsresolve="${f.id}">Resolve</button><button type="button" class="btn sm" data-xsdismiss="${f.id}">Not a Conflict</button>` : ""}${f.issueId && (ROLE_VIEWS[role()] || []).includes("field") ? `<button type="button" class="btn sm" data-xsrfi="${f.id}">Open ${esc(f.rfi || "RFI")}</button>` : ""}</div>
   </div>`;
 }
 function xsLearnHtml(pid) {

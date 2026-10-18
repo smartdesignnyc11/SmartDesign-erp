@@ -17,6 +17,7 @@
              (a backcharge, drafted); a client's change on the backsplash becomes a change order.
   owner      the owner sees the measures on Plans and Reports (found before work against the field, rework avoided,
              our cost, days to resolve), the brain's proposed lesson, approves it, and the checklist is on New Revision.
+  shared     two conflicts hold one room: resolving one keeps the hold the other needs.
   findable   erpQuery, ⌘K, Ask, Needs Your Hand; every new CATCH id mapped to a line of the Standard; the predicate's
              count is its rows; after a reload the findings and the history are kept; no page errors.
 Invented data only."""
@@ -75,16 +76,19 @@ async def designer_lpc(c, pg):
     c.ok(opened and s and s['vis'] and s['flash'], f"designer: the toast's Open lands on the finding, highlighted ({s and s['vis']})")
     c.ok(s and 'Filed DOB and LPC drawings govern what is legal' in s['text'] and 'LPC filed drawing' in s['text'], "designer: the finding shows the order of precedence and the amendment")
     c.ok(await pg.evaluate(PRIMARY) == 1, "designer: one blue button on Plans")
-    await click(pg, f'.view.on [data-xsrfi="{L.get("id")}"]', 500)
-    e = await pg.evaluate("() => ({ view, drawer: document.getElementById('drawer').classList.contains('on'), t: (document.getElementById('e-name') || {}).value || '' })")
-    c.ok(e['view'] == 'field' and e['drawer'] and 'set check' in e['t'], f"designer: Open RFI lands on the RFI in the job's field list ({e['t'][:60]})")
-    await pg.evaluate("() => { document.getElementById('drawer').classList.remove('on'); document.getElementById('scrim').classList.remove('on'); }")
+    rf = await pg.evaluate("id => { const e = document.querySelector(`.view.on [data-xsfind=\"${id}\"]`); return { btn: !!e.querySelector('[data-xsrfi]'), text: e.innerText }; }", L.get('id'))
+    c.ok(not rf['btn'] and 'RFI ' in rf['text'] and 'due' in rf['text'], "designer: the RFI, its owner and due date are on the finding (she keeps no field list)")
     return L.get('id')
 
 
 async def beam(c, pg):
     await plans(pg, 'u_alan')
     await click(pg, '.view.on [data-xscheck]', 700)
+    fid = await pg.evaluate("() => (xsFindings('p121', { status: 'open' }).find(f => f.key === 'dim:r121gbr:rear-wall') || {}).id")
+    await pg.evaluate("id => xsOpenRfi(id)", fid); await pg.wait_for_timeout(400)
+    e = await pg.evaluate("() => ({ view, drawer: document.getElementById('drawer').classList.contains('on'), t: (document.getElementById('e-name') || {}).value || '' })")
+    c.ok(e['view'] == 'field' and e['drawer'] and 'CALC-S2' in e['t'], f"beam: the PM's Open RFI lands on it in the job's field list ({e['view']}, {e['t'][:60]})")
+    await pg.evaluate("() => { document.getElementById('drawer').classList.remove('on'); document.getElementById('scrim').classList.remove('on'); view = 'plans'; render(); }")
     r = await pg.evaluate("""() => { const f = xsFindings('p121', { status: 'open' }).find(f => f.key === 'dim:r121gbr:rear-wall');
       const d = f && (DB.outbox || []).find(o => o.id === f.draftId), p = plJob('p121'), t = p.tasks.find(x => x.id === 'gframe');
       return f && { id: f.id, safety: f.safety, rule: f.rule, a: [f.a.number, f.a.value], b: [f.b.number, f.b.value, f.b.assume], risk: f.risk.tags, owner: [f.owner.kind, f.owner.name], due: f.due,
@@ -239,10 +243,29 @@ async def findable(c, pg):
     c.ok(a['n'] == n0 and a['shown'] >= 1 and a['a501'] == 'C' and a['seeded'] == 1, f"findable: after a reload the findings and revisions are kept, the seed not repeated ({a}, {n0})")
 
 
+async def shared_room(c, p):
+    # two conflicts hold one room: resolving one of them must not lift the hold the other still needs
+    b, pg, errs = await open_app(p)
+    await sign_in(pg, 'u_sarah')
+    r = await pg.evaluate("""() => { setCurrent('p121'); plIssue({ projectId: 'p121', number: 'A-501', changed: 'Rear window W-3 widened from 3\\'-2" to 3\\'-6" for egress' });
+      const O = xsFindings('p121', { status: 'open' }), shop = O.find(f => f.b.number === 'WW-1187'), lpc = O.find(f => f.a.number === 'L-201');
+      const h = plHolds('p121').find(x => x.roomId === 'r121ext');
+      const row = xsResolve(shop.id, { stand: 'a', changed: 'Window Works redrew W-3 at 3\\'-6"', payer: 'sub' });
+      const h2 = plDB().holds.find(x => x.id === h.id);
+      return { both: (h.xsFindings || []).length, shop: shop.status, lpc: lpc.status, row: row && plRev(row), active: !h2.liftedAt, liftOn: h2.liftOn === (row && row.id),
+        again: xsFindings('p121', { status: 'open' }).some(f => f.key === 'win:W-3:width' && [f.a.number, f.b.number].sort().join() === 'L-201,WW-1187') }; }""")
+    c.ok(r['both'] >= 2 and r['shop'] == 'resolved' and r['row'] == 'WW-1187 Rev 2', f"shared room: the shop drawing conflict resolves with WW-1187 Rev 2 ({r})")
+    c.ok(r['lpc'] == 'open' and r['active'] and not r['liftOn'], f"shared room: the facade stays held while the LPC conflict is open ({r})")
+    c.ok(r['again'], "shared room: and the new shop drawing is checked against the LPC set")
+    c.ok(not errs, f'shared room: no page errors {errs[:3]}')
+    await b.close()
+
+
 async def main():
     c = Checks()
     async with async_playwright() as p:
         await field(c, p)
+        await shared_room(c, p)
         b, pg, errs = await open_app(p)
         lpc = await designer_lpc(c, pg)
         bid = await beam(c, pg)
