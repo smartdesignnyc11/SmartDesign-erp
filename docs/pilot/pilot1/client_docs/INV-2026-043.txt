@@ -1,0 +1,43 @@
+SmartDesigns
+INVOICE
+INV-2026-043
+Date Fri, Sep 4
+Due Sat, Sep 19
+Bill to
+Sarah & David Klein
+121 State Street, Brooklyn, NY 11201
+Sarah Klein · sarah.klein@example.com
+Project
+121 State Street
+121 State Street, Brooklyn, NY 11201
+Progress billing — CO-2026-002 — work through Fri, Sep 4
+#	Item	Scheduled	Previously	This period	Amount
+1	CO-2026-002 Sand & stain existing treads (3rd fl)
+	$1,850	0%	100%	$1,850
+Application for payment
+Original contract sum
+$485,000
+Net change by change orders
+$8,050
+Contract sum to date
+$493,050
+Total completed to date (54.39%)
+$268,185
+Less retainage to date
+− $17,118
+Less previous applications
+− $249,401
+Current payment due
+$1,665
+Balance to finish incl. retainage
+$241,984
+Subtotal
+$1,850
+Less retainage (10%)
+− $185
+Total this invoice
+$1,665
+Notes
+Percentages proposed from evidence per line — schedule or deliveries; cost only where nothing else speaks, and labelled. 4 lines fell back to cost — check them before sending.
+Terms: Net 15
+Progress invoices are due within 15 days. Retainage is released with the final invoice after punch list completion. Change orders must be approved in writing before work proceeds.

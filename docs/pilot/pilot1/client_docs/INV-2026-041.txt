@@ -1,0 +1,23 @@
+SmartDesigns
+INVOICE
+INV-2026-041
+Date Fri, Sep 4
+Due Sat, Sep 19
+Bill to
+Jessop family
+
+Cambri Jessop · cambri@example.com
+Project
+140 Prospect Place — design
+140 Prospect Place, Brooklyn, NY 11217
+Design services — hours through 9/4
+Item	Qty	Rate	Amount
+Sarah Davis — Architect
+9/2 – 9/4
+	19.5 hr	$200	$3,900
+Subtotal
+$3,900
+Total this invoice
+$3,900
+Terms: Net 15
+Progress invoices are due within 15 days. Retainage is released with the final invoice after punch list completion. Change orders must be approved in writing before work proceeds.

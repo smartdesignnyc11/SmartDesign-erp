@@ -1,0 +1,71 @@
+SmartDesigns
+INVOICE
+INV-2026-040
+Date Thu, Sep 3
+Due Fri, Sep 18
+Bill to
+Sarah & David Klein
+121 State Street, Brooklyn, NY 11201
+Sarah Klein · sarah.klein@example.com
+Project
+121 State Street
+121 State Street, Brooklyn, NY 11201
+Progress billing — EST-2026-014 — work through Thu, Sep 3
+#	Item	Scheduled	Previously	This period	Amount
+1	Demolition & disposal
+	$28,000	51.67%	0%	$0
+2	Framing, blocking & rough carpentry
+measured by foreman update 9/2 — Framing & blocking – 3rd floor 90%; 1 running task still on elapsed time
+	$41,000	51.67%	27.08%	$11,103
+3	Windows — front & rear façade
+	$37,800	51.67%	0%	$0
+4	Plumbing — rough & finish
+	$58,000	51.67%	0%	$0
+5	Electrical — rough & finish
+measured by PM update 9/1 — Rough electrical 55%
+	$46,500	51.67%	3.33%	$1,548
+6	Insulation, drywall, taping & prime
+	$38,000	51.67%	0%	$0
+7	Tile — two baths
+	$34,500	51.67%	0%	$0
+8	Flooring
+	$31,000	51.67%	0%	$0
+9	Millwork & countertops
+	$96,000	51.67%	0%	$0
+10	Trim, doors, paint & hardware
+	$42,000	51.67%	0%	$0
+11	Exterior — scaffold, brick mold, paint
+	$16,000	51.67%	0%	$0
+12	Permits, inspections, special inspections
+	$9,500	51.67%	0%	$0
+13	General conditions & supervision
+	$6,700	51.67%	0%	$0
+14	CO-2026-001 Radiant floor heat in primary bath
+	$6,200	50%	0%	$0
+Application for payment
+Original contract sum
+$485,000
+Net change by change orders
+$8,050
+Contract sum to date
+$493,050
+Total completed to date (54.02%)
+$266,335
+Less retainage to date
+− $16,933
+Less previous applications
+− $238,015
+Current payment due
+$11,386
+Balance to finish incl. retainage
+$243,649
+Subtotal
+$12,651
+Less retainage (10%)
+− $1,265
+Total this invoice
+$11,386
+Notes
+Percentages proposed from evidence per line — schedule or deliveries; cost only where nothing else speaks, and labelled. 4 lines fell back to cost — check them before sending.
+Terms: Net 15
+Progress invoices are due within 15 days. Retainage is released with the final invoice after punch list completion. Change orders must be approved in writing before work proceeds.
