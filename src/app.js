@@ -192478,7 +192478,8 @@ CATCH.push({
 }
 // ---- A statement already imported is not offered again (pilot day 1: the controller's Approvals offered the Amex
 // and Chase August statements after their lines were in) ----------------------------------------------------------
-function cmStmtImport(c, pr) {
+// The import that already holds a statement's month for its account, or null.
+function cmStmtMonth(c, pr) {
   if (!pr || "statement" !== pr.kind || !pr.acctId) return null;
   const all = `${c.subject || ""} ${c.text || ""} ${(c.attachments || []).map((a) => `${a.name || ""} ${a.text || ""}`).join(" ")}`,
     M = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"],
@@ -192495,6 +192496,36 @@ function cmStmtImport(c, pr) {
     start = `${y}-${String(mo + 1).padStart(2, "0")}-01`;
   return (DB.bankImports || []).find((i) => i.acctId === pr.acctId && i.period && i.period[0] <= start && i.period[1] >= end) || null;
 }
+// The month on file is not enough: a statement is already here only when every line it holds is on the books from
+// the bank. One that carries a charge posted after the activity file was pulled, or lines the books hold only as typed
+// by hand, is offered: importing it adds the one and backs the others (a figure with no bank line behind it is not
+// truth). The seed's August Amex statement holds four 9/1-9/2 lines typed by hand, so it is still the Controller's.
+// A statement whose lines cannot be read falls back to the month.
+function cmStmtUnbacked(c, pr) {
+  try {
+    const P = lkStmtParse(cmStmtText(c), pr.acctId);
+    return P.lines.length ? cmStmtNotOnBooks(P.lines, pr.acctId) : [];
+  } catch (e) {
+    return [];
+  }
+}
+function cmStmtImport(c, pr) {
+  const imp = cmStmtMonth(c, pr);
+  return imp && !cmStmtUnbacked(c, pr).length ? imp : null;
+}
+// The statement lines with no bank or card line behind them on the books: same account, the same amount to the cent,
+// within three days (posting and transaction dates differ), backed by the bank (bfBacked: a statement or feed, not a
+// line typed by hand); each book line answers one statement line.
+function cmStmtNotOnBooks(lines, acctId) {
+  const used = new Set(),
+    backed = (t) => ("function" == typeof bfBacked ? bfBacked(t) : !0),
+    T = (DB.txns || []).filter((t) => t.acct === acctId && "void" !== t.status && backed(t)),
+    near = (a, b) => Math.abs((parse(a) - parse(b)) / 864e5) <= 3;
+  return (lines || []).filter((l) => {
+    const t = T.find((x) => !used.has(x.id) && Math.abs(+x.amt - l.amt) < 0.005 && near(x.date, l.date));
+    return t ? (used.add(t.id), !1) : !0;
+  });
+}
 {
   const base = NYH_MAIL.statement;
   NYH_MAIL.statement = (c, pr) => (cmStmtImport(c, pr) ? "" : base(c, pr));
@@ -192505,11 +192536,17 @@ function cmStmtImport(c, pr) {
     const P = base.apply(this, arguments);
     try {
       (P || []).forEach((pr) => {
-        const imp = cmStmtImport(c, pr);
+        const imp = cmStmtImport(c, pr),
+          mon = !imp && cmStmtMonth(c, pr),
+          U = mon ? cmStmtUnbacked(c, pr) : [];
         imp &&
           ((pr.summary = `${String(pr.summary || "").replace(/ · import it on Bank.*$/, "")} · already here: ${imp.fileName || "imported"} on ${fmtL(String(imp.at || "").slice(0, 10))}${imp.by ? " by " + imp.by : ""}`),
           (pr.alreadyHere = imp.id),
           (pr.applied = pr.applied || "already here"));
+        // the month is on file but not every line: say so, so it does not read as a duplicate
+        mon &&
+          U.length &&
+          (pr.summary = `${String(pr.summary || "")} · ${mon.fileName || "an import"} has the month, but ${U.length} of its line${1 === U.length ? "" : "s"} (${money(U.reduce((a, l) => a + Math.abs(l.amt), 0))}) ${1 === U.length ? "has" : "have"} no bank line on the books: import it to back ${1 === U.length ? "it" : "them"}`);
       });
     } catch (e) {
       console.warn("statement already here", e);

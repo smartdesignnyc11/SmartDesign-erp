@@ -264,7 +264,10 @@ async def s6_stmt(p, S):
               date: '2026-09-02T07:00:00', subject: 'Your August statement is ready — account ending 1009', text: 'Your Business Platinum statement is ready.',
               attachments: [{ name: 'Amex-Aug-2026.pdf', type: 'application/pdf', text: DW_DOCS.amexStatement() }] }])""")
         pr = await pg.evaluate("() => { const c = DB.comms.find(x => x.msgId === 'lk-amex-aug'); return c ? (c.proposals || []).map(p => [p.kind, p.acctId || '', p.summary]) : null; }")
-        S.check(pr and any(x[0] == 'statement' and x[1] for x in pr), 'the Amex statement is read as our card statement', str(pr))
+        # August is imported for the Amex (Jeanette's activity file, 9/1), but four of the statement's lines (9/1-9/2)
+        # are on the books only as typed by hand, so the statement is not "already here": importing it backs them
+        # (cmStmtImport: every line from the bank, not the month). The summary says so, so it does not read as a duplicate.
+        S.check(pr and any(x[0] == 'statement' and x[1] and 'no bank line on the books' in x[2] for x in pr), 'the Amex statement is read as our card statement, with the lines the books hold only by hand', str(pr))
         tasks0 = await pg.evaluate("() => DB.projects.flatMap(p => p.actions || []).concat(DB.tasks || []).filter(a => /Import the/.test(a.title || '')).length")
         dlg = await pg.evaluate("""async () => { const r = nyhRows().find(x => x.kind === 'mail' && x.pkind === 'statement'); if (!r) return {err: 'no row'}; nyhRun(r.key); await new Promise(z => setTimeout(z, 150));
             const m = document.querySelector('#mbm'); return {verb: r.verb, title: m && (m.querySelector('h3') || {}).innerText, ok: m && m.querySelector('#mbm-ok').innerText, plan: m && (m.querySelector('.bf-plan') || {}).innerText}; }""")
@@ -274,6 +277,14 @@ async def s6_stmt(p, S):
         rec = await pg.evaluate("""async () => { document.querySelector('#mbm #mbm-ok').click(); await new Promise(z => setTimeout(z, 200));
             const m = document.querySelector('#mbm'); return {imports: (DB.bankImports || []).filter(i => i.acctId === 'ac2').map(i => [i.fileName, i.period, i.ending, i.added, i.confirmed, i.dup]), sheet: m && (m.querySelector('h3') || {}).innerText, body: m && m.innerText.slice(0, 200)}; }""")
         S.check(rec['imports'] and rec['sheet'] and 'Reconcile' in rec['sheet'], 'Import is followed by the reconcile', str(rec))
+        # the same statement again, once its lines are in from the bank: already here, and no one's row (pilot day 1:
+        # the controller's Approvals offered statements already imported, which read as duplicates)
+        await pg.evaluate("() => mbCloseModal()")
+        await pg.evaluate("""() => cmImport([{ msgId: 'lk-amex-aug2', threadId: 'lk-amex2', from: 'American Express <noreply@amex-statements.example>', to: ['controller@smartdesign.nyc'],
+              date: '2026-09-02T09:00:00', subject: 'Reminder: your August statement — account ending 1009', text: 'Your Business Platinum statement is ready.',
+              attachments: [{ name: 'Amex-Aug-2026.pdf', type: 'application/pdf', text: DW_DOCS.amexStatement() }] }])""")
+        again = await pg.evaluate("() => { const c = DB.comms.find(x => x.msgId === 'lk-amex-aug2'); const p = c && (c.proposals || []).find(p => p.kind === 'statement'); return { here: !!(p && p.alreadyHere), row: nyhRows().some(r => r.commId === (c && c.id)), sum: p && p.summary }; }")
+        S.check(again['here'] and not again['row'], 'once imported, the same statement reads already here and is no one\'s row', str(again))
     finally:
         if errs: S.errors.append(f'page errors: {errs[:2]}')
         await b.close()
