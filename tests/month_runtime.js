@@ -534,9 +534,39 @@ M.evening = async (uid, roleName, own) => {   // the actor's afternoon events, t
       if (e2 && e2.status === 'open') { const h = Math.round((hoursOf(e2) || 8) * 4) / 4; e2.work = [{ projectId: p.id, code: '', hours: h, note: 'per the day' }]; e2.status = 'submitted'; save(); }
       out.push(['clock out', e2 && e2.status]); } }
   if (roleName === 'foreman') { const p = projOf('p121');
-    if (typeof dlSubmit === 'function' && !(DB.field.logs || []).some(l => l.projectId === p.id && l.date === today())) {
-      try { setCurrent(p.id); const dr = dlDraft(p, today()); dlSubmit(dr, p); out.push(['daily log', 'signed']); } catch (e) { out.push(['daily log', 'failed ' + e.message]); } } }
+    if (!(DB.field.logs || []).some(l => l.projectId === p.id && l.date === today() && l.status === 'submitted')) {
+      try { const st = await M.signLog(p); out.push(['daily log', st.join(' > ').slice(0, 200)]); } catch (e) { out.push(['daily log', 'failed ' + e.message]); } } }
   return out;
+};
+// The foreman's Daily Log, signed the way he signs it on his phone. Pilot fixes 1 made the log answer the day before it
+// can be signed (today's weather, yesterday's delay, each sub booked today, crew hours from the clock, the true-record
+// tick), and dlSubmit refuses a draft that does not. This actor used to call dlSubmit with an untouched draft, which
+// a person cannot do; now he opens Daily Log, taps the weather, answers each question the screen asks, ticks the box
+// and presses Next until Sign and Send. What he knows of his own site, and nothing from the book: a delay still holds
+// while the task it held is not complete; a sub booked today came unless he reported their no-show today.
+M.signLog = async p => {
+  const steps = [], day = today(), key = `${p.id}|${day}`;
+  setCurrent(p.id); M.go('flog');
+  for (let k = 0; k < 20; k++) {
+    if ((DB.field.logs || []).some(l => l.projectId === p.id && l.date === day && l.status === 'submitted')) { steps.push('sent'); break; }
+    const R = M.root(), dr = (DB.field.dlDraft || {})[key] || {};
+    const wx = [...R.querySelectorAll('[data-dlwx]')].filter(vis);
+    if (wx.length && !dr.weather) { const b = wx.find(x => x.dataset.dlwx === 'Clear') || wx[0]; b.click(); await sleep(15); steps.push('weather ' + b.dataset.dlwx); continue; }
+    const still = [...R.querySelectorAll('[data-dlstill]')].filter(vis).find(b => { const x = (dr.delays || [])[+b.dataset.dlstill.split(':')[0]]; return x && x.carried && x.still == null; });
+    if (still) { const i = +still.dataset.dlstill.split(':')[0], x = dr.delays[i], t = (p.tasks || []).find(t => t.id === x.taskId);
+      const holds = !(t && (t.status === 'done' || (+prgPct(t) || 0) >= 100));
+      const b = [...R.querySelectorAll(`[data-dlstill="${i}:${holds ? 1 : 0}"]`)].find(vis); if (b) { b.click(); await sleep(15); steps.push((holds ? 'still delaying: ' : 'cleared: ') + (x.note || x.cause || '').slice(0, 30)); continue; } }
+    const sq = [...R.querySelectorAll('[data-dlsubq]')].filter(vis).find(b => { const s = (dr.subsOn || [])[+b.dataset.dlsubq.split(':')[0]]; return s && !s.touched && /:1$/.test(b.dataset.dlsubq); });
+    if (sq) { const i = +sq.dataset.dlsubq.split(':')[0], s = dr.subsOn[i], w = String(s.vendor || '').split(/\s+/)[0];
+      const noshow = (DB.field.raises || []).some(r => r.projectId === p.id && r.type === 'noshow' && String(r.at || '').slice(0, 10) === day && w && RX(w).test(r.title || ''));
+      const b = [...R.querySelectorAll(`[data-dlsubq="${i}:${noshow ? 0 : 1}"]`)].find(vis); if (b) { b.click(); await sleep(15); steps.push((noshow ? 'not here: ' : 'came: ') + s.vendor); continue; } }
+    const sg = [...R.querySelectorAll('[data-dlsign]')].find(vis); if (sg && !sg.checked) { sg.click(); await sleep(10); steps.push('true record'); }
+    const nx = R.querySelector('#dl-next'); if (!nx || !vis(nx)) { steps.push('no Next on the screen'); break; }
+    const label = norm(nx.innerText), st0 = dr.step, t0 = M.toasts.length; nx.click(); await sleep(60);
+    if (/^Sign|Clock Out and Sign/.test(label)) steps.push(label + (M.toasts.length > t0 ? ': ' + M.toasts.slice(t0).join(' | ').slice(0, 90) : ''));
+    else if (((DB.field.dlDraft || {})[key] || {}).step === st0 && !M.toasts.slice(t0).length) { steps.push('Next did nothing at step ' + st0); }
+  }
+  return steps;
 };
 
 // ============================================================================ checks (the ledger)
