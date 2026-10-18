@@ -189894,6 +189894,20 @@ const FND_HOME = {
     may: () => fndMay("gl") || fndMay("billing") || fndMay("clients"),
   },
 };
+// the pages that are a noun's own list: there the list shows it, filtered as the person set it, and no receipt is added
+const FND_LIST = {
+  "p.actions": ["tkall", "tasks", "hbtasks"],
+  "p.tasks": ["tkall", "tasks", "sched"],
+  tasks: ["tkall", "tasks"],
+  outbox: ["brain"],
+  "p.files": ["files"],
+  "p.chat": ["chat"],
+  "p.materials": ["mat"],
+  bankImports: ["bank"],
+  "calendar.external": ["calendar"],
+  "gl.journals": ["gl"],
+};
+const fndOwnList = (key) => (FND_LIST[String(key).slice(0, String(key).lastIndexOf(":"))] || []).includes(view);
 function fndEach(fn) {
   (DB.projects || []).forEach((p) =>
     ["actions", "tasks", "files", "chat", "materials"].forEach((k) => (Array.isArray(p[k]) ? p[k] : []).forEach((r) => r && "object" == typeof r && fn("p." + k, r, p))),
@@ -190013,7 +190027,7 @@ function fndPaint(scroll) {
   document.querySelectorAll("#fnd-made").forEach((e) => e.remove());
   if (!root || !fndUid()) return;
   const V = fndLoad()
-      .filter((x) => x.view === view)
+      .filter((x) => x.view === view && !fndOwnList(x.key))
       .map((x) => Object.assign({}, x, { rec: fndFind(x.key) }))
       .filter((x) => x.rec),
     hidden = new Set(V.filter((x) => x.pinned || !fndVisible(x.name, root)).map((x) => x.at)),
@@ -190027,12 +190041,20 @@ function fndPaint(scroll) {
       (x) =>
         `<div class="fnd-row ${fresh && x.at >= fndFreshUntil - 4e3 ? "tk-flash" : ""}" data-fndrow="${esc(x.key)}"><div class="grow"><span class="pill info">${esc(x.noun)}</span> <b data-nocase>${esc(x.name)}</b><span class="small muted" data-nocase>${esc(x.where)}</span></div>${x.open ? `<button class="btn sm" data-fndopen="${esc(x.key)}">Open</button>` : ""}</div>`,
     ).join("")}`),
-    root.prepend(card),
+    ((anchor) => {
+      // a row the list has just highlighted stays where the person sees it when the card goes in above it
+      const top = anchor ? anchor.getBoundingClientRect().top : null;
+      root.prepend(card);
+      if (anchor && top >= 0 && top < innerHeight) {
+        const now = anchor.getBoundingClientRect();
+        (now.top < 0 || now.bottom > innerHeight) && anchor.scrollIntoView({ block: "center" });
+      }
+    })(root.querySelector(".tk-flash")),
     card.querySelectorAll("[data-fndopen]").forEach((b) => (b.onclick = () => fndOpen(b.dataset.fndopen))),
     (card.querySelector("[data-fndclear]").onclick = () => {
       fndStore(fndLoad().filter((x) => x.view !== view)), card.remove();
     });
-  if (scroll)
+  if (scroll && card.querySelector(".fnd-row.tk-flash"))
     try {
       const r = card.getBoundingClientRect();
       (r.top < 64 || r.top > innerHeight - 80) && card.scrollIntoView({ block: "center" });
@@ -190108,7 +190130,8 @@ function fndSettle() {
 function fndKeepInView() {
   const r0 = fndRoot();
   if (!r0 || Date.now() > fndFreshUntil + 1e3) return;
-  const el = r0.querySelector("#fnd-made") || r0.querySelector(".fnd-hit.tk-flash");
+  // the receipt only when it holds this tap's records; otherwise the row the list itself highlighted
+  const el = (r0.querySelector("#fnd-made .fnd-row.tk-flash") && r0.querySelector("#fnd-made")) || r0.querySelector(".fnd-hit.tk-flash");
   if (!el) return;
   const r = el.getBoundingClientRect();
   (r.top < 56 || r.top > innerHeight - 60) && el.scrollIntoView({ block: el.id ? "start" : "center" }), el.id && el.getBoundingClientRect().top < 56 && scrollBy(0, -64);
