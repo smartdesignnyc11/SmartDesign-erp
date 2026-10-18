@@ -55,7 +55,10 @@ FIND_JS = r"""
   c = c.filter(el => !c.some(o => o !== el && el.contains(o) && (clickable(o) || !clickable(el))));
   if (opts.within) {
     const w = opts.within.toLowerCase();
-    c = c.filter(el => { let p = el; for (let i = 0; i < 9 && p; i++, p = p.parentElement) if (norm(p.innerText).toLowerCase().includes(w)) return true; return false; });
+    // how many levels up the record's text appears: the control on the record's own card is nearer than one on a
+    // neighbouring card whose list also holds the text, so the nearest wins (a list's first card never stands in)
+    const near = el => { let p = el; for (let i = 0; i < 9 && p; i++, p = p.parentElement) if (norm(p.innerText).toLowerCase().includes(w)) return i; return -1; };
+    c = c.filter(el => (el.__dwNear = near(el)) >= 0);
   }
   if (opts.scope) { const s = [...document.querySelectorAll(opts.scope)].filter(vis); c = c.filter(el => s.some(x => x.contains(el))); }
   const inOverlay = el => { for (let p = el; p && p !== document.body; p = p.parentElement) {
@@ -69,7 +72,7 @@ FIND_JS = r"""
     if (r.bottom <= 0 || r.top >= innerHeight || r.right <= 0 || r.left >= innerWidth) return false;
     const x = Math.min(Math.max(r.left + r.width / 2, 1), innerWidth - 1), y = Math.min(Math.max(r.top + r.height / 2, 1), innerHeight - 1);
     const top = document.elementFromPoint(x, y); return !!top && (el.contains(top) || top.contains(el)); };
-  c.sort((a, b) => (clickable(b) - clickable(a)) || (onScreen(b) - onScreen(a)));
+  c.sort((a, b) => (clickable(b) - clickable(a)) || ((a.__dwNear || 0) - (b.__dwNear || 0)) || (onScreen(b) - onScreen(a)));
   const el = c[opts.nth || 0];
   if (!el) return null;
   el.setAttribute('data-dw', '1');
@@ -357,7 +360,8 @@ async def walk_owner(w):
         await w.pg.locator('[data-dw="1"]').first.click(); await pg.wait_for_timeout(400)
         dlg = await w.see('Approve PO Amount') or await w.see('Dispute Difference')
         if not dlg:
-            await w.flag('wrong path', 'Do Now\'s Approve on WW-2026-118 opens "Approve as Billed" only: no Approve PO Amount / Dispute Difference, '
+            opened = await pg.evaluate("() => { const h = document.querySelector('#mbm .mbm-hd h3'); return h ? h.innerText.trim() : '(no sheet)'; }")
+            await w.flag('wrong path', f'Do Now\'s Approve on WW-2026-118 opened "{opened}": no Approve PO Amount / Dispute Difference, '
                    'although the bill is $3,800 over PO-2026-044 (apprBillYes -> billAction approve must reach pay3ShortPay)', controls=False)
         await pg.keyboard.press('Escape'); await pg.wait_for_timeout(300)
         await w.click('Cancel', optional=True, wait=200)
