@@ -330,6 +330,17 @@ async def question(c, pg, label):
         c.ok('A-301 Rev' in a and 'current' in a, f"{label}: her assistant answers which A-301 is current ({a[:80]})")
 
 
+async def client_view(c, pg, label):
+    # daywalk (2026-10-18): the register's rooms made 121 State read as a design job on the portal, and its design
+    # cards pushed the client's Choose and Approve below the fold; the client's next step stays on top
+    await sign_in(pg, 'u_klein')
+    r = await pg.evaluate("""() => { setCurrent('p121'); view = 'client'; render(); const vis = (e) => !!e && e.getClientRects().length > 0;
+      return { pinned: vis(document.querySelector('.view.on #pl-pinned')), studio: !!document.querySelector('.view.on #cl-studio'), views: (ROLE_VIEWS.client || []).includes('plans') }; }""")
+    c.ok(not r['pinned'] and not r['studio'] and not r['views'], f"{label}: the client's Overview carries no register and no design cards for a construction job ({r})")
+    s = await pg.evaluate("""async () => { window.scrollTo(0, 900); const a = scrollY; view = (ROLE_VIEWS.client || []).find(v => v !== 'client') || 'client'; render(); await new Promise(r => setTimeout(r, 150)); return [a, scrollY, view]; }""")
+    c.ok(s[1] == 0, f"{label}: a new screen opens at its top ({s})")
+
+
 async def findable(c, pg, label, rid):
     await sign_in(pg, 'u_owner')
     r = await pg.evaluate("""id => { const q = erpQuery({ entity: 'sheets', q: 'A-201 121 State' }); const k = palIndex().filter(i => i.k === 'Plans');
@@ -369,6 +380,7 @@ async def run(c, p, phone):
         await impact(c, pg, label)
         await thread(c, pg, label)
         await question(c, pg, label)
+        await client_view(c, pg, label)
         await findable(c, pg, label, rid)
         await after_reload(c, pg, label, rid)
     finally:
