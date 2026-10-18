@@ -13634,7 +13634,8 @@ function payrollAction(r, a) {
     if (Math.abs(sum - 100) > 0.5) return void toast(`Allocations total ${sum}% — must be 100%`);
     (r.status = "submitted"),
       r.approvals.push({ ...stamp, action: "submitted" }),
-      audit("payroll", r.id, "submitted");
+      audit("payroll", r.id, "submitted"),
+      r.fromTime || prLinkTime(r);
   }
   if ("approve" === a) {
     r.createdBy && (r.createdBy.toLowerCase(), by.toLowerCase());
@@ -13660,6 +13661,7 @@ function payrollAction(r, a) {
         action: `approved by ${isOwner() ? "the Owner" : ROLE_NAMES[role()] || role()}`,
       }),
       audit("payroll", r.id, "approved"),
+      r.fromTime || prLinkTime(r),
       log(`Payroll approved: ${r.period} ${money(r.total)}`);
   }
   if ("reject" === a) {
@@ -13668,6 +13670,8 @@ function payrollAction(r, a) {
     (r.status = "rejected"),
       r.approvals.push({ ...stamp, action: "rejected", note: why }),
       audit("payroll", r.id, "rejected", null, { note: why });
+    // a rejected run pays nothing: its hours are free for the run that replaces it
+    (DB.time || []).forEach((e) => e.payrollId === r.id && delete e.payrollId), (r.timeIds = []);
   }
   "paid" === a &&
     ((r.status = "paid"),
@@ -15044,6 +15048,14 @@ function timeAction(e, a) {
 function prInRun(r, e) {
   return r && e ? (r.fromTime ? e.payrollId === r.id : e.date >= r.from && e.date <= r.to && entOfEmpId(e.empId) === (r.entityId || "ent1")) : !1;
 }
+// A run typed by hand (not built from time) covers its dates for its entity: once it is approved, or when the
+// seed records it, its approved entries carry its id and it lists them (r.timeIds), the same two-way tie a run
+// built from time has, so those hours are never paid on a second run.
+function prLinkTime(r) {
+  if (!r || r.fromTime || !r.from || !r.to) return [];
+  const E = (DB.time || []).filter((e) => "approved" === e.status && !e.payrollId && prInRun(r, e));
+  return E.forEach((e) => (e.payrollId = r.id)), (r.timeIds = [...new Set([...(r.timeIds || []), ...E.map((e) => e.id)])]), E;
+}
 // each entity's share of a run: a run across entities carries r.entities; any other run is one entity's
 function prParts(r) {
   return r && Array.isArray(r.entities) && r.entities.length ? r.entities : [{ entityId: (r && r.entityId) || "ent1", gross: +(r && r.gross) || 0, taxes: +(r && r.taxes) || 0, total: +(r && r.total) || 0 }];
@@ -15063,7 +15075,8 @@ function payPeriodOf(day) {
 function payrollFromTime(opts) {
   const o = opts || {};
   let P = payPeriodOf(today());
-  const all = DB.time.filter((t) => "approved" === t.status && !t.payrollId);
+  // hours dated after today are not worked yet: never in a run
+  const all = DB.time.filter((t) => "approved" === t.status && !t.payrollId && t.date <= today());
   all.some((t) => t.date >= P.from && t.date <= P.to) ||
     DB.payroll.some((r) => r.fromTime && r.from === P.from && ["draft", "submitted"].includes(r.status)) ||
     (P = payPeriodOf(iso(addDays(P.from, -1))));
@@ -15109,7 +15122,7 @@ function payrollFromTime(opts) {
   const total = r2(gross + taxes),
     ents = Object.values(byEnt).sort((a, b) => b.total - a.total),
     alloc = Object.entries(projAmt).map(([pid, amt]) => ({ projectId: pid, pct: total ? r2((amt / total) * 100) : 0 })),
-    by = S.project.userName || role(),
+    by = o.by || S.project.userName || role(),
     fields = {
       period: `${fmt(P.from)} – ${fmt(P.payDate)}`,
       from: P.from,
@@ -15127,6 +15140,8 @@ function payrollFromTime(opts) {
       fromTime: !0,
       detail: detail,
       late: late.length,
+      // the run lists its time entries, and each entry carries the run's id (below): labor ties both ways
+      timeIds: entries.map((t) => t.id),
     };
   let run = open;
   if (run) {
@@ -15140,9 +15155,9 @@ function payrollFromTime(opts) {
       {
         id: uid("pr"),
         payDate: P.payDate < today() ? addWork(today(), 3) : P.payDate,
-        status: "submitted",
+        status: o.status || "submitted",
         approvals: [{ t: nowStamp(), ts: appNowIso(), by: by, role: role(), action: "built from approved time" }],
-        createdBy: S.project.userName || "",
+        createdBy: o.by || S.project.userName || "",
       },
       fields,
     )),
@@ -189608,3 +189623,120 @@ AG_ASST.unshift(
     },
   },
 );
+
+// ---- the demo seed tells the truth the way the live firm will (leak_test [5]) --------------------------------
+// Every seeded bill carries its source document, stored the way an uploaded bill's invoice is: a PDF in the
+// job's Documents (blob through putBlob, the record in p.files) attached to the bill by b.fileId, with the
+// "document-attached" audit line the Attach Document sheet writes. The PDF is invented from the bill itself
+// (vendor, number, dates, lines, PO, job), so the document and the bill agree. Seeded payroll ties to time:
+// the run typed by hand for 8/17 – 8/28 lists the hours it paid (prLinkTime), and the open pay period's
+// approved hours are collected on its draft run by the real path (payrollFromTime), so every approved entry
+// carries its run's id and every run lists its entries. Submitted hours wait for approval, as they do live.
+function sdTextPdf(lines) {
+  const pdfEsc = (s) =>
+      String(s)
+        .replace(/[—–]/g, "-")
+        .replace(/[’‘]/g, "'")
+        .replace(/[×]/g, "x")
+        .replace(/[^\x20-\x7e]/g, "?")
+        .replace(/[\\()]/g, (m) => "\\" + m),
+    content = "BT /F1 11 Tf 56 750 Td 15 TL\n" + lines.map((l) => `(${pdfEsc(l)}) Tj T*`).join("\n") + "\nET",
+    objs = [
+      "<< /Type /Catalog /Pages 2 0 R >>",
+      "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+      "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+      `<< /Length ${content.length} >>\nstream\n${content}\nendstream`,
+      "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ];
+  let out = "%PDF-1.4\n";
+  const offs = [];
+  objs.forEach((o, i) => {
+    offs.push(out.length), (out += `${i + 1} 0 obj\n${o}\nendobj\n`);
+  });
+  const x = out.length;
+  return (
+    (out +=
+      `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n` +
+      offs.map((n) => String(n).padStart(10, "0") + " 00000 n \n").join("") +
+      `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${x}\n%%EOF\n`),
+    "data:application/pdf;base64," + btoa(out)
+  );
+}
+function sdBillPdfLines(b) {
+  const p = (DB.projects || []).find((x) => x.id === b.projectId),
+    po = b.poId && (DB.pos || []).find((x) => x.id === b.poId),
+    ent = (DB.entities || []).find((e) => e.id === b.entityId) || (DB.entities || [])[0] || { name: "SmartDesign Group LLC" },
+    usd = (n) => "$" + (+n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+    md = (d) => (d ? `${d.slice(5, 7)}/${d.slice(8, 10)}/${d.slice(0, 4)}` : "");
+  return [
+    String(b.vendor || "").toUpperCase(),
+    "INVOICE",
+    `Invoice no. ${b.number}`,
+    `Invoice date ${md(b.date)}${b.due ? `    Due ${md(b.due)}` : ""}`,
+    `Bill to: ${ent.name}`,
+    p ? `Job: ${p.project.name}` : "",
+    po ? `PO: ${po.number}` : "",
+    "",
+    ...(b.lines || []).map((l) => `${l.desc}    ${usd(l.amount)}`),
+    "",
+    `Total due ${usd(billTotal(b))}`,
+    b.terms ? `Terms: ${b.terms}` : "",
+  ].filter((l, i, A) => l !== "" || (A[i - 1] !== "" && i > 0));
+}
+function sdSeedBillDocs() {
+  (DB.bills || [])
+    .filter((b) => !b.fileId && b.number && b.vendor && b.projectId && !["draft", "void", "rejected"].includes(b.status))
+    .forEach((b) => {
+      const p = (DB.projects || []).find((x) => x.id === b.projectId);
+      if (!p) return;
+      const id = uid("f"),
+        dataUrl = sdTextPdf(sdBillPdfLines(b)),
+        rec = {
+          id: id,
+          name: `${b.vendor} — invoice ${b.number}.pdf`,
+          type: "application/pdf",
+          size: Math.round(0.75 * (dataUrl.length - dataUrl.indexOf(",") - 1)),
+          cat: "receipt",
+          date: b.date || today(),
+          by: b.createdBy || "",
+          link: null,
+          notes: `Vendor invoice ${b.number}, attached to the bill`,
+          shareClient: !1,
+          ai: null,
+          seen: !0,
+          persisted: !1,
+          uploadedAt: `${b.date || today()}T09:00:00`,
+        };
+      (p.files = p.files || []).push(rec), (b.fileId = id);
+      try {
+        Promise.resolve(putBlob(id, dataUrl)).then((ok) => {
+          ok && ((rec.persisted = !0), save());
+        });
+      } catch (e) {}
+      audit("bill", b.id, "document-attached", "", id, `${b.number} · ${b.status} · ${rec.name}`);
+    });
+}
+function sdSeedPayrollLinks() {
+  (DB.payroll || []).forEach((r) => r.fromTime || ["draft", "rejected", "void"].includes(r.status) || prLinkTime(r));
+  const keep = S.project.userName;
+  try {
+    payrollFromTime({ quiet: !0, status: "draft", by: "Chen" });
+  } finally {
+    S.project.userName = keep;
+  }
+}
+if ("function" == typeof finishBoot) {
+  const finishBootBase_sdTruth = finishBoot;
+  finishBoot = function () {
+    const r = finishBootBase_sdTruth.apply(this, arguments);
+    try {
+      if (DB && !DB.__sdTruthSeeded && !("function" == typeof sdSeedsOff && sdSeedsOff())) {
+        DB.__sdTruthSeeded = 1;
+        sdSeedBillDocs(), sdSeedPayrollLinks(), save();
+      }
+    } catch (e) {
+      console.warn("truth seed", e);
+    }
+    return r;
+  };
+}
