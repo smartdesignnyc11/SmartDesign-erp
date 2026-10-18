@@ -317,7 +317,44 @@ async def t_money(c, p):
     c.ok(r is False, 'money: only billing and the controller reverse a payment')
     await b.close()
 
-EXTRA = [('mail', t_mail), ('money', t_money)]
+
+# ------------------------------------------------------------------------------------------------ 4: agency mail
+async def t_agency(c, p):
+    b, pg, errs = await fresh(p, 'u_alan')
+    r = await js(pg, """
+      const p = DB.projects.find(x => x.id === 'p121'), g = p.tasks.find(t => t.id === 'gwb'), i3 = p.inspections.find(i => i.id === 'i3');
+      const us = (d) => d.slice(5, 7) + '/' + d.slice(8) + '/' + d.slice(0, 4);
+      const d1 = prevWork(iso(addDays(g.start, -6))), d2 = g.start;
+      i3.status = 'not-scheduled'; i3.date = '';
+      DB.field.subs.push({ id: 'pf2sub', projectId: 'p121', vendor: 'Gowanus Plumbing Co', trade: 'Plumbing', date: d1, status: 'confirmed', taskId: 'rplumb' });
+      const mk = (id, day, sub) => ({ msgId: id, threadId: id, channel: 'email', from: { name: 'DOB NOW', email: 'noreply@dobnow.example' }, to: ['alan@smartdesign.nyc'], cc: [],
+        date: day + 'T08:00:00', subject: sub, text: ['DOB NOW Inspections', 'Job B09990001-I1, 121 STATE STREET, BROOKLYN', 'Inspection type: Plumbing rough', sub].join(' / '), attachments: [], source: 'demo', owner: 'u_alan', labels: ['INBOX'] });
+      cmImport([mk('pf2dob1', iso(addDays(today(), -1)), 'DOB NOW: Job B09990001-I1 - rough plumbing inspection scheduled ' + us(d1) + ' window 8:00 AM - 12:00 PM - 121 STATE STREET')]);
+      cmImport([mk('pf2dob2', today(), 'DOB NOW: Job B09990001-I1 - rough plumbing inspection window ' + us(d2) + ' 8:00 AM - 12:00 PM - 121 STATE STREET')]);
+      const cm = DB.comms.find(x => x.msgId === 'pf2dob2'), pr = (cm.proposals || []).find(x => x.kind === 'inspection');
+      return { d1, d2, gstart: g.start, pr: pr && { summary: pr.summary, moveFrom: pr.moveFrom, subs: pr.subMoves, gate: pr.gate } };""")
+    pr = r['pr'] or {}
+    c.ok(pr.get('moveFrom') == r['d1'], f"agency: the second notice on the docket proposes the move from the first date ({pr.get('moveFrom')} vs {r['d1']})")
+    c.ok(any(x['id'] == 'pf2sub' for x in (pr.get('subs') or [])), f"agency: the plumber booked for the old day moves with it ({pr.get('subs')})")
+    c.ok(pr.get('gate') and pr['gate']['taskId'] == 'gwb' and pr['gate']['to'] > r['d2'], f"agency: the task it gates moves past the new date ({pr.get('gate')})")
+    c.ok('moves it from' in (pr.get('summary') or ''), f"agency: the proposal says what it moves ({pr.get('summary')!r})")
+    # the foreman sees it on Site before anyone applies it
+    r2 = await js(pg, """
+      signIn('u_angel'); setCurrent('p121'); view = 'fsite'; render(); await sleep(250);
+      const t = (document.querySelector('.ag-move') || {}).innerText || '';
+      signIn('u_alan'); render(); await sleep(100);
+      const cm = DB.comms.find(x => x.msgId === 'pf2dob2'), pr = cm.proposals.find(x => x.kind === 'inspection');
+      cmApply(cm, pr); await sleep(100);
+      const p = DB.projects.find(x => x.id === 'p121'), i3 = p.inspections.find(i => i.id === 'i3'), g = p.tasks.find(t => t.id === 'gwb'), sb = DB.field.subs.find(s => s.id === 'pf2sub');
+      return { site: t, i3: [i3.status, i3.date], g: [g.start, (g.history || []).slice(-1)[0]], sb: [sb.date, sb.status], applied: pr.applied };""")
+    c.ok('Agency Notice' in r2['site'], f"agency: Site shows the move before it is booked ({r2['site'][:160]!r})")
+    c.ok(r2['i3'] == ['scheduled', r['d2']], f"agency: applying books the new date ({r2['i3']})")
+    c.ok(r2['g'][0] > r['d2'] and r2['g'][1] and r2['g'][1].get('source') == 'inspection', f"agency: the gated task moves with its history ({r2['g']})")
+    c.ok(r2['sb'] == [r['d2'], 'unconfirmed'], f"agency: the booking moves to the new day, to confirm ({r2['sb']}; {r2['applied']})")
+    c.ok(not errs, f'agency: no page errors ({errs[:2]})')
+    await b.close()
+
+EXTRA = [('mail', t_mail), ('money', t_money), ('agency', t_agency)]
 
 if __name__ == '__main__':
     sys.exit(asyncio.run(main()))

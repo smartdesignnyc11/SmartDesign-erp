@@ -72900,8 +72900,11 @@ function cmRead(c) {
   }
   // A DOB NOW inspection notice proposes the booking with its window (cmDobNow, kept apart; see Book Inspection).
   {
-    const bk = "function" == typeof cmDobNow ? cmDobNow(all, R) : null;
-    bk && push("inspection", `${where || "Inspection"}: book ${bk.name} for ${fmtL(bk.date)}${bk.from ? ` ${bk.from}–${bk.to}` : ""} — from the DOB NOW notice`, bk);
+    let bk = "function" == typeof cmDobNow ? cmDobNow(all, R) : null;
+    const via = bk ? "DOB NOW" : "agency";
+    !bk && "function" == typeof agInspFromMail && (bk = agInspFromMail(all, R));
+    bk && "function" == typeof agInspEffect && (bk = agInspEffect(bk, c));
+    bk && push("inspection", `${where || "Inspection"}: book ${bk.name} for ${fmtL(bk.date)}${bk.from ? ` ${bk.from}–${bk.to}` : ""} — from the ${via} notice${bk.effect ? "; " + bk.effect : ""}`, bk);
   }
   // Our own card's or bank's statement is not a vendor bill: its lines are the feed. It is imported.
   const ourCard =
@@ -73397,8 +73400,8 @@ function cmApply(c, p) {
   } else if ("inspection" === p.kind) {
     const pr = p.projectId && DB.projects.find((x) => x.id === p.projectId),
       i = pr && (pr.inspections || []).find((x) => x.id === p.inspId);
-    i && "function" == typeof inspBook && inspBook(pr, i, { date: p.date, from: p.from, to: p.to, docket: p.docket, via: "DOB NOW" }),
-      (did = i ? "inspection booked" : "no matching inspection");
+    const moved = i && "function" == typeof inspBook ? (inspBook(pr, i, { date: p.date, from: p.from, to: p.to, docket: p.docket, via: "DOB NOW" }), "function" == typeof agInspApply ? agInspApply(pr, p) : []) : [];
+    did = i ? `inspection booked${moved.length ? "; " + moved.join("; ") : ""}` : "no matching inspection";
   } else if ("bill" === p.kind && (p.amountUnread || !(+p.amount > 0) || !(p.vendorId || R.vendorId))) {
     // A bill whose amount the reader never saw (an unread PDF), or whose sender is not a vendor on file, writes
     // no money: the person opens the document and enters it (owner review r5, findings 1 and 2).
@@ -167659,6 +167662,113 @@ function inspBookDialog(id) {
       },
     },
   );
+}
+// ---- Agency mail moves the inspection and says what it moves (pilot 9/8: DOB NOW moved the rough plumbing
+// inspection on B01528834-I1 from 9/8 to 9/22; Site still showed the plumber confirmed for 9/8, so the foreman would
+// have waited for an inspector who was not coming). A DOB NOW, LPC or inspection notice proposes the inspection's new
+// date, the date it moves from (its booking, or the earlier notice on the same docket), the task it gates that can no
+// longer start in time, and the site bookings made for the old date. Applying it books the date, moves the gated task
+// (with its history and dependents) and moves the bookings, unconfirmed, so the trade confirms the new day.
+const AG_KIND = [
+  [/plumb/i, /plumb/i],
+  [/elec/i, /elec/i],
+  [/energy|insul/i, /energy|insul/i],
+  [/final|letter of completion/i, /final|completion/i],
+  [/\blpc\b|landmark/i, /\blpc\b|landmark/i],
+];
+function agKindRx(text) {
+  const k = AG_KIND.find(([a]) => a.test(text || ""));
+  return k ? k[1] : null;
+}
+// an LPC or inspection notice that is not a DOB NOW mail: an agency, a reschedule word and a date
+function agInspFromMail(all, R) {
+  const p = R && R.projectId && (DB.projects || []).find((x) => x.id === R.projectId);
+  if (!p || /dob\s*now/i.test(all)) return null;
+  if (!/\b(lpc|landmarks preservation|inspection|inspector)\b/i.test(all) || !/\b(reschedul\w*|moved|postponed|new date|now (?:on|set for)|window|scheduled for)\b/i.test(all)) return null;
+  const yr = String(today()).slice(0, 4),
+    m1 = all.match(/\b(\d{1,2})\/(\d{1,2})\/(\d{4})\b/),
+    m2 = all.match(/\b(?:mon|tues|wednes|thurs|fri|satur|sun)day,?\s+(\d{1,2})\/(\d{1,2})\b/i),
+    date = m1 ? `${m1[3]}-${m1[1].padStart(2, "0")}-${m1[2].padStart(2, "0")}` : m2 ? `${yr}-${m2[1].padStart(2, "0")}-${m2[2].padStart(2, "0")}` : "";
+  if (!date || date < today()) return null;
+  const lpc = /\blpc\b|landmark/i.test(all),
+    kind = agKindRx(all),
+    i = (p.inspections || []).find((x) => "passed" !== x.status && (lpc ? "LPC" === x.agency || /lpc|landmark/i.test(x.name || "") : !kind || kind.test(x.name || "")) && !/permit issued|\(existing\)/i.test(x.name || ""));
+  return i ? { inspId: i.id, name: i.name, date: date, from: "", to: "", docket: (all.match(/\b(?:[BME]\d{8}(?:-I\d(?:-EL)?)?|LPC-\d{2}-\d{4,})\b/) || [])[0] || "", projectId: p.id } : null;
+}
+// what the new date moves: the date it moves from, the gated task, the site bookings for the old date
+function agInspEffect(bk, c) {
+  const p = bk && (DB.projects || []).find((x) => x.id === bk.projectId),
+    i = p && (p.inspections || []).find((x) => x.id === bk.inspId);
+  if (!i) return bk;
+  let from = "scheduled" === i.status && i.date && i.date !== bk.date ? i.date : "";
+  if (!from && bk.docket) {
+    // the earlier notice on the same docket said another day
+    const prev = (DB.comms || [])
+      .filter((x) => x !== c && x.id !== (c || {}).id && String(x.date || "") < String((c || {}).date || "9999") && `${x.subject || ""} ${x.text || ""}`.includes(bk.docket))
+      .map((x) => {
+        try {
+          return cmDobNow(`${x.subject || ""}\n${x.text || ""}`, { projectId: p.id });
+        } catch (e) {
+          return null;
+        }
+      })
+      .filter((x) => x && x.inspId === i.id && x.date !== bk.date)
+      .pop();
+    prev && (from = prev.date);
+  }
+  const kind = agKindRx(i.name),
+    subs = from ? (((DB.field || {}).subs || []).filter((s) => s.projectId === p.id && s.date === from && "noshow" !== s.status && (!kind || kind.test(`${s.vendor || ""} ${s.trade || ""}`) || (s.inspId && s.inspId === i.id)))) : [],
+    g = i.gates && (p.tasks || []).find((t) => t.id === i.gates),
+    gate = g && "planned" === g.status && g.start <= bk.date ? withProject(p, () => { const s = nextWork(addWork(bk.date, 1, g.weekendOk), g.weekendOk); return { taskId: g.id, name: g.name, from: g.start, to: s, days: workdays(g.start, s) }; }) : null,
+    bits = [];
+  from && bits.push(`moves it from ${fmtL(from)}`),
+    subs.length && bits.push(`${subs.map((s) => s.vendor).join(", ")} ${1 === subs.length ? "is" : "are"} booked on site ${fmtL(from)} for it: move ${1 === subs.length ? "the booking" : "them"} to ${fmtL(bk.date)}`),
+    gate && bits.push(`${gate.name} cannot start ${fmtL(gate.from)} before it passes: it moves to ${fmtL(gate.to)}`);
+  return Object.assign(bk, { moveFrom: from, subMoves: subs.map((s) => ({ id: s.id, vendor: s.vendor, from: s.date })), gate: gate, effect: bits.join("; ") });
+}
+// apply: the gated task and the bookings move with the inspection
+function agInspApply(p, prop) {
+  const out = [];
+  if (!p || !prop) return out;
+  (prop.subMoves || []).forEach((m) => {
+    const s = ((DB.field || {}).subs || []).find((x) => x.id === m.id);
+    s && s.date === m.from && ((s.movedFrom = s.date), (s.date = prop.date), (s.status = "unconfirmed"), (s.note = `${s.note ? s.note + " · " : ""}moved with the inspection from ${fmtL(m.from)}; confirm the new day`), out.push(`${s.vendor} moved to ${fmtL(prop.date)}, to confirm`));
+  });
+  const G = prop.gate;
+  G &&
+    withProject(p, () => {
+      const t = (p.tasks || []).find((x) => x.id === G.taskId);
+      if (!t || "planned" !== t.status || t.start > prop.date) return;
+      const was = { start: t.start, end: t.end },
+        d = dur(t),
+        moved = [];
+      (t.start = G.to), (t.end = endFromStart(t.start, d, t.weekendOk)), recordMove(t, was, "inspection", `${prop.name || "the inspection"} moved to ${fmtL(prop.date)} by agency notice`), pushDependents(t.id, moved), out.push(`${t.name} to ${fmtL(t.start)}${moved.length ? ` (and ${moved.length} after it)` : ""}`);
+    });
+  return out;
+}
+// Site carries an agency change before anyone applies it: the foreman sees the inspection is moving
+if ("function" == typeof fRenderSite) {
+  const fRenderSiteBase_ag = fRenderSite;
+  fRenderSite = function () {
+    const r = fRenderSiteBase_ag.apply(this, arguments);
+    try {
+      const root = document.getElementById("fsite-body");
+      if (root && !root.querySelector(".ag-move")) {
+        const P = [];
+        (DB.comms || []).forEach((c) =>
+          (c.proposals || []).forEach((x) => {
+            "inspection" === x.kind && !x.applied && x.projectId === S.id && x.date >= today() && !P.some((y) => y.inspId === x.inspId && y.date === x.date) && P.push(x);
+          }),
+        );
+        P.length &&
+          root.insertAdjacentHTML(
+            "afterbegin",
+            `<div class="card f-card warn ag-move"><div class="hd"><h3>Agency Notice</h3></div>${P.map((x) => `<div class="f-row col"><b>${esc(x.name)}: ${esc(fmtL(x.date))}${x.from ? ` ${esc(x.from)}–${esc(x.to)}` : ""}</b><span class="small">${esc(x.effect || "from the agency's notice")}. Waiting on the office to book it.</span></div>`).join("")}</div>`,
+          );
+      }
+    } catch (e) {}
+    return r;
+  };
 }
 function inspBook(p, i, o) {
   const td = today(),
