@@ -354,7 +354,43 @@ async def t_agency(c, p):
     c.ok(not errs, f'agency: no page errors ({errs[:2]})')
     await b.close()
 
-EXTRA = [('mail', t_mail), ('money', t_money), ('agency', t_agency)]
+
+# ------------------------------------------------------------------------------------------------ 5: driver
+async def t_driver(c, p):
+    b, pg, errs = await fresh(p, 'u_chen')
+    r = await js(pg, """
+      await gcDemoConnect(); try { clearInterval(gsTimerId); } catch (e) {}
+      const ready = drvReadyPickups();
+      // a "we pick up" PO marked ready is a stop too
+      const po = DB.pos.find(x => x.projectId === 'p121' && ['issued', 'partial'].includes(x.status));
+      po.readyForPickup = { at: appNowIso(), by: 'Chen Biron' };
+      signIn('u_alex'); setCurrent('p121'); view = 'route'; render(); await sleep(300);
+      const v = (document.querySelector('#v-route') || document.body).innerText;
+      return { ready: ready.map(x => [x.vendor, x.orderRef, x.projectId]), v, po: po.number, vendor: po.vendor };""")
+    c.ok(any(x[1] == '88412' for x in r['ready']), f"driver: the vendor's ready mail is a ready pickup ({r['ready']})")
+    c.ok('order 88412' in r['v'] and 'Brooklyn Lumber' in r['v'], "driver: the Route has the Brooklyn Lumber stop with its order number")
+    c.ok(r['po'] in r['v'], f"driver: a PO marked ready for pickup is on the Route ({r['po']})")
+    c.ok('Buy 25 boards GWB' not in r['v'], 'driver: the boards already paid at the yard are not bought again at the store')
+    # the job chat: crew and site only, no client money; a message to the coordinator by name
+    r = await js(pg, """
+      const p = DB.projects.find(x => x.id === 'p121'), cl = DB.clients.find(x => x.id === p.clientId);
+      p.chat.push({ id: 'pf2c1', by: (cl.contacts[0] || {}).name || cl.name, text: 'Before we sign the change order, how many days does it add?', t: nowStamp(), files: [] },
+                  { id: 'pf2c2', by: 'System', text: 'INV-2026-099 - Progress billing ($11,386) is ready for you on your Overview', t: nowStamp(), files: [] },
+                  { id: 'pf2c3', by: 'Alberto', text: 'Framing in the garden bedroom is done, plumber can start', t: nowStamp(), files: [] });
+      view = 'chat'; render(); await sleep(250);
+      const list = document.getElementById('chat-list').innerText;
+      const to = document.getElementById('chat-to'), opts = to ? [...to.options].map(o => o.textContent) : [];
+      to.value = 'u_chen'; document.getElementById('chat-text').value = 'What time is the yard pickup for 88412?'; sendChat(); await sleep(300);
+      const a = (p.actions || []).find(x => /Answer Alex/.test(x.title));
+      return { list, opts, a: a && [a.assignee, a.title] };""")
+    c.ok('how many days' not in r['list'] and 'INV-2026-099' not in r['list'], f"driver: the job chat shows no client question and no client money ({r['list'][-300:]!r})")
+    c.ok('Framing in the garden bedroom' in r['list'], 'driver: crew messages show')
+    c.ok(any('Chen Biron' in o for o in r['opts']), f"driver: the coordinator can be messaged by name ({r['opts']})")
+    c.ok(r['a'] and r['a'][0] == 'Chen Biron', f"driver: the message is on Chen's list ({r['a']})")
+    c.ok(not errs, f'driver: no page errors ({errs[:2]})')
+    await b.close()
+
+EXTRA = [('mail', t_mail), ('money', t_money), ('agency', t_agency), ('driver', t_driver)]
 
 if __name__ == '__main__':
     sys.exit(asyncio.run(main()))

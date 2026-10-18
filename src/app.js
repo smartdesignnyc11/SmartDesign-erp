@@ -178920,6 +178920,63 @@ function cmApplyPickup(c, p, by) {
     r.log.push({ t: nowStamp(), by: by, text: `Pickup stop added for the driver — ${vn}` });
   return `a pickup stop at ${vn} on the driver's route for ${String(pr.project.name).replace(/ —.*$/, "")}${p.by ? `, by ${fmtL(p.by)}` : ""}`;
 }
+// ---- A ready pickup reaches the driver's Route with its order number (pilot 9/8: Brooklyn Lumber's order 88412, paid
+// and ready at the yard since 9/1, never reached the Route, which said "Nothing at the office wanted" and sent the
+// driver to Home Depot to buy the same boards). Two sources: the vendor's ready mail (its pickup proposal, before
+// anyone applies it, said so on the stop), and a "we pick up" PO marked ready or due. A request already open for the
+// same goods on that job is covered by the pickup, so the boards are not bought twice.
+const DRV_WORD = (s) => String(s || "").toLowerCase().match(/[a-z][a-z0-9/]{2,}/g) || [];
+const DRV_STOP = new Set(["ea", "and", "the", "for", "pcs", "boards", "board", "sheet", "sheets", "box", "boxes", "bag", "bags", "roll", "rolls", "needed", "with", "x4x8"]);
+function drvReadyPickups() {
+  const out = [],
+    seen = new Set(),
+    applied = new Set();
+  (DB.projects || []).forEach((p) => (p.requests || []).forEach((r) => r.orderRef && applied.add(`${String(r.pickupVendor || "").toLowerCase()}|${r.orderRef}`)));
+  (DB.comms || []).forEach((c) => {
+    if (["ignored", "spam"].includes(c.status)) return;
+    (c.proposals || []).forEach((x) => {
+      if ("pickup" !== x.kind || x.applied || !1 === x.on || !x.projectId || !(x.items || []).length) return;
+      const vn = x.vendorName || (c.from && (c.from.name || c.from.email)) || "the vendor",
+        k = `${vn.toLowerCase()}|${x.orderRef || c.threadId || c.id}`;
+      if (seen.has(k) || applied.has(k)) return;
+      seen.add(k), out.push({ key: k, vendor: vn, projectId: x.projectId, items: x.items, orderRef: x.orderRef || "", by: x.by || "", paid: +x.amount || 0, from: "mail", commId: c.id });
+    });
+  });
+  (DB.pos || []).forEach((po) => {
+    if (!["issued", "partial"].includes(po.status) || !po.projectId) return;
+    const ready = po.readyForPickup || ("pickup" === po.shipVia && po.expected && po.expected <= today());
+    if (!ready) return;
+    const k = `${String(po.vendor || "").toLowerCase()}|${po.number}`;
+    seen.has(k) ||
+      (seen.add(k),
+      out.push({ key: k, vendor: po.vendor, projectId: po.projectId, items: (po.lines || []).filter((l) => (+l.qty || 0) > (+l.received || 0)).map((l) => ({ what: l.item || l.desc || "", qty: r2((+l.qty || 0) - (+l.received || 0)), unit: l.unit || "ea" })), orderRef: po.number, by: po.expected || "", paid: 0, from: "po", poId: po.id }));
+  });
+  return out.filter((x) => x.items.length);
+}
+if ("function" == typeof runItems) {
+  const runItemsBase_drv = runItems;
+  runItems = function () {
+    const out = runItemsBase_drv.apply(this, arguments);
+    try {
+      drvReadyPickups().forEach((x) => {
+        const p = (DB.projects || []).find((q) => q.id === x.projectId);
+        if (!p) return;
+        const words = new Set(x.items.flatMap((i) => DRV_WORD(i.what)).filter((w) => !DRV_STOP.has(w)));
+        // the open request for the same goods is covered by the pickup
+        for (let k = out.length - 1; k >= 0; k--) {
+          const o = out[k];
+          o.p.id === p.id && !o.it.invId && !o.it.garbage && !/^v:/.test(o.it.pickupFrom || "") && DRV_WORD(o.it.what).some((w) => words.has(w)) && ((x.covers = (x.covers || []).concat(o.r.id)), out.splice(k, 1));
+        }
+        const cov = (p.requests || []).find((q) => (x.covers || []).includes(q.id)),
+          r = { id: `rp:${x.key}`, status: "ack", by: (cov && cov.by) || "the site", neededBy: x.by || today(), orderRef: x.orderRef, pickupVendor: x.vendor, note: x.from === "mail" ? `from ${x.vendor}'s ready mail${x.paid ? `, paid ${money(x.paid)}` : ""}; the office has not confirmed it yet` : `${x.orderRef}, ready for pickup`, synthetic: !0, items: [] };
+        x.items.forEach((it, i) => out.push({ p: p, r: r, it: { what: it.what, qty: it.qty, unit: it.unit, bought: !1, pickupFrom: "v:" + x.vendor, garbage: "" }, i: i, key: `${r.id}:${i}` }));
+      });
+    } catch (e) {
+      console.warn("ready pickups", e);
+    }
+    return out;
+  };
+}
 function cmApplyCredit(c, p, by) {
   const v = (DB.vendors || []).find((x) => x.id === p.vendorId),
     vn = v ? v.name : (c.from && c.from.name) || "the vendor",
@@ -183277,6 +183334,88 @@ if ("function" == typeof sendChat) {
       cl = "client" === role();
     } catch (e) {}
     return cl ? clChatSend(attach) : base.apply(this, arguments);
+  };
+}
+// ---- Field roles see crew and site messages only (pilot 9/8: the driver's job chat showed the client's question
+// about a change order and the client's invoice and CO notices, client money on a driver's phone). A message from a
+// client, a client's question, or a notice about an invoice, change order, estimate or payment stays with the office.
+const CHAT_FIELD = () => ["foreman", "crew", "driver"].includes(role());
+const CHAT_MONEY_RX = /\b(INV|CO|EST)-\d{4}-\d+|\binvoice\b|change order|\bestimate\b|\bpayment\b|\bdeposit\b|\bretainer\b|\$\s?\d/i;
+function chatFieldSees(m, p) {
+  if (!m) return !1;
+  if (m.clq || m.client || "client" === m.role) return !1;
+  const by = String(m.by || "").trim().toLowerCase(),
+    cl = (DB.clients || []).find((c) => c.id === (p || S).clientId),
+    clientNames = cl ? [cl.name, ...(cl.contacts || []).map((x) => x.name)].filter(Boolean).map((x) => String(x).toLowerCase()) : [],
+    clientUsers = (DB.users || []).filter((u) => "client" === u.role).map((u) => String(u.name || "").toLowerCase());
+  if (by && (clientNames.includes(by) || clientUsers.includes(by) || clientNames.some((n) => n.split(/\s*&\s*|\s+and\s+/).some((x) => x && x === by)))) return !1;
+  if (m.to && m.to !== ((currentUser() || {}).id || "") && m.fromUid !== ((currentUser() || {}).id || "") && m.dm) return !1;
+  return !CHAT_MONEY_RX.test(String(m.text || ""));
+}
+if ("function" == typeof renderChat) {
+  const renderChatBase_field = renderChat;
+  renderChat = function () {
+    if (!CHAT_FIELD() || !S || !Array.isArray(S.chat)) return renderChatBase_field.apply(this, arguments);
+    const keep = S.chat;
+    S.chat = keep.filter((m) => chatFieldSees(m, S));
+    try {
+      return renderChatBase_field.apply(this, arguments);
+    } finally {
+      S.chat = keep;
+      try {
+        chatDmBar();
+      } catch (e) {}
+    }
+  };
+}
+// ---- Message someone by name from the field: the coordinator, the PM, the foreman. The message lands on the job's
+// chat addressed to them and on their task list, so it is answered, not lost in the job's stream.
+function chatPeople() {
+  const me = (currentUser() || {}).id;
+  return (DB.users || []).filter((u) => u.id !== me && ["coord", "pm", "owner", "foreman"].includes(u.role) && u.name);
+}
+function chatDmBar() {
+  const v = document.getElementById("v-chat"),
+    comp = v && v.querySelector(".chat-compose");
+  if (!comp || !CHAT_FIELD() || v.querySelector("#chat-dm")) return;
+  const P = chatPeople().sort((a, b) => ("coord" === b.role) - ("coord" === a.role));
+  if (!P.length) return;
+  comp.insertAdjacentHTML(
+    "beforebegin",
+    `<div class="row" id="chat-dm" style="gap:6px;margin:8px 0;flex-wrap:wrap;align-items:center"><span class="small muted">To</span><select id="chat-to" aria-label="To" style="flex:1;min-width:150px"><option value="">Everyone on the job</option>${P.map((u) => `<option value="${u.id}">${esc(u.name)} · ${esc((void 0 !== ROLE_NAMES && ROLE_NAMES[u.role]) || u.role)}</option>`).join("")}</select></div>`,
+  );
+}
+function chatSendTo(uidTo, text) {
+  const u = (DB.users || []).find((x) => x.id === uidTo),
+    me = currentUser() || {},
+    t = String(text || "").trim();
+  if (!u || !t) return null;
+  const msg = { id: uid("ch"), by: me.name || role(), fromUid: me.id || "", to: u.id, dm: !0, text: `To ${u.name}: ${t}`, t: nowStamp(), files: [] };
+  (S.chat = S.chat || []).push(msg);
+  (S.actions = S.actions || []).push({ id: uid("a"), title: `Answer ${me.name || "the field"}: ${t.slice(0, 90)}`, assignee: u.name, due: today(), priority: "high", status: "todo", area: "field", createdAt: appNowIso(), chatId: msg.id });
+  try {
+    audit("chat", msg.id, "message-to", "", u.name, t.slice(0, 120));
+  } catch (e) {}
+  return save(), msg;
+}
+if ("function" == typeof sendChat) {
+  const sendChatBase_dm = sendChat;
+  sendChat = function (attach) {
+    try {
+      const to = document.getElementById("chat-to"),
+        tx = document.getElementById("chat-text");
+      if (CHAT_FIELD() && to && to.value && tx && tx.value.trim() && !/^\/?need\s/i.test(tx.value.trim())) {
+        const u = (DB.users || []).find((x) => x.id === to.value),
+          m = chatSendTo(to.value, tx.value);
+        if (m) {
+          (tx.value = ""), render();
+          return void ("function" == typeof rcToast ? rcToast(`Sent to ${u.name}; it is on their list`, [{ label: "Open", run: () => ((view = "chat"), render()) }]) : toast(`Sent to ${u.name}`));
+        }
+      }
+    } catch (e) {
+      console.warn("message to", e);
+    }
+    return sendChatBase_dm.apply(this, arguments);
   };
 }
 // Do Now / Approvals: the verb opens the reply sheet
