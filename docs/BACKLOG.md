@@ -752,6 +752,85 @@ It then matches the same room, element or tag across sets. Geometry overlay betw
 
 **Needs the platform and the Anthropic API key,** which costs money per use. It is the first agent built once the key is in (§5.8, step 2).
 
+### 1.25 Live jobs: what the firm's real work needs that the ERP can't do yet (Alan, Cowork session 2026-10-17)
+The full job details are in the Cowork handoff's `docs/LIVE_JOBS.md`. They are real client information: they load into the private platform database, never into seeds, tests or commits. The capabilities are built now on invented equivalents, and the demo stays behind a switch for the existing tests.
+1. **Two payers on one contract** (the Bergen St job: landlord and tenant). Each payer is billed for their own lines and has their own AR, statements and portal view.
+2. **Range estimates with allowances** for unknowns (MEP rerouting, code upgrades, foundation depth and underpinning, structure, storm and sewer) **and a paid exploratory phase** that converts into the construction contract once discovery is done (the Dorchester Rd job).
+3. **A normal estimate used to test estimating end to end** (the Sterling Pl job, 4-family to 2-family).
+4. **The hard/soft/contingency cost model as the estimate, plus an HTC budget calculator** (the Lenox Ave church, landmarked, and the rectory). The calculator takes 20% federal plus state credit (20% for the church, 30% for the rectory) on 98.5% of hard and soft costs. Finish materials are priced per SF per property. One job is also a Mercer & Bond deal (the client pays all costs; Mercer & Bond is preparing an all-cash LOI).
+
+### 1.26 A contractor user who can become an employee (Alan, 2026-10-17)
+The senior interior designer starts as an independent contractor. They log hours to a job; approved hours become their bill (not payroll). They can later be converted to an employee with their history kept.
+
+### 1.27 One assistant per person, with approval rules and an activity log (Alan, 2026-10-17; extends §1.24)
+1. **One assistant, not four screens.** Fold the Assistant, Chief of Staff, Brief and Brain screens into one, with four tabs: Chat, Findings, Activity, and Brain settings (owner only). Design gate: this replaces four lists with one.
+2. **Approval rules per action type.** Each action type is set to Act Alone, Ask First or Hand It to Me. The defaults come from the Standard's thresholds; the person (or the owner) changes them. This extends "What My Assistant May Send for Me".
+3. **An Activity log** of everything the assistant did, with its evidence.
+4. **Better than Meta's Muse and OpenAI's dots.** Those see the business as separate apps joined by connectors. Ours lives inside the records, so every finding carries the evidence chain: bank line, bill, PO, estimate line, job.
+
+### 1.28 Role specialists: a standing auditor per role (Alan, 2026-10-17)
+Each role gets an assistant that works through that role's checklist all the time. **Every finding is handled the same six steps:**
+1. State the rule and link the evidence records.
+2. Investigate to the root cause, through records, mail and documents.
+3. Give the options and a recommendation, with the fix already drafted: a journal entry, vendor email, revised PO, invoice, CO or schedule move.
+4. Create a task for the right person, with a due date, and say why that person.
+5. Follow up until the underlying record is actually fixed, not until a box is ticked.
+6. Learn: a dismissal with a reason is never raised again in that form, and an approved fix becomes the default.
+
+**The checklists:**
+- **Controller and finance.**
+  - Bank: unmatched lines; lines typed by hand that the bank never confirmed; duplicate charges; card charges with no receipt or job; accounts not reconciled.
+  - Payables: bills paid before approval; a bill over its PO, or with no PO; a missing W-9 or an expired COI at payment time; 1099 payees not set up; missed early-pay discounts; duplicate vendor invoices.
+  - Receivables: earned but not billed; drafts never sent; overdue invoices, and whether they were chased; retainage due; deposits not applied.
+  - Jobs: WIP over or under billing moving; lines forecasting over budget; committed cost not relieved; COs approved but not billed; job spend coded to overhead.
+  - Close: blockers; the payroll accrual against the actual run; sales tax; unexplained budget variances; anything posted into a closed month.
+- **Founder.** Cash runway and the 13-week low; jobs losing money, and why; margin slipping; collections risk; pipeline; overloaded people (take work off their plate first); client relationships at risk; compliance (licences, insurance, LPC and DOB, HTC); the savings ledger.
+- **PM** (three weeks out). Decisions; materials not ordered by their order-by date; late submittals; inspections; subs not confirmed; tasks behind; COs unpriced or unsigned; client messages unanswered after 2 hours; the Friday update.
+- **Operations and procurement.** Lead times; the three-quote rule; the submittal gate; late deliveries; credits not received; materials bought twice; stock already on hand.
+- **Foreman, billing and designer.** The same pattern, against their own playbooks.
+
+Many of these checks already exist as detectors (CATCH, PRED, price watch, track, stock). This section organises them per role and adds the six-step handling, without duplicating any count (§1.16).
+
+**Role one-liners.** Each role's one-liner from the Standard sits at the top of that person's Home, and their brief is ordered by it.
+
+**Thresholds.** These become enforced, adjustable rules:
+- three quotes over $2,500;
+- an unbudgeted cost over $1,000, or a milestone slip over 2 working days, escalates to Alan;
+- a client acknowledgement timer in the inbox (2 business hours);
+- a Friday client update auto-drafted from the week's daily logs, progress and photos, for the PM to approve.
+
+### 1.29 Cost intelligence (Alan, 2026-10-17; founder, controller, PM and operations all see it)
+1. **Jobs spending more than they bring in.** Flag cash out greater than cash in, or cost ahead of billings, and anything over budget or forecast to go over, by line, with the cause and the fix. One shared rule, so the counts match everywhere.
+2. **Benchmarks from past jobs.** Normalise cost per trade per unit:
+   - rough plumbing material per fixture or bath;
+   - rough electric per device or SF;
+   - sheetrock per board or SF;
+   - taping per SF;
+   - framing per LF or SF.
+   Flag a job or line more than about 15% above the median of comparable past jobs, saying whether the cause is quantity, price or waste. Feed the benchmarks back into estimating.
+3. **A receipt price book.** Read every rough-material receipt at line level (SKU, description, unit, quantity, unit price, store, date). Match items across Home Depot, Lowe's, supply houses and lumber yards, by SKU or UPC or by normalised description (size, gauge, pack quantity, variants). Flag anything bought above the best recent price, with the cheaper store and the saving. Use retailer APIs or pro pricing only where allowed; never scrape where the terms forbid it. This extends price watch (§1.8 item 11) as one price history.
+4. **Driver routes.**
+   - **Phase 1:** the driver's pickup list says which store to buy each item at ("buy the PEX at X, not Y: −$84 this week").
+   - **Phase 2:** the AI builds the route from what was ordered, which store is cheapest for each item, stock, site delivery windows, the dump stop and van capacity. It minimises item cost plus drive time × the driver's hourly cost plus fuel (never a 40-minute detour to save $6), using the Google Maps Routes API on the platform. The coordinator approves, the driver gets it, and the actual receipts are compared back to the plan.
+5. **The Brain improves processes every week.** It mines delays, rework, overruns, price outliers, waste and repeated questions, and proposes changes with a dollar or hour value. Approved ones become lessons, rules or build requests (for example: "rough electric ran 18% over on the last 3 brownstones; raise the template allowance or switch supplier").
+
+### 1.30 The savings ledger (Alan, 2026-10-17)
+Every saving gets a row: price differences, waste avoided, discounts taken, duplicates stopped, change orders that would have gone unbilled, overruns caught early. Each row records the amount, the evidence, who acted and the date. Alan sets the share that goes to the wage, bonus and charity pools. It shows monthly and year to date, by source and by person, with bonus attribution Alan approves. It is also the "AI pays for itself" figure (§1.10 item 9).
+
+**Messages additions (Alan, 2026-10-17; extends §1.21):**
+- Records show as live cards in the chat (PO, invoice, CO, task, decision, submittal, photo) with their status and next action, usable right there.
+- @assistant works anywhere, answering in the thread with record cards.
+- A private DM with your own assistant.
+- Findings post to the right channel with the evidence, the drafted fix and buttons.
+
+### 1.31 Proof for the AI layer (Alan, 2026-10-17)
+- **Planted-problem banks per role**, for example: a duplicate charge, a bill over its PO, an expired COI, unbilled work, a cash-negative job, a line over budget, sheetrock 22% above the best store, a missed discount. Each assistant must find every one, raise no false alarms on a clean month, and propose the right fix; recall and precision are reported.
+- **Price-book matching tests** on realistic receipts.
+- **Route tests:** the optimiser beats "nearest store" on total cost.
+- **Ask:** the held-out set, and the red team stays at 90/90.
+- **The chat extraction bank.**
+- **Privacy tests:** nobody sees a channel, DM or mail they shouldn't, including through AI answers.
+
 ## §2 Remaining round-4 findings
 
 ### Founder

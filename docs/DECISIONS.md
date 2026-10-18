@@ -13,6 +13,19 @@ Status: **Built** (merged and tested) · **Building** (a lane is on it) · **Spe
 | 2026-10-11 | ChatGPT history export, to deepen `docs/ALAN.md`. | Profile built from the build sessions and the Standard only. |
 | 2026-10-10 | Re-authorise QuickBooks for the July-to-date pull. | Truth layer runs on bank and card lines and the QBO bridge snapshot. |
 
+## 2026-10-17 (from the Cowork session, folded in on 2026-10-18)
+| Ask or decision | Where it lives | Status |
+|---|---|---|
+| Live jobs: two payers per contract; range estimates with allowances and a paid exploratory phase; the HTC calculator and hard/soft/contingency model; one estimating test job | BACKLOG §1.25 | Spec. Real details stay out of the repo and load on the private platform |
+| The senior designer as a contractor user who can later be converted to an employee | BACKLOG §1.26 | Spec |
+| One assistant per person: four screens become one; Act Alone / Ask First / Hand It to Me; an activity log; better than Muse and dots | BACKLOG §1.27 | Spec |
+| Role specialists: a standing auditor per role with the six-step finding handling | BACKLOG §1.28 | Spec |
+| Cost intelligence: jobs spending more than they bring in, benchmarks per trade per unit, a receipt price book across stores, driver routes, a weekly process improvement | BACKLOG §1.29 | Spec |
+| Savings ledger with wage, bonus and charity pools; the money line now includes charity | BACKLOG §1.30, `CLAUDE.md` | Spec |
+| Firm chat additions: record cards, @assistant, a private DM with your own assistant | BACKLOG §1.21 | Spec |
+| Proof: planted-problem banks per role, price-book and route tests, privacy tests | BACKLOG §1.31 | Spec |
+| Warn before any heavy step; don't start a big round when weekly usage is above about 60% | `docs/PLAN.md` | Standing rule |
+
 ## 2026-10-11
 | Ask or decision | Where it lives | Status |
 |---|---|---|

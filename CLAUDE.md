@@ -56,7 +56,7 @@ SmartDesigns Projects is a living, breathing, evolving ERP that constantly wants
 - The live, versioned copy is in the app (`DB.company.standard`, Settings › The SmartDesign Standard). Alan edits it; every edit records who, when and why and is hash-chained. Code loads it; never paraphrase or hard-code it.
 - Every assistant gets the company sections plus the playbook of the role it supports, and the AI section. Every proposal, chase, catch and brain lesson names the value or standard behind it, ranks by the decision-principle order, and escalates in the standard format (what happened, impact on cost/schedule/quality, options, recommendation, decision deadline).
 - Measurable standards (2-hour client acknowledgement, CO within 48 hours, three quotes over $2,500, invoice within 2 business days of a milestone, collections at due/7/15/30, three-way match, COI 30 days ahead, books by the 10th, and the rest) are checked by the ERP, not just written down.
-- **Why money matters (Alan, 2026-10-11): remember this.** Money wasted is money that cannot go to employees' raises and bonuses, to more staff and resources, or to extra value for the client at no additional cost. Every leak the ERP catches says so in plain words.
+- **Why money matters (Alan, 2026-10-11): remember this.** Money wasted is money that cannot go to employees' raises and bonuses, to more staff and resources, to charity, or to extra value for the client at no additional cost (charity added by Alan, 2026-10-17). Every leak the ERP catches says so in plain words.
 - New AI features must do all of the above.
 
 ## How purchasing starts (Alan, 2026-10-11)
