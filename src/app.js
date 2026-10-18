@@ -114745,7 +114745,7 @@ if ("function" == typeof paMine) {
   paMine = function () {
     const M = paMineBase_mail.apply(this, arguments);
     try {
-      if (M && !M.projects.length && !PA_OFFICE_ROLES.includes(String((M.me || {}).role || ""))) {
+      if (M && !M.projects.length && ["foreman", "crew", "driver"].includes(String((M.me || {}).role || "")) && (M.me || {}).employeeId) {
         const me = M.me || paMe(),
           from = iso(addDays(today(), -14)),
           ids = new Set((DB.time || []).filter((t) => t.empId === me.employeeId && t.date >= from).map((t) => t.projectId));
@@ -114787,7 +114787,8 @@ if ("function" == typeof paWatch) {
       (delta && delta.mail && !delta.first ? delta.mail : []).forEach((m) => {
         if (paMineMail(m) || A.thread.some((x) => x.ref && "mail" === x.ref.kind && x.ref.id === m.msgId)) return;
         const c = (DB.comms || []).find((x) => x.msgId === m.msgId);
-        if (!c || "ignored" === c.status || cmBankSender(c)) return;
+        // the stored message says whose it is too: our own mail is read as outgoing even when its labels say nothing
+        if (!c || "ignored" === c.status || cmBankSender(c) || paMineMail(c)) return;
         const P = (c.proposals || []).filter((p) => !p.applied && !1 !== p.on && "note" !== p.kind);
         if (!P.length) return;
         const who = (m.from || {}).name || (m.from || {}).email || "somebody",
