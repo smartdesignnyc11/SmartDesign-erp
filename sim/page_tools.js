@@ -269,7 +269,10 @@ S.mbSentAll = () => { const out = [];
   Object.entries(DB.demoWs || {}).forEach(([uid, A]) => (A.messages || []).forEach(m => { const L = (A.labels || {})[m.id] || m.labelIds || [];
     if (L.includes('SENT')) out.push({ uid, id: m.id, from: hdr(m, 'From'), to: hdr(m, 'To'), cc: hdr(m, 'Cc'), subject: hdr(m, 'Subject'), body: m.body, at: m.internalDate, thread: m.threadId,
       att: (m.attachments || []).map(a => ({ filename: a.filename, text: a.text || '' })) }); }));
-  (DB.outbox || []).forEach(o => { if (/sent|delivered/.test(String(o.status || '')) && o.id) out.push({ uid: o.byUid || o.by || '', id: 'outbox_' + o.id, from: o.from || '', to: [].concat(o.to || []).join(', '),
+  // an outbox recipient is { name, email, phone }: read it as an address (it was joined as "[object Object]"); the
+  // sender is the person who pressed Send (sentByUid), not the record's display name
+  const addr = t => t && typeof t === 'object' ? (t.email ? (t.name ? `${t.name} <${t.email}>` : t.email) : (t.phone || t.name || '')) : String(t || '');
+  (DB.outbox || []).forEach(o => { if (/sent|delivered/.test(String(o.status || '')) && o.id) out.push({ uid: o.sentByUid || o.byUid || o.by || '', id: 'outbox_' + o.id, from: o.from || '', to: [].concat(o.to || []).map(addr).filter(Boolean).join(', '),
     cc: '', subject: o.subject || '', body: o.body || o.text || '', at: Date.parse(o.at || '') || 0, thread: o.threadId || '', outbox: true, att: [] }); });
   return out; };
 // Drive: the world holds each person's drive; after a reload its files are put back where the app reads them

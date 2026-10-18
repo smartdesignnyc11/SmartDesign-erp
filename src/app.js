@@ -121208,9 +121208,20 @@ if ("function" == typeof renderBilling) {
     }
   };
 }
+// who a document's mail goes to: the client's billing contact when one is named, else the primary contact
+function crBillTo(c) {
+  const L = (c && c.contacts) || [];
+  return (
+    L.find((x) => x.id && x.id === c.billingContactId) ||
+    L.find((x) => x.billing || /\b(billing|accounts?( payable)?|a\/p|bookkeep\w*|finance)\b/i.test(x.role || "")) ||
+    L.find((x) => x.primary) ||
+    L[0] ||
+    {}
+  );
+}
 function crDocEmail(c, d) {
   const t = docTotal(d),
-    pc = c.contacts.find((x) => x.primary) || c.contacts[0] || {},
+    pc = crBillTo(c),
     kind = "co" === d.type ? "change order" : d.type,
     subject = `${d.number} — ${d.title || ("co" === d.type ? "Change order" : "Invoice")}`,
     body = `Hi ${pc.name ? pc.name.split(" ")[0] : ""},\n\nAttached is ${kind} ${d.number} for ${money(t.total)}${"invoice" === d.type && d.due ? `, due ${fmtL(d.due)}` : ""}${
@@ -190167,5 +190178,52 @@ if (!document.getElementById("fnd-css")) {
     } finally {
       t && (pr.task = t);
     }
+  };
+}
+// 3. A person's Send is their own send. The outbox kept only "by" (a display name, or "The assistant" for a draft
+//    it wrote), so a mail Billing sent read as sent by the system. Whoever presses Send is recorded on the mail.
+{
+  const base = bnSend;
+  bnSend = async function (o) {
+    const me = (("function" == typeof currentUser && currentUser()) || {}),
+      person = !!(o && !o.auto && me.id),
+      r = await base.apply(this, arguments);
+    try {
+      o &&
+        /^(sent|delivered)$/.test(String(o.status || "")) &&
+        (person
+          ? ((o.sentBy = me.name || ""), (o.sentByUid = me.id), o.byUid || (String(o.by || "") !== me.name && o.forName !== me.name) || (o.byUid = me.id))
+          : (o.sentBy = o.sentBy || "The assistant"),
+        save());
+    } catch (e) {}
+    return r;
+  };
+}
+// 4. A sent document carries its mail: who it went to, who sent it, when and how, on the document itself (the place
+//    Billing looks for it); before, the mail was only in an outbox Billing has no page for.
+function crDocMailHtml(d) {
+  const L = (DB.outbox || []).filter((o) => o.aboutKey === `doc|${d.id}` || ((o.about || {}).docId === d.id && "doc" === o.kind));
+  if (!L.length) return "";
+  const who = (o) => {
+    const t = o.to && "object" == typeof o.to ? o.to : { name: String(o.to || "") };
+    return `${t.name || ""}${t.email ? ` <${t.email}>` : ""}`.trim() || "the recipient";
+  };
+  return `<div class="note doc-mail no-doc-print" style="margin:0 0 10px">${L.map(
+    (o) =>
+      `<div data-nocase><b>${esc(o.subject || "Mail")}</b> <span class="small">to ${esc(who(o))} · ${"sent" === o.status || "delivered" === o.status ? `sent by ${esc(o.sentBy || o.by || "")}${o.sentAt ? ` ${fmtL(o.sentAt)}` : ""}${o.via ? ` (${esc(o.via)})` : ""}` : `${esc(o.status || "draft")}, not sent yet`}</span></div>`,
+  ).join("")}</div>`;
+}
+{
+  const base = renderDocEditor;
+  renderDocEditor = function (c, d) {
+    let h = base.apply(this, arguments);
+    try {
+      const m = d && "string" == typeof h ? crDocMailHtml(d) : "";
+      if (m) {
+        const i = h.indexOf('<div class="docmeta');
+        h = i > -1 ? h.slice(0, i) + m + h.slice(i) : h + m;
+      }
+    } catch (e) {}
+    return h;
   };
 }
