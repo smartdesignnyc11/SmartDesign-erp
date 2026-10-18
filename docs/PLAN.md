@@ -26,10 +26,9 @@ Last updated 2026-10-18 (overnight).
   - pilot fixes batch 1 (19 items and follow-ups);
   - the calendar date fix.
 - **Still building:**
-  - the four red suites after the pilot fixes: learn, flow, leaks2, chain (lane netfix).
 - **v11.2, next:**
   - reconcile the suites that the pilot fixes changed underneath: chain_test (the held Window Works bill now blocks the August close; mailed bills now offer "Enter the Bill"), learn_test, ops_test, flow_test and leaks2_test;
-  - merge netfix;
+  - netfix merged: Approve as Billed signs at the bill total (a payment above the bill is still refused); a statement counts as imported only when every line is bank-backed (the Amex August statement is offered again: 4 hand-typed lines, $12,430); a PO held by a check says which check, with Open; room words no longer count as a double order;
   - full net, scripted month, publish v11.2.
 - **Batch 3, queued from the Documents Workshop:**
   - a send gate on every client document: strip internal notes, require cost codes, bill-to and true titles, print how to pay, one letterhead;
