@@ -451,13 +451,29 @@ async def loaded(p, C):
     try: _os.remove(path)
     except OSError: pass
 
+async def anchored(p, C):
+    # A page that reloads on a later app day rebuilds the Demo Workspace; its mail and events keep their dates
+    # (the pilot saw Labor Day on a Tuesday and Friday's meeting on Saturday when they were dated from today).
+    b, pg, errs = await open_app(p)
+    await sign_in(pg, 'u_sarah')
+    r = await pg.evaluate("""() => {
+      const day = (ws) => (ws.events || []).filter(e => /Labor Day/.test(e.summary)).map(e => String((e.start || {}).date || (e.start || {}).dateTime || '').slice(0, 10))[0];
+      const a = day(demoWsBuild('u_sarah'));
+      appSetDay(iso(addDays(today(), 1)));
+      const b2 = day(demoWsBuild('u_sarah'));
+      return { a, b: b2, anchor: DB.company.dwAnchor };
+    }""")
+    C.ok(r['a'] == '2026-09-07' and r['b'] == '2026-09-07', f"the workspace keeps its dates when the app day moves: Labor Day {r}")
+    await b.close()
+
 async def main():
     C = Checks()
-    who = sys.argv[1:] or PERSONAS + ['loaded']
+    who = sys.argv[1:] or PERSONAS + ['loaded', 'anchored']
     async with async_playwright() as p:
         for uid in who:
             try:
                 if uid == 'loaded': await loaded(p, C)
+                elif uid == 'anchored': await anchored(p, C)
                 else: await persona(p, uid, C)
             except Exception as e: C.ok(False, f'{uid}: suite error {e!r}')
     return C.done()

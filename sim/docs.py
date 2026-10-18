@@ -120,7 +120,7 @@ def usage():
     after = {(a['uid'], a['args'][0]): a.get('ok') for a in A if a.get('cmd') == 'fia_after_reload'}
     out, start = [], {}
     for i, a in enumerate(A):
-        uid = a.get('uid', '')
+        uid = a.get('uid') or ''
         if not uid.startswith('u_'): continue
         k0 = (uid, a['day'], a['slot'])
         if k0 not in start: start[k0] = i

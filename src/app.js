@@ -174477,7 +174477,9 @@ function dwNotesBody() {
 }
 // ---- building a persona's workspace -------------------------------------------------------------------
 function demoWsBuild(uid) {
-  const td = today(),
+  // The workspace is dated from the day it was first built, not from today: a page that reloads on a later app
+  // day rebuilds it, and dating from today slid every event and mail forward a day (Labor Day on a Tuesday).
+  const td = ((DB.company = DB.company || {}).dwAnchor = DB.company.dwAnchor || today()),
     me = dwAddr(uid),
     [myName, myEmail] = DW_STAFF[uid],
     role = String(((DB.users || []).find((u) => u.id === uid) || {}).role || ""),
