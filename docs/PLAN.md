@@ -26,7 +26,7 @@ Last updated 2026-10-18 (overnight).
   - pilot fixes batch 1 (19 items and follow-ups);
   - the calendar date fix.
 - **Still building:**
-- **v11.2, next:**
+- **v11.2, next:** full net 37/37 green on master (f045cec). Held: the scripted month went from 258/292 to 251/291 ($10,387 left behind vs $9,537). Eight events changed, in four classes; lane monthfix is fixing them. Publish only when the month is at or better than v11.
   - reconcile the suites that the pilot fixes changed underneath: chain_test (the held Window Works bill now blocks the August close; mailed bills now offer "Enter the Bill"), learn_test, ops_test, flow_test and leaks2_test;
   - netfix merged: Approve as Billed signs at the bill total (a payment above the bill is still refused); a statement counts as imported only when every line is bank-backed (the Amex August statement is offered again: 4 hand-typed lines, $12,430); a PO held by a check says which check, with Open; room words no longer count as a double order;
   - full net, scripted month, publish v11.2.
