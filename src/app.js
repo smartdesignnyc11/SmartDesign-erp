@@ -191657,6 +191657,1108 @@ if ("function" == typeof finishBoot) {
   };
 }
 /*<</plans.js>>*/
+/*<<xset.js>>*/
+/* ---------------------------------------------------------------------------
+   Cross-set consistency (BACKLOG §1.23 phase 1, on the demo): the AI checks every set against the others.
+
+   Design gate (§1.16). The noun the check reads is the drawing sheet: its one store is the register,
+   DB.studio.sheets. What a sheet says (dimension strings, room names, door, window and finish schedule rows,
+   ceiling heights, fixture tags, a consultant calculation's assumptions) rides on the sheet's own row as
+   `facts` [{key, kind, label, value, room, loc, conf, assume}], read when the revision is issued. In the demo the
+   read is simulated (seeded facts, and the narrative's "from X to Y"); on the platform the Claude API reads the
+   PDF with vision and fills the same field. The check's output, a finding, is the issue log beside the register,
+   DB.studio.findings (two values that disagree, the sheets, the risk, the owner, the due date, the money); the
+   when-it-ran log is DB.studio.xsRuns. Nothing else is new:
+     the hold          is plMarkInRevision's hold (DB.studio.holds), so the field, the schedule and the order
+                       guard follow by themselves;
+     the question      is an RFI in the job's issues (p.issues, type "rfi"), routed to the drawing's owner, with
+                       an email draft in the outbox for an architect, engineer or sub;
+     the resolution    is a new revision through plIssue (VOID, acknowledgment, the hold lifts);
+     the queue         is Needs Your Hand (rows xs: and xshold:) and Caught for You (xsetSafety, xsetConflict);
+     the lesson        is a LEARN_EVENTS kind ("xset") the owner approves, which becomes the pre-issue checklist;
+     the one list      is the job's Plans page (its Set Check card); the owner's Reports carry the measures.
+
+   The check (xsCheck) runs on every new revision (the plIssue wrapper), as a gate before a sheet or a set is
+   Issued for Construction, and on demand (Check the Sets).
+   --------------------------------------------------------------------------- */
+const XS_RISK = {
+    work: ["Work in Progress or This Week", "bad", 1],
+    fab: ["Ordered or in Fabrication", "bad", 2],
+    filed: ["In a Filed Drawing", "warn", 3],
+    design: ["Design Only", "info", 4],
+  },
+  XS_FACT = { dim: "Dimension", room: "Room Name", door: "Door Schedule", window: "Window Schedule", finish: "Finish Schedule", ceiling: "Ceiling Height", fixture: "Fixture Tag", calc: "Calculation Assumption", note: "General Note" },
+  XS_PAYER = { ours: "Our Design or Coordination Error (Our Cost)", client: "Client Change (Change Order)", consultant: "Consultant's or Sub's Error (Backcharge)", sub: "Sub Redraws at Their Cost (No Charge)", none: "No Cost" },
+  XS_RULES = [
+    ["legal", "Filed DOB and LPC drawings govern what is legal"],
+    ["built", "Construction documents govern what is built"],
+    ["intent", "The design presentation shows intent only"],
+    ["shop", "Shop drawings must match the construction documents"],
+  ],
+  XS_CALC_RULE = "A consultant's calculation rests on the dimensions it was given: when one moves, the engineer of record re-runs it before the work",
+  XS_FAB = /millwork|cabinet|casework|vanity|stone|slab|counter|marble|quartz|window|steel|beam|post|lintel|glass/i,
+  XS_LABOR_DAY = 1360, // two people, eight hours, $85: the labor a held task would have redone (an estimate)
+  XS_DIM = `\\d+\\s*'\\s*-?\\s*\\d*(?:\\.\\d+)?\\s*"?|\\d+(?:\\.\\d+)?\\s*(?:in\\b|")`;
+let xsFocus = "",
+  xsShowResolved = !1;
+function xsDB() {
+  const St = plDB();
+  St.findings = St.findings || [];
+  St.xsRuns = St.xsRuns || [];
+  return St;
+}
+const xsRow = (id) => xsDB().findings.find((f) => f.id === id) || null,
+  xsIsOpen = (f) => !!f && "open" === f.status,
+  xsSetLabel = (s) => PL_SET_LABEL[s] || s,
+  xsRoomName = (id) => (plRoom(id) || {}).name || "",
+  xsNum = (x) => `${x.number} Rev ${x.rev}`;
+function xsFindings(pid, o) {
+  o = o || {};
+  return xsDB().findings.filter((f) => (!pid || f.projectId === pid) && (!o.status || f.status === o.status) && (o.all || "dismissed" !== f.status));
+}
+// ---- reading a value: dimension strings to inches; anything else compared as words
+function xsInches(v) {
+  const s = String(null == v ? "" : v).replace(/[’′]/g, "'").replace(/[”″]/g, '"').trim();
+  let m = s.match(/^(\d+)\s*'\s*-?\s*(\d+(?:\.\d+)?)?(?:\s+(\d+)\/(\d+))?\s*"?$/);
+  if (m) return +m[1] * 12 + (+m[2] || 0) + (m[3] ? +m[3] / +m[4] : 0);
+  m = s.match(/^(\d+(?:\.\d+)?)(?:\s+(\d+)\/(\d+))?\s*(?:"|in\.?|inches)$/i);
+  return m ? +m[1] + (m[2] ? +m[2] / +m[3] : 0) : NaN;
+}
+function xsSame(a, b) {
+  const x = xsInches(a),
+    y = xsInches(b);
+  if (!isNaN(x) && !isNaN(y)) return Math.abs(x - y) < 0.25;
+  const n = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  return n(a) === n(b);
+}
+// ---- the read (simulated): the facts given with the revision, else the previous revision's, then what the
+// narrative says moved ("Rear wall moved from 16'-4" to 15'-8""). The platform's vision read replaces this.
+function xsReadFacts(row, prev, o) {
+  o = o || {};
+  const conf = row.scanned ? 0.6 : 0.95,
+    F = (o.facts || (prev && prev.facts) || []).map((f) => Object.assign({}, f, { conf: f.conf || conf }));
+  const rx = new RegExp(`([A-Za-z][^.;:]*?)\\s+(?:[a-z]+\\s+)?from\\s+(${XS_DIM})\\s+to\\s+(${XS_DIM})`, "gi"),
+    stop = ["the", "and", "for", "moved", "changed", "widened", "narrowed", "raised", "lowered", "from", "with"],
+    txt = String(row.changed || "");
+  let m;
+  for (; (m = rx.exec(txt)); ) {
+    const words = m[1].toLowerCase().split(/[^a-z0-9-]+/).filter((w) => w.length > 2 && !stop.includes(w)),
+      from = m[2].trim(),
+      to = m[3].trim();
+    F.filter((f) => xsSame(f.value, from) && words.some((w) => String(f.label || "").toLowerCase().includes(w))).forEach((f) => Object.assign(f, { value: to, read: "narrative" }));
+  }
+  return F;
+}
+// ---- which set governs (the order of precedence) and what the question is
+const xsTier = (s, f) => (f && f.assume ? 5 : ["dob", "lpc"].includes(s.set) ? 1 : ["cd", "struct", "mep", "ffe", "spec"].includes(s.set) ? 2 : "shop" === s.set ? 3 : 4);
+function xsGovern(A, B) {
+  const ta = xsTier(A.s, A.f),
+    tb = xsTier(B.s, B.f);
+  let gov = ta < tb ? A : tb < ta ? B : String(A.s.issuedOn || "") >= String(B.s.issuedOn || "") ? A : B;
+  const sub = gov === A ? B : A,
+    tg = Math.min(ta, tb),
+    ts = Math.max(ta, tb),
+    rule = 1 === tg ? "legal" : 5 === ts ? "calc" : 3 === ts ? "shop" : 4 === ts ? "intent" : "built";
+  return { gov: gov, sub: sub, rule: rule };
+}
+const xsRuleText = (k) => ("calc" === k ? XS_CALC_RULE : ((XS_RULES.find((r) => r[0] === k) || [])[1]) || "");
+// the moment it was given to the person who answers: why this pattern happened (the brain groups by it)
+function xsHandoff(f) {
+  const s = [f.a.set, f.b.set];
+  if ("calc" === f.rule) return "a design change after the consultant's calculation";
+  if (s.includes("deck") && s.some((x) => ["lpc", "dob"].includes(x))) return "the presentation not updated after the LPC or DOB comments";
+  if (s.includes("shop")) return "a shop drawing not checked against the current construction documents";
+  if (s.some((x) => ["lpc", "dob"].includes(x))) return "construction documents changed away from the filed set";
+  if (s.includes("deck")) return "the presentation not updated after the construction documents moved on";
+  if (s.some((x) => ["struct", "mep"].includes(x))) return "a consultant's set not coordinated with ours";
+  return "two of our own sets not coordinated";
+}
+const XS_CHECKLIST = {
+  "a design change after the consultant's calculation": "Send every moved wall, opening or post to the engineer of record and have the calculation re-confirmed before issuing",
+  "the presentation not updated after the LPC or DOB comments": "Update the design presentation to the LPC and DOB comments before it goes to the client or the field",
+  "a shop drawing not checked against the current construction documents": "Check every shop drawing against the current construction documents, dimension by dimension, before approving it",
+  "construction documents changed away from the filed set": "Compare the construction documents with the filed DOB and LPC drawings; a change there needs an amendment before the work",
+  "the presentation not updated after the construction documents moved on": "Re-issue the presentation when a construction sheet changes what the client was shown",
+  "a consultant's set not coordinated with ours": "Overlay the consultant's set on ours before either is issued",
+  "two of our own sets not coordinated": "Check the plan, the elevations and the schedules against each other before issuing",
+};
+// ---- how close the work is: in progress or this week; ordered or in fabrication; in a filed drawing; design only
+function xsPoLineAmt(l) {
+  return (+l.qty || 1) * (+l.price || +l.rate || +l.cost || 0);
+}
+function xsRisk(p, roomIds, sheets) {
+  const td = today(),
+    soon = addWork(td, 5),
+    rooms = roomIds.map(plRoom).filter(Boolean),
+    hit = (t) => rooms.some((r) => plHit(r, t)),
+    tasks = [...new Map(rooms.flatMap((r) => plRoomTasks(p, r)).map((t) => [t.id, t])).values()].filter((t) => "in-progress" === t.status || (t.start && t.start <= soon)),
+    orders = (DB.pos || []).filter((po) => po.projectId === p.id && ["pending", "approved", "issued", "partial", "received"].includes(po.status) && (hit(po.needTask) || (po.lines || []).some((l) => hit(`${l.item || ""} ${l.desc || ""}`))) && ("subcontract" === po.type || (po.lines || []).some((l) => XS_FAB.test(`${l.item || ""} ${l.desc || ""}`)) || XS_FAB.test(po.vendor || ""))),
+    mats = (p.materials || []).filter((m) => ["ordered", "in-fabrication", "shipped"].includes(m.status) && hit(m.name) && XS_FAB.test(m.name)),
+    filedS = sheets.find((s) => ["dob", "lpc"].includes(s.set) || plFiled(p.id, s.number)),
+    filed = filedS ? (plFiled(p.id, filedS.number) || { agency: "lpc" === filedS.set ? "LPC" : "DOB" }) : null,
+    tags = [];
+  tasks.length && tags.push("work");
+  (orders.length || mats.length) && tags.push("fab");
+  filed && tags.push("filed");
+  tags.length || tags.push("design");
+  const inRoom = (po) => (po.lines || []).filter((l) => hit(`${l.item || ""} ${l.desc || ""}`));
+  return {
+    top: tags[0],
+    tags: tags,
+    tasks: tasks.map((t) => ({ id: t.id, name: t.name, start: t.start, end: t.end, status: t.status })),
+    orders: orders.map((po) => ({ id: po.id, number: po.number, vendor: po.vendor, status: po.status, amount: r2(inRoom(po).reduce((a, l) => a + xsPoLineAmt(l), 0)) })),
+    mats: mats.map((m) => ({ id: m.id, name: m.name, status: m.status })),
+    filed: filed ? { agency: filed.agency, number: filedS.number } : null,
+  };
+}
+// what redoing it would have cost (an estimate): a tenth of the order lines in the room, for the part re-made, and
+// the labor already scheduled there
+function xsReworkEst(risk) {
+  const orders = 0.1 * risk.orders.reduce((a, o) => a + (+o.amount || 0), 0),
+    labor = risk.tasks.reduce((a, t) => a + XS_LABOR_DAY * Math.max(1, Math.min(3, t.end && t.start ? workdays(t.start, t.end) : 1)), 0);
+  return r2(orders + labor);
+}
+// the schedule's need-by date: the first task in the room (today when it is under way), or an order's need-by
+function xsNeedBy(p, roomIds, risk) {
+  const td = today(),
+    rooms = roomIds.map(plRoom).filter(Boolean),
+    T = [...new Map(rooms.flatMap((r) => plRoomTasks(p, r)).map((t) => [t.id, t])).values()].filter((t) => t.start || "in-progress" === t.status),
+    c = T.map((t) => ({ date: "in-progress" === t.status ? td : t.start, what: "in-progress" === t.status ? `${t.name} is under way` : `${t.name} starts ${fmt(t.start)}`, taskId: t.id }));
+  risk.orders.forEach((o) => {
+    const po = (DB.pos || []).find((x) => x.id === o.id);
+    po && po.needBy && "received" !== po.status && c.push({ date: po.needBy, what: `${po.number} is needed by ${fmt(po.needBy)}`, poId: po.id });
+  });
+  c.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  return c[0] || null;
+}
+// whose drawing must change, and how they are asked
+function xsOwnerOf(s) {
+  const src = s.source || "inhouse",
+    v = (DB.vendors || []).find((x) => x.name === s.issuer) || {};
+  if ("shop" === s.set || "trade" === src) return { kind: "sub", name: s.issuer || "the sub", email: v.email || s.issuerEmail || "", label: "the sub, for their shop drawing", route: "coord", owner: "Subcontractor" };
+  if (["structural", "mep"].includes(src) || ["struct", "mep"].includes(s.set)) return { kind: "eor", name: s.issuer || "the engineer of record", email: s.issuerEmail || "", label: "the engineer of record", route: "pm", owner: "Engineer" };
+  if ("architect" === src) return { kind: "aor", name: s.issuer || "the architect of record", email: s.issuerEmail || "", label: "the architect of record", route: "pm", owner: "Architect / designer" };
+  const d = (DB.users || []).find((u) => "designer" === u.role) || {};
+  return { kind: "designer", name: d.name || "the designer", uid: d.id || "", email: d.email || "", label: "our designer", route: "designer", owner: "SmartDesigns" };
+}
+const xsSnap = (x) => ({ sheetId: x.s.id, number: x.s.number, rev: x.s.rev, set: x.s.set, title: x.s.title, value: x.f.value, label: x.f.label, conf: +x.f.conf || 0.95, assume: !!x.f.assume, issuer: x.s.issuer || "" });
+// ---- the check
+function xsCheck(pid, o) {
+  o = o || {};
+  const p = plJob(pid),
+    out = { made: [], settled: [], open: [], run: null };
+  if (!p) return out;
+  const cur = plSheets(pid, { current: !0 }).filter((s) => (s.facts || []).length),
+    byKey = new Map();
+  cur.forEach((s) =>
+    s.facts.forEach((f) => {
+      f.key && (byKey.has(f.key) || byKey.set(f.key, []), byKey.get(f.key).push({ s: s, f: f }));
+    }),
+  );
+  // first, what a revision settled: an open finding whose two sheets now agree
+  out.settled = xsSettle(pid);
+  byKey.forEach((L, key) => {
+    for (let i = 0; i < L.length; i++)
+      for (let j = i + 1; j < L.length; j++) {
+        const A = L[i],
+          B = L[j];
+        if (A.s.number === B.s.number || xsSame(A.f.value, B.f.value)) continue;
+        // a shop drawing or a calculation answers to the construction documents, not to the presentation
+        const tt = [xsTier(A.s, A.f), xsTier(B.s, B.f)];
+        if (tt.includes(4) && (tt.includes(3) || tt.includes(5))) continue;
+        if (o.sheetId && A.s.id !== o.sheetId && B.s.id !== o.sheetId) continue;
+        const fkey = `${key}|${[A.s.number, B.s.number].sort().join("|")}`,
+          ex = xsDB().findings.find((x) => x.projectId === pid && x.fkey === fkey && "open" === x.status);
+        if (ex) {
+          const g = xsGovern(A, B);
+          Object.assign(ex, { a: xsSnap(g.gov), b: xsSnap(g.sub) });
+          out.open.push(ex);
+          continue;
+        }
+        // the same two values, once judged not a conflict, stay judged
+        if (xsDB().findings.some((x) => x.projectId === pid && x.fkey === fkey && "dismissed" === x.status && [x.a.value, x.b.value].every((v) => xsSame(v, A.f.value) || xsSame(v, B.f.value)))) continue;
+        const f = xsMake(p, A, B, key, fkey, o);
+        xsDB().findings.push(f), out.made.push(f), out.open.push(f);
+      }
+  });
+  out.made.forEach((f) => xsRaise(f));
+  xsRelease(pid);
+  const run = { id: uid("xr"), projectId: pid, at: appNowIso(), trigger: o.trigger || "demand", by: o.by || plMe(), sheetId: o.sheetId || "", sheets: cur.length, facts: cur.reduce((a, s) => a + s.facts.length, 0), made: out.made.map((f) => f.id), settled: out.settled.map((f) => f.id) };
+  xsDB().xsRuns.push(run), xsDB().xsRuns.length > 300 && xsDB().xsRuns.splice(0, xsDB().xsRuns.length - 300);
+  out.run = run;
+  return out;
+}
+function xsMake(p, A, B, key, fkey, o) {
+  const g = xsGovern(A, B),
+    fa = g.gov.f,
+    fb = g.sub.f,
+    room = fa.room || fb.room || (g.gov.s.rooms || []).find((r) => (g.sub.s.rooms || []).includes(r)) || "",
+    calc = fa.assume || fb.assume,
+    lab = (calc ? (fa.assume ? fb : fa) : fa).label || fb.label || key,
+    risk = xsRisk(p, room ? [room] : [], [A.s, B.s]),
+    owner = xsOwnerOf(g.sub.s),
+    need = xsNeedBy(p, room ? [room] : [], risk),
+    td = today(),
+    due = need ? (need.date <= td ? td : addWork(need.date, -1) < td ? td : addWork(need.date, -1)) : addWork(td, 5),
+    n = xsDB().findings.filter((x) => x.projectId === p.id).length + 1,
+    f = {
+      id: uid("xf"),
+      ref: `X-${String(n).padStart(3, "0")}`,
+      projectId: p.id,
+      key: key,
+      fkey: fkey,
+      kind: calc ? "calc" : fa.kind || fb.kind || "dim",
+      label: lab,
+      room: room,
+      loc: fa.loc || fb.loc || "",
+      a: xsSnap(g.gov),
+      b: xsSnap(g.sub),
+      conf: Math.round(100 * Math.min(+fa.conf || 0.95, +fb.conf || 0.95)) / 100,
+      rule: g.rule,
+      safety: !!calc || /\b(beam|post|header|joist|lintel|column|footing|steel|structur)/i.test(lab),
+      risk: risk,
+      owner: owner,
+      needBy: need,
+      due: due,
+      status: "open",
+      foundAt: risk.tasks.some((t) => "in-progress" === t.status) || "field" === o.trigger ? "field" : "before",
+      trigger: o.trigger || "demand",
+      at: appNowIso(),
+      by: o.by || plMe(),
+      holdIds: [],
+      told: [],
+      issueId: "",
+      draftId: "",
+      reworkEst: 0,
+      money: null,
+    };
+  f.reworkEst = xsReworkEst(risk);
+  f.handoff = xsHandoff(f);
+  // the fix may change a filed drawing: when the other value stands, the filing needs an amendment first
+  1 === xsTier(g.gov.s, g.gov.f) && (f.amend = { agency: (plFiled(p.id, g.gov.s.number) || {}).agency || ("lpc" === g.gov.s.set ? "LPC" : "DOB"), number: g.gov.s.number });
+  return f;
+}
+const xsCalcSide = (f) => (f.a.assume ? f.a : f.b.assume ? f.b : null);
+// the plain words the field and the queue read
+function xsPlain(f) {
+  const c = xsCalcSide(f);
+  if (c) {
+    const d = c === f.a ? f.b : f.a;
+    return `${c.number}, the engineer's calculation (${fmt(String((plRow(c.sheetId) || {}).issuedOn || ""))}), assumed ${String(f.label).replace(/\s*\(.*\)$/, "").toLowerCase()} at ${c.value}; ${xsNum(d)} now shows ${d.value}. The engineer of record confirms before this work.`;
+  }
+  return `${xsNum(f.a)} (${xsSetLabel(f.a.set)}) shows ${f.label.toLowerCase()} at ${f.a.value}; ${xsNum(f.b)} (${xsSetLabel(f.b.set)}) shows ${f.b.value}.`;
+}
+const xsHoldWhy = (f) => `set check ${f.ref}: ${xsPlain(f)}`;
+// ---- hold what's at risk, tell the foreman and procurement, ask the drawing's owner with a due date
+function xsTell(u, text, f, why) {
+  if (!u) return;
+  DB.asst = DB.asst || {};
+  const A = (DB.asst[u.id] = DB.asst[u.id] || { thread: [], memo: [], standing: [], log: [], since: today() });
+  A.thread = A.thread || [];
+  if (A.thread.some((m) => m.ref && "xset" === m.ref.kind && m.ref.id === f.id)) return;
+  A.thread.push({ id: uid("pm"), who: "a", text: text, at: "function" == typeof nowStamp ? nowStamp() : appNowIso(), day: today(), nudge: !0, unread: !0, ref: { kind: "xset", id: f.id, projectId: f.projectId }, why: why || "" });
+  f.told.push({ uid: u.id, name: u.name, role: u.role, at: appNowIso(), how: "assistant" });
+}
+function xsRaise(f) {
+  const p = plJob(f.projectId);
+  if (!p) return;
+  // 1. hold: work under way or this week, or an order in fabrication
+  if (f.room && (f.risk.tags.includes("work") || f.risk.tags.includes("fab"))) {
+    const made = plMarkInRevision({ projectId: p.id, roomIds: [f.room], sheetIds: [f.a.sheetId, f.b.sheetId].filter((id) => PL_BUILD_SETS.includes((plRow(id) || {}).set)), only: !0, why: xsHoldWhy(f), auto: !0, findingId: f.id, by: "The set check" }),
+      h = made[0] || plHolds(p.id).find((x) => x.roomId === f.room && !x.liftOn);
+    if (h) {
+      (h.xsFindings = h.xsFindings || []).includes(f.id) || h.xsFindings.push(f.id);
+      f.holdIds.push(h.id);
+      const fm = (DB.users || []).find((u) => "foreman" === u.role),
+        co = (DB.users || []).find((u) => "coord" === u.role),
+        rn = xsRoomName(f.room);
+      xsTell(fm, `${rn} is on hold at ${plJobName(p.id)}${f.risk.tasks.length ? `: do not start ${f.risk.tasks.map((t) => t.name).join(", ")}` : ""}. ${xsPlain(f)} ${f.owner.name} answers by ${fmtL(f.due)}.`, f, plWhy(f.safety ? "xsetSafety" : "xsetConflict"));
+      xsTell(co, `Nothing is ordered for the ${rn.toLowerCase()} at ${plJobName(p.id)} until set check ${f.ref} is resolved${f.risk.orders.length ? `; already ordered: ${f.risk.orders.map((o) => `${o.number} (${o.vendor})`).join(", ")}, change or hold it before it ships` : ""}. ${xsPlain(f)}`, f, plWhy("plansOrderedInRevision"));
+    }
+  }
+  // 2. the coordination issue: an RFI on the job, owed by whoever owns the drawing that must change
+  const n = (DB.projects || []).reduce((a, y) => a + (y.issues || []).filter((i) => /rfi/i.test(i.kind || i.type || "")).length, 0) + 1,
+    iss = {
+      id: uid("is"),
+      title: `RFI ${String(n).padStart(3, "0")} (set check ${f.ref}): ${f.label} — ${f.a.number} ${f.a.value} vs ${f.b.number} ${f.b.value}`.slice(0, 160),
+      type: "rfi",
+      status: "open",
+      owner: f.owner.owner,
+      assignee: f.owner.name,
+      taskId: (f.needBy && f.needBy.taskId) || "",
+      due: f.due,
+      notes: `${xsPlain(f)} ${xsRuleText(f.rule)}. Due ${fmtL(f.due)}${f.needBy ? `: ${f.needBy.what}` : ""}.`,
+      commId: "",
+      scope: { kind: "xset", id: f.id },
+      xset: f.id,
+    };
+  (p.issues = p.issues || []).push(iss), (f.issueId = iss.id), (f.rfi = `RFI ${String(n).padStart(3, "0")}`);
+  // 3. an architect, engineer or sub is asked by email: a draft for the PM or procurement to send
+  if (["eor", "aor", "sub"].includes(f.owner.kind)) {
+    const d = { id: uid("ox"), kind: "rfi", to: { name: f.owner.name, email: f.owner.email || "" }, subject: `${f.rfi} — ${plJobName(p.id)}: ${f.label}`, body: `Hello,\n\nOur set check found two drawings that disagree on ${plJobName(p.id)}:\n\n- ${xsNum(f.a)} (${xsSetLabel(f.a.set)}): ${f.a.value}\n- ${xsNum(f.b)} (${xsSetLabel(f.b.set)}): ${f.b.value}\n\n${f.label}${f.loc ? `, ${f.loc}` : ""}. ${xsRuleText(f.rule)}.\n\n${"eor" === f.owner.kind ? "Please confirm your calculation against the current drawing, or tell us what must change, and mark up the sheet." : "Please revise your drawing to match, or tell us what must change."} We need the answer by ${fmtL(f.due)}${f.needBy ? ` (${f.needBy.what})` : ""}; the work there is on hold until then.\n\nThanks,\n${plMe()}`, about: { projectId: p.id, findingId: f.id, issueId: iss.id, label: f.ref }, aboutKey: `xset|${f.id}`, status: "draft", at: today(), by: plMe(), expect: !0 };
+    (DB.outbox = DB.outbox || []).push(d), (f.draftId = d.id);
+  }
+  try {
+    audit("plans", f.id, "set-conflict", "", `${f.ref} ${f.label}: ${f.a.number} ${f.a.value} vs ${f.b.number} ${f.b.value}`, `${XS_RISK[f.risk.top][0]}; ${f.owner.label}`);
+  } catch (e) {}
+  log(`Set check ${f.ref} on ${plJobName(p.id)}: ${f.label} — ${xsNum(f.a)} ${f.a.value} vs ${xsNum(f.b)} ${f.b.value}${f.holdIds.length ? `; ${xsRoomName(f.room)} on hold` : ""}; ${f.rfi} to ${f.owner.name}`, "plans", "The set check");
+  (p.chat = p.chat || []).push({ id: uid("ch"), by: "The set check", text: `Set check ${f.ref}: ${xsPlain(f)} ${f.rfi} is with ${f.owner.name}, due ${fmtL(f.due)}.`, t: nowStamp(), files: [], xsFinding: f.id });
+}
+// ---- resolution: through the register only
+function xsSettle(pid) {
+  const out = [];
+  xsDB()
+    .findings.filter((f) => f.projectId === pid && "open" === f.status)
+    .forEach((f) => {
+      const A = plCurrent(pid, f.a.number),
+        B = plCurrent(pid, f.b.number),
+        fa = A && (A.facts || []).find((x) => x.key === f.key),
+        fb = B && (B.facts || []).find((x) => x.key === f.key);
+      if (!fa || !fb || !xsSame(fa.value, fb.value)) return;
+      const by = [A, B].find((s) => s.id !== f.a.sheetId && s.id !== f.b.sheetId) || A;
+      xsResolved(f, by, fa.value), out.push(f);
+    });
+  return out;
+}
+function xsResolved(f, row, value) {
+  Object.assign(f, { status: "resolved", resolvedAt: appNowIso(), resolvedBy: plMe(), resolution: { sheetId: row.id, number: row.number, rev: row.rev, value: value, prev: row.supersedes ? (plRow(row.supersedes) || {}).rev || "" : "" } });
+  f.days = Math.max(0, Math.round(((new Date(f.resolvedAt) - new Date(f.at)) / 864e5) * 10) / 10);
+  const p = plJob(f.projectId),
+    iss = p && (p.issues || []).find((i) => i.id === f.issueId);
+  iss && Object.assign(iss, { status: "closed", answer: `${plRev(row)} issued: ${row.changed}`, closedAt: appNowIso() });
+  // the hold lifts when the field acknowledges the revision that resolved it (now, when nobody has to)
+  f.holdIds.forEach((id) => {
+    const h = plDB().holds.find((x) => x.id === id);
+    if (!h || h.liftedAt) return;
+    if ((h.xsFindings || []).some((x) => x !== f.id && xsIsOpen(xsRow(x)))) return;
+    h.liftOn = row.id;
+    plAckState(row).pending.length || xsLiftNow(h, `${plRev(row)} issued (set check ${f.ref} resolved)`);
+  });
+  try {
+    audit("plans", f.id, "set-conflict-resolved", "", `${f.ref} by ${plRev(row)}`, row.changed || "");
+  } catch (e) {}
+  log(`Set check ${f.ref} resolved by ${plRev(row)}${f.holdIds.length ? `; the hold on ${xsRoomName(f.room)} lifts when the field acknowledges it` : ""}`, "plans", plMe());
+}
+function xsLiftNow(h, why) {
+  Object.assign(h, { liftedAt: appNowIso(), liftedBy: plMe(), liftWhy: why });
+  xsRestoreStages(h);
+}
+// a sheet marked In Revision by a hold goes back to its stage once no hold covers it
+function xsRestoreStages(h) {
+  (h.sheetIds || [])
+    .map(plRow)
+    .filter(Boolean)
+    .forEach((s) => {
+      plIsCurrent(s) && "revision" === s.stage && !s.xsGate && !plHolds(s.projectId).some((x) => (x.sheetIds || []).includes(s.id)) && ((s.stage = s.prevStage || ""), delete s.prevStage, s.stage || delete s.stage);
+    });
+}
+// the gate before Issued for Construction: a sheet in an open conflict is issued, but not for construction
+function xsGate(row) {
+  if (!row || !plIsCurrent(row)) return [];
+  const F = xsFindings(row.projectId, { status: "open" }).filter((f) => [f.a.sheetId, f.b.sheetId].includes(row.id));
+  // the hold may already have marked it In Revision (plMarkInRevision keeps the stage it had in prevStage)
+  if (F.length && ("ifc" === plStatus(row) || ("revision" === row.stage && "ifc" === (row.prevStage || "ifc")))) {
+    row.prevStage = "ifc";
+    row.stage = "revision";
+    row.xsGate = { ids: F.map((f) => f.id), at: appNowIso() };
+    log(`${plRev(row)} is not Issued for Construction: set check ${F.map((f) => f.ref).join(", ")}`, "plans", "The set check");
+  }
+  return F;
+}
+function xsRelease(pid) {
+  plSheets(pid, { current: !0 })
+    .filter((s) => s.xsGate)
+    .forEach((s) => {
+      if (s.xsGate.ids.some((id) => xsIsOpen(xsRow(id)))) return;
+      const ids = s.xsGate.ids;
+      delete s.xsGate;
+      plHolds(pid).some((h) => (h.sheetIds || []).includes(s.id)) || ((s.stage = s.prevStage || "ifc"), delete s.prevStage);
+      log(`${plRev(s)} released to Issued for Construction (${ids.map((id) => (xsRow(id) || {}).ref).join(", ")} resolved)`, "plans", plMe());
+    });
+}
+// The person resolves: the value that stands, the sheet that changes, and who pays. The answer is a new revision.
+function xsPayerGuess(f) {
+  return "shop" === f.rule ? "sub" : "ours";
+}
+function xsResolve(fid, o) {
+  o = o || {};
+  const f = xsRow(fid);
+  if (!xsIsOpen(f)) return null;
+  if (!plCanIssue()) return toast("The designer, the PM or the owner resolves a set conflict"), null;
+  const stand = "b" === o.stand ? f.b : f.a,
+    fix = stand === f.a ? f.b : f.a,
+    cur = plCurrent(f.projectId, fix.number);
+  if (!cur) return toast(`${fix.number} has no current revision to revise`), null;
+  const value = String(o.value || stand.value).trim(),
+    facts = (cur.facts || []).map((x) => (x.key === f.key ? Object.assign({}, x, { value: value, read: "resolution", conf: 0.95 }) : Object.assign({}, x)));
+  facts.some((x) => x.key === f.key) || facts.push({ key: f.key, kind: f.kind, label: f.label, value: value, room: f.room, conf: 0.95 });
+  // the other side may move too (the engineer's answer is a new dimension both sheets take)
+  const row = plIssue({ projectId: f.projectId, number: fix.number, changed: String(o.changed || "").trim() || `${f.label}: ${fix.value} to ${value}, to match ${stand.number} Rev ${stand.rev} (set check ${f.ref})`, facts: facts, issuer: o.issuer || (["eor", "aor", "sub"].includes(xsOwnerOf(cur).kind) ? cur.issuer : plMe()), origin: { kind: "xset", id: f.id, label: `set check ${f.ref}` }, xsResolves: f.id });
+  if (!row) return null;
+  xsIsOpen(f) && (xsResolved(f, row, value), xsRelease(f.projectId));
+  xsMoney(f, o);
+  return row;
+}
+// ---- follow the money: who pays, what it ripples into
+function xsMoney(f, o) {
+  o = o || {};
+  const p = plJob(f.projectId),
+    payer = o.payer || xsPayerGuess(f),
+    amount = r2(+o.amount || 0),
+    td = today(),
+    M = { payer: payer, amount: amount, at: appNowIso(), by: plMe(), ours: 0, backcharge: 0, co: 0, theirs: 0 };
+  if ("ours" === payer) M.ours = amount;
+  if ("sub" === payer) M.theirs = amount;
+  if ("consultant" === payer) {
+    M.backcharge = amount;
+    const d = { id: uid("ox"), kind: "backcharge", to: { name: f.owner.name, email: f.owner.email || "" }, subject: `${plJobName(f.projectId)} — backcharge for set check ${f.ref}`, body: `Hello,\n\nThe conflict in ${f.ref} (${f.label}: ${xsNum(f.a)} ${f.a.value} vs ${xsNum(f.b)} ${f.b.value}) cost us ${money(amount)} to correct. We will deduct it from your next invoice unless you tell us otherwise by ${fmtL(addWork(td, 5))}.\n\nThanks,\n${plMe()}`, about: { projectId: f.projectId, findingId: f.id, label: f.ref }, aboutKey: `xsetbc|${f.id}`, status: "draft", at: td, by: plMe() };
+    (DB.outbox = DB.outbox || []).push(d), (M.draftId = d.id);
+  }
+  if ("client" === payer && p) {
+    const c = (DB.clients || []).find((x) => x.id === p.clientId);
+    if (c && "function" == typeof newDoc) {
+      const keep = "undefined" != typeof clientOpen ? clientOpen : null;
+      try {
+        clientOpen = c.id;
+      } catch (e) {}
+      const d = newDoc(c, "co", { fields: { title: `${f.label} (set check ${f.ref})`, projectId: p.id, scheduleDays: +o.days || 0, memo: `The client's change behind set check ${f.ref}: ${xsPlain(f)}`, lines: [{ id: uid("l"), item: f.label, desc: `Per ${f.resolution ? `${f.resolution.number} Rev ${f.resolution.rev}` : "the revised drawing"}`, qty: 1, unit: "ls", rate: amount, taxable: !1, cost: "" }] } });
+      try {
+        clientOpen = keep;
+      } catch (e) {}
+      d && ((M.coId = d.id), (M.coNumber = d.number), (M.co = amount));
+    }
+  }
+  const late = f.needBy && f.needBy.date && f.resolvedAt && String(f.resolvedAt).slice(0, 10) > f.needBy.date ? workdays(f.needBy.date, String(f.resolvedAt).slice(0, 10)) - 1 : 0;
+  M.days = null != o.days && "" !== o.days ? +o.days || 0 : late;
+  M.ripple = [...f.risk.orders.map((x) => `${x.number} (${x.vendor}, ${x.status}): ${"received" === x.status ? "return or re-order" : "correct the order before it ships"}`), ...(f.risk.mats || []).map((m) => `${m.name}: check the order`), ...(M.days ? [`${M.days} schedule day${1 === M.days ? "" : "s"}`] : [])];
+  f.money = M;
+  try {
+    audit("plans", f.id, "set-conflict-money", "", XS_PAYER[payer] || payer, `${money(amount)}${M.coNumber ? " · " + M.coNumber : ""}`);
+  } catch (e) {}
+  return M;
+}
+function xsDismiss(fid, why) {
+  const f = xsRow(fid);
+  if (!xsIsOpen(f)) return null;
+  if (!plCanIssue()) return toast("The designer, the PM or the owner judges a set conflict"), null;
+  if (!String(why || "").trim()) return toast("Say why it is not a conflict"), null;
+  Object.assign(f, { status: "dismissed", dismissedAt: appNowIso(), dismissedBy: plMe(), dismissWhy: String(why).trim() });
+  f.holdIds.forEach((id) => {
+    const h = plDB().holds.find((x) => x.id === id);
+    h && !h.liftedAt && !(h.xsFindings || []).some((x) => x !== f.id && xsIsOpen(xsRow(x))) && (h.liftOn ? xsLiftNow(h, `set check ${f.ref}: not a conflict`) : plLift(h.id, `set check ${f.ref}: not a conflict (${f.dismissWhy})`));
+  });
+  const p = plJob(f.projectId),
+    iss = p && (p.issues || []).find((i) => i.id === f.issueId);
+  iss && Object.assign(iss, { status: "closed", answer: `Not a conflict: ${f.dismissWhy}`, closedAt: appNowIso() });
+  xsRelease(f.projectId);
+  try {
+    audit("plans", f.id, "set-conflict-dismissed", "", f.ref, f.dismissWhy);
+  } catch (e) {}
+  return f;
+}
+// ---- measured: before work against in the field, rework avoided, our cost, time to resolve
+function xsMeasures(pid) {
+  const F = xsFindings(pid),
+    before = F.filter((f) => "before" === f.foundAt),
+    res = F.filter((f) => "resolved" === f.status),
+    sum = (L, k) => r2(L.reduce((a, f) => a + (+((f.money || {})[k]) || 0), 0)),
+    days = res.map((f) => f.days).filter((x) => null != x);
+  return {
+    found: F.length,
+    before: before.length,
+    field: F.length - before.length,
+    open: F.filter(xsIsOpen).length,
+    resolved: res.length,
+    safety: F.filter((f) => f.safety).length,
+    avoided: r2(before.reduce((a, f) => a + (+f.reworkEst || 0), 0)),
+    ours: sum(F, "ours"),
+    backcharge: sum(F, "backcharge"),
+    co: sum(F, "co"),
+    theirs: sum(F, "theirs"),
+    avgDays: days.length ? Math.round((10 * days.reduce((a, x) => a + x, 0)) / days.length) / 10 : null,
+    pctBefore: F.length ? Math.round((100 * before.length) / F.length) : 0,
+  };
+}
+// ---- learn: which sets disagree most, at which hand-off, from which consultant
+function xsPatterns(pid) {
+  const F = xsFindings(pid),
+    count = (fn) => {
+      const m = new Map();
+      F.forEach((f) => {
+        const k = fn(f);
+        k && m.set(k, (m.get(k) || 0) + 1);
+      });
+      return [...m.entries()].sort((a, b) => b[1] - a[1]).map(([k, n]) => ({ k: k, n: n }));
+    };
+  return {
+    pairs: count((f) => [xsSetLabel(f.a.set), xsSetLabel(f.b.set)].sort().join(" vs ")),
+    handoffs: count((f) => f.handoff),
+    from: count((f) => (["eor", "aor", "sub"].includes((f.owner || {}).kind) ? f.owner.name : "")),
+    n: F.length,
+  };
+}
+function xsChecklist() {
+  return xsPatterns()
+    .handoffs.filter((h) => XS_CHECKLIST[h.k])
+    .slice(0, 4)
+    .map((h) => ({ text: XS_CHECKLIST[h.k], n: h.n, handoff: h.k }));
+}
+const xsLesson = () => (DB.lessons || []).find((l) => "xset" === l.learn && !1 !== l.active) || null;
+"undefined" != typeof LEARN_EVENTS &&
+  !LEARN_EVENTS.some((e) => "xset" === e.kind) &&
+  LEARN_EVENTS.push({
+    kind: "xset",
+    label: "Two drawing sets disagreed",
+    area: "design",
+    for: "designer",
+    lesson() {
+      const P = xsPatterns(),
+        h = P.handoffs[0],
+        pr = P.pairs[0],
+        fr = P.from[0];
+      return h ? `A pre-issue checklist on every set: the sets disagree most at ${h.k} (${h.n} of ${P.n}; ${pr.k} most often${fr ? `; ${fr.k} most often asked` : ""})` : "A pre-issue checklist on every set";
+    },
+    change: { type: "checklist", text: "The pre-issue checklist on New Revision and Issue a Set, from where the sets disagreed: each hand-off that produced a conflict becomes a line the designer ticks before issuing" },
+    scan: () => xsFindings().map((f) => ({ key: "xset:" + f.id, what: `${plJobName(f.projectId)} ${f.ref}: ${f.label} — ${f.a.number} (${xsSetLabel(f.a.set)}) ${f.a.value} vs ${f.b.number} (${xsSetLabel(f.b.set)}) ${f.b.value}, at ${f.handoff}`, item: f.handoff, ref: { kind: "xset", id: f.id, projectId: f.projectId }, on: String(f.at).slice(0, 10) })),
+    trigger: {
+      label: "a consultant's calculation older than the construction sheet it rests on",
+      rows() {
+        const out = [];
+        (DB.projects || []).forEach((p) =>
+          plSheets(p.id, { current: !0 })
+            .filter((s) => (s.facts || []).some((x) => x.assume))
+            .forEach((c) =>
+              plSheets(p.id, { current: !0 })
+                .filter((s) => ["cd", "dob"].includes(s.set) && s.issuedOn > c.issuedOn && (s.rooms || []).some((r) => (c.rooms || []).includes(r)))
+                .forEach((s) => out.push({ key: `xsrecal:${c.id}:${s.id}`, what: `${plRev(c)} predates ${plRev(s)} on ${plJobName(p.id)}`, projectId: p.id, task: { title: `Send ${plRev(s)} to ${c.issuer || "the engineer"} and have ${c.number} re-confirmed`, due: addWork(today(), 1), role: "designer" } })),
+            ),
+        );
+        return out;
+      },
+    },
+  });
+// ---- the Standard behind each catch (STD_MAP)
+"undefined" != typeof STD_MAP &&
+  Object.assign(STD_MAP, {
+    xsetSafety: { p: "safety", c: ["principle", "safety"], esc: /structural failure/i },
+    xsetConflict: { p: "quality", c: ["esc", /Drawing doesn't work/i], esc: /Drawing doesn't work/i },
+    "nyh:xset": { p: "quality", c: ["pb", "designer", "standards", /Field questions answered/i] },
+    "nyh:xsethold": { p: "cost", c: ["value", "dollar", /Waste nothing/i] },
+    "learn:xset": { p: "quality", c: ["std", "quality", /Our rework is on us/i] },
+  });
+// ---- the seed (invented): what 121 State's sets say, the engineer's calc that the 9/2 plan change moved past,
+// and the firm's past conflicts the brain learns from
+function xsSheetFile(p, s, job) {
+  const id = "fpl_" + s.id,
+    dataUrl = plSvg({ job: job, number: s.number, title: s.title, rev: s.rev, date: s.issuedOn, rooms: s.rooms.map(xsRoomName), note: s.changed, cloud: !!s.supersedes }),
+    rec = { id: id, name: `${s.number} ${s.title} - Rev ${s.rev}.svg`, type: "image/svg+xml", size: Math.round(0.75 * dataUrl.length), cat: "drawing", date: s.issuedOn, by: s.issuer, link: null, notes: `${s.number} Rev ${s.rev} (the drawing register)`, shareClient: !1, ai: null, seen: !0, persisted: !1, uploadedAt: s.issuedAt };
+  "superseded" === s.status && ((rec.origName = rec.name), (rec.name = "VOID · " + rec.name));
+  (p.files = p.files || []).push(rec), (s.fileId = id);
+  try {
+    Promise.resolve(putBlob(id, dataUrl)).then((ok) => ok && ((rec.persisted = !0), save()));
+  } catch (e) {}
+}
+function xsSeed() {
+  const St = xsDB(),
+    p = plJob("p121");
+  if (!p || DB.__xsSeed || !DB.__plSeed || ("function" == typeof sdSeedsOff && sdSeedsOff())) return;
+  DB.__xsSeed = 1;
+  const F = (key, kind, label, value, room, loc, conf, x) => Object.assign({ key: key, kind: kind, label: label, value: value, room: room, loc: loc || "", conf: conf || 0.95 }, x || {}),
+    put = (id, facts) => {
+      const s = plRow(id);
+      s && !s.facts && ((s.facts = facts), (s.read = { how: "simulated", at: `${s.issuedOn}T09:05:00` }));
+    },
+    gbr = "r121gbr",
+    pk = "r121pk",
+    lau = "r121lau",
+    gk = "r121gk",
+    pb = "r121pb",
+    ext = "r121ext",
+    W3w = (c) => F("win:W-3:width", "window", "Rear window W-3 width", "3'-2\"", ext, "rear facade, third floor", c),
+    W3h = (c) => F("win:W-3:head", "window", "Rear window W-3 head height", "7'-4\"", ext, "rear facade, third floor", c),
+    mold = (c) => F("fin:r121ext:brickmold", "finish", "Rear window brick mold profile", "Ogee", ext, "rear facade", c),
+    ceil = F("ceil:r121gbr", "ceiling", "Garden bedroom ceiling height", "8'-4\"", gbr, "under the exposed beams"),
+    d04 = F("door:D-04:width", "door", "Door D-04 width", "2'-8\"", gbr, "garden bedroom to the hall"),
+    nm = (r, n) => F(`room:${r}:name`, "room", "Room name", n, r),
+    rear = (v) => F("dim:r121gbr:rear-wall", "dim", "Garden bedroom rear wall, from the stair wall", v, gbr, "rear wall at the steel post"),
+    island = (v, c) => F("dim:r121pk:island", "dim", "Parlor kitchen island length", v, pk, "island, range side", c),
+    lauC = (c) => F("dim:r121lau:counter", "dim", "Laundry counter height", '34"', lau, "laundry counter", c),
+    range = (c) => F("dim:r121pk:range-wall", "dim", "Parlor kitchen range wall run", "11'-2\"", pk, "range wall", c),
+    p3 = (c) => F("fix:P-3", "fixture", "Fixture P-3 shower valve", "Waterworks Henry thermostatic", pb, "primary bath shower", c);
+  put("sh121l201", [W3w(), W3h(), mold()]);
+  put("sh121ww", [W3w(0.8), W3h(0.8)]);
+  put("sh121a202c", [island("8'-0\""), lauC(), range(), nm(pk, "Parlor kitchen"), nm(lau, "Laundry")]);
+  put("sh121sd1", [island("7'-6\"", 0.8), lauC(0.8), range(0.8)]);
+  put("sh121deck", [F("fin:r121gk:backsplash", "finish", "Garden kitchen backsplash", "Polished Calacatta marble", gk, "backsplash", 0.7), island("8'-0\"", 0.7), nm(pb, "Primary bath")]);
+  put("sh121fs1b", [F("fin:r121gk:backsplash", "finish", "Garden kitchen backsplash", "Honed Calacatta", gk, "backsplash"), p3(), F("fin:r121pb:floor", "finish", "Primary bath floor tile", "Bianco Carrara hex", pb, "floor")]);
+  put("sh121a401", [p3(), F("ceil:r121pb", "ceiling", "Primary bath ceiling height", "8'-0\"", pb, "shower"), nm(pb, "Primary bath")]);
+  put("sh121a100b", [ceil, d04, nm(gbr, "Garden bedroom")]);
+  // new sheets: the garden bedroom plan and its 9/2 change, the engineer's beam and post calc of 9/1, the rear facade
+  const fm = (DB.users || []).find((u) => "foreman" === u.role),
+    rows = [],
+    SH = (o) => {
+      const s = Object.assign({ projectId: p.id, status: "current", issuedAt: `${o.issuedOn}T09:00:00`, issuer: "Sarah Davis", issuedBy: "Sarah Davis", source: "inhouse", origin: { kind: "seed", label: "the register" }, link: "", stale: !1 }, o);
+      s.ackNeed = fm ? [{ key: "u:" + fm.id, uid: fm.id, name: fm.name, role: "foreman" }] : [];
+      s.read = { how: "simulated", at: `${o.issuedOn}T09:05:00` };
+      rows.push(s);
+      return s;
+    };
+  SH({ id: "sh121a102a", set: "cd", number: "A-102", title: "Garden bedroom and rear extension plan", rev: "A", rooms: [gbr], status: "superseded", issuedOn: "2026-08-20", stage: "ifc", changed: "Issued for construction", facts: [rear("16'-4\""), ceil, d04, nm(gbr, "Garden bedroom")], supersededBy: "sh121a102b" });
+  SH({ id: "sh121a102b", set: "cd", number: "A-102", title: "Garden bedroom and rear extension plan", rev: "B", rooms: [gbr], issuedOn: "2026-09-02", stage: "ifc", supersedes: "sh121a102a", changed: "Rear wall moved from 16'-4\" to 15'-8\" for the window seat; bench added along the rear wall", facts: [rear("15'-8\""), ceil, d04, nm(gbr, "Garden bedroom")] });
+  SH({ id: "sh121cs2", set: "struct", kind: "calc", number: "CALC-S2", title: "Garden bedroom steel beam and post calculation", rev: "1", rooms: [gbr], issuedOn: "2026-09-01", stage: "ifc", source: "structural", issuer: "Maya Natarajan, PE (structural consultant)", issuerEmail: "maya@natarajan-pe.example", changed: "W8x18 beam over the garden bedroom; steel post at the rear wall, on the plan of 8/20", facts: [rear("16'-4\""), F("calc:r121gbr:beam", "calc", "Garden bedroom beam size", "W8x18", gbr, "over the garden bedroom")].map((x, i) => (0 === i ? Object.assign(x, { assume: !0, label: "Garden bedroom rear wall, from the stair wall (the steel post sits on it)" }) : x)) });
+  SH({ id: "sh121a501", set: "cd", number: "A-501", title: "Rear facade elevation and window details", rev: "A", rooms: [ext], issuedOn: "2026-08-14", stage: "ifc", changed: "Issued for construction; windows per LPC-26-0412", facts: [W3w(), W3h(), mold()] });
+  rows.forEach((s) => {
+    St.sheets.some((x) => x.id === s.id) || (xsSheetFile(p, s, "121 State Street"), St.sheets.push(s));
+    fm && !St.acks.some((a) => a.id === "pa_" + s.id) && St.acks.push({ id: "pa_" + s.id, kind: "ack", projectId: p.id, sheetId: s.id, number: s.number, rev: s.rev, uid: fm.id, name: fm.name, role: "foreman", vendor: "", how: "in the app", by: fm.name, at: `${s.issuedOn}T07:50:00` });
+  });
+  // past conflicts on the firm's jobs (invented): what the brain's lesson is drawn from
+  const H = (id, pid, ref, a, b, label, kind, room, at, resolvedAt, foundAt, rule, owner, money, rework, fix) => {
+    if (St.findings.some((x) => x.id === id)) return;
+    const f = { id: id, ref: ref, projectId: pid, key: `${kind}:${room}:${label}`, fkey: `${id}`, kind: kind, label: label, room: room, loc: "", a: a, b: b, conf: 0.9, rule: rule, safety: "calc" === rule, risk: { top: "design", tags: ["design"], tasks: [], orders: [], mats: [], filed: null }, owner: owner, needBy: null, due: at.slice(0, 10), status: "resolved", foundAt: foundAt, trigger: "revision", at: at, by: "The set check", holdIds: [], told: [], issueId: "", draftId: "", reworkEst: rework, money: Object.assign({ payer: "ours", amount: 0, ours: 0, backcharge: 0, co: 0, theirs: 0, days: 0, ripple: [] }, money), resolvedAt: resolvedAt, resolvedBy: "Sarah Davis", resolution: fix, seed: !0 };
+    f.days = Math.round(((new Date(resolvedAt) - new Date(at)) / 864e5) * 10) / 10;
+    f.handoff = xsHandoff(f);
+    St.findings.push(f);
+  };
+  const ours = { kind: "designer", name: "Sarah Davis", label: "our designer", route: "designer", owner: "SmartDesigns" },
+    eor = { kind: "eor", name: "Maya Natarajan, PE (structural consultant)", email: "maya@natarajan-pe.example", label: "the engineer of record", route: "pm", owner: "Engineer" },
+    carlos = { kind: "sub", name: "Carlos Millwork", label: "the sub, for their shop drawing", route: "coord", owner: "Subcontractor" },
+    S0 = (number, rev, set, value) => ({ sheetId: "", number: number, rev: rev, set: set, title: "", value: value, conf: 0.9, assume: "struct" === set });
+  H("xfh1", "p45", "X-H01", S0("L-101", "A", "lpc", "7'-10\""), S0("DECK-02", "B", "deck", "8'-2\""), "Front parlor window W-1 head height", "window", "r45k", "2026-07-14T10:00:00", "2026-07-16T15:00:00", "before", "legal", ours, { payer: "ours" }, 2400, { number: "DECK-02", rev: "C", value: "7'-10\"" });
+  H("xfh2", "p45", "X-H02", S0("L-101", "A", "lpc", "3'-6\""), S0("DECK-02", "B", "deck", "3'-0\""), "Areaway railing height", "dim", "r45k", "2026-07-14T10:00:00", "2026-07-15T11:00:00", "before", "legal", ours, { payer: "ours" }, 1800, { number: "DECK-02", rev: "C", value: "3'-6\"" });
+  H("xfh3", "p140", "X-H01", S0("L-100", "A", "lpc", "2'-6\""), S0("DECK-01", "C", "deck", "2'-2\""), "Rear window sill height", "window", "r140k", "2026-08-11T09:30:00", "2026-08-13T16:00:00", "before", "legal", ours, { payer: "ours" }, 3100, { number: "DECK-01", rev: "D", value: "2'-6\"" });
+  H("xfh4", "p140", "X-H02", S0("A-201", "B", "cd", "11'-0\""), S0("CALC-S1", "1", "struct", "12'-0\""), "Kitchen opening width (the flitch beam spans it)", "calc", "r140k", "2026-08-18T10:00:00", "2026-08-22T12:00:00", "before", "calc", eor, { payer: "ours", amount: 450, ours: 450 }, 6500, { number: "CALC-S1", rev: "2", value: "11'-0\"" });
+  H("xfh5", "p121", "X-H01", S0("A-110", "A", "dob", "12\""), S0("SD-0", "1", "shop", "14\""), "Office bookcase depth", "dim", "r121of", "2026-08-06T14:00:00", "2026-08-10T10:00:00", "field", "shop", carlos, { payer: "sub", amount: 1200, theirs: 1200 }, 0, { number: "SD-0", rev: "2", value: "12\"" });
+}
+// ---- the register's issue: every new revision is read and checked; a conflict keeps it from construction
+{
+  const base = plIssue;
+  plIssue = function (o) {
+    o = o || {};
+    const before = new Map(plDB().holds.map((h) => [h.id, { liftOn: h.liftOn, liftedAt: h.liftedAt }])),
+      row = base.apply(this, arguments);
+    if (!row) return row;
+    try {
+      const prev = row.supersedes ? plRow(row.supersedes) : null;
+      o.scanned && (row.scanned = !0);
+      (o.issuerEmail || (prev && prev.issuerEmail)) && (row.issuerEmail = o.issuerEmail || prev.issuerEmail);
+      row.facts = xsReadFacts(row, prev, o);
+      row.read = { how: "simulated", at: appNowIso(), facts: row.facts.length };
+      // a set-check hold lifts only when its own finding is resolved, never because another sheet in the room moved
+      plDB().holds.forEach((h) => {
+        const b = before.get(h.id);
+        if (!b || !(h.xsFindings || []).length || o.xsResolves) return;
+        if (!h.xsFindings.some((id) => xsIsOpen(xsRow(id)))) return;
+        b.liftOn !== h.liftOn && (h.liftOn = b.liftOn || "");
+        !b.liftedAt && h.liftedAt && (delete h.liftedAt, delete h.liftedBy, delete h.liftWhy);
+      });
+      xsCheck(row.projectId, { sheetId: row.id, trigger: "revision" });
+      xsGate(row);
+    } catch (e) {
+      console.warn("xset issue", e);
+    }
+    return row;
+  };
+}
+// the field's acknowledgment lifts the hold (plAck); the sheets the hold marked In Revision go back to their stage
+{
+  const base = plAck;
+  plAck = function (rowId, o) {
+    const was = new Set(plDB().holds.filter((h) => h.liftedAt).map((h) => h.id)),
+      r = base.apply(this, arguments);
+    try {
+      plDB()
+        .holds.filter((h) => h.liftedAt && !was.has(h.id) && (h.xsFindings || []).length)
+        .forEach(xsRestoreStages);
+    } catch (e) {
+      console.warn("xset ack", e);
+    }
+    return r;
+  };
+}
+// the toast after New Revision says when the check kept it from Issued for Construction
+{
+  const base = plIssueToast;
+  plIssueToast = function (row) {
+    if (row && row.xsGate) {
+      const F = row.xsGate.ids.map(xsRow).filter(Boolean),
+        prev = row.supersedes && plRow(row.supersedes);
+      return void rcToast(`${plRev(row)} issued${prev ? ` — Rev ${prev.rev} is VOID` : ""}, but not for construction: set check ${F.map((f) => `${f.ref} (${f.label}, ${f.a.number} ${f.a.value} vs ${f.b.number} ${f.b.value})`).join("; ")}`, [{ label: "Open", run: () => xsGo(F[0].id) }]);
+    }
+    return base.apply(this, arguments);
+  };
+}
+// the order guard names the conflict behind the hold
+{
+  const base = plOrderGuard;
+  plOrderGuard = function (lines, ctx) {
+    const g = base.apply(this, arguments);
+    try {
+      g.reasons = g.reasons.map((r, i) => {
+        const b = g.blocked[i],
+          f = b && b.hold && (b.hold.xsFindings || []).map(xsRow).find(xsIsOpen);
+        return f ? r.replace(" — ", ` (set check ${f.ref}: ${f.label}, ${f.a.number} ${f.a.value} vs ${f.b.number} ${f.b.value}) — `) : r;
+      });
+    } catch (e) {}
+    return g;
+  };
+}
+// the gate on Issue a Set: a set issued for construction is checked first, and a conflict in it stops the issue
+document.addEventListener(
+  "click",
+  (e) => {
+    const ok = e.target.closest && e.target.closest("#mbm #mbm-ok");
+    if (!ok || !S) return;
+    const m = ok.closest("#mbm"),
+      h = m && m.querySelector(".mbm-hd h3");
+    if (!h || !/^Issue a set$/i.test(h.textContent.trim())) return;
+    const set = (m.querySelector('[data-f="set"]') || {}).value || "",
+      purpose = (m.querySelector('[data-f="purpose"]') || {}).value || "";
+    if (!/construct|\bifc\b/i.test(purpose)) return;
+    const sheets = plSheets(S.id, { current: !0, set: set });
+    sheets.forEach((s) => xsCheck(S.id, { sheetId: s.id, trigger: "ifc" }));
+    const F = xsFindings(S.id, { status: "open" }).filter((f) => sheets.some((s) => [f.a.sheetId, f.b.sheetId].includes(s.id)));
+    if (!F.length) return;
+    e.preventDefault(), e.stopPropagation(), save();
+    rcToast(`Not issued for construction: the set check found ${F.length} conflict${1 === F.length ? "" : "s"} in this set (${F.map((f) => f.ref).join(", ")}). Resolve ${1 === F.length ? "it" : "them"} first.`, [{ label: "Open", run: () => (mbCloseModal(), xsGo(F[0].id)) }]);
+  },
+  !0,
+);
+// ---- navigation and the person's actions
+function xsGo(fid) {
+  const f = xsRow(fid);
+  if (!f) return;
+  setCurrent(f.projectId), (xsFocus = f.id), "open" !== f.status && (xsShowResolved = !0), (view = "plans"), render();
+  setTimeout(() => {
+    const el = document.querySelector(`[data-xsfind="${f.id}"]`);
+    el && el.scrollIntoView({ block: "center" });
+  }, 40);
+}
+function xsRunNow(pid) {
+  const p = plJob(pid);
+  if (!p) return null;
+  const R = xsCheck(pid, { trigger: "demand" }),
+    held = R.made.filter((f) => f.holdIds.length),
+    safety = R.made.filter((f) => f.safety);
+  save(), render();
+  const first = R.made[0] || R.open[0];
+  rcToast(`Set check on ${plJobName(pid)}: ${R.run.sheets} current sheets, ${R.run.facts} facts read; ${R.made.length ? `${R.made.length} new conflict${1 === R.made.length ? "" : "s"}${safety.length ? ` (${safety.length} safety)` : ""}${held.length ? `, ${[...new Set(held.map((f) => xsRoomName(f.room)))].join(", ")} on hold, the foreman and procurement told` : ""}` : "no new conflicts"}${R.open.length > R.made.length ? `; ${R.open.length - R.made.length} still open` : ""}`, first ? [{ label: "Open", run: () => xsGo(first.id) }] : [{ label: "Open", run: () => plGoJob(pid) }]);
+  return R;
+}
+function xsResolveDialog(fid) {
+  const f = xsRow(fid);
+  if (!xsIsOpen(f)) return;
+  if (!plCanIssue()) return toast("The designer, the PM or the owner resolves a set conflict");
+  const opt = (k, x) => `<option value="${k}">${esc(xsNum(x))} (${esc(xsSetLabel(x.set))}): ${esc(x.value)}${"a" === k ? " — governs" : ""}</option>`,
+    m = mbModal(
+      `Resolve ${esc(f.ref)}`,
+      `<p class="small" style="margin:0 0 8px">${esc(xsPlain(f))} The answer becomes a new revision in the register: the old sheet goes VOID, the field acknowledges it, and the hold lifts.</p>
+      <div class="f"><label>Which Value Stands</label><select data-f="stand">${opt("a", f.a)}${opt("b", f.b)}</select></div>
+      <div class="f"><label>Value on the New Revision</label><input data-f="value" value="${esc(f.a.value)}"></div>
+      <div class="f"><label>What Changed</label><textarea data-f="changed" rows="2" placeholder="Left blank, it says which value changed and why"></textarea></div>
+      <div class="f2"><div class="f"><label>Who Pays</label><select data-f="payer">${Object.entries(XS_PAYER).map(([k, v]) => `<option value="${k}" ${xsPayerGuess(f) === k ? "selected" : ""}>${esc(v)}</option>`).join("")}</select></div><div class="f"><label>Cost to Fix</label><input data-f="amount" type="number" min="0" step="1" value="0"></div></div>
+      <div class="f"><label>Schedule Days</label><input data-f="days" type="number" min="0" step="1" value=""></div>
+      <div id="xs-res-prev" class="small"></div>`,
+      {
+        submit: "Issue the Revision",
+        onSubmit: (v) => {
+          const row = xsResolve(f.id, { stand: v.stand, value: v.value, changed: v.changed, payer: v.payer, amount: v.amount, days: v.days });
+          if (!row) return !1;
+          (xsFocus = f.id), (xsShowResolved = !0), save(), render();
+          const st = plAckState(row);
+          rcToast(`Resolved ${f.ref}: ${plRev(row)} issued${row.supersedes ? `, Rev ${(plRow(row.supersedes) || {}).rev} VOID` : ""}${row.amend ? `; ${row.amend.agency} amendment needed before this work` : ""}${f.holdIds.length ? (st.pending.length ? `; the hold on ${xsRoomName(f.room)} lifts when ${st.pending.map((n) => plFirst(n.name)).join(", ")} acknowledge${1 === st.pending.length ? "s" : ""}` : `; the hold on ${xsRoomName(f.room)} is lifted`) : ""}; ${XS_PAYER[f.money.payer]}${f.money.amount ? ` ${money(f.money.amount)}` : ""}${f.money.coNumber ? ` (${f.money.coNumber} drafted)` : ""}`, [{ label: "Open", run: () => xsGo(f.id) }]);
+        },
+      },
+    );
+  const prev = () => {
+    const k = m.querySelector('[data-f="stand"]').value,
+      stand = "b" === k ? f.b : f.a,
+      fix = "b" === k ? f.a : f.b,
+      cur = plCurrent(f.projectId, fix.number),
+      filed = cur && plFiled(f.projectId, fix.number);
+    m.querySelector('[data-f="value"]').value = stand.value;
+    m.querySelector("#xs-res-prev").innerHTML = cur ? `<div><b>${esc(fix.number)} Rev ${esc(nextRev(cur.rev))}</b> is issued with ${esc(stand.value)}; Rev ${esc(cur.rev)} becomes VOID.</div>${filed ? `<div class="note bad small"><b>${esc(filed.agency)} filed sheet.</b> Changing it needs an amendment or ${esc(filed.agency)} approval before this work; the work stays held until it is approved.</div>` : ""}` : "";
+  };
+  m.querySelector('[data-f="stand"]').addEventListener("change", prev);
+  prev();
+  return m;
+}
+function xsDismissDialog(fid) {
+  const f = xsRow(fid);
+  if (!xsIsOpen(f)) return;
+  mbModal(
+    `Not a Conflict: ${esc(f.ref)}`,
+    `<p class="small" style="margin:0 0 8px">${esc(xsPlain(f))} Say why these two values do not disagree (for example, the read took a dimension from the wrong string). The holds lift and the same two values are not raised again.</p><div class="f"><label>Why</label><textarea data-f="why" rows="2"></textarea></div>`,
+    {
+      submit: "Record",
+      onSubmit: (v) => {
+        const r = xsDismiss(f.id, v.why);
+        if (!r) return !1;
+        (xsShowResolved = !0), save(), render(), rcToast(`${f.ref} recorded as not a conflict: ${r.dismissWhy}`, [{ label: "Open", run: () => xsGo(f.id) }]);
+      },
+    },
+  );
+}
+function xsOpenRfi(fid) {
+  const f = xsRow(fid),
+    p = f && plJob(f.projectId);
+  if (!p || !f.issueId) return;
+  setCurrent(p.id), (view = "field"), render();
+  try {
+    openEditor("iss", f.issueId);
+  } catch (e) {}
+}
+document.addEventListener("click", (e) => {
+  const b = e.target.closest && e.target.closest("[data-xscheck],[data-xsresolve],[data-xsdismiss],[data-xsrfi],[data-xsgo],[data-xsresolved]");
+  if (!b) return;
+  e.preventDefault();
+  const d = b.dataset;
+  if (null != d.xscheck) return void xsRunNow(d.xscheck || (S && S.id));
+  if (null != d.xsresolve) return void xsResolveDialog(d.xsresolve);
+  if (null != d.xsdismiss) return void xsDismissDialog(d.xsdismiss);
+  if (null != d.xsrfi) return void xsOpenRfi(d.xsrfi);
+  if (null != d.xsgo) return void xsGo(d.xsgo);
+  if (null != d.xsresolved) return (xsShowResolved = !xsShowResolved), void render();
+});
+// ---- the screens: the Set Check card on Plans, the foreman's hold, the owner's Reports
+function xsKpis(M) {
+  const k = (label, v, cls) => `<div class="kpi ${cls || ""}"><b>${v}</b><span>${label}</span></div>`;
+  return `<div class="kpis xs-kpis">${k("Found Before Work", M.before, "good")}${k("Found in the Field", M.field, M.field ? "warn" : "")}${k("Rework Avoided", money(M.avoided).replace(/\.00$/, ""), "good")}${k("Our Cost", money(M.ours).replace(/\.00$/, ""), M.ours ? "warn" : "")}${k("Days to Resolve", null == M.avgDays ? "—" : M.avgDays)}${k("Open Conflicts", M.open, M.open ? "warn" : "")}</div>`;
+}
+function xsValHtml(x, gov) {
+  const s = plRow(x.sheetId),
+    cur = s && (plIsCurrent(s) ? s : plCurrent(s.projectId, s.number));
+  return `<div class="xs-v ${gov ? "xs-gov" : ""}"><span class="small muted">${esc(xsSetLabel(x.set))}${gov ? " · governs" : ""}${x.assume ? " · calculation" : ""}</span><b>${esc(xsNum(x))}</b><span class="xs-val">${esc(x.value)}</span><span class="small muted">read ${Math.round(100 * (x.conf || 0.95))}%${(x.conf || 0.95) < 0.75 ? ", a scanned sheet: check it by eye" : ""}</span>${cur ? `<button type="button" class="btn sm" data-plopen="${cur.id}">Open ${esc(plRev(cur))}</button>` : ""}</div>`;
+}
+function xsFindHtml(f, can) {
+  const R = XS_RISK[f.risk.top] || XS_RISK.design,
+    holds = f.holdIds.map((id) => plDB().holds.find((h) => h.id === id)).filter(Boolean),
+    active = holds.filter((h) => !h.liftedAt),
+    open = xsIsOpen(f);
+  return `<div class="xs-find ${f.safety ? "xs-safety" : ""} ${open ? "" : "xs-done"} ${xsFocus === f.id ? "tk-flash" : ""}" data-xsfind="${f.id}">
+    <div class="xs-hd"><b>${esc(f.ref)} · ${esc(f.label)}</b>${f.safety ? ' <span class="pill bad">Safety</span>' : ""} <span class="pill ${R[1]}">${R[0]}</span>${open ? "" : ` <span class="pill ${"resolved" === f.status ? "ok" : "neutral"}">${"resolved" === f.status ? "Resolved" : "Not a Conflict"}</span>`}</div>
+    <div class="small muted">${esc(xsRoomName(f.room) || "—")}${f.loc ? ` · ${esc(f.loc)}` : ""} · ${esc(XS_FACT[f.kind] || f.kind)} · read with ${Math.round(100 * f.conf)}% confidence · found ${esc(stampText(f.at))} (${esc({ revision: "on a new revision", demand: "on demand", ifc: "before Issued for Construction", field: "from the field", seed: "on the first read" }[f.trigger] || f.trigger)})${"field" === f.foundAt ? " · work had started there" : ""}</div>
+    <div class="xs-vals">${xsValHtml(f.a, !0)}${xsValHtml(f.b, !1)}</div>
+    <div class="small xs-prec"><b>Which governs:</b> ${esc(xsRuleText(f.rule))}.<ul>${XS_RULES.map((r) => `<li class="${r[0] === f.rule ? "on" : ""}">${esc(r[1])}</li>`).join("")}</ul></div>
+    ${f.safety && open ? `<div class="note bad small"><b>Safety, decision principle 1.</b> ${esc(xsPlain(f))} A structural judgment belongs to the engineer of record: the app holds the work and asks, it does not decide.</div>` : ""}
+    ${f.amend && open ? `<div class="note warn small"><b>${esc(f.amend.agency)} filed drawing.</b> If the fix keeps ${esc(f.b.value)}, ${esc(f.amend.number)} changes and needs an amendment or ${esc(f.amend.agency)} approval before this work.</div>` : ""}
+    <div class="small"><b>Risk:</b> ${f.risk.tags.map((t) => esc(XS_RISK[t][0])).join(", ")}${f.risk.tasks.length ? ` · ${esc(f.risk.tasks.map((t) => `${t.name} (${"in-progress" === t.status ? "under way" : "starts " + fmt(t.start)})`).join(", "))}` : ""}${f.risk.orders.length ? ` · ${esc(f.risk.orders.map((o) => `${o.number} ${o.vendor} (${o.status})`).join(", "))}` : ""}${f.reworkEst ? ` · rework if built wrong: about ${money(f.reworkEst).replace(/\.00$/, "")} (an estimate: a tenth of the orders in the room and the labor scheduled there)` : ""}</div>
+    ${active.length ? `<div class="small xs-held"><b>On hold:</b> ${esc(xsRoomName(f.room))}. ${f.told.length ? `Told: ${esc(f.told.map((t) => plFirst(t.name)).join(" and "))}.` : ""}${active.some((h) => h.liftOn) ? ` Lifts when the field acknowledges ${esc(plRev(plRow(active[0].liftOn) || { number: "", rev: "" }))}.` : ""}</div>` : holds.length ? `<div class="small muted">Hold on ${esc(xsRoomName(f.room))} lifted ${esc(stampText(holds[0].liftedAt))}.</div>` : ""}
+    <div class="small"><b>Asked:</b> ${esc(f.owner.name)} (${esc(f.owner.label)})${f.rfi ? ` · ${esc(f.rfi)}` : ""} · due ${f.due ? fmt(f.due) : "—"}${f.needBy ? ` — ${esc(f.needBy.what)}` : ""}${f.draftId ? ` · ${(DB.outbox || []).some((o) => o.id === f.draftId && "draft" === o.status) ? "email drafted in the Outbox" : "email sent"}` : ""}</div>
+    ${"resolved" === f.status && f.resolution ? `<div class="small"><b>Resolved:</b> ${esc(f.resolution.number)} Rev ${esc(f.resolution.rev)} (${esc(f.resolution.value)})${f.resolution.prev ? `, Rev ${esc(f.resolution.prev)} VOID` : ""}, ${esc(f.resolvedBy || "")} ${esc(stampText(f.resolvedAt))}${null != f.days ? ` · ${f.days} days` : ""}${f.money ? ` · ${esc(XS_PAYER[f.money.payer] || f.money.payer)}${f.money.amount ? ` ${money(f.money.amount).replace(/\.00$/, "")}` : ""}${f.money.coNumber ? ` · ${esc(f.money.coNumber)} drafted` : ""}${(f.money.ripple || []).length ? ` · to correct: ${esc(f.money.ripple.join("; "))}` : ""}` : ""}</div>` : ""}
+    ${"dismissed" === f.status ? `<div class="small"><b>Not a conflict:</b> ${esc(f.dismissWhy || "")} (${esc(f.dismissedBy || "")})</div>` : ""}
+    <div class="pl-acts">${open && can ? `<button type="button" class="btn sm" data-xsresolve="${f.id}">Resolve</button><button type="button" class="btn sm" data-xsdismiss="${f.id}">Not a Conflict</button>` : ""}${f.issueId ? `<button type="button" class="btn sm" data-xsrfi="${f.id}">Open ${esc(f.rfi || "RFI")}</button>` : ""}</div>
+  </div>`;
+}
+function xsLearnHtml(pid) {
+  const P = xsPatterns(),
+    L = xsChecklist(),
+    les = xsLesson(),
+    prop = "function" == typeof lnPropOf ? lnPropOf("xset") : null;
+  if (!P.n) return "";
+  return `<div class="xs-learn"><h4>What the Sets Teach</h4><div class="small">Firm-wide, ${P.n} conflicts: most often ${esc(P.pairs.slice(0, 2).map((x) => `${x.k} (${x.n})`).join(", "))}; at ${esc(P.handoffs.slice(0, 2).map((x) => `${x.k} (${x.n})`).join(", "))}${P.from.length ? `; asked most of ${esc(P.from.map((x) => `${x.k} (${x.n})`).slice(0, 2).join(", "))}` : ""}.</div><div class="small"><b>Pre-Issue Checklist</b> ${les ? `(approved ${esc(fmt(les.at))} by ${esc(les.taughtBy)})` : prop && "proposed" === prop.status ? "(proposed to the owner)" : prop ? `(${esc(prop.status)})` : ""}</div><ul class="small">${L.map((x) => `<li>${esc(x.text)} <span class="muted">(${x.n})</span></li>`).join("")}</ul></div>`;
+}
+function xsCardHtml(p) {
+  const F = xsFindings(p.id),
+    open = F.filter(xsIsOpen).sort((a, b) => (b.safety ? 1 : 0) - (a.safety ? 1 : 0) || XS_RISK[a.risk.top][2] - XS_RISK[b.risk.top][2]),
+    done = xsFindings(p.id, { all: !0 }).filter((f) => !xsIsOpen(f)),
+    last = xsDB().xsRuns.filter((r) => r.projectId === p.id).pop(),
+    can = plCanIssue(),
+    withFacts = plSheets(p.id, { current: !0 }).filter((s) => (s.facts || []).length).length;
+  return `<div class="card xs-card" id="xs-card"><div class="hd"><h3>Set Check</h3><span class="small muted">${last ? `last run ${esc(stampText(last.at))}, ${esc({ revision: "on a new revision", demand: "on demand", ifc: "before Issued for Construction" }[last.trigger] || last.trigger)}` : "not run on this job yet"}</span><span class="grow"></span>${plStaff() ? `<button type="button" class="btn sm" data-xscheck="${p.id}">Check the Sets</button>` : ""}</div>
+    <p class="small muted" style="margin:4px 0 10px">Every current set (presentation, LPC, DOB, construction documents, consultants, shop drawings and schedules) is read for dimensions, room names, door, window and finish schedules, ceiling heights, fixture tags and calculation assumptions, and matched room by room. ${withFacts} current sheets read. In the demo the read is simulated; on the platform it reads the PDFs.</p>
+    ${xsKpis(xsMeasures(p.id))}
+    ${open.map((f) => xsFindHtml(f, can)).join("") || '<div class="small muted">No open conflicts between this job\'s sets.</div>'}
+    ${done.length ? `<div style="margin-top:8px"><button type="button" class="btn sm" data-xsresolved>${xsShowResolved ? "Hide" : "Show"} Resolved (${done.length})</button></div>${xsShowResolved ? done.map((f) => xsFindHtml(f, can)).join("") : ""}` : ""}
+    ${xsLearnHtml(p.id)}</div>`;
+}
+// the foreman's phone: what is held, in plain words, and who answers by when
+function xsFieldHtml() {
+  if (!S || !["foreman", "crew"].includes(role())) return "";
+  const F = xsFindings(S.id, { status: "open" }).filter((f) => f.holdIds.some((id) => plDB().holds.some((h) => h.id === id && !h.liftedAt)));
+  if (!F.length) return "";
+  return `<div class="card f-card xs-fyou"><div class="hd"><h3>Held by the Drawings</h3></div>${F.map((f) => {
+    const cur = plCurrent(f.projectId, (xsCalcSide(f) === f.a ? f.b : f.a).number);
+    return `<div class="f-row col xs-frow" data-xsfind="${f.id}"><div class="grow"><b>${f.risk.tasks.length ? `Do not start: ${esc(f.risk.tasks.map((t) => t.name).join(", "))}` : `${esc(xsRoomName(f.room))} is on hold`}</b><span class="small">${esc(xsPlain(f))}</span><span class="small muted">${esc(f.owner.name)} answers by ${esc(fmtL(f.due))}. Ask ${esc(plFirst((((DB.users || []).find((u) => "pm" === u.role) || {}).name) || "the PM"))} before working there.</span></div>${cur ? `<div class="row pl-acts"><button type="button" class="btn" data-plopen="${cur.id}">Open ${esc(plRev(cur))}</button></div>` : ""}</div>`;
+  }).join("")}</div>`;
+}
+function xsReportHtml() {
+  const jobs = (DB.projects || []).filter((p) => xsFindings(p.id).length),
+    M = xsMeasures(),
+    td = (v) => `<td class="num">${v}</td>`,
+    m0 = (v) => money(v).replace(/\.00$/, ""),
+    row = (name, X) => `${td(X.found)}${td(X.before)}${td(X.field)}${td(X.open)}${td(m0(X.avoided))}${td(m0(X.ours))}${td(m0(X.backcharge))}${td(m0(X.co))}${td(null == X.avgDays ? "—" : X.avgDays)}`;
+  return `<div class="card xs-rep" id="xs-rep"><div class="hd"><h3>Drawing Coordination</h3><span class="small muted">the set check, firm-wide</span></div>
+    <p class="small" style="margin:4px 0 8px">${M.before} of ${M.found} conflicts between drawing sets were found before work started there (${M.pctBefore}%), avoiding about ${m0(M.avoided)} of rework. Our own design and coordination errors cost ${m0(M.ours)}; that is money that cannot go to raises, bonuses, more staff, charity or extra value for the client.</p>
+    <div class="tw"><table class="t xs-rep-t"><thead><tr><th>Job</th><th>Found</th><th>Before Work</th><th>In the Field</th><th>Open</th><th>Rework Avoided</th><th>Our Cost</th><th>Backcharges</th><th>Change Orders</th><th>Days to Resolve</th></tr></thead><tbody>${jobs.map((p) => `<tr data-xsrepjob="${p.id}"><td>${esc(plJobName(p.id))}</td>${row(p, xsMeasures(p.id))}</tr>`).join("")}<tr class="xs-total"><td><b>All Jobs</b></td>${row(null, M)}</tr></tbody></table></div>
+    ${xsLearnHtml("")}</div>`;
+}
+// ---- the doors: Plans, Today, Reports, the issue dialog's checklist
+{
+  const base = plRender;
+  plRender = function () {
+    const r = base.apply(this, arguments);
+    try {
+      const root = document.getElementById("plans-body"),
+        p = S && plJob(S.id);
+      if (root && p && plStaff()) {
+        document.getElementById("xs-card")?.remove();
+        const at = root.querySelector(".pl-filters");
+        at && at.insertAdjacentHTML("beforebegin", xsCardHtml(p));
+      }
+    } catch (e) {
+      console.warn("xset plans", e);
+    }
+    return r;
+  };
+}
+if ("function" == typeof fForYouHtml) {
+  const base = fForYouHtml;
+  fForYouHtml = function () {
+    let h = "";
+    try {
+      h = xsFieldHtml();
+    } catch (e) {
+      console.warn("xset field", e);
+    }
+    return h + base.apply(this, arguments);
+  };
+}
+if ("function" == typeof renderReports) {
+  const base = renderReports;
+  renderReports = function () {
+    const r = base.apply(this, arguments);
+    try {
+      if (["owner", "pm"].includes(role()) && ["company", "dash"].includes(repTab) && xsFindings().length) {
+        document.getElementById("xs-rep")?.remove();
+        const at = document.getElementById("rep-print-area");
+        at && at.insertAdjacentHTML("afterbegin", xsReportHtml());
+      }
+    } catch (e) {
+      console.warn("xset reports", e);
+    }
+    return r;
+  };
+}
+{
+  const base = plIssueDialog;
+  plIssueDialog = function (o) {
+    const m = base.apply(this, arguments);
+    try {
+      const L = xsLesson() ? xsChecklist() : [];
+      m &&
+        m.querySelector &&
+        m.querySelector("#pl-preview")?.insertAdjacentHTML("beforebegin", `<div class="small xs-gate muted">The set check reads this revision when it is issued: a conflict with another set keeps it from Issued for Construction until it is resolved.</div>${L.length ? `<div class="f xs-pre"><label>Pre-Issue Checklist</label>${L.map((x, i) => `<label class="chk"><input type="checkbox" data-xspre="${i}"> ${esc(x.text)}</label>`).join("")}</div>` : ""}`);
+    } catch (e) {}
+    return m;
+  };
+}
+// ---- the numbers and the queues: Caught for You, the predicate, Needs Your Hand, the query engine, ⌘K, Ask
+"undefined" != typeof CATCH &&
+  CATCH.push(
+    {
+      name: "xsetSafety",
+      label: "Calculation Behind the Drawings",
+      rows: () =>
+        xsFindings("", { status: "open" })
+          .filter((f) => f.safety)
+          .map((f) => ({ key: "xs:safety:" + f.id, what: `Safety: ${f.label} (${f.ref})`, sub: `${plJobName(f.projectId)} · ${xsPlain(f)}`, amount: 0, verb: "Open", run: () => xsGo(f.id) })),
+    },
+    {
+      name: "xsetConflict",
+      label: "Drawing Sets Disagree",
+      rows: () =>
+        xsFindings("", { status: "open" })
+          .filter((f) => !f.safety)
+          .map((f) => ({ key: "xs:conf:" + f.id, what: `Sets disagree: ${f.label} (${f.ref})`, sub: `${plJobName(f.projectId)} · ${f.a.number} ${f.a.value} vs ${f.b.number} ${f.b.value} · ${XS_RISK[f.risk.top][0]}`, amount: r2(f.reworkEst || 0), verb: "Open", run: () => xsGo(f.id) })),
+    },
+  );
+"function" == typeof predDef && predDef("xsetOpen", { label: "Drawing Sets Disagree", rule: "an open set-check conflict: two current drawings that disagree on the same room, element or tag", rows: (scope) => xsFindings(scope || "", { status: "open" }) });
+if ("function" == typeof nyhRowsAll) {
+  const base = nyhRowsAll;
+  nyhRowsAll = function () {
+    const out = base.apply(this, arguments);
+    try {
+      const add = (r) => r && r.route && !lnHandDone(r.key) && !out.some((x) => x.key === r.key) && out.push(r);
+      xsFindings("", { status: "open" }).forEach((f) => {
+        add({ key: "xs:" + f.id, route: f.owner.route, kind: "xset", title: `${f.safety ? "Safety: " : ""}${f.label} — ${f.a.number} ${f.a.value} vs ${f.b.number} ${f.b.value}`, why: `${plJobName(f.projectId)} · ${f.ref} · ${f.rfi || "RFI"} to ${f.owner.name}, due ${fmt(f.due)}${f.needBy ? " · " + f.needBy.what : ""}`, amount: 0, verb: "Open", no: "", run: () => xsGo(f.id), open: () => xsGo(f.id), pri: f.safety ? 0 : 1, score: f.safety ? 60 : 44, due: f.due });
+        f.risk.orders.length && f.holdIds.length && add({ key: "xshold:" + f.id, route: "coord", kind: "xsethold", title: `Hold orders: ${xsRoomName(f.room)} (${f.ref})`, why: `${plJobName(f.projectId)} · ${f.risk.orders.map((o) => `${o.number} ${o.vendor} ${o.status}`).join(", ")} · ${f.label} disagrees between sets`, amount: r2(f.risk.orders.reduce((a, o) => a + (+o.amount || 0), 0)), verb: "Open", no: "", run: () => xsGo(f.id), open: () => xsGo(f.id), pri: 2, score: 40 });
+      });
+    } catch (e) {
+      console.warn("xset nyh", e);
+    }
+    return out;
+  };
+}
+if ("undefined" != typeof EQ_TABLES) {
+  EQ_TABLES.setfindings = () =>
+    xsDB().findings.map((f) => ({ _id: f.id, _module: "Plans", _label: `${f.ref} ${f.label}: ${f.a.number} ${f.a.value} vs ${f.b.number} ${f.b.value}`, _go: eqGo("plans", { project: f.projectId }), date: String(f.at).slice(0, 10), job: plJobName(f.projectId), ref: f.ref, what: f.label, kind: XS_FACT[f.kind] || f.kind, room: xsRoomName(f.room), sheetA: xsNum(f.a), valueA: f.a.value, setA: xsSetLabel(f.a.set), sheetB: xsNum(f.b), valueB: f.b.value, setB: xsSetLabel(f.b.set), governs: xsRuleText(f.rule), confidence: f.conf, safety: f.safety ? "yes" : "no", risk: (XS_RISK[f.risk.top] || [""])[0], owner: f.owner.name, rfi: f.rfi || "", due: f.due || "", status: f.status, found: "before" === f.foundAt ? "before work" : "in the field", handoff: f.handoff || "", reworkAvoided: "before" === f.foundAt ? f.reworkEst || 0 : 0, whoPays: f.money ? XS_PAYER[f.money.payer] || f.money.payer : "", cost: f.money ? f.money.amount : 0, ourCost: f.money ? f.money.ours : 0, backcharge: f.money ? f.money.backcharge : 0, daysToResolve: null != f.days ? f.days : "", resolvedBy: f.resolution ? `${f.resolution.number} Rev ${f.resolution.rev}` : "" }));
+  EQ_TABLES.setfacts = () =>
+    plDB().sheets.flatMap((s) => (s.facts || []).map((x, i) => ({ _id: `${s.id}:${i}`, _module: "Plans", _label: `${plRev(s)}: ${x.label} ${x.value}`, _go: eqGo("plans", { project: s.projectId }), job: plJobName(s.projectId), sheet: s.number, rev: s.rev, set: xsSetLabel(s.set), current: plIsCurrent(s) ? "yes" : "no", kind: XS_FACT[x.kind] || x.kind, what: x.label, value: x.value, room: xsRoomName(x.room), confidence: x.conf, calcAssumption: x.assume ? "yes" : "no", read: (s.read || {}).how || "" })));
+  "undefined" != typeof EQ_ALIAS && Object.assign(EQ_ALIAS, { findings: "setfindings", conflicts: "setfindings", setcheck: "setfindings", coordination: "setfindings", xset: "setfindings", facts: "setfacts", extracted: "setfacts" });
+}
+if ("function" == typeof palIndex) {
+  const base = palIndex;
+  palIndex = function () {
+    const items = base.apply(this, arguments) || [];
+    try {
+      (ROLE_VIEWS[role()] || []).includes("plans") &&
+        plStaff() &&
+        xsDB()
+          .findings.filter((f) => !f.seed)
+          .forEach((f) => items.push({ k: "Set Check", t: `${f.ref} ${f.label}: ${f.a.number} vs ${f.b.number}`, s: `${plJobName(f.projectId)} · ${"open" === f.status ? (XS_RISK[f.risk.top] || [""])[0] : f.status}${f.rfi ? " · " + f.rfi : ""}`, go: () => xsGo(f.id) }));
+    } catch (e) {}
+    return items;
+  };
+}
+if ("function" == typeof paAsk) {
+  const base = paAsk;
+  paAsk = function (q) {
+    try {
+      const lo = String(q || "").toLowerCase();
+      if (plStaff() && (ROLE_VIEWS[role()] || []).includes("plans") && /\b(set check|sets? (disagree|conflict)|drawings? (disagree|conflict)|conflicts? between|cross-set|inconsisten\w* (in|between) (the )?(sets|drawings))\b/.test(lo)) {
+        const j = (DB.projects || []).find((p) => lo.includes(plJobName(p.id).toLowerCase()) || lo.includes(plJobName(p.id).toLowerCase().split(" ").slice(0, 2).join(" "))),
+          O = xsFindings(j ? j.id : "", { status: "open" }),
+          M = xsMeasures(j ? j.id : "");
+        return paOut({
+          kind: "plans",
+          headline: O.length ? `${O.length} open conflict${1 === O.length ? "" : "s"} between drawing sets${j ? ` on ${plJobName(j.id)}` : ""}: ${O.map((f) => `${f.ref} ${f.label} (${f.a.number} ${f.a.value} vs ${f.b.number} ${f.b.value})`).join("; ")}.` : `No open conflicts between drawing sets${j ? ` on ${plJobName(j.id)}` : ""}.`,
+          note: `${M.before} of ${M.found} found before work started, about ${money(M.avoided).replace(/\.00$/, "")} of rework avoided; our cost ${money(M.ours).replace(/\.00$/, "")}${null != M.avgDays ? `; ${M.avgDays} days to resolve on average` : ""}.`,
+          work: O.map((f) => `${f.ref} · ${XS_RISK[f.risk.top][0]} · ${f.owner.name} by ${fmt(f.due)}`),
+          rows: O.length,
+          go: paGo({ view: "plans", project: (j && j.id) || (O[0] && O[0].projectId) || (S && S.id) }),
+          offers: O.length ? [{ label: `Open ${O[0].ref}`, run: () => xsGo(O[0].id) }] : [],
+        });
+      }
+    } catch (e) {
+      console.warn("xset ask", e);
+    }
+    return base.apply(this, arguments);
+  };
+}
+if ("function" == typeof finishBoot) {
+  const base = finishBoot;
+  finishBoot = function () {
+    const r = base.apply(this, arguments);
+    try {
+      xsSeed(), DB.__xsSeed && save();
+    } catch (e) {
+      console.warn("xset seed", e);
+    }
+    return r;
+  };
+}
+{
+  const base = render;
+  render = function () {
+    try {
+      DB && DB.projects && DB.__plSeed && xsSeed();
+    } catch (e) {
+      console.warn("xset seed", e);
+    }
+    return base.apply(this, arguments);
+  };
+}
+/*<</xset.js>>*/
 // ==== pilotfix1: the three-day pilot's day-1 findings, fixed by class (lane-pilotfix1, 2026-10-18) ==============
 // Crew › On Site Now: the foreman clocks himself out where he sees himself clocked in (pilot day 1: only "Clock the
 // Crew" was there, so he stayed clocked in).
