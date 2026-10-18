@@ -14317,6 +14317,7 @@ function timeFlags(e) {
       : timeWorkOk(e) || f.push("No work logged"),
     e.autoOut && f.push("Auto clocked out on leaving site"),
     e.autoClosed && f.push("Forgot to clock out — auto-closed at 10 h"),
+    e.clockFix && f.push("Clock-out read before the clock-in — confirm when they left"),
     e.projectId || timeOfficeEmp(e) || f.push("No job");
   return (
     DB.time.find(
@@ -14521,7 +14522,7 @@ function renderTime() {
   const tt = $("#time-title");
   tt && (tt.textContent = ["crew", "driver", "foreman"].includes(role()) ? "Clock" : "Time & Crew"),
     ($("#clock-card").innerHTML =
-      `<div class="clock"><div><div class="big">${open ? `Clocked in · ${new Date(open.in).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : emp ? `Hi ${esc(emp.name.split(" ")[0])}` : currentUser() ? `Hi ${esc(currentUser().name.split(" ")[0])}` : "Who are you?"}</div><div class="s">${emp ? `${esc(S.project.name)} · site hours ${siteHours().start}–${siteHours().end}${open ? ` · ${hoursOf({ in: open.in, out: appNowIso(), breakMin: 0 }).toFixed(1)} h so far` : ""} ` : currentUser() ? "Your user isn't linked to an employee record yet — ask the office (Settings → Users) so you can clock in." : "Pick your name once; this phone remembers it."}</div>${
+      `<div class="clock"><div><div class="big">${open ? `Clocked in · ${stampTime(open.in)}` : emp ? `Hi ${esc(emp.name.split(" ")[0])}` : currentUser() ? `Hi ${esc(currentUser().name.split(" ")[0])}` : "Who are you?"}</div><div class="s">${emp ? `${esc(S.project.name)} · site hours ${siteHours().start}–${siteHours().end}${open ? ` · ${Math.max(0, hoursOf({ in: open.in, out: appNowIso(), breakMin: 0 })).toFixed(1)} h so far` : ""} ` : currentUser() ? "Your user isn't linked to an employee record yet — ask the office (Settings → Users) so you can clock in." : "Pick your name once; this phone remembers it."}</div>${
         emp || currentUser()
           ? ""
           : `<div class="row" style="margin-top:8px"><select id="clock-me" class="btn" style="height:40px;font-size:15px;flex:1"><option value="">Select your name…</option>${DB.employees
@@ -41431,9 +41432,11 @@ function studioSeed() {
       phase: 1,
     });
     DB.time.push(
-      mk("teS1", "em8", "2026-09-02", 6, "Existing plans from listing; kitchen studies"),
-      mk("teS2", "em8", "2026-09-03", 7, "Kitchen, 3rd floor plans; references"),
-      mk("teS3", "em8", "2026-09-04", 6.5, "Renderings; deck assembly"),
+      // hours already worked before the demo day (9/3): a seed never writes hours for today or a day to come (pilot
+      // day 2: the designer's Day Sheet read "6.5 hrs logged today" on 9/4, hours she never entered)
+      mk("teS1", "em8", "2026-08-31", 6, "Existing plans from listing; kitchen studies"),
+      mk("teS2", "em8", "2026-09-01", 7, "Kitchen, 3rd floor plans; references"),
+      mk("teS3", "em8", "2026-09-02", 6.5, "Renderings; deck assembly"),
     ),
       St.meetings.push({
         id: "mt140a",
@@ -42097,6 +42100,13 @@ function logHours(projectId, hours, phaseIdx, note, date) {
 }
 let sboardTab = "rooms",
   sdrawSet = "all";
+// The Day Sheet's job list: every active job, the person's design projects first (pilot day 2: 121 State, a build
+// job she worked on, was not in the list, so its hours could not be logged).
+function stLogJobs(first) {
+  const F = (first || []).filter(Boolean),
+    rest = (DB.projects || []).filter((p) => !p.archived && !F.includes(p) && !/closed|archived|lost|cancel/i.test((p.project || {}).status || ""));
+  return [...F, ...rest];
+}
 function studioProjects() {
   return DB.projects.filter((p) => roomsOf(p.id).length || designEst(p));
 }
@@ -42813,7 +42823,7 @@ function renderSDay() {
     )
     .join(
       "",
-    )}\n          ${mtgs.length || T.length ? "" : '<div class="muted small">Open a room, a drawing or a meeting and it lands here. Or add hours directly.</div>'}\n          <div class="row" style="margin-top:8px;gap:6px;flex-wrap:wrap"><select id="st-addp">${projs.map((p) => `<option value="${p.id}">${esc(p.project.name)}</option>`).join("")}</select><input id="st-addh" type="number" step="0.25" placeholder="hrs" style="width:70px"><input id="st-addn" placeholder="what" style="flex:1;min-width:120px"><button class="btn sm" id="st-addgo">Log</button></div>\n          <div class="small muted" style="margin-top:8px">Hours left this phase are on each project's board. Entries go to your manager for approval.</div></div>\n        <div class="card" style="margin-top:10px"><h3>Projects</h3>${projs
+    )}\n          ${mtgs.length || T.length ? "" : '<div class="muted small">Open a room, a drawing or a meeting and it lands here. Or add hours directly.</div>'}\n          <div class="row" style="margin-top:8px;gap:6px;flex-wrap:wrap"><input id="st-addd" type="date" value="${td}" max="${td}" aria-label="Day" style="width:150px"><select id="st-addp">${stLogJobs(projs).map((p) => `<option value="${p.id}">${esc(p.project.name)}</option>`).join("")}</select><input id="st-addh" type="number" step="0.25" placeholder="hrs" style="width:70px"><input id="st-addn" placeholder="what" style="flex:1;min-width:120px"><button class="btn sm" id="st-addgo">Log</button></div>\n          <div class="small muted" style="margin-top:8px">Hours left this phase are on each project's board. Entries go to your manager for approval.</div></div>\n        <div class="card" style="margin-top:10px"><h3>Projects</h3>${projs
     .map((p) => {
       const ph = phaseHours(p),
         R = retainerLeft(p),
@@ -42855,7 +42865,7 @@ function renderSDay() {
     ),
     root.querySelector("#st-addgo")?.addEventListener("click", () => {
       const h = +$("#st-addh").value;
-      h && (doLog($("#st-addp").value, h, $("#st-addn").value || "Design"), renderSDay());
+      h && (doLog($("#st-addp").value, h, $("#st-addn").value || "Design", { date: ($("#st-addd") || {}).value || td }), renderSDay());
     }),
     root.querySelector("[data-stoptimer]")?.addEventListener("click", () => {
       timerToggle(tm.id, tm.label, tm.projectId), renderSDay();
@@ -63977,14 +63987,18 @@ if ("function" == typeof renderSDay) {
                   )
                 : 0,
             noteEl = root.querySelector("#st-addn"),
-            e = logHours(pid, h, idx, (noteEl && noteEl.value) || "Design", today(), !1, phaseLine);
+            dayEl = root.querySelector("#st-addd"),
+            day = (dayEl && dayEl.value) || today();
+          if (day > today()) return void toast("Hours are for today or a day already worked");
+          const e = logHours(pid, h, idx, (noteEl && noteEl.value) || "Design", day, !1, phaseLine);
+          e && day < today() && ((e.lateEntry = { on: today(), at: appNowIso(), by: (currentUser() || {}).name || "" }), save());
           if (e) {
             const g = dsGuard(pid, 0, phaseLine);
             g && g.unscoped
               ? dpUnscopedModal(p, h, e)
               : g && g.phase
                 ? toast(g.note, flowGo.time(e))
-                : toast(`${h} h logged${p ? ` on ${p.project.name}` : ""}`, flowGo.time(e)),
+                : toast(`${h} h logged${p ? ` on ${p.project.name}` : ""}${day !== today() ? ` for ${fmtL(day)}` : ""}`, flowGo.time(e)),
               (hrs.value = ""),
               noteEl && (noteEl.value = ""),
               renderSDay();
@@ -64720,6 +64734,31 @@ if ("function" == typeof clockEvent) {
     fresh && fresh.out && setTimeout(() => f3DaySheet(fresh), 80);
   };
 }
+// Which of today's tasks the split sheet ticks for a person: only work they were on. A task assigned to them, or to
+// the in-house crew once it has started, or one they logged progress on today; a sub's task only for the foreman and
+// only when that sub checked in today. A trade that did not show is never ticked (pilot 9/8: the sheet ticked
+// Restoration and Rough electrical, and neither crew came).
+function f3WorkedOn(t, e, p) {
+  try {
+    const emp = (DB.employees || []).find((x) => x.id === e.empId) || {},
+      nm = String(emp.name || "").toLowerCase(),
+      first = nm.split(" ")[0],
+      own = String(t.owner || t.assignee || "").trim().toLowerCase(),
+      day = e.date,
+      subs = (((DB.field || {}).subs || []).filter((s) => s.projectId === p.id && s.date === day && s.taskId === t.id)),
+      showed = subs.some((s) => "onsite" === s.status || s.checkedIn || s.checkInAt),
+      noShow = subs.length && !showed;
+    if (noShow) return !1;
+    if (own && (own === nm || own === first || own.split(/[\s,&/]+/).includes(first))) return !0;
+    if ((t.pctLog || []).some((l) => l.on === day && String(l.by || "").toLowerCase().split(" ")[0] === first)) return !0;
+    const inHouse = ["crew", "sd crew", "in-house", "foreman", ""].includes(own);
+    if (inHouse && ["in-progress", "done"].includes(t.status)) return !0;
+    const u = (DB.users || []).find((x) => x.employeeId === emp.id);
+    return !!(showed && ((u && "foreman" === u.role) || /foreman|site lead/i.test(emp.role || "")));
+  } catch (x) {
+    return !1;
+  }
+}
 function f3DaySheet(e) {
   const p = (DB.projects || []).find((x) => x.id === e.projectId) || S,
     cur = S.id;
@@ -64729,8 +64768,7 @@ function f3DaySheet(e) {
     act = ("function" == typeof fActive ? fActive(td) : []).filter(
       (t) => "done" !== t.status || t.actualEnd === td,
     ),
-    started = act.filter((t) => ["in-progress", "done"].includes(t.status)),
-    pick = started.length ? started : act;
+    pick = act.filter((t) => f3WorkedOn(t, e, p));
   if ((p.id !== cur && "function" == typeof setCurrent && setCurrent(cur), !act.length))
     return void toast(
       `Clocked out — ${total} h. Nothing is scheduled today, so the office will assign the hours.`,
@@ -64918,7 +64956,8 @@ if ("function" == typeof clockEvent) {
       e = emp ? (DB.time || []).find((t) => t.empId === emp.id && !t.out) : null;
     if (!e || !e.in) return clockLongBase_f3(kind);
     const hrs = (appNowMs() - new Date(e.in).getTime()) / 36e5;
-    if (hrs <= 16) return clockLongBase_f3(kind);
+    // a clock-out that would read before its own clock-in (two phones' clocks apart) asks too: never a negative day
+    if (hrs >= 0 && hrs <= 16) return clockLongBase_f3(kind);
     const when = await f3AskWhenLeft(e, hrs);
     if (!when) return;
     (e.out = when),
@@ -64936,12 +64975,16 @@ function f3AskWhenLeft(e, hrs) {
   return new Promise((res) => {
     mbModal(
       "When did you actually leave?",
-      `\n      <p class="small">You clocked in on <b>${esc(fmt(day))}</b> and have not clocked out since — that is\n      ${Math.round(hrs)} hours. Nobody worked that, so it is not going on a timesheet.</p>\n      <div class="grid2">\n        <div class="f"><label>Day you left</label><input type="date" data-f="d" value="${esc(day)}"></div>\n        <div class="f"><label>Time</label><input type="time" data-f="t" value="15:30"></div>\n      </div>\n      <p class="small muted" style="margin:8px 0 0">The clock-in time stays as it was recorded. Only the end is being corrected, and the correction is on the record.</p>`,
+      (hrs < 0
+        ? `\n      <p class="small">You clocked in at <b>${esc(stampTime(e.in))}</b>, and this phone reads ${esc(stampTime(appNowIso()))}, before that. Say when you left so the day carries the right hours.</p>`
+        : `\n      <p class="small">You clocked in on <b>${esc(fmt(day))}</b> and have not clocked out since — that is\n      ${Math.round(hrs)} hours. Nobody worked that, so it is not going on a timesheet.</p>`) +
+        `\n      <div class="grid2">\n        <div class="f"><label>Day you left</label><input type="date" data-f="d" value="${esc(day)}"></div>\n        <div class="f"><label>Time</label><input type="time" data-f="t" value="${hrs < 0 ? "" : "15:30"}"></div>\n      </div>\n      <p class="small muted" style="margin:8px 0 0">The clock-in time stays as it was recorded. Only the end is being corrected, and the correction is on the record.</p>`,
       {
         submit: "That is when I left",
         cancel: "Leave it running",
         onSubmit: (f) => {
           if (!f.d || !f.t) return toast("Pick a day and a time"), !1;
+          if (`${f.d}T${f.t}:00` <= String(e.in)) return toast(`That is before you clocked in (${stampTime(e.in)})`), !1;
           res(`${f.d}T${f.t}:00`);
         },
         onCancel: () => res(null),
@@ -64950,6 +64993,120 @@ function f3AskWhenLeft(e, hrs) {
     const m = document.getElementById("mbm");
     m?.querySelector("#mbm-cancel")?.addEventListener("click", () => res(null));
   });
+}
+// ---- Missing hours for a past day (pilot 9/8: the crew could only clock today; a day he worked and never punched had
+// no way in). The working days of the last two weeks with no time for the person, oldest first, and one sheet that
+// enters a day's hours with the reason they are late. The entry goes to the foreman and office for approval like any
+// other, and carries the reason, who entered it and when, so payroll sees a late entry for what it is.
+function tmMissingDays(emp, n) {
+  const td = today(),
+    out = [];
+  if (!emp) return out;
+  const first = (DB.time || []).filter((t) => t.empId === emp.id).map((t) => t.date).sort()[0] || "";
+  for (let i = 1; i <= 14 && out.length < (n || 5); i++) {
+    const d = iso(addDays(td, -i));
+    if (first && d < first) break;
+    isWork(d) && !(DB.time || []).some((t) => t.empId === emp.id && t.date === d) && out.push(d);
+  }
+  return out.sort();
+}
+function tmLateSheet(emp, date) {
+  emp = emp || ("function" == typeof myEmp ? myEmp() : null);
+  if (!emp) return void toast("Your user is not linked to an employee record");
+  const td = today(),
+    yday = iso(addDays(td, -1)),
+    day = date || tmMissingDays(emp)[0] || prevWork(yday),
+    jobs = (DB.projects || []).filter((p) => !p.archived),
+    cur = (void 0 !== S && S && S.id) || "",
+    sh = "function" == typeof siteHours ? siteHours() : { start: "07:00", end: "15:30" };
+  mbModal(
+    "Enter Missing Hours",
+    `<div class="small muted" style="margin-bottom:6px">For a day you worked and did not clock. It goes to the foreman and the office for approval, with your reason.</div>
+    <div class="grid2">${mbF("Day", `<input data-f="d" type="date" value="${esc(day)}" max="${esc(yday)}">`)}${mbF("Job", `<select data-f="pid">${jobs.map((p) => `<option value="${p.id}" ${p.id === cur ? "selected" : ""}>${esc(p.project.name)}</option>`).join("")}</select>`)}</div>
+    <div class="grid2">${mbF("Started", `<input data-f="a" type="time" value="${esc(sh.start || "07:00")}">`)}${mbF("Finished", `<input data-f="b" type="time" value="${esc(sh.end || "15:30")}">`)}</div>
+    <div class="grid2">${mbF("Break (min)", mbIn("brk", "30", "30", "number"))}${mbF("What You Worked On", mbIn("n", "", "e.g. framing garden bedroom"))}</div>
+    ${mbF("Why It Is Late", mbIn("why", "", "e.g. phone died; forgot to clock in"))}`,
+    {
+      submit: "Send for Approval",
+      onSubmit: (f) => {
+        if (!f.d || f.d >= td) return toast("Pick a day before today; today's hours come from the clock"), !1;
+        if (!f.a || !f.b || f.b <= f.a) return toast("The finish time comes after the start"), !1;
+        const why = String(f.why || "").trim();
+        if (why.length < 3) return toast("Say why the hours are late; it goes on the record"), !1;
+        const ins = `${f.d}T${f.a}:00`,
+          outs = `${f.d}T${f.b}:00`,
+          clash = (DB.time || []).find((t) => t.empId === emp.id && t.date === f.d && t.in && String(t.in) < outs && ins < String(t.out || t.in));
+        if (clash) return toast(`You already have time on ${fmtL(f.d)} from ${stampTime(clash.in)}; open it instead`), !1;
+        const by = (currentUser() || {}).name || emp.name,
+          e = {
+            id: uid("te"),
+            empId: emp.id,
+            date: f.d,
+            in: ins,
+            out: outs,
+            breakMin: Math.max(0, +f.brk || 0),
+            projectId: f.pid,
+            code: "",
+            notes: f.n || "",
+            status: "submitted",
+            approvedBy: "",
+            geoIn: null,
+            geoOut: null,
+            source: "late",
+            lateEntry: { on: td, at: appNowIso(), by: by, reason: why },
+            work: [{ projectId: f.pid, code: "", hours: 0, note: f.n || "" }],
+          };
+        (e.work[0].hours = r2(hoursOf(e))), DB.time.push(e);
+        try {
+          audit("time", e.id, "logged-late", null, { date: f.d, hours: hoursOf(e), reason: why, by: by });
+        } catch (x) {}
+        save(), render();
+        const go = () => ("function" == typeof openTime ? openTime(e.id) : null);
+        "function" == typeof rcToast
+          ? rcToast(`${r2(hoursOf(e))} h for ${fmtL(f.d)} sent for approval`, [{ label: "Open", run: go }])
+          : toast(`${r2(hoursOf(e))} h for ${fmtL(f.d)} sent for approval`, go);
+      },
+    },
+  );
+}
+// A late entry says so wherever hours are approved
+if ("function" == typeof timeFlags) {
+  const timeFlagsBase_late = timeFlags;
+  timeFlags = function (e) {
+    const f = timeFlagsBase_late.apply(this, arguments);
+    try {
+      e && e.lateEntry && e.lateEntry.reason && Array.isArray(f) && f.push(`Entered late on ${fmt(e.lateEntry.on)} by ${e.lateEntry.by || "?"}: ${e.lateEntry.reason}`);
+    } catch (x) {}
+    return f;
+  };
+}
+// The Clock screen carries the missing days and the way to enter them, for every person with an employee record
+if ("function" == typeof renderTime) {
+  const renderTimeBase_late = renderTime;
+  renderTime = function () {
+    const r = renderTimeBase_late.apply(this, arguments);
+    try {
+      const emp = "function" == typeof myEmp ? myEmp() : null,
+        at = document.getElementById("clock-card"),
+        old = document.getElementById("tm-missing");
+      old && old.remove();
+      if (emp && at) {
+        const M = tmMissingDays(emp),
+          d = document.createElement("div");
+        (d.className = `card${M.length ? " warn" : ""}`),
+          (d.id = "tm-missing"),
+          (d.style.marginBottom = "12px"),
+          (d.innerHTML = M.length
+            ? `<div class="hd"><h3>Missing Hours</h3><span class="small muted">${M.length} working day${1 === M.length ? "" : "s"}</span></div><div class="small muted" style="margin-bottom:6px">No time for ${M.map((x) => fmtL(x)).join(", ")}.</div><div class="row" style="gap:6px;flex-wrap:wrap">${M.map((x) => `<button type="button" class="btn sm" data-tmlate="${x}">Enter ${esc(fmt(x))}</button>`).join("")}</div>`
+            : `<div class="row" style="align-items:center;gap:8px"><span class="small muted grow">Worked a day you did not clock?</span><button type="button" class="btn sm" data-tmlate="">Enter Missing Hours</button></div>`),
+          at.after(d),
+          d.querySelectorAll("[data-tmlate]").forEach((b) => (b.onclick = () => tmLateSheet(emp, b.dataset.tmlate)));
+      }
+    } catch (x) {
+      console.warn("missing hours", x);
+    }
+    return r;
+  };
 }
 const fmShipOn = (l) => r2((+l.shipping || 0) * (1 + (+l.shipMarkupPct || 0) / 100)),
   lineAmountBase_fmfix = lineAmount;
@@ -165653,23 +165810,12 @@ const igNavNow = () => {
     return (igNavKey = k), base.apply(this, arguments);
   };
 }
-{
-  const base = appClock;
-  appClock = function () {
-    const c = base.apply(this, arguments);
-    try {
-      if (void 0 === DB || !DB || !Array.isArray(DB.time)) return c;
-      const day = appDay();
-      if (
-        DB.time.some(
-          (t) => !t.out && t.in && String(t.in).slice(0, 10) === day && String(t.in).slice(11, 19) > c,
-        )
-      )
-        return "23:59:59";
-    } catch (e) {}
-    return c;
-  };
-}
+// The app clock is never bent by the time clock. It used to jump to 23:59:59 whenever anyone's open punch read later
+// than now (pilot 9/8: two phones a few minutes apart, so the crew clocked in at "11:59 PM", every stamp after it read
+// 11:59 PM, the boot sweep then saw the foreman's 7:34 punch as 16 h old and auto-closed it, and his split sheet
+// carried 12.93 h for a 9 h day). A clock-out that would read before its own clock-in is handled where it is
+// stamped (teOutStamp asks when they left); a stored punch that ends before it starts is held at no hours and
+// flagged for the person to confirm, never stretched to midnight.
 function igClampPunches() {
   let n = 0;
   return (
@@ -165679,9 +165825,11 @@ function igClampPunches() {
         String(t.out) < String(t.in) &&
         String(t.out).slice(0, 10) === String(t.in).slice(0, 10) &&
         ((t.outWall = t.out),
-        (t.out = String(t.in).slice(0, 10) + "T23:59:59"),
+        (t.out = t.in),
+        (t.clockFix = !0),
+        (t.status = "open"),
         (t.notes =
-          (t.notes ? t.notes + " · " : "") + "clocked out after midnight — closed at the end of the day"),
+          (t.notes ? t.notes + " · " : "") + "clock-out read before the clock-in — confirm when you left"),
         n++);
     }),
     n
