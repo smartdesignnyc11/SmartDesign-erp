@@ -91,14 +91,14 @@ async def main():
         c.ok(w3 == ['threeWay'], f'one Standard Watch row for the three-way match line: {w3}')
         # ---- ranking by decision principle; counts unchanged
         o = await pg.evaluate("() => ({ qn: tdQueue().length, pn: PRED.waitingOnMe.count() })")
-        # Alan (2026-10-11): immediate safety and law first, then overdue / today / this week / later, then the
-        # decision principle within each bucket (an LLC filing 25 days out no longer sits above a bill due this week)
-        o2 = await pg.evaluate("""() => { const Q = tdQueue(), C = tdCaught(Q), N = nyhRows(), k = (it) => { const r = standardRank(it); return [r.imm, r.u, r.t]; };
+        # Alan (2026-10-11): immediate safety and law first, then anyone blocked today, then overdue / today / this week /
+        # later, then the decision principle within each bucket (an LLC filing 25 days out no longer sits above a bill due this week)
+        o2 = await pg.evaluate("""() => { const Q = tdQueue(), C = tdCaught(Q), N = nyhRows(), k = (it) => standardRankKey(it);
           const at = (re) => Q.findIndex(it => re.test(it.title || ''));
           return { q: Q.map(k), c: C.map(k), n: N.map(r => k({ nyh: r })), llc: at(/LLC/), pay: at(/^Payroll/), bill: at(/WW-2026-118/) }; }""")
-        c.ok(all(a <= b for a, b in zip(o2['q'], o2['q'][1:])), f"Do Now is in immediate, urgency, principle order: {o2['q'][:10]}")
-        c.ok(all(a <= b for a, b in zip(o2['c'], o2['c'][1:])), f"Caught for You is in immediate, urgency, principle order: {o2['c'][:10]}")
-        c.ok(all(a <= b for a, b in zip(o2['n'], o2['n'][1:])), f"Needs Your Hand is in immediate, urgency, principle order: {o2['n'][:10]}")
+        c.ok(all(a <= b for a, b in zip(o2['q'], o2['q'][1:])), f"Do Now is in immediate, blocked today, urgency, principle order: {o2['q'][:10]}")
+        c.ok(all(a <= b for a, b in zip(o2['c'], o2['c'][1:])), f"Caught for You is in immediate, blocked today, urgency, principle order: {o2['c'][:10]}")
+        c.ok(all(a <= b for a, b in zip(o2['n'], o2['n'][1:])), f"Needs Your Hand is in immediate, blocked today, urgency, principle order: {o2['n'][:10]}")
         c.ok(0 <= o2['pay'] < o2['llc'] and 0 <= o2['bill'] < o2['llc'], f"the overdue payroll and the bill due this week rank above the LLC filing due in 25 days: payroll {o2['pay']}, bill {o2['bill']}, LLC {o2['llc']}")
         c.ok(o['qn'] == o['pn'], f"Do Now keeps its count: {o['qn']} vs PRED.waitingOnMe {o['pn']}")
         # ---- money leak line and because on Home (desktop)
