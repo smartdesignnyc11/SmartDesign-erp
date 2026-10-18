@@ -9264,6 +9264,8 @@ async function docAction(c, d, a) {
           source: d.number,
           order: c.sov.length,
           coId: d.id,
+          // the job it bills on (boot gave the client's first job when this was missing)
+          projectId: d.projectId || ((DB.projects || []).find((p) => p.clientId === c.id) || {}).id || void 0,
         }),
       d.scheduleDays && d.projectId)
     ) {
@@ -21074,6 +21076,7 @@ function mbCreateDeal(x) {
       passedSnapshot: null,
       score: {},
       deadlines: x.deadlines || [],
+      docs: [],
     }),
       DB.deals.push(d),
       audit("deal", d.id, "created", "", prop.address),
@@ -21803,6 +21806,7 @@ function mbSeed() {
       risk: 5,
     },
     deadlines: [],
+    docs: [],
   };
   DB.deals.push(d1),
     [
@@ -21997,6 +22001,7 @@ function mbSeed() {
     passedSnapshot: null,
     score: {},
     deadlines: [],
+    docs: [],
   };
   d2.activities.push(
     {
@@ -30615,6 +30620,7 @@ function designInit() {
         approvedBy: "Alan",
         source: "seed",
         phase: 0,
+        work: [],
       }))("teD" + i, "Maya" === who ? "em6" : "em7", d, h, "01", "Schematic design"),
     ),
   );
@@ -41494,6 +41500,7 @@ function studioSeed() {
       approvedBy: "Alan",
       source: "seed",
       phase: 1,
+      work: [],
     });
     DB.time.push(
       // a seed never writes hours for a day to come (pilot day 2: the designer's Day Sheet read "6.5 hrs logged
@@ -41553,6 +41560,11 @@ function studioSeed() {
           track: "design",
           assignee: "Sarah Davis",
           type: "task",
+          origStart: "2026-09-19",
+          origEnd: "2026-09-22",
+          history: [],
+          actualStart: "",
+          actualEnd: "",
         },
         {
           id: "tk140k",
@@ -41565,6 +41577,11 @@ function studioSeed() {
           track: "design",
           assignee: "Sarah Davis",
           type: "task",
+          origStart: "2026-09-08",
+          origEnd: "2026-09-11",
+          history: [],
+          actualStart: "",
+          actualEnd: "",
           hours: 8,
         },
         {
@@ -41578,6 +41595,11 @@ function studioSeed() {
           track: "design",
           assignee: "Sarah Davis",
           type: "task",
+          origStart: "2026-09-08",
+          origEnd: "2026-09-12",
+          history: [],
+          actualStart: "",
+          actualEnd: "",
           hours: 10,
         },
       );
@@ -73408,6 +73430,8 @@ function cmTask(name, projectId, owner, due) {
       end: due && due >= today() ? due : today(),
       fromComm: !0,
     };
+    // the fields boot gives every task, given here, so a reload finds the task as it was saved
+    Object.assign(t, { origStart: t.start, origEnd: t.end, history: [], actualStart: "", actualEnd: "", cos: [], track: "function" == typeof trackForTrade ? trackForTrade(t.trade, t.name) : "", trackAuto: !0 });
     return p.tasks.push(t), (cmTask.last = { kind: "sched", id: t.id, projectId: p.id, assignee: t.owner, due: t.end, rec: t }), t;
   }
   // no job: the firm's task list, where the person it is for sees it (an assistant note was saved but not found)
