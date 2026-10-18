@@ -167,6 +167,7 @@ What remains, in order. Usage is a share of one week's allowance.
 | Asked | Decision or action | Default until then |
 |---|---|---|
 | 2026-10-11 | Three sign-ups: Anthropic API ($50/month cap), Supabase, Netlify. Keys go in the environment settings as ANTHROPIC_API_KEY, SUPABASE_ACCESS_TOKEN and NETLIFY_AUTH_TOKEN, then start a new session with "set up the platform" | Platform waits; everything else continues |
+| 2026-10-18 | Keys, status: the Anthropic key is in Netlify (team variable ANTHROPIC_API_KEY, secret, Functions scope); the Netlify token is a network secret (Authorization: Bearer on api.netlify.com) and works (12 existing sites, all last updated 2026-09-10); the Supabase token is not added yet | Platform setup starts once Supabase is in |
 | 2026-10-11 | Which email address the vendor follow-ups come from (recommend purchasing@ on the firm's domain) | Outbox only (demo) |
 | 2026-10-11 | Who the accountant is. To confirm with them: use tax; the overhead method; Mercer & Bond development costs capitalised; revenue recognition for tax; stock held as inventory | The defaults in §1.13 item 8, labelled "confirm with your accountant" |
 | 2026-10-11 | Leftover material on cost-plus jobs: back to the client, a credit on their invoice, or into firm stock | "Client-owned surplus, ask the PM" |
