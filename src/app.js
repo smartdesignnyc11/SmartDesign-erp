@@ -44026,7 +44026,8 @@ renderClient = function (cpm, projEnd) {
   if (!v) return;
   v.querySelector("#cl-studio")?.remove();
   const p = S;
-  if (!roomsOf(p.id).length && !designEst(p)) return;
+  // a construction job's areas (the drawing register's rooms, r.area) do not make it a design job for the client
+  if (!roomsOf(p.id).filter((r) => !r.area).length && !designEst(p)) return;
   const d = document.createElement("div");
   (d.id = "cl-studio"), (d.innerHTML = clDesignOverviewHtml(p)), v.querySelector(".grid3")?.before(d);
 };
@@ -91096,7 +91097,7 @@ if (
     if (!S) return [];
     today();
     const p = S,
-      design = "function" == typeof designEst && (roomsOf(p.id).length || designEst(p)),
+      design = "function" == typeof designEst && (roomsOf(p.id).filter((r) => !r.area).length || designEst(p)),
       decs = p.decisions
         .filter((d) => "Client" === d.owner && "open" === d.status)
         .map((d) => ({ d: d, st: decState(d), due: decDue(d) })),
@@ -189803,6 +189804,8 @@ let plSetF = "",
 function plDB() {
   const St = (DB.studio = DB.studio || {});
   ["rooms", "sheets", "changes", "transmittals", "filings", "meetings", "acks", "holds", "overrides"].forEach((k) => (St[k] = St[k] || []));
+  // a database saved before rooms carried area: the register's own rooms are the ones named by words
+  St.rooms.forEach((r) => r.words && null == r.area && (r.area = !0));
   return St;
 }
 const plJob = (pid) => (DB.projects || []).find((p) => p.id === pid) || null,
@@ -190453,7 +190456,8 @@ function plSeed() {
     p = plJob("p121");
   if (!p || DB.__plSeed || ("function" == typeof sdSeedsOff && sdSeedsOff())) return;
   DB.__plSeed = 1;
-  const R = (id, name, floor, words) => ({ id: id, projectId: p.id, name: name, floor: floor, phase: "cd", dims: [], fixtures: [], notes: "", words: words });
+  // area: a construction job's room as the register knows it (not a design room with measured dimensions)
+  const R = (id, name, floor, words) => ({ id: id, projectId: p.id, name: name, floor: floor, phase: "cd", dims: [], fixtures: [], notes: "", words: words, area: !0 });
   St.rooms.some((r) => r.projectId === p.id) ||
     St.rooms.push(
       R("r121pk", "Parlor kitchen", "Parlor", ["parlor kitchen"]),
@@ -190520,7 +190524,7 @@ function plRender() {
   if (!root) return;
   plSeed();
   const p = S && plJob(S.id);
-  if (!p) return void (root.innerHTML = '<div class="ph"><div><h2>Plans</h2></div></div><div class="empty">Pick a job.</div>');
+  if (!p || !plStaff()) return void (root.innerHTML = '<div class="ph"><div><h2>Plans</h2></div></div><div class="empty">Pick a job.</div>');
   const all = plSheets(p.id),
     phone = innerWidth <= 760,
     can = plCanIssue(),
@@ -191253,19 +191257,25 @@ if ("function" == typeof finishBoot) {
   };
 }
 // ---- render: the view, the thread's pinned plans, the job page's card, the schedule's holds, the field
+// a new screen opens at its top (daywalk: the client's Approve sat 1531px down, kept from the screen before)
+let plLastView = "";
 {
   const base = render;
   render = function () {
     try {
       plViews(), DB && DB.projects && plSeed();
       "sdraw" === view && (view = "plans");
+      plLastView && view !== plLastView && window.scrollTo(0, 0);
+      plLastView = view;
     } catch (e) {
       console.warn("plans views", e);
     }
     const r = base.apply(this, arguments);
     try {
       "plans" === view && plRender();
-      if (S && plSheets(S.id).length) {
+      // the client never sees the register here (§1.22 item 10: the PM shares the design set, a later phase)
+      plStaff() || document.getElementById("pl-pinned")?.remove();
+      if (S && plStaff() && plSheets(S.id).length) {
         if ("chat" === view) {
           document.getElementById("pl-pinned")?.remove();
           const host = document.querySelector("#v-chat .grid3 > .card:not(.chatbox)");
