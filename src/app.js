@@ -43060,6 +43060,27 @@ function renderStudio() {
         }),
     );
 }
+// A template-to-install order (a stone top, shower glass): the fabricator measures the site with its own template,
+// and it comes because of this order. That template is the second measurement, so it cannot be asked for before the
+// order (month: the parlor slab's order-by was 9/1, its template 9/21 on the schedule, and the Order sheet wanted
+// "the fabricator's field measurements received" first, so the slab was never ordered unless someone ticked a box
+// that was not true). Read from the line's own record: its task or notes say template, or the vendor's quote does.
+// Returns { task, start } when every fabricated line on the order is template-to-install.
+const FAB_TEMPLATE_RX = /\btemplat(e|ed|ing)\b/i;
+function poFabTemplate(po) {
+  const p = po && (DB.projects || []).find((x) => x.id === po.projectId);
+  if (!p) return null;
+  const hit = (po.lines || []).filter((l) => FAB_WORDS.test(l.item || ""));
+  if (!hit.length) return null;
+  const T = hit.map((l) => {
+    const m = l.materialId ? (p.materials || []).find((x) => x.id === l.materialId) : null,
+      t = m && m.taskId ? (p.tasks || []).find((x) => x.id === m.taskId) : null,
+      q = m && m.quoteCommId ? (DB.comms || []).find((c) => c.id === m.quoteCommId) : null,
+      said = [t ? `${t.name} ${t.notes || ""}` : "", m ? m.notes || "" : "", l.item || "", l.desc || "", q ? `${q.text || ""} ${(q.attachments || []).map((a) => a.text || "").join(" ")}` : ""].join(" ");
+    return FAB_TEMPLATE_RX.test(said) ? { task: t ? t.name : l.item || "", start: t ? t.start || "" : "" } : null;
+  });
+  return T.every(Boolean) ? T[0] : null;
+}
 function poFabGate(po) {
   const p = DB.projects.find((x) => x.id === po.projectId);
   if (!p) return "";
@@ -43080,7 +43101,7 @@ function poFabGate(po) {
               .join(", ")})`,
         )
         .join("; ")}`
-    : rs.length && !po.tradeVerified
+    : rs.length && !po.tradeVerified && !poFabTemplate(po)
       ? `Second measurement first: confirm the fabricator's own field measurements for ${rs.map((r) => r.name).join(", ")} on the PO before it issues`
       : "";
 }
@@ -187704,14 +187725,22 @@ function buyOrderDialog(o) {
     // drawing register (plans control put 121 State's rooms there) issued as a silent draft whose only way on was a
     // checkbox on the PO page. Missing room dimensions still stop the order; the fabricator's own field
     // measurements are confirmed with one tick that goes on the PO.
+    fabPO = { projectId: p.id, vendor: v ? v.name : "", type: "materials", lines: [{ item: m ? m.name : (l && l.item) || r.name, roomId: (m && m.roomId) || "", materialId: m ? m.id : "" }] },
     fab = (() => {
       try {
-        return "function" == typeof poFabGate ? poFabGate({ projectId: p.id, vendor: v ? v.name : "", type: "materials", lines: [{ item: m ? m.name : (l && l.item) || r.name, roomId: (m && m.roomId) || "" }] }) : "";
+        return "function" == typeof poFabGate ? poFabGate(fabPO) : "";
       } catch (e) {
         return "";
       }
     })(),
-    fabTick = /^Second measurement/.test(fab);
+    fabTick = /^Second measurement/.test(fab),
+    fabTpl = (() => {
+      try {
+        return !fab && "function" == typeof poFabTemplate && "function" == typeof poFabGate && poFabGate(Object.assign({}, fabPO, { lines: fabPO.lines.map((x) => Object.assign({}, x, { materialId: "" })) })) ? poFabTemplate(fabPO) : null;
+      } catch (e) {
+        return null;
+      }
+    })();
   return mbModal(
     `Order — <span data-nocase>${esc(r.name)}</span>`,
     `<p class="small muted" style="margin:0 0 10px">${esc(shortName(p))}${tk ? ` · for ${esc(tk.name)}, starts ${fmt(tk.start)}` : ""}${D.needBy ? ` · on site by ${fmt(D.needBy)}` : ""}${D.orderBy ? ` · ${late ? `<b class="bad">order-by ${fmt(D.orderBy)} passed</b>` : `order by ${fmt(D.orderBy)}`}` : ""}. ${src ? `Price from ${src}. ` : ""}Issue PO sends it through the house checks; over ${money(DB.company.poApprovalOver || 0)} it goes to the owner first.</p>
@@ -187719,7 +187748,7 @@ function buyOrderDialog(o) {
     <div class="grid2">${mbF("Item", `<input data-f="item" value="${esc(m ? m.name : (l && l.item) || r.name)}">`)}${mbF("Quantity", `<input type="number" step="any" min="0" data-f="qty" value="${qty}">`)}</div>
     <div class="grid2">${mbF("Unit", `<input data-f="unit" value="${esc(unit)}">`)}${mbF("Unit Price", `<input type="number" step="0.01" min="0" data-f="price" value="${price || ""}" placeholder="no price yet — the vendor's quote">`)}</div>
     <div class="grid2">${mbF("Needed on Site", `<input type="date" data-f="needBy" value="${D.needBy || ""}">`)}${mbF("Task", `<input data-f="task" value="${esc(tk ? tk.name : "")}" readonly>`)}</div>
-    ${fab ? `<div class="note warn small fl-fabgate" role="alert"><b>Measurement gate.</b> ${esc(fab)}${fabTick ? `<label style="display:block;margin-top:6px"><input type="checkbox" data-f="tradeOk"> Fabricator's field measurements received and entered</label>` : ""}</div>` : ""}`,
+    ${fab ? `<div class="note warn small fl-fabgate" role="alert"><b>Measurement gate.</b> ${esc(fab)}${fabTick ? `<label style="display:block;margin-top:6px"><input type="checkbox" data-f="tradeOk"> Fabricator's field measurements received and entered</label>` : ""}</div>` : fabTpl ? `<div class="note small fl-fabgate fl-fabtpl"><b>Measurement gate.</b> The fabricator templates the site under this order${fabTpl.task ? ` (${esc(fabTpl.task)}${fabTpl.start ? `, ${fmt(fabTpl.start)}` : ""})` : ""}: that template is the second measurement. The PO says fabrication starts from it; enter its numbers on the room.</div>` : ""}`,
     {
       submit: "Issue PO",
       onSubmit: (f) => {
@@ -187777,6 +187806,11 @@ function flIssueOrder(r, v, f, tk) {
     };
   // confirmed on the Order sheet's measurement gate, by the person who ordered
   f.tradeOk && ((po.tradeVerified = !0), (po.tradeVerifiedBy = { by: (currentUser() || {}).name || role(), at: appNowIso() }));
+  // a template-to-install order: the fabricator's template is the second measurement, and the PO says so
+  try {
+    const tpl = !po.tradeVerified && "function" == typeof poFabTemplate ? poFabTemplate(po) : null;
+    tpl && ((po.templateFirst = { task: tpl.task, start: tpl.start, at: appNowIso() }), (po.notes = `${po.notes ? po.notes + ". " : ""}Fabricate from the fabricator's own template on site${tpl.start ? ` (${fmtL(tpl.start)})` : ""}; its numbers go on the room before fabrication`));
+  } catch (e) {}
   // the submittal gate stands in front: an item waiting on approval is not ordered from here
   const H = "function" == typeof smHolding ? smHolding(po) : [];
   if (H.length)
