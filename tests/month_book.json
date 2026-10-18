@@ -5429,7 +5429,8 @@
     "check": {
      "t": "clientCredit",
      "client": "cl121",
-     "amount": 850
+     "amount": 850,
+     "after": "2026-09-17"
     },
     "money": 850
    },

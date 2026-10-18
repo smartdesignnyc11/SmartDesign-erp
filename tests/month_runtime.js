@@ -709,8 +709,13 @@ M.check = (c, ev) => {
     case 'oblig': { const o = (DB.obligations || []).find(o => RX(c.rx).test(o.name)); return [!!(o && (o.expires > '2026-09-28' || /renewed|done|filed/.test(o.status))), o ? `${o.status}, expires ${o.expires}` : 'none']; }
     case 'riveraFixed': { const cl = DB.clients.find(x => x.id === 'cl45'); const P = (cl.payments || []).filter(p => [5000, 16350].includes(+p.amount));
       const bad = P.filter(p => !(DB.txns || []).some(t => Math.abs(+t.amt - +p.amount) < 1 && t.acct === 'ac1')); return [bad.length === 0, bad.length + ' recorded payments still not in the bank']; }
-    case 'clientCredit': { const cl = DB.clients.find(x => x.id === c.client); const ok = (cl.invoices || []).concat(cl.creditMemos || []).some(i => (i.date || '') >= ev.day && (i.lines || []).some(l => +l.rate < 0 || /credit/i.test((l.desc || '') + ' ' + (l.item || ''))));
-      return [ok, ok ? 'credited to the client' : 'no credit to the client']; }
+    // the credit for this return: a line taking c.amount off, on a document that went to the client (not a draft), dated
+    // from the day the vendor's credit came (c.after). It used to take any credit-looking line on any document dated
+    // from the due day, so a later, unrelated $612 credit scored the $850 one, and the $850 sent before the due day did not.
+    case 'clientCredit': { const cl = DB.clients.find(x => x.id === c.client);
+      const D = (cl.invoices || []).concat(cl.creditMemos || []).filter(i => (i.date || '') >= after && (i.lines || []).some(l => (+l.rate || 0) * (+l.qty || 1) < 0 && (!c.amount || Math.abs((+l.rate || 0) * (+l.qty || 1) + c.amount) < 1)));
+      const sent = D.filter(i => !['draft', 'void'].includes(i.status));
+      return [sent.length > 0, sent.length ? 'credited to the client on ' + sent.map(i => `${i.number} ${i.status}`).join(', ') : D.length ? 'the credit is on ' + D.map(i => `${i.number} (${i.status})`).join(', ') + ', not sent' : 'no credit to the client']; }
     case 'clientAnswered': { const p = projOf(c.project), CH = p.chat || [];
       const q = CH.findIndex(m => RX(c.rx).test(m.text || ''));
       const after_ = CH.filter(m => String(m.ts || m.at || '').slice(0, 10) >= ev.day || CH.indexOf(m) > q);

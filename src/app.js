@@ -193845,8 +193845,10 @@ const CM_GOODS_SYN = [
 // Where the goods go is not what they are: the room and floor words are stopped too ("Parlor kitchen countertop slab"
 // read as the same goods as PO-2026-048's "Parlor kitchen + laundry millwork", and the slab's PO warned of a double
 // order it was not).
-const CM_GOODS_STOP = new Set(["boards", "board", "sheets", "sheet", "each", "pcs", "and", "the", "for", "with", "per", "box", "boxes", "bag", "bags", "roll", "rolls", "case", "cases", "lot", "new", "order", "item", "items",
-  "parlor", "garden", "kitchen", "kitchens", "bath", "baths", "bathroom", "powder", "primary", "master", "guest", "laundry", "stair", "stairs", "bedroom", "living", "dining", "office", "facade", "front", "rear", "floor", "cellar", "basement", "room", "rooms", "upper", "lower", "level"]);
+// The room and floor words, one list: where something goes or is done, never what it is (the double-order guard here,
+// the double-bill guard on client documents, dbScopeHit).
+const ROOM_WORDS = new Set(["parlor", "garden", "kitchen", "kitchens", "bath", "baths", "bathroom", "powder", "primary", "master", "guest", "laundry", "stair", "stairs", "bedroom", "living", "dining", "office", "facade", "front", "rear", "floor", "cellar", "basement", "room", "rooms", "upper", "lower", "level"]);
+const CM_GOODS_STOP = new Set(["boards", "board", "sheets", "sheet", "each", "pcs", "and", "the", "for", "with", "per", "box", "boxes", "bag", "bags", "roll", "rolls", "case", "cases", "lot", "new", "order", "item", "items", ...ROOM_WORDS]);
 function cmGoodsWords(s) {
   let t = " " + String(s || "").toLowerCase() + " ";
   CM_GOODS_SYN.forEach(([re, to]) => (t = t.replace(re, to)));
@@ -194680,15 +194682,24 @@ function dbScopeWords(s) {
       .filter((w) => w.length >= 4 && !["front", "rear", "with", "from", "materials", "stored", "material", "deposit", "progress", "billing", "invoice", "line", "work"].includes(w)),
   );
 }
+// A line names a scope when it shares the scope's own words, and at least one of them says what the work is, not where
+// (month 9/18: the $850 credit for tile returned from the primary bath read as billing "Radiant floor heat in primary
+// bath" on its two room words, and Send held the Kleins' credit as a possible double bill).
+function dbScopeHit(V, W) {
+  const both = [...V].filter((w) => W.has(w));
+  return both.length >= Math.min(2, V.size) && both.some((w) => !ROOM_WORDS.has(w));
+}
 function dbScopesOf(c, d) {
   const S0 = new Set();
   if (!c || !d || "void" === d.status) return S0;
   (d.lines || []).forEach((l) => {
+    // a credit takes money off; it cannot bill a scope a second time
+    if ((+l.rate || 0) < 0 || (+l.amount || 0) < 0) return;
     if (l.sovId) return void ((+l.pct > 0 || +l.stored > 0 || "sov" !== d.mode) && S0.add(l.sovId));
     const W = dbScopeWords(`${l.item || ""} ${l.desc || ""}`);
     (c.sov || []).forEach((sv) => {
       const V = dbScopeWords(sv.desc);
-      V.size && [...V].filter((w) => W.has(w)).length >= Math.min(2, V.size) && S0.add(sv.id);
+      V.size && dbScopeHit(V, W) && S0.add(sv.id);
     });
   });
   return S0;

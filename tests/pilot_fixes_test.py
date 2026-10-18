@@ -442,6 +442,26 @@ async def t_statements_tasks_billing(c, p):
       return { note, inv: inv && inv.number, st: st.number, status: st.status, toast: (document.getElementById('toast') || {}).innerText || '' };""")
     c.ok('Possible double bill' in r['note'] and r['inv'] in r['note'], f"billing: the stored-materials invoice warns, naming the application ({r['note'][:200]!r})")
     c.ok(r['status'] == 'draft' and 'Not sent' in r['toast'], f"billing: sending it asks first ({r['status']}, {r['toast'][:120]!r})")
+    # a credit is never a double bill, and room words are where, not what (month 9/18: the $850 credit for tile returned
+    # from the primary bath read as billing "Radiant floor heat in primary bath" on "primary" and "bath", and Send held
+    # the Kleins' credit). The credit sends at once; a stored line naming only rooms shared with a scope does not warn;
+    # a line naming the scope's own words still does.
+    r = await js(pg, """
+      const c = DB.clients.find(x => x.id === 'cl121');
+      const cr = newDoc(c, 'invoice', { mode: 'items' }); cr.title = 'Credit — 121 State Street';
+      cr.lines = [{ id: 'lc1', item: 'Credit — returned primary bath tile', desc: 'Nemo Tile credited $850 for returned primary bath tile', qty: 1, unit: 'ls', rate: -850 }];
+      const credit = dbDoubleBills(c, cr).map(x => x.text);
+      await docAction(c, cr, 'send'); await sleep(150);
+      const okb = document.querySelector('#mbm #mbm-ok'); okb && okb.click(); await sleep(200);
+      const rooms = newDoc(c, 'invoice', { mode: 'items' }); rooms.lines = [{ id: 'lr1', item: 'Vanity for the primary bath, stored on site', qty: 1, unit: 'ls', rate: 1400 }];
+      const roomsOnly = dbDoubleBills(c, rooms).map(x => x.text).filter(t => /Radiant/.test(t));
+      const scope = newDoc(c, 'invoice', { mode: 'items' }); scope.lines = [{ id: 'ls1', item: 'Radiant heat mats, primary bath, stored on site', qty: 1, unit: 'ls', rate: 2200 }];
+      const named = dbDoubleBills(c, scope).map(x => x.text).filter(t => /Radiant/.test(t));
+      [rooms, scope].forEach(d => (c.invoices = c.invoices.filter(x => x !== d)));
+      return { credit, status: cr.status, roomsOnly, named };""")
+    c.ok(not r['credit'] and r['status'] == 'sent', f"billing: a client credit is not a double bill and sends ({r['credit']}, {r['status']})")
+    c.ok(not r['roomsOnly'], f"billing: room words alone do not name a scope ({r['roomsOnly']})")
+    c.ok(r['named'], f"billing: a line naming the scope's own words still warns ({r['named']})")
     c.ok(not errs and not errs2 and not errs3, f'8-10: no page errors {(errs + errs2 + errs3)[:2]}')
     await b.close()
 
