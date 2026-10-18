@@ -5,10 +5,11 @@ The chief of staff keeps this board current. A lane is one build agent in its ow
 ## Version 11.1: in flight (2026-10-18, overnight run Alan approved; weekly usage 4% at start)
 | Lane | Scope | Status |
 |---|---|---|
-| v111-inbox | Emailed asks, calls and client questions become proposals again (demo_ws, client, flow) | Building |
-| v111-buy | Purchasing tests vs the vendor-on-file rule; over-budget confirmation; short-pay from Do Now (daywalk); the track drawer click; pricewatch "why is this flagged" | Building |
-| v111-ask | Ask held-out 35/40 by class (negation, relative dates, pronouns, ops, finance); leak_test overspend at landing, source ids, nothing-slips | Building |
-| v111-feat | Ranking: safety/law, then anyone blocked today, then overdue/today/week, then the principle; harness findings 6–8; integrate's three held commits | Building |
+| v111-inbox | Emailed asks, calls and client questions become proposals again (demo_ws, client, flow) | Merged (770d829) |
+| v111-buy | Purchasing tests vs the vendor-on-file rule; over-budget confirmation; short-pay from Do Now (daywalk); the track drawer click; pricewatch "why is this flagged" | Merged (5cfd2e7) |
+| v111-ask | Ask held-out 35/40 by class (negation, relative dates, pronouns, ops, finance); leak_test overspend at landing, source ids, nothing-slips | Merged (28652e9); ask_bank 225/225 and held-out 40/40 |
+| v111-feat | Ranking: safety/law, then anyone blocked today, then overdue/today/week, then the principle; harness findings 6–8; integrate's three held commits | Merged (8686794, b361bf9) |
+| v111-seed | leak_test [5]: demo costs backed by bank and card lines, bills with their documents, hours tied to payroll runs | Building |
 
 Merge order: inbox, buy, ask, feat (feat last because ranking touches every Home). Full net after each merge, one suite at a time; then the scripted month, the phone check, and publishing v11.
 

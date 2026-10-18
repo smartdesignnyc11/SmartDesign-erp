@@ -144,6 +144,11 @@ What remains, in order. Usage is a share of one week's allowance.
 - **Phone home screen:** it hides the "because" lines to stay under 180 words; they show on Approvals and on desktop.
 - **Quote rule:** "outside Manhattan and Brooklyn" means any other borough or out of state.
 
+- **PM's phone bar (2026-10-18):** Home, Approvals, Projects, Tasks, Field, More.
+- **New CO, Invoice or Estimate off a job's screen asks for the client** (it used to take the last job's).
+- **A task saved with no owner goes to the job's PM** (or the design director on a design job), with who, when and why recorded; it can be switched off.
+- **The owner's "Waiting on the Others" list** follows the one ranking order. Grouping it by person is proposed for the one-queue-per-person work.
+
 ## 7. Later (Alan deferred)
 - NY rules (§7): "I need to better understand this."
 
