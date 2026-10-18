@@ -18,7 +18,8 @@ Last updated 2026-10-18 (platform set up).
 ## Platform: first slice live (2026-10-18)
 - **Where:** https://smartdesigns-erp.netlify.app (new Netlify site; the 12 old sites untouched) on a new Supabase project in us-east-1. Alan is invited as owner by email. How it works: `platform/README.md`.
 - **Built and checked live:** invited sign-in only; roles set by the owner on the server; field roles never receive the books, bank, payroll or bills and get money stripped from jobs, and their saves cannot touch money; clients refused until per-client rows; edits sync between two devices both ways, simultaneous edits on the same job both kept; `/api/ai` refuses anyone not signed in or without a role, answers members on the model the server picks, and logs each call's cost (live checks 27/27 and 17/17).
-- **Waiting on Alan:** Supabase Pro ($25/month) before any real data; a Google OAuth client for Google sign-in.
+- **Supabase is on Pro** (daily backups, no pausing), so real data can go in once the import (§6) is built.
+- **Waiting on Alan:** a Google OAuth client for Google sign-in.
 - **Not built yet:** Google sign-in, per-client portal rows, the server-side hash-chain head, document reader, mail/calendar/drive watcher, Plaid, push, the agents.
 
 ## Overnight 2026-10-18: where things stand (for Alan at 10am)
@@ -172,7 +173,7 @@ What remains, in order. Usage is a share of one week's allowance.
 ## 5. Waiting on Alan
 | Asked | Decision or action | Default until then |
 |---|---|---|
-| 2026-10-18 | Supabase Pro before real data; a Google OAuth client for Google sign-in | Email sign-in only; demo data only |
+| 2026-10-18 | A Google OAuth client for Google sign-in | Email sign-in only |
 | 2026-10-11 | Which email address the vendor follow-ups come from (recommend purchasing@ on the firm's domain) | Outbox only (demo) |
 | 2026-10-11 | Who the accountant is. To confirm with them: use tax; the overhead method; Mercer & Bond development costs capitalised; revenue recognition for tax; stock held as inventory | The defaults in §1.13 item 8, labelled "confirm with your accountant" |
 | 2026-10-11 | Leftover material on cost-plus jobs: back to the client, a credit on their invoice, or into firm stock | "Client-owned surplus, ask the PM" |

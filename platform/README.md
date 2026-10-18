@@ -5,7 +5,7 @@ The firm's shared system: https://smartdesigns-erp.netlify.app. Built 2026-10-18
 | Piece | Where |
 |---|---|
 | Netlify site | `smartdesigns-erp` (team alan-i60sjeo). Netlify login protects deploy previews only; production is guarded by the app's own sign-in. The 12 older sites are untouched. |
-| Supabase project | `smartdesigns-projects`, ref `eenpabyrmiltfqvzirhw`, us-east-1, free plan. Sign-up is off: people are invited. |
+| Supabase project | `smartdesigns-projects`, ref `eenpabyrmiltfqvzirhw`, us-east-1, Pro plan (daily backups) since 2026-10-18. Sign-up is off: people are invited. |
 | Secrets | Netlify only: `ANTHROPIC_API_KEY` (team), `SUPABASE_SERVICE_ROLE_KEY` (site, secret). Never in the repo, the page or chat. |
 | Settings | Netlify site env: `AI_MODEL` (assistant tier, claude-sonnet-5-5), `AI_MODEL_BRAIN` (claude-opus-5-5, owner/PM/controller only), `AI_MODEL_SMALL` (claude-haiku-5-5), `AI_CAP_FIRM_USD` (40), `AI_CAP_USER_USD` (8), `ANTHROPIC_WORKSPACE_ID` (needed while the Anthropic key is not scoped to a workspace). |
 

@@ -8,7 +8,6 @@ Status: **Built** (merged and tested) · **Building** (a lane is on it) · **Spe
 | Asked | Decision needed | Default until he decides |
 |---|---|---|
 | 2026-10-18 | AI spend caps inside the app, below the $50 Anthropic hard limit, so the app stops and says so before Anthropic refuses mid-task. | Firm $40 a month; $8 per person a month; the owner sees spend per person. |
-| 2026-10-18 | Supabase plan before any real job, client or bank data goes in. The free plan pauses after a week unused and has no daily backups. | Free plan, invented demo data only. Move to Pro ($25 a month: daily backups, no pausing) before the first real record. |
 | 2026-10-18 | Google sign-in for the hosted copy needs a Google OAuth client only he can create. | Email sign-in, invited people only; Google sign-in next session once the client exists. |
 | 2026-10-11 | Leftover material from a cost-plus or reimbursable job: return it to the client, credit it on their invoice, or take it into firm stock? | Flagged "client-owned surplus, ask the PM"; never moved into firm stock automatically. |
 | 2026-10-11 | Confirm with the accountant that out-of-state material purchases owe NY use tax, and at what rate. | Landed cost adds use tax at 8.875% (editable). A bill with no tax charged is flagged "use tax to accrue". |
@@ -19,6 +18,7 @@ Status: **Built** (merged and tested) · **Building** (a lane is on it) · **Spe
 | Ask or decision | Where it lives | Status |
 |---|---|---|
 | Set up the platform: new Supabase project (us-east-1), security in the database, the hosted copy, the AI connection with caps, a new clearly named Netlify site (the 12 old sites left alone), deploy, live check. Google sign-in, Plaid, watchers, the document reader and real data come later | BACKLOG §5, `docs/LANES.md` lane "platform", `platform/README.md` | Built, first slice: live at https://smartdesigns-erp.netlify.app; Alan invited as owner. Anthropic workspace ID set by Alan the same day; live checks all green (database and AI 27/27, two devices 17/17) |
+| Supabase moved to Pro by Alan (daily backups, no pausing); confirmed through the API, first backup on record | `platform/README.md` | Built |
 | Overnight run: continue v11.1 and beyond without approvals until 10am (weekly usage 4%) | `docs/LANES.md`, `docs/PLAN.md` | Running |
 | Version 11 published (v11.1 folded in): 32 of 32 suites green; scripted month 258/292 on time, $9,537 left behind | `docs/PLAN.md` | Built |
 | Lean expert pilot (3 days, 9 roles) and both workshops run on v11 | `docs/pilot/pilot1/` | Done. Agent ledger 24/55 on time, $80,036 left behind; expert grades mostly 4–6; menu result in `docs/MENU_DRAFT.md` waiting on Alan |
