@@ -831,6 +831,15 @@ Every saving gets a row: price differences, waste avoided, discounts taken, dupl
 - **The chat extraction bank.**
 - **Privacy tests:** nobody sees a channel, DM or mail they shouldn't, including through AI answers.
 
+### 1.32 The Brain's own jobs, made explicit (Alan's objectives, restated in the Oct 17 recap)
+1. **Lessons from meetings carry to the next matching job.** The Brain reads transcripts and outcomes. It turns "millwork samples should be approved during design" into a lesson tied to the job type and phase. It raises the lesson on the next matching job before the moment it matters.
+2. **Workload.** It spots an overloaded person (open tasks, overdue items, hours, response times) and proposes moving work off their plate first, to a named person with capacity. The manager approves.
+3. **Admin on its own, where allowed.** Vendor follow-ups and insurance or licence renewals are put on the calendar and chased under the approval rules (Act Alone / Ask First / Hand It to Me, §1.27).
+4. **Approved improvements become build requests.** This is the improvement loop (§1.19): an approved process or ERP change becomes a ticket for the build agents, which is tested and released with the owner's approval.
+5. **Always on.** It runs on timers on the server, not only while the app is open (§5).
+
+Tests: a bank of "should it have nudged here" scenarios, recall and precision reported, and the privacy test that no person ever sees another person's mail.
+
 ## §2 Remaining round-4 findings
 
 ### Founder
