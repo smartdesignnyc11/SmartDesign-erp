@@ -8547,7 +8547,7 @@ function openClientEditor(kind, id) {
       ? c.payments.find((q) => q.id === id)
       : { date: today(), amount: "", method: "", invoiceId: clientFin(c).open[0]?.x.id || "", note: "" };
     ($("#d-title").textContent = id ? "Edit payment" : "Record payment"),
-      (b.innerHTML = `<div class="f2"><div class="f"><label>Date</label><input type="date" id="e-date" value="${x.date}"></div><div class="f"><label>Amount ($)</label><input type="number" id="e-amount" value="${x.amount}"></div></div><div class="f2"><div class="f"><label>Method</label><input id="e-method" value="${esc(x.method)}" placeholder="Wire, check #, card"></div><div class="f"><label>Applied to</label><select id="e-inv"><option value="">— unapplied —</option>${c.invoices
+      (b.innerHTML = `<div class="f2"><div class="f"><label>Date</label><input type="date" id="e-date" value="${x.date}"></div><div class="f"><label>Amount ($)</label><input type="number" id="e-amount" value="${x.amount}"></div></div><div class="f2"><div class="f"><label>Method</label>${payMethodSel("e-method", x.method)}</div><div class="f"><label>Check or Reference</label><input id="e-ref" value="${esc(x.ref || "")}" placeholder="check #, wire ref"></div><div class="f"><label>Deposited To</label>${payAcctSel("e-pacct", x.acctId || "")}</div><div class="f"><label>Applied to</label><select id="e-inv"><option value="">— unapplied —</option>${c.invoices
         .filter((i) => "draft" !== i.status && "void" !== i.status)
         .map(
           (i) =>
@@ -8561,6 +8561,10 @@ function openClientEditor(kind, id) {
         date: $("#e-date").value,
         amount: +$("#e-amount").value || 0,
         method: $("#e-method").value,
+        ref: ($("#e-ref") || {}).value || "",
+        acctId: ($("#e-pacct") || {}).value || "",
+        recordedBy: x.recordedBy || payWho(),
+        recordedAt: x.recordedAt || appNowIso(),
         invoiceId: $("#e-inv").value,
         note: $("#e-note").value,
       }));
@@ -8610,7 +8614,10 @@ function saveClientEditor() {
   const kind = editing.kind.slice(7),
     o = editing.collect(),
     id = editing.id,
-    upsert = (arr) => {
+    // a client payment says how it came, its check number, and where it was deposited
+    payNo = "payment" === kind && "function" == typeof payTraceWhy && !id ? payTraceWhy({ method: o.method, ref: o.ref, acct: o.acctId }) : "";
+  if (payNo) return void toast(payNo);
+  const upsert = (arr) => {
       const i = arr.findIndex((x) => x.id === o.id);
       i >= 0 ? (arr[i] = Object.assign(arr[i], o)) : arr.push(o);
     };
@@ -35668,7 +35675,7 @@ function paymentAllocate(c, presetInvoiceId) {
     total = r2(open.reduce((a, o) => a + o.bal, 0)),
     m = mbModal(
       `Record payment — ${esc(c.name)}`,
-      `<div class="f2"><label class="f"><span>Amount received</span><input type="number" step="0.01" id="py-amt" value="${(presetInvoiceId && open.find((o) => o.x.id === presetInvoiceId)?.bal) || total}"></label><label class="f"><span>Date</span><input type="date" id="py-date" value="${today()}"></label></div><div class="f2"><label class="f"><span>Method</span><select id="py-method"><option>ACH</option><option>Check</option><option>Wire</option><option>Card</option><option>Credit on account</option></select></label><label class="f"><span>Reference</span><input id="py-ref" placeholder="check #, wire ref"></label></div>\n    <table class="t"><thead><tr><th>Invoice</th><th class="money">Balance</th><th class="money" style="width:130px">Apply</th></tr></thead><tbody>${open.map((o) => `<tr><td>${esc(o.x.number)} <span class="small muted">${esc(o.x.title || "")} · due ${o.x.due ? fmt(o.x.due) : "—"}</span></td><td class="money">${money(o.bal)}</td><td class="money"><input type="number" step="0.01" min="0" max="${o.bal}" data-pyalloc="${o.x.id}" value="0" style="width:120px;text-align:right"></td></tr>`).join("")}</tbody><tfoot><tr><td>Applied</td><td></td><td class="money" id="py-applied">$0</td></tr><tr><td>Left on account (credit)</td><td></td><td class="money" id="py-left">$0</td></tr></tfoot></table><div class="row" style="margin-top:6px;gap:6px"><button class="btn sm" id="py-auto">Apply oldest first</button></div>`,
+      `<div class="f2"><label class="f"><span>Amount received</span><input type="number" step="0.01" id="py-amt" value="${(presetInvoiceId && open.find((o) => o.x.id === presetInvoiceId)?.bal) || total}"></label><label class="f"><span>Date</span><input type="date" id="py-date" value="${today()}"></label></div><div class="f2"><label class="f"><span>Method</span>${payMethodSel("py-method", "")}</label><label class="f"><span>Check or Reference</span><input id="py-ref" placeholder="check #, wire ref"></label></div><div class="f2"><label class="f"><span>Deposited To</span>${payAcctSel("py-acct", payBankAccts().length === 1 ? payBankAccts()[0].id : "")}</label><span></span></div>\n    <table class="t"><thead><tr><th>Invoice</th><th class="money">Balance</th><th class="money" style="width:130px">Apply</th></tr></thead><tbody>${open.map((o) => `<tr><td>${esc(o.x.number)} <span class="small muted">${esc(o.x.title || "")} · due ${o.x.due ? fmt(o.x.due) : "—"}</span></td><td class="money">${money(o.bal)}</td><td class="money"><input type="number" step="0.01" min="0" max="${o.bal}" data-pyalloc="${o.x.id}" value="0" style="width:120px;text-align:right"></td></tr>`).join("")}</tbody><tfoot><tr><td>Applied</td><td></td><td class="money" id="py-applied">$0</td></tr><tr><td>Left on account (credit)</td><td></td><td class="money" id="py-left">$0</td></tr></tfoot></table><div class="row" style="margin-top:6px;gap:6px"><button class="btn sm" id="py-auto">Apply oldest first</button></div>`,
       {
         submit: "Record",
         onSubmit: () => {
@@ -35676,20 +35683,21 @@ function paymentAllocate(c, presetInvoiceId) {
           if (amt <= 0) return toast("Enter the amount"), !1;
           const date = $("#py-date").value || today(),
             method = $("#py-method").value,
-            ref = $("#py-ref").value;
+            ref = $("#py-ref").value,
+            tr = { method: method, ref: ref, acct: ($("#py-acct") || {}).value || "" },
+            no = payTraceWhy(tr);
+          if (no) return toast(no), !1;
           let applied = 0;
           m.querySelectorAll("[data-pyalloc]").forEach((inp) => {
             const v = r2(+inp.value || 0);
             if (v <= 0) return;
             (applied += v),
-              c.payments.push({
+              c.payments.push(payStamp({
                 id: uid("py"),
                 invoiceId: inp.dataset.pyalloc,
                 date: date,
                 amount: v,
-                method: method,
-                ref: ref,
-              });
+              }, tr));
             const inv = findDoc(c, "invoice", inp.dataset.pyalloc);
             inv &&
               !["void", "draft"].includes(inv.status) &&
@@ -35699,16 +35707,14 @@ function paymentAllocate(c, presetInvoiceId) {
           const left = r2(amt - applied);
           if (left < -0.005) return toast("Applied more than received"), !1;
           left > 0.005 &&
-            c.payments.push({
+            c.payments.push(payStamp({
               id: uid("py"),
               invoiceId: "",
               date: date,
               amount: left,
-              method: method,
-              ref: ref,
               unapplied: !0,
               voidedInvoice: "payment on account",
-            }),
+            }, tr)),
             c.activity.push({
               t: nowStamp(),
               by: S.project.userName || "",
@@ -37033,7 +37039,7 @@ matchPO = function (po) {
     n
   );
 };
-const proposals = () => DB.txns.filter((t) => t.proposal);
+const proposals = () => DB.txns.filter((t) => t.proposal && "line" !== t.proposal.kind);
 function proposalsHtml(list, title) {
   return list.length
     ? `<div class="card prop-card"><div class="row" style="align-items:baseline"><h3 style="margin:0">${title || "Matches waiting for your confirmation"}</h3><span class="small muted" style="margin-left:8px">${list.length} — nothing is linked until you say so</span></div>${list
@@ -65452,37 +65458,202 @@ function iaSovHtml() {
         .join("")
     : '<div class="empty">No schedule of values yet. Convert an approved construction estimate to create one.</div>';
 }
+// ---- A client payment carries its trace (pilot day 2: a payment held only date, amount and invoice, so one that
+// was not in the bank could not be traced): how it came (method), the check number or wire reference, the account it
+// was deposited to, who recorded it and when. A field nobody set reads "not recorded", never a guessed default (the
+// Payments list showed "ACH" for payments recorded with no method, because the form's first option was ACH).
+const PAY_METHODS = ["Check", "Wire", "ACH", "Zelle", "Card", "Cash", "Credit on account"];
+const payNR = (v) => (v && String(v).trim() ? String(v) : "not recorded");
+function payBankAccts() {
+  return (DB.accounts || []).filter((a) => "bank" === a.type || !a.type);
+}
+function payAcctName(id) {
+  const a = (DB.accounts || []).find((x) => x.id === id);
+  return a ? `${a.name}${a.last4 ? " ····" + a.last4 : ""}` : "";
+}
+function payMethodSel(id, v) {
+  return `<select id="${id}" data-f="method"><option value="">Choose…</option>${PAY_METHODS.map((m) => `<option ${m === v ? "selected" : ""}>${m}</option>`).join("")}</select>`;
+}
+function payAcctSel(id, v) {
+  return `<select id="${id}" data-f="acct"><option value="">Choose…</option>${payBankAccts().map((a) => `<option value="${a.id}" ${a.id === v ? "selected" : ""}>${esc(payAcctName(a.id))}</option>`).join("")}</select>`;
+}
+const payWho = () => ((currentUser() || {}).name || (S && S.project && S.project.userName) || role() || "");
+// what a bank line says about how the money came: its method and reference (check number, wire or ACH trace)
+function payFromBank(t) {
+  const d = String((t && t.desc) || ""),
+    method = /\bwire\b/i.test(d) ? "Wire" : /\bzelle\b/i.test(d) ? "Zelle" : /\b(check|chk|deposit item)\b/i.test(d) ? "Check" : /\bach\b|online transfer|transfer from/i.test(d) ? "ACH" : /\bcard|stripe|square\b/i.test(d) ? "Card" : "",
+    ref = (d.match(/\b(?:check|chk)\s*#?\s*(\d{3,})/i) || d.match(/\b(?:ref|trn|trace|conf)\s*[:#]?\s*([A-Z0-9-]{4,})/i) || [])[1] || "";
+  return { method: method, ref: ref };
+}
+// the payment form's checks: a method is chosen, a check names its number, the deposit account is named
+function payTraceWhy(f) {
+  if (!f.method) return "Say how it was paid (check, wire, ACH...)";
+  if ("Check" === f.method && !String(f.ref || "").trim()) return "A check payment needs the check number";
+  if ("Credit on account" !== f.method && !f.acct) return "Say which account it was deposited to";
+  return "";
+}
+function payStamp(p, f) {
+  return Object.assign(p, { method: f.method || "", ref: String(f.ref || "").trim(), acctId: f.acct || p.acctId || "", recordedBy: p.recordedBy || payWho(), recordedAt: p.recordedAt || appNowIso() });
+}
+// ---- Reverse Payment (pilot day 3): an append-only linked reversal. The payment stays as it was; a reversal record
+// of the opposite amount points at it with the reason, who and when; the invoice re-opens. Billing and the Controller.
+const payCanReverse = () => ["billing", "controller"].includes(role());
+function payReverse(c, py, why) {
+  if (!payCanReverse()) return { ok: !1, why: "Billing or the Controller reverses a payment" };
+  const w = String(why || "").trim();
+  if (!w) return { ok: !1, why: "Say why the payment is reversed" };
+  if (py.reversalId || py.reverses) return { ok: !1, why: py.reverses ? "This is a reversal; reverse the payment itself" : "This payment is already reversed" };
+  const by = payWho(),
+    rv = { id: uid("py"), date: today(), amount: -r2(+py.amount || 0), method: py.method || "", ref: py.ref || "", acctId: py.acctId || "", invoiceId: py.invoiceId || "", unapplied: !!py.unapplied, reverses: py.id, why: w, recordedBy: by, recordedAt: appNowIso(), note: `reverses the ${fmtL(py.date)} payment of ${money(+py.amount || 0)}: ${w}` };
+  (c.payments = c.payments || []).push(rv), (py.reversalId = rv.id), (py.reversedAt = rv.recordedAt), (py.reversedBy = by);
+  const inv = py.invoiceId && (c.invoices || []).find((i) => i.id === py.invoiceId);
+  if (inv && !["void", "draft"].includes(inv.status)) {
+    const paid = invoicePaid(c, inv),
+      tot = docTotal(inv).total;
+    inv.status = paid >= tot - 0.005 ? "paid" : paid > 0.005 ? "partial" : inv.due && inv.due < today() ? "overdue" : "sent";
+  }
+  try {
+    audit("payment", py.id, "reversed", String(py.amount), rv.id, `${c.name} ${money(+py.amount || 0)} recorded ${fmtL(py.date)} — reversed by ${by}: ${w}`);
+  } catch (e) {}
+  (c.activity = c.activity || []).push({ t: nowStamp(), by: by, text: `Payment ${money(+py.amount || 0)} of ${fmtL(py.date)} reversed — ${w}` });
+  return save(), { ok: !0, rv: rv, inv: inv };
+}
+function paySheet(c, py) {
+  if (!c || !py) return;
+  const inv = py.invoiceId && (c.invoices || []).find((i) => i.id === py.invoiceId),
+    t = payBankLine(py),
+    rv = py.reversalId && (c.payments || []).find((x) => x.id === py.reversalId),
+    of = py.reverses && (c.payments || []).find((x) => x.id === py.reverses),
+    kv = (k, v) => `<div class="row small" style="padding:4px 0;border-top:1px solid var(--rule)"><span class="muted" style="width:120px">${k}</span><span class="grow">${v}</span></div>`,
+    can = payCanReverse() && !py.reversalId && !py.reverses && +py.amount > 0,
+    m = mbModal(
+      `Payment · ${esc(c.name)} · ${money(+py.amount || 0)}`,
+      `${kv("Date", esc(fmtL(py.date)))}${kv("Applied To", inv ? esc(inv.number) : py.unapplied ? "on account" : "not recorded")}${kv("Method", esc(payNR(py.method)))}${kv("Check or Reference", esc(payNR(py.ref)))}${kv("Deposited To", esc(payNR(payAcctName(py.acctId))))}${kv("Recorded By", esc(payNR(py.recordedBy || py.by)) + (py.recordedAt ? ` · ${esc(stampText(py.recordedAt))}` : ""))}${kv("In the Bank", t ? `cleared by ${esc(t.desc)} on ${esc(fmtL(t.date))}` : "not in the bank")}${rv ? kv("Reversed", `${esc(fmtL(rv.date))} by ${esc(rv.recordedBy || "")}: ${esc(rv.why || "")}`) : ""}${of ? kv("Reverses", `the ${esc(fmtL(of.date))} payment of ${money(+of.amount || 0)}: ${esc(py.why || "")}`) : ""}
+      ${can ? `<div class="f" style="margin-top:10px"><label>Why It Is Reversed</label><input data-f="why" placeholder="e.g. the check bounced; recorded against the wrong invoice"></div><div class="small muted">The payment stays on the record; a linked reversal is added and the invoice re-opens.</div>` : ""}`,
+      can
+        ? {
+            submit: "Reverse Payment",
+            onSubmit: (f) => {
+              const r = payReverse(c, py, f.why);
+              if (!r.ok) return toast(r.why), !1;
+              render();
+              const go = () => ((clientOpen = c.id), r.inv ? (docOpen = { kind: "invoice", id: r.inv.id }) : (docOpen = null), (view = (ROLE_VIEWS[role()] || []).includes("billing") ? "billing" : "clients"), render());
+              "function" == typeof rcToast ? rcToast(`${c.name}'s ${fmtL(py.date)} payment reversed${r.inv ? `; ${r.inv.number} is open again` : ""}`, [{ label: "Open", run: go }]) : toast(`${c.name}'s payment reversed`, go);
+            },
+          }
+        : { submit: null },
+    );
+  return m;
+}
+// ---- In the Bank, Not Applied (pilot day 3): money that reached a bank account and is on no invoice. Each deposit
+// from an import or a feed with the invoice the matcher proposes for it (payer name and amount); Record It applies it.
+// the bank line behind a recorded payment: the one it is linked to, else the one undepositedReceipts reads as its
+// deposit (same amount within $1, within 10 days), so this list and "Recorded, Not Yet in the Bank" never disagree
+function payBankLine(py) {
+  if (!py || !(+py.amount > 0)) return null;
+  return (py.txnId && (DB.txns || []).find((t) => t.id === py.txnId)) || (DB.txns || []).find((t) => t.amt > 0 && Math.abs(t.amt - py.amount) <= 1 && Math.abs(dayDiff(py.date, t.date)) <= 10) || null;
+}
+function payInBankRows() {
+  const banks = new Set(payBankAccts().map((a) => a.id)),
+    paid = new Set();
+  (DB.clients || []).forEach((c) =>
+    (c.payments || []).forEach((p) => {
+      p.txnId && paid.add(p.txnId);
+      const t = !p.unapplied && payBankLine(p);
+      t && paid.add(t.id);
+    }),
+  );
+  return (DB.txns || [])
+    .filter((t) => banks.has(t.acct) && +t.amt > 0 && !t.invoiceId && !paid.has(t.id) && !t.exception && !t.transferId && !/transfer|interest|refund|reversal/i.test(t.cat || "") && !(t.match && (t.match.invoiceId || t.match.paymentId)) && !!(t.prov || t.origin || t.source))
+    .map((t) => {
+      let best = null;
+      try {
+        best = truthCandidates(t).filter((x) => "invoice" === x.kind)[0] || null;
+      } catch (e) {}
+      return { t: t, best: best };
+    })
+    .sort((a, b) => String(b.t.date).localeCompare(String(a.t.date)));
+}
+function payInBankHtml() {
+  const R = payInBankRows();
+  if (!R.length) return "";
+  return `<div class="card" id="pay-inbank" style="margin-bottom:12px"><div class="hd"><h3>In the Bank, Not Applied</h3><span class="small muted">${R.length} deposit${1 === R.length ? "" : "s"} · ${money(R.reduce((a, x) => a + +x.t.amt, 0))} on no invoice</span></div>${R.map(
+    (x, i) =>
+      `<div class="row" style="padding:6px 0;border-top:1px solid var(--rule);gap:8px;flex-wrap:wrap;align-items:center"><span class="small" style="width:70px">${esc(fmt(x.t.date))}</span><b class="grow">${esc(x.t.desc)} · ${money(+x.t.amt)}</b><span class="small muted">${esc(payAcctName(x.t.acct))}</span><span class="small" style="flex-basis:100%">${x.best ? `Proposed: ${esc(x.best.label)} <span class="muted">(${esc(x.best.why)})</span>` : '<span class="muted">No open invoice matches the payer or the amount; open the line to apply it or say what it is.</span>'}</span>${x.best ? `<button type="button" class="btn sm" data-pibrec="${i}">Record It</button>` : ""}<button type="button" class="btn sm" data-pibopen="${i}">Open Line</button></div>`,
+  ).join("")}</div>`;
+}
+function payInBankWire(root) {
+  const R = payInBankRows();
+  root.querySelectorAll("[data-pibrec]").forEach(
+    (b) =>
+      (b.onclick = () => {
+        const x = R[+b.dataset.pibrec];
+        if (!x || !x.best) return;
+        const r = truthSetMatch(x.t, x.best.m, { why: x.best.why });
+        if (r && !1 === r.ok) return toast(r.why || "Not recorded");
+        const c = (DB.clients || []).find((c) => (c.invoices || []).some((i) => i.id === x.best.m.invoiceId)),
+          inv = c && c.invoices.find((i) => i.id === x.best.m.invoiceId);
+        save(), render();
+        "function" == typeof rcToast ? rcToast(`${money(+x.t.amt)} recorded against ${inv ? inv.number : "the invoice"}`, [{ label: "Open", run: () => (c && ((clientOpen = c.id), (docOpen = inv ? { kind: "invoice", id: inv.id } : null)), render()) }]) : toast(`${money(+x.t.amt)} recorded`);
+      }),
+  ),
+    root.querySelectorAll("[data-pibopen]").forEach(
+      (b) =>
+        (b.onclick = () => {
+          const x = R[+b.dataset.pibopen];
+          x && "function" == typeof openVerifyTxn ? openVerifyTxn(x.t.id) : x && ((view = "bank"), render());
+        }),
+    );
+}
 function iaPaymentsHtml() {
   const rows = [];
   DB.clients.forEach((c) => {
     (billClient && c.id !== billClient) ||
-      c.payments.forEach((p) => rows.push({ c: c, p: p, inv: c.invoices.find((i) => i.id === p.invoiceId) }));
+      c.payments.forEach((p) => rows.push({ c: c, p: p, inv: c.invoices.find((i) => i.id === p.invoiceId), t: payBankLine(p) }));
   });
-  return grid({
-    id: "bill-payments",
-    cols: [
-      { key: "date", label: "Date", type: "date", w: "96px", get: (r) => r.p.date },
-      { key: "client", label: "Client", cls: "name", get: (r) => r.c.name },
-      {
-        key: "invoice",
-        label: "Invoice",
-        w: "130px",
-        get: (r) => (r.inv ? r.inv.number : r.p.unapplied ? "Unapplied" : "—"),
-      },
-      { key: "method", label: "Method", w: "110px", get: (r) => r.p.method || "" },
-      { key: "ref", label: "Reference", get: (r) => r.p.ref || r.p.memo || "" },
-      { key: "amt", label: "Amount", type: "money", w: "110px", get: (r) => +r.p.amount || +r.p.amt || 0 },
-    ],
-    rows: rows.map((r) => ({
-      id: r.p.id,
-      data: r,
-      edit: r.inv ? `billdoc:${r.c.id}:invoice:${r.inv.id}` : "",
-    })),
-    defaultSort: "date",
-    dir: "desc",
-    empty: "No payments recorded yet.",
-  });
+  return (
+    payInBankHtml() +
+    grid({
+      id: "bill-payments",
+      cols: [
+        { key: "date", label: "Date", type: "date", w: "96px", get: (r) => r.p.date },
+        { key: "client", label: "Client", cls: "name", get: (r) => r.c.name },
+        {
+          key: "invoice",
+          label: "Invoice",
+          w: "130px",
+          get: (r) => (r.inv ? r.inv.number : r.p.unapplied ? "Unapplied" : "—"),
+        },
+        { key: "method", label: "Method", w: "110px", get: (r) => payNR(r.p.method) },
+        { key: "ref", label: "Reference", get: (r) => payNR(r.p.ref || r.p.memo) },
+        { key: "acct", label: "Deposited To", get: (r) => payNR(payAcctName(r.p.acctId || (r.t && r.t.acct))) },
+        { key: "by", label: "Recorded By", get: (r) => payNR(r.p.recordedBy || r.p.by) },
+        { key: "bank", label: "In the Bank", get: (r) => (r.p.reverses ? "reversal" : r.p.reversalId ? "reversed" : r.t ? `cleared ${fmt(r.t.date)}` : "not in the bank") },
+        { key: "amt", label: "Amount", type: "money", w: "110px", get: (r) => +r.p.amount || +r.p.amt || 0 },
+      ],
+      rows: rows.map((r) => ({
+        id: r.p.id,
+        data: r,
+        edit: `billpay:${r.c.id}:${r.p.id}`,
+      })),
+      defaultSort: "date",
+      dir: "desc",
+      empty: "No payments recorded yet.",
+    })
+  );
 }
+document.addEventListener(
+  "click",
+  (e) => {
+    const tr = e.target && e.target.closest ? e.target.closest('tr[data-edit^="billpay:"]') : null;
+    if (!tr || e.target.closest("button,a")) return;
+    e.stopPropagation(), e.preventDefault();
+    const [, cid, pid] = tr.dataset.edit.split(":"),
+      c = (DB.clients || []).find((x) => x.id === cid);
+    c && paySheet(c, (c.payments || []).find((p) => p.id === pid));
+  },
+  !0,
+);
 function renderBilling() {
   const root = document.getElementById("billing-body");
   if (!root) return;
@@ -65542,7 +65713,8 @@ function renderBilling() {
         }),
     ),
     "billable" === billTab &&
-      ("function" == typeof pgWire && pgWire(root), "function" == typeof dsWire && dsWire(root));
+      ("function" == typeof pgWire && pgWire(root), "function" == typeof dsWire && dsWire(root)),
+    "payments" === billTab && payInBankWire(root);
 }
 if (
   ((function () {
@@ -72783,11 +72955,16 @@ function cmRead(c) {
             (t) => +t.amt < 0 && Math.abs(Math.abs(+t.amt) - amt) < 0.01 && !t.billId && t.date >= iso(addDays(said, -14)) && t.date <= iso(addDays(said, 14)),
           )
         : null,
-      rent = /\brent\b|lease/i.test(all);
+      // A vendor invoice naming a PO, or from a vendor with one open PO, is a bill against that PO. Rent needs lease
+      // or rent words as words (pilot day 2: "Please find invoice TIN-7194 for PO-2026-047" read as rent because
+      // "please" holds "lease", so a flooring bill on 121 State would have skipped the three-way match).
+      poOf = "function" == typeof cmBillPO ? cmBillPO(c, { vendor: who }) : null,
+      poJob = poOf && (DB.projects || []).find((x) => x.id === poOf.projectId),
+      rent = !poOf && /\b(rent|rents|rental|lease|leased|sublease)\b/i.test(all) && !/\b(equipment|scaffold|lift|dumpster|tool|machine)\s+(rent|rental)/i.test(all);
     push(
       "bill",
       amt
-        ? `${who} says ${money(amt)} is owed${ent ? " by " + ent.name : ""}${num ? " · #" + num : ""}${due ? " · due " + due : ""}${/past due/i.test(all) ? " · past due" : ""}${rent ? " · rent, a firm expense" : ""}${where ? " · " + where : ""}${attText ? " · read from the attached PDF" : ""}`
+        ? `${who} says ${money(amt)} is owed${ent ? " by " + ent.name : ""}${num ? " · #" + num : ""}${due ? " · due " + due : ""}${/past due/i.test(all) ? " · past due" : ""}${poOf ? ` · against ${poOf.number}${poJob ? " on " + String(poJob.project.name).replace(/ —.*$/, "") : ""}, matched to what was received` : ""}${rent ? " · rent, a firm expense" : ""}${where && !poJob ? " · " + where : ""}${attText ? " · read from the attached PDF" : ""}`
         : `${who} sent an invoice${num ? " #" + num : ""}${where ? " · " + where : ""} — the amount is not in the text and the PDF was not read; open it before anything is written`,
       {
         vendor: who,
@@ -72797,7 +72974,9 @@ function cmRead(c) {
         number: num,
         due: due,
         entityId: ent ? ent.id : "",
-        projectId: R.projectId || "",
+        projectId: (poOf && poOf.projectId) || R.projectId || "",
+        poId: poOf ? poOf.id : "",
+        poNumber: poOf ? poOf.number : "",
         rent: rent,
         fromAttachment: !!attText && !cmMoney(own),
         txnId: paidLine ? paidLine.id : "",
@@ -176975,7 +177154,7 @@ function truthSetMatch(t, m0, o) {
     // between our own accounts kept a client's payment out of the P&L)
     (m.invoiceLineId = il ? il.id : ""), (t.invoiceId = hit.inv.id), (cat = "income"), proj || (proj = hit.inv.projectId || "");
     let p = (hit.c.payments || []).find((x) => x.id === m.paymentId) || (hit.c.payments || []).find((x) => x.invoiceId === hit.inv.id && !x.txnId && Math.abs((+x.amount || 0) - t.amt) < 0.005);
-    p ? (p.txnId = t.id) : ((p = { id: uid("py"), date: t.date, amount: r2(+t.amt || 0), method: "Bank", invoiceId: hit.inv.id, note: `matched from ${truthAcctWords(t)} by ${who}`, txnId: t.id }), hit.c.payments.push(p)), (m.paymentId = p.id);
+    p ? (p.txnId = t.id) : ((p = Object.assign({ id: uid("py"), date: t.date, amount: r2(+t.amt || 0), invoiceId: hit.inv.id, note: `matched from ${truthAcctWords(t)} by ${who}`, txnId: t.id, acctId: t.acct, recordedBy: who, recordedAt: appNowIso() }, "function" == typeof payFromBank ? payFromBank(t) : { method: "" })), hit.c.payments.push(p)), (m.paymentId = p.id);
     {
       // the invoice reads what the bank says: paid when its payments reach its total; a payment that pays the
       // whole invoice is matched to every line it pays
@@ -177129,16 +177308,43 @@ function truthCandidates(t) {
         push("invoice", `Invoice ${inv.number} · ${c.name} · balance ${money(bal)}`, { invoiceId: inv.id, invoiceLineId: 1 === (inv.lines || []).length ? inv.lines[0].id : "" }, s, why);
       }),
     );
+    // A deposit from a client on file that pays part of an open invoice: by the payer's name and the amount it can
+    // hold (pilot 9/8: "WIRE IN JESSOP J $12,000" against the Jessops' $24,000 retainer was never proposed, because
+    // only an amount equal to a balance counted). The one open invoice that can hold it, or the one the client's
+    // mail said the money was for, is proposed; a person confirms.
+    if (!out.some((x) => x.score >= 6))
+      (DB.clients || []).forEach((c) => {
+        const named = truthVendorHit(t, c.name) || (c.contacts || []).some((x) => x && x.name && truthVendorHit(t, String(x.name).split(" ").slice(-1)[0]));
+        if (!named) return;
+        const open = (c.invoices || [])
+            .filter((inv) => ["sent", "partial", "overdue"].includes(inv.status))
+            .map((inv) => ({ inv: inv, bal: r2(docTotal(inv).total - invoicePaid(c, inv)) }))
+            .filter((x) => x.bal > 0.005 && x.bal - amt > 0.01)
+            .sort((a, b) => String(a.inv.due || a.inv.date || "").localeCompare(String(b.inv.due || b.inv.date || ""))),
+          said = (DB.expected || []).find((e) => e.clientId === c.id && Math.abs((+e.amount || 0) - amt) < 0.01 && !e.txnId);
+        if (!open.length) return;
+        const pick = open[0],
+          why = ["payer name agrees", `${money(amt)} is part of the ${money(pick.bal)} balance`];
+        let sc = 2 + 2;
+        (near(pick.inv.date) || near(pick.inv.due) || (said && near(said.said))) && ((sc += 1), why.push("within 7 days"));
+        1 === open.length ? ((sc += 1), why.push("the only open invoice it fits")) : said && ((sc += 1), why.push(`the client said ${money(amt)} was sent`));
+        push("invoice", `Invoice ${pick.inv.number} · ${c.name} · part payment ${money(amt)} of ${money(pick.bal)}`, { invoiceId: pick.inv.id, invoiceLineId: "" }, sc, why);
+      });
   }
   return out.sort((a, b) => b.score - a.score);
 }
+const TRUTH_MATCH_KINDS = ["bill", "po", "invoice", "payroll", "newbill"];
 function truthProposeAll(ids) {
   let n = 0;
   const T = ids ? (DB.txns || []).filter((t) => ids.includes(t.id)) : bankUnmatched().rows;
   return (
     T.forEach((t) => {
+      // an estimate line is coding, not a match: Matches Waiting proposes only a bill, a PO, an invoice or a payroll
+      // run (or entering the bill a payment proves). Pilot day 2: a $1,650 dumpster charge waited "matched" to an
+      // estimate line, which is no record of what was bought or who was paid.
+      t.proposal && "line" === t.proposal.kind && !t.proposal.confirmed && ((t.lineHint = t.proposal.m || null), (t.proposal = null));
       if (t.proposal || t.exception || ("function" == typeof txnMatch && txnMatch(t)) || t.billId || t.poId || t.invoiceId || t.payrollId) return;
-      const best = truthCandidates(t)[0];
+      const best = truthCandidates(t).filter((x) => TRUTH_MATCH_KINDS.includes(x.kind))[0];
       best && best.auto && ((t.proposal = Object.assign({ t: nowStamp(), by: "auto", kind: best.kind, why: best.why, m: best.m, label: best.label }, best.m.billId ? { billId: best.m.billId } : {}, best.m.poId && !best.m.billId ? { poId: best.m.poId } : {}, best.m.invoiceId ? { invoiceId: best.m.invoiceId } : {}, best.m.payrollId ? { payrollId: best.m.payrollId } : {})), n++);
     }),
     n
@@ -185007,7 +185213,7 @@ function nyhRecordDeposit(d) {
       (!o || o.bal <= 0.005) && (d.inv.status = "paid");
     } catch (e) {}
   } else {
-    (d.c.payments = d.c.payments || []).push({ id: uid("py"), date: t.date, amount: r2(+t.amt), method: "Bank", unapplied: !0, txnId: t.id, note: `deposit on account from ${t.desc}; bill against it` });
+    (d.c.payments = d.c.payments || []).push(Object.assign({ id: uid("py"), date: t.date, amount: r2(+t.amt), unapplied: !0, txnId: t.id, acctId: t.acct, recordedBy: payWho(), recordedAt: appNowIso(), note: `deposit on account from ${t.desc}; bill against it` }, payFromBank(t)));
     (t.cat && "uncat" !== t.cat) || (t.cat = "income"), "reconciled" !== t.status && (t.status = "categorized"), (t.match = Object.assign({}, t.match || {}, { clientId: d.c.id }));
   }
   try {

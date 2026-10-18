@@ -216,7 +216,108 @@ async def t_mail(c, p):
     c.ok(not errs, f'mail: no page errors ({errs[:2]})')
     await b.close()
 
-EXTRA = [('mail', t_mail)]
+
+# ------------------------------------------------------------------------------------------------ 3: money
+async def import_csv(pg, acct, name, text):
+    await js(pg, "view = 'bank'; render(); bfImportDialog(arg); return 1;", acct)
+    await pg.wait_for_selector('#bfi-file', state='attached')
+    await pg.set_input_files('#bfi-file', files=[{'name': name, 'mimeType': 'text/csv', 'buffer': text.encode()}])
+    await pg.wait_for_function("() => { const b = document.querySelector('#mbm-ok'); return b && !b.disabled && /Import \\d/.test(b.textContent); }", timeout=10000)
+    await js(pg, "document.querySelector('#mbm-ok').click(); await sleep(600); document.querySelectorAll('#mbm').forEach(m => m.remove()); return 1;")
+
+
+async def t_money(c, p):
+    b, pg, errs = await fresh(p, 'u_chen')
+    # a vendor invoice naming a PO is a bill against it, never rent: "Please" holds "lease"
+    r = await js(pg, """
+      const v = DB.vendors.find(x => x.name === 'Tino'); v.email = 'billing@tino-floors.example';
+      cmImport([{ msgId: 'pf2tino', threadId: 'pf2tino', channel: 'email', from: { name: 'Tino', email: 'billing@tino-floors.example' }, to: ['chen@smartdesign.nyc'], cc: [],
+        date: appNowIso(), subject: 'Invoice TIN-9001 for PO-2026-047', text: 'Please find invoice TIN-9001 for PO-2026-047 attached, $4,120.00, due net 30.', attachments: [], source: 'demo', owner: 'u_chen', labels: ['INBOX'] }]);
+      const cm = DB.comms.find(x => x.msgId === 'pf2tino'), pr = (cm.proposals || []).find(x => x.kind === 'bill');
+      // a real lease still reads as rent
+      cmImport([{ msgId: 'pf2rent', threadId: 'pf2rent', channel: 'email', from: { name: 'Tino', email: 'billing@tino-floors.example' }, to: ['chen@smartdesign.nyc'], cc: [],
+        date: appNowIso(), subject: 'October rent - yard lease', text: 'Rent for October under the yard lease: $3,000.00 due 10/1/2026.', attachments: [], source: 'demo', owner: 'u_chen', labels: ['INBOX'] }]);
+      return { pr: pr && { summary: pr.summary, rent: pr.rent, poId: pr.poId, projectId: pr.projectId } };""")
+    pr = r['pr'] or {}
+    c.ok(pr and not pr.get('rent') and 'rent' not in (pr.get('summary') or ''), f"money: a flooring invoice naming its PO is not rent ({pr.get('summary')!r})")
+    c.ok(pr.get('poId') == 'po3' and pr.get('projectId') == 'p121' and 'PO-2026-047' in pr.get('summary', ''), f"money: it is a bill against PO-2026-047 on the job ({pr})")
+    await b.close()
+    b, pg, errs = await fresh(p, 'u_controller')
+    # Matches Waiting never offers an estimate line
+    r = await js(pg, """
+      const T = DB.txns.filter(t => /DUMPSTER/.test(t.desc)); T.forEach(t => { t.proposal = null; delete t.match; t.line = ''; });
+      truthProposeAll(T.map(t => t.id));
+      // an old line proposal from before is cleared too
+      T[0].proposal = { kind: 'line', m: { estimateLineId: 'x' }, label: 'Estimate line' }; truthProposeAll(T.map(t => t.id));
+      view = 'bank'; render(); await sleep(250);
+      return { kinds: T.map(t => t.proposal && t.proposal.kind), shown: proposals().filter(t => /DUMPSTER/.test(t.desc)).length,
+               text: [...document.querySelectorAll('.prop-card')].map(x => x.innerText).join(' ') };""")
+    c.ok(all(k in (None, 'bill', 'po') for k in r['kinds']) and r['shown'] == 0 or all(k != 'line' for k in r['kinds']),
+         f"money: the dumpster charge waits for no estimate-line match ({r['kinds']})")
+    c.ok('Estimate line' not in r['text'], 'money: Matches Waiting shows no estimate line')
+    # a wire from the Jessops is proposed against their open invoice by payer name and amount (part of it)
+    await import_csv(pg, 'ac1', 'pf2_chase.csv', 'Date,Description,Amount,Reference\n' + await js(pg, "return today().slice(5,7) + '/' + today().slice(8) + '/' + today().slice(0,4);") + ',WIRE IN JESSOP J,12000.00,PF2W1\n')
+    r = await js(pg, """
+      const t = DB.txns.find(x => x.desc === 'WIRE IN JESSOP J' && +x.amt === 12000);
+      return { p: t && t.proposal && { kind: t.proposal.kind, label: t.proposal.label, inv: (t.proposal.m || {}).invoiceId } };""")
+    c.ok(r['p'] and r['p']['kind'] == 'invoice' and 'D140' in (r['p']['label'] or ''), f"money: the Jessop wire is proposed against their open invoice ({r['p']})")
+    await b.close()
+    # billing: the deposit is In the Bank, Not Applied with its proposal; Record It; the payment carries its trace
+    b, pg, errs = await fresh(p, 'u_billing')
+    await import_csv(pg, 'ac1', 'pf2_chase2.csv', 'Date,Description,Amount,Reference\n' + await js(pg, "return today().slice(5,7) + '/' + today().slice(8) + '/' + today().slice(0,4);") + ',WIRE IN JESSOP J,12000.00,PF2W2\n')
+    r = await js(pg, """
+      billTab = 'payments'; view = 'billing'; render(); await sleep(250);
+      const card = document.getElementById('pay-inbank'), txt = card ? card.innerText : '';
+      const i = [...card.querySelectorAll('.row')].findIndex(x => /JESSOP/.test(x.innerText));
+      const btn = card.querySelectorAll('.row')[i].querySelector('[data-pibrec]'); btn && btn.click(); await sleep(250);
+      const c = DB.clients.find(x => /Jessop/.test(x.name)), py = c.payments.find(x => +x.amount === 12000);
+      const list = document.querySelector('#v-billing').innerText;
+      return { txt, py, inv: c.invoices.find(x => x.number === 'INV-2026-D140-R').status, left: !!(document.getElementById('pay-inbank') || {innerText: ''}).innerText.match(/JESSOP/) };""")
+    c.ok('In the Bank, Not Applied' in r['txt'] and 'D140' in r['txt'], f"money: Billing > Payments lists the deposit with its proposed invoice ({r['txt'][:200]!r})")
+    py = r['py'] or {}
+    c.ok(py.get('method') == 'Wire' and py.get('acctId') == 'ac1' and py.get('recordedBy') and py.get('txnId'), f"money: the payment carries method, deposit account, who recorded it and its bank line ({py})")
+    c.ok(r['inv'] == 'partial' and not r['left'], f"money: the invoice reads part paid and the deposit leaves the list ({r['inv']}, {r['left']})")
+    # the payment form chooses no method for the person, and a check needs its number
+    r = await js(pg, """
+      const c = DB.clients.find(x => /Jessop/.test(x.name)); paymentAllocate(c); await sleep(200);
+      const m = document.getElementById('mbm'), sel = m.querySelector('#py-method');
+      const first = sel.value; m.querySelector('#py-amt').value = '100';
+      const n0 = c.payments.length; m.querySelector('#mbm-ok').click(); await sleep(150);
+      const refused1 = c.payments.length === n0;
+      sel.value = 'Check'; m.querySelector('#mbm-ok').click(); await sleep(150);
+      const refused2 = c.payments.length === n0;
+      m.querySelector('#py-ref').value = '1187'; m.querySelector('#py-acct').value = 'ac1';
+      m.querySelector('[data-pyalloc]').value = '100'; m.querySelector('#mbm-ok').click(); await sleep(200);
+      const py = c.payments[c.payments.length - 1];
+      return { first, refused1, refused2, py };""")
+    c.ok(r['first'] == '', f"money: the payment form picks no method for the person ({r['first']!r})")
+    c.ok(r['refused1'] and r['refused2'], 'money: no method, or a check with no number, is not recorded')
+    c.ok(r['py'] and r['py'].get('ref') == '1187' and r['py'].get('acctId') == 'ac1' and r['py'].get('recordedBy'), f"money: the recorded check carries number, account, who ({r['py']})")
+    # a payment with no method reads "not recorded"; Reverse Payment is a linked reversal that re-opens the invoice
+    r = await js(pg, """
+      const c = DB.clients.find(x => /Jessop/.test(x.name)), inv = c.invoices.find(x => x.number === 'INV-2026-D140-R');
+      c.payments.push({ id: 'pf2py', date: today(), amount: 500, invoiceId: inv.id });
+      billTab = 'payments'; view = 'billing'; render(); await sleep(250);
+      const row = [...document.querySelectorAll('#v-billing tr[data-edit="billpay:' + c.id + ':pf2py"]')][0];
+      const cells = row ? row.innerText : '';
+      row.querySelector('td').click(); await sleep(200);
+      const m = document.getElementById('mbm'), has = !!(m && m.querySelector('#mbm-ok') && /Reverse Payment/.test(m.querySelector('#mbm-ok').innerText));
+      m.querySelector('#mbm-ok').click(); await sleep(150);
+      const refused = !c.payments.some(x => x.reverses === 'pf2py');
+      m.querySelector('[data-f="why"]').value = 'recorded twice'; m.querySelector('#mbm-ok').click(); await sleep(250);
+      const rv = c.payments.find(x => x.reverses === 'pf2py'), orig = c.payments.find(x => x.id === 'pf2py');
+      return { cells, has, refused, rv, orig, st: inv.status, toast: [...document.querySelectorAll('.toast, #toast, .rc-toast')].map(x => x.innerText).join(' | ') };""")
+    c.ok('ACH' not in r['cells'] and 'not recorded' in r['cells'], f"money: a payment with no method reads 'not recorded', never ACH ({r['cells']!r})")
+    c.ok(r['has'] and r['refused'], 'money: the payment opens its own sheet with Reverse Payment, which needs a reason')
+    c.ok(r['rv'] and r['rv']['amount'] == -500 and r['orig']['amount'] == 500 and r['orig'].get('reversalId') == r['rv']['id'], f"money: the reversal is a linked record; the payment is untouched ({r['rv']}, {r['orig']})")
+    c.ok('reversed' in r['toast'] and 'Open' in r['toast'], f"money: it toasts with Open ({r['toast'][:120]!r})")
+    await b.close()
+    b, pg, errs = await fresh(p, 'u_chen')
+    r = await js(pg, "return typeof payCanReverse === 'function' && payCanReverse();")
+    c.ok(r is False, 'money: only billing and the controller reverse a payment')
+    await b.close()
+
+EXTRA = [('mail', t_mail), ('money', t_money)]
 
 if __name__ == '__main__':
     sys.exit(asyncio.run(main()))
