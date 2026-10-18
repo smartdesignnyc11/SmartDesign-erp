@@ -385,7 +385,42 @@ async def t_daily_log_day2(c, p):
     c.ok(not errs and not errs2, f'log day 2: no page errors {(errs + errs2)[:2]}')
     await b.close()
 
-TESTS = [t_daily_log, t_daily_log_day2, t_documents, t_controller_pos, t_payment_check, t_own_mail_client, t_bought_from_mail, t_request_quirks]
+# ------------------------------------------------------------------------------------------------ 8, 9, 10
+async def t_statements_tasks_billing(c, p):
+    b, pg, errs = await fresh(p, 'u_controller')
+    r = await js(pg, """
+      await gcDemoConnect(); await sleep(400);
+      const rows = nyhRows().filter(x => x.pkind === 'statement' || x.kind === 'statement').map(x => x.title);
+      const props = DB.comms.filter(x => x.owner === 'u_controller').flatMap(x => (x.proposals || []).filter(p => p.kind === 'statement' && p.acctId).map(p => p.summary));
+      return { rows, props };""")
+    c.ok(not any(('Amex' in x or 'Chase' in x) and 'statement' in x for x in r['rows']), f"controller: the imported Amex and Chase August statements are not offered again ({r['rows']})")
+    c.ok(r['props'] and all('already here' in x for x in r['props']), f"controller: the mail reads already here ({r['props']})")
+    await b.close()
+    b, pg, errs2 = await fresh(p, 'u_sarah')
+    r = await js(pg, """
+      await gcDemoConnect(); await sleep(400);
+      const cm = DB.comms.find(x => /public hearing September 8/.test(x.subject) && x.owner === 'u_sarah');
+      const row = nyhRows().find(x => x.commId === cm.id); row && row.run(); await sleep(150);
+      const t = (DB.projects.find(x => x.id === 'p45').actions || []).slice(-1)[0];
+      return { verb: row && row.verb, due: t && t.due, notes: t && t.notes.slice(-90) };""")
+    c.ok(r['verb'] == 'Make It a Task' and r['due'] and r['due'] < '2026-09-08' and r['due'] != '2026-09-10', f"designer: the task is due before the LPC hearing on 9/8, not a default 9/10 ({r})")
+    c.ok(r['due'] == '2026-09-04', f"designer: the working day before the hearing skips Labor Day ({r['due']})")
+    await b.close()
+    b, pg, errs3 = await fresh(p, 'u_billing')
+    r = await js(pg, """
+      const c = DB.clients.find(x => x.id === 'cl121'), out = pgApply('p121'), inv = out && out.inv;
+      const sv = c.sov.find(v => /Windows/.test(v.desc)), l = inv && inv.lines.find(x => x.sovId === sv.id); l && (l.pct = Math.max(+l.pct || 0, 10));
+      const st = newDoc(c, 'invoice', { mode: 'items' }); st.title = 'Stored materials — windows'; st.lines = [{ id: 'lz', item: 'Windows — front & rear façade, stored on site', qty: 1, unit: 'ls', rate: 13970 }];
+      view = 'billing'; clientOpen = c.id; docOpen = { kind: 'invoice', id: st.id }; render(); await sleep(300);
+      const note = (document.querySelector('.doc-double') || {}).innerText || '';
+      await docAction(c, st, 'send'); await sleep(150);
+      return { note, inv: inv && inv.number, st: st.number, status: st.status, toast: (document.getElementById('toast') || {}).innerText || '' };""")
+    c.ok('Possible double bill' in r['note'] and r['inv'] in r['note'], f"billing: the stored-materials invoice warns, naming the application ({r['note'][:200]!r})")
+    c.ok(r['status'] == 'draft' and 'Not sent' in r['toast'], f"billing: sending it asks first ({r['status']}, {r['toast'][:120]!r})")
+    c.ok(not errs and not errs2 and not errs3, f'8-10: no page errors {(errs + errs2 + errs3)[:2]}')
+    await b.close()
+
+TESTS = [t_daily_log, t_daily_log_day2, t_documents, t_controller_pos, t_payment_check, t_own_mail_client, t_bought_from_mail, t_request_quirks, t_statements_tasks_billing]
 
 async def main():
     c = Checks()

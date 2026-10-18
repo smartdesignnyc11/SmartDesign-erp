@@ -186660,7 +186660,8 @@ function lkStmtImport(acctId, text, name) {
         .forEach((f) => {
           const txt = `${f.name || ""}\n${f.text || ""}`,
             acct = (DB.accounts || []).find((a) => a.last4 && new RegExp(`(?:^|[^0-9])${a.last4}(?:[^0-9]|$)`).test(txt));
-          if (!acct) return;
+          // a month already imported for the account is already here, not offered again
+          if (!acct || cmStmtImport({ subject: f.name || "", text: f.text || "", date: f.modifiedTime || f.date || today() }, { kind: "statement", acctId: acct.id })) return;
           const key = "lk:stmt:" + f.id;
           lnHandDone(key) ||
             out.some((x) => x.key === key) ||
@@ -190356,11 +190357,14 @@ function poDoubleOrder(po) {
 // The job's holidays (Project Settings) and weekends; the working day before is offered in one tap.
 function reqDayOff(d, p) {
   if (!d || !/^\d{4}-\d{2}-\d{2}$/.test(d)) return "";
+  // the job's holidays first, then any job's (a public holiday is on every calendar)
   const pr = p || S,
-    line = String(((pr || {}).project || {}).holidays || "")
-      .split("\n")
-      .map((x) => x.trim())
-      .find((x) => x.startsWith(d));
+    hol = (q) =>
+      String(((q || {}).project || {}).holidays || "")
+        .split("\n")
+        .map((x) => x.trim())
+        .find((x) => x.startsWith(d)),
+    line = hol(pr) || (DB.projects || []).map(hol).find(Boolean);
   if (line) return line.slice(10).trim() || "a holiday";
   const dow = parse(d).getDay();
   return 0 === dow ? "a Sunday" : 6 === dow ? "a Saturday" : "";
@@ -190840,5 +190844,181 @@ CATCH.push({
       console.warn("today missing log", e);
     }
     return r;
+  };
+}
+// ---- A statement already imported is not offered again (pilot day 1: the controller's Approvals offered the Amex
+// and Chase August statements after their lines were in) ----------------------------------------------------------
+function cmStmtImport(c, pr) {
+  if (!pr || "statement" !== pr.kind || !pr.acctId) return null;
+  const all = `${c.subject || ""} ${c.text || ""} ${(c.attachments || []).map((a) => `${a.name || ""} ${a.text || ""}`).join(" ")}`,
+    M = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"],
+    m = all.toLowerCase().match(/\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b[\s-]*(20\d\d)?/),
+    sent = String(c.date || today()).slice(0, 10),
+    y0 = +sent.slice(0, 4);
+  let mo, y;
+  if (m) (mo = M.findIndex((x) => x.startsWith(m[1].slice(0, 3)))), (y = m[2] ? +m[2] : mo > +sent.slice(5, 7) - 1 ? y0 - 1 : y0);
+  else {
+    const d = parse(sent);
+    (mo = (d.getMonth() + 11) % 12), (y = 11 === mo ? y0 - 1 : y0);
+  }
+  const end = iso(new Date(y, mo + 1, 0)),
+    start = `${y}-${String(mo + 1).padStart(2, "0")}-01`;
+  return (DB.bankImports || []).find((i) => i.acctId === pr.acctId && i.period && i.period[0] <= start && i.period[1] >= end) || null;
+}
+{
+  const base = NYH_MAIL.statement;
+  NYH_MAIL.statement = (c, pr) => (cmStmtImport(c, pr) ? "" : base(c, pr));
+}
+{
+  const base = cmRead;
+  cmRead = function (c) {
+    const P = base.apply(this, arguments);
+    try {
+      (P || []).forEach((pr) => {
+        const imp = cmStmtImport(c, pr);
+        imp &&
+          ((pr.summary = `${String(pr.summary || "").replace(/ · import it on Bank.*$/, "")} · already here: ${imp.fileName || "imported"} on ${fmtL(String(imp.at || "").slice(0, 10))}${imp.by ? " by " + imp.by : ""}`),
+          (pr.alreadyHere = imp.id),
+          (pr.applied = pr.applied || "already here"));
+      });
+    } catch (e) {
+      console.warn("statement already here", e);
+    }
+    return P;
+  };
+}
+// ---- A task's due date comes from the record's own dates (pilot day 1: Make It a Task on the LPC hearing notice
+// took a default 9/10 though the notice names the hearing on 9/8) ------------------------------------------------
+// The dates the text ties to an event (a hearing, an inspection, a need-by, a deadline) and the job's own LPC and
+// inspection dates; work for a hearing or an inspection is due the working day before it. Nothing dated: null.
+function recDueFrom(text, p) {
+  const t = String(text || ""),
+    out = [],
+    td = today(),
+    prevWork = (d) => {
+      let x = iso(addDays(d, -1));
+      for (let i = 0; i < 10 && ("function" == typeof reqDayOff ? reqDayOff(x, p) : [0, 6].includes(parse(x).getDay())); i++) x = iso(addDays(x, -1));
+      return x;
+    };
+  t.split(/(?<=[.;\n])\s+/).forEach((seg) => {
+    const ev = /\b(hearing|inspection|walk-?through|meeting with lpc)\b/i.test(seg) ? "event" : /\b(need(?:ed)? by|due|deadline|no later than|before|by)\b/i.test(seg) ? "by" : "";
+    if (!ev) return;
+    const d = cmDateIn(seg);
+    d && d >= td && out.push({ d: d, ev: ev, what: ((seg.match(/\b(hearing|inspection|walk-?through)\b/i) || [])[1] || "deadline").toLowerCase() });
+  });
+  p &&
+    !out.length &&
+    (p.inspections || [])
+      .filter((i) => i.date && i.date >= td && /lpc/i.test(`${i.agency || ""} ${i.name || ""}`) && /lpc|landmark/i.test(t))
+      .forEach((i) => out.push({ d: i.date, ev: "event", what: String(i.name || "LPC").toLowerCase() }));
+  if (!out.length) return null;
+  const x = out.sort((a, b) => a.d.localeCompare(b.d))[0],
+    due = "event" === x.ev ? prevWork(x.d) : x.d;
+  return { due: due < td ? td : due, on: x.d, what: x.what, why: "event" === x.ev ? `the working day before the ${x.what} on ${fmtL(x.d)}` : `the ${x.what} the record names, ${fmtL(x.d)}` };
+}
+{
+  const base = lnAddTask;
+  lnAddTask = function (p, title, assignee, due, notes, source) {
+    try {
+      if (source && "mail" === source.kind) {
+        const c = (DB.comms || []).find((x) => x.id === source.id),
+          R = c && recDueFrom(`${c.subject || ""}\n${c.text || ""}`, p);
+        R && ((due = R.due), (notes = `${notes || ""}${notes ? " " : ""}Due ${fmtL(R.due)}: ${R.why}.`), (lnAddTask.lastWhy = R.why));
+      }
+    } catch (e) {}
+    return base.call(this, p, title, assignee, due, notes, source);
+  };
+}
+{
+  const base = nyhLpcTask;
+  nyhLpcTask = function (c, pr, key) {
+    lnAddTask.lastWhy = "";
+    const a = base.apply(this, arguments);
+    try {
+      a && lnAddTask.lastWhy && ((pr.applied = `task for ${a.assignee} due ${fmtL(a.due)} (${lnAddTask.lastWhy})`), save(), rcToast(`On ${a.assignee}'s list: ${a.title} — due ${fmtL(a.due)}, ${lnAddTask.lastWhy}`, [{ label: "Open", run: () => ((view = "tasks"), render()) }]));
+    } catch (e) {}
+    return a;
+  };
+}
+// ---- The same scope on two client documents (pilot day 1: 121 State's application billed the Windows line while a
+// separate $13,970 stored-materials invoice billed the same windows; billing caught it, the app did not) -----------
+// A scope is an SOV line: an application line carries it by sovId, an item invoice by its line's sovId or by
+// naming it. Two live documents carrying one scope warn on both, each naming the other; sending the second asks once.
+function dbScopeWords(s) {
+  return new Set(
+    String(s || "")
+      .toLowerCase()
+      .replace(/[—–&,.()/]/g, " ")
+      .split(/\s+/)
+      .filter((w) => w.length >= 4 && !["front", "rear", "with", "from", "materials", "stored", "material", "deposit", "progress", "billing", "invoice", "line", "work"].includes(w)),
+  );
+}
+function dbScopesOf(c, d) {
+  const S0 = new Set();
+  if (!c || !d || "void" === d.status) return S0;
+  (d.lines || []).forEach((l) => {
+    if (l.sovId) return void ((+l.pct > 0 || +l.stored > 0 || "sov" !== d.mode) && S0.add(l.sovId));
+    const W = dbScopeWords(`${l.item || ""} ${l.desc || ""}`);
+    (c.sov || []).forEach((sv) => {
+      const V = dbScopeWords(sv.desc);
+      V.size && [...V].filter((w) => W.has(w)).length >= Math.min(2, V.size) && S0.add(sv.id);
+    });
+  });
+  return S0;
+}
+function dbDoubleBills(c, d) {
+  if (!c || !d || "invoice" !== d.type || "void" === d.status) return [];
+  const mine = dbScopesOf(c, d),
+    out = [];
+  if (!mine.size) return out;
+  (c.invoices || [])
+    // successive applications billing one line are progress, not a double bill: one side is an item invoice
+    .filter((x) => x.id !== d.id && "void" !== x.status && !("sov" === x.mode && "sov" === d.mode) && !["paid", "void"].includes(x.status) && !["paid", "void"].includes(d.status))
+    .forEach((x) => {
+      const both = [...dbScopesOf(c, x)].filter((k) => mine.has(k));
+      both.forEach((k) => {
+        const sv = (c.sov || []).find((v) => v.id === k);
+        out.push({ sv: sv, other: x, text: `${sv ? sv.desc : "This scope"} is also billed on ${x.number}${x.title ? " (" + x.title + ")" : ""}, ${money(docTotal(x).total)}, ${x.status}: billing it here too may bill the client twice` });
+      });
+    });
+  return out;
+}
+{
+  const base = renderDocEditor;
+  renderDocEditor = function (c, d) {
+    let h = base.apply(this, arguments);
+    try {
+      const D = dbDoubleBills(c, d);
+      if (D.length && "string" == typeof h) {
+        const note = `<div class="note bad doc-double" role="alert"><b>Possible double bill</b>${D.map((x) => `<div class="small">${esc(x.text)}. <a href="#" data-dbopen="${esc(x.other.id)}">Open ${esc(x.other.number)}</a></div>`).join("")}</div>`,
+          at = h.indexOf("<table");
+        h = at > 0 ? h.slice(0, at) + note + h.slice(at) : note + h;
+      }
+    } catch (e) {}
+    return h;
+  };
+}
+window.addEventListener(
+  "click",
+  (e) => {
+    const a = e.target && e.target.closest ? e.target.closest("[data-dbopen]") : null;
+    a && (e.preventDefault(), e.stopPropagation(), (docOpen = { kind: "invoice", id: a.dataset.dbopen }), render(), window.scrollTo(0, 0));
+  },
+  !0,
+);
+{
+  const base = docAction;
+  docAction = async function (c, d, a) {
+    try {
+      if (d && "invoice" === d.type && /^send/.test(String(a || ""))) {
+        const D = dbDoubleBills(c, d),
+          key = D.map((x) => x.other.id + x.sv?.id).join("|");
+        if (D.length && d.doubleWarned !== key)
+          return (d.doubleWarned = key), save(), void rcToast(`Not sent: ${D[0].text}. Send again only if both are right.`, [{ label: "Open", run: () => ((docOpen = { kind: "invoice", id: D[0].other.id }), render()) }]);
+      }
+    } catch (e) {
+      console.warn("double bill", e);
+    }
+    return base.apply(this, arguments);
   };
 }
