@@ -173484,6 +173484,14 @@ function stdAskAuthority() {
     go: paGo({ view: "standard" }),
   });
 }
+// what "this" points at when a why-question names nothing: a record a module opened for the person (price watch case)
+function stdWhyContext() {
+  try {
+    return !!(window.pwLastCase && "function" == typeof pwCasesAll && pwCasesAll().some((c) => c.key === window.pwLastCase));
+  } catch (e) {
+    return !1;
+  }
+}
 function stdAskWhy(raw) {
   const words = (raw.toLowerCase().match(/\bwhy\b.*?\b(?:propos\w*|flag\w*|rais\w*|rank\w*|show\w*|catch\w*|caught|suggest\w*|put|escalat\w*)\b(.*)$/) || [])[1] || "",
     W = words
@@ -173506,6 +173514,9 @@ function stdAskWhy(raw) {
         .filter((y) => y.n)
         .sort((a, b) => b.n - a.n)[0]
     : null;
+  // "why is this flagged" names nothing, so "this" is the case the person just opened: the module that
+  // opened it knows the facts and hypotheses, the Standard's general answer does not. Hand it back.
+  if (!hit && !W.length && stdWhyContext()) return null;
   if (!hit)
     return paOut({
       kind: "standard",
@@ -173545,7 +173556,10 @@ function stdAskRefuse(R, raw) {
       if ("client" !== role()) {
         if (/\b(?:what (?:are|is)|what're|list|show(?: me)?|tell me|remind me of)\b[^?]*\b(?:our|the firm'?s|smartdesign'?s|the company'?s|company)\s+(?:core\s+)?(?:values|principles|decision principles|standards)\b|\bwhat do we stand for\b|\bthe smartdesign standard\b|\bwhen goals conflict\b|^(?:our )?(?:values|principles)\??$/.test(l)) return stdAskValues(l);
         if (/\bwhat (?:can|will|do) you do (?:on your own|by yourself|alone|without (?:me|asking|approval))\b|\bwhat (?:won'?t|will you not|can'?t|cannot|do you never|will you never|are you not allowed to) (?:you )?do\b|\bwhat won'?t you do\b|\bwhat are your (?:limits|rules|boundaries)\b|\bwhat do you need (?:me|a person) (?:to approve|for)\b/.test(l)) return stdAskAuthority();
-        if (/^why (?:did|do|are|is|were|was) (?:you|it|the brain|the assistant|this|that)\b.*\b(?:propos\w*|flag\w*|rais\w*|rank\w*|show\w*|catch\w*|caught|suggest\w*|put|escalat\w*)\b/.test(l)) return stdAskWhy(raw);
+        if (/^why (?:did|do|are|is|were|was) (?:you|it|the brain|the assistant|this|that)\b.*\b(?:propos\w*|flag\w*|rais\w*|rank\w*|show\w*|catch\w*|caught|suggest\w*|put|escalat\w*)\b/.test(l)) {
+          const a = stdAskWhy(raw);
+          if (a) return a;
+        }
         for (const R of STD_ASKS)
           if (R.rx.test(raw) && (!R.outside || stdOutside(raw.match(R.rx)[1]))) {
             const a = stdAskRefuse(R, raw);

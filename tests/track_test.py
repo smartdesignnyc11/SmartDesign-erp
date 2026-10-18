@@ -247,11 +247,16 @@ async def main():
             const d = (trkIngest(t, { source: { type: 'upload', fileName: 'nt9555.txt' }, links: { poId: 'epo1' } }).doc);
             const row = nyhRowsAll().find(r => r.key === 'tk:enterbill:' + d.id);
             const b = row && row.run(); const again = nyhRowsAll().some(r => r.key === 'tk:enterbill:' + d.id);
-            await new Promise(r => setTimeout(r, 150)); try { closeDrawer(); } catch (e) {}
-            return { route: row && row.route, verb: row && row.verb, low: trkUnconfirmed(d), bill: b && [b.vendor, b.number, b.poId, b.lines.filter(l => l.poLineId).length, d.links.billId === b.id], unconf: b && b.unconfirmed, held: b && !!trkBillHold(b), onHold: trkRows('billsOnHold').some(r => r.key === 'hold:' + (b && b.id)), again }; }""", txt)
+            await new Promise(r => setTimeout(r, 150));
+            const opened = !!(editing && editing.kind === 'bill' && b && editing.id === b.id) && document.getElementById('drawer').classList.contains('on');
+            closeEditor(); const closed = !document.getElementById('drawer').classList.contains('on');
+            return { opened, closed, route: row && row.route, verb: row && row.verb, low: trkUnconfirmed(d), bill: b && [b.vendor, b.number, b.poId, b.lines.filter(l => l.poLineId).length, d.links.billId === b.id], unconf: b && b.unconfirmed, held: b && !!trkBillHold(b), onHold: trkRows('billsOnHold').some(r => r.key === 'hold:' + (b && b.id)), again }; }""", txt)
         c.ok(eb['route'] == 'billing' and eb['verb'] == 'Enter the Bill', f'a filed invoice on a PO with no bill is a Needs Your Hand row for billing: {eb}')
         c.ok(eb['bill'] and eb['bill'][:3] == ['Nemo Tile', 'NT-9555', 'epo1'] and eb['bill'][3] == 2 and eb['bill'][4], f'Enter the Bill drafts the bill from the read invoice, lines matched to the PO and linked: {eb}')
         c.ok(eb['low'] and eb['unconf'] == eb['low'] and eb['held'] and eb['onHold'] and not eb['again'], f'figures read with low confidence stay unconfirmed and hold the bill: {eb}')
+        # Enter the Bill opens the drafted bill in the editor for review; the person closes it before moving on
+        # (the step once called a closeDrawer() that does not exist, inside a try, and left the drawer over the page)
+        c.ok(eb['opened'] and eb['closed'], f'Enter the Bill opens the drafted bill in the editor, and it closes: {eb}')
 
         # ---- 8. the promise ledger: kept and broken; the vendor's record; the brain's lesson --------------
         await pg.evaluate("""() => { trkPromiseAdd({ vendor: 'Nemo Tile', poId: 'tpo3', kind: 'ship', due: '2026-09-05', what: 'ship the glass mosaic by Sep 5', loggedBy: 'Chen', source: { kind: 'text' } }); trkPromiseAdd({ vendor: 'Nemo Tile', poId: 'tpo1', kind: 'deliver', due: '2026-09-05', what: 'deliver the tile by Sep 5', loggedBy: 'Chen', source: { kind: 'call' } }); save(); }""")
