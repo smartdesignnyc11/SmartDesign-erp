@@ -179,24 +179,44 @@ async def s_order(p, c):
         if m:
             # Plans control put 121 State's rooms on the drawing register, so the slab for the Parlor kitchen meets the
             # measurement gate (poFabGate: the fabricator's own field measurements before a fabricated item is
-            # ordered). The gate is asked on this sheet: Issue PO without the tick keeps the sheet open and orders
-            # nothing; with it the PO issues. Before, the sheet left a silent draft whose only way on was the PO page.
+            # ordered). The slab is template-to-install (its task "Parlor kitchen countertop (template → install)", the
+            # quote "two weeks from template"): the fabricator's template on site, which comes because of this order, is
+            # that second measurement. Asking for it before the order deadlocked the slab (order-by 9/1, template 9/21:
+            # the month never ordered it unless someone ticked "measurements received" when they were not). The sheet
+            # says so, asks for no tick, and the PO issues saying fabrication starts from the template.
             gate = await pg.evaluate("() => (document.querySelector('#mbm .fl-fabgate') || {}).innerText || ''")
-            c.ok('Second measurement' in gate and await pg.locator('#mbm [data-f="tradeOk"]').count() == 1, f'order: the slab sheet asks the measurement gate itself ({gate!r})')
+            c.ok('templates the site' in gate and 'second measurement' in gate and await pg.locator('#mbm [data-f="tradeOk"]').count() == 0,
+                 f'order: the slab sheet says the fabricator\'s template is the second measurement, and asks no tick ({gate!r})')
+            await ok(pg, 900)
+            po = await pg.evaluate("() => { const o = DB.pos.find(x => x.lines.some(l => l.materialId === 'm19')); return o && [o.status, o.vendor, poTotal(o).total, !!o.tradeVerified, poDoubleOrder(o), (o.templateFirst || {}).task || '', o.notes || '']; }")
+            c.ok(po and po[0] == 'issued' and po[2] == 7450 and not po[3] and 'template' in po[5] and 'template' in po[6],
+                 f'order: the slab PO is issued, fabrication from the template on it, no measurement claimed ({po})')
+            # a room in the name is where the goods go, not what they are: the millwork PO for the same kitchen is not a double order
+            c.ok(po and not po[4], f'order: no double-order warning against the kitchen millwork PO ({po and po[4]})')
+        # the gate still holds a fabricated item that is built from our numbers (no template under the order): a
+        # built-in for the parlor kitchen (an invented line, as a PM would add it) asks the tick, Issue PO without it
+        # orders nothing, with it the PO issues carrying who confirmed the measurements
+        gx = await pg.evaluate("""() => { const p = DB.projects.find(x => x.id === 'p121');
+            p.materials.push({ id: 'mfx1', name: 'Parlor kitchen built-in bench', cat: 'finish', taskId: 'millpk', lead: 10, when: 'start', status: 'not-ordered', eta: '', vendor: '', po: '', qty: '1 ea', cost: '', deliverTo: 'Site', notes: '', line: '' });
+            buyOrderDialog({ pid: 'p121', mid: 'mfx1' });
+            return (document.querySelector('#mbm .fl-fabgate') || {}).innerText || ''; }""")
+        c.ok(gx and 'Second measurement' in gx and await pg.locator('#mbm [data-f="tradeOk"]').count() == 1, f'order: a non-template fabricated item still asks the measurement tick ({gx!r})')
+        if gx:
+            await pg.evaluate("() => { const set = (k, v) => { const e = document.querySelector(`#mbm [data-f=\"${k}\"]`); if (e) { e.value = v; e.dispatchEvent(new Event('input', { bubbles: true })); e.dispatchEvent(new Event('change', { bubbles: true })); } }; const s = document.querySelector('#mbm [data-f=\"vendor\"]'); const o = [...s.options].find(o => /Gowanus Stone Yard/.test(o.text)); s.value = o ? o.value : s.value; s.dispatchEvent(new Event('change', { bubbles: true })); set('price', '1200'); set('needBy', '2026-09-24'); }")
             n0 = await pg.evaluate("() => DB.pos.length")
             await ok(pg, 500)
             c.ok(await modal(pg) and await pg.evaluate("() => DB.pos.length") == n0, 'order: without the tick nothing is ordered and the sheet stays open')
             await pg.locator('#mbm [data-f="tradeOk"]').check()
             await ok(pg, 900)
-            po = await pg.evaluate("() => { const o = DB.pos.find(x => x.lines.some(l => l.materialId === 'm19')); return o && [o.status, o.vendor, poTotal(o).total, !!o.tradeVerified, poDoubleOrder(o)]; }")
-            c.ok(po and po[0] == 'issued' and po[2] == 7450 and po[3], f'order: the slab PO is issued, the measurements confirmed on it ({po})')
-            # a room in the name is where the goods go, not what they are: the millwork PO for the same kitchen is not a double order
-            c.ok(po and not po[4], f'order: no double-order warning against the kitchen millwork PO ({po and po[4]})')
-            # an order a guard holds says which guard and opens the PO (it said only "it was not issued")
-            held = await pg.evaluate("""() => { const r = flBuyRow({ pid: 'p121', mid: 'm19' }), v = DB.vendors.find(x => x.name === 'Gowanus Stone Yard');
-                const o = flIssueOrder(r, v, { item: 'Parlor kitchen countertop slab', qty: 1, unit: 'lot', price: 7450, needBy: '2026-09-11' }, null);
-                const t = document.getElementById('toast').innerText; o && (DB.pos = DB.pos.filter(x => x !== o)); return { st: o && o.status, t }; }""")
-            c.ok(held['st'] == 'draft' and 'Second measurement' in held['t'] and 'Open' in held['t'], f'order: a PO the measurement gate holds toasts why, with Open ({held})')
+            po = await pg.evaluate("() => { const o = DB.pos.filter(x => x.lines.some(l => l.materialId === 'mfx1')).pop(); return o && [o.status, !!o.tradeVerified, !!o.tradeVerifiedBy, !!o.templateFirst]; }")
+            c.ok(po and po[0] == 'issued' and po[1] and po[2] and not po[3], f'order: with the tick the PO issues, the measurements confirmed on it ({po})')
+        # an order a guard holds says which guard and opens the PO (it said only "it was not issued")
+        held = await pg.evaluate("""() => { const p = DB.projects.find(x => x.id === 'p121');
+            p.materials.push({ id: 'mfx2', name: 'Parlor kitchen built-in shelves', cat: 'finish', taskId: 'millpk', lead: 10, when: 'start', status: 'not-ordered', eta: '', vendor: '', po: '', qty: '1 ea', cost: '', deliverTo: 'Site', notes: '', line: '' });
+            const r = flBuyRow({ pid: 'p121', mid: 'mfx2' }), v = DB.vendors.find(x => x.name === 'Gowanus Stone Yard');
+            const o = flIssueOrder(r, v, { item: 'Parlor kitchen built-in shelves', qty: 1, unit: 'lot', price: 1200, needBy: '2026-09-24' }, null);
+            const t = document.getElementById('toast').innerText; o && (DB.pos = DB.pos.filter(x => x !== o)); return { st: o && o.status, t }; }""")
+        c.ok(held['st'] == 'draft' and 'Second measurement' in held['t'] and 'Open' in held['t'], f'order: a PO the measurement gate holds toasts why, with Open ({held})')
         c.ok(not errs, f'order: page errors {errs[:2]}')
     finally:
         await b.close()

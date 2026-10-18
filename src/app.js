@@ -9264,6 +9264,8 @@ async function docAction(c, d, a) {
           source: d.number,
           order: c.sov.length,
           coId: d.id,
+          // the job it bills on (boot gave the client's first job when this was missing)
+          projectId: d.projectId || ((DB.projects || []).find((p) => p.clientId === c.id) || {}).id || void 0,
         }),
       d.scheduleDays && d.projectId)
     ) {
@@ -16170,6 +16172,11 @@ function planDriverDay(driverName) {
         lines,
         s.geo ? "" : "No site location set — set it under Time & crew.",
       ),
+      // each drop line carries its request, so the stop closes where the driver stands (dropRefs: one per line)
+      (stops[stops.length - 1].dropRefs = lines.map((_, k) => {
+        const x = s.drop[k];
+        return x && !x.r.synthetic && "new" !== x.r.status && s.drop.findIndex((y) => y.r === x.r) === k ? { pid: s.p.id, rid: x.r.id } : null;
+      })),
       (cur = s.geo || cur);
   }
   if (garbageOnBoard > 0) {
@@ -16187,7 +16194,7 @@ function planDriverDay(driverName) {
 function renderDriverPlan(emp) {
   const plan = planDriverDay(emp?.name);
   return plan.items
-    ? `<div class="card" style="margin-top:10px"><div class="hd"><h3>Suggested day plan</h3><span class="small muted">${plan.stops.length} stops · ~${plan.totalKm} km · ${plan.items} items</span></div>\n    ${plan.warnings.map((w) => `<div class="qcheck">${esc(w)}</div>`).join("")}\n    ${plan.stops.map((s, i) => `<div class="stop ${s.kind}"><div class="n">${i + 1}</div><div><b>${("store" === s.kind || "dump" === s.kind || s.kind, "")}${esc(s.name)}</b>${s.dist ? ` <span class="s">· ${(s.dist / 1609.34).toFixed(1)} mi</span>` : ""}${s.note ? `<div class="s">${esc(s.note)}</div>` : ""}<ul>${s.lines.map((l) => `<li>${esc(l)}</li>`).join("")}</ul></div><div class="s" style="text-align:right">van after stop<div class="cap ${s.load > 1 ? "over" : ""}"><i style="width:${Math.min(100, Math.round(100 * s.load))}%"></i></div>${Math.round(100 * s.load)}%${s.garbage ? ` · debris ${Math.round(100 * s.garbage)}%` : ""}</div></div>`).join("")}\n    <div class="small muted" style="margin-top:8px">Deliveries before debris; a dump run when the van fills.</div></div>`
+    ? `<div class="card" style="margin-top:10px"><div class="hd"><h3>Suggested day plan</h3><span class="small muted">${plan.stops.length} stops · ~${plan.totalKm} km · ${plan.items} items</span></div>\n    ${plan.warnings.map((w) => `<div class="qcheck">${esc(w)}</div>`).join("")}\n    ${plan.stops.map((s, i) => `<div class="stop ${s.kind}"><div class="n">${i + 1}</div><div><b>${("store" === s.kind || "dump" === s.kind || s.kind, "")}${esc(s.name)}</b>${s.dist ? ` <span class="s">· ${(s.dist / 1609.34).toFixed(1)} mi</span>` : ""}${s.note ? `<div class="s">${esc(s.note)}</div>` : ""}<ul>${s.lines.map((l, k) => `<li>${esc(l)}${(s.dropRefs || [])[k] ? ` <button type="button" class="btn sm" style="margin:4px 0 4px 8px" data-drvdrop="${esc(s.dropRefs[k].pid)}:${esc(s.dropRefs[k].rid)}">Delivered</button>` : ""}</li>`).join("")}</ul></div><div class="s" style="text-align:right">van after stop<div class="cap ${s.load > 1 ? "over" : ""}"><i style="width:${Math.min(100, Math.round(100 * s.load))}%"></i></div>${Math.round(100 * s.load)}%${s.garbage ? ` · debris ${Math.round(100 * s.garbage)}%` : ""}</div></div>`).join("")}\n    <div class="small muted" style="margin-top:8px">Deliveries before debris; a dump run when the van fills.</div></div>`
     : "";
 }
 const INV_LOCS = () => [
@@ -21069,6 +21076,7 @@ function mbCreateDeal(x) {
       passedSnapshot: null,
       score: {},
       deadlines: x.deadlines || [],
+      docs: [],
     }),
       DB.deals.push(d),
       audit("deal", d.id, "created", "", prop.address),
@@ -21798,6 +21806,7 @@ function mbSeed() {
       risk: 5,
     },
     deadlines: [],
+    docs: [],
   };
   DB.deals.push(d1),
     [
@@ -21992,6 +22001,7 @@ function mbSeed() {
     passedSnapshot: null,
     score: {},
     deadlines: [],
+    docs: [],
   };
   d2.activities.push(
     {
@@ -30610,6 +30620,7 @@ function designInit() {
         approvedBy: "Alan",
         source: "seed",
         phase: 0,
+        work: [],
       }))("teD" + i, "Maya" === who ? "em6" : "em7", d, h, "01", "Schematic design"),
     ),
   );
@@ -41489,6 +41500,7 @@ function studioSeed() {
       approvedBy: "Alan",
       source: "seed",
       phase: 1,
+      work: [],
     });
     DB.time.push(
       // a seed never writes hours for a day to come (pilot day 2: the designer's Day Sheet read "6.5 hrs logged
@@ -41548,6 +41560,11 @@ function studioSeed() {
           track: "design",
           assignee: "Sarah Davis",
           type: "task",
+          origStart: "2026-09-19",
+          origEnd: "2026-09-22",
+          history: [],
+          actualStart: "",
+          actualEnd: "",
         },
         {
           id: "tk140k",
@@ -41560,6 +41577,11 @@ function studioSeed() {
           track: "design",
           assignee: "Sarah Davis",
           type: "task",
+          origStart: "2026-09-08",
+          origEnd: "2026-09-11",
+          history: [],
+          actualStart: "",
+          actualEnd: "",
           hours: 8,
         },
         {
@@ -41573,6 +41595,11 @@ function studioSeed() {
           track: "design",
           assignee: "Sarah Davis",
           type: "task",
+          origStart: "2026-09-08",
+          origEnd: "2026-09-12",
+          history: [],
+          actualStart: "",
+          actualEnd: "",
           hours: 10,
         },
       );
@@ -43055,6 +43082,27 @@ function renderStudio() {
         }),
     );
 }
+// A template-to-install order (a stone top, shower glass): the fabricator measures the site with its own template,
+// and it comes because of this order. That template is the second measurement, so it cannot be asked for before the
+// order (month: the parlor slab's order-by was 9/1, its template 9/21 on the schedule, and the Order sheet wanted
+// "the fabricator's field measurements received" first, so the slab was never ordered unless someone ticked a box
+// that was not true). Read from the line's own record: its task or notes say template, or the vendor's quote does.
+// Returns { task, start } when every fabricated line on the order is template-to-install.
+const FAB_TEMPLATE_RX = /\btemplat(e|ed|ing)\b/i;
+function poFabTemplate(po) {
+  const p = po && (DB.projects || []).find((x) => x.id === po.projectId);
+  if (!p) return null;
+  const hit = (po.lines || []).filter((l) => FAB_WORDS.test(l.item || ""));
+  if (!hit.length) return null;
+  const T = hit.map((l) => {
+    const m = l.materialId ? (p.materials || []).find((x) => x.id === l.materialId) : null,
+      t = m && m.taskId ? (p.tasks || []).find((x) => x.id === m.taskId) : null,
+      q = m && m.quoteCommId ? (DB.comms || []).find((c) => c.id === m.quoteCommId) : null,
+      said = [t ? `${t.name} ${t.notes || ""}` : "", m ? m.notes || "" : "", l.item || "", l.desc || "", q ? `${q.text || ""} ${(q.attachments || []).map((a) => a.text || "").join(" ")}` : ""].join(" ");
+    return FAB_TEMPLATE_RX.test(said) ? { task: t ? t.name : l.item || "", start: t ? t.start || "" : "" } : null;
+  });
+  return T.every(Boolean) ? T[0] : null;
+}
 function poFabGate(po) {
   const p = DB.projects.find((x) => x.id === po.projectId);
   if (!p) return "";
@@ -43075,7 +43123,7 @@ function poFabGate(po) {
               .join(", ")})`,
         )
         .join("; ")}`
-    : rs.length && !po.tradeVerified
+    : rs.length && !po.tradeVerified && !poFabTemplate(po)
       ? `Second measurement first: confirm the fabricator's own field measurements for ${rs.map((r) => r.name).join(", ")} on the PO before it issues`
       : "";
 }
@@ -73382,6 +73430,8 @@ function cmTask(name, projectId, owner, due) {
       end: due && due >= today() ? due : today(),
       fromComm: !0,
     };
+    // the fields boot gives every task, given here, so a reload finds the task as it was saved
+    Object.assign(t, { origStart: t.start, origEnd: t.end, history: [], actualStart: "", actualEnd: "", cos: [], track: "function" == typeof trackForTrade ? trackForTrade(t.trade, t.name) : "", trackAuto: !0 });
     return p.tasks.push(t), (cmTask.last = { kind: "sched", id: t.id, projectId: p.id, assignee: t.owner, due: t.end, rec: t }), t;
   }
   // no job: the firm's task list, where the person it is for sees it (an assistant note was saved but not found)
@@ -179337,6 +179387,35 @@ if ("function" == typeof runItems) {
     return out;
   };
 }
+// ---- The stop closes on the Route (month: the route sent Alex to Brooklyn Lumber for order 88412 and to 121 State to
+// drop it, and nothing on his phone could say it was done; Angel's request sat at "Ordered · arriving 9/11" all month).
+// Each drop line of a confirmed request (acknowledged or ordered; a vendor's ready mail the office has not confirmed
+// is a stop to plan, closed once the office applies it) carries Delivered: the same step as the office's Delivered on
+// the request board, said with where it was picked up.
+function drvDelivered(pid, rid) {
+  const p = (DB.projects || []).find((x) => x.id === pid),
+    r = p && (p.requests || []).find((x) => x.id === rid);
+  if (!r || ["delivered", "closed", "declined"].includes(r.status)) return null;
+  const me = (currentUser() || {}).name || role(),
+    from = r.pickupVendor ? ` — picked up at ${r.pickupVendor}${r.orderRef ? ` (order ${r.orderRef})` : ""}` : "";
+  requestAction(pid, rid, "delivered");
+  if ("delivered" !== r.status) return null;
+  (r.deliveredBy = me), (reqItems(r) || []).forEach((it) => r.items && (it.done = !0));
+  const last = (r.log || [])[(r.log || []).length - 1];
+  last && "Delivered" === last.text && ((last.text = `Delivered${from}`), (last.by = me));
+  save(), render();
+  toastDone(`${reqLabel(r)} delivered to ${shortName(p)}${from} — on site for ${r.by || "the crew"}`, () => {
+    setCurrent(pid), (view = "req"), render();
+  });
+  return r;
+}
+document.addEventListener("click", (e) => {
+  const b = e.target && e.target.closest ? e.target.closest("[data-drvdrop]") : null;
+  if (!b) return;
+  e.preventDefault();
+  const [pid, rid] = b.dataset.drvdrop.split(":");
+  drvDelivered(pid, rid);
+});
 function cmApplyCredit(c, p, by) {
   const v = (DB.vendors || []).find((x) => x.id === p.vendorId),
     vn = v ? v.name : (c.from && c.from.name) || "the vendor",
@@ -187670,14 +187749,22 @@ function buyOrderDialog(o) {
     // drawing register (plans control put 121 State's rooms there) issued as a silent draft whose only way on was a
     // checkbox on the PO page. Missing room dimensions still stop the order; the fabricator's own field
     // measurements are confirmed with one tick that goes on the PO.
+    fabPO = { projectId: p.id, vendor: v ? v.name : "", type: "materials", lines: [{ item: m ? m.name : (l && l.item) || r.name, roomId: (m && m.roomId) || "", materialId: m ? m.id : "" }] },
     fab = (() => {
       try {
-        return "function" == typeof poFabGate ? poFabGate({ projectId: p.id, vendor: v ? v.name : "", type: "materials", lines: [{ item: m ? m.name : (l && l.item) || r.name, roomId: (m && m.roomId) || "" }] }) : "";
+        return "function" == typeof poFabGate ? poFabGate(fabPO) : "";
       } catch (e) {
         return "";
       }
     })(),
-    fabTick = /^Second measurement/.test(fab);
+    fabTick = /^Second measurement/.test(fab),
+    fabTpl = (() => {
+      try {
+        return !fab && "function" == typeof poFabTemplate && "function" == typeof poFabGate && poFabGate(Object.assign({}, fabPO, { lines: fabPO.lines.map((x) => Object.assign({}, x, { materialId: "" })) })) ? poFabTemplate(fabPO) : null;
+      } catch (e) {
+        return null;
+      }
+    })();
   return mbModal(
     `Order — <span data-nocase>${esc(r.name)}</span>`,
     `<p class="small muted" style="margin:0 0 10px">${esc(shortName(p))}${tk ? ` · for ${esc(tk.name)}, starts ${fmt(tk.start)}` : ""}${D.needBy ? ` · on site by ${fmt(D.needBy)}` : ""}${D.orderBy ? ` · ${late ? `<b class="bad">order-by ${fmt(D.orderBy)} passed</b>` : `order by ${fmt(D.orderBy)}`}` : ""}. ${src ? `Price from ${src}. ` : ""}Issue PO sends it through the house checks; over ${money(DB.company.poApprovalOver || 0)} it goes to the owner first.</p>
@@ -187685,7 +187772,7 @@ function buyOrderDialog(o) {
     <div class="grid2">${mbF("Item", `<input data-f="item" value="${esc(m ? m.name : (l && l.item) || r.name)}">`)}${mbF("Quantity", `<input type="number" step="any" min="0" data-f="qty" value="${qty}">`)}</div>
     <div class="grid2">${mbF("Unit", `<input data-f="unit" value="${esc(unit)}">`)}${mbF("Unit Price", `<input type="number" step="0.01" min="0" data-f="price" value="${price || ""}" placeholder="no price yet — the vendor's quote">`)}</div>
     <div class="grid2">${mbF("Needed on Site", `<input type="date" data-f="needBy" value="${D.needBy || ""}">`)}${mbF("Task", `<input data-f="task" value="${esc(tk ? tk.name : "")}" readonly>`)}</div>
-    ${fab ? `<div class="note warn small fl-fabgate" role="alert"><b>Measurement gate.</b> ${esc(fab)}${fabTick ? `<label style="display:block;margin-top:6px"><input type="checkbox" data-f="tradeOk"> Fabricator's field measurements received and entered</label>` : ""}</div>` : ""}`,
+    ${fab ? `<div class="note warn small fl-fabgate" role="alert"><b>Measurement gate.</b> ${esc(fab)}${fabTick ? `<label style="display:block;margin-top:6px"><input type="checkbox" data-f="tradeOk"> Fabricator's field measurements received and entered</label>` : ""}</div>` : fabTpl ? `<div class="note small fl-fabgate fl-fabtpl"><b>Measurement gate.</b> The fabricator templates the site under this order${fabTpl.task ? ` (${esc(fabTpl.task)}${fabTpl.start ? `, ${fmt(fabTpl.start)}` : ""})` : ""}: that template is the second measurement. The PO says fabrication starts from it; enter its numbers on the room.</div>` : ""}`,
     {
       submit: "Issue PO",
       onSubmit: (f) => {
@@ -187743,6 +187830,11 @@ function flIssueOrder(r, v, f, tk) {
     };
   // confirmed on the Order sheet's measurement gate, by the person who ordered
   f.tradeOk && ((po.tradeVerified = !0), (po.tradeVerifiedBy = { by: (currentUser() || {}).name || role(), at: appNowIso() }));
+  // a template-to-install order: the fabricator's template is the second measurement, and the PO says so
+  try {
+    const tpl = !po.tradeVerified && "function" == typeof poFabTemplate ? poFabTemplate(po) : null;
+    tpl && ((po.templateFirst = { task: tpl.task, start: tpl.start, at: appNowIso() }), (po.notes = `${po.notes ? po.notes + ". " : ""}Fabricate from the fabricator's own template on site${tpl.start ? ` (${fmtL(tpl.start)})` : ""}; its numbers go on the room before fabrication`));
+  } catch (e) {}
   // the submittal gate stands in front: an item waiting on approval is not ordered from here
   const H = "function" == typeof smHolding ? smHolding(po) : [];
   if (H.length)
@@ -193777,8 +193869,10 @@ const CM_GOODS_SYN = [
 // Where the goods go is not what they are: the room and floor words are stopped too ("Parlor kitchen countertop slab"
 // read as the same goods as PO-2026-048's "Parlor kitchen + laundry millwork", and the slab's PO warned of a double
 // order it was not).
-const CM_GOODS_STOP = new Set(["boards", "board", "sheets", "sheet", "each", "pcs", "and", "the", "for", "with", "per", "box", "boxes", "bag", "bags", "roll", "rolls", "case", "cases", "lot", "new", "order", "item", "items",
-  "parlor", "garden", "kitchen", "kitchens", "bath", "baths", "bathroom", "powder", "primary", "master", "guest", "laundry", "stair", "stairs", "bedroom", "living", "dining", "office", "facade", "front", "rear", "floor", "cellar", "basement", "room", "rooms", "upper", "lower", "level"]);
+// The room and floor words, one list: where something goes or is done, never what it is (the double-order guard here,
+// the double-bill guard on client documents, dbScopeHit).
+const ROOM_WORDS = new Set(["parlor", "garden", "kitchen", "kitchens", "bath", "baths", "bathroom", "powder", "primary", "master", "guest", "laundry", "stair", "stairs", "bedroom", "living", "dining", "office", "facade", "front", "rear", "floor", "cellar", "basement", "room", "rooms", "upper", "lower", "level"]);
+const CM_GOODS_STOP = new Set(["boards", "board", "sheets", "sheet", "each", "pcs", "and", "the", "for", "with", "per", "box", "boxes", "bag", "bags", "roll", "rolls", "case", "cases", "lot", "new", "order", "item", "items", ...ROOM_WORDS]);
 function cmGoodsWords(s) {
   let t = " " + String(s || "").toLowerCase() + " ";
   CM_GOODS_SYN.forEach(([re, to]) => (t = t.replace(re, to)));
@@ -194612,15 +194706,24 @@ function dbScopeWords(s) {
       .filter((w) => w.length >= 4 && !["front", "rear", "with", "from", "materials", "stored", "material", "deposit", "progress", "billing", "invoice", "line", "work"].includes(w)),
   );
 }
+// A line names a scope when it shares the scope's own words, and at least one of them says what the work is, not where
+// (month 9/18: the $850 credit for tile returned from the primary bath read as billing "Radiant floor heat in primary
+// bath" on its two room words, and Send held the Kleins' credit as a possible double bill).
+function dbScopeHit(V, W) {
+  const both = [...V].filter((w) => W.has(w));
+  return both.length >= Math.min(2, V.size) && both.some((w) => !ROOM_WORDS.has(w));
+}
 function dbScopesOf(c, d) {
   const S0 = new Set();
   if (!c || !d || "void" === d.status) return S0;
   (d.lines || []).forEach((l) => {
+    // a credit takes money off; it cannot bill a scope a second time
+    if ((+l.rate || 0) < 0 || (+l.amount || 0) < 0) return;
     if (l.sovId) return void ((+l.pct > 0 || +l.stored > 0 || "sov" !== d.mode) && S0.add(l.sovId));
     const W = dbScopeWords(`${l.item || ""} ${l.desc || ""}`);
     (c.sov || []).forEach((sv) => {
       const V = dbScopeWords(sv.desc);
-      V.size && [...V].filter((w) => W.has(w)).length >= Math.min(2, V.size) && S0.add(sv.id);
+      V.size && dbScopeHit(V, W) && S0.add(sv.id);
     });
   });
   return S0;
