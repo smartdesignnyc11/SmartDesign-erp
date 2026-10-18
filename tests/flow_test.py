@@ -96,8 +96,10 @@ async def press_any(pg, uid, text_rx, verb_rx):
     if v: return v
     await pg.evaluate("() => { window.mApprKind = 'all'; view = 'mapprove'; render(); }"); await pg.wait_for_timeout(400)
     v = await pg.evaluate("""([t, vb]) => { const T = new RegExp(t, 'i'), V = new RegExp(vb);
-      const e = [...document.querySelectorAll('.m-appr')].find(x => x.getClientRects().length && T.test(x.innerText));
-      const b = e && [...e.querySelectorAll('button')].find(x => V.test(x.innerText.trim())); b && b.click(); return b ? b.innerText.trim() : ''; }""", [text_rx, verb_rx])
+      // the first matching row that has the verb, not the first matching row (a decision "Laundry layout..." can
+      // match before the mailed laundry ask that carries Make It a Task)
+      const b = [...document.querySelectorAll('.m-appr')].filter(x => x.getClientRects().length && T.test(x.innerText))
+        .map(e => [...e.querySelectorAll('button')].find(x => V.test(x.innerText.trim()))).find(Boolean); b && b.click(); return b ? b.innerText.trim() : ''; }""", [text_rx, verb_rx])
     await pg.wait_for_timeout(300)
     return v
 
@@ -194,8 +196,14 @@ async def s_field(p, c):
         await press(pg, r'Angel asks for 25 boards GWB', r'^Apply$')
         rq = await pg.evaluate("() => (DB.projects.find(x => x.id === 'p121').requests || []).filter(r => /GWB/.test(r.what)).map(r => ({ what: r.what, qty: r.qty, st: r.status, need: r.neededBy, by: r.by }))")
         c.ok(len(rq) == 1 and rq[0]['qty'] == 25 and 'cement board' in rq[0]['what'] and rq[0]['st'] == 'new' and rq[0]['by'] == 'Angel', f'field: the ask is a request on the Buy Board ({rq})')
-        left = await pg.evaluate("() => DB.comms.filter(c => /need 25 boards GWB/.test(c.subject)).map(c => (c.proposals.find(p => p.kind === 'request') || {}).applied ? 1 : 0)")
-        c.ok(left and all(left), f"field: every mailbox's copy reads applied ({left})")
+        # Each recipient's copy (the PM's and the coordinator's) carries the request and reads applied once one of
+        # them applies it. Angel's own copy is his sent mail: since the own-mail rule (agent-month selftest,
+        # 2026-10-11) the sender's SENT copy proposes nothing to him, so it has no request to read applied. This
+        # check predates that rule and counted Angel's copy as a third mailbox to apply.
+        left = await pg.evaluate("() => DB.comms.filter(c => /need 25 boards GWB/.test(c.subject)).map(c => ({ u: c.owner, sent: (c.labels || []).includes('SENT'), req: !!c.proposals.find(p => p.kind === 'request'), applied: !!(c.proposals.find(p => p.kind === 'request') || {}).applied }))")
+        got = [x for x in left if not x['sent']]
+        c.ok(len(got) == 2 and all(x['req'] and x['applied'] for x in got), f"field: every recipient's copy reads applied ({left})")
+        c.ok([x['u'] for x in left if x['sent']] == ['u_angel'] and not any(x['req'] for x in left if x['sent']), f"field: Angel's own sent copy proposes nothing to him ({left})")
         # a delivery problem raised Friday afternoon is the coordinator's Monday morning, not escalated past her
         await pg.evaluate("d => appSetDay(d)", '2026-09-11')
         # sent on Friday one hour later in the day than it is now on Monday: 71 hours on the wall, 23 working hours
