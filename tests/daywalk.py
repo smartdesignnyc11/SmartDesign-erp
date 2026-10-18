@@ -559,7 +559,9 @@ async def walk_foreman(w):
     w.step('Clock In')
     await w.toast_mark()
     await w.click('Clock In', wait=600)
-    await w.mutated('clocked in', "() => (DB.time || []).some(t => t.date === '2026-09-03' && t.empId && !t.out && t.source === 'phone')")
+    # the punch itself, open or closed: the walk's Sign Off clocks him out later (Clock Out and Sign), and the reload
+    # check re-reads this after the whole walk
+    await w.mutated('clocked in', "() => (DB.time || []).some(t => t.date === '2026-09-03' && t.empId && t.source === 'phone' && t.in)")
 
     w.step('Materials: Ask > Materials > task > one line > Next > Send > Done')
     await w.click('Ask', prefix=True, scope='.mbar, .m-bar, .bottombar, nav, footer, body', nth=0)
