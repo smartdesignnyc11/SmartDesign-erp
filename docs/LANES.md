@@ -2,6 +2,22 @@
 
 The chief of staff keeps this board current. A lane is one build agent in its own git worktree (`.claude/worktrees/<name>`, branch `lane-<name>`). Lanes never push or merge. The main session merges them one at a time and runs the full net after each.
 
+## Platform: in flight (2026-10-18)
+| Lane | Scope | Status |
+|---|---|---|
+| platform | Run by the main session, not a worktree. BACKLOG §5 items 1–3, first slice: new Supabase project (us-east-1); schema with row-level security per firm and role (field roles never receive money; the client role refused by the server until per-client rows exist); the hosted copy under `platform/` (cloud.js, config, service worker); `/api/ai` that requires a signed-in user, pins the model server-side and enforces per-person and per-firm monthly caps logged in `ai_usage`; a new, clearly named Netlify site (the 12 old sites untouched); deploy; a live Playwright check | Live at https://smartdesigns-erp.netlify.app (2026-10-18). Live checks: database rules 24 of 27 as each role, two devices 17 of 17; the 3 open are the AI call itself, waiting on the Anthropic workspace ID. Unit tests 28/28. Over-the-cap refusal proven in the unit test only |
+
+Design gate: extends the existing `DB` stores and `cloud.js` shards; adds the server tables `profiles` (role per person, owner-edited), `ai_usage` and the firm's shard store. No new app list, queue or menu item. The chief of staff's conditions for calling it done:
+1. Open sign-up switched off; people are invited. The role comes from the server's own table, never from anything the user can edit (Supabase user metadata is user-editable).
+2. Field roles get money removed by the server before it leaves the database, and a field push can never overwrite or wipe the money it never received (merge, not replace).
+3. The live check proves the refusals, not only the happy path: no session, the foreman asking for money, the client, and a person over the cap all get nothing.
+4. `ai_usage` stores who, when, model, tokens and cost, never the prompt or the answer. The cap is checked before the call; the model and max tokens are set by the server, not the page.
+5. The service worker never caches `/api` or data responses, and a new build reaches phones on the next open.
+6. Invented demo data only; no real job, client or bank record until Alan moves Supabase to a plan with backups. The service-role key and database password live only in Netlify and Supabase settings.
+7. Full net green on the build that ships; anything not checked live is said plainly.
+
+Deferred to the next platform sessions: Google sign-in (needs his OAuth client), Plaid, the watchers, the document reader, real data import, the server-side hash-chain head per period, the evaluation harness against the live model.
+
 ## Version 11.2: in flight (2026-10-18)
 | Lane | Scope | Status |
 |---|---|---|

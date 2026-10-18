@@ -1,0 +1,7 @@
+node_modules
+.netlify
+.env
+public/index.html
+public/config.js
+public/sw.js
+public/vendor/

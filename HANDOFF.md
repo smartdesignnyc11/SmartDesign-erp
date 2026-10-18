@@ -85,6 +85,9 @@ If a change moves one of these, say exactly why.
 
 **truthpct moved four of them (2026-10-08).** The estimate at completion now rolls up by estimate and approved-CO line, each line at max(budget, actual + committed) (BACKLOG §1.2). 121 State's EAC goes $384,087.50 → $388,887.50 (Windows +$3,800 billed over its PO, Millwork +$1,000 committed past its budget), so its cost basis falls and it earns $1,532.47 less ($124,158.26 → $122,625.79). WIP over-billed $154,742 → $156,274, backlog $581,408 → $582,941, net YTD −$3,797 → −$5,330 (income $144,292 → $142,759), and safe to spend −$2,618 → −$4,151 (it subtracts the over-billing). August and closed months do not move: a change in estimate is recognised in the period it is made. 121 State reads 14% complete (measured on site) everywhere; the WIP keeps 25% as its cost basis. The finance reviewer checks every surface agrees.
 
+## The hosted copy (rebuilt 2026-10-18)
+`platform/` is the firm's shared system at https://smartdesigns-erp.netlify.app (Netlify site smartdesigns-erp, Supabase project eenpabyrmiltfqvzirhw). `platform/README.md` says what is built, how to deploy, and how to run the live checks. The server pieces still lost (watchers, Plaid, doctext, Google per user) are rebuilt there next.
+
 ## Live artifact
 - **Published copy:** https://claude.ai/artifact/BcFBruG3KKGRH2fYd9eLjp (Alan's).
 - **Deploying from Claude Code:** produce `dist/smartdesigns_projects.html` and give it to Alan to publish, or deploy through the hosted copy.

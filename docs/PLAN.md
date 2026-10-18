@@ -2,7 +2,7 @@
 
 This is the one list. The chief of staff keeps it current on every ask, lane report and merge. Details live in the BACKLOG sections named. Status words: **Running** · **Next** · **Queued** · **Waiting on Alan** · **Later** (deferred by Alan) · **Done**.
 
-Last updated 2026-10-18 (overnight).
+Last updated 2026-10-18 (platform set up).
 
 ## 0. Usage rule (Alan)
 - Warn before any heavy step.
@@ -14,6 +14,12 @@ Last updated 2026-10-18 (overnight).
 - Full net: 32 of 32 suites green.
 - Scripted month: 258 of 292 on time, 29 missed, $9,537 left behind, 1 schedule day lost. The previous best was 239/291, 46 missed, $109,613.
 - The 29 misses remaining are queued below ("From the scripted month").
+
+## Platform: first slice live (2026-10-18)
+- **Where:** https://smartdesigns-erp.netlify.app (new Netlify site; the 12 old sites untouched) on a new Supabase project in us-east-1. Alan is invited as owner by email. How it works: `platform/README.md`.
+- **Built and checked live:** invited sign-in only; roles set by the owner on the server; field roles never receive the books, bank, payroll or bills and get money stripped from jobs, and their saves cannot touch money; clients refused until per-client rows; edits sync between two devices both ways, simultaneous edits on the same job both kept; `/api/ai` refuses anyone not signed in or without a role.
+- **Waiting on Alan:** the Anthropic workspace ID (the key is not scoped to one), so the AI call itself is not yet proven live; Supabase Pro ($25/month) before any real data.
+- **Not built yet:** Google sign-in, per-client portal rows, the server-side hash-chain head, document reader, mail/calendar/drive watcher, Plaid, push, the agents.
 
 ## Overnight 2026-10-18: where things stand (for Alan at 10am)
 - **Published:** version 11 (v11.1 folded in). Build 84687e4: 32/32 suites green; scripted month 258/292 on time.
@@ -98,7 +104,7 @@ What remains, in order. Usage is a share of one week's allowance.
 | **Week 3** | | | | |
 | 9 | Subcontractors, lien waivers and the payment check | §1.10 item 1, §1.12 | 2 | 15% |
 | 10 | Reporting proven end to end | §1.13 | 2 | 15% |
-| 11 | Platform foundation once the keys are in: database, sign-in, permissions, sync, AI connection with caps, watchers, document reader, push | §5 | 3–4 | 35% |
+| 11 | Platform foundation: database, sign-in, permissions, sync, AI connection with caps (**first slice live 2026-10-18**); next: watchers, document reader, push, Google sign-in, per-client rows | §5 | 3–4 | 35% |
 | | Integration and merges | | | 10% |
 | **Week 4** | | | | |
 | 12 | The live AI on Claude:<br>- Ask like Claude;<br>- the always-on assistant per person;<br>- role specialists and Brain timers;<br>- the documents and drawing reader;<br>- driver routes phase 2 (Maps);<br>- live jobs loaded into the private platform;<br>- the improvement loop | §1.24, §1.27–1.29, §1.19, §5.8 | 4 | 40% |
@@ -166,8 +172,7 @@ What remains, in order. Usage is a share of one week's allowance.
 ## 5. Waiting on Alan
 | Asked | Decision or action | Default until then |
 |---|---|---|
-| 2026-10-11 | Three sign-ups: Anthropic API ($50/month cap), Supabase, Netlify. Keys go in the environment settings as ANTHROPIC_API_KEY, SUPABASE_ACCESS_TOKEN and NETLIFY_AUTH_TOKEN, then start a new session with "set up the platform" | Platform waits; everything else continues |
-| 2026-10-18 | Keys, status: the Anthropic key is in Netlify (team variable ANTHROPIC_API_KEY, secret, Functions scope); the Netlify token is a network secret (Authorization: Bearer on api.netlify.com) and works (12 existing sites, all last updated 2026-09-10); the Supabase token works too (organization "SmartDesign ERP", no projects yet). Alan's call: leave the 12 old Netlify sites alone and create a new, clearly named site | Ready: start a new session with "set up the platform" |
+| 2026-10-18 | Anthropic workspace ID into Netlify as ANTHROPIC_WORKSPACE_ID (site smartdesigns-erp), or a key created inside a workspace. Then: Supabase Pro before real data; a Google OAuth client for Google sign-in | AI calls on the hosted copy answer 400; email sign-in only; demo data only |
 | 2026-10-11 | Which email address the vendor follow-ups come from (recommend purchasing@ on the firm's domain) | Outbox only (demo) |
 | 2026-10-11 | Who the accountant is. To confirm with them: use tax; the overhead method; Mercer & Bond development costs capitalised; revenue recognition for tax; stock held as inventory | The defaults in §1.13 item 8, labelled "confirm with your accountant" |
 | 2026-10-11 | Leftover material on cost-plus jobs: back to the client, a credit on their invoice, or into firm stock | "Client-owned surplus, ask the PM" |

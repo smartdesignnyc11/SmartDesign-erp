@@ -1,0 +1,12 @@
+{
+  "name": "smartdesigns-projects-platform",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "python3 build.py",
+    "test": "node test/cloud_merge_test.mjs && node test/ai_test.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.45.4"
+  }
+}

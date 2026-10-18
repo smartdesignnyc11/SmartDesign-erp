@@ -50883,13 +50883,22 @@ load = async function (opts = {}) {
     console.warn("profile", e);
   }
   let remote = null;
+  // Edits this phone made but never synced (closed tab, no signal) go up before the server copy comes down.
+  if (Cloud.hasPending && Cloud.hasPending())
+    try {
+      const v = await withTimeout(idbGet(KEY), 3500, "browser storage");
+      v && (await withTimeout(Cloud.pushPending(JSON.parse(v)), 2e4, "server"));
+    } catch (e) {
+      console.warn("pending push failed", e);
+    }
   try {
     remote = await withTimeout(Cloud.pullAll(), 15e3, "server");
   } catch (e) {
     console.warn("cloud pull failed", e);
   }
   remote &&
-    ((DB = remote),
+    ((window.__sdServerTruth = !0),
+    (DB = remote),
     Cloud.isOffice() ||
       ([
         "__anaSeeded",
@@ -50943,6 +50952,8 @@ load = async function (opts = {}) {
   } catch (e) {
     console.warn("realtime", e);
   }
+  // An empty firm database: the first office person to sign in brings this device's records up.
+  !remote && Cloud.isOffice() && Cloud.push(DB).then((r) => r.ok || console.warn("first upload", r.msg));
 };
 const persistBase_cl = persist;
 persist = async function (attempt) {
@@ -50964,7 +50975,9 @@ saveStatus = function () {
   const el = document.getElementById("save-status");
   el &&
     (el.innerHTML = saveState.ok
-      ? '<span style="color:var(--ok)">●</span> Synced · shared with the team'
+      ? Cloud.state.note
+        ? `<span style="color:var(--warn)">●</span> ${esc(Cloud.state.note)}`
+        : '<span style="color:var(--ok)">●</span> Synced · shared with the team'
       : `<span style="color:var(--warn)">●</span> ${esc(saveState.msg || "Not synced yet")}`);
 };
 const putBlobBase_cl = putBlob;
@@ -108591,6 +108604,9 @@ if ("object" == typeof REP_DS && REP_DS && REP_DS.txns) {
 }
 function sdSeedsOff() {
   try {
+    // On the hosted copy, once the server holds the firm's records it is the truth: no device seeds demo data
+    // over it (a field phone, which never receives the books, would otherwise invent them).
+    if (window.__sdServerTruth) return !0;
     return !(!DB || (!DB.__liveData && !DB.__wiped));
   } catch (e) {
     return !1;
