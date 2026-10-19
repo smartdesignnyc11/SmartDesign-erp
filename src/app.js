@@ -198283,8 +198283,8 @@ function mnMap(r) {
 //    or a line is decided in one place (msgThreadsFor, msgVisible), by membership and role: the field reads the job
 //    threads of its jobs and no client or money line; a client reads only their own job's client thread; a direct or
 //    group thread is read by its members only.
-//  - Unread is one marker per person per thread (p.chatSeen, t.seen) and msgUnread is the only count: the rail, the
-//    tab, the thread list and the back bar all read it.
+//  - Unread is one marker per person per thread (DB.msgSeen[uid][thread key], private to the person) and msgUnread
+//    is the only count: the rail, the tab, the thread list and the back bar all read it.
 //  - "@assistant ..." is answered by the person's own assistant through the Ask path (paAsk: read-only, proposals as
 //    buttons). The answer is kept with the person (DB.asst[uid].inThread), never in the shared thread, so a private
 //    answer cannot reach the crew or a client. Share in Thread posts it only when the person says so.
@@ -198409,7 +198409,12 @@ function msgTeamEdit(pid) {
       submit: "Save Crew",
       onSubmit: (f) => {
         const was = msgTeamNames(p).join(", "),
-          ids = F.filter((x) => f["c_" + x.id]).map((x) => x.id);
+          before = msgTeam(p),
+          ids = F.filter((x) => f["c_" + x.id]).map((x) => x.id),
+          at = (p.teamAt = p.teamAt && "object" == typeof p.teamAt ? p.teamAt : {});
+        // when each person joined: the job's history before that is not unread for them (calm, not noisy)
+        ids.forEach((id) => before.includes(id) || (at[id] = appNowIso()));
+        Object.keys(at).forEach((id) => ids.includes(id) || delete at[id]);
         p.team = ids;
         try {
           audit("project", p.id, "crew", was, msgTeamNames(p).join(", "), `${u.name || "Someone"} set the crew`);
@@ -198488,10 +198493,15 @@ function msgVisible(m, T, u) {
   return !0;
 }
 const msgMine = (m, u) => (m.fromUid ? m.fromUid === u.id : !!u.name && String(m.by || "") === u.name);
-// ---- read markers: {id of the last line seen, how many lines there were}
+// ---- read markers: {id of the last line seen, how many lines there were}, one per person per thread, kept with the
+// person (DB.msgSeen[uid][thread key]). On the hosted copy that is the person's own private row (cloud.js PRIV, like
+// the assistant), so when someone read what is nobody else's business, and reading never rewrites a shared job.
+function msgSeenOf(u) {
+  const S0 = (DB.msgSeen = DB.msgSeen && "object" == typeof DB.msgSeen ? DB.msgSeen : {});
+  return (S0[u.id] = S0[u.id] && "object" == typeof S0[u.id] ? S0[u.id] : {});
+}
 function msgSeenGet(T, u) {
-  const o = T.t ? T.t.seen : T.p.chatSeen;
-  return o ? o[T.t ? u.id : `${u.id}|${T.aud}`] || null : null;
+  return (DB.msgSeen && DB.msgSeen[u.id] && DB.msgSeen[u.id][T.key]) || null;
 }
 function msgSeenSet(T, u) {
   const all = T.all(),
@@ -198499,12 +198509,48 @@ function msgSeenSet(T, u) {
     cur = msgSeenGet(T, u),
     id = last ? last.id : "";
   if (cur && cur.n === all.length && cur.id === id) return !1;
-  const o = T.t ? (T.t.seen = T.t.seen || {}) : (T.p.chatSeen = T.p.chatSeen || {});
-  return (o[T.t ? u.id : `${u.id}|${T.aud}`] = { id: id, n: all.length }), !0;
+  return (msgSeenOf(u)[T.key] = { id: id, n: all.length }), !0;
+}
+// Phase 1 kept the markers in the shared rows (p.chatSeen["uid|aud"], t.seen[uid]). Each device moves the markers of
+// the people it holds (the signed-in person on the hosted copy, everyone on a one-device demo) into DB.msgSeen and
+// deletes them from the shared rows; the furthest marker wins. It runs at every boot, so a phone still on an older
+// build that writes one again is tidied the next time.
+function msgSeenMove() {
+  const mine = window.__cloudPerson ? [window.__cloudPerson] : (DB.users || []).map((u) => u && u.id).filter(Boolean),
+    keep = (u, key, v) => {
+      if (!v || "object" != typeof v) return;
+      const o = msgSeenOf({ id: u }),
+        cur = o[key];
+      (!cur || (+v.n || 0) > (+cur.n || 0)) && (o[key] = { id: v.id || "", n: +v.n || 0 });
+    };
+  let n = 0;
+  (DB.projects || []).forEach((p) => {
+    const o = p && p.chatSeen;
+    if (!o || "object" != typeof o) return;
+    Object.keys(o).forEach((k) => {
+      const [u, aud] = k.split("|");
+      if (!mine.includes(u)) return;
+      keep(u, ("client" === aud ? "client:" : "job:") + p.id, o[k]), delete o[k], n++;
+    });
+    Object.keys(o).length || delete p.chatSeen;
+  });
+  msgStore().forEach((t) => {
+    const o = t && t.seen;
+    if (!o || "object" != typeof o) return;
+    Object.keys(o).forEach((u) => mine.includes(u) && (keep(u, "dm:" + t.id, o[u]), delete o[u], n++));
+    Object.keys(o).length || delete t.seen;
+  });
+  return n;
 }
 function msgCut(T, u, all) {
   const s = msgSeenGet(T, u);
-  if (!s) return 0;
+  if (!s) {
+    // never opened: someone put on a job's crew starts reading from the day they joined, not from its first line
+    const j = T.p && T.p.teamAt && T.p.teamAt[u.id];
+    if (!j) return 0;
+    const i = all.findIndex((m) => String(msgWhen(m)) >= String(j));
+    return i < 0 ? all.length : i;
+  }
   const i = s.id ? all.findIndex((m) => m.id === s.id) : -1;
   return i >= 0 ? i + 1 : Math.min(+s.n || 0, all.length);
 }
@@ -198586,7 +198632,6 @@ function msgSeed() {
         line("u_angel", "Is the order for the garden bath still coming this week? I want to set the crew for it.", "07:40"),
         line("u_chen", po ? `Yes, ${po.vendor} confirmed it. Here is the order.` : "Yes, the vendor confirmed it.", "07:52", po ? { cards: [{ kind: "po", id: po.id }] } : {}),
       ],
-      seen: {},
     },
     {
       id: "th_seed_leads",
@@ -198599,7 +198644,6 @@ function msgSeed() {
         line("u_alan", "Rough electric walk at 121 State is at 10:00 tomorrow. @Angel please have the panel cover off before then.", "07:15", { mentions: ["u_angel"] }),
         line("u_angel", "Will do. The electrician is on site from 8.", "07:31"),
       ],
-      seen: {},
     },
   );
   return !0;
@@ -198924,7 +198968,7 @@ function msgDirectWith(otherId, create) {
   const me = msgMe().id,
     t = msgStore().find((x) => "group" !== x.kind && (x.members || []).length === 2 && x.members.includes(me) && x.members.includes(otherId));
   if (t || !create) return t ? msgDmT(t) : null;
-  const nt = { id: uid("th"), kind: "direct", title: "", members: [me, otherId], createdBy: me, createdAt: appNowIso(), msgs: [], seen: {} };
+  const nt = { id: uid("th"), kind: "direct", title: "", members: [me, otherId], createdBy: me, createdAt: appNowIso(), msgs: [] };
   return msgStore().push(nt), msgDmT(nt);
 }
 function msgNewThread() {
@@ -198943,7 +198987,7 @@ function msgNewThread() {
         let T;
         if (1 === ids.length) T = msgDirectWith(ids[0], !0);
         else {
-          const t = { id: uid("th"), kind: "group", title: String(f.title || "").trim(), members: [u.id, ...ids], createdBy: u.id, createdAt: appNowIso(), msgs: [], seen: {} };
+          const t = { id: uid("th"), kind: "group", title: String(f.title || "").trim(), members: [u.id, ...ids], createdBy: u.id, createdAt: appNowIso(), msgs: [] };
           msgStore().push(t), (T = msgDmT(t));
         }
         save();
@@ -199369,8 +199413,9 @@ if ("function" == typeof finishBoot) {
       // the crews first: who reads a job's thread (and whose history the migration marks read) follows them
       const c = msgTeamBoot(),
         a = msgSeed(),
+        d = msgSeenMove(),
         b = msgMigrate();
-      (a || b || c) && save();
+      (a || b || c || d) && save();
     } catch (e) {
       console.warn("messages boot", e);
     }

@@ -82,7 +82,76 @@ async def t_crew(c, p):
     await b.close()
 
 
-TESTS = [t_crew]
+# ------------------------------------------------------------------------------------------------ 2. read markers
+async def send(pg, text):
+    await pg.fill('#chat-text', text)
+    await pg.press('#chat-text', 'Enter')
+    await pg.wait_for_timeout(400)
+
+
+async def t_seen(c, p):
+    b, pg, errs = await fresh(p, 'u_owner')
+    # phase 1's markers, in the shared rows, move to each person's own record with the same counts
+    r = await pg.evaluate("""() => {
+      const chen = DB.users.find(u => u.id === 'u_chen'), before = msgUnreadTotal(chen).n, mine = JSON.parse(JSON.stringify(DB.msgSeen.u_chen || {}));
+      const P = DB.projects.find(x => x.id === 'p121'), t = DB.threads.find(x => x.id === 'th_seed_dm');
+      P.chatSeen = {}; t.seen = {};
+      DB.threads.forEach(x => { x.seen = {}; });
+      Object.entries(mine).forEach(([k, v]) => { const [kind, id] = k.split(':'), Q = DB.projects.find(x => x.id === id);
+        if (kind === 'job' || kind === 'client') (Q.chatSeen = Q.chatSeen || {})['u_chen|' + (kind === 'job' ? 'team' : 'client')] = v;
+        if (kind === 'dm') DB.threads.find(x => x.id === id).seen.u_chen = v; });
+      P.chatSeen['u_zed|team'] = { id: 'x', n: 1 };                 // someone this device does not hold stays put
+      delete DB.msgSeen.u_chen; delete DB.msgSeen.u_zed;
+      const moved = msgSeenMove();
+      const out = { before, after: msgUnreadTotal(chen).n, moved, keys: Object.keys(DB.msgSeen.u_chen || {}).sort(), shared: P.chatSeen || null, tseen: DB.threads.some(x => 'seen' in x) || null, had: Object.keys(mine).sort() };
+      delete P.chatSeen; return out;
+    }""")
+    c.ok(r['moved'] >= 1 and r['had'] and r['keys'] == r['had'], f"seen: the markers moved to Chen's own record ({r['keys']} from {r['had']})")
+    c.ok(r['before'] == r['after'], f"seen: and his unread count did not move ({r['before']} -> {r['after']})")
+    c.ok(r['tseen'] is None and r['shared'] in (None, {'u_zed|team': {'id': 'x', 'n': 1}}), f"seen: nothing of his is left in the shared job or thread ({r['shared']} {r['tseen']})")
+    # reading writes only the reader's own record: never the shared job or thread
+    await sign_in(pg, 'u_alberto')
+    await pg.evaluate("() => { setCurrent('p121'); msgOpen('job:p121'); }")
+    await send(pg, 'Subfloor is down in the parlor')
+    await sign_in(pg, 'u_chen')
+    n = await pg.evaluate("() => msgUnread(msgThread('job:p121')).n")
+    c.ok(n == 1, f'seen: Chen has the new line unread ({n})')
+    await pg.evaluate("() => msgOpen('job:p121')")
+    await pg.wait_for_timeout(200)
+    r = await pg.evaluate("""() => { const P = DB.projects.find(x => x.id === 'p121');
+      return { chen: msgUnread(msgThread('job:p121')).n, mark: (DB.msgSeen.u_chen || {})['job:p121'], last: P.chat.slice(-1)[0].id,
+        sharedJob: JSON.stringify(DB.projects).includes('chatSeen'), sharedThreads: DB.threads.some(t => 'seen' in t),
+        angel: msgUnread(msgThread('job:p121', DB.users.find(u => u.id === 'u_angel')), DB.users.find(u => u.id === 'u_angel')).n } }""")
+    c.ok(r['chen'] == 0 and r['mark'] and r['mark']['id'] == r['last'], f"seen: opening it marks Chen's own record at the last line ({r['mark']})")
+    c.ok(not r['sharedJob'] and not r['sharedThreads'], 'seen: no job and no thread carries anyone\'s read marker')
+    c.ok(r['angel'] == 1, f"seen: Angel's count is his own: still 1 ({r['angel']})")
+    # someone put on a crew starts from the day they joined, not from the job's first line
+    await sign_in(pg, 'u_alan')
+    await pg.evaluate("() => { setCurrent('p206'); msgOpen('job:p206'); }")
+    await send(pg, 'Turnover walk with the super at 2')
+    await pg.wait_for_timeout(2700)                      # the pinned demo clock runs at 1 app second per 2.4 real ones
+    await pg.evaluate("() => { const P = DB.projects.find(x => x.id === 'p206'); P.team = P.team.filter(x => x !== 'u_satish'); delete (P.teamAt || {}).u_satish; delete (DB.msgSeen.u_satish || {})['job:p206']; }")
+    await pg.click('[data-msgcrew="p206"]')
+    await pg.wait_for_timeout(200)
+    await pg.check('#mbm [data-f="c_u_satish"]')
+    await pg.click('#mbm #mbm-ok')
+    await pg.wait_for_timeout(1100)
+    n0 = await pg.evaluate("() => { const s = DB.users.find(u => u.id === 'u_satish'); return msgUnread(msgThread('job:p206', s), s).n }")
+    await send(pg, 'Satish, the punch list is on the counter')
+    n1 = await pg.evaluate("() => { const s = DB.users.find(u => u.id === 'u_satish'); return msgUnread(msgThread('job:p206', s), s).n }")
+    c.ok(n0 == 0 and n1 == 1, f"seen: Satish, just put on 206 Lenox, has none of its history unread, then the new line ({n0}, {n1})")
+    # the markers survive a reload
+    await pg.evaluate("() => saveNow()")
+    await pg.reload()
+    await pg.wait_for_function("document.body.dataset.booted==='1'", timeout=60000)
+    await sign_in(pg, 'u_chen')
+    r = await pg.evaluate("() => ({ n: msgUnread(msgThread('job:p121')).n, mark: !!(DB.msgSeen.u_chen || {})['job:p121'] })")
+    c.ok(r['n'] == 0 and r['mark'], f"seen: after a reload Chen's marker and his count stand ({r})")
+    c.ok(not errs, f'seen: no page errors {errs[:2]}')
+    await b.close()
+
+
+TESTS = [t_crew, t_seen]
 
 
 async def main():

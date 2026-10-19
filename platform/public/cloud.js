@@ -173,6 +173,7 @@ window.Cloud = (() => {
     calendar: {kind: 'nested', field: 'external', priv: e => !!(e && e.owner && e.source !== 'erp')},  // Google Calendar; ERP holds stay shared
     conn: {kind: 'keyed'},                                                                // each person's Google connection
     asst: {kind: 'keyed'},                                                                // each person's assistant: thread, memory, delegation
+    msgSeen: {kind: 'keyed'},                                                             // where each person stopped reading each conversation
   };
   const meApp = () => window.__cloudPerson || null;                                         // the person in the app (DB.users id)
   // Whose private rows: the profile's private key when the server has linked several sign-ins of one person

@@ -83,12 +83,13 @@ $$;
 create or replace function public.field_job(d jsonb) returns boolean language sql stable security definer set search_path = public as $$
   select public.my_app_user() is not null and jsonb_typeof(d->'team') = 'array' and (d->'team') ? public.my_app_user();
 $$;
--- A field save of a job keeps the stored crew list: the field never changes who is on a job, so nobody can put
--- himself on another job or take a colleague off one.
+-- A field save of a job keeps the stored crew list (team) and when each person joined it (teamAt): the field never
+-- changes who is on a job, so nobody can put himself on another job or take a colleague off one.
 create or replace function public.keep_team(old jsonb, nw jsonb) returns jsonb language sql immutable as $$
   select case when jsonb_typeof(nw) is distinct from 'object' then old
-              when old ? 'team' then nw || jsonb_build_object('team', old->'team')
-              else nw - 'team' end;
+              else (nw - 'team' - 'teamAt')
+                   || case when old ? 'team' then jsonb_build_object('team', old->'team') else '{}'::jsonb end
+                   || case when old ? 'teamAt' then jsonb_build_object('teamAt', old->'teamAt') else '{}'::jsonb end end;
 $$;
 
 -- ---------------------------------------------------------------- what field roles may not see or write

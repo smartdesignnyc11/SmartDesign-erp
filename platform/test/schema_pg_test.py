@@ -96,11 +96,12 @@ ok(not err and len(json.loads(rows[0])) == 3, f'the owner hears every job: {rows
 
 # the foreman writes his job: his line lands, the crew list and the money do not move
 pa = view('foreman')['project:pA']
-pa['chat'] = [{'id': 'c1', 'text': 'framing done'}]; pa['team'] = ['u_angel', 'u_alberto', 'u_satish']; pa['budget'] = 1
+pa['chat'] = [{'id': 'c1', 'text': 'framing done'}]; pa['team'] = ['u_angel', 'u_alberto', 'u_satish']; pa['budget'] = 1; pa['teamAt'] = {'u_satish': '2026-09-03T08:00:00'}
 r = save('foreman', [{'name': 'project:pA', 'data': pa, 'base': ver('foreman', 'project:pA')}])['project:pA']
 ok(r.get('version'), f'the foreman saves his job: {r}')
 o = view('owner')['project:pA']
 ok(o['chat'][0]['text'] == 'framing done' and o['team'] == ['u_angel'] and o['budget'] == 50000, f'his line is kept; the crew list and the budget are not his to change: {o}')
+ok('teamAt' not in o, f'nor when anyone joined it: {o}')
 pa2 = dict(pa); pa2.pop('team')
 save('foreman', [{'name': 'project:pA', 'data': pa2, 'base': ver('foreman', 'project:pA')}])
 ok(view('owner')['project:pA']['team'] == ['u_angel'], 'a save that drops the crew list keeps it')

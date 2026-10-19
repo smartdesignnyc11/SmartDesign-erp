@@ -59,4 +59,9 @@ const th = J(C.shards({users: DB.users, projects: [], threads: [{id: 't1', membe
 ok(th['thread:t1'] && !th['thread:t2'] && !('threads' in th), "each thread is its own row; a device sends only its person's threads");
 const tb = {users: DB.users, projects: []}; C._test.setPart(tb, 'thread:t1', {id: 't1', members: ['uA'], msgs: []}); C._test.setPart(tb, 'thread:t1', {id: 't1', members: ['uA'], msgs: [{t: 'x'}]});
 ok(tb.threads.length === 1 && tb.threads[0].msgs.length === 1, 'thread rows join DB.threads by id');
+// read markers: each person's own, never in a shared row, and they come back where the app reads them
+const ms = J(C.shards({users: DB.users, projects: [{id: 'p1', chat: []}], msgSeen: {uA: {'job:p1': {id: 'c9', n: 9}}, uB: {'dm:t1': {id: 'x', n: 1}}}}));
+ok(JSON.stringify(ms.msgSeen) === '{}' && ms['own:auth-A:msgSeen'].uA['job:p1'].n === 9 && !JSON.stringify(ms).includes('dm:t1'), "my read markers go to my own row; another person's are never sent");
+const mb = {users: DB.users, projects: []}; C._test.setPart(mb, 'msgSeen', {}); C._test.setPart(mb, 'own:auth-A:msgSeen', {uA: {'job:p1': {id: 'c9', n: 9}}});
+ok(mb.msgSeen.uA['job:p1'].id === 'c9', 'and rejoin DB.msgSeen');
 console.log('ALL PASS', `(${n} checks)`);
