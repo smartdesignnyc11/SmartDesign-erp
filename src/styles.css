@@ -3222,7 +3222,8 @@ body.crewmode .view.on .dl-sign > span{display:block;flex:1 1 auto;min-width:0}
      header carries the same title (tdChrome marks it), and so is a page header left with nothing to show. */
   body.m-on .view{padding-left:16px;padding-right:16px}
   body.m-on .topbar{padding-left:16px;padding-right:16px;gap:8px}
-  body.m-on #menu-btn{display:none}
+  /* the menu opens from the hamburger at the top left (Alan, 2026-10-19), 44px, not from a More tab */
+  body.m-on #menu-btn{display:inline-flex;width:44px;height:44px;min-height:44px;margin-left:-8px}
   body.m-on .view .ph h2.td-in-hdr{display:none}
   body.m-on .view .ph.td-ph-bare{display:none}
   body.m-on .topbar .search-btn.search-btn,body.m-on .topbar #rp-btn,body.m-on #tb-ask,body.m-on #fab.m-fab{height:44px;min-height:44px}
@@ -3551,3 +3552,5 @@ body.msg-on #fsay{display:none}
   #tb-chat{width:44px;height:44px;min-height:44px;padding:0;justify-content:center;flex:none;margin-left:8px}
   #tb-chat .msg-n{position:absolute;top:2px;right:0}
 }
+/* on the phone Chat is a shortcut in the bottom bar (Alan, 2026-10-19), so the header keeps only Ask */
+@media (max-width:760px){ body.m-on #tb-chat{display:none} }

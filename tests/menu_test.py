@@ -29,8 +29,8 @@ RAIL = {
     'u_controller': ['Banking', 'Bills & Payroll', 'Today', 'Ledger', 'Purchasing', 'Billing', 'Reports', 'More', 'Settings'],
     'u_sarah': ['Today', 'Drawings', 'Projects', 'Design', 'Clients', 'Dashboard', 'Settings'],
     # field roles: one list, the tab bar first, then the rest, then Connections and the Standard
-    'u_angel': ['Today', 'Site', 'Daily Log', 'Requests', 'Crew', 'Drawings', 'Schedule', 'Photos', 'Documents', 'Chat', 'Raise', 'Connections', 'The SmartDesign Standard'],
-    'u_alberto': ['Clock', 'Requests', 'Schedule', 'Photos', 'Chat', 'Tasks', 'Deliveries', 'Drawings', 'Connections', 'The SmartDesign Standard'],
+    'u_angel': ['Today', 'Site', 'Daily Log', 'Chat', 'Requests', 'Crew', 'Drawings', 'Schedule', 'Photos', 'Documents', 'Raise', 'Connections', 'The SmartDesign Standard'],
+    'u_alberto': ['Clock', 'Requests', 'Schedule', 'Chat', 'Photos', 'Tasks', 'Deliveries', 'Drawings', 'Connections', 'The SmartDesign Standard'],
     'u_alex': ['Route', 'Chat', 'Clock', 'Receipts', 'Requests', 'Connections', 'The SmartDesign Standard'],
     # the client portal keeps its own menu (out of scope; Klein took no part in the workshop)
     'u_klein': ['Overview', 'Schedule', 'Decisions', 'Account', 'Chat'],
@@ -81,14 +81,17 @@ HOME = {'u_owner': 'home', 'u_alan': 'home', 'u_chen': 'home', 'u_billing': 'bil
         'u_angel': 'ftoday', 'u_alberto': 'time', 'u_alex': 'route', 'u_klein': 'client'}
 # Phone: the office roles' bottom bar (then More), the field roles' tab bar.
 PHONE_BAR = {
-    'u_owner': ['Today', 'Approvals', 'Projects', 'Accounting', 'Sales', 'More'],
-    'u_alan': ['Today', 'Approvals', 'Projects', 'Tasks', 'Field', 'More'],
-    'u_chen': ['Today', 'Approvals', 'Requests', 'Buy Board', 'Purchase Orders', 'More'],
-    'u_billing': ['Billing', 'Today', 'Approvals', 'Clients', 'Banking', 'More'],
-    'u_controller': ['Banking', 'Bills & Payroll', 'Today', 'Approvals', 'Ledger', 'More'],
-    'u_sarah': ['Today', 'Drawings', 'Projects', 'Design', 'Clients', 'More'],
-    'u_angel': ['Today', 'Site', 'Daily Log', 'Requests', 'Crew'],
-    'u_alberto': ['Clock', 'Requests', 'Schedule', 'Photos', 'Chat'],
+    # four shortcuts at most, Chat one of them (Alan, 2026-10-19: "The chat should be in the bottom main menu. And you
+    # need to have a max of 4 shortcuts there"); everyone opens the rest from the hamburger at the top left ("the
+    # hamburger menu should be on the top left of the page"), so the office bar has no More
+    'u_owner': ['Today', 'Chat', 'Projects', 'Accounting'],
+    'u_alan': ['Today', 'Chat', 'Projects', 'Field'],
+    'u_chen': ['Today', 'Chat', 'Requests', 'Buy Board'],
+    'u_billing': ['Billing', 'Today', 'Chat', 'Clients'],
+    'u_controller': ['Banking', 'Today', 'Chat', 'Bills & Payroll'],
+    'u_sarah': ['Today', 'Chat', 'Drawings', 'Projects'],
+    'u_angel': ['Today', 'Site', 'Daily Log', 'Chat'],
+    'u_alberto': ['Clock', 'Requests', 'Schedule', 'Chat'],
     'u_alex': ['Route', 'Chat', 'Clock', 'Receipts'],
 }
 FIELD = {'u_angel', 'u_alberto', 'u_alex'}
@@ -210,6 +213,7 @@ async def phone(c, p, users):
         sel = '#tabbar button' if u in FIELD else '#mtabs button'
         bar = await pg.evaluate("s => [...document.querySelectorAll(s)].filter(b => b.getClientRects().length).map(b => (b.innerText || '').replace(/\\s+/g, ' ').replace(/\\s*\\d+$/, '').trim())", sel)
         c.ok(bar == PHONE_BAR[u], f'{u} phone: bar {bar}\n      want {PHONE_BAR[u]}')
+        c.ok(len([x for x in bar if x != 'More']) <= 4 and 'Chat' in bar, f'{u} phone: at most four shortcuts, Chat one of them {bar}')
         await check_screen(c, pg, f'{u} phone landing', errs, HOME[u], phone=True)
         n = await pg.evaluate("s => document.querySelectorAll(s).length", sel)
         for k in range(n):
@@ -219,10 +223,13 @@ async def phone(c, p, users):
             st = await check_screen(c, pg, f'{u} phone bar "{lab}"', errs, phone=True)
             c.ok(st['bar'] == lab, f'{u} phone bar "{lab}": lit entry is "{st["bar"]}"')
         # the rest is one tap away: More (office) or the menu button (field) opens the whole menu
-        await press(pg, '#mtabs [data-mv="__more"]' if u not in FIELD else '#menu-btn')
+        # the hamburger, top left, for every role
+        hb = await pg.evaluate("() => { const b = document.getElementById('menu-btn'); if (!b || !b.offsetParent) return null; const r = b.getBoundingClientRect(); return {x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height)}; }")
+        c.ok(hb and hb['x'] < 60 and hb['y'] < 60 and hb['w'] >= 40 and hb['h'] >= 40, f'{u} phone: the menu button is at the top left, a full tap target {hb}')
+        await press(pg, '#menu-btn')
         await pg.wait_for_timeout(250)
         opened = await pg.evaluate("() => { const r = document.querySelector('.rail'); return !!(r && r.classList.contains('open')) }")
-        c.ok(opened, f'{u} phone: {"More" if u not in FIELD else "the menu button"} opens the menu')
+        c.ok(opened, f'{u} phone: the menu button opens the menu')
         rail = await pg.evaluate(RAIL_JS)
         c.ok([x['label'] for x in rail] == RAIL[u], f'{u} phone: the menu reads {[x["label"] for x in rail]}')
         # every rail entry opens a page that does not scroll sideways
@@ -235,11 +242,9 @@ async def phone(c, p, users):
         c.ok(st['view'] == 'pa', f'{u} phone: the Ask button opens Ask ({st["view"]})')
         c.ok(st['sw'] <= st['w'], f'{u} phone Ask: scrolls sideways ({st["sw"]}px)')
         if u not in FIELD:
-            await press(pg, '#tb-chat')
-            st = await pg.evaluate(STATE)
-            box = await pg.evaluate("() => { const a = document.getElementById('tb-chat'), k = document.getElementById('tb-ask'); if (!a || !k) return null; const r = a.getBoundingClientRect(), q = k.getBoundingClientRect(); return {w: Math.round(r.width), h: Math.round(r.height), gap: Math.round(Math.max(q.left - r.right, r.left - q.right))}; }")
-            c.ok(st['view'] == 'chat' and st['sw'] <= st['w'], f'{u} phone: the Chat button opens the threads, no sideways scroll ({st["view"]}, {st["sw"]}px)')
-            c.ok(box and box['w'] >= 40 and box['h'] >= 40 and box['gap'] >= 8, f'{u} phone: Chat is a full tap target, 8px clear of Ask {box}')
+            # on the phone Chat is in the bottom bar, not the header (one place per screen size)
+            hdr = await pg.evaluate("() => { const a = document.getElementById('tb-chat'); return !!(a && a.offsetParent); }")
+            c.ok(not hdr, f'{u} phone: no second Chat button in the header')
         del errs[:]
     await b.close()
 
