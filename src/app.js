@@ -198961,8 +198961,63 @@ function msgLine(text, o) {
 }
 function msgPostDm(T, text, o) {
   const m = msgLine(text, Object.assign({ mentions: msgMentionsOf(text, T) }, o || {}));
-  return T.all().push(m), msgSeenSet(T, msgMe()), save(), m;
+  return T.all().push(m), msgSeenSet(T, msgMe()), save(), msgNotify(T.key, m.id), m;
 }
+// ---- notifications (phase 2): on the hosted copy, once a new line is on the server, the server is asked to tell the
+// people it is for (/api/notify: the other members of a direct or group thread; on a job's thread, the people the line
+// @mentions). The server checks everything itself. With no signal the ask waits and goes when the phone is back.
+const msgNotifyQ = [];
+let msgNotifyBusy = !1;
+function msgNotify(key, mid) {
+  try {
+    if (!key || !mid || "function" != typeof cloudOn || !cloudOn() || "undefined" == typeof Cloud || !Cloud.user || !Cloud.user()) return;
+  } catch (e) {
+    return;
+  }
+  msgNotifyQ.some((x) => x.key === key && x.mid === mid) || msgNotifyQ.push({ key: key, mid: mid, tries: 0 });
+  setTimeout(msgNotifyFlush, 0);
+}
+async function msgNotifyFlush() {
+  if (msgNotifyBusy || !msgNotifyQ.length) return;
+  msgNotifyBusy = !0;
+  let again = 0;
+  try {
+    // the line has to be on the server before the server can read it
+    const r = await Cloud.push(DB);
+    if (r && "queued" === r.msg) await new Promise((res) => setTimeout(res, 2500));
+    if (!r || (!r.ok && "queued" !== r.msg)) return void (again = 15e3);
+    while (msgNotifyQ.length) {
+      const x = msgNotifyQ[0];
+      let st = 0;
+      try {
+        st = (await fetch("/api/notify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ threadKey: x.key, msgId: x.mid }) })).status;
+      } catch (e) {
+        st = 0;
+      }
+      if (!st || st >= 500) return void (again = 15e3);            // no signal or the server is busy: try again later
+      if (404 === st && ++x.tries < 3) return void (again = 3e3);   // the line is still on its way up
+      msgNotifyQ.shift();
+    }
+  } catch (e) {
+    console.warn("notify", e), (again = 15e3);
+  } finally {
+    (msgNotifyBusy = !1), again && setTimeout(msgNotifyFlush, again);
+  }
+}
+window.addEventListener("online", () => setTimeout(msgNotifyFlush, 1500));
+// a notification tapped: the app opens on its conversation (at boot from ?msg=, or told by the service worker)
+function msgOpenFromUrl(url) {
+  try {
+    const key = new URL(url, location.href).searchParams.get("msg");
+    if (!key || !msgThread(key)) return !1;
+    return msgOpen(key), !0;
+  } catch (e) {
+    return !1;
+  }
+}
+try {
+  "serviceWorker" in navigator && navigator.serviceWorker.addEventListener("message", (e) => e.data && "sdp-open" === e.data.type && msgOpenFromUrl(e.data.url));
+} catch (e) {}
 // a direct thread between me and one other person: found, or started
 function msgDirectWith(otherId, create) {
   const me = msgMe().id,
@@ -199230,6 +199285,7 @@ function msgStamp(p, n0, aud, cards, raw, T, attach) {
         });
     });
     neu.length && (msgSeenSet(T, u), save(), "chat" === view && renderChat());
+    neu.forEach((m) => (m.mentions || []).length && msgNotify(T.key, m.id));
   } catch (e) {
     console.warn("message stamp", e);
   }
@@ -199416,6 +199472,14 @@ if ("function" == typeof finishBoot) {
         d = msgSeenMove(),
         b = msgMigrate();
       (a || b || c || d) && save();
+      // opened from a notification: straight to its conversation, and the address is tidied
+      /[?&]msg=/.test(location.search) &&
+        setTimeout(() => {
+          msgOpenFromUrl(location.href);
+          try {
+            history.replaceState(null, "", location.pathname);
+          } catch (e) {}
+        }, 0);
     } catch (e) {
       console.warn("messages boot", e);
     }

@@ -151,7 +151,59 @@ async def t_seen(c, p):
     await b.close()
 
 
-TESTS = [t_crew, t_seen]
+# ------------------------------------------------------------------------------------------------ 3. notifications
+STUB_CLOUD = """() => {
+  window.__calls = []; window.__net = true;
+  window.Cloud = { on: () => true, user: () => ({ id: 'auth-x' }), push: async () => ({ ok: true }), state: {}, putBlob: async () => true, getBlob: async () => null };
+  const f0 = window.__f0 = window.__f0 || window.fetch;
+  window.fetch = async (url, o) => { if (String(url) !== '/api/notify') return f0(url, o); if (!window.__net) throw new TypeError('Failed to fetch'); window.__calls.push([String(url), JSON.parse(o.body)]); return new Response('{}', { status: 200 }); };
+}"""
+
+
+async def t_notify(c, p):
+    b, pg, errs = await fresh(p, 'u_chen')
+    # the one-device demo has no server: nothing is asked
+    await pg.evaluate("() => msgOpen('dm:th_seed_dm')")
+    await send(pg, 'Is the tile in yet')
+    q = await pg.evaluate("() => msgNotifyQ.length")
+    c.ok(q == 0, f'notify: with no server nothing is queued ({q})')
+    await pg.evaluate(STUB_CLOUD)
+    await send(pg, 'The tile is at the yard, Alex picks it up at 7')
+    await pg.wait_for_timeout(600)
+    r = await pg.evaluate("() => ({ calls: window.__calls, last: DB.threads.find(t => t.id === 'th_seed_dm').msgs.slice(-1)[0].id })")
+    c.ok(len(r['calls']) == 1 and r['calls'][0][0] == '/api/notify' and r['calls'][0][1] == {'threadKey': 'dm:th_seed_dm', 'msgId': r['last']}, f"notify: a direct message asks the server to tell the other member ({r['calls']})")
+    # a job's thread: only a line that @mentions someone
+    await sign_in(pg, 'u_alan')
+    await pg.evaluate("() => { window.__calls = []; setCurrent('p121'); msgOpen('job:p121'); }")
+    await send(pg, 'Panel cover is off')
+    await pg.wait_for_timeout(500)
+    n = await pg.evaluate("() => window.__calls.length")
+    c.ok(n == 0, f'notify: a job line naming nobody asks nothing ({n})')
+    await send(pg, '@Angel the inspector moved to 11')
+    await pg.wait_for_timeout(600)
+    r = await pg.evaluate("() => ({ calls: window.__calls, m: DB.projects.find(p => p.id === 'p121').chat.slice(-1)[0] })")
+    c.ok(len(r['calls']) == 1 and r['calls'][0][1] == {'threadKey': 'job:p121', 'msgId': r['m']['id']} and r['m'].get('mentions') == ['u_angel'], f"notify: a job line that @mentions Angel asks for him ({r['calls']}, {r['m'].get('mentions')})")
+    # no signal: the ask waits and goes when the phone is back
+    await pg.evaluate("() => { window.__calls = []; window.__net = false; msgOpen('dm:th_seed_leads'); }")
+    await send(pg, 'Walk is still at 10')
+    await pg.wait_for_timeout(600)
+    q = await pg.evaluate("() => ({ q: msgNotifyQ.length, calls: window.__calls.length })")
+    c.ok(q['q'] == 1 and q['calls'] == 0, f'notify: with no signal the ask is kept ({q})')
+    await pg.evaluate("() => { window.__net = true; window.dispatchEvent(new Event('online')); }")
+    await pg.wait_for_timeout(2300)
+    q = await pg.evaluate("() => ({ q: msgNotifyQ.length, calls: window.__calls.map(c => c[1].threadKey) })")
+    c.ok(q['q'] == 0 and q['calls'] == ['dm:th_seed_leads'], f'notify: and goes when the phone is back online ({q})')
+    # a tapped notification opens its conversation
+    r = await pg.evaluate("() => { msgOpen('job:p121'); view = 'dash'; render(); const ok = msgOpenFromUrl('https://smartdesigns-erp.netlify.app/?msg=dm%3Ath_seed_leads'); return { ok, key: (msgCur() || {}).key, view } }")
+    c.ok(r['ok'] and r['key'] == 'dm:th_seed_leads' and r['view'] == 'chat', f'notify: a tapped notification opens its conversation ({r})')
+    r = await pg.evaluate("() => { signIn('u_alberto'); render(); return msgOpenFromUrl('https://x/?msg=dm%3Ath_seed_dm'); }")
+    c.ok(r is False, 'notify: a link to a conversation the person is not in opens nothing')
+    await pg.evaluate("() => { delete window.Cloud; }")
+    c.ok(not errs, f'notify: no page errors {errs[:2]}')
+    await b.close()
+
+
+TESTS = [t_crew, t_seen, t_notify]
 
 
 async def main():

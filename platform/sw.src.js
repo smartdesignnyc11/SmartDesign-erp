@@ -19,13 +19,21 @@ self.addEventListener('fetch', e => {
     return net.catch(() => c.match('./index.html'));
   }));
 });
-// Push: the watcher's one notification per run. Tapping it opens the app (or brings an open copy forward).
+// Push: the watcher's one notification per run, and new messages (one per conversation: a later line replaces the
+// earlier one on the lock screen by its tag). Tapping it opens the app on that conversation, or brings an open copy
+// forward and tells it which conversation to show.
 self.addEventListener('push', e => {
   let m = {}; try { m = e.data ? e.data.json() : {}; } catch (err) { m = {title: 'SmartDesigns Projects', body: e.data ? e.data.text() : ''}; }
-  e.waitUntil(self.registration.showNotification(m.title || 'SmartDesigns Projects', {body: m.body || '', icon: './icons/icon-192.png', badge: './icons/icon-192.png', tag: 'sdp-watch', renotify: true, data: {url: m.url || './'}}));
+  const tag = /^sdp-[\w:.-]{1,120}$/.test(m.tag || '') ? m.tag : 'sdp-watch';
+  e.waitUntil(self.registration.showNotification(m.title || 'SmartDesigns Projects', {body: m.body || '', icon: './icons/icon-192.png', badge: './icons/icon-192.png', tag, renotify: true, data: {url: m.url || './'}}));
 });
 self.addEventListener('notificationclick', e => {
   e.notification.close();
   const url = (e.notification.data && e.notification.data.url) || './';
-  e.waitUntil(self.clients.matchAll({type: 'window', includeUncontrolled: true}).then(cs => { const c = cs.find(x => 'focus' in x); return c ? c.focus() : self.clients.openWindow(url); }));
+  e.waitUntil(self.clients.matchAll({type: 'window', includeUncontrolled: true}).then(cs => {
+    const c = cs.find(x => 'focus' in x);
+    if (!c) return self.clients.openWindow(url);
+    try { c.postMessage({type: 'sdp-open', url}); } catch (err) {}
+    return c.focus();
+  }));
 });

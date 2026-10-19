@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "build": "python3 build.py",
-    "test": "node test/cloud_merge_test.mjs && node test/ai_test.mjs && node test/private_test.mjs && node test/watch_test.mjs && node test/score_test.mjs && node test/doctext_test.mjs && node test/chain_test.mjs && node test/brain_test.mjs && node test/assistant_test.mjs && node test/fieldjobs_test.mjs"
+    "test": "node test/cloud_merge_test.mjs && node test/ai_test.mjs && node test/private_test.mjs && node test/watch_test.mjs && node test/score_test.mjs && node test/doctext_test.mjs && node test/chain_test.mjs && node test/brain_test.mjs && node test/assistant_test.mjs && node test/fieldjobs_test.mjs && node test/notify_test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.45.4",
