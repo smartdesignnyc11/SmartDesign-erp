@@ -373,6 +373,12 @@ async def phone_approve(C, needle, what, dispute=None):
     its Approve; an over-PO bill's Approve PO Amount sheet takes a typed reason."""
     card = await C.ph.evaluate("""n => { const e = [...document.querySelectorAll('#v-home .td-do .td-card')].find(x => x.getClientRects().length && x.innerText.includes(n));
         if (!e) return null; e.setAttribute('data-chaincard', '1'); const b = [...e.querySelectorAll('button, [data-tdverb]')].find(x => /^Approve/.test((x.innerText || '').trim())); b && b.setAttribute('data-chainyes', '1'); return !!b; }""", needle)
+    CARD = """n => { const e = [...document.querySelectorAll('#v-home .td-do .td-card')].find(x => x.getClientRects().length && x.innerText.includes(n));
+        if (!e) return null; e.setAttribute('data-chaincard', '1'); const b = [...e.querySelectorAll('button, [data-tdverb]')].find(x => /^Approve/.test((x.innerText || '').trim())); b && b.setAttribute('data-chainyes', '1'); return !!b; }"""
+    if not card and await C.ph.evaluate("() => !!document.querySelector('#v-home [data-tdytabbtn=appr]')"):
+        # Approvals is a filter of Today (2026-10-19: four shortcuts in the bottom bar, no Approvals tab): it lists them all
+        await C.ptap('#v-home [data-tdytabbtn=appr]', "Today's Approvals filter")
+        card = await C.ph.evaluate(CARD, needle)
     if card:
         C.plog(f'Do Now shows {what} ({needle}) with Approve')
         await C.ptap('[data-chainyes]', f'Approve on the Do Now card for {needle}')
@@ -381,7 +387,7 @@ async def phone_approve(C, needle, what, dispute=None):
         C.plog(f"Do Now's first five do not include {what} ({needle}); " + (f'"{more}" is under them' if more else 'no link under them'))
         C.findings.append(f"Phone: {what} ({needle}) waiting on the Owner is not in Do Now's first five; it is reached through \"{more or 'Approvals'}\".")
         if more: await C.ptap('#v-home [data-tdall]', more)
-        else: await C.ptap('[data-mv=mapprove]', 'Approvals (bottom tab)')
+        else: await C.ph.evaluate("() => { view = 'mapprove'; window.mApprKind = 'all'; render(); }")   # the full list, from Today's filter link
         await C.pcheck('Approvals')
         ok = await C.ph.evaluate("""n => { const e = [...document.querySelectorAll('.m-appr')].find(x => x.getClientRects().length && x.innerText.includes(n));
             const b = e && e.querySelector('[data-myes]'); b && b.setAttribute('data-chainyes', '1'); return !!b; }""", needle)
