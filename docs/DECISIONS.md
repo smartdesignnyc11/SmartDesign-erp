@@ -8,11 +8,16 @@ Status: **Built** (merged and tested) · **Building** (a lane is on it) · **Spe
 | Asked | Decision needed | Default until he decides |
 |---|---|---|
 | 2026-10-18 | AI spend caps inside the app, below the $50 Anthropic hard limit, so the app stops and says so before Anthropic refuses mid-task. | Firm $40 a month; $8 per person a month; the owner sees spend per person. |
-| 2026-10-18 | Google sign-in for the hosted copy needs a Google OAuth client only he can create. | Email sign-in, invited people only; Google sign-in next session once the client exists. |
+| 2026-10-19 | The Google sign-in page says "continue to Loopnet": the OAuth client lives in a Google Cloud project whose app is named Loopnet. Rename it (OAuth consent screen › Branding) to SmartDesigns Projects. | Works as is; the name confuses people. |
 | 2026-10-11 | Leftover material from a cost-plus or reimbursable job: return it to the client, credit it on their invoice, or take it into firm stock? | Flagged "client-owned surplus, ask the PM"; never moved into firm stock automatically. |
 | 2026-10-11 | Confirm with the accountant that out-of-state material purchases owe NY use tax, and at what rate. | Landed cost adds use tax at 8.875% (editable). A bill with no tax charged is flagged "use tax to accrue". |
 | 2026-10-11 | ChatGPT history export, to deepen `docs/ALAN.md`. | Profile built from the build sessions and the Standard only. |
 | 2026-10-10 | Re-authorise QuickBooks for the July-to-date pull. | Truth layer runs on bank and card lines and the QBO bridge snapshot. |
+
+## 2026-10-19
+| Ask or decision | Where it lives | Status |
+|---|---|---|
+| Google sign-in: Alan made the OAuth client; Sign In with Google is on, invited addresses only | `platform/README.md` | Built; the full sign-in on his phone is his first test |
 
 ## 2026-10-18
 | Ask or decision | Where it lives | Status |
