@@ -197224,6 +197224,8 @@ function msgBadges() {
         T && T.t && tx && (tx.placeholder = `Message ${T.title}…`);
         const lab = document.querySelector("#v-chat .chat-compose label.btn");
         lab && T && (lab.hidden = !!T.t);
+        // the list opens at its top (the field's chat screen scrolls to the newest line, which is for a thread)
+        document.getElementById("v-chat")?.classList.contains("msg-listmode") && window.scrollTo(0, 0);
       }
       msgBadges();
     } catch (e) {
@@ -197277,4 +197279,17 @@ try {
   "undefined" != typeof EQ_TABLES && (EQ_TABLES.chat = () => msgEqRows());
   "undefined" != typeof QA_DATE_FIELD && (QA_DATE_FIELD.chat = "date");
   "undefined" != typeof A4_ENTITY_SAY && (A4_ENTITY_SAY.chat = "chat messages");
+} catch (e) {}
+// ---- findable (BACKLOG §1.16): a chat line made from another screen opens in the thread that holds it, on the line
+// itself (the job's team or client thread by its audience), not on whichever thread of the job opens first
+try {
+  if ("undefined" != typeof FND_HOME && FND_HOME["p.chat"]) {
+    FND_HOME["p.chat"].open = (r, p) => {
+      if (!p) return;
+      const u = msgMe(),
+        key = (msgIsClient(u) || ("client" === msgAud(r, p) && !msgIsField(u)) ? "client:" : "job:") + p.id;
+      msgThread(key, u) ? msgOpen(key) : ("function" == typeof setCurrent && setCurrent(p.id), (view = "chat"), render());
+    };
+    FND_HOME["p.chat"].sel = (r) => (r && r.id ? `#chat-list [data-mid="${r.id}"]` : "");
+  }
 } catch (e) {}
