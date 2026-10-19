@@ -9,9 +9,15 @@ self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
   if (url.origin !== location.origin) return;            // Supabase, fonts: straight to the network
   if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/.netlify/')) return;
-  // the shell: network first (so updates land), the cache when offline
-  e.respondWith(fetch(e.request).then(r => { if (r.ok) { const copy = r.clone(); caches.open(VERSION).then(c => c.put(e.request, copy)); } return r; })
-    .catch(() => caches.match(e.request).then(m => m || caches.match('./index.html'))));
+  // The shell opens from the copy on the phone at once, and the network refreshes that copy for the next open
+  // (a 9.6 MB page fetched first on every open cost seconds on a phone). A new build therefore shows one open late.
+  const key = e.request.mode === 'navigate' ? './index.html' : e.request;
+  e.respondWith(caches.open(VERSION).then(async c => {
+    const hit = await c.match(key, {ignoreSearch: e.request.mode === 'navigate'});
+    const net = fetch(e.request).then(r => { if (r.ok && r.type === 'basic') c.put(key, r.clone()); return r; });
+    if (hit) { e.waitUntil(net.catch(() => {})); return hit; }
+    return net.catch(() => c.match('./index.html'));
+  }));
 });
 // Push: the watcher's one notification per run. Tapping it opens the app (or brings an open copy forward).
 self.addEventListener('push', e => {

@@ -29,11 +29,12 @@ function pdf(text) {
   const x = out.length; out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n` + offs.map(v => String(v).padStart(10, '0') + ' 00000 n \n').join('');
   return Buffer.from(out + `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${x}\n%%EOF\n`);
 }
-// a minimal .docx (a zip with one document part), written by hand
-function docx(text) {
-  const files = {'[Content_Types].xml': '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>',
+// a zip written by hand (used for .docx and .xlsx)
+function docx(text) { return zipOf(DOCX(text)); }
+const DOCX = text => ({'[Content_Types].xml': '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>',
     '_rels/.rels': '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>',
-    'word/document.xml': `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>${text}</w:t></w:r></w:p></w:body></w:document>`};
+    'word/document.xml': `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>${text}</w:t></w:r></w:p></w:body></w:document>`});
+function zipOf(files) {
   const crcT = []; for (let i = 0; i < 256; i++) { let c = i; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; crcT[i] = c >>> 0; }
   const crc = b => { let c = 0xFFFFFFFF; for (const x of b) c = crcT[(c ^ x) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
   const parts = [], cen = []; let off = 0;
@@ -44,7 +45,7 @@ function docx(text) {
     const e = Buffer.alloc(46); e.writeUInt32LE(0x02014b50, 0); e.writeUInt16LE(20, 4); e.writeUInt16LE(20, 6); e.writeUInt16LE(8, 10); e.writeUInt32LE(c, 16); e.writeUInt32LE(comp.length, 20); e.writeUInt32LE(data.length, 24); e.writeUInt16LE(nm.length, 28); e.writeUInt32LE(off, 42);
     cen.push(e, nm); off += 30 + nm.length + comp.length;
   }
-  const cd = Buffer.concat(cen), end = Buffer.alloc(22); end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(3, 8); end.writeUInt16LE(3, 10); end.writeUInt32LE(cd.length, 12); end.writeUInt32LE(off, 16);
+  const cd = Buffer.concat(cen), end = Buffer.alloc(22); end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(Object.keys(files).length, 8); end.writeUInt16LE(Object.keys(files).length, 10); end.writeUInt32LE(cd.length, 12); end.writeUInt32LE(off, 16);
   return Buffer.concat([...parts, cd, end]);
 }
 const b64 = b => b.toString('base64');
@@ -67,7 +68,18 @@ W.spend = 999; const before = W.calls.length;
 ok(s === 429 && /budget/i.test(j.note || '') && W.calls.length === before, 'over the firm cap: no model call, and it says so');
 W.spend = 0;
 [s, j] = await call({data: b64(Buffer.from('a,b\n1,2')), mime: 'text/csv', name: 'x.csv'}); ok(j.text === 'a,b\n1,2', 'CSV and text pass through');
-[s, j] = await call({data: b64(Buffer.from('PK..')), mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', name: 'x.xlsx'}); ok(!j.text && /CSV/.test(j.note), 'a spreadsheet gets a plain note');
+// a real .xlsx built here: shared strings, numbers, an inline string, two sheets
+const XF = {'[Content_Types].xml': '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>',
+  'xl/workbook.xml': '<workbook xmlns:r="r"><sheets><sheet name="Takeoff" sheetId="1" r:id="rId1"/><sheet name="Notes &amp; Terms" sheetId="2" r:id="rId2"/></sheets></workbook>',
+  'xl/_rels/workbook.xml.rels': '<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Target="worksheets/sheet2.xml"/></Relationships>',
+  'xl/sharedStrings.xml': '<sst><si><t>Item</t></si><si><t>Qty</t></si><si><t>5/8 Type X drywall</t></si></sst>',
+  'xl/worksheets/sheet1.xml': '<worksheet><sheetData><row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c></row><row r="2"><c r="A2" t="s"><v>2</v></c><c r="B2"><v>40</v></c><c r="D2"><v>1240.5</v></c></row></sheetData></worksheet>',
+  'xl/worksheets/sheet2.xml': '<worksheet><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>Net 30 &lt;no retainage&gt;</t></is></c></row></sheetData></worksheet>'};
+const xbuf = zipOf(XF);
+[s, j] = await call({data: b64(xbuf), mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', name: 'takeoff.xlsx'});
+ok(s === 200 && j.how === 'spreadsheet' && /Sheet: Takeoff\nItem \| Qty\n5\/8 Type X drywall \| 40 \|  \| 1240\.5/.test(j.text) && /Sheet: Notes & Terms\nNet 30 <no retainage>/.test(j.text), `a spreadsheet is read sheet by sheet: ${JSON.stringify(j.text)}`);
+[s, j] = await call({data: b64(Buffer.from('PK..')), mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', name: 'x.xlsx'}); ok(!j.text && /could not open/.test(j.note), 'a broken spreadsheet gets a note');
+[s, j] = await call({data: b64(Buffer.from('x')), mime: 'application/vnd.ms-excel', name: 'old.xls'}); ok(!j.text && /\.xlsx or CSV/.test(j.note), 'an old .xls gets a plain note');
 [s, j] = await call({data: b64(Buffer.from('x')), mime: 'image/heic', name: 'IMG_1.HEIC'}); ok(!j.text && /Most Compatible/.test(j.note), 'an iPhone HEIC photo gets a plain note');
 [s, j] = await call({data: b64(Buffer.alloc(5e6)), mime: 'application/pdf', name: 'big.pdf'}); ok(s === 413 && /4\.5 MB/.test(j.note), 'too large: says so');
 [s, j] = await call({data: b64(Buffer.from('not a pdf')), mime: 'application/pdf', name: 'bad.pdf'}); ok(s === 200 && !j.text && /could not open/.test(j.note), `a broken file gets a note, not a crash: ${j.note}`);

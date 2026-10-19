@@ -81,7 +81,24 @@ function tzFmt(kind, tz) {
     f
   );
 }
+// Start-up asks for "now" in the firm's time zone thousands of times, and formatToParts is slow (4.6 s of a 20 s
+// phone start-up, profiled 2026-10-19). "Now" is remembered for the second it is in; a given date for good (a small
+// map, cleared when it grows). Callers get their own copy.
+let TZ_NOW = { s: -1, tz: "", p: null };
+const TZ_MEMO = new Map();
 function tzParts(d) {
+  const tz = APP_TZ();
+  if (!d) {
+    const sec = Math.floor(Date.now() / 1e3);
+    if (TZ_NOW.s === sec && TZ_NOW.tz === tz && TZ_NOW.p) return Object.assign({}, TZ_NOW.p);
+    const p = tzPartsRaw(d);
+    return (TZ_NOW = { s: sec, tz: tz, p: p }), Object.assign({}, p);
+  }
+  const k = tz + "|" + (d instanceof Date ? d.getTime() : String(d));
+  let p = TZ_MEMO.get(k);
+  return p || (TZ_MEMO.size > 5e3 && TZ_MEMO.clear(), (p = tzPartsRaw(d)), TZ_MEMO.set(k, p)), Object.assign({}, p);
+}
+function tzPartsRaw(d) {
   const x = d ? new Date(d) : new Date();
   try {
     const f = tzFmt("parts", APP_TZ()),
@@ -115028,6 +115045,15 @@ if ("function" == typeof paWatch) {
         if (!c || "ignored" === c.status || cmBankSender(c) || paMineMail(c)) return;
         const P = (c.proposals || []).filter((p) => !p.applied && !1 !== p.on && "note" !== p.kind);
         if (!P.length) return;
+        // Someone not on file (no vendor, client, staff or user with that address) is brought only when the mail
+        // names a job or money: a personal question ("Lunch Friday? Are you free?") stays in the inbox. A call Alan
+        // can change (PLAN, calls).
+        const fe = cmEmail((m.from || {}).email || ""),
+          onFile = !!fe && (cmIsStaff(fe) || !!cmVendorFor(fe, (m.from || {}).name) || !!cmClientFor(fe, !1) || (DB.users || []).some((u) => (u.contact || "").toLowerCase() === fe));
+        if (!onFile) {
+          const txt = `${m.subject || ""} ${m.text || ""}`;
+          if (!paScoreItem(txt, fe).term && !PA_MONEY.test(txt)) return;
+        }
         const who = (m.from || {}).name || (m.from || {}).email || "somebody",
           what = P.map((p) => String(p.title || p.label || p.kind || "").replace(/\s+/g, " ").slice(0, 90)).filter(Boolean)[0] || "";
         const n = paNudge(`${who} wrote about ${m.subject || "something"}.`, `I brought this to you because the inbox read something to do from it${what ? `: ${what}` : ""}. It waits on your yes in the inbox.`, { kind: "mail", id: m.msgId, commId: c.id }, "something to do from your mail");

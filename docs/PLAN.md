@@ -127,7 +127,7 @@ What remains, in order. Usage is a share of one week's allowance.
 
 ## 4. Queued (built after the above, or folded in where they fit)
 - **The transcript reader** (§1.33): Claude reads the whole meeting, corrects Gemini's notes, and turns lessons into process changes for approval. It joins week 4's live AI (row 12). The notes reader is built (2026-10-18).
-- **Speed:** boot under 2 s, view switch under 100 ms on a phone (§1.11 item 5).
+- **Speed:** boot under 2 s, view switch under 100 ms on a phone (§1.11 item 5). Measured on the hosted copy 2026-10-19 with a mid-range phone (CPU 4x slower, 1.5 MB/s): reopening took about 20 s, against 7.5 s for the local copy on the same CPU. Fixed so far: the time-zone formatter (4.6 s of it, now 0.16 s) and the page download on every open (the shell now opens from the phone's copy: 0 bytes, page ready in 1.9 s). Left: about 10 s of start-up work in finishBoot and the first render (job financials, overhead allocation, and render wrapped about 40 deep), which is this lane's work. `platform/test/live_speed.py` measures it; numbers taken while the full net ran are noisy.
 - **Notifications:** push notifications and morning and evening digests, on the platform (§1.11 item 6).
 - **Office and field input:**
   - voice input for the field (§1.11 item 7);
@@ -151,8 +151,7 @@ What remains, in order. Usage is a share of one week's allowance.
   - material and labour split per estimate line, so savings and price checks have a material budget;
   - a trip-cost model for the "not worth the trip" stock override.
 - **From the platform session (2026-10-19):**
-  - the inbox reader turns any question in mail into a to-do nudge, including personal mail from senders not on file ("Lunch Friday? Are you free?"); recommend: senders not on file need a job, money or date before they nudge;
-  - spreadsheets and iPhone HEIC photos in the document reader;
+  - iPhone HEIC photos in the document reader (spreadsheets are read since 2026-10-19);
   - a real push on Alan's phone and a real watcher run on his Gmail, not yet seen.
 - **Gaps the build lanes found:**
   - a toast's Open link sits above the editor's scrim and can navigate away with the editor still open (closing on navigation would drop unsaved edits; needs an "unsaved changes" prompt instead);
@@ -199,6 +198,7 @@ What remains, in order. Usage is a share of one week's allowance.
 - **Phone home screen:** it hides the "because" lines to stay under 180 words; they show on Approvals and on desktop.
 - **Quote rule:** "outside Manhattan and Brooklyn" means any other borough or out of state.
 
+- **Mail nudges (2026-10-19):** a question from someone not on file (no vendor, client, staff or user with that address) becomes a nudge only when the mail names a job or money; "Lunch Friday? Are you free?" stays in the inbox. Alan can change this.
 - **PM's phone bar (2026-10-18):** Home, Approvals, Projects, Tasks, Field, More.
 - **New CO, Invoice or Estimate off a job's screen asks for the client** (it used to take the last job's).
 - **A task saved with no owner goes to the job's PM** (or the design director on a design job), with who, when and why recorded; it can be switched off.

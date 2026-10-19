@@ -6,6 +6,7 @@
 // The file is read in memory and not kept.
 import {caller, json} from './lib/auth.mjs';
 import {claude} from './ai.mjs';
+import {xlsxText} from './lib/xlsx.mjs';
 const MAX_TEXT = 200000;
 const IMAGES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
 const kindOf = (mime, name) => {
@@ -66,7 +67,10 @@ export default async (req) => {
       return m.error ? json(m.status === 429 ? 429 : 200, {text: '', note: 'This photo could not be read: ' + m.error}) : json(200, {text: m.text, how: 'photo read by the model'});
     }
     if (kind === 'heic') return json(200, {text: '', note: 'iPhone HEIC photos are not read yet: set Camera › Formats › Most Compatible, or share the photo as a JPEG.'});
-    if (kind === 'sheet') return json(200, {text: '', note: 'Spreadsheets are not read yet: save it as CSV and attach that.'});
+    if (kind === 'sheet') {
+      if (/\.xls$/i.test(name) && !/openxml/.test(String(b.mime || ''))) return json(200, {text: '', note: 'Old .xls spreadsheets are not read: open it and save as .xlsx or CSV.'});
+      return json(200, {text: clean(xlsxText(buf)), how: 'spreadsheet'});
+    }
     return json(200, {text: '', note: `This kind of file (${b.mime || name || 'unknown'}) is not read yet.`});
   } catch (e) {
     return json(200, {text: '', note: 'The reader could not open this file: ' + String(e.message || e).slice(0, 160)});
