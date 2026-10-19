@@ -233,9 +233,10 @@ COLLECT = r"""
   const tabL = tabOn && vis(tabOn) ? srcText(tabOn) : '';
   // the group: the rail on desktop; the phone tab bars (#mtabs, the foreman's #tabbar) on phone
   const grpEls = [grpOn, ...document.querySelectorAll('#mtabs .on, #tabbar .on, .mtabs .on')].filter(Boolean);
-  // Ask is the header button on every screen, never a menu item (menu decision, 2026-10-19): lit, it is Ask's nav entry
-  const askOn = document.querySelector('#tb-ask.on');
-  const grpL = (grpEls.find(vis) ? srcText(grpEls.find(vis)) : '') || (grpOn ? (grpOn.textContent || '').replace(/\d+\s*$/, '').trim() : '') || (askOn && vis(askOn) ? askOn.getAttribute('aria-label') || '' : '');
+  // Ask and Chat are header buttons on every screen, never menu items (menu decision, 2026-10-19; Chat added the same
+  // day): lit, the button is that page's nav entry (its title, since Chat's label carries the unread count)
+  const askOn = [...document.querySelectorAll('#tb-ask.on, #tb-chat.on')].find(vis);
+  const grpL = (grpEls.find(vis) ? srcText(grpEls.find(vis)) : '') || (grpOn ? (grpOn.textContent || '').replace(/\d+\s*$/, '').trim() : '') || (askOn ? askOn.title || askOn.getAttribute('aria-label') || '' : '');
   let hEl = view && ([...view.querySelectorAll('h1')].find(vis) || [...view.querySelectorAll('h2')].find(vis));
   // On the phone the office roles' page title lives in the slim header: tdChrome marks the page's own heading
   // (.td-in-hdr) and hides it, so the header's title is the page heading there, not the next h2 down the page
