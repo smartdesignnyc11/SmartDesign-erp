@@ -2660,11 +2660,13 @@ function pcStatusHtml() {
   } catch (e) {}
   return `${mail}${mode ? `<div class="pc-stat"><span class="pa-dot${/^Thinking/.test(mode) ? " on" : ""}"></span><span class="grow">${esc(mode)}</span></div>` : ""}`;
 }
+// The list is marked as the person's own words (.bubble, as the screen standard reads a message): each title is the
+// first question as they typed it, a record value that is never Title Cased.
 function pcSideHtml() {
   return `<aside class="pc-side" id="pc-side" aria-label="Conversations">
     <div class="pc-side-hd"><h3>Conversations</h3>${pcIb("close", "Close", "data-pahistclose", "pc-side-x")}</div>
     <label class="pc-search">${paIc(PC_IC.search)}<input type="search" data-pcsearch value="${esc(pcSearch)}" placeholder="Search Conversations" aria-label="Search conversations"></label>
-    <div class="pc-list" id="pc-list">${pcListHtml()}</div>
+    <div class="pc-list bubble" id="pc-list">${pcListHtml()}</div>
     <div class="pc-side-ft">${pcStatusHtml()}</div>
   </aside>`;
 }
@@ -2912,13 +2914,38 @@ window.addEventListener("resize", () => {
   paSay = function (who, text, extra) {
     try {
       if ("a" === who && pcDraftSeen && !(extra && extra.nudge)) {
-        const fresh = (DB.outbox || []).filter((o) => o && !pcDraftSeen.has(o.id) && "draft" === o.status).map((o) => o.id);
+        const fresh = (DB.outbox || []).filter((o) => o && !pcDraftSeen.has(o.id) && "draft" === o.status && o.forName === paMe().name).map((o) => o.id);
         fresh.length && ((extra = Object.assign({}, extra || {}, { drafts: fresh })), fresh.forEach((id) => pcDraftSeen.add(id)));
       }
     } catch (e) {}
     return base.call(this, who, text, extra);
   };
 }
+// A draft made by pressing an answer's offer ("Put It in My Outbox") belongs to that answer too: it shows under
+// it with Approve and Edit, so the person finishes the job where they asked for it.
+document.addEventListener(
+  "click",
+  (e) => {
+    const b = e.target && e.target.closest ? e.target.closest("#v-pa [data-csdo], #v-pa [data-cspick]") : null;
+    if (!b) return;
+    const seen = new Set((DB.outbox || []).map((o) => o.id)),
+      el = b.closest("[data-pcmsg]"),
+      A = paInit(),
+      m = (el && A.thread.find((x) => x.id === el.dataset.pcmsg)) || A.thread.filter((x) => "a" === x.who && !x.nudge).slice(-1)[0];
+    if (!m) return;
+    // the offer may first ask for an address (a sheet the person fills in), so it looks for a while, then stops
+    const t0 = Date.now(),
+      look = () => {
+        const fresh = (DB.outbox || []).filter((o) => o && !seen.has(o.id) && "draft" === o.status && o.forName === paMe().name).map((o) => o.id);
+        if (!fresh.length) return void (Date.now() - t0 < 9e4 && "pa" === view && setTimeout(look, 400));
+        fresh.forEach((id) => seen.add(id));
+        (m.drafts = (m.drafts || []).concat(fresh)), save();
+        "pa" === view && "chat" === paTab && renderPa();
+      };
+    setTimeout(look, 60);
+  },
+  !0,
+);
 function paStop() {
   paBusy && "function" == typeof paStopFn && paStopFn();
 }
@@ -3101,6 +3128,7 @@ body #v-pa.view.pc-chat{overflow-x:clip;overflow-y:visible}
 .pc .pa-m.me .pa-b{background:var(--rule-2);border:0;border-radius:18px;padding:10px 15px;max-width:min(85%,560px);font-size:15px;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--ink)}
 .pc .pa-m.a .pa-b{border:0;padding:0;max-width:100%;background:none;font-size:15px;line-height:1.65;color:var(--ink);overflow-wrap:anywhere}
 .pc .pa-m.a .pa-b > b{display:block;font-weight:500;font-size:15px;line-height:1.6}
+.pc .pa-m.a .pa-answer b,.pc .pa-m.a .pa-n b,.pc .pa-m.a .pa-w b{display:inline;font-weight:600}
 .pc .pa-m.a .pa-n{font-size:14px;color:var(--ink-2);line-height:1.6;margin-top:6px}
 .pc .pa-m.a .pa-w li{font-size:14px;line-height:1.55}
 .pc .pa-b.md p,.pc .pa-answer.pa-md2 p{font-size:15px;line-height:1.7;margin:0 0 12px}
