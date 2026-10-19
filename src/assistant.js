@@ -2560,16 +2560,16 @@ function paBriefProse() {
   else if (withVerb[2]) acts.push(`<button type="button" class="btn sm" data-pabfdo="${esc(keep(withVerb[2]))}">${esc(paVerbLabel(withVerb[2]))}</button>`);
   return { html: html.join(""), plain: plain.join("\n\n"), acts: acts.slice(0, 3), rest: rest, B: B };
 }
-function paBriefMsgHtml(m) {
+function paBriefMsgHtml(m, last) {
   const live = m.brief === today(),
     P = live ? paBriefProse() : null,
     body = P ? P.html : String(m.text || "").split(/\n\n+/).map((s) => `<p>${esc(s)}</p>`).join("");
   P && (m.text = P.plain);
   const hosted = live && paHosted() ? `<button type="button" class="btn sm pa-quiet" data-pabfnow>Read My Mail Again Now</button>` : "";
-  return `<div class="pa-m a pa-brief" data-pcmsg="${esc(m.id)}" data-pabrief="${esc(m.brief)}"><div class="pa-b md"><div class="pa-bf-kick small muted">Your briefing, ${esc(live ? paDayWords() : fmtL(m.brief))}</div><div class="pa-answer pa-md2" data-pabfhead>${body}</div>${P && (P.acts.length || hosted) ? `<div class="pa-bf-acts">${P.acts.join("")}${hosted}</div>` : ""}</div>${pcActsHtml(m, !1)}</div>`;
+  return `<div class="pa-m a pa-brief" data-pcmsg="${esc(m.id)}" data-pabrief="${esc(m.brief)}"><div class="pa-b md"><div class="pa-bf-kick small muted">Your briefing, ${esc(live ? paDayWords() : fmtL(m.brief))}</div><div class="pa-answer pa-md2" data-pabfhead>${body}</div>${P && (P.acts.length || hosted) ? `<div class="pa-bf-acts">${P.acts.join("")}${hosted}</div>` : ""}</div>${pcActsHtml(m, !!last && live)}</div>`;
 }
 // "Show the other N": the rest, most pressing first, each a sentence with its record linked and its one verb
-function paBriefRestHtml(m) {
+function paBriefRestHtml(m, last) {
   const B = paBriefModel(),
     by = new Map(B.needs.map((x) => [x.key, x])),
     rows = (m.bfList || []).map((k) => {
@@ -2581,7 +2581,7 @@ function paBriefRestHtml(m) {
         open = paOpenOf(x) || v;
       return `<li class="pa-bf-li" data-pabfkey="${esc(x.key)}"><span class="pa-bf-s">${open ? `<a href="#" class="pa-rec" data-pabfgo="${esc(x.key)}">${esc(paCap(p.subj))}</a>` : esc(paCap(p.subj))} ${esc(p.pred)}.</span><span class="pa-bf-li-b">${v ? `<button type="button" class="btn sm" data-pabfdo="${esc(x.key)}">${esc(v.label)}</button>` : ""}<button type="button" class="pa-quiet-b" data-pabfsnooze="${esc(x.key)}">Not Now</button></span></li>`;
     });
-  return `<div class="pa-m a" data-pcmsg="${esc(m.id)}"><div class="pa-b md"><div class="pa-answer pa-md2"><p>${esc(m.text)}</p><ul class="pa-bf-ul">${rows.join("")}</ul></div></div>${pcActsHtml(m, !1)}</div>`;
+  return `<div class="pa-m a" data-pcmsg="${esc(m.id)}"><div class="pa-b md"><div class="pa-answer pa-md2"><p>${esc(m.text)}</p><ul class="pa-bf-ul">${rows.join("")}</ul></div></div>${pcActsHtml(m, last)}</div>`;
 }
 // a short reply for what the person just did, with Undo where it can be undone
 function paConfirm(text, extra) {
@@ -2980,12 +2980,12 @@ function pcActsHtml(m, last) {
   const log = m.undoLog && (paInit().log || []).find((x) => x.id === m.undoLog),
     undo = (log && log.undo && !log.undone) || (m.unsnooze && !m.undone) ? `<button type="button" class="pa-undo" data-pcact="undo|${id}">Undo</button>` : log && log.undone ? '<span class="pc-stopped">Undone</span>' : "";
   if (m.confirm) return `${drafts}<div class="pc-acts">${undo}</div>`;
-  return `${drafts}<div class="pc-acts">${b("copy", "Copy", "copy")}${last && !paBusy && !m.brief && !m.bfList ? b("retry", "Retry", "retry") : ""}${undo}${m.stopped ? '<span class="pc-stopped">Stopped</span>' : ""}</div>`;
+  return `${drafts}<div class="pc-acts">${b("copy", "Copy", "copy")}${last && !paBusy ? b("retry", "Retry", "retry") : ""}${undo}${m.stopped ? '<span class="pc-stopped">Stopped</span>' : ""}</div>`;
 }
 function pcMsgHtml(m, lastA, lastMe) {
   try {
-    if (m.brief) return paBriefMsgHtml(m);
-    if (m.bfList) return paBriefRestHtml(m);
+    if (m.brief) return paBriefMsgHtml(m, lastA);
+    if (m.bfList) return paBriefRestHtml(m, lastA);
     if (m.confirm) return `<div class="pa-m a pc-confirm" data-pcmsg="${esc(m.id)}"><div class="pa-b">${paIc(PC_IC.check)}<span>${esc(m.text)}</span></div>${pcActsHtml(m, lastA)}</div>`;
   } catch (e) {
     console.warn("assistant message", e);
@@ -3057,6 +3057,7 @@ function pcChatHtml() {
         ${pcIb("side", "Conversations", `data-pahist aria-expanded="${phone ? !!paHistOpen : !paSideOff}"`, "pc-sidebtn")}
         <h2 class="pc-h${document.body.classList.contains("m-on") ? " td-in-hdr" : ""}">${esc(paHead())}</h2>
         ${paTabsHtml()}
+        <label class="pc-tabsel"><span class="pc-sr">Show</span><select data-pctab aria-label="Show">${paTabsFor().map(([k, l]) => `<option value="${k}"${paTab === k ? " selected" : ""}>${esc(l)}${"findings" === k && paFindN.n ? ` (${paFindN.n})` : ""}</option>`).join("")}</select></label>
         <button type="button" class="btn pc-newbtn" data-panew title="New Chat" aria-label="New chat">${paIc(PC_IC.pen)}<span>New Chat</span></button>
       </div>
       <div class="pc-col">
@@ -3179,7 +3180,7 @@ window.addEventListener("resize", () => {
           // a conversation that is only today's briefing is read from its top; any other from its latest
           const talk = paTalk(paInit()),
             onlyBrief = talk.length && talk.every((m) => m.brief || m.bfList || m.confirm);
-          onlyBrief ? ((pcStick = !1), pcToTop(), setTimeout(pcToTop, 80)) : ((pcStick = !0), pcToBottom(), setTimeout(pcToBottom, 80));
+          (pcStick = !0), pcToBottom(), setTimeout(pcToBottom, 80), onlyBrief;
         }
       }
     } catch (e) {
@@ -3291,7 +3292,10 @@ function pcAttOf(m) {
 function pcRetry(id) {
   if (paBusy) return;
   const A = paInit(),
-    i = A.thread.findIndex((m) => m.id === id);
+    i = A.thread.findIndex((m) => m.id === id),
+    m0 = A.thread[i];
+  // the briefing, again from the records as they stand now
+  if (m0 && m0.brief) return void (pcRewind(id) && (paBriefSay(), renderPa(), paScroll()));
   let j = i;
   for (; j >= 0 && !("me" === A.thread[j].who && !A.thread[j].nudge); j--);
   if (j < 0) return void toast("There is no question above this to ask again");
@@ -3374,6 +3378,10 @@ document.addEventListener("submit", (e) => {
   if (!f) return;
   e.preventDefault();
   pcEditSend(f.dataset.pcedit, (f.querySelector("textarea") || {}).value);
+});
+document.addEventListener("change", (e) => {
+  const t = e.target;
+  t && t.matches && t.matches("#v-pa [data-pctab]") && ((paTab = t.value), renderPa(), window.scrollTo(0, 0));
 });
 document.addEventListener("input", (e) => {
   const t = e.target;
@@ -3527,14 +3535,15 @@ body #v-pa.view.pc-chat{overflow-x:clip;overflow-y:visible}
 .pc-priv{font-size:11.5px;color:var(--ink-3);text-align:center}
 .pc .pa-attnow{margin:0;background:var(--paper);border-radius:12px}
 .pc-scrim{display:none}
+.pc-tabsel{display:none}
 .pc-dock{background:var(--paper-2)}
 .pc-dock::before{content:"";position:absolute;left:0;right:0;top:-28px;height:28px;background:linear-gradient(to bottom,rgba(247,248,250,0),var(--paper-2));pointer-events:none}
 .pc .pa-brief .pa-b{font-size:15px;line-height:1.7}
 .pa-bf-kick{margin:0 0 6px;font-size:12.5px}
 .pc .pa-brief .pa-answer p{margin:0 0 12px}
 .pc .pa-brief .pa-answer p:first-child{font-size:16px}
-.pa-rec{color:var(--ink);text-decoration:underline;text-decoration-color:var(--rule);text-underline-offset:3px;text-decoration-thickness:1.5px}
-.pa-rec:hover{text-decoration-color:var(--accent);color:var(--accent)}
+.pa-rec{color:var(--accent);text-decoration:none}
+.pa-rec:hover,.pa-rec:active,.pa-rec:focus-visible{text-decoration:underline;text-underline-offset:3px}
 .pa-bf-acts{display:flex;flex-wrap:wrap;gap:8px;margin:4px 0 10px}
 .pa-bf-acts .btn{border-radius:16px;height:32px;padding:0 12px}
 .pa-quiet,.pa-quiet-b{background:none;border-color:transparent;color:var(--ink-3)}
@@ -3583,7 +3592,11 @@ body #v-pa.view.pc-chat{overflow-x:clip;overflow-y:visible}
   .pc-row{min-height:48px;padding:9px 10px}
   .pc-search input{height:44px;font-size:16px}
   .pc-stat .btn{min-height:40px}
-  #v-pa .pc .pc-top{gap:8px;margin-bottom:2px}
+  #v-pa .pc .pc-top{gap:8px;margin-bottom:2px;flex-wrap:nowrap}
+  #v-pa .pc .pc-top .pa-tabs{display:none}
+  .pc-tabsel{display:flex;flex:1 1 auto;min-width:0;position:relative}
+  .pc-tabsel select{flex:1 1 auto;min-width:0;height:44px;border:1px solid var(--rule);border-radius:10px;background:var(--paper);font:inherit;font-size:15px;font-weight:500;padding:0 12px;color:var(--ink)}
+  .pc-col{padding-bottom:36px}
   .pc-top .pc-sidebtn,.pc-top .pc-newbtn{width:44px;height:44px;padding:0;justify-content:center}
   .pc-top .pc-newbtn span{display:none}
   .pc-top .pa-tabs{flex:1 1 0;min-width:0;display:flex}
