@@ -106780,12 +106780,36 @@ function renderRealData() {
     }
   };
 }
+// Boot draws once (speed, BACKLOG §1.11 item 5). About a dozen finishBoot layers seed or migrate and then call
+// render(); on a phone each draw took 0.7 to 1.7 s, six of them in a row. While the chain runs, render() only notes
+// that a draw is wanted; the one draw comes after every layer has run, so the first screen shows the finished state.
+// The global is swapped, not wrapped, so every render layer (the outermost included) is held. Every boot path calls
+// bootRun, never finishBoot directly (the hosted shell's cloud.js too). A layer may wrap render while the chain runs
+// (stockRegister does), so the hold stays in place under it and passes every draw through once the chain is done. A
+// held draw still moves render.__tick, which the per-draw memos (ocMemo, budMemoGet, ovTick) key on, so a layer
+// never reads a count an earlier layer cached, and the tick never goes back.
+function bootRun() {
+  const draw = render;
+  let holding = !0,
+    wanted = !1,
+    tick = draw.__tick || 0;
+  const hold = function () {
+    if (!holding) return draw.apply(this, arguments);
+    (wanted = !0), (render.__tick = ++tick);
+  };
+  (hold.__tick = tick), (render = hold);
+  try {
+    finishBoot();
+  } finally {
+    (holding = !1), render === hold && (render = draw), (render.__tick = Math.max(render.__tick || 0, tick)), wanted && render();
+  }
+}
 setTimeout(async () => {
   if (!(bootDone || window.__cloudWait || cloudOn())) {
     console.warn("startup did not finish in 7 s; booting without stored data");
     try {
       DB || (await load({ skipStorage: !0 })),
-        finishBoot(),
+        bootRun(),
         toast("Saved data could not be read on this device — showing sample data");
     } catch (e) {
       console.error(e), showFatal("Could not start: " + (e.message || e));
@@ -106799,13 +106823,13 @@ setTimeout(async () => {
       } catch (e) {
         console.warn(e.message);
       }
-      bootDone ? render() : finishBoot();
+      bootDone ? render() : bootRun();
     })
     .catch((e) => {
       console.error("load failed", e),
         showFatal("Could not load saved data: " + (e.message || e)),
         load({ skipStorage: !0 })
-          .then(finishBoot)
+          .then(bootRun)
           .catch((err) => showFatal("Could not start: " + (err.message || err)));
     }),
   (ctBudget = function (d) {
