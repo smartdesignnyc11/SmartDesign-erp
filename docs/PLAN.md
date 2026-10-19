@@ -15,6 +15,14 @@ Last updated 2026-10-18 (platform set up).
 - Scripted month: 258 of 292 on time, 29 missed, $9,537 left behind, 1 schedule day lost. The previous best was 239/291, 46 missed, $109,613.
 - The 29 misses remaining are queued below ("From the scripted month").
 
+## Overnight 2026-10-19 (Alan asleep: "do not wait for my approvals")
+- **Building in four lanes** (each in its own worktree, with its own suite; merge order platform, today, menu, assistant, messages; the full net after each merge):
+  - **today:** one Today page per person and one task system (BACKLOG §1.11 item 1, §1.14);
+  - **menu:** one declared menu per role from the workshop, Ask a button on every screen (§1.15, MENU_DRAFT, all recommendations adopted);
+  - **assistant:** one assistant (Chat, Findings, Activity, Brain Settings), approval rules per action type, a chat that streams and shows its work (§1.27, §1.24);
+  - **messages:** team chat phase 1 (§1.21).
+- **Done by the main session tonight:** the AI door streams to the page; the nightly Brain on the server (first live run on QA data proposed five grounded changes for 5 cents); the books' seals; the document reader with spreadsheets; Sign Out Everywhere and invites; the watcher's nudges; faster phone start-up (part).
+
 ## Platform: first slice live (2026-10-18)
 - **Where:** https://smartdesigns-erp.netlify.app (new Netlify site; the 12 old sites untouched) on a new Supabase project in us-east-1. Alan is invited as owner by email. How it works: `platform/README.md`.
 - **Built and checked live:** invited sign-in only; roles set by the owner on the server; field roles never receive the books, bank, payroll or bills and get money stripped from jobs, and their saves cannot touch money; clients refused until per-client rows; edits sync between two devices both ways, simultaneous edits on the same job both kept; `/api/ai` refuses anyone not signed in or without a role, answers members on the model the server picks, and logs each call's cost (live checks 27/27 and 17/17).

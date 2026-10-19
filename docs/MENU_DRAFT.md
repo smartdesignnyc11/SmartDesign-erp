@@ -1,6 +1,6 @@
 # Navigation and pages: draft for discussion (SmartDesign workspace only)
 
-**Status:** the workshop has answered (2026-10-18, below). Waiting on Alan's decisions on the eight disagreements. Nothing gets built until Alan agrees. The Mercer & Bond workspace is out of scope.
+**Status:** the workshop has answered (2026-10-18, below). Decided 2026-10-19 under Alan's instruction ("do not wait for my approvals"): every bracketed recommendation below is adopted, reversible (docs/DECISIONS.md). The menu lane builds it overnight. The Mercer & Bond workspace is out of scope.
 
 **Process (Alan, 2026-10-11): "think about this more and consult with the agents that are working the site."**
 1. The role experts work the 3-day pilot of the agent month, and the harness records every page each person opens and where they looked first.
