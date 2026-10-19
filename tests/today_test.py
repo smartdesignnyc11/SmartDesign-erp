@@ -11,10 +11,15 @@ Flows: Do Now is ranked by the Standard's decision principles (the Owner's top c
 the list); WW-2026-118's verb (billed $3,800 over PO-2026-044) opens the short-pay sheet through the one
 bill-approval gate; the PM's top verb is Answer and opens the answer to the field.
 Header (phone): the slim header carries the page title, so the page spends no line on an in-page heading; its four
-icon buttons are each 44px tall and 8px apart; "N more in Approvals" opens Approvals at the top.
+icon buttons are each 44px tall and 8px apart; the Approvals filter's link opens the Approvals page at the top.
 Delegation: one item sits in exactly one person's queue (DELEGATION: kind -> the role that owns it), nothing is
 orphaned, and the owner's Everyone view still lists what waits on the others.
-Pulse: "Jobs Late" and "Jobs at Risk" count jobs, and their sheets list each job with its late items underneath."""
+Pulse: "Jobs Late" and "Jobs at Risk" count jobs, and their sheets list each job with its late items underneath.
+One queue (lane "today", 2026-10-19): Do Now has filters (All, Approvals, Inbox, Tasks, Team); All is the union of
+the other three, and the Approvals filter is what Do Now was (PRED.waitingOnMe). The filter strip has its own phone
+budget (5 filters, 10 words). The coordinator, billing and the controller get Today too, with no Owner/PM Pulse.
+tests/today_lane_test.py proves the rest (no item in two filters, the five sources, hand-offs, recurring duties,
+proof)."""
 import asyncio, re, sys
 from harness import *
 
@@ -125,10 +130,10 @@ async def main():
             await pg.click('.view.on [data-tdytabbtn="appr"]'); await pg.wait_for_timeout(250)
             n = await pg.evaluate("() => +document.querySelector('.view.on [data-tdcount]').dataset.tdcount")
             src = await pg.evaluate("() => PRED.waitingOnMe.count()")
-            more = await pg.evaluate("() => { const a = document.querySelector('.view.on [data-tdall]'); return a ? +a.innerText.match(/\\d+/)[0] : 0; }")
+            more = 0  # a filter shows its whole list in place; its link opens the full Approvals page (lane "today")
             cards = await pg.evaluate("() => document.querySelectorAll('.view.on .td-do .td-card').length")
             c.ok(n == src, f'{tag} phone: Do Now {n} vs PRED.waitingOnMe {src}')
-            c.ok(cards <= 5 and cards + more == n, f'{tag} phone: {cards} cards + {more} more vs Do Now {n}')
+            c.ok(cards == n and await pg.locator('.view.on [data-tdall]').count() == 1, f'{tag} phone: the Approvals filter lists {cards} cards vs {n}, with a link to the Approvals page')
             # Caught for You: the count is the rows, once expanded
             cn = await pg.evaluate("() => +document.querySelector('.view.on [data-tdcaught]').dataset.tdcaught")
             shown = await pg.evaluate("() => document.querySelectorAll('.view.on .td-catch .td-card').length")
@@ -144,7 +149,7 @@ async def main():
             y0 = await pg.evaluate("() => Math.round(Math.max(document.body.scrollTop, document.scrollingElement.scrollTop))")
             await pg.click('.view.on [data-tdall]'); await pg.wait_for_timeout(350)
             y1 = await pg.evaluate("() => [Math.round(Math.max(document.body.scrollTop, document.scrollingElement.scrollTop)), view]")
-            c.ok(y1 == [0, 'mapprove'], f'{tag} phone: "N more in Approvals" from scroll {y0} lands on {y1[1]} scrolled {y1[0]}px; want Approvals at the top')
+            c.ok(y1 == [0, 'mapprove'], f'{tag} phone: "Open the Approvals Page" from scroll {y0} lands on {y1[1]} scrolled {y1[0]}px; want Approvals at the top')
             ev = await pg.evaluate("() => { const b = document.querySelector('#mappr-tabs [data-mak=\"all\"] .n'); return b ? +b.innerText : null; }")
             c.ok(ev == n, f'{tag} phone: Approvals Everything {ev} vs Do Now {n}')
             chips = await pg.evaluate("() => [...document.querySelectorAll('#mappr-tabs [data-mak]:not([data-mak=\"all\"]) .n')].map(b => +b.innerText)")

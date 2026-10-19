@@ -114,7 +114,7 @@ async def sec_loop(p, c):
     await go(pg, 'home'); await pg.wait_for_timeout(300)
     k = rows[0]['key'] if rows else ''
     if k:
-        await pg.locator(f'.view.on [data-nyhrow="{k}"] .h4-act').click(); await pg.wait_for_timeout(300)
+        await pg.click('.view.on [data-tdytabbtn="appr"]'); await pg.wait_for_timeout(250); await pg.locator(f'.view.on .td-do .td-card[data-id="{k}"] [data-tdverb]').click(); await pg.wait_for_timeout(300)
         tk = await pg.evaluate("""k => { const a = DB.projects.flatMap(p => p.actions || []).find(a => a.source && a.source.kind === 'lesson' && /Text .* confirm/i.test(a.title)); return { a: a && [a.title, a.assignee, a.due], left: nyhRows().filter(r => r.key === k).length, toast: document.getElementById('toast').innerText } }""", k)
         c.ok(tk['a'] and tk['a'][1] == 'Chen Biron' and tk['left'] == 0, f'one tap on Home makes the dated task for Chen with the lesson as its source: {tk}')
         c.ok('Open' in tk['toast'], f'the tap toasts what happened with Open: {tk["toast"]!r}')
@@ -197,16 +197,16 @@ async def sec_nyh(p, c):
     # Controller: one tap on Home applies the Satish bill; the row leaves
     await sign_in(pg, 'u_controller'); await go(pg, 'home'); await pg.wait_for_timeout(250)
     k = await pg.evaluate("() => (nyhRows().find(r => /Satish/.test(r.title)) || {}).key || ''")
-    n0 = await pg.evaluate("() => +document.querySelector('.view.on .nyh-card').dataset.nyhn")
+    n0 = await pg.evaluate("() => tdyModel().appr.filter(x => x.nyh).length")
     c.ok(n0 == await pg.evaluate("() => nyhRows().length"), f"the Controller's Needs Your Hand card counts its rows: {n0}")
     n0p = await pg.evaluate("() => nyhRows().filter(r => r.kind !== 'standard').length")
     if k:
-        await pg.locator(f'.view.on [data-nyhrow="{k}"] .h4-act').click(); await pg.wait_for_timeout(300)
+        await pg.click('.view.on [data-tdytabbtn="appr"]'); await pg.wait_for_timeout(250); await pg.locator(f'.view.on .td-do .td-card[data-id="{k}"] [data-tdverb]').click(); await pg.wait_for_timeout(300)
         await pg.evaluate("() => { const m = document.getElementById('mbm'); const b = m && [...m.querySelectorAll('.btn.primary')].find(x => x.offsetParent); b && b.click(); }")
         await pg.wait_for_timeout(200)
         # Standard Watch rows (kind "standard") may change with the books: a bill paid with no PO is a three-way-match
         # breach for the Controller. The proposals themselves go down by one.
-        s = await pg.evaluate("k => ({ bill: (DB.bills || []).filter(b => /SE-0922/.test(b.number || '')).length, left: nyhRows().some(r => r.key === k), n: nyhRows().filter(r => r.kind !== 'standard').length, card: +document.querySelector('.view.on .nyh-card').dataset.nyhn, all: nyhRows().length })", k)
+        s = await pg.evaluate("k => ({ bill: (DB.bills || []).filter(b => /SE-0922/.test(b.number || '')).length, left: nyhRows().some(r => r.key === k), n: nyhRows().filter(r => r.kind !== 'standard').length, card: tdyModel().appr.filter(x => x.nyh).length, all: nyhRows().length })", k)
         c.ok(s['bill'] == 1 and not s['left'] and s['n'] == n0p - 1 and s['card'] == s['all'], f'one tap applies the Satish bill once and the row leaves: {s}')
     z = await pg.evaluate("() => { const r = nyhRows().find(r => r.kind === 'code'); if (!r) return null; nyhRun(r.key); const t = DB.txns.find(t => /ZELLE/i.test(t.desc) && Math.abs(Math.abs(t.amt) - 2400) < 1); return { title: r.title, cat: t && t.cat, job: t && t.projectId } }")
     c.ok(z and z['cat'] and z['cat'] != 'uncat' and z['job'] == 'p121', f"Jeanette's Zelle explanation becomes a coding proposal; Apply codes the line to the job: {z}")
@@ -218,7 +218,7 @@ async def sec_nyh(p, c):
     c.ok(kd and 'INV-2026-038' in kd['title'] and kd['verb'] == 'Record Payment', f'a deposit in the bank is "Record payment: Kleins $68,265 against INV-2026-038": {d}')
     if kd:
         await go(pg, 'home'); await pg.wait_for_timeout(250)
-        await pg.locator(f'.view.on [data-nyhrow="{kd["key"]}"] .h4-act').click(); await pg.wait_for_timeout(300)
+        await pg.click('.view.on [data-tdytabbtn="appr"]'); await pg.wait_for_timeout(250); await pg.locator(f'.view.on .td-do .td-card[data-id="{kd["key"]}"] [data-tdverb]').click(); await pg.wait_for_timeout(300)
         rec = await pg.evaluate("() => { const c = DB.clients.find(c => (c.payments || []).some(p => p.txnId === 'tdepk')); return { paid: !!c, left: nyhRows().some(r => r.key === 'dep:tdepk') } }")
         c.ok(rec['paid'] and not rec['left'], f'one tap records the payment against the invoice, linked to the bank line: {rec}')
     rv = await pg.evaluate("() => nyhRows().filter(r => r.kind === 'undeposited').map(r => r.key)")

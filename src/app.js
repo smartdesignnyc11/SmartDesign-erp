@@ -173431,9 +173431,10 @@ function tdRender() {
     tabs = TDY_TABS.filter(([k]) => "team" !== k || M.team),
     tab = tabs.some(([k]) => k === tdyTabOf()) ? tdyTabOf() : "all",
     Q = M[tab] || [],
-    MORE = { appr: ["Approvals", "mapprove"], inbox: ["Inbox", "comms"], tasks: ["Tasks", "tkall"] },
+    MORE = { appr: ["Open the Approvals Page", "mapprove"], inbox: ["Open the Inbox", "comms"], tasks: ["Open All Tasks", "tkall"] },
     more = MORE[tab] && (ROLE_VIEWS[r] || []).includes(MORE[tab][1]) ? MORE[tab] : null,
-    top = (tdyAllOpen && !more ? Q : Q.slice(0, 5)).map((it) => Object.assign({ it: it }, tdCard(it))),
+    // a filter is its whole list, in place; All shows the first five and "N more" opens the rest in place
+    top = ("all" !== tab || tdyAllOpen ? Q : Q.slice(0, 5)).map((it) => Object.assign({ it: it }, tdCard(it))),
     caught = tdCaught(M.appr),
     // four, plus every catch that landed today: an escalation is raised the same day (the Standard), never held under the fold
     shownC = (tdShownC = tdCatchAll ? caught : caught.filter((x, i) => i < 4 || x.fresh)),
@@ -173460,13 +173461,13 @@ function tdRender() {
           .join("")
       : `<div class="td-empty">${{ appr: "Nothing waits on your approval.", inbox: "No message waits on you.", tasks: "No task of yours is open.", team: "Nobody on the team has an open task." }[tab] || "Nothing is waiting on you."}</div>`
   }${
-    Q.length > top.length
-      ? more
-        ? `<a href="#" class="td-more" ${"appr" === tab ? "data-tdall" : `data-tdymore="${more[1]}"`}>${Q.length - top.length} more in ${more[0]}</a>`
-        : `<a href="#" class="td-more" data-tdyopen>${Q.length - top.length} more</a>`
-      : tdyAllOpen && !more && Q.length > 5
-        ? '<a href="#" class="td-more" data-tdyopen>Show Fewer</a>'
-        : ""
+    more && Q.length
+      ? `<a href="#" class="td-more" ${"appr" === tab ? "data-tdall" : `data-tdymore="${more[1]}"`}>${more[0]}</a>`
+      : "all" === tab && Q.length > top.length
+        ? `<a href="#" class="td-more" data-tdyopen>${Q.length - top.length} more</a>`
+        : "all" === tab && tdyAllOpen && Q.length > 5
+          ? '<a href="#" class="td-more" data-tdyopen>Show Fewer</a>'
+          : ""
   }</section>
   <div class="td-side"><section class="td-sec td-catch" aria-label="Caught for You"><div class="td-hd"><h3>Caught for You</h3><span class="td-cnt" data-tdcaught="${caught.length}">${caught.length}</span></div>${
     shownC.length
@@ -197136,12 +197137,15 @@ function tdyTeam() {
   const me = tdyMe(),
     T = tkAll({ open: !0 }).filter((t) => !t.approval),
     td = today();
-  return tdyUsers()
-    .filter((u) => u.id !== me.id && !("pm" === role() && "owner" === u.role))
+  // everyone who owns something: people who sign in, and staff who do not (an employee with no sign-in still owes)
+  const people = tdyUsers().map((u) => ({ id: u.id, name: u.name, role: u.role }));
+  T.forEach((t) => t.owner && !t.ownerUid && !people.some((p) => p.name === t.owner) && people.push({ id: "", name: t.owner, role: "" }));
+  return people
+    .filter((u) => u.name !== me.name && !("pm" === role() && "owner" === u.role))
     .map((u) => {
-      const own = T.filter((t) => t.ownerUid === u.id),
-        offered = T.filter((t) => t.offeredToUid === u.id);
-      return { kind: "tdyPerson", id: u.id, u: u, own: own, offered: offered, late: own.filter((t) => t.due && t.due < td).length, title: u.name, detail: "", due: "" };
+      const own = T.filter((t) => (u.id ? t.ownerUid === u.id : !t.ownerUid && t.owner === u.name)),
+        offered = u.id ? T.filter((t) => t.offeredToUid === u.id) : [];
+      return { kind: "tdyPerson", id: u.id || "name:" + u.name, u: u, own: own, offered: offered, late: own.filter((t) => t.due && t.due < td).length, title: u.name, detail: "", due: "" };
     })
     .filter((x) => x.own.length || x.offered.length)
     .sort((a, b) => b.late - a.late || b.own.length - a.own.length);
