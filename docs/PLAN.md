@@ -2,7 +2,7 @@
 
 This is the one list. The chief of staff keeps it current on every ask, lane report and merge. Details live in the BACKLOG sections named. Status words: **Running** · **Next** · **Queued** · **Waiting on Alan** · **Later** (deferred by Alan) · **Done**.
 
-Last updated 2026-10-18 (platform set up).
+Last updated 2026-10-19 (overnight lanes merged).
 
 ## 0. Usage rule (Alan)
 - Warn before any heavy step.
@@ -16,11 +16,12 @@ Last updated 2026-10-18 (platform set up).
 - The 29 misses remaining are queued below ("From the scripted month").
 
 ## Overnight 2026-10-19 (Alan asleep: "do not wait for my approvals")
-- **Building in four lanes** (each in its own worktree, with its own suite; merge order platform, today, menu, assistant, messages; the full net after each merge):
-  - **today:** one Today page per person and one task system (BACKLOG §1.11 item 1, §1.14);
-  - **menu:** one declared menu per role from the workshop, Ask a button on every screen (§1.15, MENU_DRAFT, all recommendations adopted);
-  - **assistant:** one assistant (Chat, Findings, Activity, Brain Settings), approval rules per action type, a chat that streams and shows its work (§1.27, §1.24);
-  - **messages:** team chat phase 1 (§1.21).
+- **Built and merged (four lanes, all on master 2026-10-19):**
+  - **Today:** one Today page per office role (owner, PM, coordinator, billing, controller) over one task shape; filters All, Approvals, Inbox, Tasks, Team; hand-offs that need acceptance; the Standard's recurring duties made automatically; proof asked when closing an inspection, a wall or extra work (BACKLOG §1.11 item 1, §1.14).
+  - **Menu:** one declared menu per role from the workshop, every recommendation adopted; Ask is a button in the header on every screen (§1.15).
+  - **Assistant:** one assistant (Chat, Findings, Activity, Brain Settings); Act Alone / Ask First / Hand It to Me per action type; answers stream in, show their work and read attachments (§1.27, §1.24).
+  - **Messages:** one message-thread noun: each job's team and client threads, direct and group messages (members only, also on the server), record cards, @assistant, message to task (§1.21 phase 1).
+- **Found and fixed while merging, each with a check that failed first:** the menu and the assistant disagreed on The Brain and the Chief of Staff (now entries that open the assistant on their tab); after sending one invoice the next draft had no Send to Client (the Made Today card swallowed the header); on a phone, Open on a sent invoice's mail left the line below the screen; the demo's message threads could have seeded into the live workspace; the owner's assistant rules for someone never reached that person on the hosted copy; two phones would each make the Friday update.
 - **Done by the main session tonight:** the AI door streams to the page; the nightly Brain on the server (first live run on QA data proposed five grounded changes for 5 cents); the books' seals; the document reader with spreadsheets; Sign Out Everywhere and invites; the watcher's nudges; faster phone start-up (part).
 
 ## Platform: first slice live (2026-10-18)
@@ -33,10 +34,10 @@ Last updated 2026-10-18 (platform set up).
 - **The watcher is live** (2026-10-19): every 15 minutes, weekdays 7am to 7pm New York, new mail, calendar changes and Drive files go into each watching person's private inbox; the app files them on opening. Alan turns it on with Settings › Connections › Keep Watching When It Is Closed. The watcher's key reads only (it cannot send mail). Push notifications are live: at most one per run, for vendors, clients, jobs, agencies and meetings in the next two days. Alan turns them on in Settings › notifications (iPhone: add to Home Screen first). The watcher's finds now become nudges in the assistant's conversation. The owner invites people and signs any account out everywhere from Settings › Team Accounts; a signed-out phone loses access at once and erases its copy.
 - **Long AI answers no longer vanish** (2026-10-19): the door streams, so answers past 30 s arrive (4,000 tokens in 41 s), and anything past 52 s comes back cut short with its cost logged. Before, a long answer was lost at 30 s and its cost escaped the caps. Longer work belongs to the scheduled agents.
 - **The books' seals are held by the server** (2026-10-19): each closed month is sealed with SHA-256 from the server's own copy of the books, add-only; Verify the Books checks against it and names any changed, missing or added posting.
-- **The document reader is live** (2026-10-19): text PDFs and Word read free on the server; scanned PDFs and photos read by the small Claude model within the caps (a receipt photo read exactly in the live test). Spreadsheets and HEIC photos get a note for now.
+- **The document reader is live** (2026-10-19): text PDFs and Word read free on the server; scanned PDFs and photos read by the small Claude model within the caps (a receipt photo read exactly in the live test). Spreadsheets are read since the same night; HEIC photos get a note for now.
 - **Alan signed in** (2026-10-19, email link); the firm workspace holds the first upload (84 collections, demo data).
 - **Next platform lane (recommended):** the client package for the portal (BACKLOG §5 note): clients stay refused until a client's phone can receive only its own figures, proven by a planted-secret test.
-- **Not built yet:** spreadsheets and HEIC in the reader, per-client portal rows, the server-side hash-chain head, document reader, mail/calendar/drive watcher, Plaid, push, the agents.
+- **Not built yet:** HEIC photos in the reader, per-client portal rows (clients stay refused), Plaid, the agents beyond the nightly Brain. Field roles still receive every job.
 
 ## Overnight 2026-10-18: where things stand (for Alan at 10am)
 - **Published:** version 11 (v11.1 folded in). Build 84687e4: 32/32 suites green; scripted month 258/292 on time.
