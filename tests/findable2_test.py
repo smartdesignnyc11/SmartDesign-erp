@@ -139,7 +139,8 @@ async def scenario_noshow(pg):
 
 
 async def setup_coi(pg):
-    await pg.evaluate("m => { DB.comms.push(JSON.parse(JSON.stringify(m))); save(); view = 'home'; render(); }", COI_MAIL)
+    # Home is Today (lane "today"): the mail's Apply is on the Approvals filter (the coordinator's All leads with his late orders)
+    await pg.evaluate("m => { DB.comms.push(JSON.parse(JSON.stringify(m))); save(); try { tdyTabSet('appr'); } catch (e) {} view = 'home'; render(); }", COI_MAIL)
     await pg.wait_for_timeout(300)
 
 
