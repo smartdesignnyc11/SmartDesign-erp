@@ -70,6 +70,7 @@ EVAL_JS = r"""
       audit: r && r.audit ? { figures: r.audit.figures, traced: r.audit.traced, untraced: r.audit.untraced } : null,
       verify: r ? (r.used.find((u) => u.tool === 'verify') || {}).input : null,
       recall: r ? (r.used.find((u) => u.tool === 'recall') || {}).input : null,
+      labels: r ? r.used.map((u) => mindStepLabel(u.tool, u.input)) : [], summary: r ? r.summary : '', links: r ? r.links : [],
       system: seen[0] ? seen[0].system : '', effort: seen[0] ? seen[0].effort : '', calls: seen.length, model: seen[0] ? seen[0].model || '' : '',
       toolNames: seen[0] ? seen[0].tools : [],
     };
@@ -110,7 +111,7 @@ CASES = [
        rounds=[[Q('estimatelines', q='windows', where={'project': '121 State Street'})], [T('record', ref='EST-2026-014')]],
        claims="(() => { const l = Q('estimatelines').rows[0]; return [{ says: M(l.overBy), what: 'windows over budget', entity: 'estimatelines', where: { lineKey: l.lineKey }, field: 'overBy' }, { says: M(l.budget), what: 'windows budget', entity: 'estimatelines', where: { lineKey: l.lineKey }, field: 'budget' }]; })()",
        answer="(() => { const l = Q('estimatelines').rows[0], rec = D('record'), pos = rec.links.poLines.filter((p) => /window/i.test(p.line)); return `Yes, ${M(l.overBy)} over: the windows line (${l.estimate}) was budgeted at ${M(l.budget)} and has ${M(l.actual)} against it. ${pos.length ? `It is bought on ${[...new Set(pos.map((p) => p.po))].join(', ')} (${pos[0].vendor}).` : 'No PO is linked to it.'} The overage needs a change order or an explanation before the next pay application.`; })()",
-       touch=['estimatelines', 'record'], rows=['estimatelines'],
+       touch=['estimatelines', 'record'], rows=['estimatelines'], links=['EST-2026-014'],
        facts="(() => { const k = jobFin(DB.projects.find((p) => p.id === 'p121')).eacLines.find((x) => x.key === 'estimate:es1:l3'); return [mdM(k.over), mdM(k.budget), 'EST-2026-014']; })()"),
   dict(id='nemo-quote-vs-po', as_='u_alan', ws=True, q='What does the Nemo Tile quote Q-2271 say, and does it match what we have on order?',
        rounds=[[T('search_drive', q='Nemo Q-2271'), T('search_mail', q='Q-2271')], [T('read_document', id="js:D('search_drive').files[0]._id"), Q('purchaseorders', where={'vendor': 'Nemo Tile'})]],
@@ -322,6 +323,17 @@ CASES = [
   dict(id='recall-step', as_='u_alan', q='When will the Window Works order land if we order Monday?',
        rounds=[[Q('vendorontime', where={'vendor': 'Window Works'})]],
        answer="'At 8 weeks from approved shop drawings, the rule the owner approved; their quoted 19 days has not held.'", touch=['vendorontime'], facts="[]", recall=True),
+  # ---- a conversation, not single questions: a follow-up resolves against what was read before
+  dict(id='followup-1', as_='u_alan', keep=True, q='Which estimate lines on 121 State are over budget?',
+       rounds=[[Q('estimatelines', where={'project': '121 State Street', 'overBudget': True}, sort='overBy desc')]],
+       claims="Q('estimatelines').rows.map((r) => ({ says: M(r.overBy), what: r.item, entity: 'estimatelines', where: { lineKey: r.lineKey }, field: 'overBy' }))",
+       answer="(() => { const L = Q('estimatelines').rows; return `${L.length} lines are over: ${L.map((r) => `**${r.item}** by ${M(r.overBy)}`).join(', and ')}. The windows overage is the one to price as a change order first.`; })()",
+       touch=['estimatelines'], rows=['estimatelines'], facts="['$3,800']"),
+  dict(id='followup-2', as_='u_alan', q='And the one after that, why is it over?',
+       rounds=[[T('record', ref='EST-2026-014')]],
+       claims="(() => { const l = D('record').lines.filter((x) => x.overBudget).sort((a, b) => b.overBy - a.overBy)[1]; return [{ says: M(l.committed), what: l.item + ' committed', entity: 'estimatelines', where: { lineKey: l.lineKey }, field: 'committed' }]; })()",
+       answer="(() => { const l = D('record').lines.filter((x) => x.overBudget).sort((a, b) => b.overBy - a.overBy)[1]; return `Taking \"the one after that\" as ${l.item}: it is ${M(l.overBy)} over because ${M(l.committed)} is committed against a ${M(l.budget)} budget. Ask the vendor whether the extra is scope we can bill.`; })()",
+       touch=['record'], sys_has=['Earlier in this conversation', 'Which estimate lines on 121 State are over budget?', 'Windows'], facts="[]"),
   # ---- the check and the voice
   dict(id='made-up-figure', as_='u_alan', q='How much have we spent on 121 State demolition?',
        rounds=[[Q('estimatelines', q='demolition', where={'project': '121 State Street'})]],
@@ -412,6 +424,14 @@ async def run_case(pg, C, c, conn):
     if (res['audit'] or {}).get('figures') or res['check']:
         c.ok(res['verify'] and res['verify'].get('result'), f"{cid}: How I Got There carries the check: {res['verify']}")
     c.ok('!' not in res['text'] and not re.search(r'(?i)^(great question|certainly|sure)', res['text']), f"{cid}: the house voice: {res['text'][:120]!r}")
+    for l in res['labels']:
+        c.ok(l and l != 'Thinking' and len(l) <= 72 and not re.search(r'[{}\[\]"]{2}|_', l.replace('"', '')), f"{cid}: a plain step label: {l!r}")
+    if [t for t in res['tools'] if t['name'] not in ('learn',)]:
+        c.ok(res['summary'], f"{cid}: the steps have a one-line summary: {res['summary']!r}")
+    for no in C.get('links', []):
+        c.ok(any(x['text'] == no and x.get('go') for x in res['links']), f"{cid}: {no} comes back as a link to open: {res['links']}")
+    for k in C.get('sys_has', []):
+        c.ok(k in res['system'], f"{cid}: the prompt carries {k!r}")
     if C.get('recall'):
         c.ok(res['recall'] and res['recall'].get('found'), f"{cid}: the recall step ran and shows: {res['recall']}")
         c.ok('What you already know that bears on this question' in res['system'], f'{cid}: what it recalled is in the prompt')

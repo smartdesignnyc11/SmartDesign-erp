@@ -117859,28 +117859,15 @@ async function mindTool(name, a) {
       return "function" == typeof mindToolMore ? await mindToolMore(name, a) : { error: `No tool called ${name}.` };
   }
 }
-const mindStepLabel = (name, a) =>
-  ({
-    query: `Reading the ${(a && a.entity) || "records"}`,
-    resolve: `Working out who ${(a && a.name) || "that"} is`,
-    profile: `Pulling everything on ${(a && a.name) || "it"}`,
-    read_document: `Reading ${(a && (a.name || a.id)) || "the document"}`,
-    search_mail: "Searching the mail",
-    free_time: "Looking at the calendar",
-    draft_email: "Writing the draft",
-    hold_time: "Holding the time",
-    create_task: "Putting it on the list",
-    remember: "Keeping that",
-    recall: "Checking what I already know",
-    search_drive: `Searching the Drive${a && a.q ? ` for ${a.q}` : ""}`,
-    read_thread: "Reading the whole thread",
-    calendar: "Looking at the calendar",
-    record: `Reading ${(a && a.ref) || "the record"} line by line`,
-    price_history: `Looking up what we paid for ${(a && a.item) || "it"}`,
-    check: "Checking every figure against the records",
-    learn: "Keeping that for next time",
-    verify: "Checking the answer against what I read",
-  })[name] || "Thinking";
+// One short human line per step ("Reading the Window Works bills", "Searching your mail for Imogen"): mindStepHuman in
+// src/mind.js writes it from what the tool was asked; the live line and How I Got There both show it.
+const mindStepLabel = (name, a) => {
+  try {
+    const t = "function" == typeof mindStepHuman ? mindStepHuman(name, a || {}) : "";
+    if (t) return t;
+  } catch (e) {}
+  return { query: `Reading the ${(a && a.entity) || "records"}`, search_mail: "Searching your mail", read_document: "Reading the document" }[name] || "Thinking";
+};
 let paSteps = [];
 const paMd = (s) => {
     const inline = (t) => {
