@@ -109,10 +109,17 @@ async def five_sources(c, pg):
     c.ok(len(r['obligation']) == 1, f"source obligation: once on Alan's Today (its renewal and its task are one item): {r['obligation']}")
     c.ok(not r['noOwner'], f"every task has a person as its owner: {r['noOwner'][:4]}")
     # the source link opens the record
-    for k, view_re in (('schedule', r'^(tasks|sched|proj)$|editor'), ('sales', r'^tkall$'), ('office', r'^(home|tkall)$')):
-        got = await pg.evaluate("""re => { const t = tkAll({ open: true }).find(x => new RegExp(re).test(x.title)); if (!t) return null;
-          view = 'home'; render(); try { editing = null; } catch (e) {} tdyOpenSource(t); return [view, !!document.querySelector('.drawer.on, #editor.on, .editor.on'), (S || {}).id || '']; }""", f'Lane src {k}')
-        c.ok(got and (re.search(view_re, got[0]) or got[1]), f'source {k}: its link opens the record ({got})')
+    # the source link opens the record: a to-do opens in All Tasks with its editor; a sales task opens its panel
+    for k, want in (('schedule', 'editor'), ('office', 'editor'), ('assistant', 'tkall'), ('sales', 'panel')):
+        got = await pg.evaluate("""async re => { document.querySelectorAll('#hb-panel').forEach(e => e.remove()); view = 'home'; render();
+          const t = tkAll({ open: true }).find(x => new RegExp(re).test(x.title)); if (!t) return null;
+          tdyOpenSource(t); await new Promise(r => setTimeout(r, 250));
+          const has = (el) => !!el && ((el.innerText || '').includes(t.title.slice(0, 20)) || [...el.querySelectorAll('input, textarea')].some(i => (i.value || '').includes(t.title.slice(0, 20))));
+          const ed = [...document.querySelectorAll('#editor, .drawer, #drawer, .editor, #mbm')].find(e => e.offsetParent !== null || e.classList.contains('on'));
+          return { view, editor: has(ed), listed: has(document.querySelector('.view.on')), panel: has(document.getElementById('hb-panel')) }; }""", f'Lane src {k}')
+        ok = got and ((want == 'editor' and got['view'] == 'tkall' and (got['editor'] or got['listed'])) or (want == 'tkall' and got['view'] == 'tkall' and got['listed']) or (want == 'panel' and got['panel']))
+        c.ok(ok, f'source {k}: its link opens the record ({got})')
+        await pg.evaluate("() => { try { closeEditor(); } catch (e) {} mbCloseModal(); document.querySelectorAll('#hb-panel').forEach(e => e.remove()); }")
     # the task's sheet names where it came from
     await go(pg, 'home'); await pg.wait_for_timeout(200)
     sh = await pg.evaluate("""() => { const t = tkAll({ open: true }).find(x => /Lane src schedule/.test(x.title)); tdyTaskSheet(t);

@@ -196877,18 +196877,31 @@ function tdyDecideSheet(x) {
 function tdyOpenSource(x, co) {
   try {
     if (co) {
-      const p = tdyProj(x);
-      clientOpen = p.clientId;
-      return "function" == typeof openDoc ? openDoc(p.clientId, "co", co.id) : setView("clients");
+      const p = tdyProj(x),
+        c = p && (DB.clients || []).find((k) => k.id === p.clientId);
+      return c ? flowGo.doc(c, "co", co)() : setView("clients");
     }
     if ("draft" === x.kind) return mGo({ view: "brain", bnTab: "hands" });
-    if ("ob" === x.kind || (x.row && x.row.obId)) return (view = "obligations"), render();
-    if ("hub" === x.kind || "lead" === x.kind) return (tkWho = "me"), setView("tkall");
-    if (x.projectId && /^(action|sched|issue)$/.test(x.kind)) {
-      setCurrent(x.projectId);
-      if ("action" === x.kind && "function" == typeof openEditor) return openEditor("action", x.id);
-      return (view = "sched" === x.kind ? "sched" : "tasks"), render();
+    // a duty about a delivery opens its PO
+    if (x.row && "firm" === x.kind) {
+      const r = tdyRec(x),
+        po = r && r.link && "po" === r.link.kind && (DB.pos || []).find((k) => k.id === r.link.id);
+      if (po) return flowGo.po(po)();
     }
+    const may = (v) => (ROLE_VIEWS[role()] || []).includes(v);
+    if ("ob" === x.kind || (x.row && x.row.obId)) return may("obligations") ? ((view = "obligations"), render()) : tdyGoTask(x);
+    if ("hub" === x.kind && "function" == typeof hbTaskPanel) return hbTaskPanel({ task: tdyRec(x) }, () => render());
+    if ("lead" === x.kind) {
+      const l = (DB.leads || []).find((k) => k.id === x.id);
+      if (l) return flowGo.lead(l)();
+    }
+    if ("sched" === x.kind && x.projectId) return setCurrent(x.projectId), (view = "sched"), render();
+    if ("issue" === x.kind && x.projectId) return setCurrent(x.projectId), "function" == typeof openEditor ? openEditor("iss", x.id) : setView("tasks");
+    // a to-do (a job's, the office's, the assistant's reminder) opens in All Tasks with its editor, like New Task's Open
+    if (/^(action|firm)$/.test(x.kind) && may("tkall") && "function" == typeof crOpenTask) return crOpenTask({ kind: x.kind, id: x.id, projectId: x.projectId || "", assignee: x.assignee || x.owner, due: x.due });
+    // the assistant's reminder has no editor of its own: it lands on All Tasks, highlighted
+    if ("note" === x.kind && may("tkall") && "function" == typeof tkLand) return tkLand({ kind: x.kind, id: x.id, projectId: "", assignee: x.assignee || x.owner, due: x.due });
+    if (x.projectId && "action" === x.kind) return setCurrent(x.projectId), openEditor("action", x.id);
   } catch (e) {
     console.warn("open task source", e);
   }
