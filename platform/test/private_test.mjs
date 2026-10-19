@@ -54,4 +54,9 @@ ok(linked['own:alan-key:comms'] && linked['own:alan-key:comms'].length === 1 && 
 // the watcher's inbox is filed by the app, never merged into DB as a collection
 const ib = {users: DB.users, projects: []}; C._test.setPart(ib, 'own:alan-key:inbox', {gmail: [{id: 'x'}]});
 ok(!('inbox' in ib) && !Object.keys(ib).some(k => k.startsWith('own:')), "the watcher's inbox is not stored as a collection");
+C._test.profile({role: 'owner'}); ctx.window.__cloudPerson = 'uA';
+const th = J(C.shards({users: DB.users, projects: [], threads: [{id: 't1', members: ['uA', 'uB'], msgs: [{t: 'hi'}]}, {id: 't2', members: ['uB', 'uC'], msgs: [{t: 'B and C only'}]}]}));
+ok(th['thread:t1'] && !th['thread:t2'] && !('threads' in th), "each thread is its own row; a device sends only its person's threads");
+const tb = {users: DB.users, projects: []}; C._test.setPart(tb, 'thread:t1', {id: 't1', members: ['uA'], msgs: []}); C._test.setPart(tb, 'thread:t1', {id: 't1', members: ['uA'], msgs: [{t: 'x'}]});
+ok(tb.threads.length === 1 && tb.threads[0].msgs.length === 1, 'thread rows join DB.threads by id');
 console.log('ALL PASS', `(${n} checks)`);

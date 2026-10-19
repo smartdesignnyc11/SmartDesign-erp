@@ -34,7 +34,7 @@ window.Cloud = (() => {
   const FIELD_READONLY = ['__meta', 'company', 'clients', 'users', 'vendors', 'stock', 'inventory', 'obligations', 'watches', 'migrations'];
   const isOffice = () => OFFICE.includes(profile && profile.role);
   const isField = () => FIELD.includes(profile && profile.role);
-  const mayWrite = name => name.startsWith('own:') || isOffice() || (isField() && !FIELD_HIDDEN.includes(name) && !FIELD_READONLY.includes(name));
+  const mayWrite = name => name.startsWith('own:') || name.startsWith('thread:') || isOffice() || (isField() && !FIELD_HIDDEN.includes(name) && !FIELD_READONLY.includes(name));
 
   // ---- the pending marker: unsynced edits survive a closed tab or a dead battery
   const pkey = () => 'sdp:pending:' + (user() ? user().id : '');
@@ -204,11 +204,18 @@ window.Cloud = (() => {
     const out = {}; const meta = {};
     for (const k of Object.keys(DB)) { if (k === 'projects' || DEVICE.includes(k)) continue; if (k.startsWith('__')) { meta[k] = DB[k]; continue; } if (PRIV[k]) split(DB, k, out); else out[k] = DB[k]; }
     if (user() && meApp() && profile) for (const k of Object.keys(PRIV)) if (!(ownName(k) in out)) split(DB, k, out);   // an emptied list still syncs as empty
-    out.__meta = meta; (DB.projects || []).forEach(p => { out['project:' + p.id] = p; }); return out;
+    out.__meta = meta; (DB.projects || []).forEach(p => { out['project:' + p.id] = p; });
+    // Direct and group message threads: one row each, which the database shows to their members only. A device
+    // sends only the threads its person belongs to.
+    delete out.threads;
+    const me = meApp();
+    (Array.isArray(DB.threads) ? DB.threads : []).forEach(t => { if (t && t.id && me && (t.members || []).includes(me)) out['thread:' + t.id] = t; });
+    return out;
   }
   // Put one shard's value into DB: a whole collection, a project, or one part of a split collection.
   function setPart(DB, name, data) {
     if (name.startsWith('project:')) { const i = DB.projects.findIndex(p => p.id === data.id); i >= 0 ? (DB.projects[i] = data) : DB.projects.push(data); return 'projects'; }
+    if (name.startsWith('thread:')) { DB.threads = Array.isArray(DB.threads) ? DB.threads : []; if (!data) return 'threads'; const i = DB.threads.findIndex(t => t.id === data.id); i >= 0 ? (DB.threads[i] = data) : DB.threads.push(data); return 'threads'; }
     if (name === '__meta') { Object.assign(DB, data || {}); return null; }
     if (DEVICE.includes(name)) return null;                                                // never taken from the server
     const own = name.startsWith('own:'), k = own ? name.split(':').slice(2).join(':') : name, r = PRIV[k];
@@ -241,7 +248,7 @@ window.Cloud = (() => {
   function applyLocal(name, data) {
     const DB = dbRef(); if (!DB) return;
     const k = setPart(DB, name, data);
-    if (onChange && k) onChange(k === 'projects' ? name : k, k === 'projects' ? data : DB[k]);   // the app's cloudApply re-renders
+    if (onChange && k) onChange(k === 'projects' ? name : k, k === 'projects' ? data : DB[k]);   // threads arrive as the whole list   // the app's cloudApply re-renders
     if (inbox) drainInbox();
   }
   // The hosted watcher leaves new mail, calendar changes and Drive files in own:<person>:inbox while the app is

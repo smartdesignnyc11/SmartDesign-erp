@@ -154,6 +154,19 @@ ok(m and not m[0]['ok'] and m[0]['changed'], f'verify: a rewritten posting is ca
 s, j = http('DELETE', BASE + '/rest/v1/period_seals?ym=eq.2026-08', token=T['owner'])
 ok(s >= 400 or j == [], f'nobody signed in can delete a seal, the owner included: {s}')
 
+# direct and group messages: one row per thread, members only, the owner included
+s, res = save(T['owner'], [{'name': 'thread:qa-t1', 'data': {'id': 'qa-t1', 'kind': 'direct', 'members': ['u_owner', 'u_angel'], 'msgs': [{'t': 'OWNER-TO-ANGEL'}]}, 'base': 0}])
+ok(s == 200 and res[0].get('version'), f'threads: the owner starts a thread with the foreman: {res}')
+s, rows = view(T['foreman']); ok('OWNER-TO-ANGEL' in json.dumps(rows), 'threads: the foreman (a member) reads it')
+s, rows = view(T['crew']); ok('OWNER-TO-ANGEL' not in json.dumps(rows), 'threads: the crew member (not a member) never receives it')
+s, res = save(T['crew'], [{'name': 'thread:qa-t1', 'data': {'id': 'qa-t1', 'members': ['u_owner', 'u_angel', 'u_alberto'], 'msgs': []}, 'base': 99}])
+ok(res and res[0].get('refused'), f'threads: a non-member cannot take a thread over by adding himself: {res}')
+s, res = save(T['crew'], [{'name': 'thread:qa-t2', 'data': {'id': 'qa-t2', 'kind': 'direct', 'members': ['u_alberto', 'u_angel'], 'msgs': [{'t': 'CREW-TO-ANGEL'}]}, 'base': 0}])
+ok(s == 200 and res[0].get('version'), f'threads: the crew member starts his own thread: {res}')
+s, rows = view(T['owner']); ok('CREW-TO-ANGEL' not in json.dumps(rows), "threads: the owner does not read a thread he is not in")
+s, res = save(T['crew'], [{'name': 'thread:qa-t3', 'data': {'id': 'qa-t3', 'members': ['u_owner', 'u_angel'], 'msgs': [{'t': 'forged'}]}, 'base': 0}])
+ok(res and res[0].get('refused'), f'threads: nobody writes a thread for others: {res}')
+
 # the AI door
 def ai(who, body):
     h = {'content-type': 'application/json'}

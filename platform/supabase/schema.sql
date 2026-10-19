@@ -69,6 +69,15 @@ create or replace function public.my_private_key() returns text language sql sta
   select coalesce((select nullif(private_key, '') from public.profiles where id = auth.uid()), auth.uid()::text);
 $$;
 
+-- The person a sign-in is in the app (DB.users id), set by the owner; direct and group message threads are visible
+-- by it. Unset: no threads.
+create or replace function public.my_app_user() returns text language sql stable security definer set search_path = public as $$
+  select nullif((select app_user_id from public.profiles where id = auth.uid()), '');
+$$;
+create or replace function public.thread_member(d jsonb) returns boolean language sql stable security definer set search_path = public as $$
+  select public.my_app_user() is not null and coalesce(d->'members', '[]'::jsonb) ? public.my_app_user();
+$$;
+
 -- ---------------------------------------------------------------- what field roles may not see or write
 -- Collections a field phone never receives (money, books, bank, people's pay, deals and investors).
 create or replace function public.field_hidden() returns text[] language sql immutable as $$
@@ -162,7 +171,9 @@ create or replace view public.collections_view with (security_invoker = false) a
     and (public.is_office() or (public.is_field() and not (c.name = any(public.field_hidden()))))
     -- A person's own rows (own:<their sign-in id>:<collection>): the mail, calendar and Drive files from their
     -- Google account, their connection and their assistant's memory. Nobody else reads them, the owner included.
-    and (c.name not like 'own:%' or split_part(c.name, ':', 2) = public.my_private_key());
+    and (c.name not like 'own:%' or split_part(c.name, ':', 2) = public.my_private_key())
+    -- A direct or group message thread (one row each, thread:<id>) is read by its members only, the owner included.
+    and (c.name not like 'thread:%' or public.thread_member(c.data));
 revoke all on public.collections_view from anon;
 grant select on public.collections_view to authenticated;
 
@@ -194,10 +205,14 @@ begin
     if nm in ('deviceUser','role','me','currentId','notify','lastMail') then   -- settings of one device, never shared
       result := result || jsonb_build_array(jsonb_build_object('name', nm, 'refused', true)); continue;
     end if;
+    if nm like 'thread:%' and not (public.thread_member(it->'data') and not exists (select 1 from public.collections x where x.workspace_id = wsid and x.name = nm and not public.thread_member(x.data))) then
+      -- a thread is written only by a member, and an existing thread only by one of its members
+      result := result || jsonb_build_array(jsonb_build_object('name', nm, 'refused', true)); continue;
+    end if;
     if nm like 'own:%' and split_part(nm, ':', 2) <> public.my_private_key() then
       result := result || jsonb_build_array(jsonb_build_object('name', nm, 'refused', true)); continue;
     end if;
-    if field and nm not like 'own:%' and (nm = any(public.field_hidden()) or nm = any(public.field_readonly())) then
+    if field and nm not like 'own:%' and nm not like 'thread:%' and (nm = any(public.field_hidden()) or nm = any(public.field_readonly())) then
       result := result || jsonb_build_array(jsonb_build_object('name', nm, 'refused', true)); continue;
     end if;
     base := nullif(it->>'base','')::int;
@@ -212,7 +227,7 @@ begin
              version = newv, updated_by = auth.uid(), updated_at = now()
        where workspace_id = wsid and name = nm;
     else
-      if field and nm not like 'project:%' and nm not like 'own:%' and nm not in ('field','time','photos','tasks','comms','meetings') then
+      if field and nm not like 'project:%' and nm not like 'own:%' and nm not like 'thread:%' and nm not in ('field','time','photos','tasks','comms','meetings') then
         result := result || jsonb_build_array(jsonb_build_object('name', nm, 'refused', true)); continue;
       end if;
       newv := 1;
@@ -414,3 +429,6 @@ create table if not exists public.period_seals (
 create index if not exists period_seals_ws_ym on public.period_seals (workspace_id, ym, sealed_at desc);
 alter table public.period_seals enable row level security;
 revoke all on public.period_seals from anon, authenticated;
+
+-- Threads are rows of their own now (thread:<id>); a single shared "threads" row would show every DM to everyone.
+delete from public.collections where name = 'threads';
