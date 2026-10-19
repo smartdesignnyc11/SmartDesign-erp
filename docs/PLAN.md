@@ -27,6 +27,7 @@ Last updated 2026-10-18 (platform set up).
 - **The books' seals are held by the server** (2026-10-19): each closed month is sealed with SHA-256 from the server's own copy of the books, add-only; Verify the Books checks against it and names any changed, missing or added posting.
 - **The document reader is live** (2026-10-19): text PDFs and Word read free on the server; scanned PDFs and photos read by the small Claude model within the caps (a receipt photo read exactly in the live test). Spreadsheets and HEIC photos get a note for now.
 - **Alan signed in** (2026-10-19, email link); the firm workspace holds the first upload (84 collections, demo data).
+- **Next platform lane (recommended):** the client package for the portal (BACKLOG §5 note): clients stay refused until a client's phone can receive only its own figures, proven by a planted-secret test.
 - **Not built yet:** spreadsheets and HEIC in the reader, per-client portal rows, the server-side hash-chain head, document reader, mail/calendar/drive watcher, Plaid, push, the agents.
 
 ## Overnight 2026-10-18: where things stand (for Alan at 10am)

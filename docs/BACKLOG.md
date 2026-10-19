@@ -1058,6 +1058,14 @@ Today every person's data lives in their own browser and every guard runs in the
    - **Evaluation before go-live.** The Ask bank (tune, held-out, held-out-2) runs against the live model; prompt-injection tests run with hostile mail; and each agent shadows for a week (proposals only, compared with what people did) before any delegated autonomy is switched on.
    - **What Alan sets up.** An Anthropic API account with billing and a spending limit (separate from his Claude plan), Supabase, Netlify, and a Google OAuth client. Keys go only into Netlify and Supabase settings.
 
+### §5 note: the client portal on the hosted copy (2026-10-19, from the platform session)
+Measured: the client's screens (portal, schedule, decisions, chat, account) read `employees`, `bills`, `txns`, `payroll`, `gl`, `pos` and the rest, because the portal's figures (% complete, billed, what is due) are computed from the firm's internal records. Filtering rows cannot hide those, so clients stay refused by the server until this is built:
+1. **A client package per client:** the office's own figures for that client (their jobs' client-facing fields, schedule, decisions, documents sent, invoices and payments, messages with them), computed by the app's existing portal code from the full books and written to `client:<clientId>` rows. No costs, margins, vendors, internal notes or other clients.
+2. **Written when it changes,** by an office device after a save that touches that client, and checked by a server rule that the package holds only allowed keys.
+3. **The client's sign-in reads only its package** (the view gains a client branch; profiles carry `client_id`, set by the owner when inviting).
+4. **Proof before any client signs in:** a planted-secret test (a cost, a margin, another client's name, an internal note) that must never appear in any byte a client device receives; the client expert walks it on a phone.
+Size: one lane, about a day, plus the privacy review. Owner: platform lane.
+
 ## §6 Go-live and the 10x scorecard
 1. **Real data in.** Clients, jobs, vendors, people, open estimates, invoices, bills and POs imported (the existing paste-from-Excel import, the QuickBooks snapshot load, and the master-data proposals from real mail), demo data removed, opening balances from QuickBooks.
 2. **A parallel month.** The ERP runs beside QuickBooks for one month; the Three-Way Tie-Out must agree every week before QuickBooks is retired; a cutover checklist with an owner and a date.
