@@ -9,6 +9,8 @@ H = os.path.dirname(os.path.abspath(__file__))
 src = ''.join(open(os.path.join(H, '..', f), encoding='utf-8').read() + '\n' for f in ('src/app.js', 'src/mind.js', 'src/assistant.js'))
 ALLOW = {
     'seedUsers': 'runs only when there are no users at all (first boot of an empty copy)',
+    'msgTeamSeed': "a job's first crew from its own records (time, daily logs, requests, thread lines), once per job with no crew; no demo data",
+    'msgPolicySeed': 'one drafted change (stable id) for the owner to approve: the chat-records notice; a proposal, not records',
     'budgetSeedFromActuals': 'a feature: a budget from last year\'s actual books, on request',
     'seedSearches': 'default saved searches, structure not records',
     'libSeed': 'the item library\'s common items, a default the firm keeps',

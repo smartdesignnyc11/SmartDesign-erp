@@ -93,7 +93,7 @@ async def t_dm(c, p):
     await go(pg, 'chat')
     await pg.click('#msg-new')
     await pg.wait_for_timeout(200)
-    await pg.check('#mbm [data-f="m_u_alberto"]')
+    await pg.check('#mbm [data-f="p_u:u_alberto"]')   # New Chat (2026-10-19): people keyed by kind
     await pg.click('#mbm #mbm-ok')
     await pg.wait_for_timeout(400)
     key = await pg.evaluate("() => (msgCur() || {}).key")

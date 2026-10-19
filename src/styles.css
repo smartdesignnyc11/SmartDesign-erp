@@ -3661,7 +3661,7 @@ body.msg-on #v-chat .chat-compose #chat-send:disabled{opacity:.45}
   #v-chat.msg-listmode .msg-main{display:none}
   #v-chat:not(.msg-solo) .msg-back{display:inline-flex}
   body.msg-thread #v-chat .msg-main{position:fixed;left:0;right:0;top:0;bottom:var(--msg-kb,0px);height:auto;z-index:50;background:var(--paper-2)}
-  body.msg-thread .mtabs,body.msg-thread .tabbar{visibility:hidden}
+  /* the bars stay where they are under the conversation (it covers them), so the page keeps its lit Chat entry */
   .msg-head{padding:calc(6px + env(safe-area-inset-top)) 8px 8px 4px;gap:6px}
   .msg-head .msg-av{width:36px;height:36px}
   #v-chat .chat-list{padding:10px 10px 8px}
@@ -3775,3 +3775,5 @@ body.msg-on #v-chat .chat-compose.msg-recording #chat-send{display:none}
 .msg-person.off{opacity:.55;cursor:default}
 .msg-addnew{margin:6px 0 10px;border:1px solid var(--rule);border-radius:10px;padding:8px 10px} .msg-addnew summary{cursor:pointer;font-weight:600;min-height:32px;display:flex;align-items:center}
 .msg-mailst{display:inline-flex;flex-wrap:wrap;align-items:center;gap:8px;color:var(--ink-3)}
+/* a client on a desktop has one conversation and no list: the page keeps its Chat heading above it */
+@media (min-width:761px){ #v-chat.msg-solo .ph{display:block} #v-chat.msg-solo .msg-wrap{height:calc(100vh - 52px - 120px)} }
