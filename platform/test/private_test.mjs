@@ -4,7 +4,7 @@ import fs from 'node:fs'; import vm from 'node:vm'; import assert from 'node:ass
 const src = fs.readFileSync(new URL('../public/cloud.js', import.meta.url), 'utf8');
 const ctx = {window: {fetch: async () => {}, SDP_CONFIG: {}, __cloudPerson: 'uA'}, navigator: {onLine: true}, location: {href: 'https://x/', origin: 'https://x'}, URL, Headers, localStorage: {getItem: () => null, setItem() {}, removeItem() {}}, document: {addEventListener() {}}, console};
 ctx.window.window = ctx.window; vm.createContext(ctx); vm.runInContext(src, ctx);
-const C = ctx.window.Cloud; C._test.session({user: {id: 'auth-A'}, access_token: 't'});
+const C = ctx.window.Cloud; C._test.session({user: {id: 'auth-A'}, access_token: 't'}); C._test.profile({role: 'owner'});
 const J = v => JSON.parse(JSON.stringify(v));
 let n = 0; const ok = (c, msg) => { assert.ok(c, msg); n++; };
 const DB = {users: [{id: 'uA'}, {id: 'uB'}], projects: [{id: 'p1'}],
@@ -47,4 +47,11 @@ const d = J(C.shards({users: DB.users, projects: [], deviceUser: 'uA', role: 'ow
 ok(!['deviceUser', 'role', 'me', 'currentId', 'notify', 'lastMail'].some(k => k in d) && 'clients' in d, 'device settings (who is on this phone, the open job) are never synced');
 const dev = {deviceUser: 'uA', role: 'owner'}; C._test.setPart(dev, 'deviceUser', 'uB'); C._test.setPart(dev, 'role', 'foreman');
 ok(dev.deviceUser === 'uA' && dev.role === 'owner', 'and never taken from the server');
+// two sign-ins of one person, linked by the server: both write and read the same private rows
+C._test.profile({role: 'owner', private_key: 'alan-key'}); ctx.window.__cloudPerson = 'uA';
+const linked = J(C.shards({users: DB.users, projects: [], comms: [{id: 'm1', owner: 'uA', source: 'google'}]}));
+ok(linked['own:alan-key:comms'] && linked['own:alan-key:comms'].length === 1 && !Object.keys(linked).some(k => k.includes('auth-A')), "linked sign-ins share one private store");
+// the watcher's inbox is filed by the app, never merged into DB as a collection
+const ib = {users: DB.users, projects: []}; C._test.setPart(ib, 'own:alan-key:inbox', {gmail: [{id: 'x'}]});
+ok(!('inbox' in ib) && !Object.keys(ib).some(k => k.startsWith('own:')), "the watcher's inbox is not stored as a collection");
 console.log('ALL PASS', `(${n} checks)`);

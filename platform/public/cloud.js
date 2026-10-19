@@ -142,7 +142,10 @@ window.Cloud = (() => {
     asst: {kind: 'keyed'},                                                                // each person's assistant: thread, memory, delegation
   };
   const meApp = () => window.__cloudPerson || null;                                         // the person in the app (DB.users id)
-  const ownName = k => 'own:' + user().id + ':' + k;
+  // Whose private rows: the profile's private key when the server has linked several sign-ins of one person
+  // (Alan's two addresses), otherwise this sign-in. The database checks the same key.
+  const ownKey = () => (profile && profile.private_key) || (user() && user().id) || '';
+  const ownName = k => 'own:' + ownKey() + ':' + k;
   const ownIds = {};                                                                      // own shard -> ids (or keys) last put into DB
   function split(DB, k, out) {
     const r = PRIV[k], me = meApp(), mine = !!(me && user());
@@ -167,7 +170,7 @@ window.Cloud = (() => {
   function shards(DB) {
     const out = {}; const meta = {};
     for (const k of Object.keys(DB)) { if (k === 'projects' || DEVICE.includes(k)) continue; if (k.startsWith('__')) { meta[k] = DB[k]; continue; } if (PRIV[k]) split(DB, k, out); else out[k] = DB[k]; }
-    if (user() && meApp()) for (const k of Object.keys(PRIV)) if (!(ownName(k) in out)) split(DB, k, out);   // an emptied list still syncs as empty
+    if (user() && meApp() && profile) for (const k of Object.keys(PRIV)) if (!(ownName(k) in out)) split(DB, k, out);   // an emptied list still syncs as empty
     out.__meta = meta; (DB.projects || []).forEach(p => { out['project:' + p.id] = p; }); return out;
   }
   // Put one shard's value into DB: a whole collection, a project, or one part of a split collection.
@@ -176,6 +179,7 @@ window.Cloud = (() => {
     if (name === '__meta') { Object.assign(DB, data || {}); return null; }
     if (DEVICE.includes(name)) return null;                                                // never taken from the server
     const own = name.startsWith('own:'), k = own ? name.split(':').slice(2).join(':') : name, r = PRIV[k];
+    if (own && k === 'inbox') { inbox = {name, data}; return null; }                      // the watcher's finds: filed by drainInbox
     if (!r) { DB[name] = data; return name; }
     if (r.kind === 'keyed') {
       if (own) { DB[k] = DB[k] || {}; (ownIds[name] || []).forEach(key => delete DB[k][key]); Object.assign(DB[k], data || {}); ownIds[name] = Object.keys(data || {}); }
@@ -205,6 +209,25 @@ window.Cloud = (() => {
     const DB = dbRef(); if (!DB) return;
     const k = setPart(DB, name, data);
     if (onChange && k) onChange(k === 'projects' ? name : k, k === 'projects' ? data : DB[k]);   // the app's cloudApply re-renders
+    if (inbox) drainInbox();
+  }
+  // The hosted watcher leaves new mail, calendar changes and Drive files in own:<person>:inbox while the app is
+  // shut. The app files them through its own sync code (gsIngestServer), then the inbox is emptied with the
+  // version it was read at, so anything the watcher added meanwhile is read on the next pass, never lost.
+  let inbox = null, draining = false;
+  async function drainInbox() {
+    if (draining || !inbox || !window.__cloudPerson || typeof window.gsIngestServer !== 'function') return;
+    const box = inbox; inbox = null; draining = true;
+    try {
+      const has = Object.values(box.data || {}).some(v => Array.isArray(v) && v.length);
+      if (!has) return;
+      window.gsIngestServer(box.data);
+      const {data: res} = await sb.rpc('save_collections', {p_items: [{name: box.name, data: {}, base: versions[box.name] || 0}]});
+      const r = (res || [])[0] || {};
+      if (r.conflict) { const row = await pullOne(box.name); if (row) { remember(box.name, row.data, row.version); inbox = {name: box.name, data: row.data}; } }
+      else if (r.version) remember(box.name, {}, r.version);
+    } catch (e) { console.warn('inbox', e); }
+    finally { draining = false; if (inbox) setTimeout(drainInbox, 500); }
   }
   // The server moved past us on `name`: merge our unsynced edits into its copy.
   function absorb(name, row) {
@@ -299,6 +322,7 @@ window.Cloud = (() => {
     }).subscribe();
     // The change feed can drop on a phone's network; a light poll of versions catches anything it missed.
     poller = setInterval(() => { if (document.visibilityState === 'visible') pollOnce(); }, 30000);
+    setTimeout(drainInbox, 1500);                                                          // what the watcher found while shut
   }
 
   // ---- files (photos, documents)
@@ -318,5 +342,5 @@ window.Cloud = (() => {
     signIn, signInGoogle, authError, magicLink, resetPassword, signOut, pullAll, pullOne, push, pushPending, hasPending, subscribe, pollOnce, putBlob, getBlob,
     listProfiles, updateProfile, aiSpend, listSignals: none, setSignalStatus: async () => true, listClips: none, claimClips: async () => 0,
     saveClipToken: async () => true, screenPoint: async () => null, state, shards, merge3, cfg,
-    _test: {session: s => { session = s; }, setPart: (DB, n, d) => setPart(DB, n, d)}};
+    _test: {session: s => { session = s; }, profile: p => { profile = p; }, setPart: (DB, n, d) => setPart(DB, n, d)}};
 })();

@@ -56,6 +56,13 @@ create or replace function public.is_member() returns boolean language sql stabl
   select public.is_office() or public.is_field();
 $$;
 
+-- Whose private rows a sign-in reads: its own, unless the server has linked several sign-ins of one person
+-- (Alan's two addresses). Only the server sets it: the column is not granted to anyone signed in.
+alter table public.profiles add column if not exists private_key text;
+create or replace function public.my_private_key() returns text language sql stable security definer set search_path = public as $$
+  select coalesce((select nullif(private_key, '') from public.profiles where id = auth.uid()), auth.uid()::text);
+$$;
+
 -- ---------------------------------------------------------------- what field roles may not see or write
 -- Collections a field phone never receives (money, books, bank, people's pay, deals and investors).
 create or replace function public.field_hidden() returns text[] language sql immutable as $$
@@ -149,7 +156,7 @@ create or replace view public.collections_view with (security_invoker = false) a
     and (public.is_office() or (public.is_field() and not (c.name = any(public.field_hidden()))))
     -- A person's own rows (own:<their sign-in id>:<collection>): the mail, calendar and Drive files from their
     -- Google account, their connection and their assistant's memory. Nobody else reads them, the owner included.
-    and (c.name not like 'own:%' or split_part(c.name, ':', 2) = auth.uid()::text);
+    and (c.name not like 'own:%' or split_part(c.name, ':', 2) = public.my_private_key());
 revoke all on public.collections_view from anon;
 grant select on public.collections_view to authenticated;
 
@@ -181,7 +188,7 @@ begin
     if nm in ('deviceUser','role','me','currentId','notify','lastMail') then   -- settings of one device, never shared
       result := result || jsonb_build_array(jsonb_build_object('name', nm, 'refused', true)); continue;
     end if;
-    if nm like 'own:%' and split_part(nm, ':', 2) <> auth.uid()::text then
+    if nm like 'own:%' and split_part(nm, ':', 2) <> public.my_private_key() then
       result := result || jsonb_build_array(jsonb_build_object('name', nm, 'refused', true)); continue;
     end if;
     if field and nm not like 'own:%' and (nm = any(public.field_hidden()) or nm = any(public.field_readonly())) then
@@ -288,3 +295,47 @@ revoke all on function public.ai_spend(text, uuid) from public, anon, authentica
 
 -- One-time cleanup (2026-10-19): device settings that early builds synced as if they were the firm's records.
 delete from public.collections where name in ('deviceUser','role','me','currentId','notify','lastMail');
+
+-- ---------------------------------------------------------------- the Google watcher (2026-10-19)
+-- One row per person who handed the server their long-lived Google key. The key is sealed (AES-256-GCM with
+-- WATCH_KEY, which lives only in Netlify); nothing signed in can read this table at all, only the server.
+create table if not exists public.google_watch (
+  person_key text primary key,
+  workspace_id text not null,
+  app_user_id text,
+  email text,
+  sealed text not null,
+  scopes text,
+  cursors jsonb not null default '{}'::jsonb,
+  connected_at timestamptz default now(),
+  last_run timestamptz,
+  last_ok timestamptz,
+  last_error text default ''
+);
+alter table public.google_watch enable row level security;
+revoke all on public.google_watch from anon, authenticated;
+
+-- The watcher adds what it found to the person's inbox row; the app files it and empties it.
+create or replace function public.watch_put_inbox(p_ws text, p_key text, p_items jsonb) returns integer
+language plpgsql security definer set search_path = public as $$
+declare nm text := 'own:' || p_key || ':inbox'; cur jsonb; k text; merged jsonb; v int;
+begin
+  select data into cur from public.collections where workspace_id = p_ws and name = nm for update;
+  merged := coalesce(cur, '{}'::jsonb);
+  for k in select * from jsonb_object_keys(p_items) loop
+    merged := jsonb_set(merged, array[k], coalesce(merged->k, '[]'::jsonb) || (p_items->k), true);
+  end loop;
+  insert into public.collections (workspace_id, name, data, version) values (p_ws, nm, merged, 1)
+  on conflict (workspace_id, name) do update set data = excluded.data, version = public.collections.version + 1, updated_at = now()
+  returning version into v;
+  return v;
+end $$;
+revoke all on function public.watch_put_inbox(text, text, jsonb) from public, anon, authenticated;
+
+-- What a person may see of their own watch: connected, when it last ran, the last error. Never the key.
+create or replace function public.my_watch() returns jsonb language sql stable security definer set search_path = public as $$
+  select coalesce((select jsonb_build_object('watching', true, 'email', email, 'connectedAt', connected_at, 'lastRun', last_run, 'lastOk', last_ok, 'lastError', last_error)
+    from public.google_watch where person_key = public.my_private_key()), jsonb_build_object('watching', false));
+$$;
+revoke all on function public.my_watch() from public, anon;
+grant execute on function public.my_watch() to authenticated;

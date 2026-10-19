@@ -28,7 +28,7 @@ if google is None:
 ver = hashlib.md5((html + open(os.path.join(PUB, 'cloud.js')).read()).encode()).hexdigest()[:8]
 open(os.path.join(PUB, 'config.js'), 'w').write(
     '// Public values only. The Anthropic key and the service key live in Netlify, never here.\n'
-    'window.SDP_CONFIG = ' + json.dumps({'appName': 'SmartDesigns Projects', 'supabaseUrl': url, 'supabaseAnonKey': anon, 'aiUrl': '/api/ai', 'googleSignIn': bool(google), 'build': ver}) + ';\n')
+    'window.SDP_CONFIG = ' + json.dumps({'appName': 'SmartDesigns Projects', 'supabaseUrl': url, 'supabaseAnonKey': anon, 'aiUrl': '/api/ai', 'functions': '/api', 'googleSignIn': bool(google), 'build': ver}) + ';\n')
 tags = f'''<link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <script src="vendor/supabase.js?v={ver}"></script>

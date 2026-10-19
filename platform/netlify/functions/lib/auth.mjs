@@ -22,7 +22,7 @@ export async function caller(req) {
   const r = await fetch(URL_() + '/auth/v1/user', {headers: {apikey: SVC(), authorization: 'Bearer ' + token}});
   if (!r.ok) return json(401, {error: 'your session has ended: sign in again'});
   const user = await r.json();
-  const rows = await rest('profiles?select=id,role,workspace_id,name&id=eq.' + encodeURIComponent(user.id));
+  const rows = await rest('profiles?select=id,role,workspace_id,name,private_key&id=eq.' + encodeURIComponent(user.id));
   const profile = rows && rows[0];
   if (!profile || !MEMBER_ROLES.includes(profile.role)) return json(403, {error: 'this account has no access yet: ask the owner to set your role'});
   return {user, profile};

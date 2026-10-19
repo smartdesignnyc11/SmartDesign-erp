@@ -113718,6 +113718,17 @@ function gcConnect(cb) {
   });
 }
 function gcRefresh() {
+  // Once the hosted server holds this person's long-lived Google key, it hands the browser a fresh short-lived
+  // one: opening the app syncs without a Google window. Otherwise Google's own window, as before.
+  const g = gcMine();
+  if (g && g.server && g.server.watching && "function" == typeof gcFns && gcFns())
+    return fetch(`${gcFns()}/google-connect`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "token" }) })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => (j && j.token ? (gcSetToken(j.token, j.expiresIn), j.token) : gcRefreshGoogle()))
+      .catch(() => gcRefreshGoogle());
+  return gcRefreshGoogle();
+}
+function gcRefreshGoogle() {
   return new Promise((res) => {
     const cfg = gcCfg();
     if (!cfg.clientId || !gcOn()) return res("");
@@ -113976,6 +113987,35 @@ const gsB64 = (d) => {
       .map((x) => x.trim())
       .filter(Boolean)
       .map((x) => ({ name: cmName(x), email: cmEmail(x) }));
+// One Gmail message as the app holds it, and the filing every message goes through (routing, proposals, owner).
+// The browser sync and the hosted watcher's inbox (gsIngestServer) both use them, so mail is filed one way.
+function gsMailRec(m, me, src) {
+  const date = gsHdr(m, "Date");
+  return {
+    msgId: m.id,
+    threadId: m.threadId,
+    channel: "email",
+    from: gsAddrs(gsHdr(m, "From"))[0] || { name: "", email: "" },
+    to: gsAddrs(gsHdr(m, "To")).map((a) => (a.name ? `${a.name} <${a.email}>` : a.email)),
+    cc: gsAddrs(gsHdr(m, "Cc")).map((a) => (a.name ? `${a.name} <${a.email}>` : a.email)),
+    date: date ? new Date(date).toISOString() : new Date(+m.internalDate || gsNow()).toISOString(),
+    subject: gsHdr(m, "Subject"),
+    text: gsBody(m),
+    source: src,
+    owner: me.id,
+    labels: m.labelIds || [],
+    unread: (m.labelIds || []).includes("UNREAD"),
+    links: "demo" === src ? [] : [{ label: "Open in Gmail", url: `https://mail.google.com/mail/u/0/#inbox/${m.threadId}` }],
+    attachments: gsAtt(m),
+  };
+}
+function gsFileMail(out, me) {
+  out.length && cmImport(out),
+    out.forEach((o) => {
+      const c = (DB.comms || []).find((x) => x.msgId === o.msgId);
+      c && ((c.owner = me.id), (c.source = o.source), (c.unread = o.unread), (c.labels = o.labels), (c.links = o.links));
+    });
+}
 async function gsGmail(first) {
   const me = paMe();
   if (!gsMine()) return [];
@@ -114010,38 +114050,10 @@ async function gsGmail(first) {
     } catch (e) {
       continue;
     }
-    const date = gsHdr(m, "Date");
-    out.push({
-      msgId: m.id,
-      threadId: m.threadId,
-      channel: "email",
-      from: gsAddrs(gsHdr(m, "From"))[0] || { name: "", email: "" },
-      to: gsAddrs(gsHdr(m, "To")).map((a) => (a.name ? `${a.name} <${a.email}>` : a.email)),
-      cc: gsAddrs(gsHdr(m, "Cc")).map((a) => (a.name ? `${a.name} <${a.email}>` : a.email)),
-      date: date ? new Date(date).toISOString() : new Date(+m.internalDate || gsNow()).toISOString(),
-      subject: gsHdr(m, "Subject"),
-      text: gsBody(m),
-      source: gcIsDemo() ? "demo" : "google",
-      owner: me.id,
-      labels: m.labelIds || [],
-      unread: (m.labelIds || []).includes("UNREAD"),
-      links: gcIsDemo()
-        ? []
-        : [{ label: "Open in Gmail", url: `https://mail.google.com/mail/u/0/#inbox/${m.threadId}` }],
-      attachments: gsAtt(m),
-    });
+    out.push(gsMailRec(m, me, gcIsDemo() ? "demo" : "google"));
   }
   return (
-    out.length && cmImport(out),
-    out.forEach((o) => {
-      const c = (DB.comms || []).find((x) => x.msgId === o.msgId);
-      c &&
-        ((c.owner = me.id),
-        (c.source = o.source),
-        (c.unread = o.unread),
-        (c.labels = o.labels),
-        (c.links = o.links));
-    }),
+    gsFileMail(out, me),
     // The cursor moves only when this run read everything the window listed; otherwise the next run
     // lists the same window and carries on (what is already held is skipped by id).
     exhausted && ids.length <= cap && gsCur("gmailAt", gsNowIso()),
@@ -114084,6 +114096,32 @@ function gsCalWindow() {
   } catch (e) {}
   return w;
 }
+function gsEventRec(ev, me, src) {
+  return {
+    id: "g_" + ev.id,
+    owner: me.id,
+    title: ev.summary || "(no title)",
+    start: (ev.start || {}).dateTime || (ev.start || {}).date || "",
+    end: (ev.end || {}).dateTime || (ev.end || {}).date || "",
+    where: ev.location || "",
+    link: ev.htmlLink || "",
+    desc: (ev.description || "").slice(0, 1200),
+    who: me.name,
+    attendees: (ev.attendees || []).map((a) => ({ email: a.email, name: a.displayName || "", status: a.responseStatus })),
+    organizer: (ev.organizer || {}).email || "",
+    source: src,
+    at: appNowIso(),
+  };
+}
+// A calendar change filed: cancelled removes it, otherwise it replaces or joins. Returns the record when new.
+function gsFileEvent(ev, me, src) {
+  DB.calendar = DB.calendar || {}, (DB.calendar.external = DB.calendar.external || []);
+  const id = "g_" + ev.id,
+    i = DB.calendar.external.findIndex((x) => x.id === id);
+  if ("cancelled" === ev.status) return void (i >= 0 && DB.calendar.external.splice(i, 1));
+  const rec = gsEventRec(ev, me, src);
+  return i >= 0 ? void (DB.calendar.external[i] = rec) : (DB.calendar.external.push(rec), rec);
+}
 async function gsCal(first) {
   const me = paMe();
   if (!gsMine()) return [];
@@ -114105,30 +114143,48 @@ async function gsCal(first) {
       const id = "g_" + ev.id,
         i = DB.calendar.external.findIndex((x) => x.id === id);
       if ("cancelled" === ev.status) return void (i >= 0 && DB.calendar.external.splice(i, 1));
-      const rec = {
-        id: id,
-        owner: me.id,
-        title: ev.summary || "(no title)",
-        start: (ev.start || {}).dateTime || (ev.start || {}).date || "",
-        end: (ev.end || {}).dateTime || (ev.end || {}).date || "",
-        where: ev.location || "",
-        link: ev.htmlLink || "",
-        desc: (ev.description || "").slice(0, 1200),
-        who: me.name,
-        attendees: (ev.attendees || []).map((a) => ({
-          email: a.email,
-          name: a.displayName || "",
-          status: a.responseStatus,
-        })),
-        organizer: (ev.organizer || {}).email || "",
-        source: gcIsDemo() ? "demo" : "google",
-        at: appNowIso(),
-      };
+      const rec = gsEventRec(ev, me, gcIsDemo() ? "demo" : "google");
       i >= 0 ? (DB.calendar.external[i] = rec) : (DB.calendar.external.push(rec), fresh.push(rec));
     }),
     data.nextSyncToken && gsCur("calTok", data.nextSyncToken),
     fresh
   );
+}
+function gsFileRec(f, me, src) {
+  return {
+    id: "g_" + f.id,
+    fileId: f.id,
+    owner: me.id,
+    name: f.name,
+    mime: f.mimeType,
+    modified: f.modifiedTime,
+    link: f.webViewLink,
+    size: +f.size || 0,
+    by: ((f.owners || [])[0] || {}).displayName || "",
+    source: src,
+    at: appNowIso(),
+  };
+}
+// What the hosted watcher found while the app was shut (own:<person>:inbox: raw Gmail messages, calendar
+// changes and Drive files), filed through the same builders and filing as a sync run here.
+function gsIngestServer(box) {
+  const me = paMe();
+  if (!me || !box) return 0;
+  const have = new Set((DB.comms || []).map((c) => c.msgId).filter(Boolean)),
+    mail = (box.gmail || []).filter((m) => m && m.id && !have.has(m.id) && (have.add(m.id), !0)).map((m) => gsMailRec(m, me, "google"));
+  gsFileMail(mail, me);
+  let n = mail.length;
+  (box.cal || []).forEach((ev) => {
+    ev && ev.id && (gsFileEvent(ev, me, "google"), n++);
+  }),
+    (DB.gdrive = DB.gdrive || []),
+    (box.drive || []).forEach((f) => {
+      if (!f || !f.id) return;
+      const rec = gsFileRec(f, me, "google"),
+        i = DB.gdrive.findIndex((x) => x.id === rec.id);
+      (rec.route = gsRouteFile(rec)), i >= 0 ? (DB.gdrive[i] = rec) : DB.gdrive.push(rec), n++;
+    });
+  return n && (save(), "function" == typeof render && render()), n;
 }
 async function gsDrive(first) {
   const me = paMe();
@@ -114151,19 +114207,7 @@ async function gsDrive(first) {
     files.forEach((f) => {
       const id = "g_" + f.id,
         i = DB.gdrive.findIndex((x) => x.id === id),
-        rec = {
-          id: id,
-          fileId: f.id,
-          owner: me.id,
-          name: f.name,
-          mime: f.mimeType,
-          modified: f.modifiedTime,
-          link: f.webViewLink,
-          size: +f.size || 0,
-          by: ((f.owners || [])[0] || {}).displayName || "",
-          source: gcIsDemo() ? "demo" : "google",
-          at: appNowIso(),
-        };
+        rec = gsFileRec(f, me, gcIsDemo() ? "demo" : "google");
       // The listed text (a demo or loaded workspace carries it) helps name the file's kind; it is not kept.
       (rec.route = gsRouteFile(Object.assign({}, rec, { text: String(f.text || "").slice(0, 4000) }))), i >= 0 ? (DB.gdrive[i] = rec) : (DB.gdrive.push(rec), fresh.push(rec));
     }),

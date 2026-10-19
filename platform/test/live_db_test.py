@@ -107,6 +107,24 @@ ok(res and res[0].get('refused'), f"the owner cannot write the foreman's mail ro
 s, j = http('POST', BASE + '/rest/v1/rpc/collection_versions', {}, token=T['foreman'])
 ok(s == 200 and not any(r['name'] == own_o for r in j), "the version list does not show the owner's mail row to the foreman")
 
+# the private-store key is the server's to set, never the person's (it decides whose private rows they read)
+me_o = QA['owner']
+s, j = http('PATCH', BASE + '/rest/v1/profiles?id=eq.' + me_o['id'], {'private_key': QA['foreman']['id']}, token=T['owner'], headers={'prefer': 'return=representation'})
+ok(s >= 400, f"nobody can point their private store at someone else's, the owner included: {s}")
+# the Google watcher's door
+def gc(who, body):
+    h = {'content-type': 'application/json'}
+    if who: h['authorization'] = 'Bearer ' + T[who]
+    req = urllib.request.Request(SITE + '/api/google-connect', method='POST', data=json.dumps(body).encode(), headers=h)
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r: return r.status, json.loads(r.read())
+    except urllib.error.HTTPError as e: return e.code, e.read().decode()[:200]
+ok(gc(None, {'action': 'status'})[0] == 401, 'watcher: no session refused')
+ok(gc('nobody', {'action': 'status'})[0] == 403, 'watcher: an account with no role refused')
+s, j = gc('foreman', {'action': 'status'}); ok(s == 200 and j.get('connected') is False, f'watcher: status for someone not watching: {s} {j}')
+ok(gc('foreman', {'action': 'token'})[0] == 404, 'watcher: no key handed out for someone not watching')
+s, j = gc('foreman', {'code': 'not-a-real-code'}); ok(s == 400, f'watcher: a bad Google code is refused: {s}')
+
 # the AI door
 def ai(who, body):
     h = {'content-type': 'application/json'}
