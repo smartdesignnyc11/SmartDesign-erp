@@ -62,10 +62,17 @@ function paRule(type, uidX) {
   if (!T) return "ask";
   const u = uidX || paMe().id,
     A = (DB.asst || {})[u] || {};
+  // the latest choice on the firm's delegation log, when newer than the person's own (the owner's device never holds
+  // another person's private row on the shared system, so this is how it shows the rule it set)
+  const e = stdDelegLog().reduce((m, x) => (x && x.uid === u && x.type === type && x.at && (!m || x.at >= m.at) ? x : m), null);
+  if (e && e.at > ((A.ruleAt || {})[type] || "")) {
+    const lv = e.level || (e.on ? "alone" : "ask");
+    return "alone" === lv && T.lock ? "ask" : lv;
+  }
   if ((A.delegated || []).includes(type)) return T.lock ? "ask" : "alone";
   if ((A.handIt || []).includes(type)) return "hand";
   // a choice on record (switched off, or set to Ask First) wins over the default
-  if (stdDelegLog().some((e) => e.uid === u && e.type === type)) return "ask";
+  if ((A.ruleAt || {})[type] || stdDelegLog().some((e) => e.uid === u && e.type === type)) return "ask";
   return T.lock && "alone" === T.def ? "ask" : T.def || "ask";
 }
 // Who may set what: a person their own; the owner anyone's, but only the person hands over a message that goes out
@@ -101,6 +108,7 @@ function paRuleSet(uidX, type, level, opt) {
   const nm = (paUserOf(uidX) || {}).name || uidX,
     e = { id: uid("dlg"), at: appNowIso(), by: o.system ? "System" : me.name, byUid: o.system ? "" : me.id, uid: uidX, name: nm, type: type, on: "alone" === level, level: level, was: was, why: o.why || "" };
   stdDelegLog().push(e);
+  self && ((A.ruleAt = A.ruleAt || {})[type] = e.at);
   try {
     audit("delegation", uidX, `${T.label}: ${paLevelName(level)}`, paLevelName(was), paLevelName(level), e.why || (self ? "" : `set by ${e.by}`));
   } catch (er) {}
@@ -124,9 +132,47 @@ function paRuleSet(uidX, type, level, opt) {
         const L = stdDelegLog(),
           last = L[L.length - 1];
         last && last.uid === who && last.type === type && !last.level && (last.level = on ? "alone" : "ask");
+        A && last && last.uid === who && who === paMe().id && ((A.ruleAt = A.ruleAt || {})[type] = last.at);
       }
     } catch (e) {}
     return r;
+  };
+}
+// On the shared system each person's assistant (DB.asst[uid]) is a private row that only their own sign-in reads and
+// writes, so a rule the owner sets for someone else cannot reach that person's row. It reaches them through the
+// delegation log, which is the firm's (DB.company.delegationLog): on the person's device, the owner's latest entry for
+// a type is applied when it is newer than the person's own last choice (A.ruleAt), which is how one device behaves.
+function paPolicyApply() {
+  const me = paMe(),
+    L = (DB.company || {}).delegationLog;
+  if (!me || !me.id || !Array.isArray(L) || !(DB.asst || {})[me.id]) return !1;
+  const A = DB.asst[me.id],
+    at = (A.ruleAt = A.ruleAt || {}),
+    latest = {};
+  L.forEach((e) => e && e.uid === me.id && e.byUid && e.byUid !== me.id && e.type && e.at && (!latest[e.type] || e.at > latest[e.type].at) && (latest[e.type] = e));
+  let ch = !1;
+  Object.values(latest).forEach((e) => {
+    if (e.at <= (at[e.type] || "")) return;
+    const T = paType(e.type);
+    if (!T) return;
+    let lv = e.level || (e.on ? "alone" : "ask");
+    "alone" === lv && T.lock && (lv = "ask");
+    A.delegated = (Array.isArray(A.delegated) ? A.delegated : []).filter((x) => x !== e.type);
+    A.handIt = (Array.isArray(A.handIt) ? A.handIt : []).filter((x) => x !== e.type);
+    "alone" === lv && A.delegated.push(e.type), "hand" === lv && A.handIt.push(e.type);
+    (at[e.type] = e.at), (ch = !0);
+  });
+  return ch;
+}
+{
+  const base = render;
+  render = function () {
+    try {
+      paPolicyApply() && save();
+    } catch (e) {
+      console.warn("assistant rules from the owner", e);
+    }
+    return base.apply(this, arguments);
   };
 }
 // The rules, as one control: a row per action type the person's role has, three choices each. Drawn in Activity
