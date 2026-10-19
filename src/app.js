@@ -2139,7 +2139,9 @@ function projectFromTemplate(name, addr, start, target) {
 const KEY = "smartdesigns:portfolio:v2",
   OLDKEY = "smartdesigns:project:v1";
 let DB = null,
-  S = null;
+  S = null,
+  // true when load() found nothing stored and seeded the demo company: bootRun then runs the chain as it always did
+  bootSeeded = !1;
 const uid = (p) => p + Math.random().toString(36).slice(2, 7);
 async function load(opts = {}) {
   if (!opts.skipStorage) {
@@ -2183,7 +2185,7 @@ async function load(opts = {}) {
   }
   if (!DB) {
     const p = template121();
-    DB = { projects: [p], currentId: p.id };
+    (DB = { projects: [p], currentId: p.id }), (bootSeeded = !0);
   }
   (DB.company = Object.assign(
     {
@@ -3720,7 +3722,7 @@ function grid(opts) {
   function trow(r) {
     return `<tr class="${r.sev >= 2 ? "sev" + r.sev : ""}" ${r.edit ? `data-edit="${r.edit}"` : ""} title="${esc(r.title || "")}">${cols.map((c) => `<td class="${c.type || ""} ${c.cls || ""}" ${"status" !== c.type && "date" !== c.type && "money" !== c.type ? `title="${esc(String(r._v[c.key]?.text ?? r._v[c.key] ?? ""))}"` : ""}>${((c, v) => (v && "object" == typeof v && "html" in v ? v.html : "date" === c.type ? (v ? fmt(v) : '<span class="muted">—</span>') : v && "object" == typeof v && "text" in v && "status" !== c.type ? esc(v.text) : "money" === c.type ? ("" === v || null == v ? "" : money("object" == typeof v ? (v.sort ?? v.text) : v)) : "status" === c.type ? (v ? `<span class="pill ${pillClass(v.cls || v)}">${esc(v.text || v)}</span>` : "") : esc(v ?? "")))(c, r._v[c.key])}</td>`).join("")}</tr>`;
   }
-  return `<div class="dg" data-grid="${opts.id}"><div class="dg-tb no-print"><input class="q" placeholder="Search…" value="${esc(st.q)}" data-gq="${opts.id}">${opts.toolbar || ""}<span class="cnt">${rows.length} of ${opts.rows.length}</span></div><div class="dg-scroll">${rows.length ? `<table class="dg-t ${cols.length > 4 && window.innerWidth <= 760 ? "wide" : ""}"><thead><tr>${th}</tr></thead><tbody>${body}</tbody></table>` : `<div class="empty" style="border:0;border-radius:0">${opts.empty || "Nothing matches. Clear the search or a filter above."}</div>`}</div></div>`;
+  return `<div class="dg" data-grid="${opts.id}"><div class="dg-tb no-print"><input class="q" placeholder="Search…" value="${esc(st.q)}" data-gq="${opts.id}">${opts.toolbar || ""}<span class="cnt">${rows.length} of ${opts.rows.length}</span></div><div class="dg-scroll">${rows.length ? `<table class="dg-t ${cols.length > 4 && vw() <= 760 ? "wide" : ""}"><thead><tr>${th}</tr></thead><tbody>${body}</tbody></table>` : `<div class="empty" style="border:0;border-radius:0">${opts.empty || "Nothing matches. Clear the search or a filter above."}</div>`}</div></div>`;
 }
 const pillClass = (s) =>
     ({
@@ -4285,7 +4287,16 @@ function renderDash(att, cpm, projEnd) {
       : '<p class="muted" style="margin:0">Nothing can be pulled forward yet. When a predecessor finishes early, it shows here.</p>');
 }
 let drag = null;
-const isMobile = () => window.innerWidth <= 760;
+// The viewport width, read once per task (speed, BACKLOG §1.11 item 5). Reading window.innerWidth after the page
+// changed makes the browser lay the page out again; mOn() and isMobile() are asked hundreds of times a draw, and
+// on a phone those layouts cost about half a second per view switch. The value is kept until the current task
+// ends (a microtask clears it) or the window is resized, so a rotation or a resize is seen at once.
+let vwNow = 0;
+function vw() {
+  return vwNow || ((vwNow = window.innerWidth), queueMicrotask(() => (vwNow = 0))), vwNow;
+}
+window.addEventListener("resize", () => (vwNow = 0));
+const isMobile = () => vw() <= 760;
 let schedView = null,
   schedTrack = "all";
 const visibleTasks = () =>
@@ -8943,7 +8954,7 @@ function renderDocEditor(c, d) {
                   "",
                 )}</tbody></table><div class="small muted no-doc-print" style="margin:-4px 0 8px">Yellow columns are internal: expenses matched to each line vs. what has been billed on it. Unmatched job costs are flagged in Banking and Verification so this stays the source of truth.</div>`
             : `<table class="lines"><thead><tr>${editable ? '<th class="fm-grip" title="Drag a line by its handle to change the order"></th>' : ""}<th style="width:22%">Item</th><th>Description</th><th style="width:66px">Qty</th><th style="width:56px">Unit</th><th style="width:104px">Rate</th><th style="width:44px">Tax</th><th class="money">Amount</th>${"invoice" !== kind ? '<th class="int money" style="width:112px" title="Internal — not printed">Budget cost</th><th class="int money" style="width:64px" title="Internal — not printed">Margin</th>' : ""}<th></th></tr></thead><tbody>${d.lines.map((l) => `<tr data-line="${l.id}">${editable ? `<td class="fm-grip">${"function" == typeof dndGrip ? dndGrip(l.id, esc(l.item || "this line")) : ""}</td>` : ""}<td><input data-f="item" value="${esc(l.item)}" placeholder="Item" ${editable ? "" : "readonly"}></td><td><input data-f="desc" value="${esc(l.desc)}" placeholder="Description" ${editable ? "" : "readonly"}></td><td><input class="num" type="number" step="any" data-f="qty" value="${l.qty}" ${editable ? "" : "readonly"}></td><td><input data-f="unit" value="${esc(l.unit)}" ${editable ? "" : "readonly"}></td><td><input class="num" type="number" step="any" data-f="rate" value="${l.rate}" ${editable ? "" : "readonly"}></td><td style="text-align:center"><input type="checkbox" data-f="taxable" ${l.taxable ? "checked" : ""} ${editable ? "" : "disabled"} style="width:auto"></td><td class="amt">${money(lineAmount(l, d))}</td>${"invoice" !== kind ? `<td class="int"><input class="num" type="number" step="any" data-f="cost" value="${l.cost || ""}" placeholder="cost"></td><td class="int amt" style="font-weight:500;${l.cost && lineAmount(l, d) && ((lineAmount(l, d) - l.cost) / lineAmount(l, d)) * 100 < (DB.company.minMargin || 20) ? "color:var(--bad)" : ""}">${l.cost && lineAmount(l, d) ? Math.round(((lineAmount(l, d) - l.cost) / lineAmount(l, d)) * 100) + "%" : ""}</td>` : ""}<td>${editable ? `<span class="rm" data-rmline="${l.id}" title="Remove line"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></span>` : ""}</td></tr>`).join("")}</tbody></table>${"invoice" !== kind ? `<div class="small muted no-doc-print" style="margin:-4px 0 8px">Yellow columns are internal (budget cost and margin) — never printed. Total budget ${money(d.lines.reduce((a, l) => a + (+l.cost || 0), 0))} · margin ${docTotal(d).sub ? Math.round(((docTotal(d).sub - d.lines.reduce((a, l) => a + (+l.cost || 0), 0)) / docTotal(d).sub) * 100) : 0}%</div>` : ""}${editable ? `<div class="row no-doc-print"><button class="btn sm" data-addline>+ Add line</button>${"invoice" !== kind && d.projectId ? '<button class="btn sm" data-linesfromtasks>Lines from project phases</button>' : ""}${"invoice" === kind && "items" === d.mode ? '<button class="btn sm" data-linefromco>Add approved change order…</button>' : ""}</div>` : ""}`;
-  return `<div class="docwrap" id="doc-${d.id}">\n    <div class="row no-doc-print docbar" style="margin-bottom:10px;gap:8px;align-items:center">${docDirty(d) ? '<span class="pill warn">Unsaved changes</span><button class="btn sm" data-docact="save">Save</button><button class="btn sm" data-docact="discard">Discard changes</button>' : '<span class="small muted">All changes saved</span>'}<span class="grow"></span><div class="status-flow">${flow.map((f, i) => `<span class="${i < fi ? "done" : i === fi ? "on" : ""}">${f}</span>`).join('<span style="background:none;padding:0">›</span>')}${["void", "rejected", "expired", "overdue"].includes(st) ? `<span class="pill ${st}" style="margin-left:6px">${st}</span>` : ""}</div></div>\n    <div class="dochd"><div class="grow"><div class="small muted">${esc(DB.company.name || "")}${DB.company.lic ? ` · Lic. ${esc(DB.company.lic)}` : ""}${DB.company.addr ? ` · ${esc(DB.company.addr)}` : ""}</div><h2>${label} <span class="num">${esc(d.number)}</span></h2><div class="small muted">Bill to: <b>${esc(c.name)}</b>${c.billingAddr ? ` · ${esc(c.billingAddr)}` : ""}${c.contacts.find((x) => x.primary) ? ` · ${esc(c.contacts.find((x) => x.primary).name)} · ${esc(c.contacts.find((x) => x.primary).email)}` : ""}</div></div>\n      <div style="text-align:right"><div class="small muted">${"invoice" === kind ? "Amount due" : "Total"}</div><div style="font-family:var(--cond);font-weight:600;font-size:26px">${money("invoice" === kind ? t.total - paidOn : t.total)}</div>${paidOn ? `<div class="small muted">${money(paidOn)} paid of ${money(t.total)}</div>` : ""}</div></div>\n    <details class="docmeta-wrap" ${window.innerWidth > 760 ? "open" : ""}><summary><span><b>${esc(d.title || label)}</b> · ${fmtL(d.date)}${d.validUntil ? " · valid to " + fmtL(d.validUntil) : ""}${d.due ? " · due " + fmtL(d.due) : ""}</span></summary><div class="docmeta">\n      <div class="f"><label>Title</label><input data-d="title" value="${esc(d.title || "")}" ${editable ? "" : "readonly"}></div>${
+  return `<div class="docwrap" id="doc-${d.id}">\n    <div class="row no-doc-print docbar" style="margin-bottom:10px;gap:8px;align-items:center">${docDirty(d) ? '<span class="pill warn">Unsaved changes</span><button class="btn sm" data-docact="save">Save</button><button class="btn sm" data-docact="discard">Discard changes</button>' : '<span class="small muted">All changes saved</span>'}<span class="grow"></span><div class="status-flow">${flow.map((f, i) => `<span class="${i < fi ? "done" : i === fi ? "on" : ""}">${f}</span>`).join('<span style="background:none;padding:0">›</span>')}${["void", "rejected", "expired", "overdue"].includes(st) ? `<span class="pill ${st}" style="margin-left:6px">${st}</span>` : ""}</div></div>\n    <div class="dochd"><div class="grow"><div class="small muted">${esc(DB.company.name || "")}${DB.company.lic ? ` · Lic. ${esc(DB.company.lic)}` : ""}${DB.company.addr ? ` · ${esc(DB.company.addr)}` : ""}</div><h2>${label} <span class="num">${esc(d.number)}</span></h2><div class="small muted">Bill to: <b>${esc(c.name)}</b>${c.billingAddr ? ` · ${esc(c.billingAddr)}` : ""}${c.contacts.find((x) => x.primary) ? ` · ${esc(c.contacts.find((x) => x.primary).name)} · ${esc(c.contacts.find((x) => x.primary).email)}` : ""}</div></div>\n      <div style="text-align:right"><div class="small muted">${"invoice" === kind ? "Amount due" : "Total"}</div><div style="font-family:var(--cond);font-weight:600;font-size:26px">${money("invoice" === kind ? t.total - paidOn : t.total)}</div>${paidOn ? `<div class="small muted">${money(paidOn)} paid of ${money(t.total)}</div>` : ""}</div></div>\n    <details class="docmeta-wrap" ${vw() > 760 ? "open" : ""}><summary><span><b>${esc(d.title || label)}</b> · ${fmtL(d.date)}${d.validUntil ? " · valid to " + fmtL(d.validUntil) : ""}${d.due ? " · due " + fmtL(d.due) : ""}</span></summary><div class="docmeta">\n      <div class="f"><label>Title</label><input data-d="title" value="${esc(d.title || "")}" ${editable ? "" : "readonly"}></div>${
     "estimate" === kind
       ? `<div class="f"><label>Template</label><select data-d="template" ${editable ? "" : "disabled"}>${Object.entries(
           CT_TEMPLATES,
@@ -18489,7 +18500,7 @@ function signIn(userId) {
     home && ROLE_VIEWS[u.role]?.includes(home) && (view = home),
     render(),
     // on a phone the header already says who and where; the toast only covered the bottom of the first screen
-    window.innerWidth <= 760 || toast(`Signed in as ${u.name}`);
+    vw() <= 760 || toast(`Signed in as ${u.name}`);
 }
 // The device picker after a client signs out lists the firm's people and that client's own household, never
 // another client: a client's phone is not where the firm's client list is read.
@@ -23443,7 +23454,7 @@ function renderMBProp() {
     $("#mb-prop-newdeal")?.addEventListener("click", () => mbCaptureModal(p.address)),
     mbWireDealTab(d0, p, ed);
 }
-const ctIsMobile = () => window.innerWidth <= 1080;
+const ctIsMobile = () => vw() <= 1080;
 let ctOrganize = !1,
   ctSheetLine = null;
 const ctFirstLine = (s) =>
@@ -29804,8 +29815,10 @@ function renderNav() {
       nav._projsel &&
         ((nav._projsel.hidden = !g.proj),
         g.proj && (sub.querySelector(".sub-proj").appendChild(nav._projsel), (nav._projsel.hidden = !1)));
+    // after the draw: scrolling here made the browser lay the page out halfway through it (spdAfterDraw). The tab
+    // is taken now; if a later nav draw replaces the strip, this one is gone and its scroll is skipped, as before.
     const on = sub.querySelector("[data-sub].on");
-    on && on.scrollIntoView({ block: "nearest", inline: "nearest" });
+    on && spdAfterDraw("subnav-scroll", () => on.isConnected && on.scrollIntoView({ block: "nearest", inline: "nearest" }));
   }
 }
 const renderBaseNav = render;
@@ -32873,7 +32886,7 @@ function libShow(input) {
     (pop.innerHTML = `<div class="lib-h">From your history</div>${hits.map((o, i) => `<div class="lib-row" data-libi="${i}"><b>${esc(o.name)}</b><span>${libHint(o)}</span></div>`).join("")}`),
     document.body.appendChild(pop);
   const r = input.getBoundingClientRect();
-  (pop.style.left = Math.max(8, Math.min(r.left, window.innerWidth - 380)) + "px"),
+  (pop.style.left = Math.max(8, Math.min(r.left, vw() - 380)) + "px"),
     (pop.style.top = r.bottom + window.scrollY + 4 + "px"),
     (libPop = pop),
     pop.querySelectorAll("[data-libi]").forEach(
@@ -35113,7 +35126,7 @@ needsMe = function () {
 const ptNeedsMeBase = ptNeedsMe;
 ptNeedsMe = function () {
   const rows = needsMe(),
-    mobile = window.innerWidth < 700,
+    mobile = vw() < 700,
     cap = needsAll ? 999 : mobile ? 6 : 12;
   let shown = 0;
   return `<div class="nm-sum small muted">${rows.length ? `${rows.filter((r) => "decide" === r.band).length} to decide · ${rows.filter((r) => "approve" === r.band).length} to approve · ${rows.filter((r) => "watch" === r.band).length} to watch` : "Nothing waiting on you."}</div>${[
@@ -36555,7 +36568,7 @@ budgetFor = function (year) {
 const repWIPBase2 = repWIP;
 repWIP = function () {
   const h = repWIPBase2();
-  if (window.innerWidth >= 700) return h;
+  if (vw() >= 700) return h;
   const rows = DB.projects
     .filter((p) => !repEntity || entityOfProject(p) === repEntity)
     .map((p) => ({ w: wipRow(p), f: fadeFor(p, wipRow(p)) }))
@@ -44579,7 +44592,7 @@ const renderNavBase_rw = renderNav,
   renderBase_rw3 = render,
   sheetTableBase_rw = sheetTable;
 sheetTable = function (list) {
-  return window.innerWidth > 760 || !list.length
+  return vw() > 760 || !list.length
     ? sheetTableBase_rw(list)
     : `<div class="st-sheetcards">${list
         .map((s) => {
@@ -50756,6 +50769,13 @@ function finishBoot() {
     console.error("phase 6 migrate", e);
   }
   (document.body.dataset.booted = "1"), wire();
+  // the memo of derived numbers (speed.js) for a boot that did not come through bootRun (a shell calling finishBoot
+  // directly): every render layer exists by now, so its layer is the outermost; a first boot keeps the old path
+  try {
+    "function" == typeof spdInstall && !bootSeeded && spdInstall();
+  } catch (e) {
+    console.warn("speed layer", e);
+  }
   const u = currentUser();
   u && ((DB.role = u.role), (DB.me = u.name)), render(), DB.deviceUser || showSignIn();
   try {
@@ -83162,7 +83182,7 @@ function hbDropdown(anchor, items) {
   return (
     (m.style.position = "fixed"),
     (m.style.top = r.bottom + 4 + "px"),
-    (m.style.left = Math.min(r.left, window.innerWidth - 240) + "px"),
+    (m.style.left = Math.min(r.left, vw() - 240) + "px"),
     (m.style.right = "auto"),
     new Promise((res) => {
       m.querySelectorAll("[data-dd]").forEach(
@@ -86663,7 +86683,7 @@ if ("function" == typeof finishBoot) {
   };
 }
 const M_BREAK = 760,
-  mOn = () => window.innerWidth <= 760,
+  mOn = () => vw() <= 760,
   M_OFFICE = ["owner", "pm", "coord", "billing", "controller", "design_mgr", "designer"],
   M_ICON = {
     brief: '<svg viewBox="0 0 24 24"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg>',
@@ -87509,18 +87529,29 @@ function mInputs(root) {
 }
 function mSubnav() {
   if (!mOn()) return;
-  const on = document.querySelector("#subnav .sub-tabs button.on");
-  if (on && on.scrollIntoView)
+  // it scrolls and measures the strip, so it runs once the draw is done (spdAfterDraw), not halfway through it; the
+  // strip is taken now, and one a later nav draw has replaced is skipped, as before
+  const on = document.querySelector("#subnav .sub-tabs button.on"),
+    strips = [...document.querySelectorAll("#subnav .sub-tabs")];
+  spdAfterDraw("m-subnav", () => mSubnavNow(on, strips));
+}
+function mSubnavNow(on, strips) {
+  if (on && on.isConnected && on.scrollIntoView)
     try {
       on.scrollIntoView({ inline: "center", block: "nearest" });
     } catch (e) {}
-  document.querySelectorAll("#subnav .sub-tabs").forEach((t) => {
+  strips.forEach((t) => {
+    if (!t.isConnected) return;
     const upd = () => t.classList.toggle("m-more-right", t.scrollWidth - t.clientWidth - t.scrollLeft > 6);
     upd(),
       t.dataset.mScroll || ((t.dataset.mScroll = "1"), t.addEventListener("scroll", upd, { passive: !0 }));
   });
 }
 function mSubCompact() {
+  // it measures the header, so it runs once the draw is done (spdAfterDraw)
+  spdAfterDraw("m-subcompact", mSubCompactNow);
+}
+function mSubCompactNow() {
   const sub = document.getElementById("subnav");
   if (!sub) return;
   if (!mOn() || !sub.classList.contains("m-projrow"))
@@ -87887,7 +87918,7 @@ if (
 }
 const FM_FIELD = ["crew", "driver", "foreman"],
   fmRole = () => role(),
-  fmOn = () => window.innerWidth <= 760 && FM_FIELD.includes(fmRole()),
+  fmOn = () => vw() <= 760 && FM_FIELD.includes(fmRole()),
   fmMe = () => ("function" == typeof currentUser && currentUser()?.name) || DB.me || "",
   fmFirst = () => fmMe().split(" ")[0].toLowerCase();
 function fmMine(t) {
@@ -88647,18 +88678,24 @@ function glnProjectRow() {
   cross && (cross.style.display = "none");
   const portTab = sub.querySelector('[data-sub="port"]');
   portTab && (portTab.style.display = "none");
+  // the strip's scroll reads offsetLeft, so it waits for the end of the draw (spdAfterDraw) and runs after the
+  // other strip scrolls there, as it ran after them before; the strip is taken now (one a later nav draw replaced
+  // is skipped)
   const tabs = sub.querySelector(".sub-tabs:not(.sub-cross)"),
     onTab = sub.querySelector(".sub-tabs button.on");
-  if (tabs && onTab) {
-    const want =
-      onTab === [...tabs.querySelectorAll("button")].find((b) => "none" !== b.style.display)
-        ? 0
-        : Math.max(0, onTab.offsetLeft - 12);
-    (tabs.scrollLeft = want),
-      setTimeout(() => {
-        tabs.scrollLeft = want;
-      }, 0);
-  }
+  tabs &&
+    onTab &&
+    spdAfterDraw("gln-strip", () => {
+      if (!tabs.isConnected) return;
+      const want =
+        onTab === [...tabs.querySelectorAll("button")].find((b) => "none" !== b.style.display)
+          ? 0
+          : Math.max(0, onTab.offsetLeft - 12);
+      (tabs.scrollLeft = want),
+        setTimeout(() => {
+          tabs.scrollLeft = want;
+        }, 0);
+    });
   const dashTab = sub.querySelector('[data-sub="dash"]');
   dashTab &&
     dashTab.firstChild &&
@@ -104062,7 +104099,7 @@ function bhHeader(root) {
   };
 }
 function bhThumbs(root) {
-  if (!root || window.innerWidth > 760) return;
+  if (!root || vw() > 760) return;
   const seen = new Set();
   root.querySelectorAll("button, .btn, a.btn, [role=button]").forEach((b) => {
     const p = b.parentElement;
@@ -104644,7 +104681,7 @@ function b3TabOverflow() {
           document.body.appendChild(menu);
         const r = btn.getBoundingClientRect();
         (menu.style.top = r.bottom + 4 + "px"),
-          (menu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - menu.offsetWidth - 8)) + "px");
+          (menu.style.left = Math.max(8, Math.min(r.left, vw() - menu.offsetWidth - 8)) + "px");
         const off = (ev) => {
           menu.contains(ev.target) ||
             ev.target === btn ||
@@ -105247,7 +105284,7 @@ function clChat() {
         "client" === view && clOverview(),
         clScrub(document.querySelector(".view.on"));
       const sub = document.getElementById("subnav");
-      sub && (sub.hidden = window.innerWidth < 820),
+      sub && (sub.hidden = vw() < 820),
         // Each tile lands on its own list in Account, not the top of the page.
         document.querySelectorAll('#cl-kpis [data-tl="inv"], #cl-kpis [data-tl="sign"]').forEach((b) => {
           b.onclick = () => {
@@ -105721,7 +105758,7 @@ function rpClose() {
 }
 function rpOpen(preset) {
   rpClose(), preset && preset.frozen && (rpFrozen = preset.frozen);
-  const phone = window.innerWidth < 820,
+  const phone = vw() < 820,
     ctx = rpContext(),
     scrim = document.createElement("div");
   (scrim.id = "rp-scrim"), (scrim.onclick = rpClose), document.body.appendChild(scrim);
@@ -106782,12 +106819,219 @@ function renderRealData() {
     }
   };
 }
+// A reopen draws twice, not six times (speed, BACKLOG §1.11 item 5). About a dozen finishBoot layers seed or migrate
+// and then call render(); on a phone each draw took 0.7 to 1.7 s, six of them in a row. The first draw runs as it
+// always did: render layers do real work on it (plSeed and xsSeed seed the drawings there, before lnLoop("boot")
+// reads them; a new day's hooks), so the records after boot are the same as before (a reopen of the same stored
+// records was compared field by field with the build before this change). Every later render() while the chain runs only notes
+// that a draw is wanted; one draw comes after every layer has run, so the screen shows the finished state. The
+// global is swapped, not wrapped, so every render layer (the outermost included) is held. Every boot path calls
+// bootRun, never finishBoot directly (the hosted shell's cloud.js too). A layer may wrap render while the chain runs
+// (stockRegister does), so the hold stays in place under it and passes every draw through once the chain is done. A
+// held draw still moves render.__tick, which the per-draw memos (ocMemo, budMemoGet, ovTick) key on, so a layer
+// never reads a count an earlier layer cached, and the tick never goes back.
+function bootRun() {
+  const install = () => {
+    try {
+      spdInstall();
+    } catch (e) {
+      console.warn("speed layer", e);
+    }
+  };
+  // A first boot on this device seeds the demo company, and the seed is finished by work the render layers do
+  // between the chain's layers (lnLoop("boot") reads what a render seeded): it runs exactly as it always did.
+  if (bootSeeded) return void (finishBoot(), install());
+  install();
+  const draw = render;
+  let holding = !0,
+    drawn = 0,
+    wanted = !1;
+  const hold = function () {
+    if (!holding || !drawn++) return draw.apply(this, arguments);
+    (wanted = !0), (render.__tick = (render.__tick || 0) + 1);
+  };
+  (hold.__tick = draw.__tick || 0), (render = hold);
+  try {
+    finishBoot();
+  } finally {
+    holding = !1;
+    const t = render.__tick || 0;
+    render === hold && (render = draw), (render.__tick = Math.max(render.__tick || 0, t)), wanted && render();
+  }
+}
+/*<<speed.js>>*/
+// Derived numbers once per version of the data (speed, BACKLOG §1.11 item 5). A draw used to work out the same job
+// figures hundreds of times (jobFin about 840 times for the owner's home) and again on every view switch, though
+// nothing had changed. While a draw runs, the costly pure readers in SPD_FNS answer from a memo kept per version of
+// the data: the version moves whenever the stored records differ in any way from the last draw (the whole of DB,
+// compared as text, once per draw) or the app's clock reaches a new minute, so a figure can never come from older
+// records. Outside a draw (a click, Ask, a test, a report export) every call computes fresh. A reader's key holds
+// its arguments and every setting it reads besides the records (the day, the person, the open job, its holiday
+// calendar, the reporting entity and basis, the as-of date of a pack, and the temporary re-dating fin3CostDated and
+// fin3PostDated do while they run). SPD.check (tests/speed_test.py turns it on) recomputes hits and records any
+// difference in SPD.bad, so a missing key part fails loudly.
+const SPD = { on: 0, depth: 0, ver: 0, snap: "", memo: new Map(), hits: 0, miss: 0, check: !1, bad: [] },
+  spdIds = new WeakMap();
+let spdNextId = 0,
+  fin3CostDepth = 0;
+function spdId(o) {
+  if (!o || ("object" != typeof o && "function" != typeof o)) return "-";
+  let i = spdIds.get(o);
+  return i || spdIds.set(o, (i = ++spdNextId)), i;
+}
+// Everything besides the records and the arguments that the memoised readers may read.
+function spdCtx() {
+  const u = "function" == typeof currentUser ? currentUser() : null;
+  return [
+    today(),
+    "function" == typeof role ? role() : "",
+    (u && u.id) || "",
+    (S && S.id) || "",
+    ("undefined" != typeof repEntity && repEntity) || "",
+    ("function" == typeof basis ? basis() : ""),
+    (DB.company && DB.company.basis) || "",
+    ("undefined" != typeof fin3JobAsOf && fin3JobAsOf) || "",
+    ("undefined" != typeof fin3Raw && fin3Raw) || 0,
+    ("undefined" != typeof fin3PostSwapped && fin3PostSwapped ? 1 : 0),
+    fin3CostDepth,
+    "undefined" != typeof holidaySet ? spdId(holidaySet) : "-",
+    spdId(DB.time),
+    spdId(DB.bills),
+    spdId(DB.txns),
+    spdId(DB.payments),
+    spdId(DB.payroll),
+  ].join("|");
+}
+function spdBegin() {
+  let s = null;
+  try {
+    s = JSON.stringify(DB);
+  } catch (e) {}
+  // The app's clock to the minute is part of the version: "2 h ago", a request past its answer window and the like
+  // move with it, so nothing is kept from one minute to the next.
+  let min = "";
+  try {
+    min = appNowIso().slice(0, 16);
+  } catch (e) {
+    min = String(Date.now());
+  }
+  null === s || s !== SPD.snap || min !== SPD.min
+    ? (SPD.ver++, (SPD.snap = s || ""), (SPD.min = min), (SPD.memo = new Map()))
+    : 0,
+    (SPD.on = null === s ? 0 : 1);
+}
+// A record argument is keyed by its id and its identity (a copy being edited is never another record's answer);
+// options and ranges by their content.
+function spdKeyPart(a) {
+  if (null == a) return "";
+  if ("object" != typeof a) return "function" == typeof a ? "f" + spdId(a) : String(a);
+  if (!Array.isArray(a) && a.id) return "#" + a.id + "@" + spdId(a);
+  try {
+    return JSON.stringify(a);
+  } catch (e) {
+    return "@" + spdId(a);
+  }
+}
+// A list comes back as a fresh array each time, so a caller that sorts or filters in place never changes the next
+// caller's list.
+function spdMemo(name, f, self, args) {
+  if (!SPD.on) return f.apply(self, args);
+  const k = name + "(" + Array.prototype.map.call(args, spdKeyPart).join(",") + ")" + spdCtx(),
+    e = SPD.memo.get(k);
+  if (e) {
+    // SPD.check: true checks every hit; a number checks that many hits per key and version (a long walk)
+    if ((SPD.hits++, SPD.check && (!0 === SPD.check || (e.n = (e.n || 0) + 1) <= SPD.check))) {
+      const fresh = JSON.stringify(f.apply(self, args)),
+        had = JSON.stringify(e.r);
+      // a draw that runs over a minute's turn may differ in "N min ago"; that is the clock, not the memo
+      if (fresh !== had && SPD.bad.length < 50 && appNowIso().slice(0, 16) === SPD.min) {
+        const a = String(had),
+          b = String(fresh);
+        let i = 0;
+        for (; i < a.length && a[i] === b[i]; ) i++;
+        SPD.bad.push({ fn: name, key: k.slice(0, 160), view: view, at: i, had: a.slice(Math.max(0, i - 80), i + 120), fresh: b.slice(Math.max(0, i - 80), i + 120) });
+      }
+    }
+    return Array.isArray(e.r) ? e.r.slice() : e.r;
+  }
+  SPD.miss++;
+  const r = f.apply(self, args);
+  return SPD.memo.set(k, { r: r }), Array.isArray(r) ? r.slice() : r;
+}
+// The readers answered from the memo: pure functions of the records, their arguments and spdCtx(). The per-draw
+// memos that were already there (ocMemo for the badge counts, budMemoGet for the budget) use it too while a draw runs.
+const SPD_FNS = [
+  // the books
+  "jobFin",
+  "lineFin",
+  "companyPL",
+  "companyBalance",
+  "clientFin",
+  "clientFundsLedger",
+  "pgRows",
+  "rbRows",
+  // the schedule (the current project is in spdCtx)
+  "computeCPM",
+  "attention",
+  "projectHealth",
+  // the queues and the counts behind the badges
+  "mApprovals",
+  "ovRows",
+  "fdNeeds",
+  "billingRows",
+  "nyhRows",
+  "needsMe",
+  "reminders",
+  "analystFindings",
+  "openExceptions",
+  "buyList",
+];
+function spdInstall() {
+  if (SPD.installed) return;
+  (SPD.installed = 1),
+    SPD_FNS.forEach((n) => {
+      const f = window[n];
+      "function" == typeof f &&
+        (window[n] = function () {
+          return spdMemo(n, f, this, arguments);
+        });
+    });
+  const draw = render;
+  render = function () {
+    0 === SPD.depth++ && spdBegin();
+    try {
+      return draw.apply(this, arguments);
+    } finally {
+      0 == --SPD.depth && ((SPD.on = 0), spdFlush());
+    }
+  };
+  render.__tick = draw.__tick;
+}
+// Work that scrolls or measures the page waits for the end of the draw: run in the middle of it, each one made the
+// browser lay the whole page out again (the sub-tab strip's scroll alone cost about 35 ms a switch on a phone). It
+// still runs before render() returns, in the order asked, once per key. Outside a draw it runs at once.
+const spdAfter = new Map();
+function spdAfterDraw(key, fn) {
+  if (!SPD.depth) return fn();
+  spdAfter.delete(key), spdAfter.set(key, fn);
+}
+function spdFlush() {
+  const L = [...spdAfter.values()];
+  spdAfter.clear(),
+    L.forEach((f) => {
+      try {
+        f();
+      } catch (e) {
+        console.warn("after draw", e);
+      }
+    });
+}
 setTimeout(async () => {
   if (!(bootDone || window.__cloudWait || cloudOn())) {
     console.warn("startup did not finish in 7 s; booting without stored data");
     try {
       DB || (await load({ skipStorage: !0 })),
-        finishBoot(),
+        bootRun(),
         toast("Saved data could not be read on this device — showing sample data");
     } catch (e) {
       console.error(e), showFatal("Could not start: " + (e.message || e));
@@ -106801,13 +107045,13 @@ setTimeout(async () => {
       } catch (e) {
         console.warn(e.message);
       }
-      bootDone ? render() : finishBoot();
+      bootDone ? render() : bootRun();
     })
     .catch((e) => {
       console.error("load failed", e),
         showFatal("Could not load saved data: " + (e.message || e)),
         load({ skipStorage: !0 })
-          .then(finishBoot)
+          .then(bootRun)
           .catch((err) => showFatal("Could not start: " + (err.message || err)));
     }),
   (ctBudget = function (d) {
@@ -107136,7 +107380,7 @@ function cmMsgHtml(c) {
     cl = R.clientId && (DB.clients || []).find((x) => x.id === R.clientId);
   return `<div class="card ib-msg" data-ibmsg="${c.id}">\n    <div class="row" style="gap:10px;align-items:flex-start;margin-bottom:6px"><svg class="cm-ic" viewBox="0 0 24 24">${CM_ICON[c.channel] || CM_ICON.email}</svg>\n      <div class="grow" style="min-width:0"><h3 style="margin:0">${esc(c.subject || "(No Subject)")}</h3>\n      <div class="row wrap" style="gap:6px;margin-top:4px">${cmPartyChips(c)}</div></div>\n      <button class="btn sm ghost no-print" data-ibback>${cmNarrow() ? "Back" : "Close"}</button></div>\n    ${cmHeadHtml(c)}\n    <div class="ib-body">${esc(T.own)}</div>\n    ${T.quoted ? `<details class="ib-quoted"><summary>Show the Earlier Thread</summary><div class="ib-body quoted">${esc(T.quoted)}</div></details>` : ""}\n    ${cmAttachHtml(c)}\n    ${P.length ? `<div class="cm-props" style="margin-top:12px">${P.map((p) => `<div class="cm-prop ${p.applied ? "done" : ""}"><span class="cat ${p.kind}">${CM_CATS[p.kind] || p.kind}</span><span class="grow">${esc(p.summary)}${p.applied ? ` <span class="small muted">· ${esc(p.applied)}${p.by ? " · " + esc(p.by) : ""}</span>` : ""}</span>${p.applied ? "" : `<button class="btn sm primary" data-cmapply="${c.id}|${p.id}">${cmVerb(p)}</button><button class="btn sm ghost" data-cmskip="${c.id}|${p.id}">Not This</button>`}</div>`).join("")}</div>` : ""}\n    <div class="row wrap cm-acts no-print" style="margin-top:12px">\n      <button class="btn sm" data-cma="task" data-cmid2="${c.id}">Task</button>\n      <button class="btn sm" data-cma="note" data-cmid2="${c.id}">Note</button>\n      ${cl ? `<button class="btn sm" data-cma="file" data-cmid2="${c.id}">File on ${esc(cl.name)}</button>` : `<button class="btn sm" data-cma="fileto" data-cmid2="${c.id}">File on a Client…</button>`}\n      ${cl ? "" : `<button class="btn sm" data-cma="client" data-cmid2="${c.id}">New Client</button><button class="btn sm" data-cma="lead" data-cmid2="${c.id}">New Lead</button>`}\n    </div>\n    ${made.length ? `<div class="ib-made"><div class="small" style="font-weight:600;margin-bottom:6px">What This Message Produced</div>${made.map((m, i) => `<div class="ib-maderow"><span class="pill ${"Task" === m.kind ? "warn" : "Document" === m.kind ? "info" : "neutral"}">${m.kind}</span><span class="grow">${esc(m.label)}</span><button class="btn sm ghost" data-ibgo="${c.id}|${i}">Open</button></div>`).join("")}</div>` : ""}\n  </div>`;
 }
-const cmNarrow = () => window.innerWidth <= 980;
+const cmNarrow = () => vw() <= 980;
 function renderCommsInbox() {
   const host = $("#comms-body");
   if (!host) return;
@@ -107287,6 +107531,11 @@ if (
           host.appendChild(el);
       }
       cmInit();
+      // NOTE (speed lane): this writes a second count into the Needs an Answer badge, and when it differs from the
+      // one-count registry's (OC_BADGE.comms) it draws the whole nav again, which puts the registry's number back.
+      // That second nav draw is load-bearing: it also rebuilds the sub-tab strip after layers that relabel it
+      // (renderBase_dall and glnProjectRow write "Today" on the dash tab; the decided name is "Overview", mnNames).
+      // Fold both into one nav draw when the menu lane next touches the strip.
       const n = (DB.comms || []).filter(
           (c) => (c.proposals || []).some((p) => !p.applied && !1 !== p.on) && "ignored" !== c.status,
         ).length,
@@ -113462,7 +113711,7 @@ function paWire(host) {
       !paBusy &&
       setTimeout(() => {
         try {
-          window.innerWidth > 980 && inp.focus();
+          vw() > 980 && inp.focus();
         } catch (e) {}
       }, 40);
 }
@@ -121597,7 +121846,7 @@ if (
     const r = btn.getBoundingClientRect();
     m.style.top = Math.round(r.bottom + 6) + "px";
     const w = m.offsetWidth || 560;
-    m.style.left = Math.max(12, Math.min(r.right - w, window.innerWidth - w - 12)) + "px";
+    m.style.left = Math.max(12, Math.min(r.right - w, vw() - w - 12)) + "px";
     const close = () => {
         m.remove(),
           document.removeEventListener("click", away, !0),
@@ -137148,9 +137397,13 @@ function fin3CostDated(fn) {
     const d = paidOn[b.id] || (b.txnId && ((DB.txns || []).find((t) => t.id === b.txnId) || {}).date);
     b.date && d && d < b.date && (moved.push([b, b.date]), (b.costDateOf = b.date), (b.date = d));
   });
+  // the memo of derived numbers (spdCtx) keys on this depth: what is read while bills are re-dated stays apart
+  const swapped = moved.length ? 1 : 0;
+  fin3CostDepth += swapped;
   try {
     return fn();
   } finally {
+    fin3CostDepth -= swapped;
     moved.forEach(([b, d]) => {
       (b.date = d), delete b.costDateOf;
     });
@@ -140676,6 +140929,15 @@ const ocInt = (v) => {
   ocCan = (v) => (ROLE_VIEWS[role()] || []).includes(v);
 let ocCache = {};
 const ocMemo = (k, f) => {
+    // while a draw runs, a count lasts as long as the records it was counted from (spdMemo); otherwise one draw
+    if (SPD.on)
+      return spdMemo("oc:" + k, () => {
+        try {
+          return f();
+        } catch (e) {
+          return console.warn("onecount", k, e), null;
+        }
+      }, null, []);
     const t = ("function" == typeof render && render.__tick) || 0,
       key = k + "|" + role() + "|" + (S && S.id),
       c = ocCache[key];
@@ -152625,9 +152887,32 @@ const TR_SKIP = TC_SKIP.split(",")
     .filter((s) => ".chip" !== s.trim())
     .concat(["button.chip", "label.chip", "a.chip", ".seg label", ".b3-tabmenu-i"])
     .join(",");
+// The page a person can see, for the label passes asked to case the whole document (speed, BACKLOG §1.11 item 5):
+// every hidden view is left out. A view keeps what it last drew while hidden, and it is drawn (and cased) again
+// before it shows, so walking the hidden ones on every draw (about 200 ms a switch on a phone, more the longer the
+// session) changed nothing.
+function tcShownRoots(root) {
+  if (root && root !== document) return [root];
+  const out = [],
+    walk = (n) => {
+      for (const c of n.children)
+        c.classList.contains("view")
+          ? c.classList.contains("on") && out.push(c)
+          : c.querySelector(".view")
+            ? walk(c)
+            : out.push(c);
+    };
+  return walk(document.body), out;
+}
+function tcEach(root, sel, fn) {
+  if (root && root !== document) return void root.querySelectorAll(sel).forEach(fn);
+  tcShownRoots().forEach((r) => {
+    r.matches(sel) && fn(r), r.querySelectorAll(sel).forEach(fn);
+  });
+}
 function trPills(root) {
   TC_OFF ||
-    (root || document).querySelectorAll(".pill").forEach((p) => {
+    tcEach(root, ".pill", (p) => {
       if (p.closest("[data-nocase]")) return;
       const nodes = [...p.childNodes].filter((n) => 3 === n.nodeType && n.nodeValue.trim());
       if (1 !== nodes.length || p.querySelector("*:not(svg):not(path):not(i)")) return;
@@ -152642,7 +152927,7 @@ function trPills(root) {
 }
 tcLabels = function (root) {
   if (TC_OFF) return;
-  (root || document).querySelectorAll(TR_SEL).forEach((el) => {
+  tcEach(root, TR_SEL, (el) => {
     if (el.closest(TR_SKIP)) return;
     if (el.matches(".btn") && el.querySelector("input,select,textarea")) return;
     const nodes = [];
@@ -153413,6 +153698,7 @@ if ("function" == typeof save) {
   };
 }
 function budMemoGet(k, f) {
+  if (SPD.on) return spdMemo("bud:" + k + "|" + lockedThrough(), f, null, []);
   const t =
     (("function" == typeof render && render.__tick) || 0) +
     "|" +
@@ -154112,7 +154398,7 @@ function repBudgetBva() {
   let v = budVer(bvaVer);
   (v && v.year === y) || (v = budActiveVer(y));
   const ent = (void 0 !== repEntity && repEntity) || "",
-    phone = window.innerWidth < 700;
+    phone = vw() < 700;
   if (!v)
     return `<div class="rep-head"><div><h2 style="margin:0">Budget vs Actual</h2><div class="small muted">${esc(label)}</div></div></div>${entityBar()}<div class="note" style="margin:10px 0">There is no budget for ${y}. Budgets are kept under Accounting › Budget.</div>`;
   const crosses = range[0] && range[0].slice(0, 4) !== y,
@@ -154683,7 +154969,7 @@ function budPhoneHtml(v) {
 function budScreenHtml() {
   const P = budPlan(),
     v = budScrV(),
-    phone = window.innerWidth < 700,
+    phone = vw() < 700,
     y = v.year,
     ents = budEnts();
   "all" === budScrEnt || ents.includes(budScrEnt) || (budScrEnt = ents[0]);
@@ -181984,7 +182270,7 @@ APP_DAY_HOOKS.push(["rfqDayTick", rfqDayTick]);
   };
 }
 const rfqPill = (s) => `<span class="pill ${"awarded" === s ? "ok" : ["foreman-review", "purchasing", "leveled"].includes(s) ? "warn" : ""}">${esc(RFQ_STATUS[s] || s)}</span>`,
-  rfqPhone = () => window.innerWidth < 700,
+  rfqPhone = () => vw() < 700,
   rfqU = (n) => `$${rfqMoney2(n)}`;
 function rfqNext(r) {
   return {
