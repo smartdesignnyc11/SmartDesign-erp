@@ -121354,7 +121354,9 @@ function newTaskDialog(preset, opts) {
         (save(),
         tkLand(made),
         crToast(
-          `Task for ${made.assignee || "nobody yet"}${made.due ? ", due " + fmtL(made.due) : ""} — it is on ${made.where}`,
+          made.offeredTo
+            ? `Offered to ${made.offeredTo}${made.due ? ", due " + fmtL(made.due) : ""} — it stays on your list until they accept`
+            : `Task for ${made.assignee || "nobody yet"}${made.due ? ", due " + fmtL(made.due) : ""} — it is on ${made.where}`,
           { label: "Open", run: () => crOpenTask(made) },
         ),
         O.onSaved)
@@ -173538,7 +173540,7 @@ function tdRender() {
     });
   // the Standard's "because" line under each card reads the rows shown, in the order shown
   try {
-    stdLastQueue = top.map((c) => c.it);
+    stdLastQueue = "team" === tab ? [] : top.map((c) => c.it);
   } catch (e) {}
   const ca = root.querySelector("[data-tdcatchall]");
   ca &&
@@ -196911,7 +196913,7 @@ function tdyTaskSheet(t) {
     ].filter(Boolean);
   const m = mbModal(
     esc(tdWords(t.title, 10)),
-    `<div class="tdy-sheet">${lines.map(([k, v]) => `<div class="tdy-kv"><span class="small muted">${esc(k)}</span><span>${esc(v)}</span></div>`).join("")}</div><div class="tdy-sheet-acts"><button type="button" class="btn" data-tdysrc>Open the ${esc(t.sourceLabel.split(" · ")[0])} Record</button>${(mine || TDY_MANAGERS.includes(role())) && !offeredToMe && "draft" !== t.kind ? '<button type="button" class="btn" data-tdyhand>Hand Off</button>' : ""}</div>`,
+    `<div class="tdy-sheet">${lines.map(([k, v]) => `<div class="tdy-kv"><span class="small muted">${esc(k)}</span><span>${esc(v)}</span></div>`).join("")}</div><div class="tdy-sheet-acts"><button type="button" class="btn" data-tdysrc>Open the Record</button>${(mine || TDY_MANAGERS.includes(role())) && !offeredToMe && "draft" !== t.kind ? '<button type="button" class="btn" data-tdyhand>Hand Off</button>' : ""}</div>`,
     offeredToMe ? { submit: "Accept or Decline", onSubmit: () => (setTimeout(() => tdyDecideSheet(t), 0), !0) } : "draft" === t.kind ? { submit: null } : { submit: "Mark Done", onSubmit: () => (setTimeout(() => tdyDone(t), 0), !0) },
   );
   const s = m.querySelector("[data-tdysrc]"),
@@ -196939,7 +196941,7 @@ const tdyActiveJobs = () => (DB.projects || []).filter((p) => !p.archived && !/^
 const tdyBuildJob = (p) => !/\bdesign\b/i.test((p.project || {}).name || "") || /\bbuild\b/i.test((p.project || {}).name || "");
 const TDY_DUTY = {
   friday: { every: "Every Friday", title: (p) => `Friday client update — ${shortName(p)}`, cite: ["std", "communication", /Weekly client update/i], p: "client" },
-  walk: { every: "Every week", title: (p) => `Weekly site walk with the foreman and budget vs. actual — ${shortName(p)}`, cite: ["pb", "pm", "standards", /Weekly site walk/i], p: "quality" },
+  walk: { every: "Every week", title: (p) => `Site walk and budget vs. actual — ${shortName(p)}`, cite: ["pb", "pm", "standards", /Weekly site walk/i], p: "quality" },
   huddle: { every: "Every working day", title: (p) => `Morning huddle — ${shortName(p)}`, cite: ["pb", "foreman", "standards", /Morning huddle/i], p: "quality" },
   delivery: { every: "48 hours before each delivery", title: (po) => `Reconfirm the delivery — ${po.number} · ${po.vendor}`, cite: ["pb", "procurement", "standards", /Deliveries reconfirmed/i], p: "schedule" },
   books: { every: "Every month, by the 10th", title: (ym) => `Reconcile the books for ${tdyMonthName(ym)}`, cite: ["pb", "office", "standards", /Books reconciled/i], p: "integrity" },
@@ -197354,6 +197356,32 @@ function tdyOwed(name, to) {
 const TDY_IC = {
   camera: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>',
 };
+// Assigning a new task to someone else is a hand-off (the one creation path, crCreateTask): the person who makes it
+// owns it until the other accepts. The assistant's own reminders and a person's own tasks are not hand-offs.
+{
+  const base = crCreateTask;
+  crCreateTask = function (f) {
+    let me = null,
+      to = null;
+    try {
+      me = tdyUserOf(tkMe());
+      to = f && f.assignee ? tdyUserOf(f.assignee) : null;
+    } catch (e) {}
+    const hand = !!(f && me && to && to.id !== me.id && !(f.source && (f.source.assistant || f.source.meetingId)) && !1 !== f.handoff);
+    const m = base.apply(this, hand ? [Object.assign({}, f, { assignee: me.name })] : arguments);
+    if (!m || !hand || !m.rec) return m;
+    try {
+      m.rec.handoff = { from: me.name, fromUid: me.id, by: me.name, to: to.name, toUid: to.id, at: appNowIso(), state: "offered", note: f.notes || "" };
+      tdyLog(m.rec, { ev: "offered", from: me.name, to: to.name, by: me.name, note: "" });
+      audit("task", m.rec.id, "handoff", me.name, to.name, "");
+      m.offeredTo = to.name;
+      m.assignee = me.name;
+    } catch (e) {
+      console.warn("hand-off on create", e);
+    }
+    return m;
+  };
+}
 /*<</today.js>>*/
 /*<<today2.js>>*/
 // The foreman's Now carries his own tasks for this job due today or late (the morning huddle the Standard asks

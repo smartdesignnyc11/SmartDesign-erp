@@ -155,6 +155,14 @@ async def handoffs(c, pg):
     await sign_in(pg, 'u_owner')
     gone = await pg.evaluate("() => !tdyModel().tasks.some(it => /Lane handoff/.test(it.title))")
     c.ok(gone, "hand-off: accepted, it leaves the Owner's list")
+    # a new task assigned to someone else is a hand-off from the start (New Task, the one creation path)
+    await go(pg, 'home'); await pg.wait_for_timeout(200)
+    await pg.evaluate("() => newTaskDialog({ title: 'Lane new: order the stair runner samples' })"); await pg.wait_for_timeout(200)
+    await pg.evaluate("() => { const s = document.querySelector('#mbm [data-f=\"assignee\"]'); s.value = [...s.options].find(o => /Chen/.test(o.value)).value; document.querySelector('#mbm #mbm-ok').click(); }")
+    await pg.wait_for_timeout(400)
+    toast = await pg.evaluate("() => document.getElementById('toast').innerText")
+    x = await pg.evaluate("() => tkAll({ open: true }).find(x => /Lane new: order the stair/.test(x.title))")
+    c.ok(x and x['owner'] == 'Owner' and x['offeredTo'] == 'Chen Biron' and 'Offered to Chen' in toast, f"hand-off: New Task for Chen is offered, the Owner owns it until he accepts ({x and (x['owner'], x['offeredTo'])}; {toast[:90]!r})")
 
 
 RECUR = """() => { const all = (DB.projects || []).flatMap(p => p.actions || []).concat(DB.tasks || []).filter(a => a && a.recur);
