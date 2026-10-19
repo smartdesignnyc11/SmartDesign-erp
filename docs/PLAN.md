@@ -22,9 +22,10 @@ Last updated 2026-10-18 (platform set up).
 - **Sign In with Google is on** (2026-10-19), invited addresses only; the consent screen reads SmartDesigns Projects.
 - **Mail, calendar and Drive are private to each person** (2026-10-19): own rows only that sign-in can read, the owner included; live checks 37/37 and 25/25. Fixed on the way: device settings (who is on the phone, the open job) were syncing, so one phone's save switched other devices to that person.
 - **Alan's Google is connected** (2026-10-19, signed in as alan@smartdesign.nyc): first sync 40 mails, 55 calendar entries, 500 Drive files, all in his private rows, none in shared rows, no Google tokens stored. Both sign-ins now share one private store (server-set link).
-- **The watcher is live** (2026-10-19): every 15 minutes, weekdays 7am to 7pm New York, new mail, calendar changes and Drive files go into each watching person's private inbox; the app files them on opening. Alan turns it on with Settings › Connections › Keep Watching When It Is Closed. The watcher's key reads only (it cannot send mail). Push notifications are live: at most one per run, for vendors, clients, jobs, agencies and meetings in the next two days. Alan turns them on in Settings › notifications (iPhone: add to Home Screen first). Next: nudges into the assistant thread.
+- **The watcher is live** (2026-10-19): every 15 minutes, weekdays 7am to 7pm New York, new mail, calendar changes and Drive files go into each watching person's private inbox; the app files them on opening. Alan turns it on with Settings › Connections › Keep Watching When It Is Closed. The watcher's key reads only (it cannot send mail). Push notifications are live: at most one per run, for vendors, clients, jobs, agencies and meetings in the next two days. Alan turns them on in Settings › notifications (iPhone: add to Home Screen first). The watcher's finds now become nudges in the assistant's conversation. The owner invites people and signs any account out everywhere from Settings › Team Accounts; a signed-out phone loses access at once and erases its copy.
+- **The document reader is live** (2026-10-19): text PDFs and Word read free on the server; scanned PDFs and photos read by the small Claude model within the caps (a receipt photo read exactly in the live test). Spreadsheets and HEIC photos get a note for now.
 - **Alan signed in** (2026-10-19, email link); the firm workspace holds the first upload (84 collections, demo data).
-- **Not built yet:** watcher nudges in the assistant thread, removing a lost phone's access, per-client portal rows, the server-side hash-chain head, document reader, mail/calendar/drive watcher, Plaid, push, the agents.
+- **Not built yet:** spreadsheets and HEIC in the reader, per-client portal rows, the server-side hash-chain head, document reader, mail/calendar/drive watcher, Plaid, push, the agents.
 
 ## Overnight 2026-10-18: where things stand (for Alan at 10am)
 - **Published:** version 11 (v11.1 folded in). Build 84687e4: 32/32 suites green; scripted month 258/292 on time.
@@ -146,6 +147,10 @@ What remains, in order. Usage is a share of one week's allowance.
 - **Estimates and stock:**
   - material and labour split per estimate line, so savings and price checks have a material budget;
   - a trip-cost model for the "not worth the trip" stock override.
+- **From the platform session (2026-10-19):**
+  - the inbox reader turns any question in mail into a to-do nudge, including personal mail from senders not on file ("Lunch Friday? Are you free?"); recommend: senders not on file need a job, money or date before they nudge;
+  - spreadsheets and iPhone HEIC photos in the document reader;
+  - a real push on Alan's phone and a real watcher run on his Gmail, not yet seen.
 - **Gaps the build lanes found:**
   - a toast's Open link sits above the editor's scrim and can navigate away with the editor still open (closing on navigation would drop unsaved edits; needs an "unsaved changes" prompt instead);
   - client portal: pay online, or "we paid";

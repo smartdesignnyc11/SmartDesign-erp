@@ -22,6 +22,12 @@ export async function caller(req) {
   const r = await fetch(URL_() + '/auth/v1/user', {headers: {apikey: SVC(), authorization: 'Bearer ' + token}});
   if (!r.ok) return json(401, {error: 'your session has ended: sign in again'});
   const user = await r.json();
+  // The session must still be alive (Sign Out Everywhere ends it before the key expires).
+  try {
+    const sid = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()).session_id;
+    if (sid && !(await rest('rpc/session_alive_for', {method: 'POST', body: JSON.stringify({p_session: sid, p_user: user.id})})))
+      return json(401, {error: 'this device was signed out: sign in again'});
+  } catch (e) { return json(401, {error: 'sign in again'}); }
   const rows = await rest('profiles?select=id,role,workspace_id,name,private_key&id=eq.' + encodeURIComponent(user.id));
   const profile = rows && rows[0];
   if (!profile || !MEMBER_ROLES.includes(profile.role)) return json(403, {error: 'this account has no access yet: ask the owner to set your role'});

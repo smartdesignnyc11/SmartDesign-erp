@@ -49,23 +49,17 @@ export function cleanBody(body, model, tier) {
   return out;
 }
 
-export default async (req) => {
-  if (req.method !== 'POST') return json(405, {error: 'POST only'});
+// One call to Claude for a signed-in member: caps checked before, the model by tier, cost logged after.
+// The AI door below and the document reader (doctext.mjs) both go through it, so neither can skip the caps.
+export async function claude(user, profile, body) {
   const key = process.env.ANTHROPIC_API_KEY;
-  if (!key) return json(500, {error: 'ANTHROPIC_API_KEY is not set on the server'});
-  const who = await caller(req);
-  if (who instanceof Response) return who;
-  const {user, profile} = who;
-  let body;
-  try { body = await req.json(); } catch { return json(400, {error: 'bad JSON'}); }
-  if (!body || !Array.isArray(body.messages) || !body.messages.length) return json(400, {error: 'messages required'});
-
+  if (!key) return {status: 500, text: JSON.stringify({error: 'ANTHROPIC_API_KEY is not set on the server'})};
   const capFirm = Number(process.env.AI_CAP_FIRM_USD || 40), capUser = Number(process.env.AI_CAP_USER_USD || 8);
   let spend;
   try { spend = await rest('rpc/ai_spend', {method: 'POST', body: JSON.stringify({p_ws: profile.workspace_id, p_user: user.id})}); }
-  catch (e) { return json(503, {error: 'could not check this month\'s AI spend, so the call was not made'}); }
-  if (spend.firm >= capFirm) return json(429, {error: `The firm's AI budget for this month ($${capFirm}) is used up. The owner can raise it in Netlify (AI_CAP_FIRM_USD).`, cap: 'firm'});
-  if (spend.user >= capUser) return json(429, {error: `Your AI budget for this month ($${capUser}) is used up. Ask the owner to raise it.`, cap: 'user'});
+  catch (e) { return {status: 503, text: JSON.stringify({error: 'could not check this month\'s AI spend, so the call was not made'})}; }
+  if (spend.firm >= capFirm) return {status: 429, text: JSON.stringify({error: `The firm's AI budget for this month ($${capFirm}) is used up. The owner can raise it in Netlify (AI_CAP_FIRM_USD).`, cap: 'firm'})};
+  if (spend.user >= capUser) return {status: 429, text: JSON.stringify({error: `Your AI budget for this month ($${capUser}) is used up. Ask the owner to raise it.`, cap: 'user'})};
 
   const tier = ['brain', 'small'].includes(body.tier) ? body.tier : 'assistant';
   const model = modelFor(tier, profile.role);
@@ -79,17 +73,29 @@ export default async (req) => {
   try {
     r = await fetch('https://api.anthropic.com/v1/messages', {method: 'POST', headers, body: JSON.stringify(out)});
     text = await r.text();
-  } catch (e) { return json(502, {error: 'could not reach the model: ' + (e.message || e)}); }
+  } catch (e) { return {status: 502, text: JSON.stringify({error: 'could not reach the model: ' + (e.message || e)})}; }
   let usage = {}, served = model;
   try { const j = JSON.parse(text); usage = j.usage || {}; served = j.model || model; } catch {}
   const cost = costOf(PRICES[served] ? served : model, usage);
   try {
     await rest('ai_usage', {method: 'POST', headers: {prefer: 'return=minimal'}, body: JSON.stringify({
-      user_id: user.id, workspace_id: profile.workspace_id, tier, model: served, status: r.status,
+      user_id: user.id, workspace_id: profile.workspace_id, tier: body.purpose ? tier + ':' + body.purpose : tier, model: served, status: r.status,
       input_tokens: usage.input_tokens || 0, output_tokens: usage.output_tokens || 0,
       cache_read_tokens: usage.cache_read_input_tokens || 0, cache_write_tokens: usage.cache_creation_input_tokens || 0,
       cost_usd: Number(cost.toFixed(6))})});
   } catch (e) { console.error('ai_usage log failed', e.message); }
-  return new Response(text, {status: r.status, headers: {'content-type': 'application/json', 'cache-control': 'no-store'}});
+  return {status: r.status, text};
+}
+
+export default async (req) => {
+  if (req.method !== 'POST') return json(405, {error: 'POST only'});
+  const who = await caller(req);
+  if (who instanceof Response) return who;
+  let body;
+  try { body = await req.json(); } catch { return json(400, {error: 'bad JSON'}); }
+  if (!body || !Array.isArray(body.messages) || !body.messages.length) return json(400, {error: 'messages required'});
+  delete body.purpose;
+  const r = await claude(who.user, who.profile, body);
+  return new Response(r.text, {status: r.status, headers: {'content-type': 'application/json', 'cache-control': 'no-store'}});
 };
 export const config = {path: '/api/ai'};

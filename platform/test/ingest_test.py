@@ -30,7 +30,14 @@ async def main():
         c.ok((r['link'] or '').startswith('https://mail.google.com/'), 'it links back to Gmail')
         c.ok(r['routed'], 'the vendor mail went through routing, as a sync run would')
         c.ok(r['total'] == before + 2, f'two new messages ({r["total"] - before})')
+        nudges = await pg.evaluate("paInit().thread.filter(m => m.nudge && m.ref && m.ref.kind === 'mail').map(m => m.ref.id)")
+        c.ok('srv1' in nudges, f"the vendor's quote reached the assistant's conversation as a nudge: {nudges}")
+        why = await pg.evaluate("paInit().thread.filter(m => m.nudge && m.ref && m.ref.kind === 'mail').every(m => (m.note || '').length > 10)")
+        c.ok(why, 'every nudge says why it was brought')
+        # Known (queued in PLAN): the inbox reader also turns a personal question ("Are you free?") into a to-do
+        # nudge, exactly as a browser sync does; whether mail from senders not on file should is Alan's call.
         again = await pg.evaluate("box => gsIngestServer(box)", BOX)
+        c.ok(await pg.evaluate("paInit().thread.filter(m => m.ref && m.ref.id === 'srv1').length") == 1, 'filing twice does not nudge twice')
         c.ok(await pg.evaluate("DB.comms.filter(x => x.msgId === 'srv1').length") == 1, 'filing the same inbox twice adds no mail twice')
         ev = await pg.evaluate("(DB.calendar.external||[]).find(e => e.id === 'g_ev9')")
         c.ok(ev and ev['owner'] == 'u_owner' and ev['title'] == 'Inspection 121 State', 'the calendar change is filed')

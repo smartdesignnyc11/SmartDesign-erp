@@ -43,7 +43,9 @@ async def before_sign_in(b):
 
 async def until(pg, js, secs=40):
     for _ in range(secs * 2):
-        if await pg.evaluate(js): return True
+        try:
+            if await pg.evaluate(js): return True
+        except Exception: pass          # the page may be reloading (a signed-out phone wipes and reloads)
         await pg.wait_for_timeout(500)
     return False
 
@@ -128,6 +130,14 @@ async def main():
         r = await F.evaluate("fetch('/api/ai', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({tier:'small', max_tokens: 20, messages:[{role:'user', content:'Reply with the word ready.'}]})}).then(r => r.status)")
         ok(r == 200, f'the page reaches /api/ai signed in and is answered (status {r})')
 
+        # a lost phone: the owner signs the foreman out everywhere; the open phone notices, wipes its copy, asks to sign in
+        r = await A.evaluate(f"Cloud.signOutEverywhere('{QA['foreman']['id']}').then(r => r.signedOut)")
+        ok(r and r >= 1, f'the owner signed the foreman out everywhere ({r} sessions)')
+        await F.evaluate("Cloud.pollOnce()")
+        gone = await until(F, "!!document.querySelector('#cl-email') && document.querySelector('#signin').classList.contains('on')", 60)
+        ok(gone, "the foreman's open phone went to the sign-in screen")
+        left = await F.evaluate("new Promise(res => { try { const r = indexedDB.open('smartdesigns'); r.onsuccess = () => { try { const db = r.result; const st = db.objectStoreNames; if (!st.length) return res(0); const tx = db.transaction(st[0], 'readonly'); const g = tx.objectStore(st[0]).get('smartdesigns:portfolio:v2'); g.onsuccess = () => res(g.result ? String(g.result).length : 0); g.onerror = () => res(-1); } catch (e) { res(-2); } }; r.onerror = () => res(-3); } catch (e) { res(-4); } })")
+        ok(left == 0, f"and its copy of the records is erased ({left})")
         ok(not ea, f'owner: no page errors {ea[:3]}')
         ok(not ef, f'foreman: no page errors {ef[:3]}')
         await b.close()

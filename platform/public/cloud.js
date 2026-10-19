@@ -63,7 +63,10 @@ window.Cloud = (() => {
     if (!on()) return false;
     sb = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, {auth: {persistSession: true, autoRefreshToken: true, detectSessionInUrl: true}});
     const {data} = await sb.auth.getSession(); session = data.session || null;
-    sb.auth.onAuthStateChange((_e, s) => { session = s; });
+    // A session the server has ended (Sign Out Everywhere, a lost phone): sign out here and let the app wipe
+    // this device's copy before it shows anything.
+    if (session) { try { const {data: alive, error} = await sb.rpc('session_alive'); if (!error && alive === false) { revoked = true; session = null; await new Promise(res => wipeLocal(res)); } } catch (e) {} }
+    sb.auth.onAuthStateChange((e, s) => { const had = !!session; session = s; if (e === 'SIGNED_OUT' && had && !signingOut) endedHere(); });
     window.addEventListener('online', () => { state.online = true; if (state.pending) push(dbRef()); });
     window.addEventListener('offline', () => { state.online = false; });
     window.addEventListener('pagehide', keepalive);
@@ -83,7 +86,27 @@ window.Cloud = (() => {
   }
   async function magicLink(email) { const {error} = await sb.auth.signInWithOtp({email, options: {emailRedirectTo: location.origin + location.pathname, shouldCreateUser: false}}); if (error) throw error; }
   async function resetPassword(email) { const {error} = await sb.auth.resetPasswordForEmail(email, {redirectTo: location.origin + location.pathname}); if (error) throw error; }
-  async function signOut() { try { await sb.auth.signOut(); } catch (e) {} session = null; profile = null; }
+  let revoked = false, signingOut = false;
+  async function signOut() {
+    signingOut = true;
+    try { await Promise.race([sb.auth.signOut({scope: 'local'}), new Promise(r => setTimeout(r, 2500))]); } catch (e) {}
+    try { Object.keys(localStorage).filter(k => k.startsWith('sb-')).forEach(k => localStorage.removeItem(k)); } catch (e) {}   // never left signed in by a stuck library
+    session = null; profile = null; signingOut = false;
+  }
+  // The server ended this device's session (Sign Out Everywhere, a lost phone). Wipe this device without asking the
+  // auth library (its sign-out can wait on a lock that never frees): the stored sign-in, the sync markers and the
+  // app's whole local database (records and photos), then reload to the sign-in screen.
+  let ending = false;
+  function wipeLocal(then) {
+    try { Object.keys(localStorage).filter(k => k.startsWith('sb-') || k.startsWith('sdp:pending:') || k.startsWith('sdp:versions:')).forEach(k => localStorage.removeItem(k)); } catch (e) {}
+    try { sessionStorage.clear(); } catch (e) {}
+    let done = false; const go = () => { if (!done) { done = true; then && then(); } };
+    try { const r = indexedDB.deleteDatabase('smartdesigns'); r.onsuccess = go; r.onerror = go; r.onblocked = () => setTimeout(go, 300); } catch (e) { go(); }
+    setTimeout(go, 3000);
+  }
+  function endedHere() { if (ending) return; ending = true; revoked = true; session = null; wipeLocal(() => location.reload()); }
+  async function signOutEverywhere(profileId) { const r = await fetch('/api/team', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'signout', profileId})}); const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed'); return j; }
+  async function invite(o) { const r = await fetch('/api/team', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(Object.assign({action: 'invite'}, o))}); const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed'); return j; }
   async function getProfile() {
     if (profile) return profile; if (!user()) return null;
     const {data, error} = await sb.from('profiles').select('*').eq('id', user().id).maybeSingle(); if (error) throw error;
@@ -311,6 +334,7 @@ window.Cloud = (() => {
   }
   async function pollOnce() {
     if (!sb || !user() || !profile) return;
+    try { const {data: alive, error} = await sb.rpc('session_alive'); if (!error && alive === false) return endedHere(); } catch (e) {}
     try { const {data, error} = await sb.rpc('collection_versions'); if (error) return; for (const r of (data || [])) if (!versions[r.name] || r.version > versions[r.name]) await remoteChanged(r.name, r.version); } catch (e) {}
   }
   function subscribe(cb) {
@@ -370,7 +394,7 @@ window.Cloud = (() => {
 
   return {on, init, isOffice, isField, token: () => (session && session.access_token) || '', setDbRef: f => { dbRef = f; }, user, profile: getProfile,
     signIn, signInGoogle, authError, magicLink, resetPassword, signOut, pullAll, pullOne, push, pushPending, hasPending, subscribe, pollOnce, putBlob, getBlob,
-    listProfiles, updateProfile, aiSpend, enablePush, disablePush, listSignals: none, setSignalStatus: async () => true, listClips: none, claimClips: async () => 0,
+    listProfiles, updateProfile, aiSpend, enablePush, disablePush, signOutEverywhere, invite, revoked: () => revoked, listSignals: none, setSignalStatus: async () => true, listClips: none, claimClips: async () => 0,
     saveClipToken: async () => true, screenPoint: async () => null, state, shards, merge3, cfg,
     _test: {session: s => { session = s; }, profile: p => { profile = p; }, setPart: (DB, n, d) => setPart(DB, n, d)}};
 })();

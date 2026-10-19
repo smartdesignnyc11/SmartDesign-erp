@@ -154,5 +154,23 @@ ok(s == 200 and j and all(r['user_id'] == me['id'] for r in j) and float(j[0]['c
 s, j = http('GET', BASE + '/rest/v1/ai_usage?select=user_id&limit=50', token=T['owner'])
 ok(s == 200 and any(r['user_id'] == me['id'] for r in j), 'AI: the owner sees the firm\'s spend')
 
+# Sign Out Everywhere: the owner ends the crew member's sessions; the crew's unexpired key is dead at once
+def team(who, body):
+    req = urllib.request.Request(SITE + '/api/team', method='POST', data=json.dumps(body).encode(), headers={'content-type': 'application/json', 'authorization': 'Bearer ' + T[who]})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r: return r.status, json.loads(r.read())
+    except urllib.error.HTTPError as e: return e.code, e.read().decode()[:200]
+ok(team('foreman', {'action': 'signout', 'profileId': QA['crew']['id']})[0] == 403, 'team: only the owner signs someone else out')
+ok(team('foreman', {'action': 'invite', 'email': 'x@example.com', 'role': 'crew'})[0] == 403, 'team: only the owner invites')
+s, j = team('owner', {'action': 'invite', 'email': QA['crew']['email'], 'role': 'owner'}); ok(s == 400, f'team: nobody is invited as a second owner: {s}')
+s, j = team('owner', {'action': 'invite', 'email': QA['crew']['email'], 'role': 'crew', 'appUserId': 'u_alberto'}); ok(s == 200 and j.get('invited') is False and j.get('role') == 'crew', f'team: inviting someone already here sets their role, no email: {s} {j}')
+s, rows = view(T['crew']); ok(s == 200 and len(rows) > 0, 'crew reads before being signed out')
+s, j = team('owner', {'action': 'signout', 'profileId': QA['crew']['id']}); ok(s == 200 and j.get('signedOut', 0) >= 1, f'team: the owner signs the crew member out everywhere: {s} {j}')
+s, rows = view(T['crew']); ok(s == 200 and rows == [], f'the crew key, not yet expired, now reads nothing: {len(rows) if isinstance(rows, list) else rows}')
+s, res = save(T['crew'], [{'name': 'field', 'data': {}, 'base': 99}]); ok(s >= 400, f'and writes nothing: {s}')
+ok(ai('crew', q)[0] == 401, 'and the AI refuses it')
+s, j = http('POST', BASE + '/rest/v1/rpc/session_alive', {}, token=T['crew']); ok(j is False, f'the app can see its session ended: {j}')
+T['crew'] = token('crew'); s, rows = view(T['crew']); ok(s == 200 and len(rows) > 0, 'signing in again works')
+
 print('ALL PASS' if not fails else f'{len(fails)} FAILED', f'({n} checks)')
 sys.exit(1 if fails else 0)

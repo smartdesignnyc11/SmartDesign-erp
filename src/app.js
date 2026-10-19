@@ -50898,6 +50898,11 @@ load = async function (opts = {}) {
     console.warn("cloud init failed", e);
   }
   if (!ok) return loadBase_cl(opts);
+  // This device was signed out by the server (Sign Out Everywhere): its copy of the firm's records goes first.
+  if (Cloud.revoked && Cloud.revoked())
+    try {
+      await idbDel(KEY);
+    } catch (e) {}
   Cloud.setDbRef(() => DB),
     Cloud.user() || ((window.__cloudWait = !0), await cloudSignInScreen(), (window.__cloudWait = !1));
   try {
@@ -51039,7 +51044,10 @@ function cloudSettingsCard() {
     (card.id = "cl-team"),
     (card.style.marginTop = "12px"),
     (card.innerHTML =
-      '<h3>Team accounts <span class="small muted">who can sign in</span></h3><div id="cl-team-list" class="small muted">Loading…</div><p class="small muted" style="margin:8px 0 0">Add a person: Supabase → Authentication → Users → Add user (email + password), then they appear here — set their role and which person in the app they are. They sign in with that email on any phone.</p>'),
+      '<h3>Team Accounts <span class="small muted">who can sign in</span></h3><div id="cl-team-list" class="small muted">Loading…</div>' +
+        ("owner" === role()
+          ? `<div class="f2" style="margin-top:10px"><div class="f"><label>Invite by Email</label><input id="cl-inv-email" type="email" inputmode="email" placeholder="name@smartdesign.nyc"></div><div class="f"><label>Role</label><select id="cl-inv-role">${Object.entries(ROLE_NAMES).filter(([k]) => "owner" !== k && "client" !== k && !k.startsWith("mb")).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join("")}</select></div><div class="f"><label>Person in the App</label><select id="cl-inv-user"><option value="">— choose —</option>${DB.users.map((u) => `<option value="${u.id}">${esc(u.name)}</option>`).join("")}</select></div></div><button class="btn" id="cl-inv-go">Send Invitation</button><p class="small muted" style="margin:8px 0 0">They get an email with a sign-in link, and can then sign in with Google or by email on any phone. Nobody else can sign up.</p>`
+          : "")),
     usersBox.closest(".card")?.after(card),
     Cloud.listProfiles()
       .then((rows) => {
@@ -51055,7 +51063,7 @@ function cloudSettingsCard() {
                     .map(([k, v]) => `<option value="${k}" ${p.role === k ? "selected" : ""}>${v}</option>`)
                     .join(
                       "",
-                    )}</select><select data-clmap="${p.id}"><option value="">— person in the app —</option>${DB.users.map((u) => `<option value="${u.id}" ${p.app_user_id === u.id ? "selected" : ""}>${esc(u.name)}</option>`).join("")}</select></div>`,
+                    )}</select><select data-clmap="${p.id}"><option value="">— person in the app —</option>${DB.users.map((u) => `<option value="${u.id}" ${p.app_user_id === u.id ? "selected" : ""}>${esc(u.name)}</option>`).join("")}</select>${"owner" === role() || (Cloud.user() && Cloud.user().id === p.id) ? `<button class="btn sm" data-clout="${p.id}" title="Ends every session of this account at once: for a lost or handed-on phone">Sign Out Everywhere</button>` : ""}</div>`,
               )
               .join("") || '<div class="small muted">No accounts yet.</div>'),
           list.querySelectorAll("[data-clrole]").forEach(
@@ -51064,6 +51072,16 @@ function cloudSettingsCard() {
                 Cloud.updateProfile(s.dataset.clrole, { role: s.value })
                   .then(() => toast("Role updated — takes effect at their next sign-in"))
                   .catch((e) => toast(e.message))),
+          ),
+          list.querySelectorAll("[data-clout]").forEach(
+            (b) =>
+              (b.onclick = () => {
+                const self = Cloud.user() && Cloud.user().id === b.dataset.clout;
+                confirm(self ? "Sign this account out on every device, this one included?" : "Sign this person out on every device? They will need to sign in again, and their phone's copy of the records is erased when it next opens.") &&
+                  Cloud.signOutEverywhere(b.dataset.clout)
+                    .then((r) => (toast(`Signed out everywhere: ${r.email || "the account"}`), self && setTimeout(() => location.reload(), 800)))
+                    .catch((e) => toast(e.message));
+              }),
           ),
           list.querySelectorAll("[data-clmap]").forEach(
             (s) =>
@@ -51076,6 +51094,22 @@ function cloudSettingsCard() {
       .catch((e) => {
         card.querySelector("#cl-team-list").textContent = "Could not load accounts: " + (e.message || e);
       });
+  const inv = card.querySelector("#cl-inv-go");
+  inv &&
+    (inv.onclick = () => {
+      const email = card.querySelector("#cl-inv-email").value.trim();
+      if (!email) return toast("Type their email first");
+      (inv.disabled = !0),
+        Cloud.invite({ email: email, role: card.querySelector("#cl-inv-role").value, appUserId: card.querySelector("#cl-inv-user").value || "" })
+          .then((r) => {
+            toast(r.invited ? `Invitation sent to ${r.email}` : `${r.email} already had an account: role set to ${ROLE_NAMES[r.role] || r.role}`),
+              (card.querySelector("#cl-inv-email").value = ""),
+              card.remove(),
+              cloudSettingsCard();
+          })
+          .catch((e) => toast(e.message))
+          .finally(() => (inv.disabled = !1));
+    });
 }
 function mbincInit() {
   DB.mbinc = DB.mbinc || {};
@@ -114197,20 +114231,42 @@ function gsIngestServer(box) {
   const me = paMe();
   if (!me || !box) return 0;
   const have = new Set((DB.comms || []).map((c) => c.msgId).filter(Boolean)),
-    mail = (box.gmail || []).filter((m) => m && m.id && !have.has(m.id) && (have.add(m.id), !0)).map((m) => gsMailRec(m, me, "google"));
-  gsFileMail(mail, me);
-  let n = mail.length;
-  (box.cal || []).forEach((ev) => {
-    ev && ev.id && (gsFileEvent(ev, me, "google"), n++);
-  }),
+    mail = (box.gmail || []).filter((m) => m && m.id && !have.has(m.id) && (have.add(m.id), !0)).map((m) => gsMailRec(m, me, "google")),
+    delta = { mail: mail, events: [], files: [], at: appNowIso(), errors: [], server: !0 };
+  gsFileMail(mail, me),
+    (box.cal || []).forEach((ev) => {
+      const rec = ev && ev.id && gsFileEvent(ev, me, "google");
+      rec && delta.events.push(rec);
+    }),
     (DB.gdrive = DB.gdrive || []),
     (box.drive || []).forEach((f) => {
       if (!f || !f.id) return;
       const rec = gsFileRec(f, me, "google"),
         i = DB.gdrive.findIndex((x) => x.id === rec.id);
-      (rec.route = gsRouteFile(rec)), i >= 0 ? (DB.gdrive[i] = rec) : DB.gdrive.push(rec), n++;
+      (rec.route = gsRouteFile(rec)), i >= 0 ? (DB.gdrive[i] = rec) : (DB.gdrive.push(rec), delta.files.push(rec));
     });
-  return n && (save(), "function" == typeof render && render()), n;
+  const n = mail.length + (box.cal || []).length + delta.files.length;
+  if (!n) return 0;
+  // What a sync run here does next, so the watcher's finds reach the assistant the same way: the nudges in its
+  // conversation (paWatch), today's brief rebuilt, the lessons loop.
+  const g = gcMine();
+  g &&
+    (g.counts = {
+      mail: (DB.comms || []).filter((c) => c.owner === me.id).length,
+      events: (DB.calendar.external || []).filter((e) => e.owner === me.id).length,
+      files: (DB.gdrive || []).filter((f) => f.owner === me.id).length,
+    });
+  try {
+    "function" == typeof paWatch && paWatch(delta);
+  } catch (e) {
+    console.warn("watch", e);
+  }
+  try {
+    const td = today();
+    mail.length && DB.company && DB.company.briefCache && Object.keys(DB.company.briefCache).forEach((k) => k.startsWith(td + "|") && delete DB.company.briefCache[k]);
+    "function" == typeof lnLoop && lnLoop("sync");
+  } catch (e) {}
+  return save(), "function" == typeof render && render(), n;
 }
 async function gsDrive(first) {
   const me = paMe();

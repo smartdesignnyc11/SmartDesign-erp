@@ -38,8 +38,14 @@ end $$;
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created after insert on auth.users for each row execute procedure public.handle_new_user();
 
+-- A signed-in request counts only while its session is alive: Sign Out Everywhere deletes the sessions, and
+-- from that moment the phone's still-unexpired key reads and writes nothing (not an hour later).
+create or replace function public.session_alive() returns boolean language sql stable security definer set search_path = public, auth as $$
+  select exists (select 1 from auth.sessions s where s.id = nullif(auth.jwt()->>'session_id', '')::uuid and s.user_id = auth.uid());
+$$;
+grant execute on function public.session_alive() to authenticated;
 create or replace function public.my_role() returns text language sql stable security definer set search_path = public as $$
-  select coalesce((select role from public.profiles where id = auth.uid()), 'none');
+  select case when public.session_alive() then coalesce((select role from public.profiles where id = auth.uid()), 'none') else 'none' end;
 $$;
 create or replace function public.my_workspace() returns text language sql stable security definer set search_path = public as $$
   select coalesce((select workspace_id from public.profiles where id = auth.uid()), '');
@@ -368,3 +374,21 @@ revoke all on function public.push_subscribe(jsonb) from public, anon;
 revoke all on function public.push_unsubscribe(text) from public, anon;
 grant execute on function public.push_subscribe(jsonb) to authenticated;
 grant execute on function public.push_unsubscribe(text) to authenticated;
+
+-- ---------------------------------------------------------------- sign out everywhere (2026-10-19)
+-- Ends every session of one sign-in and removes the person's notification registrations (subject lines on a
+-- lost phone's lock screen stop). Server only; the team function checks who may ask.
+create or replace function public.admin_signout(p_user uuid) returns integer language plpgsql security definer set search_path = public, auth as $$
+declare n integer; pk text;
+begin
+  select coalesce(nullif(private_key, ''), id::text) into pk from public.profiles where id = p_user;
+  delete from auth.sessions where user_id = p_user;
+  get diagnostics n = row_count;
+  delete from public.push_subs where person_key = pk;
+  return n;
+end $$;
+revoke all on function public.admin_signout(uuid) from public, anon, authenticated;
+create or replace function public.session_alive_for(p_session uuid, p_user uuid) returns boolean language sql stable security definer set search_path = public, auth as $$
+  select exists (select 1 from auth.sessions where id = p_session and user_id = p_user);
+$$;
+revoke all on function public.session_alive_for(uuid, uuid) from public, anon, authenticated;

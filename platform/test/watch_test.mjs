@@ -1,6 +1,7 @@
 // The Google watcher's server half with Supabase and Google mocked: who may connect, the key sealed at rest,
 // a run filing new mail, events and files into the person's own inbox, cursors, disconnect. node test/watch_test.mjs
-import assert from 'node:assert/strict'; import crypto from 'node:crypto';
+import assert from 'node:assert/strict';
+const GOOD = 'h.' + Buffer.from(JSON.stringify({session_id: 's1'})).toString('base64url') + '.sig'; import crypto from 'node:crypto';
 Object.assign(process.env, {SUPABASE_URL: 'https://db', SUPABASE_SERVICE_ROLE_KEY: 's', GOOGLE_CLIENT_ID: 'cid', GOOGLE_CLIENT_SECRET: 'csec', WATCH_KEY: crypto.randomBytes(32).toString('base64')});
 const {seal, open} = await import('../netlify/functions/lib/seal.mjs');
 const connect = (await import('../netlify/functions/google-connect.mjs')).default;
@@ -10,7 +11,8 @@ const W = {rows: {}, inbox: {}, profile: {id: 'u1', role: 'owner', workspace_id:
 globalThis.fetch = async (url, o = {}) => {
   const u = String(url), body = o.body ? (typeof o.body === 'string' ? o.body : String(o.body)) : '';
   const J = (x, s = 200) => new Response(JSON.stringify(x), {status: s});
-  if (u.endsWith('/auth/v1/user')) return o.headers.authorization === 'Bearer good' ? J({id: 'u1'}) : J({}, 401);
+  if (u.endsWith('/auth/v1/user')) return o.headers.authorization === 'Bearer ' + GOOD ? J({id: 'u1'}) : J({}, 401);
+  if (u.endsWith('/rest/v1/rpc/session_alive_for')) return new Response(JSON.stringify(!globalThis.SESSION_DEAD));
   if (u.includes('/rest/v1/profiles')) return J([W.profile]);
   if (u.includes('/rest/v1/google_watch')) {
     if ((o.method || 'GET') === 'GET') { const k = decodeURIComponent(u.split('person_key=eq.')[1] || ''); return J(k ? (W.rows[k] ? [W.rows[k]] : []) : Object.values(W.rows)); }
@@ -37,7 +39,7 @@ globalThis.fetch = async (url, o = {}) => {
   if (u.includes('/drive/v3/files')) return J({files: [{id: 'f1', name: 'Plans.pdf'}]});
   throw new Error('unexpected ' + u);
 };
-const req = (b, tok = 'good') => new Request('https://x/api/google-connect', {method: 'POST', headers: tok ? {authorization: 'Bearer ' + tok} : {}, body: JSON.stringify(b)});
+const req = (b, tok = GOOD) => new Request('https://x/api/google-connect', {method: 'POST', headers: tok ? {authorization: 'Bearer ' + tok} : {}, body: JSON.stringify(b)});
 
 ok(open(seal('hello')) === 'hello' && seal('hello') !== seal('hello'), 'seal round-trips, and never the same twice');
 let r = await connect(req({code: 'c'}, null)); ok(r.status === 401, 'connect needs a signed-in person');
