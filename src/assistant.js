@@ -982,7 +982,10 @@ function paDidHtml(did, open) {
 let paStreamHooks = null,
   paStreamLast = "", // the last round's words as they streamed (what the live bubble showed last)
   paStreamCut = !1,
-  paStreamFails = 0;
+  paStreamFails = 0,
+  paStreamAbort = null, // cuts the stream in flight (Stop)
+  paStopping = !1, // the person pressed Stop on this question
+  paStopFn = null; // stops the question being answered, while one is
 const PA_CUT_NOTE = "\n\n(Cut short: an answer here can run 52 seconds. Ask for the rest, or a shorter version.)";
 const paStreamOn = () => {
   try {
@@ -999,6 +1002,7 @@ async function mindStreamPost(body, hooks) {
     window.SDP_CONFIG && window.SDP_CONFIG.aiToken && (hdr["x-app-token"] = window.SDP_CONFIG.aiToken);
   } catch (e) {}
   const ctl = new AbortController();
+  paStreamAbort = () => ctl.abort();
   let idle = setTimeout(() => ctl.abort(), 45e3);
   const poke = () => (clearTimeout(idle), (idle = setTimeout(() => ctl.abort(), 35e3)));
   let r;
@@ -1111,11 +1115,14 @@ async function mindStreamPost(body, hooks) {
 {
   const base = mindPost;
   mindPost = async function (body, ms) {
+    // the person pressed Stop: no further round goes to the model for this question
+    if (paStopping) throw new Error("stopped");
     if (!paStreamOn()) return base.apply(this, arguments);
     try {
       const j = await mindStreamPost(body, paStreamHooks);
       return (paStreamFails = 0), j && j.cut && (paStreamCut = !0), j;
     } catch (e) {
+      if (paStopping) throw new Error("stopped");
       if (!(e instanceof PaStreamBroke)) throw e;
       // a stream that broke: the same question through the one-JSON door, so the answer still comes
       paStreamFails++, console.warn("assistant stream, falling back:", e.message);
@@ -1164,9 +1171,10 @@ function paNewConvo(quiet) {
     paCtx().who = null;
   } catch (e) {}
   save(), renderPa();
-  quiet || toast("New conversation. The last one is in History", [{ label: "Open", run: () => ((paHistOpen = !0), paOpen("chat")) }]);
+  quiet || toast(`New chat. "${C.title.slice(0, 40)}" is in your conversations`, [{ label: "Open", run: () => paContinueConvo(C.id) }]);
   return !0;
 }
+// A past conversation opens as the one you are in (the one you were in is filed first), ready to continue.
 function paContinueConvo(id) {
   const A = paInit(),
     C = paConvos().find((c) => c.id === id);
@@ -1174,16 +1182,9 @@ function paContinueConvo(id) {
   paTalk(A).length && paNewConvo(!0);
   A.convos = paConvos().filter((c) => c.id !== id);
   A.thread = (A.thread || []).concat(C.msgs || []);
-  (paViewConvo = ""), (paHistOpen = !1), (paNow = null), save(), renderPa(), paScroll();
-  toast(`Picked up: ${C.title.slice(0, 50)}`);
-}
-function paHistHtml() {
-  const L = paConvos();
-  return `<div class="pa-hist"><div class="pa-hist-hd"><b>Past Conversations</b><button type="button" class="btn sm" data-pahistclose>Back to Now</button></div>${
-    L.length
-      ? L.map((c) => `<button type="button" class="pa-hist-row" data-paconvo="${esc(c.id)}"><span class="pa-hist-t">${esc(c.title)}</span><span class="small muted">${esc(fmtL(c.day))}${c.last && c.last !== c.day ? ` to ${esc(fmtL(c.last))}` : ""} · ${(c.msgs || []).length} messages</span></button>`).join("")
-      : '<div class="small muted">No past conversations yet. New Conversation files the one you are in here.</div>'
-  }</div>`;
+  (paViewConvo = ""), (paHistOpen = !1), (paNow = null), (pcStick = !0), save();
+  "pa" === view && "chat" === paTab ? renderPa() : paOpen("chat");
+  paScroll();
 }
 
 // ---- 10. a photo, PDF or spreadsheet with the question: read by the document reader -----------------------------
@@ -1223,52 +1224,13 @@ document.addEventListener("change", (e) => {
   const f = inp.files[0];
   (inp.value = ""), paAttRead(f);
 });
+// The chat's own controls (New Chat, the conversations list, a past conversation, the attachment) are drawn by the
+// conversation page itself (section 14); their clicks are handled there. Removing an attachment stays here.
 document.addEventListener("click", (e) => {
   const t = e.target && e.target.closest ? e.target : null;
   if (!t) return;
-  if (t.closest("[data-panew]")) return e.preventDefault(), void paNewConvo();
-  if (t.closest("[data-pahist]")) return e.preventDefault(), (paHistOpen = !paHistOpen), (paViewConvo = ""), void renderPa();
-  if (t.closest("[data-pahistclose]")) return e.preventDefault(), (paHistOpen = !1), (paViewConvo = ""), void renderPa();
-  const cv = t.closest("[data-paconvo]");
-  if (cv) return e.preventDefault(), (paViewConvo = cv.dataset.paconvo), (paHistOpen = !1), renderPa(), void paScroll();
-  const cc = t.closest("[data-pacontinue]");
-  if (cc) return e.preventDefault(), void paContinueConvo(cc.dataset.pacontinue);
   if (t.closest("[data-paattx]")) return e.preventDefault(), (paAttNow = null), void renderPa();
 });
-// The chat's own controls, drawn into the conversation: New Conversation and History in its head, the attach button
-// and the attachment in the box, a past conversation or the list of them in place of the thread, the live answer.
-{
-  const base = paHtml;
-  paHtml = function () {
-    let h = base.apply(this, arguments);
-    try {
-      if ("client" === role()) return h;
-      const n = paConvos().length;
-      h = h.replace(/<button class="btn sm" data-paclear>[^<]*<\/button>/, "");
-      h = h.replace('<div class="pa-head-r">', `<div class="pa-head-r"><button type="button" class="btn sm" data-panew>New Conversation</button><button type="button" class="btn sm${paHistOpen ? " on" : ""}" data-pahist aria-expanded="${paHistOpen}">History${n ? ` <span class="pa-tabn">${n}</span>` : ""}</button>`);
-      const T = /(<div class="pa-thread" id="pa-thread">)([\s\S]*?)(<\/div>\s*<div class="pa-chips">)/;
-      if (paHistOpen) h = h.replace(T, (m, a, b, c) => a + paHistHtml() + c);
-      else if (paViewConvo) {
-        const C = paConvos().find((c) => c.id === paViewConvo);
-        C &&
-          (h = h.replace(T, (m, a, b, c) => `${a}<div class="pa-convo-bar small"><span>A conversation from ${esc(fmtL(C.day))}. It is read-only here.</span><span class="pa-convo-acts"><button type="button" class="btn sm" data-pahistclose>Back to Now</button><button type="button" class="btn sm" data-pacontinue="${esc(C.id)}">Continue This One</button></span></div>${(C.msgs || []).map((x) => paMsgHtml(x, !1)).join("")}${c}`));
-      } else if (paBusy && paLive) {
-        const icon = paIcon(),
-          think = `<div class="pa-m a"><div class="pa-ic">${icon}</div><div class="pa-b"><span class="pa-think">Reading the records</span></div></div>`,
-          steps = `<div class="pa-m a"><div class="pa-ic">${icon}</div><div class="pa-b"><div class="pa-steps">${paSteps.map((s, i) => `<div class="${i === paSteps.length - 1 ? "on" : ""}">${esc(s)}</div>`).join("")}</div></div></div>`;
-        h.includes(think) ? (h = h.replace(think, () => paLiveHtml())) : h.includes(steps) ? (h = h.replace(steps, () => paLiveHtml())) : (h = h.replace(T, (m, a, b, c) => a + b + paLiveHtml() + c));
-      }
-      const a = paAttNow;
-      h = h.replace(
-        '<form class="pa-ask" id="pa-ask" autocomplete="off">',
-        `${a ? `<div class="pa-attnow small">${paIc('<path d="M20 11.5l-7.8 7.8a5 5 0 0 1-7.1-7.1l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8"/>')}<span class="grow"><b>${esc(a.name)}</b> <span class="muted">${"reading" === a.status ? "reading it now" : "read" === a.status ? `${(a.chars || 0).toLocaleString()} characters read; ask about it, or press Send` : `not read: ${esc(a.note)}`}</span></span><button type="button" class="btn sm" data-paattx>Remove</button></div>` : ""}<form class="pa-ask" id="pa-ask" autocomplete="off"><label class="btn pa-clip" role="button" tabindex="0" title="Attach a Photo, PDF or Spreadsheet" aria-label="Attach a photo, PDF or spreadsheet"><input type="file" id="pa-file" accept="image/*,application/pdf,.pdf,.xlsx,.xls,.csv,.docx,.doc,.txt,.json" hidden>${paIc('<path d="M20 11.5l-7.8 7.8a5 5 0 0 1-7.1-7.1l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8"/>')}</label>`,
-      );
-    } catch (e) {
-      console.warn("assistant chat", e);
-    }
-    return h;
-  };
-}
 
 // ---- 11. one send for the thread (the earlier paSend, with the stream, the work shown and attachments) --------
 // The rules of the one before it hold: a question typed while another is answered waits its turn; the records answer
@@ -1291,8 +1253,23 @@ paSend = function (text, opts) {
   const extra = att ? { att: paAttMeta(att), attText: String(att.text || "").slice(0, 2e4) } : void 0;
   if (paBusy && !o.next) return paQueue.push(att ? { q: q, att: att } : q), paSay("me", q, extra), save(), renderPa(), paScroll(), void toast("Next in line — I will answer it as soon as the one above is done");
   o.next || paSay("me", q, extra);
-  (paBusy = !0), (paSteps = []), (paLive = { q: q, text: "", steps: [], at: Date.now() }), (paLiveQ = q), (paStreamCut = !1), save(), renderPa(), paScroll();
-  let settled = !1;
+  (paBusy = !0), (paSteps = []), (paLive = { q: q, text: "", steps: [], at: Date.now() }), (paLiveQ = q), (paStreamCut = !1), (paStopping = !1);
+  let settled = !1,
+    stopped = !1;
+  // Stop (the button that stands in for Send while it works, or Escape): what has streamed stays, marked stopped;
+  // the stream is cut and nothing that arrives after it is shown. A tool already proposed stays a proposal.
+  paStopFn = () => {
+    if (settled) return;
+    (stopped = settled = !0), (paStopping = !0), clearTimeout(timer);
+    try {
+      paStreamAbort && paStreamAbort();
+    } catch (e) {}
+    const txt = paLive && paLive.text ? String(paLive.text).trim() : "";
+    paNow = null;
+    txt ? paSay("a", txt, { md: !0, did: ((paLive && paLive.steps) || []).map((t) => ({ t: t, d: "" })), stopped: !0, kind: "stopped" }) : paSay("a", "Stopped. Nothing was changed.", { kind: "stopped", stopped: !0, note: "Ask again when you are ready, or ask it another way." });
+    release();
+  };
+  save(), renderPa(), paScroll();
   const show = (a, late) => {
       a = a || paOut({ headline: "That broke on my side.", note: "Say it another way and I will try again; nothing was changed." });
       (a.q = q),
@@ -1300,7 +1277,7 @@ paSend = function (text, opts) {
         paSay("a", late ? `On "${q.length > 60 ? q.slice(0, 57) + "…" : q}": ${a.headline}` : a.headline, a.md ? { md: !0, sources: a.sources, kind: a.kind, steps: a.steps, did: a.did || [], cut: !!a.cut } : { note: a.note, work: a.work || [], go: a.go || null, mine: (a.mine || []).map((m) => ({ text: m.text, at: m.at })), kind: a.kind, readAs: a.readAs || "" });
     },
     release = () => {
-      (paBusy = !1), (paSteps = []), (paLive = null);
+      (paBusy = !1), (paSteps = []), (paLive = null), (paStopFn = null), (paStreamAbort = null);
       try {
         save(), renderPa(), paScroll();
       } catch (e) {}
@@ -1308,6 +1285,7 @@ paSend = function (text, opts) {
       nx && setTimeout(() => ("string" == typeof nx ? paSend(nx, { next: !0 }) : paSend(nx.q, { next: !0, att: nx.att })), 60);
     },
     finish = (a) => {
+      if (stopped) return;
       if (settled) return show(a, !0), save(), renderPa(), paScroll();
       (settled = !0), clearTimeout(timer), show(a), release();
     },
@@ -1364,7 +1342,8 @@ paSend = function (text, opts) {
             : finish(fallback);
         })
         .catch((e) => {
-          (paStreamHooks = null), (mindState = { ok: !1, why: String(e.message || e), model: "", last: Date.now() }), console.warn("mind", e), finish(fallback);
+          if (((paStreamHooks = null), stopped)) return;
+          (mindState = { ok: !1, why: String(e.message || e), model: "", last: Date.now() }), console.warn("mind", e), finish(fallback);
         });
     };
   setTimeout(() => {
@@ -1506,9 +1485,9 @@ paSend = function (text, opts) {
       written headline wins when it is today's. Collapsed once read today. Suggested next asks come from the briefing.
    2. Server runs (box.asst through gsIngestServer, contract from the platform's shapeRun) are filed by
       paIngestServer: the briefing into DB.asst[uid].briefs (14 days), each draft into the outbox as a draft that waits
-      for approval (deduped by its stable key), one line in the activity log. Nothing from a run is sent, except a type
-      that person set to Act Alone, through the same path follow-ups already use; reply, clientUpdate and internal are
-      never Act Alone. Another person's run is never filed here.
+      for approval (deduped by its stable key), one line in the activity log. Nothing from a run is ever sent, whatever
+      the person's rule for its type: the person approves it on Needs You or Approvals. A type not on the rules list
+      (reply, clientUpdate, internal) is Ask First. Another person's run is never filed here.
    3. Follow-through. "I'll get back to Chen Friday" becomes a dated task on the person (crCreateTask through paTask,
       the one task store; tkAll reads it) under their rule for Tasks for Me; "Chen will send the lead time Friday"
       goes on the wait ledger (paExpect) that the chase watch already follows. Both show under I'm Chasing.
@@ -1583,27 +1562,13 @@ function paIngestDraft(d, run, me) {
       refs: (Array.isArray(d.refs) ? d.refs : []).filter((r) => r && r.kind && r.id).slice(0, 6).map((r) => ({ kind: String(r.kind), id: String(r.id) })),
       fromRun: run.key,
     };
-  DB.outbox.push(o);
-  // Act Alone only through the path follow-ups already use, and only where the person handed this type over
+  // Nothing a server run writes is ever sent from the run: it would reach a vendor, a client or a colleague in the
+  // person's name while nobody was looking. Every draft waits for the person, whatever their rule for its type
+  // (Act Alone covers what the page does in front of them, never a run between their visits).
   try {
-    const lv = T ? paRule(T.id, me.id) : "ask",
-      ok =
-        T &&
-        !T.lock &&
-        "send" === T.kind &&
-        "alone" === lv &&
-        o.to.email &&
-        !paIsClientAddr(o.to.email) &&
-        !PA_CHASE_NEVER.test(`${o.subject}\n${o.body}`) &&
-        "alone" === standardAllows({ action: "send", type: T.id, uid: me.id }).mode;
-    if (ok) {
-      Object.assign(o, { status: "sent", sentAt: appNowIso(), approvedBy: `delegated: ${T.label}`, sentBy: "The assistant" });
-      paDidAct({ kind: "did", type: T.id, what: `Sent on its own: ${o.subject} to ${o.to.name || o.to.email}`, why: `your rule for ${T.label} is Act Alone`, ev: [because, `To: ${o.to.email}`].filter(Boolean), go: { view: "comms" } });
-      standardLog("sent", `${T.label.toLowerCase()} to ${o.to.name || o.to.email} (delegated: ${T.id})`, "");
-    }
-  } catch (e) {
-    console.warn("assistant run send", e);
-  }
+    T && "alone" === paRule(T.id, me.id) && (o.ruleNote = `Your rule for ${T.label} is Act Alone, but what I write between your visits always waits for you.`);
+  } catch (e) {}
+  DB.outbox.push(o);
   return o;
 }
 // box.asst: [{key, at, person, brief: {headline, today, needs, chasing}, drafts, notes}]. Only this person's runs.
@@ -1727,7 +1692,7 @@ function paBriefBuild() {
   // -- I Did: its own log since the person last looked (the last three days on a first visit)
   const since = A.lookPrev || iso(addDays(td, -3)),
     did = (A.log || [])
-      .filter((e) => "did" === (e.kind || "did") && String(e.stamp || e.at || "") > since)
+      .filter((e) => "did" === (e.kind || "did") && String(e.stamp || e.at || "") >= since)
       .slice(0, 20)
       .map((e) => ({
         key: "did:" + e.id,
@@ -1865,6 +1830,7 @@ function paBriefBuild() {
     });
   const B = { today: todayL, did: did, needs: shown, hidden: hidden, chasing: chasing.filter((c) => !paSnoozed(A, c.key)), run: run };
   B.headline = run && run.headline ? run.headline : paHeadline(B, M);
+  B.sub = run && run.headline ? "" : paHeadSub(B, M);
   B.asks = paSuggestAsks(B, M, jobs);
   return B;
 }
@@ -1878,7 +1844,7 @@ function paNeedOfQueue(it) {
       id: it.id,
       k: o && /assistant/i.test(String(o.by || "")) ? "I Drafted" : "Draft",
       title: o ? `${o.subject || "A note"} to ${(o.to || {}).name || (o.to || {}).email || "them"}` : it.title,
-      sub: o && o.why ? `I wrote it because ${String(o.why).replace(/\.$/, "")}.` : it.sub || "",
+      sub: `${o && o.why ? `I wrote it because ${String(o.why).replace(/\.$/, "")}.` : it.sub || ""}${o && o.ruleNote ? ` ${o.ruleNote}` : ""}`,
       it: it,
       draft: o || null,
       acts: [{ label: "Approve", run: () => paApproveDraft(o) }, { label: "Edit", run: () => paEditDraft(o) }, { label: "Not Now", snooze: !0 }],
@@ -2008,26 +1974,37 @@ function paUndo(e) {
   toast(ok ? `Undone: ${e.what}` : "Already gone; nothing else changed", [{ label: "Open", run: () => paOpen("activity") }]);
   "pa" === view && renderPa();
 }
-// The headline, the way a person would say it.
+// The headline, the way an assistant would say it walking in: one sentence on what needs you, most pressing first.
+// The rest (what can wait, who it is chasing, what it did) is the line under it (paHeadSub).
+const paSoonN = (B) =>
+  B.needs.filter((x) => {
+    try {
+      return standardUrgency(x.it || {}) <= 1;
+    } catch (e) {
+      return !1;
+    }
+  }).length;
 function paHeadline(B, M) {
   const n = B.needs.length,
-    soon = B.needs.filter((x) => {
-      try {
-        return standardUrgency(x.it || {}) <= 1;
-      } catch (e) {
-        return !1;
-      }
-    }).length,
+    soon = paSoonN(B),
+    first = n ? String(B.needs[0].title || "").replace(/[.\s]+$/, "") : "",
+    ev = (M.today || []).length;
+  if (!n) return ev ? `Nothing needs you right now, and you have ${paPl(ev, "thing")} on your calendar today.` : "Nothing needs you right now.";
+  if (soon) return soon <= 10 ? `${paNumW(soon)} thing${1 === soon ? " needs" : "s need"} you today, starting with ${first}.` : `You have ${soon} things to see to today, starting with ${first}.`;
+  return n <= 10 ? `Nothing is pressing today; ${paPl(n, "thing")} ${1 === n ? "waits" : "wait"} on you, first ${first}.` : `Nothing is pressing today; ${n} things wait on you, first ${first}.`;
+}
+function paHeadSub(B, M) {
+  const n = B.needs.length,
+    soon = paSoonN(B),
     parts = [];
-  if (n) parts.push(`${paNumW(n)} thing${1 === n ? "" : "s"} need${1 === n ? "s" : ""} you${soon ? (soon === n ? " today" : `, ${paNumW(soon, !0)} of them today`) : ""}; first: ${B.needs[0].title}`);
-  else parts.push("Nothing needs you right now");
-  const ev = (M.today || []).length;
-  ev && parts.push(`${paPl(ev, "thing")} on your calendar`);
+  soon && n > soon && parts.push(`${paCap(paPl(n - soon, "more thing"))} can wait.`);
   const late = B.chasing.find((c) => c.over && c.who);
-  if (late) parts.push(`Still waiting on ${late.who} for ${late.what || late.title.replace(/^[^:]*:\s*/, "")}; I chase ${late.next && late.next > today() ? `again ${fmtL(late.next)}` : "today"}`);
-  else if (B.chasing.length) parts.push(`I am chasing ${paPl(B.chasing.length, "thing")} for you`);
-  B.did.length && parts.push(`I did ${paPl(B.did.length, "thing")} on my own since you last looked`);
-  return parts.map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join(". ").replace(/\.\./g, ".") + ".";
+  if (late) parts.push(`I am chasing ${late.who} for ${late.what || late.title.replace(/^[^:]*:\s*/, "")}${late.next && late.next > today() ? `, again ${fmtL(late.next)}` : " today"}.`);
+  else if (B.chasing.length) parts.push(`I am chasing ${paPl(B.chasing.length, "thing")} for you.`);
+  B.did.length && parts.push(`I did ${paPl(B.did.length, "thing")} on my own since you last looked.`);
+  const ev = (M.today || []).length;
+  n && ev && parts.push(`${paCap(paPl(ev, "thing"))} on your calendar.`);
+  return parts.join(" ");
 }
 // The next things worth asking, from what the briefing holds (never a fixed list).
 function paSuggestAsks(B, M, jobs) {
@@ -2335,7 +2312,7 @@ function paBfRowHtml(x, sec) {
     return `<button type="button" class="btn sm" data-pabf="${paBfActs.length - 1}">${esc(a.label)}</button>`;
   });
   const w = x.why && (x.why.line || x.why.value) ? `<div class="small muted pa-bf-why">${x.why.line ? `Because: ${esc(x.why.line)}` : "The Standard:"}${x.why.value ? ` <span class="paf-val">${esc(x.why.value)}</span>` : ""}</div>` : "";
-  return `<div class="pa-bf-row${1 === acts.length ? " one" : ""}" data-pabfkey="${esc(x.key)}"><div class="pa-bf-t"><span class="pa-bf-k">${esc(x.k || "")}</span><b>${esc(x.title)}</b>${x.sub ? `<span class="small pa-bf-sub">${esc(x.sub)}</span>` : ""}${"needs" === sec ? w : ""}</div>${acts.length ? `<div class="pa-bf-act">${acts.join("")}</div>` : ""}</div>`;
+  return `<div class="pa-bf-row${1 === acts.length ? " one" : ""}" data-pabfkey="${esc(x.key)}"><div class="pa-bf-t"><span class="pa-bf-k">${esc(x.k || "")}</span><b>${esc(x.title)}</b>${x.sub ? `<span class="small pa-bf-sub">${esc(String(x.sub).length > 190 ? String(x.sub).slice(0, 180).replace(/\s+\S*$/, "") + "…" : x.sub)}</span>` : ""}${"needs" === sec ? w : ""}</div>${acts.length ? `<div class="pa-bf-act">${acts.join("")}</div>` : ""}</div>`;
 }
 function paBriefHtml() {
   if ("client" === role()) return "";
@@ -2361,7 +2338,7 @@ function paBriefHtml() {
     }
   })();
   return `<details class="pa-bf"${open ? " open" : ""} data-pabrief>
-    <summary class="pa-bf-sum"><span class="pa-bf-kicker">Your Briefing · ${esc(day)}</span><span class="pa-bf-head" data-pabfhead>${esc(B.headline)}</span></summary>
+    <summary class="pa-bf-sum"><span class="pa-bf-kicker">Your Briefing · ${esc(day)}</span><span class="pa-bf-head" data-pabfhead>${esc(B.headline)}</span>${B.sub ? `<span class="pa-bf-sub2">${esc(B.sub)}</span>` : ""}</summary>
     <div class="pa-bf-cards">${PA_BF_SECS.map(card).join("")}</div>
     <div class="pa-bf-ft small muted"><span>${B.run ? "Written from my last read of your mail, calendar and the records, and checked against the records now." : "Built from the records as they stand now."}</span>${paHosted() ? '<button type="button" class="btn sm" data-pabfnow>Brief Me Now</button>' : ""}<button type="button" class="btn sm" data-pabfread>Got It</button></div>
   </details>`;
@@ -2376,32 +2353,6 @@ function paAsksHtml() {
 }
 const PA_MIC_IC = '<path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/>';
 const paSpeechCtor = () => window.SpeechRecognition || window.webkitSpeechRecognition || null;
-{
-  const base = paHtml;
-  paHtml = function () {
-    let h = base.apply(this, arguments);
-    if ("client" === role()) return h;
-    try {
-      const A = paInit();
-      // what it keeps in mind lives under Activity › How You Work now; the chat leads with the briefing
-      h = h.replace(/<div class="pa-keep">[\s\S]*?<\/div>/, "");
-      h = h.replace(/(<div class="lead">)[\s\S]*?(<\/div><\/div><\/div>)/, `$1What needs you, what I did and what I am chasing, then anything you ask. Private to you; nothing goes out in your name unless you approve it or handed that kind of message to me.$2`);
-      // no intro bubble in an empty conversation: the briefing is the opening
-      const T = /(<div class="pa-thread" id="pa-thread">)([\s\S]*?)(<\/div>\s*<div class="pa-chips">)/;
-      h = h.replace(T, (m, a, b, c) => (!A.thread.length && !paBusy && !paHistOpen && !paViewConvo) || !b.replace(/\s+/g, "") ? `<div class="pa-thread pa-thread-empty" id="pa-thread">${c}` : m);
-      const at = ['<div class="pa-live', '<div class="pa-earlier', '<div class="pa-thread'].map((s) => h.indexOf(s)).filter((i) => i > -1).sort((a, b) => a - b)[0];
-      at > -1 && !paHistOpen && !paViewConvo && (h = h.slice(0, at) + paBriefHtml() + h.slice(at));
-      h = h.replace(/<div class="pa-chips">[\s\S]*?<\/div>/, paAsksHtml());
-      h = h.replace('placeholder="Ask me anything, or tell me something to remember"', 'placeholder="Ask, or tell me what to handle"');
-      const mic = paSpeechCtor() ? `<button type="button" class="btn pa-mic" data-pamic title="Speak" aria-label="Speak your question">${paIc(PA_MIC_IC)}</button>` : "";
-      mic && (h = h.replace(/(<button[^>]*type="submit")/, `${mic}$1`));
-      h = h.replace(/<div class="pa-chips">[\s\S]*?<\/form>/, (m) => `<div class="pa-dock">${m}</div>`);
-    } catch (e) {
-      console.warn("assistant briefing page", e);
-    }
-    return h;
-  };
-}
 // the briefing's buttons
 document.addEventListener("click", (e) => {
   const t = e.target && e.target.closest ? e.target : null;
@@ -2584,10 +2535,6 @@ let paLookWho = "",
 .pa-bf-row.one .pa-bf-t{flex:1 1 auto}
 .pa-bf-ft{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:0 16px 14px}
 .pa-bf-ft span{flex:1 1 220px}
-.pa-thread.pa-thread-empty{display:none}
-.pa-dock{display:flex;flex-direction:column;gap:8px}
-.pa-mic{flex:0 0 auto;height:38px;width:42px;display:inline-flex;align-items:center;justify-content:center;padding:0}
-.pa-mic.on{color:var(--bad,#b42318);border-color:currentColor}
 .pa-memo{margin-bottom:14px}
 .pa-memo-list,.pa-memo-sugg{display:flex;flex-direction:column}
 .pa-memo-row{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:9px 0;border-top:1px solid var(--rule-2,#eef0f3)}
@@ -2604,14 +2551,653 @@ let paLookWho = "",
   .pa-bf-card[data-pabfsec] .pa-bf-act{max-width:none;justify-content:flex-start}
   .pa-bf-sum{padding:12px 14px}
   .pa-bf-act .btn,.pa-bf-ft .btn,.pa-memo-act .btn,.pa-memo-add .btn{min-height:40px}
-  #v-pa .ph .lead,#v-pa .pa-foot{display:none}
-  #v-pa .pa-dock{position:fixed;left:0;right:0;bottom:var(--pa-dock-b,0px);z-index:40;background:var(--paper,#fff);padding:8px 12px calc(8px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--rule,var(--line));box-shadow:0 -6px 14px rgba(0,0,0,.06)}
-  #v-pa .pa{padding-bottom:calc(var(--pa-dock-h,120px) + 12px)}
-  #v-pa .pa-dock .pa-chips{gap:8px}
-  #v-pa .pa-dock .pa-ask input{height:46px;font-size:16px;border-radius:23px;padding:0 16px}
-  #v-pa .pa-dock .pa-ask .btn{height:46px;min-width:46px}
-  #v-pa .pa-dock .pa-ask .btn.primary{border-radius:23px;padding:0 16px}
-  .pa-mic{height:46px;width:46px;border-radius:23px}
+  #v-pa .ph .lead{display:none}
+}`;
+  document.head.appendChild(s);
+})();
+
+/* =========================================================================================================
+   14. The conversation is the page (lane "exec", 2026-10-19). Alan: "the ai assistant chat needs to feel like our chat
+   on here and or Dot by chatgpt" (here: the Claude app), "look and feel".
+   - A centred reading column (720px on a desk, the full width on the phone). The person's messages are quiet
+     right-hand bubbles; the assistant's answers are not bubbles but the page's own text (markdown, tables, links),
+     streaming in with a soft cursor, with a quiet "thinking" line while it works and "How I got there" folded under.
+   - The box is pinned at the bottom: it grows as you type (16px on the phone, above the keyboard, clear of the
+     home bar), attach and microphone on the left, one round Send on the right that becomes Stop while an answer
+     comes in. Enter sends, Shift+Enter starts a new line, Escape stops.
+   - Under each answer, small line icons: Copy, and Retry on the last one; a draft it wrote carries Approve and
+     Edit. The last question can be edited and sent again.
+   - New Chat at the top; the conversations as a side panel on a desk and a drawer on the phone, each titled from
+     its first question, newest first, searchable. A new day starts a new conversation with the day's briefing as
+     its first message (the old one is filed, never lost).
+   - No clutter: no explanatory paragraphs, no chip row above the box; suggestions only in an empty conversation,
+     from the briefing, four at most; the privacy note is one small line. The cards it raises from mail live in
+     Findings, not in the conversation.
+   Design gate: the same 'pa' view, the same thread and conversations (DB.asst[uid].thread/convos), the same send
+   (paSend) and the same message renderers (paMsgHtml); nothing new is stored but which drafts an answer wrote.
+--------------------------------------------------------------------------------------------------------- */
+const PC_IC = {
+  side: '<rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M9.5 4.5v15"/>',
+  pen: '<path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17z"/><path d="M14 7l3 3"/>',
+  send: '<path d="M12 19V5"/><path d="M5.5 11.5L12 5l6.5 6.5"/>',
+  stop: '<rect x="7" y="7" width="10" height="10" rx="2"/>',
+  copy: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/>',
+  retry: '<path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4.5v4.5h4.5"/>',
+  edit: '<path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17z"/>',
+  close: '<path d="M6 6l12 12M18 6L6 18"/>',
+  search: '<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/>',
+  clip: '<path d="M20 11.5l-7.8 7.8a5 5 0 0 1-7.1-7.1l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8"/>',
+  check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+  mic: PA_MIC_IC,
+};
+let paSideOff = !1, // the desk's conversations panel, folded by the person
+  pcSearch = "",
+  pcStick = !0, // the page follows the answer down while the person has not scrolled up to read
+  pcArrive = !1,
+  pcLookKey = "",
+  pcDraftSeen = null; // the outbox before the question: the drafts an answer wrote are what is new after it
+const pcPhone = () => {
+  try {
+    return matchMedia("(max-width:760px)").matches;
+  } catch (e) {
+    return innerWidth <= 760;
+  }
+};
+const pcIb = (k, label, attrs, cls) => `<button type="button" class="pc-ib${cls ? " " + cls : ""}" ${attrs} aria-label="${esc(label)}" title="${esc(label)}">${paIc(PC_IC[k])}</button>`;
+// the element that scrolls the page (the body here: html and body both clip sideways)
+function pcScroller() {
+  const b = document.body;
+  try {
+    if (b.scrollHeight > b.clientHeight + 1 && /(auto|scroll)/.test(getComputedStyle(b).overflowY)) return b;
+  } catch (e) {}
+  return document.scrollingElement || document.documentElement;
+}
+function pcToBottom() {
+  const s = pcScroller();
+  s.scrollTop = s.scrollHeight;
+  s !== document.scrollingElement && document.scrollingElement && (document.scrollingElement.scrollTop = document.scrollingElement.scrollHeight);
+}
+function pcToTop() {
+  const s = pcScroller();
+  (s.scrollTop = 0), document.scrollingElement && (document.scrollingElement.scrollTop = 0);
+}
+const pcTitleOf = (msgs) => {
+  const first = (msgs || []).find((m) => "me" === m.who) || (msgs || [])[0];
+  return String((first && first.text) || "A conversation").replace(/\s+/g, " ").trim().slice(0, 80);
+};
+
+// ---- the side panel: the conversations, newest first, searchable -----------------------------------------------
+function pcListHtml() {
+  const A = paInit(),
+    talk = paTalk(A),
+    q = pcSearch.trim().toLowerCase(),
+    td = today(),
+    rows = [];
+  talk.length && rows.push({ id: "", title: pcTitleOf(talk), day: talk[talk.length - 1].day || td, now: !0, text: talk.map((m) => m.text).join(" ") });
+  paConvos().forEach((c) => rows.push({ id: c.id, title: c.title, day: c.last || c.day || td, now: !1, text: (c.msgs || []).map((m) => m.text).join(" ") }));
+  const L = q ? rows.filter((r) => `${r.title} ${r.text}`.toLowerCase().includes(q)) : rows;
+  if (!L.length) return `<div class="pc-none small muted">${q ? `Nothing matches "${esc(pcSearch.trim())}".` : "No conversations yet. Each one is kept here, titled by its first question."}</div>`;
+  let last = "";
+  return L.map((r) => {
+    const grp = r.day === td ? "Today" : r.day >= iso(addDays(td, -7)) ? "This Week" : "Earlier",
+      hd = grp !== last ? `<div class="pc-grp">${grp}</div>` : "";
+    last = grp;
+    return `${hd}<button type="button" class="pc-row${r.now ? " on" : ""}" ${r.now ? "data-pahistclose" : `data-paconvo="${esc(r.id)}"`}${r.now ? ' aria-current="true"' : ""}><span class="pc-row-t">${esc(r.title)}</span><span class="pc-row-d">${r.now ? "Now" : esc(fmtL(r.day))}</span></button>`;
+  }).join("");
+}
+function pcStatusHtml() {
+  let mode = "";
+  try {
+    mode = mindCan() ? (!1 === (mindState || {}).ok ? "Records only right now: the firm's model did not answer" : "Thinking with the firm's model") : "Records only on this copy";
+  } catch (e) {}
+  let mail = "";
+  try {
+    const g = gcMine();
+    mail =
+      g && g.email
+        ? `<div class="pc-stat"><span class="pa-dot${g.lastError ? " bad" : " on"}"></span><span class="grow">Watching ${esc(g.email)}, checked ${esc(gsAgo(g.lastSync))}</span><button type="button" class="btn sm" data-pacheck>Check Now</button></div>`
+        : `<div class="pc-stat"><span class="pa-dot"></span><span class="grow">Not watching your mail or calendar yet</span><button type="button" class="btn sm" data-paconn>Connect My Account</button></div>`;
+  } catch (e) {}
+  return `${mail}${mode ? `<div class="pc-stat"><span class="pa-dot${/^Thinking/.test(mode) ? " on" : ""}"></span><span class="grow">${esc(mode)}</span></div>` : ""}`;
+}
+function pcSideHtml() {
+  return `<aside class="pc-side" id="pc-side" aria-label="Conversations">
+    <div class="pc-side-hd"><h3>Conversations</h3>${pcIb("close", "Close", "data-pahistclose", "pc-side-x")}</div>
+    <label class="pc-search">${paIc(PC_IC.search)}<input type="search" data-pcsearch value="${esc(pcSearch)}" placeholder="Search Conversations" aria-label="Search conversations"></label>
+    <div class="pc-list" id="pc-list">${pcListHtml()}</div>
+    <div class="pc-side-ft">${pcStatusHtml()}</div>
+  </aside>`;
+}
+
+// ---- one message, with its actions -------------------------------------------------------------------------
+function pcActsHtml(m, last) {
+  const id = esc(m.id || ""),
+    b = (k, label, ic) => pcIb(ic, label, `data-pcact="${k}|${id}"`, "pc-act");
+  if ("me" === m.who) return `<div class="pc-acts pc-acts-me">${b("copy", "Copy", "copy")}${last && !paBusy ? b("edit", "Edit and Send Again", "edit") : ""}</div>`;
+  let drafts = "";
+  (m.drafts || []).forEach((oid) => {
+    const o = (DB.outbox || []).find((x) => x.id === oid);
+    if (!o) return;
+    const to = esc((o.to || {}).name || (o.to || {}).email || "them");
+    drafts +=
+      "draft" === o.status
+        ? `<div class="pc-draft"><div class="pc-draft-t"><span class="pc-k">Draft</span> To ${to}: <b>${esc(o.subject || "a note")}</b></div><div class="pc-draft-b"><button type="button" class="btn sm" data-pcdraft="approve|${esc(o.id)}">${paIc(PC_IC.check)}Approve</button><button type="button" class="btn sm" data-pcdraft="edit|${esc(o.id)}">${paIc(PC_IC.edit)}Edit</button></div></div>`
+        : `<div class="pc-draft pc-draft-done small muted">${"sent" === o.status ? `Sent to ${to}` : "Not sent"}: ${esc(o.subject || "")}</div>`;
+  });
+  return `${drafts}<div class="pc-acts">${b("copy", "Copy", "copy")}${last && !paBusy ? b("retry", "Retry", "retry") : ""}${m.stopped ? '<span class="pc-stopped">Stopped</span>' : ""}</div>`;
+}
+function pcMsgHtml(m, lastA, lastMe) {
+  let h = "";
+  try {
+    h = paMsgHtml(m, lastA) || "";
+  } catch (e) {
+    console.warn("assistant message", e);
+    h = `<div class="pa-m ${"me" === m.who ? "me" : "a"}"><div class="pa-b">${esc(m.text || "")}</div></div>`;
+  }
+  if (!h) return "";
+  // the actions sit inside the message, under its words (a question is still followed by its answer)
+  return h.replace(/<\/div>\s*$/, `${pcActsHtml(m, "me" === m.who ? lastMe : lastA)}</div>`).replace(/^\s*<div class="pa-m /, `<div data-pcmsg="${esc(m.id || "")}" class="pa-m `);
+}
+// The answer as it comes: a quiet line while it reads, then the words with a soft cursor; the steps fold under it.
+function pcLiveHtml() {
+  if (!paBusy || !paLive) return "";
+  const steps = paLive.steps || [],
+    now = steps.length ? steps[steps.length - 1] : "Thinking";
+  return `<div class="pa-m a pa-live" id="pa-live" aria-live="polite"><div class="pa-b md"><div class="pa-answer pa-md2" id="pa-live-md">${paLive.text ? paMd2(paLive.text) + '<span class="pa-caret" aria-hidden="true"></span>' : `<span class="pc-think"><i class="pc-pulse" aria-hidden="true"></i><span>${esc(now)}</span></span>`}</div>${steps.length > 1 ? paDidHtml(steps.map((t) => ({ t: t, d: "" })), !1).replace("How I got there:", "Working:") : ""}</div></div>`;
+}
+function pcAttHtml() {
+  const a = paAttNow;
+  if (!a) return "";
+  return `<div class="pa-attnow pc-att small">${paIc(PC_IC.clip)}<span class="grow"><b>${esc(a.name)}</b> <span class="muted">${"reading" === a.status ? "reading it now" : "read" === a.status ? `${(a.chars || 0).toLocaleString()} characters read; ask about it, or press Send` : `not read: ${esc(a.note)}`}</span></span><button type="button" class="btn sm" data-paattx>Remove</button></div>`;
+}
+function pcComposerHtml() {
+  const mic = paSpeechCtor() ? pcIb("mic", "Speak Your Question", "data-pamic", "pa-mic") : "";
+  const go = paBusy
+    ? `<button type="button" class="pc-send pc-stop" data-pastop aria-label="Stop" title="Stop (Esc)">${paIc(PC_IC.stop)}<span class="pc-sr">Stop</span></button>`
+    : `<button type="submit" class="btn primary pc-send" aria-label="Send" title="Send (Enter)">${paIc(PC_IC.send)}<span class="pc-sr">Send</span></button>`;
+  return `<div class="pc-dock pa-dock" id="pc-dock">${pcAttHtml()}
+    <form class="pa-ask pc-box" id="pa-ask" autocomplete="off">
+      <textarea id="pa-in" rows="1" enterkeyhint="send" placeholder="${paBusy ? "Ask the next thing; I answer it when this one is done" : "Ask, or tell me what to handle"}" aria-label="Ask your assistant"></textarea>
+      <div class="pc-tools">
+        <label class="pc-ib pa-clip" role="button" tabindex="0" title="Attach a Photo, PDF or Spreadsheet" aria-label="Attach a photo, PDF or spreadsheet"><input type="file" id="pa-file" accept="image/*,application/pdf,.pdf,.xlsx,.xls,.csv,.docx,.doc,.txt,.json" hidden>${paIc(PC_IC.clip)}</label>${mic}<span class="grow"></span>${go}
+      </div>
+    </form>
+    <div class="pc-priv">Private to you. Nothing goes out in your name unless you approve it.</div>
+  </div>`;
+}
+// The whole Chat tab.
+function pcChatHtml() {
+  const A = paInit(),
+    talk = paTalk(A).slice(-80),
+    lastA = talk.filter((m) => "a" === m.who).slice(-1)[0],
+    lastMe = talk.filter((m) => "me" === m.who).slice(-1)[0],
+    phone = pcPhone(),
+    owner4 = paTabsFor().length > 3;
+  try {
+    "function" == typeof paSweepAnswered && paSweepAnswered();
+  } catch (e) {}
+  const msgs = talk.map((m) => pcMsgHtml(m, lastA && m.id === lastA.id, lastMe && m.id === lastMe.id)).join("");
+  const empty = !talk.length && !paBusy;
+  return `<div class="pc${paSideOff && !phone ? " pc-noside" : ""}${paHistOpen && phone ? " pc-drawer" : ""}">
+    <div class="pc-main">
+      <div class="ph pc-top${owner4 ? " pc-4tabs" : ""}">
+        ${pcIb("side", "Conversations", `data-pahist aria-expanded="${phone ? !!paHistOpen : !paSideOff}"`, "pc-sidebtn")}
+        <h2 class="pc-h${document.body.classList.contains("m-on") ? " td-in-hdr" : ""}">${esc(paHead())}</h2>
+        ${paTabsHtml()}
+        <button type="button" class="btn pc-newbtn" data-panew title="New Chat" aria-label="New chat">${paIc(PC_IC.pen)}<span>New Chat</span></button>
+      </div>
+      <div class="pc-col">
+        <div class="pa-m a pc-brief">${paBriefHtml()}</div>
+        <div class="pa-thread" id="pa-thread">${msgs}${pcLiveHtml()}</div>
+        ${empty ? paAsksHtml().replace('<div class="pa-chips">', '<div class="pa-chips pc-sugg" aria-label="Suggestions">') : ""}
+      </div>
+      ${pcComposerHtml()}
+    </div>
+    ${pcSideHtml()}
+    <div class="pc-scrim" data-pahistclose></div>
+  </div>`;
+}
+{
+  const base = paHtml;
+  paHtml = function () {
+    if ("client" === role()) return base.apply(this, arguments);
+    try {
+      return pcChatHtml();
+    } catch (e) {
+      console.warn("assistant conversation", e);
+      return base.apply(this, arguments);
+    }
+  };
+}
+// the live answer redraws itself in place; the page follows it down unless the person scrolled up to read
+{
+  const base = paScroll;
+  paScroll = function () {
+    const r = base.apply(this, arguments);
+    try {
+      "pa" === view && "chat" === paTab && pcStick && document.querySelector("#v-pa .pc") && pcToBottom();
+    } catch (e) {}
+    return r;
+  };
+}
+document.addEventListener(
+  "scroll",
+  () => {
+    try {
+      if ("pa" !== view || "chat" !== paTab) return;
+      const s = pcScroller();
+      pcStick = s.scrollHeight - s.scrollTop - s.clientHeight < 160;
+    } catch (e) {}
+  },
+  { capture: !0, passive: !0 },
+);
+// The box grows with what is typed, up to a third of the screen.
+function pcGrow(el) {
+  if (!el || "TEXTAREA" !== el.tagName) return;
+  el.style.height = "auto";
+  el.style.height = Math.min(el.scrollHeight + 2, Math.max(120, Math.round(innerHeight / 3))) + "px";
+}
+// The page fills the screen so the box sits at its foot, above the phone's tab bar (or its keyboard).
+function pcMeasure() {
+  const main = document.querySelector("#v-pa .pc-main");
+  if (!main) return;
+  const bar = document.getElementById("mtabs"),
+    barH = bar && bar.getBoundingClientRect().height > 0 && "none" !== getComputedStyle(bar).display ? Math.round(bar.getBoundingClientRect().height) : 0,
+    s = pcScroller(),
+    top = main.getBoundingClientRect().top + s.scrollTop;
+  document.documentElement.style.setProperty("--pa-dock-b", `${barH}px`);
+  main.style.minHeight = `${Math.max(300, Math.round(innerHeight - top - barH - (pcPhone() ? 0 : 8)))}px`;
+}
+function pcKeyboard() {
+  try {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const kb = Math.max(0, Math.round(innerHeight - vv.height - vv.offsetTop));
+    document.documentElement.style.setProperty("--pc-kb", `${kb > 60 ? kb : 0}px`);
+  } catch (e) {}
+}
+try {
+  window.visualViewport && (visualViewport.addEventListener("resize", pcKeyboard), visualViewport.addEventListener("scroll", pcKeyboard));
+} catch (e) {}
+window.addEventListener("resize", () => {
+  try {
+    "pa" === view && "chat" === paTab && pcMeasure();
+  } catch (e) {}
+});
+{
+  const base = renderPa;
+  renderPa = function () {
+    // what is being typed survives a redraw (a tool step or a finished answer redraws the page)
+    const i0 = document.getElementById("pa-in"),
+      keep = i0 && i0.value ? { v: i0.value, s: i0.selectionStart, e: i0.selectionEnd, f: document.activeElement === i0 } : null,
+      L0 = document.getElementById("pc-list"),
+      listTop = L0 ? L0.scrollTop : 0,
+      srch = document.activeElement && document.activeElement.matches && document.activeElement.matches("[data-pcsearch]");
+    const r = base.apply(this, arguments);
+    try {
+      const v = document.getElementById("v-pa"),
+        chat = "pa" === view && "chat" === paTab && "client" !== role() && !!document.querySelector("#pa-body .pc");
+      v && v.classList.toggle("pc-chat", chat);
+      document.body.classList.toggle("pc-on", chat);
+      if (chat) {
+        const inp = document.getElementById("pa-in");
+        if (inp && keep && !inp.value) {
+          inp.value = keep.v;
+          try {
+            keep.f && (inp.focus({ preventScroll: !0 }), inp.setSelectionRange(keep.s, keep.e));
+          } catch (e) {}
+        }
+        pcGrow(inp);
+        const L = document.getElementById("pc-list");
+        L && (L.scrollTop = listTop);
+        if (srch) {
+          const si = document.querySelector("#v-pa [data-pcsearch]");
+          si && (si.focus({ preventScroll: !0 }), si.setSelectionRange(si.value.length, si.value.length));
+        }
+        // the Skills door the overview adds to a page heading sits with the conversations, not over the conversation
+        const sk = document.querySelector("#v-pa .pc-top [data-ovskills]"),
+          ft = document.querySelector("#v-pa .pc-side-ft");
+        sk && ft && (sk.classList.add("sm"), ft.appendChild(sk));
+        document.querySelectorAll("#v-pa .pc-top > .acts").forEach((x) => x.children.length || x.remove());
+        // an attachment with no words is still something to send
+        const sb = document.querySelector('#pa-ask button[type="submit"]');
+        paAttNow && "reading" !== paAttNow.status && sb && ((sb.disabled = !1), delete sb.dataset.sendGated);
+        pcMeasure();
+        if (pcArrive) {
+          pcArrive = !1;
+          const br = document.querySelector("#v-pa details[data-pabrief][open]");
+          br ? ((pcStick = !1), pcToTop(), setTimeout(pcToTop, 80)) : ((pcStick = !0), pcToBottom(), setTimeout(pcToBottom, 80));
+        }
+      }
+    } catch (e) {
+      console.warn("assistant conversation page", e);
+    }
+    return r;
+  };
+}
+// Arriving on Ask: a new day files yesterday's conversation, so the day starts on its briefing.
+{
+  const base = render;
+  render = function () {
+    try {
+      const k = `${(paMe() || {}).id}|${view}`;
+      if ("pa" === view && "client" !== role() && pcLookKey !== k) {
+        const A = paInit(),
+          talk = paTalk(A),
+          lastDay = talk.length ? talk[talk.length - 1].day || "" : "";
+        talk.length && lastDay && lastDay < today() && !paBusy && paNewConvo(!0);
+        (pcArrive = !0), (paHistOpen = !1), (pcSearch = "");
+      }
+      pcLookKey = k;
+    } catch (e) {}
+    const r = base.apply(this, arguments);
+    try {
+      "pa" !== view && document.body.classList.remove("pc-on", "pc-typing");
+    } catch (e) {}
+    return r;
+  };
+}
+// Which drafts an answer wrote: the outbox before the question, against the outbox when the answer lands.
+{
+  const base = paSend;
+  paSend = function (text, opts) {
+    try {
+      (String(text || "").trim() || paAttNow || (opts && opts.att)) && ((pcDraftSeen = new Set((DB.outbox || []).map((o) => o.id))), (pcStick = !0));
+    } catch (e) {}
+    return base.apply(this, arguments);
+  };
+}
+{
+  const base = paSay;
+  paSay = function (who, text, extra) {
+    try {
+      if ("a" === who && pcDraftSeen && !(extra && extra.nudge)) {
+        const fresh = (DB.outbox || []).filter((o) => o && !pcDraftSeen.has(o.id) && "draft" === o.status).map((o) => o.id);
+        fresh.length && ((extra = Object.assign({}, extra || {}, { drafts: fresh })), fresh.forEach((id) => pcDraftSeen.add(id)));
+      }
+    } catch (e) {}
+    return base.call(this, who, text, extra);
+  };
+}
+function paStop() {
+  paBusy && "function" == typeof paStopFn && paStopFn();
+}
+// Copy, Retry, Edit and Send Again; Approve and Edit on a draft an answer wrote.
+function pcCopy(text) {
+  const done = () => toast("Copied");
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) return void navigator.clipboard.writeText(text).then(done, () => pcCopyOld(text, done));
+  } catch (e) {}
+  pcCopyOld(text, done);
+}
+function pcCopyOld(text, done) {
+  const t = document.createElement("textarea");
+  (t.value = text), (t.style.position = "fixed"), (t.style.opacity = "0"), document.body.appendChild(t), t.select();
+  try {
+    document.execCommand("copy");
+  } catch (e) {}
+  t.remove(), done();
+}
+// Take the conversation back to just before a message (a retry, or an edited question), then ask again.
+function pcRewind(id) {
+  const A = paInit(),
+    i = A.thread.findIndex((m) => m.id === id);
+  if (i < 0) return !1;
+  return (A.thread = A.thread.filter((m, j) => j < i || m.nudge)), (paNow = null), save(), !0;
+}
+function pcAttOf(m) {
+  return m && m.att ? { name: m.att.name, mime: m.att.mime || "", chars: m.att.chars || 0, how: m.att.how || "", note: m.att.note || "", status: m.attText ? "read" : "unread", text: m.attText || "" } : null;
+}
+function pcRetry(id) {
+  if (paBusy) return;
+  const A = paInit(),
+    i = A.thread.findIndex((m) => m.id === id);
+  let j = i;
+  for (; j >= 0 && !("me" === A.thread[j].who && !A.thread[j].nudge); j--);
+  if (j < 0) return void toast("There is no question above this to ask again");
+  const me = A.thread[j],
+    att = pcAttOf(me);
+  pcRewind(me.id) && paSend(me.text, att ? { att: att } : void 0);
+}
+function pcEditOpen(id) {
+  const el = document.querySelector(`#v-pa [data-pcmsg="${CSS.escape(id)}"]`),
+    m = paInit().thread.find((x) => x.id === id);
+  if (!el || !m || paBusy) return;
+  el.classList.add("pc-editing");
+  el.innerHTML = `<form class="pc-edit" data-pcedit="${esc(id)}"><textarea class="pc-edit-in" rows="2" aria-label="Edit your question">${esc(m.text)}</textarea><div class="pc-edit-b"><button type="button" class="btn sm" data-pceditx>Cancel</button><button type="submit" class="btn sm">Send</button></div></form>`;
+  const t = el.querySelector("textarea");
+  pcGrow(t), t.focus(), t.setSelectionRange(t.value.length, t.value.length);
+}
+function pcEditSend(id, text) {
+  const q = String(text || "").trim();
+  if (!q) return void toast("Type the question, or press Cancel");
+  const m = paInit().thread.find((x) => x.id === id),
+    att = pcAttOf(m);
+  pcRewind(id) && paSend(q, att ? { att: att } : void 0);
+}
+document.addEventListener("click", (e) => {
+  const t = e.target && e.target.closest ? e.target : null;
+  if (!t || !t.closest("#v-pa")) return;
+  if (t.closest("[data-panew]")) return e.preventDefault(), void (paBusy ? toast("One moment: I am still answering. Press Stop to start a new chat now") : paNewConvo());
+  if (t.closest("[data-pahist]")) return e.preventDefault(), pcPhone() ? (paHistOpen = !paHistOpen) : (paSideOff = !paSideOff), void renderPa();
+  if (t.closest("[data-pahistclose]")) return e.preventDefault(), (paHistOpen = !1), void renderPa();
+  const cv = t.closest("[data-paconvo]");
+  if (cv) return e.preventDefault(), void (paBusy ? toast("One moment: I am still answering") : paContinueConvo(cv.dataset.paconvo));
+  if (t.closest("[data-pastop]")) return e.preventDefault(), void paStop();
+  if (t.closest("[data-pceditx]")) return e.preventDefault(), void renderPa();
+  const a = t.closest("[data-pcact]");
+  if (a) {
+    e.preventDefault();
+    const [k, id] = a.dataset.pcact.split("|"),
+      m = paInit().thread.find((x) => x.id === id);
+    if (!m) return;
+    if ("copy" === k) return void pcCopy(m.text || "");
+    if ("retry" === k) return void pcRetry(id);
+    if ("edit" === k) return void pcEditOpen(id);
+    return;
+  }
+  const d = t.closest("[data-pcdraft]");
+  if (d) {
+    e.preventDefault();
+    const [k, id] = d.dataset.pcdraft.split("|"),
+      o = (DB.outbox || []).find((x) => x.id === id);
+    if (!o || "draft" !== o.status) return void toast("That draft has already been dealt with");
+    "approve" === k ? paApproveDraft(o).then(() => renderPa()) : paEditDraft(o);
+  }
+});
+document.addEventListener("submit", (e) => {
+  const f = e.target && e.target.closest ? e.target.closest("form[data-pcedit]") : null;
+  if (!f) return;
+  e.preventDefault();
+  pcEditSend(f.dataset.pcedit, (f.querySelector("textarea") || {}).value);
+});
+document.addEventListener("input", (e) => {
+  const t = e.target;
+  if (!t || !t.matches) return;
+  if (t.matches("#v-pa #pa-in, #v-pa .pc-edit-in")) return void pcGrow(t);
+  if (t.matches("#v-pa [data-pcsearch]")) {
+    pcSearch = t.value;
+    const L = document.getElementById("pc-list");
+    L && (L.innerHTML = pcListHtml());
+  }
+});
+document.addEventListener(
+  "keydown",
+  (e) => {
+    const t = e.target;
+    if ("Escape" === e.key && "pa" === view && paBusy) return e.preventDefault(), void paStop();
+    if ("Escape" === e.key && "pa" === view && paHistOpen) return (paHistOpen = !1), void renderPa();
+    if (!t || !t.matches || "Enter" !== e.key || e.shiftKey || e.isComposing || 229 === e.keyCode) return;
+    if (t.matches("#v-pa #pa-in")) {
+      e.preventDefault();
+      const f = t.closest("form");
+      (t.value.trim() || paAttNow) && f && (f.requestSubmit ? f.requestSubmit() : f.dispatchEvent(new Event("submit", { cancelable: !0, bubbles: !0 })));
+      return;
+    }
+    if (t.matches("#v-pa .pc-edit-in")) {
+      e.preventDefault();
+      const f = t.closest("form");
+      f && pcEditSend(f.dataset.pcedit, t.value);
+    }
+  },
+  !0,
+);
+// typing on the phone: the tab bar steps aside and the box sits on the keyboard
+document.addEventListener("focusin", (e) => {
+  e.target && e.target.matches && e.target.matches("#v-pa #pa-in") && pcPhone() && document.body.classList.add("pc-typing");
+});
+document.addEventListener("focusout", (e) => {
+  e.target && e.target.matches && e.target.matches("#v-pa #pa-in") && (document.body.classList.remove("pc-typing"), setTimeout(pcKeyboard, 50));
+});
+
+// ---- 14b. the look: the Claude app's, in the firm's colours --------------------------------------------------
+(function () {
+  if (document.getElementById("pa-pc-css")) return;
+  const s = document.createElement("style");
+  s.id = "pa-pc-css";
+  s.textContent = `
+#v-pa.pc-chat{padding-top:12px;padding-bottom:0}
+body #v-pa.view.pc-chat{overflow-x:clip;overflow-y:visible}
+.pc{display:grid;grid-template-columns:248px minmax(0,1fr);column-gap:28px;align-items:start}
+.pc.pc-noside{grid-template-columns:minmax(0,1fr)}
+.pc.pc-noside .pc-side{display:none}
+.pc-main{grid-column:2;grid-row:1;display:flex;flex-direction:column;min-width:0}
+.pc.pc-noside .pc-main{grid-column:1}
+.pc-side{grid-column:1;grid-row:1;position:sticky;top:64px;max-height:calc(100vh - 76px);display:flex;flex-direction:column;gap:10px;min-width:0;padding:4px 0 12px}
+.pc-side-hd{display:flex;align-items:center;justify-content:space-between;min-height:32px}
+.pc-side-hd h3{font-size:13px;color:var(--ink-2)}
+.pc-side .pc-side-x{display:none}
+.pc-search{display:flex;align-items:center;gap:8px;border:1px solid var(--rule);background:var(--paper);border-radius:10px;padding:0 10px;color:var(--ink-3)}
+.pc-search input{border:0;outline:0;background:none;flex:1 1 auto;min-width:0;height:34px;font-size:13px;color:var(--ink)}
+.pc-search svg{flex:none}
+.pc-list{flex:1 1 auto;overflow:auto;display:flex;flex-direction:column;gap:2px;min-height:60px}
+.pc-grp{font-size:11px;font-weight:600;color:var(--ink-3);padding:10px 8px 4px}
+.pc-row{display:flex;flex-direction:column;align-items:flex-start;gap:1px;text-align:left;border:0;background:none;border-radius:8px;padding:7px 9px;width:100%;color:var(--ink);min-height:40px;cursor:pointer}
+.pc-row:hover{background:var(--paper-3)}
+.pc-row.on{background:var(--rule-2)}
+.pc-row-t{font-size:13px;line-height:1.35;overflow-wrap:anywhere}
+.pc-row-d{font-size:11px;color:var(--ink-3)}
+.pc-none{padding:8px}
+.pc-side-ft{display:flex;flex-direction:column;gap:6px;border-top:1px solid var(--rule);padding-top:10px}
+.pc-stat{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--ink-3);line-height:1.35;flex-wrap:wrap}
+.pc-stat .grow{min-width:0;overflow-wrap:anywhere}
+.pc-ib{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;padding:0;border:0;border-radius:9px;background:none;color:var(--ink-2);cursor:pointer;flex:none}
+.pc-ib:hover{background:var(--paper-3);color:var(--ink)}
+.pc-ib svg{width:18px;height:18px}
+.pc-ib.on{color:var(--bad);background:var(--bad-2)}
+#v-pa .pc .pc-top{display:flex;flex-direction:row;align-items:center;gap:10px;margin:0 0 6px;min-height:40px;flex-wrap:wrap}
+.pc-top .pc-h{font-size:16px;margin:0}
+.pc-top .pa-tabs{width:auto;margin:0;flex:0 1 auto;background:none;border:0;gap:2px;padding:0}
+.pc-top .pa-tabs button{flex:0 0 auto;min-height:32px;border:0;border-radius:8px;background:none;color:var(--ink-3);padding:0 10px;font-weight:500;box-shadow:none}
+.pc-top .pa-tabs button.on{background:var(--paper);color:var(--ink);box-shadow:0 0 0 1px var(--rule)}
+.pc-top .pc-newbtn{margin-left:auto;border-radius:9px;height:34px;gap:6px}
+.pc-top .pc-newbtn svg{width:16px;height:16px}
+.pc-col{flex:1 0 auto;width:100%;max-width:720px;margin:0 auto;display:flex;flex-direction:column;gap:26px;padding:14px 0 28px}
+.pc .pa-thread{display:flex;flex-direction:column;gap:26px;border:0;padding:0;background:none;max-height:none;overflow:visible;border-radius:0}
+.pc .pa-thread:empty{display:none}
+.pc .pa-m{display:flex;flex-direction:column;gap:6px;align-items:stretch;min-width:0}
+.pc .pa-ic{display:none}
+.pc .pa-m.me{align-items:flex-end}
+.pc .pa-m.me .pa-b{background:var(--rule-2);border:0;border-radius:18px;padding:10px 15px;max-width:min(85%,560px);font-size:15px;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--ink)}
+.pc .pa-m.a .pa-b{border:0;padding:0;max-width:100%;background:none;font-size:15px;line-height:1.65;color:var(--ink);overflow-wrap:anywhere}
+.pc .pa-m.a .pa-b > b{display:block;font-weight:500;font-size:15px;line-height:1.6}
+.pc .pa-m.a .pa-n{font-size:14px;color:var(--ink-2);line-height:1.6;margin-top:6px}
+.pc .pa-m.a .pa-w li{font-size:14px;line-height:1.55}
+.pc .pa-b.md p,.pc .pa-answer.pa-md2 p{font-size:15px;line-height:1.7;margin:0 0 12px}
+.pc .pa-answer.pa-md2 p:last-child{margin-bottom:0}
+.pc .pa-answer.pa-md2 li{font-size:15px;line-height:1.65;margin:4px 0}
+.pc .pa-answer.pa-md2 .pa-h{font-size:16px;margin:16px 0 6px}
+.pc .pa-tbl table{font-size:13.5px}
+.pc .pa-did{border-top:0;padding-top:0;margin-top:10px}
+.pc .pa-src{margin-top:10px}
+.pc .pa-readas,.pc .pa-alt{font-size:12.5px;color:var(--ink-3);margin-bottom:6px}
+.pc .pa-att{justify-content:flex-end;color:var(--ink-3)}
+.pc-acts{display:flex;align-items:center;gap:4px;margin-left:-8px;min-height:30px}
+.pc-acts-me{margin:0 -6px 0 0;opacity:0;transition:opacity .15s}
+.pc .pa-m.me:hover .pc-acts-me,.pc .pa-m.me:focus-within .pc-acts-me{opacity:1}
+.pc-act{width:30px;height:30px;color:var(--ink-3)}
+.pc-act svg{width:16px;height:16px}
+.pc-stopped{font-size:12px;color:var(--ink-3);margin-left:6px}
+.pc-draft{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;border:1px solid var(--rule);border-radius:12px;background:var(--paper);padding:10px 12px;margin-top:6px}
+.pc-draft-t{font-size:13.5px;min-width:0;overflow-wrap:anywhere;flex:1 1 220px}
+.pc-draft-b{display:flex;gap:8px}
+.pc-draft-b .btn svg{width:14px;height:14px}
+.pc-draft-done{border-style:dashed;background:none}
+.pc-k{font-size:11px;font-weight:600;color:var(--ink-3);margin-right:4px}
+.pc-think{display:inline-flex;align-items:center;gap:9px;color:var(--ink-3);font-size:14px}
+.pc-pulse{width:9px;height:9px;border-radius:50%;background:var(--accent);opacity:.55;animation:pcPulse 1.2s ease-in-out infinite}
+@keyframes pcPulse{0%,100%{transform:scale(.7);opacity:.35}50%{transform:scale(1);opacity:.85}}
+.pc .pa-caret{width:9px;height:9px;border-radius:50%;margin-left:4px;vertical-align:0;background:var(--ink-3);animation:pcPulse 1s ease-in-out infinite}
+.pc-edit{width:min(100%,560px);display:flex;flex-direction:column;gap:8px}
+.pc-edit-in{width:100%;border:1px solid var(--rule);border-radius:14px;padding:10px 14px;font:inherit;font-size:15px;line-height:1.55;resize:none;background:var(--paper)}
+.pc-edit-b{display:flex;gap:8px;justify-content:flex-end}
+.pc-brief .pa-bf{border:0;border-radius:0;background:none;overflow:visible}
+.pc-brief .pa-bf-sum{padding:0 0 4px;gap:6px}
+.pc-brief .pa-bf-kicker{text-transform:none;letter-spacing:0;font-size:12.5px;font-weight:500;display:flex;align-items:center;gap:6px}
+.pc-brief .pa-bf-kicker::after{content:"";width:12px;height:12px;background:currentColor;-webkit-mask:var(--chev) center/12px no-repeat;mask:var(--chev) center/12px no-repeat;transform:rotate(-90deg);transition:transform .15s}
+.pc-brief .pa-bf[open] .pa-bf-kicker::after{transform:none}
+.pc-brief .pa-bf-head{font-size:17px;line-height:1.5;font-weight:600}
+.pc-brief .pa-bf:not([open]) .pa-bf-head{font-size:15px;font-weight:500}
+.pa-bf-sub2{font-size:14px;color:var(--ink-2);line-height:1.55;font-weight:400}
+.pa-bf:not([open]) .pa-bf-sub2{display:none}
+.pc-brief .pa-bf-cards{padding:10px 0 4px}
+.pc-brief .pa-bf-card{background:var(--paper);border-color:var(--rule);border-radius:12px}
+.pc-brief .pa-bf-ft{padding:6px 0 0}
+.pc-sugg{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.pc-sugg .btn{height:auto;min-height:44px;white-space:normal;text-align:left;justify-content:flex-start;border-radius:12px;padding:9px 12px;line-height:1.3;color:var(--ink-2);background:var(--paper)}
+.pc-dock{position:sticky;bottom:calc(var(--pa-dock-b,0px) + var(--pc-kb,0px));z-index:4;width:100%;max-width:720px;margin:0 auto;padding:6px 0 calc(10px + env(safe-area-inset-bottom,0px));background:linear-gradient(to bottom,rgba(247,248,250,0),var(--paper-2) 22px);display:flex;flex-direction:column;gap:6px}
+.pc-box{display:flex;flex-direction:column;gap:8px;border:1px solid var(--rule);border-radius:20px;background:var(--paper);padding:10px 10px 8px 14px;box-shadow:0 1px 2px rgba(16,24,40,.04),0 6px 20px rgba(16,24,40,.06)}
+.pc-box:focus-within{border-color:#C9CED6}
+.pc-box textarea{border:0;outline:0;resize:none;background:none;font:inherit;font-size:15px;line-height:1.5;min-height:26px;max-height:40vh;padding:2px 2px 4px;width:100%;color:var(--ink)}
+.pc-box textarea:focus-visible{outline:0}
+.pc-tools{display:flex;align-items:center;gap:6px}
+.pc-tools .grow{flex:1 1 auto}
+.pc-send{width:36px;height:36px;min-width:36px;padding:0;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;flex:none}
+#v-pa .pc .pc-send{padding:0;gap:0}
+.pc-send svg{width:18px;height:18px;min-width:18px;flex:none;stroke-width:2}
+.btn.primary.pc-send[disabled]{background:var(--rule);border-color:var(--rule);color:var(--ink-3);opacity:1}
+.pc-stop{border:0;background:var(--ink);color:#fff;cursor:pointer}
+.pc-stop svg{fill:currentColor}
+.pc-sr{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;font-size:1px;white-space:nowrap}
+.pc-priv{font-size:11.5px;color:var(--ink-3);text-align:center}
+.pc .pa-attnow{margin:0;background:var(--paper);border-radius:12px}
+.pc-scrim{display:none}
+@media (max-width:760px){
+  #v-pa.pc-chat{padding-top:8px}
+  .pc{display:block}
+  .pc-side{position:fixed;left:0;top:0;bottom:0;width:min(86vw,330px);max-height:none;z-index:1000;background:var(--paper);padding:14px 14px calc(14px + env(safe-area-inset-bottom,0px));box-shadow:0 0 40px rgba(0,0,0,.18);transform:translateX(-104%);visibility:hidden;transition:transform .2s ease,visibility 0s linear .2s}
+  .pc.pc-drawer .pc-side{transform:none;visibility:visible;transition:transform .2s ease}
+  .pc.pc-noside .pc-side{display:flex}
+  .pc-side .pc-side-x{display:inline-flex;width:44px;height:44px}
+  .pc.pc-drawer .pc-scrim{display:block;position:fixed;inset:0;background:rgba(15,20,30,.32);z-index:999}
+  .pc-row{min-height:48px;padding:9px 10px}
+  .pc-search input{height:44px;font-size:16px}
+  .pc-stat .btn{min-height:40px}
+  #v-pa .pc .pc-top{gap:8px;margin-bottom:2px}
+  .pc-top .pc-sidebtn,.pc-top .pc-newbtn{width:44px;height:44px;padding:0;justify-content:center}
+  .pc-top .pc-newbtn span{display:none}
+  .pc-top .pa-tabs{flex:1 1 0;min-width:0;display:flex}
+  .pc-top .pa-tabs button{flex:1 1 0;min-height:44px;padding:0 4px;font-size:13px}
+  .pc-top.pc-4tabs .pa-tabs{order:3;flex:1 1 100%}
+  .pc-top.pc-4tabs .pc-newbtn{margin-left:auto}
+  .pc-col{padding:10px 0 18px;gap:22px}
+  .pc .pa-thread{gap:22px}
+  .pc .pa-m.me .pa-b{font-size:16px;max-width:88%}
+  .pc .pa-m.a .pa-b,.pc .pa-m.a .pa-b > b,.pc .pa-b.md p,.pc .pa-answer.pa-md2 p,.pc .pa-answer.pa-md2 li{font-size:16px}
+  .pc-acts{gap:8px}
+  .pc-act{width:40px;height:40px}
+  .pc-acts-me{opacity:1}
+  .pc-sugg{grid-template-columns:minmax(0,1fr)}
+  .pc-dock{padding:6px 0 calc(8px + env(safe-area-inset-bottom,0px))}
+  .pc-box{border-radius:22px;padding:8px 8px 6px 12px}
+  .pc-box textarea{font-size:16px}
+  .pc-tools{gap:8px}
+  .pc-tools .pc-ib{width:40px;height:40px}
+  .pc-send{width:40px;height:40px;min-width:40px}
+  .pc-priv{font-size:11px}
+  .pc-draft-b .btn{min-height:40px}
+  body.pc-typing #mtabs{display:none}
+  body.pc-typing #v-pa .pc-dock{bottom:var(--pc-kb,0px)}
 }`;
   document.head.appendChild(s);
 })();
