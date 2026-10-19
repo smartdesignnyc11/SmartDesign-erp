@@ -590,6 +590,39 @@ async def sec_stream(p, c):
         await b.close()
         srv.shutdown()
 
+# ---------------------------------------------------------------------------------------------- 9b: the mind's hooks
+async def sec_mind(p, c):
+    """The mind lane's answer carries a summary of its steps (mindStepSummary), the records it names (r.links) and
+    figures it could not trace marked "(not confirmed)"; the person's model is a card under Activity."""
+    b, pg, errs = await open_app(p)
+    await open_pa(pg, 'u_owner')
+    st = await pg.evaluate("""() => { paSay('me', 'is the Window Works bill right?'); paSay('a', 'The **WW-2026-118** bill is $33,500 against a $29,700 PO, $1,200 of freight (not confirmed).',
+        { md: true, did: [{ t: 'Reading the Window Works bill WW-2026-118', d: '' }, { t: 'Checking the answer against what I read', d: '2 figures traced, 1 marked not confirmed' }], summary: 'Read 1 record, checked 2 figures',
+          links: [{ text: 'WW-2026-118', label: 'the Window Works bill WW-2026-118', go: { view: 'ap' } }] }); renderPa();
+        const a = [...document.querySelectorAll('#pa-thread .pa-m.a')].pop();
+        return { link: (a.querySelector('[data-pclink]') || {}).textContent || '', nc: (a.querySelector('.pa-nc') || {}).textContent || '', sum: (a.querySelector('.pa-did summary') || {}).textContent || '', steps: [...a.querySelectorAll('.pa-did li')].map(l => l.textContent) } }""")
+    c.ok(st['link'] == 'WW-2026-118', f"a record the answer names is a link in its prose: {st['link']!r}")
+    c.ok(st['nc'] == '(not confirmed)', 'a figure it could not trace reads as a quiet "(not confirmed)"')
+    c.ok(st['sum'] == 'Read 1 record, checked 2 figures' and any('Checking the answer' in x for x in st['steps']), f"How I got there carries the mind's summary and the check: {st['sum']!r} {st['steps']}")
+    await pg.evaluate("() => [...document.querySelectorAll('#pa-thread [data-pclink]')].pop().click()")
+    await pg.wait_for_timeout(200)
+    c.ok(await pg.evaluate("view") == 'ap', 'the link opens the record')
+    await go(pg, 'pa')
+    await pg.evaluate("() => paOpen('activity')"); await pg.wait_for_timeout(200)
+    st = await pg.evaluate("() => { const k = document.querySelector('#v-pa [data-mdprof]'); return { card: !!k, blue: k ? k.querySelectorAll('.btn.primary').length : -1 } }")
+    c.ok(st['card'] and st['blue'] == 0, f'what the assistant knows about the person is a card of their own under Activity, no blue buttons: {st}')
+    c.ok(not errs, f'mind: page errors {errs[:3]}')
+    await b.close()
+    # the phone: history, the tabs and New Chat are one row
+    b, pg, errs = await open_app(p, phone=True)
+    await open_pa(pg, 'u_owner')
+    st = await pg.evaluate("() => { const t = document.querySelector('#v-pa .pc-top').getBoundingClientRect(); return { h: Math.round(t.height), sel: !!document.querySelector('#v-pa .pc-top [data-pctab]'), link: getComputedStyle(document.querySelector('#v-pa a.pa-rec') || document.body).textDecorationLine } }")
+    c.ok(st['h'] <= 52 and st['sel'] and st['link'] == 'none', f'on the phone history, the tabs and New Chat are one row, and links are not underlined: {st}')
+    await pg.select_option('#v-pa [data-pctab]', 'activity'); await pg.wait_for_timeout(200)
+    c.ok(await pg.evaluate("paTab") == 'activity', 'the tab menu changes the tab')
+    c.ok(not errs, f'mind phone: page errors {errs[:3]}')
+    await b.close()
+
 # ---------------------------------------------------------------------------------------------- 10: phone and the screen standard
 def lint_parts():
     src = open(os.path.join(HERE, 'lint.py'), encoding='utf-8').read().replace('asyncio.run(main())', '')
@@ -649,7 +682,7 @@ async def main():
     c = Checks()
     async with async_playwright() as p:
         for name, f in (('brief', sec_brief), ('runs', sec_runs), ('approve', sec_approve), ('follow', sec_follow), ('memory', sec_memory), ('voice', sec_voice),
-                        ('compose', sec_compose), ('convos', sec_convos), ('stream', sec_stream), ('phone', sec_phone)):
+                        ('compose', sec_compose), ('convos', sec_convos), ('stream', sec_stream), ('mind', sec_mind), ('phone', sec_phone)):
             if len(sys.argv) > 1 and name not in sys.argv[1:]: continue
             t0 = time.time()
             try:

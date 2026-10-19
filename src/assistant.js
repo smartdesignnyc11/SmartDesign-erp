@@ -713,7 +713,13 @@ function paPaneHtml() {
   if ("activity" === paTab) return h + `<div class="pa-actpane">${(() => {
     const fab = document.getElementById("fab");
     return fab && "Skills" === fab.textContent.trim() && canEdit() ? '<div class="pa-skills"><button type="button" class="btn sm" data-paskills>Skills</button><span class="small muted">What your assistant knows how to do, and how to add to it.</span></div>' : "";
-  })()}${paActivityHtml()}${paRulesCard({ self: !0, title: "What I May Do on My Own" })}${paMemoryHtml()}</div>`;
+  })()}${paActivityHtml()}${paRulesCard({ self: !0, title: "What I May Do on My Own" })}${paMemoryHtml()}${(() => {
+    try {
+      return "function" == typeof mindProfileHtml ? mindProfileHtml() : "";
+    } catch (e) {
+      return "";
+    }
+  })()}</div>`;
   if ("brain" === paTab) return h + `<div class="pa-brainpane">${paRulesCard({ title: "Approval Rules, Everyone" })}<div id="brain-body"></div></div>`;
   return h;
 }
@@ -807,6 +813,9 @@ function paDemote(host) {
     } catch (e) {
       console.warn("assistant pane", e);
     }
+    try {
+      "activity" === paTab && "function" == typeof mindProfileWire && mindProfileWire(pane);
+    } catch (e) {}
     try {
       "function" == typeof bpPass && bpPass(pane);
     } catch (e) {}
@@ -935,19 +944,43 @@ function paMd2(src) {
   }
   return flush(), out.join("");
 }
+// The records an answer names (the mind's r.links: {text, label, go}) become links in its prose, opened in place; a
+// figure the check could not trace reads "(not confirmed)" as a quiet note, not as part of the claim.
+function paLinked(html, m) {
+  let h = String(html || "");
+  try {
+    (m.links || []).forEach((L, i) => {
+      if (!L || !L.text || !L.go) return;
+      const t = esc(L.text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      h = h.replace(new RegExp(`(^|[^\\w"-])(${t})(?![\\w-])(?![^<]*>)(?![^<]*</a>)`), (x, pre, w) => `${pre}<a href="#" class="pa-rec" data-pclink="${esc(m.id)}|${i}" title="${esc(L.label || L.text)}">${w}</a>`);
+    });
+  } catch (e) {}
+  return h.replace(/\(not confirmed\)/g, '<span class="pa-nc">(not confirmed)</span>');
+}
+document.addEventListener("click", (e) => {
+  const a = e.target && e.target.closest ? e.target.closest("[data-pclink]") : null;
+  if (!a) return;
+  e.preventDefault();
+  const [id, i] = a.dataset.pclink.split("|"),
+    m = (paInit().thread || []).find((x) => x.id === id),
+    L = m && (m.links || [])[+i];
+  L && L.go && csGo(paGo(L.go) || L.go);
+});
 // What it searched, read and ran for one answer, in plain words, from the tools it used.
 function paUsedLine(u) {
   const a = u.input || {},
     n = Array.isArray(u.rows) ? u.rows.length : null,
     lab = "function" == typeof mindStepLabel ? mindStepLabel(u.tool, a) : u.tool;
   let d = "";
+  if ("verify" === u.tool) return { t: lab, d: String(a.result || "") };
+  if ("recall" === u.tool) return { t: lab, d: String(a.found || "").slice(0, 120) };
   if ("query" === u.tool) d = [a.entity, a.where ? `where ${JSON.stringify(a.where).slice(0, 90)}` : "", a.group ? `grouped by ${a.group}` : "", null != n ? `${n} row${1 === n ? "" : "s"}` : ""].filter(Boolean).join(", ");
   else if ("search_mail" === u.tool) d = [a.q ? `"${a.q}"` : "", a.from ? `from ${a.from}` : "", a.since ? `since ${a.since}` : ""].filter(Boolean).join(" ");
   else if ("read_document" === u.tool) d = String(a.name || a.id || "");
   else d = Object.values(a).filter((v) => "string" == typeof v).slice(0, 2).join(", ").slice(0, 90);
   return { t: lab, d: d };
 }
-function paDidHtml(did, open) {
+function paDidHtml(did, open, summary) {
   if (!(did || []).length) return "";
   const n = (re) => did.filter((x) => re.test(x.t)).length,
     srch = n(/^Searching|Looking at|^Finding/),
@@ -955,7 +988,7 @@ function paDidHtml(did, open) {
     figs = n(/^Working out|^Checking|^Adding up|^Comparing/),
     recs = did.length - srch - docs - figs,
     s = [srch && `Searched ${srch} time${1 === srch ? "" : "s"}`, recs && `read ${paPl(recs, "record")}`, docs && `opened ${paPl(docs, "document")}`, figs && `checked ${paPl(figs, "figure")}`].filter(Boolean),
-    line = s.length ? paCap(s.join(", ")) : `${paCap(paPl(did.length, "step"))}`;
+    line = summary || (s.length ? paCap(s.join(", ")) : `${paCap(paPl(did.length, "step"))}`);
   return `<details class="pa-did"${open ? " open" : ""}><summary>${esc(line)}</summary><ol>${did.map((x) => `<li><b>${esc(x.t)}</b>${x.d ? ` <span class="muted">${esc(x.d)}</span>` : ""}</li>`).join("")}</ol></details>`;
 }
 {
@@ -971,7 +1004,7 @@ function paDidHtml(did, open) {
       }
       if ("a" === m.who && m.md) {
         const a = paMd(m.text),
-          b = `<div class="pa-answer pa-md2">${paMd2(m.text)}</div>${paDidHtml(m.did, !1)}`,
+          b = `<div class="pa-answer pa-md2">${paLinked(paMd2(m.text), m)}</div>${paDidHtml(m.did, !1, m.summary)}`,
           k = h.indexOf(a);
         h = k > -1 ? h.slice(0, k) + b + h.slice(k + a.length) : h;
       }
@@ -1287,7 +1320,7 @@ paSend = function (text, opts) {
       a = a || paOut({ headline: "That broke on my side.", note: "Say it another way and I will try again; nothing was changed." });
       (a.q = q),
         (paNow = a),
-        paSay("a", late ? `On "${q.length > 60 ? q.slice(0, 57) + "…" : q}": ${a.headline}` : a.headline, a.md ? { md: !0, sources: a.sources, kind: a.kind, steps: a.steps, did: a.did || [], cut: !!a.cut } : { note: a.note, work: a.work || [], go: a.go || null, mine: (a.mine || []).map((m) => ({ text: m.text, at: m.at })), kind: a.kind, readAs: a.readAs || "" });
+        paSay("a", late ? `On "${q.length > 60 ? q.slice(0, 57) + "…" : q}": ${a.headline}` : a.headline, a.md ? { md: !0, sources: a.sources, kind: a.kind, steps: a.steps, did: a.did || [], cut: !!a.cut, summary: a.summary || "", links: a.links || [] } : { note: a.note, work: a.work || [], go: a.go || null, mine: (a.mine || []).map((m) => ({ text: m.text, at: m.at })), kind: a.kind, readAs: a.readAs || "" });
     },
     release = () => {
       (paBusy = !1), (paSteps = []), (paLive = null), (paStopFn = null), (paStreamAbort = null);
@@ -1351,7 +1384,7 @@ paSend = function (text, opts) {
         .then((r) => {
           paStreamHooks = null;
           r && String(r.text || "").trim()
-            ? finish(Object.assign(paOut({ headline: r.text, kind: "mind", q: q, offers: (r.pending || []).filter((x) => !x.done) }), { md: !0, sources: paSources(r.used), steps: r.steps, did: paUsedDid(r.used), cut: paStreamCut }))
+            ? finish(Object.assign(paOut({ headline: r.text, kind: "mind", q: q, offers: (r.pending || []).filter((x) => !x.done) }), { md: !0, sources: paSources(r.used), steps: r.steps, did: paUsedDid(r.used), cut: paStreamCut, summary: String(r.summary || ""), links: Array.isArray(r.links) ? r.links.slice(0, 20) : [] }))
             : finish(fallback);
         })
         .catch((e) => {
@@ -2201,7 +2234,9 @@ function paCorrection(raw) {
             if (a) return a;
           }
         }
-        if (PA_CORRECTION.test(raw) && raw.split(/\s+/).length <= 24) {
+        // a standing preference ("don't book me before 9"), not a hold on one action ("don't send the tile sheet until
+        // Sarah signs off"): that is about a record and a condition, and is not kept as how the person works
+        if (PA_CORRECTION.test(raw) && raw.split(/\s+/).length <= 24 && !/\b(?:until|unless|till|before|after|once)\b/i.test(raw.replace(/^(?:please\s+)?(?:don'?t|do not|never)\s+book me before\b/i, "")) && !/^(?:please\s+)?(?:don'?t|do not)\s+(?:send|pay|approve|order|issue|sign|release|file|submit)\b/i.test(raw)) {
           const a = paCorrection(raw);
           if (a) return a;
         }
@@ -3010,7 +3045,7 @@ function pcLiveHtml() {
   if (!paBusy || !paLive) return "";
   const steps = paLive.steps || [],
     now = steps.length ? steps[steps.length - 1] : "Reading the records";
-  return `<div class="pa-m a pa-live" id="pa-live" aria-live="polite"><div class="pa-b md"><div class="pa-answer pa-md2" id="pa-live-md">${paLive.text ? paMd2(paLive.text) + '<span class="pa-caret" aria-hidden="true"></span>' : `<span class="pc-think"><i class="pc-pulse" aria-hidden="true"></i><span>${esc(now)}</span></span>`}</div>${steps.length > 1 ? paDidHtml(steps.map((t) => ({ t: t, d: "" })), !1) : ""}</div></div>`;
+  return `<div class="pa-m a pa-live" id="pa-live" aria-live="polite"><div class="pa-b md"><div class="pa-answer pa-md2" id="pa-live-md">${paLive.text ? paMd2(paLive.text) + '<span class="pa-caret" aria-hidden="true"></span>' : `<span class="pc-think"><i class="pc-pulse" aria-hidden="true"></i><span>${esc(String(now).replace(/[.…\s]+$/, ""))}…</span></span>`}</div>${steps.length > 1 ? paDidHtml(steps.map((t) => ({ t: t, d: "" })), !1) : ""}</div></div>`;
 }
 function pcAttHtml() {
   const a = paAttNow;
@@ -3535,6 +3570,8 @@ body #v-pa.view.pc-chat{overflow-x:clip;overflow-y:visible}
 .pc-priv{font-size:11.5px;color:var(--ink-3);text-align:center}
 .pc .pa-attnow{margin:0;background:var(--paper);border-radius:12px}
 .pc-scrim{display:none}
+.pa-nc{color:var(--ink-3);font-size:.9em}
+.md-prof{margin-bottom:14px}
 .pc-tabsel{display:none}
 .pc-dock{background:var(--paper-2)}
 .pc-dock::before{content:"";position:absolute;left:0;right:0;top:-28px;height:28px;background:linear-gradient(to bottom,rgba(247,248,250,0),var(--paper-2));pointer-events:none}
@@ -3542,8 +3579,8 @@ body #v-pa.view.pc-chat{overflow-x:clip;overflow-y:visible}
 .pa-bf-kick{margin:0 0 6px;font-size:12.5px}
 .pc .pa-brief .pa-answer p{margin:0 0 12px}
 .pc .pa-brief .pa-answer p:first-child{font-size:16px}
-.pa-rec{color:var(--accent);text-decoration:none}
-.pa-rec:hover,.pa-rec:active,.pa-rec:focus-visible{text-decoration:underline;text-underline-offset:3px}
+.pa-rec,.pa-answer.pa-md2 a.pa-rec{color:var(--accent);text-decoration:none}
+.pa-rec:hover,.pa-rec:active,.pa-rec:focus-visible,.pa-answer.pa-md2 a.pa-rec:hover{text-decoration:underline;text-underline-offset:3px}
 .pa-bf-acts{display:flex;flex-wrap:wrap;gap:8px;margin:4px 0 10px}
 .pa-bf-acts .btn{border-radius:16px;height:32px;padding:0 12px}
 .pa-quiet,.pa-quiet-b{background:none;border-color:transparent;color:var(--ink-3)}
