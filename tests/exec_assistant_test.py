@@ -665,6 +665,9 @@ async def sec_phone(p, c):
             # a conversation: a table, a list, a link, the work shown, and the box at the foot
             await pg.evaluate("""() => { paSay('me', 'how do the jobs stand?'); paSay('a', 'Two of the four jobs are on track; **45 Cranberry** waits on tile.\\n\\n| Job | Status | Next |\\n|---|---|---|\\n| 121 State | On track | Rough inspection Tue |\\n| 45 Cranberry | Waiting on tile | Chase Nemo Tile |\\n\\n- The tile slipped to Thursday.\\n- The windows ship Monday.\\n\\nThe [schedule](https://example.com/schedule) has the rest. Shall I draft the tile chase?', { md: true, did: [{ t: 'Reading the projects', d: 'projects, 4 rows' }, { t: 'Searching your mail', d: '\\"Nemo Tile\\"' }] }); renderPa(); pcToBottom(); }""")
             await judge('conversation', top=False)
+            await pg.evaluate("() => pcToBottom()"); await pg.wait_for_timeout(150)
+            rest = await pg.evaluate("() => { const a = [...document.querySelectorAll('#pa-thread .pa-m.a')].pop().querySelector(':scope > .pc-acts').getBoundingClientRect(), d = document.getElementById('pc-dock').getBoundingClientRect(); return { acts: Math.round(a.bottom), dock: Math.round(d.top) } }")
+            c.ok(rest['acts'] <= rest['dock'], f'{vp} {u}: scrolled to the newest, the last message and its actions rest above the box: {rest}')
             await pg.screenshot(path=os.path.join(SHOTS, f'{u}_{vp}_conversation.png'), full_page=False)
             if phone and u == 'u_owner':
                 await pg.evaluate("() => { paHistOpen = true; renderPa(); }"); await pg.wait_for_timeout(300)

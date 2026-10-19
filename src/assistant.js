@@ -987,7 +987,7 @@ function paDidHtml(did, open, summary) {
     docs = n(/^Reading (?!the )/),
     figs = n(/^Working out|^Checking|^Adding up|^Comparing/),
     recs = did.length - srch - docs - figs,
-    s = [srch && `Searched ${srch} time${1 === srch ? "" : "s"}`, recs && `read ${paPl(recs, "record")}`, docs && `opened ${paPl(docs, "document")}`, figs && `checked ${paPl(figs, "figure")}`].filter(Boolean),
+    s = [srch && `Searched ${1 === srch ? "once" : paNumW(srch, !0) + " times"}`, recs && `read ${paPl(recs, "record")}`, docs && `opened ${paPl(docs, "document")}`, figs && `checked ${paPl(figs, "figure")}`].filter(Boolean),
     line = summary || (s.length ? paCap(s.join(", ")) : `${paCap(paPl(did.length, "step"))}`);
   return `<details class="pa-did"${open ? " open" : ""}><summary>${esc(line)}</summary><ol>${did.map((x) => `<li><b>${esc(x.t)}</b>${x.d ? ` <span class="muted">${esc(x.d)}</span>` : ""}</li>`).join("")}</ol></details>`;
 }
@@ -3619,7 +3619,8 @@ body #v-pa.view.pc-chat{overflow-x:clip;overflow-y:visible}
   .pc.pc-empty .pc-main{padding-bottom:12vh}
 }
 @media (max-width:760px){
-  #v-pa.pc-chat{padding-top:8px}
+  #v-pa.pc-chat{padding-top:8px;padding-bottom:var(--pa-dock-b,0px)}
+  body.pc-typing #v-pa.pc-chat{padding-bottom:0}
   .pc{display:block}
   .pc-side{position:fixed;left:0;top:0;bottom:0;width:min(86vw,330px);max-height:none;z-index:1000;background:var(--paper);padding:14px 14px calc(14px + env(safe-area-inset-bottom,0px));box-shadow:0 0 40px rgba(0,0,0,.18);transform:translateX(-104%);visibility:hidden;transition:transform .2s ease,visibility 0s linear .2s}
   .pc.pc-drawer .pc-side{transform:none;visibility:visible;transition:transform .2s ease}
