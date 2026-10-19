@@ -103941,22 +103941,27 @@ const BH = {
     ".cd-flags, .dep-bar, tr, [data-cmid], .cm-row, .cm-prop, .m-appr-row, .m-appr-item, .pa-row, .fm-row, .f-row, .rem-row, .la-item, .reqitem, .shopitem, .vcard, .mtg, .tcard, .sc-mcard, .tk-mcard, .hb-card, .hb-assoc-row, .h4r, .appr, .lsr-row, .ls-rev-row, .bn-row, .gl-j, .m-card, .dg-t, .sub-row, .pick-row",
   BH_UTILITY =
     /^(customize|customise|done|settings?|configure|edit layout|columns?|print|export|download|reset|refresh|filters?|view|sort|help|copy as ics|manage)\b/i;
+const BH_FOREIGN = "#fnd-made";
 function bhHeader(root) {
   if (!root || !/^v-/.test(root.id)) return;
   const v = root.id.slice(2),
     reg = BH[v] || {},
     label = BH_LABEL(v),
     vis = (el) => el && null !== el.offsetParent;
-  let ph = root.querySelector(".ph, .hb-page > .hb-head");
+  // never inside a card another pass paints over on every render (Made Today, #fnd-made): a header built or found
+  // there, and the page's primary button lifted into it, were deleted on the next render (the billing person lost
+  // Send to Client on the next invoice after sending one)
+  const own = (el) => !!el && !el.closest(BH_FOREIGN);
+  let ph = [...root.querySelectorAll(".ph, .hb-page > .hb-head")].find(own);
   if (!ph) {
-    const h = [...root.querySelectorAll("h1, h2")].find((x) => vis(x) && !x.closest(".mbm, .drawer, table"));
+    const h = [...root.querySelectorAll("h1, h2")].find((x) => vis(x) && !x.closest(".mbm, .drawer, table") && own(x));
     if (h) {
       const w = document.createElement("div");
       w.className = "ph bp-ph";
       const box = document.createElement("div");
       h.parentNode.insertBefore(w, h), box.appendChild(h), w.appendChild(box), (ph = w);
     } else if (label) {
-      const body = root.querySelector(":scope > div") || root;
+      const body = [...root.querySelectorAll(":scope > div")].find(own) || root;
       (ph = document.createElement("div")),
         (ph.className = "ph bp-ph"),
         (ph.innerHTML = `<div><h2>${esc(label)}</h2></div>`),
