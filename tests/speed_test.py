@@ -128,6 +128,18 @@ async def reopen(p, uid, profile=False):
         t = await switch_time(pg, v)
         sw.append([v, round(t['sync']), round(t['frame'])])
     r['switch'] = sw
+    # The memo of derived numbers (src/app.js, speed.js) must never answer from older records or another context.
+    # Unthrottled: every hit is recomputed and compared (SPD.check) over the same views, and a record changed without
+    # save() must still move the version the next draw reads.
+    await cdp.send('Emulation.setCPUThrottlingRate', {'rate': 1})
+    r['memo'] = await pg.evaluate("""async views => {
+      SPD.check = true; SPD.bad = [];
+      for (const v of views) { if (!(ROLE_VIEWS[role()] || []).includes(v)) continue; view = v; render(); }
+      SPD.check = false;
+      render(); const v0 = SPD.ver; render(); const same = SPD.ver === v0;
+      const b = DB.bills[0]; b.__probe = 1; render(); const moved = SPD.ver > v0; delete b.__probe; render();
+      return {bad: SPD.bad.splice(0), same, moved, hits: SPD.hits, miss: SPD.miss};
+    }""", SWITCH[uid])
     r['errors'] = errs[:3]
     await b.close()
     return r, prof
@@ -152,6 +164,11 @@ async def main():
             c.ok(r['settled'] < LIMIT['settled'], f"{name}: settled at {r['settled']:.0f} ms (limit {LIMIT['settled']})")
             for v, s, f in sw:
                 c.ok(f < LIMIT['switch'], f"{name}: switch to {v} took {f} ms (limit {LIMIT['switch']})")
+            m = r['memo']
+            c.ok(not m['bad'], f"{name}: the memo answered differently from a fresh computation: {m['bad'][:2]}")
+            c.ok(m['same'], f'{name}: the data version moved with no change to the records')
+            c.ok(m['moved'], f'{name}: a record changed without save() did not move the data version')
+            c.ok(m['hits'] > 0, f'{name}: the memo of derived numbers is not in use')
             if prof:
                 txt = summarise(prof)
                 open(os.path.join(out_dir, f'profile_{tag}.txt'), 'w').write(txt)
