@@ -444,7 +444,7 @@ async def prompt_checks(pg, c):
     """The prompt: the method, the voice, the role's playbook from the live Standard, the person, never a template."""
     S = await pg.evaluate("""() => { const out = {}; for (const u of ['u_owner', 'u_alan', 'u_chen', 'u_angel', 'u_klein']) { signIn(u); out[u] = mindSystem('what is late on 121 State', mindRecall('what is late on 121 State')); } signIn('u_owner'); return out; }""")
     pm = S['u_alan']
-    for k in ('Work out what', 'Plan where the answer lives', 'Go to the line', 'Analyse, do not list', 'Recommend', 'Check before you answer', 'Never invent', 'No exclamation marks', '"untrusted":true', 'Requires human approval', 'Present a guess as a fact'):
+    for k in ('Work out what', 'Plan where the answer lives', 'Go to the line', 'Analyse, do not list', 'Recommend', 'Check before you answer', 'Never invent', 'No exclamation marks', 'Never talk about your own machinery', '"untrusted":true', 'Requires human approval', 'Present a guess as a fact'):
         c.ok(k in pm, f'the PM prompt carries {k!r}')
     c.ok('deliver every project on time, on budget' in pm and 'the work gets done right, safely, on schedule' not in pm, "the PM prompt has the PM's playbook, not the foreman's")
     c.ok('the work gets done right, safely, on schedule' in S['u_angel'] and 'Spanish' in S['u_angel'] and 'no money' in S['u_angel'], "the foreman's prompt: his playbook, Spanish, no money")
