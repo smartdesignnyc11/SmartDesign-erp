@@ -2139,7 +2139,9 @@ function projectFromTemplate(name, addr, start, target) {
 const KEY = "smartdesigns:portfolio:v2",
   OLDKEY = "smartdesigns:project:v1";
 let DB = null,
-  S = null;
+  S = null,
+  // true when load() found nothing stored and seeded the demo company: bootRun then runs the chain as it always did
+  bootSeeded = !1;
 const uid = (p) => p + Math.random().toString(36).slice(2, 7);
 async function load(opts = {}) {
   if (!opts.skipStorage) {
@@ -2183,7 +2185,7 @@ async function load(opts = {}) {
   }
   if (!DB) {
     const p = template121();
-    DB = { projects: [p], currentId: p.id };
+    (DB = { projects: [p], currentId: p.id }), (bootSeeded = !0);
   }
   (DB.company = Object.assign(
     {
@@ -29813,11 +29815,10 @@ function renderNav() {
       nav._projsel &&
         ((nav._projsel.hidden = !g.proj),
         g.proj && (sub.querySelector(".sub-proj").appendChild(nav._projsel), (nav._projsel.hidden = !1)));
-    // after the draw: scrolling here made the browser lay the page out halfway through it (spdAfterDraw)
-    spdAfterDraw("subnav-scroll", () => {
-      const on = sub.isConnected && sub.querySelector("[data-sub].on");
-      on && on.scrollIntoView({ block: "nearest", inline: "nearest" });
-    });
+    // after the draw: scrolling here made the browser lay the page out halfway through it (spdAfterDraw). The tab
+    // is taken now; if a later nav draw replaces the strip, this one is gone and its scroll is skipped, as before.
+    const on = sub.querySelector("[data-sub].on");
+    on && spdAfterDraw("subnav-scroll", () => on.isConnected && on.scrollIntoView({ block: "nearest", inline: "nearest" }));
   }
 }
 const renderBaseNav = render;
@@ -87519,17 +87520,19 @@ function mInputs(root) {
 }
 function mSubnav() {
   if (!mOn()) return;
-  // it scrolls and measures the strip, so it runs once the draw is done (spdAfterDraw), not halfway through it
-  spdAfterDraw("m-subnav", mSubnavNow);
+  // it scrolls and measures the strip, so it runs once the draw is done (spdAfterDraw), not halfway through it; the
+  // strip is taken now, and one a later nav draw has replaced is skipped, as before
+  const on = document.querySelector("#subnav .sub-tabs button.on"),
+    strips = [...document.querySelectorAll("#subnav .sub-tabs")];
+  spdAfterDraw("m-subnav", () => mSubnavNow(on, strips));
 }
-function mSubnavNow() {
-  if (!mOn()) return;
-  const on = document.querySelector("#subnav .sub-tabs button.on");
-  if (on && on.scrollIntoView)
+function mSubnavNow(on, strips) {
+  if (on && on.isConnected && on.scrollIntoView)
     try {
       on.scrollIntoView({ inline: "center", block: "nearest" });
     } catch (e) {}
-  document.querySelectorAll("#subnav .sub-tabs").forEach((t) => {
+  strips.forEach((t) => {
+    if (!t.isConnected) return;
     const upd = () => t.classList.toggle("m-more-right", t.scrollWidth - t.clientWidth - t.scrollLeft > 6);
     upd(),
       t.dataset.mScroll || ((t.dataset.mScroll = "1"), t.addEventListener("scroll", upd, { passive: !0 }));
@@ -88667,11 +88670,14 @@ function glnProjectRow() {
   const portTab = sub.querySelector('[data-sub="port"]');
   portTab && (portTab.style.display = "none");
   // the strip's scroll reads offsetLeft, so it waits for the end of the draw (spdAfterDraw) and runs after the
-  // other strip scrolls there, as it ran after them before
-  spdAfterDraw("gln-strip", () => {
-    const tabs = sub.querySelector(".sub-tabs:not(.sub-cross)"),
-      onTab = sub.querySelector(".sub-tabs button.on");
-    if (tabs && onTab) {
+  // other strip scrolls there, as it ran after them before; the strip is taken now (one a later nav draw replaced
+  // is skipped)
+  const tabs = sub.querySelector(".sub-tabs:not(.sub-cross)"),
+    onTab = sub.querySelector(".sub-tabs button.on");
+  tabs &&
+    onTab &&
+    spdAfterDraw("gln-strip", () => {
+      if (!tabs.isConnected) return;
       const want =
         onTab === [...tabs.querySelectorAll("button")].find((b) => "none" !== b.style.display)
           ? 0
@@ -88680,8 +88686,7 @@ function glnProjectRow() {
         setTimeout(() => {
           tabs.scrollLeft = want;
         }, 0);
-    }
-  });
+    });
   const dashTab = sub.querySelector('[data-sub="dash"]');
   dashTab &&
     dashTab.firstChild &&
@@ -106805,34 +106810,44 @@ function renderRealData() {
     }
   };
 }
-// Boot draws once (speed, BACKLOG §1.11 item 5). About a dozen finishBoot layers seed or migrate and then call
-// render(); on a phone each draw took 0.7 to 1.7 s, six of them in a row. While the chain runs, render() only notes
-// that a draw is wanted; the one draw comes after every layer has run, so the first screen shows the finished state.
-// The global is swapped, not wrapped, so every render layer (the outermost included) is held. Every boot path calls
+// A reopen draws twice, not six times (speed, BACKLOG §1.11 item 5). About a dozen finishBoot layers seed or migrate
+// and then call render(); on a phone each draw took 0.7 to 1.7 s, six of them in a row. The first draw runs as it
+// always did: render layers do real work on it (plSeed and xsSeed seed the drawings there, before lnLoop("boot")
+// reads them; a new day's hooks), so the records after boot are the same as before (a reopen of the same stored
+// records was compared field by field with the build before this change). Every later render() while the chain runs only notes
+// that a draw is wanted; one draw comes after every layer has run, so the screen shows the finished state. The
+// global is swapped, not wrapped, so every render layer (the outermost included) is held. Every boot path calls
 // bootRun, never finishBoot directly (the hosted shell's cloud.js too). A layer may wrap render while the chain runs
 // (stockRegister does), so the hold stays in place under it and passes every draw through once the chain is done. A
 // held draw still moves render.__tick, which the per-draw memos (ocMemo, budMemoGet, ovTick) key on, so a layer
 // never reads a count an earlier layer cached, and the tick never goes back.
 function bootRun() {
-  const draw = render;
-  let holding = !0,
-    wanted = !1,
-    tick = draw.__tick || 0;
-  const hold = function () {
-    if (!holding) return draw.apply(this, arguments);
-    (wanted = !0), (render.__tick = ++tick);
-  };
-  (hold.__tick = tick), (render = hold);
-  try {
-    finishBoot();
-  } finally {
-    (holding = !1), render === hold && (render = draw), (render.__tick = Math.max(render.__tick || 0, tick));
+  const install = () => {
     try {
       spdInstall();
     } catch (e) {
       console.warn("speed layer", e);
     }
-    wanted && render();
+  };
+  // A first boot on this device seeds the demo company, and the seed is finished by work the render layers do
+  // between the chain's layers (lnLoop("boot") reads what a render seeded): it runs exactly as it always did.
+  if (bootSeeded) return void (finishBoot(), install());
+  install();
+  const draw = render;
+  let holding = !0,
+    drawn = 0,
+    wanted = !1;
+  const hold = function () {
+    if (!holding || !drawn++) return draw.apply(this, arguments);
+    (wanted = !0), (render.__tick = (render.__tick || 0) + 1);
+  };
+  (hold.__tick = draw.__tick || 0), (render = hold);
+  try {
+    finishBoot();
+  } finally {
+    holding = !1;
+    const t = render.__tick || 0;
+    render === hold && (render = draw), (render.__tick = Math.max(render.__tick || 0, t)), wanted && render();
   }
 }
 /*<<speed.js>>*/
@@ -106851,7 +106866,7 @@ const SPD = { on: 0, depth: 0, ver: 0, snap: "", memo: new Map(), hits: 0, miss:
 let spdNextId = 0,
   fin3CostDepth = 0;
 function spdId(o) {
-  if (!o || "object" != typeof o) return "-";
+  if (!o || ("object" != typeof o && "function" != typeof o)) return "-";
   let i = spdIds.get(o);
   return i || spdIds.set(o, (i = ++spdNextId)), i;
 }
@@ -106899,13 +106914,14 @@ function spdBegin() {
 // A record argument is keyed by its id and its identity (a copy being edited is never another record's answer);
 // options and ranges by their content.
 function spdKeyPart(a) {
-  return null == a
-    ? ""
-    : "object" == typeof a
-      ? Array.isArray(a) || !a.id
-        ? JSON.stringify(a)
-        : "#" + a.id + "@" + spdId(a)
-      : String(a);
+  if (null == a) return "";
+  if ("object" != typeof a) return "function" == typeof a ? "f" + spdId(a) : String(a);
+  if (!Array.isArray(a) && a.id) return "#" + a.id + "@" + spdId(a);
+  try {
+    return JSON.stringify(a);
+  } catch (e) {
+    return "@" + spdId(a);
+  }
 }
 // A list comes back as a fresh array each time, so a caller that sorts or filters in place never changes the next
 // caller's list.
@@ -107506,13 +107522,11 @@ if (
           host.appendChild(el);
       }
       cmInit();
-      // One question, one number: once the one-count registry owns this badge (OC_BADGE.comms, Needs an Answer),
-      // its count is the one shown. Writing a second count here and drawing the whole nav again (which put the
-      // registry's number back) cost a second nav draw on most renders, about 70 ms a switch on a phone.
-      if ("undefined" != typeof OC_BADGE && OC_BADGE.comms) {
-        const s = String(ocBadgeN("comms") || "");
-        return void (el.textContent !== s && (el.textContent = s));
-      }
+      // NOTE (speed lane): this writes a second count into the Needs an Answer badge, and when it differs from the
+      // one-count registry's (OC_BADGE.comms) it draws the whole nav again, which puts the registry's number back.
+      // That second nav draw is load-bearing: it also rebuilds the sub-tab strip after layers that relabel it
+      // (renderBase_dall and glnProjectRow write "Today" on the dash tab; the decided name is "Overview", mnNames).
+      // Fold both into one nav draw when the menu lane next touches the strip.
       const n = (DB.comms || []).filter(
           (c) => (c.proposals || []).some((p) => !p.applied && !1 !== p.on) && "ignored" !== c.status,
         ).length,
