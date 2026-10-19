@@ -3551,3 +3551,5 @@ body.msg-on #fsay{display:none}
   #tb-chat{width:44px;height:44px;min-height:44px;padding:0;justify-content:center;flex:none;margin-left:8px}
   #tb-chat .msg-n{position:absolute;top:2px;right:0}
 }
+/* on the phone Chat is a shortcut in the bottom bar (Alan, 2026-10-19), so the header keeps only Ask */
+@media (max-width:760px){ body.m-on #tb-chat{display:none} }
