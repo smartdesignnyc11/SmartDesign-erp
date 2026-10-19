@@ -287,7 +287,7 @@ function paActivity(uidX) {
       const alone = "sent" === o.status && /^delegated/.test(String(o.approvedBy || "")),
         kind = alone ? "did" : "sent" === o.status ? "approved" : "skipped" === o.status ? "declined" : "proposed",
         to = (o.to || {}).name || (o.to || {}).email || "them";
-      out.push({ key: "o:" + o.id, at: o.sentAt || o.at, kind: kind, type: /order/.test(o.kind || "") ? "orderFollowups" : /rfq/.test(o.kind || "") ? "rfqChases" : "followUps", what: `${alone ? "Sent on its own" : "sent" === o.status ? "Sent after you approved" : "skipped" === o.status ? "Skipped" : "Drafted for you"}: ${o.subject || "a note"} to ${to}`, why: o.why || (o.about || {}).label || "", ev: [(o.about || {}).label, o.approvedBy ? `Approved by: ${o.approvedBy}` : ""].filter(Boolean), go: { view: "comms" }, std: "" });
+      out.push({ key: "o:" + o.id, at: o.sentAt || o.at, kind: kind, type: o.asstType && paType(o.asstType) ? o.asstType : /order/.test(o.kind || "") ? "orderFollowups" : /rfq/.test(o.kind || "") ? "rfqChases" : "followUps", what: `${alone ? "Sent on its own" : "sent" === o.status ? "Sent after you approved" : "skipped" === o.status ? "Skipped" : "Drafted for you"}: ${o.subject || "a note"} to ${to}`, why: o.why || (o.about || {}).label || "", ev: [(o.about || {}).label, o.approvedBy ? `Approved by: ${o.approvedBy}` : ""].filter(Boolean), go: { view: "comms" }, std: "" });
     });
   stdDelegLog()
     .filter((e) => e.uid === u)
@@ -320,7 +320,7 @@ async function paToolAlone(name, a) {
   if ("create_task" === name) {
     const slot = paNextOpen(a.due || iso(addDays(today(), 1))),
       t = paTask(a.title, slot.date, a.note || "");
-    return t ? { created: !0, title: a.title, due: slot.date, list: "your task list", moved: slot.date !== (a.due || ""), onItsOwn: !0 } : { error: "The task could not be made." };
+    return t ? { created: !0, title: a.title, due: slot.date, list: "your task list", moved: slot.date !== (a.due || ""), onItsOwn: !0, _undo: { kind: "task", id: t.a.id } } : { error: "The task could not be made." };
   }
   if ("draft_email" === name) {
     if (gcOn()) {
@@ -328,14 +328,17 @@ async function paToolAlone(name, a) {
       return { drafted: !0, id: d.id, note: "It is a draft in their mailbox. It has not been sent.", onItsOwn: !0 };
     }
     const o = paDraftNote(a.to || "", a.subject || "", a.body || "", a.why || "asked for in the conversation");
-    return o ? { drafted: !0, id: o.id, note: "It is a draft in the outbox. It has not been sent.", onItsOwn: !0 } : { error: "That draft is already waiting." };
+    return o ? { drafted: !0, id: o.id, note: "It is a draft in the outbox. It has not been sent.", onItsOwn: !0, _undo: { kind: "draft", id: o.id } } : { error: "That draft is already waiting." };
   }
   if ("hold_time" === name) {
     if (!gcOn()) return { error: "No calendar is connected." };
     const h = (await gaHold({ title: a.title, start: a.start, end: a.end, note: a.note, why: "asked for in the conversation" })) || {};
     return { held: !0, link: h.htmlLink, note: "Held and marked free. Nobody was invited.", onItsOwn: !0 };
   }
-  if ("remember" === name) return { kept: !0, text: ((PA_STANDING.test(a.text) ? paStand(a.text) : paRemember(a.text, a.due)) || {}).text, onItsOwn: !0 };
+  if ("remember" === name) {
+    const m = (PA_STANDING.test(a.text) ? paStand(a.text) : paRemember(a.text, a.due)) || {};
+    return { kept: !0, text: m.text, onItsOwn: !0, _undo: m.id ? { kind: "memo", id: m.id } : null };
+  }
   return null;
 }
 {
@@ -367,7 +370,9 @@ async function paToolAlone(name, a) {
     if ("alone" === lv && !T.lock && fromThem && "alone" === (("send" === T.kind ? standardAllows({ action: "send", type: type }) : { mode: "alone" }).mode)) {
       const r = await paToolAlone(name, a);
       if (r) {
-        r.error || paDidAct({ kind: "did", type: type, what: paToolWhat(name, a), why: `your rule for ${T.label} is Act Alone`, ev: ev, go: "create_task" === name ? { view: "tkall" } : "draft_email" === name ? { view: "comms" } : null });
+        // what it did alone can be taken back from the briefing's I Did (a task it made, a draft it wrote, a note it kept)
+        r.error || paDidAct({ kind: "did", type: type, what: paToolWhat(name, a), why: `your rule for ${T.label} is Act Alone`, ev: ev, go: "create_task" === name ? { view: "tkall" } : "draft_email" === name ? { view: "comms" } : null, undo: r._undo || null });
+        delete r._undo;
         try {
           save();
         } catch (e) {}
@@ -705,7 +710,7 @@ function paPaneHtml() {
     const seg = S.length > 1 ? `<div class="seg pa-segs" role="tablist" aria-label="Findings">${S.map(([k, l]) => `<button type="button" role="tab" aria-selected="${paFindSeg === k}" class="${paFindSeg === k ? "on" : ""}" data-paseg="${k}">${l}</button>`).join("")}</div>` : "";
     return h + seg + ("brain" === paFindSeg ? '<div id="brain-body"></div>' : "chains" === paFindSeg ? '<div id="cos-body"></div>' : `<div class="pa-find">${paFindingsHtml(F)}</div>`);
   }
-  if ("activity" === paTab) return h + `<div class="pa-actpane">${paActivityHtml()}${paRulesCard({ self: !0, title: "What I May Do on My Own" })}</div>`;
+  if ("activity" === paTab) return h + `<div class="pa-actpane">${paActivityHtml()}${paRulesCard({ self: !0, title: "What I May Do on My Own" })}${paMemoryHtml()}</div>`;
   if ("brain" === paTab) return h + `<div class="pa-brainpane">${paRulesCard({ title: "Approval Rules, Everyone" })}<div id="brain-body"></div></div>`;
   return h;
 }
@@ -1487,4 +1492,1126 @@ paSend = function (text, opts) {
   document.head.appendChild(s);
 })();
 
+/* =========================================================================================================
+   exec (lane "exec", 2026-10-19): the assistant leads, like an executive assistant who has been working for you.
+   Alan: "It's a personal assistant not just a bot that responds to your questions. It needs to think and act like a
+   Fortune 500 executive assistant, an assistant project manager."
 
+   1. Ask opens on its briefing, not an empty box. Four cards written for this person now, from the records with no
+      model call: Today (their calendar and Google's, what is due, who waits on their reply), I Did (its own log since
+      they last looked, each with Open and, where it can be taken back, Undo), Needs You (the Approvals queue, ranked
+      by the Standard, with one-tap Approve / Edit / Not Now and the reason and value on each) and I'm Chasing (what
+      others owe them from the wait ledger, their own promises it reminds them of, and on a PM's or owner's jobs the
+      RFIs, submittals, client decisions and deliveries it follows). One headline sentence first; a server run's
+      written headline wins when it is today's. Collapsed once read today. Suggested next asks come from the briefing.
+   2. Server runs (box.asst through gsIngestServer, contract from the platform's shapeRun) are filed by
+      paIngestServer: the briefing into DB.asst[uid].briefs (14 days), each draft into the outbox as a draft that waits
+      for approval (deduped by its stable key), one line in the activity log. Nothing from a run is sent, except a type
+      that person set to Act Alone, through the same path follow-ups already use; reply, clientUpdate and internal are
+      never Act Alone. Another person's run is never filed here.
+   3. Follow-through. "I'll get back to Chen Friday" becomes a dated task on the person (crCreateTask through paTask,
+      the one task store; tkAll reads it) under their rule for Tasks for Me; "Chen will send the lead time Friday"
+      goes on the wait ledger (paExpect) that the chase watch already follows. Both show under I'm Chasing.
+   4. Memory of how you work. "Remember that…" (as before) and corrections ("don't book me before 9", "the Kleins
+      prefer calls") are standing instructions in DB.asst[uid].memo/standing, which every prompt already carries. The
+      list is under Activity, beside the person's own rules, to edit or delete (Brain Settings is the owner's firm-wide
+      page). It proposes a memory or a rule when it sees a pattern (three Not Nows on one kind; three drafts of one type
+      approved as written); the person approves it on Needs You.
+   5. Voice. A microphone in the box where the browser has speech recognition (hidden where not); the words land in
+      the box to send. Read Answers Aloud is a per-person setting where the browser can speak.
+   6. Assistant project manager, for a PM and the owner: late schedule tasks and the Friday client update (drafted from
+      agClientUpdate, reviewed before it goes) on Needs You; open RFIs, late submittals, client decisions due and
+      deliveries past their date on I'm Chasing. All read from the existing readers (tkAll, PRED.lateSubmittal,
+      PRED.clientDecisionsDue, PRED.openPO, the fridayUpdate rule).
+   7. The look: the briefing as cards, the box docked at the bottom on the phone, the conversation under the briefing.
+   Design gate: no new store, list, queue or menu item. New fields on the person's own DB.asst[uid]: briefs (the
+   server's briefings, the contract asks to keep them), snooze (Not Now), lookAt/lookPrev (since you last looked),
+   briefRead, speak. Proposals ride on DB.asst[uid].props; tasks on DB.tasks; waits on DB.asst[uid].expect.
+   Suite: tests/exec_assistant_test.py.
+--------------------------------------------------------------------------------------------------------- */
+const PA_NUMW = ["No", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten"];
+const paNumW = (n, lower) => {
+    const w = n >= 0 && n <= 10 ? PA_NUMW[n] : String(n);
+    return lower ? w.toLowerCase() : w;
+  },
+  paPl = (n, one, many) => `${paNumW(n, !0)} ${1 === n ? one : many || one + "s"}`,
+  paClockTxt = (t) => {
+    const m = /^(\d{1,2}):(\d{2})/.exec(String(t || ""));
+    if (!m) return "";
+    const h = +m[1];
+    return `${h % 12 || 12}:${m[2]} ${h >= 12 ? "PM" : "AM"}`;
+  },
+  paHosted = () => {
+    try {
+      return !!window.SDP_CONFIG && !/^file:/.test(location.protocol);
+    } catch (e) {
+      return !1;
+    }
+  };
+
+// ---- 13a. the server's runs ---------------------------------------------------------------------------------
+// The types the server drafts that are not on the rules list: always a draft for the person, never Act Alone.
+const PA_SRV_ASK = { reply: "Reply", clientUpdate: "Client Update", internal: "Note to a Colleague" };
+const paIsClientAddr = (email) => !!email && (DB.clients || []).some((c) => (c.contacts || []).some((k) => k.email && String(k.email).toLowerCase() === String(email).toLowerCase()));
+function paIngestDraft(d, run, me) {
+  if (!d || !d.key || !d.to || !(d.subject || d.body)) return null;
+  bnInit();
+  const k = `asst|${d.key}`;
+  // the same draft comes back on the next run: one draft, whatever happened to it
+  if ((DB.outbox || []).some((o) => o.aboutKey === k)) return null;
+  const T = PA_SRV_ASK[d.type] ? null : paType(d.type),
+    because = String(d.because || "").trim(),
+    value = String(d.value || "").trim(),
+    o = {
+      id: uid("ox"),
+      kind: "orderFollowups" === d.type ? "order-followup" : "rfqChases" === d.type ? "rfq-chase" : "followup",
+      asstType: String(d.type || ""),
+      to: { name: String(d.to.name || "").slice(0, 120), email: String(d.to.email || "").trim().slice(0, 200) },
+      subject: String(d.subject || "").slice(0, 300),
+      body: String(d.body || "").slice(0, 4000),
+      about: { label: (because || String(d.subject || "")).slice(0, 300) },
+      aboutKey: k,
+      forName: me.name,
+      forUid: me.id,
+      status: "draft",
+      approval: !0,
+      at: today(),
+      by: `${paFirst()}'s assistant`,
+      why: because,
+      because: because ? `Because: ${because}${value ? ` (${value})` : ""}` : "",
+      value: value,
+      refs: (Array.isArray(d.refs) ? d.refs : []).filter((r) => r && r.kind && r.id).slice(0, 6).map((r) => ({ kind: String(r.kind), id: String(r.id) })),
+      fromRun: run.key,
+    };
+  DB.outbox.push(o);
+  // Act Alone only through the path follow-ups already use, and only where the person handed this type over
+  try {
+    const lv = T ? paRule(T.id, me.id) : "ask",
+      ok =
+        T &&
+        !T.lock &&
+        "send" === T.kind &&
+        "alone" === lv &&
+        o.to.email &&
+        !paIsClientAddr(o.to.email) &&
+        !PA_CHASE_NEVER.test(`${o.subject}\n${o.body}`) &&
+        "alone" === standardAllows({ action: "send", type: T.id, uid: me.id }).mode;
+    if (ok) {
+      Object.assign(o, { status: "sent", sentAt: appNowIso(), approvedBy: `delegated: ${T.label}`, sentBy: "The assistant" });
+      paDidAct({ kind: "did", type: T.id, what: `Sent on its own: ${o.subject} to ${o.to.name || o.to.email}`, why: `your rule for ${T.label} is Act Alone`, ev: [because, `To: ${o.to.email}`].filter(Boolean), go: { view: "comms" } });
+      standardLog("sent", `${T.label.toLowerCase()} to ${o.to.name || o.to.email} (delegated: ${T.id})`, "");
+    }
+  } catch (e) {
+    console.warn("assistant run send", e);
+  }
+  return o;
+}
+// box.asst: [{key, at, person, brief: {headline, today, needs, chasing}, drafts, notes}]. Only this person's runs.
+function paIngestServer(runs) {
+  if (!Array.isArray(runs) || !runs.length) return 0;
+  const me = paMe();
+  if (!me || !me.id || "client" === me.role) return 0;
+  const A = paInit();
+  A.briefs = Array.isArray(A.briefs) ? A.briefs : [];
+  const clean = (L) =>
+    (Array.isArray(L) ? L : [])
+      .filter((x) => x && x.title)
+      .slice(0, 12)
+      .map((x) => ({
+        title: String(x.title).slice(0, 200),
+        why: String(x.why || "").slice(0, 300),
+        value: String(x.value || "").slice(0, 60),
+        due: /^\d{4}-\d{2}-\d{2}$/.test(String(x.due || "")) ? x.due : "",
+        refs: (Array.isArray(x.refs) ? x.refs : []).filter((r) => r && r.kind && r.id).slice(0, 4).map((r) => ({ kind: String(r.kind), id: String(r.id) })),
+      }));
+  let n = 0;
+  runs
+    .filter((r) => r && r.key && r.person === me.id && !A.briefs.some((b) => b.key === r.key))
+    .sort((a, b) => String(a.at || "").localeCompare(String(b.at || "")))
+    .forEach((run) => {
+      const B = run.brief || {},
+        rec = { key: String(run.key), at: String(run.at || ""), day: today(), filedAt: appNowIso(), headline: String(B.headline || "").slice(0, 400), today: clean(B.today), needs: clean(B.needs), chasing: clean(B.chasing), notes: (Array.isArray(run.notes) ? run.notes : []).map(String).slice(0, 8), drafts: [] };
+      (Array.isArray(run.drafts) ? run.drafts : []).forEach((d) => {
+        const o = paIngestDraft(d, run, me);
+        o && rec.drafts.push(o.id);
+      });
+      A.briefs.unshift(rec), n++;
+      const waiting = rec.drafts.filter((id) => (DB.outbox.find((o) => o.id === id) || {}).status === "draft");
+      paDidAct({
+        kind: "did",
+        type: "",
+        what: `Read your day between your visits${waiting.length ? ` and drafted ${paPl(waiting.length, "note")} for you to approve` : ""}`,
+        why: "your assistant runs on its own a few times a day; it proposes, you approve",
+        ev: rec.notes.slice(0, 4),
+        go: { view: "pa" },
+        undo: waiting.length ? { kind: "drafts", ids: waiting } : null,
+        srv: rec.key,
+      });
+    });
+  const from = iso(addDays(today(), -14));
+  A.briefs = A.briefs.filter((b) => String(b.day || "") >= from).slice(0, 60);
+  n && (paBfBust(), save());
+  return n;
+}
+// The newest briefing the server wrote today, or null.
+function paLatestRun() {
+  const L = (paInit().briefs || []).filter((b) => b.day === today());
+  return L.sort((a, b) => String(b.at || "").localeCompare(String(a.at || "")))[0] || null;
+}
+
+// ---- 13b. the briefing, built from the records -----------------------------------------------------------------
+const PA_REF_GO = {
+  task: () => ({ view: "tkall" }),
+  po: (id) => {
+    const po = (DB.pos || []).find((x) => x.id === id);
+    return { view: "po", project: po && po.projectId };
+  },
+  job: (id) => ({ view: "sched", project: id }),
+  mail: (id) => ({ view: "comms", comm: id }),
+  co: () => ({ view: "clients" }),
+  invoice: () => ({ view: "inv" }),
+};
+const paRefGo = (refs) => {
+  for (const r of refs || []) {
+    const f = PA_REF_GO[r.kind];
+    if (f) {
+      const g = paGo(f(r.id));
+      if (g) return g;
+    }
+  }
+  return null;
+};
+Object.assign(STD_MAP, {
+  "chase:po": STD_MAP["nyh:mail:eta"] || { p: "schedule", c: ["value", "own", /Close every loop/i] },
+  "chase:rfi": { p: "schedule", c: ["value", "own", /Close every loop/i] },
+  "chase:subm": STD_MAP.subm || { p: "quality", c: ["value", "own", /Close every loop/i] },
+  "chase:dec": STD_MAP.dec || { p: "schedule", c: ["value", "own", /Close every loop/i] },
+  "pa:memory": { p: "", c: ["decide", /fix the system/i] },
+});
+let paBfCache = { at: 0, who: "", m: null };
+const paBfBust = () => (paBfCache.m = null);
+function paBriefModel(fresh) {
+  const me = paMe();
+  if (!fresh && paBfCache.m && paBfCache.who === me.id && Date.now() - paBfCache.at < 2500) return paBfCache.m;
+  let m = null;
+  try {
+    m = paBriefBuild();
+  } catch (e) {
+    console.warn("assistant briefing", e);
+    m = { headline: "", today: [], did: [], needs: [], chasing: [], asks: [], hidden: 0 };
+  }
+  return (paBfCache = { at: Date.now(), who: me.id, m: m }), m;
+}
+const paSnoozed = (A, k) => !!(A.snooze && A.snooze[k] && A.snooze[k] > today());
+const paPmMode = () => ["pm", "owner"].includes(role());
+// The memory rules a person approved that shape the briefing ("leave X out unless it is overdue").
+const paMemoRules = (A) => (A.memo || []).filter((m) => m && m.rule && !m.done).map((m) => m.rule);
+function paBriefBuild() {
+  const A = paInit(),
+    me = paMe(),
+    td = today(),
+    run = paLatestRun();
+  let M = {};
+  try {
+    M = paMine() || {};
+  } catch (e) {}
+  // -- Today
+  const todayL = [];
+  (M.today || [])
+    .slice()
+    .sort((a, b) => String(a.time || "99").localeCompare(String(b.time || "99")))
+    .forEach((e) => todayL.push({ key: "ev:" + (e.key || e.title), k: e.time ? paClockTxt(e.time) : "Today", title: String(e.title || "An event"), sub: e.projectId ? stdJob(e.projectId) : "", acts: [] }));
+  (M.dueToday || []).forEach((t) => todayL.push({ key: "due:" + t.id, k: "Due Today", title: t.title, sub: t.project || "", acts: [{ label: "Open", go: { view: "tkall" } }] }));
+  (M.late || []).length && todayL.push({ key: "late", k: "Overdue", title: `${paPl(M.late.length, "of your tasks", "of your tasks")} ${1 === M.late.length ? "is" : "are"} past due`, sub: M.late.slice(0, 2).map((t) => t.title).join(" · "), acts: [{ label: "Open", go: { view: "tkall" } }] });
+  (M.needsReply || []).slice(0, 3).forEach((c) => todayL.push({ key: "reply:" + c.id, k: "Waiting on Your Reply", title: `${(c.from || {}).name || (c.from || {}).email || "Someone"}: ${c.subject || "a message"}`, sub: c.date ? `since ${fmtL(String(c.date).slice(0, 10))}` : "", acts: [{ label: "Open", go: { view: "comms", comm: c.id } }] }));
+  // -- I Did: its own log since the person last looked (the last three days on a first visit)
+  const since = A.lookPrev || iso(addDays(td, -3)),
+    did = (A.log || [])
+      .filter((e) => "did" === (e.kind || "did") && String(e.stamp || e.at || "") > since)
+      .slice(0, 20)
+      .map((e) => ({
+        key: "did:" + e.id,
+        k: /T\d/.test(String(e.stamp || "")) ? stampText(e.stamp) : fmtL(e.at),
+        title: e.what,
+        sub: e.undone ? "You undid this." : e.why ? `Because ${e.why}.` : "",
+        acts: [e.go ? { label: "Open", go: e.go } : null, e.undo && !e.undone ? { label: "Undo", run: () => paUndo(e) } : null].filter(Boolean),
+        e: e,
+      }));
+  // -- Needs You: the person's Approvals (ranked by the Standard), their jobs' late work and Friday update, and what
+  // it proposes to remember
+  const rules = paMemoRules(A),
+    hideKind = new Set(rules.filter((r) => r.hideKind).map((r) => r.hideKind)),
+    needs = [];
+  let Q = [];
+  try {
+    Q = PRED.waitingOnMe.can() ? tdQueue() : [];
+  } catch (e) {}
+  Q.forEach((it) => needs.push(paNeedOfQueue(it)));
+  const jobs = paPmMode() ? (M.projects || []).filter((p) => !p.archived && tdyActiveJobs().includes(p)) : [],
+    jobIds = new Set(jobs.map((p) => p.id)),
+    chasing = [];
+  let T = [];
+  try {
+    T = tkAll({ open: !0 });
+  } catch (e) {}
+  if (jobs.length) {
+    T.filter((t) => "sched" === t.kind && t.late && jobIds.has(t.projectId)).forEach((t) =>
+      needs.push({ key: "late:" + t.key, k: "Late on the Schedule", title: t.title, sub: `${t.project} · due ${fmtL(t.due)}${t.owner ? ` · ${t.owner}` : ""}`, it: { kind: "lateTasks", due: t.due, title: t.title }, acts: [{ label: "Open", run: () => tdyTaskSheet(t) }, { label: "Not Now", snooze: !0 }] }),
+    );
+    paFridayNeeds(jobs).forEach((x) => needs.push(x));
+  }
+  (A.props || [])
+    .filter((e) => "proposed" === e.kind && !e.done && (e.memo || e.rule))
+    .forEach((e) =>
+      needs.push({
+        key: "prop:" + e.id,
+        k: e.rule ? "Suggested Rule" : "Suggested Memory",
+        title: e.what,
+        sub: e.why ? `I noticed ${e.why}.` : "",
+        it: { kind: "pa:memory" },
+        acts: [
+          { label: e.rule ? "Approve" : "Keep It", run: () => paPropKeep(e) },
+          { label: "Not Now", run: () => (paPropDone(e, "declined"), toast("Not kept. I will not suggest it again", [{ label: "Open", run: () => paOpen("activity") }]), paBfBust(), renderPa()) },
+        ],
+      }),
+    );
+  // the server's own read: what it found that the records here do not already show
+  const seenIds = new Set();
+  needs.forEach((x) => x.id && seenIds.add(String(x.id)));
+  Q.forEach((it) => seenIds.add(String(it.id)));
+  const srvItem = (x, i, sec) => ({
+    key: `srv:${run.key}:${sec}:${i}`,
+    k: "From My Read",
+    title: x.title,
+    sub: x.why || "",
+    why: x.value ? { line: "", value: x.value } : null,
+    it: { kind: "other", due: x.due, title: x.title },
+    acts: [paRefGo(x.refs) ? { label: "Open", go: paRefGo(x.refs) } : null, { label: "Not Now", snooze: !0 }].filter(Boolean),
+  });
+  run &&
+    (run.needs || []).forEach((x, i) => {
+      (x.refs || []).some((r) => seenIds.has(String(r.id))) || needs.push(srvItem(x, i, "n"));
+    });
+  // ranked by the Standard (safety and law, blocked today, overdue, today, this week, then the principle)
+  let ranked = needs;
+  try {
+    ranked = standardOrder(needs, (x) => [stdDate(x.it || {})]).map((x) => x);
+  } catch (e) {}
+  ranked.forEach((x) => (x.why = x.why || paWhyParts(x.it || { kind: "other" })));
+  const shown = ranked.filter((x) => !paSnoozed(A, x.key) && !(x.it && hideKind.has(x.it.kind) && (() => {
+      try {
+        return 0 !== standardUrgency(x.it);
+      } catch (e) {
+        return !0;
+      }
+    })())),
+    hidden = ranked.length - shown.length;
+  // -- I'm Chasing: what others owe the person, their own promises, and on their jobs what the field waits on
+  paExpectLedger()
+    .filter((e) => !e.closed)
+    .forEach((e) => {
+      let offers = [];
+      try {
+        offers = (paRefOffers({ kind: "expect", id: e.id }) || []).filter((o) => o && o.label && "function" == typeof o.run).slice(0, 2);
+      } catch (er) {}
+      chasing.push({ key: "x:" + e.id, k: "Owes You", who: e.who, what: e.about || "an answer", title: `${e.who}: ${e.about || "an answer"}`, sub: `Since ${fmtL(e.since)} · ${e.by <= td ? "due now; I raise it today" : `I chase next ${fmtL(e.by)}`}${e.chased ? ` · chased ${paNumW(e.chased, !0)} time${1 === e.chased ? "" : "s"}` : ""}`, next: e.by, over: e.by <= td, acts: offers.map((o) => ({ label: o.label, run: o.run })) });
+    });
+  const mineT = T.filter((t) => t.ownerUid === me.id && "firm" === t.kind);
+  mineT.forEach((t) => {
+    const rec = (DB.tasks || []).find((a) => a.id === t.id);
+    if (!rec || !rec.source || rec.source.assistant !== me.id) return;
+    const promise = !!rec.source.commit;
+    chasing.push({ key: "me:" + t.id, k: promise ? "You Promised" : "You Asked Me", who: "", title: t.title, sub: t.due ? `${t.late ? "Overdue since" : "Due"} ${fmtL(t.due)} · I remind you ${t.late ? "until it is done" : "that morning"}` : "No date yet", next: t.due || "", over: !!t.late, acts: [{ label: "Done", run: () => (tdyDone(t), paBfBust(), renderPa()) }, { label: "Open", run: () => tdyTaskSheet(t) }] });
+  });
+  if (jobs.length) {
+    const nextDay = addWork(td, 1, !1);
+    T.filter((t) => "issue" === t.kind && jobIds.has(t.projectId)).forEach((t) => {
+      const p = (DB.projects || []).find((x) => x.id === t.projectId),
+        i = p && (p.issues || []).find((x) => x.id === t.id);
+      i && /rfi/i.test(`${i.kind || ""} ${i.type || ""}`) && chasing.push({ key: "rfi:" + t.id, k: "RFI", who: t.assignee || "", title: t.title, sub: `${t.project}${t.assignee ? ` · with ${t.assignee}` : ""} · I chase next ${fmtL(nextDay)}`, next: nextDay, over: !!t.late, acts: [{ label: "Open", go: { view: "field", project: t.projectId } }] });
+    });
+    jobs.forEach((p) => {
+      try {
+        PRED.lateSubmittal.rows(p.id).forEach((R) => chasing.push({ key: "subm:" + R.s.id, k: "Submittal", who: (R.B && R.B.who) || R.s.sub || "", what: R.s.title || R.s.name || "a submittal", title: `${R.s.title || R.s.name || "A submittal"} · ${shortName(p)}`, sub: `${R.L.why || "late"} · I chase next ${fmtL(nextDay)}`, next: nextDay, over: !0, acts: [{ label: "Open", go: { view: "subm", project: p.id } }] }));
+      } catch (e) {}
+      try {
+        PRED.clientDecisionsDue.rows(p.id).forEach(({ d }) => {
+          let due = "";
+          try {
+            due = withProject(p, () => decDue(d));
+          } catch (e) {}
+          const cl = (DB.clients || []).find((c) => c.id === p.clientId);
+          chasing.push({ key: "dec:" + d.id, k: "Client Decision", who: (cl && cl.name) || "the client", what: d.name || d.title || "a decision", title: `${d.name || d.title || "A decision"} · ${shortName(p)}`, sub: `${due ? `Needed by ${fmtL(due)}` : "Needed soon"} · I chase next ${fmtL(nextDay)}`, next: due || nextDay, over: !!due && due < td, acts: [{ label: "Open", go: { view: "dec", project: p.id } }] });
+        });
+      } catch (e) {}
+      try {
+        PRED.openPO.rows(p.id)
+          .filter((po) => po.expected && po.expected < td)
+          .forEach((po) => chasing.push({ key: "po:" + po.id, k: "Delivery", who: po.vendor || "", what: `the ${po.number} delivery`, title: `${po.number} · ${po.vendor || "the vendor"}`, sub: `Expected ${fmtL(po.expected)}, not received · I chase next ${fmtL(nextDay)}`, next: nextDay, over: !0, acts: [{ label: "Open", go: { view: "po", project: p.id } }] }));
+      } catch (e) {}
+    });
+  }
+  run &&
+    (run.chasing || []).forEach((x, i) => {
+      const s = srvItem(x, i, "c");
+      chasing.some((c) => c.title === s.title) || chasing.push(Object.assign(s, { next: x.due || "", over: !!x.due && x.due < td }));
+    });
+  // a link the person's role cannot open is not offered
+  [todayL, chasing, needs].forEach((L) => L.forEach((c) => (c.acts = (c.acts || []).map((a) => (a.go ? Object.assign({}, a, { go: paGo(a.go) }) : a)).filter((a) => a.go || a.run || a.snooze))));
+  chasing.sort((a, b) => (a.over === b.over ? String(a.next || "9").localeCompare(String(b.next || "9")) : a.over ? -1 : 1));
+  run &&
+    (run.today || []).forEach((x, i) => {
+      todayL.some((t) => t.title === x.title) || todayL.push(Object.assign(srvItem(x, i, "t"), { k: "Today" }));
+    });
+  const B = { today: todayL, did: did, needs: shown, hidden: hidden, chasing: chasing.filter((c) => !paSnoozed(A, c.key)), run: run };
+  B.headline = run && run.headline ? run.headline : paHeadline(B, M);
+  B.asks = paSuggestAsks(B, M, jobs);
+  return B;
+}
+// A queue row as a Needs You item: its verb from Today's card, Edit for a draft, Not Now for everything.
+function paNeedOfQueue(it) {
+  const key = `q:${it.kind}:${it.id}`;
+  if ("draft" === it.kind) {
+    const o = (DB.outbox || []).find((x) => x.id === it.id);
+    return {
+      key: key,
+      id: it.id,
+      k: o && /assistant/i.test(String(o.by || "")) ? "I Drafted" : "Draft",
+      title: o ? `${o.subject || "A note"} to ${(o.to || {}).name || (o.to || {}).email || "them"}` : it.title,
+      sub: o && o.why ? `I wrote it because ${String(o.why).replace(/\.$/, "")}.` : it.sub || "",
+      it: it,
+      draft: o || null,
+      acts: [{ label: "Approve", run: () => paApproveDraft(o) }, { label: "Edit", run: () => paEditDraft(o) }, { label: "Not Now", snooze: !0 }],
+    };
+  }
+  let c = null;
+  try {
+    c = tdCard(it);
+  } catch (e) {}
+  const acts = [];
+  c && "function" == typeof c.run && acts.push({ label: c.verb || "Open", run: c.run });
+  c && "function" == typeof c.go && c.go !== c.run && "Open" !== c.verb && acts.push({ label: "Open", run: c.go });
+  acts.push({ label: "Not Now", snooze: !0 });
+  return { key: key, id: it.id, k: "Waiting on You", title: it.title || "An approval", sub: it.sub || it.detail || "", it: it, acts: acts };
+}
+// The Friday client update for each of the person's jobs that has not had one since last Friday: drafted from the
+// job's client-safe schedule (agClientUpdate), reviewed and sent by the person. Their rule for client messages holds.
+function paFridayNeeds(jobs) {
+  const td = today(),
+    fri = tdyFriday(td),
+    R = (STANDARD_RULES.find((r) => "fridayUpdate" === r.id) || { rows: () => [] }).rows(),
+    lv = paRule("clientMessages");
+  if (workdays(td, fri) > 2) return [];
+  return R.filter((r) => jobs.some((p) => "upd:" + p.id === r.key)).map((r) => {
+    const p = jobs.find((x) => "upd:" + x.id === r.key),
+      c = (DB.clients || []).find((x) => x.id === p.clientId),
+      k = c && ((c.contacts || []).find((x) => /decision/i.test(x.role || "")) || (c.contacts || [])[0]);
+    return {
+      key: "fri:" + p.id + ":" + fri,
+      k: "Friday Update",
+      title: "hand" === lv ? `The Friday update for ${shortName(p)} is yours to write` : `The Friday update for ${shortName(p)} is ready for you`,
+      sub: `${k ? `To ${k.name}` : "No client contact on file"} · due ${fmtL(fri)}`,
+      it: { kind: "task:friday", due: fri },
+      acts: "hand" !== lv && k ? [{ label: "Review and Send", run: () => paFridayOpen(p, k) }, { label: "Not Now", snooze: !0 }] : [{ label: "Not Now", snooze: !0 }],
+    };
+  });
+}
+function paFridayOpen(p, k) {
+  const fri = tdyFriday(today()),
+    key = `asst|friday|${p.id}|${fri}`;
+  bnInit();
+  let o = DB.outbox.find((x) => x.aboutKey === key && "draft" === x.status);
+  if (!o) {
+    o = { id: uid("ox"), kind: "followup", asstType: "clientMessages", to: { name: k.name, email: k.email || "" }, subject: `${agShort(p)} — this week`, body: `Hi ${agFirst(k.name)},\n\n${agClientUpdate(p)}\n\n${agSign()}`, about: { label: `the weekly update for ${agShort(p)}`, projectId: p.id }, aboutKey: key, forName: paMe().name, forUid: paMe().id, status: "draft", approval: !0, at: today(), by: `${paFirst()}'s assistant`, why: `the Standard asks for a client update every Friday, and ${agShort(p)} has had none since last Friday` };
+    DB.outbox.push(o), save();
+  }
+  paEditDraft(o, { send: !0 });
+}
+// Approve: the person's own send (bnSend, the path Approvals uses). A send that fails stays a draft.
+async function paApproveDraft(o) {
+  if (!o) return;
+  const ok = await bnSend(o);
+  if (!ok) return paBfBust(), void renderPa();
+  o.approvedBy = paMe().name;
+  const A = paInit();
+  A.approved = A.approved || {};
+  const t = o.asstType || ("order-followup" === o.kind ? "orderFollowups" : "rfq-chase" === o.kind ? "rfqChases" : "followUps");
+  o.edited || (A.approved[t] = (A.approved[t] || 0) + 1);
+  save(), paBfBust();
+  toast(`Sent to ${(o.to || {}).name || (o.to || {}).email}: ${o.subject}`, [{ label: "Open", run: () => paOpen("activity") }]);
+  paNoticeApprovals(t);
+  "pa" === view && renderPa();
+}
+function paEditDraft(o, opt) {
+  if (!o) return;
+  const send = !!(opt && opt.send);
+  mbModal(
+    send ? "Review the Draft" : "The Draft",
+    `<div class="f2"><div class="f"><label>To</label><input data-f="name" value="${esc((o.to || {}).name || "")}"></div><div class="f"><label>Email</label><input data-f="email" value="${esc((o.to || {}).email || "")}"></div></div><div class="f"><label>Subject</label><input data-f="subject" value="${esc(o.subject || "")}"></div><div class="f"><label>Body</label><textarea data-f="body" rows="12" style="font-family:inherit">${esc(o.body || "")}</textarea></div><p class="small muted">${send ? "Nothing goes until you press Send." : "Saved as a draft; it still waits for you to approve it."}</p>`,
+    {
+      submit: send ? "Send" : "Save the Draft",
+      onSubmit: (v) => {
+        const changed = v.subject !== o.subject || v.body !== o.body;
+        (o.to = { name: v.name, email: String(v.email || "").trim() }), (o.subject = v.subject), (o.body = v.body), changed && (o.edited = !0), save(), paBfBust();
+        if (send) return setTimeout(() => paApproveDraft(o), 0), !0;
+        toast(`Draft saved: ${o.subject}`, [{ label: "Open", run: () => paOpen("chat") }]);
+        "pa" === view && renderPa();
+        return !0;
+      },
+    },
+  );
+}
+// Not Now: off the briefing until the next working day; the record stays where it is (Approvals, the task list).
+function paSnooze(x) {
+  const A = paInit();
+  A.snooze = A.snooze || {};
+  const until = addWork(today(), 1, !1);
+  A.snooze[x.key] = until;
+  // keep the map small: past snoozes go
+  Object.keys(A.snooze).forEach((k) => A.snooze[k] <= today() && delete A.snooze[k]);
+  const kind = x.it && x.it.kind;
+  kind && ((A.snoozeLog = (A.snoozeLog || []).filter((s) => s.day >= iso(addDays(today(), -14)))).push({ kind: kind, day: today() }));
+  save(), paBfBust();
+  toast(`Not now: back on your briefing ${fmtL(until)}`, [{ label: "Open", run: () => paOpen("chat") }]);
+  kind && paNoticeSnoozes(kind, x.k);
+  "pa" === view && renderPa();
+}
+// Undo what it did on its own, where that can be taken back: a task it made, a draft it wrote, a note it kept, a wait
+// it started. A sent message cannot be unsent; those carry no Undo.
+function paUndo(e) {
+  if (!e || !e.undo || e.undone) return;
+  const u = e.undo,
+    A = paInit();
+  let ok = !1;
+  if ("task" === u.kind) {
+    const n = (DB.tasks || []).length;
+    (DB.tasks = (DB.tasks || []).filter((t) => t.id !== u.id)), (ok = DB.tasks.length < n);
+    (DB.projects || []).forEach((p) => {
+      const k = (p.actions || []).length;
+      (p.actions = (p.actions || []).filter((a) => a.id !== u.id)), p.actions.length < k && (ok = !0);
+    });
+  } else if ("draft" === u.kind || "drafts" === u.kind) {
+    (u.ids || [u.id]).forEach((id) => {
+      const o = (DB.outbox || []).find((x) => x.id === id && "draft" === x.status);
+      o && ((o.status = "skipped"), (o.skippedBy = paMe().name), (o.skipWhy = "undone from the briefing"), (ok = !0));
+    });
+  } else if ("memo" === u.kind) {
+    const n = A.memo.length;
+    (A.memo = A.memo.filter((m) => m.id !== u.id)), (A.standing = (A.standing || []).filter((s) => s.id !== u.id)), (ok = A.memo.length < n);
+  } else if ("expect" === u.kind) {
+    const x = paExpectLedger().find((y) => y.id === u.id);
+    x && !x.closed && ((x.closed = !0), (x.closedBy = "undone"), (ok = !0));
+  }
+  e.undone = appNowIso();
+  paPropAct({ kind: "declined", type: e.type || "", what: `You undid: ${e.what}`, why: ok ? "you took it back from the briefing" : "it was already gone", ev: [], outcome: "declined", done: !0 });
+  save(), paBfBust();
+  toast(ok ? `Undone: ${e.what}` : "Already gone; nothing else changed", [{ label: "Open", run: () => paOpen("activity") }]);
+  "pa" === view && renderPa();
+}
+// The headline, the way a person would say it.
+function paHeadline(B, M) {
+  const n = B.needs.length,
+    soon = B.needs.filter((x) => {
+      try {
+        return standardUrgency(x.it || {}) <= 1;
+      } catch (e) {
+        return !1;
+      }
+    }).length,
+    parts = [];
+  if (n) parts.push(`${paNumW(n)} thing${1 === n ? "" : "s"} need${1 === n ? "s" : ""} you${soon ? (soon === n ? " today" : `, ${paNumW(soon, !0)} of them today`) : ""}; first: ${B.needs[0].title}`);
+  else parts.push("Nothing needs you right now");
+  const ev = (M.today || []).length;
+  ev && parts.push(`${paPl(ev, "thing")} on your calendar`);
+  const late = B.chasing.find((c) => c.over && c.who);
+  if (late) parts.push(`Still waiting on ${late.who} for ${late.what || late.title.replace(/^[^:]*:\s*/, "")}; I chase ${late.next && late.next > today() ? `again ${fmtL(late.next)}` : "today"}`);
+  else if (B.chasing.length) parts.push(`I am chasing ${paPl(B.chasing.length, "thing")} for you`);
+  B.did.length && parts.push(`I did ${paPl(B.did.length, "thing")} on my own since you last looked`);
+  return parts.map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join(". ").replace(/\.\./g, ".") + ".";
+}
+// The next things worth asking, from what the briefing holds (never a fixed list).
+function paSuggestAsks(B, M, jobs) {
+  const out = [],
+    add = (l, q) => out.length < 4 && !out.some((x) => x[0] === l) && out.push([l, q]),
+    first = (s) => String(s || "").trim().split(/\s+/)[0];
+  B.needs[0] && add("Walk Me Through the First", `Walk me through "${B.needs[0].title}": what it is, what it rests on, and what you recommend.`);
+  const ow = B.chasing.find((c) => c.who && "Owes You" === c.k);
+  ow && add(`Chase ${first(ow.who)}`, `Draft a follow-up to ${ow.who} about ${ow.what}.`);
+  (M.today || []).length && add("Prep My Next Meeting", `Prep me for ${M.today[0].title}: who, which job, and what I should raise.`);
+  jobs && jobs[0] && add(`Friday Update: ${shortName(jobs[0])}`, `Draft the Friday update for ${shortName(jobs[0])}.`);
+  add("What Changed", "What has changed since yesterday?");
+  add("My Week", "What does my week look like?");
+  return out;
+}
+
+// ---- 13c. patterns it notices, proposed for the person to approve --------------------------------------------
+function paHasProp(match) {
+  return (paInit().props || []).some((e) => (e.memo || e.rule) && match(e));
+}
+function paNoticeSnoozes(kind, label) {
+  const A = paInit(),
+    n = (A.snoozeLog || []).filter((s) => s.kind === kind).length;
+  if (n < 3 || paHasProp((e) => e.memo && e.memo.rule && e.memo.rule.hideKind === kind) || paMemoRules(A).some((r) => r.hideKind === kind)) return;
+  const what = String(label || "these").toLowerCase();
+  paPropAct({ kind: "proposed", type: "remember", what: `Keep: leave "${what}" items out of my briefing unless they are overdue`, why: `you put off ${paNumW(n, !0)} "${what}" items in the last two weeks`, memo: { text: `Leave "${what}" items out of my briefing unless they are overdue`, rule: { hideKind: kind } }, go: { view: "pa" } });
+  save();
+}
+function paNoticeApprovals(t) {
+  const A = paInit(),
+    T = paType(t);
+  if (!T || T.lock || "send" !== T.kind || T.client || "ask" !== paRule(t) || (A.approved || {})[t] < 3) return;
+  if (paRuleMay(paMe().id, t, "alone") || paHasProp((e) => e.rule && e.rule.type === t)) return;
+  paPropAct({ kind: "proposed", type: t, what: `Send ${T.label.toLowerCase()} on my own from now on`, why: `you approved the last ${paNumW(A.approved[t], !0)} as I wrote them`, rule: { type: t, level: "alone" }, go: { view: "pa" } });
+  save();
+}
+function paPropKeep(e) {
+  if (e.rule) {
+    paRuleSet(paMe().id, e.rule.type, e.rule.level, { why: `approved from the assistant's suggestion: ${e.why}` }) && paPropDone(e, "approved");
+    return paBfBust(), void ("pa" === view && renderPa());
+  }
+  const s = paStand(e.memo.text);
+  if (s) {
+    const m = paInit().memo.find((x) => x.id === s.id);
+    m && e.memo.rule && (m.rule = e.memo.rule);
+  }
+  paPropDone(e, "approved"), save(), paBfBust();
+  toast(`Kept: ${e.memo.text}`, [{ label: "Open", run: () => paOpen("activity") }]);
+  "pa" === view && renderPa();
+}
+
+// ---- 13d. follow-through and memory from what the person says ------------------------------------------------
+const PA_MY_PROMISE = /^(?:ok(?:ay)?,?\s+|so\s+)?(?:i'?ll|i will|i'?m going to|i am going to|i need to|i have to|i must|i promised(?: to)?|i owe|let me)\s+(.{3,})$/i,
+  PA_THEY_PROMISE = /^(.{2,40}?)\s+(?:will|'ll|is going to|promised(?: to)?|owes me|said (?:he|she|they)(?:'d| would))\s+(.{3,})$/i,
+  PA_WAIT_ON = /^(?:i'?m |i am )?waiting (?:on|for) (.{2,40}?)\s+(?:for|to send|to get back(?: to me)?(?: on| about)?|on|about)\s+(.{3,})$/i,
+  PA_CORRECTION = /^(?:please\s+)?(?:don'?t|do not|never|always|stop|no more)\b(?!.*\b(?:let me forget|mind)\b)|\b(?:prefers?|would rather|likes? to be|rather (?:get|have))\b/i;
+// A known person or company named at the start of a sentence: a user, a vendor, a client contact or a client.
+function paWhoNamed(s) {
+  const t = String(s || "").trim().toLowerCase().replace(/^the\s+/, "");
+  if (!t || /^(i|we|you|it|this|that|they|he|she|someone|somebody|nobody)$/.test(t)) return "";
+  const names = []
+    .concat((DB.users || []).filter((u) => "client" !== u.role).map((u) => u.name))
+    .concat((DB.vendors || []).map((v) => v.name))
+    .concat((DB.clients || []).flatMap((c) => [c.name].concat((c.contacts || []).map((k) => k.name))))
+    .filter(Boolean);
+  const hit = names.find((n) => String(n).toLowerCase() === t) || names.find((n) => String(n).toLowerCase().startsWith(t + " ")) || names.find((n) => String(n).toLowerCase().split(/\s+/)[0] === t.split(/\s+/)[0] && t.split(/\s+/).length <= 2) || names.find((n) => t.length > 3 && String(n).toLowerCase().includes(t));
+  return hit || "";
+}
+const paCap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
+function paWhenStrip(raw) {
+  const W = paWhenParts(raw);
+  let body = W.phrase ? raw.replace(new RegExp(W.phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"), " ") : raw.replace(PA_WHENWORDS, " ");
+  body = body.replace(/\s+(?:on|by|before|at|this|next)\s*$/i, "").replace(/\s{2,}/g, " ").replace(/[.!\s]+$/, "").trim();
+  return { W: W, body: body };
+}
+// "I'll get back to Chen Friday": a dated task on the person, under their rule for Tasks for Me.
+function paMyPromise(raw, m) {
+  const { W, body } = paWhenStrip(m[1]),
+    title = paCap(body.replace(/^(?:to\s+)/i, "")),
+    named = paWhoNamed(body.replace(/^(?:get back to|call|email|write to|send|reply to|text|ping|tell|ask)\s+/i, "").split(/\s+(?:about|on|re|with|the)\s+/i)[0]);
+  if (!title || (!W.date && !named)) return null;
+  const due0 = W.date || addWork(today(), 1, !1),
+    slot = paNextOpen(due0),
+    due = "function" == typeof poWorkday ? poWorkday(slot.date) : slot.date,
+    lv = paRule("makeTasks"),
+    note = `You told me on ${fmtL(today())}: "${raw}"`,
+    make = () => {
+      const t = paTask(title, due, note);
+      if (!t) return null;
+      (t.a.source = Object.assign({}, t.a.source || {}, { assistant: paMe().id, commit: !0 })), save(), paBfBust();
+      return t;
+    },
+    ev = [`You said: ${raw}`, `Due: ${fmtL(due)}`];
+  if ("hand" === lv) {
+    paPropAct({ kind: "handed", type: "makeTasks", what: `Task: "${title}" for ${fmtL(due)}`, why: "your rule for tasks is Hand It to Me", ev: ev });
+    return paOut({ headline: `Noted: ${title}, by ${fmtL(due)}.`, note: "Your rule for Tasks for Me is Hand It to Me, so I did not put it on your list. It is under Findings as yours to do.", kind: "commit" });
+  }
+  if ("alone" === lv) {
+    const t = make();
+    if (!t) return paOut({ headline: "I could not put that on your list.", note: "Nothing was changed.", kind: "commit" });
+    paDidAct({ kind: "did", type: "makeTasks", what: `Put on your list: ${title} (${fmtL(due)})`, why: "you made a promise in the conversation, and your rule for tasks is Act Alone", ev: ev, go: { view: "tkall" }, undo: { kind: "task", id: t.a.id } });
+    save();
+    return paOut({ headline: `On your list for ${fmtL(due)}: ${title}.`, note: `I will remind you that morning, and it is under I'm Chasing until it is done.${due !== due0 ? ` You said ${fmtL(due0)}; that day is not open, so I took the next one.` : ""}`, work: [`Your list: ${title}, due ${fmtL(due)}`], go: paGo({ view: "tkall" }), kind: "commit" });
+  }
+  const P = paPropAct({ kind: "proposed", type: "makeTasks", what: `Task: "${title}" for ${fmtL(due)}`, why: "your rule for Tasks for Me is Ask First", ev: ev });
+  save();
+  return paOut({
+    headline: `Shall I hold you to it? ${title}, by ${fmtL(due)}.`,
+    note: "Your rule for Tasks for Me is Ask First. One tap puts it on your list; I remind you that morning and keep it under I'm Chasing until it is done.",
+    offers: [
+      csOffer({
+        id: "pa-commit",
+        label: "Put It on My List",
+        detail: `A task on you, due ${fmtL(due)}.`,
+        run: () => {
+          const t = make();
+          t && (paPropDone(P, "approved"), toast(`On your list for ${fmtL(due)}: ${title}`, [{ label: "Open", run: () => paOpen("chat") }]));
+          "pa" === view && renderPa();
+        },
+      }),
+    ],
+    kind: "commit",
+  });
+}
+// "Chen will send the lead time Friday": on the wait ledger the chase watch follows.
+function paTheirPromise(raw, who, what) {
+  const { W, body } = paWhenStrip(what),
+    about = body.replace(/^(?:to\s+)?(?:send|get|give|deliver|confirm|come back(?: to me)?(?: with| on)?|get back to me (?:on|about|with))\s+(?:me\s+|us\s+)?/i, "").replace(/^(?:the|a|an)\s+/i, (x) => x.toLowerCase()).trim();
+  if (!about) return null;
+  const by = W.date ? ("function" == typeof poWorkday ? poWorkday(W.date) : W.date) : addWork(today(), 3, !1),
+    e = paExpect(who, about, by, { kind: "said", text: raw.slice(0, 200) });
+  paDidAct({ kind: "did", type: "followUps", what: `Started chasing ${who}: ${about}`, why: "you told me they owe it to you", ev: [`You said: ${raw}`], go: { view: "pa" }, undo: { kind: "expect", id: e.id } });
+  save(), paBfBust();
+  const lv = paRule("followUps");
+  return paOut({
+    headline: `I am on it: ${who} owes you ${about} by ${fmtL(e.by)}.`,
+    note: `If nothing comes from ${who} by then, I raise it with you${"alone" === lv && e.email ? " and send a short follow-up myself (your rule: Act Alone)" : " and have the follow-up ready to send"}. It is under I'm Chasing.${e.email ? "" : ` I have no address for ${who} yet.`}`,
+    kind: "chase",
+  });
+}
+// "Don't book me before 9", "the Kleins prefer calls": a standing instruction, kept and worked by.
+function paCorrection(raw) {
+  const s = paStand(raw.replace(/[.!\s]+$/, ""));
+  if (!s) return null;
+  paDidAct({ kind: "did", type: "remember", what: `Kept how you work: ${s.text}`, why: "you told me", ev: [`You said: ${raw}`], go: { view: "pa" }, undo: { kind: "memo", id: s.id } });
+  save(), paBfBust();
+  return paOut({ headline: `Got it: ${s.text}.`, note: "I work by it from now on, in everything I draft, hold and propose for you. It is under Activity › How You Work, where you can change or delete it.", kind: "standing" });
+}
+{
+  const base = paAsk;
+  paAsk = function (q) {
+    const raw = String(q || "").trim();
+    try {
+      if ("client" !== role() && raw && !/\?\s*$/.test(raw) && !/^(?:what|who|which|when|where|why|how|is|are|do|does|did|can|could|should|would|will you)\b/i.test(raw) && !PA_REMEMBER.test(raw) && !PA_FORGET.test(raw) && !PA_WORDS.remind.test(raw.toLowerCase()) && !/^(?:draft|write|compose|send|email|e-mail|remind)\b/i.test(raw)) {
+        let m = raw.match(PA_MY_PROMISE);
+        // "I need to see the open POs" is a question, not a promise
+        if (m && !/^(?:see|know|find|check|look|understand|view|show|review|get (?:a|the) (?:list|number|total))\b/i.test(m[1])) {
+          const a = paMyPromise(raw, m);
+          if (a) return a;
+        }
+        m = raw.match(PA_WAIT_ON);
+        if (m) {
+          const who = paWhoNamed(m[1]);
+          if (who) {
+            const a = paTheirPromise(raw, who, m[2]);
+            if (a) return a;
+          }
+        }
+        m = raw.match(PA_THEY_PROMISE);
+        if (m && !/^i\b/i.test(m[1])) {
+          const who = paWhoNamed(m[1]);
+          if (who) {
+            const a = paTheirPromise(raw, who, m[2]);
+            if (a) return a;
+          }
+        }
+        if (PA_CORRECTION.test(raw) && raw.split(/\s+/).length <= 24) {
+          const a = paCorrection(raw);
+          if (a) return a;
+        }
+      }
+    } catch (e) {
+      console.warn("assistant follow-through", e);
+    }
+    return base.apply(this, arguments);
+  };
+}
+
+// ---- 13e. the memory, as a list the person edits ----------------------------------------------------------------
+function paMemoryRows() {
+  const A = paInit();
+  return (A.memo || []).filter((m) => m && !m.done && (m.standing || !m.due));
+}
+function paMemoryHtml() {
+  const L = paMemoryRows(),
+    A = paInit(),
+    sugg = (A.props || []).filter((e) => "proposed" === e.kind && !e.done && e.memo),
+    canSpeak = "speechSynthesis" in window;
+  return `<div class="card pa-memo" id="pa-memo"><div class="hd"><h3>How You Work</h3></div>
+    <p class="small muted" style="margin:0 0 8px">What you have told me about how you like things done. I work by it in everything I draft, hold and propose, and only you can see it.</p>
+    <div class="pa-memo-list" data-pamemocount="${L.length}">${
+      L.length
+        ? L.map((m) => `<div class="pa-memo-row" data-pamemo="${esc(m.id)}"><div class="pa-memo-t"><span>${esc(m.text)}</span><span class="small muted">You told me ${esc(fmtL(m.at))}${m.rule ? " · it shapes your briefing" : ""}</span></div><div class="pa-memo-act"><button type="button" class="btn sm" data-pamemoedit="${esc(m.id)}">Edit</button><button type="button" class="btn sm" data-pamemodel="${esc(m.id)}">Delete</button></div></div>`).join("")
+        : '<div class="empty">Nothing yet. Tell me in the conversation, for example "don\'t book me before 9" or "the Kleins prefer calls".</div>'
+    }</div>
+    ${sugg.length ? `<div class="pa-memo-sugg"><div class="small muted">I noticed</div>${sugg.map((e) => `<div class="pa-memo-row"><div class="pa-memo-t"><span>${esc(e.memo.text)}</span><span class="small muted">${esc(e.why ? `because ${e.why}` : "")}</span></div><div class="pa-memo-act"><button type="button" class="btn sm" data-pamemokeep="${esc(e.id)}">Keep It</button><button type="button" class="btn sm" data-pamemono="${esc(e.id)}">Not Now</button></div></div>`).join("")}</div>` : ""}
+    <form class="pa-memo-add" data-pamemoadd autocomplete="off"><input data-pamemoin placeholder="Add how you like things done" aria-label="Add how you like things done"><button type="submit" class="btn sm">Add</button></form>
+    ${canSpeak ? `<label class="pa-speak small"><input type="checkbox" data-paspeak${A.speak ? " checked" : ""}> <span>Read my answers aloud</span></label>` : ""}
+  </div>`;
+}
+document.addEventListener("click", (e) => {
+  const t = e.target && e.target.closest ? e.target : null;
+  if (!t) return;
+  const ed = t.closest("[data-pamemoedit]");
+  if (ed) {
+    e.preventDefault();
+    const A = paInit(),
+      m = A.memo.find((x) => x.id === ed.dataset.pamemoedit);
+    if (!m) return;
+    return void mbModal("How You Work", mbF("What I Keep", `<textarea data-f="text" rows="3" style="font-family:inherit">${esc(m.text)}</textarea>`), {
+      submit: "Save",
+      onSubmit: (v) => {
+        const txt = String(v.text || "").trim();
+        if (!txt) return toast("Say what to keep, or use Delete"), !1;
+        (m.text = txt), (m.editedAt = appNowIso());
+        const s = (A.standing || []).find((x) => x.id === m.id);
+        s && (s.text = txt);
+        paDidAct({ kind: "did", type: "remember", what: `You changed how you work: ${txt}`, why: "you edited it", ev: [], go: { view: "pa" } });
+        save(), paBfBust(), renderPa();
+        toast(`Changed: ${txt}`, [{ label: "Open", run: () => paOpen("activity") }]);
+      },
+    });
+  }
+  const del = t.closest("[data-pamemodel]");
+  if (del) {
+    e.preventDefault();
+    const A = paInit(),
+      m = A.memo.find((x) => x.id === del.dataset.pamemodel);
+    if (!m) return;
+    (A.memo = A.memo.filter((x) => x.id !== m.id)), (A.standing = (A.standing || []).filter((x) => x.id !== m.id));
+    paPropAct({ kind: "declined", type: "remember", what: `You deleted: ${m.text}`, why: "you took it out of How You Work", ev: [], outcome: "declined", done: !0 });
+    save(), paBfBust(), renderPa();
+    return void toast(`Deleted: ${m.text}`, [{ label: "Open", run: () => paOpen("activity") }]);
+  }
+  const kp = t.closest("[data-pamemokeep]");
+  if (kp) {
+    e.preventDefault();
+    const P = (paInit().props || []).find((x) => x.id === kp.dataset.pamemokeep);
+    return void (P && paPropKeep(P));
+  }
+  const no = t.closest("[data-pamemono]");
+  if (no) {
+    e.preventDefault();
+    const P = (paInit().props || []).find((x) => x.id === no.dataset.pamemono);
+    P && (paPropDone(P, "declined"), paBfBust(), renderPa(), toast("Not kept. I will not suggest it again", [{ label: "Open", run: () => paOpen("activity") }]));
+  }
+});
+document.addEventListener("submit", (e) => {
+  const f = e.target && e.target.closest ? e.target.closest("[data-pamemoadd]") : null;
+  if (!f) return;
+  e.preventDefault();
+  const inp = f.querySelector("[data-pamemoin]"),
+    txt = String((inp && inp.value) || "").trim();
+  if (!txt) return void toast("Type how you like things done first");
+  const s = paStand(txt);
+  s && (paDidAct({ kind: "did", type: "remember", what: `Kept how you work: ${s.text}`, why: "you added it", ev: [], go: { view: "pa" }, undo: { kind: "memo", id: s.id } }), save(), paBfBust(), renderPa(), toast(`Kept: ${s.text}`, [{ label: "Open", run: () => paOpen("activity") }]));
+});
+document.addEventListener("change", (e) => {
+  const c = e.target && e.target.matches && e.target.matches("[data-paspeak]") ? e.target : null;
+  if (!c) return;
+  const A = paInit();
+  (A.speak = !!c.checked), save();
+  toast(c.checked ? "I will read my answers aloud" : "I will not read my answers aloud", [{ label: "Open", run: () => paOpen("activity") }]);
+});
+// read aloud, when the person asked for it
+{
+  const base = paSay;
+  paSay = function (who, text, extra) {
+    const m = base.apply(this, arguments);
+    try {
+      const A = paInit();
+      if ("a" === who && A.speak && !(extra && extra.nudge) && "pa" === view && "speechSynthesis" in window && "function" == typeof SpeechSynthesisUtterance) {
+        const plain = String(text || "").replace(/[#*_`>|]/g, " ").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").replace(/\s+/g, " ").slice(0, 700);
+        window.speechSynthesis.cancel(), window.speechSynthesis.speak(new SpeechSynthesisUtterance(plain));
+      }
+    } catch (e) {}
+    return m;
+  };
+}
+
+// ---- 13f. the Chat tab: the briefing on top, the conversation under it, the box docked ---------------------
+let paBfOpen = null,
+  paBfAll = {},
+  paBfActs = [];
+const PA_BF_SECS = [
+  ["today", "Today", "Nothing on your calendar or due today."],
+  ["did", "I Did", "Nothing on my own since you last looked. What I may do alone is under Activity."],
+  ["needs", "Needs You", "Nothing waits on you."],
+  ["chasing", "I'm Chasing", "Nobody owes you anything I know of. Tell me who does, and I will follow it."],
+];
+const PA_BF_MAX = { today: 4, did: 4, needs: 5, chasing: 4 };
+function paBfRowHtml(x, sec) {
+  const acts = (x.acts || []).map((a) => {
+    paBfActs.push({ a: a, x: x });
+    return `<button type="button" class="btn sm" data-pabf="${paBfActs.length - 1}">${esc(a.label)}</button>`;
+  });
+  const w = x.why && (x.why.line || x.why.value) ? `<div class="small muted pa-bf-why">${x.why.line ? `Because: ${esc(x.why.line)}` : "The Standard:"}${x.why.value ? ` <span class="paf-val">${esc(x.why.value)}</span>` : ""}</div>` : "";
+  return `<div class="pa-bf-row${1 === acts.length ? " one" : ""}" data-pabfkey="${esc(x.key)}"><div class="pa-bf-t"><span class="pa-bf-k">${esc(x.k || "")}</span><b>${esc(x.title)}</b>${x.sub ? `<span class="small pa-bf-sub">${esc(x.sub)}</span>` : ""}${"needs" === sec ? w : ""}</div>${acts.length ? `<div class="pa-bf-act">${acts.join("")}</div>` : ""}</div>`;
+}
+function paBriefHtml() {
+  if ("client" === role()) return "";
+  const B = paBriefModel(),
+    A = paInit(),
+    td = today(),
+    read = A.briefRead === td,
+    open = null == paBfOpen ? !read : paBfOpen;
+  paBfActs = [];
+  const card = ([k, l, none]) => {
+    const L = B[k] || [],
+      max = PA_BF_MAX[k],
+      shown = paBfAll[k] ? L : L.slice(0, max);
+    return `<section class="pa-bf-card" data-pabfsec="${k}" aria-label="${esc(l)}"><div class="pa-bf-hd"><h3>${esc(l)}</h3><span class="pa-bf-n" data-pabfn="${L.length}">${L.length}</span></div>${
+      shown.length ? shown.map((x) => paBfRowHtml(x, k)).join("") : `<div class="small muted pa-bf-none">${esc(none)}</div>`
+    }${L.length > shown.length ? `<button type="button" class="btn sm pa-bf-more" data-pabfall="${k}">Show All ${L.length}</button>` : ""}${"needs" === k && B.hidden ? `<div class="small muted pa-bf-none">${paPl(B.hidden, "more")} put off or left out by your own rules.</div>` : ""}</section>`;
+  };
+  const day = (() => {
+    try {
+      return parse(td).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+    } catch (e) {
+      return fmtL(td);
+    }
+  })();
+  return `<details class="pa-bf"${open ? " open" : ""} data-pabrief>
+    <summary class="pa-bf-sum"><span class="pa-bf-kicker">Your Briefing · ${esc(day)}</span><span class="pa-bf-head" data-pabfhead>${esc(B.headline)}</span></summary>
+    <div class="pa-bf-cards">${PA_BF_SECS.map(card).join("")}</div>
+    <div class="pa-bf-ft small muted"><span>${B.run ? "Written from my last read of your mail, calendar and the records, and checked against the records now." : "Built from the records as they stand now."}</span>${paHosted() ? '<button type="button" class="btn sm" data-pabfnow>Brief Me Now</button>' : ""}<button type="button" class="btn sm" data-pabfread>Got It</button></div>
+  </details>`;
+}
+function paAsksHtml() {
+  let B = null;
+  try {
+    B = paBriefModel();
+  } catch (e) {}
+  const L = (B && B.asks) || [];
+  return `<div class="pa-chips">${L.map(([l, q]) => `<button class="btn sm" data-pachip="${esc(q)}">${esc(l)}</button>`).join("")}</div>`;
+}
+const PA_MIC_IC = '<path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/>';
+const paSpeechCtor = () => window.SpeechRecognition || window.webkitSpeechRecognition || null;
+{
+  const base = paHtml;
+  paHtml = function () {
+    let h = base.apply(this, arguments);
+    if ("client" === role()) return h;
+    try {
+      const A = paInit();
+      // what it keeps in mind lives under Activity › How You Work now; the chat leads with the briefing
+      h = h.replace(/<div class="pa-keep">[\s\S]*?<\/div>/, "");
+      h = h.replace(/(<div class="lead">)[\s\S]*?(<\/div><\/div><\/div>)/, `$1What needs you, what I did and what I am chasing, then anything you ask. Private to you; nothing goes out in your name unless you approve it or handed that kind of message to me.$2`);
+      // no intro bubble in an empty conversation: the briefing is the opening
+      const T = /(<div class="pa-thread" id="pa-thread">)([\s\S]*?)(<\/div>\s*<div class="pa-chips">)/;
+      h = h.replace(T, (m, a, b, c) => (!A.thread.length && !paBusy && !paHistOpen && !paViewConvo) || !b.replace(/\s+/g, "") ? `<div class="pa-thread pa-thread-empty" id="pa-thread">${c}` : m);
+      const at = ['<div class="pa-live', '<div class="pa-earlier', '<div class="pa-thread'].map((s) => h.indexOf(s)).filter((i) => i > -1).sort((a, b) => a - b)[0];
+      at > -1 && !paHistOpen && !paViewConvo && (h = h.slice(0, at) + paBriefHtml() + h.slice(at));
+      h = h.replace(/<div class="pa-chips">[\s\S]*?<\/div>/, paAsksHtml());
+      h = h.replace('placeholder="Ask me anything, or tell me something to remember"', 'placeholder="Ask, or tell me what to handle"');
+      const mic = paSpeechCtor() ? `<button type="button" class="btn pa-mic" data-pamic title="Speak" aria-label="Speak your question">${paIc(PA_MIC_IC)}</button>` : "";
+      mic && (h = h.replace(/(<button[^>]*type="submit")/, `${mic}$1`));
+      h = h.replace(/<div class="pa-chips">[\s\S]*?<\/form>/, (m) => `<div class="pa-dock">${m}</div>`);
+    } catch (e) {
+      console.warn("assistant briefing page", e);
+    }
+    return h;
+  };
+}
+// the briefing's buttons
+document.addEventListener("click", (e) => {
+  const t = e.target && e.target.closest ? e.target : null;
+  if (!t) return;
+  const b = t.closest("[data-pabf]");
+  if (b) {
+    e.preventDefault();
+    const r = paBfActs[+b.dataset.pabf];
+    if (!r) return;
+    const { a, x } = r;
+    try {
+      if (a.snooze) return void paSnooze(x);
+      if (a.go) return void csGo(a.go);
+      const out = a.run && a.run();
+      out && out.then && out.then(() => (paBfBust(), "pa" === view && renderPa()));
+      paBfBust();
+    } catch (er) {
+      console.warn("briefing", er), toast("That did not work; nothing was changed");
+    }
+    return;
+  }
+  const all = t.closest("[data-pabfall]");
+  if (all) return e.preventDefault(), (paBfAll[all.dataset.pabfall] = !0), void renderPa();
+  if (t.closest("[data-pabfread]")) {
+    e.preventDefault();
+    const A = paInit();
+    return (A.briefRead = today()), (paBfOpen = !1), save(), void renderPa();
+  }
+  if (t.closest("[data-pabfnow]")) {
+    e.preventDefault();
+    const btn = t.closest("[data-pabfnow]");
+    btn.disabled = !0;
+    return void bnFetch(((window.SDP_CONFIG || {}).apiBase || "") + "/api/assistant", { method: "POST" })
+      .then((r) => r.json().catch(() => ({})).then((j) => ({ r: r, j: j })))
+      .then(({ r, j }) => toast(r.ok && j.started ? "Reading your day now. The briefing lands here in a minute or two" : `That did not start: ${j.error || r.status}`, [{ label: "Open", run: () => paOpen("chat") }]))
+      .catch((er) => toast("That did not start: " + er.message))
+      .finally(() => (btn.disabled = !1));
+  }
+  const mic = t.closest("[data-pamic]");
+  if (mic) {
+    e.preventDefault();
+    const C = paSpeechCtor(),
+      inp = document.getElementById("pa-in");
+    if (!C || !inp) return;
+    if (paRec) {
+      try {
+        paRec.stop();
+      } catch (er) {}
+      return;
+    }
+    try {
+      const R = new C();
+      (R.lang = "en-US"), (R.interimResults = !0), (R.continuous = !1);
+      const before = inp.value ? inp.value.replace(/\s+$/, "") + " " : "";
+      R.onresult = (ev) => {
+        let s = "";
+        for (let i = 0; i < ev.results.length; i++) s += ev.results[i][0].transcript;
+        (inp.value = before + s.trim()), sendGates();
+      };
+      R.onerror = (ev) => toast(ev && "not-allowed" === ev.error ? "The microphone is blocked for this page; allow it in the browser to speak" : "I did not catch that; try again");
+      R.onend = () => {
+        (paRec = null), mic.classList.remove("on"), mic.setAttribute("aria-pressed", "false");
+        try {
+          inp.focus();
+        } catch (er) {}
+      };
+      (paRec = R), mic.classList.add("on"), mic.setAttribute("aria-pressed", "true"), R.start();
+    } catch (er) {
+      (paRec = null), toast("The microphone did not start; type instead");
+    }
+  }
+});
+let paRec = null;
+// The person opened or closed the briefing: closing it means they read it today.
+document.addEventListener(
+  "toggle",
+  (e) => {
+    const d = e.target;
+    if (!d || !d.matches || !d.matches("details[data-pabrief]")) return;
+    if (d.open === (null == paBfOpen ? paInit().briefRead !== today() : paBfOpen)) return;
+    paBfOpen = d.open;
+    d.open || ((paInit().briefRead = today()), save());
+  },
+  !0,
+);
+// Since you last looked: a visit to Ask starts when the person arrives from elsewhere (or signs in).
+let paLookWho = "",
+  paBfTop = !1;
+// Arriving on Ask lands on the briefing's headline, not on the box at the bottom (the box takes focus on a desk,
+// which scrolled the page past the briefing).
+{
+  const base = renderPa;
+  renderPa = function () {
+    const r = base.apply(this, arguments);
+    // the phone's box sits above the tab bar, and the page leaves room for it
+    try {
+      const bar = document.getElementById("mtabs"),
+        dock = document.querySelector("#v-pa .pa-dock"),
+        on = bar && bar.getBoundingClientRect().height > 0 && "none" !== getComputedStyle(bar).display;
+      document.documentElement.style.setProperty("--pa-dock-b", `${on ? Math.round(bar.getBoundingClientRect().height) : 0}px`);
+      dock && document.documentElement.style.setProperty("--pa-dock-h", `${Math.round(dock.getBoundingClientRect().height)}px`);
+    } catch (e) {}
+    if (paBfTop && "pa" === view && "chat" === paTab && document.querySelector("#v-pa details[data-pabrief][open]")) {
+      paBfTop = !1;
+      const up = () => {
+        try {
+          (document.scrollingElement || document.documentElement).scrollTop = 0;
+          document.body.scrollTop = 0;
+        } catch (e) {}
+      };
+      up(), setTimeout(up, 80);
+    } else "pa" === view && "chat" === paTab && (paBfTop = !1);
+    return r;
+  };
+}
+{
+  const base = render;
+  render = function () {
+    try {
+      const me = paMe(),
+        k = `${me.id}|${view}`;
+      if ("pa" === view && "client" !== role() && paLookWho !== k) {
+        const A = paInit();
+        (A.lookPrev = A.lookAt || ""), (A.lookAt = appNowIso()), (paBfOpen = null), (paBfAll = {}), (paBfTop = !0), paBfBust();
+      }
+      paLookWho = k;
+    } catch (e) {}
+    return base.apply(this, arguments);
+  };
+}
+// Asking something means the briefing was read: it folds to its headline and the conversation takes the space.
+{
+  const base = paSend;
+  paSend = function (text, opts) {
+    try {
+      if ("client" !== role() && String(text || "").trim() && !(opts && opts.next)) {
+        const A = paInit();
+        A.briefRead !== today() && (A.briefRead = today()), (paBfOpen = !1);
+      }
+    } catch (e) {}
+    const r = base.apply(this, arguments);
+    paBfBust();
+    return r;
+  };
+}
+
+// ---- 13g. the look ------------------------------------------------------------------------------------------
+(function () {
+  if (document.getElementById("pa-exec-css")) return;
+  const s = document.createElement("style");
+  s.id = "pa-exec-css";
+  s.textContent = `
+.pa-bf{border:1px solid var(--rule,var(--line));border-radius:12px;background:var(--paper);padding:0;overflow:hidden}
+.pa-bf-sum{list-style:none;cursor:pointer;display:flex;flex-direction:column;gap:4px;padding:14px 16px;min-height:44px}
+.pa-bf-sum::-webkit-details-marker{display:none}
+.pa-bf-kicker{font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-3,var(--ink2,#777));font-weight:600}
+.pa-bf-head{font-size:16px;line-height:1.45;font-weight:600;color:var(--ink,#222);overflow-wrap:anywhere}
+.pa-bf:not([open]) .pa-bf-head{font-size:14px;font-weight:500}
+.pa-bf-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:0 12px 12px;align-items:start}
+.pa-bf-card[data-pabfsec="needs"],.pa-bf-card[data-pabfsec="chasing"]{grid-column:1 / -1}
+.pa-bf-card[data-pabfsec="needs"] .pa-bf-row,.pa-bf-card[data-pabfsec="chasing"] .pa-bf-row{flex-direction:row;align-items:center;justify-content:space-between;gap:12px}
+.pa-bf-card[data-pabfsec="needs"] .pa-bf-t,.pa-bf-card[data-pabfsec="chasing"] .pa-bf-t{flex:1 1 auto}
+.pa-bf-card[data-pabfsec="needs"] .pa-bf-act,.pa-bf-card[data-pabfsec="chasing"] .pa-bf-act{flex:0 0 auto;justify-content:flex-end;max-width:46%}
+.pa-mic svg,.pa-clip svg{flex:none;width:18px;height:18px;min-width:18px}
+.pa-bf-card{border:1px solid var(--rule-2,var(--line));border-radius:10px;background:var(--paper-2,var(--paper));padding:10px 12px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.pa-bf-hd{display:flex;align-items:center;gap:8px}
+.pa-bf-hd h3{margin:0;font-size:14px}
+.pa-bf-n{display:inline-block;min-width:20px;padding:0 6px;border-radius:10px;background:var(--paper-3,#eef0f3);color:var(--ink-2,#555);font-size:11px;font-weight:600;text-align:center}
+.pa-bf-row{display:flex;flex-direction:column;gap:6px;padding-top:8px;border-top:1px solid var(--rule-2,#eef0f3);min-width:0}
+.pa-bf-hd+.pa-bf-row{border-top:0;padding-top:0}
+.pa-bf-t{display:flex;flex-direction:column;gap:2px;min-width:0;overflow-wrap:anywhere}
+.pa-bf-k{font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-3,#888);font-weight:600}
+.pa-bf-t b{font-weight:600;line-height:1.35}
+.pa-bf-sub{color:var(--ink-2,#555);line-height:1.4}
+.pa-bf-why{line-height:1.4}
+.pa-bf-act{display:flex;gap:8px;flex-wrap:wrap}
+.pa-bf-none{line-height:1.45}
+.pa-bf-more{align-self:flex-start}
+.pa-bf-row.one{flex-direction:row;align-items:center;justify-content:space-between;gap:10px}
+.pa-bf-row.one .pa-bf-t{flex:1 1 auto}
+.pa-bf-ft{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:0 16px 14px}
+.pa-bf-ft span{flex:1 1 220px}
+.pa-thread.pa-thread-empty{display:none}
+.pa-dock{display:flex;flex-direction:column;gap:8px}
+.pa-mic{flex:0 0 auto;height:38px;width:42px;display:inline-flex;align-items:center;justify-content:center;padding:0}
+.pa-mic.on{color:var(--bad,#b42318);border-color:currentColor}
+.pa-memo{margin-bottom:14px}
+.pa-memo-list,.pa-memo-sugg{display:flex;flex-direction:column}
+.pa-memo-row{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:9px 0;border-top:1px solid var(--rule-2,#eef0f3)}
+.pa-memo-row:first-child{border-top:0}
+.pa-memo-t{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1 1 220px;overflow-wrap:anywhere}
+.pa-memo-act{display:flex;gap:8px}
+.pa-memo-sugg{margin-top:8px;border-top:1px solid var(--rule,var(--line));padding-top:6px}
+.pa-memo-add{display:flex;gap:8px;margin-top:10px}
+.pa-memo-add input{flex:1 1 auto;min-width:0;height:36px;padding:0 10px;border:1px solid var(--line);border-radius:6px;font:inherit}
+.pa-speak{display:flex;align-items:center;gap:8px;margin-top:10px;min-height:32px}
+@media (max-width:760px){
+  .pa-bf-cards{grid-template-columns:minmax(0,1fr);padding:0 10px 10px}
+  .pa-bf-card[data-pabfsec] .pa-bf-row:not(.one){flex-direction:column;align-items:stretch}
+  .pa-bf-card[data-pabfsec] .pa-bf-act{max-width:none;justify-content:flex-start}
+  .pa-bf-sum{padding:12px 14px}
+  .pa-bf-act .btn,.pa-bf-ft .btn,.pa-memo-act .btn,.pa-memo-add .btn{min-height:40px}
+  #v-pa .ph .lead,#v-pa .pa-foot{display:none}
+  #v-pa .pa-dock{position:fixed;left:0;right:0;bottom:var(--pa-dock-b,0px);z-index:40;background:var(--paper,#fff);padding:8px 12px calc(8px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--rule,var(--line));box-shadow:0 -6px 14px rgba(0,0,0,.06)}
+  #v-pa .pa{padding-bottom:calc(var(--pa-dock-h,120px) + 12px)}
+  #v-pa .pa-dock .pa-chips{gap:8px}
+  #v-pa .pa-dock .pa-ask input{height:46px;font-size:16px;border-radius:23px;padding:0 16px}
+  #v-pa .pa-dock .pa-ask .btn{height:46px;min-width:46px}
+  #v-pa .pa-dock .pa-ask .btn.primary{border-radius:23px;padding:0 16px}
+  .pa-mic{height:46px;width:46px;border-radius:23px}
+}`;
+  document.head.appendChild(s);
+})();
