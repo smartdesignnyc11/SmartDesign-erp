@@ -93,7 +93,7 @@ async def finding6(c, pg, phone):
     c.ok(s and s['client'] == 'cl206' and s['project'] == 'p206', f'6 {w}: New Change Order on 206 Lenox LLC\'s page defaults to {s and (s["clientText"], s["project"])}')
     await close(pg)
 
-PM_MAIN = [('home', 'Home'), ('mapprove', 'Approvals'), ('ovjobs', 'Projects'), ('tkall', 'Tasks'), ('field', 'Field')]
+PM_MAIN = [('home', 'Today'), ('mapprove', 'Approvals'), ('ovjobs', 'Projects'), ('tkall', 'Tasks'), ('field', 'Field')]
 
 async def finding7(c, pg):
     await sign_in(pg, 'u_alan'); await go(pg, 'home'); await pg.wait_for_timeout(250)

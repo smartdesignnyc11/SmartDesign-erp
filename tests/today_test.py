@@ -109,7 +109,8 @@ async def main():
               const btns = [...document.querySelectorAll('header.topbar button')].filter(vis).map(b => { const r = b.getBoundingClientRect(); return { id: b.id, l: r.left, r: r.right, h: r.height }; }).sort((a, b) => a.l - b.l);
               return { h2: vis(h), crumb: vis(cr) ? cr.innerText.trim() : '', btns: btns.map(b => b.id + ' ' + Math.round(b.h) + 'px'),
                        short: btns.filter(b => b.h < 44).map(b => b.id), gaps: btns.slice(1).map((b, i) => Math.round(b.l - btns[i].r)) }; }""")
-            c.ok(not hd['h2'] and hd['crumb'] == 'Home', f"{tag} phone: in-page heading shown {hd['h2']}, header title {hd['crumb']!r}; want the title in the header only")
+            # the menu (2026-10-19): Home is named Today for every office role
+            c.ok(not hd['h2'] and hd['crumb'] == 'Today',f"{tag} phone: in-page heading shown {hd['h2']}, header title {hd['crumb']!r}; want the title in the header only")
             c.ok(len(hd['btns']) == 4 and not hd['short'], f"{tag} phone: header buttons {hd['btns']}; want four, each 44px tall")
             c.ok(all(g >= 8 for g in hd['gaps']), f"{tag} phone: header button gaps {hd['gaps']}px; want 8px or more")
             await pulse_checks(c, pg, f'{tag} phone')

@@ -56,7 +56,7 @@ async def register(c, pg, label):
         sets: [...new Set(all.map(s => s.set))], sup: all.filter(s => s.status === 'superseded').length,
         kinds: [...new Set(all.map(plKind))], statuses: [...new Set(all.map(plStatus))],
         fields: cur.every(s => s.rev && s.issuedOn && s.issuer && plStatus(s) && s.set) }; }""")
-    c.ok(r['id'] == 'v-plans' and r['h2'] == 'Plans — 121 State Street', f"{label}: the Plans page per job ({r['id']}, {r['h2']})")
+    c.ok(r['id'] == 'v-plans' and r['h2'] == 'Drawings — 121 State Street', f"{label}: the Plans page per job ({r['id']}, {r['h2']})")
     c.ok(r['rows'] == r['cur'] and r['cur'] < r['all'], f"{label}: the sheet index shows current sheets only by default ({r['rows']} of {r['all']})")
     c.ok(all(s in r['sets'] for s in ('deck', 'lpc', 'dob', 'cd', 'struct', 'shop')), f"{label}: the sets: presentation, LPC, DOB, construction documents, consultant, shop ({r['sets']})")
     c.ok(r['sup'] >= 3 and all(k in r['kinds'] for k in ('sheet', 'shop', 'rfi', 'spec', 'schedule')), f"{label}: superseded revisions and every kind ({r['sup']}, {r['kinds']})")
@@ -82,7 +82,7 @@ async def switch_job(c, pg, label):
     c.ok(b0['view'] == 'plans' and b0['jobs'] == ['p45'], f"{label}: the Studio's Drawings opens the job's Plans page ({b0})")
     await pg.select_option('#pswitch', 'p121'); await pg.wait_for_timeout(500)
     b1 = await pg.evaluate("() => ({ view, cur: S.id, h2: (document.querySelector('.view.on h2') || {}).innerText || '', jobs: [...new Set([...document.querySelectorAll('.view.on [data-plrow]')].map(e => plRow(e.dataset.plrow).projectId))], s101: !!document.querySelector('.view.on [data-plopen=\"sh121s101\"]') })")
-    c.ok(b1['cur'] == 'p121' and b1['h2'] == 'Plans — 121 State Street' and b1['jobs'] == ['p121'] and b1['s101'], f"{label}: switching job shows that job's sheets ({b1})")
+    c.ok(b1['cur'] == 'p121' and b1['h2'] == 'Drawings — 121 State Street' and b1['jobs'] == ['p121'] and b1['s101'], f"{label}: switching job shows that job's sheets ({b1})")
     await click(pg, '.view.on [data-plopen="sh121s101"]', 500)
     v = await pg.evaluate("() => document.getElementById('v-name').textContent")
     c.ok('S-101' in v, f"{label}: the designer opens 121 State's S-101 ({v})")
