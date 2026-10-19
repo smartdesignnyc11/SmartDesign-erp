@@ -124,7 +124,7 @@ async def main():
         ok(leak == 0, f'the foreman\'s phone holds none of the owner\'s mail, events or files ({leak})')
         A2, ea2 = await person(b, 'owner', True)
         back = await A2.evaluate("(DB.comms || []).filter(c => c.owner === paMe().id && (c.source === 'demo' || c.source === 'google')).length")
-        ok(back == n_mail, f'the owner\'s mail comes back on his other device ({back} of {n_mail})')
+        ok(back == n_mail, f'the owner\'s mail comes back on their other device ({back} of {n_mail})')
         ok(not ea2, f'owner, second device: no page errors {ea2[:3]}')
         # the AI door from the page itself carries the session
         r = await F.evaluate("fetch('/api/ai', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({tier:'small', max_tokens: 20, messages:[{role:'user', content:'Reply with the word ready.'}]})}).then(r => r.status)")
