@@ -50829,7 +50829,13 @@ function cloudSignInScreen() {
           try {
             await Cloud.magicLink(email()), cloudStatus("Check your email — tap the link on this phone.");
           } catch (err) {
-            cloudStatus(err.message, !0);
+            // Sign-up is off on the hosted copy, so Supabase answers an unknown or never-opened invite this way.
+            cloudStatus(
+              /signups? not allowed/i.test(err.message || "")
+                ? "No account is ready for this email yet. Open the invite email from the office, or ask them to send it again."
+                : err.message,
+              !0,
+            );
           }
         else cloudStatus("Type your email first", !0);
       }),
@@ -113570,14 +113576,17 @@ let gcTokens = {},
   gcLoading = null,
   gcBlocked = "";
 function gcInit() {
+  // The hosted copy shows its sign-in screen before DB loads, and a phone switching apps fires the sync handler
+  // then: with no records yet there is no Google connection to report.
+  if (!DB) return { google: null };
   (DB.conn = DB.conn || {}),
     (DB.company = DB.company || {}),
     (DB.company.google = DB.company.google || { clientId: "", hd: "", every: 5 });
   const u = paMe();
   return (DB.conn[u.id] = DB.conn[u.id] || { google: null });
 }
-const gcCfg = () => (gcInit(), DB.company.google),
-  gcMine = () => (gcInit(), (DB.conn[paMe().id] || {}).google || null),
+const gcCfg = () => (gcInit(), DB ? DB.company.google : { clientId: "", hd: "", every: 5 }),
+  gcMine = () => (DB ? (gcInit(), (DB.conn[paMe().id] || {}).google || null) : null),
   // The Demo Workspace is an invented mailbox, calendar and drive per user (see the demows section at the
   // end). It is served through gcFetch like Google is, so every pull, draft, hold and filing runs on it.
   gcIsDemo = () => !!(gcMine() || {}).demo,

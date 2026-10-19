@@ -25,6 +25,22 @@ async def person(b, who, phone):
     await pg.wait_for_timeout(1500)
     return pg, errs
 
+async def before_sign_in(b):
+    """The sign-in screen waits with no records loaded. A phone switching apps, rotating, losing signal or going
+    back fires handlers then; none may crash (Alan's iPhone showed a startup error from the Google sync handler)."""
+    ctx = await b.new_context(viewport={'width': 390, 'height': 844}, is_mobile=True, has_touch=True)
+    pg = await ctx.new_page(); errs = []
+    pg.on('pageerror', lambda e: errs.append(str(e)))
+    await pg.goto(SITE); await pg.wait_for_selector('#cl-email', timeout=60000)
+    for state in ['hidden', 'visible']:
+        await pg.evaluate(f"Object.defineProperty(document,'visibilityState',{{configurable:true,get:()=>'{state}'}}); Object.defineProperty(document,'hidden',{{configurable:true,get:()=>{'true' if state == 'hidden' else 'false'}}}); document.dispatchEvent(new Event('visibilitychange'))")
+    for ev in ['online', 'offline', 'focus', 'pageshow', 'pagehide']: await pg.evaluate(f"window.dispatchEvent(new Event('{ev}'))")
+    await pg.set_viewport_size({'width': 844, 'height': 390}); await pg.wait_for_timeout(600); await pg.set_viewport_size({'width': 390, 'height': 844})
+    await pg.evaluate("history.pushState({rx:{}},''); history.back()")
+    await pg.wait_for_timeout(3000)
+    await ctx.close()
+    return errs
+
 async def until(pg, js, secs=40):
     for _ in range(secs * 2):
         if await pg.evaluate(js): return True
@@ -42,6 +58,8 @@ async def main():
     reset_qa()
     async with async_playwright() as p:
         b = await p.chromium.launch()
+        pre = await before_sign_in(b)
+        ok(not pre, f'the sign-in screen survives switching apps, rotating, signal changes and back: {pre[:3]}')
         A, ea = await person(b, 'owner', False)
         ok(await A.evaluate("Cloud.user() && DB.role === 'owner'"), 'owner signed in through the sign-in screen')
         ok(await until(A, "Cloud.state.err === '' && !Cloud.state.syncing && Object.keys(Cloud.shards(DB)).length > 20"), 'owner: synced')
