@@ -209,10 +209,12 @@ async def t_mail(c, p):
       A.thread.filter(m => m.nudge && m !== n).forEach(m => { m.day = iso(addDays(today(), -3)); m.unread = false; });
       view = 'pa'; render(); await sleep(300);
       const v = document.querySelector('#v-pa') || document.querySelector('.view.on') || document.body;
-      return { unread: n && n.unread, answered: n && n.answered, fold: (v.querySelector('.pa-earlier') || {}).innerText || '',
-               old: v.innerText.includes('landed in Drive') };""")
+      return { unread: n && n.unread, answered: n && n.answered, cards: v.querySelectorAll('#pa-thread .pa-m.nudge').length,
+               old: v.innerText.includes('landed in Drive'), inFindings: paFindings().some(f => f.key === 'n:' + (n && n.id)) };""")
     c.ok(r['unread'] is False and r['answered'] == 'replied', f"mail: a replied thread leaves New ({r})")
-    c.ok('earlier item' in r['fold'] and not r['old'], f"mail: seen cards of earlier days fold into one line ({r['fold']!r})")
+    # (exec lane, 2026-10-19: the conversation looks like the Claude app and holds only the conversation; the cards the
+    # assistant raises from mail are Findings, where a replied one leaves the list, so none folds into a line here)
+    c.ok(r['cards'] == 0 and not r['old'] and not r['inFindings'], f"mail: no mail cards in the conversation; the replied one is off Findings ({r})")
     c.ok(not errs, f'mail: no page errors ({errs[:2]})')
     await b.close()
 

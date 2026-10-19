@@ -16,7 +16,7 @@
   5. stream    served over http with a door that streams: the answer renders as it arrives and ends equal to the final
                message; a tool round inside a stream; a cut stream shows the note; a broken stream falls back to the
                one-JSON call; a markdown table and links render; file:// never streams.
-  6. history   New Conversation files the conversation under History; a past one opens read-only and can be continued.
+  6. history   New Chat files the conversation in the side panel; pressing a past one continues it.
   7. attach    a PDF goes to the document reader (/api/doctext, mocked) and rides with the question as untrusted data;
                on file:// the reader is out of reach and says so.
   8. phone     390 px: every tab and part passes the screen standard (lint.py's own collector), no sideways scroll.
@@ -352,15 +352,15 @@ async def sec_file(p, c):
     await pg.click('.view.on [data-panew]'); await pg.wait_for_timeout(200)
     r = await pg.evaluate("() => ({ talk: paTalk(paInit()).length, convos: paConvos().length, title: (paConvos()[0] || {}).title, nudgesKept: paInit().thread.every(m => m.nudge) })")
     c.ok(n0 >= 2 and r['talk'] == 0 and r['convos'] == 1 and r['nudgesKept'], f'New Conversation files the conversation and starts clean: {n0} -> {r}')
-    await pg.click('.view.on [data-pahist]'); await pg.wait_for_timeout(200)
+    # (exec lane, 2026-10-19: the conversations are a side panel on a desk, as in the Claude app, so no History button
+    # is pressed first; a past conversation opens as the current one, ready to continue, instead of read-only)
     rows = await pg.evaluate("() => [...document.querySelectorAll('.view.on [data-paconvo]')].map(e => e.innerText)")
-    c.ok(len(rows) == 1 and r['title'][:20] in rows[0], f'History lists it: {rows}')
+    c.ok(len(rows) == 1 and r['title'][:20] in rows[0], f'the conversations list it: {rows}')
     await pg.click('.view.on [data-paconvo]'); await pg.wait_for_timeout(200)
-    t = await pg.evaluate("() => ({ t: document.getElementById('pa-thread').innerText, ro: !!document.querySelector('.view.on [data-pacontinue]') })")
-    c.ok(t['ro'] and 'what is on my day' in t['t'] and 'read-only' in t['t'], 'a past conversation opens read-only, with Continue This One')
-    await pg.click('.view.on [data-pacontinue]'); await pg.wait_for_timeout(200)
+    t = await pg.evaluate("() => ({ t: document.getElementById('pa-thread').innerText, box: !!document.getElementById('pa-in') })")
+    c.ok(t['box'] and 'what is on my day' in t['t'], 'a past conversation opens in place, ready to continue')
     r = await pg.evaluate("() => ({ talk: paTalk(paInit()).length, convos: paConvos().length })")
-    c.ok(r['talk'] == n0 and r['convos'] == 0, f'Continue brings it back as the current conversation: {r}')
+    c.ok(r['talk'] == n0 and r['convos'] == 0, f'it is the current conversation again: {r}')
     # markdown, unit: a table, a link, code and a list, escaped
     h = await pg.evaluate("() => paMd2('**Bold** and `code` <script>x</script>\\n\\n| A | B |\\n|---|--:|\\n| 1 | 2 |\\n\\n- one\\n- two\\n\\n[site](https://example.com) javascript:alert(1)')")
     c.ok('<table>' in h and 'text-align:right' in h and '<b>Bold</b>' in h and '<code>code</code>' in h and '<li>one</li>' in h, 'markdown: tables (with alignment), bold, code and lists')

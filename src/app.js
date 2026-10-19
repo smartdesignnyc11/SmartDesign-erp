@@ -114253,7 +114253,8 @@ function bnIngestServer(items) {
 function gsIngestServer(box) {
   const me = paMe();
   if (!me || !box) return 0;
-  const nb = bnIngestServer(box.brain);
+  // the overnight Brain's proposals, and this person's own assistant runs (briefing and drafts; src/assistant.js)
+  const nb = bnIngestServer(box.brain) + ("function" == typeof paIngestServer ? paIngestServer(box.asst) : 0);
   if (!(box.gmail || []).length && !(box.cal || []).length && !(box.drive || []).length) return nb && (save(), "function" == typeof render && render()), nb;
   const have = new Set((DB.comms || []).map((c) => c.msgId).filter(Boolean)),
     mail = (box.gmail || []).filter((m) => m && m.id && !have.has(m.id) && (have.add(m.id), !0)).map((m) => gsMailRec(m, me, "google")),
