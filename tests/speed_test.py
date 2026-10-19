@@ -136,7 +136,7 @@ async def reopen(p, uid, profile=False):
       SPD.check = true; SPD.bad = [];
       for (const v of views) { if (!(ROLE_VIEWS[role()] || []).includes(v)) continue; view = v; render(); }
       SPD.check = false;
-      render(); const v0 = SPD.ver; render(); const same = SPD.ver === v0;
+      render(); const v0 = SPD.ver, m0 = SPD.min; render(); const same = SPD.ver === v0 || SPD.min !== m0;
       const b = DB.bills[0]; b.__probe = 1; render(); const moved = SPD.ver > v0; delete b.__probe; render();
       return {bad: SPD.bad.splice(0), same, moved, hits: SPD.hits, miss: SPD.miss};
     }""", SWITCH[uid])
@@ -151,7 +151,9 @@ async def main():
     out_dir = os.path.join(ROOT, 'review', 'speed'); os.makedirs(out_dir, exist_ok=True)
     c = Checks(); res = {}
     async with async_playwright() as p:
+        only = sys.argv[sys.argv.index('--role') + 1].split(',') if '--role' in sys.argv else None
         for uid, name in ROLES:
+            if only and name not in only: continue
             r, prof = await reopen(p, uid, profile=want_prof and uid == 'u_owner')
             res[name] = r
             sw = r['switch']; worst = max((x[2] for x in sw), default=0)

@@ -87536,6 +87536,10 @@ function mSubnavNow() {
   });
 }
 function mSubCompact() {
+  // it measures the header, so it runs once the draw is done (spdAfterDraw)
+  spdAfterDraw("m-subcompact", mSubCompactNow);
+}
+function mSubCompactNow() {
   const sub = document.getElementById("subnav");
   if (!sub) return;
   if (!mOn() || !sub.classList.contains("m-projrow"))
@@ -88662,18 +88666,22 @@ function glnProjectRow() {
   cross && (cross.style.display = "none");
   const portTab = sub.querySelector('[data-sub="port"]');
   portTab && (portTab.style.display = "none");
-  const tabs = sub.querySelector(".sub-tabs:not(.sub-cross)"),
-    onTab = sub.querySelector(".sub-tabs button.on");
-  if (tabs && onTab) {
-    const want =
-      onTab === [...tabs.querySelectorAll("button")].find((b) => "none" !== b.style.display)
-        ? 0
-        : Math.max(0, onTab.offsetLeft - 12);
-    (tabs.scrollLeft = want),
-      setTimeout(() => {
-        tabs.scrollLeft = want;
-      }, 0);
-  }
+  // the strip's scroll reads offsetLeft, so it waits for the end of the draw (spdAfterDraw) and runs after the
+  // other strip scrolls there, as it ran after them before
+  spdAfterDraw("gln-strip", () => {
+    const tabs = sub.querySelector(".sub-tabs:not(.sub-cross)"),
+      onTab = sub.querySelector(".sub-tabs button.on");
+    if (tabs && onTab) {
+      const want =
+        onTab === [...tabs.querySelectorAll("button")].find((b) => "none" !== b.style.display)
+          ? 0
+          : Math.max(0, onTab.offsetLeft - 12);
+      (tabs.scrollLeft = want),
+        setTimeout(() => {
+          tabs.scrollLeft = want;
+        }, 0);
+    }
+  });
   const dashTab = sub.querySelector('[data-sub="dash"]');
   dashTab &&
     dashTab.firstChild &&
@@ -106832,11 +106840,12 @@ function bootRun() {
 // figures hundreds of times (jobFin about 840 times for the owner's home) and again on every view switch, though
 // nothing had changed. While a draw runs, the costly pure readers in SPD_FNS answer from a memo kept per version of
 // the data: the version moves whenever the stored records differ in any way from the last draw (the whole of DB,
-// compared as text, once per draw), so a figure can never come from older records. Outside a draw (a click, Ask,
-// a test, a report export) every call computes fresh. A reader's key holds its arguments and every setting it
-// reads besides the records (the day, the person, the open job, its holiday calendar, the reporting entity and
-// basis, the as-of date of a pack, and the temporary re-dating fin3CostDated and fin3PostDated do while they run). SPD.check (tests/speed_test.py turns it
-// on) recomputes every hit and records any difference in SPD.bad, so a missing key part fails loudly.
+// compared as text, once per draw) or the app's clock reaches a new minute, so a figure can never come from older
+// records. Outside a draw (a click, Ask, a test, a report export) every call computes fresh. A reader's key holds
+// its arguments and every setting it reads besides the records (the day, the person, the open job, its holiday
+// calendar, the reporting entity and basis, the as-of date of a pack, and the temporary re-dating fin3CostDated and
+// fin3PostDated do while they run). SPD.check (tests/speed_test.py turns it on) recomputes hits and records any
+// difference in SPD.bad, so a missing key part fails loudly.
 const SPD = { on: 0, depth: 0, ver: 0, snap: "", memo: new Map(), hits: 0, miss: 0, check: !1, bad: [] },
   spdIds = new WeakMap();
 let spdNextId = 0,
@@ -106874,7 +106883,18 @@ function spdBegin() {
   try {
     s = JSON.stringify(DB);
   } catch (e) {}
-  null === s || s !== SPD.snap ? (SPD.ver++, (SPD.snap = s || ""), (SPD.memo = new Map())) : 0, (SPD.on = null === s ? 0 : 1);
+  // The app's clock to the minute is part of the version: "2 h ago", a request past its answer window and the like
+  // move with it, so nothing is kept from one minute to the next.
+  let min = "";
+  try {
+    min = appNowIso().slice(0, 16);
+  } catch (e) {
+    min = String(Date.now());
+  }
+  null === s || s !== SPD.snap || min !== SPD.min
+    ? (SPD.ver++, (SPD.snap = s || ""), (SPD.min = min), (SPD.memo = new Map()))
+    : 0,
+    (SPD.on = null === s ? 0 : 1);
 }
 // A record argument is keyed by its id and its identity (a copy being edited is never another record's answer);
 // options and ranges by their content.
@@ -106894,10 +106914,18 @@ function spdMemo(name, f, self, args) {
   const k = name + "(" + Array.prototype.map.call(args, spdKeyPart).join(",") + ")" + spdCtx(),
     e = SPD.memo.get(k);
   if (e) {
-    if ((SPD.hits++, SPD.check)) {
+    // SPD.check: true checks every hit; a number checks that many hits per key and version (a long walk)
+    if ((SPD.hits++, SPD.check && (!0 === SPD.check || (e.n = (e.n || 0) + 1) <= SPD.check))) {
       const fresh = JSON.stringify(f.apply(self, args)),
         had = JSON.stringify(e.r);
-      fresh !== had && SPD.bad.length < 50 && SPD.bad.push({ fn: name, key: k.slice(0, 160), view: view, had: String(had).slice(0, 200), fresh: String(fresh).slice(0, 200) });
+      // a draw that runs over a minute's turn may differ in "N min ago"; that is the clock, not the memo
+      if (fresh !== had && SPD.bad.length < 50 && appNowIso().slice(0, 16) === SPD.min) {
+        const a = String(had),
+          b = String(fresh);
+        let i = 0;
+        for (; i < a.length && a[i] === b[i]; ) i++;
+        SPD.bad.push({ fn: name, key: k.slice(0, 160), view: view, at: i, had: a.slice(Math.max(0, i - 80), i + 120), fresh: b.slice(Math.max(0, i - 80), i + 120) });
+      }
     }
     return Array.isArray(e.r) ? e.r.slice() : e.r;
   }
