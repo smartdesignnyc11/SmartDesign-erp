@@ -1829,8 +1829,14 @@ function paBriefBuild() {
       todayL.some((t) => t.title === x.title) || todayL.push(Object.assign(srvItem(x, i, "t"), { k: "Today" }));
     });
   const B = { today: todayL, did: did, needs: shown, hidden: hidden, chasing: chasing.filter((c) => !paSnoozed(A, c.key)), run: run };
-  B.headline = run && run.headline ? run.headline : paHeadline(B, M);
-  B.sub = run && run.headline ? "" : paHeadSub(B, M);
+  // Hook for the mind lane: a headline the firm's model wrote for this briefing (mindBriefHeadline(B) -> string,
+  // synchronous, from its own cache) wins over the one built here; a server run's written headline wins over both.
+  let said = "";
+  try {
+    said = !run && "function" == typeof window.mindBriefHeadline ? String(window.mindBriefHeadline(B) || "").trim() : "";
+  } catch (e) {}
+  B.headline = run && run.headline ? run.headline : said || paHeadline(B, M);
+  B.sub = (run && run.headline) || said ? "" : paHeadSub(B, M);
   B.asks = paSuggestAsks(B, M, jobs);
   return B;
 }
@@ -2704,7 +2710,7 @@ function pcMsgHtml(m, lastA, lastMe) {
 function pcLiveHtml() {
   if (!paBusy || !paLive) return "";
   const steps = paLive.steps || [],
-    now = steps.length ? steps[steps.length - 1] : "Thinking";
+    now = steps.length ? steps[steps.length - 1] : "Reading the records";
   return `<div class="pa-m a pa-live" id="pa-live" aria-live="polite"><div class="pa-b md"><div class="pa-answer pa-md2" id="pa-live-md">${paLive.text ? paMd2(paLive.text) + '<span class="pa-caret" aria-hidden="true"></span>' : `<span class="pc-think"><i class="pc-pulse" aria-hidden="true"></i><span>${esc(now)}</span></span>`}</div>${steps.length > 1 ? paDidHtml(steps.map((t) => ({ t: t, d: "" })), !1).replace("How I got there:", "Working:") : ""}</div></div>`;
 }
 function pcAttHtml() {
