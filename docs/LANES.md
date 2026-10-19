@@ -2,6 +2,12 @@
 
 The chief of staff keeps this board current. A lane is one build agent in its own git worktree (`.claude/worktrees/<name>`, branch `lane-<name>`). Lanes never push or merge. The main session merges them one at a time and runs the full net after each.
 
+## Executive assistant (2026-10-19, Alan: "Go")
+| Lane | Scope | Design gate | Status |
+|---|---|---|---|
+| executive assistant | Ask opens on its briefing (Today, I Did, Needs You, I'm Chasing); files the server's runs (box.asst) as briefings and drafts for approval; commitments become chased tasks; memory of how each person works; voice on the phone; assistant-PM mode | The pa view, DB.asst[uid], DB.outbox drafts and Approvals, the task accessor tkItems/tkAll, paWatch nudges; no new store | Building |
+| platform (main session) | Each office person's run on the server three times a weekday (lib/assistant.mjs), /api/assistant run-now, caps by role | Server only; runs land in the person's private inbox | Built and unit-tested (assistant_test 21/21, ai_test 30/30); deploys with the lane |
+
 ## Overnight 2026-10-19 (Alan asleep, no approvals)
 Alan: "Focus on all the updates we had waiting - AI's, brain, chat, user interface/user experience, etc. Do not wait for my approvals and go ahead." The menu calls made on his behalf are listed in `docs/DECISIONS.md` (2026-10-19) and can be reversed.
 
