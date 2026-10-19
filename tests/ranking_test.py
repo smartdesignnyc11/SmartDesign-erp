@@ -110,12 +110,20 @@ async def run(phone):
             'insulation this week': ('Insulation for 3rd fl', [1, 1]),
         })
         c.ok(q['keys'][pos['lapsed renewal']][2] == 0, f'coord {w}: the lapsed renewal is overdue ({q["keys"][pos["lapsed renewal"]]})')
+        # the coordinator's Home is Today (lane "today", 2026-10-19): its Approvals filter is the queue in order
         await go(pg, 'home'); await pg.wait_for_timeout(300)
-        rows = await pg.evaluate("() => [...document.querySelectorAll('.view.on [data-fdsec=\"appr\"] .fd-row b')].map(e => e.innerText)")
-        c.ok(rows and rows == q['titles'][:len(rows)], f'coord {w}: Home\'s Approvals rows are the queue in order: {rows[:3]} vs {q["titles"][:3]}')
-        c.ok(rows and 'Corner bead' in rows[0] and any('Fire extinguisher' in r for r in rows), f'coord {w}: the field\'s request for today is first and the lapsed renewal is still listed: {rows}')
+        await pg.click('.view.on [data-tdytabbtn="appr"]'); await pg.wait_for_timeout(250)
+        rows = await pg.evaluate("() => [...document.querySelectorAll('.view.on .td-do .td-card')].map(e => e.dataset.kind + ':' + e.dataset.id)")
+        texts = await pg.evaluate("() => [...document.querySelectorAll('.view.on .td-do .td-card')].map(e => e.innerText.replace(/\\s+/g, ' '))")
+        c.ok(rows and rows == q['ids'][:len(rows)], f'coord {w}: Today\'s Approvals rows are the queue in order: {rows[:3]} vs {q["ids"][:3]}')
+        c.ok(texts and 'Corner bead' in texts[0] and any('Fire extinguisher' in r for r in texts), f'coord {w}: the field\'s request for today is first and the lapsed renewal is still listed: {[t[:40] for t in texts]}')
+        await pg.click('.view.on [data-tdytabbtn="all"]'); await pg.wait_for_timeout(250)
+        allfirst = await pg.evaluate("() => (document.querySelector('.view.on .td-do .td-card') || {}).innerText || ''")
+        c.ok('Corner bead' in allfirst, f'coord {w}: All starts where Approvals does: {allfirst[:60]!r}')
+        await pg.click('.view.on [data-tdbrief]'); await pg.wait_for_timeout(250)
         home = await pg.evaluate("() => (document.querySelector('.view.on').innerText.match(/First thing:[^\\n]*/) || [''])[0]")
         c.ok('Corner bead' in home, f'coord {w}: the brief on Home starts where Approvals does: {home[:90]}')
+        await pg.click('.view.on [data-tdbrief]'); await pg.wait_for_timeout(150)
         # ---------------------------------------------------------------- foreman
         await sign_in(pg, 'u_angel')
         await go(pg, 'ftoday'); await pg.wait_for_timeout(300)

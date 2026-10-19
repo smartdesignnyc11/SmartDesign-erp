@@ -26,8 +26,12 @@ MEASURE = r"""() => {
     return r.width > 0 && r.height > 0 && cs.visibility !== 'hidden' && cs.display !== 'none'; };
   const v = document.querySelector('.view.on'), home = v && v.querySelector('.td-home');
   if (!home) return null;
-  const words = ((home.innerText || '').match(/\S+/g) || []).filter(w => /[A-Za-z0-9$]/.test(w)).length;
-  const btns = [...v.querySelectorAll('button, .btn')].filter(vis).length;
+  // the filter strip (All, Approvals, Inbox, Tasks, Team; lane "today", 2026-10-19) is navigation inside the page, not
+  // reading or a decision: it has its own budget (at most five filters, at most ten words); the rest keeps 180 and 12
+  const tabs = home.querySelector('.td-tabs'), tabWords = tabs ? ((tabs.innerText || '').match(/\S+/g) || []).length : 0;
+  const words = ((home.innerText || '').match(/\S+/g) || []).filter(w => /[A-Za-z0-9$]/.test(w)).length - tabWords;
+  const filters = [...v.querySelectorAll('.td-tabs button')].filter(vis).length;
+  const btns = [...v.querySelectorAll('button, .btn')].filter(vis).filter(b => !b.closest('.td-tabs')).length;
   const tabTop = (document.getElementById('mtabs') || { getBoundingClientRect: () => ({ top: innerHeight }) }).getBoundingClientRect().top;
   const card = home.querySelector('.td-do .td-card'), verb = card && card.querySelector('[data-tdverb]');
   const inView = el => { if (!el) return false; const r = el.getBoundingClientRect(); return r.top >= 0 && r.bottom <= tabTop; };
@@ -35,7 +39,7 @@ MEASURE = r"""() => {
   const sub = document.getElementById('subnav');
   const leads = [...v.querySelectorAll('.ph .lead')].filter(vis).length;
   const fab = document.getElementById('fab');
-  return { words, btns, topCard: inView(card), topVerb: inView(verb), verbText: verb ? verb.innerText.trim() : '',
+  return { words, btns, filters, tabWords, topCard: inView(card), topVerb: inView(verb), verbText: verb ? verb.innerText.trim() : '',
     topText: card ? card.innerText.replace(/\s+/g, ' ') : '', prim: prim.map(b => b.innerText.trim()),
     primIsTopVerb: prim.length === 1 && prim[0] === verb,
     subnav: !!(sub && vis(sub)), leads, toast: (document.getElementById('toast') || {}).innerText || '',
@@ -95,6 +99,7 @@ async def main():
             print(f"{tag} phone: {m['words']} words, {m['btns']} buttons, {m['sections']} sections, top card on screen {m['topCard']}, verb {m['verbText']!r}")
             c.ok(m['words'] <= 180, f"{tag} phone: {m['words']} words on Home (budget 180)")
             c.ok(m['btns'] <= 12, f"{tag} phone: {m['btns']} buttons on Home (budget 12)")
+            c.ok(m['filters'] <= 5 and m['tabWords'] <= 10, f"{tag} phone: {m['filters']} filters, {m['tabWords']} words in the filter strip (budget 5 and 10)")
             c.ok(m['topCard'] and m['topVerb'], f"{tag} phone: the top Do Now card or its verb is below the first screen")
             c.ok(m['primIsTopVerb'], f"{tag} phone: blue buttons {m['prim']}; want only the top card's verb")
             c.ok(not m['subnav'], f'{tag} phone: the sub-tab strip repeats the bottom tab bar')
@@ -113,7 +118,11 @@ async def main():
             c.ok(len(hd['btns']) == 4 and not hd['short'], f"{tag} phone: header buttons {hd['btns']}; want four, each 44px tall")
             c.ok(all(g >= 8 for g in hd['gaps']), f"{tag} phone: header button gaps {hd['gaps']}px; want 8px or more")
             await pulse_checks(c, pg, f'{tag} phone')
-            # Do Now count = its source = the Approvals page's Everything chip
+            # Today is one queue (lane "today"): All is Approvals + Inbox + Tasks, each item in one of them
+            al = await pg.evaluate("() => { const M = tdyModel(); return [+document.querySelector('.view.on [data-tdcount]').dataset.tdcount, M.appr.length + M.inbox.length + M.tasks.length, M.all.length]; }")
+            c.ok(al[0] == al[1] == al[2], f'{tag} phone: All {al[0]} vs Approvals + Inbox + Tasks {al[1]} (model {al[2]})')
+            # the Approvals filter's count = its source = the Approvals page's Everything chip
+            await pg.click('.view.on [data-tdytabbtn="appr"]'); await pg.wait_for_timeout(250)
             n = await pg.evaluate("() => +document.querySelector('.view.on [data-tdcount]').dataset.tdcount")
             src = await pg.evaluate("() => PRED.waitingOnMe.count()")
             more = await pg.evaluate("() => { const a = document.querySelector('.view.on [data-tdall]'); return a ? +a.innerText.match(/\\d+/)[0] : 0; }")
@@ -142,6 +151,7 @@ async def main():
             c.ok(sum(chips) == ev, f'{tag} phone: Approvals chips {chips} sum to {sum(chips)}, Everything says {ev}')
             # the brief: three short lines, the full brief one tap away
             await go(pg, 'home'); await pg.wait_for_timeout(250)
+            await pg.click('.view.on [data-tdytabbtn="appr"]'); await pg.wait_for_timeout(250)
             bl = await pg.evaluate("() => [...document.querySelectorAll('.view.on .td-bl li')].map(l => l.innerText)")
             c.ok(len(bl) <= 3 and all(len(x.split()) <= 11 for x in bl), f'{tag} phone: brief lines {bl}')
             await pg.click('.view.on [data-tdbrief]'); await pg.wait_for_timeout(300)
@@ -233,12 +243,13 @@ async def main():
             await pg.evaluate("() => mbCloseModal()")
         c.ok(not errs, f'delegation: errors {errs[:2]}')
         await b.close()
-        # ---- the other roles keep their Home
+        # ---- every office role's Home is Today (lane "today", 2026-10-19: one Today page per person, MENU_DRAFT
+        # decision 2); the coordinator, billing and the controller get their own queue and no Owner/PM Pulse
         b, pg, errs = await open_app(p, False)
         for uid in ('u_chen', 'u_billing', 'u_controller'):
             await sign_in(pg, uid); await go(pg, 'home')
-            t = await pg.evaluate("() => view === 'home' ? !!document.querySelector('.view.on .td-home') : null")
-            c.ok(t is not True, f'{uid}: got the Owner/PM Today home')
+            t = await pg.evaluate("() => view === 'home' ? [!!document.querySelector('.view.on .td-home .td-tabs'), document.querySelectorAll('.view.on [data-tdpulse]').length, +document.querySelector('.view.on [data-tdcount]').dataset.tdcount, tdyModel().all.length] : null")
+            c.ok(t and t[0] and t[1] == 0 and t[2] == t[3], f'{uid}: Home is their Today, with no Owner/PM Pulse and All = their queue ({t})')
         c.ok(not errs, f'other roles: errors {errs[:2]}')
         await b.close()
     sys.exit(c.done())

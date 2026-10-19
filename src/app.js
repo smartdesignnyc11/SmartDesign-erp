@@ -173413,8 +173413,10 @@ function tdRender() {
   const root = homeRoot();
   if (!root) return;
   tdCtx = null;
+  // Today (lane "today", 2026-10-19): one queue per person. The list is the person's Approvals, Inbox and Tasks,
+  // each item in exactly one of them; All is their union in the Standard's order; Team is a manager's who-owes-what.
   const r = role(),
-    pulse = (TD_PULSE[r] || TD_PULSE.owner).map((t) => {
+    pulse = (TD_PULSE[r] || []).map((t) => {
       let v = 0;
       try {
         v = tdPulseValue(t);
@@ -173423,9 +173425,14 @@ function tdRender() {
       }
       return { t: t, v: v };
     }),
-    Q = tdQueue(),
-    top = Q.slice(0, 5).map((it) => Object.assign({ it: it }, tdCard(it))),
-    caught = tdCaught(Q),
+    M = tdyModel(),
+    tabs = TDY_TABS.filter(([k]) => "team" !== k || M.team),
+    tab = tabs.some(([k]) => k === tdyTabOf()) ? tdyTabOf() : "all",
+    Q = M[tab] || [],
+    MORE = { appr: ["Approvals", "mapprove"], inbox: ["Inbox", "comms"], tasks: ["Tasks", "tkall"] },
+    more = MORE[tab] && (ROLE_VIEWS[r] || []).includes(MORE[tab][1]) ? MORE[tab] : null,
+    top = (tdyAllOpen && !more ? Q : Q.slice(0, 5)).map((it) => Object.assign({ it: it }, tdCard(it))),
+    caught = tdCaught(M.appr),
     // four, plus every catch that landed today: an escalation is raised the same day (the Standard), never held under the fold
     shownC = (tdShownC = tdCatchAll ? caught : caught.filter((x, i) => i < 4 || x.fresh)),
     brief = tdBriefLines(),
@@ -173433,13 +173440,15 @@ function tdRender() {
       `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
   root.innerHTML = `<div class="td-home" data-tdrole="${r}">
   <div class="ph td-ph"><div><h2>Home</h2></div></div>
-  <div class="td-pulse">${pulse
+  ${pulse.length ? `<div class="td-pulse">${pulse
     .map(
       ({ t: t, v: v }) =>
         `<a href="#" class="td-pl ${t.tone ? t.tone(v) : ""}" data-tdpulse="${t.k}" data-n="${v}"><b>${t.money ? esc(tdMoney(v)) : v}</b><span>${esc(t.label)}</span></a>`,
     )
-    .join("")}</div>
-  <div class="td-cols"><section class="td-sec td-do" aria-label="Do Now"><div class="td-hd"><h3>Do Now</h3><span class="td-cnt" data-tdcount="${Q.length}">${Q.length}</span></div>${
+    .join("")}</div>` : ""}
+  <div class="td-cols"><section class="td-sec td-do" aria-label="Do Now" data-tdytab="${tab}"><div class="td-hd"><h3>Do Now</h3><span class="td-cnt" data-tdcount="${Q.length}">${Q.length}</span></div><div class="td-tabs" role="tablist">${tabs
+    .map(([k, n]) => `<button type="button" role="tab" class="${k === tab ? "on" : ""}" aria-selected="${k === tab}" data-tdytabbtn="${k}">${n}${"team" === k ? "" : `<span class="n">${(M[k] || []).length}</span>`}</button>`)
+    .join("")}</div>${
     top.length
       ? top
           .map(
@@ -173447,8 +173456,16 @@ function tdRender() {
               `<div class="td-card" data-kind="${c.it.kind}" data-id="${esc(String(c.it.id))}"><div class="td-txt"><div class="td-l1">${c.line1}</div>${c.why ? `<div class="td-l2">${c.why}</div>` : ""}</div><button type="button" class="btn ${0 === i ? "primary" : ""} td-verb" data-tdverb="${i}">${esc(c.verb)}</button></div>`,
           )
           .join("")
-      : '<div class="td-empty">Nothing is waiting on you.</div>'
-  }${Q.length > top.length ? `<a href="#" class="td-more" data-tdall>${Q.length - top.length} more in Approvals</a>` : ""}</section>
+      : `<div class="td-empty">${{ appr: "Nothing waits on your approval.", inbox: "No message waits on you.", tasks: "No task of yours is open.", team: "Nobody on the team has an open task." }[tab] || "Nothing is waiting on you."}</div>`
+  }${
+    Q.length > top.length
+      ? more
+        ? `<a href="#" class="td-more" ${"appr" === tab ? "data-tdall" : `data-tdymore="${more[1]}"`}>${Q.length - top.length} more in ${more[0]}</a>`
+        : `<a href="#" class="td-more" data-tdyopen>${Q.length - top.length} more</a>`
+      : tdyAllOpen && !more && Q.length > 5
+        ? '<a href="#" class="td-more" data-tdyopen>Show Fewer</a>'
+        : ""
+  }</section>
   <div class="td-side"><section class="td-sec td-catch" aria-label="Caught for You"><div class="td-hd"><h3>Caught for You</h3><span class="td-cnt" data-tdcaught="${caught.length}">${caught.length}</span></div>${
     shownC.length
       ? shownC
@@ -173500,6 +173517,29 @@ function tdRender() {
     (all.onclick = (e) => {
       e.preventDefault(), (window.mApprKind = "all"), setView("mapprove");
     });
+  root.querySelectorAll("[data-tdytabbtn]").forEach(
+    (b) =>
+      (b.onclick = (e) => {
+        e.preventDefault(), tdyTabSet(b.dataset.tdytabbtn), render();
+      }),
+  );
+  const tmore = root.querySelector("[data-tdymore]");
+  tmore &&
+    (tmore.onclick = (e) => {
+      e.preventDefault();
+      const v = tmore.dataset.tdymore;
+      "tkall" === v && ((tkWho = "me"), (tkShow = "open"));
+      setView(v);
+    });
+  const topen = root.querySelector("[data-tdyopen]");
+  topen &&
+    (topen.onclick = (e) => {
+      e.preventDefault(), (tdyAllOpen = !tdyAllOpen), render();
+    });
+  // the Standard's "because" line under each card reads the rows shown, in the order shown
+  try {
+    stdLastQueue = top.map((c) => c.it);
+  } catch (e) {}
   const ca = root.querySelector("[data-tdcatchall]");
   ca &&
     (ca.onclick = (e) => {
@@ -186392,6 +186432,8 @@ function nyhItem(r) {
 // The person's own queue, ranked: Do Now for whoever has Approvals, the foreman's Now on the field side.
 function myQueue() {
   try {
+    // an office role's queue is its Today: Approvals, Inbox and Tasks in the one order (lane "today", tdyModel)
+    if (PRED.waitingOnMe.can() && "function" == typeof tdyModel && "undefined" != typeof TDY_OFFICE && TDY_OFFICE.includes(role())) return tdyModel().all;
     if (PRED.waitingOnMe.can()) return tdQueue();
     if ((ROLE_VIEWS[role()] || []).includes("ftoday")) return fNowItems();
   } catch (e) {
@@ -186428,7 +186470,8 @@ function myQueueSay(it) {
         ).map((y) => y.__ea);
       // and Do Now's first card joins them: it leads unless one of the brief's own rows ranks above it (a missing
       // certificate of insurance, say), and on a tie it wins, so the brief and Home agree on what comes first
-      const Q = PRED.waitingOnMe.can() && ["owner", "pm", "coord", "billing", "controller"].includes(r) ? tdQueue() : [];
+      // the brief leads with Today's first card: the one queue (Approvals, Inbox and Tasks in one order)
+      const Q = PRED.waitingOnMe.can() && ["owner", "pm", "coord", "billing", "controller"].includes(r) ? (r === role() ? myQueue() : tdQueue()) : [];
       if (!Q.length) return ranked;
       const top = Q[0],
         say = myQueueSay(top),
@@ -196277,3 +196320,1083 @@ document.addEventListener(
     return h;
   };
 }
+
+/*<<today.js>>*/
+/* ==== today: one task shape, one Today page per person (lane "today", 2026-10-19) ===============================
+   BACKLOG §1.11 item 1 (one queue per person), §1.14 (tasks: one system, not five), docs/MENU_DRAFT.md shared
+   finding 1 and decision 2 (one Today page; Approvals, Inbox and Tasks are filters of it, not pages of their own).
+   Design gate (§1.16): no new store, list or queue.
+     - The noun "task" keeps its stores (p.tasks the schedule, p.actions a job's to-dos, DB.tasks the office's,
+       DB.hub.tasks sales, DB.obligations, DB.company.eaNotes the assistant's reminders) and its one accessor,
+       tkItems(). tkAll() reads that accessor into one shape (title, owner: a person, due, status, rank, the record
+       it came from) and adds the assistant's drafts (order follow-ups, RFQ chases, chases), which wait on a person
+       as approvals. Every list that reads tkItems() (All Tasks, a job's Tasks, Ask, erpQuery) sees the same owner.
+     - Today (view "home", every office role) is the one queue: Approvals is PRED.waitingOnMe (the rows, badge and
+       count of the Approvals page), Inbox is cmListFor("open") less what Approvals holds, Tasks is tkAll() owned by
+       me (or offered to me) less what Approvals or Inbox holds. All is their union in the Standard's one order
+       (standardOrder). The full Approvals, Inbox and All Tasks screens stay reachable as their "N more in …".
+     - A hand-off rides on the task record (rec.handoff, and rec.handoffs, the append-only log). A recurring duty
+       is an ordinary task with rec.recur = {duty, key}; the key makes the sweep idempotent. Proof rides on
+       rec.proof.
+--------------------------------------------------------------------------------------------------------------- */
+const TDY_NOT_PERSON = /^(office|the office|firm|the firm|company|smart ?designs?|studio|team|everyone|tbd|unassigned|n\/a)$/i;
+const TDY_ROLE_WORDS = [
+  ["foreman", /\bforeman\b/i],
+  ["pm", /\b(project manager|pm)\b/i],
+  ["coord", /\b(coordinator|procurement|purchasing)\b/i],
+  ["controller", /\b(controller|accounting|bookkeep\w*)\b/i],
+  ["billing", /\bbilling\b/i],
+  ["designer", /\bdesigner\b/i],
+  ["owner", /^(owner|ceo)$/i],
+];
+const TDY_OFFICE = ["owner", "pm", "coord", "billing", "controller"];
+const TDY_MANAGERS = ["owner", "pm"];
+const tdyUsers = () => (DB.users || []).filter((u) => u && u.name && !/^(client|mb_user|mb_analyst)$/.test(u.role || ""));
+const tdyRoleUser = (r) => tdyUsers().find((u) => u.role === r) || null;
+const tdyMe = () => ("function" == typeof currentUser ? currentUser() : null) || {};
+function tdyUserOf(name) {
+  const n = String(name || "").trim();
+  if (!n) return null;
+  const U = tdyUsers(),
+    low = n.toLowerCase();
+  let u = U.find((x) => x.name.toLowerCase() === low);
+  if (u) return u;
+  try {
+    const c = crCanonName(n);
+    u = U.find((x) => x.name === c);
+    if (u) return u;
+  } catch (e) {}
+  const first = low.split(/\s+/)[0],
+    byF = U.filter((x) => x.name.toLowerCase().split(/\s+/)[0] === first);
+  return 1 === byF.length ? byF[0] : null;
+}
+// The person who answers for a task nobody named: the record decides (an obligation's route, the job's lead, the
+// person who made it), and the owner last, so nothing is ever nobody's.
+function tdyLeadOf(x) {
+  const as = (u) => (u ? { name: u.name, uid: u.id } : null);
+  try {
+    const ob = "ob" === x.kind ? (DB.obligations || []).find((o) => o.id === x.id) : x.obId ? (DB.obligations || []).find((o) => o.id === x.obId) : null;
+    if (ob) {
+      const r = "function" == typeof flObRole ? flObRole(ob) : "owner",
+        u = tdyRoleUser(r);
+      if (u) return as(u);
+    }
+    if (x.projectId) {
+      const p = (DB.projects || []).find((q) => q.id === x.projectId),
+        u = p && "function" == typeof nsJobLead ? tdyUserOf(nsJobLead(p)) : null;
+      if (u) return as(u);
+    }
+    if (x.createdBy) {
+      const u = tdyUserOf(x.createdBy);
+      if (u) return as(u);
+    }
+    if ("sales" === x.area || "hub" === x.kind || "lead" === x.kind) {
+      const u = tdyRoleUser("owner");
+      if (u) return as(u);
+    }
+  } catch (e) {}
+  return as(tdyRoleUser("owner")) || { name: "", uid: "" };
+}
+// Whose a task is: a person, never "Office". A named person (or the first of "Alberto / Satish"); a role word
+// ("SmartDesigns PM", "procurement") is that role's person; nobody or "Office" goes where the record says; an
+// outside party (a sub, the client's architect) does the work, and the job's lead is the one who chases it.
+function tdyOwnerOf(x) {
+  const raw = String(x.assignee || "").trim(),
+    parts = raw.split(/\s*\/\s*/).filter(Boolean);
+  for (const pt of parts) {
+    const u = tdyUserOf(pt);
+    if (u) return { name: u.name, uid: u.id, how: "named" };
+  }
+  let staff = [];
+  try {
+    staff = "function" == typeof bnStaffNames ? bnStaffNames() : [];
+  } catch (e) {}
+  for (const pt of parts) {
+    const c = "function" == typeof crCanonName ? crCanonName(pt) : pt;
+    if (staff.includes(c) && !TDY_NOT_PERSON.test(c)) return { name: c, uid: "", how: "named" };
+  }
+  if (raw && !TDY_NOT_PERSON.test(raw)) {
+    for (const [r, re] of TDY_ROLE_WORDS)
+      if (re.test(raw)) {
+        const u = tdyRoleUser(r);
+        if (u) return { name: u.name, uid: u.id, how: "role" };
+      }
+    return Object.assign({}, tdyLeadOf(x), { how: "outside", party: raw });
+  }
+  return Object.assign({}, tdyLeadOf(x), { how: "routed" });
+}
+// The record behind a tkItems row, for the fields that ride on it (handoff, recur, proof).
+function tdyRec(x) {
+  try {
+    if (!x) return null;
+    if ("firm" === x.kind) return asFirmTasks().find((a) => a.id === x.id) || null;
+    if ("ob" === x.kind) return (DB.obligations || []).find((o) => o.id === x.id) || null;
+    if ("issue" === x.kind) {
+      const p = (DB.projects || []).find((q) => q.id === x.projectId);
+      return (p && (p.issues || []).find((i) => i.id === x.id)) || null;
+    }
+    return tkFind(x.kind, x.id, x.projectId) || null;
+  } catch (e) {
+    return null;
+  }
+}
+// The field that names a record's owner, by kind (a note's owner is the "Name: " its words start with).
+const TDY_OWNER_FIELD = { action: "assignee", firm: "assignee", hub: "assignee", sched: "owner", ob: "owner", lead: "owner", issue: "owner" };
+function tdySetOwner(x, rec, name) {
+  if (!rec) return;
+  if ("note" === x.kind) {
+    const m = String(rec.text || "").match(/^([A-Z][\w .]{1,30}?):\s(.+)$/);
+    rec.text = `${name}: ${m ? m[2] : rec.text || ""}`;
+    return;
+  }
+  const f = TDY_OWNER_FIELD[x.kind] || "assignee";
+  rec[f] = name;
+}
+// Every list that reads tkItems() reads the same owner: a row with nobody named (or "Office", "SmartDesigns",
+// "Studio") carries the person who answers for it, with what was written kept as ownerWas. A named outside party
+// keeps its name (it does the work) and the row says who chases it (owner).
+{
+  const base = tkItems;
+  tkItems = function () {
+    const out = base.apply(this, arguments) || [];
+    try {
+      out.forEach((x) => {
+        if (x.__tdy) return;
+        x.__tdy = 1;
+        if ("firm" === x.kind) {
+          const a = asFirmTasks().find((r) => r.id === x.id);
+          a && a.source && "obligation" === a.source.kind && (x.obId = a.source.id);
+          a && a.createdBy && (x.createdBy = a.createdBy);
+        } else if ("action" === x.kind) {
+          const a = tdyRec(x);
+          a && a.createdBy && (x.createdBy = a.createdBy);
+        }
+        const o = tdyOwnerOf(x);
+        x.owner = o.name;
+        x.ownerUid = o.uid || "";
+        x.ownerHow = o.how;
+        o.party && (x.party = o.party);
+        if ("routed" === o.how && o.name && !x.done) (x.ownerWas = x.assignee || ""), (x.assignee = o.name);
+      });
+    } catch (e) {
+      console.warn("task owners", e);
+    }
+    return out;
+  };
+}
+// ---- the one shape -----------------------------------------------------------------------------------------
+const TDY_SRC = { sched: "schedule", action: "schedule", issue: "schedule", firm: "office", note: "assistant", hub: "sales", lead: "sales", ob: "obligation", draft: "assistant" };
+const TDY_SRC_LABEL = { schedule: "Project", office: "Office", sales: "Sales", obligation: "Obligation", assistant: "Assistant", standard: "The Standard" };
+const tdyKeyOf = (x) => `${x.kind}:${x.id}:${x.projectId || ""}`;
+function tdyShape(x) {
+  const rec = tdyRec(x) || {},
+    H = rec.handoff && "offered" === rec.handoff.state ? rec.handoff : null,
+    src = rec.recur ? "standard" : x.obId ? "obligation" : TDY_SRC[x.kind] || "office",
+    refs = [];
+  "ob" === x.kind && refs.push("ob:" + x.id);
+  x.obId && refs.push("ob:" + x.obId);
+  x.commId && refs.push("comm:" + x.commId);
+  rec.source && rec.source.commId && refs.push("comm:" + rec.source.commId);
+  rec.recur && "delivery" === rec.recur.duty && rec.recur.poId && refs.push("po:" + rec.recur.poId + ":reconfirm");
+  return {
+    key: tdyKeyOf(x),
+    kind: x.kind,
+    id: x.id,
+    projectId: x.projectId || "",
+    project: x.project || "",
+    title: x.title || "",
+    owner: x.owner || "",
+    ownerUid: x.ownerUid || "",
+    ownerHow: x.ownerHow || "",
+    party: x.party || "",
+    assignee: x.assignee || "",
+    due: x.due || "",
+    priority: x.priority || "",
+    status: x.done ? "done" : H ? "offered" : "open",
+    done: !!x.done,
+    late: !!x.late,
+    source: src,
+    sourceLabel: TDY_SRC_LABEL[src] || "Office",
+    origin: x.source || "",
+    area: x.area || "",
+    waitsOn: x.waitsOn || (x.ownerHow === "outside" ? x.party : "") || "",
+    handoff: rec.handoff || null,
+    offeredTo: H ? H.to : "",
+    offeredToUid: H ? H.toUid || "" : "",
+    recur: rec.recur || null,
+    proofNeed: x.done ? null : tdyProofNeed(x, rec),
+    proof: rec.proof || null,
+    refs: refs,
+    approval: !1,
+    row: x,
+  };
+}
+// The assistant's follow-ups (an order follow-up, an RFQ chase, a chase it drafted) wait on the person they were
+// written for, on Approvals: in the one shape they are tasks from the assistant that are also approvals.
+function tdyDraftShape(o) {
+  const U = tdyUserOf(o.forName) || (() => {
+      try {
+        return tdyRoleUser(apprRoleOf(o.forName) || "owner");
+      } catch (e) {
+        return tdyRoleUser("owner");
+      }
+    })(),
+    kindWord = { "order-followup": "Order follow-up", "rfq-chase": "RFQ chase" }[o.kind] || "Draft";
+  return {
+    key: "draft:" + o.id + ":",
+    kind: "draft",
+    id: o.id,
+    projectId: "",
+    project: (o.about && o.about.label) || "",
+    title: `Send: ${o.subject || kindWord}`,
+    owner: U ? U.name : "",
+    ownerUid: U ? U.id : "",
+    ownerHow: "named",
+    party: (o.to && (o.to.name || o.to.email)) || "",
+    assignee: o.forName || (U ? U.name : ""),
+    due: o.at || "",
+    priority: "",
+    status: "open",
+    done: !1,
+    late: !1,
+    source: "assistant",
+    sourceLabel: `Assistant · ${kindWord}`,
+    origin: o.kind || "draft",
+    area: "office",
+    waitsOn: "",
+    handoff: null,
+    offeredTo: "",
+    offeredToUid: "",
+    recur: null,
+    proofNeed: null,
+    proof: null,
+    refs: ["draft:" + o.id],
+    approval: !0,
+    row: null,
+  };
+}
+// THE accessor: every task from the five sources, in one shape. opts.open: only open ones; opts.uid: only one
+// person's (owned by them, or offered to them).
+function tkAll(opts) {
+  const o = opts || {};
+  let R = [];
+  try {
+    R = tkItems().map(tdyShape);
+  } catch (e) {
+    console.warn("tkAll", e);
+  }
+  try {
+    (DB.outbox || []).filter((x) => x && "draft" === x.status).forEach((x) => R.push(tdyDraftShape(x)));
+  } catch (e) {}
+  o.open && (R = R.filter((t) => !t.done));
+  o.uid && (R = R.filter((t) => t.ownerUid === o.uid || t.offeredToUid === o.uid));
+  return R;
+}
+// ---- done means done: where the Standard asks for proof, completing asks for it -----------------------------
+const TDY_PROOF = {
+  photos: { label: "Photos before it closes", cite: ["std", "documentation", /Photograph before you cover/i] },
+  inspection: { label: "Inspection passed", cite: ["std", "quality", /Inspect before you close/i] },
+  co: { label: "Signed change order", cite: ["std", "money", /No extra work without a signed change order/i] },
+};
+function tdyProofNeed(x, rec) {
+  if (!x || !/^(sched|action|firm)$/.test(x.kind)) return null;
+  if (rec && !1 === rec.proofNeed) return null;
+  const t = String(x.title || ""),
+    has = (k) => Object.assign({ kind: k }, TDY_PROOF[k]);
+  if (rec && rec.link && "co" === rec.link.kind) return has("co");
+  if (/\binspections?\b/i.test(t) && !/\b(book|request|schedul\w*|call|pull|file|permit)\b/i.test(t)) return has("inspection");
+  if (/\b(close|closing|close-up|insulat\w*|drywall|sheetrock|gwb|cover\w*)\b/i.test(t) && /\b(wall|walls|ceiling|floor|gwb|drywall|insulat\w*|sheetrock|cavit\w*)\b/i.test(t)) return has("photos");
+  if (/\b(extra work|change order|extra:|added work|additional work)\b/i.test(t)) return has("co");
+  return null;
+}
+const tdyProj = (x) => (DB.projects || []).find((p) => p.id === x.projectId) || null;
+function tdyPhotosFor(x) {
+  const p = tdyProj(x),
+    files = ((p && p.files) || []).filter((f) => "photo" === f.cat && f.link && f.link.kind === "task" && f.link.id === x.id),
+    stream = (Array.isArray(DB.photos) ? DB.photos : []).filter((f) => f && f.projectId === x.projectId && (f.taskId === x.id || (f.ref && f.ref.id === x.id)));
+  return files.map((f) => f.id).concat(stream.map((f) => f.id));
+}
+function tdyInspFor(x) {
+  const p = tdyProj(x);
+  if (!p) return [];
+  const words = String(x.title || "")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length > 3 && !/^(inspection|inspections|final|with)$/.test(w));
+  return (p.inspections || []).filter((i) => words.some((w) => String(i.name || "").toLowerCase().includes(w)));
+}
+function tdyCosFor(x) {
+  const p = tdyProj(x),
+    c = p && (DB.clients || []).find((k) => k.id === p.clientId);
+  return ((c && c.changeOrders) || []).filter((d) => d.projectId === p.id);
+}
+const tdyCoSigned = (d) => /^(approved|signed|accepted|executed)$/.test(String(d.status || ""));
+// What the record holds for the proof, or null: {what, ref}.
+function tdyProofMet(x, need, rec) {
+  if (!need) return { what: "" };
+  if (rec && rec.proof && rec.proof.kind === need.kind && rec.proof.ok) return rec.proof;
+  if ("photos" === need.kind) {
+    const P = tdyPhotosFor(x);
+    return P.length ? { kind: "photos", ok: !0, what: `${P.length} photo${1 === P.length ? "" : "s"} on the task`, photos: P } : null;
+  }
+  if ("inspection" === need.kind) {
+    const I = tdyInspFor(x).find((i) => /^(passed|approved|signed off)$/i.test(String(i.status || "")));
+    return I ? { kind: "inspection", ok: !0, what: `${I.name} passed${I.date ? " " + fmtL(I.date) : ""}`, inspId: I.id } : null;
+  }
+  // a change order covers this work only when a person names it (any signed CO on the job is not proof of this one)
+  if ("co" === need.kind) {
+    const id = rec && rec.link && "co" === rec.link.kind ? rec.link.id : "",
+      d = id && tdyCosFor(x).find((k) => k.id === id && tdyCoSigned(k));
+    return d ? { kind: "co", ok: !0, what: `${d.number} signed`, coId: d.id } : null;
+  }
+  return null;
+}
+const tdyCite = (need) => {
+  try {
+    const c = standardCite(need.cite);
+    return c ? `${c.text} (${c.label})` : "";
+  } catch (e) {
+    return "";
+  }
+};
+// The proof sheet: what the Standard asks, what the record holds, and the one way to give it.
+function tdyProofSheet(x, then) {
+  const rec = tdyRec(x),
+    need = tdyProofNeed(x, rec);
+  if (!need) return then && then();
+  const cite = tdyCite(need),
+    head = `<p class="small muted tdy-proof-why">${esc(cite || need.label)}</p>`;
+  if ("photos" === need.kind) {
+    const shots = [];
+    const m = mbModal(
+      `Proof Needed — ${esc(tdWords(x.title, 8))}`,
+      `${head}<p>Take the photos of what is about to close, labeled by room and location. The task is done once they are on it.</p><div class="tdy-shots small muted" data-tdyshots>No photos yet.</div><button type="button" class="btn" data-tdycam>${TDY_IC.camera}<span>Take a Photo</span></button>`,
+      {
+        submit: "Mark Done",
+        onSubmit: () => {
+          if (!shots.length) return toast("Add at least one photo first: the Standard asks for photos before a wall closes"), !1;
+          tdyAddProofPhotos(x, shots);
+          const r = tdyRec(x);
+          r && (r.proof = { kind: "photos", ok: !0, what: `${shots.length} photo${1 === shots.length ? "" : "s"}`, at: appNowIso(), by: tdyMe().name || "" });
+          then && then();
+        },
+      },
+    );
+    const cam = m.querySelector("[data-tdycam]"),
+      box = m.querySelector("[data-tdyshots]");
+    cam &&
+      (cam.onclick = () =>
+        mReadPhoto((url) => {
+          shots.push(url), box && (box.textContent = `${shots.length} photo${1 === shots.length ? "" : "s"} ready to attach.`);
+        }, "environment"));
+    return m;
+  }
+  if ("inspection" === need.kind) {
+    const I = tdyInspFor(x);
+    return mbModal(
+      `Proof Needed — ${esc(tdWords(x.title, 8))}`,
+      `${head}<p>Record the inspection result. The task is done only when it passed.</p>${I.length ? mbF("Inspection", `<select data-f="insp">${I.map((i) => `<option value="${esc(i.id)}">${esc(i.name)} · ${esc(i.status || "not scheduled")}</option>`).join("")}</select>`) : ""}<div class="grid2">${mbF("Result", `<select data-f="result"><option value="passed">Passed</option><option value="failed">Failed</option></select>`)}${mbF("Date", `<input type="date" data-f="on" value="${today()}">`)}</div>${mbF("Inspector or Docket", '<input data-f="ref" placeholder="who signed it off, or the docket number">')}`,
+      {
+        submit: "Record the Result",
+        onSubmit: (f) => {
+          const i = I.find((z) => z.id === f.insp);
+          if ("passed" !== f.result) {
+            i && ((i.status = "failed"), (i.date = f.on || i.date), (i.result = { on: f.on, ref: f.ref, by: tdyMe().name || "" }));
+            save(), render();
+            return toast(`Recorded as failed: ${x.title} stays open until the inspection passes`, [{ label: "Open", run: () => tdyOpenSource(x) }]), !0;
+          }
+          i && ((i.status = "passed"), (i.date = f.on || i.date), (i.result = { on: f.on, ref: f.ref, by: tdyMe().name || "" }));
+          const r = tdyRec(x);
+          r && (r.proof = { kind: "inspection", ok: !0, what: `${i ? i.name : "Inspection"} passed ${fmtL(f.on || today())}${f.ref ? " · " + f.ref : ""}`, inspId: i ? i.id : "", at: appNowIso(), by: tdyMe().name || "" });
+          try {
+            i && audit("inspection", i.id, "passed", "", f.on || today(), f.ref || "");
+          } catch (e) {}
+          then && then();
+        },
+      },
+    );
+  }
+  // a signed change order: the person names the signed one that covers this work; nobody signs one here
+  const C = tdyCosFor(x),
+    signed = C.filter(tdyCoSigned),
+    open = C.filter((d) => !tdyCoSigned(d) && !/^(void|rejected|declined)$/.test(String(d.status || ""))),
+    waiting = open.length ? ` Waiting on the client: ${esc(open.map((d) => `${d.number} is ${d.status}`).join(", "))}.` : "";
+  if (!signed.length)
+    return mbModal(
+      `Proof Needed — ${esc(tdWords(x.title, 8))}`,
+      `${head}<p>No signed change order is on ${esc(x.project || "this job")} for this work.${waiting} The task stays open until the client signs.</p>`,
+      { submit: open.length ? "Open the Change Order" : "Open the Job", onSubmit: () => (tdyOpenSource(x, open[0]), !0) },
+    );
+  return mbModal(
+    `Proof Needed — ${esc(tdWords(x.title, 8))}`,
+    `${head}<p>Name the signed change order that covers this work.${waiting}</p>${mbF("Signed Change Order", `<select data-f="co"><option value="">None of these covers it</option>${signed.map((d) => `<option value="${esc(d.id)}">${esc(d.number)} · ${esc(tdWords(d.title || "", 8))}</option>`).join("")}</select>`)}`,
+    {
+      submit: "Mark Done",
+      onSubmit: (f) => {
+        const d = signed.find((k) => k.id === f.co);
+        if (!d) return toast("The work waits for a signed change order: send one from the job's change orders"), !1;
+        const r = tdyRec(x);
+        r && ((r.link = { kind: "co", id: d.id }), (r.proof = { kind: "co", ok: !0, what: `${d.number} signed`, coId: d.id, at: appNowIso(), by: tdyMe().name || "" }));
+        then && then();
+      },
+    },
+  );
+}
+function tdyAddProofPhotos(x, shots) {
+  const p = tdyProj(x);
+  if (!p) return;
+  p.files = p.files || [];
+  shots.forEach((s, i) => {
+    const id = uid("f"),
+      rec = { id: id, name: `proof-${today()}-${i + 1}.jpg`, type: "image/jpeg", size: Math.round(0.75 * s.length), cat: "photo", date: today(), by: tdyMe().name || "", link: { kind: "task", id: x.id }, notes: `Before it closes: ${x.title}`, shareClient: !1, ai: null, persisted: !1, uploadedAt: appNowIso(), dataUrl: s };
+    p.files.push(rec);
+    try {
+      putBlob(id, s).then((ok) => (rec.persisted = ok));
+    } catch (e) {}
+  });
+}
+// The one gate: every list's checkbox and Today's Done run tkToggle, so the proof is asked wherever a task closes.
+let tdyProofPass = !1;
+{
+  const base = tkToggle;
+  tkToggle = function (kind, id, projectId) {
+    try {
+      if (!tdyProofPass) {
+        const x = tkItems().find((r) => r.kind === kind && r.id === id && (r.projectId || "") === (projectId || ""));
+        if (x && !x.done) {
+          const rec = tdyRec(x),
+            need = tdyProofNeed(x, rec);
+          if (need && !tdyProofMet(x, need, rec)) {
+            setTimeout(() => {
+              tdyProofSheet(x, () => tdyComplete(x));
+              toast(`Not done yet: ${need.label.toLowerCase()} first`);
+            }, 0);
+            return;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("proof gate", e);
+    }
+    return base.apply(this, arguments);
+  };
+}
+function tdyComplete(x) {
+  tdyProofPass = !0;
+  try {
+    tkToggle(x.kind, x.id, x.projectId);
+  } finally {
+    tdyProofPass = !1;
+  }
+  try {
+    const r = tdyRec(x);
+    r && r.handoff && "offered" === r.handoff.state && tdyLog(r, { ev: "closed", by: tdyMe().name || "" });
+    audit("task", x.id, "done", "", today(), (r && r.proof && r.proof.what) || "");
+  } catch (e) {}
+  save(), render(), toast(`Done: ${tdWords(x.title, 8)}`, [{ label: "Open", run: () => tdyOpenSource(x) }]);
+}
+// ---- hand-offs: "if you see it, you own it until a named person accepts the hand-off" ---------------------------
+function tdyLog(rec, e) {
+  (rec.handoffs = rec.handoffs || []).push(Object.assign({ at: appNowIso() }, e));
+}
+function tdyHandOff(x, toName, note) {
+  const rec = tdyRec(x),
+    me = tdyMe(),
+    to = tdyUserOf(toName);
+  if (!rec || !to) return toast("Pick a person to hand it to"), !1;
+  if (to.id === (x.ownerUid || "")) return toast(`${to.name} already owns it`), !1;
+  const from = x.owner || me.name || "";
+  // the person who owns it stays its owner until the other accepts; a task nobody named is owned by who hands it
+  "routed" === x.ownerHow && tdySetOwner(x, rec, from);
+  rec.handoff = { from: from, fromUid: x.ownerUid || me.id || "", by: me.name || "", to: to.name, toUid: to.id, at: appNowIso(), state: "offered", note: note || "" };
+  tdyLog(rec, { ev: "offered", from: from, to: to.name, by: me.name || "", note: note || "" });
+  try {
+    audit("task", x.id, "handoff", from, to.name, note || "");
+  } catch (e) {}
+  save(), render();
+  toast(`Offered to ${to.name}: it stays on ${from === me.name ? "your" : from + "'s"} list until ${to.name.split(" ")[0]} accepts`, [{ label: "Open", run: () => tdyGoTask(x) }]);
+  return !0;
+}
+function tdyAccept(x) {
+  const rec = tdyRec(x),
+    H = rec && rec.handoff;
+  if (!H || "offered" !== H.state) return;
+  tdySetOwner(x, rec, H.to);
+  Object.assign(H, { state: "accepted", decidedAt: appNowIso() });
+  tdyLog(rec, { ev: "accepted", by: H.to });
+  try {
+    audit("task", x.id, "accepted", H.from, H.to, "");
+  } catch (e) {}
+  save(), render(), toast(`Accepted: ${tdWords(x.title, 8)} is yours now`, [{ label: "Open", run: () => tdyGoTask(x) }]);
+}
+function tdyDecline(x, reason) {
+  const rec = tdyRec(x),
+    H = rec && rec.handoff;
+  if (!H || "offered" !== H.state) return !1;
+  if (!String(reason || "").trim()) return toast("Say why: the person who offered it needs the reason"), !1;
+  Object.assign(H, { state: "declined", decidedAt: appNowIso(), reason: String(reason).trim() });
+  tdyLog(rec, { ev: "declined", by: H.to, reason: H.reason });
+  try {
+    audit("task", x.id, "declined", H.to, H.from, H.reason);
+  } catch (e) {}
+  save(), render(), toast(`Declined and sent back to ${H.from}: ${H.reason}`, [{ label: "Open", run: () => tdyGoTask(x) }]);
+  return !0;
+}
+function tdyHandOffSheet(x) {
+  const me = tdyMe(),
+    people = tdyUsers().filter((u) => u.id !== (x.ownerUid || me.id) && !/^(crew|driver)$/.test(u.role));
+  mbModal(
+    `Hand Off — ${esc(tdWords(x.title, 8))}`,
+    `<p class="small muted">It stays on ${x.owner === me.name ? "your" : esc(x.owner) + "'s"} list until they accept. If they decline, it comes back with their reason.</p>${mbF("To", `<select data-f="to">${people.map((u) => `<option value="${esc(u.name)}">${esc(u.name)}</option>`).join("")}</select>`)}${mbF("Note", '<input data-f="note" placeholder="what they need to know (optional)">')}`,
+    { submit: "Offer It", onSubmit: (f) => tdyHandOff(x, f.to, f.note) },
+  );
+}
+function tdyDecideSheet(x) {
+  const H = (tdyRec(x) || {}).handoff || {};
+  mbModal(
+    `Offered to You — ${esc(tdWords(x.title, 8))}`,
+    `<p>${esc(H.from || "Someone")} offered you this${H.note ? `: ${esc(H.note)}` : "."}${x.due ? ` It is due ${esc(fmtL(x.due))}.` : ""}</p>${mbF("If You Decline, Why", '<input data-f="reason" placeholder="e.g. not mine: the coordinator orders it">')}`,
+    {
+      submit: "Accept",
+      alt: {
+        label: "Decline",
+        keep: !0,
+        run: () => {
+          const v = ((document.querySelector('#mbm [data-f="reason"]') || {}).value || "").trim();
+          tdyDecline(x, v) && mbCloseModal();
+        },
+      },
+      onSubmit: () => (tdyAccept(x), !0),
+    },
+  );
+}
+// ---- where a task's record lives --------------------------------------------------------------------------
+function tdyOpenSource(x, co) {
+  try {
+    if (co) {
+      const p = tdyProj(x);
+      clientOpen = p.clientId;
+      return "function" == typeof openDoc ? openDoc(p.clientId, "co", co.id) : setView("clients");
+    }
+    if ("draft" === x.kind) return mGo({ view: "brain", bnTab: "hands" });
+    if ("ob" === x.kind || (x.row && x.row.obId)) return (view = "obligations"), render();
+    if ("hub" === x.kind || "lead" === x.kind) return (tkWho = "me"), setView("tkall");
+    if (x.projectId && /^(action|sched|issue)$/.test(x.kind)) {
+      setCurrent(x.projectId);
+      if ("action" === x.kind && "function" == typeof openEditor) return openEditor("action", x.id);
+      return (view = "sched" === x.kind ? "sched" : "tasks"), render();
+    }
+  } catch (e) {
+    console.warn("open task source", e);
+  }
+  return tdyGoTask(x);
+}
+function tdyGoTask(x) {
+  (tdyTabSet("tasks"), setView("home"));
+}
+// The task's own sheet: what it is, where it came from, who owns it, and its next steps.
+function tdyTaskSheet(t) {
+  const me = tdyMe(),
+    mine = t.ownerUid === me.id,
+    offeredToMe = t.offeredToUid === me.id,
+    met = t.proofNeed ? tdyProofMet(t.row || t, t.proofNeed, tdyRec(t)) : null,
+    H = t.handoff,
+    lines = [
+      ["From", `${t.sourceLabel}${t.project ? " · " + t.project : ""}`],
+      ["Owner", t.owner + (t.party ? ` (done by ${t.party})` : "") + ("routed" === t.ownerHow && t.row && t.row.ownerWas ? ` (written as "${t.row.ownerWas}")` : "")],
+      ["Due", t.due ? fmtL(t.due) + (t.late ? " (overdue)" : "") : "No date"],
+      H ? ["Hand-Off", "offered" === H.state ? `Offered to ${H.to} by ${H.from}, not accepted yet` : "declined" === H.state ? `${H.to} declined: ${H.reason}` : `${H.to} accepted from ${H.from}`] : null,
+      t.proofNeed ? ["Proof", met ? met.what : `${t.proofNeed.label} (needed to close it)`] : null,
+      t.recur ? ["Repeats", TDY_DUTY[t.recur.duty] ? TDY_DUTY[t.recur.duty].every : "yes"] : null,
+    ].filter(Boolean);
+  const m = mbModal(
+    esc(tdWords(t.title, 10)),
+    `<div class="tdy-sheet">${lines.map(([k, v]) => `<div class="tdy-kv"><span class="small muted">${esc(k)}</span><span>${esc(v)}</span></div>`).join("")}</div><div class="tdy-sheet-acts"><button type="button" class="btn" data-tdysrc>Open the ${esc(t.sourceLabel.split(" · ")[0])} Record</button>${(mine || TDY_MANAGERS.includes(role())) && !offeredToMe && "draft" !== t.kind ? '<button type="button" class="btn" data-tdyhand>Hand Off</button>' : ""}</div>`,
+    offeredToMe ? { submit: "Accept or Decline", onSubmit: () => (setTimeout(() => tdyDecideSheet(t), 0), !0) } : "draft" === t.kind ? { submit: null } : { submit: "Mark Done", onSubmit: () => (setTimeout(() => tdyDone(t), 0), !0) },
+  );
+  const s = m.querySelector("[data-tdysrc]"),
+    h = m.querySelector("[data-tdyhand]");
+  s && (s.onclick = () => (mbCloseModal(), tdyOpenSource(t)));
+  h && (h.onclick = () => (mbCloseModal(), tdyHandOffSheet(t)));
+  return m;
+}
+function tdyDone(t) {
+  const x = t.row || t,
+    rec = tdyRec(x),
+    need = tdyProofNeed(x, rec);
+  if (need && !tdyProofMet(x, need, rec)) return tdyProofSheet(x, () => tdyComplete(x));
+  tdyComplete(x);
+}
+// ---- the Standard's recurring duties, as recurring tasks with the right owner ----------------------------------
+// Each duty: who owns it, which scope it repeats over, the period key and the due date. The sweep is idempotent:
+// a task is made once per duty, scope and period (rec.recur.key), done or not, across reloads and day turns.
+const tdyFriday = (d) => {
+  const x = parse(d),
+    add = (5 - x.getDay() + 7) % 7;
+  return iso(addDays(x, add));
+};
+const tdyActiveJobs = () => (DB.projects || []).filter((p) => !p.archived && !/^(closed|complete|completed|lost)$/i.test(String((p.project || {}).status || "")));
+const tdyBuildJob = (p) => !/\bdesign\b/i.test((p.project || {}).name || "") || /\bbuild\b/i.test((p.project || {}).name || "");
+const TDY_DUTY = {
+  friday: { every: "Every Friday", title: (p) => `Friday client update — ${shortName(p)}`, cite: ["std", "communication", /Weekly client update/i], p: "client" },
+  walk: { every: "Every week", title: (p) => `Weekly site walk with the foreman and budget vs. actual — ${shortName(p)}`, cite: ["pb", "pm", "standards", /Weekly site walk/i], p: "quality" },
+  huddle: { every: "Every working day", title: (p) => `Morning huddle — ${shortName(p)}`, cite: ["pb", "foreman", "standards", /Morning huddle/i], p: "quality" },
+  delivery: { every: "48 hours before each delivery", title: (po) => `Reconfirm the delivery — ${po.number} · ${po.vendor}`, cite: ["pb", "procurement", "standards", /Deliveries reconfirmed/i], p: "schedule" },
+  books: { every: "Every month, by the 10th", title: (ym) => `Reconcile the books for ${tdyMonthName(ym)}`, cite: ["pb", "office", "standards", /Books reconciled/i], p: "integrity" },
+  coi: { every: "30 days before each certificate expires", title: (v) => `Get ${v.name}'s renewed insurance certificate`, cite: ["pb", "office", "standards", /Insurance certificates/i], p: "law" },
+};
+const tdyMonthName = (ym) => {
+  try {
+    return new Date(+ym.slice(0, 4), +ym.slice(5, 7) - 1, 1).toLocaleString("en-US", { month: "long", year: "numeric" });
+  } catch (e) {
+    return ym;
+  }
+};
+const tdyWorking = (d) => {
+  const g = parse(d).getDay();
+  return g > 0 && g < 6;
+};
+function tdyRecurKeys() {
+  const K = new Set();
+  (DB.projects || []).forEach((p) => (p.actions || []).forEach((a) => a.recur && K.add(a.recur.key)));
+  (DB.tasks || []).forEach((a) => a && a.recur && K.add(a.recur.key));
+  return K;
+}
+// The duties that are due now: [{duty, key, title, owner, due, projectId, poId, vendorId}]
+function tdyRecurDue() {
+  const td = today(),
+    out = [],
+    fri = tdyFriday(td),
+    jobs = tdyActiveJobs(),
+    lead = (p) => {
+      try {
+        return nsJobLead(p);
+      } catch (e) {
+        return (tdyRoleUser("pm") || {}).name || "";
+      }
+    },
+    foreman = tdyRoleUser("foreman"),
+    coord = tdyRoleUser("coord"),
+    ctl = tdyRoleUser("controller") || tdyRoleUser("owner");
+  jobs.forEach((p) => {
+    out.push({ duty: "friday", key: `friday:${p.id}:${fri}`, title: TDY_DUTY.friday.title(p), owner: lead(p), due: fri, projectId: p.id });
+    tdyBuildJob(p) && out.push({ duty: "walk", key: `walk:${p.id}:${fri}`, title: TDY_DUTY.walk.title(p), owner: lead(p), due: fri, projectId: p.id });
+    // the huddle is the day's: only on a working day the job has work on site
+    const onSite = (p.tasks || []).some((t) => "done" !== t.status && "milestone" !== t.type && t.start && t.end && t.start <= td && t.end >= td && "build" === (t.track || "build"));
+    foreman && tdyBuildJob(p) && tdyWorking(td) && onSite && out.push({ duty: "huddle", key: `huddle:${p.id}:${td}`, title: TDY_DUTY.huddle.title(p), owner: foreman.name, due: td, projectId: p.id });
+  });
+  // each delivery expected in the next five working days, reconfirmed two working days ahead
+  (DB.pos || [])
+    .filter((po) => ["issued", "partial"].includes(po.status) && po.expected && po.expected > td && po.expected <= addWork(td, 5))
+    .forEach((po) => {
+      const due = addWork(po.expected, -2) < td ? td : addWork(po.expected, -2),
+        who = (po.createdByUid && (DB.users || []).find((u) => u.id === po.createdByUid)) || coord;
+      who && out.push({ duty: "delivery", key: `delivery:${po.id}:${po.expected}`, title: TDY_DUTY.delivery.title(po), owner: who.name, due: due, projectId: po.projectId || "", poId: po.id });
+    });
+  // the books for last month, by the 10th of this one
+  const prev = new Date(+td.slice(0, 4), +td.slice(5, 7) - 2, 1),
+    ym = `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, "0")}`,
+    closed = (() => {
+      try {
+        return "function" == typeof ctCloseStatus && /closed|sealed/i.test(String((ctCloseStatus(ym) || {}).status || ""));
+      } catch (e) {
+        return !1;
+      }
+    })();
+  ctl && !closed && +td.slice(8, 10) <= 10 && out.push({ duty: "books", key: `books:${ym}`, title: TDY_DUTY.books.title(ym), owner: ctl.name, due: `${td.slice(0, 7)}-10` });
+  // a vendor's certificate that expires in the next 30 days (an expired or missing one is Compliance on Caught for You)
+  (DB.vendors || [])
+    .filter((v) => v.insuranceExp && v.insuranceExp >= td && v.insuranceExp <= iso(addDays(td, 30)))
+    .forEach((v) => {
+      const due = iso(addDays(v.insuranceExp, -30)) < td ? td : iso(addDays(v.insuranceExp, -30));
+      coord && out.push({ duty: "coi", key: `coi:${v.id}:${v.insuranceExp}`, title: TDY_DUTY.coi.title(v), owner: coord.name, due: due, vendorId: v.id });
+    });
+  return out;
+}
+function tdyRecurSweep() {
+  const have = tdyRecurKeys(),
+    made = [];
+  tdyRecurDue().forEach((d) => {
+    if (!d.owner || have.has(d.key)) return;
+    have.add(d.key);
+    const rec = {
+      id: uid("a"),
+      title: d.title,
+      assignee: d.owner,
+      due: d.due,
+      priority: "med",
+      status: "todo",
+      link: d.poId ? { kind: "po", id: d.poId } : null,
+      notes: tdyCite({ cite: TDY_DUTY[d.duty].cite }),
+      source: { kind: "standard", duty: d.duty },
+      recur: { duty: d.duty, key: d.key, poId: d.poId || "", vendorId: d.vendorId || "" },
+      createdAt: today(),
+      completedAt: "",
+      createdBy: "The Standard",
+    };
+    const p = d.projectId && (DB.projects || []).find((x) => x.id === d.projectId);
+    if (p && "delivery" !== d.duty) (p.actions = p.actions || []).push(Object.assign(rec, { area: "walk" === d.duty || "huddle" === d.duty ? "construction" : "office" }));
+    else asFirmTasks().push(Object.assign(rec, { section: "The Standard", area: "books" === d.duty ? "billing" : "delivery" === d.duty || "coi" === d.duty ? "procurement" : "office", code: "", tags: [], blockedBy: [], blocking: [], modifiedAt: today() }, p ? { projectId: p.id } : {}));
+    made.push(rec);
+  });
+  return made;
+}
+"undefined" != typeof APP_DAY_HOOKS && APP_DAY_HOOKS.push(["tdyRecurSweep", () => (tdyRecurSweep().length, !0)]);
+if ("function" == typeof finishBoot) {
+  const base = finishBoot;
+  finishBoot = function () {
+    const r = base.apply(this, arguments);
+    try {
+      tdyRecurSweep().length && (save(), render());
+    } catch (e) {
+      console.warn("recurring duties", e);
+    }
+    return r;
+  };
+}
+// ---- the one queue: Approvals, Inbox, Tasks (and Team for a manager), each item in exactly one --------------------
+const TDY_TABS = [
+  ["all", "All"],
+  ["appr", "Approvals"],
+  ["inbox", "Inbox"],
+  ["tasks", "Tasks"],
+  ["team", "Team"],
+];
+const tdyTabs = {};
+let tdyAllOpen = !1;
+const tdyTabOf = () => tdyTabs[tdyMe().id || role()] || "all";
+function tdyTabSet(t) {
+  tdyTabs[tdyMe().id || role()] = t;
+  tdyAllOpen = !1;
+}
+// The records an approval already stands for: an obligation's renewal, a message the reader routed, a draft.
+function tdyApprRefs(it) {
+  const out = [];
+  try {
+    "draft" === it.kind && out.push("draft:" + it.id);
+    const r = it.nyh;
+    if (r) {
+      const m = String(r.key || "").match(/^oblig:([^:]+)/);
+      m && out.push("ob:" + m[1]);
+      r.commId && out.push("comm:" + r.commId);
+      r.poId && /reconfirm/i.test(String(r.key || "")) && out.push("po:" + r.poId + ":reconfirm");
+    }
+    if ("draft" === it.kind) {
+      const o = (DB.outbox || []).find((x) => x.id === it.id);
+      o && o.about && o.about.poId && /reconfirm/i.test(String(o.aboutKey || "")) && out.push("po:" + o.about.poId + ":reconfirm");
+    }
+  } catch (e) {}
+  return out;
+}
+function tdyMailItem(c) {
+  const from = (c.from && (c.from.name || c.from.email)) || "";
+  return { kind: "tdyMail", id: c.id, src: "inbox", c: c, title: c.subject || ("function" == typeof cmSummary ? cmSummary(c) : "") || "(No Subject)", detail: [from, c.date ? fmt(String(c.date).slice(0, 10)) : ""].filter(Boolean).join(" · "), due: "" };
+}
+function tdyTaskItem(t) {
+  const words = [t.sourceLabel, t.project && t.project !== t.sourceLabel ? t.project : "", t.due ? (t.late ? `overdue since ${fmt(t.due)}` : `due ${fmt(t.due)}`) : "no date"].filter(Boolean).join(" · ");
+  return { kind: "tdyTask", id: t.key, src: t.recur ? "task:" + t.recur.duty : "task", t: t, title: t.title, detail: words, due: t.due, blocked: !1 };
+}
+// The person's queue: {appr, inbox, tasks, all, team} for the signed-in person.
+function tdyModel() {
+  const me = tdyMe(),
+    r = role(),
+    may = (v) => (ROLE_VIEWS[r] || []).includes(v);
+  let appr = [];
+  try {
+    appr = PRED.waitingOnMe.can() ? tdQueue() : [];
+  } catch (e) {
+    console.warn("today approvals", e);
+  }
+  const held = new Set();
+  appr.forEach((it) => tdyApprRefs(it).forEach((k) => held.add(k)));
+  let mail = [];
+  try {
+    mail = may("comms") && "function" == typeof cmListFor ? cmListFor("open") : [];
+  } catch (e) {}
+  const inbox = mail.filter((c) => !held.has("comm:" + c.id)).map(tdyMailItem);
+  inbox.forEach((it) => held.add("comm:" + it.id));
+  const tasks = me.id
+    ? tkAll({ open: !0, uid: me.id })
+        .filter((t) => !t.approval && !t.refs.some((k) => held.has(k)))
+        .map(tdyTaskItem)
+    : [];
+  const order = (L) => {
+    try {
+      return standardOrder(L, stdQueueTie);
+    } catch (e) {
+      return L;
+    }
+  };
+  return { appr: appr, inbox: order(inbox), tasks: order(tasks), all: order(appr.concat(inbox, tasks)), team: TDY_MANAGERS.includes(r) ? tdyTeam() : null };
+}
+// A manager's Team: who owes what and what is overdue, one row per person with anything open.
+function tdyTeam() {
+  const me = tdyMe(),
+    T = tkAll({ open: !0 }).filter((t) => !t.approval),
+    td = today();
+  return tdyUsers()
+    .filter((u) => u.id !== me.id && !("pm" === role() && "owner" === u.role))
+    .map((u) => {
+      const own = T.filter((t) => t.ownerUid === u.id),
+        offered = T.filter((t) => t.offeredToUid === u.id);
+      return { kind: "tdyPerson", id: u.id, u: u, own: own, offered: offered, late: own.filter((t) => t.due && t.due < td).length, title: u.name, detail: "", due: "" };
+    })
+    .filter((x) => x.own.length || x.offered.length)
+    .sort((a, b) => b.late - a.late || b.own.length - a.own.length);
+}
+function tdyTeamSheet(x) {
+  const R = standardOrder(x.own.concat(x.offered).map(tdyTaskItem), stdQueueTie);
+  const m = mbModal(
+    `${esc(x.u.name)} — Open Tasks`,
+    `<p class="small muted">${x.own.length} open${x.late ? ` · ${x.late} overdue` : ""}${x.offered.length ? ` · ${x.offered.length} offered, not accepted yet` : ""}</p><div class="tdy-team-list">${R.map((it, i) => `<div class="td-sh-row"><span class="grow"><b>${esc(it.title)}</b><span class="small ${it.t.late ? "bad" : "muted"}">${esc(it.detail)}${it.t.offeredToUid === x.u.id ? " · offered by " + esc(it.t.owner) : ""}</span></span><button type="button" class="btn sm" data-tdyteamrow="${i}">Open</button></div>`).join("")}</div>`,
+    { submit: null },
+  );
+  m.querySelectorAll("[data-tdyteamrow]").forEach((b) => (b.onclick = () => (mbCloseModal(), tdyTaskSheet(R[+b.dataset.tdyteamrow].t))));
+  return m;
+}
+// Today's cards for the new kinds: line 1 what it is (opens the task or the message), line 2 why now, one verb.
+{
+  const base = tdCard;
+  tdCard = function (it) {
+    if (!it || !/^tdy(Task|Mail|Person)$/.test(it.kind)) return base.apply(this, arguments);
+    if ("tdyMail" === it.kind) {
+      const go = () => ((cmOpen = it.id), (view = "comms"), render(), window.scrollTo(0, 0));
+      return { line1: `<a href="#" data-tdrec>${esc(tdWords(it.title, 12))}</a>`, why: esc(it.detail), verb: "Read", go: go, run: go };
+    }
+    if ("tdyPerson" === it.kind) {
+      const go = () => tdyTeamSheet(it);
+      return { line1: `<a href="#" data-tdrec>${esc(it.title)}</a>`, why: esc(`${it.own.length} open${it.late ? ` · ${it.late} overdue` : ""}${it.offered.length ? ` · ${it.offered.length} waiting to accept` : ""}`), verb: "Open", go: go, run: go };
+    }
+    const t = it.t,
+      me = tdyMe(),
+      H = t.handoff,
+      sheet = () => tdyTaskSheet(t);
+    let why = it.detail,
+      verb = "Done",
+      run = () => tdyDone(t);
+    if (t.offeredToUid === me.id) (why = `${H.from} offered it to you · ${why}`), (verb = "Accept"), (run = () => tdyDecideSheet(t));
+    else if (H && "offered" === H.state) (why = `offered to ${H.to}, not accepted yet · ${why}`), (verb = "Open"), (run = sheet);
+    else if (H && "declined" === H.state && H.fromUid === me.id && t.ownerUid === me.id) (why = `${H.to} declined: ${H.reason} · ${why}`), (verb = "Hand Off"), (run = () => tdyHandOffSheet(t));
+    else if (t.proofNeed && !tdyProofMet(t.row, t.proofNeed, tdyRec(t.row))) (why = `${why} · needs ${t.proofNeed.label.toLowerCase()}`);
+    t.party && (why = `${why} · ${t.party} does it`);
+    return { line1: `<a href="#" data-tdrec>${esc(tdWords(t.title, 12))}</a>`, why: esc(why), verb: verb, go: sheet, run: run };
+  };
+}
+{
+  const base = tdScore;
+  tdScore = function (it) {
+    if (it && "tdyTask" === it.kind) return 8 + (it.t.late ? 4 : 0) + (it.t.offeredToUid ? 2 : 0);
+    if (it && "tdyMail" === it.kind) return 16;
+    if (it && "tdyPerson" === it.kind) return 0;
+    return base.apply(this, arguments);
+  };
+}
+// Today's verbs where the Approvals page had its own wiring: a field request is acknowledged in one tap.
+{
+  const base = tdCard;
+  tdCard = function (it) {
+    const c = base.apply(this, arguments);
+    try {
+      if (it && "req" === it.kind && !it.nyh) {
+        const p = (DB.projects || []).find((x) => (x.requests || []).some((q) => q.id === it.id)),
+          q = p && p.requests.find((x) => x.id === it.id);
+        q &&
+          "new" === q.status &&
+          Object.assign(c, {
+            verb: "Acknowledge",
+            run: () => {
+              const keep = S;
+              try {
+                S = p;
+                requestAction(p.id, q.id, "ack");
+              } finally {
+                S = keep;
+              }
+              toastDone(`Acknowledged — ${"function" == typeof reqLabel ? reqLabel(q) : q.what || "the request"} (${shortName(p)})`, () => (setCurrent(p.id), (view = "req"), render())), render();
+            },
+          });
+      }
+    } catch (e) {}
+    return c;
+  };
+}
+// What a task and an inbox row rest on, in the Standard (a to-do with no duty carries no principle of its own).
+Object.assign(STD_MAP, {
+  task: { p: "", c: ["value", "own", /Close every loop/i] },
+  inbox: { p: "", c: ["value", "own", /If you see it/i] },
+  "task:friday": { p: "client", c: TDY_DUTY.friday.cite },
+  "task:walk": { p: "quality", c: TDY_DUTY.walk.cite },
+  "task:huddle": { p: "quality", c: TDY_DUTY.huddle.cite },
+  "task:delivery": { p: "schedule", c: TDY_DUTY.delivery.cite },
+  "task:books": { p: "integrity", c: TDY_DUTY.books.cite },
+  "task:coi": { p: "law", c: TDY_DUTY.coi.cite },
+});
+// Caught for You keeps what was found for the person; a late task of their own is on their Tasks, so it is not
+// caught twice. The owner still sees the others' late or unowned tasks here, with Reassign.
+{
+  const C = CATCH.find((c) => "lateTasks" === c.name);
+  if (C) {
+    const base = C.rows;
+    C.rows = function () {
+      const R = base.apply(this, arguments) || [];
+      try {
+        if (!tdOn()) return R;
+        const me = tdyMe(),
+          mine = new Set(tkAll({ open: !0, uid: me.id }).map((t) => "task:" + t.id));
+        return R.filter((r) => !mine.has(r.key));
+      } catch (e) {
+        return R;
+      }
+    };
+  }
+}
+// A coordinator's Caught for You is purchasing's: the billing and books catches belong to billing and the controller.
+const TDY_CATCH_SKIP = { coord: /^(earnedNotBilled|costNotBilled|budgetOverrun|unmatchedCredit|unmatchedTxns)$/ };
+{
+  const base = tdCaught;
+  tdCaught = function () {
+    const R = base.apply(this, arguments) || [];
+    try {
+      const re = TDY_CATCH_SKIP[role()];
+      return re ? R.filter((x) => !re.test(x.src || "")) : R;
+    } catch (e) {
+      return R;
+    }
+  };
+}
+// Every office role's Home is Today. Billing and the controller keep their own first page (the menu's call); their
+// Today is the same page.
+TD_ROLES.push(...TDY_OFFICE.filter((r) => !TD_ROLES.includes(r)));
+// ---- Ask: "what does Angel owe this week" reads the same queue -------------------------------------------------
+// What a person owes: their open tasks (owned, or offered to them), the approvals waiting on their seat, and the
+// promises and meeting steps the ledger holds for them that are not already tasks.
+function tdyOwed(name, to) {
+  const u = tdyUserOf(name),
+    nm = u ? u.name : String(name || ""),
+    out = [],
+    seen = new Set(),
+    push = (x) => {
+      const k = String(x.title || "").toLowerCase().slice(0, 40);
+      if (seen.has(k)) return;
+      seen.add(k), out.push(x);
+    };
+  if (u)
+    tkAll({ open: !0, uid: u.id })
+      .filter((t) => !t.approval && (!to || (t.due && t.due <= to)))
+      .forEach((t) => push({ title: t.title, due: t.due, from: t.offeredToUid === u.id ? `offered by ${t.owner}` : t.sourceLabel.toLowerCase(), kind: "task", t: t }));
+  if (u && TDY_OFFICE.includes(u.role))
+    try {
+      mApprovals({ everyone: !0 })
+        .filter((it) => it.who === u.role && (!to || !stdDueOf(it) || stdDueOf(it) <= to))
+        .forEach((it) => push({ title: tdPlain(it.title), due: stdDueOf(it) || "", from: "waiting on their approval", kind: "approval" }));
+    } catch (e) {}
+  try {
+    "function" == typeof nsOwed && nsOwed({ who: nm, pids: null, to: to || "" }).forEach((x) => push({ title: x.title, due: x.due || "", from: x.from, kind: x.kind || "promise" }));
+  } catch (e) {}
+  return out.sort((a, b) => String(a.due || "9999").localeCompare(String(b.due || "9999")));
+}
+"undefined" != typeof AG_ASST &&
+  AG_ASST.unshift({
+    id: "owesToday",
+    first: !0,
+    kind: "ops",
+    re: /\b(owe[ds]?|owing|on (his|her|their) plate|(has|have) (on|to do))\b/,
+    not: /\bhow much\b|\bowes? us\b|\bdo they owe\b|\b(invoices?|bills?|balance|money|\$|vendors?|clients?)\b/,
+    run(P) {
+      if ("client" === role() || P.vendors.length || P.clients.length) return null;
+      const who = P.people[0] || null;
+      if (!who || !tdyUserOf(who.name)) return null;
+      const to = P.period ? ("this week" === P.period.key && "function" == typeof appWeek ? appWeek().sun || P.period.to : P.period.to) : "",
+        L = tdyOwed(who.name, to),
+        first = who.name.split(" ")[0];
+      return {
+        headline: L.length
+          ? `${agN(L.length, "thing")} ${who.name} owes${P.period ? " " + P.period.say : ""}: ${agList(L.map((x) => `${x.title} — ${x.due ? (x.due < today() ? "overdue since " : "due ") + fmtL(x.due) : "no date"} (${x.from})`), 5)}.`
+          : `${who.name} owes nothing${P.period ? " " + P.period.say : ""}: no open task, approval, promise or meeting step${to ? ` due by ${fmtL(to)}` : ""}.`,
+        note: `Read from ${first}'s Today: the same tasks, approvals and promises, owner by owner.`,
+        work: L.map((x) => `${x.title} — ${x.due ? fmtL(x.due) : "no date"} — ${x.from}`),
+        go: agGo("tkall") || agGo("tasks"),
+        ran: agRan("Today (tasks, approvals, promises)", [`owner is ${who.name}`, "open"].concat(to ? [`due by ${fmtL(to)}`] : []), "", L.length),
+      };
+    },
+  });
+// ---- erpQuery: the tasks entity carries the one shape -------------------------------------------------------
+{
+  const base = eqTasks;
+  eqTasks = function () {
+    const R = base.apply(this, arguments) || [];
+    try {
+      const S_ = new Map(tkAll().map((t) => [t.kind + ":" + t.id + ":" + (t.projectId || ""), t]));
+      let L = [];
+      try {
+        L = tkItems();
+      } catch (e) {}
+      return R.map((r, i) => {
+        const x = L[i],
+          t = x && S_.get(tdyKeyOf(x));
+        return t
+          ? Object.assign(r, {
+              owner: t.owner,
+              sourceType: t.sourceLabel,
+              sourceRecord: t.project || t.sourceLabel,
+              handoffTo: t.offeredTo || "",
+              handoffState: (t.handoff && t.handoff.state) || "",
+              proofNeeded: t.proofNeed ? t.proofNeed.label : "",
+              recurring: t.recur ? TDY_DUTY[t.recur.duty].every : "",
+            })
+          : r;
+      });
+    } catch (e) {
+      return R;
+    }
+  };
+}
+const TDY_IC = {
+  camera: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>',
+};
+/*<</today.js>>*/
+/*<<today2.js>>*/
+// The foreman's Now carries his own tasks for this job due today or late (the morning huddle the Standard asks
+// for, a hand-off he accepted): one line each, with Done, in the same order as the rest of Now.
+{
+  const base = fNowItems;
+  fNowItems = function () {
+    const out = base.apply(this, arguments) || [];
+    try {
+      const me = tdyMe(),
+        td = today();
+      if (!me.id || !S || !S.id) return out;
+      const mine = tkAll({ open: !0, uid: me.id }).filter((t) => !t.approval && t.projectId === S.id && t.due && t.due <= td && t.ownerUid === me.id);
+      if (!mine.length) return out;
+      mine.forEach((t) =>
+        out.push({
+          kind: "fnow",
+          cls: t.due < td ? "warn" : "",
+          html: `<b>${esc(tdWords(t.title.replace(/ — .*$/, ""), 8))}</b>${t.due < td ? " — late" : " — today"} <button class="btn sm" data-tdydone="${esc(t.key)}">Done</button>`,
+          go: "",
+          title: `${t.title.replace(/ — .*$/, "")}${t.due < td ? " — late" : " — today"}`,
+          due: t.due,
+          tier: t.recur ? 4 : 8,
+          blockedToday: !1,
+          src: t.recur ? "task:" + t.recur.duty : "task",
+        }),
+      );
+      return standardOrder(out, (x) => ["bad" === x.cls ? 0 : "warn" === x.cls ? 1 : 2]);
+    } catch (e) {
+      console.warn("foreman tasks", e);
+      return out;
+    }
+  };
+}
+document.addEventListener(
+  "click",
+  (e) => {
+    const b = e.target && e.target.closest ? e.target.closest("[data-tdydone]") : null;
+    if (!b) return;
+    e.preventDefault(), e.stopPropagation();
+    const t = tkAll({ open: !0 }).find((x) => x.key === b.dataset.tdydone);
+    t && tdyDone(t);
+  },
+  !0,
+);
+/*<</today2.js>>*/
