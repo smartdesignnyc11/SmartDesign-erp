@@ -186,8 +186,10 @@ create or replace view public.collections_view with (security_invoker = false) a
     -- A person's own rows (own:<their sign-in id>:<collection>): the mail, calendar and Drive files from their
     -- Google account, their connection and their assistant's memory. Nobody else reads them, the owner included.
     and (c.name not like 'own:%' or split_part(c.name, ':', 2) = public.my_private_key())
-    -- A direct or group message thread (one row each, thread:<id>) is read by its members only, the owner included.
-    and (c.name not like 'thread:%' or public.thread_member(c.data))
+    -- A direct or group message thread (one row each, thread:<id>) is read by its members, and by the owner (Alan,
+    -- 2026-10-19: "I should always have admin privileges"; every staff member's chat list says so). Writing stays
+    -- members-only: the owner joins a conversation (thread_join) before he can write in it.
+    and (c.name not like 'thread:%' or public.thread_member(c.data) or public.my_role() = 'owner')
     -- A job (project:<id>) reaches a field sign-in only when its crew list names that person.
     and (c.name not like 'project:%' or public.is_office() or public.field_job(c.data));
 revoke all on public.collections_view from anon;
@@ -280,7 +282,7 @@ drop policy if exists "collections: members see change events" on public.collect
 create policy "collections: members see change events" on public.collections for select to authenticated
   using (workspace_id = public.my_workspace() and public.is_member()
     and (name not like 'own:%' or split_part(name, ':', 2) = public.my_private_key())
-    and (name not like 'thread:%' or public.thread_member(data))
+    and (name not like 'thread:%' or public.thread_member(data) or public.my_role() = 'owner')
     and (name not like 'project:%' or public.is_office() or public.field_job(data)));
 grant select (workspace_id, name, version, updated_by, updated_at) on public.collections to authenticated;
 do $$ begin
@@ -483,3 +485,26 @@ begin
   return n > 0;
 end $$;
 revoke all on function public.notify_claim(text, text, text) from public, anon, authenticated;
+
+-- ---------------------------------------------------------------- the owner joins a conversation (2026-10-19)
+-- The owner reads every direct and group conversation but writes only in one he is in. "Add Me" puts him in it, in the
+-- open: he is added to its members and a line says so, written by the server with his name from his profile.
+create or replace function public.thread_join(p_id text) returns jsonb language plpgsql security definer set search_path = public as $$
+declare nm text := 'thread:' || p_id; cur record; me text := public.my_app_user(); d jsonb; who text;
+begin
+  if public.my_role() <> 'owner' or me is null then raise exception 'only the owner joins a conversation he is not in'; end if;
+  select * into cur from public.collections c where c.workspace_id = public.my_workspace() and c.name = nm for update;
+  if not found then raise exception 'no such conversation'; end if;
+  d := cur.data;
+  if coalesce(d->'members', '[]'::jsonb) ? me then return jsonb_build_object('name', nm, 'version', cur.version, 'joined', false); end if;
+  who := coalesce(nullif((select name from public.profiles where id = auth.uid()), ''), 'The owner');
+  d := jsonb_set(d, '{members}', coalesce(d->'members', '[]'::jsonb) || to_jsonb(me));
+  d := jsonb_set(d, '{msgs}', coalesce(d->'msgs', '[]'::jsonb) || jsonb_build_array(jsonb_build_object(
+         'id', 'join-' || me || '-' || floor(extract(epoch from now()))::bigint, 'by', 'System', 'system', true, 'joined', me,
+         'text', who || ' joined', 'at', to_char(now() at time zone 'America/New_York', 'YYYY-MM-DD"T"HH24:MI:SS'))));
+  update public.collections set data = d, version = cur.version + 1, updated_by = auth.uid(), updated_at = now()
+   where workspace_id = cur.workspace_id and name = nm;
+  return jsonb_build_object('name', nm, 'version', cur.version + 1, 'joined', true);
+end $$;
+revoke all on function public.thread_join(text) from public, anon;
+grant execute on function public.thread_join(text) to authenticated;

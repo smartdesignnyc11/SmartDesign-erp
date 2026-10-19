@@ -45,7 +45,7 @@ async def t_crew(c, p):
     await sign_in(pg, 'u_alan')
     await pg.evaluate("() => { setCurrent('p206'); msgOpen('job:p206'); }")
     await pg.wait_for_timeout(200)
-    head = await pg.evaluate("() => document.getElementById('msg-head').innerText")
+    head = await pg.evaluate("() => { const h = document.getElementById('msg-head'), b = h.querySelector('[data-msgcrew]'); return h.innerText + ' | ' + (b ? b.getAttribute('aria-label') : '') }")
     c.ok('Crew:' in head and 'Alberto, Alex' in head and 'Change Crew' in head, f"crew: the job's thread names its crew, with Change Crew for the PM ({head!r})")
     await pg.click('[data-msgcrew="p206"]')
     await pg.wait_for_timeout(200)
@@ -69,7 +69,7 @@ async def t_crew(c, p):
     await sign_in(pg, 'u_angel')
     await pg.evaluate("() => { setCurrent('p206'); msgOpen('job:p206'); }")
     await pg.wait_for_timeout(200)
-    r = await pg.evaluate("() => { const h = document.getElementById('msg-head').innerText; msgTeamEdit('p206'); return { h, modal: !!document.getElementById('mbm'), toast: document.getElementById('toast').innerText, team: DB.projects.find(p => p.id === 'p206').team } }")
+    r = await pg.evaluate("() => { const h = document.getElementById('msg-head').innerText + (document.querySelector('#msg-head [data-msgcrew]') ? ' Change Crew' : ''); msgTeamEdit('p206'); return { h, modal: !!document.getElementById('mbm'), toast: document.getElementById('toast').innerText, team: DB.projects.find(p => p.id === 'p206').team } }")
     c.ok('Crew:' in r['h'] and 'Change Crew' not in r['h'], f"crew: the foreman reads who is on his job, with no Change Crew ({r['h']!r})")
     c.ok(not r['modal'] and 'PM or the owner' in r['toast'], f"crew: and cannot change it ({r['toast']!r})")
     # Project Settings: the same line, the same door
@@ -215,6 +215,16 @@ async def t_notify(c, p):
 
 
 # ------------------------------------------------------------------------------------------------ 4. reactions
+async def long_press(pg, sel):
+    # a finger held half a second on the line (Playwright's touchscreen only taps)
+    await pg.evaluate("""s => { const el = document.querySelector(s), r = el.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2;
+        const t = new Touch({ identifier: 1, target: el, clientX: x, clientY: y });
+        el.dispatchEvent(new TouchEvent('touchstart', { touches: [t], targetTouches: [t], changedTouches: [t], bubbles: true, cancelable: true })); }""", sel)
+    await pg.wait_for_timeout(650)
+    await pg.evaluate("s => { const el = document.querySelector(s); el.dispatchEvent(new TouchEvent('touchend', { touches: [], changedTouches: [], bubbles: true })); }", sel)
+    await pg.wait_for_timeout(150)
+
+
 async def t_react(c, p):
     b, pg, errs = await fresh(p, 'u_chen')
     await pg.evaluate("() => msgOpen('dm:th_seed_dm')")
@@ -254,11 +264,12 @@ async def t_react(c, p):
     await pg.evaluate("() => { const P = DB.projects.find(p => p.id === 'p121'); P.chat.push(Object.assign(msgLine('Inspector passed the framing'), { by: 'Angel', fromUid: 'u_angel' })); setCurrent('p121'); msgOpen('job:p121'); }")
     await pg.wait_for_timeout(250)
     mid = await pg.evaluate("() => DB.projects.find(p => p.id === 'p121').chat.slice(-1)[0].id")
-    await pg.tap(f'[data-mid="{mid}"] [data-msgreact]')
-    await pg.wait_for_timeout(150)
-    await pg.tap(f'[data-mid="{mid}"] .msg-rpick [data-msgrx$="|like"]')
-    await pg.wait_for_timeout(200)
-    r = await pg.evaluate(f"""() => {{ const chip = document.querySelector('[data-mid="{mid}"] .msg-rxc'), r = chip.getBoundingClientRect(), acts = [...document.querySelectorAll('[data-mid="{mid}"] .msg-acts button')].map(b => b.getBoundingClientRect());
+    await long_press(pg, f'[data-mid="{mid}"] .msg-bub')
+    sheet = await pg.evaluate("() => { const s = document.getElementById('msg-sheet'); return s ? [...s.querySelectorAll('button')].map(b => [b.innerText.trim(), Math.round(b.getBoundingClientRect().height)]) : null }")
+    c.ok(sheet and [x[0] for x in sheet] == ['Done', 'Good', 'On It', 'Question', 'Reply', 'Make a Task', 'Copy', 'Cancel'] and min(x[1] for x in sheet) >= 48, f'react: a long press on the phone opens Reply, the reactions, Make a Task and Copy, big targets ({sheet})')
+    await pg.tap('#msg-sheet [data-msgrx$="|like"]')
+    await pg.wait_for_timeout(250)
+    r = await pg.evaluate(f"""() => {{ const chip = document.querySelector('[data-mid="{mid}"] .msg-rxc'), r = chip.getBoundingClientRect(), acts = [...document.querySelectorAll('[data-mid="{mid}"] .msg-below > *')].map(b => b.getBoundingClientRect());
         return {{ react: DB.projects.find(p => p.id === 'p121').chat.slice(-1)[0].react, h: r.height, right: r.right, sw: document.documentElement.scrollWidth, gap: acts.length > 1 ? Math.max(acts[1].left - acts[0].right, acts[0].left - acts[1].right, acts[1].top - acts[0].bottom, acts[0].top - acts[1].bottom) : 99 }} }}""")
     c.ok(r['react'] == {'u_alberto': 'like'}, f"react: Alberto's Good is on the job's line ({r['react']})")
     c.ok(r['h'] >= 36 and r['right'] <= 390 and r['sw'] <= 390 and r['gap'] >= 8, f'react: on the phone the chip is a big target, 8px from the next, no sideways scroll ({r})')
@@ -268,19 +279,25 @@ async def t_react(c, p):
 
 # ------------------------------------------------------------------------------------------------ 5. voice notes
 async def t_voice(c, p):
-    # the record button: on the field's phone inside the text box's end, the box keeps its width; not for a client
+    # the round button at the right of the box: the microphone while the box is empty, Send once there is text (as on
+    # WhatsApp); the box keeps a usable width; a client has Send only
     b, pg, errs = await fresh(p, 'u_alberto', phone=True)
     await pg.evaluate("() => { setCurrent('p121'); msgOpen('job:p121'); }")
     await pg.wait_for_timeout(250)
     r = await pg.evaluate("""() => { const v = document.getElementById('msg-voice'), t = document.getElementById('chat-text'), a = v.getBoundingClientRect(), x = t.getBoundingClientRect(),
         mid = document.elementFromPoint(x.left + x.width / 2, x.top + x.height / 2);
-        return { shown: !v.hidden && a.width >= 44 && a.height >= 44, inside: a.left >= x.left && a.right <= x.right + 1, box: x.width, hit: mid === t, sw: document.documentElement.scrollWidth, label: v.getAttribute('aria-label'), svg: !!v.querySelector('svg') } }""")
+        const send = document.getElementById('chat-send');
+        return { shown: !v.hidden && a.width >= 44 && a.height >= 44, inside: a.left >= x.right && !send.getClientRects().length, round: getComputedStyle(v).borderRadius, box: x.width, hit: mid === t, sw: document.documentElement.scrollWidth, label: v.getAttribute('aria-label'), svg: !!v.querySelector('svg') } }""")
     c.ok(r['shown'] and r['svg'] and 'voice note' in (r['label'] or ''), f'voice: the field phone has a 44px microphone button with a line icon ({r})')
-    c.ok(r['inside'] and r['box'] >= 140 and r['hit'] and r['sw'] <= 390, f'voice: it sits inside the text box, which keeps its width and its tap ({r})')
+    c.ok(r['inside'] and r['round'] == '50%' and r['box'] >= 140 and r['hit'] and r['sw'] <= 390, f'voice: with the box empty the round button is the microphone, Send is away, the box keeps its width ({r})')
+    await pg.fill('#chat-text', 'On my way')
+    r = await pg.evaluate("() => ({ send: !!document.getElementById('chat-send').getClientRects().length, mic: !!document.getElementById('msg-voice').getClientRects().length })")
+    c.ok(r['send'] and not r['mic'], f'voice: once there is text the round button is Send ({r})')
+    await pg.fill('#chat-text', '')
     await sign_in(pg, 'u_klein')
     await go(pg, 'chat')
-    hid = await pg.evaluate("() => { const v = document.getElementById('msg-voice'); return !v || v.hidden || !v.getClientRects().length }")
-    c.ok(hid, 'voice: a client has no record button')
+    hid = await pg.evaluate("() => { const v = document.getElementById('msg-voice'); return (!v || v.hidden || !v.getClientRects().length) && !!document.getElementById('chat-send').getClientRects().length }")
+    c.ok(hid, 'voice: a client has no record button, and Send stays')
     c.ok(not errs, f'voice: no page errors {errs[:2]}')
     await b.close()
     # record for real with the browser's test microphone
@@ -321,7 +338,116 @@ async def t_voice(c, p):
     await br.close()
 
 
-TESTS = [t_crew, t_seen, t_notify, t_react, t_voice]
+# ------------------------------------------------------------------------------------------------ 6. the screen
+VISIBLE = "s => { const e = document.querySelector(s); return !!(e && e.getClientRects().length && getComputedStyle(e).visibility !== 'hidden') }"
+
+
+async def t_screen(c, p):
+    # the phone: Chat in the bottom bar opens the list, no job chrome
+    b, pg, errs = await fresh(p, 'u_alan', phone=True)
+    await pg.evaluate("() => { setCurrent('p121'); view = 'dash'; render(); }")
+    await pg.click('.mtabs [data-mv="chat"]')
+    await pg.wait_for_timeout(300)
+    r = await pg.evaluate(f"""() => {{ const vis = {VISIBLE};
+        return {{ view, list: vis('#msg-side'), thread: vis('.msg-main'), sub: vis('#subnav'), hdr: vis('#projhdr'), h2: (document.querySelector('#msg-side h2') || {{}}).innerText,
+          rows: [...document.querySelectorAll('#msg-side .msg-row')].map(e => [Math.round(e.getBoundingClientRect().height), !!e.querySelector('.msg-av')]), search: vis('#msg-q'), compose: vis('#msg-new'), sw: document.documentElement.scrollWidth,
+          order: msgRowsOf(msgThreadsFor(), msgMe()).map(x => x.un.n) }} }}""")
+    c.ok(r['view'] == 'chat' and r['list'] and not r['thread'], f'screen: the bottom bar\'s Chat opens the list of conversations, not a job ({r["view"]}, list {r["list"]}, thread {r["thread"]})')
+    c.ok(not r['sub'] and not r['hdr'], f"screen: no job switcher, job tabs or job dates on Chat ({r['sub']}, {r['hdr']})")
+    c.ok(r['h2'] == 'Chat' and r['search'] and r['compose'], f"screen: the list has its heading, search and New Message ({r['h2']})")
+    c.ok(r['rows'] and all(h >= 56 and av for h, av in r['rows']) and r['sw'] <= 390, f"screen: each row has an avatar and is a big target; no sideways scroll ({r['rows'][:3]}, {r['sw']})")
+    c.ok(r['order'] == sorted(r['order'], key=lambda n: 0 if n else 1), f"screen: unread conversations come first ({r['order']})")
+    await pg.fill('#msg-q', 'lenox')
+    await pg.wait_for_timeout(200)
+    t = await pg.evaluate("() => [...document.querySelectorAll('#msg-side .msg-row .msg-t')].map(e => e.innerText)")
+    c.ok(t and all('Lenox' in x for x in t), f'screen: search narrows the list as you type ({t})')
+    await pg.fill('#msg-q', '')
+    await pg.wait_for_timeout(150)
+    # a conversation: full screen, the composer pinned at the bottom, one blue button, 16px text so iOS does not zoom
+    await pg.tap('#msg-side [data-msgopen="job:p121"]')
+    await pg.wait_for_timeout(300)
+    r = await pg.evaluate("""() => { const m = document.querySelector('.msg-main').getBoundingClientRect(), c = document.querySelector('#v-chat .chat-compose').getBoundingClientRect(), rb = [document.getElementById('chat-send'), document.getElementById('msg-voice')].find(e => e && e.getClientRects().length), s = rb.getBoundingClientRect(), t = document.getElementById('chat-text');
+        const prim = [...document.querySelectorAll('.btn.primary')].filter(e => e.getClientRects().length && getComputedStyle(e).visibility !== 'hidden');
+        return { top: Math.round(m.top), bottom: Math.round(m.bottom), cbottom: Math.round(c.bottom), vh: innerHeight, send: [Math.round(s.width), Math.round(s.height), getComputedStyle(rb).borderRadius, rb.id],
+          font: getComputedStyle(t).fontSize, tag: t.tagName, prim: prim.map(e => e.id || e.className), back: !!document.querySelector('#msg-head [data-msgback]'), pinned: !!document.getElementById('pl-pinned'), sw: document.documentElement.scrollWidth } }""")
+    c.ok(r['top'] == 0 and r['bottom'] == r['vh'] and r['vh'] - r['cbottom'] <= 2, f'screen: the conversation is full screen and the composer sits at the bottom ({r})')
+    c.ok(r['send'][0] >= 44 and r['send'][1] >= 44 and r['send'][2] == '50%', f"screen: the round button at the right (the microphone while the box is empty) is 44px ({r['send']})")
+    c.ok(r['font'] == '16px' and r['tag'] == 'TEXTAREA', f"screen: the box is a growing text area at 16px, so an iPhone does not zoom ({r['font']}, {r['tag']})")
+    c.ok(r['prim'] == ['msg-voice'], f"screen: one blue button on the screen: the microphone while the box is empty ({r['prim']})")
+    await pg.fill('#chat-text', 'Panel cover is off')
+    prim = await pg.evaluate("() => [...document.querySelectorAll('.btn.primary')].filter(e => e.getClientRects().length && getComputedStyle(e).visibility !== 'hidden').map(e => e.id)")
+    c.ok(prim == ['chat-send'], f"screen: and Send once there is text ({prim})")
+    await pg.fill('#chat-text', '')
+    c.ok(r['back'] and not r['pinned'] and r['sw'] <= 390, f"screen: a back arrow, no Pinned Plans under the composer, no sideways scroll ({r})")
+    await pg.fill('#chat-text', 'Line one\nLine two\nLine three')
+    await pg.wait_for_timeout(100)
+    h = await pg.evaluate("() => document.getElementById('chat-text').getBoundingClientRect().height")
+    c.ok(h > 60, f'screen: the box grows with what is typed ({h})')
+    await pg.fill('#chat-text', '')
+    await pg.tap('[data-msgback]')
+    await pg.wait_for_timeout(200)
+    c.ok(await pg.evaluate(f"() => ({VISIBLE})('#msg-side') && !({VISIBLE})('.msg-main')"), 'screen: back returns to the list')
+    # the header's Plans button: the job's current drawings, where Pinned Plans now lives
+    await pg.evaluate("() => msgOpen('job:p121')")
+    await pg.wait_for_timeout(200)
+    await pg.tap('#msg-head [data-msgplans]')
+    await pg.wait_for_timeout(300)
+    v = await pg.evaluate("() => view")
+    c.ok(v == 'plans', f"screen: the conversation's Plans button opens the job's drawings ({v})")
+    c.ok(not errs, f'screen phone: no page errors {errs[:2]}')
+    await b.close()
+    # the field's bar
+    b, pg, errs = await fresh(p, 'u_alberto', phone=True)
+    await pg.click('.tabbar [data-tab="chat"]')
+    await pg.wait_for_timeout(300)
+    r = await pg.evaluate(f"() => ({{ list: ({VISIBLE})('#msg-side'), thread: ({VISIBLE})('.msg-main') }})")
+    c.ok(r['list'] and not r['thread'], f"screen: the field's Chat opens the list too ({r})")
+    await b.close()
+    # the desktop: two panes, the list beside the conversation; no job chrome; the trail reads Chat
+    b, pg, errs = await fresh(p, 'u_alan')
+    await pg.evaluate("() => { setCurrent('p121'); view = 'dash'; render(); }")
+    await pg.click('#tb-chat')
+    await pg.wait_for_timeout(300)
+    r = await pg.evaluate(f"""() => {{ const vis = {VISIBLE}, a = document.querySelector('#msg-side').getBoundingClientRect(), m = document.querySelector('.msg-main').getBoundingClientRect(), c = document.querySelector('#v-chat .chat-compose').getBoundingClientRect();
+        return {{ side: vis('#msg-side'), main: vis('.msg-main'), beside: a.right <= m.left + 1 && Math.abs(a.top - m.top) < 4, sub: vis('#subnav'), hdr: vis('#projhdr'), crumbs: document.getElementById('crumbs').innerText.trim(),
+          cur: (msgCur() || {{}}).key, top: msgRowsOf(msgThreadsFor(), msgMe())[0].T.key, pinned: c.bottom <= innerHeight && innerHeight - c.bottom < 40 }} }}""")
+    c.ok(r['side'] and r['main'] and r['beside'], f'screen: on a desktop the list and the conversation are two panes side by side ({r})')
+    c.ok(not r['sub'] and not r['hdr'] and r['crumbs'] == 'Chat', f"screen: no job chrome, and the trail reads Chat ({r['crumbs']!r})")
+    c.ok(r['cur'] == r['top'] and r['pinned'], f"screen: it opens on the top conversation, the composer at the pane's foot ({r})")
+    # a line: bubbles, a day separator, a run of one person's lines grouped; Reply quotes it; Copy copies it
+    await pg.evaluate("""() => { const P = DB.projects.find(p => p.id === 'p121'); const L = (id, uid, text, at) => Object.assign(msgLine(text), { id, by: DB.users.find(u => u.id === uid).name, fromUid: uid, at, t: stampText(at) });
+        P.chat.push(L('s1', 'u_angel', 'Framing is done in the garden bedroom', '2026-09-02T16:10:00'), L('s2', 'u_angel', 'Plumber starts tomorrow', '2026-09-02T16:11:00'), L('s3', 'u_chen', 'Tile lands Friday', '2026-09-03T08:05:00')); msgOpen('job:p121'); }""")
+    await pg.wait_for_timeout(250)
+    r = await pg.evaluate("""() => ({ days: [...document.querySelectorAll('#chat-list .msg-day')].map(e => e.innerText.trim()), s1: !!document.querySelector('[data-mid="s1"] .msg-av:not(.sp)'), s2: !!document.querySelector('[data-mid="s2"] .msg-av:not(.sp)'),
+        who2: !!document.querySelector('[data-mid="s2"] .who'), them: document.querySelector('[data-mid="s1"]').classList.contains('them'), time: (document.querySelector('[data-mid="s1"] .msg-time') || {}).innerText })""")
+    c.ok('Yesterday' in r['days'] and 'Today' in r['days'], f"screen: day separators ({r['days']})")
+    c.ok(r['them'] and r['s1'] and not r['s2'] and not r['who2'], f'screen: the second of two lines from Angel is grouped under the first ({r})')
+    c.ok(r['time'] == '4:10 PM', f"screen: the time sits quietly in the bubble ({r['time']})")
+    await pg.hover('[data-mid="s1"] .msg-bub')
+    await pg.click('[data-mid="s1"] [data-msgreply]')
+    await pg.wait_for_timeout(150)
+    bar = await pg.evaluate("() => document.getElementById('msg-reply').innerText")
+    c.ok('Replying to Angel' in bar, f'screen: Reply names the line above the box ({bar!r})')
+    await pg.fill('#chat-text', 'Good, I will tell the plumber')
+    await pg.press('#chat-text', 'Enter')
+    await pg.wait_for_timeout(400)
+    r = await pg.evaluate("() => { const m = DB.projects.find(p => p.id === 'p121').chat.slice(-1)[0]; return { reply: m.reply, quote: !!document.querySelector(`[data-mid='${m.id}'] .msg-quote`), bar: document.getElementById('msg-reply').hidden, box: document.getElementById('chat-text').value } }")
+    c.ok(r['reply'] and r['reply']['id'] == 's1' and r['quote'] and r['bar'] and r['box'] == '', f"screen: the sent line quotes the one it answers, and the bar clears ({r})")
+    await pg.hover('[data-mid="s3"] .msg-bub')
+    await pg.click('[data-mid="s3"] [data-msgcopy]')
+    await pg.wait_for_timeout(200)
+    t = await pg.evaluate("() => document.getElementById('toast').innerText")
+    c.ok('Copied' in t or 'would not copy' in t, f'screen: Copy copies it, and says so ({t!r})')
+    # the job's own tabs: Mail and Chat, never two that read as chat
+    await pg.evaluate("() => { setCurrent('p121'); view = 'dash'; render(); }")
+    await pg.wait_for_timeout(200)
+    tabs = await pg.evaluate("() => [...document.querySelectorAll('#subnav [data-sub]')].map(e => e.innerText.trim())")
+    c.ok('Mail' in tabs and 'Chat' not in tabs and 'Messages' not in tabs, f"screen: the job's tabs read Mail; Chat is the header's and the bar's, never a second chat tab ({[x for x in tabs if x in ('Mail', 'Chat', 'Messages')]})")
+    c.ok(not errs, f'screen desktop: no page errors {errs[:2]}')
+    await b.close()
+
+
+TESTS = [t_crew, t_seen, t_notify, t_react, t_voice, t_screen]
 
 
 async def main():

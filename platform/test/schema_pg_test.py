@@ -131,6 +131,27 @@ ok(not err and (not rows or rows[0] in ('', None)), f"the foreman's change feed 
 rows, err = as_('crew', "select json_agg(name) from public.collections where name like 'thread:%';")
 ok(not err and rows and 'thread:t1' in rows[0], f'the crew member, a member, hears his thread: {rows} {err[:200]}')
 
+# the owner reads every conversation, writes only once he has joined it (in the open), and nobody else gains anything
+person('chen', 'coord', 'u_chen')
+r = save('crew', [{'name': 'thread:t9', 'data': {'id': 't9', 'kind': 'direct', 'members': ['u_alberto', 'u_chen'], 'msgs': [{'id': 'a', 'text': 'CREW-TO-CHEN'}]}, 'base': 0}])['thread:t9']
+ok(r.get('version'), f'the crew member starts a direct chat with Chen: {r}')
+ok('thread:t9' in view('owner') and 'CREW-TO-CHEN' in json.dumps(view('owner')), 'the owner reads a chat he is not in')
+ok('thread:t9' not in view('foreman') and 'thread:t9' not in view('pm'), 'nobody else who is not in it does, the PM included')
+rows, err = as_('owner', "select json_agg(name) from public.collections where name = 'thread:t9';")
+ok(not err and rows and 'thread:t9' in rows[0], f"the owner's change feed hears it: {rows} {err[:120]}")
+r = save('owner', [{'name': 'thread:t9', 'data': {'id': 't9', 'members': ['u_alberto', 'u_chen'], 'msgs': [{'id': 'a', 'text': 'CREW-TO-CHEN'}, {'id': 'b', 'text': 'IN THEIR NAME'}]}, 'base': ver('owner', 'thread:t9')}])['thread:t9']
+ok(r.get('refused'), f'the owner cannot write in it before he joins: {r}')
+rows, err = as_('pm', "select public.thread_join('t9');")
+ok('only the owner' in err, f'nobody but the owner can join a chat he is not in: {err[:120]}')
+rows, err = as_('owner', "select public.thread_join('t9');")
+ok(not err and '"joined": true' in rows[0], f'the owner joins it: {rows} {err[:120]}')
+d = view('owner')['thread:t9']
+ok('u_owner' in d['members'] and d['msgs'][-1].get('system') and d['msgs'][-1]['text'].endswith('joined'), f'he is a member now, and a line says so: {d}')
+ok('thread:t9' in view('crew') and 'joined' in json.dumps(view('crew')['thread:t9']), 'the others see that he joined')
+d['msgs'].append({'id': 'c', 'text': 'OWNER-AFTER-JOIN'})
+r = save('owner', [{'name': 'thread:t9', 'data': d, 'base': ver('owner', 'thread:t9')}])['thread:t9']
+ok(r.get('version'), f'and then writes in it: {r}')
+
 # notifications: one per conversation per person every 2 minutes, and nobody signed in can call or read it
 first = psql("select public.notify_claim('pk1', 'dm:t1', 'qa');").stdout.strip()
 second = psql("select public.notify_claim('pk1', 'dm:t1', 'qa');").stdout.strip()

@@ -302,12 +302,14 @@ async def impact(c, pg, label):
 
 async def thread(c, pg, label):
     await sign_in(pg, 'u_alan')
-    r = await pg.evaluate("""() => { setCurrent('p121'); view = 'chat'; render(); const pin = document.getElementById('pl-pinned');
+    # Pinned Plans live on the job's page, not under the chat's composer (Alan, 2026-10-19); the job's chat thread
+    # opens the current drawings from its header
+    r = await pg.evaluate("""() => { setCurrent('p121'); msgOpen('job:p121'); const inChat = !!document.querySelector('#v-chat #pl-pinned'), btn = !!document.querySelector('#msg-head [data-msgplans]');
+      view = 'dash'; render(); const pin = document.querySelector('#v-dash #pl-pinned');
       const btns = pin ? [...pin.querySelectorAll('[data-plopen]')].map(b => plRow(b.dataset.plopen)) : [];
-      view = 'dash'; render(); const dash = document.querySelector('#v-dash #pl-pinned');
-      return { n: btns.length, allCur: btns.every(s => plIsCurrent(s)), noOld: !btns.some(s => s.id === 'sh121a201a' || s.id === 'sh121a301b'), dash: !!dash }; }""")
-    c.ok(r['n'] and r['allCur'] and r['noOld'], f"{label}: the job thread pins current sheets only ({r['n']})")
-    c.ok(r['dash'], f"{label}: and so does the job's page")
+      return { n: btns.length, allCur: btns.every(s => plIsCurrent(s)), noOld: !btns.some(s => s.id === 'sh121a201a' || s.id === 'sh121a301b'), inChat, btn }; }""")
+    c.ok(r['n'] and r['allCur'] and r['noOld'], f"{label}: the job's page pins current sheets only ({r['n']})")
+    c.ok(not r['inChat'] and r['btn'], f"{label}: the chat carries no pinned sheets; its header opens the plans ({r})")
     if label == 'phone':
         c.ok(await pg.evaluate(SW) <= 390, f"{label}: the job page does not scroll sideways")
 

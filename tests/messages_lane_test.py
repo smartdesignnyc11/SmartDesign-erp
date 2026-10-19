@@ -113,7 +113,9 @@ async def t_dm(c, p):
              ask: (EQ_TABLES.chat ? EQ_TABLES.chat() : []).some(x => (x.text || '').includes(s)),
              open: (() => { const T = msgThread(k); return !!T; })() })""", [key, secret[:30]])
         m = u in members
-        c.ok(r['list'] == m and r['open'] == m, f"dm: {u} {'has' if m else 'has not'} the thread in their list ({r})")
+        # the owner reads every chat (Alan, 2026-10-19: "I should always have admin privileges"), from All Chats; it is
+        # not in his own list and he writes in it only after joining
+        c.ok(r['list'] == m and r['open'] == (m or u == 'u_owner'), f"dm: {u} {'has' if m else 'has not'} the thread in their list ({r})")
         c.ok(r['screen'] == (m and u != 'u_chen' or u == 'u_chen'), f"dm: {u} {'reads' if m else 'does not read'} the line on Chat ({r['screen']})")
         c.ok(r['ask'] == m, f"dm: Ask's query layer gives the line to {u} only if a member ({r['ask']})")
     # Alberto reads it: one unread, then none
@@ -224,18 +226,18 @@ async def t_unread(c, p):
     await pg.evaluate("() => { setCurrent('p121'); view = 'dash'; render(); }")
     await pg.wait_for_timeout(200)
     r = await pg.evaluate("""() => { const T = msgThread('job:p121'), u = msgUnread(T), tot = msgUnreadTotal();
-       return { u, tot, badges: [...document.querySelectorAll('[data-v="chat"], [data-mv="chat"], [data-tab="chat"], [data-sub="chat"]')].filter(e => e.getClientRects().length).map(e => (e.querySelector('.n') || {}).textContent || '') } }""")
+       return { u, tot, badges: [...document.querySelectorAll('#tb-chat, [data-v="chat"], [data-mv="chat"], [data-tab="chat"], [data-sub="chat"]')].filter(e => e.getClientRects().length).map(e => (e.querySelector('.n') || {}).textContent || '') } }""")
     c.ok(r['u']['n'] == 2 and r['u']['at'] == 1, f"unread: Chen has 2 unread on the job's thread, one naming him ({r['u']})")
     c.ok(r['badges'] and all(x == str(r['tot']['n']) for x in r['badges']), f"unread: every Chat entry on screen shows the same number ({r['badges']} vs {r['tot']['n']})")
     # the thread list (desktop): row and total agree with the badge; open a different thread so 121's row stays unread
     await open_thread(pg, 'dm:th_seed_dm')
     r = await pg.evaluate("""() => { const row = document.querySelector('#msg-side [data-msgopen="job:p121"]'), tot = document.querySelector('#msg-side .msg-tot');
        return { row: row ? (row.querySelector('.n') || {}).textContent : null, at: row ? !!row.querySelector('.msg-atn') : false, tot: tot ? tot.textContent : '', total: msgUnreadTotal().n,
-         badges: [...document.querySelectorAll('[data-v="chat"], [data-mv="chat"], [data-tab="chat"], [data-sub="chat"]')].filter(e => e.getClientRects().length).map(e => (e.querySelector('.n') || {}).textContent || '') } }""")
+         badges: [...document.querySelectorAll('#tb-chat, [data-v="chat"], [data-mv="chat"], [data-tab="chat"], [data-sub="chat"]')].filter(e => e.getClientRects().length).map(e => (e.querySelector('.n') || {}).textContent || '') } }""")
     c.ok(r['row'] == '2' and r['at'], f"unread: the thread's row reads 2 and marks the mention ({r})")
     c.ok(r['tot'] == str(r['total']) and all(x == r['tot'] for x in r['badges']), f"unread: the list's total equals the badge ({r})")
     await open_thread(pg, 'job:p121')
-    r = await pg.evaluate("() => ({ total: msgUnreadTotal().n, badges: [...document.querySelectorAll('[data-sub=\"chat\"], [data-v=\"chat\"]')].filter(e => e.getClientRects().length).map(e => (e.querySelector('.n') || {}).textContent || '') })")
+    r = await pg.evaluate("() => ({ total: msgUnreadTotal().n, badges: [...document.querySelectorAll('#tb-chat, [data-sub=\"chat\"], [data-v=\"chat\"]')].filter(e => e.getClientRects().length).map(e => (e.querySelector('.n') || {}).textContent || '') })")
     c.ok(r['total'] == 0 and all(x == '' for x in r['badges']), f'unread: reading the thread clears the count everywhere ({r})')
     # the phone: the back bar carries the same number as the tab
     b2, pg2, errs2 = await fresh(p, 'u_alberto', phone=True)
@@ -259,11 +261,12 @@ async def t_phone(c, p):
     await pg.keyboard.type('Drywall delivered to the 3rd floor')
     await pg.keyboard.press('Enter')
     await pg.wait_for_timeout(500)
-    r = await pg.evaluate("""() => { const s = document.getElementById('chat-send').getBoundingClientRect(); return { list: document.getElementById('chat-list').innerText, box: document.getElementById('chat-text').value, sw: document.documentElement.scrollWidth,
+    # the round button at the right is Send while there is text and the microphone once the box is empty (2026-10-19)
+    r = await pg.evaluate("""() => { const b = [document.getElementById('chat-send'), document.getElementById('msg-voice')].find(e => e && e.getClientRects().length), s = b.getBoundingClientRect(); return { list: document.getElementById('chat-list').innerText, box: document.getElementById('chat-text').value, sw: document.documentElement.scrollWidth,
         send: [s.width, s.height, s.right] } }""")
     c.ok('Drywall delivered to the 3rd floor' in r['list'] and r['box'] == '', f"phone: Enter sends and clears the box ({r['box']!r})")
     c.ok(r['sw'] <= 390, f"phone: no sideways scroll ({r['sw']})")
-    c.ok(r['send'][1] >= 44 and r['send'][2] <= 390, f"phone: Send is a big target, on the screen ({r['send']})")
+    c.ok(r['send'][1] >= 44 and r['send'][2] <= 390, f"phone: the round Send (or microphone) is a big target, on the screen ({r['send']})")
     # the list: back, then a thread
     await pg.tap('[data-msgback]')
     await pg.wait_for_timeout(250)

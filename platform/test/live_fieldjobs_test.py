@@ -89,5 +89,26 @@ s, cur = http('GET', BASE + '/rest/v1/collections_view?select=version&name=eq.ti
 s, res = save(T['foreman'], [{'name': 'time', 'data': [{'id': 'te1', 'empId': 'em1', 'projectId': 'qaC', 'date': '2026-09-03'}], 'base': (cur[0]['version'] if cur else 0)}])
 ok(s == 200 and res[0].get('version'), f'the foreman still saves his time: {res}')
 
+# the owner reads every chat, writes only after joining it in the open; nobody else gains anything
+T['crew'] = token('crew')
+s, res = save(T['crew'], [{'name': 'thread:qa-own1', 'data': {'id': 'qa-own1', 'kind': 'direct', 'members': ['u_alberto', 'u_chen'], 'msgs': [{'id': 'm1', 'text': 'CREW-TO-CHEN'}]}, 'base': 0}])
+ok(s == 200 and res[0].get('version'), f'the crew member starts a direct chat with Chen: {res}')
+ok('CREW-TO-CHEN' in json.dumps(view(T['owner'])), 'the owner reads a chat he is not in')
+ok('CREW-TO-CHEN' not in json.dumps(view(T['foreman'])), 'the foreman, not in it, never receives it')
+v = view(T['owner'], '&name=eq.thread:qa-own1')['thread:qa-own1']
+d = v['data']; d['msgs'].append({'id': 'm2', 'text': 'WRITTEN BY THE OWNER'})
+s, res = save(T['owner'], [{'name': 'thread:qa-own1', 'data': d, 'base': v['version']}])
+ok(res and res[0].get('refused'), f'the owner cannot write in it before he joins: {res}')
+s, j = http('POST', BASE + '/rest/v1/rpc/thread_join', {'p_id': 'qa-own1'}, token=T['foreman'])
+ok(s >= 400, f'nobody but the owner joins a chat he is not in: {s}')
+s, j = http('POST', BASE + '/rest/v1/rpc/thread_join', {'p_id': 'qa-own1'}, token=T['owner'])
+ok(s == 200 and j.get('joined'), f'the owner joins it: {s} {j}')
+v = view(T['owner'], '&name=eq.thread:qa-own1')['thread:qa-own1']
+ok('u_owner' in v['data']['members'] and v['data']['msgs'][-1].get('system'), f"he is in it now, and a line says he joined: {v['data']['msgs'][-1]}")
+ok('joined' in json.dumps(view(T['crew'], '&name=eq.thread:qa-own1')), 'the crew member sees that he joined')
+d = v['data']; d['msgs'].append({'id': 'm3', 'text': 'OWNER AFTER JOINING'})
+s, res = save(T['owner'], [{'name': 'thread:qa-own1', 'data': d, 'base': v['version']}])
+ok(s == 200 and res[0].get('version'), f'and then writes in it: {res}')
+
 print('ALL PASS' if not fails else f'{len(fails)} FAILED', f'({n} checks)')
 sys.exit(1 if fails else 0)

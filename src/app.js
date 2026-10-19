@@ -129860,11 +129860,11 @@ if (
   render = function () {
     try {
       "object" == typeof NAV_LABELS &&
-        ((NAV_LABELS.inbox = "Messages"),
+        ((NAV_LABELS.inbox = "Mail"),
         (NAV_LABELS.studio = "Design Projects"),
         (NAV_LABELS.leads = "Lead Board")),
         "object" == typeof IA_LABELS &&
-          ((IA_LABELS.inbox = "Messages"),
+          ((IA_LABELS.inbox = "Mail"),
           (IA_LABELS.studio = "Design Projects"),
           (IA_LABELS.leads = "Lead Board"));
     } catch (e) {}
@@ -129896,10 +129896,10 @@ if (
 }
 if (
   ("object" == typeof NAV_LABELS &&
-    ((NAV_LABELS.inbox = "Messages"), (NAV_LABELS.studio = "Design Projects")),
-  "object" == typeof IA_LABELS && ((IA_LABELS.inbox = "Messages"), (IA_LABELS.studio = "Design Projects")),
+    ((NAV_LABELS.inbox = "Mail"), (NAV_LABELS.studio = "Design Projects")),
+  "object" == typeof IA_LABELS && ((IA_LABELS.inbox = "Mail"), (IA_LABELS.studio = "Design Projects")),
   "object" == typeof BH &&
-    ((BH.inbox = Object.assign(BH.inbox || {}, { h2: "Messages" })),
+    ((BH.inbox = Object.assign(BH.inbox || {}, { h2: "Mail" })),
     (BH.studio = Object.assign(BH.studio || {}, { h2: "Design Projects" }))),
   "object" == typeof FD_OV_WHAT &&
     ((FD_OV_WHAT.inbox = "messages routed to this job"),
@@ -197541,11 +197541,10 @@ const MN_JOBS = (o) =>
     ]
       .concat(o.co ? [["billing", "Change Orders", "co"], ["billing", "Estimates", "estimates"]] : [])
       .concat(o.billing ? [["billing", "Billing"]] : [])
-      .concat(["Files & Messages", ["files", "Documents"]])
+      .concat(["Files & Mail", ["files", "Documents"]])
       .concat(!1 === o.plans ? [] : [["plans", "Drawings"]])
       .concat([
-        ["inbox", "Messages"],
-        ["chat", "Chat"],
+        ["inbox", "Mail"],
       ]),
   MN_BUY = (o) =>
     [["ovbuy", "Purchasing"], "Buy"]
@@ -198463,23 +198462,33 @@ function msgDmT(t, u) {
     all: () => (Array.isArray(t.msgs) || (t.msgs = []), t.msgs),
   };
 }
-function msgThreadsFor(u) {
+// `all`: the owner's All Chats, every direct and group conversation in the firm (read-only until he joins one)
+function msgThreadsFor(u, all) {
   if (!(u = u || msgMe()) || !u.id) return [];
   const out = [],
     P = DB.projects || [];
-  if (msgIsClient(u)) return P.filter((p) => p.clientId && p.clientId === u.clientId).forEach((p) => out.push(msgJobT(p, "client"))), out;
-  const field = msgIsField(u);
+  if (msgIsClient(u)) {
+    // a client: their own job's client thread, and a direct or group chat they were put in; never a team thread
+    P.filter((p) => p.clientId && p.clientId === u.clientId).forEach((p) => out.push(msgJobT(p, "client")));
+    msgStore().forEach((t) => t && (t.members || []).includes(u.id) && out.push(msgDmT(t, u)));
+    return out;
+  }
+  const field = msgIsField(u),
+    every = !!all && msgIsOwner(u);
   P.forEach((p) => {
     (field && !msgFieldJob(p, u)) || (out.push(msgJobT(p, "job")), !field && msgClientOf(p) && out.push(msgJobT(p, "client")));
   });
-  msgStore().forEach((t) => t && (t.members || []).includes(u.id) && out.push(msgDmT(t, u)));
+  msgStore().forEach((t) => t && (every || (t.members || []).includes(u.id)) && out.push(msgDmT(t, u)));
   return out;
 }
-const msgThread = (key, u) => msgThreadsFor(u).find((T) => T.key === key) || null;
+// the owner opens any conversation (to read it); everyone else only their own
+const msgIsOwner = (u) => "owner" === msgRole(u),
+  msgIn = (T, u) => !T.t || (T.t.members || []).includes(u.id),
+  msgThread = (key, u) => msgThreadsFor((u = u || msgMe()), msgIsOwner(u)).find((T) => T.key === key) || null;
 // ---- who reads a line. The thread is already one the person may open (msgThreadsFor); this is the line's own rule.
 function msgVisible(m, T, u) {
   if (!m || !T) return !1;
-  if (T.t) return (T.t.members || []).includes(u.id);
+  if (T.t) return (T.t.members || []).includes(u.id) || msgIsOwner(u);
   if (msgIsClient(u)) return "client" === T.kind && !!T.p && T.p.clientId === u.clientId;
   // a line addressed to one person before threads existed: the two of them only
   if (m.dm && m.to) return m.to === u.id || m.fromUid === u.id;
@@ -198502,6 +198511,7 @@ function msgSeenGet(T, u) {
   return (DB.msgSeen && DB.msgSeen[u.id] && DB.msgSeen[u.id][T.key]) || null;
 }
 function msgSeenSet(T, u) {
+  if (!msgIn(T, u)) return !1;
   const all = T.all(),
     last = all[all.length - 1],
     cur = msgSeenGet(T, u),
@@ -198555,6 +198565,7 @@ function msgCut(T, u, all) {
 // The one unread count: lines after my marker that I may read and did not write; `at` is how many name me.
 function msgUnread(T, u) {
   u = u || msgMe();
+  if (!msgIn(T, u)) return { n: 0, at: 0 }; // the owner reading someone else's chat: nothing there is his to read
   const all = T.all(),
     rows = all.slice(msgCut(T, u, all)).filter((m) => !msgMine(m, u) && msgVisible(m, T, u));
   return { n: rows.length, at: rows.filter((m) => (m.mentions || []).includes(u.id)).length };
@@ -198585,7 +198596,7 @@ function msgWhen(m) {
 // for a client), else their first
 function msgCur(u) {
   const L = msgThreadsFor((u = u || msgMe()));
-  let T = msgKey ? L.find((x) => x.key === msgKey) : null;
+  let T = msgKey ? L.find((x) => x.key === msgKey) || (msgIsOwner(u) ? msgThread(msgKey, u) : null) : null;
   !T && S && (T = L.find((x) => x.key === (msgIsClient(u) ? "client:" : "job:") + S.id));
   return T || L[0] || null;
 }
@@ -198749,6 +198760,7 @@ function msgCardHtml(card, T, u) {
   const R = msgRec(card);
   if (!R) return `<div class="msg-card gone small muted">${esc(card.kind === "po" ? "An order" : "A record")} that is no longer here</div>`;
   if (msgIsClient(u) && "photo" === R.k && !R.r.share) return "";
+  if ("photo" === R.k) return `<button type="button" class="msg-card msg-photo" data-msgcard="${esc(JSON.stringify(card))}" aria-label="Photo: ${esc(R.title)}"><img data-pstimg="${esc(R.r.id)}|thumb" alt="${esc(R.title)}"></button>`;
   const amt = !msgIsField(u) && null != R.amount && "function" == typeof money ? ` · ${money(R.amount)}` : "",
     img = "photo" === R.k ? `<img class="msg-thumb" data-pstimg="${esc(R.r.id)}|thumb" alt="${esc(R.title)}">` : `<span class="msg-cic">${R.ic}</span>`;
   return `<button type="button" class="msg-card" data-msgcard="${esc(JSON.stringify(card))}">${img}<span class="msg-cbody"><b data-nocase>${esc(R.title)}</b><span class="small muted" data-nocase>${esc(R.detail)}${esc(amt)}</span></span></button>`;
@@ -198791,7 +198803,7 @@ function msgBodyHtml(text) {
   return esc(text).replace(/(^|[^\w@])@([A-Za-z][\w'-]*)/g, (a, pre, w) => `${pre}<b class="msg-at">@${w}</b>`);
 }
 // ---- one line of a thread
-function msgLineHtml(m, T, u) {
+function msgLineHtml(m, T, u, g) {
   const mine = msgMine(m, u),
     cl = msgIsClient(u),
     p = T.p,
@@ -198835,17 +198847,68 @@ function msgLineHtml(m, T, u) {
                       ? '<span class="muted">No project update</span>'
                       : "");
   }
-  const task = m.taskId
-      ? `<button type="button" class="msg-mk on" data-msgtaskopen="${esc(T.key)}|${esc(m.id)}">${MSG_IC.task}<span>Open Task</span></button>`
-      : cl || m.system || "System" === m.by
-        ? ""
-        : `<button type="button" class="msg-mk" data-msgtask="${esc(T.key)}|${esc(m.id)}" title="Make this message a task">${MSG_IC.task}<span>Make Task</span></button>`,
-    when = m.t || ("function" == typeof stampText ? stampText(m.at) : ""),
+  // A line is a bubble: mine on the right in the accent colour, others on the left with their name and initials in a
+  // group or a job's thread (on the first of a run of lines from one person). The actions (Reply, React, Make a Task,
+  // Copy) show on hover on a desktop and from a long press on a phone (msgSheet); a line that became a task keeps
+  // its Open Task chip in view.
+  g = g || { first: !0, last: !0 };
+  const key = `${esc(T.key)}|${esc(m.id)}`,
     sys = m.system || "System" === m.by,
-    react = sys ? "" : `<button type="button" class="msg-mk" data-msgreact="${esc(T.key)}|${esc(m.id)}" title="React to this message" aria-label="React" aria-expanded="${msgReactOpen === m.id}">${MSG_IC.react}<span>React</span></button>`,
-    acts = task + react,
-    text = msgTextFor(m, u);
-  return `<div class="cm ${mine ? "me" : ""}${m.system ? " sys" : ""}" data-mid="${esc(m.id || "")}"><div class="who"><b>${esc(m.by || "")}</b> · ${esc(when)}</div>${text ? `<div class="msg-tx">${msgBodyHtml(text)}</div>` : ""}${m.voice ? msgVoiceHtml(m) : ""}${pills ? `<div class="row" style="margin-top:4px">${pills}</div>` : ""}${cards}${st ? `<div class="st">${st}</div>` : ""}${msgReactsHtml(m, T, u)}${acts ? `<div class="msg-acts">${acts}</div>` : ""}${msgReactOpen === m.id && !sys ? msgReactPickHtml(m, T, u) : ""}</div>`;
+    many = !T.t || "group" === T.kind || !msgIn(T, u),
+    text = msgTextFor(m, u),
+    when = msgClock(m),
+    taskChip = m.taskId ? `<button type="button" class="msg-mk on" data-msgtaskopen="${key}">${MSG_IC.task}<span>Open Task</span></button>` : "",
+    tools = sys
+      ? ""
+      : `<div class="msg-tools" role="toolbar" aria-label="Message actions"><button type="button" class="msg-tool" data-msgreply="${key}" title="Reply" aria-label="Reply">${MSG_IC.reply}</button><button type="button" class="msg-tool" data-msgreact="${key}" title="React" aria-label="React" aria-expanded="${msgReactOpen === m.id}">${MSG_IC.react}</button>${cl || m.taskId ? "" : `<button type="button" class="msg-tool" data-msgtask="${key}" title="Make a Task" aria-label="Make a task">${MSG_IC.task}</button>`}<button type="button" class="msg-tool" data-msgcopy="${key}" title="Copy" aria-label="Copy">${MSG_IC.copy}</button></div>`,
+    who = !mine && !sys && many && g.first ? `<div class="who"><b>${esc(m.by || "")}</b></div>` : "",
+    av = !mine && !sys && many ? (g.first ? msgAvatar(m.fromUid, m.by) : '<span class="msg-av sp" aria-hidden="true"></span>') : "",
+    reply = m.reply && m.reply.id ? `<button type="button" class="msg-quote" data-msgjump="${esc(m.reply.id)}"><b>${esc(msgFirst(m.reply.by))}</b><span data-nocase>${esc(String(m.reply.text || "").slice(0, 120))}</span></button>` : "",
+    rx = msgReactsHtml(m, T, u),
+    media = !text && !m.voice && (m.cards || []).length && (m.cards || []).every((c) => "photo" === c.kind),
+    tick = mine && g.tick ? msgTickHtml() : "",
+    below = rx || taskChip ? `<div class="msg-below">${rx}${taskChip}</div>` : "";
+  return `<div class="cm ${mine ? "me" : "them"}${sys ? " sys" : ""}${g.first ? " msg-g1" : ""}${g.last ? " msg-gl" : ""}" data-mid="${esc(m.id || "")}">${av}<div class="msg-col"><div class="msg-bub${media ? " msg-media" : ""}">${who}${reply}${text ? `<div class="msg-tx">${msgBodyHtml(text)}</div>` : ""}${m.voice ? msgVoiceHtml(m) : ""}${pills ? `<div class="msg-files">${pills}</div>` : ""}${cards}${st ? `<div class="st">${st}</div>` : ""}<span class="msg-time" title="${esc(m.t || when)}">${esc(when)}${tick}</span></div>${below}${msgReactOpen === m.id && !sys ? msgReactPickHtml(m, T, u) : ""}${tools}</div></div>`;
+}
+// the ticks on my last line: one when it is saved on this device, two once the firm's server holds it. Read receipts
+// are not shown: where each person stopped reading is private to them (DB.msgSeen), by design.
+function msgTickHtml() {
+  let two = !1;
+  try {
+    two = "function" == typeof cloudOn && cloudOn() && Cloud.user && Cloud.user() && !Cloud.state.pending && !Cloud.state.syncing && !Cloud.state.err;
+  } catch (e) {}
+  const p = two ? '<path d="M2 12.5l4 4L14 8"/><path d="M10 15.5l1 1L22 7"/>' : '<path d="M5 12.5l4.5 4.5L19 7.5"/>';
+  return `<span class="msg-tick" title="${two ? "Delivered" : "Sent"}" aria-label="${two ? "Delivered" : "Sent"}">${MSG_SVG(p)}</span>`;
+}
+// the time of day a line was written (the day is on the separator above it)
+function msgClock(m) {
+  const w = String(msgWhen(m) || ""),
+    x = /T(\d{2}):(\d{2})/.exec(w);
+  if (!x) return String(m.t || "").replace(/^\d{1,2}\/\d{1,2},?\s*/, "");
+  const h = +x[1];
+  return `${h % 12 || 12}:${x[2]} ${h >= 12 ? "PM" : "AM"}`;
+}
+// the day a separator names: Today, Yesterday, else the weekday and date
+function msgDayLabel(d) {
+  if (!d) return "";
+  const td = String(today()).slice(0, 10);
+  if (d === td) return "Today";
+  if (d === iso(addDays(parse(td), -1))) return "Yesterday";
+  try {
+    return new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  } catch (e) {
+    return d;
+  }
+}
+// initials in a circle for a person, a line icon for a job or a group
+const MSG_AV_HUES = 6;
+function msgAvatar(id, name, kind) {
+  if ("job" === kind || "client" === kind) return `<span class="msg-av k-${kind}" aria-hidden="true">${MSG_IC[kind]}</span>`;
+  if ("group" === kind) return `<span class="msg-av k-group" aria-hidden="true">${MSG_IC.group}</span>`;
+  const n = String(name || (msgUser(id) || {}).name || "").trim(),
+    ini = (n.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("") || "?").toUpperCase(),
+    h = [...String(id || n)].reduce((a, ch) => (a + ch.charCodeAt(0)) % MSG_AV_HUES, 0);
+  return `<span class="msg-av h${h}" aria-hidden="true">${esc(ini)}</span>`;
 }
 // ---- reactions on a line (phase 2): four line icons, one per person, kept on the line itself (m.react[uid] = kind).
 // A tap on a chip adds or takes back your own; nobody is notified for a reaction (calm, not noisy).
@@ -198858,6 +198921,15 @@ const MSG_REACTS = [
 MSG_IC.react = MSG_SVG('<circle cx="12" cy="12" r="9"/><path d="M8.5 14.5c.9 1.2 2.1 1.8 3.5 1.8s2.6-.6 3.5-1.8"/><path d="M9 9.5h.01M15 9.5h.01"/>');
 MSG_IC.mic = MSG_SVG('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/>');
 MSG_IC.stop = MSG_SVG('<rect x="6" y="6" width="12" height="12" rx="2"/>');
+MSG_IC.reply = MSG_SVG('<path d="M9 14l-5-5 5-5"/><path d="M4 9h10a6 6 0 0 1 6 6v5"/>');
+MSG_IC.copy = MSG_SVG('<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/>');
+MSG_IC.cam = MSG_SVG('<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>');
+MSG_IC.clip = MSG_SVG('<path d="M21.4 11.05l-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"/>');
+MSG_IC.send = MSG_SVG('<path d="M12 19V5"/><path d="M5.5 11.5L12 5l6.5 6.5"/>');
+MSG_IC.compose = MSG_SVG('<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>');
+MSG_IC.search = MSG_SVG('<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>');
+MSG_IC.plans = MSG_SVG('<path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z"/><path d="M9 4v14M15 6v14"/>');
+MSG_IC.crew = MSG_IC.group;
 let msgReactOpen = "";
 function msgReactsHtml(m, T, u) {
   const R = m.react && "object" == typeof m.react ? m.react : null;
@@ -198977,22 +199049,54 @@ async function msgVoiceToggle() {
   rec.start(250);
   msgVoiceBtn();
 }
+// hold the microphone to record and let go to send, as on WhatsApp; or tap to start and tap again to send
+let msgVoicePtr = 0;
+{
+  let downAt = 0;
+  document.addEventListener("pointerdown", (e) => {
+    const b = e.target && e.target.closest && e.target.closest("#msg-voice");
+    if (!b || (e.button && 0 !== e.button)) return;
+    e.preventDefault(), (downAt = msgVoicePtr = Date.now());
+    msgRecState ? msgRecState.stop() : msgVoiceToggle();
+  });
+  document.addEventListener("pointerup", () => {
+    if (!downAt) return;
+    const held = Date.now() - downAt;
+    (downAt = 0), held > 700 && msgRecState && msgRecState.stop();
+  });
+}
+// the composer's state: the round button is Send once there is something to send, the microphone otherwise
+function msgComposeState() {
+  const row = document.querySelector("#v-chat .chat-compose"),
+    t = document.getElementById("chat-text");
+  if (!row) return;
+  const u = msgMe(),
+    T = msgCur(u);
+  row.classList.toggle("msg-has-text", !!(t && t.value.trim()) || msgPending.length > 0);
+  row.classList.toggle("msg-novoice", msgIsClient(u));
+  row.classList.toggle("msg-dm", !!(T && T.t));
+  row.classList.toggle("msg-recording", !!msgRecState);
+  // one of the two is on screen at a time and it is the screen's blue button: the page's one-primary rule demotes the
+  // hidden one while the other shows, so both are kept blue here
+  ["chat-send", "msg-voice"].forEach((id) => document.getElementById(id)?.classList.add("primary"));
+}
 // the record button in the compose row: a microphone, a stop square with the time while recording
 function msgVoiceBtn() {
   const row = document.querySelector("#v-chat .chat-compose");
   if (!row) return;
   let b = document.getElementById("msg-voice");
   if (!b) {
-    (b = document.createElement("button")), (b.type = "button"), (b.id = "msg-voice"), (b.className = "btn msg-voicebtn");
-    // beside the text box (on the field's phone it sits inside the box's right end, so the box keeps its width)
-    const tx = document.getElementById("chat-text");
-    tx ? tx.after(b) : row.appendChild(b);
+    (b = document.createElement("button")), (b.type = "button"), (b.id = "msg-voice"), (b.className = "btn primary msg-voicebtn");
+    // the round button at the right of the box: the microphone while the box is empty, Send once it is not
+    const box = row.querySelector(".msg-box");
+    box ? box.after(b) : row.appendChild(b);
   }
   const on = !!msgRecState;
   b.classList.toggle("rec", on), b.setAttribute("aria-pressed", String(on));
   b.title = on ? "Stop and Send" : "Record a Voice Note";
   b.setAttribute("aria-label", on ? "Stop and send the voice note" : "Record a voice note");
   b.innerHTML = on ? `${MSG_IC.stop}<span>0:00</span>` : MSG_IC.mic;
+  msgComposeState();
 }
 // ---- the person's own assistant, in the thread: kept with the person, drawn after the line it followed
 function msgAsks(u) {
@@ -199103,7 +199207,10 @@ function msgPendingHtml() {
 function msgLine(text, o) {
   const u = msgMe();
   o = o || {};
-  const m = { id: uid("ch"), by: u.name || "Team", fromUid: u.id || "", text: String(text || ""), t: nowStamp(), at: appNowIso(), files: o.files || [] };
+  const m = { id: uid("ch"), by: u.name || "Team", fromUid: u.id || "", text: String(text || ""), t: nowStamp(), at: appNowIso(), files: o.files || [] },
+    T0 = msgReplyTo ? msgCur(u) : null,
+    reply = T0 ? msgReplyTake(T0.key) : null;
+  reply && (m.reply = reply);
   return (
     o.cards && o.cards.length && (m.cards = o.cards),
     o.mentions && o.mentions.length && (m.mentions = o.mentions),
@@ -199249,69 +199356,134 @@ function msgOpenTask(key, mid) {
   if (!rec) return void toast("That task is no longer here");
   "function" == typeof crOpenTask && crOpenTask({ kind: k, id: rec.id, projectId: m.taskPid || "", assignee: rec.assignee || "", due: rec.due || "", rec: rec });
 }
-// ---- the screen
+// ---- the screen (2026-10-19, Alan: "The chat looks outdated"). A current messaging app: the list of conversations
+// (search, New Message, avatars, last line, time, unread first), and the open conversation as bubbles with day
+// separators and a composer pinned at the bottom. On the phone they are two screens (the list is where the bottom
+// bar's Chat lands; a conversation is full screen with a back arrow); on a desktop, two panes side by side. No job
+// chrome on either: a conversation is not a job page (body.msg-on hides the job switcher, its tabs and dates).
+let msgQ = "";
+function msgRowsOf(L, u) {
+  return L.map((T) => {
+    const all = T.all(),
+      vis = all.filter((m) => msgVisible(m, T, u)),
+      last = vis[vis.length - 1],
+      un = msgUnread(T, u);
+    return { T: T, last: last, un: un, when: last ? String(msgWhen(last)) : "" };
+  }).sort((a, b) => (b.un.n ? 1 : 0) - (a.un.n ? 1 : 0) || (b.last ? 1 : 0) - (a.last ? 1 : 0) || b.when.localeCompare(a.when) || a.T.title.localeCompare(b.T.title));
+}
+// a row's plain label: a job's two threads say which is which
+const msgKindLabel = (T, u) => (msgIn(T, u) ? ({ job: "Team", client: msgIsClient(u) ? "Your Project Team" : "Client", direct: "", group: "" })[T.kind] || "" : "Read Only");
+// the owner's list: My Chats (the ones he is in) or All Chats (every conversation in the firm, read-only until he joins)
+let msgScope = "mine";
+function msgRowWhen(w) {
+  if (!w) return "";
+  const d = w.slice(0, 10);
+  return d === String(today()).slice(0, 10) ? msgClock({ at: w }) : msgDayLabel(d).replace(/^\w+, /, "");
+}
 function msgListHtml(L, cur, u) {
   const tot = msgUnreadTotal(u),
-    rows = L.map((T) => {
-      const all = T.all(),
-        vis = all.filter((m) => msgVisible(m, T, u)),
-        last = vis[vis.length - 1],
-        un = msgUnread(T, u);
-      return { T: T, last: last, un: un, when: msgWhen(last) };
-    }).sort((a, b) => (b.last ? 1 : 0) - (a.last ? 1 : 0) || String(b.when).localeCompare(String(a.when)) || a.T.title.localeCompare(b.T.title));
-  return `<div class="msg-side-h"><h3>All Messages</h3>${tot.n ? `<span class="n msg-tot">${tot.n}</span>` : ""}${msgIsClient(u) ? "" : '<button type="button" class="btn sm" id="msg-new">New Message</button>'}</div><div class="msg-rows">${rows
-    .map(
-      (x) =>
-        `<button type="button" class="msg-row${x.T.key === (cur && cur.key) ? " on" : ""}${x.un.n ? " un" : ""}" data-msgopen="${esc(x.T.key)}"><span class="msg-ric k-${x.T.kind}">${MSG_IC[x.T.kind] || MSG_IC.direct}</span><span class="msg-mid"><span class="msg-t" data-nocase>${esc(x.T.title)}</span><span class="msg-k">${esc(x.T.sub)}</span><span class="msg-last" data-nocase>${x.last ? `${esc(msgFirst(x.last.by))}: ${esc(String(msgPreview(x.last, u)).slice(0, 90))}` : "No messages yet"}</span></span><span class="msg-r">${x.last ? `<span class="msg-when">${esc(x.last.t || "")}</span>` : ""}${x.un.n ? `<span class="n">${x.un.n}</span>` : ""}${x.un.at ? '<span class="msg-atn" title="You were mentioned">@</span>' : ""}</span></button>`,
-    )
-    .join("")}</div>`;
+    q = msgQ.trim().toLowerCase(),
+    rows = msgRowsOf(L, u).filter((x) => !q || [x.T.title, msgKindLabel(x.T, u), x.last ? msgPreview(x.last, u) : "", x.last ? x.last.by : ""].join(" ").toLowerCase().includes(q));
+  return `<div class="msg-side-h"><h2>Chat</h2>${tot.n ? `<span class="n msg-tot" title="Unread">${tot.n}</span>` : ""}<span class="grow"></span>${msgIsClient(u) ? "" : `<button type="button" class="msg-ib" id="msg-new" title="New Message" aria-label="New Message">${MSG_IC.compose}</button>`}</div><label class="msg-search"><span class="msg-cic">${MSG_IC.search}</span><input type="search" id="msg-q" placeholder="Search conversations" aria-label="Search conversations" value="${esc(msgQ)}" autocomplete="off"></label>${
+    msgIsOwner(u) ? `<div class="msg-scope" role="tablist" aria-label="Which chats"><button type="button" role="tab" data-msgscope="mine" aria-selected="${"all" !== msgScope}" class="${"all" !== msgScope ? "on" : ""}">My Chats</button><button type="button" role="tab" data-msgscope="all" aria-selected="${"all" === msgScope}" class="${"all" === msgScope ? "on" : ""}">All Chats</button></div>` : ""
+  }${msgIsClient(u) ? "" : '<div class="msg-notice small muted">Chats here are company records; the owner can read them.</div>'}<div class="msg-rows">${
+    rows
+      .map((x) => {
+        const k = msgKindLabel(x.T, u),
+          other = x.T.t && "direct" === x.T.kind ? (x.T.t.members || []).find((id) => id !== u.id) : "",
+          av = x.T.t ? ("direct" === x.T.kind ? msgAvatar(other, x.T.title) : msgAvatar("", "", "group")) : msgAvatar("", "", x.T.kind),
+          prev = x.last ? `${msgMine(x.last, u) ? "You" : esc(msgFirst(x.last.by))}: ${esc(String(msgPreview(x.last, u)).slice(0, 90))}` : "No messages yet";
+        return `<button type="button" class="msg-row${x.T.key === (cur && cur.key) ? " on" : ""}${x.un.n ? " un" : ""}" data-msgopen="${esc(x.T.key)}">${av}<span class="msg-mid"><span class="msg-t1"><span class="msg-t" data-nocase>${esc(x.T.title)}</span>${k ? `<span class="msg-k k-${x.T.kind}">${esc(k)}</span>` : ""}</span><span class="msg-last" data-nocase>${prev}</span></span><span class="msg-r">${x.last ? `<span class="msg-when">${esc(msgRowWhen(x.when))}</span>` : ""}<span class="msg-rb">${x.un.at ? '<span class="msg-atn" title="You were mentioned">@</span>' : ""}${x.un.n ? `<span class="n">${x.un.n}</span>` : ""}</span></span></button>`;
+      })
+      .join("") || `<div class="msg-none small muted">${q ? "No conversation matches." : "No conversations yet."}</div>`
+  }</div>`;
 }
+// the open conversation's header: back (with the unread count elsewhere), who it is, one plain sub-line
 function msgHeadHtml(T, u, solo) {
   const tot = msgUnreadTotal(u),
     cl = T.p ? msgClientOf(T.p) : null,
-    pill = { job: "Team Only", client: msgIsClient(u) ? "Your Project Team" : "Client Sees This", direct: "Direct Message", group: `Group of ${(T.t && T.t.members ? T.t.members : []).length}` }[T.kind],
-    cls = { job: "neutral", client: msgIsClient(u) ? "info" : "warn", direct: "info", group: "info" }[T.kind],
-    names = T.t ? (T.t.members || []).map((id) => (msgUser(id) || {}).name).filter(Boolean).join(", ") : "";
-  return `${solo ? "" : `<button type="button" class="btn sm msg-back" data-msgback>${MSG_IC.back}<span>All Messages</span>${tot.n ? `<span class="n">${tot.n}</span>` : ""}</button>`}<div class="msg-ttl"><span class="msg-ric k-${T.kind}">${MSG_IC[T.kind] || MSG_IC.direct}</span><b data-nocase>${esc(T.title)}</b><span class="pill ${cls}">${esc(pill)}</span></div>${
-    "client" === T.kind && !msgIsClient(u)
-      ? `<div class="note warn msg-warn small">${esc(cl ? cl.name : "The client")} reads everything in this thread. Keep costs, margins and team matters in the team thread.</div>`
-      : T.t
-        ? `<div class="small muted msg-who" data-nocase>Only ${esc(names)} can read this.</div>`
-        : "job" === T.kind && T.p && !msgIsClient(u)
-          ? msgCrewHtml(T.p, u)
-          : ""
+    others = T.t ? (T.t.members || []).filter((id) => id !== u.id) : [],
+    names = (ids) => ids.map((id) => (msgUser(id) || {}).name).filter(Boolean),
+    sub =
+      "job" === T.kind
+        ? `Team Only${msgTeamNames(T.p).length ? ` · Crew: ${msgTeamNames(T.p).join(", ")}` : " · no crew in the field yet"}`
+        : "client" === T.kind
+          ? msgIsClient(u)
+            ? "Your project team"
+            : `With the Client · ${cl ? cl.name : "the client"}`
+          : !msgIn(T, u)
+            ? `Read Only · ${names(T.t.members || []).join(", ")}`
+            : "group" === T.kind
+              ? ["You", ...names(others)].join(", ")
+              : `Direct Message · only the two of you`,
+    av = T.t ? ("direct" === T.kind ? msgAvatar(others[0], T.title) : msgAvatar("", "", "group")) : msgAvatar("", "", T.kind),
+    tools = [
+      "job" === T.kind && T.p && msgMayAssign(u) ? `<button type="button" class="msg-ib" data-msgcrew="${esc(T.p.id)}" title="Change Crew" aria-label="Change Crew">${MSG_IC.crew}</button>` : "",
+      T.p && !msgIsClient(u) && (ROLE_VIEWS[role()] || []).includes("plans") ? `<button type="button" class="msg-ib" data-msgplans="${esc(T.p.id)}" title="Current Plans" aria-label="Current Plans">${MSG_IC.plans}</button>` : "",
+    ].join("");
+  return `${solo ? "" : `<button type="button" class="msg-ib msg-back" data-msgback title="All Conversations" aria-label="All Conversations${tot.n ? `, ${tot.n} unread` : ""}">${MSG_IC.back}${tot.n ? `<span class="n">${tot.n}</span>` : ""}</button>`}${av}<div class="msg-ttl"><b data-nocase>${esc(T.title)}</b><span class="msg-sub small" data-nocase>${esc(sub)}</span></div>${tools ? `<div class="msg-htools">${tools}</div>` : ""}${
+    "client" === T.kind && !msgIsClient(u) ? `<div class="msg-warn small">${MSG_IC.client}<span><b>Client Sees This.</b> ${esc(cl ? cl.name : "The client")} reads everything here. Costs, margins and team matters go in the team thread.</span></div>` : ""
   }`;
 }
-// the team thread points at the job's client thread when it holds something, so a line sent to the client is one tap away
-function msgClientStripHtml(T, u) {
-  if ("job" !== T.kind || msgIsField(u) || msgIsClient(u)) return "";
-  const C = msgThread("client:" + T.pid, u);
-  if (!C) return "";
-  const vis = C.all().filter((m) => msgVisible(m, C, u)),
-    last = vis[vis.length - 1];
-  if (!last) return "";
-  const un = msgUnread(C, u);
-  return `<button type="button" class="msg-strip" data-msgopen="${esc(C.key)}"><span class="msg-ric k-client">${MSG_IC.client}</span><span class="msg-mid"><span class="msg-k">Client Thread${un.n ? ` · ${un.n} new` : ""}</span><span class="msg-last" data-nocase>${esc(msgFirst(last.by))}: ${esc(String(msgPreview(last, u)).slice(0, 140))}</span></span></button>`;
+// the lines of the open conversation, with day separators and runs of one person's lines grouped
+function msgLinesHtml(T, u, vis, byAfter) {
+  let day = "",
+    out = "",
+    lastMine = -1;
+  vis.forEach((m, i) => msgMine(m, u) && !m.system && (lastMine = i));
+  vis.forEach((m, i) => {
+    const d = String(msgWhen(m)).slice(0, 10),
+      prev = vis[i - 1],
+      next = vis[i + 1],
+      sameAs = (a, b) => a && b && !a.system && !b.system && (a.fromUid || a.by) === (b.fromUid || b.by) && String(msgWhen(a)).slice(0, 10) === String(msgWhen(b)).slice(0, 10) && !(byAfter[a.id] || []).length;
+    d && d !== day && ((day = d), (out += `<div class="msg-day" role="separator"><span>${esc(msgDayLabel(d))}</span></div>`));
+    out += msgLineHtml(m, T, u, { first: !sameAs(prev, m) || (d && String(msgWhen(prev)).slice(0, 10) !== d), last: !sameAs(m, next), tick: i === lastMine }) + (byAfter[m.id] || []).map(msgAiHtml).join("");
+  });
+  return out;
 }
 renderChat = function () {
   const v = document.getElementById("v-chat"),
     list = document.getElementById("chat-list");
   if (!v || !list) return;
   const u = msgMe(),
-    L = msgThreadsFor(u),
+    L = msgThreadsFor(u, "all" === msgScope),
     T = msgCur(u),
     phone = window.innerWidth <= 760,
-    solo = L.length <= 1;
+    solo = L.length <= 1,
+    listMode = !!(phone && msgListMode && !solo);
   v.classList.toggle("msg-solo", solo);
-  v.classList.toggle("msg-listmode", !!(phone && msgListMode && !solo));
+  v.classList.toggle("msg-listmode", listMode);
+  v.classList.toggle("msg-threadmode", !listMode);
+  document.body.classList.toggle("msg-thread", "chat" === view && phone && !listMode);
+  // a client (one conversation) keeps the app's bars around it; anyone else's conversation is full screen
+  document.body.classList.toggle("msg-solo-ph", "chat" === view && phone && solo);
+  if ("chat" === view && phone && solo)
+    try {
+      const tb = document.querySelector("header.topbar"),
+        bar = [...document.querySelectorAll(".mtabs, .tabbar")].find((e) => e.getClientRects().length && "none" !== getComputedStyle(e).display),
+        st = document.documentElement.style;
+      st.setProperty("--msg-top", (tb ? Math.max(0, tb.getBoundingClientRect().bottom) : 0) + "px");
+      st.setProperty("--msg-bot", (bar ? Math.max(0, innerHeight - bar.getBoundingClientRect().top) : 0) + "px");
+    } catch (e) {}
   ["job", "client", "direct", "group"].forEach((k) => v.classList.toggle("msg-k-" + k, !!T && T.kind === k));
   const side = document.getElementById("msg-side");
-  side && (side.innerHTML = solo ? "" : msgListHtml(L, T, u));
+  if (side) {
+    const had = document.activeElement && "msg-q" === document.activeElement.id,
+      pos = had ? document.activeElement.selectionStart : 0;
+    side.innerHTML = solo ? "" : msgListHtml(L, T, u);
+    if (had) {
+      const q = document.getElementById("msg-q");
+      q && (q.focus(), q.setSelectionRange(pos, pos));
+    }
+  }
   const head = document.getElementById("msg-head");
   head && (head.innerHTML = T ? msgHeadHtml(T, u, solo) : "");
   const nm = document.getElementById("chat-name");
   nm && ((nm.value = u.name || nm.value || ""), (nm.hidden = !0), (nm.style.display = "none"));
-  if (!T) return void (list.innerHTML = '<div class="empty">No messages yet. A conversation starts when you are on a job or someone writes to you.</div>');
+  // the job's pinned sheets live on its Drawings now (Alan, 2026-10-19); the thread's header opens them
+  v.querySelectorAll("#pl-pinned").forEach((x) => x.remove());
+  document.getElementById("chat-dm")?.remove();
+  if (!T) return void (list.innerHTML = '<div class="msg-empty">No conversations yet. One starts when you are put on a job or someone writes to you.</div>');
   const all = T.all(),
     vis = all.filter((m) => msgVisible(m, T, u)),
     asks = msgAsks(u).filter((a) => a.key === T.key),
@@ -199321,39 +199493,38 @@ renderChat = function () {
     (byAfter[k] = byAfter[k] || []).push(a);
   });
   const empty = {
-    job: msgIsField(u) ? "No messages yet. Post an update and everyone on the job sees it." : "No messages yet. Post what happened on site today.",
-    client: "No messages yet. Ask anything — the team answers here.",
-    direct: "No messages yet. Say hello.",
-    group: "No messages yet. Say hello.",
+    job: msgIsField(u) ? "Post an update and everyone on the job sees it." : "Post what happened on site today. Everyone on the job's team reads it.",
+    client: msgIsClient(u) ? "Ask anything. Your project team answers here." : "Write to the client here. They read everything in this conversation.",
+    direct: "Say hello. Only the two of you read this.",
+    group: "Say hello. Only the people in this group read it.",
   }[T.kind];
-  (list.innerHTML =
-    msgClientStripHtml(T, u) +
-    (vis.length
-      ? vis.map((m) => msgLineHtml(m, T, u) + (byAfter[m.id] || []).map(msgAiHtml).join("")).join("")
-      : `<div class="empty">${esc(empty)}</div>`) +
-    (byAfter.__end || []).map(msgAiHtml).join("")),
-    (list.scrollTop = list.scrollHeight);
+  (list.innerHTML = (vis.length ? msgLinesHtml(T, u, vis, byAfter) : `<div class="msg-empty"><b>No messages yet</b><span>${esc(empty)}</span></div>`) + (byAfter.__end || []).map(msgAiHtml).join("")), (list.scrollTop = list.scrollHeight);
   try {
     "function" == typeof pstFill && pstFill(list);
   } catch (e) {}
-  // the compose box fits the thread
+  // the composer fits the conversation
   const lab = v.querySelector(".chat-compose label.btn"),
+    cam = document.getElementById("msg-cam"),
     rec = document.getElementById("msg-rec"),
     tx = document.getElementById("chat-text");
   lab && (lab.hidden = !!T.t);
+  cam && (cam.hidden = !!T.t);
   rec && (rec.hidden = msgIsClient(u));
   tx &&
     !msgIsClient(u) &&
-    (tx.placeholder =
-      "client" === T.kind
-        ? `Write to ${msgFirst((msgClientOf(T.p) || {}).name) || "the client"}…`
-        : T.t
-          ? `Message ${T.title}…`
-          : msgIsField(u)
-            ? "Message the office…"
-            : `Message the team on ${T.title}…`);
+    (tx.placeholder = msgPlaceholder(T, u));
   const pend = document.getElementById("msg-pending");
   pend && ((pend.innerHTML = msgPendingHtml()), (pend.hidden = !msgPending.length));
+  msgReplyBar();
+  // the owner reading a chat he is not in: no composer, Add Me instead (he joins in the open before he writes)
+  const ro = !msgIn(T, u);
+  v.classList.toggle("msg-readonly", ro);
+  let jb = document.getElementById("msg-join");
+  if (ro && !jb) {
+    (jb = document.createElement("div")), (jb.id = "msg-join"), (jb.className = "msg-join");
+    v.querySelector(".chat-compose")?.before(jb);
+  }
+  jb && ((jb.hidden = !ro), ro && (jb.innerHTML = `<span class="small">You are reading this as the owner. Add yourself to write in it; everyone in it will see that you joined.</span><button type="button" class="btn primary" data-msgjoin="${esc(T.key)}">Add Me</button>`));
   // voice notes: the record button (not for a client) and the players in the lines
   try {
     msgVoiceBtn();
@@ -199361,6 +199532,7 @@ renderChat = function () {
     vb && (vb.hidden = msgIsClient(u));
     msgVoiceFill(list);
   } catch (e) {}
+  msgGrow(), msgComposeState();
   const lead = v.querySelector(".ph .lead");
   lead &&
     !msgIsClient(u) &&
@@ -199370,13 +199542,130 @@ renderChat = function () {
         : T.t
           ? "A private conversation. Only the people in it can read it."
           : "The team's thread for this job. Every post is read by the assistant and becomes a proposal in the Inbox when it changes the project.");
-  // the field's message to someone by name, on the job's thread only
-  try {
-    "job" === T.kind && CHAT_FIELD() ? chatDmBar() : document.getElementById("chat-dm")?.remove();
-  } catch (e) {}
   // read: the open thread is seen when it is on the screen
-  !(phone && msgListMode && !solo) && "chat" === view && msgSeenSet(T, u) && save();
+  !listMode && "chat" === view && msgSeenSet(T, u) && save();
 };
+// what the empty box says: short, so it fits a phone on one line
+function msgPlaceholder(T, u) {
+  return "client" === T.kind ? `Write to ${msgFirst((msgClientOf(T.p) || {}).name) || "the client"}` : T.t ? `Message ${"group" === T.kind ? T.title : msgFirst(T.title)}` : "Message the team";
+}
+// ---- the composer: a box that grows with what is typed (up to six lines); Enter sends, Shift+Enter is a new line
+function msgGrow() {
+  const t = document.getElementById("chat-text");
+  if (!t || "TEXTAREA" !== t.tagName) return;
+  if (!t.value) return void (t.style.height = "");
+  t.style.height = "auto";
+  t.style.height = Math.min(t.scrollHeight, 150) + "px";
+}
+document.addEventListener("input", (e) => {
+  e.target && "chat-text" === e.target.id && (msgGrow(), msgComposeState());
+  if (e.target && "msg-q" === e.target.id) (msgQ = e.target.value), renderChat();
+});
+document.addEventListener(
+  "keydown",
+  (e) => {
+    // a textarea would take Enter as a new line after the send cleared it: Enter sends, Shift+Enter breaks the line
+    e.target && "chat-text" === e.target.id && "Enter" === e.key && !e.shiftKey && !e.isComposing && e.preventDefault();
+  },
+  !0,
+);
+// ---- the phone's keyboard: the composer rides on top of it (the visual viewport shrinks, the layout one may not)
+try {
+  const vv = window.visualViewport;
+  vv &&
+    vv.addEventListener("resize", () => {
+      const kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      document.documentElement.style.setProperty("--msg-kb", kb + "px");
+    });
+} catch (e) {}
+// ---- replying to a line: a bar above the composer names it; the sent line carries a quote of it
+let msgReplyTo = null;
+function msgReplyBar() {
+  const b = document.getElementById("msg-reply"),
+    T = msgCur(msgMe());
+  if (!b) return;
+  const on = msgReplyTo && T && msgReplyTo.key === T.key;
+  b.hidden = !on;
+  b.innerHTML = on ? `<span class="msg-cic">${MSG_IC.reply}</span><span class="msg-rq"><b>Replying to ${esc(msgFirst(msgReplyTo.by))}</b><span data-nocase>${esc(msgReplyTo.text.slice(0, 120))}</span></span><button type="button" class="msg-ib" data-msgreplyx title="Cancel Reply" aria-label="Cancel reply">${MSG_IC.x}</button>` : "";
+}
+function msgReplyStart(key, mid) {
+  const u = msgMe(),
+    T = msgThread(key, u),
+    m = T && T.all().find((x) => x.id === mid);
+  if (!m) return;
+  msgReplyTo = { key: key, id: m.id, by: m.by || "", text: String(msgPreview(m, u) || "").replace(/\s+/g, " ").trim() };
+  msgSheetClose(), msgReplyBar();
+  const t = document.getElementById("chat-text");
+  t && t.focus();
+}
+// the reply a new line carries, if the person is replying in this conversation (then the reply is spent)
+function msgReplyTake(key) {
+  if (!msgReplyTo || msgReplyTo.key !== key) return null;
+  const r = { id: msgReplyTo.id, by: msgReplyTo.by, text: msgReplyTo.text.slice(0, 160) };
+  return (msgReplyTo = null), msgReplyBar(), r;
+}
+async function msgCopy(key, mid) {
+  const u = msgMe(),
+    T = msgThread(key, u),
+    m = T && T.all().find((x) => x.id === mid);
+  if (!m) return;
+  const text = msgPreview(m, u);
+  msgSheetClose();
+  try {
+    await navigator.clipboard.writeText(text);
+    toast("Copied the message");
+  } catch (e) {
+    toast("This browser would not copy it: press and hold the words to copy them");
+  }
+}
+// ---- the phone's long press: a sheet with Reply, the four reactions, Make a Task and Copy
+function msgSheetClose() {
+  document.getElementById("msg-sheet")?.remove();
+}
+function msgSheet(key, mid) {
+  const u = msgMe(),
+    T = msgThread(key, u),
+    m = T && T.all().find((x) => x.id === mid);
+  if (!m || m.system || "System" === m.by) return;
+  msgSheetClose();
+  const k = `${esc(key)}|${esc(mid)}`,
+    mine = (m.react || {})[u.id],
+    el = document.createElement("div");
+  (el.id = "msg-sheet"), (el.className = "msg-sheet"), el.setAttribute("role", "dialog"), el.setAttribute("aria-label", "Message actions");
+  el.innerHTML = `<div class="msg-sheet-bg" data-msgsheetx></div><div class="msg-sheet-in"><div class="msg-sheet-rx">${MSG_REACTS.map(([kk, label, ic]) => `<button type="button" class="msg-rxp${mine === kk ? " on" : ""}" data-msgrx="${k}|${kk}" aria-pressed="${mine === kk}">${ic}<span>${esc(label)}</span></button>`).join("")}</div><button type="button" class="msg-sheet-b" data-msgreply="${k}">${MSG_IC.reply}<span>Reply</span></button>${msgIsClient(u) ? "" : m.taskId ? `<button type="button" class="msg-sheet-b" data-msgtaskopen="${k}">${MSG_IC.task}<span>Open Task</span></button>` : `<button type="button" class="msg-sheet-b" data-msgtask="${k}">${MSG_IC.task}<span>Make a Task</span></button>`}<button type="button" class="msg-sheet-b" data-msgcopy="${k}">${MSG_IC.copy}<span>Copy</span></button><button type="button" class="msg-sheet-b msg-sheet-x" data-msgsheetx>Cancel</button></div>`;
+  document.body.appendChild(el);
+}
+{
+  // a press held on a line opens the sheet (half a second, and the finger did not move: a scroll is not a press)
+  let timer = 0,
+    at = null;
+  const off = () => (clearTimeout(timer), (timer = 0));
+  document.addEventListener(
+    "touchstart",
+    (e) => {
+      const line = e.target && e.target.closest && e.target.closest("#chat-list .cm[data-mid]");
+      if (!line || e.target.closest("button, a, audio, input")) return;
+      const t = e.touches[0];
+      at = [t.clientX, t.clientY];
+      off();
+      timer = setTimeout(() => {
+        timer = 0;
+        const T = msgCur(msgMe());
+        T && (msgSheet(T.key, line.dataset.mid), navigator.vibrate && navigator.vibrate(10));
+      }, 500);
+    },
+    { passive: !0 },
+  );
+  document.addEventListener("touchmove", (e) => at && timer && Math.hypot(e.touches[0].clientX - at[0], e.touches[0].clientY - at[1]) > 8 && off(), { passive: !0 });
+  document.addEventListener("touchend", off, { passive: !0 });
+  document.addEventListener("contextmenu", (e) => {
+    const line = e.target && e.target.closest && e.target.closest("#chat-list .cm[data-mid]");
+    if (!line || window.innerWidth > 760) return;
+    e.preventDefault();
+    const T = msgCur(msgMe());
+    T && msgSheet(T.key, line.dataset.mid);
+  });
+}
 // ---- sending: one door for every thread
 {
   const base = sendChat;
@@ -199430,6 +199719,10 @@ function msgStamp(p, n0, aud, cards, raw, T, attach) {
       const men = msgMentionsOf(m.text, T);
       men.length && (m.mentions = men);
       0 === i && cards.length && (m.cards = (m.cards || []).concat(cards));
+      if (0 === i && !m.reply) {
+        const r = msgReplyTake(T.key);
+        r && (m.reply = r);
+      }
       // a photo posted by the team joins the job's photo stream and shows as its card
       !msgIsClient(u) &&
         (m.files || []).forEach((fid) => {
@@ -199512,6 +199805,45 @@ document.addEventListener("click", (e) => {
   let b;
   if ((b = t.closest("[data-msgopen]"))) return e.preventDefault(), msgOpen(b.dataset.msgopen);
   if ((b = t.closest("[data-msgback]"))) return e.preventDefault(), (msgListMode = !0), render(), void window.scrollTo(0, 0);
+  if ((b = t.closest("[data-msgsheetx]"))) return e.preventDefault(), void msgSheetClose();
+  if ((b = t.closest("[data-msgscope]"))) return e.preventDefault(), (msgScope = b.dataset.msgscope), void renderChat();
+  if ((b = t.closest("[data-msgjoin]"))) return e.preventDefault(), void msgJoin(b.dataset.msgjoin);
+  if ((b = t.closest("[data-msgreplyx]"))) return e.preventDefault(), (msgReplyTo = null), void msgReplyBar();
+  if ((b = t.closest("[data-msgreply]"))) {
+    e.preventDefault();
+    const [k, ...id] = b.dataset.msgreply.split("|");
+    return void msgReplyStart(k, id.join("|"));
+  }
+  if ((b = t.closest("[data-msgcopy]"))) {
+    e.preventDefault();
+    const [k, ...id] = b.dataset.msgcopy.split("|");
+    return void msgCopy(k, id.join("|"));
+  }
+  if ((b = t.closest("[data-msgjump]"))) {
+    e.preventDefault();
+    const el = document.querySelector(`#chat-list [data-mid="${CSS.escape(b.dataset.msgjump)}"]`);
+    return void (el ? (el.scrollIntoView({ block: "center" }), el.classList.add("msg-flash"), setTimeout(() => el.classList.remove("msg-flash"), 1200)) : toast("That message is no longer in this conversation"));
+  }
+  if ((b = t.closest("[data-msgplans]"))) return e.preventDefault(), setCurrent(b.dataset.msgplans), (view = "plans"), void render();
+  if ((b = t.closest("#msg-plus"))) {
+    // the phone's one attach button: Photo or File, Camera and Share a Record open above the box
+    e.preventDefault();
+    const c = b.closest(".chat-compose"),
+      on = c && c.classList.toggle("msg-more");
+    return void b.setAttribute("aria-expanded", String(!!on));
+  }
+  t.closest(".chat-compose.msg-more .msg-attach, .chat-compose.msg-more #msg-cam, .chat-compose.msg-more #msg-rec") &&
+    setTimeout(() => {
+      document.querySelector(".chat-compose.msg-more")?.classList.remove("msg-more");
+      document.getElementById("msg-plus")?.setAttribute("aria-expanded", "false");
+    }, 0);
+  if ((b = t.closest("#msg-cam"))) {
+    // the camera: the same upload as Attach, opened on the phone's camera
+    e.preventDefault();
+    const f = document.getElementById("chat-file");
+    return void (f && (f.setAttribute("capture", "environment"), f.click(), setTimeout(() => f.removeAttribute("capture"), 1500)));
+  }
+  t.closest("#msg-sheet [data-msgtask], #msg-sheet [data-msgtaskopen], #msg-sheet [data-msgrx]") && setTimeout(msgSheetClose, 0);
   if ((b = t.closest("#msg-new"))) return e.preventDefault(), void msgNewThread();
   if ((b = t.closest("[data-msgcrew]"))) return e.preventDefault(), void msgTeamEdit(b.dataset.msgcrew);
   if ((b = t.closest("[data-msgreact]"))) {
@@ -199525,7 +199857,7 @@ document.addEventListener("click", (e) => {
       kind = rest.pop();
     return void msgReact(k, rest.join("|"), kind);
   }
-  if ((b = t.closest("#msg-voice"))) return e.preventDefault(), void msgVoiceToggle();
+  if ((b = t.closest("#msg-voice"))) return e.preventDefault(), void (Date.now() - msgVoicePtr > 1500 && msgVoiceToggle()); // a keyboard press; a finger or a mouse is handled at pointerdown
   if ((b = t.closest("#msg-rec"))) return e.preventDefault(), void msgPick();
   if ((b = t.closest("[data-msgtask]"))) {
     e.preventDefault();
@@ -199584,6 +199916,65 @@ document.addEventListener("click", (e) => {
     return void (o && o.run && o.run());
   }
 });
+// ---- the owner joins a chat he was reading: in the open, with a line that says so (the server does it on the hosted copy)
+async function msgJoin(key) {
+  const u = msgMe(),
+    T = msgThread(key, u);
+  if (!T || !T.t || msgIn(T, u) || !msgIsOwner(u)) return;
+  if ("function" == typeof cloudOn && cloudOn() && Cloud.joinThread)
+    try {
+      await Cloud.joinThread(T.t.id);
+    } catch (e) {
+      return void toast(`Could not add you: ${e.message || e}`);
+    }
+  else (T.t.members = (T.t.members || []).concat(u.id)), T.all().push({ id: uid("ch"), by: "System", system: !0, joined: u.id, text: `${u.name || "The owner"} joined`, at: appNowIso(), t: nowStamp(), files: [] });
+  try {
+    audit("chat", T.t.id, "joined", "", u.name || "", `${u.name || "The owner"} joined ${T.title}`);
+  } catch (e) {}
+  const J = msgThread(key, u);
+  J && msgSeenSet(J, u), save(), (msgKey = key), (msgScope = "mine"), render();
+  toast(`You joined ${T.title}`, () => msgOpen(key));
+}
+// ---- the notice the owner approves into the Standard (New York requires written notice of electronic monitoring to
+// employees): drafted once as a change for him to approve under Company › Changes; this code never edits the Standard
+function msgPolicySeed() {
+  DB.changes = Array.isArray(DB.changes) ? DB.changes : [];
+  if (DB.changes.some((c) => c && ("chg_msg_records" === c.id || "msg-owner-reads" === c.key))) return !1;
+  DB.changes.push({
+    id: "chg_msg_records",
+    key: "msg-owner-reads",
+    title: "Tell everyone that chats are company records the owner can read",
+    why: "The owner can read every conversation in Chat (he joins one in the open before he writes in it). New York's Civil Rights Law, section 52-c, requires an employer to give employees written notice of electronic monitoring and to have them acknowledge it. Each chat list already says so; this puts it in the Standard, where everyone reads it and acknowledges it.",
+    kind: "policy",
+    proposed: { section: "AI and communications", text: "Chats in SmartDesigns Projects are company records. The owner can read any conversation; he joins one openly, and everyone in it sees that he did, before he writes in it. Personal mail, calendar and Drive files connected to the app stay private to each person." },
+    evidence: [{ t: "Every staff member's chat list shows: Chats here are company records; the owner can read them.", m: "Chat" }],
+    status: "draft",
+    at: today(),
+    by: "Messages",
+    source: "messages",
+  });
+  return !0;
+}
+// ---- Chat from the bottom bar, the header or the menu opens the conversations, never a job page (Alan, 2026-10-19):
+// on a phone the list; on a desktop the list beside the conversation at its top (unread first, then the newest).
+// A job's own Chat tab still opens that job's thread.
+function msgEnter() {
+  const u = msgMe();
+  msgSheetClose(), (msgQ = "");
+  if (window.innerWidth <= 760) msgListMode = !0;
+  else {
+    const R = msgRowsOf(msgThreadsFor(u), u);
+    (msgKey = R[0] ? R[0].T.key : null), (msgListMode = !1);
+  }
+}
+document.addEventListener(
+  "click",
+  (e) => {
+    const b = e.target && e.target.closest && e.target.closest('#tb-chat, .mtabs [data-mv="chat"], .tabbar [data-tab="chat"], [data-v="chat"]');
+    b && msgEnter();
+  },
+  !0,
+);
 // the client's thread warns, as the person types, when a line reads like the team's business
 document.addEventListener("input", (e) => {
   if (!e.target || "chat-text" !== e.target.id) return;
@@ -199620,7 +200011,10 @@ function msgBadges() {
           T = msgCur(u),
           tx = document.getElementById("chat-text");
         // the field's own wording (fmChat) is for the job's thread; a direct thread names its person
-        T && T.t && tx && (tx.placeholder = `Message ${T.title}…`);
+        T && tx && !msgIsClient(u) && (tx.placeholder = msgPlaceholder(T, u)), msgGrow(), msgComposeState();
+        // the trail names the screen, not a job: a conversation is not a job page
+        const cr = document.getElementById("crumbs");
+        cr && (cr.innerHTML = "<b>Chat</b>");
         const lab = document.querySelector("#v-chat .chat-compose label.btn");
         lab && T && (lab.hidden = !!T.t);
         // the list opens at its top (the field's chat screen scrolls to the newest line, which is for a thread)
@@ -199641,10 +200035,11 @@ if ("function" == typeof finishBoot) {
     try {
       // the crews first: who reads a job's thread (and whose history the migration marks read) follows them
       const c = msgTeamBoot(),
+        e = "function" == typeof role && ["owner", "pm"].includes(role()) ? msgPolicySeed() : !1,
         a = msgSeed(),
         d = msgSeenMove(),
         b = msgMigrate();
-      (a || b || c || d) && save();
+      (a || b || c || d || e) && save();
       // opened from a notification: straight to its conversation, and the address is tidied
       /[?&]msg=/.test(location.search) &&
         setTimeout(() => {

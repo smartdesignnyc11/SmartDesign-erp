@@ -163,7 +163,9 @@ s, res = save(T['crew'], [{'name': 'thread:qa-t1', 'data': {'id': 'qa-t1', 'memb
 ok(res and res[0].get('refused'), f'threads: a non-member cannot take a thread over by adding himself: {res}')
 s, res = save(T['crew'], [{'name': 'thread:qa-t2', 'data': {'id': 'qa-t2', 'kind': 'direct', 'members': ['u_alberto', 'u_angel'], 'msgs': [{'t': 'CREW-TO-ANGEL'}]}, 'base': 0}])
 ok(s == 200 and res[0].get('version'), f'threads: the crew member starts his own thread: {res}')
-s, rows = view(T['owner']); ok('CREW-TO-ANGEL' not in json.dumps(rows), "threads: the owner does not read a thread he is not in")
+s, rows = view(T['owner']); ok('CREW-TO-ANGEL' in json.dumps(rows), "threads: the owner reads a thread he is not in (admin; every staff chat list says so)")
+s, res = save(T['owner'], [{'name': 'thread:qa-t2', 'data': {'id': 'qa-t2', 'kind': 'direct', 'members': ['u_alberto', 'u_angel'], 'msgs': [{'t': 'CREW-TO-ANGEL'}, {'t': 'OWNER-AS-CREW'}]}, 'base': 99}])
+ok(res and res[0].get('refused'), f'threads: but cannot write in it until he joins: {res}')
 s, res = save(T['crew'], [{'name': 'thread:qa-t3', 'data': {'id': 'qa-t3', 'members': ['u_owner', 'u_angel'], 'msgs': [{'t': 'forged'}]}, 'base': 0}])
 ok(res and res[0].get('refused'), f'threads: nobody writes a thread for others: {res}')
 

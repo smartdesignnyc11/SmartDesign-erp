@@ -39,10 +39,10 @@ RAIL = {
 STRIPS = {
     ('u_owner', 'jobs'): ['Projects', 'Overview', 'Project Settings', '[Plan]', 'Schedule', 'Tasks', 'Decisions', 'Submittals', 'Permits',
                           '[Field]', 'Field', 'Photos', 'Deliveries', 'Materials', '[Costs & Billing]', 'Costs', 'Change Orders', 'Estimates',
-                          '[Files & Messages]', 'Documents', 'Drawings', 'Messages', 'Chat'],
+                          '[Files & Mail]', 'Documents', 'Drawings', 'Mail'],
     ('u_alan', 'jobs'): ['Projects', 'Overview', 'Project Settings', '[Plan]', 'Schedule', 'Tasks', 'Decisions', 'Submittals', 'Permits',
                          '[Field]', 'Field', 'Photos', 'Deliveries', 'Materials', '[Costs & Billing]', 'Costs', 'Change Orders', 'Estimates', 'Billing',
-                         '[Files & Messages]', 'Documents', 'Drawings', 'Messages', 'Chat'],
+                         '[Files & Mail]', 'Documents', 'Drawings', 'Mail'],
     ('u_owner', 'home'): ['Today', 'Approvals', 'Inbox', 'Tasks'],
     ('u_owner', 'money'): ['Accounting', 'Bills & Payroll', 'Time & Crew', 'Banking', 'Spend', 'Billing', 'Ledger', 'Controls', 'Budget'],
     ('u_owner', 'buy'): ['Purchasing', '[Buy]', 'Requests', 'Buy Board', 'RFQs', 'Purchase Orders', '[Receive]', 'Deliveries', 'Route',
