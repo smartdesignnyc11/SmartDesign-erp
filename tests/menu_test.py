@@ -105,7 +105,7 @@ STATE = r"""() => {
   const grp = document.querySelector('#nav-groups button.on'), sub = document.querySelector('#subnav .sub-tabs button.on');
   const bar = [...document.querySelectorAll('#mtabs button.on, #tabbar button.on')].find(vis);
   const ask = document.getElementById('tb-ask');
-  return { view, heading: txt(h), grp: grp ? strip(grp) : '', grpId: grp ? grp.dataset.grp : '', sub: sub && vis(sub) ? strip(sub) : '',
+  return { view, folded: typeof paMenuView === 'function' ? paMenuView() : '', heading: txt(h), grp: grp ? strip(grp) : '', grpId: grp ? grp.dataset.grp : '', sub: sub && vis(sub) ? strip(sub) : '',
     bar: bar ? strip(bar) : '', ask: !!(ask && !ask.hidden && vis(ask)), askOn: !!(ask && ask.classList.contains('on')),
     prim: [...(v ? v.querySelectorAll('.btn.primary') : [])].filter(vis).map(txt),
     sw: document.documentElement.scrollWidth, w: innerWidth };
@@ -143,7 +143,8 @@ async def press(pg, sel):
 
 async def check_screen(c, pg, tag, errs, want_view=None, phone=False):
     st = await pg.evaluate(STATE)
-    if want_view: c.ok(st['view'] == want_view, f'{tag}: opens {want_view}, got {st["view"]}')
+    # The Brain and the Chief of Staff are tabs of the one assistant (assistant lane): their entries open it on that tab
+    if want_view: c.ok(st['view'] == want_view or (st['view'] == 'pa' and st['folded'] == want_view), f'{tag}: opens {want_view}, got {st["view"]}')
     c.ok(heading_ok(st), f'{tag}: heading "{st["heading"]}" vs menu entry (group "{st["grp"]}", sub-tab "{st["sub"]}", bar "{st["bar"]}")')
     c.ok(len(st['prim']) <= 1, f'{tag}: {len(st["prim"])} blue primary buttons {st["prim"][:3]}')
     c.ok(st['ask'] or st['view'] == 'pa', f'{tag}: no Ask button in the header')

@@ -596,7 +596,53 @@ function paTabsHtml() {
   } catch (e) {}
   return `<div class="seg pa-tabs" role="tablist" aria-label="Assistant">${T.map(([k, l]) => `<button type="button" role="tab" aria-selected="${paTab === k}" class="${paTab === k ? "on" : ""}" data-patab="${k}">${l}${"findings" === k && nF ? ` <span class="pa-tabn">${nF}</span>` : ""}</button>`).join("")}</div>`;
 }
-const paHead = () => ("object" == typeof IA_LABELS && IA_LABELS.pa) || "Ask";
+// The menu keeps The Brain and the Chief of Staff as entries of their own (the Brain is the mission's core; it stays
+// findable where the workshop put it). They open the assistant on their tab (PA_REDIRECT). While one of those tabs is
+// showing, the page is that entry: the menu lights it, not Ask, and the heading reads as it, as on every other page.
+const paMenuView = () => {
+  if ("pa" !== view) return "";
+  const t = paTabWant || paTab;
+  for (const k in PA_REDIRECT) {
+    const [rt, rs] = PA_REDIRECT[k]();
+    if (t === rt && (!rs || paFindSeg === rs) && (ROLE_VIEWS[role()] || []).includes(k)) return k;
+  }
+  return "";
+};
+const paMenuLabel = (k) => {
+  try {
+    const B = "function" == typeof mnBuild ? mnBuild(role()) : null,
+      items = B ? (B.field ? B.bar.concat(B.rest, B.more) : B.groups.flatMap((g) => g.items).concat(B.more)) : [],
+      it = items.find((x) => x.v === k);
+    if (it) return it.l;
+  } catch (e) {}
+  return ("object" == typeof IA_LABELS && IA_LABELS[k]) || "";
+};
+const paHead = () => {
+  const k = paMenuView();
+  return (k && paMenuLabel(k)) || ("object" == typeof IA_LABELS && IA_LABELS.pa) || "Ask";
+};
+if ("function" == typeof mnCur) {
+  const base = mnCur;
+  mnCur = function () {
+    const k = paMenuView();
+    if (!k) return base.apply(this, arguments);
+    const v0 = view;
+    try {
+      return (view = k), base.apply(this, arguments);
+    } finally {
+      view = v0;
+    }
+  };
+}
+if ("function" == typeof mnAsk) {
+  const base = mnAsk;
+  mnAsk = function () {
+    const r = base.apply(this, arguments),
+      a = document.getElementById("tb-ask");
+    a && paMenuView() && (a.classList.remove("on"), a.removeAttribute("aria-current"));
+    return r;
+  };
+}
 const PA_LEAD = {
   findings: "What I caught for you, most important first by the Standard, each with the reason and the value behind it.",
   activity: "Everything I did on my own, everything I proposed and how it ended, and what I may do without asking you.",

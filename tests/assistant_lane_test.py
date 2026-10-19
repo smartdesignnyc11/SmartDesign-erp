@@ -109,7 +109,9 @@ async def sec_fold(p, c):
     r = await pg.evaluate("() => ({ view, tab: paTab, seg: paFindSeg, h: document.querySelector('.view.on h2').textContent, t: document.querySelector('.view.on').innerText, n: document.querySelectorAll('#cos-body').length, inPa: !!document.querySelector('#v-pa #cos-body') })")
     c.ok(r['view'] == 'pa' and r['tab'] == 'findings' and r['seg'] == 'chains', f"'cos' opens the assistant's Findings › Every Chain: {r['view']} {r['tab']} {r['seg']}")
     c.ok(r['n'] == 1 and r['inPa'] and 'bank items not yet matched' in r['t'], "the Chief of Staff's pass draws inside the tab, once")
-    c.ok(r['h'] == (await pg.evaluate("IA_LABELS.pa")), f"one page heading, the nav's: {r['h']!r}")
+    # the menu (lane "menu") keeps the Chief of Staff as its own entry and lights it on this tab; the heading reads as it
+    want = await pg.evaluate("() => { const b = document.querySelector('#subnav .sub-tabs button.on') || document.querySelector('#nav-groups button.on'); return b ? (b.innerText || b.textContent).replace(/\\s+/g, ' ').replace(/\\s*\\d+$/, '').trim() : IA_LABELS.pa; }")
+    c.ok(r['h'] == want == 'Chief of Staff', f"one page heading, the menu's lit entry: {r['h']!r} vs {want!r}")
     await go(pg, 'brain')
     r = await pg.evaluate("() => ({ view, tab: paTab, t: document.querySelector('.view.on').innerText, n: document.querySelectorAll('#brain-body').length, tabs: [...document.querySelectorAll('.view.on .pa-tabs [data-patab]')].map(b => b.dataset.patab), h2: [...document.querySelectorAll('.view.on h2')].length })")
     c.ok(r['view'] == 'pa' and r['tab'] == 'brain' and r['n'] == 1, f"'brain' opens Brain Settings for the owner: {r['view']} {r['tab']} {r['n']}")
