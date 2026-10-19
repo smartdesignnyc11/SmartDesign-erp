@@ -455,6 +455,45 @@ async def prompt_checks(pg, c):
     c.ok(len(T['have']) == len(T['keys']) >= 19, f"every line table is registered: {len(T['have'])} of {len(T['keys'])}")
     c.ok(all(k in T['schema'] for k in T['keys']), 'the query tool lists every line table and its fields')
 
+PRIVACY_JS = r"""
+async () => {
+  const out = { money: [], client: [], cross: [] }, money = /^(price|amount|cost|unitCost|budget|committed|actual|eac|overBy|outstanding|paid|total|retainage|retainageHeld|rate|unitPrice|scheduled|markupPct|marginPct)$/;
+  for (const u of ['u_angel', 'u_alberto', 'u_alex']) {
+    signIn(u);
+    MD_MONEY.forEach((k) => { const n = eqRows(k).length; n && out.money.push(`${u} reads ${n} ${k}`); });
+    Object.keys(MD_TABLES).forEach((k) => eqRows(k).forEach((r) => Object.keys(r).forEach((f) => money.test(f) && r[f] != null && out.money.push(`${u} sees ${k}.${f}`))));
+    // and every other table: no dollars under another name (an RFQ's best split, a quote's freight, a conflict's cost)
+    const any = /^(bestSplit|savings\w*|freight|ourCost|landed|median|lowest|total\w*|\w*Price|\w*Cost|\w*Amount|amount|price|cost)$/;
+    EQ_ENTITIES().forEach((k) => { let R = []; try { R = eqRows(k); } catch (e) {} R.forEach((r) => Object.keys(r).forEach((f) => !/^_/.test(f) && any.test(f) && r[f] && out.money.push(`${u} sees ${k}.${f}`))); });
+    const R = await mindToolMore('record', { ref: 'INV-2026-038' }), P = await mindToolMore('price_history', { item: 'tile' });
+    !R.error && out.money.push(`${u} opened INV-2026-038`); !P.error && (P.rows || []).length && out.money.push(`${u} read prices`);
+  }
+  for (const u of ['u_klein', 'u_cambri']) {
+    signIn(u);
+    Object.keys(MD_TABLES).forEach((k) => { const n = eqRows(k).length; n && out.client.push(`${u} reads ${n} ${k}`); });
+    for (const t of ['search_drive', 'read_thread', 'calendar']) { const r = await mindToolMore(t, { q: 'State' }); !r.error && out.client.push(`${u} used ${t}`); }
+    const o = await mindToolMore('record', { ref: 'PO-2026-041' }); !o.error && out.client.push(`${u} opened a PO`);
+  }
+  // every connected person against every other: mail, threads, Drive and calendar stay with their owner
+  const P = ['u_owner', 'u_alan', 'u_chen', 'u_sarah', 'u_billing', 'u_controller', 'u_angel'];
+  for (const u of P) { signIn(u); if (!gcMine()) await gcDemoConnect(); }
+  for (const u of P) {
+    signIn(u);
+    const theirs = (x) => x && x.owner && x.owner !== u;
+    const M = DB.comms.filter(theirs).map((c) => c.id), F = (DB.gdrive || []).filter(theirs).map((f) => f.id), E = ((DB.calendar || {}).external || []).filter(theirs).map((e) => e.id);
+    const sm = await mindTool('search_mail', { q: 'the', limit: 200 }), sd = mindToolMore('search_drive', { q: '', limit: 25 }), ca = mindToolMore('calendar', { from: '2026-08-01', to: '2026-10-31' });
+    (sm.messages || []).forEach((m) => M.includes(m._id) && out.cross.push(`${u} mail ${m._id}`));
+    ((await sd).files || []).forEach((f) => F.includes(f._id) && out.cross.push(`${u} drive ${f._id}`));
+    ((await ca).meetings || []).forEach((m) => E.includes(m._id) && out.cross.push(`${u} calendar ${m._id}`));
+    for (const id of M.slice(0, 6)) { const t = await mindToolMore('read_thread', { id: id }); (t.thread || []).forEach((m) => M.includes(m._id) && out.cross.push(`${u} thread ${m._id}`)); }
+    for (const id of F.slice(0, 4)) { const d = await mindRead({ id: id }); d && d.text && out.cross.push(`${u} read ${id}`); }
+    eqRows('learned').forEach((f) => f.private && mdFacts().find((x) => x.id === f._id).by !== u && out.cross.push(`${u} learned ${f._id}`));
+  }
+  signIn('u_owner');
+  return out;
+}
+"""
+
 async def offline():
     c = Checks()
     async with async_playwright() as p:
@@ -468,6 +507,11 @@ async def offline():
             except Exception as e:
                 c.ok(False, f"{C['id']}: {str(e)[:400]}")
         c.ok(len(CASES) >= 40, f'the bank holds {len(CASES)} questions')
+        # after the bank, so the RFQ, the facts and the drafts it made are all in the sweep
+        pv = await pg.evaluate(PRIVACY_JS)
+        c.ok(not pv['money'], f"a field role reads no money line, record or price through the mind: {pv['money'][:6]}")
+        c.ok(not pv['client'], f"a client reads none of the firm's line tables, mail, Drive, calendar or POs: {pv['client'][:6]}")
+        c.ok(not pv['cross'], f"no one's mail, threads, Drive, calendar or private notes reach another person's assistant: {pv['cross'][:6]}")
         c.ok(not errs, f'page errors: {errs[:3]}')
         await b.close()
     return c.done()

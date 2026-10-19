@@ -1054,7 +1054,8 @@ function mdPriceHistory(a) {
   const w = mdWords(a.item || "");
   if (!w.length) return { error: "Name the item." };
   const all = eqRows("pricehistory");
-  if (!all.length && ["foreman", "crew", "driver"].includes(role())) return { error: "Prices are not part of this role's view." };
+  // what we paid is money: never for a field role, whatever rows the price table would hand back without the prices
+  if (eqFieldRole() || mdClient()) return { error: "Prices are not part of this role's view." };
   const rows = all
     .filter((r) => {
       const h = mdNorm(`${r.item} ${r.category} ${r.vendor} ${r.itemKey}`);

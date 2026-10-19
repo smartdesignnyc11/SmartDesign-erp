@@ -169030,8 +169030,10 @@ const EQ_MONEY_TABLES = [
     "financials", "apaging", "irs_register", "lienwaivers", "salestax", "budget", "bankfeeds", "bankrecons",
     "bankstatements", "bankpending", "opportunities", "costcodes", "clients",
   ],
+  // the dollars a field role never reads, under any name a table gives them (the mind's sweep, 2026-10-19, found
+  // an RFQ's best split, a quote's freight and a drawing conflict's cost reaching the foreman)
   EQ_MONEY_FIELDS =
-    /^(contract|billed|earned|outstanding|actual|committed|estGP|estGPPct|leftToBill|overBy|overBudget|amount|rate|ordered|unpaidBills|value|paid|owed|money|budget|remaining|cost|price)$/,
+    /^(contract|billed|earned|outstanding|actual|committed|estGP|estGPPct|leftToBill|overBy|overBudget|amount|rate|ordered|unpaidBills|value|paid|owed|money|budget|remaining|cost|price|bestSplit|savings|savingsVsBudget|freight|ourCost|landed|unitPrice|unitCost|retainage|retainageHeld|markupPct|marginPct|eac|overBestPct|total)$/,
   // The tables a client may read, and only their own rows of them.
   EQ_CLIENT_TABLES = ["projects", "invoices", "estimates", "changeorders", "payments", "decisions", "photos", "tasks", "memory"],
   EQ_CLIENT_HIDE = /^(earned|actual|committed|estGP|estGPPct|overBudget|overBy|pct)$/,
