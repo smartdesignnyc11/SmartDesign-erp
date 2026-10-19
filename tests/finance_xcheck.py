@@ -454,7 +454,8 @@ async def check_role(pg, R, uid):
 
     # Chief of Staff
     if gate('cos', 'Chief of Staff'):
-        await nav(pg, 'ask', 'cos'); t = await text_of(pg, 'cos')
+        # the Chief of Staff is the assistant's Findings › Every Chain now (lane assistant): 'cos' redirects to 'pa'
+        await nav(pg, 'ask', 'cos'); t = await text_of(pg, 'pa')
         s = 'Chief of Staff'
         R.count('unmatched_n', S(s), t, r'(\d+) bank items? not yet matched')
         R.money('unmatched_amt', S(s), t, r'bank items? not yet matched — ' + MONEY)
