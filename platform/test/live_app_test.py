@@ -130,6 +130,24 @@ async def main():
         r = await F.evaluate("fetch('/api/ai', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({tier:'small', max_tokens: 20, messages:[{role:'user', content:'Reply with the word ready.'}]})}).then(r => r.status)")
         ok(r == 200, f'the page reaches /api/ai signed in and is answered (status {r})')
 
+        # the assistant streams (lane assistant): the words arrive in pieces through the real door, then the whole message
+        s = await A.evaluate("""mindStreamPost({tier: 'small', max_tokens: 40, messages: [{role: 'user', content: 'Reply with the single word ready.'}]},
+            {onText: () => { window.__qaPieces = (window.__qaPieces || 0) + 1; }}).then(m => ({text: (m.content || []).filter(b => b.type === 'text').map(b => b.text).join(''),
+            pieces: window.__qaPieces || 0})).catch(e => ({err: String(e && e.message || e)}))""")
+        ok(not s.get('err') and 'ready' in s.get('text', '').lower() and s.get('pieces', 0) >= 1, f'the answer streams to the page through /api/ai: {s}')
+        # and a real question in the assistant, as the owner asks it, comes back whole on the stream, not on the fallback
+        await A.evaluate("view = 'pa'; render(); paSend('Write two plain sentences on what a morning site huddle is for.')")
+        got = await until(A, "!paBusy && (paInit().thread || []).slice(-1)[0] && (paInit().thread || []).slice(-1)[0].who === 'a'", 90)
+        last = await A.evaluate("(() => { const m = (paInit().thread || []).slice(-1)[0] || {}; return {kind: m.kind || '', md: !!m.md, n: String(m.text || '').length, fails: paStreamFails}; })()")
+        ok(got and last['n'] > 40 and last['kind'] != 'slow' and last['fails'] == 0, f'the owner\'s question is answered in the assistant, streamed: {last}')
+
+        # a direct message (lane messages): office to the foreman's phone and back, kept in its own members-only row
+        tid = await A.evaluate("(() => { const T = msgDirectWith('u_angel', true); msgPostDm(T, 'QA: the tile delivery moved to Thursday'); saveNow ? saveNow() : save(); return T.t.id; })()")
+        ok(await until(A, f"Cloud.pullOne('thread:{tid}').then(r => !!(r && r.data && (r.data.msgs || []).length))", 30), 'the direct message is its own row on the server')
+        ok(await until(F, f"(DB.threads || []).some(t => t.id === '{tid}' && (t.msgs || []).some(m => /tile delivery/.test(m.text)))", 60), 'the direct message reached the foreman\'s phone')
+        await F.evaluate(f"(() => {{ const T = msgDirectWith('u_owner'); msgPostDm(T, 'QA: got it, crew is ready Thursday'); saveNow ? saveNow() : save(); }})()")
+        ok(await until(A, f"(DB.threads || []).some(t => t.id === '{tid}' && (t.msgs || []).some(m => /crew is ready/.test(m.text)))", 60), 'the foreman\'s reply reached the office')
+
         # a lost phone: the owner signs the foreman out everywhere; the open phone notices, wipes its copy, asks to sign in
         r = await A.evaluate(f"Cloud.signOutEverywhere('{QA['foreman']['id']}').then(r => r.signedOut)")
         ok(r and r >= 1, f'the owner signed the foreman out everywhere ({r} sessions)')
