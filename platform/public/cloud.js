@@ -106,6 +106,16 @@ window.Cloud = (() => {
   }
   function endedHere() { if (ending) return; ending = true; revoked = true; session = null; wipeLocal(() => location.reload()); }
   async function signOutEverywhere(profileId) { const r = await fetch('/api/team', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'signout', profileId})}); const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed'); return j; }
+  // The books' seals: when a month closes, upload the books first, then ask the server to seal what it now holds.
+  async function seal(ym, head, n) {
+    try { await push(dbRef()); } catch (e) {}
+    const r = await fetch('/api/seal', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'seal', ym, head, n})});
+    const j = await r.json(); if (!r.ok) throw new Error(j.error || 'seal failed'); return j;
+  }
+  async function verifyServer() {
+    const r = await fetch('/api/seal', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'verify'})});
+    const j = await r.json(); if (!r.ok) throw new Error(j.error || 'verify failed'); return j.months || [];
+  }
   async function invite(o) { const r = await fetch('/api/team', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(Object.assign({action: 'invite'}, o))}); const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed'); return j; }
   async function getProfile() {
     if (profile) return profile; if (!user()) return null;
@@ -394,7 +404,7 @@ window.Cloud = (() => {
 
   return {on, init, isOffice, isField, token: () => (session && session.access_token) || '', setDbRef: f => { dbRef = f; }, user, profile: getProfile,
     signIn, signInGoogle, authError, magicLink, resetPassword, signOut, pullAll, pullOne, push, pushPending, hasPending, subscribe, pollOnce, putBlob, getBlob,
-    listProfiles, updateProfile, aiSpend, enablePush, disablePush, signOutEverywhere, invite, revoked: () => revoked, listSignals: none, setSignalStatus: async () => true, listClips: none, claimClips: async () => 0,
+    listProfiles, updateProfile, aiSpend, enablePush, disablePush, signOutEverywhere, invite, seal, verifyServer, revoked: () => revoked, listSignals: none, setSignalStatus: async () => true, listClips: none, claimClips: async () => 0,
     saveClipToken: async () => true, screenPoint: async () => null, state, shards, merge3, cfg,
     _test: {session: s => { session = s; }, profile: p => { profile = p; }, setPart: (DB, n, d) => setPart(DB, n, d)}};
 })();

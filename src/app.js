@@ -177640,6 +177640,23 @@ function truthSeal(ym, by) {
   } catch (e) {}
   return Object.assign({ ok: !0 }, C);
 }
+// On the hosted copy the server keeps its own seal of each closed month (SHA-256 over its copy of the books,
+// add-only), so a seal rewritten in a browser copy is caught by Verify the Books.
+if ("function" == typeof truthSeal) {
+  const base = truthSeal;
+  truthSeal = function (ym, by) {
+    const r = base.apply(this, arguments);
+    try {
+      "function" == typeof cloudOn &&
+        cloudOn() &&
+        Cloud.seal &&
+        Cloud.seal(ym, r.head, r.n)
+          .then((s) => !1 === s.matches && toast(`The server's copy of the books for ${truthLabel(ym)} differs from this screen's. Run Verify the Books before relying on the close.`))
+          .catch((e) => console.warn("server seal", e));
+    } catch (e) {}
+    return r;
+  };
+}
 const truthNameOf = (j, id, n) => (j ? `#${j.n} · ${j.memo || j.key || j.id}` : `#${n || "?"} · ${id}`);
 function truthVerify(ym) {
   const S = ((DB.periods || {}).chains || {})[ym] || null,
@@ -177688,6 +177705,29 @@ function truthVerifyDialog() {
       ? `<p class="small muted">Each closed month's postings are chained (${esc(TRUTH_HASH_SCHEME)}) and the head is stored with the period at close. Verify re-derives the chain and names any posting that changed, went missing or was added since.</p><div class="tr-verify">${V.map((v) => `<div class="note ${v.ok ? "ok" : null === v.ok ? "" : "bad"}">${esc(truthVerifyWords(v))}</div>`).join("")}</div>`
       : `<p class="small muted">No month has been closed yet, so no chain is sealed. The first close seals its month; Verify the Books then checks every closed month.</p><div class="note">${esc(truthVerifyWords(truthVerify(bfCloseYm())))}</div>`;
   mbModal("Verify the Books", body, { submit: null });
+  // The server's own check, from its copy of the books against the seals it holds.
+  if ("function" == typeof cloudOn && cloudOn() && Cloud.verifyServer) {
+    const bd = document.querySelector("#mbm .mbm-bd");
+    bd && bd.insertAdjacentHTML("beforeend", '<h4 style="margin:14px 0 6px">Held by the Server</h4><div class="tr-verify" id="tr-server"><div class="note">Checking the server\'s seals…</div></div>');
+    Cloud.verifyServer()
+      .then((M) => {
+        const el = document.getElementById("tr-server");
+        if (!el) return;
+        el.innerHTML = M.length
+          ? M.map((m) => {
+              const bits = [];
+              m.changed.length && bits.push(`changed: ${m.changed.join("; ")}`),
+                m.missing.length && bits.push(`missing: ${m.missing.join("; ")}`),
+                m.added.length && bits.push(`added since: ${m.added.join("; ")}`);
+              return `<div class="note ${m.ok ? "ok" : "bad"}">${esc(truthLabel(m.ym))}: ${m.ok ? `${m.n} postings match the server's seal of ${esc(truthWhen(m.sealedAt))}${m.by ? ` by ${esc(m.by)}` : ""}.` : `the server's books do not match its seal of ${esc(truthWhen(m.sealedAt))}: ${esc(bits.join(" · "))}.`}${!1 === m.sawSame ? " The browser that closed this month saw different books from the server's." : ""}</div>`;
+            }).join("")
+          : '<div class="note">No month has been sealed on the server yet. The next close seals it here too.</div>';
+      })
+      .catch((e) => {
+        const el = document.getElementById("tr-server");
+        el && (el.innerHTML = `<div class="note">The server could not be checked: ${esc(e.message)}</div>`);
+      });
+  }
 }
 if ("function" == typeof fin2RunClose) {
   const base = fin2RunClose;

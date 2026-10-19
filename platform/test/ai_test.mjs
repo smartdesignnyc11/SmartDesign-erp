@@ -13,7 +13,18 @@ globalThis.fetch = async (url, opts = {}) => {
   if (u.includes('/rest/v1/profiles')) return new Response(JSON.stringify([{id: 'u1', role: world.role, workspace_id: 'w'}]));
   if (u.endsWith('/rest/v1/rpc/ai_spend')) return new Response(JSON.stringify({firm: world.firm, user: world.user}));
   if (u.endsWith('/rest/v1/ai_usage')) { calls.logged.push(JSON.parse(opts.body)); return new Response(null, {status: 201}); }
-  if (u === 'https://api.anthropic.com/v1/messages') { const b = JSON.parse(opts.body); calls.anthropic.push({b, h: opts.headers}); return new Response(JSON.stringify({model: b.model, content: [{type: 'text', text: 'hi'}], usage: {input_tokens: 1000, output_tokens: 200}})); }
+  if (u === 'https://api.anthropic.com/v1/messages') {
+    const b = JSON.parse(opts.body); calls.anthropic.push({b, h: opts.headers});
+    if (!b.stream) return new Response(JSON.stringify({model: b.model, content: [{type: 'text', text: 'hi'}], usage: {input_tokens: 1000, output_tokens: 200}}));
+    const ev = [{type: 'message_start', message: {id: 'm1', type: 'message', role: 'assistant', model: b.model, content: [], usage: {input_tokens: 1000, output_tokens: 1}}},
+      {type: 'content_block_start', index: 0, content_block: {type: 'text', text: ''}}, {type: 'content_block_delta', index: 0, delta: {type: 'text_delta', text: 'h'}},
+      {type: 'content_block_delta', index: 0, delta: {type: 'text_delta', text: 'i'}}, {type: 'content_block_stop', index: 0},
+      {type: 'content_block_start', index: 1, content_block: {type: 'tool_use', id: 't1', name: 'erpQuery', input: {}}},
+      {type: 'content_block_delta', index: 1, delta: {type: 'input_json_delta', partial_json: '{"table":"inv'}}, {type: 'content_block_delta', index: 1, delta: {type: 'input_json_delta', partial_json: 'oices"}'}},
+      {type: 'content_block_stop', index: 1}, {type: 'message_delta', delta: {stop_reason: 'tool_use'}, usage: {output_tokens: 200}}, {type: 'message_stop'}];
+    const sse = ev.map(e => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join('');
+    return new Response(new ReadableStream({start(c) { const enc = new TextEncoder(); for (let i = 0; i < sse.length; i += 37) c.enqueue(enc.encode(sse.slice(i, i + 37))); c.close(); }}), {status: 200, headers: {'content-type': 'text/event-stream'}});
+  }
   throw new Error('unexpected fetch ' + u);
 };
 const req = (body, token = GOOD) => new Request('https://site/api/ai', {method: 'POST', headers: token ? {authorization: 'Bearer ' + token} : {}, body: JSON.stringify(body)});
@@ -25,7 +36,10 @@ reset(); r = await ai.default(req(body, 'bad')); ok(r.status === 401 && !calls.a
 for (const role of ['none', 'client', 'mb_user']) { reset({role}); r = await ai.default(req(body)); ok(r.status === 403 && !calls.anthropic.length, role + ': refused'); }
 reset({firm: 40}); r = await ai.default(req(body)); ok(r.status === 429 && !calls.anthropic.length && (await r.json()).cap === 'firm', 'firm cap: refused before the call');
 reset({user: 8.01}); r = await ai.default(req(body)); ok(r.status === 429 && !calls.anthropic.length, 'person cap: refused before the call');
-reset(); r = await ai.default(req(body)); ok(r.status === 200, 'member under cap: answered');
+reset(); r = await ai.default(req(body)); const txt = await r.text(); const msg = JSON.parse(txt);
+ok(r.status === 200, 'member under cap: answered');
+ok(msg.content[0].text === 'hi' && msg.content[1].input.table === 'invoices' && msg.stop_reason === 'tool_use' && msg.usage.output_tokens === 200, 'the streamed answer is rebuilt whole: text, a tool call with its input, the stop reason, usage');
+ok(calls.anthropic[0].b.stream === true, 'the door asks Anthropic for a stream');
 const sent = calls.anthropic[0].b;
 ok(sent.model === 'claude-sonnet-5-5', 'the server picks the model, not the page');
 ok(sent.max_tokens === 4000, 'max_tokens clamped');

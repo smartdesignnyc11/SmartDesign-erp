@@ -392,3 +392,25 @@ create or replace function public.session_alive_for(p_session uuid, p_user uuid)
   select exists (select 1 from auth.sessions where id = p_session and user_id = p_user);
 $$;
 revoke all on function public.session_alive_for(uuid, uuid) from public, anon, authenticated;
+
+-- ---------------------------------------------------------------- the books' seals, held by the server (2026-10-19)
+-- When a month closes, the server recomputes the chain over that month's postings from its own copy of the books
+-- (SHA-256, and the app's FNV head to compare) and keeps the seal here. Add-only: no one can change or delete a seal,
+-- the owner included; a reopened and re-closed month gets a new row. Verify recomputes from the server's books.
+create table if not exists public.period_seals (
+  id bigserial primary key,
+  workspace_id text not null,
+  ym text not null,
+  n integer not null,
+  head_sha text not null,
+  head_fnv text,
+  app_head text,
+  matches boolean,
+  links jsonb not null,
+  sealed_at timestamptz not null default now(),
+  by_user uuid,
+  by_name text
+);
+create index if not exists period_seals_ws_ym on public.period_seals (workspace_id, ym, sealed_at desc);
+alter table public.period_seals enable row level security;
+revoke all on public.period_seals from anon, authenticated;

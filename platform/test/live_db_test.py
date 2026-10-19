@@ -134,6 +134,26 @@ s, j = http('GET', BASE + '/rest/v1/push_subs?select=endpoint', token=T['owner']
 s, j = gc('foreman', {'action': 'testpush'}); ok(s == 200 and j.get('sent') == 0, f'push: a dead endpoint is tried and counted, not crashed on: {s} {j}')
 s, j = http('POST', BASE + '/rest/v1/rpc/push_unsubscribe', {'p_endpoint': fake['endpoint']}, token=T['foreman']); ok(s in (200, 204), f'push: and removed: {s}')
 
+# the books' seals, held by the server (add-only, recomputed from the server's own books)
+def seal(who, body):
+    req = urllib.request.Request(SITE + '/api/seal', method='POST', data=json.dumps(body).encode(), headers={'content-type': 'application/json', 'authorization': 'Bearer ' + T[who]})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r: return r.status, json.loads(r.read())
+    except urllib.error.HTTPError as e: return e.code, e.read().decode()[:200]
+gl = {'journals': [{'n': 1, 'id': 'qj1', 'date': '2026-08-04', 'status': 'posted', 'key': 'bill', 'sourceType': 'bill', 'sourceId': 'b1', 'memo': 'QA bill', 'lines': [{'acct': '5100', 'dr': 1200}, {'acct': '2000', 'cr': 1200}]}]}
+s, cur = view(T['owner'], '&name=eq.gl'); base = cur[0]['version'] if cur else 0
+s, res = save(T['owner'], [{'name': 'gl', 'data': gl, 'base': base}]); ok(s == 200, f'owner writes QA books: {res}')
+ok(seal('foreman', {'action': 'seal', 'ym': '2026-08'})[0] == 403, 'seal: the field cannot seal')
+s, j = seal('owner', {'action': 'seal', 'ym': '2026-08'}); ok(s == 200 and j.get('n') == 1 and len(j.get('head', '')) == 64, f'seal: the owner seals August from the server\'s books: {s} {j}')
+s, j = seal('owner', {'action': 'verify'}); m = [x for x in j.get('months', []) if x['ym'] == '2026-08']
+ok(s == 200 and m and m[0]['ok'], f'verify: August matches its seal: {m}')
+gl['journals'][0]['lines'][0]['dr'] = 12000; gl['journals'][0]['lines'][1]['cr'] = 12000
+s, cur = view(T['owner'], '&name=eq.gl'); s, res = save(T['owner'], [{'name': 'gl', 'data': gl, 'base': cur[0]['version']}])
+s, j = seal('owner', {'action': 'verify'}); m = [x for x in j.get('months', []) if x['ym'] == '2026-08']
+ok(m and not m[0]['ok'] and m[0]['changed'], f'verify: a rewritten posting is caught and named by the server: {m[0].get("changed") if m else m}')
+s, j = http('DELETE', BASE + '/rest/v1/period_seals?ym=eq.2026-08', token=T['owner'])
+ok(s >= 400 or j == [], f'nobody signed in can delete a seal, the owner included: {s}')
+
 # the AI door
 def ai(who, body):
     h = {'content-type': 'application/json'}

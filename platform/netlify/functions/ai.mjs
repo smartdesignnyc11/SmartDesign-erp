@@ -51,7 +51,7 @@ export function cleanBody(body, model, tier) {
 
 // One call to Claude for a signed-in member: caps checked before, the model by tier, cost logged after.
 // The AI door below and the document reader (doctext.mjs) both go through it, so neither can skip the caps.
-export async function claude(user, profile, body) {
+async function prepare(user, profile, body) {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) return {status: 500, text: JSON.stringify({error: 'ANTHROPIC_API_KEY is not set on the server'})};
   const capFirm = Number(process.env.AI_CAP_FIRM_USD || 40), capUser = Number(process.env.AI_CAP_USER_USD || 8);
@@ -68,7 +68,22 @@ export async function claude(user, profile, body) {
   // A key that is not scoped to one Anthropic workspace must name the workspace on every call.
   if (process.env.ANTHROPIC_WORKSPACE_ID) headers['anthropic-workspace-id'] = process.env.ANTHROPIC_WORKSPACE_ID;
   if (FALLBACK_OK.has(model)) { out.fallbacks = 'default'; headers['anthropic-beta'] = 'server-side-fallback-2026-07-01'; }
-
+  return {out, headers, model, tier};
+}
+async function logUse(user, profile, body, tier, model, served, status, usage) {
+  const cost = costOf(PRICES[served] ? served : model, usage || {});
+  try {
+    await rest('ai_usage', {method: 'POST', headers: {prefer: 'return=minimal'}, body: JSON.stringify({
+      user_id: user.id, workspace_id: profile.workspace_id, tier: body.purpose ? tier + ':' + body.purpose : tier, model: served, status,
+      input_tokens: (usage || {}).input_tokens || 0, output_tokens: (usage || {}).output_tokens || 0,
+      cache_read_tokens: (usage || {}).cache_read_input_tokens || 0, cache_write_tokens: (usage || {}).cache_creation_input_tokens || 0,
+      cost_usd: Number(cost.toFixed(6))})});
+  } catch (e) { console.error('ai_usage log failed', e.message); }
+}
+export async function claude(user, profile, body) {
+  const p = await prepare(user, profile, body);
+  if (p.status) return p;
+  const {out, headers, model, tier} = p;
   let r, text;
   try {
     r = await fetch('https://api.anthropic.com/v1/messages', {method: 'POST', headers, body: JSON.stringify(out)});
@@ -76,15 +91,99 @@ export async function claude(user, profile, body) {
   } catch (e) { return {status: 502, text: JSON.stringify({error: 'could not reach the model: ' + (e.message || e)})}; }
   let usage = {}, served = model;
   try { const j = JSON.parse(text); usage = j.usage || {}; served = j.model || model; } catch {}
-  const cost = costOf(PRICES[served] ? served : model, usage);
-  try {
-    await rest('ai_usage', {method: 'POST', headers: {prefer: 'return=minimal'}, body: JSON.stringify({
-      user_id: user.id, workspace_id: profile.workspace_id, tier: body.purpose ? tier + ':' + body.purpose : tier, model: served, status: r.status,
-      input_tokens: usage.input_tokens || 0, output_tokens: usage.output_tokens || 0,
-      cache_read_tokens: usage.cache_read_input_tokens || 0, cache_write_tokens: usage.cache_creation_input_tokens || 0,
-      cost_usd: Number(cost.toFixed(6))})});
-  } catch (e) { console.error('ai_usage log failed', e.message); }
+  await logUse(user, profile, body, tier, model, served, r.status, usage);
   return {status: r.status, text};
+}
+
+// Rebuild the final message from Anthropic's event stream: text, thinking, tool calls (their input arrives as JSON
+// in pieces), server tool blocks, stop reason and usage.
+export function assemble(events) {
+  let msg = null; const blocks = [];
+  for (const e of events) {
+    if (e.type === 'message_start') msg = {...e.message, content: []};
+    else if (e.type === 'content_block_start') blocks[e.index] = {...e.content_block, _json: ''};
+    else if (e.type === 'content_block_delta') {
+      const b = blocks[e.index], d = e.delta || {};
+      if (!b) continue;
+      if (d.type === 'text_delta') b.text = (b.text || '') + d.text;
+      else if (d.type === 'input_json_delta') b._json += d.partial_json || '';
+      else if (d.type === 'thinking_delta') b.thinking = (b.thinking || '') + d.thinking;
+      else if (d.type === 'signature_delta') b.signature = d.signature;
+      else if (d.type === 'citations_delta') (b.citations = b.citations || []).push(d.citation);
+    } else if (e.type === 'message_delta' && msg) {
+      Object.assign(msg, e.delta || {});
+      msg.usage = {...(msg.usage || {}), ...(e.usage || {})};
+    }
+  }
+  if (!msg) return null;
+  msg.content = blocks.filter(Boolean).map(b => {
+    const {_json, ...rest} = b;
+    if (_json) { try { rest.input = JSON.parse(_json); } catch { rest.input = {}; } }
+    return rest;
+  });
+  return msg;
+}
+
+// The AI door's answer as a stream: the server reads Anthropic's event stream and sends a space every few seconds
+// so the connection is never idle (Netlify cuts an idle response at 30 s), then the whole message as JSON. JSON
+// allows leading whitespace, so the app reads it exactly as before. The cost is logged when the message ends.
+export async function claudeStream(user, profile, body) {
+  const started = Date.now();
+  const p = await prepare(user, profile, body);
+  if (p.status) return new Response(p.text, {status: p.status, headers: {'content-type': 'application/json', 'cache-control': 'no-store'}});
+  const {out, headers, model, tier} = p;
+  let r;
+  try { r = await fetch('https://api.anthropic.com/v1/messages', {method: 'POST', headers, body: JSON.stringify({...out, stream: true})}); }
+  catch (e) { return json(502, {error: 'could not reach the model: ' + (e.message || e)}); }
+  if (!r.ok || !r.body) {                                   // refused up front: pass the answer through as before
+    const text = await r.text();
+    await logUse(user, profile, body, tier, model, model, r.status, {});
+    return new Response(text, {status: r.status, headers: {'content-type': 'application/json', 'cache-control': 'no-store'}});
+  }
+  const enc = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(ctl) {
+      const tick = setInterval(() => { try { ctl.enqueue(enc.encode(' ')); } catch {} }, 4000);
+      const events = []; let buf = '', err = null, cut = false;
+      // Netlify stops a function at 60 s. At 52 s stop reading, send what has come, marked as cut short, and log
+      // its cost from what was produced, so nothing is lost and nothing escapes the caps.
+      const deadline = started + 52000;
+      try {
+        const rd = r.body.getReader(), dec = new TextDecoder();
+        for (;;) {
+          const left = deadline - Date.now();
+          if (left <= 0) { cut = true; try { await rd.cancel(); } catch {} break; }
+          const res = await Promise.race([rd.read(), new Promise(ok => setTimeout(() => ok({timeout: true}), left))]);
+          if (res.timeout) { cut = true; try { await rd.cancel(); } catch {} break; }
+          const {value, done} = res; if (done) break;
+          buf += dec.decode(value, {stream: true});
+          let i;
+          while ((i = buf.indexOf('\n\n')) >= 0) {
+            const chunk = buf.slice(0, i); buf = buf.slice(i + 2);
+            const data = chunk.split('\n').filter(l => l.startsWith('data:')).map(l => l.slice(5).trim()).join('');
+            if (!data) continue;
+            try { const e = JSON.parse(data); if (e.type === 'error') err = e; else events.push(e); } catch {}
+          }
+        }
+      } catch (e) { err = {type: 'error', error: {type: 'stream_error', message: String(e.message || e)}}; }
+      clearInterval(tick);
+      const msg = assemble(events);
+      if (msg && cut) {
+        msg.stop_reason = 'time_limit';
+        const chars = msg.content.reduce((a, b) => a + String(b.text || b.thinking || '').length + (b.input ? JSON.stringify(b.input).length : 0), 0);
+        // Thinking is billed but not shown, so text length undercounts. Charge the time at the model's top speed,
+        // which errs high: a cap that counts too much stops early, never late.
+        const rate = /haiku/.test(model) ? 250 : /sonnet/.test(model) ? 130 : 90;
+        const byTime = Math.ceil(((Date.now() - started) / 1000) * rate);
+        msg.usage = {...(msg.usage || {}), output_tokens: Math.max((msg.usage || {}).output_tokens || 0, Math.ceil(chars / 3.5), byTime)};
+        msg.content.push({type: 'text', text: '\n\n(Cut short: an answer here can run 52 seconds. Ask for the rest, or a shorter version.)'});
+      }
+      await logUse(user, profile, body, tier, model, (msg && msg.model) || model, err ? 500 : 200, (msg && msg.usage) || {});
+      ctl.enqueue(enc.encode(JSON.stringify(err && !msg ? err : msg || {type: 'error', error: {type: 'empty', message: 'the model sent nothing'}})));
+      ctl.close();
+    },
+  });
+  return new Response(stream, {status: 200, headers: {'content-type': 'application/json', 'cache-control': 'no-store', 'x-accel-buffering': 'no'}});
 }
 
 export default async (req) => {
@@ -95,7 +194,6 @@ export default async (req) => {
   try { body = await req.json(); } catch { return json(400, {error: 'bad JSON'}); }
   if (!body || !Array.isArray(body.messages) || !body.messages.length) return json(400, {error: 'messages required'});
   delete body.purpose;
-  const r = await claude(who.user, who.profile, body);
-  return new Response(r.text, {status: r.status, headers: {'content-type': 'application/json', 'cache-control': 'no-store'}});
+  return claudeStream(who.user, who.profile, body);
 };
 export const config = {path: '/api/ai'};

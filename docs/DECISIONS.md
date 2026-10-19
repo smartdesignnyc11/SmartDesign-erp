@@ -17,6 +17,7 @@ Status: **Built** (merged and tested) · **Building** (a lane is on it) · **Spe
 ## 2026-10-19
 | Ask or decision | Where it lives | Status |
 |---|---|---|
+| Server-held seals of the books (BACKLOG §5 item 2: "the hash chain's head per period stored server-side"). Built stronger than asked: SHA-256 recomputed from the server's own books, add-only, beside the app's FNV head | `platform/README.md` | Built; unit 13, live 66/66 |
 | Document reader (BACKLOG §5 item 5), rebuilt: text PDFs and Word free, scans and photos by the small model within the caps; spreadsheets and HEIC get a note (the common Excel reader has unfixed advisories for untrusted files) | `platform/README.md` | Built; unit 14/14, live PDF and receipt photo read |
 | Keep going without waiting (Alan): watcher nudges into the assistant; invites and Sign Out Everywhere for a lost phone (sessions ended at once, the phone erases its copy) | `platform/README.md` | Built; live 60/60 and 28/28 |
 | Is it safe that the ERP reads his mail and Drive? Recommended and built: the watcher's key reads only; push notifications for what matters. Advised: 2-Step Verification on both Google accounts, sign in with Google | `platform/README.md` | Built; live 49/49. Real push on his phone not yet seen (headless browsers refuse notifications) |
