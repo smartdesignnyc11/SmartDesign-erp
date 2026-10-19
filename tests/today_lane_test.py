@@ -25,8 +25,8 @@ OFFICE = [('u_owner', 'owner'), ('u_alan', 'pm'), ('u_chen', 'coord'), ('u_billi
 MODEL = """() => { const M = tdyModel(), k = (it) => it.kind + ':' + it.id;
   return { appr: M.appr.map(k), inbox: M.inbox.map(k), tasks: M.tasks.map(k), all: M.all.map(k), team: M.team ? M.team.length : null,
            pred: PRED.waitingOnMe.count(), me: currentUser().id,
-           taskOwners: M.tasks.map(it => [it.t.ownerUid, it.t.offeredToUid]),
-           mine: tkAll({ open: true, uid: currentUser().id }).filter(t => !t.approval).map(t => ({ key: 'tdyTask:' + t.key, refs: t.refs })),
+           taskOwners: M.tasks.filter(it => it.t).map(it => [it.t.ownerUid, it.t.offeredToUid]), buy: M.tasks.filter(it => it.kind === 'tdyBuy').length, role: role(),
+           mine: tkAll({ open: true, uid: currentUser().id }).filter(t => !t.approval && (!t.due || t.due <= iso(addDays(today(), TDY_HORIZON)) || t.offeredToUid === currentUser().id)).map(t => ({ key: 'tdyTask:' + t.key, refs: t.refs })),
            held: [].concat(...M.appr.map(tdyApprRefs)).concat(M.inbox.map(i => 'comm:' + i.id)) }; }"""
 
 # every row of the current filter, opened in full ("N more" expands in place, or names the full page)
@@ -70,6 +70,18 @@ async def union_and_counts(c, pg, uid, tag):
         await go(pg, 'mapprove'); await pg.wait_for_timeout(250)
         ev = await pg.evaluate("() => { const b = document.querySelector('#mappr-tabs [data-mak=\"all\"] .n'); return b ? +b.innerText : null; }")
         c.ok(ev is None or ev == len(m['appr']), f"{tag}: the Approvals page's Everything {ev} vs Today's Approvals {len(m['appr'])}")
+    if tag == 'coord':
+        # the coordinator owes the orders: the Buy Board lines late or due this week are on his Tasks, with Order
+        await go(pg, 'home'); await pg.wait_for_timeout(200)
+        await pg.click('.view.on [data-tdytabbtn="tasks"]'); await pg.wait_for_timeout(300)
+        buy = await pg.evaluate("() => [...document.querySelectorAll('.view.on .td-do .td-card[data-kind=\"tdyBuy\"]')].map(e => [e.querySelector('[data-tdverb]').innerText.trim(), e.dataset.ea || ''])")
+        c.ok(m['buy'] >= 3 and len(buy) == m['buy'] and all(v in ('Order', 'Decide') and ('order' in ea or 'dec' in ea) for v, ea in buy), f"coord: the Buy Board lines he owes are on his Tasks with Order ({m['buy']}: {buy[:3]})")
+        if buy:
+            await pg.click('.view.on .td-do .td-card[data-kind="tdyBuy"] [data-tdverb]'); await pg.wait_for_timeout(400)
+            t = await pg.evaluate("() => { const h = document.querySelector('#mbm .mbm-hd h3'); return h ? h.innerText : ''; }")
+            c.ok(t.startswith('Order'), f'coord: Order opens the PO sheet on the line ({t!r})')
+            await pg.evaluate("() => mbCloseModal()")
+        await pg.click('.view.on [data-tdytabbtn="all"]'); await pg.wait_for_timeout(200)
     if tag in ('owner', 'pm'):
         c.ok(m['team'] is not None, f'{tag}: a manager has Team')
     else:

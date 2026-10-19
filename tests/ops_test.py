@@ -448,8 +448,9 @@ async def sec_polish(p, c):
         c.ok(after == before - 1, f'the first Acknowledge click acknowledges: new requests {before} -> {after}')
         c.ok(await toast(pg), 'Acknowledge toasts')
     # Chen's Home link for a field question lands on the question
-    await go(pg, 'home'); await pg.wait_for_timeout(400)
-    hit = await pg.evaluate("() => { const r = [...document.querySelectorAll('.view.on .h4r, .view.on [data-ea], .view.on [data-h4go], .view.on .fd-row')].find(x => /Insulation/.test(x.innerText)); if (!r) return null; (r.querySelector('button, a') || r).click(); return view }")
+    # Home is Today (lane "today"): the field question is on its Approvals filter
+    await pg.evaluate("() => { try { tdyTabSet('appr'); } catch (e) {} }"); await go(pg, 'home'); await pg.wait_for_timeout(400)
+    hit = await pg.evaluate("() => { const r = [...document.querySelectorAll('.view.on .h4r, .view.on [data-ea], .view.on [data-h4go], .view.on .fd-row, .view.on .td-do .td-card')].find(x => /Insulation/.test(x.innerText)); if (!r) return null; (r.querySelector('button, a') || r).click(); return view }")
     c.ok(hit in ('mapprove', 'field'), f"Chen's Home link for the insulation question lands on {hit}")
     # stamps sit in site hours on the demo clock
     hhmm = await pg.evaluate("() => appNowIso().slice(11, 16)")

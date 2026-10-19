@@ -352,8 +352,12 @@ async def walk_owner(w):
     if not ok: await w.flag('next step hidden', 'the Morning Brief is not on the owner\'s landing screen')
 
     # WW-2026-118: $33,500 billed against PO-2026-044 ($29,700), paid from Amex before approval, COI and W-9 blocks.
-    w.step('Approve WW-2026-118 (short-pay: Approve PO Amount, Dispute Difference)')
+    w.step('Approve WW-2026-118 (Approvals filter > short-pay: Approve PO Amount, Dispute Difference)')
     await w.toast_mark()
+    # Today is one queue (lane "today", 2026-10-19): All ranks overdue follow-ups above a bill not yet due, by the
+    # Standard's order; the bill is one tap away on the Approvals filter
+    if not await w.find('Approve', within='WW-2026-118', css='button'):
+        await w.click('Approvals', prefix=True, css='[data-tdytabbtn]')
     # Do Now's Approve on WW-2026-118 must open the short-pay sheet (the bill is $3,800 over the PO), never Approve as Billed alone.
     hit = await w.find('Approve', within='WW-2026-118', css='button')
     if hit:
@@ -466,7 +470,8 @@ async def walk_pm(w):
     if await w.find('Save Task'):
         w.note('Enter in the title did not save the task; clicked Save Task')
         await w.click('Save Task', wait=600)
-    await w.mutated('task for Chen due Fri 9/4', "() => { const all = (DB.tasks || []).concat(...DB.projects.map(p => (p.tasks || []).concat(p.actions || []))); return all.some(t => /brick mold credit/.test(t.title || t.name || '') && /Chen/.test(t.assignee || t.who || t.owner || '') && (t.due || '') === '2026-09-04') }")
+    # assigning to someone else is a hand-off (lane "today"): the task is offered to Chen and stays the PM's until he accepts
+    await w.mutated('task for Chen due Fri 9/4', "() => { const all = (DB.tasks || []).concat(...DB.projects.map(p => (p.tasks || []).concat(p.actions || []))); return all.some(t => /brick mold credit/.test(t.title || t.name || '') && (/Chen/.test(t.assignee || t.who || t.owner || '') || (t.handoff && /Chen/.test(t.handoff.to) && t.handoff.state === 'offered')) && (t.due || '') === '2026-09-04') }")
 
 
 
@@ -499,9 +504,11 @@ INV_JS = "() => DB.clients.flatMap(c => (c.invoices || []).map(d => ({id: d.id, 
 
 async def walk_billing(w):
     pg = w.pg
-    w.step('Brief "Draft It" > New Invoice')
+    # billing's Home is Today (lane "today", 2026-10-19): the earned-not-billed milestone the brief's "Draft It" carried
+    # is on Caught for You with "Bill It", which opens the same milestone sheet
+    w.step('Caught for You "Bill It" > New Invoice')
     before = {d['id'] for d in await pg.evaluate(INV_JS)}
-    await w.click('Draft It')
+    await w.click('Bill It')
     await w.toast_mark()
     await w.click('New Invoice', wait=800)
     await w.mutated('progress invoice drafted', "ids => DB.clients.some(c => (c.invoices || []).some(d => !ids.includes(d.id)))", list(before))

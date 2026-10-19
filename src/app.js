@@ -173456,7 +173456,7 @@ function tdRender() {
       ? top
           .map(
             (c, i) =>
-              `<div class="td-card" data-kind="${c.it.kind}" data-id="${esc(String(c.it.id))}"><div class="td-txt"><div class="td-l1">${c.line1}</div>${c.why ? `<div class="td-l2">${c.why}</div>` : ""}</div><button type="button" class="btn ${0 === i ? "primary" : ""} td-verb" data-tdverb="${i}">${esc(c.verb)}</button></div>`,
+              `<div class="td-card" data-kind="${c.it.kind}" data-id="${esc(String(c.it.id))}"${c.ea ? ` data-ea='${esc(JSON.stringify(c.ea))}'` : ""}><div class="td-txt"><div class="td-l1">${c.line1}</div>${c.why ? `<div class="td-l2">${c.why}</div>` : ""}</div><button type="button" class="btn ${0 === i ? "primary" : ""} td-verb${c.ea ? " h4-act" : ""}" data-tdverb="${i}">${esc(c.verb)}</button></div>`,
           )
           .join("")
       : `<div class="td-empty">${{ appr: "Nothing waits on your approval.", inbox: "No message waits on you.", tasks: "No task of yours is open.", team: "Nobody on the team has an open task." }[tab] || "Nothing is waiting on you."}</div>`
@@ -196353,6 +196353,7 @@ const TDY_ROLE_WORDS = [
   ["owner", /^(owner|ceo)$/i],
 ];
 const TDY_OFFICE = ["owner", "pm", "coord", "billing", "controller"];
+const TDY_HORIZON = 14; // days ahead a task is on Today's Tasks; later ones wait on All Tasks
 const TDY_MANAGERS = ["owner", "pm"];
 const tdyUsers = () => (DB.users || []).filter((u) => u && u.name && !/^(client|mb_user|mb_analyst)$/.test(u.role || ""));
 const tdyRoleUser = (r) => tdyUsers().find((u) => u.role === r) || null;
@@ -197131,11 +197132,17 @@ function tdyModel() {
   } catch (e) {}
   const inbox = mail.filter((c) => !held.has("comm:" + c.id)).map(tdyMailItem);
   inbox.forEach((it) => held.add("comm:" + it.id));
-  const tasks = me.id
-    ? tkAll({ open: !0, uid: me.id })
-        .filter((t) => !t.approval && !t.refs.some((k) => held.has(k)))
-        .map(tdyTaskItem)
-    : [];
+  // Today's Tasks are what is owed now: overdue, due in the next two weeks, undated (it needs a date), or offered to
+  // me. A renewal two years out is on All Tasks, not on today's list.
+  const horizon = iso(addDays(today(), TDY_HORIZON)),
+    tasks = me.id
+      ? tkAll({ open: !0, uid: me.id })
+          .filter((t) => !t.approval && !t.refs.some((k) => held.has(k)) && (!t.due || t.due <= horizon || t.offeredToUid === me.id))
+          .map(tdyTaskItem)
+      : [];
+  // the coordinator owes the orders: a Buy Board line late to order, or due to order this week, is a task with a date
+  // (it was the classic Home's "Order" rows; the Buy Board stays the list behind it)
+  "coord" === r && may("proc") && tdyBuyItems().forEach((it) => tasks.push(it));
   const order = (L) => {
     try {
       return standardOrder(L, stdQueueTie);
@@ -197144,6 +197151,35 @@ function tdyModel() {
     }
   };
   return { appr: appr, inbox: order(inbox), tasks: order(tasks), all: order(appr.concat(inbox, tasks)), team: TDY_MANAGERS.includes(r) ? tdyTeam() : null };
+}
+// The Buy Board lines the coordinator owes today: late to order, or due to order this week (b2Facts, the brief's own).
+function tdyBuyItems() {
+  let X = null;
+  try {
+    X = tdFacts().X || b2Facts(briefFacts());
+  } catch (e) {
+    return [];
+  }
+  const td = today(),
+    seen = new Set(),
+    out = [];
+  ((X && X.buyLate) || []).concat((X && X.buyWeek) || []).forEach((x) => {
+    const id = `${x.p.id}:${x.m ? x.m.id : x.key || x.name}`;
+    if (seen.has(id)) return;
+    seen.add(id);
+    const late = !!x.orderBy && x.orderBy < td;
+    out.push({
+      kind: "tdyBuy",
+      id: id,
+      src: "buy",
+      x: x,
+      title: `${x.name} — ${shortName(x.p)}`,
+      detail: x.dec ? "held by a decision" + (x.orderBy ? ` · order-by ${fmt(x.orderBy)}${late ? " passed" : ""}` : "") : late ? `order-by ${fmt(x.orderBy)} passed` : `order by ${fmt(x.orderBy)}`,
+      due: x.orderBy || "",
+      ea: x.dec ? { view: "dec", proj: x.p.id } : { order: { pid: x.p.id, mid: x.m ? x.m.id : "", key: "line" === x.kind ? x.key : "" } },
+    });
+  });
+  return out;
 }
 // A manager's Team: who owes what and what is overdue, one row per person with anything open.
 function tdyTeam() {
@@ -197177,7 +197213,12 @@ function tdyTeamSheet(x) {
 {
   const base = tdCard;
   tdCard = function (it) {
-    if (!it || !/^tdy(Task|Mail|Person)$/.test(it.kind)) return base.apply(this, arguments);
+    if (!it || !/^tdy(Task|Mail|Person|Buy)$/.test(it.kind)) return base.apply(this, arguments);
+    if ("tdyBuy" === it.kind) {
+      const x = it.x,
+        go = it.ea.order ? () => buyOrderDialog(it.ea.order) : () => (setCurrent(x.p.id), (view = "dec"), render());
+      return { line1: `<a href="#" data-tdrec>${esc(tdWords(it.title, 12))}</a>`, why: esc(`Buy Board · ${it.detail}`), verb: it.ea.order ? "Order" : "Decide", go: go, run: go, ea: it.ea };
+    }
     if ("tdyMail" === it.kind) {
       const go = () => ((cmOpen = it.id), (view = "comms"), render(), window.scrollTo(0, 0));
       return { line1: `<a href="#" data-tdrec>${esc(tdWords(it.title, 12))}</a>`, why: esc(it.detail), verb: "Read", go: go, run: go };
@@ -197207,6 +197248,7 @@ function tdyTeamSheet(x) {
     if (it && "tdyTask" === it.kind) return 8 + (it.t.late ? 4 : 0) + (it.t.offeredToUid ? 2 : 0);
     if (it && "tdyMail" === it.kind) return 16;
     if (it && "tdyPerson" === it.kind) return 0;
+    if (it && "tdyBuy" === it.kind) return 24 + (it.due && it.due < today() ? 6 : 0);
     return base.apply(this, arguments);
   };
 }
@@ -197222,6 +197264,10 @@ function tdyTeamSheet(x) {
         q &&
           "new" === q.status &&
           Object.assign(c, {
+            // the card opens the request (reqSheet, pilot day 1) and its button acknowledges in one tap: the same
+            // data-ea hook and handlers the classic Home card used
+            ea: { ack: { pid: p.id, rid: q.id } },
+            go: () => reqSheet(p.id, q.id),
             verb: "Acknowledge",
             run: () => {
               const keep = S;
@@ -197239,10 +197285,15 @@ function tdyTeamSheet(x) {
     return c;
   };
 }
+// The controller's and billing's Today keep the money they answer for at the top (the classic Home's Accounting
+// card): the same Pulse numbers, from the same predicates, as the Owner's.
+TD_PULSE.controller = TD_PULSE.owner.filter((t) => ["safe", "ar"].includes(t.k));
+TD_PULSE.billing = TD_PULSE.owner.filter((t) => "ar" === t.k);
 // What a task and an inbox row rest on, in the Standard (a to-do with no duty carries no principle of its own).
 Object.assign(STD_MAP, {
   task: { p: "", c: ["value", "own", /Close every loop/i] },
   inbox: { p: "", c: ["value", "own", /If you see it/i] },
+  buy: { p: "schedule", c: ["value", "ahead", /Work today on what is needed in three weeks/i] },
   "task:friday": { p: "client", c: TDY_DUTY.friday.cite },
   "task:walk": { p: "quality", c: TDY_DUTY.walk.cite },
   "task:huddle": { p: "quality", c: TDY_DUTY.huddle.cite },

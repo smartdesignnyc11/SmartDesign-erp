@@ -17,7 +17,8 @@ orphaned, and the owner's Everyone view still lists what waits on the others.
 Pulse: "Jobs Late" and "Jobs at Risk" count jobs, and their sheets list each job with its late items underneath.
 One queue (lane "today", 2026-10-19): Do Now has filters (All, Approvals, Inbox, Tasks, Team); All is the union of
 the other three, and the Approvals filter is what Do Now was (PRED.waitingOnMe). The filter strip has its own phone
-budget (5 filters, 10 words). The coordinator, billing and the controller get Today too, with no Owner/PM Pulse.
+budget (5 filters, 10 words). The coordinator, billing and the controller get Today too (billing: Overdue AR; the
+controller: Safe to Spend and Overdue AR).
 tests/today_lane_test.py proves the rest (no item in two filters, the five sources, hand-offs, recurring duties,
 proof)."""
 import asyncio, re, sys
@@ -249,12 +250,13 @@ async def main():
         c.ok(not errs, f'delegation: errors {errs[:2]}')
         await b.close()
         # ---- every office role's Home is Today (lane "today", 2026-10-19: one Today page per person, MENU_DRAFT
-        # decision 2); the coordinator, billing and the controller get their own queue and no Owner/PM Pulse
+        # decision 2); the coordinator, billing and the controller get their own queue and only the Pulse numbers they answer for
         b, pg, errs = await open_app(p, False)
         for uid in ('u_chen', 'u_billing', 'u_controller'):
             await sign_in(pg, uid); await go(pg, 'home')
             t = await pg.evaluate("() => view === 'home' ? [!!document.querySelector('.view.on .td-home .td-tabs'), document.querySelectorAll('.view.on [data-tdpulse]').length, +document.querySelector('.view.on [data-tdcount]').dataset.tdcount, tdyModel().all.length] : null")
-            c.ok(t and t[0] and t[1] == 0 and t[2] == t[3], f'{uid}: Home is their Today, with no Owner/PM Pulse and All = their queue ({t})')
+            want = {'u_chen': 0, 'u_billing': 1, 'u_controller': 2}[uid]  # billing: Overdue AR; the controller: Safe to Spend and Overdue AR
+            c.ok(t and t[0] and t[1] == want and t[2] == t[3], f'{uid}: Home is their Today, with {want} Pulse numbers and All = their queue ({t})')
         c.ok(not errs, f'other roles: errors {errs[:2]}')
         await b.close()
     sys.exit(c.done())

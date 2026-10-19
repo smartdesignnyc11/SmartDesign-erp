@@ -192,7 +192,7 @@ async def part_outside(p, c):
       out.count = PRED.waitingOnMe.count(); out.rows = PRED.waitingOnMe.rows().length;
       out.deleg = [!!DELEGATION.journal, !!DELEGATION.close, APPR_CHIPS.some(c => c[0] === 'journal'), APPR_CHIPS.some(c => c[0] === 'close')];
       out.doNow = tdQueue().map(x => x.kind);
-      view = 'home'; render(); out.home = (document.getElementById('v-home') || document.body).innerText;
+      view = 'home'; try { tdyTabSet('appr'); } catch (e) {} render(); out.home = (document.getElementById('v-home') || document.body).innerText;
       return out;
     }""")
     c.ok(r['ask'] and r['ask'].get('ok'), f"finding 14: the controller could not send the checklist: {r['ask']}")
