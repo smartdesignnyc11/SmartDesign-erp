@@ -14,9 +14,36 @@ Status: **Built** (merged and tested) · **Building** (a lane is on it) · **Spe
 | 2026-10-11 | ChatGPT history export, to deepen `docs/ALAN.md`. | Profile built from the build sessions and the Standard only. |
 | 2026-10-10 | Re-authorise QuickBooks for the July-to-date pull. | Truth layer runs on bank and card lines and the QBO bridge snapshot. |
 
+The overnight run of 2026-10-19 builds on the defaults above and does not decide them. The menu and navigation questions from `docs/MENU_DRAFT.md` were waiting on Alan; they were decided overnight under his instruction (below) and are no longer waiting.
+
 ## 2026-10-19
 | Ask or decision | Where it lives | Status |
 |---|---|---|
+| Alan, going to sleep: "Focus on all the updates we had waiting - AI's, brain, chat, user interface/user experience, etc. Do not wait for my approvals and go ahead." Five lanes: menu, today, assistant, messages, and platform (main session) | `docs/LANES.md` "Overnight 2026-10-19", BACKLOG §1.11, §1.14, §1.15, §1.21, §1.24, §1.27, §5 | Building |
+| The menu and navigation calls below, made on Alan's behalf overnight | `docs/MENU_DRAFT.md`, BACKLOG §1.15 | Decided overnight under his instruction; reversible; lane menu Building |
+
+### Calls made on Alan's behalf overnight (reversible)
+Under his instruction of 2026-10-19 not to wait for approvals, every bracketed recommendation in `docs/MENU_DRAFT.md` is adopted. Each can be reversed in the morning; the menu test pins whatever he settles on.
+
+The eight disagreements from the workshop:
+1. Change orders live in the job's Money tab. Billing shows "approved, not billed" from the same list.
+2. One Today page. Approvals, Inbox and Tasks become filters of it; the bill sheet stays as the detail.
+3. Billing and the controller start on Billing and Banking, not Today.
+4. The field phone bars are the experts': foreman Today, Site, Daily Log, Requests, Crew; crew Clock, Requests, Schedule, Photos, Chat; driver Route (Requests folded in), Chat, Clock, Receipts.
+5. No separate Deposits page. The Payments tab shows the bank lines.
+6. Drawings: one register per job; a top item for the designer; a view under Site for the foreman.
+7. Permits: one list per job; Design shows them across jobs.
+8. Names: Design, Purchasing, Company; Today for every office role; Clock stays Clock.
+
+The six open questions:
+1. Ask becomes a button on every screen, not a menu item.
+2. One directory for clients, contacts and companies.
+3. Billing sits under Accounting for the owner and controller and is a top item for the billing role.
+4. PMs get Sales only if they estimate. The default is no.
+5. "Office" is renamed "Company".
+6. Estimates live in Sales for new jobs, and in the job's Money tab for change orders.
+
+This supersedes call (1) of 2026-10-18 (the PM's phone bar Home, Approvals, Projects, Tasks, Field, More). Under the adopted menu that bar becomes Today, Projects, Clients, Purchasing and More, with Approvals and Tasks as filters of Today. The menu lane settles the exact bar and says so in its report.
 | Server-held seals of the books (BACKLOG §5 item 2: "the hash chain's head per period stored server-side"). Built stronger than asked: SHA-256 recomputed from the server's own books, add-only, beside the app's FNV head | `platform/README.md` | Built; unit 13, live 66/66 |
 | Document reader (BACKLOG §5 item 5), rebuilt: text PDFs and Word free, scans and photos by the small model within the caps; spreadsheets and HEIC get a note (the common Excel reader has unfixed advisories for untrusted files) | `platform/README.md` | Built; unit 14/14, live PDF and receipt photo read |
 | Keep going without waiting (Alan): watcher nudges into the assistant; invites and Sign Out Everywhere for a lost phone (sessions ended at once, the phone erases its copy) | `platform/README.md` | Built; live 60/60 and 28/28 |
@@ -32,7 +59,7 @@ Status: **Built** (merged and tested) · **Building** (a lane is on it) · **Spe
 | Supabase moved to Pro by Alan (daily backups, no pausing); confirmed through the API, first backup on record | `platform/README.md` | Built |
 | Overnight run: continue v11.1 and beyond without approvals until 10am (weekly usage 4%) | `docs/LANES.md`, `docs/PLAN.md` | Running |
 | Version 11 published (v11.1 folded in): 32 of 32 suites green; scripted month 258/292 on time, $9,537 left behind | `docs/PLAN.md` | Built |
-| Lean expert pilot (3 days, 9 roles) and both workshops run on v11 | `docs/pilot/pilot1/` | Done. Agent ledger 24/55 on time, $80,036 left behind; expert grades mostly 4–6; menu result in `docs/MENU_DRAFT.md` waiting on Alan |
+| Lean expert pilot (3 days, 9 roles) and both workshops run on v11 | `docs/pilot/pilot1/` | Done. Agent ledger 24/55 on time, $80,036 left behind; expert grades mostly 4–6; menu result in `docs/MENU_DRAFT.md` was waiting on Alan; decided overnight on 2026-10-19 under his instruction (see that day) |
 | Plans control phase 1 (register, VOID, acknowledgments, holds, order flag, filed-sheet amendment) | BACKLOG §1.22 | Built (29effe9) |
 | Pilot fixes batch 1 (19 items: daily log, controller POs, money matches, CO/estimate entry, Ask words…) | `tests/pilot_fixes_test.py` | Built (2ff680c) |
 | Call Alan can change: an escalated site question still waits on whoever it was addressed to, and the owner is informed (it used to move to the owner) | pilotfix1 item 19 | Built; Alan can change |
@@ -50,11 +77,11 @@ Status: **Built** (merged and tested) · **Building** (a lane is on it) · **Spe
 |---|---|---|
 | Live jobs: two payers per contract; range estimates with allowances and a paid exploratory phase; the HTC calculator and hard/soft/contingency model; one estimating test job | BACKLOG §1.25 | Spec. Real details stay out of the repo and load on the private platform |
 | The senior designer as a contractor user who can later be converted to an employee | BACKLOG §1.26 | Spec |
-| One assistant per person: four screens become one; Act Alone / Ask First / Hand It to Me; an activity log; better than Muse and dots | BACKLOG §1.27 | Spec |
+| One assistant per person: four screens become one; Act Alone / Ask First / Hand It to Me; an activity log; better than Muse and dots | BACKLOG §1.27 | Building (lane assistant, 2026-10-19) |
 | Role specialists: a standing auditor per role with the six-step finding handling | BACKLOG §1.28 | Spec |
 | Cost intelligence: jobs spending more than they bring in, benchmarks per trade per unit, a receipt price book across stores, driver routes, a weekly process improvement | BACKLOG §1.29 | Spec |
 | Savings ledger with wage, bonus and charity pools; the money line now includes charity | BACKLOG §1.30, `CLAUDE.md` | Spec |
-| Firm chat additions: record cards, @assistant, a private DM with your own assistant | BACKLOG §1.21 | Spec |
+| Firm chat additions: record cards, @assistant, a private DM with your own assistant | BACKLOG §1.21 | Building, phase 1 (lane messages, 2026-10-19) |
 | Proof: planted-problem banks per role, price-book and route tests, privacy tests | BACKLOG §1.31 | Spec |
 | Warn before any heavy step; don't start a big round when weekly usage is above about 60% | `docs/PLAN.md` | Standing rule |
 
@@ -62,21 +89,21 @@ Status: **Built** (merged and tested) · **Building** (a lane is on it) · **Spe
 | Ask or decision | Where it lives | Status |
 |---|---|---|
 | Each role's assistant reads that person's chats, to help with tasks, follow-ups and reminders | BACKLOG §1.24 item 4b | Spec (platform) |
-| Ask must feel like this chat and work like Claude, across the ERP, Gmail, Drive, Calendar and internal chat | BACKLOG §1.24 | Spec (platform; needs the API key) |
+| Ask must feel like this chat and work like Claude, across the ERP, Gmail, Drive, Calendar and internal chat | BACKLOG §1.24 | Building, page side (lane assistant) and streaming (platform), 2026-10-19 |
 | AI reviews every set (design, LPC, DOB, construction documents) for inconsistencies and flags them | BACKLOG §1.23 | Spec (with plans control) |
 | Messages: subs, vendors and the architect join their job thread as guests (link or SMS/email bridge); import the WhatsApp group histories per job | BACKLOG §1.21 | Decided: yes to both |
 | Plans control: correct plans always saved, everyone on the latest, the field told when plans are being revised; key project files in the chats | BACKLOG §1.22 | Spec (first after the pilot) |
-| Messaging replaces WhatsApp and iMessage: messages become tasks, POs and files; threads hold the latest plans; the assistant helps act (the CO-from-chat example) | BACKLOG §1.21 | Spec |
+| Messaging replaces WhatsApp and iMessage: messages become tasks, POs and files; threads hold the latest plans; the assistant helps act (the CO-from-chat example) | BACKLOG §1.21 | Building, phase 1 (lane messages, 2026-10-19) |
 | Ranking: crew waiting today outranks older overdue items; both stay visible. Order: immediate safety and law; then anyone blocked today (crew or field waiting); then overdue, today, this week; then the decision principle | `docs/PLAN.md` v11.1 | To build after the reset |
 | Spanish is needed for the field | BACKLOG §1.20 | Spec (before go-live) |
 | Estimates and invoices auto-populate items with descriptions | BACKLOG §1.18 | Spec (right after Simplify; shaped by the Documents Workshop) |
 | Pilot runs leaner to save usage (Alan: "both"). Fewer daily roles: owner, PM, coordinator, foreman (phone), billing, controller and designer work every day (Alan swapped the client for the designer). Crew and driver join only on day 3. The client's approvals and payments are played by the world rules, and one short client read of the rendered documents keeps the client-view check, for one short work turn and the workshops. Shorter days: three slots (morning, work, end of day) with action caps 8, 14 and 8 | `docs/PLAN.md` | Agreed |
 | Check document creation (estimates, invoices, progress billing, POs and the rest): easy on the go, quick, right in the back end, and how it looks to the client | BACKLOG §1.17 Documents Workshop | In the pilot |
 | Pilot starts once the second wiring pass merges (v11's feature set), with release testing alongside | `docs/PLAN.md` | Agreed |
-| Menu: think more and consult the role agents working the site before building; SmartDesign workspace only | `docs/MENU_DRAFT.md`, pilot menu workshop | Draft; decided after the workshop |
+| Menu: think more and consult the role agents working the site before building; SmartDesign workspace only | `docs/MENU_DRAFT.md`, pilot menu workshop | Workshop done 2026-10-18; decided overnight 2026-10-19 under Alan's instruction (reversible); Building |
 | The month simulation is the role experts themselves working 20 days in one shared company, together | BACKLOG §1.17 | Harness building; pilot after v11; full run after the reset |
-| Organise the side menu | BACKLOG §1.15 | Spec (Simplify, right after v11) |
-| Tasks are a very important feature: one task system | BACKLOG §1.14 | Spec (Simplify, right after v11) |
+| Organise the side menu | BACKLOG §1.15 | Building (lane menu, 2026-10-19) |
+| Tasks are a very important feature: one task system | BACKLOG §1.14 | Building (lane today, 2026-10-19) |
 | Reporting proven end to end: income, expenses, job costing, line-item income to cost, P&L by company, client and project, overhead analysis | BACKLOG §1.13 | Spec (after simplify and subs) |
 | Vendors never overpaid: every payment checked against the vendor's estimate or contract, prior payments, receipts, work done, retainage, deposits and credits | BACKLOG §1.12 | Spec (with subs and lien waivers) |
 | Order after v11: review, simplify, subs and payments, reporting, platform, full regrade | `docs/LANES.md` | Agreed |

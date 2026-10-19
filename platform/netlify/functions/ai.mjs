@@ -127,8 +127,55 @@ export function assemble(events) {
 // The AI door's answer as a stream: the server reads Anthropic's event stream and sends a space every few seconds
 // so the connection is never idle (Netlify cuts an idle response at 30 s), then the whole message as JSON. JSON
 // allows leading whitespace, so the app reads it exactly as before. The cost is logged when the message ends.
+// When a cut answer's usage is unknown, charge the time at the model's top speed (thinking is billed but unseen).
+function cutUsage(msg, cut, model, started) {
+  const u = (msg && msg.usage) || {};
+  if (!cut) return u;
+  const rate = /haiku/.test(model) ? 250 : /sonnet/.test(model) ? 130 : 90;
+  const chars = ((msg && msg.content) || []).reduce((a, b) => a + String(b.text || b.thinking || '').length + (b.input ? JSON.stringify(b.input).length : 0), 0);
+  return {...u, output_tokens: Math.max(u.output_tokens || 0, Math.ceil(chars / 3.5), Math.ceil(((Date.now() - started) / 1000) * rate))};
+}
+
+// body.stream === 'client': Anthropic's event stream goes to the page as it comes (the assistant renders the answer
+// while it is written), then one `event: sd_done` with the usage and whether it was cut at 52 s. Parsed on the way
+// through so the cost is logged like every other call.
+function passThrough(r, enc, started, done) {
+  const stream = new ReadableStream({
+    async start(ctl) {
+      const events = []; let buf = '', cut = false, err = null;
+      const rd = r.body.getReader(), dec = new TextDecoder();
+      try {
+        for (;;) {
+          const left = started + 52000 - Date.now();
+          if (left <= 0) { cut = true; try { await rd.cancel(); } catch {} break; }
+          const res = await Promise.race([rd.read(), new Promise(ok => setTimeout(() => ok({timeout: true}), left))]);
+          if (res.timeout) { cut = true; try { await rd.cancel(); } catch {} break; }
+          if (res.done) break;
+          const text = dec.decode(res.value, {stream: true});
+          ctl.enqueue(enc.encode(text));
+          buf += text; let i;
+          while ((i = buf.indexOf('\n\n')) >= 0) {
+            const chunk = buf.slice(0, i); buf = buf.slice(i + 2);
+            const data = chunk.split('\n').filter(l => l.startsWith('data:')).map(l => l.slice(5).trim()).join('');
+            if (!data) continue;
+            try { const e = JSON.parse(data); if (e.type === 'error') err = e; else events.push(e); } catch {}
+          }
+        }
+      } catch (e) { err = {type: 'error', error: {message: String(e.message || e)}}; }
+      const msg = assemble(events);
+      try { await done(msg, cut, err); } catch {}
+      const u = (msg && msg.usage) || {};
+      ctl.enqueue(enc.encode(`\n\nevent: sd_done\ndata: ${JSON.stringify({usage: u, cut, error: err ? (err.error && err.error.message) || 'stream error' : null})}\n\n`));
+      ctl.close();
+    },
+  });
+  return new Response(stream, {status: 200, headers: {'content-type': 'text/event-stream', 'cache-control': 'no-store', 'x-accel-buffering': 'no'}});
+}
+
 export async function claudeStream(user, profile, body) {
   const started = Date.now();
+  const clientStream = body.stream === 'client';
+  delete body.stream;
   const p = await prepare(user, profile, body);
   if (p.status) return new Response(p.text, {status: p.status, headers: {'content-type': 'application/json', 'cache-control': 'no-store'}});
   const {out, headers, model, tier} = p;
@@ -141,6 +188,9 @@ export async function claudeStream(user, profile, body) {
     return new Response(text, {status: r.status, headers: {'content-type': 'application/json', 'cache-control': 'no-store'}});
   }
   const enc = new TextEncoder();
+  if (clientStream) return passThrough(r, enc, started, async (msg, cut, err) => {
+    await logUse(user, profile, body, tier, model, (msg && msg.model) || model, err ? 500 : 200, cutUsage(msg, cut, model, started));
+  });
   const stream = new ReadableStream({
     async start(ctl) {
       const tick = setInterval(() => { try { ctl.enqueue(enc.encode(' ')); } catch {} }, 4000);
@@ -170,12 +220,7 @@ export async function claudeStream(user, profile, body) {
       const msg = assemble(events);
       if (msg && cut) {
         msg.stop_reason = 'time_limit';
-        const chars = msg.content.reduce((a, b) => a + String(b.text || b.thinking || '').length + (b.input ? JSON.stringify(b.input).length : 0), 0);
-        // Thinking is billed but not shown, so text length undercounts. Charge the time at the model's top speed,
-        // which errs high: a cap that counts too much stops early, never late.
-        const rate = /haiku/.test(model) ? 250 : /sonnet/.test(model) ? 130 : 90;
-        const byTime = Math.ceil(((Date.now() - started) / 1000) * rate);
-        msg.usage = {...(msg.usage || {}), output_tokens: Math.max((msg.usage || {}).output_tokens || 0, Math.ceil(chars / 3.5), byTime)};
+        msg.usage = cutUsage(msg, true, model, started);
         msg.content.push({type: 'text', text: '\n\n(Cut short: an answer here can run 52 seconds. Ask for the rest, or a shorter version.)'});
       }
       await logUse(user, profile, body, tier, model, (msg && msg.model) || model, err ? 500 : 200, (msg && msg.usage) || {});

@@ -57,4 +57,9 @@ ok(tools.length === 2 && tools[0].type === 'web_search_20260209' && tools[0].max
 process.env.ANTHROPIC_WORKSPACE_ID = 'wrkspc_x'; reset(); await ai.default(req(body)); ok(calls.anthropic[0].h['anthropic-workspace-id'] === 'wrkspc_x', 'workspace header when set');
 reset(); r = await ai.default(new Request('https://site/api/ai', {method: 'GET'})); ok(r.status === 405, 'GET refused');
 globalThis.SESSION_DEAD = true; reset(); r = await ai.default(req(body)); ok(r.status === 401 && !calls.anthropic.length, 'a signed-out session is refused even with an unexpired key'); globalThis.SESSION_DEAD = false;
+reset(); r = await ai.default(req({...body, stream: 'client'})); const sse = await r.text();
+ok(r.headers.get('content-type') === 'text/event-stream' && /event: message_start/.test(sse) && /input_json_delta/.test(sse), 'stream to the page: Anthropic events pass through');
+const done = JSON.parse(sse.split('event: sd_done')[1].split('data: ')[1]);
+ok(done.cut === false && done.usage.output_tokens === 200 && calls.logged.some(l => l.output_tokens === 200 && l.cost_usd > 0), 'and it ends with sd_done, the usage logged');
+ok(!('stream' in calls.anthropic[0].b) || calls.anthropic[0].b.stream === true, 'the page\'s stream flag is not passed on as is');
 console.log('ALL PASS', `(${n} checks)`);

@@ -46,6 +46,13 @@ async def main():
         c.ok(not await pg.evaluate("(DB.calendar.external||[]).some(e => e.id === 'g_ev9')"), 'a cancellation removes it')
         f = await pg.evaluate("(DB.gdrive||[]).find(x => x.id === 'g_dr9')")
         c.ok(f and f['owner'] == 'u_owner' and f['source'] == 'google' and 'route' in f, 'the Drive file is filed with its route')
+        BR = [{'key': 'bn:abc', 'title': 'Order windows twelve weeks ahead on landmark jobs', 'because': 'Windows landed late on 121 State.', 'value': 'Schedule', 'evidence': ['PO-12 expected 2026-08-27'], 'kind': 'process', 'night': '2026-09-03'}]
+        nb = await pg.evaluate("b => gsIngestServer({brain: b})", BR)
+        ch = await pg.evaluate("DB.changes.filter(c => c.key === 'bn:abc')")
+        c.ok(nb == 1 and len(ch) == 1 and ch[0]['status'] == 'draft' and ch[0]['kind'] == 'code' and 'Windows landed late' in ch[0]['why'], "the Brain's proposal is a drafted change for the owner to approve")
+        c.ok(await pg.evaluate("paInit().thread.some(m => m.ref && m.ref.kind === 'brain')"), 'and the assistant says so once')
+        await pg.evaluate("b => gsIngestServer({brain: b})", BR)
+        c.ok(await pg.evaluate("DB.changes.filter(c => c.key === 'bn:abc').length") == 1, 'the same proposal twice is filed once')
         c.ok(not errs, f'no page errors {errs[:3]}')
         await b.close()
     return c.done()

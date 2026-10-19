@@ -2,6 +2,27 @@
 
 The chief of staff keeps this board current. A lane is one build agent in its own git worktree (`.claude/worktrees/<name>`, branch `lane-<name>`). Lanes never push or merge. The main session merges them one at a time and runs the full net after each.
 
+## Overnight 2026-10-19 (Alan asleep, no approvals)
+Alan: "Focus on all the updates we had waiting - AI's, brain, chat, user interface/user experience, etc. Do not wait for my approvals and go ahead." The menu calls made on his behalf are listed in `docs/DECISIONS.md` (2026-10-19) and can be reversed.
+
+| Lane | Scope | Design gate (extends, no new parallel store) | Status |
+|---|---|---|---|
+| menu | BACKLOG §1.15, plus the recommended menu per role in `docs/MENU_DRAFT.md`, plus Ask as a button on every screen. A test pins each role's menu | `ROLE_VIEWS` and `IA_GROUPS`; existing views are renamed, merged or hidden, never duplicated | Building |
+| today | BACKLOG §1.11 item 1 (one queue per person) and §1.14 (one task system): one Today page per office role; Approvals, Inbox and Tasks become filters; one task shape; hand-offs; the Standard's recurring duties | `DB.tasks`, `p.tasks`, `hbtasks` and obligations unified behind one accessor; existing queues become filters of Today | Building |
+| assistant | BACKLOG §1.27 (one assistant: Chat, Findings, Activity, Brain settings; approval rules per action type; activity log) and §1.24, page side (streamed answers, markdown and tables, conversation history, shows its work, attachments read by the document reader) | The existing `pa` view; delegation stays on `DB.asst[uid].delegated` | Building |
+| messages | BACKLOG §1.21 phase 1: one message-thread noun; job threads and direct messages; record cards; @assistant; phone-first | `DB.comms` and the project chat, folded into one thread noun | Building |
+| platform | Main session, not a worktree. `/api/ai` streams to the page (SSE pass-through) for the assistant lane; the nightly Brain on the server reads the firm's records and proposes lessons and rules for the owner's approval, within the AI caps | Server only; proposals land in the existing Brain and lessons stores | Building |
+
+Merge order: platform first (no overlap with the app), then menu, today, assistant, messages. Full net after each merge, one suite at a time.
+
+Chief of staff's conditions for this run:
+1. **Today and menu touch the same seams.** Menu removes Approvals, Inbox and Tasks as menu items; today makes them filters. Whichever merges second rebases on the first and re-runs the counts lint, so the Today badge and each filter's rows give one number.
+2. **Assistant before messages,** because @assistant in a thread calls the assistant's action path and its approval rules. Messages must not build a second one.
+3. **No approvals ≠ no limits.** Alan waived approvals for build calls, not the Standard's. The assistant and the nightly Brain still only propose; nothing sends, pays or reaches a client or vendor unasked. The Brain reads firm records only, not anyone's mail (the default while that question waits on Alan), within the default caps ($40 a month firm, $8 a person).
+4. **The ranking holds.** One Today uses the 10-11 ranking (safety and law, anyone blocked today, overdue/today/week, then the principle).
+5. **Phone.** Each lane proves its screens at 390px as the person: the foreman's bar, the PM's Today, the assistant on the phone.
+6. **Nothing lost in the fold.** Every task, approval and inbox item visible before the change is findable after it; the lanes test the counts before and after on the demo data.
+
 ## Platform: in flight (2026-10-18)
 | Lane | Scope | Status |
 |---|---|---|

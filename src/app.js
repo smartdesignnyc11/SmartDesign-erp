@@ -114242,11 +114242,46 @@ function gsFileRec(f, me, src) {
     at: appNowIso(),
   };
 }
+// The nightly Brain's proposals (the server reads the firm's records, never mail): each becomes a drafted change in
+// Company › Changes for the owner to approve or decline, with its reason, the Standard's value and the evidence.
+// Approving queues it for the next build; nothing it proposes changes a setting or a record on its own.
+function bnIngestServer(items) {
+  if (!Array.isArray(items) || !items.length) return 0;
+  DB.changes = DB.changes || [];
+  const fresh = items.filter((p) => p && p.key && p.title && !DB.changes.some((c) => c.key === p.key));
+  fresh.forEach((p) =>
+    DB.changes.push({
+      id: uid("ch"),
+      key: p.key,
+      title: String(p.title),
+      why: `${p.because}${p.value ? ` (${p.value})` : ""}${p.saves ? ` It saves: ${p.saves}` : ""}`,
+      kind: "code",
+      evidence: (p.evidence || []).map((t) => ({ t: String(t), m: "the records" })),
+      status: "draft",
+      at: today(),
+      by: "The Brain (overnight)",
+      source: "brain-nightly",
+      brainKind: p.kind || "process",
+    }),
+  );
+  if (fresh.length)
+    try {
+      paNudge(
+        `The Brain proposed ${fresh.length} change${1 === fresh.length ? "" : "s"} overnight.`,
+        `I read the firm's records last night (not anyone's mail) and drafted ${fresh.map((p) => `"${p.title}"`).join(", ")}. Each says why and shows the records; approve or decline them under Company › Changes.`,
+        { kind: "brain", id: "night-" + (fresh[0].night || today()) },
+        "the Brain's nightly read",
+      );
+    } catch (e) {}
+  return fresh.length;
+}
 // What the hosted watcher found while the app was shut (own:<person>:inbox: raw Gmail messages, calendar
 // changes and Drive files), filed through the same builders and filing as a sync run here.
 function gsIngestServer(box) {
   const me = paMe();
   if (!me || !box) return 0;
+  const nb = bnIngestServer(box.brain);
+  if (!(box.gmail || []).length && !(box.cal || []).length && !(box.drive || []).length) return nb && (save(), "function" == typeof render && render()), nb;
   const have = new Set((DB.comms || []).map((c) => c.msgId).filter(Boolean)),
     mail = (box.gmail || []).filter((m) => m && m.id && !have.has(m.id) && (have.add(m.id), !0)).map((m) => gsMailRec(m, me, "google")),
     delta = { mail: mail, events: [], files: [], at: appNowIso(), errors: [], server: !0 };
