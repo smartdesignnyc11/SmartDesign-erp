@@ -119,6 +119,13 @@
 - **Assistant and messaging:** `asst[uid]` (thread, memo, standing, log), outbox, messages, audit.
 - **Field:** `photos` (references; blobs in IndexedDB `sd_photos`), `field` (daily logs, `dlDraft`).
 
+## Navigation: one declared menu per role (`menu` section, end of `src/app.js`; BACKLOG §1.15)
+- **`MENU[role]`** is the one place the SmartDesign workspace's rail, sub-tab strip, phone bars and first page come from (decided 2026-10-19, docs/MENU_DRAFT.md). An office role has `groups` (`[view, label, tab?]` items; a bare string captions a section of the strip), `phone` (the bottom bar) and `home`; a field role has `bar` (the tab bar) and `rest`. Shared lists: `MN_JOBS`, `MN_BUY`, `MN_TODAY`, `MN_SALES`, `MN_OFFICE`, `MN_REPORTS`, `MN_SETTINGS`.
+- **What it does not decide:** who may open a page. `ROLE_VIEWS` still does, and the forty older add-ons still push into it. `mnBuild` puts every page a role may open that its menu does not place under **More** (by the group it belongs to), so nothing is orphaned; `tests/menu_test.py` pins each role's More (the cut list), so a new page fails the test until it is placed on purpose.
+- **Pieces:** `mnRail` (the outermost `renderNav` wrapper: draws `#nav-groups` and `#subnav`), `mnCur` (which entry the page on screen is: the group the person came through, then the entry with the page's tab, then the one with none), `mnGo` (opens an entry: its tab, e.g. `billTab = "co"`, and for a job's billing page that job's client), `mnItemN`/`mnGroupN` (badges: a page's own count, a group's `needs()`), `mnPhoneBars` (sets `M_TABS`/`TABS` before `mRenderTabs`/`renderTabbar`), `mnAsk` (the header Ask button for every role), `mnHeading` (a page heading that names the page reads as its menu label), `mnMap(role)` (the menu read back, for tests).
+- **Aliases** (`MN_ALIAS`): a page that opens under another page's name lights that page (`sdraw` the job's Drawings; onecount's retired pages, `OC_RETIRED`, their overviews). `MN_QUIET`: retired sales screens listed only while open. `MN_BUTTON`: Ask (`pa`), a header button, never a menu item.
+- **Out of scope:** the client portal (`FD_CLIENT_NAV`) and the Mercer & Bond workspace keep their own menus (`mnOn` is false there).
+
 ## Hosted copy (Netlify + Supabase)
 - **Last surviving copy:** see `legacy/hosted-app-2026-09-15.zip`. Later server pieces that must be rebuilt are listed in HANDOFF.md.
 - **What it does:** builds `public/index.html` + `public/app.js` from the same src. `cloud.js` syncs DB collections as rows; field roles get money stripped server-side.

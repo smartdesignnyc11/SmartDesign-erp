@@ -3457,3 +3457,14 @@ table.pl-index tr.pl-void td .pill,table.pl-index tr.pl-void td .btn{text-decora
   .td-do[data-tdytab] > .td-hd{display:none}
   .td-do[data-tdytab] > .td-tabs{padding-top:12px}
 }
+/* ---------- menu: one declared menu per role (BACKLOG §1.15). Section captions in the sub-tab strip; More and
+   Settings set apart at the foot of the rail; Ask in the header for every role (an icon on the phone). ---------- */
+#subnav .sub-tabs .mn-sec{flex:none;align-self:center;font-size:var(--fs-cap,11.5px);font-weight:600;color:var(--ink-3);padding:0 2px 0 14px;white-space:nowrap;letter-spacing:.02em}
+#subnav .sub-tabs .mn-sec:first-child{padding-left:4px}
+#nav-groups button.mn-gap{margin-top:14px;position:relative}
+#nav-groups button.mn-gap::before{content:"";position:absolute;left:10px;right:10px;top:-8px;border-top:1px solid rgba(255,255,255,.12)}
+@media (max-width:760px){
+  body:not(.m-on) #tb-ask{width:44px;height:44px;min-height:44px;padding:0;justify-content:center;flex:none;margin-left:8px}
+  body:not(.m-on) #tb-ask span{display:none}
+}
+@media (min-width:761px){ #subnav .sub-tabs.mn-wrap{flex-wrap:wrap;overflow:visible;row-gap:0} #subnav .sub-tabs.mn-wrap.b3-fadeR{-webkit-mask-image:none;mask-image:none} }

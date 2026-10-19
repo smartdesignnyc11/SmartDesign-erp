@@ -192158,7 +192158,7 @@ function plRender() {
   if (!root) return;
   plSeed();
   const p = S && plJob(S.id);
-  if (!p || !plStaff()) return void (root.innerHTML = '<div class="ph"><div><h2>Plans</h2></div></div><div class="empty">Pick a job.</div>');
+  if (!p || !plStaff()) return void (root.innerHTML = '<div class="ph"><div><h2>Drawings</h2></div></div><div class="empty">Pick a job.</div>');
   const all = plSheets(p.id),
     phone = innerWidth <= 760,
     can = plCanIssue(),
@@ -192197,7 +192197,7 @@ function plRender() {
     ...amends.map((s) => `<div class="note bad pl-amend" data-plamend="${s.id}"><b>${esc(s.amend.agency)} Amendment Needed: ${esc(plRev(s))}</b> — ${esc(plRoomsOf(s).map((r) => r.name).join(", ") || "the work")} ${"filed" === s.amend.status ? "is filed and" : ""} is held until the filing is approved (law and landmarks first).${can ? `<div class="pl-acts">${"filed" !== s.amend.status ? `<button type="button" class="btn sm" data-plamendset="${s.id}|filed">Amendment Filed</button>` : ""}<button type="button" class="btn sm" data-plamendset="${s.id}|approved">Amendment Approved</button></div>` : ""}</div>`),
     ...pend.map((x) => `<div class="note pl-pend" data-plpend="${x.s.id}"><b>Waiting for Acknowledgment: ${esc(plRev(x.s))}</b> — ${esc(x.st.pending.map((n) => n.name).join(", "))}. Work in ${esc(plRoomsOf(x.s).map((r) => r.name).join(", ") || "the area")} waits for it.${x.st.pending.some((n) => n.uid === me) ? `<div class="pl-acts"><button type="button" class="btn sm" data-plopen="${x.s.id}">Open</button><button type="button" class="btn sm" data-plack="${x.s.id}">Acknowledge</button></div>` : plStaff() && x.st.pending.some((n) => "trade" === n.role) ? `<div class="pl-acts">${x.st.pending.filter((n) => "trade" === n.role).map((n) => `<button type="button" class="btn sm" data-placktrade="${x.s.id}|${esc(n.vendor)}">Record for ${esc(n.vendor)}</button>`).join("")}</div>` : ""}</div>`),
   ];
-  root.innerHTML = `<div class="ph"><div><h2>Plans — ${esc(plJobName(p.id))}</h2><p class="lead">The job's drawing register: current sheets only unless you ask for the history. A superseded revision is VOID and opens stamped VOID.</p></div><div class="acts">${can ? '<button class="btn" data-plholdnew>Mark in Revision</button>' : ""}${can && "function" == typeof issueDialog && sets.length ? '<button class="btn" data-plissueset>Issue a Set</button>' : ""}${primary}</div></div>
+  root.innerHTML = `<div class="ph"><div><h2>Drawings — ${esc(plJobName(p.id))}</h2><p class="lead">The job's drawing register: current sheets only unless you ask for the history. A superseded revision is VOID and opens stamped VOID.</p></div><div class="acts">${can ? '<button class="btn" data-plholdnew>Mark in Revision</button>' : ""}${can && "function" == typeof issueDialog && sets.length ? '<button class="btn" data-plissueset>Issue a Set</button>' : ""}${primary}</div></div>
     ${notes.length ? `<div class="pl-notes">${notes.join("")}</div>` : ""}
     <div class="row pl-filters"><label class="small">Set <select id="pl-set"><option value="">All Sets</option>${sets.map((k) => `<option value="${k}" ${plSetF === k ? "selected" : ""}>${PL_SET_LABEL[k]}</option>`).join("")}</select></label><label class="small">Status <select id="pl-status"><option value="current" ${"current" === plStatusF ? "selected" : ""}>Current Sheets</option><option value="all" ${"all" === plStatusF ? "selected" : ""}>All Revisions</option>${Object.entries(PL_STATUS).map(([k, v]) => `<option value="${k}" ${plStatusF === k ? "selected" : ""}>${v[0]}</option>`).join("")}</select></label><span class="grow"></span><span class="small muted" data-plcount="${list.length}">${list.length} of ${all.length}</span></div>
     ${index}
@@ -197531,3 +197531,781 @@ document.addEventListener(
   !0,
 );
 /*<</today2.js>>*/
+
+/* ---------------------------------------------------------------------------------------------------------
+   menu: one declared menu per role (BACKLOG §1.15). Alan, 2026-10-19: build the Navigation and Pages Workshop's
+   recommended menus (docs/MENU_DRAFT.md, docs/pilot/pilot1/nav_workshop.md) and adopt every bracketed
+   recommendation. About forty earlier sections each added an item to the rail; for the SmartDesign workspace the
+   rail, the sub-tab strip, the phone bars and each role's first page are now read from MENU below and nowhere else.
+   Those sections still decide who may open what (ROLE_VIEWS); the menu only decides where a page sits.
+     MENU[role]     groups: [{id, n, icon, proj?, items}] for an office role, top of the rail first; an item is
+                    [view, label, tab?], a bare string starts a section of the group's sub-tab strip ("Plan").
+                    field roles (foreman, crew, driver): bar (the phone tab bar, then the head of the rail) and rest.
+                    phone: the office role's bottom bar (4-5 daily pages; More opens the rest).  home: the first page.
+     More           every page the role may open that its menu does not place sits under More, by the group it
+                    belongs to, so no screen is orphaned. tests/menu_test.py pins each role's More: a new page lands
+                    there and fails the test until it is placed on purpose.
+     Settings       Settings, Connections, the Standard, Problem Reports and Your Own Data sit at the bottom of the
+                    rail, out of the daily path (workshop rule).
+     Ask            is the button in the header on every screen (#tb-ask), never a menu item (open question 1).
+     Headings       a page's heading reads as its menu label ("Today", "Change Orders"), changed only where the
+                    heading is the page's name, never a record's.
+   The client portal (FD_CLIENT_NAV) and the Mercer & Bond workspace keep their own menus: neither is in scope.
+   --------------------------------------------------------------------------------------------------------- */
+const MN_JOBS = (o) =>
+    [
+      ["ovjobs", "Projects"],
+      ["dash", "Overview"],
+      ["proj", "Project Settings"],
+      "Plan",
+      ["sched", "Schedule"],
+      ["tasks", "Tasks"],
+      ["dec", "Decisions"],
+      ["subm", "Submittals"],
+      ["insp", "Permits"],
+      "Field",
+      ["field", "Field"],
+      ["photos", "Photos"],
+      ["recv", "Deliveries"],
+      ["mat", "Materials"],
+      // the job's money (disagreement 1): change orders and the estimates for extras live here; Billing reads
+      // "approved, not billed" from the same list. "Money" is never a label (CLAUDE.md), so the section is named
+      // for what is in it.
+      "Costs & Billing",
+      ["costs", "Costs"],
+    ]
+      .concat(o.co ? [["billing", "Change Orders", "co"], ["billing", "Estimates", "estimates"]] : [])
+      .concat(o.billing ? [["billing", "Billing"]] : [])
+      .concat(["Files & Messages", ["files", "Documents"]])
+      .concat(!1 === o.plans ? [] : [["plans", "Drawings"]])
+      .concat([
+        ["inbox", "Messages"],
+        ["chat", "Chat"],
+      ]),
+  MN_BUY = (o) =>
+    [["ovbuy", "Purchasing"], "Buy"]
+      .concat(o.sel ? [["sel", "Selections"]] : [])
+      .concat([
+        // the Buy Board sits beside Requests (workshop merge 3, as navigation: the two lists are one page's work)
+        ["req", "Requests"],
+        ["proc", "Buy Board"],
+        ["rfq", "RFQs"],
+        ["po", "Purchase Orders"],
+        "Receive",
+        ["recv", "Deliveries"],
+        ["route", "Route"],
+        o.vendors ? "Vendors & Stock" : "Stock",
+      ])
+      .concat(o.vendors ? [["vendors", "Vendors"]] : [])
+      .concat([["inv", "Inventory"]]),
+  MN_TODAY = [
+    ["home", "Today"],
+    ["mapprove", "Approvals"],
+    ["comms", "Inbox"],
+    ["tkall", "Tasks"],
+  ],
+  MN_SALES = [
+    ["ovsales", "Sales"],
+    ["billing", "Estimates", "estimates"],
+    ["hbcontacts", "People"],
+    ["hbcompanies", "Companies"],
+    ["hbtasks", "Sales Tasks"],
+    ["salesnum", "Numbers"],
+    // Forecast and Dashboard are tabs on Numbers for a role that has Numbers; others keep them as their own
+    ["hbforecast", "Forecast", null, { unless: "salesnum" }],
+    ["hbdash", "Sales Dashboard", null, { unless: "salesnum" }],
+    ["partners", "Partners"],
+    ["playbook", "Playbook"],
+    // retired sales screens: listed only while one is open (a link still lands on them)
+    ["hbworkspace", "Workspace", null, { quiet: 1 }],
+    ["hbsequences", "Sequences", null, { quiet: 1 }],
+    ["hbquotes", "Quotes", null, { quiet: 1 }],
+    ["hbplaybooks", "Playbooks", null, { quiet: 1 }],
+  ],
+  MN_OFFICE = [
+    ["ovoffice", "Company"],
+    ["calendar", "Calendar"],
+    ["meetings", "Meetings"],
+    ["brain", "The Brain"],
+    ["obligations", "Obligations"],
+  ],
+  MN_REPORTS = [
+    ["reports", "Reports"],
+    // the Home Dashboard moves into Reports (workshop cut list)
+    ["dashboard", "Dashboard"],
+  ],
+  MN_SETTINGS = [
+    ["setup", "Settings"],
+    ["conn", "Connections"],
+    ["standard", "The SmartDesign Standard"],
+    ["rpbox", "Problem Reports"],
+    ["rdata", "Your Own Data"],
+    ["hbsettings", "Sales Settings"],
+  ],
+  MN_G = (id, n, icon, items, x) => Object.assign({ id: id, n: n, icon: icon, items: items }, x || {}),
+  MENU = {
+    owner: {
+      home: "home",
+      groups: [
+        MN_G("home", "Today", "today", MN_TODAY),
+        MN_G("jobs", "Projects", "jobs", MN_JOBS({ co: 1 }), { proj: 1 }),
+        MN_G("money", "Accounting", "money", [
+          ["ovmoney", "Accounting"],
+          ["ap", "Bills & Payroll"],
+          ["time", "Time & Crew"],
+          ["bank", "Banking"],
+          ["spend", "Spend"],
+          // Billing under Accounting for the owner (open question 3)
+          ["billing", "Billing"],
+          ["gl", "Ledger"],
+          ["verify", "Controls"],
+          ["budget", "Budget"],
+        ]),
+        MN_G("sales", "Sales", "sales", MN_SALES),
+        MN_G("clients", "Clients", "clients", [["clients", "Clients"]]),
+        MN_G("buy", "Purchasing", "buy", MN_BUY({ vendors: 1 })),
+        MN_G("studio", "Design", "studio", [
+          ["ovstudio", "Design"],
+          ["sboard", "Project Board"],
+          ["plans", "Drawings"],
+          ["sfile", "Filings"],
+          ["sel", "Selections"],
+        ], { proj: 1 }),
+        MN_G("office", "Company", "office", MN_OFFICE),
+        MN_G("reports", "Reports", "reports", MN_REPORTS),
+      ],
+      phone: [
+        ["home", "Today", "today"],
+        ["mapprove", "Approvals", "approve"],
+        ["ovjobs", "Projects", "field"],
+        ["ovmoney", "Accounting", "money"],
+        ["ovsales", "Sales", "sales"],
+      ],
+    },
+    pm: {
+      home: "home",
+      groups: [
+        MN_G("home", "Today", "today", MN_TODAY),
+        // change orders and extra estimates in each job (disagreement 1); no Sales, Design or Accounting (question 4)
+        MN_G("jobs", "Projects", "jobs", MN_JOBS({ co: 1, billing: 1 }), { proj: 1 }),
+        MN_G("clients", "Clients", "clients", [["clients", "Clients"]]),
+        MN_G("buy", "Purchasing", "buy", MN_BUY({ sel: 1, vendors: 1 })),
+        MN_G("reports", "Reports", "reports", MN_REPORTS),
+        MN_G("office", "Company", "office", MN_OFFICE),
+      ],
+      phone: [
+        ["home", "Today", "today"],
+        ["mapprove", "Approvals", "approve"],
+        ["ovjobs", "Projects", "field"],
+        ["tkall", "Tasks", "task"],
+        ["field", "Field", "req"],
+      ],
+    },
+    coord: {
+      home: "home",
+      groups: [
+        MN_G("home", "Today", "today", MN_TODAY),
+        MN_G("buy", "Purchasing", "buy", MN_BUY({ sel: 1 })),
+        MN_G("vendors", "Vendors", "vendors", [["vendors", "Vendors"]]),
+        MN_G("jobs", "Projects", "jobs", MN_JOBS({}), { proj: 1 }),
+        // Accounting (view): the coordinator may open no accounting page today, so the group stays empty and is
+        // not drawn; Time & Crew leaves her rail (workshop cut list)
+        MN_G("money", "Accounting", "money", [
+          ["ovmoney", "Accounting"],
+          ["ap", "Bills & Payroll"],
+          ["spend", "Spend"],
+        ]),
+        MN_G("office", "Company", "office", MN_OFFICE),
+      ],
+      phone: [
+        ["home", "Today", "today"],
+        ["mapprove", "Approvals", "approve"],
+        ["req", "Requests", "req"],
+        ["proc", "Buy Board", "buy"],
+        ["po", "Purchase Orders", "note"],
+      ],
+    },
+    billing: {
+      // billing starts on Billing (disagreement 3); no Deposits page (disagreement 5): Payments carries the bank strip
+      home: "billing",
+      groups: [
+        MN_G("billing", "Billing", "billing", [["billing", "Billing"]]),
+        MN_G("home", "Today", "today", MN_TODAY),
+        MN_G("clients", "Clients", "clients", [["clients", "Clients"]]),
+        MN_G("jobs", "Projects", "jobs", MN_JOBS({}), { proj: 1 }),
+        MN_G("bank", "Banking", "bank", [["bank", "Banking"]]),
+        MN_G("reports", "Reports", "reports", MN_REPORTS),
+      ],
+      phone: [
+        ["billing", "Billing", "billing"],
+        ["home", "Today", "today"],
+        ["mapprove", "Approvals", "approve"],
+        ["clients", "Clients", "people"],
+        ["bank", "Banking", "money"],
+      ],
+    },
+    controller: {
+      // the controller starts on Banking (disagreement 3)
+      home: "bank",
+      groups: [
+        MN_G("bank", "Banking", "bank", [
+          ["bank", "Banking"],
+          // Spend (Needs Category) folds in beside Banking (workshop merge 9)
+          ["spend", "Spend"],
+        ]),
+        MN_G("ap", "Bills & Payroll", "ap", [
+          ["ap", "Bills & Payroll"],
+          ["time", "Time & Crew"],
+        ]),
+        MN_G("home", "Today", "today", MN_TODAY),
+        MN_G("gl", "Ledger", "gl", [
+          ["gl", "Ledger"],
+          ["verify", "Controls"],
+          ["budget", "Budget"],
+        ]),
+        MN_G("buy", "Purchasing", "buy", [
+          ["ovbuy", "Purchasing"],
+          ["po", "Purchase Orders"],
+          // receiving: the controller may not open Deliveries today; the bill's PO select shows what landed
+          ["vendors", "Vendors"],
+        ]),
+        MN_G("billing", "Billing", "billing", [["billing", "Billing"]]),
+        MN_G("reports", "Reports", "reports", MN_REPORTS),
+      ],
+      phone: [
+        ["bank", "Banking", "money"],
+        ["ap", "Bills & Payroll", "billing"],
+        ["home", "Today", "today"],
+        ["mapprove", "Approvals", "approve"],
+        ["gl", "Ledger", "note"],
+      ],
+    },
+    designer: {
+      // Today is what My Day holds now (names: Today for every office role, the designer included)
+      home: "sday",
+      groups: [
+        MN_G("home", "Today", "today", [
+          ["sday", "Today"],
+          ["comms", "Inbox"],
+          ["tkall", "Tasks"],
+        ]),
+        // drawings: one register per job, a top item for the designer (disagreement 6)
+        MN_G("drawings", "Drawings", "drawings", [["plans", "Drawings"]], { proj: 1 }),
+        MN_G("jobs", "Projects", "jobs", MN_JOBS({ plans: !1 }), { proj: 1 }),
+        MN_G("studio", "Design", "studio", [
+          ["ovstudio", "Design"],
+          ["sboard", "Project Board"],
+          ["sfile", "Filings"],
+          ["sel", "Selections"],
+        ], { proj: 1 }),
+        MN_G("clients", "Clients", "clients", [["clients", "Clients"]]),
+      ],
+      phone: [
+        ["sday", "Today", "today"],
+        ["plans", "Drawings", "draw"],
+        ["ovjobs", "Projects", "field"],
+        ["ovstudio", "Design", "studio"],
+        ["clients", "Clients", "people"],
+      ],
+    },
+    // the experts' phone bars (disagreement 4), the foreman's ordered by use
+    foreman: {
+      field: 1,
+      home: "ftoday",
+      bar: [
+        ["ftoday", "Today", "home"],
+        ["fsite", "Site", "box"],
+        ["flog", "Daily Log", "list"],
+        ["req", "Requests", "box"],
+        ["fcrew", "Crew", "people"],
+      ],
+      rest: [
+        // the job's drawings, a view under Site for the foreman (disagreement 6)
+        ["plans", "Drawings", "list"],
+        ["sched", "Schedule", "calendar"],
+        ["photos", "Photos", "camera"],
+        ["files", "Documents", "list"],
+        ["chat", "Chat", "chat"],
+        // the page the bar called "Ask": the foreman read it as his assistant. Ask is now the header button that
+        // opens his assistant; this page keeps its job (send something to the office) under its own name.
+        ["fraise", "Raise", "flag"],
+      ],
+    },
+    crew: {
+      field: 1,
+      home: "time",
+      bar: [
+        ["time", "Clock", "clock"],
+        ["req", "Requests", "box"],
+        ["sched", "Schedule", "calendar"],
+        ["files", "Photos", "camera"],
+        ["chat", "Chat", "chat"],
+      ],
+      rest: [
+        ["tasks", "Tasks", "list"],
+        ["recv", "Deliveries", "truck"],
+        ["plans", "Drawings", "list"],
+      ],
+    },
+    driver: {
+      field: 1,
+      home: "route",
+      bar: [
+        // Requests fold into Route (workshop merge 6): the store run lists them; the list itself is one tap away
+        ["route", "Route", "truck"],
+        ["chat", "Chat", "chat"],
+        ["time", "Clock", "clock"],
+        ["files", "Receipts", "camera"],
+      ],
+      rest: [["req", "Requests", "box"]],
+    },
+  };
+// the design manager (no seat in the pilot) runs the designer's menu with Approvals in Today
+MENU.design_mgr = Object.assign({}, MENU.designer, {
+  home: "sday",
+  groups: MENU.designer.groups.map((g) =>
+    "home" === g.id ? MN_G("home", "Today", "today", [["sday", "Today"], ["mapprove", "Approvals"], ["comms", "Inbox"], ["tkall", "Tasks"]]) : g,
+  ),
+  phone: [
+    ["sday", "Today", "today"],
+    ["mapprove", "Approvals", "approve"],
+    ["plans", "Drawings", "draw"],
+    ["ovstudio", "Design", "studio"],
+    ["ovjobs", "Projects", "field"],
+  ],
+});
+// A page reached under another page's name lights that page (the Studio's Drawings opens the job's register;
+// Forecast and Dashboard are tabs on Numbers). The pages onecount retired into their overviews (OC_RETIRED: All
+// Projects, the Studio list, the pipeline and lead lists open on Projects, Design and Sales) follow them. Used only
+// when the role's menu does not place the view itself.
+const MN_ALIAS = Object.assign({ sdraw: "plans", hbforecast: "salesnum", hbdash: "salesnum" }, "object" == typeof OC_RETIRED ? OC_RETIRED : {}),
+  // pages that are buttons, not menu items: Ask (the header button)
+  MN_BUTTON = new Set(["pa"]),
+  // retired screens a link may still open: listed only while open, wherever the role's menu puts them
+  MN_QUIET = new Set(MN_SALES.filter((x) => Array.isArray(x) && x[3] && x[3].quiet).map((x) => x[0])),
+  // where a page belongs when the role's menu does not place it: the group it is listed under in More
+  MN_HOMEGROUP = {},
+  MN_ICON = {
+    today: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
+    jobs: '<path d="M4 21V8l8-5 8 5v13"/><path d="M9 21v-6h6v6"/>',
+    money: '<rect x="3" y="6" width="18" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/>',
+    sales: '<path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/>',
+    clients: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17" cy="9" r="2.5"/><path d="M15 20a5 5 0 0 1 6.5-4.5"/>',
+    buy: '<path d="M3 4h2l2.5 11h11L21 7H6.5"/><circle cx="9" cy="19" r="1.5"/><circle cx="17" cy="19" r="1.5"/>',
+    studio: '<path d="M4 20l4-1 10-10-3-3L5 16z"/><path d="M13 7l3 3"/>',
+    office: '<rect x="4" y="3" width="16" height="18" rx="1"/><path d="M8 7h2M14 7h2M8 11h2M14 11h2M8 15h2M14 15h2M10 21v-3h4v3"/>',
+    reports: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+    billing: '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/>',
+    bank: '<path d="M3 10l9-6 9 6"/><path d="M5 10v8M9.5 10v8M14.5 10v8M19 10v8M3 21h18"/>',
+    ap: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/>',
+    gl: '<path d="M4 4h12a3 3 0 0 1 3 3v13H7a3 3 0 0 1-3-3z"/><path d="M8 8h7M8 12h7"/>',
+    vendors: '<path d="M3 9l1.5-5h15L21 9"/><path d="M3 9h18v2a3 3 0 0 1-6 0 3 3 0 0 1-6 0 3 3 0 0 1-6 0z"/><path d="M5 13v8h14v-8"/>',
+    drawings: '<path d="M4 4h12l4 4v12H4z"/><path d="M8 12h8M8 16h5"/>',
+    more: '<circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/>',
+    setup:
+      '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1L7 17M17 7l2.1-2.1"/>',
+  };
+let mnLastGrp = "";
+// the labels each page has carried (its old names too), so a heading is renamed only while it names the page
+const MN_KNOWN = {};
+function mnKnow(v, l) {
+  l && (MN_KNOWN[v] = MN_KNOWN[v] || new Set()).add(String(l).trim().toLowerCase());
+}
+function mnKnowAll() {
+  [void 0 !== NAV_LABELS ? NAV_LABELS : {}, void 0 !== IA_LABELS ? IA_LABELS : {}].forEach((L) => Object.keys(L).forEach((v) => mnKnow(v, L[v])));
+  // a heading held as a getter (Numbers — Forecast) reads the signed-in role: skipped here, before anyone signs in
+  "object" == typeof BH &&
+    Object.keys(BH).forEach((v) => {
+      const d = BH[v] && Object.getOwnPropertyDescriptor(BH[v], "h2");
+      d && "string" == typeof d.value && mnKnow(v, d.value);
+    });
+  "object" == typeof IA_OLD_TITLES && Object.keys(IA_OLD_TITLES).forEach((v) => mnKnow(v, IA_OLD_TITLES[v]));
+  "object" == typeof HB_VIEWS && Object.keys(HB_VIEWS).forEach((v) => "string" == typeof HB_VIEWS[v] && mnKnow(v, HB_VIEWS[v]));
+  Object.keys(MENU).forEach((r) => mnRoleItems(MENU[r]).forEach((it) => mnKnow(it.v, it.l)));
+  mnKnow("home", "Home"), mnKnow("home", "Brief"), mnKnow("fraise", "Ask"), mnKnow("fraise", "Raise it"), mnKnow("sday", "My Day");
+  mnKnow("plans", "Plans"), mnKnow("ovoffice", "Office"), mnKnow("ovstudio", "Studio"), mnKnow("dash", "Today"), mnKnow("billing", "Billing");
+}
+// an item: [view, label, tab, opts] -> {v, l, tab, sec, quiet, unless}
+function mnItem(x, sec) {
+  return { v: x[0], l: x[1], tab: x[2] || "", sec: sec, quiet: !!(x[3] && x[3].quiet), unless: (x[3] && x[3].unless) || "" };
+}
+function mnGroupItems(g) {
+  let sec = "";
+  const out = [];
+  return (
+    g.items.forEach((x) => {
+      "string" == typeof x ? (sec = x) : out.push(mnItem(x, sec));
+    }),
+    out
+  );
+}
+function mnRoleItems(M) {
+  return M ? (M.field ? M.bar.concat(M.rest || []).map((x) => mnItem([x[0], x[1]], "")) : M.groups.flatMap(mnGroupItems)) : [];
+}
+// The decided names, everywhere a page's name is read (labels, headings, the overview pages, ⌘K).
+function mnNames() {
+  const L = [void 0 !== NAV_LABELS ? NAV_LABELS : null, void 0 !== IA_LABELS ? IA_LABELS : null].filter(Boolean),
+    set = (v, l) => L.forEach((x) => (x[v] = l));
+  set("home", "Today"), set("dash", "Overview"), set("plans", "Drawings"), set("ovoffice", "Company"), set("ovstudio", "Design"), set("fraise", "Raise");
+  [void 0 !== NAV_GROUPS ? NAV_GROUPS : null, void 0 !== IA_GROUPS ? IA_GROUPS : null].forEach((G) => {
+    (G || []).forEach((g) => {
+      "home" === g.id && (g.n = "Today"), "office" === g.id && (g.n = "Company"), "studio" === g.id && (g.n = "Design");
+    });
+  });
+  if ("object" == typeof BH) {
+    const h = (v, t) => (BH[v] = Object.assign(BH[v] || {}, { h2: t }));
+    h("home", "Today"), h("dash", "Overview"), h("fraise", "Raise"), h("ovoffice", "Company"), h("ovstudio", "Design"), h("plans", "Drawings");
+    BH.port && (BH.port.lead = "Every job, ranked by how much attention it needs today. Open one for its overview.");
+    BH.fraise && (BH.fraise.lead = "Send something to the office: material, a tool, a dump run, a problem or a question. It reaches them with the job on it.");
+  }
+  "object" == typeof OV_LEAD && (OV_LEAD.jobs = "Every job, ranked by how much attention it needs today. Open one for its overview.");
+  "object" == typeof FD_OV_LEAD && (FD_OV_LEAD.ovoffice = "Meetings, the calendar, what the firm has learned and what it has promised to renew.");
+  "object" == typeof FD_OV_WHAT && (FD_OV_WHAT.dash = "this job at a glance", FD_OV_WHAT.plans = "the current sheets, set by set");
+}
+// where each page sits when a role's menu does not place it (More): the owner's groups first, then the old groups
+function mnHomeGroups() {
+  MENU.owner.groups.forEach((g) => mnGroupItems(g).forEach((it) => it.tab || MN_HOMEGROUP[it.v] || (MN_HOMEGROUP[it.v] = g.n)));
+  (void 0 !== NAV_GROUPS ? NAV_GROUPS : []).forEach((g) => g.views.forEach((v) => MN_HOMEGROUP[v] || (MN_HOMEGROUP[v] = g.n)));
+  MN_SETTINGS.forEach(([v]) => (MN_HOMEGROUP[v] = "Settings"));
+  Object.assign(MN_HOMEGROUP, { cos: "Ask", sday: "Design", ftoday: "Field", fraise: "Field", fsite: "Field", fcrew: "Field", flog: "Field" });
+}
+[mnKnowAll, mnNames, mnHomeGroups].forEach((f) => {
+  try {
+    f();
+  } catch (e) {
+    console.warn("menu names", e);
+  }
+});
+function mnOn(r) {
+  r = r || role();
+  if (!MENU[r]) return !1;
+  try {
+    if (document.body.classList.contains("ws-mb") || ("undefined" != typeof MB_VIEWS && MB_VIEWS.includes(view))) return !1;
+  } catch (e) {}
+  return !0;
+}
+function mnLabel(v) {
+  return ("object" == typeof NAV_LABELS && NAV_LABELS[v]) || ("object" == typeof IA_LABELS && IA_LABELS[v]) || ("function" == typeof BH_LABEL && BH_LABEL(v)) || v;
+}
+// The role's menu as it draws now: only pages the role may open, quiet items only while open, empty sections and
+// groups dropped; then More (every page the role may open that the menu does not place) and Settings.
+function mnBuild(r) {
+  r = r || role();
+  const M = MENU[r];
+  if (!M) return null;
+  const rv = ROLE_VIEWS[r] || [],
+    has = (v) => rv.includes(v),
+    // a quiet item is placed (it never falls to More) but drawn only while it is the page on screen
+    may = (it) => has(it.v) && !(it.unless && has(it.unless)),
+    shown = (it) => !it.quiet || it.v === view,
+    placed = new Set(),
+    out = { r: r, field: !!M.field, home: M.home, groups: [], more: [], bottom: null };
+  if (M.field) {
+    // a field item's third entry is its icon, not a tab
+    const bar = M.bar.map((x) => mnItem([x[0], x[1]], "")).filter(may),
+      rest = (M.rest || []).map((x) => mnItem([x[0], x[1]], "")).filter(may);
+    bar.concat(rest).forEach((it) => placed.add(it.v)), (out.bar = bar.filter(shown)), (out.rest = rest.filter(shown));
+  } else
+    M.groups.forEach((g) => {
+      const all = mnGroupItems(g).filter(may),
+        items = all.filter(shown);
+      all.forEach((it) => placed.add(it.v)), items.length && out.groups.push({ id: g.id, n: g.n, icon: g.icon, proj: !!g.proj, items: items });
+    });
+  const settings = MN_SETTINGS.map((x) => mnItem(x, "")).filter((it) => has(it.v) && !placed.has(it.v));
+  settings.forEach((it) => placed.add(it.v));
+  const mb = "undefined" != typeof MB_VIEWS ? MB_VIEWS : [],
+    pool = rv.filter((v, i) => rv.indexOf(v) === i && !placed.has(v) && !MN_BUTTON.has(v) && !mb.includes(v) && !("client" === v || "clacct" === v)),
+    // in More too, a retired screen shows only while open, and a page that opens under another's name follows it
+    rest = pool.filter((v) => (!MN_QUIET.has(v) || v === view) && !(MN_ALIAS[v] && (placed.has(MN_ALIAS[v]) || pool.includes(MN_ALIAS[v]))));
+  // More, by the group each page belongs to, in the owner's order
+  const order = MENU.owner.groups.map((g) => g.n).concat(["Office", "Studio", "Ask", "Field", "Settings"]);
+  (out.more = rest
+    .map((v) => ({ v: v, l: mnLabel(v), tab: "", sec: MN_HOMEGROUP[v] || "Other" }))
+    .sort((a, b) => {
+      const x = order.indexOf(a.sec), y = order.indexOf(b.sec);
+      return (x < 0 ? 99 : x) - (y < 0 ? 99 : y);
+    })),
+    settings.length && (out.bottom = { id: "setup", n: "Settings", icon: "setup", items: settings });
+  return out;
+}
+const mnTabOf = (v) => ("billing" === v && "undefined" != typeof billTab ? billTab : "");
+// Which item the page on screen is: the group the person came through keeps it when it holds the page; then the
+// item with the page's own tab; then the item for the page with no tab; then the first.
+function mnCur(B) {
+  if (!B) return null;
+  const groups = B.field
+      ? [{ id: "field", items: B.bar.concat(B.rest, B.more, B.bottom ? B.bottom.items : []), flat: 1 }]
+      : B.groups.concat(B.more.length ? [{ id: "more", n: "More", items: B.more }] : []).concat(B.bottom ? [B.bottom] : []),
+    all = groups.flatMap((g) => g.items.map((it) => ({ g: g, it: it }))),
+    placed = (v) => all.some((x) => x.it.v === v),
+    // Company Settings open on the job's settings page: they are Settings, not the job's
+    company = "proj" === view && "undefined" != typeof settingsMode && "company" === settingsMode && placed("setup"),
+    v = company ? "setup" : placed(view) ? view : MN_ALIAS[view] && placed(MN_ALIAS[view]) ? MN_ALIAS[view] : view,
+    tab = mnTabOf(v),
+    hits = all.filter((x) => x.it.v === v);
+  if (!hits.length) return null;
+  const pick = (L) => L.find((x) => x.it.tab && x.it.tab === tab) || L.find((x) => !x.it.tab);
+  return pick(hits.filter((x) => x.g.id === mnLastGrp)) || pick(hits) || hits[0];
+}
+// Badges: one question, one number. A page's badge is the count its own list shows (onecount's ocBadgeN, Billing's
+// billingNeeds, the approvals queue); a group's badge is its overview's needs() when the role opens the overview,
+// the approvals queue for Today, else its first page's badge.
+function mnItemN(it) {
+  if (!it || it.tab) return 0;
+  try {
+    if ("billing" === it.v) return "function" == typeof billingNeeds ? billingNeeds() || 0 : 0;
+    if ("mapprove" === it.v) return "function" == typeof mApproveCount ? mApproveCount() || 0 : 0;
+    if ("fraise" === it.v) return fRaises().filter((x) => fOpen(x) && "answered" === x.status).length;
+    if (/^ov/.test(it.v)) return 0;
+    const n = "function" == typeof ocBadgeN ? ocBadgeN(it.v) : null;
+    if (null != n) return +n || 0;
+    const el = document.getElementById("n-" + it.v),
+      k = el ? parseInt(el.textContent) : 0;
+    return isNaN(k) ? 0 : k;
+  } catch (e) {
+    return 0;
+  }
+}
+function mnGroupN(g, r) {
+  try {
+    const rv = ROLE_VIEWS[r] || [];
+    if ("undefined" != typeof OV_VIEW && OV_VIEW[g.id] && rv.includes(OV_VIEW[g.id]) && g.items.some((it) => it.v === OV_VIEW[g.id]))
+      return needs(g.id) || 0;
+    if ("home" === g.id && rv.includes("mapprove")) return mApproveCount() || 0;
+    if ("more" === g.id || "setup" === g.id) return 0;
+  } catch (e) {}
+  return mnItemN(g.items[0]);
+}
+function mnSvg(path) {
+  return `<svg viewBox="0 0 24 24">${path || ""}</svg>`;
+}
+// open an item the way its menu entry means it: its tab, and for a job's billing page, that job's client
+function mnGo(g, it) {
+  mnLastGrp = g.id;
+  try {
+    if ("billing" === it.v) {
+      (billTab = it.tab || "billable"), (docOpen = null);
+      const p = S && "jobs" === g.id ? S : null;
+      billClient = (p && (p.clientId || (p.project && p.project.clientId))) || "";
+    }
+  } catch (e) {}
+  setView(it.v);
+}
+function mnRail() {
+  const r = role(),
+    wrap = document.getElementById("nav-groups"),
+    nav = document.getElementById("nav"),
+    // the foot's Settings button: in the firm's workspace Settings is the rail's last entry
+    rs = document.getElementById("rail-settings");
+  if (!wrap || !mnOn(r)) return void (rs && (rs.style.display = ""));
+  const B = mnBuild(r),
+    cur = mnCur(B);
+  cur && (mnLastGrp = cur.g.id);
+  const btn = (grp, v, cls, icon, label, n) =>
+    `<button data-grp="${grp}" data-v="${v}" class="${cls}"><svg viewBox="0 0 24 24">${icon}</svg>${esc(label)}<span class="n">${n || ""}</span></button>`;
+  let html = "";
+  const hand = [];
+  if (B.field) {
+    const fi = (i) => String(("object" == typeof ICONS && ICONS[i]) || "").replace(/^<svg viewBox="0 0 24 24">|<\/svg>$/g, "");
+    (MENU[r].bar.concat(MENU[r].rest || [])).forEach((x) => {
+      const it = B.bar.concat(B.rest).find((y) => y.v === x[0] && y.l === x[1]);
+      if (!it) return;
+      hand.push([{ id: "f-" + it.v }, it]);
+      // the field rail badges only what it always has (answered raises); the tab bar carries its own counts
+      html += btn("f-" + it.v, it.v, cur && cur.it === it ? "on" : "", fi(x[2]), it.l, "fraise" === it.v ? mnItemN(it) : 0);
+    });
+    B.more.concat(B.bottom ? B.bottom.items : []).forEach((it, i) => {
+      hand.push([{ id: "f-" + it.v }, it]);
+      html += btn("f-" + it.v, it.v, (cur && cur.it.v === it.v ? "on" : "") + (0 === i ? " mn-gap" : ""), MN_ICON[B.bottom && B.bottom.items.includes(it) ? "setup" : "more"], it.l, 0);
+    });
+  } else {
+    const G = B.groups.concat(B.more.length ? [{ id: "more", n: "More", icon: "more", items: B.more }] : []).concat(B.bottom ? [B.bottom] : []);
+    G.forEach((g, i) => {
+      const one = 1 === g.items.length,
+        label = one ? g.items[0].l : g.n,
+        first = g.items[0],
+        target = first;
+      hand.push([g, target]);
+      html += btn(g.id, target.v, (cur && cur.g.id === g.id ? "on" : "") + (("more" === g.id || "setup" === g.id) && G[i - 1] && !["more", "setup"].includes(G[i - 1].id) ? " mn-gap" : ""), MN_ICON[g.icon] || "", label, mnGroupN(g, r));
+    });
+  }
+  (wrap.innerHTML = html),
+    [...wrap.querySelectorAll("button[data-grp]")].forEach((b, i) => {
+      const [g, it] = hand[i];
+      b.onclick = () => mnGo(g, it);
+    });
+  rs && (rs.style.display = "none");
+  // the sub-tab strip: the current group's pages, its sections captioned
+  const sub = document.getElementById("subnav");
+  if (!sub) return;
+  const g = cur && !B.field ? cur.g : null;
+  // a group of one page has no strip, unless it is a job's page: the strip then carries the project switcher
+  if (!g || (g.items.length < 2 && !g.proj)) {
+    (sub.innerHTML = ""), (sub.hidden = !0), nav && nav._projsel && (nav.appendChild(nav._projsel), (nav._projsel.hidden = !B.field));
+    return;
+  }
+  let last = "";
+  const tabs = g.items
+    .map((it, i) => {
+      const cap = it.sec && it.sec !== last ? `<span class="mn-sec">${esc(it.sec)}</span>` : "";
+      last = it.sec;
+      // Billing's number is its queue; as a sub-tab it sits over a list scoped by the job or the tab, so it carries
+      // no badge there (the Billing rail entry keeps it, as before)
+      const n = "billing" === it.v ? 0 : mnItemN(it);
+      return `${cap}<button data-sub="${it.v}"${it.tab ? ` data-subtab="${it.tab}"` : ""} data-mni="${i}" class="${cur.it === it ? "on" : ""}">${esc(it.l)}${n ? `<span class="n">${n}</span>` : ""}</button>`;
+    })
+    .join("");
+  (sub.hidden = !1),
+    // a long strip wraps on a desktop so every page shows (the PM's Change Orders sat past the edge); the phone scrolls
+    (sub.innerHTML = `${g.proj ? '<span class="sub-proj"></span>' : ""}<div class="sub-tabs${g.items.length > 8 ? " mn-wrap" : ""}">${tabs}</div>`),
+    sub.querySelectorAll("[data-mni]").forEach((b) => (b.onclick = () => mnGo(g, g.items[+b.dataset.mni])));
+  nav &&
+    nav._projsel &&
+    (g.proj ? (sub.querySelector(".sub-proj").appendChild(nav._projsel), (nav._projsel.hidden = !1)) : (nav.appendChild(nav._projsel), (nav._projsel.hidden = !0)));
+}
+{
+  const base = renderNav;
+  renderNav = function () {
+    const r = base.apply(this, arguments);
+    try {
+      mnRail();
+    } catch (e) {
+      console.warn("menu", e);
+    }
+    return r;
+  };
+}
+// The phone bars: the office role's bottom bar (M_TABS) and the field role's tab bar (TABS) come from the menu.
+function mnPhoneBars() {
+  const r = role(),
+    M = MENU[r];
+  if (!M) return;
+  M.field ? "undefined" != typeof TABS && (TABS[r] = M.bar.map((x) => x.slice(0, 3))) : M.phone && "undefined" != typeof M_TABS && (M_TABS[r] = M.phone.map((x) => x.slice(0, 3)));
+}
+"object" == typeof M_ICON &&
+  Object.assign(M_ICON, {
+    people: '<svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17" cy="9" r="2.5"/><path d="M15 20a5 5 0 0 1 6.5-4.5"/></svg>',
+  });
+if ("function" == typeof mRenderTabs) {
+  const base = mRenderTabs;
+  mRenderTabs = function () {
+    try {
+      mnOn() && mnPhoneBars();
+    } catch (e) {}
+    const r = base.apply(this, arguments);
+    // a page under a bar entry's group lights that entry (Schedule lights Projects)
+    try {
+      const tb = document.getElementById("mtabs");
+      if (tb && mnOn() && !tb.querySelector("button.on")) {
+        const cur = mnCur(mnBuild());
+        if (cur) {
+          const b = [...tb.querySelectorAll("button[data-mv]")].find((x) => cur.g.items && cur.g.items.some((it) => it.v === x.dataset.mv));
+          b && b.classList.add("on");
+        }
+      }
+    } catch (e) {}
+    return r;
+  };
+}
+if ("function" == typeof renderTabbar) {
+  const base = renderTabbar;
+  renderTabbar = function () {
+    try {
+      mnOn() && mnPhoneBars();
+    } catch (e) {}
+    return base.apply(this, arguments);
+  };
+}
+// f3Nav rebuilds the foreman's bar each time it runs: the menu's bar stands after it
+if ("function" == typeof f3Nav) {
+  const base = f3Nav;
+  f3Nav = function () {
+    const r = base.apply(this, arguments);
+    try {
+      "foreman" === role() && mnPhoneBars();
+    } catch (e) {}
+    return r;
+  };
+}
+// Each role's first page (sign-in, and where a page the role may not open lands)
+"object" == typeof IA_HOME && Object.keys(MENU).forEach((r) => (IA_HOME[r] = MENU[r].home));
+if ("function" == typeof signIn) {
+  const base = signIn;
+  signIn = function (userId) {
+    const out = base.apply(this, arguments);
+    try {
+      const u = (DB.users || []).find((x) => x.id === userId),
+        M = u && MENU[u.role];
+      (mnLastGrp = ""),
+        M && M.home && (ROLE_VIEWS[u.role] || []).includes(M.home) && view !== M.home && !document.body.classList.contains("ws-mb") && ((view = M.home), render());
+    } catch (e) {}
+    return out;
+  };
+}
+// Ask: the header button on every screen of every role (office, field and the client's own), never a menu item
+function mnAsk() {
+  const r = role();
+  if (!MENU[r] || "client" === r) return;
+  const bar = document.querySelector("header.topbar");
+  if (!bar) return;
+  const show = (ROLE_VIEWS[r] || []).includes("pa") && !document.body.classList.contains("ws-mb");
+  let a = document.getElementById("tb-ask");
+  if (!a && show) {
+    (a = document.createElement("button")),
+      (a.id = "tb-ask"),
+      (a.type = "button"),
+      (a.className = "btn tb-ask no-print"),
+      (a.title = "Ask"),
+      a.setAttribute("aria-label", "Ask"),
+      (a.innerHTML = `${"object" == typeof M_ICON && M_ICON.ask ? M_ICON.ask : ""}<span>Ask</span>`),
+      (a.onclick = () => setView("pa"));
+    const s = document.getElementById("btn-search");
+    s ? s.after(a) : bar.appendChild(a);
+  }
+  a && ((a.hidden = !show), a.classList.toggle("on", "pa" === view), a.toggleAttribute("aria-current", "pa" === view));
+}
+// A page's heading reads as its menu label. Only a heading that names the page (one of the names the page has
+// carried) is renamed, never a record's name; the header title follows.
+function mnHeading() {
+  const r = role();
+  if (!mnOn(r) || MN_BUTTON.has(view)) return;
+  const cur = mnCur(mnBuild(r));
+  if (!cur) return;
+  const want = cur.it.l,
+    known = MN_KNOWN[view] || new Set(),
+    v = document.querySelector(".view.on");
+  if (!v) return;
+  const vis = (el) => !!el && el.getClientRects().length > 0,
+    h = [...v.querySelectorAll(".ph h2, .ph h1, .td-ph h2")].find((x) => vis(x) || x.classList.contains("td-in-hdr")) || [...v.querySelectorAll("h1, h2")].find(vis),
+    named = (el) => !!el && !el.querySelector("input, select") && el.textContent.trim() !== want && known.has(el.textContent.trim().toLowerCase());
+  named(h) && (h.textContent = want);
+  // the header title (desktop crumbs, the phone's slim header) names the page the same way
+  document.querySelectorAll("#crumbs b").forEach((c) => named(c) && (c.textContent = want));
+}
+{
+  const base = render;
+  render = function () {
+    const r = base.apply(this, arguments);
+    try {
+      mnAsk(), mnHeading();
+    } catch (e) {
+      console.warn("menu headings", e);
+    }
+    return r;
+  };
+}
+// The menu, read back (tests/menu_test.py and Ask's "where is ..."): each group with its pages, More, Settings.
+function mnMap(r) {
+  const B = mnBuild(r || role());
+  if (!B) return null;
+  const it = (x) => (x.tab ? `${x.v}:${x.tab}` : x.v) + "=" + x.l;
+  return B.field
+    ? { field: !0, home: B.home, bar: B.bar.map(it), rest: B.rest.map(it), more: B.more.map(it), bottom: B.bottom ? B.bottom.items.map(it) : [] }
+    : {
+        home: B.home,
+        groups: B.groups.map((g) => ({ id: g.id, n: g.n, items: g.items.map(it) })),
+        more: B.more.map(it),
+        bottom: B.bottom ? B.bottom.items.map(it) : [],
+        phone: (MENU[B.r].phone || []).filter(([v]) => (ROLE_VIEWS[B.r] || []).includes(v) || "mapprove" === v).map(([v, l]) => v + "=" + l),
+      };
+}

@@ -376,9 +376,10 @@ async def walk_owner(w):
     await w.click('Approve and Dispute', wait=600)
     await w.mutated('WW-2026-118 short-paid', "() => { const b = DB.bills.find(x => x.number === 'WW-2026-118'); return b && b.short && b.short.approved === 29700 && ['approved', 'paid', 'verified'].includes(b.status) }")
 
-    w.step('Back to Home (close the bill sheet, Home in the rail)')
+    # the menu (2026-10-19): Home is named Today in the rail, for every office role
+    w.step('Back to Today (close the bill sheet, Today in the rail)')
     await pg.keyboard.press('Escape'); await pg.wait_for_timeout(300)
-    await w.click('Home', prefix=True, scope='nav, aside, .rail, #rail')
+    await w.click('Today', prefix=True, scope='nav, aside, .rail, #rail')
     # AMP-311 is submitted, so it is the PM's review (DELEGATION): it is not on the owner's Do Now. The owner can
     # still step in from Approvals, where what waits on the others is one Show away; the yes skips the PM step and logs it.
     w.step("Approve AMP-311 (the PM's turn: Approvals > wait on the others > Show > Open > Approve)")
@@ -408,8 +409,8 @@ async def walk_owner(w):
     await w.click('Approve as Billed', wait=600)
     await w.mutated('AMP-311 approved', "() => { const b = DB.bills.find(x => x.number === 'AMP-311'); return b && ['approved', 'paid', 'verified'].includes(b.status) }")
 
-    w.step('Back to Home (Home in the rail)')
-    await w.click('Home', prefix=True, scope='nav, aside, .rail, #rail')
+    w.step('Back to Today (Today in the rail)')
+    await w.click('Today', prefix=True, scope='nav, aside, .rail, #rail')
     # The decisions we owe are the PM's to drive (DELEGATION), so they are not in the owner's Approvals. The owner
     # reaches one from the Pulse: Jobs at Risk lists each job with its late items, a decision past due among them.
     w.step('Open a decision (Pulse > Jobs at Risk > a decision past due under its job)')
@@ -422,9 +423,10 @@ async def walk_owner(w):
 
 async def walk_pm(w):
     pg = w.pg
-    w.step('New Change Order from the estimate: Billing > Change Orders > New Change Order')
-    await w.click('Billing', prefix=True, scope='nav, aside, .rail, #rail')
-    await w.click('Change Orders', prefix=True)
+    # the menu (2026-10-19, disagreement 1): change orders live in the job, under Projects > Costs & Billing
+    w.step('New Change Order from the estimate: Projects > Change Orders > New Change Order')
+    await w.click('Projects', prefix=True, scope='nav, aside, .rail, #rail')
+    await w.click('Change Orders', prefix=True, scope='#subnav')
     await w.click('New Change Order')
     w.step('Client + title + tick a line + Start')
     # Billing with no client picked is not a job's screen, so the sheet asks whose change it is (harness finding 6,
@@ -451,8 +453,8 @@ async def walk_pm(w):
     await w.click('Send', wait=800)
     await w.mutated('CO sent to the client at $2,400', "() => { const d = DB.clients.flatMap(c => c.changeOrders || []).find(d => /garden wall cabinets/.test(d.title || '')); return d && d.status === 'sent' && JSON.stringify(d.lines || d.items || []).includes('2400') }")
 
-    w.step("Answer the foreman's field question (Home Do Now > Answer > Send to the Field)")
-    await w.click('Home', prefix=True, scope='nav, aside, .rail, #rail')
+    w.step("Answer the foreman's field question (Today Do Now > Answer > Send to the Field)")
+    await w.click('Today', prefix=True, scope='nav, aside, .rail, #rail')
     await w.toast_mark()
     await w.click('Answer')
     await w.fill('Go with the 3 inch drop; A-301 rev 3 shows it', css='textarea')
@@ -504,10 +506,11 @@ INV_JS = "() => DB.clients.flatMap(c => (c.invoices || []).map(d => ({id: d.id, 
 
 async def walk_billing(w):
     pg = w.pg
-    # billing's Home is Today (lane "today", 2026-10-19): the earned-not-billed milestone the brief's "Draft It" carried
-    # is on Caught for You with "Bill It", which opens the same milestone sheet
-    w.step('Caught for You "Bill It" > New Invoice')
+    # the menu (2026-10-19) starts billing on Billing; Today is one tap away. On Today the earned-not-billed
+    # milestone is on Caught for You with "Bill It" (lane "today"), which opens the same milestone sheet
+    w.step('Today > Caught for You "Bill It" > New Invoice')
     before = {d['id'] for d in await pg.evaluate(INV_JS)}
+    await w.click('Today', prefix=True, scope='nav, aside, .rail, #rail')
     await w.click('Bill It')
     await w.toast_mark()
     await w.click('New Invoice', wait=800)
@@ -573,8 +576,11 @@ async def walk_foreman(w):
     # check re-reads this after the whole walk
     await w.mutated('clocked in', "() => (DB.time || []).some(t => t.date === '2026-09-03' && t.empId && t.source === 'phone' && t.in)")
 
-    w.step('Materials: Ask > Materials > task > one line > Next > Send > Done')
-    await w.click('Ask', prefix=True, scope='.mbar, .m-bar, .bottombar, nav, footer, body', nth=0)
+    # the menu (2026-10-19): the page the bar called "Ask" is Raise, one tap away in the menu; Ask in the header is
+    # his assistant. The experts' bar is Today, Site, Daily Log, Requests, Crew.
+    w.step('Materials: Menu > Raise > Materials > task > one line > Next > Send > Done')
+    await w.click('Menu')
+    await w.click('Raise', prefix=True, scope='nav, aside, .rail, #rail')
     await w.click('Materials or a tool', prefix=True)
     await w.fill('Framing & blocking', css='select')
     await w.fill('40 2x4x8 studs', css='textarea')
@@ -587,8 +593,9 @@ async def walk_foreman(w):
         w.flags[-1]['msg'] += ' (a "Request Sent" sheet confirms it instead, with Take It Back / Done)'
     await w.click('Done')
 
-    w.step('Hidden condition: Ask > A problem or question > Hidden Condition > one line > Send')
-    await w.click('Ask', prefix=True, scope='.mbar, .m-bar, .bottombar, nav, footer, body', nth=0)
+    w.step('Hidden condition: Menu > Raise > A problem or question > Hidden Condition > one line > Send')
+    await w.click('Menu')
+    await w.click('Raise', prefix=True, scope='nav, aside, .rail, #rail')
     await w.click('A problem or question', prefix=True)
     await w.click('Hidden condition', prefix=True)
     await w.fill('Rotted sill under the rear window, about 6 feet', css='textarea')
@@ -660,17 +667,17 @@ async def walk_client(w):
 
 async def walk_designer(w):
     pg = w.pg
-    w.step('My Day on landing')
-    if not (await pg.evaluate("() => view") == 'sday' and await w.see('My Day')):
-        await w.flag('next step hidden', 'the designer does not land on My Day')
+    # the menu (2026-10-19): what My Day held is the designer's Today
+    w.step('Today on landing')
+    if not (await pg.evaluate("() => view") == 'sday' and await w.see('Today')):
+        await w.flag('next step hidden', 'the designer does not land on Today')
     w.step('Hours Not Logged tile > the day sheet')
     await w.click('Hours Not Logged', prefix=True, wait=700)
     v = await pg.evaluate("() => view")
     if v != 'sday' and not await w.see('hrs'):
         await w.flag('wrong record', f'the My Day tile "Hours Not Logged" opens view "{v}" (Ask), not a day sheet: its go() sets view="time", '
                      'which the designer may not open (My Day tile list, app.js ~87350; ROLE_VIEWS.designer has no "time")')
-        await w.click('Studio', prefix=True, scope='nav, aside, .rail, #rail')
-        await w.click('My Day')
+        await w.click('Today', prefix=True, scope='nav, aside, .rail, #rail')
     w.step('Log hours from the day sheet (project > hrs > phase > what > Log)')
     t0 = await pg.evaluate("() => JSON.stringify(DB.time || []).length")
     # the tile opens the day sheet on the oldest day with no hours; the hours land on the day it shows
