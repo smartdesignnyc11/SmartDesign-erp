@@ -1674,7 +1674,8 @@ const mdAllCorrections = () =>
       change: { type: "rule", text: "The assistant re-reads a record it was corrected on before citing it, and says which version it used" },
       // the record the correction was about, never the person's words: a lesson is seen by the owner
       scan: () => mdAllCorrections().map(({ u, c }) => ({ key: "asstc:" + c.id, what: `${((DB.users || []).find((x) => x.id === u) || {}).name || "Someone"}'s assistant was corrected again on ${c.about.map((a) => a.name).join(", ")}`, ref: { kind: "assistant", id: c.id }, on: String(c.at).slice(0, 10) })),
-      trigger: { label: "", rows: () => [] },
+      // the moment the rule acts on: an assistant about to cite a record it was corrected on
+      trigger: { label: "When an assistant cites a record it was corrected on", rows: () => mdAllCorrections().map(({ c }) => ({ id: c.id, label: c.about.map((a) => a.name).join(", ") })) },
     },
     {
       kind: "asstrule",
@@ -1697,7 +1698,8 @@ const mdAllCorrections = () =>
         }
         return F.map((f) => ({ key: "asstr:" + f.id, what: `${f.byName}'s assistant: ${f.rule} (because ${f.text}; from ${f.source.label})`, ref: { kind: "fact", id: f.id }, on: String(f.at).slice(0, 10) }));
       },
-      trigger: { label: "", rows: () => [] },
+      // the moment the rule acts on: any assistant answering about what the approved rule covers
+      trigger: { label: "When an assistant answers about what an approved rule covers", rows: () => mdFacts().filter((f) => f.rule && "approved" === f.ruleStatus).map((f) => ({ id: f.id, label: f.rule })) },
     },
   );
 // The rules the owner approved, from either kind, for every assistant's prompt.
