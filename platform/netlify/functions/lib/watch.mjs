@@ -4,8 +4,20 @@
 import {rest} from './auth.mjs';
 import {open} from './seal.mjs';
 import {access, newMail, calChanges, driveChanges} from './google.mjs';
+import {contextFrom, score, message} from './score.mjs';
+import {pushTo} from './push.mjs';
 
-export async function watchOne(row, deadline = Date.now() + 20000) {
+// The firm's vendors, clients and jobs, read once per run of the whole watch (cached per workspace).
+const ctxCache = {};
+async function firmContext(ws) {
+  if (ctxCache[ws]) return ctxCache[ws];
+  const rows = await rest(`collections?select=name,data&workspace_id=eq.${encodeURIComponent(ws)}&or=(name.in.(vendors,clients),name.like.project:*)`);
+  const cols = {vendors: [], clients: [], projects: []};
+  for (const r of rows || []) { if (r.name.startsWith('project:')) cols.projects.push(r.data); else cols[r.name] = r.data; }
+  return (ctxCache[ws] = contextFrom(cols));
+}
+
+export async function watchOne(row, deadline = Date.now() + 20000, opts = {}) {
   const cur = row.cursors || {}, next = {...cur}, found = {gmail: [], cal: [], drive: []};
   let error = '';
   try {
@@ -24,8 +36,13 @@ export async function watchOne(row, deadline = Date.now() + 20000) {
   } catch (e) { error = String(e.message || e).slice(0, 300); }
   const items = Object.fromEntries(Object.entries(found).filter(([, v]) => v.length));
   if (Object.keys(items).length) await rest('rpc/watch_put_inbox', {method: 'POST', body: JSON.stringify({p_ws: row.workspace_id, p_key: row.person_key, p_items: items})});
+  let pushed = 0;
+  if (!error && (found.gmail.length || found.cal.length) && opts.push !== false) {
+    try { pushed = await pushTo(row.person_key, message(score(found, await firmContext(row.workspace_id), String(row.email || '').toLowerCase()))); }
+    catch (e) { console.error('push', e.message); }
+  }
   const now = new Date().toISOString();
   await rest('google_watch?person_key=eq.' + encodeURIComponent(row.person_key), {method: 'PATCH', headers: {prefer: 'return=minimal'},
     body: JSON.stringify({cursors: next, last_run: now, last_error: error, ...(error ? {} : {last_ok: now})})});
-  return {mail: found.gmail.length, events: found.cal.length, files: found.drive.length, error};
+  return {mail: found.gmail.length, events: found.cal.length, files: found.drive.length, pushed, error};
 }

@@ -18,11 +18,15 @@ globalThis.fetch = async (url, o = {}) => {
     if (o.method === 'PATCH') { const k = decodeURIComponent(u.split('person_key=eq.')[1]); Object.assign(W.rows[k], JSON.parse(body)); return new Response(null, {status: 204}); }
     if (o.method === 'DELETE') { const k = decodeURIComponent(u.split('person_key=eq.')[1]); delete W.rows[k]; return new Response(null, {status: 204}); }
   }
+  if (u.includes('/rest/v1/collections?')) return J([{name: 'vendors', data: [{email: 'ray@pella.example'}]}]);
+  if (u.includes('/rest/v1/push_subs')) { W.pushLookups = (W.pushLookups || 0) + 1; return J([]); }
   if (u.endsWith('/rest/v1/rpc/watch_put_inbox')) { const b = JSON.parse(body); const box = W.inbox[b.p_key] ||= {}; for (const [k, v] of Object.entries(b.p_items)) box[k] = (box[k] || []).concat(v); return J(1); }
   if (u === 'https://oauth2.googleapis.com/token') {
     const p = new URLSearchParams(body);
     ok(p.get('client_secret') === 'csec', 'the client secret is sent only to Google');
-    if (p.get('grant_type') === 'authorization_code') return p.get('code') === 'nolong' ? J({access_token: 'AT', scope: 's'}) : J({access_token: 'AT', refresh_token: W.refresh, scope: 'gmail calendar drive', expires_in: 3599});
+    if (p.get('grant_type') === 'authorization_code') return p.get('code') === 'nolong' ? J({access_token: 'AT', scope: 's'}) : J({access_token: 'AT', refresh_token: W.refresh, expires_in: 3599, scope: p.get('code') === 'broad'
+      ? 'openid https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.readonly'
+      : 'openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/drive.readonly'});
     return p.get('refresh_token') === W.refresh ? J({access_token: 'AT2', expires_in: 3599}) : J({error: 'invalid_grant'}, 400);
   }
   if (u.startsWith('https://oauth2.googleapis.com/revoke')) { W.revoked.push(u); return J({}); }
@@ -39,6 +43,7 @@ ok(open(seal('hello')) === 'hello' && seal('hello') !== seal('hello'), 'seal rou
 let r = await connect(req({code: 'c'}, null)); ok(r.status === 401, 'connect needs a signed-in person');
 W.profile.role = 'none'; r = await connect(req({code: 'c'})); ok(r.status === 403, 'an account with no role cannot connect'); W.profile.role = 'owner';
 r = await connect(req({code: 'nolong'})); ok(r.status === 400 && /long-lived/.test((await r.json()).error), 'no long-lived key: says what to do');
+r = await connect(req({code: 'broad'})); ok(r.status === 400 && /more than reading/.test((await r.json()).error) && !W.rows.pk1, 'a key that can send mail is refused and not kept');
 r = await connect(req({code: 'c', appUserId: 'uminbq', email: 'x'})); const j = await r.json();
 ok(r.status === 200 && j.connected && j.email === 'alan@example.com', 'connected, with the Google address');
 ok(W.rows.pk1 && !JSON.stringify(W.rows).includes('RT-SECRET') && open(W.rows.pk1.sealed) === 'RT-SECRET', 'the key is stored sealed, under the private key, never in plain');
@@ -53,4 +58,5 @@ ok(W.rows.pk1.last_ok && W.rows.pk1.last_error === '', 'the run is recorded');
 W.refresh = 'rotated'; await watchAll();
 ok(/invalid_grant/.test(W.rows.pk1.last_error), 'a key Google no longer accepts is recorded as the error, not thrown');
 r = await connect(req({action: 'disconnect'})); ok((await r.json()).connected === false && !W.rows.pk1 && W.revoked.length >= 1, 'disconnect revokes at Google and deletes the key');
+ok(!process.env.VAPID_PRIVATE_KEY && !W.pushLookups, 'with no push key the watcher sends nothing and does not look');
 console.log('ALL PASS', `(${n} checks)`);

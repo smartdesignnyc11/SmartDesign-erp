@@ -6,8 +6,12 @@ SDP_SUPABASE_URL and SDP_SUPABASE_ANON_KEY set them, or the build fetches them t
 import os, re, sys, json, shutil, hashlib, subprocess, urllib.request
 H = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.dirname(H); PUB = os.path.join(H, 'public')
 REF = os.environ.get('SDP_SUPABASE_REF', 'eenpabyrmiltfqvzirhw')
-if subprocess.run([sys.executable, os.path.join(ROOT, 'build.py')]).returncode: sys.exit('app build failed')
-html = open(os.path.join(ROOT, 'dist', 'smartdesigns_projects.html'), encoding='utf-8').read()
+# SDP_APP_HTML names an app build made elsewhere (so a deploy never rewrites dist/ under a running test net).
+APP = os.environ.get('SDP_APP_HTML')
+if not APP:
+    if subprocess.run([sys.executable, os.path.join(ROOT, 'build.py')]).returncode: sys.exit('app build failed')
+    APP = os.path.join(ROOT, 'dist', 'smartdesigns_projects.html')
+html = open(APP, encoding='utf-8').read()
 url = os.environ.get('SDP_SUPABASE_URL') or f'https://{REF}.supabase.co'
 anon = os.environ.get('SDP_SUPABASE_ANON_KEY')
 if not anon:
@@ -25,10 +29,17 @@ if google is None:
     try:
         with urllib.request.urlopen(f'https://api.supabase.com/v1/projects/{REF}/config/auth') as r: google = '1' if json.load(r).get('external_google_enabled') else ''
     except Exception: google = ''
+# The public half of the push key (the private half is a Netlify secret), read from the site's settings.
+vapid = os.environ.get('SDP_VAPID_PUBLIC_KEY', '')
+if not vapid:
+    try:
+        with urllib.request.urlopen('https://api.netlify.com/api/v1/accounts/alan-i60sjeo/env/VAPID_PUBLIC_KEY?site_id=1bdb5200-477c-492a-8294-fb475014deaa') as r:
+            vapid = [v['value'] for v in json.load(r)['values']][0]
+    except Exception: vapid = ''
 ver = hashlib.md5((html + open(os.path.join(PUB, 'cloud.js')).read()).encode()).hexdigest()[:8]
 open(os.path.join(PUB, 'config.js'), 'w').write(
     '// Public values only. The Anthropic key and the service key live in Netlify, never here.\n'
-    'window.SDP_CONFIG = ' + json.dumps({'appName': 'SmartDesigns Projects', 'supabaseUrl': url, 'supabaseAnonKey': anon, 'aiUrl': '/api/ai', 'functions': '/api', 'googleSignIn': bool(google), 'build': ver}) + ';\n')
+    'window.SDP_CONFIG = ' + json.dumps({'appName': 'SmartDesigns Projects', 'supabaseUrl': url, 'supabaseAnonKey': anon, 'aiUrl': '/api/ai', 'functions': '/api', 'googleSignIn': bool(google), 'vapidPublicKey': vapid, 'build': ver}) + ';\n')
 tags = f'''<link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <script src="vendor/supabase.js?v={ver}"></script>

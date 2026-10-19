@@ -4,9 +4,10 @@
   "type": "module",
   "scripts": {
     "build": "python3 build.py",
-    "test": "node test/cloud_merge_test.mjs && node test/ai_test.mjs && node test/private_test.mjs && node test/watch_test.mjs"
+    "test": "node test/cloud_merge_test.mjs && node test/ai_test.mjs && node test/private_test.mjs && node test/watch_test.mjs && node test/score_test.mjs"
   },
   "dependencies": {
-    "@supabase/supabase-js": "2.45.4"
+    "@supabase/supabase-js": "2.45.4",
+    "web-push": "3.6.7"
   }
 }

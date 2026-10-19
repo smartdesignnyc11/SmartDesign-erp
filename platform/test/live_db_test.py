@@ -46,7 +46,7 @@ ver = {r['name']: r['version'] for r in (cur or [])}
 s, res = save(T['owner'], [
     {'name': 'qa_bills', 'data': [{'id': 'b1', 'amount': 1200}], 'base': ver.get('qa_bills', 0)},
     {'name': 'bills', 'data': [{'id': 'b1', 'vendor': 'QA Lumber', 'amount': 1200}], 'base': ver.get('bills', 0)},
-    {'name': 'project:qa1', 'data': {'id': 'qa1', 'name': 'QA job', 'budget': 50000, 'logs': [{'id': 'l1', 'note': 'start', 'cost': 10}]}, 'base': ver.get('project:qa1', 0)}])
+    {'name': 'qa_job', 'data': {'id': 'qa1', 'name': 'QA job', 'budget': 50000, 'logs': [{'id': 'l1', 'note': 'start', 'cost': 10}]}, 'base': ver.get('qa_job', 0)}])
 ok(s == 200 and all('version' in r for r in res), f'owner saves: {s} {res}')
 ver = {r['name']: r['version'] for r in res}
 
@@ -59,27 +59,27 @@ s, j = http('GET', BASE + '/rest/v1/collections?select=name,version', token=T['f
 ok(s == 200 or s in (401, 403), f'change-feed columns: {s}')
 for who in ('nobody', 'client'):
     s, j = view(T[who]); ok(s == 200 and j == [], f'{who} sees nothing: {s} {j if not isinstance(j, list) else len(j)}')
-    s, j = save(T[who], [{'name': 'project:qa1', 'data': {'id': 'qa1'}, 'base': 99}]); ok(s >= 400, f'{who} cannot save: {s}')
+    s, j = save(T[who], [{'name': 'qa_job', 'data': {'id': 'qa1'}, 'base': 99}]); ok(s >= 400, f'{who} cannot save: {s}')
 
 # the field gets the job without the money
 s, rows = view(T['foreman']); names = {r['name']: r for r in rows}
 ok('bills' not in names, 'foreman never receives bills')
-ok('project:qa1' in names, 'foreman receives the job')
-p = names['project:qa1']['data']
+ok('qa_job' in names, 'foreman receives the job')
+p = names['qa_job']['data']
 ok('budget' not in p and 'cost' not in p['logs'][0], f'money stripped from the job: {p}')
 s, res = save(T['foreman'], [{'name': 'bills', 'data': [], 'base': 99}, {'name': 'company', 'data': {}, 'base': 99}])
 ok(all(r.get('refused') for r in res), f'foreman cannot write bills or company: {res}')
 p2 = dict(p); p2['logs'] = p['logs'] + [{'id': 'l2', 'note': 'framing inspected'}]; p2['budget'] = 1
-s, res = save(T['foreman'], [{'name': 'project:qa1', 'data': p2, 'base': names['project:qa1']['version']}])
+s, res = save(T['foreman'], [{'name': 'qa_job', 'data': p2, 'base': names['qa_job']['version']}])
 ok(s == 200 and res[0].get('version'), f'foreman saves a log: {res}')
-s, rows = view(T['owner'], '&name=eq.project:qa1'); po = rows[0]['data']
+s, rows = view(T['owner'], '&name=eq.qa_job'); po = rows[0]['data']
 ok(po['budget'] == 50000, f'the budget survives the field save, and the field cannot set it: {po.get("budget")}')
 ok(po['logs'][0].get('cost') == 10 and po['logs'][1]['note'] == 'framing inspected', f'the log is added and the cost kept: {po["logs"]}')
 
 # a stale save is refused, not applied
-s, res = save(T['owner'], [{'name': 'project:qa1', 'data': {'id': 'qa1', 'name': 'stale'}, 'base': 1}])
+s, res = save(T['owner'], [{'name': 'qa_job', 'data': {'id': 'qa1', 'name': 'stale'}, 'base': 1}])
 ok(res and res[0].get('conflict'), f'stale save refused as a conflict: {res}')
-s, rows = view(T['owner'], '&name=eq.project:qa1'); ok(rows[0]['data']['name'] == 'QA job', 'and nothing was overwritten')
+s, rows = view(T['owner'], '&name=eq.qa_job'); ok(rows[0]['data']['name'] == 'QA job', 'and nothing was overwritten')
 
 # roles come from the owner only
 me = QA['foreman']
@@ -92,9 +92,9 @@ ok(s >= 400, f'not even the owner moves someone into another firm: {s}')
 
 # a person's own rows: nobody else reads or writes them, the owner included
 own_o = 'own:' + QA['owner']['id'] + ':comms'; own_f = 'own:' + QA['foreman']['id'] + ':comms'
-s, res = save(T['owner'], [{'name': own_o, 'data': [{'id': 'gm1', 'owner': 'x', 'source': 'google', 'text': 'OWNER-PRIVATE-MAIL'}], 'base': 0}])
+s, res = save(T['owner'], [{'name': own_o, 'data': [{'id': 'gm1', 'owner': 'x', 'source': 'google', 'text': 'OWNER-PRIVATE-MAIL', 'proposals': []}], 'base': 0}])
 ok(s == 200 and res[0].get('version'), f'the owner saves his own mail row: {res}')
-s, res = save(T['foreman'], [{'name': own_f, 'data': [{'id': 'gm2', 'owner': 'y', 'source': 'google', 'text': 'FOREMAN-PRIVATE-MAIL'}], 'base': 0}])
+s, res = save(T['foreman'], [{'name': own_f, 'data': [{'id': 'gm2', 'owner': 'y', 'source': 'google', 'text': 'FOREMAN-PRIVATE-MAIL', 'proposals': []}], 'base': 0}])
 ok(s == 200 and res[0].get('version'), f'the foreman saves his own mail row: {res}')
 for who, mine, theirs in (('foreman', 'FOREMAN', 'OWNER'), ('owner', 'OWNER', 'FOREMAN'), ('crew', None, 'OWNER')):
     s, rows = view(T[who]); txt = json.dumps(rows)
@@ -124,6 +124,15 @@ ok(gc('nobody', {'action': 'status'})[0] == 403, 'watcher: an account with no ro
 s, j = gc('foreman', {'action': 'status'}); ok(s == 200 and j.get('connected') is False, f'watcher: status for someone not watching: {s} {j}')
 ok(gc('foreman', {'action': 'token'})[0] == 404, 'watcher: no key handed out for someone not watching')
 s, j = gc('foreman', {'code': 'not-a-real-code'}); ok(s == 400, f'watcher: a bad Google code is refused: {s}')
+
+# push registration: members only, https endpoints only, filed under the person, unreadable by anyone signed in
+fake = {'endpoint': 'https://push.example.invalid/qa-' + QA['foreman']['id'], 'keys': {'p256dh': 'BOr4KQ', 'auth': 'x'}}
+s, j = http('POST', BASE + '/rest/v1/rpc/push_subscribe', {'p_sub': fake}, token=T['foreman']); ok(s in (200, 204), f'push: the foreman registers this phone: {s} {j}')
+s, j = http('POST', BASE + '/rest/v1/rpc/push_subscribe', {'p_sub': fake}, token=T['nobody']); ok(s >= 400, f'push: an account with no role cannot: {s}')
+s, j = http('POST', BASE + '/rest/v1/rpc/push_subscribe', {'p_sub': dict(fake, endpoint='http://evil.example/x')}, token=T['foreman']); ok(s >= 400, f'push: only https push services: {s}')
+s, j = http('GET', BASE + '/rest/v1/push_subs?select=endpoint', token=T['owner']); ok(s >= 400 or j == [], f'push: nobody signed in reads the registrations, the owner included: {s}')
+s, j = gc('foreman', {'action': 'testpush'}); ok(s == 200 and j.get('sent') == 0, f'push: a dead endpoint is tried and counted, not crashed on: {s} {j}')
+s, j = http('POST', BASE + '/rest/v1/rpc/push_unsubscribe', {'p_endpoint': fake['endpoint']}, token=T['foreman']); ok(s in (200, 204), f'push: and removed: {s}')
 
 # the AI door
 def ai(who, body):

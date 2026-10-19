@@ -323,6 +323,7 @@ window.Cloud = (() => {
     // The change feed can drop on a phone's network; a light poll of versions catches anything it missed.
     poller = setInterval(() => { if (document.visibilityState === 'visible') pollOnce(); }, 30000);
     setTimeout(drainInbox, 1500);                                                          // what the watcher found while shut
+    setTimeout(() => { try { const DB = dbRef(); if (DB && DB.notify && window.Notification && Notification.permission === 'granted') enablePush(); } catch (e) {} }, 4000);
   }
 
   // ---- files (photos, documents)
@@ -330,6 +331,35 @@ window.Cloud = (() => {
   const blobToDataUrl = b => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(b); });
   async function putBlob(id, dataUrl) { if (!on() || !user() || !ws()) return false; const blob = dataUrlToBlob(dataUrl); const {error} = await sb.storage.from('files').upload(`${ws()}/${id}`, blob, {upsert: true, contentType: blob.type}); if (error) { console.warn('upload failed', error); return false; } return true; }
   async function getBlob(id) { if (!on() || !user() || !ws()) return null; const {data, error} = await sb.storage.from('files').download(`${ws()}/${id}`); if (error || !data) return null; return await blobToDataUrl(data); }
+
+  // ---- push notifications on this phone or browser: registered when the person turns notifications on,
+  // removed when they turn them off. The watcher sends at most one per run.
+  const b64u = s => { const p = '='.repeat((4 - s.length % 4) % 4), b = atob((s + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(b, c => c.charCodeAt(0)); };
+  async function pushReg() { if (!('serviceWorker' in navigator) || !('PushManager' in window) || !cfg.vapidPublicKey) return null; return navigator.serviceWorker.ready; }
+  async function enablePush() {
+    try {
+      const reg = await pushReg(); if (!reg || !user()) return false;
+      if (Notification.permission !== 'granted') return false;
+      const sub = (await reg.pushManager.getSubscription()) || await reg.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: b64u(cfg.vapidPublicKey)});
+      const {error} = await sb.rpc('push_subscribe', {p_sub: sub.toJSON()}); if (error) throw error;
+      return true;
+    } catch (e) { console.warn('push', e); return false; }
+  }
+  async function testPush() {
+    try { const r = await fetch('/api/google-connect', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'testpush'})}); return (await r.json()).sent || 0; }
+    catch (e) { return 0; }
+  }
+  async function enableAndConfirm() {
+    try {
+      if (await enablePush()) { const n = await testPush(); if (window.toast) window.toast(n ? 'Notifications are on for this device: a test was just sent' : 'Notifications are on, but the test did not arrive: on an iPhone, add the app to the Home Screen first'); }
+      else if (window.toast && 'Notification' in window && Notification.permission === 'granted') window.toast('This browser cannot take notifications while closed; on an iPhone, add the app to the Home Screen first');
+    } catch (e) { console.warn('push', e); return false; }
+  }
+  async function disablePush() {
+    try { const reg = await pushReg(); const sub = reg && await reg.pushManager.getSubscription(); if (sub) { await sb.rpc('push_unsubscribe', {p_endpoint: sub.endpoint}); await sub.unsubscribe(); } } catch (e) {}
+  }
+  // The app's own switch (Settings › notifications) drives it; a phone that already said yes re-registers on boot.
+  document.addEventListener('change', e => { if (e.target && e.target.id === 'opt-notify' && on() && user()) setTimeout(() => (e.target.checked ? enableAndConfirm() : disablePush()), 300); }, true);
 
   // ---- the team (the owner sets roles; the database enforces it)
   async function listProfiles() { const {data, error} = await sb.from('profiles').select('*').order('name'); if (error) throw error; return data; }
@@ -340,7 +370,7 @@ window.Cloud = (() => {
 
   return {on, init, isOffice, isField, token: () => (session && session.access_token) || '', setDbRef: f => { dbRef = f; }, user, profile: getProfile,
     signIn, signInGoogle, authError, magicLink, resetPassword, signOut, pullAll, pullOne, push, pushPending, hasPending, subscribe, pollOnce, putBlob, getBlob,
-    listProfiles, updateProfile, aiSpend, listSignals: none, setSignalStatus: async () => true, listClips: none, claimClips: async () => 0,
+    listProfiles, updateProfile, aiSpend, enablePush, disablePush, listSignals: none, setSignalStatus: async () => true, listClips: none, claimClips: async () => 0,
     saveClipToken: async () => true, screenPoint: async () => null, state, shards, merge3, cfg,
     _test: {session: s => { session = s; }, profile: p => { profile = p; }, setPart: (DB, n, d) => setPart(DB, n, d)}};
 })();

@@ -339,3 +339,32 @@ create or replace function public.my_watch() returns jsonb language sql stable s
 $$;
 revoke all on function public.my_watch() from public, anon;
 grant execute on function public.my_watch() to authenticated;
+
+-- ---------------------------------------------------------------- push notifications (2026-10-19)
+-- One row per phone or browser that said yes to notifications, filed under the person's private key.
+create table if not exists public.push_subs (
+  endpoint text primary key,
+  person_key text not null,
+  workspace_id text not null,
+  sub jsonb not null,
+  created_at timestamptz default now(),
+  last_ok timestamptz,
+  fails integer default 0
+);
+create index if not exists push_subs_person on public.push_subs (person_key);
+alter table public.push_subs enable row level security;
+revoke all on public.push_subs from anon, authenticated;
+create or replace function public.push_subscribe(p_sub jsonb) returns void language plpgsql security definer set search_path = public as $$
+begin
+  if not public.is_member() then raise exception 'no access'; end if;
+  if coalesce(p_sub->>'endpoint', '') !~ '^https://' then raise exception 'bad subscription'; end if;
+  insert into public.push_subs (endpoint, person_key, workspace_id, sub) values (p_sub->>'endpoint', public.my_private_key(), public.my_workspace(), p_sub)
+  on conflict (endpoint) do update set person_key = excluded.person_key, workspace_id = excluded.workspace_id, sub = excluded.sub, fails = 0;
+end $$;
+create or replace function public.push_unsubscribe(p_endpoint text) returns void language sql security definer set search_path = public as $$
+  delete from public.push_subs where endpoint = p_endpoint and person_key = public.my_private_key();
+$$;
+revoke all on function public.push_subscribe(jsonb) from public, anon;
+revoke all on function public.push_unsubscribe(text) from public, anon;
+grant execute on function public.push_subscribe(jsonb) to authenticated;
+grant execute on function public.push_unsubscribe(text) to authenticated;

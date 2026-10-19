@@ -6,7 +6,7 @@ The firm's shared system: https://smartdesigns-erp.netlify.app. Built 2026-10-18
 |---|---|
 | Netlify site | `smartdesigns-erp` (team alan-i60sjeo). Netlify login protects deploy previews only; production is guarded by the app's own sign-in. The 12 older sites are untouched. |
 | Supabase project | `smartdesigns-projects`, ref `eenpabyrmiltfqvzirhw`, us-east-1, Pro plan (daily backups) since 2026-10-18. Sign-up is off: people are invited. |
-| Secrets | Netlify only: `ANTHROPIC_API_KEY` (team), `SUPABASE_SERVICE_ROLE_KEY`, `GOOGLE_CLIENT_SECRET` and `WATCH_KEY` (site, secret; WATCH_KEY seals each person's Google key at rest; the Google secret is also in Supabase's Google provider). `GOOGLE_CLIENT_ID` is public. Never in the repo, the page or chat. |
+| Secrets | Netlify only: `ANTHROPIC_API_KEY` (team), `SUPABASE_SERVICE_ROLE_KEY`, `GOOGLE_CLIENT_SECRET`, `WATCH_KEY` and `VAPID_PRIVATE_KEY` (site, secret; WATCH_KEY seals each person's Google key at rest; the Google secret is also in Supabase's Google provider). `GOOGLE_CLIENT_ID` is public. Never in the repo, the page or chat. |
 | Settings | Netlify site env: `AI_MODEL` (assistant tier, claude-sonnet-5-5), `AI_MODEL_BRAIN` (claude-opus-5-5, owner/PM/controller only), `AI_MODEL_SMALL` (claude-haiku-5-5), `AI_CAP_FIRM_USD` (40), `AI_CAP_USER_USD` (8), `ANTHROPIC_WORKSPACE_ID` (needed while the Anthropic key is not scoped to a workspace). |
 
 ## What it does
@@ -19,6 +19,9 @@ The firm's shared system: https://smartdesigns-erp.netlify.app. Built 2026-10-18
 - **Google connection.** The firm's client ID is in the app's settings; each person connects their own account under Connections, and mail, calendar and Drive are checked while the app is open.
 - **One person, several sign-ins.** `profiles.private_key` links sign-ins of one person to one private store (Alan's two addresses). Only the server sets it; nobody signed in can change it.
 - **The watcher.** Settings › Connections › Keep Watching When It Is Closed hands the server a one-time Google code; `google-connect` trades it for the long-lived key, seals it (AES-256-GCM, `WATCH_KEY`) into `google_watch`, which nothing signed in can read. `assistant-watch` runs every 15 minutes, weekdays 7am to 7pm New York: each person's new mail, calendar changes and Drive files go into their private `own:<key>:inbox` row; the app files the inbox on opening through the same code as a browser sync (`gsIngestServer`), then empties it. While watching, the browser takes its short-lived Google key from the server, so opening the app syncs with no Google window. The watcher only reads; it cannot send mail or change a calendar. Disconnect revokes the key at Google and deletes it.
+- **The watcher's key reads only** (Gmail, Calendar and Drive read-only, `include_granted_scopes` off); `google-connect` refuses and does not keep any key that could send, change or delete. Sending, drafting and booking from the app ask Google in its own window at that moment (`gcFetch` falls back on an insufficient-scope answer), so a stolen server key could read but never send mail as anyone.
+- **Push notifications.** Turning on Settings › notifications registers the device (`push_subs`, filed under the private key, unreadable by anyone signed in) and sends a test. After each run the watcher scores what it found (`lib/score.mjs`: a vendor or client on file or their company domain, a job's name or address, a city agency, a calendar entry in the next 48 hours; never promotions, social, newsletters or one's own sent mail) and sends at most one notification naming the first three. Web push with VAPID keys (public in config.js, private a Netlify secret). On an iPhone the app must be added to the Home Screen first.
+- **Partial records do not stop the app.** A job or message from the server missing its lists is repaired on arrival (`normalizeProject` in cloudApply, `cmInit`), and boot tolerates a job without tasks.
 - **Seeding.** Once the server holds the firm's records, no device seeds demo data (`window.__sdServerTruth` in `sdSeedsOff`). The first office sign-in on an empty workspace uploads that device's records.
 
 ## Build, deploy, test
@@ -27,7 +30,8 @@ cd platform
 python3 build.py                     # builds ../dist, then public/ (index.html, config.js, sw.js, vendor/)
 mkdir -p .netlify && echo '{"siteId":"1bdb5200-477c-492a-8294-fb475014deaa"}' > .netlify/state.json   # links the site (the CLI's --site flag fails here)
 NETLIFY_AUTH_TOKEN=x netlify deploy --prod --dir public --functions netlify/functions   # the session proxy supplies the real token
-npm test                             # merge, AI proxy, private records and watcher unit tests (offline)
+npm test                             # merge, AI proxy, private records, watcher and notification-rule unit tests (offline)
+SDP_APP_HTML=/abs/app.html python3 build.py   # deploy an app build made elsewhere, so dist/ is not rewritten under a running net
 python3 test/ingest_test.py          # the app files the watcher's inbox like a sync run (local build)
 python3 test/qa_accounts.py /abs/qa_users.json      # QA accounts (qa workspace), passwords written outside the repo
 SD_QA_USERS=/abs/qa_users.json python3 test/live_db_test.py    # the database rules as each role, live (QA workspace)
@@ -37,4 +41,4 @@ The QA accounts file lives outside the repo. The live tests only touch the `qa` 
 `supabase/schema.sql` is idempotent; apply it with the management API (`POST /v1/projects/<ref>/database/query`).
 
 ## Not built yet
-nudges from the watcher into the assistant thread and push notifications, per-client rows for the portal, the server-side hash-chain head, the document reader (`doctext`), Plaid, push notifications, the agents (BACKLOG §5 items 3–8). Field roles currently receive every job, not only theirs.
+nudges from the watcher into the assistant thread, per-client rows for the portal, the server-side hash-chain head, the document reader (`doctext`), Plaid, push notifications, the agents (BACKLOG §5 items 3–8). Field roles currently receive every job, not only theirs.

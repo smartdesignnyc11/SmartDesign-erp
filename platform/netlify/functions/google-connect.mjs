@@ -5,6 +5,9 @@ import {caller, json, rest} from './lib/auth.mjs';
 import {seal, open} from './lib/seal.mjs';
 import {exchange, access, revoke, whoami} from './lib/google.mjs';
 import {watchOne} from './lib/watch.mjs';
+import {pushTo} from './lib/push.mjs';
+const READ_ONLY = new Set(['https://www.googleapis.com/auth/gmail.readonly', 'https://www.googleapis.com/auth/calendar.readonly',
+  'https://www.googleapis.com/auth/drive.readonly', 'https://www.googleapis.com/auth/userinfo.email', 'https://www.googleapis.com/auth/userinfo.profile']);
 
 export default async (req) => {
   if (req.method !== 'POST') return json(405, {error: 'POST only'});
@@ -29,6 +32,10 @@ export default async (req) => {
     try { const t = await access(open(row.sealed)); return json(200, {token: t.access_token, expiresIn: t.expires_in}); }
     catch (e) { return json(502, {error: e.message}); }
   }
+  if (body.action === 'testpush') {                                  // the confirmation when someone turns notifications on
+    const sent = await pushTo(key, {title: 'SmartDesigns Projects', body: 'Notifications reach this device. Mail and meetings that matter will show here while the app is closed.', url: '/'});
+    return json(200, {sent});
+  }
   if (body.action === 'run') {                                       // the person's own watch, now
     const row = await mine(); if (!row) return json(404, {error: 'not watching'});
     return json(200, await watchOne(row));
@@ -36,6 +43,11 @@ export default async (req) => {
   if (!body.code) return json(400, {error: 'code required'});
   let t;
   try { t = await exchange(body.code); } catch (e) { return json(400, {error: e.message}); }
+  // The watcher holds reading only. A key that can send, change or delete is refused (and not kept), so the
+  // server can never be the way someone sends mail as this person.
+  const granted = String(t.scope || '').split(/\s+/).filter(Boolean);
+  const broad = granted.filter(sc => /googleapis\.com\/auth\//.test(sc) && !READ_ONLY.has(sc));
+  if (broad.length) return json(400, {error: 'Google gave the watcher more than reading (' + broad.map(x => x.split('/').pop()).join(', ') + '). Remove SmartDesigns Projects at myaccount.google.com/permissions, then press Keep Watching again.'});
   if (!t.refresh_token) return json(400, {error: 'Google did not hand over a long-lived key. Remove SmartDesigns Projects at myaccount.google.com/permissions, then press Keep Watching again.'});
   const info = await whoami(t.access_token);
   const old = await mine();

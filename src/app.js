@@ -2316,7 +2316,8 @@ async function load(opts = {}) {
         (p.actions = p.actions || []),
         (p.meetings = p.meetings || []),
         (p.files = p.files || []),
-        p.tasks.forEach((t) => {
+        // a job row without its task list (a damaged or partial record from the server) must not stop the boot
+        (p.tasks = Array.isArray(p.tasks) ? p.tasks : []).forEach((t) => {
           t.origStart || ((t.origStart = t.start), (t.origEnd = t.end)), (t.history = t.history || []);
         });
     }),
@@ -50872,6 +50873,9 @@ function cloudApply(name, data) {
         S && S.id === id && DB.projects[0] && setCurrent(DB.projects[0].id);
     } else delete DB[name];
   else if (name.startsWith("project:")) {
+    try {
+      normalizeProject(data); // a job from another device or the server gets the same repair as one loaded here
+    } catch (e) {}
     const i = DB.projects.findIndex((p) => p.id === data.id);
     i >= 0 ? (DB.projects[i] = data) : DB.projects.push(data), S && S.id === data.id && setCurrent(data.id);
   } else DB[name] = data;
@@ -72473,7 +72477,8 @@ const CM_STAFF = () =>
     chat: '<path d="M4 5h16v11H8l-4 4z"/><path d="M8 9h8M8 12h5"/>',
   };
 function cmInit() {
-  return (DB.comms = DB.comms || []), DB.comms;
+  // Every message carries a proposals list, whichever device or server row it came from.
+  return (DB.comms = DB.comms || []), DB.comms.forEach((c) => c && !Array.isArray(c.proposals) && (c.proposals = [])), DB.comms;
 }
 const cmIsStaff = (e) => (
     (e = (e || "").toLowerCase()), CM_STAFF_DOMAINS.some((d) => e.endsWith("@" + d)) || CM_STAFF().includes(e)
@@ -113577,6 +113582,17 @@ const GC_SCOPES = [
     "https://www.googleapis.com/auth/drive.readonly",
     "https://www.googleapis.com/auth/drive.file",
   ],
+  // What the hosted watcher may hold: reading only. Sending, drafting and booking ask Google in the moment
+  // (gcFetch falls back to Google's own window when a read-only key meets a write), so a stolen server key can
+  // read but never send mail or change a calendar.
+  GC_WATCH_SCOPES = [
+    "openid",
+    "email",
+    "profile",
+    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/calendar.readonly",
+    "https://www.googleapis.com/auth/drive.readonly",
+  ],
   GC_WHAT = [
     [
       "Mail",
@@ -113830,6 +113846,15 @@ async function gcFetch(path, opts) {
     if (!t2) throw new Error("sign-in has run out");
     r = await go(t2);
   }
+  if (403 === r.status) {
+    // A read-only key (the watcher's) meeting a write: ask Google for this one, in its own window.
+    const body = await r.clone().text();
+    if (/insufficient|ACCESS_TOKEN_SCOPE/i.test(body)) {
+      const t3 = await gcRefreshGoogle();
+      if (!t3) throw new Error("Google needs your permission for this: press it again and approve the Google window");
+      r = await go(t3);
+    }
+  }
   if (429 === r.status || 403 === r.status) {
     const body = await r.text();
     if (/rateLimit|userRateLimit|quotaExceeded/i.test(body))
@@ -113863,7 +113888,8 @@ function gcServerConnect() {
       google.accounts.oauth2
         .initCodeClient({
           client_id: cfg.clientId,
-          scope: GC_SCOPES.join(" "),
+          scope: GC_WATCH_SCOPES.join(" "),
+          include_granted_scopes: !1,
           ux_mode: "popup",
           callback: async (resp) => {
             if (resp && resp.code)
