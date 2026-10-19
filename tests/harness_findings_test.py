@@ -93,7 +93,8 @@ async def finding6(c, pg, phone):
     c.ok(s and s['client'] == 'cl206' and s['project'] == 'p206', f'6 {w}: New Change Order on 206 Lenox LLC\'s page defaults to {s and (s["clientText"], s["project"])}')
     await close(pg)
 
-PM_MAIN = [('home', 'Today'), ('mapprove', 'Approvals'), ('ovjobs', 'Projects'), ('tkall', 'Tasks'), ('field', 'Field')]
+# Alan, 2026-10-19: four shortcuts at most with Chat; Approvals and Tasks are filters of Today; the rest from the hamburger
+PM_MAIN = [('home', 'Today'), ('chat', 'Chat'), ('ovjobs', 'Projects'), ('field', 'Field')]
 
 async def finding7(c, pg):
     await sign_in(pg, 'u_alan'); await go(pg, 'home'); await pg.wait_for_timeout(250)
@@ -106,7 +107,8 @@ async def finding7(c, pg):
     vs = [t['v'] for t in bar['tabs']]
     for v, label in PM_MAIN:
         c.ok(v in vs, f'7: {label} is on the PM\'s bottom bar, not under More: {vs}')
-    c.ok('__more' in vs, f'7: More is still on the bar for the rest of his pages: {vs}')
+    hb = await pg.evaluate("() => { const b = document.getElementById('menu-btn'); return !!(b && b.offsetParent); }")
+    c.ok('__more' not in vs and hb, f'7: the rest of his pages open from the menu button at the top left, not a More tab: {vs}')
     c.ok(all(t['h'] >= 44 for t in bar['tabs']), f'7: every tab is at least 44px tall: {[(t["label"], t["h"]) for t in bar["tabs"]]}')
     c.ok(all(t['w'] >= 56 and not t['clip'] for t in bar['tabs']), f'7: every tab is at least 56px wide and shows its whole label: {[(t["label"], t["w"], t["clip"]) for t in bar["tabs"]]}')
     c.ok(bar['sw'] <= bar['cw'] + 1 and bar['doc'] <= 390 and max(t['right'] for t in bar['tabs']) <= 390, f'7: the bar fits 390px ({bar["sw"]}/{bar["cw"]}, page {bar["doc"]})')
