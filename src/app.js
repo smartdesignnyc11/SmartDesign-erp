@@ -199355,7 +199355,8 @@ function mnChat() {
       (a.className = "btn tb-chat no-print"),
       (a.title = "Chat"),
       a.setAttribute("aria-label", "Chat"),
-      (a.innerHTML = '<svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.2L4 21l1.8-5.4A8 8 0 1 1 21 12z"/></svg><span>Chat</span><span class="n msg-n"></span>'),
+      // two square bubbles (a conversation between people), so it never reads as Ask's round one
+      (a.innerHTML = '<svg viewBox="0 0 24 24"><path d="M14 9a2 2 0 0 1-2 2H6l-3 3V5a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2z"/><path d="M18 9h1a2 2 0 0 1 2 2v9l-3-3h-6a2 2 0 0 1-2-2v-1"/></svg><span>Chat</span><span class="n msg-n"></span>'),
       (a.onclick = () => setView("chat"));
     const ask = document.getElementById("tb-ask"),
       s = document.getElementById("btn-search");
