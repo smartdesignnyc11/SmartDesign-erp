@@ -3,20 +3,24 @@ assistant not just a bot that responds to your questions. It needs to think and 
 assistant, an assistant project manager." And: "the ai assistant chat needs to feel like our chat on here and or Dot by
 chatgpt" (here: the Claude app).
 
-  1. brief     Ask opens on the briefing, the first assistant message of the day, for the owner, the PM, the
-               coordinator and billing: one headline sentence, then Today, I Did, Needs You and I'm Chasing; no intro
-               bubble; every Needs You row carries its reason and Standard value; the card's count is its rows; at most
-               four suggestions, from the briefing, only in an empty conversation; one blue button on the screen (Send);
-               Got It folds it to its headline and it stays folded today. The PM and the owner see their jobs' late
-               schedule work, the Friday update and what the field waits on; the coordinator does not.
+  1. brief     Ask opens on the briefing, the first message of the day, for the owner, the PM, the coordinator and
+               billing: prose, not a dashboard (no cards, no section headers): one headline sentence, then the three
+               things that matter, each a sentence with its record linked in place, no "·" and no sentence starting in
+               lower case or with a record number; at most three small buttons under it, the last "Show the Other N";
+               a record link opens the record; "Show the Other N" answers in the conversation with each thing as a
+               sentence, its link and its one verb. The PM's Friday update opens as a draft in the conversation (no
+               sheet). A new chat opens like Claude's: a greeting, the box centred under it on a desk, at most four
+               suggestions; Brief Me says the briefing again. One blue button on the screen (Send).
   2. runs      a fake server run through gsIngestServer({asst}): the briefing is filed and its headline used, its
                drafts wait in the outbox for approval (deduped by key across runs), another person's run is never
                filed, nothing is sent, not even a type set to Act Alone.
-  3. approve   a draft approved from Needs You is sent by the person (bnSend), with a toast naming who it went to;
-               Not Now puts a row off to the next working day.
-  4. follow    "I'll get back to Chen Friday" with Tasks for Me on Act Alone is a task under I'm Chasing and a line in
-               I Did with Undo; Undo removes the task. On Ask First (the PM's default) it is a one-tap offer. "Chen will
-               send the window lead time Friday" goes on the wait ledger, under I'm Chasing.
+  3. approve   a draft approved from the briefing is sent by the person (bnSend), with a toast naming who it went to
+               and a short reply in the conversation; Not Now puts a thing off to the next working day, with a reply
+               that carries Undo, and Undo brings it back.
+  4. follow    "I'll get back to Chen Friday" with Tasks for Me on Act Alone is a task under I'm Chasing; the reply
+               carries Undo and the briefing says it did it, with Undo; Undo removes the task. On Ask First (the PM's
+               default) it is a one-tap offer whose reply carries Undo. "Chen will send the window lead time Friday"
+               goes on the wait ledger. "Walk me through the first one" and "and the one after that?" keep the context.
   5. memory    a correction is a standing instruction, fed into the prompt, listed under Activity > How You Work,
                edited and deleted there, and added from there; three Not Nows on one kind propose a memory the person
                keeps; another person never sees it.
@@ -63,20 +67,22 @@ async def toast_text(pg):
 VIS = "const vis = el => { const r = el.getBoundingClientRect(); const s = getComputedStyle(el); return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none' && +s.opacity !== 0; };"
 BRIEF_STATE = """() => {
   """ + VIS + """
-  const d = document.querySelector('#v-pa details[data-pabrief]');
-  const secs = [...document.querySelectorAll('#v-pa .pa-bf-card')].map(s => ({ k: s.dataset.pabfsec, h: s.querySelector('h3').textContent.trim(), n: +s.querySelector('[data-pabfn]').dataset.pabfn, rows: s.querySelectorAll('.pa-bf-row').length }));
-  const needRows = [...document.querySelectorAll('#v-pa .pa-bf-card[data-pabfsec="needs"] .pa-bf-row')];
+  const b = document.querySelector('#v-pa #pa-thread .pa-brief'), prose = b ? b.querySelector('[data-pabfhead]').innerText : '';
   return {
-    open: !!(d && d.open), head: (document.querySelector('#v-pa [data-pabfhead]') || {}).textContent || '', secs,
-    first: !!(d && d.closest('.pc-col') && d.closest('.pa-m.a')),
-    whyAll: needRows.every(r => !!r.querySelector('.pa-bf-why')), needKeys: needRows.map(r => r.dataset.pabfkey),
-    intro: document.querySelectorAll('#pa-thread .pa-m').length, threadShown: (() => { const t = document.getElementById('pa-thread'); return !!t && vis(t); })(),
-    chips: [...document.querySelectorAll('#v-pa .pa-chips [data-pachip]')].map(b => b.textContent.trim()),
+    brief: !!b, first: !!b && b === document.querySelector('#pa-thread .pa-m'), prose,
+    cards: document.querySelectorAll('#v-pa .pa-bf-card, #v-pa .pa-bf-hd').length,
+    links: b ? [...b.querySelectorAll('a.pa-rec[data-pabfgo]')].map(a => a.textContent) : [],
+    acts: b ? [...b.querySelectorAll('.pa-bf-acts button')].map(x => x.textContent.trim()) : [],
+    chips: [...document.querySelectorAll('#v-pa .pa-chips [data-pachip]')].map(x => x.textContent.trim()),
     lead: [...document.querySelectorAll('#v-pa .ph .lead')].filter(vis).length,
-    primary: [...document.querySelectorAll('.btn.primary')].filter(vis).map(b => b.textContent.trim()),
-    model: (() => { const B = paBriefModel(true); return { needs: B.needs.length, did: B.did.length, chasing: B.chasing.length, today: B.today.length, needKeys: B.needs.map(x => x.key), chaseKeys: B.chasing.map(x => x.key), chaseKinds: B.chasing.map(x => x.k) }; })(),
+    primary: [...document.querySelectorAll('.btn.primary')].filter(vis).map(x => x.textContent.trim()),
+    model: (() => { const B = paBriefModel(true); return { head: B.headline, needs: B.needs.length, did: B.did.length, chasing: B.chasing.length, today: B.today.length, needKeys: B.needs.map(x => x.key), chaseKeys: B.chasing.map(x => x.key), chaseKinds: B.chasing.map(x => x.k), first: B.needs[0] ? paPhrase(B.needs[0]).subj : '' }; })(),
   };
 }"""
+# run a thing's verb from the conversation: its button under the briefing, or in the rest's list
+DO_VERB = """async k => { let b = document.querySelector(`#v-pa [data-pabfdo="${k}"]`);
+  if (!b) { const r = document.querySelector('#v-pa [data-pabfrest]'); r && r.click(); await new Promise(z => setTimeout(z, 150)); b = document.querySelector(`#v-pa [data-pabfdo="${k}"]`); }
+  if (!b) return null; const l = b.textContent.trim(); b.click(); return l }"""
 
 # ---------------------------------------------------------------------------------------------- 1: the briefing
 async def sec_brief(p, c):
@@ -84,47 +90,62 @@ async def sec_brief(p, c):
     for u in ROLES:
         await open_pa(pg, u)
         s = await pg.evaluate(BRIEF_STATE)
-        c.ok(s['open'] and s['first'], f'{u}: Ask opens on the briefing, open, as the first assistant message of the conversation')
-        c.ok([x['h'] for x in s['secs']] == ['Today', 'I Did', 'Needs You', "I'm Chasing"], f"{u}: four cards in order: {[x['h'] for x in s['secs']]}")
-        head = s['head'].strip()
-        c.ok(len(head) > 20 and head[0].isupper() and head.endswith('.') and head.count('. ') == 0, f"{u}: one headline sentence first: {head[:140]!r}")
-        c.ok(s['intro'] == 0 and not s['threadShown'], f"{u}: no empty conversation box and no intro bubble (bubbles {s['intro']}, thread shown {s['threadShown']})")
-        c.ok(s['lead'] == 0, f'{u}: no explanatory paragraph over the conversation')
-        n = {x['k']: x for x in s['secs']}
-        c.ok(n['needs']['n'] == s['model']['needs'] and n['chasing']['n'] == s['model']['chasing'] and n['did']['n'] == s['model']['did'], f"{u}: each card's count is its rows: {[(x['k'], x['n']) for x in s['secs']]} vs {s['model']}")
-        c.ok(s['whyAll'], f'{u}: every Needs You row says why, with the Standard value')
-        c.ok(s['chips'] and len(s['chips']) <= 4 and not set(s['chips']) & {'My Day', 'My List', 'Waiting on Me', 'I Am Waiting On', 'What You Hold'}, f"{u}: at most four suggestions, from the briefing, not the fixed chips: {s['chips']}")
-        c.ok(s['primary'] == ['Send'], f"{u}: one blue button, the safe next step: {s['primary']}")
+        c.ok(s['brief'] and s['first'], f'{u}: Ask opens on the briefing, the first message of the conversation')
+        c.ok(s['cards'] == 0, f'{u}: a message, not a dashboard: no cards or section headers ({s["cards"]})')
+        head = s['model']['head']
+        c.ok(s['prose'].startswith(head) and head[0].isupper() and head.endswith('.') and head.count('. ') == 0, f"{u}: one headline sentence first: {head!r}")
+        c.ok('·' not in s['prose'], f'{u}: no "·" in the prose: {s["prose"][:200]!r}')
+        low = re.findall(r'(?:^|[.!?]\s+)([a-z]\w*)', s['prose'])
+        c.ok(not low, f'{u}: no sentence starts in lower case: {low[:3]}')
+        recfirst = re.findall(r'(?:^|[.!?]\s+)([A-Z]{2,}-\d[\w-]*)', s['prose'])
+        c.ok(not recfirst, f'{u}: no sentence starts with a record number: {recfirst}')
         if s['model']['needs']:
-            first = await pg.evaluate("() => paBriefModel(true).needs[0].title")
-            c.ok(first.rstrip('. ') in s['head'] or bool(await pg.evaluate("() => !!paLatestRun()")), f'{u}: the headline names the first thing that needs them')
-            c.ok(s['chips'][0] == 'Walk Me Through the First', f"{u}: the first suggested ask is about the first thing: {s['chips'][:1]}")
+            c.ok(s['model']['first'] and s['model']['first'] in s['prose'] and len(s['links']) >= 1, f"{u}: the first thing is named in words, its record linked: {s['model']['first']!r} links {s['links'][:3]}")
+        c.ok(1 <= len(s['acts']) <= 3 if s['model']['needs'] else len(s['acts']) <= 3, f"{u}: at most three small buttons under it: {s['acts']}")
+        if s['model']['needs'] > 3:
+            c.ok(s['acts'][-1] == f"Show the Other {s['model']['needs'] - 3}", f"{u}: the last button shows the rest: {s['acts']}")
+        c.ok(s['lead'] == 0, f'{u}: no explanatory paragraph over the conversation')
+        c.ok(s['primary'] == ['Send'], f"{u}: one blue button, the safe next step: {s['primary']}")
         pm = u in ('u_owner', 'u_alan')
         kinds = set(s['model']['chaseKinds'])
         if pm:
-            c.ok(any(k.startswith('late:') or k.startswith('fri:') for k in s['model']['needKeys']), f"{u}: Needs You holds the jobs' late schedule work or the Friday update: {s['model']['needKeys'][:8]}")
-            c.ok(any(k.startswith('fri:') for k in s['model']['needKeys']), f'{u}: the Friday client update is on Needs You on a Thursday')
-            c.ok(kinds & {'RFI', 'Submittal', 'Client Decision', 'Delivery'}, f"{u}: I'm Chasing follows what the jobs wait on: {sorted(kinds)}")
+            c.ok(any(k.startswith('late:') for k in s['model']['needKeys']) and any(k.startswith('fri:') for k in s['model']['needKeys']), f"{u}: the jobs' late schedule work and the Friday update are among what needs them: {s['model']['needKeys'][:8]}")
+            c.ok(kinds & {'RFI', 'Submittal', 'Client Decision', 'Delivery'}, f"{u}: it follows what the jobs wait on: {sorted(kinds)}")
         else:
             c.ok(not any(k.startswith('fri:') or k.startswith('late:') for k in s['model']['needKeys']), f'{u}: no project-manager items for this role')
-    # the Friday update: Review and Send opens the draft, written from the client-safe schedule, for the person to send
-    await open_pa(pg, 'u_alan')
-    key = await pg.evaluate("() => paBriefModel(true).needs.find(x => x.key.startsWith('fri:')).key")
-    await pg.evaluate("k => { paBfAll.needs = true; renderPa(); document.querySelector(`[data-pabfkey=\"${k}\"] [data-pabf]`).click(); }", key)
-    await pg.wait_for_timeout(200)
-    m = await pg.evaluate("() => { const m = document.getElementById('mbm'); return m ? { t: m.querySelector('h3').textContent, body: m.querySelector('[data-f=body]').value, ok: m.querySelector('#mbm-ok').textContent } : null }")
-    c.ok(m and m['ok'] == 'Send' and 'this week' in m['body'] and not re.search(r'\$\d', m['body']), f'the Friday update opens as a draft to review, with no money in it: {m and m["body"][:120]}')
-    held = await pg.evaluate("() => (DB.outbox || []).filter(o => /^asst\\|friday\\|/.test(o.aboutKey) && o.status === 'draft').length")
-    c.ok(held == 1, f'the Friday update waits in the outbox as one draft until sent ({held})')
-    await pg.evaluate("() => mbCloseModal()")
-    # Got It folds the briefing to its headline, and it stays folded today
+    # the rest answers in the conversation, each thing a sentence with its link and one verb
     await open_pa(pg, 'u_owner')
-    await pg.click('#v-pa [data-pabfread]')
-    await pg.wait_for_timeout(150)
-    st = await pg.evaluate("() => ({ open: document.querySelector('#v-pa details[data-pabrief]').open, read: paInit().briefRead, head: document.querySelector('#v-pa [data-pabfhead]').getBoundingClientRect().height })")
-    c.ok(not st['open'] and st['read'] == '2026-09-03' and st['head'] > 0, f'Got It folds the briefing to its headline: {st}')
-    await go(pg, 'home'); await go(pg, 'pa')
-    c.ok(not await pg.evaluate("() => document.querySelector('#v-pa details[data-pabrief]').open"), 'read today, it stays folded on the next visit')
+    n = await pg.evaluate("() => paBriefModel(true).needs.length")
+    await pg.click('#v-pa [data-pabfrest]')
+    await pg.wait_for_timeout(200)
+    st = await pg.evaluate("""() => { const ms = [...document.querySelectorAll('#pa-thread .pa-m')]; const me = ms[ms.length - 2], a = ms[ms.length - 1];
+        return { me: me && me.classList.contains('me') ? me.innerText.trim() : '', rows: a ? a.querySelectorAll('.pa-bf-li').length : 0,
+          linked: a ? [...a.querySelectorAll('.pa-bf-li')].filter(r => r.querySelector('a.pa-rec')).length : 0, dots: a ? /·/.test(a.querySelector('.pa-bf-ul').innerText) : true,
+          verbs: a ? [...a.querySelectorAll('.pa-bf-li')].every(r => r.querySelectorAll('.btn').length <= 1) : false } }""")
+    c.ok(st['me'].startswith('Show me the other') and st['rows'] == n - 3 and st['linked'] >= st['rows'] - 2 and not st['dots'] and st['verbs'], f'"Show the Other" answers in the conversation, one sentence and one verb each: {st} of {n}')
+    # a record link opens the record
+    v0 = await pg.evaluate("() => { const a = document.querySelector('#v-pa .pa-brief a.pa-rec[data-pabfgo]'); a.click(); return view }")
+    await pg.wait_for_timeout(200)
+    c.ok(await pg.evaluate("view") != 'pa' or await pg.evaluate("() => !!document.getElementById('mbm') || !!document.querySelector('.sheet.on, .drawer.on')"), f'a record link in the briefing opens the record ({await pg.evaluate("view")})')
+    # the Friday update: drafted in the conversation, not a sheet over it
+    await open_pa(pg, 'u_alan')
+    key = await pg.evaluate("() => paBriefModel(true).needs.find(x => x.key.startsWith('fri:') && /Review and Send/.test(paVerbLabel(x))).key")
+    label = await pg.evaluate(DO_VERB, key)
+    await pg.wait_for_timeout(250)
+    m = await pg.evaluate("() => { const d = [...document.querySelectorAll('#pa-thread .pc-draft')].pop(); return { modal: !!document.getElementById('mbm'), body: d ? (d.querySelector('.pc-draft-body') || {}).innerText || '' : '', btns: d ? [...d.querySelectorAll('button')].map(x => x.textContent.trim()) : [] } }")
+    c.ok(label == 'Review and Send' and not m['modal'] and 'this week' in m['body'] and not re.search(r'\$\d', m['body']) and m['btns'] == ['Approve and Send', 'Edit'], f'the Friday update is a draft in the conversation, to read, change and approve: {label} {m}')
+    held = await pg.evaluate("() => (DB.outbox || []).filter(o => /^asst\\|friday\\|/.test(o.aboutKey) && o.status === 'draft').length")
+    c.ok(held == 1, f'it waits in the outbox as one draft until sent ({held})')
+    # a new chat opens like Claude's; Brief Me says the briefing again
+    await pg.click('.view.on [data-panew]'); await pg.wait_for_timeout(200)
+    await pg.click('.view.on [data-panew]'); await pg.wait_for_timeout(200)
+    st = await pg.evaluate("() => { const h = document.querySelector('#v-pa .pc-hello'), d = document.getElementById('pc-dock').getBoundingClientRect(); return { hello: h ? h.innerText : '', top: Math.round(d.top), h: innerHeight, chips: [...document.querySelectorAll('#v-pa .pc-sugg [data-pachip]')].map(b => b.textContent.trim()), msgs: document.querySelectorAll('#pa-thread .pa-m').length } }")
+    c.ok(re.match(r'Good (morning|afternoon|evening), \w+', st['hello']) and st['msgs'] == 0, f'a new chat opens on a greeting: {st}')
+    c.ok(st['h'] * 0.2 < st['top'] < st['h'] * 0.75, f'on a desk the box sits centred under it: {st["top"]} of {st["h"]}')
+    c.ok(0 < len(st['chips']) <= 4 and 'Brief Me' in st['chips'], f'at most four suggestions, Brief Me among them: {st["chips"]}')
+    await pg.evaluate("() => [...document.querySelectorAll('#v-pa .pc-sugg [data-pachip]')].find(b => b.textContent.trim() === 'Brief Me').click()")
+    await pg.wait_for_timeout(250)
+    c.ok(await pg.evaluate("() => !!document.querySelector('#pa-thread .pa-brief') && !document.querySelector('#v-pa .pc-hello')"), 'Brief Me says the briefing again, and the box moves to the bottom')
     c.ok(not errs, f'brief: page errors {errs[:3]}')
     await b.close()
 
@@ -193,24 +214,29 @@ async def sec_approve(p, c):
     await pg.evaluate("b => gsIngestServer(b)", {'asst': [run('u_owner', '08:00:00', [draft('00000000000000a1', 'orderFollowups', 'Window Works', 'orders@windowworks.example', 'Confirming the ship date for the windows')])]})
     await go(pg, 'home'); await go(pg, 'pa')
     oid = await pg.evaluate("() => DB.outbox.find(o => o.aboutKey === 'asst|ad:00000000000000a1').id")
-    await pg.evaluate("() => { paBfAll.needs = true; renderPa(); }")
-    btn = f'[data-pabfkey="q:draft:{oid}"] [data-pabf]'
-    label = await pg.evaluate("s => (document.querySelector(s) || {}).textContent", btn)
-    c.ok(label == 'Approve', f'the draft on Needs You leads with Approve: {label}')
-    await pg.evaluate("s => document.querySelector(s).click()", btn)
+    label = await pg.evaluate(DO_VERB, f'q:draft:{oid}')
+    c.ok(label and label.startswith('Approve'), f'the draft leads with Approve: {label}')
     await pg.wait_for_function("id => (DB.outbox.find(o => o.id === id) || {}).status === 'sent'", arg=oid, timeout=8000)
+    await pg.wait_for_timeout(200)
     t = await toast_text(pg)
-    o = await pg.evaluate("id => { const o = DB.outbox.find(x => x.id === id); return { by: o.approvedBy, sentBy: o.sentBy } }", oid)
+    o = await pg.evaluate("id => { const o = DB.outbox.find(x => x.id === id); return { by: o.approvedBy } }", oid)
+    reply = await pg.evaluate("() => { const m = paInit().thread.slice(-1)[0]; return m.confirm ? m.text : '' }")
     c.ok('Sent to Window Works' in t and 'Open' in t, f'a toast says who it went to, with Open: {t!r}')
+    c.ok(reply.startswith('Sent to Window Works'), f'and a short reply in the conversation says so: {reply!r}')
     c.ok(o['by'] == 'Owner', f'the person approved and sent it: {o}')
     gone = await pg.evaluate("id => !paBriefModel(true).needs.some(x => x.key === 'q:draft:' + id)", oid)
-    c.ok(gone, 'once sent it is off Needs You')
-    # Not Now: off the briefing until the next working day, still on Approvals
-    k2 = await pg.evaluate("() => paBriefModel(true).needs[0].key")
-    await pg.evaluate("k => document.querySelector(`[data-pabfkey=\"${k}\"] .pa-bf-act button:last-child`).click()", k2)
+    c.ok(gone, 'once sent it is off the briefing')
+    # Not Now: off the briefing until the next working day, with a reply that carries Undo
+    k2 = await pg.evaluate("() => paBriefModel(true).needs.slice(-1)[0].key")
+    await pg.evaluate("async () => { const r = document.querySelector('#v-pa [data-pabfrest]'); r && r.click(); }")
     await pg.wait_for_timeout(150)
-    st = await pg.evaluate("k => ({ off: !paBriefModel(true).needs.some(x => x.key === k), until: paInit().snooze[k], t: document.getElementById('toast').textContent })", k2)
-    c.ok(st['off'] and st['until'] == '2026-09-04' and 'Not now' in st['t'], f'Not Now puts it off to the next working day: {st}')
+    await pg.evaluate("k => document.querySelector(`#v-pa [data-pabfsnooze=\"${k}\"]`).click()", k2)
+    await pg.wait_for_timeout(200)
+    st = await pg.evaluate("k => ({ off: !paBriefModel(true).needs.some(x => x.key === k), until: paInit().snooze[k], t: document.getElementById('toast').textContent, reply: paInit().thread.slice(-1)[0].text, undo: !!document.querySelector('#pa-thread .pc-confirm:last-of-type [data-pcact^=\"undo\"], #pa-thread .pa-m:last-child [data-pcact^=\"undo\"]') })", k2)
+    c.ok(st['off'] and st['until'] == '2026-09-04' and 'Not now' in st['t'] and st['reply'].startswith('Put off until') and st['undo'], f'Not Now puts it off to the next working day, with a reply that carries Undo: {st}')
+    await pg.evaluate("() => document.querySelector('#pa-thread .pa-m:last-child [data-pcact^=\"undo\"]').click()")
+    await pg.wait_for_timeout(200)
+    c.ok(await pg.evaluate("k => paBriefModel(true).needs.some(x => x.key === k)", k2), 'Undo brings it back')
     c.ok(not errs, f'approve: page errors {errs[:3]}')
     await b.close()
 
@@ -228,27 +254,34 @@ async def sec_follow(p, c):
     c.ok(found, 'it is on the one task accessor (tkAll), so Today and All Tasks show it')
     row = next((x for x in st['did'] if x['title'].startswith('Put on your list')), None)
     c.ok(row and 'Undo' in row['acts'], f'I Did shows it, with Undo: {st["did"][:3]}')
-    # Undo from I Did
+    undo = await pg.evaluate("() => { const ms = [...document.querySelectorAll('#pa-thread .pa-m.a')]; return !!ms[ms.length - 1].querySelector('[data-pcact^=\"undo\"]') }")
+    c.ok(undo, 'the reply that put it on the list carries Undo')
+    # Undo from the briefing's "since you last looked"
     await go(pg, 'home'); await go(pg, 'pa')
-    await pg.evaluate("() => { paBfOpen = true; paBfAll.did = true; renderPa(); }")
-    clicked = await pg.evaluate("""() => { const r = [...document.querySelectorAll('[data-pabfsec="did"] .pa-bf-row')].find(r => /Put on your list/.test(r.textContent)); const u = r && [...r.querySelectorAll('button')].find(b => b.textContent === 'Undo'); u && u.click(); return !!u }""")
+    clicked = await pg.evaluate("""() => { const b = document.querySelector('#pa-thread .pa-brief [data-pabfundo]'); b && b.click(); return !!b }""")
     await pg.wait_for_timeout(200)
-    st2 = await pg.evaluate("id => ({ gone: !(DB.tasks || []).some(t => t.id === id), t: document.getElementById('toast').textContent, undone: (paInit().log || []).some(e => e.undo && e.undo.id === id && e.undone) })", st['t']['id'] if st['t'] else '')
-    c.ok(clicked and st2['gone'] and st2['undone'] and st2['t'].startswith('Undone'), f'Undo takes the task back, with a toast: {st2}')
+    st2 = await pg.evaluate("id => ({ gone: !(DB.tasks || []).some(t => t.id === id), t: document.getElementById('toast').textContent, undone: (paInit().log || []).some(e => e.undo && e.undo.id === id && e.undone), reply: paInit().thread.slice(-1)[0].text })", st['t']['id'] if st['t'] else '')
+    c.ok(clicked and st2['gone'] and st2['undone'] and st2['t'].startswith('Undone') and st2['reply'].startswith('Undone'), f'the briefing says what it did, and Undo takes it back, with a toast and a reply: {st2}')
     # the PM's default is Ask First: a one-tap offer, then the task
     await open_pa(pg, 'u_alan')
     a = await ask(pg, "I'll call the inspector tomorrow")
     before = await pg.evaluate("() => (DB.tasks || []).filter(t => t.source && t.source.commit && /inspector/i.test(t.title)).length")
     c.ok('Shall I hold you to it' in a and before == 0, f'Ask First: it offers, and makes nothing until the person says so: {a!r}')
-    clicked = await pg.evaluate("() => { const card = [...document.querySelectorAll('#pa-thread .cs-offer')].find(c => /Put It on My List/.test(c.textContent)); const b = card && card.querySelector('[data-csdo]'); b && b.click(); return !!b }")
-    await pg.wait_for_timeout(200)
-    st3 = await pg.evaluate("() => ({ n: (DB.tasks || []).filter(t => t.source && t.source.commit && /inspector/i.test(t.title)).length, chase: paBriefModel(true).chasing.some(x => x.k === 'You Promised' && /inspector/i.test(x.title)), props: (paInit().props || []).filter(e => e.type === 'makeTasks').map(e => e.outcome) })")
-    c.ok(clicked and st3['n'] == 1 and st3['chase'] and 'approved' in st3['props'], f'one tap puts it on the list and under I\'m Chasing, logged as approved: {st3}')
+    clicked = await pg.evaluate("() => { const b = [...document.querySelectorAll('#pa-thread [data-csdo]')].find(b => /Put It on My List/.test(b.textContent)); b && b.click(); return !!b }")
+    await pg.wait_for_timeout(250)
+    st3 = await pg.evaluate("() => ({ n: (DB.tasks || []).filter(t => t.source && t.source.commit && /inspector/i.test(t.title)).length, chase: paBriefModel(true).chasing.some(x => x.k === 'You Promised' && /inspector/i.test(x.title)), props: (paInit().props || []).filter(e => e.type === 'makeTasks').map(e => e.outcome), reply: (paInit().thread.slice(-1)[0] || {}).text, undo: !!(paInit().thread.slice(-1)[0] || {}).undoLog })")
+    c.ok(clicked and st3['n'] == 1 and st3['chase'] and 'approved' in st3['props'], f'one tap (a small button under the answer) puts it on the list and under I\'m Chasing, logged as approved: {st3}')
+    c.ok(str(st3['reply']).startswith('On your list') and st3['undo'], f'and the reply says so, with Undo: {st3["reply"]!r}')
     # what someone else owes goes on the wait ledger
     a = await ask(pg, 'Chen will send the window lead time Friday')
     st4 = await pg.evaluate("() => { const e = paExpectLedger().find(x => /window lead time/i.test(x.about)); return { e: e && { who: e.who, by: e.by }, chase: paBriefModel(true).chasing.filter(x => x.k === 'Owes You').map(x => x.title) } }")
     c.ok(st4['e'] and 'Chen' in st4['e']['who'] and st4['e']['by'] == '2026-09-04', f'a promise someone made goes on the wait ledger: {a!r} {st4["e"]}')
     c.ok(any('window lead time' in x for x in st4['chase']), f"and under I'm Chasing: {st4['chase']}")
+    # the briefing's own follow-ups keep the context
+    a1 = await ask(pg, 'walk me through the first one')
+    a2 = await ask(pg, 'and the one after that?')
+    want = await pg.evaluate("() => { const B = paBriefModel(true); return [paPhrase(B.needs[0]).subj, paPhrase(B.needs[1]).subj] }")
+    c.ok(a1.startswith('The first is ' + want[0]) and a2.startswith('The second is ' + want[1]), f'"walk me through the first one", then "and the one after that?": {a1[:90]!r} / {a2[:90]!r}')
     # a question is still a question
     a = await ask(pg, 'I need to see the open POs')
     c.ok(not await pg.evaluate("() => (DB.tasks || []).some(t => /see the open pos/i.test(t.title))"), f'"I need to see…" is a question, not a promise: {a[:80]!r}')
@@ -290,7 +323,7 @@ async def sec_memory(p, c):
     sug = await pg.evaluate("() => paBriefModel(true).needs.filter(x => x.k === 'Suggested Memory').map(x => ({ key: x.key, t: x.title }))")
     c.ok(kind and sug, f'three Not Nows on one kind ({kind}) propose a memory, on Needs You: {sug}')
     if sug:
-        await pg.evaluate("k => { paBfAll.needs = true; renderPa(); const r = document.querySelector(`[data-pabfkey=\"${k}\"]`); [...r.querySelectorAll('button')].find(b => b.textContent === 'Keep It').click(); }", sug[0]['key'])
+        await pg.evaluate(DO_VERB, sug[0]['key'])
         await pg.wait_for_timeout(150)
         st = await pg.evaluate("k => ({ rule: paInit().memo.some(m => m.rule && m.rule.hideKind === k), left: paBriefModel(true).needs.filter(x => x.it && x.it.kind === k).every(x => standardUrgency(x.it) === 0), hidden: paBriefModel(true).hidden })", kind)
         c.ok(st['rule'] and st['left'] and st['hidden'] > 0, f'kept, it shapes the briefing (only overdue ones of that kind stay; the rest are counted as left out): {st}')
@@ -324,12 +357,12 @@ async def sec_voice(p, c):
     await b.close()
 
 # ---------------------------------------------------------------------------------------------- 7: the box and the messages
-LAST = """() => { const as = [...document.querySelectorAll('#pa-thread .pa-m.a')], ms = [...document.querySelectorAll('#pa-thread .pa-m.me')];
+LAST = """() => { const as = [...document.querySelectorAll('#pa-thread .pa-m.a:not(.pa-brief):not(.pc-confirm)')], ms = [...document.querySelectorAll('#pa-thread .pa-m.me')];
   const a = as[as.length - 1], m = ms[ms.length - 1];
   return { nA: as.length, nMe: ms.length, aActs: a ? [...a.querySelectorAll(':scope > .pc-acts [data-pcact]')].map(b => b.getAttribute('aria-label')) : [], meActs: m ? [...m.querySelectorAll('[data-pcact]')].map(b => b.getAttribute('aria-label')) : [],
     meBg: m ? getComputedStyle(m.querySelector('.pa-b')).backgroundColor : '', meRight: m ? Math.round(innerWidth - m.querySelector('.pa-b').getBoundingClientRect().right) : 0,
     aBg: a ? getComputedStyle(a.querySelector('.pa-b')).backgroundColor : '', aBorder: a ? getComputedStyle(a.querySelector('.pa-b')).borderTopWidth : '',
-    col: Math.round(document.querySelector('#v-pa .pc-col').getBoundingClientRect().width), talk: paTalk(paInit()).map(x => x.who + ':' + x.text.slice(0, 40)) } }"""
+    col: Math.round(document.querySelector('#v-pa .pc-col').getBoundingClientRect().width), talk: paTalk(paInit()).filter(x => !x.brief && !x.confirm).map(x => x.who + ':' + x.text.slice(0, 40)) } }"""
 
 async def sec_compose(p, c):
     b, pg, errs = await open_app(p)
@@ -341,7 +374,7 @@ async def sec_compose(p, c):
     await pg.keyboard.type('what is on my day')
     await pg.keyboard.press('Shift+Enter')
     await pg.keyboard.type('and my week')
-    st = await pg.evaluate("() => ({ v: document.getElementById('pa-in').value, me: paTalk(paInit()).length, h: document.getElementById('pa-in').getBoundingClientRect().height })")
+    st = await pg.evaluate("() => ({ v: document.getElementById('pa-in').value, me: paTalk(paInit()).filter(m => m.who === 'me').length, h: document.getElementById('pa-in').getBoundingClientRect().height })")
     c.ok(st['v'] == 'what is on my day\nand my week' and st['me'] == 0, f'Shift+Enter starts a new line and sends nothing: {st}')
     await pg.fill('#pa-in', '')
     await pg.keyboard.type('what is on my day')
@@ -355,12 +388,12 @@ async def sec_compose(p, c):
     c.ok(700 <= L['col'] <= 720, f"the conversation is a centred reading column about 720px wide: {L['col']}")
     c.ok(L['aActs'] == ['Copy', 'Retry'] and L['meActs'] == ['Copy', 'Edit and Send Again'], f"Copy and Retry under the last answer, Edit on the last question: {L['aActs']} {L['meActs']}")
     # Copy
-    await pg.evaluate("() => { const as = [...document.querySelectorAll('#pa-thread .pa-m.a')]; as[as.length - 1].querySelector('[data-pcact^=\"copy\"]').click(); }")
+    await pg.evaluate("() => { const as = [...document.querySelectorAll('#pa-thread .pa-m.a:not(.pa-brief)')]; as[as.length - 1].querySelector('[data-pcact^=\"copy\"]').click(); }")
     await pg.wait_for_timeout(250)
     c.ok('Copied' in await toast_text(pg), 'Copy copies the answer and says so')
     # Retry: the same question again, no second copy of it
     first = await pg.evaluate("() => paInit().thread.filter(m => m.who === 'a').slice(-1)[0].id")
-    await pg.evaluate("() => { const as = [...document.querySelectorAll('#pa-thread .pa-m.a')]; as[as.length - 1].querySelector('[data-pcact^=\"retry\"]').click(); }")
+    await pg.evaluate("() => { const as = [...document.querySelectorAll('#pa-thread .pa-m.a:not(.pa-brief)')]; as[as.length - 1].querySelector('[data-pcact^=\"retry\"]').click(); }")
     await pg.wait_for_function("id => !paBusy && paInit().thread.filter(m => m.who === 'a').slice(-1)[0].id !== id", arg=first, timeout=15000)
     await pg.wait_for_timeout(150)
     L = await pg.evaluate(LAST)
@@ -372,32 +405,34 @@ async def sec_compose(p, c):
     c.ok(ed == 'what is on my day', f'Edit opens the question in place: {ed!r}')
     await pg.fill('#pa-thread .pc-edit-in', 'what does my week look like')
     await pg.press('#pa-thread .pc-edit-in', 'Enter')
-    await pg.wait_for_function("() => !paBusy && paTalk(paInit()).some(m => m.who === 'me' && /my week look like/.test(m.text)) && paTalk(paInit()).slice(-1)[0].who === 'a'", timeout=15000)
+    await pg.wait_for_function("() => !paBusy && paTalk(paInit()).some(m => m.who === 'me' && /my week look like/.test(m.text)) && paTalk(paInit()).slice(-1)[0].who === 'a' && !paTalk(paInit()).slice(-1)[0].brief", timeout=15000)
     await pg.wait_for_timeout(150)
     L = await pg.evaluate(LAST)
     c.ok(L['nMe'] == 1 and L['talk'][0] == 'me:what does my week look like', f'the edited question replaces the old one and is answered: {L["talk"]}')
     # an offer that writes a draft: the draft shows under the answer with Approve and Edit
     await ask(pg, 'Draft a follow-up to Window Works about the ship date')
-    clicked = await pg.evaluate("() => { const card = [...document.querySelectorAll('#pa-thread .cs-offer')].find(c => /Outbox|Mailbox/.test(c.textContent)); const b = card && card.querySelector('[data-csdo]'); b && b.click(); return !!b }")
+    clicked = await pg.evaluate("() => { const b = [...document.querySelectorAll('#pa-thread [data-csdo]')].find(b => /Outbox|Mailbox/.test(b.textContent)); b && b.click(); return !!b }")
     await pg.wait_for_timeout(300)
     if await pg.evaluate("() => !!document.getElementById('mbm')"):   # no address on file: the sheet asks for one first
         await pg.fill('#mbm [data-f=email]', 'orders@windowworks.example')
         await pg.click('#mbm-ok')
     await pg.wait_for_timeout(900)
     st = await pg.evaluate("() => { const d = [...document.querySelectorAll('#pa-thread .pc-draft')].pop(); const m = paInit().thread.filter(m => m.who === 'a').slice(-1)[0]; return { clicked: true, ids: m.drafts || [], text: d ? d.textContent : '', btns: d ? [...d.querySelectorAll('button')].map(b => b.textContent.trim()) : [] } }")
-    c.ok(clicked and st['ids'] and st['btns'] == ['Approve', 'Edit'] and 'Window Works' in st['text'], f'the draft it wrote shows under the answer with Approve and Edit: {st}')
+    c.ok(clicked and st['ids'] and st['btns'] == ['Approve and Send', 'Edit'] and 'Window Works' in st['text'], f'the draft it wrote shows under the answer, to read, with Approve and Send and Edit: {st}')
     if st['ids']:
         oid = st['ids'][0]
         await pg.evaluate("id => document.querySelector(`[data-pcdraft=\"edit|${id}\"]`).click()", oid)
         await pg.wait_for_timeout(150)
-        md = await pg.evaluate("() => { const m = document.getElementById('mbm'); return m ? { h: m.querySelector('h3').textContent, subj: m.querySelector('[data-f=subject]').value } : null }")
-        c.ok(md and md['subj'], f'Edit opens the draft to change: {md}')
-        await pg.click('#mbm-ok'); await pg.wait_for_timeout(200)
+        md = await pg.evaluate("() => { const f = document.querySelector('#pa-thread [data-pcdraftform]'); return { modal: !!document.getElementById('mbm'), subj: f ? f.querySelector('[data-f=subject]').value : '' } }")
+        c.ok(md['subj'] and not md['modal'], f'Edit opens the draft in place, in the conversation: {md}')
+        await pg.fill('#pa-thread [data-pcdraftform] [data-f=subject]', 'When do the windows ship?')
+        await pg.click('#pa-thread [data-pcdraftform] button[type=submit]'); await pg.wait_for_timeout(200)
+        c.ok(await pg.evaluate("id => DB.outbox.find(o => o.id === id).subject", oid) == 'When do the windows ship?', 'the change is saved on the draft')
         await pg.evaluate("id => document.querySelector(`[data-pcdraft=\"approve|${id}\"]`).click()", oid)
         await pg.wait_for_function("id => (DB.outbox.find(o => o.id === id) || {}).status === 'sent'", arg=oid, timeout=8000)
         await pg.wait_for_timeout(200)
         st = await pg.evaluate("id => ({ t: document.getElementById('toast').textContent, row: ([...document.querySelectorAll('#pa-thread .pc-draft')].pop() || {}).textContent || '' })", oid)
-        c.ok('Sent to' in st['t'] and 'Open' in st['t'] and st['row'].startswith('Sent to'), f'Approve sends it, with a toast, and the answer says it went: {st}')
+        c.ok('Sent to' in st['t'] and 'Open' in st['t'] and (st['row'].startswith('Sent to') or 'Sent to' in str(await pg.evaluate("() => paInit().thread.slice(-1)[0].text"))), f'Approve sends it, with a toast and a reply: {st}')
     c.ok(not errs, f'compose: page errors {errs[:3]}')
     await b.close()
 
@@ -424,10 +459,10 @@ async def sec_convos(p, c):
     st = await pg.evaluate("() => ({ talk: paTalk(paInit()).map(m => m.text).slice(0, 1), convos: paConvos().map(c => c.title), box: !!document.getElementById('pa-in') })")
     c.ok(st['talk'] == ['which invoices are open'] and 'what am I waiting on' in st['convos'] and st['box'], f'pressing one continues it; the one you were in is filed: {st}')
     # a new day: yesterday's conversation is filed and the day opens on the briefing
-    await pg.evaluate("() => paInit().thread.forEach(m => { m.day = '2026-09-02'; })")
+    await pg.evaluate("() => { paInit().thread.forEach(m => { m.day = '2026-09-02'; }); paInit().briefShown = '2026-09-02'; }")
     await go(pg, 'home'); await go(pg, 'pa')
-    st = await pg.evaluate("() => ({ talk: paTalk(paInit()).length, first: (paConvos()[0] || {}).title, brief: !!document.querySelector('#v-pa .pc-col > .pc-brief details[data-pabrief]') })")
-    c.ok(st['talk'] == 0 and st['first'] == 'which invoices are open' and st['brief'], f"a new day files yesterday's conversation and opens on the briefing: {st}")
+    st = await pg.evaluate("() => ({ talk: paTalk(paInit()).map(m => !!m.brief), first: (paConvos()[0] || {}).title, brief: !!document.querySelector('#pa-thread .pa-brief') })")
+    c.ok(st['talk'] == [True] and st['first'] == 'which invoices are open' and st['brief'], f"a new day files yesterday's conversation and opens on the briefing: {st}")
     c.ok(not errs, f'convos: page errors {errs[:3]}')
     await b.close()
     # the phone: the panel is a drawer, closed until asked for
@@ -548,7 +583,7 @@ async def sec_stream(p, c):
         await pg.wait_for_function("() => !paBusy && /drafted the note/.test(paInit().thread.filter(m => m.who === 'a').slice(-1)[0].text)", timeout=20000)
         await pg.wait_for_timeout(200)
         st = await pg.evaluate("() => { const m = paInit().thread.filter(m => m.who === 'a').slice(-1)[0]; const d = [...document.querySelectorAll('#pa-thread .pa-m.a')].pop().querySelector('.pc-draft'); return { ids: m.drafts || [], btns: d ? [...d.querySelectorAll('button')].map(b => b.textContent.trim()) : [], text: d ? d.textContent : '' } }")
-        c.ok(st['ids'] and st['btns'] == ['Approve', 'Edit'] and 'Ship date for the windows' in st['text'], f"a draft the answer's tool wrote is under the answer, with Approve and Edit: {st}")
+        c.ok(st['ids'] and st['btns'] == ['Approve and Send', 'Edit'] and 'Ship date for the windows' in st['text'], f"a draft the answer's tool wrote is under the answer, with Approve and Edit: {st}")
         await pg.unroute('**/api/ai')
         c.ok(not errs, f'stream: page errors {errs[:3]}')
     finally:
@@ -575,36 +610,38 @@ async def sec_phone(p, c):
             if u == 'u_owner':
                 await pg.evaluate("b => gsIngestServer(b)", {'asst': [run('u_owner', '07:02:00', [draft('00000000000000b1', 'orderFollowups', 'Window Works', 'orders@windowworks.example', 'Confirming the ship date for the windows')])]})
                 await go(pg, 'home'); await go(pg, 'pa')
-            for state in ('open', 'all', 'folded'):
-                await pg.evaluate("s => { paBfOpen = s !== 'folded'; paBfAll = s === 'all' ? { today: 1, did: 1, needs: 1, chasing: 1 } : {}; renderPa(); document.querySelectorAll('.toast.on, #toast.on').forEach(t => t.classList.remove('on')); document.body.scrollTop = 0; scrollTo(0, 0); }", state)
-                await pg.wait_for_timeout(120)
+            LINT = """async () => { document.querySelectorAll('.toast.on, #toast.on').forEach(t => t.classList.remove('on')); }"""
+            async def judge(state, top=True):
+                await pg.evaluate(LINT)
+                top and await pg.evaluate("() => { document.body.scrollTop = 0; scrollTo(0, 0); }")
+                await pg.wait_for_timeout(150)
                 r = await pg.evaluate(L['COLLECT'], args)
                 fl = [f for f in r['flags'] if not f.get('chrome')]
-                c.ok(not fl, f"{vp} {u} briefing {state}: the screen standard holds: {[(f['rule'], f['detail'][:90]) for f in fl[:3]]}")
-                over = await pg.evaluate("() => document.documentElement.scrollWidth - innerWidth")
-                if phone: c.ok(over <= 1, f'{vp} {u} {state}: no sideways scroll ({over}px)')
+                c.ok(not fl, f"{vp} {u} {state}: the screen standard holds: {[(f['rule'], f['detail'][:90]) for f in fl[:3]]}")
+                if phone: c.ok(await pg.evaluate("() => document.documentElement.scrollWidth - innerWidth") <= 1, f'{vp} {u} {state}: no sideways scroll')
+            await pg.evaluate("() => renderPa()")
+            await judge('briefing')
             if phone:
                 d = await pg.evaluate("() => { const d = document.querySelector('#v-pa .pa-dock').getBoundingClientRect(), t = document.getElementById('mtabs'), tr = t && t.getBoundingClientRect(); return { top: d.top, bottom: d.bottom, h: innerHeight, tabTop: tr && tr.height ? tr.top : innerHeight, pos: getComputedStyle(document.querySelector('#v-pa .pa-dock')).position, inp: document.getElementById('pa-ask').getBoundingClientRect().height, fs: getComputedStyle(document.getElementById('pa-in')).fontSize } }")
                 c.ok(d['pos'] == 'sticky' and abs(d['bottom'] - d['tabTop']) <= 1 and d['top'] > d['h'] / 2 and d['inp'] >= 44 and d['fs'] == '16px', f'{u} phone: the box sits on the tab bar, thumb-sized, 16px text: {d}')
-            await pg.evaluate("() => { paBfOpen = true; paBfAll = {}; renderPa(); document.body.scrollTop = 0; }")
-            await pg.wait_for_timeout(100)
             await pg.screenshot(path=os.path.join(SHOTS, f'{u}_{vp}_briefing.png'), full_page=False)
+            if await pg.evaluate("() => !!document.querySelector('#v-pa [data-pabfrest]')"):
+                await pg.evaluate("() => { paBriefRest(); paScroll(); }")
+                await judge('the rest', top=False)
+                await pg.screenshot(path=os.path.join(SHOTS, f'{u}_{vp}_rest.png'), full_page=False)
             # a conversation: a table, a list, a link, the work shown, and the box at the foot
-            await pg.evaluate("""() => { paSay('me', 'how do the jobs stand?'); paSay('a', 'Two of the four jobs are on track; **45 Cranberry** waits on tile.\\n\\n| Job | Status | Next |\\n|---|---|---|\\n| 121 State | On track | Rough inspection Tue |\\n| 45 Cranberry | Waiting on tile | Chase Nemo Tile |\\n\\n- The tile slipped to Thursday.\\n- The windows ship Monday.\\n\\nThe [schedule](https://example.com/schedule) has the rest. Shall I draft the tile chase?', { md: true, did: [{ t: 'Reading the projects', d: 'projects, 4 rows' }, { t: 'Searching your mail', d: '\"Nemo Tile\"' }] }); paBfOpen = false; renderPa(); paScroll(); }""")
-            await pg.wait_for_timeout(150)
-            r = await pg.evaluate(L['COLLECT'], args)
-            fl = [f for f in r['flags'] if not f.get('chrome')]
-            c.ok(not fl, f"{vp} {u} conversation: the screen standard holds: {[(f['rule'], f['detail'][:90]) for f in fl[:3]]}")
-            if phone: c.ok(await pg.evaluate("() => document.documentElement.scrollWidth - innerWidth") <= 1, f'{vp} {u} conversation: no sideways scroll')
+            await pg.evaluate("""() => { paSay('me', 'how do the jobs stand?'); paSay('a', 'Two of the four jobs are on track; **45 Cranberry** waits on tile.\\n\\n| Job | Status | Next |\\n|---|---|---|\\n| 121 State | On track | Rough inspection Tue |\\n| 45 Cranberry | Waiting on tile | Chase Nemo Tile |\\n\\n- The tile slipped to Thursday.\\n- The windows ship Monday.\\n\\nThe [schedule](https://example.com/schedule) has the rest. Shall I draft the tile chase?', { md: true, did: [{ t: 'Reading the projects', d: 'projects, 4 rows' }, { t: 'Searching your mail', d: '\\"Nemo Tile\\"' }] }); renderPa(); pcToBottom(); }""")
+            await judge('conversation', top=False)
             await pg.screenshot(path=os.path.join(SHOTS, f'{u}_{vp}_conversation.png'), full_page=False)
             if phone and u == 'u_owner':
                 await pg.evaluate("() => { paHistOpen = true; renderPa(); }"); await pg.wait_for_timeout(300)
-                r = await pg.evaluate(L['COLLECT'], args)
-                fl = [f for f in r['flags'] if not f.get('chrome')]
-                c.ok(not fl, f"{vp} {u} drawer: the screen standard holds: {[(f['rule'], f['detail'][:90]) for f in fl[:3]]}")
+                await judge('drawer')
                 await pg.screenshot(path=os.path.join(SHOTS, f'{u}_{vp}_drawer.png'), full_page=False)
                 await pg.evaluate("() => { paHistOpen = false; renderPa(); }")
-            await pg.evaluate("() => paNewConvo(true)")
+            # a new chat: the greeting, the box, the suggestions
+            await pg.evaluate("() => { paNewConvo(true); paNewConvo(true); renderPa(); }")
+            await judge('new chat')
+            await pg.screenshot(path=os.path.join(SHOTS, f'{u}_{vp}_new_chat.png'), full_page=False)
         c.ok(not errs, f'{vp}: page errors {errs[:3]}')
         await b.close()
 
