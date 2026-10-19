@@ -21,7 +21,7 @@ Last updated 2026-10-18 (platform set up).
 - **Supabase is on Pro** (daily backups, no pausing), so real data can go in once the import (§6) is built.
 - **Sign In with Google is on** (2026-10-19), invited addresses only; the consent screen reads SmartDesigns Projects.
 - **Mail, calendar and Drive are private to each person** (2026-10-19): own rows only that sign-in can read, the owner included; live checks 37/37 and 25/25. Fixed on the way: device settings (who is on the phone, the open job) were syncing, so one phone's save switched other devices to that person.
-- **Waiting on Alan for mail sync:** enable the Gmail, Calendar and Drive APIs and set the consent screen to Internal; then Connections › Connect My Google Account. Checking while the app is closed (the watcher) is next.
+- **Alan's Google is connected** (2026-10-19, signed in as alan@smartdesign.nyc): first sync 40 mails, 55 calendar entries, 500 Drive files, all in his private rows, none in shared rows, no Google tokens stored. Checking while the app is closed (the watcher) is next.
 - **Alan signed in** (2026-10-19, email link); the firm workspace holds the first upload (84 collections, demo data).
 - **Not built yet:** the mail watcher for when the app is closed, per-client portal rows, the server-side hash-chain head, document reader, mail/calendar/drive watcher, Plaid, push, the agents.
 
