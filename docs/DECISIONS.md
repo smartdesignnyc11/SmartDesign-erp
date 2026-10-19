@@ -19,8 +19,9 @@ The overnight run of 2026-10-19 builds on the defaults above and does not decide
 ## 2026-10-19
 | Ask or decision | Where it lives | Status |
 |---|---|---|
-| Alan, going to sleep: "Focus on all the updates we had waiting - AI's, brain, chat, user interface/user experience, etc. Do not wait for my approvals and go ahead." Five lanes: menu, today, assistant, messages, and platform (main session) | `docs/LANES.md` "Overnight 2026-10-19", BACKLOG §1.11, §1.14, §1.15, §1.21, §1.24, §1.27, §5 | Building |
-| The menu and navigation calls below, made on Alan's behalf overnight | `docs/MENU_DRAFT.md`, BACKLOG §1.15 | Decided overnight under his instruction; reversible; lane menu Building |
+| Alan, going to sleep: "Focus on all the updates we had waiting - AI's, brain, chat, user interface/user experience, etc. Do not wait for my approvals and go ahead." Five lanes: menu, today, assistant, messages, and platform (main session) | `docs/LANES.md` "Overnight 2026-10-19", BACKLOG §1.11, §1.14, §1.15, §1.21, §1.24, §1.27, §5 | All four lanes merged to master; see LANES "How the merge went" |
+| The menu and navigation calls below, made on Alan's behalf overnight | `docs/MENU_DRAFT.md`, BACKLOG §1.15 | Decided overnight under his instruction; reversible; built and merged |
+| Merge calls made overnight (main session): (1) the core checks and each lane's suite after each merge, the full net once at the end, instead of four full nets; (2) The Brain stays in the menu under Company and the Chief of Staff in More; both open the one assistant on their tab, and the page heading reads as the entry; (3) Approvals, Inbox and Tasks stay as full-list pages in the menu as well as filters of Today, with the same counts; (4) the owner's assistant rules for another person travel on the firm's delegation log and apply on that person's device, later choice wins | `docs/LANES.md`, `tests/menu_test.py`, `tests/shared_system_test.py` | Done; each reversible |
 
 ### Calls made on Alan's behalf overnight (reversible)
 Under his instruction of 2026-10-19 not to wait for approvals, every bracketed recommendation in `docs/MENU_DRAFT.md` is adopted. Each can be reversed in the morning; the menu test pins whatever he settles on.
