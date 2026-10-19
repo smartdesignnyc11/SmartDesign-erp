@@ -117,6 +117,8 @@ async def sec_fold(p, c):
     c.ok(r['tabs'] == ['chat', 'findings', 'activity', 'brain'] and r['h2'] == 1, f"four tabs, one heading: {r['tabs']} h2={r['h2']}")
     await go(pg, 'home'); await go(pg, 'pa')
     c.ok(await pg.evaluate("paTab") == 'chat', 'Ask from another screen opens the conversation')
+    t = await pg.evaluate("() => { paOpen('findings'); const a = paTab; setView('pa'); return [a, paTab, !!document.getElementById('pa-in')] }")
+    c.ok(t == ['findings', 'chat', True], f'Ask (the rail, the button) opens the conversation even from Findings: {t}')
     await pg.evaluate("() => openAI('brief')"); await pg.wait_for_timeout(200)
     r = await pg.evaluate("() => ({ view, tab: paTab, brief: !!document.querySelector('.view.on .paf-brief') })")
     c.ok(r['view'] == 'pa' and r['tab'] == 'findings' and r['brief'], f'the morning brief opens Findings, the brief on top: {r}')

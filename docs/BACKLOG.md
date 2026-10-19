@@ -769,6 +769,8 @@ The senior interior designer starts as an independent contractor. They log hours
 3. **An Activity log** of everything the assistant did, with its evidence.
 4. **Better than Meta's Muse and OpenAI's dots.** Those see the business as separate apps joined by connectors. Ours lives inside the records, so every finding carries the evidence chain: bank line, bill, PO, estimate line, job.
 
+**Status (lane assistant, 2026-10-19): items 1–3 built in `src/assistant.js`, suite `tests/assistant_lane_test.py`.** Not yet: nudge cards still also show in the Chat thread (they are Findings too); `clientMessages`, `bookMeetings` and `fileDocuments` are rules with no autonomous action wired behind them yet; per-person memory editing (§1.24 item 5) and voice are not started; the streaming page half needs the server half (`stream: 'client'`) live to be used.
+
 ### 1.28 Role specialists: a standing auditor per role (Alan, 2026-10-17)
 Each role gets an assistant that works through that role's checklist all the time. **Every finding is handled the same six steps:**
 1. State the rule and link the evidence records.

@@ -550,6 +550,15 @@ const PA_REDIRECT = {
     return base.apply(this, arguments);
   };
 }
+// Going to the assistant (the rail, the Ask button, a link) opens the conversation, even from one of its own tabs;
+// paOpen names a tab first when it wants another.
+{
+  const base = setView;
+  setView = function (v) {
+    "pa" === v && !paTabWant && (paTabWant = "chat");
+    return base.apply(this, arguments);
+  };
+}
 // The nav: the Chief of Staff and The Brain are tabs of the assistant now, not entries of their own.
 function paFoldNav() {
   [void 0 !== IA_GROUPS ? IA_GROUPS : null, void 0 !== NAV_GROUPS ? NAV_GROUPS : null].forEach((G) => {
@@ -604,7 +613,7 @@ function paPaneHtml() {
     const seg = S.length > 1 ? `<div class="seg pa-segs" role="tablist" aria-label="Findings">${S.map(([k, l]) => `<button type="button" role="tab" aria-selected="${paFindSeg === k}" class="${paFindSeg === k ? "on" : ""}" data-paseg="${k}">${l}</button>`).join("")}</div>` : "";
     return h + seg + ("brain" === paFindSeg ? '<div id="brain-body"></div>' : "chains" === paFindSeg ? '<div id="cos-body"></div>' : `<div class="pa-find">${paFindingsHtml(F)}</div>`);
   }
-  if ("activity" === paTab) return h + `<div class="pa-actpane">${paRulesCard({ self: !0, title: "What I May Do on My Own" })}${paActivityHtml()}</div>`;
+  if ("activity" === paTab) return h + `<div class="pa-actpane">${paActivityHtml()}${paRulesCard({ self: !0, title: "What I May Do on My Own" })}</div>`;
   if ("brain" === paTab) return h + `<div class="pa-brainpane">${paRulesCard({ title: "Approval Rules, Everyone" })}<div id="brain-body"></div></div>`;
   return h;
 }
@@ -1180,6 +1189,8 @@ paSend = function (text, opts) {
   !q && att && (q = `Read ${att.name} and tell me what it says and what needs doing.`);
   if (!q) return;
   att && !o.att && (paAttNow = null);
+  // a question sent from anywhere (the palette, a finding, a chip) shows where it is answered: the conversation
+  "pa" === view && (paTab = "chat"), (paHistOpen = !1), (paViewConvo = "");
   const extra = att ? { att: paAttMeta(att), attText: String(att.text || "").slice(0, 2e4) } : void 0;
   if (paBusy && !o.next) return paQueue.push(att ? { q: q, att: att } : q), paSay("me", q, extra), save(), renderPa(), paScroll(), void toast("Next in line — I will answer it as soon as the one above is done");
   o.next || paSay("me", q, extra);
@@ -1329,6 +1340,11 @@ paSend = function (text, opts) {
 .pa-actrow.k-handed{border-left:3px solid var(--warn,#b26a00)}
 .pa-actrow.k-refused,.pa-actrow.k-declined{border-left:3px solid var(--bad,#b42318)}
 .pa-ev summary,.pa-did summary{cursor:pointer;color:var(--ink-2);font-size:12px;min-height:24px}
+.pa-ev summary,.pa-did summary,.paf-brief summary{list-style:none;display:flex;align-items:center;gap:6px}
+.pa-ev summary::-webkit-details-marker,.pa-did summary::-webkit-details-marker,.paf-brief summary::-webkit-details-marker{display:none}
+.pa-ev summary::before,.pa-did summary::before,.paf-brief summary::before{content:"";width:12px;height:12px;flex:none;background:currentColor;-webkit-mask:var(--chev) center/12px no-repeat;mask:var(--chev) center/12px no-repeat;transform:rotate(-90deg);transition:transform .15s}
+.pa-ev[open] summary::before,.pa-did[open] summary::before,.paf-brief[open] summary::before{transform:none}
+.pa-actlog{margin-bottom:14px}
 .pa-ev ul{margin:4px 0 0 18px;padding:0;font-size:12px}
 .par-card{margin-bottom:14px}
 .par-list{display:flex;flex-direction:column}
