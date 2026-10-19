@@ -19,10 +19,16 @@ if not os.path.exists(sbjs):
     subprocess.run(['npm', 'ci', '--silent', '--prefix', H], check=True)
 shutil.rmtree(os.path.join(PUB, 'vendor'), ignore_errors=True)
 shutil.copytree(os.path.dirname(sbjs), os.path.join(PUB, 'vendor'))   # supabase.js and the chunk it loads on demand
+# Google sign-in shows on the sign-in screen only once the Google provider is switched on in Supabase.
+google = os.environ.get('SDP_GOOGLE_SIGNIN')
+if google is None:
+    try:
+        with urllib.request.urlopen(f'https://api.supabase.com/v1/projects/{REF}/config/auth') as r: google = '1' if json.load(r).get('external_google_enabled') else ''
+    except Exception: google = ''
 ver = hashlib.md5((html + open(os.path.join(PUB, 'cloud.js')).read()).encode()).hexdigest()[:8]
 open(os.path.join(PUB, 'config.js'), 'w').write(
     '// Public values only. The Anthropic key and the service key live in Netlify, never here.\n'
-    'window.SDP_CONFIG = ' + json.dumps({'appName': 'SmartDesigns Projects', 'supabaseUrl': url, 'supabaseAnonKey': anon, 'aiUrl': '/api/ai', 'build': ver}) + ';\n')
+    'window.SDP_CONFIG = ' + json.dumps({'appName': 'SmartDesigns Projects', 'supabaseUrl': url, 'supabaseAnonKey': anon, 'aiUrl': '/api/ai', 'googleSignIn': bool(google), 'build': ver}) + ';\n')
 tags = f'''<link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <script src="vendor/supabase.js?v={ver}"></script>

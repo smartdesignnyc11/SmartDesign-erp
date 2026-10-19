@@ -72,6 +72,15 @@ window.Cloud = (() => {
   }
   const user = () => (session && session.user) || null;
   async function signIn(email, password) { const {data, error} = await sb.auth.signInWithPassword({email, password}); if (error) throw error; session = data.session; profile = null; return session; }
+  // Google sign-in: Supabase sends the person to Google and back. Sign-up is off, so a Google account with no
+  // invitation comes back with an error in the address, which authError() hands to the sign-in screen.
+  async function signInGoogle() { const {error} = await sb.auth.signInWithOAuth({provider: 'google', options: {redirectTo: location.origin + location.pathname, queryParams: {prompt: 'select_account'}}}); if (error) throw error; }
+  function authError() {
+    const q = new URLSearchParams(location.search + '&' + location.hash.replace(/^#/, ''));
+    const d = q.get('error_description') || q.get('error'); if (!d) return '';
+    try { history.replaceState(null, '', location.pathname); } catch (e) {}
+    return /signups? not allowed|user not found/i.test(d) ? 'This Google account has no invitation. Ask the office to invite the same email address.' : d.replace(/\+/g, ' ');
+  }
   async function magicLink(email) { const {error} = await sb.auth.signInWithOtp({email, options: {emailRedirectTo: location.origin + location.pathname, shouldCreateUser: false}}); if (error) throw error; }
   async function resetPassword(email) { const {error} = await sb.auth.resetPasswordForEmail(email, {redirectTo: location.origin + location.pathname}); if (error) throw error; }
   async function signOut() { try { await sb.auth.signOut(); } catch (e) {} session = null; profile = null; }
@@ -244,7 +253,7 @@ window.Cloud = (() => {
   const none = async () => [];
 
   return {on, init, isOffice, isField, token: () => (session && session.access_token) || '', setDbRef: f => { dbRef = f; }, user, profile: getProfile,
-    signIn, magicLink, resetPassword, signOut, pullAll, pullOne, push, pushPending, hasPending, subscribe, pollOnce, putBlob, getBlob,
+    signIn, signInGoogle, authError, magicLink, resetPassword, signOut, pullAll, pullOne, push, pushPending, hasPending, subscribe, pollOnce, putBlob, getBlob,
     listProfiles, updateProfile, aiSpend, listSignals: none, setSignalStatus: async () => true, listClips: none, claimClips: async () => 0,
     saveClipToken: async () => true, screenPoint: async () => null, state, shards, merge3, cfg};
 })();

@@ -50801,7 +50801,7 @@ function cloudSignInScreen() {
         return "";
       }
     })();
-    box.innerHTML = `<div class="brand" style="padding:0 0 12px"><div class="mark">S</div><div><div class="name">${esc(window.SDP_CONFIG?.appName || "SmartDesigns Projects")}</div><div class="sub">Sign in</div></div></div>\n    <form id="cl-form" autocomplete="on"><div class="f"><label>Email</label><input type="email" id="cl-email" autocomplete="username" inputmode="email" value="${esc(email0)}" required></div><div class="f"><label>Password</label><input type="password" id="cl-pass" autocomplete="current-password"></div>\n    <button class="btn primary" type="submit" style="width:100%;height:46px;font-size:16px">Sign in</button></form>\n    <div class="row" style="gap:10px;margin-top:10px;flex-wrap:wrap"><a href="#" id="cl-magic" class="small">Email me a sign-in link</a><a href="#" id="cl-reset" class="small">Forgot password</a></div>\n    <div class="small" id="cl-status" style="margin-top:10px;min-height:18px"></div>\n    <p class="small muted" style="margin:14px 0 0">No account yet? Ask the office to add you. This device stays signed in.</p>`;
+    box.innerHTML = `<div class="brand" style="padding:0 0 12px"><div class="mark">S</div><div><div class="name">${esc(window.SDP_CONFIG?.appName || "SmartDesigns Projects")}</div><div class="sub">Sign in</div></div></div>\n    ${window.SDP_CONFIG?.googleSignIn ? '<button class="btn" type="button" id="cl-google" style="width:100%;height:46px;font-size:16px;margin-bottom:14px">Sign In with Google</button><div class="small muted" style="text-align:center;margin:-4px 0 10px">or with your email</div>' : ""}\n    <form id="cl-form" autocomplete="on"><div class="f"><label>Email</label><input type="email" id="cl-email" autocomplete="username" inputmode="email" value="${esc(email0)}" required></div><div class="f"><label>Password</label><input type="password" id="cl-pass" autocomplete="current-password"></div>\n    <button class="btn primary" type="submit" style="width:100%;height:46px;font-size:16px">Sign in</button></form>\n    <div class="row" style="gap:10px;margin-top:10px;flex-wrap:wrap"><a href="#" id="cl-magic" class="small">Email me a sign-in link</a><a href="#" id="cl-reset" class="small">Forgot password</a></div>\n    <div class="small" id="cl-status" style="margin-top:10px;min-height:18px"></div>\n    <p class="small muted" style="margin:14px 0 0">No account yet? Ask the office to add you. This device stays signed in.</p>`;
     const form = box.querySelector("#cl-form"),
       email = () => box.querySelector("#cl-email").value.trim().toLowerCase();
     (form.onsubmit = async (e) => {
@@ -50839,6 +50839,19 @@ function cloudSignInScreen() {
           }
         else cloudStatus("Type your email first", !0);
       }),
+      box.querySelector("#cl-google") &&
+        (box.querySelector("#cl-google").onclick = async () => {
+          cloudStatus("Opening Google…");
+          try {
+            await Cloud.signInGoogle();
+          } catch (err) {
+            cloudStatus(err.message || "Could not open Google sign-in", !0);
+          }
+        }),
+      Cloud.authError && (() => {
+        const m = Cloud.authError();
+        m && cloudStatus(m, !0);
+      })(),
       (box.querySelector("#cl-reset").onclick = async (e) => {
         if ((e.preventDefault(), email()))
           try {
