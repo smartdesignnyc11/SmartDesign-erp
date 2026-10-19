@@ -195909,10 +195909,14 @@ function fndFlash(name, sel, quiet) {
   if (!el) return null;
   const row = el.closest("tr, li, .t2-row, .t2-bcard, .fcard, .bf-imp, .h4r, .doc, .cl-row, .fnd-row") || el;
   row.classList.add("tk-flash", "fnd-hit");
+  // what must be in view: the row, unless it is taller than the screen (a whole invoice on a phone), then the line
+  // that names the record; centring the whole document left that line below the screen
+  const at = row !== el && row.getBoundingClientRect().height > 0.8 * innerHeight ? el : row;
+  root.querySelectorAll("[data-fnd-at]").forEach((x) => x.removeAttribute("data-fnd-at")), at.setAttribute("data-fnd-at", "1");
   if (!quiet) {
     try {
-      const r = row.getBoundingClientRect();
-      (r.top < 64 || r.bottom > innerHeight) && row.scrollIntoView({ block: "center" });
+      const r = at.getBoundingClientRect();
+      (r.top < 64 || r.bottom > innerHeight) && at.scrollIntoView({ block: "center" });
     } catch (e) {}
     fndHot.some((h) => h.name === name) || fndHot.push({ name: name, sel: sel || "", view: view, until: Date.now() + 4e3 });
   }
@@ -195933,7 +195937,7 @@ function fndFlashSoon(name, sel) {
   // the list may render late (a slow phone, a page that opens at its top): checked again until it has settled
   const pass = () => {
     const r0 = fndRoot(),
-      el = r0 && r0.querySelector(".fnd-hit.tk-flash");
+      el = r0 && r0.querySelector(".fnd-hit.tk-flash") && (r0.querySelector("[data-fnd-at]") || r0.querySelector(".fnd-hit.tk-flash"));
     if (!el) return void (r0 && fndFlash(name, sel));
     const r = el.getBoundingClientRect();
     (r.top < 56 || r.bottom > innerHeight) && el.scrollIntoView({ block: "center" });
