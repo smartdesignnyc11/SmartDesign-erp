@@ -112,7 +112,9 @@ async def main():
             c.ok(not m['leads'], f'{tag} phone: a page lead sentence shows')
             c.ok('Signed in as' not in m['toast'], f"{tag} phone: sign-in toast \"{m['toast']}\"")
             c.ok(not m['fabFixed'], f'{tag} phone: New floats over the content')
-            c.ok(not m['menu'], f'{tag} phone: a second navigation button (menu) in the header')
+            # Alan, 2026-10-19: "the hamburger menu should be on the top left of the page"; the bottom bar has no More, so the
+            # header's menu button is the one way to the rest of the pages, not a second one
+            c.ok(m['menu'], f'{tag} phone: the menu button at the top left is missing')
             c.ok(m['ask'], f'{tag} phone: no Ask in the header')
             # the slim header carries the title; the page does not spend a line repeating it. Its icon buttons: 44px tall, 8px apart.
             hd = await pg.evaluate("""() => { const vis = el => !!el && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden';
@@ -122,7 +124,7 @@ async def main():
                        short: btns.filter(b => b.h < 44).map(b => b.id), gaps: btns.slice(1).map((b, i) => Math.round(b.l - btns[i].r)) }; }""")
             # the menu (2026-10-19): Home is named Today for every office role
             c.ok(not hd['h2'] and hd['crumb'] == 'Today',f"{tag} phone: in-page heading shown {hd['h2']}, header title {hd['crumb']!r}; want the title in the header only")
-            c.ok(len(hd['btns']) == 4 and not hd['short'], f"{tag} phone: header buttons {hd['btns']}; want four, each 44px tall")
+            c.ok(len(hd['btns']) == 5 and hd['btns'][0].startswith('menu-btn') and not hd['short'], f"{tag} phone: header buttons {hd['btns']}; want the menu first, then four, each 44px tall")
             c.ok(all(g >= 8 for g in hd['gaps']), f"{tag} phone: header button gaps {hd['gaps']}px; want 8px or more")
             await pulse_checks(c, pg, f'{tag} phone')
             # Today is one queue (lane "today"): All is Approvals + Inbox + Tasks, each item in one of them
