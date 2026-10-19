@@ -534,6 +534,8 @@ async def live():
             await pg.wait_for_function("document.body.dataset.booted==='1'", timeout=120000)
             await pg.evaluate(EVAL_JS); await pg.evaluate(RFQ_FIXTURE)
             mine = [C for C in CASES if not C.get('adversarial') and not C.get('after') and (uid == 'u_owner' and C['as_'] not in ('u_angel', 'u_klein') or C['as_'] == uid)]
+            # --n N: a sample per account (each question is a real model call charged to the QA account's cap)
+            if '--n' in sys.argv: mine = mine[:int(sys.argv[sys.argv.index('--n') + 1])]
             for C in mine:
                 if C.get('pre'): await pg.evaluate(C['pre'])
                 r = await pg.evaluate("""async (q) => { const t0 = Date.now(); let r = null, err = ''; try { r = await mindAsk(q, () => {}); } catch (e) { err = String(e.message || e); }
@@ -541,7 +543,7 @@ async def live():
                 facts = await pg.evaluate(C.get('facts') or '[]')
                 need = C.get('touch', [])
                 got = [x for x in need if any(x == u.split(':')[-1] or x == u.split(':')[0] for u in r['used'])]
-                rep.append({'id': C['id'], 'as': acct, 'err': r['err'], 'ms': r['ms'], 'touched': f"{len(got)}/{len(need)}", 'facts': f"{sum(f in r['text'] for f in facts)}/{len(facts)}",
+                rep.append({'id': C['id'], 'as': acct, 'err': r['err'], 'ms': r['ms'], 'touched': f"{len(got)}/{len(need)}", 'facts': f"{sum(bool(f) and str(f) in r['text'] for f in facts)}/{len([f for f in facts if f])}",
                             'unconfirmed': (r['audit'] or {}).get('untraced'), 'checked': bool(r['checked']), 'steps': len(r['used']), 'text': r['text'][:400]})
                 print(json.dumps(rep[-1])[:700])
             await ctx.close()

@@ -1816,12 +1816,16 @@ async function mindAsk(q, onStep) {
   try {
     corr = mindCorrectionOf(q);
   } catch (e) {}
-  const messages = (A.thread || [])
-    .filter((m) => !m.nudge && !m.readAs)
-    .slice(-10)
-    .map((m) => ({ role: "me" === m.who ? "user" : "assistant", content: String(m.text || "") + (m.note ? `\n${m.note}` : "") }))
-    .filter((m) => m.content.trim())
-    .concat([{ role: "user", content: String(q) }]);
+  // The conversation so far, as question-and-answer pairs: a question is sent only with the answer it got (a reader's
+  // answer included), never on its own. A question left without its answer (a slow one, a broken one, the question
+  // being asked now) was glued onto the new question, and the model answered both, re-answering an old one first.
+  const turns = (A.thread || [])
+      .filter((m) => !m.nudge && "slow" !== m.kind)
+      .map((m) => ({ role: "me" === m.who ? "user" : "assistant", content: String(m.text || "") + (m.note ? `\n${m.note}` : "") }))
+      .filter((m) => m.content.trim()),
+    pairs = [];
+  for (let i = 0; i < turns.length - 1; i++) "user" === turns[i].role && "assistant" === turns[i + 1].role && pairs.push(turns[i], turns[i + 1]);
+  const messages = pairs.slice(-10).concat([{ role: "user", content: String(q) }]);
   // the API wants the conversation to open with the person and alternate; fold any run of the same speaker
   for (let i = messages.length - 1; i > 0; i--) messages[i].role === messages[i - 1].role && ((messages[i - 1].content += "\n\n" + messages[i].content), messages.splice(i, 1));
   for (; messages.length && "assistant" === messages[0].role; ) messages.shift();
