@@ -49,12 +49,18 @@ export function cleanBody(body, model, tier) {
   return out;
 }
 
+// A person's monthly cap: by role when AI_CAP_ROLE_USD names it (JSON, e.g. {"owner":40,"pm":25}), else
+// AI_CAP_USER_USD. The executive assistant runs for each person on a schedule, so the owner's and the PMs' need more.
+export function capFor(role) {
+  try { const m = JSON.parse(process.env.AI_CAP_ROLE_USD || '{}'); if (m && Number.isFinite(+m[role]) && +m[role] > 0) return +m[role]; } catch {}
+  return Number(process.env.AI_CAP_USER_USD || 8);
+}
 // One call to Claude for a signed-in member: caps checked before, the model by tier, cost logged after.
 // The AI door below and the document reader (doctext.mjs) both go through it, so neither can skip the caps.
 async function prepare(user, profile, body) {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) return {status: 500, text: JSON.stringify({error: 'ANTHROPIC_API_KEY is not set on the server'})};
-  const capFirm = Number(process.env.AI_CAP_FIRM_USD || 40), capUser = Number(process.env.AI_CAP_USER_USD || 8);
+  const capFirm = Number(process.env.AI_CAP_FIRM_USD || 40), capUser = capFor(profile.role);
   let spend;
   try { spend = await rest('rpc/ai_spend', {method: 'POST', body: JSON.stringify({p_ws: profile.workspace_id, p_user: user.id})}); }
   catch (e) { return {status: 503, text: JSON.stringify({error: 'could not check this month\'s AI spend, so the call was not made'})}; }

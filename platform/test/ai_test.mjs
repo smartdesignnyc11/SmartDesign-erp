@@ -62,4 +62,10 @@ ok(r.headers.get('content-type') === 'text/event-stream' && /event: message_star
 const done = JSON.parse(sse.split('event: sd_done')[1].split('data: ')[1]);
 ok(done.cut === false && done.usage.output_tokens === 200 && calls.logged.some(l => l.output_tokens === 200 && l.cost_usd > 0), 'and it ends with sd_done, the usage logged');
 ok(!('stream' in calls.anthropic[0].b) || calls.anthropic[0].b.stream === true, 'the page\'s stream flag is not passed on as is');
+process.env.AI_CAP_ROLE_USD = '{"owner":40,"pm":25}';
+reset({role: 'owner', user: 30}); r = await ai.default(req(body)); ok(r.status === 200, 'the owner under the owner\'s role cap ($30 of $40) is answered');
+reset({role: 'pm', user: 26}); r = await ai.default(req(body)); ok(r.status === 429 && !calls.anthropic.length, 'a PM over the PM cap ($26 of $25) is refused');
+reset({role: 'coord', user: 8.5}); r = await ai.default(req(body)); ok(r.status === 429, 'a role the map does not name keeps AI_CAP_USER_USD ($8)');
+process.env.AI_CAP_ROLE_USD = 'not json'; reset({role: 'owner', user: 8.5}); r = await ai.default(req(body)); ok(r.status === 429, 'a broken role map falls back to the person cap');
+delete process.env.AI_CAP_ROLE_USD;
 console.log('ALL PASS', `(${n} checks)`);
