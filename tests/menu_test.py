@@ -82,13 +82,14 @@ HOME = {'u_owner': 'home', 'u_alan': 'home', 'u_chen': 'home', 'u_billing': 'bil
 # Phone: the office roles' bottom bar (then More), the field roles' tab bar.
 PHONE_BAR = {
     # four shortcuts at most, Chat one of them (Alan, 2026-10-19: "The chat should be in the bottom main menu. And you
-    # need to have a max of 4 shortcuts there"); office roles add More, field roles open the rest from the menu button
-    'u_owner': ['Today', 'Chat', 'Projects', 'Accounting', 'More'],
-    'u_alan': ['Today', 'Chat', 'Projects', 'Field', 'More'],
-    'u_chen': ['Today', 'Chat', 'Requests', 'Buy Board', 'More'],
-    'u_billing': ['Billing', 'Today', 'Chat', 'Clients', 'More'],
-    'u_controller': ['Banking', 'Today', 'Chat', 'Bills & Payroll', 'More'],
-    'u_sarah': ['Today', 'Chat', 'Drawings', 'Projects', 'More'],
+    # need to have a max of 4 shortcuts there"); everyone opens the rest from the hamburger at the top left ("the
+    # hamburger menu should be on the top left of the page"), so the office bar has no More
+    'u_owner': ['Today', 'Chat', 'Projects', 'Accounting'],
+    'u_alan': ['Today', 'Chat', 'Projects', 'Field'],
+    'u_chen': ['Today', 'Chat', 'Requests', 'Buy Board'],
+    'u_billing': ['Billing', 'Today', 'Chat', 'Clients'],
+    'u_controller': ['Banking', 'Today', 'Chat', 'Bills & Payroll'],
+    'u_sarah': ['Today', 'Chat', 'Drawings', 'Projects'],
     'u_angel': ['Today', 'Site', 'Daily Log', 'Chat'],
     'u_alberto': ['Clock', 'Requests', 'Schedule', 'Chat'],
     'u_alex': ['Route', 'Chat', 'Clock', 'Receipts'],
@@ -222,10 +223,13 @@ async def phone(c, p, users):
             st = await check_screen(c, pg, f'{u} phone bar "{lab}"', errs, phone=True)
             c.ok(st['bar'] == lab, f'{u} phone bar "{lab}": lit entry is "{st["bar"]}"')
         # the rest is one tap away: More (office) or the menu button (field) opens the whole menu
-        await press(pg, '#mtabs [data-mv="__more"]' if u not in FIELD else '#menu-btn')
+        # the hamburger, top left, for every role
+        hb = await pg.evaluate("() => { const b = document.getElementById('menu-btn'); if (!b || !b.offsetParent) return null; const r = b.getBoundingClientRect(); return {x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height)}; }")
+        c.ok(hb and hb['x'] < 60 and hb['y'] < 60 and hb['w'] >= 40 and hb['h'] >= 40, f'{u} phone: the menu button is at the top left, a full tap target {hb}')
+        await press(pg, '#menu-btn')
         await pg.wait_for_timeout(250)
         opened = await pg.evaluate("() => { const r = document.querySelector('.rail'); return !!(r && r.classList.contains('open')) }")
-        c.ok(opened, f'{u} phone: {"More" if u not in FIELD else "the menu button"} opens the menu')
+        c.ok(opened, f'{u} phone: the menu button opens the menu')
         rail = await pg.evaluate(RAIL_JS)
         c.ok([x['label'] for x in rail] == RAIL[u], f'{u} phone: the menu reads {[x["label"] for x in rail]}')
         # every rail entry opens a page that does not scroll sideways

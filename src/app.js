@@ -87326,8 +87326,10 @@ function mRenderTabs() {
           `<button data-mv="${v}" class="${((v) => v === cur || ("hbworkspace" === v && /^hb/.test(cur)) || ("dash" === v && ["sched", "tasks"].includes(cur)))(v) ? "on" : ""}">${M_ICON[i]}<span>${l}</span>${"mapprove" === v && nAppr ? `<i class="n">${nAppr}</i>` : ""}</button>`,
       )
       .join("") +
-    // More stays whenever the role has pages beyond the bar (the client's portal has none); six cells fit 390px
-    (tabs.length >= 6 || "client" === mRole() ? "" : `<button data-mv="__more">${M_ICON.more}<span>More</span></button>`)),
+    // More stays whenever the role has pages beyond the bar (the client's portal has none); six cells fit 390px. Where
+    // the declared menu runs (the firm's workspace) the menu opens from the hamburger at the top left instead (Alan,
+    // 2026-10-19), and the bar is the role's four shortcuts.
+    (tabs.length >= 6 || "client" === mRole() || ("function" == typeof mnOn && mnOn(mRole())) ? "" : `<button data-mv="__more">${M_ICON.more}<span>More</span></button>`)),
     tb.style.setProperty("--mtabs-n", String(tb.querySelectorAll("button").length || 5)),
     tb.querySelectorAll("button").forEach(
       (b) =>
