@@ -191,6 +191,14 @@ async def desktop(c, p, users):
         await press(pg, '#tb-ask')
         st = await pg.evaluate(STATE)
         c.ok(st['view'] == 'pa' and st['askOn'], f'{u}: the Ask button opens Ask ({st["view"]}, lit {st["askOn"]})')
+        # Chat: beside Ask for every office role (Alan, 2026-10-19: "Where's the chat?"); it opens the threads and lights itself
+        if u not in FIELD:
+            ch = await pg.evaluate("() => { const b = document.getElementById('tb-chat'); return !!b && !b.hidden && !!b.offsetParent; }")
+            c.ok(ch, f'{u}: a Chat button in the header')
+            if ch:
+                await press(pg, '#tb-chat')
+                st = await pg.evaluate("() => ({ view, on: document.getElementById('tb-chat').classList.contains('on'), list: !!document.querySelector('#v-chat .msg-side, #v-chat .msg-rows') })")
+                c.ok(st['view'] == 'chat' and st['on'] and st['list'], f'{u}: the Chat button opens the threads and lights itself {st}')
         del errs[:]
     await b.close()
 
@@ -226,6 +234,12 @@ async def phone(c, p, users):
         st = await pg.evaluate(STATE)
         c.ok(st['view'] == 'pa', f'{u} phone: the Ask button opens Ask ({st["view"]})')
         c.ok(st['sw'] <= st['w'], f'{u} phone Ask: scrolls sideways ({st["sw"]}px)')
+        if u not in FIELD:
+            await press(pg, '#tb-chat')
+            st = await pg.evaluate(STATE)
+            box = await pg.evaluate("() => { const a = document.getElementById('tb-chat'), k = document.getElementById('tb-ask'); if (!a || !k) return null; const r = a.getBoundingClientRect(), q = k.getBoundingClientRect(); return {w: Math.round(r.width), h: Math.round(r.height), gap: Math.round(Math.max(q.left - r.right, r.left - q.right))}; }")
+            c.ok(st['view'] == 'chat' and st['sw'] <= st['w'], f'{u} phone: the Chat button opens the threads, no sideways scroll ({st["view"]}, {st["sw"]}px)')
+            c.ok(box and box['w'] >= 40 and box['h'] >= 40 and box['gap'] >= 8, f'{u} phone: Chat is a full tap target, 8px clear of Ask {box}')
         del errs[:]
     await b.close()
 

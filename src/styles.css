@@ -3540,3 +3540,14 @@ table.pl-index tr.pl-void td .pill,table.pl-index tr.pl-void td .btn{text-decora
 /* the foreman's Say It bar sits over the compose box on Chat: the thread has its own box there */
 body.msg-on #fsay{display:none}
 @media (max-width:760px){ body.crewmode #v-chat .chat-compose #chat-send{flex:0 0 auto;min-width:72px} }
+/* ---- Chat in the header, beside Ask (2026-10-19): the same shape as Ask; the unread count rides on it */
+#tb-chat{display:inline-flex;align-items:center;gap:7px;position:relative}
+#tb-chat svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+#tb-chat[hidden]{display:none}
+#tb-chat .msg-n:empty{display:none}
+#tb-chat .msg-n{min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--accent);color:#fff;font-size:11px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums}
+@media (max-width:760px){
+  #tb-chat span:not(.msg-n){display:none}
+  #tb-chat{width:44px;height:44px;min-height:44px;padding:0;justify-content:center;flex:none;margin-left:8px}
+  #tb-chat .msg-n{position:absolute;top:2px;right:0}
+}

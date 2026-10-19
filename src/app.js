@@ -199338,3 +199338,52 @@ try {
     FND_HOME["p.chat"].sel = (r) => (r && r.id ? `#chat-list [data-mid="${r.id}"]` : "");
   }
 } catch (e) {}
+// ---- Chat in the header, beside Ask (Alan, 2026-10-19: "Where's the chat? I don't see it anywhere."). The menu put
+// Chat only inside a job (Projects › Chat), so an office person had no way in to a direct message, which belongs to
+// no job. Like Ask: one button on every screen, desktop and phone, with the unread count (msgUnreadTotal, the one
+// count). The field roles keep Chat in their own bar; the client keeps "Message SmartDesign".
+function mnChat() {
+  const r = role(),
+    bar = document.querySelector("header.topbar");
+  if (!bar || !MENU[r] || "client" === r) return;
+  const show = (ROLE_VIEWS[r] || []).includes("chat") && !MSG_FIELD_ROLES.includes(r) && !document.body.classList.contains("ws-mb");
+  let a = document.getElementById("tb-chat");
+  if (!a && show) {
+    (a = document.createElement("button")),
+      (a.id = "tb-chat"),
+      (a.type = "button"),
+      (a.className = "btn tb-chat no-print"),
+      (a.title = "Chat"),
+      a.setAttribute("aria-label", "Chat"),
+      (a.innerHTML = '<svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.2L4 21l1.8-5.4A8 8 0 1 1 21 12z"/></svg><span>Chat</span><span class="n msg-n"></span>'),
+      (a.onclick = () => setView("chat"));
+    const ask = document.getElementById("tb-ask"),
+      s = document.getElementById("btn-search");
+    ask ? ask.before(a) : s ? s.after(a) : bar.appendChild(a);
+  }
+  if (!a) return;
+  (a.hidden = !show), a.classList.toggle("on", "chat" === view), a.toggleAttribute("aria-current", "chat" === view);
+  let n = 0;
+  try {
+    n = show ? msgUnreadTotal(msgMe()).n : 0;
+  } catch (e) {}
+  const c = a.querySelector(".msg-n");
+  c && (c.textContent = n ? String(n) : ""), a.setAttribute("aria-label", n ? `Chat, ${n} unread` : "Chat");
+}
+const MSG_FIELD_ROLES = ["foreman", "crew", "driver"];
+// every office role has Chat (direct messages need no job): the controller had none; Chat is reached from the header
+// like Ask, so the menu does not list it again
+["owner", "pm", "coord", "designer", "design_mgr", "billing", "controller"].forEach((r) => ROLE_VIEWS[r] && !ROLE_VIEWS[r].includes("chat") && ROLE_VIEWS[r].push("chat"));
+"undefined" != typeof MN_BUTTON && MN_BUTTON.add("chat");
+{
+  const base = render;
+  render = function () {
+    const r = base.apply(this, arguments);
+    try {
+      mnChat();
+    } catch (e) {
+      console.warn("chat button", e);
+    }
+    return r;
+  };
+}
