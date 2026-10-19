@@ -108684,6 +108684,8 @@ const SD_DEMO_SEEDS = [
   "studioSeed",
   "studio2Seed",
   "tmSeed",
+  // the demo's two message threads (lane "messages"): invented lines between real people's ids
+  "msgSeed",
 ];
 if (
   (SD_DEMO_SEEDS.forEach((n) => {
