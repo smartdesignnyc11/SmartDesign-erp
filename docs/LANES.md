@@ -6,6 +6,8 @@ The chief of staff keeps this board current. A lane is one build agent in its ow
 | Lane | Scope | Design gate | Status |
 |---|---|---|---|
 | executive assistant | Ask opens on its briefing (Today, I Did, Needs You, I'm Chasing); files the server's runs (box.asst) as briefings and drafts for approval; commitments become chased tasks; memory of how each person works; voice on the phone; assistant-PM mode | The pa view, DB.asst[uid], DB.outbox drafts and Approvals, the task accessor tkItems/tkAll, paWatch nudges; no new store | Building |
+| speed | Phone start-up from about 15 s to under 5 s (first screen under 3 s) on a mid-range phone; view switches under 300 ms; same figures to the cent; tests/speed_test.py | Boot and compute paths; no new store; stays out of assistant, Today, menu and messages sections | Building (started 2026-10-19 at Alan's "are you being efficient by only running 1 task?") |
+| messages 2 | Field roles receive only their assigned jobs (server rule + assignment on the job's team); read markers private to each person; notifications for direct messages and mentions (/api/notify); reactions and voice notes if time allows | p.chat, DB.threads, cloud.js PRIV, schema.sql; no parallel store | Building (same) |
 | platform (main session) | Each office person's run on the server three times a weekday (lib/assistant.mjs), /api/assistant run-now, caps by role | Server only; runs land in the person's private inbox | Built and unit-tested (assistant_test 21/21, ai_test 30/30); deploys with the lane |
 
 ## Overnight 2026-10-19 (Alan asleep, no approvals)
