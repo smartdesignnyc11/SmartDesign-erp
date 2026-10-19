@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """Build dist/smartdesigns_projects.html: one self-contained file, as the app has always shipped.
 src/head.html (meta, title, fonts) + src/styles.css + src/body.html (shell markup) + docs/STANDARD.md (as data)
-+ src/app.js."""
++ src/app.js + src/assistant.js."""
 import os, subprocess, sys
 H = os.path.dirname(os.path.abspath(__file__))
 r = lambda p: open(os.path.join(H, p), encoding='utf-8').read()
-js = r('src/app.js')
-if subprocess.run(['node', '--check', os.path.join(H, 'src/app.js')]).returncode:
-    sys.exit('src/app.js has a syntax error; not building')
+# src/assistant.js (the one assistant per person, BACKLOG §1.27/§1.24) rides after app.js in the same script, so its
+# wrappers are the outermost ones and every name app.js declares is in scope.
+js = r('src/app.js') + '\n' + r('src/assistant.js')
+for f in ('src/app.js', 'src/assistant.js'):
+    if subprocess.run(['node', '--check', os.path.join(H, f)]).returncode:
+        sys.exit(f + ' has a syntax error; not building')
 # The SmartDesign Standard (docs/STANDARD.md, Alan's own document) rides in the page word for word: the app seeds
 # its live, versioned copy from it (standardParse in src/app.js), so the text is loaded, never paraphrased in code.
 std = r('docs/STANDARD.md').replace('</script', '<\\/script')

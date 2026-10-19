@@ -221,7 +221,9 @@ async def main():
             view = 'rfq'; window.rfqTab = 'requests'; render(); await new Promise(r => setTimeout(r, 300)); const rfq = !!document.querySelector('#rfq-deleg');
             view = 'conn'; render(); await new Promise(r => setTimeout(r, 300)); const n = document.querySelectorAll('#trk-deleg').length;
             return [std, rfq, n, STD_SEND_TYPES.map(t => t.id).sort().join(','), DB.asst.u_chen.delegated.includes('orderFollowups')]; }""")
-        c.ok(one == [False, False, 1, 'orderFollowups,rfqChases', True], f'one card, in Settings › Connections, on the one list of types: {one}')
+        # the one list grew (lane assistant, 2026-10-19): every action type the assistant takes is on STD_SEND_TYPES,
+        # each Act Alone / Ask First / Hand It to Me; the two message types this lane wired are still on it
+        c.ok(one[:3] == [False, False, 1] and {'orderFollowups', 'rfqChases'} <= set(one[3].split(',')) and one[4], f'one card, in Settings › Connections, on the one list of types: {one}')
 
         # ---- the Standard Watch rules this lane's records now measure ---------------------------------------
         wr = await pg.evaluate("""() => { const R = (id) => STANDARD_RULES.find(x => x.id === id), n = (id) => R(id).rows().map(r => r.key);

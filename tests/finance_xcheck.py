@@ -156,7 +156,8 @@ async def nav(pg, grp, sub=None, tabs=()):
 
 async def ask(pg, q):
     """Type the question into Ask and return the answer's rendered text (headline first)."""
-    if await pg.evaluate('view') != 'pa': await nav(pg, 'ask', 'pa')
+    # Ask's box lives on the assistant's Chat tab (lane assistant): open Ask when it is not on screen
+    if await pg.evaluate('view') != 'pa' or not await pg.evaluate("() => !!document.getElementById('pa-in')"): await nav(pg, 'ask', 'pa')
     n = await pg.evaluate("() => document.querySelectorAll('#v-pa .pa-m.me').length")
     await pg.fill('#pa-in', q)
     await pg.press('#pa-in', 'Enter')
@@ -454,7 +455,8 @@ async def check_role(pg, R, uid):
 
     # Chief of Staff
     if gate('cos', 'Chief of Staff'):
-        await nav(pg, 'ask', 'cos'); t = await text_of(pg, 'cos')
+        # the Chief of Staff is the assistant's Findings › Every Chain now (lane assistant): 'cos' redirects to 'pa'
+        await nav(pg, 'ask', 'cos'); t = await text_of(pg, 'pa')
         s = 'Chief of Staff'
         R.count('unmatched_n', S(s), t, r'(\d+) bank items? not yet matched')
         R.money('unmatched_amt', S(s), t, r'bank items? not yet matched — ' + MONEY)
