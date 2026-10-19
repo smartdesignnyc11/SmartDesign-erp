@@ -6,6 +6,8 @@ import crypto from 'node:crypto';
 export const assistantKey = () => crypto.createHmac('sha256', process.env.WATCH_KEY || '').update('assistant-run').digest('hex');
 export default async (req) => {
   if (req.headers.get('x-assistant-key') !== assistantKey()) return new Response('no', {status: 403});
+  // Off until the app files the runs (lane executive assistant): set ASSISTANT_RUNS=on in Netlify to start them.
+  if (process.env.ASSISTANT_RUNS !== 'on') { console.log('assistant runs are off (ASSISTANT_RUNS)'); return; }
   let b = {}; try { b = await req.json(); } catch {}
   const r = await runAssistants(b.ws || 'smartdesign', {today: b.today, only: b.only, push: !!b.push});
   console.log('assistant', JSON.stringify(r));

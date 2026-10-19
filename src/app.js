@@ -87327,8 +87327,10 @@ function mRenderTabs() {
           `<button data-mv="${v}" class="${((v) => v === cur || ("hbworkspace" === v && /^hb/.test(cur)) || ("dash" === v && ["sched", "tasks"].includes(cur)))(v) ? "on" : ""}">${M_ICON[i]}<span>${l}</span>${"mapprove" === v && nAppr ? `<i class="n">${nAppr}</i>` : ""}</button>`,
       )
       .join("") +
-    // More stays whenever the role has pages beyond the bar (the client's portal has none); six cells fit 390px
-    (tabs.length >= 6 || "client" === mRole() ? "" : `<button data-mv="__more">${M_ICON.more}<span>More</span></button>`)),
+    // More stays whenever the role has pages beyond the bar (the client's portal has none); six cells fit 390px. Where
+    // the declared menu runs (the firm's workspace) the menu opens from the hamburger at the top left instead (Alan,
+    // 2026-10-19), and the bar is the role's four shortcuts.
+    (tabs.length >= 6 || "client" === mRole() || ("function" == typeof mnOn && mnOn(mRole())) ? "" : `<button data-mv="__more">${M_ICON.more}<span>More</span></button>`)),
     tb.style.setProperty("--mtabs-n", String(tb.querySelectorAll("button").length || 5)),
     tb.querySelectorAll("button").forEach(
       (b) =>
@@ -197639,10 +197641,9 @@ const MN_JOBS = (o) =>
       ],
       phone: [
         ["home", "Today", "today"],
-        ["mapprove", "Approvals", "approve"],
+        ["chat", "Chat", "chat"],
         ["ovjobs", "Projects", "field"],
         ["ovmoney", "Accounting", "money"],
-        ["ovsales", "Sales", "sales"],
       ],
     },
     pm: {
@@ -197658,9 +197659,8 @@ const MN_JOBS = (o) =>
       ],
       phone: [
         ["home", "Today", "today"],
-        ["mapprove", "Approvals", "approve"],
+        ["chat", "Chat", "chat"],
         ["ovjobs", "Projects", "field"],
-        ["tkall", "Tasks", "task"],
         ["field", "Field", "req"],
       ],
     },
@@ -197682,10 +197682,9 @@ const MN_JOBS = (o) =>
       ],
       phone: [
         ["home", "Today", "today"],
-        ["mapprove", "Approvals", "approve"],
+        ["chat", "Chat", "chat"],
         ["req", "Requests", "req"],
         ["proc", "Buy Board", "buy"],
-        ["po", "Purchase Orders", "note"],
       ],
     },
     billing: {
@@ -197702,9 +197701,8 @@ const MN_JOBS = (o) =>
       phone: [
         ["billing", "Billing", "billing"],
         ["home", "Today", "today"],
-        ["mapprove", "Approvals", "approve"],
+        ["chat", "Chat", "chat"],
         ["clients", "Clients", "people"],
-        ["bank", "Banking", "money"],
       ],
     },
     controller: {
@@ -197737,10 +197735,9 @@ const MN_JOBS = (o) =>
       ],
       phone: [
         ["bank", "Banking", "money"],
-        ["ap", "Bills & Payroll", "billing"],
         ["home", "Today", "today"],
-        ["mapprove", "Approvals", "approve"],
-        ["gl", "Ledger", "note"],
+        ["chat", "Chat", "chat"],
+        ["ap", "Bills & Payroll", "billing"],
       ],
     },
     designer: {
@@ -197765,10 +197762,9 @@ const MN_JOBS = (o) =>
       ],
       phone: [
         ["sday", "Today", "today"],
+        ["chat", "Chat", "chat"],
         ["plans", "Drawings", "draw"],
         ["ovjobs", "Projects", "field"],
-        ["ovstudio", "Design", "studio"],
-        ["clients", "Clients", "people"],
       ],
     },
     // the experts' phone bars (disagreement 4), the foreman's ordered by use
@@ -197779,16 +197775,16 @@ const MN_JOBS = (o) =>
         ["ftoday", "Today", "home"],
         ["fsite", "Site", "box"],
         ["flog", "Daily Log", "list"],
-        ["req", "Requests", "box"],
-        ["fcrew", "Crew", "people"],
+        ["chat", "Chat", "chat"],
       ],
       rest: [
+        ["req", "Requests", "box"],
+        ["fcrew", "Crew", "people"],
         // the job's drawings, a view under Site for the foreman (disagreement 6)
         ["plans", "Drawings", "list"],
         ["sched", "Schedule", "calendar"],
         ["photos", "Photos", "camera"],
         ["files", "Documents", "list"],
-        ["chat", "Chat", "chat"],
         // the page the bar called "Ask": the foreman read it as his assistant. Ask is now the header button that
         // opens his assistant; this page keeps its job (send something to the office) under its own name.
         ["fraise", "Raise", "flag"],
@@ -197801,10 +197797,10 @@ const MN_JOBS = (o) =>
         ["time", "Clock", "clock"],
         ["req", "Requests", "box"],
         ["sched", "Schedule", "calendar"],
-        ["files", "Photos", "camera"],
         ["chat", "Chat", "chat"],
       ],
       rest: [
+        ["files", "Photos", "camera"],
         ["tasks", "Tasks", "list"],
         ["recv", "Deliveries", "truck"],
         ["plans", "Drawings", "list"],
@@ -197829,11 +197825,11 @@ MENU.design_mgr = Object.assign({}, MENU.designer, {
   groups: MENU.designer.groups.map((g) =>
     "home" === g.id ? MN_G("home", "Today", "today", [["sday", "Today"], ["mapprove", "Approvals"], ["comms", "Inbox"], ["tkall", "Tasks"]]) : g,
   ),
+  // four shortcuts at most, Chat one of them (Alan, 2026-10-19); Approvals is a filter of Today
   phone: [
     ["sday", "Today", "today"],
-    ["mapprove", "Approvals", "approve"],
+    ["chat", "Chat", "chat"],
     ["plans", "Drawings", "draw"],
-    ["ovstudio", "Design", "studio"],
     ["ovjobs", "Projects", "field"],
   ],
 });
@@ -198148,6 +198144,8 @@ function mnPhoneBars() {
 "object" == typeof M_ICON &&
   Object.assign(M_ICON, {
     people: '<svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17" cy="9" r="2.5"/><path d="M15 20a5 5 0 0 1 6.5-4.5"/></svg>',
+    // Chat in the office bar (2026-10-19): two square bubbles, the same mark as the desktop header's Chat
+    chat: '<svg viewBox="0 0 24 24"><path d="M14 9a2 2 0 0 1-2 2H6l-3 3V5a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2z"/><path d="M18 9h1a2 2 0 0 1 2 2v9l-3-3h-6a2 2 0 0 1-2-2v-1"/></svg>',
   });
 if ("function" == typeof mRenderTabs) {
   const base = mRenderTabs;
