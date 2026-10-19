@@ -198448,8 +198448,10 @@ function msgJobT(p, kind) {
 function msgDmT(t, u) {
   const me = (u || msgMe()).id,
     M = t.members || [],
-    others = M.filter((x) => x !== me).map((id) => (msgUser(id) || {}).name || "Someone"),
-    group = "group" === t.kind || M.length > 2;
+    others = M.filter((x) => x !== me)
+      .map((id) => (msgUser(id) || {}).name || "Someone")
+      .concat((t.guests || []).map((g) => g.name)),
+    group = "group" === t.kind || M.length + (t.guests || []).length > 2;
   return {
     key: "dm:" + t.id,
     kind: group ? "group" : "direct",
@@ -198867,7 +198869,8 @@ function msgLineHtml(m, T, u, g) {
     rx = msgReactsHtml(m, T, u),
     media = !text && !m.voice && (m.cards || []).length && (m.cards || []).every((c) => "photo" === c.kind),
     tick = mine && g.tick ? msgTickHtml() : "",
-    below = rx || taskChip ? `<div class="msg-below">${rx}${taskChip}</div>` : "";
+    mail = mine && m.mail ? msgMailHtml(m, T) : "",
+    below = rx || taskChip || mail ? `<div class="msg-below">${rx}${taskChip}${mail}</div>` : "";
   return `<div class="cm ${mine ? "me" : "them"}${sys ? " sys" : ""}${g.first ? " msg-g1" : ""}${g.last ? " msg-gl" : ""}" data-mid="${esc(m.id || "")}">${av}<div class="msg-col"><div class="msg-bub${media ? " msg-media" : ""}">${who}${reply}${text ? `<div class="msg-tx">${msgBodyHtml(text)}</div>` : ""}${m.voice ? msgVoiceHtml(m) : ""}${pills ? `<div class="msg-files">${pills}</div>` : ""}${cards}${st ? `<div class="st">${st}</div>` : ""}<span class="msg-time" title="${esc(m.t || when)}">${esc(when)}${tick}</span></div>${below}${msgReactOpen === m.id && !sys ? msgReactPickHtml(m, T, u) : ""}${tools}</div></div>`;
 }
 // the ticks on my last line: one when it is saved on this device, two once the firm's server holds it. Read receipts
@@ -199222,7 +199225,7 @@ function msgLine(text, o) {
 }
 function msgPostDm(T, text, o) {
   const m = msgLine(text, Object.assign({ mentions: msgMentionsOf(text, T) }, o || {}));
-  return T.all().push(m), msgSeenSet(T, msgMe()), save(), msgNotify(T.key, m.id), m;
+  return T.all().push(m), msgSeenSet(T, msgMe()), save(), msgNotify(T.key, m.id), msgGuests(T).length && msgMailOut(T, m), m;
 }
 // ---- notifications (phase 2): on the hosted copy, once a new line is on the server, the server is asked to tell the
 // people it is for (/api/notify: the other members of a direct or group thread; on a job's thread, the people the line
@@ -199287,25 +199290,111 @@ function msgDirectWith(otherId, create) {
   const nt = { id: uid("th"), kind: "direct", title: "", members: [me, otherId], createdBy: me, createdAt: appNowIso(), msgs: [] };
   return msgStore().push(nt), msgDmT(nt);
 }
+// ---- New Chat with anyone (Alan, 2026-10-19: "we should be able to create new chats with anyone we want"). One
+// person makes a direct chat, several a group; a group can mix the team and outside people; it can be tied to a job.
+// People with an account (staff; a client with portal access) chat in the app. Someone without one is a guest of the
+// chat (t.guests): our side lives here, each line we send them goes out as an email from the sender's own connected
+// Google account (the sender pressed Send; the assistant never sends it), and their replies come back into the chat
+// through the mail the app already reads (msgFileReplies). Texting is not set up, so a mobile-only contact cannot be
+// added yet: the list says so instead of pretending.
+const msgNorm = (s) => String(s || "").trim().toLowerCase();
+const MSG_CONSULT_RX = /architect|engineer|expedit|consult|survey|lpc|landmark|structural|mep|lighting|interior/i;
+function msgPeople(u) {
+  u = u || msgMe();
+  const out = [],
+    seen = new Set(),
+    add = (grp, p) => {
+      const k = p.uid ? "u:" + p.uid : "e:" + msgNorm(p.email || p.phone || p.name);
+      seen.has(k) || (seen.add(k), out.push(Object.assign({ grp: grp }, p)));
+    },
+    rn = (x) => ("undefined" != typeof ROLE_NAMES && ROLE_NAMES[x.role]) || x.role,
+    staffMail = new Set(msgStaff().map((x) => msgNorm(x.contact)).filter(Boolean));
+  msgStaff()
+    .filter((x) => x.id !== u.id)
+    .forEach((x) => add("Team", { key: "u:" + x.id, uid: x.id, name: x.name, sub: rn(x) }));
+  // the field writes to the team; clients, vendors and consultants are the office's to bring in
+  if (msgIsField(u)) return out;
+  (DB.clients || []).forEach((c) => {
+    const portal = (DB.users || []).filter((x) => msgIsClient(x) && x.clientId === c.id);
+    portal.forEach((x) => add("Clients", { key: "u:" + x.id, uid: x.id, name: x.name, sub: `${c.name} · in the portal`, clientId: c.id }));
+    (c.contacts || []).forEach((ct) => {
+      if (!ct || !ct.name || portal.some((x) => msgNorm(x.name) === msgNorm(ct.name) || (ct.email && msgNorm(x.contact) === msgNorm(ct.email)))) return;
+      add("Clients", { key: `c:${c.id}:${ct.id || msgNorm(ct.name)}`, name: ct.name, email: ct.email || "", phone: ct.phone || "", sub: [c.name, ct.role].filter(Boolean).join(" · "), clientId: c.id, ref: { kind: "client", id: c.id, contactId: ct.id || "" } });
+    });
+  });
+  (DB.vendors || []).forEach((v) => v && (v.email || v.phone) && add("Vendors & Subs", { key: "v:" + v.id, name: v.contact || v.name, email: v.email || "", phone: v.phone || "", sub: [v.contact ? v.name : "", v.trade].filter(Boolean).join(" · ") || "Vendor", ref: { kind: "vendor", id: v.id } }));
+  ((DB.field || {}).subs || []).forEach((s) => s && s.lead && s.phone && add("Vendors & Subs", { key: `s:${msgNorm(s.vendor)}:${msgNorm(s.lead)}`, name: s.lead, phone: s.phone, sub: [s.vendor, s.trade].filter(Boolean).join(" · "), ref: { kind: "sub", id: s.vendor || "" } }));
+  // consultants on file: the jobs' contact lists (name, email, role), the ones whose role is a consultant's
+  (DB.projects || []).forEach((p) =>
+    String((p.project || {}).contacts || "")
+      .split(/\n/)
+      .map((l) => l.split(",").map((x) => x.trim()))
+      .forEach(([name, email, role]) => name && email && /@/.test(email) && MSG_CONSULT_RX.test(role || "") && !staffMail.has(msgNorm(email)) && add("Consultants", { key: "k:" + msgNorm(email), name: name, email: email, sub: [role, msgJobName(p)].filter(Boolean).join(" · "), ref: { kind: "consultant", id: p.id } })),
+  );
+  return out;
+}
+const MSG_GROUPS = ["Team", "Clients", "Vendors & Subs", "Consultants"];
 function msgNewThread() {
   const u = msgMe();
   if (!u.id || msgIsClient(u)) return;
-  const P = msgStaff().filter((x) => x.id !== u.id),
-    rn = (x) => ("undefined" != typeof ROLE_NAMES && ROLE_NAMES[x.role]) || x.role;
+  const P = msgPeople(u),
+    by = {};
+  P.forEach((x) => (by[x.grp] = by[x.grp] || []).push(x));
+  const row = (x) => {
+      const mobileOnly = !x.uid && !x.email;
+      return `<label class="msg-person${mobileOnly ? " off" : ""}" data-q="${esc(msgNorm([x.name, x.sub, x.email].join(" ")))}"><input type="checkbox" data-f="p_${esc(x.key)}" ${mobileOnly ? "disabled" : ""}>${msgAvatar(x.uid || x.key, x.name)}<span class="msg-pmid"><b data-nocase>${esc(x.name)}</b><span class="small muted" data-nocase>${esc(x.sub || "")}${x.uid ? "" : mobileOnly ? " · mobile only: texting is not set up yet" : ` · by email`}</span></span></label>`;
+    },
+    jobs = (DB.projects || []).filter((p) => p && p.id && (!msgIsField(u) || msgFieldJob(p, u)));
   mbModal(
-    "New Message",
-    `<p class="small muted" style="margin:0 0 8px">Pick one person for a direct message, or more for a group. Only the people you pick can read it.</p><div class="msg-people">${P.map((x) => `<label class="msg-person"><input type="checkbox" data-f="m_${esc(x.id)}"><span><b>${esc(x.name)}</b> <span class="small muted">${esc(rn(x))}</span></span></label>`).join("")}</div>${mbF("Group Name", '<input data-f="title" placeholder="Only for a group, e.g. Site Leads">')}`,
+    "New Chat",
+    `<input type="search" class="msg-pick-q" id="msg-nq" placeholder="Search people" aria-label="Search people" autocomplete="off"><div class="msg-people msg-groups">${MSG_GROUPS.filter((g) => (by[g] || []).length)
+      .map((g) => `<div class="msg-pgroup" data-grp="${esc(g)}"><div class="msg-pgh">${esc(g)}</div>${by[g].map(row).join("")}</div>`)
+      .join("")}</div>${
+      msgIsField(u)
+        ? ""
+        : `<details class="msg-addnew"><summary>Add Someone New</summary><div class="msg-addf">${mbF("Name", '<input data-f="n_name" autocomplete="off">')}${mbF("Email or Mobile", '<input data-f="n_addr" autocomplete="off" placeholder="name@company.com">')}${mbF("Save Them To", `<select data-f="n_save"><option value="">Do Not Save</option>${(DB.clients || []).map((c) => `<option value="c:${esc(c.id)}">${esc(c.name)} (client contact)</option>`).join("")}<option value="v:new">A New Vendor</option></select>`)}</div></details>`
+    }${mbF("Group Name", '<input data-f="title" placeholder="Only for a group, e.g. Site Leads">')}${mbF("Job", `<select data-f="pid"><option value="">No job</option>${jobs.map((p) => `<option value="${esc(p.id)}">${esc(msgJobName(p))}</option>`).join("")}</select>`)}`,
     {
-      submit: "Start",
+      submit: "Start Chat",
       onSubmit: (f) => {
-        const ids = P.filter((x) => f["m_" + x.id]).map((x) => x.id);
-        if (!ids.length) return toast("Pick at least one person"), !1;
+        const pick = P.filter((x) => f["p_" + x.key]);
+        // someone new: a guest, optionally saved as a contact on the record named
+        const nn = String(f.n_name || "").trim(),
+          na = String(f.n_addr || "").trim();
+        if (nn || na) {
+          if (!nn || !na) return toast("Give the new person a name and an email"), !1;
+          if (!/@/.test(na)) return toast("Texting is not set up yet: give an email for someone new"), !1;
+          const sv = String(f.n_save || "");
+          let ref = { kind: "new", id: "" },
+            sub = "added here";
+          if (sv.startsWith("c:")) {
+            const c = (DB.clients || []).find((x) => x.id === sv.slice(2));
+            c && ((c.contacts = c.contacts || []).push({ id: uid("ct"), name: nn, email: na, phone: "", role: "Other", primary: !1, addedFrom: "chat" }), (ref = { kind: "client", id: c.id }), (sub = c.name));
+          } else if ("v:new" === sv) {
+            const v = { id: uid("v"), name: nn, email: na, createdFrom: "chat" };
+            (DB.vendors = DB.vendors || []).push(v), (ref = { kind: "vendor", id: v.id }), (sub = "new vendor");
+          }
+          pick.push({ grp: "New", key: "n:" + msgNorm(na), name: nn, email: na, sub: sub, clientId: "c:" === sv.slice(0, 2) ? sv.slice(2) : "", ref: ref });
+        }
+        if (!pick.length) return toast("Pick at least one person"), !1;
+        // one client's people to a chat: another client must never read it
+        const cls = [...new Set(pick.map((x) => x.clientId).filter(Boolean))];
+        if (cls.length > 1) return toast("A chat can include one client's people only"), !1;
+        const members = [u.id, ...pick.filter((x) => x.uid).map((x) => x.uid)],
+          guests = pick.filter((x) => !x.uid && x.email).map((x) => ({ id: uid("g"), name: x.name, email: x.email, phone: x.phone || "", sub: x.sub || "", ref: x.ref || null, clientId: x.clientId || "" })),
+          pid = String(f.pid || ""),
+          title = String(f.title || "").trim();
         let T;
-        if (1 === ids.length) T = msgDirectWith(ids[0], !0);
+        if (1 === pick.length && pick[0].uid && !pid) T = msgDirectWith(pick[0].uid, !0);
         else {
-          const t = { id: uid("th"), kind: "group", title: String(f.title || "").trim(), members: [u.id, ...ids], createdBy: u.id, createdAt: appNowIso(), msgs: [] };
+          const t = { id: uid("th"), kind: 1 === pick.length ? "direct" : "group", title: pick.length > 1 ? title : "", members: members, guests: guests, createdBy: u.id, createdAt: appNowIso(), msgs: [] };
+          pid && (t.pid = pid);
+          cls.length && (t.clientId = cls[0]);
           msgStore().push(t), (T = msgDmT(t));
         }
+        try {
+          audit("chat", T.t.id, "new chat", "", pick.map((x) => x.name).join(", "), `${u.name || "Someone"} started a chat`);
+        } catch (e) {}
         save();
         const key = T.key;
         setTimeout(() => {
@@ -199313,10 +199402,99 @@ function msgNewThread() {
           const t = document.getElementById("chat-text");
           t && t.focus();
         }, 0);
-        toast(`${1 === ids.length ? "Direct message" : "Group"} with ${ids.map((id) => msgFirst((msgUser(id) || {}).name)).join(", ")} is ready`, () => msgOpen(key));
+        const outside = guests.length ? ` · by email to ${guests.map((g) => msgFirst(g.name)).join(", ")}` : "";
+        toast(`${pick.length > 1 ? "Group" : "Chat"} with ${pick.map((x) => msgFirst(x.name)).join(", ")} is ready${outside}`, () => msgOpen(key));
       },
     },
   );
+  const m = document.getElementById("mbm"),
+    q = m && m.querySelector("#msg-nq");
+  q &&
+    q.addEventListener("input", () => {
+      const s = msgNorm(q.value);
+      m.querySelectorAll(".msg-person").forEach((b) => (b.hidden = !!s && !b.dataset.q.includes(s)));
+      m.querySelectorAll(".msg-pgroup").forEach((g) => (g.hidden = ![...g.querySelectorAll(".msg-person")].some((b) => !b.hidden)));
+    });
+}
+// ---- a chat with people outside the app: our line goes to them as an email from the sender's own Google account
+const msgGuests = (T) => (T && T.t && Array.isArray(T.t.guests) ? T.t.guests : []);
+function msgMailBody(m, u, T) {
+  return `${String(m.text || (m.voice ? "(a voice note: open the chat to hear it)" : "")).trim()}\n\n${u.name || "SmartDesign"}, SmartDesign\nReply to this email and your answer reaches the whole conversation.`;
+}
+async function msgMailOut(T, m) {
+  const G = msgGuests(T).filter((g) => g.email),
+    u = msgMe();
+  if (!G.length || !m) return 0;
+  const t = T.t,
+    subject = t.mailSubject || (t.mailSubject = `${t.title || T.title || "SmartDesign"} [SD-${t.id}]`),
+    body = msgMailBody(m, u, T);
+  m.mail = G.map((g) => ({ id: g.id, name: g.name, email: g.email, status: "sending" }));
+  if ("function" != typeof gcOn || !gcOn()) {
+    m.mail.forEach((x) => ((x.status = "not sent"), (x.why = "no-google")));
+    save(), "chat" === view && renderChat();
+    // after the send's own toast, so the person reads what did not happen
+    return setTimeout(() => toast(`Not sent by email yet: connect your Google account (Settings, Connections) and press Try Again on the line`, () => ((view = "settings"), render())), 0), 0;
+  }
+  let sent = 0;
+  for (const x of m.mail)
+    try {
+      const msg = { message: { raw: gaRaw({ to: x.name ? `${x.name} <${x.email}>` : x.email, subject: subject, body: body }) } };
+      t.mailThread && (msg.message.threadId = t.mailThread);
+      const d = await gcFetch("/gmail/v1/users/me/drafts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(msg) }),
+        r = await gcFetch("/gmail/v1/users/me/drafts/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: d.id }) });
+      r && r.threadId && (t.mailThread = r.threadId);
+      (x.status = "sent"), (x.at = appNowIso()), sent++;
+      (DB.outbox = DB.outbox || []).push({ id: uid("ox"), kind: "chat", to: { name: x.name, email: x.email }, subject: subject, body: body, about: { label: T.title, threadId: t.id, msgId: m.id }, aboutKey: `chat|${t.id}|${m.id}|${x.id}`, forName: u.name || "", status: "sent", sentAt: appNowIso(), approvedBy: u.name || "", at: today(), by: u.name || "", gmailId: (r && r.id) || "" });
+    } catch (e) {
+      (x.status = "failed"), (x.why = String((e && e.message) || e).slice(0, 160));
+    }
+  save(), "chat" === view && renderChat();
+  return sent;
+}
+function msgMailRetry(key, mid) {
+  const T = msgThread(key),
+    m = T && T.all().find((x) => x.id === mid);
+  m && msgMine(m, msgMe()) && msgMailOut(T, m);
+}
+// what became of a line's emails, under my bubble
+function msgMailHtml(m, T) {
+  const L = m.mail || [];
+  if (!L.length) return "";
+  const ok = L.filter((x) => "sent" === x.status),
+    bad = L.filter((x) => "not sent" === x.status || "failed" === x.status),
+    wait = L.filter((x) => "sending" === x.status);
+  return `<div class="msg-mailst small">${ok.length ? `<span>Emailed to ${esc(ok.map((x) => msgFirst(x.name)).join(", "))}</span>` : ""}${wait.length ? `<span class="muted">Sending by email…</span>` : ""}${bad.length ? `<span class="bad-t">Not emailed to ${esc(bad.map((x) => msgFirst(x.name)).join(", "))}${bad.some((x) => "no-google" === x.why) ? ": connect Google first" : ""}</span><button type="button" class="msg-mk" data-msgmailretry="${esc(T.key)}|${esc(m.id)}">Try Again</button>` : ""}</div>`;
+}
+// their replies come back into the chat: a mail the app has read that carries the chat's token or its mail thread,
+// from one of the chat's guests. Only that guest's own words are kept (the quoted history is left out).
+function msgStripQuote(s) {
+  const L = String(s || "").replace(/\r/g, "").split("\n"),
+    out = [];
+  for (const l of L) {
+    if (/^\s*>/.test(l) || /^On .+wrote:\s*$/.test(l.trim()) || /^-{2,}\s*Original Message/i.test(l.trim()) || /^From:\s/.test(l.trim())) break;
+    out.push(l);
+  }
+  return out.join("\n").trim();
+}
+let msgCommsN = -1;
+function msgFileReplies() {
+  const TT = msgStore().filter((t) => t && msgGuests({ t: t }).length);
+  if (!TT.length) return 0;
+  let n = 0;
+  (DB.comms || []).forEach((c) => {
+    if (!c || c.chatFiled || "out" === c.direction || (c.labels || []).includes("SENT")) return;
+    const tok = /\[SD-([A-Za-z0-9_]+)\]/.exec(String(c.subject || "")),
+      t = TT.find((x) => (tok && tok[1] === x.id) || (c.threadId && x.mailThread && c.threadId === x.mailThread));
+    if (!t) return;
+    const from = msgNorm((c.from && (c.from.email || c.from)) || c.fromEmail || ""),
+      g = t.guests.find((x) => x.email && from.includes(msgNorm(x.email)));
+    if (!g) return;
+    const at = String(c.date || appNowIso()).slice(0, 19),
+      text = msgStripQuote(c.text || c.body || "") || "(an email with no text)";
+    t.msgs.push({ id: uid("ch"), by: g.name, fromGuest: g.id, text: text, at: at, t: "function" == typeof stampText ? stampText(at) : at, files: [], viaMail: c.msgId || c.id || "" });
+    (c.chatFiled = t.id), n++;
+  });
+  return n && save(), n;
 }
 // ---- one tap: a message becomes a task, through the one task creator; the line links to it and shows it
 function msgMakeTask(key, mid) {
@@ -199412,7 +199590,9 @@ function msgHeadHtml(T, u, solo) {
             ? "Your project team"
             : `With the Client · ${cl ? cl.name : "the client"}`
           : !msgIn(T, u)
-            ? `Read Only · ${names(T.t.members || []).join(", ")}`
+            ? `Read Only · ${names(T.t.members || []).concat(msgGuests(T).map((g) => g.name)).join(", ")}`
+            : msgGuests(T).length
+              ? `By email to ${msgGuests(T).map((g) => g.name).join(", ")}${others.length ? ` · ${names(others).join(", ")} in the app` : ""}`
             : "group" === T.kind
               ? ["You", ...names(others)].join(", ")
               : `Direct Message · only the two of you`,
@@ -199422,7 +199602,9 @@ function msgHeadHtml(T, u, solo) {
       T.p && !msgIsClient(u) && (ROLE_VIEWS[role()] || []).includes("plans") ? `<button type="button" class="msg-ib" data-msgplans="${esc(T.p.id)}" title="Current Plans" aria-label="Current Plans">${MSG_IC.plans}</button>` : "",
     ].join("");
   return `${solo ? "" : `<button type="button" class="msg-ib msg-back" data-msgback title="All Conversations" aria-label="All Conversations${tot.n ? `, ${tot.n} unread` : ""}">${MSG_IC.back}${tot.n ? `<span class="n">${tot.n}</span>` : ""}</button>`}${av}<div class="msg-ttl"><b data-nocase>${esc(T.title)}</b><span class="msg-sub small" data-nocase>${esc(sub)}</span></div>${tools ? `<div class="msg-htools">${tools}</div>` : ""}${
-    "client" === T.kind && !msgIsClient(u) ? `<div class="msg-warn small">${MSG_IC.client}<span><b>Client Sees This.</b> ${esc(cl ? cl.name : "The client")} reads everything here. Costs, margins and team matters go in the team thread.</span></div>` : ""
+    T.t && !msgIsClient(u) && (T.t.clientId || T.t.members.some((id) => msgIsClient(msgUser(id) || {})))
+      ? `<div class="msg-warn small">${MSG_IC.client}<span><b>Client Sees This.</b> Costs, margins and team matters go in a team chat.</span></div>`
+      : "client" === T.kind && !msgIsClient(u) ? `<div class="msg-warn small">${MSG_IC.client}<span><b>Client Sees This.</b> ${esc(cl ? cl.name : "The client")} reads everything here. Costs, margins and team matters go in the team thread.</span></div>` : ""
   }`;
 }
 // the lines of the open conversation, with day separators and runs of one person's lines grouped
@@ -199806,6 +199988,11 @@ document.addEventListener("click", (e) => {
   if ((b = t.closest("[data-msgopen]"))) return e.preventDefault(), msgOpen(b.dataset.msgopen);
   if ((b = t.closest("[data-msgback]"))) return e.preventDefault(), (msgListMode = !0), render(), void window.scrollTo(0, 0);
   if ((b = t.closest("[data-msgsheetx]"))) return e.preventDefault(), void msgSheetClose();
+  if ((b = t.closest("[data-msgmailretry]"))) {
+    e.preventDefault();
+    const [k, ...id] = b.dataset.msgmailretry.split("|");
+    return void msgMailRetry(k, id.join("|"));
+  }
   if ((b = t.closest("[data-msgscope]"))) return e.preventDefault(), (msgScope = b.dataset.msgscope), void renderChat();
   if ((b = t.closest("[data-msgjoin]"))) return e.preventDefault(), void msgJoin(b.dataset.msgjoin);
   if ((b = t.closest("[data-msgreplyx]"))) return e.preventDefault(), (msgReplyTo = null), void msgReplyBar();
@@ -200006,6 +200193,9 @@ function msgBadges() {
     const r = base.apply(this, arguments);
     try {
       document.body.classList.toggle("msg-on", "chat" === view);
+      // replies from outside people that arrived by mail join their chats (checked when the mail on file changes)
+      const nc = (DB.comms || []).length;
+      nc !== msgCommsN && ((msgCommsN = nc), msgFileReplies() && "chat" === view && renderChat());
       if ("chat" === view) {
         const u = msgMe(),
           T = msgCur(u),

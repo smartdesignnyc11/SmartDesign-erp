@@ -3766,3 +3766,12 @@ body.msg-on #v-chat .chat-compose.msg-recording #chat-send{display:none}
 #v-chat.msg-readonly .chat-compose,#v-chat.msg-readonly .msg-reply,#v-chat.msg-readonly .msg-pending{display:none !important}
 #v-chat.msg-readonly .msg-tools{display:none}
 @media (max-width:760px){ .msg-scope button{min-height:44px} .msg-join .btn{min-height:44px} }
+/* New Chat: people by group, someone new, what became of an email */
+.msg-groups{max-height:52vh;overflow:auto;gap:2px;margin-top:8px}
+.msg-pgroup{display:flex;flex-direction:column;gap:6px;margin-bottom:8px} .msg-pgroup[hidden],.msg-person[hidden]{display:none}
+.msg-pgh{font-size:12px;font-weight:600;color:var(--ink-3);padding:6px 2px 0}
+.msg-person .msg-av{width:36px;height:36px;font-size:12px}
+.msg-pmid{display:flex;flex-direction:column;min-width:0;gap:1px} .msg-pmid .small{overflow:hidden;text-overflow:ellipsis}
+.msg-person.off{opacity:.55;cursor:default}
+.msg-addnew{margin:6px 0 10px;border:1px solid var(--rule);border-radius:10px;padding:8px 10px} .msg-addnew summary{cursor:pointer;font-weight:600;min-height:32px;display:flex;align-items:center}
+.msg-mailst{display:inline-flex;flex-wrap:wrap;align-items:center;gap:8px;color:var(--ink-3)}

@@ -447,7 +447,158 @@ async def t_screen(c, p):
     await b.close()
 
 
-TESTS = [t_crew, t_seen, t_notify, t_react, t_voice, t_screen]
+# ------------------------------------------------------------------------------------------------ 7. new chat with anyone
+async def new_chat(pg, keys, title='', extra=None):
+    await pg.click('#msg-new')
+    await pg.wait_for_timeout(200)
+    for k in keys:
+        await pg.check(f'#mbm [data-f="p_{k}"]')
+    if title:
+        await pg.fill('#mbm [data-f="title"]', title)
+    if extra:
+        await pg.evaluate("() => { const d = document.querySelector('#mbm .msg-addnew'); d && (d.open = true); }")
+        for sel, val in extra:
+            if sel.endswith('n_save"]'):
+                await pg.select_option(f'#mbm {sel}', val)
+            else:
+                await pg.fill(f'#mbm {sel}', val)
+    await pg.click('#mbm #mbm-ok')
+    await pg.wait_for_timeout(400)
+    return await pg.evaluate("() => { const T = msgCur(); return T && { key: T.key, kind: T.kind, members: T.t ? T.t.members : [], guests: T.t ? (T.t.guests || []).map(g => [g.name, g.email]) : [], head: document.getElementById('msg-head').innerText, toast: document.getElementById('toast').innerText } }")
+
+
+async def t_newchat(c, p):
+    b, pg, errs = await fresh(p, 'u_chen')
+    await go(pg, 'chat')
+    await pg.click('#msg-new')
+    await pg.wait_for_timeout(200)
+    r = await pg.evaluate("""() => { const m = document.getElementById('mbm');
+        return { groups: [...m.querySelectorAll('.msg-pgh')].map(e => e.innerText.trim()), sarah: !!m.querySelector('[data-f="p_u:u_klein"]'), maya: [...m.querySelectorAll('.msg-person')].some(e => /Maya/.test(e.innerText) && /Architect/.test(e.innerText)),
+          vendor: [...m.querySelectorAll('.msg-person')].some(e => /Satish Electric/.test(e.innerText) && /by email/.test(e.innerText)), mobile: [...m.querySelectorAll('.msg-person.off')].map(e => e.innerText).join(' | '),
+          addnew: !!m.querySelector('.msg-addnew'), title: (m.querySelector('h3, .mbm-h, .hd') || {}).innerText } }""")
+    c.ok(r['groups'] == ['Team', 'Clients', 'Vendors & Subs', 'Consultants'], f"newchat: New Chat lists Team, Clients, Vendors & Subs and Consultants ({r['groups']})")
+    c.ok(r['sarah'] and r['maya'] and r['vendor'] and r['addnew'], f'newchat: a portal client, an architect on file, a vendor by email, and Add Someone New ({r})')
+    c.ok('texting is not set up yet' in r['mobile'], f"newchat: a mobile-only contact is shown and plainly cannot be picked yet ({r['mobile'][:120]})")
+    await pg.fill('#msg-nq', 'carlos')
+    await pg.wait_for_timeout(150)
+    vis = await pg.evaluate("() => [...document.querySelectorAll('#mbm .msg-person')].filter(e => !e.hidden).map(e => e.querySelector('.msg-pmid b').innerText)")
+    c.ok(vis and all('Carlos' in x for x in vis), f'newchat: the search narrows the people ({vis})')
+    await pg.evaluate("() => mbCloseModal()")
+    # a direct chat with a colleague
+    r = await new_chat(pg, ['u:u_alberto'])
+    c.ok(r['kind'] == 'direct' and sorted(r['members']) == ['u_alberto', 'u_chen'] and 'Open' in r['toast'], f'newchat: a direct chat with Alberto ({r})')
+    # a group of three, named
+    r = await new_chat(pg, ['u:u_alberto', 'u:u_angel'], 'Tile Crew')
+    c.ok(r['kind'] == 'group' and sorted(r['members']) == ['u_alberto', 'u_angel', 'u_chen'] and 'Tile Crew' in r['head'], f'newchat: a group of three ({r})')
+    # a client with portal access: in the app; she reads that chat and nothing of the team
+    r = await new_chat(pg, ['u:u_klein'])
+    key_k = r['key']
+    c.ok(r['members'] and 'u_klein' in r['members'] and 'Client Sees This' in r['head'], f"newchat: a chat with the client, marked as one she reads ({r['head']!r})")
+    await send(pg, 'The tile samples are at the showroom whenever you want to see them')
+    await sign_in(pg, 'u_klein')
+    k = await pg.evaluate("() => msgThreadsFor().map(T => T.key)")
+    c.ok(key_k in k and not any(x.startswith('job:') for x in k), f'newchat: Sarah has that chat and no team thread ({k})')
+    await sign_in(pg, 'u_cambri')
+    k = await pg.evaluate("() => msgThreadsFor().map(T => T.key)")
+    c.ok(key_k not in k, f'newchat: another client never has it ({k})')
+    # two clients in one chat is refused
+    await sign_in(pg, 'u_chen')
+    await go(pg, 'chat')
+    keys2 = await pg.evaluate("() => { const P = msgPeople(); const a = P.find(x => x.clientId === 'cl121'), b = P.find(x => x.clientId && x.clientId !== 'cl121' && x.email); return [a.key, b.key] }")
+    n0 = await pg.evaluate("() => DB.threads.length")
+    await new_chat(pg, keys2)
+    r = await pg.evaluate("() => ({ n: DB.threads.length, toast: document.getElementById('toast').innerText, open: !!document.getElementById('mbm') })")
+    c.ok(r['n'] == n0 and "one client's people only" in r['toast'], f"newchat: two clients' people are never put in one chat ({r})")
+    await pg.evaluate("() => mbCloseModal()")
+    # a vendor by email: the line goes out from Chen's own connected account, as sent by Chen
+    await pg.evaluate("async () => { await gcDemoConnect(); }")
+    vkey = await pg.evaluate("() => msgPeople().find(x => /Satish Electric/.test(x.sub) || /Satish Electric/.test(x.name)).key")
+    r = await new_chat(pg, [vkey])
+    c.ok(r['guests'] and r['guests'][0][1] == 'office@satishelectric.example' and 'By email to' in r['head'], f"newchat: a vendor joins as a guest by email, and the header says so ({r['head']!r})")
+    ob0 = await pg.evaluate("() => (DB.outbox || []).length")
+    await send(pg, 'Can your crew be on site Thursday at 8?')
+    await pg.wait_for_timeout(1200)
+    r = await pg.evaluate("""() => { const T = msgCur(), m = T.t.msgs.slice(-1)[0], o = (DB.outbox || []).slice(-1)[0];
+        return { mail: m.mail, out: o && [o.kind, o.status, o.by, o.to.email, /\\[SD-/.test(o.subject), o.approvedBy], n: (DB.outbox || []).length, thread: T.t.mailThread, st: (document.querySelector(`[data-mid="${m.id}"] .msg-mailst`) || {}).innerText } }""")
+    c.ok(r['mail'] and r['mail'][0]['status'] == 'sent' and r['thread'], f"newchat: the line was emailed to the vendor ({r['mail']})")
+    c.ok(r['n'] == ob0 + 1 and r['out'] == ['chat', 'sent', 'Chen Biron', 'office@satishelectric.example', True, 'Chen Biron'], f"newchat: it is in the outbox as sent by Chen, who pressed Send ({r['out']})")
+    c.ok(r['st'] and 'Emailed to' in r['st'], f"newchat: the line says it was emailed ({r['st']!r})")
+    # their reply comes back into the chat (a mail the app read, on the chat's mail thread)
+    r = await pg.evaluate("""() => { const T = msgCur(), t = T.t;
+        DB.comms.push({ id: 'cm_reply', msgId: 'gm_reply', threadId: t.mailThread, channel: 'email', direction: 'in', from: { name: 'Satish', email: 'office@satishelectric.example' }, to: [], subject: 'Re: ' + t.mailSubject,
+          text: 'Yes, 8 works. We will bring the lift.\\n\\nOn Thu, Sep 3, Chen Biron wrote:\\n> Can your crew be on site Thursday at 8?', date: '2026-09-03T15:10:00.000Z', source: 'demo', owner: 'u_chen', labels: ['INBOX'] });
+        render(); const m = t.msgs.slice(-1)[0]; return { by: m.by, text: m.text, guest: !!m.fromGuest, filed: DB.comms.find(x => x.id === 'cm_reply').chatFiled === t.id, shown: document.getElementById('chat-list').innerText.includes('We will bring the lift') } }""")
+    c.ok(r['guest'] and r['text'] == 'Yes, 8 works. We will bring the lift.' and r['filed'] and r['shown'], f"newchat: the vendor's reply is filed into the chat, without the quoted history ({r})")
+    r = await pg.evaluate("() => { const n = msgCur().t.msgs.length; DB.comms.push({ id: 'cm_other', msgId: 'gm_other', threadId: 'unrelated', direction: 'in', from: { email: 'office@satishelectric.example' }, subject: 'Invoice 4411', text: 'Attached.', labels: ['INBOX'] }); render(); return msgCur().t.msgs.length - n }")
+    c.ok(r == 0, 'newchat: an unrelated mail from the same vendor is not filed into the chat')
+    # someone new, saved as the client's contact
+    r = await new_chat(pg, [], '', [('[data-f="n_name"]', 'Imogen Varga'), ('[data-f="n_addr"]', 'imogen@example.com'), ('[data-f="n_save"]', 'c:cl121')])
+    saved = await pg.evaluate("() => (DB.clients.find(c => c.id === 'cl121').contacts || []).some(x => x.email === 'imogen@example.com')")
+    c.ok(r['guests'] == [['Imogen Varga', 'imogen@example.com']] and 'By email to Imogen Varga' in r['head'] and saved, f"newchat: someone new by email, saved as the client's contact ({r['head']!r}, saved {saved})")
+    # no Google connected: said plainly, nothing pretends to have gone
+    await sign_in(pg, 'u_alan')
+    await go(pg, 'chat')
+    mk = await pg.evaluate("() => msgPeople().find(x => /Maya/.test(x.name)).key")
+    await new_chat(pg, [mk])
+    ob0 = await pg.evaluate("() => (DB.outbox || []).length")
+    await send(pg, 'Can you send the revised parlor elevation?')
+    await pg.wait_for_timeout(500)
+    r = await pg.evaluate("() => { const m = msgCur().t.msgs.slice(-1)[0]; return { mail: m.mail, n: (DB.outbox || []).length, toast: document.getElementById('toast').innerText, st: (document.querySelector(`[data-mid='${m.id}'] .msg-mailst`) || {}).innerText } }")
+    c.ok(r['mail'][0]['status'] == 'not sent' and r['n'] == ob0 and 'connect your Google account' in r['toast'] and 'Try Again' in (r['st'] or ''), f"newchat: with no Google account connected nothing is sent, it says so, and offers Try Again ({r})")
+    # the field writes to the team only
+    await sign_in(pg, 'u_alberto')
+    g = await pg.evaluate("() => [...new Set(msgPeople().map(x => x.grp))]")
+    c.ok(g == ['Team'], f'newchat: the field picks from the team only ({g})')
+    c.ok(not errs, f'newchat: no page errors {errs[:2]}')
+    await b.close()
+
+
+# ------------------------------------------------------------------------------------------------ 8. the owner
+async def t_owner(c, p):
+    b, pg, errs = await fresh(p, 'u_owner', phone=True)
+    std0 = await pg.evaluate("() => JSON.stringify((DB.company || {}).standard || null).length")
+    await pg.click('.mtabs [data-mv="chat"]')
+    await pg.wait_for_timeout(250)
+    mine = await pg.evaluate("() => [...document.querySelectorAll('#msg-side .msg-row')].map(e => e.dataset.msgopen)")
+    c.ok('dm:th_seed_dm' not in mine, f"owner: My Chats holds only his own ({len(mine)} rows)")
+    await pg.tap('[data-msgscope="all"]')
+    await pg.wait_for_timeout(200)
+    r = await pg.evaluate("() => { const row = document.querySelector('#msg-side [data-msgopen=\"dm:th_seed_dm\"]'); return { row: !!row, label: row ? row.innerText : '', notice: (document.querySelector('.msg-notice') || {}).innerText } }")
+    c.ok(r['row'] and 'Read Only' in r['label'] and 'Chen' in r['label'] and 'Angel' in r['label'], f"owner: All Chats shows Chen and Angel's chat, marked Read Only ({r['label'][:80]!r})")
+    await pg.tap('#msg-side [data-msgopen="dm:th_seed_dm"]')
+    await pg.wait_for_timeout(250)
+    r = await pg.evaluate(f"""() => ({{ compose: ({VISIBLE})('#v-chat .chat-compose'), join: ({VISIBLE})('[data-msgjoin]'), lines: document.getElementById('chat-list').innerText.includes('garden bath'), unread: msgUnreadTotal().n, seen: !!(DB.msgSeen.u_owner || {{}})['dm:th_seed_dm'] }})""")
+    c.ok(r['lines'] and not r['compose'] and r['join'], f'owner: he reads it, with no composer and Add Me instead ({r})')
+    c.ok(not r['seen'], "owner: reading someone else's chat marks nothing as his")
+    await pg.tap('[data-msgjoin]')
+    await pg.wait_for_timeout(300)
+    r = await pg.evaluate(f"""() => {{ const t = DB.threads.find(x => x.id === 'th_seed_dm'), last = t.msgs.slice(-1)[0];
+        return {{ members: t.members, last: [last.system, last.text], compose: ({VISIBLE})('#v-chat .chat-compose'), toast: document.getElementById('toast').innerText }} }}""")
+    c.ok('u_owner' in r['members'] and r['last'][0] and 'joined' in r['last'][1] and r['compose'], f"owner: Add Me puts him in it, in the open, and he can write ({r})")
+    await sign_in(pg, 'u_chen')
+    t = await pg.evaluate("() => { msgOpen('dm:th_seed_dm'); return document.getElementById('chat-list').innerText }")
+    c.ok('joined' in t, 'owner: Chen sees that he joined')
+    # the notice on every staff list, not the client's; the Standard is proposed, not edited
+    await go(pg, 'chat')
+    r = await pg.evaluate("() => { msgListMode = true; renderChat(); return (document.querySelector('.msg-notice') || {}).innerText || '' }")
+    c.ok('company records' in r and 'owner can read them' in r, f"owner: Chen's list says chats are company records the owner can read ({r!r})")
+    await sign_in(pg, 'u_klein')
+    await go(pg, 'chat')
+    c.ok(not await pg.evaluate("() => !!document.querySelector('.msg-notice')"), 'owner: the client is not shown the staff notice')
+    r = await pg.evaluate("() => { const c = (DB.changes || []).find(x => x.id === 'chg_msg_records'); return c && { kind: c.kind, status: c.status, text: (c.proposed || {}).text, why: c.why } }")
+    std1 = await pg.evaluate("() => JSON.stringify((DB.company || {}).standard || null).length")
+    c.ok(r and r['kind'] == 'policy' and r['status'] == 'draft' and 'company records' in r['text'] and '52-c' in r['why'], f'owner: the Standard sentence is a drafted change for the owner to approve ({r})')
+    c.ok(std0 == std1, 'owner: the Standard itself is unchanged')
+    await sign_in(pg, 'u_owner')
+    await pg.evaluate("() => { view = 'meetings'; mtTab = 'changes'; render(); }")
+    await pg.wait_for_timeout(300)
+    t = await pg.evaluate("() => (document.querySelector('.view.on') || {}).innerText || ''")
+    c.ok('company records the owner can read' in t, 'owner: it is under Company, Changes for him to approve')
+    c.ok(not errs, f'owner: no page errors {errs[:2]}')
+    await b.close()
+
+
+TESTS = [t_crew, t_seen, t_notify, t_react, t_voice, t_screen, t_newchat, t_owner]
 
 
 async def main():
