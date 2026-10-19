@@ -574,7 +574,7 @@ async def walk_foreman(w):
     # his assistant. The experts' bar is Today, Site, Daily Log, Requests, Crew.
     w.step('Materials: Menu > Raise > Materials > task > one line > Next > Send > Done')
     await w.click('Menu')
-    await w.click('Raise', scope='nav, aside, .rail, #rail')
+    await w.click('Raise', prefix=True, scope='nav, aside, .rail, #rail')
     await w.click('Materials or a tool', prefix=True)
     await w.fill('Framing & blocking', css='select')
     await w.fill('40 2x4x8 studs', css='textarea')
@@ -589,7 +589,7 @@ async def walk_foreman(w):
 
     w.step('Hidden condition: Menu > Raise > A problem or question > Hidden Condition > one line > Send')
     await w.click('Menu')
-    await w.click('Raise', scope='nav, aside, .rail, #rail')
+    await w.click('Raise', prefix=True, scope='nav, aside, .rail, #rail')
     await w.click('A problem or question', prefix=True)
     await w.click('Hidden condition', prefix=True)
     await w.fill('Rotted sill under the rear window, about 6 feet', css='textarea')

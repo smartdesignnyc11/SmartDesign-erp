@@ -196416,7 +196416,7 @@ const MN_JOBS = (o) =>
           ["plans", "Drawings"],
           ["sfile", "Filings"],
           ["sel", "Selections"],
-        ]),
+        ], { proj: 1 }),
         MN_G("office", "Company", "office", MN_OFFICE),
         MN_G("reports", "Reports", "reports", MN_REPORTS),
       ],
@@ -196536,14 +196536,14 @@ const MN_JOBS = (o) =>
           ["tkall", "Tasks"],
         ]),
         // drawings: one register per job, a top item for the designer (disagreement 6)
-        MN_G("drawings", "Drawings", "drawings", [["plans", "Drawings"]]),
+        MN_G("drawings", "Drawings", "drawings", [["plans", "Drawings"]], { proj: 1 }),
         MN_G("jobs", "Projects", "jobs", MN_JOBS({ plans: !1 }), { proj: 1 }),
         MN_G("studio", "Design", "studio", [
           ["ovstudio", "Design"],
           ["sboard", "Project Board"],
           ["sfile", "Filings"],
           ["sel", "Selections"],
-        ]),
+        ], { proj: 1 }),
         MN_G("clients", "Clients", "clients", [["clients", "Clients"]]),
       ],
       phone: [
@@ -196857,7 +196857,8 @@ function mnRail() {
       const it = B.bar.concat(B.rest).find((y) => y.v === x[0] && y.l === x[1]);
       if (!it) return;
       hand.push([{ id: "f-" + it.v }, it]);
-      html += btn("f-" + it.v, it.v, cur && cur.it === it ? "on" : "", fi(x[2]), it.l, mnItemN(it));
+      // the field rail badges only what it always has (answered raises); the tab bar carries its own counts
+      html += btn("f-" + it.v, it.v, cur && cur.it === it ? "on" : "", fi(x[2]), it.l, "fraise" === it.v ? mnItemN(it) : 0);
     });
     B.more.concat(B.bottom ? B.bottom.items : []).forEach((it, i) => {
       hand.push([{ id: "f-" + it.v }, it]);
@@ -196884,7 +196885,8 @@ function mnRail() {
   const sub = document.getElementById("subnav");
   if (!sub) return;
   const g = cur && !B.field ? cur.g : null;
-  if (!g || g.items.length < 2) {
+  // a group of one page has no strip, unless it is a job's page: the strip then carries the project switcher
+  if (!g || (g.items.length < 2 && !g.proj)) {
     (sub.innerHTML = ""), (sub.hidden = !0), nav && nav._projsel && (nav.appendChild(nav._projsel), (nav._projsel.hidden = !B.field));
     return;
   }
@@ -196893,12 +196895,15 @@ function mnRail() {
     .map((it, i) => {
       const cap = it.sec && it.sec !== last ? `<span class="mn-sec">${esc(it.sec)}</span>` : "";
       last = it.sec;
-      const n = mnItemN(it);
+      // Billing's number is its queue; as a sub-tab it sits over a list scoped by the job or the tab, so it carries
+      // no badge there (the Billing rail entry keeps it, as before)
+      const n = "billing" === it.v ? 0 : mnItemN(it);
       return `${cap}<button data-sub="${it.v}"${it.tab ? ` data-subtab="${it.tab}"` : ""} data-mni="${i}" class="${cur.it === it ? "on" : ""}">${esc(it.l)}${n ? `<span class="n">${n}</span>` : ""}</button>`;
     })
     .join("");
   (sub.hidden = !1),
-    (sub.innerHTML = `${g.proj ? '<span class="sub-proj"></span>' : ""}<div class="sub-tabs">${tabs}</div>`),
+    // a long strip wraps on a desktop so every page shows (the PM's Change Orders sat past the edge); the phone scrolls
+    (sub.innerHTML = `${g.proj ? '<span class="sub-proj"></span>' : ""}<div class="sub-tabs${g.items.length > 8 ? " mn-wrap" : ""}">${tabs}</div>`),
     sub.querySelectorAll("[data-mni]").forEach((b) => (b.onclick = () => mnGo(g, g.items[+b.dataset.mni])));
   nav &&
     nav._projsel &&

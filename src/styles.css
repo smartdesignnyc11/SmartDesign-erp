@@ -3447,3 +3447,4 @@ table.pl-index tr.pl-void td .pill,table.pl-index tr.pl-void td .btn{text-decora
   body:not(.m-on) #tb-ask{width:44px;height:44px;min-height:44px;padding:0;justify-content:center;flex:none;margin-left:8px}
   body:not(.m-on) #tb-ask span{display:none}
 }
+@media (min-width:761px){ #subnav .sub-tabs.mn-wrap{flex-wrap:wrap;overflow:visible;row-gap:0} #subnav .sub-tabs.mn-wrap.b3-fadeR{-webkit-mask-image:none;mask-image:none} }
