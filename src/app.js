@@ -50769,6 +50769,13 @@ function finishBoot() {
     console.error("phase 6 migrate", e);
   }
   (document.body.dataset.booted = "1"), wire();
+  // the memo of derived numbers (speed.js) for a boot that did not come through bootRun (a shell calling finishBoot
+  // directly): every render layer exists by now, so its layer is the outermost; a first boot keeps the old path
+  try {
+    "function" == typeof spdInstall && !bootSeeded && spdInstall();
+  } catch (e) {
+    console.warn("speed layer", e);
+  }
   const u = currentUser();
   u && ((DB.role = u.role), (DB.me = u.name)), render(), DB.deviceUser || showSignIn();
   try {
