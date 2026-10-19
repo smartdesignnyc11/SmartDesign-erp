@@ -7,6 +7,7 @@
 | `src/styles.css` | All CSS: the base design tokens, then each feature's block appended in order |
 | `src/body.html` | The shell markup: rail, topbar, one `<section class="view" id="v-…">` per view, drawer, palette, viewer, toast |
 | `src/app.js` | All logic (recovered from the round-4 build and pretty-printed; comments stripped) |
+| `src/mind.js` | The assistant's mind (Alan, 2026-10-19): its reach (19 line-level query tables, `MD_TABLES`, gated by `MD_VIEWS` inside `eqRows`), its tools beyond `query` (`mindToolMore`: search_drive, read_thread, calendar, record, price_history, check, learn), the prompt (`mindSystem(q, recall)`), the loop (`mindAsk`: recall, tools, check, `mindAudit`, one correction round, `mindVoice`), the person model (`mindProfile*`, private in `DB.asst[uid].profile`), facts (`DB.learn.facts`), corrections and the lessons the owner approves (`LEARN_EVENTS` asstcorrected, asstrule), plain step labels (`mindStepHuman`, `mindStepSummary`), the conversation's working memory (`DB.asst[uid].mindCtx`) and record links (`mindLinks`). build.py puts it after app.js and before assistant.js. Suite: `tests/mind_eval.py` |
 | `src/assistant.js` | The one assistant per person (BACKLOG §1.27, §1.24 page side). build.py appends it to app.js in the same script, so its wrappers are the outermost ones. See "The one assistant" below |
 | `legacy/commented-source-v96/app.js` | The commented source as of 2026-09-15, with `/*<<section.js>>*/` markers: read it for intent |
 
@@ -51,7 +52,7 @@
 | `gcConnect` | ~108,845 | |
 | `EQ_TABLES` | ~110,953 | |
 | `erpQuery` | ~111,054 | |
-| `mindAsk` | ~112,485 | |
+| `mindAsk`, `mindSystem`, `mindRead` | `src/mind.js` | the root and its wrappers were folded into src/mind.js |
 | `fin2RunClose` | ~126,601 | |
 | `ASK_INTENTS` | ~130,184 | |
 | `fin3Raw` (close.js) | ~131,534 | |

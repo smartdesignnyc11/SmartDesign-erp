@@ -6,7 +6,7 @@ Every function named *Seed* must be listed, guarded, or in ALLOW below with the 
 Run: python3 seed_guard_test.py"""
 import os, re, sys
 H = os.path.dirname(os.path.abspath(__file__))
-src = ''.join(open(os.path.join(H, '..', f), encoding='utf-8').read() + '\n' for f in ('src/app.js', 'src/assistant.js'))
+src = ''.join(open(os.path.join(H, '..', f), encoding='utf-8').read() + '\n' for f in ('src/app.js', 'src/mind.js', 'src/assistant.js'))
 ALLOW = {
     'seedUsers': 'runs only when there are no users at all (first boot of an empty copy)',
     'budgetSeedFromActuals': 'a feature: a budget from last year\'s actual books, on request',

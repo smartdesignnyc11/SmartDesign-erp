@@ -755,6 +755,8 @@ It then matches the same room, element or tag across sets. Geometry overlay betw
 
 **Needs the platform and the Anthropic API key,** which costs money per use. It is the first agent built once the key is in (§5.8, step 2).
 
+**Status (lane mind, 2026-10-19): the mind is built in `src/mind.js`, suite `tests/mind_eval.py` (offline against a scripted model stub; `--live` against the hosted copy).** Line-level reach (estimate, CO, invoice and bill lines; bank matches as a chain; expenses; AR aging; schedule; buy board; inspections; RFIs; punch; field requests; meetings and steps; selections; labor cost; leveled quote lines), Drive search, whole mail threads, the calendar with what each meeting is about, one record line by line, price history, a check on every claim and an audit of every figure, the person model, facts with their source, corrections, rules the owner approves, draft edits learned, plain step labels, follow-ups that keep context, record links. Not yet: the web, the internal Messages through the mind's tools (Chat rows are readable by query), voice, vector search over old history, a live run of `mind_eval.py --live`.
+
 ### 1.25 Live jobs: what the firm's real work needs that the ERP can't do yet (Alan, Cowork session 2026-10-17)
 The full job details are in the Cowork handoff's `docs/LIVE_JOBS.md`. They are real client information: they load into the private platform database, never into seeds, tests or commits. The capabilities are built now on invented equivalents, and the demo stays behind a switch for the existing tests.
 1. **Two payers on one contract** (the Bergen St job: landlord and tenant). Each payer is billed for their own lines and has their own AR, statements and portal view.
