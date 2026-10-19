@@ -3468,3 +3468,75 @@ table.pl-index tr.pl-void td .pill,table.pl-index tr.pl-void td .btn{text-decora
   body:not(.m-on) #tb-ask span{display:none}
 }
 @media (min-width:761px){ #subnav .sub-tabs.mn-wrap{flex-wrap:wrap;overflow:visible;row-gap:0} #subnav .sub-tabs.mn-wrap.b3-fadeR{-webkit-mask-image:none;mask-image:none} }
+
+/* ---- Messages (BACKLOG §1.21 phase 1): the thread list beside the conversation; one at a time on a phone */
+.msg-wrap{display:grid;grid-template-columns:minmax(240px,300px) minmax(0,1fr);gap:14px;align-items:start}
+#v-chat.msg-solo .msg-wrap{grid-template-columns:minmax(0,1fr)} #v-chat.msg-solo .msg-side{display:none}
+.msg-wrap > *{min-width:0}
+.msg-side{padding:10px;display:flex;flex-direction:column;gap:8px;max-height:calc(100vh - 170px);overflow:auto}
+.msg-side-h{display:flex;align-items:center;gap:8px;flex-wrap:wrap} .msg-side-h h3{margin:0;flex:1}
+.msg-rows{display:flex;flex-direction:column;gap:4px}
+.msg-row,.msg-strip{display:flex;gap:10px;align-items:flex-start;width:100%;text-align:left;background:transparent;border:1px solid transparent;border-radius:10px;padding:8px;cursor:pointer;color:inherit;font:inherit;min-height:44px}
+.msg-row:hover{background:var(--paper-2)} .msg-row.on{background:var(--accent-2);border-color:var(--rule)}
+.msg-row.un .msg-t,.msg-row.un .msg-last{font-weight:600;color:var(--ink)}
+.msg-mid{display:flex;flex-direction:column;min-width:0;flex:1;gap:1px}
+.msg-t{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.msg-k{font-size:11px;color:var(--ink-3)}
+.msg-last{font-size:12px;color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.msg-r{display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:none}
+.msg-when{font-size:11px;color:var(--ink-4);white-space:nowrap}
+.msg-atn{font-weight:700;color:var(--accent);font-size:12px}
+.msg-svg{width:18px;height:18px;flex:none}
+.msg-ric{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:50%;background:var(--paper-3);color:var(--ink-2);flex:none}
+.msg-ric.k-client{background:var(--warn-2);color:var(--warn)} .msg-ric.k-direct,.msg-ric.k-group{background:var(--accent-2);color:var(--accent)}
+.msg-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;margin:0 0 10px}
+.msg-head:empty{display:none}
+.msg-ttl{display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:wrap} .msg-ttl b{font-size:15px}
+.msg-back{display:none;gap:6px;align-items:center}
+.msg-warn,.msg-who{flex:1 1 100%;margin:0}
+.msg-strip{border-color:var(--rule);background:var(--paper-2);margin-bottom:6px;flex:none}
+.msg-wrap .chat-list{max-height:calc(100vh - 330px);min-height:240px}
+.cm .msg-tx{white-space:pre-wrap;overflow-wrap:anywhere}
+.cm.sys{background:var(--paper-2);color:var(--ink-2)}
+.msg-at{color:var(--accent)}
+.msg-acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+.msg-mk{display:inline-flex;align-items:center;gap:5px;background:transparent;border:1px solid var(--rule);border-radius:999px;padding:3px 10px;font:inherit;font-size:12px;color:var(--ink-2);cursor:pointer;min-height:30px}
+.msg-mk .msg-svg{width:15px;height:15px} .msg-mk.on{color:var(--ok);border-color:var(--ok)}
+.msg-card{display:flex;align-items:center;gap:10px;width:100%;text-align:left;border:1px solid var(--rule);border-radius:10px;padding:8px 10px;background:var(--paper);margin-top:6px;font:inherit;color:inherit;cursor:pointer;min-height:44px}
+.msg-card.gone{cursor:default}
+.msg-cbody{display:flex;flex-direction:column;min-width:0;gap:1px} .msg-cbody b{overflow-wrap:anywhere}
+.msg-cic{display:inline-flex;color:var(--ink-3)}
+.msg-thumb{width:56px;height:42px;object-fit:cover;border-radius:6px;background:var(--paper-3);flex:none}
+.cm.msg-ai{align-self:stretch;max-width:none;background:var(--paper);border:1px dashed var(--accent)}
+.cm.msg-ai .who{display:flex;align-items:center;gap:4px;flex-wrap:wrap} .msg-ah{font-weight:500;margin:4px 0}
+.msg-pending{display:flex;flex-wrap:wrap;gap:6px;padding:6px 0} .msg-pending[hidden]{display:none}
+.msg-pend{display:inline-flex;align-items:center;gap:4px} .msg-unpick{background:transparent;border:0;padding:2px;cursor:pointer;color:inherit;display:inline-flex}
+.msg-unpick .msg-svg{width:14px;height:14px}
+.msg-pick{display:flex;flex-direction:column;gap:6px;max-height:55vh;overflow:auto;margin-top:8px}
+.msg-pickrow{display:flex;align-items:center;gap:10px;text-align:left;border:1px solid var(--rule);border-radius:10px;padding:8px 10px;background:var(--paper);font:inherit;color:inherit;cursor:pointer;min-height:44px}
+.msg-pick-q{width:100%;box-sizing:border-box}
+.msg-people{display:flex;flex-direction:column;gap:6px;margin-bottom:10px}
+.msg-person{display:flex;align-items:center;gap:10px;border:1px solid var(--rule);border-radius:10px;padding:8px 10px;min-height:44px;cursor:pointer}
+.msg-polines{margin:0;padding-left:18px}
+.chat-compose .msg-recbtn{padding:0 10px}
+#v-chat.msg-k-direct #pl-pinned,#v-chat.msg-k-group #pl-pinned,#v-chat.msg-k-client #pl-pinned{display:none}
+#v-chat.msg-k-direct .msg-help,#v-chat.msg-k-group .msg-help,#v-chat.msg-k-client .msg-help{display:none}
+#v-chat.msg-k-direct .grid3,#v-chat.msg-k-group .grid3,#v-chat.msg-k-client .grid3{grid-template-columns:minmax(0,1fr)}
+@media (max-width:760px){
+  .msg-wrap{grid-template-columns:minmax(0,1fr)}
+  #v-chat:not(.msg-listmode) .msg-side{display:none}
+  #v-chat.msg-listmode .msg-main{display:none}
+  #v-chat:not(.msg-solo) .msg-back{display:inline-flex}
+  .msg-side{max-height:none;padding:8px}
+  .msg-row{min-height:56px;padding:10px 8px}
+  .msg-wrap .chat-list{max-height:none}
+  .msg-mk{min-height:36px}
+  .chat-compose .msg-recbtn{min-width:44px;min-height:44px;justify-content:center}
+  .cm{max-width:88%}
+}
+/* the compose row fits the phone with the record button: the text box gives way, never the Send button */
+#v-chat .chat-compose #chat-text{min-width:0}
+@media (max-width:760px){ body.crewmode #v-chat .chat-compose #chat-text{flex:1 1 0;width:0} body.crewmode #v-chat .chat-compose{flex-wrap:nowrap} }
+/* the foreman's Say It bar sits over the compose box on Chat: the thread has its own box there */
+body.msg-on #fsay{display:none}
+@media (max-width:760px){ body.crewmode #v-chat .chat-compose #chat-send{flex:0 0 auto;min-width:72px} }

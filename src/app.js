@@ -7927,45 +7927,9 @@ function openPermitEditor(id) {
     })),
     setTimeout(() => $("#e-name").focus(), 50);
 }
-function renderChat() {
-  const me = S.project.userName || localStorage_get("chat-name") || "";
-  $("#chat-name") && !$("#chat-name").value && ($("#chat-name").value = me);
-  const list = $("#chat-list");
-  (list.innerHTML = S.chat.length
-    ? S.chat
-        .map((m) => {
-          const c = S.comms.find((x) => x.id === m.commId),
-            st = c ? c.status : "",
-            cq = m.clq ? (S.clientQs || []).find((x) => x.id === m.clq) : null,
-            clRole = "function" == typeof role && "client" === role(),
-            pmFirst = "function" == typeof clPmFirst ? clPmFirst(S) : "your project manager";
-          return `<div class="cm ${m.by === me ? "me" : ""}"><div class="who"><b>${esc(m.by)}</b> · ${esc(m.t)}</div>${esc(m.text)}${
-            (m.files || []).length
-              ? `<div class="row" style="margin-top:4px">${m.files
-                  .map((fid) => {
-                    const f = S.files.find((x) => x.id === fid);
-                    return f
-                      ? `<a href="#" data-go="file:${f.id}" class="pill info">${fileIcon(f)} ${esc(f.name.slice(0, 22))}</a>`
-                      : "";
-                  })
-                  .join("")}</div>`
-              : ""
-          }${
-            clRole
-              ? cq && "open" === cq.status
-                ? `<div class="st"><span class="muted">Sent to ${esc(pmFirst)}</span></div>`
-                : ""
-              : cq
-                ? `<div class="st"><span class="muted">${"open" === cq.status ? "A question for you — Answer it from Home" : `Answered by ${esc(cq.answeredBy || "")}`}</span></div>`
-                : c
-                  ? `<div class="st">${"new" === st ? '<a href="#" data-go="view:inbox" class="muted">Waiting for review in Inbox</a>' : "proposed" === st ? `<a href="#" data-go="view:inbox">${(c.proposal || []).length} proposed update${1 === (c.proposal || []).length ? "" : "s"} — review in Inbox</a>` : "applied" === st || "auto" === st ? `<span style="color:var(--green)">${esc(c.appliedSummary || "Applied")}</span>` : "reviewing" === st ? '<span class="muted">Assistant is reading…</span>' : "ignored" === st ? '<span class="muted">No project update</span>' : ""}</div>`
-                  : ""
-          }</div>`;
-        })
-        .join("")
-    : '<div class="empty">No messages yet. Post what happened on site today.</div>'),
-    (list.scrollTop = list.scrollHeight);
-}
+// The job thread is drawn by the messages section at the end of this file (renderChat there: every thread, its
+// lines, cards and status lines, msgLineHtml). This name is kept for the callers that run before it loads.
+function renderChat() {}
 function localStorage_get(k) {
   try {
     return sessionStorage.getItem(k) || "";
@@ -184101,22 +184065,7 @@ function chatFieldSees(m, p) {
   if (m.to && m.to !== ((currentUser() || {}).id || "") && m.fromUid !== ((currentUser() || {}).id || "") && m.dm) return !1;
   return !CHAT_MONEY_RX.test(String(m.text || ""));
 }
-if ("function" == typeof renderChat) {
-  const renderChatBase_field = renderChat;
-  renderChat = function () {
-    if (!CHAT_FIELD() || !S || !Array.isArray(S.chat)) return renderChatBase_field.apply(this, arguments);
-    const keep = S.chat;
-    S.chat = keep.filter((m) => chatFieldSees(m, S));
-    try {
-      return renderChatBase_field.apply(this, arguments);
-    } finally {
-      S.chat = keep;
-      try {
-        chatDmBar();
-      } catch (e) {}
-    }
-  };
-}
+// (The field filter that wrapped renderChat here is msgVisible in the messages section: chatFieldSees per line.)
 // ---- Message someone by name from the field: the coordinator, the PM, the foreman. The message lands on the job's
 // chat addressed to them and on their task list, so it is answered, not lost in the job's stream.
 function chatPeople() {
@@ -192917,8 +192866,8 @@ let plLastView = "";
           const list = document.getElementById("chat-list");
           list &&
             S.chat.length &&
-            [...list.children].forEach((el, i) => {
-              const m = S.chat[i];
+            [...list.children].forEach((el) => {
+              const m = el.dataset && el.dataset.mid ? S.chat.find((x) => x.id === el.dataset.mid) : null;
               if (!m) return;
               const open = (m.plRev || []).filter(plOpenProp)[0];
               open && plCanIssue() && el.insertAdjacentHTML("beforeend", `<div class="pl-chip small">New revision of ${esc(open.number)}? Rev ${esc(open.rev)} <button type="button" class="btn sm" data-plrev="${esc(`ch:${S.id}:${m.id}:${open.id}`)}">Confirm Rev ${esc(open.rev)}</button></div>`);
@@ -198309,3 +198258,1070 @@ function mnMap(r) {
         phone: (MENU[B.r].phone || []).filter(([v]) => (ROLE_VIEWS[B.r] || []).includes(v) || "mapprove" === v).map(([v, l]) => v + "=" + l),
       };
 }
+
+// =====================================================================================================================
+// Messages (BACKLOG §1.21, phase 1; lane "messages", 2026-10-19). One noun: the message thread.
+// Design gate (§1.16). A thread is {key, kind: job | client | direct | group, title, members, msgs}; nothing else
+// holds messages:
+//  - A job's two threads are views of the job's own p.chat, split by audience (msgAud): the team's thread and the
+//    client's thread. Nothing moved: every line already written stays in p.chat where it was.
+//  - Direct and group threads live in DB.threads, one shared collection a field phone may read. Who reads a thread
+//    or a line is decided in one place (msgThreadsFor, msgVisible), by membership and role: the field reads the job
+//    threads of its jobs and no client or money line; a client reads only their own job's client thread; a direct or
+//    group thread is read by its members only.
+//  - Unread is one marker per person per thread (p.chatSeen, t.seen) and msgUnread is the only count: the rail, the
+//    tab, the thread list and the back bar all read it.
+//  - "@assistant ..." is answered by the person's own assistant through the Ask path (paAsk: read-only, proposals as
+//    buttons). The answer is kept with the person (DB.asst[uid].inThread), never in the shared thread, so a private
+//    answer cannot reach the crew or a client. Share in Thread posts it only when the person says so.
+//  - Message to task is one tap and goes through crCreateTask, the one task creator. A card is a reference
+//    {kind, id}, drawn for the reader at read time: no amounts for the field, and no money record at all.
+//  - Spanish: no translate path exists yet. msgTextFor reads m.tr[lang] when a translation is present, and
+//    MSG_TRANSLATE is the hook the platform's AI door fills (phase 2).
+// =====================================================================================================================
+const MSG_FIELD = ["foreman", "crew", "driver"],
+  MSG_MONEY_CARDS = ["invoice", "co", "estimate", "payment"],
+  MSG_CLIENT_CARDS = ["invoice", "co", "estimate", "photo"],
+  MSG_SVG = (d) => `<svg class="msg-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`,
+  MSG_IC = {
+    job: MSG_SVG('<path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/>'),
+    client: MSG_SVG('<circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/>'),
+    direct: MSG_SVG('<path d="M21 12a8 8 0 0 1-8 8H8l-5 3 1.5-4.5A8 8 0 1 1 21 12z"/>'),
+    group: MSG_SVG('<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c1-3.5 3.5-5 6.5-5s5.5 1.5 6.5 5"/><circle cx="17" cy="9" r="2.5"/><path d="M16 14.5c2.5 0 4.5 1.5 5.5 4.5"/>'),
+    back: MSG_SVG('<path d="M15 6l-6 6 6 6"/>'),
+    task: MSG_SVG('<path d="M9 11l2 2 4-4"/><rect x="4" y="4" width="16" height="16" rx="3"/>'),
+    rec: MSG_SVG('<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/>'),
+    ask: MSG_SVG('<path d="M12 3l1.8 4.6L18 9l-4.2 1.4L12 15l-1.8-4.6L6 9l4.2-1.4z"/><path d="M19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/>'),
+    x: MSG_SVG('<path d="M6 6l12 12M18 6L6 18"/>'),
+    po: MSG_SVG('<path d="M3 7h13v10H3z"/><path d="M16 10h3l2 3v4h-5"/><circle cx="7" cy="18" r="1.6"/><circle cx="17.5" cy="18" r="1.6"/>'),
+    doc: MSG_SVG('<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>'),
+    photo: MSG_SVG('<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>'),
+    log: MSG_SVG('<path d="M5 4h14v16H5z"/><path d="M8 8h8M8 12h8M8 16h5"/>'),
+  };
+let msgKey = null,
+  msgListMode = !1,
+  msgPending = [];
+const msgOffers = {};
+// The platform's AI door fills this in phase 2: (text, toLang) => Promise<string>. Until then nothing translates.
+let MSG_TRANSLATE = null;
+const msgMe = () => ("function" == typeof currentUser && currentUser()) || {},
+  msgRole = (u) => String((u && u.role) || ""),
+  msgIsField = (u) => MSG_FIELD.includes(msgRole(u)),
+  msgIsClient = (u) => "client" === msgRole(u),
+  msgUser = (id) => (DB.users || []).find((u) => u.id === id) || null,
+  msgStaff = () => (DB.users || []).filter((u) => u && u.id && u.name && !msgIsClient(u) && !/^mb_/.test(msgRole(u))),
+  msgProj = (id) => (DB.projects || []).find((p) => p.id === id) || null,
+  msgClientOf = (p) => (p && p.clientId && (DB.clients || []).find((c) => c.id === p.clientId)) || null,
+  msgJobName = (p) => ("function" == typeof shortName ? shortName(p) : "") || String((p && p.project && p.project.name) || "Job"),
+  msgFirst = (n) => String(n || "").trim().split(/\s+/)[0] || "";
+function msgStore() {
+  return Array.isArray(DB.threads) || (DB.threads = []), DB.threads;
+}
+// ---- audience: which of a job's two threads a line of p.chat belongs to. An explicit m.aud wins; lines written before
+// threads are read by what they are (a client's question and its answer, a document sent to the client, a sample the
+// client approved, a line the client wrote). Everything else is the team's.
+function msgByClient(m, p) {
+  const by = String(m.by || "").trim().toLowerCase();
+  if (m.fromUid) {
+    const u = msgUser(m.fromUid);
+    if (u) return msgIsClient(u);
+  }
+  if (!by) return !1;
+  const cl = msgClientOf(p),
+    names = cl ? [cl.name, ...(cl.contacts || []).map((x) => x.name)].filter(Boolean).map((x) => String(x).toLowerCase()) : [];
+  if (names.includes(by) || names.some((n) => n.split(/\s*&\s*|\s+and\s+/).some((x) => x && x === by))) return !0;
+  return (DB.users || []).some((u) => msgIsClient(u) && p && u.clientId === p.clientId && String(u.name || "").toLowerCase() === by);
+}
+function msgAud(m, p) {
+  if (!m) return "team";
+  if ("client" === m.aud || "team" === m.aud) return m.aud;
+  if (m.dm) return "team";
+  if (m.clq || m.answerOf || m.decisionId || m.client || "client" === m.role) return "client";
+  if (m.submId && !m.system) return "client";
+  if (m.system && /\bready for you\b/i.test(String(m.text || ""))) return "client";
+  return msgByClient(m, p) ? "client" : "team";
+}
+// ---- the field's jobs. There is no crew-to-job assignment in the records, so a field person's jobs are the site jobs
+// (not a job still in design) plus any job they have worked on, asked for material on, or written in.
+function msgFieldJob(p, u) {
+  if (!p) return !1;
+  const name = String(u.name || "").toLowerCase(),
+    emp = u.employeeId || u.empId || "";
+  if (
+    (emp && (DB.time || []).some((t) => t.projectId === p.id && t.empId === emp)) ||
+    (p.requests || []).some((r) => String(r.by || "").toLowerCase() === name) ||
+    (p.chat || []).some((m) => m.fromUid === u.id)
+  )
+    return !0;
+  let design = !1;
+  try {
+    design = "function" == typeof clDesignPhase && clDesignPhase(p);
+  } catch (e) {}
+  return !design;
+}
+// ---- the threads
+function msgJobT(p, kind) {
+  const cl = msgClientOf(p),
+    aud = "client" === kind ? "client" : "team";
+  return {
+    key: `${kind}:${p.id}`,
+    kind: kind,
+    pid: p.id,
+    p: p,
+    t: null,
+    aud: aud,
+    title: msgJobName(p),
+    sub: "client" === kind ? `With ${cl ? cl.name : "the Client"}` : "Team Only",
+    all: () => (p.chat || []).filter((m) => m && msgAud(m, p) === aud),
+  };
+}
+function msgDmT(t, u) {
+  const me = (u || msgMe()).id,
+    M = t.members || [],
+    others = M.filter((x) => x !== me).map((id) => (msgUser(id) || {}).name || "Someone"),
+    group = "group" === t.kind || M.length > 2;
+  return {
+    key: "dm:" + t.id,
+    kind: group ? "group" : "direct",
+    pid: "",
+    p: null,
+    t: t,
+    aud: "members",
+    title: t.title || others.join(", ") || "Just You",
+    sub: group ? `Group of ${M.length}` : "Direct Message",
+    all: () => (Array.isArray(t.msgs) || (t.msgs = []), t.msgs),
+  };
+}
+function msgThreadsFor(u) {
+  if (!(u = u || msgMe()) || !u.id) return [];
+  const out = [],
+    P = DB.projects || [];
+  if (msgIsClient(u)) return P.filter((p) => p.clientId && p.clientId === u.clientId).forEach((p) => out.push(msgJobT(p, "client"))), out;
+  const field = msgIsField(u);
+  P.forEach((p) => {
+    (field && !msgFieldJob(p, u)) || (out.push(msgJobT(p, "job")), !field && msgClientOf(p) && out.push(msgJobT(p, "client")));
+  });
+  msgStore().forEach((t) => t && (t.members || []).includes(u.id) && out.push(msgDmT(t, u)));
+  return out;
+}
+const msgThread = (key, u) => msgThreadsFor(u).find((T) => T.key === key) || null;
+// ---- who reads a line. The thread is already one the person may open (msgThreadsFor); this is the line's own rule.
+function msgVisible(m, T, u) {
+  if (!m || !T) return !1;
+  if (T.t) return (T.t.members || []).includes(u.id);
+  if (msgIsClient(u)) return "client" === T.kind && !!T.p && T.p.clientId === u.clientId;
+  // a line addressed to one person before threads existed: the two of them only
+  if (m.dm && m.to) return m.to === u.id || m.fromUid === u.id;
+  if (msgIsField(u)) {
+    if ("client" === T.kind) return !1;
+    if ((m.cards || []).some((c) => MSG_MONEY_CARDS.includes(c.kind))) return !1;
+    return "function" != typeof chatFieldSees || chatFieldSees(m, T.p);
+  }
+  return !0;
+}
+const msgMine = (m, u) => (m.fromUid ? m.fromUid === u.id : !!u.name && String(m.by || "") === u.name);
+// ---- read markers: {id of the last line seen, how many lines there were}
+function msgSeenGet(T, u) {
+  const o = T.t ? T.t.seen : T.p.chatSeen;
+  return o ? o[T.t ? u.id : `${u.id}|${T.aud}`] || null : null;
+}
+function msgSeenSet(T, u) {
+  const all = T.all(),
+    last = all[all.length - 1],
+    cur = msgSeenGet(T, u),
+    id = last ? last.id : "";
+  if (cur && cur.n === all.length && cur.id === id) return !1;
+  const o = T.t ? (T.t.seen = T.t.seen || {}) : (T.p.chatSeen = T.p.chatSeen || {});
+  return (o[T.t ? u.id : `${u.id}|${T.aud}`] = { id: id, n: all.length }), !0;
+}
+function msgCut(T, u, all) {
+  const s = msgSeenGet(T, u);
+  if (!s) return 0;
+  const i = s.id ? all.findIndex((m) => m.id === s.id) : -1;
+  return i >= 0 ? i + 1 : Math.min(+s.n || 0, all.length);
+}
+// The one unread count: lines after my marker that I may read and did not write; `at` is how many name me.
+function msgUnread(T, u) {
+  u = u || msgMe();
+  const all = T.all(),
+    rows = all.slice(msgCut(T, u, all)).filter((m) => !msgMine(m, u) && msgVisible(m, T, u));
+  return { n: rows.length, at: rows.filter((m) => (m.mentions || []).includes(u.id)).length };
+}
+function msgUnreadTotal(u) {
+  u = u || msgMe();
+  let n = 0,
+    at = 0;
+  return (
+    msgThreadsFor(u).forEach((T) => {
+      const x = msgUnread(T, u);
+      (n += x.n), (at += x.at);
+    }),
+    { n: n, at: at }
+  );
+}
+// ---- when a line was written: its stamp, or the older display time read on the app's year
+function msgWhen(m) {
+  if (!m) return "";
+  if (m.at) return String(m.at);
+  const x = /^(\d{1,2})\/(\d{1,2}),\s*(\d{1,2}):(\d{2})\s*(AM|PM)/i.exec(String(m.t || ""));
+  if (!x) return "";
+  const z = (n) => String(n).padStart(2, "0"),
+    h = (+x[3] % 12) + (/pm/i.test(x[5]) ? 12 : 0);
+  return `${String(today()).slice(0, 4)}-${z(x[1])}-${z(x[2])}T${z(h)}:${x[4]}:00`;
+}
+// ---- which thread is open: the one the person picked, else the current job's (the team's for staff, the client's
+// for a client), else their first
+function msgCur(u) {
+  const L = msgThreadsFor((u = u || msgMe()));
+  let T = msgKey ? L.find((x) => x.key === msgKey) : null;
+  !T && S && (T = L.find((x) => x.key === (msgIsClient(u) ? "client:" : "job:") + S.id));
+  return T || L[0] || null;
+}
+function msgOpen(key) {
+  const T = msgThread(key);
+  if (!T) return void toast("That conversation is not one you can open");
+  T.pid && (!S || S.id !== T.pid) && "function" == typeof setCurrent && setCurrent(T.pid);
+  (msgKey = key), (msgListMode = !1), (view = "chat"), render();
+  try {
+    const l = document.getElementById("chat-list");
+    l && (l.scrollTop = l.scrollHeight), window.innerWidth <= 760 && window.scrollTo(0, document.body.scrollHeight);
+  } catch (e) {}
+}
+// ---- the migration: threads join the records as they are. The first run marks everything already written as read
+// for everyone, so a firm's history does not light up every badge; DB.__msgV records that it ran.
+function msgMigrate() {
+  msgStore();
+  if (DB.__msgV) return !1;
+  (DB.users || []).forEach((u) => msgThreadsFor(u).forEach((T) => T.all().length && msgSeenSet(T, u)));
+  return (DB.__msgV = 1), !0;
+}
+// The demo's direct and group threads (invented): a foreman asking the coordinator about a delivery, and the site
+// leads' group. Seeded once, read by everyone in them.
+function msgSeed() {
+  if (DB.__msgSeed) return !1;
+  DB.__msgSeed = 1;
+  const has = (id) => !!msgUser(id);
+  if (!["u_chen", "u_angel", "u_alan"].every(has)) return !1;
+  const td = String(today()),
+    at = (hm) => `${td}T${hm}:00`,
+    line = (uidBy, text, hm, o) => Object.assign({ id: uid("ch"), by: msgUser(uidBy).name, fromUid: uidBy, text: text, t: stampText(at(hm)), at: at(hm), files: [] }, o || {}),
+    po = (DB.pos || []).find((x) => "p121" === x.projectId && "received" !== x.status) || (DB.pos || []).find((x) => "p121" === x.projectId);
+  msgStore().push(
+    {
+      id: "th_seed_dm",
+      kind: "direct",
+      title: "",
+      members: ["u_chen", "u_angel"],
+      createdBy: "u_angel",
+      createdAt: at("07:40"),
+      msgs: [
+        line("u_angel", "Is the order for the garden bath still coming this week? I want to set the crew for it.", "07:40"),
+        line("u_chen", po ? `Yes, ${po.vendor} confirmed it. Here is the order.` : "Yes, the vendor confirmed it.", "07:52", po ? { cards: [{ kind: "po", id: po.id }] } : {}),
+      ],
+      seen: {},
+    },
+    {
+      id: "th_seed_leads",
+      kind: "group",
+      title: "Site Leads",
+      members: ["u_alan", "u_chen", "u_angel"],
+      createdBy: "u_alan",
+      createdAt: at("07:15"),
+      msgs: [
+        line("u_alan", "Rough electric walk at 121 State is at 10:00 tomorrow. @Angel please have the panel cover off before then.", "07:15", { mentions: ["u_angel"] }),
+        line("u_angel", "Will do. The electrician is on site from 8.", "07:31"),
+      ],
+      seen: {},
+    },
+  );
+  return !0;
+}
+// ---- mentions: @first-name of a person who may read the thread
+function msgMentionsOf(text, T) {
+  const L = T && T.t ? (T.t.members || []).map(msgUser).filter(Boolean) : msgStaff(),
+    out = [];
+  String(text || "").replace(/(^|[^\w@])@([A-Za-z][\w'-]*)/g, (all, pre, w) => {
+    const lw = w.toLowerCase();
+    if (/^(assistant|asistente|ai)$/.test(lw)) return all;
+    const u = L.find((x) => msgFirst(x.name).toLowerCase() === lw);
+    return u && !out.includes(u.id) && out.push(u.id), all;
+  });
+  return out;
+}
+// ---- cards: a record named in a line ("PO-2026-041", "CO-2026-002") becomes its card without anyone attaching it
+function msgCardsIn(text) {
+  const out = [];
+  String(text || "").replace(/\b(PO|CO|INV|EST)-\d{4}-\d+\b/gi, (num) => {
+    const N = num.toUpperCase();
+    if (N.startsWith("PO-")) {
+      const po = (DB.pos || []).find((x) => String(x.number || "").toUpperCase() === N);
+      po && out.push({ kind: "po", id: po.id });
+    } else
+      for (const c of DB.clients || []) {
+        const d = [...(c.invoices || []), ...(c.changeOrders || []), ...(c.estimates || [])].find((x) => String(x.number || "").toUpperCase() === N);
+        if (d) {
+          out.push({ kind: d.type || (N.startsWith("CO-") ? "co" : N.startsWith("INV-") ? "invoice" : "estimate"), id: d.id, cid: c.id });
+          break;
+        }
+      }
+    return num;
+  });
+  return out.filter((c, i) => out.findIndex((x) => x.kind === c.kind && x.id === c.id) === i);
+}
+// ---- a card's record, read now, for this reader
+function msgRec(card) {
+  if (!card) return null;
+  const k = card.kind;
+  try {
+    if ("po" === k) {
+      const po = (DB.pos || []).find((x) => x.id === card.id);
+      if (!po) return null;
+      const n = (po.lines || []).length;
+      return {
+        k: k,
+        r: po,
+        ic: MSG_IC.po,
+        title: `${po.number || "Purchase Order"} · ${po.vendor || "No vendor"}`,
+        detail: [po.status ? String(po.status) : "", po.expected ? `expected ${fmtL(po.expected)}` : "", `${n} line${1 === n ? "" : "s"}`].filter(Boolean).join(" · "),
+        amount: "function" == typeof poTotal ? poTotal(po).total : null,
+        pid: po.projectId || "",
+      };
+    }
+    if (MSG_MONEY_CARDS.includes(k)) {
+      const C = card.cid ? (DB.clients || []).filter((c) => c.id === card.cid) : DB.clients || [];
+      for (const c of C) {
+        const d = [...(c.invoices || []), ...(c.changeOrders || []), ...(c.estimates || [])].find((x) => x.id === card.id);
+        if (d)
+          return {
+            k: d.type || k,
+            r: d,
+            c: c,
+            ic: MSG_IC.doc,
+            title: `${d.number || ""}${d.title ? ` · ${d.title}` : ""}`,
+            detail: [d.status ? String(d.status) : "", d.date ? fmtL(d.date) : ""].filter(Boolean).join(" · "),
+            amount: "function" == typeof docTotal ? (docTotal(d) || {}).total : null,
+            pid: d.projectId || "",
+          };
+      }
+      return null;
+    }
+    if ("task" === k) {
+      for (const p of DB.projects || []) {
+        const a = (p.actions || []).find((x) => x.id === card.id);
+        if (a) return { k: k, r: a, p: p, sub: "action", ic: MSG_IC.task, title: a.title || "Task", detail: [a.assignee, a.due ? `due ${fmtL(a.due)}` : "", "done" === a.status ? "done" : ""].filter(Boolean).join(" · "), pid: p.id };
+        const t = (p.tasks || []).find((x) => x.id === card.id);
+        if (t) return { k: k, r: t, p: p, sub: "sched", ic: MSG_IC.task, title: t.name || "Task", detail: [t.owner, t.end ? `due ${fmtL(t.end)}` : "", t.status || ""].filter(Boolean).join(" · "), pid: p.id };
+      }
+      const f = (DB.tasks || []).find((x) => x.id === card.id);
+      return f ? { k: k, r: f, sub: "firm", ic: MSG_IC.task, title: f.title || "Task", detail: [f.assignee, f.due ? `due ${fmtL(f.due)}` : ""].filter(Boolean).join(" · "), pid: "" } : null;
+    }
+    if ("photo" === k) {
+      const x = (DB.photos || []).find((y) => y.id === card.id);
+      return x ? { k: k, r: x, ic: MSG_IC.photo, title: x.caption || "Photo", detail: [x.area, x.date ? fmtL(x.date) : ""].filter(Boolean).join(" · "), pid: x.projectId || "" } : null;
+    }
+    if ("log" === k) {
+      const l = ((DB.field || {}).logs || []).find((y) => y.id === card.id);
+      return l ? { k: k, r: l, ic: MSG_IC.log, title: `Daily Log · ${fmtL(l.date)}`, detail: [(l.crew || []).length ? `${l.crew.length} on site` : "", l.weather || ""].filter(Boolean).join(" · "), pid: l.projectId || "" } : null;
+    }
+    if ("file" === k)
+      for (const p of DB.projects || []) {
+        const f = (p.files || []).find((y) => y.id === card.id);
+        if (f) return { k: k, r: f, p: p, ic: MSG_IC.doc, title: f.name || "File", detail: f.date ? fmtL(f.date) : "", pid: p.id };
+      }
+  } catch (e) {
+    console.warn("message card", e);
+  }
+  return null;
+}
+function msgCardHtml(card, T, u) {
+  if (msgIsField(u) && MSG_MONEY_CARDS.includes(card.kind)) return "";
+  if (msgIsClient(u) && !MSG_CLIENT_CARDS.includes(card.kind)) return "";
+  const R = msgRec(card);
+  if (!R) return `<div class="msg-card gone small muted">${esc(card.kind === "po" ? "An order" : "A record")} that is no longer here</div>`;
+  if (msgIsClient(u) && "photo" === R.k && !R.r.share) return "";
+  const amt = !msgIsField(u) && null != R.amount && "function" == typeof money ? ` · ${money(R.amount)}` : "",
+    img = "photo" === R.k ? `<img class="msg-thumb" data-pstimg="${esc(R.r.id)}|thumb" alt="${esc(R.title)}">` : `<span class="msg-cic">${R.ic}</span>`;
+  return `<button type="button" class="msg-card" data-msgcard="${esc(JSON.stringify(card))}">${img}<span class="msg-cbody"><b data-nocase>${esc(R.title)}</b><span class="small muted" data-nocase>${esc(R.detail)}${esc(amt)}</span></span></button>`;
+}
+// Open the card's record where it lives; the field reads an order as a summary with no amounts.
+function msgOpenCard(card) {
+  const R = msgRec(card),
+    u = msgMe(),
+    may = (v) => (ROLE_VIEWS[role()] || []).includes(v);
+  if (!R) return void toast("That record is no longer here");
+  if (msgIsField(u) && MSG_MONEY_CARDS.includes(R.k)) return;
+  try {
+    if ("po" === R.k) {
+      if (!msgIsField(u) && may("po") && "undefined" != typeof flowGo) return flowGo.po(R.r)();
+      const L = (R.r.lines || []).map((l) => `<li><span data-nocase>${esc(l.item || l.desc || "Item")}</span> · ${esc(String(l.qty || ""))} ${esc(l.unit || "")}${l.received ? ` · ${esc(String(l.received))} received` : ""}</li>`).join("");
+      return void mbModal(`<span data-nocase>${esc(R.title)}</span>`, `<p class="small" style="margin:0 0 8px">${esc(R.detail)}</p><ul class="msg-polines">${L || "<li>No lines</li>"}</ul>`, { submit: null });
+    }
+    if (MSG_MONEY_CARDS.includes(R.k) && "undefined" != typeof flowGo) return flowGo.doc(R.c, R.r.type || R.k, R.r)();
+    if ("task" === R.k) {
+      if ("sched" === R.sub) return R.p && setCurrent(R.p.id), (view = "sched"), void render();
+      if ("function" == typeof crOpenTask) return crOpenTask({ kind: "firm" === R.sub ? "firm" : "action", id: R.r.id, projectId: R.pid, assignee: R.r.assignee || "", due: R.r.due || "", rec: R.r });
+    }
+    if ("photo" === R.k && "function" == typeof pstLightbox) return pstLightbox(R.r.id, [R.r.id]);
+    if ("log" === R.k && "function" == typeof dlOpen) return dlOpen(R.r.id);
+    if ("file" === R.k && "function" == typeof openFile) return R.p && setCurrent(R.p.id), openFile(R.r.id);
+  } catch (e) {
+    console.warn("open card", e);
+  }
+}
+// ---- what a reader reads of a line: the translation into their language when one exists (phase 2 fills m.tr)
+function msgTextFor(m, u) {
+  const lang = (u && u.lang) || "en";
+  return m.tr && m.lang && m.lang !== lang && m.tr[lang] ? m.tr[lang] : String(m.text || "");
+}
+function msgBodyHtml(text) {
+  return esc(text).replace(/(^|[^\w@])@([A-Za-z][\w'-]*)/g, (a, pre, w) => `${pre}<b class="msg-at">@${w}</b>`);
+}
+// ---- one line of a thread
+function msgLineHtml(m, T, u) {
+  const mine = msgMine(m, u),
+    cl = msgIsClient(u),
+    p = T.p,
+    files = (m.files || [])
+      .map((fid) => {
+        for (const q of p ? [p] : DB.projects || []) {
+          const f = (q.files || []).find((x) => x.id === fid);
+          if (f) return f;
+        }
+        return null;
+      })
+      .filter(Boolean),
+    photoFiles = new Set((m.cards || []).filter((c) => "photo" === c.kind && c.fileId).map((c) => c.fileId)),
+    pills = files
+      .filter((f) => !photoFiles.has(f.id))
+      .map((f) => `<a href="#" data-go="file:${f.id}" class="pill info">${"function" == typeof fileIcon ? fileIcon(f) : ""} ${esc(String(f.name || "").slice(0, 22))}</a>`)
+      .join(""),
+    cards = (m.cards || []).map((c) => msgCardHtml(c, T, u)).join("");
+  let st = "";
+  if (p) {
+    const c = m.commId ? (p.comms || []).find((x) => x.id === m.commId) : null,
+      s = c ? c.status : "",
+      cq = m.clq ? (p.clientQs || []).find((x) => x.id === m.clq) : null,
+      pmFirst = "function" == typeof clPmFirst ? clPmFirst(p) : "your project manager";
+    cl
+      ? cq && "open" === cq.status && (st = `<span class="muted">Sent to ${esc(pmFirst)}</span>`)
+      : cq
+        ? (st = `<span class="muted">${"open" === cq.status ? "A question for you — Answer it from Home" : `Answered by ${esc(cq.answeredBy || "")}`}</span>`)
+        : c &&
+          !msgIsField(u) &&
+          (st =
+            "new" === s
+              ? '<a href="#" data-go="view:inbox" class="muted">Waiting for review in Inbox</a>'
+              : "proposed" === s
+                ? `<a href="#" data-go="view:inbox">${(c.proposal || []).length} proposed update${1 === (c.proposal || []).length ? "" : "s"} — review in Inbox</a>`
+                : "applied" === s || "auto" === s
+                  ? `<span style="color:var(--green)">${esc(c.appliedSummary || "Applied")}</span>`
+                  : "reviewing" === s
+                    ? '<span class="muted">Assistant is reading…</span>'
+                    : "ignored" === s
+                      ? '<span class="muted">No project update</span>'
+                      : "");
+  }
+  const task = m.taskId
+      ? `<button type="button" class="msg-mk on" data-msgtaskopen="${esc(T.key)}|${esc(m.id)}">${MSG_IC.task}<span>Open Task</span></button>`
+      : cl || m.system || "System" === m.by
+        ? ""
+        : `<button type="button" class="msg-mk" data-msgtask="${esc(T.key)}|${esc(m.id)}" title="Make this message a task">${MSG_IC.task}<span>Make Task</span></button>`,
+    when = m.t || ("function" == typeof stampText ? stampText(m.at) : "");
+  return `<div class="cm ${mine ? "me" : ""}${m.system ? " sys" : ""}" data-mid="${esc(m.id || "")}"><div class="who"><b>${esc(m.by || "")}</b> · ${esc(when)}</div><div class="msg-tx">${msgBodyHtml(msgTextFor(m, u))}</div>${pills ? `<div class="row" style="margin-top:4px">${pills}</div>` : ""}${cards}${st ? `<div class="st">${st}</div>` : ""}${task ? `<div class="msg-acts">${task}</div>` : ""}</div>`;
+}
+// ---- the person's own assistant, in the thread: kept with the person, drawn after the line it followed
+function msgAsks(u) {
+  u = u || msgMe();
+  if (!u.id) return [];
+  DB.asst = DB.asst || {};
+  const A = (DB.asst[u.id] = DB.asst[u.id] || { thread: [], memo: [], standing: [], log: [], since: today() });
+  return Array.isArray(A.inThread) || (A.inThread = []), A.inThread;
+}
+function msgAiHtml(a) {
+  const offers = (msgOffers[a.id] || []).map((o, i) => `<button type="button" class="btn sm" data-msgoffer="${esc(a.id)}|${i}">${esc(o.label)}</button>`).join("");
+  return `<div class="cm msg-ai" data-maid="${esc(a.id)}"><div class="who"><span class="msg-cic">${MSG_IC.ask}</span><b>Your Assistant</b> · ${esc(a.t || "")} · only you see this</div><div class="small muted">You asked: <span data-nocase>${esc(a.q)}</span></div>${a.busy ? '<div class="msg-tx muted">Reading the records…</div>' : `<div class="msg-tx msg-ah" data-nocase>${esc(a.headline || "")}</div>${a.note ? `<div class="small" data-nocase>${esc(a.note)}</div>` : ""}<div class="msg-acts">${offers}<button type="button" class="btn sm" data-msgaiask="${esc(a.id)}">Open in Ask</button><button type="button" class="btn sm" data-msgaishare="${esc(a.id)}">Share in Thread</button><button type="button" class="btn sm" data-msgaidrop="${esc(a.id)}">Dismiss</button></div>`}</div>`;
+}
+const MSG_ASK_RX = /(^|\s)@(assistant|asistente|ai)\b[:,]?\s*/i;
+function msgAskOf(text) {
+  const m = MSG_ASK_RX.exec(String(text || ""));
+  return m ? { q: text.slice(m.index + m[0].length).trim(), rest: text.slice(0, m.index).trim() } : null;
+}
+// Ask through the person's own Ask path (paAsk: the records answer, read-only; anything that writes comes back as
+// an offer with a button). Nothing is posted to the thread.
+function msgAsk(T, q) {
+  const u = msgMe();
+  if (!u.id || !T) return null;
+  if (!(q = String(q || "").trim())) return void toast("Write the question after @assistant");
+  const A = msgAsks(u),
+    all = T.all(),
+    rec = { id: uid("ma"), key: T.key, after: all.length ? all[all.length - 1].id : "", q: q, at: appNowIso(), t: nowStamp(), headline: "", busy: !0 };
+  A.push(rec), A.length > 200 && A.splice(0, A.length - 200), save(), "chat" === view && renderChat();
+  let a = null;
+  try {
+    a = "function" == typeof paAsk ? paAsk(q) : null;
+  } catch (e) {
+    console.warn("assistant in thread", e);
+  }
+  return Promise.resolve(a)
+    .catch(() => null)
+    .then((x) => {
+      (rec.busy = !1),
+        (rec.headline = (x && x.headline) || "I could not answer that from the records. Ask it another way, or open Ask."),
+        (rec.note = (x && x.note) || ""),
+        (rec.go = (x && x.go) || null),
+        (rec.kind = (x && x.kind) || ""),
+        (msgOffers[rec.id] = ((x && x.offers) || []).filter((o) => o && o.label && "function" == typeof o.run)),
+        save(),
+        "chat" === view && renderChat();
+      return rec;
+    });
+}
+// ---- the record picker: what this person may share in this thread, newest first
+function msgPickRows(T, u) {
+  const p = T.p || S,
+    field = msgIsField(u),
+    clientT = "client" === T.kind,
+    rows = [];
+  if (!p) return rows;
+  const add = (kind, id, title, detail, extra) => rows.push(Object.assign({ kind: kind, id: id, title: title, detail: detail || "" }, extra || {}));
+  if (!clientT) {
+    (p.actions || []).filter((a) => "done" !== a.status).slice(-12).reverse().forEach((a) => add("task", a.id, a.title || "Task", [a.assignee, a.due ? `due ${fmtL(a.due)}` : ""].filter(Boolean).join(" · ")));
+    (p.tasks || []).filter((t) => "done" !== t.status && t.start && t.start <= iso(addDays(parse(today()), 14))).slice(0, 10).forEach((t) => add("task", t.id, t.name || "Task", [t.owner, t.end ? `due ${fmtL(t.end)}` : ""].filter(Boolean).join(" · ")));
+    (DB.pos || []).filter((x) => x.projectId === p.id).slice(-10).reverse().forEach((x) => add("po", x.id, `${x.number || "Order"} · ${x.vendor || ""}`, x.status || ""));
+    ((DB.field || {}).logs || []).filter((l) => l.projectId === p.id && "draft" !== l.status).slice(-5).reverse().forEach((l) => add("log", l.id, `Daily Log · ${fmtL(l.date)}`, l.weather || ""));
+  }
+  if (!field) {
+    const c = msgClientOf(p);
+    c &&
+      [...(c.changeOrders || []), ...(c.invoices || []), ...(c.estimates || [])]
+        .filter((d) => (!d.projectId || d.projectId === p.id) && (!clientT || "draft" !== d.status))
+        .slice(-12)
+        .reverse()
+        .forEach((d) => add(d.type || "invoice", d.id, `${d.number || ""}${d.title ? ` · ${d.title}` : ""}`, d.status || "", { cid: c.id }));
+  }
+  (DB.photos || [])
+    .filter((x) => x.projectId === p.id && (!clientT || x.share))
+    .slice(-8)
+    .reverse()
+    .forEach((x) => add("photo", x.id, x.caption || "Photo", [x.area, x.date ? fmtL(x.date) : ""].filter(Boolean).join(" · ")));
+  return rows;
+}
+function msgPick() {
+  const u = msgMe(),
+    T = msgCur(u);
+  if (!T || msgIsClient(u)) return;
+  const rows = msgPickRows(T, u);
+  mbModal(
+    "Share a Record",
+    rows.length
+      ? `<input type="search" class="msg-pick-q" placeholder="Find a task, order, log or photo" aria-label="Find a record"><div class="msg-pick">${rows.map((r) => `<button type="button" class="msg-pickrow" data-msgpick="${esc(JSON.stringify({ kind: r.kind, id: r.id, cid: r.cid || "" }))}"><span class="msg-cic">${MSG_IC[r.kind] || MSG_IC.doc}</span><span class="msg-cbody"><b data-nocase>${esc(r.title)}</b><span class="small muted" data-nocase>${esc(r.detail)}</span></span></button>`).join("")}</div>`
+      : '<p class="small muted">Nothing on this job to share yet.</p>',
+    { submit: null },
+  );
+  const m = document.getElementById("mbm"),
+    q = m && m.querySelector(".msg-pick-q");
+  q &&
+    q.addEventListener("input", () => {
+      const s = q.value.trim().toLowerCase();
+      m.querySelectorAll(".msg-pickrow").forEach((b) => (b.hidden = !!s && !b.innerText.toLowerCase().includes(s)));
+    });
+}
+function msgPendingHtml() {
+  return msgPending
+    .map((c, i) => {
+      const R = msgRec(c);
+      return R ? `<span class="pill msg-pend"><span data-nocase>${esc(R.title)}</span><button type="button" class="msg-unpick" data-msgunpick="${i}" aria-label="Remove ${esc(R.title)}" title="Remove">${MSG_IC.x}</button></span>` : "";
+    })
+    .join("");
+}
+// ---- posting
+function msgLine(text, o) {
+  const u = msgMe();
+  o = o || {};
+  const m = { id: uid("ch"), by: u.name || "Team", fromUid: u.id || "", text: String(text || ""), t: nowStamp(), at: appNowIso(), files: o.files || [] };
+  return (
+    o.cards && o.cards.length && (m.cards = o.cards),
+    o.mentions && o.mentions.length && (m.mentions = o.mentions),
+    o.aud && (m.aud = o.aud),
+    u.lang && "en" !== u.lang && (m.lang = u.lang),
+    m
+  );
+}
+function msgPostDm(T, text, o) {
+  const m = msgLine(text, Object.assign({ mentions: msgMentionsOf(text, T) }, o || {}));
+  return T.all().push(m), msgSeenSet(T, msgMe()), save(), m;
+}
+// a direct thread between me and one other person: found, or started
+function msgDirectWith(otherId, create) {
+  const me = msgMe().id,
+    t = msgStore().find((x) => "group" !== x.kind && (x.members || []).length === 2 && x.members.includes(me) && x.members.includes(otherId));
+  if (t || !create) return t ? msgDmT(t) : null;
+  const nt = { id: uid("th"), kind: "direct", title: "", members: [me, otherId], createdBy: me, createdAt: appNowIso(), msgs: [], seen: {} };
+  return msgStore().push(nt), msgDmT(nt);
+}
+function msgNewThread() {
+  const u = msgMe();
+  if (!u.id || msgIsClient(u)) return;
+  const P = msgStaff().filter((x) => x.id !== u.id),
+    rn = (x) => ("undefined" != typeof ROLE_NAMES && ROLE_NAMES[x.role]) || x.role;
+  mbModal(
+    "New Message",
+    `<p class="small muted" style="margin:0 0 8px">Pick one person for a direct message, or more for a group. Only the people you pick can read it.</p><div class="msg-people">${P.map((x) => `<label class="msg-person"><input type="checkbox" data-f="m_${esc(x.id)}"><span><b>${esc(x.name)}</b> <span class="small muted">${esc(rn(x))}</span></span></label>`).join("")}</div>${mbF("Group Name", '<input data-f="title" placeholder="Only for a group, e.g. Site Leads">')}`,
+    {
+      submit: "Start",
+      onSubmit: (f) => {
+        const ids = P.filter((x) => f["m_" + x.id]).map((x) => x.id);
+        if (!ids.length) return toast("Pick at least one person"), !1;
+        let T;
+        if (1 === ids.length) T = msgDirectWith(ids[0], !0);
+        else {
+          const t = { id: uid("th"), kind: "group", title: String(f.title || "").trim(), members: [u.id, ...ids], createdBy: u.id, createdAt: appNowIso(), msgs: [], seen: {} };
+          msgStore().push(t), (T = msgDmT(t));
+        }
+        save();
+        const key = T.key;
+        setTimeout(() => {
+          msgOpen(key);
+          const t = document.getElementById("chat-text");
+          t && t.focus();
+        }, 0);
+        toast(`${1 === ids.length ? "Direct message" : "Group"} with ${ids.map((id) => msgFirst((msgUser(id) || {}).name)).join(", ")} is ready`, () => msgOpen(key));
+      },
+    },
+  );
+}
+// ---- one tap: a message becomes a task, through the one task creator; the line links to it and shows it
+function msgMakeTask(key, mid) {
+  const u = msgMe(),
+    T = msgThread(key, u),
+    m = T && T.all().find((x) => x.id === mid);
+  if (!T || !m || "function" != typeof crCreateTask) return;
+  if (m.taskId) return msgOpenTask(key, mid);
+  const text = String(m.text || "").replace(/^To [^:]{1,40}:\s*/, "").replace(MSG_ASK_RX, " ").trim(),
+    title = ("function" == typeof clipWords ? clipWords(text, 90) : text.slice(0, 90)) || `Follow up on ${m.by || "a"} message`,
+    made = crCreateTask({
+      title: title,
+      for: T.pid ? "p:" + T.pid : "me",
+      assignee: "function" == typeof tkMe ? tkMe() : u.name,
+      due: today(),
+      notes: `From ${m.by || "a message"} in ${T.title} (${T.sub}), ${m.t || ""}: "${String(m.text || "").slice(0, 400)}"`,
+      source: { label: `${m.by || "a"}'s message in ${T.title}`, chat: { key: key, id: m.id } },
+      area: msgIsField(u) ? "field" : "",
+    });
+  if (!made) return;
+  (m.taskId = made.id), (m.taskKind = made.kind), (m.taskPid = made.projectId || "");
+  try {
+    audit("chat", m.id, "message-to-task", "", made.id, title);
+  } catch (e) {}
+  save(), render();
+  const go = () => ("function" == typeof crOpenTask ? crOpenTask(made) : null);
+  "function" == typeof crToast ? crToast(`Task for ${made.assignee || "you"}, due today — it is on ${made.where}`, { label: "Open", run: go }) : toast(`Task made: ${title}`, go);
+  return made;
+}
+function msgOpenTask(key, mid) {
+  const T = msgThread(key),
+    m = T && T.all().find((x) => x.id === mid);
+  if (!m || !m.taskId) return;
+  const k = m.taskKind || (m.taskPid ? "action" : "firm"),
+    p = m.taskPid ? msgProj(m.taskPid) : null,
+    rec = p ? (p.actions || []).find((a) => a.id === m.taskId) : (DB.tasks || []).find((a) => a.id === m.taskId);
+  if (!rec) return void toast("That task is no longer here");
+  "function" == typeof crOpenTask && crOpenTask({ kind: k, id: rec.id, projectId: m.taskPid || "", assignee: rec.assignee || "", due: rec.due || "", rec: rec });
+}
+// ---- the screen
+function msgListHtml(L, cur, u) {
+  const tot = msgUnreadTotal(u),
+    rows = L.map((T) => {
+      const all = T.all(),
+        vis = all.filter((m) => msgVisible(m, T, u)),
+        last = vis[vis.length - 1],
+        un = msgUnread(T, u);
+      return { T: T, last: last, un: un, when: msgWhen(last) };
+    }).sort((a, b) => (b.last ? 1 : 0) - (a.last ? 1 : 0) || String(b.when).localeCompare(String(a.when)) || a.T.title.localeCompare(b.T.title));
+  return `<div class="msg-side-h"><h3>All Messages</h3>${tot.n ? `<span class="n msg-tot">${tot.n}</span>` : ""}${msgIsClient(u) ? "" : '<button type="button" class="btn sm" id="msg-new">New Message</button>'}</div><div class="msg-rows">${rows
+    .map(
+      (x) =>
+        `<button type="button" class="msg-row${x.T.key === (cur && cur.key) ? " on" : ""}${x.un.n ? " un" : ""}" data-msgopen="${esc(x.T.key)}"><span class="msg-ric k-${x.T.kind}">${MSG_IC[x.T.kind] || MSG_IC.direct}</span><span class="msg-mid"><span class="msg-t" data-nocase>${esc(x.T.title)}</span><span class="msg-k">${esc(x.T.sub)}</span><span class="msg-last" data-nocase>${x.last ? `${esc(msgFirst(x.last.by))}: ${esc(String(msgTextFor(x.last, u)).slice(0, 90))}` : "No messages yet"}</span></span><span class="msg-r">${x.last ? `<span class="msg-when">${esc(x.last.t || "")}</span>` : ""}${x.un.n ? `<span class="n">${x.un.n}</span>` : ""}${x.un.at ? '<span class="msg-atn" title="You were mentioned">@</span>' : ""}</span></button>`,
+    )
+    .join("")}</div>`;
+}
+function msgHeadHtml(T, u, solo) {
+  const tot = msgUnreadTotal(u),
+    cl = T.p ? msgClientOf(T.p) : null,
+    pill = { job: "Team Only", client: msgIsClient(u) ? "Your Project Team" : "Client Sees This", direct: "Direct Message", group: `Group of ${(T.t && T.t.members ? T.t.members : []).length}` }[T.kind],
+    cls = { job: "neutral", client: msgIsClient(u) ? "info" : "warn", direct: "info", group: "info" }[T.kind],
+    names = T.t ? (T.t.members || []).map((id) => (msgUser(id) || {}).name).filter(Boolean).join(", ") : "";
+  return `${solo ? "" : `<button type="button" class="btn sm msg-back" data-msgback>${MSG_IC.back}<span>All Messages</span>${tot.n ? `<span class="n">${tot.n}</span>` : ""}</button>`}<div class="msg-ttl"><span class="msg-ric k-${T.kind}">${MSG_IC[T.kind] || MSG_IC.direct}</span><b data-nocase>${esc(T.title)}</b><span class="pill ${cls}">${esc(pill)}</span></div>${
+    "client" === T.kind && !msgIsClient(u)
+      ? `<div class="note warn msg-warn small">${esc(cl ? cl.name : "The client")} reads everything in this thread. Keep costs, margins and team matters in the team thread.</div>`
+      : T.t
+        ? `<div class="small muted msg-who" data-nocase>Only ${esc(names)} can read this.</div>`
+        : ""
+  }`;
+}
+// the team thread points at the job's client thread when it holds something, so a line sent to the client is one tap away
+function msgClientStripHtml(T, u) {
+  if ("job" !== T.kind || msgIsField(u) || msgIsClient(u)) return "";
+  const C = msgThread("client:" + T.pid, u);
+  if (!C) return "";
+  const vis = C.all().filter((m) => msgVisible(m, C, u)),
+    last = vis[vis.length - 1];
+  if (!last) return "";
+  const un = msgUnread(C, u);
+  return `<button type="button" class="msg-strip" data-msgopen="${esc(C.key)}"><span class="msg-ric k-client">${MSG_IC.client}</span><span class="msg-mid"><span class="msg-k">Client Thread${un.n ? ` · ${un.n} new` : ""}</span><span class="msg-last" data-nocase>${esc(msgFirst(last.by))}: ${esc(String(last.text || "").slice(0, 140))}</span></span></button>`;
+}
+renderChat = function () {
+  const v = document.getElementById("v-chat"),
+    list = document.getElementById("chat-list");
+  if (!v || !list) return;
+  const u = msgMe(),
+    L = msgThreadsFor(u),
+    T = msgCur(u),
+    phone = window.innerWidth <= 760,
+    solo = L.length <= 1;
+  v.classList.toggle("msg-solo", solo);
+  v.classList.toggle("msg-listmode", !!(phone && msgListMode && !solo));
+  ["job", "client", "direct", "group"].forEach((k) => v.classList.toggle("msg-k-" + k, !!T && T.kind === k));
+  const side = document.getElementById("msg-side");
+  side && (side.innerHTML = solo ? "" : msgListHtml(L, T, u));
+  const head = document.getElementById("msg-head");
+  head && (head.innerHTML = T ? msgHeadHtml(T, u, solo) : "");
+  const nm = document.getElementById("chat-name");
+  nm && ((nm.value = u.name || nm.value || ""), (nm.hidden = !0), (nm.style.display = "none"));
+  if (!T) return void (list.innerHTML = '<div class="empty">No messages yet. A conversation starts when you are on a job or someone writes to you.</div>');
+  const all = T.all(),
+    vis = all.filter((m) => msgVisible(m, T, u)),
+    asks = msgAsks(u).filter((a) => a.key === T.key),
+    byAfter = {};
+  asks.forEach((a) => {
+    const k = a.after && vis.some((m) => m.id === a.after) ? a.after : "__end";
+    (byAfter[k] = byAfter[k] || []).push(a);
+  });
+  const empty = {
+    job: msgIsField(u) ? "No messages yet. Post an update and everyone on the job sees it." : "No messages yet. Post what happened on site today.",
+    client: "No messages yet. Ask anything — the team answers here.",
+    direct: "No messages yet. Say hello.",
+    group: "No messages yet. Say hello.",
+  }[T.kind];
+  (list.innerHTML =
+    msgClientStripHtml(T, u) +
+    (vis.length
+      ? vis.map((m) => msgLineHtml(m, T, u) + (byAfter[m.id] || []).map(msgAiHtml).join("")).join("")
+      : `<div class="empty">${esc(empty)}</div>`) +
+    (byAfter.__end || []).map(msgAiHtml).join("")),
+    (list.scrollTop = list.scrollHeight);
+  try {
+    "function" == typeof pstFill && pstFill(list);
+  } catch (e) {}
+  // the compose box fits the thread
+  const lab = v.querySelector(".chat-compose label.btn"),
+    rec = document.getElementById("msg-rec"),
+    tx = document.getElementById("chat-text");
+  lab && (lab.hidden = !!T.t);
+  rec && (rec.hidden = msgIsClient(u));
+  tx &&
+    !msgIsClient(u) &&
+    (tx.placeholder =
+      "client" === T.kind
+        ? `Write to ${msgFirst((msgClientOf(T.p) || {}).name) || "the client"}…`
+        : T.t
+          ? `Message ${T.title}…`
+          : msgIsField(u)
+            ? "Message the office…"
+            : `Message the team on ${T.title}…`);
+  const pend = document.getElementById("msg-pending");
+  pend && ((pend.innerHTML = msgPendingHtml()), (pend.hidden = !msgPending.length));
+  const lead = v.querySelector(".ph .lead");
+  lead &&
+    !msgIsClient(u) &&
+    (lead.textContent =
+      "client" === T.kind
+        ? "The client's thread for this job. Everything here is read by the client."
+        : T.t
+          ? "A private conversation. Only the people in it can read it."
+          : "The team's thread for this job. Every post is read by the assistant and becomes a proposal in the Inbox when it changes the project.");
+  // the field's message to someone by name, on the job's thread only
+  try {
+    "job" === T.kind && CHAT_FIELD() ? chatDmBar() : document.getElementById("chat-dm")?.remove();
+  } catch (e) {}
+  // read: the open thread is seen when it is on the screen
+  !(phone && msgListMode && !solo) && "chat" === view && msgSeenSet(T, u) && save();
+};
+// ---- sending: one door for every thread
+{
+  const base = sendChat;
+  sendChat = function (attach) {
+    const tx = document.getElementById("chat-text"),
+      raw = tx ? tx.value.trim() : "",
+      u = msgMe(),
+      T = msgCur(u);
+    if (!T || !u.id) return base.apply(this, arguments);
+    const ask = msgAskOf(raw);
+    if (ask && !ask.rest) return tx && (tx.value = ""), "function" == typeof sendGates && sendGates(), void msgAsk(T, ask.q);
+    if (!raw) return base.apply(this, arguments);
+    const cards = msgPending.splice(0).concat(msgCardsIn(raw)).filter((c, i, A) => A.findIndex((x) => x.kind === c.kind && x.id === c.id) === i),
+      clientT = "client" === T.kind;
+    // a client never receives an internal record through a card
+    const C = clientT ? cards.filter((c) => MSG_CLIENT_CARDS.includes(c.kind)) : cards;
+    if (T.t) {
+      msgPostDm(T, raw, { cards: C, files: attach || [] }), tx && (tx.value = ""), "function" == typeof sendGates && sendGates(), render();
+      ask && msgAsk(T, ask.q);
+      return void ("function" == typeof rcToast ? rcToast(`Sent to ${T.title}`, [{ label: "Open", run: () => msgOpen(T.key) }]) : toast(`Sent to ${T.title}`));
+    }
+    T.pid && (!S || S.id !== T.pid) && setCurrent(T.pid), (msgKey = T.key);
+    const p = T.p;
+    if (clientT && !msgIsClient(u)) {
+      // the office writing to the client: an open question from the client is answered by it (one Do Now item closes)
+      const q = (p.clientQs || []).filter((x) => "open" === x.status).slice(-1)[0];
+      if (q && "function" == typeof clqSendAnswer && !C.length && !(attach || []).length) {
+        const n0 = (p.chat || []).length;
+        clqSendAnswer(q, p, raw), msgStamp(p, n0, "client", C, raw, T);
+      } else {
+        (p.chat = p.chat || []).push(msgLine(raw, { cards: C, files: attach || [], aud: "client" })), msgSeenSet(T, u), save(), render();
+        const first = msgFirst((msgClientOf(p) || {}).name) || "the client";
+        toast(`Sent to ${first}`, () => msgOpen(T.key));
+      }
+      return tx && (tx.value = ""), "function" == typeof sendGates && sendGates(), void (ask && msgAsk(T, ask.q));
+    }
+    const n0 = (p.chat || []).length,
+      r = base.apply(this, arguments);
+    msgStamp(p, n0, clientT ? "client" : "team", C, raw, T, attach);
+    ask && msgAsk(T, ask.q);
+    return r;
+  };
+}
+// the job's existing path wrote the line; it gets who wrote it, when, its audience, its mentions, its cards and photos
+function msgStamp(p, n0, aud, cards, raw, T, attach) {
+  try {
+    const u = msgMe(),
+      neu = (p.chat || []).slice(n0);
+    neu.forEach((m, i) => {
+      m.fromUid || (m.fromUid = u.id), m.at || (m.at = appNowIso()), m.aud || (m.aud = aud);
+      const men = msgMentionsOf(m.text, T);
+      men.length && (m.mentions = men);
+      0 === i && cards.length && (m.cards = (m.cards || []).concat(cards));
+      // a photo posted by the team joins the job's photo stream and shows as its card
+      !msgIsClient(u) &&
+        (m.files || []).forEach((fid) => {
+          const f = (p.files || []).find((x) => x.id === fid);
+          if (!f || !/^image\//.test(f.type || "") || "function" != typeof pstMeta) return;
+          // the upload already put it in the stream (uploadFiles, ref {kind: "file"}); otherwise it is added here
+          let rec = (DB.photos || []).find((x) => x.ref && "file" === x.ref.kind && x.ref.id === f.id);
+          rec ||
+            ((rec = Object.assign(pstMeta({ projectId: p.id, source: "field", caption: "Posted in Chat", by: u.name }), { fileId: f.id, ref: { kind: "file", id: f.id }, w: f.w || 1200, h: f.h || 900 })),
+            (DB.photos = DB.photos || []).push(rec));
+          const cap = String(m.text || "").replace(/\[[^\]]*\]/g, "").trim().slice(0, 90);
+          cap && (rec.caption = cap), (rec.chatId = m.id);
+          (m.cards = m.cards || []).push({ kind: "photo", id: rec.id, fileId: f.id });
+        });
+    });
+    neu.length && (msgSeenSet(T, u), save(), "chat" === view && renderChat());
+  } catch (e) {
+    console.warn("message stamp", e);
+  }
+}
+// The field's "To" picker on the job's thread: the message goes to a direct thread with that person (it used to sit
+// on the job's stream for everyone), and stays on their task list as before, so it is answered, not lost.
+chatSendTo = function (uidTo, text) {
+  const to = msgUser(uidTo),
+    me = msgMe(),
+    t = String(text || "").trim();
+  if (!to || !t || !me.id) return null;
+  const T = msgDirectWith(to.id, !0),
+    msg = msgPostDm(T, t, {});
+  S &&
+    (S.actions = S.actions || []).push({ id: uid("a"), title: `Answer ${me.name || "the field"}: ${t.slice(0, 90)}`, assignee: to.name, due: today(), priority: "high", status: "todo", area: "field", createdAt: appNowIso(), chatId: msg.id, threadId: T.t.id });
+  try {
+    audit("chat", msg.id, "message-to", "", to.name, t.slice(0, 120));
+  } catch (e) {}
+  return (msgKey = T.key), save(), msg;
+};
+// ---- the switches that pick a thread: a new job or a new person on the device starts on the job's own thread
+{
+  const base = setCurrent;
+  setCurrent = function (id) {
+    const was = S ? S.id : null,
+      r = base.apply(this, arguments);
+    return S && S.id !== was && ((msgKey = null), (msgPending = [])), r;
+  };
+}
+{
+  const base = signIn;
+  signIn = function () {
+    return (msgKey = null), (msgListMode = !1), (msgPending = []), base.apply(this, arguments);
+  };
+}
+// ---- clicks
+document.addEventListener("click", (e) => {
+  const t = e.target && e.target.closest ? e.target : null;
+  if (!t) return;
+  let b;
+  if ((b = t.closest("[data-msgopen]"))) return e.preventDefault(), msgOpen(b.dataset.msgopen);
+  if ((b = t.closest("[data-msgback]"))) return e.preventDefault(), (msgListMode = !0), render(), void window.scrollTo(0, 0);
+  if ((b = t.closest("#msg-new"))) return e.preventDefault(), void msgNewThread();
+  if ((b = t.closest("#msg-rec"))) return e.preventDefault(), void msgPick();
+  if ((b = t.closest("[data-msgtask]"))) {
+    e.preventDefault();
+    const [k, ...id] = b.dataset.msgtask.split("|");
+    return void msgMakeTask(k, id.join("|"));
+  }
+  if ((b = t.closest("[data-msgtaskopen]"))) {
+    e.preventDefault();
+    const [k, ...id] = b.dataset.msgtaskopen.split("|");
+    return void msgOpenTask(k, id.join("|"));
+  }
+  if ((b = t.closest("[data-msgcard]"))) {
+    e.preventDefault();
+    try {
+      msgOpenCard(JSON.parse(b.dataset.msgcard));
+    } catch (err) {}
+    return;
+  }
+  if ((b = t.closest("[data-msgpick]"))) {
+    e.preventDefault();
+    try {
+      const c = JSON.parse(b.dataset.msgpick);
+      c.cid || delete c.cid;
+      msgPending.some((x) => x.kind === c.kind && x.id === c.id) || msgPending.push(c);
+      const R = msgRec(c),
+        tx = document.getElementById("chat-text");
+      tx && R && !tx.value.trim() && (tx.value = R.title);
+      "function" == typeof mbCloseModal && mbCloseModal(), renderChat(), "function" == typeof sendGates && sendGates(), tx && tx.focus();
+    } catch (err) {}
+    return;
+  }
+  if ((b = t.closest("[data-msgunpick]"))) return e.preventDefault(), msgPending.splice(+b.dataset.msgunpick, 1), void renderChat();
+  const ai = (id) => msgAsks().find((a) => a.id === id);
+  if ((b = t.closest("[data-msgaiask]"))) {
+    e.preventDefault();
+    const a = ai(b.dataset.msgaiask);
+    return void (a && ((view = "pa"), render(), "function" == typeof paSend && paSend(a.q)));
+  }
+  if ((b = t.closest("[data-msgaishare]"))) {
+    e.preventDefault();
+    const a = ai(b.dataset.msgaishare),
+      tx = document.getElementById("chat-text");
+    // the person shares it: the answer goes into the box for them to read and send, never on its own
+    return void (a && tx && ((tx.value = [a.headline, a.note].filter(Boolean).join(" ")), "function" == typeof sendGates && sendGates(), tx.focus()));
+  }
+  if ((b = t.closest("[data-msgaidrop]"))) {
+    e.preventDefault();
+    const A = msgAsks(),
+      i = A.findIndex((a) => a.id === b.dataset.msgaidrop);
+    return void (i >= 0 && (A.splice(i, 1), save(), renderChat()));
+  }
+  if ((b = t.closest("[data-msgoffer]"))) {
+    e.preventDefault();
+    const [id, i] = b.dataset.msgoffer.split("|"),
+      o = (msgOffers[id] || [])[+i];
+    return void (o && o.run && o.run());
+  }
+});
+// the client's thread warns, as the person types, when a line reads like the team's business
+document.addEventListener("input", (e) => {
+  if (!e.target || "chat-text" !== e.target.id) return;
+  try {
+    const u = msgMe(),
+      T = msgCur(u),
+      list = document.getElementById("msg-pending");
+    if (!T || "client" !== T.kind || msgIsClient(u) || !list) return;
+    const hit = /\b(margin|markup|mark-up|our cost|cost to us|profit|overhead|vendor price|wholesale|internal|between us)\b/i.test(e.target.value);
+    let w = document.getElementById("msg-intwarn");
+    hit && !w && list.insertAdjacentHTML("beforebegin", `<div class="note warn small" id="msg-intwarn">${esc((msgClientOf(T.p) || {}).name || "The client")} will read this. Pricing, costs and team matters belong in the team thread.</div>`);
+    !hit && w && w.remove();
+  } catch (err) {}
+});
+// ---- one number: the rail, the tab bar and the phone tabs carry the person's unread count
+function msgBadges() {
+  const u = msgMe();
+  if (!u.id) return;
+  const tot = msgUnreadTotal(u).n;
+  document.querySelectorAll('[data-v="chat"], [data-mv="chat"], [data-tab="chat"], [data-sub="chat"]').forEach((el) => {
+    let s = el.querySelector(".n.msg-n") || el.querySelector(".n");
+    !s && tot && ((s = document.createElement("span")), (s.className = "n msg-n"), el.appendChild(s));
+    s && (s.textContent = tot ? String(tot) : "");
+  });
+}
+{
+  const base = render;
+  render = function () {
+    const r = base.apply(this, arguments);
+    try {
+      document.body.classList.toggle("msg-on", "chat" === view);
+      if ("chat" === view) {
+        const u = msgMe(),
+          T = msgCur(u),
+          tx = document.getElementById("chat-text");
+        // the field's own wording (fmChat) is for the job's thread; a direct thread names its person
+        T && T.t && tx && (tx.placeholder = `Message ${T.title}…`);
+        const lab = document.querySelector("#v-chat .chat-compose label.btn");
+        lab && T && (lab.hidden = !!T.t);
+        // the list opens at its top (the field's chat screen scrolls to the newest line, which is for a thread)
+        document.getElementById("v-chat")?.classList.contains("msg-listmode") && window.scrollTo(0, 0);
+      }
+      msgBadges();
+    } catch (e) {
+      console.warn("messages badges", e);
+    }
+    return r;
+  };
+}
+// ---- boot: the threads join the records (DB.threads), the demo's two conversations are seeded once
+if ("function" == typeof finishBoot) {
+  const base = finishBoot;
+  finishBoot = function () {
+    const r = base.apply(this, arguments);
+    try {
+      const a = msgSeed(),
+        b = msgMigrate();
+      (a || b) && save();
+    } catch (e) {
+      console.warn("messages boot", e);
+    }
+    return r;
+  };
+}
+// ---- Ask and the query layer read messages as everything else: only the lines this person may read
+function msgEqRows() {
+  const u = msgMe(),
+    out = [];
+  msgThreadsFor(u).forEach((T) =>
+    T.all()
+      .filter((m) => msgVisible(m, T, u))
+      .forEach((m) =>
+        out.push({
+          _id: m.id,
+          _module: "Chat",
+          _label: String(m.text || "").slice(0, 80),
+          _go: { view: "chat", project: T.pid || void 0 },
+          thread: T.title,
+          kind: T.kind,
+          by: m.by || "",
+          date: String(msgWhen(m)).slice(0, 10),
+          text: String(m.text || "").slice(0, 2e3),
+          project: T.p ? msgJobName(T.p) : "",
+          projectId: T.pid || "",
+          task: m.taskId ? "yes" : "",
+        }),
+      ),
+  );
+  return out;
+}
+try {
+  "undefined" != typeof EQ_TABLES && (EQ_TABLES.chat = () => msgEqRows());
+  "undefined" != typeof QA_DATE_FIELD && (QA_DATE_FIELD.chat = "date");
+  "undefined" != typeof A4_ENTITY_SAY && (A4_ENTITY_SAY.chat = "chat messages");
+} catch (e) {}
+// ---- findable (BACKLOG §1.16): a chat line made from another screen opens in the thread that holds it, on the line
+// itself (the job's team or client thread by its audience), not on whichever thread of the job opens first
+try {
+  if ("undefined" != typeof FND_HOME && FND_HOME["p.chat"]) {
+    FND_HOME["p.chat"].open = (r, p) => {
+      if (!p) return;
+      const u = msgMe(),
+        key = (msgIsClient(u) || ("client" === msgAud(r, p) && !msgIsField(u)) ? "client:" : "job:") + p.id;
+      msgThread(key, u) ? msgOpen(key) : ("function" == typeof setCurrent && setCurrent(p.id), (view = "chat"), render());
+    };
+    FND_HOME["p.chat"].sel = (r) => (r && r.id ? `#chat-list [data-mid="${r.id}"]` : "");
+  }
+} catch (e) {}
