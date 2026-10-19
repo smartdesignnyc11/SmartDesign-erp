@@ -197023,7 +197023,9 @@ function tdyRecurSweep() {
     if (!d.owner || have.has(d.key)) return;
     have.add(d.key);
     const rec = {
-      id: uid("a"),
+      // the id is the duty's own key, not a random one: two phones opening on the same morning make the same record,
+      // and the shared system's record merge keeps one (a random id gave every device its own Friday update)
+      id: "rd_" + String(d.key).replace(/[^A-Za-z0-9]+/g, "_"),
       title: d.title,
       assignee: d.owner,
       due: d.due,
