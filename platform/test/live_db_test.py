@@ -90,6 +90,23 @@ ok(j and j[0]['role'] == 'foreman', f'role unchanged: {j}')
 s, j = http('PATCH', BASE + '/rest/v1/profiles?id=eq.' + me['id'], {'workspace_id': 'smartdesign'}, token=T['owner'], headers={'prefer': 'return=representation'})
 ok(s >= 400, f'not even the owner moves someone into another firm: {s}')
 
+# a person's own rows: nobody else reads or writes them, the owner included
+own_o = 'own:' + QA['owner']['id'] + ':comms'; own_f = 'own:' + QA['foreman']['id'] + ':comms'
+s, res = save(T['owner'], [{'name': own_o, 'data': [{'id': 'gm1', 'owner': 'x', 'source': 'google', 'text': 'OWNER-PRIVATE-MAIL'}], 'base': 0}])
+ok(s == 200 and res[0].get('version'), f'the owner saves his own mail row: {res}')
+s, res = save(T['foreman'], [{'name': own_f, 'data': [{'id': 'gm2', 'owner': 'y', 'source': 'google', 'text': 'FOREMAN-PRIVATE-MAIL'}], 'base': 0}])
+ok(s == 200 and res[0].get('version'), f'the foreman saves his own mail row: {res}')
+for who, mine, theirs in (('foreman', 'FOREMAN', 'OWNER'), ('owner', 'OWNER', 'FOREMAN'), ('crew', None, 'OWNER')):
+    s, rows = view(T[who]); txt = json.dumps(rows)
+    ok(theirs + '-PRIVATE-MAIL' not in txt and (who == 'crew' or 'FOREMAN' not in txt or who == 'foreman'), f'{who} never receives another person\'s mail')
+    if mine: ok(mine + '-PRIVATE-MAIL' in txt, f'{who} receives his own mail')
+s, res = save(T['foreman'], [{'name': own_o, 'data': [], 'base': 99}])
+ok(res and res[0].get('refused'), f"the foreman cannot write the owner's mail row: {res}")
+s, res = save(T['owner'], [{'name': own_f, 'data': [], 'base': 99}])
+ok(res and res[0].get('refused'), f"the owner cannot write the foreman's mail row either: {res}")
+s, j = http('POST', BASE + '/rest/v1/rpc/collection_versions', {}, token=T['foreman'])
+ok(s == 200 and not any(r['name'] == own_o for r in j), "the version list does not show the owner's mail row to the foreman")
+
 # the AI door
 def ai(who, body):
     h = {'content-type': 'application/json'}

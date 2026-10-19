@@ -99,8 +99,31 @@ async def main():
             F.evaluate(f"(() => {{ const p = DB.projects.find(x => x.id === '{pid}'); p.qaNotes.push({{id: 'n2', note: 'insulation in'}}); saveNow ? saveNow() : save(); }})()"))
         both = f"(() => {{ const p = DB.projects.find(x => x.id === '{pid}'); return p.qaStamp === 'office-2' && (p.qaNotes||[]).some(n => n.id === 'n2'); }})()"
         ok(await until(A, both, 60), 'simultaneous edits: the office has both')
+        who = await A.evaluate("[paMe().id, DB.role, DB.deviceUser].join()"), await F.evaluate("[paMe().id, DB.role, DB.deviceUser].join()")
+        ok(who[0].startswith('u_owner,owner') and who[1].startswith('u_angel,foreman'), f'each device is still its own person after the other saves: {who}')
         ok(await until(F, both, 60), 'simultaneous edits: the phone has both')
 
+
+        # personal mail: the owner connects the Demo Workspace (invented mail through the real Google code path)
+        await A.evaluate("gcDemoConnect()")   # connecting starts the first sync itself
+        await until(A, "!gsRunning && (DB.comms || []).some(c => c.owner === paMe().id && c.source === 'demo')", 60)
+        n_mail = await A.evaluate("""(() => { saveNow ? saveNow() : save();
+            return (DB.comms || []).filter(c => c.owner === paMe().id && (c.source === 'demo' || c.source === 'google')).length; })()""")
+        ok(n_mail > 0, f'the owner\'s connected mailbox synced ({n_mail} messages)')
+        ok(await until(A, "Cloud.state.err === '' && !Cloud.state.syncing && Object.keys(Cloud.shards(DB)).some(k => k.startsWith('own:'))", 40), 'the owner\'s own rows were written')
+        await A.wait_for_timeout(2000); await A.evaluate("Cloud.push(DB)"); await A.wait_for_timeout(3000)
+        srv = await A.evaluate("""(async () => { const sh = await Cloud.pullOne('comms'); const own = await Cloud.pullOne('own:' + Cloud.user().id + ':comms');
+            return {shared: (sh && sh.data || []).filter(c => c.source === 'demo' || c.source === 'google').length, own: own ? own.data.length : -1,
+                    localDemo: (DB.comms || []).filter(c => c.source === 'demo').length, localOwn: (Cloud.shards(DB)['own:' + Cloud.user().id + ':comms'] || []).length,
+                    person: window.__cloudPerson, me: paMe().id, owners: [...new Set((DB.comms || []).filter(c => c.source === 'demo').map(c => c.owner))]}; })()""")
+        ok(srv['shared'] == 0 and srv['own'] == n_mail, f'on the server the mail is only in the owner\'s own row: {srv}')
+        await F.evaluate("Cloud.pollOnce()"); await F.wait_for_timeout(3000)
+        leak = await F.evaluate("(DB.comms || []).filter(c => c.source === 'demo' || c.source === 'google').length + ((DB.calendar||{}).external||[]).filter(e => e.source === 'demo' || e.source === 'google').length + (DB.gdrive||[]).length")
+        ok(leak == 0, f'the foreman\'s phone holds none of the owner\'s mail, events or files ({leak})')
+        A2, ea2 = await person(b, 'owner', True)
+        back = await A2.evaluate("(DB.comms || []).filter(c => c.owner === paMe().id && (c.source === 'demo' || c.source === 'google')).length")
+        ok(back == n_mail, f'the owner\'s mail comes back on his other device ({back} of {n_mail})')
+        ok(not ea2, f'owner, second device: no page errors {ea2[:3]}')
         # the AI door from the page itself carries the session
         r = await F.evaluate("fetch('/api/ai', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({tier:'small', max_tokens: 20, messages:[{role:'user', content:'Reply with the word ready.'}]})}).then(r => r.status)")
         ok(r == 200, f'the page reaches /api/ai signed in and is answered (status {r})')

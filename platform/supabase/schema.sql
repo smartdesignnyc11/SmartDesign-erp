@@ -146,7 +146,10 @@ create or replace view public.collections_view with (security_invoker = false) a
          case when public.is_office() then c.data else public.strip_money(c.data) end as data
   from public.collections c
   where c.workspace_id = public.my_workspace()
-    and (public.is_office() or (public.is_field() and not (c.name = any(public.field_hidden()))));
+    and (public.is_office() or (public.is_field() and not (c.name = any(public.field_hidden()))))
+    -- A person's own rows (own:<their sign-in id>:<collection>): the mail, calendar and Drive files from their
+    -- Google account, their connection and their assistant's memory. Nobody else reads them, the owner included.
+    and (c.name not like 'own:%' or split_part(c.name, ':', 2) = auth.uid()::text);
 revoke all on public.collections_view from anon;
 grant select on public.collections_view to authenticated;
 
@@ -175,7 +178,13 @@ begin
   for it in select * from jsonb_array_elements(p_items) loop
     nm := it->>'name';
     if nm is null or length(nm) > 200 then continue; end if;
-    if field and (nm = any(public.field_hidden()) or nm = any(public.field_readonly())) then
+    if nm in ('deviceUser','role','me','currentId','notify','lastMail') then   -- settings of one device, never shared
+      result := result || jsonb_build_array(jsonb_build_object('name', nm, 'refused', true)); continue;
+    end if;
+    if nm like 'own:%' and split_part(nm, ':', 2) <> auth.uid()::text then
+      result := result || jsonb_build_array(jsonb_build_object('name', nm, 'refused', true)); continue;
+    end if;
+    if field and nm not like 'own:%' and (nm = any(public.field_hidden()) or nm = any(public.field_readonly())) then
       result := result || jsonb_build_array(jsonb_build_object('name', nm, 'refused', true)); continue;
     end if;
     base := nullif(it->>'base','')::int;
@@ -190,7 +199,7 @@ begin
              version = newv, updated_by = auth.uid(), updated_at = now()
        where workspace_id = wsid and name = nm;
     else
-      if field and nm not like 'project:%' and nm not in ('field','time','photos','tasks','comms','meetings') then
+      if field and nm not like 'project:%' and nm not like 'own:%' and nm not in ('field','time','photos','tasks','comms','meetings') then
         result := result || jsonb_build_array(jsonb_build_object('name', nm, 'refused', true)); continue;
       end if;
       newv := 1;
@@ -276,3 +285,6 @@ create or replace function public.ai_spend(p_ws text, p_user uuid) returns jsonb
     'user', coalesce((select sum(cost_usd) from public.ai_usage u, m where u.user_id = p_user and u.at >= m.start), 0));
 $$;
 revoke all on function public.ai_spend(text, uuid) from public, anon, authenticated;
+
+-- One-time cleanup (2026-10-19): device settings that early builds synced as if they were the firm's records.
+delete from public.collections where name in ('deviceUser','role','me','currentId','notify','lastMail');

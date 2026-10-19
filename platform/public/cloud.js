@@ -34,7 +34,7 @@ window.Cloud = (() => {
   const FIELD_READONLY = ['__meta', 'company', 'clients', 'users', 'vendors', 'stock', 'inventory', 'obligations', 'watches', 'migrations'];
   const isOffice = () => OFFICE.includes(profile && profile.role);
   const isField = () => FIELD.includes(profile && profile.role);
-  const mayWrite = name => isOffice() || (isField() && !FIELD_HIDDEN.includes(name) && !FIELD_READONLY.includes(name));
+  const mayWrite = name => name.startsWith('own:') || isOffice() || (isField() && !FIELD_HIDDEN.includes(name) && !FIELD_READONLY.includes(name));
 
   // ---- the pending marker: unsynced edits survive a closed tab or a dead battery
   const pkey = () => 'sdp:pending:' + (user() ? user().id : '');
@@ -130,19 +130,81 @@ window.Cloud = (() => {
   }
 
   // ---- collections
-  function shards(DB) { const out = {}; const meta = {}; for (const k of Object.keys(DB)) { if (k === 'projects') continue; if (k.startsWith('__')) { meta[k] = DB[k]; continue; } out[k] = DB[k]; } out.__meta = meta; (DB.projects || []).forEach(p => { out['project:' + p.id] = p; }); return out; }
+  // ---- personal records: what came from one person's Google account never goes into a shared row
+  // Each lives in own:<sign-in id>:<collection>, which the database lets only that sign-in read or write.
+  // `priv` says which records are personal; a device only ever sends its own person's (owner === me).
+  const fromAccount = it => !!(it && it.owner && (it.source === 'google' || it.source === 'demo'));
+  const PRIV = {
+    comms: {kind: 'list', priv: fromAccount},                                           // mail
+    gdrive: {kind: 'list', priv: it => !!(it && it.owner)},                              // Drive files
+    calendar: {kind: 'nested', field: 'external', priv: e => !!(e && e.owner && e.source !== 'erp')},  // Google Calendar; ERP holds stay shared
+    conn: {kind: 'keyed'},                                                                // each person's Google connection
+    asst: {kind: 'keyed'},                                                                // each person's assistant: thread, memory, delegation
+  };
+  const meApp = () => window.__cloudPerson || null;                                         // the person in the app (DB.users id)
+  const ownName = k => 'own:' + user().id + ':' + k;
+  const ownIds = {};                                                                      // own shard -> ids (or keys) last put into DB
+  function split(DB, k, out) {
+    const r = PRIV[k], me = meApp(), mine = !!(me && user());
+    if (r.kind === 'list') {
+      const arr = Array.isArray(DB[k]) ? DB[k] : [];
+      out[k] = arr.filter(i => !r.priv(i));
+      if (mine) out[ownName(k)] = arr.filter(i => r.priv(i) && i.owner === me);
+    } else if (r.kind === 'nested') {
+      const obj = DB[k] || {}, arr = Array.isArray(obj[r.field]) ? obj[r.field] : [];
+      out[k] = Object.assign({}, obj, {[r.field]: arr.filter(i => !r.priv(i))});
+      if (mine) out[ownName(k)] = arr.filter(i => r.priv(i) && i.owner === me);
+    } else {
+      const obj = DB[k] || {}, people = new Set((DB.users || []).map(u => u.id)), shared = {};
+      for (const key of Object.keys(obj)) if (!people.has(key)) shared[key] = obj[key];
+      out[k] = shared;
+      if (mine) out[ownName(k)] = obj[me] !== undefined ? {[me]: obj[me]} : {};
+    }
+  }
+  // Settings of this device, not records of the firm: who is using it, their role and name, the job on screen,
+  // notifications, the mail marker. Synced, one phone's save signed every other device in as that person.
+  const DEVICE = ['deviceUser', 'role', 'me', 'currentId', 'notify', 'lastMail'];
+  function shards(DB) {
+    const out = {}; const meta = {};
+    for (const k of Object.keys(DB)) { if (k === 'projects' || DEVICE.includes(k)) continue; if (k.startsWith('__')) { meta[k] = DB[k]; continue; } if (PRIV[k]) split(DB, k, out); else out[k] = DB[k]; }
+    if (user() && meApp()) for (const k of Object.keys(PRIV)) if (!(ownName(k) in out)) split(DB, k, out);   // an emptied list still syncs as empty
+    out.__meta = meta; (DB.projects || []).forEach(p => { out['project:' + p.id] = p; }); return out;
+  }
+  // Put one shard's value into DB: a whole collection, a project, or one part of a split collection.
+  function setPart(DB, name, data) {
+    if (name.startsWith('project:')) { const i = DB.projects.findIndex(p => p.id === data.id); i >= 0 ? (DB.projects[i] = data) : DB.projects.push(data); return 'projects'; }
+    if (name === '__meta') { Object.assign(DB, data || {}); return null; }
+    if (DEVICE.includes(name)) return null;                                                // never taken from the server
+    const own = name.startsWith('own:'), k = own ? name.split(':').slice(2).join(':') : name, r = PRIV[k];
+    if (!r) { DB[name] = data; return name; }
+    if (r.kind === 'keyed') {
+      if (own) { DB[k] = DB[k] || {}; (ownIds[name] || []).forEach(key => delete DB[k][key]); Object.assign(DB[k], data || {}); ownIds[name] = Object.keys(data || {}); }
+      else { const keep = {}, people = new Set((DB.users || []).map(u => u.id)); for (const [key, v] of Object.entries(DB[k] || {})) if (people.has(key)) keep[key] = v; DB[k] = Object.assign({}, data || {}, keep); }
+      return k;
+    }
+    const get = () => r.kind === 'list' ? (DB[k] || []) : ((DB[k] || {})[r.field] || []);
+    const put = arr => { if (r.kind === 'list') DB[k] = arr; else { DB[k] = DB[k] || {}; DB[k][r.field] = arr; } };
+    if (own) { const was = new Set(ownIds[name] || []); const list = Array.isArray(data) ? data : []; put(get().filter(i => !was.has(i && i.id)).concat(list)); ownIds[name] = list.map(i => i && i.id); }
+    else if (r.kind === 'list') { DB[k] = (Array.isArray(data) ? data : []).concat((DB[k] || []).filter(r.priv)); }
+    else { const keepPriv = ((DB[k] || {})[r.field] || []).filter(r.priv); DB[k] = Object.assign({}, data || {}); DB[k][r.field] = ((data || {})[r.field] || []).concat(keepPriv); }
+    return k;
+  }
   function remember(name, data, version) { last[name] = hash(JSON.stringify(data)); base[name] = clone(data); versions[name] = version; }
-  function assemble(rows) { if (!rows.length) return null; const DB = {projects: []}; for (const r of rows) { if (r.name.startsWith('project:')) DB.projects.push(r.data); else if (r.name === '__meta') Object.assign(DB, r.data || {}); else DB[r.name] = r.data; remember(r.name, r.data, r.version); } return DB; }
+  function assemble(rows) {
+    if (!rows.length) return null; const DB = {projects: []};
+    const own = rows.filter(r => r.name.startsWith('own:'));
+    for (const r of rows.filter(r => !r.name.startsWith('own:'))) { setPart(DB, r.name, r.data); remember(r.name, r.data, r.version); }
+    for (const r of own) { setPart(DB, r.name, r.data); remember(r.name, r.data, r.version); }   // after the shared parts they join
+    return DB;
+  }
   async function pullAll() { const {data, error} = await sb.from('collections_view').select('name,data,version'); if (error) throw error; return assemble(data || []); }
   async function pullOne(name) { const {data, error} = await sb.from('collections_view').select('name,data,version').eq('name', name).maybeSingle(); if (error) throw error; return data; }
 
   // Put one collection's value into the app's DB (the app's own cloudApply re-renders).
   function applyLocal(name, data) {
     const DB = dbRef(); if (!DB) return;
-    if (name === '__meta') { Object.assign(DB, data); return; }
-    if (onChange) { onChange(name, data); return; }
-    if (name.startsWith('project:')) { const i = DB.projects.findIndex(p => p.id === data.id); i >= 0 ? (DB.projects[i] = data) : DB.projects.push(data); }
-    else if (name === '__meta') Object.assign(DB, data); else DB[name] = data;
+    const k = setPart(DB, name, data);
+    if (onChange && k) onChange(k === 'projects' ? name : k, k === 'projects' ? data : DB[k]);   // the app's cloudApply re-renders
   }
   // The server moved past us on `name`: merge our unsynced edits into its copy.
   function absorb(name, row) {
@@ -255,5 +317,6 @@ window.Cloud = (() => {
   return {on, init, isOffice, isField, token: () => (session && session.access_token) || '', setDbRef: f => { dbRef = f; }, user, profile: getProfile,
     signIn, signInGoogle, authError, magicLink, resetPassword, signOut, pullAll, pullOne, push, pushPending, hasPending, subscribe, pollOnce, putBlob, getBlob,
     listProfiles, updateProfile, aiSpend, listSignals: none, setSignalStatus: async () => true, listClips: none, claimClips: async () => 0,
-    saveClipToken: async () => true, screenPoint: async () => null, state, shards, merge3, cfg};
+    saveClipToken: async () => true, screenPoint: async () => null, state, shards, merge3, cfg,
+    _test: {session: s => { session = s; }, setPart: (DB, n, d) => setPart(DB, n, d)}};
 })();

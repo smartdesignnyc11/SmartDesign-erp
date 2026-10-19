@@ -20,8 +20,10 @@ Last updated 2026-10-18 (platform set up).
 - **Built and checked live:** invited sign-in only; roles set by the owner on the server; field roles never receive the books, bank, payroll or bills and get money stripped from jobs, and their saves cannot touch money; clients refused until per-client rows; edits sync between two devices both ways, simultaneous edits on the same job both kept; `/api/ai` refuses anyone not signed in or without a role, answers members on the model the server picks, and logs each call's cost (live checks 27/27 and 17/17).
 - **Supabase is on Pro** (daily backups, no pausing), so real data can go in once the import (§6) is built.
 - **Sign In with Google is on** (2026-10-19), invited addresses only; the consent screen reads SmartDesigns Projects.
+- **Mail, calendar and Drive are private to each person** (2026-10-19): own rows only that sign-in can read, the owner included; live checks 37/37 and 25/25. Fixed on the way: device settings (who is on the phone, the open job) were syncing, so one phone's save switched other devices to that person.
+- **Waiting on Alan for mail sync:** enable the Gmail, Calendar and Drive APIs and set the consent screen to Internal; then Connections › Connect My Google Account. Checking while the app is closed (the watcher) is next.
 - **Alan signed in** (2026-10-19, email link); the firm workspace holds the first upload (84 collections, demo data).
-- **Not built yet:** Gmail/Calendar/Drive per person, per-client portal rows, the server-side hash-chain head, document reader, mail/calendar/drive watcher, Plaid, push, the agents.
+- **Not built yet:** the mail watcher for when the app is closed, per-client portal rows, the server-side hash-chain head, document reader, mail/calendar/drive watcher, Plaid, push, the agents.
 
 ## Overnight 2026-10-18: where things stand (for Alan at 10am)
 - **Published:** version 11 (v11.1 folded in). Build 84687e4: 32/32 suites green; scripted month 258/292 on time.

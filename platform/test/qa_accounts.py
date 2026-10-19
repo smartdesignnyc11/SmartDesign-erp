@@ -5,6 +5,7 @@ Uses the Supabase management API (the session's injected credentials) to read th
 import json, os, secrets, sys, urllib.request, urllib.error
 REF = os.environ.get('SDP_SUPABASE_REF', 'eenpabyrmiltfqvzirhw'); BASE = f'https://{REF}.supabase.co'
 ROLES = {'owner': 'owner', 'foreman': 'foreman', 'crew': 'crew', 'nobody': 'none', 'client': 'client'}
+PEOPLE = {'owner': 'u_owner', 'foreman': 'u_angel', 'crew': 'u_alberto'}   # the demo people they act as (the owner has a Demo Workspace)
 out_path = sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith('--') else sys.exit(__doc__)
 repo = os.path.realpath(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 if not os.path.isabs(out_path) or os.path.realpath(out_path).startswith(repo + os.sep): sys.exit('the accounts file must be an absolute path outside the repo')
@@ -25,7 +26,7 @@ for key, role in ROLES.items():
     email = f'qa-{key}@example.com'; pw = secrets.token_urlsafe(18)
     if email in existing: uid = existing[email]; call('PUT', '/auth/v1/admin/users/' + uid, {'password': pw})
     else: uid = call('POST', '/auth/v1/admin/users', {'email': email, 'password': pw, 'email_confirm': True})['id']
-    call('PATCH', '/rest/v1/profiles?id=eq.' + uid, {'role': role, 'workspace_id': 'qa', 'name': 'QA ' + key})
+    call('PATCH', '/rest/v1/profiles?id=eq.' + uid, {'role': role, 'workspace_id': 'qa', 'name': 'QA ' + key, 'app_user_id': PEOPLE.get(key)})
     acc[key] = {'email': email, 'password': pw, 'id': uid}
 fd = os.open(out_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
 with os.fdopen(fd, 'w') as f: json.dump(acc, f)

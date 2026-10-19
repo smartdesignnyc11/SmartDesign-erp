@@ -50960,6 +50960,8 @@ load = async function (opts = {}) {
       pr && pr.phone && !u.phone && (u.phone = pr.phone),
       u.contact || (u.contact = em),
       (window.__cloudUser = u.id),
+      // __cloudUser is spent at finishBoot; the cloud layer keeps its own copy to file this person's own records
+      (window.__cloudPerson = u.id),
       (DB.deviceUser = u.id),
       (DB.role = u.role),
       (DB.me = u.name);

@@ -14,6 +14,9 @@ The firm's shared system: https://smartdesigns-erp.netlify.app. Built 2026-10-18
 - **One truth, many phones.** `public/cloud.js` stores the app's DB as one row per collection and per job. Every save names the version it was based on; a stale save is refused, merged record by record (`merge3`) and saved again. Edits a phone could not sync are pushed at the next boot before the server copy is pulled. Changes arrive by the Supabase change feed, with a 30-second version poll behind it.
 - **Security in the database.** Office roles (owner, PM, coordinator, designer, design director, billing, controller) see everything in their workspace. Field roles (foreman, crew, driver) never receive the books, bank, payroll, bills, deals or investors, get money keys stripped from jobs, cannot write the company records, and their saves get the stripped money put back by the server. Clients and the M&B roles are refused until per-client rows exist.
 - **AI.** `/api/ai` (netlify/functions/ai.mjs) needs a signed-in member, picks the model by tier, drops page-only fields (MCP servers, sampling, thinking budgets), checks this month's spend against the person's and the firm's cap before calling, and logs who, model, tokens and cost to `ai_usage` (never the prompt or the answer).
+- **Private to each person.** What came from a person's own Google account (mail, Google Calendar entries, Drive files), their Google connection and their assistant live in `own:<sign-in id>:<collection>` rows. The database lets only that sign-in read or write them, the owner included; `cloud.js` splits them out on save and rejoins them on load, and a device only ever sends its own person's. Job chat, logged calls and ERP calendar holds stay shared.
+- **Device settings stay on the device.** Who is using it, their role and name, the job on screen, notifications and the mail marker are never synced (early builds did, and one phone's save switched every other device to that person); the server refuses them.
+- **Google connection.** The firm's client ID is in the app's settings; each person connects their own account under Connections, and mail, calendar and Drive are checked while the app is open. Checking while it is closed is the watcher (not built).
 - **Seeding.** Once the server holds the firm's records, no device seeds demo data (`window.__sdServerTruth` in `sdSeedsOff`). The first office sign-in on an empty workspace uploads that device's records.
 
 ## Build, deploy, test
@@ -22,7 +25,7 @@ cd platform
 python3 build.py                     # builds ../dist, then public/ (index.html, config.js, sw.js, vendor/)
 mkdir -p .netlify && echo '{"siteId":"1bdb5200-477c-492a-8294-fb475014deaa"}' > .netlify/state.json   # links the site (the CLI's --site flag fails here)
 NETLIFY_AUTH_TOKEN=x netlify deploy --prod --dir public --functions netlify/functions   # the session proxy supplies the real token
-npm test                             # merge and AI-proxy unit tests (offline)
+npm test                             # merge, AI-proxy and private-records unit tests (offline)
 python3 test/qa_accounts.py /abs/qa_users.json      # QA accounts (qa workspace), passwords written outside the repo
 SD_QA_USERS=/abs/qa_users.json python3 test/live_db_test.py    # the database rules as each role, live (QA workspace)
 SD_QA_USERS=/abs/qa_users.json python3 test/live_app_test.py   # owner on desktop + foreman on phone, live
@@ -31,4 +34,4 @@ The QA accounts file lives outside the repo. The live tests only touch the `qa` 
 `supabase/schema.sql` is idempotent; apply it with the management API (`POST /v1/projects/<ref>/database/query`).
 
 ## Not built yet
-Gmail/Calendar/Drive access per person (the same Google client, more scopes), per-client rows for the portal, the server-side hash-chain head, the document reader (`doctext`), the Gmail/Calendar/Drive watcher, Plaid, push notifications, the agents (BACKLOG §5 items 3–8). Field roles currently receive every job, not only theirs.
+the Gmail/Calendar/Drive watcher for when the app is closed (sealed refresh tokens per person), per-client rows for the portal, the server-side hash-chain head, the document reader (`doctext`), Plaid, push notifications, the agents (BACKLOG §5 items 3–8). Field roles currently receive every job, not only theirs.

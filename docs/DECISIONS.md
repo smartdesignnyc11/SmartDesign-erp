@@ -7,6 +7,8 @@ Status: **Built** (merged and tested) · **Building** (a lane is on it) · **Spe
 ## Waiting on Alan
 | Asked | Decision needed | Default until he decides |
 |---|---|---|
+| 2026-10-19 | Mail sync step 2: enable the Gmail, Calendar and Drive APIs in the Google project and set the consent screen to Internal (or add himself as a test user) | Google sign-in works; mail not connected |
+| 2026-10-19 | Should the owner's Brain read everyone's mail (BACKLOG §5 item 8), or does mail stay private to each person? | Private to each person, the owner included |
 | 2026-10-18 | AI spend caps inside the app, below the $50 Anthropic hard limit, so the app stops and says so before Anthropic refuses mid-task. | Firm $40 a month; $8 per person a month; the owner sees spend per person. |
 | 2026-10-11 | Leftover material from a cost-plus or reimbursable job: return it to the client, credit it on their invoice, or take it into firm stock? | Flagged "client-owned surplus, ask the PM"; never moved into firm stock automatically. |
 | 2026-10-11 | Confirm with the accountant that out-of-state material purchases owe NY use tax, and at what rate. | Landed cost adds use tax at 8.875% (editable). A bill with no tax charged is flagged "use tax to accrue". |
@@ -16,6 +18,7 @@ Status: **Built** (merged and tested) · **Building** (a lane is on it) · **Spe
 ## 2026-10-19
 | Ask or decision | Where it lives | Status |
 |---|---|---|
+| Email syncing, step 1: each person's mail, Google Calendar, Drive files, connection and assistant in private rows only that sign-in reads (the owner included); device settings no longer sync. Firm client ID set in the app | `platform/README.md` | Built; live 37/37 and 25/25. Step 2 (APIs on, consent screen Internal) waits on Alan; the watcher is next |
 | Google sign-in: Alan made the OAuth client; Sign In with Google is on, invited addresses only | `platform/README.md` | Built; consent screen renamed to SmartDesigns Projects. Alan signed in by email link and the first upload filled the firm workspace (84 collections, demo data); a Google round trip still to try |
 
 ## 2026-10-18
