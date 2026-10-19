@@ -72,7 +72,7 @@ JS_HELPERS = r"""
         push('tile', txt(k), cnt(txt(val)), { tl: b.dataset.tl, static: b.classList.contains('static') }); });
       v.querySelectorAll('.kpi').forEach(b => { if (!vis(b)) return;
         const val = b.querySelector('b'), k = b.querySelector('span'); if (val && k) push('tile', txt(k), cnt(txt(val))); });
-      v.querySelectorAll('.ctabs button, .seg button, .sub-tabs button').forEach(b => { if (!vis(b)) return;
+      v.querySelectorAll('.ctabs button, .seg button, .sub-tabs button, .td-tabs button').forEach(b => { if (!vis(b)) return;
         const s = nOf(b); if (s && lead(s) != null) push('chip', minusN(b), +s); });
       v.querySelectorAll('h2, h3, h4').forEach(h => { if (!vis(h)) return;
         const t = txt(h), m = t.match(/^(.+?)\s*(?:·|—|–|:)\s*(\d{1,4})$/);
@@ -99,6 +99,10 @@ JS_HELPERS = r"""
                      ['.t2-list', '.t2-row', 'task rows'], ['.fgrid', '.fcard', 'document cards']];
       for (const [c, r, how] of lists) { const box = v.querySelector(c);
         if (box && vis(box)) cands.push({ n: box.querySelectorAll(r).length, how }); }
+      // Today's one queue (lane "today"): the cards shown plus what "N more" (in place, or "N more in <page>") holds
+      const tdy = v.querySelector('.td-do[data-tdytab]');
+      if (tdy) { const mm = tdy.querySelector('.td-more'), k = mm ? (txt(mm).match(/^(\d+) more/) || []) : [];
+        cands.push({ n: tdy.querySelectorAll('.td-card').length + (k[1] ? +k[1] : 0), how: `Today's ${tdy.dataset.tdytab} cards and "N more"` }); }
       const rev = [...v.querySelectorAll('.ls-rev-row')].filter(vis);
       if (rev.length) cands.push({ n: rev.reduce((a, r) => a + (lead(txt(r.querySelector('b'))) || 0), 0), how: `the sum of ${rev.length} review line(s)` });
       [...v.querySelectorAll('.dg .cnt')].filter(vis).forEach((g, i) => { const m = txt(g).match(/(\d+) of (\d+)/);
@@ -325,8 +329,8 @@ async def run_role(pg, lint, tag, uid, phone):
                     lint.flag('B', run, f"tile {o['label']}", f"{o['n']} on the tile at {here}; {rows['n']} rows after the click at {nv} ({rows['how']}){dead}")
             if has_chips:
                 if dirty: await back(); dirty = False
-                sel = '.view.on .ctabs button, .view.on .seg button'
-                chips = await pg.evaluate(r"""() => [...document.querySelectorAll('.view.on .ctabs button, .view.on .seg button')].map((b, i) => ({ i,
+                sel = '.view.on .ctabs button, .view.on .seg button, .view.on .td-tabs button'
+                chips = await pg.evaluate(r"""() => [...document.querySelectorAll('.view.on .ctabs button, .view.on .seg button, .view.on .td-tabs button')].map((b, i) => ({ i,
                     on: b.classList.contains('on'), n: ((b.querySelector('.n, i.n') || {}).textContent || '').trim(), vis: __cl.vis(b),
                     label: (() => { const x = b.cloneNode(true); x.querySelectorAll('.n, i.n, svg').forEach(e => e.remove()); return x.textContent.trim(); })() }))""")
                 on_i = [c['i'] for c in chips if c['on']]

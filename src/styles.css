@@ -3437,3 +3437,23 @@ table.pl-index tr.pl-void td .pill,table.pl-index tr.pl-void td .btn{text-decora
 .xs-rep-t tr.xs-total td{border-top:2px solid var(--rule)}
 .xs-fyou .xs-frow .small{display:block;margin-top:2px}
 .xs-pre .chk{display:flex;gap:8px;align-items:flex-start;padding:4px 0}
+/* ---------- today: one queue per person (filters All, Approvals, Inbox, Tasks, Team; the task sheet; proof) ---------- */
+.td-tabs{display:flex;flex-wrap:wrap;gap:8px;padding:0 16px 12px}
+.td-tabs button{display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:6px 12px;border:1px solid var(--rule);border-radius:18px;background:var(--paper);color:var(--ink-2);font-size:13px;font-weight:500}
+.td-tabs button.on{border-color:var(--accent);color:var(--accent);background:var(--paper-2)}
+.td-tabs button .n{font-size:12px;font-variant-numeric:tabular-nums;color:inherit;opacity:.8}
+.tdy-sheet{display:grid;gap:8px;margin-bottom:12px}
+.tdy-kv{display:grid;grid-template-columns:96px minmax(0,1fr);gap:8px;align-items:baseline;overflow-wrap:anywhere}
+.tdy-sheet-acts{display:flex;flex-wrap:wrap;gap:8px}
+.tdy-proof-why{margin:0 0 8px;font-style:italic}
+.tdy-shots{margin:8px 0 12px}
+[data-tdycam]{display:inline-flex;align-items:center;gap:6px;min-height:44px}
+.tdy-team-list{border-top:1px solid var(--rule-2)}
+@media (max-width:760px){
+  .td-tabs{gap:8px;padding:0 12px 12px}
+  .td-tabs button{min-height:40px;padding:6px 12px;font-size:14px}
+  .tdy-kv{grid-template-columns:80px minmax(0,1fr)}
+  /* on the phone the filters are the heading: "All 35" already says what "Do Now 35" said */
+  .td-do[data-tdytab] > .td-hd{display:none}
+  .td-do[data-tdytab] > .td-tabs{padding-top:12px}
+}

@@ -72,7 +72,8 @@ async def sync(pg, *uids):
     for u in uids: await pg.evaluate("async u => { __MS.as(u); return await __MS.sync(u); }", u)
 
 async def home(pg, uid):
-    await pg.evaluate("u => { __MS.as(u); try { tdCatchAll = true; } catch (e) {} view = 'home'; render(); }", uid); await pg.wait_for_timeout(400)
+    # Home is Today (lane "today"): All opened in full is every row the person has there, as Caught for You's "more" is
+    await pg.evaluate("u => { __MS.as(u); try { tdCatchAll = true; tdyTabSet('all'); tdyAllOpen = true; } catch (e) {} view = 'home'; render(); }", uid); await pg.wait_for_timeout(400)
 
 ROWS = """() => [...document.querySelectorAll('#v-home .td-do .td-card, #v-home .td-catch .td-card, #v-home .h4r[data-ea]')].filter(e => e.getClientRects().length)
   .map(e => ({ text: e.innerText.replace(/\\s+/g, ' ').slice(0, 220), data: e.dataset.ea || '', verb: ((e.querySelector('[data-tdverb], [data-tdcatch], .h4-act, em') || {}).innerText || '').trim() }))"""
@@ -363,7 +364,7 @@ async def s_chase(p, c):
     try:
         # Tino's COI from the coordinator's Home: the address his mail came from, a draft in her mailbox, an expectation
         await home(pg, 'u_chen')
-        await press(pg, r'Tino', r'^Chase$')
+        await press(pg, r'Tino', r'^Chase( COI)?$')
         m = await modal(pg)
         c.ok(m and m['fields'].get('email') == 'orders@tino.example', f"chase: the chase knows Tino's address from his mail ({m and m['fields'].get('email')!r})")
         if m: await ok(pg, 900)

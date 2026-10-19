@@ -214,7 +214,8 @@ async def t_request_quirks(c, p):
     await b.close()
     b, pg, errs2 = await fresh(p, 'u_chen', phone=True)
     r = await js(pg, """
-      view = 'home'; render(); await sleep(350);
+      // Home is Today (lane "today"): the request is on its Approvals filter
+      view = 'home'; try { tdyTabSet('appr'); } catch (x) {} render(); await sleep(350);
       const card = [...document.querySelectorAll('#v-home [data-ea]')].find(e => { try { return JSON.parse(e.dataset.ea).ack; } catch (x) { return false; } });
       if (!card) return { card: false };
       const body = card.querySelector('.grow') || card; body.click(); await sleep(200);
