@@ -50850,8 +50850,9 @@ function cloudApply(name, data) {
   if (null === data)
     if (name.startsWith("project:")) {
       const id = name.slice(8);
+      // a job taken off this person (or deleted) leaves the screen too, even when it was their last one
       (DB.projects = DB.projects.filter((p) => p.id !== id)),
-        S && S.id === id && DB.projects[0] && setCurrent(DB.projects[0].id);
+        S && S.id === id && setCurrent(DB.projects[0] ? DB.projects[0].id : "");
     } else delete DB[name];
   else if (name.startsWith("project:")) {
     try {
@@ -198354,23 +198355,77 @@ function msgAud(m, p) {
   if (m.system && /\bready for you\b/i.test(String(m.text || ""))) return "client";
   return msgByClient(m, p) ? "client" : "team";
 }
-// ---- the field's jobs. There is no crew-to-job assignment in the records, so a field person's jobs are the site jobs
-// (not a job still in design) plus any job they have worked on, asked for material on, or written in.
+// ---- the field's jobs: the job's own crew list (p.team, DB.users ids), set by the PM or the owner (msgTeamEdit). A
+// field person reads a job's thread only when they are on its crew, and the hosted database sends a field phone only
+// those jobs (schema.sql field_job). A job with no crew list is the office's alone, so a new job reaches nobody in the
+// field until someone is put on it. Nothing else holds the assignment: no store beside the job.
+const msgTeam = (p) => (p && Array.isArray(p.team) ? p.team : []),
+  msgMayAssign = (u) => ["owner", "pm"].includes(msgRole(u || msgMe())),
+  msgFieldPeople = () => (DB.users || []).filter((u) => u && u.id && u.name && msgIsField(u));
 function msgFieldJob(p, u) {
-  if (!p) return !1;
-  const name = String(u.name || "").toLowerCase(),
-    emp = u.employeeId || u.empId || "";
-  if (
-    (emp && (DB.time || []).some((t) => t.projectId === p.id && t.empId === emp)) ||
-    (p.requests || []).some((r) => String(r.by || "").toLowerCase() === name) ||
-    (p.chat || []).some((m) => m.fromUid === u.id)
-  )
-    return !0;
+  return !!(p && u && u.id && msgTeam(p).includes(u.id));
+}
+// The first crew list of a job, from what the records already show (once per job, when it has none): the field people
+// who clocked time on it, are on its daily logs, sent it a request, or wrote in its thread, in the last 60 days. A job
+// still in design starts with nobody. After this the PM's list is the truth and nothing here changes it.
+function msgTeamSeed(p) {
   let design = !1;
   try {
     design = "function" == typeof clDesignPhase && clDesignPhase(p);
   } catch (e) {}
-  return !design;
+  if (design) return [];
+  const since = iso(addDays(parse(today()), -60)),
+    recent = (d) => !d || String(d).slice(0, 10) >= since,
+    F = msgFieldPeople(),
+    byEmp = (e) => F.find((u) => e && (u.employeeId || u.empId) === e),
+    byName = (n) => F.find((u) => n && String(u.name).toLowerCase() === String(n).toLowerCase()),
+    out = new Set(),
+    add = (u) => u && out.add(u.id);
+  (DB.time || []).forEach((t) => recent(t.date) && (t.projectId === p.id || (t.work || []).some((w) => w.projectId === p.id)) && add(byEmp(t.empId)));
+  ((DB.field || {}).logs || []).forEach((l) => l.projectId === p.id && recent(l.date) && (l.crew || []).forEach((c) => add(byEmp(c.empId) || byName(c.name))));
+  (p.requests || []).forEach((r) => recent(r.at) && add(byName(r.by)));
+  (p.chat || []).forEach((m) => recent(m.at) && m.fromUid && add(F.find((u) => u.id === m.fromUid)));
+  return F.filter((u) => out.has(u.id)).map((u) => u.id);
+}
+function msgTeamBoot() {
+  let n = 0;
+  (DB.projects || []).forEach((p) => p && !Array.isArray(p.team) && ((p.team = msgTeamSeed(p)), n++));
+  return n;
+}
+const msgTeamNames = (p) => msgTeam(p).map((id) => (msgUser(id) || {}).name).filter(Boolean);
+// The PM or the owner puts the crew on a job: one list, the people in the field, kept on the job itself.
+function msgTeamEdit(pid) {
+  const p = msgProj(pid),
+    u = msgMe();
+  if (!p) return;
+  if (!msgMayAssign(u)) return void toast("The PM or the owner puts the crew on a job");
+  const F = msgFieldPeople(),
+    on = new Set(msgTeam(p)),
+    rn = (x) => ("undefined" != typeof ROLE_NAMES && ROLE_NAMES[x.role]) || x.role;
+  mbModal(
+    `Crew on <span data-nocase>${esc(msgJobName(p))}</span>`,
+    `<p class="small muted" style="margin:0 0 8px">The people in the field who work this job. Only they get the job, its schedule and its team thread on their phones; no one else in the field receives it.</p><div class="msg-people">${F.map((x) => `<label class="msg-person"><input type="checkbox" data-f="c_${esc(x.id)}" ${on.has(x.id) ? "checked" : ""}><span><b>${esc(x.name)}</b> <span class="small muted">${esc(rn(x))}</span></span></label>`).join("") || '<p class="small muted">No one in the field has an account yet. Add them under Settings, Users.</p>'}</div>`,
+    {
+      submit: "Save Crew",
+      onSubmit: (f) => {
+        const was = msgTeamNames(p).join(", "),
+          ids = F.filter((x) => f["c_" + x.id]).map((x) => x.id);
+        p.team = ids;
+        try {
+          audit("project", p.id, "crew", was, msgTeamNames(p).join(", "), `${u.name || "Someone"} set the crew`);
+        } catch (e) {}
+        save(), render();
+        const key = "job:" + p.id,
+          names = msgTeamNames(p);
+        toast(names.length ? `Crew on ${msgJobName(p)}: ${names.map(msgFirst).join(", ")}` : `No one in the field is on ${msgJobName(p)} now`, () => msgOpen(key));
+      },
+    },
+  );
+}
+// the crew line: on the job's team thread and in Project Settings; the button is for the PM and the owner only
+function msgCrewHtml(p, u) {
+  const names = msgTeamNames(p);
+  return `<div class="msg-crew small"><span class="muted">Crew:</span> <span data-nocase>${names.length ? esc(names.join(", ")) : "nobody in the field yet"}</span>${msgMayAssign(u) ? `<button type="button" class="btn sm" data-msgcrew="${esc(p.id)}">Change Crew</button>` : ""}</div>`;
 }
 // ---- the threads
 function msgJobT(p, kind) {
@@ -198969,7 +199024,9 @@ function msgHeadHtml(T, u, solo) {
       ? `<div class="note warn msg-warn small">${esc(cl ? cl.name : "The client")} reads everything in this thread. Keep costs, margins and team matters in the team thread.</div>`
       : T.t
         ? `<div class="small muted msg-who" data-nocase>Only ${esc(names)} can read this.</div>`
-        : ""
+        : "job" === T.kind && T.p && !msgIsClient(u)
+          ? msgCrewHtml(T.p, u)
+          : ""
   }`;
 }
 // the team thread points at the job's client thread when it holds something, so a line sent to the client is one tap away
@@ -199149,6 +199206,29 @@ chatSendTo = function (uidTo, text) {
   } catch (e) {}
   return (msgKey = T.key), save(), msg;
 };
+// ---- Project Settings shows the same crew line, under the client: the job's people sit with the job's other facts
+{
+  const base = renderProj;
+  renderProj = function () {
+    const r = base.apply(this, arguments);
+    try {
+      const card = document.querySelector("#v-proj .grid2 > .card");
+      if (card && S) {
+        let box = document.getElementById("p-crew");
+        if (!box) {
+          (box = document.createElement("div")), (box.className = "f"), (box.id = "p-crew");
+          const at = card.querySelector("#p-client"),
+            f = at && at.closest(".f");
+          f ? f.after(box) : card.appendChild(box);
+        }
+        box.innerHTML = `<label>Crew on This Job</label>${msgCrewHtml(S, msgMe())}<span class="hint">Only these people in the field get this job, its schedule and its team thread on their phones.</span>`;
+      }
+    } catch (e) {
+      console.warn("crew in settings", e);
+    }
+    return r;
+  };
+}
 // ---- the switches that pick a thread: a new job or a new person on the device starts on the job's own thread
 {
   const base = setCurrent;
@@ -199172,6 +199252,7 @@ document.addEventListener("click", (e) => {
   if ((b = t.closest("[data-msgopen]"))) return e.preventDefault(), msgOpen(b.dataset.msgopen);
   if ((b = t.closest("[data-msgback]"))) return e.preventDefault(), (msgListMode = !0), render(), void window.scrollTo(0, 0);
   if ((b = t.closest("#msg-new"))) return e.preventDefault(), void msgNewThread();
+  if ((b = t.closest("[data-msgcrew]"))) return e.preventDefault(), void msgTeamEdit(b.dataset.msgcrew);
   if ((b = t.closest("#msg-rec"))) return e.preventDefault(), void msgPick();
   if ((b = t.closest("[data-msgtask]"))) {
     e.preventDefault();
@@ -199285,9 +199366,11 @@ if ("function" == typeof finishBoot) {
   finishBoot = function () {
     const r = base.apply(this, arguments);
     try {
-      const a = msgSeed(),
+      // the crews first: who reads a job's thread (and whose history the migration marks read) follows them
+      const c = msgTeamBoot(),
+        a = msgSeed(),
         b = msgMigrate();
-      (a || b) && save();
+      (a || b || c) && save();
     } catch (e) {
       console.warn("messages boot", e);
     }

@@ -77,6 +77,19 @@ $$;
 create or replace function public.thread_member(d jsonb) returns boolean language sql stable security definer set search_path = public as $$
   select public.my_app_user() is not null and coalesce(d->'members', '[]'::jsonb) ? public.my_app_user();
 $$;
+-- The field's jobs (2026-10-19). A job's crew is the job's own list of people (p.team, DB.users ids), set by the PM or
+-- the owner. A field sign-in reads and writes only the jobs whose crew names its person; a job with no crew list is
+-- the office's alone (privacy by default: a new job reaches nobody in the field until someone is put on it).
+create or replace function public.field_job(d jsonb) returns boolean language sql stable security definer set search_path = public as $$
+  select public.my_app_user() is not null and jsonb_typeof(d->'team') = 'array' and (d->'team') ? public.my_app_user();
+$$;
+-- A field save of a job keeps the stored crew list: the field never changes who is on a job, so nobody can put
+-- himself on another job or take a colleague off one.
+create or replace function public.keep_team(old jsonb, nw jsonb) returns jsonb language sql immutable as $$
+  select case when jsonb_typeof(nw) is distinct from 'object' then old
+              when old ? 'team' then nw || jsonb_build_object('team', old->'team')
+              else nw - 'team' end;
+$$;
 
 -- ---------------------------------------------------------------- what field roles may not see or write
 -- Collections a field phone never receives (money, books, bank, people's pay, deals and investors).
@@ -173,7 +186,9 @@ create or replace view public.collections_view with (security_invoker = false) a
     -- Google account, their connection and their assistant's memory. Nobody else reads them, the owner included.
     and (c.name not like 'own:%' or split_part(c.name, ':', 2) = public.my_private_key())
     -- A direct or group message thread (one row each, thread:<id>) is read by its members only, the owner included.
-    and (c.name not like 'thread:%' or public.thread_member(c.data));
+    and (c.name not like 'thread:%' or public.thread_member(c.data))
+    -- A job (project:<id>) reaches a field sign-in only when its crew list names that person.
+    and (c.name not like 'project:%' or public.is_office() or public.field_job(c.data));
 revoke all on public.collections_view from anon;
 grant select on public.collections_view to authenticated;
 
@@ -215,6 +230,10 @@ begin
     if field and nm not like 'own:%' and nm not like 'thread:%' and (nm = any(public.field_hidden()) or nm = any(public.field_readonly())) then
       result := result || jsonb_build_array(jsonb_build_object('name', nm, 'refused', true)); continue;
     end if;
+    if field and nm like 'project:%' and not exists (select 1 from public.collections x where x.workspace_id = wsid and x.name = nm and public.field_job(x.data)) then
+      -- the field writes only the jobs it is on, and never starts one
+      result := result || jsonb_build_array(jsonb_build_object('name', nm, 'refused', true)); continue;
+    end if;
     base := nullif(it->>'base','')::int;
     select * into cur from public.collections c where c.workspace_id = wsid and c.name = nm for update;
     if found then
@@ -223,7 +242,9 @@ begin
       end if;
       newv := cur.version + 1;
       update public.collections
-         set data = case when office then it->'data' else public.restore_money(cur.data, it->'data') end,
+         set data = case when office then it->'data'
+                         when nm like 'project:%' then public.keep_team(cur.data, public.restore_money(cur.data, it->'data'))
+                         else public.restore_money(cur.data, it->'data') end,
              version = newv, updated_by = auth.uid(), updated_at = now()
        where workspace_id = wsid and name = nm;
     else
@@ -253,8 +274,13 @@ grant execute on function public.delete_collections(text[]) to authenticated;
 -- so a field phone never receives unstripped data from the change feed. Realtime honours the table's RLS, and the
 -- page has no table grant, so it gets the event through this policy only for its own workspace.
 drop policy if exists "collections: members see change events" on public.collections;
+-- The same rules as the view decide who is told: another person's own rows, a thread one is not in, and a job a field
+-- person is not on are never announced to them, not even by name.
 create policy "collections: members see change events" on public.collections for select to authenticated
-  using (workspace_id = public.my_workspace() and public.is_member());
+  using (workspace_id = public.my_workspace() and public.is_member()
+    and (name not like 'own:%' or split_part(name, ':', 2) = public.my_private_key())
+    and (name not like 'thread:%' or public.thread_member(data))
+    and (name not like 'project:%' or public.is_office() or public.field_job(data)));
 grant select (workspace_id, name, version, updated_by, updated_at) on public.collections to authenticated;
 do $$ begin
   alter publication supabase_realtime add table public.collections;
@@ -432,3 +458,27 @@ revoke all on public.period_seals from anon, authenticated;
 
 -- Threads are rows of their own now (thread:<id>); a single shared "threads" row would show every DM to everyone.
 delete from public.collections where name = 'threads';
+
+-- ---------------------------------------------------------------- message notifications (2026-10-19)
+-- /api/notify pushes a new message to the other members of a direct or group thread, or to a person @mentioned in a
+-- job's thread: at most one per conversation per person every 2 minutes, so a burst of lines is one buzz. Server only.
+create table if not exists public.notify_sent (
+  person_key text not null,
+  thread_key text not null,
+  workspace_id text not null,
+  at timestamptz not null default now(),
+  primary key (person_key, thread_key)
+);
+alter table public.notify_sent enable row level security;
+revoke all on public.notify_sent from anon, authenticated;
+-- True when this person may be told about this conversation now (and records that they were); false inside 2 minutes.
+create or replace function public.notify_claim(p_key text, p_thread text, p_ws text) returns boolean language plpgsql security definer set search_path = public as $$
+declare n integer;
+begin
+  insert into public.notify_sent (person_key, thread_key, workspace_id, at) values (p_key, p_thread, p_ws, now())
+  on conflict (person_key, thread_key) do update set at = now(), workspace_id = excluded.workspace_id
+    where public.notify_sent.at < now() - interval '2 minutes';
+  get diagnostics n = row_count;
+  return n > 0;
+end $$;
+revoke all on function public.notify_claim(text, text, text) from public, anon, authenticated;

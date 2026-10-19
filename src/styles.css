@@ -3551,3 +3551,6 @@ body.msg-on #fsay{display:none}
   #tb-chat{width:44px;height:44px;min-height:44px;padding:0;justify-content:center;flex:none;margin-left:8px}
   #tb-chat .msg-n{position:absolute;top:2px;right:0}
 }
+/* ---- messages, phase 2 (2026-10-19): the crew on a job, reactions on a line, voice notes */
+.msg-crew{flex:1 1 100%;display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0;color:var(--ink-2)}
+#p-crew .msg-crew{margin:2px 0 4px}

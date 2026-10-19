@@ -299,7 +299,7 @@ window.Cloud = (() => {
         const sent = new Map(items.map(i => [i.name, i.data]));
         for (const r of (res || [])) {
           if (r.conflict) { const row = await pullOne(r.name); if (row) { absorb(r.name, row); again = true; } }
-          else if (r.refused) { last[r.name] = hash(JSON.stringify(sent.get(r.name))); }
+          else if (r.refused) { if (!drop(r.name)) last[r.name] = hash(JSON.stringify(sent.get(r.name))); }   // a job taken off this person goes
           else remember(r.name, sent.get(r.name), r.version);
         }
       }
@@ -347,12 +347,28 @@ window.Cloud = (() => {
   // Another device changed a row: refetch it through the view (field roles never see money) and merge it in.
   async function remoteChanged(name, version) {
     if (versions[name] && version <= versions[name]) return;      // our own write, or older
-    try { const row = await pullOne(name); if (!row) return; const dirty = absorb(name, row); if (dirty) push(dbRef()); } catch (e) { console.warn('refetch failed', e); }
+    try { const row = await pullOne(name); if (!row) return drop(name); const dirty = absorb(name, row); if (dirty) push(dbRef()); } catch (e) { console.warn('refetch failed', e); }
+  }
+  // A job or a thread this device held that the server no longer shows it (the PM took this person off the job, the
+  // job was deleted, the person left a thread): forget it and take it off the phone, so nothing lingers in its copy.
+  function drop(name) {
+    if (!(name.startsWith('project:') || name.startsWith('thread:')) || versions[name] === undefined) return false;
+    delete last[name]; delete base[name]; delete versions[name];
+    const DB = dbRef();
+    if (name.startsWith('thread:')) {
+      if (DB && Array.isArray(DB.threads)) { DB.threads = DB.threads.filter(t => !t || 'thread:' + t.id !== name); onChange && onChange('threads', DB.threads); }
+    } else onChange && onChange(name, null);                                                   // the app's cloudApply removes the job
+    return true;
   }
   async function pollOnce() {
     if (!sb || !user() || !profile) return;
     try { const {data: alive, error} = await sb.rpc('session_alive'); if (!error && alive === false) return endedHere(); } catch (e) {}
-    try { const {data, error} = await sb.rpc('collection_versions'); if (error) return; for (const r of (data || [])) if (!versions[r.name] || r.version > versions[r.name]) await remoteChanged(r.name, r.version); } catch (e) {}
+    try {
+      const {data, error} = await sb.rpc('collection_versions'); if (error) return;
+      for (const r of (data || [])) if (!versions[r.name] || r.version > versions[r.name]) await remoteChanged(r.name, r.version);
+      const seen = new Set((data || []).map(r => r.name));
+      Object.keys(versions).filter(n => !seen.has(n)).forEach(drop);                         // jobs and threads no longer ours
+    } catch (e) {}
   }
   function subscribe(cb) {
     onChange = cb; if (channel) return;
@@ -413,5 +429,5 @@ window.Cloud = (() => {
     signIn, signInGoogle, authError, magicLink, resetPassword, signOut, pullAll, pullOne, push, pushPending, hasPending, subscribe, pollOnce, putBlob, getBlob,
     listProfiles, updateProfile, aiSpend, enablePush, disablePush, signOutEverywhere, invite, seal, verifyServer, revoked: () => revoked, listSignals: none, setSignalStatus: async () => true, listClips: none, claimClips: async () => 0,
     saveClipToken: async () => true, screenPoint: async () => null, state, shards, merge3, cfg,
-    _test: {session: s => { session = s; }, profile: p => { profile = p; }, setPart: (DB, n, d) => setPart(DB, n, d)}};
+    _test: {session: s => { session = s; }, profile: p => { profile = p; }, setPart: (DB, n, d) => setPart(DB, n, d), sb: x => { sb = x; }, versions, subscribe: cb => { onChange = cb; }, remember, pollOnce, drop}};
 })();
