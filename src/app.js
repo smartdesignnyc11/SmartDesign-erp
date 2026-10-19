@@ -198785,6 +198785,10 @@ function msgTextFor(m, u) {
   const lang = (u && u.lang) || "en";
   return m.tr && m.lang && m.lang !== lang && m.tr[lang] ? m.tr[lang] : String(m.text || "");
 }
+// what a list row, a strip or Ask reads for a line: its words, or what it is when it has none
+function msgPreview(m, u) {
+  return msgTextFor(m, u) || (m.voice ? `Voice note (${msgDur(m.voice.dur)})` : (m.cards || []).length ? "Shared a record" : (m.files || []).length ? "Sent a file" : "");
+}
 function msgBodyHtml(text) {
   return esc(text).replace(/(^|[^\w@])@([A-Za-z][\w'-]*)/g, (a, pre, w) => `${pre}<b class="msg-at">@${w}</b>`);
 }
@@ -198838,8 +198842,159 @@ function msgLineHtml(m, T, u) {
       : cl || m.system || "System" === m.by
         ? ""
         : `<button type="button" class="msg-mk" data-msgtask="${esc(T.key)}|${esc(m.id)}" title="Make this message a task">${MSG_IC.task}<span>Make Task</span></button>`,
-    when = m.t || ("function" == typeof stampText ? stampText(m.at) : "");
-  return `<div class="cm ${mine ? "me" : ""}${m.system ? " sys" : ""}" data-mid="${esc(m.id || "")}"><div class="who"><b>${esc(m.by || "")}</b> · ${esc(when)}</div><div class="msg-tx">${msgBodyHtml(msgTextFor(m, u))}</div>${pills ? `<div class="row" style="margin-top:4px">${pills}</div>` : ""}${cards}${st ? `<div class="st">${st}</div>` : ""}${task ? `<div class="msg-acts">${task}</div>` : ""}</div>`;
+    when = m.t || ("function" == typeof stampText ? stampText(m.at) : ""),
+    sys = m.system || "System" === m.by,
+    react = sys ? "" : `<button type="button" class="msg-mk" data-msgreact="${esc(T.key)}|${esc(m.id)}" title="React to this message" aria-label="React" aria-expanded="${msgReactOpen === m.id}">${MSG_IC.react}<span>React</span></button>`,
+    acts = task + react,
+    text = msgTextFor(m, u);
+  return `<div class="cm ${mine ? "me" : ""}${m.system ? " sys" : ""}" data-mid="${esc(m.id || "")}"><div class="who"><b>${esc(m.by || "")}</b> · ${esc(when)}</div>${text ? `<div class="msg-tx">${msgBodyHtml(text)}</div>` : ""}${m.voice ? msgVoiceHtml(m) : ""}${pills ? `<div class="row" style="margin-top:4px">${pills}</div>` : ""}${cards}${st ? `<div class="st">${st}</div>` : ""}${msgReactsHtml(m, T, u)}${acts ? `<div class="msg-acts">${acts}</div>` : ""}${msgReactOpen === m.id && !sys ? msgReactPickHtml(m, T, u) : ""}</div>`;
+}
+// ---- reactions on a line (phase 2): four line icons, one per person, kept on the line itself (m.react[uid] = kind).
+// A tap on a chip adds or takes back your own; nobody is notified for a reaction (calm, not noisy).
+const MSG_REACTS = [
+  ["ok", "Done", MSG_SVG('<path d="M5 12.5l4.5 4.5L19 7.5"/>')],
+  ["like", "Good", MSG_SVG('<path d="M7 11v9H4v-9z"/><path d="M7 11l4-7c1.5 0 2.5 1 2.2 2.6L12.6 10H18a2 2 0 0 1 2 2.3l-1.2 6A2 2 0 0 1 16.8 20H7"/>')],
+  ["look", "On It", MSG_SVG('<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>')],
+  ["ask", "Question", MSG_SVG('<circle cx="12" cy="12" r="9"/><path d="M9.6 9.3a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.2-2.4 3.8"/><path d="M12 17h.01"/>')],
+];
+MSG_IC.react = MSG_SVG('<circle cx="12" cy="12" r="9"/><path d="M8.5 14.5c.9 1.2 2.1 1.8 3.5 1.8s2.6-.6 3.5-1.8"/><path d="M9 9.5h.01M15 9.5h.01"/>');
+MSG_IC.mic = MSG_SVG('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/>');
+MSG_IC.stop = MSG_SVG('<rect x="6" y="6" width="12" height="12" rx="2"/>');
+let msgReactOpen = "";
+function msgReactsHtml(m, T, u) {
+  const R = m.react && "object" == typeof m.react ? m.react : null;
+  if (!R) return "";
+  const chips = MSG_REACTS.map(([k, label, ic]) => {
+    const who = Object.keys(R).filter((id) => R[id] === k);
+    if (!who.length) return "";
+    const names = who.map((id) => msgFirst((msgUser(id) || {}).name) || "Someone").join(", ");
+    return `<button type="button" class="msg-rxc${who.includes(u.id) ? " on" : ""}" data-msgrx="${esc(T.key)}|${esc(m.id)}|${k}" title="${esc(label)}: ${esc(names)}" aria-label="${esc(label)}, ${who.length}: ${esc(names)}">${ic}<span>${who.length}</span></button>`;
+  }).join("");
+  return chips ? `<div class="msg-rx">${chips}</div>` : "";
+}
+function msgReactPickHtml(m, T, u) {
+  const mine = m.react && m.react[u.id];
+  return `<div class="msg-rpick" role="group" aria-label="React">${MSG_REACTS.map(([k, label, ic]) => `<button type="button" class="msg-rxp${mine === k ? " on" : ""}" data-msgrx="${esc(T.key)}|${esc(m.id)}|${k}" aria-pressed="${mine === k}">${ic}<span>${esc(label)}</span></button>`).join("")}</div>`;
+}
+function msgReact(key, mid, kind) {
+  const u = msgMe(),
+    T = msgThread(key, u),
+    m = T && T.all().find((x) => x.id === mid);
+  if (!m || !u.id || !msgVisible(m, T, u) || !MSG_REACTS.some(([k]) => k === kind)) return null;
+  const R = (m.react = m.react && "object" == typeof m.react ? m.react : {});
+  const took = R[u.id] === kind,
+    label = MSG_REACTS.find(([k]) => k === kind)[1];
+  took ? delete R[u.id] : (R[u.id] = kind);
+  Object.keys(R).length || delete m.react;
+  (msgReactOpen = ""), save(), "chat" === view && renderChat();
+  toast(took ? `${label} taken off ${msgMine(m, u) ? "your" : `${msgFirst(m.by)}'s`} message` : `${label} on ${msgMine(m, u) ? "your" : `${msgFirst(m.by)}'s`} message`, () => msgOpen(key));
+  return (m.react || {})[u.id] || "";
+}
+// ---- voice notes (phase 2): recorded on the phone (MediaRecorder), kept like a photo (putBlob: the device's store,
+// and the firm's file store on the hosted copy), played in the line. Two minutes at most.
+const MSG_VOICE_MAX = 120,
+  msgVoiceSrc = {};
+let msgRecState = null;
+const msgDur = (s) => `${Math.floor((s = Math.max(0, Math.round(+s || 0))) / 60)}:${String(s % 60).padStart(2, "0")}`;
+function msgVoiceHtml(m) {
+  const v = m.voice || {};
+  return `<div class="msg-voice"><span class="msg-cic">${MSG_IC.mic}</span><audio controls preload="none" data-msgvoice="${esc(v.id || "")}" aria-label="Voice note, ${esc(msgDur(v.dur))}"></audio><span class="small muted">${esc(msgDur(v.dur))}</span></div>`;
+}
+function msgVoiceFill(root) {
+  (root || document).querySelectorAll("audio[data-msgvoice]").forEach((a) => {
+    const id = a.dataset.msgvoice;
+    if (!id || a.getAttribute("src")) return;
+    if (msgVoiceSrc[id]) return void (a.src = msgVoiceSrc[id]);
+    "function" == typeof getBlob &&
+      Promise.resolve(getBlob(id))
+        .then((d) => {
+          d && ((msgVoiceSrc[id] = d), a.isConnected && !a.getAttribute("src") && (a.src = d));
+        })
+        .catch(() => {});
+  });
+}
+// post a recorded note to the open thread: a direct or group thread through msgPostDm, a job's thread on p.chat
+async function msgVoicePost(T, dataUrl, dur, mime) {
+  const u = msgMe();
+  if (!T || !u.id || !dataUrl) return null;
+  const id = uid("vn");
+  msgVoiceSrc[id] = dataUrl;
+  try {
+    "function" == typeof putBlob && (await putBlob(id, dataUrl));
+  } catch (e) {
+    console.warn("voice note store", e);
+  }
+  const voice = { id: id, dur: Math.round(+dur || 0), mime: String(mime || "audio/webm").split(";")[0] };
+  let m;
+  if (T.t) m = msgPostDm(T, "", { voice: voice });
+  else {
+    const p = T.p;
+    if (!p) return null;
+    (m = msgLine("", { aud: "client" === T.kind ? "client" : "team", voice: voice })), (p.chat = p.chat || []).push(m), msgSeenSet(T, u), save();
+  }
+  render();
+  toast(`Voice note sent to ${T.title}`, () => msgOpen(T.key));
+  return m;
+}
+async function msgVoiceToggle() {
+  const u = msgMe(),
+    T = msgCur(u),
+    btn = document.getElementById("msg-voice");
+  if (msgRecState) return void msgRecState.stop();
+  if (!T || !u.id) return;
+  if (!(window.MediaRecorder && navigator.mediaDevices && navigator.mediaDevices.getUserMedia)) return void toast("This browser cannot record a voice note. Type the message instead.");
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: !0 });
+  } catch (e) {
+    return void toast("The microphone is off for this app. Allow it in the phone's settings to send voice notes.");
+  }
+  const rec = new MediaRecorder(stream),
+    parts = [],
+    t0 = Date.now(),
+    key = T.key;
+  rec.ondataavailable = (e) => e.data && e.data.size && parts.push(e.data);
+  const st = (msgRecState = {
+    stop: () => {
+      try {
+        "inactive" !== rec.state && rec.stop();
+      } catch (e) {}
+    },
+    timer: setInterval(() => {
+      const s = (Date.now() - t0) / 1e3,
+        b = document.getElementById("msg-voice");
+      b && b.querySelector("span") && (b.querySelector("span").textContent = msgDur(s));
+      s >= MSG_VOICE_MAX && st.stop();
+    }, 500),
+  });
+  rec.onstop = () => {
+    clearInterval(st.timer), (msgRecState = null), stream.getTracks().forEach((t) => t.stop());
+    const dur = (Date.now() - t0) / 1e3,
+      blob = new Blob(parts, { type: rec.mimeType || "audio/webm" });
+    msgVoiceBtn();
+    if (dur < 0.8 || !blob.size) return void toast("Hold on a little longer: that note was too short to send");
+    const fr = new FileReader();
+    (fr.onload = () => msgVoicePost(msgThread(key) || T, fr.result, dur, blob.type)), fr.readAsDataURL(blob);
+  };
+  rec.start(250);
+  msgVoiceBtn();
+}
+// the record button in the compose row: a microphone, a stop square with the time while recording
+function msgVoiceBtn() {
+  const row = document.querySelector("#v-chat .chat-compose");
+  if (!row) return;
+  let b = document.getElementById("msg-voice");
+  if (!b) {
+    (b = document.createElement("button")), (b.type = "button"), (b.id = "msg-voice"), (b.className = "btn msg-voicebtn");
+    // beside the text box (on the field's phone it sits inside the box's right end, so the box keeps its width)
+    const tx = document.getElementById("chat-text");
+    tx ? tx.after(b) : row.appendChild(b);
+  }
+  const on = !!msgRecState;
+  b.classList.toggle("rec", on), b.setAttribute("aria-pressed", String(on));
+  b.title = on ? "Stop and Send" : "Record a Voice Note";
+  b.setAttribute("aria-label", on ? "Stop and send the voice note" : "Record a voice note");
+  b.innerHTML = on ? `${MSG_IC.stop}<span>0:00</span>` : MSG_IC.mic;
 }
 // ---- the person's own assistant, in the thread: kept with the person, drawn after the line it followed
 function msgAsks(u) {
@@ -198955,6 +199110,7 @@ function msgLine(text, o) {
     o.cards && o.cards.length && (m.cards = o.cards),
     o.mentions && o.mentions.length && (m.mentions = o.mentions),
     o.aud && (m.aud = o.aud),
+    o.voice && (m.voice = o.voice),
     u.lang && "en" !== u.lang && (m.lang = u.lang),
     m
   );
@@ -199108,7 +199264,7 @@ function msgListHtml(L, cur, u) {
   return `<div class="msg-side-h"><h3>All Messages</h3>${tot.n ? `<span class="n msg-tot">${tot.n}</span>` : ""}${msgIsClient(u) ? "" : '<button type="button" class="btn sm" id="msg-new">New Message</button>'}</div><div class="msg-rows">${rows
     .map(
       (x) =>
-        `<button type="button" class="msg-row${x.T.key === (cur && cur.key) ? " on" : ""}${x.un.n ? " un" : ""}" data-msgopen="${esc(x.T.key)}"><span class="msg-ric k-${x.T.kind}">${MSG_IC[x.T.kind] || MSG_IC.direct}</span><span class="msg-mid"><span class="msg-t" data-nocase>${esc(x.T.title)}</span><span class="msg-k">${esc(x.T.sub)}</span><span class="msg-last" data-nocase>${x.last ? `${esc(msgFirst(x.last.by))}: ${esc(String(msgTextFor(x.last, u)).slice(0, 90))}` : "No messages yet"}</span></span><span class="msg-r">${x.last ? `<span class="msg-when">${esc(x.last.t || "")}</span>` : ""}${x.un.n ? `<span class="n">${x.un.n}</span>` : ""}${x.un.at ? '<span class="msg-atn" title="You were mentioned">@</span>' : ""}</span></button>`,
+        `<button type="button" class="msg-row${x.T.key === (cur && cur.key) ? " on" : ""}${x.un.n ? " un" : ""}" data-msgopen="${esc(x.T.key)}"><span class="msg-ric k-${x.T.kind}">${MSG_IC[x.T.kind] || MSG_IC.direct}</span><span class="msg-mid"><span class="msg-t" data-nocase>${esc(x.T.title)}</span><span class="msg-k">${esc(x.T.sub)}</span><span class="msg-last" data-nocase>${x.last ? `${esc(msgFirst(x.last.by))}: ${esc(String(msgPreview(x.last, u)).slice(0, 90))}` : "No messages yet"}</span></span><span class="msg-r">${x.last ? `<span class="msg-when">${esc(x.last.t || "")}</span>` : ""}${x.un.n ? `<span class="n">${x.un.n}</span>` : ""}${x.un.at ? '<span class="msg-atn" title="You were mentioned">@</span>' : ""}</span></button>`,
     )
     .join("")}</div>`;
 }
@@ -199137,7 +199293,7 @@ function msgClientStripHtml(T, u) {
     last = vis[vis.length - 1];
   if (!last) return "";
   const un = msgUnread(C, u);
-  return `<button type="button" class="msg-strip" data-msgopen="${esc(C.key)}"><span class="msg-ric k-client">${MSG_IC.client}</span><span class="msg-mid"><span class="msg-k">Client Thread${un.n ? ` · ${un.n} new` : ""}</span><span class="msg-last" data-nocase>${esc(msgFirst(last.by))}: ${esc(String(last.text || "").slice(0, 140))}</span></span></button>`;
+  return `<button type="button" class="msg-strip" data-msgopen="${esc(C.key)}"><span class="msg-ric k-client">${MSG_IC.client}</span><span class="msg-mid"><span class="msg-k">Client Thread${un.n ? ` · ${un.n} new` : ""}</span><span class="msg-last" data-nocase>${esc(msgFirst(last.by))}: ${esc(String(msgPreview(last, u)).slice(0, 140))}</span></span></button>`;
 }
 renderChat = function () {
   const v = document.getElementById("v-chat"),
@@ -199200,6 +199356,13 @@ renderChat = function () {
             : `Message the team on ${T.title}…`);
   const pend = document.getElementById("msg-pending");
   pend && ((pend.innerHTML = msgPendingHtml()), (pend.hidden = !msgPending.length));
+  // voice notes: the record button (not for a client) and the players in the lines
+  try {
+    msgVoiceBtn();
+    const vb = document.getElementById("msg-voice");
+    vb && (vb.hidden = msgIsClient(u));
+    msgVoiceFill(list);
+  } catch (e) {}
   const lead = v.querySelector(".ph .lead");
   lead &&
     !msgIsClient(u) &&
@@ -199353,6 +199516,18 @@ document.addEventListener("click", (e) => {
   if ((b = t.closest("[data-msgback]"))) return e.preventDefault(), (msgListMode = !0), render(), void window.scrollTo(0, 0);
   if ((b = t.closest("#msg-new"))) return e.preventDefault(), void msgNewThread();
   if ((b = t.closest("[data-msgcrew]"))) return e.preventDefault(), void msgTeamEdit(b.dataset.msgcrew);
+  if ((b = t.closest("[data-msgreact]"))) {
+    e.preventDefault();
+    const mid = b.dataset.msgreact.split("|").slice(1).join("|");
+    return (msgReactOpen = msgReactOpen === mid ? "" : mid), void renderChat();
+  }
+  if ((b = t.closest("[data-msgrx]"))) {
+    e.preventDefault();
+    const [k, ...rest] = b.dataset.msgrx.split("|"),
+      kind = rest.pop();
+    return void msgReact(k, rest.join("|"), kind);
+  }
+  if ((b = t.closest("#msg-voice"))) return e.preventDefault(), void msgVoiceToggle();
   if ((b = t.closest("#msg-rec"))) return e.preventDefault(), void msgPick();
   if ((b = t.closest("[data-msgtask]"))) {
     e.preventDefault();
@@ -199497,13 +199672,13 @@ function msgEqRows() {
         out.push({
           _id: m.id,
           _module: "Chat",
-          _label: String(m.text || "").slice(0, 80),
+          _label: String(msgPreview(m, u)).slice(0, 80),
           _go: { view: "chat", project: T.pid || void 0 },
           thread: T.title,
           kind: T.kind,
           by: m.by || "",
           date: String(msgWhen(m)).slice(0, 10),
-          text: String(m.text || "").slice(0, 2e3),
+          text: String(msgPreview(m, u)).slice(0, 2e3),
           project: T.p ? msgJobName(T.p) : "",
           projectId: T.pid || "",
           task: m.taskId ? "yes" : "",

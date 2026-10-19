@@ -3,6 +3,17 @@
   1. The crew on a job: the PM puts a person on a job from the job's team thread (Change Crew), the toast opens the
      thread, and from then on that person reads the job's thread and nobody else in the field does. The foreman cannot
      change a crew. Project Settings shows the same line. A field person's local build lists only their jobs' threads.
+  2. Read markers are each person's own (DB.msgSeen): phase 1's markers move out of the shared job and thread with the
+     same counts, reading writes only the reader's record, a new crew member's history is not unread, and it all
+     survives a reload.
+  3. Notifications: on the hosted copy a direct message, or a job line that @mentions someone, asks /api/notify;
+     a line naming nobody asks nothing; with no signal the ask waits for the phone to be back; a tapped
+     notification opens its conversation, and only one the person may read.
+  4. Reactions: four plainly named line icons, one per person, kept on the line; a second tap takes it back; a
+     non-member cannot react; big targets on the phone.
+  5. Voice notes: the record button (inside the text box's end on the field's phone, none for a client), a real
+     recording with the browser's test microphone, kept like a photo and played in the line, on a direct thread and
+     on a job's thread.
 
   python3 messages2_test.py        # prints ALL PASS (n checks) or each failure
 """
@@ -203,7 +214,114 @@ async def t_notify(c, p):
     await b.close()
 
 
-TESTS = [t_crew, t_seen, t_notify]
+# ------------------------------------------------------------------------------------------------ 4. reactions
+async def t_react(c, p):
+    b, pg, errs = await fresh(p, 'u_chen')
+    await pg.evaluate("() => msgOpen('dm:th_seed_dm')")
+    await pg.wait_for_timeout(200)
+    mid = await pg.evaluate("() => DB.threads.find(t => t.id === 'th_seed_dm').msgs[0].id")
+    await pg.click(f'[data-mid="{mid}"] [data-msgreact]')
+    await pg.wait_for_timeout(150)
+    pick = await pg.evaluate(f"() => [...document.querySelectorAll('[data-mid=\"{mid}\"] .msg-rpick button')].map(b => b.innerText.trim())")
+    c.ok(pick == ['Done', 'Good', 'On It', 'Question'], f'react: React opens four plainly named choices ({pick})')
+    icons = await pg.evaluate(f"() => [...document.querySelectorAll('[data-mid=\"{mid}\"] .msg-rpick button')].every(b => b.querySelector('svg') && !/[\\u2600-\\u27BF\\u{{1F300}}-\\u{{1FAFF}}]/u.test(b.innerText))")
+    c.ok(icons, 'react: each is a line icon, no emoji')
+    await pg.click(f'[data-mid="{mid}"] .msg-rpick [data-msgrx$="|ok"]')
+    await pg.wait_for_timeout(200)
+    r = await pg.evaluate(f"""() => {{ const m = DB.threads.find(t => t.id === 'th_seed_dm').msgs[0], chip = document.querySelector('[data-mid="{mid}"] .msg-rxc');
+        return {{ react: m.react, chip: chip ? [chip.innerText.trim(), chip.className, chip.title] : null, open: !!document.querySelector('.msg-rpick'), toast: document.getElementById('toast').innerText }} }}""")
+    c.ok(r['react'] == {'u_chen': 'ok'}, f"react: Done is kept on the line, as Chen's ({r['react']})")
+    c.ok(r['chip'] and r['chip'][0] == '1' and ' on' in ' ' + r['chip'][1] and 'Chen' in r['chip'][2] and not r['open'], f"react: the line shows Done 1, marked as his, and the picker closes ({r['chip']})")
+    c.ok("Done on Angel's message" in r['toast'] and 'Open' in r['toast'], f"react: it toasts what happened, with Open ({r['toast']!r})")
+    # the other member reads it; a second person's adds to the count; a tap on your own chip takes it back
+    await sign_in(pg, 'u_angel')
+    await pg.evaluate("() => msgOpen('dm:th_seed_dm')")
+    await pg.wait_for_timeout(150)
+    await pg.click(f'[data-mid="{mid}"] .msg-rxc')
+    await pg.wait_for_timeout(150)
+    r = await pg.evaluate(f"() => ({{ react: DB.threads.find(t => t.id === 'th_seed_dm').msgs[0].react, chip: (document.querySelector('[data-mid=\"{mid}\"] .msg-rxc') || {{}}).innerText }})")
+    c.ok(r['react'] == {'u_chen': 'ok', 'u_angel': 'ok'} and r['chip'].strip() == '2', f"react: Angel adds his Done from the chip: 2 ({r})")
+    await pg.click(f'[data-mid="{mid}"] .msg-rxc')
+    await pg.wait_for_timeout(150)
+    r = await pg.evaluate("() => DB.threads.find(t => t.id === 'th_seed_dm').msgs[0].react")
+    c.ok(r == {'u_chen': 'ok'}, f'react: and a second tap takes his back ({r})')
+    # someone not in the thread cannot react to it
+    x = await pg.evaluate(f"() => {{ signIn('u_alberto'); render(); return msgReact('dm:th_seed_dm', '{mid}', 'like'); }}")
+    c.ok(x is None, 'react: a person not in the thread cannot react to it')
+    # the field on its job's thread, on the phone
+    await b.close()
+    b, pg, errs2 = await fresh(p, 'u_alberto', phone=True)
+    await pg.evaluate("() => { const P = DB.projects.find(p => p.id === 'p121'); P.chat.push(Object.assign(msgLine('Inspector passed the framing'), { by: 'Angel', fromUid: 'u_angel' })); setCurrent('p121'); msgOpen('job:p121'); }")
+    await pg.wait_for_timeout(250)
+    mid = await pg.evaluate("() => DB.projects.find(p => p.id === 'p121').chat.slice(-1)[0].id")
+    await pg.tap(f'[data-mid="{mid}"] [data-msgreact]')
+    await pg.wait_for_timeout(150)
+    await pg.tap(f'[data-mid="{mid}"] .msg-rpick [data-msgrx$="|like"]')
+    await pg.wait_for_timeout(200)
+    r = await pg.evaluate(f"""() => {{ const chip = document.querySelector('[data-mid="{mid}"] .msg-rxc'), r = chip.getBoundingClientRect(), acts = [...document.querySelectorAll('[data-mid="{mid}"] .msg-acts button')].map(b => b.getBoundingClientRect());
+        return {{ react: DB.projects.find(p => p.id === 'p121').chat.slice(-1)[0].react, h: r.height, right: r.right, sw: document.documentElement.scrollWidth, gap: acts.length > 1 ? Math.max(acts[1].left - acts[0].right, acts[0].left - acts[1].right, acts[1].top - acts[0].bottom, acts[0].top - acts[1].bottom) : 99 }} }}""")
+    c.ok(r['react'] == {'u_alberto': 'like'}, f"react: Alberto's Good is on the job's line ({r['react']})")
+    c.ok(r['h'] >= 36 and r['right'] <= 390 and r['sw'] <= 390 and r['gap'] >= 8, f'react: on the phone the chip is a big target, 8px from the next, no sideways scroll ({r})')
+    c.ok(not errs and not errs2, f'react: no page errors {errs[:2]} {errs2[:2]}')
+    await b.close()
+
+
+# ------------------------------------------------------------------------------------------------ 5. voice notes
+async def t_voice(c, p):
+    # the record button: on the field's phone inside the text box's end, the box keeps its width; not for a client
+    b, pg, errs = await fresh(p, 'u_alberto', phone=True)
+    await pg.evaluate("() => { setCurrent('p121'); msgOpen('job:p121'); }")
+    await pg.wait_for_timeout(250)
+    r = await pg.evaluate("""() => { const v = document.getElementById('msg-voice'), t = document.getElementById('chat-text'), a = v.getBoundingClientRect(), x = t.getBoundingClientRect(),
+        mid = document.elementFromPoint(x.left + x.width / 2, x.top + x.height / 2);
+        return { shown: !v.hidden && a.width >= 44 && a.height >= 44, inside: a.left >= x.left && a.right <= x.right + 1, box: x.width, hit: mid === t, sw: document.documentElement.scrollWidth, label: v.getAttribute('aria-label'), svg: !!v.querySelector('svg') } }""")
+    c.ok(r['shown'] and r['svg'] and 'voice note' in (r['label'] or ''), f'voice: the field phone has a 44px microphone button with a line icon ({r})')
+    c.ok(r['inside'] and r['box'] >= 140 and r['hit'] and r['sw'] <= 390, f'voice: it sits inside the text box, which keeps its width and its tap ({r})')
+    await sign_in(pg, 'u_klein')
+    await go(pg, 'chat')
+    hid = await pg.evaluate("() => { const v = document.getElementById('msg-voice'); return !v || v.hidden || !v.getClientRects().length }")
+    c.ok(hid, 'voice: a client has no record button')
+    c.ok(not errs, f'voice: no page errors {errs[:2]}')
+    await b.close()
+    # record for real with the browser's test microphone
+    br = await p.chromium.launch(args=['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'])
+    ctx = await br.new_context(viewport=PHONE, is_mobile=True, has_touch=True)
+    pg = await ctx.new_page()
+    errs = []
+    pg.on('pageerror', lambda e: errs.append(str(e)))
+    await pg.goto(URL)
+    await pg.wait_for_function("document.body.dataset.booted==='1'", timeout=60000)
+    await sign_in(pg, 'u_angel')
+    await pg.evaluate("() => msgOpen('dm:th_seed_dm')")
+    await pg.wait_for_timeout(250)
+    await pg.tap('#msg-voice')
+    await pg.wait_for_timeout(1800)
+    r = await pg.evaluate("() => { const v = document.getElementById('msg-voice'); return { rec: v.classList.contains('rec'), pressed: v.getAttribute('aria-pressed'), time: v.innerText.trim() } }")
+    c.ok(r['rec'] and r['pressed'] == 'true' and re.match(r'0:0[1-9]', r['time'] or ''), f'voice: recording shows as a stop button with the time ({r})')
+    await pg.tap('#msg-voice')
+    await pg.wait_for_timeout(1500)
+    r = await pg.evaluate("""() => { const m = DB.threads.find(t => t.id === 'th_seed_dm').msgs.slice(-1)[0], a = document.querySelector(`[data-mid="${m.id}"] audio`);
+        return { voice: m.voice || null, by: m.fromUid, src: a ? (a.getAttribute('src') || '').slice(0, 11) : null, toast: document.getElementById('toast').innerText, rec: document.getElementById('msg-voice').classList.contains('rec') } }""")
+    c.ok(r['voice'] and r['voice']['id'].startswith('vn') and r['voice']['dur'] >= 1 and r['by'] == 'u_angel', f"voice: Stop sends it as Angel's line with its length ({r['voice']})")
+    c.ok(r['src'] == 'data:audio/', f"voice: it plays in the line ({r['src']})")
+    c.ok('Voice note sent' in r['toast'] and 'Open' in r['toast'] and not r['rec'], f"voice: it toasts, with Open, and the button is a microphone again ({r['toast']!r})")
+    stored = await pg.evaluate("async () => { const m = DB.threads.find(t => t.id === 'th_seed_dm').msgs.slice(-1)[0]; const d = await getBlob(m.voice.id); return (d || '').slice(0, 11) }")
+    c.ok(stored == 'data:audio/', f'voice: the recording is kept like a photo, in the device store ({stored})')
+    # the other member hears it, and the thread list reads it as a voice note
+    await sign_in(pg, 'u_chen')
+    await pg.evaluate("() => msgOpen('dm:th_seed_dm')")
+    await pg.wait_for_timeout(600)
+    r = await pg.evaluate("""() => { const m = DB.threads.find(t => t.id === 'th_seed_dm').msgs.slice(-1)[0], a = document.querySelector(`[data-mid="${m.id}"] audio`);
+        return { src: a ? (a.getAttribute('src') || '').slice(0, 11) : null, unread: 0, preview: msgListHtml(msgThreadsFor(), null, msgMe()).includes('Voice note (0:0') } }""")
+    c.ok(r['src'] == 'data:audio/' and r['preview'], f'voice: Chen plays it, and his list reads "Voice note (0:0x)" ({r})')
+    # a job's thread takes one too, posted on the job's own chat
+    m = await pg.evaluate("async () => { setCurrent('p121'); msgOpen('job:p121'); const m = await msgVoicePost(msgThread('job:p121'), 'data:audio/webm;base64,GkXfo0AgQoaBAUL3gQFC8oEEQvOBCEKChHdlYm1Ch4EEQoWBAhhTgGcB', 3.2, 'audio/webm;codecs=opus'); const P = DB.projects.find(p => p.id === 'p121'); return [m && m.id, P.chat.slice(-1)[0].id, P.chat.slice(-1)[0].voice, P.chat.slice(-1)[0].aud] }")
+    c.ok(m[0] and m[0] == m[1] and m[2]['dur'] == 3 and m[2]['mime'] == 'audio/webm' and m[3] == 'team', f"voice: on a job's thread it is the team's line on the job ({m})")
+    c.ok(not errs, f'voice record: no page errors {errs[:2]}')
+    await br.close()
+
+
+TESTS = [t_crew, t_seen, t_notify, t_react, t_voice]
 
 
 async def main():
