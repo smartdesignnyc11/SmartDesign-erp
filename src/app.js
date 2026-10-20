@@ -200005,6 +200005,11 @@ renderChat = function () {
         : T.t
           ? "A private conversation. Only the people in it can read it."
           : "The team's thread for this job. Every post is read by the assistant and becomes a proposal in the Inbox when it changes the project.");
+  // the field's message to someone by name, on the job's thread only: it lands on the job's chat addressed to them and
+  // on their task list (the redesign of 2026-10-19 dropped this; pilot_fixes2 caught it)
+  try {
+    "job" === T.kind && !listMode && "function" == typeof CHAT_FIELD && CHAT_FIELD() ? chatDmBar() : document.getElementById("chat-dm")?.remove();
+  } catch (e) {}
   // read: the open thread is seen when it is on the screen
   !listMode && "chat" === view && msgSeenSet(T, u) && save();
 };
