@@ -63,6 +63,15 @@ async def main():
               const mine = pcCheck(b); signIn('u_owner'); const owner = pcCheck(b);
               return { mine: mine.holds.map(h => h.key), owner: owner.holds.map(h => h.key), ownerPass: owner.pass } }""")
             c.ok('self' in r['mine'] and 'self' not in r['owner'], f'{tag}: the controller who keyed a bill cannot release it; the owner can ({r})')
+            # a check recorded on a bill a card already paid stays unmatched (it used to take the card line and hide the double payment)
+            r = await pg.evaluate("""() => { const b = DB.bills.find(x => x.id === 'bill_pr2'), card = (DB.accounts || []).find(a => /card|amex|visa/i.test(a.name || a.type || '')) || (DB.accounts || [])[1], bank = (DB.accounts || []).find(a => a !== card);
+              const t = { id: 'tx_sod', date: today(), amt: -billTotal(b), acct: card.id, desc: 'CARD NEMO TILE', billId: b.id }; (DB.txns = DB.txns || []).push(t); b.txnId = t.id;
+              DB.payments = DB.payments.filter(p => p.billId !== b.id);
+              DB.payments.push({ id: 'pay_chk', billId: b.id, amount: billTotal(b), acctId: bank.id, txnId: '', method: 'Check', date: today() });
+              payNormalise(); const P = id => DB.payments.find(p => p.id === id), chk = P('pay_chk').txnId;
+              DB.payments.push({ id: 'pay_card', billId: b.id, amount: billTotal(b), acctId: card.id, txnId: '', method: 'Card', date: today() });
+              payNormalise(); return { card: P('pay_card').txnId, chk: chk } }""")
+            c.ok(r == {'card': 'tx_sod', 'chk': ''}, f'{tag}: the card payment takes the card line; a second payment by check stays unmatched, so the double payment shows ({r})')
             # "what we owe" is approved bills (the ledger's 2000); bills awaiting approval are their own line (Alan, 2026-10-20)
             r = await pg.evaluate("""() => { signIn('u_owner'); const O = apOpenBills(), I = ASK_INTENTS.find(x => x.id === 'payables').answer();
               view = 'reports'; try { repTab = 'statements'; } catch (e) {} render(); const t = document.querySelector('section.view.on').innerText;

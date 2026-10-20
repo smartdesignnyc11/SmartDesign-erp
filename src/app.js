@@ -72182,11 +72182,18 @@ function payNormalise() {
       migrated: !0,
     });
   }),
+    // a payment with no bank line takes the bill's bank or card line only when it is the same money: the same account
+    // (when the payment names one) and the same amount. A check recorded on a bill a card already paid was glued to
+    // the card line, so the second payment read as matched and the double payment was hidden.
     DB.payments.forEach((p) => {
-      if (p.txnId) return;
+      if (p.txnId || p.void) return;
       const b = DB.bills.find((x) => x.id === p.billId),
         t = b && txnOf(b);
-      t && !DB.payments.some((q) => q.txnId === t.id) && ((p.txnId = t.id), (p.acctId = t.acct));
+      t &&
+        !DB.payments.some((q) => q.txnId === t.id) &&
+        (!p.acctId || p.acctId === t.acct) &&
+        Math.abs(Math.abs(+t.amt || 0) - (+p.amount || 0)) < 0.01 &&
+        ((p.txnId = t.id), (p.acctId = t.acct));
     });
 }
 if ("function" == typeof txnViaBill) {
