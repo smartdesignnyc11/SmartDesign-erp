@@ -489,6 +489,8 @@ function itFillSell(l, h, d) {
     !+l.cost && h.cost && (l.cost = r2(h.cost * (+l.qty || 1)));
     "function" == typeof itemAutoCode && itemAutoCode(l, d);
   }
+  // one price path (src/costintel.js): a filled unit cost carries the cost code's approved close-out factor
+  "function" == typeof ciGuideFill && ciGuideFill(l, d, before.cost);
   l.desc || ((l.desc = itemDescribe(h.lib || h)), l.desc && (l.descDrafted = !0));
   const fields = Object.keys(before).filter((k) => String(before[k]) !== String("rate" === k || "cost" === k ? +l[k] || 0 : l[k] || ""));
   return itFillNote(l, h, fields), fields;

@@ -15,7 +15,9 @@
 //    that predate the ERP exist nowhere else. It holds no live price: the item price history stays the one history
 //    (price watch, pwData). A job's measures ride on the project (p.project.measures), not in a store.
 //    Feeding estimating is a drafted change in Company › Changes (DB.changes, the improvement loop's one list); only the
-//    owner's approval writes DB.company.costBench.
+//    owner's approval writes DB.company.costBook.bench. One price path for estimating: DB.company.costBook is the one
+//    store of what new estimates carry (the reports lane's close-out factors by cost code, and these benchmarks under
+//    its "bench" key); ciCostGuide is the one reader, used by the estimate editor's hints and the item library's fill.
 //  - Receipt price book: no new store. Receipt lines already read by the app (DB.docs kind "receipt", the field's
 //    receipts DB.spend[].read.lines) join the ONE price history through a pwBuild wrapper (kind "receipt"); items
 //    match across stores through pwMake's identity (UPC, then a normalised spec: size, gauge, length, pack, variant).
@@ -173,7 +175,7 @@ function ciSpec(desc) {
         // a stud is SPF unless it says otherwise; any other piece of lumber has to name its species
         species = has(/\bdf\b/) ? "df" : has(/\bspf\b/) ? "spf" : has(/\bstuds?\b/) && "2" === a && ["4", "6"].includes(b) ? "spf" : "";
       if (!species) return null;
-      return { key: `lumber|${a}x${b}|${ft}ft|${treat}|${species}`, label: `${a}x${b}x${ft} ${treat.toUpperCase()} ${species.toUpperCase()}`, cat: "Lumber" };
+      return { key: `lumber|${a}x${b}|${ft}ft|${treat}|${species}`, label: `${a}x${b}x${ft} ${treat.toUpperCase()} ${species.toUpperCase()}`, cat: "Lumber", unit: "ea" };
     }
   }
   // sheet goods: plywood and drywall by thickness, size and type
@@ -181,16 +183,16 @@ function ciSpec(desc) {
     size = (t.match(/\b(4)(?:ft)?\s*x\s*(8|9|10|12)(?:ft)?\b/) || []).slice(1, 3).join("x") || "4x8";
   if (has(/\b(plywood|cdx|osb)\b/) && thk) {
     const g = has(/\bosb\b/) ? "osb" : has(/\bcdx\b/) ? "cdx" : has(/\bbc\b/) ? "bc" : "";
-    return g ? { key: `plywood|${thk}|${size}|${g}`, label: `${thk} ${g.toUpperCase()} ${size}`, cat: "Lumber" } : null;
+    return g ? { key: `plywood|${thk}|${size}|${g}`, label: `${thk} in ${g.toUpperCase()} plywood ${size}`, cat: "Lumber", unit: "sheet" } : null;
   }
   if (has(/\b(drywall|gypsum|sheetrock|gwb|wallboard)\b/) && !has(/\b(screw|compound|tape|bead|anchor|knife|lift)\b/) && thk) {
     const ty = has(/\btypex\b/) && has(/\bmr\b/) ? "xmr" : has(/\btypex\b/) ? "x" : has(/\bmr\b/) ? "mr" : "reg";
-    return { key: `drywall|${thk}|${size}|${ty}`, label: `${thk} drywall ${size} ${ty}`, cat: "Drywall" };
+    return { key: `drywall|${thk}|${size}|${ty}`, label: `${thk} in ${{ x: "Type X", mr: "moisture-resistant", xmr: "Type X moisture-resistant", reg: "regular" }[ty]} drywall ${size}`, cat: "Drywall", unit: "sheet" };
   }
   // cable: gauge/conductors and length (12/2 NM-B 250 ft)
   const gm = t.match(/\b(10|12|14)\s*[\/-]\s*(2|3)\b/),
     lenM = t.match(/\b(\d{2,4})\s*ft\b/);
-  if (gm && has(/\bnmb\b|\bwire\b|\bcable\b/) && lenM) return { key: `nmb|${gm[1]}/${gm[2]}|${lenM[1]}ft`, label: `${gm[1]}/${gm[2]} NM-B ${lenM[1]} ft`, cat: "Electrical" };
+  if (gm && has(/\bnmb\b|\bwire\b|\bcable\b/) && lenM) return { key: `nmb|${gm[1]}/${gm[2]}|${lenM[1]}ft`, label: `${gm[1]}/${gm[2]} NM-B ${lenM[1]} ft`, cat: "Electrical", unit: "roll" };
   // PEX pipe and fittings: type, size, length; colour is a variant at one price
   if (has(/\bpexa\b|\bpexb\b|\bpex\b/)) {
     const ty = has(/\bpexb\b/) ? "b" : "a",
@@ -200,14 +202,14 @@ function ciSpec(desc) {
       const f = (t.match(/\b(elbow|tee|coupling|adapter|plug)\b/) || ["", "fitting"])[1];
       return { key: `pex${ty}-${f}|${sz}`, label: `${sz} in PEX-${ty.toUpperCase()} ${f}`, cat: "Plumbing" };
     }
-    if (lenM && has(/\b(pipe|tubing|coil)\b/)) return { key: `pex${ty}|${sz}|${lenM[1]}ft`, label: `${sz} in PEX-${ty.toUpperCase()} ${lenM[1]} ft`, cat: "Plumbing" };
+    if (lenM && has(/\b(pipe|tubing|coil)\b/)) return { key: `pex${ty}|${sz}|${lenM[1]}ft`, label: `${sz} in PEX-${ty.toUpperCase()} ${lenM[1]} ft`, cat: "Plumbing", unit: "coil" };
     return null;
   }
   // joint compound by kind and size
   if (has(/\bjoint compound\b|\bmud\b|\ball purpose\b/) && has(/\b\d+(?:\.\d+)?gal\b/)) {
     const k = has(/\blightweight|\blite\b/) ? "lightweight" : has(/\bsetting\b|\beasy sand\b/) ? "setting" : "all-purpose",
       g = t.match(/\b(\d+(?:\.\d+)?)gal\b/)[1];
-    return { key: `compound|${k}|${g}gal`, label: `${k} joint compound ${g} gal`, cat: "Drywall" };
+    return { key: `compound|${k}|${g}gal`, label: `${k} joint compound ${g} gal`, cat: "Drywall", unit: "bucket" };
   }
   return null;
 }
@@ -279,7 +281,8 @@ if ("function" == typeof pwBuild) {
       const add = [];
       ciReceiptLines().forEach((r) => {
         const pack = ciPack(r.item),
-          unit = pack > 1 && (!r.unit || /^(ea|each|pc)?$/i.test(r.unit)) ? "pack" : r.unit,
+          sp = ciSpec(r.item),
+          unit = pack > 1 && (!r.unit || /^(ea|each|pc)?$/i.test(r.unit)) ? "pack" : r.unit || (sp && sp.unit) || "",
           b = pwMake({ id: r.id, kind: "receipt", date: r.date, vendor: r.store, projectId: r.jobId, item: r.item, sku: r.sku, upc: r.upc, unit: unit, qty: r.qty, price: r.price, code: "", line: "", docId: r.docId || "", spendId: r.spendId || "", txnId: r.txnId || "", txnIds: r.txnId ? [r.txnId] : [], doc: r.docId ? "doc:" + r.docId : "spend:" + r.spendId, docNo: `receipt${r.number ? " " + r.number : ""} · ${r.store}`, receipt: r, src: { kind: "receipt", label: `receipt${r.number ? " " + r.number : ""} · ${r.store} · ${fmtL(r.date)}`, date: r.date, docId: r.docId || "", txnId: r.txnId || "" } });
         b && !D.byId[b.id] && add.push(b);
       });
@@ -811,13 +814,13 @@ function ciCauseWords(s, D, T) {
 // The benchmark per trade (closed comparable jobs), and each job's sample against it.
 function ciBenchmarks(type) {
   const ty = type || "brownstone";
-  return pwMemoGet("ciBench:" + ty + ":" + ciCloseouts().length + ":" + JSON.stringify(((DB.company || {}).costBench) || {}), () =>
+  return pwMemoGet("ciBench:" + ty + ":" + ciCloseouts().length + ":" + JSON.stringify(ciBenchBook()), () =>
     CI_TRADES.map((T) => {
       const samples = ciComparables(ty, "").map((c) => ciSample(c, T.id)).filter(Boolean),
         vals = samples.map((s) => s.perUnit),
         alts = samples.filter((s) => s.alt).map((s) => s.alt.perUnit),
         med = vals.length ? r2(ciMedian(vals)) : null,
-        live = (((DB.company || {}).costBench) || {})[T.id] || null;
+        live = ciBenchBook()[T.id] || null;
       return { trade: T.id, label: T.label, per: T.per, code: T.code, type: ty, n: samples.length, median: med, min: vals.length ? Math.min(...vals) : null, max: vals.length ? Math.max(...vals) : null, altPer: T.alt ? T.alt.per : "", altMedian: alts.length ? r2(ciMedian(alts)) : null, samples: samples, inEstimating: live, enough: samples.length >= CI_BENCH.minJobs };
     }),
   );
@@ -869,21 +872,21 @@ predDef("benchOver", {
   rule: "a job's rough material per unit more than 15% above the median of at least three comparable closed jobs, or a running job paying more than 15% above the prices they paid, with the cause (quantity, price or waste)",
   rows: (scope) => ciBenchFlags().filter((f) => !scope || f.projectId === scope),
 });
-// Feeding estimating: a drafted change the owner approves in Company › Changes. Approved, it is DB.company.costBench.
+// Feeding estimating: a drafted change the owner approves in Company › Changes. Approved, it is DB.company.costBook.bench.
 function ciProposeBench(tradeId, type) {
   const B = ciBenchmarks(type).find((x) => x.trade === tradeId);
   if (!B || !B.enough) return toast("Not enough comparable jobs to propose a benchmark (three are needed)"), null;
   if (!["owner", "pm", "controller"].includes(ciRole())) return toast("The owner, a PM or the controller proposes a benchmark"), null;
   const key = `costbench:${B.type}:${tradeId}:${B.median}`;
   if ((DB.changes || []).some((c) => c.key === key && "declined" !== c.status)) return toast("Already proposed: it waits under Company › Changes"), null;
-  const from = (((DB.company || {}).costBench) || {})[tradeId] || null,
+  const from = ciBenchBook()[tradeId] || null,
     ch = {
       id: uid("ch"),
       key: key,
       title: `Estimating: carry ${B.label.toLowerCase()} at ${ciCents(B.median)} per ${B.per} on ${B.type} jobs`,
       why: `The median of ${agN(B.n, "comparable closed job")} (${ciCents(B.min)} to ${ciCents(B.max)} per ${B.per}). New estimates for ${B.type} jobs show it next to the line, so a takeoff below it is a question before it is a loss. (Estimating and preconstruction: estimate vs. actual, with lessons fed into the price book. Every dollar matters.)`,
       kind: "setting",
-      delta: { path: `company.costBench.${tradeId}`, from: from, to: { perUnit: B.median, per: B.per, type: B.type, n: B.n, at: today(), label: B.label }, label: `Benchmark for ${B.label.toLowerCase()} on new estimates` },
+      delta: { path: `company.costBook.bench.${tradeId}`, from: from, to: { perUnit: B.median, per: B.per, type: B.type, n: B.n, at: today(), label: B.label }, label: `Benchmark for ${B.label.toLowerCase()} on new estimates` },
       evidence: B.samples.map((s) => ({ t: `${s.job}: ${ciCents(s.material)} for ${s.qty} ${ciTrade(tradeId).measure.replace(/([A-Z])/g, " $1").toLowerCase()} = ${ciCents(s.perUnit)} per ${B.per}`, m: "close-out" })),
       status: "draft",
       at: today(),
@@ -905,12 +908,97 @@ function ciOpenChanges() {
   } catch (e) {}
   (view = "meetings"), render();
 }
-// What estimating reads: the approved benchmark for a line's words, and what the line carries against it.
-function ciEstimateHint(item, qty, unit, cost, type) {
-  const tr = ciTradeOf(item) || (CI_TRADES.find((T) => new RegExp(`\\b${T.id.replace(/([A-Z])/g, " $1").trim().split(" ")[1] || T.id}\\b`, "i").test(item)) || {}).id,
-    B = tr && (((DB.company || {}).costBench) || {})[tr];
-  if (!B || (type && B.type && B.type !== type)) return null;
-  return { trade: tr, perUnit: B.perUnit, per: B.per, n: B.n, label: B.label, t: `Benchmark ${ciCents(B.perUnit)} per ${B.per} (median of ${B.n} ${B.type} jobs, approved by the owner)` };
+// ---- One price path for estimating (coordinator's ask, 2026-10-20): DB.company.costBook is the one store of what
+// new estimates carry. Its cost-code keys ("05": 1.12) are the close-out cost factors the reports lane proposes
+// (Estimate Versus Actual, rpProposeCostBook); its "bench" key holds the per-unit benchmarks this lane proposes
+// (costBook.bench.<trade>). Both are written only by the owner's approval in Company › Changes. ciCostGuide is the
+// one reader: the estimate editor's hints and the item library's fill (libFillLine, itFillSell) both go through it.
+const ciBenchBook = () => {
+  const B = ((DB.company || {}).costBook || {}).bench;
+  return B && "object" == typeof B ? B : {};
+};
+const ciCodeFactor = (code) => {
+  const f = +(((DB.company || {}).costBook || {})[String(code || "")] || 0);
+  return f > 0 && isFinite(f) ? f : null;
+};
+function ciCostGuide(l, d) {
+  const p = d && (DB.projects || []).find((x) => x.id === d.projectId),
+    type = p ? ciJobType(p) : "",
+    code = (l && l.code) || "",
+    factor = ciCodeFactor(code);
+  return { code: code, factor: factor, factorWhy: factor ? `close-out cost factor for ${code} ${(COST_CODES.find((x) => x[0] === code) || [code, ""])[1]}: ×${factor} (approved under Company › Changes)` : "", bench: ciEstimateHints(`${(l && l.item) || ""} ${(l && l.desc) || ""}`, type) };
+}
+// The item library's fill: a unit cost it fills (the library's, or the last price) is scaled by the cost code's
+// close-out factor, once, and the line says so. A cost someone typed is never touched.
+function ciGuideFill(l, d, costBefore) {
+  try {
+    if (!l || +costBefore > 0 || !(+l.cost > 0) || l.costGuide) return;
+    const G = ciCostGuide(l, d);
+    if (!G.factor || 1 === G.factor) return;
+    const from = +l.cost;
+    (l.cost = r2(from * G.factor)), (l.costGuide = { factor: G.factor, code: G.code, from: from, src: "costBook", at: today() });
+  } catch (e) {}
+}
+if ("function" == typeof libFillLine) {
+  const ciLibFillBase = libFillLine;
+  libFillLine = function (l, it, d) {
+    const before = +((l && l.cost) || 0),
+      r = ciLibFillBase.apply(this, arguments);
+    return ciGuideFill(l, d, before), r;
+  };
+}
+// What estimating reads: the approved benchmarks a line's words cover, and what this job's measures make of them.
+const CI_LINE_TRADES = [
+  ["roughPlumbing", /\b(rough plumbing|plumbing[\s\-–—,&]+rough|plumbing rough|rough[- ]in plumbing)\b/i],
+  ["roughElectric", /\b(rough electric|electrical[\s\-–—,&]+rough|electrical rough|rough[- ]in electric)/i],
+  ["sheetrock", /\b(drywall|sheetrock|gypsum board)\b/i],
+  ["taping", /\b(taping|tape and finish|spackle)\b/i],
+  ["framing", /\b(framing|partitions|stud walls?)\b/i],
+];
+function ciEstimateHints(text, type) {
+  const B = ciBenchBook();
+  return CI_LINE_TRADES.filter(([id, re]) => re.test(String(text || "")) && B[id] && (!type || !B[id].type || B[id].type === type)).map(([id]) => ({ trade: id, perUnit: B[id].perUnit, per: B[id].per, n: B[id].n, label: B[id].label || ciTrade(id).label, t: `${B[id].label || ciTrade(id).label}: benchmark ${ciCents(B[id].perUnit)} per ${B[id].per} (median of ${B[id].n} ${B[id].type || ""} jobs, approved)`.replace(/\s+/g, " ") }));
+}
+function ciHintPass() {
+  try {
+    if (!docOpen || !["estimate", "co"].includes(docOpen.kind) || !Object.keys((DB.company || {}).costBook || {}).length) return;
+    const c = (DB.clients || []).find((x) => x.id === clientOpen),
+      d = c && (c.estimates || []).concat(c.changeOrders || []).find((x) => x.id === docOpen.id);
+    if (!d) return;
+    const p = (DB.projects || []).find((x) => x.id === d.projectId),
+      M = p ? ciMeasures(p) : {};
+    document.querySelectorAll(".view.on tr[data-line]").forEach((tr) => {
+      if (tr.querySelector(".ci-hint")) return;
+      const l = (d.lines || []).find((x) => x.id === tr.dataset.line);
+      if (!l) return;
+      const G = ciCostGuide(l, d);
+      if (!G.bench.length && !G.factor) return;
+      const cell = tr.querySelector("td:nth-child(2)") || tr.firstElementChild;
+      cell &&
+        cell.insertAdjacentHTML(
+          "beforeend",
+          (G.factor ? `<div class="small ci-hint" data-cihint="factor:${esc(G.code)}">${esc(G.factorWhy.charAt(0).toUpperCase() + G.factorWhy.slice(1))}${l.costGuide ? ` · applied to the filled cost (${ciMoney(l.costGuide.from)} → ${ciMoney(l.cost)})` : ""}</div>` : "") +
+            G.bench
+              .map((h) => {
+                const T = ciTrade(h.trade),
+                  q = +M[T.measure] || 0,
+                  want = q ? r2((h.perUnit * q) / (T.scale || 1)) : null;
+                return `<div class="small ci-hint" data-cihint="${h.trade}">${esc(h.t)}${want ? ` · this job's ${q} ${esc(T.measure.replace(/([A-Z])/g, " $1").toLowerCase())}: about ${ciMoney(want)} of material` : ""}</div>`;
+              })
+              .join(""),
+        );
+    });
+  } catch (e) {
+    console.warn("costintel: estimate hints", e);
+  }
+}
+if ("function" == typeof render) {
+  const ciRenderBase = render;
+  render = function () {
+    const r = ciRenderBase.apply(this, arguments);
+    ciHintPass();
+    return r;
+  };
 }
 // ---------------------------------------------------------------------------------------------------------------------
 // 8. Driver routes.
@@ -963,7 +1051,8 @@ function ciLegFn(matrix, points) {
         j = idx.get(b),
         m = matrix.min[i] && matrix.min[i][j],
         mi = matrix.miles[i] && matrix.miles[i][j];
-      if (null != m && isFinite(m)) return { min: m, miles: mi || 0 };
+      // the matrix is wheels turning; parking at the stop is the same few minutes either way
+      if (null != m && isFinite(m)) return { min: i === j ? 0 : Math.round((m + CI_ROUTE.parkMin) * 10) / 10, miles: mi || 0 };
     }
     return CI_TRAVEL.offline.leg(a, b);
   };
@@ -1267,10 +1356,17 @@ const ciTravelSig = (pts) => JSON.stringify(pts.map((p) => [p.lat, p.lng])) + "|
 const ciRouteSig = (I) => JSON.stringify([I.buys.map((b) => [b.key, b.qty]), I.loads.map((l) => [l.key, l.qty]), I.sites.map((s) => [s.id, s.garbage, s.to])]);
 // Ask the platform for real drive times (Google Maps Routes when the key is set); say plainly when it is not.
 async function ciTravelFetch() {
+  if (!window.SDP_CONFIG) {
+    ciTravelLast = { source: "offline", note: CI_TRAVEL.offline.note, why: "this copy has no platform: Google drive times come from the hosted copy, once GOOGLE_MAPS_KEY is set in Netlify" };
+    return toast("Drive times stay estimated: Google Maps drive times come from the hosted copy, once Alan adds the GOOGLE_MAPS_KEY in Netlify"), void render();
+  }
   const I = ciRouteInput(),
     pts = [I.start, I.dump].concat(I.stores, I.sites.filter((s) => null != s.lat), I.yards.filter((y) => null != y.lat));
   try {
-    const M = await CI_TRAVEL.platform.matrix(pts, `${today()}T${ciClock(CI_ROUTE.startMin)}`);
+    const hh = String(Math.floor(CI_ROUTE.startMin / 60)).padStart(2, "0"),
+      mm = String(CI_ROUTE.startMin % 60).padStart(2, "0"),
+      mo = +today().slice(5, 7),
+      M = await CI_TRAVEL.platform.matrix(pts, `${today()}T${hh}:${mm}:00${mo > 3 && mo < 11 ? "-04:00" : "-05:00"}`);
     CI_TRAVEL.platform.cache[ciTravelSig(pts)] = M;
     (ciTravelUse = "google"), (ciTravelLast = { source: "google", note: CI_TRAVEL.platform.note });
     toast("Drive times now from Google Maps");
@@ -1445,7 +1541,7 @@ function ciRouteCardHtml(emp) {
     ${plan.stops
       .map(
         (s, i) =>
-          `<div class="stop ${s.kind}"><div class="n">${i + 1}</div><div><b data-nocase>${esc(s.name)}</b>${s.dist ? ` <span class="s">· ${(s.dist / 1609.34).toFixed(1)} mi</span>` : ""}${null != s.at && P ? ` <span class="s">· ${ciClock(s.at)}</span>` : ""}${s.note ? `<div class="s">${esc(s.note)}</div>` : ""}${whyStore(s)}<ul>${s.lines.map((l, k) => `<li>${esc(l)}${(s.dropRefs || [])[k] ? ` <button type="button" class="btn sm" style="margin:4px 0 4px 8px" data-drvdrop="${esc(s.dropRefs[k].pid)}:${esc(s.dropRefs[k].rid)}">Delivered</button>` : ""}</li>`).join("")}</ul></div><div class="s" style="text-align:right">van after stop<div class="cap ${s.load > 1 ? "over" : ""}"><i style="width:${Math.min(100, Math.max(0, Math.round(100 * (s.load || 0))))}%"></i></div>${Math.max(0, Math.round(100 * (s.load || 0)))}%${s.garbage ? ` · debris ${Math.round(100 * s.garbage)}%` : ""}</div></div>`,
+          `<div class="stop ${s.kind}"><div class="n">${i + 1}</div><div><b data-nocase>${esc(s.name)}</b>${s.dist ? ` <span class="s">· ${(s.dist / 1609.34).toFixed(1)} mi</span>` : ""}${null != s.at && P ? ` <span class="s">· by ${ciClock(s.at)}</span>` : ""}${s.note ? `<div class="s">${esc(s.note)}</div>` : ""}${whyStore(s)}<ul>${s.lines.map((l, k) => `<li>${esc(l)}${(s.dropRefs || [])[k] ? ` <button type="button" class="btn sm" style="margin:4px 0 4px 8px" data-drvdrop="${esc(s.dropRefs[k].pid)}:${esc(s.dropRefs[k].rid)}">Delivered</button>` : ""}</li>`).join("")}</ul></div><div class="s" style="text-align:right">van after stop<div class="cap ${s.load > 1 ? "over" : ""}"><i style="width:${Math.min(100, Math.max(0, Math.round(100 * (s.load || 0))))}%"></i></div>${Math.max(0, Math.round(100 * (s.load || 0)))}%${s.garbage ? ` · debris ${Math.round(100 * s.garbage)}%` : ""}</div></div>`,
       )
       .join("")}
     ${A ? ciPlanVsReceiptsHtml(A) : ""}
@@ -1465,11 +1561,12 @@ function ciPickHtml(x, atStore, ctx) {
   if (!x || !x.it || x.it.invId || x.it.garbage) return "";
   const pk = ciItemPick(x, atStore, ctx || ciRouteCtx());
   if (!pk) return "";
+  // one sentence per line, so the field's Spanish pass reads it whole (the store's name is kept as written)
   if (atStore) {
     if (pk.here) return `<div class="s ci-pick ok" data-cipick="${esc(x.key)}">Best price is here</div>`;
-    return pk.save > 0.005 ? `<div class="s ci-pick" data-cipick="${esc(x.key)}">Cheaper at <span data-nocase>${esc(pk.store)}</span> · saves ${ciMoney(pk.save)}</div>` : "";
+    return pk.save > 0.005 ? `<div class="s ci-pick" data-cipick="${esc(x.key)}">${esc(`Cheaper at ${pk.store} · saves ${ciMoney(pk.save)}`)}</div>` : "";
   }
-  return `<div class="s ci-pick" data-cipick="${esc(x.key)}">Buy at <span data-nocase>${esc(pk.store)}</span>${pk.save > 0.005 ? ` · saves ${ciMoney(pk.save)}` : ""}</div>${pk.skipped ? `<div class="s ci-pick muted" data-ciskip="${esc(x.key)}"><span data-nocase>${esc(pk.skipped)}</span> is cheaper, but not worth the extra stop today</div>` : ""}`;
+  return `<div class="s ci-pick" data-cipick="${esc(x.key)}">${esc(`Buy at ${pk.store}${pk.save > 0.005 ? ` · saves ${ciMoney(pk.save)}` : ""}`)}</div>${pk.skipped ? `<div class="s ci-pick muted" data-ciskip="${esc(x.key)}">${esc(`${pk.skipped} is cheaper, but not worth the extra stop today`)}</div>` : ""}`;
 }
 if ("function" == typeof renderRunCard) {
   const ciRenderRunCardBase = renderRunCard;
@@ -1496,6 +1593,8 @@ if ("function" == typeof renderRunCard) {
         x && !row.querySelector("[data-cipick]") && row.children[1] && row.children[1].insertAdjacentHTML("beforeend", ciPickHtml(x, "", ctx));
       });
       card.querySelectorAll("[data-ciapprove]").forEach((b) => (b.onclick = () => ciApproveRoute()));
+      // one blue button: for the coordinator the safe next step is approving the route, not starting a run
+      card.querySelector("[data-ciapprove].primary") && card.querySelectorAll(".btn.primary:not([data-ciapprove])").forEach((b) => b.classList.remove("primary"));
       card.querySelectorAll("[data-citravel]").forEach((b) => (b.onclick = () => ciTravelFetch()));
     } catch (e) {
       console.warn("costintel: run card", e);
@@ -1524,7 +1623,7 @@ function ciPlanVsReceiptsHtml(run) {
   const field = ciIsField(),
     extra = r2(got.reduce((a, r) => a + (r.diff > 0 ? r.diff : 0), 0));
   return `<div class="ci-pvr" data-cipvr="${got.length}"><b class="small">Plan Against the Receipts</b>${got
-    .map((r) => `<div class="small">${r.asPlanned ? "As planned" : "Bought elsewhere"}: <span data-nocase>${esc(r.what)}</span> at <span data-nocase>${esc(r.bought)}</span>${!field && null != r.diff && Math.abs(r.diff) > 0.005 ? ` (${r.diff > 0 ? "+" : "−"}${ciMoney(Math.abs(r.diff))} against the plan)` : ""}</div>`)
+    .map((r) => `<div class="small" data-cipvrrow="${r.asPlanned ? "planned" : "elsewhere"}">${esc(`${r.asPlanned ? "As planned" : "Bought elsewhere"}: ${r.what} at ${r.bought}`)}${!field && null != r.diff && Math.abs(r.diff) > 0.005 ? `<span> (${r.diff > 0 ? "+" : "−"}${ciMoney(Math.abs(r.diff))} against the plan)</span>` : ""}</div>`)
     .join("")}${!field && extra > 0.005 ? `<div class="small">${ciMoney(extra)} more than planned. ${esc(CI_MONEY_LINE)}</div>` : ""}</div>`;
 }
 // ---------------------------------------------------------------------------------------------------------------------
@@ -1624,7 +1723,7 @@ function ciWeeklyFindings() {
         title: `${T.label} ran ${Math.round(pct)}% over on the last 3 brownstones: ${"price" === cause ? "price it from the supplier that held the old price, or re-quote it" : "raise the template allowance"}`,
         because: `${last.map((s) => `${s.job} ${ciCents(s.perUnit)}`).join(", ")} per ${T.per}, against ${ciCents(mP)} on the ${prior.length} before them. The cause on ${causes.filter((c) => c === cause).length} of 3 is ${cause}.`,
         value: { dollars: perYear, hours: 0, basis: `${ciCents(perJob)} a job × ${ciJobsPerYear("brownstone")} brownstones a year` },
-        delta: "price" === cause ? { path: `company.ciRules.${T.id}Price`, from: null, to: `Rough material for ${T.label.toLowerCase()} is re-quoted before each job; the last three ran ${Math.round(pct)}% over on price`, label: `${T.label}: re-quote before each job` } : { path: `company.costBench.${T.id}`, from: ((DB.company || {}).costBench || {})[T.id] || null, to: { perUnit: r2(mL), per: T.per, type: "brownstone", n: 3, at: today(), label: T.label }, label: `Template allowance for ${T.label.toLowerCase()}` },
+        delta: "price" === cause ? { path: `company.ciRules.${T.id}Price`, from: null, to: `Rough material for ${T.label.toLowerCase()} is re-quoted before each job; the last three ran ${Math.round(pct)}% over on price`, label: `${T.label}: re-quote before each job` } : { path: `company.costBook.bench.${T.id}`, from: ciBenchBook()[T.id] || null, to: { perUnit: r2(mL), per: T.per, type: "brownstone", n: 3, at: today(), label: T.label }, label: `Template allowance for ${T.label.toLowerCase()}` },
         evidence: last.map((s) => `${s.job}: ${ciCents(s.material)} for ${s.qty} = ${ciCents(s.perUnit)} per ${T.per}`),
         lesson: `${T.label}: carry ${ciCents(mL)} per ${T.per} on brownstones and re-quote the material before ordering`,
       });
@@ -1827,6 +1926,10 @@ function ciBenchHtml() {
     (b) =>
       `<tr data-cibench="${b.trade}" data-cimedian="${b.median}"><td><b>${esc(b.label)}</b><div class="small muted">per ${esc(b.per)}${b.altPer ? ` · ${ciCents(b.altMedian)} per ${esc(b.altPer)}` : ""}</div></td><td class="money">${null == b.median ? "—" : ciCents(b.median)}</td><td class="small">${null == b.min ? "—" : `${ciCents(b.min)} to ${ciCents(b.max)}`}</td><td>${b.n}</td><td class="small">${b.inEstimating ? `${ciCents(b.inEstimating.perUnit)} per ${esc(b.inEstimating.per)}, approved ${fmtL(b.inEstimating.at)}` : '<span class="muted">not yet</span>'}</td><td>${can && b.enough && (!b.inEstimating || Math.abs(b.inEstimating.perUnit - b.median) > 0.005) ? `<button type="button" class="btn sm" data-ciprop="${b.trade}">Propose to Estimating</button>` : ""}</td></tr>`,
   ).join("")}</tbody></table></div>
+  ${(() => {
+    const F = Object.entries(((DB.company || {}).costBook) || {}).filter(([k, v]) => "bench" !== k && +v > 0);
+    return `<p class="small" data-cifactors="${F.length}"><b>What new estimates carry</b> (one book, Company › Changes approves every entry): ${F.length ? F.map(([k, v]) => `${esc(k)} ${esc((COST_CODES.find((x) => x[0] === k) || [k, ""])[1])} ×${v} (close-out factor)`).join("; ") : "no close-out cost factor approved yet"}; ${Object.keys(ciBenchBook()).length ? Object.entries(ciBenchBook()).map(([t, b]) => `${esc(b.label || t)} ${ciCents(b.perUnit)} per ${esc(b.per)}`).join("; ") : "no benchmark approved yet"}. The item library's fill applies the factor to the unit cost it fills; the estimate shows both next to the line.</p>`;
+  })()}
   <h3 class="rep-h">Above the Benchmark <span class="pill${F.length ? " warn" : ""}" data-ciflagn="${F.length}">${F.length}</span></h3>${
     F.length
       ? F.map((f) => `<div class="pw-row" data-ciflag="${esc(f.key)}"><span class="grow small"><b data-nocase>${esc(f.job)}</b>${f.live ? ' <span class="pill info">running</span>' : ""} · ${esc(f.label)}${f.line ? ` (<span data-nocase>${esc(f.line.name)}</span>)` : ""}: ${f.priceOnly ? `paying ${Math.round((f.priceIdx - 1) * 100)}% above comparable jobs' prices` : `${ciCents(f.perUnit)} per ${esc(f.per)} against a ${ciCents(f.median)} median (+${f.pct}%)`}<br>${esc(f.why)} · ${ciMoney(f.dollars)}</span></div>`).join("")
