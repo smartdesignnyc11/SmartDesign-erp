@@ -70,6 +70,11 @@ async def main():
         nrows = await A.evaluate("Cloud.pullAll().then(d => d ? d.projects.length : 0)")
         ok(nrows > 0, f'the first upload put the jobs on the server ({nrows})')
         pid = await A.evaluate("DB.projects.find(p => !p.id.startsWith('qa')).id")
+        # the field sees only its crew's jobs (2026-10-20): the owner puts the foreman on this job's crew first, as a PM
+        # does with Change Crew, and the save reaches the server before the phone opens
+        await A.evaluate(f"""(async () => {{ const p = DB.projects.find(x => x.id === '{pid}'); p.team = Array.from(new Set([...(p.team || []), 'u_angel']));
+            p.teamAt = Object.assign({{}}, p.teamAt || {{}}, {{u_angel: today()}}); await (saveNow ? saveNow() : save()); await Cloud.push(DB); }})()""")
+        await A.wait_for_timeout(3000)
         money_key = await A.evaluate(f"(() => {{ const p = DB.projects.find(x => x.id === '{pid}'); return ['budget','contract','price','total','amount'].find(k => k in p) || ''; }})()")
 
         F, ef = await person(b, 'foreman', True)
