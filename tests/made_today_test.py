@@ -39,6 +39,15 @@ async def main():
                     c.ok(not r.get('inCard'), f'{tag} {kind}: nothing of the page header is built inside the Made Today card ({r})')
                 c.ok(not errs, f'{tag} {kind}: page errors {errs[:2]}')
                 await b.close()
+            # a chat line says which of the job's conversations it is in, and Open goes there (2026-10-20: a driver's
+            # store-run notice, a team line, read "posted for the client")
+            b, pg, errs = await open_app(p, phone)
+            await sign_in(pg, 'u_owner')
+            r = await pg.evaluate("""() => { const p = DB.projects.find(x => x.id === 'p45'), E = FND_HOME['p.chat'];
+            const team = { id: 'x1', system: true, by: 'System', text: 'Store run: Alex picked up 6 bags of thinset' }, cl = { id: 'x2', system: true, by: 'System', text: 'INV-9 is ready for you under Account' };
+            const out = { team: E.where(team, p), client: E.where(cl, p) }; (p.chat = p.chat || []).push(team); E.open(team, p); out.key = msgKey; return out; }""")
+            c.ok('team chat' in r['team'] and 'client' not in r['team'] and 'chat with the client' in r['client'] and r['key'] == 'job:p45', f'{tag}: a team line says team chat and opens the team thread; a client line says so ({r})')
+            await b.close()
     print(f'{len(c.fail)} FAILED ({c.n} checks)' if c.fail else f'ALL PASS ({c.n} checks)')
     raise SystemExit(1 if c.fail else 0)
 

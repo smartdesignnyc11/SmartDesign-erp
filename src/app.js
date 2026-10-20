@@ -195916,8 +195916,12 @@ const FND_HOME = {
   },
   "p.chat": {
     noun: "Chat Line",
-    where: (r, p) => `in ${p ? fndJob(p) + "'s" : "the job's"} chat${r.system ? ", posted for the client" : ""}`,
+    // which of the job's two conversations the line is in (msgAud): an automatic line is not the client's unless it is
+    // (a store-run notice went to the team and read "posted for the client")
+    where: (r, p) => `in ${p ? fndJob(p) + "'s" : "the job's"} ${"function" == typeof msgAud && "client" === msgAud(r, p) ? "chat with the client" : "team chat"}`,
     open: (r, p) => {
+      const k = p && "function" == typeof msgAud ? ("client" === msgAud(r, p) ? "client:" : "job:") + p.id : "";
+      if (k && "function" == typeof msgOpen) return msgOpen(k);
       p && "function" == typeof setCurrent && setCurrent(p.id), (view = "chat"), render();
     },
   },
