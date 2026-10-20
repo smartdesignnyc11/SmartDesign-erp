@@ -20,7 +20,7 @@
 //   pinned figures see the firm exactly as before.
 
 // ---- 1. Payers ---------------------------------------------------------------------------------------------------
-const LJ = { scope: new Map(), pick: "", demo: "lj", stmtPayer: "" };
+const LJ = { scope: new Map(), pick: "", demo: "lj", stmtPayer: "", typed: {} };
 function ljPayers(c) {
   return c && Array.isArray(c.payers) ? c.payers : [];
 }
@@ -100,7 +100,7 @@ function ljWithPayer(c, pid, fn) {
   if (was) return fn();
   const P = ljPayerById(c, pid),
     keep = {};
-  const K = ["invoices", "payments", "changeOrders", "estimates", "sov", "contract", "contractNet", "name", "billingAddr", "contacts"];
+  const K = ["invoices", "payments", "changeOrders", "estimates", "sov", "contract", "contractNet", "contracts", "name", "billingAddr", "contacts"];
   K.forEach((k) => (keep[k] = c[k]));
   const sov = (c.sov || []).filter((v) => ljSvPayer(c, v) === pid),
     base = r2(sov.filter((v) => "Contract" === v.source).reduce((a, v) => a + (+v.scheduled || 0), 0)),
@@ -122,6 +122,13 @@ function ljWithPayer(c, pid, fn) {
     sov: twin(sov, keep.sov),
     contract: base,
     contractNet: base,
+    // each job's contract, as this payer's share of it (jobFin reads the job's contract from here)
+    contracts: Object.fromEntries(
+      Object.entries(keep.contracts || {}).map(([jid, k]) => {
+        const v = r2(sov.filter((x) => "Contract" === x.source && (x.projectId || "") === jid).reduce((a, x) => a + (+x.scheduled || 0), 0));
+        return [jid, Object.assign({}, k, { base: v, net: v })];
+      }),
+    ),
     name: P.name,
     billingAddr: P.addr || keep.billingAddr,
     contacts: contacts,
@@ -344,9 +351,14 @@ function ljApprovePhase2(c, d, opts) {
   if (!["converted", "approved"].includes(d.status)) return { ok: !1, why: "Approve the exploratory phase first: it becomes the contract" };
   const by = (S && S.project && S.project.userName) || role(),
     before = docTotal(d),
-    open = P2.filter((l) => !l.found);
+    open = P2.filter((l) => !l.found && l.range);
   P2.forEach((l) => {
-    l.found ? ((l.rate = r2(l.found.amount / ((+l.qty || 1) || 1))), l.range && (l.range.settled = !0)) : l.range && (l.allowance = !0), (l.on = !0);
+    // a discovery figure moves the price and the budget together, so the line keeps the margin it was priced at
+    if (l.found) {
+      const was = ljRaw(l);
+      (l.rate = r2(l.found.amount / ((+l.qty || 1) || 1))), +l.cost && was > 0 && (l.cost = r2((+l.cost * l.found.amount) / was)), l.range && (l.range.settled = !0);
+    } else l.range && (l.allowance = !0);
+    l.on = !0;
   });
   const after = docTotal(d),
     addTotal = r2(after.total - before.total),
@@ -355,9 +367,15 @@ function ljApprovePhase2(c, d, opts) {
   P2.forEach((l) => {
     const key = `estimate:${d.id}:${l.id}`;
     (c.sov || []).some((v) => v.lineRef === key) ||
-      c.sov.push({ id: uid("sv"), taxable: !!l.taxable, desc: (l.num ? l.num + ". " : "") + (l.item || l.desc), scheduled: r2(lineAmount(l, d) * k), source: "Contract", order: c.sov.length, lineRef: key, allowance: !!l.allowance || void 0, phase: 2 });
+      c.sov.push({ id: uid("sv"), taxable: !!l.taxable, desc: (l.num ? l.num + ". " : "") + (l.item || l.desc), scheduled: r2(lineAmount(l, d) * k), source: "Contract", order: c.sov.length, lineRef: key, allowance: !!l.allowance || void 0, phase: 2, projectId: d.projectId || void 0 });
   });
-  (c.contract = r2((+c.contract || 0) + addTotal)), (c.contractNet = r2((null != c.contractNet ? +c.contractNet : +c.contract - addTotal) + addNet));
+  // the contract is kept per job (c.contracts) and summed onto the client: both grow by the construction phase
+  const K = c.contracts && c.contracts[d.projectId || ""];
+  K ? ((K.base = r2((+K.base || 0) + addTotal)), (K.net = r2((+K.net || 0) + addNet)), (K.phase2 = today())) : null;
+  if (K && "function" == typeof contractTotals) {
+    const T = contractTotals(c);
+    (c.contract = T.base), (c.contractNet = T.net);
+  } else (c.contract = r2((+c.contract || 0) + addTotal)), (c.contractNet = r2((null != c.contractNet ? +c.contractNet : +c.contract - addTotal) + addNet));
   d.phase2 = { status: "approved", at: appNowIso(), on: today(), by: by, name: o.name || "", total: addTotal, lines: P2.length, allowances: open.length };
   (d.history = d.history || []).push({ t: nowStamp(), by: by, from: d.status, action: "phase2-approved", note: `construction phase: ${P2.length} lines, ${money(addTotal)}${open.length ? `, ${open.length} carried as allowances` : ""}`, total: after.total });
   docMark(d);
@@ -796,6 +814,47 @@ if ("function" == typeof portalStatement) {
     return base.apply(self, a);
   };
 }
+// A shared contract is signed by both payers: each one approves their own part of the proposal in their portal, and
+// the estimate is approved (and becomes the contract) when the last of them has signed.
+function ljPayerApprove(c, d, pid, name) {
+  const part = ljEstForPayer(c, d, pid),
+    total = part ? docTotal(part).total : 0;
+  (d.payerApprovals = d.payerApprovals || {})[pid] = { name: name, ts: appNowIso(), t: nowStamp(), total: total, via: "portal" };
+  try {
+    audit("estimate", d.id, "payer-approved", null, pid, `${name} approved ${ljPayerName(c, pid)}'s part of ${d.number}: ${money(total)}`);
+  } catch (e) {}
+  c.activity.push({ t: nowStamp(), by: name, text: `${d.number}: ${ljPayerName(c, pid)}'s part approved via portal (${money(total)})` });
+  const owed = [...new Set((d.lines || []).map((l) => ljEstLinePayer(c, d, l)))].filter((p) => !d.payerApprovals[p]);
+  return { total: total, waiting: owed };
+}
+if ("function" == typeof portalApprove) {
+  const base = portalApprove;
+  portalApprove = function (c, d) {
+    const up = ljUserPayer();
+    if (!up || !c || c.id !== up.c.id || !d || "estimate" !== d.type || new Set((d.lines || []).map((l) => ljEstLinePayer(c, d, l))).size < 2) return base.apply(this, arguments);
+    const part = ljEstForPayer(c, d, up.pid),
+      u = currentUser(),
+      t = part ? docTotal(part).total : 0;
+    mbModal(
+      `Approve Your Part of ${esc(d.number)}`,
+      `${ljWithPayer(c, up.pid, () => docSummaryHtml(c, part || d))}<div class="card" style="margin-top:10px"><p class="small muted">This contract is shared: ${ljPayers(c).map((p) => `${esc(p.name)} (${esc(p.role)})`).join(" and ")}. You approve the lines ${esc(ljPayerName(c, up.pid))} pays for.</p><label class="f"><span>Type Your Full Name to Approve</span><input id="lj-pa-name" value="${esc((u && u.name) || "")}" autocomplete="name"></label><label class="small"><input type="checkbox" id="lj-pa-agree"> I approve ${esc(ljPayerName(c, up.pid))}'s part, ${money(t)}</label></div>`,
+      {
+        submit: `Approve ${money(t)}`,
+        onSubmit: () => {
+          const name = $("#lj-pa-name").value.trim();
+          if (!name) return toast("Type your name to approve"), !1;
+          if (!$("#lj-pa-agree").checked) return toast("Tick the box to approve"), !1;
+          const r = ljPayerApprove(c, d, up.pid, name);
+          if (r.waiting.length) return save(), render(), void toast(`Approved: ${money(r.total)}. The proposal becomes the contract when ${r.waiting.map((p) => ljPayerName(c, p)).join(" and ")} approve${1 === r.waiting.length ? "s" : ""} their part`);
+          d.clientApproval = { name: Object.values(d.payerApprovals).map((x) => x.name).join(" and "), t: nowStamp(), ts: appNowIso(), total: docTotal(d).total, lines: d.lines.length, via: "portal", user: (u && u.id) || "" };
+          Promise.resolve(docAction(c, d, "approve")).then(() => {
+            save(), render(), toast(`${d.number} approved by both payers: thank you`);
+          });
+        },
+      },
+    );
+  };
+}
 if ("function" == typeof portalView) {
   const base = portalView;
   portalView = function () {
@@ -838,7 +897,7 @@ if ("function" == typeof draftDocEmail) {
           (d.payer = pid),
             "sov" === d.mode &&
               ((d.lines = (d.lines || []).filter((l) => ljLinePayer(c, d, l) === pid)),
-              (d.title = `Progress billing #${(c.invoices || []).filter((i) => "sov" === i.mode && i !== d && ljInvPayer(c, i) === pid).length + 1} · ${ljPayerName(c, pid)}`)),
+              (d.title = `Progress billing #${(c.invoices || []).filter((i) => "sov" === i.mode && i !== d && !i.depositOf && !i.retainageRelease && "void" !== i.status && ljInvPayer(c, i) === pid).length + 1} · ${ljPayerName(c, pid)}`)),
             clean && docMark(d);
         }
       }
@@ -921,7 +980,7 @@ try {
   (EQ_TABLES.payers = () => ljPayerRows()), (EQ_TABLES.allowances = () => ljAllowanceQRows()), (EQ_TABLES.estimateranges = () => ljRangeQRows());
   Object.assign(EQ_ALIAS, { payer: "payers", landlord: "payers", tenant: "payers", allowance: "allowances", ranges: "estimateranges", range: "estimateranges", htc: "estimateranges", taxcredit: "estimateranges", costmodel: "estimateranges" });
   EQ_MONEY_TABLES.push("payers", "allowances", "estimateranges"), EQ_CLIENT_TABLES.push("payers");
-  "undefined" != typeof MD_VIEWS && Object.assign(MD_VIEWS, { payers: ["clients", "billing"], allowances: ["clients", "billing", "costs"], estimateranges: ["clients", "billing"] });
+  "undefined" != typeof MD_VIEWS && Object.assign(MD_VIEWS, { payers: ["clients", "billing", "clacct"], allowances: ["clients", "billing", "costs"], estimateranges: ["clients", "billing"] });
   REP_DS.payers = { n: "Payers on shared contracts", rows: () => ljPayerRows(), dims: ["client", "project", "payer", "payerRole"], sums: ["contract", "billed", "paid", "outstanding", "overdue"] };
   REP_DS.allowances = { n: "Allowances", rows: () => ljAllowanceQRows(), dims: ["client", "project", "payer", "unknown", "status"], sums: ["allowance", "budget", "spent", "committed", "overBy", "toChangeOrder"] };
 } catch (e) {
@@ -934,6 +993,7 @@ try {
   const s = document.createElement("style");
   (s.id = "lj-css"),
     (s.textContent = `
+/* .lcard keeps the control-strip merger (osMerge) out of these cards: their rows are records, not toolbars */
 .lj-card{border:1px solid var(--line,#D9DDE3);border-radius:10px;padding:12px 14px;margin:0 0 12px;background:var(--panel,#fff)}
 .lj-card h3{margin:0 0 4px;font-size:15px}.lj-card h4{margin:12px 0 6px;font-size:13px}
 .lj-sub{font-size:12.5px;color:var(--mut,#6b7480);margin:0 0 8px}
@@ -966,7 +1026,7 @@ const ljCanMoney = () => ["owner", "pm", "coord", "billing", "controller"].inclu
 // statement and a progress invoice of their own.
 function ljPayersCard(c) {
   const F = ljByPayer(c);
-  return `<div class="lj-card lj-payers no-doc-print"><h3>Payers on This Contract</h3><p class="lj-sub">Each payer is billed for their own lines and has their own invoices, aging and statement.</p><div class="lj-rows">${F.map(
+  return `<div class="lj-card lcard lj-payers no-doc-print"><h3>Payers on This Contract</h3><p class="lj-sub">Each payer is billed for their own lines and has their own invoices, aging and statement.</p><div class="lj-rows">${F.map(
     (f) =>
       `<div class="lj-row" data-ljpayer="${esc(c.id)}|${esc(f.pid)}"><div class="lj-nm"><b>${esc(f.name)}</b> <span class="lj-pill">${esc(f.role || "Payer")}</span></div>${ljKv("Contract", money(f.revised))}${ljKv("Billed", money(f.invoiced))}${ljKv("Paid", money(f.paid))}${ljKv("Open", money(f.outstanding), f.outstanding ? "" : "")}${ljKv("Overdue", money(f.overdue), f.overdue ? "bad" : "")}<div class="lj-acts">${ljBtn(`data-ljstmt="${esc(c.id)}|${esc(f.pid)}"`, "Statement")}${c.sov && c.sov.length ? ljBtn(`data-ljprog="${esc(c.id)}|${esc(f.pid)}"`, "New Progress Invoice") : ""}</div></div>`,
   ).join("")}</div><div class="lj-acts" style="margin-top:6px">${ljBtn(`data-ljpayers="${esc(c.id)}"`, "Edit Payers")}</div></div>`;
@@ -975,7 +1035,7 @@ function ljAllowanceCard(c) {
   const R = ljAllowanceRows(c);
   if (!R.length) return "";
   const pill = (s) => ({ over: '<span class="lj-pill bad">Over</span>', covered: '<span class="lj-pill ok">Covered by CO</span>', near: '<span class="lj-pill warn">Near</span>', closed: '<span class="lj-pill">Closed</span>', ok: '<span class="lj-pill ok">Within</span>' })[s] || "";
-  return `<div class="lj-card lj-allow no-doc-print"><h3>Allowances</h3><p class="lj-sub">What the contract carries for each unknown, against what it is costing. Over the allowance needs a change order before the work goes on; what is not used comes back as a credit.</p><div class="lj-rows">${R.map(
+  return `<div class="lj-card lcard lj-allow no-doc-print"><h3>Allowances</h3><p class="lj-sub">What the contract carries for each unknown, against what it is costing. Over the allowance needs a change order before the work goes on; what is not used comes back as a credit.</p><div class="lj-rows">${R.map(
     (r) =>
       `<div class="lj-row" data-ljallow="${esc(r.key)}"><div class="lj-nm"><b>${esc(r.item)}</b> ${pill(r.status)}${r.payer ? ` <span class="small muted">${esc(ljPayerName(c, r.payer))}</span>` : ""}</div>${ljKv("Allowance", money(r.price))}${ljKv("Budget", money(r.budget))}${ljKv("Spent", money(r.spent))}${ljKv("Committed", money(r.committed))}${ljKv(r.over > 0 ? "Over By" : "Left", money(Math.abs(r.over)), r.over > 0.5 ? "bad" : "")}<div class="lj-acts">${r.toCO > 0.5 ? ljBtn(`data-ljallowco="${esc(c.id)}|${esc(r.key)}"`, `Draft Change Order ${money(r.toCO)}`) : ""}${r.cos.map((x) => ljBtn(`data-ljopen="${esc(c.id)}|co|${esc(x.id)}"`, `Open ${esc(x.number)}`)).join("")}${"closed" !== r.status && r.over <= 0.5 ? ljBtn(`data-ljallowclose="${esc(c.id)}|${esc(r.key)}"`, "Close Allowance") : ""}</div></div>`,
   ).join("")}</div></div>`;
@@ -987,7 +1047,7 @@ function ljPhaseCard(c) {
     const R = ljRange(d),
       P2 = d.lines.filter((l) => 2 === +l.phase && !l.on),
       found = P2.filter((l) => l.found).length;
-    return `<div class="lj-card lj-phase no-doc-print"><h3>Construction Phase: Discovery</h3><p class="lj-sub">${esc(d.number)}: the exploratory phase is the contract (${money(R.p1)}). The construction phase joins it when discovery is done and the client approves it.</p><div class="lj-sum">${ljKv("Construction Range", `${money(R.p2.lo)} – ${money(R.p2.hi)}`)}${ljKv("Carried", money(R.p2.carried))}${ljKv("Lines Found", `${found} of ${P2.length}`)}</div><div class="lj-acts">${ljBtn(`data-ljopen="${esc(c.id)}|estimate|${esc(d.id)}"`, "Open Discovery")}</div></div>`;
+    return `<div class="lj-card lcard lj-phase no-doc-print"><h3>Construction Phase: Discovery</h3><p class="lj-sub">${esc(d.number)}: the exploratory phase is the contract (${money(R.p1)}). The construction phase joins it when discovery is done and the client approves it.</p><div class="lj-sum">${ljKv("Construction Range", `${money(R.p2.lo)} – ${money(R.p2.hi)}`)}${ljKv("Carried", money(R.p2.carried))}${ljKv("Lines Found", `${found} of ${P2.length}`)}</div><div class="lj-acts">${ljBtn(`data-ljopen="${esc(c.id)}|estimate|${esc(d.id)}"`, "Open Discovery")}</div></div>`;
   }).join("");
 }
 function ljClientPanel(c) {
@@ -1019,13 +1079,12 @@ function ljEstPanel(c, d) {
     dis = ed ? "" : "disabled",
     multi = ljMulti(c),
     lines = (d.lines || []).filter((l) => l.item || l.desc || +l.rate),
-    showRange = ljHasRanges(d) || ed,
     R = ljRange(d),
     H = d.costModel ? ljHtc(d) : null,
     num = (v) => (null == v || "" === v ? "" : +v),
     sel = (attr, opts, v, disabled) => `<select class="lj-sel" ${attr} ${disabled || ""}>${opts.map(([k, n]) => `<option value="${esc(k)}" ${String(v || "") === String(k) ? "selected" : ""}>${esc(n)}</option>`).join("")}</select>`,
     props = (d.htc && d.htc.props) || [];
-  let h = `<div class="lj-card lj-est no-doc-print" data-ljest="${esc(c.id)}|${esc(d.id)}"><h3>Ranges, Phases and Payers</h3><p class="lj-sub">For the unknowns of an old building: give a line a low and high figure, carry an allowance, split the work into a paid exploratory phase and construction, and say who pays each line.</p>`;
+  let h = `<div class="lj-card lcard lj-est no-doc-print" data-ljest="${esc(c.id)}|${esc(d.id)}"><h3>Ranges, Phases and Payers</h3><p class="lj-sub">For the unknowns of an old building: give a line a low and high figure, carry an allowance, split the work into a paid exploratory phase and construction, and say who pays each line.</p>`;
   ed && (h += `<div class="lj-tog"><label><input type="checkbox" data-ljtog="phased" ${d.phased ? "checked" : ""} ${dis}> Paid Exploratory Phase</label><label><input type="checkbox" data-ljtog="costModel" ${d.costModel ? "checked" : ""} ${dis}> Hard, Soft and Contingency</label></div>`);
   // the totals, read three ways
   h += `<div class="lj-sum">${d.phased ? ljKv("Exploratory Phase (Contract Now)", money(R.p1)) + ljKv("Construction Range", `${money(R.p2.lo)} – ${money(R.p2.hi)}`) + ljKv("Construction Carried", money(R.p2.carried)) : ljKv("Fixed", money(R.fixed)) + (R.ranges ? ljKv("With the Unknowns", `${money(R.lo)} – ${money(R.hi)}`) : "") + ljKv("Contract Carries", money(R.carried))}${R.allowances ? ljKv("Allowances", money(R.allowances)) : ""}</div>`;
@@ -1035,7 +1094,9 @@ function ljEstPanel(c, d) {
       const LR = ljLineRange(l),
         off = ljPhaseOff(l, d),
         canFind = d.phased && 2 === +l.phase && !l.on && (LR.isRange || !!l.unknown) && ["approved", "converted"].includes(d.status),
-        f = l.found;
+        f = l.found,
+        // what was typed and not yet recorded survives a redraw (a save elsewhere on the page redraws it)
+        ty = LJ.typed[l.id] || {};
       // a read-only line says what it is in words; inputs only where something can still change
       const tags = [
           multi ? ljPayerName(c, ljEstLinePayer(c, d, l)) : "",
@@ -1046,14 +1107,14 @@ function ljEstPanel(c, d) {
         ].filter(Boolean),
         ctl = ed
           ? `${multi ? `<label class="lj-field">Payer${sel(`data-ljlf="payer"`, ljPayers(c).map((p) => [p.id, p.name]), ljEstLinePayer(c, d, l))}</label>${ljBtn(`data-ljsplit="${esc(l.id)}"`, "Split")}` : ""}${d.phased ? `<label class="lj-field">Phase${sel(`data-ljlf="phase"`, [["1", "Exploratory"], ["2", "Construction"]], 2 === +l.phase ? "2" : "1")}</label>` : ""}${
-              showRange
+              l.range || l.unknown
                 ? `<label class="lj-field">Low<input class="lj-in" type="number" step="any" data-ljlf="lo" value="${num(l.range && l.range.lo)}" placeholder="${LR.carried}"></label><label class="lj-field">High<input class="lj-in" type="number" step="any" data-ljlf="hi" value="${num(l.range && l.range.hi)}" placeholder="${LR.carried}"></label><label class="lj-field">Unknown${sel(`data-ljlf="unknown"`, [["", "None"], ...LJ_UNKNOWNS], l.unknown)}</label><label class="lj-field">Allowance<input type="checkbox" data-ljlf="allowance" ${l.allowance ? "checked" : ""} style="width:22px;height:22px"></label>`
-                : ""
+                : `${ljBtn(`data-ljaddrange="${esc(l.id)}"`, "Price as a Range")}<label class="lj-field">Allowance<input type="checkbox" data-ljlf="allowance" ${l.allowance ? "checked" : ""} style="width:22px;height:22px"></label>`
             }${d.costModel ? `<label class="lj-field">Bucket${sel(`data-ljlf="bucket"`, LJ_BUCKETS, ljBucketOf(l))}</label>${props.length ? `<label class="lj-field">Property${sel(`data-ljlf="prop"`, [["", "Shared"], ...props.map((p) => [p.id, p.name])], l.prop)}</label>` : ""}` : ""}`
           : tags.map((t) => `<span class="lj-pill">${esc(t)}</span>`).join("");
       return `<div class="lj-row" data-ljline="${esc(l.id)}"><div class="lj-nm"><b>${esc(l.item || l.desc || "")}</b><div class="small muted">${money(LR.carried)}${LR.isRange ? ` · range ${money(LR.lo)} – ${money(LR.hi)}` : ""}${off ? " · not in the contract yet" : ""}${l.allowance ? " · allowance" : ""}</div></div>${ctl}${
         canFind
-          ? `<div class="lj-acts" style="align-items:flex-end"><label class="lj-field">Discovery Says<input class="lj-in" type="number" step="any" data-ljfound="amt" value="${f ? f.amount : ""}"></label><label class="lj-field">What It Showed<input class="lj-in wide" data-ljfound="note" value="${esc((f && f.note) || "")}"></label>${ljBtn(`data-ljfoundsave="${esc(l.id)}"`, f ? "Update Finding" : "Record Finding")}${f && f.outside ? '<span class="lj-pill bad">Outside the Range</span>' : f ? '<span class="lj-pill ok">Within the Range</span>' : ""}</div>`
+          ? `<div class="lj-acts" style="align-items:flex-end"><label class="lj-field">Discovery Says<input class="lj-in" type="number" step="any" data-ljfound="amt" data-ljlive value="${null != ty.amt ? esc(ty.amt) : f ? f.amount : ""}"></label><label class="lj-field">What It Showed<input class="lj-in wide" data-ljfound="note" data-ljlive value="${esc(null != ty.note ? ty.note : (f && f.note) || "")}"></label>${ljBtn(`data-ljfoundsave="${esc(l.id)}"`, f ? "Update Finding" : "Record Finding")}${f && f.outside ? '<span class="lj-pill bad">Outside the Range</span>' : f ? '<span class="lj-pill ok">Within the Range</span>' : ""}</div>`
           : f
             ? `<span class="lj-pill ${f.outside ? "bad" : "ok"}">Found ${money(f.amount)}</span>`
             : ""
@@ -1065,7 +1126,7 @@ function ljEstPanel(c, d) {
       found = P2.filter((l) => l.found),
       out = found.filter((l) => l.found.outside),
       after = r2(R.p1 + P2.reduce((a, l) => a + (l.found ? +l.found.amount : ljRaw(l)), 0));
-    h += `<h4>Approve the Construction Phase</h4><p class="lj-sub">${found.length} of ${P2.length} lines have a discovery figure; the rest are carried as allowances at their carried figure. The contract would become ${money(after)} (now ${money(R.p1)}).${out.length ? ` ${out.length} finding${1 === out.length ? " is" : "s are"} outside the range the client saw: tell them before they approve.` : ""}</p><div class="lj-acts"><label class="lj-field">Approved By (Client)<input class="lj-in wide" data-ljp2="name" value="${esc((c.contacts.find((x) => x.primary) || c.contacts[0] || {}).name || "")}"></label>${ljBtn(`data-ljp2go="${esc(c.id)}|${esc(d.id)}"`, "Client Approved Construction Phase")}</div>`;
+    h += `<h4>Approve the Construction Phase</h4><p class="lj-sub">${found.length} of ${P2.length} lines have a discovery figure; the rest are carried as allowances at their carried figure. The contract would become ${money(after)} (now ${money(R.p1)}).${out.length ? ` ${out.length} finding${1 === out.length ? " is" : "s are"} outside the range the client saw: tell them before they approve.` : ""}</p><div class="lj-acts"><label class="lj-field">Approved By (Client)<input class="lj-in wide" data-ljp2="name" data-ljlive value="${esc((c.contacts.find((x) => x.primary) || c.contacts[0] || {}).name || "")}"></label>${ljBtn(`data-ljp2go="${esc(c.id)}|${esc(d.id)}"`, "Client Approved Construction Phase")}</div>`;
   }
   if (d.costModel) {
     const M = ljCostModel(d),
@@ -1073,16 +1134,16 @@ function ljEstPanel(c, d) {
       oldBldg = !!(DB.projects || []).find((p) => p.id === d.projectId && (p.project.lpc || /brownstone|townhouse|church|landmark|historic/i.test(p.project.name || "")));
     h += `<h4>Cost Model</h4><div class="lj-sum">${LJ_BUCKETS.map(([k, n]) => ljKv(n, money(M.B[k].price))).join("")}${ljKv("Total", money(M.total))}${ljKv("Contingency of Hard", M.contPct + "%", M.B.contingency.price ? "" : "warn")}</div>${!M.B.contingency.price && oldBldg ? '<div class="lj-note">No hidden-conditions contingency on an older building: the Standard asks for one, stated explicitly.</div>' : ""}`;
     h += `<h4>Historic Tax Credit Budget</h4><p class="lj-sub">Federal ${num(HD.fed)}% plus each property's state rate, on ${num(HD.qual)}% of hard and soft costs. Contingency is not in the basis. Credits are an estimate until the state historic office and the National Park Service certify the work.</p>`;
-    h += `<div class="lj-acts" style="align-items:flex-end"><label class="lj-field">Federal %<input class="lj-in" type="number" step="any" data-ljhtc="fed" value="${num(HD.fed)}"></label><label class="lj-field">Qualified %<input class="lj-in" type="number" step="any" data-ljhtc="qual" value="${num(HD.qual)}"></label></div>`;
+    h += `<div class="lj-acts" style="align-items:flex-end"><label class="lj-field">Federal %<input class="lj-in" type="number" step="any" data-ljhtc="fed" data-ljlive value="${num(HD.fed)}"></label><label class="lj-field">Qualified %<input class="lj-in" type="number" step="any" data-ljhtc="qual" data-ljlive value="${num(HD.qual)}"></label></div>`;
     h += `<div class="lj-rows">${(HD.props || [])
       .map((p) => {
         const r = H && H.rows.find((x) => x.id === p.id);
-        return `<div class="lj-row" data-ljprop="${esc(p.id)}"><label class="lj-field">Property<input class="lj-in wide" data-ljpf="name" value="${esc(p.name)}"></label><label class="lj-field">State Credit %<input class="lj-in" type="number" step="any" data-ljpf="state" value="${num(p.state)}"></label><label class="lj-field">Area (SF)<input class="lj-in" type="number" step="any" data-ljpf="sf" value="${num(p.sf)}"></label><label class="lj-field">Finish per SF<input class="lj-in" type="number" step="any" data-ljpf="finishPerSf" value="${num(p.finishPerSf)}"></label>${r ? ljKv("Hard", money(r.hard)) + ljKv("Soft", money(r.soft)) + ljKv("Basis", money(r.basis)) + ljKv("Federal", money(r.fedCredit)) + ljKv("State", money(r.stateCredit)) + ljKv("Net After Credits", money(r.net)) : ""}</div>`;
+        return `<div class="lj-row" data-ljprop="${esc(p.id)}"><label class="lj-field">Property<input class="lj-in wide" data-ljpf="name" data-ljlive value="${esc(p.name)}"></label><label class="lj-field">State Credit %<input class="lj-in" type="number" step="any" data-ljpf="state" data-ljlive value="${num(p.state)}"></label><label class="lj-field">Area (SF)<input class="lj-in" type="number" step="any" data-ljpf="sf" data-ljlive value="${num(p.sf)}"></label><label class="lj-field">Finish per SF<input class="lj-in" type="number" step="any" data-ljpf="finishPerSf" data-ljlive value="${num(p.finishPerSf)}"></label>${r ? ljKv("Hard", money(r.hard)) + ljKv("Soft", money(r.soft)) + ljKv("Basis", money(r.basis)) + ljKv("Federal", money(r.fedCredit)) + ljKv("State", money(r.stateCredit)) + ljKv("Net After Credits", money(r.net)) : ""}</div>`;
       })
       .join("")}</div>`;
     H && (h += `<div class="lj-sum lj-htc-tot">${ljKv("Hard and Soft", money(r2(H.T.hard + H.T.soft)))}${ljKv("Qualified Basis", money(H.T.basis))}${ljKv("Federal Credit", money(H.T.fedCredit))}${ljKv("State Credit", money(H.T.stateCredit))}${ljKv("Total Credits", money(H.T.credits))}${ljKv("Net Cost After Credits", money(H.T.net))}</div>`);
     const p = (DB.projects || []).find((x) => x.id === d.projectId);
-    h += `<div class="lj-acts" style="margin-top:6px">${ljBtn(`data-ljaddprop="${esc(c.id)}|${esc(d.id)}"`, "Add Property")}${ed && (HD.props || []).some((q) => +q.sf > 0 && +q.finishPerSf > 0) ? ljBtn(`data-ljfinish="${esc(c.id)}|${esc(d.id)}"`, "Price Finish Materials") : ""}${p ? `<label style="display:flex;align-items:center;gap:6px;font-size:13px;min-height:32px"><input type="checkbox" data-ljmb="${esc(p.id)}" ${p.mbDeal ? "checked" : ""} style="width:auto"> Also a Mercer &amp; Bond Deal</label>` : ""}</div>${p && p.mbDeal ? `<div class="lj-note">Mercer &amp; Bond deal: the client pays all costs; Mercer &amp; Bond is preparing an all-cash LOI${p.mbDeal.loiStatus ? ` (${esc(p.mbDeal.loiStatus)})` : ""}.</div>` : ""}`;
+    h += `<div class="lj-acts" style="margin-top:6px">${ljBtn(`data-ljaddprop="${esc(c.id)}|${esc(d.id)}"`, "Add Property")}${ed && (HD.props || []).some((q) => +q.sf > 0 && +q.finishPerSf > 0) ? ljBtn(`data-ljfinish="${esc(c.id)}|${esc(d.id)}"`, "Price Finish Materials") : ""}${p ? `<label style="display:flex;align-items:center;gap:6px;font-size:13px;min-height:32px"><input type="checkbox" data-ljlive data-ljmb="${esc(p.id)}" ${p.mbDeal ? "checked" : ""} style="width:auto"> Also a Mercer &amp; Bond Deal</label>` : ""}</div>${p && p.mbDeal ? `<div class="lj-note">Mercer &amp; Bond deal: the client pays all costs; Mercer &amp; Bond is preparing an all-cash LOI${p.mbDeal.loiStatus ? ` (${esc(p.mbDeal.loiStatus)})` : ""}.</div>` : ""}`;
   }
   return h + "</div>";
 }
@@ -1091,7 +1152,7 @@ function ljClientSummary(c, d) {
   if (!d || "estimate" !== d.type || !(d.phased || ljHasRanges(d) || d.costModel)) return "";
   const R = ljRange(d),
     rng = (d.lines || []).filter((l) => ljLineRange(l).isRange),
-    allw = (d.lines || []).filter((l) => l.allowance && !ljPhaseOff(l, d)),
+    allw = (d.lines || []).filter((l) => l.allowance),
     H = d.costModel ? ljHtc(d) : null;
   let h = '<div class="card lj-client" style="margin-top:10px">';
   d.phased &&
@@ -1099,7 +1160,7 @@ function ljClientSummary(c, d) {
   rng.length &&
     (h += `<h3 style="margin:10px 0 6px">The Unknowns, as Ranges</h3><table class="t"><thead><tr><th>Item</th><th class="money">Low</th><th class="money">High</th></tr></thead><tbody>${rng.map((l) => `<tr><td>${esc(l.item)}${l.found ? `<div class="small muted">Discovery: ${money(l.found.amount)}${l.found.note ? ", " + esc(l.found.note) : ""}</div>` : ""}</td><td class="money">${money(ljLineRange(l).lo)}</td><td class="money">${money(ljLineRange(l).hi)}</td></tr>`).join("")}</tbody></table>`);
   allw.length &&
-    (h += `<h3 style="margin:10px 0 6px">Allowances</h3><div class="small">${allw.map((l) => `${esc(l.item)}: ${money(lineAmount(l, d))}`).join("<br>")}</div><div class="small muted" style="margin-top:4px">An allowance is the amount the contract carries. If the real cost is higher we send a change order for the difference before the work goes on; if it is lower you get the difference back as a credit.</div>`);
+    (h += `<h3 style="margin:10px 0 6px">Allowances</h3><div class="small">${allw.map((l) => `${esc(l.item)}: ${money(ljRaw(l))}${ljPhaseOff(l, d) ? " (construction phase)" : ""}`).join("<br>")}</div><div class="small muted" style="margin-top:4px">An allowance is the amount the contract carries. If the real cost is higher we send a change order for the difference before the work goes on; if it is lower you get the difference back as a credit.</div>`);
   H &&
     (h += `<h3 style="margin:10px 0 6px">Budget and Tax Credits</h3><table class="t"><thead><tr><th>Property</th><th class="money">Budget</th><th class="money">Credits</th><th class="money">Net</th></tr></thead><tbody>${H.rows.map((r) => `<tr><td>${esc(r.name)}</td><td class="money">${money(r.total)}</td><td class="money">${money(r.credits)}</td><td class="money">${money(r.net)}</td></tr>`).join("")}</tbody></table><div class="small muted">Federal ${H.fed}% and the state's rate on ${H.qual}% of hard and soft costs; an estimate until the work is certified.</div>`);
   return h + "</div>";
@@ -1201,13 +1262,21 @@ function ljSplitLine(c, d, lineId, pct) {
   return d.lines.splice(i, 1, first, second), [first, second];
 }
 
+// The read-only layer refuses every input on a sent or converted document except its open fields: discovery, the
+// construction approval and the tax credit inputs are open fields of this panel (data-ljlive), never the money lines.
+if ("function" == typeof lkDocOpenField) {
+  const base = lkDocOpenField;
+  lkDocOpenField = function (el) {
+    return !!(el && el.closest && el.closest(".lj-est") && el.hasAttribute("data-ljlive")) || base.apply(this, arguments);
+  };
+}
 // ---- 9. One listener for every control above ---------------------------------------------------------------------
 const ljDocOf = (cid, did, kind) => {
   const c = (DB.clients || []).find((x) => x.id === cid);
   return { c: c, d: c && findDoc(c, kind || "estimate", did) };
 };
 document.addEventListener("click", (e) => {
-  const t = e.target.closest && e.target.closest("[data-ljstmt],[data-ljprog],[data-ljpayers],[data-ljallowco],[data-ljallowclose],[data-ljopen],[data-ljsplit],[data-ljfoundsave],[data-ljp2go],[data-ljaddprop],[data-ljfinish],[data-ljsplitinv],[data-ljdemo],[data-ljconvert],[data-ljloghrs]");
+  const t = e.target.closest && e.target.closest("[data-ljstmt],[data-ljprog],[data-ljpayers],[data-ljallowco],[data-ljallowclose],[data-ljopen],[data-ljsplit],[data-ljfoundsave],[data-ljp2go],[data-ljaddprop],[data-ljfinish],[data-ljsplitinv],[data-ljaddrange],[data-ljdemo],[data-ljconvert]");
   if (!t) return;
   const D = t.dataset;
   try {
@@ -1267,12 +1336,19 @@ document.addEventListener("click", (e) => {
         const two = ljSplitLine(c, d, D.ljsplit, pct);
         return void (two && (save(), render(), toast(`Split: ${money(two[0].rate)} ${ljPayers(c)[0].name}, ${money(two[1].rate)} ${ljPayers(c)[1].name}`)));
       }
+      if (D.ljaddrange) {
+        const l = d.lines.find((x) => x.id === D.ljaddrange);
+        if (!l || "draft" !== d.status) return;
+        const v = ljRaw(l);
+        return (l.range = { lo: r2(v * 0.8), hi: r2(v * 1.3) }), (l.unknown = l.unknown || "hidden"), save(), render(), void toast(`${l.item}: priced as a range, ${money(l.range.lo)} to ${money(l.range.hi)}. Set the low and high you can stand behind`);
+      }
       if (D.ljfoundsave) {
         const row = t.closest("[data-ljline]"),
           amt = row.querySelector('[data-ljfound="amt"]').value,
           note = row.querySelector('[data-ljfound="note"]').value,
           r = ljFound(c, d, D.ljfoundsave, amt, note);
         if (!r.ok) return void toast(r.why);
+        delete LJ.typed[D.ljfoundsave];
         return save(), render(), void toastDone(`${r.l.item}: discovery says ${money(r.l.found.amount)}${r.outside ? ", outside the range the client saw: tell them before the construction phase is priced" : ", within the range"}`, flowGo.doc(c, "estimate", d));
       }
       if (D.ljp2go) {
@@ -1292,10 +1368,15 @@ document.addEventListener("click", (e) => {
     }
     if (D.ljdemo) return void ljDemoSwitch("on" === D.ljdemo);
     if (D.ljconvert) return void ljConvertDialog(D.ljconvert);
-    if (D.ljloghrs) return void ljLogHours();
   } catch (err) {
     console.warn("livejobs click", err), toast("That did not work: " + (err.message || err));
   }
+});
+document.addEventListener("input", (e) => {
+  const t = e.target;
+  if (!t || !t.dataset || !t.dataset.ljfound) return;
+  const row = t.closest("[data-ljline]");
+  row && ((LJ.typed[row.dataset.ljline] = LJ.typed[row.dataset.ljline] || {})[t.dataset.ljfound] = t.value);
 });
 document.addEventListener("change", (e) => {
   const t = e.target;
@@ -1359,52 +1440,14 @@ function ljMyEmp() {
   const u = "function" == typeof currentUser ? currentUser() : null;
   return u && u.employeeId ? ljEmp(u.employeeId) : null;
 }
-// What a contractor sees on their Today: their hours this period, what is on their bill, what was paid.
+// What a contractor sees on their Today: how they are paid, and their bills. The hours themselves stay where everyone
+// logs and reads them (the Day Sheet and This Week on the same page): one list of hours, never a second one here.
 function ljMyHoursCard(emp) {
-  const P = payPeriodOf(today()),
-    mine = (DB.time || []).filter((e) => e.empId === emp.id).sort((a, b) => String(b.date).localeCompare(a.date)),
-    per = mine.filter((e) => e.date >= P.from && e.date <= P.to),
+  const mine = (DB.time || []).filter((e) => e.empId === emp.id),
     bills = (DB.bills || []).filter((b) => b.fromTime && b.empId === emp.id).sort((a, b) => String(b.date).localeCompare(a.date)),
     sum = (L) => r2(L.reduce((a, e) => a + hoursOf(e), 0)),
-    st = (s) => ({ submitted: "Waiting for Approval", approved: "Approved", rejected: "Sent Back" })[s] || s,
     bst = (b) => ("paid" === b.status ? "Paid" : ["approved", "verified"].includes(b.status) ? "Approved for Payment" : "Waiting for Approval");
-  return `<div class="lj-card lj-myhours" id="lj-myhours"><h3>My Hours</h3><p class="lj-sub">You work with us as an independent contractor at ${money(emp.contractRate)}/h. Approved hours become your bill to us, paid through payables, not payroll.</p><div class="lj-sum">${ljKv("This Period", `${sum(per).toFixed(2)} h`)}${ljKv("Waiting for Approval", `${sum(mine.filter((e) => "submitted" === e.status)).toFixed(2)} h`)}${ljKv("On Your Bills", money(r2(bills.filter((b) => "paid" !== b.status).reduce((a, b) => a + billGross(b), 0))))}${ljKv("Paid", money(r2(bills.filter((b) => "paid" === b.status).reduce((a, b) => a + billGross(b), 0))))}</div><div class="lj-acts" style="margin:6px 0">${ljBtn("data-ljloghrs=1", "Log Hours", "primary")}</div><div class="lj-rows">${mine
-    .slice(0, 6)
-    .map((e) => `<div class="lj-row"><div class="lj-nm"><b>${fmt(e.date)} · ${hoursOf(e).toFixed(2)} h</b><div class="small muted">${esc(((DB.projects || []).find((p) => p.id === e.projectId) || { project: { name: "" } }).project.name)}${e.notes ? " · " + esc(e.notes) : ""}</div></div><span class="lj-pill ${"approved" === e.status ? "ok" : "rejected" === e.status ? "bad" : ""}">${st(e.status)}</span>${e.billId ? `<span class="small muted">on ${esc(((DB.bills || []).find((b) => b.id === e.billId) || {}).number || "")}</span>` : ""}</div>`)
-    .join("")}</div>${bills.length ? `<h4>My Bills</h4><div class="lj-rows">${bills.map((b) => `<div class="lj-row"><div class="lj-nm"><b>${esc(b.number)}</b><div class="small muted">${fmt(b.period.from)} – ${fmt(b.period.to)} · ${(+b.hours).toFixed(2)} h</div></div>${ljKv("Amount", money(billGross(b)))}<span class="lj-pill ${"paid" === b.status ? "ok" : ""}">${bst(b)}</span></div>`).join("")}</div>` : ""}</div>`;
-}
-function ljLogHours() {
-  const emp = ljMyEmp();
-  if (!emp) return void toast("Your sign-in is not linked to a person who logs hours");
-  const jobs = (DB.projects || []).filter((p) => !p.archived),
-    codes = (DB.time || []).filter((e) => e.empId === emp.id && e.code).map((e) => e.code),
-    code = codes.length ? codes[codes.length - 1] : "15",
-    m = mbModal(
-      "Log Hours",
-      `<label class="f"><span>Job</span><select id="lj-h-job">${jobs.map((p) => `<option value="${esc(p.id)}" ${S && S.id === p.id ? "selected" : ""}>${esc(p.project.name)}</option>`).join("")}</select></label><div class="f2"><label class="f"><span>Date</span><input type="date" id="lj-h-date" value="${today()}"></label><label class="f"><span>Hours</span><input type="number" step="0.25" min="0.25" id="lj-h-hrs" inputmode="decimal" value=""></label></div><label class="f"><span>What You Worked On</span><input id="lj-h-note" placeholder="e.g. kitchen elevations, finish schedule"></label>`,
-      {
-        submit: "Submit Hours",
-        onSubmit: () => {
-          const h = r2(+$("#lj-h-hrs").value || 0),
-            date = $("#lj-h-date").value || today(),
-            pid = $("#lj-h-job").value;
-          if (!(h > 0)) return toast("Enter the hours"), !1;
-          if (date > today()) return toast("Hours are logged for a day that has happened"), !1;
-          const mins = Math.round(h * 60),
-            start = new Date(`${date}T09:00:00`),
-            end = new Date(start.getTime() + mins * 6e4),
-            pad = (n) => String(n).padStart(2, "0"),
-            out = `${date}T${pad(end.getHours())}:${pad(end.getMinutes())}:00`,
-            e = { id: uid("te"), empId: emp.id, date: date, in: `${date}T09:00:00`, out: out, breakMin: 0, projectId: pid, code: code, notes: $("#lj-h-note").value.trim(), status: "submitted", source: "contractor", work: [{ projectId: pid, code: code, hours: h, note: "" }] };
-          emp.ljDemo && (e.ljDemo = 1), DB.time.push(e);
-          try {
-            audit("time", e.id, "logged", null, { hours: h, projectId: pid });
-          } catch (x) {}
-          save(), render(), toastDone(`${h.toFixed(2)} h on ${fmt(date)} sent for approval`, () => ((view = (MENU.designer || {}).home || view), render()));
-        },
-      },
-    );
-  return m;
+  return `<div class="lj-card lcard lj-myhours" id="lj-myhours"><h3>Paid as a Contractor</h3><p class="lj-sub">You work with us as an independent contractor at ${money(emp.contractRate)}/h. Log hours on the Day Sheet below; once approved they go onto your bill to us, paid through payables, not payroll.</p><div class="lj-sum">${ljKv("Waiting for Approval", `${sum(mine.filter((e) => "submitted" === e.status)).toFixed(2)} h`)}${ljKv("Approved, Not Yet Billed", `${sum(mine.filter((e) => "approved" === e.status && !e.billId)).toFixed(2)} h`)}${ljKv("On Your Open Bills", money(r2(bills.filter((b) => "paid" !== b.status).reduce((a, b) => a + billGross(b), 0))))}${ljKv("Paid to You", money(r2(bills.filter((b) => "paid" === b.status).reduce((a, b) => a + billGross(b), 0))))}</div>${bills.length ? `<div class="lj-rows">${bills.map((b) => `<div class="lj-row"><div class="lj-nm"><b>${esc(b.number)}</b><div class="small muted">${esc(((DB.projects || []).find((p) => p.id === b.projectId) || { project: { name: "" } }).project.name)} · ${fmt(b.period.from)} – ${fmt(b.period.to)} · ${(+b.hours).toFixed(2)} h</div></div>${ljKv("Amount", money(billGross(b)))}<span class="lj-pill ${"paid" === b.status ? "ok" : ""}">${bst(b)}</span></div>`).join("")}</div>` : ""}</div>`;
 }
 function ljConvertDialog(empId) {
   const old = ljEmp(empId);
@@ -1426,7 +1469,7 @@ function ljConvertDialog(empId) {
 function ljContractorsHtml() {
   const C = (DB.employees || []).filter((e) => ljIsContractor(e) || e.convertedFrom);
   if (!C.length) return "";
-  return `<div class="lj-card" id="lj-contractors" style="margin-top:12px"><h3>Contractors</h3><p class="lj-sub">Paid by bill from approved hours (1099), not payroll.</p><div class="lj-rows">${C.map((e) => {
+  return `<div class="lj-card lcard" id="lj-contractors" style="margin-top:12px"><h3>Contractors</h3><p class="lj-sub">Paid by bill from approved hours (1099), not payroll.</p><div class="lj-rows">${C.map((e) => {
     const v = (DB.vendors || []).find((x) => x.id === e.vendorId);
     return ljIsContractor(e)
       ? `<div class="lj-row"><div class="lj-nm"><b>${esc(e.name)}</b><div class="small muted">${esc(e.role || "")} · ${money(e.contractRate)}/h · paid as ${esc((v && v.name) || "a vendor")}${v && !v.w9 ? " · W-9 missing" : ""}${e.until ? ` · until ${fmt(e.until)}` : ""}</div></div>${e.active ? ljBtn(`data-ljconvert="${esc(e.id)}"`, "Convert to Employee") : '<span class="lj-pill">Converted</span>'}</div>`
@@ -1553,6 +1596,7 @@ async function ljDemoSeed() {
   ];
   docMark(eB), await send(B, eB, "2026-07-28"), await docAction(B, eB, "approve");
   const exB = progress(B, ljPrimary(B) || "", "Exploratory phase: 50% at start", "2026-08-10", "2026-08-17", { "": 50 });
+  (exB.retainagePct = 0), docMark(exB);
   await send(B, exB, "2026-08-10", "2026-08-17"), pay(B, exB, "2026-08-13", docTotal(exB).total, "Check", "2210");
   const fl = (w) => eB.lines.find((l) => l.item.startsWith(w));
   ljFound(B, eB, fl("MEP rerouting").id, 46500, "The main stack reroutes around the new stair"), ljFound(B, eB, fl("Foundation").id, 62e3, "Test pits: footings at 4 ft; underpin the rear wall"), ljFound(B, eB, fl("Storm").id, 31e3, "The clay pipe collapsed under the sidewalk");
@@ -1646,13 +1690,18 @@ async function ljDemoSwitch(on) {
 }
 function ljDemoCard() {
   const on = ljDemoOn();
-  return `<div class="lj-card" id="lj-demo-card" style="margin-top:12px"><h3>Live Jobs Demo</h3><p class="lj-sub">Invented jobs that show what the firm's live work needs: two payers on one contract, a paid exploratory phase with ranges and allowances, a normal estimate, the hard, soft and contingency budget with historic tax credits, and a contractor who can become an employee. ${on ? "It is on." : "It is off; the firm's figures are untouched."}</p><div class="lj-acts">${on ? ljBtn('data-ljdemo="off"', "Turn the Demo Off") : ljBtn('data-ljdemo="on"', "Turn the Demo On")}</div></div>`;
+  return `<div class="lj-card lcard" id="lj-demo-card" style="margin-top:12px"><h3>Live Jobs Demo</h3><p class="lj-sub">Invented jobs that show what the firm's live work needs: two payers on one contract, a paid exploratory phase with ranges and allowances, a normal estimate, the hard, soft and contingency budget with historic tax credits, and a contractor who can become an employee. ${on ? "It is on." : "It is off; the firm's figures are untouched."}</p><div class="lj-acts">${on ? ljBtn('data-ljdemo="off"', "Turn the Demo Off") : ljBtn('data-ljdemo="on"', "Turn the Demo On")}</div></div>`;
 }
 {
   const base = render;
   render = function () {
     const r = base.apply(this, arguments);
     try {
+      // a sent or converted document is locked by the read-only layer; what stays live after conversion here
+      // (discovery, approving the construction phase, the tax credit inputs) is opened again
+      document.querySelectorAll(".lj-est [data-ljlive]").forEach((el) => {
+        (el.readOnly = !1), (el.disabled = !1), el.classList.remove("rx-locked", "locked-field");
+      });
       if ("setup" === view && "function" == typeof isOwner && isOwner()) {
         const host = document.getElementById("setup-body");
         host && (host.querySelector("#lj-demo-card") || host.insertAdjacentHTML("beforeend", ljDemoCard()));
@@ -1662,8 +1711,9 @@ function ljDemoCard() {
         const v = document.querySelector(".view.on");
         if (v && v.id === "v-" + ((MENU[role()] || {}).home || "sday")) {
           const old = v.querySelector("#lj-myhours"),
-            html = ljMyHoursCard(emp);
-          old ? (old.outerHTML = html) : v.insertAdjacentHTML("afterbegin", html);
+            html = ljMyHoursCard(emp),
+            ph = v.querySelector(".ph");
+          old ? (old.outerHTML = html) : ph ? ph.insertAdjacentHTML("afterend", html) : v.insertAdjacentHTML("afterbegin", html);
         }
       }
     } catch (e) {
