@@ -2,7 +2,7 @@
 
 This is the one list. The chief of staff keeps it current on every ask, lane report and merge. Details live in the BACKLOG sections named. Status words: **Running** · **Next** · **Queued** · **Waiting on Alan** · **Later** (deferred by Alan) · **Done**.
 
-Last updated 2026-10-20 (subs lane merged after live jobs).
+Last updated 2026-10-20 (items and Spanish merged, then reporting; the full net on the merged build is still to run).
 
 ## 0. Usage rule (Alan)
 - Warn before any heavy step.
@@ -62,7 +62,7 @@ Last updated 2026-10-20 (subs lane merged after live jobs).
   - a send gate on every client document: strip internal notes, require cost codes, bill-to and true titles, print how to pay, one letterhead;
   - progress billing tells the truth: one pay app per period, stop when billed exceeds measured, no $0 apps, one "Amount due";
   - every record keeps its line link;
-  - the item library (§1.18).
+  - the item library (§1.18): done 2026-10-20 (merged with Spanish).
 
 ## v11.1 (first thing after the reset)
 - **Fix the v11 net regressions** (2026-10-11 run):
@@ -121,11 +121,11 @@ What remains, in order. Usage is a share of one week's allowance.
 | 5 | **Done 2026-10-20 (merged fa3337d).** Live-job capabilities on invented equivalents: two payers per contract, range estimates with allowances and a paid exploratory phase, the HTC calculator and hard/soft/contingency estimate, the contractor-to-employee user. Follow-ups in §4 | §1.25, §1.26 | 1 | 15% |
 | 6 | One assistant per person (four screens into one), approval rules, activity log | §1.27 | 1–2 | 12% |
 | 7 | Role specialists on the demo + planted-problem banks; cost intelligence (cash-negative jobs, benchmarks, receipt price book, driver store list phase 1); savings ledger | §1.28–1.31 | 3 | 25% |
-| 8 | Item library, Messages phase 1 (with record cards and @assistant), Spanish for the field | §1.18, §1.21, §1.20 | 3 | 25% |
+| 8 | **Done 2026-10-20 (items and Spanish merged 8d9c1f7; Messages phase 1 merged 2026-10-19).** Item library, Messages phase 1 (with record cards and @assistant), Spanish for the field. Follow-ups in §4 | §1.18, §1.21, §1.20 | 3 | 25% |
 | | Integration and merges | | | 10% |
 | **Week 3** | | | | |
 | 9 | **Done 2026-10-20 (merged 3fc848f).** Subcontractors, lien waivers and the Payment Check before every vendor payment. Follow-ups in §4 | §1.10 item 1, §1.12 | 1 | 15% |
-| 10 | Reporting proven end to end | §1.13 | 2 | 15% |
+| 10 | **Done 2026-10-20 (merged 560057d), pending the full net on the merged build.** Reporting proven end to end. Follow-ups in §4 | §1.13 | 2 | 15% |
 | 11 | Platform foundation: database, sign-in, permissions, sync, AI connection with caps (**first slice live 2026-10-18**); next: watchers, document reader, push, Google sign-in, per-client rows | §5 | 3–4 | 35% |
 | | Integration and merges | | | 10% |
 | **Week 4** | | | | |
@@ -181,7 +181,26 @@ What remains, in order. Usage is a share of one week's allowance.
   - the Standard's "three quotes on every subcontract" is not checked when a subcontract issues; it should be checked there, with a written reason when fewer;
   - a bill's drawer open leaves New Vendor Bill blue beside Pay (two primaries, pre-existing). The screen lint judges the page without the drawer; fix the class so it judges what is on top;
   - not built: the monthly vendor statement reconciliation; a deposit taken off a sub's later pay applications line by line (today the contract check holds such a bill, so money does not leak, but a good bill can wait); sub bid leveling by scope and backcharges; a sub's emailed invoice read into a pay application; a Kind column (Subcontractor, Supplier) on the vendor list;
-  - the reports lane must rebase on subs before it merges: retainage payable (2050), job cost at gross and the stamped payments are new truths its independent recompute must tie to the cent.
+  - Done 2026-10-20: the reports lane took master with subs in (f9716df) and ties retainage payable (2050), cleared payments and bills awaiting approval to the cent (reports_test).
+- **Before the next deploy (chief of staff, 2026-10-20):**
+  - the full net, one suite at a time, on master with live jobs, subs, items and Spanish, and reporting together. None of the four has had it on the merged result. Reporting merged master before items and Spanish landed, so run first: reports_test, items_test, spanish_test, finance_xcheck, chain, closetie, then the scripted month (reporting moved ledger net YTD by $5,000, customer deposits, the 13-week low and cash-basis YTD);
+  - the books' seals: reporting's retainer fix changes how an August invoice posts (2400, not negative revenue). On the hosted copy the server holds August's seal, so Verify the Books will likely name a changed August posting. Check it on the QA workspace after deploy; if it does, it is recorded as an owner-approved correction with the reason, never re-sealed quietly.
+- **From the items and Spanish lane (merged 2026-10-20, 8d9c1f7; items_test 68, spanish_test 109):**
+  - the assistant drafting lines from notes, photos and takeoffs (§1.18 item 4);
+  - income and expense accounts per item, so a line from the library carries its accounts into the books (today only "taxable" is on the form);
+  - voice in the item picker (the request box keeps its own microphone);
+  - the library's proposals in the owner's Approvals, with the counts lint (today they sit on the library's own card, so they can be missed);
+  - automatic English beside a Spanish daily log or request, so the PM, the records and anything that reaches a client read English;
+  - push notifications in Spanish (they go out in English);
+  - offline assistant answers stay in English;
+  - Jeanette has not reviewed the ~900 Spanish words; crews are not switched to Spanish until she has (safety words first). Waiting on Alan to ask her (§5).
+- **From the reports lane (merged 2026-10-20, 560057d; reports_test 450/450):**
+  - one price book: close-out writes a cost factor per cost code to `DB.company.costBook`, and the item library keeps item costs in `DB.company.itemLib`. Fold the factor into the library's fill so estimating reads one place; today nothing reads the cost factor (BACKLOG §1.16);
+  - the accounting choices are recorded with who, when and why but do not change the statements yet. Until they do, the card says so in plain words (a controller who picks "Capitalise" will expect the P&L to move);
+  - the development-cost stake finds owned-property jobs by client name; key it on the Mercer & Bond flag the live jobs lane added;
+  - the read-only accountant role (platform, §1.10 item 11);
+  - QuickBooks comparison unchanged (the Three-Way Tie-Out);
+  - "owed" in payables reads two ways (Waiting on Alan, §5).
 - **Gaps the build lanes found:**
   - Done 2026-10-20: a toast's Open link closes an open editor first and asks before dropping anything typed (Keep Editing is the blue step); toast_leave_test 18;
   - client portal: pay online, or "we paid";
@@ -221,6 +240,8 @@ What remains, in order. Usage is a share of one week's allowance.
 | 2026-10-20 | Tax credits on the client's proposal: show the "Net" after credits, or keep it internal | Internal until the tax-credit consultant confirms the church and rectory qualify and when the credits arrive; the client sees credits only as "subject to certification and your tax adviser" |
 | 2026-10-20 | Hand over the real live-jobs file (`docs/LIVE_JOBS.md` from the Cowork handoff) for loading on the private platform | Invented demo jobs only |
 | 2026-10-20 | The contractor designer: a contractor agreement as her PO, W-9 before the first payment, classification confirmed with the accountant | Bills with no PO, flagged; payments held until the W-9 is on file |
+| 2026-10-20 | What "we owe" means. Reports, the Brief and payables aging count a vendor bill as owed once entered; the ledger books it only at approval. With the live jobs demo on, payables reads $1,572.50 while the books' payables account reads $0; both are on screen, labelled. Recommended: "We Owe" and payables aging show approved bills, which equal the books; bills awaiting approval show beside them as their own line with their own number, the same everywhere; the cash forecast still counts them as money going out; at month end the controller approves or accrues anything received before the books close by the 10th | Both shown, labelled |
+| 2026-10-20 | Ask Jeanette to review the ~900 Spanish words the foreman, crew and driver read (she has not) | Spanish ready in the app; crews are not switched to it until she has reviewed, safety words first |
 | 2026-10-20 | Who pays the bills. The controller keys the bills (call of 2026-10-18), and the new Payment Check holds any payment released by the person who keyed the bill. Recommended: the controller keys, matches and prepares the weekly Payment Run; the owner releases it in one tap (already checked line by line); billing is the backup payer when the owner is away | Separation of duties on: the person who keyed a bill cannot pay it |
 | Later | Google sign-in consent screen (guided, about 5 minutes) | — |
 
@@ -238,11 +259,16 @@ What remains, in order. Usage is a share of one week's allowance.
 - **The owner's "Waiting on the Others" list** follows the one ranking order. Grouping it by person is proposed for the one-queue-per-person work.
 - **Payment holds (subs lane, 2026-10-20):** the controller releases a hold under $2,500 (the same line as the Standard's three quotes); the owner above it, always with a logged reason. A bank-detail change cannot be released by a reason, the owner's included: only the call-back to the number on file, by someone other than the requester, clears it. A sub payment with no lien waiver no longer has "Release Without It": it needs the waiver recorded, or the owner's release with a reason. Whoever entered a bill or set up the vendor cannot release its payment.
 
+- **Reporting (2026-10-20):** the accounting choices default to expensing Mercer & Bond development costs, percentage of completion for tax, and overhead shared by total direct cost, each labelled "confirm with your accountant"; group figures are consolidated at the subsidiary's cost (SD Plumbing and SD Electric markup to the firm eliminated); close-out starts at 85% of estimated cost, and a cost code off by 10% and $500 or more can be proposed to the price book, the owner approving each.
+- **Item library (2026-10-20):** the owner or a PM approves or declines what the library proposes from use; a declined proposal never returns; a sent document never changes when the library does; the field sees items without prices.
+
 ## 7. Later (Alan deferred)
 - NY rules (§7): "I need to better understand this."
 
 ## 8. Done recently
 Full detail is in `docs/DECISIONS.md`.
+- Reporting proven end to end (2026-10-20, pending the full net): every report recomputed from the records to the cent in a test, the ties on screen, drill to the bank line, manual journals flagged, P&L by project and client, cash basis, intercompany eliminated, line income to cost, close-out estimate against actual proposing price-book changes for the owner, overhead and break-even, the 13-week cash forecast as a report, Excel on every tab, Ask reading the reports. Eight money errors found and fixed at the root.
+- The item library and Spanish for the field (2026-10-20): one library fills every typed line (estimate, CO, invoice, PO, RFQ, bill, request, receipt), learns from use with the owner or PM approving; the foreman, crew and driver read every screen in Spanish by their setting, chat lines translated on request.
 - Subcontractors and the Payment Check (2026-10-20): subcontracts on the PO with scope, changes and retainage; pay applications against what the site measured; lien waivers per payment and per job; every vendor payment and Payment Run checked against contract, prior payments, receipt, work in place, retainage, credits, duplicates, papers and the bank call-back; holds in Approvals; the per-vendor, per-job ledger in Ask.
 - Live jobs on invented demo jobs (2026-10-20): two payers on one contract, ranges, allowances and a paid exploratory phase, the tax credit budget, the contractor who becomes an employee.
 - The Standard in the app.
