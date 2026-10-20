@@ -371,6 +371,9 @@ COLLECT = r"""
         // only the screen's own controls (a full-screen conversation over the app's bars is the design), and only a
         // layer pinned at the top (one at the bottom is scrolled past)
         if (!view.contains(o.e)) continue;
+        // inside a panel scrolled down, the control was scrolled under the layer, not covered for good
+        let scrolled = false; for (let x = o.e.parentElement; x && x !== document.documentElement; x = x.parentElement) if (x.scrollTop > 1) { scrolled = true; break; }
+        if (scrolled || (document.scrollingElement && document.scrollingElement.scrollTop > 1)) continue;
         const L = layerOf(hit), lr = L && L.getBoundingClientRect();
         if (!L || L === o.layer || L.contains(o.e) || lr.top > o.r.top + 2 || lr.top > innerHeight / 3) continue;
         flag('TAP_COVERED', o.e, `"${srcText(o.e).slice(0, 30) || o.e.tagName.toLowerCase()}" is under ${sel(L)}: a tap lands on "${(hit.innerText || hit.tagName).trim().slice(0, 30)}" (${sel(o.e)})`, sel(o.e) + '|' + sel(L));
