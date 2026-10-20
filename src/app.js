@@ -184821,7 +184821,8 @@ if ("function" == typeof paHtml) {
         cl = "client" === role();
       } catch (e) {}
       document.body.classList.toggle("cl-portal", cl);
-      if (!cl) return r;
+      // the client's switch is the client's only: a staff sign-in on the same device does not keep it on Chat
+      if (!cl) return document.querySelectorAll(".cl-mode").forEach((x) => x.remove()), r;
       // the Ask door in the header, phone and desktop: the same button the office roles have
       const bar = document.querySelector("header.topbar");
       if (bar) {
