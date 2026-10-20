@@ -1173,9 +1173,9 @@ function svCredit(key, person) {
 
 // ---- 10. the screens: the checklist inside Findings, the one-liner on each Home ---------------------------------------
 let rsView = "",
-  rsOpenLine = "";
+  rsViewWho = "";
 function rsOpenChecklist(r) {
-  (rsView = rsRoleOf(r || role())), "function" == typeof paOpen ? paOpen("findings", "check") : setView("pa");
+  (rsView = rsRoleOf(r || role())), (rsViewWho = rsMe().id), "function" == typeof paOpen ? paOpen("findings", "check") : setView("pa");
 }
 const rsCanSee = () => !["client", "crew", "driver"].includes(role()) && rsChecksFor(role()).length > 0;
 const RS_QUICK = { pm: /^Project Manager/i, coord: /^Procurement/i, foreman: /^Foreman/i, crew: /^Field crew/i, driver: /^Field crew/i, designer: /^Designer/i, design_mgr: /^Designer/i, billing: /^Office/i, controller: /^Office/i };
@@ -1277,8 +1277,10 @@ if ("function" == typeof paPaneHtml) {
 }
 const RS_VIEW_ROLES = ["owner", "controller", "pm", "coord", "billing", "designer", "foreman"];
 function rsPaneHtml() {
-  const me = rsRoleOf(role()),
-    r = isOwner() && rsView ? rsView : me;
+  const me = rsRoleOf(role());
+  // the owner's choice of whose checklist to read is the owner's: another person signing in starts on their own
+  rsViewWho !== rsMe().id && ((rsView = ""), (rsViewWho = rsMe().id));
+  const r = isOwner() && rsView ? rsView : me;
   rsView = r;
   const L = rsChecklist(r),
     open = L.reduce((a, x) => a + x.n, 0),
@@ -1376,8 +1378,10 @@ function svShareSheet() {
   mbModal("Set the Shares", `<p class="small">The part of every dollar saved that goes to each pool. ${esc(STD_WASTE)}</p><div class="grid2">${mbF("Wages %", mbIn("wage", String(s.wage), "", "number"))}${mbF("Bonuses %", mbIn("bonus", String(s.bonus), "", "number"))}</div>${mbF("Charity %", mbIn("charity", String(s.charity), "", "number"))}`, { submit: "Save the Shares", onSubmit: (f) => (svSetShare(f) ? void 0 : !1) });
 }
 function wlCardHtml() {
-  const R = wlRows().filter((x) => x.open || x.overdue).sort((a, b) => b.overdue - a.overdue || b.open - a.open);
-  return `<section class="card rs-card wl-card"><div class="hd"><h3>Workload</h3></div><div class="bd"><p class="small muted">Open and overdue tasks per person, hours in the last 7 days and how fast they answer the field. An overloaded person shows under Overloaded People with a named person who has room; the manager approves the move.</p>${R.map((x) => `<div class="rs-kv${x.over ? " rs-over" : ""}" data-wl="${esc(x.u.id)}"><span>${esc(x.u.name)}${x.over ? ' <span class="pill warn">Overloaded</span>' : ""}</span><span class="small">${x.open} open · ${x.overdue} overdue${null != x.hours7 ? ` · ${x.hours7}h` : ""}${null != x.resp ? ` · answers in ${x.resp}h` : ""}</span></div>`).join("") || '<div class="small muted">Nobody has open tasks.</div>'}</div></section>`;
+  // the owner reads everyone; a PM reads the people a PM manages (the field) and themself
+  const mine = (x) => isOwner() || x.u.id === rsMe().id || "pm" === WL_MANAGER[x.group],
+    R = wlRows().filter((x) => (x.open || x.overdue) && mine(x)).sort((a, b) => b.overdue - a.overdue || b.open - a.open);
+  return `<section class="card rs-card wl-card"><div class="hd"><h3>Workload</h3></div><div class="bd"><p class="small muted">Open and overdue tasks per person, hours in the last 7 days and how fast they answer the field. An overloaded person shows under Overloaded People with a named person who has room; the manager approves the move.</p>${R.map((x) => `<div class="rs-kv${x.over ? " rs-over" : ""}" data-wl="${esc(x.u.id)}"><span>${esc(x.u.name)}${x.over ? ' <span class="pill warn">Overloaded</span>' : ""}</span><span class="small">${x.open} open · ${x.overdue} overdue${null != x.hours7 ? ` · ${Math.round(x.hours7)} hours this week` : ""}${null != x.resp ? ` · answers the field in ${x.resp < 1 ? Math.max(1, Math.round(x.resp * 60)) + " min" : Math.round(x.resp) + " h"}` : ""}</span></div>`).join("") || '<div class="small muted">Nobody has open tasks.</div>'}</div></section>`;
 }
 function rsThresholdHtml() {
   return `<section class="card rs-card rs-thr"><div class="hd"><h3>Thresholds the Checklists Enforce</h3></div><div class="bd"><p class="small muted">The Standard's numbers. Changing one drafts a change under Company › Changes; it applies when you approve it there.</p>${Object.keys(RS_T)
