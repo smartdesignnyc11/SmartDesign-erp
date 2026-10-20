@@ -14,6 +14,7 @@ For every user in USERS x every view in ROLE_VIEWS[role()] x desktop (1440x900) 
   PHONE_OFFSCREEN      phone: an element's right edge passes the viewport (outside a horizontal scroller)
   CLIPPED_TEXT         phone: overflow hidden/clip cuts an element's own text (scrollWidth > clientWidth+1)
   TAP_SPACING          phone: two tap targets closer than 8px (inline links inside sentences ignored)
+  TAP_COVERED          phone: a control at the top of the page under a pinned layer it can never scroll out from under
   INPUT_LABEL_OVERLAP  an input/select/textarea box overlaps its own label's text
   SVG_SIZE             an svg rendered larger than 64px that is not a chart/illustration
   ONE_CLOCK            "as of" + a wall-clock time, or the machine's real date on screen, or a "today/now/live"
@@ -352,6 +353,22 @@ COLLECT = r"""
         const key = box + '|' + gap;
         if (pairSeen.has(key)) continue; pairSeen.add(key);
         flag('TAP_SPACING', A.e, `${Math.round(gap)}px between "${srcText(A.e).slice(0, 20) || A.e.tagName.toLowerCase()}" and "${srcText(B.e).slice(0, 20) || B.e.tagName.toLowerCase()}" (${box})`, `${box}|${Math.round(gap)}`);
+      }
+    }
+    // a control under a pinned layer that it can never scroll out from under (2026-10-20: the client's Ask switch sat
+    // under the pinned conversation and a tap opened nothing; every check pressed it by script, not by finger).
+    // At the top of the page, a fixed or sticky layer whose top is at or above the control covers it for good.
+    // Content passing under a bar further down the page is ordinary scrolling and is not flagged.
+    if (window.scrollY < 2 && !document.querySelector('#mbm, .modal.on, .drawer.on, #toast.on')) {
+      const layerOf = x => { for (; x && x !== document.body; x = x.parentElement) { const p = cs(x).position; if (p === 'fixed' || p === 'sticky') return x; } return null; };
+      for (const o of taps) {
+        const cx = (o.r.left + o.r.right) / 2, cy = (o.r.top + o.r.bottom) / 2;
+        if (cy < 0 || cy > innerHeight || cx < 0 || cx > W) continue;
+        const hit = document.elementFromPoint(cx, cy);
+        if (!hit || o.e.contains(hit) || hit.contains(o.e) || (hit.closest('label') && hit.closest('label').contains(o.e))) continue;
+        const L = layerOf(hit);
+        if (!L || L === o.layer || L.contains(o.e) || L.getBoundingClientRect().top > o.r.top + 2) continue;
+        flag('TAP_COVERED', o.e, `"${srcText(o.e).slice(0, 30) || o.e.tagName.toLowerCase()}" is under ${sel(L)}: a tap lands on "${(hit.innerText || hit.tagName).trim().slice(0, 30)}" (${sel(o.e)})`, sel(o.e) + '|' + sel(L));
       }
     }
   }
