@@ -114294,6 +114294,7 @@ function gsMailRec(m, me, src) {
   const date = gsHdr(m, "Date");
   return {
     msgId: m.id,
+    rfcId: gsHdr(m, "Message-ID"),
     threadId: m.threadId,
     channel: "email",
     from: gsAddrs(gsHdr(m, "From"))[0] || { name: "", email: "" },
@@ -199580,9 +199581,13 @@ function msgFileReplies() {
     const from = msgNorm((c.from && (c.from.email || c.from)) || c.fromEmail || ""),
       g = t.guests.find((x) => x.email && from.includes(msgNorm(x.email)));
     if (!g) return;
-    const at = String(c.date || appNowIso()).slice(0, 19),
+    // the server's watcher may have filed it already (2026-10-20), from this mailbox or another member's: once only
+    const via = c.msgId || c.id || "",
+      rfc = String(c.rfcId || "").trim();
+    if ((t.msgs || []).some((x) => x && ((via && x.viaMail === via) || (rfc && x.mailId === rfc)))) return void (c.chatFiled = t.id);
+    const at = c.date ? appIso(c.date) : appNowIso(),
       text = msgStripQuote(c.text || c.body || "") || "(an email with no text)";
-    t.msgs.push({ id: uid("ch"), by: g.name, fromGuest: g.id, text: text, at: at, t: "function" == typeof stampText ? stampText(at) : at, files: [], viaMail: c.msgId || c.id || "" });
+    t.msgs.push({ id: uid("ch"), by: g.name, fromGuest: g.id, text: text, at: at, t: "function" == typeof stampText ? stampText(at) : at, files: [], viaMail: via, mailId: rfc });
     (c.chatFiled = t.id), n++;
   });
   return n && save(), n;

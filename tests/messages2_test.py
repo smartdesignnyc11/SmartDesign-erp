@@ -534,6 +534,12 @@ async def t_newchat(c, p):
     c.ok(r['guest'] and r['text'] == 'Yes, 8 works. We will bring the lift.' and r['filed'] and r['shown'], f"newchat: the vendor's reply is filed into the chat, without the quoted history ({r})")
     r = await pg.evaluate("() => { const n = msgCur().t.msgs.length; DB.comms.push({ id: 'cm_other', msgId: 'gm_other', threadId: 'unrelated', direction: 'in', from: { email: 'office@satishelectric.example' }, subject: 'Invoice 4411', text: 'Attached.', labels: ['INBOX'] }); render(); return msgCur().t.msgs.length - n }")
     c.ok(r == 0, 'newchat: an unrelated mail from the same vendor is not filed into the chat')
+    # the server's watcher filed a reply already (from another member's mailbox: another Gmail id, the same Message-ID)
+    r = await pg.evaluate("""() => { const T = msgCur(), t = T.t, n = t.msgs.length;
+        t.msgs.push({ id: 'ch_srv', by: 'Satish', fromGuest: 'x', text: 'Lift is booked.', at: '2026-09-03T11:20:00', t: '9/3, 11:20 AM', files: [], viaMail: 'gm_box_b', mailId: '<lift@satish>', bySrv: 'mail' });
+        DB.comms.push({ id: 'cm_dup', msgId: 'gm_box_a', rfcId: '<lift@satish>', threadId: t.mailThread, direction: 'in', from: { email: 'office@satishelectric.example' }, subject: 'Re: ' + t.mailSubject, text: 'Lift is booked.', labels: ['INBOX'] });
+        render(); return { added: t.msgs.length - n, filed: DB.comms.find(x => x.id === 'cm_dup').chatFiled === t.id } }""")
+    c.ok(r['added'] == 1 and r['filed'], f"newchat: a reply the server already filed is not filed again by the app ({r})")
     # someone new, saved as the client's contact
     r = await new_chat(pg, [], '', [('[data-f="n_name"]', 'Imogen Varga'), ('[data-f="n_addr"]', 'imogen@example.com'), ('[data-f="n_save"]', 'c:cl121')])
     saved = await pg.evaluate("() => (DB.clients.find(c => c.id === 'cl121').contacts || []).some(x => x.email === 'imogen@example.com')")

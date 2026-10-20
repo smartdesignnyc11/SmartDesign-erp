@@ -6,6 +6,7 @@ import {open} from './seal.mjs';
 import {access, newMail, calChanges, driveChanges} from './google.mjs';
 import {contextFrom, score, message} from './score.mjs';
 import {pushTo} from './push.mjs';
+import {fileChatReplies} from './chatmail.mjs';
 
 // The firm's vendors, clients and jobs, read once per run of the whole watch (cached per workspace).
 const ctxCache = {};
@@ -36,6 +37,12 @@ export async function watchOne(row, deadline = Date.now() + 20000, opts = {}) {
   } catch (e) { error = String(e.message || e).slice(0, 300); }
   const items = Object.fromEntries(Object.entries(found).filter(([, v]) => v.length));
   if (Object.keys(items).length) await rest('rpc/watch_put_inbox', {method: 'POST', body: JSON.stringify({p_ws: row.workspace_id, p_key: row.person_key, p_items: items})});
+  // A guest's email reply to a chat this person is in goes into that chat now, not when someone next opens the app.
+  let chat = {filed: 0};
+  if (found.gmail.length) {
+    try { chat = await fileChatReplies(row.workspace_id, row.person_key, found.gmail, {push: opts.push}); }
+    catch (e) { console.error('chatmail', e.message); }
+  }
   let pushed = 0;
   if (!error && (found.gmail.length || found.cal.length) && opts.push !== false) {
     try { pushed = await pushTo(row.person_key, message(score(found, await firmContext(row.workspace_id), String(row.email || '').toLowerCase()))); }
@@ -44,5 +51,5 @@ export async function watchOne(row, deadline = Date.now() + 20000, opts = {}) {
   const now = new Date().toISOString();
   await rest('google_watch?person_key=eq.' + encodeURIComponent(row.person_key), {method: 'PATCH', headers: {prefer: 'return=minimal'},
     body: JSON.stringify({cursors: next, last_run: now, last_error: error, ...(error ? {} : {last_ok: now})})});
-  return {mail: found.gmail.length, events: found.cal.length, files: found.drive.length, pushed, error};
+  return {mail: found.gmail.length, chat: chat.filed, events: found.cal.length, files: found.drive.length, pushed, error};
 }

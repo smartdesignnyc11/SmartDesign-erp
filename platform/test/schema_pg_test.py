@@ -164,6 +164,20 @@ ok('permission denied' in err, f'notify: nobody signed in calls it, the owner in
 rows, err = as_('owner', 'select count(*) from public.notify_sent;')
 ok('permission denied' in err, f'notify: nobody signed in reads it: {err[:120]}')
 
+# a guest's email reply filed by the watcher (2026-10-20): only into a chat the mailbox's person is in, once per mail
+# (by its Gmail id or its Message-ID), the version moves so members' pages refetch it; nobody signed in can call it
+line = json.dumps({'id': 'g1', 'by': 'Imogen Varga', 'text': 'GUEST-REPLY', 'viaMail': 'gm1', 'mailId': '<abc@mail>'}).replace("'", "''")
+v0 = ver('crew', 'thread:t9')
+v1 = psql(f"select public.thread_file_mail('qa', 't9', 'u_chen', '{line}'::jsonb);").stdout.strip()
+ok(v1 == str(v0 + 1) and 'GUEST-REPLY' in json.dumps(view('crew')['thread:t9']), f'mail: filed into a chat the person is in, version {v0} to {v1}')
+again = json.dumps({'id': 'g2', 'text': 'GUEST-REPLY', 'viaMail': 'other-box-id', 'mailId': '<abc@mail>'}).replace("'", "''")
+ok(psql(f"select public.thread_file_mail('qa', 't9', 'u_owner', '{again}'::jsonb);").stdout.strip() == '0', 'mail: the same mail from another member\'s mailbox is not filed twice')
+ok(json.dumps(view('crew')['thread:t9']).count('GUEST-REPLY') == 1, 'mail: one line')
+ok(psql(f"select public.thread_file_mail('qa', 't9', 'u_angel', '{line.replace('gm1', 'gm9').replace('abc@', 'zz@')}'::jsonb);").stdout.strip() == '0', 'mail: never into a chat the mailbox\'s person is not in')
+ok(psql(f"select public.thread_file_mail('qa', 'nope', 'u_chen', '{line}'::jsonb);").stdout.strip() == '0', 'mail: nothing for a chat that does not exist')
+rows, err = as_('owner', f"select public.thread_file_mail('qa', 't9', 'u_owner', '{line}'::jsonb);")
+ok('permission denied' in err, f'mail: nobody signed in calls it: {err[:120]}')
+
 # the shared lists that mix jobs (2026-10-20): a field sign-in reads only its jobs' records and records with no job,
 # and a field save keeps the records it could not see. The owner first puts Angel back on Job A only.
 ow = view('owner'); a, cj = ow['project:pA'], ow['project:pC']; a['team'] = ['u_angel']; cj['team'] = []

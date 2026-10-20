@@ -53,7 +53,7 @@ export default async (req) => {
   const old = await mine();
   if (old) { try { await revoke(open(old.sealed)); } catch {} }
   await rest('google_watch', {method: 'POST', headers: {prefer: 'resolution=merge-duplicates,return=minimal'}, body: JSON.stringify({
-    person_key: key, workspace_id: profile.workspace_id, app_user_id: body.appUserId || null, email: info.email || body.email || '',
+    person_key: key, workspace_id: profile.workspace_id, app_user_id: profile.app_user_id || null, email: info.email || body.email || '',
     sealed: seal(t.refresh_token), scopes: t.scope || '', cursors: {}, connected_at: new Date().toISOString(), last_error: ''})});
   return json(200, {connected: true, email: info.email || ''});
 };

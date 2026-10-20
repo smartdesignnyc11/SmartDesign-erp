@@ -543,6 +543,27 @@ begin
 end $$;
 revoke all on function public.notify_claim(text, text, text) from public, anon, authenticated;
 
+-- A guest's email reply, filed into the chat it answers by the watcher (2026-10-20), so it reaches the conversation
+-- when nobody has the app open. Only into a chat the mailbox's person is a member of, and once: a line that came from
+-- the same mail (its Gmail id, or its Message-ID, the same in every member's mailbox) is not added again. Server only.
+create or replace function public.thread_file_mail(p_ws text, p_id text, p_member text, p_line jsonb) returns integer
+language plpgsql security definer set search_path = public as $$
+declare nm text := 'thread:' || p_id; cur jsonb; v integer;
+begin
+  select data into cur from public.collections where workspace_id = p_ws and name = nm for update;
+  if cur is null or not (coalesce(cur->'members', '[]'::jsonb) ? p_member) or jsonb_typeof(p_line) <> 'object' then return 0; end if;
+  if exists (select 1 from jsonb_array_elements(case when jsonb_typeof(cur->'msgs') = 'array' then cur->'msgs' else '[]'::jsonb end) x
+             where (coalesce(p_line->>'viaMail', '') <> '' and x->>'viaMail' = p_line->>'viaMail')
+                or (coalesce(p_line->>'mailId', '') <> '' and x->>'mailId' = p_line->>'mailId')) then return 0; end if;
+  update public.collections
+     set data = jsonb_set(cur, '{msgs}', (case when jsonb_typeof(cur->'msgs') = 'array' then cur->'msgs' else '[]'::jsonb end) || jsonb_build_array(p_line), true),
+         version = version + 1, updated_at = now()
+   where workspace_id = p_ws and name = nm
+  returning version into v;
+  return v;
+end $$;
+revoke all on function public.thread_file_mail(text, text, text, jsonb) from public, anon, authenticated;
+
 -- ---------------------------------------------------------------- the owner joins a conversation (2026-10-19)
 -- The owner reads every direct and group conversation but writes only in one he is in. "Add Me" puts him in it, in the
 -- open: he is added to its members and a line says so, written by the server with his name from his profile.
