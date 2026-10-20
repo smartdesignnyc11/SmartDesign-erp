@@ -188370,22 +188370,26 @@ function buyOrderDialog(o) {
         // the quote's sender, not on file yet: the person chose them in the sheet, so Issue PO puts them on file
         // through the mail's own "put them on file" proposal, then orders. The quote applied on 9/16 opened this sheet
         // with no supplier to choose, and the radiant mats missed their date waiting for the vendor's card the next
-        // day (month regression, 2026-10-20). Nothing is created unless they are chosen here.
-        if ("__quote__" === f.vendor && qOff) {
-          try {
-            cmApply(quote, qOff), save();
-          } catch (e) {
-            console.warn("quote vendor", e);
-          }
-          f.vendor = qOff.name;
-        }
-        const vv = poVendorReal(f.vendor);
-        if (!vv) return toast("Choose the supplier — a vendor on file"), !1;
+        // day (month regression, 2026-10-20). Nothing is created unless they are chosen here and the sheet's other
+        // checks pass.
+        const fromQuote = "__quote__" === f.vendor && !!qOff;
+        if (!fromQuote && !poVendorReal(f.vendor)) return toast("Choose the supplier — a vendor on file"), !1;
         if (!(+f.qty > 0)) return toast("Say how many"), !1;
         if (!(+f.price > 0)) return toast("Price the line — the vendor's quote or the price you agreed"), !1;
         if (!f.needBy) return toast("Say when the site needs it"), !1;
         if (fab && !fabTick) return toast(fab), !1;
         if (fabTick && !f.tradeOk) return toast("Tick that the fabricator's field measurements are in — the order goes out with them"), !1;
+        if (fromQuote) {
+          try {
+            cmApply(quote, qOff);
+          } catch (e) {
+            console.warn("quote vendor", e);
+          }
+          poVendorReal(qOff.name) && ((qOff.status = "applied"), (qOff.applied = qOff.applied || today())), save();
+          f.vendor = qOff.name;
+        }
+        const vv = poVendorReal(f.vendor);
+        if (!vv) return toast("Choose the supplier — a vendor on file"), !1;
         return void setTimeout(() => flIssueOrder(r, vv, f, tk), 0);
       },
     },
