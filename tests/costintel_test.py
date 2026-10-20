@@ -38,7 +38,7 @@ def med(a):
 
 # ---------------------------------------------------------------- the matching bank (invented, realistic descriptions)
 SAME = [  # each group is one item, written the way different stores print it
-    ['2X4-8 KD STUD SPF', '2-IN X 4-IN X 8-FT KILN-DRIED SPF STUD', "2X4 8' KD SPF STUD", '2 in. x 4 in. x 8 ft. Kiln-Dried Stud', '2x4x8 KD studs'],
+    ['2X4-8 KD STUD SPF', '2-IN X 4-IN X 8-FT KILN-DRIED SPF STUD', "2X4 8' KD SPF STUD", '2 in. x 4 in. x 8 ft. Kiln-Dried SPF Stud'],
     ['2X6-12 DOUGLAS FIR KD', "2X6 12' DOUGLAS FIR KD", '2 in. x 6 in. x 12 ft. Douglas Fir Kiln Dried'],
     ['1/2 IN X 4 FT X 8 FT REGULAR DRYWALL', '1/2-IN X 4-FT X 8-FT REGULAR DRYWALL PANEL', '1/2 REGULAR DRYWALL 4X8', '1/2" Sheetrock 4x8 regular'],
     ['5/8 TYPE X DRYWALL 4X8', '5/8 IN TYPE X DRYWALL 4X8', '5/8" Firecode drywall 4 ft x 8 ft'],
@@ -60,7 +60,7 @@ DIFFERENT = [  # pairs that must never be one item
     ('1/2 IN X 100 FT PEX-A PIPE RED', '3/4 IN X 100 FT PEX-A PIPE RED'),
     ('3/4 IN CDX PLYWOOD 4X8', '1/2 IN CDX PLYWOOD 4X8'),
 ]
-INCOMPLETE = ['DRYWALL SHEET', '2X4 LUMBER', 'ROMEX WIRE', 'PEX PIPE']  # too vague to match on their own
+INCOMPLETE = ['DRYWALL SHEET', '2X4 LUMBER', 'ROMEX WIRE', 'PEX PIPE', "2x4 10' stud", '2x4x8 KD studs']  # vague, or a grade or species not named  # too vague to match on their own
 
 # ---------------------------------------------------------------- the route bank
 WH = {'n': 'Warehouse', 'lat': 40.6784, 'lng': -73.995}

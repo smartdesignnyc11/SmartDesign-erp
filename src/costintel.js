@@ -171,10 +171,11 @@ function ciSpec(desc) {
       lenN = ciFrac(lenRaw);
     if (lenRaw && +a <= 6 && +b >= 2 && +b <= 12) {
       const ft = "in" === unit || lenN > 24 ? Math.round((lenN / 12) * 1000) / 1000 : lenN,
-        treat = has(/\bpt\b/) ? "pt" : "kd",
-        // a stud is SPF unless it says otherwise; any other piece of lumber has to name its species
-        species = has(/\bdf\b/) ? "df" : has(/\bspf\b/) ? "spf" : has(/\bstuds?\b/) && "2" === a && ["4", "6"].includes(b) ? "spf" : "";
-      if (!species) return null;
+        // kiln-dried or treated, and the species, must be named: "2x4 10' stud" and "2x4 10' KD stud" may be the
+        // same piece, but that is a person's call (price watch's Same Item?), never assumed here
+        treat = has(/\bpt\b/) ? "pt" : has(/\bkd\b/) ? "kd" : "",
+        species = has(/\bdf\b/) ? "df" : has(/\bspf\b/) ? "spf" : "";
+      if (!species || !treat) return null;
       return { key: `lumber|${a}x${b}|${ft}ft|${treat}|${species}`, label: `${a}x${b}x${ft} ${treat.toUpperCase()} ${species.toUpperCase()}`, cat: "Lumber", unit: "ea" };
     }
   }
@@ -186,7 +187,9 @@ function ciSpec(desc) {
     return g ? { key: `plywood|${thk}|${size}|${g}`, label: `${thk} in ${g.toUpperCase()} plywood ${size}`, cat: "Lumber", unit: "sheet" } : null;
   }
   if (has(/\b(drywall|gypsum|sheetrock|gwb|wallboard)\b/) && !has(/\b(screw|compound|tape|bead|anchor|knife|lift)\b/) && thk) {
-    const ty = has(/\btypex\b/) && has(/\bmr\b/) ? "xmr" : has(/\btypex\b/) ? "x" : has(/\bmr\b/) ? "mr" : "reg";
+    // the type is named, or it is not a complete spec (regular is a type too)
+    const ty = has(/\btypex\b/) && has(/\bmr\b/) ? "xmr" : has(/\btypex\b/) ? "x" : has(/\bmr\b/) ? "mr" : has(/\b(regular|standard|reg)\b/) ? "reg" : "";
+    if (!ty) return null;
     return { key: `drywall|${thk}|${size}|${ty}`, label: `${thk} in ${{ x: "Type X", mr: "moisture-resistant", xmr: "Type X moisture-resistant", reg: "regular" }[ty]} drywall ${size}`, cat: "Drywall", unit: "sheet" };
   }
   // cable: gauge/conductors and length (12/2 NM-B 250 ft)
@@ -292,6 +295,21 @@ if ("function" == typeof pwBuild) {
         I.raw.includes(b.rawKey) || I.raw.push(b.rawKey), I.buys.push(b);
       });
       add.length && (D.buys.sort(pwByDate), Object.values(D.items).forEach((I) => I.buys.sort(pwByDate)));
+      // a matched item is called what the firm already calls it (the library, then what the field asked for), so the
+      // one picker shows one item in the firm's words, not a second one in a store's
+      if (add.length) {
+        const names = [];
+        try {
+          ("function" == typeof itemLib ? itemLib() : []).forEach((x) => x && x.name && names.push(x.name));
+        } catch (e) {}
+        (DB.projects || []).forEach((p) => (p.requests || []).forEach((r) => ("function" == typeof reqItems ? reqItems(r) : r.items || []).forEach((it) => it && it.what && names.push(it.what))));
+        const byKey = {};
+        names.forEach((n) => {
+          const s = ciSpec(n) || (/\bstuds?\b/i.test(n) && !/\b(df|douglas|spf)\b/i.test(n) ? ciSpec(n + " SPF") : null);
+          s && !byKey["spec:" + s.key] && (byKey["spec:" + s.key] = n);
+        });
+        Object.values(D.items).forEach((I) => byKey[I.key] && (I.label = byKey[I.key]));
+      }
     } catch (e) {
       console.warn("costintel: receipts in the price history", e);
     }
@@ -1285,8 +1303,10 @@ function ciDriverHourly() {
 function ciStoreQuotes(what) {
   let H = null;
   try {
-    const sk = ciSpec(what);
-    H = sk ? (pwData().items["spec:" + sk.key] ? { item: pwData().items[pwResolve("spec:" + sk.key)] } : null) : null;
+    // a request is looser than a receipt ("40 2x4x8 KD studs"): for a store suggestion, not for the price history's
+    // identity, a stud the crew asked for is the SPF stud the stores sell
+    const sk = ciSpec(what) || (/\bstuds?\b/i.test(what) && !/\b(df|douglas|spf)\b/i.test(what) ? ciSpec(what + " SPF") : null);
+    H = sk ? (pwData().items[pwResolve("spec:" + sk.key)] ? { item: pwData().items[pwResolve("spec:" + sk.key)] } : null) : null;
     H = H || itemPriceHistory(what);
   } catch (e) {}
   const I = H && H.item;
