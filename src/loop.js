@@ -624,10 +624,13 @@ function lpReopen(c, why) {
 // ---- 4. close the loop: the people who reported it are told; a month later the loop checks -----------------------
 const LP_TELL = {
   approved: { st: "accepted", say: (c) => `Accepted: the owner approved a change for it (${c.loop.ticket ? c.loop.ticket.no : "a build"}). You will hear when it is live.` },
-  live: { st: "fixed", say: (c) => `Changed: ${lpT(c, "fix")} If it still happens, press Still Wrong on this report.` },
+  // the person who reported it reads what changed for them, not the build's instructions
+  live: { st: "fixed", say: (c) => `${lpChangedWords(c)} If it still happens, press Still Wrong on this report.` },
   declined: { st: "declined", say: (c) => `The owner decided not to change it: ${(c.loop.declined || {}).why || ""}` },
   reopened: { st: "accepted", say: () => "It came back, so it is open again, at the top of the owner's list." },
 };
+const lpChangedWords = (c) =>
+  c.delta && c.delta.label && c.loop.applied ? `Changed on ${fmtL(c.loop.applied.at)}: ${c.delta.label}.` : `Fixed in the ERP on ${fmtL(c.loop.liveAt || today())}${c.loop.ticket ? ` (${c.loop.ticket.no})` : ""}: ${lpT(c, "title")}.`;
 function lpNotify(c, what) {
   const T = LP_TELL[what];
   if (!T || !c.loop) return 0;
@@ -649,7 +652,7 @@ function lpNotify(c, what) {
       const key = `${c.id}|${u}|${c.loop.reopened || 0}`;
       if (told.includes(key)) return;
       "function" == typeof asFirmTasks &&
-        asFirmTasks().push({ id: uid("a"), title: `See what changed: ${lpT(c, "title")}`, assignee: U.name, due: today(), priority: "low", status: "todo", createdAt: today(), completedAt: "", notes: `${lpT(c, "fix")} You reported this. If it still happens, press Still Wrong on your report.`, link: null, source: { kind: "improve", id: c.id, label: c.title } });
+        asFirmTasks().push({ id: uid("a"), title: `See what changed: ${lpT(c, "title")}`, assignee: U.name, due: today(), priority: "low", status: "todo", createdAt: today(), completedAt: "", notes: `${lpChangedWords(c)} You reported this. If it still happens, press Still Wrong on your report.`, link: null, source: { kind: "improve", id: c.id, label: c.title } });
       told.push(key);
     });
   }

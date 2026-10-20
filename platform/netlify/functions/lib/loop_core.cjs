@@ -204,13 +204,14 @@ var LOOP_CORE = (function () {
     return out;
   }
 
-  // A month after a fix went live: did the problem stop? Before = the 30 days before the fix, after = the 30 after.
+  // A month after a fix went live: did the problem stop? Before = the 30 days up to the fix, after = the 30 after it.
   function verify(change, signals, today) {
     const L = (change && change.loop) || {}, at = day(L.liveAt || L.appliedAt);
     if (!at || L.verified || daysBetween(at, today) < MONTH) return null;
     const A = atoms(signals).filter((a) => a.gkey === L.gkey);
     const sum = (from, to) => A.filter((a) => a.day >= from && a.day < to).reduce((s, a) => s + (a.n || 0), 0);
-    const before = sum(addDays(at, -MONTH), at), after = sum(at, addDays(at, MONTH));
+    // the day it went live counts as before: what was reported that morning was reported against the old version
+    const before = sum(addDays(at, -MONTH), addDays(at, 1)), after = sum(addDays(at, 1), addDays(at, MONTH + 1));
     const stopped = 0 === after || (before > 0 && after <= before / 4);
     return { at: today, before: before, after: after, result: stopped ? "stopped" : "repeat" };
   }

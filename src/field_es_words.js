@@ -32,6 +32,9 @@ esAdd({
   Ask: "Preguntar",
   "Ask your assistant": "Pregúntale a tu asistente",
   "Report a Problem": "Reportar un Problema",
+  // the improvement loop (src/loop.js): a fixed report can be sent back
+  "Still Wrong": "Sigue Mal",
+  "Thank you. It is open again for the owner": "Gracias. Está abierto otra vez para el dueño",
   "Switch User": "Cambiar de Usuario",
   "Signed in as": "Conectado como",
   "Saved on this device": "Guardado en este teléfono",
