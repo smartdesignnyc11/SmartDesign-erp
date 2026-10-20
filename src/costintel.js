@@ -595,7 +595,7 @@ function ciJobMoney(p) {
     openInv = c ? (clientFin(c).open || []).filter((o) => o.x && (!o.x.projectId || o.x.projectId === p.id) && +o.bal > 0.005) : [],
     rtb = (() => {
       try {
-        return readyToBill().rows.filter((r) => r.p && r.p.id === p.id);
+        return ciTickMemo("rtb:" + (DB.clients || []).map((c) => (c.invoices || []).map((i) => i.status + i.id).join("")).join("|") + (DB.time || []).length, () => readyToBill().rows).filter((r) => r.p && r.p.id === p.id);
       } catch (e) {
         return [];
       }
@@ -641,12 +641,31 @@ function ciLineCause(p, l) {
   if ("measured" === l.kind) return { t: `spending is running ahead of the work measured as done (${l.pct}%)`, fix: { kind: "review", label: "Review the Line", t: "Check the measurement with the foreman, then re-forecast the line or price the extra scope" } };
   return { t: l.why, fix: { kind: "review", label: "Review the Line", t: "Re-forecast the line and say why" } };
 }
+// Home, the rail, Ask and the tab read the rows several times in one turn: one reading per turn of the event loop.
+let ciTick = null;
+function ciTickMemo(k, fn) {
+  if (!ciTick) {
+    ciTick = {};
+    try {
+      setTimeout(() => (ciTick = null), 0);
+    } catch (e) {}
+  }
+  return k in ciTick ? ciTick[k] : (ciTick[k] = fn());
+}
 function ciJobsOverspending(scope) {
-  return (DB.projects || [])
-    .filter((p) => !p.archived && "closed" !== (p.project || {}).status && (!scope || p.id === scope))
-    .map(ciJobMoney)
-    .filter(Boolean)
-    .sort((a, b) => b.amount - a.amount);
+  // keyed on what the rule reads, so a change made earlier in the same turn is never missed
+  let sig = "";
+  try {
+    sig = ("function" == typeof ovsSig ? ovsSig() : "") + "|" + (DB.clients || []).map((c) => `${(c.payments || []).length}.${(c.invoices || []).map((i) => i.status).join("")}`).join(",") + "|" + (DB.pos || []).map((p) => p.status).join("") + "|" + (DB.payroll || []).map((r) => r.status).join("");
+  } catch (e) {}
+  const all = ciTickMemo("jobs:" + sig, () =>
+    (DB.projects || [])
+      .filter((p) => !p.archived && "closed" !== (p.project || {}).status)
+      .map(ciJobMoney)
+      .filter(Boolean)
+      .sort((a, b) => b.amount - a.amount),
+  );
+  return scope ? all.filter((x) => x.p.id === scope) : all.slice();
 }
 predDef("jobsOverspending", {
   label: "Jobs Spending More Than They Bring In",
@@ -1818,8 +1837,9 @@ function ciWeekly(src) {
     by = src === "button" ? ciMe() : "The Brain (weekly)";
   DB.changes = DB.changes || [];
   const fresh = F.filter((f) => !DB.changes.some((c) => c.key === f.key || (c.ciBase && c.ciBase === f.key.replace(/:\d{4}-\d{2}-\d{2}$/, "") && "declined" === c.status)));
+  const made = [];
   fresh.forEach((f) =>
-    DB.changes.push({
+    made.push({
       id: uid("ch"),
       key: f.key,
       ciBase: f.key.replace(/:\d{4}-\d{2}-\d{2}$/, ""),
@@ -1837,12 +1857,13 @@ function ciWeekly(src) {
       lesson: f.lesson || "",
     }),
   );
+  made.forEach((c) => DB.changes.push(c));
   ((DB.company = DB.company || {}).ciWeekly = { at: appNowIso(), day: today(), by: by, found: F.length, proposed: fresh.length });
   if (fresh.length)
     try {
       paNudge(`The Brain's weekly review proposed ${agN(fresh.length, "change")}.`, `From this week's overruns, prices, waste, delays and repeated questions: ${fresh.map((f) => `"${f.title}"`).slice(0, 3).join(", ")}${fresh.length > 3 ? " and more" : ""}. Each says what it is worth; approve or decline them under Company › Changes.`, { kind: "brain", id: "weekly-" + today() }, "the Brain's weekly review");
     } catch (e) {}
-  return save(), fresh;
+  return save(), made;
 }
 // on the first app day of a new week, once
 "undefined" != typeof APP_DAY_HOOKS &&

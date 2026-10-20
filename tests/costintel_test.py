@@ -76,6 +76,7 @@ SITE_C = {'id': 'c', 'n': 'Site C', 'lat': 40.6830, 'lng': -73.9680, 'from': 420
 
 
 def buy(key, qty, prices, site='a', vol=0.01, any_=False):
+    """one line to buy; vol is the whole line's share of the van (1 = a full van), as itemVolume gives it"""
     return {'key': key, 'what': key, 'qty': qty, 'unit': 'ea', 'vol': vol, 'siteId': site, 'prices': prices, 'any': any_}
 
 
@@ -88,7 +89,7 @@ BANK = [
     scen('a far yard saves $6: never the detour', [S_HD, S_FAR], [buy('studs', 20, {'HD Gowanus': 4.47, 'Far Yard Queens': 4.17})], [SITE_A], expect={'not': 'Far Yard Queens'}),
     scen('drywall at the supply house, studs at the yard, tape anywhere', [S_HD, S_LW, S_YARD, S_SUP], [buy('5/8 X', 80, {'HD Gowanus': 17.48, 'Supply Park Slope': 14.33}, vol=0.012), buy('studs', 150, {'HD Gowanus': 4.47, 'Yard Red Hook': 3.98}, vol=0.004), buy('tape', 6, {}, any_=True)], [SITE_A], expect={'uses': 'Supply Park Slope'}),
     scen('a site that wants it by 9 am', [S_HD, S_YARD], [buy('studs', 100, {'HD Gowanus': 4.47, 'Yard Red Hook': 3.98}, site='a'), buy('screws', 10, {'HD Gowanus': 27.98}, site='b')], [dict(SITE_A, to=540, window='by 9 am'), SITE_B], expect={'ontime': 'a'}),
-    scen('more than a van: two trips', [S_HD, S_SUP], [buy('drywall A', 50, {'HD Gowanus': 14.9, 'Supply Park Slope': 13.9}, site='a', vol=0.012), buy('drywall B', 50, {'HD Gowanus': 14.9, 'Supply Park Slope': 13.9}, site='b', vol=0.012), buy('drywall C', 30, {'HD Gowanus': 14.9, 'Supply Park Slope': 13.9}, site='c', vol=0.012)], [SITE_A, SITE_B, SITE_C], expect={'legs': 2}),
+    scen('more than a van: two trips', [S_HD, S_SUP], [buy('drywall A', 50, {'HD Gowanus': 14.9, 'Supply Park Slope': 13.9}, site='a', vol=0.6), buy('drywall B', 50, {'HD Gowanus': 14.9, 'Supply Park Slope': 13.9}, site='b', vol=0.6), buy('drywall C', 30, {'HD Gowanus': 14.9, 'Supply Park Slope': 13.9}, site='c', vol=0.36)], [SITE_A, SITE_B, SITE_C], expect={'legs': 2}),
     scen('debris to dump after the drops', [S_HD], [buy('blocking', 40, {'HD Gowanus': 3.2}, site='b', vol=0.004)], [dict(SITE_A, items=[], garbage=0.9), SITE_B], expect={'dump': True}),
     scen('nothing priced: one general store', [S_HD, S_LW, S_YARD], [buy('blue tape', 4, {}, any_=True), buy('plastic', 2, {}, any_=True)], [SITE_A], expect={'stores': 1}),
     scen('eight stores to choose from', [S_HD, S_LW, S_YARD, S_SUP, S_FAR, dict(S_HD, n='HD Flatbush', lat=40.6517, lng=-73.9523), dict(S_SUP, n='Ferguson', lat=40.6956, lng=-73.9893), dict(S_LW, n="Lowe's 2", lat=40.6300, lng=-74.0200)],
