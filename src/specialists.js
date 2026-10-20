@@ -127,25 +127,23 @@ predDef("linesOverBudget", {
     });
   },
 });
+// The Payment Check's own duplicate rule (pcCheck: the same invoice number, the same amount and date, the same pay
+// application), read on every live unpaid bill from the day it is entered, not only when someone goes to pay it.
 predDef("billsDuplicate", {
   label: "Duplicate Vendor Invoices",
-  rule: "two live bills from one vendor with the same invoice number, or the same amount on the same purchase order",
+  rule: "the Payment Check's duplicate rule on every unpaid bill: another live bill from the vendor with the same invoice number, the same amount and date, or the same pay application",
   rows() {
-    const L = (DB.bills || []).filter((b) => !["void", "rejected"].includes(b.status) && billTotal(b) > 0),
-      low = (s) => String(s || "").toLowerCase().trim(),
-      out = [];
-    L.forEach((b, i) =>
-      L.slice(i + 1).forEach((x) => {
-        if (low(b.vendor) !== low(x.vendor)) return;
-        const sameNo = low(b.number) && low(b.number) === low(x.number),
-          samePO = b.poId && b.poId === x.poId && Math.abs(billTotal(b) - billTotal(x)) < 0.005;
-        if (!sameNo && !samePO) return;
-        const later = String(x.date || "") >= String(b.date || "") ? x : b,
-          first = later === x ? b : x;
-        out.some((o) => o.key === "billdup:" + later.id) || out.push({ key: "billdup:" + later.id, b: later, twin: first, what: `Billed twice? ${later.vendor} ${later.number || ""}`.trim(), sub: `${money(billTotal(later))} · ${sameNo ? "the same invoice number" : "the same amount on the same PO"} as ${first.number || "an earlier bill"} (${fmtL(first.date)})`, amount: billTotal(later) });
-      }),
-    );
-    return out;
+    if ("function" != typeof pcCheck) return [];
+    return (DB.bills || [])
+      .filter((b) => !["void", "rejected", "paid", "draft"].includes(b.status) && billTotal(b) > 0)
+      .map((b) => {
+        let h = null;
+        try {
+          h = (pcCheck(b).holds || []).find((x) => "dup" === x.key);
+        } catch (e) {}
+        return h ? { key: "billdup:" + b.id, b: b, twin: (DB.bills || []).find((x) => x.id === h.other) || null, what: `Billed twice? ${b.vendor} ${b.number || ""}`.trim(), sub: `${money(billTotal(b))} · ${h.what}`, amount: billTotal(b) } : null;
+      })
+      .filter(Boolean);
   },
 });
 Object.assign(STD_MAP, {
@@ -656,7 +654,7 @@ const RS_FIX = {
       preview: `A credit-memo request to ${b.vendor} is drafted for your approval, and the short-pay sheet opens with ${money(P ? P.left : 0)} approved.`,
       apply: () => {
         const v = rsVendor(b.vendor) || {};
-        rsDraftMail(f, { to: { name: b.vendor, email: v.email || "" }, subject: `${b.number}: credit memo for ${money(over)} over ${P && P.po ? P.po.number : "our PO"}`, body: `Hello,\n\nYour invoice ${b.number} is ${money(billTotal(b))}. Our purchase order ${P && P.po ? P.po.number : ""} covers ${money(P ? P.left : 0)}. We are paying to the PO and holding ${money(over)} until we receive a credit memo or a signed change.\n\nThank you,\n${rsMe().name || ""}` });
+        rsDraftMail(f, { to: { name: b.vendor, email: v.email || "" }, subject: `${b.number}: credit memo for ${money(over)} over ${P && P.po ? P.po.number : "our PO"}`, body: `Hello,\n\nYour invoice ${b.number} is ${money(billTotal(b))}. Our purchase order ${P && P.po ? P.po.number : ""} covers ${money(P ? P.left : 0)}. We are paying to the PO and holding ${money(over)} until we receive a credit memo or a signed change.\n\nThank you,\n${rsMe().name || ""}`, forName: (rsUserOfRole("owner") || {}).name });
         "function" == typeof billAction && isOwner() && billAction(b, "short");
       },
     };
@@ -731,7 +729,7 @@ function rsFix(f) {
     console.warn("specialist fix", f.check.id, e);
   }
   x = x || RS_FIX.open(f);
-  return Object.assign({ who: f.check.who }, x, { defaultOn: !!(((DB.company || {}).spDefaults || {})[f.check.id]) });
+  return Object.assign({ who: f.check.who }, x, { defaultOn: !!(((DB.company || {}).spDefaults || {})[rsDefKey(f.check.id)]) });
 }
 // 4. the right person, a due date and why
 function rsOwner(f, fix) {
@@ -889,7 +887,7 @@ function rsApprove(key) {
   } catch (e) {}
   save();
   // a fix that opens the record's own sheet toasts there, when the person acts on it
-  draft
+  rsQuiet ? 0 : draft
     ? toast(`Drafted for approval: ${draft.subject}`, [{ label: "Open", run: () => ((window.mApprKind = "draft"), setView("mapprove")) }])
     : "escalation" === fix.kind && c.escalation
       ? toast(`Escalated to the owner, due today: ${tdWords(f.what, 6)}`, [{ label: "Open", run: () => setView("tkall") }])
@@ -901,16 +899,19 @@ function rsProposeDefault(f, fix) {
   DB.changes = DB.changes || [];
   const key = "sp:default:" + f.check.id;
   if (DB.changes.some((c) => c.key === key)) return;
-  DB.changes.push({ id: uid("ch"), key: key, kind: "rule", title: `Draft "${fix.label}" on its own for ${f.check.label}`, why: `${rsMe().name || "A person"} approved this fix on ${fmtL(today())}. Approve it and the ${RS_ROLE_LABEL[rsRoleOf(f.check.roles[0])] || ""} checklist drafts it the moment the finding appears; the draft still waits for a person to send it. ${standardWhy("change")}.`, evidence: [{ t: f.what, m: "the finding" }], delta: { path: `company.spDefaults.${f.check.id}`, to: !0 }, status: "draft", at: today(), by: "The checklist", source: "specialist" });
+  DB.changes.push({ id: uid("ch"), key: key, kind: "rule", title: `Draft "${fix.label}" on its own for ${f.check.label}`, why: `${rsMe().name || "A person"} approved this fix on ${fmtL(today())}. Approve it and the ${RS_ROLE_LABEL[rsRoleOf(f.check.roles[0])] || ""} checklist drafts it the moment the finding appears; the draft still waits for a person to send it. ${standardWhy("change")}.`, evidence: [{ t: f.what, m: "the finding" }], delta: { path: `company.spDefaults.${rsDefKey(f.check.id)}`, to: !0 }, status: "draft", at: today(), by: "The checklist", source: "specialist" });
 }
-// once the owner has approved a default, its drafts are made as the finding appears (still drafts)
+// once the owner has approved a default, its drafts are made as the finding appears (still drafts). The path a
+// change writes is dotted (company.spDefaults.<key>), so a line's id is stored with its dot as an underscore.
+const rsDefKey = (id) => String(id).replace(/\./g, "_");
+let rsQuiet = !1;
 function rsAutoDrafts() {
   const D = (DB.company || {}).spDefaults || {},
     ids = Object.keys(D).filter((k) => D[k]);
   if (!ids.length) return 0;
   let n = 0;
   ids.forEach((id) => {
-    const C = rsCheck(id);
+    const C = RS_CHECKS.find((x) => rsDefKey(x.id) === id);
     C &&
       C.src &&
       rsLineRows(C).forEach((row) => {
@@ -918,7 +919,14 @@ function rsAutoDrafts() {
           S = rsInit();
         if (S.dismissed[rsForm(C, row)] || (S.cases[key] && S.cases[key].fix)) return;
         const six = rsSix(key);
-        six && /^(coiRequest|w9Request|subChase|discountAsk|creditChase|friday)$/.test(six.fix.kind) && (rsApprove(key), (S.cases[key].fix.by = "the checklist (the default the owner approved)"), n++);
+        if (!six || !/^(coiRequest|w9Request|subChase|discountAsk|creditChase|friday)$/.test(six.fix.kind)) return;
+        rsQuiet = !0;
+        try {
+          rsApprove(key);
+        } finally {
+          rsQuiet = !1;
+        }
+        S.cases[key] && S.cases[key].fix && ((S.cases[key].fix.by = "the checklist (the default the owner approved)"), n++);
       });
   });
   return n;
@@ -1201,7 +1209,9 @@ function rsOneHtml(r) {
     const r = base.apply(this, arguments);
     try {
       const v = document.querySelector(".view.on");
-      if (v && !v.querySelector(".rs-one") && ["home", "ftoday", "sday", "time", "route"].includes(view)) {
+      // drawn fresh each time: a screen that keeps its markup between draws would otherwise keep yesterday's language
+      if (v && ["home", "ftoday", "sday", "time", "route"].includes(view)) {
+        v.querySelectorAll(".rs-one").forEach((e) => e.remove());
         const home = { home: TD_ROLES, ftoday: ["foreman"], sday: ["designer", "design_mgr"], time: ["crew"], route: ["driver"] }[view] || [];
         if (home.includes(role())) {
           const h = v.querySelector(".td-ph h2, .ph h2, h2"),
