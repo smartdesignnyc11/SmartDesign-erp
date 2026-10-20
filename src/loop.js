@@ -712,15 +712,19 @@ if ("function" == typeof finishBoot) {
   const base = finishBoot;
   finishBoot = function () {
     const r = base.apply(this, arguments);
-    // after the first paint: the watch's rows are not cheap, and nothing on the first screen waits on them
-    setTimeout(() => {
+    // well after the app has settled, when the phone is idle: the watch's rows are not cheap, and nothing on any
+    // screen waits on them (tests/speed_test.py measured them inside the settle window at 1.2 s). A field phone
+    // never runs it: the field neither reads the Watch nor decides problems, and an office device does it each day.
+    const run = () => {
       try {
+        if (["foreman", "crew", "driver", "client"].includes(role())) return;
         const last = (DB.company || {}).loopLast;
         (last && last.day === today()) || (lpDay("boot"), save());
       } catch (e) {
         console.warn("loop boot", e);
       }
-    }, 1200);
+    };
+    setTimeout(() => ("function" == typeof requestIdleCallback ? requestIdleCallback(run, { timeout: 4e3 }) : run()), 6e3);
     return r;
   };
 }

@@ -40,12 +40,20 @@ async def report(pg, what, bad, text, phone=False):
 
 async def main():
     async with async_playwright() as p:
+        # ---------------------------------------------------------------- an office device runs the loop's day when idle
+        b, pg, errs0 = await open_app(p)
+        await sign_in(pg, 'u_alan')
+        early = await pg.evaluate("!!DB.company.loopLast")
+        await pg.wait_for_function("DB.company.loopLast && DB.company.loopLast.src === 'boot'", timeout=20000)
+        last = await pg.evaluate("DB.company.loopLast")
+        c.ok(not early and last['watch'] > 0 and last['drafted'] == 0, f'after the app settles, not in the way of the first screen: the Standard Watch kept day by day, nothing drafted from one day: {last}')
+        await b.close()
+
         # ---------------------------------------------------------------- the foreman, on the phone
         b, pg, errs = await open_app(p, phone=True)
         await sign_in(pg, 'u_angel')
-        await pg.wait_for_timeout(1500)   # the loop's first run after boot
-        last = await pg.evaluate("DB.company.loopLast || null")
-        c.ok(last and last['src'] == 'boot' and last['watch'] > 0 and last['drafted'] == 0, f'boot: the Standard Watch is kept day by day, nothing drafted from one day: {last}')
+        await pg.wait_for_timeout(1500)
+        c.ok(await pg.evaluate("!DB.company.loopLast"), 'a field phone does not run the loop\'s day (an office device does, when it is idle)')
         await pg.evaluate("setView('sched')")
         await report(pg, 'save', 'stuck', 'Moved the framing date, it went back after a reload. Call me 555-1212, about $4,200', phone=True)
         s = await pg.evaluate("DB.signals.filter(s => s.kind === 'report').map(s => ({id: s.id, uid: s.uid, role: s.role, screen: s.screen, what: s.what, sev: s.sev, text: s.text, rec: s.rec, trail: (s.trail||[]).length, photo: (s.rep||{}).photo || ''}))")
@@ -266,7 +274,7 @@ async def main():
         await pg.screenshot(path=os.path.join(OUT, 'phone_owner_changes.png'))
         await b.close()
 
-        allerrs = [e for e in errs + errs2 + errs3 + errs4 + errs5 if 'favicon' not in e]
+        allerrs = [e for e in errs0 + errs + errs2 + errs3 + errs4 + errs5 if 'favicon' not in e]
         c.ok(not allerrs, f'no errors: {allerrs[:4]}')
     return c.done()
 
