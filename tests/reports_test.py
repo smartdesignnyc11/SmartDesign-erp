@@ -626,11 +626,15 @@ async def part_phone(p, c):
             await tab(pg, tb, 'ty', 'p121')
             r = await pg.evaluate("""() => { const sw = document.documentElement.scrollWidth, L = [...document.querySelectorAll('.rp-tie-list')];
                 const cols = L.map(l => getComputedStyle(l).gridTemplateColumns.split(' ').length);
-                const taps = [...document.querySelectorAll('.rp-part a.rp-amt')].filter(a => a.offsetParent).map(a => a.getBoundingClientRect().height);
-                return {sw, cols, minTap: taps.length ? Math.min(...taps) : 99} }""")
+                const A = [...document.querySelectorAll('.rp-part a.rp-amt')].filter(a => a.offsetParent), taps = A.map(a => a.getBoundingClientRect().height);
+                let gap = 99;
+                for (let i = 1; i < A.length; i++) { const a = A[i - 1].getBoundingClientRect(), b = A[i].getBoundingClientRect();
+                    if (b.top >= a.bottom - 1 && Math.abs(b.left - a.left) < 200) gap = Math.min(gap, b.top - a.bottom); }
+                return {sw, cols, minTap: taps.length ? Math.min(...taps) : 99, gap} }""")
             c.ok(r['sw'] <= 390, f'{uid} phone {tb}: page scrolls sideways ({r["sw"]}px)')
             c.ok(all(x == 1 for x in r['cols']), f'{uid} phone {tb}: ties not one column {r["cols"]}')
             c.ok(r['minTap'] >= 44, f'{uid} phone {tb}: a tie amount is a {r["minTap"]}px target')
+            c.ok(r['gap'] >= 8, f'{uid} phone {tb}: tie amounts {r["gap"]}px apart (the screen standard wants 8)')
         c.ok(not errs, f'{uid} phone errors {errs[:3]}')
         await b.close()
 
