@@ -69660,6 +69660,17 @@ function eaAddNote(text, due, by) {
     at: today(),
     done: !1,
   };
+  // One follow-up per subject: a new chase's "Follow up: X — asked <day>" replaces the open one for the same X, which
+  // is closed as superseded. Every weekly chase of a missing certificate added another, and the owner's Do Now opened
+  // on eight copies of three vendors' certificates, burying the Window Works credit memo for a week (month
+  // regression, 2026-10-20).
+  try {
+    const subj = (t) => String(t || "").replace(/\s+—\s+asked\s+.*$/, "").trim();
+    /^Follow up: /.test(String(text || "")) &&
+      eaNotes().forEach((x) => {
+        !x.done && x.by === n.by && subj(x.text) === subj(text) && ((x.done = !0), (x.doneAt = today()), (x.supersededBy = n.id));
+      });
+  } catch (e) {}
   return eaNotes().push(n), save(), n;
 }
 renderHome = function () {
@@ -179849,9 +179860,22 @@ function cmLinkQuoteFile(c, p) {
     (a.fileId = fid),
     (m.quoteFileId = fid);
 }
+// A vendor's date read from an older mail than the one the PO's date already came from is stale: the 9/8 "delivers
+// Fri, Sep 18" moved PO-2026-048 back from the 9/25 the 9/15 slip had set, once mail proposals carried their date and
+// the older one reached the top of the list (month regression, 2026-10-20).
+function cmEtaStale(c, p) {
+  try {
+    const po = p && (DB.pos || []).find((x) => x.id === p.poId),
+      from = po && po.etaFrom && po.etaFrom.commId && (DB.comms || []).find((x) => x.id === po.etaFrom.commId);
+    return !!(from && from.id !== c.id && String(from.date || "") > String((c && c.date) || ""));
+  } catch (e) {
+    return !1;
+  }
+}
 function cmApplyEta(c, p, by) {
   const po = (DB.pos || []).find((x) => x.id === p.poId);
   if (!po) return "the order is gone";
+  if (cmEtaStale(c, p)) return `${po.number} keeps ${fmtL(po.expected)}: a later mail from ${po.vendor} set it; this one is older`;
   const was = po.expected || "";
   po.expected = p.date;
   const pr = (DB.projects || []).find((x) => x.id === po.projectId);
@@ -186110,6 +186134,8 @@ function nyhRowsAll() {
       const { c: c, pr: pr, route: route } = x;
       // a copy of the same proposal applied in another mailbox counts as done
       if ("lpc" !== pr.kind && lnSameProps(c, pr).some((y) => !lnOpenProp(y.pr))) return;
+      // a vendor date older than the one the PO already carries is not a step: applying it would move the PO back
+      if ("eta" === pr.kind && "function" == typeof cmEtaStale && cmEtaStale(c, pr)) return;
       const job = lnJob((c.route || {}).projectId || pr.projectId);
       push({
         key: key,
@@ -188306,6 +188332,8 @@ function buyOrderDialog(o) {
     // a material's price is its quote; a contract line's is the budget left on it, said as such
     price = m ? (cost ? r2(cost / (qty || 1)) : 0) : r2((+r.price || 0) / (qty || 1)),
     quote = m && m.quoteCommId ? (DB.comms || []).find((c) => c.id === m.quoteCommId) : null,
+    // the quote's sender is not on file yet: their mail carries the open offer to put them on file
+    qOff = !v && quote ? (quote.proposals || []).find((x) => "unrouted" === x.kind && "vendor" === x.as && x.name && !x.applied && !["applied", "skipped", "dismissed"].includes(x.status || "")) || null : null,
     late = D.orderBy && D.orderBy < today(),
     src = quote ? `the quote from ${esc((quote.from && quote.from.name) || (v && v.name) || "the vendor")} (${esc(quote.subject || "")})` : m && cost ? "the price on the line" : l ? "the budget left on the estimate line — replace it with the vendor's price" : "",
     // The measurement gate (poFabGate) is asked here, in the sheet, not after it: a fabricated item for a room on the
@@ -188331,7 +188359,7 @@ function buyOrderDialog(o) {
   return mbModal(
     `Order — <span data-nocase>${esc(r.name)}</span>`,
     `<p class="small muted" style="margin:0 0 10px">${esc(shortName(p))}${tk ? ` · for ${esc(tk.name)}, starts ${fmt(tk.start)}` : ""}${D.needBy ? ` · on site by ${fmt(D.needBy)}` : ""}${D.orderBy ? ` · ${late ? `<b class="bad">order-by ${fmt(D.orderBy)} passed</b>` : `order by ${fmt(D.orderBy)}`}` : ""}. ${src ? `Price from ${src}. ` : ""}Issue PO sends it through the house checks; over ${money(DB.company.poApprovalOver || 0)} it goes to the owner first.</p>
-    ${mbF("Supplier", `<select data-f="vendor">${flVendorOpts(r, v)}</select>`)}
+    ${mbF("Supplier", `<select data-f="vendor">${qOff ? flVendorOpts(r, v).replace('<option value="" selected>', '<option value="">') + `<option value="__quote__" selected>${esc(qOff.name)} (from their quote; put on file when the PO is issued)</option>` : flVendorOpts(r, v)}</select>`)}
     <div class="grid2">${mbF("Item", `<input data-f="item" value="${esc(m ? m.name : (l && l.item) || r.name)}">`)}${mbF("Quantity", `<input type="number" step="any" min="0" data-f="qty" value="${qty}">`)}</div>
     <div class="grid2">${mbF("Unit", `<input data-f="unit" value="${esc(unit)}">`)}${mbF("Unit Price", `<input type="number" step="0.01" min="0" data-f="price" value="${price || ""}" placeholder="no price yet — the vendor's quote">`)}</div>
     <div class="grid2">${mbF("Needed on Site", `<input type="date" data-f="needBy" value="${D.needBy || ""}">`)}${mbF("Task", `<input data-f="task" value="${esc(tk ? tk.name : "")}" readonly>`)}</div>
@@ -188339,6 +188367,18 @@ function buyOrderDialog(o) {
     {
       submit: "Issue PO",
       onSubmit: (f) => {
+        // the quote's sender, not on file yet: the person chose them in the sheet, so Issue PO puts them on file
+        // through the mail's own "put them on file" proposal, then orders. The quote applied on 9/16 opened this sheet
+        // with no supplier to choose, and the radiant mats missed their date waiting for the vendor's card the next
+        // day (month regression, 2026-10-20). Nothing is created unless they are chosen here.
+        if ("__quote__" === f.vendor && qOff) {
+          try {
+            cmApply(quote, qOff), save();
+          } catch (e) {
+            console.warn("quote vendor", e);
+          }
+          f.vendor = qOff.name;
+        }
         const vv = poVendorReal(f.vendor);
         if (!vv) return toast("Choose the supplier — a vendor on file"), !1;
         if (!(+f.qty > 0)) return toast("Say how many"), !1;
@@ -197543,7 +197583,13 @@ function tdyTeamSheet(x) {
     if (it && "tdyTask" === it.kind) return 8 + (it.t.late ? 4 : 0) + (it.t.offeredToUid ? 2 : 0);
     if (it && "tdyMail" === it.kind) return 16;
     if (it && "tdyPerson" === it.kind) return 0;
-    if (it && "tdyBuy" === it.kind) return 24 + (it.due && it.due < today() ? 6 : 0);
+    // among late lines, the one the site needs this week comes first: every line's order-by had passed, so the oldest
+    // order-by (a 206 Lenox paint line from 7/20, no supplier yet) held the top while the radiant mats needed on 9/18
+    // sat sixth and missed their date (month regression, 2026-10-20)
+    if (it && "tdyBuy" === it.kind) {
+      const nb = String((it.x && it.x.needBy) || "").slice(0, 10);
+      return 24 + (it.due && it.due < today() ? 6 : 0) + (nb && nb <= iso(addDays(today(), 7)) ? 8 : 0);
+    }
     return base.apply(this, arguments);
   };
 }

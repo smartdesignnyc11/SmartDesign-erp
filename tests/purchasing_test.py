@@ -422,6 +422,15 @@ async def s_reader(p, c):
             await apply_real(pg, et['cid'], et['pid'])
             r = await pg.evaluate("() => ({ expected: DB.pos.find(x => x.id === 'po3').expected, eta: DB.projects.find(x => x.id === 'p121').materials.find(m => m.id === 'm10').eta })")
             c.ok(r['expected'] == '2026-09-18' and r['eta'] == '2026-09-18', f'reader: applying sets the PO and the material ETA ({r})')
+            # an older mail's date never moves the PO back (the month: a 9/8 date undid the 9/15 slip on PO-2026-048)
+            st = await pg.evaluate("""([cid, pid]) => { const c = DB.comms.find(x => x.id === cid), p = c.proposals.find(x => x.id === pid),
+                old = Object.assign({}, c, { id: 'cm_old_eta', date: '2026-08-20T09:00:00', proposals: [] }),
+                op = Object.assign({}, p, { id: 'cp_old_eta', date: '2026-10-09', applied: '', status: '' });
+              old.proposals = [op]; DB.comms.push(old);
+              const hidden = !nyhRowsAll().some(r => r.commId === 'cm_old_eta'), said = cmApplyEta(old, op, 'test'), po = DB.pos.find(x => x.id === 'po3');
+              DB.comms = DB.comms.filter(x => x.id !== 'cm_old_eta'); save();
+              return { hidden: hidden, said: said, expected: po.expected }; }""", [et['cid'], et['pid']])
+            c.ok(st['hidden'] and st['expected'] == '2026-09-18' and 'older' in st['said'], f'reader: a vendor date from an older mail is not offered and does not move the PO back ({st})')
         # ready for pickup -> a stop on the driver's route
         pk = await proposal(pg, 'ready for pickup', 'pickup')
         c.ok(pk and pk['pid'], f"reader: Brooklyn Lumber's pickup is proposed as a driver stop ({pk and pk['kinds']})")
