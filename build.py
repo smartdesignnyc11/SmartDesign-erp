@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 """Build dist/smartdesigns_projects.html: one self-contained file, as the app has always shipped.
 src/head.html (meta, title, fonts) + src/styles.css + src/body.html (shell markup) + docs/STANDARD.md (as data)
-+ src/app.js + src/mind.js + src/assistant.js."""
++ src/app.js + src/mind.js + src/subs.js + src/assistant.js."""
 import os, subprocess, sys
 H = os.path.dirname(os.path.abspath(__file__))
 r = lambda p: open(os.path.join(H, p), encoding='utf-8').read()
 # src/mind.js (how the assistant thinks: its reach, prompt, loop, check and learning) and src/assistant.js (the one
 # assistant per person, BACKLOG §1.27/§1.24: its screens) ride after app.js in the same script, in that order, so
-# assistant.js's wrappers are the outermost ones and every name app.js declares is in scope.
-# src/livejobs.js (BACKLOG §1.25/§1.26: two payers, ranges and phases, the cost model and tax credits, the contractor)
-# rides last, so its wrappers sit outside the assistant's.
-js = r('src/app.js') + '\n' + r('src/mind.js') + '\n' + r('src/assistant.js') + '\n' + r('src/livejobs.js')
-for f in ('src/app.js', 'src/mind.js', 'src/assistant.js', 'src/livejobs.js'):
+# assistant.js's wrappers are the outermost ones and every name app.js declares is in scope. src/subs.js (subcontracts
+# and the payment check, BACKLOG §1.10 #1 and §1.12) rides between them: it wraps app.js's money paths and adds its
+# query tables to mind.js's MD_VIEWS. src/livejobs.js (BACKLOG §1.25/§1.26: two payers, ranges and phases, the cost
+# model and tax credits, the contractor) rides last, so its wrappers sit outside the assistant's.
+js = r('src/app.js') + '\n' + r('src/mind.js') + '\n' + r('src/subs.js') + '\n' + r('src/assistant.js') + '\n' + r('src/livejobs.js')
+for f in ('src/app.js', 'src/mind.js', 'src/subs.js', 'src/assistant.js', 'src/livejobs.js'):
     if subprocess.run(['node', '--check', os.path.join(H, f)]).returncode:
         sys.exit(f + ' has a syntax error; not building')
 # The SmartDesign Standard (docs/STANDARD.md, Alan's own document) rides in the page word for word: the app seeds
