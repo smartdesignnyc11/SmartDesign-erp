@@ -159,3 +159,24 @@ Exists: Three-Way Tie-Out (QuickBooks says / the bank says / the ERP says, per m
    retainage both ways as one report.
 7. Excel export of any report; the accounting choices as labelled settings with a default and a note.
 8. Ask reads each report through EQ_TABLES with the same numbers as the screen.
+
+## Where it stands after the lane (2026-10-20)
+
+| Item | Built | Proven by `tests/reports_test.py` |
+|---|---|---|
+| 1. Income and expenses, accrual and cash | Cash basis takes payroll only once paid (root fix); the income tie shows at the bank and not yet deposited | books, cash |
+| 2. Job costing | Job cost tie (bills + bank + labor + stock; codes and lines reconcile); the by-code "unlinked" row that repeated the bank total is gone | books, lines, screen |
+| 3. Line income to cost | By Line is income to cost from the job's own lines; `lineFin` counts a bill once (root fix); Estimate Versus Actual at close-out proposes price-book changes into Company › Changes | lines, closeout |
+| 4. P&L and the tie | P&L by Project and by Client on P&L Detail with the tie line; the months add up to the period; Job Reports and the P&L explains labor; intercompany: IC bills at cost when consolidated, profit in WIP eliminated (root fixes) | books, screen, entity |
+| 5. Overhead | Overhead Analysis on Statements: by category by month, % of revenue, burden rate, absorption, break-even monthly revenue | overhead |
+| 6. WIP, cash, aging, backlog, retainage | Ties on WIP, Receivables, Payables; Cash & Receivables › Cash Forecast (13 weeks, backlog, retainage both ways); the forecast no longer pays bills the bank paid and carries the owed payroll run and the card balances (root fix) | books, cash13, screen |
+| 7. Closed periods | Sealed August reads the same (whole P&L and by project); the retainer applied now relieves 2400 so closed August ties to the ledger to the cent (root fix); September lists corrections to sealed months with Open | sealed |
+| 8. Choices | Accounting Choices card on Statements: development costs, tax revenue recognition, overhead basis; default, what each moves, who/when/why | overhead (shown) |
+| 9. Export and share | Excel on every Reports tab (one sheet per table, numbers as numbers); the Pack's ties on the phone | excel, phone |
+| 10. QuickBooks | unchanged: the Three-Way Tie-Out (truth_test) | — |
+| Ask | P&L by project and client, break-even, 13-week low, retainage both ways, do the reports tie; seven report tables, money, Reports roles only | ask |
+
+Not done: read-only access for the accountant (a platform role on the hosted copy); the development-cost and tax
+choices are shown with what they move, but choosing "capitalise" or "completed contract" does not yet change the
+statements; the cost book (`DB.company.costBook`) is written on approval but no estimate screen reads it yet (the
+item library lane's estimating should).
