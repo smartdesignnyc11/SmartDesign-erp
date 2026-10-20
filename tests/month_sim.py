@@ -42,6 +42,13 @@ Exit 1 when anything is missed (it will be, today; that is the point).
     python3 month_sim.py                 # the month (about 10-20 minutes)
     python3 month_sim.py --days 3        # the first three days only (quick check)
     python3 month_sim.py --no-shots      # skip screenshots
+    python3 month_sim.py --top5          # the second measure: the actor reads only the five Do Now cards shown before
+                                         # "N more" (a busy person); ledger in review/month/top5/
+
+THE TWO MEASURES (2026-10-20). Today (the today lane, f5e1d96) gave every office role one Do Now list whose All tab shows
+five cards and opens the rest under "N more". The default month reads the whole list, as a person who taps "N more"
+does; --top5 reads only the five. Each ledger carries both summary lines when the other has run, and every event's
+rank on the person's Do Now on the day it was open (what outranked it), so a ranking that buries money shows.
 """
 import asyncio, json, os, sys, time, argparse, shutil, re
 from harness import *
@@ -49,6 +56,8 @@ from harness import *
 HERE = os.path.dirname(os.path.abspath(__file__))
 BOOK = os.path.join(HERE, 'month_book.json')
 OUT = os.path.join(ROOT, 'review', 'month')
+OUT_MAIN, OUT_TOP5 = OUT, os.path.join(ROOT, 'review', 'month', 'top5')
+OFFICE = ('owner', 'pm', 'coord', 'billing', 'controller', 'designer')
 SITE = {'latitude': 40.6893, 'longitude': -73.9908}   # 121 State Street, Brooklyn (the seed's job address)
 TZ = '-04:00'                                           # the firm's clock (America/New_York, EDT in September)
 PERSONAS = ['u_owner', 'u_alan', 'u_chen', 'u_angel', 'u_sarah', 'u_billing', 'u_controller', 'u_alberto', 'u_alex']
@@ -174,7 +183,10 @@ async def main():
     ap.add_argument('--days', type=int, default=0)
     ap.add_argument('--no-shots', action='store_true')
     ap.add_argument('--quiet', action='store_true')
+    ap.add_argument('--top5', action='store_true')
     a = ap.parse_args()
+    global OUT
+    if a.top5: OUT = OUT_TOP5
     book = json.load(open(BOOK, encoding='utf-8'))
     days = working_days(book)
     run_days = days[:a.days] if a.days else days
@@ -201,6 +213,7 @@ async def main():
         await pg.goto(URL)
         await pg.wait_for_function("document.body.dataset.booted==='1'", timeout=90000)
         await pg.evaluate(RUNTIME_JS)
+        if a.top5: await pg.evaluate("() => { __MS.topFive = true; }")
         phone = False
         async def viewport(ph):
             nonlocal phone
@@ -252,6 +265,7 @@ async def main():
                     D['imports'] += T['imported']
                     if T.get('sync'): D['syncs'][uid] = T['sync']
                     seen0 = await pg.evaluate("([u, r, o]) => __MS.look(u, r, o)", [uid, rname, {'needles': open_needles}])
+                    if rname in OFFICE: D.setdefault('queue', {})[uid] = await pg.evaluate("() => __MS.queue()")
                     if not a.no_shots:
                         await pg.screenshot(path=os.path.join(shots_tmp, f'{day}_{rname}_{uid}.png'))
                     pt['shot'] = round(time.time() - tr, 2)
@@ -352,7 +366,7 @@ async def main():
         if x.get('days'):
             if verdict == 'missed': days_lost = x['days']
             elif verdict == 'late': days_lost = min(x['days'], late)
-        rows.append({'id': e['id'], 'day': e['day'], 'kind': e['kind'], 'who': x['who'], 'what': x['what'], 'by': x['by'],
+        rows.append({'rank': rank_of(e, st, daylog, days, last), 'id': e['id'], 'day': e['day'], 'kind': e['kind'], 'who': x['who'], 'what': x['what'], 'by': x['by'],
                      'verdict': verdict, 'done': st['done'], 'late': late if verdict == 'late' else 0, 'detail': st['detail'],
                      'seen': seen_by, 'seen_any': st['seen'], 'money': x.get('money'), 'money_left': round(money_left, 2), 'days_lost': days_lost,
                      'tags': e.get('tags', []), 'check': x['check']['t'], 'injected': str(st['injected'])[:120],
@@ -362,6 +376,10 @@ async def main():
     missed = sum(1 for r in scored if r['verdict'] == 'missed')
     money = sum(r['money_left'] for r in scored); dlost = sum(r['days_lost'] for r in scored)
     summary = f"MONTH caught {on_time}/{len(scored)} on time · {late_n} late · {missed} missed · ${money:,.0f} left behind · {dlost} schedule days lost"
+    if a.top5: summary = summary.replace('MONTH ', 'MONTH (top five) ', 1)
+    other = os.path.join(OUT_MAIN if a.top5 else OUT_TOP5, 'ledger.json')
+    try: other_summary = json.load(open(other)).get('summary', '')
+    except Exception: other_summary = ''
     # screenshots: day 1, the worst day (the most misses falling due), the close day
     worst = None
     if rows:
@@ -377,19 +395,38 @@ async def main():
         if f[:10] in keep: shutil.move(os.path.join(shots_tmp, f), os.path.join(shots, f))
     shutil.rmtree(shots_tmp, ignore_errors=True)
     secs = round(time.time() - t_start)
-    out = {'summary': summary, 'runtime_s': secs, 'days': run_days, 'worst_day': worst, 'month_end': month_end,
+    out = {'summary': summary, 'other_summary': other_summary, 'mode': 'top5' if a.top5 else 'whole list', 'runtime_s': secs, 'days': run_days, 'worst_day': worst, 'month_end': month_end,
            'events': rows, 'daylog': daylog}
     json.dump(out, open(os.path.join(OUT, 'ledger.json'), 'w'), indent=1, default=str)
     write_md(out, book)
     print(summary)
-    print(f'runtime {secs}s · ledger review/month/ledger.md')
+    if other_summary: print(other_summary + '   (the other measure, its last run)')
+    print(f'runtime {secs}s · ledger {os.path.relpath(os.path.join(OUT, "ledger.md"), ROOT)}')
     sys.exit(1 if missed else 0)
+
+
+def rank_of(e, st, daylog, days, last):
+    """Where the event stood on its owner's Do Now: the first day in its window it was on the list (every needle in one
+    card), its rank, the list's length, and the five cards above it."""
+    x = e['expect']; who = x['who']; N = [str(n).lower() for n in x.get('see') or [] if n]
+    if not N: return None
+    end = st['done'] or last
+    for D in daylog:
+        if D['day'] < e['day'] or D['day'] > end: continue
+        Q = (D.get('queue') or {}).get(who)
+        if Q is None: return {'why': 'no Do Now for this role'}
+        for i, c in enumerate(Q):
+            if all(n in c.lower() for n in N):
+                return {'day': D['day'], 'rank': i + 1, 'of': len(Q), 'above': Q[max(0, i - 5):i]}
+    return {'why': 'no card names it'}
 
 
 def write_md(out, book):
     rows = out['events']; days = out['days']; L = []
     L.append('# The month: September 2026, what each person saw, did and missed\n')
     L.append(out['summary'] + '\n')
+    if out.get('other_summary'): L.append(out['other_summary'] + '  (the other measure, from its last run)\n')
+    L.append('The actor read ' + ('only the five Do Now cards shown before "N more".' if out.get('mode') == 'top5' else 'the whole Do Now list.') + '\n')
     L.append(f"Runtime {out['runtime_s']}s over {len(days)} working days. Worst day: {out['worst_day']}. "
              f"Month end: {json.dumps(out['month_end'])}\n")
     L.append('Invented data only (tests/month_book.json). "Seen" is the first day the event reached the screens of the person who should act; '
@@ -402,6 +439,11 @@ def write_md(out, book):
     for r in worst:
         seen = f"{r['seen'][0][5:]} ({r['seen'][1]})" if r['seen'] else 'never'
         L.append(f"| {r['id']} {r['what'][:90]} | {r['day'][5:]} | {r['who']} | {seen} | {r['verdict']}{' +' + str(r['late']) + 'd' if r['late'] else ''}: {r['detail'][:90]} | {r['money_left']:,.0f} | {r['days_lost']} | {r['fn'][:110]} |")
+    L.append("\n## Where each missed or late event stood on its owner's Do Now\n")
+    L.append('Rank on the first day it was open on their list (1 is the top card; Do Now shows five before "N more"), and the five cards above it.\n')
+    for r in sorted([r for r in scored if r['verdict'] in ('missed', 'late') and r.get('rank')], key=lambda r: (-(r['money_left'] or 0), r['day'])):
+        k = r['rank']
+        L.append(f"- {r['id']} {r['what'][:70]} (${r['money_left']:,.0f}): " + ((f"rank {k['rank']} of {k['of']} on {k['day'][5:]}" + (f"; above it: {' | '.join(x[:60] for x in k['above'])}" if k['above'] else '')) if k.get('rank') else f"not on {r['who']}'s Do Now ({k['why']})"))
     L.append('\n## By person: did they get what they needed\n')
     by = {}
     for r in scored: by.setdefault(r['who'], []).append(r)

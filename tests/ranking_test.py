@@ -109,7 +109,26 @@ async def run(phone):
             'lapsed renewal': ('Fire extinguisher', [1, 1]),
             'insulation this week': ('Insulation for 3rd fl', [1, 1]),
         })
-        c.ok(q['keys'][pos['lapsed renewal']][2] == 0, f'coord {w}: the lapsed renewal is overdue ({q["keys"][pos["lapsed renewal"]]})')
+        c.ok(q['keys'][pos['lapsed renewal']][3] == 0, f'coord {w}: the lapsed renewal is overdue ({q["keys"][pos["lapsed renewal"]]})')
+        # money or a client waiting now, right after the field (month regression, 2026-10-20): a client's payment in
+        # the bank unrecorded and a credit owed to a client rank above every overdue row at any amount; billing back a
+        # purchase does at the company's threshold; a vendor's mail is due the business day it arrived (routed the same
+        # day), so a confirmed delivery date no longer sinks under every dated row
+        mn = await pg.evaluate("""() => { const td = today(), ago = (n) => iso(addDays(td, -n)), k = (it) => standardRankKey(it);
+          const dep = { kind: 'hand', id: 'mn1', title: 'Record payment: test $300', nyh: { kind: 'deposit', amount: 300, title: 'Record payment' } },
+                cred = { kind: 'hand', id: 'mn2', title: 'Credit the client $85', nyh: { kind: 'clientcredit', amount: 85, title: 'Credit' } },
+                small = { kind: 'hand', id: 'mn3', title: 'Bill back $40', nyh: { kind: 'rebill', amount: 40, title: 'Bill back' } },
+                big = { kind: 'hand', id: 'mn4', title: 'Bill back $4,000', nyh: { kind: 'rebill', amount: 4000, title: 'Bill back' } },
+                late = { kind: 'note', id: 'mn5', title: 'Answer a vendor', due: ago(9) };
+          const O = standardOrder([late, small, big, cred, dep], stdQueueTie).map(x => x.id);
+          const c = (DB.comms || []).find(x => x.route && x.route.vendorId && x.direction !== 'out' && /^\\d{4}-\\d{2}-\\d{2}/.test(String(x.date || '')));
+          const mail = c ? { kind: 'hand', id: 'mn6', title: 'Vendor date', nyh: { kind: 'mail', pkind: 'eta', commId: c.id } } : null;
+          return { order: O, keys: [dep, cred, small, big, late].map(k), mailDue: mail ? stdDueOf(mail) : null, mailDay: c ? poWorkday(String(c.date).slice(0, 10)) : null,
+                   why: standardRankWhy(dep) }; }""")
+        c.ok(set(mn['order'][:3]) == {'mn1', 'mn2', 'mn4'} and mn['order'][3:] == ['mn5', 'mn3'],
+             f'coord {w}: a payment to record, a client credit and a $4,000 bill-back rank above an overdue task; a $40 bill-back stays in its bucket: {mn["order"]}')
+        c.ok(mn['keys'][0][2] == 0 and mn['keys'][2][2] == 1 and mn['why'] == 'money is waiting on it today', f'coord {w}: the money-now bucket is the key\'s third place: {mn["keys"]} ({mn["why"]})')
+        c.ok(mn['mailDue'] is not None and mn['mailDue'] == mn['mailDay'], f'coord {w}: a vendor mail proposal is due the business day it arrived: {mn["mailDue"]} vs {mn["mailDay"]}')
         # the coordinator's Home is Today (lane "today", 2026-10-19): its Approvals filter is the queue in order
         await go(pg, 'home'); await pg.wait_for_timeout(300)
         await pg.click('.view.on [data-tdytabbtn="appr"]'); await pg.wait_for_timeout(250)

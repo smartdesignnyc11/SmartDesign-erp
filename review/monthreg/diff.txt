@@ -1,0 +1,81 @@
+# The month regression, event by event
+
+## v11.2 (379182f) -> master before this lane (the whole Do Now list unread past five)
+REF MONTH caught 258/292 on time · 5 late · 29 missed · $9,537 left behind · 1 schedule days lost
+NEW MONTH caught 243/292 on time · 3 late · 46 missed · $195,142 left behind · 9 schedule days lost
+
+WORSE (15): $185,604
+  E226 09-25 payment        $   68,265 0d on time->missed | Record the Kleins' $68,265 (ten days late) on INV-2026-038 | no payment recorded
+  E233 09-25 payment        $   68,265 0d on time->missed | Billing sees the Kleins' payment note and records the deposit | no payment recorded
+  E266 09-30 invoice        $   25,000 0d on time->missed | Earned-not-billed at month end: send the 121 State progress applicatio | nothing invoiced
+  E160 09-18 payment        $   15,000 0d on time->missed | Apply 206 Lenox's $15,000 wire (no invoice on file: record it as a dep | no payment recorded
+  E163 09-18 poStatus       $    8,010 0d on time->missed | Receive the Tino white oak on 9/18 and bill it against PO-2026-047 | issued
+  E177 09-21 clientCredit   $      850 0d on time->missed | Credit the Kleins for the returned tile ($850; the tile line was bille | no credit to the client
+  E012 09-03 txn            $      214 0d on time->missed | Match the Bedrosians $215 card credit to its return (credit memo for 1 | categorized · refund · p45 · matched to no line
+  E009 09-03 poEta          $        0 0d on time->missed | Move PO-2026-047 (Tino, white oak) to Tino's confirmed delivery Friday | PO-2026-047 expected 2026-10-05
+  E010 09-03 request        $        0 0d on time->missed | Pick up Brooklyn Lumber order 88412 (25 GWB, 6 cement board, already p | ack
+  E129 09-15 poEtaAny       $        0 0d on time->missed | Set the trim PO delivery to 9/17 | PO-2026-051 expected no date
+  E133 09-15 poEta          $        0 5d on time->missed | The millwork delivery slips 9/18 → 9/25: move PO-2026-048 and the mill | PO-2026-048 expected 2026-09-18
+  E142 09-16 po             $        0 2d on time->missed | Price the radiant heat mats ($1,240) and order them before 9/18 (on si | no PO issued
+  E186 09-21 seenBy         $        0 0d on time->missed | The plumber on Thursday shows on the foreman's Today | not on their screens
+  E198 09-22 lineBilled     $        0 0d on time->missed | Bill the measured work (rplumb at 100%) on the month-end application | Plumbing — rough & finish: measured 60%, billed 51.67%
+  E248 09-28 lineBilled     $        0 0d on time->missed | Bill the measured work (relec at 100%) on the month-end application | Electrical — rough & finish: measured 100%, billed 85%
+
+BETTER (0)
+
+STILL NOT ON TIME in new (known):
+
+## v11.2 -> this branch, the actor reading the whole Do Now list
+REF MONTH caught 258/292 on time · 5 late · 29 missed · $9,537 left behind · 1 schedule days lost
+NEW MONTH caught 261/292 on time · 4 late · 27 missed · $1,937 left behind · 0 schedule days lost
+
+WORSE (0): $0
+
+BETTER (3)
+  E047 09-03 po             $        0 0d late->on time | Order the parlor kitchen countertop slab (order-by 9/1 passed) | PO-2026-052 Gowanus Stone Yard $7450 issued
+  E246 09-28 disputeResolved $        0 0d missed->on time | Close the WW-2026-118 dispute with the $3,800 credit memo | dispute open: {"approved":29700,"held":3800,"why":"Approved at the PO amount; the di
+  E269 09-30 disputeResolved $        0 0d missed->on time | The Window Works $3,800 dispute is resolved by month end (credit memo  | dispute open: {"approved":29700,"held":3800,"why":"Approved at the PO amount; the di
+
+STILL NOT ON TIME in new (known):
+
+## v11.2 -> this branch, the actor reading only the first five (month_sim --top5)
+REF MONTH caught 258/292 on time · 5 late · 29 missed · $9,537 left behind · 1 schedule days lost
+NEW MONTH (top five) caught 261/292 on time · 3 late · 28 missed · $1,937 left behind · 0 schedule days lost
+
+WORSE (0): $0
+
+BETTER (4)
+  E047 09-03 po             $        0 0d late->on time | Order the parlor kitchen countertop slab (order-by 9/1 passed) | PO-2026-052 Gowanus Stone Yard $7450 issued
+  E183 09-21 seenBy         $        0 0d missed->late+5 | Sarah sees the samples are on the way | seen 2026-09-30 on tkall
+  E246 09-28 disputeResolved $        0 0d missed->on time | Close the WW-2026-118 dispute with the $3,800 credit memo | dispute open: {"approved":29700,"held":3800,"why":"Approved at the PO amount; the di
+  E269 09-30 disputeResolved $        0 0d missed->on time | The Window Works $3,800 dispute is resolved by month end (credit memo  | dispute open: {"approved":29700,"held":3800,"why":"Approved at the PO amount; the di
+
+STILL NOT ON TIME in new (known):
+
+## Rank on the owner's Do Now at the morning look, master (top five) -> this branch (top five)
+master  E009 u_chen first on 2026-09-03: rank 14 of 39
+master  E163 u_chen first on 2026-09-18: rank 23 of 60
+master  E129 u_chen first on 2026-09-16: rank 24 of 60
+master  E133 u_chen first on 2026-09-16: rank 23 of 60
+master  E133c u_chen first on 2026-09-16: rank 23 of 60
+master  E142 u_chen first on 2026-09-16: rank 6 of 60
+master  E010 u_chen first on 2026-09-03: rank 11 of 39
+master  E012 u_controller first on 2026-09-08: rank 10 of 13
+master  E160 u_billing first on 2026-09-18: rank 14 of 21
+master  E177 u_billing first on 2026-09-18: rank 15 of 21
+master  E226 u_billing first on 2026-09-25: rank 13 of 23
+master  E233 u_billing first on 2026-09-25: rank 13 of 23
+master  E186 u_chen first on 2026-09-22: rank 22 of 60
+branch  E009 u_chen first on 2026-09-03: rank 10 of 39
+branch  E163 u_chen first on 2026-09-18: rank 7 of 60
+branch  E129 u_chen first on 2026-09-16: rank 6 of 60
+branch  E133 u_chen first on 2026-09-16: rank 5 of 60
+branch  E133c u_chen first on 2026-09-16: rank 5 of 60
+branch  E142 u_chen first on 2026-09-16: rank 7 of 60
+branch  E010 u_chen first on 2026-09-03: rank 2 of 39
+branch  E012 u_controller first on 2026-09-08: rank 10 of 13
+branch  E160 u_billing first on 2026-09-18: rank 1 of 20
+branch  E177 u_billing first on 2026-09-18: rank 2 of 20
+branch  E226 u_billing first on 2026-09-25: rank 2 of 20
+branch  E233 u_billing first on 2026-09-25: rank 2 of 20
+branch  E186 u_chen first on 2026-09-22: rank 2 of 60

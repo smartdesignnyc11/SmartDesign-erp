@@ -422,6 +422,44 @@ async def s_reader(p, c):
             await apply_real(pg, et['cid'], et['pid'])
             r = await pg.evaluate("() => ({ expected: DB.pos.find(x => x.id === 'po3').expected, eta: DB.projects.find(x => x.id === 'p121').materials.find(m => m.id === 'm10').eta })")
             c.ok(r['expected'] == '2026-09-18' and r['eta'] == '2026-09-18', f'reader: applying sets the PO and the material ETA ({r})')
+            # an older mail's date never moves the PO back (the month: a 9/8 date undid the 9/15 slip on PO-2026-048)
+            st = await pg.evaluate("""([cid, pid]) => { const c = DB.comms.find(x => x.id === cid), p = c.proposals.find(x => x.id === pid),
+                old = Object.assign({}, c, { id: 'cm_old_eta', date: '2026-08-20T09:00:00', proposals: [] }),
+                op = Object.assign({}, p, { id: 'cp_old_eta', date: '2026-10-09', applied: '', status: '' });
+              old.proposals = [op]; DB.comms.push(old);
+              const hidden = !nyhRowsAll().some(r => r.commId === 'cm_old_eta'), said = cmApplyEta(old, op, 'test'), po = DB.pos.find(x => x.id === 'po3');
+              DB.comms = DB.comms.filter(x => x.id !== 'cm_old_eta'); save();
+              return { hidden: hidden, said: said, expected: po.expected }; }""", [et['cid'], et['pid']])
+            c.ok(st['hidden'] and st['expected'] == '2026-09-18' and 'older' in st['said'], f'reader: a vendor date from an older mail is not offered and does not move the PO back ({st})')
+        # a quote from someone not on file: the Order sheet offers the sender, and Issue PO puts them on file only when
+        # the sheet's checks pass (the month: the radiant mats waited a day for the vendor's own card and missed 9/18)
+        qs = await pg.evaluate("""async () => {
+          const R = buyList('p121').filter(r => r.m && !r.dec && !(r.po && !['draft', 'cancelled'].includes(r.po.status)));
+          const out = {};
+          const tryLine = async (r, nm) => {
+            const m = r.m, keep = { vendor: m.vendor, q: m.quoteCommId, cost: m.cost };
+            const c = { id: 'cm_qs_' + m.id, owner: 'u_chen', date: today() + 'T09:00:00', direction: 'in', subject: 'Quote QS-1 — ' + m.name,
+              from: { name: nm, email: 'sales@' + m.id + '.example' }, to: [], text: 'Quote attached.', route: { projectId: 'p121' },
+              proposals: [{ id: 'cp_qs_' + m.id, kind: 'unrouted', as: 'vendor', name: nm, email: 'sales@' + m.id + '.example', summary: 'not on file', on: true }] };
+            DB.comms.push(c); m.vendor = 'TBD'; m.quoteCommId = c.id; m.cost = m.cost || '1000';
+            buyOrderDialog({ pid: 'p121', mid: m.id }); await new Promise(res => setTimeout(res, 60));
+            const box = document.getElementById('mbm'), sel = box && box.querySelector('[data-f="vendor"]');
+            const res = { line: m.id, sel: sel ? sel.value : null };
+            if (box) { const nb = box.querySelector('[data-f="needBy"]'); nb && !nb.value && (nb.value = iso(addDays(today(), 10)));
+              const pr = box.querySelector('[data-f="price"]'); pr && !(+pr.value > 0) && (pr.value = '100');
+              const n0 = DB.pos.length; [...box.querySelectorAll('button')].find(b => /^Issue PO$/.test(b.innerText.trim())).click();
+              await new Promise(res => setTimeout(res, 900));
+              res.vendor = !!DB.vendors.find(v => v.name === nm); res.po = DB.pos.slice(n0).map(x => x.vendor + ':' + x.status);
+              try { mbCloseModal(); } catch (e) {} }
+            Object.assign(m, { vendor: keep.vendor, quoteCommId: keep.q, cost: keep.cost });
+            return res; };
+          const gated = R.find(r => r.m.id === 'm24'), open = R.find(r => r.m.id !== 'm24');
+          if (gated) out.gated = await tryLine(gated, 'Held Test Supply');
+          if (open) out.open = await tryLine(open, 'Quote Test Supply');
+          return out; }""")
+        op, gt = qs.get('open') or {}, qs.get('gated') or {}
+        c.ok(op.get('sel') == '__quote__' and op.get('vendor') and 'Quote Test Supply:issued' in (op.get('po') or []), f"reader: the Order sheet offers a quote's sender not on file, and Issue PO puts them on file and issues ({op})")
+        c.ok(not gt or (gt.get('sel') == '__quote__' and not gt.get('vendor') and not gt.get('po')), f"reader: a sheet stopped by its own checks puts nobody on file ({gt})")
         # ready for pickup -> a stop on the driver's route
         pk = await proposal(pg, 'ready for pickup', 'pickup')
         c.ok(pk and pk['pid'], f"reader: Brooklyn Lumber's pickup is proposed as a driver stop ({pk and pk['kinds']})")
