@@ -537,6 +537,8 @@ esAdd({
   Attach: "Adjuntar",
   // ---- the assistant
   "New chat": "Nueva conversación",
+  "Send To": "Enviar a",
+  "Everyone on the job": "Todos en la obra",
   "Attach a photo, PDF or spreadsheet": "Adjuntar una foto, PDF u hoja de cálculo",
   "Attach a Photo, PDF or Spreadsheet": "Adjuntar una Foto, PDF u Hoja de Cálculo",
   "Speak Your Question": "Di Tu Pregunta",

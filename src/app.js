@@ -184312,7 +184312,7 @@ function chatDmBar() {
   if (!P.length) return;
   comp.insertAdjacentHTML(
     "beforebegin",
-    `<div class="row" id="chat-dm" style="gap:6px;margin:8px 0;flex-wrap:wrap;align-items:center"><span class="small muted">To</span><select id="chat-to" aria-label="To" style="flex:1;min-width:150px"><option value="">Everyone on the job</option>${P.map((u) => `<option value="${u.id}">${esc(u.name)} · ${esc((void 0 !== ROLE_NAMES && ROLE_NAMES[u.role]) || u.role)}</option>`).join("")}</select></div>`,
+    `<div class="row" id="chat-dm" style="gap:6px;margin:8px 0;flex-wrap:wrap;align-items:center"><span class="small muted">Send To</span><select id="chat-to" aria-label="Send To" style="flex:1;min-width:150px"><option value="">Everyone on the job</option>${P.map((u) => `<option value="${u.id}">${esc(u.name)} · ${esc((void 0 !== ROLE_NAMES && ROLE_NAMES[u.role]) || u.role)}</option>`).join("")}</select></div>`,
   );
 }
 function chatSendTo(uidTo, text) {
