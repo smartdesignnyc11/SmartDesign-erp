@@ -30015,13 +30015,34 @@ function icCreateBills() {
   );
 }
 const jobFinBase = jobFin;
+// Consolidated (no entity chosen), the group's cost of a subsidiary crew's work is what the subsidiary paid for it:
+// an intercompany bill counts at its cost, the markup eliminated. At the marked-up amount the markup raised the job's
+// cost basis, so consolidated revenue earned $286.58 more on 121 State the moment SD Plumbing and SD Electric billed
+// their hours (the group billing itself). An entity's own view keeps the bill as billed.
+function icAtCost(bills) {
+  return bills.map((b) => {
+    if (!b.ic || null == b.ic.cost || !(b.lines || []).length) return b;
+    const f = 1 + (+b.ic.markup || 0) / 100;
+    let left = r2(+b.ic.cost);
+    const lines = b.lines.map((l, i) => {
+      const v = i === b.lines.length - 1 ? left : r2((+l.amount || 0) / f);
+      return (left = r2(left - v)), Object.assign({}, l, { amount: v });
+    });
+    return Object.assign({}, b, { lines: lines, icAtCost: !0 });
+  });
+}
 jobFin = function (p, range) {
   const hidden = new Set(DB.time.filter((e) => e.icBillId).map((e) => e.id));
   if (!hidden.size) return jobFinBase(p, range);
-  const keep = DB.time;
+  const keep = DB.time,
+    keepB = DB.bills,
+    consol = "undefined" == typeof repEntity || !repEntity;
   DB.time = keep.filter((e) => !hidden.has(e.id));
+  consol && (DB.bills = icAtCost(keepB));
   try {
     const J = jobFinBase(p, range);
+    DB.bills = keepB;
+    consol && (J.defs += " · consolidated: intercompany bills at the subsidiary's cost, the markup eliminated");
     return (
       (J.icBills = DB.bills
         .filter((b) => b.ic && b.projectId === p.id && BILL_COSTED.includes(b.status))
@@ -30030,7 +30051,7 @@ jobFin = function (p, range) {
       J
     );
   } finally {
-    DB.time = keep;
+    (DB.time = keep), (DB.bills = keepB);
   }
 };
 const ledgerBase2 = ledger;
@@ -30063,22 +30084,35 @@ function entityPL(range) {
       (repEntity = "");
     const C = companyPL(range),
       elim = r2(cols.reduce((a, c) => a + c.P.icRevenue, 0));
-    return { cols: cols, C: C, elim: elim };
+    // The markup on an intercompany bill also sits in the job's cost basis in its entity's own view, so that entity
+    // earns more on the job than the group does: profit the group made by billing itself, still in work in
+    // progress. It is eliminated too, job by job (the job earned in its entity's view less in the consolidated
+    // view), so the columns add across to the consolidated figures.
+    let elimWip = 0;
+    [...new Set((DB.bills || []).filter((b) => b.ic && BILL_COSTED.includes(b.status)).map((b) => b.projectId))].forEach((pid) => {
+      const p = (DB.projects || []).find((x) => x.id === pid);
+      if (!p) return;
+      repEntity = entityOfProject(p);
+      const own = wipAdjustment(range, [pid]);
+      repEntity = "";
+      elimWip = r2(elimWip + own - wipAdjustment(range, [pid]));
+    });
+    return { cols: cols, C: C, elim: elim, elimWip: elimWip };
   } finally {
     repEntity = keep;
   }
 }
 function repEntities() {
   const range = cfoRange(),
-    { cols: cols, C: C, elim: elim } = entityPL(range),
+    { cols: cols, C: C, elim: elim, elimWip: elimWip } = entityPL(range),
     un = icUnbilled(),
     icBills = DB.bills
       .filter((b) => b.ic)
       .sort((a, b) => b.date.localeCompare(a.date))
       .slice(0, 8),
     line = (label, f, cls = "") =>
-      `<tr class="${cls}"><td>${label}</td>${cols.map((c) => `<td class="money">${money(f(c.P))}</td>`).join("")}<td class="money dim">${"Income" === label || "Job cost" === label ? "− " + money(elim) : "—"}</td><td class="money"><b>${money(f(C))}</b></td></tr>`;
-  return `<h3 class="rep-h">Entities side by side — ${{ month: "This month", quarter: "This quarter", ytd: "Year to date", all: "All time" }[cfoPeriod] || "Year to date"}</h3><div class="tw"><table class="t rep-t fs"><thead><tr><th></th>${cols.map((c) => `<th class="money">${esc(c.e.name.replace(/ LLC$/, ""))}</th>`).join("")}<th class="money">Eliminations</th><th class="money">Consolidated</th></tr></thead><tbody>\n    ${line("Income", (P) => P.income, "inc")}${line("of which intercompany", (P) => P.icRevenue, "dim")}${line("Job cost", (P) => P.cogsT)}${line("of which intercompany", (P) => P.icCost, "dim")}${line("Gross profit", (P) => P.gross, "tot")}${line("Overhead", (P) => P.ohT)}${cols.some((c) => c.P.propertyNOI) ? line("Property NOI", (P) => P.propertyNOI || 0, "dim") : ""}${line("Net profit", (P) => P.net, "tot inc")}<tr class="dim"><td>Net margin</td>${cols.map((c) => `<td class="money">${c.P.netPct}%</td>`).join("")}<td></td><td class="money">${C.netPct}%</td></tr></tbody></table></div>\n    <p class="small muted">Subsidiary crews bill their hours to SmartDesign Group as intercompany bills (burdened rate + markup). Each entity is a profit center on its own column; eliminations remove the intercompany amounts so the consolidated column counts the work once.</p>\n    <div class="grid2" style="margin-top:12px"><div class="card"><h3 class="rep-h" style="margin-top:0">Subsidiary hours not yet billed</h3>${un.length ? `<table class="t"><thead><tr><th>From</th><th>Job</th><th class="money">Hours</th><th class="money">Cost</th><th class="money">Bill (+markup)</th></tr></thead><tbody>${un.map((o) => `<tr><td>${esc(o.entity.name.replace(/ LLC$/, ""))}</td><td>${esc(o.p.project.name)}</td><td class="money">${o.hours}</td><td class="money">${money(o.cost)}</td><td class="money"><b>${money(o.amount)}</b></td></tr>`).join("")}</tbody></table>${"owner" === role() || "pm" === role() ? '<button class="btn primary" id="ic-create" style="margin-top:8px">Create intercompany bills</button>' : ""}` : '<div class="muted small">All subsidiary hours are billed.</div>'}<div class="small muted" style="margin-top:8px">Markup per entity: ${DB.entities
+      `<tr class="${cls}"><td>${label}</td>${cols.map((c) => `<td class="money">${money(f(c.P))}</td>`).join("")}<td class="money dim">${"Income" === label ? "− " + money(elim + elimWip) : "Job cost" === label ? "− " + money(elim) : elimWip && ("Gross profit" === label || "Net profit" === label) ? "− " + money(elimWip) : "—"}</td><td class="money"><b>${money(f(C))}</b></td></tr>`;
+  return `<h3 class="rep-h">Entities side by side — ${{ month: "This month", quarter: "This quarter", ytd: "Year to date", all: "All time" }[cfoPeriod] || "Year to date"}</h3><div class="tw"><table class="t rep-t fs"><thead><tr><th></th>${cols.map((c) => `<th class="money">${esc(c.e.name.replace(/ LLC$/, ""))}</th>`).join("")}<th class="money">Eliminations</th><th class="money">Consolidated</th></tr></thead><tbody>\n    ${line("Income", (P) => P.income, "inc")}${line("of which intercompany", (P) => P.icRevenue, "dim")}${line("Job cost", (P) => P.cogsT)}${line("of which intercompany", (P) => P.icCost, "dim")}${line("Gross profit", (P) => P.gross, "tot")}${line("Overhead", (P) => P.ohT)}${cols.some((c) => c.P.propertyNOI) ? line("Property NOI", (P) => P.propertyNOI || 0, "dim") : ""}${line("Net profit", (P) => P.net, "tot inc")}<tr class="dim"><td>Net margin</td>${cols.map((c) => `<td class="money">${c.P.netPct}%</td>`).join("")}<td></td><td class="money">${C.netPct}%</td></tr></tbody></table></div>\n    <p class="small muted">Subsidiary crews bill their hours to SmartDesign Group as intercompany bills (burdened rate + markup). Each entity is a profit center on its own column; eliminations remove the intercompany amounts so the consolidated column counts the work once.${elimWip ? ` The markup in the job's cost raises what its entity earns on it; that ${money(elimWip)} is the group's profit on billing itself and is eliminated from income too.` : ""}</p>\n    <div class="grid2" style="margin-top:12px"><div class="card"><h3 class="rep-h" style="margin-top:0">Subsidiary hours not yet billed</h3>${un.length ? `<table class="t"><thead><tr><th>From</th><th>Job</th><th class="money">Hours</th><th class="money">Cost</th><th class="money">Bill (+markup)</th></tr></thead><tbody>${un.map((o) => `<tr><td>${esc(o.entity.name.replace(/ LLC$/, ""))}</td><td>${esc(o.p.project.name)}</td><td class="money">${o.hours}</td><td class="money">${money(o.cost)}</td><td class="money"><b>${money(o.amount)}</b></td></tr>`).join("")}</tbody></table>${"owner" === role() || "pm" === role() ? '<button class="btn primary" id="ic-create" style="margin-top:8px">Create intercompany bills</button>' : ""}` : '<div class="muted small">All subsidiary hours are billed.</div>'}<div class="small muted" style="margin-top:8px">Markup per entity: ${DB.entities
     .filter((e) => "ent1" !== e.id)
     .map((e) => `${esc(e.name.replace(/ LLC$/, ""))} ${entMarkup(e)}%`)
     .join(

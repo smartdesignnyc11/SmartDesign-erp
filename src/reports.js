@@ -167,12 +167,15 @@ function rpPL(range) {
     .sort((a, b) => rpProjName(a.id).localeCompare(rpProjName(b.id)));
   const none = rows[""] || { id: "", income: 0, cost: 0, oh: 0, inc: [], costRows: [] },
     noi = r2(P.propertyNOI || 0),
+    // an entity's own column: what it billed the group for its crews (eliminated in the consolidated view)
+    icRev = repEntity ? r2(P.icRevenue || 0) : 0,
     // whatever the company P&L carries beyond its income, job cost, overhead and property lines
     other = r2((+P.net || 0) - ((+P.income || 0) - (+P.cogsT || 0) - (+P.ohT || 0)) - noi),
     projNet = rpSum(list, (r) => r.net),
     parts = [
       { id: "projects", label: `Projects' net (${list.length})`, amt: projNet },
       { id: "noproj-income", label: "Income on no project", amt: r2(none.income) },
+      { id: "ic", label: "Billed to the group for its crews (intercompany, eliminated in consolidation)", amt: icRev },
       { id: "noproj-cost", label: "Job cost on no project", amt: -r2(none.cost) },
       { id: "oh-unalloc", label: "Overhead not on a job (months with no job cost)", amt: -r2(unalloc) },
       { id: "oh-uncoded", label: "Spend not yet coded (Needs Category)", amt: -uncoded },
@@ -181,7 +184,7 @@ function rpPL(range) {
     ].filter((x) => Math.abs(x.amt) > RP_EPS || "projects" === x.id),
     sum = rpSum(parts, (x) => x.amt),
     // the P&L's own totals against the split, line by line
-    incomeSplit = r2(rpSum(list, (r) => r.income) + none.income),
+    incomeSplit = r2(rpSum(list, (r) => r.income) + none.income + icRev),
     costSplit = r2(rpSum(list, (r) => r.cost) + none.cost),
     ohSplit = r2(rpSum(list, (r) => r.oh) + unalloc + uncoded);
   return {
@@ -365,7 +368,7 @@ function rpTies(range, only) {
           : [
               { label: "Invoiced in the period", amt: r2(P.invoiced), drill: "inc:invoiced" },
               { label: "Change in over/under-billing (WIP)", amt: r2(P.wipAdj), drill: "inc:wip" },
-            ],
+            ].concat(repEntity && P.icRevenue ? [{ label: "Billed to the group for its crews (intercompany)", amt: r2(P.icRevenue) }] : []),
         "sum",
         cash ? "Cash basis: a payment counts the day it is recorded; the bank shows it once deposited." : "",
         { view: "reports", tab: "company" },
@@ -382,6 +385,29 @@ function rpTies(range, only) {
           { label: "Job cost on the projects and on no project", amt: S.split.cost[0], drill: "pl:cost" },
           { label: "Overhead on the jobs, not on a job, not yet coded", amt: S.split.oh[0], drill: "pl:oh" },
         ],
+      ),
+    );
+  });
+  safe("months", () => {
+    // the months add up to the period: each month's P&L, read on its own (a closed month from its seal), added
+    if (!R[0] || !rpAligned(R)) return;
+    const ms = "function" == typeof ohMonthsIn ? ohMonthsIn(R) : [];
+    if (ms.length < 2 || ms.length > 24) return;
+    const P = companyPL(R),
+      M = ms.map((ym) => {
+        const end = rpYmEnd(ym);
+        return { ym: ym, P: companyPL([ym + "-01", end > R[1] ? R[1] : end]) };
+      });
+    push(
+      rpTie(
+        "months",
+        "P&L Detail",
+        "The months add up to the period",
+        { label: `Net profit, ${R[0]} to ${R[1]}`, amt: r2(P.net) },
+        M.filter((m) => Math.abs(m.P.net) > RP_EPS).map((m) => ({ label: `${monthLabel(m.ym)}${m.P.closedRead ? " (sealed)" : ""}`, amt: r2(m.P.net) })),
+        "sum",
+        `Income ${rpCents(P.income)} = the months' ${rpCents(rpSum(M, (m) => m.P.income))}; job cost ${rpCents(P.cogsT)} = ${rpCents(rpSum(M, (m) => m.P.cogsT))}; overhead ${rpCents(P.ohT)} = ${rpCents(rpSum(M, (m) => m.P.ohT))}.`,
+        { view: "reports", tab: "company" },
       ),
     );
   });
@@ -564,6 +590,27 @@ function rpTies(range, only) {
   return out;
 }
 
+// A correction dated in a sealed month lands in the open period it was entered in (postOn): the sealed month keeps
+// its figures and the current period lists the correction, with the record to open.
+function rpLate(range) {
+  const R = range || rpRange(),
+    P = companyPL(R);
+  return (P.L || []).filter((r) => r.ref && r.ref.postOn && r.ref.date && r.ref.date !== r.ref.postOn && within(r.ref.postOn, R) && !within(r.ref.date, R));
+}
+function rpLateHtml(range) {
+  const L = rpLate(range);
+  if (!L.length) return "";
+  return `<div class="card rp-late" data-rplate="${L.length}"><h3 class="rep-h" style="margin-top:0">Corrections to Sealed Months</h3><p class="small muted">Dated in a month that is closed, so they post to this period; the sealed month keeps its figures.</p><table class="t"><tbody>${L.map(
+    (r, i) => `<tr><td class="dim">${fmt(r.ref.date)} to ${fmt(r.ref.postOn)}</td><td>${esc(r.desc || "")}${r.ref.postOnWhy ? `<div class="small muted">${esc(r.ref.postOnWhy)}</div>` : ""}</td>${rpMoneyCell(rpRowAmt(r))}<td><a href="#" data-rplateopen="${i}">Open</a></td></tr>`,
+  ).join("")}</tbody></table></div>`;
+}
+document.addEventListener("click", (e) => {
+  const a = e.target.closest("[data-rplateopen]");
+  if (!a) return;
+  e.preventDefault();
+  const r = rpLate()[+a.dataset.rplateopen];
+  r && rpOpen(rpOpenOfRow(r));
+});
 // ---------------------------------------------------------------------------------------------------------------
 // 4. Drill: every part opens the records behind it, each with the bank or card line that backs it
 // ---------------------------------------------------------------------------------------------------------------
@@ -708,6 +755,8 @@ function rpDrill(key, title) {
     }<tr style="font-weight:600"><td colspan="3">Total</td><td class="money">${rpCents(total)}</td></tr></tbody></table></div>`,
     { submit: null },
   );
+  const cl = document.getElementById("mbm-cancel");
+  cl && (cl.textContent = "Close");
   document.querySelectorAll("[data-rprow]").forEach((tr) => (tr.onclick = () => rpOpen(rpDrillNow[+tr.dataset.rprow].open)));
 }
 document.addEventListener("click", (e) => {
@@ -1120,7 +1169,7 @@ renderReports = function () {
     const R = rpRange(),
       tab = repTab;
     if ("cash13" === tab) host.innerHTML = rpCashHtml();
-    else if ("company" === tab) host.insertAdjacentHTML("beforeend", rpPLHtml(R) + rpJobBridgeHtml(R) + rpTiesHtml(rpTies(R, ["pl"]), { id: "pl", title: "P&L Ties" }));
+    else if ("company" === tab) host.insertAdjacentHTML("beforeend", rpPLHtml(R) + rpJobBridgeHtml(R) + rpLateHtml(R) + rpTiesHtml(rpTies(R, ["pl", "months"]), { id: "pl", title: "P&L Ties" }));
     else if ("financials" === tab)
       host.insertAdjacentHTML(
         "beforeend",
