@@ -21,6 +21,8 @@ and compared with the recomputation. Parts:
             entity ties
   lines     line income to cost on 121 State: lines + codes with no line + rounding = the job; each line's EAC is
             max(budget, actual + committed); the lines' contract is the job's
+  closeout  estimate versus actual by cost code; at close-out a code off by 10% and $500 is proposed to the price
+            book (a drafted change naming its Standard); the owner approves it before the cost factor changes
   overhead  overhead by category by month recomputed; break-even monthly revenue = 3 full months' overhead ÷ their
             gross margin
   cash13    the 13-week forecast: no bill the bank already paid, the owed payroll run and the card balances are out,
@@ -631,8 +633,47 @@ async def part_phone(p, c):
         c.ok(not errs, f'{uid} phone errors {errs[:3]}')
         await b.close()
 
+async def part_closeout(p, c):
+    b, pg, errs = await page(p)
+    # not in close-out: the review shows, the price-book button does not
+    t = await tab(pg, 'profit', 'ty', 'p121')
+    c.ok('ESTIMATE VERSUS ACTUAL' in t.upper() and 'open at close-out' in t, f'121 State: no estimate versus actual before close-out: {t[t.upper().find("ESTIMATE VERSUS"):][:200]!r}')
+    c.ok(not await pg.evaluate("() => document.querySelectorAll('[data-rpcostbook]').length"), 'a price-book button before close-out')
+    # 45 Cranberry reviewed to completion (the PM's cost-to-complete review, nothing left to spend): in close-out
+    await pg.evaluate("() => { const p = DB.projects.find(x => x.id === 'p45'); p.ctcReviewed = today(); p.ctcBy = 'Alan'; p.ctc = 0; save(); }")
+    t = await tab(pg, 'profit', 'ty', 'p45')
+    rows = await pg.evaluate("() => rpCloseout(DB.projects.find(x => x.id === 'p45')).rows")
+    arch = next((r for r in rows if r['code'] == '15'), None)
+    c.ok(arch and abs(arch['final'] - 7032) < EPS and abs(arch['variance'] - r2(7032 - arch['budget'])) < EPS and arch['proposable'], f'45 Cranberry code 15 at close-out: {arch}')
+    n0 = await pg.evaluate("() => (DB.changes || []).length")
+    await pg.evaluate("() => document.querySelector('[data-rpcostbook=\"p45:15\"]').click()")
+    await pg.wait_for_timeout(200)
+    r = await pg.evaluate("() => { const ch = DB.changes.slice(-1)[0]; return {n: DB.changes.length, ch, toast: document.getElementById('toast').innerText, row: document.querySelector('[data-rpcloseout]').innerText} }")
+    ch = r['ch']
+    c.ok(r['n'] == n0 + 1 and ch['status'] == 'draft' and ch['delta']['path'] == 'company.costBook.15' and abs(ch['delta']['to'] - r2(7032 / arch['budget'])) < EPS, f'the proposal: {ch}')
+    c.ok('Estimate vs. actual review at close-out'.lower() in ch['why'].lower() and 'Every dollar matters' in ch['why'], f'the proposal does not name its Standard: {ch["why"]!r}')
+    c.ok('Proposed to the price book' in r['toast'] and 'Open' in r['toast'], f'toast {r["toast"]!r}')
+    c.ok('Proposed, awaiting the owner' in r['row'], 'the row does not show the proposal')
+    # the toast's Open lands on Company › Changes; the owner approves; the cost factor changes only then
+    c.ok(await pg.evaluate("() => (DB.company.costBook || {})['15'] === undefined"), 'the cost factor changed before approval')
+    await pg.evaluate("() => { const a = [...document.querySelectorAll('#toast a')].find(x => /Open/.test(x.innerText)); a && a.click() }")
+    await pg.wait_for_timeout(250)
+    v = await pg.evaluate("() => [view, typeof mtTab !== 'undefined' ? mtTab : '']")
+    c.ok(v == ['meetings', 'changes'], f'Open went to {v}')
+    # proposing twice is refused
+    await pg.evaluate("() => rpProposeCostBook('p45', '15')")
+    c.ok(await pg.evaluate("() => DB.changes.filter(x => x.key === 'costbook:p45:15').length") == 1, 'proposed twice')
+    await pg.evaluate("() => { view = 'meetings'; mtTab = 'changes'; mtOpen = ''; render(); }")
+    await pg.wait_for_timeout(150)
+    ok = await pg.evaluate("() => { const id = DB.changes.find(x => x.key === 'costbook:p45:15').id; const btn = document.querySelector(`[data-chok=\"${id}\"]`); if (!btn) return 'no approve button'; btn.click(); return (DB.company.costBook || {})['15'] }")
+    c.ok(ok == ch['delta']['to'], f'approving the change did not set the cost factor: {ok}')
+    t = await tab(pg, 'profit', 'ty', 'p45')
+    c.ok('In the price book' in t, 'the row does not say the code is in the price book')
+    c.ok(not errs, f'closeout errors {errs[:3]}')
+    await b.close()
+
 PARTS = {'books': part_books, 'screen': part_screen, 'cash': part_cash, 'sealed': part_sealed, 'entity': part_entity, 'lines': part_lines,
-         'overhead': part_overhead, 'cash13': part_cash13, 'excel': part_excel, 'ask': part_ask, 'phone': part_phone}
+         'overhead': part_overhead, 'closeout': part_closeout, 'cash13': part_cash13, 'excel': part_excel, 'ask': part_ask, 'phone': part_phone}
 
 async def main():
     want = [a for a in sys.argv[1:] if a in PARTS] or list(PARTS)

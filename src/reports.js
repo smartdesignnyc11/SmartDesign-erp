@@ -934,6 +934,119 @@ function rpCashHtml() {
   <h3 class="rep-h">Retainage</h3><div class="grid2 rp-ret"><div class="card"><h4 style="margin:0 0 6px">Receivable · Held by Clients</h4><table class="t"><tbody>${recv.map((x) => `<tr><td>${esc(x.c.name)}</td>${rpMoneyCell(x.f.retHeld, "ret:recv", "Retainage held by clients")}</tr>`).join("") || '<tr><td class="muted">None held.</td></tr>'}<tr class="grand"><td>Total · ledger 1150 ${rpCents(rpGLBal(G, "1150"))}</td>${rpMoneyCell(B.ret)}</tr></tbody></table></div><div class="card"><h4 style="margin:0 0 6px">Payable · Held from Subs</h4><table class="t"><tbody>${(RP.rows || []).map((x) => `<tr><td>${esc(x.vendor || "")}${x.project ? ` · ${esc(x.project)}` : ""}</td>${rpMoneyCell(+x.held || +x.amt || +x.amount || 0)}</tr>`).join("") || '<tr><td class="muted">None held.</td></tr>'}<tr class="grand"><td>Total · ledger 2050 ${rpCents(RP.ledger || 0)}</td>${rpMoneyCell(RP.total || 0)}</tr></tbody></table></div></div>${rpTiesHtml(rpTies(null, ["wip", "ar"]).filter((t) => /ret-recv|wip/.test(t.id)).concat(rpTies(null, ["ap"]).filter((t) => "ret-pay" === t.id)), { id: "cash", title: "Ties" })}`;
 }
 
+
+// ---- Estimate versus actual at close-out (the Standard, Estimating and preconstruction: "Estimate vs. actual review
+// at close-out, by cost code, with lessons fed into the price book"). A job is in close-out at 85% of its estimated
+// cost (the rule the Close-out list uses). Each cost code compares the estimate's budget with the cost at completion;
+// a code off by 10% and $500 or more can be proposed to the price book. The proposal is a drafted change in Company ›
+// Changes (DB.changes, the improvement loop's one list): the owner approves it, and only then does the code's cost
+// factor (DB.company.costBook) change. Nothing here edits an estimate.
+const RP_CO_PCT = 0.1,
+  RP_CO_MIN = 500;
+const rpInCloseout = (J) => (+J.pct || 0) >= 0.85;
+function rpCloseout(p) {
+  const J = jobFin(p),
+    book = (DB.company || {}).costBook || {},
+    rows = (J.byCode || [])
+      .filter((b) => (+b.budget || 0) > RP_EPS || (+b.actual || 0) > RP_EPS)
+      .map((b) => {
+        const budget = r2(+b.budget || 0),
+          actual = r2(+b.actual || 0),
+          committed = r2(+b.committed || 0),
+          atCompletion = r2(Math.max(budget, actual + committed)),
+          final = rpInCloseout(J) ? r2(actual + committed) : atCompletion,
+          variance = r2(final - budget),
+          pct = budget ? variance / budget : null,
+          key = `costbook:${p.id}:${b.code}`,
+          proposed = (DB.changes || []).find((c) => c.key === key && "declined" !== c.status);
+        return {
+          code: b.code,
+          name: b.name || "",
+          budget: budget,
+          actual: actual,
+          committed: committed,
+          final: final,
+          variance: variance,
+          pct: pct,
+          factor: budget ? r2(final / budget) : null,
+          book: book[b.code] || null,
+          proposable: rpInCloseout(J) && budget > RP_EPS && null != pct && Math.abs(pct) >= RP_CO_PCT && Math.abs(variance) >= RP_CO_MIN,
+          proposed: proposed || null,
+        };
+      });
+  return { p: p, J: J, closeout: rpInCloseout(J), rows: rows };
+}
+function rpCloseoutHtml(p) {
+  const C = rpCloseout(p);
+  if (!C.rows.length) return "";
+  const can = (() => {
+    try {
+      return ["owner", "pm", "controller"].includes(role());
+    } catch (e) {
+      return !1;
+    }
+  })();
+  return `<div class="rp-closeout" data-rpcloseout="${esc(p.id)}"><h3 class="rep-h">Estimate Versus Actual</h3><p class="small muted">${
+    C.closeout
+      ? `${esc(p.project.name)} is in close-out (${Math.round(100 * C.J.pct)}% of its estimated cost). Each cost code: the estimate's budget against the final cost. A code off by 10% and ${money(RP_CO_MIN)} or more can be proposed to the price book; the owner approves it under Company › Changes.`
+      : `Each cost code: the estimate's budget against the cost at completion as it stands. The review and the price-book proposals open at close-out (85% of the estimated cost; ${Math.round(100 * (+C.J.pct || 0))}% today).`
+  }</p><div class="tw"><table class="t rep-t rp-t"><thead><tr><th>Cost Code</th><th class="money">Estimate</th><th class="money">Cost to Date</th><th class="money">Committed</th><th class="money">${C.closeout ? "Final" : "At Completion"}</th><th class="money">Variance</th><th class="money">Variance %</th><th>Price Book</th></tr></thead><tbody>${C.rows
+    .map(
+      (r) =>
+        `<tr><td><b>${esc(r.code)}</b> ${esc(r.name)}</td>${rpMoneyCell(r.budget)}${rpMoneyCell(r.actual)}${rpMoneyCell(r.committed)}${rpMoneyCell(r.final)}<td class="money ${r.variance > RP_EPS ? "bad" : ""}">${rpCents(r.variance)}</td><td class="money">${null == r.pct ? "—" : `${r.pct > 0 ? "+" : ""}${Math.round(100 * r.pct)}%`}</td><td>${
+          r.proposed
+            ? `<span class="small">${"draft" === r.proposed.status ? "Proposed, awaiting the owner" : "live" === r.proposed.status ? "In the price book" : esc(r.proposed.status)}</span>`
+            : r.proposable && can
+              ? `<button class="btn sm" data-rpcostbook="${esc(p.id)}:${esc(r.code)}">Propose to the Price Book</button>`
+              : `<span class="small muted">${r.book ? `cost factor ${r.book}` : ""}</span>`
+        }</td></tr>`,
+    )
+    .join("")}</tbody></table></div></div>`;
+}
+function rpProposeCostBook(pid, code) {
+  const p = rpProj(pid),
+    C = p && rpCloseout(p),
+    r = C && C.rows.find((x) => x.code === code);
+  if (!r || !r.proposable) return void toast("Nothing to propose for this cost code yet");
+  const key = `costbook:${pid}:${code}`;
+  if ((DB.changes || []).some((c) => c.key === key && "declined" !== c.status)) return void toast("Already proposed");
+  const by = (currentUser() || {}).name || role(),
+    from = r.book || 1,
+    to = r.factor,
+    dir = r.variance > 0 ? "over" : "under",
+    ch = {
+      id: uid("ch"),
+      key: key,
+      title: `Price book: ${r.code} ${r.name} ran ${Math.abs(Math.round(100 * r.pct))}% ${dir} the estimate on ${p.project.name}`,
+      why: `Estimated ${money(r.budget)}, final ${money(r.final)} (${dir} by ${money(Math.abs(r.variance))}). New estimates for ${r.code} ${r.name} carry a cost factor of ${to} until the next close-out says otherwise. (Estimating and preconstruction: estimate vs. actual review at close-out, by cost code, with lessons fed into the price book. Every dollar matters: ${r.variance > 0 ? "an estimate that runs short is margin given away" : "an estimate that runs long loses work we should win"}.)`,
+      kind: "setting",
+      delta: { path: `company.costBook.${r.code}`, from: from, to: to, label: `Cost factor for ${r.code} ${r.name} on new estimates` },
+      evidence: [{ t: `${p.project.name}: estimate ${rpCents(r.budget)}, cost to date ${rpCents(r.actual)}, committed ${rpCents(r.committed)}, final ${rpCents(r.final)}`, m: "job cost, Reports › Project Profitability" }],
+      status: "draft",
+      at: today(),
+      by: by,
+      source: "closeout",
+      projectId: pid,
+    };
+  (DB.changes = DB.changes || []).push(ch);
+  try {
+    log(`Proposed to the price book: ${ch.title}`, "change", by);
+  } catch (e) {}
+  save(), render(), toast(`Proposed to the price book: ${r.code} ${r.name}`, () => {
+    try {
+      (mtTab = "changes"), (mtOpen = "");
+    } catch (e) {}
+    (view = "meetings"), render();
+  });
+}
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-rpcostbook]");
+  if (!b) return;
+  e.preventDefault();
+  const [pid, code] = b.dataset.rpcostbook.split(":");
+  rpProposeCostBook(pid, code);
+});
+
 // ---- The accounting choices (BACKLOG §1.13 #8): Alan and the accountant decide; the ERP shows each one, its
 // default, what it moves, and who changed it, when and why.
 const RP_CHOICES = [
@@ -1199,7 +1312,7 @@ renderReports = function () {
           }
           (h.textContent = "By Line: Income to Cost"), h.insertAdjacentHTML("afterend", rpLineHtml(p));
         } else host.insertAdjacentHTML("beforeend", `<h3 class="rep-h">By Line: Income to Cost</h3>` + rpLineHtml(p));
-        host.insertAdjacentHTML("beforeend", rpTiesHtml(rpTies(null, ["jobcost"]).filter((t) => t.id === "job:" + p.id), { id: "job", title: "Job Cost Tie" }));
+        host.insertAdjacentHTML("beforeend", rpCloseoutHtml(p) + rpTiesHtml(rpTies(null, ["jobcost"]).filter((t) => t.id === "job:" + p.id), { id: "job", title: "Job Cost Tie" }));
       }
     }
     host.querySelectorAll("[data-rpgo]").forEach(
