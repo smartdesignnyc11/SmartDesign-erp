@@ -167,7 +167,7 @@ What remains, in order. Usage is a share of one week's allowance.
   - iPhone HEIC photos in the document reader (spreadsheets are read since 2026-10-19);
   - a real push on Alan's phone and a real watcher run on his Gmail, not yet seen.
 - **Gaps the build lanes found:**
-  - a toast's Open link sits above the editor's scrim and can navigate away with the editor still open (closing on navigation would drop unsaved edits; needs an "unsaved changes" prompt instead);
+  - Done 2026-10-20: a toast's Open link closes an open editor first and asks before dropping anything typed (Keep Editing is the blue step); toast_leave_test 18;
   - client portal: pay online, or "we paid";
   - the foreman can only measure today's tasks;
   - sub POs default to SD Plumbing;

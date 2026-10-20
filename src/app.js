@@ -3851,7 +3851,7 @@ function toast(msg, go, ms) {
         (a.onclick = (e) => {
           e.preventDefault(), t.classList.remove("on", "act");
           try {
-            document.getElementById("mbm")?.remove(), l.run();
+            toastLeave(l.run);
           } catch (err) {
             console.warn("toast link", err);
           }
@@ -3861,6 +3861,38 @@ function toast(msg, go, ms) {
     t.classList.add("act")),
     toastPlace(t),
     (t._t = setTimeout(() => t.classList.remove("on", "act", "toast-up"), ms || (L.length ? 6500 : 2400)));
+}
+// A toast's Open link pressed while an editor is open (2026-10-20): the link used to open the record behind the
+// editor and leave the editor on top (the side drawer) or drop what was typed in it (a sheet). Now the editor
+// closes first, and if anything was typed in it the person is asked: Keep Editing (the safe step) or Leave Without
+// Saving. Typing in an editor marks it; a fresh editor starts clean (closeEditor and a new sheet clear the mark).
+["input", "change"].forEach((k) =>
+  document.addEventListener(
+    k,
+    (e) => {
+      const box = e.target && e.target.closest && e.target.closest("#drawer.on, #mbm");
+      box && (box.dataset.dirty = "1");
+    },
+    !0,
+  ),
+);
+function toastLeave(run) {
+  const dr = document.querySelector("#drawer.on"),
+    mb = document.getElementById("mbm"),
+    leave = () => {
+      mb && mb.remove(), dr && dr.classList.contains("on") && closeEditor(), run();
+    };
+  if (!((dr && dr.dataset.dirty) || (mb && mb.dataset.dirty))) return leave();
+  // the sheet is held aside, as appConfirm does, and comes back on Keep Editing
+  mb && ((mb.id = "mbm-held"), (mb.style.display = "none"));
+  let left = !1;
+  const m = mbModal("Unsaved Changes", `<div class="note warn">What you typed here is not saved yet. Leave it and open the record?</div>`, {
+      submit: "Keep Editing",
+      alt: { label: "Leave Without Saving", run: () => ((left = !0), leave()) },
+    }),
+    iv = setInterval(() => {
+      document.body.contains(m) || (clearInterval(iv), left || (mb && mb.isConnected && ((mb.id = "mbm"), (mb.style.display = ""))));
+    }, 120);
 }
 const sevPill = (s) => (3 === s ? "red" : 2 === s ? "orange" : 1 === s ? "amber" : "green");
 // One place resets the scroll: a new view, or a tab / sub-tab press, starts at the top. The page
@@ -5278,6 +5310,7 @@ const OPEN_ON = {
 let editing = null;
 function openEditor(kind, id) {
   if ("view" === kind) return void setView(id);
+  document.getElementById("drawer") && delete document.getElementById("drawer").dataset.dirty;
   // Office records open for whoever has their page (the controller opens a PO from the PO list); the
   // project's own items stay with the roles that edit the project.
   const officeView = OPEN_ON[kind];
@@ -5563,6 +5596,7 @@ function openEditor(kind, id) {
 }
 function closeEditor() {
   (editing = null),
+    delete $("#drawer").dataset.dirty,
     $("#drawer").classList.remove("on"),
     $("#scrim").classList.remove("on"),
     ($("#d-save").textContent = "Save"),
@@ -8491,6 +8525,7 @@ function renderClients() {
     });
 }
 function openClientEditor(kind, id) {
+  document.getElementById("drawer") && delete document.getElementById("drawer").dataset.dirty;
   const c = DB.clients.find((x) => x.id === clientOpen);
   if (!c) return;
   (editing = { kind: "client-" + kind, id: id }),
