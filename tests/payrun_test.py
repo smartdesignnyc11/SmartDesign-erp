@@ -56,6 +56,13 @@ async def main():
             await pg.fill('#mbm [data-f="why"]', 'Hold Window Works until the credit lands'); await pg.click('#mbm-ok'); await pg.wait_for_timeout(300)
             r = await pg.evaluate("() => { const x = DB.payRuns.find(r => r.id === 'prun_t2'); return [x.status, x.why] }")
             c.ok(r == ['returned', 'Hold Window Works until the credit lands'], f'{tag}: returned with the reason ({r})')
+            # separation of duties: the person who keyed a bill, or set up its vendor, never releases its payment; another can
+            r = await pg.evaluate("""() => { signIn('u_controller'); const me = currentUser().name, src = DB.bills.find(x => x.id === 'bill_pr1');
+              const b = Object.assign(JSON.parse(JSON.stringify(src)), { id: 'bill_sod', number: 'NT-9100', createdBy: me, status: 'approved' });
+              (b.lines || []).forEach(l => { if (l.rate) l.rate = 11.11; if (l.amount) l.amount = 111.1; }); DB.bills.push(b);
+              const mine = pcCheck(b); signIn('u_owner'); const owner = pcCheck(b);
+              return { mine: mine.holds.map(h => h.key), owner: owner.holds.map(h => h.key), ownerPass: owner.pass } }""")
+            c.ok('self' in r['mine'] and 'self' not in r['owner'], f'{tag}: the controller who keyed a bill cannot release it; the owner can ({r})')
             # "what we owe" is approved bills (the ledger's 2000); bills awaiting approval are their own line (Alan, 2026-10-20)
             r = await pg.evaluate("""() => { signIn('u_owner'); const O = apOpenBills(), I = ASK_INTENTS.find(x => x.id === 'payables').answer();
               view = 'reports'; try { repTab = 'statements'; } catch (e) {} render(); const t = document.querySelector('section.view.on').innerText;
