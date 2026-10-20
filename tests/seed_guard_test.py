@@ -6,7 +6,7 @@ Every function named *Seed* must be listed, guarded, or in ALLOW below with the 
 Run: python3 seed_guard_test.py"""
 import os, re, sys
 H = os.path.dirname(os.path.abspath(__file__))
-src = ''.join(open(os.path.join(H, '..', f), encoding='utf-8').read() + '\n' for f in ('src/app.js', 'src/mind.js', 'src/assistant.js'))
+src = ''.join(open(os.path.join(H, '..', f), encoding='utf-8').read() + '\n' for f in ('src/app.js', 'src/mind.js', 'src/assistant.js', 'src/items.js', 'src/field_es.js'))
 ALLOW = {
     'seedUsers': 'runs only when there are no users at all (first boot of an empty copy)',
     'msgTeamSeed': "a job's first crew from its own records (time, daily logs, requests, thread lines), once per job with no crew; no demo data",
@@ -14,6 +14,7 @@ ALLOW = {
     'budgetSeedFromActuals': 'a feature: a budget from last year\'s actual books, on request',
     'seedSearches': 'default saved searches, structure not records',
     'libSeed': 'the item library\'s common items, a default the firm keeps',
+    'itemAsmSeed': 'the item library\'s default assemblies (parts are library items), structure the firm keeps and edits; no records',
     'fin2SeedSignOpening': 'acts only on demo bank lines (source "seed")',
     'clSeedOptions': 'keyed by the demo\'s decision ids; no real decision matches',
     'budSeed': 'an empty budget plan structure when none exists',
