@@ -47607,8 +47607,11 @@ const fRaises = (pid) => DB.field.raises.filter((r) => r.projectId === (pid || S
   fOpen = (r) => !["closed"].includes(r.status),
   fWho = () => currentUser()?.name || DB.me || "Foreman",
   fAgo = (ts) => {
-    const now = appNowMs(),
-      h = Math.max(0, (now - new Date(ts).getTime()) / 36e5);
+    // whole minutes on both ends: "N min ago" holds for the app's minute (the speed memo is keyed by it; to the second
+    // it ticked over mid-minute and a memoized Today disagreed with a fresh one)
+    const m = (x) => Math.floor(x / 6e4) * 6e4,
+      now = m(appNowMs()),
+      h = Math.max(0, (now - m(new Date(ts).getTime())) / 36e5);
     return h < 1
       ? `${Math.max(1, Math.round(60 * h))} min`
       : h < 48
