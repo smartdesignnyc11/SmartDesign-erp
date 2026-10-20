@@ -207,6 +207,23 @@ ok(sorted(x['id'] for x in o['field']['logs']) == ['l1', 'l2'] and [x['id'] for 
 res = save('foreman', [{'name': 'photos', 'data': view('foreman')['photos'] + [{'id': 'ph5', 'projectId': 'pB'}], 'base': ver('foreman', 'photos')}])
 ok('ph5' not in [x['id'] for x in view('owner')['photos']], 'a record for a job he is not on is not written')
 
+# the improvement loop's signals (2026-10-20): the foreman starts the list with his own report and an anonymous one;
+# the office reads them all; he reads only his own; he can update his own, never change or drop anyone else's
+res = save('foreman', [{'name': 'signals', 'data': [{'id': 'rp:f1', 'kind': 'report', 'uid': 'u_angel', 'text': 'MINE'}, {'id': 'rp:anon', 'kind': 'report', 'uid': '', 'text': 'NO NAME'}, {'id': 'rp:forged', 'kind': 'report', 'uid': 'u_alan', 'text': 'AS THE PM'}], 'base': 0}])
+ok(res.get('signals', {}).get('version'), f'a field phone may start the signals list: {res}')
+o = view('owner').get('signals', [])
+ok(sorted(x['id'] for x in o) == ['rp:anon', 'rp:f1'], f'his and the anonymous report land; one in another person\'s name does not: {o}')
+save('pm', [{'name': 'signals', 'data': o + [{'id': 'us:d:u_alan', 'kind': 'usage', 'uid': 'u_alan', 'by': {'po': {'export': 2}}}], 'base': ver('pm', 'signals')}])
+ok([x['id'] for x in view('foreman')['signals']] == ['rp:f1'], f"the foreman reads only his own signals: {view('foreman')['signals']}")
+ok(len(view('owner')['signals']) == 3, 'the office reads every signal')
+mine = view('foreman')['signals']; mine[0]['text'] = 'MINE, EDITED'
+res = save('foreman', [{'name': 'signals', 'data': mine, 'base': ver('foreman', 'signals')}])
+o = {x['id']: x for x in view('owner')['signals']}
+ok(o['rp:f1']['text'] == 'MINE, EDITED' and 'us:d:u_alan' in o and 'rp:anon' in o, f"his edit lands; the PM's and the anonymous signals survive a save that did not carry them: {list(o)}")
+res = save('foreman', [{'name': 'signals', 'data': [{'id': 'us:d:u_alan', 'kind': 'usage', 'uid': 'u_alan', 'by': {}}, {'id': 'rp:anon', 'uid': '', 'text': 'CHANGED'}], 'base': ver('foreman', 'signals')}])
+o = {x['id']: x for x in view('owner')['signals']}
+ok(o['us:d:u_alan']['by'] == {'po': {'export': 2}} and o['rp:anon']['text'] == 'NO NAME', f'he cannot change the PM\'s counts or an anonymous report: {o}')
+
 psql(f'drop database if exists {DBN};', db='postgres')
 print('ALL PASS' if not fails else f'{len(fails)} FAILED', f'({n} checks)')
 sys.exit(1 if fails else 0)

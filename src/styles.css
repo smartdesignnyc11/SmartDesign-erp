@@ -3817,3 +3817,18 @@ body.msg-on #v-chat .chat-compose.msg-recording #chat-send{display:none}
 /* One blue button per screen: with a record's drawer or a sheet open, that is the screen, so the page behind it keeps
    its main button but not its blue (Bills & Payroll's New Vendor Bill read blue beside the open bill's Pay). */
 body:has(#drawer.on) section.view .btn.primary,body:has(#mbm) section.view .btn.primary{background:var(--paper);border-color:var(--rule);color:inherit}
+/* the improvement loop (src/loop.js): Meetings › Changes, the ranked problems and the measures */
+.lp-measure{margin-bottom:10px}
+.lp-card{margin-bottom:10px}
+.lp-card.lp-focus{outline:2px solid var(--blue,#2563eb);outline-offset:2px}
+.lp-hd{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.lp-rank{font-weight:700;min-width:22px;color:var(--muted,#6b7280)}
+.lp-title{flex:1 1 220px;min-width:0;overflow-wrap:anywhere}
+.lp-sub,.lp-what,.lp-fix,.lp-risk{overflow-wrap:anywhere}
+.lp-what{margin:6px 0}
+.lp-fix,.lp-risk{margin-top:4px}
+.lp-ev{margin-top:6px}
+.lp-ev summary{cursor:pointer;min-height:32px;display:flex;align-items:center}
+.lp-acts{gap:8px;margin-top:8px;flex-wrap:wrap}
+.lp-part{margin:6px 0}
+@media (max-width:820px){ .lp-acts .btn{min-height:44px} }
