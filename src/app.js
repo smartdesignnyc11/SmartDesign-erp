@@ -94283,6 +94283,9 @@ function mtWire(host) {
         (b.onclick = () => {
           const c = DB.changes.find((x) => x.id === b.dataset.chok);
           if (!c) return;
+          // a change to a rule, a setting or the ERP is the owner's alone (DELEGATION.change), checked here as well as
+          // in the drawing, so a button that shows to anyone else still changes nothing
+          if ("owner" !== role()) return void toast("Only the owner approves a change");
           const by = (currentUser() || {}).name || "Owner";
           "code" === c.kind ? (c.status = "approved") : (mtChangeApply(c), (c.status = "live")),
             (c.approvedBy = by),
