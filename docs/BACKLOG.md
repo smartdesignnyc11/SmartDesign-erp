@@ -827,6 +827,8 @@ Many of these checks already exist as detectors (CATCH, PRED, price watch, track
 - a client acknowledgement timer in the inbox (2 business hours);
 - a Friday client update auto-drafted from the week's daily logs, progress and photos, for the PM to approve.
 
+**Status (lane specialists, 2026-10-20): built in `src/specialists.js`, suite `tests/specialists_test.py`, audit `review/specialists/audit.md`.** Each role's checklist (controller, founder, PM, procurement, billing, foreman, designer) is a list of lines (`RS_CHECKS`), each reading the detector that already checks it (CATCH, PRED, the Standard Watch, Needs Your Hand, the Payment Check, price watch, track, stock), so a line's count is its source's rows. The checklist is a segment of the assistant's Findings tab (no new view). Every finding has the six steps (`rsSix`): the rule and evidence, the cause from the records and readable mail, options with the fix drafted (outbox draft or the record's own sheet), a task through `crCreateTask` for the right person with a due date and why, a follow-up that re-reads the record (ticked-not-fixed reopens; fixed closes the task), learning (dismissal by form with a reason; an approved message fix proposed as the default under Company › Changes). Added detectors, one rule each: `PRED.discountsAtRisk`, `jobsCashNegative`, `linesOverBudget`, `billsDuplicate` (the Payment Check's dup rule, earlier), `peopleOverloaded`; Watch rules `unbudgeted1k` and `slip2days` escalate to the owner. Thresholds live in `DB.company.spThresholds`, changed through Company › Changes. One-liners from the Standard's quick reference on each Home (the field's mission in Spanish for a Spanish speaker); the brief puts the role's own lines first. Not yet: the lines with no detector (paid before approval outside the Payment Check, retainage due, WIP movement, committed not relieved, unexplained variances, quality checkpoints, selections completeness, margin), a drafted journal entry or revised PO, a countdown on Inbox rows, owner-only approval of these Changes items, the server half.
+
 ### 1.29 Cost intelligence (Alan, 2026-10-17; founder, controller, PM and operations all see it)
 1. **Jobs spending more than they bring in.** Flag cash out greater than cash in, or cost ahead of billings, and anything over budget or forecast to go over, by line, with the cause and the fix. One shared rule, so the counts match everywhere.
 2. **Benchmarks from past jobs.** Normalise cost per trade per unit:
@@ -851,6 +853,8 @@ Every saving gets a row: price differences, waste avoided, discounts taken, dupl
 - A private DM with your own assistant.
 - Findings post to the right channel with the evidence, the drafted fix and buttons.
 
+**Status (lane specialists, 2026-10-20):** the ledger is `svRows()` over `window.SV_SOURCES` (short-pays held to the PO, duplicates disputed or voided, discounts taken, RFQ awards under the first quote, checklist findings fixed); any lane pushes a source. Month, year to date, by source and by person; the owner's shares to wage, bonus and charity pools and his bonus credits on `DB.company.savingsShare` / `savingsAttr`; Ask reads `EQ_TABLES.savings` (owner and controller). Shown on the founder's and controller's checklist.
+
 ### 1.31 Proof for the AI layer (Alan, 2026-10-17)
 - **Planted-problem banks per role**, for example: a duplicate charge, a bill over its PO, an expired COI, unbilled work, a cash-negative job, a line over budget, sheetrock 22% above the best store, a missed discount. Each assistant must find every one, raise no false alarms on a clean month, and propose the right fix; recall and precision are reported.
 - **Price-book matching tests** on realistic receipts.
@@ -858,6 +862,8 @@ Every saving gets a row: price differences, waste avoided, discounts taken, dupl
 - **Ask:** the held-out set, and the red team stays at 90/90.
 - **The chat extraction bank.**
 - **Privacy tests:** nobody sees a channel, DM or mail they shouldn't, including through AI answers.
+
+**Status (lane specialists, 2026-10-20):** the planted-problem bank is `tests/specialists_test.py`: 13 problems planted across seven roles (20 role-finds) beside 9 decoys; recall, precision and the right fix are printed per role; the privacy checks cover mail through a finding's cause and money through findings and the Ask tables. Not yet: sheetrock above the best store (the price book is cost intelligence's), route and price-book tests, the chat extraction bank.
 
 ### 1.32 The Brain's own jobs, made explicit (Alan's objectives, restated in the Oct 17 recap)
 1. **Lessons from meetings carry to the next matching job.** The Brain reads transcripts and outcomes. It turns "millwork samples should be approved during design" into a lesson tied to the job type and phase. It raises the lesson on the next matching job before the moment it matters.
@@ -867,6 +873,7 @@ Every saving gets a row: price differences, waste avoided, discounts taken, dupl
 5. **Always on.** It runs on timers on the server, not only while the app is open (§5).
 
 **Status (lane loop, 2026-10-20).** 1: a lesson has a kind of job (`l.jobType`, read by `bnRun`), a lesson read from a meeting opens the teach form with its moment inferred from its words (design, before design ends, before filing, before construction, kickoff), and every lesson card says the job and date it raises on next; lessons of the §1.33 classes also go to the improvement loop. 3: renewals and certificates lapsing within 30 days on an open order go on the person's ERP calendar and are chased under Renewal Chases (`adminChases`, Ask First by default; Act Alone only to an address on file; logged in Activity). 4: §1.19 above. 5: `loop-nightly` / `loop-background` (07:23 UTC, after the Brain), off until `LOOP_RUNS=on`, the small model's wording only with `LOOP_AI=on`; the app files the inbox. Item 2 (workload) is not this lane's.
+**Status of item 2 (lane specialists, 2026-10-20):** `PRED.peopleOverloaded` and the Workload card on the founder's and PM's checklist (open, overdue, hours in 7 days, median hours to answer the field); the proposal names a person with room; the manager's approval offers the tasks as hand-offs. Response times on mail wait on per-person mail on the hosted copy.
 
 Tests: a bank of "should it have nudged here" scenarios, recall and precision reported, and the privacy test that no person ever sees another person's mail.
 
