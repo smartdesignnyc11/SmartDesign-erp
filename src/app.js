@@ -107004,7 +107004,8 @@ function spdId(o) {
 function spdCtx() {
   const u = "function" == typeof currentUser ? currentUser() : null;
   return [
-    today(),
+    // the app's minute, not only its day: a memo held "11 min ago" while a fresh read said "12 min ago" (speed_test)
+    appNowIso().slice(0, 16),
     "function" == typeof role ? role() : "",
     (u && u.id) || "",
     (S && S.id) || "",
