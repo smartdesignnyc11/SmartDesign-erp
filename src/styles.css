@@ -3780,3 +3780,37 @@ body.msg-on #v-chat .chat-compose.msg-recording #chat-send{display:none}
 /* read receipt, one-to-one chats only (2026-10-20) */
 .msg-tick.msg-read{display:inline-flex;align-items:center;gap:3px;color:inherit;opacity:.95}
 .msg-tick.msg-read span{font-size:10.5px;font-weight:600}
+/* subcontracts and the Payment Check (src/subs.js; BACKLOG §1.10 #1, §1.12) */
+.ok-t{color:var(--ok)}
+.pc-wrap{display:flex;flex-direction:column;gap:10px;margin-bottom:10px}
+.pc-card{padding:12px 14px} .pc-card.pc-held{box-shadow:inset 3px 0 0 var(--bad)} .pc-card.pc-pass{box-shadow:inset 3px 0 0 var(--ok)}
+.pc-hd{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:4px} .pc-hd h3,.pc-hd h4{margin:0}
+.pc-sub{margin-bottom:6px}
+.pc-list{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:8px}
+.pc-list li{display:flex;gap:8px;align-items:flex-start}
+.pc-ic{flex:none;display:inline-flex;margin-top:2px}
+.pc-tx{display:flex;flex-direction:column;gap:2px;min-width:0}
+.pc-acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
+.pc-more summary{cursor:pointer;min-height:32px;display:flex;align-items:center;color:var(--ink-3)}
+.wv-t td{padding:4px 6px}
+.sc-card{margin-top:12px} .sc-acts{gap:8px;flex-wrap:wrap}
+.sc-terms{display:flex;flex-direction:column;gap:4px;margin:6px 0 8px}
+.sc-papers{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+.sc-sov .sc-tot td{border-top:1px solid var(--rule)}
+.sc-money{margin:6px 0}
+.sc-h4{margin:12px 0 6px}
+.sc-changes,.sc-apps,.sc-banklog{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px}
+.sc-pa-lines{display:flex;flex-direction:column;gap:10px;margin:8px 0}
+.sc-pa-line{border:1px solid var(--rule);border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;gap:4px}
+.sc-pa-line.pc-held{border-color:#EACBC7;background:var(--bad-2)}
+.sc-pa-h{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.sc-pa-in input{max-width:120px}
+.pc-run table td:first-child{text-align:center}
+.pc-run input[type=checkbox]{width:20px;height:20px}
+@media (max-width:760px){
+  .pc-acts .btn,.sc-acts .btn,.pc-run .btn,.wv-card .btn,.sc-pa-card .btn{min-height:44px}
+  .pc-more summary{min-height:44px}
+  .sc-pa-in input{max-width:none}
+  .sc-sov th:nth-child(5),.sc-sov td:nth-child(5){display:none}
+  .pc-run th:nth-child(3),.pc-run td:nth-child(3){display:none}
+}

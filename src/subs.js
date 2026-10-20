@@ -143,10 +143,13 @@ function scBillByLine(b, po) {
   });
   return out;
 }
-function scBilledToDate(po, exceptId) {
+// a deposit (a prepayment the terms allow, "50% deposit" on a shop's millwork) is not progress: it is applied as the
+// work is billed, so it counts toward the contract but never as work claimed
+const scIsDeposit = (b) => !!b && (!!b.deposit || /\bdeposit\b/i.test([b.notes || "", ...(b.lines || []).map((l) => l.desc || "")].join(" ")));
+function scBilledToDate(po, exceptId, o) {
   const out = { _total: 0 };
   scBillsOf(po)
-    .filter((b) => b.id !== exceptId && !b.retainageRelease && billGross(b) > 0)
+    .filter((b) => b.id !== exceptId && !b.retainageRelease && billGross(b) > 0 && !(o && o.progress && scIsDeposit(b)))
     .forEach((b) => {
       const m = scBillByLine(b, po);
       Object.keys(m).forEach((k) => ((out[k] = r2((out[k] || 0) + m[k])), (out._total = r2(out._total + m[k]))));
@@ -203,7 +206,7 @@ function wvAdd(b, w) {
 // prior payments to this sub on this job with no unconditional waiver back yet (the older rule, read from the rows)
 const wvPriorMissing = (b) =>
   (DB.bills || []).filter(
-    (x) => x.id !== b.id && scLow(x.vendor) === scLow(b.vendor) && x.projectId === b.projectId && (scPaidSt(x) || scPaidBill(x) > 0) && scSubBill(x) && !x.ic && !x.retainageRelease && !wvHas(x, "unconditional", "progress", Math.min(billTotal(x), scPaidBill(x) || billTotal(x))),
+    (x) => x.id !== b.id && scLow(x.vendor) === scLow(b.vendor) && x.projectId === b.projectId && billTotal(x) > 0 && (scPaidSt(x) || scPaidBill(x) > 0) && scSubBill(x) && !x.ic && !x.retainageRelease && !wvHas(x, "unconditional", "progress", Math.min(billTotal(x), scPaidBill(x) || billTotal(x))),
   );
 
 // ---- the Payment Check -------------------------------------------------------------------------------------------
@@ -226,6 +229,8 @@ const PC_STD = {
   waiver: { p: "law", c: ["principle", "law"] },
   credits: { p: "cost", leak: !0, c: ["value", "dollar", /Waste nothing/i] },
 };
+// a figure with cents keeps them ($812.40), a round one reads as dollars ($18,000)
+const scM = (n) => (Math.abs((+n || 0) % 1) > 0.004 && "function" == typeof money2 ? money2(n) : money(n));
 const pcWhy = (key) => {
   try {
     return standardWhy("pc:" + key) || "";
@@ -268,9 +273,13 @@ function pcCheck(b, o) {
     H = (key, what, x) => holds.push(Object.assign({ key: key, what: what, money: 0, next: "", act: "", who: "any", fixed: !1 }, x || {})),
     K = (key, text) => ok.push({ key: key, text: text }),
     Wn = (key, text) => warn.push({ key: key, text: text }),
-    // the owner's override of a compliance block at approval (the reason given then) stands for the papers here
-    ovr = (b.approvals || []).filter((a) => "owner" === a.role && ("compliance override" === a.action || /^override:/.test(a.note || ""))).pop(),
-    pre = ovr ? { by: ovr.by || "the owner", why: String(ovr.note || "").replace(/^override:\s*/, ""), at: ovr.ts || "" } : null;
+    // the owner's override of a compliance block at approval (the reason given then) stands for those papers here
+    preFor = (re) => {
+      const a = (b.approvals || []).filter((x) => "owner" === x.role && ("compliance override" === x.action || (/^override:/.test(x.note || "") && re.test(x.note || "")))).pop();
+      return a ? { by: a.by || "the owner", why: String(a.note || "").replace(/^override:\s*/, "").replace(/\s*\(.*\)\s*$/, ""), at: a.ts || "" } : null;
+    },
+    pre = preFor(/insurance|COI|license/i),
+    preW9 = preFor(/W-9/i);
   // approval and separation of duties
   ["approved", "verified", "paid"].includes(b.status)
     ? K("approval", `Approved${b.approvedAt ? " " + scDay(b.approvedAt) : ""}`)
@@ -317,7 +326,7 @@ function pcCheck(b, o) {
         : K("papers", v.insuranceExp ? `Insurance current through ${scDay(v.insuranceExp)}` : "No certificate needed (not on site)");
     v.licenseExp && v.licenseExp < td && H("papers", `${v.name}'s license expired ${scDay(v.licenseExp)}`, { money: amt, who: "owner", key2: "license", pre: pre });
     !v.w9 && (sub || billTotal(b) >= 600)
-      ? H("w9", `No W-9 on file for ${v.name}: the 1099 cannot be filed`, { money: amt, who: "owner", next: "Request the W-9", act: "w9", pre: pre })
+      ? H("w9", `No W-9 on file for ${v.name}: the 1099 cannot be filed`, { money: amt, who: "owner", next: "Request the W-9", act: "w9", pre: preW9 })
       : K("w9", v.w9 ? "W-9 on file" : "No W-9 needed under $600");
   }
   // duplicates: the same invoice number, the same amount and date, the same pay application
@@ -325,35 +334,35 @@ function pcCheck(b, o) {
     others = (DB.bills || []).filter((x) => x.id !== b.id && !["void", "rejected"].includes(x.status) && scLow(x.vendor) === scLow(b.vendor));
   const dn = num && others.find((x) => scLow(x.number).replace(/[^a-z0-9]/g, "") === num),
     da = !dn && others.find((x) => x.date === b.date && Math.abs(billGross(x) - billGross(b)) < 0.5 && billGross(b) > 0),
-    dp = !dn && !da && b.payApp && others.find((x) => x.payApp && x.poId === b.poId && (x.payApp.no === b.payApp.no || (x.payApp.periodTo && x.payApp.periodTo.slice(0, 7) === String(b.payApp.periodTo || "").slice(0, 7))));
+    dp = !dn && !da && b.payApp && others.find((x) => x.payApp && x.poId === b.poId && +x.payApp.no === +b.payApp.no);
   dn || da || dp
     ? H(
         "dup",
         dn
-          ? `Same invoice number as ${dn.number} already on file (${billState(dn).text || dn.status}, ${money(billGross(dn))})`
+          ? `Same invoice number as ${dn.number} already on file (${billState(dn).text || dn.status}, ${scM(billGross(dn))})`
           : da
-            ? `Same amount and date as ${da.number || "another bill"} from ${b.vendor} (${money(billGross(da))}, ${scDay(da.date)})`
-            : `Pay application ${b.payApp.no} for this period is already on file as ${dp.number || "another bill"}`,
+            ? `Same amount and date as ${da.number || "another bill"} from ${b.vendor} (${scM(billGross(da))}, ${scDay(da.date)})`
+            : `Pay application ${b.payApp.no} on this subcontract is already on file as ${dp.number || "another bill"}`,
         { money: amt, next: "Compare the Two", act: "dup", other: (dn || da || dp).id },
       )
-    : K("dup", "No other bill with this number, amount and date, or period");
+    : K("dup", "No other bill with this number, or this amount and date, or this pay application");
   // what was already paid on this bill, by any method and entity
   const paidHere = scPaidBill(b),
     loose = pcLooseTxns(b, [amt, billTotal(b), billGross(b)]);
   paidHere + amt > billTotal(b) - scCreditsTaken(b) + 0.5
-    ? H("prior", `${money(paidHere)} was already paid on this bill; ${money(amt)} more would pay ${money(r2(paidHere + amt - billTotal(b) + scCreditsTaken(b)))} over it`, { money: r2(paidHere + amt - billTotal(b) + scCreditsTaken(b)), who: "owner" })
+    ? H("prior", `${scM(paidHere)} was already paid on this bill; ${scM(amt)} more would pay ${scM(r2(paidHere + amt - billTotal(b) + scCreditsTaken(b)))} over it`, { money: r2(paidHere + amt - billTotal(b) + scCreditsTaken(b)), who: "owner" })
     : loose.length
       ? H(
           "prior",
           `${loose
             .map((t) => {
               const a = (DB.accounts || []).find((x) => x.id === t.acct);
-              return `a ${a && "card" === a.type ? "card charge" : "bank payment"} of ${money(Math.abs(t.amt))} on ${scDay(t.date)}${a ? ` (${a.name}${a.last4 ? " ····" + a.last4 : ""})` : ""}`;
+              return `a ${a && "card" === a.type ? "card charge" : "bank payment"} of ${scM(Math.abs(t.amt))} on ${scDay(t.date)}${a ? ` (${a.name}${a.last4 ? " ····" + a.last4 : ""})` : ""}`;
             })
             .join("; ")} may already have paid this bill: match it before paying again`,
           { money: r2(Math.abs(+loose[0].amt)), next: "Open Banking", act: "bank-lines" },
         )
-      : K("prior", paidHere ? `${money(paidHere)} paid before on this bill; this pays the rest` : "Nothing paid on this bill before, by any method or entity");
+      : K("prior", paidHere ? `${scM(paidHere)} paid before on this bill; this pays the rest` : "Nothing paid on this bill before, by any method or entity");
   // the contract: paid and billed to date never beyond the PO or subcontract plus approved changes without the owner
   if (po) {
     const C = scContract(po),
@@ -362,15 +371,15 @@ function pcCheck(b, o) {
       signed = (b.approvals || []).some((a) => /approved as billed|over the po|over po|beyond the order/i.test(`${a.action || ""}`) && ("owner" === a.role || /owner/i.test(a.action || ""))),
       dep = scBillsOf(po).filter((x) => x.id !== b.id && /\bdeposit\b/i.test([x.notes || "", ...(x.lines || []).map((l) => l.desc || "")].join(" ")));
     billed > C + 0.5 && !signed
-      ? H("contract", `Billed ${money(billed)} to date against ${po.number}'s ${money(C)}${scChangeTotal(po) ? " with its approved changes" : ""}: ${money(r2(billed - C))} over${dep.length ? ` (a deposit of ${money(dep.reduce((a, x) => a + billGross(x), 0))} was billed before: is it taken off this invoice?)` : ""}`, {
+      ? H("contract", `Billed ${scM(billed)} to date against ${po.number}'s ${scM(C)}${scChangeTotal(po) ? " with its approved changes" : ""}: ${scM(r2(billed - C))} over${dep.length ? ` (a deposit of ${scM(dep.reduce((a, x) => a + billGross(x), 0))} was billed before: is it taken off this invoice?)` : ""}`, {
           money: r2(billed - C),
           who: "owner",
           next: "Open the PO",
           act: "po",
         })
       : paidPO + amt > C + 0.5
-        ? H("contract", `Paid ${money(paidPO)} on ${po.number} so far; ${money(amt)} more is ${money(r2(paidPO + amt - C))} beyond its ${money(C)}`, { money: r2(paidPO + amt - C), who: "owner", next: "Open the PO", act: "po" })
-        : K("contract", `${po.number}: ${money(billed)} billed and ${money(r2(paidPO + amt))} paid with this, of ${money(C)}${signed ? " (the owner approved the bill as billed)" : ""}`);
+        ? H("contract", `Paid ${scM(paidPO)} on ${po.number} so far; ${scM(amt)} more is ${scM(r2(paidPO + amt - C))} beyond its ${scM(C)}`, { money: r2(paidPO + amt - C), who: "owner", next: "Open the PO", act: "po" })
+        : K("contract", `${po.number}: ${scM(billed)} billed and ${scM(r2(paidPO + amt))} paid with this, of ${scM(C)}${signed ? " (the owner approved the bill as billed)" : ""}`);
     // three-way match for goods: the order, what was received, the invoice
     if (!scIsSubcontract(po) && "service" !== po.type) {
       const short = (b.lines || [])
@@ -395,10 +404,11 @@ function pcCheck(b, o) {
     pm ? K("contract", "No purchase order; the PM signed off on the bill") : H("contract", "No purchase order behind this bill, and no PM sign-off", { money: amt, next: "Open the Bill", act: "open" });
   }
   // work actually done, for subs: what is billed to date against what the site measured
-  if (sub && po && scIsSubcontract(po) && !b.retainageRelease && amt > 0.005) {
+  if (sub && po && scIsSubcontract(po) && !b.retainageRelease && amt > 0.005 && scIsDeposit(b)) K("work", "A deposit the terms allow, not progress: it is applied as the work is billed, within the contract");
+  else if (sub && po && scIsSubcontract(po) && !b.retainageRelease && amt > 0.005) {
     const W = pcWorkAhead(b, po);
     W.rows.length
-      ? H("work", `Paying ahead of work: ${W.rows.map((r) => `${r.desc} ${r.claimedWord}, ${r.measuredWord}`).join("; ")}, ${money(W.ahead)} ahead`, { money: W.ahead, who: "any", next: "Approve at Measured", act: "work" })
+      ? H("work", `Paying ahead of work: ${W.rows.map((r) => `${r.desc} ${r.claimedWord}, ${r.measuredWord}`).join("; ")}, ${scM(W.ahead)} ahead`, { money: W.ahead, who: "any", next: "Approve at Measured", act: "work" })
       : K("work", W.words || "Work in place supports what is billed");
   }
   // retainage: held at the contract rate, released only at the milestone, with a final waiver
@@ -411,15 +421,15 @@ function pcCheck(b, o) {
       scT(po).retainageOk || pct >= 95
         ? K("retainage", `Retainage release: ${scJob(b.projectId)} at ${pct}%${scT(po).retainageOk ? `, released for payment by ${scT(po).retainageOk.by}` : ""}`)
         : H("retainage", `Retainage is released at ${at}; ${scJob(b.projectId)} is ${pct}% complete`, { money: amt, who: "owner", next: "Open the PO", act: "po" });
-    } else if (rate > 0 && (+b.retainagePct || 0) < rate - 0.001) {
+    } else if (rate > 0 && (+b.retainagePct || 0) < rate - 0.001 && !scIsDeposit(b)) {
       const should = r2((billGross(b) * (rate - (+b.retainagePct || 0))) / 100);
-      H("retainage", `Retainage not held: ${po.number} holds ${rate}%, this bill holds ${+b.retainagePct || 0}%: ${money(should)} should stay back until ${scT(po).retainageAt || "substantial completion"}`, {
+      H("retainage", `Retainage not held: ${po.number} holds ${rate}%, this bill holds ${+b.retainagePct || 0}%: ${scM(should)} should stay back until ${scT(po).retainageAt || "substantial completion"}`, {
         money: should,
         who: "owner",
         next: scPaidSt(b) || scPaidBill(b) > 0 ? "" : `Hold ${rate}%`,
         act: scPaidSt(b) || scPaidBill(b) > 0 ? "" : "retain",
       });
-    } else rate > 0 ? K("retainage", `Retainage ${rate}% held: ${money(r2(billGross(b) - billTotal(b)))} stays back`) : K("retainage", "No retainage on this subcontract");
+    } else rate > 0 ? K("retainage", `Retainage ${rate}% held: ${scM(r2(billGross(b) - billTotal(b)))} stays back`) : K("retainage", "No retainage on this subcontract");
   }
   // lien waivers: a conditional waiver for this payment, an unconditional one for each payment before it
   if (sub && amt > 0.005) {
@@ -427,17 +437,17 @@ function pcCheck(b, o) {
       prior = wvPriorMissing(b),
       thisOk = wvHas(b, "conditional", final ? "final" : "progress", amt);
     prior.length
-      ? H("waiver", `No unconditional lien waiver for the payment${prior.length > 1 ? "s" : ""} before: ${prior.map((x) => `${x.number || "a bill"} (${money(scPaidBill(x) || billTotal(x))}, paid ${scDay(x.paidAt || x.date)})`).join(", ")}`, { money: r2(prior.reduce((a, x) => a + (scPaidBill(x) || billTotal(x)), 0)), who: "owner", next: "Record the Waiver", act: "waiver-prior", bills: prior.map((x) => x.id) })
+      ? H("waiver", `No unconditional lien waiver for the payment${prior.length > 1 ? "s" : ""} before: ${prior.map((x) => `${x.number || "a bill"} (${scM(scPaidBill(x) || billTotal(x))}, paid ${scDay(x.paidAt || x.date)})`).join(", ")}`, { money: r2(prior.reduce((a, x) => a + (scPaidBill(x) || billTotal(x)), 0)), who: "owner", next: "Record the Waiver", act: "waiver-prior", bills: prior.map((x) => x.id) })
       : K("waiver", "Every payment before has its unconditional waiver");
     thisOk
-      ? K("waiver", `${final ? "Final" : "Progress"} waiver on file for ${money(amt)}`)
-      : H("waiver", `No ${final ? "final" : "conditional"} lien waiver for this payment of ${money(amt)}: it comes in before or with the check`, { money: amt, who: "owner", next: "Record the Waiver", act: "waiver" });
+      ? K("waiver", `${final ? "Final" : "Progress"} waiver on file for ${scM(amt)}`)
+      : H("waiver", `No ${final ? "final" : "conditional"} lien waiver for this payment of ${scM(amt)}: it comes in before or with the check`, { money: amt, who: "owner", next: "Record the Waiver", act: "waiver" });
   }
   // deposits and credits: an open vendor credit is taken before new money goes out
   const credits = pcOpenCredits(b);
   credits.length
-    ? H("credits", `${b.vendor} has ${credits.length > 1 ? `${credits.length} open credits` : "an open credit"} of ${money(r2(credits.reduce((a, c) => a + c.left, 0)))} (${credits.map((c) => c.b.number || "a credit memo").join(", ")}) not taken yet`, { money: r2(credits.reduce((a, c) => a + c.left, 0)), next: "Take the Credit", act: "credit" })
-    : K("credits", scCreditsTaken(b) ? `${money(scCreditsTaken(b))} of vendor credit taken off this bill` : "No open credit or deposit from this vendor");
+    ? H("credits", `${b.vendor} has ${credits.length > 1 ? `${credits.length} open credits` : "an open credit"} of ${scM(r2(credits.reduce((a, c) => a + c.left, 0)))} (${credits.map((c) => c.b.number || "a credit memo").join(", ")}) not taken yet`, { money: r2(credits.reduce((a, c) => a + c.left, 0)), next: "Take the Credit", act: "credit" })
+    : K("credits", scCreditsTaken(b) ? `${scM(scCreditsTaken(b))} of vendor credit taken off this bill` : "No open credit or deposit from this vendor");
   // a person's release of a hold, with a reason, stands for that hold at that amount
   const released = [],
     live = [];
@@ -453,7 +463,7 @@ function pcCheck(b, o) {
 function pcWorkAhead(b, po) {
   const Z = scSet(),
     sov = scSov(po),
-    before = scBilledToDate(po, b.id),
+    before = scBilledToDate(po, b.id, { progress: !0 }),
     mine = scBillByLine(b, po),
     rows = [];
   let measuredAny = !1,
@@ -683,13 +693,14 @@ function pcPaySheet(billId, o) {
     accts = entAccountsOf(ent);
   if (!accts.length) return void toast(`${glEntName ? glEntName(ent) : ent} has no bank or card account — add one under Settings › Company`);
   o = o || {};
-  const amt0 = null != o.amount ? o.amount : pcOpen(b),
+  const amt0 = null != o.amount && "" !== o.amount ? o.amount : pcOpen(b),
     method0 = o.method || b.payMethod || "ACH",
     R = pcCheck(b, { amount: amt0, method: method0 }),
-    again = () => pcPaySheet(b.id, { amount: amt0, method: (scVendor(b.vendor) && b.payMethod) || method0 });
+    // after a hold's step (a credit taken, a waiver recorded) the sheet opens again on what is open now
+    again = () => pcPaySheet(b.id, { amount: null != o.amount && +o.amount <= pcOpen(b) ? o.amount : null, method: b.payMethod || method0 });
   const m = mbModal(
-    `Pay ${esc(b.vendor)} ${esc(b.number || "")}`,
-    `<div class="small muted" style="margin-bottom:8px">${esc(glEntName(ent))} · ${money(billTotal(b))}${+b.retainagePct ? ` net of ${b.retainagePct}% retainage` : ""}${scPaidBill(b) ? ` · ${money(scPaidBill(b))} paid before` : ""}${scCreditsTaken(b) ? ` · ${money(scCreditsTaken(b))} credit taken` : ""} · ${money(pcOpen(b))} open</div>${pcHtml(R, { closed: !0 })}
+    "Pay Bill",
+    `<div class="small muted" style="margin-bottom:8px">Bill ${esc(b.number || b.id)} · ${esc(b.vendor)} · ${esc(glEntName(ent))} · ${money(billTotal(b))}${+b.retainagePct ? ` net of ${b.retainagePct}% retainage` : ""}${scPaidBill(b) ? ` · ${money(scPaidBill(b))} paid before` : ""}${scCreditsTaken(b) ? ` · ${money(scCreditsTaken(b))} credit taken` : ""} · ${money(pcOpen(b))} open</div>${pcHtml(R, { closed: !0 })}
     <div class="grid2">${mbF("From Account", mbSel("acct", accts.map((a) => [a.id, `${a.name}${a.last4 ? " ····" + a.last4 : ""}`]), accts[0].id))}${mbF("Date", mbIn("date", today(), "", "date"))}</div>
     <div class="grid2">${mbF("Amount", mbIn("amount", String(amt0), "", "number"))}${mbF("Method", mbSel("method", ["ACH", "Check", "Card", "Wire", "Zelle"], method0))}</div>
     ${mbF("Reference (Check Number, Confirmation)", mbIn("ref", "", "optional"))}
@@ -826,7 +837,7 @@ function scPaperRequest(v, kind) {
 // ---- the subcontract's pay applications ---------------------------------------------------------------------------
 // what each SOV line has been claimed to date before this application (its share of every bill before it)
 function scPrevPct(po, L, exceptId) {
-  const B = scBilledToDate(po, exceptId);
+  const B = scBilledToDate(po, exceptId, { progress: !0 });
   return L.scheduled > 0 ? r2((100 * (B[L.id] || 0)) / L.scheduled) : 0;
 }
 // the next application number: one past every bill billed on the subcontract (a bill before pay applications counts)
@@ -1051,7 +1062,7 @@ function scLedger(vname, pid) {
     billed = r2(work.reduce((a, b) => a + billGross(b), 0)),
     credits = bills.filter((b) => billTotal(b) < -0.005),
     creditOpen = r2(credits.filter((b) => "approved" === b.status).reduce((a, b) => a - billTotal(b) - (b.takenBy || []).reduce((s, t) => s + (+t.amount || 0), 0), 0)),
-    deposits = r2(work.filter((b) => /\bdeposit\b/i.test([b.notes || "", ...(b.lines || []).map((l) => l.desc || "")].join(" "))).reduce((a, b) => a + billGross(b), 0)),
+    deposits = r2(work.filter(scIsDeposit).reduce((a, b) => a + billGross(b), 0)),
     retHeld = r2(work.filter((b) => +b.retainagePct).reduce((a, b) => a + billGross(b) - billTotal(b), 0)),
     retReleased = r2(bills.filter((b) => b.retainageRelease).reduce((a, b) => a + billGross(b), 0)),
     paidBills = r2(bills.filter((b) => billTotal(b) > 0).reduce((a, b) => a + scPaidBill(b), 0)),
@@ -1067,16 +1078,16 @@ function scLedger(vname, pid) {
       "measured" === M.basis && null != M.pct && ((inPlace = r2((inPlace || 0) + (M.pct / 100) * L.scheduled)), (measuredOf = r2(measuredOf + L.scheduled)));
     }),
   );
-  const subBilled = r2(work.filter((b) => subs.some((po) => po.id === b.poId)).reduce((a, b) => a + billGross(b), 0)),
+  const subBilled = r2(work.filter((b) => !scIsDeposit(b) && subs.some((po) => po.id === b.poId)).reduce((a, b) => a + billGross(b), 0)),
     ahead = null == inPlace ? 0 : r2(Math.max(0, subBilled - inPlace)),
     contract = r2(base + cos),
     v = scVendor(vname),
-    noWaiver = bills.filter((b) => scSubBill(b) && !b.retainageRelease && (scPaidSt(b) || scPaidBill(b) > 0) && !wvHas(b, "unconditional", "progress", Math.min(billTotal(b), scPaidBill(b) || billTotal(b)))),
+    noWaiver = bills.filter((b) => billTotal(b) > 0 && scSubBill(b) && !b.retainageRelease && (scPaidSt(b) || scPaidBill(b) > 0) && !wvHas(b, "unconditional", "progress", Math.min(billTotal(b), scPaidBill(b) || billTotal(b)))),
     retShort = r2(
       work
         .filter((b) => {
           const po = scPOOf(b);
-          return po && scIsSubcontract(po) && +po.retainagePct > (+b.retainagePct || 0);
+          return po && scIsSubcontract(po) && !scIsDeposit(b) && +po.retainagePct > (+b.retainagePct || 0);
         })
         .reduce((a, b) => a + (billGross(b) * (+scPOOf(b).retainagePct - (+b.retainagePct || 0))) / 100, 0),
     );
@@ -1119,7 +1130,7 @@ function scLedgerRows() {
   return out;
 }
 function scLedgerSay(L) {
-  return `${L.vendor} on ${L.project}: ${L.pos.length ? `contract ${money(L.contract)}${L.changes ? ` (with ${money(L.changes)} of approved changes)` : ""}, ` : "no order on file, "}billed ${money(L.billed)}, paid ${money(L.paid)}${L.retainageHeld ? `, ${money(L.retainageHeld)} retainage held` : ""}${L.payable ? `, ${money(L.payable)} billed and not paid yet` : ""}${L.pos.length ? `, ${money(L.left)} left to pay on the contract (${money(L.balanceToFinish)} still to bill)` : ""}${L.creditsOpen ? `, ${money(L.creditsOpen)} of credit open` : ""}${null != L.inPlace ? `; work in place ${money(L.inPlace)} as measured on site${L.aheadOfWork ? `, billed ${money(L.aheadOfWork)} ahead of it` : ""}` : ""}${L.retainageShort ? `; ${money(L.retainageShort)} of retainage was not held` : ""}${L.waiversMissing.length ? `; ${L.waiversMissing.length} payment${L.waiversMissing.length > 1 ? "s" : ""} without an unconditional lien waiver` : ""}.`;
+  return `${L.vendor} on ${L.project}: ${L.pos.length ? `contract ${money(L.contract)}${L.changes ? ` (with ${money(L.changes)} of approved changes)` : ""}, ` : "no order on file, "}billed ${money(L.billed)}, paid ${money(L.paid)}${L.retainageHeld ? `, ${money(L.retainageHeld)} retainage held` : ""}${L.payable ? `, ${money(L.payable)} billed and not paid yet` : ""}${L.pos.length ? `, ${money(L.left)} left to pay on the contract (${money(L.balanceToFinish)} still to bill)` : ""}${L.creditsOpen ? `, ${money(L.creditsOpen)} of credit open` : ""}${L.deposits ? `; ${money(L.deposits)} of it a deposit, applied as the work is billed` : ""}${null != L.inPlace ? `; work in place ${money(L.inPlace)} as measured on site${L.aheadOfWork ? `, billed ${money(L.aheadOfWork)} ahead of it` : ""}` : ""}${L.retainageShort ? `; ${money(L.retainageShort)} of retainage was not held` : ""}${L.waiversMissing.length ? `; ${L.waiversMissing.length} payment${L.waiversMissing.length > 1 ? "s" : ""} without an unconditional lien waiver` : ""}.`;
 }
 function scLedgerHtml(rows, o) {
   o = o || {};
@@ -1146,10 +1157,11 @@ function scCardHtml(po) {
   const t = scT(po),
     v = scVendor(po.vendor),
     sov = scSov(po),
-    B = scBilledToDate(po),
+    B = scBilledToDate(po, "", { progress: !0 }),
     L = scLedger(po.vendor, po.projectId),
     rate = +po.retainagePct || 0,
     bills = scBillsOf(po),
+    dep = r2(bills.filter((b) => scIsDeposit(b) && !b.retainageRelease).reduce((a, b) => a + billGross(b), 0)),
     canEdit = ["owner", "pm", "coord"].includes(role()),
     changes = t.changes || [];
   const pill = (p) => `<span class="pill ${p.ok ? "ok" : null === p.ok ? "" : "bad"}">${esc(p.t)}</span>`;
@@ -1164,7 +1176,7 @@ function scCardHtml(po) {
         ahead = "measured" === M.basis && pct > M.pct + scSet().tolPts;
       return `<tr><td>${esc(x.desc)}${x.change ? ' <span class="pill">Change</span>' : ""}</td><td class="money">${money(x.scheduled)}</td><td class="money">${money(billed)}<div class="small muted">${pct}%</div></td><td class="small ${ahead ? "bad-t" : ""}">${esc(scMeasuredWords(M))}</td><td class="money">${money(r2(x.scheduled - billed))}</td></tr>`;
     })
-    .join("")}<tr class="sc-tot"><td><b>Contract</b>${L.changes ? `<div class="small muted">${money(L.contractBase)} and ${money(L.changes)} of changes</div>` : ""}</td><td class="money"><b>${money(scContract(po))}</b></td><td class="money"><b>${money(B._total)}</b></td><td class="small">${null == L.inPlace ? "" : `${money(L.inPlace)} in place${L.aheadOfWork ? ` · <b class="bad-t">${money(L.aheadOfWork)} billed ahead</b>` : ""}`}</td><td class="money"><b>${money(r2(scContract(po) - B._total))}</b></td></tr></tbody></table></div>
+    .join("")}${dep ? `<tr><td>Deposit <span class="small muted">applied as the work is billed</span></td><td></td><td class="money">${money(dep)}</td><td></td><td></td></tr>` : ""}<tr class="sc-tot"><td><b>Contract</b>${L.changes ? `<div class="small muted">${money(L.contractBase)} and ${money(L.changes)} of changes</div>` : ""}</td><td class="money"><b>${money(scContract(po))}</b></td><td class="money"><b>${money(r2(B._total + dep))}</b></td><td class="small">${null == L.inPlace ? "" : `${money(L.inPlace)} in place${L.aheadOfWork ? ` · <b class="bad-t">${money(L.aheadOfWork)} billed ahead</b>` : ""}`}</td><td class="money"><b>${money(r2(scContract(po) - B._total - dep))}</b></td></tr></tbody></table></div>
   <div class="small sc-money">Paid ${money(L.paid)} · retainage held ${money(L.retainageHeld)}${L.retainageShort ? ` · <b class="bad-t">${money(L.retainageShort)} retainage not held</b>` : ""}${L.payable ? ` · ${money(L.payable)} billed, not paid` : ""}${L.waiversMissing.length ? ` · <b class="warn-t">${L.waiversMissing.length} payment${L.waiversMissing.length > 1 ? "s" : ""} without an unconditional waiver</b>` : ""}</div>
   ${changes.length ? `<h4 class="sc-h4">Changes to the Subcontract</h4><ul class="sc-changes">${changes.map((c) => `<li><b>${esc(c.number)}</b> ${esc(c.desc)} · ${money(c.amount)} · ${esc(c.status)}${c.by ? ` · ${esc(c.by)}` : ""}${"pending" === c.status && ["owner", "pm"].includes(role()) ? ` <button type="button" class="btn sm" data-sc="approve-change" data-scc="${esc(c.id)}">Approve the Change</button>` : ""}</li>`).join("")}</ul>` : ""}
   <h4 class="sc-h4">Pay Applications</h4>${
@@ -1262,6 +1274,28 @@ function pcHeldBills() {
 const pcNeedsOwner = (x) => x.R.holds.some((h) => "owner" === h.who || h.fixed) || x.R.amount > scSet().ownerAbove;
 
 // ---- where it is joined ------------------------------------------------------------------------------------------
+// A bill's control flags (the ones an owner's approval answers with a reason): the retainage held is a fact on the
+// bill, not a control to override; a subcontract is never "received" (its work is measured on site), so it says
+// what it claims ahead of the work instead.
+{
+  const base = billFlags;
+  billFlags = function (b) {
+    let f = base.apply(this, arguments);
+    try {
+      if (!Array.isArray(f) || !b) return f;
+      f = f.filter((x) => !/^Retainage \d+(\.\d+)?% held — net/.test(String(x)));
+      const po = scPOOf(b);
+      if (po && scIsSubcontract(po)) {
+        f = f.filter((x) => !new RegExp(`^${po.number} shows nothing received`).test(String(x)));
+        if (!b.retainageRelease && ["draft", "submitted", "pm-approved"].includes(b.status)) {
+          const W = pcWorkAhead(b, po);
+          W.rows.length && !pcReleasedBy(b, { key: "work", money: W.ahead }) && f.push(`Claims ${money(W.ahead)} ahead of the work measured on site`);
+        }
+      }
+    } catch (e) {}
+    return f;
+  };
+}
 // the Standard behind each hold, the held-payment queue item and the paid-ahead catch
 Object.assign(STD_MAP, Object.fromEntries(Object.keys(PC_STD).map((k) => ["pc:" + k, PC_STD[k]])), {
   payhold: { p: "integrity", c: ["pb", "office", "standards", /Three-way match/i] },

@@ -529,6 +529,16 @@ async def pay_bill(C, number, acct, date, amount, method, ref):
     await C.wait(400)
     await C.pg.locator('#drawer.on button', has_text=re.compile(r'^Pay')).first.click(timeout=30000)
     await C.wait(400)
+    # the Payment Check (BACKLOG §1.12) runs first on the sheet. A sub's payment waits for its conditional lien
+    # waiver: the controller records the one that came with the invoice from the hold's own button, as the person would.
+    for _ in range(3):
+        held = await C.js("() => [...document.querySelectorAll('#mbm .pc-hold')].map(h => ({what: (h.querySelector('b') || {}).innerText || '', acts: [...h.querySelectorAll('[data-pcact]')].map(b => b.dataset.pcact)}))")
+        w = [h for h in (held or []) if 'waiver' in h['acts']]
+        if not w: break
+        C.t(f"Controller > {number} > Pay… > Payment Check holds: {w[0]['what']} > Record the Waiver (conditional, with the invoice) > Record the Waiver")
+        await C.js("() => document.querySelector('#mbm [data-pcact=\"waiver\"]').click()")
+        await C.wait(300)
+        await C.modal_ok(500)
     m = await C.modal()
     await C.pg.select_option('#mbm [data-f=acct]', acct)
     await C.fill('#mbm [data-f=date]', date); await C.fill('#mbm [data-f=amount]', amount)
