@@ -1090,10 +1090,14 @@ const RP_CHOICES = [
     def: "expense",
     note: "Costs on a property the firm owns and develops (206 Lenox) are probably capitalised to the property, not expensed; expensed, the P&L understates profit. Settle with the accountant.",
     stake: () => {
-      const own = (DB.projects || []).filter((p) => {
-        const c = rpClientOfProj(p.id);
-        return c && /LLC|Lenox|Mercer/i.test(c.name || "") && !(+jobFin(p).contract || 0);
-      });
+      // the firm's own properties are entities of type "property" (206 Lenox LLC): a job booked to one, or for a client
+      // that is one, is development on owned property. A name pattern caught any client called "... LLC".
+      const PE = (DB.entities || []).filter((e) => "property" === e.type),
+        own = (DB.projects || []).filter((p) => {
+          const c = rpClientOfProj(p.id),
+            ent = p.entityId || (p.project && p.project.entityId) || "";
+          return PE.some((e) => e.id === ent || (c && String(c.name || "").trim().toLowerCase() === String(e.name || "").trim().toLowerCase()));
+        });
       return { label: "Cost on owned-property jobs year to date", amt: rpSum(own, (p) => jobFin(p, [today().slice(0, 4) + "-01-01", today()]).actual) };
     },
   },
@@ -1126,7 +1130,7 @@ function rpChoice(id) {
 function rpChoicesHtml() {
   const A = DB.company.acctChoices || {},
     can = rpCanEditChoices();
-  return `<div class="card rp-choices" data-rpchoices="1"><h3 class="rep-h" style="margin-top:0">Accounting Choices to Settle with the Accountant</h3><p class="small muted">Alan and the accountant decide these. Each shows its default and what it moves; a change records who, when and why.</p>${RP_CHOICES.map((c) => {
+  return `<div class="card rp-choices" data-rpchoices="1"><h3 class="rep-h" style="margin-top:0">Accounting Choices to Settle with the Accountant</h3><p class="small muted">Alan and the accountant decide these. Each shows its default and what it would move; a change records who, when and why.</p><div class="note warn small">Recorded, not yet applied: changing Development Costs or Revenue Recognition for Tax does not change the statements yet. The P&L, the balance sheet and the Pack stay on the defaults until the accountant agrees and the change is built. The Overhead Allocation Basis does apply now, to each job's net.</div>${RP_CHOICES.map((c) => {
     const v = rpChoice(c.id),
       h = ((A[c.id] || {}).history || []).slice(-1)[0],
       S = c.stake ? c.stake() : null;
