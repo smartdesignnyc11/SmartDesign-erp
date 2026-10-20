@@ -500,15 +500,14 @@ function rpTies(range, only) {
       openAmt = rpSum(approvedOpen, (b) => billTotal(b)),
       waiting = (DB.bills || []).filter((b) => BILL_ACCRUED.includes(b.status) && unpaid(b)),
       waitAmt = rpSum(waiting, (b) => billTotal(b));
-    // The Reports, the Brief and the AP aging count a vendor bill as owed once it is entered; the ledger books it
-    // (2000) only once it is approved. Both are shown, with the bills awaiting approval named, so the two numbers
-    // are never read as one.
+    // "Owed" is approved bills, the ledger's 2000 (Alan, 2026-10-20); job cost still recognises a bill when it is
+    // entered, so the bills awaiting approval are carried apart (accrued) and named, never read as owed.
     push(
       rpTie(
         "ap",
         "Payables",
-        "Payables: bills owed, approved and awaiting approval",
-        { label: "Vendor bills owed (Reports, the Brief, AP aging)", amt: r2(B.ap) },
+        "Payables: approved bills owed, and bills awaiting approval apart",
+        { label: "Vendor bills open, approved and awaiting approval together", amt: r2(B.ap) },
         [
           { label: "Approved, unpaid (in the ledger)", amt: openAmt, drill: "ap:open" },
           { label: `Awaiting approval, unpaid (${waiting.length}; not yet in the ledger)`, amt: waitAmt, drill: "ap:waiting" },

@@ -56,6 +56,11 @@ async def main():
             await pg.fill('#mbm [data-f="why"]', 'Hold Window Works until the credit lands'); await pg.click('#mbm-ok'); await pg.wait_for_timeout(300)
             r = await pg.evaluate("() => { const x = DB.payRuns.find(r => r.id === 'prun_t2'); return [x.status, x.why] }")
             c.ok(r == ['returned', 'Hold Window Works until the credit lands'], f'{tag}: returned with the reason ({r})')
+            # "what we owe" is approved bills (the ledger's 2000); bills awaiting approval are their own line (Alan, 2026-10-20)
+            r = await pg.evaluate("""() => { signIn('u_owner'); const O = apOpenBills(), I = ASK_INTENTS.find(x => x.id === 'payables').answer();
+              view = 'reports'; try { repTab = 'statements'; } catch (e) {} render(); const t = document.querySelector('section.view.on').innerText;
+              return { appr: O.approved, wait: O.awaiting, head: I.headline, total: I.total, bsAppr: /Accounts payable \(approved bills\)/.test(t), bsWait: O.awaiting > 0 ? /Bills awaiting approval \(accrued\)/.test(t) : true } }""")
+            c.ok(r['total'] == r['appr'] and ('awaits approval' in r['head']) == (r['wait'] > 0), f'{tag}: Ask says we owe the approved bills, and names the bills awaiting approval apart ({r})')
             sw = await pg.evaluate("() => document.documentElement.scrollWidth")
             if phone: c.ok(sw <= 390, f'{tag}: no sideways scroll ({sw})')
             c.ok(not errs, f'{tag}: page errors {errs[:2]}')

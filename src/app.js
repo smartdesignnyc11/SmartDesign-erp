@@ -28096,7 +28096,7 @@ function repFinancials() {
     bsRow = (l, v, cls = "") => `<tr class="${cls}"><td>${l}</td><td class="money">${money(v)}</td></tr>`,
     curAssets = B.cash + (B.undeposited || 0) + B.arOut + B.ret + under - (B.credits || 0),
     curLiab = -B.cards + B.ap + (B.apRet || 0) + (B.payrollAccrued || 0) + over,
-    BS = `<h3 class="rep-h">Balance sheet (working capital view) — as of ${fmtL(today())}</h3><div class="grid2"><div class="tw"><table class="t rep-t fs"><tbody><tr class="sec"><td colspan="2">Current assets</td></tr>${bsRow("Cash in bank", B.cash)}${bsRow("Accounts receivable", B.arOut)}${B.undeposited ? bsRow("Receipts not yet deposited", B.undeposited) : ""}${B.credits ? bsRow("Less credits on account", -B.credits) : ""}${bsRow("Retainage receivable", B.ret)}${bsRow("Costs & estimated earnings in excess of billings (under-billings)", under)}${bsRow("Total current assets", curAssets, "tot")}</tbody></table></div><div class="tw"><table class="t rep-t fs"><tbody><tr class="sec"><td colspan="2">Current liabilities</td></tr>${bsRow("Credit cards", -B.cards)}${bsRow("Accounts payable", B.ap)}${bsRow("Billings in excess of costs & estimated earnings (over-billings)", over)}${bsRow("Billings in excess of earned — of which held for purchases (memo)", B.clientFunds, "dim")}${B.apRet ? bsRow("Retainage payable to subs", B.apRet) : ""}${B.payrollAccrued ? bsRow("Payroll due", B.payrollAccrued) : ""}${bsRow("Total current liabilities", curLiab, "tot")}${bsRow("Working capital", curAssets - curLiab, "grand")}<tr><td>Current ratio</td><td class="money">${curLiab ? r2(curAssets / curLiab) : "—"} <span class="small muted">benchmark 1.5–2.0</span></td></tr><tr><td>Cash-to-overbillings</td><td class="money">${over ? r2(B.cash / over) : "—"} <span class="small muted">keep above 1.0</span></td></tr></tbody></table></div></div><p class="small muted">Fixed assets, loans, equity and tax balances live in the accounting system; this view covers the working-capital accounts the ERP controls.</p>`,
+    BS = `<h3 class="rep-h">Balance sheet (working capital view) — as of ${fmtL(today())}</h3><div class="grid2"><div class="tw"><table class="t rep-t fs"><tbody><tr class="sec"><td colspan="2">Current assets</td></tr>${bsRow("Cash in bank", B.cash)}${bsRow("Accounts receivable", B.arOut)}${B.undeposited ? bsRow("Receipts not yet deposited", B.undeposited) : ""}${B.credits ? bsRow("Less credits on account", -B.credits) : ""}${bsRow("Retainage receivable", B.ret)}${bsRow("Costs & estimated earnings in excess of billings (under-billings)", under)}${bsRow("Total current assets", curAssets, "tot")}</tbody></table></div><div class="tw"><table class="t rep-t fs"><tbody><tr class="sec"><td colspan="2">Current liabilities</td></tr>${bsRow("Credit cards", -B.cards)}${bsRow("Accounts payable (approved bills)", "function" == typeof apOpenBills ? apOpenBills().approved : B.ap)}${"function" == typeof apOpenBills && B.ap - apOpenBills().approved > 0.005 ? bsRow("Bills awaiting approval (accrued)", r2(B.ap - apOpenBills().approved)) : ""}${bsRow("Billings in excess of costs & estimated earnings (over-billings)", over)}${bsRow("Billings in excess of earned — of which held for purchases (memo)", B.clientFunds, "dim")}${B.apRet ? bsRow("Retainage payable to subs", B.apRet) : ""}${B.payrollAccrued ? bsRow("Payroll due", B.payrollAccrued) : ""}${bsRow("Total current liabilities", curLiab, "tot")}${bsRow("Working capital", curAssets - curLiab, "grand")}<tr><td>Current ratio</td><td class="money">${curLiab ? r2(curAssets / curLiab) : "—"} <span class="small muted">benchmark 1.5–2.0</span></td></tr><tr><td>Cash-to-overbillings</td><td class="money">${over ? r2(B.cash / over) : "—"} <span class="small muted">keep above 1.0</span></td></tr></tbody></table></div></div><p class="small muted">Fixed assets, loans, equity and tax balances live in the accounting system; this view covers the working-capital accounts the ERP controls.</p>`,
     months = (() => {
       try {
         const R = repRangeOf().range,
@@ -124244,7 +124244,7 @@ function finAnswer(raw) {
       );
     return out(
       `${S.safe < 0 ? `Short by ${money(-S.safe)} today` : `${money(S.safe)} safe to spend today`}; the 13-week low is ${money(F.low)} in the week of ${fmtL(low.start)}.`,
-      `Cash in the bank ${money(B.cash)} (ledger as of ${fmtL(td)}), cards ${money(B.cards)}, undeposited ${money(B.undeposited || 0)}, client funds held ${money(B.clientFunds || 0)}, unpaid bills ${money(B.ap)}, payroll due ${money(B.payrollAccrued)}, billed ahead of work ${money(B.over || 0)}. Truly ours = ${money(B.trulyOurs)}. No months-of-burn figure: a cash forecast, not a divisor.`,
+      `Cash in the bank ${money(B.cash)} (ledger as of ${fmtL(td)}), cards ${money(B.cards)}, undeposited ${money(B.undeposited || 0)}, client funds held ${money(B.clientFunds || 0)}, unpaid bills ${money(B.ap)}${"function" == typeof apOpenBills && apOpenBills().awaiting > 0.005 ? ` (${money(apOpenBills().approved)} approved, ${money(apOpenBills().awaiting)} awaiting approval)` : ""}, payroll due ${money(B.payrollAccrued)}, billed ahead of work ${money(B.over || 0)}. Truly ours = ${money(B.trulyOurs)}. No months-of-burn figure: a cash forecast, not a divisor.`,
       F.weeks
         .slice(0, 13)
         .map(
@@ -146999,8 +146999,11 @@ function apOpenBills() {
   } catch (e) {
     return { rows: [], total: 0, A: null };
   }
-  const rows = A.items.filter((i) => "bill" === i.kind);
-  return { rows: rows, total: r2(rows.reduce((a, i) => a + i.amt, 0)), A: A };
+  const rows = A.items.filter((i) => "bill" === i.kind),
+    appr = rows.filter((i) => i.approved),
+    wait = rows.filter((i) => !i.approved);
+  // "What we owe" is approved bills, the ledger's 2000; bills awaiting approval are their own line (Alan, 2026-10-20)
+  return { rows: rows, total: r2(rows.reduce((a, i) => a + i.amt, 0)), appr: appr, approved: r2(appr.reduce((a, i) => a + i.amt, 0)), waiting: wait, awaiting: r2(wait.reduce((a, i) => a + i.amt, 0)), A: A };
 }
 if ("object" == typeof EQ_TABLES && "function" == typeof EQ_TABLES.bills) {
   const eqBillsBase_bl = EQ_TABLES.bills;
@@ -147041,9 +147044,9 @@ void 0 !== ASK_INTENTS &&
         pAmt = r2(P.reduce((a, b) => a + billTotal(b), 0));
       return {
         headline: O.rows.length
-          ? `We owe vendors ${money(O.total)} on ${tlN(O.rows.length, "bill")}${A.billsOverdue ? `, ${money(A.billsOverdue)} of it past due` : ""}.`
+          ? `We owe vendors ${money(O.approved)} on ${tlN(O.appr.length, "approved bill")}${O.waiting.length ? `; another ${money(O.awaiting)} in ${tlN(O.waiting.length, "bill")} awaits approval` : ""}${A.billsOverdue ? ` (${money(A.billsOverdue)} past due)` : ""}.`
           : `We owe vendors ${money(0)} — no bill is open.`,
-        note: `From AP aging: open bills, less anything the bank already paid and anything in dispute.${P.length ? ` ${tlN(P.length, "bill")} (${money(pAmt)}) ${1 === P.length ? "was" : "were"} paid from the bank before approval — ${1 === P.length ? "it waits" : "they wait"} on an approval, not a payment, so ${1 === P.length ? "it is" : "they are"} not owed.` : ""}${A.payroll ? ` Payroll waiting: ${money(A.payroll)}, not a vendor.` : ""}`,
+        note: `Owed is approved bills, as the ledger books them (2000); bills awaiting approval are counted apart until someone approves them. From AP aging: open bills, less anything the bank already paid and anything in dispute.${P.length ? ` ${tlN(P.length, "bill")} (${money(pAmt)}) ${1 === P.length ? "was" : "were"} paid from the bank before approval — ${1 === P.length ? "it waits" : "they wait"} on an approval, not a payment, so ${1 === P.length ? "it is" : "they are"} not owed.` : ""}${A.payroll ? ` Payroll waiting: ${money(A.payroll)}, not a vendor.` : ""}`,
         work: O.rows
           .map(
             (i) =>
@@ -147057,7 +147060,7 @@ void 0 !== ASK_INTENTS &&
           ),
         go: { view: "ap" },
         kind: "finance",
-        total: O.total,
+        total: O.approved,
       };
     },
     rival: () => null,
