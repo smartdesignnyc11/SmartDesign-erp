@@ -157,7 +157,11 @@ const COLLECT = {
 const VIEWOF = { home: 'home', mapprove: 'mapprove', billing: 'billing', bank: 'bank', ftoday: 'ftoday', sday: 'sday', client: 'client', comms: 'comms', tkall: 'tkall', time: 'time', route: 'route', close: 'gl', pa: 'pa' };
 M.texts = {};
 M.open = (s, force) => { const v = VIEWOF[s] || s;
-  if (s === 'home') { try { tdCatchAll = true; } catch (e) {} }
+  // Today (the today lane, 2026-10-19, "one queue per person"): every office role's Home is Do Now, whose All tab shows
+  // the first five and "N more" opens the rest in place. The coordinator, billing and the controller read the classic
+  // Home's whole Needs Your Hand list before; a person taps "N more", so the actor reads the whole list, as it reads
+  // every catch (tdCatchAll). Reading only five hid the Tino date, the deposits to record and the client credit.
+  if (s === 'home') { try { tdCatchAll = true; } catch (e) {} try { tdyAllOpen = true; } catch (e) {} }
   if (s === 'mapprove') window.mApprKind = 'all';
   if (force || view !== v || document.querySelector('#mbm') || document.querySelector('#drawer.on') || s === 'close') M.go(v);
   if (s === 'close') { const t = [...M.root().querySelectorAll('button, [role=tab]')].find(b => norm(b.innerText) === 'Close'); t && t.click(); }
