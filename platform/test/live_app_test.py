@@ -87,6 +87,14 @@ async def main():
             got = await F.evaluate(f"DB.projects.map(p => p['{money_key}']).filter(v => v != null && JSON.stringify(v).match(/\\d/))")
             ok(got == [], f'the phone holds no "{money_key}" figure on any job: {str(got)[:120]}')
         ok(await F.evaluate("innerWidth === 390 && document.documentElement.scrollWidth <= 391"), 'the phone does not scroll sideways')
+        # every shared list holds only his jobs' records or records with no job (2026-10-20), and none of the sales CRM,
+        # the budget plan or the studio
+        other = await F.evaluate("""(() => { const mine = new Set(DB.projects.map(p => p.id)), bad = [];
+          const chk = (name, L) => (Array.isArray(L) ? L : []).forEach(r => r && r.projectId && !mine.has(r.projectId) && bad.push(name + ':' + r.projectId));
+          ['photos', 'time', 'pos', 'meetings', 'watches', 'tasks'].forEach(k => chk(k, DB[k]));
+          ['logs', 'subs', 'notes', 'punch', 'talks', 'raises', 'requests'].forEach(k => chk('field.' + k, (DB.field || {})[k]));
+          return {bad: bad.slice(0, 6), crm: ((DB.hub || {}).contacts || []).length + ((DB.hub || {}).companies || []).length, studio: Object.keys(DB.studio || {}).filter(k => Array.isArray(DB.studio[k]) && DB.studio[k].length).length}; })()""")
+        ok(not other['bad'] and other['crm'] == 0 and other['studio'] == 0, f"the phone holds no other job's records and no CRM or studio: {other}")
 
         # office edit reaches the phone
         await A.evaluate(f"(() => {{ const p = DB.projects.find(x => x.id === '{pid}'); p.qaStamp = 'office-1'; saveNow ? saveNow() : save(); }})()")

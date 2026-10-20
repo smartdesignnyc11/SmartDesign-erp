@@ -9,7 +9,7 @@ Following the plan's order of work (weeks 2 and 3 items not yet built).
 | live jobs | BACKLOG §1.25 and §1.26: two payers on one contract, range estimates with allowances, a paid exploratory phase, the HTC calculator, hard/soft/contingency estimates, the contractor who becomes an employee; end to end to billing, AR per payer, job cost, reports, the portal | Building |
 | subs | §1.10 item 1 and §1.12: subcontracts with SOV and retainage, sub pay apps against work in place, conditional/unconditional lien waivers, the payment check before any payment leaves (PO/subcontract, receipt, prior payments, retainage, waivers, COI, W-9, duplicates, changed bank details held until verified) | Building |
 | items and Spanish | §1.18 one item library that fills every line in; §1.20 every field screen in Spanish by the person's setting, chat lines translated on request | Building |
-| platform (main session) | Field roles see only their crew's jobs in every shared list, not only chats; replies from outside people filed into chats by the server | Building |
+| platform (main session) | Field roles see only their crew's jobs in every shared list, not only chats; no CRM, budget plan or studio for the field | Live 2026-10-20 (schema_pg 47/47, live 74/28/34). Next: replies from outside people filed into chats by the server |
 
 ## Executive assistant (2026-10-19, Alan: "Go")
 | Lane | Scope | Design gate | Status |
