@@ -39771,9 +39771,10 @@ const ledgerBase_cash = ledger;
 ledger = function (range) {
   if ("cash" !== basis()) return ledgerBase_cash(range);
   const rows = [];
+  // Payroll counts once, from the run (below): the bank lines a paid run writes (payrollId) are the same money.
   DB.txns
     .filter(
-      (t) => within(t.date, range) && "transfer" !== t.cat && "labor" !== t.cat && "cc-payment" !== t.cat,
+      (t) => within(t.date, range) && "transfer" !== t.cat && "labor" !== t.cat && "cc-payment" !== t.cat && !t.payrollId,
     )
     .forEach((t) =>
       rows.push({
@@ -39803,8 +39804,11 @@ ledger = function (range) {
           ref: b,
         }),
       ),
+    // Cash basis: a run is cost when the money left, i.e. once it is paid (Release Payroll), never while it is
+    // submitted or approved and unpaid. It counted every run by pay date, so the unpaid 8/17-8/28 run ($16,040)
+    // sat in the cash-basis P&L while the cash flow statement said payroll paid $0.
     DB.payroll
-      .filter((p) => within(p.payDate, range))
+      .filter((p) => ["paid", "verified"].includes(p.status) && within(p.payDate, range))
       .forEach((p) => {
         payrollAllocAmts(p).forEach((a) =>
           rows.push({
@@ -70710,7 +70714,13 @@ function glInvoiceLines(c, d) {
     (d.lines || []).forEach((l) => {
       const amt = lineAmount(l, d);
       if (!amt) return;
-      const share = r2(amt - (T.sub ? (T.disc * amt) / sub : 0)),
+      // A retainer applied on this invoice ("Less retainer applied", a negative line) spends the deposit the
+      // retainer invoice put in 2400: it relieves 2400, it is not negative revenue. Posted as negative revenue,
+      // 2400 kept the $5,000 45 Cranberry retainer after it was applied and August revenue read $5,000 short of
+      // the management view once the WIP posted at close.
+      const share = r2(amt - (T.sub ? (T.disc * amt) / sub : 0));
+      if (l.retainerLine && share < 0) return void L.push(glL("2400", -share, 0, Object.assign({ memo: "retainer applied", sourceLineId: l.id }, dims)));
+      const
         acct = l.filingId ? "4300" : rev,
         key =
           l.fromLine || (l.sovId ? ((c.sov || []).find((s) => s.id === l.sovId) || {}).lineRef : "") || "",
@@ -70734,6 +70744,17 @@ function glInvoiceLines(c, d) {
     });
   }
   return T.tax && L.push(glL("2300", 0, T.tax, dims)), L;
+}
+// What progress invoices in [from, to] took off retainers on account ("Less retainer applied" lines). The
+// retainer invoice put that money in 2400; applying it moves it to revenue, so the bridge between the management
+// view and the ledger counts only the deposits still held.
+function glRetainerApplied(from, to, ent) {
+  return r2(
+    (DB.clients || [])
+      .flatMap((c) => c.invoices || [])
+      .filter((i) => !["void", "draft"].includes(i.status) && (i.date || "") >= (from || "") && (!to || (i.date || "") <= to) && (!ent || "all" === ent || glProjectEntity(i.projectId) === ent))
+      .reduce((s, i) => s + (i.lines || []).filter((l) => l.retainerLine).reduce((a, l) => a - Math.min(0, lineAmount(l, i)), 0), 0),
+  );
 }
 function glPaymentLines(c, p) {
   const inv = (c.invoices || []).find((i) => i.id === p.invoiceId),
@@ -71471,7 +71492,7 @@ function glOverviewHtml(sync) {
             .reduce(
               (s, i) => s + ("function" == typeof docNet ? docNet(i) : docTotal(i).sub - docTotal(i).disc),
               0,
-            ),
+            ) - glRetainerApplied(from, to, ent),
         ),
         prop = r2(eng.net - r2((e.income || 0) - (e.cogsT || 0) - (e.ohT || 0))),
         items = [
@@ -123270,7 +123291,7 @@ if ("function" == typeof glOverviewHtml) {
                 i.date <= to &&
                 ("all" === ent || glProjectEntity(i.projectId) === ent),
             )
-            .reduce((s, i) => s + docNet(i), 0),
+            .reduce((s, i) => s + docNet(i), 0) - glRetainerApplied(from, to, ent),
         ),
         prop = r2(engNet - r2((e.income || 0) - (e.cogsT || 0) - (e.ohT || 0))),
         wipLed = (() => {
