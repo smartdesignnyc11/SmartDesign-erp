@@ -672,12 +672,17 @@ function ciTickMemo(k, fn) {
   }
   return k in ciTick ? ciTick[k] : (ciTick[k] = fn());
 }
+// Kept across turns while nothing the rule reads has changed (Home, the checklist and the rail read it on every draw).
+let ciJobsMemo = null;
 function ciJobsOverspending(scope) {
   // keyed on what the rule reads, so a change made earlier in the same turn is never missed
   let sig = "";
   try {
-    sig = ("function" == typeof ovsSig ? ovsSig() : "") + "|" + (DB.clients || []).map((c) => `${(c.payments || []).length}.${(c.invoices || []).map((i) => i.status).join("")}`).join(",") + "|" + (DB.pos || []).map((p) => p.status).join("") + "|" + (DB.payroll || []).map((r) => r.status).join("");
-  } catch (e) {}
+    sig = [today(), "function" == typeof ovsSig ? ovsSig() : "", (DB.clients || []).map((c) => `${(c.payments || []).length}.${(c.invoices || []).map((i) => i.status + (i.lines || []).length).join("")}`).join(","), (DB.pos || []).map((p) => p.status + (p.lines || []).length).join(""), (DB.payroll || []).map((r) => r.status).join(""), (DB.projects || []).map((p) => (p.tasks || []).map((t) => `${t.status || ""}${t.pct || ""}${(t.progress || []).length}`).join("")).join("/"), "function" == typeof pwSig ? pwSig() : ""].join("|");
+  } catch (e) {
+    sig = String(Math.random());
+  }
+  if (ciJobsMemo && ciJobsMemo.sig === sig) return scope ? ciJobsMemo.rows.filter((x) => x.p.id === scope) : ciJobsMemo.rows.slice();
   const all = ciTickMemo("jobs:" + sig, () =>
     (DB.projects || [])
       .filter((p) => !p.archived && "closed" !== (p.project || {}).status)
@@ -685,6 +690,7 @@ function ciJobsOverspending(scope) {
       .filter(Boolean)
       .sort((a, b) => b.amount - a.amount),
   );
+  ciJobsMemo = { sig: sig, rows: all };
   return scope ? all.filter((x) => x.p.id === scope) : all.slice();
 }
 predDef("jobsOverspending", {
