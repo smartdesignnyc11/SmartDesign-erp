@@ -184856,6 +184856,13 @@ if ("function" == typeof paHtml) {
         const v = document.getElementById("v-chat"),
           ph = v && v.querySelector(".ph");
         v && !v.querySelector(".cl-mode") && ph && ph.insertAdjacentHTML("afterend", clModeHtml("chat"));
+        // on the phone the conversation is pinned under the header (renderChat measured it before the switch was
+        // here): it starts below the switch, so the switch is not under it and a tap reaches it
+        const sw = v && v.querySelector(".cl-mode");
+        if (sw && document.body.classList.contains("msg-solo-ph")) {
+          const b = sw.getBoundingClientRect().bottom;
+          b > 0 && document.documentElement.style.setProperty("--msg-top", Math.ceil(b + 6) + "px");
+        }
       }
     } catch (e) {
       console.warn("client door", e);
