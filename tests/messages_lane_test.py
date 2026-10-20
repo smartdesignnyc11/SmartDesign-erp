@@ -273,6 +273,9 @@ async def t_phone(c, p):
     r = await pg.evaluate("() => ({ side: !!document.querySelector('#msg-side').getClientRects().length, main: !!document.querySelector('.msg-main').getClientRects().length, rows: [...document.querySelectorAll('#msg-side .msg-row')].map(e => Math.round(e.getBoundingClientRect().height)), sw: document.documentElement.scrollWidth })")
     c.ok(r['side'] and not r['main'], f'phone: All Messages shows the list on its own ({r})')
     c.ok(r['rows'] and min(r['rows']) >= 44 and r['sw'] <= 390, f'phone: each row is a big target, no sideways scroll ({r})')
+    # a job conversation with nothing in it yet sits under "Start a Chat on a Job" (2026-10-20): one tap opens that row
+    if not await pg.evaluate("() => { const r = document.querySelector('#msg-side [data-msgopen=\"job:p206\"]'); return !!(r && r.offsetParent); }"):
+        await pg.tap('#msg-side [data-msgquiet]'); await pg.wait_for_timeout(250)
     await pg.tap('#msg-side [data-msgopen="job:p206"]')
     await pg.wait_for_timeout(250)
     r = await pg.evaluate("() => ({ key: msgCur().key, main: !!document.querySelector('.msg-main').getClientRects().length, head: document.getElementById('msg-head').innerText })")

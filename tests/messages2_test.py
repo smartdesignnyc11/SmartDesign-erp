@@ -364,6 +364,9 @@ async def t_screen(c, p):
     await pg.fill('#msg-q', '')
     await pg.wait_for_timeout(150)
     # a conversation: full screen, the composer pinned at the bottom, one blue button, 16px text so iOS does not zoom
+    # a job conversation with nothing in it yet sits under "Start a Chat on a Job" (2026-10-20): one tap opens that row
+    if not await pg.evaluate("() => { const r = document.querySelector('#msg-side [data-msgopen=\"job:p121\"]'); return !!(r && r.offsetParent); }"):
+        await pg.tap('#msg-side [data-msgquiet]'); await pg.wait_for_timeout(250)
     await pg.tap('#msg-side [data-msgopen="job:p121"]')
     await pg.wait_for_timeout(300)
     r = await pg.evaluate("""() => { const m = document.querySelector('.msg-main').getBoundingClientRect(), c = document.querySelector('#v-chat .chat-compose').getBoundingClientRect(), rb = [document.getElementById('chat-send'), document.getElementById('msg-voice')].find(e => e && e.getClientRects().length), s = rb.getBoundingClientRect(), t = document.getElementById('chat-text');

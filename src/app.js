@@ -199656,7 +199656,14 @@ function msgListHtml(L, cur, u) {
   return `<div class="msg-side-h"><h2>Chat</h2>${tot.n ? `<span class="n msg-tot" title="Unread">${tot.n}</span>` : ""}<span class="grow"></span>${msgIsClient(u) ? "" : `<button type="button" class="msg-ib" id="msg-new" title="New Message" aria-label="New Message">${MSG_IC.compose}</button>`}</div><label class="msg-search"><span class="msg-cic">${MSG_IC.search}</span><input type="search" id="msg-q" placeholder="Search conversations" aria-label="Search conversations" value="${esc(msgQ)}" autocomplete="off"></label>${
     msgIsOwner(u) ? `<div class="msg-scope" role="tablist" aria-label="Which chats"><button type="button" role="tab" data-msgscope="mine" aria-selected="${"all" !== msgScope}" class="${"all" !== msgScope ? "on" : ""}">My Chats</button><button type="button" role="tab" data-msgscope="all" aria-selected="${"all" === msgScope}" class="${"all" === msgScope ? "on" : ""}">All Chats</button></div>` : ""
   }${msgIsClient(u) ? "" : '<div class="msg-notice small muted">Chats here are company records; the owner can read them.</div>'}<div class="msg-rows">${
-    rows
+    // conversations with nothing in them yet (every job's two threads) sit under one row at the foot, as a messaging
+    // app keeps empty chats out of the list; a search shows them all, and a list with nothing else shows them as is
+    ((all) => {
+      const live = all.filter((x) => x.last),
+        quiet = all.filter((x) => !x.last),
+        fold = !q && live.length && quiet.length;
+      return { show: fold ? live : all, quiet: fold ? quiet : [] };
+    })(rows).show
       .map((x) => {
         const k = msgKindLabel(x.T, u),
           other = x.T.t && "direct" === x.T.kind ? (x.T.t.members || []).find((id) => id !== u.id) : "",
@@ -199665,8 +199672,23 @@ function msgListHtml(L, cur, u) {
         return `<button type="button" class="msg-row${x.T.key === (cur && cur.key) ? " on" : ""}${x.un.n ? " un" : ""}" data-msgopen="${esc(x.T.key)}">${av}<span class="msg-mid"><span class="msg-t1"><span class="msg-t" data-nocase>${esc(x.T.title)}</span>${k ? `<span class="msg-k k-${x.T.kind}">${esc(k)}</span>` : ""}</span><span class="msg-last" data-nocase>${prev}</span></span><span class="msg-r">${x.last ? `<span class="msg-when">${esc(msgRowWhen(x.when))}</span>` : ""}<span class="msg-rb">${x.un.at ? '<span class="msg-atn" title="You were mentioned">@</span>' : ""}${x.un.n ? `<span class="n">${x.un.n}</span>` : ""}</span></span></button>`;
       })
       .join("") || `<div class="msg-none small muted">${q ? "No conversation matches." : "No conversations yet."}</div>`
-  }</div>`;
+  }${((quiet) =>
+    quiet.length
+      ? `<button type="button" class="msg-row msg-more" data-msgquiet aria-expanded="${msgShowQuiet}">${msgAvatar("", "", "job")}<span class="msg-mid"><span class="msg-t1"><span class="msg-t">Start a Chat on a Job</span></span><span class="msg-last">${quiet.length} job conversation${1 === quiet.length ? "" : "s"} with nothing in them yet</span></span></button>${
+          msgShowQuiet
+            ? quiet.map((x) => `<button type="button" class="msg-row msg-quiet" data-msgopen="${esc(x.T.key)}">${msgAvatar("", "", x.T.kind)}<span class="msg-mid"><span class="msg-t1"><span class="msg-t" data-nocase>${esc(x.T.title)}</span>${msgKindLabel(x.T, u) ? `<span class="msg-k k-${x.T.kind}">${esc(msgKindLabel(x.T, u))}</span>` : ""}</span><span class="msg-last">No messages yet</span></span></button>`).join("")
+            : ""
+        }`
+      : "")(((all) => (!q && all.some((x) => x.last) ? all.filter((x) => !x.last) : []))(rows))}</div>`;
 }
+let msgShowQuiet = !1;
+document.addEventListener(
+  "click",
+  (e) => {
+    e.target.closest && e.target.closest("[data-msgquiet]") && ((msgShowQuiet = !msgShowQuiet), render());
+  },
+  !0,
+);
 // the open conversation's header: back (with the unread count elsewhere), who it is, one plain sub-line
 function msgHeadHtml(T, u, solo) {
   const tot = msgUnreadTotal(u),
