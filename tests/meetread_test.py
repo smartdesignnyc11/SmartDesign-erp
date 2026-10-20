@@ -126,6 +126,8 @@ async def main():
         c.ok(plaster and plaster[0]['a']['due'] == '' and 'confirm the date' in plaster[0]['detail'], 'a date before the meeting is asked about, never scheduled a year out')
         pol = find('Firm policy', 'rule')
         c.ok(len(pol) == 1, f'a standing policy goes to the playbook for approval: {pol}')
+        pb = await pg.evaluate("(m => { const pr = m.proposals.find(x => x.kind === 'rule' && /Firm policy/.test(x.title)); mtApply(m, pr); return (DB.company.playbook || []).map(r => r.text); })(DB.meetings.find(m => m.id === 'mt_read2'))")
+        c.ok(any('signed change order' in (t or '') for t in pb), f'approved, the policy is in the firm\'s playbook in its own words: {pb[-2:]}')
         rec = find('Recover from Keystone')
         c.ok(rec and rec[0]['amount'] == 1450 and rec[0]['a']['assignee'] == 'Chen Biron', f"a vendor's mistake is a recovery task with the amount: {rec}")
         hold = find('Hold billing')

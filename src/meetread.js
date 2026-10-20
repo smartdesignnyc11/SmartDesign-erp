@@ -152,9 +152,19 @@ const mrPerson = (n) => {
 const mrRole = (r) => ((DB.users || []).find((u) => u.role === r) || {}).name || "";
 const mrDue = (when, m) => {
   try {
-    const w = when && "function" == typeof mtDateWhy ? mtDateWhy(when, m.date || today()) : null;
-    // a date before the meeting is a slip in the notes or the speech: asked about, never scheduled a year out
-    return w && w.date && w.date >= (m.date || today()) ? w : null;
+    const base = m.date || today(),
+      w = when && "function" == typeof mtDateWhy ? mtDateWhy(when, base) : null;
+    if (!w || !w.date || w.date < base) return null;
+    // a date before the meeting is a slip in the notes or the speech: asked about, never scheduled a year out.
+    // "August 1" said on September 2 resolves to next August; a month and day that fell before the meeting in the
+    // meeting's own year is that slip, and so is anything more than ten months out.
+    const md = String(when).toLowerCase().match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})\b/);
+    if (md && !/\b20\d\d\b/.test(String(when))) {
+      const mi = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"].indexOf(md[1]),
+        same = `${base.slice(0, 4)}-${String(mi + 1).padStart(2, "0")}-${String(+md[2]).padStart(2, "0")}`;
+      if (same < base) return null;
+    }
+    return LOOP_CORE.daysBetween(base, w.date) > 300 ? null : w;
   } catch (e) {
     return null;
   }
@@ -178,7 +188,7 @@ function mrPropose(m, R) {
   (R.decisions || []).forEach((d) => {
     const p = d.policy ? null : mrJob(d.job, d.what);
     d.policy || !p
-      ? add("rule", `Firm policy: ${d.what}`, `${d.quote ? `“${mrClean(d.quote, 160)}”` : ""} — for the firm's playbook, the owner approves`, { title: mrClean(d.what, 160), notes: `Decided in ${src}`, projectId: "" })
+      ? add("rule", `Firm policy: ${d.what}`, `${d.quote ? `“${mrClean(d.quote, 160)}”` : ""} — for the firm's playbook, the owner approves`, { rule: mrClean(d.what, 160), title: mrClean(d.what, 160), notes: `Decided in ${src}`, projectId: "" })
       : add("decision", `Decided: ${d.what}`, `${d.quote ? `“${mrClean(d.quote, 160)}”` : ""}`, { projectId: p.id, name: mrClean(d.what, 120), note: `Decided in ${src}: ${mrClean(d.quote, 200)}`, made: !0 });
   });
   const coord = mrRole("coord"),
