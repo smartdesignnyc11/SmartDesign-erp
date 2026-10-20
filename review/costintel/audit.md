@@ -56,6 +56,20 @@ The Cost Intelligence lane's starting point. App day 2026-09-03, demo seed, read
    price outliers (the same item bought above the best store more than once), waste, vendor delays (broken promises)
    and repeated site questions; each a drafted change with a dollar or hour value; approved rules become lessons.
 
+## Folded in during the lane (coordinator, 2026-10-20)
+
+- **One price path.** The reports lane's close-out cost factor (`DB.company.costBook`, by cost code) was written and
+  read by nothing. `DB.company.costBook` is now the one book of what estimates carry: the factors as before, the
+  approved benchmarks under its `bench` key (no `DB.company.costBench`). `ciCostGuide` is its one reader: the estimate
+  editor shows both beside a line, and the item library's fill (`libFillLine`, `itFillSell`) scales a filled unit cost
+  by the code's factor once, recorded on the line (`l.costGuide`); a typed cost is never touched.
+- **One count.** The role-specialists lane's `PRED.jobsCashNegative` is now `PRED.jobsOverspending` under the
+  checklist's name: the checklist, Caught for You, the tab and Ask show the same jobs. Its cash-in reading (bank
+  deposits on the job, or payments recorded, whichever is larger; disputed duplicates left out) is part of the rule.
+- **Savings** go to `window.SV_SOURCES` in the ledger's shape: route (an item bought where the approved route planned
+  it, against the nearest-store route's price) and price book (a store buy made where a Cheaper at Another Store case
+  pointed, after the case). Demo: Brooklyn Lumber on 9/2 after the Home Depot cases, $98.00 + $51.20 + $72.45.
+
 ## What the checks would not have caught, and the check added
 
 - A receipt that ties to nothing: every demo receipt linked to a card line is checked to the cent against it.
