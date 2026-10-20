@@ -417,6 +417,23 @@ async def s6_duplicate(p, C):
             save(); const R = pcCheck(b); return {holds: R.holds.map(h => [h.key, h.what, h.money]), card: amex.type}; }""")
         prior = [h for h in r['holds'] if h[0] == 'prior']
         C.ok(prior and '$812.40' in prior[0][1] and 'may already have paid this bill' in prior[0][1] and prior[0][2] == 812.4, f'[6] a {r["card"]} charge of the same amount to the same vendor holds the check: {r["holds"]}')
+        # it slips through anyway (paid by check here, and the card line is later tied to the same bill): the overpayment
+        # becomes a credit request the coordinator approves, on Caught for You until the vendor's credit lands
+        await pg.evaluate("""() => { const b = DB.bills.find(x => x.id === 'blum'); const bank = DB.accounts.find(a => a.type !== 'card') || DB.accounts[0];
+            DB.txns.push({id: 'tchk', date: '2026-09-02', amt: -812.4, desc: 'CHECK 2201', acct: bank.id, status: 'new'});
+            DB.payments.push({id: 'pchk', billId: b.id, entityId: 'ent1', vendor: b.vendor, date: '2026-09-01', amount: 812.4, acctId: bank.id, method: 'Check', ref: '2201', txnId: 'tchk', by: 'Controller', at: appNowIso()});
+            b.status = 'paid'; b.paidAt = '2026-09-01'; DB.txns.find(t => t.id === 'tlum').billId = b.id; save(); }""")
+        rows = await pg.evaluate("() => CATCH.find(c => c.name === 'vendorOverpaid').rows().map(r => [r.what, r.sub, r.amount, r.verb])")
+        C.ok(rows == [['Invented Lumber Yard overpaid on ILY-5512', '$812.40 paid past the bill', 812.4, 'Request Credit']], f'[6] paid twice, by check and by card: Caught for You says $812.40 overpaid: {rows}')
+        await pg.evaluate("() => CATCH.find(c => c.name === 'vendorOverpaid').rows()[0].run()")
+        d = await pg.evaluate("() => { const o = (DB.outbox || []).find(x => x.kind === 'overpay-credit'); return o && [o.status, o.forName, o.subject, /Waste nothing/.test(o.because || '')]; }")
+        C.ok(d and d[0] == 'draft' and d[1] == 'Chen Biron' and '$812.40' in d[2] and d[3], f'[6] Request Credit drafts the request for the coordinator to send, with its Standard line: {d}')
+        rows = await pg.evaluate("() => CATCH.find(c => c.name === 'vendorOverpaid').rows().map(r => [r.sub, r.verb])")
+        C.ok(rows == [['$812.40 paid past the bill; credit requested', 'Open']], f'[6] it stays caught, requested, until the money comes back: {rows}')
+        await pg.evaluate("""() => { DB.bills.push({id: 'blumcm', vendor: 'Invented Lumber Yard', number: 'ILY-CM-12', date: '2026-09-03', due: '2026-09-03', entityId: 'ent1', projectId: '', poId: '', cat: 'office', code: '',
+            lines: [{id: 'blcm', desc: 'Credit for duplicate payment', amount: -812.4}], payMethod: 'Check', status: 'approved', approvals: [], createdBy: 'Billing', recovers: 'blum'}); save(); }""")
+        rows = await pg.evaluate("() => CATCH.find(c => c.name === 'vendorOverpaid').rows().length")
+        C.ok(rows == 0, f'[6] the vendor\'s credit memo closes it: {rows} rows')
         C.ok(not errs, f'[6] no page errors {errs[:2]}')
     finally:
         await b.close()
@@ -476,6 +493,11 @@ async def s8_retainage(p, C):
         C.ok(r == [10, 15000, 13500], f'[8] Hold 10% sets the subcontract\'s rate: $13,500.00 payable, $1,500.00 held: {r}')
         k = await check(pg, 'bret', 13500)
         C.ok(not any(h['key'] == 'retainage' for h in k['holds']), f'[8] the retainage hold clears: {[h["what"] for h in k["holds"]]}')
+        # retainage is released only at the milestone, with a final waiver
+        await pg.evaluate("() => { signIn('u_owner'); releaseRetainage(DB.vendors.find(v => v.id === 'vbsw'), 'p121', 1); const b = DB.bills.filter(x => x.retainageRelease && x.vendor === 'Brooklyn Stair Works').pop(); b.status = 'approved'; save(); }")
+        rel = await pg.evaluate("() => { const b = DB.bills.filter(x => x.retainageRelease && x.vendor === 'Brooklyn Stair Works').pop(); const R = pcCheck(b); return {amt: billTotal(b), holds: R.holds.map(h => [h.key, h.what])}; }")
+        C.ok(rel['amt'] == 3500 and any(k == 'retainage' and 'released at substantial completion' in w for k, w in rel['holds']) and any(k == 'waiver' and 'final' in w for k, w in rel['holds']),
+             f'[8] the $3,500 release waits for substantial completion and a final waiver: {rel}')
         C.ok(not errs, f'[8] no page errors {errs[:2]}')
     finally:
         await b.close()

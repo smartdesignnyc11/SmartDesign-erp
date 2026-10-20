@@ -153,6 +153,8 @@ function scBilledToDate(po, exceptId, o) {
     .forEach((b) => {
       const m = scBillByLine(b, po);
       Object.keys(m).forEach((k) => ((out[k] = r2((out[k] || 0) + m[k])), (out._total = r2(out._total + m[k]))));
+      // a difference held in dispute (approved at the PO amount, the rest disputed) is not billed until accepted
+      out._total = r2(out._total - pcDisputed(b));
     });
   return out;
 }
@@ -164,6 +166,7 @@ function scPaidBill(b) {
   (DB.txns || []).filter((t) => t.billId === b.id && +t.amt < 0 && !P.some((p) => p.txnId === t.id)).forEach((t) => (s -= +t.amt));
   return r2(!s && scPaidSt(b) ? billTotal(b) : s);
 }
+const pcDisputed = (b) => ("function" == typeof pay3HeldCost ? +pay3HeldCost(b) || 0 : 0);
 const scCreditsTaken = (b) => r2(((b && b.creditsTaken) || []).reduce((a, c) => a + (+c.amount || 0), 0));
 // what is still to pay on a bill: its open amount less the vendor credits taken against it
 const pcOpen = (b) => r2(Math.max(0, ("function" == typeof payOpen ? payOpen(b) : billTotal(b) - scPaidBill(b)) - scCreditsTaken(b)));
@@ -366,7 +369,7 @@ function pcCheck(b, o) {
   // the contract: paid and billed to date never beyond the PO or subcontract plus approved changes without the owner
   if (po) {
     const C = scContract(po),
-      billed = r2(scBilledToDate(po, b.id)._total + (b.retainageRelease ? 0 : Math.max(0, billGross(b)))),
+      billed = r2(scBilledToDate(po, b.id)._total + (b.retainageRelease ? 0 : Math.max(0, billGross(b) - pcDisputed(b)))),
       paidPO = r2(scBillsOf(po).reduce((a, x) => a + scPaidBill(x), 0) + (DB.txns || []).filter((t) => (po.matchedTxns || []).includes(t.id) && !t.billId).reduce((a, t) => a - +t.amt, 0)),
       signed = (b.approvals || []).some((a) => /approved as billed|over the po|over po|beyond the order/i.test(`${a.action || ""}`) && ("owner" === a.role || /owner/i.test(a.action || ""))),
       dep = scBillsOf(po).filter((x) => x.id !== b.id && /\bdeposit\b/i.test([x.notes || "", ...(x.lines || []).map((l) => l.desc || "")].join(" ")));
@@ -412,8 +415,11 @@ function pcCheck(b, o) {
       : K("work", W.words || "Work in place supports what is billed");
   }
   // retainage: held at the contract rate, released only at the milestone, with a final waiver
-  if (sub && po && scIsSubcontract(po)) {
-    const rate = +po.retainagePct || 0;
+  // a retainage release names no PO (releaseRetainage): its subcontract is the sub's on the job
+  const spo = po || (b.retainageRelease ? (DB.pos || []).find((x) => scIsSubcontract(x) && scLow(x.vendor) === scLow(b.vendor) && x.projectId === b.projectId) : null);
+  if (sub && spo && scIsSubcontract(spo)) {
+    const po = spo,
+      rate = +po.retainagePct || 0;
     if (b.retainageRelease) {
       const p = scProj(b.projectId),
         pct = p ? tpJobPct(p) : 0,
@@ -1462,6 +1468,64 @@ CATCH.push({
         };
       }),
 });
+// An overpayment that slipped through (a bill paid past its total, by any method): a credit or refund request the
+// coordinator approves, tracked until a credit memo or a refund from the vendor covers it (BACKLOG §1.12).
+function pcOverpaid() {
+  return (DB.bills || [])
+    .filter((b) => scLive(b) && billTotal(b) > 0 && !b.ic)
+    .map((b) => ({ b: b, over: r2(scPaidBill(b) + scCreditsTaken(b) - billTotal(b) - pcDisputed(b)) }))
+    .filter((x) => x.over > 0.5)
+    .map((x) => {
+      const R = x.b.recover || {},
+        back = r2(
+          (DB.bills || []).filter((c) => scLow(c.vendor) === scLow(x.b.vendor) && scLive(c) && billTotal(c) < 0 && (c.recovers === x.b.id || (R.at && c.date >= String(R.at).slice(0, 10)))).reduce((a, c) => a - billTotal(c), 0) +
+            (DB.txns || []).filter((t) => +t.amt > 0 && R.at && t.date >= String(R.at).slice(0, 10) && scLow(`${t.vendor || ""} ${t.desc || ""}`).includes(scLow(x.b.vendor).split(/\s+/)[0])).reduce((a, t) => a + +t.amt, 0),
+        );
+      return Object.assign(x, { requested: !!R.draftId, back: back, open: r2(Math.max(0, x.over - back)) });
+    })
+    .filter((x) => x.open > 0.5);
+}
+function pcRecoverDraft(b, over) {
+  const v = scVendor(b.vendor) || { name: b.vendor },
+    coord = (DB.users || []).find((u) => "coord" === u.role) || {},
+    first = String(v.contact || v.name || "").split(" ")[0],
+    o = {
+      id: uid("ox"),
+      kind: "overpay-credit",
+      to: { name: v.contact || v.name, email: v.email || "" },
+      subject: `Overpayment on ${b.number || "your invoice"}: credit or refund of ${scM(over)}`,
+      body: `Hi ${first},\n\nOur records show we paid ${scM(scPaidBill(b))} against invoice ${b.number || ""} for ${scM(billTotal(b))}, ${scM(over)} more than it was for. Could you send a credit memo we can take off the next invoice, or refund the difference?\n\nThank you,\n${coord.name || scMe()}\nSmartDesign`,
+      about: { label: `${b.vendor} ${b.number || ""}: overpaid ${scM(over)}`, billId: b.id },
+      aboutKey: `pc|${b.id}|overpay`,
+      forName: coord.name || "",
+      status: "draft",
+      at: today(),
+      by: "assistant",
+      because: `${standardWhy("pc:prior")}. ${STD_WASTE}`,
+    };
+  (DB.outbox = DB.outbox || []).push(o);
+  b.recover = { amount: over, draftId: o.id, at: appNowIso(), by: scMe() };
+  try {
+    audit("bill", b.id, "overpay-credit-requested", "", scM(over), o.id);
+  } catch (e) {}
+  save(), render();
+  rcToast(`Credit request to ${b.vendor} for ${scM(over)} drafted — it waits on ${coord.name || "the coordinator"} to send, and stays on Caught for You until the credit or refund lands`, [{ label: "Open", run: () => flowGo.bill(b)() }]);
+  return o;
+}
+CATCH.push({
+  name: "vendorOverpaid",
+  label: "Vendors Overpaid",
+  rows: () =>
+    pcOverpaid().map((x) => ({
+      key: "overpaid:" + x.b.id,
+      what: `${x.b.vendor} overpaid on ${x.b.number || "a bill"}`,
+      sub: `${scM(x.over)} paid past the bill${x.back ? `, ${scM(x.back)} back so far` : ""}${x.requested ? "; credit requested" : ""}`,
+      amount: x.open,
+      verb: x.requested ? "Open" : "Request Credit",
+      run: x.requested ? flowGo.bill(x.b) : () => pcRecoverDraft(x.b, x.open),
+    })),
+});
+STD_MAP.vendorOverpaid = { p: "cost", leak: !0, c: ["value", "dollar", /Waste nothing/i] };
 // the money path: every payment of a bill goes through the check; Mark Paid too
 payDialog = function (billId) {
   return pcPaySheet(billId);
