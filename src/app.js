@@ -24545,6 +24545,13 @@ function lineLabor(doc, line) {
     return 0;
   }
 }
+function lineBillIsBankDup(b) {
+  try {
+    return BILL_ACCRUED.includes(b.status) && billPaidUnapproved(b) && !finBillCarriesCost(b);
+  } catch (e) {
+    return !1;
+  }
+}
 function lineFin(key) {
   const ref = findLine(key);
   if (!ref) return null;
@@ -24627,7 +24634,11 @@ function lineFin(key) {
     ),
     committed = Math.max(0, r2(poGross - poBilled)),
     draftPOs = DB.pos.filter((po) => "draft" === po.status && po.lines.some((l) => l.line === key)),
-    bills = DB.bills.filter((b) => b.line === key && "void" !== b.status && "rejected" !== b.status),
+    // A bill awaiting approval that the bank has already paid, where the bank line carries the cost, is the same
+    // money as that bank line: the job counts it once (the jobFin "fin" layer), so the line does too. Counted
+    // twice, 121 State's plumbing line read $19,755 (AMP-311 + check 2205) and the By Line total $102,670 against
+    // the job's $97,084 on the same report.
+    bills = DB.bills.filter((b) => b.line === key && "void" !== b.status && "rejected" !== b.status && !lineBillIsBankDup(b)),
     // a difference disputed with the vendor is not cost until it is settled (as job cost reads it, by code)
     billsAmt = r2(bills.reduce((a, b) => a + billCost(b) - billRebillPart(b) - ("function" == typeof pay3HeldCost ? pay3HeldCost(b) : 0), 0)),
     txns = DB.txns.filter(
@@ -24943,7 +24954,10 @@ function projectProfit(p) {
     budget: J.budget,
     committed: J.committed,
     direct: J.billsAmt,
-    unlinked: J.txnAmt,
+    // job cost on no cost code row: the report's rows plus this one add up to the job's actual. It was the job's
+    // bank-line total ($17,944 on 121 State), which the code rows already carry, so the rows added to $111,638
+    // against a $97,084 total.
+    unlinked: ((x) => (Math.abs(x) < 0.5 ? 0 : x))(r2(J.actual - (J.byCode || []).reduce((a, b) => a + (+b.bills || 0) + (+b.bank || 0) + (+b.labor || 0), 0))),
     accrued: J.accrued,
     labor: labor,
     actual: J.actual,
@@ -25084,7 +25098,7 @@ function repProfit() {
         return `<tr><td><b>${b.code}</b> ${esc(b.name)}</td>${[b.contract, b.budget, b.committed, b.actual, b.labor, act, b.budget - act].map((v) => `<td class="money ${v < 0 ? "bad" : ""}">${repMoney(v)}</td>`).join("")}<td><div class="rep-bar-wrap"><i style="width:${Math.min(100, pct)}%;background:${pct > 100 ? "var(--bad)" : pct > 85 ? "var(--warn)" : "var(--ok)"}"></i></div><span class="small muted">${pct}%</span></td></tr>`;
       })
       .join("") || '<tr><td colspan="9" class="muted">No approved estimate lines for this project.</td></tr>'
-  }${r.unlinked ? `<tr><td class="muted">Unlinked job cost (no line)</td><td></td><td></td><td></td><td class="money">${money(r.unlinked)}</td><td></td><td class="money">${money(r.unlinked)}</td><td></td><td></td></tr>` : ""}<tr style="font-weight:600"><td>Total</td><td class="money">${money(r.contract)}</td><td class="money">${money(r.budget)}</td><td class="money">${money(r.committed)}</td><td class="money">${money(r.direct + r.unlinked)}</td><td class="money">${money(r.labor.cost)}</td><td class="money">${money(r.actual)}</td><td class="money">${money(r.budget - r.actual)}</td><td></td></tr></tbody></table></div>\n    <h3 class="rep-h">By line</h3>${c ? renderFinLines(c) : ""}\n    <div class="grid2" style="margin-top:14px"><div><h3 class="rep-h">Invoices & payments</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Invoice</th><th>Date</th><th class="money">Amount</th><th class="money">Paid</th><th>Status</th></tr></thead><tbody>${r.invs.map((i) => `<tr><td>${esc(i.number)} · ${esc(i.title)}</td><td class="dim">${fmt(i.date)}</td><td class="money">${money(docTotal(i).total)}</td><td class="money">${money(invoicePaid(c, i))}</td><td>${invoiceStatus(c, i)}</td></tr>`).join("") || '<tr><td colspan="5" class="muted">None in range.</td></tr>'}</tbody></table></div></div>\n    <div><h3 class="rep-h">Labor</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Employee</th><th class="money">Hours</th><th class="money">Burdened cost</th></tr></thead><tbody>${r.labor.list.map((x) => `<tr><td>${esc(x.emp)}</td><td class="money">${r2(x.hours)}</td><td class="money">${money(x.cost)}</td></tr>`).join("") || '<tr><td colspan="3" class="muted">No approved time in range.</td></tr>'}${r.labor.list.length ? `<tr style="font-weight:600"><td>Total</td><td class="money">${r.labor.hours}</td><td class="money">${money(r.labor.cost)}</td></tr>` : ""}</tbody></table></div><p class="small muted">Labor = clocked hours × rate × (1 + burden). Payroll bank transactions are excluded from actual to avoid double counting.</p></div></div>`;
+  }${r.unlinked ? `<tr><td class="muted">Job cost on no cost code</td><td></td><td></td><td></td><td class="money">${money(r.unlinked)}</td><td></td><td class="money">${money(r.unlinked)}</td><td></td><td></td></tr>` : ""}<tr style="font-weight:600"><td>Total</td><td class="money">${money(r.contract)}</td><td class="money">${money(r.budget)}</td><td class="money">${money(r.committed)}</td><td class="money">${money(r.direct + r.unlinked)}</td><td class="money">${money(r.labor.cost)}</td><td class="money">${money(r.actual)}</td><td class="money">${money(r.budget - r.actual)}</td><td></td></tr></tbody></table></div>\n    <h3 class="rep-h">By line</h3>${c ? renderFinLines(c) : ""}\n    <div class="grid2" style="margin-top:14px"><div><h3 class="rep-h">Invoices & payments</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Invoice</th><th>Date</th><th class="money">Amount</th><th class="money">Paid</th><th>Status</th></tr></thead><tbody>${r.invs.map((i) => `<tr><td>${esc(i.number)} · ${esc(i.title)}</td><td class="dim">${fmt(i.date)}</td><td class="money">${money(docTotal(i).total)}</td><td class="money">${money(invoicePaid(c, i))}</td><td>${invoiceStatus(c, i)}</td></tr>`).join("") || '<tr><td colspan="5" class="muted">None in range.</td></tr>'}</tbody></table></div></div>\n    <div><h3 class="rep-h">Labor</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Employee</th><th class="money">Hours</th><th class="money">Burdened cost</th></tr></thead><tbody>${r.labor.list.map((x) => `<tr><td>${esc(x.emp)}</td><td class="money">${r2(x.hours)}</td><td class="money">${money(x.cost)}</td></tr>`).join("") || '<tr><td colspan="3" class="muted">No approved time in range.</td></tr>'}${r.labor.list.length ? `<tr style="font-weight:600"><td>Total</td><td class="money">${r.labor.hours}</td><td class="money">${money(r.labor.cost)}</td></tr>` : ""}</tbody></table></div><p class="small muted">Labor = clocked hours × rate × (1 + burden). Payroll bank transactions are excluded from actual to avoid double counting.</p></div></div>`;
 }
 function repPortfolio() {
   const rows = DB.projects.map((p) => ({ p: p, r: projectProfit(p) })),
