@@ -3814,3 +3814,6 @@ body.msg-on #v-chat .chat-compose.msg-recording #chat-send{display:none}
   .sc-sov th:nth-child(5),.sc-sov td:nth-child(5){display:none}
   .pc-run th:nth-child(3),.pc-run td:nth-child(3){display:none}
 }
+/* One blue button per screen: with a record's drawer or a sheet open, that is the screen, so the page behind it keeps
+   its main button but not its blue (Bills & Payroll's New Vendor Bill read blue beside the open bill's Pay). */
+body:has(#drawer.on) section.view .btn.primary,body:has(#mbm) section.view .btn.primary{background:var(--paper);border-color:var(--rule);color:inherit}
