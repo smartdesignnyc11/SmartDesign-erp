@@ -15510,9 +15510,16 @@ function cashForecast() {
       parse(d) < td && (d = iso(addDays(td, 7))), put(d, o.bal, `${c.name.split(" ")[0]} ${o.x.number}`);
     }),
   ),
+    // A bill the bank or a card already paid (paid before approval) is not money still to go out: forecast, it
+    // took Window Works' $33,500 (paid on the Amex 8/25) and AMP-311's $9,800 (check 2205) out a second time.
     DB.bills
-      .filter((b) => ["submitted", "pm-approved", "approved"].includes(b.status) && !b.txnId && !b.paidAt)
+      .filter((b) => ["submitted", "pm-approved", "approved"].includes(b.status) && !b.txnId && !b.paidAt && !("function" == typeof billPaidUnapproved && billPaidUnapproved(b)))
       .forEach((b) => put(b.due >= today() ? b.due : iso(addDays(td, 3)), -billTotal(b), `Bill ${b.vendor}`)),
+    // What the firm owes on its cards is cash still to leave the bank. The statement due date is not on file, so
+    // the balance is placed two weeks out and says so.
+    (DB.accounts || [])
+      .filter((a) => "card" === a.type && +a.balance < -0.005)
+      .forEach((a) => put(iso(addDays(td, 14)), +a.balance, `Card balance ${a.name}${a.last4 ? " ···" + a.last4 : ""} (due date not on file)`)),
     DB.pos
       .filter((p) => ["issued", "partial"].includes(p.status))
       .forEach((p) => {
@@ -15526,6 +15533,11 @@ function cashForecast() {
         );
         open > 0 && put(iso(addDays(parse(p.expected || today()), 14)), -open, `PO ${p.number}`);
       });
+  // A run already prepared and not yet paid is owed now, on top of the cadence below (which forecasts the next
+  // runs): the 8/17-8/28 run ($16,040, past due since 9/1) was in no week at all.
+  DB.payroll
+    .filter((r) => r.total && ["submitted", "pm-approved", "approved"].includes(r.status) && !r.paidAt)
+    .forEach((r) => put(r.payDate && r.payDate > today() ? r.payDate : today(), -r.total, `Payroll ${r.period} (owed)`));
   const runs = DB.payroll.filter((r) => r.total),
     avg = runs.length ? runs.slice(-3).reduce((a, r) => a + r.total, 0) / Math.min(3, runs.length) : 0;
   if (avg) {
@@ -70707,12 +70719,15 @@ function glInvoiceLines(c, d) {
     net = r2(T.sub - T.disc);
   if (d.retainageRelease)
     return L.push(glL("1100", T.total, 0, dims)), L.push(glL("1150", 0, T.total, dims)), L;
-  const isDeposit = !(!d.depositOf && !d.retainerOf);
+  const isDeposit = !(!d.depositOf && !d.retainerOf),
+    // docTotal already takes an applied deposit off a progress (SOV) invoice's total (T.dep); taking it off again
+    // left the journal $1 short per $1 of deposit (Dr 1100 + 2400 under Cr revenue) and AR under the client record
+    depOff = r2(r2(d.depositApplied || 0) - r2(T.dep || 0));
   if (
     (L.push(
       glL(
         "1100",
-        r2(T.total - r2(d.depositApplied || 0) < 0 ? 0 : T.total - r2(d.depositApplied || 0)),
+        r2(T.total - depOff < 0 ? 0 : T.total - depOff),
         0,
         dims,
       ),

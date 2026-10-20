@@ -9,6 +9,7 @@ r = lambda p: open(os.path.join(H, p), encoding='utf-8').read()
 # assistant per person, BACKLOG §1.27/§1.24: its screens) ride after app.js in the same script, in that order, so
 # assistant.js's wrappers are the outermost ones and every name app.js declares is in scope.
 js = r('src/app.js') + '\n' + r('src/mind.js') + '\n' + r('src/assistant.js')
+js += '\n' + r('src/reports.js') if not subprocess.run(['node', '--check', os.path.join(H, 'src/reports.js')]).returncode else sys.exit('src/reports.js has a syntax error; not building')  # the Reporting lane (BACKLOG §1.13), outermost
 for f in ('src/app.js', 'src/mind.js', 'src/assistant.js'):
     if subprocess.run(['node', '--check', os.path.join(H, f)]).returncode:
         sys.exit(f + ' has a syntax error; not building')
