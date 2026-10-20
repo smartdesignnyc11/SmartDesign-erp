@@ -10,7 +10,7 @@ r = lambda p: open(os.path.join(H, p), encoding='utf-8').read()
 # assistant.js's wrappers are the outermost ones and every name app.js declares is in scope.
 # src/items.js (one item library that fills every line, BACKLOG §1.18) and src/field_es.js (the field's screens in
 # Spanish, §1.20) ride last: their wrappers are outermost, and the Spanish pass reads every screen as finally drawn.
-SRC = ('src/app.js', 'src/mind.js', 'src/assistant.js', 'src/items.js', 'src/field_es.js')
+SRC = ('src/app.js', 'src/mind.js', 'src/assistant.js', 'src/items.js', 'src/field_es.js', 'src/field_es_words.js')
 js = '\n'.join(r(f) for f in SRC)
 for f in SRC:
     if subprocess.run(['node', '--check', os.path.join(H, f)]).returncode:
@@ -18,9 +18,13 @@ for f in SRC:
 # The SmartDesign Standard (docs/STANDARD.md, Alan's own document) rides in the page word for word: the app seeds
 # its live, versioned copy from it (standardParse in src/app.js), so the text is loaded, never paraphrased in code.
 std = r('docs/STANDARD.md').replace('</script', '<\\/script')
+# The field's parts of the Standard in Spanish (docs/STANDARD_ES.md, BACKLOG §1.20): shown to a field person whose
+# language is Spanish; Alan's English stays the source, and the page says when the English has moved on.
+std_es = r('docs/STANDARD_ES.md').replace('</script', '<\\/script')
 out = ('<!doctype html>\n<html lang="en"><head><meta charset="utf-8">\n' + r('src/head.html') +
        '<style>\n' + r('src/styles.css') + '</style>\n</head><body>\n' + r('src/body.html') +
        '\n<script type="text/plain" id="sd-standard-md">\n' + std + '</script>' +
+       '\n<script type="text/plain" id="sd-standard-es-md">\n' + std_es + '</script>' +
        '\n<script>\n' + js.replace('</script', '<\\/script') + '\n</script>\n</body></html>\n')
 os.makedirs(os.path.join(H, 'dist'), exist_ok=True)
 open(os.path.join(H, 'dist/smartdesigns_projects.html'), 'w', encoding='utf-8').write(out)
