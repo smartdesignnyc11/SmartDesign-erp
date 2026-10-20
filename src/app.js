@@ -2440,7 +2440,8 @@ async function load(opts = {}) {
         (t.actualStart = t.actualStart || ""), (t.actualEnd = t.actualEnd || "");
       });
   }),
-    setCurrent(DB.currentId || DB.projects[0].id);
+    // a field person on no job yet (the server sends only their crew's jobs) has none: setCurrent falls back itself
+    setCurrent(DB.currentId || (DB.projects[0] ? DB.projects[0].id : ""));
   try {
     catMigrate(), poMigrate();
   } catch (e) {

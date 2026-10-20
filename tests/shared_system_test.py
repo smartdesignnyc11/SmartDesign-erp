@@ -45,6 +45,14 @@ async def main():
           strip(); const B = tdyRecurSweep().map(x => x.id).sort();
           return { n: A.length, same: JSON.stringify(A) === JSON.stringify(B), uniq: new Set(A).size === A.length }; }""")
         c.ok(r['n'] > 0 and r['same'] and r['uniq'], f'two devices make the same recurring duties, one id each: {r}')
+        # 3. a field person on no job yet: the server sends only their crew's jobs, so their phone may hold none (live,
+        # 2026-10-20: "Could not start", load read the first job's id); it must still open
+        await pg.evaluate("async () => { signIn('u_angel'); DB.projects = []; DB.currentId = ''; await saveNow(); }")
+        await pg.reload()
+        try:
+            await pg.wait_for_function("document.body.dataset.booted==='1'", timeout=60000); booted = True
+        except Exception: booted = False
+        c.ok(booted, 'a field person with no jobs on their phone still opens the app')
         c.ok(not errs, f'page errors {errs[:2]}')
         await b.close()
     print(f'{len(c.fail)} FAILED ({c.n} checks)' if c.fail else f'ALL PASS ({c.n} checks)')
