@@ -81,8 +81,11 @@ function ljPayPayer(c, py) {
       if ("mixed" !== p) return p;
     }
   }
-  return ljOkPayer(c, py && py.payer) ? py.payer : ljPrimary(c);
+  // a payment on account (no invoice, or one that holds two payers' lines) waits for billing to say whose it is: put on
+  // the first payer, one payer's statement showed money the other paid (2026-10-20, chief of staff)
+  return ljOkPayer(c, py && py.payer) ? py.payer : "";
 }
+const ljUnassigned = (c) => (ljMulti(c) ? (c.payments || []).filter((py) => py && !py.void && +py.amount && !ljPayPayer(c, py)) : []);
 function ljCoPayer(c, x) {
   return ljOkPayer(c, x && x.payer) ? x.payer : ljPrimary(c);
 }
@@ -930,6 +933,17 @@ if ("function" == typeof draftDocEmail) {
   reminders = function () {
     const out = base.apply(this, arguments);
     try {
+      const un = (DB.clients || []).flatMap((c) => ljUnassigned(c).map((py) => ({ c, py })));
+      un.length &&
+        out.push({
+          n: un.length,
+          label: `payment${1 === un.length ? "" : "s"} on a two-payer contract not assigned to a payer: ${un
+            .slice(0, 2)
+            .map((x) => `${x.c.name} ${money(+x.py.amount)}`)
+            .join("; ")}`,
+          go: { view: "clients" },
+          sev: "warn",
+        });
       const over = ljAllowanceAll().filter((r) => "over" === r.status);
       over.length &&
         out.push({
@@ -1029,7 +1043,14 @@ function ljPayersCard(c) {
   return `<div class="lj-card lcard lj-payers no-doc-print"><h3>Payers on This Contract</h3><p class="lj-sub">Each payer is billed for their own lines and has their own invoices, aging and statement.</p><div class="lj-rows">${F.map(
     (f) =>
       `<div class="lj-row" data-ljpayer="${esc(c.id)}|${esc(f.pid)}"><div class="lj-nm"><b>${esc(f.name)}</b> <span class="lj-pill">${esc(f.role || "Payer")}</span></div>${ljKv("Contract", money(f.revised))}${ljKv("Billed", money(f.invoiced))}${ljKv("Paid", money(f.paid))}${ljKv("Open", money(f.outstanding), f.outstanding ? "" : "")}${ljKv("Overdue", money(f.overdue), f.overdue ? "bad" : "")}<div class="lj-acts">${ljBtn(`data-ljstmt="${esc(c.id)}|${esc(f.pid)}"`, "Statement")}${c.sov && c.sov.length ? ljBtn(`data-ljprog="${esc(c.id)}|${esc(f.pid)}"`, "New Progress Invoice") : ""}</div></div>`,
-  ).join("")}</div><div class="lj-acts" style="margin-top:6px">${ljBtn(`data-ljpayers="${esc(c.id)}"`, "Edit Payers")}</div></div>`;
+  ).join("")}${ljUnassigned(c)
+    .map(
+      (py) =>
+        `<div class="lj-row" data-ljunpay="${esc(c.id)}|${esc(py.id)}"><div class="lj-nm"><b>Payment ${money(+py.amount)}</b> <span class="lj-pill warn">Not Assigned</span><div class="small muted">${esc(fmtL(py.date))}${py.ref ? ` · ${esc(py.ref)}` : ""}: received on account. Whose is it? It counts on no payer's statement until you say.</div></div><div class="lj-acts">${ljPayers(c)
+          .map((p) => ljBtn(`data-ljassign="${esc(c.id)}|${esc(py.id)}|${esc(p.id)}"`, `To ${esc(p.name)}`))
+          .join("")}</div></div>`,
+    )
+    .join("")}</div><div class="lj-acts" style="margin-top:6px">${ljBtn(`data-ljpayers="${esc(c.id)}"`, "Edit Payers")}</div></div>`;
 }
 function ljAllowanceCard(c) {
   const R = ljAllowanceRows(c);
@@ -1276,10 +1297,21 @@ const ljDocOf = (cid, did, kind) => {
   return { c: c, d: c && findDoc(c, kind || "estimate", did) };
 };
 document.addEventListener("click", (e) => {
-  const t = e.target.closest && e.target.closest("[data-ljstmt],[data-ljprog],[data-ljpayers],[data-ljallowco],[data-ljallowclose],[data-ljopen],[data-ljsplit],[data-ljfoundsave],[data-ljp2go],[data-ljaddprop],[data-ljfinish],[data-ljsplitinv],[data-ljaddrange],[data-ljdemo],[data-ljconvert]");
+  const t = e.target.closest && e.target.closest("[data-ljassign],[data-ljstmt],[data-ljprog],[data-ljpayers],[data-ljallowco],[data-ljallowclose],[data-ljopen],[data-ljsplit],[data-ljfoundsave],[data-ljp2go],[data-ljaddprop],[data-ljfinish],[data-ljsplitinv],[data-ljaddrange],[data-ljdemo],[data-ljconvert]");
   if (!t) return;
   const D = t.dataset;
   try {
+    if (D.ljassign) {
+      const [cid, pyid, pid] = D.ljassign.split("|"),
+        c = DB.clients.find((x) => x.id === cid),
+        py = c && (c.payments || []).find((x) => x.id === pyid);
+      if (!py || !ljPayerById(c, pid)) return;
+      (py.payer = pid), save(), render();
+      try {
+        audit("payment", py.id, "payer-assigned", "", pid, `${money(+py.amount)} to ${ljPayerName(c, pid)}`);
+      } catch (e2) {}
+      return void toast(`Payment of ${money(+py.amount)} assigned to ${ljPayerName(c, pid)}`, () => ljOpenStatement(c, pid));
+    }
     if (D.ljstmt) {
       const [cid, pid] = D.ljstmt.split("|"),
         c = DB.clients.find((x) => x.id === cid);

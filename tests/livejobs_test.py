@@ -234,6 +234,17 @@ async def s1_two_payers(p):
     C.ok(J == [297000, 229000], f'job cost: contract $297,000, budget $229,000 ({J})')
     q = await ev(pg, "() => eqRows('payers').filter(r => r.clientId === 'cl_lj_atl').map(r => [r.payer, r.outstanding])")
     C.ok(len(q) == 2 and any(r[0] == 'Morning Loaf Bakery Inc.' and abs(r[1] - 14907.5) < 0.01 for r in q), f'Ask and the Report Builder read the payers table: {q}')
+    # a payment on account (no invoice) waits for billing to say whose it is: on no payer's statement, raised on Today,
+    # and one tap assigns it (2026-10-20: it used to land on the first payer)
+    u = await ev(pg, f"""() => {{ const c = {A}; c.payments.push({{ id: 'py_lj_onacct', date: today(), amount: 5000, note: 'on account', ref: '1102' }}); save();
+        const before = ljByPayer(c).map(f => [f.pid, f.paid]); render();
+        return {{ payer: ljPayPayer(c, c.payments[c.payments.length - 1]), before, today: reminders().some(r => /not assigned to a payer/.test(r.label)), un: ljUnassigned(c).length }}; }}""")
+    C.ok(u['payer'] == '' and u['un'] == 1 and u['today'] and dict(u['before'])['pay_lj_l'] == 63295 and abs(dict(u['before'])['pay_lj_t'] - 41700) < 0.01, f"a payment on account is on no payer's statement and raised on Today ({u})")
+    await open_client(pg, 'cl_lj_atl', 'invoices')
+    btn = await ev(pg, "() => { const b = document.querySelector('[data-ljassign$=\"|pay_lj_t\"]'); if (b) b.click(); return !!b; }")
+    await pg.wait_for_timeout(300)
+    a = await ev(pg, f"() => {{ const c = {A}; return {{ payer: c.payments.find(x => x.id === 'py_lj_onacct').payer, T: ljPayerFin(c, 'pay_lj_t').paid, un: ljUnassigned(c).length, toast: document.getElementById('toast').innerText }}; }}")
+    C.ok(btn and a['payer'] == 'pay_lj_t' and a['un'] == 0 and abs(a['T'] - 46700) < 0.01 and 'assigned to Morning Loaf' in a['toast'], f'"To Morning Loaf" assigns it: the tenant\'s paid goes up $5,000 ({a})')
     C.ok(not errs, f'two payers: no page errors {errs[:3]}')
     await b.close()
 
