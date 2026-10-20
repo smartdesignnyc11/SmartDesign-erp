@@ -87,10 +87,11 @@ async def ev(pg, js, arg=None):
 async def shot(pg, name, sel=None):
     await pg.evaluate("() => document.querySelectorAll('#toast').forEach(e => e.style.visibility = 'hidden')")
     path = os.path.join(SHOTS, name + '.png')
+    # the app scrolls inside its main pane: bring the card to the top and take the screen as a person sees it
     if sel and await pg.locator(sel).count():
-        await pg.locator(sel).first.screenshot(path=path)
-    else:
-        await pg.screenshot(path=path)
+        await pg.evaluate("s => document.querySelector(s).scrollIntoView({block: 'start'})", sel)
+        await pg.wait_for_timeout(150)
+    await pg.screenshot(path=path)
     await pg.evaluate("() => document.querySelectorAll('#toast').forEach(e => e.style.visibility = '')")
 
 
