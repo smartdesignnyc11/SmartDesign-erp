@@ -2,7 +2,7 @@
 
 This is the one list. The chief of staff keeps it current on every ask, lane report and merge. Details live in the BACKLOG sections named. Status words: **Running** · **Next** · **Queued** · **Waiting on Alan** · **Later** (deferred by Alan) · **Done**.
 
-Last updated 2026-10-20 (Alan: "Go" on week 4 and on the three calls; three lanes and the main session running).
+Last updated 2026-10-20, late (week 4: all four lanes and the main session's work merged on master, af76462; the full net on the merged build and the deploy are pending).
 
 ## 0. Usage rule (Alan)
 - Warn before any heavy step.
@@ -14,33 +14,41 @@ Alan's "Go" approved the week-4 live AI round (about 40% of a week's usage) and 
 
 **What this round builds.** Row 7 of the order of work (role specialists, cost intelligence, the savings ledger) was never built, so this round builds row 7 and the parts of row 12 that depend on it.
 
-**Running now** (board and design gates in `docs/LANES.md`):
-| Lane | Builds | Spec |
-|---|---|---|
-| role specialists | A standing auditor per role with the six-step handling of every finding; the savings ledger; planted-problem banks per role with recall and precision; workload (an overloaded person, work moved to someone with capacity, the manager approving) | §1.28, §1.30, §1.31, §1.32 item 2 |
-| cost intelligence | Jobs spending more than they bring in (one shared rule); benchmarks per trade per unit; the receipt price book across stores; the driver's store list (routes phase 1); the price-book and route tests | §1.29, §1.31 (price book and routes) |
-| improvement loop | One improvement queue from every signal; the Brain triages and proposes; the owner approves; the reporter is told; checked a month later; lessons from meetings carry to the next matching job; admin chased within the approval rules; approved changes become build requests; the Brain on timers | §1.19, §1.32 items 1, 3, 4, 5 |
-| main session | The three decisions built in, then the merge follow-ups below | — |
+**Status (2026-10-20, late): merged on master (af76462). Not yet deployed.** The full net has not run on the merged build. The deploy waits on it. Board, merge order and the chief of staff's verdict are in `docs/LANES.md`.
 
-**The three decisions (Alan's "Go", 2026-10-20), built by the main session:**
-1. **Who releases vendor payments.** The controller keys, matches and prepares the weekly Payment Run; the owner releases it in one tap; billing is the backup releaser when he is away. Separation of duties stays on.
-2. **What "we owe" means.** Approved bills, equal to the books (account 2000). Bills awaiting approval on their own line, the same number everywhere. The cash forecast counts both.
-3. **Spanish.** Jeanette reviews the ~900 words, safety terms first. Crews stay in English until she does. Alan asks her.
+**Merged** (in merge order):
+| Work | What it does now | Spec | Not done (§4 "From week 4") |
+|---|---|---|---|
+| improvement loop (206da28) | **Report a Problem works again.** It had been broken on master and on the hosted copy since the reports merge: a second function with the same name hid it. On the hosted copy, a report sent from a phone never reached the owner before this round. A new check now fails the build when any name is declared twice. Every signal goes into one queue, Company › Changes. The signals themselves are stored once, synced, with private details stripped. The Brain ranks each problem by the Standard's order, and the owner approves. An approved rule applies at once with an Undo; an approved change to the ERP becomes a ticket (IMP-n). The reporter is told, and the fix is checked a month later. Renewals (insurance, licences) are chased under each person's own rules. The server's nightly run exists but is off until it is switched on. The whole-meeting reader is built (§1.33) | §1.19, §1.32 items 1, 3, 4, 5, §1.33 | The agent does not yet build a ticket on a branch. Its proposals are not in the owner's Approvals. The meeting reader has not run on the real model yet; that needs the platform |
+| role specialists (2c34b36) | Each role has a checklist built over the detectors that already exist: no second count, and every finding goes through the six steps. On the planted bank: recall 20/20, precision 43/43, the right fix 20/20. The savings ledger is one store that every lane writes to; the owner sets the pool shares. Workload proposes moving work, and the manager approves. Thresholds are approved by the owner. The three-quote rule now covers every subcontract: an exception is recorded and raised as a finding, but does not block. The main session added that only the owner approves a change, checked again at the click (d9f186b) | §1.28, §1.30, §1.31, §1.32 item 2 | Lines with no detector stay Not Checked (retainage due, WIP movement week to week, committed cost not relieved, quality checkpoints, the crew's and driver's lines). The reclass journal and the revised PO are not drafted. Inbox rows have no countdown for a client's 2-hour reply. Workload's response time covers field questions only |
+| cost intelligence (9073799) | One rule for jobs spending more than they bring in, shared with the specialists. Benchmarks come from close-outs and need three comparable jobs, or they say so. They feed estimating through one price book (`costBook`), on the owner's approval; this closes the "one price book" follow-up. Store receipts join price watch's one history. The driver's route: phase 1, and phase 2 with drive times when the key is set, otherwise an estimate. The Brain's weekly review is drafted into Company › Changes | §1.29, §1.31 | Routes phase 2 waits on the Google Maps key. Receipt prices are read from the firm's own receipts only (no store scraping) |
+| month regression (af76462) | **The month is better than v11.2 again: 261/292 on time, $1,937 left behind, 0 schedule days lost** (v11.2: 258/292, $9,537, 1 day). Mid-round it had fallen to 243/292, $195,142 and 9 days, all from the one-queue-per-person change. Do Now shows five cards, so items below the fold were lost (the Kleins' $68,265 check ranked 13th on billing's list). The fix is at the root: Do Now now ranks client money waiting, and a client message due today, right after "crew blocked today". Every message is due the day it arrives. Four record bugs were also fixed | month_sim | **Measured on a base that did not include the other three lanes.** The month must run again on af76462. Remaining cracks: the joist CO (drafted at $0, $1,450); blocking lumber not billed back ($487); 26 events with no dollar value (the controller's reconciliations and close, Tomas's COI, two lines to price, a submittal and a PO, permit and LPC tasks, an inspection) |
+
+**The three decisions (Alan's "Go", 2026-10-20): built and merged.**
+1. **Who releases vendor payments.** The controller prepares the Payment Run, and the owner releases it in one tap. Billing is the backup and cannot release a bill it keyed. The controller's power over holds does not reach a bill the controller keyed (4ad197e, 3d59216, 767d393). Still waiting on Alan: the bank's own dual control (§5).
+2. **What "we owe" means.** Approved bills, equal to the books; bills awaiting approval on their own line (c7a97c4).
+3. **Spanish.** Crews keep English until the owner records Jeanette's review on the Team list (c79fc47). Push notifications now go out in Spanish for a field person whose setting is Spanish (f499b0f). Not built: the per-word reviewed mark. The gate is all or nothing, so words added after her review would not show as unreviewed.
 
 **The merge follow-ups (main session):**
-- scope a payer's Ask on the hosted AI by payer, before any two-payer client gets the portal;
-- payNormalise must not hide a double payment (an unmatched check stays unmatched; a second payment on one bill is flagged; a planted double payment in the finance cross-check);
-- a separation-of-duties test (the controller keys a bill and tries to release it; the coordinator sets up a vendor and tries to release its payment; billing as backup tries a bill it keyed);
-- three quotes checked when a subcontract issues, with a written reason when fewer;
-- two blue buttons with a bill's drawer open, and the screen lint judging what is on top;
-- the accounting-choices card says in plain words that the choices do not change the statements yet;
-- the close-out cost factor read by estimating and folded into the item library (one price book). Do this before the cost intelligence lane merges, because its benchmarks feed estimating too.
+- Done: payNormalise no longer hides a double payment; a payment takes a bill's bank or card line only when it is the same money (99c5ddf).
+- Done: separation of duties tested with a bill the controller keyed (767d393).
+- Done: three quotes checked when a subcontract issues, with the exception recorded (role specialists).
+- Done: one blue button with a drawer open, and the lint now opens drawers (cde0717).
+- Done: the accounting-choices card says the choices are recorded, not yet applied; owned-property jobs are found by entity (7980afb).
+- Done: one price book (cost intelligence folded the close-out factor and the benchmarks into `costBook`, read by estimating and the item library's fill).
+- Done: the field's Send To picker, lost in the chat redesign, is back (8c1990d, ebefe9a). A false alarm in the covered-button lint is fixed (c6e339a).
+- **Open:** scope a payer's Ask on the hosted AI by payer. It blocks the portal for any two-payer client.
 
-**Not in this round, and why:**
+**Before deploy (chief of staff, 2026-10-20), on af76462, one suite at a time through `tests/slot.sh`:**
+1. The scripted month, both ways (the whole list, and the first five). It is the first check, because the role specialists add findings to Today, the very queue whose fold caused the regression. The bar is 261/292, $1,937, 0 days, with no new misses.
+2. The full net (`tests/run_all.sh`, 58 suites including loop, meetread, dupnames, specialists and costintel). The loop lane reported three suites red on master under load, with the same failures as master: exec_assistant_test (5 phone taps landing under a pinned bar), assistant_lane_test (1, billing's "Run It Again" under the sub-nav) and speed_test. Each must be green or explained before anything ships. A red net does not ship.
+3. Apply `schema.sql` (the synced signals) on the hosted database before the app that writes them goes up. Otherwise Report a Problem breaks again on the hosted copy.
+4. Then deploy. Check Report a Problem live, from a field phone to the owner. Leave the nightly loop off (`LOOP_RUNS`) until a week of reports has come in by hand. When it is turned on, it sends nothing and spends no AI unless `LOOP_AI` is on.
+
+**Not in this round:**
 - **The live jobs load** waits on Alan handing over his file in a private session (§5).
-- **Driver routes phase 2** needs a Google Maps key in Netlify, Alan's to add (§5).
-- **The transcript reader** (§1.33) was promised for week 4 and no lane holds it. Recommended: add it to the improvement loop lane, whose §1.32 item 1 (lessons from meetings) needs it. Otherwise it slips.
-- **The drawing reader** (§1.23 platform phase) is not in this round; it stays queued.
+- **Driver routes phase 2** waits on the Google Maps key in Netlify, which only Alan can add (§5). The code is built and falls back to an estimate.
+- **The drawing reader** (§1.23 platform phase) stays queued.
 
 **What Alan is not thinking about (chief of staff, 2026-10-20):**
 - **Releasing the run in the ERP does not move the money.** The payment is made in the bank. Unless the bank's own dual control matches (the controller initiates, Alan approves in the bank's app), separation of duties is a record, not a lock. Recommended: set it up at the bank (§5).
@@ -54,6 +62,13 @@ Alan's "Go" approved the week-4 live AI round (about 40% of a week's usage) and 
 - **Benchmarks need history.** The demo has few past jobs and the QuickBooks history import waits on his re-authorisation. With too few comparable jobs the benchmark says so, rather than show a false median.
 - **New field words.** Words the lanes add for the foreman, crew or driver carry a not-yet-reviewed mark, so Jeanette's review stays complete.
 - **The Maps key** belongs on the server only, restricted to the Routes API, with a budget alert.
+
+**What Alan should see from this round (chief of staff, 2026-10-20):**
+- **Do Now changed for every office person.** Client money waiting, and a client message due today, now rank right after "crew blocked today" and above overdue rows. This changes the ranking he set on 10-11. Recommended: keep it. It is the Standard's order (the client before schedule and cost), and it is what brought the month back. It waits on his confirmation (§5).
+- **One number for him to tune:** a purchase made for a client goes to the top of Do Now when it is over $1,000 (`DB.company.moneyFirstOver`, the Standard's same-day line). Default: $1,000.
+- **Report a Problem was silently broken on the hosted copy** until this round. Anything his team "reported" before now never reached him. Recommended: tell the team it works now, once it is deployed and checked live.
+- **The three-quote rule records, it does not block.** The lane recommends keeping it that way below $10,000, so urgent orders still go out. Logged as a call he can change (§6).
+- **Savings are honest only against a baseline the saver did not set.** The ledger counts an RFQ award "under the first quote", and the person running the RFQ chooses which quote comes first. Before any bonus is attributed from it, measure against the best recent price or the estimate line's material budget instead (§4 "From week 4"). Pools stay at 0% until he sets them.
 
 **Testing.** Suites run through `tests/slot.sh`, at most two at once across every lane (the container restarted twice from memory with four). Lanes will wait for slots, so the round takes longer in hours, not in usage.
 
@@ -170,7 +185,7 @@ What remains, in order. Usage is a share of one week's allowance.
 | **Week 2** | | | | |
 | 5 | **Done 2026-10-20 (merged fa3337d).** Live-job capabilities on invented equivalents: two payers per contract, range estimates with allowances and a paid exploratory phase, the HTC calculator and hard/soft/contingency estimate, the contractor-to-employee user. Follow-ups in §4 | §1.25, §1.26 | 1 | 15% |
 | 6 | One assistant per person (four screens into one), approval rules, activity log | §1.27 | 1–2 | 12% |
-| 7 | **Running 2026-10-20 (week 4, lanes role specialists and cost intelligence).** Role specialists on the demo + planted-problem banks; cost intelligence (cash-negative jobs, benchmarks, receipt price book, driver store list phase 1); savings ledger | §1.28–1.31 | 3 | 25% |
+| 7 | **Merged 2026-10-20 (2c34b36, 9073799); full net and deploy pending.** Role specialists on the demo + planted-problem banks; cost intelligence (cash-negative jobs, benchmarks, receipt price book, driver store list phase 1); savings ledger | §1.28–1.31 | 3 | 25% |
 | 8 | **Done 2026-10-20 (items and Spanish merged 8d9c1f7; Messages phase 1 merged 2026-10-19).** Item library, Messages phase 1 (with record cards and @assistant), Spanish for the field. Follow-ups in §4 | §1.18, §1.21, §1.20 | 3 | 25% |
 | | Integration and merges | | | 10% |
 | **Week 3** | | | | |
@@ -179,7 +194,7 @@ What remains, in order. Usage is a share of one week's allowance.
 | 11 | Platform foundation: database, sign-in, permissions, sync, AI connection with caps (**first slice live 2026-10-18**); next: watchers, document reader, push, Google sign-in, per-client rows | §5 | 3–4 | 35% |
 | | Integration and merges | | | 10% |
 | **Week 4** | | | | |
-| 12 | **Running 2026-10-20 (Alan: "Go"), with row 7.** Ask like Claude and the always-on assistant are done (2026-10-19); this round builds role specialists, the Brain's timers and the improvement loop; the live jobs load waits on Alan's file; routes phase 2 waits on the Maps key; the drawing reader is queued.<br>The live AI on Claude:<br>- Ask like Claude;<br>- the always-on assistant per person;<br>- role specialists and Brain timers;<br>- the documents and drawing reader;<br>- driver routes phase 2 (Maps);<br>- live jobs loaded into the private platform;<br>- the improvement loop | §1.24, §1.27–1.29, §1.19, §5.8 | 4 | 40% |
+| 12 | **Merged 2026-10-20 with row 7 (af76462); full net and deploy pending.** Ask like Claude and the always-on assistant were done on 2026-10-19. This round added the role specialists, the Brain's timers (the nightly loop stays off until switched on), the improvement loop and the whole-meeting reader. The live jobs load waits on Alan's file. Routes phase 2 waits on the Maps key. The drawing reader is queued.<br>The live AI on Claude:<br>- Ask like Claude;<br>- the always-on assistant per person;<br>- role specialists and Brain timers;<br>- the documents and drawing reader;<br>- driver routes phase 2 (Maps);<br>- live jobs loaded into the private platform;<br>- the improvement loop | §1.24, §1.27–1.29, §1.19, §5.8 | 4 | 40% |
 | 13 | Real-data pilot with the team; the full ten-expert regrade to 9+; go-live checklist | §6 | runs | 20% |
 
 **Totals.** About four weekly allowances on the current plan, so roughly four weeks of calendar time. Each week fits under the 60% rule only if a week's round is split into two halves.
@@ -189,7 +204,16 @@ What remains, in order. Usage is a share of one week's allowance.
 **Running costs once live:** about $150–700 a month, mostly AI, under a cap Alan sets.
 
 ## 4. Queued (built after the above, or folded in where they fit)
-- **The transcript reader** (§1.33): Claude reads the whole meeting, corrects Gemini's notes, and turns lessons into process changes for approval. It joins week 4's live AI (row 12). The notes reader is built (2026-10-18). Not in any week-4 lane yet: recommended for the improvement loop lane (see "Week 4").
+- **The transcript reader** (§1.33): Done 2026-10-20 in the improvement loop lane (`src/meetread.js`, meetread_test 31). Claude reads the whole meeting, corrects Gemini's notes, and turns lessons into changes for approval. Not yet run against the real model, which needs the platform.
+- **From week 4 (merged 2026-10-20, af76462):**
+  - before deploy: the scripted month and the full net on af76462, and `schema.sql` applied for the signals (see "Week 4");
+  - a payer's Ask on the hosted AI is still not scoped by payer (it blocks the portal for two-payer clients);
+  - improvement loop: the agent building an approved ticket on a branch; the loop's proposals in the owner's Approvals, with the counts lint (today they sit in Company › Changes only, so they can be missed); the meeting reader on the real model;
+  - role specialists: detectors for the lines still Not Checked (retainage due, WIP movement week to week, committed cost not relieved, unexplained budget variances, quality checkpoints, selections completeness, the crew's and driver's lines); the reclass journal and the revised PO drafted as fixes; a countdown on Inbox rows for the client's 2-hour reply; mail response times in workload (needs per-person mail on the hosted copy); a payroll export of the bonus pool, only after Alan sets the pools;
+  - savings ledger: measure RFQ savings against the best recent price or the estimate line's material budget, not "under the first quote", which the person running the RFQ controls;
+  - Spanish: a reviewed mark per word, so words the lanes add after Jeanette's review (the driver's route card among them) show as unreviewed;
+  - the month's remaining cracks: the joist CO drafted at $0 ($1,450) and the blocking lumber not billed back ($487). Both have been on this list since 2026-10-18 (below). Also 26 events with no dollar value: the controller's reconciliations and close, Tomas's COI, pricing two lines, a submittal and a PO, permit and LPC tasks, an inspection;
+  - three suites the loop lane found red on master as well: exec_assistant_test (phone taps under a pinned bar), assistant_lane_test (billing's "Run It Again" under the sub-nav), speed_test.
 - **Speed:** boot under 2 s, view switch under 100 ms on a phone (§1.11 item 5). Measured on the hosted copy 2026-10-19 with a mid-range phone (CPU 4x slower, 1.5 MB/s): reopening took about 20 s, against 7.5 s for the local copy on the same CPU. Fixed so far: the time-zone formatter (4.6 s of it, now 0.16 s) and the page download on every open (the shell now opens from the phone's copy: 0 bytes, page ready in 1.9 s). Left: about 10 s of start-up work in finishBoot and the first render (job financials, overhead allocation, and render wrapped about 40 deep), which is this lane's work. `platform/test/live_speed.py` measures it; numbers taken while the full net ran are noisy.
 - **Notifications:** push notifications and morning and evening digests, on the platform (§1.11 item 6).
 - **Office and field input:**
@@ -218,7 +242,7 @@ What remains, in order. Usage is a share of one week's allowance.
   - a real push on Alan's phone and a real watcher run on his Gmail, not yet seen.
 - **From the live jobs lane (merged 2026-10-20):**
   - Done 2026-10-20 (02746eb): a payment on account on a two-payer contract now waits as Not Assigned until billing assigns it to a payer, audited, raised on Today (livejobs_test);
-  - Running (main session, week 4): a payer's Ask on the hosted AI is not scoped by payer (the screens and the query layer are); scope it before any two-payer client gets the portal;
+  - Open (not built in week 4): a payer's Ask on the hosted AI is not scoped by payer (the screens and the query layer are); scope it before any two-payer client gets the portal;
   - contractor bills have no PO, so the no-PO checks name them, and her W-9 shows missing (recommendation waiting on Alan: a contractor agreement as her PO, no payment until the W-9 is on file, a 1099 total for year end). Since the subs merge the Payment Check holds her payments until the W-9 is on file;
   - demo payments have no bank lines, so the truth layer shows them as unbacked (demo only; real payments come from the bank);
   - Mercer & Bond on a job is a flag only, with no link to a deal record in the Mercer & Bond workspace;
@@ -226,15 +250,15 @@ What remains, in order. Usage is a share of one week's allowance.
   - the real jobs load into the private platform database through the import (§6), from the Cowork handoff's `docs/LIVE_JOBS.md`, which is not in this repo and must never be (joins row 12).
 - **From the subs lane (merged 2026-10-20, 3fc848f):**
   - before deploy: the full net on the merged build (live jobs, the two-payer fix and subs together). The lane ran about 20 suites on its branch, not the 44-suite net on the merged result;
-  - Running (main session, week 4): before any real bank or card data is loaded: when a check with no bank line is recorded, payNormalise ties it to whatever card line is on the bill, which can hide a double payment after the fact (pre-existing; financial truth). Fix it so an unmatched check stays unmatched and a second payment against one bill is flagged, with a planted double payment in the finance cross-check;
-  - Running (main session, week 4): separation of duties has no planted case (now also billing as the backup releaser): every subs_test bill is entered by "Billing", so no test proves the person who keyed a bill is held from paying it. Add the case (the controller keys a bill and tries to pay it; the coordinator sets up a vendor and tries to release its payment);
-  - Running (main session, week 4): the Standard's "three quotes on every subcontract" is not checked when a subcontract issues; it should be checked there, with a written reason when fewer;
-  - Running (main session, week 4): a bill's drawer open leaves New Vendor Bill blue beside Pay (two primaries, pre-existing). The screen lint judges the page without the drawer; fix the class so it judges what is on top;
+  - Done 2026-10-20 (99c5ddf; a payment takes a bill's bank or card line only when it is the same money): before any real bank or card data is loaded: when a check with no bank line is recorded, payNormalise ties it to whatever card line is on the bill, which can hide a double payment after the fact (pre-existing; financial truth). Fix it so an unmatched check stays unmatched and a second payment against one bill is flagged, with a planted double payment in the finance cross-check;
+  - Done 2026-10-20 (767d393, payrun_test): separation of duties had no planted case (now also billing as the backup releaser): every subs_test bill is entered by "Billing", so no test proves the person who keyed a bill is held from paying it. Add the case (the controller keys a bill and tries to pay it; the coordinator sets up a vendor and tries to release its payment);
+  - Done 2026-10-20 (role specialists: recorded exception and a finding, not a block): the Standard's "three quotes on every subcontract" was not checked when a subcontract issues; it should be checked there, with a written reason when fewer;
+  - Done 2026-10-20 (cde0717): a bill's drawer open left New Vendor Bill blue beside Pay (two primaries, pre-existing). The screen lint judges the page without the drawer; fix the class so it judges what is on top;
   - not built: the monthly vendor statement reconciliation; a deposit taken off a sub's later pay applications line by line (today the contract check holds such a bill, so money does not leak, but a good bill can wait); sub bid leveling by scope and backcharges; a sub's emailed invoice read into a pay application; a Kind column (Subcontractor, Supplier) on the vendor list;
   - Done 2026-10-20: the reports lane took master with subs in (f9716df) and ties retainage payable (2050), cleared payments and bills awaiting approval to the cent (reports_test).
 - **Before the next deploy (chief of staff, 2026-10-20):**
   - Done 2026-10-20: live jobs, subs, items and Spanish, and reporting went live after a net of 26 suites on the merged build (chain 367/0, reports 450, subs 139, livejobs 172, items 68, spanish 109) and three fixes it found (`docs/LANES.md`).
-  - Not yet run on that build: the other 28 of the 54 suites in `tests/run_all.sh`, and the scripted month (none recorded since v11.2). Run them through `tests/slot.sh` before the first week-4 merge, so a week-4 failure is not confused with an older one. Reporting moved ledger net YTD by $5,000, customer deposits, the 13-week low and cash-basis YTD, so the month's money figures are expected to move; each move needs its reason;
+  - Done 2026-10-20: the full net ran on that build and found the scripted month's regression (fixed by the month regression lane, merged af76462) and two other failures (fixed). Original note: the other 28 of the 54 suites in `tests/run_all.sh`, and the scripted month (none recorded since v11.2). Run them through `tests/slot.sh` before the first week-4 merge, so a week-4 failure is not confused with an older one. Reporting moved ledger net YTD by $5,000, customer deposits, the 13-week low and cash-basis YTD, so the month's money figures are expected to move; each move needs its reason;
   - the books' seals: reporting's retainer fix changes how an August invoice posts (2400, not negative revenue). On the hosted copy the server holds August's seal, so Verify the Books will likely name a changed August posting. Check it on the QA workspace; if it does, it is recorded as an owner-approved correction with the reason, never re-sealed quietly.
 - **From the items and Spanish lane (merged 2026-10-20, 8d9c1f7; items_test 68, spanish_test 109):**
   - the assistant drafting lines from notes, photos and takeoffs (§1.18 item 4);
@@ -242,16 +266,16 @@ What remains, in order. Usage is a share of one week's allowance.
   - voice in the item picker (the request box keeps its own microphone);
   - the library's proposals in the owner's Approvals, with the counts lint (today they sit on the library's own card, so they can be missed);
   - automatic English beside a Spanish daily log or request, so the PM, the records and anything that reaches a client read English;
-  - push notifications in Spanish (they go out in English);
+  - Done 2026-10-20 (f499b0f): push notifications in Spanish for a field person whose setting is Spanish;
   - offline assistant answers stay in English;
   - Jeanette has not reviewed the ~900 Spanish words; crews are not switched to Spanish until she has (safety words first). Decided 2026-10-20; Alan asks her (§5). Each word to carry a reviewed mark, so new field words show as not yet reviewed.
 - **From the reports lane (merged 2026-10-20, 560057d; reports_test 450/450):**
-  - Running (main session, week 4): one price book: close-out writes a cost factor per cost code to `DB.company.costBook`, and the item library keeps item costs in `DB.company.itemLib`. Fold the factor into the library's fill so estimating reads one place; today nothing reads the cost factor (BACKLOG §1.16);
-  - Running (main session, week 4): the accounting choices are recorded with who, when and why but do not change the statements yet. Until they do, the card says so in plain words (a controller who picks "Capitalise" will expect the P&L to move);
-  - the development-cost stake finds owned-property jobs by client name; key it on the Mercer & Bond flag the live jobs lane added;
+  - Done 2026-10-20 (cost intelligence lane; benchmarks under `costBook.bench`, read by `ciCostGuide` and the item library's fill): one price book: close-out writes a cost factor per cost code to `DB.company.costBook`, and the item library keeps item costs in `DB.company.itemLib`. Fold the factor into the library's fill so estimating reads one place; today nothing reads the cost factor (BACKLOG §1.16);
+  - Done 2026-10-20 (7980afb): the accounting choices are recorded with who, when and why but do not change the statements yet. Until they do, the card says so in plain words (a controller who picks "Capitalise" will expect the P&L to move);
+  - Done 2026-10-20 (7980afb): the development-cost stake found owned-property jobs by client name; now found by entity;
   - the read-only accountant role (platform, §1.10 item 11);
   - QuickBooks comparison unchanged (the Three-Way Tie-Out);
-  - "owed" in payables: decided 2026-10-20 (approved bills; awaiting approval on its own line); being built by the main session.
+  - "owed" in payables: decided 2026-10-20 (approved bills; awaiting approval on its own line); built 2026-10-20 (c7a97c4).
 - **Gaps the build lanes found:**
   - Done 2026-10-20: a toast's Open link closes an open editor first and asks before dropping anything typed (Keep Editing is the blue step); toast_leave_test 18;
   - client portal: pay online, or "we paid";
@@ -293,7 +317,9 @@ What remains, in order. Usage is a share of one week's allowance.
 | 2026-10-20 | The contractor designer: a contractor agreement as her PO, W-9 before the first payment, classification confirmed with the accountant | Bills with no PO, flagged; payments held until the W-9 is on file |
 | 2026-10-20 | Ask Jeanette to review the ~900 Spanish words (decided with his "Go"; the asking is his). Recommended: one sheet for her (English, Spanish, where it appears, safety words marked), her sign-off recorded word by word | Crews stay in English until she has reviewed, safety words first |
 | 2026-10-20 | Add a Google Maps key in Netlify for driver routes phase 2. Recommended: Routes API only, server-side, with a budget alert | The driver's list names the cheapest store per item (phase 1), no route |
-| 2026-10-20 | The savings ledger: the shares for the wage, bonus and charity pools; who sees savings by person; bonus attribution | Every saving recorded; pools shown at 0% until he sets them; by person for the owner only; nothing attributed or paid without him |
+| 2026-10-20 | The savings ledger: the shares for the wage, bonus and charity pools; who sees savings by person; bonus attribution | Built 2026-10-20: the owner sets the shares in the ledger. Every saving recorded; pools shown at 0% until he sets them; by person for the owner only; nothing attributed or paid without him |
+| 2026-10-20 | Confirm the new Do Now order for every office person: client money waiting and a client message due today rank right after "crew blocked today", above overdue rows (it changes his 10-11 ranking). Recommended: keep it; it follows the Standard's order and brought the month back to 261/292 | The new order stays (reversible) |
+| 2026-10-20 | The one Do Now number: a client-billable purchase over $1,000 ranks first (`DB.company.moneyFirstOver`) | $1,000, the Standard's same-day line |
 | 2026-10-20 | Set the bank's dual control to match the Payment Run: the controller initiates, Alan approves in the bank's app | The ERP records who released each run; the bank itself does not enforce it yet |
 | Later | Google sign-in consent screen (guided, about 5 minutes) | — |
 
@@ -314,6 +340,13 @@ What remains, in order. Usage is a share of one week's allowance.
 - **Reporting (2026-10-20):** the accounting choices default to expensing Mercer & Bond development costs, percentage of completion for tax, and overhead shared by total direct cost, each labelled "confirm with your accountant"; group figures are consolidated at the subsidiary's cost (SD Plumbing and SD Electric markup to the firm eliminated); close-out starts at 85% of estimated cost, and a cost code off by 10% and $500 or more can be proposed to the price book, the owner approving each.
 - **Item library (2026-10-20):** the owner or a PM approves or declines what the library proposes from use; a declined proposal never returns; a sent document never changes when the library does; the field sees items without prices.
 
+- **Week 4 (2026-10-20), calls the lanes made that Alan can change:**
+  - The three-quote rule records the exception and raises a finding; it does not block an order. Every subcontract is covered at any amount. The lane recommends keeping it non-blocking below $10,000.
+  - Changes to the checklists' thresholds, and every Company › Changes approval, are the owner's only.
+  - Workload proposes a named person with room, and the manager approves. Overloaded means three or more overdue, or eight or more open and twice the firm's median. It is never shown as a ranking of people.
+  - A benchmark needs three comparable closed jobs. A job more than 15% above their median is flagged with its cause.
+  - The server's nightly improvement loop is off until `LOOP_RUNS=on`; the AI rewording is off until `LOOP_AI=on`.
+  - Every message is due the day it arrives.
 - **Decided by Alan, 2026-10-20 ("Go"; reversible):** the controller prepares the weekly Payment Run and the owner releases it in one tap, billing the backup; "We Owe" is approved bills, equal to the books, with bills awaiting approval on their own line; crews stay in English until Jeanette has reviewed the Spanish.
 
 ## 7. Later (Alan deferred)
@@ -321,6 +354,7 @@ What remains, in order. Usage is a share of one week's allowance.
 
 ## 8. Done recently
 Full detail is in `docs/DECISIONS.md`.
+- Week 4 (2026-10-20, merged af76462, pending the full net and deploy): the improvement loop (Report a Problem working again and synced, one queue, the owner approving, checked a month later), the whole-meeting reader, role specialists with planted-bank recall 20/20 and precision 43/43, the savings ledger, workload, cost intelligence (jobs spending more than they bring in, benchmarks into one price book, receipt prices, the driver's route), the scripted month back above v11.2 (261/292, $1,937, 0 days), and Alan's three calls built.
 - Reporting proven end to end (2026-10-20, pending the full net): every report recomputed from the records to the cent in a test, the ties on screen, drill to the bank line, manual journals flagged, P&L by project and client, cash basis, intercompany eliminated, line income to cost, close-out estimate against actual proposing price-book changes for the owner, overhead and break-even, the 13-week cash forecast as a report, Excel on every tab, Ask reading the reports. Eight money errors found and fixed at the root.
 - The item library and Spanish for the field (2026-10-20): one library fills every typed line (estimate, CO, invoice, PO, RFQ, bill, request, receipt), learns from use with the owner or PM approving; the foreman, crew and driver read every screen in Spanish by their setting, chat lines translated on request.
 - Subcontractors and the Payment Check (2026-10-20): subcontracts on the PO with scope, changes and retainage; pay applications against what the site measured; lien waivers per payment and per job; every vendor payment and Payment Run checked against contract, prior payments, receipt, work in place, retainage, credits, duplicates, papers and the bank call-back; holds in Approvals; the per-vendor, per-job ledger in Ask.
