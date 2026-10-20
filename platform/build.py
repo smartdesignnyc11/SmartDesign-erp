@@ -12,6 +12,9 @@ if not APP:
     if subprocess.run([sys.executable, os.path.join(ROOT, 'build.py')]).returncode: sys.exit('app build failed')
     APP = os.path.join(ROOT, 'dist', 'smartdesigns_projects.html')
 html = open(APP, encoding='utf-8').read()
+# The improvement loop's rules are one file (src/loop_core.js) run by the app and by the nightly function: the
+# functions get a byte-for-byte copy (test/loop_test.mjs fails when the two differ).
+shutil.copyfile(os.path.join(ROOT, 'src', 'loop_core.js'), os.path.join(H, 'netlify', 'functions', 'lib', 'loop_core.cjs'))
 url = os.environ.get('SDP_SUPABASE_URL') or f'https://{REF}.supabase.co'
 anon = os.environ.get('SDP_SUPABASE_ANON_KEY')
 if not anon:

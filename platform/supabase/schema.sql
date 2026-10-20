@@ -234,9 +234,45 @@ begin
   return o;
 end $$;
 
+-- The improvement loop's signals (2026-10-20, BACKLOG §1.19): problem reports and a day's usage counts per person.
+-- The office reads them all. A field sign-in reads only its own (uid = its person in the app), and its save may add
+-- its own or anonymous ones (a report sent without a name carries no uid) and update its own; everything else is kept
+-- as stored, so a phone can never change or drop someone else's report.
+create or replace function public.signals_mine(a jsonb, me text) returns jsonb language sql immutable as $$
+  select case when jsonb_typeof(a) = 'array'
+              then coalesce((select jsonb_agg(e order by i) from jsonb_array_elements(a) with ordinality x(e, i)
+                             where coalesce(me, '') <> '' and e->>'uid' = me), '[]'::jsonb)
+              else '[]'::jsonb end;
+$$;
+create or replace function public.signals_merge(old jsonb, nw jsonb, me text) returns jsonb language plpgsql immutable as $$
+declare out jsonb := '[]'::jsonb; e jsonb; o jsonb; ids text[] := '{}';
+begin
+  if jsonb_typeof(old) = 'array' then
+    for o in select * from jsonb_array_elements(old) loop
+      e := null;
+      if jsonb_typeof(nw) = 'array' and coalesce(me, '') <> '' and o->>'uid' = me then
+        select x into e from jsonb_array_elements(nw) x where x->>'id' = o->>'id' and x->>'uid' = me limit 1;
+      end if;
+      out := out || jsonb_build_array(coalesce(e, o));
+      ids := ids || (o->>'id');
+    end loop;
+  end if;
+  if jsonb_typeof(nw) = 'array' then
+    for e in select * from jsonb_array_elements(nw) loop
+      if jsonb_typeof(e) = 'object' and coalesce(e->>'id', '') <> '' and not ((e->>'id') = any(ids))
+         and (coalesce(e->>'uid', '') = '' or (coalesce(me, '') <> '' and e->>'uid' = me)) then
+        out := out || jsonb_build_array(e); ids := ids || (e->>'id');
+      end if;
+    end loop;
+  end if;
+  return out;
+end $$;
+
 create or replace view public.collections_view with (security_invoker = false) as
   select c.workspace_id, c.name, c.version, c.updated_by, c.updated_at,
-         case when public.is_office() then c.data else public.strip_money(public.field_view(c.name, c.data, public.my_field_jobs())) end as data
+         case when public.is_office() then c.data
+              when c.name = 'signals' then public.signals_mine(c.data, public.my_app_user())
+              else public.strip_money(public.field_view(c.name, c.data, public.my_field_jobs())) end as data
   from public.collections c
   where c.workspace_id = public.my_workspace()
     and (public.is_office() or (public.is_field() and not (c.name = any(public.field_hidden()))))
@@ -303,17 +339,20 @@ begin
       newv := cur.version + 1;
       update public.collections
          set data = case when office then it->'data'
+                         when nm = 'signals' then public.signals_merge(cur.data, it->'data', public.my_app_user())
                          when nm like 'project:%' then public.keep_team(cur.data, public.restore_money(cur.data, it->'data'))
                          else public.restore_money(cur.data, public.field_merge(nm, cur.data, it->'data', public.my_field_jobs())) end,
              version = newv, updated_by = auth.uid(), updated_at = now()
        where workspace_id = wsid and name = nm;
     else
-      if field and nm not like 'project:%' and nm not like 'own:%' and nm not like 'thread:%' and nm not in ('field','time','photos','tasks','comms','meetings') then
+      if field and nm not like 'project:%' and nm not like 'own:%' and nm not like 'thread:%' and nm not in ('field','time','photos','tasks','comms','meetings','signals') then
         result := result || jsonb_build_array(jsonb_build_object('name', nm, 'refused', true)); continue;
       end if;
       newv := 1;
       insert into public.collections (workspace_id, name, data, version, updated_by)
-      values (wsid, nm, case when office then it->'data' else public.strip_money(it->'data') end, 1, auth.uid());
+      values (wsid, nm, case when office then it->'data'
+                             when nm = 'signals' then public.signals_merge('[]'::jsonb, it->'data', public.my_app_user())
+                             else public.strip_money(it->'data') end, 1, auth.uid());
     end if;
     result := result || jsonb_build_array(jsonb_build_object('name', nm, 'version', newv));
   end loop;

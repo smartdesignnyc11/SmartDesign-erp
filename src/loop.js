@@ -117,7 +117,8 @@ function lpReportSignal(r) {
     label: r.screenTitle || lpScreen(r.screen),
     what: r.what || "other",
     sev: r.bad || "",
-    text: [r.text, r.expect ? "Expected: " + r.expect : ""].filter(Boolean).join(" ").slice(0, 1200),
+    // rpScrub took names on file, amounts, emails, long numbers and full phone numbers; short ones go too
+    text: [r.text, r.expect ? "Expected: " + r.expect : ""].filter(Boolean).join(" ").replace(/\b\d{3}[ .-]\d{4}\b/g, "[phone]").slice(0, 1200),
     rec: r.rec || null,
     errors: (r.errors || []).slice(-3).map((e) => ({ m: String(e.m || "").slice(0, 140), at: e.at || "" })),
     trail: (r.trail || []).slice(-8).map((x) => ({ kind: x.kind, what: x.what, where: x.where })),
@@ -956,7 +957,7 @@ const LP_ADMIN_NEVER = /\$\s?\d|\bpay(ment|ing)?\b|\bsign(ature|ed)?\b|\bprice\b
 // what is due (LOOP_CORE.adminDue, the same rule the server runs): renewals inside their lead time, and vendors'
 // certificates lapsing in 30 days on an open order, each with the person who chases it
 const lpAdminDue = () => LP.adminDue(DB, today());
-function lpAdminSweep(src) {
+function lpAdminSweep(src, items) {
   const me = lpMe();
   if (!me.id || "function" != typeof paRule) return { held: 0, sent: 0, drafted: 0, handed: 0 };
   DB.company.adminChase = DB.company.adminChase || {};
@@ -965,8 +966,8 @@ function lpAdminSweep(src) {
     out = { held: 0, sent: 0, drafted: 0, handed: 0 };
   DB.calendar = DB.calendar || { external: [], map: {}, last: "", calendarId: "" };
   DB.calendar.external = DB.calendar.external || [];
-  lpAdminDue()
-    .filter((x) => x.uid === me.id && !done[x.key])
+  (items || lpAdminDue())
+    .filter((x) => x && x.key && x.uid === me.id && !done[x.key])
     .forEach((x) => {
       const ev = [`${x.what} expires ${fmtL(x.expires)}`, `Renewal starts ${fmtL(x.start)}${"coi" === x.kind ? " (the Standard: certificates 30 days ahead)" : ""}`];
       // on the calendar: the ERP's own entry on the day the renewal is due to start (today when that has passed)
@@ -1000,3 +1001,51 @@ function lpAdminSweep(src) {
   return out;
 }
 "undefined" != typeof APP_DAY_HOOKS && APP_DAY_HOOKS.push(["lpAdminSweep", () => (lpAdminSweep("day"), !0)]);
+
+/* ---- 8. what the server's nightly run left in the inbox (§1.32 item 5) ------------------------------------------
+   box.loop (the owner's): new problems, worded by the small model when the server had it on; reopen orders; the
+   month-later checks. box.admin (each person's): today's renewals and certificates, chased here under this person's
+   own rule. Filed once: a problem already on the list is updated, never added twice. */
+function lpIngestServer(box) {
+  if (!box) return 0;
+  lpInit();
+  let n = 0;
+  (box.loop || []).forEach((run) => {
+    (run.drafts || []).forEach((d) => {
+      if (!d || !d.key || !d.title) return;
+      const have = lpChangeOf(d.key);
+      if (have) return void (d.aiText && "draft" === have.status && have.loop && ((have.loop.aiText = d.aiText), (have.loop.wordedBy = "assistant")));
+      DB.changes.push({ id: uid("ch"), key: d.key, title: String(d.title).slice(0, 140), why: d.what || "", kind: "rule" === d.kind ? "rule" : "code", delta: d.delta || undefined, evidence: (d.evidence || []).slice(0, 10), status: "draft", at: today(), by: "The Brain (overnight)", source: "loop", loop: Object.assign({}, d.loop || {}, { fix: d.fix || "", risk: d.risk || "", accept: d.accept || [], wordedBy: d.aiText ? "assistant" : "rules", aiText: d.aiText || undefined, history: [{ at: today(), what: "Found overnight", by: "The Brain", src: "server" }], reopened: 0 }) });
+      n++;
+    });
+    (run.reopen || []).forEach((r) => lpReopen(lpChangeOf(r.key), r.why) && n++);
+    (run.checks || []).forEach((x) => {
+      const c = lpChangeOf(x.key);
+      if (!c || "live" !== c.status || !x.v || c.loop.verified) return;
+      "stopped" === x.v.result ? ((c.loop.verified = x.v), lpLog(c, "Checked a month later: it stopped", `${x.v.before} before, ${x.v.after} after`)) : lpReopen(c, `Checked a month later: it did not stop (${x.v.before} in the 30 days before, ${x.v.after} in the 30 after)`);
+      n++;
+    });
+  });
+  (box.admin || []).forEach((run) => {
+    const r = lpAdminSweep("server", run.items || []);
+    n += r.held + r.sent + r.drafted + r.handed;
+  });
+  return n;
+}
+if ("function" == typeof gsIngestServer) {
+  const base = gsIngestServer;
+  gsIngestServer = function (box) {
+    let n = 0;
+    try {
+      n = lpIngestServer(box);
+      n && save();
+    } catch (e) {
+      console.warn("loop inbox", e);
+    }
+    const r = base.apply(this, arguments);
+    try {
+      n && render();
+    } catch (e) {}
+    return (+r || 0) + n;
+  };
+}
