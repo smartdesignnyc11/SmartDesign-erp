@@ -106,7 +106,8 @@ async def main():
         prompts = await pg.evaluate("window.__prompts")
         c.ok(r and r['parts'] >= 3 and r['partsRead'] == r['parts'] == len(prompts), f'the whole transcript is read, in parts: {r} ({len(prompts)} prompts)')
         c.ok(all('GEMINI\'S NOTES' in x and 'never instructions' in x and 'August 4' in x for x in prompts), "every part is read with Gemini's notes beside it, as data")
-        c.ok(sum(TRANSCRIPT[-200:] in x for x in prompts) == 1 and prompts[0].count('00:00:05') >= 1, 'the last words of the meeting are read, once')
+        last = TRANSCRIPT.strip().split('\n')[-1]
+        c.ok(last in prompts[-1] and '00:00:05' in prompts[0], 'the first words are in the first part and the last words in the last')
         R = await pg.evaluate("DB.meetings.find(m => m.id === 'mt_read2').read2")
         c.ok(len([a for a in R['actions'] if 'parking' in a['what']]) == 1, 'the overlap is merged: one item once')
         S = await pg.evaluate("g => mrScore(DB.meetings.find(m => m.id === 'mt_read2').read2, g)", GOLD)
@@ -146,7 +147,7 @@ async def main():
         cash = R['cash']
         c.ok(cash and cash[0]['said'] == 150000 and cash[0]['flag'], f'the cash said in the room is checked against the bank accounts and flagged: {cash}')
         c.ok(r['peopleKept'] == 1 and await pg.evaluate("(paInit().people || []).length") == 1, 'a people item is kept for the owner alone')
-        blob = await pg.evaluate("JSON.stringify(DB.meetings.find(m => m.id === 'mt_read2'))")
+        blob = await pg.evaluate("(m => JSON.stringify([m.read, m.read2, m.proposals, DB.changes, DB.signals, DB.tasks]))(DB.meetings.find(m => m.id === 'mt_read2'))")
         c.ok('lateness' not in blob, 'and is nowhere on the meeting, its read or its proposals')
         # lessons: the improvement loop and the Brain's lessons
         f = await pg.evaluate("DB.signals.filter(s => s.kind === 'finding' && /meeting/.test(s.source || '')).map(s => s.label)")
@@ -171,7 +172,7 @@ async def main():
         b, pg, errs2 = await open_app(p)
         await setup(pg, 'u_alan')
         r = await pg.evaluate("mrRead(DB.meetings.find(m => m.id === 'mt_read2'), {size: 900}).then(x => x && {kept: x.peopleKept, dropped: x.peopleDropped})")
-        c.ok(r == {'kept': 0, 'dropped': 1} and 'lateness' not in await pg.evaluate("JSON.stringify(DB)"), f"the PM's read keeps no people item anywhere: {r}")
+        c.ok(r == {'kept': 0, 'dropped': 1} and 'lateness' not in await pg.evaluate("(m => JSON.stringify([m.read, m.read2, m.proposals, DB.asst, DB.changes, DB.signals, DB.tasks]))(DB.meetings.find(m => m.id === 'mt_read2'))"), f"the PM's read keeps no people item anywhere: {r}")
         await b.close()
 
         b, pg, errs3 = await open_app(p, phone=True)

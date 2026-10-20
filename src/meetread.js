@@ -322,7 +322,9 @@ if ("function" == typeof bnReadHtml) {
 // Score a read against a gold extraction: per category, recall and precision by words (and the amount for money);
 // and how many bills the read proposed that the meeting never asked for (the target is none).
 function mrScore(read, gold) {
-  const W = (x) => mtWords(`${x.what || x.title || x.line || x.who || x.item || x.said || ""}`);
+  // what names an item in each category: a lead by who it is, a billing line by its line, a correction by what was said
+  let cat = "";
+  const W = (x) => mtWords(`${("pipeline" === cat ? x.who : "billing" === cat ? x.line : "corrections" === cat ? x.said || x.item : x.what || x.title) || x.what || x.who || x.line || x.item || x.said || ""}`);
   const same = (a, b) => {
     const A = W(a),
       B = W(b);
@@ -333,12 +335,14 @@ function mrScore(read, gold) {
   };
   const out = {};
   MR_CATS.forEach((k) => {
+    cat = k;
     const R = (read && read[k]) || [],
       G = (gold && gold[k]) || [];
     const hit = G.filter((g) => R.some((r) => same(r, g))).length,
       right = R.filter((r) => G.some((g) => same(r, g))).length;
     out[k] = { gold: G.length, read: R.length, recall: G.length ? hit / G.length : 1, precision: R.length ? right / R.length : 1 };
   });
+  cat = "billing";
   out.falseBills = ((read && read.billing) || []).filter((b) => "hold" !== b.instruction && !((gold && gold.billing) || []).some((g) => same(b, g) && "hold" !== g.instruction)).length;
   return out;
 }
