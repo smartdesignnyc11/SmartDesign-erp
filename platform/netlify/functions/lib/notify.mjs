@@ -59,18 +59,29 @@ export async function notifyMessage(profile, body, o = {}) {
     if (!reads(kind, data, p.role, p.app_user_id) || (kind !== 'dm' && !readsLine(kind, line, p.role))) continue;
     keys.set(p.private_key || p.id, p.app_user_id);
   }
-  // what it says: who, where, the line itself (a voice note or a photo says so)
+  // what it says: who, where, the line itself (a voice note or a photo says so), in the reader's language: a field
+  // person whose setting is Spanish (u.lang in the users row) reads the app's words in Spanish; the line itself, the
+  // names and the job stay as written (2026-10-20: the field read Spanish screens and English notifications)
   const who = first(line.by), job = clip(((data.project || {}).name) || 'the job', 40);
-  const title = kind === 'dm'
-    ? ((data.kind === 'group' || (data.members || []).length > 2) ? `${who} in ${clip(data.title || 'your group', 40)}` : clip(line.by || 'New message', 60))
-    : `${who} mentioned you on ${job}`;
-  const text = line.voice ? 'Voice note' + (line.text ? ': ' + line.text : '') : (line.text || ((line.cards || []).length ? 'Shared a record' : (line.files || []).length ? 'Sent a photo' : ''));
-  const msg = {title, body: clip(text, 140), url: '/?msg=' + enc(`${kind}:${id}`), tag: `sdp-msg-${kind}-${id}`};
+  let langOf = {};
+  try {
+    const U = await rest(`collections?select=data&workspace_id=eq.${enc(ws)}&name=eq.users`);
+    for (const u of (U && U[0] && Array.isArray(U[0].data) ? U[0].data : [])) if (u && u.id && u.lang === 'es') langOf[u.id] = 'es';
+  } catch { langOf = {}; }
+  const group = kind === 'dm' && (data.kind === 'group' || (data.members || []).length > 2);
+  const msgFor = (es) => {
+    const title = kind === 'dm'
+      ? (group ? `${who} ${es ? 'en' : 'in'} ${clip(data.title || (es ? 'tu grupo' : 'your group'), 40)}` : clip(line.by || (es ? 'Mensaje nuevo' : 'New message'), 60))
+      : (es ? `${who} te mencionó en ${job}` : `${who} mentioned you on ${job}`);
+    const text = line.voice ? (es ? 'Nota de voz' : 'Voice note') + (line.text ? ': ' + line.text : '')
+      : (line.text || ((line.cards || []).length ? (es ? 'Compartió un registro' : 'Shared a record') : (line.files || []).length ? (es ? 'Envió una foto' : 'Sent a photo') : ''));
+    return {title, body: clip(text, 140), url: '/?msg=' + enc(`${kind}:${id}`), tag: `sdp-msg-${kind}-${id}`};
+  };
   let sent = 0, quiet = 0;
-  for (const key of keys.keys()) {
+  for (const [key, app] of keys.entries()) {
     const fresh = await rest('rpc/notify_claim', {method: 'POST', body: JSON.stringify({p_key: key, p_thread: `${kind}:${id}`, p_ws: ws})});
     if (!fresh) { quiet++; continue; }
-    try { sent += await push(key, msg); } catch (e) { console.warn('notify push', e.message); }
+    try { sent += await push(key, msgFor(langOf[app] === 'es')); } catch (e) { console.warn('notify push', e.message); }
   }
   return out(200, {sent, people: keys.size, quiet});
 }
