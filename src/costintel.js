@@ -1612,6 +1612,9 @@ if ("function" == typeof renderRunCard) {
         x && !row.querySelector("[data-cipick]") && row.children[1] && row.children[1].insertAdjacentHTML("beforeend", ciPickHtml(x, "", ctx));
       });
       card.querySelectorAll("[data-ciapprove]").forEach((b) => (b.onclick = () => ciApproveRoute()));
+      // the driver's approved route is the day: it leads the card on his phone, above the store-run controls
+      const rt = card.querySelector('[data-cirt] [data-cirtstate="approved"]');
+      rt && ciIsField() && card.firstElementChild !== rt.closest("[data-cirt]") && (card.prepend(rt.closest("[data-cirt]")), (rt.closest("[data-cirt]").style.marginTop = "0"));
       // one blue button: for the coordinator the safe next step is approving the route, not starting a run
       card.querySelector("[data-ciapprove].primary") && card.querySelectorAll(".btn.primary:not([data-ciapprove])").forEach((b) => b.classList.remove("primary"));
       card.querySelectorAll("[data-citravel]").forEach((b) => (b.onclick = () => ciTravelFetch()));
