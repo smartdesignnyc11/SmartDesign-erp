@@ -25,6 +25,7 @@ and compared with the recomputation. Parts:
             book (a drafted change naming its Standard); the owner approves it before the cost factor changes
   overhead  overhead by category by month recomputed; break-even monthly revenue = 3 full months' overhead ÷ their
             gross margin
+  manual    a manual journal posted by the owner with a reason is flagged on the ties and the Pack, its lines by hand
   cash13    the 13-week forecast: no bill the bank already paid, the owed payroll run and the card balances are out,
             cash today + the weeks' net = the last balance
   excel     the .xlsx the Excel button writes opens (openpyxl) with one sheet per table and numbers as numbers
@@ -672,8 +673,40 @@ async def part_closeout(p, c):
     c.ok(not errs, f'closeout errors {errs[:3]}')
     await b.close()
 
+async def part_manual(p, c):
+    """A manual journal, drafted by the controller and posted by the owner with a reason, is flagged on the ties
+    with who, when and why, and its drill marks every line as posted by hand. It moves no tie: the management view
+    carries nothing posted by hand, the bridge to the ledger names it."""
+    b, pg, errs = await page(p, 'u_controller')
+    await pg.evaluate("() => { glTab = 'entry'; glEnt = 'all'; view = 'gl'; render(); }")
+    await pg.wait_for_timeout(150)
+    await pg.fill('#gle-date', '2026-08-31')
+    await pg.fill('#gle-memo', 'August depreciation on the van')
+    await pg.evaluate("""() => { const rows = document.querySelectorAll('#gle-lines tbody tr');
+        rows[0].querySelector('[data-l=acct]').value = '8000'; rows[0].querySelector('[data-l=dr]').value = '1200';
+        rows[1].querySelector('[data-l=acct]').value = '1590'; rows[1].querySelector('[data-l=cr]').value = '1200'; }""")
+    await pg.click('#gle-save')
+    await pg.wait_for_timeout(200)
+    await sign_in(pg, 'u_owner')
+    st = await pg.evaluate("() => { const j = DB.gl.journals.find(x => x.kind === 'manual' && /van/.test(x.memo)); try { mbCloseModal(); } catch (e) {} glApprove(j.id, 'Straight-line on the van, August'); return j.status }")
+    c.ok(st == 'posted', f'the manual journal posted: {st}')
+    await tab(pg, 'financials', 'ty')
+    T = await screen_ties(pg, '[data-rpties=all]')
+    m = [x for x in T if x['manual']]
+    c.ok(len(m) == 1 and 'Flagged' in m[0]['text'] and 'Straight-line on the van' in m[0]['text'] and '$1,200.00' in m[0]['text'], f'the manual journal is not flagged on the ties: {m}')
+    c.ok(all(x['ok'] for x in T if not x['manual']), f'a manual journal moved a tie: {[x["id"] for x in T if not x["manual"] and not x["ok"]]}')
+    await pg.evaluate("() => document.querySelector('[data-rptie=manual] [data-rpdrill]').click()")
+    await pg.wait_for_timeout(200)
+    t = await pg.evaluate("() => document.getElementById('mbm').innerText")
+    c.ok(t.count('By Hand') >= 2 and 'posted by hand' in t, f'the manual journal drill does not mark its lines: {t[:300]!r}')
+    await pg.evaluate("() => mbCloseModal()")
+    t = await tab(pg, 'pack', 'lm')
+    c.ok('Flagged' in t and 'Straight-line on the van' in t, 'the Monthly Pack does not flag the manual journal on its ties')
+    c.ok(not errs, f'manual errors {errs[:3]}')
+    await b.close()
+
 PARTS = {'books': part_books, 'screen': part_screen, 'cash': part_cash, 'sealed': part_sealed, 'entity': part_entity, 'lines': part_lines,
-         'overhead': part_overhead, 'closeout': part_closeout, 'cash13': part_cash13, 'excel': part_excel, 'ask': part_ask, 'phone': part_phone}
+         'overhead': part_overhead, 'closeout': part_closeout, 'manual': part_manual, 'cash13': part_cash13, 'excel': part_excel, 'ask': part_ask, 'phone': part_phone}
 
 async def main():
     want = [a for a in sys.argv[1:] if a in PARTS] or list(PARTS)
