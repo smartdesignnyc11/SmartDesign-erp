@@ -25,6 +25,8 @@ and compared with the recomputation. Parts:
             book (a drafted change naming its Standard); the owner approves it before the cost factor changes
   overhead  overhead by category by month recomputed; break-even monthly revenue = 3 full months' overhead ÷ their
             gross margin
+  lanes     the subs lane's pay applications with retainage (2050, AP, job cost at gross) and the live jobs lane's two
+            payers (AR and its aging) and contractor bills (job cost): every tie, the books recomputed
   manual    a manual journal posted by the owner with a reason is flagged on the ties and the Pack, its lines by hand
   cash13    the 13-week forecast: no bill the bank already paid, the owed payroll run and the card balances are out,
             cash today + the weeks' net = the last balance
@@ -709,8 +711,84 @@ async def part_manual(p, c):
     c.ok(not errs, f'manual errors {errs[:3]}')
     await b.close()
 
+def _lane_helpers(name):
+    """Another lane's suite's helpers, without running its suite (both end in asyncio.run(main()))."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), name)
+    src = open(path, encoding='utf-8').read()
+    src = src[:src.rindex('asyncio.run(main())')] if 'if __name__' not in src else src
+    ns = {'__name__': 'lane_' + name, '__file__': path}
+    exec(compile(src, path, 'exec'), ns)
+    return ns
+
+async def check_books_and_ties(pg, c, tag):
+    """Every tie ties, and the independent recomputation agrees with the app, on whatever records are loaded."""
+    B = await books(pg)
+    A = await pg.evaluate("""() => { const R = ['2026-01-01', today()], Bal = companyBalance(), G = glBalances({entityId: 'all', to: today()}), J = {};
+        DB.projects.forEach(p => { const x = jobFin(p); J[p.id] = {actual: x.actual, labor: x.laborCost, contract: x.contract} });
+        const bk = DB.clients.map(clientFin).reduce((a, f) => (['current','d30','d60','d90'].forEach(k => a[k] = (a[k] || 0) + (+f.buckets[k] || 0)), a), {});
+        return {ar: Bal.arOut, ret: Bal.ret, ap: Bal.ap, bk, J, G: {g1100: (G[1100] || {}).bal || 0, g2050: (G[2050] || {}).bal || 0, g2000: (G[2000] || {}).bal || 0},
+          rp: fin2RetainagePayable().total, ties: rpTies(R).map(t => ({id: t.id, ok: t.ok, diff: t.diff, manual: !!t.manual, fig: t.figure.amt, parts: t.parts.map(x => [x.label, x.amt])}))} }""")
+    off = [t for t in A['ties'] if not t['ok'] and not t['manual']]
+    c.ok(not off, f'{tag}: ties that do not tie: {off}')
+    op, short = B.ar()
+    c.ok(abs(A['ar'] - r2(sum(x[2] for x in op))) <= EPS, f"{tag}: receivables {A['ar']} vs recomputed {r2(sum(x[2] for x in op))}")
+    for k, v in B.aging().items(): c.ok(abs(A['bk'].get(k, 0) - v) <= EPS, f'{tag}: AR aging {k} {A["bk"].get(k, 0)} vs {v}')
+    c.ok(abs(A['G']['g1100'] - r2(sum(x[2] for x in op) + sum(x[2] for x in short))) <= EPS, f"{tag}: ledger 1100 {A['G']['g1100']} vs open + short-paid")
+    gl = B.gl()
+    c.ok(abs(sum(gl.values())) <= EPS, f'{tag}: trial balance off by {sum(gl.values())}')
+    c.ok(abs(A['rp'] - A['G']['g2050']) <= EPS, f"{tag}: retainage payable {A['rp']} vs ledger 2050 {A['G']['g2050']}")
+    for pid, x in A['J'].items():
+        c.ok(abs(x['labor'] - B.labor(pid)) <= EPS, f'{tag}: {pid} labor {x["labor"]} vs recomputed {B.labor(pid)}')
+        c.ok(abs(x['actual'] - B.job_actual(pid)) <= EPS, f'{tag}: {pid} job cost {x["actual"]} vs recomputed {B.job_actual(pid)}')
+    return A, B
+
+async def part_lanes(p, c):
+    """The reports hold on the records the subs and live jobs lanes add: a subcontract's pay applications with
+    retainage (2050, the AP aging, job cost at gross), two payers on one contract (AR and its aging by payer), the
+    contractor's bills (job cost, never payroll)."""
+    S = _lane_helpers('subs_test.py')
+    b, pg, errs = await page(p)
+    await pg.evaluate(S['PLANT'])
+    await S['paid_app1'](pg)
+    await S['approved_app'](pg, 'BSW-102', 70, waiver=True)
+    await sign_in(pg, 'u_owner')
+    A, B = await check_books_and_ties(pg, c, 'subs')
+    ret = next(t for t in A['ties'] if t['id'] == 'ret-pay')
+    c.ok(abs(ret['fig'] - 3500) <= EPS and abs(A['G']['g2050'] - 3500) <= EPS, f'subs: retainage payable $3,500.00 on the tie and in 2050: {ret}')
+    ap = next(t for t in A['ties'] if t['id'] == 'ap-books')
+    c.ok(abs(ap['fig'] - 13500) <= EPS and abs(A['G']['g2000'] - 13500) <= EPS, f'subs: BSW-102 owed $13,500.00 (after retainage) on the AP tie and in 2000: {ap}')
+    cash = next(t for t in A['ties'] if t['id'] == 'cash:ac1')
+    c.ok(any('not yet through the bank' in x[0] and abs(x[1] + 18000) <= EPS for x in cash['parts']), f'subs: the $18,000 BSW-101 payment is named as not yet through the bank: {cash}')
+    t = await tab(pg, 'cash13')
+    c.ok('Brooklyn Stair Works · 121 State Street' in t and '$3,500' in t, 'subs: Cash Forecast does not list the retainage held from Brooklyn Stair Works')
+    a = await ask(pg, 'how much retainage payable do we hold from subs')
+    c.ok('$3,500.00' in a and 'Brooklyn Stair Works' in a, f'subs: Ask retainage payable: {a[:200]!r}')
+    c.ok(not errs, f'subs errors {errs[:3]}')
+    await b.close()
+    # live jobs: the demo's four jobs (two payers, a contractor, ranges and allowances)
+    b, pg, errs = await page(p)
+    await pg.evaluate("async () => { await ljDemoSwitch(true); }")
+    await pg.wait_for_timeout(600)
+    n = await pg.evaluate("() => DB.clients.filter(c => /^cl_lj_/.test(c.id)).length")
+    c.ok(n == 4, f'live jobs demo loaded {n} jobs')
+    A, B = await check_books_and_ties(pg, c, 'live jobs')
+    r = await pg.evaluate("""() => { const c = DB.clients.find(x => x.id === 'cl_lj_atl'); if (!c) return null; const by = ljByPayer(c), all = clientFin(c);
+        const rows = typeof arRows === 'function' ? arRows() : [];
+        return {payers: Object.values(by).map(x => x.outstanding), all: all.outstanding, arRows: rows.reduce((a, x) => a + x.bal, 0), ar: companyBalance().arOut} }""")
+    c.ok(r and abs(sum(r['payers']) - r['all']) <= EPS, f'live jobs: the payers add up to the client\'s AR: {r}')
+    c.ok(r and abs(r['arRows'] - r['ar']) <= 0.5, f'live jobs: the AR list (with payers) adds up to Receivables: {r}')
+    ap = next(t for t in A['ties'] if t['id'] == 'ap')
+    c.ok(any('Awaiting approval' in x[0] and abs(x[1] - 1572.5) <= EPS for x in ap['parts']), f"live jobs: Dana Reyes' two hour bills ($1,572.50) are owed but awaiting approval, named apart from the ledger: {ap}")
+    cb = await pg.evaluate("""() => { const b = DB.bills.filter(x => /contractor/i.test(JSON.stringify(x.lj || x.kind || '')) || x.contractor); return b.map(x => [x.number, x.projectId, x.status, billCost(x)]) }""")
+    c.ok(all(B.job_actual(x[1]) >= x[3] - EPS for x in cb if x[1] and x[2] in ('approved', 'paid', 'verified')), f'live jobs: contractor bills in job cost: {cb}')
+    t = await tab(pg, 'company', 'ty')
+    T = await screen_ties(pg, '[data-rpties=pl]')
+    c.ok(T and all(x['ok'] for x in T), f'live jobs: P&L Detail ties {[(x["id"], x["ok"]) for x in T]}')
+    c.ok(not errs, f'live jobs errors {errs[:3]}')
+    await b.close()
+
 PARTS = {'books': part_books, 'screen': part_screen, 'cash': part_cash, 'sealed': part_sealed, 'entity': part_entity, 'lines': part_lines,
-         'overhead': part_overhead, 'closeout': part_closeout, 'manual': part_manual, 'cash13': part_cash13, 'excel': part_excel, 'ask': part_ask, 'phone': part_phone}
+         'overhead': part_overhead, 'closeout': part_closeout, 'manual': part_manual, 'lanes': part_lanes, 'cash13': part_cash13, 'excel': part_excel, 'ask': part_ask, 'phone': part_phone}
 
 async def main():
     want = [a for a in sys.argv[1:] if a in PARTS] or list(PARTS)

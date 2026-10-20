@@ -66,6 +66,13 @@ const rpCanEditChoices = () => {
   }
 };
 
+// Vendor payments recorded from an account that no bank or card line carries yet (a check not yet cleared)
+function rpOutstanding(a) {
+  return (DB.payments || []).filter((p) => p.acctId === a.id && !p.void && !(p.txnId && (DB.txns || []).some((t) => t.id === p.txnId)) && !(DB.txns || []).some((t) => t.paymentId === p.id));
+}
+// a row of fin2RetainagePayable ({v: the vendor, projectId, amt}): who and how much
+const rpRetAmt = (x) => r2(+x.amt || 0);
+const rpRetWho = (x) => `${(x.v && x.v.name) || ""}${x.projectId ? " · " + rpProjName(x.projectId) : ""}`;
 // The row of a P&L ledger line as money: a bank line keeps its sign (a vendor credit reduces cost), a bill, a
 // payroll split or a stock issue is its amount.
 const rpRowAmt = (r) => (r && "txn" === r.kind && r.ref && "number" == typeof r.ref.amt ? r2(-r.ref.amt) : r2(+r.amt || 0));
@@ -488,22 +495,40 @@ function rpTies(range, only) {
   safe("ap", () => {
     const B = companyBalance(),
       A = apAging(today()),
-      approvedOpen = (DB.bills || []).filter((b) => "approved" === b.status && !(b.paidAt || b.txnId)),
-      openAmt = rpSum(approvedOpen, (b) => billTotal(b));
+      unpaid = (b) => !(b.paidAt || b.txnId) && !b.ic && !("function" == typeof billPaidUnapproved && billPaidUnapproved(b)),
+      approvedOpen = (DB.bills || []).filter((b) => "approved" === b.status && unpaid(b)),
+      openAmt = rpSum(approvedOpen, (b) => billTotal(b)),
+      waiting = (DB.bills || []).filter((b) => BILL_ACCRUED.includes(b.status) && unpaid(b)),
+      waitAmt = rpSum(waiting, (b) => billTotal(b));
+    // The Reports, the Brief and the AP aging count a vendor bill as owed once it is entered; the ledger books it
+    // (2000) only once it is approved. Both are shown, with the bills awaiting approval named, so the two numbers
+    // are never read as one.
     push(
       rpTie(
         "ap",
         "Payables",
-        "Payables: bills owed agree with the aging and the ledger",
-        { label: "Vendor bills owed (approved, unpaid)", amt: r2(B.ap) },
+        "Payables: bills owed, approved and awaiting approval",
+        { label: "Vendor bills owed (Reports, the Brief, AP aging)", amt: r2(B.ap) },
         [
-          { label: "AP aging, vendor bills", amt: r2(A.bills || 0), drill: "ap:open" },
-          { label: "Approved bills with no payment", amt: openAmt, drill: "ap:open" },
+          { label: "Approved, unpaid (in the ledger)", amt: openAmt, drill: "ap:open" },
+          { label: `Awaiting approval, unpaid (${waiting.length}; not yet in the ledger)`, amt: waitAmt, drill: "ap:waiting" },
+        ],
+        "sum",
+        `${waiting.length ? `${waiting.map((b) => `${b.vendor} ${b.number}`).join("; ")} wait for approval. ` : ""}${A.payroll ? `Payroll owed is apart: ${rpCents(A.payroll)} (${A.payrollOverdue ? "past due" : "not yet due"}).` : ""}`.trim(),
+        { view: "reports", tab: "payables" },
+      ),
+    );
+    push(
+      rpTie(
+        "ap-books",
+        "Payables",
+        "Approved bills owed agree with the aging and the ledger",
+        { label: "Approved vendor bills, unpaid", amt: openAmt },
+        [
+          { label: "AP aging, vendor bills", amt: r2(A.bills || 0) - waitAmt, drill: "ap:open" },
           { label: "Ledger 2000 Accounts payable", amt: rpGLBal(G, "2000") },
         ],
         "same",
-        A.payroll ? `Payroll owed is apart: ${rpCents(A.payroll)} (${A.payrollOverdue ? "past due" : "not yet due"}).` : "",
-        { view: "reports", tab: "payables" },
       ),
     );
     if ("function" == typeof fin2RetainagePayable) {
@@ -515,7 +540,7 @@ function rpTies(range, only) {
           "Retainage payable agrees with the ledger",
           { label: "Retainage held from subs", amt: r2(RP.total || 0) },
           [
-            { label: "Held on the subs' bills", amt: rpSum(RP.rows || [], (x) => +x.held || +x.amt || +x.amount || 0), drill: "ret:pay" },
+            { label: "Held on the subs' bills", amt: rpSum(RP.rows || [], (x) => rpRetAmt(x)), drill: "ret:pay" },
             { label: "Ledger 2050 Retainage payable", amt: r2(RP.ledger || rpGLBal(G, "2050")) },
           ],
           "same",
@@ -530,19 +555,20 @@ function rpTies(range, only) {
         const lines = (DB.txns || []).filter((t) => t.acct === a.id && "void" !== t.status && !t.voided),
           reg = r2((+a.opening || 0) + rpSum(lines, (t) => t.amt)),
           gl = rpGLBal(G, "acct:" + a.id),
-          glSigned = "card" === a.type ? -gl : gl;
+          glSigned = "card" === a.type ? -gl : gl,
+          out = rpOutstanding(a),
+          outAmt = rpSum(out, (p) => +p.amount || 0);
         push(
           rpTie(
             "cash:" + a.id,
             "Statements",
-            `${a.name}${a.last4 ? " ···" + a.last4 : ""}: the register, the balance and the books agree`,
-            { label: "Balance on the books", amt: r2(+a.balance || 0) },
-            [
-              { label: `Opening ${rpCents(a.opening || 0)} + ${lines.length} lines`, amt: reg, drill: "cash:" + a.id },
-              { label: "Ledger", amt: glSigned },
-            ],
-            "same",
-            "card" === a.type ? "A card balance below zero is money owed on the card." : "",
+            `${a.name}${a.last4 ? " ···" + a.last4 : ""}: the register and the books agree`,
+            { label: "Ledger (cash on the books)", amt: glSigned },
+            [{ label: `Register: opening ${rpCents(a.opening || 0)} + ${lines.length} lines`, amt: reg, drill: "cash:" + a.id }].concat(
+              out.length ? [{ label: `Payments recorded, not yet through the bank (${out.length})`, amt: -outAmt, drill: "cash-out:" + a.id }] : [],
+            ),
+            "sum",
+            `${Math.abs(r2(+a.balance || 0) - reg) > RP_EPS ? `The account's stored balance reads ${rpCents(a.balance)}. ` : ""}${out.length ? "A payment recorded in the ERP leaves the books at once and the bank when it clears. " : ""}${"card" === a.type ? "A card balance below zero is money owed on the card." : ""}`.trim(),
             { view: "bank" },
           ),
         );
@@ -683,9 +709,14 @@ function rpDrillRows(key) {
     });
     "ret" === kind &&
       "pay" === a &&
-      ((out.length = 0), (fin2RetainagePayable().rows || []).forEach((x) => out.push({ date: x.date || "", desc: `${x.vendor || ""} ${x.project || ""}`.trim(), amt: +x.held || +x.amt || +x.amount || 0, kind: "bill", open: null })));
+      ((out.length = 0), (fin2RetainagePayable().rows || []).forEach((x) => out.push({ date: x.date || "", desc: rpRetWho(x), amt: rpRetAmt(x), kind: "bill", open: null })));
+  } else if ("cash-out" === kind) {
+    const ac = (DB.accounts || []).find((x) => x.id === a);
+    ac && rpOutstanding(ac).forEach((p) => out.push({ date: p.date, desc: `${p.vendor || ""} · payment recorded, not yet at the bank`, amt: -(+p.amount || 0), kind: "payment", open: p.billId ? { type: "bill", b: (DB.bills || []).find((x) => x.id === p.billId) } : null, manual: !1 }));
+  } else if ("ap" === kind && "waiting" === a) {
+    (DB.bills || []).filter((b) => BILL_ACCRUED.includes(b.status) && !(b.paidAt || b.txnId) && !b.ic && !("function" == typeof billPaidUnapproved && billPaidUnapproved(b))).forEach((b) => out.push({ date: b.due || b.date, desc: `${b.vendor} · ${b.number} · awaiting approval`, amt: billTotal(b), kind: "bill", b: b, open: { type: "bill", b: b } }));
   } else if ("ap" === kind) {
-    (DB.bills || []).filter((b) => "approved" === b.status && !(b.paidAt || b.txnId)).forEach((b) => out.push({ date: b.due || b.date, desc: `${b.vendor} · ${b.number}`, amt: billTotal(b), kind: "bill", b: b, open: { type: "bill", b: b } }));
+    (DB.bills || []).filter((b) => "approved" === b.status && !(b.paidAt || b.txnId) && !b.ic).forEach((b) => out.push({ date: b.due || b.date, desc: `${b.vendor} · ${b.number}`, amt: billTotal(b), kind: "bill", b: b, open: { type: "bill", b: b } }));
   } else if ("cash" === kind) {
     (DB.txns || []).filter((t) => t.acct === a).sort((x, y) => String(x.date).localeCompare(String(y.date))).forEach((t) => out.push({ date: t.date, desc: t.desc, amt: t.amt, kind: "txn", t: t, open: { type: "txn", t: t } }));
   } else if ("job" === kind) {
@@ -931,7 +962,7 @@ function rpCashHtml() {
   <h3 class="rep-h">Backlog</h3><div class="tw"><table class="t rep-t rp-t"><thead><tr><th>Job</th><th class="money">Contract</th><th class="money">Earned</th><th class="money">Backlog</th><th class="money">Backlog Gross Profit</th></tr></thead><tbody>${backlog
     .map((x) => `<tr><td>${esc(x.p.project.name)}</td>${rpMoneyCell(x.J.contract)}${rpMoneyCell(x.J.earned)}${rpMoneyCell(x.J.backlog)}${rpMoneyCell(x.J.backlogGP || 0)}</tr>`)
     .join("")}<tr class="grand"><td>All jobs</td>${rpMoneyCell(rpSum(backlog, (x) => x.J.contract))}${rpMoneyCell(rpSum(backlog, (x) => x.J.earned))}${rpMoneyCell(rpSum(backlog, (x) => x.J.backlog))}${rpMoneyCell(rpSum(backlog, (x) => x.J.backlogGP || 0))}</tr></tbody></table></div>
-  <h3 class="rep-h">Retainage</h3><div class="grid2 rp-ret"><div class="card"><h4 style="margin:0 0 6px">Receivable · Held by Clients</h4><table class="t"><tbody>${recv.map((x) => `<tr><td>${esc(x.c.name)}</td>${rpMoneyCell(x.f.retHeld, "ret:recv", "Retainage held by clients")}</tr>`).join("") || '<tr><td class="muted">None held.</td></tr>'}<tr class="grand"><td>Total · ledger 1150 ${rpCents(rpGLBal(G, "1150"))}</td>${rpMoneyCell(B.ret)}</tr></tbody></table></div><div class="card"><h4 style="margin:0 0 6px">Payable · Held from Subs</h4><table class="t"><tbody>${(RP.rows || []).map((x) => `<tr><td>${esc(x.vendor || "")}${x.project ? ` · ${esc(x.project)}` : ""}</td>${rpMoneyCell(+x.held || +x.amt || +x.amount || 0)}</tr>`).join("") || '<tr><td class="muted">None held.</td></tr>'}<tr class="grand"><td>Total · ledger 2050 ${rpCents(RP.ledger || 0)}</td>${rpMoneyCell(RP.total || 0)}</tr></tbody></table></div></div>${rpTiesHtml(rpTies(null, ["wip", "ar"]).filter((t) => /ret-recv|wip/.test(t.id)).concat(rpTies(null, ["ap"]).filter((t) => "ret-pay" === t.id)), { id: "cash", title: "Ties" })}`;
+  <h3 class="rep-h">Retainage</h3><div class="grid2 rp-ret"><div class="card"><h4 style="margin:0 0 6px">Receivable · Held by Clients</h4><table class="t"><tbody>${recv.map((x) => `<tr><td>${esc(x.c.name)}</td>${rpMoneyCell(x.f.retHeld, "ret:recv", "Retainage held by clients")}</tr>`).join("") || '<tr><td class="muted">None held.</td></tr>'}<tr class="grand"><td>Total · ledger 1150 ${rpCents(rpGLBal(G, "1150"))}</td>${rpMoneyCell(B.ret)}</tr></tbody></table></div><div class="card"><h4 style="margin:0 0 6px">Payable · Held from Subs</h4><table class="t"><tbody>${(RP.rows || []).map((x) => `<tr><td>${esc(rpRetWho(x))}</td>${rpMoneyCell(rpRetAmt(x))}</tr>`).join("") || '<tr><td class="muted">None held.</td></tr>'}<tr class="grand"><td>Total · ledger 2050 ${rpCents(RP.ledger || 0)}</td>${rpMoneyCell(RP.total || 0)}</tr></tbody></table></div></div>${rpTiesHtml(rpTies(null, ["wip", "ar"]).filter((t) => /ret-recv|wip/.test(t.id)).concat(rpTies(null, ["ap"]).filter((t) => "ret-pay" === t.id)), { id: "cash", title: "Ties" })}`;
 }
 
 
@@ -1353,7 +1384,7 @@ const RP_EQ = {
       .map((c) => ({ c: c, f: clientFin(c) }))
       .filter((x) => x.f.retHeld > RP_EPS)
       .map((x) => ({ _id: "rr:" + x.c.id, _module: "Reports", _label: `${x.c.name} · retainage held`, _go: { view: "reports", tab: "cash13" }, side: "receivable", party: x.c.name, amount: r2(x.f.retHeld) }))
-      .concat((RP2.rows || []).map((x, i) => ({ _id: "rp:" + i, _module: "Reports", _label: `${x.vendor || ""} · retainage held`, _go: { view: "reports", tab: "cash13" }, side: "payable", party: x.vendor || "", amount: r2(+x.held || +x.amt || +x.amount || 0) })));
+      .concat((RP2.rows || []).map((x, i) => ({ _id: "rp:" + i, _module: "Reports", _label: `${rpRetWho(x)} · retainage held`, _go: { view: "reports", tab: "cash13" }, side: "payable", party: rpRetWho(x), amount: r2(rpRetAmt(x)) })));
   },
   overheadmonths: () => {
     const O = rpOverhead(rpRange());
@@ -1451,7 +1482,7 @@ const RP_ASK = [
             : recv && !pay
               ? `${rpCents(B.ret)} of retainage receivable: held by clients until release.`
               : `Retainage receivable ${rpCents(B.ret)} (held by clients); retainage payable ${rpCents(RP2.total || 0)} (held from subs).`,
-        work: (DB.clients || []).map((c) => ({ c: c, f: clientFin(c) })).filter((x) => x.f.retHeld > RP_EPS).map((x) => `${x.c.name} holds ${rpCents(x.f.retHeld)}`).concat((RP2.rows || []).map((x) => `We hold ${rpCents(+x.held || +x.amt || +x.amount || 0)} from ${x.vendor || ""}`)),
+        work: (DB.clients || []).map((c) => ({ c: c, f: clientFin(c) })).filter((x) => x.f.retHeld > RP_EPS).map((x) => `${x.c.name} holds ${rpCents(x.f.retHeld)}`).concat((RP2.rows || []).map((x) => `We hold ${rpCents(rpRetAmt(x))} from ${rpRetWho(x)}`)),
         note: "Both sides on Reports › Cash & Receivables › Cash Forecast, each tied to the ledger (1150 and 2050).",
         go: { view: "reports", tab: "cash13" },
         total: pay && !recv ? RP2.total || 0 : B.ret,
