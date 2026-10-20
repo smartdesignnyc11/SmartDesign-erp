@@ -529,15 +529,29 @@ async def pay_bill(C, number, acct, date, amount, method, ref):
     await C.wait(400)
     await C.pg.locator('#drawer.on button', has_text=re.compile(r'^Pay')).first.click(timeout=30000)
     await C.wait(400)
+    # the Payment Check (BACKLOG §1.12) runs first on the sheet. A sub's payment waits for its conditional lien
+    # waiver: the controller records the one that came with the invoice from the hold's own button, as the person would.
+    for _ in range(3):
+        held = await C.js("() => [...document.querySelectorAll('#mbm .pc-hold')].map(h => ({what: (h.querySelector('b') || {}).innerText || '', acts: [...h.querySelectorAll('[data-pcact]')].map(b => b.dataset.pcact)}))")
+        w = [h for h in (held or []) if 'waiver' in h['acts']]
+        if not w: break
+        C.t(f"Controller > {number} > Pay… > Payment Check holds: {w[0]['what']} > Record the Waiver (conditional, with the invoice) > Record the Waiver")
+        await C.js("() => document.querySelector('#mbm [data-pcact=\"waiver\"]').click()")
+        await C.wait(300)
+        await C.modal_ok(500)
     m = await C.modal()
     await C.pg.select_option('#mbm [data-f=acct]', acct)
     await C.fill('#mbm [data-f=date]', date); await C.fill('#mbm [data-f=amount]', amount)
     await C.pg.select_option('#mbm [data-f=method]', method); await C.fill('#mbm [data-f=ref]', ref)
     await C.modal_ok(600)
+    # a payment the check still holds leaves the sheet open on what holds it: say so, and close it
+    held = await C.js("() => [...document.querySelectorAll('#mbm .pc-hold b')].map(b => b.innerText)")
+    if held: await C.js("() => mbCloseModal()")
     try: await C.js("() => { if (document.querySelector('#drawer.on')) closeEditor(); }")
     except Exception: pass
     st = await C.js("""n => { const b = DB.bills.find(b => b.number === n); const P = (DB.billPayments || DB.payments || []).filter(p => p.billId === b.id);
         return {status: b.status, paid: P.map(p => ({id: p.id, amount: p.amount, date: p.date, acct: p.acct || p.account, ref: p.ref}))}; }""", number)
+    held and st.update({'held': held})
     return m, st
 
 

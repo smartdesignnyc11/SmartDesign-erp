@@ -3851,7 +3851,7 @@ function toast(msg, go, ms) {
         (a.onclick = (e) => {
           e.preventDefault(), t.classList.remove("on", "act");
           try {
-            document.getElementById("mbm")?.remove(), l.run();
+            toastLeave(l.run);
           } catch (err) {
             console.warn("toast link", err);
           }
@@ -3861,6 +3861,38 @@ function toast(msg, go, ms) {
     t.classList.add("act")),
     toastPlace(t),
     (t._t = setTimeout(() => t.classList.remove("on", "act", "toast-up"), ms || (L.length ? 6500 : 2400)));
+}
+// A toast's Open link pressed while an editor is open (2026-10-20): the link used to open the record behind the
+// editor and leave the editor on top (the side drawer) or drop what was typed in it (a sheet). Now the editor
+// closes first, and if anything was typed in it the person is asked: Keep Editing (the safe step) or Leave Without
+// Saving. Typing in an editor marks it; a fresh editor starts clean (closeEditor and a new sheet clear the mark).
+["input", "change"].forEach((k) =>
+  document.addEventListener(
+    k,
+    (e) => {
+      const box = e.target && e.target.closest && e.target.closest("#drawer.on, #mbm");
+      box && (box.dataset.dirty = "1");
+    },
+    !0,
+  ),
+);
+function toastLeave(run) {
+  const dr = document.querySelector("#drawer.on"),
+    mb = document.getElementById("mbm"),
+    leave = () => {
+      mb && mb.remove(), dr && dr.classList.contains("on") && closeEditor(), run();
+    };
+  if (!((dr && dr.dataset.dirty) || (mb && mb.dataset.dirty))) return leave();
+  // the sheet is held aside, as appConfirm does, and comes back on Keep Editing
+  mb && ((mb.id = "mbm-held"), (mb.style.display = "none"));
+  let left = !1;
+  const m = mbModal("Unsaved Changes", `<div class="note warn">What you typed here is not saved yet. Leave it and open the record?</div>`, {
+      submit: "Keep Editing",
+      alt: { label: "Leave Without Saving", run: () => ((left = !0), leave()) },
+    }),
+    iv = setInterval(() => {
+      document.body.contains(m) || (clearInterval(iv), left || (mb && mb.isConnected && ((mb.id = "mbm"), (mb.style.display = ""))));
+    }, 120);
 }
 const sevPill = (s) => (3 === s ? "red" : 2 === s ? "orange" : 1 === s ? "amber" : "green");
 // One place resets the scroll: a new view, or a tab / sub-tab press, starts at the top. The page
@@ -5278,6 +5310,7 @@ const OPEN_ON = {
 let editing = null;
 function openEditor(kind, id) {
   if ("view" === kind) return void setView(id);
+  document.getElementById("drawer") && delete document.getElementById("drawer").dataset.dirty;
   // Office records open for whoever has their page (the controller opens a PO from the PO list); the
   // project's own items stay with the roles that edit the project.
   const officeView = OPEN_ON[kind];
@@ -5563,6 +5596,7 @@ function openEditor(kind, id) {
 }
 function closeEditor() {
   (editing = null),
+    delete $("#drawer").dataset.dirty,
     $("#drawer").classList.remove("on"),
     $("#scrim").classList.remove("on"),
     ($("#d-save").textContent = "Save"),
@@ -8491,6 +8525,7 @@ function renderClients() {
     });
 }
 function openClientEditor(kind, id) {
+  document.getElementById("drawer") && delete document.getElementById("drawer").dataset.dirty;
   const c = DB.clients.find((x) => x.id === clientOpen);
   if (!c) return;
   (editing = { kind: "client-" + kind, id: id }),
@@ -11349,7 +11384,7 @@ function renderPODoc(po) {
     )
     .join(
       "",
-    )}</tbody></table>\n    ${editable ? '<div class="row no-doc-print"><button class="btn sm" data-addline>+ Add line</button><button class="btn sm" data-frommat>Add materials for this vendor…</button></div>' : ""}\n    <div class="totals"><div><div class="f"><label>Notes to vendor</label><textarea data-p="notes">${esc(po.notes || "")}</textarea></div>\n      <div class="card match" style="margin-top:8px"><div class="hd"><h3>Payments matched to this PO</h3><span class="grow"></span><button class="btn sm" data-automatch>Find Matches</button></div>${matched.length ? matched.map((x) => `<div class="chg"><span>${fmt(x.date)}</span>${esc(x.desc)} <b style="float:right">${money(-x.amt)}</b> <a href="#" data-unmatch="${x.id}" class="small" style="margin-left:8px">unlink</a></div>`).join("") : '<div class="muted small">Nothing matched yet.</div>'}${candidates.length ? `<div class="small" style="margin-top:8px"><b>Possible matches</b>${candidates.map((x) => `<div class="chg"><span>${fmt(x.date)}</span>${esc(x.desc)} <b style="float:right">${money(-x.amt)}</b> <a href="#" data-match="${x.id}" class="small" style="margin-left:8px">match</a></div>`).join("")}</div>` : ""}\n        <div class="small muted" style="margin-top:8px">Three-way check: ordered ${money(t.total)} · received ${po.lines.every((l) => !l.received) ? "—" : po.lines.map((l) => `${l.received || 0}/${l.qty} ${l.unit}`).join(", ")} · paid ${money(paid)}${paid && t.total ? ` (${Math.round((paid / t.total) * 100)}%)` : ""}. Tolerance ${DB.company.matchTol || 2}%.</div></div></div>\n      <div class="tt"><span class="k">Subtotal</span><span class="v">${money(t.sub)}</span><span class="k">Tax ${editable ? `<input type="number" step="0.001" data-p="tax" value="${po.tax || 0}">%` : `(${po.tax || 0}%)`}</span><span class="v">${t.tax ? money(t.tax) : "—"}</span><span class="k">Shipping ${editable ? `<input type="number" step="any" data-p="shipping" value="${po.shipping || 0}">` : ""}</span><span class="v">${t.shipping ? money(t.shipping) : "—"}</span><span class="k big">Total</span><span class="v big">${money(t.total)}</span></div></div>\n    ${
+    )}</tbody></table>\n    ${editable ? '<div class="row no-doc-print"><button class="btn sm" data-addline>+ Add line</button><button class="btn sm" data-frommat>Add materials for this vendor…</button></div>' : ""}\n    <div class="totals"><div><div class="f"><label>Notes to vendor</label><textarea data-p="notes">${esc(po.notes || "")}</textarea></div>\n      <div class="card match" style="margin-top:8px"><div class="hd"><h3>Payments Matched to This PO</h3><span class="grow"></span><button class="btn sm" data-automatch>Find Matches</button></div>${matched.length ? matched.map((x) => `<div class="chg"><span>${fmt(x.date)}</span>${esc(x.desc)} <b style="float:right">${money(-x.amt)}</b> <a href="#" data-unmatch="${x.id}" class="small" style="margin-left:8px">unlink</a></div>`).join("") : '<div class="muted small">Nothing matched yet.</div>'}${candidates.length ? `<div class="small" style="margin-top:8px"><b>Possible matches</b>${candidates.map((x) => `<div class="chg"><span>${fmt(x.date)}</span>${esc(x.desc)} <b style="float:right">${money(-x.amt)}</b> <a href="#" data-match="${x.id}" class="small" style="margin-left:8px">match</a></div>`).join("")}</div>` : ""}\n        <div class="small muted" style="margin-top:8px">Three-way check: ordered ${money(t.total)} · received ${po.lines.every((l) => !l.received) ? "—" : po.lines.map((l) => `${l.received || 0}/${l.qty} ${l.unit}`).join(", ")} · paid ${money(paid)}${paid && t.total ? ` (${Math.round((paid / t.total) * 100)}%)` : ""}. Tolerance ${DB.company.matchTol || 2}%.</div></div></div>\n      <div class="tt"><span class="k">Subtotal</span><span class="v">${money(t.sub)}</span><span class="k">Tax ${editable ? `<input type="number" step="0.001" data-p="tax" value="${po.tax || 0}">%` : `(${po.tax || 0}%)`}</span><span class="v">${t.tax ? money(t.tax) : "—"}</span><span class="k">Shipping ${editable ? `<input type="number" step="any" data-p="shipping" value="${po.shipping || 0}">` : ""}</span><span class="v">${t.shipping ? money(t.shipping) : "—"}</span><span class="k big">Total</span><span class="v big">${money(t.total)}</span></div></div>\n    ${
     linkedFiles("po", po.id).length
       ? `<div class="note" style="margin-top:10px">Documents: ${linkedFiles("po", po.id)
           .map((f) => `<a href="#" data-go="file:${f.id}">${fileIcon(f)} ${esc(f.name)}</a>`)
@@ -127905,7 +127940,8 @@ function flowVendorsPass(v) {
     acts && !acts.querySelector("#vr-edit"))
   ) {
     const b = document.createElement("button");
-    (b.className = "btn primary"),
+    // Edit is housekeeping, never the blue button (the screen standard)
+    (b.className = "btn"),
       (b.id = "vr-edit"),
       (b.textContent = "Edit Vendor"),
       (b.onclick = () => openVendor(vendOpen)),
@@ -184870,7 +184906,8 @@ if ("function" == typeof paHtml) {
         cl = "client" === role();
       } catch (e) {}
       document.body.classList.toggle("cl-portal", cl);
-      if (!cl) return r;
+      // the client's switch is the client's only: a staff sign-in on the same device does not keep it on Chat
+      if (!cl) return document.querySelectorAll(".cl-mode").forEach((x) => x.remove()), r;
       // the Ask door in the header, phone and desktop: the same button the office roles have
       const bar = document.querySelector("header.topbar");
       if (bar) {
@@ -184905,6 +184942,13 @@ if ("function" == typeof paHtml) {
         const v = document.getElementById("v-chat"),
           ph = v && v.querySelector(".ph");
         v && !v.querySelector(".cl-mode") && ph && ph.insertAdjacentHTML("afterend", clModeHtml("chat"));
+        // on the phone the conversation is pinned under the header (renderChat measured it before the switch was
+        // here): it starts below the switch, so the switch is not under it and a tap reaches it
+        const sw = v && v.querySelector(".cl-mode");
+        if (sw && document.body.classList.contains("msg-solo-ph")) {
+          const b = sw.getBoundingClientRect().bottom;
+          b > 0 && document.documentElement.style.setProperty("--msg-top", Math.ceil(b + 6) + "px");
+        }
       }
     } catch (e) {
       console.warn("client door", e);
@@ -198775,7 +198819,16 @@ function msgWhen(m) {
 function msgCur(u) {
   const L = msgThreadsFor((u = u || msgMe()));
   let T = msgKey ? L.find((x) => x.key === msgKey) || (msgIsOwner(u) ? msgThread(msgKey, u) : null) : null;
-  !T && S && (T = L.find((x) => x.key === (msgIsClient(u) ? "client:" : "job:") + S.id));
+  // a job's chat with no conversation picked: its conversation with unread lines, else the one with the newest
+  // line, else the team's (an invoice sent to the client is a client-thread line; billing landed on an empty Team)
+  if (!T && S) {
+    const J = msgIsClient(u) ? L.filter((x) => x.key === "client:" + S.id) : ["job:", "client:"].map((k) => L.find((x) => x.key === k + S.id)).filter(Boolean),
+      last = (x) => {
+        const v = x.all().filter((m) => msgVisible(m, x, u));
+        return v.length ? String(msgWhen(v[v.length - 1]) || "") : "";
+      };
+    T = J.find((x) => msgUnread(x, u) > 0) || J.slice().sort((a, b) => (last(b) > last(a) ? 1 : last(b) < last(a) ? -1 : 0))[0] || null;
+  }
   return T || L[0] || null;
 }
 function msgOpen(key) {
