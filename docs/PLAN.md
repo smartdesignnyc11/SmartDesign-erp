@@ -2,7 +2,7 @@
 
 This is the one list. The chief of staff keeps it current on every ask, lane report and merge. Details live in the BACKLOG sections named. Status words: **Running** · **Next** · **Queued** · **Waiting on Alan** · **Later** (deferred by Alan) · **Done**.
 
-Last updated 2026-10-19 (overnight lanes merged).
+Last updated 2026-10-20 (live jobs lane merged).
 
 ## 0. Usage rule (Alan)
 - Warn before any heavy step.
@@ -118,7 +118,7 @@ What remains, in order. Usage is a share of one week's allowance.
 | 4 | Simplify: the menu (from the workshop), one task system, one queue per person, the alert budget, the structure lint and completeness tests | §1.14–1.16, §1.11 | 3 | 25% |
 | | Integration and merges | | | 10% |
 | **Week 2** | | | | |
-| 5 | Live-job capabilities on invented equivalents: two payers per contract, range estimates with allowances and a paid exploratory phase, the HTC calculator and hard/soft/contingency estimate, the contractor-to-employee user | §1.25, §1.26 | 2 | 15% |
+| 5 | **Done 2026-10-20 (merged fa3337d).** Live-job capabilities on invented equivalents: two payers per contract, range estimates with allowances and a paid exploratory phase, the HTC calculator and hard/soft/contingency estimate, the contractor-to-employee user. Follow-ups in §4 | §1.25, §1.26 | 1 | 15% |
 | 6 | One assistant per person (four screens into one), approval rules, activity log | §1.27 | 1–2 | 12% |
 | 7 | Role specialists on the demo + planted-problem banks; cost intelligence (cash-negative jobs, benchmarks, receipt price book, driver store list phase 1); savings ledger | §1.28–1.31 | 3 | 25% |
 | 8 | Item library, Messages phase 1 (with record cards and @assistant), Spanish for the field | §1.18, §1.21, §1.20 | 3 | 25% |
@@ -166,6 +166,14 @@ What remains, in order. Usage is a share of one week's allowance.
 - **From the platform session (2026-10-19):**
   - iPhone HEIC photos in the document reader (spreadsheets are read since 2026-10-19);
   - a real push on Alan's phone and a real watcher run on his Gmail, not yet seen.
+- **From the live jobs lane (merged 2026-10-20):**
+  - an unapplied payment on a two-payer contract goes to the first payer; it should sit as "payer not known" until billing assigns it, so neither payer's statement is wrong (fix before a real two-payer job is loaded);
+  - a payer's Ask on the hosted AI is not scoped by payer (the screens and the query layer are); scope it before any two-payer client gets the portal;
+  - contractor bills have no PO, so the no-PO checks name them, and her W-9 shows missing (recommendation waiting on Alan: a contractor agreement as her PO, no payment until the W-9 is on file, a 1099 total for year end);
+  - demo payments have no bank lines, so the truth layer shows them as unbacked (demo only; real payments come from the bank);
+  - Mercer & Bond on a job is a flag only, with no link to a deal record in the Mercer & Bond workspace;
+  - the client's proposal shows a "Net" after tax credits (recommendation waiting on Alan: keep it internal until the tax-credit consultant confirms eligibility and timing);
+  - the real jobs load into the private platform database through the import (§6), from the Cowork handoff's `docs/LIVE_JOBS.md`, which is not in this repo and must never be (joins row 12).
 - **Gaps the build lanes found:**
   - Done 2026-10-20: a toast's Open link closes an open editor first and asks before dropping anything typed (Keep Editing is the blue step); toast_leave_test 18;
   - client portal: pay online, or "we paid";
@@ -202,6 +210,9 @@ What remains, in order. Usage is a share of one week's allowance.
 | 2026-10-11 | Leftover material on cost-plus jobs: back to the client, a credit on their invoice, or into firm stock | "Client-owned surplus, ask the PM" |
 | 2026-10-11 | ChatGPT export, for `docs/ALAN.md` | Profile from the build sessions and the Standard |
 | 2026-10-10 | Re-authorise QuickBooks (July to date, then the history import) | Bank and card lines and the bridge snapshot |
+| 2026-10-20 | Tax credits on the client's proposal: show the "Net" after credits, or keep it internal | Internal until the tax-credit consultant confirms the church and rectory qualify and when the credits arrive; the client sees credits only as "subject to certification and your tax adviser" |
+| 2026-10-20 | Hand over the real live-jobs file (`docs/LIVE_JOBS.md` from the Cowork handoff) for loading on the private platform | Invented demo jobs only |
+| 2026-10-20 | The contractor designer: a contractor agreement as her PO, W-9 before the first payment, classification confirmed with the accountant | Bills with no PO, flagged; W-9 shown missing |
 | Later | Google sign-in consent screen (guided, about 5 minutes) | — |
 
 ## 6. Calls I made that Alan can change
@@ -222,6 +233,7 @@ What remains, in order. Usage is a share of one week's allowance.
 
 ## 8. Done recently
 Full detail is in `docs/DECISIONS.md`.
+- Live jobs on invented demo jobs (2026-10-20): two payers on one contract, ranges, allowances and a paid exploratory phase, the tax credit budget, the contractor who becomes an employee.
 - The Standard in the app.
 - Inventory before buying.
 - The RFQ flow.
