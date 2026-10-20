@@ -30,7 +30,8 @@ window.Cloud = (() => {
   const FIELD_HIDDEN = ['gl', 'txns', 'bills', 'inbills', 'payroll', 'accounts', 'rules', 'vendorStats', 'audit', 'deals', 'properties',
     'investors', 'raises', 'partners', 'principals', 'mbinc', 'mb', 'spend', 'cards', 'bankImports', 'bankRecons', 'bankFeeds',
     'bankPending', 'bankReconDraft', 'payments', 'statements', 'periods', 'cpSpend', 'mktSpend', 'employees', 'leads',
-    'priceWatch', 'slBench', 'sourcing', 'lib', 'catalog', 'entities', 'integrations', 'conn', 'learn', 'brainQueue', 'lessons'];
+    'priceWatch', 'slBench', 'sourcing', 'lib', 'catalog', 'entities', 'integrations', 'conn', 'learn', 'brainQueue', 'lessons',
+    'hub', 'budgetPlan', 'studio'];
   const FIELD_READONLY = ['__meta', 'company', 'clients', 'users', 'vendors', 'stock', 'inventory', 'obligations', 'watches', 'migrations'];
   const isOffice = () => OFFICE.includes(profile && profile.role);
   const isField = () => FIELD.includes(profile && profile.role);

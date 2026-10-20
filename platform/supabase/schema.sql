@@ -98,7 +98,9 @@ create or replace function public.field_hidden() returns text[] language sql imm
   select array['gl','txns','bills','inbills','payroll','accounts','rules','vendorStats','audit','deals','properties',
                'investors','raises','partners','principals','mbinc','mb','spend','cards','bankImports','bankRecons','bankFeeds',
                'bankPending','bankReconDraft','payments','statements','periods','cpSpend','mktSpend','employees','leads',
-               'priceWatch','slBench','sourcing','lib','catalog','entities','integrations','conn','learn','brainQueue','lessons']::text[];
+               'priceWatch','slBench','sourcing','lib','catalog','entities','integrations','conn','learn','brainQueue','lessons',
+               -- 2026-10-20: the sales CRM (contacts, pipeline), the budget plan and the design studio are no field business
+               'hub','budgetPlan','studio']::text[];
 $$;
 -- Collections a field phone may read but never write.
 create or replace function public.field_readonly() returns text[] language sql immutable as $$
@@ -177,9 +179,64 @@ alter table public.profiles enable row level security;
 
 -- Every read goes through this view. It runs as its owner, so it does its own checks: members of the workspace only,
 -- office roles see everything, field roles see the working collections with money stripped, everyone else nothing.
+-- Records of other jobs in the shared lists (2026-10-20): a field sign-in receives, from the lists that mix jobs, only
+-- the records of the jobs its crew is on and records that name no job; a field save keeps the records it could not
+-- see. Before this, a foreman's phone held every job's orders, photos, hours, meetings, logs and punch items.
+create or replace function public.my_field_jobs() returns text[] language sql stable security definer set search_path = public as $$
+  select coalesce(array_agg(c.data->>'id'), '{}'::text[]) from public.collections c
+   where c.workspace_id = public.my_workspace() and c.name like 'project:%' and public.field_job(c.data);
+$$;
+-- which collections mix jobs: a list, or an object whose named keys are lists
+create or replace function public.job_lists() returns jsonb language sql immutable as $$
+  select '{"meetings":[],"photos":[],"pos":[],"time":[],"watches":[],"tasks":[],
+           "field":["logs","subs","notes","punch","talks","raises","requests"],
+           "sel":["items","recv","runs","claims","returns","creditRejects"]}'::jsonb;
+$$;
+create or replace function public.job_mine(e jsonb, jobs text[]) returns boolean language sql immutable as $$
+  select jsonb_typeof(e) is distinct from 'object' or coalesce(e->>'projectId', '') = '' or (e->>'projectId') = any(jobs);
+$$;
+create or replace function public.job_keep(a jsonb, jobs text[]) returns jsonb language sql immutable as $$
+  select case when jsonb_typeof(a) = 'array'
+              then coalesce((select jsonb_agg(e order by i) from jsonb_array_elements(a) with ordinality x(e, i) where public.job_mine(e, jobs)), '[]'::jsonb)
+              else a end;
+$$;
+create or replace function public.job_hidden(a jsonb, jobs text[]) returns jsonb language sql immutable as $$
+  select case when jsonb_typeof(a) = 'array'
+              then coalesce((select jsonb_agg(e order by i) from jsonb_array_elements(a) with ordinality x(e, i) where not public.job_mine(e, jobs)), '[]'::jsonb)
+              else '[]'::jsonb end;
+$$;
+-- what a field sign-in reads of a collection
+create or replace function public.field_view(nm text, d jsonb, jobs text[]) returns jsonb language plpgsql immutable as $$
+declare L jsonb := public.job_lists()->nm; k text; o jsonb := d;
+begin
+  if L is null then return d; end if;
+  if jsonb_typeof(d) = 'array' then return public.job_keep(d, jobs); end if;
+  if jsonb_typeof(d) = 'object' then
+    for k in select jsonb_array_elements_text(L) loop
+      if jsonb_typeof(d->k) = 'array' then o := jsonb_set(o, array[k], public.job_keep(d->k, jobs)); end if;
+    end loop;
+  end if;
+  return o;
+end $$;
+-- a field save: what it may write (its jobs and records with no job) plus what it could not see, kept as stored
+create or replace function public.field_merge(nm text, old jsonb, nw jsonb, jobs text[]) returns jsonb language plpgsql immutable as $$
+declare L jsonb := public.job_lists()->nm; k text; o jsonb := nw;
+begin
+  if L is null then return nw; end if;
+  if jsonb_typeof(nw) = 'array' then return public.job_keep(nw, jobs) || public.job_hidden(old, jobs); end if;
+  if jsonb_typeof(nw) = 'object' then
+    for k in select jsonb_array_elements_text(L) loop
+      if jsonb_typeof(nw->k) = 'array' or jsonb_typeof(old->k) = 'array' then
+        o := jsonb_set(o, array[k], public.job_keep(coalesce(nw->k, '[]'::jsonb), jobs) || public.job_hidden(old->k, jobs));
+      end if;
+    end loop;
+  end if;
+  return o;
+end $$;
+
 create or replace view public.collections_view with (security_invoker = false) as
   select c.workspace_id, c.name, c.version, c.updated_by, c.updated_at,
-         case when public.is_office() then c.data else public.strip_money(c.data) end as data
+         case when public.is_office() then c.data else public.strip_money(public.field_view(c.name, c.data, public.my_field_jobs())) end as data
   from public.collections c
   where c.workspace_id = public.my_workspace()
     and (public.is_office() or (public.is_field() and not (c.name = any(public.field_hidden()))))
@@ -247,7 +304,7 @@ begin
       update public.collections
          set data = case when office then it->'data'
                          when nm like 'project:%' then public.keep_team(cur.data, public.restore_money(cur.data, it->'data'))
-                         else public.restore_money(cur.data, it->'data') end,
+                         else public.restore_money(cur.data, public.field_merge(nm, cur.data, it->'data', public.my_field_jobs())) end,
              version = newv, updated_by = auth.uid(), updated_at = now()
        where workspace_id = wsid and name = nm;
     else

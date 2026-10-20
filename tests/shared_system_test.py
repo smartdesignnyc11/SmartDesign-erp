@@ -53,6 +53,21 @@ async def main():
             await pg.wait_for_function("document.body.dataset.booted==='1'", timeout=60000); booted = True
         except Exception: booted = False
         c.ok(booted, 'a field person with no jobs on their phone still opens the app')
+        # 4. a field phone never receives the collections the server withholds (platform/public/cloud.js FIELD_HIDDEN, the
+        # same list as schema.sql field_hidden): every field screen must draw without them (2026-10-20: Clock broke
+        # without the studio)
+        import re, os
+        src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'platform', 'public', 'cloud.js')).read()
+        hidden = re.findall(r"'([A-Za-z]+)'", re.search(r'const FIELD_HIDDEN = \[(.*?)\];', src, re.S).group(1))
+        # as a phone opens: the withheld collections absent from what it stores, no demo seeding (live data), then boot
+        await pg.evaluate("async ks => { ks.forEach(k => { delete DB[k]; }); DB.__liveData = true; await saveNow(); }", hidden)
+        for fu in ('u_angel', 'u_alberto', 'u_alex'):
+            await pg.reload(); await pg.wait_for_function("document.body.dataset.booted==='1'", timeout=60000)
+            await pg.evaluate("u => { signIn(u); render(); }", fu)
+            bad = await pg.evaluate("""() => { const out = [];
+              for (const v of (ROLE_VIEWS[role()] || []).filter((v, i, a) => a.indexOf(v) === i)) { try { view = v; render(); } catch (e) { out.push(v + ': ' + String(e.message || e).slice(0, 100)); } }
+              return out; }""")
+            c.ok(not bad, f'{fu}: every field screen draws without what the server withholds from the field: {bad}')
         c.ok(not errs, f'page errors {errs[:2]}')
         await b.close()
     print(f'{len(c.fail)} FAILED ({c.n} checks)' if c.fail else f'ALL PASS ({c.n} checks)')

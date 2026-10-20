@@ -43757,7 +43757,7 @@ function newMeetingDialog(p) {
   );
 }
 function promisesOf(pid) {
-  return DB.studio.promises.filter((x) => x.projectId === pid);
+  return ((DB.studio || {}).promises || []).filter((x) => x.projectId === pid);
 }
 function promiseRow(pr, who) {
   const late = "open" === pr.status && pr.due && pr.due < today();
@@ -44148,7 +44148,7 @@ const renderSDayBase_b = renderSDay,
 reminders = function () {
   const out = remindersBase_b(),
     td = today(),
-    late = DB.studio.promises.filter((x) => "open" === x.status && x.due && x.due < td),
+    late = ((DB.studio || {}).promises || []).filter((x) => "open" === x.status && x.due && x.due < td),
     us = late.filter((x) => "us" === x.dir),
     cl = late.filter((x) => "client" === x.dir);
   us.length &&
@@ -44216,7 +44216,7 @@ const renderSDayBase_c = (renderSDay = function () {
     const u = currentUser(),
       td = today(),
       mine = promisesOf
-        ? DB.studio.promises.filter(
+        ? ((DB.studio || {}).promises || []).filter(
             (x) =>
               "open" === x.status &&
               "us" === x.dir &&
@@ -44256,7 +44256,7 @@ const renderSDayBase_c = (renderSDay = function () {
     const root = $("#studio-body");
     if (!root) return;
     const td = today(),
-      late = DB.studio.promises.filter((x) => "open" === x.status && x.due && x.due < td),
+      late = ((DB.studio || {}).promises || []).filter((x) => "open" === x.status && x.due && x.due < td),
       pend = DB.studio.meetings.filter((m) => "proposed" === m.intake),
       k = root.querySelector(".kpis");
     k &&

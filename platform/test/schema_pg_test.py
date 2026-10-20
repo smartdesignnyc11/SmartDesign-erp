@@ -164,6 +164,35 @@ ok('permission denied' in err, f'notify: nobody signed in calls it, the owner in
 rows, err = as_('owner', 'select count(*) from public.notify_sent;')
 ok('permission denied' in err, f'notify: nobody signed in reads it: {err[:120]}')
 
+# the shared lists that mix jobs (2026-10-20): a field sign-in reads only its jobs' records and records with no job,
+# and a field save keeps the records it could not see. The owner first puts Angel back on Job A only.
+ow = view('owner'); a, cj = ow['project:pA'], ow['project:pC']; a['team'] = ['u_angel']; cj['team'] = []
+save('owner', [{'name': 'project:pA', 'data': a, 'base': ver('owner', 'project:pA')}, {'name': 'project:pC', 'data': cj, 'base': ver('owner', 'project:pC')}])
+res = save('owner', [
+    {'name': 'photos', 'data': [{'id': 'ph1', 'projectId': 'pA'}, {'id': 'ph2', 'projectId': 'pB'}, {'id': 'ph3', 'projectId': ''}], 'base': ver('owner', 'photos')},
+    {'name': 'time', 'data': [{'id': 't1', 'projectId': 'pA', 'hours': 8}, {'id': 't2', 'projectId': 'pC', 'hours': 6}], 'base': ver('owner', 'time')},
+    {'name': 'field', 'data': {'logs': [{'id': 'l1', 'projectId': 'pA'}, {'id': 'l2', 'projectId': 'pB'}], 'punch': [{'id': 'pu1', 'projectId': 'pC'}], 'other': 1}, 'base': ver('owner', 'field')},
+    {'name': 'hub', 'data': {'contacts': [{'id': 'c1', 'name': 'A LEAD'}]}, 'base': ver('owner', 'hub')},
+    {'name': 'budgetPlan', 'data': {'versions': []}, 'base': ver('owner', 'budgetPlan')}])
+ok(all('version' in r for r in res.values()), f'the owner saves the shared lists: {res}')
+v = view('foreman')
+ok([x['id'] for x in v['photos']] == ['ph1', 'ph3'], f"the foreman's photos: his job's and the unfiled, not Job B's: {v['photos']}")
+ok([x['id'] for x in v['time']] == ['t1'], f"his hours list holds only his job's: {v['time']}")
+ok([x['id'] for x in v['field']['logs']] == ['l1'] and v['field']['punch'] == [] and v['field']['other'] == 1, f"inside a collection too (logs, punch): {v['field']}")
+ok('hub' not in v and 'budgetPlan' not in v, f'no sales CRM, no budget plan: {sorted(k for k in v if k in ("hub","budgetPlan","studio"))}')
+ok(len(view('owner')['photos']) == 3 and len(view('pm')['time']) == 2, 'the office still reads every record')
+# the foreman adds a photo on his job and edits his log; nothing of Job B or Job C may be lost
+mine = v['photos'] + [{'id': 'ph4', 'projectId': 'pA'}]
+fl = dict(v['field']); fl['logs'] = [{'id': 'l1', 'projectId': 'pA', 'note': 'edited'}]
+res = save('foreman', [{'name': 'photos', 'data': mine, 'base': ver('foreman', 'photos')}, {'name': 'field', 'data': fl, 'base': ver('foreman', 'field')}])
+ok(all('version' in r for r in res.values()), f'the foreman saves: {res}')
+o = view('owner')
+ok(sorted(x['id'] for x in o['photos']) == ['ph1', 'ph2', 'ph3', 'ph4'], f"Job B's photo survives the foreman's save: {o['photos']}")
+ok(sorted(x['id'] for x in o['field']['logs']) == ['l1', 'l2'] and [x['id'] for x in o['field']['punch']] == ['pu1'] and any(x.get('note') == 'edited' for x in o['field']['logs']), f"his edit lands, the others' logs and punch stay: {o['field']}")
+# he cannot write a record into a job he is not on
+res = save('foreman', [{'name': 'photos', 'data': view('foreman')['photos'] + [{'id': 'ph5', 'projectId': 'pB'}], 'base': ver('foreman', 'photos')}])
+ok('ph5' not in [x['id'] for x in view('owner')['photos']], 'a record for a job he is not on is not written')
+
 psql(f'drop database if exists {DBN};', db='postgres')
 print('ALL PASS' if not fails else f'{len(fails)} FAILED', f'({n} checks)')
 sys.exit(1 if fails else 0)
