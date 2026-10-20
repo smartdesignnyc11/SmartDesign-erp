@@ -52,3 +52,14 @@ Scope: BACKLOG §1.19 (signals in, the brain triages, the owner approves, close 
   here touches a record, money or a person.
 - **The month later:** the check compares the signal rate in the 30 days before the fix with the 30 days after; a
   problem that did not stop reopens with its history and counts as a repeat.
+
+## Results (2026-10-20, branch worktree-agent-ac822ace7beab1706)
+- New suites: tests/loop_test.py 63/63, tests/meetread_test.py 31/31, tests/dupnames_test.py (static, 4,509 names);
+  platform: test/loop_test.mjs 19/19 (npm test 13 files green), test/schema_pg_test.py 59/59 on Postgres 16.
+- The net on this lane's build: smoke 2485, baseline 9, lint 0 flags, counts lint 0 flags, day walk 0 flags,
+  finance cross-check 0 flags, Ask bank 229/229 + 40/40, mind_eval 1257, menu 3135, seed guard 54, reports 450,
+  chain, standard 78, meeting_brain 27, appday 14, learn 121, today_lane 171, spanish 109.
+- Red, and red on master too under the same load: exec_assistant_test 5 (phone TAP_COVERED in the conversation, the
+  same five on master's build), assistant_lane_test 1 (billing's Every Chain "Why", the same on master),
+  speed_test (master 21 failed, this lane 24 in a loaded run; office "settled" now equals first screen after the
+  loop's first run moved to idle time).
