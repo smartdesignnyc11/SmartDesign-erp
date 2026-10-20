@@ -67,6 +67,7 @@ async def main():
         await report(pg, 'save', 'slows', 'Same here: the date I typed on the schedule did not stay.')
         ch = await pg.evaluate("DB.changes.filter(c => c.source === 'loop').map(c => ({key: c.key, people: c.loop.people, roles: c.loop.roles, n: c.loop.n, stuck: c.loop.stuck, ev: c.evidence.length, rank: c.loop.rank, p: c.loop.p}))")
         c.ok(len(ch) == 1 and ch[0]['people'] == 2 and sorted(ch[0]['roles']) == ['foreman', 'pm'] and ch[0]['stuck'] == 1 and ch[0]['p'] == 'integrity', f'two people, one problem, ranked by integrity: {ch}')
+        c.ok(await pg.evaluate("DB.changes.find(c => c.key === 'imp:rp|sched|save').id === lpId('ch', 'imp:rp|sched|save')"), "the problem's id comes from its key, so two devices drafting it the same morning make one record")
 
         # ---------------------------------------------------------------- the coordinator: what she does around the screens
         await sign_in(pg, 'u_chen')

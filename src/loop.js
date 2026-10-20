@@ -76,6 +76,9 @@ function lpPrune() {
   const cut = LP.addDays(today(), -120);
   DB.signals = lpInit().filter((s) => s && String(s.day || "") >= cut);
 }
+// Records the loop makes on its own take their id from their key, so two devices (or a device and the server's
+// inbox) making the same one the same morning make one record, not two (cloud.js merges by id).
+const lpId = (pre, key) => `${pre}_lp${lpHash(String(key))}`;
 function lpAdd(sig) {
   const S = lpInit();
   if (!sig || !sig.id) return null;
@@ -410,7 +413,7 @@ function lpTriage(src) {
     made = [];
   T.drafts.forEach((x) => {
     const c = {
-      id: uid("ch"),
+      id: lpId("ch", x.key),
       key: x.key,
       title: x.d.title,
       why: x.d.what,
@@ -652,7 +655,7 @@ function lpNotify(c, what) {
       const key = `${c.id}|${u}|${c.loop.reopened || 0}`;
       if (told.includes(key)) return;
       "function" == typeof asFirmTasks &&
-        asFirmTasks().push({ id: uid("a"), title: `See what changed: ${lpT(c, "title")}`, assignee: U.name, due: today(), priority: "low", status: "todo", createdAt: today(), completedAt: "", notes: `${lpChangedWords(c)} You reported this. If it still happens, press Still Wrong on your report.`, link: null, source: { kind: "improve", id: c.id, label: c.title } });
+        asFirmTasks().push({ id: lpId("a", key), title: `See what changed: ${lpT(c, "title")}`, assignee: U.name, due: today(), priority: "low", status: "todo", createdAt: today(), completedAt: "", notes: `${lpChangedWords(c)} You reported this. If it still happens, press Still Wrong on your report.`, link: null, source: { kind: "improve", id: c.id, label: c.title } });
       told.push(key);
     });
   }
@@ -687,7 +690,7 @@ function lpWatchFire() {
     rows.forEach((r) => {
       const key = `lw:${R.id}:${r.key}`;
       if (T.some((a) => a.source && a.source.key === key)) return;
-      T.push({ id: uid("a"), title: String(r.what || R.id).slice(0, 120), assignee: U.name || "", due: today(), priority: "high", status: "todo", createdAt: today(), completedAt: "", notes: `${r.sub || ""}${r.sub ? ". " : ""}The owner turned this standard's breaches into tasks (the improvement loop).`, link: null, source: { kind: "improve", key: key, rule: R.id, label: R.id } }), n++;
+      T.push({ id: lpId("a", key), title: String(r.what || R.id).slice(0, 120), assignee: U.name || "", due: today(), priority: "high", status: "todo", createdAt: today(), completedAt: "", notes: `${r.sub || ""}${r.sub ? ". " : ""}The owner turned this standard's breaches into tasks (the improvement loop).`, link: null, source: { kind: "improve", key: key, rule: R.id, label: R.id } }), n++;
     });
   });
   return n;
@@ -976,7 +979,7 @@ function lpAdminSweep(src, items) {
       // on the calendar: the ERP's own entry on the day the renewal is due to start (today when that has passed)
       const day = x.start < today() ? today() : x.start;
       DB.calendar.external.some((e) => e.adminKey === x.key) ||
-        (DB.calendar.external.push({ id: uid("ev"), kind: "hold", source: "erp", adminKey: x.key, owner: me.id, title: `Renewal: ${x.what}`, start: `${day}T09:00:00`, end: `${day}T09:30:00`, where: "", status: "confirmed" }), out.held++);
+        (DB.calendar.external.push({ id: lpId("ev", x.key), kind: "hold", source: "erp", adminKey: x.key, owner: me.id, title: `Renewal: ${x.what}`, start: `${day}T09:00:00`, end: `${day}T09:30:00`, where: "", status: "confirmed" }), out.held++);
       const subject = `Renewal: ${x.what}`,
         first = String(x.party || "").split(/\s+/)[0] || "there",
         body = `Hello ${first},\n\nOur ${"coi" === x.kind ? "certificate of insurance on file for you" : x.what} expires on ${fmtL(x.expires)}. Please send the renewed ${"coi" === x.kind ? "certificate, naming SmartDesign as additional insured as before" : "document"} when you have it.\n\nThank you,\n${me.name}`;
@@ -986,7 +989,7 @@ function lpAdminSweep(src, items) {
         out.handed++, (rec.did = "handed");
       } else if ("alone" === lv && x.email && !LP_ADMIN_NEVER.test(body) && "function" == typeof standardAllows && "alone" === (standardAllows({ action: "send", type: "adminChases" }) || {}).mode) {
         DB.outbox = DB.outbox || [];
-        DB.outbox.push({ id: uid("ox"), kind: "renewal", asstType: "adminChases", to: { name: x.party, email: x.email }, subject: subject, body: body, about: { label: x.what }, aboutKey: "lp|adm|" + x.key, forName: me.name, status: "sent", sentAt: appNowIso(), approvedBy: "delegated: renewal chases", at: today(), by: `${String(me.name || "").split(" ")[0]}'s assistant`, why: "your rule for renewal chases is Act Alone" });
+        DB.outbox.push({ id: lpId("ox", x.key), kind: "renewal", asstType: "adminChases", to: { name: x.party, email: x.email }, subject: subject, body: body, about: { label: x.what }, aboutKey: "lp|adm|" + x.key, forName: me.name, status: "sent", sentAt: appNowIso(), approvedBy: "delegated: renewal chases", at: today(), by: `${String(me.name || "").split(" ")[0]}'s assistant`, why: "your rule for renewal chases is Act Alone" });
         "function" == typeof paDidAct && paDidAct({ kind: "did", type: "adminChases", what: `Asked ${x.party} for the renewed ${"coi" === x.kind ? "certificate" : "document"}`, why: "your rule for renewal chases is Act Alone", ev: ev.concat([`To: ${x.email}`, `Subject: ${subject}`]), go: { view: "comms" } });
         try {
           standardLog("sent", `renewal chase to ${x.party} (delegated: renewal chases)`, "");
@@ -994,7 +997,7 @@ function lpAdminSweep(src, items) {
         out.sent++, (rec.did = "sent");
       } else {
         DB.outbox = DB.outbox || [];
-        const o = { id: uid("ox"), kind: "renewal", asstType: "adminChases", to: { name: x.party, email: x.email || "" }, subject: subject, body: body, about: { label: x.what }, aboutKey: "lp|adm|" + x.key, forName: me.name, status: "draft", at: today(), by: `${String(me.name || "").split(" ")[0]}'s assistant`, why: "alone" === lv ? (x.email ? "it names money or a signature, so it waits for you" : "no address on file, so it waits for you to address it") : "your rule for renewal chases is Ask First" };
+        const o = { id: lpId("ox", x.key), kind: "renewal", asstType: "adminChases", to: { name: x.party, email: x.email || "" }, subject: subject, body: body, about: { label: x.what }, aboutKey: "lp|adm|" + x.key, forName: me.name, status: "draft", at: today(), by: `${String(me.name || "").split(" ")[0]}'s assistant`, why: "alone" === lv ? (x.email ? "it names money or a signature, so it waits for you" : "no address on file, so it waits for you to address it") : "your rule for renewal chases is Ask First" };
         DB.outbox.push(o);
         "function" == typeof paPropAct && paPropAct({ kind: "proposed", type: "adminChases", what: `Drafted a renewal request to ${x.party}`, why: o.why, ev: ev, go: { view: "mapprove" } });
         out.drafted++, (rec.did = "drafted");
@@ -1018,7 +1021,7 @@ function lpIngestServer(box) {
       if (!d || !d.key || !d.title) return;
       const have = lpChangeOf(d.key);
       if (have) return void (d.aiText && "draft" === have.status && have.loop && ((have.loop.aiText = d.aiText), (have.loop.wordedBy = "assistant")));
-      DB.changes.push({ id: uid("ch"), key: d.key, title: String(d.title).slice(0, 140), why: d.what || "", kind: "rule" === d.kind ? "rule" : "code", delta: d.delta || undefined, evidence: (d.evidence || []).slice(0, 10), status: "draft", at: today(), by: "The Brain (overnight)", source: "loop", loop: Object.assign({}, d.loop || {}, { fix: d.fix || "", risk: d.risk || "", accept: d.accept || [], wordedBy: d.aiText ? "assistant" : "rules", aiText: d.aiText || undefined, history: [{ at: today(), what: "Found overnight", by: "The Brain", src: "server" }], reopened: 0 }) });
+      DB.changes.push({ id: lpId("ch", d.key), key: d.key, title: String(d.title).slice(0, 140), why: d.what || "", kind: "rule" === d.kind ? "rule" : "code", delta: d.delta || undefined, evidence: (d.evidence || []).slice(0, 10), status: "draft", at: today(), by: "The Brain (overnight)", source: "loop", loop: Object.assign({}, d.loop || {}, { fix: d.fix || "", risk: d.risk || "", accept: d.accept || [], wordedBy: d.aiText ? "assistant" : "rules", aiText: d.aiText || undefined, history: [{ at: today(), what: "Found overnight", by: "The Brain", src: "server" }], reopened: 0 }) });
       n++;
     });
     (run.reopen || []).forEach((r) => lpReopen(lpChangeOf(r.key), r.why) && n++);
