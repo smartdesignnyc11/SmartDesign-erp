@@ -209,7 +209,7 @@ async def main():
         r = await pg.evaluate("""() => { signIn('u_owner'); render(); rsApprove('c.overPO|bill:bPLANTOVER');
           const d = DB.outbox.find(o => o.aboutKey === 'sp|c.overPO|bill:bPLANTOVER'), m = document.getElementById('mbm');
           const c = DB.specialist.cases['c.overPO|bill:bPLANTOVER'];
-          render.__tick = (render.__tick || 0) + 1; const AL = mApprovals({ everyone: true }).filter(it => it.kind === 'draft'), appr = AL.some(it => it.id === (d || {}).id && it.who === 'owner'), dbg = AL.map(it => it.id + ':' + it.who).concat([(d || {}).id]);
+          render.__tick = (render.__tick || 0) + 1; const appr = tkAll({ open: true, uid: 'u_owner' }).some(t => t.approval && t.id === (d || {}).id) && apprOwner({ kind: 'draft', id: (d || {}).id }) === 'owner', dbg = '';
           return { draft: d ? { status: d.status, to: d.to.email, subject: d.subject, forName: d.forName } : null, sheet: m ? m.innerText.slice(0, 120) : '', fix: c && c.fix && c.fix.kind, appr, dbg, toast: (document.getElementById('toast') || {}).innerText || '' }; }""")
         r['draft'] and r['draft']['status'] == 'draft' and 'plantwood' in r['draft']['to'] or flag(f'six: no credit-memo draft to the vendor {r}')
         r['appr'] or flag(f'six: the drafted request is not on the owner\'s Approvals {r}')
