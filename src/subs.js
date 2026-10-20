@@ -396,8 +396,10 @@ function pcCheck(b, o) {
         })
         .filter(Boolean);
       const any = (po.lines || []).some((l) => +l.received > 0) || (po.receipts || []).length || ["received", "partial"].includes(po.status);
-      short.length
-        ? H("threeway", `Billed for more than was received: ${short.map((x) => `${x.pl.item || x.pl.desc} billed ${r2(x.billedQ)}, received ${x.got}`).join("; ")}`, { money: r2(short.reduce((a, x) => a + x.money, 0)), next: "Open the PO", act: "po" })
+      // a difference already disputed (approved at the PO amount) is not billed past the delivery
+      const shortMoney = r2(short.reduce((a, x) => a + x.money, 0) - pcDisputed(b));
+      short.length && shortMoney > 0.5
+        ? H("threeway", `Billed for more than was received: ${short.map((x) => `${x.pl.item || x.pl.desc} billed ${r2(x.billedQ)}, received ${x.got}`).join("; ")}`, { money: shortMoney, next: "Open the PO", act: "po" })
         : !any
           ? H("threeway", `Nothing has been received on ${po.number} yet: no delivery to match this invoice to`, { money: amt, next: "Open the PO", act: "po" })
           : K("threeway", `Three-way match: ${po.number}, the delivery and this invoice agree`);
@@ -1937,7 +1939,8 @@ AG_FIN.unshift({
 // "what payments are held", "why is the Carlos payment held"
 AG_FIN.unshift({
   id: "paymentholds",
-  re: /\b(held|on hold|holds?)\b.*\b(payments?|bills?|checks?)\b|\b(payments?|bills?)\b.*\b(held|on hold)\b|\bpayment check\b/,
+  // payments only: "bills on hold" is the order-tracking hold (TRK), answered by its own reader
+  re: /\bpayments?\b.*\b(held|on hold|holds?)\b|\b(held|holds?|on hold)\b.*\bpayments?\b|\bpayment check\b/,
   not: /\b(disput|short[- ]?pa)/,
   kind: "money",
   run(P) {

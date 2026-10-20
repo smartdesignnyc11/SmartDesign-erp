@@ -146,6 +146,40 @@ async def no_hscroll(pg):
     return await pg.evaluate("() => document.documentElement.scrollWidth <= innerWidth + 1")
 
 
+# The screen standard (tests/lint.py's own collector) on the screens this lane draws: one blue button, Title Case
+# labels, no emoji or glyph icons, no sideways scroll on the phone, tap targets apart.
+_L = {}
+def _lint_ns():
+    if not _L:
+        src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'lint.py'), encoding='utf-8').read().replace('asyncio.run(main())', '')
+        exec(compile(src, 'lint.py', 'exec'), _L)
+    return _L
+
+
+async def screen_lint(pg, C, label, phone=False, skip=()):
+    """skip: rules that do not apply to the state (a record's heading names the record, not its list)."""
+    L = _lint_ns()
+    nd = await pg.evaluate(L['NAMES_JS'])
+    args = {'SMALL': sorted(L['SMALL']), 'UNITS': sorted(L['UNITS']), 'HOUSEKEEPING': L['HOUSEKEEPING'], 'NAMES': nd['names'], 'DATA': nd['data'],
+            'CHARTS': L['CHARTS'], 'PHONE': phone, 'WALL': L['wall_dates']()}
+    await pg.evaluate("() => document.querySelectorAll('.toast.on').forEach(t => t.classList.remove('on'))")
+    r = await pg.evaluate(L['COLLECT'], args)
+    fl = [f"{f['rule']}: {f['detail']}" for f in r['flags'] if f['rule'] not in skip]
+    C.ok(not fl, f'[lint {label}] the screen standard holds: {fl[:6]}')
+
+
+async def modal_lint(pg, C, label):
+    """A sheet: one blue button, the safe one; Title Case on its labels; no glyph standing in for an icon."""
+    r = await pg.evaluate("""() => { const m = document.querySelector('#mbm'); if (!m) return null;
+        const vis = e => { const b = e.getBoundingClientRect(); return b.width > 0 && b.height > 0; };
+        const small = new Set(['a','an','the','and','or','but','of','to','in','on','at','by','for','with','from','as','per','vs','via','into','nor']);
+        const tc = s => s.split(/\s+/).filter(Boolean).every((w, i) => !/^[a-z]/.test(w) || (i > 0 && small.has(w.replace(/[^a-z]/g, ''))));
+        const btns = [...m.querySelectorAll('button')].filter(vis).map(b => b.innerText.trim()).filter(Boolean);
+        return {primary: [...m.querySelectorAll('.btn.primary')].filter(vis).length, bad: btns.filter(t => !tc(t)), glyph: btns.filter(t => /[›→▾✓✎⋮×]|^\+ /.test(t)),
+                labels: [...m.querySelectorAll('label, h3, h4, summary')].filter(vis).map(x => (x.childNodes[0] && x.childNodes[0].nodeType === 3 ? x.childNodes[0].textContent : x.innerText).trim()).filter(t => t && t.length < 40 && !/[.:]$/.test(t)).filter(t => !tc(t))}; }""")
+    C.ok(r and r['primary'] <= 1 and not r['bad'] and not r['glyph'], f'[lint {label}] the sheet: one blue button, Title Case buttons, no glyphs: {r}')
+
+
 async def shot(pg, name):
     try: await pg.screenshot(path=os.path.join(SHOTS, name + '.png'), full_page=False)
     except Exception as e: print('screenshot failed', name, e)
@@ -173,7 +207,13 @@ async def s1_subcontract(p, C):
                 C.ok('New Pay Application' in card['btns'] and card['primary'] == 0, f'[1 {tag}] New Pay Application is on the card and nothing on it is blue: {card["btns"]}')
                 C.ok(all(x == 'New Pay Application' for x in card['bill']), f'[1 {tag}] the PO\'s own bill button reads New Pay Application on a subcontract: {card["bill"]}')
             if phone: C.ok(await no_hscroll(pg), '[1 phone] the PO page with its subcontract card does not scroll sideways')
+            await screen_lint(pg, C, f'1 PO page with the subcontract, {tag}', phone, skip=('HEADING_NAV',))
+            await pg.evaluate("() => document.querySelector('.view.on .sc-card').scrollIntoView()")
             await shot(pg, f'subcontract_{tag}')
+            await pg.evaluate("() => document.querySelector('.sc-card [data-sc=\"terms\"]').click()")
+            await pg.wait_for_timeout(120)
+            await modal_lint(pg, C, f'1 Subcontract Terms, {tag}')
+            await pg.evaluate("() => mbCloseModal()")
             # the catch: a deposit is not a leak; a sub paid ahead of the work measured is (planted: BSW paid at 80%, 0% held)
             await as_user(pg, 'u_owner')
             rows0 = await pg.evaluate("() => CATCH.find(c => c.name === 'subsAhead').rows().map(r => r.what)")
@@ -193,6 +233,7 @@ async def s2_overbilled(p, C):
     b, pg, errs = await boot(p)
     try:
         bill, pre = await new_payapp(pg, 'BSW-101', 60, waiver=True)
+        C.ok(pre is not None, '[2] New Pay Application opened')
         C.ok(pre and '$10,000 ahead of the site' in pre['text'], f'[2] the pay application sheet shows the 60% claim is $10,000 ahead of the 40% measured, as it is typed: {pre and pre["text"][-300:]}')
         C.ok(bill is not None, '[2] the coordinator submitted pay application 1 as a bill on the subcontract')
         if not bill: return
@@ -207,6 +248,7 @@ async def s2_overbilled(p, C):
         found, m = await approve_via_approvals(pg, 'u_alan', bill['id'])
         C.ok(found and '$10,000 claimed ahead of the work measured' in found['text'], f'[2] the PM\'s Approvals card says $10,000 is claimed ahead of the site: {found and found["text"][:200]}')
         C.ok(m and m['ok'] == 'Approve at Measured' and m['alt'] == 'Approve as Claimed', f'[2] the PM\'s yes opens the review with Approve at Measured as the safe primary: {m and (m["title"], m["ok"], m["alt"])}')
+        await modal_lint(pg, C, '2 the PM\'s pay application review')
         await shot(pg, 'payapp_review_desktop')
         await press(pg)
         after = await pg.evaluate("n => { const b = DB.bills.find(x => x.number === n); return [billGross(b), billTotal(b), b.status, b.payApp.revised && b.payApp.revised.diff, b.payApp.lines[0].pct, b.payApp.lines[0].claimedPct]; }", 'BSW-101')
@@ -272,6 +314,9 @@ async def s3_waiver(p, C):
         card = await pg.evaluate("() => { const c = document.querySelector('#d-body .pc-card'); return c ? {text: c.innerText.replace(/\\s+/g, ' '), acts: [...c.querySelectorAll('[data-pcact]')].map(b => b.innerText)} : null; }")
         C.ok(card and 'Held · 2' in card['text'] and card['acts'].count('Record the Waiver') == 2, f'[3] the bill shows the check held, each hold with Record the Waiver: {card}')
         await shot(pg, 'waiver_held_desktop')
+        # the bill's drawer sits beside Bills & Payroll, whose New Vendor Bill stays blue behind it (the drawer's Pay is
+        # the safe next step): reported, not this lane's to change
+        await screen_lint(pg, C, '3 the bill with its Payment Check', skip=('PRIMARY_MULTI',))
         # prior payment's unconditional waiver, then this payment's conditional one, from the hold buttons
         await pg.evaluate("() => document.querySelectorAll('#d-body [data-pcact=\"waiver-prior\"]')[0].click()")
         await pg.wait_for_timeout(150)
@@ -322,6 +367,7 @@ async def s4_coi(p, C):
         await pg.wait_for_timeout(200)
         m = await modal(pg)
         C.ok(m and m['title'] == 'Pay Bill' and 'BSW-102' in m['text'] and 'Release with a Reason' in m['text'], f'[4] Review opens the pay sheet on the check, with Release with a Reason: {m and m["title"]}')
+        await modal_lint(pg, C, '4 Pay Bill, held')
         await shot(pg, 'pay_sheet_held_desktop')
         await pg.evaluate("() => document.querySelector('#mbm [data-pcrel]').click()")
         await pg.wait_for_timeout(150)
@@ -378,6 +424,7 @@ async def s5_bank(p, C):
         await pg.wait_for_timeout(150)
         m = await modal(pg)
         C.ok(m and '718-555-0142' in m['text'] and 'Never a number from the email' in m['text'], f'[5] the call-back names the number on file, never the request\'s: {m and m["text"][:200]}')
+        await modal_lint(pg, C, '5 Verify by Phone')
         await shot(pg, 'bank_callback_desktop')
         await fill(pg, {'spoke': 'Dana Ruiz, owner', 'last4': '1111'}); await press(pg)
         v = await pg.evaluate("() => DB.vendors.find(x => x.id === 'vbsw').bank.last4")
@@ -549,6 +596,7 @@ async def s10_run(p, C):
             return {text: c.innerText.replace(/\\s+/g, ' '), boxes: [...c.querySelectorAll('[data-pcrun]')].map(x => [x.dataset.pcrun, x.checked, x.disabled])}; }""")
         C.ok(run and 'Payment Run' in run['text'] and 'Held · 1' in run['text'] and 'No W-9 on file for Invented Hardware Co' in run['text'], f'[10] the run lists both, the held one with why: {run and run["text"][:300]}')
         C.ok(run and ['bnow9', False, True] in run['boxes'], f'[10] the held bill cannot be ticked: {run and run["boxes"]}')
+        await screen_lint(pg, C, '10 Bills & Payroll with the Payment Run')
         await shot(pg, 'payment_run_desktop')
         await pg.evaluate("() => document.getElementById('pc-run-go').click()")
         await pg.wait_for_timeout(150)
@@ -609,6 +657,7 @@ async def s12_phone(p, C):
         C.ok(card and 'unconditional lien waiver' in card['text'], f'[12 phone] the held payment is on the owner\'s Approvals: {card and card["text"][:160]}')
         C.ok(card and card['h'] >= 40, f'[12 phone] its Review button is a thumb target: {card and card["h"]}')
         C.ok(await no_hscroll(pg), '[12 phone] Approvals does not scroll sideways')
+        await screen_lint(pg, C, '12 Approvals with a held payment, phone', True)
         await shot(pg, 'approvals_payhold_phone')
         await pg.evaluate("id => document.querySelector(`.m-appr[data-mk=\"payhold\"][data-mid=\"${id}\"] [data-myes]`).click()", bill['id'])
         await pg.wait_for_timeout(200)
@@ -616,6 +665,7 @@ async def s12_phone(p, C):
         C.ok(m and m['title'] == 'Pay Bill' and 'payment check' in m['text'].lower(), f'[12 phone] Review opens the pay sheet on the check: {m and m["title"]}')
         wide = await pg.evaluate("() => { const b = document.querySelector('#mbm .mbm-box'); return b ? b.getBoundingClientRect().right <= innerWidth + 1 : false; }")
         C.ok(wide and await no_hscroll(pg), '[12 phone] the sheet fits the phone')
+        await modal_lint(pg, C, '12 Pay Bill on the phone')
         await shot(pg, 'pay_sheet_held_phone')
         await pg.evaluate("() => { mbCloseModal(); view = 'ap'; render(); openBill(DB.bills.find(x => x.number === 'BSW-102').id); }")
         await pg.wait_for_timeout(250)
@@ -626,7 +676,16 @@ async def s12_phone(p, C):
         await pg.evaluate("() => document.querySelector('.sc-card [data-sc=\"payapp\"]').click()")
         await pg.wait_for_timeout(200)
         C.ok(await no_hscroll(pg), '[12 phone] the New Pay Application sheet fits the phone')
+        await modal_lint(pg, C, '12 New Pay Application on the phone')
         await shot(pg, 'payapp_sheet_phone')
+        # the vendor page's By Job ledger
+        await pg.evaluate("() => { mbCloseModal(); signIn('u_owner'); vendorPage('vbsw'); }")
+        await pg.wait_for_timeout(250)
+        led = await pg.evaluate("() => { const c = document.querySelector('.view.on .sc-vledger'); return c ? c.innerText.replace(/\\s+/g, ' ') : ''; }")
+        C.ok('121 State Street' in led and '$50,000' in led, f'[12 phone] the vendor page has the By Job ledger: {led[:200]}')
+        C.ok(await no_hscroll(pg), '[12 phone] the vendor page with its ledger does not scroll sideways')
+        await screen_lint(pg, C, '12 vendor page with By Job, phone', True)
+        await shot(pg, 'vendor_ledger_phone')
         C.ok(not errs, f'[12 phone] no page errors {errs[:2]}')
     finally:
         await b.close()
