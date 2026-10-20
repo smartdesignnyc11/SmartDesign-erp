@@ -54856,12 +54856,6 @@ function procWide(px) {
   const b = document.querySelector("#mbm .mbm-box");
   b && (b.style.maxWidth = px + "px");
 }
-function poAfterRun(made) {
-  if (!made || !made.length) return;
-  (poOpen = made[0].id), setView("po"), render();
-  const left = made.skipped || [];
-  left.length && "function" == typeof anSkippedModal && setTimeout(() => anSkippedModal(left), 60);
-}
 function procRecvModal() {
   const inTransit = selItems().filter((i) => ["ord", "ship"].includes(i.stage)),
     atOffice = selItems().filter((i) => "office" === i.stage),
@@ -94582,7 +94576,7 @@ if (
           v: drafts.length,
           tone: drafts.length ? "warn" : "",
           s: drafts.length
-            ? "drafted from the lessons — live only when the owner says so"
+            ? "from the lessons and the improvement loop — live only when the owner says so"
             : "nothing waiting for the owner",
           go: () => {
             (mtTab = "changes"), (mtOpen = "");
@@ -96167,7 +96161,9 @@ if ("function" == typeof mtChangesHtml) {
           `<b>${esc(c.title)}</b> <span class="pill neutral">Already in Effect</span>`,
         );
       });
-    const L = (DB.changes || []).filter((c) => c.key);
+    // the changes approved after the meeting read carry keys A to J; every later keyed change (the close-out's price
+    // book, the chat-records policy, the improvement loop) is drawn by its own section
+    const L = (DB.changes || []).filter((c) => /^[A-J]$/.test(c.key || ""));
     return L.length
       ? h +
           `<details class="card ls-register" style="margin-top:14px"><summary style="cursor:pointer;list-style:none"><h3 style="display:inline">Approved After the Meeting Read</h3> <span class="small muted">${L.length} changes · approved by the owner ${fmtL(L[0].approvedAt)} · all live · click to open</span></summary>${L.map((c) => `<div class="ls-ch"><span class="k">${esc(c.key)}</span><b>${esc(c.title)}</b><span class="pill ${"code" === c.kind ? "blue" : "ok"}">${"code" === c.kind ? "Built" : "setting" === c.kind ? "Setting" : "Rule"}</span><div class="small muted">${esc(c.why)}${c.delta && c.delta.label ? ` — ${esc(c.delta.label)}` : ""}</div></div>`).join("")}</details>`
@@ -96597,6 +96593,8 @@ function bnRun() {
           .forEach((l) => {
             const T = BN_TRIGGERS[l.trigger];
             if (!T) return;
+            // a lesson tied to a kind of job (BACKLOG §1.32 item 1): a design lesson never fires on a build-only job
+            if (l.jobType && ("design" === l.jobType) !== !!lsIsDesign(p)) return;
             let hit = !1;
             try {
               hit = !!T.test(p, l.match);
@@ -96688,8 +96686,15 @@ function bnTeachModal(pre) {
               (m.disabled = ["always", "design"].includes(t.value)));
         });
     }, 50);
-  const l = pre || {},
-    trig = Object.entries(BN_TRIGGERS)
+  // an existing lesson is edited in place; a proposal is copied, so the inference never changes its source
+  const l = pre && pre.id ? pre : Object.assign({}, pre || {});
+  // a new lesson read from a meeting: the moment it matters and the kind of job, from its own words (§1.32 item 1)
+  if (!l.id && "function" == typeof lpLessonInfer) {
+    const g = lpLessonInfer(`${l.title || ""} ${(l.then || {}).title || ""} ${l.why || ""}`);
+    (!l.when || "now" === l.when) && g.when && (l.when = g.when);
+    void 0 === l.jobType && (l.jobType = g.jobType);
+  }
+  const trig = Object.entries(BN_TRIGGERS)
       .map(([k, v]) => `<option value="${k}" ${l.trigger === k ? "selected" : ""}>${esc(v.label)}</option>`)
       .join(""),
     when = Object.entries(BN_WHEN)
@@ -96697,7 +96702,7 @@ function bnTeachModal(pre) {
       .join("");
   mbModal(
     l.id ? "The Lesson" : "Teach a Lesson",
-    `<div class="f"><label>The lesson, in one line</label><input data-f="title" value="${esc(l.title || "")}" placeholder="Millwork and cabinets: samples from the millshop, approved in the design phase"></div>\n    <div class="f2"><div class="f"><label>When a project…</label><select data-f="trigger" id="bn-trig">${trig}</select></div><div class="f"><label>…matches</label><input data-f="match" id="bn-match" value="${esc(l.match || "")}" placeholder="${esc((BN_TRIGGERS[l.trigger || "line"] || {}).hint || "")}"><span class="hint" id="bn-hint">${esc((BN_TRIGGERS[l.trigger || "line"] || {}).hint || "nothing to match — it applies to every project")}</span></div></div>\n    <div class="f2"><div class="f"><label>Then create a task</label><input data-f="then" value="${esc((l.then || {}).title || "")}" placeholder="Millshop samples approved by the client"></div><div class="f"><label>For</label><select data-f="owner">${["pm", "coord", "designer", "design_mgr", "owner", "controller"].map((r) => `<option value="${r}" ${(l.then || {}).owner === r ? "selected" : ""}>${esc(("object" == typeof ROLE_NAMES && ROLE_NAMES[r]) || r)}</option>`).join("")}</select></div></div>\n    <div class="f2"><div class="f"><label>Timing</label><select data-f="when">${when}</select></div><div class="f"><label>Apply on its own</label><select data-f="auto"><option value="">Propose it — someone approves</option><option value="1" ${l.auto ? "selected" : ""}>Create the task without asking</option></select></div></div>\n    <div class="f"><label>Why — what happened that taught it</label><textarea data-f="why" rows="3">${esc(l.why || "")}</textarea></div>${l.then && l.then.kind && "task" !== l.then.kind ? '<div class="small muted">This lesson is a check the ERP runs on its own; the task line is what it reports when the check fails.</div>' : ""}`,
+    `<div class="f"><label>The lesson, in one line</label><input data-f="title" value="${esc(l.title || "")}" placeholder="Millwork and cabinets: samples from the millshop, approved in the design phase"></div>\n    <div class="f2"><div class="f"><label>When a project…</label><select data-f="trigger" id="bn-trig">${trig}</select></div><div class="f"><label>…matches</label><input data-f="match" id="bn-match" value="${esc(l.match || "")}" placeholder="${esc((BN_TRIGGERS[l.trigger || "line"] || {}).hint || "")}"><span class="hint" id="bn-hint">${esc((BN_TRIGGERS[l.trigger || "line"] || {}).hint || "nothing to match — it applies to every project")}</span></div></div>\n    <div class="f2"><div class="f"><label>Then create a task</label><input data-f="then" value="${esc((l.then || {}).title || "")}" placeholder="Millshop samples approved by the client"></div><div class="f"><label>For</label><select data-f="owner">${["pm", "coord", "designer", "design_mgr", "owner", "controller"].map((r) => `<option value="${r}" ${(l.then || {}).owner === r ? "selected" : ""}>${esc(("object" == typeof ROLE_NAMES && ROLE_NAMES[r]) || r)}</option>`).join("")}</select></div></div>\n    <div class="f2"><div class="f"><label>Timing</label><select data-f="when">${when}</select></div><div class="f"><label>Kind of Job</label><select data-f="jobType"><option value="">Every job</option><option value="design" ${"design" === l.jobType ? "selected" : ""}>Design jobs</option><option value="build" ${"build" === l.jobType ? "selected" : ""}>Construction jobs</option></select></div></div>\n    <div class="f2"><div class="f"><label>Apply on its own</label><select data-f="auto"><option value="">Propose it — someone approves</option><option value="1" ${l.auto ? "selected" : ""}>Create the task without asking</option></select></div></div>\n    <div class="f"><label>Why — what happened that taught it</label><textarea data-f="why" rows="3">${esc(l.why || "")}</textarea></div>${l.then && l.then.kind && "task" !== l.then.kind ? '<div class="small muted">This lesson is a check the ERP runs on its own; the task line is what it reports when the check fails.</div>' : ""}`,
     {
       submit: l.id ? "Save" : "Teach It",
       onSubmit: (v) => {
@@ -96717,6 +96722,7 @@ function bnTeachModal(pre) {
           trigger: v.trigger,
           match: v.match,
           when: v.when,
+          jobType: v.jobType || "",
           auto: !!v.auto,
           why: v.why,
           then:
@@ -128836,7 +128842,7 @@ const OV_BUILD = {},
                 id: "ch:" + c.id,
                 kind: "Change",
                 title: c.title,
-                who: "from the lessons",
+                who: "loop" === c.source ? "from the improvement loop" : "from the lessons",
                 due: c.at || c.createdAt || "",
                 state: "to approve",
                 sev: "warn",
@@ -129148,7 +129154,7 @@ const OV_TILES = {
           v: ch.length,
           tone: ch.length ? "warn" : "",
           s: ch.length
-            ? "drafted from the lessons — live only when the owner says so"
+            ? "from the lessons and the improvement loop — live only when the owner says so"
             : "nothing waiting for the owner",
           pred: (r) => r.change,
         },

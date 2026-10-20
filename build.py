@@ -14,8 +14,9 @@ r = lambda p: open(os.path.join(H, p), encoding='utf-8').read()
 # model and tax credits, the contractor) rides after the assistant, then src/reports.js (BACKLOG §1.13: the report
 # ties, P&L by project and client, line income to cost, the cash forecast), which reads every lane's records. src/items.js (one item library that fills every
 # line, BACKLOG §1.18) and src/field_es.js (the field's screens in Spanish, §1.20) ride last: their wrappers are
-# outermost, and the Spanish pass reads every screen as finally drawn.
-SRC = ('src/app.js', 'src/mind.js', 'src/subs.js', 'src/assistant.js', 'src/livejobs.js', 'src/reports.js', 'src/items.js', 'src/field_es.js', 'src/field_es_words.js')
+# outermost, and the Spanish pass reads every screen as finally drawn. src/loop_core.js (the improvement loop's pure rules,
+# shared with the server's nightly run) and src/loop.js (the loop in the app, BACKLOG §1.19 and §1.32) ride before them.
+SRC = ('src/app.js', 'src/mind.js', 'src/subs.js', 'src/assistant.js', 'src/livejobs.js', 'src/reports.js', 'src/loop_core.js', 'src/loop.js', 'src/items.js', 'src/field_es.js', 'src/field_es_words.js')
 js = '\n'.join(r(f) for f in SRC)
 for f in SRC:
     if subprocess.run(['node', '--check', os.path.join(H, f)]).returncode:

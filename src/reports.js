@@ -635,7 +635,7 @@ document.addEventListener("click", (e) => {
   if (!a) return;
   e.preventDefault();
   const r = rpLate()[+a.dataset.rplateopen];
-  r && rpOpen(rpOpenOfRow(r));
+  r && rpDrillOpen(rpOpenOfRow(r));
 });
 // ---------------------------------------------------------------------------------------------------------------
 // 4. Drill: every part opens the records behind it, each with the bank or card line that backs it
@@ -742,7 +742,9 @@ function rpOpenOfRow(r) {
   if ("payroll" === r.kind) return { go: { view: "ap" } };
   return null;
 }
-function rpOpen(o) {
+// Named apart from Report a Problem's rpOpen (src/app.js): one script, so a second `function rpOpen` replaced the
+// Report a Problem button's and the button opened nothing (found by the loop lane, 2026-10-20; tests/dupnames_test.py).
+function rpDrillOpen(o) {
   if (!o) return;
   if (o.go) {
     try {
@@ -788,7 +790,7 @@ function rpDrill(key, title) {
   );
   const cl = document.getElementById("mbm-cancel");
   cl && (cl.textContent = "Close");
-  document.querySelectorAll("[data-rprow]").forEach((tr) => (tr.onclick = () => rpOpen(rpDrillNow[+tr.dataset.rprow].open)));
+  document.querySelectorAll("[data-rprow]").forEach((tr) => (tr.onclick = () => rpDrillOpen(rpDrillNow[+tr.dataset.rprow].open)));
 }
 document.addEventListener("click", (e) => {
   const el = e.target.closest("[data-rpdrill]");
