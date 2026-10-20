@@ -84,33 +84,15 @@ predDef("discountsAtRisk", {
     }));
   },
 });
-// Cash out of the bank for a job against the client's money in: bank and card lines coded to the job (out), the larger
-// of its deposits on bank lines and the payments recorded against it (in). Transfers and card payments are not cash
-// spent on the job.
-function rsJobCash(p) {
-  let cin = 0,
-    cout = 0;
-  (DB.txns || []).forEach((t) => {
-    if (t.projectId !== p.id || ["transfer", "cc-payment"].includes(t.cat) || ["void", "voided"].includes(t.status) || "notdup" === t.dupState || "disputed" === t.dupState) return;
-    const a = +t.amt || 0;
-    a > 0 ? (cin += a) : (cout -= a);
-  });
-  const c = (DB.clients || []).find((x) => x.id === p.clientId),
-    inv = new Set(((c && c.invoices) || []).filter((d) => !d.projectId || d.projectId === p.id).map((d) => d.id)),
-    paid = ((c && c.payments) || []).filter((y) => y.projectId === p.id || inv.has(y.invoiceId)).reduce((a, y) => a + (+y.amount || 0), 0);
-  return { cin: r2(Math.max(cin, paid)), cout: r2(cout) };
-}
+// One count, one rule (coordinator, 2026-10-20): a job spending more than it brings in is the cost-intelligence rule,
+// PRED.jobsOverspending in src/costintel.js (cash out above cash in, with cash in the larger of the bank deposits coded
+// to the job and the payments recorded; cost ahead of billings; a line over budget or forecast to go over). This name
+// is that predicate under the checklist's word for it, so the checklist, Caught for You, the Cost Intelligence tab and
+// Ask show the same jobs and the same count.
 predDef("jobsCashNegative", {
-  label: "Cash Out Over Cash In",
-  rule: "a live job whose cost paid out of the bank and cards is more than the client money that came in for it",
-  rows() {
-    return (DB.projects || [])
-      .filter(rsLive)
-      .map((p) => Object.assign({ key: "cashneg:" + p.id, p: p }, rsJobCash(p)))
-      .map((x) => Object.assign(x, { gap: r2(x.cout - x.cin) }))
-      .filter((x) => x.gap > 0.5)
-      .map((x) => Object.assign(x, { what: `Cash out over cash in: ${rsJob(x.p)}`, sub: `${money(x.cout)} paid out, ${money(x.cin)} in from the client`, amount: x.gap }));
-  },
+  label: "Jobs Spending More Than They Bring In",
+  rule: "the cost-intelligence rule (PRED.jobsOverspending): cash out above cash in, cost ahead of billings, or a line over budget or forecast to go over",
+  rows: (scope) => ("undefined" != typeof PRED && PRED.jobsOverspending ? PRED.jobsOverspending.rows(scope) : []),
 });
 predDef("linesOverBudget", {
   label: "Lines Over Budget",
