@@ -8,8 +8,10 @@ r = lambda p: open(os.path.join(H, p), encoding='utf-8').read()
 # src/mind.js (how the assistant thinks: its reach, prompt, loop, check and learning) and src/assistant.js (the one
 # assistant per person, BACKLOG §1.27/§1.24: its screens) ride after app.js in the same script, in that order, so
 # assistant.js's wrappers are the outermost ones and every name app.js declares is in scope.
-js = r('src/app.js') + '\n' + r('src/mind.js') + '\n' + r('src/assistant.js')
-for f in ('src/app.js', 'src/mind.js', 'src/assistant.js'):
+# src/livejobs.js (BACKLOG §1.25/§1.26: two payers, ranges and phases, the cost model and tax credits, the contractor)
+# rides last, so its wrappers sit outside the assistant's.
+js = r('src/app.js') + '\n' + r('src/mind.js') + '\n' + r('src/assistant.js') + '\n' + r('src/livejobs.js')
+for f in ('src/app.js', 'src/mind.js', 'src/assistant.js', 'src/livejobs.js'):
     if subprocess.run(['node', '--check', os.path.join(H, f)]).returncode:
         sys.exit(f + ' has a syntax error; not building')
 # The SmartDesign Standard (docs/STANDARD.md, Alan's own document) rides in the page word for word: the app seeds
