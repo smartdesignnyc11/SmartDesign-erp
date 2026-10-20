@@ -95,7 +95,7 @@ async def main():
         c.ok(not await pg.evaluate("(ROLE_VIEWS[role()]||[]).includes('meetings') && document.querySelector('[data-lpact^=\"ok|\"]')"), 'only the owner sees Approve')
 
         # a standard broken on two days: yesterday's Watch day plus today's
-        await pg.evaluate("""() => { const t = DB.signals.find(s => s.kind === 'watch'); const y = iso(addDays(today(), -1));
+        await pg.evaluate("""() => { lpWatchSnap(); const t = DB.signals.find(s => s.kind === 'watch'); const y = iso(addDays(today(), -1));
             DB.signals.push(Object.assign({}, t, {id: 'sw:' + t.what + ':' + y, day: y})); window.__rule = t.what; lpTriage('test'); }""")
         rule = await pg.evaluate("window.__rule")
 
