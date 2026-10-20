@@ -15,6 +15,7 @@ const P = {
   u_alberto: {id: 'a-alberto', role: 'crew', app_user_id: 'u_alberto', private_key: null},
 };
 const rows = {
+  users: [{id: 'u_angel', name: 'Angel Ruiz', role: 'foreman', lang: 'es'}, {id: 'u_chen', name: 'Chen Biron', role: 'coord'}],
   'thread:t1': {id: 't1', kind: 'direct', members: ['u_chen', 'u_angel'], msgs: [{id: 'm1', by: 'Chen Biron', fromUid: 'u_chen', text: 'The vanity ships Friday'}]},
   'thread:g1': {id: 'g1', kind: 'group', title: 'Site Leads', members: ['u_alan', 'u_chen', 'u_angel'], msgs: [{id: 'g-1', by: 'Alan', fromUid: 'u_alan', text: 'Walk at 10', voice: null}, {id: 'g-2', by: 'Angel', fromUid: 'u_angel', text: '', voice: {id: 'vn1', dur: 7}}]},
   'project:p121': {id: 'p121', project: {name: '121 State Street'}, team: ['u_angel'], chat: [
@@ -71,7 +72,9 @@ ok(W.pushed[0][1].title === 'Angel in Site Leads' && W.pushed[0][1].body === 'Vo
 W.pushed = []; clock = 20;
 r = await as('u_alan', {threadKey: 'job:p121', msgId: 'c1'});
 ok(sentTo().join() === 'a-angel,a-chen', `a job line goes to the mentioned people who read the job (Angel on its crew, Chen in the office), not Alberto (not on it), not the sender: ${sentTo()}`);
-ok(W.pushed[0][1].title === 'Alan mentioned you on 121 State Street' && W.pushed[0][1].url === '/?msg=job%3Ap121', `it says who mentioned them, where: ${JSON.stringify(W.pushed[0][1])}`);
+const toChen = W.pushed.find(x => x[0] === 'a-chen')[1], toAngel = W.pushed.find(x => x[0] === 'a-angel')[1];
+ok(toChen.title === 'Alan mentioned you on 121 State Street' && toChen.url === '/?msg=job%3Ap121', `it says who mentioned them, where: ${JSON.stringify(toChen)}`);
+ok(toAngel.title === 'Alan te mencionó en 121 State Street' && toAngel.body === '@Angel @Alberto @Chen panel cover off by 10', `a field person who reads Spanish gets the app's words in Spanish, the line as written: ${JSON.stringify(toAngel)}`);
 W.pushed = []; clock = 30;
 r = await as('u_alan', {threadKey: 'job:p121', msgId: 'c2'});
 ok(sentTo().join() === 'a-chen', `a line with a money card never reaches the field, not even its words: ${sentTo()}`);

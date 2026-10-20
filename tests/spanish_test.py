@@ -180,9 +180,18 @@ def english_in(R, vocab, text):
 
 async def pieces(pg, c, vocab, R):
     """the setting, switching back, the Team list, voice, the assistant, the Standard, chat translation, toasts"""
-    # the crew's own setting, from the menu: Idioma · Language
-    await pg.evaluate("() => { DB.users.find(u => u.id === 'u_alberto').lang = 'en'; }")
+    # crews keep English until the owner records Jeanette's review (Alan, 2026-10-20): no switch of their own until then
+    await pg.evaluate("() => { DB.users.find(u => u.id === 'u_alberto').lang = 'en'; delete DB.company.esReview; save(); }")
     await reset(pg)
+    await sign_in(pg, 'u_alberto'); await go(pg, 'time')
+    c.ok(await pg.evaluate("() => !document.getElementById('es-lang')"), 'review: before the review, the crew has no Spanish switch')
+    await sign_in(pg, 'u_owner')
+    await pg.evaluate("() => { settingsMode = 'company'; setView('proj'); }"); await pg.wait_for_timeout(400)
+    c.ok(await pg.locator('#es-review-go').count() == 1, 'review: the owner sees Spanish is in review, with Open Spanish to the Crews')
+    await pg.click('#es-review-go'); await pg.wait_for_timeout(300)
+    await pg.fill('#mbm [data-f="by"]', 'Jeanette'); await pg.click('#mbm-ok'); await pg.wait_for_timeout(300)
+    c.ok(await pg.evaluate("() => (DB.company.esReview || {}).reviewedBy") == 'Jeanette', 'review: the owner records who reviewed it')
+    # the crew's own setting, from the menu: Idioma · Language
     await sign_in(pg, 'u_alberto'); await go(pg, 'time')
     await menu(pg)
     L = await pg.evaluate("""() => { const b = [...document.querySelectorAll('#es-lang [data-eslang]')]; return b.map(x => { const r = x.getBoundingClientRect(); return { t: x.innerText, h: Math.round(r.height), on: x.classList.contains('on') }; }); }""")

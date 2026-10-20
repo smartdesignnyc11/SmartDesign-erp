@@ -155,7 +155,7 @@ async def main():
         c.ok('p206' not in byp, 'a job with nothing spent is not flagged (no false alarm)')
         # planted: a job that has paid out more than the client has paid in
         await pg.evaluate("""() => { DB.txns.push({ id: 'ci_plant_1', date: '2026-09-02', acct: 'ac1', amt: -3500, vendor: 'Brooklyn Lumber', desc: 'BROOKLYN LUMBER PLANTED', projectId: 'p140', cat: 'materials', code: '15' }); pwFresh(); }""")
-        P = await pg.evaluate("""() => { const x = PRED.jobsOverspending.rows().find(y => y.p.id === 'p140'); const ck = CATCH.find(c => c.name === 'jobCash').rows().find(r => r.key === 'cimoney:p140');
+        P = await pg.evaluate("""() => { const x = PRED.jobsOverspending.rows().find(y => y.p.id === 'p140'); const ck = CATCH.find(c => c.name === 'jobCash').rows().find(r => r.key === 'cashneg:p140');
           return x && { cash: x.cash, reasons: x.reasons.map(r => [r.kind, r.cause || '']), fixes: x.fixes.map(f => f.label), catch: ck && ck.what, n: PRED.jobsOverspending.count() }; }""")
         c.ok(P and P['cash']['out'] == 3500 and P['cash']['in'] == 0 and ['cash', '$24,000 billed and not yet paid'] in P['reasons'], f'planted: 140 Prospect paid out $3,500 with nothing collected; the cause is the open invoice: {P}')
         c.ok(P and 'Chase Payment' in P['fixes'] and P['catch'] == 'Spending more than it brings in: 140 Prospect Place', f'the drafted fix and Caught for You: {P}')
@@ -271,11 +271,16 @@ async def main():
         # the receipts come back: bought as planned at the yard; the saving reaches the savings registry
         RC = await pg.evaluate("""() => { ciNewReceipt({ id: 'dc_ci_back', store: 'Brooklyn Lumber — Red Hook', number: 'BL-31560', date: today(), jobId: 'p121', lines: [{ item: "2X4 8' KD SPF STUD", qty: 40, price: 3.98 }] }); pwFresh(); render();
           const run = DB.storeRuns.filter(x => x.status === 'approved').pop(); const R = ciPlanVsReceipts(run); const sv = (window.SV_SOURCES || []).flatMap(f => f());
-          return { R: R.map(x => [x.what, x.asPlanned, x.bought]), pvr: !!document.querySelector('[data-cipvr]'), sv: sv.map(x => [x.amount, x.source, x.jobId, x.by, x.at]), txt: (document.querySelector('[data-cipvr]') || {}).innerText || '' }; }""")
+          return { R: R.map(x => [x.what, x.asPlanned, x.bought]), pvr: !!document.querySelector('[data-cipvr]'), sv: sv.map(x => [x.amount, x.source2, x.jobId, x.by, x.date]), pb: ciSavingsRows().filter(x => x.source2 === 'costintel:pricebook').map(x => [x.key, x.amount]), ledger: typeof svRows === 'function' ? svRows().filter(r => /^(route|pricebook):/.test(r.key)).length : -1, txt: (document.querySelector('[data-cipvr]') || {}).innerText || '' }; }""")
         c.ok(['2x4x8 KD studs', True, 'Brooklyn Lumber — Red Hook'] in RC['R'] and RC['pvr'] and '$' not in RC['txt'], f'the receipt is compared back to the plan, shown to the driver without money: {RC}')
         near_price = await pg.evaluate("() => { const run = DB.storeRuns.filter(x => x.status === 'approved').pop(); const n = run.nearest.assign.find(a => a.what === '2x4x8 KD studs'); return n && [n.store, n.price]; }")
         exp = r2((near_price[1] - 3.98) * 40) if near_price and near_price[0] != 'Brooklyn Lumber — Red Hook' else None
         c.ok(exp and [exp, 'costintel:route', 'p121', 'Chen Biron', '2026-09-03'] in RC['sv'], f"the realised saving is a row in the savings registry: {RC['sv']} (expected {exp} against {near_price})")
+        # acting on the price book: Brooklyn Lumber on 9/2 (ta9) after the Home Depot cases named it for the same items
+        pb = dict(RC['pb'])
+        exp_pb = {'pricebook:rcpt:dc_ci_r9:0': r2(200 * (4.47 - 3.98)), 'pricebook:rcpt:dc_ci_r9:1': r2(40 * (16.48 - 15.2)), 'pricebook:rcpt:dc_ci_r9:2': r2(9 * (62.95 - 54.9))}
+        c.ok(all(pb.get(k) == v for k, v in exp_pb.items()), f'price-book savings to the cent (studs, 2x6, plywood bought at the yard after the cases): {pb} expected {exp_pb}')
+        c.ok(RC['ledger'] >= len(exp_pb) + 1, f"the savings ledger (src/specialists.js) reads them through window.SV_SOURCES: {RC['ledger']} rows")
         c.ok(not errs3, f'page errors (phone): {errs3[:3]}')
         await b.close()
 

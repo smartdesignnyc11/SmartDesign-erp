@@ -28096,7 +28096,7 @@ function repFinancials() {
     bsRow = (l, v, cls = "") => `<tr class="${cls}"><td>${l}</td><td class="money">${money(v)}</td></tr>`,
     curAssets = B.cash + (B.undeposited || 0) + B.arOut + B.ret + under - (B.credits || 0),
     curLiab = -B.cards + B.ap + (B.apRet || 0) + (B.payrollAccrued || 0) + over,
-    BS = `<h3 class="rep-h">Balance sheet (working capital view) — as of ${fmtL(today())}</h3><div class="grid2"><div class="tw"><table class="t rep-t fs"><tbody><tr class="sec"><td colspan="2">Current assets</td></tr>${bsRow("Cash in bank", B.cash)}${bsRow("Accounts receivable", B.arOut)}${B.undeposited ? bsRow("Receipts not yet deposited", B.undeposited) : ""}${B.credits ? bsRow("Less credits on account", -B.credits) : ""}${bsRow("Retainage receivable", B.ret)}${bsRow("Costs & estimated earnings in excess of billings (under-billings)", under)}${bsRow("Total current assets", curAssets, "tot")}</tbody></table></div><div class="tw"><table class="t rep-t fs"><tbody><tr class="sec"><td colspan="2">Current liabilities</td></tr>${bsRow("Credit cards", -B.cards)}${bsRow("Accounts payable", B.ap)}${bsRow("Billings in excess of costs & estimated earnings (over-billings)", over)}${bsRow("Billings in excess of earned — of which held for purchases (memo)", B.clientFunds, "dim")}${B.apRet ? bsRow("Retainage payable to subs", B.apRet) : ""}${B.payrollAccrued ? bsRow("Payroll due", B.payrollAccrued) : ""}${bsRow("Total current liabilities", curLiab, "tot")}${bsRow("Working capital", curAssets - curLiab, "grand")}<tr><td>Current ratio</td><td class="money">${curLiab ? r2(curAssets / curLiab) : "—"} <span class="small muted">benchmark 1.5–2.0</span></td></tr><tr><td>Cash-to-overbillings</td><td class="money">${over ? r2(B.cash / over) : "—"} <span class="small muted">keep above 1.0</span></td></tr></tbody></table></div></div><p class="small muted">Fixed assets, loans, equity and tax balances live in the accounting system; this view covers the working-capital accounts the ERP controls.</p>`,
+    BS = `<h3 class="rep-h">Balance sheet (working capital view) — as of ${fmtL(today())}</h3><div class="grid2"><div class="tw"><table class="t rep-t fs"><tbody><tr class="sec"><td colspan="2">Current assets</td></tr>${bsRow("Cash in bank", B.cash)}${bsRow("Accounts receivable", B.arOut)}${B.undeposited ? bsRow("Receipts not yet deposited", B.undeposited) : ""}${B.credits ? bsRow("Less credits on account", -B.credits) : ""}${bsRow("Retainage receivable", B.ret)}${bsRow("Costs & estimated earnings in excess of billings (under-billings)", under)}${bsRow("Total current assets", curAssets, "tot")}</tbody></table></div><div class="tw"><table class="t rep-t fs"><tbody><tr class="sec"><td colspan="2">Current liabilities</td></tr>${bsRow("Credit cards", -B.cards)}${bsRow("Accounts payable (approved bills)", "function" == typeof apOpenBills ? apOpenBills().approved : B.ap)}${"function" == typeof apOpenBills && B.ap - apOpenBills().approved > 0.005 ? bsRow("Bills awaiting approval (accrued)", r2(B.ap - apOpenBills().approved)) : ""}${bsRow("Billings in excess of costs & estimated earnings (over-billings)", over)}${bsRow("Billings in excess of earned — of which held for purchases (memo)", B.clientFunds, "dim")}${B.apRet ? bsRow("Retainage payable to subs", B.apRet) : ""}${B.payrollAccrued ? bsRow("Payroll due", B.payrollAccrued) : ""}${bsRow("Total current liabilities", curLiab, "tot")}${bsRow("Working capital", curAssets - curLiab, "grand")}<tr><td>Current ratio</td><td class="money">${curLiab ? r2(curAssets / curLiab) : "—"} <span class="small muted">benchmark 1.5–2.0</span></td></tr><tr><td>Cash-to-overbillings</td><td class="money">${over ? r2(B.cash / over) : "—"} <span class="small muted">keep above 1.0</span></td></tr></tbody></table></div></div><p class="small muted">Fixed assets, loans, equity and tax balances live in the accounting system; this view covers the working-capital accounts the ERP controls.</p>`,
     months = (() => {
       try {
         const R = repRangeOf().range,
@@ -54856,12 +54856,6 @@ function procWide(px) {
   const b = document.querySelector("#mbm .mbm-box");
   b && (b.style.maxWidth = px + "px");
 }
-function poAfterRun(made) {
-  if (!made || !made.length) return;
-  (poOpen = made[0].id), setView("po"), render();
-  const left = made.skipped || [];
-  left.length && "function" == typeof anSkippedModal && setTimeout(() => anSkippedModal(left), 60);
-}
 function procRecvModal() {
   const inTransit = selItems().filter((i) => ["ord", "ship"].includes(i.stage)),
     atOffice = selItems().filter((i) => "office" === i.stage),
@@ -72182,11 +72176,18 @@ function payNormalise() {
       migrated: !0,
     });
   }),
+    // a payment with no bank line takes the bill's bank or card line only when it is the same money: the same account
+    // (when the payment names one) and the same amount. A check recorded on a bill a card already paid was glued to
+    // the card line, so the second payment read as matched and the double payment was hidden.
     DB.payments.forEach((p) => {
-      if (p.txnId) return;
+      if (p.txnId || p.void) return;
       const b = DB.bills.find((x) => x.id === p.billId),
         t = b && txnOf(b);
-      t && !DB.payments.some((q) => q.txnId === t.id) && ((p.txnId = t.id), (p.acctId = t.acct));
+      t &&
+        !DB.payments.some((q) => q.txnId === t.id) &&
+        (!p.acctId || p.acctId === t.acct) &&
+        Math.abs(Math.abs(+t.amt || 0) - (+p.amount || 0)) < 0.01 &&
+        ((p.txnId = t.id), (p.acctId = t.acct));
     });
 }
 if ("function" == typeof txnViaBill) {
@@ -94282,6 +94283,9 @@ function mtWire(host) {
         (b.onclick = () => {
           const c = DB.changes.find((x) => x.id === b.dataset.chok);
           if (!c) return;
+          // a change to a rule, a setting or the ERP is the owner's alone (DELEGATION.change), checked here as well as
+          // in the drawing, so a button that shows to anyone else still changes nothing
+          if ("owner" !== role()) return void toast("Only the owner approves a change");
           const by = (currentUser() || {}).name || "Owner";
           "code" === c.kind ? (c.status = "approved") : (mtChangeApply(c), (c.status = "live")),
             (c.approvedBy = by),
@@ -94582,7 +94586,7 @@ if (
           v: drafts.length,
           tone: drafts.length ? "warn" : "",
           s: drafts.length
-            ? "drafted from the lessons — live only when the owner says so"
+            ? "from the lessons and the improvement loop — live only when the owner says so"
             : "nothing waiting for the owner",
           go: () => {
             (mtTab = "changes"), (mtOpen = "");
@@ -96167,7 +96171,9 @@ if ("function" == typeof mtChangesHtml) {
           `<b>${esc(c.title)}</b> <span class="pill neutral">Already in Effect</span>`,
         );
       });
-    const L = (DB.changes || []).filter((c) => c.key);
+    // the changes approved after the meeting read carry keys A to J; every later keyed change (the close-out's price
+    // book, the chat-records policy, the improvement loop) is drawn by its own section
+    const L = (DB.changes || []).filter((c) => /^[A-J]$/.test(c.key || ""));
     return L.length
       ? h +
           `<details class="card ls-register" style="margin-top:14px"><summary style="cursor:pointer;list-style:none"><h3 style="display:inline">Approved After the Meeting Read</h3> <span class="small muted">${L.length} changes · approved by the owner ${fmtL(L[0].approvedAt)} · all live · click to open</span></summary>${L.map((c) => `<div class="ls-ch"><span class="k">${esc(c.key)}</span><b>${esc(c.title)}</b><span class="pill ${"code" === c.kind ? "blue" : "ok"}">${"code" === c.kind ? "Built" : "setting" === c.kind ? "Setting" : "Rule"}</span><div class="small muted">${esc(c.why)}${c.delta && c.delta.label ? ` — ${esc(c.delta.label)}` : ""}</div></div>`).join("")}</details>`
@@ -96597,6 +96603,8 @@ function bnRun() {
           .forEach((l) => {
             const T = BN_TRIGGERS[l.trigger];
             if (!T) return;
+            // a lesson tied to a kind of job (BACKLOG §1.32 item 1): a design lesson never fires on a build-only job
+            if (l.jobType && ("design" === l.jobType) !== !!lsIsDesign(p)) return;
             let hit = !1;
             try {
               hit = !!T.test(p, l.match);
@@ -96688,8 +96696,15 @@ function bnTeachModal(pre) {
               (m.disabled = ["always", "design"].includes(t.value)));
         });
     }, 50);
-  const l = pre || {},
-    trig = Object.entries(BN_TRIGGERS)
+  // an existing lesson is edited in place; a proposal is copied, so the inference never changes its source
+  const l = pre && pre.id ? pre : Object.assign({}, pre || {});
+  // a new lesson read from a meeting: the moment it matters and the kind of job, from its own words (§1.32 item 1)
+  if (!l.id && "function" == typeof lpLessonInfer) {
+    const g = lpLessonInfer(`${l.title || ""} ${(l.then || {}).title || ""} ${l.why || ""}`);
+    (!l.when || "now" === l.when) && g.when && (l.when = g.when);
+    void 0 === l.jobType && (l.jobType = g.jobType);
+  }
+  const trig = Object.entries(BN_TRIGGERS)
       .map(([k, v]) => `<option value="${k}" ${l.trigger === k ? "selected" : ""}>${esc(v.label)}</option>`)
       .join(""),
     when = Object.entries(BN_WHEN)
@@ -96697,7 +96712,7 @@ function bnTeachModal(pre) {
       .join("");
   mbModal(
     l.id ? "The Lesson" : "Teach a Lesson",
-    `<div class="f"><label>The lesson, in one line</label><input data-f="title" value="${esc(l.title || "")}" placeholder="Millwork and cabinets: samples from the millshop, approved in the design phase"></div>\n    <div class="f2"><div class="f"><label>When a project…</label><select data-f="trigger" id="bn-trig">${trig}</select></div><div class="f"><label>…matches</label><input data-f="match" id="bn-match" value="${esc(l.match || "")}" placeholder="${esc((BN_TRIGGERS[l.trigger || "line"] || {}).hint || "")}"><span class="hint" id="bn-hint">${esc((BN_TRIGGERS[l.trigger || "line"] || {}).hint || "nothing to match — it applies to every project")}</span></div></div>\n    <div class="f2"><div class="f"><label>Then create a task</label><input data-f="then" value="${esc((l.then || {}).title || "")}" placeholder="Millshop samples approved by the client"></div><div class="f"><label>For</label><select data-f="owner">${["pm", "coord", "designer", "design_mgr", "owner", "controller"].map((r) => `<option value="${r}" ${(l.then || {}).owner === r ? "selected" : ""}>${esc(("object" == typeof ROLE_NAMES && ROLE_NAMES[r]) || r)}</option>`).join("")}</select></div></div>\n    <div class="f2"><div class="f"><label>Timing</label><select data-f="when">${when}</select></div><div class="f"><label>Apply on its own</label><select data-f="auto"><option value="">Propose it — someone approves</option><option value="1" ${l.auto ? "selected" : ""}>Create the task without asking</option></select></div></div>\n    <div class="f"><label>Why — what happened that taught it</label><textarea data-f="why" rows="3">${esc(l.why || "")}</textarea></div>${l.then && l.then.kind && "task" !== l.then.kind ? '<div class="small muted">This lesson is a check the ERP runs on its own; the task line is what it reports when the check fails.</div>' : ""}`,
+    `<div class="f"><label>The lesson, in one line</label><input data-f="title" value="${esc(l.title || "")}" placeholder="Millwork and cabinets: samples from the millshop, approved in the design phase"></div>\n    <div class="f2"><div class="f"><label>When a project…</label><select data-f="trigger" id="bn-trig">${trig}</select></div><div class="f"><label>…matches</label><input data-f="match" id="bn-match" value="${esc(l.match || "")}" placeholder="${esc((BN_TRIGGERS[l.trigger || "line"] || {}).hint || "")}"><span class="hint" id="bn-hint">${esc((BN_TRIGGERS[l.trigger || "line"] || {}).hint || "nothing to match — it applies to every project")}</span></div></div>\n    <div class="f2"><div class="f"><label>Then create a task</label><input data-f="then" value="${esc((l.then || {}).title || "")}" placeholder="Millshop samples approved by the client"></div><div class="f"><label>For</label><select data-f="owner">${["pm", "coord", "designer", "design_mgr", "owner", "controller"].map((r) => `<option value="${r}" ${(l.then || {}).owner === r ? "selected" : ""}>${esc(("object" == typeof ROLE_NAMES && ROLE_NAMES[r]) || r)}</option>`).join("")}</select></div></div>\n    <div class="f2"><div class="f"><label>Timing</label><select data-f="when">${when}</select></div><div class="f"><label>Kind of Job</label><select data-f="jobType"><option value="">Every job</option><option value="design" ${"design" === l.jobType ? "selected" : ""}>Design jobs</option><option value="build" ${"build" === l.jobType ? "selected" : ""}>Construction jobs</option></select></div></div>\n    <div class="f2"><div class="f"><label>Apply on its own</label><select data-f="auto"><option value="">Propose it — someone approves</option><option value="1" ${l.auto ? "selected" : ""}>Create the task without asking</option></select></div></div>\n    <div class="f"><label>Why — what happened that taught it</label><textarea data-f="why" rows="3">${esc(l.why || "")}</textarea></div>${l.then && l.then.kind && "task" !== l.then.kind ? '<div class="small muted">This lesson is a check the ERP runs on its own; the task line is what it reports when the check fails.</div>' : ""}`,
     {
       submit: l.id ? "Save" : "Teach It",
       onSubmit: (v) => {
@@ -96717,6 +96732,7 @@ function bnTeachModal(pre) {
           trigger: v.trigger,
           match: v.match,
           when: v.when,
+          jobType: v.jobType || "",
           auto: !!v.auto,
           why: v.why,
           then:
@@ -124244,7 +124260,7 @@ function finAnswer(raw) {
       );
     return out(
       `${S.safe < 0 ? `Short by ${money(-S.safe)} today` : `${money(S.safe)} safe to spend today`}; the 13-week low is ${money(F.low)} in the week of ${fmtL(low.start)}.`,
-      `Cash in the bank ${money(B.cash)} (ledger as of ${fmtL(td)}), cards ${money(B.cards)}, undeposited ${money(B.undeposited || 0)}, client funds held ${money(B.clientFunds || 0)}, unpaid bills ${money(B.ap)}, payroll due ${money(B.payrollAccrued)}, billed ahead of work ${money(B.over || 0)}. Truly ours = ${money(B.trulyOurs)}. No months-of-burn figure: a cash forecast, not a divisor.`,
+      `Cash in the bank ${money(B.cash)} (ledger as of ${fmtL(td)}), cards ${money(B.cards)}, undeposited ${money(B.undeposited || 0)}, client funds held ${money(B.clientFunds || 0)}, unpaid bills ${money(B.ap)}${"function" == typeof apOpenBills && apOpenBills().awaiting > 0.005 ? ` (${money(apOpenBills().approved)} approved, ${money(apOpenBills().awaiting)} awaiting approval)` : ""}, payroll due ${money(B.payrollAccrued)}, billed ahead of work ${money(B.over || 0)}. Truly ours = ${money(B.trulyOurs)}. No months-of-burn figure: a cash forecast, not a divisor.`,
       F.weeks
         .slice(0, 13)
         .map(
@@ -128836,7 +128852,7 @@ const OV_BUILD = {},
                 id: "ch:" + c.id,
                 kind: "Change",
                 title: c.title,
-                who: "from the lessons",
+                who: "loop" === c.source ? "from the improvement loop" : "from the lessons",
                 due: c.at || c.createdAt || "",
                 state: "to approve",
                 sev: "warn",
@@ -129148,7 +129164,7 @@ const OV_TILES = {
           v: ch.length,
           tone: ch.length ? "warn" : "",
           s: ch.length
-            ? "drafted from the lessons — live only when the owner says so"
+            ? "from the lessons and the improvement loop — live only when the owner says so"
             : "nothing waiting for the owner",
           pred: (r) => r.change,
         },
@@ -146999,8 +147015,11 @@ function apOpenBills() {
   } catch (e) {
     return { rows: [], total: 0, A: null };
   }
-  const rows = A.items.filter((i) => "bill" === i.kind);
-  return { rows: rows, total: r2(rows.reduce((a, i) => a + i.amt, 0)), A: A };
+  const rows = A.items.filter((i) => "bill" === i.kind),
+    appr = rows.filter((i) => i.approved),
+    wait = rows.filter((i) => !i.approved);
+  // "What we owe" is approved bills, the ledger's 2000; bills awaiting approval are their own line (Alan, 2026-10-20)
+  return { rows: rows, total: r2(rows.reduce((a, i) => a + i.amt, 0)), appr: appr, approved: r2(appr.reduce((a, i) => a + i.amt, 0)), waiting: wait, awaiting: r2(wait.reduce((a, i) => a + i.amt, 0)), A: A };
 }
 if ("object" == typeof EQ_TABLES && "function" == typeof EQ_TABLES.bills) {
   const eqBillsBase_bl = EQ_TABLES.bills;
@@ -147041,9 +147060,9 @@ void 0 !== ASK_INTENTS &&
         pAmt = r2(P.reduce((a, b) => a + billTotal(b), 0));
       return {
         headline: O.rows.length
-          ? `We owe vendors ${money(O.total)} on ${tlN(O.rows.length, "bill")}${A.billsOverdue ? `, ${money(A.billsOverdue)} of it past due` : ""}.`
+          ? `We owe vendors ${money(O.approved)} on ${tlN(O.appr.length, "approved bill")}${O.waiting.length ? `; another ${money(O.awaiting)} in ${tlN(O.waiting.length, "bill")} awaits approval` : ""}${A.billsOverdue ? ` (${money(A.billsOverdue)} past due)` : ""}.`
           : `We owe vendors ${money(0)} — no bill is open.`,
-        note: `From AP aging: open bills, less anything the bank already paid and anything in dispute.${P.length ? ` ${tlN(P.length, "bill")} (${money(pAmt)}) ${1 === P.length ? "was" : "were"} paid from the bank before approval — ${1 === P.length ? "it waits" : "they wait"} on an approval, not a payment, so ${1 === P.length ? "it is" : "they are"} not owed.` : ""}${A.payroll ? ` Payroll waiting: ${money(A.payroll)}, not a vendor.` : ""}`,
+        note: `Owed is approved bills, as the ledger books them (2000); bills awaiting approval are counted apart until someone approves them. From AP aging: open bills, less anything the bank already paid and anything in dispute.${P.length ? ` ${tlN(P.length, "bill")} (${money(pAmt)}) ${1 === P.length ? "was" : "were"} paid from the bank before approval — ${1 === P.length ? "it waits" : "they wait"} on an approval, not a payment, so ${1 === P.length ? "it is" : "they are"} not owed.` : ""}${A.payroll ? ` Payroll waiting: ${money(A.payroll)}, not a vendor.` : ""}`,
         work: O.rows
           .map(
             (i) =>
@@ -147057,7 +147076,7 @@ void 0 !== ASK_INTENTS &&
           ),
         go: { view: "ap" },
         kind: "finance",
-        total: O.total,
+        total: O.approved,
       };
     },
     rival: () => null,
@@ -184302,7 +184321,7 @@ function chatDmBar() {
   if (!P.length) return;
   comp.insertAdjacentHTML(
     "beforebegin",
-    `<div class="row" id="chat-dm" style="gap:6px;margin:8px 0;flex-wrap:wrap;align-items:center"><span class="small muted">To</span><select id="chat-to" aria-label="To" style="flex:1;min-width:150px"><option value="">Everyone on the job</option>${P.map((u) => `<option value="${u.id}">${esc(u.name)} · ${esc((void 0 !== ROLE_NAMES && ROLE_NAMES[u.role]) || u.role)}</option>`).join("")}</select></div>`,
+    `<div class="row" id="chat-dm" style="gap:6px;margin:8px 0;flex-wrap:wrap;align-items:center"><span class="small muted">Send To</span><select id="chat-to" aria-label="Send To" style="flex:1;min-width:150px"><option value="">Everyone on the job</option>${P.map((u) => `<option value="${u.id}">${esc(u.name)} · ${esc((void 0 !== ROLE_NAMES && ROLE_NAMES[u.role]) || u.role)}</option>`).join("")}</select></div>`,
   );
 }
 function chatSendTo(uidTo, text) {
@@ -199995,6 +200014,11 @@ renderChat = function () {
         : T.t
           ? "A private conversation. Only the people in it can read it."
           : "The team's thread for this job. Every post is read by the assistant and becomes a proposal in the Inbox when it changes the project.");
+  // the field's message to someone by name, on the job's thread only: it lands on the job's chat addressed to them and
+  // on their task list (the redesign of 2026-10-19 dropped this; pilot_fixes2 caught it)
+  try {
+    "job" === T.kind && !listMode && "function" == typeof CHAT_FIELD && CHAT_FIELD() ? chatDmBar() : document.getElementById("chat-dm")?.remove();
+  } catch (e) {}
   // read: the open thread is seen when it is on the screen
   !listMode && "chat" === view && msgSeenSet(T, u) && save();
 };

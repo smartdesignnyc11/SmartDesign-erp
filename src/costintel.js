@@ -564,13 +564,15 @@ function ciLaborPaid(p) {
 // status says), plus a bill marked paid that no bank line backs (paid outside the feed), plus payroll paid.
 function ciCashOf(p, J) {
   const bills = (DB.bills || []).filter((b) => b.projectId === p.id),
-    lines = (DB.txns || []).filter((t) => t.projectId === p.id && +t.amt < 0 && isJobCat(t.cat) && "labor" !== t.cat && !t.voided),
+    lines = (DB.txns || []).filter((t) => t.projectId === p.id && +t.amt < 0 && isJobCat(t.cat) && "labor" !== t.cat && !t.voided && !["void", "voided"].includes(t.status) && "disputed" !== t.dupState),
+    // cash in: the larger of the client deposits the bank shows on the job and the payments recorded against it
+    deposits = r2((DB.txns || []).filter((t) => t.projectId === p.id && +t.amt > 0 && !["transfer", "cc-payment", "refund"].includes(t.cat) && !t.voided && !["void", "voided"].includes(t.status)).reduce((a, t) => a + +t.amt, 0)),
     bank = r2(lines.reduce((a, t) => a - +t.amt, 0)),
     backed = (b) => lines.some((t) => t.billId === b.id || txnViaBill(t, [b])),
     billsPaid = r2(bills.filter((b) => ["paid", "verified"].includes(b.status) && !backed(b)).reduce((a, b) => a + billCost(b), 0)),
     labor = ciLaborPaid(p),
     out = r2(billsPaid + bank + labor);
-  return { in: r2(J.collected || 0), out: out, billsPaid: billsPaid, bank: bank, labor: labor };
+  return { in: r2(Math.max(+J.collected || 0, deposits)), out: out, billsPaid: billsPaid, bank: bank, labor: labor, deposits: deposits, collected: r2(J.collected || 0) };
 }
 function ciLineForecasts(p, J) {
   const out = [];
@@ -637,7 +639,7 @@ function ciJobMoney(p) {
   });
   lines.length && reasons.push({ kind: "lines", amount: r2(lines.reduce((a, l) => a + l.over, 0)), t: `${agN(lines.length, "line")} over budget or forecast to go over (${ciMoney(lines.reduce((a, l) => a + l.over, 0))})` });
   if (!reasons.length) return null;
-  return { p: p, J: J, cash: C, billed: billed, actual: actual, reasons: reasons, lines: lines, fixes: fixes, amount: r2(Math.max(...reasons.map((r) => r.amount))), key: "cimoney:" + p.id };
+  return { p: p, J: J, cash: C, billed: billed, actual: actual, reasons: reasons, lines: lines, fixes: fixes, amount: r2(Math.max(...reasons.map((r) => r.amount))), key: "cashneg:" + p.id, what: `Spending more than it brings in: ${shortName(p)}`, sub: reasons[0].t };
 }
 // The cause of a line's overrun, from the records behind it, and the fix that recovers the money.
 function ciLineCause(p, l) {
@@ -1654,7 +1656,7 @@ function ciPlanVsReceipts(run) {
       k = sk ? pwResolve("spec:" + sk) : null,
       buys = D.buys.filter((B) => "receipt" === B.kind && B.date >= after && B.projectId === a.siteId && (k ? B.key === k : pwNorm(B.item) === pwNorm(a.what)));
     const B = buys[0];
-    out.push({ key: a.key, what: a.what, qty: a.qty, planned: a.store, plannedPrice: a.price, bought: B ? ciStoreName(B.vendor) : "", paid: B ? B.price : null, diff: B && null != a.price ? r2((B.price - a.price) * Math.min(+a.qty || 0, B.normQty)) : null, asPlanned: !!B && ciStoreName(B.vendor) === a.store });
+    out.push({ key: a.key, buyId: B ? B.id : "", what: a.what, qty: a.qty, planned: a.store, plannedPrice: a.price, bought: B ? ciStoreName(B.vendor) : "", paid: B ? B.price : null, diff: B && null != a.price ? r2((B.price - a.price) * Math.min(+a.qty || 0, B.normQty)) : null, asPlanned: !!B && ciStoreName(B.vendor) === a.store });
   });
   return out;
 }
@@ -1917,6 +1919,10 @@ if ("function" == typeof mtChangeApply) {
 // ---------------------------------------------------------------------------------------------------------------------
 // 11. Savings: realised only, pushed to the savings lane's registry (never a ledger here).
 // ---------------------------------------------------------------------------------------------------------------------
+// The savings ledger's row shape (src/specialists.js): {key, kind, amount, date, by, what, evidence[]}; jobId added.
+// Route: an item bought at the store the approved route named, against the price at the store the nearest-store route
+// would have used. Price book: a store buy made at the store a Cheaper at Another Store case named for the same item,
+// after that case, against the price paid on the case (the firm acted on the price book).
 function ciSavingsRows() {
   const out = [];
   ciRuns()
@@ -1928,9 +1934,29 @@ function ciSavingsRows() {
           const n = (run.nearest.assign || []).find((a) => a.key === x.key);
           if (!n || null == n.price || n.store === x.bought) return;
           const amt = r2((n.price - x.paid) * (+x.qty || 0));
-          amt > 0.005 && out.push({ amount: amt, evidence: `Route ${fmtL(run.date)}: ${x.what} bought at ${x.bought} as planned (${pwU2(x.paid)}); the nearest store, ${n.store}, had it at ${pwU2(n.price)}`, by: run.approvedBy || "", at: run.date, source: "costintel:route", jobId: (run.plan.assign.find((a) => a.key === x.key) || {}).siteId || "" });
+          amt > 0.005 && out.push({ key: `route:${run.id}:${x.key}`, kind: "price", amount: amt, date: run.date, by: run.approvedBy || "", what: `Route ${fmtL(run.date)}: ${x.what} at ${x.bought}, not ${n.store}`, evidence: [`Bought at ${x.bought} as the approved route planned, ${pwU2(x.paid)} each × ${x.qty}`, `The nearest store on the route, ${n.store}, had it at ${pwU2(n.price)}`], jobId: (run.plan.assign.find((a) => a.key === x.key) || {}).siteId || "", source2: "costintel:route", buyId: x.buyId });
         });
     });
+  try {
+    const D = pwData(),
+      cases = pwCasesAll().filter((c) => "pwStoreCheaper" === c.det),
+      routed = new Set(out.map((r) => r.buyId));
+    D.buys
+      .filter((B) => "receipt" === B.kind && ciIsStore(B.vendor))
+      .forEach((B) => {
+        const st = ciStoreName(B.vendor),
+          hit = cases
+            .filter((c) => c.at < B.date)
+            .flatMap((c) => (c.lines || []).map((l) => Object.assign({ c: c }, l)))
+            .filter((l) => l.key === B.key && l.store === st && l.paid > B.price + 1e-9)
+            .sort((a, b) => String(b.c.at).localeCompare(String(a.c.at)))[0];
+        if (!hit || routed.has(B.id)) return;
+        const amt = r2((hit.paid - B.price) * B.normQty);
+        amt > 0.005 && out.push({ key: `pricebook:${B.id}`, kind: "price", amount: amt, date: B.date, by: (B.receipt && B.receipt.by) || "", what: `${(D.items[B.key] || {}).label || B.item} at ${st}, the cheaper store`, evidence: [`${B.docNo || "receipt"}: ${pwU2(B.price)} each × ${B.normQty}`, `${hit.c.what} paid ${pwU2(hit.paid)} for the same item (${fmtL(hit.c.at)})`], jobId: B.projectId || "", source2: "costintel:pricebook" });
+      });
+  } catch (e) {
+    console.warn("costintel: price-book savings", e);
+  }
   return out;
 }
 try {

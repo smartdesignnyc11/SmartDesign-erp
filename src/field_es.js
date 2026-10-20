@@ -340,12 +340,30 @@ function esSetLang(uid, lang) {
   toast(me && me.id === uid ? ("es" === lang ? "Listo: la app está en español" : "Done: the app is in English") : `${u.name} reads ${"es" === lang ? "Spanish" : "English"} on the field screens`);
   return !0;
 }
+// Crews stay in English until Jeanette has reviewed the Spanish, safety terms first (Alan, 2026-10-20). Until the owner
+// records that review, a field person cannot switch on their own; the owner can still set a person to Spanish from the
+// Team list (for the review itself), and that person can switch back.
+const esReviewed = () => !!(DB.company && DB.company.esReview && DB.company.esReview.approvedAt);
+function esApproveReview() {
+  if (esReviewed() || "owner" !== role()) return;
+  mbModal("Spanish for the Field", `<p class="small muted" style="margin:0 0 8px">The crews can switch their own screens to Spanish once the words are reviewed. Who reviewed them?</p>${mbF("Reviewed By", mbIn("by", "Jeanette"))}${mbF("Note", mbIn("note", "", "e.g. safety terms checked first"))}`, {
+    submit: "Open Spanish to the Crews",
+    onSubmit: (f) => {
+      if (!f.by) return toast("Name the reviewer"), !1;
+      DB.company.esReview = { reviewedBy: f.by, note: f.note || "", approvedBy: (currentUser() || {}).name || "owner", approvedAt: appNowIso() };
+      "function" == typeof audit && audit("company", "esReview", "approved", "", f.by, f.note || "");
+      save(), render();
+      toast(`Spanish is open to the crews, reviewed by ${f.by}`, () => (("function" == typeof setView ? setView("proj") : ((view = "proj"), render()))));
+    },
+  });
+}
 function esLangCtl() {
   const u = esUser(),
     foot = document.querySelector(".rail .foot");
   if (!foot) return;
   let box = document.getElementById("es-lang");
   if (!u || !ES_FIELD.includes(u.role)) return void (box && box.remove());
+  if (!esReviewed() && "es" !== u.lang) return void (box && box.remove());
   const lang = esLangOf(u);
   box || ((box = document.createElement("div")), (box.id = "es-lang"), (box.className = "es-lang"), foot.insertBefore(box, document.getElementById("foot")));
   const want = `<span class="es-lang-k" data-es-skip>Idioma · Language</span><div class="es-lang-seg" role="group" aria-label="Idioma" data-es-skip><button type="button" data-eslang="en" class="${"en" === lang ? "on" : ""}" aria-pressed="${"en" === lang}">English</button><button type="button" data-eslang="es" class="${"es" === lang ? "on" : ""}" aria-pressed="${"es" === lang}">Español</button></div>`;
@@ -366,10 +384,24 @@ function esLangCtl() {
           s.dataset.ulang = u.id;
           s.setAttribute("aria-label", `${u.name}'s language`);
           s.title = "Language of the field screens";
-          s.innerHTML = `<option value="en" ${"es" !== u.lang ? "selected" : ""}>English</option><option value="es" ${"es" === u.lang ? "selected" : ""}>Español</option>`;
+          s.innerHTML = `<option value="en" ${"es" !== u.lang ? "selected" : ""}>English</option><option value="es" ${"es" === u.lang ? "selected" : ""}>Español${esReviewed() ? "" : " (in review)"}</option>`;
           s.onchange = () => esSetLang(u.id, s.value);
           sel.after(s);
         });
+        const L = document.getElementById("users-list");
+        if (L && "owner" === role() && !document.getElementById("es-review")) {
+          const n = document.createElement("div");
+          n.id = "es-review";
+          n.className = "note small";
+          n.style.margin = "8px 0";
+          const R = (DB.company || {}).esReview;
+          n.innerHTML = esReviewed()
+            ? `Spanish for the field reviewed by ${esc(R.reviewedBy)} and opened to the crews ${esc("function" == typeof stampText ? stampText(R.approvedAt) : R.approvedAt)}.`
+            : `Spanish for the field is in review: the crews keep English until it is approved. You can set one person to Spanish here for the review. <button type="button" class="btn sm" id="es-review-go">Open Spanish to the Crews</button>`;
+          L.before(n);
+          const b = n.querySelector("#es-review-go");
+          b && (b.onclick = esApproveReview);
+        }
       } catch (e) {}
       return r;
     };

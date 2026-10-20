@@ -2012,3 +2012,243 @@ function scSeed() {
   };
 }
 /*<</subs.js>>*/
+
+// ---- 9. Who releases the run (Alan, 2026-10-20: "Go" on the recommendation) --------------------------------------
+// The controller keys every bill, and whoever keys a bill can never release its payment, so the controller could pay
+// almost nothing. Decided: the controller keys, matches and prepares the weekly Payment Run; the owner releases it in
+// one tap; billing releases it when the owner has marked himself away. A prepared run is a record (DB.payRuns) because
+// it waits across days and must be findable by both people: in the owner's Approvals (kind "payrun") and on the run
+// card. Releasing records each bill through pcRecord as the releaser, so every bill is checked again at that moment.
+const prStore = () => (Array.isArray(DB.payRuns) ? DB.payRuns : (DB.payRuns = [])),
+  prOpen = () => prStore().filter((x) => "prepared" === x.status),
+  prAway = () => {
+    const a = (DB.company || {}).ownerAway;
+    return !!(a && a.from <= today() && (!a.to || a.to >= today()));
+  },
+  prReleaser = () => (prAway() ? "billing" : "owner"),
+  prCanRelease = () => role() === prReleaser() || ("owner" === role() && !prAway()),
+  prBills = (run) => run.bills.map((x) => ({ x: x, b: (DB.bills || []).find((b) => b.id === x.id) })).filter((y) => y.b);
+function prPrepareSheet(ids) {
+  const B = ids.map((id) => (DB.bills || []).find((b) => b.id === id)).filter(Boolean);
+  if (!B.length) return toast("Tick the bills to put in the run");
+  const ents = [...new Set(B.map((b) => b.entityId || entDefault()))],
+    total = r2(B.reduce((a, b) => a + pcOpen(b), 0)),
+    who = prAway() ? "billing (the owner is away)" : "the owner";
+  mbModal(
+    "Prepare the Payment Run",
+    `<p class="small muted" style="margin:0 0 8px">${B.length} bill${B.length > 1 ? "s" : ""}, ${money(total)}. It goes to ${who} to release in one tap; each bill is checked again then.</p>${ents
+      .map((e) => {
+        const A = entAccountsOf(e);
+        return mbF(`From (${esc(glEntName(e))})`, A.length ? mbSel("acct_" + e, A.map((a) => [a.id, `${a.name}${a.last4 ? " ····" + a.last4 : ""}`]), A[0].id) : '<span class="small bad-t">no account for this entity</span>');
+      })
+      .join("")}<div class="grid2">${mbF("Pay On", mbIn("date", today(), "", "date"))}${mbF("Method", mbSel("method", [["", "Each Bill's Own Method"], ["ACH", "ACH"], ["Check", "Check"]], ""))}</div>`,
+    {
+      submit: "Send to Release",
+      onSubmit: (f) => {
+        const run = {
+          id: uid("prun"),
+          status: "prepared",
+          bills: B.map((b) => ({ id: b.id, amount: pcOpen(b), acct: f["acct_" + (b.entityId || entDefault())] || "" })),
+          date: f.date || today(),
+          method: f.method || "",
+          total: total,
+          preparedBy: scMe(),
+          preparedAt: appNowIso(),
+        };
+        prStore().push(run);
+        try {
+          audit("payrun", run.id, "prepared", "", money(total), `${B.length} bills for ${prReleaser()}`);
+        } catch (e) {}
+        save(), render();
+        rcToast(`Payment Run of ${money(total)} (${B.length} bill${B.length > 1 ? "s" : ""}) sent to ${prAway() ? "billing" : "the owner"} to release`, [{ label: "Open", run: () => ((view = "ap"), render()) }]);
+      },
+    },
+  );
+}
+// Release: each bill recorded by the releaser, checked again now; a bill that no longer passes stays unpaid and says why
+function prRelease(id) {
+  const run = prStore().find((x) => x.id === id);
+  if (!run || "prepared" !== run.status) return toast("That run is not waiting to be released");
+  if (!prCanRelease()) return toast(`${prAway() ? "Billing" : "The owner"} releases a prepared run`);
+  const done = [],
+    held = [];
+  prBills(run).forEach(({ x, b }) => {
+    const amount = Math.min(x.amount, pcOpen(b));
+    if (amount <= 0.005) return void held.push(`${b.vendor} ${b.number || ""}: already paid`);
+    const out = pcRecord(b, { acct: x.acct, date: run.date, amount: amount, method: run.method || b.payMethod || "ACH", ref: "" }, { run: run.id });
+    out.err ? held.push(`${b.vendor} ${b.number || ""}: ${out.err}`) : done.push(out.p);
+  });
+  Object.assign(run, { status: "released", releasedBy: scMe(), releasedAt: appNowIso(), paid: r2(done.reduce((a, p) => a + p.amount, 0)), held: held });
+  try {
+    audit("payrun", run.id, "released", "", money(run.paid), held.length ? `${held.length} held` : "all paid");
+  } catch (e) {}
+  save(), render();
+  rcToast(`Payment Run released: ${done.length} payment${1 === done.length ? "" : "s"}, ${money(run.paid)}, every one checked${held.length ? `; ${held.length} held: ${held.join("; ")}` : ""}`, [{ label: "Open", run: () => ((view = "ap"), render()) }]);
+}
+function prReturn(id) {
+  const run = prStore().find((x) => x.id === id);
+  if (!run || "prepared" !== run.status) return;
+  mbModal("Return the Run", `<p class="small muted" style="margin:0 0 8px">${money(run.total)}, prepared by ${esc(run.preparedBy)}. Say what to change; nothing is paid.</p>${mbF("Why", mbIn("why", "", "e.g. hold Window Works until the credit lands"))}`, {
+    submit: "Return It",
+    onSubmit: (f) => {
+      if (!f.why) return toast("Say why, so it can be fixed"), !1;
+      Object.assign(run, { status: "returned", returnedBy: scMe(), returnedAt: appNowIso(), why: f.why });
+      try {
+        audit("payrun", run.id, "returned", "", "", f.why);
+      } catch (e) {}
+      save(), render();
+      toast(`Run returned to ${run.preparedBy}: ${f.why}`, () => ((view = "ap"), render()));
+    },
+  });
+}
+// The owner marks himself away: billing releases runs until the date he sets
+function prAwaySheet() {
+  const a = (DB.company || {}).ownerAway;
+  if (prAway()) {
+    try {
+      audit("company", "ownerAway", "ended", `${a.from} to ${a.to}`, today(), "back early");
+    } catch (e) {}
+    return delete DB.company.ownerAway, save(), render(), toast("Back: you release Payment Runs again", () => ((view = "ap"), render()));
+  }
+  mbModal("Away: Billing Releases Runs", `<p class="small muted" style="margin:0 0 8px">While you are away, billing releases prepared Payment Runs. Every bill is still checked, and the holds above your limit still wait for you.</p><div class="grid2">${mbF("From", mbIn("from", today(), "", "date"))}${mbF("Back On", mbIn("to", "", "", "date"))}</div>`, {
+    submit: "Set Away",
+    onSubmit: (f) => {
+      if (!f.to) return toast("Say when you are back"), !1;
+      DB.company.ownerAway = { from: f.from || today(), to: f.to, by: scMe(), at: appNowIso() };
+      try {
+        audit("company", "ownerAway", "set", "", `${f.from} to ${f.to}`, "billing releases Payment Runs");
+      } catch (e) {}
+      save(), render();
+      toast(`Away ${fmtL(f.from || today())} to ${fmtL(f.to)}: billing releases Payment Runs`, () => ((view = "ap"), render()));
+    },
+  });
+}
+// the run card: prepared runs on top; the controller prepares, the owner (or billing when he is away) releases
+function prCardHtml() {
+  const P = prOpen(),
+    R = prStore().filter((x) => "returned" === x.status && !x.seen).slice(-3),
+    rel = prCanRelease();
+  const row = (run) =>
+    `<div class="row wrap pr-row" data-prun="${esc(run.id)}" style="gap:8px;align-items:center;padding:8px 0;border-top:1px solid var(--rule)"><div class="grow"><b>Payment Run · ${money(run.total)}</b><div class="small muted">${run.bills.length} bill${1 === run.bills.length ? "" : "s"} · pay on ${fmtL(run.date)} · prepared by ${esc(run.preparedBy)} ${esc(stampText(run.preparedAt))} · waiting for ${prAway() ? "billing (the owner is away)" : "the owner"}</div></div>${rel ? `<button type="button" class="btn" data-prrel="${esc(run.id)}">Release ${money(run.total)}</button><button type="button" class="btn" data-prret="${esc(run.id)}">Return</button>` : ""}</div>`;
+  return `${P.map(row).join("")}${R.map((run) => `<div class="note warn small" data-prseen="${esc(run.id)}">Run of ${money(run.total)} returned by ${esc(run.returnedBy)}: ${esc(run.why)}</div>`).join("")}${"owner" === role() ? `<div class="row" style="margin-top:6px"><button type="button" class="btn sm" data-praway>${prAway() ? `Away to ${fmtL(DB.company.ownerAway.to)}: I Am Back` : "Away: Billing Releases Runs"}</button></div>` : ""}`;
+}
+{
+  const base = renderAP;
+  renderAP = function () {
+    const r = base.apply(this, arguments);
+    try {
+      const v = document.getElementById("v-ap"),
+        card = v && v.querySelector("#pc-run");
+      if (!v || !["owner", "controller", "billing"].includes(role())) return r;
+      const go = card && card.querySelector("#pc-run-go");
+      // whoever is not the releaser prepares the run instead of paying it
+      if (go && !prCanRelease()) {
+        go.textContent = "Prepare the Run";
+        go.onclick = () => prPrepareSheet([...card.querySelectorAll("[data-pcrun]:checked")].map((x) => x.dataset.pcrun));
+      }
+      const extra = prCardHtml();
+      if (extra) {
+        let host = card;
+        if (!host) {
+          host = document.createElement("div");
+          host.className = "card pc-run";
+          host.id = "pc-run";
+          host.innerHTML = `<div class="hd"><h3>Payment Run</h3></div>`;
+          const at = v.querySelector("#ap-table");
+          at && at.parentElement ? at.parentElement.insertBefore(host, at) : v.appendChild(host);
+        }
+        const w = document.createElement("div");
+        w.className = "pr-runs";
+        w.innerHTML = extra;
+        host.querySelector(".hd").after(w);
+        w.querySelectorAll("[data-prrel]").forEach((b) => (b.onclick = () => prRelease(b.dataset.prrel)));
+        w.querySelectorAll("[data-prret]").forEach((b) => (b.onclick = () => prReturn(b.dataset.prret)));
+        w.querySelectorAll("[data-praway]").forEach((b) => (b.onclick = () => prAwaySheet()));
+        w.querySelectorAll("[data-prseen]").forEach((n) => {
+          const run = prStore().find((x) => x.id === n.dataset.prseen);
+          run && run.preparedBy === scMe() && (run.seen = appNowIso());
+        });
+      }
+    } catch (e) {
+      console.warn("payment run release", e);
+    }
+    return r;
+  };
+}
+// Approvals: a prepared run is one card for the releaser, released in one tap
+STD_MAP.payrun = { p: "integrity", c: ["pb", "office", "standards", /Three-way match/i] };
+APPR_CHIPS.splice(
+  APPR_CHIPS.findIndex(([k]) => "other" === k),
+  0,
+  ["payrun", "Payment Runs"],
+);
+DELEGATION.payrun = {
+  role: "owner",
+  rule: "the controller prepares the weekly Payment Run and the owner releases it in one tap; billing releases it while the owner is away (Alan, 2026-10-20)",
+  who: () => prReleaser(),
+};
+{
+  const base = mApprovals;
+  mApprovals = function (opts) {
+    const out = base.apply(this, arguments);
+    try {
+      if (!Array.isArray(out)) return out;
+      const add = prOpen().map((run) => ({
+        kind: "payrun",
+        id: run.id,
+        sev: "warn",
+        n: money(run.total),
+        title: `Payment Run · ${run.bills.length} bill${1 === run.bills.length ? "" : "s"}`,
+        detail: `prepared by ${run.preparedBy} · pay on ${fmtL(run.date)} · each bill is checked again as it is paid`,
+        yes: "Release",
+        no: "Return",
+        act: "release",
+        open: { view: "ap" },
+      }));
+      add.forEach((it) => (it.who = apprOwner(it)));
+      return out.concat(opts && opts.everyone ? add : add.filter((it) => it.who === role()));
+    } catch (e) {
+      console.warn("payment runs", e);
+      return out;
+    }
+  };
+}
+{
+  const base = renderMApprove;
+  renderMApprove = function () {
+    const r = base.apply(this, arguments);
+    try {
+      document.querySelectorAll('#v-mapprove .m-appr[data-mk="payrun"]').forEach((el) => {
+        const y = el.querySelector("[data-myes]"),
+          n = el.querySelector("[data-mno]"),
+          id = el.dataset.mid;
+        y && (y.onclick = (e) => (e.preventDefault(), e.stopPropagation(), prRelease(id)));
+        n && (n.onclick = (e) => (e.preventDefault(), e.stopPropagation(), prReturn(id)));
+      });
+    } catch (e) {}
+    return r;
+  };
+}
+{
+  const base = tdCard;
+  tdCard = function (it) {
+    const c = base.apply(this, arguments);
+    try {
+      if (it && "payrun" === it.kind) {
+        c.line1 = `Payment Run · ${esc(it.n)} · prepared by ${esc(String(it.detail).split(" · ")[0].replace(/^prepared by /, ""))}`;
+        c.why = "each bill is checked again as it is paid";
+        c.verb = "Release";
+        c.run = () => prRelease(it.id);
+        c.go = () => ((view = "ap"), render());
+      }
+    } catch (e) {}
+    return c;
+  };
+}
+{
+  const base = tdScore;
+  tdScore = function (it) {
+    if (it && "payrun" === it.kind) return 58;
+    return base.apply(this, arguments);
+  };
+}

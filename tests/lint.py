@@ -108,7 +108,9 @@ COLLECT = r"""
   const shownSet = new Set(shown);
 
   // ---------- primary buttons ----------
-  const prim = shown.filter(e => e.matches('.btn.primary'));
+  // a primary counts when it reads blue on screen (with a drawer or sheet open, the page behind keeps its button, not its blue)
+  const blue = e => { const c = getComputedStyle(e).backgroundColor; return c && !/rgba?\(255, 255, 255|rgba\(0, 0, 0, 0\)|transparent/.test(c) && getComputedStyle(e).color === 'rgb(255, 255, 255)'; };
+  const prim = shown.filter(e => e.matches('.btn.primary') && blue(e));
   if (prim.length > 1) flag('PRIMARY_MULTI', view, `${prim.length} blue primaries: ` + prim.map(p => `"${srcText(p).slice(0, 30)}"`).join(', '));
   const hk = new RegExp('^(?:' + HOUSEKEEPING.join('|') + ')\\b', 'i');
   for (const p of prim) {
@@ -369,6 +371,9 @@ COLLECT = r"""
         // only the screen's own controls (a full-screen conversation over the app's bars is the design), and only a
         // layer pinned at the top (one at the bottom is scrolled past)
         if (!view.contains(o.e)) continue;
+        // inside a panel scrolled down, the control was scrolled under the layer, not covered for good
+        let scrolled = false; for (let x = o.e.parentElement; x && x !== document.documentElement; x = x.parentElement) if (x.scrollTop > 1) { scrolled = true; break; }
+        if (scrolled || (document.scrollingElement && document.scrollingElement.scrollTop > 1)) continue;
         const L = layerOf(hit), lr = L && L.getBoundingClientRect();
         if (!L || L === o.layer || L.contains(o.e) || lr.top > o.r.top + 2 || lr.top > innerHeight / 3) continue;
         flag('TAP_COVERED', o.e, `"${srcText(o.e).slice(0, 30) || o.e.tagName.toLowerCase()}" is under ${sel(L)}: a tap lands on "${(hit.innerText || hit.tagName).trim().slice(0, 30)}" (${sel(o.e)})`, sel(o.e) + '|' + sel(L));
@@ -473,6 +478,12 @@ def wall_dates():
     return [d.isoformat(), f'{mon} {d.day}, {d.year}', f'{d.month}/{d.day}/{d.year}', f'{d.strftime("%B")} {d.day}, {d.year}']
 
 
+# the screens with a record drawer, and how a person opens the first record (returns false when there is none)
+DRAWERS = {
+    'ap': "() => { const b = (DB.bills || []).find(x => x.status !== 'void'); if (!b || typeof openBill !== 'function') return false; openBill(b.id); return true; }",
+    'vendors': "() => { const v = (DB.vendors || [])[0]; if (!v || typeof openEditor !== 'function') return false; openEditor('vendor', v.id); return true; }",
+}
+
 async def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--rule'); ap.add_argument('--user'); ap.add_argument('--view')
@@ -512,6 +523,18 @@ async def main():
                     except Exception as e:
                         errs.append('lint: ' + str(e).splitlines()[0])
                         r = {'flags': [], 'info': {}}
+                    # a record's drawer is a screen of its own (2026-10-20: two blue buttons with a bill open; no
+                    # walk ever opened one): open the first record of the screens that have one, and judge again
+                    opener = DRAWERS.get(v)
+                    if opener and not (rules and 'PRIMARY_MULTI' not in rules):
+                        try:
+                            if await pg.evaluate(opener):
+                                await pg.wait_for_timeout(250)
+                                r2 = await pg.evaluate(COLLECT, args)
+                                r['flags'] += [dict(f, detail='(drawer open) ' + f['detail']) for f in r2['flags'] if f['rule'] == 'PRIMARY_MULTI']
+                                await pg.evaluate("() => { try { closeEditor(); } catch (e) {} try { mbCloseModal(); } catch (e) {} }")
+                        except Exception as e:
+                            errs.append('lint drawer: ' + str(e).splitlines()[0])
                     for e in errs:
                         rule = 'CONSOLE_ERROR' if e.startswith('console: ') else 'PAGE_ERROR'
                         r['flags'].append({'rule': rule, 'detail': e[:200], 'chrome': False})

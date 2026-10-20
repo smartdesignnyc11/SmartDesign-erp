@@ -66,7 +66,7 @@ def src_lines():
     html = open(URL[len('file://'):], encoding='utf-8').read().split('\n')
     start = max(i for i, l in enumerate(html) if l == '<script>') + 1   # 0-based index of src/app.js line 1
     # build.py joins the files with a newline each, in this order
-    parts = [(f, sum(1 for _ in open(os.path.join(ROOT, 'src', f), encoding='utf-8'))) for f in ('app.js', 'mind.js', 'subs.js', 'assistant.js', 'livejobs.js', 'reports.js', 'costintel.js', 'items.js', 'field_es.js', 'field_es_words.js')]
+    parts = [(f, sum(1 for _ in open(os.path.join(ROOT, 'src', f), encoding='utf-8'))) for f in ('app.js', 'mind.js', 'subs.js', 'assistant.js', 'livejobs.js', 'reports.js', 'loop_core.js', 'loop.js', 'meetread.js', 'costintel.js', 'specialists.js', 'items.js', 'field_es.js', 'field_es_words.js')]
     def where(line0):
         if line0 < start: return f'page:{line0 + 1}'
         k = line0 - start + 1
