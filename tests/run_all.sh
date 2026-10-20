@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds, then runs every guard rail one at a time (the machine may be slow) and prints one line per suite.
 # Full logs land in review/run_all/. Usage: tests/run_all.sh [suite ...]   (default: all)
-# Optional, not in the default list (about 30 minutes): month_sim, a month of the company with a crack ledger
+# In the default list since 2026-10-20 (about 30 minutes; chief of staff: no month recorded since v11.2): month_sim, a month of the company with a crack ledger
 # in review/month/ (tests/run_all.sh month_sim). It exits 1 while anything falls through the cracks.
 # chain_test (about 40 minutes) runs one new job end to end and reads every report against its records.
 # Optional, not in the default list (a full run takes three to five hours on this build: about 11,000 presses over every
