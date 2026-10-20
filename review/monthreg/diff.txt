@@ -1,0 +1,69 @@
+# v11.2 -> master (the run the main session recorded on 2026-10-20)
+REF MONTH caught 258/292 on time · 5 late · 29 missed · $9,537 left behind · 1 schedule days lost
+NEW MONTH caught 243/292 on time · 3 late · 46 missed · $195,142 left behind · 9 schedule days lost
+
+WORSE (15): $185,604
+  E226 09-25 payment        $   68,265 0d on time->missed | Record the Kleins' $68,265 (ten days late) on INV-2026-038 | no payment recorded
+  E233 09-25 payment        $   68,265 0d on time->missed | Billing sees the Kleins' payment note and records the deposit | no payment recorded
+  E266 09-30 invoice        $   25,000 0d on time->missed | Earned-not-billed at month end: send the 121 State progress applicatio | nothing invoiced
+  E160 09-18 payment        $   15,000 0d on time->missed | Apply 206 Lenox's $15,000 wire (no invoice on file: record it as a dep | no payment recorded
+  E163 09-18 poStatus       $    8,010 0d on time->missed | Receive the Tino white oak on 9/18 and bill it against PO-2026-047 | issued
+  E177 09-21 clientCredit   $      850 0d on time->missed | Credit the Kleins for the returned tile ($850; the tile line was bille | no credit to the client
+  E012 09-03 txn            $      214 0d on time->missed | Match the Bedrosians $215 card credit to its return (credit memo for 1 | categorized · refund · p45 · matched to no line
+  E009 09-03 poEta          $        0 0d on time->missed | Move PO-2026-047 (Tino, white oak) to Tino's confirmed delivery Friday | PO-2026-047 expected 2026-10-05
+  E010 09-03 request        $        0 0d on time->missed | Pick up Brooklyn Lumber order 88412 (25 GWB, 6 cement board, already p | ack
+  E129 09-15 poEtaAny       $        0 0d on time->missed | Set the trim PO delivery to 9/17 | PO-2026-051 expected no date
+  E133 09-15 poEta          $        0 5d on time->missed | The millwork delivery slips 9/18 → 9/25: move PO-2026-048 and the mill | PO-2026-048 expected 2026-09-18
+  E142 09-16 po             $        0 2d on time->missed | Price the radiant heat mats ($1,240) and order them before 9/18 (on si | no PO issued
+  E186 09-21 seenBy         $        0 0d on time->missed | The plumber on Thursday shows on the foreman's Today | not on their screens
+  E198 09-22 lineBilled     $        0 0d on time->missed | Bill the measured work (rplumb at 100%) on the month-end application | Plumbing — rough & finish: measured 60%, billed 51.67%
+  E248 09-28 lineBilled     $        0 0d on time->missed | Bill the measured work (relec at 100%) on the month-end application | Electrical — rough & finish: measured 100%, billed 85%
+
+BETTER (0)
+
+STILL NOT ON TIME in new (known):
+
+# v11.2 -> fixed (actor reads the whole Do Now)
+REF MONTH caught 258/292 on time · 5 late · 29 missed · $9,537 left behind · 1 schedule days lost
+NEW MONTH caught 260/292 on time · 5 late · 27 missed · $1,937 left behind · 2 schedule days lost
+
+WORSE (0): $0
+
+BETTER (2)
+  E246 09-28 disputeResolved $        0 0d missed->on time | Close the WW-2026-118 dispute with the $3,800 credit memo | dispute open: {"approved":29700,"held":3800,"why":"Approved at the PO amount; the di
+  E269 09-30 disputeResolved $        0 0d missed->on time | The Window Works $3,800 dispute is resolved by month end (credit memo  | dispute open: {"approved":29700,"held":3800,"why":"Approved at the PO amount; the di
+
+STILL NOT ON TIME in new (known):
+  E023 09-03 task           $        0 0d late->late+1 | Confirm the 3rd floor tile stock with Nemo (meeting task due 9/3) | done
+  E030 09-03 recon          $        0 0d missed->missed | Import the Amex August statement from the mailbox and reconcile Amex A | not reconciled
+  E039 09-03 co             $    1,450 0d missed->missed | Write the change order for the notched joist sistering ("I will write  | CO-2026-004 draft $0, CO-2026-004-R1 draft $0
+  E042 09-03 subm           $        0 0d missed->missed | Take the 3rd floor lighting submittal (26 51 00-001) to Release Order | submitted
+  E043 09-03 po             $        0 0d missed->missed | Issue the 3rd floor lighting PO with a vendor and a price (no $0, no b | no PO issued
+  E047 09-03 po             $        0 2d late->late+2 | Order the parlor kitchen countertop slab (order-by 9/1 passed) | PO-2026-053 Gowanus Stone Yard $7450 issued
+  E053 09-04 coi            $        0 0d missed->missed | File Tomas Restoration's COI (it runs to 9/15) | insurance to none on file
+  E054 09-04 seenBy         $        0 0d missed->missed | Review the office portal shop drawings | not on their screens
+  E075 09-09 request        $        0 0d missed->missed | Put the Nemo sample board pickup on the driver's route | not on the board
+  E091 09-10 outreach       $        0 0d missed->missed | Send the Riveras the updated design schedule by Friday 9/11 | nothing went to them
+  E095 09-11 invoice        $        0 0d missed->missed | Send the Lindqvists' design agreement invoice (the owner's ask) | nothing invoiced
+  E102 09-11 outreach       $        0 0d late->late+4 | The proposal to Ines Ward is watched; follow up when he goes quiet (3  | draft by u_owner
+  E107 09-14 txn            $        0 0d missed->missed | Code the DOB fee to 206 Lenox | permits on p121
+  E117 09-14 task           $        0 0d late->late+1 | Sarah's promise in mail (revised kitchen elevations Friday) becomes he | Sarah Davis due 2026-09-18
+  E138 09-16 outreach       $        0 0d missed->missed | Tomas Restoration's COI expired 9/15: chase the renewal before the nex | nothing went to them
+  E148 09-17 txn            $        0 0d missed->missed | Code the LED drivers to 121 State electrical | office on no job
+  E161 09-18 rebilled       $      487 0d missed->missed | Bill back the extra blocking lumber the Kleins asked for ($487.36, Hom | materials on p121, on no invoice
+  E166 09-18 taskDone       $        0 0d missed->missed | Close the DOB plumbing permit task | in-progress 0%
+  E181 09-21 mat            $        0 0d missed->missed | Price the stair runner by Thursday 9/24 (the PM's ask) | no price on the line
+  E183 09-21 seenBy         $        0 0d missed->missed | Sarah sees the samples are on the way | not on their screens
+  E194 09-22 coi            $        0 0d missed->missed | File Tomas Restoration's renewed COI | insurance to none on file
+  E199 09-22 mat            $        0 0d missed->missed | Price the shower glass line ($3,900) | line at no price · not-ordered
+  E217 09-24 insp           $        0 0d missed->missed | Record the passed rough plumbing inspection so walls can close | scheduled
+  E219 09-24 seenBy         $        0 0d missed->missed | Confirm the flooring install date with Tino | not on their screens
+  E247 09-28 taskDone       $        0 0d missed->missed | Close the LPC window profile sign-off | planned 0%
+  E258 09-29 mat            $        0 0d late->late+2 | Receive the garden bath tile on 10/2 and bill it | on-site 2880 Nemo Tile
+  E261 09-29 poEtaAny       $        0 0d missed->missed | Set the fixtures PO to the 10/6 delivery | no PO
+  E274 10-01 recon          $        0 0d missed->missed | Import the Amex September statement and reconcile Amex for September | not reconciled
+  E276 10-01 recon          $        0 0d missed->missed | Import the Chase September statement and reconcile Chase for September | not reconciled
+  E282 10-01 close          $        0 0d missed->missed | Run the September close (the controller runs it on 10/1) | 1 manual entry dated in September 2026 await the Owner / 6 bank lines in September 2026 ar
+  E283 10-01 journal        $        0 0d missed->missed | Post the controller's month-end journal (van depreciation $1,200) with | pending
+  E285 10-01 seenBy         $        0 0d open->open | File the signed amendment on 140 Prospect | not on their screens
+  E291 10-02 unmatched      $        0 0d missed->missed | Every September bank and card line is matched or excepted by close | 7 lines not matched (1 excepted)
