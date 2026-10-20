@@ -15545,9 +15545,16 @@ function cashForecast() {
       parse(d) < td && (d = iso(addDays(td, 7))), put(d, o.bal, `${c.name.split(" ")[0]} ${o.x.number}`);
     }),
   ),
+    // A bill the bank or a card already paid (paid before approval) is not money still to go out: forecast, it
+    // took Window Works' $33,500 (paid on the Amex 8/25) and AMP-311's $9,800 (check 2205) out a second time.
     DB.bills
-      .filter((b) => ["submitted", "pm-approved", "approved"].includes(b.status) && !b.txnId && !b.paidAt)
+      .filter((b) => ["submitted", "pm-approved", "approved"].includes(b.status) && !b.txnId && !b.paidAt && !("function" == typeof billPaidUnapproved && billPaidUnapproved(b)))
       .forEach((b) => put(b.due >= today() ? b.due : iso(addDays(td, 3)), -billTotal(b), `Bill ${b.vendor}`)),
+    // What the firm owes on its cards is cash still to leave the bank. The statement due date is not on file, so
+    // the balance is placed two weeks out and says so.
+    (DB.accounts || [])
+      .filter((a) => "card" === a.type && +a.balance < -0.005)
+      .forEach((a) => put(iso(addDays(td, 14)), +a.balance, `Card balance ${a.name}${a.last4 ? " ···" + a.last4 : ""} (due date not on file)`)),
     DB.pos
       .filter((p) => ["issued", "partial"].includes(p.status))
       .forEach((p) => {
@@ -15561,6 +15568,11 @@ function cashForecast() {
         );
         open > 0 && put(iso(addDays(parse(p.expected || today()), 14)), -open, `PO ${p.number}`);
       });
+  // A run already prepared and not yet paid is owed now, on top of the cadence below (which forecasts the next
+  // runs): the 8/17-8/28 run ($16,040, past due since 9/1) was in no week at all.
+  DB.payroll
+    .filter((r) => r.total && ["submitted", "pm-approved", "approved"].includes(r.status) && !r.paidAt)
+    .forEach((r) => put(r.payDate && r.payDate > today() ? r.payDate : today(), -r.total, `Payroll ${r.period} (owed)`));
   const runs = DB.payroll.filter((r) => r.total),
     avg = runs.length ? runs.slice(-3).reduce((a, r) => a + r.total, 0) / Math.min(3, runs.length) : 0;
   if (avg) {
@@ -24580,6 +24592,13 @@ function lineLabor(doc, line) {
     return 0;
   }
 }
+function lineBillIsBankDup(b) {
+  try {
+    return BILL_ACCRUED.includes(b.status) && billPaidUnapproved(b) && !finBillCarriesCost(b);
+  } catch (e) {
+    return !1;
+  }
+}
 function lineFin(key) {
   const ref = findLine(key);
   if (!ref) return null;
@@ -24662,7 +24681,11 @@ function lineFin(key) {
     ),
     committed = Math.max(0, r2(poGross - poBilled)),
     draftPOs = DB.pos.filter((po) => "draft" === po.status && po.lines.some((l) => l.line === key)),
-    bills = DB.bills.filter((b) => b.line === key && "void" !== b.status && "rejected" !== b.status),
+    // A bill awaiting approval that the bank has already paid, where the bank line carries the cost, is the same
+    // money as that bank line: the job counts it once (the jobFin "fin" layer), so the line does too. Counted
+    // twice, 121 State's plumbing line read $19,755 (AMP-311 + check 2205) and the By Line total $102,670 against
+    // the job's $97,084 on the same report.
+    bills = DB.bills.filter((b) => b.line === key && "void" !== b.status && "rejected" !== b.status && !lineBillIsBankDup(b)),
     // a difference disputed with the vendor is not cost until it is settled (as job cost reads it, by code)
     billsAmt = r2(bills.reduce((a, b) => a + billCost(b) - billRebillPart(b) - ("function" == typeof pay3HeldCost ? pay3HeldCost(b) : 0), 0)),
     txns = DB.txns.filter(
@@ -24978,7 +25001,10 @@ function projectProfit(p) {
     budget: J.budget,
     committed: J.committed,
     direct: J.billsAmt,
-    unlinked: J.txnAmt,
+    // job cost on no cost code row: the report's rows plus this one add up to the job's actual. It was the job's
+    // bank-line total ($17,944 on 121 State), which the code rows already carry, so the rows added to $111,638
+    // against a $97,084 total.
+    unlinked: ((x) => (Math.abs(x) < 0.5 ? 0 : x))(r2(J.actual - (J.byCode || []).reduce((a, b) => a + (+b.bills || 0) + (+b.bank || 0) + (+b.labor || 0), 0))),
     accrued: J.accrued,
     labor: labor,
     actual: J.actual,
@@ -25119,7 +25145,7 @@ function repProfit() {
         return `<tr><td><b>${b.code}</b> ${esc(b.name)}</td>${[b.contract, b.budget, b.committed, b.actual, b.labor, act, b.budget - act].map((v) => `<td class="money ${v < 0 ? "bad" : ""}">${repMoney(v)}</td>`).join("")}<td><div class="rep-bar-wrap"><i style="width:${Math.min(100, pct)}%;background:${pct > 100 ? "var(--bad)" : pct > 85 ? "var(--warn)" : "var(--ok)"}"></i></div><span class="small muted">${pct}%</span></td></tr>`;
       })
       .join("") || '<tr><td colspan="9" class="muted">No approved estimate lines for this project.</td></tr>'
-  }${r.unlinked ? `<tr><td class="muted">Unlinked job cost (no line)</td><td></td><td></td><td></td><td class="money">${money(r.unlinked)}</td><td></td><td class="money">${money(r.unlinked)}</td><td></td><td></td></tr>` : ""}<tr style="font-weight:600"><td>Total</td><td class="money">${money(r.contract)}</td><td class="money">${money(r.budget)}</td><td class="money">${money(r.committed)}</td><td class="money">${money(r.direct + r.unlinked)}</td><td class="money">${money(r.labor.cost)}</td><td class="money">${money(r.actual)}</td><td class="money">${money(r.budget - r.actual)}</td><td></td></tr></tbody></table></div>\n    <h3 class="rep-h">By line</h3>${c ? renderFinLines(c) : ""}\n    <div class="grid2" style="margin-top:14px"><div><h3 class="rep-h">Invoices & payments</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Invoice</th><th>Date</th><th class="money">Amount</th><th class="money">Paid</th><th>Status</th></tr></thead><tbody>${r.invs.map((i) => `<tr><td>${esc(i.number)} · ${esc(i.title)}</td><td class="dim">${fmt(i.date)}</td><td class="money">${money(docTotal(i).total)}</td><td class="money">${money(invoicePaid(c, i))}</td><td>${invoiceStatus(c, i)}</td></tr>`).join("") || '<tr><td colspan="5" class="muted">None in range.</td></tr>'}</tbody></table></div></div>\n    <div><h3 class="rep-h">Labor</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Employee</th><th class="money">Hours</th><th class="money">Burdened cost</th></tr></thead><tbody>${r.labor.list.map((x) => `<tr><td>${esc(x.emp)}</td><td class="money">${r2(x.hours)}</td><td class="money">${money(x.cost)}</td></tr>`).join("") || '<tr><td colspan="3" class="muted">No approved time in range.</td></tr>'}${r.labor.list.length ? `<tr style="font-weight:600"><td>Total</td><td class="money">${r.labor.hours}</td><td class="money">${money(r.labor.cost)}</td></tr>` : ""}</tbody></table></div><p class="small muted">Labor = clocked hours × rate × (1 + burden). Payroll bank transactions are excluded from actual to avoid double counting.</p></div></div>`;
+  }${r.unlinked ? `<tr><td class="muted">Job cost on no cost code</td><td></td><td></td><td></td><td class="money">${money(r.unlinked)}</td><td></td><td class="money">${money(r.unlinked)}</td><td></td><td></td></tr>` : ""}<tr style="font-weight:600"><td>Total</td><td class="money">${money(r.contract)}</td><td class="money">${money(r.budget)}</td><td class="money">${money(r.committed)}</td><td class="money">${money(r.direct + r.unlinked)}</td><td class="money">${money(r.labor.cost)}</td><td class="money">${money(r.actual)}</td><td class="money">${money(r.budget - r.actual)}</td><td></td></tr></tbody></table></div>\n    <h3 class="rep-h">By line</h3>${c ? renderFinLines(c) : ""}\n    <div class="grid2" style="margin-top:14px"><div><h3 class="rep-h">Invoices & payments</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Invoice</th><th>Date</th><th class="money">Amount</th><th class="money">Paid</th><th>Status</th></tr></thead><tbody>${r.invs.map((i) => `<tr><td>${esc(i.number)} · ${esc(i.title)}</td><td class="dim">${fmt(i.date)}</td><td class="money">${money(docTotal(i).total)}</td><td class="money">${money(invoicePaid(c, i))}</td><td>${invoiceStatus(c, i)}</td></tr>`).join("") || '<tr><td colspan="5" class="muted">None in range.</td></tr>'}</tbody></table></div></div>\n    <div><h3 class="rep-h">Labor</h3><div class="tw"><table class="t rep-t"><thead><tr><th>Employee</th><th class="money">Hours</th><th class="money">Burdened cost</th></tr></thead><tbody>${r.labor.list.map((x) => `<tr><td>${esc(x.emp)}</td><td class="money">${r2(x.hours)}</td><td class="money">${money(x.cost)}</td></tr>`).join("") || '<tr><td colspan="3" class="muted">No approved time in range.</td></tr>'}${r.labor.list.length ? `<tr style="font-weight:600"><td>Total</td><td class="money">${r.labor.hours}</td><td class="money">${money(r.labor.cost)}</td></tr>` : ""}</tbody></table></div><p class="small muted">Labor = clocked hours × rate × (1 + burden). Payroll bank transactions are excluded from actual to avoid double counting.</p></div></div>`;
 }
 function repPortfolio() {
   const rows = DB.projects.map((p) => ({ p: p, r: projectProfit(p) })),
@@ -30024,13 +30050,34 @@ function icCreateBills() {
   );
 }
 const jobFinBase = jobFin;
+// Consolidated (no entity chosen), the group's cost of a subsidiary crew's work is what the subsidiary paid for it:
+// an intercompany bill counts at its cost, the markup eliminated. At the marked-up amount the markup raised the job's
+// cost basis, so consolidated revenue earned $286.58 more on 121 State the moment SD Plumbing and SD Electric billed
+// their hours (the group billing itself). An entity's own view keeps the bill as billed.
+function icAtCost(bills) {
+  return bills.map((b) => {
+    if (!b.ic || null == b.ic.cost || !(b.lines || []).length) return b;
+    const f = 1 + (+b.ic.markup || 0) / 100;
+    let left = r2(+b.ic.cost);
+    const lines = b.lines.map((l, i) => {
+      const v = i === b.lines.length - 1 ? left : r2((+l.amount || 0) / f);
+      return (left = r2(left - v)), Object.assign({}, l, { amount: v });
+    });
+    return Object.assign({}, b, { lines: lines, icAtCost: !0 });
+  });
+}
 jobFin = function (p, range) {
   const hidden = new Set(DB.time.filter((e) => e.icBillId).map((e) => e.id));
   if (!hidden.size) return jobFinBase(p, range);
-  const keep = DB.time;
+  const keep = DB.time,
+    keepB = DB.bills,
+    consol = "undefined" == typeof repEntity || !repEntity;
   DB.time = keep.filter((e) => !hidden.has(e.id));
+  consol && (DB.bills = icAtCost(keepB));
   try {
     const J = jobFinBase(p, range);
+    DB.bills = keepB;
+    consol && (J.defs += " · consolidated: intercompany bills at the subsidiary's cost, the markup eliminated");
     return (
       (J.icBills = DB.bills
         .filter((b) => b.ic && b.projectId === p.id && BILL_COSTED.includes(b.status))
@@ -30039,7 +30086,7 @@ jobFin = function (p, range) {
       J
     );
   } finally {
-    DB.time = keep;
+    (DB.time = keep), (DB.bills = keepB);
   }
 };
 const ledgerBase2 = ledger;
@@ -30072,22 +30119,35 @@ function entityPL(range) {
       (repEntity = "");
     const C = companyPL(range),
       elim = r2(cols.reduce((a, c) => a + c.P.icRevenue, 0));
-    return { cols: cols, C: C, elim: elim };
+    // The markup on an intercompany bill also sits in the job's cost basis in its entity's own view, so that entity
+    // earns more on the job than the group does: profit the group made by billing itself, still in work in
+    // progress. It is eliminated too, job by job (the job earned in its entity's view less in the consolidated
+    // view), so the columns add across to the consolidated figures.
+    let elimWip = 0;
+    [...new Set((DB.bills || []).filter((b) => b.ic && BILL_COSTED.includes(b.status)).map((b) => b.projectId))].forEach((pid) => {
+      const p = (DB.projects || []).find((x) => x.id === pid);
+      if (!p) return;
+      repEntity = entityOfProject(p);
+      const own = wipAdjustment(range, [pid]);
+      repEntity = "";
+      elimWip = r2(elimWip + own - wipAdjustment(range, [pid]));
+    });
+    return { cols: cols, C: C, elim: elim, elimWip: elimWip };
   } finally {
     repEntity = keep;
   }
 }
 function repEntities() {
   const range = cfoRange(),
-    { cols: cols, C: C, elim: elim } = entityPL(range),
+    { cols: cols, C: C, elim: elim, elimWip: elimWip } = entityPL(range),
     un = icUnbilled(),
     icBills = DB.bills
       .filter((b) => b.ic)
       .sort((a, b) => b.date.localeCompare(a.date))
       .slice(0, 8),
     line = (label, f, cls = "") =>
-      `<tr class="${cls}"><td>${label}</td>${cols.map((c) => `<td class="money">${money(f(c.P))}</td>`).join("")}<td class="money dim">${"Income" === label || "Job cost" === label ? "− " + money(elim) : "—"}</td><td class="money"><b>${money(f(C))}</b></td></tr>`;
-  return `<h3 class="rep-h">Entities side by side — ${{ month: "This month", quarter: "This quarter", ytd: "Year to date", all: "All time" }[cfoPeriod] || "Year to date"}</h3><div class="tw"><table class="t rep-t fs"><thead><tr><th></th>${cols.map((c) => `<th class="money">${esc(c.e.name.replace(/ LLC$/, ""))}</th>`).join("")}<th class="money">Eliminations</th><th class="money">Consolidated</th></tr></thead><tbody>\n    ${line("Income", (P) => P.income, "inc")}${line("of which intercompany", (P) => P.icRevenue, "dim")}${line("Job cost", (P) => P.cogsT)}${line("of which intercompany", (P) => P.icCost, "dim")}${line("Gross profit", (P) => P.gross, "tot")}${line("Overhead", (P) => P.ohT)}${cols.some((c) => c.P.propertyNOI) ? line("Property NOI", (P) => P.propertyNOI || 0, "dim") : ""}${line("Net profit", (P) => P.net, "tot inc")}<tr class="dim"><td>Net margin</td>${cols.map((c) => `<td class="money">${c.P.netPct}%</td>`).join("")}<td></td><td class="money">${C.netPct}%</td></tr></tbody></table></div>\n    <p class="small muted">Subsidiary crews bill their hours to SmartDesign Group as intercompany bills (burdened rate + markup). Each entity is a profit center on its own column; eliminations remove the intercompany amounts so the consolidated column counts the work once.</p>\n    <div class="grid2" style="margin-top:12px"><div class="card"><h3 class="rep-h" style="margin-top:0">Subsidiary hours not yet billed</h3>${un.length ? `<table class="t"><thead><tr><th>From</th><th>Job</th><th class="money">Hours</th><th class="money">Cost</th><th class="money">Bill (+markup)</th></tr></thead><tbody>${un.map((o) => `<tr><td>${esc(o.entity.name.replace(/ LLC$/, ""))}</td><td>${esc(o.p.project.name)}</td><td class="money">${o.hours}</td><td class="money">${money(o.cost)}</td><td class="money"><b>${money(o.amount)}</b></td></tr>`).join("")}</tbody></table>${"owner" === role() || "pm" === role() ? '<button class="btn primary" id="ic-create" style="margin-top:8px">Create intercompany bills</button>' : ""}` : '<div class="muted small">All subsidiary hours are billed.</div>'}<div class="small muted" style="margin-top:8px">Markup per entity: ${DB.entities
+      `<tr class="${cls}"><td>${label}</td>${cols.map((c) => `<td class="money">${money(f(c.P))}</td>`).join("")}<td class="money dim">${"Income" === label ? "− " + money(elim + elimWip) : "Job cost" === label ? "− " + money(elim) : elimWip && ("Gross profit" === label || "Net profit" === label) ? "− " + money(elimWip) : "—"}</td><td class="money"><b>${money(f(C))}</b></td></tr>`;
+  return `<h3 class="rep-h">Entities side by side — ${{ month: "This month", quarter: "This quarter", ytd: "Year to date", all: "All time" }[cfoPeriod] || "Year to date"}</h3><div class="tw"><table class="t rep-t fs"><thead><tr><th></th>${cols.map((c) => `<th class="money">${esc(c.e.name.replace(/ LLC$/, ""))}</th>`).join("")}<th class="money">Eliminations</th><th class="money">Consolidated</th></tr></thead><tbody>\n    ${line("Income", (P) => P.income, "inc")}${line("of which intercompany", (P) => P.icRevenue, "dim")}${line("Job cost", (P) => P.cogsT)}${line("of which intercompany", (P) => P.icCost, "dim")}${line("Gross profit", (P) => P.gross, "tot")}${line("Overhead", (P) => P.ohT)}${cols.some((c) => c.P.propertyNOI) ? line("Property NOI", (P) => P.propertyNOI || 0, "dim") : ""}${line("Net profit", (P) => P.net, "tot inc")}<tr class="dim"><td>Net margin</td>${cols.map((c) => `<td class="money">${c.P.netPct}%</td>`).join("")}<td></td><td class="money">${C.netPct}%</td></tr></tbody></table></div>\n    <p class="small muted">Subsidiary crews bill their hours to SmartDesign Group as intercompany bills (burdened rate + markup). Each entity is a profit center on its own column; eliminations remove the intercompany amounts so the consolidated column counts the work once.${elimWip ? ` The markup in the job's cost raises what its entity earns on it; that ${money(elimWip)} is the group's profit on billing itself and is eliminated from income too.` : ""}</p>\n    <div class="grid2" style="margin-top:12px"><div class="card"><h3 class="rep-h" style="margin-top:0">Subsidiary hours not yet billed</h3>${un.length ? `<table class="t"><thead><tr><th>From</th><th>Job</th><th class="money">Hours</th><th class="money">Cost</th><th class="money">Bill (+markup)</th></tr></thead><tbody>${un.map((o) => `<tr><td>${esc(o.entity.name.replace(/ LLC$/, ""))}</td><td>${esc(o.p.project.name)}</td><td class="money">${o.hours}</td><td class="money">${money(o.cost)}</td><td class="money"><b>${money(o.amount)}</b></td></tr>`).join("")}</tbody></table>${"owner" === role() || "pm" === role() ? '<button class="btn primary" id="ic-create" style="margin-top:8px">Create intercompany bills</button>' : ""}` : '<div class="muted small">All subsidiary hours are billed.</div>'}<div class="small muted" style="margin-top:8px">Markup per entity: ${DB.entities
     .filter((e) => "ent1" !== e.id)
     .map((e) => `${esc(e.name.replace(/ LLC$/, ""))} ${entMarkup(e)}%`)
     .join(
@@ -39806,9 +39866,10 @@ const ledgerBase_cash = ledger;
 ledger = function (range) {
   if ("cash" !== basis()) return ledgerBase_cash(range);
   const rows = [];
+  // Payroll counts once, from the run (below): the bank lines a paid run writes (payrollId) are the same money.
   DB.txns
     .filter(
-      (t) => within(t.date, range) && "transfer" !== t.cat && "labor" !== t.cat && "cc-payment" !== t.cat,
+      (t) => within(t.date, range) && "transfer" !== t.cat && "labor" !== t.cat && "cc-payment" !== t.cat && !t.payrollId,
     )
     .forEach((t) =>
       rows.push({
@@ -39838,8 +39899,11 @@ ledger = function (range) {
           ref: b,
         }),
       ),
+    // Cash basis: a run is cost when the money left, i.e. once it is paid (Release Payroll), never while it is
+    // submitted or approved and unpaid. It counted every run by pay date, so the unpaid 8/17-8/28 run ($16,040)
+    // sat in the cash-basis P&L while the cash flow statement said payroll paid $0.
     DB.payroll
-      .filter((p) => within(p.payDate, range))
+      .filter((p) => ["paid", "verified"].includes(p.status) && within(p.payDate, range))
       .forEach((p) => {
         payrollAllocAmts(p).forEach((a) =>
           rows.push({
@@ -70724,12 +70788,15 @@ function glInvoiceLines(c, d) {
     net = r2(T.sub - T.disc);
   if (d.retainageRelease)
     return L.push(glL("1100", T.total, 0, dims)), L.push(glL("1150", 0, T.total, dims)), L;
-  const isDeposit = !(!d.depositOf && !d.retainerOf);
+  const isDeposit = !(!d.depositOf && !d.retainerOf),
+    // docTotal already takes an applied deposit off a progress (SOV) invoice's total (T.dep); taking it off again
+    // left the journal $1 short per $1 of deposit (Dr 1100 + 2400 under Cr revenue) and AR under the client record
+    depOff = r2(r2(d.depositApplied || 0) - r2(T.dep || 0));
   if (
     (L.push(
       glL(
         "1100",
-        r2(T.total - r2(d.depositApplied || 0) < 0 ? 0 : T.total - r2(d.depositApplied || 0)),
+        r2(T.total - depOff < 0 ? 0 : T.total - depOff),
         0,
         dims,
       ),
@@ -70745,7 +70812,13 @@ function glInvoiceLines(c, d) {
     (d.lines || []).forEach((l) => {
       const amt = lineAmount(l, d);
       if (!amt) return;
-      const share = r2(amt - (T.sub ? (T.disc * amt) / sub : 0)),
+      // A retainer applied on this invoice ("Less retainer applied", a negative line) spends the deposit the
+      // retainer invoice put in 2400: it relieves 2400, it is not negative revenue. Posted as negative revenue,
+      // 2400 kept the $5,000 45 Cranberry retainer after it was applied and August revenue read $5,000 short of
+      // the management view once the WIP posted at close.
+      const share = r2(amt - (T.sub ? (T.disc * amt) / sub : 0));
+      if (l.retainerLine && share < 0) return void L.push(glL("2400", -share, 0, Object.assign({ memo: "retainer applied", sourceLineId: l.id }, dims)));
+      const
         acct = l.filingId ? "4300" : rev,
         key =
           l.fromLine || (l.sovId ? ((c.sov || []).find((s) => s.id === l.sovId) || {}).lineRef : "") || "",
@@ -70769,6 +70842,17 @@ function glInvoiceLines(c, d) {
     });
   }
   return T.tax && L.push(glL("2300", 0, T.tax, dims)), L;
+}
+// What progress invoices in [from, to] took off retainers on account ("Less retainer applied" lines). The
+// retainer invoice put that money in 2400; applying it moves it to revenue, so the bridge between the management
+// view and the ledger counts only the deposits still held.
+function glRetainerApplied(from, to, ent) {
+  return r2(
+    (DB.clients || [])
+      .flatMap((c) => c.invoices || [])
+      .filter((i) => !["void", "draft"].includes(i.status) && (i.date || "") >= (from || "") && (!to || (i.date || "") <= to) && (!ent || "all" === ent || glProjectEntity(i.projectId) === ent))
+      .reduce((s, i) => s + (i.lines || []).filter((l) => l.retainerLine).reduce((a, l) => a - Math.min(0, lineAmount(l, i)), 0), 0),
+  );
 }
 function glPaymentLines(c, p) {
   const inv = (c.invoices || []).find((i) => i.id === p.invoiceId),
@@ -71506,7 +71590,7 @@ function glOverviewHtml(sync) {
             .reduce(
               (s, i) => s + ("function" == typeof docNet ? docNet(i) : docTotal(i).sub - docTotal(i).disc),
               0,
-            ),
+            ) - glRetainerApplied(from, to, ent),
         ),
         prop = r2(eng.net - r2((e.income || 0) - (e.cogsT || 0) - (e.ohT || 0))),
         items = [
@@ -123305,7 +123389,7 @@ if ("function" == typeof glOverviewHtml) {
                 i.date <= to &&
                 ("all" === ent || glProjectEntity(i.projectId) === ent),
             )
-            .reduce((s, i) => s + docNet(i), 0),
+            .reduce((s, i) => s + docNet(i), 0) - glRetainerApplied(from, to, ent),
         ),
         prop = r2(engNet - r2((e.income || 0) - (e.cogsT || 0) - (e.ohT || 0))),
         wipLed = (() => {

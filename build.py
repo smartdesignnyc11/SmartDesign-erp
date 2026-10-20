@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Build dist/smartdesigns_projects.html: one self-contained file, as the app has always shipped.
-src/head.html (meta, title, fonts) + src/styles.css + src/body.html (shell markup) + docs/STANDARD.md (as data)
-+ src/app.js + src/mind.js + src/subs.js + src/assistant.js."""
+src/head.html (meta, title, fonts) + src/styles.css + src/body.html (shell markup) + docs/STANDARD.md and docs/STANDARD_ES.md (as data)
++ src/app.js + src/mind.js + src/subs.js + src/assistant.js + src/livejobs.js + src/reports.js
++ src/items.js + src/field_es.js + src/field_es_words.js (the SRC list below)."""
 import os, subprocess, sys
 H = os.path.dirname(os.path.abspath(__file__))
 r = lambda p: open(os.path.join(H, p), encoding='utf-8').read()
@@ -10,10 +11,11 @@ r = lambda p: open(os.path.join(H, p), encoding='utf-8').read()
 # assistant.js's wrappers are the outermost ones and every name app.js declares is in scope. src/subs.js (subcontracts
 # and the payment check, BACKLOG §1.10 #1 and §1.12) rides between them: it wraps app.js's money paths and adds its
 # query tables to mind.js's MD_VIEWS. src/livejobs.js (BACKLOG §1.25/§1.26: two payers, ranges and phases, the cost
-# model and tax credits, the contractor) rides after the assistant. src/items.js (one item library that fills every
+# model and tax credits, the contractor) rides after the assistant, then src/reports.js (BACKLOG §1.13: the report
+# ties, P&L by project and client, line income to cost, the cash forecast), which reads every lane's records. src/items.js (one item library that fills every
 # line, BACKLOG §1.18) and src/field_es.js (the field's screens in Spanish, §1.20) ride last: their wrappers are
 # outermost, and the Spanish pass reads every screen as finally drawn.
-SRC = ('src/app.js', 'src/mind.js', 'src/subs.js', 'src/assistant.js', 'src/livejobs.js', 'src/items.js', 'src/field_es.js', 'src/field_es_words.js')
+SRC = ('src/app.js', 'src/mind.js', 'src/subs.js', 'src/assistant.js', 'src/livejobs.js', 'src/reports.js', 'src/items.js', 'src/field_es.js', 'src/field_es_words.js')
 js = '\n'.join(r(f) for f in SRC)
 for f in SRC:
     if subprocess.run(['node', '--check', os.path.join(H, f)]).returncode:
