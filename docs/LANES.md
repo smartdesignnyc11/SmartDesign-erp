@@ -3,6 +3,8 @@
 The chief of staff keeps this board current. A lane is one build agent in its own git worktree (`.claude/worktrees/<name>`, branch `lane-<name>`). Lanes never push or merge. The main session merges them one at a time and runs the full net after each.
 
 ## Week 4 (2026-10-20, Alan: "Go")
+
+**Month regression (2026-10-20, found by the full net).** The scripted month reads 243/292 on time, 46 missed, $195,142 left behind, 9 schedule days lost, against v11.2's 258/292, 29 missed, $9,537, 1 day. It is live on the hosted copy. A lane is bisecting the merges since v11.2 and fixing each cause at the root (target: back to v11.2 or better, no new misses). The full net otherwise passed 57 of 58 suites; its two other failures (the field's Send To picker lost in the chat redesign, a false alarm in the new covered-button lint) are fixed.
 Alan's "Go" approved the week-4 live AI round (about 40% of a week's usage) and the three calls (`docs/DECISIONS.md`, 2026-10-20; each reversible). Row 7 of the plan (role specialists, cost intelligence, savings ledger) was never built, so this round builds row 7 and the parts of row 12 that depend on it. The live jobs load waits on Alan's file (private session); driver routes phase 2 waits on a Google Maps key in Netlify (his to add).
 
 Board checked 2026-10-20: three new worktrees are locked at master 39815c3 with no commits yet. Suites run through `tests/slot.sh`, at most two at once across every lane, after the container restarted twice from memory.
