@@ -156,16 +156,30 @@ const COLLECT = {
 };
 const VIEWOF = { home: 'home', mapprove: 'mapprove', billing: 'billing', bank: 'bank', ftoday: 'ftoday', sday: 'sday', client: 'client', comms: 'comms', tkall: 'tkall', time: 'time', route: 'route', close: 'gl', pa: 'pa' };
 M.texts = {};
+// The person's whole Do Now list in its order (Today's All), card by card: the ledger reads where each event stood
+// on it (its rank, and what outranked it), whatever the actor reads.
+M.queue = () => { try { if (typeof tdyModel !== 'function' || !TDY_TABS) return null;
+  const strip = h => norm(String(h || '').replace(/<[^>]*>/g, ' ').replace(/&amp;/g, '&').replace(/&#39;|&apos;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>'));
+  return (tdyModel().all || []).slice(0, 60).map(it => { let c = {}; try { c = tdCard(it) || {}; } catch (e) {} return strip((c.line1 || it.title || '') + ' · ' + (c.why || it.detail || '') + ' [' + (it.kind || '') + ']').slice(0, 200); });
+  } catch (e) { return ['queue failed: ' + String(e.message || e).slice(0, 80)]; } };
 M.open = (s, force) => { const v = VIEWOF[s] || s;
   // Today (the today lane, 2026-10-19, "one queue per person"): every office role's Home is Do Now, whose All tab shows
   // the first five and "N more" opens the rest in place. The coordinator, billing and the controller read the classic
   // Home's whole Needs Your Hand list before; a person taps "N more", so the actor reads the whole list, as it reads
   // every catch (tdCatchAll). Reading only five hid the Tino date, the deposits to record and the client credit.
-  if (s === 'home') { try { tdCatchAll = true; } catch (e) {} try { tdyAllOpen = true; } catch (e) {} }
+  // M.topFive (month_sim --top5) reads only the five cards Do Now shows before "N more": the second measure, a busy
+  // person who reads the top of the list and nothing below it.
+  if (s === 'home') { try { tdCatchAll = true; } catch (e) {} try { tdyAllOpen = !M.topFive; } catch (e) {} }
   if (s === 'mapprove') window.mApprKind = 'all';
   if (force || view !== v || document.querySelector('#mbm') || document.querySelector('#drawer.on') || s === 'close') M.go(v);
   if (s === 'close') { const t = [...M.root().querySelectorAll('button, [role=tab]')].find(b => norm(b.innerText) === 'Close'); t && t.click(); }
   if (s === 'comms') { const f = M.root().querySelector('[data-cmf="all"]'); f && !f.classList.contains('on') && f.click(); }
+  // billing's surface is the Billing Queue: Billing opens on the last tab used, and every record opened from anywhere
+  // moves it (an invoice to Invoices, a change order to Change Orders). The PM's answer to the Kleins' CO dispute on 9/22
+  // left it on Change Orders, and in a month where billing's own Home taps never reset it, billing read the CO list for
+  // the rest of the month and the $25,482 application ready on 9/30 was never drafted. A person taps Billing Queue.
+  if (s === 'billing') { const t = M.root().querySelector('[data-billtab="billable"]'); if (t && !t.classList.contains('on')) { t.click(); }
+    const sel = M.root().querySelector('#bill-client'); if (sel && sel.value) { sel.value = ''; sel.dispatchEvent(new Event('change', { bubbles: true })); } }
   return M.text(); };
 M.items = s => (COLLECT[s] ? COLLECT[s](M.root()) : []);
 M.SURF = { owner: ['home', 'mapprove'], pm: ['home', 'mapprove', 'tkall'], coord: ['home', 'mapprove', 'comms'], billing: ['billing', 'home', 'comms', 'bank'],
@@ -293,10 +307,12 @@ M.work = async (uid, roleName, o) => {
           if (r.kind && !r.kind.test(it.kind || '')) continue; if (r.text && !r.text.test(it.text)) continue;
           const key = `${uid}|${s}|${it.text.slice(0, 70)}|${v.label}`;
           if (M.tried.has(day + '|' + key)) continue;
-          if (r.chase && M.memo[key] && workBetween(M.memo[key], day) < 3) continue;
+          // a line with no supplier waits three working days, unless a supplier was added since the last try (the
+          // person who just put Radiant Floors Direct on file orders the mats then, not next week)
+          if (r.chase && M.memo[key] && workBetween(M.memo[key], day) < 3 && !(/Order/.test(r.verb.source) && (DB.vendors || []).length > (M.memo['v|' + key] || 0))) continue;
           if (r.max && (used.get(r) || 0) >= r.max) continue;
           if (roleName === 'client' && !(await M.clientReady(uid, it))) { M.tried.add(day + '|' + key); continue; }
-          pickIt = it; pickV = v; pickR = r; M.tried.add(day + '|' + key); M.memo[key] = day; used.set(r, (used.get(r) || 0) + 1); break;
+          pickIt = it; pickV = v; pickR = r; M.tried.add(day + '|' + key); M.memo[key] = day; M.memo['v|' + key] = (DB.vendors || []).length; used.set(r, (used.get(r) || 0) + 1); break;
         }
         if (pickIt) break;
       }

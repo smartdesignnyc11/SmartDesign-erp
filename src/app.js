@@ -174853,8 +174853,26 @@ const STD_MON = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8
 // comes first.
 function stdDueOf(it) {
   const d = stdDueOfRecord(it),
-    k = stdClientClock(stdObj(it));
+    k = stdClientClock(stdObj(it)) || stdMailClock(stdObj(it));
   return k && (!d || k < d) ? k : d;
+}
+// The Standard's message clock for everyone else who writes in (Office: "Calls and messages answered or returned
+// within 2 business hours, and routed the same day"): a proposal read from a vendor's or a consultant's mail (a
+// confirmed delivery date, a slip, a quote, a receipt, a statement) is due the business day the mail arrived. Undated,
+// every one of them sank under every dated row: in the scripted month Tino's confirmed white oak date sat 14th on the
+// coordinator's Do Now behind thirteen late Buy Board lines for a month, nobody was there to receive the $8,010 delivery,
+// and Carlos Millwork's slip never moved the PO (month regression, 2026-10-20).
+function stdMailClock(o) {
+  try {
+    const r = o.nyh || {};
+    if ("mail" !== r.kind || !r.commId) return "";
+    const c = (DB.comms || []).find((x) => x.id === r.commId),
+      R = (c && c.route) || {},
+      d = String((c && c.date) || "").slice(0, 10);
+    return c && !R.employee && "out" !== c.direction && STD_ISO.test(d) ? poWorkday(d) : "";
+  } catch (e) {
+    return "";
+  }
 }
 // The Standard's client-message clock: a client's message is answered the business day it arrived (Client messages:
 // acknowledged within 2 business hours, answered the same business day; clientAck measures the same day). It covers a
@@ -174948,6 +174966,17 @@ function standardBlocked(it) {
     r = o.nyh || {},
     td = today();
   if ("boolean" == typeof o.blockedToday) return o.blockedToday;
+  // a field person's emailed ask for material needed on site today or before is the crew waiting, as their request
+  // from the phone is: Angel's "25 boards GWB by Thursday" sat 21st on the coordinator's Do Now on that Thursday
+  // (month regression, 2026-10-20)
+  try {
+    if ("mail" === r.kind && "request" === r.pkind && r.commId) {
+      const c = (DB.comms || []).find((x) => x.id === r.commId),
+        pr = c && (c.proposals || []).find((p) => "request" === p.kind && p.material),
+        need = pr && String(pr.material.neededBy || "").slice(0, 10);
+      if (c && (c.route || {}).employee && need && STD_ISO.test(need) && need <= td) return !0;
+    }
+  } catch (e) {}
   // a client's message (portal question or mail) is due by the client-message clock (stdDueOf), not the field's
   // bucket, even when its words mention the crew
   if ("clientq" === o.kind || "mail" === r.kind) return !1;
@@ -174972,6 +175001,35 @@ function standardBlocked(it) {
   if (now && /\b(crew|foreman|field|site|sub)\b[^.]{0,40}\b(waiting|idle|standing|blocked|no[- ]show)\b/i.test(words)) return !0;
   return !1;
 }
+// (b2) money or a client waiting now, right after the field (2026-10-20, month regression): money a client paid that
+// sits in the bank unrecorded (their statement says they owe it, and billing chases a client who paid), money recorded
+// that the bank never saw, a credit the client is owed, what was bought for a client and not billed back at or over the
+// company's threshold (DB.company.moneyFirstOver, $1,000 by default: the Standard's same-day line for a cost impact over
+// $1,000), and a client whose message is due today or past (the Standard's same-business-day answer). In the scripted
+// month the Kleins' $68,265 check sat 13th on billing's Do Now, under overdue "Answer the vendor" tasks, while billing
+// chased them for it; 206 Lenox's $15,000 wire sat 14th. "Cash is oxygen" (Office) and the client's experience rank
+// above a vendor's statement. A row that knows says so on itself (moneyNow).
+// The client's own money (a payment, a credit owed to them) is now at any amount: their statement is wrong until it is
+// recorded. So is a vendor's credit read from their mail: a refund never matched is one of the leaks the ERP exists to
+// catch (the north star), and the Bedrosians $215 credit sat 15th under the late Buy Board lines. Billing back what we
+// bought for a client is now at or over the threshold.
+const STD_NOW_CLIENT = ["deposit", "undeposited", "clientcredit"],
+  STD_NOW_MAIL = ["credit", "dispute-credit"],
+  STD_NOW_BILL = ["rebill", "floated"];
+function standardMoneyNow(it) {
+  const o = stdObj(it),
+    r = o.nyh || {};
+  if ("boolean" == typeof o.moneyNow) return o.moneyNow;
+  try {
+    const over = +((DB.company || {}).moneyFirstOver != null ? DB.company.moneyFirstOver : 1e3) || 0;
+    if (STD_NOW_CLIENT.includes(r.kind)) return !0;
+    if ("mail" === r.kind && STD_NOW_MAIL.includes(r.pkind)) return !0;
+    if (STD_NOW_BILL.includes(r.kind) && Math.abs(+r.amount || +o.amount || 0) >= over) return !0;
+    const k = stdClientClock(o);
+    if (k && k <= today()) return !0;
+  } catch (e) {}
+  return !1;
+}
 // One reading for the tests and for Ask: where an item stands and why. Explicit marks on the item win (the
 // foreman's Now lines carry their own).
 const standardRank = (it) => {
@@ -174979,22 +175037,25 @@ const standardRank = (it) => {
   return {
     imm: ("boolean" == typeof o.immediate ? o.immediate : standardImmediate(it)) ? 0 : 1,
     blk: standardBlocked(it) ? 0 : 1,
+    now: standardMoneyNow(it) ? 0 : 1,
     u: standardUrgency(it),
     t: "number" == typeof o.tier ? o.tier : standardTier(it),
     due: stdDueOf(it),
   };
 };
-const stdRankCmp = (a, b) => a.imm - b.imm || a.blk - b.blk || a.u - b.u || a.t - b.t;
-// The rank as one sortable key, for the tests and for anything that compares two items.
+const stdRankCmp = (a, b) => a.imm - b.imm || a.blk - b.blk || a.now - b.now || a.u - b.u || a.t - b.t;
+// The rank as one sortable key, for the tests and for anything that compares two items: immediate, blocked today,
+// money or a client waiting now, urgency, principle.
 const standardRankKey = (it) => {
   const r = standardRank(it);
-  return [r.imm, r.blk, r.u, r.t];
+  return [r.imm, r.blk, r.now, r.u, r.t];
 };
 // The bucket in plain words: why an item sits where it does.
 function standardRankWhy(it) {
   const r = standardRank(it);
   if (!r.imm) return "safety and the law come first";
   if (!r.blk) return "someone in the field is waiting on it today";
+  if (!r.now) return stdClientClock(stdObj(it)) ? "a client is waiting on it today" : "money is waiting on it today";
   return ["it is overdue", "it is due today", "it is due this week", ""][r.u] || "";
 }
 // THE sort. tieOf(item) gives what breaks a tie inside a bucket and principle, as an array compared in order
@@ -186765,7 +186826,7 @@ AG_ASST.unshift({
         note: "Your queue is empty: no safety item, nobody blocked, nothing overdue or due today.",
         work: [],
         go: agGo("home"),
-        ran: agRan("your queue", ["ranked: safety and law, blocked today, overdue, today, this week, then the decision principle"], "", 0),
+        ran: agRan("your queue", ["ranked: safety and law, blocked today, money or a client waiting now, overdue, today, this week, then the decision principle"], "", 0),
       };
     const top = Q[0],
       s = myQueueSay(top),
@@ -186773,14 +186834,14 @@ AG_ASST.unshift({
       P1 = standardPrincipleOf(top),
       label = (it) => {
         const r = standardRank(it);
-        return !r.imm ? "Safety and law" : !r.blk ? "Blocked today" : ["Overdue", "Today", "This week", "Later"][r.u];
+        return !r.imm ? "Safety and law" : !r.blk ? "Blocked today" : !r.now ? "Waiting now" : ["Overdue", "Today", "This week", "Later"][r.u];
       };
     return {
       headline: `Start with ${s.t}${why ? `: ${why}` : ""}.`,
-      note: `${s.sub ? s.sub + ". " : ""}${P1 ? `It rests on ${P1.name.toLowerCase()} (decision principle ${standardTier(top)}). ` : ""}The order: safety and law first, then anyone blocked today, then overdue, today and this week, then the decision principles. ${agN(Q.length, "item")} in all; nothing is dropped.`,
+      note: `${s.sub ? s.sub + ". " : ""}${P1 ? `It rests on ${P1.name.toLowerCase()} (decision principle ${standardTier(top)}). ` : ""}The order: safety and law first, then anyone blocked today, then money or a client waiting now, then overdue, today and this week, then the decision principles. ${agN(Q.length, "item")} in all; nothing is dropped.`,
       work: Q.slice(0, 8).map((it, i) => `${i + 1}. ${label(it)} — ${myQueueSay(it).t}`),
       go: agGo(PRED.waitingOnMe.can() ? "home" : "ftoday"),
-      ran: agRan("your queue (" + (PRED.waitingOnMe.can() ? "Do Now, PRED.waitingOnMe" : "the foreman's Now") + ")", ["ranked: safety and law, blocked today, overdue, today, this week, then the decision principle"], "", Q.length),
+      ran: agRan("your queue (" + (PRED.waitingOnMe.can() ? "Do Now, PRED.waitingOnMe" : "the foreman's Now") + ")", ["ranked: safety and law, blocked today, money or a client waiting now, overdue, today, this week, then the decision principle"], "", Q.length),
     };
   },
 });

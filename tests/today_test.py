@@ -172,7 +172,7 @@ async def main():
                 # Do Now ranks immediate safety and law first, then overdue / today / this week / later, then the
                 # decision principle (Alan, 2026-10-11): the top card is the first by that order (the overdue payroll,
                 # not the LLC filing 25 days out), and WW-2026-118's verb still opens the one bill-approval gate
-                top = await pg.evaluate("() => { const Q = tdQueue(), k = (it) => standardRankKey(it); return [k(Q[0]), Q.map(k).sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2] || a[3] - b[3])[0], Q[0].title]; }")
+                top = await pg.evaluate("() => { const Q = tdQueue(), k = (it) => standardRankKey(it); return [k(Q[0]), Q.map(k).sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2] || a[3] - b[3] || a[4] - b[4])[0], Q[0].title]; }")
                 c.ok(top[0] == top[1] and 'LLC' not in top[2], f"owner phone: top card is \"{m['topText'][:60]}\" at {top[0]}, want the first by immediate, blocked today, urgency, principle, {top[1]}")
                 wi = await pg.evaluate("() => [...document.querySelectorAll('.view.on .td-do .td-card')].findIndex(x => x.innerText.includes('WW-2026-118'))")
                 c.ok(wi >= 0, 'owner phone: WW-2026-118 is on Do Now')
