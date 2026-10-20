@@ -198726,7 +198726,16 @@ function msgWhen(m) {
 function msgCur(u) {
   const L = msgThreadsFor((u = u || msgMe()));
   let T = msgKey ? L.find((x) => x.key === msgKey) || (msgIsOwner(u) ? msgThread(msgKey, u) : null) : null;
-  !T && S && (T = L.find((x) => x.key === (msgIsClient(u) ? "client:" : "job:") + S.id));
+  // a job's chat with no conversation picked: its conversation with unread lines, else the one with the newest
+  // line, else the team's (an invoice sent to the client is a client-thread line; billing landed on an empty Team)
+  if (!T && S) {
+    const J = msgIsClient(u) ? L.filter((x) => x.key === "client:" + S.id) : ["job:", "client:"].map((k) => L.find((x) => x.key === k + S.id)).filter(Boolean),
+      last = (x) => {
+        const v = x.all().filter((m) => msgVisible(m, x, u));
+        return v.length ? String(msgWhen(v[v.length - 1]) || "") : "";
+      };
+    T = J.find((x) => msgUnread(x, u) > 0) || J.slice().sort((a, b) => (last(b) > last(a) ? 1 : last(b) < last(a) ? -1 : 0))[0] || null;
+  }
   return T || L[0] || null;
 }
 function msgOpen(key) {
