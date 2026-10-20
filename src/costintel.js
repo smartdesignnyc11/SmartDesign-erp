@@ -220,6 +220,9 @@ const ciSpecKey = (desc) => {
   const s = ciSpec(desc);
   return s ? s.key : "";
 };
+// A request is looser than a receipt ("40 2x4x8 KD studs"): to find its store or its receipt, never to merge items in
+// the price history, a stud the crew asked for is the SPF stud the stores sell.
+const ciLooseSpec = (what) => ciSpec(what) || (/\bstuds?\b/i.test(what) && !/\b(df|douglas|spf)\b/i.test(what) ? ciSpec(what + " SPF") : null);
 
 // ---------------------------------------------------------------------------------------------------------------------
 // 3. Receipt lines: every receipt the app already reads, at line level (item, SKU, UPC, unit, quantity, unit price,
@@ -305,7 +308,7 @@ if ("function" == typeof pwBuild) {
         (DB.projects || []).forEach((p) => (p.requests || []).forEach((r) => ("function" == typeof reqItems ? reqItems(r) : r.items || []).forEach((it) => it && it.what && names.push(it.what))));
         const byKey = {};
         names.forEach((n) => {
-          const s = ciSpec(n) || (/\bstuds?\b/i.test(n) && !/\b(df|douglas|spf)\b/i.test(n) ? ciSpec(n + " SPF") : null);
+          const s = ciLooseSpec(n);
           s && !byKey["spec:" + s.key] && (byKey["spec:" + s.key] = n);
         });
         Object.values(D.items).forEach((I) => byKey[I.key] && (I.label = byKey[I.key]));
@@ -1313,7 +1316,7 @@ function ciStoreQuotes(what) {
   try {
     // a request is looser than a receipt ("40 2x4x8 KD studs"): for a store suggestion, not for the price history's
     // identity, a stud the crew asked for is the SPF stud the stores sell
-    const sk = ciSpec(what) || (/\bstuds?\b/i.test(what) && !/\b(df|douglas|spf)\b/i.test(what) ? ciSpec(what + " SPF") : null);
+    const sk = ciLooseSpec(what);
     H = sk ? (pwData().items[pwResolve("spec:" + sk.key)] ? { item: pwData().items[pwResolve("spec:" + sk.key)] } : null) : null;
     H = H || itemPriceHistory(what);
   } catch (e) {}
@@ -1658,7 +1661,7 @@ function ciPlanVsReceipts(run) {
     after = run.date,
     out = [];
   (run.plan.assign || []).forEach((a) => {
-    const sk = ciSpecKey(a.what),
+    const sk = (ciLooseSpec(a.what) || {}).key,
       k = sk ? pwResolve("spec:" + sk) : null,
       buys = D.buys.filter((B) => "receipt" === B.kind && B.date >= after && B.projectId === a.siteId && (k ? B.key === k : pwNorm(B.item) === pwNorm(a.what)));
     const B = buys[0];
