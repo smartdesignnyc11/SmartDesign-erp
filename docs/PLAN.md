@@ -2,7 +2,7 @@
 
 This is the one list. The chief of staff keeps it current on every ask, lane report and merge. Details live in the BACKLOG sections named. Status words: **Running** · **Next** · **Queued** · **Waiting on Alan** · **Later** (deferred by Alan) · **Done**.
 
-Last updated 2026-10-20 (live jobs lane merged).
+Last updated 2026-10-20 (subs lane merged after live jobs).
 
 ## 0. Usage rule (Alan)
 - Warn before any heavy step.
@@ -124,7 +124,7 @@ What remains, in order. Usage is a share of one week's allowance.
 | 8 | Item library, Messages phase 1 (with record cards and @assistant), Spanish for the field | §1.18, §1.21, §1.20 | 3 | 25% |
 | | Integration and merges | | | 10% |
 | **Week 3** | | | | |
-| 9 | Subcontractors, lien waivers and the payment check | §1.10 item 1, §1.12 | 2 | 15% |
+| 9 | **Done 2026-10-20 (merged 3fc848f).** Subcontractors, lien waivers and the Payment Check before every vendor payment. Follow-ups in §4 | §1.10 item 1, §1.12 | 1 | 15% |
 | 10 | Reporting proven end to end | §1.13 | 2 | 15% |
 | 11 | Platform foundation: database, sign-in, permissions, sync, AI connection with caps (**first slice live 2026-10-18**); next: watchers, document reader, push, Google sign-in, per-client rows | §5 | 3–4 | 35% |
 | | Integration and merges | | | 10% |
@@ -151,7 +151,7 @@ What remains, in order. Usage is a share of one week's allowance.
   - agent heartbeats, an AI activity log, and a pause switch per agent (§1.10 item 3).
 - **Money and controls:**
   - cost-plus honesty: credits and overpayments flow to the client's invoice (§1.10 item 4);
-  - vendor creation and bank changes need two people; separation of duties (§1.10 item 5);
+  - vendor creation and bank changes need two people; separation of duties (§1.10 item 5). Partly built by the subs lane (2026-10-20): a bank change holds every payment until someone other than the requester calls the number on file, and whoever entered a bill or set up the vendor cannot release its payment. Not built: a second person to create a vendor;
   - the right entity on every PO, bill and stock item, and intercompany transfers (§1.10 item 6).
 - **Shared purchasing address** for the agents, with SPF and DKIM (§1.10 item 7).
 - **Rollout and proof:**
@@ -167,13 +167,21 @@ What remains, in order. Usage is a share of one week's allowance.
   - iPhone HEIC photos in the document reader (spreadsheets are read since 2026-10-19);
   - a real push on Alan's phone and a real watcher run on his Gmail, not yet seen.
 - **From the live jobs lane (merged 2026-10-20):**
-  - an unapplied payment on a two-payer contract goes to the first payer; it should sit as "payer not known" until billing assigns it, so neither payer's statement is wrong (fix before a real two-payer job is loaded);
+  - Done 2026-10-20 (02746eb): a payment on account on a two-payer contract now waits as Not Assigned until billing assigns it to a payer, audited, raised on Today (livejobs_test);
   - a payer's Ask on the hosted AI is not scoped by payer (the screens and the query layer are); scope it before any two-payer client gets the portal;
-  - contractor bills have no PO, so the no-PO checks name them, and her W-9 shows missing (recommendation waiting on Alan: a contractor agreement as her PO, no payment until the W-9 is on file, a 1099 total for year end);
+  - contractor bills have no PO, so the no-PO checks name them, and her W-9 shows missing (recommendation waiting on Alan: a contractor agreement as her PO, no payment until the W-9 is on file, a 1099 total for year end). Since the subs merge the Payment Check holds her payments until the W-9 is on file;
   - demo payments have no bank lines, so the truth layer shows them as unbacked (demo only; real payments come from the bank);
   - Mercer & Bond on a job is a flag only, with no link to a deal record in the Mercer & Bond workspace;
   - the client's proposal shows a "Net" after tax credits (recommendation waiting on Alan: keep it internal until the tax-credit consultant confirms eligibility and timing);
   - the real jobs load into the private platform database through the import (§6), from the Cowork handoff's `docs/LIVE_JOBS.md`, which is not in this repo and must never be (joins row 12).
+- **From the subs lane (merged 2026-10-20, 3fc848f):**
+  - before deploy: the full net on the merged build (live jobs, the two-payer fix and subs together). The lane ran about 20 suites on its branch, not the 44-suite net on the merged result;
+  - before any real bank or card data is loaded: when a check with no bank line is recorded, payNormalise ties it to whatever card line is on the bill, which can hide a double payment after the fact (pre-existing; financial truth). Fix it so an unmatched check stays unmatched and a second payment against one bill is flagged, with a planted double payment in the finance cross-check;
+  - separation of duties has no planted case: every subs_test bill is entered by "Billing", so no test proves the person who keyed a bill is held from paying it. Add the case (the controller keys a bill and tries to pay it; the coordinator sets up a vendor and tries to release its payment);
+  - the Standard's "three quotes on every subcontract" is not checked when a subcontract issues; it should be checked there, with a written reason when fewer;
+  - a bill's drawer open leaves New Vendor Bill blue beside Pay (two primaries, pre-existing). The screen lint judges the page without the drawer; fix the class so it judges what is on top;
+  - not built: the monthly vendor statement reconciliation; a deposit taken off a sub's later pay applications line by line (today the contract check holds such a bill, so money does not leak, but a good bill can wait); sub bid leveling by scope and backcharges; a sub's emailed invoice read into a pay application; a Kind column (Subcontractor, Supplier) on the vendor list;
+  - the reports lane must rebase on subs before it merges: retainage payable (2050), job cost at gross and the stamped payments are new truths its independent recompute must tie to the cent.
 - **Gaps the build lanes found:**
   - Done 2026-10-20: a toast's Open link closes an open editor first and asks before dropping anything typed (Keep Editing is the blue step); toast_leave_test 18;
   - client portal: pay online, or "we paid";
@@ -212,7 +220,8 @@ What remains, in order. Usage is a share of one week's allowance.
 | 2026-10-10 | Re-authorise QuickBooks (July to date, then the history import) | Bank and card lines and the bridge snapshot |
 | 2026-10-20 | Tax credits on the client's proposal: show the "Net" after credits, or keep it internal | Internal until the tax-credit consultant confirms the church and rectory qualify and when the credits arrive; the client sees credits only as "subject to certification and your tax adviser" |
 | 2026-10-20 | Hand over the real live-jobs file (`docs/LIVE_JOBS.md` from the Cowork handoff) for loading on the private platform | Invented demo jobs only |
-| 2026-10-20 | The contractor designer: a contractor agreement as her PO, W-9 before the first payment, classification confirmed with the accountant | Bills with no PO, flagged; W-9 shown missing |
+| 2026-10-20 | The contractor designer: a contractor agreement as her PO, W-9 before the first payment, classification confirmed with the accountant | Bills with no PO, flagged; payments held until the W-9 is on file |
+| 2026-10-20 | Who pays the bills. The controller keys the bills (call of 2026-10-18), and the new Payment Check holds any payment released by the person who keyed the bill. Recommended: the controller keys, matches and prepares the weekly Payment Run; the owner releases it in one tap (already checked line by line); billing is the backup payer when the owner is away | Separation of duties on: the person who keyed a bill cannot pay it |
 | Later | Google sign-in consent screen (guided, about 5 minutes) | — |
 
 ## 6. Calls I made that Alan can change
@@ -227,12 +236,14 @@ What remains, in order. Usage is a share of one week's allowance.
 - **New CO, Invoice or Estimate off a job's screen asks for the client** (it used to take the last job's).
 - **A task saved with no owner goes to the job's PM** (or the design director on a design job), with who, when and why recorded; it can be switched off.
 - **The owner's "Waiting on the Others" list** follows the one ranking order. Grouping it by person is proposed for the one-queue-per-person work.
+- **Payment holds (subs lane, 2026-10-20):** the controller releases a hold under $2,500 (the same line as the Standard's three quotes); the owner above it, always with a logged reason. A bank-detail change cannot be released by a reason, the owner's included: only the call-back to the number on file, by someone other than the requester, clears it. A sub payment with no lien waiver no longer has "Release Without It": it needs the waiver recorded, or the owner's release with a reason. Whoever entered a bill or set up the vendor cannot release its payment.
 
 ## 7. Later (Alan deferred)
 - NY rules (§7): "I need to better understand this."
 
 ## 8. Done recently
 Full detail is in `docs/DECISIONS.md`.
+- Subcontractors and the Payment Check (2026-10-20): subcontracts on the PO with scope, changes and retainage; pay applications against what the site measured; lien waivers per payment and per job; every vendor payment and Payment Run checked against contract, prior payments, receipt, work in place, retainage, credits, duplicates, papers and the bank call-back; holds in Approvals; the per-vendor, per-job ledger in Ask.
 - Live jobs on invented demo jobs (2026-10-20): two payers on one contract, ranges, allowances and a paid exploratory phase, the tax credit budget, the contractor who becomes an employee.
 - The Standard in the app.
 - Inventory before buying.
