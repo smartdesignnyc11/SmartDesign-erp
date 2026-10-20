@@ -65,11 +65,15 @@ def src_lines():
     """Map a line of the built page to its source: the app's script starts on the line after the last bare <script>."""
     html = open(URL[len('file://'):], encoding='utf-8').read().split('\n')
     start = max(i for i, l in enumerate(html) if l == '<script>') + 1   # 0-based index of src/app.js line 1
-    n_app = sum(1 for _ in open(os.path.join(ROOT, 'src', 'app.js'), encoding='utf-8'))
+    # build.py joins the files with a newline each, in this order
+    parts = [(f, sum(1 for _ in open(os.path.join(ROOT, 'src', f), encoding='utf-8'))) for f in ('app.js', 'mind.js', 'subs.js', 'assistant.js')]
     def where(line0):
         if line0 < start: return f'page:{line0 + 1}'
         k = line0 - start + 1
-        return f'app.js:{k}' if k <= n_app else f'assistant.js:{k - n_app - 1}'
+        for f, n in parts:
+            if k <= n: return f'{f}:{k}'
+            k -= n + 1
+        return f'assistant.js:{k}'
     return where
 
 # Wrapper chains (render about 40 deep, finishBoot about 14) repeat the same total down the stack; the last list

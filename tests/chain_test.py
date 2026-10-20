@@ -544,10 +544,14 @@ async def pay_bill(C, number, acct, date, amount, method, ref):
     await C.fill('#mbm [data-f=date]', date); await C.fill('#mbm [data-f=amount]', amount)
     await C.pg.select_option('#mbm [data-f=method]', method); await C.fill('#mbm [data-f=ref]', ref)
     await C.modal_ok(600)
+    # a payment the check still holds leaves the sheet open on what holds it: say so, and close it
+    held = await C.js("() => [...document.querySelectorAll('#mbm .pc-hold b')].map(b => b.innerText)")
+    if held: await C.js("() => mbCloseModal()")
     try: await C.js("() => { if (document.querySelector('#drawer.on')) closeEditor(); }")
     except Exception: pass
     st = await C.js("""n => { const b = DB.bills.find(b => b.number === n); const P = (DB.billPayments || DB.payments || []).filter(p => p.billId === b.id);
         return {status: b.status, paid: P.map(p => ({id: p.id, amount: p.amount, date: p.date, acct: p.acct || p.account, ref: p.ref}))}; }""", number)
+    held and st.update({'held': held})
     return m, st
 
 
