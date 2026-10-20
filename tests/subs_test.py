@@ -683,6 +683,8 @@ async def s12_phone(p, C):
         await pg.wait_for_timeout(250)
         led = await pg.evaluate("() => { const c = document.querySelector('.view.on .sc-vledger'); return c ? c.innerText.replace(/\\s+/g, ' ') : ''; }")
         C.ok('121 State Street' in led and '$50,000' in led, f'[12 phone] the vendor page has the By Job ledger: {led[:200]}')
+        paid = await pg.evaluate("() => { const st = [...document.querySelectorAll('.view.on .vr-stats > div')].find(d => /paid to date/.test(d.innerText)); return st ? st.querySelector('b').innerText : ''; }")
+        C.ok(paid == '$18,000', f'[12 phone] one question, one number: the vendor page\'s paid to date is the ledger\'s $18,000 (it read bank lines with "Brooklyn" in them): {paid}')
         C.ok(await no_hscroll(pg), '[12 phone] the vendor page with its ledger does not scroll sideways')
         await screen_lint(pg, C, '12 vendor page with By Job, phone', True)
         await shot(pg, 'vendor_ledger_phone')

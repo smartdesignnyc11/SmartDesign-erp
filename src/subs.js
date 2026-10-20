@@ -1193,7 +1193,7 @@ function scCardHtml(po) {
           .map((b) => {
             const R = ["approved", "pm-approved", "submitted"].includes(b.status) && pcOpen(b) > 0.005 ? pcCheck(b) : null,
               hold = R ? R.holds.filter((h) => "approval" !== h.key) : [];
-            return `<li><a href="#" data-scbill="${esc(b.id)}">${b.payApp ? `Application ${esc(b.payApp.no)}` : b.retainageRelease ? "Retainage Release" : "Bill"} · ${esc(b.number || "")}</a> <span class="small muted">${money(billGross(b))} gross${+b.retainagePct ? `, ${money(billTotal(b))} after retainage` : ""} · ${esc(billState(b).text || b.status)}${wvList(b).length ? ` · ${esc(wvList(b).slice(-1)[0].type)} waiver` : scSubBill(b) ? " · no waiver" : ""}</span>${hold.length ? ` <span class="pill bad">Held · ${hold.length}</span>` : R ? ' <span class="pill ok">Checked</span>' : ""}</li>`;
+            return `<li><a href="#" data-scbill="${esc(b.id)}">${b.payApp ? `Application ${esc(b.payApp.no)}` : b.retainageRelease ? "Retainage Release" : scIsDeposit(b) ? "Deposit" : "Bill"} · ${esc(b.number || "")}</a> <span class="small muted">${money(billGross(b))} gross${+b.retainagePct ? `, ${money(billTotal(b))} after retainage` : ""} · ${esc(billState(b).text || b.status)}${wvList(b).length ? ` · ${esc(wvList(b).slice(-1)[0].type)} waiver` : scSubBill(b) ? " · no waiver" : ""}</span>${hold.length ? ` <span class="pill bad">Held · ${hold.length}</span>` : R ? ' <span class="pill ok">Checked</span>' : ""}</li>`;
           })
           .join("")}</ul>`
       : '<div class="small muted">No pay application yet. New Pay Application takes the sub\'s claim line by line, beside what the site measured.</div>'
@@ -1690,6 +1690,29 @@ document.addEventListener(
       console.warn("vendor ledger", e);
     }
     return h;
+  };
+}
+// One question, one number: a vendor's "paid to date" (the vendor list, its tile, the vendor page) is the ledger's paid
+// (every payment of their bills by any method, bank lines matched to their orders) plus bank and card lines to them
+// that no bill, payment or order holds. It read bank lines whose words held the vendor's first word, so Brooklyn
+// Stair Works was "paid" a Brooklyn print shop's card charge and none of its own check payments.
+function scVendorPaid(v) {
+  if (!v || !v.name) return 0;
+  const L = scLedger(v.name, ""),
+    n = scLow(v.name),
+    held = new Set((DB.payments || []).map((p) => p.txnId).filter(Boolean));
+  (DB.pos || []).forEach((po) => (po.matchedTxns || []).forEach((id) => held.add(id)));
+  const loose = (DB.txns || []).filter((t) => +t.amt < 0 && !t.billId && !held.has(t.id) && !["transfer", "cc-payment"].includes(t.cat) && (scLow(t.vendor) === n || scLow(t.desc).replace(/[^a-z0-9 ]/g, " ").includes(n.replace(/[^a-z0-9 ]/g, " "))));
+  return r2(L.paid + loose.reduce((a, t) => a - +t.amt, 0));
+}
+{
+  const base = vendorSpend;
+  vendorSpend = function (v) {
+    try {
+      return scVendorPaid(v);
+    } catch (e) {
+      return base.apply(this, arguments);
+    }
   };
 }
 // the subcontract card on its PO page
