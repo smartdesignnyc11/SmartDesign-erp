@@ -222,7 +222,7 @@ function itemIndex() {
     if (!k || seen.has(k)) return;
     seen.add(k);
     const L = lastOf(I);
-    rows.push({ key: "pw:" + I.key, src: "bought", lib: null, name: I.label, es: "", unit: I.unit || "", code: (I.buys.find((b) => b.code) || {}).code || "", cat: "materials", desc: "", rate: 0, cost: L ? L.price : 0, costAt: L ? L.date : "", last: L, byVendor: byVendorOf(I), vendor: L ? L.vendor : "", uses: uses[k] || I.buys.length, kind: "" });
+    rows.push({ key: "pw:" + I.key, src: "bought", lib: null, name: I.label, es: "", unit: I.unit || "", code: (I.buys.find((b) => b.code) || {}).code || "", cat: "materials", desc: "", rate: 0, cost: L ? L.price : 0, costAt: L ? L.date : "", last: L, byVendor: byVendorOf(I), vendor: L ? L.vendor : "", uses: Math.max(uses[k] || 0, I.buys.length), kind: "" });
   });
   // sold on an estimate or change order but not in the library
   sold.forEach((o) => {
