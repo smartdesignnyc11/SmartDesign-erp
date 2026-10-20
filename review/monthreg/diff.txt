@@ -1,4 +1,6 @@
-# v11.2 -> master (the run the main session recorded on 2026-10-20)
+# The month regression, event by event
+
+## v11.2 (379182f) -> master before this lane (the whole Do Now list unread past five)
 REF MONTH caught 258/292 on time · 5 late · 29 missed · $9,537 left behind · 1 schedule days lost
 NEW MONTH caught 243/292 on time · 3 late · 46 missed · $195,142 left behind · 9 schedule days lost
 
@@ -23,47 +25,57 @@ BETTER (0)
 
 STILL NOT ON TIME in new (known):
 
-# v11.2 -> fixed (actor reads the whole Do Now)
+## v11.2 -> this branch, the actor reading the whole Do Now list
 REF MONTH caught 258/292 on time · 5 late · 29 missed · $9,537 left behind · 1 schedule days lost
-NEW MONTH caught 260/292 on time · 5 late · 27 missed · $1,937 left behind · 2 schedule days lost
+NEW MONTH caught 261/292 on time · 4 late · 27 missed · $1,937 left behind · 0 schedule days lost
 
 WORSE (0): $0
 
-BETTER (2)
+BETTER (3)
+  E047 09-03 po             $        0 0d late->on time | Order the parlor kitchen countertop slab (order-by 9/1 passed) | PO-2026-052 Gowanus Stone Yard $7450 issued
   E246 09-28 disputeResolved $        0 0d missed->on time | Close the WW-2026-118 dispute with the $3,800 credit memo | dispute open: {"approved":29700,"held":3800,"why":"Approved at the PO amount; the di
   E269 09-30 disputeResolved $        0 0d missed->on time | The Window Works $3,800 dispute is resolved by month end (credit memo  | dispute open: {"approved":29700,"held":3800,"why":"Approved at the PO amount; the di
 
 STILL NOT ON TIME in new (known):
-  E023 09-03 task           $        0 0d late->late+1 | Confirm the 3rd floor tile stock with Nemo (meeting task due 9/3) | done
-  E030 09-03 recon          $        0 0d missed->missed | Import the Amex August statement from the mailbox and reconcile Amex A | not reconciled
-  E039 09-03 co             $    1,450 0d missed->missed | Write the change order for the notched joist sistering ("I will write  | CO-2026-004 draft $0, CO-2026-004-R1 draft $0
-  E042 09-03 subm           $        0 0d missed->missed | Take the 3rd floor lighting submittal (26 51 00-001) to Release Order | submitted
-  E043 09-03 po             $        0 0d missed->missed | Issue the 3rd floor lighting PO with a vendor and a price (no $0, no b | no PO issued
-  E047 09-03 po             $        0 2d late->late+2 | Order the parlor kitchen countertop slab (order-by 9/1 passed) | PO-2026-053 Gowanus Stone Yard $7450 issued
-  E053 09-04 coi            $        0 0d missed->missed | File Tomas Restoration's COI (it runs to 9/15) | insurance to none on file
-  E054 09-04 seenBy         $        0 0d missed->missed | Review the office portal shop drawings | not on their screens
-  E075 09-09 request        $        0 0d missed->missed | Put the Nemo sample board pickup on the driver's route | not on the board
-  E091 09-10 outreach       $        0 0d missed->missed | Send the Riveras the updated design schedule by Friday 9/11 | nothing went to them
-  E095 09-11 invoice        $        0 0d missed->missed | Send the Lindqvists' design agreement invoice (the owner's ask) | nothing invoiced
-  E102 09-11 outreach       $        0 0d late->late+4 | The proposal to Ines Ward is watched; follow up when he goes quiet (3  | draft by u_owner
-  E107 09-14 txn            $        0 0d missed->missed | Code the DOB fee to 206 Lenox | permits on p121
-  E117 09-14 task           $        0 0d late->late+1 | Sarah's promise in mail (revised kitchen elevations Friday) becomes he | Sarah Davis due 2026-09-18
-  E138 09-16 outreach       $        0 0d missed->missed | Tomas Restoration's COI expired 9/15: chase the renewal before the nex | nothing went to them
-  E148 09-17 txn            $        0 0d missed->missed | Code the LED drivers to 121 State electrical | office on no job
-  E161 09-18 rebilled       $      487 0d missed->missed | Bill back the extra blocking lumber the Kleins asked for ($487.36, Hom | materials on p121, on no invoice
-  E166 09-18 taskDone       $        0 0d missed->missed | Close the DOB plumbing permit task | in-progress 0%
-  E181 09-21 mat            $        0 0d missed->missed | Price the stair runner by Thursday 9/24 (the PM's ask) | no price on the line
-  E183 09-21 seenBy         $        0 0d missed->missed | Sarah sees the samples are on the way | not on their screens
-  E194 09-22 coi            $        0 0d missed->missed | File Tomas Restoration's renewed COI | insurance to none on file
-  E199 09-22 mat            $        0 0d missed->missed | Price the shower glass line ($3,900) | line at no price · not-ordered
-  E217 09-24 insp           $        0 0d missed->missed | Record the passed rough plumbing inspection so walls can close | scheduled
-  E219 09-24 seenBy         $        0 0d missed->missed | Confirm the flooring install date with Tino | not on their screens
-  E247 09-28 taskDone       $        0 0d missed->missed | Close the LPC window profile sign-off | planned 0%
-  E258 09-29 mat            $        0 0d late->late+2 | Receive the garden bath tile on 10/2 and bill it | on-site 2880 Nemo Tile
-  E261 09-29 poEtaAny       $        0 0d missed->missed | Set the fixtures PO to the 10/6 delivery | no PO
-  E274 10-01 recon          $        0 0d missed->missed | Import the Amex September statement and reconcile Amex for September | not reconciled
-  E276 10-01 recon          $        0 0d missed->missed | Import the Chase September statement and reconcile Chase for September | not reconciled
-  E282 10-01 close          $        0 0d missed->missed | Run the September close (the controller runs it on 10/1) | 1 manual entry dated in September 2026 await the Owner / 6 bank lines in September 2026 ar
-  E283 10-01 journal        $        0 0d missed->missed | Post the controller's month-end journal (van depreciation $1,200) with | pending
-  E285 10-01 seenBy         $        0 0d open->open | File the signed amendment on 140 Prospect | not on their screens
-  E291 10-02 unmatched      $        0 0d missed->missed | Every September bank and card line is matched or excepted by close | 7 lines not matched (1 excepted)
+
+## v11.2 -> this branch, the actor reading only the first five (month_sim --top5)
+REF MONTH caught 258/292 on time · 5 late · 29 missed · $9,537 left behind · 1 schedule days lost
+NEW MONTH (top five) caught 261/292 on time · 3 late · 28 missed · $1,937 left behind · 0 schedule days lost
+
+WORSE (0): $0
+
+BETTER (4)
+  E047 09-03 po             $        0 0d late->on time | Order the parlor kitchen countertop slab (order-by 9/1 passed) | PO-2026-052 Gowanus Stone Yard $7450 issued
+  E183 09-21 seenBy         $        0 0d missed->late+5 | Sarah sees the samples are on the way | seen 2026-09-30 on tkall
+  E246 09-28 disputeResolved $        0 0d missed->on time | Close the WW-2026-118 dispute with the $3,800 credit memo | dispute open: {"approved":29700,"held":3800,"why":"Approved at the PO amount; the di
+  E269 09-30 disputeResolved $        0 0d missed->on time | The Window Works $3,800 dispute is resolved by month end (credit memo  | dispute open: {"approved":29700,"held":3800,"why":"Approved at the PO amount; the di
+
+STILL NOT ON TIME in new (known):
+
+## Rank on the owner's Do Now at the morning look, master (top five) -> this branch (top five)
+master  E009 u_chen first on 2026-09-03: rank 14 of 39
+master  E163 u_chen first on 2026-09-18: rank 23 of 60
+master  E129 u_chen first on 2026-09-16: rank 24 of 60
+master  E133 u_chen first on 2026-09-16: rank 23 of 60
+master  E133c u_chen first on 2026-09-16: rank 23 of 60
+master  E142 u_chen first on 2026-09-16: rank 6 of 60
+master  E010 u_chen first on 2026-09-03: rank 11 of 39
+master  E012 u_controller first on 2026-09-08: rank 10 of 13
+master  E160 u_billing first on 2026-09-18: rank 14 of 21
+master  E177 u_billing first on 2026-09-18: rank 15 of 21
+master  E226 u_billing first on 2026-09-25: rank 13 of 23
+master  E233 u_billing first on 2026-09-25: rank 13 of 23
+master  E186 u_chen first on 2026-09-22: rank 22 of 60
+branch  E009 u_chen first on 2026-09-03: rank 10 of 39
+branch  E163 u_chen first on 2026-09-18: rank 7 of 60
+branch  E129 u_chen first on 2026-09-16: rank 6 of 60
+branch  E133 u_chen first on 2026-09-16: rank 5 of 60
+branch  E133c u_chen first on 2026-09-16: rank 5 of 60
+branch  E142 u_chen first on 2026-09-16: rank 7 of 60
+branch  E010 u_chen first on 2026-09-03: rank 2 of 39
+branch  E012 u_controller first on 2026-09-08: rank 10 of 13
+branch  E160 u_billing first on 2026-09-18: rank 1 of 20
+branch  E177 u_billing first on 2026-09-18: rank 2 of 20
+branch  E226 u_billing first on 2026-09-25: rank 2 of 20
+branch  E233 u_billing first on 2026-09-25: rank 2 of 20
+branch  E186 u_chen first on 2026-09-22: rank 2 of 60
