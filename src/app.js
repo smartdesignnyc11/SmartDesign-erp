@@ -198606,8 +198606,12 @@ function msgSeenSet(T, u) {
     cur = msgSeenGet(T, u),
     id = last ? last.id : "";
   if (cur && cur.n === all.length && cur.id === id) return !1;
+  // read receipts in one-to-one chats only (Alan, 2026-10-20: "Okay for now"): the shared row of a direct thread,
+  // which only its two members can read, says how far each of them has read; groups and job threads say nothing
+  msgDirect(T) && (((T.t.read = T.t.read || {})[u.id] = { id: id, n: all.length, at: appNowIso() }));
   return (msgSeenOf(u)[T.key] = { id: id, n: all.length }), !0;
 }
+const msgDirect = (T) => !!(T && T.t && "direct" === T.kind && (T.t.members || []).length === 2);
 // Phase 1 kept the markers in the shared rows (p.chatSeen["uid|aud"], t.seen[uid]). Each device moves the markers of
 // the people it holds (the signed-in person on the hosted copy, everyone on a one-device demo) into DB.msgSeen and
 // deletes them from the shared rows; the furthest marker wins. It runs at every boot, so a phone still on an older
@@ -198955,7 +198959,7 @@ function msgLineHtml(m, T, u, g) {
     reply = m.reply && m.reply.id ? `<button type="button" class="msg-quote" data-msgjump="${esc(m.reply.id)}"><b>${esc(msgFirst(m.reply.by))}</b><span data-nocase>${esc(String(m.reply.text || "").slice(0, 120))}</span></button>` : "",
     rx = msgReactsHtml(m, T, u),
     media = !text && !m.voice && (m.cards || []).length && (m.cards || []).every((c) => "photo" === c.kind),
-    tick = mine && g.tick ? msgTickHtml() : "",
+    tick = mine && g.tick ? (g.read ? `<span class="msg-tick msg-read" title="Read">${MSG_SVG('<path d="M2 12.5l4 4L14 8"/><path d="M10 15.5l1 1L22 7"/>')}<span>Read</span></span>` : msgTickHtml()) : "",
     mail = mine && m.mail ? msgMailHtml(m, T) : "",
     below = rx || taskChip || mail ? `<div class="msg-below">${rx}${taskChip}${mail}</div>` : "";
   return `<div class="cm ${mine ? "me" : "them"}${sys ? " sys" : ""}${g.first ? " msg-g1" : ""}${g.last ? " msg-gl" : ""}" data-mid="${esc(m.id || "")}">${av}<div class="msg-col"><div class="msg-bub${media ? " msg-media" : ""}">${who}${reply}${text ? `<div class="msg-tx">${msgBodyHtml(text)}</div>` : ""}${m.voice ? msgVoiceHtml(m) : ""}${pills ? `<div class="msg-files">${pills}</div>` : ""}${cards}${st ? `<div class="st">${st}</div>` : ""}<span class="msg-time" title="${esc(m.t || when)}">${esc(when)}${tick}</span></div>${below}${msgReactOpen === m.id && !sys ? msgReactPickHtml(m, T, u) : ""}${tools}</div></div>`;
@@ -199700,13 +199704,21 @@ function msgLinesHtml(T, u, vis, byAfter) {
     out = "",
     lastMine = -1;
   vis.forEach((m, i) => msgMine(m, u) && !m.system && (lastMine = i));
+  // one-to-one: has the other person read up to my last line?
+  let readMine = !1;
+  if (lastMine > -1 && msgDirect(T)) {
+    const other = T.t.members.find((x) => x !== u.id),
+      r = (T.t.read || {})[other],
+      k = T.all().indexOf(vis[lastMine]);
+    readMine = !!(r && k > -1 && (+r.n || 0) > k);
+  }
   vis.forEach((m, i) => {
     const d = String(msgWhen(m)).slice(0, 10),
       prev = vis[i - 1],
       next = vis[i + 1],
       sameAs = (a, b) => a && b && !a.system && !b.system && (a.fromUid || a.by) === (b.fromUid || b.by) && String(msgWhen(a)).slice(0, 10) === String(msgWhen(b)).slice(0, 10) && !(byAfter[a.id] || []).length;
     d && d !== day && ((day = d), (out += `<div class="msg-day" role="separator"><span>${esc(msgDayLabel(d))}</span></div>`));
-    out += msgLineHtml(m, T, u, { first: !sameAs(prev, m) || (d && String(msgWhen(prev)).slice(0, 10) !== d), last: !sameAs(m, next), tick: i === lastMine }) + (byAfter[m.id] || []).map(msgAiHtml).join("");
+    out += msgLineHtml(m, T, u, { first: !sameAs(prev, m) || (d && String(msgWhen(prev)).slice(0, 10) !== d), last: !sameAs(m, next), tick: i === lastMine, read: i === lastMine && readMine }) + (byAfter[m.id] || []).map(msgAiHtml).join("");
   });
   return out;
 }
