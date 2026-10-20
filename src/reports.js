@@ -1381,7 +1381,7 @@ try {
 const RP_ASK = [
   {
     id: "plproject",
-    rx: /\b(p ?& ?l|p and l|profit|net|margin|income)\b.*\b(by|per|each|for every) (project|job)s?\b|\b(project|job)s?\b.*\bp ?& ?l\b/,
+    rx: /\b(p ?& ?l|p and l|profit and loss|net profit|net income)\b.*\b(by|per|each|for every) (project|job)s?\b|\b(project|job)s?\b.*\bp ?& ?l\b/,
     answer: () => {
       const S = rpPL(rpRange());
       return {
@@ -1395,7 +1395,7 @@ const RP_ASK = [
   },
   {
     id: "plclient",
-    rx: /\b(p ?& ?l|p and l|profit|net|margin|income)\b.*\b(by|per|each|for every) (client|customer)s?\b|\b(client|customer)s?\b.*\bp ?& ?l\b/,
+    rx: /\b(p ?& ?l|p and l|profit and loss|net profit|net income)\b.*\b(by|per|each|for every) (client|customer)s?\b|\b(client|customer)s?\b.*\bp ?& ?l\b/,
     answer: () => {
       const S = rpPLByClient(rpRange());
       return {
