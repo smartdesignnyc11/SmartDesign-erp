@@ -3814,3 +3814,34 @@ body.msg-on #v-chat .chat-compose.msg-recording #chat-send{display:none}
   .sc-sov th:nth-child(5),.sc-sov td:nth-child(5){display:none}
   .pc-run th:nth-child(3),.pc-run td:nth-child(3){display:none}
 }
+/* ---- role specialists (src/specialists.js): the checklist in Findings, the six steps, the one-liner ---- */
+.rs-one{margin:2px 0 8px;color:var(--ink-2);font-style:italic;max-width:72ch}
+.rs-one .muted{font-style:normal;font-size:12px}
+.rs-roles{flex-wrap:wrap;margin-bottom:8px}
+.rs-lead{margin:4px 0 10px}
+.rs-area{margin:12px 0}
+.rs-area h4{margin:0 0 6px;font-size:12px;letter-spacing:.02em;color:var(--ink-3);text-transform:none}
+.rs-line{border:1px solid var(--rule);border-radius:8px;padding:8px 10px;margin-bottom:8px;background:var(--paper)}
+.rs-line.rs-miss,.rs-line.rs-same{background:var(--paper-2)}
+.rs-l1{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.rs-n{font-variant-numeric:tabular-nums;font-weight:600;color:var(--ok)}
+.rs-has .rs-n{color:var(--warn)}
+.rs-row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--rule-2);margin-top:6px}
+.rs-txt{min-width:0;flex:1;overflow-wrap:anywhere}
+.rs-st{color:var(--ink-2)}
+.rs-card{margin:10px 0}
+.rs-big{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:6px} .rs-big b{font-size:22px}
+.rs-cols{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:8px 0} .rs-cols h4{margin:0 0 4px}
+.rs-kv{display:flex;justify-content:space-between;gap:8px;padding:4px 0;border-top:1px solid var(--rule-2);align-items:center;flex-wrap:wrap}
+.rs-kv.rs-over{background:var(--warn-2)}
+.rs-pools{margin:8px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.rs-six .rs-step{display:flex;align-items:center;gap:8px;margin:12px 0 4px}
+.rs-sn{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--accent-2);color:var(--accent-3);font-size:12px;font-weight:700;flex:none}
+.rs-ev{display:flex;flex-wrap:wrap;gap:6px}
+.rs-cause{margin:4px 0;padding-left:18px}
+.rs-what{margin:0 0 4px}
+@media (max-width:760px){
+  .rs-row .btn,.rs-ev .btn,.rs-six .btn,.rs-card .btn,.rs-roles button{min-height:44px}
+  .rs-cols{grid-template-columns:1fr}
+  .rs-row{flex-wrap:wrap}
+}
