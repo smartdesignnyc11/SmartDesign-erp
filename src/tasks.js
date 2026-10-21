@@ -641,6 +641,9 @@ function tkSheet(k, opts) {
   });
   if (!m) return null;
   m.classList.add("tks-on");
+  // the dialog's name is the title as written (mbModal escapes it a second time for the attribute)
+  const box = m.querySelector(".mbm-box");
+  box && box.setAttribute("aria-label", x.title || t.title || "Task");
   const cancel = m.querySelector("#mbm-cancel");
   cancel && (cancel.textContent = "Close");
   const q = (s) => m.querySelector(s),

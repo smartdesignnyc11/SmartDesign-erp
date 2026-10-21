@@ -1021,6 +1021,7 @@ esAdd({
   "Done asks for {x}: the Standard needs the proof": "Para terminarlo se pide {x}: el Estándar necesita la prueba",
   "That task is no longer here": "Esa tarea ya no está aquí",
   "Packing Slip or Receipt": "Hoja de Entrega o Recibo",
+  "Take a photo of a packing slip or receipt": "Toma una foto de una hoja de entrega o un recibo",
   Foreman: "Capataz",
   Owner: "Dueño",
   Coordinator: "Coordinadora",
