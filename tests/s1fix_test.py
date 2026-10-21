@@ -154,6 +154,13 @@ async def coi_checks(c, pg, tag):
       const nemo = !!PRED.vendorsCoiLapsing.row(n); v.insuranceExp = was; n.insuranceExp = was2; return { hit, st, nemo, booked: pos + sub }; }""")
     c.ok(r['hit'] and r['st'] == 'lapsing', f'{tag}: a COI lapsing in 20 days for a sub on site is flagged ({r})')
     c.ok(r['nemo'] == (r['booked'] > 0), f'{tag}: a vendor is flagged only with a booking or an order ahead ({r})')
+    # the owner chases it; the follow-up waits on the coordinator (the office keeps certificates current), not the owner
+    await sign_in(pg, 'u_owner')
+    r = await pg.evaluate("""async () => { const c = tdChase().find(x => x.kind === 'coi' && /Window Works/.test(x.t)); if (!c) return null;
+      eaNudge(c); await new Promise(r => setTimeout(r, 300)); document.getElementById('mbm-ok').click(); await new Promise(r => setTimeout(r, 400));
+      const mine = (uid) => tkAll({ open: true, uid }).filter(t => t.kind === 'note' && /Window Works/.test(t.title)).length;
+      return { owner: mine('u_owner'), coord: mine('u_chen') }; }""")
+    c.ok(r and r['coord'] == 1 and r['owner'] == 0, f'{tag}: the COI chase\'s follow-up is on the coordinator\'s list, not the owner\'s ({r})')
 
 async def risk_checks(c, pg, tag):
     await sign_in(pg, 'u_owner')

@@ -69952,7 +69952,11 @@ function eaNudge(item) {
           v && (v.notes = (v.notes ? v.notes + "\n" : "") + `${fmt(today())} asked for ${"coi" === item.kind ? "the COI" : "an answer"}: ${msg.slice(0, 60)}…`);
         const e = paExpect(name, subj.replace(/^Following up — /, ""), due, { kind: item.kind, vendorId: v ? v.id : "", clientId: item.c ? item.c.id : "" }, today());
         (e.email = addr || e.email || ""), (e.chased = (e.chased || 0) + 1), (e.by = due);
-        eaAddNote(`Follow up: ${eaPlain(item.t)} — asked ${fmtL(today())}`, due, by);
+        // A certificate is the office's to keep current (the Standard, Office: "Insurance certificates and licenses
+        // current for every sub and vendor on site"), so a COI chase's follow-up waits on the coordinator, whoever
+        // pressed Chase: on the owner's list it buried the decisions only the owner can make (month run, 2026-10-21).
+        const coord = "coi" === item.kind ? (DB.users || []).find((u) => "coord" === u.role) : null;
+        eaAddNote(`Follow up: ${eaPlain(item.t)} — asked ${fmtL(today())}`, due, coord ? coord.name : by);
         const openMail = () => {
             (cmFilter = "all"), (view = "comms"), render();
           },
@@ -103661,14 +103665,18 @@ let tkFlash = "";
       }),
       "function" == typeof eaNotes &&
         eaNotes().forEach((n) => {
-          const m = (n.text || "").match(/^([A-Z][\w .]{1,30}?):\s(.+)$/);
+          // "Name: what" names who it is for; "Follow up: what" is a verb, not a person, and waits on the person who
+          // chased (n.by). It used to read "Follow up" as a name nobody carries, so every chase's reminder routed to
+          // the owner and buried his decisions (month run, 2026-10-21).
+          const m = (n.text || "").match(/^([A-Z][\w .]{1,30}?):\s(.+)$/),
+            named = m && !/^follow up$/i.test(m[1]);
           out.push({
             kind: "note",
             id: n.id,
             projectId: "",
             project: "Office",
             title: m ? m[2] : n.text || "",
-            assignee: m ? m[1] : n.by || "Owner",
+            assignee: named ? m[1] : n.by || "Owner",
             due: n.due || "",
             priority: "",
             status: n.done ? "done" : "todo",
