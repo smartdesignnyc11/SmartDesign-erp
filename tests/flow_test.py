@@ -213,7 +213,7 @@ async def s_order(p, c):
             return (document.querySelector('#mbm .fl-fabgate') || {}).innerText || ''; }""")
         c.ok(gx and 'Second measurement' in gx and await pg.locator('#mbm [data-f="tradeOk"]').count() == 1, f'order: a non-template fabricated item still asks the measurement tick ({gx!r})')
         if gx:
-            await pg.evaluate("() => { const set = (k, v) => { const e = document.querySelector(`#mbm [data-f=\"${k}\"]`); if (e) { e.value = v; e.dispatchEvent(new Event('input', { bubbles: true })); e.dispatchEvent(new Event('change', { bubbles: true })); } }; const s = document.querySelector('#mbm [data-f=\"vendor\"]'); const o = [...s.options].find(o => /Gowanus Stone Yard/.test(o.text)); s.value = o ? o.value : s.value; s.dispatchEvent(new Event('change', { bubbles: true })); set('price', '900'); set('needBy', '2026-09-24'); }")
+            await pg.evaluate("() => { const set = (k, v) => { const e = document.querySelector(`#mbm [data-f=\"${k}\"]`); if (e) { e.value = v; e.dispatchEvent(new Event('input', { bubbles: true })); e.dispatchEvent(new Event('change', { bubbles: true })); } }; const s = document.querySelector('#mbm [data-f=\"vendor\"]'); const o = [...s.options].find(o => /Carlos Millwork/.test(o.text)); s.value = o ? o.value : s.value; s.dispatchEvent(new Event('change', { bubbles: true })); set('price', '900'); set('needBy', '2026-09-24'); }")
             n0 = await pg.evaluate("() => DB.pos.length")
             await ok(pg, 500)
             c.ok(await modal(pg) and await pg.evaluate("() => DB.pos.length") == n0, 'order: without the tick nothing is ordered and the sheet stays open')
