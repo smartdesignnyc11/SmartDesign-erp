@@ -1237,46 +1237,76 @@ function tkAttach(m, P) {
   return !0;
 }
 let tkDupSkip = !1;
+// the one guard every Make It a Task path calls: proceed() makes the new task; onSaved(made) hears an attach too
+function tkDupGuard(P, proceed, onSaved) {
+  if (tkDupSkip || !P || !P.title) return proceed();
+  const M = tkMatches(P.title, P.projectId || "");
+  if (!M.length) return proceed();
+  const base = () => {
+    tkDupSkip = !0;
+    try {
+      return proceed();
+    } finally {
+      tkDupSkip = !1;
+    }
+  };
+  const m = mbModal(
+    "This May Already Be There",
+    `<p class="small muted">Before making a new task for “${esc(tdWords(P.title, 10))}”, these are open and read the same. Add it to one of them, or make a new task.</p><div class="tks-offers">${M.map((x, i) => `<button type="button" class="tks-src" data-tkdupi="${i}"><span class="grow"><b>${esc(x.title)}</b><small class="muted"> · ${x.kind === "decision" ? "decision" : "task"}${x.who ? ` · ${esc(x.who)}` : ""}${x.due ? ` · due ${esc(fmtL(x.due))}` : ""}</small></span><b>Add to It</b></button>`).join("")}</div>`,
+    { submit: "Make a New Task", onSubmit: () => (setTimeout(base, 0), !0) },
+  );
+  m &&
+    m.querySelectorAll("[data-tkdupi]").forEach(
+      (b) =>
+        (b.onclick = () => {
+          const x = M[+b.dataset.tkdupi];
+          mbCloseModal();
+          if (tkAttach(x, P) && onSaved)
+            try {
+              onSaved({ assignee: x.who, due: x.due, attached: !0, kind: x.kind, id: x.kind === "task" ? x.x.id : x.d.id });
+            } catch (e) {}
+        }),
+    );
+  return m;
+}
+// a chat message's Make It a Task and the Inbox's Task From This Message ask the same question first
+if ("function" == typeof msgMakeTask) {
+  const base = msgMakeTask;
+  msgMakeTask = function (key, mid) {
+    const self = this,
+      args = arguments;
+    try {
+      const T = msgThread(key, msgMe()),
+        mm = T && T.all().find((y) => y.id === mid);
+      if (mm && !mm.taskId) {
+        const title = String(mm.text || "").slice(0, 90);
+        return tkDupGuard({ title: title, projectId: T.pid || "", notes: mm.text, source: { label: `${mm.by || "a"}'s message in ${T.title}` } }, () => base.apply(self, args));
+      }
+    } catch (e) {}
+    return base.apply(this, arguments);
+  };
+}
+if ("function" == typeof cmTaskDialog) {
+  const base = cmTaskDialog;
+  cmTaskDialog = function (c, p) {
+    const self = this,
+      args = arguments;
+    try {
+      const R = c.route || {},
+        title = (p && p.task) || c.subject || "";
+      return tkDupGuard({ title: title, projectId: R.projectId || "", notes: c.subject || "", source: { label: `a message${c.from && c.from.name ? " from " + c.from.name : ""}` } }, () => base.apply(self, args));
+    } catch (e) {}
+    return base.apply(this, arguments);
+  };
+}
 {
   const base = newTaskDialog;
   newTaskDialog = function (preset, opts) {
     const P = preset || {};
     if (tkDupSkip || !P.title || !P.source) return base.apply(this, arguments);
-    const M = tkMatches(P.title, P.projectId || "");
-    if (!M.length) return base.apply(this, arguments);
-    const args = arguments,
-      self = this;
-    const m = mbModal(
-      "This May Already Be There",
-      `<p class="small muted">Before making a new task for “${esc(tdWords(P.title, 10))}”, these are open and read the same. Add it to one of them, or make a new task.</p><div class="tks-offers">${M.map((x, i) => `<button type="button" class="tks-src" data-tkdupi="${i}"><span class="grow"><b>${esc(x.title)}</b><small class="muted"> · ${x.kind === "decision" ? "decision" : "task"}${x.who ? ` · ${esc(x.who)}` : ""}${x.due ? ` · due ${esc(fmtL(x.due))}` : ""}</small></span><b>Add to It</b></button>`).join("")}</div>`,
-      {
-        submit: "Make a New Task",
-        onSubmit: () => {
-          setTimeout(() => {
-            tkDupSkip = !0;
-            try {
-              base.apply(self, args);
-            } finally {
-              tkDupSkip = !1;
-            }
-          }, 0);
-          return !0;
-        },
-      },
-    );
-    m &&
-      m.querySelectorAll("[data-tkdupi]").forEach(
-        (b) =>
-          (b.onclick = () => {
-            const x = M[+b.dataset.tkdupi];
-            mbCloseModal();
-            if (tkAttach(x, P) && opts && opts.onSaved)
-              try {
-                opts.onSaved({ assignee: x.who, due: x.due, attached: !0, kind: x.kind, id: x.kind === "task" ? x.x.id : x.d.id });
-              } catch (e) {}
-          }),
-      );
-    return m;
+    const self = this,
+      args = arguments;
+    return tkDupGuard(P, () => base.apply(self, args), opts && opts.onSaved);
   };
 }
 

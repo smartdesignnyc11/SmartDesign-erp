@@ -993,6 +993,8 @@ esAdd({
   "From: {t}": "De: {t}",
   "Owner: {t}": "Responsable: {t}",
   "Note · {x}": "Nota · {x}",
+  "{x} (done by {x})": "{x} (lo hace {x})",
+  "nobody yet": "nadie todavía",
   Note: "Nota",
   Pick: "Elegir",
   "Pick a day": "Elige un día",
