@@ -63,7 +63,7 @@ TASK_SCREENS = [  # (user, view, tab selector index or None, label)
     ('u_alan', 'home', None, 'PM Today (All)'),
     ('u_alan', 'home', 'Tasks', 'PM Today, Tasks filter'),
     ('u_alan', 'tkall', None, 'PM Tasks (tkall), first view'),
-    ('u_alan', 'tkall', 'Next 7 Days', 'PM Tasks, Next 7 Days'),
+    ('u_alan', 'tkall', 'Due Soon', 'PM Tasks, Due Soon'),
     ('u_alan', 'tkall', 'Overdue', 'PM Tasks, Overdue'),
     ('u_alan', 'tasks', None, 'PM project Tasks'),
     ('u_chen', 'home', 'Tasks', 'Coordinator Today, Tasks filter'),
@@ -71,7 +71,9 @@ TASK_SCREENS = [  # (user, view, tab selector index or None, label)
     ('u_sarah', 'sday', None, 'Designer Today'),
     ('u_sarah', 'tkall', None, 'Designer Tasks'),
     ('u_angel', 'ftoday', None, "Foreman Today (Today's Work)"),
-    ('u_alberto', 'tasks', None, 'Crew Tasks'),
+    # the crew's separate Tasks page left their menu (CONSOLIDATION §2.1): Clock is their list, and an old link to
+    # Tasks lands there
+    ('u_alberto', 'time', None, 'Crew Clock (their list)'),
     ('u_billing', 'tkall', None, 'Billing Tasks'),
     ('u_controller', 'tkall', None, 'Controller Tasks'),
 ]
@@ -234,14 +236,19 @@ TASK_MEASURE = r"""() => {
     rows: rows.length, rowsAbove: rowInfo.filter(r => r.above).length, firstRowY: rowInfo[0] ? rowInfo[0].y : null, rowInfo: rowInfo,
     smallTargets: small.length, smallEx: small.slice(0, 6).map(b => (txt(b) || b.getAttribute('aria-label') || '?').slice(0, 20) + ' ' + Math.round(b.getBoundingClientRect().width) + 'x' + Math.round(b.getBoundingClientRect().height)),
     cut: cut, tiny: tiny, newTask: nb ? { y: Math.round(nb.top), label: txt(newBtn) } : null, sw: document.documentElement.scrollWidth,
+    // what the person has due in the next 7 days (their own list's Due Soon), read from the app, not from a badge
+    soon: (() => { try { return typeof tkMyCounts === 'function' ? tkMyCounts().week : t2ViewOf(openTasks('me'), 'week').length; } catch (e) { return 0; } })(),
     empty: [...v.querySelectorAll('.empty')].filter(vis).map(txt).slice(0, 2), words: txt(v).split(' ').length };
 }"""
 OPEN_ROW = r"""() => {
   const vis = el => !!el && el.getClientRects().length > 0;
   const RS = '.t2-row, .td-card, .f-row, .tk-row';
-  const r = [...document.querySelectorAll('.view.on ' + RS.split(', ').join(', .view.on '))].filter(vis)[0];
+  const all = [...document.querySelectorAll('.view.on ' + RS.split(', ').join(', .view.on '))].filter(vis);
+  // a tap on a task: the first row that is a task (a Today card can be an approval or mail, a field row a delivery)
+  const isTask = (e) => e.matches('[data-tkkey], .td-card[data-kind="tdyTask"]') || !!e.querySelector('[data-fdone], [data-fm-done], [data-prgopen]');
+  const r = all.find(isTask) || all[0];
   if (!r) return null;
-  const t = [...r.querySelectorAll('[data-t2open], .t2-title, .t2-t, .td-l1, .td-txt, b, .grow')].find(vis) || r;
+  const t = [...r.querySelectorAll('[data-t2open], .tk2-title, .t2-title, .t2-t, .td-l1, .td-txt, b, .grow')].find(vis) || r;
   const before = view;
   t.click();
   return { clicked: (t.innerText || '').slice(0, 50), before: before };
@@ -604,25 +611,62 @@ def check():
         c.ok(t['rowsAbove'] >= 3 or t['rows'] < 3, f'TASKS phone {t["label"]}: {t["rowsAbove"]} task rows above the fold (want 3+)')
         c.ok(t['smallTargets'] == 0, f'TASKS phone {t["label"]}: {t["smallTargets"]} targets under 44px above the fold {t["smallEx"][:3]}')
         # a task list must not open empty while work is due in the next seven days
-        soon = sum(int(m) for m in re.findall(r'Next 7 Days(\d+) ', ' '.join(t['smallEx'])))  # the tab's badge, glued to its label (then its size)
+        # what the person has due in the next 7 days, read from the app (older data: the tab's badge, glued to its label)
+        soon = t['soon'] if 'soon' in t else sum(int(m) for m in re.findall(r'Next 7 Days(\d+) ', ' '.join(t['smallEx'])))
         if not t['tab']: c.ok(t['rows'] > 0 or not soon, f'TASKS phone {t["label"]}: opens empty ("{(t["empty"] or [""])[0][:40]}") while {soon} are due in the next 7 days')
         sh = t.get('sheet') or {}
         if t['rows']: c.ok(bool(sh.get('sheet')) and sh.get('assign') and sh.get('done') and sh.get('due'), f'TASKS phone {t["label"]}: one tap on a task opens a sheet with done, due and hand-off ({sh})')
-    return c.done()
+    c.done()
+    return ratchet(c.fail)
+
+
+# ------------------------------------------------------------------ the ratchet (CONSOLIDATION §2.5)
+# tests/ia_ratchet.json holds each check's failures as of the last merge. A count may go down, never up: --check fails
+# when any check has more failures than its line in the file, and says which. A merge that lowers a count lowers the
+# file in the same commit (python3 ia_map.py --check --tighten writes the lower numbers; it never raises one).
+RATCHET = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ia_ratchet.json')
+KINDS = ['ONE PLACE', 'ONE NUMBER', 'PRECURSOR LEAD', 'PRECURSOR', 'TASKS', 'CLEAN', 'WORDS']
+
+
+def kind_of(msg):
+    return next((k for k in KINDS if msg.startswith(k + ' ')), 'OTHER')
+
+
+def ratchet(fails):
+    got = {k: 0 for k in KINDS}
+    for m in fails: got[kind_of(m)] = got.get(kind_of(m), 0) + 1
+    try:
+        with open(RATCHET) as f: R = json.load(f)
+    except Exception:
+        R = {}
+    limit = R.get('limits', {})
+    worse = [k for k in got if k in limit and got[k] > limit[k]]
+    print('ratchet (failures now / allowed):', ', '.join(f'{k} {got[k]}/{limit.get(k, "-")}' for k in KINDS))
+    for k in worse: print(f'RATCHET FAIL {k}: {got[k]} failures, the file allows {limit[k]} (a count may go down, never up)')
+    if '--tighten' in sys.argv and not worse:
+        lower = {k: min(limit.get(k, got[k]), got[k]) for k in KINDS}
+        if lower != limit:
+            R['limits'] = lower
+            with open(RATCHET, 'w') as f: json.dump(R, f, indent=2); f.write('\n')
+            print('ratchet tightened:', lower)
+    print('RATCHET PASS' if not worse else f'RATCHET FAILED ({len(worse)} checks got worse)')
+    return 1 if worse else 0
 
 
 async def main():
     a = sys.argv[1:]
     users = ORDER
     if '--user' in a: users = a[a.index('--user') + 1].split(',')
-    if '--check' in a: return check()
-    steps = [x for x in ('--walk', '--pre', '--tasks', '--report') if x in a] or ['--walk', '--pre', '--tasks', '--report']
+    steps = [x for x in ('--walk', '--pre', '--tasks', '--report') if x in a]
+    # --check alone reads the last data.json; with steps it measures first, then checks against the ratchet
+    if '--check' in a and not steps: return check()
+    steps = steps or ['--walk', '--pre', '--tasks', '--report']
     os.makedirs(OUT, exist_ok=True)
     if '--walk' in steps: await walk(users)
     if '--pre' in steps: await precursors()
     if '--tasks' in steps: await tasks()
     if '--report' in steps: report()
-    return 0
+    return check() if '--check' in a else 0
 
 if __name__ == '__main__':
     raise SystemExit(asyncio.run(main()))

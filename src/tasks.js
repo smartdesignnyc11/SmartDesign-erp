@@ -591,9 +591,9 @@ function tkSheet(k, opts) {
   }
   ${
     canHand
-      ? `<div class="tks-h">Hand Off</div><div class="tks-people">${tkPeopleFor(R)
-          .map((u) => `<button type="button" class="tks-person" data-tksto="${esc(u.name)}"><b>${esc(tkFirst(u.name))}</b>${(TK_ROLE_SAY[u.role] || "") && TK_ROLE_SAY[u.role] !== tkFirst(u.name) ? `<small>${esc(TK_ROLE_SAY[u.role])}</small>` : ""}</button>`)
-          .join("")}</div><input class="tks-in tks-handnote" data-tkshandnote placeholder="What they need to know (optional)">`
+      ? `<button type="button" class="tks-handbtn" data-tkshandopen aria-expanded="${O.hand ? "true" : "false"}">${tkSvg("hand", 18)}<span class="grow">Hand Off</span><small>${esc(t.owner ? `${tkFirst(t.owner)} owns it until the other person accepts` : "it stays yours until they accept")}</small></button><div class="tks-handbox" ${O.hand ? "" : "hidden"}><div class="tks-people">${tkPeopleFor(R)
+          .map((u) => `<button type="button" class="tks-person" data-tksto="${esc(u.name)}" aria-label="Hand off to ${esc(u.name)}"><b>${esc(tkFirst(u.name))}</b>${(TK_ROLE_SAY[u.role] || "") && TK_ROLE_SAY[u.role] !== tkFirst(u.name) ? `<small>${esc(TK_ROLE_SAY[u.role])}</small>` : ""}</button>`)
+          .join("")}</div><input class="tks-in tks-handnote" data-tkshandnote placeholder="What they need to know (optional)"></div>`
       : ""
   }
   ${
@@ -659,6 +659,16 @@ function tkSheet(k, opts) {
         toast(`On your list again ${fmtL(b.dataset.tksdefer)}: ${tdWords(x.title, 8)}`, [{ label: "Open", run: () => tkOpen(R.key) }]);
       }),
   );
+  const ho = q("[data-tkshandopen]"),
+    hb = q(".tks-handbox");
+  ho &&
+    hb &&
+    (ho.onclick = () => {
+      const open = hb.hasAttribute("hidden");
+      open ? hb.removeAttribute("hidden") : hb.setAttribute("hidden", "");
+      ho.setAttribute("aria-expanded", open ? "true" : "false");
+      open && hb.scrollIntoView({ block: "nearest" });
+    });
   m.querySelectorAll("[data-tksto]").forEach(
     (b) =>
       (b.onclick = () => {
@@ -820,9 +830,9 @@ function tkWireList(host) {
         e.stopPropagation();
         const r = b.closest(".tk2-row");
         r && r.classList.remove("swiped");
-        tkSheet(b.dataset.tkhand);
+        tkSheet(b.dataset.tkhand, { hand: !0 });
         setTimeout(() => {
-          const h = document.querySelector("#mbm .tks-people");
+          const h = document.querySelector("#mbm .tks-handbox");
           h && h.scrollIntoView({ block: "center" });
         }, 60);
       }),
@@ -1056,6 +1066,51 @@ document.addEventListener(
   !0,
 );
 
+// ---- the designer's Today and the foreman's first screen read the same list ---------------------------------------
+// The designer keeps My Day as her Today; its "Due This Week" card said "Nothing due this week" under a "Due or Late 7"
+// chip (IA_MAP §2). It now lists her Due Soon from the one list, rows that open the sheet, with the list's own count.
+function tkSdayCard(v) {
+  const card = [...v.querySelectorAll(".card")].find((c) => /^(today|due this week)$/i.test(((c.querySelector("h3") || {}).textContent || "").trim()));
+  if (!card || card.dataset.tk2) return;
+  let R = [];
+  try {
+    R = t2Sort(t2ViewOf(openTasks("me"), "week"));
+  } catch (e) {}
+  const may = tkMay("tkall"),
+    more = R.length > 6 ? R.length - 6 : 0;
+  card.dataset.tk2 = "1";
+  card.classList.add("tk2-host");
+  card.innerHTML = `<div class="hd tk2-hd"><h3>Due Soon</h3><span class="n">${R.length}</span></div><div class="tk2-list tk2-inline">${
+    R.slice(0, 6)
+      .map((x) => tkRowHtml(x, {}))
+      .join("") || '<div class="empty tk2-empty">Nothing due in the next 7 days, and nothing late.</div>'
+  }</div>${may ? `<a href="#" class="td-more tk2-more" data-tkallgo>${more ? `${more} more on Tasks` : "Open Tasks"}</a>` : ""}`;
+  tkWireList(card);
+  const a = card.querySelector("[data-tkallgo]");
+  a && (a.onclick = (e) => (e.preventDefault(), (tkWho = "me"), (tkProject = ""), (t2View = "week"), setView("tkall")));
+}
+// The foreman's first screen on the phone: the intro sentence goes and the packing slip is one camera button, so
+// Today's Work starts on the first screen (three rows above the fold, not two; IA_MAP §4 and the foreman's review).
+function tkFieldCompact(v) {
+  const cap = v.querySelector("#trk-capture");
+  if (!cap || cap.dataset.tk2) return;
+  cap.dataset.tk2 = "1";
+  cap.classList.add("tk2-capcompact");
+  const b = cap.querySelector(".trk-big");
+  if (b) {
+    const svg = b.querySelector("svg");
+    b.textContent = "";
+    svg && b.appendChild(svg);
+    b.appendChild(document.createTextNode(" Packing Slip or Receipt"));
+    b.setAttribute("aria-label", "Take a photo of a packing slip or receipt");
+  }
+}
+function tkDecorate() {
+  const v = document.querySelector(".view.on");
+  if (!v) return;
+  "sday" === view && ["designer", "design_mgr"].includes(role()) && tkSdayCard(v);
+  "ftoday" === view && tkPhone() && tkFieldCompact(v);
+}
 // ---- one list: the old pages forward to it with their chip set, and leave the menus ----------------------------------
 // Sales Tasks is Tasks with the Sales chip; My Day is the designer's Today, and for the owner and the PM it was a second
 // Today: it opens Tasks, Mine. The crew's Tasks page goes: Clock is their list.
@@ -1100,6 +1155,11 @@ tkPruneViews();
     try {
       tkNoteCheck();
     } catch (e) {}
+    try {
+      tkDecorate();
+    } catch (e) {
+      console.warn("task rows", e);
+    }
     return r;
   };
 }
@@ -1272,35 +1332,35 @@ const TK_PRI_SAY = { P1: "High", P2: "Medium", P3: "Low" };
 // ---- the look: rows of 64 to 72px, a 44px circle, 16px titles; the sheet from the bottom on the phone ------------------
 (() => {
   const css = `
-#v-tkall .tk2-row{position:relative;display:block;padding:0;border-bottom:1px solid var(--rule-2);min-height:64px;overflow:hidden;cursor:pointer;grid-template-columns:none;grid-template-areas:none}
-#v-tkall .tk2-row:hover{background:var(--paper-2)}
-#v-tkall .tk2-slide{position:relative;z-index:1;display:flex;align-items:center;gap:8px;min-height:64px;max-height:72px;padding:4px 12px 4px 4px;background:var(--paper);transition:transform .18s ease;box-sizing:border-box}
-#v-tkall .tk2-row:hover .tk2-slide{background:var(--paper-2)}
-#v-tkall .tk2-row.swiped .tk2-slide{transform:translateX(-168px)}
-#v-tkall .tk2-check{flex:0 0 44px;width:44px;height:44px;border:0;background:none;display:grid;place-items:center;cursor:pointer;padding:0;margin:0}
-#v-tkall .tk2-check>span{display:block;width:26px;height:26px;border:2px solid var(--ink-3);border-radius:50%;box-sizing:border-box}
-#v-tkall .tk2-row.late .tk2-check>span{border-color:var(--bad,#b3261e)}
-#v-tkall .tk2-check:hover>span{background:var(--paper-3,#eee)}
-#v-tkall .tk2-donemark>span{background:var(--ok-2,#2e7d32);border-color:var(--ok-2,#2e7d32)}
-#v-tkall .tk2-mid{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:2px}
-#v-tkall .tk2-title{font-size:16px;line-height:20px;color:var(--ink);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}
-#v-tkall .tk2-row.done .tk2-title{color:var(--ink-3);text-decoration:line-through}
-#v-tkall .tk2-hi{display:inline-block;width:4px;height:14px;border-radius:2px;background:var(--bad,#b3261e);margin-right:6px;vertical-align:-1px}
-#v-tkall .tk2-sub{font-size:13px;line-height:17px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#v-tkall .tk2-when.late{color:var(--bad,#b3261e);font-weight:600}
-#v-tkall .tk2-when.today{color:var(--ink);font-weight:600}
-#v-tkall .tk2-off{color:var(--accent)}
-#v-tkall .tk2-who{flex:0 0 auto;max-width:84px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;color:var(--ink-2);background:var(--paper-2);border-radius:12px;padding:3px 9px}
-#v-tkall .tk2-acts{position:absolute;right:0;top:0;bottom:0;display:flex;visibility:hidden}
-#v-tkall .tk2-row.swiped .tk2-acts{visibility:visible}
-#v-tkall .tk2-act{width:84px;border:0;font-size:14px;font-weight:600;color:#fff;background:var(--ink-3);cursor:pointer}
-#v-tkall .tk2-act.hand{background:var(--accent)}
-#v-tkall .tk2-ghd{display:flex;align-items:center;gap:8px;padding:14px 12px 6px 16px;font-size:13px;font-weight:600;letter-spacing:.02em;color:var(--ink-2);border-bottom:1px solid var(--rule-2);background:none}
-#v-tkall .tk2-ghd.late{color:var(--bad,#b3261e)}
-#v-tkall .tk2-ghd .n{font-weight:500;color:var(--ink-3)}
+:is(#v-tkall,.tk2-host) .tk2-row{position:relative;display:block;padding:0;border-bottom:1px solid var(--rule-2);min-height:64px;overflow:hidden;cursor:pointer;grid-template-columns:none;grid-template-areas:none}
+:is(#v-tkall,.tk2-host) .tk2-row:hover{background:var(--paper-2)}
+:is(#v-tkall,.tk2-host) .tk2-slide{position:relative;z-index:1;display:flex;align-items:center;gap:8px;min-height:63px;max-height:71px;overflow:hidden;padding:4px 12px 4px 4px;background:var(--paper);transition:transform .18s ease;box-sizing:border-box}
+:is(#v-tkall,.tk2-host) .tk2-row:hover .tk2-slide{background:var(--paper-2)}
+:is(#v-tkall,.tk2-host) .tk2-row.swiped .tk2-slide{transform:translateX(-168px)}
+:is(#v-tkall,.tk2-host) .tk2-check{flex:0 0 44px;width:44px;height:44px;border:0;background:none;display:grid;place-items:center;cursor:pointer;padding:0;margin:0}
+:is(#v-tkall,.tk2-host) .tk2-check>span{display:block;width:26px;height:26px;border:2px solid var(--ink-3);border-radius:50%;box-sizing:border-box}
+:is(#v-tkall,.tk2-host) .tk2-row.late .tk2-check>span{border-color:var(--bad,#b3261e)}
+:is(#v-tkall,.tk2-host) .tk2-check:hover>span{background:var(--paper-3,#eee)}
+:is(#v-tkall,.tk2-host) .tk2-donemark>span{background:var(--ok-2,#2e7d32);border-color:var(--ok-2,#2e7d32)}
+:is(#v-tkall,.tk2-host) .tk2-mid{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:2px}
+:is(#v-tkall,.tk2-host) .tk2-title{font-size:16px;line-height:20px;color:var(--ink);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}
+:is(#v-tkall,.tk2-host) .tk2-row.done .tk2-title{color:var(--ink-3);text-decoration:line-through}
+:is(#v-tkall,.tk2-host) .tk2-hi{display:inline-block;width:4px;height:14px;border-radius:2px;background:var(--bad,#b3261e);margin-right:6px;vertical-align:-1px}
+:is(#v-tkall,.tk2-host) .tk2-sub{font-size:13px;line-height:17px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+:is(#v-tkall,.tk2-host) .tk2-when.late{color:var(--bad,#b3261e);font-weight:600}
+:is(#v-tkall,.tk2-host) .tk2-when.today{color:var(--ink);font-weight:600}
+:is(#v-tkall,.tk2-host) .tk2-off{color:var(--accent)}
+:is(#v-tkall,.tk2-host) .tk2-who{flex:0 0 auto;max-width:84px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;color:var(--ink-2);background:var(--paper-2);border-radius:12px;padding:3px 9px}
+:is(#v-tkall,.tk2-host) .tk2-acts{position:absolute;right:0;top:0;bottom:0;display:flex;visibility:hidden}
+:is(#v-tkall,.tk2-host) .tk2-row.swiped .tk2-acts{visibility:visible}
+:is(#v-tkall,.tk2-host) .tk2-act{width:84px;border:0;font-size:14px;font-weight:600;color:#fff;background:var(--ink-3);cursor:pointer}
+:is(#v-tkall,.tk2-host) .tk2-act.hand{background:var(--accent)}
+:is(#v-tkall,.tk2-host) .tk2-ghd{display:flex;align-items:center;gap:8px;padding:14px 12px 6px 16px;font-size:13px;font-weight:600;letter-spacing:.02em;color:var(--ink-2);border-bottom:1px solid var(--rule-2);background:none}
+:is(#v-tkall,.tk2-host) .tk2-ghd.late{color:var(--bad,#b3261e)}
+:is(#v-tkall,.tk2-host) .tk2-ghd .n{font-weight:500;color:var(--ink-3)}
 #v-tkall .tk2-list{border:1px solid var(--rule);border-radius:10px;background:var(--paper);overflow:hidden}
-#v-tkall .tk2-empty{padding:18px 16px}
-#v-tkall .tk2-showall{margin:10px 16px 14px;min-height:44px}
+:is(#v-tkall,.tk2-host) .tk2-empty{padding:18px 16px}
+:is(#v-tkall,.tk2-host) .tk2-showall{margin:10px 16px 14px;min-height:44px}
 #v-tkall .tk2-offer{display:flex;align-items:center;gap:10px;width:100%;min-height:48px;margin:0 0 10px;padding:8px 14px;border:1px solid var(--accent);border-radius:10px;background:var(--paper);font-size:15px;text-align:left;cursor:pointer}
 #v-tkall .tk2-offer-n{display:grid;place-items:center;min-width:26px;height:26px;border-radius:13px;background:var(--accent);color:#fff;font-weight:700;font-size:13px}
 #v-tkall .tk2-offer b{color:var(--accent)}
@@ -1320,6 +1380,14 @@ const TK_PRI_SAY = { P1: "High", P2: "Medium", P3: "Low" };
   #v-tkall .tk2-offer{width:100%}
   .td-do .td-tabs button{min-height:44px}
   .td-do .td-card .td-txt{cursor:pointer}
+}
+.tk2-host .tk2-list.tk2-inline{border:0;border-radius:0;margin:0 -2px;padding:0;overflow:hidden}
+.tk2-host .tk2-hd{display:flex;align-items:center;gap:8px}
+.tk2-host .tk2-hd .n{color:var(--ink-3);font-size:13px}
+.tk2-host .tk2-more{display:flex;align-items:center;min-height:44px}
+@media (max-width:760px){
+  #trk-capture.tk2-capcompact .ph .lead,#trk-capture.tk2-capcompact>.hd,#trk-capture.tk2-capcompact>p{display:none}
+  #trk-capture.tk2-capcompact .trk-big{width:100%}
 }
 #mbm.tks-on .mbm-box{max-width:620px}
 #mbm.tks-on .mbm-hd h3{font-size:18px;line-height:24px;font-weight:600}
@@ -1361,6 +1429,10 @@ const TK_PRI_SAY = { P1: "High", P2: "Medium", P3: "Low" };
 .tks-more{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
 .tks-more .btn{min-height:44px}
 .tks-offers{display:flex;flex-direction:column;gap:8px}
+.tks-handbtn{display:flex;align-items:center;gap:10px;width:100%;min-height:48px;margin-top:10px;padding:8px 12px;border:1px solid var(--rule);border-radius:10px;background:var(--paper);font-size:15px;font-weight:600;text-align:left;cursor:pointer}
+.tks-handbtn small{font-weight:400;font-size:12px;color:var(--ink-3);max-width:55%;text-align:right}
+.tks-handbox{margin-top:8px}
+.tks-handbox[hidden]{display:none}
 @media (max-width:760px){
   #mbm.tks-on{align-items:flex-end;padding:0}
   #mbm.tks-on .mbm-box{border-radius:16px 16px 0 0;max-height:92vh;overflow:auto;max-width:none}
