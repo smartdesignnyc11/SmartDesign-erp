@@ -948,6 +948,48 @@ Measured against an independent full extraction, it caught about a third of what
 
 **Status (lane loop, 2026-10-20; `src/meetread.js`, suite `tests/meetread_test.py`).** The reader is built on the app side: the whole transcript in parts with Gemini's notes beside each; corrections (date, name, owner, missed) applied to the matching proposal with the quote; every category with its quote and timestamp landing as a proposal (recoveries with the amount, holds never bills, a percent complete as a draft progress billing task for the biller, leads, policies to the playbook, taxes and owner-personal items kept out of overhead); the cash and card position checked against the accounts on file; people items kept only in the owner's own assistant row; lessons of the eight classes into the improvement loop; `mrScore` for recall, precision and false bills. The suite scripts the model, so it proves the plumbing and the rules after the model, not the model: the real recall needs the platform's key and the private case bank, run outside the repo. Not built: a real draft invoice from a percent-complete instruction (it is a billing task, by design for now); the planted-error bank beyond the date and owner cases.
 
+### 1.34 Every role sees what it needs, early, in one place; the task module rebuilt for the phone (Alan, 2026-10-21)
+**His words.** "We need to make sure that the desktop and mobile versions give each role the information they need to do their job, see what priorities there are before they become delays in the project. We need to make sure the pages are clean and the information is easy to understand. The task module is one of the most important and it isn't great on mobile or since the last version you uploaded. But to be fair - I haven't seen the last update yet for the task function. We also need to make sure there aren't 12 different sections to see similar information."
+
+**Where it starts.** This is §1.11 item 1 (one queue per person), §1.14 (one task system) and §1.15 (the menu) judged by Alan on his phone, plus one thing none of them covers: a delay's warning signs showing up ahead of time. The today lane (2026-10-19) and the menu lane merged, so this is not a fresh build. It audits what they left and then fixes it. Open items they left: Approvals, Inbox and Tasks are both filters of Today and full-list pages in the menu; the designer's My Day is outside the queue; a firm-inbox message with no owner shows to every office person; the assistant's nudge cards sit in both Chat and Findings; the improvement loop's proposals sit only in Company › Changes, and the item library's sit only on the library's own card. The 2026-10-18 pilot already drew "one place for each kind of information" (`docs/pilot/pilot1/nav_workshop.md` (c)). The map starts from that table and checks the current build against it. It does not start over.
+
+**The order (main session's plan, chief of staff's additions).**
+1. **Deploy the merged week-4 build once the full net is green,** so Alan judges the current task work, not the old one. Ask him for ten minutes with the task module on his phone and the two or three things that bother him most. His notes outrank the experts'.
+2. **The information map (read-only lane, no code).** For every role, on desktop and at 390px, list every place each noun appears: tasks, approvals, inbox, decisions, schedule risk, orders, money. Count the duplicates and check that each label shows one number. For each delay precursor, record whether it surfaces ahead of its date or only once it is late. The precursors: order-by dates, decisions due, inspections, crew blocked, submittals and COI lapses, plus permits and LPC filings, client selections, the engineer's and consultants' answers, and deliveries reconfirmed 48 hours ahead. The client portal is in the map too, read only: the client is a role, and many delays start with a decision the client owes.
+3. **Four role experts (owner, PM, coordinator, foreman) work a full day, phone first, on the deployed build.** Each lists every place they looked for what they owe, approve or need to know (§1.16 layer 5: more than one place for the same kind of thing is severity 2), and each precursor they found late. These are AI role experts, not the team. Real use in the pilot (PLAN row 13) decides.
+4. **A consolidation plan for Alan before any screen is rebuilt:** one place per noun per role, the task module rebuilt for the phone, and the pages cut or merged, each with its trade-off. This is how he asked for the menu ("let's discuss and have a plan").
+5. **One build round** on the agreed plan.
+
+**What he is not thinking about (chief of staff).**
+- **A warning can only come early if the record has a date to count back from.** "Order by" needs the date the material is needed on site (from the schedule) and the vendor's lead time. "Decision due" needs the task it blocks. An inspection needs its booking window, a submittal the reviewer's turnaround, a COI its expiry. Where the date is missing, no screen can warn early. So the map counts missing dates as well as duplicate places. Some of the fix may be in the data (links from schedule to order line to decision), not the screens.
+- **Many delays start outside the firm:** the client's decisions and selections, the engineer, DOB and LPC, vendors. The client's portal should say what the client owes, by when, and what moves if it is late, in plain words.
+- **A cleaner page can hide work.** The last fold (one queue, five cards) dropped the Kleins' $68,265 check to 13th on billing's list and cost the month $195,142 and 9 days. Every merge or cut must show the counts before and after, with nothing lost, and the scripted month at 261/292, $1,937 and 0 days or better.
+- **Early warnings can become noise.** In the pilot, the coordinator's Buy Board was all red "order-by passed", and "when everything is red nothing stands out". A precursor shown after its date is a late alarm, not an early warning, and the map records which is which. Early items obey the alert budget (§1.11 item 2): a few, ranked by the Standard, each with its date, days left and its "because".
+- **Desktop and phone are not one page shrunk.** On each, the same noun has the same number. The phone shows a role's first few things and one next step. The foreman's phone is one job, big targets, plain words, and it works on one bar of signal.
+
+**How it can be better.**
+- **"Think ahead (three weeks)" is already his value.** Precursors become a "Coming Up" band of each person's Today (the next three weeks, each with the date it must happen by), and the same items appear as a filter of the job's Plan. It is not a new Risks or Lookahead page: that would be the 13th place.
+- **Each precursor reads in the Standard's escalation format:** what is coming, the impact on cost, schedule and quality if it slips, the options, the recommendation and the decision deadline. That is also what ranks it.
+- **The assistant acts before the date:** for example, it drafts the chase to the client for a selection due in five days, for a person to approve. Nothing reaches a client or vendor unasked.
+
+**What goes wrong if it isn't thought through.**
+- **Data.** Tasks still live in several stores behind one accessor. A rebuilt task module must not split them again or lose any in a move. On the hosted copy, the field still receives other jobs' tasks with money stripped (messages 2 open item). Field roles see only their crew's jobs.
+- **Money.** Client money waiting, payment holds and vendor credits keep their rank in any cleaner layout. A cut page's money items land somewhere named before the page goes.
+- **People.** Team views show who owes what so it gets done. They never become a scorecard or a ranking of people (Alan gives context, not quotas). Hand-offs still need acceptance.
+- **The field and the phone.** 390px with no sideways scroll. Tap targets 8px apart. Creating a task is a few taps or voice. New field words go into the one Spanish words file marked not yet reviewed.
+- **The books.** The Standard's money duties (books by the 10th, collections at due, 7, 15 and 30 days, invoice within 2 business days of a milestone) stay tasks with a named owner. Every badge equals its rows (counts lint).
+- **Law and landmarks.** DOB and LPC precursors rank above schedule and cost, by the decision principles.
+
+**Design gate (before the build round starts).**
+- **Nouns extended, none added:** the task (`tkItems()` / `tkAll()` over `DB.tasks`, `p.tasks`, `hbtasks`, `DB.obligations`), the approval (`PRED.waitingOnMe`), the inbox item (`cmListFor`), the decision (`p.decisions`), the schedule task's dates, the request and PO line (order-by), the inspection, the submittal and the vendor's COI.
+- **Lists:** Today (view `home`) stays the one queue per office role, the foreman's phone bar stays his, and the job's Plan holds the job's view.
+- **Queues:** none new. "Coming Up" is a band and filter of Today, ranked by `standardRank`.
+- **Menu:** the declared `MENU`, pinned by menu_test. Every page cut or merged goes through it.
+- **The map lane** adds no store and touches no code.
+- **The checks this round adds** (through the main session) so the problem fails loudly next time: the number of places to look per noun per role, tracked in the net and failing when it rises (§1.16 layers 4 and 5); a lead test where every planted precursor must show on its owner's Today before its own date, not after; and a find-it-again check at 390px for every task create.
+
+**Usage.** 8–12% of a week for the map and the experts; 15–20% for the build round.
+
 ## §2 Remaining round-4 findings
 
 ### Founder

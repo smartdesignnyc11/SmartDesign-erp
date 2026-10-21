@@ -2,6 +2,22 @@
 
 The chief of staff keeps this board current. A lane is one build agent in its own git worktree (`.claude/worktrees/<name>`, branch `lane-<name>`). Lanes never push or merge. The main session merges them one at a time and runs the full net after each.
 
+## 2026-10-21: every role sees what it needs, early, in one place (Alan's ask; queued)
+Spec: BACKLOG §1.34. Board checked 2026-10-21: no worktree has unmerged work, so no running lane owns this. The today lane (one queue, one task shape) and the menu lane own these seams, and both are merged. This is a new lane, which audits what they left open before anything is rebuilt.
+
+| Lane | Scope | Design gate | Status |
+|---|---|---|---|
+| deploy (main session) | The merged week-4 build goes live once the full net is green, so Alan judges the current task work | — | Next; waits on the full net ("Week 4" below) |
+| information map | Read only, no code. Every role, desktop and 390px: every place each noun appears (tasks, approvals, inbox, decisions, schedule risk, orders, money), duplicates counted, one number per label checked. For each delay precursor (order-by, decisions due, inspections, crew blocked, submittals, COI lapses, permits and LPC, client selections, consultants' answers, deliveries reconfirmed): does it surface before its date or only once late, and does the record carry the date it needs? Starts from `docs/pilot/pilot1/nav_workshop.md` (c). Includes the client portal, read only | Adds no store, list, queue or menu item; touches no code | Queued (after the deploy). 8–12% with the experts |
+| role experts (runs) | Owner, PM, coordinator and foreman work a full day phone-first on the deployed build. Each lists every place they looked and each precursor they found late | §1.16 layer 5 | Queued |
+| build round | The consolidation plan Alan agrees: one place per noun per role, the task module rebuilt for the phone, the "Coming Up" band of Today, and the three new checks | Extends `tkItems()`/`tkAll()`, `PRED.waitingOnMe`, `cmListFor`, `p.decisions`, Today (`home`), the job's Plan, `MENU`; no new queue or page. "Coming Up" is a band of Today ranked by `standardRank` | Not started. Waits on Alan's yes to the plan and on the week's usage. 15–20% |
+
+**Chief of staff's conditions:**
+1. **Nothing lost in a fold.** Every cut or merge shows the counts per person before and after. The scripted month holds at 261/292, $1,937 and 0 days or better, reading the whole list and only the first five.
+2. **Early means early.** The new lead test fails when a planted precursor first shows on its owner's Today on or after its own date.
+3. **Not a new page.** No Risks, Lookahead or Priorities page.
+4. **People.** Team views never rank people.
+
 ## Week 4 (2026-10-20, Alan: "Go")
 
 **Status (board checked 2026-10-20, late): all four week-4 lanes are merged on master (af76462). The full net on the merged build and the deploy are pending.** Every worktree shows nothing left to merge (`git log master..HEAD` is empty for all 18). Alan's "Go" approved the round (about 40% of a week's usage) and the three calls (`docs/DECISIONS.md`, 2026-10-20; each reversible).

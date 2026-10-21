@@ -2,12 +2,35 @@
 
 This is the one list. The chief of staff keeps it current on every ask, lane report and merge. Details live in the BACKLOG sections named. Status words: **Running** · **Next** · **Queued** · **Waiting on Alan** · **Later** (deferred by Alan) · **Done**.
 
-Last updated 2026-10-20, late (week 4: all four lanes and the main session's work merged on master, af76462; the full net on the merged build and the deploy are pending).
+Last updated 2026-10-21 (Alan's new ask logged: every role sees what it needs, early, in one place, and the task module rebuilt for the phone. Week 4 is merged on master (af76462); the full net and the deploy are pending).
 
 ## 0. Usage rule (Alan)
 - Warn before any heavy step.
 - Don't start a big round when weekly usage is above about 60%.
 - One build lane is roughly 6–10% of a week's allowance. The lean pilot is about 2–5%.
+
+## 2026-10-21: every role sees what it needs, early, in one place (Alan)
+**His ask.** Desktop and phone give each role what it needs and show priorities before they become project delays. Pages are clean and easy to read. The task module "is one of the most important and it isn't great on mobile". He has not seen the latest task update yet. And no "12 different sections to see similar information". Spec: BACKLOG §1.34. It extends §1.11 item 1 (one queue per person), §1.14 (one task system), §1.15 (the menu) and §1.16 (the design gate), and audits what the merged today and menu lanes left open.
+
+| # | Step | Who | Status | Usage |
+|---|---|---|---|---|
+| 1 | Deploy the merged week-4 build once the full net is green, so Alan sees the current task work; ask him for ten minutes on his phone with the task module | main session | **Next** (waits on the full net, "Week 4" below) | in week 4 |
+| 2 | The information map: every role, desktop and 390px, every place each noun appears (tasks, approvals, inbox, decisions, schedule risk, orders, money), duplicates counted, and which delay precursors surface ahead of time versus only once late. It starts from the pilot's "one place" table (2026-10-18) and includes the client portal, read only | new lane, read only | **Queued** | 8–12% with step 3 |
+| 3 | Four role experts (owner, PM, coordinator, foreman) work a full day, phone first, on the deployed build, listing every place they looked | runs | **Queued** | (in step 2) |
+| 4 | The consolidation plan for Alan: one place per noun per role, the task module rebuilt for the phone, pages cut or merged, each with its trade-off | chief of staff and main session | **Queued**, then **Waiting on Alan** | small |
+| 5 | The build round on the agreed plan, with the three new checks (places to look per noun, precursors shown before their date, find-it-again at 390px) | one or two lanes | **Queued**, after his yes | 15–20% |
+
+**What Alan is not thinking about (chief of staff):**
+- **Early needs a date.** A warning can come early only if the record has a date to count back from: the date material is needed on site, a vendor lead time, the task a decision blocks, an inspection's booking window, a COI's expiry. The map counts missing dates as well as duplicate places. Part of the fix may be data, not screens.
+- **Many delays start with the client, the engineer, DOB and LPC, or vendors.** The client's portal should say what the client owes, by when, and what moves if it is late.
+- **A cleaner page can hide work.** The last fold dropped a $68,265 client check to 13th and cost the scripted month $195,142 and 9 days. Every cut shows the counts before and after, and the month must hold at 261/292, $1,937 and 0 days or better.
+- **Early warnings can become noise.** In the pilot, the coordinator's Buy Board was all red "order-by passed". An item shown after its date is a late alarm, not a warning. Early items stay few, ranked by the Standard, each with days left and a "because".
+- **"Think ahead (three weeks)" is already his value.** Precursors become a "Coming Up" band of each person's Today and a filter of the job's Plan, not a new page. A new Risks page would be the 13th place.
+- **The experts are AI role experts, not his team.** His own ten minutes on the phone, then the team in the pilot, decide.
+
+**Waiting on Alan (§5):** yes to the plan (map and experts now, build after he agrees the consolidation plan); ten minutes with the task module on his phone once it is live.
+
+**Usage.** 8–12% for the map and experts plus 15–20% for the build round, so 23–32% in all. Week 4 used about 40%, so the build round may wait for the weekly reset under the 60% rule. Check the week's usage before step 2.
 
 ## Week 4 (2026-10-20, Alan: "Go")
 Alan's "Go" approved the week-4 live AI round (about 40% of a week's usage) and the three recommendations below. Each call is reversible; `docs/DECISIONS.md` logs them.
@@ -321,6 +344,8 @@ What remains, in order. Usage is a share of one week's allowance.
 | 2026-10-20 | Confirm the new Do Now order for every office person: client money waiting and a client message due today rank right after "crew blocked today", above overdue rows (it changes his 10-11 ranking). Recommended: keep it; it follows the Standard's order and brought the month back to 261/292 | The new order stays (reversible) |
 | 2026-10-20 | The one Do Now number: a client-billable purchase over $1,000 ranks first (`DB.company.moneyFirstOver`) | $1,000, the Standard's same-day line |
 | 2026-10-20 | Set the bank's dual control to match the Payment Run: the controller initiates, Alan approves in the bank's app | The ERP records who released each run; the bank itself does not enforce it yet |
+| 2026-10-21 | The plan for "every role sees what it needs, early, in one place" (BACKLOG §1.34): the map and four role experts now (8–12%); the build round (15–20%) after he agrees the consolidation plan | Recommended: yes. The build waits on his yes to the plan and on the week's usage |
+| 2026-10-21 | Ten minutes with the task module on his phone once the current build is live, and the two or three things that bother him most | The experts' phone day stands in; his notes outrank theirs |
 | Later | Google sign-in consent screen (guided, about 5 minutes) | — |
 
 ## 6. Calls I made that Alan can change

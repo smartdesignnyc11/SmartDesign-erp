@@ -7,6 +7,8 @@ Status: **Built** (merged and tested) · **Building** (a lane is on it) · **Spe
 ## Waiting on Alan
 | Asked | Decision needed | Default until he decides |
 |---|---|---|
+| 2026-10-21 | The plan for "every role sees what it needs, early, in one place": the information map and four role experts working a phone-first day (8–12% of a week) once the current build is live, then a consolidation plan he agrees before any screen is rebuilt, then the build round (15–20%) | Recommended: yes to the map and the experts now. The build waits for his yes on the plan, as he asked for the menu ("let's discuss and have a plan"). Check the week's usage first: week 4 used about 40%, so the build round may have to wait for the weekly reset under the 60% rule |
+| 2026-10-21 | Ten minutes with the task module on his own phone once the current build is live, and the two or three things that bother him most (a line or a screenshot each) | The four role experts' phone day stands in until he does. His notes outrank theirs |
 | 2026-10-20 | Confirm the new Do Now order for every office person: client money waiting and a client message due today rank right after "crew blocked today", above overdue rows. It changes his ranking of 2026-10-11 (safety and law, anyone blocked today, then overdue, today and this week). Made by the month regression lane to stop money falling below the five cards Do Now shows | Recommended: keep it. It follows the Standard's order (the client before schedule and cost) and brought the month from 243/292 and $195,142 left behind back to 261/292 and $1,937. Stays on until he says otherwise; reversible |
 | 2026-10-20 | The one Do Now number: a purchase made for a client goes first in Do Now when it is over this figure (`DB.company.moneyFirstOver`) | $1,000, the Standard's same-day line for a cost impact |
 | 2026-10-20 | Ask Jeanette to review the ~900 Spanish words the field reads. Decided 2026-10-20 (his "Go"); the asking is his to do. | Crews stay in English until she has reviewed, safety and inspection words first. Recommended: she gets one sheet (English, Spanish, the screen it appears on, safety words marked) so it is an hour or two of her time, and her sign-off is recorded word by word |
@@ -24,6 +26,11 @@ Status: **Built** (merged and tested) · **Building** (a lane is on it) · **Spe
 | 2026-10-10 | Re-authorise QuickBooks for the July-to-date pull. | Truth layer runs on bank and card lines and the QBO bridge snapshot. |
 
 The overnight run of 2026-10-19 builds on the defaults above and does not decide them. The menu and navigation questions from `docs/MENU_DRAFT.md` were waiting on Alan; they were decided overnight under his instruction (below) and are no longer waiting.
+
+## 2026-10-21
+| Ask or decision | Where it lives | Status |
+|---|---|---|
+| Alan: desktop and phone must give each role what it needs to do the job and show priorities before they become project delays; pages clean and easy to read; the task module "is one of the most important and it isn't great on mobile" (he has not seen the latest task update yet); "make sure there aren't 12 different sections to see similar information" | BACKLOG §1.34 (new; extends §1.11 item 1, §1.14, §1.15, §1.16 and the today lane); `docs/PLAN.md` "2026-10-21"; `docs/LANES.md` "2026-10-21" | Spec. Lane: a new information map lane (read-only, no code), then the four role experts, then a consolidation plan for Alan, then one build round that owns Today, the task module and the menu. Not the running lanes: none is open, and the today and menu lanes that own these seams are merged. Step 1 is the main session's: deploy the merged week-4 build once the full net is green, so he judges the current task work. Two items wait on him (above) |
 
 ## 2026-10-20
 | Ask or decision | Where it lives | Status |
