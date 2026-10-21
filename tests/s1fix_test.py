@@ -146,8 +146,13 @@ async def coi_checks(c, pg, tag):
     # or a payment to them waiting on his release (Window Works is on site 9/9, 3 working days out, its bill already paid)
     for uid, want in (('u_chen', True), ('u_owner', False)):
         await sign_in(pg, uid); await go(pg, 'home'); await pg.wait_for_timeout(300)
-        r = await pg.evaluate("""() => tdCaught([]).filter(x => x.src === 'compliance').map(x => x.what)""")
-        c.ok(any('Window Works' in x and 'COI expired' in x for x in r) == want, f'{tag}: {uid} Caught for You {"has" if want else "does not have"} Window Works\' lapsed COI ({r})')
+        r = await pg.evaluate("""() => ({ doNow: tdQueue().filter(x => x.kind === 'coi').map(x => x.title),
+          caught: tdCaught([]).filter(x => x.src === 'compliance').map(x => x.what), home: (document.querySelector('.view.on .td-home') || {}).innerText || '' })""")
+        has = any('Window Works' in x and 'COI expired' in x for x in r['doNow'])
+        c.ok(has == want, f'{tag}: {uid} Do Now {"has" if want else "does not have"} Window Works\' lapsed COI ({r["doNow"]})')
+        c.ok(not any('Window Works' in x and 'COI' in x for x in r['caught']), f'{tag}: {uid} Caught for You does not repeat it ({r["caught"]})')
+    r = await pg.evaluate("""() => { signIn('u_chen'); const it = tdQueue().find(x => x.kind === 'coi'); if (!it) return null; const c = tdCard(it); return { verb: c.verb, run: typeof c.run } }""")
+    c.ok(r and r['verb'] == 'Chase COI' and r['run'] == 'function', f'{tag}: the coordinator\'s card chases it in one tap ({r})')
     r = await pg.evaluate("""() => { const v = DB.vendors.find(x => x.name === 'Window Works'), s = DB.field.subs.find(x => x.vendor === 'Window Works' && x.date >= today());
       const before = DELEGATION.coi.who({ id: v.id }), was = s.date; s.date = addWork(today(), 1); const after = DELEGATION.coi.who({ id: v.id }); s.date = was;
       const owner = (signIn('u_owner'), s.date = addWork(today(), 1), tdFacts && (tdFacts().chase = null), eaChase(tdFacts().F, tdFacts().X, 'owner').some(x => x.kind === 'coi' && /Window Works/.test(x.t))); s.date = was;

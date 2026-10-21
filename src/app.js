@@ -69900,23 +69900,15 @@ function eaChase(F, X, r) {
         msg: `Hi — we need a current certificate of insurance for ${v.name} before the next purchase order can go out${v.insuranceExp ? " (the one on file expired " + fmtL(v.insuranceExp) + ")" : ""}. Could you send it over today? Thanks.`,
       }),
     );
-  // a COI lapsed or lapsing for a sub or vendor booked on site within 10 working days (PRED.vendorsCoiLapsing)
+  // a COI lapsed or lapsing for a sub or vendor booked on site within 10 working days (PRED.vendorsCoiLapsing): the
+  // coordinator has it on Do Now (an Approvals card, below); Caught for You carries it only for the owner, and only
+  // when DELEGATION.coi escalates it
   try {
-    const weak = new Set(X.vendorsWeak.map((v) => v.id)),
-      r0 = r;
-    PRED.vendorsCoiLapsing.rows()
-      // the coordinator's to chase; the owner's only when DELEGATION.coi escalates it (see coiEscalates)
-      .filter((r) => r.soon && !weak.has(r.v.id) && (!r0 || DELEGATION.coi.who({ id: r.v.id }) === r0))
-      .forEach((r) =>
-        out.push({
-          kind: "coi",
-          n: "!COI",
-          t: `${esc(r.v.name)} — ${esc(coiWords(r))}`,
-          sub: `${"site" === r.next.kind ? "on site" : "order due"} ${fmt(r.next.date)}`,
-          vendor: r.v,
-          msg: `Hi — ${"missing" === r.state ? `we do not have a certificate of insurance on file for ${r.v.name}` : `the certificate of insurance we have for ${r.v.name} ${"expired" === r.state ? "expired" : "expires"} ${fmtL(r.exp)}`}, and you are ${"site" === r.next.kind ? "booked on site" : "due to deliver"} ${fmtL(r.next.date)}. Could you send a current one by ${fmtL(chaseBy(addWork(r.next.date, -2), ""))}, with SmartDesign named as certificate holder? Thanks.`,
-        }),
-      );
+    const weak = new Set(X.vendorsWeak.map((v) => v.id));
+    "owner" === r &&
+      PRED.vendorsCoiLapsing.rows()
+        .filter((x) => x.soon && !weak.has(x.v.id) && "owner" === DELEGATION.coi.who({ id: x.v.id }))
+        .forEach((x) => out.push(coiChaseItem(x)));
   } catch (e) {}
   const uniq = all.filter((c) => {
     const k = c.kind + "|" + eaPlain(c.t).replace(/ — .*$/, "");
@@ -178877,8 +178869,9 @@ CATCH.push({
       return pb
         ? {
             key: "um:" + t.id,
-            what: `Paid before approval: ${pb.vendor} ${pb.number || ""}`.trim(),
-            sub: `${money(truthAbs(t.amt))} left ${truthAcctWords(t)} on ${fmtL(t.date)} · the bill still needs a signature`,
+            // short for the owner's phone Home (180 words): the bill's card in Approvals carries the account and number
+            what: `Paid before approval: ${pb.vendor}`,
+            sub: `${money(truthAbs(t.amt))} on ${fmt(t.date)}`,
             amount: truthAbs(t.amt),
             verb: "Review",
             run: () => openBill(pb.id),
@@ -180694,6 +180687,59 @@ DELEGATION.coi = {
     return onSite || pay ? "owner" : "coord";
   },
 };
+// The chase for a lapsed COI, as eaNudge drafts it: one shape for the owner's Caught row and the coordinator's card
+function coiChaseItem(r) {
+  return {
+    kind: "coi",
+    n: "!COI",
+    t: `${esc(r.v.name)} — ${esc(coiWords(r))}`,
+    sub: `${"site" === r.next.kind ? "on site" : "order due"} ${fmt(r.next.date)}`,
+    vendor: r.v,
+    msg: `Hi — ${"missing" === r.state ? `we do not have a certificate of insurance on file for ${r.v.name}` : `the certificate of insurance we have for ${r.v.name} ${"expired" === r.state ? "expired" : "expires"} ${fmtL(r.exp)}`}, and you are ${"site" === r.next.kind ? "booked on site" : "due to deliver"} ${fmtL(r.next.date)}. Could you send a current one by ${fmtL(chaseBy(addWork(r.next.date, -2), ""))}, with SmartDesign named as certificate holder? Thanks.`,
+  };
+}
+// The coordinator's Do Now: a lapsed COI for a vendor on site within 10 working days, a card in Approvals (kind
+// "coi", DELEGATION.coi's role) whose yes drafts the chase. Not a new list: it rides mApprovals like payment holds.
+{
+  const base = mApprovals;
+  mApprovals = function (opts) {
+    const out = base.apply(this, arguments);
+    try {
+      if (!Array.isArray(out) || !((opts && opts.everyone) || "coord" === role())) return out;
+      const weak = new Set(((PRED.vendorsBlocked && PRED.vendorsBlocked.rows()) || []).map((v) => v.id));
+      return out.concat(
+        PRED.vendorsCoiLapsing.rows()
+          .filter((x) => x.soon && !weak.has(x.v.id))
+          .map((x) => ({
+            kind: "coi",
+            id: x.v.id,
+            sev: "bad",
+            n: "COI",
+            title: `${x.v.name} — ${coiWords(x)}`,
+            detail: `${"site" === x.next.kind ? "on site" : "order due"} ${fmt(x.next.date)} · ${x.next.what}`,
+            yes: "Chase COI",
+            who: "coord",
+            open: { view: "vendors" },
+          })),
+      );
+    } catch (e) {
+      return out;
+    }
+  };
+}
+{
+  const base = tdCard;
+  tdCard = function (it) {
+    const c = base.apply(this, arguments);
+    try {
+      if (it && "coi" === it.kind) {
+        const r = PRED.vendorsCoiLapsing.row((DB.vendors || []).find((v) => v.id === it.id));
+        (c.line1 = esc(it.title)), (c.why = esc(it.detail || "")), (c.verb = it.yes), r && (c.run = () => eaNudge(coiChaseItem(r)));
+      }
+    } catch (e) {}
+    return c;
+  };
+}
 const coiWords = (r) =>
   `${"missing" === r.state ? "no COI on file" : "expired" === r.state ? `COI expired ${fmt(r.exp)}` : `COI expires ${fmt(r.exp)}`}`;
 // Expedite an ordered line that has no purchase order behind it: who has it, when it lands, and a chase.
