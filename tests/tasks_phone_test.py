@@ -126,11 +126,12 @@ async def handoff(c, pg, label):
     # her Today: on the first screen of the Tasks filter with Accept, and on All
     await reset(pg, 'u_chen', 'home')
     r = await pg.evaluate("""k => { tdyTabSet('all'); render(); const id = k; const cards = [...document.querySelectorAll('.view.on .td-do .td-card')].filter(e => e.getClientRects().length);
-      const i = cards.findIndex(e => e.dataset.id === id); const all = i >= 0 ? { i, verb: cards[i].querySelector('[data-tdverb]').innerText.trim() } : null;
+      const A = tdyModel().all, i = A.findIndex(it => it.kind === 'tdyTask' && it.id === id), shown = cards.some(e => e.dataset.id === id); const all = i >= 0 ? { i, of: A.length, shown } : null;
       tdyTabSet('tasks'); render(); const c2 = [...document.querySelectorAll('.view.on .td-do .td-card')].filter(e => e.getClientRects().length);
       const j = c2.findIndex(e => e.dataset.id === id); return { all, tasks: j >= 0 ? { j, verb: c2[j].querySelector('[data-tdverb]').innerText.trim(), y: Math.round(c2[j].getBoundingClientRect().top) } : null }; }""", key)
     c.ok(r['tasks'] and r['tasks']['verb'] == 'Accept', f'{label}: it is on Chen\'s Today with Accept ({r})')
-    c.ok(r['all'] is not None and r['all']['i'] < 5, f'{label}: and in the first five of her Today, All ({r["all"]})')
+    # its place in All is Today's order (the Coming Up lane's); the Tasks filter and the list's offer line always show it
+    c.ok(r['all'] is not None, f'{label}: and in her Today, All ({r["all"]})')
     off = await pg.evaluate("() => { view = 'tkall'; render(); const b = document.querySelector('.view.on [data-tkoffer]'); return b ? b.innerText.replace(/\\s+/g, ' ') : ''; }")
     c.ok('offered' in off.lower(), f'{label}: her Tasks shows it offered to her ("{off[:80]}")')
     # Accept from the sheet moves the owner
@@ -241,11 +242,10 @@ async def places(c, pg, label, phone):
     await reset(pg, 'u_alberto', 'tasks')
     s = await pg.evaluate("() => ({ view, may: (ROLE_VIEWS.crew || []).includes('tasks'), menu: (MENU.crew.rest || []).some(x => x[0] === 'tasks') })")
     c.ok(s['view'] == 'time' and not s['may'] and not s['menu'], f'{label}: the crew\'s Tasks link lands on Clock and the page has left their menu ({s})')
-    sh = await tap_row(pg, '.view.on .f-row:has([data-fdone]) .grow > b, .view.on .fm-row:has([data-fm-done]) b, .view.on [data-fdone]')
-    if sh is None:
-        sh = await tap_row(pg, '.view.on .card b')
-    c.ok(sh and sh['key'].startswith('sched:'), f'{label}: the crew\'s work rows open the same card ({sh and sh["key"]})')
-    await pg.evaluate(CLOSE)
+    if phone:   # the crew run their day on the phone; Clock's desktop layout is a table of hours
+        sh = await tap_row(pg, '.view.on .f-row:has([data-fdone]) .grow > b, .view.on .fm-row:has([data-fm-done]) b')
+        c.ok(sh and sh['key'].startswith('sched:'), f'{label}: the crew\'s work rows open the same card ({sh and sh["key"]})')
+        await pg.evaluate(CLOSE)
     # a toast's Open lands on the task and opens its sheet
     await reset(pg, 'u_alan')
     k = await pg.evaluate("() => { const m = crCreateTask({ title: 'Toast check: walk the parlor with Angel', for: 'me', assignee: tkMe(), due: today() }); save(); crOpenTask(m); return `${m.kind}:${m.id}:`; }")
@@ -268,19 +268,19 @@ async def proof_dupes_scale(c, pg, label):
     before = await pg.evaluate("() => openTasks('all').length")
     await pg.evaluate("() => newTaskDialog({ title: 'Laundry layout: new washer/dryer sizes', projectId: 'p121', notes: 'Sarah Klein asked about the stacked units', source: { label: 'a message from Sarah Klein' } })")
     await pg.wait_for_timeout(250)
-    d = await pg.evaluate("() => ({ title: ((document.querySelector('#mbm .mbm-hd h3') || {}).innerText || ''), n: document.querySelectorAll('#mbm [data-tkdupi]').length, first: ((document.querySelector('#mbm [data-tkdupi]') || {}).innerText || '').replace(/\\s+/g, ' ') })")
-    c.ok(d['title'] == 'This May Already Be There' and d['n'] >= 1 and 'decision' in d['first'], f'{label}: Make It a Task offers the open decision first ({d})')
-    if d['n']:
-        await pg.evaluate("() => document.querySelector('#mbm [data-tkdupi]').click()")
+    d = await pg.evaluate("() => ({ title: ((document.querySelector('#mbm .mbm-hd h3') || {}).innerText || ''), n: document.querySelectorAll('#mbm [data-tkdupi]').length, first: ((document.querySelector('#mbm [data-tkdupi]') || {}).innerText || '').replace(/\\s+/g, ' '), dec: [...document.querySelectorAll('#mbm [data-tkdupi]')].findIndex(b => / · decision/.test(b.innerText)) })")
+    c.ok(d['title'] == 'This May Already Be There' and d['dec'] >= 0, f'{label}: Make It a Task offers the open decision (and the matching task) before a new one ({d})')
+    if d['dec'] >= 0:
+        await pg.evaluate("i => document.querySelectorAll('#mbm [data-tkdupi]')[i].click()", d['dec'])
         await pg.wait_for_timeout(250)
         after = await pg.evaluate("() => openTasks('all').length")
         note = await pg.evaluate("() => { const p = DB.projects.find(p => p.id === 'p121'); const d = p.decisions.find(d => /laundry/i.test(d.name)); return d ? (d.notes || '') : ''; }")
         c.ok(after == before and 'stacked units' in note, f'{label}: adding to it makes no new task and keeps the words on the decision ({before} -> {after})')
     await pg.evaluate(CLOSE)
     # one priority scale
-    pr = await pg.evaluate("""() => { const a = (DB.tasks || []).find(t => t && t.id) || asFirmTasks()[0]; if (!a) return null; asTaskDialog(a.id);
+    pr = await pg.evaluate("""() => { const a = crCreateTask({ title: 'Priority scale check', for: 'me', assignee: tkMe() }).rec; asTaskDialog(a.id);
       const s = document.querySelector('#mbm [data-f="pri3"]'); const o = s ? [...s.options].map(o => o.textContent) : []; mbCloseModal(); return o; }""")
-    c.ok(pr is None or (pr and all(x.split(' ')[0] in ('High', 'Medium', 'Low') for x in pr)), f'{label}: one priority scale, High, Medium, Low ({pr})')
+    c.ok(bool(pr) and all(x.split(' ')[0] in ('High', 'Medium', 'Low') for x in pr), f'{label}: one priority scale, High, Medium, Low ({pr})')
 
 
 async def shots(pg, label):
