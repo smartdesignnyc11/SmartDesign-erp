@@ -13963,10 +13963,9 @@ function openExceptions() {
   return V.concat(U);
 }
 // What an exception says: verification's findings, or, for a line verification has not read, that nothing is behind it
-const VF_UNMATCHED = { lvl: "warn", m: "not matched to a bill, order, invoice or payroll line" };
 function vfEx(t) {
   const ex = (t && t.verification && t.verification.ex) || [];
-  return ex.length ? ex : t && !t.verified ? [VF_UNMATCHED] : [];
+  return ex.length ? ex : t && !t.verified ? [{ lvl: "warn", m: "not matched to a bill, order, invoice or payroll line" }] : [];
 }
 let vfFilter = "open";
 function renderVerify() {
@@ -102352,7 +102351,9 @@ function tkMe() {
 // Who a task's owner field names: a person by user id, else by a full name, else by a first name only one person
 // carries (S2 fix, PM review 2026-10-21: the PM "Alan" was read as the owner, so the owner's Mine took the PM's
 // tasks and the PM's Ask counted the owner's). A first name two people share names neither of them.
-const tkFirst = (s) => String(s || "").trim().toLowerCase().split(/[\s/]/)[0];
+function tkFirstLow(s) {
+  return String(s || "").trim().toLowerCase().split(/[\s/]/)[0];
+}
 function tkPeople() {
   const U = DB.users || [],
     E = DB.employees || [],
@@ -102364,7 +102365,7 @@ function tkPeople() {
   return (tkPeople._c = { U: U, E: E, n: U.length + "|" + E.length, P: P, memo: new Map() });
 }
 function tkFirstShared(first) {
-  return new Set(tkPeople().P.filter((x) => x.name && tkFirst(x.name) === first).map((x) => x.name)).size > 1;
+  return new Set(tkPeople().P.filter((x) => x.name && tkFirstLow(x.name) === first).map((x) => x.name)).size > 1;
 }
 function tkPersonOf(s) {
   const t = String(s || "").trim().toLowerCase();
@@ -102375,8 +102376,8 @@ function tkPersonOf(s) {
     user = (L) => L.find((x) => !x.id.startsWith("em:")) || L[0] || null;
   let r = P.find((x) => x.id.toLowerCase() === t) || user(P.filter((x) => x.name === t));
   if (!r) {
-    const f = tkFirst(t);
-    r = tkFirstShared(f) ? null : user(P.filter((x) => x.name && tkFirst(x.name) === f));
+    const f = tkFirstLow(t);
+    r = tkFirstShared(f) ? null : user(P.filter((x) => x.name && tkFirstLow(x.name) === f));
   }
   return C.memo.set(t, r), r;
 }
@@ -102407,8 +102408,8 @@ function tkOwnerMatch(owner, me) {
     if (r && ROLE_WORDS[r] && ROLE_WORDS[r].test(o)) return !0;
   } catch (e) {}
   // the same first name: one person when only one person carries it ("Chen" is Chen Biron), nobody when shared
-  const f = tkFirst(o);
-  if (f !== tkFirst(m)) return !1;
+  const f = tkFirstLow(o);
+  if (f !== tkFirstLow(m)) return !1;
   if (U && O) return U.id === O.id;
   return !tkFirstShared(f);
 }
@@ -196259,8 +196260,12 @@ function billHoldSheet(b, kind) {
 }
 // A held bill reads "Held by who: why" on every list that prints a bill's state (Bills & Payroll, Paid Before
 // Approval, Approvals, the Payment Check), not only inside its drawer (S1 fix, owner review 2026-10-21).
-const billHeld = (b) => !!(b && b.onHold && "open" === b.onHold.state);
-const billHeldText = (b) => `Held by ${b.onHold.by}: ${String(b.onHold.why || "").length > 60 ? String(b.onHold.why).slice(0, 57).replace(/\s+\S*$/, "") + "…" : b.onHold.why}`;
+function billHeld(b) {
+  return !!(b && b.onHold && "open" === b.onHold.state);
+}
+function billHeldText(b) {
+  return `Held by ${b.onHold.by}: ${String(b.onHold.why || "").length > 60 ? String(b.onHold.why).slice(0, 57).replace(/\s+\S*$/, "") + "…" : b.onHold.why}`;
+}
 {
   const base = billState;
   billState = function (b) {
