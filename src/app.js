@@ -69896,7 +69896,7 @@ function eaChase(F, X, r) {
         kind: "coi",
         n: "!COI",
         t: `${esc(v.name)} — insurance ${v.insuranceExp ? "expired " + fmt(v.insuranceExp) : "not on file"}`,
-        sub: "no new PO until a current certificate arrives",
+        sub: "no new PO until it arrives",
         vendor: v,
         msg: `Hi — we need a current certificate of insurance for ${v.name} before the next purchase order can go out${v.insuranceExp ? " (the one on file expired " + fmtL(v.insuranceExp) + ")" : ""}. Could you send it over today? Thanks.`,
       }),
@@ -69911,7 +69911,7 @@ function eaChase(F, X, r) {
           kind: "coi",
           n: "!COI",
           t: `${esc(r.v.name)} — ${esc(coiWords(r))}`,
-          sub: `${r.next.what}: no current certificate, and the Standard asks for one 30 days ahead`,
+          sub: `${"site" === r.next.kind ? "on site" : "order due"} ${fmt(r.next.date)}`,
           vendor: r.v,
           msg: `Hi — ${"missing" === r.state ? `we do not have a certificate of insurance on file for ${r.v.name}` : `the certificate of insurance we have for ${r.v.name} ${"expired" === r.state ? "expired" : "expires"} ${fmtL(r.exp)}`}, and you are ${"site" === r.next.kind ? "booked on site" : "due to deliver"} ${fmtL(r.next.date)}. Could you send a current one by ${fmtL(chaseBy(addWork(r.next.date, -2), ""))}, with SmartDesign named as certificate holder? Thanks.`,
         }),
@@ -173942,7 +173942,7 @@ function tdCaught(queue) {
 
 // ---- Brief: three short lines from the morning brief, the brief itself one tap away
 const TD_BRIEF_PICK = [
-  [/(?:^|[:;] )([A-Z][^;:]*?) escalated in writing/, (m) => `${m[1]} escalated in writing: call first`],
+  [/(?:^|[:;] )([A-Z][^;:]*?) escalated in writing/, (m) => `${m[1]} escalated: call first`],
   [/^Since you were last here I (.+?)(?: — |, and |\.$)/, (m) => "I " + m[1]],
   [/(\d+ deals? needs? a hand today)/i, (m) => m[1]],
   [/^Budget: the biggest variances this year are ([^;]+?)(?:;|$)/, (m) => "Budget: " + m[1]],
@@ -178895,7 +178895,7 @@ CATCH.push({
   name: "portalBilledAhead",
   label: "Billed Ahead of the Site",
   rows: () =>
-    ["owner", "pm", "billing", "controller"].includes(role())
+    ["pm", "billing", "controller"].includes(role())
       ? (DB.projects || [])
           .filter((p) => !p.archived && "closed" !== (p.project || {}).status && p.clientId)
           .map((p) => {
@@ -180673,7 +180673,7 @@ predDef("vendorsCoiLapsing", {
   },
 });
 const coiWords = (r) =>
-  `${"missing" === r.state ? "no COI on file" : "expired" === r.state ? `COI expired ${fmt(r.exp)}` : `COI expires ${fmt(r.exp)}`}${r.next ? `, ${"site" === r.next.kind ? "on site" : "order due"} ${fmt(r.next.date)}` : ""}`;
+  `${"missing" === r.state ? "no COI on file" : "expired" === r.state ? `COI expired ${fmt(r.exp)}` : `COI expires ${fmt(r.exp)}`}`;
 // Expedite an ordered line that has no purchase order behind it: who has it, when it lands, and a chase.
 function buyExpedite(p, mid) {
   const m = p && (p.materials || []).find((x) => x.id === mid);
