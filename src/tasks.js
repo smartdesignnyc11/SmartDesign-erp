@@ -162,7 +162,7 @@ function tkRowHtml(x, o) {
     job = sales ? "Sales" : x.project || "Firm-wide",
     who = tkFirst(x.assignee || x.owner),
     showWho = "me" !== tkWho && !O.hideWho && who,
-    bits = [`<span class="tk2-when ${w.cls}">${esc(w.label)}</span>`];
+    bits = [`<span class="tk2-when tk2-w-${w.cls}">${esc(w.label)}</span>`];
   O.hideJob || bits.push(`<span class="tk2-job">${esc(job)}</span>`);
   def && bits.push(`<span class="tk2-later">Later · ${esc(fmt(def))}</span>`);
   x.waitsOn && bits.push(`<span class="tk2-wait">Waiting on ${esc(x.waitsOn)}</span>`);
@@ -586,7 +586,7 @@ function tkSheet(k, opts) {
       ["Next Week", addWork(td, 5)],
     ],
     lines = [
-      `<span class="tk2-when ${w.cls}">${esc(x.due ? (x.due < td ? `Overdue since ${fmtL(x.due)}` : `Due ${fmtL(x.due)}`) : "No date")}</span>`,
+      `<span class="tk2-when tk2-w-${w.cls}">${esc(x.due ? (x.due < td ? `Overdue since ${fmtL(x.due)}` : `Due ${fmtL(x.due)}`) : "No date")}</span>`,
       sched && rec && rec.start ? `<span>${esc(fmtL(rec.start))} to ${esc(fmtL(rec.end))}</span>` : "",
       sched && rec ? `<span>${esc({ "in-progress": "under way", done: "finished" }[rec.status] || "not started")}</span>` : "",
       `<span>Owner: ${esc(t.owner || x.assignee || "nobody yet")}${t.party ? ` (done by ${esc(t.party)})` : ""}</span>`,
@@ -1395,8 +1395,10 @@ const TK_PRI_SAY = { P1: "High", P2: "Medium", P3: "Low" };
 :is(#v-tkall,.tk2-host) .tk2-row.done .tk2-title{color:var(--ink-3);text-decoration:line-through}
 :is(#v-tkall,.tk2-host) .tk2-hi{display:inline-block;width:4px;height:14px;border-radius:2px;background:var(--bad,#b3261e);margin-right:6px;vertical-align:-1px}
 :is(#v-tkall,.tk2-host) .tk2-sub{font-size:13px;line-height:17px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-:is(#v-tkall,.tk2-host) .tk2-when.late{color:var(--bad,#b3261e);font-weight:600}
-:is(#v-tkall,.tk2-host) .tk2-when.today{color:var(--ink);font-weight:600}
+:is(#v-tkall,.tk2-host) .tk2-when.tk2-w-late{color:var(--bad,#b3261e);font-weight:600}
+:is(#v-tkall,.tk2-host) .tk2-when.tk2-w-today{color:var(--ink);font-weight:600}
+#v-tkall .t2-nodate{margin:0 0 10px}
+#v-tkall .t2-nodate .btn{min-height:44px}
 :is(#v-tkall,.tk2-host) .tk2-off{color:var(--accent)}
 :is(#v-tkall,.tk2-host) .tk2-who{flex:0 0 auto;max-width:84px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;color:var(--ink-2);background:var(--paper-2);border-radius:12px;padding:3px 9px}
 :is(#v-tkall,.tk2-host) .tk2-acts{position:absolute;right:0;top:0;bottom:0;display:flex;visibility:hidden}
@@ -1444,7 +1446,7 @@ const TK_PRI_SAY = { P1: "High", P2: "Medium", P3: "Low" };
 #mbm.tks-on .mbm-hd h3{font-size:18px;line-height:24px;font-weight:600}
 .tks{display:flex;flex-direction:column;gap:6px}
 .tks-lines{font-size:14px;color:var(--ink-2);line-height:20px}
-.tks-lines .tk2-when.late{color:var(--bad,#b3261e);font-weight:600}
+.tks-lines .tk2-when.tk2-w-late{color:var(--bad,#b3261e);font-weight:600}
 .tks-h{font-size:14px;font-weight:700;color:var(--ink-2);margin:12px 0 4px}
 .tks-src{display:flex;align-items:center;gap:10px;width:100%;min-height:48px;padding:8px 12px;border:1px solid var(--rule);border-radius:10px;background:var(--paper-2);font-size:14px;text-align:left;cursor:pointer;margin:2px 0}
 .tks-src b{color:var(--accent)}
