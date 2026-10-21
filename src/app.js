@@ -198649,7 +198649,8 @@ function mnRail() {
   } else {
     const G = B.groups.concat(B.more.length ? [{ id: "more", n: "More", icon: "more", items: B.more }] : []).concat(B.bottom ? [B.bottom] : []);
     G.forEach((g, i) => {
-      const one = 1 === g.items.length,
+      // More stays More with one page under it (the owner's More held My Day and Chief of Staff; My Day folded into Tasks)
+      const one = 1 === g.items.length && "more" !== g.id,
         label = one ? g.items[0].l : g.n,
         first = g.items[0],
         target = first;

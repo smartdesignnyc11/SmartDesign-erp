@@ -1205,10 +1205,16 @@ const tkWords = (s) =>
 function tkMatches(title, projectId) {
   const W = tkWords(title);
   if (W.length < 1) return [];
+  const nums = (s) => new Set(String(s || "").match(/\d+/g) || []),
+    N = nums(title);
   const score = (s) => {
+    // different numbers are different things ("unit 4" is not "unit 5", the second call is not the first)
+    const M = nums(s);
+    if (N.size && M.size && ![...N].some((n) => M.has(n))) return 0;
     const V = new Set(tkWords(s));
     const hit = W.filter((w) => V.has(w)).length;
-    return hit >= Math.min(2, W.length) && hit / W.length >= 0.5 ? hit / Math.max(W.length, V.size) : 0;
+    // most of the new title is in the old one, and most of the old one in the new: the same thing said twice
+    return hit >= Math.min(2, W.length) && hit / W.length >= 0.7 && hit / Math.max(1, V.size) >= 0.5 ? hit / Math.max(W.length, V.size) : 0;
   };
   const out = [];
   try {
