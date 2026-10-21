@@ -1,0 +1,12 @@
+{
+  "about": "The information map's failures per check (tests/ia_map.py --check, CONSOLIDATION \u00a72.5). A count may go down, never up: --check fails when a check has more failures than its limit here. Each merge that lowers a count lowers this file in the same commit (python3 ia_map.py --check --tighten). Started 2026-10-21 from the map's first run.",
+  "limits": {
+    "ONE PLACE": 138,
+    "ONE NUMBER": 2,
+    "PRECURSOR LEAD": 40,
+    "PRECURSOR": 54,
+    "TASKS": 0,
+    "CLEAN": 5,
+    "WORDS": 1
+  }
+}
