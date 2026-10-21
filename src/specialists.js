@@ -1200,7 +1200,9 @@ function rsOneHtml(r) {
             box = document.createElement("div");
           box.innerHTML = rsOneHtml(role());
           const el = box.firstElementChild;
-          el && (h && h.parentNode ? h.parentNode.insertBefore(el, h.nextSibling) : v.insertBefore(el, v.firstChild));
+          // the field's screens are one job: the first task and its button stay on the first screen, so the one-liner
+          // sits below the work there (phone390: it pushed the foreman's first Update to the bottom edge)
+          el && (["foreman", "crew", "driver"].includes(role()) ? v.appendChild(el) : h && h.parentNode ? h.parentNode.insertBefore(el, h.nextSibling) : v.insertBefore(el, v.firstChild));
         }
       }
     } catch (e) {

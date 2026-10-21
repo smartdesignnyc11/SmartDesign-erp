@@ -2170,7 +2170,9 @@ const CI_ASK = [
       const words = l.replace(/\b(where|which|what|store|should|do|we|i|buy|get|the|cheapest|cheaper|is|are|for|to|price|book|a|an|at)\b/g, " ").replace(/\s+/g, " ").trim(),
         Q = words ? ciStoreQuotes(words) : { list: [] },
         field = ciIsField();
-      if (!Q.list || !Q.list.length) return { headline: words ? `No store price on file for ${words} in the last 90 days.` : `The receipt price book holds ${agN(ciPriceBook().length, "item")}; ask for one by name.`, work: [], go: field ? { view: "route" } : { view: "rfq", rfqTab: "pricewatch" }, n: 0 };
+      // nothing in the receipt price book: step aside, so the answer that knows a price elsewhere (an RFQ's research,
+      // price watch) answers; "no price on file" only when no word was asked for
+      if (!Q.list || !Q.list.length) return words ? null : { headline: `The receipt price book holds ${agN(ciPriceBook().length, "item")}; ask for one by name.`, work: [], go: field ? { view: "route" } : { view: "rfq", rfqTab: "pricewatch" }, n: 0 };
       const b = Q.list[0],
         w = Q.list[Q.list.length - 1];
       return {
@@ -2205,7 +2207,8 @@ function ciAskRoute(q) {
   const r = ciRole(),
     l = String(q || "").toLowerCase().replace(/\s+/g, " ").trim(),
     it = CI_ASK.find((x) => x.rx.test(l) && x.roles.includes(r));
-  return it ? Object.assign(it.answer(l), { kind: "ci-" + it.id, routedBy: "costintel" }) : null;
+  const a = it ? it.answer(l) : null;
+  return a ? Object.assign(a, { kind: "ci-" + it.id, routedBy: "costintel" }) : null;
 }
 if ("function" == typeof paAsk) {
   const ciPaAskBase = paAsk;
