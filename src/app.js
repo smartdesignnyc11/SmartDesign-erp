@@ -127031,6 +127031,28 @@ Object.assign(FILE_CATS, {
   "change-order": "Change order",
   contract: "Contract",
 });
+// The field never sees money (CLAUDE.md): a contract, a change order, a purchase order or an invoice carries the
+// client's or the vendor's prices, so a foreman's, crew member's or driver's Documents leaves them out: the list, its
+// tabs and its counts (foreman expert review, 2026-10-21, saw a signed estimate under Contracts). The hosted copy must
+// also stop sending them to a field phone (BACKLOG: before the live jobs load).
+const FILE_MONEY_CATS = ["purchase-order", "change-order", "contract", "invoice", "estimate"],
+  fileIsMoney = (f) => !!f && FILE_MONEY_CATS.includes(f.cat),
+  fileFieldRole = () => "function" == typeof role && ["foreman", "crew", "driver"].includes(role());
+{
+  const base = renderFiles;
+  renderFiles = function () {
+    if (!fileFieldRole() || !S || !Array.isArray(S.files)) return base.apply(this, arguments);
+    const all = S.files;
+    FILE_MONEY_CATS.includes(fileFilter) && (fileFilter = "all");
+    S.files = all.filter((f) => !fileIsMoney(f));
+    try {
+      return base.apply(this, arguments);
+    } finally {
+      S.files = all;
+      document.querySelectorAll("#file-filter button").forEach((b) => FILE_MONEY_CATS.includes(b.dataset.f) && b.remove());
+    }
+  };
+}
 {
   const base = linkLabel;
   linkLabel = function (l) {
@@ -135641,6 +135663,7 @@ opsRetireClone = function (p) {
         const ff = document.getElementById("file-filter");
         ff &&
           !ff.querySelector('[data-f="contract"]') &&
+          !("function" == typeof fileFieldRole && fileFieldRole()) &&
           ff.insertAdjacentHTML(
             "beforeend",
             '<button data-f="contract">Contracts</button><button data-f="change-order">Change Orders</button><button data-f="purchase-order">Purchase Orders</button>',
@@ -194138,8 +194161,10 @@ document.addEventListener("click", (e) => {
 });
 // ---- the screens: the Set Check card on Plans, the foreman's hold, the owner's Reports
 function xsKpis(M) {
-  const k = (label, v, cls) => `<div class="kpi ${cls || ""}"><b>${v}</b><span>${label}</span></div>`;
-  return `<div class="kpis xs-kpis">${k("Found Before Work", M.before, "good")}${k("Found in the Field", M.field, M.field ? "warn" : "")}${k("Rework Avoided", money(M.avoided).replace(/\.00$/, ""), "good")}${k("Our Cost", money(M.ours).replace(/\.00$/, ""), M.ours ? "warn" : "")}${k("Days to Resolve", null == M.avgDays ? "—" : M.avgDays)}${k("Open Conflicts", M.open, M.open ? "warn" : "")}</div>`;
+  const k = (label, v, cls) => `<div class="kpi ${cls || ""}"><b>${v}</b><span>${label}</span></div>`,
+    // the field never sees money: the dollar tiles are the office's (foreman expert review, 2026-10-21)
+    fieldRole = "function" == typeof role && ["foreman", "crew", "driver"].includes(role());
+  return `<div class="kpis xs-kpis">${k("Found Before Work", M.before, "good")}${k("Found in the Field", M.field, M.field ? "warn" : "")}${fieldRole ? "" : k("Rework Avoided", money(M.avoided).replace(/\.00$/, ""), "good") + k("Our Cost", money(M.ours).replace(/\.00$/, ""), M.ours ? "warn" : "")}${k("Days to Resolve", null == M.avgDays ? "—" : M.avgDays)}${k("Open Conflicts", M.open, M.open ? "warn" : "")}</div>`;
 }
 function xsValHtml(x, gov) {
   const s = plRow(x.sheetId),
