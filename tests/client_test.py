@@ -298,7 +298,7 @@ async def main():
         await pg.set_viewport_size(PHONE)
         await sign_in(pg, 'u_cambri'); await go(pg, 'client'); await pg.wait_for_timeout(400)
         ov = await text(pg)
-        c.ok(not re.search(r'Completed to Date|Retainage held|certified|crew signs it off|Completed work will appear here', ov, re.I), '2: no construction card on a design client\'s Overview before the schedule is published')
+        c.ok(not re.search(r'Completed to Date|Complete on Site|of the work complete on site|Retainage held|certified|crew signs it off|Completed work will appear here', ov, re.I), '2: no construction card on a design client\'s Overview before the schedule is published')
         D = await pg.evaluate("""() => { const p = S; const ph = phaseHours(p), R = retainerLeft(p); const sv = p.tasks.find(t => /survey/i.test(t.name));
             return { used: r2(ph.reduce((a, x) => a + x.used, 0)), ret: R ? R.retainer : 0, survey: sv ? fmtL(sv.start) : '', phases: ph.map(x => clPhaseName(x.line)), designer: (p.tasks.find(t => t.assignee) || {}).assignee || '' } }""")
         c.ok(f"{D['used']} hrs" in ov and re.search(r'used', ov), f"2: retainer hours used ({D['used']} hrs) on the Overview")

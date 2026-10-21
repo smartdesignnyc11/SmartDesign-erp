@@ -213,8 +213,8 @@ async def sec_portal(p, c):
         for m in CLIENT_LEAK.finditer(texts[v]): leaks.append(f"{v}: {texts[v][max(0, m.start() - 40):m.end() + 30]!r}")
     c.ok(not leaks, f"no client view shows internal earned revenue, a daily-log tag or the stale update line: {leaks[:4]}")
     t = texts.get('client', '')
-    c.ok('Completed to Date $253,684 · 51.65% certified on INV-2026-038 · 14% measured on site' in t,
-         "client Overview card: Completed to Date $253,684 · 51.65% certified on INV-2026-038 · 14% measured on site")
+    c.ok('Billed to Date $253,684 · 52% of the contract through INV-2026-038, including your 20% deposit · 14% of the work complete on site' in t,
+         "client Overview card: Billed to Date $253,684 · 52% of the contract through INV-2026-038, including your 20% deposit · 14% of the work complete on site")
     n = await pg.evaluate("() => { view = 'client'; render(); return document.querySelectorAll('#tp-clprog .pst-tile').length }")
     c.ok(n == 3, f"client Overview shows the last 3 shared photos: {n}")
     cap = await pg.evaluate("() => [...document.querySelectorAll('#tp-clprog .pst-tile')].map(x => x.innerText).join(' | ')")
