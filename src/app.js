@@ -6425,7 +6425,7 @@ function clientFallback() {
     "",
     "Decisions we need from you:",
     ...(j.decisionsNeededFromClient.length
-      ? j.decisionsNeededFromClient.map((d) => `- ${d.name} — by ${fmt(d.due)} (holds up ${d.holdsUp})`)
+      ? j.decisionsNeededFromClient.map((d) => `- ${d.name} — by ${fmt(chaseBy(d.due, ""))} (holds up ${d.holdsUp})`)
       : ["- none right now"]),
     "",
     "Coming up:",
@@ -69808,7 +69808,8 @@ function eaChase(F, X, r) {
         p: x.p,
         c: c,
         who: who,
-        msg: `Hi ${who ? who.name.split(" ")[0] : ""} — quick one on ${x.p.project.name}: we need your call on "${x.d.name}" to keep ${x.d.blocks || "the next trade"} moving. Could you let us know by ${fmtL(x.due)}? Thank you.`,
+        subject: `${x.p.project.name} — your choice on the ${(() => { const t = clTitle(x.d); return t.charAt(0).toLowerCase() + t.slice(1); })()}`,
+        msg: `Hi ${who ? who.name.split(" ")[0] : ""} — quick one on ${x.p.project.name}: ${chaseAsk(x.d, x.p).sentence} Thank you.`,
       });
     }),
     X.field
@@ -97030,7 +97031,7 @@ function bnFollowUpText(p, a, to) {
     first = (to.name || "").split(" ")[0] || "there";
   return {
     subject: `${p.project.name} — ${a.title}`,
-    body: `Hi ${first},\n\nFollowing up on ${a.title.replace(/^(waiting on [^:]+:\s*)/i, "").toLowerCase()} for ${p.project.name}.${days ? ` We have been holding for ${days} working day${1 === days ? "" : "s"} on this` : ""}${a.escalateOn ? `, and we need it by ${fmtL(a.escalateOn)} to keep the schedule` : ""}.\n\nCould you reply today with a date we can plan against? If something is blocking it on your side, tell us what and we will help clear it.\n\nThank you,\n${bnSignature()}`,
+    body: `Hi ${first},\n\nFollowing up on ${a.title.replace(/^(waiting on [^:]+:\s*)/i, "").toLowerCase()} for ${p.project.name}.${days ? ` We have been holding for ${days} working day${1 === days ? "" : "s"} on this` : ""}${a.escalateOn ? `, and we need it by ${fmtL(chaseBy(a.escalateOn, ""))} to keep the schedule` : ""}.\n\nCould you reply today with a date we can plan against? If something is blocking it on your side, tell us what and we will help clear it.\n\nThank you,\n${bnSignature()}`,
   };
 }
 function bnRenewalText(o) {
@@ -149757,34 +149758,67 @@ function clNeed(d, p) {
             ? `${tName} starts ${fmt(tk.start)}`
             : `${tName} is waiting on it`
           : "",
-      order = m ? `so we can order the ${clMatName(m).replace(/^./, (ch) => ch.toLowerCase())}` : "";
+      order = m ? `so we can order the ${clMatName(m).replace(/^./, (ch) => ch.toLowerCase())}` : "",
+      // Every ask carries a date the client can still meet: the due date when it is ahead, else two working
+      // days out (never a day already gone), and never later than the working day before the trade starts.
+      by = chaseBy(late ? "" : due, tk && tk.start),
+      holds = tk && tk.start ? (tk.start >= td ? `${tName} starts ${fmtL(tk.start)}` : `${tName} is waiting on it`) : m ? order.replace(/^so /, "") : "";
     return late
       ? {
           late: late,
           due: due,
+          by: by,
+          holds: holds,
           tk: tk,
           m: m,
           line: "as soon as you can" + (starts ? ` — ${starts}` : m ? ` — ${order}` : ""),
-          ask: `Please let us know as soon as you can${starts ? ` — ${starts}` : m ? `, ${order}` : ""}.`,
+          ask: `Please let us know by ${fmtL(by)}${tk && tk.start ? ` — ${holds}` : m ? `, ${order}` : ""}.`,
         }
       : due
         ? {
             late: late,
             due: due,
+            by: by,
+            holds: holds,
             tk: tk,
             m: m,
             line: `needed by ${fmtL(due)}${m ? ` · ${order}` : tk ? ` · before ${tName} starts` : ""}`,
-            ask: `Please let us know by ${fmtL(due)}${m ? ` ${order}` : tk ? ` so ${tName} can go ahead` : ""}.`,
+            ask: `Please let us know by ${fmtL(by)}${m ? ` ${order}` : tk ? ` so ${tName} can go ahead${tk.start && tk.start >= td ? ` (it starts ${fmtL(tk.start)})` : ""}` : ""}.`,
           }
         : {
             late: late,
             due: due,
+            by: by,
+            holds: holds,
             tk: tk,
             m: m,
             line: m ? order : tk ? `before ${tName} starts` : "no date yet",
-            ask: m ? `Please let us know when you can, ${order}.` : "Please let us know when you can.",
+            ask: `Please let us know by ${fmtL(by)}${m ? `, ${order}` : tk && tk.start ? ` — ${holds}` : ""}.`,
           };
   });
+}
+// The date a chase asks for (BACKLOG S1 fix, PM review 2026-10-21: a chase asked for "Wed, Sep 2" on Sep 3). It is
+// a working day on or after today: the due date when it is still ahead, else two working days out; and when a
+// trade waits on the answer, no later than the working day before it starts (unless that day has already gone).
+function chaseBy(due, before) {
+  const td = today();
+  let by = due && due >= td ? (isWork(due) ? due : prevWork(due) >= td ? prevWork(due) : nextWork(due)) : addWork(td, 2);
+  const cap = before && before > td ? addWork(before, -1) : "";
+  cap && cap < by && (by = cap >= td ? cap : td);
+  return by < td ? nextWork(td) : by;
+}
+// One ask for every decision chase (Caught for You's Chase, Ask's chase, the Decisions sheet's Send to Client):
+// the decision in the client's words (never our record name), a date they can meet, and what waits on it and when.
+function chaseAsk(d, p) {
+  const n = clNeed(d, p),
+    t = clTitle(d);
+  return {
+    title: t,
+    by: n.by,
+    holds: n.holds,
+    late: n.late,
+    sentence: `we need your call on the ${t.charAt(0).toLowerCase() + t.slice(1)}${n.holds ? ` — ${n.holds}` : ""}. Could you let us know by ${fmtL(n.by)}?`,
+  };
 }
 const CL_SEED_OPTS = {
   d8: {
@@ -160444,9 +160478,9 @@ function smSendText(s, p, st) {
         : "",
       when =
         (D.approveBy && D.approveBy < today()) || !D.approveBy
-          ? "as soon as you can" +
+          ? `by ${fmtL(chaseBy("", tk && tk.start))}` +
             (tName
-              ? ` — ${tName} ${tk.start >= today() ? `starts ${fmt(tk.start)}` : "is waiting on it"}`
+              ? ` — ${tName} ${tk.start >= today() ? `starts ${fmtL(tk.start)}` : "is waiting on it"}`
               : "")
           : `by ${fmtL(back < D.approveBy ? back : D.approveBy)}, so we can order it in time${tName ? ` for ${tName}` : ""}`;
     return {
@@ -160455,7 +160489,7 @@ function smSendText(s, p, st) {
       body: `Hi ${first},\n\n${s.sub || "Our supplier"} has sent ${SM_TYPE_WORD[s.type] || "a sample"} of what we plan to order: ${title}. It has been checked by us and by the architect.\n\nPlease take a look and approve it, or tell us what you would like changed — ${when}.\n\nYou can approve it in your portal under Decisions, or reply to this email.\n\nThank you,\n${me}`,
     };
   }
-  const due = D.approveBy && back > D.approveBy ? D.approveBy : back;
+  const due = D.approveBy && back > D.approveBy ? chaseBy(D.approveBy, "") : back;
   return {
     to: st.email || "",
     subject: `Submittal ${s.number} Rev ${r.n} — ${s.title} — for review`,
@@ -160581,7 +160615,7 @@ function smRespond(s, p, o, quiet) {
     (s.status = o.stamp),
       (msg = `${s.number}: ${SM_STAMP[o.stamp]} — back to ${s.sub || "the sub"} for Rev ${r.n + 1}; the email to them is drafted`);
     try {
-      const due = withProject(p, () => addWork(st.respondedOn, 5, !1)),
+      const due = withProject(p, () => chaseBy(addWork(st.respondedOn, 5, !1), "")),
         who =
           "client" === st.role
             ? "the client"
@@ -172051,7 +172085,7 @@ function agChaseDraft(o) {
   const to = o.to,
     first = agFirst(to.name),
     sign = agSign(),
-    due = o.by || agWorkDue(3),
+    due = o.by && o.by >= today() ? o.by : agWorkDue(3),
     D = { kind: o.kind, to: to, vendor: o.vendor || null, lead: o.lead || null, expect: !0, ref: { kind: o.kind } };
   if ("coi" === o.kind) {
     const v = o.vendor || {},
@@ -172076,8 +172110,11 @@ function agChaseDraft(o) {
   } else if ("decision" === o.kind) {
     const d = o.decision,
       p = o.job;
-    (D.subject = `${p ? agShort(p) : "Your project"} — we need your call on ${d.clientTitle || d.name}`),
-      (D.body = `Hi ${first},\n\nQuick one on ${p ? agShort(p) : "the project"}: we need your call on "${d.clientTitle || d.name}"${d.blocks ? ` to keep ${d.blocks} moving` : " to keep the next trade moving"}. Could you let us know by ${fmtL(d.due && d.due > today() ? d.due : due)}?\n\nThank you,\n${sign}`),
+    const A = p ? chaseAsk(d, p) : null;
+    (D.subject = `${p ? agShort(p) : "Your project"} — we need your call on ${A ? A.title : d.clientTitle || d.name}`),
+      (D.body = A
+        ? `Hi ${first},\n\nQuick one on ${agShort(p)}: ${A.sentence}\n\nThank you,\n${sign}`
+        : `Hi ${first},\n\nQuick one on the project: we need your call on "${d.clientTitle || d.name}". Could you let us know by ${fmtL(chaseBy(d.due, ""))}?\n\nThank you,\n${sign}`),
       (D.why = `${to.name} owes a decision on ${d.name}`),
       (D.about = `Decision — ${d.name} (${p ? agShort(p) : ""})`),
       (D.ref = { kind: "decision", projectId: p ? p.id : "", decisionId: d.id });
@@ -172173,7 +172210,7 @@ function agClientUpdate(p) {
       `Here is where ${agShort(p)} stands this week.`,
       moved.length ? `Progress on site: ${moved.slice(0, 5).join("; ")}.` : "",
       next.length ? `Next two weeks: ${next.map((t) => `${t.name} (${fmt(t.start)}–${fmt(t.end)})`).join("; ")}.` : "",
-      dec.length ? `What we need from you: ${dec.map((d) => `${d.name} by ${fmt(d.due)}${d.holdsUp ? ` (it holds ${d.holdsUp})` : ""}`).join("; ")}.` : "Nothing is waiting on you this week.",
+      dec.length ? `What we need from you: ${dec.map((d) => `${d.name} by ${fmt(chaseBy(d.due, ""))}${d.holdsUp ? ` (it holds ${d.holdsUp})` : ""}`).join("; ")}.` : "Nothing is waiting on you this week.",
       j.projectedCompletion ? `Expected completion: ${fmtL(j.projectedCompletion)}.` : "",
     ].filter(Boolean).join("\n\n");
   });
