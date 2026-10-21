@@ -1355,7 +1355,7 @@ function ciRouteInput() {
     if (/^v:/.test(it.pickupFrom || "")) {
       const vn = it.pickupFrom.slice(2),
         V = (DB.vendors || []).find((v) => v.name === vn) || {};
-      return void (yards[vn] = yards[vn] || { n: vn, lat: (V.geo || {}).lat ?? null, lng: (V.geo || {}).lng ?? null, items: [] }).items.push({ key: x.key, what: it.what, qty: it.qty, unit: it.unit, vol: vol, siteId: x.p.id });
+      return void (yards[vn] = yards[vn] || { n: vn, lat: (V.geo || {}).lat ?? null, lng: (V.geo || {}).lng ?? null, items: [] }).items.push({ key: x.key, what: it.what, qty: it.qty, unit: it.unit, vol: vol, siteId: x.p.id, orderRef: (x.r && x.r.orderRef) || "" });
     }
     // stock on hand covers what it can: take it from the shelf, buy only the rest
     let qty = +it.qty || 0;
@@ -1492,8 +1492,11 @@ if ("function" == typeof planDriverDay) {
             return { kind: "site", name: s.n, geo: null != s.lat ? { lat: s.lat, lng: s.lng } : null, lines: B.lines || [], dropRefs: B.dropRefs || [], note: B.note || "", load: s.load, garbage: s.garbage || 0, at: s.at };
           }
           if ("dump" === s.kind) return { kind: "dump", name: s.n, geo: { lat: s.lat, lng: s.lng }, lines: [`Dump ${Math.round(100 * (s.garbage || 0))}% of a van of debris`], note: "", load: s.load, garbage: 0, at: s.at };
-          const verb = "store" === s.kind ? "Buy" : "Load";
-          return { kind: "load" === s.kind ? "pickup" : s.kind, name: s.n, geo: null != s.lat ? { lat: s.lat, lng: s.lng } : null, lines: items.map((a) => `${verb} ${lineOf(a.b || a)} → ${ciJobName((a.b || a).siteId)}${(a.b || a).stock ? ` (from stock: ${(a.b || a).stock})` : ""}`), note: "", load: s.load, garbage: 0, at: s.at, ci: !0 };
+          const verb = "store" === s.kind ? "Buy" : "Load",
+            // the stop the day plan already had for this place keeps its note: the yard's order number, the PO ready for
+            // pickup (the driver reads it at the counter; the planned stop dropped it, pilot_fixes2)
+            had = base.stops.find((b) => "site" !== b.kind && "dump" !== b.kind && String(b.name || "").toLowerCase() === String(s.n || "").toLowerCase()) || {};
+          return { kind: "load" === s.kind ? "pickup" : s.kind, name: s.n, geo: null != s.lat ? { lat: s.lat, lng: s.lng } : null, lines: items.map((a) => `${verb} ${lineOf(a.b || a)} → ${ciJobName((a.b || a).siteId)}${(a.b || a).stock ? ` (from stock: ${(a.b || a).stock})` : ""}`), note: ((refs) => [refs.length && "store" !== s.kind ? `Pick up order ${refs.join(", ")}.` : "", had.note || ""].filter(Boolean).join(" "))([...new Set(items.map((a) => (a.b || a).orderRef).filter(Boolean))]), load: s.load, garbage: 0, at: s.at, ci: !0 };
         });
       stops.forEach((st, i) => {
         i > 0 && st.geo && stops[i - 1].geo && (st.dist = distM(stops[i - 1].geo, st.geo));
