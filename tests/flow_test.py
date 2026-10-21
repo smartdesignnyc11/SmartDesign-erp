@@ -194,6 +194,11 @@ async def s_order(p, c):
             c.ok('over what is left on Millwork' in over, f'order: the slab sheet says it is over what is left on the millwork line ({over!r})')
             over and await pg.fill('#mbm [data-f="overWhy"]', 'countertops were carried in the millwork line; a change order follows')
             await ok(pg, 900)
+            # $7,450 over the line is over $1,000: it waits on the owner, who approves it from the card
+            ap = await pg.evaluate("""() => { const o = DB.pos.find(x => x.lines.some(l => l.materialId === 'm19')); if (!o || o.status !== 'pending') return o && o.status;
+              const why = (o.overReason || {}).why || ''; signIn('u_owner'); const card = mApprovals().find(a => a.kind === 'po' && a.id === o.id);
+              const said = !!(card && /over what is left on Millwork/.test(card.detail) && card.detail.includes(why)); apprPOYes({ id: o.id }); signIn('u_chen'); return said ? 'approved' : 'card silent' }""")
+            c.ok(ap == 'approved', f'order: the slab waits on the owner, whose card says the overage and why; approved, it issues ({ap})')
             po = await pg.evaluate("() => { const o = DB.pos.find(x => x.lines.some(l => l.materialId === 'm19')); return o && [o.status, o.vendor, poTotal(o).total, !!o.tradeVerified, poDoubleOrder(o), (o.templateFirst || {}).task || '', o.notes || '']; }")
             c.ok(po and po[0] == 'issued' and po[2] == 7450 and not po[3] and 'template' in po[5] and 'template' in po[6],
                  f'order: the slab PO is issued, fabrication from the template on it, no measurement claimed ({po})')
@@ -208,7 +213,7 @@ async def s_order(p, c):
             return (document.querySelector('#mbm .fl-fabgate') || {}).innerText || ''; }""")
         c.ok(gx and 'Second measurement' in gx and await pg.locator('#mbm [data-f="tradeOk"]').count() == 1, f'order: a non-template fabricated item still asks the measurement tick ({gx!r})')
         if gx:
-            await pg.evaluate("() => { const set = (k, v) => { const e = document.querySelector(`#mbm [data-f=\"${k}\"]`); if (e) { e.value = v; e.dispatchEvent(new Event('input', { bubbles: true })); e.dispatchEvent(new Event('change', { bubbles: true })); } }; const s = document.querySelector('#mbm [data-f=\"vendor\"]'); const o = [...s.options].find(o => /Gowanus Stone Yard/.test(o.text)); s.value = o ? o.value : s.value; s.dispatchEvent(new Event('change', { bubbles: true })); set('price', '1200'); set('needBy', '2026-09-24'); }")
+            await pg.evaluate("() => { const set = (k, v) => { const e = document.querySelector(`#mbm [data-f=\"${k}\"]`); if (e) { e.value = v; e.dispatchEvent(new Event('input', { bubbles: true })); e.dispatchEvent(new Event('change', { bubbles: true })); } }; const s = document.querySelector('#mbm [data-f=\"vendor\"]'); const o = [...s.options].find(o => /Gowanus Stone Yard/.test(o.text)); s.value = o ? o.value : s.value; s.dispatchEvent(new Event('change', { bubbles: true })); set('price', '900'); set('needBy', '2026-09-24'); }")
             n0 = await pg.evaluate("() => DB.pos.length")
             await ok(pg, 500)
             c.ok(await modal(pg) and await pg.evaluate("() => DB.pos.length") == n0, 'order: without the tick nothing is ordered and the sheet stays open')
