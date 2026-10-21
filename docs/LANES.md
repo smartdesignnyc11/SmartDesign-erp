@@ -2,21 +2,32 @@
 
 The chief of staff keeps this board current. A lane is one build agent in its own git worktree (`.claude/worktrees/<name>`, branch `lane-<name>`). Lanes never push or merge. The main session merges them one at a time and runs the full net after each.
 
-## 2026-10-21: every role sees what it needs, early, in one place (Alan's ask; queued)
-Spec: BACKLOG §1.34. Board checked 2026-10-21: no worktree has unmerged work, so no running lane owns this. The today lane (one queue, one task shape) and the menu lane own these seams, and both are merged. This is a new lane, which audits what they left open before anything is rebuilt.
+## 2026-10-21: every role sees what it needs, early, in one place (Alan's ask)
+Spec: BACKLOG §1.34. Plan for his yes: `docs/CONSOLIDATION.md`.
+
+**Board checked 2026-10-21, 03:22 UTC.** The map lane's work is on master as 42cf9fd. Its worktree still shows its own three commits, because the main session squashed them and moved `review/ia/map.md` to `docs/IA_MAP.md`; the content is merged. One locked worktree sits at master's head (e7be0fe) with no commits. That is taken to be the fix lane starting. Every other worktree has nothing left to merge.
 
 | Lane | Scope | Design gate | Status |
 |---|---|---|---|
-| deploy (main session) | The merged week-4 build goes live once the full net is green, so Alan judges the current task work | — | Next; waits on the full net ("Week 4" below) |
-| information map | Read only, no code. Every role, desktop and 390px: every place each noun appears (tasks, approvals, inbox, decisions, schedule risk, orders, money), duplicates counted, one number per label checked. For each delay precursor (order-by, decisions due, inspections, crew blocked, submittals, COI lapses, permits and LPC, client selections, consultants' answers, deliveries reconfirmed): does it surface before its date or only once late, and does the record carry the date it needs? Starts from `docs/pilot/pilot1/nav_workshop.md` (c). Includes the client portal, read only | Adds no store, list, queue or menu item; touches no code | Queued (after the deploy). 8–12% with the experts |
-| role experts (runs) | Owner, PM, coordinator and foreman work a full day phone-first on the deployed build. Each lists every place they looked and each precursor they found late | §1.16 layer 5 | Queued |
-| build round | The consolidation plan Alan agrees: one place per noun per role, the task module rebuilt for the phone, the "Coming Up" band of Today, and the three new checks | Extends `tkItems()`/`tkAll()`, `PRED.waitingOnMe`, `cmListFor`, `p.decisions`, Today (`home`), the job's Plan, `MENU`; no new queue or page. "Coming Up" is a band of Today ranked by `standardRank` | Not started. Waits on Alan's yes to the plan and on the week's usage. 15–20% |
+| deploy (main session) | The merged week-4 build goes live once the full net is green, so Alan judges the current task work | — | Not recorded as done. The experts worked on the merged build run locally, not the hosted copy |
+| information map | Read only. Every role at 1440 and 390 (830 screens): places per noun, one number per label, delay warnings ahead of time or only once late, the task screens, clean pages. `tests/ia_map.py`; `--check` fails 276 of 469 by design | Held: a test script, its reader and its output; no app code, store, list, queue or menu item | MERGED 2026-10-21 (42cf9fd; lane head 4c45c62). Tables, data and screenshots stay in the untracked `review/ia/` |
+| role experts | Owner, PM, coordinator and foreman each worked a full day, phone first, and listed every place they looked | §1.16 layer 5 | DONE 2026-10-21. Grades (priorities, tasks on the phone, clean, one place): owner 4/4/4/3, PM 5/4/5/3, coordinator 5/4/4/3, foreman 5/6/5/4. Reports in `review/experts/` (untracked) |
+| fix lane (main session) | S1 and S2 bugs that are wrong today, outside the redesign: the PM's chase email asks for an answer by a past date; `tkOwnerMatch` treats the PM "Alan" as the owner; AMP-311 is paid by a bank line from before its own date, and the hold is missing from its Payment Run row; Controls shows 0 exceptions with 16 lines unmatched; expired COIs are not flagged (Window Works); Projects says "4 of 4 on time" while blockers exist | Fixes in place; the at-risk rule is one rule, which Projects, Health, Ask and later Coming Up all read | Running, no commits yet. Chief of staff: add two S1s it lacks, the client portal's two progress numbers 37 points apart and paid bills still in the Payment Run |
+| PO gates (main session) | The coordinator's two S1s: vendor papers and estimate-line overage at issue | In `poValid`, the one validator every issue path ends in; no new list | Built on master (68066ba, a315e7f, e7be0fe); po_gates_test 36 is in the net. W-9 is a warning: a recommendation waiting on Alan |
+| build round: tasks | `docs/CONSOLIDATION.md` 2.3, plus the task folds (Sales Tasks, Projects › Tasks, My Day become chips) | `tkItems()` / `tkAll()`, list `tkall`; no new store | Waiting on Alan's yes, the fix lane's merge and the weekly reset. 6–9% |
+| build round: Coming Up | 2.2 and 2.4: the band on Today, each role's first phone screen, and the missing dates on records | Today (`home`, `tdyModel`), `standardRank`, the existing predicates; new fields only for missing dates | Waiting (same). Can run beside tasks. 8–10% |
+| build round: one place | 2.1's remaining folds, forwards for old page names, one number (counts lint), Caught for You one card per record, bank matching to the controller | `MENU`, `ROLE_VIEWS`, `PRED.waitingOnMe`, `cmListFor`, `CATCH`; registry = `ONE_PLACE` in `tests/ia_map.py` | Waiting (same). After tasks merges. 7–9% |
+
+**Merge plan.** Fix lane first. Then tasks, then Coming Up, then one place. `ia_map.py --check` enters `run_all.sh` with the first merge as a ratchet: each category's failure count may go down, never up, and the baseline drops in the merge commit. After each merge, run the scripted month both ways (the whole list, then the first five). The full net runs once at the end, and then the phone re-walk: owner, PM, coordinator, foreman and controller, a half day each. In all about 30% of a week, after the reset.
 
 **Chief of staff's conditions:**
-1. **Nothing lost in a fold.** Every cut or merge shows the counts per person before and after. The scripted month holds at 261/292, $1,937 and 0 days or better, reading the whole list and only the first five.
-2. **Early means early.** The new lead test fails when a planted precursor first shows on its owner's Today on or after its own date.
-3. **Not a new page.** No Risks, Lookahead or Priorities page.
+1. **Nothing lost in a fold.** Every cut or merge shows the counts per person before and after. The scripted month holds at 261/292, $1,937 and 0 days or better, both ways.
+2. **Early means early.** A planted bank (late predecessor, arriving after needed, insurance lapsing with a booking, a consultant's answer, an LPC filing, a delivery to reconfirm) fails when a warning first shows on its owner's Today on or after its own date.
+3. **Not a new page.** No Risks, Lookahead or Priorities page. Coming Up is a band of Today.
 4. **People.** Team views never rank people.
+5. **Old links land.** Every removed page name forwards to its one list with the right filter: menu, toasts, push, briefings, the specialists' targets, saved reports. The crawl proves it.
+6. **Money never folds away.** The owner's rollup never swallows a bank-detail change, a payment hold or client money waiting.
+7. **One at-risk rule.** Coming Up reads the fix lane's rule; it does not build a second.
 
 ## Week 4 (2026-10-20, Alan: "Go")
 

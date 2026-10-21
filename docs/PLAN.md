@@ -2,7 +2,7 @@
 
 This is the one list. The chief of staff keeps it current on every ask, lane report and merge. Details live in the BACKLOG sections named. Status words: **Running** · **Next** · **Queued** · **Waiting on Alan** · **Later** (deferred by Alan) · **Done**.
 
-Last updated 2026-10-21 (Alan's new ask logged: every role sees what it needs, early, in one place, and the task module rebuilt for the phone. Week 4 is merged on master (af76462); the full net and the deploy are pending).
+Last updated 2026-10-21, later the same day. The information map merged (42cf9fd) and the four role experts are done. The consolidation plan (`docs/CONSOLIDATION.md`) waits on Alan's yes. A fix lane is running on the bugs that are wrong today, and the PO gates are built. Week 4 is merged on master (af76462); the full net and the deploy are pending.
 
 ## 0. Usage rule (Alan)
 - Warn before any heavy step.
@@ -14,11 +14,13 @@ Last updated 2026-10-21 (Alan's new ask logged: every role sees what it needs, e
 
 | # | Step | Who | Status | Usage |
 |---|---|---|---|---|
-| 1 | Deploy the merged week-4 build once the full net is green, so Alan sees the current task work; ask him for ten minutes on his phone with the task module | main session | **Next** (waits on the full net, "Week 4" below) | in week 4 |
-| 2 | The information map: every role, desktop and 390px, every place each noun appears (tasks, approvals, inbox, decisions, schedule risk, orders, money), duplicates counted, and which delay precursors surface ahead of time versus only once late. It starts from the pilot's "one place" table (2026-10-18) and includes the client portal, read only | new lane, read only | **Queued** | 8–12% with step 3 |
-| 3 | Four role experts (owner, PM, coordinator, foreman) work a full day, phone first, on the deployed build, listing every place they looked | runs | **Queued** | (in step 2) |
-| 4 | The consolidation plan for Alan: one place per noun per role, the task module rebuilt for the phone, pages cut or merged, each with its trade-off | chief of staff and main session | **Queued**, then **Waiting on Alan** | small |
-| 5 | The build round on the agreed plan, with the three new checks (places to look per noun, precursors shown before their date, find-it-again at 390px) | one or two lanes | **Queued**, after his yes | 15–20% |
+| 1 | Deploy the merged week-4 build once the full net is green, so Alan sees the current task work; ask him for ten minutes on his phone with the task module | main session | **Next** (not recorded as done; waits on the full net, "Week 4" below) | in week 4 |
+| 2 | The information map: every role at 1440 and 390, places per noun, one number per label, delay warnings ahead of time or late, the phone task screens; `tests/ia_map.py --check` | map lane, read only | **Done** (merged 42cf9fd): to-dos on 14 of the PM's screens, materials on 19; 8 labels with two numbers; 45 of 68 warnings never on the first phone screen; the task list opens empty for five roles; 276 of 469 checks fail by design | 8–12% with step 3 |
+| 3 | Four role experts (owner, PM, coordinator, foreman) work a full day, phone first | runs | **Done**: owner 4/4/4/3, PM 5/4/5/3, coordinator 5/4/4/3, foreman 5/6/5/4 (priorities before delays, tasks on the phone, clean, one place) | (in step 2) |
+| 4 | The consolidation plan: one list per kind of work, the "Coming Up" band of Today, the phone task module, each role's first phone screen, the ratchet | chief of staff | **Waiting on Alan** (`docs/CONSOLIDATION.md`; three decisions in §5) | small |
+| 5 | The build round: three lanes (tasks, Coming Up, one place), the ratchet in the net, the month both ways after each merge, then a half-day phone re-walk by five roles | three lanes | **Queued**: after his yes, the fix lane's merge and the weekly reset | about 30% (26–36%) |
+| — | Fix lane, beside the redesign: the chase email's past date; the PM "Alan" matched as the owner; AMP-311's pre-dated bank line and the hold missing from its Payment Run row; Controls showing 0 exceptions with 16 lines unmatched; expired COIs not flagged; "4 of 4 on time" beside blockers. Chief of staff: add the client portal's two progress numbers and paid bills still in the Payment Run | main session | **Running** | small |
+| — | PO gates: vendor papers and estimate-line overage at issue; a missing W-9 is a warning (68066ba, a315e7f, e7be0fe; po_gates_test 36) | main session | **Done**, not deployed. W-9 as a warning waits on Alan (§5) | — |
 
 **What Alan is not thinking about (chief of staff):**
 - **Early needs a date.** A warning can come early only if the record has a date to count back from: the date material is needed on site, a vendor lead time, the task a decision blocks, an inspection's booking window, a COI's expiry. The map counts missing dates as well as duplicate places. Part of the fix may be data, not screens.
@@ -28,9 +30,9 @@ Last updated 2026-10-21 (Alan's new ask logged: every role sees what it needs, e
 - **"Think ahead (three weeks)" is already his value.** Precursors become a "Coming Up" band of each person's Today and a filter of the job's Plan, not a new page. A new Risks page would be the 13th place.
 - **The experts are AI role experts, not his team.** His own ten minutes on the phone, then the team in the pilot, decide.
 
-**Waiting on Alan (§5):** yes to the plan (map and experts now, build after he agrees the consolidation plan); ten minutes with the task module on his phone once it is live.
+**Waiting on Alan (§5):** yes to `docs/CONSOLIDATION.md`; Today's order for every office person; W-9 as a warning on purchase orders; ten minutes with the task module on his phone once it is live.
 
-**Usage.** 8–12% for the map and experts plus 15–20% for the build round, so 23–32% in all. Week 4 used about 40%, so the build round may wait for the weekly reset under the 60% rule. Check the week's usage before step 2.
+**Usage.** The map and experts: 8–12%, spent. The build round: about 30% (26–36%), not the 15–20% planned. The reasons: the map found three seams, not one or two; the early warnings need dates on the records; the map's walk takes about 20 minutes per run; and the proof needs a phone re-walk. Skipping the re-walk would bring it to 20–25%, which is not recommended. On the planning numbers this week stands near 50–55% (check the real meter), so the round starts after the weekly reset under the 60% rule.
 
 ## Week 4 (2026-10-20, Alan: "Go")
 Alan's "Go" approved the week-4 live AI round (about 40% of a week's usage) and the three recommendations below. Each call is reversible; `docs/DECISIONS.md` logs them.
@@ -345,7 +347,9 @@ What remains, in order. Usage is a share of one week's allowance.
 | 2026-10-20 | Confirm the new Do Now order for every office person: client money waiting and a client message due today rank right after "crew blocked today", above overdue rows (it changes his 10-11 ranking). Recommended: keep it; it follows the Standard's order and brought the month back to 261/292 | The new order stays (reversible) |
 | 2026-10-20 | The one Do Now number: a client-billable purchase over $1,000 ranks first (`DB.company.moneyFirstOver`) | $1,000, the Standard's same-day line |
 | 2026-10-20 | Set the bank's dual control to match the Payment Run: the controller initiates, Alan approves in the bank's app | The ERP records who released each run; the bank itself does not enforce it yet |
-| 2026-10-21 | The plan for "every role sees what it needs, early, in one place" (BACKLOG §1.34): the map and four role experts now (8–12%); the build round (15–20%) after he agrees the consolidation plan | Recommended: yes. The build waits on his yes to the plan and on the week's usage |
+| 2026-10-21 | Yes to `docs/CONSOLIDATION.md` and its build round (about 30% of a week, three lanes) | Recommended: yes, after the weekly reset and the fix lane's merge. Nothing is rebuilt until he says yes |
+| 2026-10-21 | Today's order for every office person: safety and law; crew blocked today; client money and messages; what will delay a job inside its lead time, by days left; overdue as one line per kind; sales follow-ups. The owner's bank matching becomes one line and the rows go to the controller (answers the 10-20 Do Now row too) | Recommended: yes, shipped only if the month holds at 261/292, $1,937, 0 days both ways; reversible |
+| 2026-10-21 | A missing W-9 is a warning on a purchase order, not a stop | Recommended: keep. The Payment Check holds every payment until the W-9 is on file; insurance stays a stop. Add a W-9 request draft on the warning, for approval |
 | 2026-10-21 | Ten minutes with the task module on his phone once the current build is live, and the two or three things that bother him most | The experts' phone day stands in; his notes outrank theirs |
 | Later | Google sign-in consent screen (guided, about 5 minutes) | — |
 
