@@ -400,6 +400,21 @@ function tkResolve(k) {
   try {
     t = tkAll().find((y) => y.key === key) || null;
   } catch (e) {}
+  // a schedule line the crew or a sub does is not anybody's task, but the field still opens its card
+  if (!x && !t && /^sched:/.test(key)) {
+    const [, id, pid] = key.split(":"),
+      p = (DB.projects || []).find((q) => q.id === pid),
+      s = p && (p.tasks || []).find((q) => q.id === id);
+    if (!s) return null;
+    const td = today(),
+      due = s.end || s.start || "";
+    x = { kind: "sched", id: id, projectId: pid, project: shortName(p), title: s.name, assignee: s.owner || "Crew", due: due, priority: "", status: "done" === s.status ? "done" : "todo", done: "done" === s.status, late: "done" !== s.status && !!due && due < td, area: "construction", source: "schedule", notes: s.notes || "" };
+    try {
+      const o = tdyOwnerOf(x);
+      Object.assign(x, { owner: o.name, ownerUid: o.uid || "", ownerHow: o.how, party: o.party || "" });
+      t = tdyShape(x);
+    } catch (e) {}
+  }
   if (!x && !t) return null;
   const rec = x ? tdyRec(x) : null;
   return { key: key, x: x || (t && t.row) || t, t: t, rec: rec };
@@ -1052,7 +1067,7 @@ document.addEventListener(
     try {
       const id = b.dataset.fdone || b.dataset.fmDone,
         pid = (S && S.id) || "",
-        x = tkItems().find((y) => "sched" === y.kind && y.id === id && (y.projectId || "") === pid);
+        x = (tkResolve(`sched:${id}:${pid}`) || {}).x;
       if (!x || x.done) return;
       const rec = tdyRec(x),
         need = tdyProofNeed(x, rec);
@@ -1411,7 +1426,7 @@ const TK_PRI_SAY = { P1: "High", P2: "Medium", P3: "Low" };
   #v-tkall .tk2-ph{display:none}
   #v-tkall .tk2-list{border-radius:0;border-left:0;border-right:0;margin:0 -16px;padding-bottom:80px}
   #v-tkall .tk2-offer{width:100%}
-  .td-do .td-tabs button{min-height:44px}
+  .td-do .td-tabs[role=tablist] > button{min-height:44px !important}
   .td-do .td-card .td-txt{cursor:pointer}
 }
 .tk2-host .tk2-list.tk2-inline{border:0;border-radius:0;margin:0 -2px;padding:0;overflow:hidden}
@@ -1421,7 +1436,7 @@ const TK_PRI_SAY = { P1: "High", P2: "Medium", P3: "Low" };
 @media (max-width:760px){
   #trk-capture.tk2-capcompact .ph .lead,#trk-capture.tk2-capcompact>.hd,#trk-capture.tk2-capcompact>p{display:none}
   #trk-capture.tk2-capcompact .trk-big{width:100%}
-  .tk2-sday button.gl{min-height:44px}
+  .tk2-sday button.gl{min-height:44px !important}
   .tk2-clock input[type=checkbox]{-webkit-appearance:none;appearance:none;flex:0 0 44px;width:44px;height:44px;margin:0 8px 0 0;border:2px solid var(--ink-3);border-radius:10px;background:var(--paper) center/26px 26px no-repeat;cursor:pointer}
   .tk2-clock input[type=checkbox]:checked{border-color:var(--accent);background-color:var(--accent);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6L9 17l-5-5'/%3E%3C/svg%3E")}
 }

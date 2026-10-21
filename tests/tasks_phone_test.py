@@ -18,8 +18,8 @@ isn't great on mobile"). Desktop and 390px, as the owner, the PM, the coordinato
   dupes     Make It a Task offers the matching decision first; adding to it makes no third copy
   scale     one priority scale: High, Medium, Low
 Invented data only."""
-import asyncio, json
-from harness import async_playwright, open_app, sign_in, go, Checks
+import asyncio, json, os
+from harness import async_playwright, open_app, sign_in, go, Checks, ROOT
 
 ROW = r"""() => { const v = document.querySelector('.view.on'); const vis = e => !!e && e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden';
   const F = (() => { const b = [...document.querySelectorAll('#mtabs, #tabbar')].find(vis); return b ? b.getBoundingClientRect().top : innerHeight; })();
@@ -235,7 +235,7 @@ async def places(c, pg, label, phone):
     c.ok(sh and sh['key'].startswith('sched:') and 'Edit Schedule' in sh['ctl'] and sh['primary'] in ('Start It', 'Update Progress', 'Mark Done'), f'{label}: the foreman\'s work row opens its card, Edit Schedule second ({sh and (sh["key"], sh["primary"])})')
     await pg.evaluate(CLOSE)
     if phone:
-        m = await pg.evaluate("() => { const F = document.querySelector('#mtabs').getBoundingClientRect().top; return [...document.querySelectorAll('.view.on .f-row, .view.on .td-card')].filter(e => e.getClientRects().length && e.getBoundingClientRect().top < F - 16).length; }")
+        m = await pg.evaluate("() => { const bar = [...document.querySelectorAll('#mtabs, #tabbar')].find(e => e.getClientRects().length); const F = bar ? bar.getBoundingClientRect().top : innerHeight; return [...document.querySelectorAll('.view.on .f-row, .view.on .td-card')].filter(e => e.getClientRects().length && e.getBoundingClientRect().top < F - 16).length; }")
         c.ok(m >= 3, f'{label}: the foreman\'s first screen holds three work rows or more ({m})')
     # the crew: no Tasks page; the old link lands on Clock; their work rows open the sheet
     await reset(pg, 'u_alberto', 'tasks')
@@ -283,6 +283,19 @@ async def proof_dupes_scale(c, pg, label):
     c.ok(pr is None or (pr and all(x.split(' ')[0] in ('High', 'Medium', 'Low') for x in pr)), f'{label}: one priority scale, High, Medium, Low ({pr})')
 
 
+async def shots(pg, label):
+    """review/tasks/: the list, a sheet, Today and the job's list as the PM, the foreman's Today (never git-added)"""
+    d = os.path.join(ROOT, 'review', 'tasks')
+    os.makedirs(d, exist_ok=True)
+    for uid, v, js, name in [('u_alan', 'tkall', '', 'pm_tasks'), ('u_alan', 'tkall', "() => { const r = document.querySelector('.view.on .tk2-row .tk2-title'); r && r.click(); }", 'pm_sheet'),
+                             ('u_alan', 'home', "() => { tdyTabSet('tasks'); render(); }", 'pm_today_tasks'), ('u_alan', 'tasks', "() => { setCurrent('p121'); view = 'tasks'; render(); }", 'pm_job_tasks'),
+                             ('u_owner', 'tkall', "() => { tkWho = 'team'; t2Group = null; renderTkAll(); }", 'owner_team'), ('u_angel', 'ftoday', '', 'foreman_today'), ('u_sarah', 'sday', '', 'designer_today')]:
+        await reset(pg, uid, v)
+        if js: await pg.evaluate(js); await pg.wait_for_timeout(300)
+        await pg.screenshot(path=os.path.join(d, f'{label}_{name}.png'))
+    await pg.evaluate(CLOSE)
+
+
 async def main():
     c = Checks()
     async with async_playwright() as p:
@@ -295,8 +308,7 @@ async def main():
                 await handoff(c, pg, label)
                 await proof_dupes_scale(c, pg, label)
                 await find_again(c, pg, label)
-            if phone:
-                await pg.screenshot(path='../review/tasks/phone_last.png') if __import__('os').path.isdir('../review/tasks') else None
+            await shots(pg, label)
             c.ok(not errs, f'{label}: no page errors {errs[:3]}')
             await b.close()
     return c.done()
