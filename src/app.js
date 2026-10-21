@@ -188653,6 +188653,8 @@ function flIssueOrder(r, v, f, tk) {
   if (H.length)
     return toast(`${r.name} waits on ${H.map((x) => `${x.s.number} ${x.s.title}`).join(", ")} — the order goes out when it is approved`), null;
   (po.number = nextPO()), DB.pos.push(po);
+  // linked now, as issue would, so the reason is measured against the line the order carries
+  f.overWhy && "function" == typeof poLinkDefaults && poLinkDefaults(po);
   f.overWhy && "function" == typeof poOverTotal && poOverTotal(po) > 0 && (po.overReason = { by: (currentUser() || {}).name || role(), at: appNowIso(), why: String(f.overWhy).trim(), over: poOverTotal(po) });
   m && !poVendorReal(m.vendor) && (m.vendor = v.name);
   l && !l.vendor && (l.vendor = v.name);
