@@ -188515,7 +188515,8 @@ function buyOrderDialog(o) {
       }
     })(),
     fabTick = /^Second measurement/.test(fab),
-    ovKey = (m ? m.line : r.key) || "",
+    // the line the order will carry: the material's own, or the one poLinkDefaults gives it at issue
+    ovKey = (m ? m.line : r.key) || (m && "function" == typeof polGuess ? polGuess({ projectId: p.id }, { materialId: m.id, item: m.name, code: "" }) : "") || "",
     ovF = /^(estimate|co):/.test(ovKey) ? lineFin(ovKey) : null,
     ovL = ovF && +ovF.budget > 0 ? { left: Math.max(0, r2(ovF.budget - ovF.actual - ovF.committed)), budget: ovF.budget, name: (ovF.line && ovF.line.item) || r.name } : null,
     fabTpl = (() => {

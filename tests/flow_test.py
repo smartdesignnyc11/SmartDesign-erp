@@ -188,6 +188,11 @@ async def s_order(p, c):
             gate = await pg.evaluate("() => (document.querySelector('#mbm .fl-fabgate') || {}).innerText || ''")
             c.ok('templates the site' in gate and 'second measurement' in gate and await pg.locator('#mbm [data-f="tradeOk"]').count() == 0,
                  f'order: the slab sheet says the fabricator\'s template is the second measurement, and asks no tick ({gate!r})')
+            # the slab has no line of its own: it goes on Millwork & countertops, all $75,000 of it already spent or
+            # committed, so the sheet says the overage and asks why before it issues
+            over = await pg.evaluate("() => { const o = document.querySelector('#mbm .fl-over'); return o && !o.hidden ? o.innerText : '' }")
+            c.ok('over what is left on Millwork' in over, f'order: the slab sheet says it is over what is left on the millwork line ({over!r})')
+            over and await pg.fill('#mbm [data-f="overWhy"]', 'countertops were carried in the millwork line; a change order follows')
             await ok(pg, 900)
             po = await pg.evaluate("() => { const o = DB.pos.find(x => x.lines.some(l => l.materialId === 'm19')); return o && [o.status, o.vendor, poTotal(o).total, !!o.tradeVerified, poDoubleOrder(o), (o.templateFirst || {}).task || '', o.notes || '']; }")
             c.ok(po and po[0] == 'issued' and po[2] == 7450 and not po[3] and 'template' in po[5] and 'template' in po[6],
@@ -208,6 +213,9 @@ async def s_order(p, c):
             await ok(pg, 500)
             c.ok(await modal(pg) and await pg.evaluate("() => DB.pos.length") == n0, 'order: without the tick nothing is ordered and the sheet stays open')
             await pg.locator('#mbm [data-f="tradeOk"]').check()
+            # the bench goes on the millwork line too, which has nothing left: the reason goes with it
+            if await pg.evaluate("() => { const o = document.querySelector('#mbm .fl-over'); return !!(o && !o.hidden) }"):
+                await pg.fill('#mbm [data-f="overWhy"]', 'the bench was added by the client; a change order follows')
             await ok(pg, 900)
             po = await pg.evaluate("() => { const o = DB.pos.filter(x => x.lines.some(l => l.materialId === 'mfx1')).pop(); return o && [o.status, !!o.tradeVerified, !!o.tradeVerifiedBy, !!o.templateFirst]; }")
             c.ok(po and po[0] == 'issued' and po[1] and po[2] and not po[3], f'order: with the tick the PO issues, the measurements confirmed on it ({po})')

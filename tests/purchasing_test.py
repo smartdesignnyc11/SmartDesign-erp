@@ -447,6 +447,8 @@ async def s_reader(p, c):
             const res = { line: m.id, sel: sel ? sel.value : null };
             if (box) { const nb = box.querySelector('[data-f="needBy"]'); nb && !nb.value && (nb.value = iso(addDays(today(), 10)));
               const pr = box.querySelector('[data-f="price"]'); pr && !(+pr.value > 0) && (pr.value = '100');
+              flSheetChecks(box); const ov = box.querySelector('.fl-over'); res.over = !!(ov && !ov.hidden);
+              ov && !ov.hidden && (box.querySelector('[data-f="overWhy"]').value = 'over the line on purpose: a change order follows');
               const n0 = DB.pos.length; [...box.querySelectorAll('button')].find(b => /^Issue PO$/.test(b.innerText.trim())).click();
               await new Promise(res => setTimeout(res, 900));
               res.vendor = !!DB.vendors.find(v => v.name === nm); res.po = DB.pos.slice(n0).map(x => x.vendor + ':' + x.status);
