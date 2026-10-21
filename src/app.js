@@ -69902,9 +69902,11 @@ function eaChase(F, X, r) {
     );
   // a COI lapsed or lapsing for a sub or vendor booked on site within 10 working days (PRED.vendorsCoiLapsing)
   try {
-    const weak = new Set(X.vendorsWeak.map((v) => v.id));
+    const weak = new Set(X.vendorsWeak.map((v) => v.id)),
+      r0 = r;
     PRED.vendorsCoiLapsing.rows()
-      .filter((r) => r.soon && !weak.has(r.v.id))
+      // the coordinator's to chase; the owner's only when DELEGATION.coi escalates it (see coiEscalates)
+      .filter((r) => r.soon && !weak.has(r.v.id) && (!r0 || DELEGATION.coi.who({ id: r.v.id }) === r0))
       .forEach((r) =>
         out.push({
           kind: "coi",
@@ -180673,6 +180675,25 @@ predDef("vendorsCoiLapsing", {
       .sort((a, b) => String(a.next.date).localeCompare(String(b.next.date)));
   },
 });
+// Who chases a lapsed COI (decided 2026-10-21 under Alan's overnight instruction, reversible): the coordinator
+// (the Standard, Office: COI 30 days ahead). It escalates to the owner only when the vendor is on site within 2
+// working days, or a payment to them waits on the owner's release, and the certificate is still not current.
+DELEGATION.coi = {
+  role: "coord",
+  rule: "a lapsed or lapsing certificate of insurance is the coordinator's to chase; it reaches the owner only when the vendor is on site within 2 working days or a payment to them waits on his release",
+  who: (it) => {
+    const v = (DB.vendors || []).find((x) => x.id === it.id),
+      r = v && PRED.vendorsCoiLapsing.row(v);
+    if (!r) return "coord";
+    const td = today(),
+      onSite = r.bookings.some((b) => "site" === b.kind && workdays(td, b.date) - 1 <= 2),
+      n = String(v.name || "").toLowerCase(),
+      pay =
+        (DB.bills || []).some((b) => String(b.vendor || "").toLowerCase() === n && "pm-approved" === b.status && !("function" == typeof billPaidTxn && billPaidTxn(b))) ||
+        ("function" == typeof prOpen && prOpen().some((run) => (run.bills || []).some((x) => { const b = (DB.bills || []).find((y) => y.id === x.id); return b && String(b.vendor || "").toLowerCase() === n; })));
+    return onSite || pay ? "owner" : "coord";
+  },
+};
 const coiWords = (r) =>
   `${"missing" === r.state ? "no COI on file" : "expired" === r.state ? `COI expired ${fmt(r.exp)}` : `COI expires ${fmt(r.exp)}`}`;
 // Expedite an ordered line that has no purchase order behind it: who has it, when it lands, and a chase.

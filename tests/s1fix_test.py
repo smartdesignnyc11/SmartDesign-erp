@@ -142,10 +142,17 @@ async def coi_checks(c, pg, tag):
     r = await pg.evaluate("""() => PRED.vendorsCoiLapsing.rows().map(r => [r.v.name, r.state, r.next.date, r.soon])""")
     ww = [x for x in r if x[0] == 'Window Works']
     c.ok(ww and ww[0][1] == 'expired' and ww[0][3], f'{tag}: Window Works is flagged: COI expired, on site within 10 working days ({r})')
-    for uid in ('u_owner', 'u_chen'):
+    # the coordinator chases it (DELEGATION.coi); the owner sees it only as an escalation: on site within 2 working days
+    # or a payment to them waiting on his release (Window Works is on site 9/9, 3 working days out, its bill already paid)
+    for uid, want in (('u_chen', True), ('u_owner', False)):
         await sign_in(pg, uid); await go(pg, 'home'); await pg.wait_for_timeout(300)
         r = await pg.evaluate("""() => tdCaught([]).filter(x => x.src === 'compliance').map(x => x.what)""")
-        c.ok(any('Window Works' in x and 'COI expired' in x for x in r), f'{tag}: {uid} Caught for You has Window Works\' lapsed COI ({r})')
+        c.ok(any('Window Works' in x and 'COI expired' in x for x in r) == want, f'{tag}: {uid} Caught for You {"has" if want else "does not have"} Window Works\' lapsed COI ({r})')
+    r = await pg.evaluate("""() => { const v = DB.vendors.find(x => x.name === 'Window Works'), s = DB.field.subs.find(x => x.vendor === 'Window Works' && x.date >= today());
+      const before = DELEGATION.coi.who({ id: v.id }), was = s.date; s.date = addWork(today(), 1); const after = DELEGATION.coi.who({ id: v.id }); s.date = was;
+      const owner = (signIn('u_owner'), s.date = addWork(today(), 1), tdFacts && (tdFacts().chase = null), eaChase(tdFacts().F, tdFacts().X, 'owner').some(x => x.kind === 'coi' && /Window Works/.test(x.t))); s.date = was;
+      return { before, after, owner }; }""")
+    c.ok(r['before'] == 'coord' and r['after'] == 'owner' and r['owner'], f'{tag}: on site tomorrow without a COI, it escalates to the owner ({r})')
     # within 30 days counts; a vendor with nothing booked does not
     r = await pg.evaluate("""() => { const v = DB.vendors.find(x => x.name === 'Carlos Millwork'), was = v.insuranceExp; v.insuranceExp = iso(addDays(today(), 20));
       const hit = !!PRED.vendorsCoiLapsing.row(v), st = (PRED.vendorsCoiLapsing.row(v) || {}).state;
