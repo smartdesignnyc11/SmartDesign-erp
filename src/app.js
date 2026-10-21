@@ -6425,7 +6425,7 @@ function clientFallback() {
     "",
     "Decisions we need from you:",
     ...(j.decisionsNeededFromClient.length
-      ? j.decisionsNeededFromClient.map((d) => `- ${d.name} — by ${fmt(chaseBy(d.due, ""))} (holds up ${d.holdsUp})`)
+      ? j.decisionsNeededFromClient.map((d) => `- ${d.name} — ${d.due ? `by ${fmt(chaseBy(d.due, ""))}` : "when you can"} (holds up ${d.holdsUp})`)
       : ["- none right now"]),
     "",
     "Coming up:",
@@ -89618,7 +89618,7 @@ const TL_SETS = {},
             ? "every cleared line is explained"
             : "not yet verified — press Run Verification",
         grid: "verify",
-        pred: (t) => isExc(t),
+        pred: (x) => isExc(x.t || x),
         set: () => {
           vfFilter = "all";
         },
@@ -89630,7 +89630,7 @@ const TL_SETS = {},
         tone: aged.length ? "bad" : "",
         s: aged.length ? "unresolved over 14 days — the Owner decides" : "nothing open past two weeks",
         grid: "verify",
-        pred: (t) => isExc(t) && tlAge(t.date) > 14,
+        pred: (x) => isExc(x.t || x) && tlAge((x.t || x).date) > 14,
         set: () => {
           vfFilter = "all";
         },
@@ -89644,7 +89644,7 @@ const TL_SETS = {},
           ? "cleared the bank, never verified — run it"
           : "everything cleared has been checked",
         grid: "verify",
-        pred: (t) => t.amt < 0 && !t.verification && "reconciled" !== t.status,
+        pred: (x) => ((t) => t.amt < 0 && !t.verification && "reconciled" !== t.status)(x.t || x),
         set: () => {
           vfFilter = "all";
         },
@@ -89659,7 +89659,7 @@ const TL_SETS = {},
             ? "verification has never been run — press Run Verification"
             : `${ver} of ${tlN(tx.length, "transaction")} tie to an approved item`,
         grid: "verify",
-        pred: (t) => t.amt < 0 && !!t.verified,
+        pred: (x) => ((t) => t.amt < 0 && !!t.verified)(x.t || x),
         set: () => {
           vfFilter = "all";
         },
@@ -172349,7 +172349,7 @@ function agClientUpdate(p) {
       `Here is where ${agShort(p)} stands this week.`,
       moved.length ? `Progress on site: ${moved.slice(0, 5).join("; ")}.` : "",
       next.length ? `Next two weeks: ${next.map((t) => `${t.name} (${fmt(t.start)}–${fmt(t.end)})`).join("; ")}.` : "",
-      dec.length ? `What we need from you: ${dec.map((d) => `${d.name} by ${fmt(chaseBy(d.due, ""))}${d.holdsUp ? ` (it holds ${d.holdsUp})` : ""}`).join("; ")}.` : "Nothing is waiting on you this week.",
+      dec.length ? `What we need from you: ${dec.map((d) => `${d.name} ${d.due ? `by ${fmt(chaseBy(d.due, ""))}` : "when you can"}${d.holdsUp ? ` (it holds ${d.holdsUp})` : ""}`).join("; ")}.` : "Nothing is waiting on you this week.",
       j.projectedCompletion ? `Expected completion: ${fmtL(j.projectedCompletion)}.` : "",
     ].filter(Boolean).join("\n\n");
   });

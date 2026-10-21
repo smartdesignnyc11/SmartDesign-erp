@@ -126,7 +126,10 @@ async def controls_checks(c, pg, tag):
     await sign_in(pg, 'u_owner')
     # 4. Controls counts the lines matched to nothing; never a green 0 before verification has run
     r = await pg.evaluate("""() => { delete DB.lastVerify; const T = TL_SETS.verify(), e = T.find(x => x.key === 'exc'), U = bankUnmatched();
-      return { v: e.v, s: e.s, n: openExceptions().length, unm: U.rows.filter(t => !t.exception).length, amt: U.amt }; }""")
+      // the tile's filter runs on the grid's rows ({t, v, worst}), as a tap on it does
+      const shown = DB.txns.filter(t => e.pred({ t: t, v: { ex: [] }, worst: 0 })).length;
+      return { v: e.v, s: e.s, n: openExceptions().length, shown, unm: U.rows.filter(t => !t.exception).length, amt: U.amt }; }""")
+    c.ok(r['shown'] == r['v'], f'{tag}: tapping Exceptions Open shows as many lines as it counts ({r["shown"]} vs {r["v"]})')
     c.ok(r['v'] == r['n'] and r['v'] >= r['unm'] and r['unm'] > 0, f'{tag}: Exceptions Open counts every line matched to nothing ({r})')
     c.ok('not yet verified' in r['s'] and 'every cleared line is explained' not in r['s'], f'{tag}: before verification runs it says so ({r["s"]})')
     await go(pg, 'verify'); await pg.wait_for_timeout(400)
