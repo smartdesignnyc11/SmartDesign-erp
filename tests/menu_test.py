@@ -22,7 +22,9 @@ from harness import *
 ICON_NEW = 'Ask'
 # The decided menus (docs/MENU_DRAFT.md "Recommended menus"). Rail: top level, then More and Settings at the foot.
 RAIL = {
-    'u_owner': ['Today', 'Projects', 'Accounting', 'Sales', 'Clients', 'Purchasing', 'Design', 'Company', 'Reports', 'More', 'Settings'],
+    # the owner's More held My Day and Chief of Staff; with My Day folded into Tasks its one page is drawn in its place
+    # (the menu's rule for a group of one, as the designer's Dashboard)
+    'u_owner': ['Today', 'Projects', 'Accounting', 'Sales', 'Clients', 'Purchasing', 'Design', 'Company', 'Reports', 'Chief of Staff', 'Settings'],
     'u_alan': ['Today', 'Projects', 'Clients', 'Purchasing', 'Reports', 'Company', 'More', 'Settings'],
     'u_chen': ['Today', 'Purchasing', 'Vendors', 'Projects', 'Company', 'More', 'Settings'],
     'u_billing': ['Billing', 'Today', 'Clients', 'Projects', 'Banking', 'Reports', 'More', 'Settings'],

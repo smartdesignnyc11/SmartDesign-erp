@@ -1130,7 +1130,13 @@ function tkDecorate() {
   "sday" === view && ["designer", "design_mgr"].includes(role()) && (v.classList.add("tk2-sday"), tkSdayCard(v));
   "ftoday" === view && tkPhone() && tkFieldCompact(v);
   // the crew's Clock is their task list: its toggles are thumb-sized too
-  "time" === view && "crew" === role() && v.classList.add("tk2-clock");
+  if ("time" === view && "crew" === role()) {
+    v.classList.add("tk2-clock");
+    // Clock In, then today's work: "Worked a day you did not clock?" is housekeeping, so it follows the work on the phone
+    const miss = v.querySelector("#tm-missing"),
+      work = v.querySelector("#fm-today");
+    tkPhone() && miss && work && work.nextElementSibling !== miss && work.after(miss);
+  }
 }
 // ---- one list: the old pages forward to it with their chip set, and leave the menus ----------------------------------
 // Sales Tasks is Tasks with the Sales chip; My Day is the designer's Today, and for the owner and the PM it was a second
@@ -1448,7 +1454,8 @@ const TK_PRI_SAY = { P1: "High", P2: "Medium", P3: "Low" };
   #trk-capture.tk2-capcompact .ph .lead,#trk-capture.tk2-capcompact>.hd,#trk-capture.tk2-capcompact>p{display:none}
   #trk-capture.tk2-capcompact .trk-big{width:100%}
   .tk2-sday button.gl{min-height:44px !important}
-  .tk2-clock input[type=checkbox]{-webkit-appearance:none;appearance:none;flex:0 0 44px;width:44px;height:44px;margin:0 8px 0 0;border:2px solid var(--ink-3);border-radius:10px;background:var(--paper) center/26px 26px no-repeat;cursor:pointer}
+  .tk2-clock .fm-row{padding-top:8px;padding-bottom:8px}
+  .tk2-clock .chk > input[type=checkbox],.tk2-clock input[type=checkbox]{-webkit-appearance:none;appearance:none;flex:0 0 44px;width:44px !important;height:44px !important;min-width:44px !important;min-height:44px !important;margin:0 8px 0 0;border:2px solid var(--ink-3);border-radius:10px;background:var(--paper) center/26px 26px no-repeat;cursor:pointer}
   .tk2-clock input[type=checkbox]:checked{border-color:var(--accent);background-color:var(--accent);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6L9 17l-5-5'/%3E%3C/svg%3E")}
 }
 #mbm.tks-on .mbm-box{max-width:620px}

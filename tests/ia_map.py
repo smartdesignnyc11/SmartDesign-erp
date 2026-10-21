@@ -220,7 +220,7 @@ TASK_MEASURE = r"""() => {
   const vis = el => !!el && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden';
   IA.scrollTop();
   const v = document.querySelector('.view.on'), F = IA.fold(), txt = el => (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
-  const RS = '.t2-row, .td-card, .f-row, .tk-row, .tkrow, tr.tk, .task-row, li.tk', scope = v.querySelector('.td-do') || v;
+  const RS = '.t2-row, .td-card, .f-row, .fm-row, .tk-row, .tkrow, tr.tk, .task-row, li.tk', scope = v.querySelector('.td-do') || v;
   const rows = [...scope.querySelectorAll(RS)].filter(vis).filter(r => !r.parentElement.closest(RS));
   const btns = [...v.querySelectorAll('button, a.btn, input[type=checkbox], select, summary')].filter(vis);
   const small = btns.filter(b => { const r = b.getBoundingClientRect(); return r.top < F && (r.height < 44 || r.width < 44) && r.width > 0; });
@@ -242,12 +242,13 @@ TASK_MEASURE = r"""() => {
 }"""
 OPEN_ROW = r"""() => {
   const vis = el => !!el && el.getClientRects().length > 0;
-  const RS = '.t2-row, .td-card, .f-row, .tk-row';
+  const RS = '.t2-row, .td-card, .f-row, .fm-row, .tk-row';
   const all = [...document.querySelectorAll('.view.on ' + RS.split(', ').join(', .view.on '))].filter(vis);
   // a tap on a task: the first row that is a task (a Today card can be an approval or mail, a field row a delivery)
   const isTask = (e) => e.matches('[data-tkkey], .td-card[data-kind="tdyTask"]') || !!e.querySelector('[data-fdone], [data-fm-done], [data-prgopen]');
-  const r = all.find(isTask) || all[0];
-  if (!r) return null;
+  // a screen whose first rows hold no task (Today's All led by approvals) has no task to tap: say so, do not tap an approval
+  const r = all.find(isTask);
+  if (!r) return all.length ? { clicked: '', before: view, noTask: true } : null;
   const t = [...r.querySelectorAll('[data-t2open], .tk2-title, .t2-title, .t2-t, .td-l1, .td-txt, b, .grow')].find(vis) || r;
   const before = view;
   t.click();
@@ -286,7 +287,7 @@ async def tasks():
             # one tap on the first row: what opens, and whether it holds done, due and hand-off
             o = await pg.evaluate(OPEN_ROW)
             await pg.wait_for_timeout(350)
-            sh = await pg.evaluate(SHEET) if o else None
+            sh = await pg.evaluate(SHEET) if o and not o.get('noTask') else None
             if sh and sh['sheet']:
                 await pg.screenshot(path=os.path.join(OUT, f'task_{slug}_open.png'))
             await pg.evaluate("() => { try { mbCloseModal && mbCloseModal(); } catch (e) {} document.querySelectorAll('.sheet.open, .drawer.open').forEach(e => e.classList.remove('open')); }")
@@ -615,7 +616,7 @@ def check():
         soon = t['soon'] if 'soon' in t else sum(int(m) for m in re.findall(r'Next 7 Days(\d+) ', ' '.join(t['smallEx'])))
         if not t['tab']: c.ok(t['rows'] > 0 or not soon, f'TASKS phone {t["label"]}: opens empty ("{(t["empty"] or [""])[0][:40]}") while {soon} are due in the next 7 days')
         sh = t.get('sheet') or {}
-        if t['rows']: c.ok(bool(sh.get('sheet')) and sh.get('assign') and sh.get('done') and sh.get('due'), f'TASKS phone {t["label"]}: one tap on a task opens a sheet with done, due and hand-off ({sh})')
+        if t['rows'] and not (t.get('open') or {}).get('noTask'): c.ok(bool(sh.get('sheet')) and sh.get('assign') and sh.get('done') and sh.get('due'), f'TASKS phone {t["label"]}: one tap on a task opens a sheet with done, due and hand-off ({sh})')
     c.done()
     return ratchet(c.fail)
 
