@@ -38452,7 +38452,7 @@ renderPODoc = function (po) {
       !owner &&
       (h = h.replace(
         '<button class="btn sm primary" data-poact="issue">Issue PO</button>',
-        `<button class="btn sm primary" data-poact="submit">Submit for approval</button><span class="small muted" style="align-self:center">over ${money(DB.company.poApprovalOver)} — Owner approves</span>`,
+        `<button class="btn sm primary" data-poact="submit">Submit for approval</button><span class="small muted" style="align-self:center">${esc(("function" == typeof poApprovalWhy ? poApprovalWhy(po).filter((x) => !/^why:|W-9/.test(x)) : [`over ${money(DB.company.poApprovalOver)}`]).join("; "))} — Owner approves</span>`,
       )),
     "draft" === po.status &&
       need &&
@@ -38464,7 +38464,7 @@ renderPODoc = function (po) {
     "pending" === po.status &&
       (h = h.replace(
         '<div class="docacts">',
-        `<div class="note warn" style="margin:0 0 10px">Awaiting Owner approval — ${money(poTotal(po).total)} is over the ${money(DB.company.poApprovalOver)} threshold.${po.submittedBy ? ` Submitted by ${esc(po.submittedBy)} ${fmt(po.submittedAt)}.` : ""}</div><div class="docacts">${owner ? '<button class="btn sm primary" data-poact="approve">Approve &amp; issue</button><button class="btn sm" data-poact="reject">Send back to draft</button>' : ""}`,
+        `<div class="note warn" style="margin:0 0 10px">Awaiting Owner approval — ${money(poTotal(po).total)}, ${esc(poApprovalWhy(po).join("; "))}.${po.submittedBy ? ` Submitted by ${esc(po.submittedBy)} ${fmt(po.submittedAt)}.` : ""}</div><div class="docacts">${owner ? '<button class="btn sm primary" data-poact="approve">Approve &amp; issue</button><button class="btn sm" data-poact="reject">Send back to draft</button>' : ""}`,
       )),
     ["issued", "partial", "received"].includes(po.status) &&
       (h = h.replace(
@@ -87086,13 +87086,13 @@ function mApprovals() {
         kind: "po",
         id: po.id,
         projectId: po.projectId,
-        sev: bad.length ? "bad" : "warn",
+        sev: bad.length || poLineOver(po).length ? "bad" : "warn",
         n: money(poTotal(po).total),
         title: `${po.number} · ${po.vendor}`,
         detail: [
           p ? p.project.name : "",
           po.submittedBy ? `submitted by ${po.submittedBy} ${fmt(po.submittedAt)}` : "submitted for approval",
-          `over the ${money(DB.company.poApprovalOver)} threshold`,
+          ...poApprovalWhy(po),
           po.needBy ? `needed on site ${fmt(po.needBy)}` : "",
           bad.join("; "),
         ]
@@ -179363,6 +179363,140 @@ function poRefuse(po, R) {
     toast(msg);
   }
 }
+// ---- the order's money and its vendor's papers, in the one validator (coordinator expert, 2026-10-21, two
+// severity-1s): PO-2026-049 went to Tino with no certificate of insurance on file and an order already open with
+// them, and $34,800 went out on a $32,500 estimate line with nothing said; the toast and the owner's card spoke only
+// of the $10,000 threshold. The paper rule is the one Ask and Caught for You already state (PRED.vendorsBlocked),
+// asked of the order being issued; the line rule is the Standard's escalation table: a cost over the approved budget
+// is said with a reason, and over $1,000 it is approved before it proceeds.
+const PO_OVER_OK = 1e3;
+// What this order puts on each estimate or change-order line beyond what is left on it (its budget less what is spent
+// and committed by other orders): [{ key, name, budget, left, amt, over }].
+function poLineOver(po) {
+  const by = {};
+  (po && po.lines ? po.lines : []).forEach((l) => {
+    const k = l.line || "";
+    /^(estimate|co):/.test(k) && (by[k] = r2((by[k] || 0) + (+l.qty || 0) * (+l.price || 0)));
+  });
+  return Object.keys(by)
+    .map((k) => {
+      const f = lineFin(k);
+      if (!f || !(+f.budget > 0)) return null;
+      // once pending, this order already counts in the line's committed: take it back out
+      const mine = (f.pos || []).some((x) => x.id === po.id) ? by[k] : 0,
+        left = Math.max(0, r2(f.budget - f.actual - f.committed + mine)),
+        over = r2(by[k] - left);
+      return over > 0.5 ? { key: k, name: (f.line && f.line.item) || "the estimate line", budget: f.budget, left: left, amt: by[k], over: over } : null;
+    })
+    .filter(Boolean);
+}
+const poOverTotal = (po) => r2(poLineOver(po).reduce((a, x) => a + x.over, 0)),
+  poOverText = (x) => `${money(x.over)} over what is left on ${x.name} (${money(x.left)} of ${money(x.budget)})`,
+  // a reason covers the overage it was given for; a higher price asks again
+  poOverOk = (po) => !!(po && po.overReason && po.overReason.why && +po.overReason.over >= poOverTotal(po) - 0.5);
+// The vendor's papers before an order. No current certificate of insurance stops it while another order is open with
+// them, or when the order puts them on site (a subcontract or a service). No W-9 is said, not stopped: the bill is
+// what it holds, and asking with the order is how it lands before the bill does.
+function poPaper(po) {
+  const v = po && poVendorReal(po.vendor),
+    out = { v: v, stop: [], warn: [] };
+  if (!v) return out;
+  if (!v.insuranceExp || v.insuranceExp < today()) {
+    const n = String(v.name).toLowerCase(),
+      open = (DB.pos || []).filter((x) => x.id !== po.id && String(x.vendor || "").toLowerCase() === n && ["issued", "partial", "pending"].includes(x.status));
+    (open.length || ["subcontract", "service"].includes(po.type)) &&
+      out.stop.push(`${v.name} has ${v.insuranceExp ? "a certificate of insurance that expired " + fmtL(v.insuranceExp) : "no certificate of insurance on file"}${open.length ? ` and ${open.map((x) => x.number).join(", ")} open with them` : " and this order puts them on site"}: no new purchase order until it lands`);
+  }
+  !v.w9 && poTotal(po).total >= 600 && out.warn.push(`No W-9 from ${v.name}: their bill is held until it lands, so ask for it with this order`);
+  return out;
+}
+// Why an order waits on the owner, in the words the card, the toast and the order page share.
+function poApprovalWhy(po) {
+  const W = [],
+    lim = +DB.company.poApprovalOver;
+  lim > 0 && poTotal(po).total > lim && W.push(`over the ${money(lim)} threshold`);
+  poLineOver(po).forEach((x) => W.push(poOverText(x)));
+  po.overReason && po.overReason.why && W.push(`why: ${po.overReason.why}`);
+  return W.concat(poPaper(po).warn);
+}
+{
+  const base = poValid;
+  poValid = function (po) {
+    const R = base.apply(this, arguments);
+    try {
+      if (po && ["draft", "pending"].includes(po.status || "draft")) {
+        R.push(...poPaper(po).stop);
+        const O = poLineOver(po);
+        O.length && !poOverOk(po) && R.push(`${O.map(poOverText).join("; ")}: say why on the order`);
+      }
+    } catch (e) {
+      console.warn("po money and papers", e);
+    }
+    return R;
+  };
+}
+// over the line by more than $1,000: the owner approves it before it goes, whoever orders
+{
+  const base = poNeedsApproval;
+  poNeedsApproval = function (po) {
+    return base.apply(this, arguments) || poOverTotal(po) > PO_OVER_OK;
+  };
+}
+// The reason for going over, asked once and kept on the order with who and when.
+function poOverSheet(po) {
+  const O = poLineOver(po);
+  if (!O.length) return;
+  mbModal(
+    `Over the Estimate Line — <span data-nocase>${esc(po.number || "this order")}</span>`,
+    `<p class="small muted" style="margin:0 0 10px">${O.map((x) => esc(poOverText(x))).join("<br>")}. ${poOverTotal(po) > PO_OVER_OK ? "Over $1,000, so the owner approves it before it goes." : ""}</p>${mbF("Why", `<input data-f="why" value="${esc((po.overReason && po.overReason.why) || "")}" placeholder="e.g. the vendor's price rose; a change order follows">`)}`,
+    {
+      submit: "Save the Reason",
+      onSubmit: (f) => {
+        if (!f.why || f.why.trim().length < 8) return toast("A sentence, so the owner and the job cost know why"), !1;
+        po.overReason = { by: (currentUser() || {}).name || role(), at: appNowIso(), why: f.why.trim(), over: poOverTotal(po) };
+        try {
+          audit("po", po.id, "over-line-reason", null, po.overReason, f.why.trim());
+        } catch (e) {}
+        save(), render();
+        rcToast(`${po.number || "The order"}: reason for going ${money(po.overReason.over)} over the line saved`, flowCan("po") ? [{ label: `Open ${po.number}`, run: flowGo.po(po) }] : null);
+      },
+    },
+  );
+}
+// the order page says both before anyone presses Issue, with the one next step for each
+if ("function" == typeof renderPODoc) {
+  const base = renderPODoc;
+  renderPODoc = function (po) {
+    let h = base.apply(this, arguments);
+    try {
+      if (po && ["draft", "pending"].includes(po.status) && "string" == typeof h) {
+        const P = poPaper(po),
+          O = poLineOver(po),
+          w =
+            P.stop.map((s) => `<div class="qcheck po-paper" role="alert"><b>Vendor Papers</b>${esc(s)}.<div class="row" style="gap:6px;margin-top:6px"><button type="button" class="btn sm" data-pochase="coi:${esc(P.v.name)}">Chase the COI</button></div></div>`).join("") +
+            P.warn.map((s) => `<div class="qcheck po-paper warn">${esc(s)}.<div class="row" style="gap:6px;margin-top:6px"><button type="button" class="btn sm" data-pochase="w9:${esc(P.v.name)}">Ask for the W-9</button></div></div>`).join("") +
+            (O.length
+              ? `<div class="qcheck po-over" role="alert"><b class="bad-t">Over the Estimate Line</b>${O.map((x) => esc(poOverText(x))).join("; ")}.${poOverOk(po) ? ` Why: ${esc(po.overReason.why)} (${esc(po.overReason.by)})` : " Say why before it issues."}<div class="row" style="gap:6px;margin-top:6px"><button type="button" class="btn sm" data-poover="${po.id}">${poOverOk(po) ? "Change the Reason" : "Give the Reason"}</button></div></div>`
+              : "");
+        w && (h = h.replace(/(<div class="docwrap"[^>]*>)/, `$1${w}`));
+      }
+    } catch (e) {
+      console.warn("po money and papers page", e);
+    }
+    return h;
+  };
+}
+document.addEventListener("click", (e) => {
+  const o = e.target.closest("[data-poover]"),
+    c = e.target.closest("[data-pochase]");
+  if (o) {
+    const po = (DB.pos || []).find((x) => x.id === o.dataset.poover);
+    po && poOverSheet(po);
+  } else if (c) {
+    const [k, ...n] = c.dataset.pochase.split(":");
+    chaseVendor(k, n.join(":"));
+  }
+});
 // The outermost poAction: nothing issues, submits or approves past the validator, whichever path called it.
 {
   const base = poAction;
@@ -179699,7 +179833,7 @@ if ("function" == typeof tdCard) {
     const p = DB.projects.find((x) => x.id === po.projectId);
     (c.line1 = `<a href="#" data-tdrec>${esc(po.number)}</a> · ${esc(po.vendor)}`),
       (c.go = flowGo.po(po)),
-      (c.why = [money(poTotal(po).total), `over the ${money(DB.company.poApprovalOver)} threshold`, po.submittedBy ? `from ${po.submittedBy}` : "", p ? tdJob(p) : ""].filter(Boolean).map(esc).join(" · ")),
+      (c.why = [money(poTotal(po).total), ...poApprovalWhy(po), po.submittedBy ? `from ${po.submittedBy}` : "", p ? tdJob(p) : ""].filter(Boolean).map(esc).join(" · ")),
       (c.verb = "Approve"),
       (c.run = () => apprPOYes(it));
     return c;
@@ -179721,7 +179855,7 @@ if ("function" == typeof tdScore) {
     try {
       if (po && ["issue", "submit"].includes(a) && "draft" === was && "pending" === po.status)
         rcToast(
-          `${po.number} sent for the owner's approval — ${money(poTotal(po).total)} is over the ${money(DB.company.poApprovalOver)} threshold`,
+          `${po.number} sent for the owner's approval — ${money(poTotal(po).total)}, ${poApprovalWhy(po).join("; ")}`,
           flowCan("po") ? [{ label: `Open ${po.number}`, run: flowGo.po(po) }] : null,
         );
       else if (po && "approve" === a && "pending" === was && "issued" === po.status)
@@ -188381,6 +188515,9 @@ function buyOrderDialog(o) {
       }
     })(),
     fabTick = /^Second measurement/.test(fab),
+    ovKey = (m ? m.line : r.key) || "",
+    ovF = /^(estimate|co):/.test(ovKey) ? lineFin(ovKey) : null,
+    ovL = ovF && +ovF.budget > 0 ? { left: Math.max(0, r2(ovF.budget - ovF.actual - ovF.committed)), budget: ovF.budget, name: (ovF.line && ovF.line.item) || r.name } : null,
     fabTpl = (() => {
       try {
         return !fab && "function" == typeof poFabTemplate && "function" == typeof poFabGate && poFabGate(Object.assign({}, fabPO, { lines: fabPO.lines.map((x) => Object.assign({}, x, { materialId: "" })) })) ? poFabTemplate(fabPO) : null;
@@ -188388,6 +188525,10 @@ function buyOrderDialog(o) {
         return null;
       }
     })();
+  setTimeout(() => {
+    const root = document.getElementById("mbm");
+    root && root.querySelector(".fl-paper") && flSheetChecks(root);
+  }, 0);
   return mbModal(
     `Order — <span data-nocase>${esc(r.name)}</span>`,
     `<p class="small muted" style="margin:0 0 10px">${esc(shortName(p))}${tk ? ` · for ${esc(tk.name)}, starts ${fmt(tk.start)}` : ""}${D.needBy ? ` · on site by ${fmt(D.needBy)}` : ""}${D.orderBy ? ` · ${late ? `<b class="bad">order-by ${fmt(D.orderBy)} passed</b>` : `order by ${fmt(D.orderBy)}`}` : ""}. ${src ? `Price from ${src}. ` : ""}Issue PO sends it through the house checks; over ${money(DB.company.poApprovalOver || 0)} it goes to the owner first.</p>
@@ -188395,6 +188536,8 @@ function buyOrderDialog(o) {
     <div class="grid2">${mbF("Item", `<input data-f="item" value="${esc(m ? m.name : (l && l.item) || r.name)}">`)}${mbF("Quantity", `<input type="number" step="any" min="0" data-f="qty" value="${qty}">`)}</div>
     <div class="grid2">${mbF("Unit", `<input data-f="unit" value="${esc(unit)}">`)}${mbF("Unit Price", `<input type="number" step="0.01" min="0" data-f="price" value="${price || ""}" placeholder="no price yet — the vendor's quote">`)}</div>
     <div class="grid2">${mbF("Needed on Site", `<input type="date" data-f="needBy" value="${D.needBy || ""}">`)}${mbF("Task", `<input data-f="task" value="${esc(tk ? tk.name : "")}" readonly>`)}</div>
+    <div class="note bad small fl-paper" role="alert" hidden></div>
+    ${ovL ? `<div class="note bad small fl-over" role="alert" data-left="${ovL.left}" data-budget="${ovL.budget}" data-name="${esc(ovL.name)}" hidden><div class="fl-over-t"></div>${mbF("Why Over the Line", `<input data-f="overWhy" placeholder="e.g. the vendor's price rose; a change order follows">`)}</div>` : ""}
     ${fab ? `<div class="note warn small fl-fabgate" role="alert"><b>Measurement gate.</b> ${esc(fab)}${fabTick ? `<label style="display:block;margin-top:6px"><input type="checkbox" data-f="tradeOk"> Fabricator's field measurements received and entered</label>` : ""}</div>` : fabTpl ? `<div class="note small fl-fabgate fl-fabtpl"><b>Measurement gate.</b> The fabricator templates the site under this order${fabTpl.task ? ` (${esc(fabTpl.task)}${fabTpl.start ? `, ${fmt(fabTpl.start)}` : ""})` : ""}: that template is the second measurement. The PO says fabrication starts from it; enter its numbers on the room.</div>` : ""}`,
     {
       submit: "Issue PO",
@@ -188409,6 +188552,10 @@ function buyOrderDialog(o) {
         if (!(+f.qty > 0)) return toast("Say how many"), !1;
         if (!(+f.price > 0)) return toast("Price the line — the vendor's quote or the price you agreed"), !1;
         if (!f.needBy) return toast("Say when the site needs it"), !1;
+        const ovOver = ovL ? r2(+f.qty * +f.price - ovL.left) : 0;
+        if (ovOver > 0.5 && !(f.overWhy && f.overWhy.trim().length >= 8)) return toast(`${money(ovOver)} over what is left on ${ovL.name} (${money(ovL.left)} of ${money(ovL.budget)}): say why`), !1;
+        const ppr = "__quote__" === f.vendor ? null : poPaper({ id: "", vendor: f.vendor, type: "materials", lines: [{ qty: +f.qty, price: +f.price }] });
+        if (ppr && ppr.stop.length) return toast(ppr.stop[0]), !1;
         if (fab && !fabTick) return toast(fab), !1;
         if (fabTick && !f.tradeOk) return toast("Tick that the fabricator's field measurements are in — the order goes out with them"), !1;
         if (fromQuote) {
@@ -188427,6 +188574,32 @@ function buyOrderDialog(o) {
     },
   );
 }
+// The Order sheet says the vendor's papers and the line overage as they are entered, not after Issue PO.
+function flSheetChecks(root) {
+  const q = (k) => root.querySelector(`[data-f="${k}"]`),
+    paper = root.querySelector(".fl-paper"),
+    ov = root.querySelector(".fl-over");
+  if (!q("price") || !q("qty")) return;
+  const qty = +q("qty").value || 0,
+    price = +q("price").value || 0,
+    vn = q("vendor") ? q("vendor").value : "";
+  if (paper) {
+    const P = vn && "__quote__" !== vn ? poPaper({ id: "", vendor: vn, type: "materials", lines: [{ qty: qty, price: price }] }) : { stop: [], warn: [] },
+      t = P.stop.concat(P.warn);
+    (paper.hidden = !t.length), (paper.className = `note small fl-paper ${P.stop.length ? "bad" : "warn"}`), (paper.textContent = t.join(". ") + (t.length ? "." : ""));
+  }
+  if (ov) {
+    const over = r2(qty * price - +ov.dataset.left);
+    (ov.hidden = !(over > 0.5)),
+      over > 0.5 && (ov.querySelector(".fl-over-t").textContent = `${money(over)} over what is left on ${ov.dataset.name} (${money(+ov.dataset.left)} of ${money(+ov.dataset.budget)}). ${over > PO_OVER_OK ? "Over $1,000, so the owner approves it before it goes. " : ""}Say why.`);
+  }
+}
+["input", "change"].forEach((ev) =>
+  document.addEventListener(ev, (e) => {
+    const root = e.target.closest && e.target.closest("#mbm");
+    root && root.querySelector(".fl-paper") && e.target.matches('[data-f="qty"],[data-f="price"],[data-f="vendor"]') && flSheetChecks(root);
+  }),
+);
 function flIssueOrder(r, v, f, tk) {
   const p = r.p,
     m = r.m,
@@ -188479,6 +188652,7 @@ function flIssueOrder(r, v, f, tk) {
   if (H.length)
     return toast(`${r.name} waits on ${H.map((x) => `${x.s.number} ${x.s.title}`).join(", ")} — the order goes out when it is approved`), null;
   (po.number = nextPO()), DB.pos.push(po);
+  f.overWhy && "function" == typeof poOverTotal && poOverTotal(po) > 0 && (po.overReason = { by: (currentUser() || {}).name || role(), at: appNowIso(), why: String(f.overWhy).trim(), over: poOverTotal(po) });
   m && !poVendorReal(m.vendor) && (m.vendor = v.name);
   l && !l.vendor && (l.vendor = v.name);
   try {
