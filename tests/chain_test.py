@@ -1556,11 +1556,17 @@ async def s10_polinks(C):
     await C.click("#mbm [data-polk='rebill']", 600)
     t = await C.toast()
     C.ok('Billed back to the client' in t and 'Open' in t, 'Link > "reimb" > Reimbursable: the toast says what was linked, with Open', t)
+    # the tile line has $150 left and this order puts $640 on it: the page says so, and the reason goes on the order
+    ov = await C.js("id => (document.querySelector('#po-doc .po-over') || {}).innerText || ''")
+    C.ok('over what is left on Tile' in ov, 'the PO page says the order is over what is left on the tile line', ov)
+    await C.click(f"#po-doc [data-poover='{po['id']}']", 500)
+    await C.fill('#mbm [data-f=why]', 'extra tile for the niche; a change order follows'); await C.modal_ok(600)
+    C.t(f"PO > Over the Estimate Line > Give the Reason: \"extra tile for the niche; a change order follows\" ({await C.toast()})")
     await C.click('#po-doc [data-poact=issue]', 700)
     m = await C.modal()
     if m: await C.modal_ok(700)
     st = await C.js("id => DB.pos.find(x => x.id === id).status", po['id'])
-    C.ok(st == 'issued', 'with every line linked, Issue PO issues it', f'{st} {await C.toast()}')
+    C.ok(st == 'issued', 'with every line linked and the overage explained, Issue PO issues it', f'{st} {await C.toast()}')
     # it arrives; the bill from the receipt; the reimbursable is waiting to be billed back, once
     await C.as_('u_chen', 'recv', f"setCurrent('{pid}');")
     await C.click(f"section.view.on [data-rall='{po['id']}']", 700)
