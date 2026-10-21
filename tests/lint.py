@@ -376,6 +376,8 @@ COLLECT = r"""
         if (scrolled || (document.scrollingElement && document.scrollingElement.scrollTop > 1)) continue;
         const L = layerOf(hit), lr = L && L.getBoundingClientRect();
         if (!L || L === o.layer || L.contains(o.e) || lr.top > o.r.top + 2 || lr.top > innerHeight / 3) continue;
+        // an open drawer, sheet or dialog covers the page on purpose (the phone's conversations drawer with its scrim)
+        if (L.closest('aside, [role="dialog"], .modal, [class*="drawer"], [class*="scrim"], [class*="sheet"]') || hit.closest('[class*="drawer"], [class*="scrim"], [class*="sheet"], [role="dialog"]')) continue;
         flag('TAP_COVERED', o.e, `"${srcText(o.e).slice(0, 30) || o.e.tagName.toLowerCase()}" is under ${sel(L)}: a tap lands on "${(hit.innerText || hit.tagName).trim().slice(0, 30)}" (${sel(o.e)})`, sel(o.e) + '|' + sel(L));
       }
     }
