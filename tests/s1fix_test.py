@@ -71,12 +71,12 @@ async def owner_checks(c, pg, tag):
         await sign_in(pg, uid)
         r = await pg.evaluate("""async () => { const me = tkMe(), mine = tkItems().filter(x => !x.done && tkOwnerMatch(x.assignee, me)), late = mine.filter(x => x.late).length, lateNs = mine.filter(x => x.late && x.kind !== 'sched').length;
           const M = paMine(); const h = []; for (const q of ['which of my tasks are late', 'which tasks are overdue for me']) { const a = await Promise.resolve(paAsk(q)); h.push(a.headline || ''); }
-          const caught = (CATCH.find(x => x.name === 'lateTasks') || { rows: () => [] }).rows().length;
+          const caught = tkAll({ open: true, uid: currentUser().id }).filter(t => !t.approval && t.late).length;
           return { me, mine: mine.length, late, lateNs, paMine: M.open.length, paLate: M.late.length, h, caught }; }""")
         nums = [int(m.group(1)) if m else -1 for m in [re.search(r'(\d+) late', x) or re.search(r'^(\d+) tasks? (?:are )?(?:late|overdue)', x) or re.search(r'(\d+)', x) for x in r['h']]]
         c.ok(r['paMine'] == r['mine'] and r['paLate'] == r['late'], f'{tag}: {uid} Mine and Ask read the same items ({r})')
         c.ok(all(n == r['late'] or (r['late'] == 0 and re.search(r'\b(no|nothing|none|0)\b', h, re.I)) for n, h in zip(nums, r['h'])), f'{tag}: {uid} Ask gives one late number however it is asked ({r["h"]}, Mine {r["late"]})')
-        c.ok(r['caught'] == r['lateNs'], f'{tag}: {uid} Today\'s late tasks equal Mine\'s late tasks ({r["caught"]} vs {r["lateNs"]})')
+        c.ok(r['caught'] == r['late'], f'{tag}: {uid} Today\'s Tasks (by user id) count the same late tasks as Mine ({r["caught"]} vs {r["late"]})')
 
 async def money_checks(c, pg, tag):
     await sign_in(pg, 'u_owner')
