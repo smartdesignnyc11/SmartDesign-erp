@@ -32,6 +32,7 @@ C = lambda sel: f"(document.querySelector('.view.on {sel}, #mbm {sel}, {sel}') |
 WALK = {
     'u_angel': [
         ('ftoday', '', 'today'), ('ftoday', C('[data-prgopen]'), 'today_update'), ('ftoday', C('[data-fclock="in"]'), None),
+        ('ftoday', C('.f-row:has([data-fdone]) .grow > b'), 'today_task_sheet'),
         ('ftoday', C('#froom-btn'), None), ('ftoday', C('[data-fraise="blocker"]'), 'today_plan'),
         ('fsite', '', 'site'), ('fsite', C('#fsub-add'), None), ('fsite', C('#fpunch-add'), None), ('fsite', C('[data-fraise="delivery"]'), None),
         ('fcrew', '', 'crew'), ('fcrew', C('[data-ffix]'), None), ('fcrew', C('#ftalk'), None), ('fcrew', C('[data-fraise="incident"]'), None),
@@ -51,7 +52,8 @@ WALK = {
     ],
     'u_alberto': [
         ('time', '', 'clock'), ('time', C('#clock-in'), None), ('time', C('[data-tmlate]'), None), ('time', C('[data-fm-need]'), None),
-        ('req', '', None), ('sched', '', None), ('chat', '', None), ('tasks', '', 'tasks'), ('tasks', C('#tk-new'), None),
+        # the crew's Tasks page left their menu (Clock is their list, 2026-10-21): a work row opens the task sheet
+        ('req', '', None), ('sched', '', None), ('chat', '', None), ('time', C('.f-row:has([data-fdone]) .grow > b'), 'task_sheet'),
         ('files', '', 'crew_photos'), ('plans', '', None), ('recv', '', 'deliveries'), ('recv', C('[data-rissue]'), None),
         ('conn', '', None), ('standard', '', None), ('pa', '', None), ('time', C('#menu-btn'), None),
     ],
