@@ -127038,6 +127038,20 @@ Object.assign(FILE_CATS, {
 const FILE_MONEY_CATS = ["purchase-order", "change-order", "contract", "invoice", "estimate"],
   fileIsMoney = (f) => !!f && FILE_MONEY_CATS.includes(f.cat),
   fileFieldRole = () => "function" == typeof role && ["foreman", "crew", "driver"].includes(role());
+// what a field person counts is what they see: the Documents tiles read the same list, without the money documents
+// (counts lint, 2026-10-21: the foreman's Added This Week read 11 over 8 rows)
+const fileFieldOnly = (fn) =>
+  function () {
+    if (!fileFieldRole() || !S || !Array.isArray(S.files)) return fn.apply(this, arguments);
+    const all = S.files;
+    S.files = all.filter((f) => !fileIsMoney(f));
+    try {
+      return fn.apply(this, arguments);
+    } finally {
+      S.files = all;
+    }
+  };
+"object" == typeof TL_SETS && "function" == typeof TL_SETS.files && (TL_SETS.files = fileFieldOnly(TL_SETS.files));
 {
   const base = renderFiles;
   renderFiles = function () {
