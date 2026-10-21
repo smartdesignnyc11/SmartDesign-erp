@@ -69911,7 +69911,7 @@ function eaChase(F, X, r) {
           kind: "coi",
           n: "!COI",
           t: `${esc(r.v.name)} — ${esc(coiWords(r))}`,
-          sub: `${"site" === r.next.kind ? "they cannot work on site" : "no delivery or new order"} without a current certificate; the Standard asks for it 30 days ahead`,
+          sub: `${r.next.what}: no current certificate, and the Standard asks for one 30 days ahead`,
           vendor: r.v,
           msg: `Hi — ${"missing" === r.state ? `we do not have a certificate of insurance on file for ${r.v.name}` : `the certificate of insurance we have for ${r.v.name} ${"expired" === r.state ? "expired" : "expires"} ${fmtL(r.exp)}`}, and you are ${"site" === r.next.kind ? "booked on site" : "due to deliver"} ${fmtL(r.next.date)}. Could you send a current one by ${fmtL(chaseBy(addWork(r.next.date, -2), ""))}, with SmartDesign named as certificate holder? Thanks.`,
         }),
@@ -123146,12 +123146,14 @@ if ("function" == typeof jobFin) {
   jobFin = function (p, range) {
     const J = jobFinBase_fin.apply(this, arguments),
       R = range || ["", today()],
+      // out of job cost: a bill the bank paid whose bank line already carries the cost, and a bill submitted and
+      // not yet approved or paid. That is companyPL's rule ("nothing submitted and unpaid is in either"); job cost
+      // kept the unpaid ones until 2026-10-21, hidden while AMP-311 read as paid by an earlier check (s1fix).
       dup = (DB.bills || []).filter(
         (b) =>
           b.projectId === p.id &&
           BILL_ACCRUED.includes(b.status) &&
-          billPaidUnapproved(b) &&
-          !finBillCarriesCost(b) &&
+          (billPaidUnapproved(b) ? !finBillCarriesCost(b) : !0) &&
           within(b.date, R),
       );
     if (!dup.length || !J.byCode) return J;
@@ -180671,7 +180673,7 @@ predDef("vendorsCoiLapsing", {
   },
 });
 const coiWords = (r) =>
-  `${"missing" === r.state ? "no COI on file" : "expired" === r.state ? `COI expired ${fmtL(r.exp)}` : `COI expires ${fmtL(r.exp)}`}${r.next ? ` · ${"site" === r.next.kind ? "on site" : "order due"} ${fmtL(r.next.date)} (${r.next.what})` : ""}`;
+  `${"missing" === r.state ? "no COI on file" : "expired" === r.state ? `COI expired ${fmt(r.exp)}` : `COI expires ${fmt(r.exp)}`}${r.next ? `, ${"site" === r.next.kind ? "on site" : "order due"} ${fmt(r.next.date)}` : ""}`;
 // Expedite an ordered line that has no purchase order behind it: who has it, when it lands, and a chase.
 function buyExpedite(p, mid) {
   const m = p && (p.materials || []).find((x) => x.id === mid);
