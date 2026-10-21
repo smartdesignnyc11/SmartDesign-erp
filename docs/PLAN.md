@@ -9,6 +9,56 @@ Last updated 2026-10-21, later the same day. The information map merged (42cf9fd
 - Don't start a big round when weekly usage is above about 60%.
 - One build lane is roughly 6–10% of a week's allowance. The lean pilot is about 2–5%.
 
+## Overnight 10-21 to 10-22 (Alan: "keep working without asking until 9am")
+**Merged and pushed to master:**
+- **PO gates** (68066ba and the follow-ups):
+  - an order stops when the vendor has no current COI and an order open with them, or when it puts them on site;
+  - an order over what is left on its estimate line needs a reason, and over $1,000 the owner approves it, with the overage and the reason on his card;
+  - a missing W-9 is a warning;
+  - po_gates_test passes 36 checks.
+- **The tasks lane** (b178140): one task list with chips, opening on Due Soon; 64–72px rows; one task sheet a tap opens, everywhere; a hand-off with Accept; Make It a Task offers the match first; the crew's list is Clock.
+  - The map's task failures went from 26 to 0.
+  - tasks_phone_test passes 201 checks, and the month holds at 262/292, $1,937, 0 days.
+  - `ia_map --check` is in the net as a ratchet (`tests/ia_ratchet.json`).
+- **The field's Documents tiles** count what the field sees (419bd29).
+
+**Built, not merged yet** (each on its branch, with the gap named):
+- **Fix lane**: all 8 S1 and S2 bugs, with s1fix_test at 90 checks:
+  - chase dates;
+  - the PM no longer read as the owner;
+  - a bank line dated before its bill;
+  - held and paid bills kept out of the Payment Run;
+  - Controls' count;
+  - expired COIs;
+  - "2 of 4 at risk";
+  - the portal's two percentages.
+
+  Gap: the month fell to 260/292 and $9,537, because the new COI row pushed a $3,800 credit dispute out of the owner's top five. The COI now routes to the coordinator (decision logged); the month is re-running on that.
+- **Coming Up lane**:
+  - warnings too late went from 40 to 11;
+  - warnings missing from the first screen, 54 to 49;
+  - page cleanliness, 5 to 0;
+  - the band, the missing dates and every first phone screen are built;
+  - coming_up_test passes 60, today 134, tasks_phone 201.
+
+  Gaps: ranking_test fails 2 checks on the foreman's desktop, the month is still running, and several net suites haven't re-run.
+- **One-place lane**:
+  - one-place failures went from 142 to 36, and one-number failures from 8 to 0;
+  - Caught for You shows one card per record;
+  - the Chief of Staff menu entry is gone, and old names forward;
+  - Approvals carries the System Changes and Lessons filters;
+  - the Buy Board is one list;
+  - Today's card counts dropped: the owner from 34 to 29, the PM from 54 to 23.
+
+  Gaps:
+  - two warning checks rose against the ratchet (57 vs 54, and 41 vs 40);
+  - one month event slipped from late to missed when the owner reads only his top five;
+  - suites are still running.
+
+**Merge order from here:** fix lane, then Coming Up, then one place, each on a green net and the month held both ways.
+
+**Waiting on Alan:** the deploy. The session's permission check refused the production deploy, so he approves it, or adds a rule allowing the Netlify and Supabase deploy.
+
 ## 2026-10-21: every role sees what it needs, early, in one place (Alan)
 **His ask.** Desktop and phone give each role what it needs and show priorities before they become project delays. Pages are clean and easy to read. The task module "is one of the most important and it isn't great on mobile". He has not seen the latest task update yet. And no "12 different sections to see similar information". Spec: BACKLOG §1.34. It extends §1.11 item 1 (one queue per person), §1.14 (one task system), §1.15 (the menu) and §1.16 (the design gate), and audits what the merged today and menu lanes left open.
 
