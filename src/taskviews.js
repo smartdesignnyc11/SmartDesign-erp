@@ -147,43 +147,40 @@ function tvRec(x) {
     return null;
   }
 }
-// The task's ID ("PAD-23"): the meeting's key on the record (lane A), else the board's code (the Asana import)
-function tvRef(x, rec) {
-  const k = rec && rec.key;
-  if ("string" == typeof k && /^[A-Z][A-Z0-9]{0,7}-\d+$/.test(k)) return k;
-  return x.code || "";
-}
+// The task's ID ("PAD-23") is the record's code (the meeting lane's key, the Asana import's Task ID)
+const tvRef = (x, rec) => x.code || (rec && rec.code) || "";
+// Waiting On {name, contactRef, what, promised, evidence}, on the row as the record carries it
 function tvWaitOf(x, rec) {
-  const w = rec && rec.waitingOn;
-  if (w && "object" == typeof w && w.name) return { name: w.name, what: w.what || "", promised: w.promised || "" };
-  if ("string" == typeof w && w) return { name: w, what: "", promised: "" };
+  const w = x.waitingOn || (rec && rec.waitingOn);
+  if (w && w.name) return w;
   return x.waitsOn ? { name: x.waitsOn, what: "", promised: "" } : null;
 }
-function tvStatusOf(x, rec) {
+// one status per row: Done, FYI, Waiting On (who owes it, the list's Waiting), Doing, To Do
+function tvStatusOf(x) {
   if (x.done) return "done";
-  const s = String((rec && rec.status) || x.status || "");
-  if ("fyi" === s) return "fyi";
+  if ("fyi" === x.status) return "fyi";
   if (x.waitsOn) return "waiting";
-  if ("doing" === s || "in-progress" === s) return "doing";
+  if ("doing" === x.status || "in-progress" === x.status) return "doing";
   return "todo";
 }
-// the latest word on the task: a comment (lane A's comments, else the thread's notes)
+// the latest word on the task: its last comment
 function tvLatest(rec) {
-  if (!rec) return null;
-  const C = Array.isArray(rec.comments) ? rec.comments.filter((c) => c && (c.text || c.body)) : [];
-  if (C.length) {
-    const c = C[C.length - 1];
-    return { by: c.by || c.who || "", text: c.text || c.body };
-  }
-  const T = Array.isArray(rec.thread) ? rec.thread.filter((e) => e && e.text) : [];
-  if (T.length) return { by: T[T.length - 1].by || "", text: T[T.length - 1].text };
-  return null;
+  const C = rec ? tkComments(rec) : [];
+  return C.length ? C[C.length - 1] : null;
+}
+// in a meeting, a change made here is the meeting's too: its minutes and the transcript's reconciling read it
+function tvMtLog(I, field, from, to) {
+  try {
+    const M = mtCurrent(),
+      code = I.rec && I.rec.code;
+    M && code && mtLog({ taskKey: code, field: field, from: null == from ? "" : from, to: null == to ? "" : to }, M);
+  } catch (e) {}
 }
 // what each kind of task can change in place; anything else opens the sheet
 const TV_CAN = {
   due: (x) => TK_DUE_KINDS.test(x.kind),
   owner: (x) => /^(action|firm|hub|issue)$/.test(x.kind),
-  status: (x) => /^(action|firm|sched)$/.test(x.kind),
+  status: (x) => /^(action|firm|hub|sched)$/.test(x.kind),
   follow: (x) => /^(action|firm|hub)$/.test(x.kind),
   wait: (x) => /^(action|firm)$/.test(x.kind),
 };
@@ -217,20 +214,21 @@ function tvInfo(x) {
   const rec = tvRec(x),
     P = tvProjectOf(x),
     num = (v) => ("number" == typeof v ? v : "string" == typeof v && v !== "" && !isNaN(+v) ? +v : null),
-    ld = rec && rec.lastDiscussed;
+    ld = x.lastDiscussed || (rec && rec.lastDiscussed);
   return {
     x: x,
     rec: rec,
     key: t2Key(x),
     ref: tvRef(x, rec),
     owner: tvOwnerName(x),
-    status: tvStatusOf(x, rec),
+    status: tvStatusOf(x),
     wait: tvWaitOf(x, rec),
-    follow: (rec && rec.followUp) || x.followUp || "",
-    watch: (rec && rec.watchUntil) || x.watchUntil || "",
-    last: ld ? ("string" == typeof ld ? ld : ld.date || ld.at || "") : "",
+    follow: x.followUp || "",
+    watch: x.watchUntil || "",
+    last: ld && ld.at ? String(ld.at).slice(0, 10) : "",
+    lastMeeting: ld && ld.meetingId ? ((typeof mtTeam === "function" ? mtTeam() : []).find((m) => m.id === ld.meetingId) || {}).title || "" : "",
     latest: tvLatest(rec),
-    order: num(rec && rec.order),
+    order: num(x.order),
     pid: P.id,
     pname: P.name,
     section: x.section || (rec && rec.section) || "",
@@ -245,22 +243,8 @@ function tvFind(key) {
   }
 }
 
-// ---- the next meeting: the team meets Monday and Thursday (Alan, 10-23); Meeting Mode may name its own date ---------
-function tvNextMeeting() {
-  try {
-    if ("function" == typeof mmNextMeetingDate) {
-      const d = mmNextMeetingDate();
-      if (d) return d;
-    }
-  } catch (e) {}
-  const days = (DB.company && Array.isArray(DB.company.meetingDays) && DB.company.meetingDays.length ? DB.company.meetingDays : [1, 4]).map(Number),
-    td = today();
-  for (let i = 1; i <= 7; i++) {
-    const d = addDays(parse(td), i);
-    if (days.includes(d.getDay())) return iso(d);
-  }
-  return iso(addDays(parse(td), 7));
-}
+// ---- the next meeting: the team's cadence (Settings, Monday and Thursday at 10 by default; src/meeting.js) -------------
+const tvNextMeeting = () => mtNextMeeting();
 function tvDateChoices(withClear) {
   const td = today(),
     L = [
@@ -323,6 +307,7 @@ function tvSetDue(I, date, quiet) {
     undo = lead ? ((w) => () => (lead.nextDue = w))(lead.nextDue) : tvKeep(rec, ["due", "modifiedAt"]);
   if ((date || "") === was) return quiet ? null : !1;
   if (!tkSetDue({ key: I.key, x: x, rec: rec }, date || "")) return quiet ? null : !1;
+  tvMtLog(I, "due", was, date || "");
   if (quiet) return undo;
   tvDone(date ? `Due ${fmtL(date)}: ${tvTitle(x)}${was ? ` (was ${fmtL(was)})` : ""}` : `No date now: ${tvTitle(x)}`, I.key, undo);
   return !0;
@@ -337,6 +322,7 @@ function tvSetField(I, field, val, label) {
   val ? (rec[field] = val) : delete rec[field];
   tkLog(rec, { ev: field, from: was || "", to: val || "" });
   tvAudit(x, field, was, val);
+  tvMtLog(I, field, was || "", val || "");
   const say = { followUp: "Follow up", watchUntil: "Watch until" }[field] || label;
   tvDone(val ? `${say} ${fmtL(val)}: ${tvTitle(x)}` : `${say} cleared: ${tvTitle(x)}`, I.key, undo);
   return !0;
@@ -347,14 +333,14 @@ function tvSetOwner(I, name, quiet) {
   if (!TV_CAN.owner(x) || !rec) return quiet ? null : tvCant(I, "The owner");
   // anyone but the chair and the managers offers it: it stays theirs until the other person accepts
   if (!TV_ASSIGNERS.includes(role())) return quiet ? null : tdyHandOff(x, name, "");
-  const f = TDY_OWNER_FIELD[x.kind] || "assignee",
-    was = rec[f] || x.owner || "",
-    undo = tvKeep(rec, [f, "handoff"]);
+  const was = rec.assignee || x.owner || "",
+    undo = tvKeep(rec, ["assignee", "handoff", "collaborators", "ownerFlag"]);
   if (!name || name === was) return quiet ? null : !1;
-  tdySetOwner(x, rec, name);
-  rec.handoff && "offered" === rec.handoff.state && (rec.handoff = Object.assign({}, rec.handoff, { state: "withdrawn", decidedAt: appNowIso() }));
-  tkLog(rec, { ev: "owner", from: was, to: name });
-  tvAudit(x, "owner", was, name);
+  // one internal owner, always: the record's own writer refuses anyone outside the team (they are Waiting On)
+  const r = tkSetOwner({ key: I.key, x: x, rec: rec }, name);
+  if (!r.ok) return quiet ? null : (toast(r.why), !1);
+  tkLog(rec, { ev: "owner", from: was, to: r.to });
+  tvMtLog(I, "owner", was, r.to);
   if (quiet) return undo;
   tvDone(`${tkFirst(name)} owns it now: ${tvTitle(x)}${was ? ` (was ${tkFirst(was)})` : ""}`, I.key, undo);
   return !0;
@@ -377,32 +363,36 @@ function tvSetStatus(I, st, opt) {
   if (st === was) return O.quiet ? null : !1;
   const [kk, ki, kp] = I.key.split(":");
   if ("done" === st) {
-    if (!O.quiet) return tkCheckDone(I.key), !0;
+    if (!O.quiet) {
+      tkCheckDone(I.key);
+      const now = tkItems().find((y) => t2Key(y) === I.key);
+      now && now.done && tvMtLog(I, "status", was, "done");
+      return !0;
+    }
     if (tvProofHeld(I) || /^(ob|lead|draft)$/.test(x.kind)) return null;
     tkToggle(kk, ki, kp || "");
     const now = tkItems().find((y) => t2Key(y) === I.key);
+    now && now.done && tvMtLog(I, "status", was, "done");
     return now && now.done ? () => tkToggle(kk, ki, kp || "") : null;
   }
   if (!TV_CAN.status(x) || !rec) return O.quiet ? null : tvCant(I, "This status");
+  if ("hub" === x.kind && !/^(todo|doing|fyi)$/.test(st)) return O.quiet ? null : tvCant(I, "A sales task's status");
   if ("sched" === x.kind && !/^(todo|doing)$/.test(st)) return O.quiet ? null : tvCant(I, "A schedule line's status");
   if ("waiting" === st && !(I.wait && I.wait.name)) return O.quiet ? null : tvEditWait(I, O.anchor);
-  const undo = tvKeep(rec, ["status", "waitsOn", "waitingOn", "completedAt", "actualEnd", "actualStart", "modifiedAt"]);
+  const undo = tvKeep(rec, ["status", "waitsOn", "waitingOn", "followUp", "completedAt", "actualEnd", "actualStart", "modifiedAt"]);
   "done" === was && tkToggle(kk, ki, kp || "");
   if ("sched" === x.kind) {
     rec.status = "doing" === st ? "in-progress" : "planned";
     "doing" === st && (rec.actualStart || (rec.actualStart = today()));
   } else {
-    rec.status = st;
+    // no longer waiting: what was owed stays on the thread, and the record's writer clears it
+    "waiting" !== st && I.wait && (tkLog(rec, { ev: "waiting", was: I.wait }), tkSetWaiting(rec, null));
+    tkSetStatus(x.kind, rec, st);
     "firm" === x.kind && (rec.modifiedAt = today());
-    if ("waiting" !== st && I.wait) {
-      // no longer waiting: what was owed stays on the thread
-      tkLog(rec, { ev: "waiting", was: I.wait });
-      rec.waitsOn = "";
-      rec.waitingOn = null;
-    }
   }
   tkLog(rec, { ev: "status", from: was, to: st });
   tvAudit(x, "status", was, st);
+  tvMtLog(I, "status", was, st);
   if (O.quiet) return undo;
   tvDone(`${TV_STATUS_SAY[st]}: ${tvTitle(x)}`, I.key, undo);
   return !0;
@@ -411,20 +401,13 @@ function tvSetWait(I, W) {
   const x = I.x,
     rec = I.rec;
   if (!TV_CAN.wait(x) || !rec) return tvCant(I, "Waiting On");
-  const undo = tvKeep(rec, ["waitsOn", "waitingOn", "status"]),
+  const undo = tvKeep(rec, ["waitsOn", "waitingOn", "status", "followUp"]),
     was = I.wait;
-  if (W && W.name) {
-    const prev = rec.waitingOn && "object" == typeof rec.waitingOn ? rec.waitingOn : {};
-    rec.waitingOn = Object.assign({}, prev, { name: W.name, what: W.what || "", promised: W.promised || "", since: prev.since || today(), by: tdyMe().name || "" });
-    rec.waitsOn = W.name;
-    "done" !== rec.status && (rec.status = "waiting");
-  } else {
-    rec.waitingOn = null;
-    rec.waitsOn = "";
-    "waiting" === rec.status && (rec.status = "todo");
-  }
+  // the record's writer: who owes it (with who they are in the firm's records), what, by when; the promise is the chase date
+  tkSetWaiting(rec, W && W.name ? Object.assign({}, I.wait && I.wait.name === W.name ? I.wait : {}, W) : null);
   tkLog(rec, { ev: "waiting", was: was || null, to: W && W.name ? W : null });
   tvAudit(x, "waitingOn", was && was.name, W && W.name);
+  tvMtLog(I, "waitingOn", was ? was.name : "", W && W.name ? W.name : "");
   tvDone(W && W.name ? `Waiting on ${W.name}${W.promised ? `, promised ${fmtL(W.promised)}` : ""}: ${tvTitle(x)}` : `Not waiting on anyone now: ${tvTitle(x)}`, I.key, undo);
   return !0;
 }
@@ -437,13 +420,24 @@ function tvSetProject(I, pid) {
   if (!from || !to || from === to) return !1;
   const i = (from.actions || []).findIndex((a) => a.id === x.id);
   if (i < 0) return !1;
-  const a = from.actions.splice(i, 1)[0];
+  const a = from.actions.splice(i, 1)[0],
+    was = { code: a.code, keyWas: a.keyWas ? a.keyWas.slice() : undefined };
   (to.actions = to.actions || []).push(a);
+  try {
+    const meta = tkBoardMeta("p:" + to.id);
+    if (meta && meta.prefix && a.code && !String(a.code).startsWith(meta.prefix + "-")) {
+      (a.keyWas = a.keyWas || []).push(a.code);
+      meta.keyNext = Math.max(+meta.keyNext || 1, 1);
+      a.code = `${meta.prefix}-${meta.keyNext++}`;
+    }
+  } catch (e) {}
   tkLog(a, { ev: "job", from: shortName(from), to: shortName(to) });
   tvAudit(x, "job", shortName(from), shortName(to));
   tvDone(`Moved to ${shortName(to)}: ${tvTitle(x)}`, `action:${x.id}:${to.id}`, () => {
     const j = (to.actions || []).findIndex((y) => y.id === a.id);
     j >= 0 && to.actions.splice(j, 1), from.actions.push(a);
+    a.code = was.code;
+    was.keyWas ? (a.keyWas = was.keyWas) : delete a.keyWas;
   });
   return !0;
 }
@@ -1308,11 +1302,6 @@ function tvToolbar() {
   if ("table" === tkMode && tvPhone()) return tvTableTools();
   return "";
 }
-// Start Meeting opens Meeting Mode where the build has it (the meeting lane); until then the button is not drawn
-function tvMeetingFn() {
-  for (const n of ["mmStart", "mmOpen", "meetingModeStart", "meetingModeOpen", "mmEnter"]) if ("function" == typeof window[n]) return window[n];
-  return null;
-}
 // the wide screen's header: Tasks, the layouts, search, Start Meeting, New Task; under it the saved tabs, then the
 // scope, the filter chips and, for the table, Group By and Density on the right
 function tvBar(host) {
@@ -1334,9 +1323,7 @@ function tvBar(host) {
     q && tools.appendChild(q);
     const head = ph.firstElementChild;
     head ? head.after(tools) : ph.prepend(tools);
-    const acts = ph.querySelector(".acts"),
-      nt = acts && acts.querySelector("#tk-new"),
-      mm = tvMeetingFn();
+    const acts = ph.querySelector(".acts");
     acts &&
       setTimeout(() => {
         const tabs = host.querySelector(".tv-saved");
@@ -1346,7 +1333,6 @@ function tvBar(host) {
             b && (b.classList.add("tv-quiet"), tabs.appendChild(b));
           });
       }, 0);
-    mm && acts && !acts.querySelector("[data-tvmeeting]") && (nt ? nt.insertAdjacentHTML("beforebegin", '<button type="button" class="btn tv-outline" data-tvmeeting>Start Meeting</button>') : acts.insertAdjacentHTML("beforeend", '<button type="button" class="btn tv-outline" data-tvmeeting>Start Meeting</button>'));
   }
   const scope = bar.querySelector(".t2-scope");
   (scope || bar.firstChild) && (scope ? scope.insertAdjacentHTML("afterend", tvFilterChips()) : bar.insertAdjacentHTML("afterbegin", tvFilterChips()));
@@ -1415,7 +1401,7 @@ function tvDecorateRows(scope) {
       who && who.remove();
       return;
     }
-    sub && I.ref && sub.insertAdjacentHTML("afterbegin", `<span class="tv-ref">${esc(I.ref)}</span><span class="tk2-dot"> · </span>`);
+    sub && I.ref && !r.querySelector(".tk2-key") && sub.insertAdjacentHTML("afterbegin", `<span class="tv-ref">${esc(I.ref)}</span><span class="tk2-dot"> · </span>`);
     if (!slide) return;
     who && who.remove();
     const when = sub && sub.querySelector(".tk2-when");
@@ -1500,13 +1486,6 @@ function tvWireBar(host) {
   host.querySelectorAll("[data-tvfadd]").forEach((b) => (b.onclick = () => tvFilterPick("", b)));
   host.querySelectorAll("[data-tvfedit]").forEach((b) => (b.onclick = () => tvFilterPick(b.dataset.tvfedit, b)));
   host.querySelectorAll("[data-tvfx]").forEach((b) => (b.onclick = () => tvFilterClear(b.dataset.tvfx)));
-  host.querySelectorAll("[data-tvmeeting]").forEach(
-    (b) =>
-      (b.onclick = () => {
-        const f = tvMeetingFn();
-        f && f();
-      }),
-  );
   host.querySelectorAll("[data-tvqv]").forEach((b) => (b.onclick = () => ((t2View = t2View === b.dataset.tvqv && "week" !== b.dataset.tvqv ? "week" : b.dataset.tvqv), renderTkAll())));
   host.querySelectorAll("[data-tvqg]").forEach(
     (b) =>
@@ -1802,8 +1781,8 @@ function tvSheetDecorate(m, key) {
     body = m.querySelector(".tks");
   h3 && h3.insertAdjacentHTML("beforebegin", `<div class="tvs-kp">${I.ref ? `<span class="tv-ref">${esc(I.ref)}</span><span class="tv-dot"> · </span>` : ""}<span>${esc(I.pname)}</span></div>`);
   if (!body) return;
-  const ld = I.rec && I.rec.lastDiscussed,
-    ldSay = I.last ? `Last discussed ${esc(tvRel(I.last, !0))}${ld && "object" == typeof ld && ld.meeting ? ` at ${esc(ld.meeting)}` : ""}` : "Not discussed in a meeting yet",
+  const ld = x.lastDiscussed || (I.rec && I.rec.lastDiscussed),
+    ldSay = I.last ? `Last discussed ${esc(tvRel(I.last, !0))}${I.lastMeeting ? ` in ${esc(I.lastMeeting)}` : ""}` : "Not discussed in a meeting yet",
     lateDue = x.due && x.due < td && !x.done,
     W = I.wait,
     wLate = W && W.promised && W.promised < td && !x.done,
@@ -1835,10 +1814,30 @@ ${
   pick && pick.firstChild && 3 === pick.firstChild.nodeType && (pick.firstChild.textContent = "Pick a Date");
   const note = m.querySelector("[data-tksnote]");
   note && (note.placeholder = "Add a comment");
+  // the record's own section (src/meeting.js): what the top already shows (status, Waiting On, follow-up, when it was
+  // last discussed) steps aside here; its Links become Linked, with where the task came from and the meeting moment
+  const rs = m.querySelector(".tks-rec");
+  if (rs) {
+    rs.querySelectorAll(":scope > .tks-h").forEach((h) => {
+      const t = h.textContent.trim();
+      if (/^(Status|Waiting On|Follow Up)$/.test(t)) {
+        h.classList.add("tvs-dup");
+        h.nextElementSibling && h.nextElementSibling.classList.add("tvs-dup");
+      }
+      "Links" === t && (h.textContent = "Linked");
+    });
+    rs.querySelectorAll(":scope > p.small.muted").forEach((e) => /^Last discussed/.test(e.textContent) && e.classList.add("tvs-dup"));
+  }
   const src = m.querySelector("[data-tkssrc]"),
-    lm = ld && "object" == typeof ld && (ld.meetingId || ld.meeting) ? `<div class="tvs-moment">${tvSvg("clock", 14)}<span>Discussed ${esc(tvRel(I.last, !0))}${ld.meeting ? ` at ${esc(ld.meeting)}` : ""}${ld.at && /T\d/.test(ld.at) ? `, ${esc(String(ld.at).slice(11, 16))}` : ""}</span></div>` : "";
-  (src || lm) && (src || body.querySelector(".tks-h") || body.lastElementChild).insertAdjacentHTML("beforebegin", `<div class="tks-h">Linked</div>${src ? "" : lm}`);
-  src && lm && src.insertAdjacentHTML("afterend", lm);
+    lm = ld && ld.meetingId ? `<div class="tvs-moment">${tvSvg("clock", 14)}<span>Discussed ${esc(tvRel(I.last, !0))}${I.lastMeeting ? ` in ${esc(I.lastMeeting)}` : ""}${ld.at && /T\d/.test(ld.at) ? ` at ${esc(String(ld.at).slice(11, 16))}` : ""}</span></div>` : "",
+    links = rs && rs.querySelector(".tks-links");
+  if (links) {
+    src && links.prepend(src);
+    lm && links.insertAdjacentHTML("afterbegin", lm);
+  } else if (src || lm) {
+    (src || body.querySelector(".tks-h") || body.lastElementChild).insertAdjacentHTML("beforebegin", `<div class="tks-h">Linked</div>${src ? "" : lm}`);
+    src && lm && src.insertAdjacentHTML("afterend", lm);
+  }
   // Hand Off sits beside the blue next step
   const ft = m.querySelector(".mbm-ft"),
     ho = m.querySelector("[data-tkshandopen]");
@@ -2061,23 +2060,15 @@ let tvDrawing = "";
     return s;
   };
 }
-// The fields the meeting adds (lane A) reach the rows every list reads: a record waiting on someone is in Waiting
-// (t2ViewOf "blocked"), so the chip, the board's column and the saved view count one set.
+// A record waiting on someone is in Waiting (t2ViewOf "blocked") even before the person is named, so the chip, the
+// board's column and the saved view count one set.
 {
   const base = tkItems;
   tkItems = function () {
     const out = base.apply(this, arguments) || [];
     try {
       out.forEach((x) => {
-        if (x.__tv || !/^(action|firm|hub)$/.test(x.kind)) return;
-        x.__tv = 1;
-        const rec = tvRec(x);
-        if (!rec) return;
-        const w = rec.waitingOn,
-          wn = w && "object" == typeof w ? w.name || "" : "string" == typeof w ? w : "";
-        !x.done && !x.waitsOn && (wn || "waiting" === rec.status) && (x.waitsOn = wn || "someone outside the team");
-        rec.followUp && (x.followUp = rec.followUp);
-        rec.watchUntil && (x.watchUntil = rec.watchUntil);
+        !x.done && !x.waitsOn && ("waiting" === x.status || (x.waitingOn && x.waitingOn.name)) && (x.waitsOn = (x.waitingOn && x.waitingOn.name) || "someone outside the team");
       });
     } catch (e) {
       console.warn("task view fields", e);
@@ -2101,7 +2092,7 @@ let tvDrawing = "";
 #v-tkall .tv-saved .tv-quiet{margin-left:auto;align-self:center;min-height:36px;background:none;border:0;color:var(--tv-ink2);font-size:13px}
 #v-tkall .tv-saved .tv-quiet+.tv-quiet{margin-left:0}
 #v-tkall .tv-hdtools .t2-q{flex:0 1 300px;min-width:180px;height:40px;border-radius:10px}
-#v-tkall .tv-outline{background:#fff;border:1px solid var(--tv-accent);color:var(--tv-accent);font-weight:600}
+#v-tkall .tv-outline,#v-tkall .tv-on .ph .acts [data-mmstart]{background:#fff;border:1px solid var(--tv-accent);color:var(--tv-accent);font-weight:600}
 #v-tkall .tk-mode.tv-modes{background:#EEF0F3;border-radius:10px;padding:3px;border:0;gap:2px}
 #v-tkall .tk-mode.tv-modes button{display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:8px;background:none;color:var(--tv-ink2);font-weight:500;padding:0 14px}
 #v-tkall .tk-mode.tv-modes button.on{background:#fff;color:var(--tv-ink);box-shadow:0 1px 2px rgba(16,24,40,.08)}
@@ -2329,7 +2320,7 @@ body:has(#mbm.tks-on) #v-tkall .tv-grid .tv-col-wait,body:has(#mbm.tks-on) #v-tk
 #mbm.tv-sheet .mbm-x{order:1;width:44px;height:44px;margin:-10px -12px 0 0}
 #mbm.tv-sheet .mbm-hd h3{order:2;flex:1 1 100%;font-size:21px;line-height:28px;font-weight:600;margin:4px 0 0}
 #mbm.tv-sheet .mbm-bd{padding:4px 20px 12px}
-#mbm.tv-sheet .tks-lines{display:none}
+#mbm.tv-sheet .tks-lines,#mbm.tv-sheet .mbm-hd h3 .tks-key,#mbm.tv-sheet .tvs-dup{display:none}
 #mbm.tv-sheet .tvs-st{display:flex;align-items:center;gap:12px;margin:2px 0 8px}
 #mbm.tv-sheet .tvs-pill{border:0;background:none;padding:0;min-height:44px;cursor:pointer;display:inline-flex;align-items:center}
 #mbm.tv-sheet .tvs-ld{font-size:13px;color:var(--tv-ink2)}
@@ -2369,6 +2360,7 @@ body:has(#mbm.tks-on) #v-tkall .tv-grid .tv-col-wait,body:has(#mbm.tks-on) #v-tk
   #v-tkall .tv-qc{flex:0 0 auto;display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 16px;border:1px solid var(--tv-ring);border-radius:22px;background:#fff;font-size:15px;font-weight:500;color:var(--tv-ink);cursor:pointer}
   #v-tkall .tv-qc.on{background:var(--tv-ink);border-color:var(--tv-ink);color:#fff}
   #v-tkall .tv-qc .n{font-weight:700}
+  #v-tkall .tv-on .tk2-title .tk2-key{display:none}
   #v-tkall .tv-on .tk2-list{border-radius:12px;margin:0;padding-bottom:0}
   #v-tkall .tv-on ~ .tk2-fab,#v-tkall .tv-on .tk2-fab{width:58px;height:58px;background:var(--tv-accent)}
   #v-tkall .tv-top{margin:0 0 12px}
