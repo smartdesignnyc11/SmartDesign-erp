@@ -417,9 +417,21 @@ function aimPlan(files, opts) {
   const seen = new Map(),
     rows = [],
     dup = [];
+  // a task in two projects comes in each project's export: the copy kept is the one from its own project's file, so
+  // its place in that project's order is the board's
+  const main = {};
+  raw.forEach((r) => r.projects[0] && ((main[r.file] = main[r.file] || {})[r.projects[0]] = (main[r.file][r.projects[0]] || 0) + 1));
+  const home = (r) => {
+    const m = main[r.file] || {},
+      top1 = Object.keys(m).sort((a, b) => m[b] - m[a])[0];
+    return !r.projects[0] || r.projects[0] === top1;
+  };
   raw.forEach((r) => {
     if (!r.id) return void rows.push(r);
-    seen.has(r.id) ? dup.push(r) : (seen.set(r.id, r), rows.push(r));
+    const was = seen.get(r.id);
+    if (!was) return seen.set(r.id, r), void rows.push(r);
+    if (!home(was) && home(r)) return rows.splice(rows.indexOf(was), 1), rows.push(r), seen.set(r.id, r), void dup.push(was);
+    dup.push(r);
   });
   const idx = aimIndex(),
     top = rows.filter((r) => !r.parent),
