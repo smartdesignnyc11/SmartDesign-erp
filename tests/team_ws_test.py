@@ -106,6 +106,8 @@ async def main():
         await pg.wait_for_timeout(300)
         c.ok(await pg.locator('#cl-team').count() == 1 and await pg.locator('#tws-card').count() == 1, 'Settings shows Team Accounts and the workspace card')
         c.ok(await pg.locator('#tws-pilot').is_checked(), 'the pilot is on')
+        os.makedirs(os.path.join(ROOT, 'review', 'laneD'), exist_ok=True)
+        await pg.locator('#tws-card').screenshot(path=os.path.join(ROOT, 'review', 'laneD', 'team_workspace_card_desktop.png'))
         c.ok(await pg.locator('#asof-date').count() == 0, 'the Firm\'s Clock has no As Of field here')
         for em, nm, rl in (('priya@example.com', 'Priya Natarajan', 'coord'), ('leo@example.com', 'Leo Marchetti', 'billing')):
             await pg.fill('#cl-inv-email', em)
@@ -154,6 +156,8 @@ async def main():
             rv = await pg.evaluate("ROLE_VIEWS[role()]")
             c.ok('tkall' in rv and not [v for v in money if v in rv], f'the {who}\'s menu: Tasks in, money out ({[v for v in money if v in rv]})')
             await go(pg, 'tkall')
+            os.makedirs(os.path.join(ROOT, 'review', 'laneD'), exist_ok=True)
+            await pg.screenshot(path=os.path.join(ROOT, 'review', 'laneD', f'team_tasks_{uidk}_{"phone" if phone else "desktop"}.png'))
             sw = await pg.evaluate("document.documentElement.scrollWidth - innerWidth")
             c.ok(sw <= 0, f'Tasks on the {who}\'s {"phone" if phone else "desktop"}: no sideways scroll ({sw}px)')
             body = await pg.evaluate("(document.querySelector('#v-tkall') || document.body).innerText")

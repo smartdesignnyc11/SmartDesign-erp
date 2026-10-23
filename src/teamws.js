@@ -60,18 +60,22 @@ function twsPilotOn() {
     return !1;
   }
 }
-const TWS_RV_FULL = {};
-// Narrow ROLE_VIEWS in place while the pilot is on, and give every view back, in its old order, when it is off.
+const TWS_RV_OFF = {};
+// Narrow ROLE_VIEWS in place while the pilot is on; when it is off, give back only what the pilot took, at its place.
+// Nothing else is touched, so a view another part of the app took out of a role's list stays out.
 function twsPilotApply() {
   if ("object" != typeof ROLE_VIEWS) return;
   const on = twsPilotOn();
   Object.keys(ROLE_VIEWS).forEach((r) => {
     const L = ROLE_VIEWS[r];
     if (!Array.isArray(L)) return;
-    const full = (TWS_RV_FULL[r] = TWS_RV_FULL[r] || []);
-    L.forEach((v) => full.includes(v) || full.push(v));
-    const want = on ? full.filter((v) => !twsPilotHides(v)) : full.slice();
-    if (want.length !== L.length || want.some((v, i) => v !== L[i])) L.splice(0, L.length, ...want);
+    const off = (TWS_RV_OFF[r] = TWS_RV_OFF[r] || []);
+    if (on) {
+      for (let i = L.length - 1; i >= 0; i--) twsPilotHides(L[i]) && (off.unshift([L[i], i]), L.splice(i, 1));
+    } else if (off.length) {
+      off.sort((a, b) => a[1] - b[1]).forEach(([v, i]) => L.includes(v) || L.splice(Math.min(i, L.length), 0, v));
+      off.length = 0;
+    }
   });
 }
 function twsPilotSet(on) {
@@ -170,7 +174,7 @@ function twsCard() {
     (op.onclick = () =>
       mbModal(
         "Open the Team's Workspace",
-        `<p class="small">A new workspace with no sample data: the team's own projects and tasks, on today's date, with the pilot's tasks-only menu. Nothing moves out of this one, and you can switch back from Settings.</p><div class="f"><label>Name</label><input data-f="name" value="SmartDesign"></div><div class="f"><label>Short Id</label><input data-f="id" value="sd-team" autocapitalize="off"><span class="hint">Lowercase letters, digits and dashes.</span></div>`,
+        `<p class="small">A new workspace with no sample data: the team's own projects and tasks, on today's date, with the pilot's tasks-only menu. Nothing moves out of this one, and you can switch back from Settings.</p><div class="f"><label>Name</label><input data-f="name" value="SmartDesign"></div><div class="f"><label>Short ID</label><input data-f="id" value="sd-team" autocapitalize="off"><span class="hint">Lowercase letters, digits and dashes.</span></div>`,
         {
           submit: "Open It",
           onSubmit: (f) => {
@@ -726,7 +730,7 @@ function aimHtml() {
   const S = aimStore(),
     L = aimPlanNow,
     T = L && L.totals;
-  const head = `<div class="card" id="aim-card"><h3>Import From Asana</h3>
+  const head = `<div class="card" id="aim-card"><h3>Import from Asana</h3>
     <p class="small muted">In Asana, open each project's menu, choose Export, then CSV. Pick the files here: nothing is written until you have looked at the summary. Each Asana project becomes a project here with its prefix; tasks keep their IDs (PAD-23 stays PAD-23); a task whose Asana assignee is not on the team waits on them, and you pick the team member who owns it.</p>
     <div class="row" style="gap:8px;flex-wrap:wrap"><label class="btn">Choose CSV Files<input type="file" id="aim-file" accept=".csv,text/csv" multiple hidden></label>${aimFiles.length ? `<span class="small muted">${aimFiles.length} file${1 === aimFiles.length ? "" : "s"}: ${aimFiles.map((f) => esc(f.name)).join(", ")}</span>` : ""}</div>`;
   if (!L) return head + aimPendingHtml(S) + "</div>";
@@ -770,7 +774,7 @@ function aimPendingHtml(S) {
     const last = S.runs[S.runs.length - 1];
     return last ? `<p class="small muted" style="margin:10px 0 0">Last import ${esc(stampText(last.at))}${last.by ? " by " + esc(last.by) : ""}: ${last.created} new, ${last.updated} updated, ${last.waiting} waiting for an owner.</p>` : "";
   }
-  return aimReviewHtml(S.pending.map((x) => Object.assign({}, x.t, { why: x.why })), "pending") + `<div class="row" style="margin-top:10px"><button class="btn primary" id="aim-resolve">Create the Tasks With an Owner</button></div>`;
+  return aimReviewHtml(S.pending.map((x) => Object.assign({}, x.t, { why: x.why })), "pending") + `<div class="row" style="margin-top:10px"><button class="btn primary" id="aim-resolve">Create the Tasks with an Owner</button></div>`;
 }
 function aimRead(fileList) {
   const L = [...(fileList || [])];

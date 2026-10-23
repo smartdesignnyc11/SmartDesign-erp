@@ -149,6 +149,8 @@ async def main():
             tie = await pg.inner_text('#aim-tie')
             c.ok('17 rows read' in tie and 'Nothing is lost' in tie, f'the summary ties before anything is written: {tie}')
             c.ok(await pg.evaluate("!DB.projects.some(p => p.project.asanaName)"), 'and nothing is written yet')
+            os.makedirs(os.path.join(ROOT, 'review', 'laneD'), exist_ok=True)
+            await pg.screenshot(path=os.path.join(ROOT, 'review', 'laneD', f'asana_summary_{"phone" if phone else "desktop"}.png'), full_page=True)
             c.ok(await pg.locator('#aim-projects tbody tr').count() == 3 and await pg.locator('#aim-people tbody tr').count() >= 6, 'counts per project and per person')
             prim = await pg.evaluate("[...document.querySelectorAll('#v-rdata .btn.primary')].filter(b => b.offsetParent).length")
             c.ok(prim == 1, f'one blue button on the screen: {prim}')
