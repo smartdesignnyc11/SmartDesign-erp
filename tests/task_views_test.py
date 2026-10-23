@@ -42,7 +42,7 @@ TARGETS = r"""() => { const v = document.querySelector('.view.on'); const pop = 
   const F = (() => { const b = [...document.querySelectorAll('#mtabs, #tabbar')].find(e => e.getClientRects().length); return b ? b.getBoundingClientRect().top : innerHeight; })();
   const scope = [v, pop].filter(Boolean);
   const T = scope.flatMap(s => [...s.querySelectorAll('#tkall-body button, #tkall-body input[type=checkbox], #tkall-body select, .tv-pop button')]).filter(vis)
-    .filter(e => !e.closest('.tk2-acts') && !e.closest('.tv-cal.month'));
+    .filter(e => !e.closest('.tk2-acts') && !e.closest('.tv-cal.month') && !e.closest('.tk2-fab'));
   const R = T.map(e => ({ e, r: e.getBoundingClientRect() })).filter(o => o.r.top < F);
   const small = R.filter(o => o.r.height < 44 || o.r.width < 44).map(o => (o.e.innerText || o.e.getAttribute('aria-label') || '?').trim().slice(0, 18) + ' ' + Math.round(o.r.width) + 'x' + Math.round(o.r.height));
   const close = [];

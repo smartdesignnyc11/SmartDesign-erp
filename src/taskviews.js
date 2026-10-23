@@ -1939,10 +1939,11 @@ let tvDrawing = "";
   body:has(#mbm.tks-on) #v-tkall{padding-right:452px;box-sizing:border-box}
 }
 @media (max-width:760px){
-  #v-tkall .tv-top{margin:0 0 6px}
+  #v-tkall .tv-top{margin:0 0 12px}
   #v-tkall .tv-top select,#v-tkall .tv-top .btn{min-height:44px}
   #v-tkall .tv-top .seg,#v-tkall .tv-calbar .seg{gap:8px;display:inline-flex}
-  #v-tkall .tv-top .seg button,#v-tkall .tv-calbar .seg button{min-height:44px;border-radius:22px}
+  #v-tkall .tv-top .seg > button,#v-tkall .tv-calbar .seg > button,#v-tkall .tv-btabs > button{min-height:44px !important;border-radius:22px}
+  #v-tkall .tv-cards .tv-ghd{margin-bottom:4px}
   #v-tkall .tv-host{margin:0}
   #v-tkall .tv-cards{margin:0 -16px}
   #v-tkall .tv-cards .tv-ghd{padding-left:16px}
