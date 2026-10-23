@@ -328,6 +328,16 @@ function mrvBuild(m, opts) {
   m.review = Object.assign({}, m.review || {}, { state: "built", by: by, at: appNowIso(), start: start, shift: shift, items: items.length, screen: log.length });
   return m.review;
 }
+// the job a client's name points to ("the Klein parlor counters"), when that client has exactly one open job
+function mrvClientJob(text) {
+  try {
+    const c = "function" == typeof mtMatchClient ? mtMatchClient({ title: "", summary: text }, null) : null;
+    const L = c ? (DB.projects || []).filter((p) => p.clientId === c.id && !p.archived) : [];
+    return 1 === L.length ? L[0] : null;
+  } catch (e) {
+    return null;
+  }
+}
 function mrvPropose(m, T, x, C) {
   const li = mrvLineOf(T, x),
     line = li >= 0 ? C.lines[li] : null,
@@ -335,11 +345,22 @@ function mrvPropose(m, T, x, C) {
     shown = null != sec ? MRV.onScreen(C.log, sec) : "",
     byRef = x.ref ? mrvFind(x.ref, C.tasks) : null,
     onTask = shown ? mrvFind(shown, C.tasks) || mrvFind((C.log.find((e) => e.taskKey === shown) || {}).ref, C.tasks) : null;
-  let task = byRef || onTask || null,
-    how = byRef ? "id" : onTask ? "screen" : "";
+  // with no screen log, the task named aloud last (the coordinator says each task's ID as the board is walked),
+  // within the four minutes before the sentence, is the task it was about
+  let named = null;
+  if (!byRef && !onTask && !C.log.length && line)
+    for (let i = li; i >= 0 && line.sec - C.lines[i].sec <= 240; i--) {
+      const r = (MRV.REF.exec(C.lines[i].text) || [])[0];
+      if (r) {
+        named = mrvFind(r, C.tasks);
+        break;
+      }
+    }
+  let task = byRef || onTask || named || null,
+    how = byRef ? "id" : onTask ? "screen" : named ? "said" : "";
   const said = `${x.what || ""} ${x.note || ""} ${x.quote || ""}`;
   let p = task ? mrvProj(task.x.projectId) : null;
-  p || (p = (x.project && mrJob(x.project, "")) || mrJob("", said) || null);
+  p || (p = (x.project && mrJob(x.project, "")) || mrJob("", said) || mrvClientJob(said) || null);
   const upd = !!MRV_KIND[x.kind] || "waiting" === x.kind || "money" === x.kind;
   // with no screen log, an update finds its task by words, in its project
   if (!task && upd && "waiting" !== x.kind) {
@@ -698,7 +719,7 @@ function mrvItemHtml(m, pr, can) {
       ? `<div class="mrv-q muted small">Said at ${esc(q.ts)}; the transcript is the attendees' to read.</div>`
       : `<blockquote class="mrv-q"><span>“${esc(q.text)}”</span><cite>${esc(q.who || "")}${q.ts ? ` · ${esc(q.ts)}${pr.at ? ` (${esc(pr.at.slice(0, 5))})` : ""}` : ""}${link ? ` · <a href="${esc(link)}" target="_blank" rel="noopener" class="mrv-doc">${mrvSvg("doc")}Open in the Doc</a>` : ""}</cite></blockquote>`
     : "";
-  const how = { id: "matched by the ID said", screen: "on screen when it was said", words: "matched by its words" }[pr.how] || "";
+  const how = { id: "matched by the ID said", screen: "on screen when it was said", said: "the task named just before", words: "matched by its words" }[pr.how] || "";
   const state = "live" === st ? `<div class="small ok">${mrvSvg("check")} Entered live${pr.liveBy ? ` by ${esc(pr.liveBy)}` : ""}${pr.liveAt ? ` at ${esc(String(pr.liveAt).slice(11, 16))}` : ""}: nothing to do</div>` : "board" === st ? `<div class="small muted">Already so on the board: ${esc(pr.boardWhy || "")}</div>` : "applied" === st ? `<div class="small ok">${mrvSvg("check")} Applied ${fmtL(pr.appliedAt)}${pr.by ? ` by ${esc(pr.by)}` : ""}</div>` : "skipped" === st ? `<div class="small muted">Rejected${pr.by ? ` by ${esc(pr.by)}` : ""}</div>` : "";
   const picks = need.length ? `<div class="mrv-picks">${need.includes("task") ? mrvTaskSel(pr) : ""}${need.includes("project") ? mrvProjSel(pr) : ""}${need.includes("owner") ? mrvOwnerSel(pr) : ""}${need.includes("date") ? `<label class="mrv-pick"><span>Date</span><input type="date" data-mrvdate="${esc(pr.id)}" aria-label="Date"></label>` : ""}</div>` : "";
   const acts = "proposed" === st && can ? `<div class="mrv-a"><button class="btn sm" data-mrvok="${esc(pr.id)}" ${need.length ? "disabled" : ""} title="${need.length ? `Pick the ${need.join(" and the ")} first` : "Apply it to the board"}">Accept</button><button class="btn sm ghost" data-mrvedit="${esc(pr.id)}">Edit</button><button class="btn sm ghost" data-mrvno="${esc(pr.id)}">Reject</button></div>` : "";
@@ -1060,7 +1081,16 @@ if ("function" == typeof mGo) {
   };
 }
 // a review keeps the board's dates and owners true: the schedule principle, and the value that closes every loop
-"undefined" != typeof STD_MAP && (STD_MAP.meetreview = { p: "schedule", c: ["value", "own", /Close every loop/i] });
+// on the meeting's day and the next, an unreviewed meeting leaves teammates reading a board the room already changed
+// (integrity: we never mislead a teammate); after that it is the board's dates (schedule)
+"undefined" != typeof STD_MAP &&
+  (STD_MAP.meetreview = {
+    p: (it) => {
+      const m = (DB.meetings || []).find((x) => x.id === it.id);
+      return m && m.date && m.date >= iso(addDays(parse(today()), -1)) ? "integrity" : "schedule";
+    },
+    c: ["value", "own", /Close every loop/i],
+  });
 // one item per meeting in Approvals, for the meeting's owner: a review reads as one
 if ("function" == typeof mApprovals) {
   const base = mApprovals;

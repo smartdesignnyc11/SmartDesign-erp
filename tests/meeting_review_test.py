@@ -214,7 +214,8 @@ async def main():
         await pg.evaluate("mrvOpen('mt_live')")
         await pg.wait_for_timeout(250)
         txt = await pg.evaluate("document.getElementById('meetings-body').innerText")
-        c.ok('attendees' in txt and 'phone' not in txt, 'someone who was not in the meeting sees the items, not the words')
+        quotes = await pg.evaluate("[...document.querySelectorAll('.mrv-q span')].map(x => x.textContent)")
+        c.ok("attendees' to read" in txt and 'Halden' not in txt and not [q for q in quotes if 'Gemini' not in q and q.startswith('\u201c')] or False, f'someone who was not in the meeting sees the items, not the words: {quotes[:3]} {txt[:300]}')
         await b.close()
 
         # ---------------------------------------------------------------- the coordinator on the phone: paste, review, accept
@@ -234,7 +235,12 @@ async def main():
         c.ok(w[0] <= w[1] + 1, f'the review at 390: no sideways scroll ({w})')
         small = await pg.evaluate("[...document.querySelectorAll('.mrv-a .btn, .mrv-ph .acts .btn')].filter(x => x.offsetParent && x.getBoundingClientRect().height < 44).map(x => x.textContent)")
         c.ok(not small, f'tap targets at least 44px: {small}')
+        await pg.evaluate("document.getElementById('toast').classList.remove('on', 'act')")
         await pg.screenshot(path=os.path.join(OUT, 'phone_review_coord.png'), full_page=True)
+        over = await pg.evaluate("[...document.querySelectorAll('.mrv-it')].filter(x => x.offsetParent).flatMap(it => [...it.querySelectorAll('button, select, input')].filter(b => b.offsetParent && b.getBoundingClientRect().right > it.getBoundingClientRect().right + 1).map(b => b.textContent || b.tagName))")
+        c.ok(not over, f'every control sits inside its card at 390: {over[:4]}')
+        el = await pg.query_selector('.mrv-g .mrv-it')
+        el and await el.screenshot(path=os.path.join(OUT, 'phone_review_item.png'))
         await pg.click('#mrv-all')
         await pg.wait_for_timeout(300)
         d = await pg.evaluate("DB.projects.find(p => p.id === 'p206').actions.find(a => a.code === 'LEN-7').due")
@@ -254,9 +260,11 @@ async def main():
         await pg.evaluate("mrvRun(DB.meetings.find(m => m.id === 'mt_live'))")
         R = await review(pg)
         st = [x for x in R['P'] if x['kind'] == 'tkdone' and x['ref'] == 'STA-22']
-        c.ok(st and st[0]['status'] == 'board', f'with no screen log a done task is still not proposed again (already done on the board): {st}')
+        c.ok(st and st[0]['status'] == 'board' and st[0]['how'] == 'said', f'with no screen log, "Mark it done" is on the task named just before, already done on the board: {st}')
+        d7 = [x for x in R['P'] if x['kind'] == 'tkdate' and x['ref'] == 'LEN-7']
+        c.ok(d7 and d7[0]['how'] == 'said' and d7[0]['apply']['due'] == '2026-09-04', f'and "Move it to tomorrow then" is on LEN-7, named a minute before: {d7}')
         unm = [x for x in R['P'] if x['kind'] == 'tkdate' and x['status'] == 'proposed']
-        c.ok(all(x['how'] in ('id', 'words') or 'task' in x['needs'] for x in unm), f'with no screen log, an update finds its task by ID or words, or waits for one to be picked: {[(x["ref"], x["how"], x["needs"]) for x in unm]}')
+        c.ok(all(x['how'] in ('id', 'said', 'words') or 'task' in x['needs'] for x in unm), f'with no screen log, an update finds its task by ID, or waits for one to be picked: {[(x["ref"], x["how"], x["needs"]) for x in unm]}')
         c.ok(not any(x['projectId'] == '' and x['status'] == 'applied' for x in R['P']), 'nothing is filed under no project')
         await b.close()
 
