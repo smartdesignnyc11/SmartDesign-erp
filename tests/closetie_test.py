@@ -61,6 +61,9 @@ LIB = r"""
   }
   async function monthEnd() {
     const out = {};
+    // The month-end story approves AMP-311 as already paid by check 2205. Since 2026-10-21 (s1fix) a bank line dated
+    // before its bill pays it only when a person matched it and said why, so the controller says so here.
+    bill('AMP-311').earlyMatch = { txnId: 't5', by: 'Controller', at: appNowIso(), why: 'Alberto post-dated the invoice; check 2205 paid it' };
     const Jo = jobFin(p('p121')), Io = companyPL(['2026-01-01', today()]);
     out.open = {pct: Jo.pct, income: Io.income, net: Io.net};
     out.short = pay3ShortPay(bill('WW-2026-118'), 29700, 'credit memo requested for the 10th unit');

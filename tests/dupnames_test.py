@@ -12,8 +12,11 @@ SRC = re.findall(r"'([^']+)'", re.search(r"SRC = \((.*?)\)", open(os.path.join(R
 seen = collections.defaultdict(list)
 for f in SRC:
     for i, line in enumerate(open(os.path.join(ROOT, f), encoding='utf-8')):
-        m = re.match(r'^(?:async )?function\*? ?([A-Za-z_$][\w$]*)\s*\(', line)
-        if m: seen[m.group(1)].append(f'{f}:{i + 1}')
+        # a top-level const, let or class as well (2026-10-21: the tasks lane's `const tkFirst` and the fix lane's
+        # `function tkFirst` met on a merge and the page stopped booting: "Identifier has already been declared")
+        m = re.match(r'^(?:(?:async )?function\*? ?([A-Za-z_$][\w$]*)\s*\(|(?:const|let|class) ([A-Za-z_$][\w$]*)\b)', line)
+        # (a const, let or class declared twice does not replace the first: the whole script refuses to run)
+        if m: seen[m.group(1) or m.group(2)].append(f'{f}:{i + 1}')
 fails = [f'{k} is declared {len(v)} times: {", ".join(v)} (the last one replaces the others everywhere)' for k, v in sorted(seen.items()) if len(v) > 1]
 for x in fails: print('FAIL', x)
 print(f'{len(fails)} FAILED ({len(seen)} names in {len(SRC)} files)' if fails else f'ALL PASS ({len(seen)} names in {len(SRC)} files)')

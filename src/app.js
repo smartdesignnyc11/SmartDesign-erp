@@ -3246,7 +3246,7 @@ function attention() {
       items.push({
         sev: 3,
         when: td,
-        t: `${ex.length} bank/card transaction${ex.length > 1 ? "s" : ""} failed verification`,
+        t: `${ex.length} bank/card transaction${ex.length > 1 ? "s" : ""} not explained by a bill, order, invoice or payroll (failed verification or not matched)`,
         why: ex
           .slice(0, 3)
           .map((t) => `${t.desc.slice(0, 28)} ${money(-t.amt)}`)
@@ -6425,7 +6425,7 @@ function clientFallback() {
     "",
     "Decisions we need from you:",
     ...(j.decisionsNeededFromClient.length
-      ? j.decisionsNeededFromClient.map((d) => `- ${d.name} — by ${fmt(d.due)} (holds up ${d.holdsUp})`)
+      ? j.decisionsNeededFromClient.map((d) => `- ${d.name} — ${d.due ? `by ${fmt(chaseBy(d.due, ""))}` : "when you can"} (holds up ${d.holdsUp})`)
       : ["- none right now"]),
     "",
     "Coming up:",
@@ -11022,7 +11022,7 @@ function renderActions() {
                 ? x.late
                 : "week" === actFilter
                   ? "done" !== x.a.status && x.due && parse(x.due) <= parse(wkEnd)
-                  : "done" !== x.a.status && me && (x.a.assignee || "").toLowerCase().includes(me)),
+                  : "done" !== x.a.status && me && tkOwnerMatch(x.a.assignee || "", me)),
       );
   if ("board" === actView) {
     const col = (st, title) =>
@@ -13949,15 +13949,30 @@ function verifyAll() {
     txnListOpen("verify", () => (vfFilter = "open")),
   );
 }
+// Open exceptions: a line verification flagged, and every bank or card line that reaches no bill, order, invoice
+// or payroll line (bankUnmatched, the Not Matched count) and carries no signed exception. One number for Controls,
+// its badge, Ask and Today (S1 fix, owner review 2026-10-21: Controls said "Exceptions Open 0, every cleared line is
+// explained" while 16 lines, $75,272, had nothing behind them and verification had never run).
 function openExceptions() {
-  return DB.txns.filter((t) => t.verification && !t.verified && "reconciled" !== t.status && !t.ownerCleared);
+  const V = DB.txns.filter((t) => t.verification && !t.verified && "reconciled" !== t.status && !t.ownerCleared),
+    seen = new Set(V.map((t) => t.id));
+  let U = [];
+  try {
+    U = bankUnmatched().rows.filter((t) => !t.exception && !t.ownerCleared && !seen.has(t.id));
+  } catch (e) {}
+  return V.concat(U);
+}
+// What an exception says: verification's findings, or, for a line verification has not read, that nothing is behind it
+function vfEx(t) {
+  const ex = (t && t.verification && t.verification.ex) || [];
+  return ex.length ? ex : t && !t.verified ? [{ lvl: "warn", m: "not matched to a bill, order, invoice or payroll line" }] : [];
 }
 let vfFilter = "open";
 function renderVerify() {
   const all = DB.txns.filter((t) => t.amt < 0),
     ver = all.filter((t) => t.verified).length,
     exc = openExceptions(),
-    bad = exc.filter((t) => t.verification.ex.some((e) => "bad" === e.lvl)).length,
+    bad = exc.filter((t) => vfEx(t).some((e) => "bad" === e.lvl)).length,
     unchecked = all.filter((t) => !t.verification && "reconciled" !== t.status).length;
   ($("#vf-kpis").innerHTML =
     `<div class="kpi ${bad ? "warn" : ""}"><b>${exc.length}</b><span>open exceptions · ${bad} serious</span></div><div class="kpi good"><b>${ver}</b><span>verified against approved items</span></div><div class="kpi ${unchecked ? "warn" : ""}"><b>${unchecked}</b><span>cleared transactions not yet checked</span></div><div class="kpi"><b>${money(exc.reduce((a, t) => a - t.amt, 0))}</b><span>value in exception</span></div>`),
@@ -30523,6 +30538,11 @@ const docActionBase = docAction,
   designRate = () => +(DB.company.designRate || 175),
   isDesignStaff = (emp) => !!(emp && (+emp.billRate || 0) > 0);
 function designInit() {
+  // One person, one name: the seeded designer was "Maja" beside the architect "Maya", and two reviewers read them
+  // as one person typed twice. A saved demo keeps the old spelling, so it is renamed once here.
+  (DB.employees || []).forEach((e) => {
+    "em7" === e.id && "Maja" === e.name && ((e.name = "Lena"), (DB.photos || []).forEach((x) => "Maja" === x.by && (x.by = "Lena")));
+  });
   if (
     ((DB.company.designRate = DB.company.designRate || 175),
     DB.employees.some((e) => "em6" === e.id) ||
@@ -30539,7 +30559,7 @@ function designInit() {
         },
         {
           id: "em7",
-          name: "Maja",
+          name: "Lena",
           role: "Designer",
           rate: 40,
           burden: 20,
@@ -30688,13 +30708,13 @@ function designInit() {
     ["2026-08-25", 7.5, "Maya"],
     ["2026-09-01", 7, "Maya"],
     ["2026-09-02", 6, "Maya"],
-    ["2026-08-05", 8, "Maja"],
-    ["2026-08-06", 8, "Maja"],
-    ["2026-08-12", 7, "Maja"],
-    ["2026-08-13", 8, "Maja"],
-    ["2026-08-20", 6, "Maja"],
-    ["2026-08-27", 8, "Maja"],
-    ["2026-09-02", 8, "Maja"],
+    ["2026-08-05", 8, "Lena"],
+    ["2026-08-06", 8, "Lena"],
+    ["2026-08-12", 7, "Lena"],
+    ["2026-08-13", 8, "Lena"],
+    ["2026-08-20", 6, "Lena"],
+    ["2026-08-27", 8, "Lena"],
+    ["2026-09-02", 8, "Lena"],
   ].forEach(([d, h, who], i) =>
     DB.time.push(
       ((id, em, date, h, code, note) => ({
@@ -33906,8 +33926,21 @@ repStudio = function () {
   );
 };
 const renderReportsBase6 = renderReports;
+// A bank line settles a bill only on or after the bill's date, unless a person matched that line to that bill and
+// said why (b.earlyMatch). S1 fix, owner review 2026-10-21: AMP-311, dated 9/2, read "paid" by the 8/15 check that
+// paid the first progress payment, while Caught for You listed the same check as not matched.
+function bankBeforeBill(b, t) {
+  return !!(b && t && t.date && b.date && t.date < b.date && !(b.earlyMatch && b.earlyMatch.txnId === t.id));
+}
+// One bank line pays one bill: a line another live bill already holds is not offered to a second one.
+function bankHeldByOther(b, t) {
+  return (DB.bills || []).some((o) => o !== b && o.txnId === t.id && !["void", "rejected"].includes(o.status));
+}
 function billMatchTxn(b) {
-  if (b.txnId) return DB.txns.find((t) => t.id === b.txnId) || null;
+  if (b.txnId) {
+    const t = DB.txns.find((x) => x.id === b.txnId) || null;
+    return t && bankBeforeBill(b, t) && !["paid", "verified"].includes(b.status) ? null : t;
+  }
   const n = (b.vendor || "").toLowerCase(),
     gross = billGross(b),
     net = billTotal(b),
@@ -33915,7 +33948,9 @@ function billMatchTxn(b) {
   return (
     DB.txns.find(
       (t) =>
-        (t.amt < 0 &&
+        !bankBeforeBill(b, t) &&
+        !bankHeldByOther(b, t) &&
+        ((t.amt < 0 &&
           !t.billId &&
           t.billId !== b.id &&
           ((t.vendor || "").toLowerCase() === n ||
@@ -33923,7 +33958,7 @@ function billMatchTxn(b) {
           (Math.abs(-t.amt - net) <= Math.max(1, 0.02 * net) ||
             Math.abs(-t.amt - gross) <= Math.max(1, 0.02 * gross)) &&
           Math.abs(dayDiff(b.date, t.date)) <= 45) ||
-        (po && (po.matchedTxns || []).includes(t.id) && Math.abs(-t.amt - net) <= Math.max(1, 0.05 * net)),
+          (po && (po.matchedTxns || []).includes(t.id) && Math.abs(-t.amt - net) <= Math.max(1, 0.05 * net))),
     ) || null
   );
 }
@@ -36294,7 +36329,7 @@ const renderPortalApprovalsBase = renderPortalApprovals;
     card = document.createElement("div");
   (card.className = "card"),
     (card.style.marginBottom = "14px"),
-    (card.innerHTML = `<h3 style="margin:0 0 6px">Your account</h3><div class="cash-grid" style="grid-template-columns:repeat(${design ? 2 : 3},1fr)"><div><span>Contract</span><b>${money(contract)}</b><i>incl. approved changes</i></div>${design ? "" : `<div class="tp-cert"><span>Completed to Date</span>${tpCertifiedHtml(c)}</div>`}<div><span>Billed to date</span><b>${money(f.invoiced)}</b><i>${f.retHeld > 0.5 ? `after retainage (${money(billed)} before)` : dep ? `deposit on account ${money(dep)}` : taxed ? "incl. tax" : ""}</i></div>${design ? "" : `<div><span>Retainage held</span><b>${money(f.retHeld)}</b><i>released at completion</i></div>`}<div><span>Paid to date</span><b>${money(f.paid)}</b><i>${f.credits ? `credit on account ${money(f.credits)}` : ""}</i></div><div><span>Balance due</span><b class="${f.overdue ? "bad" : ""}">${money(f.outstanding)}</b><i>${f.overdue ? money(f.overdue) + " overdue" : "nothing overdue"}</i></div></div>`),
+    (card.innerHTML = `<h3 style="margin:0 0 6px">Your account</h3><div class="cash-grid" style="grid-template-columns:repeat(${design ? 2 : 3},1fr)"><div><span>Contract</span><b>${money(contract)}</b><i>incl. approved changes</i></div>${design ? "" : `<div class="tp-cert"><span>Complete on Site</span>${tpSiteHtml(c)}</div>`}<div><span>Billed to date</span><b>${money(f.invoiced)}</b><i>${f.retHeld > 0.5 ? `after retainage (${money(billed)} before)` : dep ? `deposit on account ${money(dep)}` : taxed ? "incl. tax" : ""}</i></div>${design ? "" : `<div><span>Retainage held</span><b>${money(f.retHeld)}</b><i>released at completion</i></div>`}<div><span>Paid to date</span><b>${money(f.paid)}</b><i>${f.credits ? `credit on account ${money(f.credits)}` : ""}</i></div><div><span>Balance due</span><b class="${f.overdue ? "bad" : ""}">${money(f.outstanding)}</b><i>${f.overdue ? money(f.overdue) + " overdue" : "nothing overdue"}</i></div></div>`),
     host.append(card);
 }),
   (REP_GROUPS.find((g) => "build" === g.id).tabs = [["searches", "Report builder"]]),
@@ -66684,20 +66719,20 @@ function vfOwnerOf(t, v) {
 const renderVerifyBase_p3c = renderVerify;
 if (
   ((renderVerify = function () {
-    const all = DB.txns.filter((t) => t.amt < 0),
+    const exc = openExceptions(),
+      all = DB.txns.filter((t) => t.amt < 0 || exc.includes(t)),
       ver = all.filter((t) => t.verified).length,
-      exc = openExceptions(),
-      bad = exc.filter((t) => t.verification.ex.some((e) => "bad" === e.lvl)).length,
+      bad = exc.filter((t) => vfEx(t).some((e) => "bad" === e.lvl)).length,
       unchecked = all.filter((t) => !t.verification && "reconciled" !== t.status).length;
     ($("#vf-kpis").innerHTML =
-      `<div class="kpi ${bad ? "warn" : ""}"><b>${exc.length}</b><span>open exceptions · ${bad} serious</span></div><div class="kpi good"><b>${ver}</b><span>verified against approved items</span></div><div class="kpi ${unchecked ? "warn" : ""}"><b>${unchecked}</b><span>cleared transactions not yet checked</span></div><div class="kpi"><b>${money(exc.reduce((a, t) => a - t.amt, 0))}</b><span>value in exception</span></div>`),
+      `<div class="kpi ${bad ? "warn" : ""}"><b>${exc.length}</b><span>open exceptions · ${bad} serious</span></div><div class="kpi good"><b>${ver}</b><span>verified against approved items</span></div><div class="kpi ${unchecked ? "warn" : ""}"><b>${unchecked}</b><span>cleared transactions not yet checked</span></div><div class="kpi"><b>${money(exc.reduce((a, t) => a + Math.abs(+t.amt || 0), 0))}</b><span>value in exception</span></div>`),
       ($("#vf-status").textContent = DB.lastVerify
         ? `Last run ${fmtL(DB.lastVerify.slice(0, 10))}`
-        : "Never run — press Run verification");
+        : "Not yet verified — press Run Verification");
     const rows = all
         .filter((t) => "all" === vfFilter || ("open" === vfFilter ? exc.includes(t) : t.verified))
         .map((t) => {
-          const v = t.verification || { ex: [] },
+          const v = { ex: vfEx(t) },
             worst = v.ex.some((e) => "bad" === e.lvl) ? 3 : v.ex.length ? 2 : 0;
           return {
             id: t.id,
@@ -68994,7 +69029,7 @@ const h4HomeBase_b2 = h4Home;
           b2Row(
             "!" + money(-t.amt),
             esc(t.desc),
-            (t.verification.ex[0] || {}).m || "exception",
+            (vfEx(t)[0] || {}).m || "exception",
             { view: "verify" },
             "Respond",
           ),
@@ -69365,7 +69400,7 @@ const h4HomeBase_b2 = h4Home;
           b2Row(
             "!" + money(-t.amt),
             esc(t.desc),
-            (t.verification.ex[0] || {}).m || "",
+            (vfEx(t)[0] || {}).m || "",
             { view: "verify" },
             "Respond",
           ),
@@ -69624,7 +69659,7 @@ jvLocalAnswer = function (q, f) {
               .slice(0, 8)
               .map(
                 (t) =>
-                  `${t.desc} ${money(-t.amt)} — ${(t.verification.ex[0] || {}).m || ""} (${"function" == typeof vfOwnerOf ? vfOwnerOf(t, t.verification) : ""})`,
+                  `${t.desc} ${money(-t.amt)} — ${(vfEx(t)[0] || {}).m || ""} (${"function" == typeof vfOwnerOf ? vfOwnerOf(t, { ex: vfEx(t) }) : ""})`,
               )
               .join("\n")
           : "No open exceptions."
@@ -69808,7 +69843,8 @@ function eaChase(F, X, r) {
         p: x.p,
         c: c,
         who: who,
-        msg: `Hi ${who ? who.name.split(" ")[0] : ""} — quick one on ${x.p.project.name}: we need your call on "${x.d.name}" to keep ${x.d.blocks || "the next trade"} moving. Could you let us know by ${fmtL(x.due)}? Thank you.`,
+        subject: `${x.p.project.name} — your choice on the ${(() => { const t = clTitle(x.d); return t.charAt(0).toLowerCase() + t.slice(1); })()}`,
+        msg: `Hi ${who ? who.name.split(" ")[0] : ""} — quick one on ${x.p.project.name}: ${chaseAsk(x.d, x.p).sentence} Thank you.`,
       });
     }),
     X.field
@@ -69859,11 +69895,21 @@ function eaChase(F, X, r) {
         kind: "coi",
         n: "!COI",
         t: `${esc(v.name)} — insurance ${v.insuranceExp ? "expired " + fmt(v.insuranceExp) : "not on file"}`,
-        sub: "no new PO until a current certificate arrives",
+        sub: "no new PO until it arrives",
         vendor: v,
         msg: `Hi — we need a current certificate of insurance for ${v.name} before the next purchase order can go out${v.insuranceExp ? " (the one on file expired " + fmtL(v.insuranceExp) + ")" : ""}. Could you send it over today? Thanks.`,
       }),
     );
+  // a COI lapsed or lapsing for a sub or vendor booked on site within 10 working days (PRED.vendorsCoiLapsing): the
+  // coordinator has it on Do Now (an Approvals card, below); Caught for You carries it only for the owner, and only
+  // when DELEGATION.coi escalates it
+  try {
+    const weak = new Set(X.vendorsWeak.map((v) => v.id));
+    "owner" === r &&
+      PRED.vendorsCoiLapsing.rows()
+        .filter((x) => x.soon && !weak.has(x.v.id) && "owner" === DELEGATION.coi.who({ id: x.v.id }))
+        .forEach((x) => out.push(coiChaseItem(x)));
+  } catch (e) {}
   const uniq = all.filter((c) => {
     const k = c.kind + "|" + eaPlain(c.t).replace(/ — .*$/, "");
     return !seen.has(k) && (seen.add(k), !0);
@@ -69973,7 +70019,7 @@ function eaToday(r, F, X) {
           out.push({
             n: "!" + money(-t.amt),
             t: esc(t.desc),
-            sub: (t.verification.ex[0] || {}).m || "",
+            sub: (vfEx(t)[0] || {}).m || "",
             act: "Look",
             data: { view: "verify" },
           }),
@@ -70177,7 +70223,7 @@ function eaToday(r, F, X) {
           out.push({
             n: "!" + money(-t.amt),
             t: esc(t.desc),
-            sub: (t.verification.ex[0] || {}).m || "",
+            sub: (vfEx(t)[0] || {}).m || "",
             act: "Respond",
             data: { view: "verify" },
           }),
@@ -88633,6 +88679,11 @@ function glnProject(cpm, projEnd) {
         : "—",
       s: `${late || delta < 0 ? `${fmtL(sc)} against a ${fmtL(S.project.target)} target` : fmtL(sc)} · ${crit} on the critical path`,
     };
+  // "On target" only when nothing is on the way to move it: the job's worst delay risk (PRED.jobsAtRisk) otherwise
+  try {
+    const R = !late && S.tasks.length ? PRED.jobsAtRisk.rows(S.id)[0] : null;
+    R && R.risks.length && Object.assign(finish, { tone: "warn", v: "At risk", s: R.worst });
+  } catch (e) {}
   let money_ = { k: "Costs", go: "costs", v: "—", s: "no contract yet" };
   try {
     const J = jobFin(S);
@@ -88730,15 +88781,22 @@ function glnAll(td) {
     }
   }),
     setCurrent(cur);
+  // the headline reads the one at-risk rule (PRED.jobsAtRisk): a job with a delay on the way is not "on time"
+  let risk = [];
+  try {
+    risk = PRED.jobsAtRisk.rows().filter((r) => (r.p.tasks || []).length || (r.p.materials || []).length || (r.p.decisions || []).length);
+  } catch (e) {}
   const tiles = [
     {
       k: "Projects",
       go: "port",
-      tone: late ? "warn" : "",
-      v: `${jobs - late} of ${jobs} on time`,
-      s: worst
-        ? `${shortName(worst.p)} is ${worst.d} day${worst.d > 1 ? "s" : ""} late`
-        : "every finish date holds",
+      tone: late || risk.length ? "warn" : "",
+      v: risk.length ? `${risk.length} of ${jobs} at risk` : `${jobs - late} of ${jobs} on time`,
+      s: risk.length
+        ? `${shortName(risk[0].p)}: ${risk[0].worst}`
+        : worst
+          ? `${shortName(worst.p)} is ${worst.d} day${worst.d > 1 ? "s" : ""} late`
+          : "every finish date holds",
     },
     {
       // the firm's margin, read on Reports' profit and loss (the page opens at it)
@@ -89529,10 +89587,14 @@ const TL_SETS = {},
     ];
   }),
   (TL_SETS.verify = () => {
+    // Exceptions Open counts what openExceptions() holds (flagged by verification, or matched to nothing), the same
+    // rows its filter shows; with verification never run it says so instead of a green "explained".
     const tx = (DB.txns || []).filter((t) => t.amt < 0),
-      isExc = (t) => t.verification && !t.verified && "reconciled" !== t.status && !t.ownerCleared,
-      exc = tx.filter(isExc),
-      bad = exc.filter((t) => t.verification.ex && t.verification.ex.some((e) => "bad" === e.lvl)),
+      excAll = openExceptions(),
+      excSet = new Set(excAll.map((t) => t.id)),
+      isExc = (t) => excSet.has(t.id),
+      exc = excAll,
+      bad = exc.filter((t) => vfEx(t).some((e) => "bad" === e.lvl)),
       aged = exc.filter((t) => tlAge(t.date) > 14),
       cleared = tx.filter((t) => !t.verification && "reconciled" !== t.status),
       ver = tx.filter((t) => t.verified).length,
@@ -89542,12 +89604,14 @@ const TL_SETS = {},
         key: "exc",
         k: "Exceptions Open",
         v: exc.length,
-        tone: bad.length ? "bad" : exc.length ? "warn" : "",
+        tone: bad.length ? "bad" : exc.length || !DB.lastVerify ? "warn" : "",
         s: exc.length
-          ? `${tlK(exc.reduce((a, t) => a - t.amt, 0))} not explained by a bill, payroll or PO · ${bad.length} serious`
-          : "every cleared line is explained",
+          ? `${tlK(exc.reduce((a, t) => a + Math.abs(+t.amt || 0), 0))} not explained by a bill, payroll, PO or invoice · ${DB.lastVerify ? `${bad.length} serious` : "not yet verified"}`
+          : DB.lastVerify
+            ? "every cleared line is explained"
+            : "not yet verified — press Run Verification",
         grid: "verify",
-        pred: (t) => t.amt < 0 && isExc(t),
+        pred: (x) => isExc(x.t || x),
         set: () => {
           vfFilter = "all";
         },
@@ -89559,7 +89623,7 @@ const TL_SETS = {},
         tone: aged.length ? "bad" : "",
         s: aged.length ? "unresolved over 14 days — the Owner decides" : "nothing open past two weeks",
         grid: "verify",
-        pred: (t) => t.amt < 0 && isExc(t) && tlAge(t.date) > 14,
+        pred: (x) => isExc(x.t || x) && tlAge((x.t || x).date) > 14,
         set: () => {
           vfFilter = "all";
         },
@@ -89573,7 +89637,7 @@ const TL_SETS = {},
           ? "cleared the bank, never verified — run it"
           : "everything cleared has been checked",
         grid: "verify",
-        pred: (t) => t.amt < 0 && !t.verification && "reconciled" !== t.status,
+        pred: (x) => ((t) => t.amt < 0 && !t.verification && "reconciled" !== t.status)(x.t || x),
         set: () => {
           vfFilter = "all";
         },
@@ -89588,7 +89652,7 @@ const TL_SETS = {},
             ? "verification has never been run — press Run Verification"
             : `${ver} of ${tlN(tx.length, "transaction")} tie to an approved item`,
         grid: "verify",
-        pred: (t) => t.amt < 0 && !!t.verified,
+        pred: (x) => ((t) => t.amt < 0 && !!t.verified)(x.t || x),
         set: () => {
           vfFilter = "all";
         },
@@ -90225,7 +90289,7 @@ const TL_SETS = {},
       week = A.filter((a) => a.due && tlIn(a.due, 7)),
       unas = A.filter((a) => !a.assignee),
       me = ("function" == typeof currentUser && currentUser()?.name) || "",
-      mine = A.filter((a) => me && (a.assignee || "").toLowerCase() === me.toLowerCase());
+      mine = A.filter((a) => me && tkOwnerMatch(a.assignee || "", me));
     return [
       {
         key: "late",
@@ -90269,7 +90333,7 @@ const TL_SETS = {},
           ? `${mine.filter((a) => a.due && tlPast(a.due)).length} overdue`
           : "nothing assigned to you",
         grid: "actions",
-        pred: (a) => "done" !== a.status && me && (a.assignee || "").toLowerCase() === me.toLowerCase(),
+        pred: (a) => "done" !== a.status && me && tkOwnerMatch(a.assignee || "", me),
         set: () => {
           actFilter = "open";
         },
@@ -90915,7 +90979,7 @@ const TL_SETS = {},
               .map((r) => `${shortName(r.p)} +${r.h.late}d past target`)
               .slice(0, 2)
               .join(" · ")
-          : "every finish date holds its target",
+          : finishHoldsWords(),
         grid: "portfolio",
         pred: (x, d) => d && d.h && d.h.late > 0,
       },
@@ -96858,9 +96922,7 @@ function bnLoad(name) {
             .toLowerCase()
             .split("/")
             .map((x) => x.trim());
-          return (
-            parts.includes(me) || parts.includes(me.split(" ")[0]) || (a.assignee || "").toLowerCase() === me
-          );
+          return !!me && parts.length && tkOwnerMatch(a.assignee || "", me);
         })(a)
       )
         return;
@@ -97030,7 +97092,7 @@ function bnFollowUpText(p, a, to) {
     first = (to.name || "").split(" ")[0] || "there";
   return {
     subject: `${p.project.name} — ${a.title}`,
-    body: `Hi ${first},\n\nFollowing up on ${a.title.replace(/^(waiting on [^:]+:\s*)/i, "").toLowerCase()} for ${p.project.name}.${days ? ` We have been holding for ${days} working day${1 === days ? "" : "s"} on this` : ""}${a.escalateOn ? `, and we need it by ${fmtL(a.escalateOn)} to keep the schedule` : ""}.\n\nCould you reply today with a date we can plan against? If something is blocking it on your side, tell us what and we will help clear it.\n\nThank you,\n${bnSignature()}`,
+    body: `Hi ${first},\n\nFollowing up on ${a.title.replace(/^(waiting on [^:]+:\s*)/i, "").toLowerCase()} for ${p.project.name}.${days ? ` We have been holding for ${days} working day${1 === days ? "" : "s"} on this` : ""}${a.escalateOn ? `, and we need it by ${fmtL(chaseBy(a.escalateOn, ""))} to keep the schedule` : ""}.\n\nCould you reply today with a date we can plan against? If something is blocking it on your side, tell us what and we will help clear it.\n\nThank you,\n${bnSignature()}`,
   };
 }
 function bnRenewalText(o) {
@@ -102280,15 +102342,52 @@ function tkMe() {
   const u = "function" == typeof currentUser ? currentUser() : null;
   return (u && u.name) || "";
 }
+// Who a task's owner field names: a person by user id, else by a full name, else by a first name only one person
+// carries (S2 fix, PM review 2026-10-21: the PM "Alan" was read as the owner, so the owner's Mine took the PM's
+// tasks and the PM's Ask counted the owner's). A first name two people share names neither of them.
+function tkFirstLow(s) {
+  return String(s || "").trim().toLowerCase().split(/[\s/]/)[0];
+}
+function tkPeople() {
+  const U = DB.users || [],
+    E = DB.employees || [],
+    c = tkPeople._c;
+  if (c && c.U === U && c.E === E && c.n === U.length + "|" + E.length) return c;
+  const P = U.map((u) => ({ id: u.id, name: String(u.name || "").trim().toLowerCase(), role: u.role || "" })).concat(
+    E.filter((e) => !1 !== e.active).map((e) => ({ id: "em:" + e.id, name: String(e.name || "").trim().toLowerCase(), role: "" })),
+  );
+  return (tkPeople._c = { U: U, E: E, n: U.length + "|" + E.length, P: P, memo: new Map() });
+}
+function tkFirstShared(first) {
+  return new Set(tkPeople().P.filter((x) => x.name && tkFirstLow(x.name) === first).map((x) => x.name)).size > 1;
+}
+function tkPersonOf(s) {
+  const t = String(s || "").trim().toLowerCase();
+  if (!t) return null;
+  const C = tkPeople();
+  if (C.memo.has(t)) return C.memo.get(t);
+  const P = C.P,
+    user = (L) => L.find((x) => !x.id.startsWith("em:")) || L[0] || null;
+  let r = P.find((x) => x.id.toLowerCase() === t) || user(P.filter((x) => x.name === t));
+  if (!r) {
+    const f = tkFirstLow(t);
+    r = tkFirstShared(f) ? null : user(P.filter((x) => x.name && tkFirstLow(x.name) === f));
+  }
+  return C.memo.set(t, r), r;
+}
 function tkOwnerMatch(owner, me) {
   if (!me) return !0;
   const o = (owner || "").toLowerCase(),
     m = me.toLowerCase();
   if (!o) return !1;
   if (o === m) return !0;
-  if ("owner" === m && /^(owner|ceo|alan)$/.test(o)) return !0;
+  const U = tkPersonOf(me),
+    O = tkPersonOf(owner);
+  if (U && O && !U.id.startsWith("em:") && !O.id.startsWith("em:")) return U.id === O.id;
+  if ((U ? "owner" === U.role : "owner" === m) && /^(owner|ceo)$/.test(o)) return !0;
   try {
-    const r = role(),
+    const cu = "function" == typeof currentUser ? currentUser() : null,
+      r = U && U.role ? U.role : cu && (String(cu.id).toLowerCase() === m || String(cu.name || "").toLowerCase() === m) ? role() : "",
       ROLE_WORDS = {
         foreman: /foreman/,
         crew: /\bcrew\b/,
@@ -102302,7 +102401,11 @@ function tkOwnerMatch(owner, me) {
       };
     if (r && ROLE_WORDS[r] && ROLE_WORDS[r].test(o)) return !0;
   } catch (e) {}
-  return o.split(/[\s\/]/)[0] === m.split(/[\s\/]/)[0];
+  // the same first name: one person when only one person carries it ("Chen" is Chen Biron), nobody when shared
+  const f = tkFirstLow(o);
+  if (f !== tkFirstLow(m)) return !1;
+  if (U && O) return U.id === O.id;
+  return !tkFirstShared(f);
 }
 function tkArea_(a) {
   if (a.area) return a.area;
@@ -113006,12 +113109,9 @@ function paIsMine(assignee, me) {
     .trim();
   if (!full) return !1;
   if (a === full) return !0;
-  const mine = full.split(/[^a-z]+/).filter((w) => w.length > 2),
-    theirs = a.split(/[^a-z]+/).filter((w) => w.length > 2);
-  return (
-    !(!mine.length || !theirs.length) &&
-    (theirs.includes(mine[0]) || (mine.length > 1 && theirs.join(" ") === mine.join(" ")))
-  );
+  // one rule for "mine" (S2 fix, 2026-10-21): Ask counted by first word and Tasks by tkOwnerMatch, so the PM's Ask
+  // gave one number and his Mine another; both now read tkOwnerMatch (a person by id, never a shared first name).
+  return tkOwnerMatch(a, full);
 }
 const paIsDesk = (assignee) =>
     PA_DESKS.includes(
@@ -116342,6 +116442,7 @@ function eqTasks() {
   } catch (e) {
     L = [];
   }
+  const me = "function" == typeof tkMe ? tkMe() : "";
   return L.map((t) => ({
     _id: t.id,
     _module: "Tasks",
@@ -116360,6 +116461,7 @@ function eqTasks() {
     area: t.area || "",
     notes: t.notes || "",
     source: t.source || "",
+    mine: !!me && tkOwnerMatch(t.assignee || "", me),
   }));
 }
 function eqBills() {
@@ -117201,6 +117303,8 @@ function qaWhere(l, entity) {
     "tasks" === entity &&
       (put("done", !1, ""),
       qaHas(l, /\b(late|overdue|past due|behind)\b/) && put("late", !0, "late"),
+      // "for me", "mine", "on me": the asker's own, matched the way Mine is (tkOwnerMatch)
+      qaHas(l, /\b(for me|mine|on me|assigned to me|i owe|do i have)\b/) && put("mine", !0, "yours"),
       qaHas(l, /\b(high|urgent|priority)\b/) && put("priority", "high", "high priority"),
       qaHas(l, /\b(done|finished|complete|completed)\b/) && ((w.done = !0), said.push("finished"))),
     "decisions" === entity &&
@@ -122655,15 +122759,17 @@ function bankUnmatched(range) {
 function billPaidUnapproved(b) {
   return (
     !(!b || FIN_BILL_CLOSED.includes(b.status) || b.ic) &&
-    (!(!b.paidBeforeApproval && !b.txnId) || !!billPaidTxn(b))
+    (!!billPaidTxn(b) || (!!b.paidBeforeApproval && !b.txnId))
   );
 }
 function billPaidTxn(b) {
   if (!b) return null;
-  const linked = (DB.txns || []).find((t) => t.billId === b.id || (b.txnId && t.id === b.txnId));
+  // a line dated before the bill pays it only when a person matched it with a reason (bankBeforeBill)
+  const early = (t) => !FIN_BILL_CLOSED.includes(b.status) && bankBeforeBill(b, t),
+    linked = (DB.txns || []).find((t) => (t.billId === b.id || (b.txnId && t.id === b.txnId)) && !early(t));
   if (linked) return linked;
   const prop = (DB.txns || []).find(
-    (t) => t.proposal && "bill" === t.proposal.kind && t.proposal.billId === b.id,
+    (t) => t.proposal && "bill" === t.proposal.kind && t.proposal.billId === b.id && !early(t),
   );
   if (prop) return prop;
   if (FIN_BILL_CLOSED.includes(b.status) || b.ic || "function" != typeof billMatchTxn) return null;
@@ -123035,12 +123141,14 @@ if ("function" == typeof jobFin) {
   jobFin = function (p, range) {
     const J = jobFinBase_fin.apply(this, arguments),
       R = range || ["", today()],
+      // out of job cost: a bill the bank paid whose bank line already carries the cost, and a bill submitted and
+      // not yet approved or paid. That is companyPL's rule ("nothing submitted and unpaid is in either"); job cost
+      // kept the unpaid ones until 2026-10-21, hidden while AMP-311 read as paid by an earlier check (s1fix).
       dup = (DB.bills || []).filter(
         (b) =>
           b.projectId === p.id &&
           BILL_ACCRUED.includes(b.status) &&
-          billPaidUnapproved(b) &&
-          !finBillCarriesCost(b) &&
+          (billPaidUnapproved(b) ? !finBillCarriesCost(b) : !0) &&
           within(b.date, R),
       );
     if (!dup.length || !J.byCode) return J;
@@ -123587,7 +123695,7 @@ if ("function" == typeof renderAP) {
           const t = billPaidTxn(b),
             a = t && (DB.accounts || []).find((x) => x.id === t.acct),
             p = (DB.projects || []).find((x) => x.id === b.projectId);
-          return `<tr><td><b>${esc(b.vendor)}</b> <span class="small muted">${esc(b.number || "")}</span></td><td>${esc(p ? p.project.name : "Overhead")}</td><td class="money">${money(billTotal(b))}</td><td class="small">${t ? `${fmt(t.date)} · ${esc(a ? a.name : "")}` : "—"}</td><td><span class="pill bad">Paid — Unapproved</span></td><td class="r"><button class="btn sm" data-finbill="${b.id}">Review</button></td></tr>`;
+          return `<tr><td><b>${esc(b.vendor)}</b> <span class="small muted">${esc(b.number || "")}</span></td><td>${esc(p ? p.project.name : "Overhead")}</td><td class="money">${money(billTotal(b))}</td><td class="small">${t ? `${fmt(t.date)} · ${esc(a ? a.name : "")}` : "—"}</td><td><span class="pill bad">${esc(billState(b).text)}</span></td><td class="r"><button class="btn sm" data-finbill="${b.id}">Review</button></td></tr>`;
         },
       ).join("")}</tbody></table></div>`);
     const table = v.querySelector("#ap-table");
@@ -128975,7 +129083,7 @@ const OV_TILES = {
                 .slice(0, 2)
                 .map((r) => `${shortName(r.p)} +${r.h.late}d past target`)
                 .join(" · ")
-            : "every finish date holds its target",
+            : finishHoldsWords(),
           pred: (r) => r.late,
         },
         {
@@ -141315,7 +141423,7 @@ if (
                 .slice(0, 2)
                 .map((r) => `${shortName(r.p)} +${r.h.late}d past target`)
                 .join(" · ")
-            : "every finish date holds its target",
+            : finishHoldsWords(),
           pred: (r) => r.late,
         },
         {
@@ -149757,34 +149865,67 @@ function clNeed(d, p) {
             ? `${tName} starts ${fmt(tk.start)}`
             : `${tName} is waiting on it`
           : "",
-      order = m ? `so we can order the ${clMatName(m).replace(/^./, (ch) => ch.toLowerCase())}` : "";
+      order = m ? `so we can order the ${clMatName(m).replace(/^./, (ch) => ch.toLowerCase())}` : "",
+      // Every ask carries a date the client can still meet: the due date when it is ahead, else two working
+      // days out (never a day already gone), and never later than the working day before the trade starts.
+      by = chaseBy(late ? "" : due, tk && tk.start),
+      holds = tk && tk.start ? (tk.start >= td ? `${tName} starts ${fmtL(tk.start)}` : `${tName} is waiting on it`) : m ? order.replace(/^so /, "") : "";
     return late
       ? {
           late: late,
           due: due,
+          by: by,
+          holds: holds,
           tk: tk,
           m: m,
           line: "as soon as you can" + (starts ? ` — ${starts}` : m ? ` — ${order}` : ""),
-          ask: `Please let us know as soon as you can${starts ? ` — ${starts}` : m ? `, ${order}` : ""}.`,
+          ask: `Please let us know by ${fmtL(by)}${tk && tk.start ? ` — ${holds}` : m ? `, ${order}` : ""}.`,
         }
       : due
         ? {
             late: late,
             due: due,
+            by: by,
+            holds: holds,
             tk: tk,
             m: m,
             line: `needed by ${fmtL(due)}${m ? ` · ${order}` : tk ? ` · before ${tName} starts` : ""}`,
-            ask: `Please let us know by ${fmtL(due)}${m ? ` ${order}` : tk ? ` so ${tName} can go ahead` : ""}.`,
+            ask: `Please let us know by ${fmtL(by)}${m ? ` ${order}` : tk ? ` so ${tName} can go ahead${tk.start && tk.start >= td ? ` (it starts ${fmtL(tk.start)})` : ""}` : ""}.`,
           }
         : {
             late: late,
             due: due,
+            by: by,
+            holds: holds,
             tk: tk,
             m: m,
             line: m ? order : tk ? `before ${tName} starts` : "no date yet",
-            ask: m ? `Please let us know when you can, ${order}.` : "Please let us know when you can.",
+            ask: `Please let us know by ${fmtL(by)}${m ? `, ${order}` : tk && tk.start ? ` — ${holds}` : ""}.`,
           };
   });
+}
+// The date a chase asks for (BACKLOG S1 fix, PM review 2026-10-21: a chase asked for "Wed, Sep 2" on Sep 3). It is
+// a working day on or after today: the due date when it is still ahead, else two working days out; and when a
+// trade waits on the answer, no later than the working day before it starts (unless that day has already gone).
+function chaseBy(due, before) {
+  const td = today();
+  let by = due && due >= td ? (isWork(due) ? due : prevWork(due) >= td ? prevWork(due) : nextWork(due)) : addWork(td, 2);
+  const cap = before && before > td ? addWork(before, -1) : "";
+  cap && cap < by && (by = cap >= td ? cap : td);
+  return by < td ? nextWork(td) : by;
+}
+// One ask for every decision chase (Caught for You's Chase, Ask's chase, the Decisions sheet's Send to Client):
+// the decision in the client's words (never our record name), a date they can meet, and what waits on it and when.
+function chaseAsk(d, p) {
+  const n = clNeed(d, p),
+    t = clTitle(d);
+  return {
+    title: t,
+    by: n.by,
+    holds: n.holds,
+    late: n.late,
+    sentence: `we need your call on the ${t.charAt(0).toLowerCase() + t.slice(1)}${n.holds ? ` — ${n.holds}` : ""}. Could you let us know by ${fmtL(n.by)}?`,
+  };
 }
 const CL_SEED_OPTS = {
   d8: {
@@ -151662,7 +151803,7 @@ t2Html = function () {
         : rest.map((x) => t2RowHtml(x)).join(""),
     empty =
       {
-        today: "Nothing due today and nothing late. Next 7 Days has what is coming.",
+        today: t2MineEmpty(),
         week: "Nothing due in the next seven days.",
         overdue: "Nothing is overdue.",
         nodate: "Every open task has a date on it.",
@@ -153638,12 +153779,8 @@ const igNameMatch = (owner, who) => {
     m = String(who || "")
       .toLowerCase()
       .trim();
-  return (
-    !(!o || !m) &&
-    (o === m ||
-      o.split(/[\s\/]/)[0] === m.split(/[\s\/]/)[0] ||
-      o.split(/\s*\/\s*/).some((x) => x === m || x.split(" ")[0] === m.split(" ")[0]))
-  );
+  // one matcher for people (tkOwnerMatch: by id, never by a first name two people share), each half of "A / B" read
+  return !(!o || !m) && (tkOwnerMatch(o, m) || o.split(/\s*\/\s*/).some((x) => x && tkOwnerMatch(x, m)));
 };
 {
   const base = openTasks;
@@ -160444,9 +160581,9 @@ function smSendText(s, p, st) {
         : "",
       when =
         (D.approveBy && D.approveBy < today()) || !D.approveBy
-          ? "as soon as you can" +
+          ? `by ${fmtL(chaseBy("", tk && tk.start))}` +
             (tName
-              ? ` — ${tName} ${tk.start >= today() ? `starts ${fmt(tk.start)}` : "is waiting on it"}`
+              ? ` — ${tName} ${tk.start >= today() ? `starts ${fmtL(tk.start)}` : "is waiting on it"}`
               : "")
           : `by ${fmtL(back < D.approveBy ? back : D.approveBy)}, so we can order it in time${tName ? ` for ${tName}` : ""}`;
     return {
@@ -160455,7 +160592,7 @@ function smSendText(s, p, st) {
       body: `Hi ${first},\n\n${s.sub || "Our supplier"} has sent ${SM_TYPE_WORD[s.type] || "a sample"} of what we plan to order: ${title}. It has been checked by us and by the architect.\n\nPlease take a look and approve it, or tell us what you would like changed — ${when}.\n\nYou can approve it in your portal under Decisions, or reply to this email.\n\nThank you,\n${me}`,
     };
   }
-  const due = D.approveBy && back > D.approveBy ? D.approveBy : back;
+  const due = D.approveBy && back > D.approveBy ? chaseBy(D.approveBy, "") : back;
   return {
     to: st.email || "",
     subject: `Submittal ${s.number} Rev ${r.n} — ${s.title} — for review`,
@@ -160581,7 +160718,7 @@ function smRespond(s, p, o, quiet) {
     (s.status = o.stamp),
       (msg = `${s.number}: ${SM_STAMP[o.stamp]} — back to ${s.sub || "the sub"} for Rev ${r.n + 1}; the email to them is drafted`);
     try {
-      const due = withProject(p, () => addWork(st.respondedOn, 5, !1)),
+      const due = withProject(p, () => chaseBy(addWork(st.respondedOn, 5, !1), "")),
         who =
           "client" === st.role
             ? "the client"
@@ -165751,7 +165888,7 @@ function fxSeed() {
       shot(p45, {
         date: "2026-08-20",
         time: "11:00",
-        by: "Maja",
+        by: "Lena",
         area: "Exterior",
         source: "visit",
         caption: "Facade survey for the LPC filing",
@@ -168358,7 +168495,7 @@ function tpClientProgressHtml(c, p) {
             .sort((a, b) => String(b.sharedAt || b.at).localeCompare(String(a.sharedAt || a.at)))
             .slice(0, 3)
         : [];
-  return `<div class="card tp-clprog" id="tp-clprog" style="margin-bottom:14px"><h3>Progress</h3><div class="tp-cert-line"><b>Completed to Date</b> ${money(T.completed)} · ${esc(tpCertifiedText(c, p && p.id))}</div><div class="small muted" style="margin:4px 0 8px">Completed to date is what the pay applications have certified; the measured % is what the crew and your project manager have measured on site.</div>${shots.length ? `<div class="pst-grid sm">${shots.map(pstTile).join("")}</div>` : '<div class="small muted">Photos your project manager shares appear here.</div>'}</div>`;
+  return `<div class="card tp-clprog" id="tp-clprog" style="margin-bottom:14px"><h3>Progress</h3><div class="tp-cert-line"><b>Billed to Date</b> ${money(T.completed)} · ${esc(tpCertifiedText(c, p && p.id))}</div><div class="small muted" style="margin:4px 0 8px">${esc(tpGapText(c, p && p.id) || "Billed to date is what the pay applications have charged, deposit included; complete on site is what the crew and your project manager have measured.")}</div>${shots.length ? `<div class="pst-grid sm">${shots.map(pstTile).join("")}</div>` : '<div class="small muted">Photos your project manager shares appear here.</div>'}</div>`;
 }
 if ("function" == typeof clOverview) {
   const clOverviewBase_tp = clOverview;
@@ -169096,17 +169233,50 @@ function tpCertified(c, pid) {
       )
       .sort((a, b) => String(a.date).localeCompare(String(b.date))),
     measured = contract ? Math.round(J.reduce((a, x) => a + x.J.contract * tpJobPct(x.p), 0) / contract) : 0;
+  // the deposit: billed up front and credited against the work as it is done (an invoice titled as a deposit)
+  const dep = apps.filter((i) => /\bdeposit\b/i.test(String(i.title || ""))),
+    depAmt = r2(
+      dep.reduce((a, i) => {
+        try {
+          return a + ("function" == typeof docTotal ? +docTotal(i).total || 0 : 0);
+        } catch (e) {
+          return a;
+        }
+      }, 0),
+    ),
+    pct = contract ? r2((completed / contract) * 100) : 0,
+    depPct = contract ? Math.min(Math.round((depAmt / contract) * 100), Math.round(pct)) : 0;
   return {
     contract: contract,
     completed: completed,
-    pct: contract ? r2((completed / contract) * 100) : 0,
+    pct: pct,
     app: apps.length ? apps[apps.length - 1] : null,
     measured: measured,
+    depPct: depPct,
+    gap: Math.round(pct) - measured,
   };
 }
+// The client reads two different measures under two plain names (S1 fix, PM review 2026-10-21: the portal said
+// "51.65% certified" beside "14% measured on site" and the client would call). Billed to date is what the pay
+// applications charged, deposit included; complete on site is what the crew and the PM measured. When billing runs
+// ahead of the work by 10 points or more, the portal says why: the deposit, and any progress billed ahead of what
+// is measured, which the PM and billing are told about first (CATCH portalBilledAhead).
 function tpCertifiedText(c, pid) {
   const T = tpCertified(c, pid);
-  return `${T.pct}% certified${T.app ? ` on ${T.app.number}` : ""} · ${T.measured}% measured on site`;
+  return `${Math.round(T.pct)}% of the contract${T.app ? ` through ${T.app.number}` : ""}${T.depPct ? `, including your ${T.depPct}% deposit` : ""} · ${T.measured}% of the work complete on site`;
+}
+function tpGapText(c, pid) {
+  const T = tpCertified(c, pid);
+  if (T.gap < 10) return "";
+  const rest = T.gap - Math.min(T.depPct, T.gap);
+  return `Billing is ahead of the work on site by ${T.gap} points: ${T.depPct ? `${Math.min(T.depPct, T.gap)} of them are your deposit, credited against the work as it is done` : ""}${T.depPct && rest >= 5 ? "; " : ""}${rest >= 5 ? `${rest} are progress billed ahead of what is measured, which your project manager reconciles on the next application` : ""}.`;
+}
+// The account card's progress tile: complete on site, then what was billed against it (one "Billed to date" on the
+// card, the one beside it), and why they differ when they do.
+function tpSiteHtml(c, pid) {
+  const T = tpCertified(c, pid),
+    g = tpGapText(c, pid);
+  return `<b>${T.measured}%</b><i>${Math.round(T.pct)}% of the contract billed${T.depPct ? `, including your ${T.depPct}% deposit` : ""}</i>${g ? `<i class="small">${esc(g)}</i>` : ""}`;
 }
 function tpCertifiedHtml(c, pid) {
   const T = tpCertified(c, pid);
@@ -170478,8 +170648,8 @@ const AG_FIN = [
     run(P) {
       const E = openExceptions();
       return {
-        headline: E.length ? `${agN(E.length, "exception")} open.` : "No exceptions are open.",
-        work: E.slice(0, 10).map((x) => String(x.title || x.text || x.why || x.kind || "")),
+        headline: `${E.length ? `${agN(E.length, "exception")} open.` : "No exceptions are open."}${DB.lastVerify ? "" : " Verification has not been run yet."}`,
+        work: E.slice(0, 10).map((x) => `${fmtL(x.date)} · ${x.desc || x.vendor || "bank line"} · ${money(Math.abs(+x.amt || 0))} — ${(vfEx(x)[0] || {}).m || ""}`),
         go: agGo("exceptions") || agGo("ap"),
         ran: agRan("exceptions", ["open"], "", E.length),
       };
@@ -172051,7 +172221,7 @@ function agChaseDraft(o) {
   const to = o.to,
     first = agFirst(to.name),
     sign = agSign(),
-    due = o.by || agWorkDue(3),
+    due = o.by && o.by >= today() ? o.by : agWorkDue(3),
     D = { kind: o.kind, to: to, vendor: o.vendor || null, lead: o.lead || null, expect: !0, ref: { kind: o.kind } };
   if ("coi" === o.kind) {
     const v = o.vendor || {},
@@ -172076,8 +172246,11 @@ function agChaseDraft(o) {
   } else if ("decision" === o.kind) {
     const d = o.decision,
       p = o.job;
-    (D.subject = `${p ? agShort(p) : "Your project"} — we need your call on ${d.clientTitle || d.name}`),
-      (D.body = `Hi ${first},\n\nQuick one on ${p ? agShort(p) : "the project"}: we need your call on "${d.clientTitle || d.name}"${d.blocks ? ` to keep ${d.blocks} moving` : " to keep the next trade moving"}. Could you let us know by ${fmtL(d.due && d.due > today() ? d.due : due)}?\n\nThank you,\n${sign}`),
+    const A = p ? chaseAsk(d, p) : null;
+    (D.subject = `${p ? agShort(p) : "Your project"} — we need your call on ${A ? A.title : d.clientTitle || d.name}`),
+      (D.body = A
+        ? `Hi ${first},\n\nQuick one on ${agShort(p)}: ${A.sentence}\n\nThank you,\n${sign}`
+        : `Hi ${first},\n\nQuick one on the project: we need your call on "${d.clientTitle || d.name}". Could you let us know by ${fmtL(chaseBy(d.due, ""))}?\n\nThank you,\n${sign}`),
       (D.why = `${to.name} owes a decision on ${d.name}`),
       (D.about = `Decision — ${d.name} (${p ? agShort(p) : ""})`),
       (D.ref = { kind: "decision", projectId: p ? p.id : "", decisionId: d.id });
@@ -172173,7 +172346,7 @@ function agClientUpdate(p) {
       `Here is where ${agShort(p)} stands this week.`,
       moved.length ? `Progress on site: ${moved.slice(0, 5).join("; ")}.` : "",
       next.length ? `Next two weeks: ${next.map((t) => `${t.name} (${fmt(t.start)}–${fmt(t.end)})`).join("; ")}.` : "",
-      dec.length ? `What we need from you: ${dec.map((d) => `${d.name} by ${fmt(d.due)}${d.holdsUp ? ` (it holds ${d.holdsUp})` : ""}`).join("; ")}.` : "Nothing is waiting on you this week.",
+      dec.length ? `What we need from you: ${dec.map((d) => `${d.name} ${d.due ? `by ${fmt(chaseBy(d.due, ""))}` : "when you can"}${d.holdsUp ? ` (it holds ${d.holdsUp})` : ""}`).join("; ")}.` : "Nothing is waiting on you this week.",
       j.projectedCompletion ? `Expected completion: ${fmtL(j.projectedCompletion)}.` : "",
     ].filter(Boolean).join("\n\n");
   });
@@ -173161,15 +173334,101 @@ predDef("jobsAtRisk", {
         fade = J.contract && J.plannedGPPct ? r2((J.estGPPct || 0) - J.plannedGPPct) : 0;
       fade <= -3 && out.push(`margin down ${Math.abs(fade)} pts`);
     } catch (e) {}
+    try {
+      const R = this.risks(p).filter((r) => "noshow" === r.kind);
+      R.length && out.push(`${R.length} sub no-show${1 === R.length ? "" : "s"}`);
+    } catch (e) {}
     return out;
+  },
+  // The delays on the way (S1 fix, owner review 2026-10-21: Projects said "4 of 4 on time, every finish date holds"
+  // while two overdue client decisions held rough plumbing and framing, orders were past their order-by and a sub
+  // did not show). Read from the rules that already exist: PRED.lateDecision, PRED.lateMaterial, the field's
+  // no-shows, and the schedule's own float. Each item: what holds, the line it holds and when that line starts
+  // (by), working days left before it does (daysLeft), the projected slip of that line in working days (slip),
+  // and whether the finish moves too (finish: the slip is more than the line's float, or the line is critical).
+  risks(p) {
+    return withProject(p, () => {
+      const td = today(),
+        { cpm: cpm } = computeCPM(),
+        out = [],
+        startOf = (tk) => (cpm[tk.id] && cpm[tk.id].es) || tk.start || "",
+        add = (kind, what, tk, ready) => {
+          if (!tk || "done" === tk.status) return;
+          const by = startOf(tk);
+          if (!by) return;
+          const slip = ready > by ? Math.max(0, workdays(by, ready) - 1) : 0,
+            c = cpm[tk.id] || {},
+            fin = !!(slip && (c.critical || slip > (c.float || 0)));
+          slip > 0 && out.push({ kind: kind, what: what, holds: opsClientName(tk), tk: tk, by: by, daysLeft: Math.max(0, workdays(td, by) - 1), slip: slip, finish: fin });
+        };
+      // a decision past due: the line it holds starts no sooner than the buffer after an answer today (an order's
+      // lead time when it releases one)
+      PRED.lateDecision.rows(p.id).forEach(({ d: d }) => {
+        const m = "mat" === d.kind ? mat(d.ref) : null,
+          tk = m ? task(m.taskId) : "task" === d.kind ? task(d.ref) : opsTask({ kind: "dec", id: d.id }, p);
+        add("decision", `${clTitle(d)} (decision, past due ${fmt(decDue(d))})`, tk, m ? addWork(td, (+m.lead || 0) + (S.project.matBuf || 0)) : addWork(td, S.project.decBuf || 3));
+      });
+      // an order past its order-by: it lands no sooner than its lead time from today
+      PRED.lateMaterial.rows(p.id).forEach((r) => add("material", `${r.name} (order-by ${fmt(r.orderBy)} passed)`, r.task, addWork(td, (r.lead || 0) + (S.project.matBuf || 0))));
+      // a sub who did not show on the line's day, the line not done: it waits for the rebooked day
+      ((DB.field || {}).subs || [])
+        .filter((s) => s.projectId === p.id && "noshow" === s.status && s.date && s.date <= td && workdays(s.date, td) <= 6)
+        .forEach((s) => {
+          const tk = task(s.taskId);
+          if (!tk || "done" === tk.status) return;
+          const re = ((DB.field || {}).subs || []).filter((x) => x.projectId === p.id && x.taskId === s.taskId && x.date > td && "noshow" !== x.status).map((x) => x.date).sort()[0];
+          out.push({ kind: "noshow", what: `${s.vendor}${s.lead ? ` (${s.lead})` : ""} did not show ${fmt(s.date)}`, holds: opsClientName(tk), tk: tk, by: s.date, daysLeft: 0, slip: Math.max(1, re ? workdays(s.date, re) - 1 : 1), finish: !!(cpm[tk.id] || {}).critical });
+        });
+      return out.sort((a, b) => b.finish - a.finish || b.slip - a.slip || a.daysLeft - b.daysLeft);
+    });
+  },
+  test(p) {
+    return !!p && this.rows(p.id).length > 0;
   },
   rows(scope) {
     return predJobs(scope)
       .filter((p) => !p.archived && "closed" !== (p.project || {}).status)
-      .map((p) => ({ p: p, why: this.why(p), late: PRED.jobLate.rows(p.id) }))
-      .filter((x) => x.why.length);
+      .map((p) => {
+        let R = [];
+        try {
+          R = this.risks(p);
+        } catch (e) {}
+        const w = R[0] || null,
+          why = this.why(p);
+        return {
+          p: p,
+          why: why,
+          late: PRED.jobLate.rows(p.id),
+          risks: R,
+          holds: w ? w.holds : "",
+          by: w ? w.by : "",
+          daysLeft: w ? w.daysLeft : null,
+          slip: w ? w.slip : 0,
+          worst: w ? `${w.holds} ${w.by >= today() ? `starts ${fmt(w.by)}` : "is due now"} and waits on ${w.what}${w.slip ? `: about ${w.slip} working day${1 === w.slip ? "" : "s"} late` : ""}` : why[0] || "",
+        };
+      })
+      .filter((x) => x.why.length || x.risks.length)
+      .sort((a, b) => (b.risks[0] ? b.risks[0].finish : 0) - (a.risks[0] ? a.risks[0].finish : 0) || b.slip - a.slip || (a.daysLeft == null ? 99 : a.daysLeft) - (b.daysLeft == null ? 99 : b.daysLeft));
   },
 });
+// "Every finish date holds its target" only when nothing is on the way to move one (PRED.jobsAtRisk); otherwise the
+// tile says how many jobs are at risk and the worst, so "Finish Dates Late 0" never reads as all is well.
+// Mine with nothing due is not "nothing to do" when site questions, decisions or bills wait on the person in
+// Approvals (S2, PM review 2026-10-21: My Tasks said "nothing late" while his past-due items sat elsewhere).
+function t2MineEmpty() {
+  let n = 0;
+  try {
+    n = "me" === tkWho ? PRED.waitingOnMe.count() : 0;
+  } catch (e) {}
+  return `No task of yours is due today or late.${n ? ` ${n} more wait${1 === n ? "s" : ""} on you in Approvals: site questions, decisions and sign-offs.` : ""} Next 7 Days has what is coming.`;
+}
+function finishHoldsWords() {
+  try {
+    const R = PRED.jobsAtRisk.rows().filter((r) => r.risks.length);
+    if (R.length) return `none past target yet · ${R.length} at risk: ${shortName(R[0].p)}, ${R[0].holds} waits on ${R[0].risks[0].kind === "noshow" ? "a no-show" : "a " + R[0].risks[0].kind}`;
+  } catch (e) {}
+  return "every finish date holds its target";
+}
 // Jobs, not items: the PM thinks in jobs. One row per live job with something late on it, the items underneath.
 // (The Pulse said "Late on Jobs 10" and counted the items; its sheet now lists 2 jobs and the 10 items under them.)
 predDef("jobsLate", {
@@ -173678,7 +173937,7 @@ function tdCaught(queue) {
 
 // ---- Brief: three short lines from the morning brief, the brief itself one tap away
 const TD_BRIEF_PICK = [
-  [/(?:^|[:;] )([A-Z][^;:]*?) escalated in writing/, (m) => `${m[1]} escalated in writing: call first`],
+  [/(?:^|[:;] )([A-Z][^;:]*?) escalated in writing/, (m) => `${m[1]} escalated: call first`],
   [/^Since you were last here I (.+?)(?: — |, and |\.$)/, (m) => "I " + m[1]],
   [/(\d+ deals? needs? a hand today)/i, (m) => m[1]],
   [/^Budget: the biggest variances this year are ([^;]+?)(?:;|$)/, (m) => "Budget: " + m[1]],
@@ -178275,6 +178534,12 @@ function truthSetMatch(t, m0, o) {
   if (m.billId) {
     const b = (DB.bills || []).find((x) => x.id === m.billId);
     if (!b) return { ok: !1, why: "That bill is gone" };
+    // a line dated before the bill pays it only with a person's reason (bankBeforeBill)
+    if (t.date && b.date && t.date < b.date && !(b.earlyMatch && b.earlyMatch.txnId === t.id)) {
+      const w = String(opts.earlyWhy || "").trim();
+      if (!w) return { ok: !1, early: !0, why: `This bank line is dated ${fmtL(t.date)}, before bill ${b.number || ""} (${fmtL(b.date)}). Say why it pays this bill to match it.` };
+      b.earlyMatch = { txnId: t.id, by: who, at: appNowIso(), why: w };
+    }
     const bl = (b.lines || []).find((l) => l.id === m.billLineId) || (1 === (b.lines || []).length ? b.lines[0] : null);
     (m.billLineId = bl ? bl.id : ""), (b.txnId = t.id), (t.billId = b.id), b.paidAt || (b.paidAt = t.date);
     // the recorded payment this bank line clears says so (Payments: "cleared")
@@ -178562,8 +178827,12 @@ function truthMatchSheet(t) {
   mb.querySelectorAll("[data-trpick]").forEach(
     (b) =>
       (b.onclick = () => {
-        const c = C[+b.dataset.trpick],
-          r = truthSetMatch(t, c.m, { why: c.why });
+        const c = C[+b.dataset.trpick];
+        let r = truthSetMatch(t, c.m, { why: c.why });
+        if (!r.ok && r.early) {
+          const w = "function" == typeof appPrompt ? appPrompt(r.why) : "";
+          w && String(w).trim() && (r = truthSetMatch(t, c.m, { why: c.why, earlyWhy: w }));
+        }
         r.ok ? (mbCloseModal(), render(), toast(`${t.desc || "Line"} matched to ${truthMatchWords(r.m)}`, () => txnDialog(t.id))) : toast(r.why);
       }),
   );
@@ -178594,14 +178863,55 @@ CATCH.push({
   name: "unmatchedTxns",
   label: "Not Matched to a Line",
   rows: () =>
-    bankUnmatched().rows.map((t) => ({
+    bankUnmatched().rows.map((t) => {
+      // one truth per bank line: a line that paid a bill before approval says so, as the bill does
+      const pb = finBillOfTxn(t);
+      return pb
+        ? {
+            key: "um:" + t.id,
+            // short for the owner's phone Home (180 words): the bill's card in Approvals carries the account and number
+            what: `Paid before approval: ${pb.vendor}`,
+            sub: `${money(truthAbs(t.amt))} on ${fmt(t.date)}`,
+            amount: truthAbs(t.amt),
+            verb: "Review",
+            run: () => openBill(pb.id),
+          }
+        : {
       key: "um:" + t.id,
       what: `Not matched: ${"function" == typeof tdWords ? tdWords(t.vendor || t.desc || "bank line", 4) : String(t.vendor || t.desc || "bank line").slice(0, 40)}`,
       sub: `${money(truthAbs(t.amt))} on ${fmtL(t.date)} · ${truthAcctWords(t)}${t.exception ? " · exception signed" : ""}`,
       amount: truthAbs(t.amt),
       verb: "Match",
       run: () => truthMatchSheet(t),
-    })),
+    };
+    }),
+});
+// The client's portal shows billing ahead of the work on site: the PM and billing hear it before the client asks.
+CATCH.push({
+  name: "portalBilledAhead",
+  label: "Billed Ahead of the Site",
+  rows: () =>
+    ["pm", "billing", "controller"].includes(role())
+      ? (DB.projects || [])
+          .filter((p) => !p.archived && "closed" !== (p.project || {}).status && p.clientId)
+          .map((p) => {
+            const c = (DB.clients || []).find((x) => x.id === p.clientId);
+            if (!c) return null;
+            const T = tpCertified(c, p.id),
+              rest = T.gap - Math.min(T.depPct, T.gap);
+            return rest >= 5
+              ? {
+                  key: "ahead:" + p.id,
+                  what: `Billed ahead of the site: ${tdJob(p)}`,
+                  sub: `${Math.round(T.pct)}% billed${T.depPct ? ` (${T.depPct}% deposit)` : ""}, ${T.measured}% complete on site · the client sees both`,
+                  amount: r2((rest / 100) * T.contract),
+                  verb: "Review",
+                  run: () => (setCurrent(p.id), setView("billing")),
+                }
+              : null;
+          })
+          .filter(Boolean)
+      : [],
 });
 if ("function" == typeof renderBank) {
   const base = renderBank;
@@ -180304,6 +180614,134 @@ predDef("vendorsBlocked", {
     return (DB.vendors || []).filter((v) => this.test(v));
   },
 });
+// Where a vendor is next on site or due to deliver: the field's sub days (DB.field.subs) and open orders. One
+// reading for the COI check below; no new store.
+function coiBookings(v) {
+  const td = today(),
+    n = String((v && v.name) || "").toLowerCase(),
+    jobOf = (id) => (DB.projects || []).find((p) => p.id === id) || null,
+    out = [];
+  if (!n) return out;
+  ((DB.field || {}).subs || [])
+    .filter((s) => String(s.vendor || "").toLowerCase() === n && s.date && s.date >= td && !["noshow", "cancelled", "done"].includes(s.status))
+    .forEach((s) => {
+      const p = jobOf(s.projectId),
+        tk = p && (p.tasks || []).find((t) => t.id === s.taskId);
+      out.push({ date: s.date, kind: "site", p: p, what: `${tk ? opsClientName(tk) : s.trade || "work"}${p ? " at " + p.project.name : ""}`, ref: { kind: "sub", id: s.id } });
+    });
+  (DB.pos || [])
+    .filter((po) => String(po.vendor || "").toLowerCase() === n && ["issued", "partial", "pending"].includes(po.status))
+    .forEach((po) => {
+      const p = jobOf(po.projectId),
+        d = po.expected || po.needBy || "";
+      out.push({ date: d && d >= td ? d : td, kind: "order", p: p, what: `${po.number || "an order"}${p ? " for " + p.project.name : ""}`, ref: { kind: "po", id: po.id } });
+    });
+  return out.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+}
+// The Standard: "COI 30 days ahead". A sub or vendor booked on site, or holding an open order, whose certificate of
+// insurance has expired or lapses within 30 days (or is missing while they are booked on site). S1 fix, 2026-10-21:
+// the check flagged missing certificates only, so Window Works (lapsed 8/15, on site 9/9) reached nobody.
+// soon: the next booking is within 10 working days, so it goes to the owner's and coordinator's first screen.
+predDef("vendorsCoiLapsing", {
+  label: "COI Lapsed or Lapsing",
+  rule: "a sub or vendor booked on site or holding an open order whose certificate of insurance has expired, expires within 30 days, or is missing while they are booked on site (the Standard: COI 30 days ahead)",
+  row(v) {
+    if (!v) return null;
+    const td = today(),
+      exp = v.insuranceExp || v.coiExp || "",
+      B = coiBookings(v);
+    if (!B.length) return null;
+    const days = exp ? dayDiff(td, exp) : null,
+      state = !exp ? "missing" : days < 0 ? "expired" : days <= 30 ? "lapsing" : "";
+    if (!state || ("missing" === state && !B.some((b) => "site" === b.kind))) return null;
+    const next = B[0],
+      soon = workdays(td, next.date) <= 10;
+    return { v: v, exp: exp, state: state, days: days, next: next, bookings: B, soon: soon };
+  },
+  test(v) {
+    return !!this.row(v);
+  },
+  rows() {
+    return (DB.vendors || [])
+      .map((v) => this.row(v))
+      .filter(Boolean)
+      .sort((a, b) => String(a.next.date).localeCompare(String(b.next.date)));
+  },
+});
+// Who chases a lapsed COI (decided 2026-10-21 under Alan's overnight instruction, reversible): the coordinator
+// (the Standard, Office: COI 30 days ahead). It escalates to the owner only when the vendor is on site within 2
+// working days, or a payment to them waits on the owner's release, and the certificate is still not current.
+DELEGATION.coi = {
+  role: "coord",
+  rule: "a lapsed or lapsing certificate of insurance is the coordinator's to chase; it reaches the owner only when the vendor is on site within 2 working days or a payment to them waits on his release",
+  who: (it) => {
+    const v = (DB.vendors || []).find((x) => x.id === it.id),
+      r = v && PRED.vendorsCoiLapsing.row(v);
+    if (!r) return "coord";
+    const td = today(),
+      onSite = r.bookings.some((b) => "site" === b.kind && workdays(td, b.date) - 1 <= 2),
+      n = String(v.name || "").toLowerCase(),
+      pay =
+        (DB.bills || []).some((b) => String(b.vendor || "").toLowerCase() === n && "pm-approved" === b.status && !("function" == typeof billPaidTxn && billPaidTxn(b))) ||
+        ("function" == typeof prOpen && prOpen().some((run) => (run.bills || []).some((x) => { const b = (DB.bills || []).find((y) => y.id === x.id); return b && String(b.vendor || "").toLowerCase() === n; })));
+    return onSite || pay ? "owner" : "coord";
+  },
+};
+// The chase for a lapsed COI, as eaNudge drafts it: one shape for the owner's Caught row and the coordinator's card
+function coiChaseItem(r) {
+  return {
+    kind: "coi",
+    n: "!COI",
+    t: `${esc(r.v.name)} — ${esc(coiWords(r))}`,
+    sub: `${"site" === r.next.kind ? "on site" : "order due"} ${fmt(r.next.date)}`,
+    vendor: r.v,
+    msg: `Hi — ${"missing" === r.state ? `we do not have a certificate of insurance on file for ${r.v.name}` : `the certificate of insurance we have for ${r.v.name} ${"expired" === r.state ? "expired" : "expires"} ${fmtL(r.exp)}`}, and you are ${"site" === r.next.kind ? "booked on site" : "due to deliver"} ${fmtL(r.next.date)}. Could you send a current one by ${fmtL(chaseBy(addWork(r.next.date, -2), ""))}, with SmartDesign named as certificate holder? Thanks.`,
+  };
+}
+// The coordinator's Do Now: a lapsed COI for a vendor on site within 10 working days, a card in Approvals (kind
+// "coi", DELEGATION.coi's role) whose yes drafts the chase. Not a new list: it rides mApprovals like payment holds.
+{
+  const base = mApprovals;
+  mApprovals = function (opts) {
+    const out = base.apply(this, arguments);
+    try {
+      if (!Array.isArray(out) || !((opts && opts.everyone) || "coord" === role())) return out;
+      const weak = new Set(((PRED.vendorsBlocked && PRED.vendorsBlocked.rows()) || []).map((v) => v.id));
+      return out.concat(
+        PRED.vendorsCoiLapsing.rows()
+          .filter((x) => x.soon && !weak.has(x.v.id))
+          .map((x) => ({
+            kind: "coi",
+            id: x.v.id,
+            sev: "bad",
+            n: "COI",
+            title: `${x.v.name} — ${coiWords(x)}`,
+            detail: `${"site" === x.next.kind ? "on site" : "order due"} ${fmt(x.next.date)} · ${x.next.what}`,
+            yes: "Chase COI",
+            who: "coord",
+            open: { view: "vendors" },
+          })),
+      );
+    } catch (e) {
+      return out;
+    }
+  };
+}
+{
+  const base = tdCard;
+  tdCard = function (it) {
+    const c = base.apply(this, arguments);
+    try {
+      if (it && "coi" === it.kind) {
+        const r = PRED.vendorsCoiLapsing.row((DB.vendors || []).find((v) => v.id === it.id));
+        (c.line1 = esc(it.title)), (c.why = esc(it.detail || "")), (c.verb = it.yes), r && (c.run = () => eaNudge(coiChaseItem(r)));
+      }
+    } catch (e) {}
+    return c;
+  };
+}
+const coiWords = (r) =>
+  `${"missing" === r.state ? "no COI on file" : "expired" === r.state ? `COI expired ${fmt(r.exp)}` : `COI expires ${fmt(r.exp)}`}`;
 // Expedite an ordered line that has no purchase order behind it: who has it, when it lands, and a chase.
 function buyExpedite(p, mid) {
   const m = p && (p.materials || []).find((x) => x.id === mid);
@@ -195886,6 +196324,20 @@ function billHoldSheet(b, kind) {
       },
     },
   );
+}
+// A held bill reads "Held by who: why" on every list that prints a bill's state (Bills & Payroll, Paid Before
+// Approval, Approvals, the Payment Check), not only inside its drawer (S1 fix, owner review 2026-10-21).
+function billHeld(b) {
+  return !!(b && b.onHold && "open" === b.onHold.state);
+}
+function billHeldText(b) {
+  return `Held by ${b.onHold.by}: ${String(b.onHold.why || "").length > 60 ? String(b.onHold.why).slice(0, 57).replace(/\s+\S*$/, "") + "…" : b.onHold.why}`;
+}
+{
+  const base = billState;
+  billState = function (b) {
+    return billHeld(b) ? { cls: "bad", text: billHeldText(b), held: !0 } : base.apply(this, arguments);
+  };
 }
 function billPapersHtml(b) {
   const v = "function" == typeof vendorRec ? vendorRec(b.vendor) : (DB.vendors || []).find((x) => x.name === b.vendor);

@@ -287,6 +287,12 @@ function pcCheck(b, o) {
   ["approved", "verified", "paid"].includes(b.status)
     ? K("approval", `Approved${b.approvedAt ? " " + scDay(b.approvedAt) : ""}`)
     : H("approval", `Not approved for payment yet (${billState(b).text || b.status})`, { money: amt, fixed: !0, next: "Open the Bill", act: "open" });
+  // a held bill and a bill the bank already paid are never paid from here (S1 fix, owner review 2026-10-21: both
+  // paid-before-approval bills sat in the Payment Run, and a held bill showed no hold on its row)
+  const hold = b.onHold && "open" === b.onHold.state ? b.onHold : null,
+    paidAt = "function" == typeof billPaidTxn ? billPaidTxn(b) : null;
+  hold && H("held", `Held by ${hold.by}: ${hold.why}`, { money: amt, fixed: !0, next: "Open the Bill", act: "open" });
+  paidAt && !["paid", "verified"].includes(b.status) && H("paidbank", `Already paid: ${money(Math.abs(+paidAt.amt || 0))} left the bank on ${scDay(paidAt.date)}; paying it again would pay it twice`, { money: amt, fixed: !0, next: "Open the Bill", act: "open" });
   const createdBy = scLow(b.createdBy),
     vendorBy = scLow(v && v.createdBy);
   createdBy && createdBy === scLow(me)
@@ -1814,8 +1820,21 @@ function scBillDrawer(id) {
   };
 }
 // Bills & Payroll: the payment run. Approved bills, each with its check; only the checked ones are paid.
+// What a Payment Run may hold: approved, an open balance after every payment and every bank line matched to it,
+// not held. One rule for the run card, preparing a run and releasing it.
+function pcRunnable(b) {
+  return !!(
+    b &&
+    "approved" === b.status &&
+    !b.ic &&
+    billTotal(b) > 0 &&
+    pcOpen(b) > 0.005 &&
+    !(b.onHold && "open" === b.onHold.state) &&
+    !("function" == typeof billPaidTxn && billPaidTxn(b))
+  );
+}
 function pcRunHtml() {
-  const B = (DB.bills || []).filter((b) => "approved" === b.status && billTotal(b) > 0 && pcOpen(b) > 0.005 && !b.ic);
+  const B = (DB.bills || []).filter(pcRunnable);
   if (!B.length) return "";
   const rows = B.map((b) => ({ b: b, R: pcCheck(b) }));
   const n = rows.filter((x) => x.R.pass).length;
@@ -2029,8 +2048,11 @@ const prStore = () => (Array.isArray(DB.payRuns) ? DB.payRuns : (DB.payRuns = []
   prCanRelease = () => role() === prReleaser() || ("owner" === role() && !prAway()),
   prBills = (run) => run.bills.map((x) => ({ x: x, b: (DB.bills || []).find((b) => b.id === x.id) })).filter((y) => y.b);
 function prPrepareSheet(ids) {
-  const B = ids.map((id) => (DB.bills || []).find((b) => b.id === id)).filter(Boolean);
-  if (!B.length) return toast("Tick the bills to put in the run");
+  const B0 = ids.map((id) => (DB.bills || []).find((b) => b.id === id)).filter(Boolean),
+    B = B0.filter(pcRunnable),
+    out = B0.filter((b) => !pcRunnable(b));
+  if (out.length) toast(`Left out of the run: ${out.map((b) => `${b.vendor} ${b.number || ""} (${b.onHold && "open" === b.onHold.state ? "held" : "already paid or not approved"})`).join(", ")}`);
+  if (!B.length) return out.length ? void 0 : toast("Tick the bills to put in the run");
   const ents = [...new Set(B.map((b) => b.entityId || entDefault()))],
     total = r2(B.reduce((a, b) => a + pcOpen(b), 0)),
     who = prAway() ? "billing (the owner is away)" : "the owner";
