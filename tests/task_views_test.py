@@ -31,7 +31,7 @@ SHOWN = r"""() => { const h = document.getElementById('tkall-body'); const s = h
   let keys = [];
   if (mode === 'board') keys = [...h.querySelectorAll('.tv-bcol:not(.tv-bextra) [data-tvrow]')];
   else if (mode === 'cal') keys = [...h.querySelectorAll('.tv-ev[data-tvfield="due"]')];
-  else if (mode === 'table') keys = [...h.querySelectorAll('tr.tv-tr[data-tvrow], .tk2-row[data-tvrow]')];
+  else if (mode === 'table') keys = [...h.querySelectorAll('.tv-tr[data-tvrow], .tk2-row[data-tvrow]')];
   else keys = h.querySelector('.tk2-empty') ? [] : [...h.querySelectorAll('.tk2-row[data-tkkey]')];
   return { mode, n: s ? +s.dataset.tvn : null, rows: new Set(keys.map(e => e.dataset.tvrow || e.dataset.tkkey)).size, list: tvRows().length,
     sw: document.documentElement.scrollWidth, iw: innerWidth }; }"""
@@ -90,7 +90,7 @@ async def one_number(c, pg, who, phone):
         want = await pg.evaluate("() => tkMyCounts().week")
         c.ok(s['n'] == want, f'{who}: {m} · Mine · Due Soon says {s["n"]}, the list counts {want}')
     # saved tabs: each gives the count of the list it stands for
-    for vid in ('b:week', 'b:wait', 'b:proj', 'b:all'):
+    for vid in ('b:open', 'b:week', 'b:wait', 'b:all'):
         await pg.evaluate(CLOSE)
         await pg.evaluate("id => tvApply(id)", vid)
         await pg.wait_for_timeout(300)
@@ -98,8 +98,8 @@ async def one_number(c, pg, who, phone):
         want = await pg.evaluate("""id => { const v = tvViews().find(x => x.id === id); const R = v.s.t2View === 'done' ? t2DonePool() : t2ViewOf(openTasks(v.s.tkWho === 'me' ? 'me' : 'all'), v.s.t2View); return R.length; }""", vid)
         c.ok(s['rows'] == want, f'{who}: saved tab {vid} draws {s["rows"]}, the list for it counts {want} ({s["mode"]})')
         if not phone:
-            on = await pg.evaluate("id => !!document.querySelector(`.tv-sv.on[data-tvview='${id}']`)", vid)
-            c.ok(on, f'{who}: the tab {vid} is marked as the one showing')
+            tab = await pg.evaluate("id => { const b = document.querySelector(`.tv-sv[data-tvview='${id}']`); return b ? { on: b.classList.contains('on'), n: +((b.querySelector('.n') || {}).textContent || -1) } : null; }", vid)
+            c.ok(tab and tab['on'] and tab['n'] == want, f'{who}: the tab {vid} is the one showing and reads {want} ({tab})')
     if phone:
         return
     # a filter chip: Owner, through the bar's Filter, gives the owner's own count
@@ -124,7 +124,7 @@ async def edits(c, pg, who):
     await mode(pg, 'table', 'all', 'all')
     key = await pg.evaluate("""() => { const m = crCreateTask({ title: 'Views check: confirm the stair stringer delivery', for: 'p:' + DB.projects[0].id, assignee: tkMe(), due: today() });
       save(); renderTkAll(); return `${m.kind}:${m.id}:${m.projectId || ''}`; }""")
-    cell = lambda f: f'#tkall-body tr[data-tvrow="{key}"] [data-tved="{f}"]'
+    cell = lambda f: f'#tkall-body .tv-tr[data-tvrow="{key}"] [data-tved="{f}"]'
     tom = await pg.evaluate("() => iso(addDays(parse(today()), 1))")
     nxt = await pg.evaluate("() => tvNextMeeting()")
     # due: Tomorrow
@@ -162,7 +162,7 @@ async def edits(c, pg, who):
     await pg.fill('#tv-pop [data-tvw="name"]', 'Nemo Tile'); await pg.fill('#tv-pop [data-tvw="what"]', 'the delivery date')
     await pg.click(f'#tv-pop [data-tvwd="{tom}"]'); await pg.click('#tv-pop [data-tvwsave]'); await pg.wait_for_timeout(300)
     w = await pg.evaluate("k => { const R = tkResolve(k); return { w: R.rec.waitingOn, st: R.rec.status, inWaiting: t2ViewOf(openTasks('all'), 'blocked').some(x => t2Key(x) === k) }; }", key)
-    chip = await pg.evaluate("k => (document.querySelector(`#tkall-body tr[data-tvrow='${k}'] .tv-wait.on`) || {}).innerText || ''", key)
+    chip = await pg.evaluate("k => (document.querySelector(`#tkall-body .tv-tr[data-tvrow='${k}'] .tv-wait.on`) || {}).innerText || ''", key)
     c.ok(w['w'] and w['w'].get('name') == 'Nemo Tile' and w['w'].get('promised') == tom and w['inWaiting'], f'{who}: Waiting On is on the record and in the Waiting list ({w})')
     c.ok(chip.startswith('Nemo Tile · '), f'{who}: the chip reads who and when ("{chip}")')
     # the thread keeps what changed
@@ -178,13 +178,20 @@ async def edits(c, pg, who):
     return key
 
 
+async def drag(pg, src, dst):
+    """a drag as the browser sends it: dragstart on the item, dragover and drop on the target, dragend"""
+    await pg.evaluate("""([s, d]) => { const a = document.querySelector('#tkall-body ' + s), b = document.querySelector('#tkall-body ' + d); if (!a || !b) throw new Error('drag: missing ' + (a ? d : s));
+      a.scrollIntoView({ block: 'center' }); const dt = new DataTransfer(), ev = (t, el) => el.dispatchEvent(new DragEvent(t, { bubbles: true, cancelable: true, dataTransfer: dt }));
+      ev('dragstart', a); ev('dragenter', b); ev('dragover', b); ev('drop', b); ev('dragend', a); }""", [src, dst])
+    await pg.wait_for_timeout(350)
+
+
 async def drags(c, pg, who):
     await mode(pg, 'board', 'all', 'all')
     await pg.evaluate("() => { tvPrefs().boardBy = 'status'; renderTkAll(); }")
     key = await pg.evaluate("""() => { const m = crCreateTask({ title: 'Views check: drag me to Doing', for: 'p:' + DB.projects[0].id, assignee: tkMe(), due: today() });
       save(); renderTkAll(); return `${m.kind}:${m.id}:${m.projectId || ''}`; }""")
-    await pg.drag_and_drop(f'.tv-card[data-tvrow="{key}"]', '[data-tvdrop="doing"]')
-    await pg.wait_for_timeout(350)
+    await drag(pg, f'.tv-card[data-tvrow="{key}"]', '[data-tvdrop="doing"]')
     st = await pg.evaluate("k => tkResolve(k).rec.status", key)
     t = await toast_of(pg)
     c.ok(st == 'doing' and t and 'Undo' in t['open'] and 'Open' in t['open'], f'{who}: a card dragged to Doing is Doing ({st}), the toast has Open and Undo ({t})')
@@ -200,8 +207,7 @@ async def drags(c, pg, who):
     await pg.wait_for_timeout(200)
     was = await pg.evaluate("k => tkResolve(k).x.due", key)
     to = await pg.evaluate("() => iso(addDays(parse(today()), 2))")
-    await pg.drag_and_drop(f'.tv-ev[data-tvrow="{key}"][data-tvfield="due"]', f'[data-tvday="{to}"]')
-    await pg.wait_for_timeout(350)
+    await drag(pg, f'.tv-ev[data-tvrow="{key}"][data-tvfield="due"]', f'[data-tvday="{to}"]')
     due = await pg.evaluate("k => tkResolve(k).x.due", key)
     t = await toast_of(pg)
     c.ok(due == to and t and 'Undo' in t['open'], f'{who}: a chip dragged on the calendar re-dates the task ({was} to {due}, want {to})')
@@ -234,39 +240,46 @@ async def bulk(c, pg, who):
 async def sheet_and_table(c, pg, who):
     await mode(pg, 'table', 'all', 'all')
     # no cell borders: every th and td in the table has zero borders
-    b = await pg.evaluate("""() => { const T = [...document.querySelectorAll('#tkall-body .tv-table th, #tkall-body .tv-table td')]; const bad = T.filter(e => { const s = getComputedStyle(e); return ['Top','Right','Bottom','Left'].some(k => parseFloat(s['border' + k + 'Width']) > 0 && s['border' + k + 'Style'] !== 'none'); });
-      const t = document.querySelector('#tkall-body .tv-table'), ts = t ? getComputedStyle(t) : null; return { n: T.length, bad: bad.length, table: ts ? ts.borderTopWidth + ' ' + ts.borderLeftWidth : '' }; }""")
+    b = await pg.evaluate("""() => { const T = [...document.querySelectorAll('#tkall-body .tv-th, #tkall-body .tv-td')]; const bad = T.filter(e => { const s = getComputedStyle(e); return ['Top','Right','Bottom','Left'].some(k => parseFloat(s['border' + k + 'Width']) > 0 && s['border' + k + 'Style'] !== 'none'); });
+      const R = [...document.querySelectorAll('#tkall-body .tv-tr')].slice(0, 3).map(r => Math.round(r.getBoundingClientRect().height)); const card = getComputedStyle(document.querySelector('#tkall-body .tv-gcard') || document.body).borderRadius;
+      return { n: T.length, bad: bad.length, rows: R, card }; }""")
     c.ok(b['n'] > 0 and b['bad'] == 0, f'{who}: the table has no cell borders ({b})')
-    hd = await pg.evaluate("() => getComputedStyle(document.querySelector('#tkall-body .tv-table thead th')).position")
-    c.ok(hd == 'sticky', f'{who}: the header is sticky ({hd})')
-    rows = await pg.evaluate("() => document.querySelectorAll('#tkall-body .tv-table thead th').length - 1")
+    c.ok(all(r >= 64 for r in b['rows']) and b['card'] == '12px', f'{who}: rows are 64px in a 12px rounded card ({b["rows"]}, {b["card"]})')
+    hd = await pg.evaluate("() => { const h = document.querySelector('#tkall-body .tv-thead'); const s = getComputedStyle(h.querySelector('.tv-th[data-tvcol]')); return [getComputedStyle(h).position, s.textTransform, s.fontSize]; }")
+    c.ok(hd == ['sticky', 'uppercase', '12px'], f'{who}: the header is sticky, 12px uppercase ({hd})')
+    rows = await pg.evaluate("() => document.querySelectorAll('#tkall-body .tv-th[data-tvcol]').length")
     c.ok(rows <= 6, f'{who}: no more than 6 default columns ({rows})')
     # sort by Due, then a second sort with Shift
     await pg.click('[data-tvsort="due"]'); await pg.wait_for_timeout(250)
     await pg.click('[data-tvsort="owner"]', modifiers=['Shift']); await pg.wait_for_timeout(250)
     S = await pg.evaluate("() => tvSorts()")
     c.ok([s['k'] for s in S] == ['due', 'owner'], f'{who}: a header sorts and Shift adds a second sort ({S})')
-    order = await pg.evaluate("""() => { const g = [...document.querySelectorAll('#tkall-body tbody.tv-tg')][0] || document; return [...g.querySelectorAll('tr.tv-tr')].map(r => tkResolve(r.dataset.tvrow).x.due || '9999'); }""")
+    order = await pg.evaluate("""() => { const g = [...document.querySelectorAll('#tkall-body .tv-tg')][0] || document; return [...g.querySelectorAll('.tv-tr')].map(r => tkResolve(r.dataset.tvrow).x.due || '9999'); }""")
     c.ok(order == sorted(order), f'{who}: the rows read in due order ({order[:6]})')
     await pg.evaluate("() => { delete tvPrefs().table.sort; renderTkAll(); }")
     # the keyboard: ArrowDown moves to the next row's title
-    mv = await pg.evaluate("""() => { const T = [...document.querySelectorAll('#tkall-body tr.tv-tr [data-tved="title"]')]; if (T.length < 2) return null; T[0].focus();
-      T[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })); const a = document.activeElement.closest('tr'); return [T[1].closest('tr').dataset.tvrow, a && a.dataset.tvrow]; }""")
+    mv = await pg.evaluate("""() => { const T = [...document.querySelectorAll('#tkall-body .tv-tr [data-tved="title"]')]; if (T.length < 2) return null; T[0].focus();
+      T[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })); const a = document.activeElement.closest('.tv-tr'); return [T[1].closest('.tv-tr').dataset.tvrow, a && a.dataset.tvrow]; }""")
     c.ok(mv and mv[0] == mv[1], f'{who}: ArrowDown moves to the next row ({mv})')
     # a row's title opens the one sheet, as a panel on the right with the table still in view
-    key = await pg.evaluate("() => document.querySelector('#tkall-body tr.tv-tr').dataset.tvrow")
-    await pg.click(f'#tkall-body tr[data-tvrow="{key}"] [data-tved="title"]')
+    key = await pg.evaluate("() => document.querySelector('#tkall-body .tv-tr').dataset.tvrow")
+    await pg.click(f'#tkall-body .tv-tr[data-tvrow="{key}"] [data-tved="title"]')
     await pg.wait_for_timeout(400)
     p = await pg.evaluate("""() => { const m = document.getElementById('mbm'), b = m && m.querySelector('.mbm-box'), f = document.querySelector('#tkall-body .tv-tframe');
       if (!b || !f) return null; const r = b.getBoundingClientRect(), t = f.getBoundingClientRect(); const pe = getComputedStyle(m).pointerEvents;
-      return { key: (m.querySelector('[data-tks]') || { dataset: {} }).dataset.tks, left: Math.round(r.left), w: Math.round(r.width), h: Math.round(r.height), tright: Math.round(t.right), tw: Math.round(t.width), pe }; }""")
+      const wcol = document.querySelector('#tkall-body .tv-th.tv-col-wait');
+      return { key: (m.querySelector('[data-tks]') || { dataset: {} }).dataset.tks, left: Math.round(r.left), w: Math.round(r.width), h: Math.round(r.height), tright: Math.round(t.right), tw: Math.round(t.width), pe,
+        waitHidden: !wcol || getComputedStyle(wcol).display === 'none', parts: [...m.querySelectorAll('.tks-h')].map(h => h.textContent), wait: !!m.querySelector('.tvs-wait, .tvs-addwait'), owner: !!m.querySelector('[data-tvsf="owner"]'),
+        foot: [...m.querySelectorAll('.mbm-ft .btn')].map(b => b.textContent.trim()) }; }""")
     c.ok(p and p['key'] == key, f'{who}: the title opens the task\'s own sheet ({p and p["key"]} for {key})')
     c.ok(p and p['left'] >= 1440 - 480 and p['h'] >= 880, f'{who}: at 1440 the sheet is a panel on the right ({p})')
     c.ok(p and p['tright'] <= p['left'] + 2 and p['tw'] >= 600 and p['pe'] == 'none', f'{who}: the table stays in view and usable beside it ({p})')
+    c.ok(p and p['w'] == 420 and p['waitHidden'], f'{who}: the panel is 420px and the table drops Waiting On and Follow-Up beside it ({p and p["w"]}, {p and p["waitHidden"]})')
+    c.ok(p and p['owner'] and p['wait'] and 'Move the Date' in p['parts'] and 'Comments' in p['parts'] and 'Hand Off' in p['foot'], f'{who}: the panel holds Owner, Waiting On, Move the Date, Comments and Hand Off ({p and (p["parts"], p["foot"])})')
     await pg.screenshot(path=os.path.join(SHOTS, f'dt_{who}_table_panel.png'))
     # another row's title, clicked with the panel open, opens that one
-    k2 = await pg.evaluate("() => [...document.querySelectorAll('#tkall-body tr.tv-tr')][1].dataset.tvrow")
-    await pg.click(f'#tkall-body tr[data-tvrow="{k2}"] [data-tved="title"]')
+    k2 = await pg.evaluate("() => [...document.querySelectorAll('#tkall-body .tv-tr')][1].dataset.tvrow")
+    await pg.click(f'#tkall-body .tv-tr[data-tvrow="{k2}"] [data-tved="title"]')
     await pg.wait_for_timeout(350)
     now = await pg.evaluate("() => (document.querySelector('#mbm [data-tks]') || { dataset: {} }).dataset.tks")
     c.ok(now == k2, f'{who}: with the panel open, another row opens in it ({now})')
@@ -322,7 +335,7 @@ async def mine_views(c, pg):
     c.ok('Chen meeting walk' in mine and t and 'Open' in t['open'], f'coord: her saved view is in her tabs and toasts with Open ({mine[-2:]})')
     await sign_in(pg, 'u_owner'); await go(pg, 'tkall')
     theirs = await pg.evaluate("() => tvViews().map(v => v.name)")
-    c.ok('Chen meeting walk' not in theirs and theirs == ['My Week', 'Waiting on Others', 'By Project', 'All Open'], f'owner: the coordinator\'s view is not in the owner\'s tabs ({theirs})')
+    c.ok('Chen meeting walk' not in theirs and theirs == ['All Open', 'My Week', 'Waiting on Others', 'Everything'], f'owner: the coordinator\'s view is not in the owner\'s tabs ({theirs})')
     await sign_in(pg, 'u_chen'); await go(pg, 'tkall')
     vid = await pg.evaluate("() => (tvViews().find(v => v.name === 'Chen meeting walk') || {}).id")
     await pg.evaluate("() => { tkWho = 'me'; t2View = 'week'; tkSetMode('cards'); }")
