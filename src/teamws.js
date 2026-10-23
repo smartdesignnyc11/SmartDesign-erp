@@ -432,6 +432,17 @@ function aimIndex() {
   });
   return { byAsana: byAsana, codes: codes };
 }
+// The task a row already is: by its Asana id; else by its code, when that task came from an Asana import (the older
+// one-step board import marked source.asana) or carries the same title. A hand-made task that happens to hold the code
+// is someone else's: the row gets a new number instead.
+function aimFind(idx, id, code, title) {
+  const a = id && idx.byAsana.get(String(id));
+  if (a) return a;
+  const c = code && idx.codes.get(String(code).toUpperCase());
+  if (!c) return null;
+  const low = (x) => String(x || "").trim().toLowerCase();
+  return (c.a.source && (c.a.source.asana || "asana" === c.a.source.kind)) || low(c.a.title) === low(title) ? c : null;
+}
 // A board's meta (its prefix and next number): a job's own project record, or the firm's map for its own lists.
 function aimMeta(board) {
   if ("function" == typeof tkBoardMeta) return tkBoardMeta(board);
@@ -557,7 +568,7 @@ function aimPlan(files, opts) {
     order = {};
   top.forEach((r) => {
     const P = projects.get(r.project),
-      ex = (r.id && idx.byAsana.get(r.id)) || (r.keyFound && idx.codes.get(r.keyFound.toUpperCase())) || null;
+      ex = aimFind(idx, r.id, r.keyFound, r.title);
     const owner = aimPersonOf(r.assignee, r.email),
       outside = !owner && r.assignee && !/^(the (group|team|crew)|crew|all|tbd)$/i.test(r.assignee) ? aimContactOf(r.assignee, r.email) || { kind: "", id: "", name: r.assignee } : null;
     const t = {
@@ -682,7 +693,7 @@ function aimWrite(t, plan, now, ownerName) {
   const B = aimBoard(P, now),
     me = currentUser() || {},
     idx = aimIndex(),
-    ex = (t.asanaId && idx.byAsana.get(t.asanaId)) || (t.code && idx.codes.get(String(t.code).toUpperCase())) || null,
+    ex = aimFind(idx, t.asanaId, t.code, t.title),
     note = t.row.notes ? { id: "asn_" + (t.asanaId || uid("n")), at: (t.row.created || today()) + "T09:00:00", by: "Asana", text: t.row.notes, ev: "notes", source: "asana" } : null,
     wo = t.waitingOn ? { name: t.waitingOn.name, contactRef: t.waitingOn.id ? { kind: t.waitingOn.kind, id: t.waitingOn.id } : null, what: t.title, promised: t.row.due || "", evidence: "Assigned to them in Asana" } : null,
     snap = aimSnap(Object.assign({}, t, { ownerName: who }));
@@ -756,7 +767,7 @@ function aimApply(plan, owners) {
     before = (DB.projects || []).length;
   plan.tasks.forEach((t) => {
     const I = aimIndex(),
-      was = (t.asanaId && I.byAsana.get(t.asanaId)) || (t.code && I.codes.get(String(t.code).toUpperCase())) || null,
+      was = aimFind(I, t.asanaId, t.code, t.title),
       changed = was ? aimChanged(was.a, t) : !0,
       r = aimWrite(t, plan, now);
     r && (r.created ? (out.created++, t.flag && out.flagged++) : changed ? out.updated++ : out.same++), r && (out.steps += (t.checklist || []).length);
