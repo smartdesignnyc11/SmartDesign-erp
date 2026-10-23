@@ -121,14 +121,36 @@ async def run_meeting(c, p, uid, phone):
     c.ok(R['late']['code'] in items, f'{tag}: a late task is on the agenda')
     c.ok(R['soon']['code'] in items, f'{tag}: a task due before the next meeting is on the agenda')
     c.ok(R['wait']['code'] in items, f'{tag}: a task waiting on someone is on the agenda')
-    c.ok(R['fyi']['code'] in fyis and R['fyi']['code'] not in items, f'{tag}: an FYI item is folded at the end of its project')
+    c.ok(R['fyi']['code'] in fyis and R['fyi']['code'] not in items, f'{tag}: an FYI item is not walked with its project')
     c.ok(R['quiet']['code'] not in items, f'{tag}: a quiet task (due in a month, nothing changed) is not on the agenda')
     order = await pg.evaluate("mtOrder()")
     c.ok([bb['board'] for bb in ag] == [x for x in order if x in [bb['board'] for bb in ag]], f'{tag}: projects in the team order')
-    for bb in ag:
-        seq = await pg.evaluate("(b) => mtSeq(mtCurrent()).filter(s => s.board === b).map(s => s.t)", bb['board'])
-        if bb['fyi']:
-            c.ok(seq[-1] == 'fyi', f'{tag}: the FYI card comes last in {bb["name"]}')
+    seq = await pg.evaluate("() => mtSeq(mtCurrent()).map(s => s.t)")
+    c.ok(seq[-1] == 'fyi' and seq.count('fyi') == 1, f'{tag}: FYI only comes last, folded into one card')
+    # the mockup (Alan, 2026-10-23): top bar, agenda rail, the card, eight actions, the bottom row, the running log
+    lay = await pg.evaluate('''() => { const q = (s) => document.querySelector(s), A = [...document.querySelectorAll('.mm-act')];
+      const r = (e) => e ? e.getBoundingClientRect() : { width: 0, height: 0, top: 0, left: 0 };
+      return { live: (q('.mm-live') || {}).innerText || '', prog: (q('.mm-prog') || {}).innerText || '', end: !!q('[data-mmend]'),
+        acts: A.map(b => b.innerText.trim()), h: A.map(b => Math.round(r(b).height)), rows: new Set(A.map(b => Math.round(r(b).top))).size,
+        blue: A.filter(b => b.classList.contains('primary')).map(b => b.innerText.trim()),
+        side: Math.round(r(q('.mm-side')).width), right: Math.round(r(q('.mm-right')).width), agRows: document.querySelectorAll('.mm-side .mm-ag').length,
+        agOn: (q('.mm-side .mm-ag.on .mm-agn') || {}).innerText || '', ctx: (q('.mm-ctx') || {}).innerText || '', title: parseInt(getComputedStyle(q('.mm-title')).fontSize),
+        next: (q('[data-mmnext]') || {}).innerText || '', add: (q('.mm-nav .mm-addbtn') || {}).innerText || '', hint: (q('.mm-hint') || {}).innerText || '',
+        logH: (q('.mm-right .mm-rh') || {}).innerText || '', note: (q('.mm-lognote') || {}).innerText || '' }; }''')
+    c.ok(re.match(r'^In Meeting · \d+ min$', lay['live']), f'{tag}: the red In Meeting pill ({lay["live"]})')
+    c.ok(re.search(r'\d+ of \d+ discussed', lay['prog']) and lay['end'], f'{tag}: progress and End Meeting on the top bar ({lay["prog"]})')
+    c.ok(lay['acts'] == ['New Date', 'Add a Note', 'Done', 'Reassign', 'Waiting On', 'Track Until', 'FYI', 'Skip'], f'{tag}: the eight actions in order: {lay["acts"]}')
+    c.ok(lay['blue'] == ['New Date'], f'{tag}: New Date is the one blue button: {lay["blue"]}')
+    c.ok(min(lay['h'] or [0]) >= 56, f'{tag}: the actions are 56px tall: {lay["h"]}')
+    c.ok(lay['rows'] == (4 if phone else 2), f'{tag}: the actions sit in {"4 rows of 2" if phone else "a 4 by 2 grid"} ({lay["rows"]} rows)')
+    c.ok(re.search(r'Task \d+ of \d+', lay['ctx']), f'{tag}: above the card, the project and Task n of m ({lay["ctx"]})')
+    c.ok(lay['title'] >= (24 if phone else 32), f'{tag}: the title is {lay["title"]}px')
+    c.ok('Next Task' in lay['next'], f'{tag}: the dark Next Task button')
+    if not phone:
+        c.ok(lay['side'] == 300 and lay['right'] == 340, f'{tag}: the agenda rail is 300px and the log 340px ({lay["side"]}, {lay["right"]})')
+        c.ok(lay['agRows'] == len([bb for bb in ag if bb['items']]) and lay['agOn'], f'{tag}: one agenda row per project, the current one highlighted ({lay["agRows"]}, {lay["agOn"]})')
+        c.ok(lay['add'].startswith('Add a Task to') and 'Arrow keys move between tasks' in lay['hint'], f'{tag}: the bottom row: add a task and the arrow-keys hint')
+        c.ok(lay['logH'].lower() == 'changed in this meeting' and 'Meeting Review' in lay['note'], f'{tag}: the running log and the Meeting Review line')
     first = await card(pg)
     c.ok(CODE.match(first['code'] or ''), f'{tag}: the card shows the key ({first["code"]})')
     c.ok(len(m['screenLog']) == 1 and m['screenLog'][0]['taskKey'] == first['code'] and not m['screenLog'][0]['to'], f'{tag}: the screen log opens on the first card')
@@ -231,6 +253,7 @@ async def run_meeting(c, p, uid, phone):
     # ---- add a task inline under the project on screen
     c.ok(await go_to(pg, R['wait']['code']), f'{tag}: back to the job to add a task')
     visited.append(R['wait']['code'])
+    await click(pg, '[data-mmact="add"]')
     await pg.fill('[data-mmaddt]', 'Send the library shop drawings to the client')
     await pg.select_option('[data-mmaddo]', 'Chen Biron')
     await click(pg, '[data-mmadd]', 300)
@@ -333,6 +356,15 @@ async def run_meeting(c, p, uid, phone):
         await pg.evaluate("() => mbCloseModal()")
         gone = await pg.evaluate("(id) => !tdyModel().tasks.some(i => i.kind === 'tdyMinutes' && i.id === id)", m['id'])
         c.ok(gone, f'{tag}: {who}: once read, the line leaves Today')
+    # the next meeting: a task changed since this one says so above its card
+    if not phone:
+        await pg.evaluate("(id) => { const T = tkKeyedRecs().find(r => r.rec.id === id); tkLog(T.rec, { text: 'Vendor called: boxes ship Friday' }); save(); }", ids['wait'])
+        await pg.evaluate("() => { mtStart({ title: 'Team Meeting', attendees: ['Chen Biron'] }); }")
+        await pg.wait_for_timeout(300)
+        c.ok(await go_to(pg, w['code']), f'{tag}: second meeting, walk to {w["code"]}')
+        pill = await pg.evaluate("() => (document.querySelector('.mm-changed') || {}).innerText || ''")
+        c.ok(pill.startswith('Changed since'), f'{tag}: the red Changed since pill on a task changed since the last meeting ({pill})')
+        await pg.evaluate("() => mtEnd()")
     c.ok(not errs, f'{tag}: no page errors: {errs[:3]}')
     await b.close()
 

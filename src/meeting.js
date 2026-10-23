@@ -894,16 +894,16 @@ function mtBuildAgenda(whole, beforeId) {
 }
 // the walk, in order: each task, then the project's FYI items as one folded card (open, they join the walk)
 function mtSeq(m) {
-  const out = [];
+  const out = [],
+    fy = [];
   (m.agenda || []).forEach((b) => {
     // a project added in the meeting has a card of its own until its first task is added
     !b.items.length && !b.fyi.length && out.push({ t: "empty", code: "EMPTY:" + b.board, board: b.board });
     b.items.forEach((c) => out.push({ t: "task", code: c, board: b.board }));
-    if (b.fyi.length) {
-      if ((m.fyiOpen || []).includes(b.board)) b.fyi.forEach((c) => out.push({ t: "task", code: c, board: b.board, fyi: !0 }));
-      else out.push({ t: "fyi", code: "FYI:" + b.board, board: b.board });
-    }
+    b.fyi.forEach((c) => fy.push({ t: "task", code: c, board: b.board, fyi: !0 }));
   });
+  // FYI only comes last, folded into one card; opened, its items join the walk
+  fy.length && ((m.fyiOpen || []).includes("all") ? out.push(...fy) : out.push({ t: "fyi", code: "FYI:all", board: "__fyi" }));
   return out;
 }
 let mmOn = !1,
@@ -1231,15 +1231,13 @@ function mmCardData(code) {
   return R ? Object.assign({ T: T, R: R }, {}) : null;
 }
 function mmCardHtml(m, s, W) {
-  if ("empty" === s.t) return `<article class="mm-card mm-fyi"><div class="mm-key">${esc((tkBoardMeta(s.board) || {}).prefix || "")}</div><h2 class="mm-title">${esc(tkBoardName(s.board))} has no tasks yet</h2><p class="muted">Add its first task below: it will be ${esc((tkBoardMeta(s.board) || {}).prefix || "")}-${esc(String((tkBoardMeta(s.board) || {}).keyNext || 1))}.</p></article>`;
+  if ("empty" === s.t) return `<article class="mm-card mm-fyi"><div class="mm-key">${esc((tkBoardMeta(s.board) || {}).prefix || "")}</div><h2 class="mm-title">${esc(tkBoardName(s.board))} has no tasks yet</h2><p class="muted">Add its first task: it will be ${esc((tkBoardMeta(s.board) || {}).prefix || "")}-${esc(String((tkBoardMeta(s.board) || {}).keyNext || 1))}.</p></article>`;
   if ("fyi" === s.t) {
-    const b = (m.agenda || []).find((x) => x.board === s.board) || { fyi: [], name: "" };
-    return `<article class="mm-card mm-fyi"><div class="mm-key">FYI · ${esc(b.name)}</div><h2 class="mm-title">${b.fyi.length} item${1 === b.fyi.length ? "" : "s"} for information</h2><ul class="mm-fyilist">${b.fyi
-      .map((c) => {
-        const T = tkByCode(c);
-        return `<li><span class="mm-chip">${esc(c)}</span> ${esc(T ? T.rec.title : "")}</li>`;
-      })
-      .join("")}</ul><button type="button" class="btn" data-mmfyiopen="${esc(s.board)}">Walk the FYI Items</button></article>`;
+    const F = (m.agenda || []).flatMap((b) => b.fyi.map((c) => [c, b]));
+    return `<article class="mm-card mm-fyi"><div class="mm-key">FYI Only</div><h2 class="mm-title">${F.length} item${1 === F.length ? "" : "s"} for information</h2><ul class="mm-fyilist">${F.map(([c, b]) => {
+      const T = tkByCode(c);
+      return `<li><span class="mm-chip">${esc(c)}</span> ${esc(T ? T.rec.title : "")} <span class="small muted">· ${esc(b.name)}</span></li>`;
+    }).join("")}</ul><button type="button" class="btn" data-mmfyiopen="all">Walk the FYI Items</button></article>`;
   }
   const D = mmCardData(s.code);
   if (!D) return `<article class="mm-card"><div class="mm-key">${esc(s.code)}</div><p class="muted">That task is no longer here.</p></article>`;
@@ -1247,34 +1245,27 @@ function mmCardHtml(m, s, W) {
     x = D.R.x || {},
     st = tkStatusOf(D.T.kind, a),
     td = today(),
-    C = tkComments(a).slice(-3),
+    C = tkComments(a).slice(-2),
     links = tkLinks(a)
       .map((l) => [l, tkLinkInfo(l, x.projectId)])
       .filter(([, i]) => i),
     files = tkAttachments(D.R),
-    dates = [
-      a.due ? `<span class="${a.due < td && "fyi" !== st ? "bad" : ""}">Due ${esc(tkDay(a.due))}</span>` : "<span>No due date</span>",
-      a.followUp ? `<span>Follow up ${esc(tkDay(a.followUp))}</span>` : "",
-      a.watchUntil ? `<span>Tracking until ${esc(tkDay(a.watchUntil))}</span>` : "",
-      a.lastDiscussed && a.lastDiscussed.meetingId !== m.id ? `<span class="muted">Last discussed ${esc(tkDay(String(a.lastDiscussed.at).slice(0, 10)))}</span>` : "",
-    ].filter(Boolean),
-    b = (m.agenda || []).find((y) => y.board === s.board),
-    why = ((b && b.why && b.why[s.code]) || []).map((k) => MT_WHY_SAY[k]).filter(Boolean),
+    W0 = a.waitingOn && a.waitingOn.name ? a.waitingOn : null,
+    late = a.due && a.due < td && "fyi" !== st,
     flag = a.ownerFlag ? `<div class="mm-flag">Owner set to ${esc(a.assignee)}: ${esc(a.ownerFlag.was || "nobody")} ${"outside" === a.ownerFlag.why ? "is not on the team" : "was named"}. Confirm or reassign.</div>` : "";
   return `<article class="mm-card" data-mmcard="${esc(s.code)}">
-  <div class="mm-keyrow"><span class="mm-key">${esc(s.code)}</span><span class="mm-st mm-st-${esc(st)}">${esc(tkStatusSay(st))}</span>${why.length ? `<span class="mm-why">${esc(why.join(" · "))}</span>` : ""}</div>
+  <div class="mm-keyrow"><span class="mm-key">${esc(s.code)}</span><span class="mm-st mm-st-${esc(st)}">${esc(tkStatusSay(st))}</span></div>
   <h2 class="mm-title">${esc(a.title || x.title || "")}</h2>
-  <div class="mm-who">${mmSvg("person", 18)}<span>Owner <b>${esc(a.assignee || "nobody")}</b>${(a.collaborators || []).length ? ` · with ${esc(a.collaborators.join(", "))}` : ""}</span></div>
+  <div class="mm-meta"><div><span class="mm-ml">Owner</span><b>${esc(a.assignee || "nobody")}</b>${(a.collaborators || []).length ? `<small> with ${esc(a.collaborators.join(", "))}</small>` : ""}</div><div><span class="mm-ml">Due</span><b class="${late ? "bad" : ""}">${a.due ? esc(tkDay(a.due)) + (late ? " · late" : "") : "No date"}</b></div><div><span class="mm-ml">Follow-up</span><b>${a.followUp ? esc(tkDay(a.followUp)) : "None"}</b></div>${a.watchUntil ? `<div><span class="mm-ml">Tracking Until</span><b>${esc(tkDay(a.watchUntil))}</b></div>` : ""}</div>
   ${flag}
-  ${a.waitingOn && a.waitingOn.name ? `<div class="mm-wait">${mmSvg("wait", 18)}<span>${esc(tkWaitSay(a.waitingOn))}</span></div>` : ""}
-  <div class="mm-dates">${dates.join('<span class="tk2-dot"> · </span>')}</div>
-  ${C.length ? `<div class="mm-comments">${C.map((c) => `<div class="mm-comment"><span class="small muted">${esc((tdyUserOf(c.by) ? tkFirst(c.by) : c.by) || "Someone")} · ${esc(fmt(String(c.at || "").slice(0, 10)))}</span><div>${esc(c.text)}</div></div>`).join("")}</div>` : '<div class="mm-comments muted small">No comments yet.</div>'}
+  ${W0 ? `<div class="mm-wait">${mmSvg("wait", 20)}<div><b>Waiting on ${esc(W0.name)}${W0.what ? `: ${esc(W0.what)}` : ""}.</b>${W0.promised ? ` Promised ${esc(tkDay(W0.promised))}.` : " No date promised yet."}${W0.evidence ? `<div class="small">${esc(W0.evidence)}</div>` : ""}</div></div>` : ""}
+  ${C.length ? `<div class="mm-comments"><span class="mm-ml">Last Notes</span>${C.map((c) => `<div class="mm-comment"><span class="small muted">${esc((tdyUserOf(c.by) ? tkFirst(c.by) : c.by) || "Someone")} · ${esc(fmt(String(c.at || "").slice(0, 10)))}</span><div>${esc(c.text)}</div></div>`).join("")}</div>` : '<div class="mm-comments muted small">No notes yet.</div>'}
   ${links.length || files.length ? `<div class="mm-links">${links.map(([l, i], k) => `<button type="button" class="mm-linkb" data-mmlink="${k}">${mmSvg("link", 16)}<span>${esc(i.label)}</span></button>`).join("")}${files.map((f) => `<span class="mm-linkb">${mmSvg("file", 16)}<span>${esc(f.name)}</span></span>`).join("")}</div>` : ""}
 </article>`;
 }
 const MM_ACTS = [
   ["date", "New Date", "cal"],
-  ["note", "Note", "note"],
+  ["note", "Add a Note", "note"],
   ["done", "Done", "check"],
   ["owner", "Reassign", "person"],
   ["wait", "Waiting On", "wait"],
@@ -1315,6 +1306,15 @@ function mmPanelHtml(m, code) {
     return `<div class="mm-panel"><div class="tks-row"><input class="tks-in" data-mmdecin placeholder="What was decided" aria-label="Decision"></div><div class="tks-row"><button type="button" class="btn" data-mmdec="aligned">Aligned</button><button type="button" class="btn" data-mmdec="to-discuss">To Discuss</button></div></div>`;
   if ("more" === mmPanel)
     return `<div class="mm-panel mm-menu"><button type="button" class="btn" data-mmmove="-1">Move Up</button><button type="button" class="btn" data-mmmove="1">Move Down</button><button type="button" class="btn" data-mmpanel="decision">Decision</button><button type="button" class="btn" data-mmsheet>Open the Task</button><button type="button" class="btn" data-mmprojmove="-1">Project Up</button><button type="button" class="btn" data-mmprojmove="1">Project Down</button></div>`;
+  if ("add" === mmPanel) {
+    const s = mmWhere(m).seq.find((y) => y.code === mmAt),
+      bid = s && "__fyi" !== s.board ? s.board : "";
+    return bid
+      ? `<div class="mm-panel"><div class="tks-row mm-addrow"><input class="tks-in" data-mmaddt placeholder="New task on ${esc(tkBoardName(bid))}" aria-label="New task on ${esc(tkBoardName(bid))}"><select class="mm-addo" data-mmaddo aria-label="Owner">${tkOwnersList()
+          .map((u) => `<option ${u.id === mmMe().id ? "selected" : ""}>${esc(u.name)}</option>`)
+          .join("")}</select><button type="button" class="btn" data-mmadd>Save Task</button></div></div>`
+      : "";
+  }
   if ("addproj" === mmPanel)
     return `<div class="mm-panel"><div class="grid2"><div class="f"><label>Project</label><input data-mmp="name" placeholder="Park Ave Duplex"></div><div class="f"><label>Prefix</label><input data-mmp="prefix" placeholder="PAD" maxlength="8"></div></div><div class="f"><label>Client</label><select data-mmp="client"><option value="">None: one of the firm's own lists</option>${(DB.clients || []).map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join("")}<option value="__new">New Client…</option></select></div><div class="f" data-mmpnewc hidden><label>New Client's Name</label><input data-mmp="newClient"></div><div class="tks-row"><button type="button" class="btn" data-mmpsave>Save Project</button></div></div>`;
   return "";
@@ -1329,6 +1329,30 @@ function mmContactNames() {
     .forEach((u) => out.push(u.name));
   return [...new Set(out.filter(Boolean))].slice(0, 400);
 }
+// one line of the running log: "10:19 · LIN-16 · Waiting on the vendor, promised Thu 10/29. Owner Marco."
+function mmLogLine(c) {
+  const T = c.taskKey ? tkByCode(c.taskKey) : null,
+    st = { done: "Done", fyi: "FYI: status only", doing: "Doing", todo: "Back to To Do", waiting: "Waiting On" },
+    say = {
+      due: () => `Due moved to ${c.to ? tkDay(c.to) : "no date"}`,
+      followUp: () => `Follow-up ${c.to ? tkDay(c.to) : "cleared"}`,
+      watchUntil: () => `Tracking until ${c.to ? tkDay(c.to) : "cleared"}`,
+      comment: () => `Note: “${tdWords(c.to || "", 12)}”`,
+      owner: () => `Reassigned to ${c.to}`,
+      status: () => st[c.to] || `Status ${c.to}`,
+      waitingOn: () => (c.to ? `Waiting on ${c.to}${c.what ? `: ${c.what}` : ""}${c.promised ? `, promised ${tkDay(c.promised)}` : ""}` : "No longer waiting on anyone"),
+      decision: () => `Decision, ${"aligned" === c.status ? "aligned" : "to discuss"}: ${c.to}`,
+      created: () => `New: ${tdWords(c.to || "", 10)}`,
+      project: () => `New project ${c.to}`,
+      projectOrder: () => `${c.to} moved ${c.move < 0 ? "up" : "down"} in the order`,
+      order: () => `Moved ${+c.to > +c.from ? "down" : "up"} in its project`,
+      collaborators: () => (c.to ? `With ${c.to}` : "No collaborators"),
+      link: () => "Linked to a record",
+    }[c.field];
+  if (!say || ("owner" === c.field && !c.from)) return "";
+  const owner = T && !/^(owner|project|projectOrder)$/.test(c.field) ? ` Owner ${T.rec.assignee || "nobody"}.` : "";
+  return `<li><span class="mm-lt">${esc(String(c.at || "").slice(11, 16))}</span>${c.taskKey ? ` · <button type="button" class="mm-mlink" data-mmjump="${esc(c.taskKey)}">${esc(c.taskKey)}</button>` : ""} · ${esc(say())}.${esc(owner)}</li>`;
+}
 function mmHtml() {
   const m = mtCurrent();
   if (!m) return "";
@@ -1336,45 +1360,62 @@ function mmHtml() {
     s = W.seq[W.i] || null,
     phone = tkPhone(),
     pres = mmPresenter(m),
-    b = s ? (m.agenda || []).find((x) => x.board === s.board) : null,
-    inB = b ? mtSeq(m).filter((y) => y.board === b.board) : [],
-    posB = s ? inB.findIndex((y) => y.code === s.code) + 1 : 0,
-    started = String(m.startedAt || "").slice(11, 16),
+    td = today(),
     byCode = new Map(tkKeyedRecs().map((r) => [r.rec.code, r])),
-    side = phone
-      ? ""
-      : `<aside class="mm-side" aria-label="Agenda" data-noclip="1">${(m.agenda || [])
-          .map(
-            (bb) =>
-              `<div class="mm-sb"><div class="mm-sbh">${esc(bb.name)} <span class="muted">${esc(bb.prefix)}</span></div>${mtSeq(m)
-                .filter((y) => y.board === bb.board)
-                .map((y) => {
-                  const T = "task" === y.t ? byCode.get(y.code) || null : null,
-                    done = T && tkRecDone(T.kind, T.rec),
-                    seen = (m.screenLog || []).some((l) => l.taskKey === y.code);
-                  return `<button type="button" class="mm-sbi ${y.code === (s && s.code) ? "on" : ""} ${done ? "done" : ""} ${seen ? "seen" : ""}" data-mmjump="${esc(y.code)}">${"fyi" === y.t ? `FYI · ${bb.fyi.length}` : `<b>${esc(y.code)}</b> ${esc(T ? tdWords(T.rec.title || "", 6) : "")}`}</button>`;
-                })
-                .join("")}</div>`,
-          )
-          .join("")}</aside>`,
-    acts = s && "task" === s.t ? `<div class="mm-acts" role="toolbar" aria-label="Actions on this task">${MM_ACTS.map(([k, n, ic]) => `<button type="button" class="mm-act ${mmPanel === k ? "on" : ""}" data-mmact="${k}">${mmSvg(ic, 20)}<span>${n}</span></button>`).join("")}<button type="button" class="mm-act ${"more" === mmPanel ? "on" : ""}" data-mmact="more" aria-label="More">${mmSvg("more", 20)}<span>More</span></button></div>` : "";
-  const add = b
-    ? `<div class="mm-add"><div class="tks-row"><input class="tks-in" data-mmaddt placeholder="Add a task to ${esc(b.name)}" aria-label="Add a task to ${esc(b.name)}"><select class="mm-addo" data-mmaddo aria-label="Owner">${tkOwnersList()
-        .map((u) => `<option ${u.id === mmMe().id ? "selected" : ""}>${esc(u.name)}</option>`)
-        .join("")}</select><button type="button" class="btn" data-mmadd>New Task</button></div><button type="button" class="btn mm-addp" data-mmact="addproj">${mmSvg("plus", 16)} New Project</button></div>`
-    : `<div class="mm-add"><p class="small muted">Nothing on the agenda. Add a project, or end the meeting.</p><button type="button" class="btn mm-addp" data-mmact="addproj">${mmSvg("plus", 16)} New Project</button></div>`;
+    b = s ? (m.agenda || []).find((x) => x.board === s.board) : null,
+    inB = b ? W.seq.filter((y) => y.board === b.board && "task" === y.t) : [],
+    posB = s ? inB.findIndex((y) => y.code === s.code) + 1 : 0,
+    tasks = W.seq.filter((y) => "task" === y.t),
+    talked = new Set((m.screenLog || []).map((l) => l.taskKey).concat((m.changes || []).map((c) => c.taskKey))),
+    nDisc = tasks.filter((y) => talked.has(y.code)).length,
+    mins = Math.max(0, Math.round((appNowMs() - new Date(m.startedAt).getTime()) / 6e4)),
+    last = mtLastEnded(m.id),
+    changed = !!(b && s && ((b.why || {})[s.code] || []).includes("changed")),
+    addedHere = new Set((m.changes || []).filter((c) => "project" === c.field).map((c) => c.board)),
+    fyiN = (m.agenda || []).reduce((n, x) => n + x.fyi.length, 0);
+  // the agenda: one row per project in the team's order, with its count and what is in it
+  const agRows = (m.agenda || [])
+    .filter((bb) => bb.items.length || !bb.fyi.length)
+    .map((bb) => {
+      const R = bb.items.map((c) => byCode.get(c)).filter(Boolean),
+        late = R.filter((r) => r.rec.due && r.rec.due < td && !tkRecDone(r.kind, r.rec) && "fyi" !== tkStatusOf(r.kind, r.rec)).length,
+        wait = R.filter((r) => r.rec.waitingOn && r.rec.waitingOn.name && !tkRecDone(r.kind, r.rec)).length,
+        done = R.filter((r) => tkRecDone(r.kind, r.rec)).length,
+        sum = addedHere.has(bb.board) ? "Added in this meeting" : [late ? `${late} late` : "", wait ? `${wait} waiting` : "", done ? `${done} done` : ""].filter(Boolean).join(" · ") || `${bb.items.length} to discuss`;
+      return `<button type="button" class="mm-ag ${s && s.board === bb.board ? "on" : ""}" data-mmboard="${esc(bb.board)}"><span class="mm-agn">${esc(bb.name)} <small>${esc(bb.prefix)}</small></span><span class="mm-agc">${bb.items.length}</span><span class="mm-ags">${esc(sum)}</span></button>`;
+    })
+    .join("");
+  const agenda = `<div class="mm-rh">Agenda</div>${agRows}${fyiN ? `<button type="button" class="mm-ag mm-agfyi ${s && "__fyi" === s.board ? "on" : ""}" data-mmjump="FYI:all"><span class="mm-agn">FYI Only</span><span class="mm-agc">${fyiN}</span><span class="mm-ags">folded, status only</span></button>` : ""}<button type="button" class="mm-agadd" data-mmact="addproj">${mmSvg("plus", 16)} New Project</button>`;
+  const logL = (m.changes || [])
+      .slice()
+      .reverse()
+      .map(mmLogLine)
+      .filter(Boolean),
+    log = `<div class="mm-rh">Changed in This Meeting</div>${logL.length ? `<ul class="mm-log">${logL.join("")}</ul>` : '<p class="small muted">Nothing changed yet.</p>'}<p class="mm-lognote">After the meeting the transcript is matched to this log by the time each task was on screen. Anything said that is not here arrives as one Meeting Review to approve.</p>`;
+  const isTask = !!(s && "task" === s.t),
+    acts = isTask ? `<div class="mm-acts" role="toolbar" aria-label="Actions on this task">${MM_ACTS.map(([k, n, ic]) => `<button type="button" class="mm-act ${"date" === k ? "primary" : ""} ${mmPanel === k ? "on" : ""}" data-mmact="${k}">${mmSvg(ic, 20)}<span>${n}</span></button>`).join("")}</div>` : "",
+    panel = "addproj" === mmPanel ? mmPanelHtml(m, "") : "add" === mmPanel || ("empty" === (s || {}).t && !mmPanel) ? ((mmPanel = "add"), mmPanelHtml(m, "")) : isTask ? mmPanelHtml(m, s.code) : "",
+    addBtn = b ? `<button type="button" class="mm-addbtn ${"add" === mmPanel ? "on" : ""}" data-mmact="add">${mmSvg("plus", 18)}<span>Add a Task to ${esc(b.name)}</span></button>` : "",
+    ctx = s ? `<div class="mm-ctx"><span><b>${esc(b ? b.name : "FYI Only")}</b>${b && isTask ? ` · Task ${posB} of ${inB.length}` : ""}</span>${changed ? `<span class="mm-changed">Changed since ${esc(last ? tkDay(last.date) : "the last meeting")}</span>` : ""}<span class="grow"></span>${isTask ? `<button type="button" class="btn sm mm-more ${"more" === mmPanel ? "on" : ""}" data-mmact="more">More</button>` : ""}</div>` : "",
+    card = s ? mmCardHtml(m, s, W) : '<article class="mm-card"><h2 class="mm-title">Nothing on the agenda</h2><p class="muted">Every open task is quiet: nothing late, nothing due before the next meeting, nothing waiting.</p></article>',
+    nav = `<div class="mm-nav"><button type="button" class="btn mm-prev" data-mmprev ${W.i <= 0 ? "disabled" : ""}>${mmSvg("prev", 20)}<span>Previous</span></button>${phone ? "" : `${addBtn}<span class="mm-hint">Arrow keys move between tasks</span>`}<button type="button" class="btn mm-next" data-mmnext ${W.i >= W.seq.length - 1 ? "disabled" : ""}><span>Next Task</span>${mmSvg("next", 20)}</button></div>`;
   return `<div class="mm ${phone ? "mm-phone" : ""}" data-mm="${esc(m.id)}">
-  <div class="mm-top"><div class="mm-ttl"><b>${esc(m.title)}</b><span class="small muted">${esc(tkDay(m.date))}${started ? ` · started ${esc(started)}` : ""} · ${W.seq.length ? `${W.i + 1} of ${W.seq.length}` : "nothing on the agenda"}${pres ? "" : ` · ${esc(tkFirst(m.presenter) || "someone")} is sharing`}</span></div><span class="grow"></span>
+  <div class="mm-top"><span class="mm-live" data-mmlive>In Meeting · ${mins} min</span><div class="mm-ttl"><b>${esc(m.title)} · ${esc(fmtL(m.date))}</b><span class="small muted">${esc((m.attendees || []).join(", "))}${pres ? "" : ` · ${esc(tkFirst(m.presenter) || "someone")} is sharing`}</span></div><span class="grow"></span>
+  <div class="mm-prog"><span>${nDisc} of ${tasks.length} discussed</span><span class="mm-pbar"><i style="width:${tasks.length ? Math.round((100 * nDisc) / tasks.length) : 0}%"></i></span></div>
   <label class="mm-follow"><input type="checkbox" data-mmfollow ${mmFollow ? "checked" : ""}> Follow</label>${phone ? '<button type="button" class="btn" data-mmagenda>Agenda</button>' : ""}<button type="button" class="btn" data-mmleave>Leave</button>${pres ? '<button type="button" class="btn" data-mmend>End Meeting</button>' : ""}</div>
-  <div class="mm-body">${side}<section class="mm-main">
-    ${b ? `<div class="mm-proj">${esc(b.name)} <span class="mm-pre">${esc(b.prefix)}</span><span class="muted"> · ${posB} of ${inB.length}</span></div>` : ""}
-    ${s ? mmCardHtml(m, s, W) : '<article class="mm-card"><h2 class="mm-title">Nothing on the agenda</h2><p class="muted">Every open task is quiet: nothing late, nothing due before the next meeting, nothing waiting.</p></article>'}
-    ${acts}${s && "task" === s.t ? mmPanelHtml(m, s.code) : ""}
-    ${"addproj" === mmPanel && (!s || "task" !== s.t) ? mmPanelHtml(m, "") : ""}
-    <div class="mm-nav"><button type="button" class="btn mm-prev" data-mmprev ${W.i <= 0 ? "disabled" : ""}>${mmSvg("prev", 22)}<span>Previous</span></button><button type="button" class="btn primary mm-next" data-mmnext ${W.i >= W.seq.length - 1 ? "disabled" : ""}><span>Next</span>${mmSvg("next", 22)}</button></div>
-    ${add}
-  </section></div></div>`;
+  <div class="mm-body">${phone ? "" : `<aside class="mm-side" aria-label="Agenda" data-noclip="1">${agenda}</aside>`}<section class="mm-main">
+    ${ctx}${card}${acts}${panel}${phone ? `<div class="mm-phadd">${addBtn}<button type="button" class="btn mm-addp" data-mmact="addproj">${mmSvg("plus", 16)} New Project</button></div>` : ""}${nav}
+    ${phone ? `<details class="mm-phlog"><summary>Changed in This Meeting · ${logL.length}</summary>${log}</details>` : ""}
+  </section>${phone ? "" : `<aside class="mm-right" aria-label="Changed in this meeting" data-noclip="1">${log}</aside>`}</div></div>`;
 }
+// the clock on the In Meeting pill moves without a redraw
+setInterval(() => {
+  try {
+    const el = document.querySelector("[data-mmlive]"),
+      m = el && mtCurrent();
+    m && (el.textContent = `In Meeting · ${Math.max(0, Math.round((appNowMs() - new Date(m.startedAt).getTime()) / 6e4))} min`);
+  } catch (e) {}
+}, 3e4);
 // ---- the actions ------------------------------------------------------------------------------------------------------
 function mmAfter(msg, code, advance) {
   save();
@@ -1402,7 +1443,7 @@ function mmAct(k, code) {
   const m = mtCurrent(),
     T = code ? tkByCode(code) : null;
   if (!m) return;
-  if (["date", "note", "owner", "wait", "track", "more", "decision", "addproj"].includes(k)) {
+  if (["date", "note", "owner", "wait", "track", "more", "decision", "addproj", "add"].includes(k)) {
     mmPanel = mmPanel === k ? "" : k;
     return void renderTkAll();
   }
@@ -1459,6 +1500,7 @@ function mmAddTask(m, title, owner) {
   /^EMPTY:/.test(mmAt) && ((mmAt = code), mmPresenter(m) && mmShow(m, code));
   mtLog({ taskKey: code, field: "created", from: "", to: title.trim() }, m);
   mtLog({ taskKey: code, field: "owner", from: "", to: made.rec.assignee }, m);
+  mmPanel = "";
   save();
   renderTkAll();
   toast(`${code} added for ${made.rec.assignee}: ${tdWords(title, 8)}`, [{ label: "Open", run: () => tkOpen(tkByCode(code).key) }]);
@@ -1499,10 +1541,10 @@ function mmAddProject(m, f) {
   mtLog({ taskKey: "", field: "project", from: "", to: `${tkBoardName(id)} (${tkBoardMeta(id).prefix})`, board: id }, m);
   mmAt = "EMPTY:" + id;
   mmPresenter(m) && mmShow(m, mmAt);
+  mmPanel = "add";
   try {
     audit("board", id, "created", "", name, "in the team meeting");
   } catch (e) {}
-  mmPanel = "";
   save();
   renderTkAll();
   toast(`${name} added with the prefix ${tkBoardMeta(id).prefix}: its first task will be ${tkBoardMeta(id).prefix}-${tkBoardMeta(id).keyNext}`);
@@ -1560,6 +1602,13 @@ function mmWire(host) {
     code = mmAt;
   host.querySelectorAll("[data-mmact]").forEach((b) => (b.onclick = () => mmAct(b.dataset.mmact, code)));
   host.querySelectorAll("[data-mmjump]").forEach((b) => (b.onclick = () => mmJump(b.dataset.mmjump)));
+  host.querySelectorAll("[data-mmboard]").forEach(
+    (b) =>
+      (b.onclick = () => {
+        const f = mtSeq(m).find((y) => y.board === b.dataset.mmboard);
+        f && mmJump(f.code);
+      }),
+  );
   const nx = q("[data-mmnext]"),
     pv = q("[data-mmprev]");
   nx && (nx.onclick = () => mmGo(1));
@@ -1699,9 +1748,9 @@ function mmWire(host) {
   host.querySelectorAll("[data-mmfyiopen]").forEach(
     (b) =>
       (b.onclick = () => {
-        (m.fyiOpen = m.fyiOpen || []).includes(b.dataset.mmfyiopen) || m.fyiOpen.push(b.dataset.mmfyiopen);
-        const bb = m.agenda.find((x) => x.board === b.dataset.mmfyiopen);
-        mmAt = bb && bb.fyi[0] ? bb.fyi[0] : mmAt;
+        (m.fyiOpen = m.fyiOpen || []).includes("all") || m.fyiOpen.push("all");
+        const first = (m.agenda || []).flatMap((x) => x.fyi)[0];
+        mmAt = first || mmAt;
         mmPresenter(m) && mmShow(m, mmAt);
         save();
         renderTkAll();
@@ -2091,47 +2140,75 @@ tkRecReady = !0;
 #v-tkall .mm-bar{display:flex;align-items:center;gap:10px;min-height:48px;margin:0 0 10px;padding:6px 8px 6px 14px;border:1px solid var(--rule);border-radius:10px;background:var(--paper);font-size:14px}
 #v-tkall .mm-bar svg{vertical-align:-4px;color:var(--ink-2)}
 #v-tkall .mm-bar .btn{min-height:44px}
-.mm{display:flex;flex-direction:column;gap:12px}
-.mm-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.mm{display:flex;flex-direction:column;gap:14px}
+.mm-top{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:0 0 12px;border-bottom:1px solid var(--rule-2)}
 .mm-top .btn{min-height:44px}
-.mm-ttl{display:flex;flex-direction:column;gap:2px;font-size:18px}
+.mm-live{display:inline-flex;align-items:center;gap:6px;min-height:28px;padding:0 12px;border-radius:14px;background:var(--bad,#b3261e);color:#fff;font-size:13px;font-weight:700;white-space:nowrap}
+.mm-live::before{content:"";width:8px;height:8px;border-radius:50%;background:#fff}
+.mm-ttl{display:flex;flex-direction:column;gap:2px;font-size:18px;min-width:0}
+.mm-prog{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--ink-2);min-width:150px}
+.mm-pbar{display:block;height:6px;border-radius:3px;background:var(--paper-3,#e8e8e8);overflow:hidden}
+.mm-pbar i{display:block;height:100%;background:var(--accent)}
 .mm-follow{display:inline-flex;align-items:center;gap:6px;min-height:44px;font-size:14px;cursor:pointer}
 .mm-follow input{width:20px;height:20px}
-.mm-body{display:grid;grid-template-columns:260px 1fr;gap:16px;align-items:start}
-.mm-phone .mm-body{grid-template-columns:1fr}
-.mm-side{position:sticky;top:8px;max-height:calc(100vh - 140px);overflow:auto;border:1px solid var(--rule);border-radius:10px;background:var(--paper);padding:6px}
-.mm-sbh{font-size:13px;font-weight:700;color:var(--ink-2);padding:10px 8px 4px}
-.mm-sbi{display:block;width:100%;text-align:left;border:0;background:none;border-radius:8px;padding:8px;font-size:13px;line-height:17px;color:var(--ink-2);cursor:pointer;min-height:36px}
-.mm-sbi:hover{background:var(--paper-2)}
-.mm-sbi.on{background:var(--accent-bg,#eaf1fb);color:var(--ink);font-weight:600}
-.mm-sbi.seen{color:var(--ink-3)}
-.mm-sbi.done b{text-decoration:line-through}
-.mm-main{display:flex;flex-direction:column;gap:12px;min-width:0}
-.mm-proj{font-size:15px;font-weight:600;color:var(--ink-2)}
-.mm-pre{display:inline-block;margin-left:6px;padding:1px 8px;border-radius:10px;background:var(--paper-2);font-size:12px;font-weight:700;letter-spacing:.04em}
-.mm-card{border:1px solid var(--rule);border-radius:14px;background:var(--paper);padding:22px 24px;display:flex;flex-direction:column;gap:12px;min-height:280px}
+.mm-body{display:grid;grid-template-columns:300px minmax(0,1fr) 340px;gap:20px;align-items:start}
+.mm-phone .mm-body{grid-template-columns:minmax(0,1fr)}
+.mm-side,.mm-right{position:sticky;top:8px;max-height:calc(100vh - 150px);overflow:auto;display:flex;flex-direction:column;gap:6px}
+.mm-rh{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);padding:4px 2px 6px}
+.mm-ag{display:grid;grid-template-columns:1fr auto;gap:2px 8px;width:100%;text-align:left;border:1px solid var(--rule);border-radius:10px;background:var(--paper);padding:10px 12px;cursor:pointer;min-height:56px}
+.mm-ag:hover{background:var(--paper-2)}
+.mm-ag.on{border-color:var(--accent);background:var(--accent-bg,#eaf1fb);box-shadow:inset 3px 0 0 var(--accent)}
+.mm-agn{font-size:15px;font-weight:600;color:var(--ink)}
+.mm-agn small{font-size:11px;font-weight:700;color:var(--ink-3);letter-spacing:.04em;margin-left:4px}
+.mm-agc{grid-row:1 / span 2;grid-column:2;align-self:center;min-width:26px;height:26px;border-radius:13px;background:var(--paper-2);display:grid;place-items:center;font-size:13px;font-weight:700;color:var(--ink-2)}
+.mm-ags{font-size:13px;color:var(--ink-3)}
+.mm-agfyi{border-style:dashed}
+.mm-agadd{display:inline-flex;align-items:center;gap:6px;min-height:44px;margin-top:4px;padding:0 12px;border:1px dashed var(--rule);border-radius:10px;background:none;font-size:14px;color:var(--ink-2);cursor:pointer}
+.mm-log{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px;font-size:14px;line-height:20px}
+.mm-log li{padding:8px 10px;border-radius:10px;background:var(--paper-2)}
+.mm-lt{font-weight:700;color:var(--ink-2)}
+.mm-lognote{font-size:13px;line-height:19px;color:var(--ink-3);margin:8px 0 0}
+.mm-main{display:flex;flex-direction:column;gap:14px;min-width:0}
+.mm-ctx{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:15px;color:var(--ink-2)}
+.mm-changed{display:inline-flex;align-items:center;min-height:26px;padding:0 10px;border-radius:13px;background:var(--bad-bg,#fdecea);color:var(--bad,#b3261e);font-size:13px;font-weight:700}
+.mm-more{min-height:40px}
+.mm-card{border:1px solid var(--rule);border-radius:16px;background:var(--paper);padding:26px 28px;display:flex;flex-direction:column;gap:16px;box-shadow:0 2px 10px rgba(0,0,0,.04)}
 .mm-keyrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.mm-key{font-size:22px;font-weight:800;letter-spacing:.03em;color:var(--accent)}
+.mm-key{font-size:20px;font-weight:800;letter-spacing:.03em;color:var(--accent)}
 .mm-st{font-size:13px;font-weight:600;padding:3px 10px;border-radius:12px;background:var(--paper-2);color:var(--ink-2)}
 .mm-st-waiting{background:var(--warn-bg,#fff4e0)}
 .mm-st-fyi{background:var(--paper-3,#eee)}
 .mm-st-done{background:var(--ok-bg,#e8f5e9)}
-.mm-why{font-size:13px;color:var(--ink-3)}
-.mm-title{font-size:28px;line-height:34px;margin:0;font-weight:650;word-break:break-word}
-.mm-who,.mm-wait{display:flex;align-items:center;gap:8px;font-size:17px}
-.mm-wait{padding:8px 12px;border-radius:10px;background:var(--warn-bg,#fff4e0)}
+.mm-title{font-size:32px;line-height:38px;margin:0;font-weight:650;word-break:break-word}
+.mm-meta{display:flex;flex-wrap:wrap;gap:12px 32px;font-size:17px}
+.mm-meta>div{display:flex;flex-direction:column;gap:2px}
+.mm-meta .bad{color:var(--bad,#b3261e)}
+.mm-ml{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
+.mm-wait{display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border-radius:12px;background:var(--warn-bg,#fff4e0);border:1px solid #f2c97d;font-size:16px;line-height:22px;color:#6b4a00}
+.mm-wait svg{flex:0 0 20px;margin-top:1px}
 .mm-flag{padding:8px 12px;border-radius:10px;border:1px dashed var(--bad,#b3261e);font-size:14px}
-.mm-dates{font-size:16px;color:var(--ink-2)}
-.mm-dates .bad{color:var(--bad,#b3261e);font-weight:600}
 .mm-comments{display:flex;flex-direction:column;gap:6px}
 .mm-comment{padding:8px 12px;border-radius:10px;background:var(--paper-2);font-size:15px;line-height:21px}
 .mm-links{display:flex;flex-wrap:wrap;gap:8px}
 .mm-linkb{display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:4px 12px;border:1px solid var(--rule);border-radius:10px;background:var(--paper);font-size:14px;cursor:pointer;max-width:100%}
 .mm-linkb span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.mm-acts{display:grid;grid-template-columns:repeat(9,minmax(0,1fr));gap:8px}
-.mm-act{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-height:64px;padding:6px 4px;border:1px solid var(--rule);border-radius:12px;background:var(--paper);font-size:13px;font-weight:600;color:var(--ink);cursor:pointer}
+.mm-acts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.mm-act{display:flex;flex-direction:row;align-items:center;justify-content:center;gap:8px;min-height:56px;padding:6px 10px;border:1px solid var(--rule);border-radius:12px;background:var(--paper);font-size:15px;font-weight:600;color:var(--ink);cursor:pointer}
 .mm-act:hover{background:var(--paper-2)}
 .mm-act.on{border-color:var(--accent);background:var(--accent-bg,#eaf1fb)}
+.mm-act.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.mm-act.primary.on{box-shadow:inset 0 0 0 2px rgba(255,255,255,.6);color:#fff;background:var(--accent)}
+.mm-nav{display:flex;align-items:center;gap:12px}
+.mm-nav .btn{min-height:52px;font-size:16px;display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:0 18px}
+.mm-nav .btn[disabled]{opacity:.45}
+.mm-next{background:var(--ink,#1f2328);color:var(--paper,#fff);border-color:var(--ink,#1f2328);margin-left:auto}
+.mm-next:hover{opacity:.9}
+.mm-addbtn{display:inline-flex;align-items:center;gap:8px;min-height:52px;padding:0 16px;border:1.5px dashed var(--rule);border-radius:12px;background:none;font-size:15px;font-weight:600;color:var(--ink-2);cursor:pointer;min-width:0}
+.mm-addbtn span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mm-addbtn.on{border-color:var(--accent);color:var(--accent)}
+.mm-hint{font-size:13px;color:var(--ink-3);white-space:nowrap}
+.mm-phadd{display:flex;flex-direction:column;gap:8px}
+.mm-phlog summary{min-height:44px;display:flex;align-items:center;font-size:15px;font-weight:600;cursor:pointer}
 .mm-panel{border:1px solid var(--rule);border-radius:12px;padding:12px;background:var(--paper-2);display:flex;flex-direction:column;gap:8px}
 .mm-panel .tks-chip.on{border-color:var(--accent);background:var(--accent-bg,#eaf1fb)}
 .mm-panel .f input,.mm-panel .f select{min-height:44px;font-size:16px}
@@ -2142,8 +2219,8 @@ tkRecReady = !0;
 .mm-nav{display:flex;gap:12px}
 .mm-nav .btn{flex:1 1 0;min-height:56px;font-size:17px;display:inline-flex;align-items:center;justify-content:center;gap:8px}
 .mm-nav .btn[disabled]{opacity:.45}
-.mm-add{display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--rule-2);padding-top:12px}
 .mm-addo{min-height:44px;font-size:15px;max-width:40%}
+.mm-addrow .tks-in{min-width:0}
 .mm-addp{align-self:flex-start;min-height:44px;display:inline-flex;align-items:center;gap:6px}
 .mm-fyilist{margin:0;padding-left:0;list-style:none;display:flex;flex-direction:column;gap:6px;font-size:15px}
 .mm-chip{display:inline-block;font-weight:700;color:var(--accent);margin-right:6px}
@@ -2159,20 +2236,23 @@ tkRecReady = !0;
 .tks-links>.btn,.tks-file{align-self:flex-start;min-height:44px;display:inline-flex;align-items:center}
 .tks-rec>.btn{align-self:flex-start;min-height:44px}
 @media (max-width:760px){
-  .mm-card{padding:16px;min-height:0;border-radius:12px}
-  .mm-key{font-size:20px}
-  .mm-title{font-size:22px;line-height:28px}
-  .mm-who,.mm-wait{font-size:16px}
-  .mm-acts{grid-template-columns:repeat(3,minmax(0,1fr))}
-  .mm-act{min-height:60px}
+  .mm-card{padding:16px;border-radius:12px;gap:12px}
+  .mm-key{font-size:18px}
+  .mm-title{font-size:24px;line-height:30px}
+  .mm-meta{font-size:16px;gap:10px 20px}
+  .mm-wait{font-size:15px}
+  .mm-acts{grid-template-columns:repeat(2,minmax(0,1fr))}
   .mm-phone{padding-bottom:84px}
   .mm-nav{position:fixed;left:0;right:0;bottom:calc(58px + env(safe-area-inset-bottom));z-index:28;background:var(--paper);padding:8px 16px;border-top:1px solid var(--rule-2);box-shadow:0 -4px 12px rgba(0,0,0,.06)}
+  .mm-nav .btn{flex:1 1 0}
   .mm-top{gap:8px}
   .mm-top .btn{padding:0 12px}
-  .mm-top .mm-ttl{flex:1 1 100%}
+  .mm-top .mm-ttl{flex:1 1 100%;order:-1}
+  .mm-prog{flex:1 1 100%}
+  .mm-addbtn{width:100%;justify-content:center}
   .mm-addo{max-width:46%}
-  .mm-add .tks-row{flex-wrap:wrap}
-  .mm-add .tks-row .tks-in{flex:1 1 100%}
+  .mm-addrow{flex-wrap:wrap}
+  .mm-addrow .tks-in{flex:1 1 100%}
 }`;
   try {
     const s = document.createElement("style");
