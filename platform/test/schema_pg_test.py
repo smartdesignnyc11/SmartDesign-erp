@@ -224,6 +224,34 @@ res = save('foreman', [{'name': 'signals', 'data': [{'id': 'us:d:u_alan', 'kind'
 o = {x['id']: x for x in view('owner')['signals']}
 ok(o['us:d:u_alan']['by'] == {'po': {'export': 2}} and o['rp:anon']['text'] == 'NO NAME', f'he cannot change the PM\'s counts or an anonymous report: {o}')
 
+# the team meeting's transcript (2026-10-23): the watcher files the notes on Meeting Mode's record of that day and
+# the words on their own row; the attendees and the owner read the words, nobody else; the record's own lists stay
+save('pm', [{'name': 'meetings', 'data': [{'id': 'mtL', 'title': 'Weekly Jobs', 'date': '2026-09-03', 'startedAt': '2026-09-03T09:59:30', 'screenLog': [{'taskKey': 'STA-21', 'from': '2026-09-03T10:00:40'}], 'changes': [{'taskKey': 'STA-21', 'field': 'due'}], 'proposals': [{'id': 'keep'}], 'owner': {'uid': 'u_alan', 'name': 'Alan'}}], 'base': ver('pm', 'meetings')}])
+mt = {'id': 'mtNEW', 'series': 'mw1', 'title': 'Weekly Jobs (doc)', 'date': '2026-09-03', 'start': '2026-09-03T09:58:00', 'doc': {'id': 'DOC1'}, 'summary': 'NOTES', 'proposals': [], 'changes': [], 'owner': {'uid': 'u_chen'}, 'review': {'state': 'reading'}}
+tx = {'members': ['u_alan', 'u_owner'], 'text': 'SECRET-WORDS', 'lines': []}
+r = json.loads(psql(f"select public.meet_file('qa', $${json.dumps(mt)}$$::jsonb, $${json.dumps(tx)}$$::jsonb);").stdout.strip())
+o = view('owner')
+m = [x for x in o['meetings'] if x['id'] == 'mtL']
+ok(r['id'] == 'mtL' and r['merged'] and len(o['meetings']) == 1, f'meet_file: the doc joins the live record of that day: {r}')
+ok(m and m[0]['doc']['id'] == 'DOC1' and m[0]['summary'] == 'NOTES' and m[0]['proposals'] == [{'id': 'keep'}] and len(m[0]['changes']) == 1 and m[0]['owner']['uid'] == 'u_alan' and m[0]['title'] == 'Weekly Jobs', f"meet_file: the record's lists, owner and title stay: {m}")
+ok('SECRET-WORDS' not in json.dumps(o['meetings']) and o.get('meettx:mtL', {}).get('text') == 'SECRET-WORDS', 'meet_file: the words are on their own row')
+ok('meettx:mtL' in view('pm') and 'meettx:mtL' not in view('foreman') and 'meettx:mtL' not in view('crew'), 'an attendee reads the transcript; nobody else does')
+person('billing', 'billing', 'u_billing')
+ok('meettx:mtL' not in view('billing') and any(x['id'] == 'mtL' for x in view('billing')['meetings']), 'the office who were not there see the meeting, not its words')
+rows, err = as_('billing', "select json_agg(name) from public.collections where name like 'meettx:%';")
+ok(not err and (not rows or rows[0] in ('', None)), f'nor hear of it in the change feed: {rows} {err[:120]}')
+r = save('billing', [{'name': 'meettx:mtL', 'data': {'members': ['u_billing'], 'text': 'X'}, 'base': ver('owner', 'meettx:mtL')}])['meettx:mtL']
+ok(r.get('refused') and view('owner')['meettx:mtL']['text'] == 'SECRET-WORDS', f'nor write it, or add themselves: {r}')
+r = save('foreman', [{'name': 'meettx:mtZ', 'data': {'members': ['u_angel'], 'text': 'X'}, 'base': 0}])['meettx:mtZ']
+ok(r.get('refused'), f'the field never writes a transcript: {r}')
+again = json.loads(psql(f"select public.meet_file('qa', $${json.dumps({'id': 'mtL', 'review': {'state': 'new'}})}$$::jsonb, $${json.dumps({'extract': {'items': [1]}})}$$::jsonb);").stdout.strip())
+o = view('owner')
+ok(again['id'] == 'mtL' and [x for x in o['meetings'] if x['id'] == 'mtL'][0]['review']['state'] == 'new' and o['meettx:mtL']['extract'] == {'items': [1]} and o['meettx:mtL']['text'] == 'SECRET-WORDS', 'meet_file: the background read adds its items and moves the review on')
+other = json.loads(psql(f"select public.meet_file('qa', $${json.dumps({'id': 'mtPM', 'date': '2026-09-03', 'start': '2026-09-03T15:00:00', 'doc': {'id': 'DOC2'}, 'title': 'Afternoon'})}$$::jsonb, null);").stdout.strip())
+ok(other['id'] == 'mtPM' and not other['merged'] and len(view('owner')['meetings']) == 2, f'meet_file: an afternoon meeting on the same day is its own meeting: {other}')
+rows, err = as_('owner', "select public.meet_file('qa', '{\"id\":\"x\"}'::jsonb, null);")
+ok(err and 'permission' in err.lower(), f'meet_file is the server\'s only: {err[:120]}')
+
 psql(f'drop database if exists {DBN};', db='postgres')
 print('ALL PASS' if not fails else f'{len(fails)} FAILED', f'({n} checks)')
 sys.exit(1 if fails else 0)

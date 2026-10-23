@@ -190,7 +190,8 @@ async def main():
         await pg.click('#mt-okall')
         await pg.wait_for_timeout(600)
         after = await pg.evaluate("""() => { const m = DB.meetings[DB.meetings.length - 1];
-          return { left: m.proposals.filter(x => x.status === 'proposed').length,
+          // the transcript's own items wait on the Meeting Review (src/mtreview.js), approved there, never by this button
+          return { left: m.proposals.filter(x => x.status === 'proposed' && !x.review).length, review: m.proposals.filter(x => x.review).length,
             lead: (DB.leads || []).find(l => /hollis/i.test(l.name + ' ' + (l.notes || ''))) || null,
             known: (DB.leads || []).filter(l => /lindqvist/i.test(l.name)).map(l => ({ stage: l.stage, value: l.value, notes: l.notes || '' })),
             leads: (DB.leads || []).length, pb: (DB.company.playbook || []).map(r => r.text) }; }""")

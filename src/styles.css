@@ -3863,3 +3863,25 @@ body:has(#drawer.on) section.view .btn.primary,body:has(#mbm) section.view .btn.
   .rs-cols{grid-template-columns:1fr}
   .rs-row{flex-wrap:wrap}
 }
+/* the Meeting Review (src/mtreview.js): grouped by project, each item with its sentence and its time */
+.mrv-why{margin:0 0 12px}
+.mrv-g{margin:0 0 16px} .mrv-g>h3{font-size:14px;margin:0 0 6px;display:flex;gap:8px;align-items:baseline}
+.mrv-it{border:1px solid var(--rule);border-radius:10px;background:var(--card);padding:10px 12px;margin:0 0 8px;min-width:0}
+.mrv-it.live,.mrv-it.board,.mrv-it.skipped{opacity:.72} .mrv-it.applied{border-color:var(--ok)}
+.mrv-hd{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap} .mrv-hd b{font-weight:600;overflow-wrap:anywhere}
+.mrv-k{font-size:11px;color:var(--ink-3);letter-spacing:.03em;text-transform:uppercase;white-space:nowrap}
+.mrv-d{color:var(--ink-2);margin-top:2px;overflow-wrap:anywhere}
+.mrv-q{margin:8px 0 0;padding:6px 10px;border-left:3px solid var(--rule);color:var(--ink-2);font-size:13px;overflow-wrap:anywhere}
+.mrv-q cite{display:block;font-style:normal;font-size:12px;color:var(--ink-3);margin-top:3px}
+.mrv-doc{display:inline-flex;gap:4px;align-items:center;vertical-align:middle}
+.mrv-a{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.mrv-picks{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px} .mrv-pick{display:flex;flex-direction:column;gap:2px;font-size:12px;color:var(--ink-3);min-width:0;flex:1 1 180px} .mrv-pick select,.mrv-pick input{width:100%}
+.mrv-done>summary{cursor:pointer;padding:6px 0;margin-bottom:6px}
+.mrv-card{margin-bottom:10px} .mrv-chk{margin-top:6px} .mrv-shared{margin:0 0 12px}
+.mrv-spk{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;padding:8px 0;border-top:1px solid var(--rule)} .mrv-spk-l{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1 1 200px;overflow-wrap:anywhere}
+.mrv-spks-all>summary{cursor:pointer;padding:4px 0;color:var(--ink-3)} .mrv-w{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:6px 0;border-top:1px solid var(--rule)}
+@media (max-width:760px){
+  .mrv-a .btn,.mrv-ph .acts .btn,.mrv-pick select,.mrv-pick input{min-height:44px}
+  .mrv-a{gap:10px} .mrv-a .btn{flex:1 1 0;min-width:0;padding-left:6px;padding-right:6px;white-space:nowrap}
+  .mrv-ph .acts{flex-wrap:wrap;gap:8px}
+}

@@ -35,7 +35,7 @@ window.Cloud = (() => {
   const FIELD_READONLY = ['__meta', 'company', 'clients', 'users', 'vendors', 'stock', 'inventory', 'obligations', 'watches', 'migrations'];
   const isOffice = () => OFFICE.includes(profile && profile.role);
   const isField = () => FIELD.includes(profile && profile.role);
-  const mayWrite = name => name.startsWith('own:') || name.startsWith('thread:') || isOffice() || (isField() && !FIELD_HIDDEN.includes(name) && !FIELD_READONLY.includes(name));
+  const mayWrite = name => name.startsWith('meettx:') ? isOffice() : name.startsWith('own:') || name.startsWith('thread:') || isOffice() || (isField() && !FIELD_HIDDEN.includes(name) && !FIELD_READONLY.includes(name));
 
   // ---- the pending marker: unsynced edits survive a closed tab or a dead battery
   const pkey = () => 'sdp:pending:' + (user() ? user().id : '');
@@ -248,12 +248,17 @@ window.Cloud = (() => {
     delete out.threads;
     const me = meApp();
     (Array.isArray(DB.threads) ? DB.threads : []).forEach(t => { if (t && t.id && me && (t.members || []).includes(me)) out['thread:' + t.id] = t; });
+    // A team meeting's transcript: one row each (meettx:<meeting id>), read by the meeting's attendees and the owner;
+    // a device sends only the transcripts its person attended (the server files the rest).
+    delete out.meetText;
+    (Array.isArray(DB.meetText) ? DB.meetText : []).forEach(t => { if (t && t.meetingId && me && (t.members || []).includes(me)) out['meettx:' + t.meetingId] = t; });
     return out;
   }
   // Put one shard's value into DB: a whole collection, a project, or one part of a split collection.
   function setPart(DB, name, data) {
     if (name.startsWith('project:')) { const i = DB.projects.findIndex(p => p.id === data.id); i >= 0 ? (DB.projects[i] = data) : DB.projects.push(data); return 'projects'; }
     if (name.startsWith('thread:')) { DB.threads = Array.isArray(DB.threads) ? DB.threads : []; if (!data) return 'threads'; const i = DB.threads.findIndex(t => t.id === data.id); i >= 0 ? (DB.threads[i] = data) : DB.threads.push(data); return 'threads'; }
+    if (name.startsWith('meettx:')) { DB.meetText = Array.isArray(DB.meetText) ? DB.meetText : []; if (!data) return 'meetText'; const i = DB.meetText.findIndex(t => t && t.meetingId === data.meetingId); i >= 0 ? (DB.meetText[i] = data) : DB.meetText.push(data); return 'meetText'; }
     if (name === '__meta') { Object.assign(DB, data || {}); return null; }
     if (DEVICE.includes(name)) return null;                                                // never taken from the server
     const own = name.startsWith('own:'), k = own ? name.split(':').slice(2).join(':') : name, r = PRIV[k];
@@ -393,11 +398,13 @@ window.Cloud = (() => {
   // A job or a thread this device held that the server no longer shows it (the PM took this person off the job, the
   // job was deleted, the person left a thread): forget it and take it off the phone, so nothing lingers in its copy.
   function drop(name) {
-    if (!(name.startsWith('project:') || name.startsWith('thread:')) || versions[name] === undefined) return false;
+    if (!(name.startsWith('project:') || name.startsWith('thread:') || name.startsWith('meettx:')) || versions[name] === undefined) return false;
     delete last[name]; delete base[name]; delete versions[name];
     const DB = dbRef();
     if (name.startsWith('thread:')) {
       if (DB && Array.isArray(DB.threads)) { DB.threads = DB.threads.filter(t => !t || 'thread:' + t.id !== name); onChange && onChange('threads', DB.threads); }
+    } else if (name.startsWith('meettx:')) {
+      if (DB && Array.isArray(DB.meetText)) { DB.meetText = DB.meetText.filter(t => !t || 'meettx:' + t.meetingId !== name); onChange && onChange('meetText', DB.meetText); }
     } else onChange && onChange(name, null);                                                   // the app's cloudApply removes the job
     return true;
   }
