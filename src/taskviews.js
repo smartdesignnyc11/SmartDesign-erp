@@ -2407,8 +2407,8 @@ body:has(#mbm.tks-on) #v-tkall .tv-grid .tv-col-wait,body:has(#mbm.tks-on) #v-tk
   #mbm.tv-sheet .tvs-latest{padding:10px 12px;border-radius:10px;background:var(--tv-ground);font-size:15px;line-height:21px}
   #mbm.tv-sheet .tvs-latest small{display:block;font-size:12px;color:var(--tv-ink2)}
   #mbm.tv-sheet .tvs-ft{display:flex;gap:8px;align-items:center}
-  #mbm.tv-sheet .tvs-ft .tvs-icb{flex:0 0 52px;width:52px;min-height:52px;padding:0;display:grid;place-items:center}
-  #mbm.tv-sheet .tvs-ft #mbm-ok{flex:1 1 auto;min-height:52px}
+  #mbm.tv-sheet .tvs-ft .tvs-icb{flex:0 0 52px;width:52px;min-height:52px;height:52px !important;padding:0;display:grid;place-items:center}
+  #mbm.tv-sheet .tvs-ft #mbm-ok{flex:1 1 auto;min-height:52px;height:52px !important}
   #mbm.tv-sheet .tvs-ft [hidden]{display:none !important}
 }`;
   try {
