@@ -111,6 +111,8 @@ No real meeting content is in this file (CLAUDE.md, Privacy). The examples below
    - The coordinator or Alan approves the batch on one screen, item by item or all at once. It is applied with an audit trail, and anything unmatched waits on that screen.
 
    This extends the meeting reader (`src/meetread.js`), not a new pipeline. It replaces transcript to Claude to CSV to Asana.
+
+   **Status (lane B, 2026-10-23).** Built: the reader (`src/meetdoc_core.js`, shared with the server), the extractor (the model through `/api/ai` on the hosted copy, the rules offline), matching by time against Meeting Mode's screen log (by ID, then words, without one), the reconcile against the meeting's changes and the board, the Meeting Review (`src/mtreview.js`; one Approvals item for the meeting's owner, a card on their Today), paste or upload on any meeting, and the Drive watcher (`platform/netlify/functions/lib/meetwatch.mjs`). Proof: `tests/meeting_review_test.py`, `platform/test/meetwatch_test.mjs`, `platform/test/schema_pg_test.py`. Waiting on Alan: the meeting folder set in Meetings › Settings, the organiser's Keep Watching on, `schema.sql` applied, the Docs API enabled in the Google Cloud project (for links to each heading), and a deploy.
 7. **Tasks that are money stay tied to the money:**
    - "release a deposit" links to the bill and payment;
    - "get a credit" links to the vendor credit tracker;

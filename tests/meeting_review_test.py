@@ -24,9 +24,10 @@ SETUP = """([day]) => {
   mrvInit();
   const P = (id) => DB.projects.find(p => p.id === id);
   P('p121').project.prefix = 'STA'; P('p206').project.prefix = 'LEN';
-  const add = (pid, ref, title, who, due, status) => { const p = P(pid); p.actions = p.actions || [];
-    p.actions = p.actions.filter(a => a.ref !== ref);
-    p.actions.push({id: 'a_' + ref.replace('-', ''), ref, title, assignee: who, due, priority: 'med', status: status || 'todo', link: null, notes: '', createdAt: '2026-08-20', completedAt: status === 'done' ? day : ''}); };
+  // the task's code (PAD-23) is Meeting Mode's field, rec.code
+  const add = (pid, code, title, who, due, status) => { const p = P(pid); p.actions = p.actions || [];
+    p.actions = p.actions.filter(a => a.code !== code);
+    p.actions.push({id: 'a_' + code.replace('-', ''), code, title, assignee: who, due, priority: 'med', status: status || 'todo', link: null, notes: '', createdAt: '2026-08-20', completedAt: status === 'done' ? day : ''}); };
   add('p121', 'STA-21', 'Millwork shop drawings from Carlos', 'Chen Biron', '2026-09-04');   // moved live to Friday
   add('p121', 'STA-22', 'Release the deposit to Kestrel Stone for the parlor counters', 'Chen Biron', '2026-09-05', 'done');  // done live
   add('p121', 'STA-23', 'Window Works: credit for the wrong sash delivery', 'Chen Biron', '2026-09-01');
@@ -113,7 +114,8 @@ async def main():
         c.ok(len({x['id'] for x in P}) == len(P), 'one item once')
         # Today: the coordinator's card, one item in Approvals
         card = await pg.evaluate("(document.querySelector('#v-home') || document.body).innerText")
-        c.ok('Meeting Review' in card, 'the review is a card on the coordinator\'s Today')
+        q = await pg.evaluate("tdyModel().appr.map(x => x.kind + ':' + (x.title || '').slice(0, 30))")
+        c.ok('Meeting Review' in card, f'the review is a card on the coordinator\'s Today: {q[:8]} {card[:300]}')
         ap = await pg.evaluate("mApprovals().filter(x => x.kind === 'meeting' && x.id === 'mt_live').map(x => ({who: x.who, yes: x.yes, n: x.n}))")
         c.ok(len(ap) == 1 and ap[0]['who'] == 'coord' and ap[0]['yes'] == 'Review', f'one item in Approvals, the meeting owner\'s: {ap}')
         await pg.screenshot(path=os.path.join(OUT, 'desktop_today_coord.png'))
@@ -136,9 +138,9 @@ async def main():
         await pg.wait_for_timeout(300)
         toast = await pg.evaluate("document.getElementById('toast').innerText")
         c.ok(re.search(r'Applied \d+ from the meeting; \d+ wait', toast) and 'Open' in toast, f'Accept All toasts what it did and what waits, with Open: {toast}')
-        B = await pg.evaluate("""() => { const P = id => DB.projects.find(p => p.id === id), A = (pid, ref) => P(pid).actions.find(a => a.ref === ref);
+        B = await pg.evaluate("""() => { const P = id => DB.projects.find(p => p.id === id), A = (pid, code) => P(pid).actions.find(a => a.code === code);
           return {len7: A('p206', 'LEN-7').due, sta23: A('p121', 'STA-23').assignee, sta23note: (A('p121', 'STA-23').thread || []).map(e => e.text || '').join('|'),
-            sta23link: A('p121', 'STA-23').link, len8: [A('p206', 'LEN-8').waitsOn, A('p206', 'LEN-8').followUp], sta21: A('p121', 'STA-21').waitsOn,
+            sta23link: A('p121', 'STA-23').link, len8: [(A('p206', 'LEN-8').waitingOn || {}).name, (A('p206', 'LEN-8').waitingOn || {}).promised, A('p206', 'LEN-8').followUp], sta21: (A('p121', 'STA-21').waitingOn || {}).name,
             angel: P('p206').actions.filter(a => /clear the bathroom/i.test(a.title)).map(a => [a.assignee, a.due, a.source && a.source.kind]),
             orchard: DB.projects.filter(p => /Orchard/.test(p.project.name)).map(p => [p.project.prefix, p.project.createdFrom]),
             ev: DB.projects.flatMap(p => p.actions || []).concat(typeof asFirmTasks === 'function' ? asFirmTasks() : []).filter(a => /schedule meeting/i.test(a.title || a.text || '')).length,
@@ -146,7 +148,7 @@ async def main():
             changes: DB.meetings.find(m => m.id === 'mt_live').changes.filter(x => x.via === 'review').length}; }""")
         c.ok(B['len7'] == '2026-09-04', f"LEN-7's date moved: {B['len7']}")
         c.ok(B['sta23'] == 'Alan' and 'phone' in B['sta23note'] and '1,250' in B['sta23note'] and (B['sta23link'] or {}).get('kind') == 'bill', f'STA-23 reassigned, noted, the credit on its thread and linked to the bill: {B}')
-        c.ok(B['len8'] == ['Ruth Okafor', '2026-09-08'] and B['sta21'] == 'Carlos', f'Waiting On set with the promised date as the follow-up: {B["len8"]} {B["sta21"]}')
+        c.ok(B['len8'] == ['Ruth Okafor', '2026-09-08', '2026-09-08'] and B['sta21'] == 'Carlos', f'Waiting On set with the promised date as the follow-up: {B["len8"]} {B["sta21"]}')
         c.ok(B['angel'] == [['Angel', '2026-09-07', 'meeting']], f"Angel's new task is on 206 Lenox with the meeting as its source: {B['angel']}")
         c.ok(B['orchard'] == [['ORC', 'meeting']] and B['ev'] >= 1, f'the new project (with its prefix) and the follow-up meeting: {B["orchard"]} {B["ev"]}')
         c.ok(B['sta22'] == 'done' and B['sta21due'] == '2026-09-04', 'what was entered live is untouched')
@@ -165,7 +167,7 @@ async def main():
             await pg.wait_for_timeout(200)
         await pg.click(f"[data-mrvok=\"{car['id']}\"]")
         await pg.wait_for_timeout(250)
-        made = await pg.evaluate("DB.projects.flatMap(p => p.actions || []).filter(a => /portal samples/i.test(a.title)).map(a => [a.assignee, a.waitsOn, a.waitingOn && a.waitingOn.by])")
+        made = await pg.evaluate("DB.projects.flatMap(p => p.actions || []).filter(a => /portal samples/i.test(a.title)).map(a => [a.assignee, a.waitingOn && a.waitingOn.name, a.waitingOn && a.waitingOn.promised])")
         c.ok(made == [['Chen Biron', 'Carlos', '2026-09-09']], f'with an owner picked, the promise is a task waiting on Carlos, owned by Chen: {made}')
         toast = await pg.evaluate("document.getElementById('toast').innerText")
         c.ok('Applied' in toast and 'Open' in toast, f'the accept toasts with Open: {toast}')
@@ -200,7 +202,7 @@ async def main():
         c.ok(q > 5, f'the owner reads the quotes: {q}')
         await pg.click('#mrv-all')
         await pg.wait_for_timeout(300)
-        d = await pg.evaluate("DB.projects.find(p => p.id === 'p206').actions.find(a => a.ref === 'LEN-7').due")
+        d = await pg.evaluate("DB.projects.find(p => p.id === 'p206').actions.find(a => a.code === 'LEN-7').due")
         c.ok(d == '2026-09-04', 'the owner can accept it too')
         await b.close()
 
@@ -235,7 +237,7 @@ async def main():
         await pg.screenshot(path=os.path.join(OUT, 'phone_review_coord.png'), full_page=True)
         await pg.click('#mrv-all')
         await pg.wait_for_timeout(300)
-        d = await pg.evaluate("DB.projects.find(p => p.id === 'p206').actions.find(a => a.ref === 'LEN-7').due")
+        d = await pg.evaluate("DB.projects.find(p => p.id === 'p206').actions.find(a => a.code === 'LEN-7').due")
         c.ok(d == '2026-09-04', 'Accept All on the phone updates the board')
         await go(pg, 'home')
         await pg.wait_for_timeout(300)

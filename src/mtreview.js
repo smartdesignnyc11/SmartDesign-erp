@@ -4,7 +4,8 @@
    reconciles the board, and the meeting's owner approves it in one Meeting Review.
 
    Design gate (BACKLOG §1.16). The noun is the meeting (DB.meetings: the same record Meeting Mode writes, with its
-   screenLog [{taskKey, from, to}] and changes [{taskKey, field, from, to, by, at}]). Its one list is the meeting's
+   screenLog [{taskKey, ref, from, to}] and changes [{taskKey, field, from, to, by, at}]; lane A's mtCurrent,
+   mtScreenLog, mtLog, tkByCode, tkSetOwner and tkSetWaiting are used when they are there, read defensively). Its one list is the meeting's
    proposals (m.proposals): every item the transcript gives lands there, with status "proposed" (to review), "live"
    (already entered in Meeting Mode), "board" (already so on the board), "applied" or "skipped". The Meeting Review is
    a screen of that list, grouped by project. The queue is Approvals (kind "meeting", one item per meeting), routed to
@@ -97,21 +98,23 @@ const mrvSame = (a, b, T) => {
 };
 // ---- Meeting Mode's record, read defensively until it merges ------------------------------------------------
 function mrvLive(m) {
-  try {
-    if ("function" == typeof mtgCurrent) {
-      const c = mtgCurrent();
-      if (c && c.id === m.id) return c;
-    }
-  } catch (e) {}
+  for (const f of ["mtCurrent", "mtgCurrent"])
+    try {
+      if ("function" == typeof window[f]) {
+        const c = window[f]();
+        if (c && c.id === m.id) return c;
+      }
+    } catch (e) {}
   return m;
 }
 function mrvScreenLog(m) {
   const L = mrvLive(m);
   let log = L.screenLog || (L.live && L.live.screenLog) || null;
   try {
-    !log && "function" == typeof mtgScreenLog && mrvLive(m) !== m && (log = mtgScreenLog());
+    !log && "function" == typeof mtScreenLog && (log = mtScreenLog(L));
   } catch (e) {}
-  return (Array.isArray(log) ? log : []).filter((e) => e && e.taskKey && e.from).map((e) => ({ taskKey: e.taskKey, from: mrvWall(e.from), to: e.to ? mrvWall(e.to) : "" }));
+  // a line names its task by code (PAD-23) and by the task list's own key (ref), so a renumbered task still matches
+  return (Array.isArray(log) ? log : []).filter((e) => e && (e.taskKey || e.ref) && e.from).map((e) => ({ taskKey: e.taskKey || e.ref, ref: e.ref || "", from: mrvWall(e.from), to: e.to ? mrvWall(e.to) : "" }));
 }
 const mrvChanges = (m) => {
   const L = mrvLive(m);
@@ -255,7 +258,8 @@ function mrvLineOf(T, x) {
   return bs >= 0.4 ? best : -1;
 }
 // ---- one item to one proposal: which task, which project, and whether it is already done ---------------------
-const MRV_FIELDS = { tkdate: ["due", "date", "followUp", "followup", "next"], tkdone: ["status", "done", "complete"], tknote: ["note", "notes", "comment", "thread"], tkowner: ["owner", "assignee"], tkwait: ["waitingOn", "waiting", "waitsOn"], tktrack: ["watchUntil", "trackUntil", "track"], money: ["note", "notes", "comment", "link"] };
+// the fields Meeting Mode logs (lane A's mtLog), by the kind of item they settle
+const MRV_FIELDS = { tkdate: ["due", "followUp"], tkdone: ["status"], tknote: ["comment", "note"], tkowner: ["owner"], tkwait: ["waitingOn"], tktrack: ["watchUntil"], money: ["comment", "note", "link"] };
 const MRV_KIND = { date: "tkdate", done: "tkdone", note: "tknote", owner: "tkowner", track: "tktrack" };
 const mrvHash = (s) => {
   let h = 2166136261;
@@ -330,7 +334,7 @@ function mrvPropose(m, T, x, C) {
     sec = line && null != C.s0 ? C.s0 + line.sec + C.shift : null,
     shown = null != sec ? MRV.onScreen(C.log, sec) : "",
     byRef = x.ref ? mrvFind(x.ref, C.tasks) : null,
-    onTask = shown ? mrvFind(shown, C.tasks) : null;
+    onTask = shown ? mrvFind(shown, C.tasks) || mrvFind((C.log.find((e) => e.taskKey === shown) || {}).ref, C.tasks) : null;
   let task = byRef || onTask || null,
     how = byRef ? "id" : onTask ? "screen" : "";
   const said = `${x.what || ""} ${x.note || ""} ${x.quote || ""}`;
@@ -397,14 +401,19 @@ function mrvPropose(m, T, x, C) {
   // reconciled: already entered live in Meeting Mode, or already so on the board
   const fields = MRV_FIELDS[pr.kind];
   if (fields && pr.taskKey) {
-    const ch = C.changes.find((c) => c && mrvSame(c.taskKey, pr.taskKey, C.tasks) && fields.includes(c.field) && ("tkdone" !== pr.kind || /done|complete|true/i.test(String(c.to))));
+    const ch = C.changes.find((c) => c && (mrvSame(c.taskKey, pr.taskKey, C.tasks) || mrvSame(c.ref, pr.taskKey, C.tasks)) && fields.includes(c.field) && ("tkdone" !== pr.kind || /done|complete|true/i.test(String(c.to))));
     if (ch) return Object.assign(pr, { status: "live", liveBy: ch.by || "", liveAt: ch.at || "", liveTo: ch.to });
     const rec = task.rec || {};
     if ("tkdone" === pr.kind && (t.done || "done" === rec.status)) return Object.assign(pr, { status: "board", boardWhy: "already done" });
     if ("tkdate" === pr.kind && pr.apply.due && (t.due === pr.apply.due || rec.due === pr.apply.due)) return Object.assign(pr, { status: "board", boardWhy: "already has that date" });
     if ("tkowner" === pr.kind && pr.apply.owner && mtNorm(t.assignee || "") === mtNorm(pr.apply.owner)) return Object.assign(pr, { status: "board", boardWhy: `already ${pr.apply.owner}'s` });
     if ("tknote" === pr.kind && (rec.thread || []).some((e) => e && e.text && MRV.sim(e.text, pr.apply.text) >= 0.8)) return Object.assign(pr, { status: "board", boardWhy: "the note is there" });
-    if ("tkwait" === pr.kind && rec.waitsOn && mtNorm(rec.waitsOn) === mtNorm(pr.apply.party)) return Object.assign(pr, { status: "board", boardWhy: `already waiting on ${rec.waitsOn}` });
+    const wn = (rec.waitingOn && rec.waitingOn.name) || rec.waitsOn || "";
+    if ("tkwait" === pr.kind && wn && mtNorm(wn) === mtNorm(pr.apply.party)) return Object.assign(pr, { status: "board", boardWhy: `already waiting on ${wn}` });
+  }
+  if ("decision" === pr.kind) {
+    const live = C.changes.find((c) => c && "decision" === c.field && MRV.sim(String(c.to || ""), pr.apply.name) >= 0.5);
+    if (live) return Object.assign(pr, { status: "live", liveBy: live.by || "", liveAt: live.at || "" });
   }
   if ("task" === pr.kind) {
     const live = C.changes.find((c) => c && /^(created|new|task|add)$/.test(c.field || "") && MRV.sim(String(c.to || c.title || ""), pr.apply.title) >= 0.6);
@@ -440,6 +449,14 @@ function mrvNeeds(pr) {
   "tkdate" === pr.kind && !A.due && out.push("date");
   return out;
 }
+// Waiting On, in the task record's shape ({name, what, promised, evidence}; Meeting Mode's tkSetWaiting when there):
+// the outsider who owes it, what, the date they promised (the follow-up date) and where it was said
+function mrvWait(rec, W) {
+  if ("function" == typeof tkSetWaiting) return tkSetWaiting(rec, W);
+  rec.waitingOn = { name: W.name, what: W.what || "", promised: W.promised || "", evidence: W.evidence || "" };
+  rec.waitsOn = W.name;
+  W.promised && !rec.followUp && (rec.followUp = W.promised);
+}
 // an office task (no job): the firm's own task list (DB.tasks, the "firm" kind every task list reads)
 function mrvOfficeTask(t) {
   const L = "function" == typeof asFirmTasks ? asFirmTasks() : (DB.tasks = DB.tasks || []);
@@ -457,10 +474,15 @@ function mrvApply(m, pr) {
   const R = A.key ? tkResolve(A.key) : null;
   if (/^tk|^money$/.test(pr.kind) && !R) return { ok: !1, why: ["task"] };
   const rec = R && R.rec,
-    stamp = (field, from, to) => {
+    stamp = (field, from, to, key) => {
+      // the meeting's own change log (Meeting Mode's mtLog when it is there), so the minutes and a re-read see it
+      const k = key || A.key || pr.taskKey || "",
+        t = k ? mrvFind(k) : null,
+        c = { taskKey: (t && t.ref) || "", ref: (t && t.key) || k, field: field, from: from, to: to, via: "review", proposal: pr.id };
       try {
-        (m.changes = Array.isArray(m.changes) ? m.changes : []).push({ taskKey: A.key || pr.taskKey || "", field: field, from: from, to: to, by: me.name || "", at: appNowIso(), via: "review", proposal: pr.id });
+        if ("function" == typeof mtLog && mtLog.length >= 1 && mtLog(c, m)) return;
       } catch (e) {}
+      (m.changes = Array.isArray(m.changes) ? m.changes : []).push(Object.assign({ by: me.name || "", at: appNowIso() }, c));
     };
   if ("tkdate" === pr.kind) {
     const was = R.x.due || "";
@@ -479,31 +501,35 @@ function mrvApply(m, pr) {
     try {
       audit("task", R.x.id, "done", "", today(), `meeting ${m.id}`);
     } catch (e) {}
-    stamp("status", R.x.status || "", "done");
+    stamp("status", "open", "done");
   } else if ("tknote" === pr.kind || "money" === pr.kind) {
     if (!rec) return { ok: !1, why: ["task"] };
-    const text = "money" === pr.kind ? `${MRV_MONEY[A.moneyKind] || "Money"}${A.amount ? ` ${money(A.amount)}` : ""}: ${A.text}${A.link ? ` (${A.link.label})` : ""}` : A.text;
+    const text0 = "money" === pr.kind ? `${MRV_MONEY[A.moneyKind] || "Money"}${A.amount ? ` ${money(A.amount)}` : ""}: ${A.text}${A.link ? ` (${A.link.label})` : ""}` : A.text;
+    const text = text0;
     tkLog(rec, { text: `${text} (from ${src})`, meetingId: m.id });
     "money" === pr.kind && A.link && !rec.link && (rec.link = { kind: A.link.kind, id: A.link.id });
     "money" === pr.kind && A.amount && !rec.amount && (rec.amount = A.amount);
     try {
       audit("task", R.x.id, "note", "", text.slice(0, 80), `meeting ${m.id}`);
     } catch (e) {}
-    stamp("note", "", text);
+    stamp("comment", "", text);
   } else if ("tkowner" === pr.kind) {
     const was = R.x.assignee || "";
-    "function" == typeof tdySetOwner ? tdySetOwner(R.x, rec, A.owner) : (rec.assignee = A.owner);
+    if ("function" == typeof tkSetOwner) {
+      const r = tkSetOwner(R, A.owner);
+      if (!r || !r.ok) return { ok: !1, why: ["owner"] };
+    } else {
+      "function" == typeof tdySetOwner ? tdySetOwner(R.x, rec, A.owner) : (rec.assignee = A.owner);
+      try {
+        audit("task", R.x.id, "owner", was, A.owner, `meeting ${m.id}`);
+      } catch (e) {}
+    }
     rec && tkLog(rec, { ev: "owner", from: was, to: A.owner, text: `Reassigned to ${A.owner} in ${src}`, meetingId: m.id });
-    try {
-      audit("task", R.x.id, "owner", was, A.owner, `meeting ${m.id}`);
-    } catch (e) {}
     stamp("owner", was, A.owner);
   } else if ("tkwait" === pr.kind) {
     if (!rec) return { ok: !1, why: ["task"] };
-    const was = rec.waitsOn || "";
-    rec.waitsOn = A.party;
-    rec.waitingOn = { who: A.party, what: A.what, by: A.by || "", evidence: { kind: "meeting", id: m.id, ts: pr.ts || "" } };
-    A.by && (rec.followUp = A.by);
+    const was = (rec.waitingOn && rec.waitingOn.name) || rec.waitsOn || "";
+    mrvWait(rec, { name: A.party, what: A.what, promised: A.by || "", evidence: `Said in ${src}` });
     tkLog(rec, { ev: "waiting", text: `Waiting on ${A.party}: ${A.what}${A.by ? `, promised ${fmtL(A.by)}` : ""} (${src})`, meetingId: m.id });
     try {
       audit("task", R.x.id, "waiting", was, A.party, `meeting ${m.id}`);
@@ -521,14 +547,15 @@ function mrvApply(m, pr) {
   } else if ("task" === pr.kind) {
     const p = mrvProj(A.projectId),
       t = { id: uid("a"), title: A.title, assignee: mrvWho(A.assignee), due: A.due || A.waitBy || "", priority: "med", status: "todo", link: A.link && A.link.id ? { kind: A.link.kind, id: A.link.id } : null, notes: `From ${src}`, source: { kind: "meeting", id: m.id, label: `Meeting · ${m.title} · ${fmtL(m.date)}`, ts: pr.ts || "" }, createdAt: today(), completedAt: "" };
-    A.party && ((t.waitsOn = A.party), (t.waitingOn = { who: A.party, what: A.title, by: A.waitBy || "", evidence: { kind: "meeting", id: m.id, ts: pr.ts || "" } }), A.waitBy && (t.followUp = A.waitBy));
+    A.party && mrvWait(t, { name: A.party, what: A.title, promised: A.waitBy || "", evidence: `Said in ${src}` });
     A.amount && (t.amount = A.amount);
     if (p) (p.actions = p.actions || []).push(t), (out.key = t2Key({ kind: "action", id: t.id, projectId: p.id }));
     else out.key = mrvOfficeTask(t);
     try {
       audit("task", t.id, "create", "", A.title, `meeting ${m.id}`);
     } catch (e) {}
-    stamp("created", "", A.title);
+    stamp("created", "", A.title, out.key);
+    t.assignee && stamp("owner", "", t.assignee, out.key);
   } else if ("decision" === pr.kind) {
     const p = mrvProj(A.projectId);
     if (p) {
@@ -538,6 +565,7 @@ function mrvApply(m, pr) {
     try {
       audit("meeting", m.id, "decision", "", A.name, A.made ? "made" : "to discuss");
     } catch (e) {}
+    stamp("decision", "", A.name, "");
   } else if ("event" === pr.kind) {
     // a follow-up meeting to set up: a task for its owner, on the job or the office's list, with the day and time said
     const p = mrvProj(A.projectId),
@@ -548,7 +576,7 @@ function mrvApply(m, pr) {
     try {
       audit("task", t.id, "create", "", t.title, `meeting ${m.id}`);
     } catch (e) {}
-    stamp("created", "", t.title);
+    stamp("created", "", t.title, out.key);
   } else if ("project" === pr.kind) {
     if ("function" != typeof blankProject) return { ok: !1, why: ["project"] };
     const np = blankProject(A.name, "", today(), "");
@@ -696,7 +724,7 @@ function mrvHtml(m) {
   });
   const keys = Object.keys(groups).sort((a, b) => (a === "__pick" ? -1 : b === "__pick" ? 1 : a === "__office" ? 1 : b === "__office" ? -1 : (order.indexOf(a) < 0 ? 99 : order.indexOf(a)) - (order.indexOf(b) < 0 ? 99 : order.indexOf(b)) || mrvPName(mrvProj(a)).localeCompare(mrvPName(mrvProj(b)))));
   const gname = (k) => ("__pick" === k ? "Needs a Project or a Task" : "__office" === k ? "Office, No Job" : mrvPName(mrvProj(k)) || "Project");
-  const why = "function" == typeof standardWhy ? standardWhy({ kind: "meeting" }) : "";
+  const why = "function" == typeof standardWhy ? standardWhy({ src: "meetreview" }) : "";
   const link = (m.doc && m.doc.url) || m.docUrl || "";
   const reading = "reading" === R.state;
   return `<div class="crumb"><a href="#" data-mtback>Meetings</a><span>›</span>${esc(m.title)}</div>
@@ -1031,6 +1059,8 @@ if ("function" == typeof mGo) {
     return base.apply(this, arguments);
   };
 }
+// a review keeps the board's dates and owners true: the schedule principle, and the value that closes every loop
+"undefined" != typeof STD_MAP && (STD_MAP.meetreview = { p: "schedule", c: ["value", "own", /Close every loop/i] });
 // one item per meeting in Approvals, for the meeting's owner: a review reads as one
 if ("function" == typeof mApprovals) {
   const base = mApprovals;
@@ -1049,6 +1079,7 @@ if ("function" == typeof mApprovals) {
         it.n = String(w.length + other);
         it.yes = "Review";
         it.review = !0;
+        it.src = "meetreview"; // ranked by the Standard as the board's dates and owners (schedule), not as housekeeping
         it.open = { view: "meetings", meeting: m.id, review: !0 };
       });
     } catch (e) {}
