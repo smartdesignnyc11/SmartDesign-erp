@@ -1029,4 +1029,9 @@ esAdd({
   "Project Manager": "Gerente de Proyecto",
   Billing: "Facturación",
   Controller: "Contralor",
+  // the task record (src/meeting.js, 2026-10-23): what a field person can see on a task row; not yet reviewed
+  FYI: "Para Saber",
+  "Follow up {d}": "Seguimiento {d}",
+  "Waiting on {x}: {x}, promised {d}": "Esperando a {x}: {x}, prometido para {d}",
+  "Waiting on {x}, promised {d}": "Esperando a {x}, prometido para {d}",
 });

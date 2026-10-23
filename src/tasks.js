@@ -162,17 +162,19 @@ function tkRowHtml(x, o) {
     job = sales ? "Sales" : x.project || "Firm-wide",
     who = tkFirst(x.assignee || x.owner),
     showWho = "me" !== tkWho && !O.hideWho && who,
-    bits = [`<span class="tk2-when tk2-w-${w.cls}">${esc(w.label)}</span>`];
+    fyi = "fyi" === x.status,
+    bits = [fyi ? '<span class="tk2-when tk2-w-fyi">FYI</span>' : `<span class="tk2-when tk2-w-${w.cls}">${esc(w.label)}</span>`];
   O.hideJob || bits.push(`<span class="tk2-job">${esc(job)}</span>`);
   def && bits.push(`<span class="tk2-later">Later · ${esc(fmt(def))}</span>`);
-  x.waitsOn && bits.push(`<span class="tk2-wait">Waiting on ${esc(x.waitsOn)}</span>`);
+  x.waitsOn && bits.push(`<span class="tk2-wait">${esc(x.waitingOn && "function" == typeof tkWaitSay ? tkWaitSay(x.waitingOn, !0) : "Waiting on " + x.waitsOn)}</span>`);
+  !x.done && x.followUp && x.followUp !== x.due && bits.push(`<span class="tk2-fu">Follow up ${esc(fmt(x.followUp))}</span>`);
   H && bits.push(`<span class="tk2-off">Offered to ${esc(tkFirst(H.to))}</span>`);
   return `<div class="t2-row tk2-row ${x.late ? "late" : ""} ${x.done ? "done" : ""}" data-t2key="${esc(key)}" data-tkkey="${esc(key)}" data-edit="tk:${esc(x.kind)}|${esc(x.projectId || "")}|${esc(x.id)}" tabindex="0">
   <div class="tk2-slide">${
     x.done
       ? '<span class="tk2-check tk2-donemark" aria-hidden="true"><span></span></span>'
       : `<button type="button" class="t2-check tk2-check" data-t2done="${esc(key)}" aria-label="Mark done" title="Mark done"><span></span></button>`
-  }<div class="tk2-mid"><div class="tk2-title">${"high" === x.priority ? '<i class="tk2-hi" title="High priority"></i>' : ""}${esc(O.hideJob ? x.title : tkTitleShort(x))}</div><div class="tk2-sub">${bits.join('<span class="tk2-dot"> · </span>')}</div></div>${showWho ? `<span class="tk2-who" title="${esc(x.assignee || x.owner || "")}">${esc(who)}</span>` : ""}</div>${
+  }<div class="tk2-mid"><div class="tk2-title">${x.code ? `<span class="tk2-key">${esc(x.code)}</span>` : ""}${"high" === x.priority ? '<i class="tk2-hi" title="High priority"></i>' : ""}${esc(O.hideJob ? x.title : tkTitleShort(x))}</div><div class="tk2-sub">${bits.join('<span class="tk2-dot"> · </span>')}</div></div>${showWho ? `<span class="tk2-who" title="${esc(x.assignee || x.owner || "")}">${esc(who)}</span>` : ""}</div>${
     x.done ? "" : `<div class="tk2-acts"><button type="button" class="tk2-act" data-t2later="${esc(key)}" tabindex="-1">Later</button><button type="button" class="tk2-act hand" data-tkhand="${esc(key)}" tabindex="-1">Hand Off</button></div>`
   }</div>`;
 }
@@ -441,7 +443,8 @@ function tkSetDue(R, date) {
 }
 function tkLog(rec, e) {
   const me = tdyMe();
-  (rec.thread = rec.thread || []).push(Object.assign({ at: appNowIso(), by: me.name || "", byUid: me.id || "" }, e));
+  // each entry has an id, so two devices that each add a comment keep both when they merge (cloud.js merge3)
+  (rec.thread = rec.thread || []).push(Object.assign({ id: uid("c"), at: appNowIso(), by: me.name || "", byUid: me.id || "" }, e));
 }
 // where the task came from, one tap away
 function tkSourceOf(R) {
@@ -534,11 +537,12 @@ const TK_ROLE_SAY = { owner: "Owner", pm: "Project Manager", coord: "Coordinator
 function tkThreadHtml(R) {
   const rec = R.rec || {},
     out = [];
-  rec.notes && out.push(`<div class="tks-note"><span class="small muted">Note${rec.createdBy ? " · " + esc(rec.createdBy) : ""}</span><div>${esc(rec.notes)}</div></div>`);
+  rec.notes && !rec.notesMoved && out.push(`<div class="tks-note"><span class="small muted">Note${rec.createdBy ? " · " + esc(rec.createdBy) : ""}</span><div>${esc(rec.notes)}</div></div>`);
   (rec.thread || []).forEach((e) => {
     const when = `${esc(tkFirst(e.by) || "Someone")} · ${esc(fmt(String(e.at || "").slice(0, 10)))}`;
     if (e.text) out.push(`<div class="tks-note"><span class="small muted">${when}</span><div>${esc(e.text)}</div></div>`);
     else if (e.photo || e.img) out.push(`<div class="tks-note"><span class="small muted">${when} · photo</span>${e.img ? `<img class="tks-img" src="${esc(e.img)}" alt="Photo on the task">` : ""}</div>`);
+    else if ("file" === e.ev && e.file) out.push(`<div class="tks-note"><span class="small muted">${when} · file</span><div>${esc(e.name || "file")}</div></div>`);
     else if ("note" === e.ev && e.was) out.push(`<div class="tks-note was"><span class="small muted">${when} · earlier note, kept</span><div>${esc(e.was)}</div></div>`);
   });
   return out.join("");
@@ -589,7 +593,7 @@ function tkSheet(k, opts) {
       `<span class="tk2-when tk2-w-${w.cls}">${esc(x.due ? (x.due < td ? `Overdue since ${fmtL(x.due)}` : `Due ${fmtL(x.due)}`) : "No date")}</span>`,
       sched && rec && rec.start ? `<span>${esc(fmtL(rec.start))} to ${esc(fmtL(rec.end))}</span>` : "",
       sched && rec ? `<span>${esc({ "in-progress": "under way", done: "finished" }[rec.status] || "not started")}</span>` : "",
-      `<span>Owner: ${esc(t.owner || x.assignee || "nobody yet")}${t.party ? ` (done by ${esc(t.party)})` : ""}</span>`,
+      `<span>Owner: ${esc(t.owner || x.assignee || "nobody yet")}${t.party ? ` (done by ${esc(t.party)})` : ""}${(x.collaborators || []).length ? `, with ${esc(x.collaborators.join(", "))}` : ""}</span>`,
       x.project && !src ? `<span>${esc(x.project)}</span>` : "",
     ].filter(Boolean);
   tkSheetKey = R.key;
@@ -612,6 +616,7 @@ function tkSheet(k, opts) {
           .join("")}</div><input class="tks-in tks-handnote" data-tkshandnote placeholder="What they need to know (optional)"></div>`
       : ""
   }
+  ${rec && /^(action|firm|hub)$/.test(x.kind) && "function" == typeof tkRecSheetHtml ? tkRecSheetHtml(R, done) : ""}
   ${
     rec
       ? `<div class="tks-h">Checklist</div><div class="tks-steps">${steps
@@ -631,7 +636,8 @@ function tkSheet(k, opts) {
   <div class="tks-more">${!done && "draft" !== x.kind ? `<button type="button" class="btn" data-tkslater>Later</button>` : ""}${"draft" !== x.kind ? `<button type="button" class="btn" data-tksedit>${sched ? "Edit Schedule" : "Edit"}</button>` : ""}${next && !offeredToMe && !done ? `<button type="button" class="btn" data-tksdone>Mark Done</button>` : ""}</div>
 </div>`;
   const primary = offeredToMe ? "Accept" : done ? null : next ? next.label : "Mark Done";
-  const m = mbModal(esc(x.title || t.title || "Task"), body, {
+  const code = (rec && rec.code) || x.code || "";
+  const m = mbModal(`${code ? `<span class="tks-key">${esc(code)}</span> ` : ""}${esc(x.title || t.title || "Task")}`, body, {
     submit: primary,
     onSubmit: () => {
       if (offeredToMe) return tdyAccept(x), !0;
@@ -643,7 +649,7 @@ function tkSheet(k, opts) {
   m.classList.add("tks-on");
   // the dialog's name is the title as written (mbModal escapes it a second time for the attribute)
   const box = m.querySelector(".mbm-box");
-  box && box.setAttribute("aria-label", x.title || t.title || "Task");
+  box && box.setAttribute("aria-label", `${code ? code + " " : ""}${x.title || t.title || "Task"}`);
   const cancel = m.querySelector("#mbm-cancel");
   cancel && (cancel.textContent = "Close");
   const q = (s) => m.querySelector(s),
@@ -655,6 +661,7 @@ function tkSheet(k, opts) {
       } catch (e) {}
       again();
     };
+  rec && /^(action|firm|hub)$/.test(x.kind) && "function" == typeof tkRecSheetWire && tkRecSheetWire(m, R, refresh);
   const sb = q("[data-tkssrc]");
   sb && src && src.go && (sb.onclick = () => (mbCloseModal(), src.go()));
   m.querySelectorAll("[data-tksdue]").forEach(
@@ -1415,6 +1422,8 @@ const TK_PRI_SAY = { P1: "High", P2: "Medium", P3: "Low" };
 #v-tkall .t2-nodate{margin:0 0 10px}
 #v-tkall .t2-nodate .btn{min-height:44px}
 :is(#v-tkall,.tk2-host) .tk2-off{color:var(--accent)}
+:is(#v-tkall,.tk2-host) .tk2-key{font-size:13px;font-weight:700;letter-spacing:.02em;color:var(--accent);margin-right:6px}
+:is(#v-tkall,.tk2-host) .tk2-when.tk2-w-fyi{color:var(--ink-3);font-weight:600}
 :is(#v-tkall,.tk2-host) .tk2-who{flex:0 0 auto;max-width:84px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;color:var(--ink-2);background:var(--paper-2);border-radius:12px;padding:3px 9px}
 :is(#v-tkall,.tk2-host) .tk2-acts{position:absolute;right:0;top:0;bottom:0;display:flex;visibility:hidden}
 :is(#v-tkall,.tk2-host) .tk2-row.swiped .tk2-acts{visibility:visible}
@@ -1460,6 +1469,7 @@ const TK_PRI_SAY = { P1: "High", P2: "Medium", P3: "Low" };
 }
 #mbm.tks-on .mbm-box{max-width:620px}
 #mbm.tks-on .mbm-hd h3{font-size:18px;line-height:24px;font-weight:600}
+#mbm .tks-key{font-weight:800;color:var(--accent);letter-spacing:.02em;margin-right:4px}
 .tks{display:flex;flex-direction:column;gap:6px}
 .tks-lines{font-size:14px;color:var(--ink-2);line-height:20px}
 .tks-lines .tk2-when.tk2-w-late{color:var(--bad,#b3261e);font-weight:600}

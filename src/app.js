@@ -108034,7 +108034,7 @@ function t2Pool() {
     t2Q)
   ) {
     const q = t2Q.toLowerCase();
-    R = R.filter((x) => `${x.title} ${x.project} ${x.assignee} ${x.notes || ""}`.toLowerCase().includes(q));
+    R = R.filter((x) => `${x.code || ""} ${x.title} ${x.project} ${x.assignee} ${x.waitsOn || ""} ${x.notes || ""}`.toLowerCase().includes(q));
   }
   return R;
 }
@@ -109884,14 +109884,33 @@ function asOf(x) {
     return null;
   }
 }
+// The task record's fields on every row, in one step (the board's Asana fields and the meeting lane's, 2026-10-23):
+// code is the task's key ("PAD-23", the Asana Task ID column), and a job's to-do, the firm's own and a sales task
+// carry it. The rest ride on the record as written: follow-up and watch dates, collaborators, Waiting On (who owes
+// what by when), the order within its project and when it was last discussed. An FYI item is status only and is
+// never late. The record is found directly (it was a scan of every task per row).
+const TK_REC_FIELDS = ["followUp", "watchUntil", "order", "lastDiscussed", "ownerFlag", "waitingOn"];
+function tkRecOfRow(x) {
+  if ("firm" === x.kind) return asFirmTasks().find((a) => a.id === x.id) || null;
+  if ("hub" === x.kind) return ((DB.hub && DB.hub.tasks) || []).find((a) => a.id === x.id) || null;
+  if ("action" !== x.kind) return null;
+  const p = (DB.projects || []).find((q) => q.id === x.projectId);
+  return (p && (p.actions || []).find((a) => a.id === x.id)) || null;
+}
 if ("function" == typeof tkItems) {
   const tkItemsBase_as2 = tkItems;
   tkItems = function () {
     const out = tkItemsBase_as2.apply(this, arguments);
     try {
       out.forEach((x) => {
-        if ("action" !== x.kind && "firm" !== x.kind) return;
-        const a = asOf(x);
+        if ("action" !== x.kind && "firm" !== x.kind && "hub" !== x.kind) return;
+        const a = tkRecOfRow(x);
+        if (!a) return;
+        TK_REC_FIELDS.forEach((k) => null != a[k] && "" !== a[k] && (x[k] = a[k]));
+        x.collaborators = a.collaborators || [];
+        !x.done && /^(doing|waiting|fyi)$/.test(a.status || "") && (x.status = a.status);
+        "fyi" === x.status && ((x.fyi = !0), (x.late = !1));
+        if ("hub" === x.kind) return void ((x.code = a.code || ""), (x.waitsOn = a.waitsOn || ""));
         a &&
           ((x.code = a.code || ""),
           (x.section = a.section || ""),
@@ -151848,7 +151867,7 @@ function t2BoardHtml(list) {
     card = (x) => {
       const w = t2When(x),
         k = T2_KIND[x.kind] || "";
-      return `<div class="t2-bcard ${x.late ? "late" : ""} ${x.done ? "done" : ""}" data-t2key="${esc(t2Key(x))}" data-edit="tk:${x.kind}|${x.projectId}|${x.id}" tabindex="0">\n      <div class="t2-btitle">${x.done ? "" : `<button class="t2-check" data-t2done="${esc(t2Key(x))}" aria-label="Mark done" title="Mark done"><span></span></button>`}<span>${esc(x.title)}</span></div>\n      <div class="t2-bsub">${k ? `<span class="t2-kind k-${esc(x.kind)}">${k}</span>` : ""}${!tkProject && x.project ? `<span>${esc(x.project)}</span>` : ""}<span class="t2-when ${w.cls}">${w.label}</span>${x.assignee ? `<span class="t2-who" title="${esc(x.assignee)}">${esc(t2Initials(x.assignee))}</span>` : ""}</div></div>`;
+      return `<div class="t2-bcard ${x.late ? "late" : ""} ${x.done ? "done" : ""}" data-t2key="${esc(t2Key(x))}" data-edit="tk:${x.kind}|${x.projectId}|${x.id}" tabindex="0">\n      <div class="t2-btitle">${x.done ? "" : `<button class="t2-check" data-t2done="${esc(t2Key(x))}" aria-label="Mark done" title="Mark done"><span></span></button>`}<span>${x.code ? `<b class="t2-code">${esc(x.code)}</b> ` : ""}${esc(x.title)}</span></div>\n      <div class="t2-bsub">${k ? `<span class="t2-kind k-${esc(x.kind)}">${k}</span>` : ""}${!tkProject && x.project ? `<span>${esc(x.project)}</span>` : ""}<span class="t2-when ${w.cls}">${w.label}</span>${x.assignee ? `<span class="t2-who" title="${esc(x.assignee)}">${esc(t2Initials(x.assignee))}</span>` : ""}</div></div>`;
     };
   return `<div class="t2-board">${cols.map(([k, n, L]) => `<div class="t2-bcol" data-t2col="${k}"><div class="t2-bhd"><b>${n}</b><span class="n">${L.length}</span></div>${L.map(card).join("") || '<div class="small muted t2-bempty">Nothing here.</div>'}</div>`).join("")}</div>`;
 }
@@ -153647,7 +153666,14 @@ let igSweptAt = -1;
   const base = tkItems;
   tkItems = function () {
     try {
-      void 0 !== trSaveSeq && igSweptAt !== trSaveSeq && ((igSweptAt = trSaveSeq), clTaskSweep());
+      if (void 0 !== trSaveSeq && igSweptAt !== trSaveSeq) {
+        igSweptAt = trSaveSeq;
+        try {
+          clTaskSweep();
+        } catch (e) {}
+        // the task record's keys, owners and Waiting On (src/meeting.js): idempotent, once per save
+        "function" == typeof tkRecSweep && tkRecSweep();
+      }
     } catch (e) {}
     return base.apply(this, arguments);
   };
