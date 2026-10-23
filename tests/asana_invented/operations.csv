@@ -1,0 +1,6 @@
+Task ID,Created At,Completed At,Last Modified,Name,Section/Column,Assignee,Assignee Email,Start Date,Due Date,Tags,Notes,Projects,Parent task,Blocked By (Dependencies),Blocking (Dependencies),Ref
+1301,2026-09-15,,2026-10-20,Renew the general liability COI,Office,Leo Marchetti,leo@example.com,,2026-11-05,,,Operations,,,,OPS-12
+1302,2026-09-16,,2026-10-21,Books closed by the 10th,Office,Dana Whitfield,,,2026-11-10,,,Operations,,,,OPS-13
+1207,2026-10-04,,2026-10-22,PAD-25 Get credit for the wrong delivery,Money,Rita Okafor,rita@studio.example,,2026-10-28,credit,,"PAD - Pine Ave Duplex, Operations",,,,
+1303,2026-09-17,2026-10-01,2026-10-01,Old office move,Office,Former Staffer,,,2026-09-30,,,Operations,,,,
+1304,2026-09-18,,2026-10-22,Weekly site walk,Office,Dana,,,2026-10-29,,,Operations,,,,

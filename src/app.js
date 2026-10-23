@@ -18487,6 +18487,8 @@ const ROLE_NAMES = {
   client: "Client",
 };
 function seedUsers() {
+  // the team's own workspace starts with no people: each adds themself at sign-in, from their profile (2026-10-23)
+  if (DB.__teamWs || (window.__sdWs && "team" === window.__sdWs.kind)) return void (DB.users = DB.users || []);
   DB.users = [
     { id: "u_owner", name: "Owner", role: "owner", contact: "" },
     { id: "u_alan", name: "Alan", role: "pm", contact: "", mb: !0 },
@@ -51050,6 +51052,17 @@ load = async function (opts = {}) {
   } catch (e) {
     console.warn("profile", e);
   }
+  // Which workspace, before anything is pushed or seeded (2026-10-23): the team's own seeds nothing and starts empty.
+  // A device whose copy was made in another workspace drops it first, so no record crosses from one to the other.
+  try {
+    window.__sdWs = (Cloud.workspace && (await withTimeout(Cloud.workspace(), 8e3, "server"))) || null;
+  } catch (e) {
+    console.warn("workspace", e);
+  }
+  try {
+    Cloud.workspaceChanged && Cloud.workspaceChanged() && (await idbDel(KEY));
+  } catch (e) {}
+  const teamWs = !(!window.__sdWs || "team" !== window.__sdWs.kind);
   let remote = null;
   // Edits this phone made but never synced (closed tab, no signal) go up before the server copy comes down.
   if (Cloud.hasPending && Cloud.hasPending())
@@ -51088,7 +51101,10 @@ load = async function (opts = {}) {
       (DB.payroll = DB.payroll || []),
       (DB.accounts = DB.accounts || []),
       (DB.txns = DB.txns || []))),
-    await loadBase_cl({ skipStorage: !!remote });
+    // an empty team workspace starts from an empty firm, never from this device's stored copy (the demo)
+    !remote && teamWs && (DB = twsSkeleton(window.__sdWs)),
+    remote && teamWs && !DB.__teamWs && (DB.__teamWs = { id: window.__sdWs.id, name: window.__sdWs.name || "", at: tzNow() }),
+    await loadBase_cl({ skipStorage: !!remote || teamWs });
   try {
     const pr = await Cloud.profile(),
       em = (Cloud.user().email || "").toLowerCase();
@@ -109159,6 +109175,8 @@ function sdSeedsOff() {
     // On the hosted copy, once the server holds the firm's records it is the truth: no device seeds demo data
     // over it (a field phone, which never receives the books, would otherwise invent them).
     if (window.__sdServerTruth) return !0;
+    // the team's own workspace (the server's word, before any of its records exist): never the demo (2026-10-23)
+    if (window.__sdWs && "team" === window.__sdWs.kind) return !0;
     return !(!DB || (!DB.__liveData && !DB.__wiped));
   } catch (e) {
     return !1;

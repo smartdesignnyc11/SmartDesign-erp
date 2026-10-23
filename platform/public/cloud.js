@@ -40,7 +40,7 @@ window.Cloud = (() => {
   // ---- the pending marker: unsynced edits survive a closed tab or a dead battery
   const pkey = () => 'sdp:pending:' + (user() ? user().id : '');
   const vkey = () => 'sdp:versions:' + (user() ? user().id : '');
-  const mark = names => { try { localStorage.setItem(pkey(), JSON.stringify({at: Date.now(), names})); localStorage.setItem(vkey(), JSON.stringify(versions)); } catch (e) {} };
+  const mark = names => { try { localStorage.setItem(pkey(), JSON.stringify({at: Date.now(), names, ws: ws()})); localStorage.setItem(vkey(), JSON.stringify(versions)); } catch (e) {} };
   const unmark = () => { try { localStorage.removeItem(pkey()); localStorage.setItem(vkey(), JSON.stringify(versions)); } catch (e) {} };
   function hasPending() { try { return !!localStorage.getItem(pkey()); } catch (e) { return false; } }
   function savedVersions() { try { return JSON.parse(localStorage.getItem(vkey()) || '{}'); } catch (e) { return {}; } }
@@ -131,6 +131,32 @@ window.Cloud = (() => {
     if (profile && !OFFICE.includes(profile.role) && !FIELD.includes(profile.role)) state.err = 'This account has no access yet: ask the owner to set your role.';
     return profile;
   }
+
+  // ---- the workspace (2026-10-23): the demo, or the team's own. Read before the page boots, so an empty team workspace
+  // is never filled from this device's demo copy; a device's local copy belongs to one workspace, and when the profile
+  // names another (a switch, or the owner bringing this person into the team's workspace) the copy goes first.
+  let wsInfo = null;
+  async function workspace(fresh) {
+    if (wsInfo && !fresh) return wsInfo;
+    if (!sb || !user()) return null;
+    try { const {data, error} = await sb.rpc('my_workspace_info'); if (error) throw error; wsInfo = data || null; } catch (e) { console.warn('workspace', e); wsInfo = null; }
+    return wsInfo;
+  }
+  const wskey = () => 'sdp:ws:' + (user() ? user().id : '');
+  // True when this device's copy was made in another workspace: its unsynced-edit marker and versions go now (they
+  // would otherwise be pushed into this workspace), and the app deletes its stored records before it loads.
+  function workspaceChanged() {
+    const now = ws(); if (!now) return false;
+    let was = ''; try { was = localStorage.getItem(wskey()) || ''; } catch (e) {}
+    try { localStorage.setItem(wskey(), now); } catch (e) {}
+    if (!was || was === now) return false;
+    try { localStorage.removeItem(pkey()); localStorage.removeItem(vkey()); } catch (e) {}
+    return true;
+  }
+  // The page reloads after either: the next boot sees the profile in the other workspace and starts from its records.
+  const leaving = () => { try { localStorage.setItem(wskey(), ws() || '?'); localStorage.removeItem(pkey()); localStorage.removeItem(vkey()); } catch (e) {} };
+  async function switchWorkspace(id) { leaving(); const {data, error} = await sb.rpc('switch_workspace', {p_ws: id}); if (error) throw error; wsInfo = data; profile = null; return data; }
+  async function openTeamWorkspace(id, name) { leaving(); const {data, error} = await sb.rpc('open_team_workspace', {p_id: id, p_name: name || ''}); if (error) throw error; wsInfo = data; profile = null; return data; }
 
   // ---- merging: base is the common ancestor, local and server the two sides
   const isObj = v => v && typeof v === 'object' && !Array.isArray(v);
@@ -321,8 +347,11 @@ window.Cloud = (() => {
   }
   // Boot: edits left unsynced by the last session go up before the server copy comes down.
   async function pushPending(localDB) {
-    let names = [];
-    try { names = (JSON.parse(localStorage.getItem(pkey()) || '{}').names) || []; } catch (e) {}
+    let names = [], from = '';
+    try { const m = JSON.parse(localStorage.getItem(pkey()) || '{}'); names = m.names || []; from = m.ws || ''; } catch (e) {}
+    // Edits made in another workspace never go into this one. A marker from before markers named their workspace is
+    // trusted only in the demo (where every such marker was made), never in the team's own.
+    if (from ? from !== ws() : (wsInfo && wsInfo.kind === 'team')) { unmark(); return {ok: true, n: 0, skipped: names.length}; }
     if (!names.length || !localDB) { unmark(); return {ok: true, n: 0}; }
     const vs = savedVersions(); const s = shards(localDB); const items = [];
     for (const name of names) if (mayWrite(name) && s[name] !== undefined) items.push({name, data: s[name], base: vs[name] || 0});
@@ -435,6 +464,7 @@ window.Cloud = (() => {
 
   return {on, init, isOffice, isField, token: () => (session && session.access_token) || '', setDbRef: f => { dbRef = f; }, user, profile: getProfile,
     signIn, signInGoogle, authError, magicLink, resetPassword, signOut, pullAll, pullOne, push, pushPending, hasPending, subscribe, pollOnce, putBlob, getBlob,
+    workspace, workspaceChanged, switchWorkspace, openTeamWorkspace,
     listProfiles, updateProfile, aiSpend, enablePush, disablePush, signOutEverywhere, invite, joinThread, seal, verifyServer, revoked: () => revoked, listSignals: none, setSignalStatus: async () => true, listClips: none, claimClips: async () => 0,
     saveClipToken: async () => true, screenPoint: async () => null, state, shards, merge3, cfg,
     _test: {session: s => { session = s; }, profile: p => { profile = p; }, setPart: (DB, n, d) => setPart(DB, n, d), sb: x => { sb = x; }, versions, subscribe: cb => { onChange = cb; }, remember, pollOnce, drop}};
