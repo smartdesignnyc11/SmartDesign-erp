@@ -314,7 +314,7 @@ function tkOwnerFix(r) {
     outside = [];
   parts.forEach((pt) => {
     const u = tkInternal(pt);
-    u ? inside.some((x) => x.name === u.name) || inside.push(u) : TDY_NOT_PERSON.test(pt) || /^the (group|team)$/i.test(pt) || outside.push(pt);
+    u ? inside.some((x) => x.name === u.name) || inside.push(u) : TDY_NOT_PERSON.test(pt) || /^(the (group|team|crew)|crew|all|tbd|sub|subs)$/i.test(pt) || outside.push(pt);
   });
   if (1 === parts.length && 1 === inside.length) {
     if (inside[0].name === raw) return 0;
