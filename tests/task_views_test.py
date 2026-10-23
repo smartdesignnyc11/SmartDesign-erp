@@ -316,7 +316,7 @@ async def phone_targets(c, pg, who):
     # the task sheet on the phone, as the mockup reads it: ID and job, the title, the rows, the four date buttons, Latest,
     # and a footer of photo, note and the blue next step
     await mode(pg, 'cards', 'all', 'all')
-    await pg.evaluate("() => { const r = document.querySelector('#tkall-body .tk2-row .tk2-title'); r && r.click(); }")
+    await pg.evaluate("() => { const r = [...document.querySelectorAll('#tkall-body .tk2-row')].find(r => /^action:/.test(r.dataset.tkkey)); r && r.querySelector('.tk2-title').click(); }")
     await pg.wait_for_timeout(400)
     sh = await pg.evaluate("""() => { const m = document.getElementById('mbm'); if (!m) return null; const r = e => e ? e.getBoundingClientRect() : null;
       const dates = [...m.querySelectorAll('.tvs-dates > *')].map(b => { const q = r(b); return [b.textContent.trim(), Math.round(q.height), Math.round(q.top)]; });
