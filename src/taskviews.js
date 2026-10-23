@@ -194,6 +194,13 @@ function tvProjectOf(x) {
   }
   return { id: "__firm", name: x.project || "Firm-wide" };
 }
+function tvOwnerName(x) {
+  if (x.ownerUid) {
+    const u = (DB.users || []).find((y) => y.id === x.ownerUid);
+    if (u && u.name) return u.name;
+  }
+  return x.owner || x.assignee || "";
+}
 function tvInfo(x) {
   const rec = tvRec(x),
     P = tvProjectOf(x),
@@ -204,7 +211,7 @@ function tvInfo(x) {
     rec: rec,
     key: t2Key(x),
     ref: tvRef(x, rec),
-    owner: x.owner || x.assignee || "",
+    owner: tvOwnerName(x),
     status: tvStatusOf(x, rec),
     wait: tvWaitOf(x, rec),
     follow: (rec && rec.followUp) || x.followUp || "",
@@ -755,7 +762,7 @@ function tvDoneBy(gb) {
     D = "done" === t2View ? [] : t2DonePool();
   } catch (e) {}
   D.forEach((x) => {
-    const I = { x: x, owner: x.owner || x.assignee || "", status: "done", pid: tvProjectOf(x).id, pname: "" },
+    const I = { x: x, owner: tvOwnerName(x), status: "done", pid: tvProjectOf(x).id, pname: "" },
       k = tvGroupKey(I, gb)[0];
     out[k] = (out[k] || 0) + 1;
   });
@@ -1038,7 +1045,7 @@ function tvCalHtml(infos) {
   const ph = tvPhone(),
     cell = (d) => {
       const out = null != C.month && parse(d).getMonth() !== C.month;
-      return `<div class="tv-day ${d === td ? "today" : ""} ${out ? "out" : ""}" data-tvday="${d}"><div class="tv-dn">${"week" === C.mode ? `<b>${DOW[parse(d).getDay()]}</b> ` : ""}${parse(d).getDate()}${d === td ? '<span class="tv-tdy">Today</span>' : ""}</div><div class="tv-evs">${(byDay[d] || []).join("")}</div></div>`;
+      return `<div class="tv-day ${d === td ? "tv-isday" : ""} ${out ? "tv-outm" : ""}" data-tvday="${d}"><div class="tv-dn">${"week" === C.mode ? `<b>${DOW[parse(d).getDay()]}</b> ` : ""}${parse(d).getDate()}${d === td ? '<span class="tv-tdy">Today</span>' : ""}</div><div class="tv-evs">${(byDay[d] || []).join("")}</div></div>`;
     },
     grid =
       "week" === C.mode && ph
@@ -1594,17 +1601,19 @@ function tvWireCal(w) {
 }
 
 // ---- the hooks ------------------------------------------------------------------------------------------------------
+let tvDrawing = "";
 {
   const base = renderTkAll;
   renderTkAll = function () {
     const own = tvMine() && tvMayUse(),
       keep = tkMode;
     tvPopClose();
-    own && (tkMode = "cards");
+    // the List draws first (its bar, chips and counts); the chosen layout then takes the list's place
+    own && ((tkMode = "cards"), (tvDrawing = keep));
     try {
       base.apply(this, arguments);
     } finally {
-      own && (tkMode = keep);
+      own && ((tkMode = keep), (tvDrawing = ""));
     }
     try {
       tvAfter();
@@ -1707,7 +1716,8 @@ function tvWireCal(w) {
   tkChipLabel = function (ctx) {
     const s = base.apply(this, arguments);
     try {
-      if (tvMayUse() && tvMine() && tvPhone()) return `${s} · ${(TV_MODES.find(([k]) => k === tkMode) || [])[1] || ""}`;
+      const m = tvDrawing || tkMode;
+      if (tvMayUse() && TV_OWN.includes(m) && tvPhone()) return `${s} · ${(TV_MODES.find(([k]) => k === m) || [])[1] || ""}`;
     } catch (e) {}
     return s;
   };
@@ -1745,7 +1755,7 @@ function tvWireCal(w) {
 #v-tkall .tv-sv:hover{color:var(--ink)}
 #v-tkall .tv-sv.on{border-bottom-color:var(--accent);color:var(--ink);font-weight:600}
 #v-tkall .tv-svnew{color:var(--ink-3)}
-#v-tkall .tk-mode.tv-modes button{min-height:36px}
+#v-tkall .tk-mode.tv-modes button,#v-tkall .tv-top .seg button,#v-tkall .tv-calbar .seg button{display:inline-flex;align-items:center;justify-content:center}
 #v-tkall .tv-filters{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 #v-tkall .tv-fchip{display:inline-flex;align-items:center;border:1px solid var(--accent);border-radius:22px;background:var(--accent-bg,#eaf1fb);overflow:hidden}
 #v-tkall .tv-fchip-b{min-height:36px;padding:0 4px 0 14px;border:0;background:none;font-size:14px;color:var(--ink);cursor:pointer}
@@ -1754,7 +1764,6 @@ function tvWireCal(w) {
 #v-tkall .tv-host{border:0;background:none;overflow:visible;border-radius:0}
 #v-tkall .tv-top{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 10px;min-height:44px}
 #v-tkall .tv-top .btn{display:inline-flex;align-items:center;gap:6px;min-height:40px}
-#v-tkall .tv-top .seg button{min-height:40px}
 #v-tkall .tv-sum-line{font-size:15px;color:var(--ink-2)}
 #v-tkall .late,#v-tkall .tv-glate{color:var(--bad,#b3261e)}
 #v-tkall .tv-empty{padding:18px 4px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:15px}
@@ -1828,6 +1837,8 @@ function tvWireCal(w) {
 #v-tkall .tv-txt{display:block;padding:0 8px;overflow:hidden;text-overflow:ellipsis;color:var(--ink-2)}
 #v-tkall .tv-pri-high{color:var(--bad,#b3261e);font-weight:600}
 #v-tkall .tv-table td .tv-c{max-width:100%}
+#v-tkall .tv-tr .tv-c.tv-wait.tv-empty,#v-tkall .tv-tr .tv-c.tv-fu.tv-empty,#v-tkall .tk2-row .tv-c.tv-wait.tv-empty{visibility:hidden}
+#v-tkall .tv-tr:hover .tv-c.tv-empty,#v-tkall .tv-tr:focus-within .tv-c.tv-empty{visibility:visible}
 #v-tkall .tv-grow td{height:auto;padding:16px 0 4px;background:var(--paper)}
 #v-tkall .tv-grow .tv-ghd{width:auto}
 #v-tkall .tv-bulk{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:60;display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 10px 8px 18px;border:1px solid var(--rule);border-radius:14px;background:var(--paper);box-shadow:0 10px 30px rgba(0,0,0,.18);font-size:15px}
@@ -1863,7 +1874,6 @@ function tvWireCal(w) {
 /* the Calendar: due solid by project, follow-ups outlined */
 #v-tkall .tv-calbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 10px}
 #v-tkall .tv-calbar .btn{min-height:44px}
-#v-tkall .tv-calbar .seg button{min-height:44px;padding:0 14px}
 #v-tkall .tv-caltitle{font-size:16px;margin-left:4px}
 #v-tkall .tv-legend{display:flex;gap:8px;align-items:center}
 #v-tkall .tv-legend .tv-ev{width:auto;--h:212;cursor:default}
@@ -1872,9 +1882,9 @@ function tvWireCal(w) {
 #v-tkall .tv-dow{padding:8px 10px;font-size:13px;font-weight:600;color:var(--ink-3)}
 #v-tkall .tv-day{min-height:116px;padding:4px;box-shadow:inset 0 1px 0 var(--rule-2);min-width:0}
 #v-tkall .tv-cal.week .tv-day{min-height:360px}
-#v-tkall .tv-day.out{background:var(--paper-2)}
-#v-tkall .tv-day.out .tv-dn{color:var(--ink-3)}
-#v-tkall .tv-day.today .tv-dn{color:var(--accent);font-weight:700}
+#v-tkall .tv-day.tv-outm{background:var(--paper-2)}
+#v-tkall .tv-day.tv-outm .tv-dn{color:var(--ink-3)}
+#v-tkall .tv-day.tv-isday .tv-dn{color:var(--accent);font-weight:700}
 #v-tkall .tv-day.tv-over{outline:2px solid var(--accent);outline-offset:-2px}
 #v-tkall .tv-dn{font-size:14px;color:var(--ink-2);padding:2px 6px 4px;display:flex;align-items:center;gap:6px}
 #v-tkall .tv-tdy{font-size:12px;font-weight:600}
