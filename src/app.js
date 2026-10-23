@@ -152633,7 +152633,8 @@ function osMerge(v) {
       (p) =>
         p.children.length >= 2 &&
         !p.closest(
-          "table, .dg, .modal, #mbm, .t2-list, .gantt-wrap, .lcard, .os-row, .dg-tb, .card .hd, .hb-filterbar, .hb-head",
+          // [data-os-keep]: a card that lays out its own controls (a review item's picks above its buttons)
+          "table, .dg, .modal, #mbm, .t2-list, .gantt-wrap, .lcard, .os-row, .dg-tb, .card .hd, .hb-filterbar, .hb-head, [data-os-keep]",
         ) &&
         osVis(p),
     )
