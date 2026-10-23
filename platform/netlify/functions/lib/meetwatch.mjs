@@ -84,6 +84,8 @@ const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').r
 export function membersOf(doc, users, extra) {
   const U = (users || []).filter((u) => u && u.id && u.role !== 'client' && !/^mb_/.test(u.role || ''));
   const ids = new Set(extra.filter(Boolean));
+  // the invited list carries each Google account's address: a user with that address reads the transcript
+  (doc.invited || []).forEach((x) => { const u = U.find((v) => x.email && String(v.email || '').toLowerCase() === x.email); u && ids.add(u.id); });
   (doc.attendees || []).forEach((n) => {
     const k = norm(n), full = U.find((u) => norm(u.name) === k), first = U.filter((u) => norm(u.name).split(' ')[0] === k.split(' ')[0]);
     const u = full || (first.length === 1 ? first[0] : null);

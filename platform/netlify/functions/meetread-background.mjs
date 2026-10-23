@@ -11,7 +11,7 @@ import {CORE, meetKey} from './lib/meetwatch.mjs';
 import {pushTo} from './lib/push.mjs';
 
 export async function readMeeting(ws, meetingId, organizerUid, {ask = claude, push = pushTo} = {}) {
-  const rows = await rest(`collections?select=name,data&workspace_id=eq.${encodeURIComponent(ws)}&name=in.(${['meetings', 'users', 'meettx:' + meetingId].map((n) => encodeURIComponent(`"${n}"`)).join(',')})`);
+  const rows = await rest(`collections?select=name,data&workspace_id=eq.${encodeURIComponent(ws)}&name=in.(${['meetings', 'users', 'company', 'meettx:' + meetingId].map((n) => encodeURIComponent(`"${n}"`)).join(',')})`);
   const C = {}; for (const r of rows || []) C[r.name] = r.data;
   const m = (C.meetings || []).find((x) => x && x.id === meetingId), T = C['meettx:' + meetingId];
   if (!m || !T || !T.text) return {error: 'nothing to read'};
@@ -21,7 +21,9 @@ export async function readMeeting(ws, meetingId, organizerUid, {ask = claude, pu
   const prof = profs && profs[0];
   let items = null, parts = 0, got = 0;
   if (prof) {
-    const ctx = {staff, date: m.date, notes: {steps: (m.steps || []).map((s) => `[${s.owner}] ${s.title}: ${s.detail}`), decisions: (m.decisions || []).map((d) => d.text)}, projects: []};
+    const map = ((C.company || {}).meetSpeakers) || {}, nk = (x) => String(x || '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+    const speakers = (T.speakers || []).map((l) => { const x = map[nk(l)]; return `${l}: ${x ? (x.outside ? 'outside the team' : x.name) : (staff.find((n) => nk(n) === nk(l)) || 'not known')}`; });
+    const ctx = {staff, speakers, date: m.date, notes: {steps: (m.steps || []).map((s) => `[${s.owner}] ${s.title}: ${s.detail}`), decisions: (m.decisions || []).map((d) => d.text)}, projects: []};
     const P = CORE.parts(T.text); parts = P.length;
     const lists = [];
     for (let i = 0; i < P.length; i++) {

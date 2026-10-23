@@ -3877,7 +3877,9 @@ body:has(#drawer.on) section.view .btn.primary,body:has(#mbm) section.view .btn.
 .mrv-a{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
 .mrv-picks{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px} .mrv-pick{display:flex;flex-direction:column;gap:2px;font-size:12px;color:var(--ink-3);min-width:0;flex:1 1 180px} .mrv-pick select,.mrv-pick input{width:100%}
 .mrv-done>summary{cursor:pointer;padding:6px 0;margin-bottom:6px}
-.mrv-card{margin-bottom:10px} .mrv-w{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:6px 0;border-top:1px solid var(--rule)}
+.mrv-card{margin-bottom:10px} .mrv-chk{margin-top:6px} .mrv-shared{margin:0 0 12px}
+.mrv-spk{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;padding:8px 0;border-top:1px solid var(--rule)} .mrv-spk-l{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1 1 200px;overflow-wrap:anywhere}
+.mrv-spks-all>summary{cursor:pointer;padding:4px 0;color:var(--ink-3)} .mrv-w{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:6px 0;border-top:1px solid var(--rule)}
 @media (max-width:760px){
   .mrv-a .btn,.mrv-ph .acts .btn,.mrv-pick select,.mrv-pick input{min-height:44px}
   .mrv-a{gap:10px} .mrv-a .btn{flex:1 1 30%}

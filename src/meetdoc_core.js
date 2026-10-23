@@ -118,7 +118,7 @@ var MEETDOC_CORE = (function () {
         .replace(/\\([\[\]\*_#\-\.\(\)!>`])/g, "$1")
         .replace(/ /g, " "),
       info = nameInfo(o.name || ""),
-      doc = { title: info.title, date: info.date, start: info.start, zone: info.zone, attendees: [], quick: [], summary: "", sections: [], decisions: [], steps: [], details: [], lines: [], links: {} };
+      doc = { title: info.title, date: info.date, start: info.start, zone: info.zone, attendees: [], invited: [], quick: [], summary: "", sections: [], decisions: [], steps: [], details: [], lines: [], links: {} };
     let mode = "",
       sub = "",
       cur = null;
@@ -149,6 +149,8 @@ var MEETDOC_CORE = (function () {
         continue;
       }
       if (/^invited\b/i.test(strip(r))) {
+        // the invited, with the address each Google account carries: how a speaker's label finds its person
+        [...r.matchAll(/\[([^\]]+)\]\(mailto:([^)\s]+)\)/g)].forEach((x) => doc.invited.push({ name: clean(x[1], 80), email: clean(x[2], 120).toLowerCase() }));
         const names = [...r.matchAll(/\[([^\]]+)\]\(mailto:[^)]*\)/g)].map((x) => clean(x[1], 80));
         (names.length ? names : strip(r).replace(/^invited\s*/i, "").split(/,\s*|\s{2,}/))
           .map((n) => clean(n, 80))
@@ -246,9 +248,31 @@ var MEETDOC_CORE = (function () {
         doc.lines.push({ i: doc.lines.length, sec: sec, ts: fmtHms(sec), head: B.ts, exact: 0 === li, speaker: l.speaker, text: l.text });
       });
     });
-    doc.lines.forEach((l) => l.speaker && !/^(unknown|speaker \d+)$/i.test(l.speaker) && !doc.attendees.some((a) => norm(a) === norm(l.speaker) || norm(a).split(" ")[0] === norm(l.speaker)) && doc.attendees.push(l.speaker));
+    doc.speakers = [...new Set(doc.lines.map((l) => l.speaker).filter(Boolean))];
+    doc.shared = sharedDevices(doc);
+    doc.lines.forEach((l) => l.speaker && /[A-Za-z]/.test(l.speaker) && !/^(unknown|speaker \d+)$/i.test(l.speaker) && !doc.attendees.some((a) => norm(a) === norm(l.speaker) || norm(a).split(" ")[0] === norm(l.speaker)) && doc.attendees.push(l.speaker));
     doc.title = doc.title || "Team meeting";
     return doc;
+  }
+  // Two people on one speaker label (one device in the room): the notes say "Chen and Maya reviewed it" while only
+  // Chen ever speaks. Each pair from the notes where one of them speaks and the other never does is a shared label.
+  function sharedDevices(doc) {
+    const speakers = (doc.speakers || []).filter((x) => /[A-Za-z]/.test(x)),
+      people = [...new Set((doc.invited || []).map((x) => x.name).concat(doc.attendees || [], speakers).filter(Boolean))],
+      tok = {};
+    // every word of a person's name (3 letters or more) points to that person: "Biron" is C. Biron, "Maya" Maya Lund
+    people.forEach((n) => norm(n).split(" ").filter((w) => w.length >= 3).forEach((w) => (tok[w] = tok[w] === undefined || tok[w] === n ? n : null)));
+    const speaks = (n) => speakers.some((x) => norm(x) === norm(n)),
+      text = [doc.summary || ""].concat((doc.details || []).map((d) => `${d.h}: ${d.text}`), (doc.sections || []).map((d) => `${d.h}: ${d.text}`), (doc.quick || []).map((d) => `${d.h}: ${d.text}`)).join(" \n "),
+      out = [];
+    for (const mm of text.matchAll(/\b([A-Z][a-z]+)\s+(?:and|&)\s+([A-Z][a-z]+)\b/g)) {
+      const a = tok[norm(mm[1])],
+        b = tok[norm(mm[2])];
+      if (!a || !b || a === b) continue;
+      const pair = speaks(a) && !speaks(b) ? [a, b] : speaks(b) && !speaks(a) ? [b, a] : null;
+      pair && !out.some((x) => x.label === pair[0] && x.with === pair[1]) && out.push({ label: pair[0], with: pair[1], said: clean(mm[0], 60) });
+    }
+    return out;
   }
   // the transcript as text, one line each, for the model and for the meeting's private record
   const transcriptText = (doc) => (doc.lines || []).map((l) => `${l.ts} ${l.speaker}: ${l.text}`).join("\n");
@@ -322,6 +346,7 @@ var MEETDOC_CORE = (function () {
   }
   const sentences = (t) => String(t || "").split(/(?<=[.!?])\s+(?=[A-Z"“])/).map((s) => s.trim()).filter(Boolean);
   const NAME = "([A-Z][a-z]+(?: [A-Z][a-z]+)?)";
+  const VERBS = "call|email|text|send|order|get|check|follow up|chase|book|schedule|ask|confirm|draft|write|measure|price|pay|release|request|reach out|look into|talk to|set up|bring|pick up|drop off|find|update|finish|review|visit|meet";
   const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
   function tidy(s) {
     let t = clean(s, 200).replace(DATE_RX, "").replace(/\s+(please|okay|ok)\b.*$/i, "");
@@ -341,9 +366,15 @@ var MEETDOC_CORE = (function () {
       },
       out = [],
       add = (x, l, s) => out.push(Object.assign({ quote: clean(s, 300), ts: l.ts, line: l.i, speaker: l.speaker, source: "transcript" }, x));
+    const HAVE = new RegExp(`\\b(?:let'?s |i'?ll |we'?ll |can we |we should |)have ${NAME}\\s+(${VERBS})\\b(.*)$`, "i");
+    const MINE = new RegExp(`\\b(?:i'll|i will|i'm going to|i am going to|i'm gonna|let me|i can)\\s+(${VERBS})\\b(.*)$`, "i");
     (doc.lines || []).forEach((l) => {
-      const spk = who(l.speaker),
-        outsider = !spk && l.speaker && !/^(unknown|speaker \d+)$/i.test(l.speaker);
+      // who is talking: the app's speaker map (a person, someone outside the team, or not known yet); with none, a
+      // label that is nobody on the team is someone outside it
+      const S = C.speakerOf ? C.speakerOf(l.speaker) || {} : who(l.speaker) ? { name: who(l.speaker) } : l.speaker && !/^(unknown|speaker \d+)$/i.test(l.speaker) ? { outside: !0 } : { unknown: !0 },
+        spk = S.name || "",
+        outsider = !!S.outside,
+        unknown = !spk && !outsider;
       sentences(l.text).forEach((s) => {
         // the coordinator naming the next task ("STA-22, the stone deposit.") is the walk, not an item
         if (/^(?:(?:now|next|okay|so)[, ]+)?(?:[A-Z0-9][\w ]{0,30}\.\s*)?[A-Z][A-Z0-9]{0,5}-\d{1,4}\b[^.!?]{0,60}[.!?]?$/.test(s) && !/\b(will|can|should|need|move|mark|done|give|update|due|add|note)\b/i.test(s)) return;
@@ -386,12 +417,22 @@ var MEETDOC_CORE = (function () {
         const nt = /\b(?:add a note|put a note|make a note|note that|note it|leave a note)\b[:,]?\s*(?:that\s+)?(.+)$/i.exec(s);
         if (nt) return add({ kind: "note", note: cap(clean(nt[1], 300)), ref: ref }, l, s);
         // new tasks: asked of a named person, or "new task", or promised by someone on the team with a date
+        // "have Angel measure the windows": the named person does it; someone outside the team is Waiting On, and
+        // the speaker owns the chase
+        const hv = HAVE.exec(s);
+        if (hv && !/^(i|we|you|it|that|this|them|him|her)$/i.test(hv[1])) {
+          const doer = who(hv[1]);
+          if (doer) return add({ kind: "task", what: tidy(`${hv[2]}${hv[3]}`), owner: doer, due: dt ? dt.date : "", dueSaid: dt ? dt.said : "", ref: ref }, l, s);
+          return add({ kind: "waiting", what: tidy(`${hv[2]}${hv[3]}`), party: hv[1], owner: spk, ownerFrom: "speaker", speakerUnknown: unknown || outsider, due: dt ? dt.date : "", dueSaid: dt ? dt.said : "", ref: ref }, l, s);
+        }
         const ask = new RegExp(`^(?:okay,? |so,? )?${NAME},?\\s+(?:can you|could you|please|you need to|you should|i need you to|make sure (?:you|to))\\s+(.+)$`, "i").exec(s);
         if (ask && who(ask[1])) return add({ kind: "task", what: tidy(ask[2]), owner: who(ask[1]), due: dt ? dt.date : "", dueSaid: dt ? dt.said : "", ref: ref }, l, s);
         const nw = /\b(?:new task|add a task|create a task|make a task|put a task in)\b[:,]?\s*(?:for\s+([A-Z][a-z]+)\s*)?(?:to\s+)?(.+)$/i.exec(s);
         if (nw) return add({ kind: "task", what: tidy(nw[2]), owner: (nw[1] && who(nw[1])) || "", due: dt ? dt.date : "", dueSaid: dt ? dt.said : "", ref: ref }, l, s);
-        const mine = /\b(?:i'll|i will|i'm going to|let me)\s+(call|email|send|order|get|check|follow up|chase|book|schedule|ask|confirm|draft|write|measure|price|pay|release|request)\b(.*)$/i.exec(s);
-        if (spk && mine && dt) return add({ kind: "task", what: tidy(`${mine[1]}${mine[2]}`), owner: spk, due: dt.date, dueSaid: dt.said, ref: ref }, l, s);
+        // a first-person promise: the speaker is the proposed owner (someone outside the team was caught above as
+        // Waiting On; a speaker not known yet leaves the owner to be asked)
+        const mine = MINE.exec(s);
+        if (mine && !outsider) return add({ kind: "task", what: tidy(`${mine[1]}${mine[2]}`), owner: spk, ownerFrom: "speaker", speakerUnknown: unknown, due: dt ? dt.date : "", dueSaid: dt ? dt.said : "", ref: ref }, l, s);
       });
     });
     return merge([out, fromNotes(doc, C)]);
@@ -435,7 +476,7 @@ Find everything the meeting said should change on the board, including what Gemi
 {"kind":"task|date|done|note|owner|waiting|track|decision|money|project|meeting","what":"short, plain","ref":"a task ID said aloud like PAD-23, else empty","owner":"the ONE team member in charge, from the staff list, else empty","party":"an outsider who owes something (vendor, consultant, client, sub), else empty","due":"YYYY-MM-DD, resolved from what was said, else empty","dueSaid":"the words said","note":"for kind note","status":"aligned|discuss (decisions)","amount":number or null,"moneyKind":"deposit|credit|chargeback|zerocost|overhead|bill|other","project":"the job named, else empty","quote":"the sentence, word for word","ts":"hh:mm:ss of that line"}
 Kinds: task = new work; date = the task on screen gets a new date; done = it is finished; note = add a note; owner = reassign to a team member; waiting = an outsider promised something (party, what, the promised date); track = watch it until a date; decision; money = a deposit, credit, chargeback, zero-cost item or overhead; project = a new job; meeting = a follow-up meeting to set up.
 Rules: every task has one internal owner from the staff list; a vendor or consultant is never the owner, they are the party. Never invent a name, date or amount. Use the ts printed at the start of the line the quote comes from.
-Staff: ${(C.staff || []).join("; ")}. Jobs: ${(C.projects || []).map((p) => `${p.name}${p.prefix ? ` (${p.prefix})` : ""}`).join("; ")}.
+Staff: ${(C.staff || []).join("; ")}.${(C.speakers || []).length ? ` Speakers (the label in the transcript: who it is): ${C.speakers.join("; ")}. A promise in the first person ("I'll call her") makes the speaker the owner when the speaker is on the staff; "have X do Y" makes X the owner when X is on the staff, else X is the party and the speaker the owner; a speaker who is not known leaves the owner empty.` : ""} Jobs: ${(C.projects || []).map((p) => `${p.name}${p.prefix ? ` (${p.prefix})` : ""}`).join("; ")}.
 GEMINI'S NOTES: ${JSON.stringify(C.notes || {})}
 TRANSCRIPT PART ${i + 1} OF ${n}:
 ${part}`;
@@ -527,6 +568,6 @@ ${part}`;
     });
     return best;
   }
-  return { KINDS, clean, norm, words, sim, hms, fmtHms, wall, wallIso, nameInfo, usDst, parseDoc, transcriptText, dateSaid, rules, fromNotes, parts, prompt, parseAnswer, merge, onScreen, bestShift, amountOf, REF };
+  return { KINDS, clean, norm, words, sim, hms, fmtHms, wall, wallIso, nameInfo, usDst, parseDoc, sharedDevices, transcriptText, dateSaid, rules, fromNotes, parts, prompt, parseAnswer, merge, onScreen, bestShift, amountOf, REF };
 })();
 if ("undefined" != typeof module && module && module.exports) module.exports = MEETDOC_CORE;

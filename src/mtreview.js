@@ -197,7 +197,9 @@ function mrvIngest(text, opts) {
   m.owner = m.owner && m.owner.uid ? m.owner : mrvOwnerFor(o);
   let T = mrvTextOf(m);
   T || ((T = { id: `mx_${m.id}`, meetingId: m.id }), DB.meetText.push(T));
-  Object.assign(T, { members: mrvMembers(m, T.members), text: MRV.transcriptText(doc), lines: doc.lines, start: doc.start || T.start || "", links: Object.assign({}, T.links || {}, doc.links || {}), url: m.doc.url || "", at: appNowIso() });
+  // the shared-device flag holds names only (who sat with whom), so it rides on the meeting for everyone who reviews it
+  m.sharedDevice = (doc.shared || []).map((x) => ({ label: x.label, with: x.with }));
+  Object.assign(T, { invited: doc.invited || [], speakers: doc.speakers || [], members: mrvMembers(m, T.members), text: MRV.transcriptText(doc), lines: doc.lines, start: doc.start || T.start || "", links: Object.assign({}, T.links || {}, doc.links || {}), url: m.doc.url || "", at: appNowIso() });
   delete m.transcript; // the words live on the attendees' record only
   m.review = { state: "new", at: appNowIso(), source: o.source || "paste" };
   try {
@@ -206,8 +208,63 @@ function mrvIngest(text, opts) {
   return m;
 }
 // ---- reading: the model where it is reachable (the server's read, or the assistant here), the rules otherwise ----
+// ---- who is talking: each speaker label to a person, saved once for the workspace -----------------------------
+// DB.company.meetSpeakers: {label (normalised): {uid, name} | {outside: true}, how, by, at}. A label is found by the
+// map, then by the Google account's address on the doc's invited list, then by a name on the team, then as a
+// vendor or client on file (someone outside the team). A dial-in number or a guest nobody knows is asked once.
+const mrvSpk = () => ((DB.company = DB.company || {}), (DB.company.meetSpeakers = DB.company.meetSpeakers || {}), DB.company.meetSpeakers);
+const mrvEmailOf = (u) => String(u.email || (/@/.test(u.contact || "") ? u.contact : "") || ((DB.conn || {})[u.id] || {}).email || "").toLowerCase().trim();
+function mrvSpeakerOf(m, label) {
+  const k = mtNorm(label || "");
+  if (!k) return { unknown: !0 };
+  const M = mrvSpk(),
+    hit = M[k];
+  if (hit) return hit.outside ? { outside: !0, how: hit.how } : { name: hit.name, uid: hit.uid, how: hit.how };
+  const keep = (x) => ((M[k] = Object.assign({ label: String(label), by: "the reader", at: appNowIso() }, x)), x.outside ? { outside: !0, how: x.how } : { name: x.name, uid: x.uid, how: x.how });
+  const T = mrvTextOf(m),
+    inv = ((T && T.invited) || []).find((x) => mtNorm(x.name) === k),
+    email = (inv && inv.email) || "";
+  if (email) {
+    const u = (DB.users || []).find((x) => "client" !== x.role && !/^mb_/.test(x.role || "") && mrvEmailOf(x) === email);
+    if (u) return keep({ uid: u.id, name: u.name, how: "email" });
+    const dom = email.split("@")[1] || "";
+    const outside = (DB.vendors || []).some((v) => String(v.email || "").toLowerCase() === email) || (DB.clients || []).some((c) => (c.contacts || []).some((x) => String(x.email || "").toLowerCase() === email));
+    if (outside) return keep({ outside: !0, how: "email" });
+    dom && (DB.vendors || []).some((v) => String(v.email || "").toLowerCase().endsWith("@" + dom) && !/gmail|yahoo|outlook|icloud|example/.test(dom)) && (M[k] = { outside: !0, how: "domain", label: String(label), by: "the reader", at: appNowIso() });
+    if (M[k]) return { outside: !0, how: "domain" };
+  }
+  const w = mrvWho(label);
+  if (w && /[A-Za-z]/.test(label)) return keep({ uid: mrvUserId(w), name: w, how: "name" });
+  const first = k.split(" ")[0];
+  if (first.length >= 3 && /^[a-z]/.test(first) && ((DB.vendors || []).some((v) => mtNorm(v.name).split(" ")[0] === first) || (DB.clients || []).some((c) => mtNorm(c.name).split(" ").includes(first)))) return keep({ outside: !0, how: "name" });
+  return { unknown: !0 };
+}
+function mrvSetSpeaker(label, value) {
+  const k = mtNorm(label || "");
+  if (!k) return;
+  const me = mrvMe(),
+    was = mrvSpk()[k];
+  if ("__out" === value) mrvSpk()[k] = { label: String(label), outside: !0, how: "person", by: me.name || "", at: appNowIso() };
+  else {
+    const u = (DB.users || []).find((x) => x.id === value || x.name === value);
+    const n = u ? u.name : mrvWho(value);
+    if (!n) return;
+    mrvSpk()[k] = { label: String(label), uid: u ? u.id : mrvUserId(n), name: n, how: "person", by: me.name || "", at: appNowIso() };
+  }
+  try {
+    audit("company", k, "meetSpeaker", was ? was.name || (was.outside ? "outside" : "") : "", mrvSpk()[k].name || "outside", String(label));
+  } catch (e) {}
+  // every review not yet settled reads its lines again with the answer
+  (DB.meetings || []).forEach((m) => m.review && "built" === m.review.state && (mrvTextOf(m) || {}).speakers && mrvTextOf(m).speakers.some((x) => mtNorm(x) === k) && mrvBuild(m));
+  save();
+}
 function mrvCtx(m) {
   return {
+    speakerOf: (l) => mrvSpeakerOf(m, l),
+    speakers: ((mrvTextOf(m) || {}).speakers || []).map((l) => {
+      const x = mrvSpeakerOf(m, l);
+      return `${l}: ${x.name || (x.outside ? "outside the team" : "not known")}`;
+    }),
     staff: mrvStaff(),
     date: m.date || today(),
     projects: (DB.projects || []).map((p) => ({ id: p.id, name: mrvPName(p), prefix: mrvPrefix(p) })),
@@ -338,7 +395,8 @@ function mrvClientJob(text) {
     return null;
   }
 }
-function mrvPropose(m, T, x, C) {
+function mrvPropose(m, T, x0, C) {
+  let x = x0;
   const li = mrvLineOf(T, x),
     line = li >= 0 ? C.lines[li] : null,
     sec = line && null != C.s0 ? C.s0 + line.sec + C.shift : null,
@@ -370,6 +428,15 @@ function mrvPropose(m, T, x, C) {
   }
   const id = `mrv_${m.id}_${mrvHash(`${x.kind}|${x.ts || ""}|${x.ref || ""}|${x.what || x.note || ""}|${x.source || ""}`)}`,
     pr = { id: id, review: !0, status: "proposed", kind: "", title: "", detail: "", line: li, ts: line ? line.ts : x.ts || "", head: line ? line.head : "", speaker: line ? line.speaker : x.speaker || "", source: x.source || "transcript", quote: "transcript" === (x.source || "transcript") && li >= 0 ? "" : MRV.clean(x.quote, 300), how: how, taskKey: task ? task.key : "", ref: task ? task.ref : x.ref || "", projectId: p ? p.id : "", apply: {}, at: sec != null ? MRV.wallIso(sec).slice(11) : "" };
+  // who said it: a promise in the first person makes the speaker the owner; an unknown speaker is asked about once,
+  // and a speaker label that two people shared leaves an owner taken from it to be checked
+  const spk = line ? mrvSpeakerOf(m, line.speaker) : {},
+    shared = line && (m.sharedDevice || []).find((d) => mtNorm(d.label) === mtNorm(line.speaker));
+  if (x.ownerFrom === "speaker" && spk.name && !mrvWho(x.owner)) x = Object.assign({}, x, { owner: spk.name });
+  if (x.owner && !mrvWho(x.owner) && spk.name && mtNorm(x.owner) === mtNorm(line.speaker)) x = Object.assign({}, x, { owner: spk.name });
+  pr.speakerName = spk.name || "";
+  x.speakerUnknown && spk.unknown && (pr.needSpeaker = !0);
+  shared && x.ownerFrom === "speaker" && (pr.confirm = { label: shared.label, with: shared.with });
   const t = task ? task.x : null,
     tTitle = t ? t.title : "",
     tName = `${task && task.ref ? task.ref + " · " : ""}${tTitle}`;
@@ -468,6 +535,7 @@ function mrvNeeds(pr) {
   "event" === pr.kind && !mrvWho(A.owner || "") && out.push("owner");
   ("task" === pr.kind || "decision" === pr.kind) && !A.projectId && !A.office && out.push("project");
   "tkdate" === pr.kind && !A.due && out.push("date");
+  pr.needSpeaker && !mrvWho(A.assignee || A.owner || "") && out.push("speaker");
   return out;
 }
 // Waiting On, in the task record's shape ({name, what, promised, evidence}; Meeting Mode's tkSetWaiting when there):
@@ -721,16 +789,30 @@ function mrvItemHtml(m, pr, can) {
     : "";
   const how = { id: "matched by the ID said", screen: "on screen when it was said", said: "the task named just before", words: "matched by its words" }[pr.how] || "";
   const state = "live" === st ? `<div class="small ok">${mrvSvg("check")} Entered live${pr.liveBy ? ` by ${esc(pr.liveBy)}` : ""}${pr.liveAt ? ` at ${esc(String(pr.liveAt).slice(11, 16))}` : ""}: nothing to do</div>` : "board" === st ? `<div class="small muted">Already so on the board: ${esc(pr.boardWhy || "")}</div>` : "applied" === st ? `<div class="small ok">${mrvSvg("check")} Applied ${fmtL(pr.appliedAt)}${pr.by ? ` by ${esc(pr.by)}` : ""}</div>` : "skipped" === st ? `<div class="small muted">Rejected${pr.by ? ` by ${esc(pr.by)}` : ""}</div>` : "";
-  const picks = need.length ? `<div class="mrv-picks">${need.includes("task") ? mrvTaskSel(pr) : ""}${need.includes("project") ? mrvProjSel(pr) : ""}${need.includes("owner") ? mrvOwnerSel(pr) : ""}${need.includes("date") ? `<label class="mrv-pick"><span>Date</span><input type="date" data-mrvdate="${esc(pr.id)}" aria-label="Date"></label>` : ""}</div>` : "";
-  const acts = "proposed" === st && can ? `<div class="mrv-a"><button class="btn sm" data-mrvok="${esc(pr.id)}" ${need.length ? "disabled" : ""} title="${need.length ? `Pick the ${need.join(" and the ")} first` : "Apply it to the board"}">Accept</button><button class="btn sm ghost" data-mrvedit="${esc(pr.id)}">Edit</button><button class="btn sm ghost" data-mrvno="${esc(pr.id)}">Reject</button></div>` : "";
-  return `<div class="mrv-it ${esc(st)}" data-mrvit="${esc(pr.id)}"><div class="mrv-hd"><span class="mrv-k">${esc(MT_KIND[pr.kind] || pr.kind)}</span><b>${esc(pr.title)}</b></div>${pr.detail ? `<div class="small mrv-d">${esc(pr.detail)}${how && "proposed" === st ? ` <span class="muted">· ${esc(how)}</span>` : ""}</div>` : ""}${quote}${state}${picks}${acts}</div>`;
+  const picks = need.length || ("proposed" === st && pr.confirm) ? `<div class="mrv-picks">${need.includes("task") ? mrvTaskSel(pr) : ""}${need.includes("project") ? mrvProjSel(pr) : ""}${need.includes("owner") || pr.confirm ? mrvOwnerSel(pr) : ""}${need.includes("date") ? `<label class="mrv-pick"><span>Date</span><input type="date" data-mrvdate="${esc(pr.id)}" aria-label="Date"></label>` : ""}</div>` : "";
+  const chk = "proposed" === st && pr.confirm ? `<div class="small warn mrv-chk">Check the owner: ${esc(pr.confirm.label)} and ${esc(pr.confirm.with)} shared a device, so this line may be either's. Accept All leaves it for you.</div>` : "",
+    spkNeed = need.includes("speaker") ? `<div class="small warn mrv-chk">Who is speaking is not known yet: say who above, or pick the owner here.</div>` : "";
+  const acts = "proposed" === st && can ? `<div class="mrv-a"><button class="btn sm" data-mrvok="${esc(pr.id)}" ${need.length ? "disabled" : ""} title="${need.length ? `Pick the ${need.filter((n) => "speaker" !== n).join(" and the ") || "owner"} first` : "Apply it to the board"}">Accept</button><button class="btn sm ghost" data-mrvedit="${esc(pr.id)}">Edit</button><button class="btn sm ghost" data-mrvno="${esc(pr.id)}">Reject</button></div>` : "";
+  return `<div class="mrv-it ${esc(st)}" data-mrvit="${esc(pr.id)}"><div class="mrv-hd"><span class="mrv-k">${esc(MT_KIND[pr.kind] || pr.kind)}</span><b>${esc(pr.title)}</b></div>${pr.detail ? `<div class="small mrv-d">${esc(pr.detail)}${how && "proposed" === st ? ` <span class="muted">· ${esc(how)}</span>` : ""}</div>` : ""}${quote}${state}${chk}${spkNeed}${picks}${acts}</div>`;
+}
+// Who Is Speaking: every label in this meeting's transcript, the unknown ones first and open; one answer is kept for
+// the workspace (a dial-in number or a guest is asked once, then remembered)
+function mrvSpeakersHtml(m, can) {
+  const T = mrvTextOf(m);
+  if (!T || !(T.speakers || []).length) return "";
+  const L = T.speakers.map((lab) => ({ lab: lab, s: mrvSpeakerOf(m, lab), line: mrvCanRead(m) ? (T.lines || []).find((l) => l.speaker === lab) : null })),
+    unk = L.filter((x) => x.s.unknown),
+    staff = (DB.users || []).filter((u) => u.name && !/^(client|mb_user|mb_analyst)$/.test(u.role || ""));
+  const row = (x) => `<div class="mrv-spk"><div class="mrv-spk-l"><b>${esc(x.lab)}</b>${x.line ? `<span class="small muted">“${esc(MRV.clean(x.line.text, 90))}”</span>` : ""}</div>${can ? `<label class="mrv-pick"><span>Is</span><select data-mrvspk="${esc(x.lab)}" aria-label="Who ${esc(x.lab)} is"><option value="">${x.s.unknown ? "Who is this?" : ""}</option>${staff.map((u) => `<option value="${u.id}" ${x.s.uid === u.id || x.s.name === u.name ? "selected" : ""}>${esc(u.name)}</option>`).join("")}<option value="__out" ${x.s.outside ? "selected" : ""}>Someone outside the team</option></select></label>` : `<span class="small">${esc(x.s.name || (x.s.outside ? "outside the team" : "not known yet"))}</span>`}</div>`;
+  const shared = (m.sharedDevice || []).length ? `<div class="note warn mrv-shared">Some speakers shared a device; owners from their lines need a check: ${(m.sharedDevice || []).map((d) => `${esc(d.with)} spoke on ${esc(d.label)}'s line`).join("; ")}.</div>` : "";
+  return `${shared}${unk.length ? `<section class="mrv-g mrv-spks"><h3>Who Is Speaking <span class="muted small">${unk.length} not known</span></h3>${unk.map(row).join("")}</section>` : ""}<details class="mrv-g mrv-spks-all"><summary class="small">Speakers: ${L.filter((x) => !x.s.unknown).map((x) => `${esc(x.lab)} is ${esc(x.s.name || "outside the team")}`).join(" · ") || "none known"}</summary>${L.filter((x) => !x.s.unknown).map(row).join("")}</details>`;
 }
 function mrvHtml(m) {
   const all = mrvReview(m),
     can = "function" == typeof mtCanApprove ? mtCanApprove() : !1,
     R = m.review || {},
     open = all.filter((p) => "proposed" === p.status),
-    ready = open.filter((p) => !mrvNeeds(p).length),
+    ready = open.filter((p) => !mrvNeeds(p).length && !p.confirm),
     waitPick = open.filter((p) => mrvNeeds(p).length),
     done = all.filter((p) => "proposed" !== p.status),
     order = [];
@@ -752,6 +834,7 @@ function mrvHtml(m) {
   <div class="ph mrv-ph"><div><h2 data-ia-keep="1">Meeting Review</h2><div class="lead">${esc(m.title)} · ${fmtL(m.date)} · ${open.length} to review${waitPick.length ? `, ${waitPick.length} waiting for a pick` : ""}${R.by ? ` · read ${"model" === R.by ? "by the assistant" : "by the rules"} from the whole transcript` : ""}</div></div>
   <div class="acts">${ready.length && can ? `<button class="btn primary" id="mrv-all">Accept All · ${ready.length}</button>` : ""}<button class="btn" id="mrv-record">Meeting Record</button>${link ? `<a class="btn" href="${esc(link)}" target="_blank" rel="noopener">Open the Doc</a>` : ""}${can && "function" == typeof ai && "function" == typeof aiReady && aiReady() && mrvCanRead(m) && "model" !== R.by ? '<button class="btn" id="mrv-ai">Read With the Assistant</button>' : ""}</div></div>
   ${reading ? '<div class="note">The transcript is being read. Its items appear here in a few minutes; nothing changes the board until you accept it.</div>' : ""}
+  ${mrvSpeakersHtml(m, can)}
   <div class="small muted mrv-why">Nothing changes the board until it is accepted. Accepted items go to their owners' Today with this meeting as the source.${why ? ` ${esc(why)}.` : ""}</div>
   ${keys.length ? keys.map((k) => `<section class="mrv-g" data-mrvg="${esc(k)}"><h3>${esc(gname(k))} <span class="muted small">${groups[k].length}</span></h3>${groups[k].map((p) => mrvItemHtml(m, p, can)).join("")}</section>`).join("") : `<div class="card"><div class="small">${all.length ? "Everything from this meeting is settled." : reading ? "" : "Nothing in the transcript needs a change on the board."}</div></div>`}
   ${done.length ? `<details class="mrv-g mrv-done" ${mrvShowDone ? "open" : ""}><summary><b>Settled</b> <span class="muted small">${done.filter((p) => "live" === p.status).length} entered live · ${done.filter((p) => "board" === p.status).length} already on the board · ${done.filter((p) => "applied" === p.status).length} applied · ${done.filter((p) => "skipped" === p.status).length} rejected</span></summary>${done.map((p) => mrvItemHtml(m, p, can)).join("")}</details>` : ""}`;
@@ -820,7 +903,7 @@ function mrvAccept(m, pr) {
   toast(`Applied: ${pr.title}`, [{ label: "Open", run: () => (key && "function" == typeof tkOpen ? tkOpen(key) : r.projectId ? (setCurrent(r.projectId), (view = "dash"), render()) : mrvOpen(m.id)) }]);
 }
 function mrvAcceptAll(m) {
-  const L = mrvWaiting(m).filter((p) => !mrvNeeds(p).length);
+  const L = mrvWaiting(m).filter((p) => !mrvNeeds(p).length && !p.confirm);
   let n = 0;
   L.filter((p) => "project" === p.kind).concat(L.filter((p) => "project" !== p.kind)).forEach((p) => {
     const r = mrvApply(m, p);
@@ -869,6 +952,7 @@ function mrvWire(host, m) {
         const pr = by(s.dataset.mrvowner);
         if (!pr || !s.value) return;
         "task" === pr.kind ? (pr.apply.assignee = s.value) : (pr.apply.owner = s.value);
+        delete pr.confirm;
         mrvRetitle(pr), pickThen(pr, `Owner ${s.value}`);
       }),
   );
@@ -903,6 +987,17 @@ function mrvWire(host, m) {
         pr.apply.due = s.value;
         pr.to = s.value;
         mrvRetitle(pr), pickThen(pr, `Date ${fmtL(s.value)}`);
+      }),
+  );
+  q("[data-mrvspk]").forEach(
+    (s) =>
+      (s.onchange = () => {
+        if (!s.value) return;
+        const lab = s.dataset.mrvspk;
+        mrvSetSpeaker(lab, s.value);
+        render();
+        const who = "__out" === s.value ? "someone outside the team" : ((DB.users || []).find((u) => u.id === s.value) || {}).name || s.value;
+        toast(`${lab} is ${who}, for every meeting from now on: ${mrvWaiting(m).length} to review`, [{ label: "Open", run: () => mrvOpen(m.id) }]);
       }),
   );
   const d = host.querySelector(".mrv-done");

@@ -41,6 +41,23 @@ ok(has('waiting', /Ruth Okafor/, /2026-09-08/) && has('date', /2026-09-04/, /00:
 ok(has('done', /00:06:43/) && has('owner', /"owner":"Alan"/) && has('note', /phone/) && has('money', /1250/, /credit/) && has('meeting', /2026-09-10/) && has('decision', /discuss/), 'and the completion, the reassignment, the note, the credit, the meeting to set up and the decision to discuss');
 ok(R.filter((x) => /clear the bathroom/i.test(x.what)).length === 1, "Gemini's step said in the room is one item, not two");
 ok(!R.some((x) => /^STA-2\d, the/.test(x.quote || '')), 'naming the next task is the walk, not an item');
+// who is talking (2026-10-23): the invited carry their Google addresses; a dial-in is a speaker nobody knows; two
+// people on one label are flagged; a first-person promise makes the speaker the owner; "have X do Y" makes X the doer
+const SP = CORE.parseDoc(fs.readFileSync(here('../../tests/meeting_sample_speakers.md'), 'utf8'), {name: 'Coordination - 2026/09/03 14:00 EDT - Notes by Gemini'});
+ok(SP.invited.some((x) => x.name === 'C. Biron' && x.email === 'chen@example.com') && SP.speakers.includes('+1 212-555-0144'), `the invited keep their addresses; a dial-in is a speaker: ${SP.speakers}`);
+ok(SP.shared.length === 1 && SP.shared[0].label === 'C. Biron' && SP.shared[0].with === 'Maya Lund', `"C. Biron and Maya reviewed", with Maya never speaking, is a shared device: ${JSON.stringify(SP.shared)}`);
+ok(doc.shared.length === 0, 'the first meeting has no shared device');
+const MAP = {'C. Biron': {name: 'Chen Biron'}, Alan: {name: 'Alan'}};
+const SR = CORE.rules(SP, {staff: ['Owner', 'Alan', 'Chen Biron', 'Angel'], date: SP.date, speakerOf: (l) => MAP[l] || {unknown: true}});
+const sp = (rx) => SR.find((x) => rx.test(x.what || ''));
+ok(sp(/call the expediter/i).owner === 'Alan' && sp(/call the expediter/i).ownerFrom === 'speaker' && sp(/call the expediter/i).due === '2026-09-04', "'I'll call the expediter tomorrow': Alan, the speaker, owns it");
+ok(sp(/tile layout/i).owner === 'Chen Biron', "'I'm going to send': the speaker owns it");
+ok(sp(/measure the parlor/i).owner === 'Angel' && sp(/measure the parlor/i).kind === 'task', "'have Angel measure': Angel does it");
+ok(sp(/template photos/i).kind === 'waiting' && sp(/template photos/i).party === 'Kestrel' && sp(/template photos/i).owner === 'Chen Biron', "'have Kestrel send': Kestrel is Waiting On, the speaker owns the chase");
+ok(sp(/permit drawings/i).owner === '' && sp(/permit drawings/i).speakerUnknown, "a dial-in's promise asks who is speaking before anyone owns it");
+const SR2 = CORE.rules(SP, {staff: ['Owner', 'Alan', 'Chen Biron', 'Angel'], date: SP.date, speakerOf: (l) => MAP[l] || {outside: true}});
+ok(SR2.find((x) => /permit drawings/i.test(x.what)).kind === 'waiting', 'once the dial-in is someone outside the team, the promise is Waiting On');
+ok(/Speakers \(the label/.test(CORE.prompt('x', 0, 1, {speakers: ['C. Biron: Chen Biron']})), 'the model is told who each speaker is');
 // time against the screen log
 const log = [{taskKey: 'LEN-7', from: '2026-09-03T10:08:30', to: '2026-09-03T10:11:00'}, {taskKey: 'LEN-8', from: '2026-09-03T10:11:00', to: '2026-09-03T10:13:00'}];
 ok(CORE.onScreen(log, CORE.wall('2026-09-03T09:58:00') + 747) === 'LEN-7', '00:12:27 after a 09:58 start is LEN-7 on screen');

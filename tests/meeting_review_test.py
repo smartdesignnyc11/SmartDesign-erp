@@ -91,6 +91,13 @@ async def main():
         note = one('tknote', 'STA-23'); own = one('tkowner', 'STA-23'); cr = one('money', 'STA-23')
         c.ok(isinstance(note, dict) and 'phone' in note['apply']['text'] and isinstance(own, dict) and own['apply']['owner'] == 'Alan', f'the note and the reassignment land on STA-23: {note} {own}')
         c.ok(isinstance(cr, dict) and cr['apply']['amount'] == 1250 and (cr['apply'].get('link') or {}).get('kind') == 'bill', f"the credit carries its amount and the Window Works bill it touches: {cr}")
+        # who is talking: the vendor is outside the team (on file); the expediter, a guest nobody knows, is asked once
+        spk = await pg.evaluate("JSON.stringify(DB.company.meetSpeakers)")
+        c.ok('"carlos"' in spk and '"outside":true' in spk and '"chen biron"' in spk, f'speakers on file are mapped and saved for the workspace: {spk[:300]}')
+        ruth = [x for x in P if 'speaker' in x['needs']]
+        c.ok(len(ruth) == 1 and 'inspection slot' in ruth[0]['title'] and not ruth[0]['apply'].get('assignee'), f'the guest nobody knows is asked about before her promise has an owner: {ruth}')
+        await pg.evaluate("mrvSetSpeaker('Ruth Okafor', '__out')")
+        R = await review(pg); P = R['P']
         w8 = one('tkwait', 'LEN-8')
         c.ok(isinstance(w8, dict) and w8['apply']['party'] == 'Ruth Okafor' and w8['apply']['by'] == '2026-09-08' and w8['apply']['owner'] == 'Alan', f"the expediter's promise is Waiting On, on LEN-8, owned by its owner: {w8}")
         w21 = one('tkwait', 'STA-21')
@@ -204,6 +211,51 @@ async def main():
         await pg.wait_for_timeout(300)
         d = await pg.evaluate("DB.projects.find(p => p.id === 'p206').actions.find(a => a.code === 'LEN-7').due")
         c.ok(d == '2026-09-04', 'the owner can accept it too')
+        L = await pg.evaluate("""(m => ({live: m.proposals.filter(p => p.review && p.status === 'live').map(p => p.liveBy),
+            mine: m.changes.filter(c => !c.via).map(c => c.by), review: m.changes.filter(c => c.via === 'review').map(c => c.by)}))(DB.meetings.find(m => m.id === 'mt_live'))""")
+        c.ok(L['live'] and set(L['live']) == {'Chen Biron'} and set(L['mine']) == {'Chen Biron'} and set(L['review']) == {'Owner'},
+             f"a change made live stays the coordinator's, who clicked it; what the owner accepted is the owner's: {L}")
+        await b.close()
+
+        # ---------------------------------------------------------------- who is talking: a dial-in, a shared device, promises
+        SPK = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'meeting_sample_speakers.md'), encoding='utf-8').read()
+        b, pg, errs6 = await open_app(p)
+        await setup(pg, 'u_chen')
+        await pg.evaluate("DB.users.find(u => u.id === 'u_chen').email = 'chen@example.com'")
+        sid = await pg.evaluate("([d]) => { const m = mrvIngest(d, {name: 'Coordination - 2026/09/03 14:00 EDT - Notes by Gemini', source: 'drive', docId: 'doc2'}); mrvRun(m); return m.id; }", [SPK])
+        S = await pg.evaluate("""id => { const m = DB.meetings.find(x => x.id === id); return {map: DB.company.meetSpeakers, shared: m.sharedDevice,
+            P: m.proposals.filter(p => p.review).map(p => ({id: p.id, title: p.title, kind: p.kind, status: p.status, owner: p.apply.assignee || p.apply.owner || '', party: p.apply.party || '', confirm: !!p.confirm, needs: mrvNeeds(p)}))}; }""", sid)
+        c.ok((S['map'].get('c biron') or {}).get('name') == 'Chen Biron' and S['map']['c biron'].get('how') == 'email', f"a speaker label finds its person by the Google account's address on the invited list: {S['map'].get('c biron')}")
+        sp = lambda rx: next((x for x in S['P'] if re.search(rx, x['title'], re.I)), None)
+        c.ok((sp('call the expediter') or {}).get('owner') == 'Alan', f"\"I'll call the expediter\": the speaker owns it: {sp('call the expediter')}")
+        c.ok((sp('measure the parlor') or {}).get('owner') == 'Angel', f'"have Angel measure": Angel does it: {sp("measure the parlor")}')
+        k = sp('template photos')
+        c.ok(k and k['party'] == 'Kestrel' and k['owner'] == 'Chen Biron', f'"have Kestrel send": Kestrel is Waiting On, the speaker owns the chase: {k}')
+        dial = sp('permit drawings')
+        c.ok(dial and 'speaker' in dial['needs'] and not dial['owner'], f"a dial-in's promise waits for who is speaking: {dial}")
+        tile = sp('tile layout')
+        c.ok(S['shared'] == [{'label': 'C. Biron', 'with': 'Maya Lund'}] and tile and tile['confirm'] and tile['owner'] == 'Chen Biron', f'a shared device flags the meeting, and owners from that line are to check: {S["shared"]} {tile}')
+        await pg.evaluate("id => mrvOpen(id)", sid)
+        await pg.wait_for_timeout(250)
+        txt = await pg.evaluate("document.getElementById('meetings-body').innerText")
+        c.ok('Some speakers shared a device; owners from their lines need a check' in txt and 'Who Is Speaking' in txt and '+1 212-555-0144' in txt, 'the review says so, and asks who the dial-in is')
+        allb = await pg.evaluate("(document.getElementById('mrv-all') || {}).textContent || ''")
+        n_ready = len([x for x in S['P'] if x['status'] == 'proposed' and not x['needs'] and not x['confirm']])
+        c.ok(allb.endswith(str(n_ready)) and n_ready >= 2, f'Accept All leaves the owners to check and the unknown speaker: {allb} ({n_ready})')
+        await pg.screenshot(path=os.path.join(OUT, 'desktop_review_speakers.png'))
+        await pg.select_option('[data-mrvspk="+1 212-555-0144"]', '__out')
+        await pg.wait_for_timeout(300)
+        toast = await pg.evaluate("document.getElementById('toast').innerText")
+        dial = await pg.evaluate("id => DB.meetings.find(x => x.id === id).proposals.filter(p => p.review && /permit drawings/i.test(p.title)).map(p => [p.kind, p.apply.party || '', mrvNeeds(p)])", sid)
+        c.ok('for every meeting from now on' in toast and dial and dial[0][1] == '+1 212-555-0144' and 'speaker' not in dial[0][2], f'answered once: the dial-in is outside the team and their promise is Waiting On: {dial} {toast}')
+        await pg.click('#mrv-all')
+        await pg.wait_for_timeout(300)
+        left = await pg.evaluate("id => DB.meetings.find(x => x.id === id).proposals.filter(p => p.review && p.status === 'proposed').map(p => p.title)", sid)
+        c.ok(any('tile layout' in t.lower() for t in left), f'Accept All left the owner to check for a person: {left}')
+        # remembered: the next meeting with the same dial-in does not ask again
+        sid2 = await pg.evaluate("([d]) => { const m = mrvIngest(d.replace(/Sep 3, 2026/g, 'Sep 10, 2026'), {name: 'Coordination - 2026/09/10 14:00 EDT - Notes by Gemini', source: 'drive', docId: 'doc3'}); mrvRun(m); return m.id; }", [SPK])
+        again = await pg.evaluate("id => DB.meetings.find(x => x.id === id).proposals.filter(p => p.review && mrvNeeds(p).includes('speaker')).length", sid2)
+        c.ok(sid2 != sid and again == 0, f'the next meeting with that dial-in does not ask again: {again}')
         await b.close()
 
         b, pg, errs3 = await open_app(p)
@@ -268,7 +320,7 @@ async def main():
         c.ok(not any(x['projectId'] == '' and x['status'] == 'applied' for x in R['P']), 'nothing is filed under no project')
         await b.close()
 
-        allerrs = [e for e in errs + errs2 + errs3 + errs4 + errs5 if 'favicon' not in e]
+        allerrs = [e for e in errs + errs2 + errs3 + errs4 + errs5 + errs6 if 'favicon' not in e]
         c.ok(not allerrs, f'no errors: {allerrs[:3]}')
     return c.done()
 
