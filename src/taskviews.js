@@ -431,7 +431,7 @@ function tvSetProject(I, pid) {
 // a task made here must be on the screen that made it (BACKLOG §1.16 layer 3): if the filters hide it, they open up
 function tvMakeFindable(key) {
   if (tvRows().some((x) => t2Key(x) === key)) return;
-  ["team", "none"].includes(tkWho) || (tkWho !== "me" && tkWho !== "all") ? (tkWho = "all") : 0;
+  "me" === tkWho || "all" === tkWho || (tkWho = "all");
   "done" !== t2View && (t2View = "all");
   tkArea = "";
   tkPri = "";
@@ -1425,7 +1425,7 @@ function tvWireTable(w) {
           next = i < 0 ? "asc" : "asc" === S[i].dir ? "desc" : "";
         if (e.shiftKey) {
           i < 0 ? S.push({ k: k, dir: "asc" }) : next ? (S[i] = { k: k, dir: next }) : S.splice(i, 1);
-        } else S = next ? [{ k: k, dir: next }] : i >= 0 && S.length > 1 ? [] : [];
+        } else S = next ? [{ k: k, dir: next }] : [];
         S.length ? (T.sort = S) : delete T.sort;
         save();
         tvKeepScroll(() => renderTkAll());
@@ -1623,6 +1623,21 @@ function tvWireCal(w) {
       localStorage.setItem("sdp:tkmode", m);
     } catch (e) {}
     renderTkAll();
+  };
+}
+// a new task lands on the list it is in; the Table keeps the person's layout (it highlights the row as the List does)
+{
+  const base = tkLand;
+  tkLand = function (m) {
+    const keep = tkMode;
+    const r = base.apply(this, arguments);
+    if ("table" === keep && tkMode !== keep && tvMayUse()) {
+      tkMode = keep;
+      try {
+        renderTkAll();
+      } catch (e) {}
+    }
+    return r;
   };
 }
 // search reads the task's ID ("PAD-23") as well as its words
@@ -1834,6 +1849,7 @@ function tvWireCal(w) {
 #v-tkall .tv-card-t{font-size:15px;line-height:21px;color:var(--ink);margin:4px 0 4px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}
 #v-tkall .done .tv-card-t{color:var(--ink-3);text-decoration:line-through}
 #v-tkall .tv-card-ft,#v-tkall .tv-card-w{display:flex;align-items:center;gap:8px;margin:0 -6px}
+#v-tkall .tv-card-w{margin-bottom:8px}
 #v-tkall .tv-bempty{padding:10px 6px}
 #v-tkall .tv-qadd{display:flex;align-items:center;gap:6px;margin-top:8px;padding:0 8px;border-radius:8px;color:var(--ink-3)}
 #v-tkall .tv-qadd:focus-within{background:var(--paper)}
@@ -1914,6 +1930,9 @@ function tvWireCal(w) {
 }
 @media (max-width:760px){
   #v-tkall .tv-top{margin:0 0 6px}
+  #v-tkall .tv-top select,#v-tkall .tv-top .btn{min-height:44px}
+  #v-tkall .tv-top .seg,#v-tkall .tv-calbar .seg{gap:8px;display:inline-flex}
+  #v-tkall .tv-top .seg button,#v-tkall .tv-calbar .seg button{min-height:44px;border-radius:22px}
   #v-tkall .tv-host{margin:0}
   #v-tkall .tv-cards{margin:0 -16px}
   #v-tkall .tv-cards .tv-ghd{padding-left:16px}
