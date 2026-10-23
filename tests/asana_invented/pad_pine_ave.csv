@@ -1,0 +1,12 @@
+Task ID,Created At,Completed At,Last Modified,Name,Section/Column,Assignee,Assignee Email,Start Date,Due Date,Tags,Notes,Projects,Parent task,Blocked By (Dependencies),Blocking (Dependencies),Priority
+1201,2026-09-28,,2026-10-20,PAD-21 Confirm tile layout with client,Design,Priya Natarajan,priya@example.com,,2026-10-27,client,"Client wants the herringbone, ""not"" the straight lay.
+Check the grout color with her.",PAD - Pine Ave Duplex,,,,High
+1202,2026-09-29,,2026-10-21,PAD-22 Release deposit to fabricator,Money,Dana Whitfield,dana@example.com,,2026-10-23,,Fabricator wants half before cutting,PAD - Pine Ave Duplex,,,,High
+1203,2026-09-30,,2026-10-21,PAD-23 Window shop drawings,Waiting,Bayside Millwork,orders@bayside.example,,2026-10-29,,,PAD - Pine Ave Duplex,,,,
+1204,2026-10-01,2026-10-15,2026-10-15,PAD-24 Order the vanity,Procurement,Priya Natarajan,priya@example.com,,2026-10-10,,,PAD - Pine Ave Duplex,,,,
+1205,2026-10-02,,2026-10-22,Schedule the plumbing inspection,Permits,,,,2026-11-02,,"Call the inspector, then tell the client",PAD - Pine Ave Duplex,,,,
+1206,2026-10-03,,2026-10-22,Measure for shower glass,Site,Leo Marchetti,leo@example.com,,2026-10-30,,,PAD - Pine Ave Duplex,,,,
+1207,2026-10-04,,2026-10-22,PAD-25 Get credit for the wrong delivery,Money,Rita Okafor,rita@studio.example,,2026-10-28,credit,,"PAD - Pine Ave Duplex, Operations",,,,
+1208,2026-10-05,,2026-10-22,Pick grout color,,Priya Natarajan,,,,,,,PAD-21 Confirm tile layout with client,,,
+1209,2026-10-05,2026-10-12,2026-10-12,Send sample photos,,Priya Natarajan,,,,,,,PAD-21 Confirm tile layout with client,,,
+1210,2026-10-06,,2026-10-22,Check the lead paint report,,,,,,,,,Old parent not exported,,,

@@ -18487,6 +18487,8 @@ const ROLE_NAMES = {
   client: "Client",
 };
 function seedUsers() {
+  // the team's own workspace starts with no people: each adds themself at sign-in, from their profile (2026-10-23)
+  if (DB.__teamWs || (window.__sdWs && "team" === window.__sdWs.kind)) return void (DB.users = DB.users || []);
   DB.users = [
     { id: "u_owner", name: "Owner", role: "owner", contact: "" },
     { id: "u_alan", name: "Alan", role: "pm", contact: "", mb: !0 },
@@ -30545,7 +30547,8 @@ function designInit() {
   });
   if (
     ((DB.company.designRate = DB.company.designRate || 175),
-    DB.employees.some((e) => "em6" === e.id) ||
+    // the demo's design staff are demo records: never planted over the firm's own (the team's workspace, 2026-10-23)
+    DB.employees.some((e) => "em6" === e.id) || ("function" == typeof sdSeedsOff && sdSeedsOff()) ||
       DB.employees.push(
         {
           id: "em6",
@@ -41439,7 +41442,7 @@ function studioInit() {
       ["owner", "pm"].forEach((r) => ROLE_VIEWS[r].push("sday", "sboard", "sdraw", "sfile", "studio")),
       (ROLE_NAMES.designer = "Designer / architect"),
       (ROLE_NAMES.design_mgr = "Design director")),
-    DB.employees.some((e) => "em8" === e.id) ||
+    DB.employees.some((e) => "em8" === e.id) || ("function" == typeof sdSeedsOff && sdSeedsOff()) ||
       DB.employees.push({
         id: "em8",
         name: "Sarah Davis",
@@ -41450,7 +41453,7 @@ function studioInit() {
         entityId: "ent1",
         active: !0,
       }),
-    DB.users.some((u) => "u_sarah" === u.id) ||
+    DB.users.some((u) => "u_sarah" === u.id) || ("function" == typeof sdSeedsOff && sdSeedsOff()) ||
       DB.users.push(
         { id: "u_sarah", name: "Sarah Davis", role: "designer", contact: "", employeeId: "em8" },
         { id: "u_ddir", name: "Design director", role: "design_mgr", contact: "" },
@@ -43410,7 +43413,7 @@ function studio2Init() {
     (St.ffe = St.ffe || []),
     (St.intake = St.intake || {}),
     (St.precedents = St.precedents || []),
-    DB.users.some((u) => "u_cambri" === u.id) ||
+    DB.users.some((u) => "u_cambri" === u.id) || ("function" == typeof sdSeedsOff && sdSeedsOff()) ||
       DB.users.push({
         id: "u_cambri",
         name: "Cambri Jessop",
@@ -50816,7 +50819,7 @@ function mbInit() {
     const ua = DB.users.find((u) => "u_alan" === u.id);
     ua && void 0 === ua.mb && (ua.mb = !0);
   }
-  DB.users.some((u) => u.role && u.role.startsWith("mb_")) ||
+  DB.users.some((u) => u.role && u.role.startsWith("mb_")) || ("function" == typeof sdSeedsOff && sdSeedsOff()) ||
     DB.users.push(
       { id: "u_mb_acq", name: "Rachel (M&B acquisitions)", role: "mb_user", contact: "" },
       { id: "u_mb_an", name: "Priya (M&B analyst)", role: "mb_analyst", contact: "" },
@@ -51050,6 +51053,17 @@ load = async function (opts = {}) {
   } catch (e) {
     console.warn("profile", e);
   }
+  // Which workspace, before anything is pushed or seeded (2026-10-23): the team's own seeds nothing and starts empty.
+  // A device whose copy was made in another workspace drops it first, so no record crosses from one to the other.
+  try {
+    window.__sdWs = (Cloud.workspace && (await withTimeout(Cloud.workspace(), 8e3, "server"))) || null;
+  } catch (e) {
+    console.warn("workspace", e);
+  }
+  try {
+    Cloud.workspaceChanged && Cloud.workspaceChanged() && (await idbDel(KEY));
+  } catch (e) {}
+  const teamWs = !(!window.__sdWs || "team" !== window.__sdWs.kind);
   let remote = null;
   // Edits this phone made but never synced (closed tab, no signal) go up before the server copy comes down.
   if (Cloud.hasPending && Cloud.hasPending())
@@ -51088,7 +51102,10 @@ load = async function (opts = {}) {
       (DB.payroll = DB.payroll || []),
       (DB.accounts = DB.accounts || []),
       (DB.txns = DB.txns || []))),
-    await loadBase_cl({ skipStorage: !!remote });
+    // an empty team workspace starts from an empty firm, never from this device's stored copy (the demo)
+    !remote && teamWs && (DB = twsSkeleton(window.__sdWs)),
+    remote && teamWs && !DB.__teamWs && (DB.__teamWs = { id: window.__sdWs.id, name: window.__sdWs.name || "", at: tzNow() }),
+    await loadBase_cl({ skipStorage: !!remote || teamWs });
   try {
     const pr = await Cloud.profile(),
       em = (Cloud.user().email || "").toLowerCase();
@@ -55574,6 +55591,7 @@ function retInit() {
   };
   for (const [name, [w, rp]] of Object.entries(pol)) {
     let v = DB.vendors.find((x) => x.name === name);
+    if (!v && ("function" == typeof sdSeedsOff && sdSeedsOff())) continue;
     v ||
       ((v = { id: uid("v"), name: name, trade: "", insuranceExp: "", bankChangedAt: "" }),
       DB.vendors.push(v)),
@@ -65629,6 +65647,7 @@ if ((iaApplyNav(), void 0 !== ROLE_VIEWS)) {
 function iaEnsureUsers() {
   void 0 !== DB &&
     DB &&
+    !("function" == typeof sdSeedsOff && sdSeedsOff()) &&
     Array.isArray(DB.users) &&
     (DB.users.some((u) => "billing" === u.role) ||
       DB.users.push({ id: "u_billing", name: "Billing", role: "billing", contact: "" }),
@@ -109159,6 +109178,8 @@ function sdSeedsOff() {
     // On the hosted copy, once the server holds the firm's records it is the truth: no device seeds demo data
     // over it (a field phone, which never receives the books, would otherwise invent them).
     if (window.__sdServerTruth) return !0;
+    // the team's own workspace (the server's word, before any of its records exist): never the demo (2026-10-23)
+    if (window.__sdWs && "team" === window.__sdWs.kind) return !0;
     return !(!DB || (!DB.__liveData && !DB.__wiped));
   } catch (e) {
     return !1;
