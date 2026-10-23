@@ -108034,7 +108034,7 @@ function t2Pool() {
     t2Q)
   ) {
     const q = t2Q.toLowerCase();
-    R = R.filter((x) => `${x.title} ${x.project} ${x.assignee} ${x.notes || ""}`.toLowerCase().includes(q));
+    R = R.filter((x) => `${x.code || ""} ${x.title} ${x.project} ${x.assignee} ${x.waitsOn || ""} ${x.notes || ""}`.toLowerCase().includes(q));
   }
   return R;
 }
@@ -109884,14 +109884,33 @@ function asOf(x) {
     return null;
   }
 }
+// The task record's fields on every row, in one step (the board's Asana fields and the meeting lane's, 2026-10-23):
+// code is the task's key ("PAD-23", the Asana Task ID column), and a job's to-do, the firm's own and a sales task
+// carry it. The rest ride on the record as written: follow-up and watch dates, collaborators, Waiting On (who owes
+// what by when), the order within its project and when it was last discussed. An FYI item is status only and is
+// never late. The record is found directly (it was a scan of every task per row).
+const TK_REC_FIELDS = ["followUp", "watchUntil", "order", "lastDiscussed", "ownerFlag", "waitingOn"];
+function tkRecOfRow(x) {
+  if ("firm" === x.kind) return asFirmTasks().find((a) => a.id === x.id) || null;
+  if ("hub" === x.kind) return ((DB.hub && DB.hub.tasks) || []).find((a) => a.id === x.id) || null;
+  if ("action" !== x.kind) return null;
+  const p = (DB.projects || []).find((q) => q.id === x.projectId);
+  return (p && (p.actions || []).find((a) => a.id === x.id)) || null;
+}
 if ("function" == typeof tkItems) {
   const tkItemsBase_as2 = tkItems;
   tkItems = function () {
     const out = tkItemsBase_as2.apply(this, arguments);
     try {
       out.forEach((x) => {
-        if ("action" !== x.kind && "firm" !== x.kind) return;
-        const a = asOf(x);
+        if ("action" !== x.kind && "firm" !== x.kind && "hub" !== x.kind) return;
+        const a = tkRecOfRow(x);
+        if (!a) return;
+        TK_REC_FIELDS.forEach((k) => null != a[k] && "" !== a[k] && (x[k] = a[k]));
+        x.collaborators = a.collaborators || [];
+        !x.done && /^(doing|waiting|fyi)$/.test(a.status || "") && (x.status = a.status);
+        "fyi" === x.status && ((x.fyi = !0), (x.late = !1));
+        if ("hub" === x.kind) return void ((x.code = a.code || ""), (x.waitsOn = a.waitsOn || ""));
         a &&
           ((x.code = a.code || ""),
           (x.section = a.section || ""),
@@ -153647,7 +153666,14 @@ let igSweptAt = -1;
   const base = tkItems;
   tkItems = function () {
     try {
-      void 0 !== trSaveSeq && igSweptAt !== trSaveSeq && ((igSweptAt = trSaveSeq), clTaskSweep());
+      if (void 0 !== trSaveSeq && igSweptAt !== trSaveSeq) {
+        igSweptAt = trSaveSeq;
+        try {
+          clTaskSweep();
+        } catch (e) {}
+        // the task record's keys, owners and Waiting On (src/meeting.js): idempotent, once per save
+        "function" == typeof tkRecSweep && tkRecSweep();
+      }
     } catch (e) {}
     return base.apply(this, arguments);
   };
