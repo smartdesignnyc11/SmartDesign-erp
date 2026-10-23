@@ -31,17 +31,23 @@ export default async (req) => {
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return json(400, {error: 'that is not an email address'});
     const role = ROLES.includes(b.role) ? b.role : 'none';
     if (role === 'owner') return json(400, {error: 'a second owner is set by hand, not by invitation'});
-    const found = await rest('profiles?select=id,workspace_id,role&email=eq.' + encodeURIComponent(email));
-    let id;
+    const found = await rest('profiles?select=id,workspace_id,workspaces,role&email=eq.' + encodeURIComponent(email));
+    let id, move = null;
     if (found[0]) {
-      if (found[0].workspace_id !== profile.workspace_id) return json(409, {error: 'that address belongs to another firm'});
+      // Someone already signed in to another of the owner's own workspaces (the demo, when the owner invites from the
+      // team's workspace) is brought into this one and keeps the other in his list. Anyone else's firm is refused.
+      const mine = [profile.workspace_id, ...(profile.workspaces || [])];
+      if (found[0].workspace_id !== profile.workspace_id) {
+        if (!mine.includes(found[0].workspace_id)) return json(409, {error: 'that address belongs to another firm'});
+        move = [...new Set([...(found[0].workspaces || []), found[0].workspace_id])].filter(w => w !== profile.workspace_id);
+      }
       id = found[0].id;
     } else {
       try { id = (await admin('/invite', 'POST', {email, data: {name: b.name || ''}})).id; }
       catch (e) { return json(400, {error: 'Supabase could not send the invitation: ' + e.message}); }
     }
-    await rest('profiles?id=eq.' + id, {method: 'PATCH', headers: {prefer: 'return=minimal'}, body: JSON.stringify({role, workspace_id: profile.workspace_id, app_user_id: b.appUserId || null, ...(b.name ? {name: b.name} : {})})});
-    return json(200, {invited: !found[0], id, email, role});
+    await rest('profiles?id=eq.' + id, {method: 'PATCH', headers: {prefer: 'return=minimal'}, body: JSON.stringify({role, workspace_id: profile.workspace_id, app_user_id: b.appUserId || null, ...(b.name ? {name: b.name} : {}), ...(move ? {workspaces: move} : {})})});
+    return json(200, {invited: !found[0], moved: !!move, id, email, role});
   }
   return json(400, {error: 'unknown action'});
 };

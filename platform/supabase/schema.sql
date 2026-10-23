@@ -625,3 +625,85 @@ begin
 end $$;
 revoke all on function public.thread_join(text) from public, anon;
 grant execute on function public.thread_join(text) to authenticated;
+
+-- ---------------------------------------------------------------- the team's own workspace (2026-10-23, TASKS_PLAN §2 Phase 1 item 1)
+-- A workspace is the demo (the sample company, the pinned demo day; every workspace made before this table) or the
+-- team's own (kind 'team'): real projects and people only, no demo seeding on any device, the real date, and the
+-- pilot's tasks-only menu until the owner turns it off. The kind is the server's word, read before the page boots, so
+-- an empty team workspace is never filled from a device's demo copy (the first office sign-in on an empty workspace
+-- uploads that device's records: on a team workspace it uploads an empty firm instead).
+create table if not exists public.workspaces (
+  id text primary key,
+  kind text not null default 'demo',
+  name text not null default '',
+  created_by uuid,
+  created_at timestamptz default now()
+);
+alter table public.workspaces drop constraint if exists workspaces_kind_check;
+alter table public.workspaces add constraint workspaces_kind_check check (kind in ('demo','team'));
+alter table public.workspaces enable row level security;
+revoke all on public.workspaces from anon, authenticated;
+-- The other workspaces a sign-in may switch to (the owner keeps the demo beside the team's own). Only the server sets
+-- it: the column is not in the profile grant, so nobody signed in can give himself a workspace.
+alter table public.profiles add column if not exists workspaces text[] not null default '{}';
+
+-- What the page needs before it boots: which workspace, its kind, and the ones it may switch to. Nothing for an
+-- account with no role (it sees nothing anyway).
+create or replace function public.my_workspace_info() returns jsonb language sql stable security definer set search_path = public as $$
+  select case when not public.is_member() then jsonb_build_object('id', '', 'kind', 'none', 'name', '', 'others', '[]'::jsonb)
+  else (select jsonb_build_object(
+      'id', p.workspace_id,
+      'kind', coalesce((select w.kind from public.workspaces w where w.id = p.workspace_id), 'demo'),
+      'name', coalesce(nullif((select w.name from public.workspaces w where w.id = p.workspace_id), ''), p.workspace_id),
+      'others', coalesce((select jsonb_agg(jsonb_build_object('id', o, 'kind', coalesce(w.kind, 'demo'), 'name', coalesce(nullif(w.name, ''), o)) order by o)
+                          from unnest(p.workspaces) o left join public.workspaces w on w.id = o where o <> p.workspace_id), '[]'::jsonb))
+    from public.profiles p where p.id = auth.uid()) end;
+$$;
+revoke all on function public.my_workspace_info() from public, anon;
+grant execute on function public.my_workspace_info() to authenticated;
+
+-- Switch to another workspace this sign-in holds. The one left goes into the list, so the way back stays open. The
+-- page wipes its local copy and reloads, so no record of one workspace is ever pushed into the other.
+create or replace function public.switch_workspace(p_ws text) returns jsonb language plpgsql security definer set search_path = public as $$
+declare p record;
+begin
+  if not public.is_member() then raise exception 'this account has no access yet'; end if;
+  select * into p from public.profiles where id = auth.uid() for update;
+  if p_ws = p.workspace_id then return public.my_workspace_info(); end if;
+  if not (p_ws = any(p.workspaces)) then raise exception 'not one of your workspaces'; end if;
+  update public.profiles
+     set workspace_id = p_ws,
+         workspaces = (select coalesce(array_agg(distinct x), '{}') from unnest(array_remove(p.workspaces, p_ws) || p.workspace_id) x)
+   where id = auth.uid();
+  return public.my_workspace_info();
+end $$;
+revoke all on function public.switch_workspace(text) from public, anon;
+grant execute on function public.switch_workspace(text) to authenticated;
+
+-- The owner opens the team's own workspace (once): a new, empty workspace of kind 'team', and he moves into it as its
+-- owner, keeping the workspace he came from in his list. The id must be new: a workspace that already holds records,
+-- or that someone else already uses, is refused, so nobody can walk into another firm's data by naming it.
+create or replace function public.open_team_workspace(p_id text, p_name text) returns jsonb language plpgsql security definer set search_path = public as $$
+declare p record;
+begin
+  if public.my_role() <> 'owner' then raise exception 'only the owner opens the team workspace'; end if;
+  if coalesce(p_id, '') !~ '^[a-z][a-z0-9-]{2,39}$' then raise exception 'a workspace id is 3 to 40 lowercase letters, digits or dashes'; end if;
+  select * into p from public.profiles where id = auth.uid() for update;
+  if p_id = p.workspace_id or p_id = any(p.workspaces) then
+    if not exists (select 1 from public.workspaces where id = p_id and kind = 'team') then raise exception 'that workspace is not a team workspace'; end if;
+  else
+    if exists (select 1 from public.workspaces where id = p_id)
+       or exists (select 1 from public.collections where workspace_id = p_id)
+       or exists (select 1 from public.profiles where workspace_id = p_id or p_id = any(workspaces)) then
+      raise exception 'that workspace id is taken';
+    end if;
+    insert into public.workspaces (id, kind, name, created_by) values (p_id, 'team', coalesce(nullif(trim(p_name), ''), p_id), auth.uid());
+  end if;
+  update public.profiles
+     set workspace_id = p_id,
+         workspaces = (select coalesce(array_agg(distinct x), '{}') from unnest(array_remove(p.workspaces, p_id) || p.workspace_id) x where x <> p_id)
+   where id = auth.uid();
+  return public.my_workspace_info();
+end $$;
+revoke all on function public.open_team_workspace(text, text) from public, anon;
+grant execute on function public.open_team_workspace(text, text) to authenticated;
