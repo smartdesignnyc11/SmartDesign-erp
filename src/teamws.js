@@ -882,3 +882,15 @@ function aimWire(host) {
     return r;
   };
 }
+// The Standard's job duties (the Friday client update, the weekly site walk, the huddle) are for a job with a client.
+// In the team's workspace an Asana project is not always a job ("Operations"), and a project imported with no client
+// would get a client update nobody can send: the duties start when the project has a client.
+{
+  const base = tdyRecurDue;
+  tdyRecurDue = function () {
+    const out = base.apply(this, arguments);
+    if (!twsIsTeam()) return out;
+    const noClient = new Set((DB.projects || []).filter((p) => !p.clientId).map((p) => p.id));
+    return out.filter((d) => !(d.projectId && noClient.has(d.projectId) && /^(friday|walk|huddle)$/.test(d.duty)));
+  };
+}

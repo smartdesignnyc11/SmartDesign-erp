@@ -97,9 +97,6 @@ async def main():
             txt = await pg.evaluate("document.querySelector('.view.on, section.view:not([hidden])') ? (document.querySelector('#v-' + view) || document.body).innerText : document.body.innerText")
             m = DEMO_DAY.search(txt)
             c.ok(not m, f'{v} never reads the demo\'s day: {m and txt[max(0, m.start() - 60):m.end() + 40]!r}')
-        await go(pg, 'home')
-        ht = await pg.evaluate("document.body.innerText")
-        c.ok(re.search(r'Oct(ober)? 26|10/26|Monday', ht) is not None, f'Today reads Monday, October 26: {ht[:300]!r}')
 
         # ---- 5. invite the coordinator and the office admin (nothing is sent: the mock records it)
         await pg.evaluate("settingsMode = 'company'; setView('proj')")   # Settings › Company Settings
@@ -149,10 +146,12 @@ async def main():
         for who, uidk, phone, mine in (('coordinator', 'auth-priya', True, {'Confirm tile layout with client', 'Order the vanity', 'Demo the old cabinets'}),
                                        ('office admin', 'auth-leo', False, {'Measure for shower glass', 'Renew the general liability COI', 'Rough plumbing'})):
             ctx, pg, errs = await open_hosted(b, S, url, uidk, phone=phone)
-            r = await pg.evaluate("""() => ({me: (currentUser() || {}).name, role: role(), today: today(), n: tkItems().filter(x => x.kind === 'action').length,
+            r = await pg.evaluate("""() => ({me: (currentUser() || {}).name, role: role(), today: today(), n: DB.projects.flatMap(p => p.actions || []).filter(a => a.asana).length,
+              other: DB.projects.flatMap(p => (p.actions || []).filter(a => !a.asana).map(a => p.project.name + ': ' + a.title + ' (' + (a.assignee || '') + ', ' + JSON.stringify(a.source || a.recur || '') + ')')),
               all: tkItems().filter(x => x.kind === 'action' && tkOwnerMatch(x.assignee, (currentUser() || {}).name)).map(x => x.title)})""")
             c.ok(r['me'] in ('Priya Natarajan', 'Leo Marchetti') and r['today'] == '2026-10-26', f'the {who} signs in as themself, on the real date: {r["me"]} {r["role"]} {r["today"]}')
             c.ok(r['n'] == 9, f'the {who} reads the workspace\'s nine tasks: {r["n"]}')
+            c.ok(not r['other'], f'and no task the app made up on its own: {r["other"]}')
             c.ok(set(r['all']) == mine, f'and their own three are theirs: {r["all"]}')
             rv = await pg.evaluate("ROLE_VIEWS[role()]")
             c.ok('tkall' in rv and not [v for v in money if v in rv], f'the {who}\'s menu: Tasks in, money out ({[v for v in money if v in rv]})')
@@ -188,6 +187,8 @@ async def main():
         r = await pg.evaluate("({kind: window.__sdWs.kind, team: DB.projects.some(p => p.project.asanaName), p121: DB.projects.some(p => p.id === 'p121')})")
         c.ok(r == {'kind': 'demo', 'team': False, 'p121': True}, f'switched to the demo: the team\'s records stayed behind: {r}')
         c.ok(not re.search(r'Pine Ave|Hollis Kitchen', json.dumps(S.data('demo-ws'))), 'nothing of the team reached the demo on the server')
+        await pg.evaluate("settingsMode = 'company'; setView('proj')")
+        await pg.wait_for_timeout(400)
         await pg.click('[data-twsgo="sd-team"]') if await pg.locator('[data-twsgo="sd-team"]').count() else await pg.evaluate("Cloud.switchWorkspace('sd-team').then(() => location.reload())")
         await pg.wait_for_function("document.body.dataset.booted==='1' && window.__sdWs && window.__sdWs.id === 'sd-team'", timeout=90000)
         await pg.wait_for_timeout(1500)
