@@ -91,13 +91,19 @@ function twsPilotSet(on) {
 {
   const base = render;
   render = function () {
+    let on = !1;
     try {
-      twsPilotApply();
+      twsPilotApply(), (on = twsPilotOn());
+      // the investment arm's switch (SmartDesign | Mercer & Bond) is out of the pilot too
+      on && "mb" === DB.workspace && (DB.workspace = "sd");
+      document.body.classList.toggle("tws-pilot", on);
     } catch (e) {
       console.warn("pilot", e);
     }
     return base.apply(this, arguments);
   };
+  const st = document.createElement("style");
+  (st.textContent = "body.tws-pilot #ws{display:none!important}"), document.head.appendChild(st);
 }
 
 // ---- the real clock: a team workspace is never pinned -----------------------------------------------------------------

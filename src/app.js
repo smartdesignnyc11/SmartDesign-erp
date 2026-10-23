@@ -30547,7 +30547,8 @@ function designInit() {
   });
   if (
     ((DB.company.designRate = DB.company.designRate || 175),
-    DB.employees.some((e) => "em6" === e.id) ||
+    // the demo's design staff are demo records: never planted over the firm's own (the team's workspace, 2026-10-23)
+    DB.employees.some((e) => "em6" === e.id) || ("function" == typeof sdSeedsOff && sdSeedsOff()) ||
       DB.employees.push(
         {
           id: "em6",
@@ -41441,7 +41442,7 @@ function studioInit() {
       ["owner", "pm"].forEach((r) => ROLE_VIEWS[r].push("sday", "sboard", "sdraw", "sfile", "studio")),
       (ROLE_NAMES.designer = "Designer / architect"),
       (ROLE_NAMES.design_mgr = "Design director")),
-    DB.employees.some((e) => "em8" === e.id) ||
+    DB.employees.some((e) => "em8" === e.id) || ("function" == typeof sdSeedsOff && sdSeedsOff()) ||
       DB.employees.push({
         id: "em8",
         name: "Sarah Davis",
@@ -41452,7 +41453,7 @@ function studioInit() {
         entityId: "ent1",
         active: !0,
       }),
-    DB.users.some((u) => "u_sarah" === u.id) ||
+    DB.users.some((u) => "u_sarah" === u.id) || ("function" == typeof sdSeedsOff && sdSeedsOff()) ||
       DB.users.push(
         { id: "u_sarah", name: "Sarah Davis", role: "designer", contact: "", employeeId: "em8" },
         { id: "u_ddir", name: "Design director", role: "design_mgr", contact: "" },
@@ -43412,7 +43413,7 @@ function studio2Init() {
     (St.ffe = St.ffe || []),
     (St.intake = St.intake || {}),
     (St.precedents = St.precedents || []),
-    DB.users.some((u) => "u_cambri" === u.id) ||
+    DB.users.some((u) => "u_cambri" === u.id) || ("function" == typeof sdSeedsOff && sdSeedsOff()) ||
       DB.users.push({
         id: "u_cambri",
         name: "Cambri Jessop",
@@ -50818,7 +50819,7 @@ function mbInit() {
     const ua = DB.users.find((u) => "u_alan" === u.id);
     ua && void 0 === ua.mb && (ua.mb = !0);
   }
-  DB.users.some((u) => u.role && u.role.startsWith("mb_")) ||
+  DB.users.some((u) => u.role && u.role.startsWith("mb_")) || ("function" == typeof sdSeedsOff && sdSeedsOff()) ||
     DB.users.push(
       { id: "u_mb_acq", name: "Rachel (M&B acquisitions)", role: "mb_user", contact: "" },
       { id: "u_mb_an", name: "Priya (M&B analyst)", role: "mb_analyst", contact: "" },
@@ -55590,6 +55591,7 @@ function retInit() {
   };
   for (const [name, [w, rp]] of Object.entries(pol)) {
     let v = DB.vendors.find((x) => x.name === name);
+    if (!v && ("function" == typeof sdSeedsOff && sdSeedsOff())) continue;
     v ||
       ((v = { id: uid("v"), name: name, trade: "", insuranceExp: "", bankChangedAt: "" }),
       DB.vendors.push(v)),
@@ -65645,6 +65647,7 @@ if ((iaApplyNav(), void 0 !== ROLE_VIEWS)) {
 function iaEnsureUsers() {
   void 0 !== DB &&
     DB &&
+    !("function" == typeof sdSeedsOff && sdSeedsOff()) &&
     Array.isArray(DB.users) &&
     (DB.users.some((u) => "billing" === u.role) ||
       DB.users.push({ id: "u_billing", name: "Billing", role: "billing", contact: "" }),

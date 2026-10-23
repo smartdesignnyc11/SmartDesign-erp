@@ -139,7 +139,11 @@ window.Cloud = (() => {
   async function workspace(fresh) {
     if (wsInfo && !fresh) return wsInfo;
     if (!sb || !user()) return null;
-    try { const {data, error} = await sb.rpc('my_workspace_info'); if (error) throw error; wsInfo = data || null; } catch (e) { console.warn('workspace', e); wsInfo = null; }
+    // the last answer is kept on the device: a phone that opens with a poor signal still knows it is in the team's
+    // workspace (and so never seeds the demo into it)
+    const k = 'sdp:wsinfo:' + user().id;
+    try { const {data, error} = await sb.rpc('my_workspace_info'); if (error) throw error; wsInfo = data || null; try { localStorage.setItem(k, JSON.stringify(wsInfo)); } catch (e) {} }
+    catch (e) { console.warn('workspace', e); try { wsInfo = JSON.parse(localStorage.getItem(k) || 'null'); } catch (e2) { wsInfo = null; } }
     return wsInfo;
   }
   const wskey = () => 'sdp:ws:' + (user() ? user().id : '');

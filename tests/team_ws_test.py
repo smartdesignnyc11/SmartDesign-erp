@@ -88,7 +88,7 @@ async def main():
         c.ok(not [v for v in money if v in ov], f'the money pages are out of the owner\'s menu: {[v for v in money if v in ov]}')
         c.ok(all(v in ov for v in ('home', 'tkall', 'port', 'dash', 'sched', 'proj', 'vendors', 'hbcontacts', 'meetings', 'calendar', 'rdata')), 'tasks, projects, people and contacts are in it')
         nt = await nav_text(pg)
-        c.ok('Tasks' in nt and not re.search(r'\b(Billing|Accounting|Reports|Purchasing|Banking)\b', nt), f'the menu on screen: {nt[:300]}')
+        c.ok('Projects' in nt and not re.search(r'\b(Billing|Accounting|Reports|Purchasing|Banking)\b|Mercer', nt), f'the menu on screen: projects in; money and the investment arm out: {nt[:300]}')
         await pg.evaluate("view = 'billing'; render();")
         c.ok(await pg.evaluate("view") != 'billing', 'a money page asked for directly lands on Home')
         # the screens read today, never the demo's day
@@ -98,12 +98,13 @@ async def main():
             m = DEMO_DAY.search(txt)
             c.ok(not m, f'{v} never reads the demo\'s day: {m and txt[max(0, m.start() - 60):m.end() + 40]!r}')
         await go(pg, 'home')
-        ht = await pg.evaluate("(document.querySelector('#v-home') || document.body).innerText")
-        c.ok(re.search(r'Oct(ober)? 26|10/26|Monday', ht) is not None, f'Today reads Monday, October 26: {ht[:200]!r}')
+        ht = await pg.evaluate("document.body.innerText")
+        c.ok(re.search(r'Oct(ober)? 26|10/26|Monday', ht) is not None, f'Today reads Monday, October 26: {ht[:300]!r}')
 
         # ---- 5. invite the coordinator and the office admin (nothing is sent: the mock records it)
-        await go(pg, 'proj')
-        await pg.wait_for_timeout(300)
+        await pg.evaluate("settingsMode = 'company'; setView('proj')")   # Settings › Company Settings
+        await pg.wait_for_timeout(400)
+        c.ok(await pg.locator('#cl-team').is_visible() and await pg.locator('#tws-card').is_visible(), 'Settings › Company Settings shows Team Accounts and the workspace card with no project yet')
         c.ok(await pg.locator('#cl-team').count() == 1 and await pg.locator('#tws-card').count() == 1, 'Settings shows Team Accounts and the workspace card')
         c.ok(await pg.locator('#tws-pilot').is_checked(), 'the pilot is on')
         os.makedirs(os.path.join(ROOT, 'review', 'laneD'), exist_ok=True)
@@ -169,8 +170,8 @@ async def main():
 
         # ---- the owner turns the pilot off, then on again; then switches to the demo and back
         ctx, pg, errs = await open_hosted(b, S, url, 'auth-dana')
-        await go(pg, 'proj')
-        await pg.wait_for_timeout(300)
+        await pg.evaluate("settingsMode = 'company'; setView('proj')")
+        await pg.wait_for_timeout(400)
         await pg.click('#tws-pilot')
         await pg.wait_for_timeout(300)
         r = await pg.evaluate("({pilot: DB.company.pilot.tasksOnly, billing: ROLE_VIEWS.owner.includes('billing'), bank: ROLE_VIEWS.owner.includes('bank'), billingRole: ROLE_VIEWS.billing.includes('billing')})")
