@@ -522,6 +522,12 @@ function mrvPropose(m, T, x0, C) {
     const live = C.changes.find((c) => c && "decision" === c.field && MRV.sim(String(c.to || ""), pr.apply.name) >= 0.5);
     if (live) return Object.assign(pr, { status: "live", liveBy: live.by || "", liveAt: live.at || "" });
   }
+  // the notes' own proposals on the meeting record (from Gemini's next steps, read from the mail): one item once
+  if (/^(task|event|decision)$/.test(pr.kind)) {
+    const t0 = String(pr.apply.title || pr.apply.name || pr.title).replace(/ → .*$/, "");
+    const dup = (m.proposals || []).find((q) => !q.review && "moved" !== q.status && /^(task|event|decision|update|billing)$/.test(q.kind) && MRV.sim(String(q.title).replace(/ → .*$/, ""), t0) >= 0.6);
+    if (dup) return Object.assign(pr, { status: "board", boardWhy: `on the meeting record's list from the notes${"applied" === dup.status ? ", applied" : ""}` });
+  }
   if ("task" === pr.kind) {
     const live = C.changes.find((c) => c && /^(created|new|task|add)$/.test(c.field || "") && MRV.sim(String(c.to || c.title || ""), pr.apply.title) >= 0.6);
     if (live) return Object.assign(pr, { status: "live", liveBy: live.by || "", liveAt: live.at || "" });
