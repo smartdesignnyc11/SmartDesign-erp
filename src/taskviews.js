@@ -62,6 +62,7 @@ const TV_IC = {
   cols: '<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M9.5 4.5v15M15 4.5v15"/>',
   user: '<circle cx="12" cy="8.5" r="3.6"/><path d="M5 20c1.2-3.6 4-5.4 7-5.4s5.8 1.8 7 5.4"/>',
   filter: '<path d="M4 5h16l-6 7.5V19l-4-2v-4.5z"/>',
+  note: '<path d="M5 4h10l4 4v12H5z"/><path d="M9 12h6M9 16h4"/>',
 };
 const tvSvg = (k, s) => `<svg viewBox="0 0 24 24" width="${s || 16}" height="${s || 16}" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${TV_IC[k] || ""}</svg>`;
 const tvMine = () => TV_OWN.includes(tkMode);
@@ -1797,11 +1798,13 @@ function tvSheetDecorate(m, key) {
     field = (f, label, val, cls) => `<button type="button" class="tvs-f ${cls || ""}" data-tvsf="${f}"><small>${label}</small><span>${val}</span></button>`;
   body.insertAdjacentHTML(
     "afterbegin",
-    `<div class="tvs-st"><button type="button" class="tvs-pill" data-tvsf="status" aria-label="Status: ${esc(TV_STATUS_SAY[I.status])}"><span class="tv-pill tv-st-${I.status}">${esc(TV_STATUS_SAY[I.status])}</span></button><span class="tvs-ld">${ldSay}</span></div>
-<div class="tvs-fields">${field("owner", "Owner (in charge)", I.owner ? `${tvAv(I.owner)}${esc(I.owner)}` : "Pick the owner")}${field("due", "Due", x.due ? esc(tvRel(x.due, x.done)) : "No date", lateDue ? "late" : "")}${field("follow", "Follow-Up", I.follow ? esc(tvRel(I.follow, x.done)) : "Not set")}</div>
+    `<div class="tvs-st"><button type="button" class="tvs-pill" data-tvsf="status" aria-label="Status: ${esc(TV_STATUS_SAY[I.status])}"><span class="tv-pill tv-st-${I.status}">${esc(TV_STATUS_SAY[I.status])}</span></button>${lateDue ? `<span class="tv-pill tvs-late">${esc(tvRel(x.due))}</span>` : ""}<span class="tvs-ld">${ldSay}</span></div>
+<div class="tvs-fields">${field("owner", tvPhone() ? "Owner" : "Owner (in charge)", I.owner ? `${tvAv(I.owner)}${esc(I.owner)}${tvPhone() ? '<em class="tvs-ic">in charge</em>' : ""}` : "Pick the owner")}${field("due", "Due", x.due ? esc(tvRel(x.due, x.done)) : "No date", lateDue ? "late" : "")}${field("follow", "Follow-Up", I.follow ? esc(tvRel(I.follow, x.done)) : "Not set")}</div>
 ${
   W
-    ? `<button type="button" class="tvs-wait ${wLate ? "late" : ""}" data-tvsf="wait"><small>Waiting On</small><b>${esc(W.name)}</b>${W.what ? `<span>${esc(W.what)}</span>` : ""}${W.promised ? `<span class="tvs-prom">${wLate ? "Promised" : "Promised by"} ${esc(tvDay(W.promised))}${wLate ? `, ${esc(tvRel(W.promised))}` : ""}</span>` : ""}</button>`
+    ? `<div class="tvs-waitbox"><button type="button" class="tvs-wait ${wLate ? "late" : ""}" data-tvsf="wait"><small>Waiting On</small><b>${esc(W.name)}</b>${W.what ? `<span>${esc(W.what)}</span>` : ""}${W.promised ? `<span class="tvs-prom">${wLate ? "Promised" : "Promised by"} ${esc(tvDay(W.promised))}${wLate ? `, ${esc(tvRel(W.promised))}` : ""}</span>` : ""}</button>${
+        tvChaseDraft(I) ? '<button type="button" class="btn tvs-chase" data-tvschase>Review the Drafted Chase</button>' : ""
+      }</div>`
     : TV_CAN.wait(x) && !x.done
       ? `<button type="button" class="tvs-addwait" data-tvsf="wait">${tvSvg("clock", 14)}<span>Waiting on Someone Outside the Team</span></button>`
       : ""
@@ -1842,6 +1845,73 @@ ${
     ok ? ft.insertBefore(b, ok) : ft.appendChild(b);
   }
   m.querySelectorAll("[data-tvsf]").forEach((b) => (b.onclick = () => tvEdit(key, b.dataset.tvsf, b)));
+  const ch = m.querySelector("[data-tvschase]");
+  ch &&
+    (ch.onclick = () => {
+      const d = tvChaseDraft(I);
+      d && (mbCloseModal(), setTimeout(() => tkSheet(`draft:${d.id}:`), 0));
+    });
+  tvPhone() && tvSheetPhone(m, I);
+}
+// the assistant's drafted chase for this task, if it wrote one (an outbox draft that names the task or the party owed)
+function tvChaseDraft(I) {
+  try {
+    const W = I.wait,
+      name = W ? String(W.name).toLowerCase() : "";
+    return (
+      (DB.outbox || []).find(
+        (o) =>
+          o &&
+          "draft" === o.status &&
+          (o.taskId === I.x.id ||
+            (o.about && (o.about.taskId === I.x.id || o.about.id === I.x.id)) ||
+            (name && o.to && String(o.to.name || "").toLowerCase() === name && (!o.about || !o.about.projectId || o.about.projectId === I.x.projectId))),
+      ) || null
+    );
+  } catch (e) {
+    return null;
+  }
+}
+// The phone's sheet, as Alan's mockup reads it: the four date buttons in a grid with the meeting's short name, Latest
+// (the last word on the task) under them, and a sticky footer of a photo button, a note button and the blue next step.
+function tvSheetPhone(m, I) {
+  const box = m.querySelector(".mbm-box"),
+    body = m.querySelector(".tks");
+  box && box.classList.add("tvs-ph");
+  const nm = tvNextMeeting(),
+    chips = m.querySelector(".tks-chips");
+  if (chips) {
+    chips.classList.add("tvs-dates");
+    chips.querySelectorAll("[data-tksdue]").forEach((b) => {
+      const d = b.dataset.tksdue,
+        lbl = d === nm ? `${DOW[parse(d).getDay()]} Mtg` : b.childNodes[0] && 3 === b.childNodes[0].nodeType ? b.childNodes[0].textContent : b.textContent;
+      b.setAttribute("aria-label", `${d === nm ? "Next meeting" : lbl}, ${fmtL(d)}`);
+      b.textContent = lbl;
+    });
+    const pick = chips.querySelector(".tks-pick");
+    pick && pick.firstChild && 3 === pick.firstChild.nodeType && (pick.firstChild.textContent = "Pick");
+  }
+  const L = I.latest;
+  if (body && chips && !m.querySelector(".tvs-latest")) {
+    const at = chips.nextElementSibling;
+    const html = `<div class="tks-h">Latest</div><div class="tvs-latest">${L ? `<small>${esc(tkFirst(L.by) || "Someone")}</small><div>${esc(L.text)}</div>` : '<span class="small muted">Nothing written yet.</span>'}</div>`;
+    at ? at.insertAdjacentHTML("beforebegin", html) : chips.insertAdjacentHTML("afterend", html);
+  }
+  const ft = m.querySelector(".mbm-ft");
+  if (!ft || ft.dataset.tvph) return;
+  ft.dataset.tvph = "1";
+  ft.classList.add("tvs-ft");
+  ft.querySelectorAll("#mbm-cancel, [data-tvsho]").forEach((b) => (b.hidden = !0));
+  const ok = ft.querySelector("#mbm-ok"),
+    cam = m.querySelector("[data-tkscam]"),
+    note = m.querySelector("[data-tksnote]"),
+    btn = (attr, ic, label) => `<button type="button" class="btn tvs-icb" ${attr} aria-label="${label}" title="${label}">${ic}</button>`;
+  const html = (cam ? btn("data-tvsphoto", tkSvg("camera", 22), "Add a Photo") : "") + (note ? btn("data-tvsnote", tvSvg("note", 22), "Add a Note") : "");
+  ok ? ok.insertAdjacentHTML("beforebegin", html) : ft.insertAdjacentHTML("beforeend", html);
+  const p = ft.querySelector("[data-tvsphoto]");
+  p && (p.onclick = () => cam.click());
+  const n = ft.querySelector("[data-tvsnote]");
+  n && (n.onclick = () => (note.scrollIntoView({ block: "center" }), note.focus()));
 }
 
 // ---- the hooks ------------------------------------------------------------------------------------------------------
@@ -2266,6 +2336,10 @@ body:has(#mbm.tks-on) #v-tkall .tv-grid .tv-col-wait,body:has(#mbm.tks-on) #v-tk
 #mbm.tv-sheet .tvs-moment{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--tv-ink2);margin:6px 0}
 #mbm.tv-sheet .tks-h{font-size:12px;font-weight:600;color:var(--tv-ink2);text-transform:uppercase;letter-spacing:.04em;margin:14px 0 6px}
 #mbm.tv-sheet .tks-chip.on{border-color:var(--tv-accent)}
+#mbm.tv-sheet .tvs-late{background:#FDECEA;color:var(--tv-late)}
+#mbm.tv-sheet .tvs-waitbox{margin:0 0 10px}
+#mbm.tv-sheet .tvs-waitbox .tvs-wait{margin:0}
+#mbm.tv-sheet .tvs-chase{min-height:44px;margin-top:8px}
 /* a task opens in a 420px panel on the right on a wide screen, so the table stays in view (tkSheet, restyled) */
 @media (min-width:1024px){
   #mbm.tks-on{background:transparent;pointer-events:none;justify-content:flex-end;align-items:stretch;padding:0;overflow:hidden}
@@ -2305,8 +2379,25 @@ body:has(#mbm.tks-on) #v-tkall .tv-grid .tv-col-wait,body:has(#mbm.tks-on) #v-tk
   #v-tkall .tv-wk-ph .tv-evs{gap:8px}
   #v-tkall .tv-wk-ph .tv-ev{min-height:44px;font-size:15px;padding:0 12px}
   #v-tkall .tv-trayrows{padding-left:0}
-  #mbm.tv-sheet .tvs-fields{grid-template-columns:1fr 1fr}
-  #mbm.tv-sheet .tvs-fields .tvs-f:first-child{grid-column:span 2}
+  #mbm.tv-sheet .mbm-hd{padding:18px 16px 4px}
+  #mbm.tv-sheet .mbm-hd h3{font-size:22px;line-height:28px;font-weight:700}
+  #mbm.tv-sheet .mbm-bd{padding:4px 16px 12px}
+  #mbm.tv-sheet .tvs-st{flex-wrap:wrap;gap:8px}
+  #mbm.tv-sheet .tvs-fields{display:flex;flex-direction:column;gap:0;border-radius:12px;background:#fff;box-shadow:0 0 0 1px var(--tv-ring);overflow:hidden}
+  #mbm.tv-sheet .tvs-f{flex-direction:row;align-items:center;justify-content:space-between;min-height:52px;border-radius:0;background:#fff;padding:0 14px}
+  #mbm.tv-sheet .tvs-f+.tvs-f{box-shadow:inset 0 1px 0 var(--tv-sep)}
+  #mbm.tv-sheet .tvs-f small{font-size:14px;font-weight:500;text-transform:none;letter-spacing:0;color:var(--tv-ink2)}
+  #mbm.tv-sheet .tvs-ic{font-style:normal;font-size:12px;color:var(--tv-ink2);font-weight:400}
+  #mbm.tv-sheet .tvs-chase{width:100%;min-height:44px;margin-top:8px;background:#fff;border:1px solid #E7C98A;color:var(--tv-amber);font-weight:600}
+  #mbm.tv-sheet .tvs-dates{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+  #mbm.tv-sheet .tvs-dates .tks-chip{min-height:44px;min-width:0;align-items:center;justify-content:center;padding:0 4px;font-size:14px;text-align:center}
+  #mbm.tv-sheet .tvs-dates .tks-chip small{display:none}
+  #mbm.tv-sheet .tvs-latest{padding:10px 12px;border-radius:10px;background:var(--tv-ground);font-size:15px;line-height:21px}
+  #mbm.tv-sheet .tvs-latest small{display:block;font-size:12px;color:var(--tv-ink2)}
+  #mbm.tv-sheet .tvs-ft{display:flex;gap:8px;align-items:center}
+  #mbm.tv-sheet .tvs-ft .tvs-icb{flex:0 0 52px;width:52px;min-height:52px;padding:0;display:grid;place-items:center}
+  #mbm.tv-sheet .tvs-ft #mbm-ok{flex:1 1 auto;min-height:52px}
+  #mbm.tv-sheet .tvs-ft [hidden]{display:none !important}
 }`;
   try {
     const s = document.createElement("style");

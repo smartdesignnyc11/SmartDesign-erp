@@ -313,6 +313,26 @@ async def phone_targets(c, pg, who):
         c.ok(not t['small'], f'{who}: the picker\'s targets are 44px ({t["small"]})')
         await pg.screenshot(path=os.path.join(SHOTS, f'ph_{who}_picker.png'))
     await pg.evaluate(CLOSE)
+    # the task sheet on the phone, as the mockup reads it: ID and job, the title, the rows, the four date buttons, Latest,
+    # and a footer of photo, note and the blue next step
+    await mode(pg, 'cards', 'all', 'all')
+    await pg.evaluate("() => { const r = document.querySelector('#tkall-body .tk2-row .tk2-title'); r && r.click(); }")
+    await pg.wait_for_timeout(400)
+    sh = await pg.evaluate("""() => { const m = document.getElementById('mbm'); if (!m) return null; const r = e => e ? e.getBoundingClientRect() : null;
+      const dates = [...m.querySelectorAll('.tvs-dates > *')].map(b => { const q = r(b); return [b.textContent.trim(), Math.round(q.height), Math.round(q.top)]; });
+      const rows = [...m.querySelectorAll('.tvs-f')].map(b => Math.round(r(b).height));
+      const ft = [...m.querySelectorAll('.mbm-ft button')].filter(b => b.getClientRects().length).map(b => [b.getAttribute('aria-label') || b.textContent.trim(), Math.round(r(b).height), b.classList.contains('primary')]);
+      const h3 = m.querySelector('.mbm-hd h3'); const x = m.querySelector('.mbm-x');
+      return { kp: !!m.querySelector('.tvs-kp'), title: h3 ? parseFloat(getComputedStyle(h3).fontSize) : 0, close: x ? Math.round(r(x).width) : 0, dates, rows, latest: [...m.querySelectorAll('.tks-h')].some(h => h.textContent === 'Latest'), ft,
+        sw: document.documentElement.scrollWidth }; }""")
+    c.ok(sh and sh['kp'] and sh['title'] == 22 and sh['close'] >= 44, f'{who}: the phone sheet has ID and job, a 22px title, a 44px close ({sh and (sh["title"], sh["close"])})')
+    c.ok(sh and len(sh['dates']) == 4 and all(d[1] >= 44 for d in sh['dates']) and len({d[2] for d in sh['dates']}) == 1 and sh['dates'][0][0] == 'Today' and sh['dates'][2][0].endswith('Mtg') and sh['dates'][3][0] == 'Pick',
+         f'{who}: Move the Date is four 44px buttons in a row: Today, Tomorrow, the meeting, Pick ({sh and sh["dates"]})')
+    c.ok(sh and sh['rows'] and all(h >= 52 for h in sh['rows']) and sh['latest'], f'{who}: Owner, Due and Follow-Up are 52px rows, and Latest is there ({sh and sh["rows"]})')
+    c.ok(sh and len(sh['ft']) == 3 and sh['ft'][0][1] >= 52 and sh['ft'][1][1] >= 52 and sh['ft'][2][2], f'{who}: the footer is photo, note and the blue next step ({sh and sh["ft"]})')
+    c.ok(sh and sh['sw'] <= 390, f'{who}: the sheet does not scroll sideways ({sh and sh["sw"]})')
+    await pg.screenshot(path=os.path.join(SHOTS, f'ph_{who}_task_sheet.png'))
+    await pg.evaluate(CLOSE)
     # the phone's one chip opens the sheet with saved views and layouts
     await mode(pg, 'cards', 'me', 'week')
     await pg.evaluate("() => { const b = document.querySelector('[data-tkfilter]'); b && b.click(); }")
