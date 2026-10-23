@@ -120,6 +120,8 @@ async def main():
         c.ok(n_items == len(P) and all(x['status'] in ('proposed', 'live', 'board') for x in P), f'nothing lost: {n_items} items read, {len(P)} on the review')
         c.ok(len({x['id'] for x in P}) == len(P), 'one item once')
         # Today: the coordinator's card, one item in Approvals
+        await pg.evaluate("(document.querySelector('[data-tdytabbtn=\"appr\"]') || {click() {}}).click()")
+        await pg.wait_for_timeout(250)
         card = await pg.evaluate("(document.querySelector('#v-home') || document.body).innerText")
         q = await pg.evaluate("tdyModel().appr.map(x => x.kind + ':' + (x.title || '').slice(0, 30))")
         c.ok('Meeting Review' in card, f'the review is a card on the coordinator\'s Today: {q[:8]} {card[:300]}')
@@ -225,6 +227,7 @@ async def main():
         sid = await pg.evaluate("([d]) => { const m = mrvIngest(d, {name: 'Coordination - 2026/09/03 14:00 EDT - Notes by Gemini', source: 'drive', docId: 'doc2'}); mrvRun(m); return m.id; }", [SPK])
         S = await pg.evaluate("""id => { const m = DB.meetings.find(x => x.id === id); return {map: DB.company.meetSpeakers, shared: m.sharedDevice,
             P: m.proposals.filter(p => p.review).map(p => ({id: p.id, title: p.title, kind: p.kind, status: p.status, owner: p.apply.assignee || p.apply.owner || '', party: p.apply.party || '', confirm: !!p.confirm, needs: mrvNeeds(p)}))}; }""", sid)
+        c.ok(sid != 'mt_live', f"the afternoon call is its own meeting, not the morning's live record: {sid}")
         c.ok((S['map'].get('c biron') or {}).get('name') == 'Chen Biron' and S['map']['c biron'].get('how') == 'email', f"a speaker label finds its person by the Google account's address on the invited list: {S['map'].get('c biron')}")
         sp = lambda rx: next((x for x in S['P'] if re.search(rx, x['title'], re.I)), None)
         c.ok((sp('call the expediter') or {}).get('owner') == 'Alan', f"\"I'll call the expediter\": the speaker owns it: {sp('call the expediter')}")
@@ -266,7 +269,7 @@ async def main():
         await pg.evaluate("mrvOpen('mt_live')")
         await pg.wait_for_timeout(250)
         txt = await pg.evaluate("document.getElementById('meetings-body').innerText")
-        quotes = await pg.evaluate("[...document.querySelectorAll('.mrv-q span')].map(x => x.textContent)")
+        quotes = await pg.evaluate("[...document.querySelectorAll('blockquote.mrv-q')].filter(x => !/Gemini's notes/.test(x.querySelector('cite').textContent)).map(x => x.querySelector('span').textContent)")
         c.ok("attendees' to read" in txt and 'Halden' not in txt and not [q for q in quotes if 'Gemini' not in q and q.startswith('\u201c')] or False, f'someone who was not in the meeting sees the items, not the words: {quotes[:3]} {txt[:300]}')
         await b.close()
 

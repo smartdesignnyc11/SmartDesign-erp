@@ -226,8 +226,8 @@ ok(o['us:d:u_alan']['by'] == {'po': {'export': 2}} and o['rp:anon']['text'] == '
 
 # the team meeting's transcript (2026-10-23): the watcher files the notes on Meeting Mode's record of that day and
 # the words on their own row; the attendees and the owner read the words, nobody else; the record's own lists stay
-save('pm', [{'name': 'meetings', 'data': [{'id': 'mtL', 'title': 'Weekly Jobs', 'date': '2026-09-03', 'screenLog': [{'taskKey': 'STA-21', 'from': '2026-09-03T10:00:40'}], 'changes': [{'taskKey': 'STA-21', 'field': 'due'}], 'proposals': [{'id': 'keep'}], 'owner': {'uid': 'u_alan', 'name': 'Alan'}}], 'base': ver('pm', 'meetings')}])
-mt = {'id': 'mtNEW', 'series': 'mw1', 'title': 'Weekly Jobs (doc)', 'date': '2026-09-03', 'doc': {'id': 'DOC1'}, 'summary': 'NOTES', 'proposals': [], 'changes': [], 'owner': {'uid': 'u_chen'}, 'review': {'state': 'reading'}}
+save('pm', [{'name': 'meetings', 'data': [{'id': 'mtL', 'title': 'Weekly Jobs', 'date': '2026-09-03', 'startedAt': '2026-09-03T09:59:30', 'screenLog': [{'taskKey': 'STA-21', 'from': '2026-09-03T10:00:40'}], 'changes': [{'taskKey': 'STA-21', 'field': 'due'}], 'proposals': [{'id': 'keep'}], 'owner': {'uid': 'u_alan', 'name': 'Alan'}}], 'base': ver('pm', 'meetings')}])
+mt = {'id': 'mtNEW', 'series': 'mw1', 'title': 'Weekly Jobs (doc)', 'date': '2026-09-03', 'start': '2026-09-03T09:58:00', 'doc': {'id': 'DOC1'}, 'summary': 'NOTES', 'proposals': [], 'changes': [], 'owner': {'uid': 'u_chen'}, 'review': {'state': 'reading'}}
 tx = {'members': ['u_alan', 'u_owner'], 'text': 'SECRET-WORDS', 'lines': []}
 r = json.loads(psql(f"select public.meet_file('qa', $${json.dumps(mt)}$$::jsonb, $${json.dumps(tx)}$$::jsonb);").stdout.strip())
 o = view('owner')
@@ -247,6 +247,8 @@ ok(r.get('refused'), f'the field never writes a transcript: {r}')
 again = json.loads(psql(f"select public.meet_file('qa', $${json.dumps({'id': 'mtL', 'review': {'state': 'new'}})}$$::jsonb, $${json.dumps({'extract': {'items': [1]}})}$$::jsonb);").stdout.strip())
 o = view('owner')
 ok(again['id'] == 'mtL' and [x for x in o['meetings'] if x['id'] == 'mtL'][0]['review']['state'] == 'new' and o['meettx:mtL']['extract'] == {'items': [1]} and o['meettx:mtL']['text'] == 'SECRET-WORDS', 'meet_file: the background read adds its items and moves the review on')
+other = json.loads(psql(f"select public.meet_file('qa', $${json.dumps({'id': 'mtPM', 'date': '2026-09-03', 'start': '2026-09-03T15:00:00', 'doc': {'id': 'DOC2'}, 'title': 'Afternoon'})}$$::jsonb, null);").stdout.strip())
+ok(other['id'] == 'mtPM' and not other['merged'] and len(view('owner')['meetings']) == 2, f'meet_file: an afternoon meeting on the same day is its own meeting: {other}')
 rows, err = as_('owner', "select public.meet_file('qa', '{\"id\":\"x\"}'::jsonb, null);")
 ok(err and 'permission' in err.lower(), f'meet_file is the server\'s only: {err[:120]}')
 

@@ -98,7 +98,7 @@ export function filing(doc, file, w, users, read) {
   const id = 'mt' + crypto.createHash('sha256').update(file.id).digest('hex').slice(0, 10);
   const owner = (users || []).find((u) => u.id === w.ownerUid) || (users || []).find((u) => u.role === 'coord') || {};
   const meeting = {
-    id, source: 'drive', msgId: 'drive:' + file.id, series: w.id, title: doc.title || w.name || 'Team meeting', date: doc.date || String(file.createdTime || '').slice(0, 10),
+    id, source: 'drive', msgId: 'drive:' + file.id, series: w.id, start: doc.start || '', title: doc.title || w.name || 'Team meeting', date: doc.date || String(file.createdTime || '').slice(0, 10),
     summary: doc.summary || '', sections: (doc.sections || []).concat(doc.quick || []), decisions: (doc.decisions || []).map((d) => ({text: d.name ? `${d.name}: ${d.text}` : d.text, name: d.name || '', status: d.status === 'discuss' ? 'needs-further-discussion' : 'aligned'})),
     steps: doc.steps || [], details: doc.details || [], attendees: doc.attendees || [], docUrl: file.webViewLink || `https://docs.google.com/document/d/${file.id}/edit`, docRead: true,
     doc: {id: file.id, url: file.webViewLink || '', name: file.name || ''}, owner: {uid: owner.id || '', name: owner.name || ''},

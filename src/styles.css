@@ -3882,6 +3882,6 @@ body:has(#drawer.on) section.view .btn.primary,body:has(#mbm) section.view .btn.
 .mrv-spks-all>summary{cursor:pointer;padding:4px 0;color:var(--ink-3)} .mrv-w{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:6px 0;border-top:1px solid var(--rule)}
 @media (max-width:760px){
   .mrv-a .btn,.mrv-ph .acts .btn,.mrv-pick select,.mrv-pick input{min-height:44px}
-  .mrv-a{gap:10px} .mrv-a .btn{flex:1 1 30%}
+  .mrv-a{gap:10px} .mrv-a .btn{flex:1 1 0;min-width:0;padding-left:6px;padding-right:6px;white-space:nowrap}
   .mrv-ph .acts{flex-wrap:wrap;gap:8px}
 }

@@ -658,7 +658,10 @@ begin
     for k in 0 .. jsonb_array_length(arr) - 1 loop
       el := arr->k;
       if el->>'date' = p_meeting->>'date' and coalesce(el#>>'{doc,id}', '') = ''
-         and ((coalesce(p_meeting->>'series', '') <> '' and el->>'series' = p_meeting->>'series') or el ? 'screenLog') then i := k; exit; end if;
+         and ((coalesce(p_meeting->>'series', '') <> '' and el->>'series' = p_meeting->>'series') or el ? 'screenLog')
+         -- two meetings on one day are two: the live record and the recording started within 90 minutes of each other
+         and (coalesce(p_meeting->>'start', '') !~ '^\d{4}-\d{2}-\d{2}T\d' or coalesce(el->>'startedAt', '') !~ '^\d{4}-\d{2}-\d{2}T\d'
+              or abs(extract(epoch from (left(el->>'startedAt', 19)::timestamp - left(p_meeting->>'start', 19)::timestamp))) <= 5400) then i := k; exit; end if;
     end loop;
   end if;
   if i >= 0 then

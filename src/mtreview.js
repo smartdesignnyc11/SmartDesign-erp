@@ -136,6 +136,13 @@ function mrvWall(s) {
 }
 // ---- the transcript in: Drive (the server), a paste or an upload ------------------------------------------------
 // the meeting a doc belongs to: Meeting Mode's record of that day (or the same series), else a new meeting record
+// a live record and a recording are the same meeting only when they started within 90 minutes of each other (two
+// meetings on one day are two meetings); with no start on either, the day decides
+function mrvNear(x, start) {
+  const a = MRV.wall(mrvWall(x.startedAt || x.start || ((x.screenLog || [])[0] || {}).from || "")),
+    b = MRV.wall(start || "");
+  return null == a || null == b || !/T\d/.test(start || "") || Math.abs(a - b) <= 5400;
+}
 function mrvMeetingFor(doc, o) {
   if (o.meetingId) return DB.meetings.find((x) => x.id === o.meetingId) || null;
   const day = DB.meetings.filter((x) => x.date === doc.date);
@@ -145,7 +152,7 @@ function mrvMeetingFor(doc, o) {
   }
   return (
     day.find((x) => o.series && x.series === o.series) ||
-    day.find((x) => (x.screenLog || (x.live && x.live.screenLog)) && !(x.doc && x.doc.id)) ||
+    day.find((x) => (x.screenLog || (x.live && x.live.screenLog)) && !(x.doc && x.doc.id) && mrvNear(x, doc.start)) ||
     day.find((x) => "function" == typeof mtSim && mtSim(x.title, doc.title) >= 0.6 && !(x.doc && x.doc.id && o.docId)) ||
     null
   );
@@ -375,7 +382,7 @@ function mrvBuild(m, opts) {
   const made = [],
     seen = new Set(keep.map((p) => p.id));
   items.forEach((x, n) => {
-    const pr = mrvPropose(m, T, x, { tasks, log, changes, s0, shift, lines });
+    const pr = mrvPropose(m, T, x, { tasks, log, changes, s0, shift, lines, oneJob: mrvOneJob(m) });
     if (!pr) return;
     if (seen.has(pr.id)) return;
     seen.add(pr.id);
@@ -384,6 +391,18 @@ function mrvBuild(m, opts) {
   m.proposals = keep.concat(made);
   m.review = Object.assign({}, m.review || {}, { state: "built", by: by, at: appNowIso(), start: start, shift: shift, items: items.length, screen: log.length });
   return m.review;
+}
+// the one job a meeting is about, when its title and notes name exactly one ("a coordination call on 121 State");
+// a team meeting that walks several jobs has none, and each item finds its own
+function mrvOneJob(m) {
+  const t = " " + mtNorm([m.title, m.summary, ...(m.sections || []).map((x) => `${x.h} ${x.text}`)].join(" ")) + " ";
+  const L = (DB.projects || []).filter((p) => {
+    const nm = p.project.name.replace(/ \u2014.*$/, "");
+    if (t.includes(` ${mtNorm(nm)} `)) return !0;
+    const num = nm.match(/(\d{1,4})\s+([A-Za-z]+)/);
+    return !!num && new RegExp(`\\b${num[1]}\\s+${mtNorm(num[2])}\\b`).test(t);
+  });
+  return 1 === L.length ? L[0] : null;
 }
 // the job a client's name points to ("the Klein parlor counters"), when that client has exactly one open job
 function mrvClientJob(text) {
@@ -418,7 +437,7 @@ function mrvPropose(m, T, x0, C) {
     how = byRef ? "id" : onTask ? "screen" : named ? "said" : "";
   const said = `${x.what || ""} ${x.note || ""} ${x.quote || ""}`;
   let p = task ? mrvProj(task.x.projectId) : null;
-  p || (p = (x.project && mrJob(x.project, "")) || mrJob("", said) || mrvClientJob(said) || null);
+  p || (p = (x.project && mrJob(x.project, "")) || mrJob("", said) || mrvClientJob(said) || C.oneJob || null);
   const upd = !!MRV_KIND[x.kind] || "waiting" === x.kind || "money" === x.kind;
   // with no screen log, an update finds its task by words, in its project
   if (!task && upd && "waiting" !== x.kind) {
@@ -1204,6 +1223,7 @@ if ("function" == typeof mApprovals) {
         it.n = String(w.length + other);
         it.yes = "Review";
         it.review = !0;
+        it.due = m.date || ""; // reviewed the day of the meeting (the Standard: close every loop)
         it.src = "meetreview"; // ranked by the Standard as the board's dates and owners (schedule), not as housekeeping
         it.open = { view: "meetings", meeting: m.id, review: !0 };
       });
