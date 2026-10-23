@@ -2256,6 +2256,8 @@ tkRecReady = !0;
   .mm-top .mm-ttl{flex:1 1 100%;order:-1}
   .mm-prog{flex:1 1 100%}
   .mm-addbtn{width:100%;justify-content:center}
+  #v-tkall .mm button,#v-tkall .mm .mm-addbtn{min-height:44px}
+  #v-tkall .mm .mm-mlink{min-width:44px}
   .mm-addo{max-width:46%}
   .mm-addrow{flex-wrap:wrap}
   .mm-addrow .tks-in{flex:1 1 100%}
