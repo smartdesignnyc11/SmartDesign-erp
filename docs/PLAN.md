@@ -9,6 +9,22 @@ Last updated 2026-10-21, later the same day. The information map merged (42cf9fd
 - Don't start a big round when weekly usage is above about 60%.
 - One build lane is roughly 6–10% of a week's allowance. The lean pilot is about 2–5%.
 
+## Tasks replace Asana (Alan, 10-23): Monday 10-26 build, merged
+All four lanes of `docs/TASKS_PLAN.md` Phase 1, plus the transcript layer, are on master at 13421e3 and pass on the merged build:
+- the task record (keys, one internal owner, Waiting On, follow-up, comments, links) and Meeting Mode: meeting_mode_test 265, two-person sync 12;
+- the views rebuilt to the mockup: task_views_test 271;
+- the team workspace (real date, no demo data, tasks-only pilot, invites) and the Asana import: team_ws_test 65, asana_import_test 81;
+- the transcript to Meeting Review (reader, speakers, time matching, reconcile, Drive watcher): meeting_review_test 70;
+- smoke 2443, today 128, counts_lint 0, menu 3081; the month holds at 262/292, $1,937, 0 days.
+
+**Waiting on Alan before Monday 10am:**
+1. The Asana CSV export.
+2. His go to deploy, apply the schema live, open the team workspace and send the invites (Chen, Jeanette). The deploy needs his approval in the session.
+3. In the app, Meetings › Settings: the Drive folder of the recurring meeting, and Keep Watching on.
+4. Everyone joins the Meet on their own Google account (Companion mode in the room).
+
+Not done for Monday: voice quick-add and push notifications (Phase 2); the one-place and Coming Up lanes are still open; speed was not re-measured on the merged build.
+
 ## Overnight 10-21 to 10-22 (Alan: "keep working without asking until 9am")
 **Merged and pushed to master:**
 - **PO gates** (68066ba and the follow-ups):
