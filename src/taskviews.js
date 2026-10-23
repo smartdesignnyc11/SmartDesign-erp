@@ -1119,7 +1119,18 @@ function tvIsOn(v) {
   if (v.mode && "table" === v.mode && null != v.group && v.group !== tvTableGroup()) return !1;
   return tvKeysOf(v).every((k) => String(null == v.s[k] ? "" : v.s[k]) === String(null == s[k] ? "" : s[k]));
 }
-function tvCountFor(v) {
+// The built-in tabs carry no filter but whose and which dates, so their pools are the person's own open tasks or the
+// firm's, read once per draw (P) and cut by the view; a saved view runs the list's own pool with its filters.
+function tvCountFor(v, P) {
+  if (P && 0 === v.id.indexOf("b:") && "done" !== v.s.t2View) {
+    const who = "me" === v.s.tkWho ? "me" : "all";
+    try {
+      P[who] = P[who] || openTasks(who);
+      return t2ViewOf(P[who], v.s.t2View).length;
+    } catch (e) {
+      return 0;
+    }
+  }
   const keep = tvStateNow();
   try {
     tvKeysOf(v).forEach((k) => tvPut(k, v.s[k]));
@@ -1195,10 +1206,11 @@ function tvSaveDialog() {
   return m;
 }
 function tvSavedHtml() {
+  const P = {};
   return `<div class="tv-saved no-print" role="tablist" aria-label="Saved views">${tvViews()
     .map((v) => {
       const on = tvIsOn(v);
-      return `<button type="button" role="tab" class="tv-sv ${on ? "on" : ""}" data-tvview="${esc(v.id)}" aria-selected="${on ? "true" : "false"}">${esc(v.name)}<span class="n">${tvCountFor(v)}</span></button>`;
+      return `<button type="button" role="tab" class="tv-sv ${on ? "on" : ""}" data-tvview="${esc(v.id)}" aria-selected="${on ? "true" : "false"}">${esc(v.name)}<span class="n">${tvCountFor(v, P)}</span></button>`;
     })
     .join("")}<button type="button" class="tv-sv tv-svnew" data-tvsave>${tvSvg("plus", 15)}<span>New View</span></button></div>`;
 }
