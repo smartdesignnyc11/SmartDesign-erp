@@ -34,6 +34,14 @@ DEMO_DAY = re.compile(r'2026-09-03|\b9/3\b|Sep(tember)?\.? 3\b|Sept 3\b')
 def leaks(text, markers):
     return [m for m in markers if re.search(r'(?<![A-Za-z])' + re.escape(m) + r'(?![A-Za-z])', text)]
 
+HOME_MONEY = re.compile(r'\$\s?\d|Safe to Spend|Overdue AR|\bcash\b', re.I)
+async def home_money(pg):
+    """What on Home reads as money: the Pulse's money tiles and any money sentence, in the page as drawn."""
+    await go(pg, 'home')
+    await pg.wait_for_timeout(200)
+    return await pg.evaluate("""() => { const h = document.getElementById('v-home') || document.body;
+      return {tiles: [...h.querySelectorAll('[data-tdpulse]')].map(a => a.dataset.tdpulse), text: h.innerText}; }""")
+
 async def nav_text(pg):
     return await pg.evaluate("() => [...document.querySelectorAll('#nav button, .rail button, .rail a, nav button, nav a, .bnav a, .bnav button')].filter(e => e.offsetParent).map(e => e.innerText.trim()).filter(Boolean).join(' | ')")
 
@@ -92,6 +100,9 @@ async def main():
         await pg.evaluate("view = 'billing'; render();")
         c.ok(await pg.evaluate("view") != 'billing', 'a money page asked for directly lands on Home')
         # the screens read today, never the demo's day
+        hm = await home_money(pg)
+        m = HOME_MONEY.search(hm['text'])
+        c.ok(not [k for k in hm['tiles'] if k in ('safe', 'ar')] and not m, f"the owner's Home has no money tile or money sentence in the pilot: {hm['tiles']} {m and hm['text'][max(0, m.start() - 60):m.end() + 40]!r}")
         for v in ('home', 'tkall', 'port', 'meetings', 'calendar', 'rdata'):
             await go(pg, v)
             txt = await pg.evaluate("document.querySelector('.view.on, section.view:not([hidden])') ? (document.querySelector('#v-' + view) || document.body).innerText : document.body.innerText")
@@ -153,6 +164,9 @@ async def main():
             c.ok(r['n'] == 13, f'the {who} reads the workspace\'s thirteen tasks: {r["n"]}')
             c.ok(not r['other'], f'and no task the app made up on its own: {r["other"]}')
             c.ok(set(r['all']) == mine, f'and their own three are theirs: {r["all"]}')
+            hm = await home_money(pg)
+            m = HOME_MONEY.search(hm['text'])
+            c.ok(not [k for k in hm['tiles'] if k in ('safe', 'ar')] and not m, f"the {who}'s Today has no money tile or money sentence: {hm['tiles']} {m and hm['text'][max(0, m.start() - 60):m.end() + 40]!r}")
             rv = await pg.evaluate("ROLE_VIEWS[role()]")
             c.ok('tkall' in rv and not [v for v in money if v in rv], f'the {who}\'s menu: Tasks in, money out ({[v for v in money if v in rv]})')
             await go(pg, 'tkall')
@@ -175,6 +189,10 @@ async def main():
         await pg.wait_for_timeout(300)
         r = await pg.evaluate("({pilot: DB.company.pilot.tasksOnly, billing: ROLE_VIEWS.owner.includes('billing'), bank: ROLE_VIEWS.owner.includes('bank'), billingRole: ROLE_VIEWS.billing.includes('billing')})")
         c.ok(r == {'pilot': False, 'billing': True, 'bank': True, 'billingRole': True}, f'pilot off: every page is back, for every role: {r}')
+        hm = await home_money(pg)
+        c.ok('safe' in hm['tiles'], f"and Home's Safe to Spend tile is back: {hm['tiles']}")
+        await pg.evaluate("settingsMode = 'company'; setView('proj')")
+        await pg.wait_for_timeout(400)
         c.ok('Pilot off' in await pg.inner_text('#toast'), 'it toasts what happened')
         await pg.click('#tws-pilot')
         await pg.wait_for_timeout(300)

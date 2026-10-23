@@ -173991,14 +173991,18 @@ const TD_BRIEF_PICK = [
   [/(\d+ messages? read and routed[^;.]*)/i, (m) => m[1]],
   [/^You asked me to remember .*/, (m) => m[0].replace(/\.$/, "")],
 ];
+// The team workspace's pilot (Tasks Only, src/teamws.js): no money is loaded yet, so Home shows no money tile and no
+// money sentence ($0.00 Safe to Spend would read as a fact). The same setting the menu reads.
+const tdNoMoney = () => "function" == typeof twsPilotOn && twsPilotOn();
+const tdMoneyFree = (L) => (tdNoMoney() ? L.filter((s) => !/\$\s?[\d(-]|\bcash\b|\bbilled\b|\binvoice|\bpayroll\b|\bsafe to spend\b/i.test(s)) : L);
 function tdBriefText() {
   const F = tdFacts().F,
     key = F.td + "|" + role(),
     cached = ((DB.company || {}).briefCache || {})[key];
-  return cached && cached.text ? cached.text.split(/\n+/).filter(Boolean) : briefSentences(F, role());
+  return tdMoneyFree(cached && cached.text ? cached.text.split(/\n+/).filter(Boolean) : briefSentences(F, role()));
 }
 function tdBriefLines() {
-  const L = briefSentences(tdFacts().F, role()).slice(1),
+  const L = tdMoneyFree(briefSentences(tdFacts().F, role()).slice(1)),
     out = [];
   for (const [re, f] of TD_BRIEF_PICK) {
     if (out.length >= 3) break;
@@ -174023,7 +174027,7 @@ function tdRender() {
   // Today (lane "today", 2026-10-19): one queue per person. The list is the person's Approvals, Inbox and Tasks,
   // each item in exactly one of them; All is their union in the Standard's order; Team is a manager's who-owes-what.
   const r = role(),
-    pulse = (TD_PULSE[r] || []).map((t) => {
+    pulse = (TD_PULSE[r] || []).filter((t) => !(t.money && tdNoMoney())).map((t) => {
       let v = 0;
       try {
         v = tdPulseValue(t);
