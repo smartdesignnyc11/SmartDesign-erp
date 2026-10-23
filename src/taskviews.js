@@ -195,12 +195,22 @@ function tvProjectOf(x) {
   }
   return { id: "__firm", name: x.project || "Firm-wide" };
 }
+const TV_SEAT = { owner: ["owner"], ceo: ["owner"], design: ["design_mgr", "designer"], designer: ["designer", "design_mgr"], architect: ["designer", "design_mgr"], pm: ["pm"], "project manager": ["pm"], coordinator: ["coord"], procurement: ["coord"], foreman: ["foreman"], billing: ["billing"], controller: ["controller"], accounting: ["controller"] };
 function tvOwnerName(x) {
+  const U = DB.users || [];
   if (x.ownerUid) {
-    const u = (DB.users || []).find((y) => y.id === x.ownerUid);
+    const u = U.find((y) => y.id === x.ownerUid);
     if (u && u.name) return u.name;
   }
-  return x.owner || x.assignee || "";
+  const n = x.owner || x.assignee || "",
+    seat = TV_SEAT[String(n).trim().toLowerCase()];
+  if (seat) {
+    for (const r of seat) {
+      const u = U.find((y) => y.role === r && y.name);
+      if (u) return u.name;
+    }
+  }
+  return n;
 }
 function tvInfo(x) {
   const rec = tvRec(x),
@@ -750,9 +760,9 @@ function tvGhd(gid, name, rows, doneN, cls) {
     open = rows.filter((I) => !I.x.done).length,
     tot = open + (doneN || 0),
     pct = tot ? Math.round((100 * (doneN || 0)) / tot) : 0;
-  return `<button type="button" class="${cls || "tv-ghd"}" data-tvfold="${esc(gid)}" aria-expanded="${f ? "false" : "true"}">${tvSvg(f ? "chevR" : "chevD", 16)}<span class="tv-gn">${esc(name)}</span><span class="n">${rows.length}</span>${late ? `<span class="tv-glate">${late} late</span>` : ""}${
+  return `<div class="${cls || "tv-ghd"}"><button type="button" class="tv-gtog" data-tvfold="${esc(gid)}" aria-expanded="${f ? "false" : "true"}">${tvSvg(f ? "chevR" : "chevD", 16)}<span class="tv-gn">${esc(name)}</span><span class="n">${rows.length}</span></button>${late ? `<span class="tv-glate">${late} late</span>` : ""}${
     null != doneN && tot ? `<span class="tv-bar" role="img" aria-label="${doneN} of ${tot} done"><i style="width:${pct}%"></i></span><span class="tv-gdone">${doneN} of ${tot} done</span>` : ""
-  }</button>`;
+  }</div>`;
 }
 // done tasks in the same scope, counted per group for the bar
 function tvDoneBy(gb) {
@@ -818,8 +828,8 @@ function tvSortRows(rows) {
   });
 }
 // the grid's columns: select, done, ID, title, then the chosen ones; and the same without the panel's two
-function tvGridCols(cols, drop) {
-  const L = ["44px", "44px", "84px", "minmax(260px,1fr)"];
+function tvGridCols(cols, drop, noRef) {
+  const L = ["44px", "44px", noRef ? "0px" : "84px", "minmax(260px,1fr)"];
   cols.forEach((c) => c.fixed || (drop && drop.includes(c.k)) || L.push(tvColW(c) + "px"));
   return L.join(" ");
 }
@@ -883,8 +893,9 @@ function tvTableHtml(infos) {
       return `<div class="tv-th tv-col-${c.k}" role="columnheader" data-tvcol="${c.k}" aria-sort="${s ? ("desc" === s.dir ? "descending" : "ascending") : "none"}"><button type="button" class="tv-sortb" data-tvsort="${c.k}" title="Sort; Shift adds a second sort">${esc(c.n)}${s ? `${tvSvg("desc" === s.dir ? "chevD" : "chevU", 12)}${S.length > 1 ? `<small class="tv-sortn">${i + 1}</small>` : ""}` : ""}</button>${c.fixed ? "" : `<span class="tv-rs" data-tvrs="${c.k}" aria-hidden="true"></span>`}</div>`;
     })
     .join("")}</div>`;
-  const W = 44 + 44 + 84 + 300 + cols.reduce((a, c) => a + (c.fixed ? 0 : tvColW(c)), 0);
-  return `<div class="tv-tframe ${tvDense() ? "dense" : ""}" tabindex="-1"><div class="tv-grid" role="table" aria-label="Tasks" style="--tvcols:${tvGridCols(cols)};--tvcols-n:${tvGridCols(cols, TV_PANEL_DROP)};min-width:${W}px">${head}${body}</div></div>${tvBulkHtml()}`;
+  const noRef = !infos.some((I) => I.ref),
+    W = 44 + 44 + (noRef ? 0 : 84) + 300 + cols.reduce((a, c) => a + (c.fixed ? 0 : tvColW(c)), 0);
+  return `<div class="tv-tframe ${tvDense() ? "dense" : ""}" tabindex="-1"><div class="tv-grid" role="table" aria-label="Tasks" style="--tvcols:${tvGridCols(cols, null, noRef)};--tvcols-n:${tvGridCols(cols, TV_PANEL_DROP, noRef)};min-width:${W}px">${head}${body}</div></div>${tvBulkHtml()}`;
 }
 // the phone: the table's rows become the List's cards, in the table's groups and sort
 function tvCardsHtml(infos) {
@@ -1313,6 +1324,15 @@ function tvBar(host) {
     const acts = ph.querySelector(".acts"),
       nt = acts && acts.querySelector("#tk-new"),
       mm = tvMeetingFn();
+    acts &&
+      setTimeout(() => {
+        const tabs = host.querySelector(".tv-saved");
+        tabs &&
+          ["#tk-import", "#tk-export"].forEach((s) => {
+            const b = acts.querySelector(s);
+            b && (b.classList.add("tv-quiet"), tabs.appendChild(b));
+          });
+      }, 0);
     mm && acts && !acts.querySelector("[data-tvmeeting]") && (nt ? nt.insertAdjacentHTML("beforebegin", '<button type="button" class="btn tv-outline" data-tvmeeting>Start Meeting</button>') : acts.insertAdjacentHTML("beforeend", '<button type="button" class="btn tv-outline" data-tvmeeting>Start Meeting</button>'));
   }
   const scope = bar.querySelector(".t2-scope");
@@ -1581,7 +1601,8 @@ function tvWireTable(w) {
         const T = tvPrefs().table;
         T.widths = Object.assign({}, T.widths || {}, { [k]: nw });
         const cols = tvTableCols();
-        grid && (grid.style.setProperty("--tvcols", tvGridCols(cols)), grid.style.setProperty("--tvcols-n", tvGridCols(cols, TV_PANEL_DROP)));
+        const noRef = !w.querySelector(".tv-col-ref .tv-ref");
+        grid && (grid.style.setProperty("--tvcols", tvGridCols(cols, null, noRef)), grid.style.setProperty("--tvcols-n", tvGridCols(cols, TV_PANEL_DROP, noRef)));
       };
       const up = () => {
         document.removeEventListener("pointermove", move);
@@ -1989,7 +2010,14 @@ let tvDrawing = "";
 #v-tkall,.tv-pop,#mbm.tv-sheet{--tv-ground:#F7F8FA;--tv-ink:#1A1D23;--tv-ink2:#6A7080;--tv-accent:#2456C9;--tv-ring:#ECEEF2;--tv-sep:#F0F1F4;--tv-late:#B42318;--tv-amber-bg:#FFF1D6;--tv-amber:#7A4A00}
 #v-tkall:has(#tkall-body.tv-on){background:var(--tv-ground);font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--tv-ink)}
 #tkall-body.tv-on button,#tkall-body.tv-on input,#tkall-body.tv-on select{font-family:inherit}
+#v-tkall .tv-on .ph{flex-wrap:nowrap;align-items:center}
+#v-tkall .tv-on .ph>div:first-child{flex:0 1 auto;min-width:0}
+#v-tkall .tv-on .ph .lead{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#v-tkall .tv-on .ph .acts{flex:0 0 auto}
 #v-tkall .tv-hdtools{display:flex;align-items:center;gap:12px;flex:1 1 auto;margin:0 16px;min-width:0}
+#v-tkall .tv-hdtools .tk-mode{flex:0 0 auto}
+#v-tkall .tv-saved .tv-quiet{margin-left:auto;align-self:center;min-height:36px;background:none;border:0;color:var(--tv-ink2);font-size:13px}
+#v-tkall .tv-saved .tv-quiet+.tv-quiet{margin-left:0}
 #v-tkall .tv-hdtools .t2-q{flex:0 1 300px;min-width:180px;height:40px;border-radius:10px}
 #v-tkall .tv-outline{background:#fff;border:1px solid var(--tv-accent);color:var(--tv-accent);font-weight:600}
 #v-tkall .tk-mode.tv-modes{background:#EEF0F3;border-radius:10px;padding:3px;border:0;gap:2px}
@@ -2068,7 +2096,8 @@ let tvDrawing = "";
 #v-tkall .tv-mwait{display:inline-flex;align-items:center;gap:4px;margin-right:6px;padding:0 8px;border-radius:10px;background:var(--tv-amber-bg);color:var(--tv-amber);font-weight:600;font-size:12px;line-height:18px}
 /* groups */
 #v-tkall .tv-grp,#v-tkall .tv-tg{margin:0 0 18px}
-#v-tkall .tv-ghd,#v-tkall .tv-shd{display:flex;align-items:center;gap:10px;width:100%;min-height:44px;border:0;background:none;padding:0 4px;text-align:left;cursor:pointer;color:var(--tv-ink)}
+#v-tkall .tv-ghd,#v-tkall .tv-shd{display:flex;align-items:center;gap:10px;width:100%;min-height:44px;padding:0 4px;color:var(--tv-ink);box-sizing:border-box}
+#v-tkall .tv-gtog{display:inline-flex;align-items:center;gap:10px;min-height:44px;border:0;background:none;padding:0 6px 0 0;text-align:left;cursor:pointer;color:inherit;font:inherit}
 #v-tkall .tv-ghd{font-size:16px}
 #v-tkall .tv-ghd .tv-gn{font-weight:700}
 #v-tkall .tv-shd{font-size:14px;font-weight:600;color:var(--tv-ink2)}
