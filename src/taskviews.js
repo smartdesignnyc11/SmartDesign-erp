@@ -2278,7 +2278,7 @@ body:has(#mbm.tks-on) #v-tkall .tv-grid .tv-col-wait,body:has(#mbm.tks-on) #v-tk
   #v-tkall .tv-phtitle{margin:0;font-size:22px;font-weight:700;color:var(--tv-ink)}
   #v-tkall .tv-on .tk2-hline .tk2-ic,#v-tkall .tv-filterbtn{flex:0 0 44px;width:44px;height:44px;padding:0;display:grid;place-items:center;border-radius:12px;border:1px solid var(--tv-ring);background:#fff;color:var(--tv-ink)}
   #v-tkall .tv-filterbtn .n{display:none}
-  .tv-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+  .tv-sr{font-size:0;line-height:0;white-space:nowrap}
   #v-tkall .tv-qchips{display:flex;gap:8px;margin:0 0 12px;overflow-x:auto}
   #v-tkall .tv-qc{flex:0 0 auto;display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 16px;border:1px solid var(--tv-ring);border-radius:22px;background:#fff;font-size:15px;font-weight:500;color:var(--tv-ink);cursor:pointer}
   #v-tkall .tv-qc.on{background:var(--tv-ink);border-color:var(--tv-ink);color:#fff}
