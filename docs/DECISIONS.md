@@ -32,6 +32,8 @@ The overnight run of 2026-10-19 builds on the defaults above and does not decide
 ## 2026-10-23
 | Ask or decision | Where it lives | Status |
 |---|---|---|
+| Every task has one internal owner, a team member who makes sure it is done. A vendor (for example, the millwork vendor), consultant, designer or client is never the owner; they are Waiting On, with what they owe and the promised date | `docs/TASKS_PLAN.md` §2 item 3 | Spec |
+| How the next meeting updates the board: captured live in Meeting Mode, which logs what was on screen when; the Gemini transcript arrives in Drive, the server reads all of it, matches each sentence to the task on screen at that minute, reconciles against what was already entered, and the coordinator approves one Meeting Review about 15 minutes after the call | `docs/TASKS_PLAN.md` §2 item 6 | Spec |
 | The team stops using Asana and runs its tasks in the app, to build the habit. Two meetings a week (Monday and Thursday, 10am) walk the board; today the Gemini transcript goes to Claude, then a CSV, then Asana. The task module must hold everything the meeting needs. The views are poor except Board and Table, and Table looks like a spreadsheet. He asked for the plan first | `docs/TASKS_PLAN.md` | **Waiting on Alan**: yes to the plan, the Asana CSV export, the pilot people, and the dates (Monday 10-26 alongside Asana, Thursday 10-29 on the app alone) |
 
 ## 2026-10-21

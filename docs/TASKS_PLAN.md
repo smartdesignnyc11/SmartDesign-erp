@@ -48,7 +48,7 @@ No real meeting content is in this file (CLAUDE.md, Privacy). The examples below
    Nothing is retyped. Unmatched rows go to a review list, never into "General".
 3. **The task record gains what the meeting uses.** These are fields on the existing task stores (`tkItems`), not a new store:
    - a project key and number (`PAD-23`), shown and searchable everywhere, Ask included;
-   - several assignees or "the group", and people who are not users (contacts: foreman, consultant, vendor) as owner or "waiting on";
+   - **one internal owner, always** (Alan, 10-23): a team member who makes sure it gets done. A vendor, consultant, designer or client is never the owner. They are **Waiting On**: who owes what, by when they promised it, and the evidence (mail, call, meeting). Others on the team can be collaborators. "The group" must name a lead. A task cannot be saved, imported or approved without an internal owner: an import row or a proposal with no owner waits for one to be picked;
    - **next follow-up** (the chase date) apart from the **due** date;
    - **watch until** for tracking items;
    - status: To Do, Doing, Waiting On, Done; plus **FYI** for status-only items;
@@ -83,7 +83,22 @@ No real meeting content is in this file (CLAUDE.md, Privacy). The examples below
    - **Saved views per person** (My Week, Waiting on Others, By Project), and the one task sheet from the tasks lane behind every row.
 
 ### Phase 2: the transcript updates the board, people approve (target: Thursday 10-29, Asana retired)
-6. **Meeting notes become proposed updates.**
+6. **Every meeting is captured in two layers, and the transcript reconciles.** (Alan, 10-23: "what's the best way to do it so the platform captures everything in the meeting?")
+   - **Live, in Meeting Mode.** Every change is recorded the moment it is made, with the meeting, the time and who made it. Meeting Mode also logs which task was on screen and when (for example, PAD-23 from 10:14:02 to 10:15:40). This is the key: each line of the transcript has a time, so the reader knows which task each sentence was about, instead of guessing from the words.
+   - **After the meeting, automatically.** Gemini saves the notes doc to the organiser's Drive, in the recurring meeting's folder, a few minutes after the call ends. The server watches that folder through the organiser's Google connection (the same watcher as mail and calendar), reads the **whole transcript**, not only Gemini's "next steps" (which missed items on 10-22), and extracts:
+     - new tasks, with the internal owner, any Waiting On, the date said, and the project;
+     - date changes, completions, notes and reassignments;
+     - commitments made by outsiders ("will bring it Thursday"), which become Waiting On with the promised date;
+     - decisions, aligned and to discuss;
+     - money items, linked to the bill, credit or job cost line they touch;
+     - new projects;
+     - follow-up meetings to schedule.
+   - **Reconciled, never doubled.** Anything already done live in Meeting Mode is matched and left alone. Only what the meeting said and nobody entered becomes a proposal.
+   - **One review, then applied.** About 15 minutes after the call, the meeting's owner (the coordinator) gets a Meeting Review on Today, grouped by project. Each item shows the quoted sentence with its time link, and has Accept, Edit and Reject; Accept All is available. Nothing changes the board until a person accepts (AI assists, people commit). Accepted items go to each owner's Today, and the minutes are final.
+   - **Fallbacks.** If the meeting was not recorded, Meeting Mode alone is the record. A transcript can also be pasted or uploaded, or recorded on the phone in the app.
+   - **Privacy.** The server reads only that meeting's folder. The transcript is stored on the meeting's record in the hosted workspace, visible to the attendees, and never in the repo.
+
+   **The old step 6, kept: meeting notes become proposed updates.**
    - The Gemini notes doc lands in Drive. The app reads it through the Google connection each person already has, from the meeting's own folder only.
    - Each next step is matched to an existing task (by ID, project and words). The app proposes:
      - new tasks;
