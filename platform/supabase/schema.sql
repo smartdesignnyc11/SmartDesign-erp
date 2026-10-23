@@ -283,6 +283,9 @@ create or replace view public.collections_view with (security_invoker = false) a
     -- 2026-10-19: "I should always have admin privileges"; every staff member's chat list says so). Writing stays
     -- members-only: the owner joins a conversation (thread_join) before he can write in it.
     and (c.name not like 'thread:%' or public.thread_member(c.data) or public.my_role() = 'owner')
+    -- A team meeting's transcript (meettx:<meeting id>, 2026-10-23) is read by the meeting's attendees (its members)
+    -- and the owner: the meeting's notes and review are on the shared meetings row, its words are not.
+    and (c.name not like 'meettx:%' or public.thread_member(c.data) or public.my_role() = 'owner')
     -- A job (project:<id>) reaches a field sign-in only when its crew list names that person.
     and (c.name not like 'project:%' or public.is_office() or public.field_job(c.data));
 revoke all on public.collections_view from anon;
@@ -318,6 +321,10 @@ begin
     end if;
     if nm like 'thread:%' and not (public.thread_member(it->'data') and not exists (select 1 from public.collections x where x.workspace_id = wsid and x.name = nm and not public.thread_member(x.data))) then
       -- a thread is written only by a member, and an existing thread only by one of its members
+      result := result || jsonb_build_array(jsonb_build_object('name', nm, 'refused', true)); continue;
+    end if;
+    if nm like 'meettx:%' and not (office and public.thread_member(it->'data') and not exists (select 1 from public.collections x where x.workspace_id = wsid and x.name = nm and not public.thread_member(x.data))) then
+      -- a meeting's transcript is written only by one of its attendees in the office (the server files it)
       result := result || jsonb_build_array(jsonb_build_object('name', nm, 'refused', true)); continue;
     end if;
     if nm like 'own:%' and split_part(nm, ':', 2) <> public.my_private_key() then
@@ -379,6 +386,7 @@ create policy "collections: members see change events" on public.collections for
   using (workspace_id = public.my_workspace() and public.is_member()
     and (name not like 'own:%' or split_part(name, ':', 2) = public.my_private_key())
     and (name not like 'thread:%' or public.thread_member(data) or public.my_role() = 'owner')
+    and (name not like 'meettx:%' or public.thread_member(data) or public.my_role() = 'owner')
     and (name not like 'project:%' or public.is_office() or public.field_job(data)));
 grant select (workspace_id, name, version, updated_by, updated_at) on public.collections to authenticated;
 do $$ begin
@@ -625,3 +633,56 @@ begin
 end $$;
 revoke all on function public.thread_join(text) from public, anon;
 grant execute on function public.thread_join(text) to authenticated;
+
+-- ---------------------------------------------------------------- the team meeting's transcript (2026-10-23)
+-- The Drive watcher files a "Notes by Gemini" doc (lib/meetwatch.mjs): the meeting's notes go on the shared meetings
+-- row, joined to the record Meeting Mode made that day (same series, or the day's live record with no doc yet), and
+-- the transcript goes on its own row, meettx:<meeting id>, which only its members (the attendees) and the owner
+-- read. The background read adds the model's items to that row and moves the review on. Once per doc: a doc already
+-- on a meeting is not filed again. The meeting's own lists (proposals, changes, the screen log) and its owner, once
+-- set, are never overwritten from here. Server only.
+create or replace function public.meet_file(p_ws text, p_meeting jsonb, p_text jsonb) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare cur jsonb; arr jsonb; i int := -1; k int; el jsonb; id text; v int; tv int; nm text; told jsonb;
+  incoming jsonb := p_meeting - 'id' - 'proposals' - 'changes' - 'screenLog' - 'status' - 'createdAt' - 'projectId' - 'clientId';
+begin
+  if jsonb_typeof(p_meeting) <> 'object' or coalesce(p_meeting->>'id', '') = '' then return jsonb_build_object('error', 'no meeting'); end if;
+  select data into cur from public.collections where workspace_id = p_ws and name = 'meetings' for update;
+  arr := case when jsonb_typeof(cur) = 'array' then cur else '[]'::jsonb end;
+  for k in 0 .. jsonb_array_length(arr) - 1 loop
+    el := arr->k;
+    if el->>'id' = p_meeting->>'id'
+       or (coalesce(p_meeting#>>'{doc,id}', '') <> '' and el#>>'{doc,id}' = p_meeting#>>'{doc,id}') then i := k; exit; end if;
+  end loop;
+  if i < 0 and coalesce(p_meeting->>'date', '') <> '' then
+    for k in 0 .. jsonb_array_length(arr) - 1 loop
+      el := arr->k;
+      if el->>'date' = p_meeting->>'date' and coalesce(el#>>'{doc,id}', '') = ''
+         and ((coalesce(p_meeting->>'series', '') <> '' and el->>'series' = p_meeting->>'series') or el ? 'screenLog') then i := k; exit; end if;
+    end loop;
+  end if;
+  if i >= 0 then
+    el := arr->i; id := el->>'id';
+    if coalesce(el#>>'{owner,uid}', '') <> '' then incoming := incoming - 'owner'; end if;
+    -- notes already on the record (Meeting Mode's minutes) stay; the doc adds what the record lacks
+    if jsonb_typeof(el->'steps') = 'array' and jsonb_array_length(el->'steps') > 0 then incoming := incoming - 'steps'; end if;
+    if coalesce(el->>'title', '') <> '' then incoming := incoming - 'title'; end if;
+    arr := jsonb_set(arr, array[i::text], el || incoming);
+  else
+    id := p_meeting->>'id';
+    arr := arr || jsonb_build_array(p_meeting);
+  end if;
+  insert into public.collections (workspace_id, name, data, version) values (p_ws, 'meetings', arr, 1)
+  on conflict (workspace_id, name) do update set data = excluded.data, version = public.collections.version + 1, updated_at = now()
+  returning version into v;
+  if jsonb_typeof(p_text) = 'object' then
+    nm := 'meettx:' || id;
+    select data into told from public.collections where workspace_id = p_ws and name = nm for update;
+    insert into public.collections (workspace_id, name, data, version)
+    values (p_ws, nm, coalesce(told, '{}'::jsonb) || p_text || jsonb_build_object('id', 'mx_' || id, 'meetingId', id), 1)
+    on conflict (workspace_id, name) do update set data = excluded.data, version = public.collections.version + 1, updated_at = now()
+    returning version into tv;
+  end if;
+  return jsonb_build_object('id', id, 'version', v, 'textVersion', tv, 'merged', i >= 0);
+end $$;
+revoke all on function public.meet_file(text, jsonb, jsonb) from public, anon, authenticated;

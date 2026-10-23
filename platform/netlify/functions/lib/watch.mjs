@@ -7,6 +7,7 @@ import {access, newMail, calChanges, driveChanges} from './google.mjs';
 import {contextFrom, score, message} from './score.mjs';
 import {pushTo} from './push.mjs';
 import {fileChatReplies} from './chatmail.mjs';
+import {watchMeetings} from './meetwatch.mjs';
 
 // The firm's vendors, clients and jobs, read once per run of the whole watch (cached per workspace).
 const ctxCache = {};
@@ -20,7 +21,7 @@ async function firmContext(ws) {
 
 export async function watchOne(row, deadline = Date.now() + 20000, opts = {}) {
   const cur = row.cursors || {}, next = {...cur}, found = {gmail: [], cal: [], drive: []};
-  let error = '';
+  let error = '', meet = {filed: []};
   try {
     const tok = (await access(open(row.sealed))).access_token;
     const started = Math.floor(Date.now() / 1000) - 120;          // a little overlap; the app skips what it holds
@@ -33,6 +34,11 @@ export async function watchOne(row, deadline = Date.now() + 20000, opts = {}) {
     if (Date.now() < deadline) {
       const at = new Date().toISOString();
       found.drive = await driveChanges(tok, cur.driveAt); next.driveAt = at;
+    }
+    // the team meeting's notes doc in the folder the owner set, when this person organises it (lib/meetwatch.mjs)
+    if (Date.now() < deadline) {
+      try { meet = await watchMeetings(row, tok, {deadline, read: opts.read}); next.meet = meet.meet; }
+      catch (e) { console.error('meetwatch', String(e.message || e).slice(0, 120)); }
     }
   } catch (e) { error = String(e.message || e).slice(0, 300); }
   const items = Object.fromEntries(Object.entries(found).filter(([, v]) => v.length));
@@ -51,5 +57,5 @@ export async function watchOne(row, deadline = Date.now() + 20000, opts = {}) {
   const now = new Date().toISOString();
   await rest('google_watch?person_key=eq.' + encodeURIComponent(row.person_key), {method: 'PATCH', headers: {prefer: 'return=minimal'},
     body: JSON.stringify({cursors: next, last_run: now, last_error: error, ...(error ? {} : {last_ok: now})})});
-  return {mail: found.gmail.length, chat: chat.filed, events: found.cal.length, files: found.drive.length, pushed, error};
+  return {mail: found.gmail.length, chat: chat.filed, events: found.cal.length, files: found.drive.length, meetings: meet.filed.length, pushed, error};
 }

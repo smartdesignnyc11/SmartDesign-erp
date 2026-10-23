@@ -9,7 +9,7 @@ export default async () => {
   for (const row of rows || []) {
     if (Date.now() > stop - 4000) break;
     const r = await watchOne(row, stop);
-    done.push({mail: r.mail, events: r.events, files: r.files, ok: !r.error});
+    done.push({mail: r.mail, events: r.events, files: r.files, meetings: r.meetings || 0, ok: !r.error});
   }
   console.log('watch', JSON.stringify(done));
   return new Response('ok');
