@@ -29,6 +29,11 @@ Status: **Built** (merged and tested) · **Building** (a lane is on it) · **Spe
 
 The overnight run of 2026-10-19 builds on the defaults above and does not decide them. The menu and navigation questions from `docs/MENU_DRAFT.md` were waiting on Alan; they were decided overnight under his instruction (below) and are no longer waiting.
 
+## 2026-10-23
+| Ask or decision | Where it lives | Status |
+|---|---|---|
+| The team stops using Asana and runs its tasks in the app, to build the habit. Two meetings a week (Monday and Thursday, 10am) walk the board; today the Gemini transcript goes to Claude, then a CSV, then Asana. The task module must hold everything the meeting needs. The views are poor except Board and Table, and Table looks like a spreadsheet. He asked for the plan first | `docs/TASKS_PLAN.md` | **Waiting on Alan**: yes to the plan, the Asana CSV export, the pilot people, and the dates (Monday 10-26 alongside Asana, Thursday 10-29 on the app alone) |
+
 ## 2026-10-21
 | Ask or decision | Where it lives | Status |
 |---|---|---|
