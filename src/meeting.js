@@ -60,8 +60,16 @@ const tkDay = (d) => {
 };
 
 // ---- who may own a task: a person on the team -----------------------------------------------------------------------
+var tkIntMemo = null;
 function tkInternal(name) {
   const n = String(name || "").trim();
+  if (tkIntMemo) {
+    if (!tkIntMemo.has(n)) tkIntMemo.set(n, tkInternal_(n));
+    return tkIntMemo.get(n);
+  }
+  return tkInternal_(n);
+}
+function tkInternal_(n) {
   if (!n || TDY_NOT_PERSON.test(n) || /^the (group|team)$/i.test(n)) return null;
   const u = tdyUserOf(n);
   if (u) return { name: u.name, id: u.id, role: u.role };
@@ -184,6 +192,7 @@ function tkSetPrefix(id, pre) {
   const meta = tkBoardMeta(id);
   if (!meta) return { ok: !1, why: "That project is no longer here" };
   const was = meta.prefix || "";
+  meta.prefixSet = 1; // a person chose it: an import never replaces it
   if (was === P) return { ok: !0, prefix: P };
   meta.prefix = P;
   tkKeyedRecs()
@@ -215,7 +224,17 @@ function tkRecSweep() {
       const L = byBoard[id],
         meta = tkBoardMeta(id);
       if (!meta) return;
-      if (!meta.prefix) (meta.prefix = tkPrefixInUse(L) || tkPrefixGuess(tkBoardName(id), id)), n++;
+      const inUse = tkPrefixInUse(L),
+        cnt = (pre) => L.filter((r) => String(r.rec.code || "").toUpperCase().startsWith(pre + "-")).length;
+      let was = "";
+      if (!meta.prefix) (meta.prefix = inUse || tkPrefixGuess(tkBoardName(id), id)), n++;
+      else if (!meta.prefixSet && inUse && inUse !== meta.prefix && cnt(inUse) > cnt(meta.prefix) && !tkPrefixTaken(inUse, id)) {
+        // an imported board (Asana's PAD-23) keeps its prefix over the one the app guessed before the import; the
+        // few tasks keyed with the guess move on to the board's numbers and keep their old key as keyWas
+        was = meta.prefix;
+        meta.prefix = inUse;
+        n++;
+      }
       const P = meta.prefix;
       let max = 0;
       L.forEach((r) => {
@@ -224,6 +243,13 @@ function tkRecSweep() {
       });
       const next = Math.max(+meta.keyNext || 1, max + 1);
       meta.keyNext !== next && ((meta.keyNext = next), n++);
+      was &&
+        L.forEach((r) => {
+          const m = TK_CODE_RE.exec(String(r.rec.code || ""));
+          if (!m || m[1] !== was) return;
+          (r.rec.keyWas = r.rec.keyWas || []).push(r.rec.code);
+          r.rec.code = `${P}-${meta.keyNext++}`;
+        });
     });
     // one code, one task: the first made keeps it
     const seen = {},
@@ -247,9 +273,12 @@ function tkRecSweep() {
       r.rec.code = `${meta.prefix}-${meta.keyNext++}`;
       n++;
     });
+    tkIntMemo = new Map();
     R.forEach((r) => (n += tkRecFix(r)));
   } catch (e) {
     console.warn("task record sweep", e);
+  } finally {
+    tkIntMemo = null;
   }
   return n;
 }
@@ -277,7 +306,7 @@ function tkOwnerFix(r) {
   const a = r.rec,
     raw = String(a.assignee || "").trim(),
     parts = raw
-      .split(/\s*(?:\/|,|&|\band\b)\s*/i)
+      .split(/\s*[\/,]\s*/)
       .map((s) => s.trim())
       .filter(Boolean),
     inside = [],
@@ -460,6 +489,8 @@ function tkSetStatus(kind, rec, s) {
 
 // ---- the task sheet: the record's fields, edited where the task is opened ------------------------------------------
 function tkRecSheetHtml(R, done) {
+  // the field's sheet stays one job, big targets, plain words: the record's office fields are for the office
+  if (/^(foreman|crew|driver|client)$/.test(role())) return "";
   const a = R.rec,
     x = R.x,
     st = tkStatusOf(x.kind, a),
@@ -493,6 +524,7 @@ function tkRecSheetHtml(R, done) {
 </div>`;
 }
 function tkRecSheetWire(m, R, refresh) {
+  if (!m.querySelector(".tks-rec")) return;
   const a = R.rec,
     x = R.x,
     q = (s) => m.querySelector(s),
@@ -754,12 +786,29 @@ function mtLog(change, m) {
   if (!M || !change) return null;
   const me = tdyMe(),
     at = appNowIso(),
-    c = Object.assign({ id: uid("mc"), taskKey: "", field: "", from: "", to: "", by: me.name || "", at: at }, change);
+    c = Object.assign({ id: uid("mc"), taskKey: "", field: "", from: "", to: "", by: me.name || "", at: at }, change),
+    T = c.taskKey ? tkByCode(c.taskKey) : null;
+  // the record's own address rides with the key: two devices that each made PAD-24 while apart are put right after
+  // they merge (one moves to PAD-25), and the meeting's lines follow the task, not the number
+  T && !c.ref && (c.ref = T.key);
   (M.changes = M.changes || []).push(c);
   if ("created" === c.field && c.taskKey) (M.created = M.created || []).includes(c.taskKey) || M.created.push(c.taskKey);
-  const T = c.taskKey ? tkByCode(c.taskKey) : null;
   T && (T.rec.lastDiscussed = { meetingId: M.id, at: at });
   return c;
+}
+// after a merge: each line's key read again from its task, and the new tasks read from the changes (an array of
+// plain keys keeps only one device's additions when both add at once; the changes carry ids and keep both)
+function mtRekey(m) {
+  if (!m) return;
+  const fix = (o) => {
+    if (!o || !o.ref) return;
+    const c = tkCodeOfKey(o.ref);
+    c && c !== o.taskKey && (o.taskKey = c);
+  };
+  (m.changes || []).forEach(fix);
+  (m.screenLog || []).forEach(fix);
+  const made = (m.changes || []).filter((c) => "created" === c.field && c.taskKey).map((c) => c.taskKey);
+  m.created = [...new Set(made)];
 }
 // the cadence: Monday and Thursday at 10 unless Settings says otherwise
 function mtCadence() {
@@ -846,6 +895,8 @@ function mtBuildAgenda(whole, beforeId) {
 function mtSeq(m) {
   const out = [];
   (m.agenda || []).forEach((b) => {
+    // a project added in the meeting has a card of its own until its first task is added
+    !b.items.length && !b.fyi.length && out.push({ t: "empty", code: "EMPTY:" + b.board, board: b.board });
     b.items.forEach((c) => out.push({ t: "task", code: c, board: b.board }));
     if (b.fyi.length) {
       if ((m.fyiOpen || []).includes(b.board)) b.fyi.forEach((c) => out.push({ t: "task", code: c, board: b.board, fyi: !0 }));
@@ -858,8 +909,7 @@ let mmOn = !1,
   mmAt = "",
   mmFollow = !0,
   mmPanel = "",
-  mmDateField = "",
-  mmLastShown = "";
+  mmDateField = "";
 const mmMe = () => tdyMe();
 const mmCanRun = () => ["owner", "coord"].includes(role());
 const mmPresenter = (m) => !!m && (!m.presenterUid || m.presenterUid === mmMe().id);
@@ -883,7 +933,10 @@ function mmShow(m, code) {
     if (open.taskKey === code) return;
     open.to = now;
   }
-  code && !/^FYI:/.test(code) && L.push({ id: uid("ms"), taskKey: code, from: now, to: "" });
+  if (code && !/^(FYI|EMPTY):/.test(code)) {
+    const T = tkByCode(code);
+    L.push({ id: uid("ms"), taskKey: code, ref: T ? T.key : "", from: now, to: "" });
+  }
   m.cursor = { code: code, at: now, by: mmMe().name || "" };
 }
 function mmGo(d) {
@@ -1070,6 +1123,8 @@ function mtMinutesText(m, M) {
 function mmEndDialog() {
   const m = mtCurrent();
   if (!m) return;
+  tkRecSweep();
+  mtRekey(m);
   mmReconcile(m);
   const M = mtMinutesOf(m),
     n = (k) => M[k].length;
@@ -1090,6 +1145,8 @@ function mmReconcile(m) {
 function mtEnd(m) {
   const M0 = m || mtCurrent();
   if (!M0) return null;
+  tkRecSweep();
+  mtRekey(M0);
   mmReconcile(M0);
   const now = appNowIso(),
     L = M0.screenLog || [],
@@ -1173,6 +1230,7 @@ function mmCardData(code) {
   return R ? Object.assign({ T: T, R: R }, {}) : null;
 }
 function mmCardHtml(m, s, W) {
+  if ("empty" === s.t) return `<article class="mm-card mm-fyi"><div class="mm-key">${esc((tkBoardMeta(s.board) || {}).prefix || "")}</div><h2 class="mm-title">${esc(tkBoardName(s.board))} has no tasks yet</h2><p class="muted">Add its first task below: it will be ${esc((tkBoardMeta(s.board) || {}).prefix || "")}-${esc(String((tkBoardMeta(s.board) || {}).keyNext || 1))}.</p></article>`;
   if ("fyi" === s.t) {
     const b = (m.agenda || []).find((x) => x.board === s.board) || { fyi: [], name: "" };
     return `<article class="mm-card mm-fyi"><div class="mm-key">FYI · ${esc(b.name)}</div><h2 class="mm-title">${b.fyi.length} item${1 === b.fyi.length ? "" : "s"} for information</h2><ul class="mm-fyilist">${b.fyi
@@ -1209,7 +1267,7 @@ function mmCardHtml(m, s, W) {
   ${flag}
   ${a.waitingOn && a.waitingOn.name ? `<div class="mm-wait">${mmSvg("wait", 18)}<span>${esc(tkWaitSay(a.waitingOn))}</span></div>` : ""}
   <div class="mm-dates">${dates.join('<span class="tk2-dot"> · </span>')}</div>
-  ${C.length ? `<div class="mm-comments">${C.map((c) => `<div class="mm-comment"><span class="small muted">${esc(tkFirst(c.by) || "Someone")} · ${esc(fmt(String(c.at || "").slice(0, 10)))}</span><div>${esc(c.text)}</div></div>`).join("")}</div>` : '<div class="mm-comments muted small">No comments yet.</div>'}
+  ${C.length ? `<div class="mm-comments">${C.map((c) => `<div class="mm-comment"><span class="small muted">${esc((tdyUserOf(c.by) ? tkFirst(c.by) : c.by) || "Someone")} · ${esc(fmt(String(c.at || "").slice(0, 10)))}</span><div>${esc(c.text)}</div></div>`).join("")}</div>` : '<div class="mm-comments muted small">No comments yet.</div>'}
   ${links.length || files.length ? `<div class="mm-links">${links.map(([l, i], k) => `<button type="button" class="mm-linkb" data-mmlink="${k}">${mmSvg("link", 16)}<span>${esc(i.label)}</span></button>`).join("")}${files.map((f) => `<span class="mm-linkb">${mmSvg("file", 16)}<span>${esc(f.name)}</span></span>`).join("")}</div>` : ""}
 </article>`;
 }
@@ -1257,7 +1315,7 @@ function mmPanelHtml(m, code) {
   if ("more" === mmPanel)
     return `<div class="mm-panel mm-menu"><button type="button" class="btn" data-mmmove="-1">Move Up</button><button type="button" class="btn" data-mmmove="1">Move Down</button><button type="button" class="btn" data-mmpanel="decision">Decision</button><button type="button" class="btn" data-mmsheet>Open the Task</button><button type="button" class="btn" data-mmprojmove="-1">Project Up</button><button type="button" class="btn" data-mmprojmove="1">Project Down</button></div>`;
   if ("addproj" === mmPanel)
-    return `<div class="mm-panel"><div class="grid2"><div class="f"><label>Project</label><input data-mmp="name" placeholder="Park Ave Duplex"></div><div class="f"><label>Prefix</label><input data-mmp="prefix" placeholder="PAD" maxlength="8"></div></div><div class="f"><label>Client</label><select data-mmp="client"><option value="">None: one of the firm's own lists</option>${(DB.clients || []).map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join("")}<option value="__new">New Client…</option></select></div><div class="f" data-mmpnewc hidden><label>New Client's Name</label><input data-mmp="newClient"></div><div class="tks-row"><button type="button" class="btn" data-mmpsave>Add Project</button></div></div>`;
+    return `<div class="mm-panel"><div class="grid2"><div class="f"><label>Project</label><input data-mmp="name" placeholder="Park Ave Duplex"></div><div class="f"><label>Prefix</label><input data-mmp="prefix" placeholder="PAD" maxlength="8"></div></div><div class="f"><label>Client</label><select data-mmp="client"><option value="">None: one of the firm's own lists</option>${(DB.clients || []).map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join("")}<option value="__new">New Client…</option></select></div><div class="f" data-mmpnewc hidden><label>New Client's Name</label><input data-mmp="newClient"></div><div class="tks-row"><button type="button" class="btn" data-mmpsave>Save Project</button></div></div>`;
   return "";
 }
 function mmContactNames() {
@@ -1283,7 +1341,7 @@ function mmHtml() {
     started = String(m.startedAt || "").slice(11, 16),
     side = phone
       ? ""
-      : `<aside class="mm-side" aria-label="Agenda">${(m.agenda || [])
+      : `<aside class="mm-side" aria-label="Agenda" data-noclip="1">${(m.agenda || [])
           .map(
             (bb) =>
               `<div class="mm-sb"><div class="mm-sbh">${esc(bb.name)} <span class="muted">${esc(bb.prefix)}</span></div>${mtSeq(m)
@@ -1301,8 +1359,8 @@ function mmHtml() {
   const add = b
     ? `<div class="mm-add"><div class="tks-row"><input class="tks-in" data-mmaddt placeholder="Add a task to ${esc(b.name)}" aria-label="Add a task to ${esc(b.name)}"><select class="mm-addo" data-mmaddo aria-label="Owner">${tkOwnersList()
         .map((u) => `<option ${u.id === mmMe().id ? "selected" : ""}>${esc(u.name)}</option>`)
-        .join("")}</select><button type="button" class="btn" data-mmadd>Add Task</button></div><button type="button" class="btn mm-addp" data-mmact="addproj">${mmSvg("plus", 16)} Add Project</button></div>`
-    : `<div class="mm-add"><p class="small muted">Nothing on the agenda. Add a project, or end the meeting.</p><button type="button" class="btn mm-addp" data-mmact="addproj">${mmSvg("plus", 16)} Add Project</button></div>`;
+        .join("")}</select><button type="button" class="btn" data-mmadd>New Task</button></div><button type="button" class="btn mm-addp" data-mmact="addproj">${mmSvg("plus", 16)} New Project</button></div>`
+    : `<div class="mm-add"><p class="small muted">Nothing on the agenda. Add a project, or end the meeting.</p><button type="button" class="btn mm-addp" data-mmact="addproj">${mmSvg("plus", 16)} New Project</button></div>`;
   return `<div class="mm ${phone ? "mm-phone" : ""}" data-mm="${esc(m.id)}">
   <div class="mm-top"><div class="mm-ttl"><b>${esc(m.title)}</b><span class="small muted">${esc(tkDay(m.date))}${started ? ` · started ${esc(started)}` : ""} · ${W.seq.length ? `${W.i + 1} of ${W.seq.length}` : "nothing on the agenda"}${pres ? "" : ` · ${esc(tkFirst(m.presenter) || "someone")} is sharing`}</span></div><span class="grow"></span>
   <label class="mm-follow"><input type="checkbox" data-mmfollow ${mmFollow ? "checked" : ""}> Follow</label>${phone ? '<button type="button" class="btn" data-mmagenda>Agenda</button>' : ""}<button type="button" class="btn" data-mmleave>Leave</button>${pres ? '<button type="button" class="btn" data-mmend>End Meeting</button>' : ""}</div>
@@ -1395,6 +1453,8 @@ function mmAddTask(m, title, owner) {
     b.why = b.why || {};
     b.why[code] = ["changed"];
   }
+  // the first task of a project added in the meeting takes its empty card's place on screen
+  /^EMPTY:/.test(mmAt) && ((mmAt = code), mmPresenter(m) && mmShow(m, code));
   mtLog({ taskKey: code, field: "created", from: "", to: title.trim() }, m);
   mtLog({ taskKey: code, field: "owner", from: "", to: made.rec.assignee }, m);
   save();
@@ -1435,6 +1495,8 @@ function mmAddProject(m, f) {
   const ai = s ? m.agenda.findIndex((x) => x.board === s.board) + 1 : m.agenda.length;
   m.agenda.splice(ai, 0, { board: id, name: tkBoardName(id), prefix: tkBoardMeta(id).prefix, items: [], fyi: [], why: {} });
   mtLog({ taskKey: "", field: "project", from: "", to: `${tkBoardName(id)} (${tkBoardMeta(id).prefix})`, board: id }, m);
+  mmAt = "EMPTY:" + id;
+  mmPresenter(m) && mmShow(m, mmAt);
   try {
     audit("board", id, "created", "", name, "in the team meeting");
   } catch (e) {}
@@ -1700,22 +1762,41 @@ document.addEventListener("keydown", (e) => {
 }
 function mmDecorateTasks() {
   const host = document.getElementById("tkall-body");
-  if (!host || host.querySelector("[data-mmbar]")) return;
+  if (!host || host.querySelector("[data-mmbar], [data-mmstart]")) return;
   const m = mtCurrent(),
     can = mmCanRun();
-  if (!m && !can) return;
-  const bar = document.createElement("div");
-  bar.className = "mm-bar no-print";
-  bar.dataset.mmbar = "1";
-  bar.innerHTML = m
-    ? `<span class="grow">${mmSvg("team", 18)} ${esc(m.title)} is under way${m.presenter ? `, ${esc(tkFirst(m.presenter))} sharing` : ""}</span><button type="button" class="btn" data-mmjoin>Rejoin</button>`
-    : `<span class="grow">${mmSvg("team", 18)} The team meeting walks the board one task at a time</span><button type="button" class="btn" data-mmstart>Start Meeting</button>`;
-  const anchor = host.querySelector(".tk2-hline, .tk2-bar, .ph");
-  anchor && anchor.parentNode ? anchor.parentNode.insertBefore(bar, anchor.nextSibling) : host.prepend(bar);
-  const j = bar.querySelector("[data-mmjoin]");
-  j && (j.onclick = () => ((mmOn = !0), (mmFollow = !0), renderTkAll()));
-  const s = bar.querySelector("[data-mmstart]");
-  s && (s.onclick = () => mmStartDialog());
+  if (m) {
+    // a meeting under way: one line to rejoin it, for everyone on Tasks
+    const bar = document.createElement("div");
+    bar.className = "mm-bar no-print";
+    bar.dataset.mmbar = "1";
+    bar.innerHTML = `<span class="grow">${mmSvg("team", 18)} ${esc(m.title)} is under way${m.presenter ? `, ${esc(tkFirst(m.presenter))} sharing` : ""}</span><button type="button" class="btn" data-mmjoin>Rejoin</button>`;
+    const anchor = host.querySelector(".tk2-hline, .tk2-bar");
+    anchor && anchor.parentNode ? anchor.parentNode.insertBefore(bar, anchor) : host.prepend(bar);
+    bar.querySelector("[data-mmjoin]").onclick = () => ((mmOn = !0), (mmFollow = !0), renderTkAll());
+    return;
+  }
+  if (!can) return;
+  // Start Meeting sits with the page's own buttons: beside New Task on a wide screen, an icon beside search on the
+  // phone (no new row above the list)
+  const b = document.createElement("button");
+  b.type = "button";
+  b.dataset.mmstart = "1";
+  b.onclick = () => mmStartDialog();
+  const acts = host.querySelector(".tk2-ph .acts"),
+    line = host.querySelector(".tk2-hline");
+  if (tkPhone() && line) {
+    b.className = "tk2-ic";
+    b.setAttribute("aria-label", "Start Meeting");
+    b.title = "Start Meeting";
+    b.innerHTML = mmSvg("team", 20);
+    const srch = line.querySelector("[data-tksearch]");
+    srch ? line.insertBefore(b, srch) : line.appendChild(b);
+  } else if (acts) {
+    b.className = "btn";
+    b.textContent = "Start Meeting";
+    acts.insertBefore(b, acts.querySelector("#tk-new"));
+  }
 }
 // a sign-in starts outside the meeting; Rejoin is one tap
 {
@@ -1973,6 +2054,20 @@ document.addEventListener("change", (e) => {
   };
 }
 
+// the job's task editor offered To Do, Doing and Done: saving a task that was Waiting On or FYI made it To Do
+{
+  const base = openActionEditor;
+  openActionEditor = function (id) {
+    const r = base.apply(this, arguments);
+    try {
+      const sel = document.getElementById("e-status"),
+        a = id && S && (S.actions || []).find((x) => x.id === id),
+        cur = (a && a.status) || "todo";
+      sel && !sel.querySelector('option[value="fyi"]') && (sel.innerHTML = TK_STATUS.map(([k, n]) => `<option value="${k}" ${cur === k ? "selected" : ""}>${n}</option>`).join(""));
+    } catch (e) {}
+    return r;
+  };
+}
 // ---- boot: the sweep runs once the whole page has loaded ------------------------------------------------------------
 tkRecReady = !0;
 {
