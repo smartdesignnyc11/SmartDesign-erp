@@ -292,6 +292,7 @@ function tkRecFix(r) {
   if (a.waitsOn && !a.waitingOn && String(a.waitsOn).trim()) {
     const nm = String(a.waitsOn).trim();
     a.waitingOn = { name: nm, contactRef: tkContactRef(nm), what: "", promised: a.escalateOn || "", evidence: "" };
+    !done && "todo" === (a.status || "todo") && "hub" !== r.kind && (a.status = "waiting");
     n++;
   }
   if (Array.isArray(a.thread)) a.thread.forEach((e, i) => e && !e.id && ((e.id = `${a.id}_c${i}`), n++));
@@ -1339,6 +1340,7 @@ function mmHtml() {
     inB = b ? mtSeq(m).filter((y) => y.board === b.board) : [],
     posB = s ? inB.findIndex((y) => y.code === s.code) + 1 : 0,
     started = String(m.startedAt || "").slice(11, 16),
+    byCode = new Map(tkKeyedRecs().map((r) => [r.rec.code, r])),
     side = phone
       ? ""
       : `<aside class="mm-side" aria-label="Agenda" data-noclip="1">${(m.agenda || [])
@@ -1347,7 +1349,7 @@ function mmHtml() {
               `<div class="mm-sb"><div class="mm-sbh">${esc(bb.name)} <span class="muted">${esc(bb.prefix)}</span></div>${mtSeq(m)
                 .filter((y) => y.board === bb.board)
                 .map((y) => {
-                  const T = "task" === y.t ? tkByCode(y.code) : null,
+                  const T = "task" === y.t ? byCode.get(y.code) || null : null,
                     done = T && tkRecDone(T.kind, T.rec),
                     seen = (m.screenLog || []).some((l) => l.taskKey === y.code);
                   return `<button type="button" class="mm-sbi ${y.code === (s && s.code) ? "on" : ""} ${done ? "done" : ""} ${seen ? "seen" : ""}" data-mmjump="${esc(y.code)}">${"fyi" === y.t ? `FYI · ${bb.fyi.length}` : `<b>${esc(y.code)}</b> ${esc(T ? tdWords(T.rec.title || "", 6) : "")}`}</button>`;
@@ -2163,7 +2165,10 @@ tkRecReady = !0;
   .mm-who,.mm-wait{font-size:16px}
   .mm-acts{grid-template-columns:repeat(3,minmax(0,1fr))}
   .mm-act{min-height:60px}
-  .mm-nav{position:sticky;bottom:calc(64px + env(safe-area-inset-bottom));z-index:5;background:var(--paper);padding:8px 0}
+  .mm-phone{padding-bottom:84px}
+  .mm-nav{position:fixed;left:0;right:0;bottom:calc(58px + env(safe-area-inset-bottom));z-index:28;background:var(--paper);padding:8px 16px;border-top:1px solid var(--rule-2);box-shadow:0 -4px 12px rgba(0,0,0,.06)}
+  .mm-top{gap:8px}
+  .mm-top .btn{padding:0 12px}
   .mm-top .mm-ttl{flex:1 1 100%}
   .mm-addo{max-width:46%}
   .mm-add .tks-row{flex-wrap:wrap}
