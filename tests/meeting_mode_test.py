@@ -133,7 +133,7 @@ async def run_meeting(c, p, uid, phone):
       return { live: (q('.mm-live') || {}).innerText || '', prog: (q('.mm-prog') || {}).innerText || '', end: !!q('[data-mmend]'),
         acts: A.map(b => b.innerText.trim()), h: A.map(b => Math.round(r(b).height)), rows: new Set(A.map(b => Math.round(r(b).top))).size,
         blue: A.filter(b => b.classList.contains('primary')).map(b => b.innerText.trim()),
-        side: Math.round(r(q('.mm-side')).width), right: Math.round(r(q('.mm-right')).width), agRows: document.querySelectorAll('.mm-side .mm-ag').length,
+        side: Math.round(r(q('.mm-side')).width), right: Math.round(r(q('.mm-right')).width), agRows: document.querySelectorAll('.mm-side .mm-ag[data-mmboard]').length,
         agOn: (q('.mm-side .mm-ag.on .mm-agn') || {}).innerText || '', ctx: (q('.mm-ctx') || {}).innerText || '', title: parseInt(getComputedStyle(q('.mm-title')).fontSize),
         next: (q('[data-mmnext]') || {}).innerText || '', add: (q('.mm-nav .mm-addbtn') || {}).innerText || '', hint: (q('.mm-hint') || {}).innerText || '',
         logH: (q('.mm-right .mm-rh') || {}).innerText || '', note: (q('.mm-lognote') || {}).innerText || '' }; }''')
@@ -148,7 +148,7 @@ async def run_meeting(c, p, uid, phone):
     c.ok('Next Task' in lay['next'], f'{tag}: the dark Next Task button')
     if not phone:
         c.ok(lay['side'] == 300 and lay['right'] == 340, f'{tag}: the agenda rail is 300px and the log 340px ({lay["side"]}, {lay["right"]})')
-        c.ok(lay['agRows'] == len([bb for bb in ag if bb['items']]) and lay['agOn'], f'{tag}: one agenda row per project, the current one highlighted ({lay["agRows"]}, {lay["agOn"]})')
+        c.ok(lay['agRows'] == len([bb for bb in ag if bb['items'] or not bb['fyi']]) and lay['agOn'], f'{tag}: one agenda row per project, the current one highlighted ({lay["agRows"]}, {lay["agOn"]})')
         c.ok(lay['add'].startswith('Add a Task to') and 'Arrow keys move between tasks' in lay['hint'], f'{tag}: the bottom row: add a task and the arrow-keys hint')
         c.ok(lay['logH'].lower() == 'changed in this meeting' and 'Meeting Review' in lay['note'], f'{tag}: the running log and the Meeting Review line')
     first = await card(pg)

@@ -1305,7 +1305,7 @@ function mmPanelHtml(m, code) {
   if ("decision" === mmPanel)
     return `<div class="mm-panel"><div class="tks-row"><input class="tks-in" data-mmdecin placeholder="What was decided" aria-label="Decision"></div><div class="tks-row"><button type="button" class="btn" data-mmdec="aligned">Aligned</button><button type="button" class="btn" data-mmdec="to-discuss">To Discuss</button></div></div>`;
   if ("more" === mmPanel)
-    return `<div class="mm-panel mm-menu"><button type="button" class="btn" data-mmmove="-1">Move Up</button><button type="button" class="btn" data-mmmove="1">Move Down</button><button type="button" class="btn" data-mmpanel="decision">Decision</button><button type="button" class="btn" data-mmsheet>Open the Task</button><button type="button" class="btn" data-mmprojmove="-1">Project Up</button><button type="button" class="btn" data-mmprojmove="1">Project Down</button></div>`;
+    return `<div class="mm-panel mm-menu"><button type="button" class="btn" data-mmmove="-1">Move Up</button><button type="button" class="btn" data-mmmove="1">Move Down</button><button type="button" class="btn" data-mmpanel="decision">Decision</button><button type="button" class="btn" data-mmsheet>Open the Task</button><button type="button" class="btn" data-mmprojmove="-1">Project Up</button><button type="button" class="btn" data-mmprojmove="1">Project Down</button>${tkPhone() ? '<button type="button" class="btn" data-mmleave>Leave the Meeting</button>' : ""}</div>`;
   if ("add" === mmPanel) {
     const s = mmWhere(m).seq.find((y) => y.code === mmAt),
       bid = s && "__fyi" !== s.board ? s.board : "";
@@ -1382,10 +1382,10 @@ function mmHtml() {
         wait = R.filter((r) => r.rec.waitingOn && r.rec.waitingOn.name && !tkRecDone(r.kind, r.rec)).length,
         done = R.filter((r) => tkRecDone(r.kind, r.rec)).length,
         sum = addedHere.has(bb.board) ? "Added in this meeting" : [late ? `${late} late` : "", wait ? `${wait} waiting` : "", done ? `${done} done` : ""].filter(Boolean).join(" · ") || `${bb.items.length} to discuss`;
-      return `<button type="button" class="mm-ag ${s && s.board === bb.board ? "on" : ""}" data-mmboard="${esc(bb.board)}"><span class="mm-agn">${esc(bb.name)} <small>${esc(bb.prefix)}</small></span><span class="mm-agc">${bb.items.length}</span><span class="mm-ags">${esc(sum)}</span></button>`;
+      return `<div role="button" tabindex="0" class="mm-ag ${s && s.board === bb.board ? "on" : ""}" data-mmboard="${esc(bb.board)}"><span class="mm-agn">${esc(bb.name)} <small>${esc(bb.prefix)}</small></span><span class="mm-agc">${bb.items.length}</span><span class="mm-ags">${esc(sum)}</span></div>`;
     })
     .join("");
-  const agenda = `<div class="mm-rh">Agenda</div>${agRows}${fyiN ? `<button type="button" class="mm-ag mm-agfyi ${s && "__fyi" === s.board ? "on" : ""}" data-mmjump="FYI:all"><span class="mm-agn">FYI Only</span><span class="mm-agc">${fyiN}</span><span class="mm-ags">folded, status only</span></button>` : ""}<button type="button" class="mm-agadd" data-mmact="addproj">${mmSvg("plus", 16)} New Project</button>`;
+  const agenda = `<div class="mm-rh">Agenda</div>${agRows}${fyiN ? `<div role="button" tabindex="0" class="mm-ag mm-agfyi ${s && "__fyi" === s.board ? "on" : ""}" data-mmjump="FYI:all"><span class="mm-agn">FYI Only</span><span class="mm-agc">${fyiN}</span><span class="mm-ags">folded, status only</span></div>` : ""}<button type="button" class="mm-agadd" data-mmact="addproj">${mmSvg("plus", 16)} New Project</button>`;
   const logL = (m.changes || [])
       .slice()
       .reverse()
@@ -1402,7 +1402,7 @@ function mmHtml() {
   return `<div class="mm ${phone ? "mm-phone" : ""}" data-mm="${esc(m.id)}">
   <div class="mm-top"><span class="mm-live" data-mmlive>In Meeting · ${mins} min</span><div class="mm-ttl"><b>${esc(m.title)} · ${esc(fmtL(m.date))}</b><span class="small muted">${esc((m.attendees || []).join(", "))}${pres ? "" : ` · ${esc(tkFirst(m.presenter) || "someone")} is sharing`}</span></div><span class="grow"></span>
   <div class="mm-prog"><span>${nDisc} of ${tasks.length} discussed</span><span class="mm-pbar"><i style="width:${tasks.length ? Math.round((100 * nDisc) / tasks.length) : 0}%"></i></span></div>
-  <label class="mm-follow"><input type="checkbox" data-mmfollow ${mmFollow ? "checked" : ""}> Follow</label>${phone ? '<button type="button" class="btn" data-mmagenda>Agenda</button>' : ""}<button type="button" class="btn" data-mmleave>Leave</button>${pres ? '<button type="button" class="btn" data-mmend>End Meeting</button>' : ""}</div>
+  <label class="mm-follow"><input type="checkbox" data-mmfollow ${mmFollow ? "checked" : ""}> Follow</label>${phone ? '<button type="button" class="btn" data-mmagenda>Agenda</button>' : '<button type="button" class="btn" data-mmleave>Leave</button>'}${pres ? '<button type="button" class="btn" data-mmend>End Meeting</button>' : ""}</div>
   <div class="mm-body">${phone ? "" : `<aside class="mm-side" aria-label="Agenda" data-noclip="1">${agenda}</aside>`}<section class="mm-main">
     ${ctx}${card}${acts}${panel}${phone ? `<div class="mm-phadd">${addBtn}<button type="button" class="btn mm-addp" data-mmact="addproj">${mmSvg("plus", 16)} New Project</button></div>` : ""}${nav}
     ${phone ? `<details class="mm-phlog"><summary>Changed in This Meeting · ${logL.length}</summary>${log}</details>` : ""}
@@ -1609,6 +1609,7 @@ function mmWire(host) {
         f && mmJump(f.code);
       }),
   );
+  host.querySelectorAll(".mm-ag[role=button]").forEach((b) => (b.onkeydown = (e) => ("Enter" === e.key || " " === e.key) && (e.preventDefault(), b.click())));
   const nx = q("[data-mmnext]"),
     pv = q("[data-mmprev]");
   nx && (nx.onclick = () => mmGo(1));
@@ -1620,6 +1621,7 @@ function mmWire(host) {
       renderTkAll();
     });
   const lv = q("[data-mmleave]");
+  // Leave can sit in More on the phone
   lv && (lv.onclick = () => ((mmOn = !1), renderTkAll(), toast(`${m.title} goes on without this screen: Rejoin from Tasks`)));
   const en = q("[data-mmend]");
   en && (en.onclick = () => mmEndDialog());
@@ -2193,20 +2195,23 @@ tkRecReady = !0;
 .mm-linkb{display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:4px 12px;border:1px solid var(--rule);border-radius:10px;background:var(--paper);font-size:14px;cursor:pointer;max-width:100%}
 .mm-linkb span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mm-acts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
-.mm-act{display:flex;flex-direction:row;align-items:center;justify-content:center;gap:8px;min-height:56px;padding:6px 10px;border:1px solid var(--rule);border-radius:12px;background:var(--paper);font-size:15px;font-weight:600;color:var(--ink);cursor:pointer}
+.mm-act{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:56px;padding:6px 4px;border:1px solid var(--rule);border-radius:12px;background:var(--paper);font-size:14px;line-height:17px;font-weight:600;color:var(--ink);cursor:pointer;white-space:nowrap;min-width:0}
+.mm-act span{overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .mm-act:hover{background:var(--paper-2)}
 .mm-act.on{border-color:var(--accent);background:var(--accent-bg,#eaf1fb)}
+#v-tkall .mm .mm-act{min-height:56px;height:auto}
 .mm-act.primary{background:var(--accent);border-color:var(--accent);color:#fff}
 .mm-act.primary.on{box-shadow:inset 0 0 0 2px rgba(255,255,255,.6);color:#fff;background:var(--accent)}
-.mm-nav{display:flex;align-items:center;gap:12px}
+.mm-nav{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.mm-nav .mm-addbtn{flex:1 1 160px}
 .mm-nav .btn{min-height:52px;font-size:16px;display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:0 18px}
 .mm-nav .btn[disabled]{opacity:.45}
-.mm-next{background:var(--ink,#1f2328);color:var(--paper,#fff);border-color:var(--ink,#1f2328);margin-left:auto}
+.mm-next{background:var(--ink,#1f2328);color:var(--paper,#fff);border-color:var(--ink,#1f2328)}
 .mm-next:hover{opacity:.9}
 .mm-addbtn{display:inline-flex;align-items:center;gap:8px;min-height:52px;padding:0 16px;border:1.5px dashed var(--rule);border-radius:12px;background:none;font-size:15px;font-weight:600;color:var(--ink-2);cursor:pointer;min-width:0}
 .mm-addbtn span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mm-addbtn.on{border-color:var(--accent);color:var(--accent)}
-.mm-hint{font-size:13px;color:var(--ink-3);white-space:nowrap}
+.mm-hint{order:5;flex:1 1 100%;text-align:center;font-size:13px;color:var(--ink-3)}
 .mm-phadd{display:flex;flex-direction:column;gap:8px}
 .mm-phlog summary{min-height:44px;display:flex;align-items:center;font-size:15px;font-weight:600;cursor:pointer}
 .mm-panel{border:1px solid var(--rule);border-radius:12px;padding:12px;background:var(--paper-2);display:flex;flex-direction:column;gap:8px}
@@ -2247,6 +2252,7 @@ tkRecReady = !0;
   .mm-nav .btn{flex:1 1 0}
   .mm-top{gap:8px}
   .mm-top .btn{padding:0 12px}
+  .mm-follow{margin-right:auto}
   .mm-top .mm-ttl{flex:1 1 100%;order:-1}
   .mm-prog{flex:1 1 100%}
   .mm-addbtn{width:100%;justify-content:center}
