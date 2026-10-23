@@ -2,7 +2,7 @@
 """Build dist/smartdesigns_projects.html: one self-contained file, as the app has always shipped.
 src/head.html (meta, title, fonts) + src/styles.css + src/body.html (shell markup) + docs/STANDARD.md and docs/STANDARD_ES.md (as data)
 + src/app.js + src/mind.js + src/subs.js + src/assistant.js + src/livejobs.js + src/reports.js
-+ src/costintel.js + src/specialists.js + src/tasks.js (the one task list and sheet) + src/meeting.js (the task record
++ src/costintel.js + src/specialists.js + src/tasks.js (the one task list and sheet) + src/taskviews.js (its Table, Board, Calendar and saved views) + src/meeting.js (the task record
 and Meeting Mode) + src/items.js + src/field_es.js + src/field_es_words.js (the SRC list below)."""
 import os, subprocess, sys
 H = os.path.dirname(os.path.abspath(__file__))
@@ -20,7 +20,7 @@ r = lambda p: open(os.path.join(H, p), encoding='utf-8').read()
 # line, BACKLOG §1.18) and src/field_es.js (the field's screens in Spanish, §1.20) ride last: their wrappers are
 # outermost, and the Spanish pass reads every screen as finally drawn. src/loop_core.js (the improvement loop's pure rules,
 # shared with the server's nightly run) and src/loop.js (the loop in the app, BACKLOG §1.19 and §1.32) ride before them.
-SRC = ('src/app.js', 'src/mind.js', 'src/subs.js', 'src/assistant.js', 'src/livejobs.js', 'src/reports.js', 'src/loop_core.js', 'src/loop.js', 'src/meetread.js', 'src/costintel.js', 'src/specialists.js', 'src/tasks.js', 'src/meeting.js', 'src/items.js', 'src/field_es.js', 'src/field_es_words.js')
+SRC = ('src/app.js', 'src/mind.js', 'src/subs.js', 'src/assistant.js', 'src/livejobs.js', 'src/reports.js', 'src/loop_core.js', 'src/loop.js', 'src/meetread.js', 'src/costintel.js', 'src/specialists.js', 'src/tasks.js', 'src/taskviews.js', 'src/meeting.js', 'src/items.js', 'src/field_es.js', 'src/field_es_words.js')
 js = '\n'.join(r(f) for f in SRC)
 for f in SRC:
     if subprocess.run(['node', '--check', os.path.join(H, f)]).returncode:
