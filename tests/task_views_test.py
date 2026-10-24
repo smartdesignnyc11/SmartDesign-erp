@@ -447,9 +447,10 @@ async def polish(c, p):
       const T = document.getElementById('toast').getBoundingClientRect();
       return { n: A.length, bottom: Math.round(Math.max(...A.map(r => r.bottom))), nav: Math.round(nav.top), topH: Math.round(t.height),
         menu: !!top.querySelector('details [data-mmend]') && !!top.querySelector('details [data-mmagenda]') && !!top.querySelector('details [data-mmfollow]'),
-        toast: Math.round(T.bottom), sw: document.documentElement.scrollWidth,
+        toast: Math.round(T.bottom), sw: document.documentElement.scrollWidth, title: document.querySelector('.mm-card .mm-title').getClientRects().length,
         notes: [...document.querySelectorAll('.mm-comments .mm-comment')].filter(e => e.getClientRects().length).length }; }""")
     c.ok(m['n'] == 8 and m['bottom'] <= min(844, m['nav']), f'owner 390: the eight meeting actions sit on the first screen, above Previous and Next ({m})')
+    c.ok(m['title'] > 0, f'owner 390: the card keeps its title (the page header never lifts it out)')
     c.ok(m['topH'] <= 60 and m['menu'], f'owner 390: the meeting header is one line, Follow, Agenda and End behind one menu ({m["topH"]}px)')
     c.ok(m['toast'] <= m['nav'], f'owner 390: the toast sits above the meeting footer ({m["toast"]} vs {m["nav"]})')
     c.ok(m['notes'] <= 1 and m['sw'] <= 390, f'owner 390: the notes are cut to the latest behind More, no sideways scroll ({m["notes"]}, {m["sw"]})')

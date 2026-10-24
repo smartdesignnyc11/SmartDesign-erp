@@ -1422,7 +1422,9 @@ function mmHtml() {
   // the phone: the pill, the meeting and its progress on one line; Follow, Agenda and End Meeting behind one menu, so the
   // card and its eight actions are on the first screen
   const pct = tasks.length ? Math.round((100 * nDisc) / tasks.length) : 0,
-    phTop = `<div class="mm-top mm-top-ph"><span class="mm-live" data-mmlive>In Meeting · ${mins} min</span><b class="mm-phttl" title="${esc(m.title)} · ${esc(fmtL(m.date))}">${esc(m.title)}</b><span class="mm-prog mm-prog-ph" aria-label="${nDisc} of ${tasks.length} discussed"><span>${nDisc} of ${tasks.length}<span class="mm-sr"> discussed</span></span><span class="mm-pbar"><i style="width:${pct}%"></i></span></span>
+    // the page keeps its own heading (Tasks, which the phone's top bar carries), so the page-header pass never takes
+    // the card's title for the page's and lifts it out of the card
+    phTop = `<div class="ph mm-ph"><div><h2>Tasks</h2></div></div><div class="mm-top mm-top-ph"><span class="mm-live" data-mmlive>In Meeting · ${mins} min</span><b class="mm-phttl" title="${esc(m.title)} · ${esc(fmtL(m.date))}">${esc(m.title)}</b><span class="mm-prog mm-prog-ph" aria-label="${nDisc} of ${tasks.length} discussed"><span>${nDisc} of ${tasks.length} <span class="mm-sr">discussed</span></span><span class="mm-pbar"><i style="width:${pct}%"></i></span></span>
   <details class="mm-phmenu"><summary class="btn mm-phmenub" aria-label="Meeting menu: Follow, Agenda, End Meeting" title="Follow, Agenda, End Meeting">${mmSvg("more", 20)}</summary><div class="mm-phmenu-in"><label class="mm-follow"><input type="checkbox" data-mmfollow ${mmFollow ? "checked" : ""}> Follow the presenter</label><button type="button" class="btn" data-mmagenda>Agenda</button>${pres ? '<button type="button" class="btn" data-mmend>End Meeting</button>' : ""}${pres ? "" : `<span class="small muted">${esc(tkFirst(m.presenter) || "someone")} is sharing</span>`}</div></details></div>`;
   return `<div class="mm ${phone ? "mm-phone" : ""}" data-mm="${esc(m.id)}">
   ${phone ? phTop : `<div class="mm-top"><span class="mm-live" data-mmlive>In Meeting · ${mins} min</span><div class="mm-ttl"><b>${esc(m.title)} · ${esc(fmtL(m.date))}</b><span class="small muted">${esc((m.attendees || []).join(", "))}${pres ? "" : ` · ${esc(tkFirst(m.presenter) || "someone")} is sharing`}</span></div><span class="grow"></span>
@@ -2187,7 +2189,7 @@ tkRecReady = !0;
 .mm-prog{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--ink-2);min-width:150px}
 .mm-pbar{display:block;height:6px;border-radius:3px;background:var(--paper-3,#e8e8e8);overflow:hidden}
 .mm-pbar i{display:block;height:100%;background:var(--accent)}
-.mm-sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+.mm-sr{display:inline-block;width:1px;height:1px;margin:0 -1px 0 0;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0;vertical-align:top}
 .mm-follow{display:inline-flex;align-items:center;gap:6px;min-height:44px;font-size:14px;cursor:pointer}
 .mm-follow input{width:20px;height:20px}
 .mm-body{display:grid;grid-template-columns:300px minmax(0,1fr) 340px;gap:20px;align-items:start}
