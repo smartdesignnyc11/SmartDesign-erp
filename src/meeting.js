@@ -1263,26 +1263,36 @@ function mmCardHtml(m, s, W) {
   }
   const D = mmCardData(s.code);
   if (!D) return `<article class="mm-card"><div class="mm-key">${esc(s.code)}</div><p class="muted">That task is no longer here.</p></article>`;
+  // the card as Alan's mockup reads it (2026-10-24): the key, the title, Owner, Due and Follow-up on one line, the amber
+  // Waiting On box, and the last notes kept short (two on a wide screen, the latest on the phone)
   const a = D.T.rec,
     x = D.R.x || {},
     st = tkStatusOf(D.T.kind, a),
     td = today(),
-    C = tkComments(a).slice(-2),
+    phone = tkPhone(),
+    C = tkComments(a).slice(phone ? -1 : -2),
     links = tkLinks(a)
       .map((l) => [l, tkLinkInfo(l, x.projectId)])
       .filter(([, i]) => i),
     files = tkAttachments(D.R),
     W0 = a.waitingOn && a.waitingOn.name ? a.waitingOn : null,
-    late = a.due && a.due < td && "fyi" !== st,
+    late = a.due && a.due < td && "fyi" !== st && "done" !== st,
+    bb = (m.agenda || []).find((y) => y.board === s.board),
+    last = mtLastEnded(m.id),
+    changed = !!(bb && ((bb.why || {})[s.code] || []).includes("changed")),
+    when = (d) => {
+      const n = d ? dayDiff(td, d) : 0;
+      return !d ? "" : 0 === n ? "Today" : n < 0 && n > -7 ? DOW[parse(d).getDay()] : tvD(d);
+    },
     flag = a.ownerFlag ? `<div class="mm-flag">Owner set to ${esc(a.assignee)}: ${esc(a.ownerFlag.was || "nobody")} ${"outside" === a.ownerFlag.why ? "is not on the team" : "was named"}. Confirm or reassign.</div>` : "";
   return `<article class="mm-card" data-mmcard="${esc(s.code)}">
-  <div class="mm-keyrow"><span class="mm-key">${esc(s.code)}</span><span class="mm-st mm-st-${esc(st)}">${esc(tkStatusSay(st))}</span></div>
+  <div class="mm-keyrow"><span class="mm-key">${esc(s.code)}</span>${phone && changed ? `<span class="mm-changed">Changed since ${esc(last ? DOW[parse(last.date).getDay()] : "the last meeting")}</span>` : ""}${"done" === st || "fyi" === st ? `<span class="mm-st mm-st-${esc(st)}">${esc(tkStatusSay(st))}</span>` : ""}</div>
   <h2 class="mm-title">${esc(a.title || x.title || "")}</h2>
-  <div class="mm-meta"><div><span class="mm-ml">Owner</span><b class="mm-own">${a.assignee ? tvAv(a.assignee) : ""}${esc(a.assignee || "nobody")}</b>${(a.collaborators || []).length ? `<small> with ${esc(a.collaborators.join(", "))}</small>` : ""}</div><div><span class="mm-ml">Due</span><b class="${late ? "bad" : ""}">${a.due ? esc(tkDay(a.due)) + (late ? " · late" : "") : "No date"}</b></div><div><span class="mm-ml">Follow-up</span><b>${a.followUp ? esc(tkDay(a.followUp)) : "None"}</b></div>${a.watchUntil ? `<div><span class="mm-ml">Tracking Until</span><b>${esc(tkDay(a.watchUntil))}</b></div>` : ""}</div>
+  <div class="mm-meta"><span><span class="mm-ml">Owner</span> <b class="mm-own">${esc(phone ? tkFirst(a.assignee) || "nobody" : a.assignee || "nobody")}</b>${(a.collaborators || []).length ? `<small> with ${esc(a.collaborators.join(", "))}</small>` : ""}</span><span><span class="mm-ml">Due</span> <b class="${late ? "bad" : ""}">${a.due ? esc(tvRel(a.due, "done" === st)) : "No date"}</b></span><span><span class="mm-ml">Follow-up</span> <b>${a.followUp ? esc(tvRel(a.followUp, !0)) : "None"}</b></span>${a.watchUntil ? `<span><span class="mm-ml">Tracking Until</span> <b>${esc(tvRel(a.watchUntil, !0))}</b></span>` : ""}</div>
   ${flag}
-  ${W0 ? `<div class="mm-wait">${mmSvg("wait", 20)}<div><b>Waiting on ${esc(W0.name)}${W0.what ? `: ${esc(W0.what)}` : ""}.</b>${W0.promised ? ` Promised ${esc(tkDay(W0.promised))}.` : " No date promised yet."}${W0.evidence ? `<div class="small">${esc(W0.evidence)}</div>` : ""}</div></div>` : ""}
-  ${C.length ? `<div class="mm-comments" data-mmnotes>${tkPhone() ? `<div class="mm-notehd"><span class="mm-ml">Last Notes</span><button type="button" class="btn sm mm-notemore" data-mmnotesmore aria-expanded="false">More</button></div>` : '<span class="mm-ml">Last Notes</span>'}${C.map((c) => `<div class="mm-comment"><span class="small muted">${esc((tdyUserOf(c.by) ? tkFirst(c.by) : c.by) || "Someone")} · ${esc(fmt(String(c.at || "").slice(0, 10)))}</span><div>${esc(c.text)}</div></div>`).join("")}</div>` : '<div class="mm-comments muted small">No notes yet.</div>'}
-  ${links.length || files.length ? `<div class="mm-links">${links.map(([l, i], k) => `<button type="button" class="mm-linkb" data-mmlink="${k}">${mmSvg("link", 16)}<span>${esc(i.label)}</span></button>`).join("")}${files.map((f) => `<span class="mm-linkb">${mmSvg("file", 16)}<span>${esc(f.name)}</span></span>`).join("")}</div>` : ""}
+  ${W0 ? `<div class="mm-wait"><b>Waiting on ${esc(W0.name)}:</b> ${W0.what ? `${esc(W0.what)}, ` : ""}${W0.promised ? `promised ${esc(tkDay(W0.promised))}.` : "no date promised yet."}${!phone && W0.evidence ? ` ${esc(String(W0.evidence).replace(/\.$/, ""))}.` : ""}</div>` : ""}
+  ${C.length ? `<div class="mm-comments" data-mmnotes>${phone ? "" : '<span class="mm-nl">Last notes</span>'}${C.map((c) => `<div class="mm-comment"><b>${esc((tdyUserOf(c.by) ? tkFirst(c.by) : c.by) || "Someone")}</b> · ${esc(when(String(c.at || "").slice(0, 10)))}: ${esc(c.text)}</div>`).join("")}</div>` : '<div class="mm-comments mm-nonotes">No notes yet.</div>'}
+  ${!phone && (links.length || files.length) ? `<div class="mm-links">${links.map(([l, i], k) => `<button type="button" class="mm-linkb" data-mmlink="${k}">${mmSvg("link", 16)}<span>${esc(i.label)}</span></button>`).join("")}${files.map((f) => `<span class="mm-linkb">${mmSvg("file", 16)}<span>${esc(f.name)}</span></span>`).join("")}</div>` : ""}
 </article>`;
 }
 const MM_ACTS = [
@@ -1372,9 +1382,12 @@ function mmLogLine(c) {
       link: () => "Linked to a record",
     }[c.field];
   if (!say || ("owner" === c.field && !c.from)) return "";
-  const owner = T && !/^(owner|project|projectOrder)$/.test(c.field) ? ` Owner ${T.rec.assignee || "nobody"}.` : "";
-  return `<li><span class="mm-lt">${esc(String(c.at || "").slice(11, 16))}</span>${c.taskKey ? ` · <button type="button" class="mm-mlink" data-mmjump="${esc(c.taskKey)}">${esc(c.taskKey)}</button>` : ""} · ${esc(say())}.${esc(owner)}</li>`;
+  const owner = T && !/^(owner|project|projectOrder)$/.test(c.field) ? ` Owner ${tkFirst(T.rec.assignee) || "nobody"}.` : "";
+  // the time and the key on a small line, what changed under it (the mockup's right rail)
+  return `<li><span class="mm-lmeta"><span class="mm-lt">${esc(String(c.at || "").slice(11, 16))}</span>${c.taskKey ? ` · <button type="button" class="mm-mlink" data-mmjump="${esc(c.taskKey)}">${esc(c.taskKey)}</button>` : ""}</span><span class="mm-ltx">${esc(say())}.${esc(owner)}</span></li>`;
 }
+// The phone's action labels are the mockup's short ones; the wide screen says them in full
+const MM_ACT_SHORT = { note: "Note", wait: "Waiting", track: "Track" };
 function mmHtml() {
   const m = mtCurrent();
   if (!m) return "";
@@ -1390,12 +1403,15 @@ function mmHtml() {
     tasks = W.seq.filter((y) => "task" === y.t),
     talked = new Set((m.screenLog || []).map((l) => l.taskKey).concat((m.changes || []).map((c) => c.taskKey))),
     nDisc = tasks.filter((y) => talked.has(y.code)).length,
+    pct = tasks.length ? Math.round((100 * nDisc) / tasks.length) : 0,
     mins = Math.max(0, Math.round((appNowMs() - new Date(m.startedAt).getTime()) / 6e4)),
     last = mtLastEnded(m.id),
     changed = !!(b && s && ((b.why || {})[s.code] || []).includes("changed")),
     addedHere = new Set((m.changes || []).filter((c) => "project" === c.field).map((c) => c.board)),
-    fyiN = (m.agenda || []).reduce((n, x) => n + x.fyi.length, 0);
-  // the agenda: one row per project in the team's order, with its count and what is in it
+    fyiN = (m.agenda || []).reduce((n, x) => n + x.fyi.length, 0),
+    longDay = (d) => (parse(d) ? parse(d).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" }) : ""),
+    weekday = (d) => (parse(d) ? parse(d).toLocaleDateString("en-US", { weekday: "long" }) : "");
+  // the agenda: one row per project in the team's order, its count on the right and what is in it under the name
   const agRows = (m.agenda || [])
     .filter((bb) => bb.items.length || !bb.fyi.length)
     .map((bb) => {
@@ -1403,38 +1419,43 @@ function mmHtml() {
         late = R.filter((r) => r.rec.due && r.rec.due < td && !tkRecDone(r.kind, r.rec) && "fyi" !== tkStatusOf(r.kind, r.rec)).length,
         wait = R.filter((r) => r.rec.waitingOn && r.rec.waitingOn.name && !tkRecDone(r.kind, r.rec)).length,
         done = R.filter((r) => tkRecDone(r.kind, r.rec)).length,
-        sum = addedHere.has(bb.board) ? "Added in this meeting" : [late ? `${late} late` : "", wait ? `${wait} waiting` : "", done ? `${done} done` : ""].filter(Boolean).join(" · ") || `${bb.items.length} to discuss`;
-      return `<div role="button" tabindex="0" class="mm-ag ${s && s.board === bb.board ? "on" : ""}" data-mmboard="${esc(bb.board)}"><span class="mm-agn">${esc(bb.name)} <small>${esc(bb.prefix)}</small></span><span class="mm-agc">${bb.items.length}</span><span class="mm-ags">${esc(sum)}</span></div>`;
+        on = !!(s && s.board === bb.board),
+        sum = addedHere.has(bb.board)
+          ? "Added in this meeting"
+          : R.length && done === R.length
+            ? "Done"
+            : [on ? "Now" : "", late ? `${late} late` : "", wait ? `${wait} waiting` : "", done ? `${done} done` : ""].filter(Boolean).join(" · ") || `${bb.items.length} to discuss`;
+      return `<div role="button" tabindex="0" class="mm-ag ${on ? "on" : ""}" data-mmboard="${esc(bb.board)}" title="${esc(bb.prefix)}"><span class="mm-agn">${esc(bb.name)}</span><span class="mm-agc">${bb.items.length}</span><span class="mm-ags">${esc(sum)}</span></div>`;
     })
     .join("");
-  const agenda = `<div class="mm-rh">Agenda</div>${agRows}${fyiN ? `<div role="button" tabindex="0" class="mm-ag mm-agfyi ${s && "__fyi" === s.board ? "on" : ""}" data-mmjump="FYI:all"><span class="mm-agn">FYI Only</span><span class="mm-agc">${fyiN}</span><span class="mm-ags">folded, status only</span></div>` : ""}<button type="button" class="mm-agadd" data-mmact="addproj">${mmSvg("plus", 16)} New Project</button>`;
+  const agenda = `<div class="mm-rh">Agenda</div>${agRows}${fyiN ? `<div role="button" tabindex="0" class="mm-ag mm-agfyi ${s && "__fyi" === s.board ? "on" : ""}" data-mmjump="FYI:all"><span class="mm-agn">FYI only</span><span class="mm-agc">${fyiN}</span><span class="mm-ags">Folded</span></div>` : ""}<button type="button" class="mm-agadd" data-mmact="addproj">${mmSvg("plus", 16)} New Project</button>`;
   const logL = (m.changes || [])
       .slice()
       .reverse()
       .map(mmLogLine)
       .filter(Boolean),
-    log = `<div class="mm-rh">Changed in This Meeting</div>${logL.length ? `<ul class="mm-log">${logL.join("")}</ul>` : '<p class="small muted">Nothing changed yet.</p>'}<p class="mm-lognote">After the meeting the transcript is matched to this log by the time each task was on screen. Anything said that is not here arrives as one Meeting Review to approve.</p>`;
+    reviewer = tkFirst((DB.users || []).find((u) => "coord" === u.role) ? DB.users.find((u) => "coord" === u.role).name : m.presenter || "") || "the coordinator",
+    log = `<div class="mm-rh">Changed in This Meeting</div>${logL.length ? `<ul class="mm-log">${logL.join("")}</ul>` : '<p class="mm-lognone">Nothing changed yet.</p>'}<p class="mm-lognote">After the call, the transcript is matched to what was on screen. Anything said but not entered comes to ${esc(reviewer)} as one Meeting Review to approve.</p>`;
   const isTask = !!(s && "task" === s.t),
-    acts = isTask ? `<div class="mm-acts" role="toolbar" aria-label="Actions on this task">${MM_ACTS.map(([k, n, ic]) => `<button type="button" class="mm-act ${"date" === k ? "primary" : ""} ${mmPanel === k ? "on" : ""}" data-mmact="${k}">${mmSvg(ic, 20)}<span>${n}</span></button>`).join("")}</div>` : "",
+    acts = isTask ? `<div class="mm-acts" role="toolbar" aria-label="Actions on this task">${MM_ACTS.map(([k, n, ic]) => `<button type="button" class="mm-act ${"date" === k ? "primary" : ""} ${mmPanel === k ? "on" : ""}" data-mmact="${k}" ${phone && MM_ACT_SHORT[k] ? `aria-label="${n}"` : ""}>${phone ? mmSvg(ic, 20) : ""}<span>${phone ? MM_ACT_SHORT[k] || n : n}</span></button>`).join("")}</div>` : "",
     panel = "addproj" === mmPanel ? mmPanelHtml(m, "") : "add" === mmPanel || ("empty" === (s || {}).t && !mmPanel) ? ((mmPanel = "add"), mmPanelHtml(m, "")) : isTask ? mmPanelHtml(m, s.code) : "",
-    addBtn = b ? `<button type="button" class="mm-addbtn ${"add" === mmPanel ? "on" : ""}" data-mmact="add">${mmSvg("plus", 18)}<span>Add a Task to ${esc(b.name)}</span></button>` : "",
-    ctx = s ? `<div class="mm-ctx"><span><b>${esc(b ? b.name : "FYI Only")}</b>${b && isTask ? ` · Task ${posB} of ${inB.length}` : ""}</span>${changed ? `<span class="mm-changed">Changed since ${esc(last ? tkDay(last.date) : "the last meeting")}</span>` : ""}<span class="grow"></span>${isTask ? `<button type="button" class="btn sm mm-more ${"more" === mmPanel ? "on" : ""}" data-mmact="more">More</button>` : ""}</div>` : "",
+    addBtn = b ? `<button type="button" class="mm-addbtn ${"add" === mmPanel ? "on" : ""}" data-mmact="add">${mmSvg("plus", 16)}<span>Add a Task to ${esc(b.name)}</span></button>` : "",
+    changedPill = changed ? `<span class="mm-changed">Changed since ${esc(last ? weekday(last.date) : "the last meeting")}</span>` : "",
+    ctx = s && !phone ? `<div class="mm-ctx"><span>${esc(b ? b.name : "FYI only")}</span>${b && isTask ? `<span class="mm-dot">·</span><span>Task ${posB} of ${inB.length}</span>` : ""}<span class="grow"></span>${changedPill}${isTask ? `<button type="button" class="mm-more ${"more" === mmPanel ? "on" : ""}" data-mmact="more" aria-label="More: move, decision, open the task" title="Move, decision, open the task">${mmSvg("more", 18)}</button>` : ""}</div>` : "",
     card = s ? mmCardHtml(m, s, W) : '<article class="mm-card"><h2 class="mm-title">Nothing on the agenda</h2><p class="muted">Every open task is quiet: nothing late, nothing due before the next meeting, nothing waiting.</p></article>',
-    nav = `<div class="mm-nav"><button type="button" class="btn mm-prev" data-mmprev ${W.i <= 0 ? "disabled" : ""}>${mmSvg("prev", 20)}<span>Previous</span></button>${phone ? "" : `${addBtn}<span class="mm-hint">Arrow keys move between tasks</span>`}<button type="button" class="btn mm-next" data-mmnext ${W.i >= W.seq.length - 1 ? "disabled" : ""}><span>Next Task</span>${mmSvg("next", 20)}</button></div>`;
-  // the phone: the pill, the meeting and its progress on one line; Follow, Agenda and End Meeting behind one menu, so the
-  // card and its eight actions are on the first screen
-  const pct = tasks.length ? Math.round((100 * nDisc) / tasks.length) : 0,
-    // the page keeps its own heading (Tasks, which the phone's top bar carries), so the page-header pass never takes
-    // the card's title for the page's and lifts it out of the card
-    phTop = `<div class="ph mm-ph"><div><h2>Tasks</h2></div></div><div class="mm-top mm-top-ph"><span class="mm-live" data-mmlive>In Meeting · ${mins} min</span><b class="mm-phttl" title="${esc(m.title)} · ${esc(fmtL(m.date))}">${esc(m.title)}</b><span class="mm-prog mm-prog-ph" aria-label="${nDisc} of ${tasks.length} discussed"><span>${nDisc} of ${tasks.length} <span class="mm-sr">discussed</span></span><span class="mm-pbar"><i style="width:${pct}%"></i></span></span>
-  <details class="mm-phmenu"><summary class="btn mm-phmenub" aria-label="Meeting menu: Follow, Agenda, End Meeting" title="Follow, Agenda, End Meeting">${mmSvg("more", 20)}</summary><div class="mm-phmenu-in"><label class="mm-follow"><input type="checkbox" data-mmfollow ${mmFollow ? "checked" : ""}> Follow the presenter</label><button type="button" class="btn" data-mmagenda>Agenda</button>${pres ? '<button type="button" class="btn" data-mmend>End Meeting</button>' : ""}${pres ? "" : `<span class="small muted">${esc(tkFirst(m.presenter) || "someone")} is sharing</span>`}</div></details></div>`;
-  return `<div class="mm ${phone ? "mm-phone" : ""}" data-mm="${esc(m.id)}">
-  ${phone ? phTop : `<div class="mm-top"><span class="mm-live" data-mmlive>In Meeting · ${mins} min</span><div class="mm-ttl"><b>${esc(m.title)} · ${esc(fmtL(m.date))}</b><span class="small muted">${esc((m.attendees || []).join(", "))}${pres ? "" : ` · ${esc(tkFirst(m.presenter) || "someone")} is sharing`}</span></div><span class="grow"></span>
-  <div class="mm-prog"><span>${nDisc} of ${tasks.length} discussed</span><span class="mm-pbar"><i style="width:${tasks.length ? Math.round((100 * nDisc) / tasks.length) : 0}%"></i></span></div>
-  <label class="mm-follow"><input type="checkbox" data-mmfollow ${mmFollow ? "checked" : ""}> Follow</label><button type="button" class="btn" data-mmleave>Leave</button>${pres ? '<button type="button" class="btn" data-mmend>End Meeting</button>' : ""}</div>`}
+    nav = `<div class="mm-nav"><button type="button" class="btn mm-prev" data-mmprev ${W.i <= 0 ? "disabled" : ""}>Previous</button>${phone ? "" : `${addBtn}<span class="grow"></span><span class="mm-hint">Arrow keys move between tasks</span>`}<button type="button" class="btn mm-next" data-mmnext ${W.i >= W.seq.length - 1 ? "disabled" : ""}>Next Task</button></div>`;
+  // the phone (PhoneMeeting.dc.html): the minutes, the meeting and a menu on one line; the project with its place and
+  // the progress on the next; the card, eight actions, Add a Task, and Previous and Next at the foot. Agenda, Follow,
+  // More, New Project, the running log and End Meeting sit in the menu, so the whole card fits on one screen.
+  const phTop = `<div class="ph mm-ph"><div><h2>Tasks</h2></div></div><div class="mm-top mm-top-ph"><div class="mm-phr"><span class="mm-live" data-mmlive="short" aria-label="In meeting for ${mins} minutes">${mins} min</span><b class="mm-phttl" title="${esc(m.title)} · ${esc(fmtL(m.date))}">${esc(m.title)}</b>
+  <details class="mm-phmenu"><summary class="btn mm-phmenub" aria-label="Meeting menu: Agenda, Follow, End Meeting" title="Agenda, Follow, End Meeting">${mmSvg("more", 20)}</summary><div class="mm-phmenu-in"><button type="button" class="btn" data-mmagenda>Agenda</button><label class="mm-follow"><input type="checkbox" data-mmfollow ${mmFollow ? "checked" : ""}> Follow the presenter</label>${isTask ? `<button type="button" class="btn" data-mmact="more">More Actions</button>` : ""}<button type="button" class="btn" data-mmact="addproj">New Project</button><details class="mm-phlog"><summary>Changed in This Meeting · ${logL.length}</summary>${log}</details><button type="button" class="btn" data-mmleave>Leave the Meeting</button>${pres ? '<button type="button" class="btn" data-mmend>End Meeting</button>' : `<span class="small muted">${esc(tkFirst(m.presenter) || "someone")} is sharing</span>`}</div></details></div>
+  <div class="mm-phr"><button type="button" class="mm-projchip" data-mmagchip aria-label="Agenda: ${esc(b ? b.name : "FYI only")}, task ${posB} of ${inB.length}"><span>${esc(b ? b.name : "FYI only")}${b && isTask ? ` · ${posB} of ${inB.length}` : ""}</span>${tvSvg("chevD", 12)}</button><span class="mm-pbar"><i style="width:${pct}%"></i></span><span class="mm-prog mm-prog-ph">${nDisc} of ${tasks.length} <span class="mm-sr">discussed</span></span></div></div>`;
+  const deskTop = `<div class="mm-top"><span class="mm-live" data-mmlive>In Meeting · ${mins} min</span><b class="mm-ttl">${esc(m.title)} · ${esc(longDay(m.date))}</b><span class="mm-att">${esc((m.attendees || []).map(tkFirst).join(", "))}${pres ? "" : ` · ${esc(tkFirst(m.presenter) || "someone")} is sharing`}</span><span class="grow"></span>
+  <div class="mm-prog"><span>${nDisc} of ${tasks.length} discussed</span><span class="mm-pbar"><i style="width:${pct}%"></i></span></div>${pres ? "" : `<label class="mm-follow"><input type="checkbox" data-mmfollow ${mmFollow ? "checked" : ""}> Follow</label><button type="button" class="btn" data-mmleave>Leave</button>`}${pres ? '<button type="button" class="btn mm-end" data-mmend>End Meeting</button>' : ""}</div>`;
+  return `<div class="mm ${phone ? "mm-phone" : "mm-desk"}" data-mm="${esc(m.id)}">
+  ${phone ? phTop : deskTop}
   <div class="mm-body">${phone ? "" : `<aside class="mm-side" aria-label="Agenda" data-noclip="1">${agenda}</aside>`}<section class="mm-main">
-    ${ctx}${card}${acts}${panel}${phone ? `<div class="mm-phadd">${addBtn}<button type="button" class="btn mm-addp" data-mmact="addproj">${mmSvg("plus", 16)} New Project</button></div>` : ""}${nav}
-    ${phone ? `<details class="mm-phlog"><summary>Changed in This Meeting · ${logL.length}</summary>${log}</details>` : ""}
+    ${ctx}${card}${acts}${panel}${phone ? addBtn : ""}${nav}
   </section>${phone ? "" : `<aside class="mm-right" aria-label="Changed in this meeting" data-noclip="1">${log}</aside>`}</div></div>`;
 }
 // the clock on the In Meeting pill moves without a redraw
@@ -1442,7 +1463,8 @@ setInterval(() => {
   try {
     const el = document.querySelector("[data-mmlive]"),
       m = el && mtCurrent();
-    m && (el.textContent = `In Meeting · ${Math.max(0, Math.round((appNowMs() - new Date(m.startedAt).getTime()) / 6e4))} min`);
+    const n = m ? Math.max(0, Math.round((appNowMs() - new Date(m.startedAt).getTime()) / 6e4)) : 0;
+    m && (el.textContent = "short" === el.dataset.mmlive ? `${n} min` : `In Meeting · ${n} min`);
   } catch (e) {}
 }, 3e4);
 // ---- the actions ------------------------------------------------------------------------------------------------------
@@ -1667,6 +1689,10 @@ function mmWire(host) {
   en && (en.onclick = () => mmEndDialog());
   const ag = q("[data-mmagenda]");
   ag && (ag.onclick = () => mmAgendaSheet(m));
+  const agc = q("[data-mmagchip]");
+  agc && (agc.onclick = () => mmAgendaSheet(m));
+  // a choice in the phone's menu closes it
+  host.querySelectorAll(".mm-phmenu-in > .btn").forEach((x) => x.addEventListener("click", () => x.closest("details").removeAttribute("open")));
   host.querySelectorAll("[data-mmfield]").forEach((b) => (b.onclick = () => ((mmDateField = b.dataset.mmfield), renderTkAll())));
   const field = () => mmDateField || (((tkByCode(code) || {}).rec || {}).waitingOn ? "followUp" : "due");
   host.querySelectorAll("[data-mmdate]").forEach((b) => (b.onclick = () => mmSetDate(code, field(), b.dataset.mmdate)));
@@ -1841,9 +1867,11 @@ document.addEventListener("keydown", (e) => {
       if (host) {
         host.innerHTML = mmHtml();
         mmWire(host);
+        mmRail();
         return;
       }
     }
+    mmRail();
     const r = base.apply(this, arguments);
     try {
       mmDecorateTasks();
@@ -1851,6 +1879,35 @@ document.addEventListener("keydown", (e) => {
       console.warn("meeting button", e);
     }
     return r;
+  };
+}
+// Meeting Mode on a wide screen is a screen share: the side menu folds to its icons while the meeting is on screen, so
+// the card, the eight actions and Previous / Next Task fit in one 1440 by 900 frame (Meeting.dc.html). The person's own
+// setting is untouched; the menu button opens the full menu for this meeting only.
+let mmRailOpen = !1;
+const mmFocus = () => {
+  try {
+    return mmActive() && !tkPhone() && !mmRailOpen;
+  } catch (e) {
+    return !1;
+  }
+};
+function mmRail() {
+  try {
+    "function" == typeof railApply && railApply();
+  } catch (e) {}
+}
+if ("function" == typeof railMin) {
+  const base = railMin;
+  railMin = function () {
+    return base.apply(this, arguments) || mmFocus();
+  };
+}
+if ("function" == typeof railToggle) {
+  const base = railToggle;
+  railToggle = function () {
+    if (mmActive() && !tkPhone()) return (mmRailOpen = !mmRailOpen), railApply(), !0;
+    return base.apply(this, arguments);
   };
 }
 function mmDecorateTasks() {
@@ -2205,90 +2262,90 @@ tkRecReady = !0;
 #v-tkall .mm-bar{display:flex;align-items:center;gap:10px;min-height:48px;margin:0 0 10px;padding:6px 8px 6px 14px;border:1px solid var(--rule);border-radius:10px;background:var(--paper);font-size:14px}
 #v-tkall .mm-bar svg{vertical-align:-4px;color:var(--ink-2)}
 #v-tkall .mm-bar .btn{min-height:44px}
-.mm{display:flex;flex-direction:column;gap:14px}
-.mm-top{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:0 0 12px;border-bottom:1px solid var(--rule-2)}
-.mm-top .btn{min-height:44px}
-.mm-live{display:inline-flex;align-items:center;gap:6px;min-height:28px;padding:0 12px;border-radius:14px;background:var(--bad,#b3261e);color:#fff;font-size:13px;font-weight:700;white-space:nowrap}
-.mm-live::before{content:"";width:8px;height:8px;border-radius:50%;background:#fff}
-.mm-ttl{display:flex;flex-direction:column;gap:2px;font-size:18px;min-width:0}
-.mm-prog{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--ink-2);min-width:150px}
-.mm-pbar{display:block;height:6px;border-radius:3px;background:var(--paper-3,#e8e8e8);overflow:hidden}
-.mm-pbar i{display:block;height:100%;background:var(--accent)}
+/* Meeting Mode as Alan's mockup reads it (Meeting.dc.html, PhoneMeeting.dc.html; 2026-10-24) */
+.mm{--mm-ink:#1A1D23;--mm-ink2:#6A7080;--mm-ink3:#4A5060;--mm-line:#E7E9EE;--mm-btn:#D5D9E1;--mm-accent:#2456C9;display:flex;flex-direction:column;gap:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--mm-ink)}
+#v-tkall:has(#tkall-body>.mm){padding:0;background:#F7F8FA}
+.mm-desk{height:calc(100vh - 52px);min-height:640px}
+.mm-top{display:flex;align-items:center;gap:14px;padding:16px 28px;background:#fff;border-bottom:1px solid var(--mm-line);min-width:0}
+.mm-top .btn{min-height:40px;height:40px;padding:0 16px;border:1px solid var(--mm-btn);border-radius:10px;background:#fff;color:var(--mm-ink);font-size:14px;font-weight:600;display:inline-flex;align-items:center}
+.mm-live{display:inline-flex;align-items:center;gap:8px;flex:0 0 auto;height:30px;padding:0 12px;border-radius:999px;background:#FDECEA;color:#B42318;font-size:13px;font-weight:700;white-space:nowrap}
+.mm-live::before{content:"";width:8px;height:8px;border-radius:50%;background:#D92D20}
+.mm-ttl{font-size:20px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto}
+.mm-att{font-size:14px;color:var(--mm-ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto}
+.mm-prog{display:flex;align-items:center;gap:14px;font-size:14px;color:var(--mm-ink3);white-space:nowrap}
+.mm-pbar{display:block;flex:0 0 auto;width:160px;height:6px;border-radius:999px;background:var(--mm-line);overflow:hidden}
+.mm-pbar i{display:block;height:6px;background:var(--mm-accent)}
 .mm-sr{display:inline-block;width:1px;height:1px;margin:0 -1px 0 0;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0;vertical-align:top}
-.mm-follow{display:inline-flex;align-items:center;gap:6px;min-height:44px;font-size:14px;cursor:pointer}
-.mm-follow input{width:20px;height:20px}
-.mm-body{display:grid;grid-template-columns:300px minmax(0,1fr) 340px;gap:20px;align-items:start}
-.mm-phone .mm-body{grid-template-columns:minmax(0,1fr)}
-.mm-side,.mm-right{position:sticky;top:8px;max-height:calc(100vh - 150px);overflow:auto;display:flex;flex-direction:column;gap:6px}
-.mm-rh{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);padding:4px 2px 6px}
-.mm-ag{display:grid;grid-template-columns:1fr auto;gap:2px 8px;width:100%;text-align:left;border:1px solid var(--rule);border-radius:10px;background:var(--paper);padding:10px 12px;cursor:pointer;min-height:56px}
-.mm-ag:hover{background:var(--paper-2)}
-.mm-ag.on{border-color:var(--accent);background:var(--accent-bg,#eaf1fb);box-shadow:inset 3px 0 0 var(--accent)}
-.mm-agn{font-size:15px;font-weight:600;color:var(--ink)}
-.mm-agn small{font-size:11px;font-weight:700;color:var(--ink-3);letter-spacing:.04em;margin-left:4px}
-.mm-agc{grid-row:1 / span 2;grid-column:2;align-self:center;min-width:26px;height:26px;border-radius:13px;background:var(--paper-2);display:grid;place-items:center;font-size:13px;font-weight:700;color:var(--ink-2)}
-.mm-ags{font-size:13px;color:var(--ink-3)}
-.mm-agfyi{border-style:dashed}
-.mm-agadd{display:inline-flex;align-items:center;gap:6px;min-height:44px;margin-top:4px;padding:0 12px;border:1px dashed var(--rule);border-radius:10px;background:none;font-size:14px;color:var(--ink-2);cursor:pointer}
-.mm-log{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px;font-size:14px;line-height:20px}
-.mm-log li{padding:8px 10px;border-radius:10px;background:var(--paper-2)}
-.mm-lt{font-weight:700;color:var(--ink-2)}
-.mm-lognote{font-size:13px;line-height:19px;color:var(--ink-3);margin:8px 0 0}
-.mm-main{display:flex;flex-direction:column;gap:14px;min-width:0}
-.mm-ctx{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:15px;color:var(--ink-2)}
-.mm-changed{display:inline-flex;align-items:center;min-height:26px;padding:0 10px;border-radius:13px;background:var(--bad-bg,#fdecea);color:var(--bad,#b3261e);font-size:13px;font-weight:700}
-.mm-more{min-height:40px}
-.mm-card{border:1px solid var(--rule);border-radius:16px;background:var(--paper);padding:26px 28px;display:flex;flex-direction:column;gap:16px;box-shadow:0 2px 10px rgba(0,0,0,.04)}
-.mm-keyrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.mm-key{font-size:20px;font-weight:800;letter-spacing:.03em;color:var(--accent)}
-.mm-st{font-size:13px;font-weight:600;padding:3px 10px;border-radius:12px;background:var(--paper-2);color:var(--ink-2)}
-.mm-st-waiting{background:var(--warn-bg,#fff4e0)}
-.mm-st-fyi{background:var(--paper-3,#eee)}
-.mm-st-done{background:var(--ok-bg,#e8f5e9)}
-.mm-title{font-size:32px;line-height:38px;margin:0;font-weight:650;word-break:break-word}
-.mm-meta{display:flex;flex-wrap:wrap;gap:12px 32px;font-size:17px}
-.mm-meta>div{display:flex;flex-direction:column;gap:2px}
-.mm-meta .bad{color:var(--bad,#b3261e)}
-.mm-own{display:inline-flex;align-items:center;gap:8px}
-.mm-ml{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
-.mm-wait{display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border-radius:12px;background:var(--warn-bg,#fff4e0);border:1px solid #f2c97d;font-size:16px;line-height:22px;color:#6b4a00}
-.mm-wait svg{flex:0 0 20px;margin-top:1px}
-.mm-flag{padding:8px 12px;border-radius:10px;border:1px dashed var(--bad,#b3261e);font-size:14px}
-.mm-comments{display:flex;flex-direction:column;gap:6px}
-.mm-comment{padding:8px 12px;border-radius:10px;background:var(--paper-2);font-size:15px;line-height:21px}
+.mm-follow{display:inline-flex;align-items:center;gap:6px;min-height:40px;font-size:14px;cursor:pointer}
+.mm-follow input{width:18px;height:18px}
+.mm-body{display:grid;grid-template-columns:300px minmax(0,1fr) 340px;flex:1 1 auto;min-height:0}
+.mm-side{background:#fff;border-right:1px solid var(--mm-line);padding:18px 14px;display:flex;flex-direction:column;gap:4px;overflow:auto;min-height:0}
+.mm-rh{font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--mm-ink2);padding:0 10px 8px}
+.mm-ag{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 8px;padding:10px;border-radius:10px;background:transparent;cursor:pointer}
+.mm-ag:hover{background:#F6F8FB}
+.mm-ag.on{background:#EEF3FD}
+.mm-agn{font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mm-ag.on .mm-agn{font-weight:700}
+.mm-agc{font-size:14px;font-weight:500;color:var(--mm-ink2)}
+.mm-ags{grid-column:1 / -1;font-size:12px;color:var(--mm-ink2)}
+.mm-agadd{display:inline-flex;align-items:center;gap:6px;align-self:flex-start;min-height:40px;margin-top:6px;padding:0 10px;border:0;border-radius:10px;background:none;font-size:13px;color:var(--mm-ink2);cursor:pointer}
+.mm-agadd:hover{background:#F6F8FB;color:var(--mm-ink)}
+.mm-main{display:flex;flex-direction:column;gap:18px;padding:28px 40px;min-width:0;min-height:0;overflow:auto}
+.mm-ctx{display:flex;align-items:center;gap:10px;min-height:26px;font-size:14px;color:var(--mm-ink2)}
+.mm-changed{display:inline-flex;align-items:center;height:26px;padding:0 10px;border-radius:999px;background:#FDECEA;color:#B42318;font-size:12px;font-weight:700;white-space:nowrap}
+.mm-more{display:grid;place-items:center;width:32px;height:32px;border:0;border-radius:8px;background:none;color:var(--mm-ink2);cursor:pointer}
+.mm-more:hover,.mm-more.on{background:#EEF0F3;color:var(--mm-ink)}
+.mm-card{display:flex;flex-direction:column;gap:18px;padding:30px 32px;background:#fff;border-radius:18px;box-shadow:0 2px 6px rgba(16,24,40,.06),0 0 0 1px var(--mm-line)}
+.mm-keyrow{display:flex;align-items:center;gap:8px}
+.mm-key{font-size:15px;color:var(--mm-ink2)}
+.mm-st{display:inline-flex;align-items:center;height:22px;padding:0 8px;border-radius:999px;background:#EEF0F3;color:#3E4450;font-size:12px;font-weight:600}
+.mm-st-done{background:#E3F4EA;color:#1B6B3E}
+#v-tkall .mm .mm-title{margin:0;font-size:32px;line-height:1.2;font-weight:700;letter-spacing:-.01em;word-break:break-word}
+.mm-meta{display:flex;flex-wrap:wrap;gap:28px;font-size:16px}
+.mm-ml{color:var(--mm-ink2)}
+.mm-meta b{font-weight:700}
+.mm-meta .bad{color:#B42318}
+.mm-wait{padding:14px 16px;border-radius:12px;background:#FFF6E5;font-size:16px;line-height:1.45;color:#3D2500}
+.mm-flag{padding:8px 12px;border-radius:10px;border:1px dashed #B42318;font-size:14px}
+.mm-comments{display:flex;flex-direction:column;gap:8px;font-size:15px;line-height:1.45}
+.mm-nl{font-size:13px;color:var(--mm-ink2)}
+.mm-comment{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mm-nonotes{font-size:13px;color:var(--mm-ink2)}
 .mm-links{display:flex;flex-wrap:wrap;gap:8px}
-.mm-linkb{display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:4px 12px;border:1px solid var(--rule);border-radius:10px;background:var(--paper);font-size:14px;cursor:pointer;max-width:100%}
+.mm-linkb{display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:0 12px;border:1px solid var(--mm-btn);border-radius:10px;background:#fff;font-size:14px;cursor:pointer;max-width:100%}
 .mm-linkb span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mm-acts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
-.mm-act{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:56px;padding:6px 4px;border:1px solid var(--rule);border-radius:12px;background:var(--paper);font-size:14px;line-height:17px;font-weight:600;color:var(--ink);cursor:pointer;white-space:nowrap;min-width:0}
+.mm-act{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;height:56px;padding:0 4px;border:1px solid var(--mm-btn);border-radius:12px;background:#fff;font-size:15px;font-weight:600;color:var(--mm-ink);cursor:pointer;white-space:nowrap;min-width:0}
+#v-tkall .mm .mm-act{min-height:56px;height:56px}
 .mm-act span{overflow:hidden;text-overflow:ellipsis;max-width:100%}
-.mm-act:hover{background:var(--paper-2)}
-.mm-act.on{border-color:var(--accent);background:var(--accent-bg,#eaf1fb)}
-#v-tkall .mm .mm-act{min-height:56px;height:auto}
-.mm-act.primary{background:var(--accent);border-color:var(--accent);color:#fff}
-.mm-act.primary.on{box-shadow:inset 0 0 0 2px rgba(255,255,255,.6);color:#fff;background:var(--accent)}
-.mm-nav{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.mm-nav .mm-addbtn{flex:1 1 160px}
-.mm-nav .btn{min-height:52px;font-size:16px;display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:0 18px}
-.mm-nav .btn[disabled]{opacity:.45}
-.mm-next{background:var(--ink,#1f2328);color:var(--paper,#fff);border-color:var(--ink,#1f2328)}
-.mm-next:hover{opacity:.9}
-.mm-addbtn{display:inline-flex;align-items:center;gap:8px;min-height:52px;padding:0 16px;border:1.5px dashed var(--rule);border-radius:12px;background:none;font-size:15px;font-weight:600;color:var(--ink-2);cursor:pointer;min-width:0}
+.mm-act:hover{background:#F6F8FB}
+.mm-act.on{border-color:var(--mm-accent);box-shadow:inset 0 0 0 1px var(--mm-accent)}
+.mm-act.primary{background:var(--mm-accent);border-color:var(--mm-accent);color:#fff}
+.mm-act.primary.on{box-shadow:inset 0 0 0 2px rgba(255,255,255,.6)}
+.mm-nav{display:flex;align-items:center;gap:12px;margin-top:auto}
+#v-tkall .mm-nav .btn{height:48px;min-height:48px;padding:0 20px;border:1px solid var(--mm-btn);border-radius:12px;background:#fff;font-size:15px;font-weight:600;color:var(--mm-ink);flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center}
+#v-tkall .mm-nav .mm-next{padding:0 24px;border:0;background:var(--mm-ink);color:#fff}
+#v-tkall .mm-nav .btn[disabled]{opacity:.45}
+.mm-addbtn{display:inline-flex;align-items:center;gap:6px;height:48px;padding:0 20px;border:1px dashed #B8BEC9;border-radius:12px;background:transparent;font-size:15px;color:var(--mm-ink3);cursor:pointer;min-width:0;flex:0 1 auto;max-width:56%}
 .mm-addbtn span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.mm-addbtn.on{border-color:var(--accent);color:var(--accent)}
-.mm-hint{order:5;flex:1 1 100%;text-align:center;font-size:13px;color:var(--ink-3)}
-.mm-phadd{display:flex;flex-direction:column;gap:8px}
-.mm-phlog summary{min-height:44px;display:flex;align-items:center;font-size:15px;font-weight:600;cursor:pointer}
-.mm-panel{border:1px solid var(--rule);border-radius:12px;padding:12px;background:var(--paper-2);display:flex;flex-direction:column;gap:8px}
+.mm-addbtn.on{border-color:var(--mm-accent);color:var(--mm-accent)}
+.mm-hint{flex:0 100 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;font-size:13px;color:var(--mm-ink2);white-space:nowrap}
+.mm-right{background:#fff;border-left:1px solid var(--mm-line);padding:18px;display:flex;flex-direction:column;gap:12px;overflow:auto;min-height:0}
+.mm-right .mm-rh{padding:0}
+.mm-log{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:12px}
+.mm-log li{display:flex;flex-direction:column;gap:3px;padding:10px 12px;border-radius:10px;background:#F7F8FA}
+.mm-lmeta{font-size:12px;color:var(--mm-ink2)}
+.mm-log .mm-mlink{min-height:0;padding:0;font:inherit;font-weight:400;color:inherit}
+.mm-ltx{font-size:14px;line-height:1.35}
+.mm-lognone{margin:0;font-size:14px;color:var(--mm-ink2)}
+.mm-lognote{margin:auto 0 0;font-size:13px;line-height:1.45;color:var(--mm-ink2)}
+.mm-panel{border:1px solid var(--mm-line);border-radius:12px;padding:12px;background:#fff;display:flex;flex-direction:column;gap:8px}
 .mm-panel .tks-chip.on{border-color:var(--accent);background:var(--accent-bg,#eaf1fb)}
 .mm-panel .f input,.mm-panel .f select{min-height:44px;font-size:16px}
 .mm-menu{flex-direction:row;flex-wrap:wrap}
 .mm-menu .btn{min-height:44px}
 .mm-seg{align-self:flex-start}
 .mm-seg button{min-height:40px;padding:0 16px}
-.mm-nav{display:flex;gap:12px}
-.mm-nav .btn{flex:1 1 0;min-height:56px;font-size:17px;display:inline-flex;align-items:center;justify-content:center;gap:8px}
-.mm-nav .btn[disabled]{opacity:.45}
 .mm-addo{min-height:44px;font-size:15px;max-width:40%}
 .mm-addrow .tks-in{min-width:0}
 .mm-addp{align-self:flex-start;min-height:44px;display:inline-flex;align-items:center;gap:6px}
@@ -2305,51 +2362,58 @@ tkRecReady = !0;
 .tks-links{display:flex;flex-direction:column;gap:6px}
 .tks-links>.btn,.tks-file{align-self:flex-start;min-height:44px;display:inline-flex;align-items:center}
 .tks-rec>.btn{align-self:flex-start;min-height:44px}
+/* the phone: one screen, no scrolling; the app's sub-tabs and bottom bar step aside while the meeting is on screen */
 @media (max-width:760px){
-  .mm-card{padding:16px;border-radius:12px;gap:12px}
-  .mm-key{font-size:18px}
-  .mm-title{font-size:24px;line-height:30px}
-  .mm-meta{font-size:16px;gap:10px 20px}
-  .mm-wait{font-size:15px}
-  .mm-acts{grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
-  .mm-act{font-size:13px;padding:6px 2px;letter-spacing:-.01em}
-  .mm-phone{padding-bottom:84px;gap:10px}
-  .mm-phone .mm-main{gap:10px}
-  .mm-phone .mm-card{gap:10px}
+  body:has(#tkall-body>.mm-phone) #subnav,body:has(#tkall-body>.mm-phone) #mtabs{display:none !important}
+  .mm-phone{min-height:calc(100vh - 56px);background:#F7F8FA;padding-bottom:96px;box-sizing:border-box}
   .mm-phone>.ph.mm-ph{display:none}
-  .mm-top.mm-top-ph{flex-wrap:nowrap;gap:8px;padding:0 0 8px;position:relative}
-  .mm-top-ph .mm-live{flex:0 0 auto;font-size:12px;padding:0 9px;gap:5px}
-  .mm-phttl{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:15px}
-  .mm-top-ph .mm-prog{flex:0 0 auto;min-width:0;width:auto;font-size:12px;gap:3px;white-space:nowrap}
-  .mm-top-ph .mm-prog .mm-pbar{height:4px}
+  .mm-top.mm-top-ph{position:relative;display:flex;flex-direction:column;align-items:stretch;gap:8px;padding:12px 16px 10px}
+  .mm-phr{display:flex;align-items:center;gap:8px;min-width:0}
+  .mm-phr+.mm-phr{gap:10px}
+  .mm-top-ph .mm-live{height:28px;padding:0 10px;gap:6px;font-size:12px}
+  .mm-top-ph .mm-live::before{width:7px;height:7px}
+  .mm-phttl{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:16px;font-weight:700}
   .mm-phmenu{flex:0 0 auto;position:static}
-  .mm-phmenu>summary{list-style:none;display:inline-grid;place-items:center;width:44px;min-height:44px;padding:0;cursor:pointer}
+  .mm-phmenu>summary{list-style:none;display:grid;place-items:center;width:44px;height:44px;min-height:44px;padding:0;border:1px solid #E2E5EB;border-radius:12px;background:#fff;color:var(--mm-ink);cursor:pointer}
   .mm-phmenu>summary::-webkit-details-marker{display:none}
-  .mm-phmenu-in{position:absolute;right:0;top:calc(100% - 4px);z-index:40;display:flex;flex-direction:column;align-items:stretch;gap:8px;min-width:220px;padding:10px;border:1px solid var(--rule);border-radius:12px;background:var(--paper);box-shadow:0 10px 30px rgba(0,0,0,.16)}
-  .mm-phmenu-in .btn{min-height:44px;justify-content:flex-start}
-  .mm-notehd{display:flex;align-items:center;justify-content:space-between;gap:8px}
-  .mm-notemore{min-height:44px}
-  .mm-comments:not(.open) .mm-comment:not(:last-child){display:none}
-  .mm-comments:not(.open) .mm-comment>div{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
   body:has(.mm-phone .mm-nav) .toast{bottom:calc(58px + 76px + 10px + env(safe-area-inset-bottom))}
   #toast.toast-at-mmfoot{max-width:calc(100vw - 32px);box-sizing:border-box}
   #toast.toast-at-mmbar{left:16px;right:16px;transform:none;bottom:auto!important;max-width:none;box-sizing:border-box;display:flex;align-items:center;gap:0 6px;min-height:44px;padding:0 12px;white-space:nowrap;overflow:hidden}
   #toast.toast-at-mmbar:not(.act){display:block;line-height:44px;text-overflow:ellipsis}
   #toast.toast-at-mmbar .toast-msg{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
   #toast.toast-at-mmbar .toast-open{flex:0 0 auto;margin-left:0;min-height:44px;display:inline-flex;align-items:center}
-  .mm-nav{position:fixed;left:0;right:0;bottom:calc(58px + env(safe-area-inset-bottom));z-index:28;background:var(--paper);padding:8px 16px;border-top:1px solid var(--rule-2);box-shadow:0 -4px 12px rgba(0,0,0,.06)}
-  .mm-nav .btn{flex:1 1 0}
-  .mm-top{gap:8px}
-  .mm-top .btn{padding:0 12px}
-  .mm-follow{margin-right:auto}
-  .mm-top .mm-ttl{flex:1 1 100%;order:-1}
-  .mm-prog{flex:1 1 100%}
-  .mm-addbtn{width:100%;justify-content:center}
-  #v-tkall .mm button,#v-tkall .mm .mm-addbtn{min-height:44px}
-  #v-tkall .mm .mm-mlink{min-width:44px}
+  .mm-phmenu-in{position:absolute;right:16px;top:58px;z-index:40;display:flex;flex-direction:column;align-items:stretch;gap:8px;width:250px;max-height:70vh;overflow:auto;padding:10px;border-radius:12px;background:#fff;box-shadow:0 0 0 1px var(--mm-line),0 12px 32px rgba(16,24,40,.18)}
+  #v-tkall .mm-phmenu-in .btn{min-height:44px;height:44px;justify-content:flex-start;border:1px solid var(--mm-btn);border-radius:10px;background:#fff;font-size:15px;font-weight:600}
+  .mm-phlog>summary{min-height:44px;display:flex;align-items:center;padding:0 12px;border:1px solid var(--mm-btn);border-radius:10px;font-size:15px;font-weight:600;cursor:pointer;list-style:none}
+  .mm-phlog>summary::-webkit-details-marker{display:none}
+  .mm-phlog[open]>summary{margin-bottom:8px}
+  .mm-phlog .mm-rh{display:none}
+  .mm-projchip{display:inline-flex;align-items:center;gap:6px;flex:0 1 auto;min-width:0;max-width:62%;height:36px;padding:0 12px;border:1px solid #E2E5EB;border-radius:999px;background:#fff;font-size:13px;font-weight:600;color:var(--mm-ink);cursor:pointer}
+  .mm-projchip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .mm-projchip svg{flex:0 0 auto}
+  .mm-top-ph .mm-pbar{flex:1 1 auto;width:auto;min-width:24px}
+  .mm-prog-ph{font-size:12px;color:var(--mm-ink2);gap:0}
+  .mm-phone .mm-body{display:block}
+  .mm-phone .mm-main{padding:12px 16px;gap:12px;overflow:visible}
+  .mm-phone .mm-card{padding:16px;border-radius:16px;gap:10px;box-shadow:0 0 0 1px var(--mm-line)}
+  .mm-phone .mm-key{font-size:14px;font-weight:700;color:var(--mm-accent)}
+  .mm-phone .mm-changed{height:22px;padding:0 8px;font-size:11px}
+  #v-tkall .mm-phone .mm-title{font-size:22px;line-height:1.25;letter-spacing:0}
+  .mm-phone .mm-meta{gap:16px;font-size:14px}
+  .mm-phone .mm-wait{padding:10px 12px;border-radius:10px;font-size:14px;line-height:1.4}
+  .mm-phone .mm-comments{font-size:13px;line-height:1.4;color:var(--mm-ink3)}
+  .mm-phone .mm-comment{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .mm-phone .mm-acts{gap:8px}
+  #v-tkall .mm-phone .mm-act{height:64px;min-height:64px;font-size:12px;gap:4px;padding:0 2px}
+  #v-tkall .mm-phone .mm-addbtn{width:100%;justify-content:center;height:44px;min-height:44px;font-size:14px}
+  .mm-phone .mm-nav{position:fixed;left:0;right:0;bottom:0;z-index:28;margin:0;gap:10px;padding:10px 16px calc(24px + env(safe-area-inset-bottom));background:#fff;border-top:1px solid var(--mm-line)}
+  #v-tkall .mm-phone .mm-nav .btn{height:52px;min-height:52px;border-radius:14px;padding:0 12px}
+  #v-tkall .mm-phone .mm-nav .mm-prev{flex:1 1 0}
+  #v-tkall .mm-phone .mm-nav .mm-next{flex:2 1 0}
   .mm-addo{max-width:46%}
   .mm-addrow{flex-wrap:wrap}
   .mm-addrow .tks-in{flex:1 1 100%}
+  #v-tkall .mm .mm-mlink{min-width:44px}
 }`;
   try {
     const s = document.createElement("style");
