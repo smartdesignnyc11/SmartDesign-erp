@@ -107177,6 +107177,8 @@ function spdCtx() {
     ("undefined" != typeof fin3PostSwapped && fin3PostSwapped ? 1 : 0),
     fin3CostDepth,
     "undefined" != typeof holidaySet ? spdId(holidaySet) : "-",
+    // the task list's "show schedule lines" switch (openTasks reads it through tkItems)
+    "undefined" != typeof tkSubs && tkSubs ? 1 : 0,
     spdId(DB.time),
     spdId(DB.bills),
     spdId(DB.txns),
@@ -107267,6 +107269,9 @@ const SPD_FNS = [
   "analystFindings",
   "openExceptions",
   "buyList",
+  // the open tasks behind the Tasks counts (the rail, the Tasks tab, Today, Ask): one pass over every task per
+  // version, not one per count (each called it again, three or four times a draw)
+  "openTasks",
 ];
 function spdInstall() {
   if (SPD.installed) return;
@@ -153161,7 +153166,8 @@ const TR_SMALL = new Set([
     /^(h|hr|hrs|min|mins|d|wk|wks|mo|mos|yr|yrs|sf|sq|ft|lf|in|ea|pc|pcs|lb|lbs|gal|cy|yd|yds|m|k|x|pt|pts)$/;
 let trData = null,
   trDataDB = null,
-  trDataDirty = !0;
+  trDataDirty = !0,
+  trDataVer = -1;
 function trDataBuild() {
   const map = new Map();
   let n = 0;
@@ -153187,10 +153193,20 @@ function trDataBuild() {
     (trData = map),
     (trDataDB = DB),
     (trDataDirty = !1),
+    (trDataVer = "undefined" != typeof SPD && SPD.on ? SPD.ver : -1),
     n
   );
 }
-const trDataOk = () => ((trData && !trDataDirty && trDataDB === DB) || trDataBuild(), trData);
+// Built again after a save, unless a draw is running on the same version of the records it was built from (the
+// speed memo's SPD.ver moves whenever the stored records differ): the boot saves a dozen times with nothing changed,
+// and each rebuild walked every record (about 90 ms a draw on a phone).
+const trDataOk = () => (
+  (trData &&
+    trDataDB === DB &&
+    (!trDataDirty || ("undefined" != typeof SPD && SPD.on && trDataVer === SPD.ver && trDataVer >= 0))) ||
+    trDataBuild(),
+  trData
+);
 {
   const base = save;
   save = function () {
@@ -198119,13 +198135,9 @@ function tdyRecurDue() {
   // the books for last month, by the 10th of this one
   const prev = new Date(+td.slice(0, 4), +td.slice(5, 7) - 2, 1),
     ym = `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, "0")}`,
-    closed = (() => {
-      try {
-        return "function" == typeof ctCloseStatus && /closed|sealed/i.test(String((ctCloseStatus(ym) || {}).status || ""));
-      } catch (e) {
-        return !1;
-      }
-    })();
+    // closed is the lock (ctClosed): the close status has no status field, so the test this replaced was never true,
+    // and it worked out the whole close checklist (about 0.2 s on a phone, every boot) to learn nothing
+    closed = "function" == typeof ctClosed && ctClosed(ym);
   ctl && !closed && +td.slice(8, 10) <= 10 && out.push({ duty: "books", key: `books:${ym}`, title: TDY_DUTY.books.title(ym), owner: ctl.name, due: `${td.slice(0, 7)}-10` });
   // a vendor's certificate that expires in the next 30 days (an expired or missing one is Compliance on Caught for You)
   (DB.vendors || [])
