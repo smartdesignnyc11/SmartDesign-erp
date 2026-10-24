@@ -3822,10 +3822,21 @@ const toastLinksOf = (go) =>
     .filter((l) => l && "function" == typeof l.run);
 // A toast over an open sheet moves to the top of the screen, so it never sits on the sheet's controls (the sign
 // sheet's tick was under one for six seconds and the tap went to the toast). A tap on the toast dismisses it.
+// A screen with controls of its own near the bottom (Meeting Mode on the phone, src/meeting.js) adds its own place
+// to TOAST_PLACES: given the toast, it moves it and returns true, or leaves it and returns false.
+const TOAST_PLACES = [];
 function toastPlace(t) {
-  t.classList.remove("toast-up");
+  t.classList.remove("toast-up"), (t.style.top = ""), (t.style.bottom = ""), (t.className = t.className.replace(/\btoast-at-\S+/g, "").trim());
   const box = document.querySelector("#mbm .mbm-box, .modal.on .modal-box, .drawer.on");
-  if (!box || !box.getClientRects().length) return;
+  if (!box || !box.getClientRects().length) {
+    for (const f of TOAST_PLACES)
+      try {
+        if (f(t)) return;
+      } catch (e) {
+        console.warn("toast place", e);
+      }
+    return;
+  }
   const r = t.getBoundingClientRect(),
     b = box.getBoundingClientRect();
   r.bottom > b.top && r.top < b.bottom && r.right > b.left && r.left < b.right && t.classList.add("toast-up");
@@ -3860,6 +3871,9 @@ function toast(msg, go, ms) {
     }),
     t.classList.add("act")),
     toastPlace(t),
+    // placed again once the step that raised it has finished: a sheet's submit toasts before the sheet closes, and
+    // the toast stayed at the top of the screen, over the header, for the next six seconds
+    requestAnimationFrame(() => t.classList.contains("on") && toastPlace(t)),
     (t._t = setTimeout(() => t.classList.remove("on", "act", "toast-up"), ms || (L.length ? 6500 : 2400)));
 }
 // A toast's Open link pressed while an editor is open (2026-10-20): the link used to open the record behind the
@@ -104006,7 +104020,7 @@ function bpPass(root) {
         HB_VIEWS[v] ||
         "";
     if (name) {
-      const body = root.querySelector(":scope > div") || root,
+      const body = pageBody(root),
         ph = document.createElement("div");
       (ph.className = "ph bp-ph"),
         (ph.innerHTML = `<div><h2>${esc(name)}</h2></div>`),
@@ -104254,6 +104268,16 @@ const BH = {
   BH_UTILITY =
     /^(customize|customise|done|settings?|configure|edit layout|columns?|print|export|download|reset|refresh|filters?|view|sort|help|copy as ics|manage)\b/i;
 const BH_FOREIGN = "#fnd-made";
+// Where a page header that a pass adds goes: the page's own body (#ftoday-body) when it has one, else its first block.
+// A card another layer puts ahead of the body (the field's receipt capture on Today) is not the page: the header
+// landed inside that card on every draw but the first, so a reopen and a view switch showed different pages.
+function pageBody(root, own = () => !0) {
+  return (
+    [...root.querySelectorAll(':scope > div[id$="-body"]')].find(own) ||
+    [...root.querySelectorAll(":scope > div")].find(own) ||
+    root
+  );
+}
 function bhHeader(root) {
   if (!root || !/^v-/.test(root.id)) return;
   const v = root.id.slice(2),
@@ -104273,7 +104297,7 @@ function bhHeader(root) {
       const box = document.createElement("div");
       h.parentNode.insertBefore(w, h), box.appendChild(h), w.appendChild(box), (ph = w);
     } else if (label) {
-      const body = [...root.querySelectorAll(":scope > div")].find(own) || root;
+      const body = pageBody(root, own);
       (ph = document.createElement("div")),
         (ph.className = "ph bp-ph"),
         (ph.innerHTML = `<div><h2>${esc(label)}</h2></div>`),
@@ -104837,7 +104861,10 @@ function b3Dates(root) {
 function b3OnePrimary(root) {
   if (!root) return;
   document.body.classList.remove("has-saybar");
+  // a fixed button has no offsetParent (nor has a hidden one): only those few are styled and measured, not every
+  // button on the page (the task list's hundreds took about 0.1 s a draw on a phone)
   const fixed = [...document.querySelectorAll("button, .btn")].find((b) => {
+    if (null !== b.offsetParent) return !1;
     const cs = getComputedStyle(b),
       r = b.getBoundingClientRect();
     return (
@@ -107107,11 +107134,18 @@ function bootRun() {
   if (bootSeeded) return void (finishBoot(), install());
   install();
   const draw = render;
+  // window.__sdBootDrawFirst (tests/speed_test.py) boots as before this change, drawing first, to compare
+  const drawFirst = !!window.__sdBootDrawFirst;
   let holding = !0,
     drawn = 0,
     wanted = !1;
+  // A reopen draws once, after every layer has run: the layers between the first draw and the last only migrate,
+  // sweep and seed (each once-only seeder is flagged in DB, set on the first boot), so the screen the first draw made
+  // was thrown away by the last one (about a second for the owner on a throttled phone). Nothing a layer does
+  // between reads the drawn page (checked: tests/speed_test.py compares the records and the screen each role is left
+  // with against a boot that draws as before, at 390 and 1440).
   const hold = function () {
-    if (!holding || !drawn++) return draw.apply(this, arguments);
+    if (!holding || (drawFirst && !drawn++)) return draw.apply(this, arguments);
     (wanted = !0), (render.__tick = (render.__tick || 0) + 1);
   };
   (hold.__tick = draw.__tick || 0), (render = hold);
@@ -107160,6 +107194,8 @@ function spdCtx() {
     ("undefined" != typeof fin3PostSwapped && fin3PostSwapped ? 1 : 0),
     fin3CostDepth,
     "undefined" != typeof holidaySet ? spdId(holidaySet) : "-",
+    // the task list's "show schedule lines" switch (openTasks reads it through tkItems)
+    "undefined" != typeof tkSubs && tkSubs ? 1 : 0,
     spdId(DB.time),
     spdId(DB.bills),
     spdId(DB.txns),
@@ -107250,6 +107286,9 @@ const SPD_FNS = [
   "analystFindings",
   "openExceptions",
   "buyList",
+  // the open tasks behind the Tasks counts (the rail, the Tasks tab, Today, Ask): one pass over every task per
+  // version, not one per count (each called it again, three or four times a draw)
+  "openTasks",
 ];
 function spdInstall() {
   if (SPD.installed) return;
@@ -126658,6 +126697,16 @@ function opsStudioSchedule(p) {
       },
       msDate = gates.reduce((m, t) => (parse(t.end) > parse(m) ? t.end : m), cursor);
     ms.start = ms.end = (old.sp_done || {}).start || nextWork(addWork(msDate, 1));
+    // A rebuilt line keeps what the task record gave it (its key and the keys it had, its owner, comments, Waiting
+    // On, follow-up): the rebuild owns only the fields it writes. Without this each reopen dropped the key, and the
+    // boot's key sweep gave the five Studio phases new ones every time (CRA-21 became CRA-27, then CRA-32).
+    [...made, ...filTasks, ms].forEach((t) => {
+      const o = old[t.id];
+      o &&
+        Object.keys(o).forEach((k) => {
+          k in t || /^(remaining|ca|origStart|origEnd)$/.test(k) || (t[k] = o[k]);
+        });
+    });
     const ca = made.find((t) => t.ca);
     return (
       ca &&
@@ -153134,7 +153183,8 @@ const TR_SMALL = new Set([
     /^(h|hr|hrs|min|mins|d|wk|wks|mo|mos|yr|yrs|sf|sq|ft|lf|in|ea|pc|pcs|lb|lbs|gal|cy|yd|yds|m|k|x|pt|pts)$/;
 let trData = null,
   trDataDB = null,
-  trDataDirty = !0;
+  trDataDirty = !0,
+  trDataVer = -1;
 function trDataBuild() {
   const map = new Map();
   let n = 0;
@@ -153160,10 +153210,20 @@ function trDataBuild() {
     (trData = map),
     (trDataDB = DB),
     (trDataDirty = !1),
+    (trDataVer = "undefined" != typeof SPD && SPD.on ? SPD.ver : -1),
     n
   );
 }
-const trDataOk = () => ((trData && !trDataDirty && trDataDB === DB) || trDataBuild(), trData);
+// Built again after a save, unless a draw is running on the same version of the records it was built from (the
+// speed memo's SPD.ver moves whenever the stored records differ): the boot saves a dozen times with nothing changed,
+// and each rebuild walked every record (about 90 ms a draw on a phone).
+const trDataOk = () => (
+  (trData &&
+    trDataDB === DB &&
+    (!trDataDirty || ("undefined" != typeof SPD && SPD.on && trDataVer === SPD.ver && trDataVer >= 0))) ||
+    trDataBuild(),
+  trData
+);
 {
   const base = save;
   save = function () {
@@ -174233,7 +174293,9 @@ function tdChrome() {
     // in it shows (its lead sentence is already hidden on the phone)
     const ph = h && h.closest(".ph");
     if (ph && c && c.textContent.trim() === t) {
-      h.classList.add("td-in-hdr");
+      // measured as drawn, not as the last draw left it: a hidden header reads its whole text (innerText of an
+      // element that is not drawn is its textContent), so it came back on every other draw
+      h.classList.add("td-in-hdr"), ph.classList.remove("td-ph-bare");
       const rest = [...ph.querySelectorAll("button, .btn, a, input, select")].some((el) => el.getClientRects().length);
       ph.classList.toggle("td-ph-bare", !rest && !/\S/.test(ph.innerText || ""));
     }
@@ -195622,7 +195684,12 @@ window.addEventListener(
       const can = ["pm", "owner", "billing", "designer"].includes(role());
       // the job's page
       const dv = document.getElementById("v-dash");
-      can && "dash" === view && dv && S && S.clientId && !dv.querySelector(".doc-jobacts") && dv.insertAdjacentHTML("afterbegin", docJobActs(S.clientId, S.id));
+      // under the page's header, never above it: put first, the header pass moved the header back over it on the next
+      // draw and the two traded places on every draw (the reopen and a view switch showed different pages)
+      if (can && "dash" === view && dv && S && S.clientId && !dv.querySelector(".doc-jobacts")) {
+        const ph = dv.querySelector(":scope > .ph");
+        ph ? ph.insertAdjacentHTML("afterend", docJobActs(S.clientId, S.id)) : dv.insertAdjacentHTML("afterbegin", docJobActs(S.clientId, S.id));
+      }
       // Billing › Estimates
       const bb = document.getElementById("billing-body");
       if (can && "billing" === view && bb && !("undefined" != typeof docOpen && docOpen) && "est" === ("undefined" != typeof billTab ? billTab : "") && !bb.querySelector("#bill-newest")) {
@@ -198085,13 +198152,9 @@ function tdyRecurDue() {
   // the books for last month, by the 10th of this one
   const prev = new Date(+td.slice(0, 4), +td.slice(5, 7) - 2, 1),
     ym = `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, "0")}`,
-    closed = (() => {
-      try {
-        return "function" == typeof ctCloseStatus && /closed|sealed/i.test(String((ctCloseStatus(ym) || {}).status || ""));
-      } catch (e) {
-        return !1;
-      }
-    })();
+    // closed is the lock (ctClosed): the close status has no status field, so the test this replaced was never true,
+    // and it worked out the whole close checklist (about 0.2 s on a phone, every boot) to learn nothing
+    closed = "function" == typeof ctClosed && ctClosed(ym);
   ctl && !closed && +td.slice(8, 10) <= 10 && out.push({ duty: "books", key: `books:${ym}`, title: TDY_DUTY.books.title(ym), owner: ctl.name, due: `${td.slice(0, 7)}-10` });
   // a vendor's certificate that expires in the next 30 days (an expired or missing one is Compliance on Caught for You)
   (DB.vendors || [])

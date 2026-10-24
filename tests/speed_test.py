@@ -159,6 +159,41 @@ async def reopen(p, uid, profile=False):
     await b.close()
     return r, prof
 
+# A reopen draws once, after the whole boot chain (bootRun): the boot's records and the screen it leaves must be the
+# ones a boot that draws first, as before, leaves (window.__sdBootDrawFirst), for each role at 390 and 1440. The
+# reopens run back to back from the same stored records: a plain one first, so a one-time migration has run, then
+# one each way. Clock stamps and "N min ago" are masked; anything else that differs is a boot that is not the same.
+SAME = """() => { const mask = s => String(s).replace(/\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d(:\\d\\d(\\.\\d+)?)?Z?/g, 'T')
+    .replace(/\\d+ (sec|min|s|m)\\b[^<]{0,12}ago/g, 'ago');
+  const v = document.querySelector('.view.on'), rail = document.querySelector('.rail'), mb = document.getElementById('nav-mb');
+  return {db: mask(JSON.stringify(DB)), view: (v && v.id) + ':' + mask(v ? v.innerHTML : ''),
+          nav: mask((rail ? rail.innerHTML : '') + (mb ? mb.innerHTML : '')), who: (currentUser() || {}).id}; }"""
+
+async def boot_same(p, uid, vp):
+    b = await p.chromium.launch()
+    ctx = await b.new_context(viewport=vp, is_mobile=vp is PHONE, has_touch=vp is PHONE)
+    await ctx.add_init_script("try { sessionStorage.getItem('sdDrawFirst') && (window.__sdBootDrawFirst = 1); } catch (e) {}")
+    pg = await ctx.new_page()
+    await pg.goto(URL)
+    await pg.wait_for_function("document.body.dataset.booted==='1'", timeout=120000)
+    await pg.evaluate("u => { signIn(u); render(); }", uid)
+    out = []
+    for first in (0, 1, 0):
+        await pg.evaluate("f => { saveNow && saveNow(); f ? sessionStorage.setItem('sdDrawFirst', '1') : sessionStorage.removeItem('sdDrawFirst'); }", first)
+        await pg.wait_for_timeout(800)
+        await pg.reload()
+        await pg.wait_for_function("document.body.dataset.booted==='1'", timeout=120000)
+        await pg.wait_for_timeout(300)
+        out.append(await pg.evaluate(SAME))
+    await b.close()
+    a, c = out[1], out[2]
+    diff = []
+    for k in ('who', 'view', 'nav', 'db'):
+        if a[k] != c[k]:
+            x, y = a[k], c[k]; i = next((i for i in range(min(len(x), len(y))) if x[i] != y[i]), min(len(x), len(y)))
+            diff.append(f'{k} at {i}: drawn first {x[max(0, i - 60):i + 100]!r} | drawn once {y[max(0, i - 60):i + 100]!r}')
+    return diff
+
 async def main():
     tag = 'run'
     if '--tag' in sys.argv: tag = sys.argv[sys.argv.index('--tag') + 1]
@@ -193,6 +228,13 @@ async def main():
                 open(os.path.join(out_dir, f'profile_{tag}.txt'), 'w').write(txt)
                 json.dump(prof, open(os.path.join(out_dir, f'profile_{tag}.cpuprofile'), 'w'))
                 print(txt[:4000])
+        if '--no-same' not in sys.argv:
+            for uid, name in ROLES:
+                if only and name not in only: continue
+                for vp in (PHONE, DESKTOP):
+                    d = await boot_same(p, uid, vp)
+                    print(f"{name:8} {vp['width']}: one draw leaves {'the same records and screen' if not d else 'a different boot'}", flush=True)
+                    c.ok(not d, f"{name} at {vp['width']}: a reopen that draws once differs from one that draws first: {d[:2]}")
     json.dump(res, open(os.path.join(out_dir, f'speed_{tag}.json'), 'w'), indent=1)
     sys.exit(c.done())
 

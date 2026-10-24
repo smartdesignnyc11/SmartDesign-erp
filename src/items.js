@@ -36,9 +36,11 @@ const IT_FIELD = ["foreman", "crew", "driver"],
     const v = +n || 0;
     return "$" + (Math.abs(v) >= 100 ? Math.round(v).toLocaleString("en-US") : v.toFixed(2));
   };
-function itemLibDeclined() {
-  const C = DB.company || (DB.company = {});
-  return (C.itemLibDeclined = C.itemLibDeclined || {}), C.itemLibDeclined;
+// Read without writing: a reader that stored an empty {} on its first call changed the records in the middle of a draw
+// (the Projects page), which moved the speed memo's data version and threw away every figure it held.
+function itemLibDeclined(write) {
+  const C = DB.company || (write ? (DB.company = {}) : {});
+  return write ? (C.itemLibDeclined = C.itemLibDeclined || {}) : C.itemLibDeclined || {};
 }
 const itemById = (id) => (id ? itemLib().find((x) => x.id === id) || null : null);
 
@@ -838,7 +840,7 @@ function itemPropDecline(id, why) {
   if (!itCanApprove()) return toast("The owner or the estimator decides on the library"), !1;
   const P = itemProposals().find((x) => x.id === id);
   if (!P) return !1;
-  itemLibDeclined()[id] = { at: appNowIso(), by: itMe().name || role(), why: why || "", what: P.what };
+  itemLibDeclined(!0)[id] = { at: appNowIso(), by: itMe().name || role(), why: why || "", what: P.what };
   "function" == typeof audit && audit("company", "itemlib", "item-proposal-declined", "", P.what, why || "");
   save(), render(), toast(`Declined: ${P.what}. It will not be proposed again.`, [{ label: "Open", run: () => libOpenCard() }]);
   return !0;
