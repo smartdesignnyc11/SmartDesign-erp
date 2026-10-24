@@ -9,6 +9,12 @@ Last updated 2026-10-21, later the same day. The information map merged (42cf9fd
 - Don't start a big round when weekly usage is above about 60%.
 - One build lane is roughly 6–10% of a week's allowance. The lean pilot is about 2–5%.
 
+## Procurement: the next module the team adopts (Alan, 10-24)
+"It needs a full review and major changes." Steps, one lane at a time after the mockup-match lane:
+1. **Review** (running, no browser): the last three meeting transcripts for what goes wrong in buying (kept outside the repo); a code inventory of the chain from estimate line to bank line; the coordinator expert's 24 findings (`review/experts/coordinator.md`); the leaders (Procore Materials and Commitments, NetSuite procure-to-pay, Buildertrend POs and bids).
+2. **Plan and mockup** for Alan's yes: `docs/PROCUREMENT_PLAN.md` and phone-first screens on the mockup canvas.
+3. **Build lanes**, each deploying when green: one Buy Board and one "late"; the order and quote path; receiving and reconfirm; vendor credits and claims; then the phone.
+
 ## Tasks replace Asana (Alan, 10-23): Monday 10-26 build, merged
 All four lanes of `docs/TASKS_PLAN.md` Phase 1, plus the transcript layer, are on master at 13421e3 and pass on the merged build:
 - the task record (keys, one internal owner, Waiting On, follow-up, comments, links) and Meeting Mode: meeting_mode_test 265, two-person sync 12;
