@@ -438,7 +438,7 @@ async def polish(c, p):
     r = await pg.evaluate("() => { const B = [...document.querySelectorAll('#nav-groups > button')].map(b => b.dataset.grp); return B.indexOf('mytasks') === B.indexOf('home') + 1; }")
     c.ok(r, 'pm 390: Tasks sits under Today in the phone menu')
     bar = await pg.evaluate("() => [...document.querySelectorAll('#mtabs button[data-mv]')].map(b => b.dataset.mv)")
-    c.ok(bar == ['home', 'chat', 'ovjobs', 'field'], f'pm 390: the bottom bar is unchanged ({bar})')
+    c.ok(bar == ['home', 'chat', 'ovjobs', 'tkall'], f'pm 390: Tasks is the fourth shortcut ({bar})')
     await sign_in(pg, 'u_owner'); await go(pg, 'tkall')
     await pg.evaluate("() => { mtStart({}); renderTkAll(); window.scrollTo(0, 0); }"); await pg.wait_for_timeout(500)
     m = await pg.evaluate("""() => { const A = [...document.querySelectorAll('.mm-act')].map(e => e.getBoundingClientRect()), nav = document.querySelector('.mm-nav').getBoundingClientRect();

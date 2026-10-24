@@ -1973,14 +1973,9 @@ function mmDecorateTasks() {
   b.onclick = () => mmStartDialog();
   const acts = host.querySelector(".tk2-ph .acts"),
     line = host.querySelector(".tk2-hline");
-  if (tkPhone() && line) {
-    b.className = "tk2-ic";
-    b.setAttribute("aria-label", "Start Meeting");
-    b.title = "Start Meeting";
-    b.innerHTML = mmSvg("team", 20);
-    const srch = line.querySelector("[data-tksearch]");
-    srch ? line.insertBefore(b, srch) : line.appendChild(b);
-  } else if (acts) {
+  // the phone's header keeps one search and one add (Phone.dc.html, 2026-10-24): Start Meeting is in its filter sheet
+  if (tkPhone() && line) return;
+  if (acts) {
     b.className = "btn";
     b.innerHTML = `${mmSvg("screen", 16)}<span>Start Meeting</span>`;
     acts.insertBefore(b, acts.querySelector("#tk-new"));

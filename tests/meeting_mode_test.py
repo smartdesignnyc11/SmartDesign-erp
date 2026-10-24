@@ -103,9 +103,15 @@ async def run_meeting(c, p, uid, phone):
     me = await pg.evaluate("tdyMe().name")
     await go(pg, 'tkall')
     # the button: Start Meeting on Tasks for the owner and the coordinator, no new menu item
-    c.ok(await pg.evaluate("() => !!document.querySelector('#v-tkall [data-mmstart]')"), f'{tag}: Start Meeting on Tasks')
     c.ok(await pg.evaluate("() => !Object.values(ROLE_VIEWS).some(L => L.includes('meeting') || L.includes('mmode'))"), f'{tag}: no new view or menu item')
-    await click(pg, '#v-tkall [data-mmstart]', 250)
+    if phone:
+        # the phone's header keeps one search and one add (Phone.dc.html): Start Meeting is in the filter sheet
+        await click(pg, '#v-tkall [data-tkfilter]', 250)
+        c.ok(await pg.evaluate("() => !!document.querySelector('#mbm [data-tkfmeet]')"), f'{tag}: Start Meeting in the phone filter sheet')
+        await click(pg, '#mbm [data-tkfmeet]', 250)
+    else:
+        c.ok(await pg.evaluate("() => !!document.querySelector('#v-tkall [data-mmstart]')"), f'{tag}: Start Meeting on Tasks')
+        await click(pg, '#v-tkall [data-mmstart]', 250)
     await pg.evaluate("() => document.querySelector('#mbm #mbm-ok').click()")
     await pg.wait_for_timeout(400)
     # the "started" toast on the phone (speed lane, 2026-10-24): it covered part of the action grid for six seconds.
