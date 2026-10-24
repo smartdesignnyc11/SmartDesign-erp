@@ -1466,6 +1466,9 @@ function tvAfter() {
   const ctx = t2Ctx(),
     ph = tvPhone();
   host.classList.add("tv-on");
+  try {
+    tvDueMark(host);
+  } catch (e) {}
   // the mode switch: List, Table, Board, Calendar
   const seg = host.querySelector(".tk-mode");
   seg && ((seg.innerHTML = TV_MODES.map(([k, n]) => `<button type="button" class="${(tkMode || "cards") === k ? "on" : ""}" data-tkmode="${k}">${n}</button>`).join("")), seg.classList.add("tv-modes"));
@@ -2116,6 +2119,17 @@ let tvDrawing = "";
     }
     return out;
   };
+}
+
+// ---- Tasks in the side menu: one number, the person's own late and due-today tasks ----------------------------------
+// The rail entry, Today's Tasks tab and the Tasks page say the same count: tkMyCounts().today, the list's own "Today"
+// view (overdue and due today), the number Ask gives for "my tasks due today".
+"object" == typeof OC_BADGE && (OC_BADGE.tkall = { n: () => tkMyCounts().today || 0 });
+function tvDueMark(host) {
+  const lead = host.querySelector(".ph .lead");
+  if (!lead || lead.querySelector("[data-ocbadge]") || "home" !== t2Ctx()) return;
+  const n = tkMyCounts().today || 0;
+  lead.insertAdjacentHTML("beforeend", `<span class="tv-duemark" data-ocbadge="tkall">${lead.textContent.trim() ? " · " : ""}${n ? `${n} of yours late or due today` : "nothing of yours late or due today"}</span>`);
 }
 
 // ---- the demo: two tasks that wait on someone outside the firm, so the Waiting On column and tab show their use -------

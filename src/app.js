@@ -198687,11 +198687,15 @@ const MN_JOBS = (o) =>
     ["hbsettings", "Sales Settings"],
   ],
   MN_G = (id, n, icon, items, x) => Object.assign({ id: id, n: n, icon: icon, items: items }, x || {}),
+  // Tasks, directly under Today for every office role (Alan, 2026-10-24): the one list (tkall), its badge the person's
+  // own late and due-today tasks. Today's Tasks tab stays and opens the same list. Field roles keep their menus.
+  MN_TASKS = () => MN_G("mytasks", "Tasks", "tasks", [["tkall", "Tasks"]]),
   MENU = {
     owner: {
       home: "home",
       groups: [
         MN_G("home", "Today", "today", MN_TODAY),
+        MN_TASKS(),
         MN_G("jobs", "Projects", "jobs", MN_JOBS({ co: 1 }), { proj: 1 }),
         MN_G("money", "Accounting", "money", [
           ["ovmoney", "Accounting"],
@@ -198729,6 +198733,7 @@ const MN_JOBS = (o) =>
       home: "home",
       groups: [
         MN_G("home", "Today", "today", MN_TODAY),
+        MN_TASKS(),
         // change orders and extra estimates in each job (disagreement 1); no Sales, Design or Accounting (question 4)
         MN_G("jobs", "Projects", "jobs", MN_JOBS({ co: 1, billing: 1 }), { proj: 1 }),
         MN_G("clients", "Clients", "clients", [["clients", "Clients"]]),
@@ -198747,6 +198752,7 @@ const MN_JOBS = (o) =>
       home: "home",
       groups: [
         MN_G("home", "Today", "today", MN_TODAY),
+        MN_TASKS(),
         MN_G("buy", "Purchasing", "buy", MN_BUY({ sel: 1 })),
         MN_G("vendors", "Vendors", "vendors", [["vendors", "Vendors"]]),
         MN_G("jobs", "Projects", "jobs", MN_JOBS({}), { proj: 1 }),
@@ -198772,6 +198778,7 @@ const MN_JOBS = (o) =>
       groups: [
         MN_G("billing", "Billing", "billing", [["billing", "Billing"]]),
         MN_G("home", "Today", "today", MN_TODAY),
+        MN_TASKS(),
         MN_G("clients", "Clients", "clients", [["clients", "Clients"]]),
         MN_G("jobs", "Projects", "jobs", MN_JOBS({}), { proj: 1 }),
         MN_G("bank", "Banking", "bank", [["bank", "Banking"]]),
@@ -198798,6 +198805,7 @@ const MN_JOBS = (o) =>
           ["time", "Time & Crew"],
         ]),
         MN_G("home", "Today", "today", MN_TODAY),
+        MN_TASKS(),
         MN_G("gl", "Ledger", "gl", [
           ["gl", "Ledger"],
           ["verify", "Controls"],
@@ -198828,6 +198836,7 @@ const MN_JOBS = (o) =>
           ["comms", "Inbox"],
           ["tkall", "Tasks"],
         ]),
+        MN_TASKS(),
         // drawings: one register per job, a top item for the designer (disagreement 6)
         MN_G("drawings", "Drawings", "drawings", [["plans", "Drawings"]], { proj: 1 }),
         MN_G("jobs", "Projects", "jobs", MN_JOBS({ plans: !1 }), { proj: 1 }),
@@ -198939,6 +198948,7 @@ const MN_ALIAS = Object.assign({ sdraw: "plans", hbforecast: "salesnum", hbdash:
     gl: '<path d="M4 4h12a3 3 0 0 1 3 3v13H7a3 3 0 0 1-3-3z"/><path d="M8 8h7M8 12h7"/>',
     vendors: '<path d="M3 9l1.5-5h15L21 9"/><path d="M3 9h18v2a3 3 0 0 1-6 0 3 3 0 0 1-6 0 3 3 0 0 1-6 0z"/><path d="M5 13v8h14v-8"/>',
     drawings: '<path d="M4 4h12l4 4v12H4z"/><path d="M8 12h8M8 16h5"/>',
+    tasks: '<path d="M10 6h10M10 12h10M10 18h10"/><path d="M3.5 6l1.5 1.5L7.5 5M3.5 12l1.5 1.5 2.5-2.5M3.5 18l1.5 1.5 2.5-2.5"/>',
     more: '<circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/>',
     setup:
       '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1L7 17M17 7l2.1-2.1"/>',
@@ -199083,7 +199093,8 @@ function mnCur(B) {
     hits = all.filter((x) => x.it.v === v);
   if (!hits.length) return null;
   const pick = (L) => L.find((x) => x.it.tab && x.it.tab === tab) || L.find((x) => !x.it.tab);
-  return pick(hits.filter((x) => x.g.id === mnLastGrp)) || pick(hits) || hits[0];
+  // a page with a rail entry of its own (Tasks) lights that entry unless the person came through a strip that holds it
+  return pick(hits.filter((x) => x.g.id === mnLastGrp)) || pick(hits.filter((x) => 1 === x.g.items.length && !x.g.proj)) || pick(hits) || hits[0];
 }
 // Badges: one question, one number. A page's badge is the count its own list shows (onecount's ocBadgeN, Billing's
 // billingNeeds, the approvals queue); a group's badge is its overview's needs() when the role opens the overview,

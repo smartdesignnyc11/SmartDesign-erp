@@ -279,6 +279,23 @@ async def run_role(pg, lint, tag, uid, phone):
             if ov: nums.add(ov[0]['n']); seen.append(f"{ov[0]['n']} on {g['ov']} (\"late or waiting\" line)")
             await to_view(pg, views[0])
         if len(nums) > 1: lint.flag('C', run, o['label'], '; '.join(seen))
+    # Tasks under Today (Alan, 2026-10-24): its badge is the person's own late and due-today tasks. The rail (desktop
+    # rail or the phone's menu), tkMyCounts().today, the Tasks page's marked count and Ask's "my tasks due today" read
+    # one number.
+    for o in [o for o in rails if o.get('grp') == 'mytasks'][:1]:
+        want = await pg.evaluate("() => tkMyCounts().today || 0")
+        a = await ask(pg, 'how many of my tasks are due today')
+        an = first_int(a['headline'])
+        if an is None and (a['headline'] or '').startswith('Nothing'): an = 0
+        page = None
+        if await to_view(pg, 'tkall'):
+            m = await pg.evaluate("() => __cl.marked('tkall')")
+            if m: page = m['n'] or 0
+            await to_view(pg, views[0])
+        nums = {o['n'], want} | ({an} if an is not None else set()) | ({page} if page is not None else set())
+        if len(nums) > 1 or page is None:
+            lint.flag('C', run, 'Tasks', f"{o['n']} on the rail; {want} of theirs late or due today; Ask {an} (\"{a['headline'][:60]}\"); "
+                      f"{'no marked count on Tasks' if page is None else str(page) + ' on the Tasks page'}")
 
     # ---- rule (b): click tiles, chips, tab badges and "All N" for real; compare with the rows shown.
     # Renders are the cost (about half a second each on a shared box), so a view is re-rendered only when a click moved it.
@@ -462,7 +479,8 @@ async def ask_checks(pg, lint, run, info, views, names):
     a = await ask(pg, f'how many tasks does {ASK_PERSON} have')
     an = first_int(a['headline'])
     if 'tkall' in can and an is not None and await to_view(pg, 'tkall'):
-        for sel in ['[data-tkmode="cards"]', '[data-tkwho="all"]', '[data-t2view="all"]']:
+        # the saved tab Everything is Everyone, All on Tasks (one filter row, 2026-10-24); the old switches elsewhere
+        for sel in ['[data-tkmode="cards"]', '[data-tvview="b:all"]', '[data-tkwho="all"]', '[data-t2view="all"]']:
             loc = pg.locator('.view.on ' + sel).first
             if await loc.count(): await click(pg, loc)
         for sid, val in [('#t2-proj', ''), ('#t2-group', 'assignee')]:
@@ -482,7 +500,7 @@ async def ask_checks(pg, lint, run, info, views, names):
             lint.flag('D', run, f'how many tasks does {ASK_PERSON} have',
                       f"Ask {an} (\"{a['headline'][:70]}\"); {n} on Tasks › Everyone › All › By Person ({', '.join(f'{x['who']} {x['n']}' for x in g) or 'no group'})")
         # put the Tasks screen back the way the role found it
-        for sel in ['[data-tkwho="me"]', '[data-t2view="today"]']:
+        for sel in ['[data-tvview="b:week"]', '[data-tkwho="me"]', '[data-t2view="today"]']:
             loc = pg.locator('.view.on ' + sel).first
             if await loc.count(): await click(pg, loc)
         loc = pg.locator('.view.on #t2-group')

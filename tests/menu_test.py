@@ -24,12 +24,12 @@ ICON_NEW = 'Ask'
 RAIL = {
     # the owner's More held My Day and Chief of Staff; with My Day folded into Tasks its one page is drawn in its place
     # (the menu's rule for a group of one, as the designer's Dashboard)
-    'u_owner': ['Today', 'Projects', 'Accounting', 'Sales', 'Clients', 'Purchasing', 'Design', 'Company', 'Reports', 'Chief of Staff', 'Settings'],
-    'u_alan': ['Today', 'Projects', 'Clients', 'Purchasing', 'Reports', 'Company', 'More', 'Settings'],
-    'u_chen': ['Today', 'Purchasing', 'Vendors', 'Projects', 'Company', 'More', 'Settings'],
-    'u_billing': ['Billing', 'Today', 'Clients', 'Projects', 'Banking', 'Reports', 'More', 'Settings'],
-    'u_controller': ['Banking', 'Bills & Payroll', 'Today', 'Ledger', 'Purchasing', 'Billing', 'Reports', 'More', 'Settings'],
-    'u_sarah': ['Today', 'Drawings', 'Projects', 'Design', 'Clients', 'Dashboard', 'Settings'],
+    'u_owner': ['Today', 'Tasks', 'Projects', 'Accounting', 'Sales', 'Clients', 'Purchasing', 'Design', 'Company', 'Reports', 'Chief of Staff', 'Settings'],
+    'u_alan': ['Today', 'Tasks', 'Projects', 'Clients', 'Purchasing', 'Reports', 'Company', 'More', 'Settings'],
+    'u_chen': ['Today', 'Tasks', 'Purchasing', 'Vendors', 'Projects', 'Company', 'More', 'Settings'],
+    'u_billing': ['Billing', 'Today', 'Tasks', 'Clients', 'Projects', 'Banking', 'Reports', 'More', 'Settings'],
+    'u_controller': ['Banking', 'Bills & Payroll', 'Today', 'Tasks', 'Ledger', 'Purchasing', 'Billing', 'Reports', 'More', 'Settings'],
+    'u_sarah': ['Today', 'Tasks', 'Drawings', 'Projects', 'Design', 'Clients', 'Dashboard', 'Settings'],
     # field roles: one list, the tab bar first, then the rest, then Connections and the Standard
     'u_angel': ['Today', 'Site', 'Daily Log', 'Chat', 'Requests', 'Crew', 'Drawings', 'Schedule', 'Photos', 'Documents', 'Raise', 'Connections', 'The SmartDesign Standard'],
     'u_alberto': ['Clock', 'Requests', 'Schedule', 'Chat', 'Photos', 'Deliveries', 'Drawings', 'Connections', 'The SmartDesign Standard'],
