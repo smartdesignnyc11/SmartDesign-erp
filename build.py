@@ -25,6 +25,22 @@ js = '\n'.join(r(f) for f in SRC)
 for f in SRC:
     if subprocess.run(['node', '--check', os.path.join(H, f)]).returncode:
         sys.exit(f + ' has a syntax error; not building')
+# The script ships as ASCII (speed, BACKLOG §1.11 item 5). One em dash anywhere makes the browser hold all 11 MB of
+# the script two bytes a character, and decoding and tokenizing it took about 0.4 s longer on a throttled phone
+# before the first line ran. Every character past ASCII is written as its \u escape, which means the same thing in a
+# string, a template, a regular expression (with or without the u flag: a pair stands for one character) and a
+# comment. Two places would read it differently, so the build refuses them: String.raw (it keeps the escape as
+# typed) and a backslash right before the character.
+import re
+for m in re.finditer(r'String\.raw`', js):
+    end = m.end()
+    while js[end] != '`': end += 2 if js[end] == '\\' else 1
+    if re.search(r'[^\x00-\x7f]', js[m.end():end]):
+        sys.exit('a String.raw template holds a character past ASCII; write it as a ${"\\u…"} part: ' + js[m.start():m.start() + 80])
+if re.search(r'\\[^\x00-\x7f]', js):
+    sys.exit('a backslash stands before a character past ASCII; drop the backslash or write the \\u escape')
+u16 = lambda c: [ord(c)] if ord(c) < 0x10000 else [0xD800 + ((ord(c) - 0x10000) >> 10), 0xDC00 + ((ord(c) - 0x10000) & 0x3FF)]
+js = re.sub(r'[^\x00-\x7f]', lambda m: ''.join('\\u%04x' % u for u in u16(m.group())), js)
 # The SmartDesign Standard (docs/STANDARD.md, Alan's own document) rides in the page word for word: the app seeds
 # its live, versioned copy from it (standardParse in src/app.js), so the text is loaded, never paraphrased in code.
 std = r('docs/STANDARD.md').replace('</script', '<\\/script')
