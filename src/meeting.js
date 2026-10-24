@@ -115,6 +115,26 @@ function tkKeyedRecs() {
   ((DB.hub && DB.hub.tasks) || []).forEach((a) => a && out.push({ kind: "hub", rec: a, p: null, board: "sales" }));
   return out;
 }
+// Every other kind of task the list shows carries an ID too (polish lane, 2026-10-24: most rows had none): a job's
+// schedule lines a person owns and its open field items (the job's prefix), the open leads' next steps (Sales) and
+// the firm's renewals (Office). They take numbers from the same boards, so a number is still never given twice. They
+// get a key only; the meeting, its agenda and the owner sweep stay on the records above (tkKeyedRecs).
+const TK_SCHED_NOBODY = /^(crew|all|vendor|tbd|sub|subs)$/i;
+function tkOtherRecs() {
+  const out = [],
+    has = (r) => !!String(r.code || "").trim();
+  (DB.projects || []).forEach((p) => {
+    (p.tasks || []).forEach((t) => {
+      const o = String((t && t.owner) || "").trim();
+      t && (has(t) || ("milestone" !== t.type && "done" !== t.status && o && !TK_SCHED_NOBODY.test(o))) && out.push({ kind: "sched", rec: t, p: p, board: "p:" + p.id });
+    });
+    (p.issues || []).forEach((i) => i && (has(i) || "open" === i.status) && out.push({ kind: "issue", rec: i, p: p, board: "p:" + p.id }));
+  });
+  (DB.leads || []).forEach((l) => l && (has(l) || (!["won", "lost"].includes(l.stage) && !["Unqualified", "Junk"].includes(l.leadStatus || "") && (l.next || l.nextDue))) && out.push({ kind: "lead", rec: l, p: null, board: "sales" }));
+  (DB.obligations || []).forEach((o) => o && (has(o) || ("active" === o.status && o.expires)) && out.push({ kind: "ob", rec: o, p: null, board: "s:Office" }));
+  return out;
+}
+const tkCodedRecs = () => tkKeyedRecs().concat(tkOtherRecs());
 const tkSectionOf = (a) => String((a && a.section) || "").trim() || "Office";
 const tkRecDone = (k, a) => ("hub" === k ? !!a.completed : "done" === a.status);
 const tkRecKey = (r) => `${r.kind}:${r.rec.id}:${r.p ? r.p.id : ""}`;
@@ -195,7 +215,7 @@ function tkSetPrefix(id, pre) {
   meta.prefixSet = 1; // a person chose it: an import never replaces it
   if (was === P) return { ok: !0, prefix: P };
   meta.prefix = P;
-  tkKeyedRecs()
+  tkCodedRecs()
     .filter((r) => r.board === id)
     .forEach((r) => {
       const m = TK_CODE_RE.exec(String(r.rec.code || ""));
@@ -217,7 +237,7 @@ function tkRecSweep() {
   if (!tkRecReady) return 0;
   let n = 0;
   try {
-    const R = tkKeyedRecs(),
+    const R = tkCodedRecs(),
       byBoard = {};
     R.forEach((r) => (byBoard[r.board] = byBoard[r.board] || []).push(r));
     Object.keys(byBoard).forEach((id) => {
@@ -274,7 +294,7 @@ function tkRecSweep() {
       n++;
     });
     tkIntMemo = new Map();
-    R.forEach((r) => (n += tkRecFix(r)));
+    R.forEach((r) => /^(action|firm|hub)$/.test(r.kind) && (n += tkRecFix(r)));
   } catch (e) {
     console.warn("task record sweep", e);
   } finally {
@@ -1256,10 +1276,10 @@ function mmCardHtml(m, s, W) {
   return `<article class="mm-card" data-mmcard="${esc(s.code)}">
   <div class="mm-keyrow"><span class="mm-key">${esc(s.code)}</span><span class="mm-st mm-st-${esc(st)}">${esc(tkStatusSay(st))}</span></div>
   <h2 class="mm-title">${esc(a.title || x.title || "")}</h2>
-  <div class="mm-meta"><div><span class="mm-ml">Owner</span><b>${esc(a.assignee || "nobody")}</b>${(a.collaborators || []).length ? `<small> with ${esc(a.collaborators.join(", "))}</small>` : ""}</div><div><span class="mm-ml">Due</span><b class="${late ? "bad" : ""}">${a.due ? esc(tkDay(a.due)) + (late ? " · late" : "") : "No date"}</b></div><div><span class="mm-ml">Follow-up</span><b>${a.followUp ? esc(tkDay(a.followUp)) : "None"}</b></div>${a.watchUntil ? `<div><span class="mm-ml">Tracking Until</span><b>${esc(tkDay(a.watchUntil))}</b></div>` : ""}</div>
+  <div class="mm-meta"><div><span class="mm-ml">Owner</span><b class="mm-own">${a.assignee ? tvAv(a.assignee) : ""}${esc(a.assignee || "nobody")}</b>${(a.collaborators || []).length ? `<small> with ${esc(a.collaborators.join(", "))}</small>` : ""}</div><div><span class="mm-ml">Due</span><b class="${late ? "bad" : ""}">${a.due ? esc(tkDay(a.due)) + (late ? " · late" : "") : "No date"}</b></div><div><span class="mm-ml">Follow-up</span><b>${a.followUp ? esc(tkDay(a.followUp)) : "None"}</b></div>${a.watchUntil ? `<div><span class="mm-ml">Tracking Until</span><b>${esc(tkDay(a.watchUntil))}</b></div>` : ""}</div>
   ${flag}
   ${W0 ? `<div class="mm-wait">${mmSvg("wait", 20)}<div><b>Waiting on ${esc(W0.name)}${W0.what ? `: ${esc(W0.what)}` : ""}.</b>${W0.promised ? ` Promised ${esc(tkDay(W0.promised))}.` : " No date promised yet."}${W0.evidence ? `<div class="small">${esc(W0.evidence)}</div>` : ""}</div></div>` : ""}
-  ${C.length ? `<div class="mm-comments"><span class="mm-ml">Last Notes</span>${C.map((c) => `<div class="mm-comment"><span class="small muted">${esc((tdyUserOf(c.by) ? tkFirst(c.by) : c.by) || "Someone")} · ${esc(fmt(String(c.at || "").slice(0, 10)))}</span><div>${esc(c.text)}</div></div>`).join("")}</div>` : '<div class="mm-comments muted small">No notes yet.</div>'}
+  ${C.length ? `<div class="mm-comments" data-mmnotes>${tkPhone() ? `<div class="mm-notehd"><span class="mm-ml">Last Notes</span><button type="button" class="btn sm mm-notemore" data-mmnotesmore aria-expanded="false">More</button></div>` : '<span class="mm-ml">Last Notes</span>'}${C.map((c) => `<div class="mm-comment"><span class="small muted">${esc((tdyUserOf(c.by) ? tkFirst(c.by) : c.by) || "Someone")} · ${esc(fmt(String(c.at || "").slice(0, 10)))}</span><div>${esc(c.text)}</div></div>`).join("")}</div>` : '<div class="mm-comments muted small">No notes yet.</div>'}
   ${links.length || files.length ? `<div class="mm-links">${links.map(([l, i], k) => `<button type="button" class="mm-linkb" data-mmlink="${k}">${mmSvg("link", 16)}<span>${esc(i.label)}</span></button>`).join("")}${files.map((f) => `<span class="mm-linkb">${mmSvg("file", 16)}<span>${esc(f.name)}</span></span>`).join("")}</div>` : ""}
 </article>`;
 }
@@ -1399,10 +1419,15 @@ function mmHtml() {
     ctx = s ? `<div class="mm-ctx"><span><b>${esc(b ? b.name : "FYI Only")}</b>${b && isTask ? ` · Task ${posB} of ${inB.length}` : ""}</span>${changed ? `<span class="mm-changed">Changed since ${esc(last ? tkDay(last.date) : "the last meeting")}</span>` : ""}<span class="grow"></span>${isTask ? `<button type="button" class="btn sm mm-more ${"more" === mmPanel ? "on" : ""}" data-mmact="more">More</button>` : ""}</div>` : "",
     card = s ? mmCardHtml(m, s, W) : '<article class="mm-card"><h2 class="mm-title">Nothing on the agenda</h2><p class="muted">Every open task is quiet: nothing late, nothing due before the next meeting, nothing waiting.</p></article>',
     nav = `<div class="mm-nav"><button type="button" class="btn mm-prev" data-mmprev ${W.i <= 0 ? "disabled" : ""}>${mmSvg("prev", 20)}<span>Previous</span></button>${phone ? "" : `${addBtn}<span class="mm-hint">Arrow keys move between tasks</span>`}<button type="button" class="btn mm-next" data-mmnext ${W.i >= W.seq.length - 1 ? "disabled" : ""}><span>Next Task</span>${mmSvg("next", 20)}</button></div>`;
+  // the phone: the pill, the meeting and its progress on one line; Follow, Agenda and End Meeting behind one menu, so the
+  // card and its eight actions are on the first screen
+  const pct = tasks.length ? Math.round((100 * nDisc) / tasks.length) : 0,
+    phTop = `<div class="mm-top mm-top-ph"><span class="mm-live" data-mmlive>In Meeting · ${mins} min</span><b class="mm-phttl" title="${esc(m.title)} · ${esc(fmtL(m.date))}">${esc(m.title)}</b><span class="mm-prog mm-prog-ph" aria-label="${nDisc} of ${tasks.length} discussed"><span>${nDisc} of ${tasks.length}<span class="mm-sr"> discussed</span></span><span class="mm-pbar"><i style="width:${pct}%"></i></span></span>
+  <details class="mm-phmenu"><summary class="btn mm-phmenub" aria-label="Meeting menu: Follow, Agenda, End Meeting" title="Follow, Agenda, End Meeting">${mmSvg("more", 20)}</summary><div class="mm-phmenu-in"><label class="mm-follow"><input type="checkbox" data-mmfollow ${mmFollow ? "checked" : ""}> Follow the presenter</label><button type="button" class="btn" data-mmagenda>Agenda</button>${pres ? '<button type="button" class="btn" data-mmend>End Meeting</button>' : ""}${pres ? "" : `<span class="small muted">${esc(tkFirst(m.presenter) || "someone")} is sharing</span>`}</div></details></div>`;
   return `<div class="mm ${phone ? "mm-phone" : ""}" data-mm="${esc(m.id)}">
-  <div class="mm-top"><span class="mm-live" data-mmlive>In Meeting · ${mins} min</span><div class="mm-ttl"><b>${esc(m.title)} · ${esc(fmtL(m.date))}</b><span class="small muted">${esc((m.attendees || []).join(", "))}${pres ? "" : ` · ${esc(tkFirst(m.presenter) || "someone")} is sharing`}</span></div><span class="grow"></span>
+  ${phone ? phTop : `<div class="mm-top"><span class="mm-live" data-mmlive>In Meeting · ${mins} min</span><div class="mm-ttl"><b>${esc(m.title)} · ${esc(fmtL(m.date))}</b><span class="small muted">${esc((m.attendees || []).join(", "))}${pres ? "" : ` · ${esc(tkFirst(m.presenter) || "someone")} is sharing`}</span></div><span class="grow"></span>
   <div class="mm-prog"><span>${nDisc} of ${tasks.length} discussed</span><span class="mm-pbar"><i style="width:${tasks.length ? Math.round((100 * nDisc) / tasks.length) : 0}%"></i></span></div>
-  <label class="mm-follow"><input type="checkbox" data-mmfollow ${mmFollow ? "checked" : ""}> Follow</label>${phone ? '<button type="button" class="btn" data-mmagenda>Agenda</button>' : '<button type="button" class="btn" data-mmleave>Leave</button>'}${pres ? '<button type="button" class="btn" data-mmend>End Meeting</button>' : ""}</div>
+  <label class="mm-follow"><input type="checkbox" data-mmfollow ${mmFollow ? "checked" : ""}> Follow</label><button type="button" class="btn" data-mmleave>Leave</button>${pres ? '<button type="button" class="btn" data-mmend>End Meeting</button>' : ""}</div>`}
   <div class="mm-body">${phone ? "" : `<aside class="mm-side" aria-label="Agenda" data-noclip="1">${agenda}</aside>`}<section class="mm-main">
     ${ctx}${card}${acts}${panel}${phone ? `<div class="mm-phadd">${addBtn}<button type="button" class="btn mm-addp" data-mmact="addproj">${mmSvg("plus", 16)} New Project</button></div>` : ""}${nav}
     ${phone ? `<details class="mm-phlog"><summary>Changed in This Meeting · ${logL.length}</summary>${log}</details>` : ""}
@@ -1610,6 +1635,17 @@ function mmWire(host) {
       }),
   );
   host.querySelectorAll(".mm-ag[role=button]").forEach((b) => (b.onkeydown = (e) => ("Enter" === e.key || " " === e.key) && (e.preventDefault(), b.click())));
+  // the phone's card keeps the notes short: the latest, two lines; More shows them whole
+  host.querySelectorAll("[data-mmnotesmore]").forEach(
+    (b) =>
+      (b.onclick = () => {
+        const box = b.closest("[data-mmnotes]"),
+          on = !box.classList.contains("open");
+        box.classList.toggle("open", on);
+        b.setAttribute("aria-expanded", on ? "true" : "false");
+        b.textContent = on ? "Less" : "More";
+      }),
+  );
   const nx = q("[data-mmnext]"),
     pv = q("[data-mmprev]");
   nx && (nx.onclick = () => mmGo(1));
@@ -2151,6 +2187,7 @@ tkRecReady = !0;
 .mm-prog{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--ink-2);min-width:150px}
 .mm-pbar{display:block;height:6px;border-radius:3px;background:var(--paper-3,#e8e8e8);overflow:hidden}
 .mm-pbar i{display:block;height:100%;background:var(--accent)}
+.mm-sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
 .mm-follow{display:inline-flex;align-items:center;gap:6px;min-height:44px;font-size:14px;cursor:pointer}
 .mm-follow input{width:20px;height:20px}
 .mm-body{display:grid;grid-template-columns:300px minmax(0,1fr) 340px;gap:20px;align-items:start}
@@ -2185,6 +2222,7 @@ tkRecReady = !0;
 .mm-meta{display:flex;flex-wrap:wrap;gap:12px 32px;font-size:17px}
 .mm-meta>div{display:flex;flex-direction:column;gap:2px}
 .mm-meta .bad{color:var(--bad,#b3261e)}
+.mm-own{display:inline-flex;align-items:center;gap:8px}
 .mm-ml{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
 .mm-wait{display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border-radius:12px;background:var(--warn-bg,#fff4e0);border:1px solid #f2c97d;font-size:16px;line-height:22px;color:#6b4a00}
 .mm-wait svg{flex:0 0 20px;margin-top:1px}
@@ -2246,8 +2284,26 @@ tkRecReady = !0;
   .mm-title{font-size:24px;line-height:30px}
   .mm-meta{font-size:16px;gap:10px 20px}
   .mm-wait{font-size:15px}
-  .mm-acts{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .mm-phone{padding-bottom:84px}
+  .mm-acts{grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+  .mm-act{font-size:13px;padding:6px 2px;letter-spacing:-.01em}
+  .mm-phone{padding-bottom:84px;gap:10px}
+  .mm-phone .mm-main{gap:10px}
+  .mm-phone .mm-card{gap:10px}
+  .mm-top.mm-top-ph{flex-wrap:nowrap;gap:8px;padding:0 0 8px;position:relative}
+  .mm-top-ph .mm-live{flex:0 0 auto;font-size:12px;padding:0 9px;gap:5px}
+  .mm-phttl{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:15px}
+  .mm-top-ph .mm-prog{flex:0 0 auto;min-width:0;width:auto;font-size:12px;gap:3px;white-space:nowrap}
+  .mm-top-ph .mm-prog .mm-pbar{height:4px}
+  .mm-phmenu{flex:0 0 auto;position:static}
+  .mm-phmenu>summary{list-style:none;display:inline-grid;place-items:center;width:44px;min-height:44px;padding:0;cursor:pointer}
+  .mm-phmenu>summary::-webkit-details-marker{display:none}
+  .mm-phmenu-in{position:absolute;right:0;top:calc(100% - 4px);z-index:40;display:flex;flex-direction:column;align-items:stretch;gap:8px;min-width:220px;padding:10px;border:1px solid var(--rule);border-radius:12px;background:var(--paper);box-shadow:0 10px 30px rgba(0,0,0,.16)}
+  .mm-phmenu-in .btn{min-height:44px;justify-content:flex-start}
+  .mm-notehd{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .mm-notemore{min-height:44px}
+  .mm-comments:not(.open) .mm-comment:not(:last-child){display:none}
+  .mm-comments:not(.open) .mm-comment>div{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  body:has(.mm-phone .mm-nav) .toast{bottom:calc(58px + 76px + 10px + env(safe-area-inset-bottom))}
   .mm-nav{position:fixed;left:0;right:0;bottom:calc(58px + env(safe-area-inset-bottom));z-index:28;background:var(--paper);padding:8px 16px;border-top:1px solid var(--rule-2);box-shadow:0 -4px 12px rgba(0,0,0,.06)}
   .mm-nav .btn{flex:1 1 0}
   .mm-top{gap:8px}

@@ -106393,18 +106393,9 @@ function rpMount() {
       (b.onclick = () => rpOpen()),
       fab && fab.parentElement ? fab.parentElement.insertBefore(b, fab.nextSibling) : bar.appendChild(b);
   }
-  const rail = document.querySelector(".rail");
-  if (rail && !rail.querySelector("#rp-rail")) {
-    const b = document.createElement("button");
-    (b.id = "rp-rail"),
-      (b.className = "btn rp-rail no-print"),
-      (b.innerHTML = `${RP_FLAG} ${"client" === role() ? "Something Wrong?" : "Report a Problem"}`),
-      (b.onclick = () => {
-        rail.classList.remove("open"), document.getElementById("railscrim")?.classList.remove("on"), rpOpen();
-      });
-    const set = rail.querySelector('#btn-settings, [data-view="settings"]');
-    set && set.parentElement ? set.parentElement.insertBefore(b, set) : rail.appendChild(b);
-  }
+  // One way in: the top bar's button, on every screen and on the phone. A second copy in the rail landed under
+  // "Saved on this device" as a white box whose white words could not be read (polish lane, 2026-10-24).
+  document.querySelectorAll("#rp-rail").forEach((b) => b.remove());
 }
 !(function () {
   if (!document.getElementById("v-rpbox")) {
@@ -109218,6 +109209,8 @@ const SD_DEMO_SEEDS = [
   "tmSeed",
   // the demo's two message threads (lane "messages"): invented lines between real people's ids
   "msgSeed",
+  // two demo tasks waiting on the demo's invented vendors (src/taskviews.js), so Waiting On shows its use
+  "tvWaitSeed",
 ];
 if (
   (SD_DEMO_SEEDS.forEach((n) => {
@@ -109918,13 +109911,26 @@ function tkRecOfRow(x) {
   const p = (DB.projects || []).find((q) => q.id === x.projectId);
   return (p && (p.actions || []).find((a) => a.id === x.id)) || null;
 }
+// the record behind a schedule line, a field item, a lead's next step or a renewal: where its ID is kept
+function tkCodeRecOf(x) {
+  if ("lead" === x.kind) return (DB.leads || []).find((l) => l.id === x.id) || null;
+  if ("ob" === x.kind) return (DB.obligations || []).find((o) => o.id === x.id) || null;
+  if ("sched" !== x.kind && "issue" !== x.kind) return null;
+  const p = (DB.projects || []).find((q) => q.id === x.projectId);
+  return (p && (p["sched" === x.kind ? "tasks" : "issues"] || []).find((t) => t.id === x.id)) || null;
+}
 if ("function" == typeof tkItems) {
   const tkItemsBase_as2 = tkItems;
   tkItems = function () {
     const out = tkItemsBase_as2.apply(this, arguments);
     try {
       out.forEach((x) => {
-        if ("action" !== x.kind && "firm" !== x.kind && "hub" !== x.kind) return;
+        if ("action" !== x.kind && "firm" !== x.kind && "hub" !== x.kind) {
+          // the other kinds carry only their ID (src/meeting.js tkOtherRecs gives it)
+          const o = tkCodeRecOf(x);
+          o && o.code && (x.code = o.code);
+          return;
+        }
         const a = tkRecOfRow(x);
         if (!a) return;
         TK_REC_FIELDS.forEach((k) => null != a[k] && "" !== a[k] && (x[k] = a[k]));
