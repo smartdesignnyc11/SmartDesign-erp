@@ -72470,7 +72470,9 @@ if ("function" == typeof confirmMatch) {
           void (t.proposal = null)
         );
     }
-    if ((confirmMatchBase_pay(t), P && "bill" === P.kind)) {
+    // the reason travels on (an early line needs one); a refused confirm records no payment
+    if (!1 === confirmMatchBase_pay.apply(this, arguments)) return !1;
+    if (P && "bill" === P.kind) {
       payInit();
       const b = DB.bills.find((x) => x.id === P.billId);
       if (!b) return;

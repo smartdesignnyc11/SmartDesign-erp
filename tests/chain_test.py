@@ -1079,7 +1079,8 @@ SEED_MONTH_END = r"""async ([ym, chainIds]) => {
   const guess = {TINO: ['materials', 'p121', '09'], 'HOME DEPOT': ['materials', 'p121', '03'], WATERWORKS: ['materials', 'p121', '13'], SATISH: ['subs', 'p121', '06'], AMAZON: ['materials', 'p121', '13'],
     'J ROSARIO': ['subs', 'p121', '02'], LUMBER: ['materials', 'p121', '03'], 'QUALITY BLDG': ['materials', 'p121', '03'], CHIPOTLE: ['meals', '', ''], 'ALBERTO': ['subs', 'p121', '05']};
   DB.txns.filter(t => t.date >= R[0] && t.date <= R[1] && !keep.has(t.id)).forEach(t => {
-    if (t.proposal) { try { confirmMatch(t); out.confirmed++; } catch (e) {} }
+    // a line dated before its bill is confirmed only with a reason (bankBeforeBill): the controller gives one
+    if (t.proposal) { try { confirmMatch(t, 'Seed month-end: the controller confirmed with the vendor that this line pays the bill'); out.confirmed++; } catch (e) {} }
     if (!t.cat || t.cat === 'uncat' || t.status === 'new') {
       const k = Object.keys(guess).find(k => (t.desc || '').toUpperCase().includes(k));
       if (k && +t.amt < 0) { const [cat, pid, code] = guess[k]; Object.assign(t, {cat, projectId: pid, code, status: 'categorized', actor: 'Controller'}); out.coded.push(t.desc); }
