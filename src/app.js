@@ -3822,10 +3822,21 @@ const toastLinksOf = (go) =>
     .filter((l) => l && "function" == typeof l.run);
 // A toast over an open sheet moves to the top of the screen, so it never sits on the sheet's controls (the sign
 // sheet's tick was under one for six seconds and the tap went to the toast). A tap on the toast dismisses it.
+// A screen with controls of its own near the bottom (Meeting Mode on the phone, src/meeting.js) adds its own place
+// to TOAST_PLACES: given the toast, it moves it and returns true, or leaves it and returns false.
+const TOAST_PLACES = [];
 function toastPlace(t) {
-  t.classList.remove("toast-up");
+  t.classList.remove("toast-up"), (t.style.top = ""), (t.style.bottom = ""), (t.className = t.className.replace(/\btoast-at-\S+/g, "").trim());
   const box = document.querySelector("#mbm .mbm-box, .modal.on .modal-box, .drawer.on");
-  if (!box || !box.getClientRects().length) return;
+  if (!box || !box.getClientRects().length) {
+    for (const f of TOAST_PLACES)
+      try {
+        if (f(t)) return;
+      } catch (e) {
+        console.warn("toast place", e);
+      }
+    return;
+  }
   const r = t.getBoundingClientRect(),
     b = box.getBoundingClientRect();
   r.bottom > b.top && r.top < b.bottom && r.right > b.left && r.left < b.right && t.classList.add("toast-up");
@@ -3860,6 +3871,9 @@ function toast(msg, go, ms) {
     }),
     t.classList.add("act")),
     toastPlace(t),
+    // placed again once the step that raised it has finished: a sheet's submit toasts before the sheet closes, and
+    // the toast stayed at the top of the screen, over the header, for the next six seconds
+    requestAnimationFrame(() => t.classList.contains("on") && toastPlace(t)),
     (t._t = setTimeout(() => t.classList.remove("on", "act", "toast-up"), ms || (L.length ? 6500 : 2400)));
 }
 // A toast's Open link pressed while an editor is open (2026-10-20): the link used to open the record behind the

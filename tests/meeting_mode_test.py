@@ -108,6 +108,24 @@ async def run_meeting(c, p, uid, phone):
     await click(pg, '#v-tkall [data-mmstart]', 250)
     await pg.evaluate("() => document.querySelector('#mbm #mbm-ok').click()")
     await pg.wait_for_timeout(400)
+    # the "started" toast on the phone (speed lane, 2026-10-24): it covered part of the action grid for six seconds.
+    # It sits above the meeting's footer and clear of the grid, or, with no room there, is a one-line banner under the
+    # meeting's header.
+    if phone:
+        tt = await pg.evaluate('''() => { const r = (s) => { const e = document.querySelector(s); return e && e.getClientRects().length ? e.getBoundingClientRect() : null; };
+          const t = r('#toast.on'), a = r('.mm-acts'), n = r('.mm-nav'), h = r('.mm-top');
+          return t && { t: [t.top, t.bottom, t.left, t.right], a: a && [a.top, a.bottom], n: n && n.top, h: h && h.bottom,
+            text: document.getElementById('toast').innerText, banner: document.getElementById('toast').classList.contains('toast-at-mmbar') }; }''')
+        c.ok(tt and 'started' in tt['text'], f'{tag}: the meeting start toasts what happened ({tt and tt["text"]})')
+        if tt:
+            T, A = tt['t'], tt['a']
+            c.ok(not A or T[1] <= A[0] or T[0] >= A[1], f'{tag}: the start toast is clear of the action grid (toast {T[:2]}, grid {A})')
+            c.ok(T[2] >= 0 and T[3] <= 390, f'{tag}: the start toast fits the phone ({T[2:]})')
+            if tt['banner']:
+                c.ok(tt['h'] is not None and T[0] >= tt['h'] - 1 and T[1] - T[0] <= 48, f'{tag}: the banner is one line under the meeting header (header {tt["h"]}, toast {T[:2]})')
+            else:
+                c.ok(tt['n'] is not None and tt['n'] - 24 <= T[1] <= tt['n'], f'{tag}: the start toast sits just above the meeting footer (toast {T[:2]}, footer {tt["n"]})')
+        await pg.screenshot(path=f'../review/meeting/{uid}_phone_started_toast.png')
     m = await meeting(pg)
     c.ok(m and m['kind'] == 'team' and m['startedAt'] and not m['endedAt'], f'{tag}: the meeting is a record in DB.meetings, kind team')
     for k in ('id', 'kind', 'title', 'startedAt', 'endedAt', 'attendees', 'agenda', 'screenLog', 'changes', 'created', 'minutes'):

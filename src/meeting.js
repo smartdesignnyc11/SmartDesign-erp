@@ -2176,6 +2176,29 @@ tkRecReady = !0;
   };
 }
 
+// ---- a toast in Meeting Mode on the phone ------------------------------------------------------------------------------
+// The "Team Meeting started" toast covered part of the action grid for six seconds. On the phone a toast sits just
+// above the meeting's footer (Previous, Next Task) when it fits there clear of the grid; with no room it is one line
+// under the meeting's header (under the app's header if that has scrolled away), its links kept at the end.
+"undefined" != typeof TOAST_PLACES &&
+  TOAST_PLACES.push((t) => {
+    const mm = document.querySelector("#v-tkall.on .mm-phone");
+    if (!mm) return !1;
+    const r = (e) => (e && e.getClientRects().length ? e.getBoundingClientRect() : null),
+      acts = r(mm.querySelector(".mm-acts")),
+      nav = r(mm.querySelector(".mm-nav")),
+      H = window.innerHeight,
+      floor = nav ? nav.top : H;
+    t.classList.add("toast-at-mmfoot"), (t.style.bottom = `${Math.round(H - floor + 8)}px`);
+    const k = t.getBoundingClientRect();
+    if (!acts || k.top >= acts.bottom + 4 || k.bottom <= acts.top - 4) return !0;
+    const head = r(mm.querySelector(".mm-top")),
+      bar = r(document.querySelector(".topbar"));
+    t.classList.remove("toast-at-mmfoot"), t.classList.add("toast-at-mmbar"), (t.style.bottom = "");
+    t.style.top = `${Math.round(Math.max(head ? head.bottom : 0, bar ? bar.bottom : 0, 0) + 4)}px`;
+    return !0;
+  });
+
 // ---- the look --------------------------------------------------------------------------------------------------------
 (() => {
   const css = `
@@ -2309,6 +2332,11 @@ tkRecReady = !0;
   .mm-comments:not(.open) .mm-comment:not(:last-child){display:none}
   .mm-comments:not(.open) .mm-comment>div{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
   body:has(.mm-phone .mm-nav) .toast{bottom:calc(58px + 76px + 10px + env(safe-area-inset-bottom))}
+  #toast.toast-at-mmfoot{max-width:calc(100vw - 32px);box-sizing:border-box}
+  #toast.toast-at-mmbar{left:16px;right:16px;transform:none;bottom:auto!important;max-width:none;box-sizing:border-box;display:flex;align-items:center;gap:0 6px;min-height:44px;padding:0 12px;white-space:nowrap;overflow:hidden}
+  #toast.toast-at-mmbar:not(.act){display:block;line-height:44px;text-overflow:ellipsis}
+  #toast.toast-at-mmbar .toast-msg{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+  #toast.toast-at-mmbar .toast-open{flex:0 0 auto;margin-left:0;min-height:44px;display:inline-flex;align-items:center}
   .mm-nav{position:fixed;left:0;right:0;bottom:calc(58px + env(safe-area-inset-bottom));z-index:28;background:var(--paper);padding:8px 16px;border-top:1px solid var(--rule-2);box-shadow:0 -4px 12px rgba(0,0,0,.06)}
   .mm-nav .btn{flex:1 1 0}
   .mm-top{gap:8px}
