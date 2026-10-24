@@ -126658,6 +126658,16 @@ function opsStudioSchedule(p) {
       },
       msDate = gates.reduce((m, t) => (parse(t.end) > parse(m) ? t.end : m), cursor);
     ms.start = ms.end = (old.sp_done || {}).start || nextWork(addWork(msDate, 1));
+    // A rebuilt line keeps what the task record gave it (its key and the keys it had, its owner, comments, Waiting
+    // On, follow-up): the rebuild owns only the fields it writes. Without this each reopen dropped the key, and the
+    // boot's key sweep gave the five Studio phases new ones every time (CRA-21 became CRA-27, then CRA-32).
+    [...made, ...filTasks, ms].forEach((t) => {
+      const o = old[t.id];
+      o &&
+        Object.keys(o).forEach((k) => {
+          k in t || /^(remaining|ca|origStart|origEnd)$/.test(k) || (t[k] = o[k]);
+        });
+    });
     const ca = made.find((t) => t.ca);
     return (
       ca &&
