@@ -32,6 +32,7 @@ The overnight run of 2026-10-19 builds on the defaults above and does not decide
 ## 2026-10-24
 | Ask or decision | Where it lives | Status |
 |---|---|---|
+| "Yes, do all of it" (phone task module). It changes the 10-20 decision that the phone bar stays four shortcuts plus Chat: during the pilot, Tasks takes a shortcut slot for the office roles (coordinator: replaces Requests; billing: replaces Accounting; owner and PM: the fourth shortcut). The replaced item stays one tap away in the menu. Also: the phone Tasks page shows 7+ tasks on the first screen (header trimmed), one search and one add, an "Add a task" line that understands a sentence and has a mic, a first-time swipe hint, phone Meeting Mode opening in Follow mode, and no phone Board | mockup (Phone page), the match lane | Building |
 | "Deploy" (Monday's task build): deployed with the schema; live checks pass (db 74, app 34, field jobs 28, assistant 6). Then, on the screenshots: "Deploy the fixes when they're done". This approves deploying the polish lane's fixes (IDs on every task, initials on avatars, one filter row, the cut-off column, phone Meeting Mode actions on the first screen, the stray sidebar box, Waiting On demo rows) once they pass | `docs/PLAN.md` | Building |
 
 ## 2026-10-23
