@@ -361,17 +361,17 @@ async def sec_match(p, c):
     keys = await pg.evaluate("() => Object.keys(truthMatchOf(DB.txns.find(t => t.id === 't13'))).sort()")
     for k in ('billId', 'billLineId', 'poId', 'poLineId', 'estimateLineId', 'invoiceId', 'invoiceLineId', 'payrollId'):
         c.ok(k in keys, f'the model carries {k}')
-    # one number: PRED, bankUnmatched, the CATCH rows, by month. 15, not 16, since 2026-10-21 (s1fix): the 8/15 check t5
-    # no longer reads as having paid AMP-311, a bill dated 9/2; it is the first progress payment, matched to its own
-    # estimate line, and AMP-311 is unpaid
+    # one number: PRED, bankUnmatched, the CATCH rows, by month. 16 (financial truth, 2026-10-24): the 8/15 check t5 is
+    # proposed for AMP-311 (9/2) as possibly already paid and waits on a person's reason, so it stays a flag; the
+    # 2026-10-21 change to 15 hid an unconfirmed line
     U = await pg.evaluate("() => ({ pred: PRED.unmatchedTxns.count(), bank: bankUnmatched().n, amt: bankUnmatched().amt, by: PRED.unmatchedTxns.byMonth(), catch: CATCH.find(x => x.name === 'unmatchedTxns').rows().length })")
-    c.ok(U['pred'] == U['bank'] == U['catch'] == 15, f"one number: PRED {U['pred']} · bankUnmatched {U['bank']} · Caught for You {U['catch']}")
+    c.ok(U['pred'] == U['bank'] == U['catch'] == 16, f"one number: PRED {U['pred']} · bankUnmatched {U['bank']} · Caught for You {U['catch']}")
     c.ok(sum(v['n'] for v in U['by'].values()) == U['pred'] and '2026-08' in U['by'] and '2026-09' in U['by'], f"by month adds up: {U['by']}")
     # a bank line matched to a PO line: the estimate line follows
     r = await pg.evaluate("""() => { const t = DB.txns.find(x => x.id === 't13'); const r = truthSetMatch(t, {poId: 'po3', poLineId: 'pl3'}, {why: 'Tino white oak, PO-2026-047'});
         return {ok: r && r.ok, m: truthMatchOf(t), unmatched: txnUnmatched(t), n: bankUnmatched().n, proj: t.projectId, by: t.matchedBy}; }""")
-    c.ok(r['ok'] and r['m'].get('estimateLineId') == 'estimate:es1:l8' and r['m'].get('poLineId') == 'pl3' and not r['unmatched'] and r['n'] == 14,
-         f"matched to the PO line, estimate line follows, count 15 -> 14: {r}")
+    c.ok(r['ok'] and r['m'].get('estimateLineId') == 'estimate:es1:l8' and r['m'].get('poLineId') == 'pl3' and not r['unmatched'] and r['n'] == 15,
+         f"matched to the PO line, estimate line follows, count 16 -> 15: {r}")
     # Banking shows the count per month; Home catches it; Ask answers per month and in total
     await go(pg, 'bank')
     t = await text_of(pg, 'bank')
@@ -387,7 +387,7 @@ async def sec_match(p, c):
     aug = U['by']['2026-08']['n']
     c.ok(re.search(rf'\b{aug}\b', a['headline']) and 'August' in a['headline'], f"Ask per month: {a['headline'][:160]}")
     a = await ask(pg, 'how many bank lines are unmatched')
-    c.ok(re.search(r'\b14\b', a['headline']), f"Ask total: {a['headline'][:160]}")
+    c.ok(re.search(r'\b15\b', a['headline']), f"Ask total: {a['headline'][:160]}")
     # the close checklist and the close itself
     cl = await pg.evaluate("() => closeChecklist('2026-08').filter(i => /not matched to a line/i.test(i.label)).map(i => ({label: i.label, n: i.n, ok: i.ok}))")
     c.ok(cl and cl[0]['n'] == aug and not cl[0]['ok'], f'the close checklist counts them: {cl}')
