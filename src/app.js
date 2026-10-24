@@ -104006,7 +104006,7 @@ function bpPass(root) {
         HB_VIEWS[v] ||
         "";
     if (name) {
-      const body = root.querySelector(":scope > div") || root,
+      const body = pageBody(root),
         ph = document.createElement("div");
       (ph.className = "ph bp-ph"),
         (ph.innerHTML = `<div><h2>${esc(name)}</h2></div>`),
@@ -104254,6 +104254,16 @@ const BH = {
   BH_UTILITY =
     /^(customize|customise|done|settings?|configure|edit layout|columns?|print|export|download|reset|refresh|filters?|view|sort|help|copy as ics|manage)\b/i;
 const BH_FOREIGN = "#fnd-made";
+// Where a page header that a pass adds goes: the page's own body (#ftoday-body) when it has one, else its first block.
+// A card another layer puts ahead of the body (the field's receipt capture on Today) is not the page: the header
+// landed inside that card on every draw but the first, so a reopen and a view switch showed different pages.
+function pageBody(root, own = () => !0) {
+  return (
+    [...root.querySelectorAll(':scope > div[id$="-body"]')].find(own) ||
+    [...root.querySelectorAll(":scope > div")].find(own) ||
+    root
+  );
+}
 function bhHeader(root) {
   if (!root || !/^v-/.test(root.id)) return;
   const v = root.id.slice(2),
@@ -104273,7 +104283,7 @@ function bhHeader(root) {
       const box = document.createElement("div");
       h.parentNode.insertBefore(w, h), box.appendChild(h), w.appendChild(box), (ph = w);
     } else if (label) {
-      const body = [...root.querySelectorAll(":scope > div")].find(own) || root;
+      const body = pageBody(root, own);
       (ph = document.createElement("div")),
         (ph.className = "ph bp-ph"),
         (ph.innerHTML = `<div><h2>${esc(label)}</h2></div>`),
@@ -107107,11 +107117,18 @@ function bootRun() {
   if (bootSeeded) return void (finishBoot(), install());
   install();
   const draw = render;
+  // window.__sdBootDrawFirst (tests/speed_test.py) boots as before this change, drawing first, to compare
+  const drawFirst = !!window.__sdBootDrawFirst;
   let holding = !0,
     drawn = 0,
     wanted = !1;
+  // A reopen draws once, after every layer has run: the layers between the first draw and the last only migrate,
+  // sweep and seed (each once-only seeder is flagged in DB, set on the first boot), so the screen the first draw made
+  // was thrown away by the last one (about a second for the owner on a throttled phone). Nothing a layer does
+  // between reads the drawn page (checked: tests/speed_test.py compares the records and the screen each role is left
+  // with against a boot that draws as before, at 390 and 1440).
   const hold = function () {
-    if (!holding || !drawn++) return draw.apply(this, arguments);
+    if (!holding || (drawFirst && !drawn++)) return draw.apply(this, arguments);
     (wanted = !0), (render.__tick = (render.__tick || 0) + 1);
   };
   (hold.__tick = draw.__tick || 0), (render = hold);
@@ -174243,7 +174260,9 @@ function tdChrome() {
     // in it shows (its lead sentence is already hidden on the phone)
     const ph = h && h.closest(".ph");
     if (ph && c && c.textContent.trim() === t) {
-      h.classList.add("td-in-hdr");
+      // measured as drawn, not as the last draw left it: a hidden header reads its whole text (innerText of an
+      // element that is not drawn is its textContent), so it came back on every other draw
+      h.classList.add("td-in-hdr"), ph.classList.remove("td-ph-bare");
       const rest = [...ph.querySelectorAll("button, .btn, a, input, select")].some((el) => el.getClientRects().length);
       ph.classList.toggle("td-ph-bare", !rest && !/\S/.test(ph.innerText || ""));
     }
@@ -195632,7 +195651,12 @@ window.addEventListener(
       const can = ["pm", "owner", "billing", "designer"].includes(role());
       // the job's page
       const dv = document.getElementById("v-dash");
-      can && "dash" === view && dv && S && S.clientId && !dv.querySelector(".doc-jobacts") && dv.insertAdjacentHTML("afterbegin", docJobActs(S.clientId, S.id));
+      // under the page's header, never above it: put first, the header pass moved the header back over it on the next
+      // draw and the two traded places on every draw (the reopen and a view switch showed different pages)
+      if (can && "dash" === view && dv && S && S.clientId && !dv.querySelector(".doc-jobacts")) {
+        const ph = dv.querySelector(":scope > .ph");
+        ph ? ph.insertAdjacentHTML("afterend", docJobActs(S.clientId, S.id)) : dv.insertAdjacentHTML("afterbegin", docJobActs(S.clientId, S.id));
+      }
       // Billing › Estimates
       const bb = document.getElementById("billing-body");
       if (can && "billing" === view && bb && !("undefined" != typeof docOpen && docOpen) && "est" === ("undefined" != typeof billTab ? billTab : "") && !bb.querySelector("#bill-newest")) {
