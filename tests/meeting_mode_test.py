@@ -160,17 +160,28 @@ async def run_meeting(c, p, uid, phone):
         side: Math.round(r(q('.mm-side')).width), right: Math.round(r(q('.mm-right')).width), agRows: document.querySelectorAll('.mm-side .mm-ag[data-mmboard]').length,
         agOn: (q('.mm-side .mm-ag.on .mm-agn') || {}).innerText || '', ctx: (q('.mm-ctx') || {}).innerText || '', title: parseInt(getComputedStyle(q('.mm-title')).fontSize),
         next: (q('[data-mmnext]') || {}).innerText || '', add: (q('.mm-nav .mm-addbtn') || {}).innerText || '', hint: (q('.mm-hint') || {}).innerText || '',
-        logH: (q('.mm-right .mm-rh') || {}).innerText || '', note: (q('.mm-lognote') || {}).innerText || '' }; }''')
-    c.ok(re.match(r'^In Meeting · \d+ min$', lay['live']), f'{tag}: the red In Meeting pill ({lay["live"]})')
+        logH: (q('.mm-right .mm-rh') || {}).innerText || '', note: (q('.mm-lognote') || {}).innerText || '', chip: (q('.mm-projchip') || {}).innerText || '',
+        nav: [...document.querySelectorAll('.mm-nav > *')].filter(e => e.getClientRects().length).map(e => Math.round(r(e).top + r(e).height / 2)), nextBottom: Math.round(r(q('[data-mmnext]')).bottom),
+        actH: Math.round(r(A[0]).height), actFont: A[0] ? getComputedStyle(A[0]).fontSize : '', icons: A.filter(b => b.querySelector('svg')).length,
+        card: (() => { const c = q('.mm-card'), s = c ? getComputedStyle(c) : {}; return [s.borderRadius, s.paddingTop]; })(), wait: q('.mm-wait') ? getComputedStyle(q('.mm-wait')).backgroundColor : '' }; }''')
+    c.ok(re.match(r'^In Meeting · \d+ min$' if not phone else r'^\d+ min$', lay['live']), f'{tag}: the red In Meeting pill ({lay["live"]})')
     c.ok(re.search(r'\d+ of \d+ discussed', lay['prog']) and lay['end'], f'{tag}: progress and End Meeting on the top bar ({lay["prog"]})')
-    c.ok(lay['acts'] == ['New Date', 'Add a Note', 'Done', 'Reassign', 'Waiting On', 'Track Until', 'FYI', 'Skip'], f'{tag}: the eight actions in order: {lay["acts"]}')
+    # the phone says them short (PhoneMeeting.dc.html)
+    c.ok(lay['acts'] == (['New Date', 'Note', 'Done', 'Reassign', 'Waiting', 'Track', 'FYI', 'Skip'] if phone else ['New Date', 'Add a Note', 'Done', 'Reassign', 'Waiting On', 'Track Until', 'FYI', 'Skip']), f'{tag}: the eight actions in order: {lay["acts"]}')
     c.ok(lay['blue'] == ['New Date'], f'{tag}: New Date is the one blue button: {lay["blue"]}')
-    c.ok(min(lay['h'] or [0]) >= 56, f'{tag}: the actions are 56px tall: {lay["h"]}')
+    c.ok(min(lay['h'] or [0]) >= (64 if phone else 56), f'{tag}: the actions are {64 if phone else 56}px tall: {lay["h"]}')
     # a 4 by 2 grid on the phone too (polish lane, 2026-10-24): all eight on the first screen, above Previous and Next
     c.ok(lay['rows'] == 2, f'{tag}: the actions sit in a 4 by 2 grid ({lay["rows"]} rows)')
-    c.ok(re.search(r'Task \d+ of \d+', lay['ctx']), f'{tag}: above the card, the project and Task n of m ({lay["ctx"]})')
+    c.ok(re.search(r'Task \d+ of \d+', lay['ctx']) if not phone else re.search(r' · \d+ of \d+', lay['chip']), f'{tag}: the project and the task\'s place in it ({lay["ctx"] or lay["chip"]})')
     c.ok(lay['title'] >= (24 if phone else 32), f'{tag}: the title is {lay["title"]}px')
     c.ok('Next Task' in lay['next'], f'{tag}: the dark Next Task button')
+    # Meeting.dc.html: text actions 15px, the card 18px round with 30px padding, the amber box, and one footer line with
+    # Next Task inside 900px at 1440 wide; PhoneMeeting.dc.html: icon and label actions, 12px
+    if not phone:
+        c.ok(lay['icons'] == 0 and lay['actFont'] == '15px' and lay['card'] == ['18px', '30px'], f'{tag}: text actions 15px; the card 18px round, 30px padding ({lay["icons"]}, {lay["actFont"]}, {lay["card"]})')
+        c.ok(len(lay['nav']) == 5 and max(lay['nav']) - min(lay['nav']) <= 2 and lay['nextBottom'] <= 900, f'{tag}: Previous, Add a Task, the hint and Next Task on one line, Next inside 900px ({lay["nav"]}, {lay["nextBottom"]})')
+    else:
+        c.ok(lay['icons'] == 8 and lay['actFont'] == '12px', f'{tag}: icon and label actions, 12px ({lay["icons"]}, {lay["actFont"]})')
     if not phone:
         c.ok(lay['side'] == 300 and lay['right'] == 340, f'{tag}: the agenda rail is 300px and the log 340px ({lay["side"]}, {lay["right"]})')
         c.ok(lay['agRows'] == len([bb for bb in ag if bb['items'] or not bb['fyi']]) and lay['agOn'], f'{tag}: one agenda row per project, the current one highlighted ({lay["agRows"]}, {lay["agOn"]})')

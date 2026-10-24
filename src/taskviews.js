@@ -1585,7 +1585,9 @@ function tvQaParse(text) {
         j = wordAt(tkFirst(u.name).toLowerCase());
       return { u, i: i >= 0 ? i : j, len: i >= 0 ? u.name.length : tkFirst(u.name).length };
     })
-    .filter((o) => o.i >= 0 && !cut.some((c) => c.toLowerCase().includes(low.substr(o.i, o.len))))
+    // a seat named for its job ("Owner", "Billing") is a person only when said as a name: "before billing" is not Billing
+    .filter((o) => !/^(owner|billing|controller|design|designer|office|crew|driver|foreman)$/i.test(tkFirst(o.u.name)) || new RegExp(`\\b${tkFirst(o.u.name)}\\b`).test(raw))
+    .filter((o) => o.i >= 0 &&!cut.some((c) => c.toLowerCase().includes(low.substr(o.i, o.len))))
     .sort((a, b) => a.i - b.i);
   const d0 = named.find((o) => !owner || o.u.name !== owner.name);
   d0 && ((doer = d0.u), cut.push(low.substr(d0.i, d0.len)));
@@ -2991,19 +2993,19 @@ body:has(#mbm.tks-on) #v-tkall .tv-grid .tv-col-wait,body:has(#mbm.tks-on) #v-tk
   #v-tkall .tv-phhd .tk2-q{flex:1 1 auto;min-width:0;height:44px;border-radius:12px}
   #v-tkall .tv-filterbtn .n{display:none}
   .tv-sr{font-size:0;line-height:0;white-space:nowrap}
-  #v-tkall .tv-qchips{display:flex;gap:8px;margin:0;padding:5px 16px 0;background:#fff;overflow-x:auto;scrollbar-width:none}
+  #v-tkall .tv-qchips{display:flex;gap:8px;margin:0;padding:8px 16px 0;background:#fff;overflow-x:auto;scrollbar-width:none}
   #v-tkall .tv-qc{position:relative;z-index:0;flex:0 0 auto;display:inline-flex;align-items:center;gap:4px;height:44px;min-height:44px;padding:0 12px;border:0;background:none;font-size:13px;font-weight:400;color:#3E4450;cursor:pointer;white-space:nowrap}
   #v-tkall .tv-qc::before{content:"";position:absolute;inset:5px 0;z-index:-1;border-radius:999px;background:#F1F3F6}
   #v-tkall .tv-qc.on{color:#fff;font-weight:600}
   #v-tkall .tv-qc.on::before{background:#1A1D23}
   #v-tkall .tv-qc .n{font-weight:inherit}
-  #v-tkall .tv-qaw{padding:5px 16px 10px;background:#fff;border-bottom:1px solid #E7E9EE}
+  #v-tkall .tv-qaw{padding:8px 16px 10px;background:#fff;border-bottom:1px solid #E7E9EE}
   #v-tkall .tv-qa{display:flex;align-items:center;gap:2px;height:44px;padding:0 0 0 0;box-sizing:border-box;background:#F7F8FA;border:1px solid #E2E5EB;border-radius:12px}
-  #v-tkall .tv-qa-plus{flex:0 0 40px;width:40px;height:42px;min-height:42px;padding:0;display:grid;place-items:center;border:0;background:none;color:var(--tv-accent)}
+  #v-tkall .tv-qa-plus{flex:0 0 44px;width:44px;height:44px;min-height:44px;margin:-1px 0;padding:0;display:grid;place-items:center;border:0;background:none;color:var(--tv-accent)}
   #v-tkall .tv-qa-plus svg{stroke-width:2.4}
   #v-tkall .tv-qa-in{flex:1 1 auto;min-width:0;height:42px;padding:0;border:0;background:transparent;outline:none;font-size:15px;color:var(--tv-ink)}
   #v-tkall .tv-qa-in::placeholder{color:#6A7080}
-  #v-tkall .tv-qa-mic{flex:0 0 44px;width:44px;height:42px;min-height:42px;padding:0;display:grid;place-items:center;border:0;background:none}
+  #v-tkall .tv-qa-mic{flex:0 0 44px;width:44px;height:44px;min-height:44px;margin:-1px 0;padding:0;display:grid;place-items:center;border:0;background:none}
   #v-tkall .tv-qa-mic>span{display:grid;place-items:center;width:36px;height:36px;border-radius:10px;background:var(--tv-accent);color:#fff}
   #v-tkall .tv-qa-mic.on>span{box-shadow:0 0 0 3px #C9D8F8}
   /* the sections: a 12px heading on the ground, the rows in one white card */
