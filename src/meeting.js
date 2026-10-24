@@ -51,6 +51,7 @@ const MM_IC = {
   team: '<circle cx="9" cy="9" r="3"/><circle cx="17" cy="10" r="2.5"/><path d="M3 19c.8-3 3.2-4.5 6-4.5s5.2 1.5 6 4.5"/><path d="M15 15.5c2.3 0 4.2 1 5 3.5"/>',
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
   file: '<path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7z"/><path d="M14 3v4h4"/>',
+  screen: '<rect x="3" y="5" width="18" height="13" rx="2"/><path d="M8 21h8"/>',
 };
 const mmSvg = (k, s) => `<svg viewBox="0 0 24 24" width="${s || 18}" height="${s || 18}" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${MM_IC[k] || ""}</svg>`;
 // "Thu 10/29": the meeting's way of saying a date
@@ -1270,7 +1271,8 @@ function mmCardHtml(m, s, W) {
     st = tkStatusOf(D.T.kind, a),
     td = today(),
     phone = tkPhone(),
-    C = tkComments(a).slice(phone ? -1 : -2),
+    one = phone && mmPresenter(m),
+    C = tkComments(a).slice(one ? -1 : -2),
     links = tkLinks(a)
       .map((l) => [l, tkLinkInfo(l, x.projectId)])
       .filter(([, i]) => i),
@@ -1291,7 +1293,7 @@ function mmCardHtml(m, s, W) {
   <div class="mm-meta"><span><span class="mm-ml">Owner</span> <b class="mm-own">${esc(phone ? tkFirst(a.assignee) || "nobody" : a.assignee || "nobody")}</b>${(a.collaborators || []).length ? `<small> with ${esc(a.collaborators.join(", "))}</small>` : ""}</span><span><span class="mm-ml">Due</span> <b class="${late ? "bad" : ""}">${a.due ? esc(tvRel(a.due, "done" === st)) : "No date"}</b></span><span><span class="mm-ml">Follow-up</span> <b>${a.followUp ? esc(tvRel(a.followUp, !0)) : "None"}</b></span>${a.watchUntil ? `<span><span class="mm-ml">Tracking Until</span> <b>${esc(tvRel(a.watchUntil, !0))}</b></span>` : ""}</div>
   ${flag}
   ${W0 ? `<div class="mm-wait"><b>Waiting on ${esc(W0.name)}:</b> ${W0.what ? `${esc(W0.what)}, ` : ""}${W0.promised ? `promised ${esc(tkDay(W0.promised))}.` : "no date promised yet."}${!phone && W0.evidence ? ` ${esc(String(W0.evidence).replace(/\.$/, ""))}.` : ""}</div>` : ""}
-  ${C.length ? `<div class="mm-comments" data-mmnotes>${phone ? "" : '<span class="mm-nl">Last notes</span>'}${C.map((c) => `<div class="mm-comment"><b>${esc((tdyUserOf(c.by) ? tkFirst(c.by) : c.by) || "Someone")}</b> · ${esc(when(String(c.at || "").slice(0, 10)))}: ${esc(c.text)}</div>`).join("")}</div>` : '<div class="mm-comments mm-nonotes">No notes yet.</div>'}
+  ${C.length ? `<div class="mm-comments" data-mmnotes>${one ? "" : '<span class="mm-nl">Last notes</span>'}${C.map((c) => `<div class="mm-comment"><b>${esc((tdyUserOf(c.by) ? tkFirst(c.by) : c.by) || "Someone")}</b> · ${esc(when(String(c.at || "").slice(0, 10)))}: ${esc(c.text)}</div>`).join("")}</div>` : '<div class="mm-comments mm-nonotes">No notes yet.</div>'}
   ${!phone && (links.length || files.length) ? `<div class="mm-links">${links.map(([l, i], k) => `<button type="button" class="mm-linkb" data-mmlink="${k}">${mmSvg("link", 16)}<span>${esc(i.label)}</span></button>`).join("")}${files.map((f) => `<span class="mm-linkb">${mmSvg("file", 16)}<span>${esc(f.name)}</span></span>`).join("")}</div>` : ""}
 </article>`;
 }
@@ -1362,7 +1364,7 @@ function mmContactNames() {
   return [...new Set(out.filter(Boolean))].slice(0, 400);
 }
 // one line of the running log: "10:19 · LIN-16 · Waiting on the vendor, promised Thu 10/29. Owner Marco."
-function mmLogLine(c) {
+function mmLogLine(c, short) {
   const T = c.taskKey ? tkByCode(c.taskKey) : null,
     st = { done: "Done", fyi: "FYI: status only", doing: "Doing", todo: "Back to To Do", waiting: "Waiting On" },
     say = {
@@ -1382,6 +1384,8 @@ function mmLogLine(c) {
       link: () => "Linked to a record",
     }[c.field];
   if (!say || ("owner" === c.field && !c.from)) return "";
+  // the phone's Changed So Far card: the key and what changed, nothing else
+  if (short) return `<div class="mm-sofar-l">${c.taskKey ? `<b>${esc(c.taskKey)}</b> ` : ""}${esc(say())}</div>`;
   const owner = T && !/^(owner|project|projectOrder)$/.test(c.field) ? ` Owner ${tkFirst(T.rec.assignee) || "nobody"}.` : "";
   // the time and the key on a small line, what changed under it (the mockup's right rail)
   return `<li><span class="mm-lmeta"><span class="mm-lt">${esc(String(c.at || "").slice(11, 16))}</span>${c.taskKey ? ` · <button type="button" class="mm-mlink" data-mmjump="${esc(c.taskKey)}">${esc(c.taskKey)}</button>` : ""}</span><span class="mm-ltx">${esc(say())}.${esc(owner)}</span></li>`;
@@ -1432,7 +1436,7 @@ function mmHtml() {
   const logL = (m.changes || [])
       .slice()
       .reverse()
-      .map(mmLogLine)
+      .map((c) => mmLogLine(c))
       .filter(Boolean),
     reviewer = tkFirst((DB.users || []).find((u) => "coord" === u.role) ? DB.users.find((u) => "coord" === u.role).name : m.presenter || "") || "the coordinator",
     log = `<div class="mm-rh">Changed in This Meeting</div>${logL.length ? `<ul class="mm-log">${logL.join("")}</ul>` : '<p class="mm-lognone">Nothing changed yet.</p>'}<p class="mm-lognote">After the call, the transcript is matched to what was on screen. Anything said but not entered comes to ${esc(reviewer)} as one Meeting Review to approve.</p>`;
@@ -1447,15 +1451,33 @@ function mmHtml() {
   // the phone (PhoneMeeting.dc.html): the minutes, the meeting and a menu on one line; the project with its place and
   // the progress on the next; the card, eight actions, Add a Task, and Previous and Next at the foot. Agenda, Follow,
   // More, New Project, the running log and End Meeting sit in the menu, so the whole card fits on one screen.
+  // Someone else drives on the phone (PhoneMeeting.dc.html, Alan 2026-10-24): Follow mode. A light-blue line says whose
+  // screen the card follows; the card keeps two notes; Changed So Far lists the last three changes; the footer is Add a
+  // Note and Actions, which opens the eight actions as a sheet. The driver keeps the eight actions on the first screen.
+  const fol = phone && !pres,
+    drv = tkFirst(m.presenter) || "the presenter",
+    folBar = fol
+      ? `<div class="mm-folbar">${mmSvg("eye", 16)}<span class="grow">${mmFollow ? `<b>Following ${esc(drv)}</b> · the card moves with their screen` : `<b>On your own</b> · <button type="button" class="mm-folon" data-mmfolon>Follow ${esc(drv)}</button>`}</span><span class="mm-foln">${nDisc} of ${tasks.length}</span></div>`
+      : "",
+    soFar = (m.changes || [])
+      .slice()
+      .reverse()
+      .map((c) => mmLogLine(c, !0))
+      .filter(Boolean)
+      .slice(0, 3),
+    folMain = fol
+      ? `${s ? `<div class="mm-pline">${esc(b ? b.name : "FYI only")}${b && isTask ? ` · Task ${posB} of ${inB.length}` : ""}${changedPill && "task" !== (s || {}).t ? changedPill : ""}</div>` : ""}${card}${panel}<div class="mm-sofar"><span class="mm-sofar-h">Changed So Far</span>${soFar.join("") || '<div class="mm-sofar-l mm-sofar-none">Nothing yet.</div>'}</div>
+    <div class="mm-nav mm-folnav">${isTask ? `<button type="button" class="btn ${"note" === mmPanel ? "on" : ""}" data-mmact="note">Add a Note</button><button type="button" class="btn primary mm-actsb" data-mmactsheet>Actions</button>` : `<button type="button" class="btn" data-mmagenda2>Agenda</button>`}</div>`
+      : "";
   const phTop = `<div class="ph mm-ph"><div><h2>Tasks</h2></div></div><div class="mm-top mm-top-ph"><div class="mm-phr"><span class="mm-live" data-mmlive="short" aria-label="In meeting for ${mins} minutes">${mins} min</span><b class="mm-phttl" title="${esc(m.title)} · ${esc(fmtL(m.date))}">${esc(m.title)}</b>
   <details class="mm-phmenu"><summary class="btn mm-phmenub" aria-label="Meeting menu: Agenda, Follow, End Meeting" title="Agenda, Follow, End Meeting">${mmSvg("more", 20)}</summary><div class="mm-phmenu-in"><button type="button" class="btn" data-mmagenda>Agenda</button><label class="mm-follow"><input type="checkbox" data-mmfollow ${mmFollow ? "checked" : ""}> Follow the presenter</label>${isTask ? `<button type="button" class="btn" data-mmact="more">More Actions</button>` : ""}<button type="button" class="btn" data-mmact="addproj">New Project</button><details class="mm-phlog"><summary>Changed in This Meeting · ${logL.length}</summary>${log}</details><button type="button" class="btn" data-mmleave>Leave the Meeting</button>${pres ? '<button type="button" class="btn" data-mmend>End Meeting</button>' : `<span class="small muted">${esc(tkFirst(m.presenter) || "someone")} is sharing</span>`}</div></details></div>
-  <div class="mm-phr"><button type="button" class="mm-projchip" data-mmagchip aria-label="Agenda: ${esc(b ? b.name : "FYI only")}, task ${posB} of ${inB.length}"><span>${esc(b ? b.name : "FYI only")}${b && isTask ? ` · ${posB} of ${inB.length}` : ""}</span>${tvSvg("chevD", 12)}</button><span class="mm-pbar"><i style="width:${pct}%"></i></span><span class="mm-prog mm-prog-ph">${nDisc} of ${tasks.length} <span class="mm-sr">discussed</span></span></div></div>`;
-  const deskTop = `<div class="mm-top"><span class="mm-live" data-mmlive>In Meeting · ${mins} min</span><b class="mm-ttl">${esc(m.title)} · ${esc(longDay(m.date))}</b><span class="mm-att">${esc((m.attendees || []).map(tkFirst).join(", "))}${pres ? "" : ` · ${esc(tkFirst(m.presenter) || "someone")} is sharing`}</span><span class="grow"></span>
+  ${fol ? folBar : `<div class="mm-phr"><button type="button" class="mm-projchip" data-mmagchip aria-label="Agenda: ${esc(b ? b.name : "FYI only")}, task ${posB} of ${inB.length}"><span>${esc(b ? b.name : "FYI only")}${b && isTask ? ` · ${posB} of ${inB.length}` : ""}</span>${tvSvg("chevD", 12)}</button><span class="mm-pbar"><i style="width:${pct}%"></i></span><span class="mm-prog mm-prog-ph">${nDisc} of ${tasks.length} <span class="mm-sr">discussed</span></span></div>`}</div>`;
+  const deskTop = `<div class="ph mm-ph"><div><h2>Tasks</h2></div></div><div class="mm-top"><span class="mm-live" data-mmlive>In Meeting · ${mins} min</span><b class="mm-ttl">${esc(m.title)} · ${esc(longDay(m.date))}</b><span class="mm-att">${esc((m.attendees || []).map(tkFirst).join(", "))}${pres ? "" : ` · ${esc(tkFirst(m.presenter) || "someone")} is sharing`}</span><span class="grow"></span>
   <div class="mm-prog"><span>${nDisc} of ${tasks.length} discussed</span><span class="mm-pbar"><i style="width:${pct}%"></i></span></div>${pres ? "" : `<label class="mm-follow"><input type="checkbox" data-mmfollow ${mmFollow ? "checked" : ""}> Follow</label><button type="button" class="btn" data-mmleave>Leave</button>`}${pres ? '<button type="button" class="btn mm-end" data-mmend>End Meeting</button>' : ""}</div>`;
-  return `<div class="mm ${phone ? "mm-phone" : "mm-desk"}" data-mm="${esc(m.id)}">
+  return `<div class="mm ${phone ? `mm-phone ${fol ? "mm-fol" : ""}` : "mm-desk"}" data-mm="${esc(m.id)}">
   ${phone ? phTop : deskTop}
   <div class="mm-body">${phone ? "" : `<aside class="mm-side" aria-label="Agenda" data-noclip="1">${agenda}</aside>`}<section class="mm-main">
-    ${ctx}${card}${acts}${panel}${phone ? addBtn : ""}${nav}
+    ${fol ? folMain : `${ctx}${card}${acts}${panel}${phone ? addBtn : ""}${nav}`}
   </section>${phone ? "" : `<aside class="mm-right" aria-label="Changed in this meeting" data-noclip="1">${log}</aside>`}</div></div>`;
 }
 // the clock on the In Meeting pill moves without a redraw
@@ -1689,6 +1711,22 @@ function mmWire(host) {
   en && (en.onclick = () => mmEndDialog());
   const ag = q("[data-mmagenda]");
   ag && (ag.onclick = () => mmAgendaSheet(m));
+  const fon = q("[data-mmfolon]");
+  fon && (fon.onclick = () => ((mmFollow = !0), renderTkAll()));
+  const ag2 = q("[data-mmagenda2]");
+  ag2 && (ag2.onclick = () => mmAgendaSheet(m));
+  const ash = q("[data-mmactsheet]");
+  ash &&
+    (ash.onclick = () => {
+      const sh = mbModal(
+        `Actions on ${esc(code)}`,
+        `<div class="mm-acts mm-actsheet">${MM_ACTS.map(([k, n, ic]) => `<button type="button" class="mm-act ${"date" === k ? "primary" : ""}" data-mmsact="${k}">${mmSvg(ic, 20)}<span>${n}</span></button>`).join("")}</div>`,
+        { submit: null },
+      );
+      if (!sh) return;
+      sh.classList.add("tks-on", "mm-actsm");
+      sh.querySelectorAll("[data-mmsact]").forEach((x) => (x.onclick = () => (mbCloseModal(), mmAct(x.dataset.mmsact, code))));
+    });
   const agc = q("[data-mmagchip]");
   agc && (agc.onclick = () => mmAgendaSheet(m));
   // a choice in the phone's menu closes it
@@ -1944,7 +1982,7 @@ function mmDecorateTasks() {
     srch ? line.insertBefore(b, srch) : line.appendChild(b);
   } else if (acts) {
     b.className = "btn";
-    b.textContent = "Start Meeting";
+    b.innerHTML = `${mmSvg("screen", 16)}<span>Start Meeting</span>`;
     acts.insertBefore(b, acts.querySelector("#tk-new"));
   }
 }
@@ -2266,6 +2304,7 @@ tkRecReady = !0;
 .mm{--mm-ink:#1A1D23;--mm-ink2:#6A7080;--mm-ink3:#4A5060;--mm-line:#E7E9EE;--mm-btn:#D5D9E1;--mm-accent:#2456C9;display:flex;flex-direction:column;gap:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--mm-ink)}
 #v-tkall:has(#tkall-body>.mm){padding:0;background:#F7F8FA}
 .mm-desk{height:calc(100vh - 52px);min-height:640px}
+.mm>.ph.mm-ph{display:none}
 .mm-top{display:flex;align-items:center;gap:14px;padding:16px 28px;background:#fff;border-bottom:1px solid var(--mm-line);min-width:0}
 .mm-top .btn{min-height:40px;height:40px;padding:0 16px;border:1px solid var(--mm-btn);border-radius:10px;background:#fff;color:var(--mm-ink);font-size:14px;font-weight:600;display:inline-flex;align-items:center}
 .mm-live{display:inline-flex;align-items:center;gap:8px;flex:0 0 auto;height:30px;padding:0 12px;border-radius:999px;background:#FDECEA;color:#B42318;font-size:13px;font-weight:700;white-space:nowrap}
@@ -2366,7 +2405,7 @@ tkRecReady = !0;
 @media (max-width:760px){
   body:has(#tkall-body>.mm-phone) #subnav,body:has(#tkall-body>.mm-phone) #mtabs{display:none !important}
   .mm-phone{min-height:calc(100vh - 56px);background:#F7F8FA;padding-bottom:96px;box-sizing:border-box}
-  .mm-phone>.ph.mm-ph{display:none}
+  .mm-phone .mm-addbtn{max-width:none}
   .mm-top.mm-top-ph{position:relative;display:flex;flex-direction:column;align-items:stretch;gap:8px;padding:12px 16px 10px}
   .mm-phr{display:flex;align-items:center;gap:8px;min-width:0}
   .mm-phr+.mm-phr{gap:10px}
@@ -2410,6 +2449,24 @@ tkRecReady = !0;
   #v-tkall .mm-phone .mm-nav .btn{height:52px;min-height:52px;border-radius:14px;padding:0 12px}
   #v-tkall .mm-phone .mm-nav .mm-prev{flex:1 1 0}
   #v-tkall .mm-phone .mm-nav .mm-next{flex:2 1 0}
+  /* Follow mode: someone else drives */
+  .mm-folbar{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:10px;background:#EEF3FD;font-size:13px;color:#1D47A8;min-width:0}
+  .mm-folbar svg{flex:0 0 auto}
+  .mm-folbar .grow{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .mm-foln{flex:0 0 auto;font-size:12px;color:#4A5A80}
+  #v-tkall .mm .mm-folon{min-height:0;height:auto;padding:0;border:0;background:none;font:inherit;font-weight:700;color:#1D47A8;text-decoration:underline;cursor:pointer}
+  .mm-pline{font-size:13px;color:var(--mm-ink2)}
+  .mm-fol .mm-comments{font-size:14px;line-height:1.4;color:var(--mm-ink);gap:6px}
+  .mm-fol .mm-nl{font-size:12px}
+  .mm-sofar{display:flex;flex-direction:column;gap:6px;padding:12px 14px;background:#fff;border-radius:14px;box-shadow:0 0 0 1px #ECEEF2}
+  .mm-sofar-h{font-size:12px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--mm-ink2)}
+  .mm-sofar-l{font-size:13px;line-height:1.4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .mm-sofar-none{color:var(--mm-ink2)}
+  #v-tkall .mm-phone .mm-folnav .btn{flex:1 1 0;font-size:15px;font-weight:600}
+  #v-tkall .mm-phone .mm-folnav .btn.primary{background:var(--mm-accent);border-color:var(--mm-accent);color:#fff}
+  #mbm.mm-actsm .mm-actsheet{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;padding:4px 0 8px}
+  #mbm.mm-actsm .mm-act{height:64px;min-height:64px;font-size:12px;font-weight:600;border:1px solid #D5D9E1;border-radius:12px;background:#fff;color:#1A1D23}
+  #mbm.mm-actsm .mm-act.primary{background:#2456C9;border-color:#2456C9;color:#fff}
   .mm-addo{max-width:46%}
   .mm-addrow{flex-wrap:wrap}
   .mm-addrow .tks-in{flex:1 1 100%}
