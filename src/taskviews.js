@@ -108,7 +108,9 @@ const tvHash = (s) => {
 };
 const TV_HUES = [212, 152, 28, 272, 340, 190, 96, 4];
 const tvHue = (s) => TV_HUES[tvHash(s) % TV_HUES.length];
-const tvAv = (name) => (name ? `<span class="tv-av" style="--h:${tvHue(name)}" aria-hidden="true">${tvSvg("user", 13)}</span>` : "");
+// the owner's avatar: their initial on their own colour (the same person reads the same colour on every screen)
+const tvInitial = (name) => (String(name || "").trim().match(/[A-Za-z0-9]/) || ["?"])[0].toUpperCase();
+const tvAv = (name) => (name ? `<span class="tv-av" style="--h:${tvHue(name)}" aria-hidden="true">${tvInitial(name)}</span>` : "");
 
 // ---- the person's own settings ---------------------------------------------------------------------------------------
 function tvPrefs() {
@@ -781,11 +783,11 @@ function tvDoneBy(gb) {
 // the title ("Task"), so six columns read by default.
 const TV_COLS = [
   { k: "title", n: "Task", w: 0, fixed: 1, sort: (I) => String(I.x.title || "").toLowerCase() },
-  { k: "owner", n: "Owner", w: 150, sort: (I) => I.owner || "~" },
-  { k: "wait", n: "Waiting On", w: 196, sort: (I) => (I.wait ? I.wait.promised || "9" : "~") },
-  { k: "due", n: "Due", w: 128, sort: (I) => I.x.due || "9999" },
-  { k: "follow", n: "Follow-Up", w: 128, sort: (I) => I.follow || "9999" },
-  { k: "status", n: "Status", w: 128, sort: (I) => TV_STATUS.findIndex(([k]) => k === I.status) },
+  { k: "owner", n: "Owner", w: 124, sort: (I) => I.owner || "~" },
+  { k: "wait", n: "Waiting On", w: 150, sort: (I) => (I.wait ? I.wait.promised || "9" : "~") },
+  { k: "due", n: "Due", w: 100, sort: (I) => I.x.due || "9999" },
+  { k: "follow", n: "Follow-Up", w: 108, sort: (I) => I.follow || "9999" },
+  { k: "status", n: "Status", w: 112, sort: (I) => TV_STATUS.findIndex(([k]) => k === I.status) },
   { k: "ref", n: "ID", w: 96, sort: (I) => I.ref || "~" },
   { k: "project", n: "Project", w: 150, sort: (I) => I.pname },
   { k: "section", n: "Section", w: 140, sort: (I) => I.section || "~" },
@@ -824,7 +826,8 @@ function tvSortRows(rows) {
 }
 // the grid's columns: select, done, ID, title, then the chosen ones; and the same without the panel's two
 function tvGridCols(cols, drop, noRef) {
-  const L = ["44px", "44px", noRef ? "0px" : "84px", "minmax(260px,1fr)"];
+  // the default columns fit the content width at 1280 (984px) with the title taking the rest: no column is cut off
+  const L = ["40px", "44px", noRef ? "0px" : "72px", "minmax(200px,1fr)"];
   cols.forEach((c) => c.fixed || (drop && drop.includes(c.k)) || L.push(tvColW(c) + "px"));
   return L.join(" ");
 }
@@ -889,7 +892,7 @@ function tvTableHtml(infos) {
     })
     .join("")}</div>`;
   const noRef = !infos.some((I) => I.ref),
-    W = 44 + 44 + (noRef ? 0 : 84) + 300 + cols.reduce((a, c) => a + (c.fixed ? 0 : tvColW(c)), 0);
+    W = 40 + 44 + (noRef ? 0 : 72) + 200 + cols.reduce((a, c) => a + (c.fixed ? 0 : tvColW(c)), 0);
   return `<div class="tv-tframe ${tvDense() ? "dense" : ""}" tabindex="-1"><div class="tv-grid" role="table" aria-label="Tasks" style="--tvcols:${tvGridCols(cols, null, noRef)};--tvcols-n:${tvGridCols(cols, TV_PANEL_DROP, noRef)};min-width:${W}px">${head}${body}</div></div>${tvBulkHtml()}`;
 }
 // the phone: the table's rows become the List's cards, in the table's groups and sort
@@ -1210,10 +1213,19 @@ function tvSavedHtml() {
 }
 
 // ---- filter chips: the list's own filters, said as chips; "Filter" adds one ------------------------------------------
+// On Tasks the saved tabs are the one view switch; whose tasks and which dates are chips in the same row as the rest
+// (polish lane, 2026-10-24: three rows of switches became one). The chips say the list's own settings, tkWho and
+// t2View, so every count still reads the one pool (counts_lint).
+const TV_WHO_SAY = { me: "Me", team: "My Team", none: "Nobody" };
+const TV_DUE_SAY = { week: "Due: Soon", today: "Due: Today", overdue: "Due: Overdue", nodate: "Due: No Date", later: "Due: Later", blocked: "Status: Waiting On", done: "Status: Done" };
+const tvOneRow = () => "home" === t2Ctx() && !tvPhone();
 function tvFilterChips() {
   const L = [],
-    named = tkWho && !["me", "all", "none", "team"].includes(tkWho);
+    named = tkWho && !["me", "all", "none", "team"].includes(tkWho),
+    one = tvOneRow();
   named && L.push(["owner", `Owner: ${tkFirst(tkWho)}`]);
+  one && TV_WHO_SAY[tkWho] && L.push(["owner", `Owner: ${TV_WHO_SAY[tkWho]}`]);
+  one && TV_DUE_SAY[t2View] && L.push(["due", TV_DUE_SAY[t2View]]);
   if (tkProject && "home" === t2Ctx()) {
     const p = (DB.projects || []).find((q) => q.id === tkProject);
     L.push(["project", `Project: ${"__sales" === tkProject ? "Sales" : p ? shortName(p) : "A Job"}`]);
@@ -1224,7 +1236,29 @@ function tvFilterChips() {
 }
 function tvFilterPick(what, anchor) {
   const done = () => (tvSel.clear(), renderTkAll());
-  if ("owner" === what) {
+  if ("owner" === what && tvOneRow())
+    return tvPop(
+      anchor,
+      "Owner",
+      `<div class="tv-menu">${[["me", "Me"]]
+        .concat(tkIsManager() ? [["team", "My Team"]] : [], [["all", "Everyone"], ["none", "Nobody (Unassigned)"]])
+        .map(([k, n], i) => `<button type="button" class="tv-mi ${tkWho === k ? "on" : ""}" data-tvfw="${k}" ${0 === i ? "data-tvfirst" : ""}>${n}</button>`)
+        .join("")}<button type="button" class="tv-mi" data-tvfwp>A Person</button></div>`,
+      (d) => {
+        d.querySelectorAll("[data-tvfw]").forEach((b) => (b.onclick = () => (tvPopClose(), (tkWho = b.dataset.tvfw), done())));
+        d.querySelector("[data-tvfwp]").onclick = () => (tvPopClose(), tvFilterPick("person", anchor));
+      },
+    );
+  if ("due" === what)
+    return tvPop(
+      anchor,
+      "Due",
+      `<div class="tv-menu">${Object.entries(TV_DUE_SAY)
+        .map(([k, n], i) => `<button type="button" class="tv-mi ${t2View === k ? "on" : ""}" data-tvfd="${k}" ${0 === i ? "data-tvfirst" : ""}>${esc(n.replace(/^Due: /, ""))}</button>`)
+        .join("")}</div>`,
+      (d) => d.querySelectorAll("[data-tvfd]").forEach((b) => (b.onclick = () => (tvPopClose(), (t2View = b.dataset.tvfd), done()))),
+    );
+  if ("owner" === what || "person" === what) {
     let names = [];
     try {
       names = crPeopleOf(tkItems().filter((x) => !x.done));
@@ -1258,6 +1292,7 @@ function tvFilterPick(what, anchor) {
     "Filter By",
     `<div class="tv-menu">${[
       ["owner", "Owner"],
+      tvOneRow() ? ["due", "Due or Status"] : null,
       "home" === t2Ctx() ? ["project", "Project"] : null,
       ["area", "Area"],
       ["pri", "High Priority"],
@@ -1270,6 +1305,7 @@ function tvFilterPick(what, anchor) {
 }
 function tvFilterClear(what) {
   "owner" === what && (tkWho = "all");
+  "due" === what && (t2View = "all");
   "project" === what && (tkProject = "");
   "area" === what && (tkArea = "");
   "pri" === what && (tkPri = "");
@@ -1336,6 +1372,11 @@ function tvBar(host) {
   }
   const scope = bar.querySelector(".t2-scope");
   (scope || bar.firstChild) && (scope ? scope.insertAdjacentHTML("afterend", tvFilterChips()) : bar.insertAdjacentHTML("afterbegin", tvFilterChips()));
+  // on Tasks, Mine / Everyone / Unassigned and the due chips are said by the chips above; the saved tabs switch views
+  if (tvOneRow()) {
+    scope && scope.remove();
+    host.querySelectorAll(".tk2-views").forEach((e) => e.remove());
+  }
   const gs = bar.querySelector("#t2-group");
   if (gs) {
     const o = gs.querySelector('option[value="assignee"]');
@@ -1425,6 +1466,9 @@ function tvAfter() {
   const ctx = t2Ctx(),
     ph = tvPhone();
   host.classList.add("tv-on");
+  try {
+    tvDueMark(host);
+  } catch (e) {}
   // the mode switch: List, Table, Board, Calendar
   const seg = host.querySelector(".tk-mode");
   seg && ((seg.innerHTML = TV_MODES.map(([k, n]) => `<button type="button" class="${(tkMode || "cards") === k ? "on" : ""}" data-tkmode="${k}">${n}</button>`).join("")), seg.classList.add("tv-modes"));
@@ -2077,6 +2121,57 @@ let tvDrawing = "";
   };
 }
 
+// ---- Tasks in the side menu: one number, the person's own late and due-today tasks ----------------------------------
+// The rail entry, Today's Tasks tab and the Tasks page say the same count: tkMyCounts().today, the list's own "Today"
+// view (overdue and due today), the number Ask gives for "my tasks due today".
+"object" == typeof OC_BADGE && (OC_BADGE.tkall = { n: () => tkMyCounts().today || 0 });
+function tvDueMark(host) {
+  const lead = host.querySelector(".ph .lead");
+  if (!lead || lead.querySelector("[data-ocbadge]") || "home" !== t2Ctx()) return;
+  const n = tkMyCounts().today || 0;
+  lead.insertAdjacentHTML("beforeend", `<span class="tv-duemark" data-ocbadge="tkall">${lead.textContent.trim() ? " · " : ""}${n ? `${n} of yours late or due today` : "nothing of yours late or due today"}</span>`);
+}
+
+// ---- the demo: two tasks that wait on someone outside the firm, so the Waiting On column and tab show their use -------
+// Demo only (SD_DEMO_SEEDS wraps it: never on the team's workspace or the firm's records), once (DB.__tvWaitSeed), on
+// the demo's own jobs and invented vendors, with the task record's fields as the meeting writes them.
+function tvWaitSeed() {
+  if (DB.__tvWaitSeed) return !1;
+  const P = (id) => (DB.projects || []).find((p) => p.id === id),
+    a = P("p121"),
+    b = P("p206");
+  if (!a || !b) return !1;
+  DB.__tvWaitSeed = 1;
+  const td = today(),
+    d = (n) => iso(addDays(parse(td), n)),
+    V = (n) => (DB.vendors || []).find((v) => v.name === n),
+    mk = (p, f, w) => {
+      const v = V(w.name);
+      (p.actions = p.actions || []).push(
+        Object.assign({ id: uid("a"), status: "waiting", priority: "med", link: null, notes: "", source: null, createdAt: d(-4), completedAt: "", createdBy: "Chen Biron" }, f, {
+          waitsOn: w.name,
+          waitingOn: { name: w.name, contactRef: v ? { kind: "vendor", id: v.id } : null, what: w.what, promised: w.promised, evidence: w.evidence },
+          followUp: w.promised,
+        }),
+      );
+    };
+  mk(a, { title: "Shop drawings for the parlor bookcases", assignee: "Chen Biron", due: d(4) }, { name: "Carlos Millwork", what: "the shop drawings to sign off", promised: d(1), evidence: "Said on the site walk, 9/1" });
+  mk(b, { title: "Replacement boxes for the chipped floor tile", assignee: "Alan", due: d(2) }, { name: "Nemo Tile", what: "a ship date for the replacement boxes", promised: d(-1), evidence: "Email from Nemo Tile, 8/31" });
+  return !0;
+}
+{
+  const base = finishBoot;
+  finishBoot = function () {
+    const r = base.apply(this, arguments);
+    try {
+      tvWaitSeed() && save();
+    } catch (e) {
+      console.warn("task views demo", e);
+    }
+    return r;
+  };
+}
+
 // ---- the look: the mockup's palette, quiet rows, no grid lines, 44px targets 8px apart ---------------------------------
 (() => {
   const css = `
@@ -2092,6 +2187,9 @@ let tvDrawing = "";
 #v-tkall .tv-saved .tv-quiet{margin-left:auto;align-self:center;min-height:36px;background:none;border:0;color:var(--tv-ink2);font-size:13px}
 #v-tkall .tv-saved .tv-quiet+.tv-quiet{margin-left:0}
 #v-tkall .tv-hdtools .t2-q{flex:0 1 300px;min-width:180px;height:40px;border-radius:10px}
+/* the layouts and search keep their size; the title's lead line gives way (at 1280 the search ran under Start Meeting) */
+#v-tkall .tv-on .ph>div:first-child{flex:1 1 0}
+#v-tkall .tv-hdtools{flex:0 1 auto;min-width:min-content}
 #v-tkall .tv-outline,#v-tkall .tv-on .ph .acts [data-mmstart]{background:#fff;border:1px solid var(--tv-accent);color:var(--tv-accent);font-weight:600}
 #v-tkall .tk-mode.tv-modes{background:#EEF0F3;border-radius:10px;padding:3px;border:0;gap:2px}
 #v-tkall .tk-mode.tv-modes button{display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:8px;background:none;color:var(--tv-ink2);font-weight:500;padding:0 14px}
@@ -2131,7 +2229,7 @@ let tvDrawing = "";
 .tv-pill.tv-st-waiting{background:#FFF1D6;color:#7A4A00}
 .tv-pill.tv-st-done{background:#E3F4EA;color:#1B6B3E}
 .tv-pill.tv-st-fyi{background:none;border-color:#C8CDD6;color:#3E4450}
-.tv-av{display:inline-grid;place-items:center;flex:0 0 24px;width:24px;height:24px;border-radius:50%;background:hsl(var(--h) 60% 90%);color:hsl(var(--h) 45% 32%)}
+.tv-av{display:inline-grid;place-items:center;flex:0 0 24px;width:24px;height:24px;border-radius:50%;background:hsl(var(--h) 52% 38%);color:#fff;font:700 11px/1 Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;letter-spacing:0;text-transform:none}
 /* the cells */
 #v-tkall .tv-c{display:inline-flex;align-items:center;gap:8px;min-height:44px;min-width:44px;padding:0 8px;border:0;border-radius:8px;background:none;font-size:15px;color:var(--tv-ink);cursor:pointer;white-space:nowrap;overflow:hidden;max-width:100%;box-sizing:border-box;text-align:left}
 #v-tkall .tv-c:hover,#v-tkall .tv-c:focus-visible{background:#F2F4F7}
@@ -2140,7 +2238,7 @@ let tvDrawing = "";
 #v-tkall .tv-c.tv-due,#v-tkall .tv-c.tv-fu{color:var(--tv-ink2)}
 #v-tkall .tv-c.late{color:var(--tv-late) !important;font-weight:700}
 #v-tkall .tv-c.today{color:var(--tv-ink);font-weight:600}
-#v-tkall .tv-wait.on .tv-chip-in{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:13px;background:var(--tv-amber-bg);color:var(--tv-amber);font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis}
+#v-tkall .tv-wait.on .tv-chip-in{display:inline-block;max-width:100%;box-sizing:border-box;white-space:nowrap;padding:3px 10px;border-radius:13px;background:var(--tv-amber-bg);color:var(--tv-amber);font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis}
 #v-tkall .tv-wait.on.late .tv-chip-in{background:#FDECEA;color:var(--tv-late)}
 #v-tkall .tv-check{flex:0 0 44px;width:44px;height:44px;border:0;background:none;display:grid;place-items:center;cursor:pointer;padding:0}
 #v-tkall .tv-check>span{display:block;width:22px;height:22px;border:2px solid #C8CDD6;border-radius:50%;box-sizing:border-box}
@@ -2218,7 +2316,7 @@ body:has(#mbm.tks-on) #v-tkall .tv-grid{--tvcols:var(--tvcols-n) !important}
 body:has(#mbm.tks-on) #v-tkall .tv-grid .tv-col-wait,body:has(#mbm.tks-on) #v-tkall .tv-grid .tv-col-follow{display:none}
 /* the Board */
 #v-tkall .tv-board{display:flex;gap:14px;align-items:flex-start;overflow-x:auto;padding-bottom:8px;overscroll-behavior-x:contain}
-#v-tkall .tv-bcol{flex:0 0 296px;min-width:0;background:#EEF0F3;border-radius:14px;padding:10px;box-sizing:border-box;min-height:140px}
+#v-tkall .tv-bcol{flex:1 0 232px;max-width:340px;min-width:0;background:#EEF0F3;border-radius:14px;padding:10px;box-sizing:border-box;min-height:140px}
 #v-tkall .tv-bcol.tv-over{outline:2px solid var(--tv-accent);outline-offset:-2px}
 #v-tkall .tv-bextra{opacity:.9}
 #v-tkall .tv-bhd{display:flex;align-items:center;gap:8px;padding:2px 4px 10px;font-size:14px;color:var(--tv-ink)}

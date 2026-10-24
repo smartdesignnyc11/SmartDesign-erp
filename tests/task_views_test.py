@@ -16,6 +16,10 @@ Desktop 1440 and phone 390, as the coordinator (who runs the meeting) and the ow
             keyboard moves between rows
   phone     no sideways scroll in any layout; every target on the first screen is 44px and 8px from the next
   views     a view saved by the coordinator is hers: the owner's views do not change
+  polish    at 1280 and 1440 every open row, card and List row has its ID, no column is cut off, one filter row,
+            initials for owners, Waiting On filled; Tasks sits under Today in each office role's menu (not the
+            field's) with its late and due-today badge and opens the list; at 390 the meeting's eight actions are on
+            the first screen above Previous and Next, with the toast above them
 Screenshots: review/taskviews/ (desktop and phone; never committed).
 Invented data only."""
 import asyncio, os, sys
@@ -108,6 +112,10 @@ async def one_number(c, pg, who, phone):
     await pg.wait_for_timeout(150)
     await pg.click('#tv-pop [data-tvfk="owner"]')
     await pg.wait_for_timeout(150)
+    # on Tasks the Owner filter offers Me, Everyone, Nobody and A Person (one filter row, 2026-10-24)
+    if await pg.evaluate("() => !!document.querySelector('#tv-pop [data-tvfwp]')"):
+        await pg.click('#tv-pop [data-tvfwp]')
+        await pg.wait_for_timeout(150)
     name = await pg.evaluate("() => { const b = [...document.querySelectorAll('#tv-pop [data-tvp]')].find(b => /^Chen/.test(b.dataset.tvp)) || document.querySelector('#tv-pop [data-tvp]'); const n = b.dataset.tvp; b.click(); return n; }")
     await pg.wait_for_timeout(300)
     s = await pg.evaluate(SHOWN)
@@ -365,6 +373,93 @@ async def mine_views(c, pg):
     c.ok(st == {'mode': 'table', 'view': 'blocked', 'who': 'all'}, f'coord: her view puts back what she saved ({st})')
 
 
+RAIL_ROLES = ('u_owner', 'u_alan', 'u_chen', 'u_billing', 'u_controller', 'u_sarah')
+FIELD_ROLES = ('u_angel', 'u_alberto', 'u_alex')
+
+# the table at a width: every open row has its ID, no column past the frame's edge, no sideways scroll; one filter row
+TABLE_FIT = r"""() => { const h = document.getElementById('tkall-body'), fr = h.querySelector('.tv-tframe');
+  const rows = [...h.querySelectorAll('.tv-tr[data-tvrow]')].filter(r => !r.classList.contains('done'));
+  const noid = rows.filter(r => !((r.querySelector('.tv-col-ref .tv-ref') || {}).textContent || '').trim()).map(r => tkResolve(r.dataset.tvrow).x.kind + ': ' + r.innerText.split('\n')[0]);
+  const F = fr.getBoundingClientRect(), cut = [...h.querySelectorAll('.tv-th[data-tvcol]')].filter(t => t.getBoundingClientRect().right > F.right + 1).map(t => t.dataset.tvcol);
+  const vis = e => e.getClientRects().length > 0;
+  return { rows: rows.length, noid: noid.slice(0, 4), cut, fsw: fr.scrollWidth, fcw: fr.clientWidth, sw: document.documentElement.scrollWidth, iw: innerWidth,
+    scope: [...h.querySelectorAll('.t2-scope, .tk2-views')].filter(vis).length, saved: !!h.querySelector('.tv-saved'),
+    chips: [...h.querySelectorAll('.tv-fchip-b')].map(b => b.innerText.trim()), av: [...h.querySelectorAll('.tv-av')].slice(0, 30).map(a => a.querySelector('svg') ? 'svg' : a.textContent.trim()),
+    wait: h.querySelectorAll('.tv-tr .tv-wait.on').length }; }"""
+
+
+async def polish(c, p):
+    """the polish round (2026-10-24): IDs everywhere, initials, one filter row, a table that fits, Tasks in the menu,
+    and the phone meeting's actions on the first screen"""
+    for w in (1280, 1440):
+        b = await p.chromium.launch()
+        ctx = await b.new_context(viewport={'width': w, 'height': 900})
+        pg = await ctx.new_page()
+        from harness import URL
+        await pg.goto(URL); await pg.wait_for_function("document.body.dataset.booted==='1'", timeout=60000)
+        await sign_in(pg, 'u_chen'); await go(pg, 'tkall')
+        await pg.evaluate("() => { tkSetMode('table'); tvApply('b:all'); }"); await pg.wait_for_timeout(400)
+        t = await pg.evaluate(TABLE_FIT)
+        c.ok(t['rows'] > 20 and not t['noid'], f'{w}: every open task row has its ID ({t["rows"]} rows; without: {t["noid"]})')
+        c.ok(not t['cut'] and t['fsw'] <= t['fcw'] and t['sw'] <= t['iw'], f'{w}: no column cut off and no sideways scroll (cut {t["cut"]}, frame {t["fsw"]}/{t["fcw"]}, page {t["sw"]}/{t["iw"]})')
+        c.ok(t['scope'] == 0 and t['saved'], f'{w}: one filter row under the saved tabs ({t["scope"]} old switch rows)')
+        c.ok(t['av'] and all(len(a) == 1 and a.isalnum() for a in t['av']), f'{w}: owner avatars are initials ({t["av"][:6]})')
+        c.ok(t['wait'] >= 2, f'{w}: the Waiting On column shows who the demo waits on ({t["wait"]} chips)')
+        await pg.evaluate("() => tvApply('b:week')"); await pg.wait_for_timeout(300)
+        t = await pg.evaluate(TABLE_FIT)
+        c.ok(t['chips'][:2] == ['Owner: Me', 'Due: Soon'], f'{w}: My Week says its filters as chips ({t["chips"]})')
+        # the board and the List show the ID too
+        await pg.evaluate("() => { tvApply('b:all'); tkSetMode('board'); }"); await pg.wait_for_timeout(300)
+        bd = await pg.evaluate("() => [...document.querySelectorAll('#tkall-body .tv-bcol:not(.tv-bextra) .tv-card')].filter(c => !(c.querySelector('.tv-ref') || {}).textContent).length")
+        c.ok(bd == 0, f'{w}: every board card shows its ID ({bd} without)')
+        await pg.evaluate("() => tkSetMode('cards')"); await pg.wait_for_timeout(300)
+        ls = await pg.evaluate("() => [...document.querySelectorAll('#tkall-body .tk2-row[data-tkkey]')].filter(r => !r.querySelector('.tk2-key, .tv-ref')).map(r => r.dataset.tkkey).slice(0, 4)")
+        c.ok(not ls, f'{w}: every List row shows its ID ({ls})')
+        if w == 1440:
+            await pg.screenshot(path=os.path.join(SHOTS, 'dt_polish_list.png'))
+            # Tasks under Today in the rail for every office role; it opens the one list; the field keeps its menus
+            for uid in RAIL_ROLES + FIELD_ROLES:
+                await sign_in(pg, uid); await pg.wait_for_timeout(150)
+                r = await pg.evaluate("""() => { const B = [...document.querySelectorAll('#nav-groups > button')].map(b => b.dataset.grp);
+                  const i = B.indexOf('mytasks'), t = document.querySelector('#nav-groups > button[data-grp="mytasks"]');
+                  if (t) t.click();
+                  const n = t ? +((t.querySelector('.n') || {}).textContent || 0) : null;
+                  return { under: i > 0 && B[i - 1] === 'home', has: i >= 0, view, n, want: tkMyCounts().today || 0,
+                    lit: !!document.querySelector('#nav-groups > button[data-grp="mytasks"].on'), label: t ? t.innerText.replace(/\\s*\\d+$/, '').trim() : '' }; }""")
+                if uid in FIELD_ROLES:
+                    c.ok(not r['has'], f'{uid}: the field menu has no Tasks entry')
+                else:
+                    c.ok(r['under'] and r['label'] == 'Tasks' and r['view'] == 'tkall' and r['lit'], f'{uid}: Tasks sits under Today and opens the one list ({r})')
+                    c.ok(r['n'] == r['want'], f'{uid}: the Tasks badge is their late and due-today count ({r["n"]} vs {r["want"]})')
+        await b.close()
+    # the phone: Tasks in the menu drawer, and Meeting Mode's eight actions on the first screen with the toast above Next
+    b, pg, errs = await open_app(p, True)
+    await sign_in(pg, 'u_alan')
+    r = await pg.evaluate("() => { const B = [...document.querySelectorAll('#nav-groups > button')].map(b => b.dataset.grp); return B.indexOf('mytasks') === B.indexOf('home') + 1; }")
+    c.ok(r, 'pm 390: Tasks sits under Today in the phone menu')
+    bar = await pg.evaluate("() => [...document.querySelectorAll('#mtabs button[data-mv]')].map(b => b.dataset.mv)")
+    c.ok(bar == ['home', 'chat', 'ovjobs', 'field'], f'pm 390: the bottom bar is unchanged ({bar})')
+    await sign_in(pg, 'u_owner'); await go(pg, 'tkall')
+    await pg.evaluate("() => { mtStart({}); renderTkAll(); window.scrollTo(0, 0); }"); await pg.wait_for_timeout(500)
+    m = await pg.evaluate("""() => { const A = [...document.querySelectorAll('.mm-act')].map(e => e.getBoundingClientRect()), nav = document.querySelector('.mm-nav').getBoundingClientRect();
+      const top = document.querySelector('.mm-top'), t = top.getBoundingClientRect();
+      toast('Phone toast check', [{ label: 'Open', run: () => {} }]);
+      const T = document.getElementById('toast').getBoundingClientRect();
+      return { n: A.length, bottom: Math.round(Math.max(...A.map(r => r.bottom))), nav: Math.round(nav.top), topH: Math.round(t.height),
+        menu: !!top.querySelector('details [data-mmend]') && !!top.querySelector('details [data-mmagenda]') && !!top.querySelector('details [data-mmfollow]'),
+        toast: Math.round(T.bottom), sw: document.documentElement.scrollWidth, title: document.querySelector('.mm-card .mm-title').getClientRects().length,
+        notes: [...document.querySelectorAll('.mm-comments .mm-comment')].filter(e => e.getClientRects().length).length }; }""")
+    c.ok(m['n'] == 8 and m['bottom'] <= min(844, m['nav']), f'owner 390: the eight meeting actions sit on the first screen, above Previous and Next ({m})')
+    c.ok(m['title'] > 0, f'owner 390: the card keeps its title (the page header never lifts it out)')
+    c.ok(m['topH'] <= 60 and m['menu'], f'owner 390: the meeting header is one line, Follow, Agenda and End behind one menu ({m["topH"]}px)')
+    c.ok(m['toast'] <= m['nav'], f'owner 390: the toast sits above the meeting footer ({m["toast"]} vs {m["nav"]})')
+    c.ok(m['notes'] <= 1 and m['sw'] <= 390, f'owner 390: the notes are cut to the latest behind More, no sideways scroll ({m["notes"]}, {m["sw"]})')
+    await pg.wait_for_timeout(2600)
+    await pg.screenshot(path=os.path.join(SHOTS, 'ph_polish_meeting.png'))
+    c.ok(not errs, f'polish: no page errors ({errs[:3]})')
+    await b.close()
+
+
 async def main():
     c = Checks()
     async with async_playwright() as p:
@@ -385,6 +480,7 @@ async def main():
                 await mine_views(c, pg)
             c.ok(not errs, f'{"phone" if phone else "desktop"}: no page errors ({errs[:3]})')
             await b.close()
+        await polish(c, p)
     sys.exit(c.done())
 
 asyncio.run(main())

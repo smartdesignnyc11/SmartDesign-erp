@@ -142,7 +142,8 @@ async def run_meeting(c, p, uid, phone):
     c.ok(lay['acts'] == ['New Date', 'Add a Note', 'Done', 'Reassign', 'Waiting On', 'Track Until', 'FYI', 'Skip'], f'{tag}: the eight actions in order: {lay["acts"]}')
     c.ok(lay['blue'] == ['New Date'], f'{tag}: New Date is the one blue button: {lay["blue"]}')
     c.ok(min(lay['h'] or [0]) >= 56, f'{tag}: the actions are 56px tall: {lay["h"]}')
-    c.ok(lay['rows'] == (4 if phone else 2), f'{tag}: the actions sit in {"4 rows of 2" if phone else "a 4 by 2 grid"} ({lay["rows"]} rows)')
+    # a 4 by 2 grid on the phone too (polish lane, 2026-10-24): all eight on the first screen, above Previous and Next
+    c.ok(lay['rows'] == 2, f'{tag}: the actions sit in a 4 by 2 grid ({lay["rows"]} rows)')
     c.ok(re.search(r'Task \d+ of \d+', lay['ctx']), f'{tag}: above the card, the project and Task n of m ({lay["ctx"]})')
     c.ok(lay['title'] >= (24 if phone else 32), f'{tag}: the title is {lay["title"]}px')
     c.ok('Next Task' in lay['next'], f'{tag}: the dark Next Task button')

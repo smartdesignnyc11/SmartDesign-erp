@@ -76,8 +76,10 @@ async def list_checks(c, pg, label, phone):
             if m['rows']:
                 c.ok(m['above'] >= min(3, len(m['rows'])), f'{who}: at least three rows above the fold ({m["above"]})')
         else:
-            n = await pg.evaluate("() => { const b = document.querySelector('.view.on [data-t2view=\"week\"] .n'); return b ? +b.textContent : 0; }")
-            c.ok(n == soon, f'{who}: the Due Soon chip on the wide screen reads the same number ({n} vs {soon})')
+            # on Tasks the saved tab My Week carries the Due Soon number (one filter row, 2026-10-24); a field
+            # screen keeps the Due Soon chip
+            n = await pg.evaluate("() => { const b = document.querySelector('.view.on [data-tvview=\"b:week\"] .n') || document.querySelector('.view.on [data-t2view=\"week\"] .n'); return b ? +b.textContent : 0; }")
+            c.ok(n == soon, f'{who}: the Due Soon number on the wide screen reads the same ({n} vs {soon})')
         day = lambda g: g in ('Overdue', 'Today', 'Tomorrow', 'No Date', 'Later On') or g.count(',') == 1
         c.ok(soon == 0 or (m['groups'] and all(day(g) for g in m['groups'])), f'{who}: grouped by day ({m["groups"][:4]})')
         # one number: Today, Overdue and Due Soon, the list against the counts and Ask
