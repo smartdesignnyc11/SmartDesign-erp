@@ -2300,6 +2300,8 @@ tkRecReady = !0;
 #v-tkall:has(#tkall-body>.mm){padding:0;background:#F7F8FA}
 .mm-desk{height:calc(100vh - 52px);min-height:640px}
 .mm>.ph.mm-ph{display:none}
+/* a meeting on a wide screen is a screen share: the sub-tabs step aside so the card and Next Task fit in one frame */
+body:has(#tkall-body>.mm-desk) #subnav{display:none !important}
 .mm-top{display:flex;align-items:center;gap:14px;padding:16px 28px;background:#fff;border-bottom:1px solid var(--mm-line);min-width:0}
 .mm-top .btn{min-height:40px;height:40px;padding:0 16px;border:1px solid var(--mm-btn);border-radius:10px;background:#fff;color:var(--mm-ink);font-size:14px;font-weight:600;display:inline-flex;align-items:center}
 .mm-live{display:inline-flex;align-items:center;gap:8px;flex:0 0 auto;height:30px;padding:0 12px;border-radius:999px;background:#FDECEA;color:#B42318;font-size:13px;font-weight:700;white-space:nowrap}
@@ -2422,11 +2424,11 @@ tkRecReady = !0;
   .mm-phlog>summary::-webkit-details-marker{display:none}
   .mm-phlog[open]>summary{margin-bottom:8px}
   .mm-phlog .mm-rh{display:none}
-  .mm-projchip{display:inline-flex;align-items:center;gap:6px;flex:0 1 auto;min-width:0;max-width:62%;height:36px;padding:0 12px;border:1px solid #E2E5EB;border-radius:999px;background:#fff;font-size:13px;font-weight:600;color:var(--mm-ink);cursor:pointer}
+  #v-tkall .mm-projchip{display:inline-flex;align-items:center;gap:6px;flex:0 1 auto;min-width:0;max-width:62%;height:40px;padding:0 12px;border:1px solid #E2E5EB;border-radius:999px;background:#fff;font-size:13px;font-weight:600;color:var(--mm-ink);cursor:pointer}
   .mm-projchip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .mm-projchip svg{flex:0 0 auto}
   .mm-top-ph .mm-pbar{flex:1 1 auto;width:auto;min-width:24px}
-  .mm-prog-ph{font-size:12px;color:var(--mm-ink2);gap:0}
+  .mm-top-ph .mm-prog-ph{display:inline;font-size:12px;color:var(--mm-ink2)}
   .mm-phone .mm-body{display:block}
   .mm-phone .mm-main{padding:12px 16px;gap:12px;overflow:visible}
   .mm-phone .mm-card{padding:16px;border-radius:16px;gap:10px;box-shadow:0 0 0 1px var(--mm-line)}
@@ -2466,6 +2468,7 @@ tkRecReady = !0;
   .mm-addrow{flex-wrap:wrap}
   .mm-addrow .tks-in{flex:1 1 100%}
   #v-tkall .mm .mm-mlink{min-width:44px}
+  #v-tkall .mm-phone .mm-log .mm-mlink{min-height:40px;display:inline-flex;align-items:center}
 }`;
   try {
     const s = document.createElement("style");

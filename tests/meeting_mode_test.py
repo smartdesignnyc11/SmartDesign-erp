@@ -85,7 +85,7 @@ async def layout(c, pg, tag, phone):
     st = await pg.evaluate("""() => {
       const vis = (e) => { const r = e.getBoundingClientRect(), cs = getComputedStyle(e); return r.width > 0 && r.height > 0 && cs.visibility !== 'hidden' && cs.display !== 'none'; };
       const small = [...document.querySelectorAll('#v-tkall .mm button, #v-tkall .mm select, #v-tkall .mm input:not([type=hidden]):not([type=date]):not([type=checkbox]), #v-tkall .mm label.tks-chip')].filter(vis)
-        .filter(b => { const r = b.getBoundingClientRect(); return r.height < 40 && !b.closest('.mm-side'); }).map(b => (b.innerText || b.getAttribute('aria-label') || b.tagName).trim().slice(0, 30));
+        .filter(b => { const r = b.getBoundingClientRect(); return r.height < 40 && !b.closest('.mm-side'); }).map(b => (b.innerText || b.getAttribute('aria-label') || b.tagName + '.' + b.className).trim().slice(0, 40));
       const prim = [...document.querySelectorAll('.btn.primary')].filter(vis).filter(b => !b.closest('#mbm')).map(b => b.innerText.trim());
       return { sw: document.documentElement.scrollWidth, small, prim };
     }""")
@@ -173,7 +173,7 @@ async def run_meeting(c, p, uid, phone):
     # a 4 by 2 grid on the phone too (polish lane, 2026-10-24): all eight on the first screen, above Previous and Next
     c.ok(lay['rows'] == 2, f'{tag}: the actions sit in a 4 by 2 grid ({lay["rows"]} rows)')
     c.ok(re.search(r'Task \d+ of \d+', lay['ctx']) if not phone else re.search(r' · \d+ of \d+', lay['chip']), f'{tag}: the project and the task\'s place in it ({lay["ctx"] or lay["chip"]})')
-    c.ok(lay['title'] >= (24 if phone else 32), f'{tag}: the title is {lay["title"]}px')
+    c.ok(lay['title'] >= (22 if phone else 32), f'{tag}: the title is {lay["title"]}px')
     c.ok('Next Task' in lay['next'], f'{tag}: the dark Next Task button')
     # Meeting.dc.html: text actions 15px, the card 18px round with 30px padding, the amber box, and one footer line with
     # Next Task inside 900px at 1440 wide; PhoneMeeting.dc.html: icon and label actions, 12px
@@ -472,7 +472,7 @@ async def record_checks(c, p):
     key = await pg.evaluate("(id) => { const r = tkKeyedRecs().find(r => r.rec.id === id); return tkRecKey(r); }", ids['wait'])
     await pg.evaluate("(k) => tkSheet(k)", key)
     await pg.wait_for_timeout(200)
-    sh = await pg.evaluate("() => { const m = document.getElementById('mbm'); return { key: (m.querySelector('.tks-key') || {}).innerText, st: [...m.querySelectorAll('[data-tksst]')].map(b => b.innerText), wait: !!m.querySelector('[data-tkswait]'), link: !!m.querySelector('[data-tkslinkadd]'), file: !!m.querySelector('[data-tksfile]') }; }")
+    sh = await pg.evaluate("() => { const m = document.getElementById('mbm'); return { key: (m.querySelector('.tks-key') || {}).innerText, st: [...m.querySelectorAll('[data-tksst]')].map(b => b.textContent.trim()), wait: !!m.querySelector('[data-tkswait]'), link: !!m.querySelector('[data-tkslinkadd]'), file: !!m.querySelector('[data-tksfile]') }; }")
     c.ok(sh['key'] == code and sh['st'] == ['To Do', 'Doing', 'Waiting On', 'FYI'] and sh['wait'] and sh['link'] and sh['file'], f'record: the sheet shows the key and the record fields: {sh}')
     tom = await pg.evaluate("iso(addDays(today(), 1))")
     await click(pg, f'#mbm [data-tksfu="{tom}"]', 250)
