@@ -29,6 +29,11 @@ Status: **Built** (merged and tested) · **Building** (a lane is on it) · **Spe
 
 The overnight run of 2026-10-19 builds on the defaults above and does not decide them. The menu and navigation questions from `docs/MENU_DRAFT.md` were waiting on Alan; they were decided overnight under his instruction (below) and are no longer waiting.
 
+## 2026-10-24
+| Ask or decision | Where it lives | Status |
+|---|---|---|
+| "Deploy" (Monday's task build): deployed with the schema; live checks pass (db 74, app 34, field jobs 28, assistant 6). Then, on the screenshots: "Deploy the fixes when they're done". This approves deploying the polish lane's fixes (IDs on every task, initials on avatars, one filter row, the cut-off column, phone Meeting Mode actions on the first screen, the stray sidebar box, Waiting On demo rows) once they pass | `docs/PLAN.md` | Building |
+
 ## 2026-10-23
 | Ask or decision | Where it lives | Status |
 |---|---|---|
