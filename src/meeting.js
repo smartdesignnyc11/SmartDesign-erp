@@ -2293,6 +2293,7 @@ tkRecReady = !0;
   .mm-phone{padding-bottom:84px;gap:10px}
   .mm-phone .mm-main{gap:10px}
   .mm-phone .mm-card{gap:10px}
+  .mm-phone>.ph.mm-ph{display:none}
   .mm-top.mm-top-ph{flex-wrap:nowrap;gap:8px;padding:0 0 8px;position:relative}
   .mm-top-ph .mm-live{flex:0 0 auto;font-size:12px;padding:0 9px;gap:5px}
   .mm-phttl{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:15px}
