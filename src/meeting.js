@@ -271,9 +271,11 @@ function tkRecSweep() {
           r.rec.code = `${P}-${meta.keyNext++}`;
         });
     });
-    // one code, one task: the first made keeps it
-    const seen = {},
-      order = R.slice().sort((a, b) => String(a.rec.createdAt || a.rec.created || "").localeCompare(String(b.rec.createdAt || b.rec.created || "")) || String(a.rec.id).localeCompare(String(b.rec.id)));
+    // one code, one task: a board task (a to-do, the firm's own, a sales task: what the meeting and an Asana import
+    // name by code) keeps it over a schedule line, field item, lead or renewal; then the first made keeps it
+    const rank = (r) => (/^(action|firm|hub)$/.test(r.kind) ? 0 : 1),
+      seen = {},
+      order = R.slice().sort((a, b) => rank(a) - rank(b) || String(a.rec.createdAt || a.rec.created || "").localeCompare(String(b.rec.createdAt || b.rec.created || "")) || String(a.rec.id).localeCompare(String(b.rec.id)));
     order.forEach((r) => {
       const c = String(r.rec.code || "").trim();
       if (!c) return;
