@@ -15577,7 +15577,7 @@ function cashForecast() {
     // A bill the bank or a card already paid (paid before approval) is not money still to go out: forecast, it
     // took Window Works' $33,500 (paid on the Amex 8/25) and AMP-311's $9,800 (check 2205) out a second time.
     DB.bills
-      .filter((b) => ["submitted", "pm-approved", "approved"].includes(b.status) && !b.txnId && !b.paidAt && !("function" == typeof billPaidUnapproved && billPaidUnapproved(b)))
+      .filter((b) => ["submitted", "pm-approved", "approved"].includes(b.status) && !b.txnId && !b.paidAt && !("function" == typeof billBankCovers && billBankCovers(b)))
       .forEach((b) => put(b.due >= today() ? b.due : iso(addDays(td, 3)), -billTotal(b), `Bill ${b.vendor}`)),
     // What the firm owes on its cards is cash still to leave the bank. The statement due date is not on file, so
     // the balance is placed two weeks out and says so.
@@ -24625,7 +24625,7 @@ function lineLabor(doc, line) {
 }
 function lineBillIsBankDup(b) {
   try {
-    return BILL_ACCRUED.includes(b.status) && billPaidUnapproved(b) && !finBillCarriesCost(b);
+    return BILL_ACCRUED.includes(b.status) && ((billPaidUnapproved(b) && !finBillCarriesCost(b)) || billEarlyIsBankCost(b));
   } catch (e) {
     return !1;
   }
@@ -33953,8 +33953,12 @@ function bankBeforeBill(b, t) {
 function bankHeldByOther(b, t) {
   return (DB.bills || []).some((o) => o !== b && o.txnId === t.id && !["void", "rejected"].includes(o.status));
 }
-function billMatchTxn(b) {
+// o.early: look only at lines dated before the bill, for "possibly already paid" (billEarlyTxn). Such a line is
+// proposed, never linked, until a person confirms it with a reason or says it is a separate payment.
+function billMatchTxn(b, o) {
+  const early = !!(o && o.early);
   if (b.txnId) {
+    if (early) return null;
     const t = DB.txns.find((x) => x.id === b.txnId) || null;
     return t && bankBeforeBill(b, t) && !["paid", "verified"].includes(b.status) ? null : t;
   }
@@ -33965,8 +33969,9 @@ function billMatchTxn(b) {
   return (
     DB.txns.find(
       (t) =>
-        !bankBeforeBill(b, t) &&
+        early === bankBeforeBill(b, t) &&
         !bankHeldByOther(b, t) &&
+        !(early && ((t.rejectedBills || []).includes(b.id) || (t.proposal && ("bill" !== t.proposal.kind || t.proposal.billId !== b.id)))) &&
         ((t.amt < 0 &&
           !t.billId &&
           t.billId !== b.id &&
@@ -37155,7 +37160,7 @@ renderClients = function () {
   });
 };
 const matchPOBase = matchPO;
-function confirmMatch(t) {
+function confirmMatch(t, why) {
   const P = t.proposal;
   if (!P) return;
   const by = S.project.userName || role();
@@ -37178,6 +37183,13 @@ function confirmMatch(t) {
   if ("bill" === P.kind) {
     const b = DB.bills.find((x) => x.id === P.billId);
     if (!b) return void (t.proposal = null);
+    // a line dated before the bill pays it only with a person's reason (bankBeforeBill); without one the proposal
+    // stays, and the bill stays held as possibly already paid
+    if (bankBeforeBill(b, t)) {
+      const w = String(why || "").trim();
+      if (!w) return !1;
+      b.earlyMatch = { txnId: t.id, by: by, at: appNowIso(), why: w };
+    }
     (b.txnId = t.id),
       (t.billId = b.id),
       b.paidAt || (b.paidAt = t.date),
@@ -37306,7 +37318,19 @@ function wireProposals(root) {
   (root || document).querySelectorAll("[data-mconfirm]").forEach(
     (b) =>
       (b.onclick = () => {
-        const t = DB.txns.find((x) => x.id === b.dataset.mconfirm);
+        const t = DB.txns.find((x) => x.id === b.dataset.mconfirm),
+          P = t && t.proposal,
+          bill = P && "bill" === P.kind && DB.bills.find((x) => x.id === P.billId);
+        if (bill && bankBeforeBill(bill, t))
+          return billAskWhy(
+            `Confirm the Payment — ${esc(bill.vendor)}`,
+            `${money(-t.amt)} left the bank on ${fmtL(t.date)}, before bill ${esc(bill.number || "")} (${fmtL(bill.date)}). Say why this line pays this bill. If it paid something else, use Not this and the bill is paid on its own.`,
+            "Confirm the Payment",
+            "e.g. the vendor dated the bill after we paid the progress draw",
+            (w) => {
+              confirmMatch(t, w), render(), toast("Match confirmed", txnOpen(t));
+            },
+          );
         confirmMatch(t), render(), toast("Match confirmed", txnOpen(t));
       }),
   ),
@@ -37324,7 +37348,21 @@ linkBankToBills = function () {
     DB.bills
       .filter((b) => !["void", "rejected", "draft"].includes(b.status) && !b.txnId && !b.ic)
       .forEach((b) => {
-        const t = billMatchTxn(b);
+        let t = billMatchTxn(b);
+        // a line dated before the bill: "possibly already paid", held for a person (billEarlyTxn); never linked here
+        if (!t && !["paid", "verified"].includes(b.status)) {
+          const e = billMatchTxn(b, { early: !0 });
+          return void (
+            e &&
+            !e.proposal &&
+            proposeMatch(e, {
+              kind: "bill",
+              billId: b.id,
+              early: !0,
+              why: `Possibly already paid: ${esc(e.vendor || e.desc)} · ${money(-e.amt)} on ${fmt(e.date)} is dated before bill ${b.number} (${fmt(b.date)}). Confirm it with a reason, or say it is a separate payment`,
+            })
+          );
+        }
         !t ||
           t.proposal ||
           (t.rejectedBills || []).includes(b.id) ||
@@ -72432,7 +72470,9 @@ if ("function" == typeof confirmMatch) {
           void (t.proposal = null)
         );
     }
-    if ((confirmMatchBase_pay(t), P && "bill" === P.kind)) {
+    // the reason travels on (an early line needs one); a refused confirm records no payment
+    if (!1 === confirmMatchBase_pay.apply(this, arguments)) return !1;
+    if (P && "bill" === P.kind) {
       payInit();
       const b = DB.bills.find((x) => x.id === P.billId);
       if (!b) return;
@@ -122868,6 +122908,38 @@ function billPaidTxn(b) {
 function billsPaidUnapproved() {
   return (DB.bills || []).filter(billPaidUnapproved);
 }
+// "Possibly already paid" (Alan's financial truth, 2026-10-24): a bank line dated before the bill, same vendor and
+// amount, that a person has neither confirmed with a reason (b.earlyMatch) nor called a separate payment ("Not
+// this", t.rejectedBills). The money that left the bank is real cost and counts once, on that line; the bill is
+// held out of the cash forecast, Payables and the Payment Run so it is not paid twice, and the line stays a flag
+// (its proposal) until a person decides. AMP-311 ($9,800, 9/2) and check 2205 (8/15) are the case.
+function billEarlyTxn(b) {
+  if (!b || FIN_BILL_CLOSED.includes(b.status) || b.ic || "function" != typeof billMatchTxn) return null;
+  const sig = finSig(),
+    c = billEarlyTxn._c;
+  if (!c || c.sig !== sig) billEarlyTxn._c = { sig: sig, map: {} };
+  const M = billEarlyTxn._c.map;
+  if (b.id in M) return M[b.id];
+  let t = null;
+  if (!billPaidTxn(b)) {
+    const T = DB.txns || [];
+    t =
+      T.find((x) => (x.billId === b.id || (b.txnId && x.id === b.txnId)) && bankBeforeBill(b, x)) ||
+      T.find((x) => x.proposal && "bill" === x.proposal.kind && x.proposal.billId === b.id && bankBeforeBill(b, x)) ||
+      (b.txnId ? null : billMatchTxn(b, { early: !0 }));
+    t && (t.rejectedBills || []).includes(b.id) && (t = null);
+  }
+  return (M[b.id] = t || null);
+}
+// The bank paid it, or possibly did: one rule for what is not money still to pay (forecast, Payables, the run).
+function billBankCovers(b) {
+  return !!b && (billPaidUnapproved(b) || !!billEarlyTxn(b));
+}
+// The bank line carries this bill's cost on its own (not linked to the bill), so the bill is the same money again.
+function billEarlyIsBankCost(b) {
+  const t = billEarlyTxn(b);
+  return !!t && t.billId !== b.id;
+}
 function finBillOfTxn(t) {
   if (!t || t.amt >= 0) return null;
   const sig = finSig(),
@@ -123087,7 +123159,7 @@ function apAging(asOf) {
     wk = iso(addDays(parse(td), 7)),
     items = [];
   (DB.bills || [])
-    .filter((b) => !FIN_BILL_CLOSED.includes(b.status) && !b.ic && !billPaidUnapproved(b))
+    .filter((b) => !FIN_BILL_CLOSED.includes(b.status) && !b.ic && !billBankCovers(b))
     .forEach((b) =>
       items.push({
         kind: "bill",
@@ -123226,14 +123298,15 @@ if ("function" == typeof jobFin) {
   jobFin = function (p, range) {
     const J = jobFinBase_fin.apply(this, arguments),
       R = range || ["", today()],
-      // out of job cost: a bill the bank paid whose bank line already carries the cost, and a bill submitted and
-      // not yet approved or paid. That is companyPL's rule ("nothing submitted and unpaid is in either"); job cost
-      // kept the unpaid ones until 2026-10-21, hidden while AMP-311 read as paid by an earlier check (s1fix).
+      // Job cost counts every bill received, awaiting approval too (the firm's rule; Payables names those apart from
+      // the ledger), and every bank line, each money once. Out: a bill awaiting approval whose cost a bank line
+      // already carries, paid (billPaidUnapproved) or possibly paid by an earlier line (billEarlyTxn). The
+      // 2026-10-21 change that took every unpaid submitted bill out dropped real cost on three jobs; reverted.
       dup = (DB.bills || []).filter(
         (b) =>
           b.projectId === p.id &&
           BILL_ACCRUED.includes(b.status) &&
-          (billPaidUnapproved(b) ? !finBillCarriesCost(b) : !0) &&
+          ((billPaidUnapproved(b) && !finBillCarriesCost(b)) || billEarlyIsBankCost(b)) &&
           within(b.date, R),
       );
     if (!dup.length || !J.byCode) return J;
@@ -123295,6 +123368,9 @@ if ("function" == typeof companyBalance) {
       (B.payrollOverdue = A.payrollOverdue),
       (B.paidBeforeApproval = billsPaidUnapproved()),
       (B.paidBeforeApprovalAmt = r2(B.paidBeforeApproval.reduce((a, b) => a + billTotal(b), 0))),
+      (B.possiblyPaid = (DB.bills || []).filter((b) => !billPaidUnapproved(b) && billEarlyTxn(b))),
+      (B.possiblyPaidAmt = r2(B.possiblyPaid.reduce((a, b) => a + billTotal(b), 0))),
+      (B.apAccrued = r2(Math.max(0, (B.apAccrued || 0) - B.possiblyPaid.filter((b) => BILL_ACCRUED.includes(b.status)).reduce((a, b) => a + billTotal(b), 0)))),
       (B.cashToday = r2(B.cash + B.cards - B.ap - B.payrollAccrued)),
       (B.trulyOurs = r2(B.cashToday - (B.over || 0))),
       (B.available = r2(B.cash - (B.clientFunds || 0))),
@@ -123695,14 +123771,24 @@ if ("function" == typeof billState) {
   billState = function (b) {
     return b && b.lines && billPaidUnapproved(b)
       ? { cls: "bad", text: "Paid — Unapproved" }
-      : billStateBase_fin.apply(this, arguments);
+      : b && b.lines && billEarlyTxn(b)
+        ? { cls: "warn", text: "Possibly Paid — Held" }
+        : billStateBase_fin.apply(this, arguments);
   };
 }
 if ("function" == typeof billFlags) {
   const billFlagsBase_fin = billFlags;
   billFlags = function (b) {
     const f = billFlagsBase_fin.apply(this, arguments);
-    return billPaidUnapproved(b) && f.unshift(billPaidUnapprovedText(b)), f;
+    const e = !billPaidUnapproved(b) && billEarlyTxn(b);
+    return (
+      billPaidUnapproved(b) && f.unshift(billPaidUnapprovedText(b)),
+      e &&
+        f.unshift(
+          `Possibly already paid: ${money(Math.abs(+e.amt || 0))} left the bank on ${fmtL(e.date)}, before this bill's date. Held out of the forecast and the Payment Run until a person confirms that payment with a reason, or says it paid something else`,
+        ),
+      f
+    );
   };
 }
 if ("object" == typeof TL_SETS && TL_SETS.ap) {
@@ -133805,7 +133891,15 @@ function fin2PayablesHtml() {
     W = fin2LienWaivers(),
     N = fin2Register1099(),
     T = fin2SalesTax(),
-    ap = `<h3 class="rep-h">AP Aging by Vendor</h3><p class="small muted fin2-sub">as of ${fmtL(A.asOf)} · bills and payroll by days past due</p><div class="tw"><table class="t rep-t fin2-apv"><thead><tr><th>Vendor</th><th class="money">Current</th><th class="money">1–30</th><th class="money">31–60</th><th class="money">60+</th><th class="money">Total</th></tr></thead><tbody>${A.rows.map((r) => `<tr><td>${esc(r.who)}${r.n > 1 ? ` <span class="small muted">${r.n} items</span>` : ""}</td><td class="money">${M(r.current)}</td><td class="money">${M(r.d30)}</td><td class="money">${M(r.d60)}</td><td class="money">${M(r.d90)}</td><td class="money"><b>${money(r.total)}</b></td></tr>`).join("") || '<tr><td colspan="6" class="muted">Nothing open.</td></tr>'}<tr style="font-weight:600"><td>Total</td><td class="money">${money(A.T.current || 0)}</td><td class="money">${money(A.T.d30 || 0)}</td><td class="money">${money(A.T.d60 || 0)}</td><td class="money">${money(A.T.d90 || 0)}</td><td class="money">${money(A.T.total || 0)}</td></tr></tbody></table></div>${A.pbu.length ? `<p class="small muted">Not due, and not in the aging: ${A.pbu.map((b) => `${esc(b.vendor)} ${esc(b.number || "")} ${money(billTotal(b))}`).join("; ")} — paid from the bank before approval; they need a signature, not a payment.</p>` : ""}`,
+    ap = `<h3 class="rep-h">AP Aging by Vendor</h3><p class="small muted fin2-sub">as of ${fmtL(A.asOf)} · bills and payroll by days past due</p><div class="tw"><table class="t rep-t fin2-apv"><thead><tr><th>Vendor</th><th class="money">Current</th><th class="money">1–30</th><th class="money">31–60</th><th class="money">60+</th><th class="money">Total</th></tr></thead><tbody>${A.rows.map((r) => `<tr><td>${esc(r.who)}${r.n > 1 ? ` <span class="small muted">${r.n} items</span>` : ""}</td><td class="money">${M(r.current)}</td><td class="money">${M(r.d30)}</td><td class="money">${M(r.d60)}</td><td class="money">${M(r.d90)}</td><td class="money"><b>${money(r.total)}</b></td></tr>`).join("") || '<tr><td colspan="6" class="muted">Nothing open.</td></tr>'}<tr style="font-weight:600"><td>Total</td><td class="money">${money(A.T.current || 0)}</td><td class="money">${money(A.T.d30 || 0)}</td><td class="money">${money(A.T.d60 || 0)}</td><td class="money">${money(A.T.d90 || 0)}</td><td class="money">${money(A.T.total || 0)}</td></tr></tbody></table></div>${A.pbu.length ? `<p class="small muted">Not due, and not in the aging: ${A.pbu.map((b) => `${esc(b.vendor)} ${esc(b.number || "")} ${money(billTotal(b))}`).join("; ")} — paid from the bank before approval; they need a signature, not a payment.</p>` : ""}${(() => {
+      const H = (DB.bills || []).filter((b) => "function" == typeof billEarlyTxn && !billPaidUnapproved(b) && billEarlyTxn(b));
+      return H.length
+        ? `<p class="small muted">Held, possibly already paid: ${H.map((b) => {
+            const t = billEarlyTxn(b);
+            return `${esc(b.vendor)} ${esc(b.number || "")} ${money(billTotal(b))} (${money(Math.abs(+t.amt || 0))} left the bank ${fmtL(t.date)}, before the bill's date)`;
+          }).join("; ")}. Not paid again until a person confirms that payment with a reason, or says it paid something else.</p>`
+        : "";
+    })()}`,
     ret = `<h3 class="rep-h">Retainage Payable</h3><p class="small muted fin2-sub">held from subs on their bills · ledger 2050 ${money(R.ledger)}</p><div class="tw"><table class="t rep-t fin2-ret"><thead><tr><th>Sub</th><th>Job</th><th class="money">Held</th></tr></thead><tbody>${R.rows.map((r) => `<tr><td>${esc(r.v.name)}</td><td>${nm((DB.projects || []).find((p) => p.id === r.projectId))}</td><td class="money">${money(r.amt)}</td></tr>`).join("") || '<tr><td colspan="3" class="muted">No retainage held from any sub.</td></tr>'}<tr style="font-weight:600"><td>Total</td><td></td><td class="money">${money(R.total)}</td></tr></tbody></table></div>`,
     wv = `<h3 class="rep-h">Lien-Waiver Register</h3><p class="small muted fin2-sub">${W.open ? `${W.open} paid sub bill${1 === W.open ? "" : "s"} without an unconditional waiver` : "every paid sub bill has its unconditional waiver"}</p><div class="tw"><table class="t rep-t fin2-wv"><thead><tr><th>Sub · Bill</th><th>Job</th><th class="money">Amount</th><th>Paid</th><th>Waiver</th></tr></thead><tbody>${W.rows.map((r) => `<tr class="${r.open ? "warn" : ""}"><td>${esc(r.b.vendor)} <span class="small muted">${esc(r.b.number || "")}</span></td><td>${nm((DB.projects || []).find((p) => p.id === r.b.projectId))}</td><td class="money">${money(billTotal(r.b))}</td><td>${r.paid ? fmt(r.b.paidAt || r.b.date) : '<span class="muted">not yet</span>'}</td><td>${"none" === r.st ? `<span class="pill ${r.paid ? "bad" : ""}">None</span>` : `<span class="pill ${"unconditional" === r.st ? "ok" : "warn"}">${"unconditional" === r.st ? "Unconditional" : "Conditional"}</span>${r.received ? ` <span class="small muted">${fmt(r.received)}</span>` : ""}`}${r.open && fin2CanTax() ? ` <button class="btn sm" data-waiver="${esc(r.b.id)}">Record Waiver</button>` : ""}</td></tr>`).join("") || '<tr><td colspan="5" class="muted">No sub bills.</td></tr>'}</tbody></table></div>`,
     ten = `<h3 class="rep-h">1099 Register · ${N.year}</h3><p class="small muted fin2-sub">${N.due.length} vendor${1 === N.due.length ? "" : "s"} at $600 or more · ${N.missing.length} without a W-9</p><div class="tw"><table class="t rep-t fin2-1099"><thead><tr><th>Vendor</th><th class="money">Paid</th><th class="money">By Card</th><th class="money">Reportable</th><th>W-9</th></tr></thead><tbody>${N.rows.map((r) => `<tr class="${r.over && !r.w9 ? "warn" : ""}"><td>${esc(r.v.name)}${r.v.trade ? ` <span class="small muted">${esc(r.v.trade)}</span>` : ""}</td><td class="money">${money(r.paid)}</td><td class="money">${M(r.card)}</td><td class="money">${money(r.reportable)}${r.over ? ' <span class="pill">1099</span>' : ""}</td><td>${r.w9 ? '<span class="pill ok">On File</span>' : `<span class="pill ${r.over ? "bad" : ""}">Missing</span>`}${r.exempt ? ' <span class="small muted">not a 1099 vendor</span>' : ""}</td></tr>`).join("") || '<tr><td colspan="5" class="muted">No vendor paid this year.</td></tr>'}</tbody></table></div><p class="small muted">Paid = bills marked paid plus bank lines in the vendor's name. Card payments are reported by the card company (1099-K), so they are not in the reportable figure.</p>`,
@@ -170613,7 +170707,7 @@ const AG_FIN = [
       const rank = Object.entries(by).sort((a, b) => b[1] - a[1]),
         B = agBF().B,
         pay = ((A.A && A.A.items) || []).filter((i) => "payroll" === i.kind),
-        extra = [pay.length ? `payroll ${money(pay.reduce((a, i) => a + (+i.amt || 0), 0))} past due is owed to the crew, not a vendor` : "", B.apAccrued ? `${money(B.apAccrued)} is awaiting approval, not owed` : ""].filter(Boolean),
+        extra = [pay.length ? `payroll ${money(pay.reduce((a, i) => a + (+i.amt || 0), 0))} past due is owed to the crew, not a vendor` : "", B.apAccrued ? `${money(B.apAccrued)} is awaiting approval, not owed` : "", (B.possiblyPaid || []).length ? `${(B.possiblyPaid || []).map((b) => `${b.vendor} ${b.number || ""} (${money(billTotal(b))})`.trim()).join("; ")} possibly already paid by an earlier bank line, held until a person confirms it` : ""].filter(Boolean),
         most = "max" === P.measure || /\bmost\b/.test(P.l);
       return {
         headline: rank.length

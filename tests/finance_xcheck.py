@@ -36,7 +36,10 @@ PINNED = {
     'unmatched_amt':   75272,
     'ap_bills':        0,        # vendor bills owed
     'ap_payroll_due':  16040,    # payroll 8/17-8/28, past due
-    'ap_paid_unappr':  43300,    # paid from the bank before approval: NOT owed
+    'ap_paid_unappr':  33500,    # paid from the bank before approval: NOT owed. $43,300 until 2026-10-24, when AMP-311
+                                 # ($9,800, 9/2) stopped reading paid by the earlier 8/15 check 2205: it is held as
+                                 # possibly already paid (ap_maybe_paid) until a person confirms it with a reason
+    'ap_maybe_paid':   9800,     # possibly already paid by an earlier bank line: held, not owed, not paid before approval
     'wip_over':        156274,   # net over-billing on the WIP schedule ($156,274.27; $154,741.80 before truthpct)
     'backlog':         582941,   # contract - earned ($582,940.76; $581,408.29 before truthpct)
     'net':             -5330,    # YTD net, management view (-$5,329.88; -$3,797.41 before truthpct)
@@ -52,11 +55,11 @@ PINNED = {
     'drift':           0,
 }
 FAMILY = lambda k: {'unmatched_n': 'unmatched', 'unmatched_amt': 'unmatched', 'ap_bills': 'ap', 'ap_payroll_due': 'ap',
-                    'ap_paid_unappr': 'ap', 'wip_over': 'wip', 'income': 'net', 'rtb_n': 'rtb', 'pct121': 'job121',
+                    'ap_paid_unappr': 'ap', 'ap_maybe_paid': 'ap', 'wip_over': 'wip', 'income': 'net', 'rtb_n': 'rtb', 'pct121': 'job121',
                     'eac121': 'job121', 'drift': 'ledger', 'tb': 'ledger', 'bridge': 'ledger', 'wiptie': 'wip'}.get(
                         k, 'wip' if k.startswith('wip_job') else k)
 LABEL = {'cash': 'CASH', 'ar': 'AR', 'unmatched_n': 'UNMATCHED (count)', 'unmatched_amt': 'UNMATCHED ($)',
-         'ap_bills': 'AP OWED (bills)', 'ap_payroll_due': 'AP PAYROLL PAST DUE', 'ap_paid_unappr': 'AP PAID BEFORE APPROVAL',
+         'ap_bills': 'AP OWED (bills)', 'ap_payroll_due': 'AP PAYROLL PAST DUE', 'ap_paid_unappr': 'AP PAID BEFORE APPROVAL', 'ap_maybe_paid': 'AP POSSIBLY ALREADY PAID',
          'wip_over': 'WIP OVER-BILLED', 'backlog': 'BACKLOG', 'net': 'NET YTD', 'income': 'INCOME YTD', 'safe': 'SAFE TO SPEND',
          'rtb': 'READY TO BILL', 'rtb_n': 'READY TO BILL (rows)', 'pct121': '121 STATE % COMPLETE', 'eac121': '121 STATE EAC',
          'drift': 'DRIFT', 'tb': 'TRIAL BALANCE', 'bridge': 'LEDGER BRIDGE', 'wiptie': 'WIP TIE 2500/1200'}
@@ -422,6 +425,12 @@ async def check_role(pg, R, uid):
                     R.readings.append({'figure': 'ap_paid_unappr', 'surface': S(s + ' note'), 'raw': m.group(1)[:80], 'value': tot, 'expected': PINNED['ap_paid_unappr'], 'ok': ok})
                     if not ok: R.flag('ap_paid_unappr', S(s + ' "not in the aging" note'), fmt(tot), fmt(PINNED['ap_paid_unappr']))
                 else: R.flag('ap_paid_unappr', S(s), 'not shown', fmt(PINNED['ap_paid_unappr']))
+            if R.want('ap_maybe_paid'):
+                m = re.search(r'Held, possibly already paid:([^\n]*)', t)
+                tot = sum(parse_money(x)[0] for x in re.findall(r'(?:^|; )[^;(]*?' + MONEY + r' \(', m.group(1))) if m else None
+                ok = tot is not None and abs(tot - PINNED['ap_maybe_paid']) <= 1
+                R.readings.append({'figure': 'ap_maybe_paid', 'surface': S(s + ' "possibly already paid" note'), 'raw': (m.group(1)[:80] if m else ''), 'value': tot, 'expected': PINNED['ap_maybe_paid'], 'ok': ok})
+                if not ok: R.flag('ap_maybe_paid', S(s + ' "possibly already paid" note'), fmt(tot) if tot is not None else 'not shown', fmt(PINNED['ap_maybe_paid']))
 
         # Review › Weekly Flash
         await nav(pg, 'reports', None, ['#v-reports [data-reptab="analyst"]', '#v-reports [data-reptab="flash"]']); t = await text_of(pg, 'reports')
