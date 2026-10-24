@@ -84,7 +84,16 @@ async def money_checks(c, pg, tag):
     r = await pg.evaluate("""() => { const b = DB.bills.find(x => x.number === 'AMP-311'), t = DB.txns.find(x => x.id === 't5');
       const caught = tdCaught([]).filter(x => x.key === 'um:' + t.id).map(x => x.what);
       return { paid: !!billPaidTxn(b), pbu: billPaidUnapproved(b), state: billState(b).text, unm: txnUnmatched(t), caught, linked: t.billId || '' }; }""")
-    c.ok(not r['paid'] and not r['pbu'] and 'Paid' not in r['state'], f'{tag}: AMP-311 is not paid by a bank line dated before it ({r})')
+    # not paid, and not dropped either: the earlier check is "possibly already paid", held for a person (financial
+    # truth, 2026-10-24), so the state names that and never reads paid
+    c.ok(not r['paid'] and not r['pbu'] and not r['state'].startswith('Paid') and 'Possibly Paid' in r['state'], f'{tag}: AMP-311 is not paid by a bank line dated before it, and is held as possibly paid ({r})')
+    r2_ = await pg.evaluate("""() => { const b = DB.bills.find(x => x.number === 'AMP-311'), t = DB.txns.find(x => x.id === 't5'), p = DB.projects.find(x => x.id === 'p121');
+      const F = cashForecast(), items = F.weeks.flatMap(w => w.items.map(i => i[0]));
+      return { early: (billEarlyTxn(b) || {}).id || '', prop: !!(t.proposal && t.proposal.billId === b.id), fc: items.filter(x => x.startsWith('Bill Alberto')),
+        run: pcRunnable(Object.assign({}, b, { status: 'approved' })), ap: apAging().items.some(i => i.id === b.id),
+        src: (jobFin(p).byCode.find(x => x.code === '05') || {}).src || [] }; }""")
+    c.ok(r2_['early'] == 't5' and r2_['prop'], f'{tag}: check 2205 is proposed for AMP-311 as possibly paid, a flag until a person decides ({r2_})')
+    c.ok(not r2_['fc'] and not r2_['run'] and not r2_['ap'], f'{tag}: a bill possibly already paid is held out of the forecast, the Payment Run and Payables ({r2_})')
     c.ok(not r['linked'] and bool(r['unm']) == bool(r['caught']) and (not r['caught'] or r['caught'][0].startswith('Not matched')), f'{tag}: the 8/15 check is linked to no bill, and Caught says what Controls says about it ({r})')
     r = await pg.evaluate("""() => { const ex = new Set(openExceptions().map(t => t.id)), C = new Set(tdCaught([]).filter(x => /^um:/.test(x.key)).map(x => x.key.slice(3)));
       const U = bankUnmatched().rows.filter(t => !t.exception).map(t => t.id); return { missingCtl: U.filter(id => !ex.has(id)), missingCaught: U.filter(id => !C.has(id)) }; }""")
