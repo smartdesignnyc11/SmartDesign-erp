@@ -292,6 +292,8 @@ function pcCheck(b, o) {
   const hold = b.onHold && "open" === b.onHold.state ? b.onHold : null,
     paidAt = "function" == typeof billPaidTxn ? billPaidTxn(b) : null;
   hold && H("held", `Held by ${hold.by}: ${hold.why}`, { money: amt, fixed: !0, next: "Open the Bill", act: "open" });
+  const early = !paidAt && "function" == typeof billEarlyTxn ? billEarlyTxn(b) : null;
+  early && H("maybepaid", `Possibly already paid: ${money(Math.abs(+early.amt || 0))} left the bank on ${scDay(early.date)}, before this bill's date. A person confirms that payment with a reason, or says it paid something else, before this is paid`, { money: amt, fixed: !0, next: "Open the Bill", act: "open" });
   paidAt && !["paid", "verified"].includes(b.status) && H("paidbank", `Already paid: ${money(Math.abs(+paidAt.amt || 0))} left the bank on ${scDay(paidAt.date)}; paying it again would pay it twice`, { money: amt, fixed: !0, next: "Open the Bill", act: "open" });
   const createdBy = scLow(b.createdBy),
     vendorBy = scLow(v && v.createdBy);
@@ -1830,7 +1832,9 @@ function pcRunnable(b) {
     billTotal(b) > 0 &&
     pcOpen(b) > 0.005 &&
     !(b.onHold && "open" === b.onHold.state) &&
-    !("function" == typeof billPaidTxn && billPaidTxn(b))
+    !("function" == typeof billPaidTxn && billPaidTxn(b)) &&
+    // possibly already paid by an earlier bank line: held until a person confirms it or calls it separate
+    !("function" == typeof billEarlyTxn && billEarlyTxn(b))
   );
 }
 function pcRunHtml() {

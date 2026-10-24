@@ -495,7 +495,8 @@ function rpTies(range, only) {
   safe("ap", () => {
     const B = companyBalance(),
       A = apAging(today()),
-      unpaid = (b) => !(b.paidAt || b.txnId) && !b.ic && !("function" == typeof billPaidUnapproved && billPaidUnapproved(b)),
+      // paid by the bank, or possibly paid by an earlier line and held for a person (billBankCovers): not owed
+      unpaid = (b) => !(b.paidAt || b.txnId) && !b.ic && !("function" == typeof billBankCovers && billBankCovers(b)),
       approvedOpen = (DB.bills || []).filter((b) => "approved" === b.status && unpaid(b)),
       openAmt = rpSum(approvedOpen, (b) => billTotal(b)),
       waiting = (DB.bills || []).filter((b) => BILL_ACCRUED.includes(b.status) && unpaid(b)),
@@ -713,7 +714,7 @@ function rpDrillRows(key) {
     const ac = (DB.accounts || []).find((x) => x.id === a);
     ac && rpOutstanding(ac).forEach((p) => out.push({ date: p.date, desc: `${p.vendor || ""} · payment recorded, not yet at the bank`, amt: -(+p.amount || 0), kind: "payment", open: p.billId ? { type: "bill", b: (DB.bills || []).find((x) => x.id === p.billId) } : null, manual: !1 }));
   } else if ("ap" === kind && "waiting" === a) {
-    (DB.bills || []).filter((b) => BILL_ACCRUED.includes(b.status) && !(b.paidAt || b.txnId) && !b.ic && !("function" == typeof billPaidUnapproved && billPaidUnapproved(b))).forEach((b) => out.push({ date: b.due || b.date, desc: `${b.vendor} · ${b.number} · awaiting approval`, amt: billTotal(b), kind: "bill", b: b, open: { type: "bill", b: b } }));
+    (DB.bills || []).filter((b) => BILL_ACCRUED.includes(b.status) && !(b.paidAt || b.txnId) && !b.ic && !("function" == typeof billBankCovers && billBankCovers(b))).forEach((b) => out.push({ date: b.due || b.date, desc: `${b.vendor} · ${b.number} · awaiting approval`, amt: billTotal(b), kind: "bill", b: b, open: { type: "bill", b: b } }));
   } else if ("ap" === kind) {
     (DB.bills || []).filter((b) => "approved" === b.status && !(b.paidAt || b.txnId) && !b.ic).forEach((b) => out.push({ date: b.due || b.date, desc: `${b.vendor} · ${b.number}`, amt: billTotal(b), kind: "bill", b: b, open: { type: "bill", b: b } }));
   } else if ("cash" === kind) {
