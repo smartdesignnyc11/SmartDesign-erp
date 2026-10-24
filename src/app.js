@@ -104861,7 +104861,10 @@ function b3Dates(root) {
 function b3OnePrimary(root) {
   if (!root) return;
   document.body.classList.remove("has-saybar");
+  // a fixed button has no offsetParent (nor has a hidden one): only those few are styled and measured, not every
+  // button on the page (the task list's hundreds took about 0.1 s a draw on a phone)
   const fixed = [...document.querySelectorAll("button, .btn")].find((b) => {
+    if (null !== b.offsetParent) return !1;
     const cs = getComputedStyle(b),
       r = b.getBoundingClientRect();
     return (
