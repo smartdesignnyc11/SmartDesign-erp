@@ -2187,6 +2187,9 @@ function tvWaitSeed() {
 #v-tkall .tv-saved .tv-quiet{margin-left:auto;align-self:center;min-height:36px;background:none;border:0;color:var(--tv-ink2);font-size:13px}
 #v-tkall .tv-saved .tv-quiet+.tv-quiet{margin-left:0}
 #v-tkall .tv-hdtools .t2-q{flex:0 1 300px;min-width:180px;height:40px;border-radius:10px}
+/* the layouts and search keep their size; the title's lead line gives way (at 1280 the search ran under Start Meeting) */
+#v-tkall .tv-on .ph>div:first-child{flex:1 1 0}
+#v-tkall .tv-hdtools{flex:0 1 auto;min-width:min-content}
 #v-tkall .tv-outline,#v-tkall .tv-on .ph .acts [data-mmstart]{background:#fff;border:1px solid var(--tv-accent);color:var(--tv-accent);font-weight:600}
 #v-tkall .tk-mode.tv-modes{background:#EEF0F3;border-radius:10px;padding:3px;border:0;gap:2px}
 #v-tkall .tk-mode.tv-modes button{display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:8px;background:none;color:var(--tv-ink2);font-weight:500;padding:0 14px}
