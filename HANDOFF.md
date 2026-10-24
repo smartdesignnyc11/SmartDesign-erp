@@ -73,7 +73,7 @@ The cloud workspace that built rounds 1–5 was reclaimed. Four things were lost
 | Cash | $184,231 |
 | AR | $92,265 |
 | Unmatched bank lines | 16 · $75,272 |
-| AP owed | $0 bills + $16,040 payroll past due ($43,300 is awaiting approval, not owed) |
+| AP owed | $0 bills + $16,040 payroll past due ($33,500 paid from the bank before approval, and AMP-311 $9,800 held as possibly already paid by the earlier check 2205: neither is owed) |
 | WIP over-billed | $156,274 |
 | Backlog | $582,941 |
 | Net YTD | −$5,330 (income $142,759) |
