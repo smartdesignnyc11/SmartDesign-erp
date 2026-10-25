@@ -906,24 +906,25 @@ function bbTodayItems() {
   // day's other work (urgency 3, tier 9). Seventeen lines ranked first pushed the
   // vendors' new delivery dates (Tino 9/18, the trim 9/17, the millwork slip) out of the coordinator's top five in the
   // scripted month (262 -> 257 on time); the Buy Board chip lists them all, and the board is one tap away.
-  // A line ready to order (vendor and price, no open decision) ranks first: Order is one tap and the safe next step.
-  // Then what the site needs within five working days, then late, then need-by. Ranked by need-by alone, lines nobody
-  // could order yet (the trim allowance with no vendor, the Lenox paint with no price) held the top three for the whole
-  // scripted month, and the quoted garden bath tile (Nemo, $2,880, order by 9/30) never reached Do Now (E258). The ones
-  // that need a vendor or a price stay on the Buy Board chip and the board's Late section, with Ask for Quotes.
+  // A line ready to order ranks first: its card's step is Order (the order sheet, not the board), it has a vendor and a
+  // price and no open decision, so one tap clears it. Then what the site needs within five working days, then late,
+  // then need-by. Ranked by need-by alone, lines nobody could order yet (the trim allowance with no vendor, the Lenox
+  // paint with no price) held the top three for the whole scripted month, and the quoted garden bath tile (Nemo, $2,880,
+  // order by 9/30) reached Do Now a day after its delivery mail (E258). The ones that need a vendor or a price stay on
+  // the Buy Board chip and the board's Late section, with Ask for Quotes.
   const td = today(),
-    soon = (x) => String(x.needBy || "9999"),
-    now = (x) => (x.needBy && (x.needBy <= td || wd(td, x.needBy) <= 5) ? 0 : 1),
-    ready = (x) => (!x.ordered && x.vendor && +x.price > 0 && !x.dec ? 0 : 1),
+    I = R.map((x) => bbTodayCards(x)),
+    soon = (i) => String(i.x.needBy || "9999"),
+    now = (i) => (i.x.needBy && (i.x.needBy <= td || wd(td, i.x.needBy) <= 5) ? 0 : 1),
+    ready = (i) => (i.ea.order && i.x.vendor && +i.x.price > 0 && !i.x.dec ? 0 : 1),
     first = new Set(
-      R.slice()
-        .sort((a, b) => ready(a) - ready(b) || now(a) - now(b) || (a.late ? 0 : 1) - (b.late ? 0 : 1) || soon(a).localeCompare(soon(b)) || ("promise" === a.lateKind ? 0 : 1) - ("promise" === b.lateKind ? 0 : 1))
-        .slice(0, BB_TODAY_CARDS)
-        .map((x) => x.id),
+      I.slice()
+        .sort((a, b) => ready(a) - ready(b) || now(a) - now(b) || (a.x.late ? 0 : 1) - (b.x.late ? 0 : 1) || soon(a).localeCompare(soon(b)) || ("promise" === a.x.lateKind ? 0 : 1) - ("promise" === b.x.lateKind ? 0 : 1))
+        .slice(0, BB_TODAY_CARDS),
     );
   // the rest rank after the day's other work whatever their dates (urgency 3, tier 9): the lines past order-by all read
   // "passed", so a tier alone kept every one of them above this week's quoted line
-  return R.map((x) => Object.assign(bbTodayCards(x), first.has(x.id) ? {} : { tier: 9, urgency: 3 }));
+  return I.map((i) => (first.has(i) ? i : Object.assign(i, { tier: 9, urgency: 3 })));
 }
 const BB_TODAY_CARDS = 3;
 // The card: Order for a line still to buy, Fix for an ordered one whose promise is late (Expedite, Other Vendor, Move
