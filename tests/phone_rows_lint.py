@@ -28,7 +28,7 @@ from harness import *
 ROLES = ['u_owner', 'u_alan', 'u_chen', 'u_billing', 'u_controller', 'u_sarah', 'u_angel', 'u_alberto', 'u_alex']
 # pages another lane owns right now (CLAUDE.md lane rules): reported, not flagged
 OWNED = {'proc': 'procurement P1', 'ovbuy': 'procurement P1', 'rfq': 'procurement P1', 'po': 'procurement P1',
-         'tkall': 'taskfix'}
+         'tkall': 'taskfix', 'tasks': 'taskfix'}
 
 ENTRIES = r"""() => { const B = mnBuild(role()); if (!B) return [];
   const groups = B.field ? [{ id: 'field', items: B.bar.concat(B.rest, B.more) }] : B.groups.concat(B.more.length ? [{ id: 'more', items: B.more }] : []);

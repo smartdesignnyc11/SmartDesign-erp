@@ -86,12 +86,14 @@ const prTxt = (el) => (el ? (el.textContent || "").replace(/\s+/g, " ").trim() :
   .view.pr-page .ph .lead{display:none}
   .view.pr-page .ph .acts{display:flex;flex-wrap:wrap;gap:8px;width:100%}
   .view.pr-page .ph .acts>.btn{flex:1 1 0;width:auto;min-width:0;min-height:44px}
-  /* every target on a phone page is 44px tall (lint TARGET_SMALL): the shared classes, not each button */
-  .view .btn,.view .btn.sm,.view .seg button,.view .ctabs button,.view .sub-tabs button,.view select,.view input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]),.view .chip,.view .hb-btn,.view .hb-viewtab,.view [role=tab],.view .nm-act,.view .mic,.view .ov-stat,.view [role=button],.view .sel-rooms button,.view .sp-groups button,.view .sp-nav button{min-height:44px !important}
-  .view .glance.tl>.gl,.view .glance.tl-auto>.gl{height:44px !important;min-height:44px !important}
-  .view .seg{min-height:44px}
-  .view input.q{height:44px !important}
-  .view label.chip{min-height:44px !important}
+  /* every target on a phone page is 44px tall (lint TARGET_SMALL): the shared classes, not each button; the
+     Tasks page is the taskfix lane's and sets its own */
+  .view:not(#v-tkall):not(#v-tasks) .btn,.view:not(#v-tkall):not(#v-tasks) .btn.sm,.view:not(#v-tkall):not(#v-tasks) .seg button,.view:not(#v-tkall):not(#v-tasks) .ctabs button,.view:not(#v-tkall):not(#v-tasks) .sub-tabs button,.view:not(#v-tkall):not(#v-tasks) select,.view:not(#v-tkall):not(#v-tasks) input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]),.view:not(#v-tkall):not(#v-tasks) .chip,.view:not(#v-tkall):not(#v-tasks) .hb-btn,.view:not(#v-tkall):not(#v-tasks) .hb-viewtab,.view:not(#v-tkall):not(#v-tasks) [role=tab],.view:not(#v-tkall):not(#v-tasks) .nm-act,.view:not(#v-tkall):not(#v-tasks) .mic,.view:not(#v-tkall):not(#v-tasks) .ov-stat,.view:not(#v-tkall):not(#v-tasks) [role=button],.view:not(#v-tkall):not(#v-tasks) .sel-rooms button,.view:not(#v-tkall):not(#v-tasks) .sp-groups button,.view:not(#v-tkall):not(#v-tasks) .sp-nav button{min-height:44px !important}
+  .view:not(#v-tkall):not(#v-tasks) .glance.tl>.gl,.view:not(#v-tkall):not(#v-tasks) .glance.tl-auto>.gl{height:44px !important;min-height:44px !important}
+  .view:not(#v-tkall):not(#v-tasks) .seg{min-height:44px}
+  .view:not(#v-tkall):not(#v-tasks) input.q{height:44px !important}
+  .view:not(#v-tkall):not(#v-tasks) label.chip{min-height:44px !important}
+  .view:not(#v-tkall):not(#v-tasks) .hb-pill{height:auto;min-height:44px}
   body.pr-v-ovjobs #subnav .sub-proj{display:none}
   .view .hb-dash{grid-template-columns:minmax(0,1fr) !important}
   .view .pr-hide{display:none !important}
@@ -381,7 +383,7 @@ function prPage() {
   }
   v.querySelectorAll(".m-appr-list.pr-cards, #recv-body.pr-cards").forEach((x) => x.classList.add("pr-own"));
   // the Tasks page is the taskfix lane's and the foreman's Today has its own order; every other page folds its card lists
-  if ("tkall" !== view && "ftoday" !== view)
+  if (!["tkall", "tasks", "ftoday"].includes(view))
     try {
       prFoldCards(v);
     } catch (e) {
@@ -504,7 +506,8 @@ PR_PAGE.ftoday = (v) => {
   }
   const box = more.querySelector(".pr-more-b"),
     title = body.querySelector(":scope > .ph");
-  title && title.classList.add("pr-hide");
+  // the header carries the page's name (the tdChrome rule: a heading the header repeats is marked td-in-hdr)
+  title && (title.classList.add("pr-hide"), title.querySelectorAll("h1, h2").forEach((h) => h.classList.add("td-in-hdr")));
   keep.forEach((c) => body.appendChild(c));
   const rest = [...body.children].filter((c) => !keep.includes(c) && c !== more && c !== title);
   const cap = v.querySelector(":scope > #trk-capture");
