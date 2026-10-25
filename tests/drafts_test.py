@@ -66,7 +66,7 @@ NAV_AWAY = r"""(cur) => {
   if (!(top && b.contains(top))) return null;
   return { x, y, label: (b.innerText || b.getAttribute('aria-label') || '').trim().replace(/\s+/g, ' ').slice(0, 30) };
 }"""
-OPEN_KEEP = r"""([u, gid, v, tab]) => { signIn(u); const B = mnBuild(role());
+OPEN_KEEP = r"""([u, gid, v, tab]) => { signIn(u); const B = mnBuild(role()) || { groups: [], more: [] };
   const groups = B.field ? [{ id: 'field', items: B.bar.concat(B.rest || [], B.more || []) }] : B.groups.concat(B.more.length ? [{ id: 'more', items: B.more }] : []);
   const g = groups.find(x => x.id === gid), it = g && g.items.find(i => i.v === v && (i.tab || '') === tab);
   if (it) mnGo(g, it); else { view = v; render(); } return view; }"""

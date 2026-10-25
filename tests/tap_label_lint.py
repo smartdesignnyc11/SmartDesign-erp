@@ -32,7 +32,7 @@ from harness import *
 import crawl
 from crawl import Crawler, judge, allowed, norm, share, DOC_RE, UI_KEYS
 
-OUT = os.path.join(ROOT, 'review', 'taplint')
+OUT = os.environ.get('TAPLINT_OUT') or os.path.join(ROOT, 'review', 'taplint')
 QUESTION = re.compile(r'please confirm|one thing first', re.I)
 # the person's own reading marks on the assistant (which brief they saw, when they last looked): not a record
 crawl.UI_PATHS.append(r'^asst\.[^.\[]+\.(briefShown|lookPrev|lookAt)')
@@ -77,12 +77,14 @@ ALLOW = [
     (r'^Open$', r'^sel$', 'a selection is titled by its name, not its catalogue number'),
 ]
 
-PAGES = r"""() => { const B = mnBuild(role()); if (!B) return [];
+PAGES = r"""() => { const B = mnBuild(role());
+  // a role with no menu of its own (the client's portal) has its pages
+  if (!B) return [...new Set(ROLE_VIEWS[role()] || [])].map(v => ({ g: '', v, tab: '', l: (typeof mnLabel === 'function' && mnLabel(v)) || v }));
   const groups = B.field ? [{ id: 'field', items: B.bar.concat(B.rest || [], B.more || []) }] : B.groups.concat(B.more.length ? [{ id: 'more', items: B.more }] : []);
   const out = [], seen = new Set();
   groups.forEach(g => g.items.forEach(it => { const k = it.v + ':' + (it.tab || ''); if (seen.has(k)) return; seen.add(k); out.push({ g: g.id, v: it.v, tab: it.tab || '', l: it.l }); }));
   return out; }"""
-OPEN = r"""([gid, v, tab]) => { const B = mnBuild(role());
+OPEN = r"""([gid, v, tab]) => { const B = mnBuild(role()) || { groups: [], more: [] };
   const groups = B.field ? [{ id: 'field', items: B.bar.concat(B.rest || [], B.more || []) }] : B.groups.concat(B.more.length ? [{ id: 'more', items: B.more }] : []);
   const g = groups.find(x => x.id === gid), it = g && g.items.find(i => i.v === v && (i.tab || '') === tab);
   document.querySelectorAll('#mbm, #mbm-held').forEach(x => x.remove());
