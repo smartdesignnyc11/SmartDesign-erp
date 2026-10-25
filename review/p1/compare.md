@@ -16,7 +16,7 @@ The demo data is the seeded 121 State / 206 Lenox jobs, not the mockup's invente
 | Line 3 the day, red/600 when late ("Order by Fri, passed") | matches; a late promise reads "Promised 9/25, needed on site 9/10" |
 | One chip per row (red / amber / blue) | matches; the chip is the reason that matters most (no order behind it, decision, asked from the site, no sub contracted, stock, quotes, no material portion, no price) |
 | Pick bar: "2 lines picked", outlined Ask for Quotes, blue Order 2 Lines, above the bottom bar | matches [checked: Order 2 Lines is the one blue button]; the bar is fixed just above the app's bottom bar |
-| Bottom bar Today, Chat, Tasks, Buy Board with a red badge | matches; the badge is the one late count (16 in the demo), the same number as the rail [counts_lint] |
+| Bottom bar Today, Chat, Tasks, Buy Board with a red badge | matches; the badge is the Buy Board's number, late or due to order this week (PRED.buyNeeds, 17 in the demo: 16 late, 1 this week), the same as the rail, the sub-tab, the board's pill and the coordinator's Buy Board chip on Today [counts_lint] |
 | Remaining | The app's sub-tab strip (Buy, Buy Board, Quotes, Orders, More) stays under the header on the phone; the mockup does not draw it. A card body opens the need as a sheet with its steps (p3_need_sheet.png); the mockup has no sheet. "FF&E Buying Tools" at the foot opens the old FF&E buy runs, returns and credits until P4. |
 
 ## 2. Phone, Arriving (p4_arriving.png vs PhoneArriving.dc.html)
@@ -40,6 +40,6 @@ The demo data is the seeded 121 State / 206 Lenox jobs, not the mockup's invente
 | Remaining | no tiles on the board (the old Late to Order / Red Flags / No Price tiles are gone: the chips are the counts) [checked] |
 
 ## 4. Beyond the mockup, for the review
-- Today (u_chen_home_*): the coordinator's Do Now lists the late needs with one verb each: Order (to buy), Fix (a late promise: Expedite, Other Vendor, Move the Task), Decide (held by a decision), Ask for Bids (a sub scope with no sub). The driver's route is an Approvals card, "Approve Alex's route", due before the van leaves.
+- Today (u_chen_home_*): the coordinator's Buy Board chip (taskfix) lists every need late or due this week with one verb each: Order (to buy), Fix (a late promise: Expedite, Other Vendor, Move the Task), Decide (held by a decision), Ask for Bids (a sub scope with no sub). All carries the three the site needs soonest and one "N more on the Buy Board" card, so the vendors' new dates still reach the top five. The driver's route is an Approvals card, "Approve Alex's route", due before the van leaves.
 - The PM (u_alan_dash_desk.png): Buying on This Job on the job's Overview (late needs, open orders), and the late needs on his own jobs on Today.
 - The order picker (Which Lines?) shows each line's budget left after the orders already on it, its vendor error scrolls into view with a toast, and its ticks are 44px.
