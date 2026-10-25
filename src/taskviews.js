@@ -2566,17 +2566,18 @@ let tvDrawing = "";
   };
 }
 
-// ---- Tasks in the side menu: one number, the person's own late and due-today tasks ----------------------------------
-// The rail entry, Today's Tasks tab and the Tasks page say the same count: tkMyCounts().today, the list's own "Today"
-// view (overdue and due today), the number Ask gives for "my tasks due today".
-"object" == typeof OC_BADGE && (OC_BADGE.tkall = { n: () => tkMyCounts().today || 0 });
+// ---- Tasks in the side menu: one number, the person's own Due Soon -------------------------------------------------
+// The rail entry, Today's sub-tab and Tasks chip, the phone bar and the Tasks page say the same count: tkTasksN(), the
+// list's own Due Soon for Mine (taskfix #1; it was "late or due today" here and a 14-day horizon on Today).
+"object" == typeof OC_BADGE && (OC_BADGE.tkall = { n: () => tkTasksN() });
 // The page's subtitle is gone (the mockup's one bar); the rail's number stays findable on the page as a small pill beside
-// the title, the mockup's "N late" pill: "6 late or due today", or a quiet "Nothing late" (one question, one number)
+// the title, the mockup's "N late" pill: "12 due soon · 6 late", red only when something is late (one question, one number)
 function tvDueMark(host) {
   const h = host.querySelector(".ph h2");
   if (!h || host.querySelector(".ph [data-ocbadge]") || "home" !== t2Ctx()) return;
-  const n = tkMyCounts().today || 0;
-  h.insertAdjacentHTML("afterend", `<span class="tv-duemark ${n ? "on" : ""}" data-ocbadge="tkall" title="Yours, late or due today">${n ? `${n} late or due today` : "Nothing late"}</span>`);
+  const n = tkTasksN(),
+    late = tkMyCounts().overdue || 0;
+  h.insertAdjacentHTML("afterend", `<span class="tv-duemark ${late ? "on" : ""}" data-ocbadge="tkall" title="Yours, late or due in the next 7 days">${n ? `${n} due soon${late ? ` · ${late} late` : ""}` : "Nothing due soon"}</span>`);
 }
 
 // ---- the demo: two tasks that wait on someone outside the firm, so the Waiting On column and tab show their use -------

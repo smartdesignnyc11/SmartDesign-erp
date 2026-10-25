@@ -2013,10 +2013,8 @@ function mtMinutesFor(me) {
           const owe = ((m.minutes.owes || {})[me.name] || []).length;
           return { kind: "tdyMinutes", id: m.id, src: "meeting", m: m, title: `Minutes: ${m.title}, ${tkDay(m.date)}`, detail: owe ? `you owe ${owe}` : "nothing on you", due: m.date };
         });
-      if (L.length && M) {
-        M.tasks = (M.tasks || []).concat(L);
-        M.all = (M.all || []).concat(L);
-      }
+      // the minutes are a thing to read, not a task: on All, never in the Tasks chip (one number, taskfix #1)
+      L.length && M && (M.all = (M.all || []).concat(L));
     } catch (e) {
       console.warn("minutes on Today", e);
     }

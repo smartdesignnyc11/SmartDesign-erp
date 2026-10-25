@@ -74,6 +74,12 @@ function tkMyCounts() {
   } catch (e) {}
   return tkCountsOf(R);
 }
+// THE "Tasks" number (taskfix #1, 2026-10-25): the person's own Due Soon, late or due in the next 7 days and not put
+// off, the Tasks list's first view. The side menu, Today's sub-tab and its Tasks chip (those rows), the phone bar and
+// the Tasks page all read this one function; counts_lint fails when any of them reads another number.
+function tkTasksN() {
+  return tkMyCounts().week || 0;
+}
 // Due soon for one person by name (Today's line, Ask): the same views over openTasks(name).
 function tkSoonFor(name) {
   try {
@@ -1440,8 +1446,8 @@ const TK_PRI_SAY = { P1: "High", P2: "Medium", P3: "Low" };
 #v-tkall .tk2-list{border:1px solid var(--rule);border-radius:10px;background:var(--paper);overflow:hidden}
 :is(#v-tkall,.tk2-host) .tk2-empty{padding:18px 16px}
 :is(#v-tkall,.tk2-host) .tk2-showall{margin:10px 16px 14px;min-height:44px}
-#v-tkall .tk2-offer{display:flex;align-items:center;gap:10px;width:100%;min-height:48px;margin:0 0 10px;padding:8px 14px;border:1px solid var(--accent);border-radius:10px;background:var(--paper);font-size:15px;text-align:left;cursor:pointer}
-#v-tkall .tk2-offer-n{display:grid;place-items:center;min-width:26px;height:26px;border-radius:13px;background:var(--accent);color:#fff;font-weight:700;font-size:13px}
+#v-tkall .tk2-offer,.td-do .td-offer{display:flex;align-items:center;gap:10px;width:100%;min-height:48px;margin:0 0 10px;padding:8px 14px;border:1px solid var(--accent);border-radius:10px;background:var(--paper);font-size:15px;text-align:left;cursor:pointer}
+#v-tkall .tk2-offer-n,.td-do .td-offer .tk2-offer-n{display:grid;place-items:center;min-width:26px;height:26px;border-radius:13px;background:var(--accent);color:#fff;font-weight:700;font-size:13px}
 #v-tkall .tk2-offer b{color:var(--accent)}
 #v-tkall .tk2-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 10px}
 #v-tkall .tk2-bar .t2-q{min-width:200px}
