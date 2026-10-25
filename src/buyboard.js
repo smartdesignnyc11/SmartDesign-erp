@@ -554,7 +554,7 @@ function bbRender() {
       : "",
     head = `<div class="ph bb-ph0"><div class="bb-title"><h2>Buy Board</h2><span class="ov-count bb-latepill ${lateN ? "on" : ""}" data-ovneeds="buy">${lateN ? `${lateN} late` : "Nothing late"}</span></div><div class="bb-tools">${phone ? "" : `<label class="bb-search">${BB_IC.search}<input id="bb-q" aria-label="Search needs, vendors and lines" placeholder="Search needs, vendors, lines" value="${esc(bbQ)}"></label>`}${phone ? `<button type="button" class="bb-ib" id="bb-sbtn" aria-label="Search the Buy Board">${BB_IC.search}</button><button type="button" class="bb-ib ${bbProj || bbVendor || bbTrade ? "on" : ""}" id="bb-fbtn" aria-label="Filter by project, vendor or trade">${BB_IC.filter}</button>` : `<button type="button" class="btn" id="bb-more">FF&amp;E Buying Tools</button>`}</div></div>`,
     phoneTools = phone && (bbSearchOn || bbFilterOn || bbQ) ? `<div class="bb-ptools">${bbSearchOn || bbQ ? `<input id="bb-q" aria-label="Search needs, vendors and lines" placeholder="Search needs, vendors, lines" value="${esc(bbQ)}">` : ""}${bbFilterOn ? `<div class="bb-fl">${filters}</div>` : ""}</div>` : "";
-  root.innerHTML = `<div class="bb ${phone ? "bb-phone" : "bb-desk"} ${picked.length ? "bb-picking" : ""}" id="buy-board" data-bbon="${bbTab}" data-os-keep>${head}<div class="bb-top">${tabs}${phone ? "" : `${chips}<span class="bb-sep"></span><div class="bb-fl">${filters}</div>`}</div>${phoneTools}${focus}<div class="bb-main"><div class="bb-list" data-nocase>${list}${empty}<div class="dg bb-foot"><span class="cnt">${R.length} of ${("buy" === bbTab ? BUY : ARR).length} shown</span>${phone ? `<button type="button" class="btn sm" id="bb-more">FF&amp;E Buying Tools</button>` : ""}</div></div>${phone ? "" : `<aside class="bb-panel" aria-label="${esc(sel ? sel.name : "The need")}">${bbPanelHtml(sel, picked.length)}</aside>`}</div>${bar}</div>`;
+  root.innerHTML = `<div class="bb ${phone ? "bb-phone" : "bb-desk"} ${picked.length ? "bb-picking" : ""}" id="buy-board" data-bbon="${bbTab}" data-os-keep>${head}<div class="bb-top">${tabs}${phone ? "" : `${chips}<span class="bb-sep"></span><div class="bb-fl">${filters}</div>`}</div>${phoneTools}${focus}<div class="bb-main"><div class="bb-list" data-nocase>${list}${empty}<div class="dg bb-foot"><span class="cnt">${R.length} of ${("buy" === bbTab ? BUY : ARR).length} shown</span><span class="bb-reps"><button type="button" class="btn sm" data-bbpane="cost">Cost by Line</button><button type="button" class="btn sm" data-bbpane="analysis">Analysis</button>${phone ? `<button type="button" class="btn sm" id="bb-more">FF&amp;E Buying Tools</button>` : ""}</span></div></div>${phone ? "" : `<aside class="bb-panel" aria-label="${esc(sel ? sel.name : "The need")}">${bbPanelHtml(sel, picked.length)}</aside>`}</div>${bar}</div>`;
   bbWire(root);
 }
 function bbWire(root) {
@@ -595,6 +595,7 @@ function bbWire(root) {
   q("#bb-fbtn") && (q("#bb-fbtn").onclick = () => ((bbFilterOn = !bbFilterOn), re()));
   q("#bb-unfocus") && (q("#bb-unfocus").onclick = () => (delete tlFocus.proc, re()));
   q("#bb-more") && (q("#bb-more").onclick = () => ((procMode = "finish"), re()));
+  root.querySelectorAll("[data-bbpane]").forEach((b) => (b.onclick = () => ((procPane = b.dataset.bbpane), re())));
   q("#bb-order") && (q("#bb-order").onclick = () => bbOrderPicked());
   q("#bb-quote") && (q("#bb-quote").onclick = () => bbQuotePicked());
 }
@@ -802,19 +803,32 @@ function bbReqPath(p, r, path, why) {
 // The page: the Buy Board, or the FF&E buying tools behind its More until P4 folds returns and credits into Issues.
 {
   const bbProcTools = renderProc;
+  // the reports that lived beside the old board (Analysis, Cost by Line) and the FF&E tools draw as before; the Buy
+  // Board's foot opens them, and each has the way back
   renderProc = function () {
-    bbLastView !== "proc" && "proc" === view && "finish" === procMode && bbLastView && (procMode = "lines");
     bbLastView = view;
-    if ("finish" === procMode) {
+    const pane = "undefined" != typeof procPane ? procPane : "board";
+    if ("finish" === procMode || "board" !== pane) {
       bbProcTools.apply(this, arguments);
       const root = document.getElementById("proc-body");
       root &&
         !root.querySelector("#bb-back") &&
-        root.insertAdjacentHTML("afterbegin", '<div class="bb-back"><button type="button" class="btn sm" id="bb-back">Back to the Buy Board</button><span class="small muted">FF&amp;E buying tools: buy runs, receiving, returns and credits. Approved FF&amp;E items are on the Buy Board.</span></div>');
-      root && root.querySelector("#bb-back") && (root.querySelector("#bb-back").onclick = () => ((procMode = "lines"), render()));
+        root.insertAdjacentHTML(
+          "afterbegin",
+          `<div class="bb-back"><button type="button" class="btn sm" id="bb-back">Back to the Buy Board</button><span class="small muted">${"board" !== pane ? "Purchasing reports: Analysis and Cost by Line." : "FF&amp;E buying tools: buy runs, receiving, returns and credits. Approved FF&amp;E items are on the Buy Board."}</span></div>`,
+        );
+      root && root.querySelector("#bb-back") && (root.querySelector("#bb-back").onclick = () => ((procMode = "lines"), "undefined" != typeof procPane && (procPane = "board"), render()));
       return;
     }
     bbRender();
+  };
+}
+// The menu's Buy Board opens the board itself, not the tools or a report left open last time.
+if ("function" == typeof mnGo) {
+  const base = mnGo;
+  mnGo = function (g, it) {
+    it && "proc" === it.v && ((procMode = "lines"), "undefined" != typeof procPane && (procPane = "board"));
+    return base.apply(this, arguments);
   };
 }
 // The Purchasing overview's rows are the Buy Board's: the overview hands over to the board for every role that may open it.
@@ -869,7 +883,7 @@ function bbTodayItems() {
 // the Task), Decide for one held by a decision, Open for the rest.
 function bbTodayCard(it) {
   const x = it.x,
-    open = () => ((bbSel = it.id), (bbTab = x.tab || "buy"), mOn() ? (setView("proc"), setTimeout(() => bbSheet(bbFind(it.id) || x), 0)) : setView("proc")),
+    open = () => ((bbSel = it.id), (bbTab = x.tab || "buy"), (procMode = "lines"), (procPane = "board"), mOn() ? (setView("proc"), setTimeout(() => bbSheet(bbFind(it.id) || x), 0)) : setView("proc")),
     go = it.ea.order ? () => buyOrderDialog(it.ea.order) : it.ea.view ? () => (setCurrent(x.p.id), (view = "dec"), render()) : it.ea.bids ? () => bbQuote([bbFind(it.id) || x]) : open;
   return { line1: `<a href="#" data-tdrec>${esc(tdWords(it.title, 12))}</a>`, why: esc(`Buy Board · ${it.detail}`), verb: it.ea.order ? "Order" : it.ea.view ? "Decide" : it.ea.fix ? "Fix" : it.ea.bids ? "Ask for Bids" : "Open", go: open, run: go, ea: it.ea };
 }
@@ -1252,6 +1266,7 @@ if ("function" == typeof paAsk) {
 .bb-steps .btn{min-height:44px;border-radius:12px;font-weight:600;font-size:14px}
 .bb .bb-empty{color:#6A7080;font-size:13px}
 .bb .bb-none{padding:24px;color:#6A7080;text-align:center;background:#fff;border-radius:12px;box-shadow:0 0 0 1px #E7E9EE}
+.bb .bb-reps{display:flex;gap:8px;flex-wrap:wrap}
 .bb .bb-foot{display:flex;align-items:center;gap:8px;justify-content:space-between;padding:6px 4px;font-size:12px;color:#6A7080;border:0;background:none}
 .bb .bb-focus{display:flex;align-items:center;gap:8px;margin:0 0 8px;padding:8px 12px;border-radius:10px;background:#EEF3FD;color:#1D47A8;font-size:13px}
 .bb .bb-bar{position:sticky;bottom:0;display:flex;align-items:center;gap:8px;margin-top:10px;padding:10px 16px;background:#fff;border-top:1px solid #E7E9EE;border-radius:12px 12px 0 0;box-shadow:0 -4px 12px rgba(16,24,40,.06)}
