@@ -230,8 +230,8 @@ async def phone(c, p, users):
             st = await check_screen(c, pg, f'{u} phone bar "{lab}"', errs, phone=True)
             c.ok(st['bar'] == lab, f'{u} phone bar "{lab}": lit entry is "{st["bar"]}"')
         # the rest is one tap away: More (office) or the menu button (field) opens the whole menu
-        # the hamburger, top left, for every role
-        hb = await pg.evaluate("() => { const b = document.getElementById('menu-btn'); if (!b || !b.offsetParent) return null; const r = b.getBoundingClientRect(); return {x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height)}; }")
+        # the hamburger, top left, for every role (the phone's Tasks page carries it in its own header, Phone.dc.html)
+        hb = await pg.evaluate("() => { const b = [document.getElementById('menu-btn'), document.querySelector('.view.on [data-tvmenu]')].find(x => x && x.offsetParent); if (!b) return null; const r = b.getBoundingClientRect(); return {x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height)}; }")
         c.ok(hb and hb['x'] < 60 and hb['y'] < 60 and hb['w'] >= 40 and hb['h'] >= 40, f'{u} phone: the menu button is at the top left, a full tap target {hb}')
         await press(pg, '#menu-btn')
         await pg.wait_for_timeout(250)
