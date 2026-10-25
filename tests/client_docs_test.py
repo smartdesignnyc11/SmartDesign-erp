@@ -219,7 +219,7 @@ async def t_gate(c, p):
       // a good one prints and sends
       await docAction(n, i1, 'print'); out.goodPrint = opened; modal();
       // the editor says why before the person tries
-      clientOpen = c.id; view = 'clients'; docOpen = { kind: 'estimate', id: e0.id }; render(); await sleep(60);
+      clientOpen = c.id; view = 'billing'; billTab = 'estimates'; docOpen = { kind: 'estimate', id: e0.id }; render(); await sleep(60);
       out.banner = (document.querySelector('.cx-gate') || {}).innerText || '';
       window.open = w0;
       // the client never sees what was refused
@@ -298,7 +298,7 @@ async def t_portal(c, p, phone):
           const P = new Set(DB.projects.filter(p => p.clientId === c.id && (!S || p.id === S.id)).map(p => p.id));
           const should = [...c.estimates, ...c.changeOrders].filter(d => d.status === 'sent' && (!d.projectId || P.has(d.projectId))).map(d => d.number);
           const listed = [...document.querySelectorAll('#cl-approvals .pa-row')].filter(r => r.querySelector('[data-pview^="invoice:"]')).map(r => (r.querySelector('.pa-amt') || {}).innerText || '');
-          const tile = [...document.querySelectorAll('#v-client .tl-tile, #v-client [data-tile], #v-client .tile')].map(x => x.innerText).find(x => /Invoices Due/.test(x)) || '';
+          const tile = [...document.querySelectorAll('#v-client .gl')].map(x => x.innerText).find(x => /Invoices Due/.test(x)) || '';
           const others = DB.clients.filter(x => x.id !== c.id).flatMap(x => [...x.estimates, ...x.changeOrders, ...x.invoices].map(d => d.number)).filter(n => n && text.includes(n));
           const mineDocs = [...c.estimates, ...c.changeOrders, ...c.invoices].filter(d => !['draft', 'void'].includes(d.status) && (!d.projectId || P.has(d.projectId))).map(d => d.number);
           const docsList = (document.querySelector('#cl-account .cx-docs') || {}).innerText || '';
@@ -325,7 +325,7 @@ async def t_portal(c, p, phone):
         if phone: c.ok(r['sx'] <= 1, f'[7] {tag} {uid_}: the portal scrolls sideways by {r["sx"]}px')
         await pg.screenshot(path=os.path.join(SHOTS, f'{TAG}portal_{uid_}_{tag}.png'), full_page=True)
     k = out['u_klein']
-    c.ok('You Approved' in k['done'] and 'Pantry wall GFCI outlet' in k['done'], f"[7] {tag}: the change order the client approved shows as approved, with the date: {k['done'][:200]!r}")
+    c.ok('you approved' in k['done'].lower() and 'Pantry wall GFCI outlet' in k['done'], f"[7] {tag}: the change order the client approved shows as approved, with the date: {k['done'][:200]!r}")
     c.ok(not errs, f'[portal {tag}] page errors: {errs[:3]}')
     await b.close()
 

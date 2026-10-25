@@ -364,7 +364,8 @@ function cxEnsureCoLines(c, d) {
 function cxKind(d) {
   if ("estimate" === d.type) return "estimate";
   if ("co" === d.type) return "co";
-  if ("sov" === d.mode) return d.depositOf || (/\bdeposit\b/i.test(d.title || "") && !(+d.retainagePct > 0)) ? "deposit" : "progress";
+  // depositOf names the estimate whose deposit an application draws on; a deposit invoice is one that bills the deposit
+  if ("sov" === d.mode) return !(+d.retainagePct > 0) && (/\bdeposit\b/i.test(d.title || "") || (d.lines || []).some((l) => +l.pct && /^deposit\b/i.test(l.desc || ""))) ? "deposit" : "progress";
   if ("design" === d.template || d.retainerOf) return "design";
   const est = d.fromDoc && (DB.clients || []).flatMap((c) => c.estimates || []).find((e) => e.id === d.fromDoc);
   return est && "design" === est.template ? "design" : "invoice";
@@ -395,7 +396,7 @@ function cxProject(c, d) {
     re = cxStaffRe(c),
     pn = ((p && p.project && p.project.name) || "").trim(),
     subj = cxClean(d.title, c, re).replace(/\s*[—–-]\s*work through .*$/i, ""),
-    addr = (p && p.project && p.project.addr) || c.propertyAddr || "";
+    addr = c.propertyAddr || (p && p.project && p.project.addr) || "";
   const name = pn || subj || addr,
     showSubj = subj && subj !== name && !(pn && subj.startsWith(pn + " —")) ? subj : "",
     showAddr = addr && addr !== name && !name.includes(addr) ? addr : "";
@@ -514,7 +515,7 @@ function cxDocHtml(c, d, o) {
   ${"co" === kind ? cxCoBlock(c, d, re) : ""}${"design" === kind ? cxDesignFee(c, d) : ""}
   ${memo ? `<div class="cxd-memo"><b>${"estimate" === kind ? "Scope, allowances and exclusions" : "Notes"}</b>\n${esc(memo)}</div>` : ""}
   ${exh.length ? `<div class="cxd-memo"><b>Exhibits</b>\n${exh.map((x, i) => `${i + 1}. ${esc(cxClean(x.clientCaption || x.caption || "Photo", c, re))}, ${cxDate(x.date)}`).join("\n")}\nThe photos are in your client portal under Photos.</div>` : ""}
-  ${terms ? `<div class="cxd-memo sans" style="font-size:12px"><b>${"estimate" === kind ? "Payment schedule" : "Payment terms"}:</b> ${esc(terms)}${inv && d.due ? `, due ${cxDate(d.due)}` : ""}.</div>` : ""}
+  ${terms && !("co" === kind && (c.sov || []).some((v) => "Contract" === v.source && (null == v.projectId || v.projectId === d.projectId))) ? `<div class="cxd-memo sans" style="font-size:12px"><b>${"estimate" === kind ? "Payment schedule" : "Payment terms"}:</b> ${esc(terms)}${inv && d.due ? `, due ${cxDate(d.due)}` : ""}.</div>` : ""}
   ${inv && t.total > 0.005 && d.status !== "paid" ? cxRemitHtml(c, d) : ""}
   ${sign ? `<p class="sans" style="font-size:11.5px;color:#4A5462;margin-top:22px">${"co" === kind ? "By signing, you approve this change order and the new contract sum above." : "By signing, you accept the scope, price and payment schedule in this proposal."}</p><div class="cxd-sig sans"><div>Accepted by ${esc(c.name)} · date</div><div>${esc(K.legal)} · date</div></div>` : ""}
   <div class="cxd-foot sans">${foot ? esc(foot) + "<br>" : ""}${esc(K.legal)}${K.addr ? " · " + esc(K.addr) : ""}${K.phone ? " · " + esc(K.phone) : ""}</div>
