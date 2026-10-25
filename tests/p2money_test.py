@@ -339,7 +339,7 @@ async def t_ahead(c, p, phone):
       await sleep(300);
       try { mbCloseModal(); } catch (e) {}
       cl.invoices = cl.invoices.filter(x => x.id !== 'inv-p2a');
-      return { want, A: { n: A.lines.length, total: A.total, items: A.lines.map(l => l.item), dep: A.depPct }, total, lines, sw, Q, home: /Billed ahead of the work: 121 State/.test(home), homeAmt: home.includes(money(A.total)), catchRows,
+      return { want, A: { n: A.lines.length, total: A.total, items: A.lines.map(l => l.item), dep: A.depPct }, total, lines, sw, Q, home: /Billed ahead: 121 State/.test(home), homeAmt: home.includes(money(A.total)), catchRows,
                ask, stillDraft, why: d.aheadWhy && d.aheadWhy.why, audit: (DB.audit || []).some(a => a.action === 'billed-ahead' && a.refId === 'inv-p2a') };""")
     want = r['want']
     total = round(sum(x['amt'] for x in want), 2)
@@ -359,7 +359,7 @@ async def t_ahead(c, p, phone):
     await b.close()
     # the PM's Today has it too
     b, pg, errs = await fresh(p, 'u_alan', phone)
-    r = await js(pg, "view = 'home'; render(); await sleep(500); return (document.querySelector('.view.on') || document.body).innerText.includes('Billed ahead of the work: 121 State');")
+    r = await js(pg, "view = 'home'; render(); await sleep(500); return (document.querySelector('.view.on') || document.body).innerText.includes('Billed ahead: 121 State');")
     c.ok(r, f"{dev} ahead: the PM's Today shows it")
     await b.close()
 

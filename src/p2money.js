@@ -901,7 +901,7 @@ if ("function" == typeof billingRows) {
           const i = R.findIndex((x) => x.key === "ahead:" + p.id),
             row = {
               key: "ahead:" + p.id,
-              what: `Billed ahead of the work: ${tdJob(p)}, ${A.lines.length} line${1 === A.lines.length ? "" : "s"}`,
+              what: `Billed ahead: ${tdJob(p)}, ${A.lines.length} line${1 === A.lines.length ? "" : "s"}`,
               sub: `${pbWords(A)} · billing these lines further needs a reason`,
               amount: A.total,
               verb: "Review",
@@ -924,7 +924,7 @@ if ("function" == typeof tdCaught) {
     const out = base.apply(this, arguments) || [];
     try {
       if (["billing", "pm"].includes(role())) {
-        const lead = out.filter((x) => "portalBilledAhead" === x.src && /^Billed ahead of the work/.test(x.what || ""));
+        const lead = out.filter((x) => "portalBilledAhead" === x.src && /^Billed ahead: /.test(x.what || ""));
         return lead.concat(out.filter((x) => !lead.includes(x)));
       }
     } catch (e) {}
