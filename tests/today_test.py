@@ -173,10 +173,12 @@ async def main():
             # the top verb opens the right flow
             if tag == 'owner':
                 # Do Now ranks immediate safety and law first, then overdue / today / this week / later, then the
-                # decision principle (Alan, 2026-10-11): the top card is the first by that order (the overdue payroll,
-                # not the LLC filing 25 days out), and WW-2026-118's verb still opens the one bill-approval gate
+                # decision principle (Alan, 2026-10-11): the top card is the first by that order, and WW-2026-118's verb
+                # still opens the one bill-approval gate. The LLC filing used to rank by its expiry ("25 days out") while
+                # its task said 5 days late; it now carries its filing date (taskfix #11), so it may lead, as law and
+                # overdue, only when its card says the filing is late
                 top = await pg.evaluate("() => { const Q = tdQueue(), k = (it) => standardRankKey(it); return [k(Q[0]), Q.map(k).sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2] || a[3] - b[3] || a[4] - b[4])[0], Q[0].title]; }")
-                c.ok(top[0] == top[1] and 'LLC' not in top[2], f"owner phone: top card is \"{m['topText'][:60]}\" at {top[0]}, want the first by immediate, blocked today, urgency, principle, {top[1]}")
+                c.ok(top[0] == top[1] and ('LLC' not in top[2] or 'filing' in m['topText'] and 'late' in m['topText']), f"owner phone: top card is \"{m['topText'][:60]}\" at {top[0]}, want the first by immediate, blocked today, urgency, principle, {top[1]}")
                 wi = await pg.evaluate("() => [...document.querySelectorAll('.view.on .td-do .td-card')].findIndex(x => x.innerText.includes('WW-2026-118'))")
                 c.ok(wi >= 0, 'owner phone: WW-2026-118 is on Do Now')
                 await pg.click(f'.view.on .td-do .td-card [data-tdverb="{max(wi, 0)}"]'); await pg.wait_for_timeout(400)

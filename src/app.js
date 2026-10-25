@@ -173906,9 +173906,6 @@ function tdScore(it) {
   if ("time" === it.kind) return 30 + sev;
   if ("draft" === it.kind) return 20 + sev;
   if ("meeting" === it.kind) return 15 + sev;
-  // an obligation past the firm's own filing lead but before its legal expiry ties below other overdue work of the
-  // same principle (taskfix #11 put its filing date on the row): a past-due payroll is owed to people today
-  if (it.nyh && /^oblig:/.test(String(it.nyh.key || "")) && !(it.nyh.why && /^lapsed/.test(it.nyh.why))) return 8 + sev;
   return 10 + sev;
 }
 function tdQueue() {
