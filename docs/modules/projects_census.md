@@ -15,10 +15,10 @@ Run it: `python3 build.py && cd tests && ./slot.sh python3 projects_census.py` (
 - **Two office roles have no job page.** A tap on a job in the Projects list opens `sboard` for the designer; `gl` for the controller (`sboard` is the Design module's Project Board, `gl` the Ledger).
 - **On a phone, a tap on a job in the Projects list opens the overview on All projects, not the job** (PM). The heading reads "All projects", the tiles and the Look-Ahead are every job's, and the strip under it holds the tapped job's pages. It stays that way until the person picks a job in the switcher (app.js: a phone with nothing stored defaults to All projects).
 - **Change Orders, Estimates and Billing are one page (Billing) under three strip entries, and it is not the job's.** It shows the same tiles on both jobs (Ready to Bill $46K), while each job page says $12,651 (121 State Street) and $23,366 (45 Cranberry St — design). Its blue button on 121 State Street reads "Draft $17,080 — 45 Cranberry St".
-- **91 of 121 State Street's records show on two or more of its pages** (31 schedule lines, 18 materials, 11 to-dos, 5 decisions). "material:p121:m4" is on 8: Change Orders, Costs, Field, Job Page, Materials, Permits, Schedule, Tasks.
+- **91 of 121 State Street's records show on two or more of its pages** (31 schedule lines, 18 materials, 11 to-dos, 5 decisions). "Insulation" is on 8: Change Orders, Costs, Field, Job Page, Materials, Permits, Schedule, Tasks.
 - **15 pairs of pages list largely the same records,** led by Job Page and Tasks (27 shared); Job Page and Schedule (22 shared); Schedule and Tasks (22 shared); Materials and Schedule (21 shared). The job page repeats most of Tasks and Schedule; Materials and Schedule repeat each other.
 - **One label, different numbers:** "ready bill" $12,651 on Job Page against $46K on Billing (section 3).
-- **On the phone** the PM's strip shows 0 of its 19 entries without a swipe; 5 of the 18 pages are taller than three screens (Job Page, Schedule, Costs, Documents, Drawings); 13 pages have no section heading above the fold. No page scrolls sideways.
+- **On the phone** the PM's strip holds 19 entries in one sideways-scrolling row; 5 of the 18 pages are taller than three screens (Job Page, Schedule, Costs, Documents, Drawings); 13 pages have no section heading above the fold. No page scrolls sideways.
 - **Menu and job page:** Messages › Messages is in the PM's menu but not reached from the job page; Purchasing › Selections is in the PM's menu but not reached from the job page; `recv` sits in 2 menu places (Projects › Deliveries, Purchasing › Deliveries); `billing` sits in 3 menu places (Projects › Change Orders, Projects › Estimates, Projects › Billing).
 - **Nothing crashed and no page raised an error**; every page opened.
 - **1 screen(s) saved while the census only read and pressed filters** (PM (Alan) desktop, Tasks[Overdue]). Not traced; most likely the task list remembering its view.
@@ -128,18 +128,18 @@ For the PM on the desktop: each kind of record on the job, how many of its recor
 
 | Records | Found | Pages that list them |
 |---|---|---|
-| schedule lines | 35 | 11: Schedule 33, Job Page 19, Tasks 19, Materials 17, Permits 8, Field 8, Change Orders 6, Decisions 3, Photos 2, Costs 1, Drawings 1 |
 | materials | 27 | 11: Materials 25, Job Page 11, Decisions 6, Schedule 4, Costs 4, Change Orders 4, Tasks 2, Permits 2, Field 2, Submittals 1, Deliveries 1 |
+| schedule lines | 35 | 11: Schedule 33, Job Page 19, Tasks 19, Materials 17, Permits 8, Field 8, Change Orders 6, Decisions 3, Photos 2, Costs 1, Drawings 1 |
 | files | 40 | 5: Documents 40, Job Page 3, Deliveries 2, Photos 1, Drawings 1 |
 | decisions | 8 | 4: Decisions 8, Job Page 5, Schedule 1, Tasks 1 |
-| purchase orders | 2 | 3: Deliveries 2, Documents 2, Job Page 1 |
-| to-dos | 11 | 3: Tasks 11, Job Page 10, Field 1 |
 | site questions | 5 | 3: Job Page 4, Field 4, Tasks 2 |
+| to-dos | 11 | 3: Tasks 11, Job Page 10, Field 1 |
+| purchase orders | 2 | 3: Deliveries 2, Documents 2, Job Page 1 |
 | bills | 1 | 2: Job Page 1, Documents 1 |
 | inspections | 10 | 2: Permits 10, Job Page 2 |
 | submittals | 10 | 2: Submittals 10, Documents 5 |
-| change orders | 2 | 2: Change Orders 2, Documents 2 |
 | estimates | 2 | 2: Change Orders 2, Estimates 2 |
+| change orders | 2 | 2: Change Orders 2, Documents 2 |
 | invoices | 2 | 2: Change Orders 2, Billing 2 |
 | field requests | 2 | 1: Job Page 2 |
 | drawing sheets | 24 | 1: Documents 24 |
@@ -163,12 +163,12 @@ For the PM on the desktop: each kind of record on the job, how many of its recor
 
 **PM (Alan), desktop, 121 State Street:** 91 records on two or more pages: schedule lines 31 (up to 6 pages); materials 18 (up to 8 pages); to-dos 11 (up to 2 pages); decisions 5 (up to 4 pages); files 5 (up to 3 pages); site questions 5 (up to 2 pages); submittals 5 (up to 2 pages); purchase orders 2 (up to 3 pages); inspections 2 (up to 2 pages); change orders 2 (up to 2 pages); invoices 2 (up to 2 pages); estimates 2 (up to 2 pages); bills 1 (up to 2 pages).
 
-- "material:p121:m4" (materials) on 8 pages: Change Orders, Costs, Field, Job Page, Materials, Permits, Schedule, Tasks
-- "material:p121:estimate:es1:l8" (materials) on 8 pages: Change Orders, Costs, Deliveries, Field, Job Page, Materials, Schedule, Tasks
-- "sched:p121:rplumb" (schedule lines) on 6 pages: Decisions, Job Page, Materials, Permits, Schedule, Tasks
-- "sched:p121:frame" (schedule lines) on 6 pages: Change Orders, Field, Job Page, Materials, Schedule, Tasks
-- "sched:p121:rinsp" (schedule lines) on 6 pages: Field, Job Page, Materials, Permits, Schedule, Tasks
-- "sched:p121:millpk" (schedule lines) on 6 pages: Change Orders, Field, Job Page, Materials, Schedule, Tasks
+- "Insulation" (materials) on 8 pages: Change Orders, Costs, Field, Job Page, Materials, Permits, Schedule, Tasks
+- "Flooring" (materials) on 8 pages: Change Orders, Costs, Deliveries, Field, Job Page, Materials, Schedule, Tasks
+- "Rough plumbing" (schedule lines) on 6 pages: Decisions, Job Page, Materials, Permits, Schedule, Tasks
+- "Framing & blocking – 3rd floor" (schedule lines) on 6 pages: Change Orders, Field, Job Page, Materials, Schedule, Tasks
+- "Rough inspection & insulation" (schedule lines) on 6 pages: Field, Job Page, Materials, Permits, Schedule, Tasks
+- "Millwork – parlor kitchen & laundry" (schedule lines) on 6 pages: Change Orders, Field, Job Page, Materials, Schedule, Tasks
 - the same list twice (3 or more shared records, at least half of the shorter list): Job Page and Tasks (27 shared, of 58 and 35: schedule lines, to-dos, materials); Job Page and Schedule (22 shared, of 58 and 38: schedule lines, materials, decisions); Schedule and Tasks (22 shared, of 38 and 35: schedule lines, materials, decisions); Materials and Schedule (21 shared, of 42 and 38: schedule lines, materials); Field and Job Page (12 shared, of 15 and 58: schedule lines, site questions, materials); Decisions and Job Page (11 shared, of 17 and 58: decisions, schedule lines, materials)
 
 **PM (Alan), desktop, 45 Cranberry St — design:** 14 records on two or more pages: schedule lines 5 (up to 6 pages); to-dos 4 (up to 2 pages); submittals 2 (up to 2 pages); invoices 2 (up to 2 pages); estimates 1 (up to 2 pages).
@@ -178,17 +178,17 @@ For the PM on the desktop: each kind of record on the job, how many of its recor
 - "sched:p45:sp_lantr1" (schedule lines) on 5 pages: Change Orders, Costs, Job Page, Schedule, Tasks
 - "sched:p45:sf_fl_pmbs4rl" (schedule lines) on 4 pages: Change Orders, Permits, Schedule, Tasks
 - "sched:p45:sp_lmila4" (schedule lines) on 4 pages: Change Orders, Costs, Schedule, Tasks
-- "task:action:rd_friday_p121_2026_09_04:p121" (to-dos) on 2 pages: Job Page, Tasks
+- "Friday client update — 121 State Street" (to-dos) on 2 pages: Job Page, Tasks
 - the same list twice (3 or more shared records, at least half of the shorter list): Job Page and Tasks (7 shared, of 7 and 9: to-dos, schedule lines); Change Orders and Schedule (5 shared, of 18 and 5: schedule lines); Change Orders and Tasks (5 shared, of 18 and 9: schedule lines); Schedule and Tasks (5 shared, of 5 and 9: schedule lines); Change Orders and Costs (4 shared, of 18 and 4: schedule lines); Costs and Schedule (4 shared, of 4 and 5: schedule lines)
 
 **Owner, desktop, 121 State Street:** 86 records on two or more pages: schedule lines 31 (up to 6 pages); materials 18 (up to 8 pages); to-dos 11 (up to 2 pages); decisions 5 (up to 4 pages); files 5 (up to 3 pages); submittals 5 (up to 2 pages); purchase orders 2 (up to 3 pages); inspections 2 (up to 2 pages); site questions 2 (up to 2 pages); change orders 2 (up to 2 pages); estimates 2 (up to 2 pages); bills 1 (up to 2 pages).
 
-- "material:p121:m4" (materials) on 8 pages: Change Orders, Costs, Field, Job Page, Materials, Permits, Schedule, Tasks
-- "material:p121:estimate:es1:l8" (materials) on 8 pages: Change Orders, Costs, Deliveries, Field, Job Page, Materials, Schedule, Tasks
-- "sched:p121:rplumb" (schedule lines) on 6 pages: Decisions, Job Page, Materials, Permits, Schedule, Tasks
-- "sched:p121:frame" (schedule lines) on 6 pages: Change Orders, Field, Job Page, Materials, Schedule, Tasks
-- "sched:p121:rinsp" (schedule lines) on 6 pages: Field, Job Page, Materials, Permits, Schedule, Tasks
-- "sched:p121:millpk" (schedule lines) on 6 pages: Change Orders, Field, Job Page, Materials, Schedule, Tasks
+- "Insulation" (materials) on 8 pages: Change Orders, Costs, Field, Job Page, Materials, Permits, Schedule, Tasks
+- "Flooring" (materials) on 8 pages: Change Orders, Costs, Deliveries, Field, Job Page, Materials, Schedule, Tasks
+- "Rough plumbing" (schedule lines) on 6 pages: Decisions, Job Page, Materials, Permits, Schedule, Tasks
+- "Framing & blocking – 3rd floor" (schedule lines) on 6 pages: Change Orders, Field, Job Page, Materials, Schedule, Tasks
+- "Rough inspection & insulation" (schedule lines) on 6 pages: Field, Job Page, Materials, Permits, Schedule, Tasks
+- "Millwork – parlor kitchen & laundry" (schedule lines) on 6 pages: Change Orders, Field, Job Page, Materials, Schedule, Tasks
 - the same list twice (3 or more shared records, at least half of the shorter list): Job Page and Tasks (27 shared, of 55 and 35: schedule lines, to-dos, materials); Job Page and Schedule (22 shared, of 55 and 38: schedule lines, materials, decisions); Schedule and Tasks (22 shared, of 38 and 35: schedule lines, materials, decisions); Materials and Schedule (21 shared, of 42 and 38: schedule lines, materials); Decisions and Job Page (11 shared, of 17 and 55: decisions, schedule lines, materials); Field and Schedule (10 shared, of 15 and 38: schedule lines, materials)
 
 **Owner, desktop, 45 Cranberry St — design:** 12 records on two or more pages: schedule lines 5 (up to 6 pages); to-dos 4 (up to 2 pages); submittals 2 (up to 2 pages); estimates 1 (up to 2 pages).
@@ -198,12 +198,12 @@ For the PM on the desktop: each kind of record on the job, how many of its recor
 - "sched:p45:sp_lantr1" (schedule lines) on 5 pages: Change Orders, Costs, Job Page, Schedule, Tasks
 - "sched:p45:sf_fl_pmbs4rl" (schedule lines) on 4 pages: Change Orders, Permits, Schedule, Tasks
 - "sched:p45:sp_lmila4" (schedule lines) on 4 pages: Change Orders, Costs, Schedule, Tasks
-- "task:action:rd_friday_p121_2026_09_04:p121" (to-dos) on 2 pages: Job Page, Tasks
+- "Friday client update — 121 State Street" (to-dos) on 2 pages: Job Page, Tasks
 - the same list twice (3 or more shared records, at least half of the shorter list): Job Page and Tasks (7 shared, of 7 and 9: to-dos, schedule lines); Change Orders and Schedule (5 shared, of 18 and 5: schedule lines); Change Orders and Tasks (5 shared, of 18 and 9: schedule lines); Schedule and Tasks (5 shared, of 5 and 9: schedule lines); Change Orders and Costs (4 shared, of 18 and 4: schedule lines); Costs and Schedule (4 shared, of 4 and 5: schedule lines)
 
 **Coordinator (Chen), desktop, 121 State Street:** 82 records on two or more pages: schedule lines 32 (up to 6 pages); materials 16 (up to 6 pages); to-dos 11 (up to 2 pages); decisions 5 (up to 4 pages); files 5 (up to 3 pages); submittals 5 (up to 2 pages); site questions 4 (up to 2 pages); purchase orders 2 (up to 3 pages); inspections 2 (up to 2 pages).
 
-- the same list twice (3 or more shared records, at least half of the shorter list): Job Page and Tasks (27 shared, of 58 and 35: schedule lines, to-dos, materials); Job Page and Schedule (22 shared, of 58 and 38: schedule lines, materials, decisions); Schedule and Tasks (22 shared, of 38 and 35: schedule lines, materials, decisions); Materials and Schedule (21 shared, of 42 and 38: schedule lines, materials); Decisions and Job Page (11 shared, of 17 and 58: decisions, schedule lines, materials); Field and Job Page (11 shared, of 15 and 58: schedule lines, materials, site questions)
+- the same list twice (3 or more shared records, at least half of the shorter list): Job Page and Tasks (27 shared, of 58 and 35: schedule lines, to-dos, materials); Job Page and Schedule (22 shared, of 58 and 38: schedule lines, materials, decisions); Schedule and Tasks (22 shared, of 38 and 35: schedule lines, materials, decisions); Materials and Schedule (21 shared, of 42 and 38: schedule lines, materials); Decisions and Job Page (11 shared, of 17 and 58: decisions, schedule lines, materials); Field and Job Page (11 shared, of 15 and 58: schedule lines, site questions, materials)
 
 **Coordinator (Chen), desktop, 45 Cranberry St — design:** 11 records on two or more pages: schedule lines 5 (up to 4 pages); to-dos 4 (up to 2 pages); submittals 2 (up to 2 pages).
 
@@ -211,12 +211,12 @@ For the PM on the desktop: each kind of record on the job, how many of its recor
 
 **Foreman (Angel), desktop, 121 State Street:** 15 records on two or more pages: schedule lines 11 (up to 4 pages); materials 2 (up to 2 pages); subs to confirm 1 (up to 2 pages); files 1 (up to 2 pages).
 
-- "sched:p121:rest" (schedule lines) on 4 pages: Daily Log, Job Page, Photos, Schedule
-- "sched:p121:relec" (schedule lines) on 4 pages: Daily Log, Job Page, Photos, Schedule
-- "sched:p121:win" (schedule lines) on 3 pages: Daily Log, Job Page, Schedule
-- "sched:p121:millpk" (schedule lines) on 3 pages: Daily Log, Job Page, Schedule
-- "sched:p121:rplumb" (schedule lines) on 3 pages: Crew, Job Page, Schedule
-- "sched:p121:demo" (schedule lines) on 3 pages: Daily Log, Requests, Schedule
+- "Restoration" (schedule lines) on 4 pages: Daily Log, Job Page, Photos, Schedule
+- "Rough electrical" (schedule lines) on 4 pages: Daily Log, Job Page, Photos, Schedule
+- "Windows & interior trim" (schedule lines) on 3 pages: Daily Log, Job Page, Schedule
+- "Millwork – parlor kitchen & laundry" (schedule lines) on 3 pages: Daily Log, Job Page, Schedule
+- "Rough plumbing" (schedule lines) on 3 pages: Crew, Job Page, Schedule
+- "Demo & subfloor prep" (schedule lines) on 3 pages: Daily Log, Requests, Schedule
 - the same list twice (3 or more shared records, at least half of the shorter list): Daily Log and Schedule (8 shared, of 9 and 29: schedule lines); Requests and Schedule (3 shared, of 5 and 29: schedule lines)
 
 **Designer (Sarah), desktop, 121 State Street:** 27 records on two or more pages: schedule lines 15 (up to 3 pages); decisions 8 (up to 3 pages); materials 3 (up to 2 pages); files 1 (up to 2 pages).
@@ -231,12 +231,12 @@ For the PM on the desktop: each kind of record on the job, how many of its recor
 
 **Client (Klein), desktop, 121 State Street:** 20 records on two or more pages: schedule lines 8 (up to 3 pages); decisions 5 (up to 3 pages); materials 4 (up to 3 pages); submittals 1 (up to 2 pages); invoices 1 (up to 2 pages); change orders 1 (up to 3 pages).
 
-- "sched:p121:rplumb" (schedule lines) on 3 pages: Decisions, Job Page, Schedule
-- "decision:p121:d2" (decisions) on 3 pages: Decisions, Job Page, Schedule
-- "decision:p121:d4" (decisions) on 3 pages: Decisions, Job Page, Schedule
-- "decision:p121:d5" (decisions) on 3 pages: Decisions, Job Page, Schedule
-- "decision:p121:d6" (decisions) on 3 pages: Decisions, Job Page, Schedule
-- "decision:p121:d8" (decisions) on 3 pages: Decisions, Job Page, Schedule
+- "Rough plumbing" (schedule lines) on 3 pages: Decisions, Job Page, Schedule
+- "Confirm new 3rd fl tile selection is in stock" (decisions) on 3 pages: Decisions, Job Page, Schedule
+- "Exterior paint finish / sheen" (decisions) on 3 pages: Decisions, Job Page, Schedule
+- "3rd fl lighting layout approval" (decisions) on 3 pages: Decisions, Job Page, Schedule
+- "Garden kitchen backsplash: tile or stone?" (decisions) on 3 pages: Decisions, Job Page, Schedule
+- "2nd fl bathroom finishes re-review with client" (decisions) on 3 pages: Decisions, Job Page, Schedule
 - the same list twice (3 or more shared records, at least half of the shorter list): Job Page and Schedule (15 shared, of 21 and 16: schedule lines, decisions, materials); Decisions and Job Page (13 shared, of 17 and 21: decisions, materials, schedule lines); Decisions and Schedule (9 shared, of 17 and 16: decisions, materials, schedule lines)
 
 **Crew (Alberto), desktop, 121 State Street:** 5 records on two or more pages: schedule lines 3 (up to 2 pages); materials 1 (up to 2 pages); files 1 (up to 2 pages).
@@ -245,22 +245,22 @@ For the PM on the desktop: each kind of record on the job, how many of its recor
 
 **PM (Alan), phone, 121 State Street:** 71 records on two or more pages: schedule lines 26 (up to 6 pages); materials 14 (up to 8 pages); to-dos 8 (up to 3 pages); files 5 (up to 4 pages); submittals 5 (up to 2 pages); decisions 4 (up to 4 pages); purchase orders 2 (up to 4 pages); change orders 2 (up to 2 pages); invoices 2 (up to 2 pages); estimates 2 (up to 2 pages); bills 1 (up to 3 pages).
 
-- "material:p121:m4" (materials) on 8 pages: Change Orders, Costs, Field, Job Page, Job Page as it opens (All projects), Materials, Permits, Schedule
-- "material:p121:estimate:es1:l8" (materials) on 7 pages: Change Orders, Costs, Field, Job Page, Job Page as it opens (All projects), Materials, Schedule
-- "sched:p121:gframe" (schedule lines) on 6 pages: Decisions, Field, Job Page, Job Page as it opens (All projects), Schedule, Tasks
-- "sched:p121:rplumb" (schedule lines) on 6 pages: Decisions, Job Page, Job Page as it opens (All projects), Materials, Permits, Schedule
-- "sched:p121:rinsp" (schedule lines) on 6 pages: Field, Job Page, Job Page as it opens (All projects), Materials, Permits, Schedule
-- "sched:p121:frame" (schedule lines) on 5 pages: Field, Job Page, Materials, Schedule, Tasks
+- "Insulation" (materials) on 8 pages: Change Orders, Costs, Field, Job Page, Job Page as it opens (All projects), Materials, Permits, Schedule
+- "Flooring" (materials) on 7 pages: Change Orders, Costs, Field, Job Page, Job Page as it opens (All projects), Materials, Schedule
+- "Framing & blocking – garden bedroom" (schedule lines) on 6 pages: Decisions, Field, Job Page, Job Page as it opens (All projects), Schedule, Tasks
+- "Rough plumbing" (schedule lines) on 6 pages: Decisions, Job Page, Job Page as it opens (All projects), Materials, Permits, Schedule
+- "Rough inspection & insulation" (schedule lines) on 6 pages: Field, Job Page, Job Page as it opens (All projects), Materials, Permits, Schedule
+- "Framing & blocking – 3rd floor" (schedule lines) on 5 pages: Field, Job Page, Materials, Schedule, Tasks
 - the same list twice (3 or more shared records, at least half of the shorter list): Job Page and Job Page as it opens (All projects) (26 shared, of 32 and 28: to-dos, schedule lines, materials); Materials and Schedule (21 shared, of 42 and 38: schedule lines, materials); Job Page and Tasks (15 shared, of 32 and 18: to-dos, schedule lines, decisions); Job Page as it opens (All projects) and Tasks (11 shared, of 28 and 18: to-dos, schedule lines); Field and Schedule (10 shared, of 15 and 38: schedule lines, materials); Permits and Schedule (10 shared, of 20 and 38: schedule lines, materials)
 
 **PM (Alan), phone, 45 Cranberry St — design:** 14 records on two or more pages: schedule lines 5 (up to 5 pages); to-dos 4 (up to 2 pages); submittals 2 (up to 2 pages); invoices 2 (up to 2 pages); estimates 1 (up to 2 pages).
 
-- "sched:p45:sp_l0ti6c" (schedule lines) on 5 pages: Change Orders, Costs, Job Page, Schedule, Tasks
-- "sched:p45:sp_logejb" (schedule lines) on 5 pages: Change Orders, Costs, Drawings, Job Page, Schedule
-- "sched:p45:sp_l5fpld" (schedule lines) on 4 pages: Change Orders, Costs, Job Page, Schedule
-- "sched:p45:sf_fl_pmzgoxm" (schedule lines) on 3 pages: Change Orders, Permits, Schedule
-- "sched:p45:sp_lch26d" (schedule lines) on 3 pages: Change Orders, Costs, Schedule
-- "task:action:rd_friday_p121_2026_09_04:p121" (to-dos) on 2 pages: Job Page, Tasks
+- "Design development" (schedule lines) on 5 pages: Change Orders, Costs, Job Page, Schedule, Tasks
+- "Construction documents" (schedule lines) on 5 pages: Change Orders, Costs, Drawings, Job Page, Schedule
+- "Filing & permits" (schedule lines) on 4 pages: Change Orders, Costs, Job Page, Schedule
+- "LPC Certificate of Appropriateness" (schedule lines) on 3 pages: Change Orders, Permits, Schedule
+- "Construction administration" (schedule lines) on 3 pages: Change Orders, Costs, Schedule
+- "Friday client update — 121 State Street" (to-dos) on 2 pages: Job Page, Tasks
 - the same list twice (3 or more shared records, at least half of the shorter list): Change Orders and Schedule (5 shared, of 13 and 5: schedule lines); Job Page and Tasks (5 shared, of 7 and 5: to-dos, schedule lines); Change Orders and Costs (4 shared, of 13 and 4: schedule lines); Costs and Schedule (4 shared, of 4 and 5: schedule lines); Costs and Job Page (3 shared, of 4 and 7: schedule lines); Job Page and Schedule (3 shared, of 7 and 5: schedule lines)
 
 ## 3. One Label, Different Numbers
@@ -356,15 +356,15 @@ The same label (a tile, a figure, a tab or section count, a strip badge) with nu
 
 | Role | Screens | The page scrolls sideways | Text cut off at the edge | Strips that scroll inside the page | The sub-tab strip | Pages taller than 3 screens |
 |---|---|---|---|---|---|---|
-| PM (Alan) | 115 | 0 | 9: Change Orders, Decisions, Documents, Field, Materials, Permits, Projects, Schedule | 15: Billing, Change Orders, Costs, Decisions, Documents, Estimates, Field, Mail | shown: 0 of 19 entries on screen without a swipe | 6: Job page 4.6, Schedule 3.9, Costs 4.1, Documents 5.6, Drawings 5.8, Drawings 3.5 |
-| Owner | 110 | 0 | 9: Change Orders, Decisions, Documents, Field, Materials, Permits, Projects, Schedule | 14: Change Orders, Costs, Decisions, Documents, Estimates, Field, Mail, Materials | shown: 0 of 18 entries on screen without a swipe | 6: Job page 4.6, Schedule 3.9, Costs 4.1, Documents 5.5, Drawings 5.8, Drawings 3.5 |
-| Coordinator (Chen) | 86 | 0 | 8: Decisions, Documents, Field, Materials, Permits, Projects, Schedule, Tasks | 11: Decisions, Documents, Field, Mail, Materials, Permits, Photos, Project Settings | shown: 0 of 15 entries on screen without a swipe | 5: Job page 4.4, Schedule 3.9, Documents 5.5, Drawings 5.7, Drawings 3.4 |
-| Foreman (Angel) | 49 | 0 | 3: Documents, Drawings, Job Page | 2: Documents, Photos | none | 5: Job page 3.5, Drawings 5.5, Schedule 3.1, Documents 4.7, Drawings 3.5 |
-| Designer (Sarah) | 59 | 0 | 5: Decisions, Documents, Projects, Schedule, Tasks | 7: Decisions, Documents, Job Page, Photos, Projects, Schedule, Tap on p45 | shown: 0 of 4 entries on screen without a swipe | 2: Documents 5.5, Drawings 3.5 |
-| Billing | 27 | 0 | 2: Documents, Projects | 2: Documents, Projects | shown: 0 of 3 entries on screen without a swipe | 2: Job page 4.4, Documents 5.5 |
-| Controller | 17 | 0 | 2: Job Page, Projects | 4: Job Page, Projects, Tap on p121, Tap on p45 | shown: 0 of 3 entries on screen without a swipe | 0 |
+| PM (Alan) | 113 | 0 | 9: Change Orders, Decisions, Documents, Field, Materials, Permits, Projects, Schedule | 15: Billing, Change Orders, Costs, Decisions, Documents, Estimates, Field, Mail | shown, 19 entries in one row | 5: Job page 4.6, Schedule 3.9, Costs 4.1, Documents 5.6, Drawings 5.8 |
+| Owner | 108 | 0 | 9: Change Orders, Decisions, Documents, Field, Materials, Permits, Projects, Schedule | 14: Change Orders, Costs, Decisions, Documents, Estimates, Field, Mail, Materials | shown, 18 entries in one row | 5: Job page 4.6, Schedule 3.9, Costs 4.1, Documents 5.5, Drawings 5.8 |
+| Coordinator (Chen) | 84 | 0 | 8: Decisions, Documents, Field, Materials, Permits, Projects, Schedule, Tasks | 11: Decisions, Documents, Field, Mail, Materials, Permits, Photos, Project Settings | shown, 15 entries in one row | 4: Job page 4.4, Schedule 3.9, Documents 5.5, Drawings 5.7 |
+| Foreman (Angel) | 49 | 0 | 3: Documents, Drawings, Job Page | 2: Documents, Photos | none | 4: Job page 3.5, Drawings 5.5, Schedule 3.1, Documents 4.7 |
+| Designer (Sarah) | 57 | 0 | 5: Decisions, Documents, Projects, Schedule, Tasks | 6: Decisions, Documents, Job Page, Photos, Projects, Schedule | shown, 4 entries in one row | 1: Documents 5.5 |
+| Billing | 25 | 0 | 2: Documents, Projects | 2: Documents, Projects | shown, 3 entries in one row | 2: Job page 4.4, Documents 5.5 |
+| Controller | 15 | 0 | 2: Job Page, Projects | 2: Job Page, Projects | shown, 3 entries in one row | 0 |
 | Client (Klein) | 6 | 0 | 0 | 1: Chat | none | 1: Job page 3.7 |
-| Crew (Alberto) | 24 | 0 | 2: Drawings, Photos | 1: Photos | none | 4: Job page 3.6, Photos 4.7, Drawings 5.5, Drawings 3.5 |
+| Crew (Alberto) | 24 | 0 | 2: Drawings, Photos | 1: Photos | none | 3: Job page 3.6, Photos 4.7, Drawings 5.5 |
 | Driver (Alex) | 18 | 0 | 1: Job Page | 1: Job Page | none | 1: Job page 4.7 |
 
 ## 6. What the Menu Opens That the Job Page Does Not, and the Reverse

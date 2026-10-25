@@ -406,6 +406,11 @@ def job_name(data, pid):
     return pid
 
 
+def catalog_of(data, dev, u):
+    C = data.get('catalog') or {}
+    return (C.get(dev) or {}).get(u) or (C.get(u) if isinstance(C.get(u), list) else []) or []
+
+
 def screens_of(r, pid):
     return [s for s in r.get('screens', []) if s.get('job') == pid]
 
@@ -747,7 +752,7 @@ def report():
             r = (W.get(dev) or {}).get(u)
             if not r or r.get('crash'): continue
             if dev == 'phone' and u != 'u_alan': continue
-            cat = {c['k']: c['t'] for c in ((data.get('catalog') or {}).get(dev) or {}).get(u, [])}
+            cat = {c['k']: c['t'] for c in catalog_of(data, dev, u)}
             for pid in jobs:
                 multi, pairs, per = dupes(r, pid)
                 if not multi: continue
@@ -819,13 +824,15 @@ def report():
         r = (W.get('phone') or {}).get(u)
         if not r or r.get('crash'): continue
         ss = r.get('screens', [])
+        ss = [s for s in ss if not s.get('rowTap')]
         side = sorted({page_of(s) for s in ss if (s.get('clip') or {}).get('sideways')})
         past = sorted({page_of(s) for s in ss if any(p['where'] == 'past the edge' or p['where'].startswith('cut off') for p in (s.get('clip') or {}).get('parts', []))})
         inner = sorted({page_of(s) for s in ss if any(p['where'].startswith('scrolls in') for p in (s.get('clip') or {}).get('parts', []))})
-        tall = [f"{nice(s['name'], {})} {screens_tall(s, 'phone')}" for s in ss if not s.get('tabOf') and not s.get('rowTap') and not s.get('allProjects') and (s.get('pageH') or 0) > 3 * 844]
+        tall = [f"{nice(s['name'], {})} {screens_tall(s, 'phone')}" for s in ss if s.get('job') == FIRST_JOB and not s.get('tabOf') and not s.get('allProjects') and (s.get('pageH') or 0) > 3 * 844]
         j1 = (r.get('jobs') or {}).get(FIRST_JOB) or {}
         sv = [it for it in j1.get('strip', []) if it.get('vis')]
-        st = [f"{'shown' if j1.get('stripShown') else 'not shown'}: {len([it for it in sv if it.get('inView')])} of {len(sv)} entries on screen without a swipe"] if sv else []
+        known = any(it.get('inView') is not None for it in sv)
+        st = [(f"{'shown' if j1.get('stripShown') else 'not shown'}: {len([it for it in sv if it.get('inView')])} of {len(sv)} entries on screen without a swipe" if known else f"{'shown' if j1.get('stripShown') else 'not shown'}, {len(sv)} entries in one row")] if sv else []
         P(f"| {ROLE_NAME[u]} | {len(ss)} | {len(side)}{': ' + esc(', '.join(side[:6])) if side else ''} | {len(past)}{': ' + esc(', '.join(past[:8])) if past else ''} | {len(inner)}{': ' + esc(', '.join(inner[:8])) if inner else ''} | {', '.join(st) or 'none'} | {len(tall)}{': ' + esc(', '.join(tall[:8])) if tall else ''} |")
     P('')
     # ---------------------------------------------------------------- 8. reach
@@ -974,7 +981,7 @@ def headline(data, W, jobs, jn):
         if multi:
             bn = Counter(k.split(':')[0] for k in multi)
             top = sorted(multi.items(), key=lambda x: -len(x[1]))[0]
-            cat = {x['k']: x['t'] for x in ((data.get('catalog') or {}).get('desktop') or {}).get('u_alan', [])}
+            cat = {x['k']: x['t'] for x in catalog_of(data, 'desktop', 'u_alan')}
             H.append(f"- **{len(multi)} of 121 State Street's records show on two or more of its pages** ({', '.join(f'{n} {NOUN.get(k, k)}' for k, n in bn.most_common(4))}). \"{esc(cat.get(top[0], top[0]))[:50]}\" is on {len(top[1])}: {', '.join(sorted(top[1]))}.")
         if pairs:
             H.append(f"- **{len(pairs)} pairs of pages list largely the same records,** led by " + '; '.join(f'{a} and {b} ({n} shared)' for a, b, n, *_ in pairs[:4]) + '. The job page repeats most of Tasks and Schedule; Materials and Schedule repeat each other.')
@@ -988,7 +995,8 @@ def headline(data, W, jobs, jn):
         j1 = (pmp.get('jobs') or {}).get(FIRST_JOB) or {}
         sv = [it for it in j1.get('strip', []) if it.get('vis')]
         iv = [it for it in sv if it.get('inView')]
-        H.append(f"- **On the phone** the PM's strip shows {len(iv)} of its {len(sv)} entries without a swipe" + (f"; {len(tall)} of the {len(pages)} pages are taller than three screens ({', '.join(tall[:5])})" if tall else '') + (f"; {len(none_above)} pages have no section heading above the fold" if none_above else '') + '. No page scrolls sideways.')
+        known = any(it.get('inView') is not None for it in sv)
+        H.append(f"- **On the phone** " + (f"the PM's strip shows {len(iv)} of its {len(sv)} entries without a swipe" if known else f"the PM's strip holds {len(sv)} entries in one sideways-scrolling row") +(f"; {len(tall)} of the {len(pages)} pages are taller than three screens ({', '.join(tall[:5])})" if tall else '') + (f"; {len(none_above)} pages have no section heading above the fold" if none_above else '') + '. No page scrolls sideways.')
     if ok(pmd):
         a, b, mv = reach(pmd, FIRST_JOB)
         two = [v for v, p in mv.items() if v in MODULE and len(p) >= 2 and v not in ('chat', 'ovjobs')]
