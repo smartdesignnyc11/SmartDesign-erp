@@ -439,21 +439,25 @@ async def run_role(pg, lint, tag, uid, phone):
     await ask_checks(pg, lint, run, info, views, names)
     lint.note(f'{run}: {len(pages)} pages, {len(obs)} numbers read, {time.time() - t0:.0f}s')
 
-TASKS_ONE = ('owner', 'pm', 'coord', 'billing', 'controller')
+# every office role (p2nav, 2026-10-25): the designer's Today (My Day) tile "Due Soon" is checked with the rest
+TASKS_ONE = ('owner', 'pm', 'coord', 'billing', 'controller', 'designer')
 TASKS_NUMS = r"""() => { const vis = e => !!e && e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden';
   const n = s => { const e = [...document.querySelectorAll(s)].find(vis); return e ? +(e.textContent.replace(/\D+/g, '') || 0) : null; };
   const d = document.querySelector('.view.on .td-do[data-tdytab]');
   return { want: tkTasksN(), rail: n('#nav-groups button[data-grp="mytasks"] .n'), railShown: vis(document.querySelector('#nav-groups button[data-grp="mytasks"]')), barShown: vis(document.querySelector('#mtabs [data-mv="tkall"]')),
     sub: n('#subnav [data-sub="tkall"] .n'), chip: n('.view.on .td-tabs [data-tdytabbtn="tasks"] .n'), bar: n('#mtabs [data-mv="tkall"] .n'),
+    tile: n('.view.on .gl[data-tl="due"] .gl-v'),
     rows: tdyModel().tasks.length, orders: tdyModel().tasks.filter(it => it.kind === 'tdyBuy').length }; }"""
 
 async def tasks_one(pg, lint, run, phone):
     """the word Tasks carries one number for this person wherever it is shown (taskfix #1); an empty badge is 0"""
-    if not await to_view(pg, 'home'): return
+    # Today is home for every office role but the designer, whose Today is My Day (sday)
+    today_v = 'sday' if await pg.evaluate("() => ['designer', 'design_mgr'].includes(role())") else 'home'
+    if not await to_view(pg, today_v): return
     h = await pg.evaluate(TASKS_NUMS)
     W = h['want']
     seen = {'tkTasksN()': W, "Today's Tasks rows": h['rows']}
-    for k, where in (('rail', 'the side menu'), ('sub', "Today's sub-tab"), ('chip', "Today's Tasks chip"), ('bar', 'the phone bar')):
+    for k, where in (('rail', 'the side menu'), ('sub', "Today's sub-tab"), ('chip', "Today's Tasks chip"), ('tile', "Today's Due Soon tile"), ('bar', 'the phone bar')):
         if h[k] is not None: seen[where] = h[k]
         elif k in ('rail', 'bar') and W and h['railShown' if k == 'rail' else 'barShown']: seen[where + ' (no badge)'] = 0
     if await to_view(pg, 'tkall'):
@@ -462,7 +466,7 @@ async def tasks_one(pg, lint, run, phone):
         if m['chip'] is not None: seen['the Tasks page Due Soon chip'] = m['chip']
         if m['mark']: seen['the Tasks page marked count'] = m['mark']['n'] or 0
         if m['who'] != 'me': lint.flag('C', run, 'Tasks', f"Tasks opens on {m['who']}, not Mine, under a badge that counts Mine")
-        await to_view(pg, 'home')
+        await to_view(pg, today_v)
     if len(set(seen.values())) > 1 or h['orders']:
         lint.flag('C', run, 'Tasks', '; '.join(f'{v} on {k}' for k, v in seen.items()) + (f"; {h['orders']} Buy Board orders counted as tasks" if h['orders'] else ''))
 

@@ -6,7 +6,7 @@ Every function named *Seed* must be listed, guarded, or in ALLOW below with the 
 Run: python3 seed_guard_test.py"""
 import os, re, sys
 H = os.path.dirname(os.path.abspath(__file__))
-src = ''.join(open(os.path.join(H, '..', f), encoding='utf-8').read() + '\n' for f in ('src/app.js', 'src/mind.js', 'src/subs.js', 'src/assistant.js', 'src/livejobs.js', 'src/reports.js', 'src/loop_core.js', 'src/loop.js', 'src/meetread.js', 'src/costintel.js', 'src/specialists.js', 'src/tasks.js', 'src/taskviews.js', 'src/meeting.js', 'src/teamws.js', 'src/meetdoc_core.js', 'src/mtreview.js', 'src/p0money.js', 'src/phonerows.js', 'src/buyboard.js', 'src/items.js', 'src/field_es.js', 'src/field_es_words.js'))
+src = ''.join(open(os.path.join(H, '..', f), encoding='utf-8').read() + '\n' for f in ('src/app.js', 'src/mind.js', 'src/subs.js', 'src/assistant.js', 'src/livejobs.js', 'src/reports.js', 'src/loop_core.js', 'src/loop.js', 'src/meetread.js', 'src/costintel.js', 'src/specialists.js', 'src/tasks.js', 'src/taskviews.js', 'src/meeting.js', 'src/teamws.js', 'src/meetdoc_core.js', 'src/mtreview.js', 'src/p0money.js', 'src/phonerows.js', 'src/p2fix.js', 'src/p2nav.js', 'src/buyboard.js', 'src/items.js', 'src/field_es.js', 'src/field_es_words.js'))
 ALLOW = {
     'seedUsers': 'runs only when there are no users at all (first boot of an empty copy), and never in the team\'s own workspace',
     'msgTeamSeed': "a job's first crew from its own records (time, daily logs, requests, thread lines), once per job with no crew; no demo data",

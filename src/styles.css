@@ -3912,3 +3912,58 @@ body:has(#drawer.on) section.view .btn.primary,body:has(#mbm) section.view .btn.
 }
 /* procurement P0 (src/p0money.js): its buttons are a finger wide on the phone */
 @media (max-width: 600px) { .p0-pomoney .btn, .p0-taxfix .btn { min-height: 44px; margin-top: 6px; } }
+/* ---------- p2nav (Pilot 2 navigation, src/p2nav.js) ----------
+   Ask: the sparkle and the word, in the header of every screen, phone and desktop (Alan, 2026-10-25, option A).
+   A soft accent pill, never the blue primary (that is the page's safe next step). */
+#tb-ask.tb-ask,.p2n-ask{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:40px;min-height:40px;padding:0 14px;border:1px solid #C9D6F5;border-radius:12px;background:var(--accent-2);color:var(--accent-3);font-weight:600;font-size:14px;flex:none;white-space:nowrap}
+#tb-ask.tb-ask svg,.p2n-ask svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+html body #tb-ask.tb-ask > span,html body .p2n-ask > span{display:inline !important}
+#tb-ask.tb-ask[hidden]{display:none !important}
+#tb-ask.tb-ask.on{background:var(--accent);border-color:var(--accent);color:#fff}
+@media (max-width:760px){
+  html body #tb-ask.tb-ask,html body .p2n-ask{width:auto !important;min-width:44px !important;height:44px !important;min-height:44px !important;padding:0 10px !important;font-size:15px;margin-left:0}
+  body .topbar .crumbs.crumbs{min-width:0;flex:1 1 auto}
+}
+.p2n-ask.p2n-own{margin-left:8px}
+#v-chat .msg-head .p2n-ask.p2n-own{flex:none;margin-left:auto}
+/* the conversation's back button is a full tap target on the phone (it was 30 by 36) */
+@media (max-width:760px){ html body #v-chat .msg-head .msg-back{min-width:44px !important;min-height:44px !important;justify-content:center} }
+.mbm-hd .p2n-ask.p2n-sheet{height:36px;min-height:36px;padding:0 10px;margin-left:auto;margin-right:8px;font-size:13px}
+@media (max-width:760px){ .mbm-hd .p2n-ask.p2n-sheet{height:44px !important;min-height:44px !important} }
+.mbm-hd:has(.p2n-sheet) h3{flex:1 1 auto;min-width:0}
+.p2n-resume{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom,0px));z-index:900;display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 16px;border-radius:22px;border:1px solid var(--rule);background:var(--paper);color:var(--ink);font-weight:600;font-size:14px;box-shadow:0 6px 20px rgba(16,24,40,.16);max-width:calc(100vw - 32px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.p2n-resume svg{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+@media (min-width:761px){ .p2n-resume{bottom:24px} }
+/* Messages: one door, three tabs (Team, Mail, Field); the same strip heads Clients, People and Companies */
+.p2n-mtabs{display:flex;gap:8px;margin:0 0 12px;overflow-x:auto;scrollbar-width:none}
+.p2n-mtabs button{display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:0 16px;border-radius:20px;border:1px solid var(--rule);background:var(--paper);color:var(--ink-2);font-weight:600;font-size:14px;flex:none}
+.p2n-mtabs button.on{background:var(--accent-2);border-color:#C9D6F5;color:var(--accent-3)}
+.p2n-mtabs .n{min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--accent);color:#fff;font-size:11px;display:inline-flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums}
+@media (max-width:760px){ .p2n-mtabs{margin:8px 0 10px} .p2n-mtabs button{min-height:44px} body.msg-thread #v-chat > .p2n-mtabs{display:none} #v-chat > .p2n-mtabs{padding:0 16px} #v-chat > .p2n-fieldwrap{margin:0 16px} }
+#v-chat.p2n-fieldon .msg-wrap{display:none}
+/* the strip takes a row above the two panes: the panes give it back, so the composer stays at the foot of the screen */
+@media (min-width:761px){ #v-chat:has(> .p2n-mtabs) .msg-wrap{height:calc(100vh - 52px - 36px - 52px);min-height:408px} }
+.p2n-fieldwrap{background:var(--paper);border:1px solid var(--rule);border-radius:14px;padding:12px 16px}
+.p2n-fieldlead{margin:0 0 8px}
+.p2n-frow{display:flex;align-items:center;gap:12px;width:100%;padding:12px 0;border:0;border-bottom:1px solid var(--rule-2);background:none;text-align:left;color:var(--ink);min-height:44px}
+.p2n-frow .grow{display:flex;flex-direction:column;gap:2px;min-width:0}
+.p2n-frow b{font-weight:600;overflow-wrap:anywhere}
+.p2n-frow .btn{flex:none;min-height:40px}
+.p2n-seen{display:block;margin:2px 4px 0 0;color:var(--ink-3);font-size:12px;text-align:right}
+.mbm.p2n-held,#mbm-held{display:none !important}
+/* Team: every colleague with phone and email */
+.p2n-tq{display:block;margin:0 0 12px} .p2n-tq input{width:100%;max-width:420px;height:44px;box-sizing:border-box}
+.p2n-team{background:var(--paper);border:1px solid var(--rule);border-radius:14px;padding:4px 16px}
+.p2n-person{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--rule-2)}
+.p2n-person:last-child{border-bottom:0}
+.p2n-pmid{display:flex;flex-direction:column;gap:2px;min-width:0}
+.p2n-pc{overflow-wrap:anywhere}
+.p2n-pact{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;flex:none}
+@media (max-width:760px){ .p2n-person{flex-wrap:wrap} .p2n-pact{width:100%;justify-content:flex-start;padding-left:44px} .p2n-pact .btn{min-height:44px;min-width:88px} }
+.p2n-payrun{margin:12px 0}
+/* the phone's header (390px): menu, the page's name, search, Ask, New and Report a Problem. The demo's pinned-date chip
+   took the page's name down to one letter once Ask carried its word. It shows only on a pinned demo; the desktop keeps it. */
+@media (max-width:760px){
+  body.m-on .topbar #tb-pin{display:none}
+  body.m-on .topbar{gap:8px}
+}

@@ -1,5 +1,6 @@
 """Read receipts in one-to-one chats only (Alan, 2026-10-20: "Okay for now"). The last line I sent in a direct chat
-shows Read once the other person has opened it; a group or a job thread never shows Read.
+shows Read once the other person has opened it; a group or a job thread never shows Read. Since 2026-10-25 (Alan,
+Pilot 2: "read marks on Team chat") a group or job team thread shows Seen by whom under my last line, else Sent.
 Run: python3 read_receipts_test.py"""
 import asyncio
 from harness import async_playwright, open_app, sign_in, Checks
@@ -26,6 +27,9 @@ async def main():
             await sign_in(pg, 'u_chen'); await pg.evaluate("k => { setView('chat'); msgOpen(k); }", gk); await pg.wait_for_timeout(200)
             await sign_in(pg, 'u_owner'); await pg.evaluate("k => { setView('chat'); msgOpen(k); }", gk); await pg.wait_for_timeout(300)
             c.ok(not await pg.evaluate(READ), f'{tag}: a group chat never shows Read')
+            # Alan, 2026-10-25 (p2nav): a team thread shows who has seen my last line, by name
+            seen = await pg.evaluate("() => (document.querySelector('#v-chat .cm.me .p2n-seen') || {}).textContent || ''")
+            c.ok(seen == 'Seen by Chen', f'{tag}: the group chat says who has seen it ({seen})')
             c.ok(not errs, f'{tag}: page errors {errs[:2]}')
             await b.close()
     print(f'{len(c.fail)} FAILED ({c.n} checks)' if c.fail else f'ALL PASS ({c.n} checks)')

@@ -12,6 +12,12 @@ the menu opens it (mnGo), at 390x844 with touch, it flags:
   TITLE_SMALL     a row title under 13px
   TARGET_SMALL    a button, select, input, tab or chip under 44px tall (its label or hit area counts), or a row action
   PRIMARY_MULTI   more than one blue primary button on the page
+  NO_NAME         a button, link, tab, select or field with no name a screen reader can read (no text, aria-label,
+                  label, title or alt), on the page, the header, the bottom bar or the page strip; the page's closed
+                  <details> are opened for the check, so a control in a More menu is read too (Pilot 2, S3)
+  PAGE_NAME       the page's section has no name, or is named by its id ("v-flog")
+  NO_ASK          an office role's header has no Ask on screen, named and tappable (Pilot 2: no way to the assistant);
+                  a screen that is full screen by design (a conversation) passes with Ask in its own header (p2nav)
 A screen is the space between the header and the bottom bar. Inline links in sentences are not targets.
 
 The Tasks page (the taskfix lane) is listed in OWNED and reported as INFO, not flags, until that lane's rows land; remove a page from OWNED
@@ -109,7 +115,40 @@ MEASURE = r"""() => {
   return out;
 }"""
 
-RULES = [('tables', 'TABLE_WIDE'), ('lv', 'LV_CARDS'), ('dense', 'LOW_DENSITY'), ('small', 'TITLE_SMALL'), ('targets', 'TARGET_SMALL'), ('prim', 'PRIMARY_MULTI')]
+# Every control has a name (Pilot 2, S3: a screen reader read "(fview fcrew)", "(tdydone action:...)", "(icon)").
+# The name is what the browser's accessibility tree would read: aria-label, aria-labelledby, the rendered text, an
+# image's alt, an svg <title>, a field's label, placeholder or value, then the title.
+NAMES = r"""(office) => {
+  const W = innerWidth, v = document.querySelector('.view.on');
+  const opened = v ? [...v.querySelectorAll('details:not([open])')] : [];
+  opened.forEach(d => d.open = true);
+  const vis = e => { const r = e.getBoundingClientRect(); if (r.width < 1 || r.height < 1 || r.right < 0 || r.left > W) return false; const s = getComputedStyle(e);
+    if (s.visibility === 'hidden' || s.display === 'none' || +s.opacity === 0) return false; return !e.closest('[hidden], [aria-hidden=true], .m-hide, [inert]'); };
+  const name = e => { const al = (e.getAttribute('aria-label') || '').trim(); if (al) return al;
+    const lb = e.getAttribute('aria-labelledby'); if (lb) { const t = lb.split(/\s+/).map(i => (document.getElementById(i) || {}).textContent || '').join(' ').trim(); if (t) return t; }
+    if (!e.matches('select, input, textarea')) { const t = (e.innerText || '').replace(/\s+/g, ' ').trim(); if (t) return t; }
+    const img = e.querySelector('img[alt]'); if (img && img.alt.trim()) return img.alt.trim();
+    const st = e.querySelector('svg title'); if (st && st.textContent.trim()) return st.textContent.trim();
+    if (e.matches('input, select, textarea')) { if (e.labels && [...e.labels].some(l => l.innerText.trim())) return 'label'; if (e.placeholder) return e.placeholder; if (/button|submit|reset/.test(e.type) && e.value) return e.value; }
+    return (e.getAttribute('title') || '').trim(); };
+  const roots = [v, document.querySelector('header.topbar'), document.getElementById('mtabs'), document.getElementById('tabbar'), document.getElementById('subnav'), document.getElementById('fsay')].filter(Boolean);
+  const out = [], seen = new Set();
+  roots.forEach(R => R.querySelectorAll('button, a[href], [role=button], [role=tab], [role=link], select, input:not([type=hidden]):not([type=checkbox]):not([type=radio]), textarea').forEach(e => {
+    if (seen.has(e) || !vis(e)) return; seen.add(e);
+    if (!name(e)) out.push(e.tagName.toLowerCase() + (e.id ? '#' + e.id : '') + (typeof e.className === 'string' && e.className.trim() ? '.' + e.className.trim().split(/\s+/).slice(0, 2).join('.') : '') + ' ' + [...e.attributes].filter(a => /^data-/.test(a.name)).slice(0, 2).map(a => a.name + '=' + a.value.slice(0, 24)).join(' '));
+  }));
+  opened.forEach(d => d.open = false);
+  const pn = v ? (v.getAttribute('aria-label') || '').trim() : '';
+  const page = !v ? 'no page' : !pn || /^v-/.test(pn) || pn === v.id ? `the page ${v.id} reads "${pn || v.id}"` : '';
+  let ask = '';
+  if (office) { const a = document.getElementById('tb-ask'); if (!a || a.hidden) ask = 'no Ask in the header'; else { const r = a.getBoundingClientRect(), h = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    if (!vis(a) || r.right > W) ask = 'Ask is off screen'; else if (name(a) !== 'Ask') ask = `Ask reads "${name(a)}"`; else if (!h || !a.contains(h)) { const o = [...document.querySelectorAll('.p2n-ask.p2n-own')].find(vis), ro = o && o.getBoundingClientRect(), ho = o && document.elementFromPoint(ro.left + ro.width / 2, ro.top + ro.height / 2);
+      if (!(o && name(o) === 'Ask' && ho && o.contains(ho) && ro.height >= 44)) ask = 'Ask is covered'; } } }
+  return { noname: out, page: page ? [page] : [], ask: ask ? [ask] : [] };
+}"""
+OFFICE = {'u_owner', 'u_alan', 'u_chen', 'u_billing', 'u_controller', 'u_sarah'}
+
+RULES = [('tables', 'TABLE_WIDE'), ('lv', 'LV_CARDS'), ('dense', 'LOW_DENSITY'), ('small', 'TITLE_SMALL'), ('targets', 'TARGET_SMALL'), ('prim', 'PRIMARY_MULTI'), ('noname', 'NO_NAME'), ('page', 'PAGE_NAME'), ('ask', 'NO_ASK')]
 
 
 async def main():
@@ -133,6 +172,7 @@ async def main():
                     await pg.evaluate(OPEN, [e['g'], e['v'], e['tab']])
                     await pg.wait_for_timeout(260)
                     m = await pg.evaluate(MEASURE)
+                    m.update(await pg.evaluate(NAMES, u in OFFICE))
                 except Exception as ex:
                     flags.append(('PAGE_ERROR', u, tag, str(ex)[:160])); continue
                 pages += 1
