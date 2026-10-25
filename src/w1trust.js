@@ -566,6 +566,9 @@ function w1LeaveScreen() {
     w1Snap(el);
     try {
       st.def.close(el);
+      // a sheet held aside under that question goes with it (it would come back over the next screen)
+      const held = "#mbm" === st.def.sel && document.getElementById("mbm-held");
+      held && (W1.has(held) && w1Snap(held), held.remove());
     } catch (e) {
       console.warn("sheet close", e);
     }

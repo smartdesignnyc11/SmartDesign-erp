@@ -72,6 +72,9 @@ OWNED_ROLES = {'client': 'p2fix3 (client documents and the portal)'}
 
 # Demonstrable false positives of the label rule only, each with its reason: (label regex, view regex or None, why).
 ALLOW = [
+    # a selection's catalogue number (BC-4404) reads like a record number to crawl's Open X rule; Open opens that very
+    # selection, which is titled by its name ("Brass centre post, 4 pieces")
+    (r'^Open$', r'^sel$', 'a selection is titled by its name, not its catalogue number'),
 ]
 
 PAGES = r"""() => { const B = mnBuild(role()); if (!B) return [];
@@ -122,7 +125,7 @@ def label_flags(c, r):
         o = r['overlays'][-1]
         # a question before the act (Please Confirm, One Thing First) is judged by what Yes, Continue then does
         if QUESTION.search(o['title']): return []
-        hay = o['title'] + ' ' + o['text'][:400]
+        hay = o['title'] + ' ' + o['text'][:1500]
     else:
         hay = ' '.join([r['heading'], r['top'][:300], r['tabL'], r['grpL'], ' '.join(r['activeTabs']), r.get('anchor', ''), ' '.join(r['hl'])])
     if any(w in hay.lower() for w in words) or share(L, hay):
