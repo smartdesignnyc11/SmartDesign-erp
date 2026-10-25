@@ -77,9 +77,13 @@ async def union_and_counts(c, pg, uid, tag):
         await go(pg, 'home'); await pg.wait_for_timeout(200)
         await pg.click('.view.on [data-tdytabbtn="buy"]'); await pg.wait_for_timeout(300)
         buy = await pg.evaluate("() => [...document.querySelectorAll('.view.on .td-do .td-card[data-kind=\"tdyBuy\"]')].map(e => [e.querySelector('[data-tdverb]').innerText.trim(), e.dataset.ea || ''])")
-        c.ok(len(m['buyChip']) >= 3 and len(buy) == len(m['buyChip']) and all(v in ('Order', 'Decide') and ('order' in ea or 'dec' in ea) for v, ea in buy), f"coord: the Buy Board lines he owes are Today's Buy Board chip with Order ({len(m['buyChip'])}: {buy[:3]})")
+        # procurement P1: the chip is the Buy Board's one reader (late or due to order this week), each with its next
+        # step: Order a line still to buy, Fix a late promise, Decide one held by a decision, Ask for Bids on a sub scope
+        # with no sub, Open the rest (a field request); Order is still the order sheet
+        steps = {'Order': 'order', 'Decide': 'dec', 'Fix': 'fix', 'Ask for Bids': 'bids', 'Open': 'board'}
+        c.ok(len(m['buyChip']) >= 3 and len(buy) == len(m['buyChip']) and all(v in steps and steps[v] in ea for v, ea in buy) and any(v == 'Order' for v, ea in buy), f"coord: the Buy Board lines he owes are Today's Buy Board chip, each with its next step ({len(m['buyChip'])}: {buy[:3]})")
         if buy:
-            await pg.click('.view.on .td-do .td-card[data-kind="tdyBuy"] [data-tdverb]'); await pg.wait_for_timeout(400)
+            await pg.evaluate("() => { const b = [...document.querySelectorAll('.view.on .td-do .td-card[data-kind=\"tdyBuy\"] [data-tdverb]')].find(x => x.innerText.trim() === 'Order'); b && b.click(); }"); await pg.wait_for_timeout(400)
             t = await pg.evaluate("() => { const h = document.querySelector('#mbm .mbm-hd h3'); return h ? h.innerText : ''; }")
             c.ok(t.startswith('Order'), f'coord: Order opens the PO sheet on the line ({t!r})')
             await pg.evaluate("() => mbCloseModal()")

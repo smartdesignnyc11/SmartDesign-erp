@@ -64,17 +64,15 @@ async def desktop(c, p):
         await pg.evaluate("() => { bbFilter = 'all'; render(); }")
         await shot(pg, 'd1_buyboard.png')
         # Today: the coordinator's Buy Board items are the late set and this week's (none other)
-        # Do Now: the three the site needs soonest as their own cards, the rest one "N more on the Buy Board" card; together
-        # they are the one late set (and this week's)
+        # Do Now: every one of them once (the today lane's rule); the three the site needs soonest rank as the Standard ranks
+        # them, the rest after the day's other work of the same urgency (tier 9), so the vendors' new dates stay in his top five
         td = await pg.evaluate("""() => { const M = tdyModel(); const B = M.all.filter(i => i.kind === 'tdyBuy');
-          const ids = B.flatMap(i => i.more ? i.more.map(x => x.id) : [i.id]);
           const want = PRED.buyNeeds.rows().map(r => r.id);
-          const more = B.find(i => i.more);
-          return { all: ids.sort(), chip: (M.buy || []).map(i => i.id).sort(), want: want.sort(), own: B.filter(i => !i.more).length, fix: B.filter(i => i.ea.fix).map(i => [i.x.name, tdCard(i).verb]),
-                   more: more ? [tdCard(more).verb, more.title, more.more.some(x => /Insulation/.test(x.name))] : null }; }""")
+          return { all: B.map(i => i.id).sort(), chip: (M.buy || []).map(i => i.id).sort(), want: want.sort(), top: B.filter(i => i.tier !== 9).length,
+                   fix: B.filter(i => i.ea.fix).map(i => [i.x.name, tdCard(i).verb]), ins: (M.buy || []).some(i => /Insulation/.test(i.x.name)) }; }""")
         c.ok(td['chip'] == td['want'] and td['all'] == td['want'], f"Today: the Buy Board chip and All hold PRED.buyNeeds, the badge's set ({len(td['chip'])}, {len(td['all'])} vs {len(td['want'])})")
-        c.ok(td['own'] <= 3 and td['more'] and td['more'][0] == 'Open', f"Do Now: at most three own cards, the rest one card that opens the board {td['own']} {td['more']}")
-        c.ok(any(v == 'Fix' for n, v in td['fix']) and td['more'] and td['more'][2], f"Do Now: a late promise is there with Fix, and the insulation (promised 9/16 for 9/11) is in the Buy Board card {td['fix']}")
+        c.ok(0 < td['top'] <= 3, f"Do Now: at most three Buy Board lines rank first; the rest follow the day's other work ({td['top']} of {len(td['all'])})")
+        c.ok(any(v == 'Fix' for n, v in td['fix']) and td['ins'], f"Do Now: a late promise is there with Fix, and the insulation (promised 9/16 for 9/11) is in the chip {td['fix']}")
         a = await pg.evaluate("() => paAsk(\"what's late to order\").headline")
         c.ok(str(L['pred']) in a, f'Ask: "what\'s late to order" says {L["pred"]} ({a[:90]})')
         # the late promise opens with the fix choices
@@ -95,7 +93,7 @@ async def desktop(c, p):
         bo = await pg.evaluate("""() => { const po = DB.pos.find(p => p.number === 'PO-2026-047'); po.expected = '2026-10-23';
           const p = DB.projects.find(x => x.id === po.projectId); const m = p.materials.find(x => x.id === 'm10'); m.eta = '2026-10-23'; save(); view = 'home'; render();
           const B = tdyModel().all.filter(i => i.kind === 'tdyBuy'), r = buyList('').find(x => x.m && x.m.id === 'm10');
-          const own = (tdyModel().buy || []).find(i => i.x.m && i.x.m.id === 'm10'), more = B.find(i => i.more && i.more.some(x => x.m && x.m.id === 'm10'));
+          const own = B.find(i => i.x.m && i.x.m.id === 'm10'), more = null;
           bbSel = r.id; bbTab = 'buy'; view = 'proc'; render();
           return { why: r.lateWhy, today: own ? tdCard(own).verb : more ? 'in ' + more.title : null, steps: [...document.querySelectorAll('#v-proc .bb-panel [data-bbstep]')].map(b => b.innerText.trim()), ask: paAsk("what's backordered").headline }; }""")
         c.ok(bo and '10/23' in bo['why'] and bo['today'] and bo['steps'][:1] and bo['steps'][0].startswith('Expedite') and 'White oak' in bo['ask'], f'Do Now: a backorder to 10/23 on a 10/2 need is late, on Today, with the fix choices, and in Ask {bo}')

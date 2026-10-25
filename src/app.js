@@ -198191,7 +198191,7 @@ function tdyModel() {
   // All holds each thing once: a task an approval already stands for (an obligation's renewal) is its approval there
   const keys = new Set(offered.map((it) => it.id)),
     allTasks = offered.concat(tasks.filter((it) => !keys.has(it.id) && !it.t.refs.some((k) => held.has(k))));
-  return { appr: appr, inbox: order(inbox), tasks: order(tasks), offered: offered, buy: buy ? order(buy) : null, all: order(appr.concat(inbox, allTasks, buy && "function" == typeof bbTodayAll ? bbTodayAll(order(buy)) : buy || [])), team: TDY_MANAGERS.includes(r) ? tdyTeam() : null };
+  return { appr: appr, inbox: order(inbox), tasks: order(tasks), offered: offered, buy: buy ? order(buy) : null, all: order(appr.concat(inbox, allTasks, buy || [])), team: TDY_MANAGERS.includes(r) ? tdyTeam() : null };
 }
 // The Buy Board lines the coordinator owes today: late (the one late, procurement P1), or due to order this week, read
 // from the Buy Board's one reader (bbTodayItems, src/buyboard.js); the PM gets the late ones on his own jobs.

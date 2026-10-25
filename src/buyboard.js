@@ -899,44 +899,23 @@ function bbTodayItems() {
   } catch (e) {
     return [];
   }
-  return R.map(bbTodayCards);
-}
-// All (Do Now's mix) holds the few the site needs soonest as their own cards, by need-by; the rest are one card, "N more
-// on the Buy Board", that opens the board's Late section. Sixteen late lines as sixteen cards pushed the vendor's new
-// delivery dates out of the coordinator's top five (the scripted month, top five). The PM's All carries the one card:
-// he is not the buyer; his chip lists them all, and his job's lines are on its Overview.
-function bbTodayAll(items) {
-  const L = (items || []).filter((it) => it && it.x),
-    soon = (it) => String(it.x.needBy || "9999"),
-    pm = "pm" === role(),
-    urgent = L.slice()
-      .sort((a, b) => (a.x.late ? 0 : 1) - (b.x.late ? 0 : 1) || soon(a).localeCompare(soon(b)) || ("promise" === a.x.lateKind ? 0 : 1) - ("promise" === b.x.lateKind ? 0 : 1))
-      .slice(0, pm ? 0 : BB_TODAY_CARDS),
-    rest = L.filter((it) => !urgent.includes(it)).map((it) => it.x);
-  if (!rest.length) return urgent;
-  const late = rest.filter((x) => x.late).length;
-  return urgent.concat([
-    {
-      kind: "tdyBuy",
-      id: "bb:more",
-      src: "buy",
-      more: rest,
-      x: { tab: "buy", late: late > 0, p: rest[0].p, name: "Buy Board" },
-      title: `${rest.length} more on the Buy Board`,
-      detail: `${late} late${rest.length > late ? `, ${rest.length - late} to order this week` : ""}`,
-      due: "",
-      ea: { board: "bb:more" },
-    },
-  ]);
+  // All holds every one of them once (the today lane's rule); the three the site needs soonest rank as the Standard
+  // ranks them, the rest after the day's other work of the same urgency (tier 9). Seventeen lines ranked first pushed the
+  // vendors' new delivery dates (Tino 9/18, the trim 9/17, the millwork slip) out of the coordinator's top five in the
+  // scripted month (262 -> 257 on time); the Buy Board chip lists them all, and the board is one tap away.
+  const soon = (x) => String(x.needBy || "9999"),
+    first = new Set(
+      R.slice()
+        .sort((a, b) => (a.late ? 0 : 1) - (b.late ? 0 : 1) || soon(a).localeCompare(soon(b)) || ("promise" === a.lateKind ? 0 : 1) - ("promise" === b.lateKind ? 0 : 1))
+        .slice(0, BB_TODAY_CARDS)
+        .map((x) => x.id),
+    );
+  return R.map((x) => Object.assign(bbTodayCards(x), first.has(x.id) ? {} : { tier: 9 }));
 }
 const BB_TODAY_CARDS = 3;
 // The card: Order for a line still to buy, Fix for an ordered one whose promise is late (Expedite, Other Vendor, Move
 // the Task), Decide for one held by a decision, Open for the rest.
 function bbTodayCard(it) {
-  if (it.more) {
-    const open = () => ((bbTab = "buy"), (bbFilter = it.more.some((x) => x.late) ? "late" : "all"), (bbSel = ""), (procMode = "lines"), (procPane = "board"), setView("proc"));
-    return { line1: `<a href="#" data-tdrec>${esc(it.title)}</a>`, why: esc(`Buy Board · ${it.detail}`), verb: "Open", go: open, run: open, ea: it.ea };
-  }
   const x = it.x,
     open = () => ((bbSel = it.id), (bbTab = x.tab || "buy"), (procMode = "lines"), (procPane = "board"), mOn() ? (setView("proc"), setTimeout(() => bbSheet(bbFind(it.id) || x), 0)) : setView("proc")),
     go = it.ea.order ? () => buyOrderDialog(it.ea.order) : it.ea.view ? () => (setCurrent(x.p.id), (view = "dec"), render()) : it.ea.bids ? () => bbQuote([bbFind(it.id) || x]) : open;
@@ -1051,8 +1030,7 @@ function bbRouteWaiting() {
     const base = tdScore;
     tdScore = function (it) {
       // the van waits on it: right after the field's own questions
-      // the "N more on the Buy Board" card points at the list; it never outranks a card that names one thing
-      return it && "route" === it.kind ? 57 : it && "tdyBuy" === it.kind && it.more ? 12 : base.apply(this, arguments);
+      return it && "route" === it.kind ? 57 : base.apply(this, arguments);
     };
   })();
 

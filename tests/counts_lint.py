@@ -306,14 +306,14 @@ async def run_role(pg, lint, tag, uid, phone):
             chips: [...v.querySelectorAll('[data-bbf]')].map(b => [b.dataset.bbf, +b.querySelector('.n').innerText,
               b.dataset.bbf === 'all' ? v.querySelectorAll('.bb-list [data-bbrow]').length : v.querySelectorAll(`[data-bbsec="${b.dataset.bbf}"] [data-bbrow]`).length]) };
           try { const M = tdyModel(); if (M.buy) { out.todayChip = M.buy.length;
-            out.todayAll = M.all.filter(i => i.kind === 'tdyBuy').reduce((a, i) => a + (i.more ? i.more.length : 1), 0); } } catch (e) {}
+            out.todayAll = M.all.filter(i => i.kind === 'tdyBuy').length; } } catch (e) {}
           bbTab = 'arriving'; render(); out.tabArr = num('button[data-bbtab="arriving"] .n'); out.rowsArr = v.querySelectorAll('.bb-list [data-bbrow]').length;
           bbTab = 'buy'; render(); return out; }""")
         if B:
             seen = [f"{B['need']} PRED.buyNeeds", f"{B['badge']} rail badge", f"{B['pill']} board pill"]
             nums = {B['need'], B['badge'], B['pill']}
             if B.get('todayChip') is not None:
-                nums |= {B['todayChip'], B['todayAll']}; seen += [f"{B['todayChip']} Today's Buy Board chip", f"{B['todayAll']} on Today's All (cards and N more)"]
+                nums |= {B['todayChip'], B['todayAll']}; seen += [f"{B['todayChip']} Today's Buy Board chip", f"{B['todayAll']} on Today's All"]
             if len(nums) > 1: lint.flag('D', run, 'Buy Board', '; '.join(seen))
             a = await ask(pg, "what's late to order")
             an = first_int(a['headline'])
