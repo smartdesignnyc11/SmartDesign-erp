@@ -67,7 +67,7 @@ const P2N_OWN_HEADS = [".view.on .tv-phhd", ".mm-top", ".view.on .mm-hd"];
 function p2nAskOwnHeads() {
   const want = p2nHasAsk(),
     tb = document.getElementById("tb-ask"),
-    tbOn = want && p2nVis(tb) && !document.querySelector("#mbm:not([hidden])");
+    tbOn = want && p2nVis(tb);
   document.querySelectorAll(".p2n-ask.p2n-own").forEach((b) => {
     (!want || tbOn || !p2nVis(b.parentElement)) && b.remove();
   });
