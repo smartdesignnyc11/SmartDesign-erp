@@ -13,6 +13,8 @@ Last updated 2026-10-21, later the same day. The information map merged (42cf9fd
 "It needs a full review and major changes." Steps, one lane at a time after the mockup-match lane:
 1. **Review** (running, no browser): the last three meeting transcripts for what goes wrong in buying (kept outside the repo); a code inventory of the chain from estimate line to bank line; the coordinator expert's 24 findings (`review/experts/coordinator.md`); the leaders (Procore Materials and Commitments, NetSuite procure-to-pay, Buildertrend POs and bids).
 2. **Plan and mockup** for Alan's yes: `docs/PROCUREMENT_PLAN.md` and phone-first screens on the mockup canvas.
+**10-25: Alan said yes** to the plan, the mockup and the recommended calls. **P1 (One Buy Board) is building**; the procurement expert's buying day runs beside it and its P1 findings fold in.
+
 3. **Build lanes**, each deploying when green: one Buy Board and one "late"; the order and quote path; receiving and reconfirm; vendor credits and claims; then the phone.
 
 ## Tasks replace Asana (Alan, 10-23): Monday 10-26 build, merged
